@@ -1,0 +1,2598 @@
+{
+  "timestamp": "2026-03-17_2057",
+  "start_date": "2024-03-17",
+  "end_date": "2026-03-17",
+  "stocks_tested": 16,
+  "strategies_tested": 5,
+  "current_config": {
+    "stop_loss_pct": -12.0,
+    "position_pct": 10.0
+  },
+  "results": [
+    {
+      "strategy": "rsi_mean_reversion",
+      "strategy_name": "RSI Mean Reversion",
+      "best_params": {
+        "rsi_period": 14,
+        "rsi_buy": 20,
+        "rsi_sell": 60,
+        "stop_loss_pct": -5,
+        "position_pct": 10
+      },
+      "avg_profit_factor": 50.0,
+      "avg_win_rate": 100.0,
+      "stocks_tested": 1,
+      "symbols": [
+        "SPY"
+      ],
+      "per_stock": [
+        {
+          "symbol": "SPY",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 20,
+            "rsi_sell": 60,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 2,
+            "wins": 2,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 127.81,
+            "total_return_pct": 1.28,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.69,
+            "avg_hold_days": 19.5,
+            "avg_pnl": 63.91,
+            "best_trade": 109.29,
+            "worst_trade": 18.52,
+            "final_value": 10127.81
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "QQQ",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 20,
+            "rsi_sell": 60,
+            "stop_loss_pct": -12,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 1.13,
+            "total_return_pct": 0.01,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.63,
+            "avg_hold_days": 46.0,
+            "avg_pnl": 1.13,
+            "best_trade": 1.13,
+            "worst_trade": 1.13,
+            "final_value": 10001.13
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "NVDA",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 25,
+            "rsi_sell": 60,
+            "stop_loss_pct": -12,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 2,
+            "wins": 2,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 291.97,
+            "total_return_pct": 2.92,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 2.52,
+            "avg_hold_days": 33.0,
+            "avg_pnl": 145.99,
+            "best_trade": 253.25,
+            "worst_trade": 38.72,
+            "final_value": 10291.98
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "TSLA",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 15,
+            "rsi_sell": 60,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 186.36,
+            "total_return_pct": 1.86,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.1,
+            "avg_hold_days": 18.0,
+            "avg_pnl": 186.36,
+            "best_trade": 186.36,
+            "worst_trade": 186.36,
+            "final_value": 10186.36
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "AAPL",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 15,
+            "rsi_sell": 60,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 45.7,
+            "total_return_pct": 0.46,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.45,
+            "avg_hold_days": 18.0,
+            "avg_pnl": 45.7,
+            "best_trade": 45.7,
+            "worst_trade": 45.7,
+            "final_value": 10045.7
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "AMD",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 15,
+            "rsi_sell": 60,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 121.64,
+            "total_return_pct": 1.22,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.14,
+            "avg_hold_days": 20.0,
+            "avg_pnl": 121.64,
+            "best_trade": 121.64,
+            "worst_trade": 121.64,
+            "final_value": 10121.64
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "META",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 15,
+            "rsi_sell": 60,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 63.15,
+            "total_return_pct": 0.63,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.33,
+            "avg_hold_days": 14.0,
+            "avg_pnl": 63.15,
+            "best_trade": 63.15,
+            "worst_trade": 63.15,
+            "final_value": 10063.15
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "MSFT",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 20,
+            "rsi_sell": 75,
+            "stop_loss_pct": -15,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 3,
+            "wins": 3,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 103.09,
+            "total_return_pct": 1.03,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.5,
+            "avg_hold_days": 56.0,
+            "avg_pnl": 34.36,
+            "best_trade": 60.2,
+            "worst_trade": 10.18,
+            "final_value": 10103.09
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "GOOGL",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 15,
+            "rsi_sell": 80,
+            "stop_loss_pct": -20,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 103.85,
+            "total_return_pct": 1.04,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.74,
+            "avg_hold_days": 150.0,
+            "avg_pnl": 103.85,
+            "best_trade": 103.85,
+            "worst_trade": 103.85,
+            "final_value": 10103.85
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "AMZN",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 15,
+            "rsi_sell": 60,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 77.9,
+            "total_return_pct": 0.78,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.24,
+            "avg_hold_days": 15.0,
+            "avg_pnl": 77.9,
+            "best_trade": 77.9,
+            "worst_trade": 77.9,
+            "final_value": 10077.9
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "MU",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 15,
+            "rsi_sell": 60,
+            "stop_loss_pct": -20,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 3,
+            "wins": 3,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 361.08,
+            "total_return_pct": 3.61,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 2.23,
+            "avg_hold_days": 21.0,
+            "avg_pnl": 120.36,
+            "best_trade": 235.61,
+            "worst_trade": 16.58,
+            "final_value": 10361.08
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "ORCL",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 20,
+            "rsi_sell": 70,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 9,
+            "wins": 4,
+            "losses": 5,
+            "win_rate": 44.4,
+            "total_pnl": 285.61,
+            "total_return_pct": 2.86,
+            "profit_factor": 1.79,
+            "max_drawdown_pct": 2.79,
+            "avg_hold_days": 16.4,
+            "avg_pnl": 31.73,
+            "best_trade": 219.59,
+            "worst_trade": -85.55,
+            "final_value": 10285.61
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "NOW",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 15,
+            "rsi_sell": 70,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 3,
+            "wins": 2,
+            "losses": 1,
+            "win_rate": 66.7,
+            "total_pnl": 184.4,
+            "total_return_pct": 1.84,
+            "profit_factor": 3.16,
+            "max_drawdown_pct": 1.77,
+            "avg_hold_days": 27.0,
+            "avg_pnl": 61.47,
+            "best_trade": 205.95,
+            "worst_trade": -85.35,
+            "final_value": 10184.41
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "AVGO",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 15,
+            "rsi_sell": 60,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 2,
+            "wins": 2,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 206.59,
+            "total_return_pct": 2.07,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.63,
+            "avg_hold_days": 11.0,
+            "avg_pnl": 103.29,
+            "best_trade": 124.38,
+            "worst_trade": 82.21,
+            "final_value": 10206.6
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "PLTR",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 15,
+            "rsi_sell": 60,
+            "stop_loss_pct": -15,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 45.02,
+            "total_return_pct": 0.45,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.97,
+            "avg_hold_days": 33.0,
+            "avg_pnl": 45.02,
+            "best_trade": 45.02,
+            "worst_trade": 45.02,
+            "final_value": 10045.02
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "DELL",
+          "params": {
+            "rsi_period": 14,
+            "rsi_buy": 25,
+            "rsi_sell": 60,
+            "stop_loss_pct": -15,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 9,
+            "wins": 8,
+            "losses": 1,
+            "win_rate": 88.9,
+            "total_pnl": 864.25,
+            "total_return_pct": 8.64,
+            "profit_factor": 6.59,
+            "max_drawdown_pct": 2.25,
+            "avg_hold_days": 18.8,
+            "avg_pnl": 96.03,
+            "best_trade": 335.64,
+            "worst_trade": -154.5,
+            "final_value": 10864.25
+          },
+          "combos_tested": 180
+        }
+      ]
+    },
+    {
+      "strategy": "ma_breakout",
+      "strategy_name": "Moving Average Breakout",
+      "best_params": {
+        "ma_period": 50,
+        "volume_mult": 1.5,
+        "stop_loss_pct": -5,
+        "position_pct": 10
+      },
+      "avg_profit_factor": 50.0,
+      "avg_win_rate": 100.0,
+      "stocks_tested": 1,
+      "symbols": [
+        "QQQ"
+      ],
+      "per_stock": [
+        {
+          "symbol": "SPY",
+          "params": {
+            "ma_period": 200,
+            "volume_mult": 1.0,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 157.58,
+            "total_return_pct": 1.58,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.59,
+            "avg_hold_days": 308.0,
+            "avg_pnl": 157.58,
+            "best_trade": 157.58,
+            "worst_trade": 157.58,
+            "final_value": 10157.58
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "QQQ",
+          "params": {
+            "ma_period": 50,
+            "volume_mult": 1.5,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 0.39,
+            "total_return_pct": 0.0,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.27,
+            "avg_hold_days": 13.0,
+            "avg_pnl": 0.39,
+            "best_trade": 0.39,
+            "worst_trade": 0.39,
+            "final_value": 10000.39
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "NVDA",
+          "params": {
+            "ma_period": 200,
+            "volume_mult": 1.0,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 3,
+            "wins": 2,
+            "losses": 1,
+            "win_rate": 66.7,
+            "total_pnl": 841.55,
+            "total_return_pct": 8.42,
+            "profit_factor": 12.6,
+            "max_drawdown_pct": 4.3,
+            "avg_hold_days": 196.0,
+            "avg_pnl": 280.52,
+            "best_trade": 486.6,
+            "worst_trade": -72.52,
+            "final_value": 10841.56
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "TSLA",
+          "params": {
+            "ma_period": 20,
+            "volume_mult": 2.0,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 550.37,
+            "total_return_pct": 5.5,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 2.69,
+            "avg_hold_days": 68.0,
+            "avg_pnl": 550.37,
+            "best_trade": 550.37,
+            "worst_trade": 550.37,
+            "final_value": 10550.37
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "AAPL",
+          "params": {
+            "ma_period": 10,
+            "volume_mult": 2.0,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 1.64,
+            "total_return_pct": 0.02,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.44,
+            "avg_hold_days": 10.0,
+            "avg_pnl": 1.64,
+            "best_trade": 1.64,
+            "worst_trade": 1.64,
+            "final_value": 10001.64
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "AMD",
+          "params": {
+            "ma_period": 10,
+            "volume_mult": 2.5,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 91.15,
+            "total_return_pct": 0.91,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.6,
+            "avg_hold_days": 17.0,
+            "avg_pnl": 91.15,
+            "best_trade": 91.15,
+            "worst_trade": 91.15,
+            "final_value": 10091.15
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "META",
+          "params": {
+            "ma_period": 50,
+            "volume_mult": 1.0,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 10,
+            "wins": 4,
+            "losses": 6,
+            "win_rate": 40.0,
+            "total_pnl": 339.35,
+            "total_return_pct": 3.39,
+            "profit_factor": 6.18,
+            "max_drawdown_pct": 1.74,
+            "avg_hold_days": 33.5,
+            "avg_pnl": 33.94,
+            "best_trade": 234.8,
+            "worst_trade": -19.26,
+            "final_value": 10339.35
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "MSFT",
+          "params": {
+            "ma_period": 100,
+            "volume_mult": 2.0,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 196.35,
+            "total_return_pct": 1.96,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.91,
+            "avg_hold_days": 188.0,
+            "avg_pnl": 196.35,
+            "best_trade": 196.35,
+            "worst_trade": 196.35,
+            "final_value": 10196.35
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "GOOGL",
+          "params": {
+            "ma_period": 10,
+            "volume_mult": 2.0,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 9.3,
+            "total_return_pct": 0.09,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.53,
+            "avg_hold_days": 27.0,
+            "avg_pnl": 9.3,
+            "best_trade": 9.3,
+            "worst_trade": 9.3,
+            "final_value": 10009.3
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "AMZN",
+          "params": {
+            "ma_period": 10,
+            "volume_mult": 2.0,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 2,
+            "wins": 2,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 62.79,
+            "total_return_pct": 0.63,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.58,
+            "avg_hold_days": 14.0,
+            "avg_pnl": 31.39,
+            "best_trade": 39.05,
+            "worst_trade": 23.74,
+            "final_value": 10062.79
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "MU",
+          "params": {
+            "ma_period": 10,
+            "volume_mult": 1.5,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 2,
+            "wins": 2,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 812.19,
+            "total_return_pct": 8.12,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 2.18,
+            "avg_hold_days": 34.5,
+            "avg_pnl": 406.1,
+            "best_trade": 541.35,
+            "worst_trade": 270.84,
+            "final_value": 10812.18
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "ORCL",
+          "params": {
+            "ma_period": 50,
+            "volume_mult": 1.0,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 4,
+            "wins": 2,
+            "losses": 2,
+            "win_rate": 50.0,
+            "total_pnl": 504.85,
+            "total_return_pct": 5.05,
+            "profit_factor": 3.94,
+            "max_drawdown_pct": 2.22,
+            "avg_hold_days": 43.8,
+            "avg_pnl": 126.21,
+            "best_trade": 540.72,
+            "worst_trade": -140.37,
+            "final_value": 10504.84
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "NOW",
+          "params": {
+            "ma_period": 50,
+            "volume_mult": 2.5,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 2,
+            "wins": 2,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 298.09,
+            "total_return_pct": 2.98,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.17,
+            "avg_hold_days": 122.0,
+            "avg_pnl": 149.05,
+            "best_trade": 265.8,
+            "worst_trade": 32.29,
+            "final_value": 10298.09
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "AVGO",
+          "params": {
+            "ma_period": 100,
+            "volume_mult": 1.0,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 4,
+            "wins": 2,
+            "losses": 2,
+            "win_rate": 50.0,
+            "total_pnl": 135.7,
+            "total_return_pct": 1.36,
+            "profit_factor": 2.34,
+            "max_drawdown_pct": 3.91,
+            "avg_hold_days": 39.2,
+            "avg_pnl": 33.92,
+            "best_trade": 191.96,
+            "worst_trade": -55.37,
+            "final_value": 10135.69
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "PLTR",
+          "params": {
+            "ma_period": 10,
+            "volume_mult": 2.0,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 3,
+            "wins": 3,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 633.59,
+            "total_return_pct": 6.34,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.02,
+            "avg_hold_days": 27.0,
+            "avg_pnl": 211.2,
+            "best_trade": 407.6,
+            "worst_trade": 65.78,
+            "final_value": 10633.59
+          },
+          "combos_tested": 150
+        },
+        {
+          "symbol": "DELL",
+          "params": {
+            "ma_period": 100,
+            "volume_mult": 1.5,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 57.13,
+            "total_return_pct": 0.57,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.66,
+            "avg_hold_days": 17.0,
+            "avg_pnl": 57.13,
+            "best_trade": 57.13,
+            "worst_trade": 57.13,
+            "final_value": 10057.13
+          },
+          "combos_tested": 150
+        }
+      ]
+    },
+    {
+      "strategy": "buy_the_blood",
+      "strategy_name": "Buy The Blood",
+      "best_params": {
+        "rsi_period": 14,
+        "rsi_extreme": 20,
+        "rsi_exit": 35,
+        "stop_loss_pct": -5,
+        "position_pct": 15
+      },
+      "avg_profit_factor": 50.0,
+      "avg_win_rate": 100.0,
+      "stocks_tested": 2,
+      "symbols": [
+        "SPY",
+        "QQQ"
+      ],
+      "per_stock": [
+        {
+          "symbol": "SPY",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 20,
+            "rsi_exit": 35,
+            "stop_loss_pct": -5,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 2,
+            "wins": 2,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 188.31,
+            "total_return_pct": 1.88,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.2,
+            "avg_hold_days": 3.5,
+            "avg_pnl": 94.16,
+            "best_trade": 158.01,
+            "worst_trade": 30.3,
+            "final_value": 10188.31
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "QQQ",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 20,
+            "rsi_exit": 35,
+            "stop_loss_pct": -5,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 31.86,
+            "total_return_pct": 0.32,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.27,
+            "avg_hold_days": 7.0,
+            "avg_pnl": 31.86,
+            "best_trade": 31.86,
+            "worst_trade": 31.86,
+            "final_value": 10031.86
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "NVDA",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 30,
+            "rsi_exit": 40,
+            "stop_loss_pct": -8,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 7,
+            "wins": 6,
+            "losses": 1,
+            "win_rate": 85.7,
+            "total_pnl": 835.12,
+            "total_return_pct": 8.35,
+            "profit_factor": 4396.37,
+            "max_drawdown_pct": 1.1,
+            "avg_hold_days": 4.7,
+            "avg_pnl": 119.3,
+            "best_trade": 196.2,
+            "worst_trade": -0.19,
+            "final_value": 10835.11
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "TSLA",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 15,
+            "rsi_exit": 35,
+            "stop_loss_pct": -5,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 92.57,
+            "total_return_pct": 0.93,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.63,
+            "avg_hold_days": 9.0,
+            "avg_pnl": 92.57,
+            "best_trade": 92.57,
+            "worst_trade": 92.57,
+            "final_value": 10092.57
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "AAPL",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 10,
+            "rsi_exit": 35,
+            "stop_loss_pct": -5,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 70.35,
+            "total_return_pct": 0.7,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.02,
+            "avg_hold_days": 7.0,
+            "avg_pnl": 70.35,
+            "best_trade": 70.35,
+            "worst_trade": 70.35,
+            "final_value": 10070.35
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "AMD",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 15,
+            "rsi_exit": 40,
+            "stop_loss_pct": -8,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 29.15,
+            "total_return_pct": 0.29,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.7,
+            "avg_hold_days": 14.0,
+            "avg_pnl": 29.15,
+            "best_trade": 29.15,
+            "worst_trade": 29.15,
+            "final_value": 10029.15
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "META",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 15,
+            "rsi_exit": 35,
+            "stop_loss_pct": -5,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 8.84,
+            "total_return_pct": 0.09,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.5,
+            "avg_hold_days": 10.0,
+            "avg_pnl": 8.84,
+            "best_trade": 8.84,
+            "worst_trade": 8.84,
+            "final_value": 10008.84
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "MSFT",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 20,
+            "rsi_exit": 50,
+            "stop_loss_pct": -8,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 3,
+            "wins": 3,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 74.53,
+            "total_return_pct": 0.75,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.13,
+            "avg_hold_days": 12.3,
+            "avg_pnl": 24.84,
+            "best_trade": 26.89,
+            "worst_trade": 21.95,
+            "final_value": 10074.53
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "GOOGL",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 30,
+            "rsi_exit": 60,
+            "stop_loss_pct": -10,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 7,
+            "wins": 5,
+            "losses": 2,
+            "win_rate": 71.4,
+            "total_pnl": 285.27,
+            "total_return_pct": 2.85,
+            "profit_factor": 2.64,
+            "max_drawdown_pct": 1.79,
+            "avg_hold_days": 21.6,
+            "avg_pnl": 40.75,
+            "best_trade": 167.56,
+            "worst_trade": -158.58,
+            "final_value": 10285.27
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "AMZN",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 15,
+            "rsi_exit": 35,
+            "stop_loss_pct": -5,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 66.0,
+            "total_return_pct": 0.66,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.36,
+            "avg_hold_days": 10.0,
+            "avg_pnl": 66.0,
+            "best_trade": 66.0,
+            "worst_trade": 66.0,
+            "final_value": 10066.0
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "MU",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 10,
+            "rsi_exit": 35,
+            "stop_loss_pct": -5,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 42.77,
+            "total_return_pct": 0.43,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.7,
+            "avg_hold_days": 8.0,
+            "avg_pnl": 42.77,
+            "best_trade": 42.77,
+            "worst_trade": 42.77,
+            "final_value": 10042.77
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "ORCL",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 15,
+            "rsi_exit": 50,
+            "stop_loss_pct": -10,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 2,
+            "wins": 2,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 146.14,
+            "total_return_pct": 1.46,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 2.02,
+            "avg_hold_days": 22.5,
+            "avg_pnl": 73.07,
+            "best_trade": 125.66,
+            "worst_trade": 20.48,
+            "final_value": 10146.14
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "NOW",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 10,
+            "rsi_exit": 35,
+            "stop_loss_pct": -5,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 14.57,
+            "total_return_pct": 0.15,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.41,
+            "avg_hold_days": 13.0,
+            "avg_pnl": 14.57,
+            "best_trade": 14.57,
+            "worst_trade": 14.57,
+            "final_value": 10014.57
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "AVGO",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 10,
+            "rsi_exit": 35,
+            "stop_loss_pct": -5,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 79.66,
+            "total_return_pct": 0.8,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0,
+            "avg_hold_days": 6.0,
+            "avg_pnl": 79.66,
+            "best_trade": 79.66,
+            "worst_trade": 79.66,
+            "final_value": 10079.66
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "PLTR",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 15,
+            "rsi_exit": 60,
+            "stop_loss_pct": -15,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 67.54,
+            "total_return_pct": 0.68,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 2.94,
+            "avg_hold_days": 33.0,
+            "avg_pnl": 67.54,
+            "best_trade": 67.54,
+            "worst_trade": 67.54,
+            "final_value": 10067.54
+          },
+          "combos_tested": 210
+        },
+        {
+          "symbol": "DELL",
+          "params": {
+            "rsi_period": 14,
+            "rsi_extreme": 10,
+            "rsi_exit": 35,
+            "stop_loss_pct": -5,
+            "position_pct": 15
+          },
+          "stats": {
+            "total_trades": 1,
+            "wins": 1,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 132.02,
+            "total_return_pct": 1.32,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 0.65,
+            "avg_hold_days": 9.0,
+            "avg_pnl": 132.02,
+            "best_trade": 132.02,
+            "worst_trade": 132.02,
+            "final_value": 10132.02
+          },
+          "combos_tested": 210
+        }
+      ]
+    },
+    {
+      "strategy": "momentum",
+      "strategy_name": "Momentum Breakout",
+      "best_params": {
+        "lookback": 5,
+        "trail_stop_pct": -12,
+        "stop_loss_pct": -8,
+        "position_pct": 10
+      },
+      "avg_profit_factor": 50.0,
+      "avg_win_rate": 100.0,
+      "stocks_tested": 1,
+      "symbols": [
+        "SPY"
+      ],
+      "per_stock": [
+        {
+          "symbol": "SPY",
+          "params": {
+            "lookback": 5,
+            "trail_stop_pct": -12,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 2,
+            "wins": 2,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 285.29,
+            "total_return_pct": 2.85,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 2.06,
+            "avg_hold_days": 360.5,
+            "avg_pnl": 142.65,
+            "best_trade": 231.34,
+            "worst_trade": 53.95,
+            "final_value": 10285.29
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "QQQ",
+          "params": {
+            "lookback": 15,
+            "trail_stop_pct": -8,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 3,
+            "wins": 3,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 368.75,
+            "total_return_pct": 3.69,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.53,
+            "avg_hold_days": 217.7,
+            "avg_pnl": 122.92,
+            "best_trade": 291.48,
+            "worst_trade": 29.44,
+            "final_value": 10368.75
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "NVDA",
+          "params": {
+            "lookback": 30,
+            "trail_stop_pct": -12,
+            "stop_loss_pct": -10,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 6,
+            "wins": 2,
+            "losses": 4,
+            "win_rate": 33.3,
+            "total_pnl": 517.57,
+            "total_return_pct": 5.18,
+            "profit_factor": 2.86,
+            "max_drawdown_pct": 3.05,
+            "avg_hold_days": 69.7,
+            "avg_pnl": 86.26,
+            "best_trade": 549.93,
+            "worst_trade": -109.69,
+            "final_value": 10517.56
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "TSLA",
+          "params": {
+            "lookback": 20,
+            "trail_stop_pct": -12,
+            "stop_loss_pct": -10,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 7,
+            "wins": 3,
+            "losses": 4,
+            "win_rate": 42.9,
+            "total_pnl": 681.73,
+            "total_return_pct": 6.82,
+            "profit_factor": 3.7,
+            "max_drawdown_pct": 3.9,
+            "avg_hold_days": 48.6,
+            "avg_pnl": 97.39,
+            "best_trade": 563.21,
+            "worst_trade": -113.79,
+            "final_value": 10681.73
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "AAPL",
+          "params": {
+            "lookback": 50,
+            "trail_stop_pct": -8,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 3,
+            "wins": 3,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 395.48,
+            "total_return_pct": 3.95,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.84,
+            "avg_hold_days": 127.7,
+            "avg_pnl": 131.83,
+            "best_trade": 234.86,
+            "worst_trade": 17.89,
+            "final_value": 10395.49
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "AMD",
+          "params": {
+            "lookback": 30,
+            "trail_stop_pct": -3,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 15,
+            "wins": 9,
+            "losses": 6,
+            "win_rate": 60.0,
+            "total_pnl": 547.54,
+            "total_return_pct": 5.48,
+            "profit_factor": 4.37,
+            "max_drawdown_pct": 1.52,
+            "avg_hold_days": 7.7,
+            "avg_pnl": 36.5,
+            "best_trade": 270.82,
+            "worst_trade": -40.22,
+            "final_value": 10547.54
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "META",
+          "params": {
+            "lookback": 30,
+            "trail_stop_pct": -8,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 5,
+            "wins": 3,
+            "losses": 2,
+            "win_rate": 60.0,
+            "total_pnl": 314.29,
+            "total_return_pct": 3.14,
+            "profit_factor": 6.55,
+            "max_drawdown_pct": 1.42,
+            "avg_hold_days": 72.0,
+            "avg_pnl": 62.86,
+            "best_trade": 241.82,
+            "worst_trade": -51.41,
+            "final_value": 10314.3
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "MSFT",
+          "params": {
+            "lookback": 20,
+            "trail_stop_pct": -10,
+            "stop_loss_pct": -10,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 3,
+            "wins": 1,
+            "losses": 2,
+            "win_rate": 33.3,
+            "total_pnl": 190.27,
+            "total_return_pct": 1.9,
+            "profit_factor": 4.41,
+            "max_drawdown_pct": 1.62,
+            "avg_hold_days": 163.3,
+            "avg_pnl": 63.42,
+            "best_trade": 246.08,
+            "worst_trade": -41.52,
+            "final_value": 10190.27
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "GOOGL",
+          "params": {
+            "lookback": 15,
+            "trail_stop_pct": -10,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 3,
+            "wins": 3,
+            "losses": 0,
+            "win_rate": 100.0,
+            "total_pnl": 1240.94,
+            "total_return_pct": 12.41,
+            "profit_factor": 999.0,
+            "max_drawdown_pct": 1.96,
+            "avg_hold_days": 187.7,
+            "avg_pnl": 413.65,
+            "best_trade": 970.87,
+            "worst_trade": 134.02,
+            "final_value": 11240.94
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "AMZN",
+          "params": {
+            "lookback": 50,
+            "trail_stop_pct": -12,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 3,
+            "wins": 2,
+            "losses": 1,
+            "win_rate": 66.7,
+            "total_pnl": 102.1,
+            "total_return_pct": 1.02,
+            "profit_factor": 2.66,
+            "max_drawdown_pct": 2.44,
+            "avg_hold_days": 159.0,
+            "avg_pnl": 34.03,
+            "best_trade": 96.53,
+            "worst_trade": -61.33,
+            "final_value": 10102.1
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "MU",
+          "params": {
+            "lookback": 50,
+            "trail_stop_pct": -8,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 9,
+            "wins": 5,
+            "losses": 4,
+            "win_rate": 55.6,
+            "total_pnl": 1254.36,
+            "total_return_pct": 12.54,
+            "profit_factor": 6.24,
+            "max_drawdown_pct": 2.57,
+            "avg_hold_days": 26.2,
+            "avg_pnl": 139.37,
+            "best_trade": 750.51,
+            "worst_trade": -93.17,
+            "final_value": 11254.35
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "ORCL",
+          "params": {
+            "lookback": 50,
+            "trail_stop_pct": -5,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 6,
+            "wins": 4,
+            "losses": 2,
+            "win_rate": 66.7,
+            "total_pnl": 511.88,
+            "total_return_pct": 5.12,
+            "profit_factor": 5.64,
+            "max_drawdown_pct": 1.89,
+            "avg_hold_days": 41.2,
+            "avg_pnl": 85.31,
+            "best_trade": 454.47,
+            "worst_trade": -65.95,
+            "final_value": 10511.88
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "NOW",
+          "params": {
+            "lookback": 50,
+            "trail_stop_pct": -12,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 2,
+            "wins": 1,
+            "losses": 1,
+            "win_rate": 50.0,
+            "total_pnl": 221.09,
+            "total_return_pct": 2.21,
+            "profit_factor": 4.33,
+            "max_drawdown_pct": 2.54,
+            "avg_hold_days": 153.5,
+            "avg_pnl": 110.54,
+            "best_trade": 287.39,
+            "worst_trade": -66.3,
+            "final_value": 10221.09
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "AVGO",
+          "params": {
+            "lookback": 30,
+            "trail_stop_pct": -12,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 6,
+            "wins": 2,
+            "losses": 4,
+            "win_rate": 33.3,
+            "total_pnl": 642.7,
+            "total_return_pct": 6.43,
+            "profit_factor": 6.14,
+            "max_drawdown_pct": 2.8,
+            "avg_hold_days": 53.8,
+            "avg_pnl": 107.12,
+            "best_trade": 655.58,
+            "worst_trade": -64.51,
+            "final_value": 10642.71
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "PLTR",
+          "params": {
+            "lookback": 10,
+            "trail_stop_pct": -10,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 10,
+            "wins": 7,
+            "losses": 3,
+            "win_rate": 70.0,
+            "total_pnl": 2706.06,
+            "total_return_pct": 27.06,
+            "profit_factor": 30.51,
+            "max_drawdown_pct": 3.76,
+            "avg_hold_days": 49.0,
+            "avg_pnl": 270.61,
+            "best_trade": 1399.98,
+            "worst_trade": -49.73,
+            "final_value": 12706.06
+          },
+          "combos_tested": 180
+        },
+        {
+          "symbol": "DELL",
+          "params": {
+            "lookback": 30,
+            "trail_stop_pct": -12,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 6,
+            "wins": 5,
+            "losses": 1,
+            "win_rate": 83.3,
+            "total_pnl": 290.17,
+            "total_return_pct": 2.9,
+            "profit_factor": 4.45,
+            "max_drawdown_pct": 3.19,
+            "avg_hold_days": 44.7,
+            "avg_pnl": 48.36,
+            "best_trade": 186.58,
+            "worst_trade": -84.15,
+            "final_value": 10290.17
+          },
+          "combos_tested": 180
+        }
+      ]
+    },
+    {
+      "strategy": "macd_crossover",
+      "strategy_name": "MACD Crossover",
+      "best_params": {
+        "fast_period": 10,
+        "slow_period": 18,
+        "signal_period": 7,
+        "stop_loss_pct": -5,
+        "position_pct": 10
+      },
+      "avg_profit_factor": 8.56,
+      "avg_win_rate": 59.1,
+      "stocks_tested": 1,
+      "symbols": [
+        "PLTR"
+      ],
+      "per_stock": [
+        {
+          "symbol": "SPY",
+          "params": {
+            "fast_period": 6,
+            "slow_period": 22,
+            "signal_period": 9,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 30,
+            "wins": 15,
+            "losses": 15,
+            "win_rate": 50.0,
+            "total_pnl": 133.74,
+            "total_return_pct": 1.34,
+            "profit_factor": 1.92,
+            "max_drawdown_pct": 1.23,
+            "avg_hold_days": 11.6,
+            "avg_pnl": 4.46,
+            "best_trade": 92.49,
+            "worst_trade": -40.83,
+            "final_value": 10133.74
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "QQQ",
+          "params": {
+            "fast_period": 12,
+            "slow_period": 18,
+            "signal_period": 7,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 25,
+            "wins": 11,
+            "losses": 14,
+            "win_rate": 44.0,
+            "total_pnl": 122.67,
+            "total_return_pct": 1.23,
+            "profit_factor": 1.6,
+            "max_drawdown_pct": 1.62,
+            "avg_hold_days": 14.2,
+            "avg_pnl": 4.91,
+            "best_trade": 131.53,
+            "worst_trade": -62.02,
+            "final_value": 10122.68
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "NVDA",
+          "params": {
+            "fast_period": 6,
+            "slow_period": 18,
+            "signal_period": 7,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 27,
+            "wins": 11,
+            "losses": 16,
+            "win_rate": 40.7,
+            "total_pnl": 556.23,
+            "total_return_pct": 5.56,
+            "profit_factor": 1.84,
+            "max_drawdown_pct": 4.1,
+            "avg_hold_days": 13.1,
+            "avg_pnl": 20.6,
+            "best_trade": 377.27,
+            "worst_trade": -168.24,
+            "final_value": 10556.24
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "TSLA",
+          "params": {
+            "fast_period": 10,
+            "slow_period": 35,
+            "signal_period": 12,
+            "stop_loss_pct": -12,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 14,
+            "wins": 7,
+            "losses": 7,
+            "win_rate": 50.0,
+            "total_pnl": 1546.94,
+            "total_return_pct": 15.47,
+            "profit_factor": 5.64,
+            "max_drawdown_pct": 2.72,
+            "avg_hold_days": 27.6,
+            "avg_pnl": 110.5,
+            "best_trade": 624.75,
+            "worst_trade": -80.31,
+            "final_value": 11546.94
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "AAPL",
+          "params": {
+            "fast_period": 6,
+            "slow_period": 18,
+            "signal_period": 7,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 29,
+            "wins": 15,
+            "losses": 14,
+            "win_rate": 51.7,
+            "total_pnl": 266.45,
+            "total_return_pct": 2.66,
+            "profit_factor": 1.96,
+            "max_drawdown_pct": 1.6,
+            "avg_hold_days": 12.0,
+            "avg_pnl": 9.19,
+            "best_trade": 124.66,
+            "worst_trade": -70.8,
+            "final_value": 10266.45
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "AMD",
+          "params": {
+            "fast_period": 15,
+            "slow_period": 35,
+            "signal_period": 9,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 15,
+            "wins": 6,
+            "losses": 9,
+            "win_rate": 40.0,
+            "total_pnl": 636.83,
+            "total_return_pct": 6.37,
+            "profit_factor": 2.05,
+            "max_drawdown_pct": 4.85,
+            "avg_hold_days": 23.5,
+            "avg_pnl": 42.46,
+            "best_trade": 601.7,
+            "worst_trade": -101.31,
+            "final_value": 10636.84
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "META",
+          "params": {
+            "fast_period": 15,
+            "slow_period": 26,
+            "signal_period": 12,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 13,
+            "wins": 8,
+            "losses": 5,
+            "win_rate": 61.5,
+            "total_pnl": 427.17,
+            "total_return_pct": 4.27,
+            "profit_factor": 3.04,
+            "max_drawdown_pct": 2.05,
+            "avg_hold_days": 24.5,
+            "avg_pnl": 32.86,
+            "best_trade": 315.27,
+            "worst_trade": -96.26,
+            "final_value": 10427.18
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "MSFT",
+          "params": {
+            "fast_period": 12,
+            "slow_period": 22,
+            "signal_period": 12,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 19,
+            "wins": 5,
+            "losses": 14,
+            "win_rate": 26.3,
+            "total_pnl": -72.01,
+            "total_return_pct": -0.72,
+            "profit_factor": 0.82,
+            "max_drawdown_pct": 2.1,
+            "avg_hold_days": 16.9,
+            "avg_pnl": -3.79,
+            "best_trade": 229.84,
+            "worst_trade": -98.24,
+            "final_value": 9927.99
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "GOOGL",
+          "params": {
+            "fast_period": 12,
+            "slow_period": 26,
+            "signal_period": 9,
+            "stop_loss_pct": -8,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 22,
+            "wins": 13,
+            "losses": 9,
+            "win_rate": 59.1,
+            "total_pnl": 409.6,
+            "total_return_pct": 4.1,
+            "profit_factor": 2.78,
+            "max_drawdown_pct": 2.17,
+            "avg_hold_days": 15.9,
+            "avg_pnl": 18.62,
+            "best_trade": 170.93,
+            "worst_trade": -62.79,
+            "final_value": 10409.61
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "AMZN",
+          "params": {
+            "fast_period": 15,
+            "slow_period": 26,
+            "signal_period": 12,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 20,
+            "wins": 8,
+            "losses": 12,
+            "win_rate": 40.0,
+            "total_pnl": 50.85,
+            "total_return_pct": 0.51,
+            "profit_factor": 1.15,
+            "max_drawdown_pct": 1.65,
+            "avg_hold_days": 16.9,
+            "avg_pnl": 2.54,
+            "best_trade": 176.03,
+            "worst_trade": -64.45,
+            "final_value": 10050.86
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "MU",
+          "params": {
+            "fast_period": 12,
+            "slow_period": 22,
+            "signal_period": 12,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 18,
+            "wins": 8,
+            "losses": 10,
+            "win_rate": 44.4,
+            "total_pnl": 1632.84,
+            "total_return_pct": 16.33,
+            "profit_factor": 3.91,
+            "max_drawdown_pct": 4.34,
+            "avg_hold_days": 20.2,
+            "avg_pnl": 90.71,
+            "best_trade": 686.6,
+            "worst_trade": -140.16,
+            "final_value": 11632.84
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "ORCL",
+          "params": {
+            "fast_period": 10,
+            "slow_period": 18,
+            "signal_period": 12,
+            "stop_loss_pct": -12,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 14,
+            "wins": 7,
+            "losses": 7,
+            "win_rate": 50.0,
+            "total_pnl": 848.29,
+            "total_return_pct": 8.48,
+            "profit_factor": 2.95,
+            "max_drawdown_pct": 4.93,
+            "avg_hold_days": 23.4,
+            "avg_pnl": 60.59,
+            "best_trade": 415.45,
+            "worst_trade": -99.32,
+            "final_value": 10848.29
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "NOW",
+          "params": {
+            "fast_period": 6,
+            "slow_period": 26,
+            "signal_period": 7,
+            "stop_loss_pct": -10,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 28,
+            "wins": 9,
+            "losses": 19,
+            "win_rate": 32.1,
+            "total_pnl": -104.58,
+            "total_return_pct": -1.05,
+            "profit_factor": 0.84,
+            "max_drawdown_pct": 3.69,
+            "avg_hold_days": 12.3,
+            "avg_pnl": -3.73,
+            "best_trade": 238.62,
+            "worst_trade": -121.92,
+            "final_value": 9895.41
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "AVGO",
+          "params": {
+            "fast_period": 15,
+            "slow_period": 30,
+            "signal_period": 12,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 18,
+            "wins": 7,
+            "losses": 11,
+            "win_rate": 38.9,
+            "total_pnl": 583.84,
+            "total_return_pct": 5.84,
+            "profit_factor": 2.16,
+            "max_drawdown_pct": 3.46,
+            "avg_hold_days": 15.7,
+            "avg_pnl": 32.44,
+            "best_trade": 486.57,
+            "worst_trade": -70.38,
+            "final_value": 10583.84
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "PLTR",
+          "params": {
+            "fast_period": 10,
+            "slow_period": 18,
+            "signal_period": 7,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 22,
+            "wins": 13,
+            "losses": 9,
+            "win_rate": 59.1,
+            "total_pnl": 1505.93,
+            "total_return_pct": 15.06,
+            "profit_factor": 8.56,
+            "max_drawdown_pct": 2.82,
+            "avg_hold_days": 16.3,
+            "avg_pnl": 68.45,
+            "best_trade": 404.09,
+            "worst_trade": -46.08,
+            "final_value": 11505.92
+          },
+          "combos_tested": 450
+        },
+        {
+          "symbol": "DELL",
+          "params": {
+            "fast_period": 6,
+            "slow_period": 18,
+            "signal_period": 9,
+            "stop_loss_pct": -5,
+            "position_pct": 10
+          },
+          "stats": {
+            "total_trades": 27,
+            "wins": 15,
+            "losses": 12,
+            "win_rate": 55.6,
+            "total_pnl": 661.81,
+            "total_return_pct": 6.62,
+            "profit_factor": 2.0,
+            "max_drawdown_pct": 5.6,
+            "avg_hold_days": 14.9,
+            "avg_pnl": 24.51,
+            "best_trade": 370.73,
+            "worst_trade": -139.47,
+            "final_value": 10661.81
+          },
+          "combos_tested": 450
+        }
+      ]
+    }
+  ],
+  "deployed": [
+    {
+      "param": "stop_loss_pct",
+      "old": -12.0,
+      "new": -5,
+      "improvement_pct": 4900.0
+    }
+  ],
+  "best_strategy": {
+    "strategy": "rsi_mean_reversion",
+    "strategy_name": "RSI Mean Reversion",
+    "best_params": {
+      "rsi_period": 14,
+      "rsi_buy": 20,
+      "rsi_sell": 60,
+      "stop_loss_pct": -5,
+      "position_pct": 10
+    },
+    "avg_profit_factor": 50.0,
+    "avg_win_rate": 100.0,
+    "stocks_tested": 1,
+    "symbols": [
+      "SPY"
+    ],
+    "per_stock": [
+      {
+        "symbol": "SPY",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 20,
+          "rsi_sell": 60,
+          "stop_loss_pct": -5,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 2,
+          "wins": 2,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 127.81,
+          "total_return_pct": 1.28,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 0.69,
+          "avg_hold_days": 19.5,
+          "avg_pnl": 63.91,
+          "best_trade": 109.29,
+          "worst_trade": 18.52,
+          "final_value": 10127.81
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "QQQ",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 20,
+          "rsi_sell": 60,
+          "stop_loss_pct": -12,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 1.13,
+          "total_return_pct": 0.01,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 1.63,
+          "avg_hold_days": 46.0,
+          "avg_pnl": 1.13,
+          "best_trade": 1.13,
+          "worst_trade": 1.13,
+          "final_value": 10001.13
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "NVDA",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 25,
+          "rsi_sell": 60,
+          "stop_loss_pct": -12,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 2,
+          "wins": 2,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 291.97,
+          "total_return_pct": 2.92,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 2.52,
+          "avg_hold_days": 33.0,
+          "avg_pnl": 145.99,
+          "best_trade": 253.25,
+          "worst_trade": 38.72,
+          "final_value": 10291.98
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "TSLA",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 15,
+          "rsi_sell": 60,
+          "stop_loss_pct": -5,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 186.36,
+          "total_return_pct": 1.86,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 1.1,
+          "avg_hold_days": 18.0,
+          "avg_pnl": 186.36,
+          "best_trade": 186.36,
+          "worst_trade": 186.36,
+          "final_value": 10186.36
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "AAPL",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 15,
+          "rsi_sell": 60,
+          "stop_loss_pct": -5,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 45.7,
+          "total_return_pct": 0.46,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 0.45,
+          "avg_hold_days": 18.0,
+          "avg_pnl": 45.7,
+          "best_trade": 45.7,
+          "worst_trade": 45.7,
+          "final_value": 10045.7
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "AMD",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 15,
+          "rsi_sell": 60,
+          "stop_loss_pct": -8,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 121.64,
+          "total_return_pct": 1.22,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 1.14,
+          "avg_hold_days": 20.0,
+          "avg_pnl": 121.64,
+          "best_trade": 121.64,
+          "worst_trade": 121.64,
+          "final_value": 10121.64
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "META",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 15,
+          "rsi_sell": 60,
+          "stop_loss_pct": -5,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 63.15,
+          "total_return_pct": 0.63,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 0.33,
+          "avg_hold_days": 14.0,
+          "avg_pnl": 63.15,
+          "best_trade": 63.15,
+          "worst_trade": 63.15,
+          "final_value": 10063.15
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "MSFT",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 20,
+          "rsi_sell": 75,
+          "stop_loss_pct": -15,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 3,
+          "wins": 3,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 103.09,
+          "total_return_pct": 1.03,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 1.5,
+          "avg_hold_days": 56.0,
+          "avg_pnl": 34.36,
+          "best_trade": 60.2,
+          "worst_trade": 10.18,
+          "final_value": 10103.09
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "GOOGL",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 15,
+          "rsi_sell": 80,
+          "stop_loss_pct": -20,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 103.85,
+          "total_return_pct": 1.04,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 1.74,
+          "avg_hold_days": 150.0,
+          "avg_pnl": 103.85,
+          "best_trade": 103.85,
+          "worst_trade": 103.85,
+          "final_value": 10103.85
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "AMZN",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 15,
+          "rsi_sell": 60,
+          "stop_loss_pct": -5,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 77.9,
+          "total_return_pct": 0.78,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 0.24,
+          "avg_hold_days": 15.0,
+          "avg_pnl": 77.9,
+          "best_trade": 77.9,
+          "worst_trade": 77.9,
+          "final_value": 10077.9
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "MU",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 15,
+          "rsi_sell": 60,
+          "stop_loss_pct": -20,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 3,
+          "wins": 3,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 361.08,
+          "total_return_pct": 3.61,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 2.23,
+          "avg_hold_days": 21.0,
+          "avg_pnl": 120.36,
+          "best_trade": 235.61,
+          "worst_trade": 16.58,
+          "final_value": 10361.08
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "ORCL",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 20,
+          "rsi_sell": 70,
+          "stop_loss_pct": -5,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 9,
+          "wins": 4,
+          "losses": 5,
+          "win_rate": 44.4,
+          "total_pnl": 285.61,
+          "total_return_pct": 2.86,
+          "profit_factor": 1.79,
+          "max_drawdown_pct": 2.79,
+          "avg_hold_days": 16.4,
+          "avg_pnl": 31.73,
+          "best_trade": 219.59,
+          "worst_trade": -85.55,
+          "final_value": 10285.61
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "NOW",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 15,
+          "rsi_sell": 70,
+          "stop_loss_pct": -8,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 3,
+          "wins": 2,
+          "losses": 1,
+          "win_rate": 66.7,
+          "total_pnl": 184.4,
+          "total_return_pct": 1.84,
+          "profit_factor": 3.16,
+          "max_drawdown_pct": 1.77,
+          "avg_hold_days": 27.0,
+          "avg_pnl": 61.47,
+          "best_trade": 205.95,
+          "worst_trade": -85.35,
+          "final_value": 10184.41
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "AVGO",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 15,
+          "rsi_sell": 60,
+          "stop_loss_pct": -5,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 2,
+          "wins": 2,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 206.59,
+          "total_return_pct": 2.07,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 0.63,
+          "avg_hold_days": 11.0,
+          "avg_pnl": 103.29,
+          "best_trade": 124.38,
+          "worst_trade": 82.21,
+          "final_value": 10206.6
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "PLTR",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 15,
+          "rsi_sell": 60,
+          "stop_loss_pct": -15,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 1,
+          "wins": 1,
+          "losses": 0,
+          "win_rate": 100.0,
+          "total_pnl": 45.02,
+          "total_return_pct": 0.45,
+          "profit_factor": 999.0,
+          "max_drawdown_pct": 1.97,
+          "avg_hold_days": 33.0,
+          "avg_pnl": 45.02,
+          "best_trade": 45.02,
+          "worst_trade": 45.02,
+          "final_value": 10045.02
+        },
+        "combos_tested": 180
+      },
+      {
+        "symbol": "DELL",
+        "params": {
+          "rsi_period": 14,
+          "rsi_buy": 25,
+          "rsi_sell": 60,
+          "stop_loss_pct": -15,
+          "position_pct": 10
+        },
+        "stats": {
+          "total_trades": 9,
+          "wins": 8,
+          "losses": 1,
+          "win_rate": 88.9,
+          "total_pnl": 864.25,
+          "total_return_pct": 8.64,
+          "profit_factor": 6.59,
+          "max_drawdown_pct": 2.25,
+          "avg_hold_days": 18.8,
+          "avg_pnl": 96.03,
+          "best_trade": 335.64,
+          "worst_trade": -154.5,
+          "final_value": 10864.25
+        },
+        "combos_tested": 180
+      }
+    ]
+  }
+}

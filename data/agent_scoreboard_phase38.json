@@ -1,0 +1,12 @@
+{
+  "MeanReversion": {
+    "losses": 1,
+    "signals": 2,
+    "wins": 1
+  },
+  "Momentum": {
+    "losses": 4,
+    "signals": 10,
+    "wins": 7
+  }
+}

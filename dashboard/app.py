@@ -1,0 +1,8828 @@
+from __future__ import annotations
+import sys as _sys, os as _os
+_proj_root = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+if _proj_root not in _sys.path:
+    _sys.path.insert(0, _proj_root)
+import math
+from dotenv import load_dotenv
+load_dotenv(override=True)
+
+from fastapi import FastAPI, Request, Form, HTTPException
+from fastapi.middleware.cors import CORSMiddleware
+from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse
+import sqlite3
+import json
+import os
+import threading
+import uvicorn
+from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
+from shared.matrix_bridge import annotate_player_payload, ensure_matrix_shared_records, is_independent_player
+
+app = FastAPI(title="TradeMinds — The Bridge", docs_url=None, redoc_url=None, openapi_url=None)
+ensure_matrix_shared_records()
+
+# UOA (Unusual Options Activity) scanner routes
+from uoa.routes import router as uoa_router
+app.include_router(uoa_router, prefix="/api/uoa", tags=["UOA"])
+
+
+@app.on_event("startup")
+def _preload_slow_caches():
+    """Preload sector heatmap and market movers caches on startup.
+
+    Phase 1 (sync, instant): seed SWR from disk cache immediately — first request is always fast.
+    Phase 2 (async, background): fetch fresh data from Yahoo/Finviz and update SWR.
+    """
+    import time as _t
+
+    # Ensure locks + caches exist for all SWR endpoints
+    for _k in ("sectors_heatmap", "market_movers", "leaderboard", "holdings_top"):
+        _swr_locks.setdefault(_k, threading.Lock())
+        _swr_cache.setdefault(_k, {"data": None, "ts": 0})
+
+    # === PHASE 1: Synchronously seed SWR from disk (zero network calls, instant) ===
+    try:
+        from engine.premarket_scanner import _sector_disk_cache
+        disk_sectors = _sector_disk_cache.get("sectors") or []
+        disk_ts = float(_sector_disk_cache.get("ts", 0))
+        if disk_sectors:
+            _swr_cache["sectors_heatmap"] = {"data": {"sectors": disk_sectors}, "ts": disk_ts}
+    except Exception:
+        pass
+
+    try:
+        from engine.market_movers import _movers_disk_cache
+        disk_movers = {k: v for k, v in _movers_disk_cache.items() if k != "_ts"}
+        disk_ts_m = float(_movers_disk_cache.get("_ts", 0))
+        if disk_movers.get("gainers"):
+            _swr_cache["market_movers"] = {"data": disk_movers, "ts": disk_ts_m}
+    except Exception:
+        pass
+
+    # === PHASE 2: Background refresh — fetch fresh data (network, takes a few seconds) ===
+    def _warm_sectors():
+        """Warm sector heatmap — acquires lock so endpoint bg-refresh can't double-fetch."""
+        if not _swr_locks["sectors_heatmap"].acquire(blocking=False):
+            return  # Already refreshing
+        _swr_refreshing.add("sectors_heatmap")
+        try:
+            from engine.premarket_scanner import get_sector_heatmap
+            data = get_sector_heatmap()
+            if data:
+                _swr_cache["sectors_heatmap"] = {"data": {"sectors": data}, "ts": _t.time()}
+        except Exception:
+            pass
+        finally:
+            _swr_refreshing.discard("sectors_heatmap")
+            _swr_locks["sectors_heatmap"].release()
+
+    def _warm_movers():
+        """Warm market movers — acquires lock so endpoint bg-refresh can't double-fetch."""
+        if not _swr_locks["market_movers"].acquire(blocking=False):
+            return  # Already refreshing
+        _swr_refreshing.add("market_movers")
+        try:
+            from engine.market_movers import get_market_movers
+            data = get_market_movers()
+            if data:
+                _swr_cache["market_movers"] = {"data": data, "ts": _t.time()}
+        except Exception:
+            pass
+        finally:
+            _swr_refreshing.discard("market_movers")
+            _swr_locks["market_movers"].release()
+
+    def _warm_db():
+        """Warm DB-heavy endpoints (fast with indexes, run sequentially)."""
+        try:
+            equity_curve(player_id=None, season=0)
+        except Exception:
+            pass
+        try:
+            comparison_chart(season=0)
+        except Exception:
+            pass
+
+    def _warm_leaderboard():
+        """Warm leaderboard separately — it does Yahoo bulk fetch."""
+        try:
+            leaderboard(season=0)
+        except Exception:
+            pass
+
+    # Stagger warmups so boot does not spike CPU/network all at once.
+    def _delayed_start(fn, delay_s: float):
+        def _runner():
+            if delay_s > 0:
+                _t.sleep(delay_s)
+            fn()
+        threading.Thread(target=_runner, daemon=True).start()
+
+    for _delay, _fn in (
+        (0.5, _warm_db),
+        (1.5, _warm_sectors),
+        (3.0, _warm_movers),
+        (5.0, _warm_leaderboard),
+    ):
+        _delayed_start(_fn, _delay)
+DB = os.environ.get(
+    "TRADEMINDS_DB",
+    os.path.expanduser("~/autonomous-trader/data/trader.db"),
+)
+
+# --- Timed cache decorator for slow endpoints ---
+import time as _time
+import functools as _functools
+import inspect as _inspect
+_endpoint_cache: dict = {}
+
+
+def timed_cache(seconds: int):
+    """Cache endpoint response for N seconds. Preserves function signature for FastAPI."""
+    def decorator(func):
+        @_functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            key = f"{func.__name__}:{args}:{kwargs}"
+            now = _time.time()
+            entry = _endpoint_cache.get(key)
+            if entry and (now - entry["time"]) < seconds:
+                return entry["data"]
+            result = func(*args, **kwargs)
+            _endpoint_cache[key] = {"time": now, "data": result}
+            return result
+        # Preserve the original signature so FastAPI can inspect query params
+        wrapper.__signature__ = _inspect.signature(func)
+        return wrapper
+    return decorator
+
+
+_swr_cache: dict = {}
+_swr_locks: dict = {}
+_swr_refreshing: set = set()  # keys currently being background-refreshed (for is_updating flag)
+
+def stale_while_revalidate(fresh_seconds: int):
+    """Return cached data immediately (even if stale), refresh in background when expired.
+    On first call with no cache, blocks once to populate. After that always returns fast."""
+    def decorator(func):
+        key = func.__name__
+        _swr_cache[key] = {"data": None, "ts": 0}
+        _swr_locks[key] = threading.Lock()
+
+        def _refresh():
+            try:
+                result = func()
+                _swr_cache[key] = {"data": result, "ts": _time.time()}
+            except Exception:
+                pass
+
+        @_functools.wraps(func)
+        def wrapper(*args, **kwargs):
+            entry = _swr_cache[key]
+            now = _time.time()
+            age = now - entry["ts"]
+            if entry["data"] is None:
+                # First call — block once to populate
+                with _swr_locks[key]:
+                    if _swr_cache[key]["data"] is None:
+                        _refresh()
+                return _swr_cache[key]["data"]
+            if age > fresh_seconds:
+                # Stale — return immediately, refresh in background
+                if _swr_locks[key].acquire(blocking=False):
+                    def _bg():
+                        try:
+                            _refresh()
+                        finally:
+                            _swr_locks[key].release()
+                    threading.Thread(target=_bg, daemon=True).start()
+            return entry["data"]
+        wrapper.__signature__ = _inspect.signature(func)
+        return wrapper
+    return decorator
+
+# Convert UTC timestamps to Arizona time (MST = UTC-7, no DST) in all API responses
+import re
+from datetime import datetime, timezone, timedelta
+_AZ_TZ = timezone(timedelta(hours=-7))
+_TS_RE = re.compile(r'^\d{4}-\d{2}-\d{2}[T ]\d{2}:\d{2}:\d{2}')
+
+def _to_arizona(val):
+    """Convert a UTC timestamp string to Arizona time string."""
+    if not isinstance(val, str) or not _TS_RE.match(val):
+        return val
+    try:
+        s = val.replace('T', ' ').split('.')[0]  # strip fractional seconds
+        utc_dt = datetime.strptime(s, '%Y-%m-%d %H:%M:%S').replace(tzinfo=timezone.utc)
+        az_dt = utc_dt.astimezone(_AZ_TZ)
+        return az_dt.strftime('%Y-%m-%d %H:%M:%S')
+    except Exception:
+        return val
+
+def _convert_timestamps(obj):
+    """Recursively convert all timestamp strings in a response to Arizona time."""
+    if isinstance(obj, dict):
+        return {k: _convert_timestamps(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_convert_timestamps(item) for item in obj]
+    if isinstance(obj, str):
+        return _to_arizona(obj)
+    return obj
+
+from fastapi.routing import APIRoute
+from fastapi.responses import JSONResponse
+from starlette.requests import Request as StarletteRequest
+
+class TimezoneRoute(APIRoute):
+    """Custom route that converts UTC timestamps to Arizona time in all JSON responses."""
+    def get_route_handler(self):
+        original_handler = super().get_route_handler()
+        async def handler(request: StarletteRequest):
+            response = await original_handler(request)
+            if isinstance(response, JSONResponse):
+                try:
+                    import json as _json
+                    data = _json.loads(response.body)
+                    converted = _convert_timestamps(data)
+                    return JSONResponse(content=converted, status_code=response.status_code)
+                except Exception:
+                    pass
+            return response
+        return handler
+
+app.router.route_class = TimezoneRoute
+
+app.add_middleware(
+    CORSMiddleware,
+    allow_origins=["*"],
+    allow_methods=["*"],
+    allow_headers=["*"],
+)
+
+# --- Authentication ---
+_AUTH_USER = os.environ.get("TRADEMINDS_USER", "captain")
+_AUTH_PASS = os.environ.get("TRADEMINDS_PASS", "engage2026")
+_SECRET_KEY = os.environ.get("TRADEMINDS_SECRET", "uss-trademinds-ncc-1701-d")
+_SESSION_MAX_AGE = 86400  # 24 hours
+_signer = URLSafeTimedSerializer(_SECRET_KEY)
+
+_LOGIN_PAGE = """<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<title>USS TradeMinds — Authorization Required</title>
+<style>
+*{margin:0;padding:0;box-sizing:border-box}
+body{background:#0a0e1a;color:#e0e6f0;font-family:'Courier New',monospace;
+  display:flex;align-items:center;justify-content:center;min-height:100vh;
+  background-image:radial-gradient(ellipse at 50% 0%,#1a2040 0%,#0a0e1a 70%)}
+.login-box{background:linear-gradient(135deg,#111827,#1a2040);border:1px solid #2d4a7a;
+  border-radius:12px;padding:40px;width:380px;box-shadow:0 0 40px rgba(59,130,246,0.15)}
+.starfleet-badge{text-align:center;margin-bottom:24px;font-size:48px}
+h1{text-align:center;font-size:18px;color:#60a5fa;margin-bottom:4px;letter-spacing:2px}
+.subtitle{text-align:center;font-size:12px;color:#f59e0b;margin-bottom:28px;letter-spacing:1px}
+label{display:block;font-size:12px;color:#94a3b8;margin-bottom:4px;letter-spacing:1px}
+input[type=text],input[type=password]{width:100%;padding:10px 12px;background:#0f172a;
+  border:1px solid #334155;border-radius:6px;color:#e0e6f0;font-family:inherit;
+  font-size:14px;margin-bottom:16px;outline:none;transition:border .2s}
+input:focus{border-color:#3b82f6}
+button{width:100%;padding:12px;background:linear-gradient(135deg,#2563eb,#1d4ed8);
+  border:none;border-radius:6px;color:#fff;font-family:inherit;font-size:14px;
+  font-weight:bold;cursor:pointer;letter-spacing:1px;transition:all .2s}
+button:hover{background:linear-gradient(135deg,#3b82f6,#2563eb);box-shadow:0 0 20px rgba(59,130,246,0.3)}
+.error{background:#7f1d1d;border:1px solid #dc2626;border-radius:6px;padding:10px;
+  text-align:center;font-size:13px;color:#fca5a5;margin-bottom:16px}
+.footer{text-align:center;margin-top:20px;font-size:10px;color:#475569}
+</style>
+</head>
+<body>
+<div class="login-box">
+  <div class="starfleet-badge">🖖</div>
+  <h1>USS TRADEMINDS</h1>
+  <div class="subtitle">⚠ AUTHORIZED PERSONNEL ONLY ⚠</div>
+  {{ERROR}}
+  <form method="POST" action="/login">
+    <label>OFFICER IDENTIFICATION</label>
+    <input type="text" name="username" autocomplete="username" autofocus required>
+    <label>ACCESS CODE</label>
+    <input type="password" name="password" autocomplete="current-password" required>
+    <button type="submit">ENGAGE ▶</button>
+  </form>
+  <div class="footer">NCC-1701-D • Starfleet Command Authentication</div>
+</div>
+</body>
+</html>"""
+
+
+def _check_session(request: Request) -> bool:
+    token = request.cookies.get("trademinds_session")
+    if not token:
+        return False
+    try:
+        data = _signer.loads(token, max_age=_SESSION_MAX_AGE)
+        return data.get("authenticated") is True
+    except (BadSignature, SignatureExpired):
+        return False
+
+
+def _is_localhost(request: Request) -> bool:
+    client = request.client
+    if not client:
+        return False
+    return client.host in ("127.0.0.1", "::1", "localhost")
+
+
+@app.get("/login", response_class=HTMLResponse)
+def login_page():
+    return _LOGIN_PAGE.replace("{{ERROR}}", "")
+
+
+@app.post("/login")
+async def login_submit(request: Request, username: str = Form(...), password: str = Form(...)):
+    if username == _AUTH_USER and password == _AUTH_PASS:
+        token = _signer.dumps({"authenticated": True})
+        response = RedirectResponse(url="/", status_code=303)
+        response.set_cookie(
+            "trademinds_session", token,
+            max_age=_SESSION_MAX_AGE, httponly=True, samesite="strict"
+        )
+        return response
+    html = _LOGIN_PAGE.replace(
+        "{{ERROR}}",
+        '<div class="error">⛔ ACCESS DENIED — Invalid credentials</div>'
+    )
+    return HTMLResponse(html, status_code=401)
+
+
+@app.get("/logout")
+def logout():
+    response = RedirectResponse(url="/login", status_code=303)
+    response.delete_cookie("trademinds_session")
+    return response
+
+
+from starlette.middleware.base import BaseHTTPMiddleware
+
+class AuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        path = request.url.path
+        # Always allow login/logout routes and static assets
+        if path in ("/login", "/logout") or path.startswith("/static/"):
+            return await call_next(request)
+        # API routes from localhost bypass auth (scanner needs these)
+        if path.startswith("/api/") and _is_localhost(request):
+            return await call_next(request)
+        # Everything else requires a valid session
+        if not _check_session(request):
+            # API calls from non-localhost get 401 JSON
+            if path.startswith("/api/"):
+                return JSONResponse({"error": "Authentication required"}, status_code=401)
+            return RedirectResponse(url="/login", status_code=303)
+        return await call_next(request)
+
+app.add_middleware(AuthMiddleware)
+
+# --- Rate Limiting ---
+from collections import defaultdict
+import time as _time
+
+_rate_limits: dict = defaultdict(list)
+_RATE_LIMIT_REQ = 300  # max requests per minute per external IP
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith("/api/"):
+            ip = (request.client.host if request.client else "unknown")
+            # Skip rate limiting for localhost — dashboard itself makes 20+ calls on load
+            if ip in ("127.0.0.1", "localhost", "::1"):
+                return await call_next(request)
+            now = _time.time()
+            _rate_limits[ip] = [t for t in _rate_limits[ip] if now - t < 60]
+            if len(_rate_limits[ip]) > _RATE_LIMIT_REQ:
+                return JSONResponse({"error": "Rate limited — slow down"}, status_code=429)
+            _rate_limits[ip].append(now)
+        return await call_next(request)
+
+app.add_middleware(RateLimitMiddleware)
+
+# --- Security Headers ---
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# --- Session cleanup (prunes stale rate-limit buckets every hour) ---
+def _session_cleanup_loop():
+    while True:
+        _time.sleep(3600)
+        cutoff = _time.time() - 60
+        for ip in list(_rate_limits.keys()):
+            _rate_limits[ip] = [t for t in _rate_limits[ip] if t > cutoff]
+            if not _rate_limits[ip]:
+                del _rate_limits[ip]
+
+threading.Thread(target=_session_cleanup_loop, daemon=True).start()
+
+
+def _conn():
+    c = sqlite3.connect(DB, check_same_thread=False, timeout=30)
+    c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=30000")
+    c.row_factory = sqlite3.Row
+    return c
+
+
+# --- Arena Endpoints ---
+
+_LEADERBOARD_CACHE_FILE = os.path.join(_proj_root, "data", "leaderboard_cache.json")
+_leaderboard_disk_cache: dict = {"data": None, "ts": 0}
+try:
+    import json as _ljson
+    with open(_LEADERBOARD_CACHE_FILE) as _lf:
+        _d = _ljson.load(_lf)
+        _leaderboard_disk_cache = {"data": _d.get("data"), "ts": _d.get("ts", 0)}
+except Exception:
+    pass
+
+
+def _sa_fresh_entry(base_entry: dict) -> dict:
+    """Recompute Super Agent leaderboard fields live from portfolio_positions (portfolio_id=1)."""
+    try:
+        _c = _conn()
+        open_row = _c.execute(
+            "SELECT COALESCE(SUM(unrealized_pnl), 0) AS unreal, "
+            "COALESCE(SUM(quantity * current_price), 0) AS pos_val "
+            "FROM portfolio_positions WHERE portfolio_id=1 AND status='open'"
+        ).fetchone()
+        closed_row = _c.execute(
+            "SELECT COALESCE(SUM(closed_pnl), 0) AS realized "
+            "FROM portfolio_positions WHERE portfolio_id=1 AND status='closed'"
+        ).fetchone()
+        sa_cnt = _c.execute(
+            "SELECT COUNT(*) AS cnt FROM portfolio_positions WHERE portfolio_id=1 AND status='open'"
+        ).fetchone()
+        _c.close()
+
+        unrealized = round(float(open_row["unreal"] or 0), 2)
+        positions_value = round(float(open_row["pos_val"] or 0), 2)
+        realized = round(float(closed_row["realized"] or 0), 2)
+        total_value = round(25000.0 + unrealized + realized, 2)
+
+        entry = dict(base_entry)
+        entry.update({
+            "cash": 25000.0,
+            "positions_value": positions_value,
+            "total_value": total_value,
+            "unrealized_pnl": unrealized,
+            "return_pct": round((total_value - 25000.0) / 25000.0 * 100, 2),
+            "current_equity": round(total_value, 2),
+            "previous_equity": round(total_value, 2),
+            "starting_capital": 25000.0,
+            "day_pnl": 0.0,
+            "total_pnl": round(total_value - 25000.0, 2),
+            "trades": 0,
+            "positions_count": sa_cnt["cnt"] if sa_cnt else 0,
+        })
+        return entry
+    except Exception:
+        return base_entry
+
+
+def _season_starting_capital(player_id: str, season: int) -> float:
+    if player_id == "steve-webull":
+        return 7021.81
+    if player_id == "dayblade-0dte":
+        return 2000.0 if season == 1 else (5000.0 if season <= 3 else 3500.0)
+    if player_id == "super-agent":
+        return 25000.0 if season >= 5 else 100000.0
+    return 10000.0 if season <= 3 else 7000.0
+
+
+def _season_overlay(conn, player_id: str, season: int, current_total_value: float | None = None) -> dict:
+    baseline = _season_starting_capital(player_id, season)
+    first_row = conn.execute(
+        "SELECT total_value FROM portfolio_history WHERE player_id=? AND season=? ORDER BY recorded_at ASC LIMIT 1",
+        (player_id, season),
+    ).fetchone()
+    latest_row = conn.execute(
+        "SELECT total_value FROM portfolio_history WHERE player_id=? AND season=? ORDER BY recorded_at DESC LIMIT 1",
+        (player_id, season),
+    ).fetchone()
+    season_start_value = float(first_row["total_value"]) if first_row and first_row["total_value"] is not None else baseline
+    season_latest_value = (
+        float(current_total_value)
+        if current_total_value is not None
+        else (float(latest_row["total_value"]) if latest_row and latest_row["total_value"] is not None else season_start_value)
+    )
+    season_pnl = round(season_latest_value - season_start_value, 2)
+    season_return_pct = round((season_pnl / season_start_value) * 100, 2) if season_start_value > 0 else 0.0
+    vs_baseline_pnl = round(season_latest_value - baseline, 2)
+    vs_baseline_return_pct = round((vs_baseline_pnl / baseline) * 100, 2) if baseline > 0 else 0.0
+    return {
+        "season": season,
+        "season_start_value": round(season_start_value, 2),
+        "season_latest_value": round(season_latest_value, 2),
+        "season_pnl": season_pnl,
+        "season_return_pct": season_return_pct,
+        "season_baseline": round(baseline, 2),
+        "vs_baseline_pnl": vs_baseline_pnl,
+        "vs_baseline_return_pct": vs_baseline_return_pct,
+    }
+
+
+def _patch_leaderboard_season_overlays(payload: dict) -> dict:
+    """Patch season overlays onto cached leaderboard rows without full recompute."""
+    try:
+        if not isinstance(payload, dict):
+            return payload
+        items = payload.get("leaderboard")
+        season = payload.get("season")
+        if not isinstance(items, list) or not items:
+            return payload
+        if season in (None, -1):
+            return payload
+        if "season_overlay" in items[0]:
+            return payload
+
+        conn = _conn()
+        rows = conn.execute(
+            """
+            SELECT ph.player_id, ph.total_value
+            FROM portfolio_history ph
+            JOIN (
+                SELECT player_id, MIN(recorded_at) AS first_ts
+                FROM portfolio_history
+                WHERE season=?
+                GROUP BY player_id
+            ) firsts
+              ON ph.player_id = firsts.player_id
+             AND ph.recorded_at = firsts.first_ts
+            WHERE ph.season=?
+            """,
+            (season, season),
+        ).fetchall()
+        conn.close()
+        start_values = {row["player_id"]: float(row["total_value"]) for row in rows}
+
+        patched = []
+        for item in items:
+            entry = dict(item)
+            baseline = _season_starting_capital(entry.get("player_id", ""), season)
+            season_start_value = round(start_values.get(entry.get("player_id"), baseline), 2)
+            season_latest_value = round(float(entry.get("total_value", season_start_value)), 2)
+            season_pnl = round(season_latest_value - season_start_value, 2)
+            season_return_pct = round((season_pnl / season_start_value) * 100, 2) if season_start_value > 0 else 0.0
+            vs_baseline_pnl = round(season_latest_value - baseline, 2)
+            vs_baseline_return_pct = round((vs_baseline_pnl / baseline) * 100, 2) if baseline > 0 else 0.0
+            entry["season_overlay"] = {
+                "season": season,
+                "season_start_value": season_start_value,
+                "season_latest_value": season_latest_value,
+                "season_pnl": season_pnl,
+                "season_return_pct": season_return_pct,
+                "season_baseline": round(baseline, 2),
+                "vs_baseline_pnl": vs_baseline_pnl,
+                "vs_baseline_return_pct": vs_baseline_return_pct,
+            }
+            patched.append(entry)
+        return {**payload, "leaderboard": patched}
+    except Exception:
+        return payload
+
+
+def _patch_super_agent(response_data: dict) -> dict:
+    """Inject a freshly computed Super Agent entry into a (possibly stale) cached leaderboard."""
+    lb = response_data.get("leaderboard")
+    if not isinstance(lb, list):
+        return response_data
+    patched = []
+    for entry in lb:
+        if entry.get("player_id") == "super-agent":
+            patched.append(_sa_fresh_entry(entry))
+        else:
+            patched.append(entry)
+    out = dict(response_data)
+    out["leaderboard"] = patched
+    return out
+
+
+def _leaderboard_payload_has_normalized_metrics(payload: dict) -> bool:
+    try:
+        items = payload.get("leaderboard")
+        if not isinstance(items, list) or not items:
+            return False
+        sample = items[0]
+        required = ("current_equity", "previous_equity", "starting_capital", "day_pnl", "total_pnl", "return_pct")
+        return all(k in sample for k in required)
+    except Exception:
+        return False
+
+
+def _recent_funding_total(conn, player_id: str, season: int | None = None, all_seasons: bool = False) -> float:
+    try:
+        if all_seasons or season is None:
+            row = conn.execute(
+                """
+                SELECT COALESCE(SUM(amount), 0) AS total
+                FROM player_funding_events
+                WHERE player_id=? AND created_at >= datetime('now', '-24 hours')
+                """,
+                (player_id,),
+            ).fetchone()
+        else:
+            row = conn.execute(
+                """
+                SELECT COALESCE(SUM(amount), 0) AS total
+                FROM player_funding_events
+                WHERE player_id=? AND season=? AND created_at >= datetime('now', '-24 hours')
+                """,
+                (player_id, season),
+            ).fetchone()
+        return round(float(row["total"] or 0), 2) if row else 0.0
+    except Exception:
+        return 0.0
+
+
+def _normalized_leaderboard_metrics(total_value, day_change, starting_capital):
+    import math
+
+    def safe(v, fallback=0.0):
+        try:
+            x = float(v)
+            return x if math.isfinite(x) else fallback
+        except Exception:
+            return fallback
+
+    total_value = safe(total_value)
+    day_change = safe(day_change)
+    starting_capital = safe(starting_capital)
+
+    current_equity = total_value
+    previous_equity = safe(current_equity - day_change)
+    day_pnl = safe(day_change)
+    total_pnl = safe(current_equity - starting_capital)
+    return_pct = safe((total_pnl / starting_capital) * 100 if starting_capital > 0 else 0.0)
+
+    return {
+        "current_equity": current_equity,
+        "previous_equity": previous_equity,
+        "starting_capital": starting_capital,
+        "day_pnl": day_pnl,
+        "total_pnl": total_pnl,
+        "return_pct": return_pct,
+    }
+
+
+@app.get("/api/arena/leaderboard")
+def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False):
+    if nocache:
+        _force = True
+        _endpoint_cache.pop(f"leaderboard_{season}", None)
+        _leaderboard_disk_cache["data"] = None
+        _leaderboard_disk_cache["ts"] = 0
+    """
+    Leaderboard API Contract (/api/arena/leaderboard)
+
+    Normalized Fields (required)
+    ---------------------------
+    Each row MUST emit:
+
+    - current_equity: float
+        Latest portfolio value (source of truth)
+
+    - previous_equity: float
+        Prior snapshot value used for day P&L
+
+    - starting_capital: float
+        Initial capital baseline
+
+    - day_pnl: float
+        24h performance:
+            current_equity - previous_equity
+        Must exclude funding events (cash injections/withdrawals)
+
+    - total_pnl: float
+        Lifetime performance:
+            current_equity - starting_capital
+
+    - return_pct: float
+        Derived ONLY from normalized values:
+            total_pnl / starting_capital
+
+    Legacy Fields (deprecated)
+    --------------------------
+    The following MUST NOT be used by the frontend:
+
+    - total_value
+    - day_change
+    - raw return_pct (if not derived from normalized fields)
+
+    They may exist temporarily for backward compatibility but are not authoritative.
+
+    Cache Rules
+    -----------
+    - Cached leaderboard payloads missing normalized fields are INVALID
+    - Such payloads must be bypassed and recomputed
+    - Cache must always reflect normalized schema
+
+    Guarantees
+    ----------
+    - Frontend renders exclusively from normalized fields
+    - No mixing of legacy and normalized values
+    - Day P&L reflects true performance, not capital changes
+    - Total P&L and return are mathematically consistent
+
+    Migration Note
+    --------------
+    This endpoint was upgraded from legacy fields (total_value, day_change)
+    to normalized portfolio accounting.
+
+    Any consumer still using legacy fields must be updated.
+
+    Runtime / Deployment Note
+    -------------------------
+
+    If /api/arena/leaderboard returns legacy fields such as:
+    - total_value
+    - day_change
+    - legacy return_pct
+
+    then the running server is stale.
+
+    Expected normalized fields:
+    - current_equity
+    - previous_equity
+    - starting_capital
+    - day_pnl
+    - total_pnl
+    - return_pct
+
+    Required actions:
+    1. Stop any process bound to port 8080
+    2. Restart the dashboard backend with the latest code
+    3. Verify live output BEFORE opening the UI
+
+    Verification command:
+        curl http://127.0.0.1:8080/api/arena/leaderboard | jq '.rows[0]'
+
+    Success condition:
+    - normalized fields are present
+    - legacy fields are absent or unused
+
+    Failure indicates:
+    - old process still running, or
+    - stale cache/process state still serving legacy payloads
+
+    Important:
+    A successful build or py_compile does NOT mean the running server is updated.
+    Only the live API response is authoritative.
+
+    8080 restart / listener note
+
+    This dashboard must own port 8080.
+
+    If restarting dashboard/app.py fails with:
+        [Errno 48] address already in use
+
+    then another Python process has already bound 8080.
+
+    Required recovery steps:
+    1. Identify the current listener:
+           lsof -i :8080
+    2. Kill the listed PID:
+           kill -9 <PID>
+    3. Restart the dashboard:
+           cd /Users/bigmac/autonomous-trader
+           ./venv/bin/python dashboard/app.py
+    4. Verify live output:
+           curl -s http://127.0.0.1:8080/api/arena/leaderboard | jq '.leaderboard[0]'
+
+    Important:
+    - A successful py_compile does not update the running server
+    - If another process immediately reclaims 8080, that process is the current blocker
+    - Always verify the live API after restart
+
+    Leaderboard runtime status
+
+    Resolved:
+    - Port 8080 is now owned by dashboard/app.py
+    - The legacy main.py listener was the stale-server source
+    - A LaunchAgent was auto-restarting main.py and reclaiming 8080
+    - Unloading that LaunchAgent allowed dashboard/app.py to serve the live API
+
+    Current live result:
+    - /api/arena/leaderboard now emits normalized fields
+    - Mr. Anderson currently reports flat at starting capital because the live data itself is flat
+    - This is no longer a frontend or stale-runtime issue
+
+    Key takeaway:
+    - If leaderboard values are wrong, first verify the live listener on 8080
+    - Once dashboard/app.py is confirmed live, remaining discrepancies are data-source issues
+
+    Anderson live-state note
+
+    The leaderboard/runtime path is now confirmed correct.
+
+    If Mr. Anderson still shows:
+    - current_equity = 25000
+    - day_pnl = 0
+    - total_pnl = 0
+
+    then the remaining issue is upstream data state, not frontend math or stale runtime.
+
+    Confirmed facts:
+    - dashboard/app.py is the live listener on 127.0.0.1:8080
+    - normalized leaderboard fields are now live
+    - Anderson history exists under portfolio_positions portfolio_id=1
+    - portfolio_id=6 ("Mr. Anderson") is currently empty
+
+    Interpretation:
+    - Anderson appearing flat is now a data-source / reconstruction issue
+    - Do not treat this as a UI bug
+    - Do not overwrite balances or delete history during fixes
+    """
+    import time as _lt, json as _lj
+    from engine.paper_trader import get_portfolio_with_pnl
+    from engine.market_data import get_bulk_prices
+    from config import WATCH_STOCKS
+
+    _lb_key = f"leaderboard_{season}"
+    _lb_entry = _endpoint_cache.get(_lb_key)
+    _now = _lt.time()
+
+    # Fast path 1: in-memory cache (60s TTL) — always patch Super Agent live
+    if not _force and _lb_entry and (_now - _lb_entry["time"]) < 60:
+        if _leaderboard_payload_has_normalized_metrics(_lb_entry["data"]):
+            return _patch_super_agent(_patch_leaderboard_season_overlays(_lb_entry["data"]))
+
+    # Fast path 2: disk cache — always serve stale data immediately, refresh in background
+    # (leaderboard is heavy: bulk Yahoo + per-player PnL calcs)
+    # _force=True bypasses both caches so background thread can recompute fresh data.
+    if not _force and _leaderboard_disk_cache["data"]:
+        _disk_season = _leaderboard_disk_cache["data"].get("season", -99) if isinstance(_leaderboard_disk_cache["data"], dict) else -99
+        _season_matches = (_disk_season == season) or (season == 0 and _disk_season > 0) or (season <= 0)
+        if _season_matches and _leaderboard_payload_has_normalized_metrics(_leaderboard_disk_cache["data"]):
+            # Fire background refresh if stale (> 60s).
+            # Use setdefault so the lock exists even before the first full computation.
+            _disk_age = _now - _leaderboard_disk_cache["ts"]
+            if _disk_age > 60 and _swr_locks.setdefault("leaderboard", threading.Lock()).acquire(blocking=False):
+                _bg_season = season
+                def _lb_bg():
+                    try:
+                        leaderboard(season=_bg_season, _force=True)  # bypass cache in background
+                    except Exception:
+                        pass
+                    finally:
+                        _swr_locks["leaderboard"].release()
+                threading.Thread(target=_lb_bg, daemon=True).start()
+            return _patch_super_agent(_patch_leaderboard_season_overlays(_leaderboard_disk_cache["data"]))  # always fresh SA
+
+    conn = _conn()
+
+    # Determine current season
+    current_season = 2
+    s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+    if s_row:
+        current_season = int(s_row["value"])
+
+    all_seasons = (season == -1)
+    if season <= 0 and not all_seasons:
+        season = current_season
+
+    players = conn.execute("""
+        SELECT p.id, p.display_name, p.provider, p.model_id, p.cash, p.is_active, p.is_halted, COALESCE(p.is_paused, 0) as is_paused
+        FROM ai_players p WHERE p.is_active = 1 AND p.id NOT LIKE '%cto%'
+        ORDER BY p.id
+    """).fetchall()
+
+    # Season-filtered trade counts
+    trade_counts = {}
+    if all_seasons:
+        for row in conn.execute("SELECT player_id, COUNT(*) as cnt FROM trades GROUP BY player_id").fetchall():
+            trade_counts[row["player_id"]] = row["cnt"]
+    else:
+        for row in conn.execute("SELECT player_id, COUNT(*) as cnt FROM trades WHERE season=? GROUP BY player_id", (season,)).fetchall():
+            trade_counts[row["player_id"]] = row["cnt"]
+    # Super Agent: count total portfolio_positions for portfolio_id=1 (Alpaca Paper)
+    try:
+        sa_tc = conn.execute(
+            "SELECT COUNT(*) as cnt FROM portfolio_positions WHERE portfolio_id=1"
+        ).fetchone()
+        trade_counts["super-agent"] = sa_tc["cnt"] if sa_tc else 0
+    except Exception:
+        pass
+
+    # Season-filtered win rate
+    win_data = {}
+    win_q = """
+        SELECT player_id,
+               COUNT(*) as total_sells,
+               SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as wins
+        FROM trades WHERE action='SELL' AND realized_pnl IS NOT NULL AND realized_pnl != 0"""
+    if all_seasons:
+        win_q += " GROUP BY player_id"
+        win_rows = conn.execute(win_q).fetchall()
+    else:
+        win_q += " AND season=? GROUP BY player_id"
+        win_rows = conn.execute(win_q, (season,)).fetchall()
+    for row in win_rows:
+        total = row["total_sells"]
+        win_data[row["player_id"]] = round(row["wins"] / total * 100, 1) if total > 0 else 0
+    # Super Agent win rate: closed portfolio_positions with positive closed_pnl
+    try:
+        sa_wr = conn.execute(
+            "SELECT COUNT(*) as total, "
+            "SUM(CASE WHEN closed_pnl > 0 THEN 1 ELSE 0 END) as wins "
+            "FROM portfolio_positions WHERE portfolio_id=1 AND status='closed'"
+        ).fetchone()
+        if sa_wr and sa_wr["total"] > 0:
+            win_data["super-agent"] = round(sa_wr["wins"] / sa_wr["total"] * 100, 1)
+        else:
+            win_data["super-agent"] = 0.0
+    except Exception:
+        pass
+
+    # Season-filtered profit factor (sum of winning trades / sum of losing trades)
+    profit_factor_data = {}
+    pf_q = """
+        SELECT player_id,
+               COALESCE(SUM(CASE WHEN realized_pnl > 0 THEN realized_pnl ELSE 0 END), 0) as total_gains,
+               COALESCE(SUM(CASE WHEN realized_pnl < 0 THEN ABS(realized_pnl) ELSE 0 END), 0) as total_losses
+        FROM trades WHERE action='SELL' AND realized_pnl IS NOT NULL"""
+    if all_seasons:
+        pf_q += " GROUP BY player_id"
+        pf_rows = conn.execute(pf_q).fetchall()
+    else:
+        pf_q += " AND season=? GROUP BY player_id"
+        pf_rows = conn.execute(pf_q, (season,)).fetchall()
+    for row in pf_rows:
+        gains = row["total_gains"]
+        losses = row["total_losses"]
+        pf = round(gains / losses, 2) if losses > 0 else (999.0 if gains > 0 else 0.0)
+        profit_factor_data[row["player_id"]] = {"profit_factor": pf, "realized_gains": round(gains, 2), "realized_losses": round(losses, 2)}
+
+    # Day P&L from portfolio_history (season-filtered)
+    day_pnl = {}
+    if all_seasons:
+        day_rows = conn.execute("""
+            SELECT player_id, total_value FROM portfolio_history
+            WHERE recorded_at >= datetime('now', '-24 hours')
+            ORDER BY recorded_at ASC
+        """).fetchall()
+    else:
+        day_rows = conn.execute("""
+            SELECT player_id, total_value FROM portfolio_history
+            WHERE recorded_at >= datetime('now', '-24 hours') AND season=?
+            ORDER BY recorded_at ASC
+        """, (season,)).fetchall()
+    for row in day_rows:
+        pid = row["player_id"]
+        if pid not in day_pnl:
+            day_pnl[pid] = {"first": row["total_value"], "last": row["total_value"]}
+        day_pnl[pid]["last"] = row["total_value"]
+
+    # Players with open options positions who aren't the designated options player
+    shadow_options_players = set()
+    try:
+        shadow_rows = conn.execute(
+            "SELECT DISTINCT p.player_id FROM positions p "
+            "LEFT JOIN ai_players a ON a.id = p.player_id "
+            "WHERE p.asset_type='option' AND COALESCE(a.options_enabled, 0) = 0"
+        ).fetchall()
+        for r in shadow_rows:
+            shadow_options_players.add(r["player_id"])
+    except Exception:
+        pass
+
+    # Open position counts per player (regular + super-agent from portfolio_positions)
+    pos_counts = {}
+    try:
+        for row in conn.execute("SELECT player_id, COUNT(*) as cnt FROM positions GROUP BY player_id").fetchall():
+            pos_counts[row["player_id"]] = row["cnt"]
+        sa_cnt = conn.execute(
+            "SELECT COUNT(*) as cnt FROM portfolio_positions WHERE portfolio_id=1 AND status='open'"
+        ).fetchone()
+        pos_counts["super-agent"] = sa_cnt["cnt"] if sa_cnt else 0
+    except Exception:
+        pass
+
+    is_current = (season == current_season) or all_seasons
+
+    if is_current:
+        # Live data for current season — bulk-fetch all symbols in ONE Yahoo request
+        try:
+            # Include Steve's non-watchlist positions so get_portfolio_with_pnl doesn't serial-fetch them
+            _extra = ["UNH", "VRT", "CPER", "XLE", "ORCL", "AMZN", "MU", "NVDA", "AVGO", "PLTR"]
+            _all_syms = list(WATCH_STOCKS) + [s for s in _extra if s not in WATCH_STOCKS]
+            prices = get_bulk_prices(_all_syms, timeout=5) or {}
+        except Exception:
+            prices = {}
+        result = []
+        for p in players:
+            try:
+                # Super Agent: compute from Alpaca Paper portfolio_positions (portfolio_id=1)
+                if p["id"] == "super-agent":
+                    _sa_conn = _conn()
+                    _sa_pos = _sa_conn.execute(
+                        "SELECT COALESCE(SUM(unrealized_pnl), 0) as total_unrealized, "
+                        "COALESCE(SUM(quantity * current_price), 0) as pos_value, "
+                        "COALESCE(SUM(quantity * entry_price), 0) as cost_basis "
+                        "FROM portfolio_positions WHERE portfolio_id=1 AND status='open'"
+                    ).fetchone()
+                    _sa_realized = _sa_conn.execute(
+                        "SELECT COALESCE(SUM(closed_pnl), 0) as realized "
+                        "FROM portfolio_positions WHERE portfolio_id=1 AND status='closed'"
+                    ).fetchone()
+                    _sa_conn.close()
+                    unrealized_pnl = round(float(_sa_pos["total_unrealized"] or 0), 2)
+                    positions_value = round(float(_sa_pos["pos_value"] or 0), 2)
+                    realized = round(float(_sa_realized["realized"] or 0), 2)
+                    total_value = round(25000.0 + unrealized_pnl + realized, 2)
+                    return_pct = round((total_value - 25000.0) / 25000.0 * 100, 2)
+                
+                # Enterprise Computer uses metals_tracker (physical gold/silver — display only)
+                elif p["id"] == "enterprise-computer":
+                    from engine.metals_tracker import get_portfolio as _metals_portfolio
+                    _mp = _metals_portfolio()
+                    total_value = _mp["total_value"]   # metals market value only (no cash)
+                    positions_value = total_value      # same — metals IS the portfolio
+                    unrealized_pnl = _mp["total_unrealized_pnl"]
+                    # return_pct = (metals_value - cost_basis) / cost_basis
+                    _cost_basis = _mp.get("total_cost_basis", 0)
+                    return_pct = round((total_value - _cost_basis) / _cost_basis * 100, 2) if _cost_basis > 0 else 0
+                else:
+                    pnl = get_portfolio_with_pnl(p["id"], prices)
+                    total_value = pnl["total_value"]
+                    positions_value = pnl["total_positions_value"]
+                    unrealized_pnl = pnl["total_unrealized_pnl"]
+                    return_pct = pnl["return_pct"]
+            except Exception:
+                total_value = round(p["cash"], 2)
+                positions_value = 0
+                unrealized_pnl = 0
+                if p["id"] == "super-agent":
+                    starting = 25000
+                elif p["id"] == "dayblade-0dte":
+                    starting = 3500
+                elif p["id"] == "steve-webull":
+                    starting = 7021.81
+                else:
+                    starting = 7000
+                return_pct = round((total_value - starting) / starting * 100, 2)
+            pnl_history = day_pnl.get(p["id"], {})
+            day_change = pnl_history.get("last", total_value) - pnl_history.get("first", total_value)
+            day_change -= _recent_funding_total(conn, p["id"], season=current_season, all_seasons=all_seasons)
+
+            # For steve-webull / dalio-metals: calculate day P&L from position-level price movement,
+            # not portfolio_history snapshots (which break on sync when positions are removed)
+            if p["id"] in ("steve-webull", "dalio-metals"):
+                try:
+                    day_change = sum(
+                        pos.get("market_value", 0) * pos.get("day_change_pct", 0) / 100
+                        for pos in pnl.get("positions", [])
+                        if pos.get("day_change_pct") is not None
+                    )
+                except Exception:
+                    pass  # Fall back to portfolio_history calculation
+            
+            pf_info = profit_factor_data.get(p["id"], {})
+            season_overlay = _season_overlay(conn, p["id"], season, current_total_value=total_value)
+            starting_capital = _season_starting_capital(p["id"], current_season)
+            normalized = _normalized_leaderboard_metrics(total_value, day_change, starting_capital)
+            row = {
+                "player_id": p["id"],
+                "name": p["display_name"],
+                "provider": p["provider"],
+                "model": p["model_id"],
+                "cash": 0.0 if p["id"] == "enterprise-computer" else round(p["cash"], 2),
+                "positions_value": positions_value,
+                "total_value": total_value,
+                "unrealized_pnl": unrealized_pnl,
+                "return_pct": normalized["return_pct"],
+                "day_change": normalized["day_pnl"],
+                "current_equity": normalized["current_equity"],
+                "previous_equity": normalized["previous_equity"],
+                "starting_capital": normalized["starting_capital"],
+                "day_pnl": normalized["day_pnl"],
+                "trades": trade_counts.get(p["id"], 0),
+                "win_rate": win_data.get(p["id"], 0),
+                "profit_factor": pf_info.get("profit_factor", 0),
+                "realized_gains": pf_info.get("realized_gains", 0),
+                "realized_losses": pf_info.get("realized_losses", 0),
+                "is_active": bool(p["is_active"]),
+                "is_halted": bool(p["is_halted"]),
+                "is_paused": bool(p["is_paused"]),
+                "has_shadow_options": p["id"] in shadow_options_players,
+                "positions_count": pos_counts.get(p["id"], 0),
+                "season_overlay": season_overlay,
+            }            
+            result.append(annotate_player_payload(row))
+        conn.close()
+    else:
+        # Historical season — reconstruct final values from last portfolio_history snapshot
+        conn.close()
+        conn2 = _conn()
+        result = []
+        starting = 10000.0
+        for p in players:
+            pid = p["id"]
+            # Season-aware starting capital: S1-S3 used $10k, S4+ uses $7k
+            if pid == "steve-webull":
+                s_starting = 7021.81
+            elif pid == "dayblade-0dte":
+                s_starting = 2000.0 if season == 1 else (5000.0 if season <= 3 else 3500.0)
+            else:
+                s_starting = 10000.0 if season <= 3 else 7000.0
+            # Get last snapshot for this season
+            snap = conn2.execute(
+                "SELECT total_value, cash, positions_value FROM portfolio_history "
+                "WHERE player_id=? AND season=? ORDER BY recorded_at DESC LIMIT 1", (pid, season)
+            ).fetchone()
+            # Get realized P&L sum for the season
+            rpnl = conn2.execute(
+                "SELECT COALESCE(SUM(realized_pnl), 0) as total FROM trades WHERE player_id=? AND season=? AND action='SELL' AND realized_pnl IS NOT NULL",
+                (pid, season)
+            ).fetchone()
+
+            if snap:
+                total_value = snap["total_value"]
+            else:
+                total_value = s_starting + (rpnl["total"] if rpnl else 0)
+
+            pnl_history = day_pnl.get(pid, {})
+            day_change = pnl_history.get("last", total_value) - pnl_history.get("first", total_value)
+            day_change -= _recent_funding_total(conn2, pid, season=season, all_seasons=all_seasons)
+            normalized = _normalized_leaderboard_metrics(total_value, day_change, s_starting)
+            
+            result.append(annotate_player_payload({
+                "player_id": pid,
+                "name": p["display_name"],
+                "provider": p["provider"],
+                "model": p["model_id"],
+                "cash": round(snap["cash"], 2) if snap else round(total_value, 2),
+                "positions_value": round(snap["positions_value"], 2) if snap else 0,
+                "total_value": round(total_value, 2),
+                "unrealized_pnl": 0,
+                "return_pct": normalized["return_pct"],
+                "day_change": normalized["day_pnl"],
+                "current_equity": normalized["current_equity"],
+                "previous_equity": normalized["previous_equity"],
+                "starting_capital": normalized["starting_capital"],
+                "day_pnl": normalized["day_pnl"],
+                "total_pnl": normalized["total_pnl"],
+                "trades": trade_counts.get(pid, 0),
+                "win_rate": win_data.get(pid, 0),
+                "profit_factor": profit_factor_data.get(pid, {}).get("profit_factor", 0),
+                "realized_gains": profit_factor_data.get(pid, {}).get("realized_gains", 0),
+                "realized_losses": profit_factor_data.get(pid, {}).get("realized_losses", 0),
+                "is_active": bool(p["is_active"]),
+                "is_halted": False,
+                "is_paused": False,
+                "has_shadow_options": p["id"] in shadow_options_players,
+                "season_overlay": _season_overlay(conn2, pid, season, current_total_value=total_value),
+            }))
+        conn2.close()
+
+    result.sort(key=lambda x: x["total_value"], reverse=True)
+    _lb_result = {"season": -1 if all_seasons else season, "current_season": current_season, "leaderboard": result}
+    _lb_result = _patch_super_agent(_lb_result)
+
+    # Update in-memory and disk cache
+    _endpoint_cache[_lb_key] = {"time": _lt.time(), "data": _lb_result}
+    try:
+        _leaderboard_disk_cache["data"] = _lb_result
+        _leaderboard_disk_cache["ts"] = _lt.time()
+        with open(_LEADERBOARD_CACHE_FILE, "w") as _lf:
+            _lj.dump({"data": _lb_result, "ts": _lt.time()}, _lf)
+    except Exception:
+        pass
+
+    if "leaderboard" not in _swr_locks:
+        _swr_locks["leaderboard"] = threading.Lock()
+    return _sanitize(_lb_result)
+
+
+import math
+def _sanitize(obj):
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    if isinstance(obj, float):
+        return obj if math.isfinite(obj) else 0.0
+    return obj
+
+
+@app.get("/api/arena/player/{player_id}")
+def player_detail(player_id: str):
+    from engine.paper_trader import get_portfolio_with_pnl
+    from engine.market_data import get_stock_price
+    from engine.sector_tracker import get_sector_exposure
+    from engine.correlation import get_portfolio_correlation
+    from engine.risk_manager import RiskManager
+
+    metals_alias = player_id == "enterprise-computer"
+    source_player_id = "enterprise-computer" if metals_alias else player_id
+
+    conn = _conn()
+    player = conn.execute("SELECT * FROM ai_players WHERE id=?", (player_id,)).fetchone()
+    if not player:
+        conn.close()
+        return {"error": "Player not found"}
+
+    # Super Agent uses portfolio_positions (Alpaca Paper) not positions table
+    if player_id == "super-agent":
+        sa_positions = conn.execute(
+            "SELECT ticker AS symbol, quantity AS qty, entry_price AS avg_price, "
+            "asset_class AS asset_type, option_type, strike_price, expiration_date AS expiry_date, "
+            "unrealized_pnl, current_price, stop_loss, take_profit, "
+            "COALESCE(quantity * current_price, quantity * entry_price) AS market_value, "
+            "created_at AS opened_at "
+            "FROM portfolio_positions WHERE portfolio_id=1 AND status='open' "
+            "ORDER BY created_at DESC"
+        ).fetchall()
+        sa_closed = conn.execute(
+            "SELECT COUNT(*) AS total, "
+            "COALESCE(SUM(closed_pnl), 0) AS realized, "
+            "SUM(CASE WHEN closed_pnl > 0 THEN 1 ELSE 0 END) AS wins "
+            "FROM portfolio_positions WHERE portfolio_id=1 AND status='closed'"
+        ).fetchone()
+        sa_total_count = conn.execute(
+            "SELECT COUNT(*) AS cnt FROM portfolio_positions WHERE portfolio_id=1"
+        ).fetchone()
+        conn.close()
+
+        total_unrealized = round(sum(float(p["unrealized_pnl"] or 0) for p in sa_positions), 2)
+        total_realized = round(float(sa_closed["realized"] or 0), 2)
+        # market_value: prefer quantity * current_price; fall back to entry if current is 0/null
+        positions_value = round(sum(
+            float(p["qty"] or 0) * (float(p["current_price"]) if p["current_price"] else float(p["avg_price"] or 0))
+            for p in sa_positions
+        ), 2)
+        total_value = round(25000.0 + total_unrealized + total_realized, 2)
+        return_pct = round((total_value - 25000.0) / 25000.0 * 100, 2)
+
+        closed_total = sa_closed["total"] or 0
+        closed_wins  = sa_closed["wins"] or 0
+        win_rate_pct = round(closed_wins / closed_total * 100, 1) if closed_total > 0 else 0.0
+
+        def _pos_dict(p):
+            qty       = float(p["qty"] or 0)
+            avg       = float(p["avg_price"] or 0)
+            cur       = float(p["current_price"] or 0) or avg   # fall back to avg if no live price
+            cost      = qty * avg
+            mv        = qty * cur
+            unreal    = float(p["unrealized_pnl"] or 0)
+            # pct: use stored Alpaca unrealized_pnl / cost basis (more accurate than price diff)
+            unreal_pct = round(unreal / cost * 100, 2) if cost else 0.0
+            return {
+                "symbol":           p["symbol"],
+                "qty":              qty,
+                "avg_price":        avg,
+                "current_price":    cur,
+                "market_value":     round(mv, 2),
+                "unrealized_pnl":   round(unreal, 2),
+                "unrealized_pnl_pct": unreal_pct,
+                "day_change_pct":   None,           # not available from DB sync
+                "asset_type":       p["asset_type"] or "stock",
+                "option_type":      p["option_type"],
+                "strike_price":     p["strike_price"],
+                "expiry_date":      p["expiry_date"],
+                "stop_loss":        float(p["stop_loss"]) if p["stop_loss"] else None,
+                "take_profit":      float(p["take_profit"]) if p["take_profit"] else None,
+                "opened_at":        p["opened_at"],
+                "sources":          "",
+            }
+
+        return annotate_player_payload({
+            "player_id": player["id"],
+            "name":      player["display_name"],
+            "provider":  player["provider"],
+            "model":     player["model_id"],
+            "cash":      round(float(player["cash"]), 2),
+            "total_value":            total_value,
+            "return_pct":             return_pct,
+            "total_unrealized_pnl":   total_unrealized,
+            "total_positions_value":  positions_value,
+            "is_active":  bool(player["is_active"]),
+            "is_halted":  bool(player["is_halted"]),
+            "positions":  [_pos_dict(p) for p in sa_positions],
+            "stats": {
+                "total_trades":   sa_total_count["cnt"] if sa_total_count else 0,
+                "buys":           len(sa_positions),          # open = bought not yet sold
+                "sells":          closed_total,
+                "options_trades": 0,
+                "win_rate":       win_rate_pct,
+                "closed_trades":  closed_total,
+                "closed_wins":    closed_wins,
+            },
+        })
+
+    positions = conn.execute(
+        "SELECT symbol, qty, avg_price, asset_type, option_type, strike_price, expiry_date, opened_at "
+        "FROM positions WHERE player_id=?", (player_id,)
+    ).fetchall()
+
+    # Get trade stats
+    stats = conn.execute("""
+        SELECT COUNT(*) as total_trades,
+               SUM(CASE WHEN action='BUY' THEN 1 ELSE 0 END) as buys,
+               SUM(CASE WHEN action='SELL' THEN 1 ELSE 0 END) as sells,
+               SUM(CASE WHEN action LIKE 'BUY_%' THEN 1 ELSE 0 END) as options_trades
+        FROM trades WHERE player_id=?
+    """, (player_id,)).fetchone()
+
+    # Realized P&L from completed sells
+    realized = conn.execute("""
+        SELECT COALESCE(SUM(
+            CASE WHEN action='SELL' THEN qty * price ELSE 0 END -
+            CASE WHEN action='SELL' THEN qty * (
+                SELECT t2.price FROM trades t2
+                WHERE t2.player_id=trades.player_id AND t2.symbol=trades.symbol
+                AND t2.action='BUY' ORDER BY t2.executed_at DESC LIMIT 1
+            ) ELSE 0 END
+        ), 0) as total_realized
+        FROM trades WHERE player_id=? AND action='SELL'
+    """, (player_id,)).fetchone()
+
+    # Look up data sources for each open position from its BUY trade
+    position_sources = {}
+    try:
+        conn2 = _conn()
+        conn2.execute("SELECT sources FROM trades LIMIT 1")  # test column exists
+        for pos in positions:
+            src_row = conn2.execute(
+                "SELECT sources FROM trades WHERE player_id=? AND symbol=? AND action IN ('BUY','BUY_CALL','BUY_PUT') "
+                "ORDER BY executed_at DESC LIMIT 1",
+                (player_id, pos["symbol"])
+            ).fetchone()
+            if src_row and src_row["sources"]:
+                position_sources[pos["symbol"]] = src_row["sources"]
+        conn2.close()
+    except Exception:
+        pass
+
+    # Fetch live prices for positions
+    # Metal positions need Yahoo futures symbols (GC=F, SI=F), not stock tickers
+    _METAL_YAHOO = {"GOLD": "GC=F", "SILVER": "SI=F", "PLATINUM": "PL=F", "PALLADIUM": "PA=F"}
+    prices = {}
+    symbols = list(set(p["symbol"] for p in positions))
+    for sym in symbols:
+        fetch_sym = _METAL_YAHOO.get(sym, sym)
+        data = get_stock_price(fetch_sym)
+        if "error" not in data:
+            prices[sym] = data
+
+    pnl_data = get_portfolio_with_pnl(source_player_id, prices)
+
+    # Enterprise Computer: override total_value/return_pct with metals_tracker (cost-basis based)
+    if metals_alias:
+        try:
+            from engine.metals_tracker import get_portfolio as _mp_fn
+            _mp = _mp_fn()
+            pnl_data = dict(pnl_data)
+            pnl_data["total_value"] = _mp["total_value"]
+            pnl_data["total_unrealized_pnl"] = _mp["total_unrealized_pnl"]
+            _cost = _mp.get("total_cost_basis", 0)
+            pnl_data["return_pct"] = round((_mp["total_value"] - _cost) / _cost * 100, 2) if _cost > 0 else 0
+            pnl_data["total_positions_value"] = _mp["total_value"]
+        except Exception:
+            pass
+
+    # Attach sources to each position
+    for pos in pnl_data["positions"]:
+        pos["sources"] = position_sources.get(pos["symbol"], "")
+
+    try:
+        sector_exposure = get_sector_exposure(source_player_id)
+    except Exception:
+        sector_exposure = []
+    try:
+        correlation_profile = get_portfolio_correlation(source_player_id)
+    except Exception:
+        correlation_profile = {
+            "groups": [],
+            "group_exposure": [],
+            "symbol_exposure": [],
+            "warnings": [],
+            "concentrated": False,
+        }
+    try:
+        construction = RiskManager().get_portfolio_construction_warnings(source_player_id, pnl_data)
+    except Exception:
+        construction = {"warnings": [], "sector": {"buckets": []}, "correlation": {"groups": []}}
+    try:
+        s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+        current_season = int(s_row["value"]) if s_row else 1
+    except Exception:
+        current_season = 1
+    season_overlay = _season_overlay(conn, player_id, current_season, current_total_value=pnl_data["total_value"])
+    conn.close()
+
+    return annotate_player_payload({
+        "player_id": player["id"],
+        "name": player["display_name"],
+        "provider": player["provider"],
+        "model": player["model_id"],
+        "cash": 0.0 if metals_alias else round(player["cash"], 2),
+        "total_value": pnl_data["total_value"],
+        "return_pct": pnl_data["return_pct"],
+        "total_unrealized_pnl": pnl_data["total_unrealized_pnl"],
+        "total_positions_value": pnl_data["total_positions_value"],
+        "is_active": bool(player["is_active"]),
+        "is_halted": bool(player["is_halted"]),
+        "positions": pnl_data["positions"],
+        "stats": {
+            "total_trades": stats["total_trades"] if stats else 0,
+            "buys": stats["buys"] if stats else 0,
+            "sells": stats["sells"] if stats else 0,
+            "options_trades": stats["options_trades"] if stats else 0,
+        },
+        "risk": {
+            "sector_exposure": sector_exposure,
+            "correlation": correlation_profile,
+            "construction": construction,
+        },
+        "season_overlay": season_overlay,
+    })
+
+
+@app.get("/api/arena/player/{player_id}/trades")
+def player_trades(player_id: str, limit: int = 50):
+    conn = _conn()
+    # Check if sources column exists
+    _has_src = False
+    try:
+        conn.execute("SELECT sources FROM trades LIMIT 1")
+        _has_src = True
+    except Exception:
+        pass
+    _sc = ", sources" if _has_src else ""
+    trades = conn.execute(
+        f"SELECT symbol, action, qty, price, asset_type, option_type, reasoning, confidence, executed_at{_sc} "
+        "FROM trades WHERE player_id=? ORDER BY executed_at DESC LIMIT ?",
+        (player_id, limit)
+    ).fetchall()
+    conn.close()
+    return [annotate_player_payload(dict(t) | {"player_id": player_id}) for t in trades]
+
+
+@app.get("/api/arena/player/{player_id}/open-positions")
+def player_open_positions(player_id: str):
+    """Return open positions with live P&L for a player."""
+    # Enterprise Computer: use metals_tracker for enriched positions with unit=oz
+    if player_id in ("enterprise-computer", "dalio-metals"):
+        try:
+            from engine.metals_tracker import get_portfolio as _mp_fn
+            _mp = _mp_fn()
+            # Annotate each position with asset_type='metal' and unit
+            for pos in _mp.get("positions", []):
+                pos["asset_type"] = "metal"
+            return {"positions": _mp.get("positions", []), "total_unrealized": _mp.get("total_unrealized_pnl", 0)}
+        except Exception as e:
+            return {"positions": [], "total_unrealized": 0, "error": str(e)}
+    try:
+        from engine.paper_trader import get_portfolio_with_pnl as _gpnl
+        from engine.market_data import get_all_prices as _gap
+        conn = _conn()
+        syms = [r[0] for r in conn.execute(
+            "SELECT DISTINCT symbol FROM positions WHERE player_id=? AND qty>0", (player_id,)
+        ).fetchall()]
+        conn.close()
+        prices = _gap(syms) if syms else {}
+        port = _gpnl(player_id, prices)
+        return {"positions": port.get("positions", []), "total_unrealized": port.get("total_unrealized_pnl", 0)}
+    except Exception as e:
+        return {"positions": [], "total_unrealized": 0, "error": str(e)}
+
+
+@app.get("/api/arena/player/{player_id}/signals")
+def player_signals(player_id: str, limit: int = 50):
+    conn = _conn()
+    _has_src = False
+    try:
+        conn.execute("SELECT sources FROM signals LIMIT 1")
+        _has_src = True
+    except Exception:
+        pass
+    _sc = ", sources" if _has_src else ""
+    signals = conn.execute(
+        f"SELECT symbol, signal, confidence, reasoning, asset_type, option_type, created_at{_sc} "
+        "FROM signals WHERE player_id=? ORDER BY created_at DESC LIMIT ?",
+        (player_id, limit)
+    ).fetchall()
+    conn.close()
+    return [dict(s) for s in signals]
+
+
+@app.get("/api/arena/player/{player_id}/history")
+def player_history(player_id: str):
+    conn = _conn()
+    history = conn.execute(
+        "SELECT total_value, cash, positions_value, recorded_at "
+        "FROM portfolio_history WHERE player_id=? ORDER BY recorded_at ASC",
+        (player_id,)
+    ).fetchall()
+    conn.close()
+    return [dict(h) for h in history]
+
+
+# --- General Endpoints ---
+
+@app.get("/api/status")
+def status():
+    conn = _conn()
+    # Get current season
+    s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+    current_season = int(s_row["value"]) if s_row else 1
+
+    players = conn.execute("SELECT COUNT(*) as cnt FROM ai_players WHERE is_active=1").fetchone()
+    trades = conn.execute("SELECT COUNT(*) as cnt FROM trades WHERE season=?", (current_season,)).fetchone()
+    signals = conn.execute("SELECT COUNT(*) as cnt FROM signals WHERE season=?", (current_season,)).fetchone()
+    chat_count = conn.execute("SELECT COUNT(*) as cnt FROM ai_chat").fetchone()
+    news_count = conn.execute("SELECT COUNT(*) as cnt FROM market_news").fetchone()
+
+    # Total portfolio value
+    total_val = conn.execute("""
+        SELECT SUM(p.cash + COALESCE(pos_val, 0)) as total
+        FROM ai_players p
+        LEFT JOIN (SELECT player_id, SUM(qty * avg_price) as pos_val FROM positions GROUP BY player_id) pv
+        ON p.id = pv.player_id
+        WHERE p.is_active = 1
+    """).fetchone()
+
+    conn.close()
+    return {
+        "status": "running",
+        "current_season": current_season,
+        "active_players": players["cnt"],
+        "total_trades": trades["cnt"],
+        "total_signals": signals["cnt"],
+        "total_chat_messages": chat_count["cnt"] if chat_count else 0,
+        "total_news": news_count["cnt"] if news_count else 0,
+        "total_portfolio_value": round(total_val["total"], 2) if total_val and total_val["total"] else 0,
+    }
+
+
+@app.get("/api/operations")
+def operations_status():
+    """System operations dashboard — scanner health, model activity, market status."""
+    import time as _time
+    conn = _conn()
+    try:
+        # Last scan time
+        last_scan = conn.execute(
+            "SELECT MAX(created_at) as ts FROM signals"
+        ).fetchone()
+
+        # Active models
+        active_models = conn.execute(
+            "SELECT COUNT(*) as cnt FROM ai_players WHERE is_active=1 AND is_human=0"
+        ).fetchone()
+        paused_models = conn.execute(
+            "SELECT COUNT(*) as cnt FROM ai_players WHERE is_active=0 AND is_human=0"
+        ).fetchone()
+
+        # Trades today
+        trades_today = conn.execute(
+            "SELECT COUNT(*) as cnt FROM trades WHERE date(executed_at)=date('now')"
+        ).fetchone()
+
+        # Signals today
+        signals_today = conn.execute(
+            "SELECT COUNT(*) as cnt FROM signals WHERE date(created_at)=date('now')"
+        ).fetchone()
+
+        # Recent errors (last hour from signals with error-like reasoning)
+        recent_activity = conn.execute(
+            "SELECT player_id, symbol, signal, created_at FROM signals "
+            "ORDER BY created_at DESC LIMIT 5"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    # Market status via regime detector
+    market_status = "unknown"
+    vix = None
+    try:
+        from engine.regime_detector import detect_regime
+        regime = detect_regime()
+        market_status = regime.get("regime", "unknown")
+        vix = regime.get("vix")
+    except Exception:
+        pass
+
+    return {
+        "status": "running",
+        "scanner": {
+            "last_scan": last_scan["ts"] if last_scan else None,
+            "active_models": active_models["cnt"] if active_models else 0,
+            "paused_models": paused_models["cnt"] if paused_models else 0,
+            "trades_today": trades_today["cnt"] if trades_today else 0,
+            "signals_today": signals_today["cnt"] if signals_today else 0,
+        },
+        "market": {
+            "status": market_status,
+            "vix": vix,
+        },
+        "recent_signals": [
+            {"player_id": r["player_id"], "symbol": r["symbol"],
+             "signal": r["signal"], "at": r["created_at"]}
+            for r in (recent_activity or [])
+        ],
+    }
+
+
+@app.get("/api/operations/data")
+def operations_data():
+    """Alias for /api/operations — frontend compatibility."""
+    return operations_status()
+
+
+@app.get("/api/operations/status")
+def operations_status_alias():
+    """Compatibility alias for older dashboard clients."""
+    return operations_status()
+
+
+_trades_cache = {"data": None, "ts": 0, "key": ""}
+
+@app.get("/api/trades/recent")
+def recent_trades(limit: int = 30, season: int = 0, timeframe: str = ""):
+    import time as _time
+
+    # Cache key based on params
+    cache_key = f"{limit}:{season}:{timeframe}"
+    if _trades_cache["key"] == cache_key and _time.time() - _trades_cache["ts"] < 15:
+        return _trades_cache["data"]
+
+    conn = _conn()
+    # Determine season (-1 = all seasons)
+    all_seasons = (season == -1)
+    if season <= 0 and not all_seasons:
+        s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+        season = int(s_row["value"]) if s_row else 1
+    # Check if sources/timeframe columns exist (migration may not have run yet)
+    _has_sources = False
+    try:
+        conn.execute("SELECT sources FROM trades LIMIT 1")
+        _has_sources = True
+    except Exception:
+        pass
+    _has_timeframe = False
+    try:
+        conn.execute("SELECT timeframe FROM trades LIMIT 1")
+        _has_timeframe = True
+    except Exception:
+        pass
+    _src_col = ", t.sources" if _has_sources else ""
+    _tf_col = ", t.timeframe" if _has_timeframe else ""
+
+    # Build timeframe WHERE clause
+    tf_filter = timeframe.upper() if timeframe and timeframe.upper() in ("SCALP", "SWING", "POSITION") else ""
+
+    if all_seasons:
+        if tf_filter and _has_timeframe:
+            trades = conn.execute(
+                "SELECT t.player_id, p.display_name, p.provider, t.symbol, t.action, t.qty, t.price, "
+                "t.asset_type, t.option_type, t.reasoning, t.confidence, t.executed_at, "
+                f"t.entry_price, t.exit_price, t.realized_pnl, t.strike_price, t.expiry_date{_src_col}{_tf_col} "
+                "FROM trades t JOIN ai_players p ON t.player_id = p.id "
+                "WHERE t.timeframe=? "
+                "ORDER BY t.executed_at DESC LIMIT ?", (tf_filter, limit)
+            ).fetchall()
+        else:
+            trades = conn.execute(
+                "SELECT t.player_id, p.display_name, p.provider, t.symbol, t.action, t.qty, t.price, "
+                "t.asset_type, t.option_type, t.reasoning, t.confidence, t.executed_at, "
+                f"t.entry_price, t.exit_price, t.realized_pnl, t.strike_price, t.expiry_date{_src_col}{_tf_col} "
+                "FROM trades t JOIN ai_players p ON t.player_id = p.id "
+                "ORDER BY t.executed_at DESC LIMIT ?", (limit,)
+            ).fetchall()
+    else:
+        if tf_filter and _has_timeframe:
+            trades = conn.execute(
+                "SELECT t.player_id, p.display_name, p.provider, t.symbol, t.action, t.qty, t.price, "
+                "t.asset_type, t.option_type, t.reasoning, t.confidence, t.executed_at, "
+                f"t.entry_price, t.exit_price, t.realized_pnl, t.strike_price, t.expiry_date{_src_col}{_tf_col} "
+                "FROM trades t JOIN ai_players p ON t.player_id = p.id "
+                "WHERE t.season=? AND t.timeframe=? "
+                "ORDER BY t.executed_at DESC LIMIT ?", (season, tf_filter, limit)
+            ).fetchall()
+        else:
+            trades = conn.execute(
+                "SELECT t.player_id, p.display_name, p.provider, t.symbol, t.action, t.qty, t.price, "
+                "t.asset_type, t.option_type, t.reasoning, t.confidence, t.executed_at, "
+                f"t.entry_price, t.exit_price, t.realized_pnl, t.strike_price, t.expiry_date{_src_col}{_tf_col} "
+                "FROM trades t JOIN ai_players p ON t.player_id = p.id "
+                "WHERE t.season=? "
+                "ORDER BY t.executed_at DESC LIMIT ?", (season, limit)
+            ).fetchall()
+
+    # Get current prices — use cached batch prices instead of individual calls
+    open_symbols = set()
+    for t in trades:
+        if t["action"] in ("BUY", "BUY_CALL", "BUY_PUT"):
+            open_symbols.add(t["symbol"])
+
+    current_prices = {}
+    if open_symbols:
+        try:
+            from engine.market_data import get_all_prices
+            # Only fetch prices for symbols in the result set (not all WATCH_STOCKS)
+            all_prices = get_all_prices(list(open_symbols))
+            for sym in open_symbols:
+                if sym in all_prices:
+                    current_prices[sym] = all_prices[sym]["price"]
+        except Exception:
+            pass
+
+    conn.close()
+
+    result = []
+    for t in trades:
+        d = dict(t)
+        # Add P&L for every trade
+        if t["action"] == "SELL" and t["realized_pnl"] is not None:
+            d["pnl"] = round(t["realized_pnl"], 2)
+            d["pnl_pct"] = round(
+                ((t["exit_price"] or t["price"]) - (t["entry_price"] or t["price"]))
+                / (t["entry_price"] or t["price"]) * 100, 2
+            ) if t["entry_price"] else None
+        elif t["action"] in ("BUY", "BUY_CALL", "BUY_PUT"):
+            # Unrealized P&L for open positions
+            sym = t["symbol"]
+            is_option = (t["asset_type"] == "option" or t["action"] in ("BUY_CALL", "BUY_PUT"))
+            if is_option:
+                # Estimate option value using intrinsic value
+                from engine.paper_trader import estimate_option_price
+                stock_price = current_prices.get(sym, 0)
+                ot = (t["option_type"] if t["option_type"] else None) or ("call" if t["action"] == "BUY_CALL" else "put")
+                strike = t["strike_price"] if t["strike_price"] else None
+                est = estimate_option_price(ot, strike, stock_price, t["price"])
+                d["pnl"] = round((est - t["price"]) * t["qty"], 2)
+                d["pnl_pct"] = round((est - t["price"]) / t["price"] * 100, 2) if t["price"] > 0 else 0
+                d["current_price"] = round(est, 2)
+            elif sym in current_prices:
+                cur = current_prices[sym]
+                entry = t["price"]
+                d["pnl"] = round((cur - entry) * t["qty"], 2)
+                d["pnl_pct"] = round((cur - entry) / entry * 100, 2) if entry > 0 else 0
+                d["current_price"] = round(cur, 2)
+            else:
+                d["pnl"] = None
+                d["pnl_pct"] = None
+        else:
+            d["pnl"] = None
+            d["pnl_pct"] = None
+        result.append(annotate_player_payload(d))
+
+    _trades_cache["data"] = result
+    _trades_cache["ts"] = _time.time()
+    _trades_cache["key"] = cache_key
+    return result
+
+
+@app.get("/api/recent-trades")
+def recent_trades_alias(limit: int = 30, season: int = 0, timeframe: str = ""):
+    """Compatibility alias for older dashboard clients."""
+    return recent_trades(limit=limit, season=season, timeframe=timeframe)
+
+
+@app.get("/api/anderson/decision-summary")
+def anderson_decision_summary():
+    conn = _conn()
+    try:
+        candidates = conn.execute(
+            "SELECT id, name, target_tickers, conviction_score, critic_score, critic_notes, "
+            "direction, thesis, status, scout_brief, architect_reasoning, commander_decision "
+            "FROM crew_strategies "
+            "WHERE status IN ('draft', 'approved') "
+            "AND deployed_to_portfolio_id IS NULL "
+            "AND created_at >= datetime('now', '-2 hours') "
+            "ORDER BY conviction_score DESC"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    from crew.ensemble import AgentScoreboard, _bucket_for_agent, _source_policy, select_collective_signals
+
+    scoreboard = AgentScoreboard()
+    source_policy = {
+        bucket: _source_policy(scoreboard, bucket)
+        for bucket in ("LegacyCrew", "Momentum", "MeanReversion")
+    }
+
+    if not candidates:
+        return {
+            "selected_signals": [],
+            "source_policy": source_policy,
+            "candidate_count": 0,
+            "selected_count": 0,
+        }
+
+    result = select_collective_signals(candidates)
+    selected = []
+    for signal in result.get("final_signals", []):
+        agent = str(signal.get("agent") or "")
+        bucket = _bucket_for_agent(agent)
+        policy = source_policy.get(bucket, {})
+        selected.append({
+            "symbol": signal.get("symbol"),
+            "agent": agent,
+            "source_bucket": bucket,
+            "selection_type": signal.get("selection_type", "exploit"),
+            "confidence": float(signal.get("confidence") or 0.0),
+            "weighted_confidence": float(signal.get("weighted_confidence") or 0.0),
+            "status": policy.get("status", "neutral"),
+            "win_rate": policy.get("win_rate"),
+            "allocation_multiplier": policy.get("multiplier"),
+            "thesis": signal.get("thesis"),
+        })
+
+    return {
+        "selected_signals": selected,
+        "source_policy": source_policy,
+        "candidate_count": len(result.get("candidate_signals", [])),
+        "selected_count": len(selected),
+    }
+
+
+@app.get("/api/signals/recent")
+def recent_signals(limit: int = 50, season: int = 0, timeframe: str = ""):
+    conn = _conn()
+    if season <= 0:
+        s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+        season = int(s_row["value"]) if s_row else 1
+    # Check if sources/timeframe columns exist
+    _has_src = False
+    try:
+        conn.execute("SELECT sources FROM signals LIMIT 1")
+        _has_src = True
+    except Exception:
+        pass
+    _has_tf = False
+    try:
+        conn.execute("SELECT timeframe FROM signals LIMIT 1")
+        _has_tf = True
+    except Exception:
+        pass
+    _has_status = False
+    try:
+        conn.execute("SELECT execution_status FROM signals LIMIT 1")
+        _has_status = True
+    except Exception:
+        pass
+    _sc = ", s.sources" if _has_src else ""
+    _tc = ", s.timeframe" if _has_tf else ""
+    _stc = ", s.execution_status, s.rejection_reason" if _has_status else ""
+
+    tf_filter = timeframe.upper() if timeframe and timeframe.upper() in ("SCALP", "SWING", "POSITION") else ""
+
+    if tf_filter and _has_tf:
+        signals = conn.execute(
+            "SELECT s.player_id, p.display_name, p.provider, s.symbol, s.signal, s.confidence, "
+            f"s.reasoning, s.asset_type, s.option_type, s.created_at{_sc}{_tc}{_stc} "
+            "FROM signals s JOIN ai_players p ON s.player_id = p.id "
+            "WHERE s.season=? AND s.timeframe=? "
+            "ORDER BY s.created_at DESC LIMIT ?", (season, tf_filter, limit)
+        ).fetchall()
+    else:
+        signals = conn.execute(
+            "SELECT s.player_id, p.display_name, p.provider, s.symbol, s.signal, s.confidence, "
+            f"s.reasoning, s.asset_type, s.option_type, s.created_at{_sc}{_tc}{_stc} "
+            "FROM signals s JOIN ai_players p ON s.player_id = p.id "
+            "WHERE s.season=? "
+            "ORDER BY s.created_at DESC LIMIT ?", (season, limit)
+        ).fetchall()
+    conn.close()
+    return [dict(s) for s in signals]
+
+
+@app.get("/api/recent-signals")
+def recent_signals_alias(limit: int = 50, season: int = 0, timeframe: str = ""):
+    """Compatibility alias for older dashboard clients."""
+    return recent_signals(limit=limit, season=season, timeframe=timeframe)
+
+
+@app.get("/api/arena/comparison")
+@timed_cache(300)
+def comparison_chart(season: int = 0):
+    """Portfolio value history for all players, optionally filtered by season."""
+    conn = _conn()
+    all_seasons = (season == -1)
+    if season <= 0 and not all_seasons:
+        s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+        season = int(s_row["value"]) if s_row else 1
+    if all_seasons:
+        # All seasons
+        data = conn.execute(
+            "SELECT h.player_id, p.display_name, h.total_value, h.recorded_at, h.season "
+            "FROM portfolio_history h JOIN ai_players p ON h.player_id = p.id "
+            "ORDER BY h.recorded_at ASC"
+        ).fetchall()
+    else:
+        data = conn.execute(
+            "SELECT h.player_id, p.display_name, h.total_value, h.recorded_at, h.season "
+            "FROM portfolio_history h JOIN ai_players p ON h.player_id = p.id "
+            "WHERE h.season = ? ORDER BY h.recorded_at ASC", (season,)
+        ).fetchall()
+    conn.close()
+
+    by_player = {}
+    for row in data:
+        pid = row["player_id"]
+        if pid not in by_player:
+            by_player[pid] = {"name": row["display_name"], "history": []}
+        by_player[pid]["history"].append({
+            "value": row["total_value"],
+            "time": row["recorded_at"],
+        })
+    return by_player
+
+
+# --- Chat Endpoints ---
+
+@app.get("/api/chat/recent")
+def recent_chat(limit: int = 50):
+    conn = _conn()
+    messages = conn.execute(
+        "SELECT c.id, c.player_id, p.display_name, p.provider, c.message, "
+        "c.context, c.reply_to, c.created_at "
+        "FROM ai_chat c JOIN ai_players p ON c.player_id = p.id "
+        "ORDER BY c.created_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [annotate_player_payload(dict(m)) for m in messages]
+
+
+@app.get("/api/chat/player/{player_id}")
+def player_chat(player_id: str, limit: int = 20):
+    conn = _conn()
+    messages = conn.execute(
+        "SELECT c.id, c.player_id, p.display_name, p.provider, c.message, "
+        "c.context, c.reply_to, c.created_at "
+        "FROM ai_chat c JOIN ai_players p ON c.player_id = p.id "
+        "WHERE c.player_id = ? ORDER BY c.created_at DESC LIMIT ?",
+        (player_id, limit)
+    ).fetchall()
+    conn.close()
+    return [annotate_player_payload(dict(m)) for m in messages]
+
+
+# --- News Endpoints ---
+
+@app.get("/api/news/recent")
+def recent_news(limit: int = 30):
+    conn = _conn()
+    news = conn.execute(
+        "SELECT * FROM market_news ORDER BY fetched_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(n) for n in news]
+
+
+@app.get("/api/news/feed")
+def news_feed(limit: int = 50, ticker: str = ""):
+    """Unified news feed across all tickers for the News redesign."""
+    conn = _conn()
+    if ticker:
+        rows = conn.execute(
+            "SELECT * FROM market_news WHERE symbol=? ORDER BY fetched_at DESC LIMIT ?",
+            (ticker.upper(), limit)
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM market_news ORDER BY fetched_at DESC LIMIT ?", (limit,)
+        ).fetchall()
+    conn.close()
+    results = []
+    for r in rows:
+        d = dict(r)
+        d.setdefault("source", "Yahoo Finance")
+        results.append(d)
+    return results
+
+
+@app.get("/api/news-feed")
+def news_feed_alias(limit: int = 50, ticker: str = ""):
+    """Compatibility alias for older dashboard clients."""
+    return news_feed(limit=limit, ticker=ticker)
+
+
+@app.post("/api/news/go-deeper")
+def news_go_deeper(data: dict = None):
+    """Generate AI follow-up questions for a news article (Ollama, free)."""
+    if not data:
+        return {"questions": []}
+    headline = data.get("headline", "")
+    summary = data.get("summary", "")
+    symbol = data.get("symbol", "")
+    try:
+        import requests as req
+        ollama_url = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+        prompt = (
+            f"Given this market news about {symbol}:\n"
+            f"Headline: {headline}\n"
+            f"Summary: {summary}\n\n"
+            f"Generate exactly 4 follow-up research questions a trader would want answered. "
+            f"Each question should be specific and actionable. "
+            f"Output ONLY a JSON array of 4 strings, no other text."
+        )
+        r = req.post(f"{ollama_url}/api/generate", json={
+            "model": os.getenv("CREWAI_MODEL", "qwen3:8b"),
+            "prompt": prompt,
+            "stream": False
+        }, timeout=30)
+        if r.ok:
+            import re
+            text = r.json().get("response", "")
+            match = re.search(r'\[.*\]', text, re.DOTALL)
+            if match:
+                return {"questions": json.loads(match.group())[:4]}
+        return {"questions": [
+            f"What is the short-term price impact on {symbol}?",
+            f"How does this affect {symbol}'s sector peers?",
+            f"What technical levels should I watch for {symbol}?",
+            f"Is this a buying or selling opportunity for {symbol}?",
+        ]}
+    except Exception:
+        return {"questions": [
+            f"What is the price impact on {symbol}?",
+            f"How does this affect the sector?",
+            f"What are the key levels to watch?",
+            f"Buy, sell, or hold {symbol}?",
+        ]}
+
+
+@app.get("/api/news/{symbol}")
+def symbol_news(symbol: str, limit: int = 10):
+    """Get news from multiple sources: Finnhub + Google News + DB cache."""
+    sym = symbol.upper()
+    live_news = []
+    db_news_list = []
+
+    # Source 1: Finnhub company news (live, 7-day window) — highest quality
+    try:
+        from engine.finnhub_data import _fh_get
+        from datetime import datetime, timedelta
+        today = datetime.now().strftime("%Y-%m-%d")
+        week_ago = (datetime.now() - timedelta(days=7)).strftime("%Y-%m-%d")
+        fh = _fh_get("/company-news", {"symbol": sym, "from": week_ago, "to": today})
+        if fh and isinstance(fh, list):
+            for n in fh[:5]:
+                live_news.append({
+                    "headline": n.get("headline", ""),
+                    "summary": n.get("summary", "")[:500],
+                    "source": n.get("source", "Finnhub"),
+                    "url": n.get("url", ""),
+                    "symbol": sym,
+                })
+    except Exception:
+        pass
+
+    # Source 2: Webull news (unofficial library, no login needed)
+    try:
+        from webull import webull as Webull
+        wb = Webull()
+        wb_news = wb.get_news(sym)
+        if wb_news and isinstance(wb_news, list):
+            for n in wb_news[:5]:
+                live_news.append({
+                    "headline": n.get("title", ""),
+                    "summary": n.get("summary", "")[:500],
+                    "source": n.get("sourceName", "Webull"),
+                    "url": n.get("newsUrl", n.get("url", "")),
+                    "symbol": sym,
+                })
+    except Exception:
+        pass
+
+    # Source 3: Google News RSS (free, no API key)
+    try:
+        import feedparser
+        feed = feedparser.parse(
+            f"https://news.google.com/rss/search?q={sym}+stock&hl=en-US&gl=US&ceid=US:en"
+        )
+        for e in feed.entries[:5]:
+            title = e.get("title", "")
+            source = "Google News"
+            if " - " in title:
+                parts = title.rsplit(" - ", 1)
+                title = parts[0]
+                source = parts[1] if len(parts) > 1 else "Google News"
+            live_news.append({
+                "headline": title,
+                "summary": e.get("summary", "")[:500],
+                "source": source,
+                "url": e.get("link", ""),
+                "symbol": sym,
+            })
+    except Exception:
+        pass
+
+    # Source 4: CNBC RSS (general market news, filtered by ticker)
+    try:
+        import feedparser as _fp
+        cnbc_feed = _fp.parse("https://search.cnbc.com/rs/search/combinedcms/view.xml?partnerId=wrss01&id=15839069")
+        for e in cnbc_feed.entries[:15]:
+            title = e.get("title", "")
+            if sym in title.upper() or sym.lower() in title.lower():
+                live_news.append({
+                    "headline": title,
+                    "summary": e.get("summary", "")[:500],
+                    "source": "CNBC",
+                    "url": e.get("link", ""),
+                    "symbol": sym,
+                })
+    except Exception:
+        pass
+
+    # Source 5: FinNews multi-source aggregator
+    try:
+        import FinNews as _fn
+        fn = _fn.CNBC(topics=["finance"])
+        articles = fn.get_news()
+        for a in (articles or [])[:10]:
+            title = a.get("title", "")
+            if sym in title.upper() or sym.lower() in title.lower():
+                live_news.append({
+                    "headline": title,
+                    "summary": a.get("summary", "")[:500],
+                    "source": a.get("source", {}).get("title", "FinNews") if isinstance(a.get("source"), dict) else "FinNews",
+                    "url": a.get("link", ""),
+                    "symbol": sym,
+                })
+    except Exception:
+        pass
+
+    # Source 6: DB cache (Yahoo Finance RSS, fetched by news_fetcher) — fill remaining
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT * FROM market_news WHERE symbol=? ORDER BY fetched_at DESC LIMIT ?",
+        (sym, limit)
+    ).fetchall()
+    conn.close()
+    for n in rows:
+        d = dict(n)
+        d.setdefault("source", "Yahoo Finance")
+        db_news_list.append(d)
+
+    # Merge: live first, then DB, deduplicated
+    all_news = live_news + db_news_list
+    seen = set()
+    unique = []
+    for n in all_news:
+        key = (n.get("headline") or "")[:60].lower().strip()
+        if key and key not in seen:
+            seen.add(key)
+            unique.append(n)
+
+    return unique[:limit]
+
+
+# --- P&L & Equity Endpoints ---
+
+@app.get("/api/arena/player/{player_id}/pnl")
+def player_pnl(player_id: str):
+    """Get live unrealized P&L for a player's positions."""
+    from engine.paper_trader import get_portfolio_with_pnl
+    from engine.market_data import get_stock_price
+
+    conn = _conn()
+    positions = conn.execute(
+        "SELECT symbol FROM positions WHERE player_id=?", (player_id,)
+    ).fetchall()
+    conn.close()
+
+    prices = {}
+    for p in positions:
+        data = get_stock_price(p["symbol"])
+        if "error" not in data:
+            prices[p["symbol"]] = data
+
+    return get_portfolio_with_pnl(player_id, prices)
+
+
+@app.get("/api/arena/equity-curve")
+@timed_cache(300)
+def equity_curve(player_id: str = None, season: int = 0):
+    """Get equity curve data, optionally filtered by season and player."""
+    conn = _conn()
+    all_seasons = (season == -1)
+    if season <= 0 and not all_seasons:
+        s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+        season = int(s_row["value"]) if s_row else 1
+
+    q = "SELECT player_id, total_value, cash, positions_value, recorded_at, season FROM portfolio_history"
+    params = []
+    clauses = []
+    if player_id:
+        clauses.append("player_id = ?")
+        params.append(player_id)
+    if not all_seasons:
+        clauses.append("season = ?")
+        params.append(season)
+    if clauses:
+        q += " WHERE " + " AND ".join(clauses)
+    q += " ORDER BY recorded_at ASC"
+    rows = conn.execute(q, params).fetchall()
+    conn.close()
+
+    result = []
+    for r in rows:
+        result.append({
+            "player_id": r["player_id"],
+            "timestamp": r["recorded_at"],
+            "total_value": r["total_value"],
+            "cash": r["cash"],
+            "positions_value": r["positions_value"],
+            "season": r["season"],
+        })
+    return result
+
+
+# --- DayBlade Options Endpoints ---
+
+@app.get("/api/dayblade/status")
+def dayblade_status():
+    """Get DayBlade live positions, P&L, stats, DTE breakdown, streak."""
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+
+    from engine.dayblade import (
+        get_portfolio_with_pnl, get_dayblade_stats,
+        is_dayblade_open_window, is_dayblade_close_window,
+        is_market_hours_for_dayblade, is_power_hour,
+        DAYBLADE_TICKERS, DAYBLADE_CASH, MAX_POSITIONS,
+        get_win_streak,
+    )
+    from engine.market_data import get_stock_price
+
+    prices = {}
+    with ThreadPoolExecutor(max_workers=min(8, max(1, len(DAYBLADE_TICKERS)))) as ex:
+        futures = {ex.submit(get_stock_price, sym): sym for sym in DAYBLADE_TICKERS}
+        for fut in as_completed(futures):
+            sym = futures[fut]
+            try:
+                data = fut.result()
+            except Exception:
+                continue
+            if "error" not in data:
+                prices[sym] = data
+
+    pnl = get_portfolio_with_pnl(prices)
+    stats = get_dayblade_stats()
+    streak = get_win_streak()
+
+    window = "closed"
+    if is_power_hour():
+        window = "power_hour"
+    elif is_dayblade_open_window():
+        window = "open"
+    elif is_dayblade_close_window():
+        window = "closing"
+    elif is_market_hours_for_dayblade():
+        window = "monitoring"
+
+    return {
+        "portfolio": pnl,
+        "stats": stats,
+        "window": window,
+        "starting_cash": DAYBLADE_CASH,
+        "max_positions": MAX_POSITIONS,
+        "tickers": DAYBLADE_TICKERS,
+        "win_streak": streak,
+    }
+
+
+@app.get("/api/dayblade/trades")
+def dayblade_trades(limit: int = 50):
+    """Recent DayBlade trades."""
+    conn = _conn()
+    trades = conn.execute(
+        "SELECT symbol, action, qty, price, asset_type, option_type, reasoning, confidence, executed_at "
+        "FROM trades WHERE player_id='dayblade-0dte' ORDER BY executed_at DESC LIMIT ?",
+        (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(t) for t in trades]
+
+
+@app.get("/api/dayblade/scanner")
+def dayblade_scanner():
+    """Live 0DTE options scanner — cheap tickets, premium plays, and scored opportunities."""
+    from engine.dte_scanner import scan_0dte_opportunities
+    return scan_0dte_opportunities()
+
+
+# --- Market Data Endpoints ---
+
+@app.get("/api/market/prices")
+def market_prices():
+    """Get current prices for watchlist stocks (parallel fetch)."""
+    from engine.market_data import get_all_prices
+    from config import WATCH_STOCKS
+    return get_all_prices(WATCH_STOCKS)
+
+
+@app.get("/api/market/candles/{symbol}")
+def market_candles(symbol: str, interval: str = "5m", range: str = "1d"):
+    """Get OHLCV candles for candlestick chart with configurable range."""
+    from engine.market_data import get_intraday_candles
+    candles = get_intraday_candles(symbol.upper(), interval, range)
+    # Also get AI entry points for this symbol (recent BUY trades)
+    conn = _conn()
+    if range == "1d":
+        date_filter = "AND date(t.executed_at)=?"
+        date_val = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+        params = (symbol.upper(), date_val)
+    else:
+        date_filter = ""
+        params = (symbol.upper(),)
+    entries = conn.execute(
+        "SELECT t.player_id, p.display_name, t.action, t.price, t.qty, t.executed_at "
+        "FROM trades t JOIN ai_players p ON t.player_id = p.id "
+        f"WHERE t.symbol=? AND t.action LIKE 'BUY%' {date_filter} "
+        "ORDER BY t.executed_at",
+        params
+    ).fetchall()
+    conn.close()
+    markers = [dict(e) for e in entries]
+    return {"candles": candles, "markers": markers}
+
+
+@app.get("/api/market/heatmap")
+def market_heatmap():
+    """Get watchlist heat map data: price, change%, position weight per model."""
+    from engine.market_data import get_stock_price
+    from config import WATCH_STOCKS
+
+    conn = _conn()
+    # Get all active positions grouped by symbol
+    positions = conn.execute(
+        "SELECT symbol, SUM(qty * avg_price) as cost_basis "
+        "FROM positions WHERE player_id != 'dayblade-0dte' "
+        "GROUP BY symbol"
+    ).fetchall()
+    conn.close()
+
+    pos_weight = {row["symbol"]: row["cost_basis"] for row in positions}
+    total_invested = sum(pos_weight.values()) or 1.0
+
+    result = []
+    for sym in WATCH_STOCKS:
+        data = get_stock_price(sym)
+        if "error" in data:
+            continue
+        weight = pos_weight.get(sym, 0) / total_invested
+        result.append({
+            "symbol": sym,
+            "price": data["price"],
+            "change_pct": data["change_pct"],
+            "volume": data.get("volume", 0),
+            "weight": round(weight, 4),
+        })
+    return result
+
+
+@app.get("/api/arena/confidence")
+@timed_cache(120)
+def confidence_matrix():
+    """AI confidence panel: each model's latest stance on each watchlist stock."""
+    from config import WATCH_STOCKS
+
+    conn = _conn()
+    # Get all active players (exclude dayblade)
+    players = conn.execute(
+        "SELECT id, display_name FROM ai_players WHERE is_active=1 AND id != 'dayblade-0dte'"
+    ).fetchall()
+
+    result = {}
+    for p in players:
+        pid = p["id"]
+        stances = {}
+        for sym in WATCH_STOCKS:
+            row = conn.execute(
+                "SELECT signal, confidence, reasoning, created_at FROM signals "
+                "WHERE player_id=? AND symbol=? ORDER BY created_at DESC LIMIT 1",
+                (pid, sym)
+            ).fetchone()
+            if row:
+                sig = row["signal"]
+                conf = row["confidence"] or 0
+                # Map signal to stance
+                if sig in ("BUY", "BUY_CALL"):
+                    stance = "bullish"
+                elif sig == "BUY_PUT":
+                    stance = "bearish"
+                else:
+                    stance = "neutral"
+                stances[sym] = {
+                    "stance": stance,
+                    "signal": sig,
+                    "confidence": round(conf, 2),
+                    "reasoning": (row["reasoning"] or "")[:120],
+                    "updated": row["created_at"],
+                }
+            else:
+                stances[sym] = {"stance": "neutral", "signal": "HOLD", "confidence": 0, "reasoning": "", "updated": None}
+        result[pid] = {"name": p["display_name"], "stances": stances}
+
+    conn.close()
+    return result
+
+
+# --- GEX Endpoints ---
+
+@app.get("/api/market/gex")
+def gex_all():
+    """Get GEX data for all supported tickers."""
+    from engine.gex_scanner import get_all_gex
+    return get_all_gex()
+
+
+@app.get("/api/market/gex/{ticker}")
+def gex_ticker(ticker: str):
+    """Get GEX data for a specific ticker."""
+    from engine.gex_scanner import get_gex
+    result = get_gex(ticker.upper())
+    if result is None:
+        return {"error": f"No GEX data for {ticker.upper()}"}
+    return result
+
+
+# --- Alpaca GEX Endpoints ---
+
+@app.get("/api/gex/{symbol}")
+def gex_alpaca(symbol: str):
+    """
+    Alpaca-based GEX profile for a symbol.
+    Returns cached result (in-memory → DB) if a live compute would be too slow.
+    Pass ?force=true to trigger a fresh Alpaca API call.
+    """
+    from fastapi import Query as _Query
+    import inspect as _inspect
+    from gex_calculator import compute_gex_sync, get_latest_snapshot, GEX_SYMBOLS
+
+    sym = symbol.upper()
+    profile = compute_gex_sync(sym, force=False)
+
+    if profile is not None:
+        return {
+            "symbol": profile.symbol,
+            "spot": profile.spot_price,
+            "timestamp": profile.timestamp,
+            "max_gamma_strike": profile.max_gamma_strike,
+            "zero_gamma_level": profile.zero_gamma_level,
+            "put_wall": profile.put_wall,
+            "call_wall": profile.call_wall,
+            "gamma_flip": profile.gamma_flip,
+            "total_gex": profile.total_gex,
+            "regime": "pinned" if profile.total_gex > 0 else "volatile",
+            "source": profile.source,
+            "levels": [
+                {
+                    "strike": l.strike,
+                    "net_gex": l.net_gex,
+                    "call_gex": l.call_gex,
+                    "put_gex": l.put_gex,
+                    "call_oi": l.call_oi,
+                    "put_oi": l.put_oi,
+                }
+                for l in profile.levels
+            ],
+        }
+
+    # Fall back to DB snapshot
+    snap = get_latest_snapshot(sym)
+    if snap:
+        snap.pop("levels_json", None)
+        snap["regime"] = "pinned" if (snap.get("total_gex") or 0) > 0 else "volatile"
+        snap["source"] = snap.get("source", "alpaca")
+        # Normalize: DB column is spot_price, frontend expects spot
+        if "spot_price" in snap and "spot" not in snap:
+            snap["spot"] = snap["spot_price"]
+        return snap
+
+    return {"error": f"No GEX data for {sym}. Alpaca keys may not be configured."}
+
+
+@app.get("/api/gex/{symbol}/history")
+def gex_alpaca_history(symbol: str):
+    """Return historical GEX snapshots for a symbol (last 20 records)."""
+    from gex_calculator import get_snapshot_history
+    rows = get_snapshot_history(symbol.upper(), limit=20)
+    for r in rows:
+        r.pop("levels_json", None)
+        r["regime"] = "pinned" if (r.get("total_gex") or 0) > 0 else "volatile"
+    return {"symbol": symbol.upper(), "history": rows}
+
+
+# --- VIX & Earnings Endpoints ---
+
+@app.get("/api/market/vix")
+def vix_status():
+    """Get current VIX price and change."""
+    from engine.vix_monitor import get_vix_status, get_vix_history
+    return {
+        "current": get_vix_status(),
+        "history": get_vix_history(),
+    }
+
+
+@app.get("/api/market/flow-lean")
+def flow_lean():
+    """Get current market directional lean from options flow."""
+    from engine.market_flow import get_flow_lean, get_flow_lean_history
+    current = get_flow_lean()
+    return {
+        "current": current,
+        "history": get_flow_lean_history(50),
+    }
+
+
+# --- First Officer (Mr. Data / MLX Qwen3 8B) ---
+
+@app.get("/api/first-officer/briefing")
+@timed_cache(300)
+def first_officer_briefing(force: int = 0):
+    """Get Mr. Data's full Bridge briefing. Cached 30 min server-side + 5 min endpoint cache."""
+    from engine.first_officer import get_briefing
+    return get_briefing(force=bool(force))
+
+
+@app.post("/api/first-officer/ask")
+def first_officer_ask(data: dict = None):
+    """Ask Mr. Data a specific question."""
+    if not data or not data.get("question"):
+        return {"error": "question is required"}
+    from engine.first_officer import ask_data
+    return ask_data(data["question"].strip())
+
+
+@app.get("/api/first-officer/status")
+def first_officer_status():
+    """Quick status for Bridge top bar."""
+    from engine.first_officer import get_briefing_summary
+    return get_briefing_summary() or {"summary": "No briefing yet", "minutes_ago": 999, "has_recommendation": False}
+
+
+# --- Riker's Log (Captain's Decision Journal) ---
+
+@app.get("/api/rikers-log")
+def rikers_log_get(limit: int = 50, entry_type: str = None, source: str = None):
+    """Get Riker's Log entries."""
+    from engine.rikers_log import get_entries
+    return {"entries": get_entries(limit, entry_type, source)}
+
+
+@app.post("/api/rikers-log")
+def rikers_log_post(data: dict = None):
+    """Add an entry to Riker's Log."""
+    if not data or not data.get("content"):
+        return {"error": "content is required"}
+    from engine.rikers_log import add_entry
+    return add_entry(
+        entry_type=data.get("entry_type", "manual"),
+        source=data.get("source", "captain"),
+        content=data["content"].strip(),
+        title=data.get("title", "").strip() or None,
+        ticker=data.get("ticker", "").strip().upper() or None,
+        action=data.get("action", "").strip().upper() or None,
+        conviction=data.get("conviction"),
+        tags=data.get("tags", "").strip() or None,
+    )
+
+
+@app.post("/api/rikers-log/{entry_id}/outcome")
+def rikers_log_outcome(entry_id: int, data: dict = None):
+    """Update a log entry with its trade outcome."""
+    if not data:
+        return {"error": "data required"}
+    from engine.rikers_log import update_outcome
+    return update_outcome(entry_id, data.get("outcome", ""), data.get("outcome_pnl"))
+
+
+@app.post("/api/rikers-log/sync-spock")
+def rikers_log_sync_spock():
+    """Sync today's Spock briefings into the log."""
+    from engine.rikers_log import sync_spock_briefings
+    count = sync_spock_briefings()
+    return {"synced": count}
+
+
+@app.get("/api/rikers-log/stats")
+def rikers_log_stats():
+    """Get log statistics."""
+    from engine.rikers_log import get_stats
+    return get_stats()
+
+
+# --- Dalio Metals (Physical Precious Metals Tracker) ---
+
+@app.get("/api/metals/portfolio")
+def metals_portfolio():
+    """Get Dalio Metals portfolio with live spot prices."""
+    from engine.metals_tracker import get_portfolio
+    return get_portfolio()
+
+
+@app.get("/api/metals/signals")
+def metals_signals():
+    """Get smart stacking advisor signals."""
+    from engine.metals_tracker import get_stacking_signal
+    return get_stacking_signal()
+
+
+@app.get("/api/metals/commentary")
+def metals_commentary():
+    """Get Cmdr. Dalio's daily metals commentary (generated via Ollama)."""
+    from engine.metals_commentary import generate_commentary
+    return generate_commentary()
+
+
+@app.get("/api/metals/prices")
+def metals_prices():
+    """Get live spot prices for gold, silver, platinum, palladium."""
+    from engine.metals_tracker import get_spot_prices
+    return get_spot_prices(fresh=True)
+
+
+@app.post("/api/metals/add")
+def metals_add(data: dict = None):
+    """Add physical metal to inventory."""
+    if not data:
+        return {"error": "data required"}
+    from engine.metals_tracker import add_metal
+    return add_metal(
+        data.get("symbol", ""),
+        float(data.get("qty", 0)),
+        float(data.get("price", 0))
+    )
+
+
+@app.post("/api/metals/sell")
+def metals_sell(data: dict = None):
+    """Sell/remove physical metal from inventory."""
+    if not data:
+        return {"error": "data required"}
+    from engine.metals_tracker import remove_metal
+    return remove_metal(
+        data.get("symbol", ""),
+        float(data.get("qty", 0)),
+        float(data.get("price", 0))
+    )
+
+
+@app.post("/api/metals/set-cost")
+def metals_set_cost(data: dict = None):
+    """Update cost basis for a metal position."""
+    if not data or not data.get("metal"):
+        return {"error": "metal and cost_basis_per_oz required"}
+    from engine.metals_tracker import set_cost_basis
+    return set_cost_basis(
+        data["metal"],
+        float(data.get("cost_basis_per_oz", 0))
+    )
+
+
+@app.get("/api/cto/briefing")
+def cto_briefing():
+    """Get CTO Advisory briefings — today's briefings + history."""
+    from engine.cto_advisor import get_latest_briefing, get_todays_briefings, get_briefing_history
+    return {
+        "latest": get_latest_briefing(),
+        "today": get_todays_briefings(),
+        "history": get_briefing_history(14),
+    }
+
+
+@app.post("/api/cto/generate")
+def cto_generate(briefing_type: str = "pre_market"):
+    """Manually trigger a CTO briefing generation."""
+    from engine.cto_advisor import generate_cto_briefing, BRIEFING_TYPES
+    if briefing_type not in BRIEFING_TYPES:
+        return {"error": f"Unknown type: {briefing_type}. Valid: {list(BRIEFING_TYPES.keys())}"}
+    try:
+        briefing = generate_cto_briefing(briefing_type=briefing_type)
+        if briefing:
+            return {"ok": True, "briefing_type": briefing_type, "length": len(briefing), "preview": briefing[:300]}
+        return {"ok": False, "reason": "Already generated today or no API key"}
+    except Exception as e:
+        return {"ok": False, "error": str(e)}
+
+
+def _get_earnings_symbols():
+    """Build comprehensive earnings watch list: watchlist + holdings + mega caps."""
+    from config import WATCH_STOCKS
+    symbols = set(WATCH_STOCKS)
+    try:
+        conn = _conn()
+        positions = conn.execute("SELECT DISTINCT symbol FROM positions WHERE qty > 0").fetchall()
+        for p in positions:
+            symbols.add(p["symbol"])
+        try:
+            alpaca = conn.execute("SELECT DISTINCT ticker FROM portfolio_positions WHERE status='open'").fetchall()
+            for a in alpaca:
+                symbols.add(a["ticker"])
+        except Exception:
+            pass
+        conn.close()
+    except Exception:
+        pass
+    MEGA_CAPS = [
+        "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
+        "AMD", "PLTR", "CRM", "NFLX", "AVGO", "COST", "LLY",
+        "JPM", "BAC", "GS", "V", "MA",
+        "UNH", "JNJ", "PFE", "ABBV",
+        "XOM", "CVX", "COP",
+        "WMT", "HD", "TGT",
+        "DIS", "CMCSA",
+        "BA", "CAT", "GE", "RTX",
+        "COIN", "SQ", "HOOD",
+    ]
+    symbols.update(MEGA_CAPS)
+    symbols -= {"GC=F", "SI=F", "PL=F", "PA=F", "GOLD", "SILVER"}
+    return list(symbols)
+
+
+@app.get("/api/market/earnings")
+def earnings_upcoming():
+    """Get watchlist + holdings + mega cap stocks with earnings in next 7 days, with source tagging."""
+    from config import WATCH_STOCKS
+    from engine.earnings_calendar import get_earnings_warnings
+    watch_set = set(WATCH_STOCKS)
+    holding_set = set()
+    try:
+        conn = _conn()
+        rows = conn.execute("SELECT DISTINCT symbol FROM positions WHERE qty > 0").fetchall()
+        holding_set = {r["symbol"] for r in rows}
+        conn.close()
+    except Exception:
+        pass
+    results = get_earnings_warnings(_get_earnings_symbols())
+    for e in results:
+        sym = e["symbol"]
+        if sym in holding_set:
+            e["source"] = "holding"
+        elif sym in watch_set:
+            e["source"] = "watchlist"
+        else:
+            e["source"] = "mega_cap"
+    return results
+
+
+@app.get("/api/tactical/allocation")
+def tactical_allocation(view: str = "fleet", model: str = "", include_all: int = 0):
+    """Actual portfolio allocation across fleet models vs regime targets."""
+    from fastapi import Query
+    EXCLUDED = ('steve-webull', 'enterprise-computer') if not include_all else ()
+    INVERSE_ETFS = {'SH','SDS','SPXU','SDOW','SQQQ','TZA','VXX','DOG','PSQ','RWM'}
+    conn = _conn()
+    try:
+        if view == "model" and model:
+            players = conn.execute(
+                "SELECT id, cash, display_name FROM ai_players WHERE is_active=1 AND id=?", (model,)
+            ).fetchall()
+        elif EXCLUDED:
+            players = conn.execute(
+                "SELECT id, cash, display_name FROM ai_players WHERE is_active=1 AND id NOT IN ({})".format(
+                    ",".join("?" * len(EXCLUDED))), EXCLUDED
+            ).fetchall()
+        else:
+            players = conn.execute(
+                "SELECT id, cash, display_name FROM ai_players WHERE is_active=1"
+            ).fetchall()
+
+        all_models = conn.execute(
+            "SELECT id, display_name as name FROM ai_players WHERE is_active=1 AND id NOT IN ('enterprise-computer') ORDER BY display_name"
+        ).fetchall()
+
+        total_cash = sum(float(p["cash"] or 0) for p in players)
+        player_ids = [p["id"] for p in players]
+        if not player_ids:
+            return {"actual": {"long_equity": 0, "short_equity": 0, "options": 0, "cash": 100}, "models": [], "model_count": 0}
+
+        positions = conn.execute(
+            "SELECT player_id, symbol, qty, avg_price, asset_type, option_type FROM positions WHERE qty>0 AND player_id IN ({})".format(
+                ",".join("?" * len(player_ids))), player_ids
+        ).fetchall()
+
+        long_equity = short_equity = options_val = 0.0
+        for pos in positions:
+            sym = (pos["symbol"] or "").split("=")[0].upper()
+            qty = float(pos["qty"] or 0)
+            price = float(pos["avg_price"] or 0)
+            value = qty * price
+            asset_type = pos["asset_type"] or "stock"
+            if sym in INVERSE_ETFS:
+                short_equity += value
+            elif asset_type == "option":
+                options_val += value
+            else:
+                long_equity += value
+
+        total = total_cash + long_equity + short_equity + options_val
+        if total <= 0:
+            total = 1
+        return {
+            "total_fleet_value": round(total, 2),
+            "actual": {
+                "long_equity": round(long_equity / total * 100, 1),
+                "short_equity": round(short_equity / total * 100, 1),
+                "options": round(options_val / total * 100, 1),
+                "cash": round(total_cash / total * 100, 1),
+            },
+            "models": [{"id": m["id"], "name": m["name"]} for m in all_models],
+            "model_count": len(player_ids),
+        }
+    finally:
+        conn.close()
+
+
+@app.get("/api/market/sectors")
+def market_sectors():
+    """Sector rotation tracker: performance by sector group."""
+    from engine.market_data import get_stock_price
+    from engine.sector_tracker import get_sector_rotation, get_sector_exposure
+    from config import WATCH_STOCKS
+
+    prices = {}
+    for sym in WATCH_STOCKS:
+        data = get_stock_price(sym)
+        if "error" not in data:
+            prices[sym] = data
+
+    return {
+        "rotation": get_sector_rotation(prices),
+        "exposure": get_sector_exposure(),
+    }
+
+
+@app.get("/api/market/correlation")
+@timed_cache(300)
+def market_correlation():
+    """Correlation matrix for watchlist stocks (30-day)."""
+    from engine.correlation import get_watchlist_correlation
+    return get_watchlist_correlation()
+
+
+@app.get("/api/market/correlation/{player_id}")
+def player_correlation(player_id: str):
+    """Correlation matrix for a player's positions."""
+    from engine.correlation import get_portfolio_correlation
+    return get_portfolio_correlation(player_id)
+
+
+@app.get("/api/arena/analytics")
+def arena_analytics():
+    """Performance analytics: Sharpe, max drawdown, win streak, best/worst trade, avg hold time."""
+    from datetime import datetime, timedelta
+    import math
+
+    conn = _conn()
+
+    # Get all players
+    players = conn.execute(
+        "SELECT id, display_name FROM ai_players WHERE is_active=1 AND id != 'dayblade-0dte'"
+    ).fetchall()
+
+    result = {}
+    for p in players:
+        pid = p["id"]
+
+        # All trades for this player
+        trades = conn.execute(
+            "SELECT symbol, action, qty, price, executed_at, reasoning "
+            "FROM trades WHERE player_id=? ORDER BY executed_at ASC",
+            (pid,)
+        ).fetchall()
+
+        buys = {}   # symbol -> list of {qty, price, time}
+        closed = []  # list of {symbol, pnl, pnl_pct, hold_seconds, buy_price, sell_price}
+
+        for t in trades:
+            sym = t["symbol"]
+            if t["action"] in ("BUY", "BUY_CALL", "BUY_PUT"):
+                if sym not in buys:
+                    buys[sym] = []
+                buys[sym].append({
+                    "qty": t["qty"], "price": t["price"],
+                    "time": t["executed_at"],
+                })
+            elif t["action"] == "SELL" and sym in buys and buys[sym]:
+                buy_entry = buys[sym][0]
+                pnl = (t["price"] - buy_entry["price"]) * t["qty"]
+                pnl_pct = ((t["price"] / buy_entry["price"]) - 1) * 100 if buy_entry["price"] > 0 else 0
+                try:
+                    buy_dt = datetime.fromisoformat(buy_entry["time"].replace("Z", ""))
+                    sell_dt = datetime.fromisoformat(t["executed_at"].replace("Z", ""))
+                    hold_secs = (sell_dt - buy_dt).total_seconds()
+                except Exception:
+                    hold_secs = 0
+                closed.append({
+                    "symbol": sym, "pnl": pnl, "pnl_pct": pnl_pct,
+                    "hold_seconds": hold_secs,
+                    "buy_price": buy_entry["price"], "sell_price": t["price"],
+                    "qty": t["qty"],
+                })
+                # Remove matched buy
+                remaining = buy_entry["qty"] - t["qty"]
+                if remaining <= 0.001:
+                    buys[sym].pop(0)
+                else:
+                    buys[sym][0]["qty"] = remaining
+
+        # Calculate metrics
+        wins = [c for c in closed if c["pnl"] > 0]
+        losses = [c for c in closed if c["pnl"] <= 0]
+        total_closed = len(closed)
+        win_rate = len(wins) / total_closed * 100 if total_closed > 0 else 0
+
+        # Best / worst trade
+        best_trade = max(closed, key=lambda x: x["pnl"]) if closed else None
+        worst_trade = min(closed, key=lambda x: x["pnl"]) if closed else None
+
+        # Win streak
+        streak = 0
+        max_streak = 0
+        for c in closed:
+            if c["pnl"] > 0:
+                streak += 1
+                max_streak = max(max_streak, streak)
+            else:
+                streak = 0
+
+        # Average hold time
+        hold_times = [c["hold_seconds"] for c in closed if c["hold_seconds"] > 0]
+        avg_hold_secs = sum(hold_times) / len(hold_times) if hold_times else 0
+        avg_hold_hours = avg_hold_secs / 3600
+
+        # Max drawdown from portfolio history
+        history = conn.execute(
+            "SELECT total_value FROM portfolio_history WHERE player_id=? ORDER BY recorded_at ASC",
+            (pid,)
+        ).fetchall()
+        max_dd = 0
+        peak = 0
+        for h in history:
+            val = h["total_value"]
+            if val > peak:
+                peak = val
+            if peak > 0:
+                dd = (peak - val) / peak
+                max_dd = max(max_dd, dd)
+
+        # Sharpe ratio (from daily returns in portfolio_history)
+        values = [h["total_value"] for h in history]
+        daily_returns = []
+        for i in range(1, len(values)):
+            if values[i-1] > 0:
+                daily_returns.append((values[i] - values[i-1]) / values[i-1])
+        if daily_returns and len(daily_returns) > 1:
+            avg_ret = sum(daily_returns) / len(daily_returns)
+            std_ret = (sum((r - avg_ret)**2 for r in daily_returns) / (len(daily_returns) - 1)) ** 0.5
+            sharpe = (avg_ret / std_ret) * (252 ** 0.5) if std_ret > 0 else 0
+        else:
+            sharpe = 0
+
+        result[pid] = {
+            "name": p["display_name"],
+            "total_trades": len(trades),
+            "closed_trades": total_closed,
+            "win_rate": round(win_rate, 1),
+            "wins": len(wins),
+            "losses": len(losses),
+            "sharpe_ratio": round(sharpe, 2),
+            "max_drawdown_pct": round(max_dd * 100, 2),
+            "longest_win_streak": max_streak,
+            "avg_hold_hours": round(avg_hold_hours, 1),
+            "best_trade": {
+                "symbol": best_trade["symbol"],
+                "pnl": round(best_trade["pnl"], 2),
+                "pnl_pct": round(best_trade["pnl_pct"], 1),
+            } if best_trade else None,
+            "worst_trade": {
+                "symbol": worst_trade["symbol"],
+                "pnl": round(worst_trade["pnl"], 2),
+                "pnl_pct": round(worst_trade["pnl_pct"], 1),
+            } if worst_trade else None,
+        }
+
+    conn.close()
+    return result
+
+
+@app.get("/api/trades/export")
+def export_trades(season: int = 0):
+    """Export trades as CSV, optionally filtered by season."""
+    from fastapi.responses import StreamingResponse
+    import io, csv
+
+    conn = _conn()
+    all_seasons = (season == -1)
+    if season <= 0 and not all_seasons:
+        # Default: export all seasons
+        all_seasons = True
+
+    if all_seasons:
+        trades = conn.execute(
+            "SELECT t.player_id, p.display_name, t.symbol, t.action, t.qty, t.price, "
+            "t.asset_type, t.option_type, t.strike_price, t.expiry_date, "
+            "t.entry_price, t.exit_price, t.realized_pnl, "
+            "t.reasoning, t.confidence, t.executed_at, t.season "
+            "FROM trades t JOIN ai_players p ON t.player_id = p.id "
+            "ORDER BY t.executed_at DESC"
+        ).fetchall()
+    else:
+        trades = conn.execute(
+            "SELECT t.player_id, p.display_name, t.symbol, t.action, t.qty, t.price, "
+            "t.asset_type, t.option_type, t.strike_price, t.expiry_date, "
+            "t.entry_price, t.exit_price, t.realized_pnl, "
+            "t.reasoning, t.confidence, t.executed_at, t.season "
+            "FROM trades t JOIN ai_players p ON t.player_id = p.id "
+            "WHERE t.season=? ORDER BY t.executed_at DESC", (season,)
+        ).fetchall()
+    conn.close()
+
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["Season", "Player ID", "Player Name", "Symbol", "Action", "Qty", "Price",
+                     "Entry Price", "Exit Price", "Realized P&L",
+                     "Asset Type", "Option Type", "Strike", "Expiry",
+                     "Reasoning", "Confidence", "Executed At"])
+    for t in trades:
+        writer.writerow([t["season"], t["player_id"], t["display_name"], t["symbol"], t["action"],
+                        t["qty"], t["price"], t["entry_price"], t["exit_price"], t["realized_pnl"],
+                        t["asset_type"], t["option_type"], t["strike_price"], t["expiry_date"],
+                        t["reasoning"], t["confidence"], t["executed_at"]])
+
+    output.seek(0)
+    filename = f"trades_s{season}.csv" if not all_seasons else "trades_all.csv"
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": f"attachment; filename={filename}"}
+    )
+
+
+@app.get("/api/market/sentiment")
+def market_sentiment():
+    """Get sentiment scores for all watchlist stocks."""
+    from config import WATCH_STOCKS
+    from engine.sentiment import get_watchlist_sentiment
+    return get_watchlist_sentiment(WATCH_STOCKS)
+
+
+@app.get("/api/market/sentiment/{symbol}")
+def symbol_sentiment(symbol: str):
+    """Get sentiment for a specific symbol."""
+    from engine.sentiment import get_sentiment_for_symbol
+    return get_sentiment_for_symbol(symbol.upper())
+
+
+@app.get("/api/market/options-flow")
+@timed_cache(120)
+def options_flow():
+    """Get options flow data for watchlist stocks with positions."""
+    conn = _conn()
+    symbols = conn.execute(
+        "SELECT DISTINCT symbol FROM positions WHERE asset_type='option'"
+    ).fetchall()
+    conn.close()
+    if not symbols:
+        from config import WATCH_STOCKS
+        syms = WATCH_STOCKS[:5]  # Limit to top 5 to avoid slow yfinance calls
+    else:
+        syms = [s["symbol"] for s in symbols]
+
+    from engine.options_flow import get_flow_summary
+    return get_flow_summary(syms)
+
+
+@app.get("/api/market/options-alignment")
+def options_alignment():
+    """Check if recent AI options trades align with market flow."""
+    from engine.options_flow import get_recent_ai_options_alignment
+    return get_recent_ai_options_alignment()
+
+
+@app.get("/api/journal")
+def journal_entries(player_id: str = None, limit: int = 20, offset: int = 0):
+    """Get AI journal entries."""
+    from engine.ai_journal import get_journal_entries
+    return get_journal_entries(player_id, limit, offset)
+
+
+@app.get("/api/journal/today")
+def journal_today():
+    """Get today's journal entries."""
+    from engine.ai_journal import get_today_journal
+    return get_today_journal()
+
+
+@app.get("/api/war-room")
+def war_room(limit: int = 50):
+    """Get recent War Room hot takes."""
+    from engine.war_room import get_war_room_messages
+    return get_war_room_messages(limit)
+
+
+@app.post("/api/webull/sync")
+def webull_sync(data: dict = None):
+    """Manually sync Steve's Webull portfolio value."""
+    if not data:
+        return {"error": "No data provided"}
+    total_value = data.get("total_value")
+    if total_value is None:
+        return {"error": "total_value is required"}
+    try:
+        total_value = float(total_value)
+    except (ValueError, TypeError):
+        return {"error": "total_value must be a number"}
+
+    from engine.paper_trader import sync_webull_value, get_webull_synced
+    sync_webull_value(total_value)
+    synced = get_webull_synced()
+    return {"ok": True, "synced": synced}
+
+
+@app.get("/api/webull/synced")
+def webull_synced():
+    """Get the last manually synced Webull value."""
+    from engine.paper_trader import get_webull_synced
+    return get_webull_synced() or {"total_value": None, "synced_at": None}
+
+
+@app.get("/api/system/ram")
+def system_ram():
+    """Get current RAM usage for dashboard display."""
+    try:
+        import psutil
+        mem = psutil.virtual_memory()
+        avail_gb = mem.available / (1024 ** 3)
+        total_gb = mem.total / (1024 ** 3)
+        used_gb = (mem.total - mem.available) / (1024 ** 3)
+        pct = mem.percent
+        if avail_gb >= 4:
+            status = "green"
+        elif avail_gb >= 2:
+            status = "yellow"
+        else:
+            status = "red"
+        return {
+            "available_gb": round(avail_gb, 1),
+            "used_gb": round(used_gb, 1),
+            "total_gb": round(total_gb, 1),
+            "percent_used": round(pct, 1),
+            "status": status,
+        }
+    except ImportError:
+        return {"error": "psutil not installed", "status": "unknown"}
+
+
+@app.post("/api/war-room/post")
+def war_room_post(data: dict = None):
+    """Post a human message to the War Room as Steve."""
+    # FastAPI parses JSON body into data
+    if data is None:
+        # Fallback: try to read raw
+        return {"error": "No data provided"}
+
+    message = (data.get("message") or "").strip()
+    symbol = (data.get("symbol") or "").strip()
+    strategy_mode = (data.get("strategy_mode") or "").strip().upper()
+
+    # Validate strategy mode
+    valid_modes = {"SIMONS", "DRUCKENMILLER", "PTJ", "COHEN", "ONEIL", "DALIO"}
+    if strategy_mode and strategy_mode not in valid_modes:
+        strategy_mode = ""
+
+    if not message:
+        return {"error": "Message is required"}
+
+    # Default symbol to most recent war room topic
+    if not symbol:
+        conn = _conn()
+        last = conn.execute(
+            "SELECT symbol FROM war_room ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        symbol = last["symbol"] if last else "SPY"
+
+    # Tag the message with strategy mode if active
+    tagged_message = message
+    if strategy_mode:
+        tagged_message = f"[{strategy_mode} MODE] {message}"
+
+    # Save to war_room table (auto-migrate strategy_mode column if needed)
+    conn = _conn()
+    try:
+        conn.execute(
+            "INSERT INTO war_room (player_id, symbol, take, strategy_mode) VALUES (?, ?, ?, ?)",
+            ("steve-webull", symbol, tagged_message, strategy_mode or None)
+        )
+    except sqlite3.OperationalError:
+        conn.execute("ALTER TABLE war_room ADD COLUMN strategy_mode TEXT")
+        conn.execute(
+            "INSERT INTO war_room (player_id, symbol, take, strategy_mode) VALUES (?, ?, ?, ?)",
+            ("steve-webull", symbol, tagged_message, strategy_mode or None)
+        )
+    conn.commit()
+    conn.close()
+
+    # Immediately trigger AI responses in this process (main.py is a separate process)
+    import threading as _threading
+    def _run_ai_responses():
+        try:
+            from engine.war_room import run_war_room as _run_wr, set_forced_topic, set_strategy_mode
+            from engine.market_data import get_stock_price
+            from config import WATCH_STOCKS
+            import os
+
+            # Set forced topic BEFORE building providers so the cycle debates Kirk's symbol
+            set_forced_topic(symbol)
+            if strategy_mode:
+                set_strategy_mode(strategy_mode)
+
+            # Build Ollama providers for all active, non-paused players
+            conn2 = _conn()
+            players = conn2.execute(
+                "SELECT id, provider, model_id, display_name FROM ai_players "
+                "WHERE is_active=1 AND is_paused=0"
+            ).fetchall()
+            conn2.close()
+
+            from engine.providers.ollama_provider import OllamaProvider
+            providers = {}
+            for p in players:
+                pid, prov, model, dname = p["id"], p["provider"], p["model_id"], p["display_name"]
+                if pid in ("dayblade-0dte", "cto-grok42") or is_independent_player(pid):
+                    continue
+                try:
+                    if prov == "ollama":
+                        providers[pid] = OllamaProvider(player_id=pid, model=model)
+                    elif prov == "google":
+                        # Route through Ollama — no paid API
+                        providers[pid] = OllamaProvider(player_id=pid, model="gemma3:4b")
+                except Exception:
+                    pass
+
+            prices = {}
+            for sym in WATCH_STOCKS:
+                data = get_stock_price(sym)
+                if "error" not in data:
+                    prices[sym] = data
+            # Also fetch the posted symbol if not in watchlist
+            if symbol not in prices:
+                data = get_stock_price(symbol)
+                if "error" not in data:
+                    prices[symbol] = data
+
+            if prices and providers:
+                _run_wr(providers, prices)
+        except Exception as e:
+            print(f"War Room post-response error: {e}")
+
+    _threading.Thread(target=_run_ai_responses, daemon=True).start()
+
+    return {"ok": True, "symbol": symbol, "message": tagged_message, "strategy_mode": strategy_mode}
+
+
+@app.post("/api/war-room/trigger")
+def trigger_war_room():
+    """Manually trigger a War Room cycle."""
+    import threading
+    from engine.war_room import run_war_room as _run_wr, get_most_volatile
+    from engine.market_data import get_stock_price
+    from config import WATCH_STOCKS
+
+    def _run():
+        try:
+            # Get providers from DB
+            conn = _conn()
+            players = conn.execute(
+                "SELECT id, provider, model_id, display_name FROM ai_players WHERE is_active=1"
+            ).fetchall()
+            conn.close()
+
+            import os
+            providers = {}
+            for p in players:
+                pid, prov, model, dname = p["id"], p["provider"], p["model_id"], p["display_name"]
+                if is_independent_player(pid):
+                    continue
+                try:
+                    if prov == "openai":
+                        from engine.providers.openai_provider import OpenAIProvider
+                        providers[pid] = OpenAIProvider(os.getenv("OPENAI_API_KEY"), pid, model, dname)
+                    elif prov == "google":
+                        from engine.providers.ollama_provider import OllamaProvider
+                        providers[pid] = OllamaProvider(player_id=pid, model="gemma3:4b")
+                    elif prov == "xai":
+                        from engine.providers.grok_provider import GrokProvider
+                        providers[pid] = GrokProvider(os.getenv("XAI_API_KEY"), pid, model, dname)
+                    elif prov == "ollama":
+                        from engine.providers.ollama_provider import OllamaProvider
+                        providers[pid] = OllamaProvider(player_id=pid, model=model)
+                except Exception:
+                    pass
+
+            prices = {}
+            for sym in WATCH_STOCKS:
+                data = get_stock_price(sym)
+                if "error" not in data:
+                    prices[sym] = data
+
+            if prices and providers:
+                _run_wr(providers, prices)
+        except Exception as e:
+            print(f"War Room trigger error: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "triggered"}
+
+
+@app.post("/api/war-room/hail-q")
+def war_room_hail_q(data: dict = None):
+    """Summon Q — the omnipotent entity."""
+    if not data or not data.get("message"):
+        return {"error": "message required"}
+    import threading
+
+    message = data["message"].strip()
+
+    # Save Captain's hail to War Room
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO war_room (player_id, symbol, take) VALUES (?, ?, ?)",
+        ("steve-webull", "Q", f"🚀 CAPTAIN: {message}")
+    )
+    conn.commit()
+    conn.close()
+
+    def _run():
+        try:
+            from engine.q_entity import summon_q
+            from engine.war_room import save_hot_take
+            result = summon_q(message)
+            response = result.get("response", "Q is silent.")
+            # Save Q's response — use steve-webull as poster since Q isn't a player
+            # We'll create a special formatting in the War Room display
+            conn = _conn()
+            conn.execute(
+                "INSERT INTO war_room (player_id, symbol, take) VALUES (?, ?, ?)",
+                ("steve-webull", "Q", f"✨ Q: {response[:500]}")
+            )
+            conn.commit()
+            conn.close()
+        except Exception as e:
+            print(f"Q entity error: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "summoning_q"}
+
+
+@app.post("/api/war-room/command")
+def war_room_command(data: dict = None):
+    """Smart command: parse Captain's input and route to models."""
+    if not data:
+        return {"error": "No data provided"}
+    command = (data.get("command") or "").strip()
+    raw_input = (data.get("input") or "").strip()
+    ticker = (data.get("ticker") or "").strip().upper()
+    target_model = (data.get("target_model") or "").strip()
+
+    import threading, re
+
+    # Check for Q summons
+    input_lower = raw_input.lower()
+    if (input_lower.startswith("@q ") or input_lower.startswith("hail q") or
+        input_lower.startswith("q,") or "what am i missing" in input_lower or
+        "judge the crew" in input_lower or command == "hail_q"):
+        return war_room_hail_q({"message": raw_input})
+
+    # Parse the input for tickers (1-5 uppercase letters)
+    mentioned_tickers = re.findall(r'\b([A-Z]{1,5})\b', raw_input)
+    # Filter to known watchlist stocks
+    from config import WATCH_STOCKS
+    valid_tickers = [t for t in mentioned_tickers if t in WATCH_STOCKS]
+
+    # Determine the primary ticker
+    if ticker:
+        primary = ticker
+    elif valid_tickers:
+        primary = valid_tickers[0]
+    else:
+        primary = "SPY"
+
+    # Save Captain's message
+    conn = _conn()
+    captain_msg = raw_input or f"[{command}] {ticker}"
+    conn.execute(
+        "INSERT INTO war_room (player_id, symbol, take) VALUES (?, ?, ?)",
+        ("steve-webull", primary, f"🚀 {captain_msg}")
+    )
+    conn.commit()
+    conn.close()
+
+    # Force debate on this topic
+    try:
+        from engine.war_room import set_forced_topic
+        set_forced_topic(primary)
+    except Exception:
+        pass
+
+    # Trigger War Room cycle in background
+    def _run_debate():
+        try:
+            from engine.war_room import run_war_room as _rwr
+            from engine.market_data import get_stock_price
+            providers = _build_war_room_providers()
+            prices = {}
+            for sym in ([primary] + valid_tickers + list(WATCH_STOCKS)):
+                if sym not in prices:
+                    d = get_stock_price(sym)
+                    if "error" not in d:
+                        prices[sym] = d
+            if prices and providers:
+                _rwr(providers, prices)
+        except Exception as e:
+            print(f"War Room command error: {e}")
+
+    threading.Thread(target=_run_debate, daemon=True).start()
+    return {"ok": True, "command": command, "ticker": primary, "tickers": valid_tickers, "status": "generating"}
+
+
+@app.post("/api/war-room/top-picks")
+def war_room_top_picks():
+    """Each active model returns their #1 trade idea."""
+    import threading
+
+    def _run():
+        try:
+            from engine.war_room import save_hot_take
+            from engine.market_data import get_stock_price
+            providers = _build_war_room_providers()
+            for pid, prov in providers.items():
+                try:
+                    prompt = (
+                        f"You are {prov.display_name}. The Captain wants your SINGLE BEST trade idea right now. "
+                        "Name ONE ticker, say BUY or SELL, give a 1-2 sentence thesis with a target price. "
+                        "Be specific and bold. Format: TICKER — BUY/SELL — thesis"
+                    )
+                    response = prov.call_model(prompt)
+                    if response:
+                        take = response.strip()[:500]
+                        save_hot_take(pid, "TOP_PICK", take)
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Top picks error: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "generating_top_picks"}
+
+
+@app.post("/api/war-room/poll")
+def war_room_poll(data: dict = None):
+    """Quick poll: models respond with one-line stance + conviction."""
+    if not data:
+        return {"error": "No data"}
+    question = (data.get("question") or "Bull or bear?").strip()
+    ticker = (data.get("ticker") or "SPY").strip().upper()
+    import threading
+
+    # Save poll question
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO war_room (player_id, symbol, take) VALUES (?, ?, ?)",
+        ("steve-webull", ticker, f"📊 POLL: {question}")
+    )
+    conn.commit()
+    conn.close()
+
+    def _run():
+        try:
+            from engine.war_room import save_hot_take
+            from engine.market_data import get_stock_price
+            price_data = get_stock_price(ticker)
+            price = price_data.get("price", 0) if price_data else 0
+            change = price_data.get("change_pct", 0) if price_data else 0
+            providers = _build_war_room_providers()
+            for pid, prov in providers.items():
+                try:
+                    prompt = (
+                        f"Quick poll from Captain Kirk: \"{question}\" about {ticker} (${price:.2f}, {change:+.2f}% today). "
+                        "Reply in EXACTLY this format: BULL or BEAR or NEUTRAL | Conviction: X/10 | One sentence why."
+                    )
+                    response = prov.call_model(prompt)
+                    if response:
+                        save_hot_take(pid, ticker, response.strip()[:300])
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Poll error: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "polling", "ticker": ticker}
+
+
+@app.post("/api/war-room/challenge")
+def war_room_challenge(data: dict = None):
+    """Direct challenge to a specific model."""
+    if not data:
+        return {"error": "No data"}
+    target = (data.get("target_model") or "").strip()
+    message = (data.get("message") or "").strip()
+    ticker = (data.get("ticker") or "SPY").strip().upper()
+    if not target or not message:
+        return {"error": "target_model and message required"}
+    import threading
+
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO war_room (player_id, symbol, take) VALUES (?, ?, ?)",
+        ("steve-webull", ticker, f"🎯 @{target}: {message}")
+    )
+    conn.commit()
+    conn.close()
+
+    def _run():
+        try:
+            from engine.war_room import save_hot_take
+            providers = _build_war_room_providers()
+            prov = providers.get(target)
+            if prov:
+                prompt = (
+                    f"Captain Kirk is challenging you directly: \"{message}\" "
+                    f"about {ticker}. Respond with conviction. Defend your position or admit the Captain has a point. "
+                    "Be bold, be specific."
+                )
+                response = prov.call_model(prompt)
+                if response:
+                    save_hot_take(target, ticker, response.strip()[:500])
+        except Exception as e:
+            print(f"Challenge error: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "challenged", "target": target}
+
+
+@app.post("/api/war-room/portfolio-review")
+def war_room_portfolio_review():
+    """Models critique Captain's current positions."""
+    import threading
+
+    def _run():
+        try:
+            from engine.paper_trader import get_portfolio_with_pnl
+            from engine.market_data import get_stock_price
+            from engine.war_room import save_hot_take
+
+            # Get Captain's portfolio
+            prices = {}
+            conn = _conn()
+            steve_pos = conn.execute(
+                "SELECT symbol, qty, avg_price FROM positions WHERE player_id='steve-webull'"
+            ).fetchall()
+            conn.close()
+            pos_str = ", ".join(f"{r['symbol']}({r['qty']}@${r['avg_price']:.2f})" for r in steve_pos)
+
+            # Save the review request
+            conn = _conn()
+            conn.execute(
+                "INSERT INTO war_room (player_id, symbol, take) VALUES (?, ?, ?)",
+                ("steve-webull", "PORTFOLIO", f"📋 Review my portfolio: {pos_str}")
+            )
+            conn.commit()
+            conn.close()
+
+            providers = _build_war_room_providers()
+            for pid, prov in providers.items():
+                try:
+                    prompt = (
+                        f"Captain Kirk's current portfolio: {pos_str}. "
+                        "Critique it. What would you keep? What would you sell? What's missing? "
+                        "Be honest and specific. 2-3 sentences max."
+                    )
+                    response = prov.call_model(prompt)
+                    if response:
+                        save_hot_take(pid, "PORTFOLIO", response.strip()[:500])
+                except Exception:
+                    pass
+        except Exception as e:
+            print(f"Portfolio review error: {e}")
+
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "reviewing"}
+
+
+def _build_war_room_providers() -> dict:
+    """Build provider dict for War Room from active players."""
+    import os
+    conn = _conn()
+    players = conn.execute(
+        "SELECT id, provider, model_id, display_name FROM ai_players WHERE is_active=1 AND is_paused=0"
+    ).fetchall()
+    conn.close()
+    providers = {}
+    for p in players:
+        pid, prov, model, dname = p["id"], p["provider"], p["model_id"], p["display_name"]
+        if pid == "steve-webull" or is_independent_player(pid):
+            continue
+        try:
+            if prov == "openai":
+                from engine.providers.openai_provider import OpenAIProvider
+                providers[pid] = OpenAIProvider(os.getenv("OPENAI_API_KEY"), pid, model, dname)
+            elif prov == "google":
+                from engine.providers.ollama_provider import OllamaProvider
+                providers[pid] = OllamaProvider(player_id=pid, model="gemma3:4b")
+            elif prov == "xai":
+                from engine.providers.grok_provider import GrokProvider
+                providers[pid] = GrokProvider(os.getenv("XAI_API_KEY"), pid, model, dname)
+            elif prov == "ollama":
+                from engine.providers.ollama_provider import OllamaProvider
+                providers[pid] = OllamaProvider(player_id=pid, model=model)
+        except Exception:
+            pass
+    return providers
+
+
+# ── Impulse Alerts ──────────────────────────────────────────────────────────
+from engine.impulse_detector import (
+    ensure_impulse_table as _ensure_impulse_table,
+    get_active_impulse_alerts, get_recent_impulse_alerts,
+)
+_ensure_impulse_table()
+
+
+@app.get("/api/impulse/active")
+def impulse_active(max_age_hours: float = 2.0):
+    """Active impulse alerts within the last N hours, sorted by strength."""
+    try:
+        return {"alerts": get_active_impulse_alerts(max_age_hours)}
+    except Exception as e:
+        return {"error": str(e), "alerts": []}
+
+
+@app.get("/api/impulse/recent")
+def impulse_recent(limit: int = 50):
+    """Most recent impulse alerts from DB (all time)."""
+    try:
+        return {"alerts": get_recent_impulse_alerts(limit)}
+    except Exception as e:
+        return {"error": str(e), "alerts": []}
+
+
+# ── Gap Scanner ─────────────────────────────────────────────────────────────
+from engine.gap_scanner import (
+    ensure_gap_table as _ensure_gap_table,
+    get_todays_gaps, get_recent_gaps, get_gap_fill_stats, get_cached_gaps,
+)
+_ensure_gap_table()
+
+
+@app.get("/api/gaps/today")
+def gaps_today(min_gap_pct: float = 0.0):
+    """Today's morning gaps with fill status, sorted by gap size."""
+    try:
+        gaps = get_cached_gaps()
+        if not gaps:
+            gaps = get_todays_gaps(min_gap_pct)
+        if min_gap_pct > 0:
+            gaps = [g for g in gaps if abs(g.get("gap_pct", 0)) >= min_gap_pct]
+        return {"gaps": gaps, "count": len(gaps), "date": __import__("datetime").date.today().isoformat()}
+    except Exception as e:
+        return {"error": str(e), "gaps": []}
+
+
+@app.get("/api/gaps/history")
+def gaps_history(limit: int = 100):
+    """Recent gap history across all dates."""
+    try:
+        return {"gaps": get_recent_gaps(limit)}
+    except Exception as e:
+        return {"error": str(e), "gaps": []}
+
+
+@app.get("/api/gaps/stats")
+def gaps_stats(days: int = 30):
+    """Gap fill statistics by gap type over the last N days."""
+    try:
+        return {"stats": get_gap_fill_stats(days), "days": days}
+    except Exception as e:
+        return {"error": str(e), "stats": {}}
+
+
+@app.post("/api/gaps/scan")
+def gaps_scan_now():
+    """Trigger immediate gap scan (runs in background)."""
+    import threading as _threading
+    def _bg():
+        try:
+            from config import WATCH_STOCKS
+            from engine.gap_scanner import scan_all_gaps
+            scan_all_gaps(WATCH_STOCKS)
+        except Exception as e:
+            console.log(f"[red]Gap manual scan error: {e}")
+    _threading.Thread(target=_bg, daemon=True).start()
+    return {"status": "scanning", "message": "Gap scan started in background"}
+
+
+# ── Theta Scanner ───────────────────────────────────────────────────────────
+from engine.theta_scanner import (
+    ensure_theta_table as _ensure_theta_table,
+    get_cached_theta, get_theta_opportunities, get_latest_theta,
+)
+_ensure_theta_table()
+
+
+@app.get("/api/theta/opportunities")
+def theta_opportunities(min_score: int = 3, limit: int = 50):
+    """Theta collection opportunities sorted by score (uses today's cache or DB)."""
+    try:
+        data = get_cached_theta()
+        if not data:
+            data = get_latest_theta()
+        filtered = [o for o in data if o.get("theta_score", 0) >= min_score]
+        filtered = filtered[:limit]
+        return {"opportunities": filtered, "count": len(filtered)}
+    except Exception as e:
+        return {"error": str(e), "opportunities": []}
+
+
+@app.get("/api/theta/history")
+def theta_history(limit: int = 100, min_score: int = 1):
+    """Historical theta opportunities from DB."""
+    try:
+        return {"opportunities": get_theta_opportunities(limit, min_score)}
+    except Exception as e:
+        return {"error": str(e), "opportunities": []}
+
+
+@app.post("/api/theta/scan")
+def theta_scan_now():
+    """Trigger an immediate theta scan (runs in background)."""
+    import threading as _threading
+    def _bg():
+        try:
+            from config import WATCH_STOCKS
+            from engine.theta_scanner import scan_all_theta
+            scan_all_theta(WATCH_STOCKS)
+        except Exception as e:
+            console.log(f"[red]Theta manual scan error: {e}")
+    _threading.Thread(target=_bg, daemon=True).start()
+    return {"status": "scanning", "message": "Theta scan started in background"}
+
+
+# ── 200 SMA Filter ──────────────────────────────────────────────────────────
+from engine.sma_filter import ensure_sma_table as _ensure_sma_table, \
+    get_cached_sma_status, get_recent_sma_signals
+_ensure_sma_table()
+
+
+@app.get("/api/sma/status")
+def sma_status():
+    """Current 200 SMA status for all watchlist stocks (cached 15 min)."""
+    from config import WATCH_STOCKS
+    try:
+        data = get_cached_sma_status(WATCH_STOCKS)
+        stocks = sorted(data.values(), key=lambda x: abs(x.get("distance_pct", 999)))
+        return {"stocks": stocks, "count": len(stocks)}
+    except Exception as e:
+        return {"error": str(e), "stocks": []}
+
+
+@app.get("/api/sma/signals")
+def sma_signals_endpoint(limit: int = 50):
+    """Recent 200 SMA signals (Bounce / Breakdown / Reclaim) from DB."""
+    try:
+        return {"signals": get_recent_sma_signals(limit)}
+    except Exception as e:
+        return {"error": str(e), "signals": []}
+
+
+# ── Supply/Demand Imbalance Zones ───────────────────────────────────────────
+from engine.imbalance_detector import (
+    ensure_imbalance_table as _ensure_imbalance_table,
+    get_untested_zones, get_all_zones,
+)
+_ensure_imbalance_table()
+
+
+@app.get("/api/imbalance/zones")
+def imbalance_zones(ticker: str = None, limit: int = 100):
+    """Untested supply/demand imbalance zones, optionally filtered by ticker."""
+    try:
+        return {"zones": get_untested_zones(ticker, limit)}
+    except Exception as e:
+        return {"error": str(e), "zones": []}
+
+
+@app.get("/api/imbalance/all")
+def imbalance_all(ticker: str = None, limit: int = 200):
+    """All imbalance zones (tested + untested), optionally filtered by ticker."""
+    try:
+        return {"zones": get_all_zones(ticker, limit)}
+    except Exception as e:
+        return {"error": str(e), "zones": []}
+
+
+# ── Quorum ──────────────────────────────────────────────────────────────────
+import uuid as _uuid
+
+_quorum_sessions: dict = {}  # quorum_id → {ticker, votes, done, started_at}
+
+
+def _ensure_quorum_table():
+    conn = _conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS quorum_votes (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            quorum_id TEXT NOT NULL,
+            ticker TEXT NOT NULL,
+            player_id TEXT NOT NULL,
+            display_name TEXT,
+            vote TEXT NOT NULL,
+            confidence REAL,
+            reasoning TEXT,
+            created_at TEXT DEFAULT (datetime('now'))
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+_ensure_quorum_table()
+
+
+@app.post("/api/quorum/start")
+def quorum_start(data: dict):
+    """Start a quorum vote for a ticker. Returns quorum_id to poll for results."""
+    ticker = (data.get("ticker") or "SPY").strip().upper()
+    quorum_id = str(_uuid.uuid4())[:8]
+    _quorum_sessions[quorum_id] = {
+        "ticker": ticker,
+        "votes": [],
+        "done": False,
+        "started_at": _time.time(),
+    }
+
+    def _run():
+        try:
+            from engine.market_data import get_stock_price
+            from engine.gemini_free_tier import call_gemini
+            price_data = get_stock_price(ticker)
+            price = price_data.get("price", 0) if price_data else 0
+            change = price_data.get("change_pct", 0) if price_data else 0
+
+            prompt = (
+                f"Quorum vote requested for {ticker} (${price:.2f}, {change:+.2f}% today). "
+                f"Should we BUY, SELL, or HOLD {ticker} right now? "
+                f"Reply in EXACTLY this format: "
+                f"VOTE: BUY|SELL|HOLD | CONFIDENCE: 0-100 | REASON: one sentence max."
+            )
+
+            providers = _build_war_room_providers()
+            from concurrent.futures import ThreadPoolExecutor, as_completed
+
+            def _call_one(pid_prov):
+                pid, prov = pid_prov
+                try:
+                    resp = prov.call_model(prompt)
+                    if not resp:
+                        return None
+                    resp = resp.strip()
+                    vote, confidence = "HOLD", 50.0
+                    upper = resp.upper()
+                    if "VOTE: BUY" in upper or upper.startswith("BUY"):
+                        vote = "BUY"
+                    elif "VOTE: SELL" in upper or upper.startswith("SELL"):
+                        vote = "SELL"
+                    import re as _re
+                    cm = _re.search(r'CONFIDENCE:\s*(\d+)', resp, _re.IGNORECASE)
+                    if cm:
+                        confidence = min(100, max(0, float(cm.group(1))))
+                    reason = ""
+                    rm = _re.search(r'REASON:\s*(.+)', resp, _re.IGNORECASE)
+                    if rm:
+                        reason = rm.group(1).strip()[:200]
+                    return {"player_id": pid, "display_name": getattr(prov, "display_name", pid),
+                            "vote": vote, "confidence": confidence, "reasoning": reason}
+                except Exception:
+                    return None
+
+            with ThreadPoolExecutor(max_workers=6) as ex:
+                futs = {ex.submit(_call_one, item): item[0] for item in providers.items()}
+                for fut in as_completed(futs, timeout=120):
+                    result = fut.result()
+                    if result:
+                        _quorum_sessions[quorum_id]["votes"].append(result)
+                        # Persist to DB
+                        try:
+                            c = _conn()
+                            c.execute(
+                                "INSERT INTO quorum_votes (quorum_id,ticker,player_id,display_name,vote,confidence,reasoning) "
+                                "VALUES (?,?,?,?,?,?,?)",
+                                (quorum_id, ticker, result["player_id"], result["display_name"],
+                                 result["vote"], result["confidence"], result["reasoning"])
+                            )
+                            c.commit()
+                            c.close()
+                        except Exception:
+                            pass
+        except Exception as e:
+            print(f"Quorum error: {e}")
+        finally:
+            _quorum_sessions[quorum_id]["done"] = True
+
+    import threading as _threading
+    _threading.Thread(target=_run, daemon=True).start()
+    return {"quorum_id": quorum_id, "ticker": ticker}
+
+
+@app.get("/api/quorum/status/{quorum_id}")
+def quorum_status(quorum_id: str):
+    """Poll for quorum results."""
+    session = _quorum_sessions.get(quorum_id)
+    if not session:
+        # Try loading from DB
+        conn = _conn()
+        rows = conn.execute(
+            "SELECT player_id, display_name, vote, confidence, reasoning FROM quorum_votes WHERE quorum_id=?",
+            (quorum_id,)
+        ).fetchall()
+        conn.close()
+        if not rows:
+            return {"error": "Quorum not found"}
+        votes = [dict(r) for r in rows]
+    else:
+        votes = session["votes"]
+
+    buy = sum(1 for v in votes if v["vote"] == "BUY")
+    sell = sum(1 for v in votes if v["vote"] == "SELL")
+    hold = sum(1 for v in votes if v["vote"] == "HOLD")
+    total = len(votes)
+    consensus = "HOLD"
+    if total > 0:
+        if buy > sell and buy > hold:
+            consensus = "BUY"
+        elif sell > buy and sell > hold:
+            consensus = "SELL"
+
+    return {
+        "quorum_id": quorum_id,
+        "ticker": session["ticker"] if session else quorum_id,
+        "done": session["done"] if session else True,
+        "votes": votes,
+        "tally": {"BUY": buy, "SELL": sell, "HOLD": hold, "total": total},
+        "consensus": consensus,
+    }
+
+
+@app.get("/api/smart-money")
+def smart_money(limit: int = 20):
+    """Get recent Smart Money signals."""
+    from engine.smart_money import get_recent_smart_money
+    return get_recent_smart_money(limit)
+
+
+@app.get("/api/autopilot/status")
+def autopilot_status():
+    """Get autopilot enabled/disabled status."""
+    from engine.autopilot import is_autopilot_enabled
+    return {"enabled": is_autopilot_enabled()}
+
+
+@app.post("/api/autopilot/toggle")
+def autopilot_toggle():
+    """Toggle autopilot on/off."""
+    from engine.autopilot import is_autopilot_enabled, set_autopilot
+    current = is_autopilot_enabled()
+    set_autopilot(not current)
+    return {"enabled": not current}
+
+
+_risk_radar_cache = {"all": None, "all_ts": 0, "prices": {}, "prices_ts": 0}
+
+@app.get("/api/risk-radar")
+def risk_radar(player_id: str = None):
+    """Get risk radar spider chart data."""
+    import time as _time
+    from engine.risk_radar import get_risk_radar, get_all_risk_radars
+    from engine.market_data import get_stock_price
+    from config import WATCH_STOCKS
+
+    # Cache all-players result for 5 minutes — check BEFORE fetching prices
+    now = _time.time()
+    if not player_id:
+        if _risk_radar_cache["all"] and (now - _risk_radar_cache["all_ts"]) < 300:
+            return _risk_radar_cache["all"]
+
+    # Reuse cached prices if fresh (within 60s)
+    if _risk_radar_cache["prices"] and (now - _risk_radar_cache["prices_ts"]) < 60:
+        prices = _risk_radar_cache["prices"]
+    else:
+        prices = {}
+        for sym in WATCH_STOCKS:
+            data = get_stock_price(sym)
+            if "error" not in data:
+                prices[sym] = data
+        _risk_radar_cache["prices"] = prices
+        _risk_radar_cache["prices_ts"] = now
+
+    if player_id:
+        return get_risk_radar(player_id, prices)
+
+    result = get_all_risk_radars(prices)
+    _risk_radar_cache["all"] = result
+    _risk_radar_cache["all_ts"] = now
+    return result
+
+
+# --- Backtest History (Fix 6: Save & Compare Results) ---
+# NOTE: These specific routes MUST be before the {player_id} catch-all
+
+@app.post("/api/backtest/save-result")
+def backtest_save_result(data: dict = None):
+    """Save a backtest result to history for trend tracking."""
+    if not data or not data.get("player_id"):
+        return {"error": "player_id required"}
+    import sqlite3
+    conn = sqlite3.connect("data/trader.db", check_same_thread=False, timeout=30)
+
+    # Get Rallies top performer for external benchmark
+    rallies_top_return = None
+    rallies_top_name = None
+    try:
+        from engine.rallies_intel import get_top_performers
+        top = get_top_performers(1)
+        if top:
+            rallies_top_return = top[0]["return_pct"]
+            rallies_top_name = top[0]["name"]
+    except Exception:
+        pass
+
+    conn.execute("""
+        INSERT INTO backtest_history (
+            player_id, player_name, period_days, start_date, end_date,
+            starting_value, final_value, return_pct, total_pnl,
+            win_count, loss_count, win_rate, total_trades,
+            best_trade_pnl, worst_trade_pnl, best_trade_symbol, worst_trade_symbol,
+            spy_return_pct, rallies_top_return_pct, rallies_top_name,
+            notes, config_snapshot,
+            guardrails_applied, signals_tested, signals_skipped, skip_summary
+        ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    """, (
+        data["player_id"], data.get("player_name"),
+        data.get("period_days", 30), data.get("start_date"), data.get("end_date"),
+        data.get("starting_value", 7000), data.get("final_value"),
+        data.get("return_pct"), data.get("total_pnl"),
+        data.get("win_count", 0), data.get("loss_count", 0),
+        data.get("win_rate", 0), data.get("total_trades", 0),
+        data.get("best_trade_pnl"), data.get("worst_trade_pnl"),
+        data.get("best_trade_symbol"), data.get("worst_trade_symbol"),
+        data.get("spy_return_pct"),
+        rallies_top_return or data.get("rallies_top_return_pct"),
+        rallies_top_name or data.get("rallies_top_name"),
+        data.get("notes"), data.get("config_snapshot"),
+        1 if data.get("guardrails_applied") else 0,
+        data.get("signals_tested", 0),
+        data.get("signals_skipped", 0),
+        data.get("skip_summary"),
+    ))
+    conn.commit()
+    rid = conn.execute("SELECT last_insert_rowid()").fetchone()[0]
+    conn.close()
+    return {"ok": True, "id": rid}
+
+
+@app.get("/api/backtest/history-for/{player_id}")
+def backtest_history_for(player_id: str):
+    """Get all historical backtest runs for a player — shows improvement over time."""
+    import sqlite3
+    conn = sqlite3.connect("data/trader.db", check_same_thread=False, timeout=30)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("""
+        SELECT * FROM backtest_history WHERE player_id=? ORDER BY run_date DESC
+    """, (player_id,)).fetchall()
+    conn.close()
+    return {"player_id": player_id, "runs": [dict(r) for r in rows]}
+
+
+@app.get("/api/backtest/history-leaderboard")
+def backtest_history_leaderboard():
+    """Best backtest results across all models — Starfleet Intelligence for historical performance."""
+    import sqlite3
+    conn = sqlite3.connect("data/trader.db", check_same_thread=False, timeout=30)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute("""
+        SELECT bh.* FROM backtest_history bh
+        INNER JOIN (
+            SELECT player_id, MAX(run_date) as max_date
+            FROM backtest_history GROUP BY player_id
+        ) latest ON bh.player_id = latest.player_id AND bh.run_date = latest.max_date
+        ORDER BY bh.return_pct DESC
+    """).fetchall()
+    conn.close()
+    return {"leaderboard": [dict(r) for r in rows]}
+
+
+@app.get("/api/backtest/history/leaderboard")
+def backtest_history_leaderboard_alias():
+    """Compatibility alias for older dashboard clients."""
+    return backtest_history_leaderboard()
+
+
+@app.get("/api/backtest/compare-guardrails/{player_id}")
+def backtest_compare(player_id: str, days: int = 30,
+                     start_date: str = None, end_date: str = None):
+    """Run both raw and guarded backtests, return side-by-side comparison."""
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+    from engine.backtester import backtest_compare as _compare
+    effective_days = days
+    if start_date and end_date:
+        from datetime import datetime as _dt
+        effective_days = (_dt.strptime(end_date, "%Y-%m-%d") - _dt.strptime(start_date, "%Y-%m-%d")).days
+    timeout = max(60, min(effective_days // 5, 240))
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            return ex.submit(_compare, player_id, days,
+                             start_date, end_date).result(timeout=timeout)
+    except FuturesTimeout:
+        return {"error": f"Comparison timed out (>{timeout}s). Try a shorter date range."}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/backtest/inverse-etfs")
+def backtest_inverse(days: int = 180):
+    """Backtest Worf's inverse ETF strategy across ETFs and allocations."""
+    from engine.inverse_etfs import backtest_inverse_etfs
+    results = backtest_inverse_etfs(days=days)
+    if "error" in results:
+        return results
+    sorted_results = sorted(results.values(), key=lambda x: x["total_return"], reverse=True)
+    return {
+        "period_days": days,
+        "results": sorted_results,
+        "best": sorted_results[0] if sorted_results else None,
+        "spy_return": sorted_results[0]["spy_return"] if sorted_results else 0,
+    }
+
+
+@app.get("/api/regime/raw")
+def market_regime_raw():
+    """Get raw regime detector output (legacy)."""
+    from engine.regime_detector import detect_regime
+    return detect_regime()
+
+
+@app.get("/api/whisper")
+def whisper_network():
+    """Get trending tickers from Whisper Network."""
+    from engine.whisper_network import get_trending_tickers, check_watchlist_trending
+    return {
+        "trending": get_trending_tickers(),
+        "watchlist_trending": check_watchlist_trending(),
+    }
+
+
+@app.get("/api/ghost-trades")
+def ghost_trades(player_id: str = None, limit: int = 50):
+    """Get ghost trades (missed opportunities)."""
+    from engine.ghost_trades import get_ghost_trades
+    return get_ghost_trades(player_id, limit)
+
+
+@app.get("/api/ghost-trades/stats")
+def ghost_stats():
+    """Get aggregate ghost trade statistics."""
+    from engine.ghost_trades import get_ghost_stats
+    return get_ghost_stats()
+
+
+@app.get("/api/alerts/history")
+def alert_history(limit: int = 200, model: str = "", ticker: str = "", signal_type: str = ""):
+    """Full alert history — signals + dynamic alerts merged, 7-day window."""
+    conn = _conn()
+    results = []
+
+    # Dynamic alerts (trendline breaks, RSI, MACD, volume)
+    alerts = conn.execute(
+        "SELECT id, symbol, alert_type, message, severity, price, triggered_at "
+        "FROM dynamic_alerts WHERE triggered_at >= datetime('now', '-7 days') "
+        "ORDER BY triggered_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    for a in alerts:
+        d = dict(a)
+        if ticker and d["symbol"] != ticker.upper():
+            continue
+        if signal_type and signal_type.lower() not in (d["alert_type"] or "").lower():
+            continue
+        d["source"] = "dynamic_alert"
+        d["model"] = "Navigator"
+        d["confidence"] = None
+        d["reasoning"] = d["message"]
+        d["timestamp"] = d["triggered_at"]
+        results.append(d)
+
+    # Signals from AI models (BUY/SELL with confidence + reasoning)
+    sigs = conn.execute(
+        "SELECT s.player_id, p.display_name, s.symbol, s.signal, s.confidence, "
+        "s.reasoning, s.created_at "
+        "FROM signals s JOIN ai_players p ON s.player_id = p.id "
+        "WHERE s.created_at >= datetime('now', '-7 days') "
+        "AND s.signal IN ('BUY', 'SELL', 'BUY_CALL', 'BUY_PUT') "
+        "ORDER BY s.created_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    for s in sigs:
+        d = dict(s)
+        if ticker and d["symbol"] != ticker.upper():
+            continue
+        if model and model.lower() not in (d["display_name"] or "").lower() and model.lower() not in (d["player_id"] or "").lower():
+            continue
+        d["source"] = "ai_signal"
+        d["model"] = d["display_name"] or d["player_id"]
+        d["alert_type"] = d["signal"]
+        d["timestamp"] = d["created_at"]
+        d["severity"] = "high" if (d["confidence"] or 0) >= 0.8 else "medium"
+        results.append(d)
+
+    conn.close()
+    results.sort(key=lambda x: x.get("timestamp", ""), reverse=True)
+    return results[:limit]
+
+
+@app.get("/api/alerts/recent")
+def recent_alerts(limit: int = 20):
+    """Get recent trades for browser notification polling."""
+    conn = _conn()
+    trades = conn.execute(
+        "SELECT t.player_id, p.display_name, t.symbol, t.action, t.qty, t.price, "
+        "t.reasoning, t.executed_at "
+        "FROM trades t JOIN ai_players p ON t.player_id = p.id "
+        "ORDER BY t.executed_at DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return [dict(t) for t in trades]
+
+
+# --- Multi-Timeframe Analysis ---
+
+@app.get("/api/market/mtf/{symbol}")
+def multi_timeframe(symbol: str):
+    """Get multi-timeframe analysis for a symbol."""
+    from engine.multi_timeframe import get_multi_timeframe
+    return get_multi_timeframe(symbol.upper())
+
+
+# --- Options Greeks ---
+
+@app.get("/api/options/greeks")
+def options_greeks():
+    """Get live Greeks for all options positions."""
+    from engine.options_greeks import get_options_greeks
+    from engine.market_data import get_stock_price
+
+    conn = _conn()
+    symbols = conn.execute(
+        "SELECT DISTINCT symbol FROM positions WHERE asset_type='option'"
+    ).fetchall()
+    conn.close()
+
+    prices = {}
+    for s in symbols:
+        data = get_stock_price(s["symbol"])
+        if "error" not in data:
+            prices[s["symbol"]] = data
+
+    return get_options_greeks(prices)
+
+
+@app.get("/api/options/theta-burn")
+def theta_burn():
+    """Get total theta burn summary."""
+    from engine.options_greeks import get_total_theta_burn
+    return get_total_theta_burn()
+
+
+# --- Signal Tracker ---
+
+@app.get("/api/signal-tracker")
+def signal_tracker_all(limit: int = 100):
+    """Get all tracked signals (active + resolved)."""
+    from engine.signal_tracker import get_all_signals
+    return get_all_signals(limit)
+
+
+@app.get("/api/signal-tracker/active")
+def signal_tracker_active():
+    """Get active signals sorted by P&L."""
+    from engine.signal_tracker import get_active_signals
+    return get_active_signals()
+
+
+@app.get("/api/signal-tracker/consensus")
+def signal_tracker_consensus():
+    """Get symbols with multiple model agreement."""
+    from engine.signal_tracker import get_consensus_signals
+    return get_consensus_signals()
+
+
+@app.get("/api/signal-tracker/leaderboard")
+def signal_tracker_leaderboard():
+    """Best Signals leaderboard — model hit rates."""
+    from engine.signal_tracker import get_model_leaderboard
+    return get_model_leaderboard()
+
+
+@app.get("/api/signal-tracker/second-chance")
+def signal_tracker_second_chance():
+    """Second Chance — stocks sold but now have fresh buy signals."""
+    from engine.signal_tracker import get_reentry_opportunities
+    return get_reentry_opportunities()
+
+
+@app.get("/api/signal-tracker/reentry-leaderboard")
+def signal_tracker_reentry_leaderboard():
+    """Re-entry success rate per model."""
+    from engine.signal_tracker import get_reentry_leaderboard
+    return get_reentry_leaderboard()
+
+
+# --- Pair Trades ---
+
+@app.get("/api/pair-trades")
+def pair_trades(limit: int = 20):
+    """Get detected pair trade opportunities."""
+    from engine.pair_trades import get_pair_trades
+    return get_pair_trades(limit)
+
+
+@app.get("/api/pair-trades/pnl")
+def pair_pnl():
+    """Get combined P&L for active pair trades."""
+    from engine.pair_trades import get_pair_pnl
+    from engine.market_data import get_stock_price
+    from config import WATCH_STOCKS
+
+    prices = {}
+    for sym in WATCH_STOCKS:
+        data = get_stock_price(sym)
+        if "error" not in data:
+            prices[sym] = data
+
+    return get_pair_pnl(prices)
+
+
+# --- Volatility Surface ---
+
+@app.get("/api/market/vol-surface/{symbol}")
+def vol_surface(symbol: str):
+    """Get IV surface for a symbol."""
+    from engine.vol_surface import scan_vol_surface
+    result = scan_vol_surface(symbol.upper())
+    if not result:
+        return {"error": f"No vol surface data for {symbol.upper()}"}
+    return result
+
+
+@app.get("/api/market/vol-surfaces")
+def all_vol_surfaces():
+    """Get IV surfaces for DayBlade tickers."""
+    from engine.vol_surface import get_all_vol_surfaces
+    return get_all_vol_surfaces()
+
+
+# --- Kill Switch ---
+
+@app.post("/api/kill-switch")
+def kill_switch():
+    """EMERGENCY: Close ALL positions across ALL models."""
+    from engine.kill_switch import kill_all_positions
+    from engine.market_data import get_stock_price
+    from config import WATCH_STOCKS
+
+    prices = {}
+    for sym in WATCH_STOCKS:
+        data = get_stock_price(sym)
+        if "error" not in data:
+            prices[sym] = data
+
+    return kill_all_positions(prices)
+
+
+@app.get("/api/kill-switch/history")
+def kill_switch_history():
+    """Get kill switch activation history."""
+    from engine.kill_switch import get_kill_switch_history
+    return get_kill_switch_history()
+
+
+# --- Model DNA ---
+
+@app.get("/api/model-dna/{player_id}")
+def model_dna(player_id: str):
+    """Get behavioral fingerprint for an AI model."""
+    from engine.model_dna import get_model_dna
+    return get_model_dna(player_id)
+
+
+@app.get("/api/model-dna")
+def all_model_dna():
+    """Get DNA for all models."""
+    from engine.model_dna import get_all_model_dna
+    return get_all_model_dna()
+
+
+# --- P&L Attribution ---
+
+@app.get("/api/pnl-attribution")
+def pnl_attribution(days: int = 7):
+    """Break down P&L by model, sector, trade type, entry time."""
+    from engine.pnl_attribution import get_pnl_attribution
+    return get_pnl_attribution(days)
+
+
+# --- Gamma Environment ---
+
+@app.get("/api/gamma-environment")
+def gamma_environment():
+    """Get current gamma environment (positive/negative) for SPY."""
+    from engine.gamma_environment import detect_gamma_environment
+    return detect_gamma_environment()
+
+
+# --- Put/Call Skew ---
+
+@app.get("/api/put-call-skew")
+def put_call_skew():
+    """Get put/call skew for SPY, QQQ, and watchlist stocks."""
+    from engine.put_call_skew import get_all_skew
+    return get_all_skew(["SPY", "QQQ"])
+
+
+@app.get("/api/put-call-skew/{symbol}")
+def put_call_skew_symbol(symbol: str):
+    """Get put/call skew for a specific symbol."""
+    from engine.put_call_skew import compute_put_call_skew
+    result = compute_put_call_skew(symbol.upper())
+    if not result:
+        return {"error": f"No skew data for {symbol.upper()}"}
+    return result
+
+
+# --- High IV Scanner ---
+
+@app.get("/api/high-iv")
+def high_iv():
+    """Get high IV opportunities across watchlist."""
+    from engine.high_iv_scanner import scan_high_iv_opportunities
+    from config import WATCH_STOCKS
+    return scan_high_iv_opportunities(WATCH_STOCKS)
+
+
+# --- Cross-Asset Monitor ---
+
+@app.get("/api/cross-asset")
+def cross_asset():
+    """Get cross-asset monitor (SPY, VIX, DXY, Oil) with correlation signals."""
+    from engine.cross_asset import get_cross_asset_monitor
+    return get_cross_asset_monitor()
+
+
+# --- Auto Trendlines (Support/Resistance) ---
+
+@app.get("/api/trendlines/{symbol}")
+def trendlines(symbol: str):
+    """Get auto-detected support and resistance levels."""
+    from engine.trendlines import detect_support_resistance
+    result = detect_support_resistance(symbol.upper())
+    if not result:
+        return {"error": f"No trendline data for {symbol.upper()}"}
+    return result
+
+
+@app.get("/api/trendlines")
+def all_trendlines():
+    """Get S/R levels for all watchlist stocks."""
+    from engine.trendlines import get_all_levels
+    from config import WATCH_STOCKS
+    return get_all_levels(WATCH_STOCKS)
+
+
+# --- Fibonacci Levels ---
+
+@app.get("/api/fibonacci/{symbol}")
+def fibonacci(symbol: str):
+    """Get Fibonacci retracement levels."""
+    from engine.fibonacci import compute_fibonacci
+    result = compute_fibonacci(symbol.upper())
+    if not result:
+        return {"error": f"No Fibonacci data for {symbol.upper()}"}
+    return result
+
+
+# --- Dynamic Alerts ---
+
+@app.get("/api/dynamic-alerts")
+def dynamic_alerts(limit: int = 50):
+    """Get recent dynamic alerts."""
+    from engine.dynamic_alerts import get_recent_alerts
+    return get_recent_alerts(limit)
+
+
+@app.get("/api/dynamic-alerts/active")
+def active_alerts(minutes: int = 30):
+    """Get active alerts (last N minutes) for banner display."""
+    from engine.dynamic_alerts import get_active_alerts
+    return get_active_alerts(minutes)
+
+
+# --- S/R Heatmap (Volume Profile) ---
+
+@app.get("/api/volume-profile/{symbol}")
+def volume_profile(symbol: str):
+    """Get volume-weighted price profile for S/R heatmap."""
+    from engine.sr_heatmap import compute_volume_profile
+    result = compute_volume_profile(symbol.upper())
+    if not result:
+        return {"error": f"No volume profile for {symbol.upper()}"}
+    return result
+
+
+# --- Chart Patterns ---
+
+@app.get("/api/patterns/{symbol}")
+def chart_patterns_symbol(symbol: str):
+    """Get detected chart patterns for a symbol."""
+    from engine.chart_patterns import detect_patterns
+    return detect_patterns(symbol.upper())
+
+
+@app.get("/api/patterns")
+def chart_patterns_all():
+    """Get detected chart patterns for all watchlist stocks."""
+    from engine.chart_patterns import detect_all_patterns
+    from config import WATCH_STOCKS
+    return detect_all_patterns(WATCH_STOCKS)
+
+
+# --- Raindrop Charts ---
+
+@app.get("/api/raindrop/{symbol}")
+def raindrop(symbol: str):
+    """Get raindrop volume profile for intraday chart."""
+    from engine.raindrop import compute_raindrop
+    result = compute_raindrop(symbol.upper())
+    if not result:
+        return {"error": f"No raindrop data for {symbol.upper()}"}
+    return result
+
+
+# --- Relative Strength Scanner ---
+
+@app.get("/api/strength")
+def strength_index():
+    """Get relative strength rankings for all watchlist stocks."""
+    from engine.strength_scanner import scan_relative_strength, get_strength_rankings
+    from config import WATCH_STOCKS
+    rankings = get_strength_rankings()
+    if not rankings:
+        from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+        try:
+            with ThreadPoolExecutor(max_workers=1) as ex:
+                rankings = ex.submit(scan_relative_strength, WATCH_STOCKS).result(timeout=20)
+        except (FuturesTimeout, Exception):
+            rankings = []
+    return rankings
+
+
+# --- Smart Risk Levels ---
+
+@app.get("/api/risk-levels")
+def risk_levels():
+    """Get smart risk levels (entry/stop/targets) for all open positions."""
+    from engine.smart_levels import get_risk_levels
+    from engine.market_data import get_stock_price
+    from config import WATCH_STOCKS
+
+    prices = {}
+    for sym in WATCH_STOCKS:
+        data = get_stock_price(sym)
+        if "error" not in data:
+            prices[sym] = data
+    return get_risk_levels(prices)
+
+
+@app.get("/api/risk-levels/{symbol}")
+def risk_levels_symbol(symbol: str):
+    """Get risk levels for a specific symbol."""
+    from engine.smart_levels import get_levels_for_symbol
+    from engine.market_data import get_stock_price
+
+    prices = {}
+    data = get_stock_price(symbol.upper())
+    if "error" not in data:
+        prices[symbol.upper()] = data
+    return get_levels_for_symbol(symbol.upper(), prices)
+
+
+# --- Strategy Race ---
+
+@app.get("/api/strategy-race")
+def strategy_race():
+    """Compare AI strategy vs SPY buy-and-hold."""
+    from engine.strategy_race import get_strategy_race
+    return get_strategy_race()
+
+
+# --- Weekly Picks ---
+
+@app.get("/api/weekly-picks")
+def weekly_picks():
+    """Get the most recent weekly AI picks."""
+    from engine.weekly_picks import get_weekly_picks
+    return get_weekly_picks()
+
+
+# --- Stock Race (heatmap animation data) ---
+
+@app.get("/api/stock-race")
+def stock_race():
+    """Get real-time stock race data for animated bar chart."""
+    from engine.market_data import get_stock_price
+    from config import WATCH_STOCKS
+
+    result = []
+    for sym in WATCH_STOCKS:
+        data = get_stock_price(sym)
+        if "error" not in data:
+            result.append({
+                "symbol": sym,
+                "price": data["price"],
+                "change_pct": data["change_pct"],
+                "volume": data.get("volume", 0),
+            })
+    result.sort(key=lambda x: x["change_pct"], reverse=True)
+    return result
+
+
+@app.get("/api/trend-forecast")
+def trend_forecast():
+    """Get trend predictions for all watchlist stocks."""
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+    from engine.trend_predictor import predict_all_trends
+    from config import WATCH_STOCKS
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            return ex.submit(predict_all_trends, WATCH_STOCKS).result(timeout=20)
+    except (FuturesTimeout, Exception):
+        return []
+
+
+@app.get("/api/trend-forecast/{symbol}")
+def trend_forecast_symbol(symbol: str):
+    """Get trend prediction for a specific symbol."""
+    from engine.trend_predictor import predict_trend
+    result = predict_trend(symbol.upper())
+    return result or {"error": f"No prediction for {symbol}"}
+
+
+@app.get("/api/pattern-alerts")
+def pattern_alerts():
+    """Get enriched pattern alert tiles with breakout/target/stop/win-rate."""
+    from engine.pattern_alerts import get_pattern_alert_tiles
+    return get_pattern_alert_tiles()
+
+
+@app.get("/api/strategy-presets")
+def strategy_presets():
+    """Get strategy preset evaluations for all watchlist stocks."""
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+    from engine.strategy_presets import scan_strategies
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            return ex.submit(scan_strategies).result(timeout=20)
+    except (FuturesTimeout, Exception):
+        return []
+
+
+@app.get("/api/strategy-presets/{symbol}")
+def strategy_presets_symbol(symbol: str):
+    """Get best strategy for a specific symbol."""
+    from engine.strategy_presets import get_best_strategy
+    result = get_best_strategy(symbol.upper())
+    return result or {"error": f"No strategy fit for {symbol}"}
+
+
+@app.get("/api/deals")
+def active_deals():
+    """Get active deals (grouped positions) with live P&L."""
+    from engine.deal_tracker import get_deals_with_pnl
+    from engine.market_data import get_stock_price
+    prices = {}
+    try:
+        from config import WATCH_STOCKS
+        for sym in WATCH_STOCKS:
+            data = get_stock_price(sym)
+            if "error" not in data:
+                prices[sym] = data
+    except Exception:
+        pass
+    return get_deals_with_pnl(prices)
+
+
+@app.get("/api/deals/closed")
+def closed_deals():
+    """Get recently closed deals."""
+    from engine.deal_tracker import get_closed_deals
+    return get_closed_deals()
+
+
+@app.get("/api/fundamentals")
+def fundamentals():
+    """Get enriched fundamentals for all watchlist stocks."""
+    from engine.stock_fundamentals import fetch_all_fundamentals
+    return fetch_all_fundamentals()
+
+
+@app.get("/api/fundamentals/{symbol}")
+def fundamentals_symbol(symbol: str):
+    """Get enriched fundamentals for a specific symbol."""
+    from engine.stock_fundamentals import fetch_fundamentals
+    result = fetch_fundamentals(symbol.upper())
+    return result or {"error": f"No fundamental data for {symbol}"}
+
+
+@app.get("/api/fundamentals/score/{symbol}")
+def fundamentals_score(symbol: str):
+    """Get Smart Score (letter grade) for a specific symbol."""
+    from engine.stock_fundamentals import fetch_fundamentals
+    result = fetch_fundamentals(symbol.upper())
+    if not result:
+        return {"error": f"No fundamental data for {symbol}"}
+    return {
+        "symbol": symbol.upper(),
+        "smart_score": result.get("smart_score"),
+        "grade": result.get("grade"),
+        "components": result.get("score_components"),
+    }
+
+
+@app.get("/api/fundamentals/scores")
+def fundamentals_scores():
+    """Get Smart Scores for all watchlist stocks."""
+    from engine.stock_fundamentals import fetch_all_fundamentals
+    results = fetch_all_fundamentals()
+    return [{
+        "symbol": r["symbol"],
+        "company_name": r.get("company_name"),
+        "smart_score": r.get("smart_score"),
+        "grade": r.get("grade"),
+        "sector": r.get("sector"),
+    } for r in results]
+
+
+@app.get("/api/portfolio-health/{player_id}")
+def portfolio_health(player_id: str):
+    """Get portfolio health check for an AI player."""
+    from engine.stock_fundamentals import portfolio_health_check
+    result = portfolio_health_check(player_id)
+    return result or {"error": f"No data for {player_id}"}
+
+
+@app.get("/api/insider/{symbol}")
+def insider_activity(symbol: str):
+    """Get SEC insider trading activity for a symbol."""
+    from engine.openbb_data import get_insider_summary
+    return get_insider_summary(symbol.upper())
+
+
+@app.get("/api/insider")
+def insider_all():
+    """Get insider trading summaries for all watchlist stocks."""
+    from engine.openbb_data import get_insider_summary
+    from config import WATCH_STOCKS
+    results = []
+    for sym in WATCH_STOCKS:
+        summary = get_insider_summary(sym)
+        if summary:
+            results.append(summary)
+    return results
+
+
+@app.get("/api/filings/{symbol}")
+def sec_filings(symbol: str):
+    """Get recent SEC filings for a symbol."""
+    from engine.openbb_data import get_sec_filings
+    return get_sec_filings(symbol.upper())
+
+
+@app.get("/api/economic-calendar")
+def economic_calendar():
+    """Get macro economic data: CPI, unemployment, interest rates, GDP, FOMC."""
+    from engine.openbb_data import get_economic_calendar
+    return get_economic_calendar()
+
+
+@app.get("/api/options-chain/{symbol}")
+def options_chain(symbol: str, expiry: str = None):
+    """Get full options chain with Greeks for a symbol."""
+    from engine.openbb_data import get_options_chain
+    result = get_options_chain(symbol.upper(), expiry)
+    return result or {"error": f"No options data for {symbol}"}
+
+
+# --- Paper-Trader Compatibility Endpoints ---
+# These adapt the paper-trader's JSON-based API to the autonomous-trader's SQLite DB.
+
+@app.get("/api/capital")
+def get_capital():
+    """Get current capital per AI player (cash + positions value)."""
+    from engine.paper_trader import get_portfolio_with_pnl
+    from engine.market_data import get_all_prices
+    from config import WATCH_STOCKS
+
+    conn = _conn()
+    players = conn.execute("SELECT id, display_name, cash FROM ai_players WHERE is_active=1").fetchall()
+    conn.close()
+
+    try:
+        prices = get_all_prices(WATCH_STOCKS)
+    except Exception:
+        prices = {}
+
+    result = {}
+    for p in players:
+        pid = p["id"]
+        starting = 3500.0 if pid == "dayblade-0dte" else (7021.81 if pid == "steve-webull" else 7000.0)
+        try:
+            pnl_data = get_portfolio_with_pnl(pid, prices)
+            total = pnl_data["total_value"]
+        except Exception:
+            total = p["cash"]
+        result[p["display_name"]] = {
+            "cash": p["cash"],
+            "total_value": round(total, 2),
+            "starting": starting,
+            "pnl": round(total - starting, 2),
+        }
+    return result
+
+
+@app.get("/api/trades")
+def get_all_trades(status: str = None, symbol: str = None, model: str = None, season: int = None):
+    """Get trades with paired BUY/SELL and P&L for closed trades."""
+    conn = _conn()
+    if season is None:
+        s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+        season = int(s_row["value"]) if s_row else 2
+    if season == -1:
+        rows = conn.execute(
+            "SELECT t.id, t.player_id, t.symbol, t.action, t.qty, t.price, t.reasoning, t.confidence, "
+            "t.executed_at, t.asset_type, t.option_type, t.entry_price, t.exit_price, t.realized_pnl, "
+            "p.display_name FROM trades t LEFT JOIN ai_players p ON t.player_id = p.id "
+            "ORDER BY t.executed_at DESC LIMIT 500"
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT t.id, t.player_id, t.symbol, t.action, t.qty, t.price, t.reasoning, t.confidence, "
+            "t.executed_at, t.asset_type, t.option_type, t.entry_price, t.exit_price, t.realized_pnl, "
+            "p.display_name FROM trades t LEFT JOIN ai_players p ON t.player_id = p.id "
+            "WHERE t.season=? ORDER BY t.executed_at DESC LIMIT 500",
+            (season,)
+        ).fetchall()
+    conn.close()
+    trades = []
+    for r in rows:
+        action = r["action"]
+        is_buy = action in ("BUY", "BUY_CALL", "BUY_PUT")
+        is_sell = action == "SELL"
+
+        if is_sell:
+            # Closed trade — show entry/exit/P&L
+            entry_p = r["entry_price"] or r["price"]  # entry_price column, fallback to price
+            exit_p = r["exit_price"] or r["price"]  # exit_price column, fallback to price
+            pnl = r["realized_pnl"]
+            t = {
+                "id": str(r["id"]),
+                "symbol": r["symbol"],
+                "side": "short" if r["option_type"] == "put" else "long",
+                "entry_price": round(entry_p, 2) if entry_p else None,
+                "exit_price": round(exit_p, 2) if exit_p else None,
+                "quantity": r["qty"],
+                "entry_date": r["executed_at"],
+                "exit_date": r["executed_at"],
+                "status": "closed",
+                "model_source": r["display_name"] or r["player_id"],
+                "signal_reasoning": r["reasoning"],
+                "pnl": round(pnl, 2) if pnl is not None else None,
+                "pnl_pct": round((exit_p - entry_p) / entry_p * 100, 2) if entry_p and entry_p > 0 else None,
+            }
+        else:
+            # Open trade (BUY) — include unrealized P&L
+            side = "long" if action in ("BUY", "BUY_CALL") else "short"
+            entry_p = r["price"]
+            unrealized_pnl = None
+            unrealized_pnl_pct = None
+            # Get current price for unrealized P&L
+            try:
+                from engine.market_data import get_stock_price
+                cur_data = get_stock_price(r["symbol"])
+                if "error" not in cur_data:
+                    cur = cur_data["price"]
+                    is_opt = (r["asset_type"] == "option" or action in ("BUY_CALL", "BUY_PUT"))
+                    if is_opt:
+                        from engine.paper_trader import estimate_option_price
+                        ot = (r["option_type"] if r["option_type"] else None) or ("call" if action == "BUY_CALL" else "put")
+                        strike = r["strike_price"] if r["strike_price"] else None
+                        est = estimate_option_price(ot, strike, cur, entry_p)
+                        unrealized_pnl = round((est - entry_p) * r["qty"], 2)
+                        unrealized_pnl_pct = round((est - entry_p) / entry_p * 100, 2) if entry_p > 0 else 0
+                    else:
+                        unrealized_pnl = round((cur - entry_p) * r["qty"], 2)
+                        unrealized_pnl_pct = round((cur - entry_p) / entry_p * 100, 2) if entry_p > 0 else 0
+            except Exception:
+                pass
+            t = {
+                "id": str(r["id"]),
+                "symbol": r["symbol"],
+                "side": side,
+                "entry_price": round(entry_p, 2),
+                "exit_price": None,
+                "quantity": r["qty"],
+                "entry_date": r["executed_at"],
+                "exit_date": None,
+                "status": "open",
+                "model_source": r["display_name"] or r["player_id"],
+                "signal_reasoning": r["reasoning"],
+                "pnl": unrealized_pnl,
+                "pnl_pct": unrealized_pnl_pct,
+            }
+
+        if status and t["status"] != status:
+            continue
+        if symbol and t["symbol"].upper() != symbol.upper():
+            continue
+        if model and t["model_source"] != model:
+            continue
+        trades.append(t)
+    return trades
+
+
+@app.get("/api/performance")
+def get_performance(model: str = None, season: int = None):
+    """Get overall performance statistics, filtered by season."""
+    conn = _conn()
+    # Default to current season
+    if season is None:
+        s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+        season = int(s_row["value"]) if s_row else 2
+    if season == -1:
+        sells = conn.execute(
+            "SELECT player_id, symbol, qty, price, reasoning, realized_pnl FROM trades WHERE action='SELL'"
+        ).fetchall()
+    else:
+        sells = conn.execute(
+            "SELECT player_id, symbol, qty, price, reasoning, realized_pnl FROM trades WHERE action='SELL' AND season=?",
+            (season,)
+        ).fetchall()
+    conn.close()
+    pnls = []
+    for s in sells:
+        if s["realized_pnl"] is not None:
+            pnls.append(float(s["realized_pnl"]))
+        else:
+            import re
+            m = re.search(r'PnL: \$([+-]?[\d.]+)', s["reasoning"] or "")
+            if m:
+                pnls.append(float(m.group(1)))
+    winners = [p for p in pnls if p > 0]
+    losers = [p for p in pnls if p < 0]
+    return {
+        "season": season,
+        "total_trades": len(sells),
+        "open_trades": 0,
+        "closed_trades": len(sells),
+        "winners": len(winners),
+        "losers": len(losers),
+        "win_rate": round(len(winners) / len(sells) * 100, 2) if sells else 0,
+        "total_pnl": round(sum(pnls), 2),
+        "avg_win": round(sum(winners) / len(winners), 2) if winners else 0,
+        "avg_loss": round(sum(losers) / len(losers), 2) if losers else 0,
+        "profit_factor": round(sum(winners) / abs(sum(losers)), 2) if losers else 0,
+        "largest_win": round(max(winners), 2) if winners else 0,
+        "largest_loss": round(min(losers), 2) if losers else 0,
+        "avg_hold_time_hours": None
+    }
+
+
+@app.get("/api/unrealized")
+def get_unrealized():
+    """Get unrealized P&L for all open positions."""
+    from engine.market_data import get_all_prices
+    conn = _conn()
+    positions = conn.execute(
+        "SELECT player_id, symbol, qty, avg_price, asset_type, option_type, strike_price FROM positions"
+    ).fetchall()
+
+    # Sanity check: no positions = $0 unrealized
+    if not positions:
+        conn.close()
+        return {"total_unrealized": 0.0, "positions": []}
+
+    # Fetch prices for all symbols (needed for both stocks and option intrinsic value)
+    all_symbols = list(set(p["symbol"] for p in positions))
+    all_data = get_all_prices(all_symbols) if all_symbols else {}
+    price_cache = {sym: d["price"] for sym, d in all_data.items()}
+    conn.close()
+
+    from engine.paper_trader import estimate_option_price
+
+    results = []
+    total = 0
+    for pos in positions:
+        entry = pos["avg_price"]
+        if pos["asset_type"] == "option":
+            stock_price = price_cache.get(pos["symbol"], 0)
+            est_price = estimate_option_price(
+                pos["option_type"], pos["strike_price"], stock_price, entry)
+            pnl = round((est_price - entry) * pos["qty"], 2)
+            pnl_pct = round((est_price - entry) / entry * 100, 2) if entry > 0 else 0
+            total += pnl
+            results.append({
+                "symbol": pos["symbol"], "current_price": round(est_price, 2),
+                "entry_price": entry, "qty": pos["qty"], "pnl": pnl, "pnl_pct": pnl_pct,
+                "model": pos["player_id"], "type": pos["asset_type"],
+                "option_type": pos["option_type"], "strike_price": pos["strike_price"]
+            })
+            continue
+        price = price_cache.get(pos["symbol"])
+        if price is None:
+            continue
+        pnl = round((price - entry) * pos["qty"], 2)
+        pnl_pct = round((price - entry) / entry * 100, 2) if entry > 0 else 0
+        total += pnl
+        results.append({
+            "symbol": pos["symbol"], "current_price": round(price, 2),
+            "entry_price": entry, "qty": pos["qty"], "pnl": pnl, "pnl_pct": pnl_pct,
+            "model": pos["player_id"], "type": pos["asset_type"]
+        })
+    return {"total_unrealized": round(total, 2), "positions": results}
+
+
+@app.get("/api/performance/by-model")
+def get_performance_by_model(season: int = None):
+    """Get performance broken down by AI player, filtered by season."""
+    conn = _conn()
+    if season is None:
+        s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+        season = int(s_row["value"]) if s_row else 2
+    players = conn.execute("SELECT id, display_name, cash FROM ai_players WHERE is_active=1").fetchall()
+    result = {}
+    for p in players:
+        if season == -1:
+            trades = conn.execute("SELECT action, reasoning FROM trades WHERE player_id=?", (p["id"],)).fetchall()
+        else:
+            trades = conn.execute("SELECT action, reasoning FROM trades WHERE player_id=? AND season=?", (p["id"], season)).fetchall()
+        sells = [t for t in trades if t["action"] == "SELL"]
+        import re
+        pnls = []
+        for s in sells:
+            m = re.search(r'PnL: \$([+-]?[\d.]+)', s["reasoning"] or "")
+            if m:
+                pnls.append(float(m.group(1)))
+        winners = len([x for x in pnls if x > 0])
+        result[p["display_name"]] = {
+            "total_trades": len(trades),
+            "closed_trades": len(sells),
+            "open_trades": len(trades) - len(sells),
+            "win_rate": round(winners / len(sells) * 100, 2) if sells else 0,
+            "total_pnl": round(sum(pnls), 2),
+            "avg_pnl": round(sum(pnls) / len(pnls), 2) if pnls else 0
+        }
+    conn.close()
+    return result
+
+
+@app.get("/api/equity-curve")
+def get_equity_curve(starting_capital: float = 10000, season: int = None):
+    """Get equity curve from trade history, filtered by season."""
+    conn = _conn()
+    if season is None:
+        s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+        season = int(s_row["value"]) if s_row else 2
+    if season == -1:
+        sells = conn.execute(
+            "SELECT executed_at, reasoning FROM trades WHERE action='SELL' ORDER BY executed_at"
+        ).fetchall()
+    else:
+        sells = conn.execute(
+            "SELECT executed_at, reasoning FROM trades WHERE action='SELL' AND season=? ORDER BY executed_at",
+            (season,)
+        ).fetchall()
+    conn.close()
+    import re
+    curve = [{"date": "start", "equity": starting_capital, "trade": None}]
+    equity = starting_capital
+    for s in sells:
+        m = re.search(r'PnL: \$([+-]?[\d.]+)', s["reasoning"] or "")
+        if m:
+            pnl = float(m.group(1))
+            equity += pnl
+            curve.append({
+                "date": (s["executed_at"] or "")[:10],
+                "equity": round(equity, 2),
+                "pnl": round(pnl, 2)
+            })
+    return curve
+
+
+@app.get("/api/models")
+def get_models():
+    """Get all AI players as models."""
+    conn = _conn()
+    players = conn.execute("SELECT id, display_name, provider, model_id, is_active FROM ai_players").fetchall()
+    conn.close()
+    return [
+        {"name": p["display_name"], "description": f"{p['provider']} / {p['model_id']}",
+         "type": p["provider"], "active": bool(p["is_active"]), "created_date": ""}
+        for p in players
+    ]
+
+
+@app.post("/api/ai-chat")
+def ai_chat(msg: dict):
+    """AI chat endpoint for multi-model debate."""
+    import requests as req
+    from engine.openai_text import DEFAULT_CODEX_MINI_MODEL, generate_text
+    message = msg.get("message", "")
+    models = msg.get("models", ["gemma3:4b"])
+    responses = []
+    context = "You are an AI trading model in a debate. Be concise (2-3 sentences max). Topic: "
+
+    for model_name in models:
+        prompt = context + message
+        response = None
+        try:
+            if "gemma" in model_name or "llama" in model_name:
+                r = req.post("http://localhost:11434/api/generate",
+                    json={"model": model_name, "prompt": prompt, "stream": False}, timeout=30)
+                response = r.json().get("response", "").strip()[:300]
+            elif "claude" in model_name or "codex" in model_name:
+                response = generate_text(
+                    prompt,
+                    model=DEFAULT_CODEX_MINI_MODEL,
+                    api_key=os.environ.get("OPENAI_API_KEY", ""),
+                    max_output_tokens=150,
+                    reasoning_effort="medium",
+                )[:300]
+            elif "grok" in model_name:
+                xai_key = os.environ.get("XAI_API_KEY", "")
+                if xai_key:
+                    r = req.post("https://api.x.ai/v1/chat/completions",
+                        headers={"Authorization": "Bearer " + xai_key, "Content-Type": "application/json"},
+                        json={"model": model_name, "max_tokens": 150, "messages": [{"role": "user", "content": prompt}]},
+                        timeout=20)
+                    choices = r.json().get("choices", [])
+                    response = choices[0].get("message", {}).get("content", "No response").strip()[:300] if choices else "No response"
+            elif "gemini" in model_name:
+                ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+                r = req.post(f"{ollama_url}/api/generate",
+                    json={"model": "gemma3:4b", "prompt": prompt, "stream": False},
+                    timeout=60)
+                response = (r.json().get("response", "") or "No response").strip()[:300]
+        except Exception as e:
+            response = f"Error: {str(e)[:80]}"
+        if response:
+            from datetime import datetime
+            responses.append({"model": model_name, "response": response, "timestamp": datetime.now().isoformat()})
+    return {"responses": responses}
+
+
+_rec_cache = {}  # key: "player_id:symbol" -> {data, ts}
+_REC_CACHE_TTL = 300  # 5 minutes
+
+
+@app.get("/api/arena/player/{player_id}/recommendation/{symbol}")
+def player_recommendation(player_id: str, symbol: str):
+    """Get AI recommendation for a position — calls the owning model."""
+    import time as _time
+    import requests as req
+    import re
+
+    cache_key = f"{player_id}:{symbol}"
+    if cache_key in _rec_cache and (_time.time() - _rec_cache[cache_key]["ts"]) < _REC_CACHE_TTL:
+        return _rec_cache[cache_key]["data"]
+
+    conn = _conn()
+    player = conn.execute("SELECT provider, model_id, display_name FROM ai_players WHERE id=?",
+                          (player_id,)).fetchone()
+    if not player:
+        conn.close()
+        return {"rating": "HOLD", "grade": "C", "confidence": 0.5, "reasoning": "Player not found"}
+
+    pos = conn.execute("SELECT qty, avg_price FROM positions WHERE player_id=? AND symbol=? AND asset_type='stock'",
+                       (player_id, symbol)).fetchone()
+    last_trade = conn.execute(
+        "SELECT confidence, reasoning FROM trades WHERE player_id=? AND symbol=? ORDER BY executed_at DESC LIMIT 1",
+        (player_id, symbol)).fetchone()
+    conn.close()
+
+    qty = pos["qty"] if pos else 0
+    entry = pos["avg_price"] if pos else 0
+
+    from engine.market_data import get_stock_price
+    price_data = get_stock_price(symbol)
+    current = price_data.get("price", 0)
+    pnl_pct = round((current - entry) / entry * 100, 2) if entry > 0 else 0
+    last_conf = last_trade["confidence"] if last_trade else 0.5
+
+    # Get technicals + news
+    rsi_val = "--"
+    macd_val = "--"
+    try:
+        from engine.market_data import get_technical_indicators
+        ti = get_technical_indicators(symbol)
+        if ti:
+            rsi_val = ti.get("rsi", "--")
+            macd_val = ti.get("macd_histogram", "--")
+    except Exception:
+        pass
+
+    headlines = ""
+    try:
+        from engine.news_fetcher import fetch_news
+        news = fetch_news(symbol, limit=3)
+        headlines = "; ".join([n.get("headline", "") for n in (news or []) if n.get("headline")])[:300]
+    except Exception:
+        headlines = "No recent news"
+
+    prompt = (
+        f"You are an AI trading advisor. You hold {qty:.2f} shares of {symbol} at ${entry:.2f}. "
+        f"Current price is ${current:.2f} ({pnl_pct:+.1f}%). RSI is {rsi_val}. MACD histogram is {macd_val}. "
+        f"Recent news: {headlines or 'None'}. "
+        f"Rate this position with exactly one of: STRONG_BUY, BUY, HOLD, SELL, STRONG_SELL. "
+        f"Also give a letter grade from A+ to F. "
+        f"Reply in this exact format: RATING: <rating> GRADE: <grade> REASON: <1 sentence>"
+    )
+
+    response_text = ""
+    provider = player["provider"]
+    model_id = player["model_id"]
+
+    try:
+        if provider == "ollama":
+            r = req.post("http://localhost:11434/api/generate",
+                json={"model": model_id, "prompt": prompt, "stream": False}, timeout=30)
+            response_text = r.json().get("response", "")
+        elif provider == "openai":
+            from engine.openai_text import generate_text
+            response_text = generate_text(
+                prompt,
+                model=model_id,
+                api_key=os.environ.get("OPENAI_API_KEY", ""),
+                max_output_tokens=150,
+                reasoning_effort="medium",
+            )
+        elif provider == "xai":
+            xai_key = os.environ.get("XAI_API_KEY", "")
+            if xai_key:
+                r = req.post("https://api.x.ai/v1/chat/completions",
+                    headers={"Authorization": f"Bearer {xai_key}", "Content-Type": "application/json"},
+                    json={"model": model_id, "max_tokens": 150, "messages": [{"role": "user", "content": prompt}]},
+                    timeout=20)
+                choices = r.json().get("choices", [])
+                response_text = choices[0].get("message", {}).get("content", "") if choices else ""
+        elif provider == "google":
+            ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
+            r = req.post(f"{ollama_url}/api/generate",
+                json={"model": "gemma3:4b", "prompt": prompt, "stream": False},
+                timeout=60)
+            response_text = r.json().get("response", "") if r.ok else ""
+    except Exception as e:
+        response_text = ""
+
+    # Parse response
+    rating = "HOLD"
+    grade = "C"
+    reason = ""
+
+    if response_text:
+        rt = response_text.upper()
+        for r_val in ["STRONG_BUY", "STRONG_SELL", "BUY", "SELL", "HOLD"]:
+            if r_val in rt:
+                rating = r_val
+                break
+        grade_match = re.search(r'GRADE:\s*([A-F][+-]?)', response_text, re.IGNORECASE)
+        if grade_match:
+            grade = grade_match.group(1).upper()
+        reason_match = re.search(r'REASON:\s*(.+)', response_text, re.IGNORECASE)
+        if reason_match:
+            reason = reason_match.group(1).strip()[:200]
+
+    # Fallback: compute from signals if AI didn't respond
+    if not response_text:
+        if pnl_pct > 10:
+            rating = "STRONG_BUY"
+            grade = "A"
+        elif pnl_pct > 3:
+            rating = "BUY"
+            grade = "B+"
+        elif pnl_pct > -3:
+            rating = "HOLD"
+            grade = "C+"
+        elif pnl_pct > -10:
+            rating = "SELL"
+            grade = "D"
+        else:
+            rating = "STRONG_SELL"
+            grade = "F"
+        reason = f"Heuristic: position at {pnl_pct:+.1f}%"
+
+    # Confidence from composite
+    conf_map = {"STRONG_BUY": 0.9, "BUY": 0.7, "HOLD": 0.5, "SELL": 0.3, "STRONG_SELL": 0.1}
+    confidence = conf_map.get(rating, 0.5)
+
+    result = {
+        "rating": rating,
+        "grade": grade,
+        "confidence": confidence,
+        "reasoning": reason,
+        "model": player["display_name"],
+        "cached": False,
+    }
+    _rec_cache[cache_key] = {"data": {**result, "cached": True}, "ts": _time.time()}
+    return result
+
+
+@app.get("/api/reasoning/{symbol}")
+def get_reasoning(symbol: str, metal: bool = False):
+    """Generate AI reasoning for a stock or physical metal using Ollama."""
+    import requests as req
+    from config import OLLAMA_URL
+
+    sym = symbol.upper()
+    metal_symbols = {"GOLD": "GC=F", "SILVER": "SI=F", "PLATINUM": "PL=F", "PALLADIUM": "PA=F"}
+    is_metal = metal or sym in metal_symbols
+
+    # Gather price context
+    from engine.market_data import get_stock_price
+    if is_metal:
+        from engine.metals_tracker import get_spot_prices
+        metals = get_spot_prices()
+        spot = metals.get(sym, {})
+        price = spot.get("price", 0)
+        change = spot.get("change_pct", 0)
+        lookup_sym = metal_symbols.get(sym, sym)
+    else:
+        price_data = get_stock_price(sym)
+        price = price_data.get("price", 0)
+        change = price_data.get("change_pct", 0)
+        lookup_sym = sym
+
+    # RSI from the correct symbol
+    rsi_val = "--"
+    rsi_label = ""
+    try:
+        from engine.market_data import get_technical_indicators
+        ti = get_technical_indicators(lookup_sym)
+        if ti and ti.get("rsi"):
+            rsi_num = float(ti["rsi"])
+            rsi_val = f"{rsi_num:.1f}"
+            if rsi_num < 30:
+                rsi_label = "oversold"
+            elif rsi_num < 40:
+                rsi_label = "approaching oversold"
+            elif rsi_num > 70:
+                rsi_label = "overbought"
+            elif rsi_num > 60:
+                rsi_label = "approaching overbought"
+            else:
+                rsi_label = "neutral"
+    except Exception:
+        pass
+
+    # Position context
+    conn = _conn()
+    pos = conn.execute(
+        "SELECT player_id, qty, avg_price FROM positions WHERE symbol=? LIMIT 1", (sym,)
+    ).fetchone()
+    conn.close()
+
+    pos_ctx = ""
+    if pos:
+        entry = pos["avg_price"]
+        pnl_pct = round((price - entry) / entry * 100, 2) if entry > 0 else 0
+        unit = "oz" if is_metal else "shares"
+        pos_ctx = f"Position: {pos['qty']:.2f} {unit} @ ${entry:,.2f}, P&L: {pnl_pct:+.1f}%."
+    else:
+        pos_ctx = "No open position."
+
+    rsi_info = f"RSI: {rsi_val}"
+    if rsi_label:
+        rsi_info += f" ({rsi_label} — below 30 is oversold, above 70 is overbought)"
+
+    if is_metal:
+        metal_name = {"GOLD": "physical gold", "SILVER": "physical silver"}.get(sym, sym.lower())
+        prompt = (
+            f"You are Spock, Science Officer on USS TradeMinds. Give a 2-3 sentence analysis for {metal_name}.\n"
+            f"Spot price: ${price:,.2f} ({change:+.2f}% today). {rsi_info}. {pos_ctx}\n"
+            f"This is PHYSICAL {sym} (not an ETF). Consider: gold/silver ratio, VIX/fear levels, "
+            f"dollar strength, central bank buying, inflation expectations.\n"
+            f"Should the Captain accumulate more, hold, or wait? Be specific and concise. Speak as Spock."
+        )
+    else:
+        prompt = (
+            f"You are Spock, Science Officer on USS TradeMinds. Give a 2-3 sentence analysis for {sym}.\n"
+            f"Current: ${price:.2f} ({change:+.2f}%). {rsi_info}. {pos_ctx}\n"
+            f"IMPORTANT: RSI below 30 means OVERSOLD (potential buying opportunity). RSI above 70 means OVERBOUGHT (potential selling signal). "
+            f"Do NOT confuse these.\n"
+            f"Explain whether to buy, hold, trim, or close. Be specific, logical, and concise. Speak as Spock."
+        )
+
+    try:
+        r = req.post(
+            f"{OLLAMA_URL}/api/generate",
+            json={"model": "gemma3:4b", "prompt": prompt, "stream": False},
+            timeout=30,
+        )
+        if r.ok:
+            text = r.json().get("response", "").strip()
+            if text:
+                return {"reasoning": text, "model": "gemma3:4b", "symbol": sym}
+    except Exception:
+        pass
+
+    return {"reasoning": "Insufficient data for meaningful analysis, Captain.", "model": "fallback", "symbol": sym}
+
+
+@app.post("/api/arena/player/{player_id}/buy")
+def player_buy(player_id: str, body: dict):
+    """Add to position (DCA) — buys at current market price."""
+    from engine.paper_trader import buy
+    from engine.market_data import get_stock_price
+    symbol = body.get("symbol", "")
+    qty = body.get("qty", 0)
+    if not symbol or qty <= 0:
+        return {"error": "symbol and qty > 0 required"}
+    price_data = get_stock_price(symbol)
+    price = price_data.get("price", 0)
+    if not price:
+        return {"error": f"Could not fetch price for {symbol}"}
+    result = buy(player_id, symbol, price, qty=qty, reasoning="Manual DCA via dashboard")
+    if not result:
+        return {"error": "Buy failed — check cash balance"}
+    return result
+
+
+@app.post("/api/arena/player/{player_id}/trim")
+def player_trim(player_id: str, body: dict):
+    """Trim position — sells a fraction at current market price."""
+    from engine.paper_trader import sell_partial
+    from engine.market_data import get_stock_price
+    symbol = body.get("symbol", "")
+    fraction = body.get("fraction", 0.5)
+    if not symbol:
+        return {"error": "symbol required"}
+    price_data = get_stock_price(symbol)
+    price = price_data.get("price", 0)
+    if not price:
+        return {"error": f"Could not fetch price for {symbol}"}
+    from engine.paper_trader import get_position
+    pos = get_position(player_id, symbol)
+    if not pos:
+        return {"error": f"No position in {symbol}"}
+    trim_qty = round(pos["qty"] * fraction, 4)
+    if trim_qty <= 0:
+        return {"error": "Nothing to trim"}
+    result = sell_partial(player_id, symbol, price, trim_qty, reasoning=f"Manual trim {fraction*100:.0f}% via dashboard")
+    if not result:
+        return {"error": "Trim failed"}
+    return result
+
+
+@app.post("/api/arena/player/{player_id}/close")
+def player_close(player_id: str, body: dict):
+    """Close entire position at current market price."""
+    from engine.paper_trader import sell
+    from engine.market_data import get_stock_price
+    symbol = body.get("symbol", "")
+    if not symbol:
+        return {"error": "symbol required"}
+    price_data = get_stock_price(symbol)
+    price = price_data.get("price", 0)
+    if not price:
+        return {"error": f"Could not fetch price for {symbol}"}
+    result = sell(player_id, symbol, price, reasoning="Manual close via dashboard")
+    if not result:
+        return {"error": "Close failed — no position found"}
+    return result
+
+
+@app.get("/api/wheel/status")
+def wheel_status():
+    """Counselor Troi's Wheel Strategy — current status and open positions."""
+    try:
+        from engine.wheel_strategy import get_wheel_status
+        return get_wheel_status()
+    except Exception as e:
+        return {"puts_open": 0, "stocks_held": 0, "total_premium_collected": 0, "error": str(e)}
+
+
+@app.post("/api/wheel/force-scan")
+def wheel_force_scan():
+    """Force Troi's wheel scan immediately (bypasses daily throttle)."""
+    try:
+        from engine.wheel_strategy import run_wheel_scan, _last_date
+        import engine.wheel_strategy as _ws
+        _ws._done_today = False  # reset daily flag
+        run_wheel_scan()
+        return {"status": "ok", "message": "Wheel scan executed"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/arena/force-scan/{player_id}")
+def force_scan(player_id: str):
+    """Force a specific model to scan the watchlist immediately."""
+    try:
+        from config import WATCH_STOCKS
+        import main as _main
+        arena = getattr(_main, "arena", None)
+        if arena is None:
+            return {"status": "error", "error": "Arena not initialized"}
+        results = arena.scan_player(player_id, WATCH_STOCKS[:5])
+        return {"status": "ok", "results": str(results)[:500]}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# --- Model Control Endpoints ---
+
+# Cost estimates per scan
+MODEL_COST_MAP = {
+    "ollama-local": 0.0,
+    "ollama-gemma27b": 0.0,
+    "ollama-deepseek": 0.0,
+    "ollama-qwen3": 0.0,
+    "ollama-llama": 0.0,
+    "ollama-glm4": 0.0,
+    "ollama-kimi": 0.0,
+    "ollama-plutus": 0.0,
+    "energy-arnold": 0.0,
+    "dalio-metals": 0.0,
+    "options-sosnoff": 0.001,
+    "claude-sonnet": 0.008,
+    "claude-haiku": 0.008,
+    "gpt-4o": 0.008,
+    "gpt-o3": 0.015,
+    "gemini-2.5-pro": 0.005,
+    "gemini-2.5-flash": 0.001,
+    "grok-3": 0.005,
+    "grok-4": 0.005,
+    "dayblade-0dte": 0.0,
+    "steve-webull": 0.0,
+    "cto-grok42": 0.005,
+}
+
+
+@app.get("/api/model-control")
+def model_control():
+    """Get model control panel data: pause state, costs, call counts."""
+    conn = _conn()
+    players = conn.execute("""
+        SELECT id, display_name, provider, model_id, is_active, is_halted,
+               COALESCE(is_paused, 0) as is_paused
+        FROM ai_players ORDER BY provider, id
+    """).fetchall()
+
+    today = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+    stats = conn.execute(
+        "SELECT player_id, api_calls, total_cost FROM model_stats WHERE date=?",
+        (today,)
+    ).fetchall()
+    stats_map = {r["player_id"]: {"api_calls": r["api_calls"], "total_cost": r["total_cost"]} for r in stats}
+
+    pause_all = conn.execute("SELECT value FROM settings WHERE key='pause_all'").fetchone()
+    conn.close()
+
+    models = []
+    grand_total = 0.0
+    for p in players:
+        pid = p["id"]
+        st = stats_map.get(pid, {"api_calls": 0, "total_cost": 0.0})
+        is_free = p["provider"] == "ollama" or pid in ("dayblade-0dte", "steve-webull")
+        cost_per_scan = MODEL_COST_MAP.get(pid, 0.0 if is_free else 0.005)
+        # Force $0 for all free/Ollama models regardless of what model_stats says
+        display_cost = 0.0 if is_free else st["total_cost"]
+        grand_total += display_cost
+        models.append(annotate_player_payload({
+            "player_id": pid,
+            "display_name": p["display_name"],
+            "provider": p["provider"],
+            "model_id": p["model_id"],
+            "is_paused": bool(p["is_paused"]),
+            "is_halted": bool(p["is_halted"]),
+            "cost_per_scan": cost_per_scan,
+            "api_calls_today": st["api_calls"],
+            "total_cost_today": display_cost,
+        }))
+
+    return {
+        "pause_all": bool(pause_all and pause_all["value"] == "1"),
+        "models": models,
+        "grand_total_cost": grand_total,
+    }
+
+
+@app.post("/api/model-control/pause-all")
+def toggle_pause_all():
+    """Toggle global pause for all scanning."""
+    conn = _conn()
+    current = conn.execute("SELECT value FROM settings WHERE key='pause_all'").fetchone()
+    new_val = "0" if (current and current["value"] == "1") else "1"
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('pause_all', ?)",
+        (new_val,)
+    )
+    conn.commit()
+    conn.close()
+    return {"pause_all": new_val == "1"}
+
+
+@app.get("/api/settings/pause-all")
+def get_pause_all():
+    """Get current pause state."""
+    conn = _conn()
+    row = conn.execute("SELECT value FROM settings WHERE key='pause_all'").fetchone()
+    conn.close()
+    return {"paused": bool(row and row["value"] == "1")}
+
+
+@app.post("/api/settings/pause-all")
+def set_pause_all(data: dict = None):
+    """Set global pause state."""
+    paused = data.get("paused", True) if data else True
+    conn = _conn()
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('pause_all', ?)",
+        ("1" if paused else "0",)
+    )
+    conn.commit()
+    conn.close()
+    return {"paused": paused}
+
+
+@app.post("/api/model-control/pause/{player_id}")
+def toggle_pause_player(player_id: str):
+    """Toggle pause for a specific AI model."""
+    if is_independent_player(player_id):
+        raise HTTPException(status_code=403, detail="Matrix participant is read-only on Arena. Control Neo from port 8000.")
+    conn = _conn()
+    current = conn.execute(
+        "SELECT COALESCE(is_paused, 0) as is_paused FROM ai_players WHERE id=?",
+        (player_id,)
+    ).fetchone()
+    if not current:
+        conn.close()
+        return {"error": "Player not found"}
+    new_val = 0 if current["is_paused"] else 1
+    conn.execute("UPDATE ai_players SET is_paused=? WHERE id=?", (new_val, player_id))
+    conn.commit()
+    conn.close()
+    return {"player_id": player_id, "is_paused": bool(new_val)}
+
+
+@app.post("/api/model-control/record-call/{player_id}")
+def record_api_call(player_id: str):
+    """Record an API call for cost tracking."""
+    if is_independent_player(player_id):
+        return {"ok": True, "skipped": True, "reason": "independent matrix participant"}
+    cost = MODEL_COST_MAP.get(player_id, 0.0 if player_id.startswith("ollama-") else 0.005)
+    today = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+    conn = _conn()
+    conn.execute("""
+        INSERT INTO model_stats (player_id, api_calls, total_cost, date)
+        VALUES (?, 1, ?, ?)
+        ON CONFLICT(player_id, date) DO UPDATE SET
+            api_calls = api_calls + 1,
+            total_cost = total_cost + ?
+    """, (player_id, cost, today, cost))
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.post("/api/admin/clean-stale-snapshots")
+def clean_stale_snapshots():
+    conn = _conn()
+    season_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+    season = int(season_row[0]) if season_row else 3
+    # Find models with $10k cash but portfolio_history showing losses (stale from pre-reset)
+    stale = conn.execute("""
+        SELECT DISTINCT ph.player_id FROM portfolio_history ph
+        JOIN ai_players ap ON ap.id = ph.player_id
+        WHERE ph.season=? AND ap.cash >= 9999
+        AND ph.total_value < 9000
+    """, (season,)).fetchall()
+    deleted = {}
+    for row in stale:
+        pid = row["player_id"]
+        cnt = conn.execute("SELECT count(*) FROM portfolio_history WHERE player_id=? AND season=?", (pid, season)).fetchone()[0]
+        conn.execute("DELETE FROM portfolio_history WHERE player_id=? AND season=?", (pid, season))
+        deleted[pid] = cnt
+    conn.commit()
+    conn.close()
+    return {"ok": True, "deleted": deleted}
+
+
+
+@app.post("/api/model-control/force-scan")
+def force_scan():
+    """Trigger a manual scan immediately, bypassing market hours check."""
+    import threading
+    import main as _main
+
+    # Use main.py's scan lock so force scan and scheduled scan don't overlap
+    if not _main._scan_lock.acquire(blocking=False):
+        return {"ok": False, "message": "Scan already in progress"}
+
+    def _do_scan():
+        try:
+            from config import WATCH_STOCKS
+
+            arena = _main.arena
+            if arena is None:
+                arena = _main.initialize_arena()
+                _main.arena = arena
+            arena.run_scan(WATCH_STOCKS, force=True)
+        except Exception as e:
+            print(f"Force scan error: {e}")
+        finally:
+            _main._scan_lock.release()
+
+    threading.Thread(target=_do_scan, daemon=True).start()
+    return {"ok": True, "message": "Manual scan started"}
+
+
+# --- Cost Dashboard Endpoints ---
+
+@app.get("/api/costs/dashboard")
+def cost_dashboard():
+    """Full cost dashboard data: daily, cumulative, projections, grades."""
+    from engine.cost_tracker import (
+        get_daily_costs, get_cumulative_costs, get_cost_per_trade,
+        get_projected_monthly_cost, get_token_efficiency,
+        get_model_roi_ranking, get_model_efficiency_grades,
+        get_free_vs_paid_pnl, get_dead_models, get_model_diversity,
+        get_total_daily_cost, get_free_call_tracking, TOKEN_RATES,
+    )
+    today = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+    daily = get_daily_costs(today)
+    cumulative = get_cumulative_costs()
+    cost_per_trade = get_cost_per_trade()
+    projection = get_projected_monthly_cost()
+    efficiency = get_token_efficiency()
+    roi = get_model_roi_ranking()
+    grades = get_model_efficiency_grades()
+    free_vs_paid = get_free_vs_paid_pnl()
+    dead = get_dead_models(48)
+    diversity = get_model_diversity()
+    daily_total = get_total_daily_cost(today)
+    free_calls = get_free_call_tracking(today)
+
+    return {
+        "daily_total": round(daily_total, 4),
+        "free_calls_used": int(free_calls["free_calls_used"]),
+        "free_calls_remaining": int(free_calls["free_calls_remaining"]),
+        "free_calls_limit": int(free_calls["free_calls_limit"]),
+        "daily_costs": daily,
+        "cumulative_costs": cumulative,
+        "cost_per_trade": cost_per_trade,
+        "projection": projection,
+        "token_efficiency": efficiency,
+        "roi_ranking": roi,
+        "efficiency_grades": grades,
+        "free_vs_paid": free_vs_paid,
+        "dead_models": dead,
+        "diversity": diversity,
+        "token_rates": {k: {"input": v[0], "output": v[1]} for k, v in TOKEN_RATES.items()},
+    }
+
+
+@app.get("/api/costs")
+@app.get("/api/costs/")
+def cost_dashboard_alias():
+    """Compatibility alias for older dashboard clients."""
+    return cost_dashboard()
+
+
+@app.get("/api/costs/daily-total")
+def cost_daily_total():
+    """Quick endpoint for nav bar daily cost display."""
+    from engine.cost_tracker import get_total_daily_cost
+    return {"daily_total": round(get_total_daily_cost(), 4)}
+
+
+@app.get("/api/costs/budget")
+def cost_budget():
+    """Daily cost budget status for UI indicator."""
+    from engine.cost_tracker import get_total_daily_cost
+    from config import DAILY_API_BUDGET, DAILY_COST_WARNING
+    today = round(get_total_daily_cost(), 4)
+    pct = round(today / DAILY_API_BUDGET * 100, 1) if DAILY_API_BUDGET > 0 else 0
+    return {
+        "today_spent": today,
+        "daily_limit": DAILY_API_BUDGET,
+        "warning_threshold": DAILY_COST_WARNING,
+        "pct_used": pct,
+        "cloud_scanning_enabled": today < DAILY_API_BUDGET,
+        "status": "RED_ALERT" if pct >= 100 else "CAUTION" if pct >= 80 else "NOMINAL",
+    }
+
+
+@app.get("/api/costs/dilithium")
+def cost_dilithium():
+    """Dilithium Crystal status — real-time API cost tracking."""
+    from config import DAILY_API_BUDGET, MONTHLY_API_BUDGET
+    conn = _conn()
+    today = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
+    month = today[:7]
+
+    # Today's costs by provider
+    today_rows = conn.execute(
+        "SELECT player_id, COUNT(*) as calls, SUM(input_tokens) as inp, "
+        "SUM(output_tokens) as outp, SUM(cost_usd) as cost "
+        "FROM api_costs WHERE date(timestamp) = ? GROUP BY player_id", (today,)
+    ).fetchall()
+
+    # Monthly total
+    month_row = conn.execute(
+        "SELECT SUM(cost_usd) as total FROM api_costs WHERE timestamp LIKE ?", (month + "%",)
+    ).fetchone()
+
+    # Monthly breakdown by crew member
+    month_breakdown = conn.execute(
+        "SELECT player_id, SUM(cost_usd) as cost FROM api_costs "
+        "WHERE timestamp LIKE ? GROUP BY player_id ORDER BY cost DESC", (month + "%",)
+    ).fetchall()
+    conn.close()
+
+    today_total = sum(r["cost"] for r in today_rows)
+    month_total = month_row["total"] or 0
+
+    # Provider grouping
+    providers = {}
+    for r in today_rows:
+        pid = r["player_id"]
+        prov = "ollama"
+        if pid in ("grok-4", "first-officer"):
+            prov = "xai"
+        elif pid in ("q-entity", "claude-sonnet", "claude-haiku"):
+            prov = "openai"
+        elif pid in ("gemini-2.5-flash", "options-sosnoff"):
+            prov = "google"
+        if prov not in providers:
+            providers[prov] = {"calls": 0, "tokens": 0, "cost": 0}
+        providers[prov]["calls"] += r["calls"]
+        providers[prov]["tokens"] += (r["inp"] or 0) + (r["outp"] or 0)
+        providers[prov]["cost"] += r["cost"]
+
+    # Status
+    daily_pct = today_total / DAILY_API_BUDGET * 100 if DAILY_API_BUDGET > 0 else 0
+    if daily_pct > 80:
+        status = "RED_ALERT"
+    elif daily_pct > 50:
+        status = "CAUTION"
+    else:
+        status = "NOMINAL"
+
+    return {
+        "today": {
+            "providers": {k: {"calls": v["calls"], "tokens": v["tokens"],
+                              "cost": f"${v['cost']:.4f}"} for k, v in providers.items()},
+            "total": f"${today_total:.4f}",
+            "total_raw": round(today_total, 4),
+        },
+        "this_month": {
+            "total": f"${month_total:.2f}",
+            "total_raw": round(month_total, 2),
+            "breakdown": {r["player_id"]: f"${r['cost']:.4f}" for r in month_breakdown},
+        },
+        "daily_budget": DAILY_API_BUDGET,
+        "monthly_budget": MONTHLY_API_BUDGET,
+        "status": status,
+    }
+
+
+@app.get("/api/costs/history")
+def cost_history(days: int = 30):
+    """Daily cost totals for the last N days."""
+    conn = _conn()
+    rows = conn.execute("""
+        SELECT date(timestamp) as day, SUM(cost_usd) as total_cost, COUNT(*) as num_calls
+        FROM api_costs
+        WHERE timestamp >= datetime('now', ? || ' days')
+        GROUP BY date(timestamp)
+        ORDER BY day ASC
+    """, (f"-{days}",)).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# ==================== NAVIGATOR (Chekov's Station) ====================
+
+@app.get("/api/navigator/universe")
+def navigator_universe():
+    """Get latest universe scan results (top 50 stocks by technical score)."""
+    from engine.universe_scanner import get_latest_universe_scan
+    return get_latest_universe_scan()
+
+
+@app.post("/api/navigator/universe/scan")
+def navigator_universe_scan():
+    """Trigger a fresh universe scan (takes 2-3 minutes)."""
+    import threading
+    from engine.universe_scanner import scan_universe
+    threading.Thread(target=scan_universe, daemon=True).start()
+    return {"status": "scan_started", "message": "Universe scan started in background"}
+
+
+@app.get("/api/navigator/strategies")
+def navigator_strategies():
+    """Get today's strategy convergence signals."""
+    from engine.strategies import get_todays_signals
+    return get_todays_signals()
+
+
+@app.post("/api/navigator/strategies/scan")
+def navigator_strategies_scan():
+    """Trigger a fresh strategy scan against top 50 universe stocks."""
+    import threading
+    from engine.strategies import scan_strategies, post_scanner_to_war_room
+    def _run():
+        scan_strategies()
+        post_scanner_to_war_room()
+    threading.Thread(target=_run, daemon=True).start()
+    return {"status": "scan_started", "message": "Strategy scan started — Chekov will post results to War Room"}
+
+
+@app.get("/api/navigator/convergence")
+def navigator_convergence():
+    """Get stocks where 3+ strategies agree (Holly-style convergence)."""
+    from engine.strategies import get_todays_signals
+    signals = get_todays_signals()
+    return {
+        "signals": signals,
+        "count": len(signals),
+        "threshold": "3+ strategies must agree",
+    }
+
+
+@app.post("/api/navigator/scan-now")
+def navigator_scan_now():
+    """Trigger full Warp 9 scan: universe + strategies + War Room post."""
+    import threading
+    def _full_scan():
+        from engine.universe_scanner import scan_universe
+        from engine.strategies import scan_strategies, post_scanner_to_war_room
+        scan_universe()
+        scan_strategies()
+        post_scanner_to_war_room()
+    threading.Thread(target=_full_scan, daemon=True).start()
+    return {"status": "full_scan_started", "message": "Universe + Strategy scan started — Chekov will report to War Room"}
+
+
+@app.get("/api/navigator/schedule")
+def navigator_schedule():
+    """Get next scheduled scan times."""
+    from datetime import datetime, timedelta
+    import pytz
+    mt = pytz.timezone("US/Mountain")
+    now = datetime.now(mt)
+
+    # Next universe scan: 11 PM MST tonight or tomorrow
+    next_universe = now.replace(hour=23, minute=0, second=0, microsecond=0)
+    if now.hour >= 23:
+        next_universe += timedelta(days=1)
+    # Skip weekends
+    while next_universe.weekday() >= 5:
+        next_universe += timedelta(days=1)
+
+    # Next strategy scan: 6 AM MST today or tomorrow
+    next_strategy = now.replace(hour=6, minute=0, second=0, microsecond=0)
+    if now.hour >= 6:
+        next_strategy += timedelta(days=1)
+    while next_strategy.weekday() >= 5:
+        next_strategy += timedelta(days=1)
+
+    return {
+        "current_time_mst": now.strftime("%Y-%m-%d %I:%M %p MST"),
+        "next_universe_scan": next_universe.strftime("%Y-%m-%d %I:%M %p MST"),
+        "next_strategy_scan": next_strategy.strftime("%Y-%m-%d %I:%M %p MST"),
+        "universe_countdown_min": int((next_universe - now).total_seconds() / 60),
+        "strategy_countdown_min": int((next_strategy - now).total_seconds() / 60),
+    }
+
+
+@app.get("/api/regime")
+def regime_status():
+    """Get current market regime + allocation table."""
+    from engine.warp10_engine import get_current_allocation
+    return get_current_allocation()
+
+
+_ma_regime_cache: dict = {"data": None, "ts": 0}
+
+@app.get("/api/regime/ma-cross")
+def regime_ma_cross():
+    """8/21 MA Cross regime — primary trend signal used for position sizing.
+    Cached 5 minutes; returns last-known on error.
+    Also returns last 30 days of regime_history from DB.
+    """
+    import time as _t
+    now = _t.time()
+    if _ma_regime_cache["data"] and now - _ma_regime_cache["ts"] < 300:
+        return _ma_regime_cache["data"]
+    try:
+        from engine.regime_ma import detect_ma_cross_regime
+        current = detect_ma_cross_regime()
+    except Exception:
+        current = {"regime": "UNKNOWN", "size_modifier": 0.75}
+
+    # Fetch last 30 days of history from DB
+    history = []
+    try:
+        import sqlite3 as _sq
+        _c = _sq.connect("data/trader.db")
+        _c.row_factory = _sq.Row
+        rows = _c.execute(
+            "SELECT date, spy_close, ma_8, ma_21, regime, cross_date, cross_days_ago, size_modifier "
+            "FROM regime_history ORDER BY date DESC LIMIT 30"
+        ).fetchall()
+        history = [dict(r) for r in rows]
+        _c.close()
+    except Exception:
+        pass
+
+    result = {"current": current, "history": history}
+    _ma_regime_cache["data"] = result
+    _ma_regime_cache["ts"] = now
+    return result
+
+
+@app.get("/api/regime/backtest")
+def regime_backtest(days: int = 120):
+    """Run Warp 10 regime-switching backtest."""
+    from engine.warp10_engine import backtest_warp10
+    from datetime import datetime, timedelta
+    end = datetime.now().strftime("%Y-%m-%d")
+    start = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
+    return backtest_warp10(start_date=start, end_date=end)
+
+
+@app.get("/api/navigator/history")
+def navigator_history(days: int = 7):
+    """Get universe scan history."""
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT scan_date, ticker, score, signals, close, volume_ratio, rsi, gap_pct "
+        "FROM universe_scan WHERE scan_date >= date('now', ?) ORDER BY scan_date DESC, score DESC",
+        (f"-{days} days",)
+    ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+# --- CrewAI Strategy Lab ---
+
+@app.get("/api/crew/status")
+def crew_status():
+    """Health check for Crew Strategy Lab."""
+    result = {"engine": "ollama_direct", "ollama_running": False, "model": os.getenv("CREWAI_MODEL", "gemma3:4b")}
+    try:
+        import requests as _req
+        r = _req.get("http://localhost:11434/api/tags", timeout=3)
+        if r.ok:
+            result["ollama_running"] = True
+            models = [m.get("name", "") for m in r.json().get("models", [])]
+            result["ollama_models"] = models[:10]
+    except Exception:
+        pass
+    result["ready"] = result["ollama_running"]
+    return result
+
+
+@app.post("/api/crew/develop")
+def crew_develop(data: dict):
+    """Run the 4-agent crew to develop a trading strategy. Takes 30-90 seconds."""
+    prompt = data.get("prompt", "")
+    symbol = data.get("symbol", "SPY")
+    days = int(data.get("days", 365))
+    if not prompt:
+        return {"success": False, "error": "prompt is required"}
+    from engine.crew_strategy_lab import create_crew
+    result = create_crew(prompt, symbol=symbol, days=days)
+    # Save to strategy_backtests
+    if result.get("success"):
+        _save_backtests([{
+            "source": "crew_strategy_lab", "ticker": symbol, "strategy_type": "crew_custom",
+            "days": days, "parameters": json.dumps({"prompt": prompt[:500]}),
+            "crew_discussion": (result.get("result") or "")[:5000],
+            "generated_code": (result.get("code") or "")[:5000],
+            "notes": f"Crew: {', '.join(result.get('agents', []))}",
+        }])
+    return result
+
+
+@app.post("/api/crew/run-code")
+def crew_run_code(data: dict):
+    """Execute VectorBT strategy code in a safe subprocess."""
+    code = data.get("code", "")
+    if not code:
+        return {"success": False, "error": "code is required"}
+    from engine.crew_strategy_lab import run_strategy_code
+    return run_strategy_code(code)
+
+
+# --- Backtest History Queries ---
+
+@app.get("/api/backtests")
+def list_backtests(ticker: str = None, strategy_type: str = None, source: str = None, limit: int = 50):
+    """List saved backtests with optional filters."""
+    conn = sqlite3.connect(DB, check_same_thread=False, timeout=10)
+    conn.row_factory = sqlite3.Row
+    q = "SELECT * FROM strategy_backtests WHERE 1=1"
+    params = []
+    if ticker:
+        q += " AND ticker=?"; params.append(ticker.upper())
+    if strategy_type:
+        q += " AND strategy_type=?"; params.append(strategy_type)
+    if source:
+        q += " AND source=?"; params.append(source)
+    q += " ORDER BY created_at DESC LIMIT ?"
+    params.append(limit)
+    rows = conn.execute(q, params).fetchall()
+    conn.close()
+    return {"backtests": [dict(r) for r in rows], "count": len(rows)}
+
+
+@app.get("/api/backtests/best")
+def best_backtests(sort_by: str = "sharpe_ratio", limit: int = 10):
+    """Top backtests by a given metric."""
+    allowed = {"sharpe_ratio", "total_return", "win_rate", "profit_factor"}
+    col = sort_by if sort_by in allowed else "sharpe_ratio"
+    conn = sqlite3.connect(DB, check_same_thread=False, timeout=10)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        f"SELECT * FROM strategy_backtests WHERE {col} IS NOT NULL AND num_trades > 0 "
+        f"ORDER BY {col} DESC LIMIT ?", (limit,)
+    ).fetchall()
+    conn.close()
+    return {"backtests": [dict(r) for r in rows], "sort_by": col, "count": len(rows)}
+
+
+# --- Alpaca Paper Trading ---
+from engine.alpaca_bridge import alpaca
+
+
+@app.get("/api/alpaca/status")
+def alpaca_status():
+    return alpaca.status()
+
+
+@app.get("/api/alpaca/positions")
+def alpaca_positions():
+    return {"positions": alpaca.positions()}
+
+
+@app.get("/api/alpaca/orders")
+def alpaca_orders(status: str = "all"):
+    return {"orders": alpaca.orders(status)}
+
+
+@app.post("/api/alpaca/buy")
+def alpaca_buy(data: dict):
+    symbol = data.get("symbol", "")
+    qty = int(data.get("qty", 0))
+    if not symbol or qty <= 0:
+        return {"error": "symbol and qty required"}
+    return alpaca.buy(symbol.upper(), qty)
+
+
+@app.post("/api/alpaca/sell")
+def alpaca_sell(data: dict):
+    symbol = data.get("symbol", "")
+    qty = int(data.get("qty", 0))
+    if not symbol or qty <= 0:
+        return {"error": "symbol and qty required"}
+    return alpaca.sell(symbol.upper(), qty)
+
+
+@app.post("/api/alpaca/close/{symbol}")
+def alpaca_close(symbol: str):
+    return alpaca.close_position(symbol.upper())
+
+
+@app.post("/api/alpaca/close-all")
+def alpaca_close_all():
+    return alpaca.close_all()
+
+
+@app.post("/api/alpaca/sync-positions")
+def alpaca_sync_positions():
+    """Sync live Alpaca positions into portfolio_positions (portfolio_id=1).
+
+    Replaces all open positions with fresh data from the Alpaca API.
+    Closed positions are preserved. Clears in-memory leaderboard cache so
+    the updated values appear immediately.
+    """
+    import datetime as _dt
+    positions = alpaca.positions()
+    if not positions:
+        return {"ok": True, "synced": 0, "message": "No open positions in Alpaca account"}
+    if len(positions) == 1 and "error" in positions[0]:
+        return {"ok": False, "error": positions[0]["error"]}
+
+    c = _conn()
+    try:
+        # Remove stale open positions; keep closed history intact
+        c.execute("DELETE FROM portfolio_positions WHERE portfolio_id=1 AND status='open'")
+        now = _dt.datetime.now().isoformat()
+        for p in positions:
+            entry  = float(p["avg_entry"])
+            qty    = float(p["qty"])
+            direction = "long" if qty >= 0 else "short"
+            c.execute("""
+                INSERT INTO portfolio_positions
+                  (portfolio_id, ticker, asset_class, direction, quantity, entry_price,
+                   current_price, unrealized_pnl, stop_loss, take_profit, status,
+                   created_at, updated_at)
+                VALUES (1, ?, 'stock', ?, ?, ?, ?, ?, ?, ?, 'open', ?, ?)
+            """, (
+                p["symbol"], direction, qty, entry,
+                float(p["current_price"]), float(p["unrealized_pl"]),
+                round(entry * 0.92, 4), round(entry * 1.20, 4),
+                now, now,
+            ))
+        c.commit()
+
+        # Bust in-memory leaderboard cache so next request recomputes
+        _lb_key_cur = f"leaderboard_0"
+        _endpoint_cache.pop(_lb_key_cur, None)
+        _leaderboard_disk_cache["data"] = None
+        _leaderboard_disk_cache["ts"] = 0
+        try:
+            import os as _os
+            if _os.path.exists(_LEADERBOARD_CACHE_FILE):
+                _os.remove(_LEADERBOARD_CACHE_FILE)
+        except Exception:
+            pass
+
+        total_unreal = round(sum(float(p["unrealized_pl"]) for p in positions), 2)
+        return {
+            "ok": True,
+            "synced": len(positions),
+            "positions": [p["symbol"] for p in positions],
+            "total_unrealized_pnl": total_unreal,
+            "super_agent_total_value": round(25000.0 + total_unreal, 2),
+        }
+    except Exception as e:
+        c.rollback()
+        return {"ok": False, "error": str(e)}
+    finally:
+        c.close()
+
+
+# --- Holodeck (VectorBT Backtesting) ---
+import asyncio
+from concurrent.futures import ThreadPoolExecutor
+_holodeck_pool = ThreadPoolExecutor(max_workers=2)
+
+
+def _get_holodeck():
+    from engine.holodeck import holodeck
+    return holodeck
+
+
+def _save_backtests(rows: list):
+    """Save backtest results to strategy_backtests table. rows is list of dicts."""
+    if not rows:
+        return
+    try:
+        conn = sqlite3.connect(DB, check_same_thread=False, timeout=30)
+        for r in rows:
+            conn.execute(
+                "INSERT INTO strategy_backtests (source, ticker, strategy_type, days, parameters, "
+                "total_return, win_rate, sharpe_ratio, max_drawdown, profit_factor, num_trades, "
+                "final_value, starting_cash, recommendation, crew_discussion, generated_code, notes) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (r.get("source",""), r.get("ticker",""), r.get("strategy_type",""), r.get("days"),
+                 r.get("parameters",""), r.get("total_return"), r.get("win_rate"), r.get("sharpe_ratio"),
+                 r.get("max_drawdown"), r.get("profit_factor"), r.get("num_trades"), r.get("final_value"),
+                 r.get("starting_cash", 7000), r.get("recommendation"), r.get("crew_discussion"),
+                 r.get("generated_code"), r.get("notes")))
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[backtest save error] {e}")
+
+
+@app.get("/api/holodeck/rsi-sweep/{symbol}")
+async def holodeck_rsi_sweep(symbol: str, days: int = 180):
+    """Sweep RSI parameters — returns best combos, saves all to DB"""
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_holodeck_pool, lambda: _get_holodeck().run_rsi_sweep(symbol, days=days))
+        # Save every combo to strategy_backtests
+        if result.get("all_results"):
+            _save_backtests([{
+                "source": "holodeck_sweep", "ticker": symbol, "strategy_type": "RSI", "days": days,
+                "parameters": json.dumps({k: r[k] for k in ("window","entry","exit") if k in r}),
+                "total_return": r.get("total_return"), "win_rate": r.get("win_rate"),
+                "sharpe_ratio": r.get("sharpe"), "max_drawdown": r.get("max_drawdown"),
+                "profit_factor": r.get("profit_factor"), "num_trades": r.get("num_trades"),
+                "final_value": r.get("final_value"),
+            } for r in result["all_results"]])
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/holodeck/bollinger-sweep/{symbol}")
+async def holodeck_bollinger_sweep(symbol: str, days: int = 180):
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_holodeck_pool, lambda: _get_holodeck().run_bollinger_sweep(symbol, days=days))
+        if result.get("all_results"):
+            _save_backtests([{
+                "source": "holodeck_sweep", "ticker": symbol, "strategy_type": "BBANDS", "days": days,
+                "parameters": json.dumps({k: r[k] for k in ("window","std_dev") if k in r}),
+                "total_return": r.get("total_return"), "win_rate": r.get("win_rate"),
+                "sharpe_ratio": r.get("sharpe"), "max_drawdown": r.get("max_drawdown"),
+                "num_trades": r.get("num_trades"), "final_value": r.get("final_value"),
+            } for r in result["all_results"]])
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/holodeck/macd-sweep/{symbol}")
+async def holodeck_macd_sweep(symbol: str, days: int = 180):
+    try:
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_holodeck_pool, lambda: _get_holodeck().run_macd_sweep(symbol, days=days))
+        if result.get("all_results"):
+            _save_backtests([{
+                "source": "holodeck_sweep", "ticker": symbol, "strategy_type": "MACD", "days": days,
+                "parameters": json.dumps({k: r[k] for k in ("fast","slow","signal") if k in r}),
+                "total_return": r.get("total_return"), "win_rate": r.get("win_rate"),
+                "sharpe_ratio": r.get("sharpe"), "max_drawdown": r.get("max_drawdown"),
+                "num_trades": r.get("num_trades"), "final_value": r.get("final_value"),
+            } for r in result["all_results"]])
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/holodeck/strategy/{symbol}")
+async def holodeck_strategy(symbol: str, strategy: str = "rsi", days: int = 180, params: str = "{}"):
+    """Run a single strategy with specific params, returns equity curve"""
+    try:
+        p = json.loads(params)
+        loop = asyncio.get_event_loop()
+        result = await loop.run_in_executor(_holodeck_pool, lambda: _get_holodeck().run_custom_strategy(symbol, days=days, strategy_type=strategy, params=p))
+        return result
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# Serve paper-trader static dashboard
+_static_dir = os.path.join(os.path.dirname(__file__), "static")
+app.mount("/static", StaticFiles(directory=_static_dir), name="static")
+
+
+@app.get("/")
+def serve_index():
+    return FileResponse(
+        os.path.join(_static_dir, "index.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+    )
+
+
+
+
+@app.get("/api/webull-portfolio")
+def webull_portfolio():
+    """Returns Steve's real Webull portfolio with live P&L"""
+    from engine.paper_trader import get_portfolio_with_pnl
+    from engine.market_data import get_stock_price
+
+    conn = _conn()
+    player = conn.execute("SELECT * FROM ai_players WHERE id='steve-webull'").fetchone()
+    conn.close()
+
+    if not player:
+        return {"cash": 0, "positions": [], "recent_trades": [], "position_count": 0}
+
+    # Fetch live prices for all of Steve's symbols
+    prices = {}
+    pos_conn = _conn()
+    steve_positions = pos_conn.execute(
+        "SELECT symbol FROM positions WHERE player_id='steve-webull'"
+    ).fetchall()
+    pos_conn.close()
+
+    for row in steve_positions:
+        try:
+            prices[row["symbol"]] = get_stock_price(row["symbol"])
+        except Exception:
+            pass
+
+    pnl = get_portfolio_with_pnl("steve-webull", prices)
+
+    # Calculate total daily P&L % (weighted by market value)
+    total_mkt = sum(p.get("market_value", 0) for p in pnl["positions"])
+    total_day_pnl_pct = 0.0
+    if total_mkt > 0:
+        for p in pnl["positions"]:
+            weight = p.get("market_value", 0) / total_mkt
+            total_day_pnl_pct += weight * p.get("day_change_pct", 0)
+    total_day_pnl_pct = round(total_day_pnl_pct, 2)
+
+    return {
+        "cash": pnl["cash"],
+        "total_value": pnl["total_value"],
+        "total_cost_basis": pnl["total_cost_basis"],
+        "total_unrealized_pnl": pnl["total_unrealized_pnl"],
+        "return_pct": pnl["return_pct"],
+        "total_day_pnl_pct": total_day_pnl_pct,
+        "starting_value": 7021.81,
+        "positions": [
+            {
+                "symbol": p["symbol"], "qty": p["qty"], "avg_price": p["avg_price"],
+                "current_price": p.get("current_price", p["avg_price"]),
+                "market_value": p.get("market_value", p["qty"] * p["avg_price"]),
+                "unrealized_pnl": p.get("unrealized_pnl", 0),
+                "unrealized_pnl_pct": p.get("unrealized_pnl_pct", 0),
+                "day_change_pct": p.get("day_change_pct", 0),
+                "market": "webull",
+            }
+            for p in pnl["positions"]
+        ],
+        "recent_trades": [],
+        "position_count": len(pnl["positions"]),
+    }
+
+
+# ─── Captain's Log — Manual Trades ───────────────────────────────────────────
+
+@app.get("/api/captains-log/trades")
+def captains_log_trades(player: str = "", limit: int = 100):
+    """Get trade history for Captain's Log — includes DayBlade, manual, and all option trades."""
+    conn = _conn()
+    if player:
+        rows = conn.execute(
+            "SELECT t.player_id, p.display_name, t.symbol, t.action, t.qty, t.price, "
+            "t.asset_type, t.option_type, t.strike_price, t.expiry_date, t.confidence, "
+            "t.reasoning, t.executed_at "
+            "FROM trades t LEFT JOIN ai_players p ON t.player_id = p.id "
+            "WHERE t.player_id = ? ORDER BY t.executed_at DESC LIMIT ?",
+            (player, limit)
+        ).fetchall()
+    else:
+        # All manual/options trades: dayblade, steve-webull, options-sosnoff, and any option trades
+        rows = conn.execute(
+            "SELECT t.player_id, p.display_name, t.symbol, t.action, t.qty, t.price, "
+            "t.asset_type, t.option_type, t.strike_price, t.expiry_date, t.confidence, "
+            "t.reasoning, t.executed_at "
+            "FROM trades t LEFT JOIN ai_players p ON t.player_id = p.id "
+            "WHERE t.player_id IN ('dayblade-0dte', 'steve-webull', 'options-sosnoff') "
+            "OR t.asset_type = 'option' "
+            "ORDER BY t.executed_at DESC LIMIT ?",
+            (limit,)
+        ).fetchall()
+    conn.close()
+    return [dict(r) for r in rows]
+
+
+@app.get("/api/captains-log/summary")
+def captains_log_summary():
+    """Summary stats for Captain's Log trades."""
+    conn = _conn()
+    summary = {}
+    for pid in ['dayblade-0dte', 'steve-webull', 'options-sosnoff']:
+        row = conn.execute(
+            "SELECT COUNT(*) as total, "
+            "SUM(CASE WHEN action LIKE 'BUY%' THEN 1 ELSE 0 END) as buys, "
+            "SUM(CASE WHEN action = 'SELL' THEN 1 ELSE 0 END) as sells "
+            "FROM trades WHERE player_id = ?",
+            (pid,)
+        ).fetchone()
+        if row and row["total"] > 0:
+            summary[pid] = dict(row)
+    conn.close()
+    return summary
+
+
+@app.get("/api/webull/live")
+def webull_live():
+    """Fetch live portfolio from Webull OpenAPI."""
+    from engine.webull_client import get_portfolio
+    return get_portfolio()
+
+
+@app.post("/api/webull/sync-positions")
+def webull_sync_positions():
+    """Sync live Webull positions into the DB (updates leaderboard)."""
+    from engine.webull_client import sync_positions_to_db
+    return sync_positions_to_db()
+
+
+@app.get("/api/price/{symbol}")
+def get_price(symbol: str):
+    """Get live price for a symbol via Yahoo Finance, with DB fallback."""
+    from engine.market_data import get_stock_price
+    data = get_stock_price(symbol.upper())
+    if "price" in data:
+        return {
+            "symbol": symbol.upper(),
+            "price": data["price"],
+            "change": data.get("change_pct", 0),
+            "change_pct": data.get("change_pct", 0),
+            "prev_close": round(data["price"] / (1 + data.get("change_pct", 0) / 100), 2) if data.get("change_pct") else data["price"]
+        }
+    # Fallback: last trade price from DB
+    conn = _conn()
+    row = conn.execute(
+        "SELECT price FROM trades WHERE symbol=? ORDER BY executed_at DESC LIMIT 1", (symbol.upper(),)
+    ).fetchone()
+    conn.close()
+    if row:
+        return {"symbol": symbol.upper(), "price": row["price"], "change": 0, "change_pct": 0, "prev_close": row["price"], "cached": True}
+    return {"symbol": symbol.upper(), "price": 0, "change": 0, "change_pct": 0, "error": data.get("error", "No data")}
+
+
+# --- Backtest Lab Endpoints ---
+
+_backtest_status = {}  # run_id -> {progress, message, status, results}
+_backtest_lock = threading.Lock()
+
+@app.get("/api/backtest/models")
+def backtest_available_models():
+    """Return list of models available for backtesting."""
+    from config import AI_PLAYERS
+    return [{"id": p["id"], "name": p["name"], "provider": p["provider"]} for p in AI_PLAYERS]
+
+
+@app.post("/api/backtest/run")
+def backtest_run(payload: dict):
+    """Start a backtest. Body: {date, model_ids, end_date?}"""
+    from engine.historical_backtest import (
+        run_single_day_backtest, run_multi_day_backtest,
+        save_backtest_run, ensure_backtest_tables,
+    )
+    ensure_backtest_tables()
+
+    date_str = payload.get("date")
+    end_date = payload.get("end_date")
+    model_ids = payload.get("model_ids", [])
+
+    if not date_str or not model_ids:
+        return {"error": "date and model_ids required"}
+
+    # Generate run_id
+    conn = _conn()
+    run_type = "multi" if end_date and end_date != date_str else "single"
+    cur = conn.execute(
+        "INSERT INTO backtest_runs (run_type, start_date, end_date, model_ids, status) VALUES (?, ?, ?, ?, 'running')",
+        (run_type, date_str, end_date or date_str, json.dumps(model_ids)),
+    )
+    run_id = cur.lastrowid
+    conn.commit()
+    conn.close()
+
+    with _backtest_lock:
+        _backtest_status[run_id] = {"progress": 0, "message": "Starting...", "status": "running", "results": None}
+
+    def _run():
+        def _progress(pct, msg):
+            with _backtest_lock:
+                _backtest_status[run_id]["progress"] = pct
+                _backtest_status[run_id]["message"] = msg
+
+        try:
+            if end_date and end_date != date_str:
+                results = run_multi_day_backtest(date_str, end_date, model_ids, _progress)
+                save_backtest_run("multi", date_str, end_date, model_ids, results)
+            else:
+                raw = run_single_day_backtest(date_str, model_ids, _progress)
+                results = {pid: r.to_dict() for pid, r in raw.items()}
+                save_backtest_run("single", date_str, date_str, model_ids, results)
+
+            with _backtest_lock:
+                _backtest_status[run_id]["status"] = "complete"
+                _backtest_status[run_id]["progress"] = 100
+                _backtest_status[run_id]["message"] = "Complete"
+                _backtest_status[run_id]["results"] = results
+
+            # Update DB status
+            c2 = _conn()
+            c2.execute("UPDATE backtest_runs SET status='complete', completed_at=CURRENT_TIMESTAMP WHERE id=?", (run_id,))
+            c2.commit()
+            c2.close()
+        except Exception as e:
+            with _backtest_lock:
+                _backtest_status[run_id]["status"] = "error"
+                _backtest_status[run_id]["message"] = str(e)
+
+            c2 = _conn()
+            c2.execute("UPDATE backtest_runs SET status='error' WHERE id=?", (run_id,))
+            c2.commit()
+            c2.close()
+
+    thread = threading.Thread(target=_run, daemon=True)
+    thread.start()
+
+    return {"run_id": run_id, "status": "running"}
+
+
+@app.get("/api/backtest/status/{run_id}")
+def backtest_status(run_id: int):
+    """Poll backtest progress."""
+    with _backtest_lock:
+        st = _backtest_status.get(run_id)
+    if st:
+        return st
+    # Check DB for completed runs
+    from engine.historical_backtest import get_backtest_run_results
+    results = get_backtest_run_results(run_id)
+    if results:
+        return {"status": "complete", "progress": 100, "message": "Complete", "results": results}
+    return {"status": "not_found", "progress": 0, "message": "Run not found"}
+
+
+@app.get("/api/backtest/runs")
+def backtest_runs(limit: int = 20):
+    """Get recent backtest runs."""
+    from engine.historical_backtest import get_backtest_runs
+    return get_backtest_runs(limit)
+
+
+@app.get("/api/backtest/run/{run_id}")
+def backtest_run_detail(run_id: int):
+    """Get detailed results for a specific run."""
+    from engine.historical_backtest import get_backtest_run_results
+    return get_backtest_run_results(run_id)
+
+
+@app.get("/api/backtest/rankings")
+def backtest_rankings():
+    """Get model rankings aggregated across all backtest runs."""
+    from engine.historical_backtest import get_model_rankings
+    return get_model_rankings()
+
+
+@app.get("/api/backtest/{player_id}")
+def backtest(player_id: str, days: int = 30,
+             start_date: str = None, end_date: str = None,
+             guardrails: bool = False):
+    """Run Time Machine backtest for a player.
+
+    Keep this catch-all route after the specific /api/backtest/* endpoints so
+    static routes like /models, /runs, and /rankings are not intercepted.
+    """
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+    from engine.backtester import backtest_player
+    effective_days = days
+    if start_date and end_date:
+        from datetime import datetime as _dt
+        effective_days = (_dt.strptime(end_date, "%Y-%m-%d") - _dt.strptime(start_date, "%Y-%m-%d")).days
+    timeout = max(30, min(effective_days // 10, 120))
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            return ex.submit(backtest_player, player_id, days,
+                             start_date, end_date, guardrails).result(timeout=timeout)
+    except FuturesTimeout:
+        return {"error": f"Backtest timed out (>{timeout}s). Try a shorter date range."}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ─── Strategy Lab ─────────────────────────────────────────────────────────────
+
+_strategy_lab_status = {}
+_strategy_lab_lock = threading.Lock()
+
+@app.get("/api/strategy-lab/strategies")
+def strategy_lab_strategies():
+    """Return available strategies and their parameters."""
+    from engine.strategy_lab import STRATEGIES
+    return {k: {"name": v["name"], "description": v["description"],
+                "params": v["params"], "optimize_grid": v.get("optimize_grid", {})}
+            for k, v in STRATEGIES.items()}
+
+
+@app.post("/api/strategy-lab/run")
+def strategy_lab_run(payload: dict):
+    """Run a single strategy backtest. Body: {strategy, symbol, start_date, end_date, params?}"""
+    from engine.strategy_lab import run_strategy_backtest
+    strategy = payload.get("strategy")
+    symbol = payload.get("symbol", "AAPL").upper()
+    start_date = payload.get("start_date")
+    end_date = payload.get("end_date")
+    params = payload.get("params", {})
+
+    if not strategy or not start_date or not end_date:
+        return {"error": "strategy, start_date, and end_date are required"}
+
+    try:
+        return run_strategy_backtest(strategy, params, symbol, start_date, end_date)
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.post("/api/strategy-lab/optimize")
+def strategy_lab_optimize(payload: dict):
+    """Start optimization. Body: {strategy, symbol, start_date, end_date, grid?}
+    Returns {run_id, status: "running"}. Poll /api/strategy-lab/status/{run_id}.
+    """
+    strategy = payload.get("strategy")
+    symbol = payload.get("symbol", "AAPL").upper()
+    start_date = payload.get("start_date")
+    end_date = payload.get("end_date")
+    custom_grid = payload.get("grid")
+
+    if not strategy or not start_date or not end_date:
+        return {"error": "strategy, start_date, and end_date are required"}
+
+    import time as _time
+    run_id = int(_time.time() * 1000) % 1_000_000_000
+
+    with _strategy_lab_lock:
+        _strategy_lab_status[run_id] = {
+            "progress": 0, "message": "Starting...",
+            "status": "running", "results": None,
+        }
+
+    def _run():
+        from engine.strategy_lab import optimize_strategy
+
+        def _progress(pct, msg):
+            with _strategy_lab_lock:
+                _strategy_lab_status[run_id]["progress"] = pct
+                _strategy_lab_status[run_id]["message"] = msg
+
+        try:
+            result = optimize_strategy(strategy, symbol, start_date, end_date,
+                                       custom_grid, progress_cb=_progress)
+            with _strategy_lab_lock:
+                _strategy_lab_status[run_id]["status"] = "complete"
+                _strategy_lab_status[run_id]["progress"] = 100
+                _strategy_lab_status[run_id]["message"] = "Complete"
+                _strategy_lab_status[run_id]["results"] = result
+        except Exception as e:
+            with _strategy_lab_lock:
+                _strategy_lab_status[run_id]["status"] = "error"
+                _strategy_lab_status[run_id]["message"] = str(e)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return {"run_id": run_id, "status": "running"}
+
+
+@app.get("/api/strategy-lab/status/{run_id}")
+def strategy_lab_status(run_id: int):
+    """Poll optimization progress."""
+    with _strategy_lab_lock:
+        st = _strategy_lab_status.get(run_id)
+    if st:
+        return st
+    return {"status": "not_found"}
+
+
+@app.post("/api/strategy-lab/deploy")
+def strategy_lab_deploy(payload: dict):
+    """Deploy winning params to trading_rules.txt. Body: {strategy, params, stats}"""
+    from engine.strategy_lab import deploy_winning_params
+    strategy = payload.get("strategy")
+    params = payload.get("params", {})
+    stats = payload.get("stats", {})
+    if not strategy:
+        return {"error": "strategy is required"}
+    return deploy_winning_params(strategy, params, stats)
+
+
+@app.get("/api/strategy-lab/latest")
+def strategy_lab_latest():
+    """Return the most recent auto-optimization report."""
+    from engine.strategy_lab import get_latest_report
+    report = get_latest_report()
+    if report:
+        return report
+    return {"message": "No optimization reports yet. Run one manually or wait for Sunday auto-run."}
+
+
+@app.get("/api/strategy-lab/history")
+def strategy_lab_history(limit: int = 20):
+    """Return summaries of recent optimization reports."""
+    from engine.strategy_lab import get_report_history
+    return get_report_history(limit)
+
+
+@app.post("/api/strategy-lab/auto-optimize")
+def strategy_lab_auto_optimize():
+    """Manually trigger the full auto-optimization pipeline."""
+    import time as _time
+    run_id = int(_time.time() * 1000) % 1_000_000_000
+
+    with _strategy_lab_lock:
+        _strategy_lab_status[run_id] = {
+            "progress": 0, "message": "Starting full auto-optimization...",
+            "status": "running", "results": None,
+        }
+
+    def _run():
+        from engine.strategy_lab import auto_optimize_all
+
+        def _progress(pct, msg):
+            with _strategy_lab_lock:
+                _strategy_lab_status[run_id]["progress"] = pct
+                _strategy_lab_status[run_id]["message"] = msg
+
+        try:
+            report = auto_optimize_all(progress_cb=_progress)
+            with _strategy_lab_lock:
+                _strategy_lab_status[run_id]["status"] = "complete"
+                _strategy_lab_status[run_id]["progress"] = 100
+                _strategy_lab_status[run_id]["message"] = "Complete"
+                _strategy_lab_status[run_id]["results"] = report
+        except Exception as e:
+            with _strategy_lab_lock:
+                _strategy_lab_status[run_id]["status"] = "error"
+                _strategy_lab_status[run_id]["message"] = str(e)
+
+    t = threading.Thread(target=_run, daemon=True)
+    t.start()
+    return {"run_id": run_id, "status": "running"}
+
+
+# ─── Holodeck Expansion ──────────────────────────────────────────────────────
+
+@app.post("/api/holodeck/walk-forward")
+def run_walk_forward(symbol: str = "SPY", period: str = "5y", n_windows: int = 5):
+    """Walk-forward optimization — in-sample optimize, out-of-sample validate."""
+    import asyncio
+    from engine.holodeck_expansion import walk_forward_backtest
+    return walk_forward_backtest(symbol, period, n_windows=n_windows)
+
+
+@app.post("/api/holodeck/regime-test")
+def run_regime_test(symbol: str = "SPY", period: str = "5y"):
+    """Regime-aware backtest — partition results by BEAR/BULL/SIDEWAYS."""
+    from engine.holodeck_expansion import regime_aware_backtest
+    return regime_aware_backtest(symbol, period)
+
+
+@app.post("/api/holodeck/portfolio-sim")
+def run_portfolio_sim(season: int = 5):
+    """Portfolio-level simulation — concentration risk and correlation."""
+    from engine.holodeck_expansion import portfolio_simulation
+    return portfolio_simulation(season)
+
+
+@app.post("/api/crew/generate-strategy")
+def generate_strategy():
+    """Launch CrewAI strategy generation crew."""
+    try:
+        from engine.crew.strategy_crew import run_strategy_crew
+        result = run_strategy_crew()
+        return {"status": "complete", "result": str(result)}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ─── Reference Data ──────────────────────────────────────────────────────────
+
+@app.get("/api/reference/stats")
+def reference_stats():
+    """Reference trade data summary."""
+    from engine.reference_data import get_reference_stats
+    return get_reference_stats()
+
+
+@app.post("/api/reference/import")
+def reference_import(data: dict = None):
+    """Import reference trades from JSON. Body: {trades: [...], source: "rallies.ai"}"""
+    if not data or "trades" not in data:
+        return {"error": "Provide {trades: [...]}"}
+    from engine.reference_data import import_trades
+    return import_trades(data["trades"], data.get("source", "rallies.ai"))
+
+
+@app.post("/api/reference/import-csv")
+def reference_import_csv(data: dict = None):
+    """Import reference trades from CSV text. Body: {csv: "...", source: "rallies.ai"}"""
+    if not data or "csv" not in data:
+        return {"error": "Provide {csv: '...'}"}
+    from engine.reference_data import import_csv
+    return import_csv(data["csv"], data.get("source", "rallies.ai"))
+
+
+@app.get("/api/reference/compare/{player_id}")
+def reference_compare(player_id: str):
+    """Compare our model vs reference data for the same LLM."""
+    from engine.reference_data import compare_models
+    return compare_models(player_id)
+
+
+@app.get("/api/reference/strategies")
+def reference_strategies(limit: int = 10):
+    """Top-performing reference trades as strategy inspiration."""
+    from engine.reference_data import get_reference_strategies
+    return get_reference_strategies(limit)
+
+
+@app.post("/api/reference/import-ai4trade")
+def reference_import_ai4trade(limit: int = 100):
+    """Pull latest signals from ai4trade.ai and import as reference data."""
+    from engine.importers.ai4trade_importer import import_signals
+    return import_signals(limit)
+
+
+@app.post("/api/reference/parse-feed")
+def reference_parse_feed(data: dict = None):
+    """Parse a Rallies.ai arena feed text and return preview (no import)."""
+    if not data or "text" not in data:
+        return {"error": "Provide {text: '...'}"}
+    from engine.rallies_parser import parse_rallies_feed
+    return parse_rallies_feed(data["text"])
+
+
+@app.post("/api/reference/import-feed")
+def reference_import_feed(data: dict = None):
+    """Parse and import a Rallies.ai arena feed text."""
+    if not data or "text" not in data:
+        return {"error": "Provide {text: '...'}"}
+    from engine.rallies_parser import parse_rallies_feed, import_parsed_feed
+    parsed = parse_rallies_feed(data["text"])
+    result = import_parsed_feed(parsed, data.get("source", "rallies.ai-manual"))
+    result["summary"] = parsed["summary"]
+    return result
+
+
+# ─── Learning Engine ─────────────────────────────────────────────────────────
+
+@app.get("/api/learning/model/{player_id}")
+def learning_model_profile(player_id: str):
+    """Get model learning profile — score, adjustments, lessons, status."""
+    from engine.learning_engine import get_model_profile
+    return get_model_profile(player_id)
+
+
+@app.get("/api/learning/fleet")
+def learning_fleet_summary():
+    """Fleet-wide learning summary — scores, probation, blocked trades."""
+    from engine.learning_engine import get_fleet_summary
+    return get_fleet_summary()
+
+
+@app.get("/api/learning/log")
+def learning_log(limit: int = 50):
+    """Chronological learning event feed."""
+    from engine.learning_engine import get_learning_log
+    return get_learning_log(limit)
+
+
+@app.post("/api/learning/run-daily")
+def learning_run_daily():
+    """Manually trigger daily post-market review."""
+    try:
+        from engine.crew.daily_review_crew import run_daily_review
+        result = run_daily_review()
+        return result
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/learning/run-weekly")
+def learning_run_weekly():
+    """Manually trigger weekly model tuning."""
+    try:
+        from engine.crew.weekly_tuning_crew import run_weekly_tuning
+        result = run_weekly_tuning()
+        return result
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+# ─── Realtime Monitor ─────────────────────────────────────────────────────────
+
+@app.get("/api/realtime/alerts")
+def realtime_alerts(limit: int = 20):
+    """Get recent realtime spike alerts."""
+    from engine.realtime_monitor import get_recent_alerts
+    return get_recent_alerts(limit)
+
+
+@app.get("/api/realtime/status")
+def realtime_status():
+    """Get realtime monitor connection status."""
+    from engine.realtime_monitor import get_monitor_status
+    return get_monitor_status()
+
+
+@app.get("/api/news-sentiment/{symbol}")
+def get_news_sentiment(symbol: str):
+    """Get AI-powered sentiment analysis for a symbol's news"""
+    try:
+        import feedparser
+        from engine.openai_text import DEFAULT_CODEX_MINI_MODEL, generate_text
+        url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={symbol}&region=US&lang=en-US"
+        feed = feedparser.parse(url)
+        headlines = [e.get("title", "") for e in feed.entries[:5]]
+        if not headlines:
+            return {"symbol": symbol.upper(), "sentiment": "neutral", "score": 5, "headlines": []}
+        api_key = os.environ.get("OPENAI_API_KEY", "")
+        if not api_key:
+            return {"symbol": symbol.upper(), "sentiment": "neutral", "score": 5, "headlines": headlines, "error": "No API key"}
+        prompt = "Rate market sentiment for " + symbol + " based on these headlines. Respond ONLY as JSON: {\"sentiment\": \"bullish\" or \"bearish\" or \"neutral\", \"score\": 1-10, \"summary\": \"one sentence\"}\nHeadlines:\n" + "\n".join(headlines)
+        import re as re2
+        text = generate_text(
+            prompt,
+            model=DEFAULT_CODEX_MINI_MODEL,
+            api_key=api_key,
+            max_output_tokens=200,
+            reasoning_effort="medium",
+        )
+        m = re2.search(r'{[^{}]*}', text, re2.DOTALL)
+        result = json.loads(m.group()) if m else {"sentiment": "neutral", "score": 5, "summary": "No data"}
+        result["headlines"] = headlines
+        result["symbol"] = symbol.upper()
+        return result
+    except Exception as e:
+        return {"symbol": symbol.upper(), "sentiment": "neutral", "score": 5, "headlines": [], "error": str(e)}
+
+
+# --- Chart Analyzer ---
+
+@app.post("/api/chart-analyze")
+def chart_analyze(payload: dict):
+    """AI-powered chart technical analysis"""
+    from engine.chart_analyzer import analyze_chart
+    symbol = payload.get("symbol", "SPY")
+    model = payload.get("model", "codex")
+    return analyze_chart(symbol, model)
+
+
+@app.get("/api/chart-analyses")
+def chart_analyses(symbol: str = None):
+    """Get saved chart analyses"""
+    from engine.chart_analyzer import load_analyses
+    analyses = load_analyses()
+    if symbol:
+        analyses = [a for a in analyses if a.get("symbol", "").upper() == symbol.upper()]
+    return analyses
+
+
+@app.get("/api/chart-analyses/{symbol}/compare")
+def chart_analyses_compare(symbol: str):
+    """Compare analyses across models for a symbol"""
+    from engine.chart_analyzer import get_comparison
+    return get_comparison(symbol)
+
+
+# --- Pre-Market Gap Scanner ---
+
+@app.get("/api/premarket-gaps")
+@timed_cache(300)
+def premarket_gaps():
+    """Scan watchlist for pre-market price gaps > 2%"""
+    from engine.premarket_scanner import scan_premarket_gaps
+    return {"gaps": scan_premarket_gaps()}
+
+
+@app.post("/api/premarket-analyze")
+def premarket_analyze():
+    """AI analysis of pre-market gaps across all models"""
+    from engine.premarket_scanner import analyze_gaps_with_ai
+    return {"responses": analyze_gaps_with_ai()}
+
+
+@app.get("/api/dayblade/gap-candidates")
+def dayblade_gap_candidates():
+    """Pre-market gap candidates for DayBlade 0DTE plays"""
+    from engine.premarket_scanner import get_dayblade_gap_candidates
+    return {"candidates": get_dayblade_gap_candidates()}
+
+
+# --- Stock Screener ---
+
+@app.get("/api/screener/quality")
+def quality_screener(refresh: bool = False):
+    """Dalio/Buffett quality screen — tickers with high margins, low debt, high ROE.
+
+    Filters: Gross Margin >50%, LT Debt/Equity <0.4, Operating Margin >25%, ROE >15%.
+    Cached 4 hours. Pass ?refresh=true to force a reload.
+    """
+    from shared.finviz_scanner import finviz_quality_screen, _quality_cache
+    import time
+    if refresh:
+        _quality_cache["updated"] = 0.0  # invalidate cache
+    tickers = finviz_quality_screen()
+    return {
+        "preset": "Quality Filter — Dalio/Buffett",
+        "filters": {
+            "Gross Margin": "High (>50%)",
+            "LT Debt/Equity": "Under 0.4",
+            "Operating Margin": "High (>25%)",
+            "Return on Equity": "Over +15%",
+        },
+        "finviz_url": "https://finviz.com/screener.ashx?v=111&f=fa_grossmargin_high,fa_ltdebteq_u0.4,fa_opermargin_high,fa_roe_o15",
+        "count": len(tickers),
+        "tickers": tickers,
+        "cached_at": _quality_cache.get("updated", 0),
+    }
+
+
+@app.get("/api/screener")
+def stock_screener(
+    min_pe: float = None, max_pe: float = None,
+    min_short_float: float = None, max_short_float: float = None,
+    min_rel_volume: float = None, consensus: str = None,
+    has_insider_buying: bool = None, earnings_within_days: int = None
+):
+    """Screen watchlist stocks by fundamental filters"""
+    from engine.stock_screener import screen_stocks
+    return {"results": screen_stocks(
+        min_pe=min_pe, max_pe=max_pe,
+        min_short_float=min_short_float, max_short_float=max_short_float,
+        min_rel_volume=min_rel_volume, consensus=consensus,
+        has_insider_buying=has_insider_buying, earnings_within_days=earnings_within_days
+    )}
+
+
+# --- Insider Trading ---
+
+@app.get("/api/insider-trades/{symbol}")
+def insider_trades(symbol: str):
+    """Get insider trading data for a symbol"""
+    import math
+    try:
+        from engine.insider_tracker import get_insider_trades
+        trades = get_insider_trades(symbol)
+        # Sanitize NaN/Inf floats that break JSON serialization
+        for t in trades:
+            for k, v in t.items():
+                if isinstance(v, float) and (math.isnan(v) or math.isinf(v)):
+                    t[k] = 0.0
+        return {"trades": trades}
+    except Exception:
+        return {"trades": []}
+
+
+@app.get("/api/insider-alerts")
+def insider_alerts():
+    """Scan watchlist for recent insider buying alerts"""
+    from engine.insider_tracker import scan_insider_alerts
+    return {"alerts": scan_insider_alerts()}
+
+
+# --- S&P 500 Sector Heat Map ---
+
+@app.get("/api/sectors/heatmap")
+def sectors_heatmap():
+    """S&P 500 sector ETF heat map — always returns all 12 sectors.
+
+    Returns disk cache immediately on first call; fires background refresh when stale (5 min TTL).
+    Never returns empty sectors — always falls back to disk cache if in-memory is empty.
+    Response includes cached_at (unix ts), cache_age_seconds, and spy_change_pct.
+    """
+    import time as _t
+    from engine.premarket_scanner import (
+        get_sector_heatmap, _sector_disk_cache, _DEFENSE_ETF, _DEFENSE_HOLDINGS,
+        _ALL_SECTOR_NAMES,
+    )
+
+    now = _t.time()
+    _cache_entry = _swr_cache.get("sectors_heatmap", {"data": None, "ts": 0})
+
+    # Seed in-memory cache from disk if empty (first request after startup)
+    if not (_cache_entry.get("data") or {}).get("sectors"):
+        disk_sectors = list(_sector_disk_cache.get("sectors") or [])
+        disk_ts = _sector_disk_cache.get("ts", 0)
+        if disk_sectors:
+            _swr_cache["sectors_heatmap"] = {"data": {"sectors": disk_sectors}, "ts": disk_ts}
+            _cache_entry = _swr_cache["sectors_heatmap"]
+
+    # Background refresh when stale (TTL 5 min) or cache is still empty
+    age = now - _cache_entry.get("ts", 0)
+    if age > 300 or not (_cache_entry.get("data") or {}).get("sectors"):
+        if _swr_locks.get("sectors_heatmap") and _swr_locks["sectors_heatmap"].acquire(blocking=False):
+            _swr_refreshing.add("sectors_heatmap")
+            def _bg_refresh():
+                try:
+                    data = get_sector_heatmap()
+                    if data:
+                        _swr_cache["sectors_heatmap"] = {"data": {"sectors": data}, "ts": _t.time()}
+                except Exception:
+                    pass
+                finally:
+                    _swr_refreshing.discard("sectors_heatmap")
+                    _swr_locks["sectors_heatmap"].release()
+            threading.Thread(target=_bg_refresh, daemon=True).start()
+
+    cached_data = _cache_entry.get("data") or {}
+    sectors = cached_data.get("sectors") or []
+
+    # Last-resort: if still empty, try disk cache directly (disk might be ahead of in-memory)
+    if not sectors:
+        sectors = list(_sector_disk_cache.get("sectors") or [])
+
+    cache_ts = _cache_entry.get("ts", 0)
+    cache_age = int(now - cache_ts) if cache_ts else None
+
+    # Extract spy_change_pct from sector data (attached by get_sector_heatmap)
+    spy_pct = None
+    for s in sectors:
+        if "spy_change_pct" in s:
+            spy_pct = s["spy_change_pct"]
+            break
+
+    return {
+        "sectors": sectors,
+        "cached_at": cache_ts if cache_ts else None,
+        "cache_age_seconds": cache_age,
+        "spy_change_pct": spy_pct,
+        "total_sectors": len(sectors),
+        "is_updating": "sectors_heatmap" in _swr_refreshing,
+    }
+
+
+# --- S&P 500 Treemap (top 50 by market cap) ---
+
+_sp500_treemap_cache = {"data": None, "ts": 0}
+
+@app.get("/api/market/sp500-treemap")
+def sp500_treemap():
+    """Top 50 S&P 500 stocks by market cap, grouped by sector, for treemap display."""
+    import time as _time
+    if _sp500_treemap_cache["data"] and _time.time() - _sp500_treemap_cache["ts"] < 55:
+        return _sp500_treemap_cache["data"]
+
+    # Top 50 S&P 500 by market cap with sectors
+    SP500_TOP50 = [
+        ("AAPL", "Technology"), ("MSFT", "Technology"), ("NVDA", "Technology"),
+        ("AMZN", "Consumer Cyclical"), ("GOOGL", "Communication Services"),
+        ("META", "Communication Services"), ("BRK-B", "Financial"),
+        ("LLY", "Healthcare"), ("AVGO", "Technology"), ("JPM", "Financial"),
+        ("TSLA", "Consumer Cyclical"), ("UNH", "Healthcare"), ("XOM", "Energy"),
+        ("V", "Financial"), ("MA", "Financial"), ("COST", "Consumer Defensive"),
+        ("JNJ", "Healthcare"), ("HD", "Consumer Cyclical"), ("PG", "Consumer Defensive"),
+        ("ABBV", "Healthcare"), ("WMT", "Consumer Defensive"), ("NFLX", "Communication Services"),
+        ("CRM", "Technology"), ("BAC", "Financial"), ("KO", "Consumer Defensive"),
+        ("MRK", "Healthcare"), ("CVX", "Energy"), ("ORCL", "Technology"),
+        ("AMD", "Technology"), ("PEP", "Consumer Defensive"), ("TMO", "Healthcare"),
+        ("ACN", "Technology"), ("LIN", "Basic Materials"), ("ADBE", "Technology"),
+        ("MCD", "Consumer Cyclical"), ("CSCO", "Technology"), ("ABT", "Healthcare"),
+        ("PM", "Consumer Defensive"), ("WFC", "Financial"), ("NOW", "Technology"),
+        ("IBM", "Technology"), ("GE", "Industrials"), ("ISRG", "Healthcare"),
+        ("CAT", "Industrials"), ("INTU", "Technology"), ("VZ", "Communication Services"),
+        ("TXN", "Technology"), ("QCOM", "Technology"), ("AMGN", "Healthcare"),
+        ("SPGI", "Financial"),
+    ]
+
+    try:
+        import yfinance as yf
+        symbols = [s[0] for s in SP500_TOP50]
+        tickers = yf.Tickers(" ".join(symbols))
+
+        sectors = {}
+        for sym, sector in SP500_TOP50:
+            try:
+                t = tickers.tickers.get(sym) or tickers.tickers.get(sym.replace("-", ""))
+                if not t:
+                    continue
+                info = t.fast_info
+                price = float(info.last_price) if hasattr(info, "last_price") else 0
+                prev = float(info.previous_close) if hasattr(info, "previous_close") else price
+                mcap = float(info.market_cap) if hasattr(info, "market_cap") else 0
+                change_pct = ((price - prev) / prev * 100) if prev > 0 else 0
+
+                if sector not in sectors:
+                    sectors[sector] = {"sector": sector, "stocks": [], "total_mcap": 0}
+                sectors[sector]["stocks"].append({
+                    "symbol": sym,
+                    "price": round(price, 2),
+                    "change_pct": round(change_pct, 2),
+                    "market_cap": mcap,
+                })
+                sectors[sector]["total_mcap"] += mcap
+            except Exception:
+                continue
+
+        # Sort sectors by total market cap, stocks within each sector by market cap
+        result = sorted(sectors.values(), key=lambda s: s["total_mcap"], reverse=True)
+        for sec in result:
+            sec["stocks"].sort(key=lambda s: s["market_cap"], reverse=True)
+
+        _sp500_treemap_cache["data"] = result
+        _sp500_treemap_cache["ts"] = _time.time()
+        return result
+    except Exception as e:
+        return [{"sector": "Error", "stocks": [], "total_mcap": 0, "error": str(e)}]
+
+
+# --- Finnhub Intelligence ---
+
+@app.get("/api/finnhub/insider/{symbol}")
+def finnhub_insider(symbol: str):
+    """Get Finnhub insider transactions for a symbol."""
+    from engine.finnhub_data import get_insider_transactions
+    return {"transactions": get_insider_transactions(symbol)}
+
+
+@app.get("/api/finnhub/insider-sentiment/{symbol}")
+def finnhub_insider_sentiment(symbol: str):
+    """Get aggregated insider sentiment for a symbol."""
+    from engine.finnhub_data import get_insider_sentiment
+    return get_insider_sentiment(symbol)
+
+
+@app.get("/api/finnhub/earnings")
+def finnhub_earnings():
+    """Get upcoming earnings for watchlist stocks."""
+    from engine.finnhub_data import get_earnings_calendar
+    return {"earnings": get_earnings_calendar()}
+
+
+@app.get("/api/finnhub/news-sentiment/{symbol}")
+def finnhub_news_sentiment(symbol: str):
+    """Get Finnhub news sentiment score for a symbol."""
+    from engine.finnhub_data import get_news_sentiment
+    return get_news_sentiment(symbol)
+
+
+@app.get("/api/finnhub/filings/{symbol}")
+def finnhub_filings(symbol: str, form: str = None):
+    """Get SEC filings for a symbol."""
+    from engine.finnhub_data import get_sec_filings
+    return {"filings": get_sec_filings(symbol, form)}
+
+
+@app.get("/api/finnhub/context/{symbol}")
+def finnhub_context(symbol: str):
+    """Get full Finnhub intelligence context for a symbol (for AI prompts)."""
+    from engine.finnhub_data import build_ai_context
+    return {"symbol": symbol, "context": build_ai_context(symbol)}
+
+
+# --- Alpha Vantage Intelligence ---
+
+@app.get("/api/alphavantage/technicals/{symbol}")
+def av_technicals(symbol: str):
+    """Get RSI, MACD, SMA from Alpha Vantage as cross-check."""
+    from engine.alphavantage_data import get_rsi, get_macd, get_sma
+    return {
+        "symbol": symbol,
+        "rsi": get_rsi(symbol),
+        "macd": get_macd(symbol),
+        "sma20": get_sma(symbol, time_period=20),
+    }
+
+
+@app.get("/api/alphavantage/overview/{symbol}")
+def av_overview(symbol: str):
+    """Get company fundamentals from Alpha Vantage."""
+    from engine.alphavantage_data import get_company_overview
+    return get_company_overview(symbol) or {"error": "No data available"}
+
+
+@app.get("/api/alphavantage/earnings/{symbol}")
+def av_earnings(symbol: str):
+    """Get earnings surprises (last 4 quarters)."""
+    from engine.alphavantage_data import get_earnings_surprises
+    return {"surprises": get_earnings_surprises(symbol)}
+
+
+@app.get("/api/alphavantage/context/{symbol}")
+def av_context(symbol: str):
+    """Get full Alpha Vantage intelligence context for a symbol."""
+    from engine.alphavantage_data import build_ai_context
+    return {"symbol": symbol, "context": build_ai_context(symbol)}
+
+
+# --- FRED Macro Data ---
+
+@app.get("/api/macro")
+def macro_data():
+    """Get FRED macro economic indicators."""
+    from engine.alphavantage_data import get_macro_data
+    return get_macro_data()
+
+
+@app.get("/api/macro/context")
+def macro_context():
+    """Get macro context string for AI prompts."""
+    from engine.alphavantage_data import build_macro_context
+    return {"context": build_macro_context()}
+
+
+# --- Polygon.io Data (activates when POLYGON_API_KEY is set) ---
+
+@app.get("/api/polygon/snapshot/{symbol}")
+def polygon_snapshot(symbol: str):
+    """Get real-time snapshot from Polygon.io."""
+    from engine.providers.polygon_provider import PolygonData
+    poly = PolygonData()
+    if not poly.is_active():
+        return {"error": "Polygon API key not configured. Set POLYGON_API_KEY in environment."}
+    return poly.get_snapshot(symbol.upper()) or {"error": f"No data for {symbol}"}
+
+
+@app.get("/api/polygon/bars/{symbol}")
+def polygon_bars(symbol: str, timespan: str = "day", multiplier: int = 1, limit: int = 30):
+    """Get historical OHLCV bars from Polygon.io."""
+    from engine.providers.polygon_provider import PolygonData
+    poly = PolygonData()
+    if not poly.is_active():
+        return {"error": "Polygon API key not configured"}
+    return {"bars": poly.get_bars(symbol.upper(), timespan, multiplier, limit)}
+
+
+@app.get("/api/polygon/options/{symbol}")
+def polygon_options(symbol: str):
+    """Get options flow sentiment from Polygon.io (feeds Counselor Troi)."""
+    from engine.providers.polygon_provider import PolygonData
+    poly = PolygonData()
+    if not poly.is_active():
+        return {"error": "Polygon API key not configured"}
+    return poly.get_options_sentiment(symbol.upper())
+
+
+# --- Combined Intelligence ---
+
+@app.get("/api/intelligence/{symbol}")
+def combined_intelligence(symbol: str):
+    """Get combined intelligence from all data sources for a symbol."""
+    parts = []
+    try:
+        from engine.finnhub_data import build_ai_context as fh_ctx
+        fh = fh_ctx(symbol)
+        if fh:
+            parts.append(fh)
+    except Exception:
+        pass
+    try:
+        from engine.alphavantage_data import build_ai_context as av_ctx
+        av = av_ctx(symbol)
+        if av:
+            parts.append(av)
+    except Exception:
+        pass
+    try:
+        from engine.alphavantage_data import build_macro_context
+        macro = build_macro_context()
+        if macro:
+            parts.append(macro)
+    except Exception:
+        pass
+    return {"symbol": symbol, "context": " | ".join(parts), "parts": parts}
+
+
+# --- Trade Ideas: Smart Risk Levels ---
+
+@app.get("/api/risk-levels/{symbol}")
+def risk_levels(symbol: str, entry_price: float = None, side: str = "BUY"):
+    """Calculate smart risk levels for a symbol."""
+    from engine.smart_risk import calculate_risk_levels
+    from engine.market_data import get_stock_price
+    if not entry_price:
+        p = get_stock_price(symbol)
+        entry_price = p.get("price", 0) if "error" not in p else 0
+    if not entry_price:
+        return {"error": "Could not determine price"}
+    return calculate_risk_levels(symbol, entry_price, side)
+
+
+@app.get("/api/signals/with-risk")
+def signals_with_risk(limit: int = 20):
+    """Get recent signals with auto-calculated risk levels."""
+    from engine.smart_risk import get_recent_signals_with_risk
+    return {"signals": get_recent_signals_with_risk(limit)}
+
+
+# --- Trade Ideas: Channel Bar ---
+
+@app.get("/api/channels")
+def all_channels():
+    """Get all channel scan results with timeout protection."""
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+    from engine.channel_scanner import scan_channel
+
+    channels = ["gap-and-go", "momentum-breakout", "reversal-bounce", "short-squeeze",
+                "earnings-runner", "volatility-breakout"]
+    results = {}
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        futures = {ex.submit(scan_channel, ch): ch for ch in channels}
+        for f in futures:
+            ch = futures[f]
+            try:
+                results[ch] = f.result(timeout=15)
+            except (FuturesTimeout, Exception):
+                results[ch] = []
+    return results
+
+
+@app.get("/api/channels/{channel}")
+def channel_scan(channel: str):
+    """Run a specific channel scan."""
+    from engine.channel_scanner import scan_channel
+    return {"channel": channel, "results": scan_channel(channel)}
+
+
+# --- Volatility Breakout Scanner ---
+
+@app.get("/api/volatility-breakout")
+def volatility_breakout():
+    """Get active volatility breakout signals."""
+    from engine.volatility_breakout import scan_all_breakouts
+    return {"breakouts": scan_all_breakouts()}
+
+
+@app.get("/api/volatility-breakout/history")
+def volatility_breakout_history(limit: int = 50):
+    """Get historical breakout signals with outcomes."""
+    from engine.volatility_breakout import get_recent_breakouts
+    return {"breakouts": get_recent_breakouts(limit)}
+
+
+@app.get("/api/volatility-breakout/stats")
+def volatility_breakout_stats():
+    """Get breakout success rate statistics."""
+    from engine.volatility_breakout import get_breakout_stats
+    return get_breakout_stats()
+
+
+# --- Discovery Scanner ---
+
+@app.get("/api/discoveries")
+def discoveries():
+    """Get current discovery opportunities (outside watchlist)."""
+    from engine.discovery_scanner import get_cached_discoveries
+    return {"discoveries": get_cached_discoveries()}
+
+
+@app.get("/api/discoveries/scan")
+def discovery_scan():
+    """Trigger a fresh discovery scan."""
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+    from engine.discovery_scanner import run_discovery_scan
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            results = ex.submit(run_discovery_scan).result(timeout=45)
+        return {"discoveries": results, "count": len(results)}
+    except (FuturesTimeout, Exception) as e:
+        return {"discoveries": [], "error": str(e)}
+
+
+@app.get("/api/discoveries/history")
+def discovery_history(limit: int = 50):
+    """Get historical discoveries."""
+    from engine.discovery_scanner import get_recent_discoveries
+    return {"discoveries": get_recent_discoveries(limit)}
+
+
+# --- Trade Ideas: OddsMaker ---
+
+@app.get("/api/oddsmaker/{symbol}")
+def oddsmaker(symbol: str, signal: str = "BUY"):
+    """Get OddsMaker win probability for a signal."""
+    from engine.oddsmaker import calculate_odds
+    return calculate_odds(symbol, signal)
+
+
+@app.get("/api/signals/with-odds")
+def signals_with_odds(limit: int = 20):
+    """Get recent signals with OddsMaker probability."""
+    from engine.oddsmaker import get_signals_with_odds
+    return {"signals": get_signals_with_odds(limit)}
+
+
+# --- Trade Ideas: Money Machine ---
+
+@app.get("/api/money-machine/status")
+def money_machine_status():
+    """Get Money Machine status and current momentum leaders."""
+    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+    from engine.money_machine import get_status
+    try:
+        with ThreadPoolExecutor(max_workers=1) as ex:
+            return ex.submit(get_status).result(timeout=20)
+    except (FuturesTimeout, Exception) as e:
+        return {"active": False, "momentum_leaders": [], "positions": [], "error": f"Timeout: {e}"}
+
+
+# --- Perplexity Finance: SEC EDGAR ---
+
+@app.get("/api/sec/filings/{symbol}")
+def sec_filings(symbol: str):
+    """Get SEC EDGAR filings for a symbol."""
+    from engine.sec_edgar import get_recent_filings
+    return {"filings": get_recent_filings(symbol)}
+
+
+@app.get("/api/sec/context/{symbol}")
+def sec_context(symbol: str):
+    """Get SEC filing context for AI prompts."""
+    from engine.sec_edgar import build_ai_context
+    return {"symbol": symbol, "context": build_ai_context(symbol)}
+
+
+# --- Perplexity Finance: Earnings Hub ---
+
+@app.get("/api/earnings/countdown")
+@timed_cache(300)
+def earnings_countdown(days: int = 7):
+    """Get earnings countdown cards for watchlist."""
+    from engine.earnings_hub import get_earnings_countdown
+    return {"earnings": get_earnings_countdown(days)}
+
+
+@app.get("/api/earnings/context/{symbol}")
+def earnings_context(symbol: str):
+    """Get earnings context for AI prompts."""
+    from engine.earnings_hub import build_ai_context
+    return {"symbol": symbol, "context": build_ai_context(symbol)}
+
+
+@app.get("/api/earnings/catalyst")
+@timed_cache(600)
+def earnings_catalyst():
+    """Pre-earnings momentum + post-earnings drift signals."""
+    from engine.earnings_catalyst import get_upcoming_earnings, get_post_earnings_drift
+    return {
+        "upcoming": get_upcoming_earnings(days_ahead=14),
+        "post_drift": get_post_earnings_drift(days_back=7),
+    }
+
+
+# --- Perplexity Finance: Bull/Bear Analysis ---
+
+@app.post("/api/bull-bear/{symbol}")
+def bull_bear_analysis(symbol: str, model: str = "codex"):
+    """Get AI bull/bear case analysis."""
+    from engine.bull_bear import analyze_bull_bear
+    return analyze_bull_bear(symbol, model)
+
+
+@app.get("/api/bull-bear/all")
+def bull_bear_all(model: str = "codex"):
+    """Get bull/bear analysis for all held positions."""
+    from engine.bull_bear import analyze_all_positions
+    return {"analyses": analyze_all_positions(model)}
+
+
+# --- Perplexity Finance: Market Movers ---
+
+@app.get("/api/market-movers")
+def market_movers():
+    """Get top gainers, losers, and most active.
+    Returns disk cache immediately; fires background Yahoo refresh when stale (5 min TTL)."""
+    import time as _t
+    from engine.market_movers import get_market_movers, _movers_disk_cache
+
+    now = _t.time()
+    _cache_entry = _swr_cache.get("market_movers", {"data": None, "ts": 0})
+
+    # Seed from disk cache on first call so response is always instant
+    if _cache_entry["data"] is None:
+        disk = {k: v for k, v in _movers_disk_cache.items() if k != "_ts"}
+        if disk.get("gainers"):
+            _swr_cache["market_movers"] = {"data": disk, "ts": 0}  # ts=0 triggers immediate refresh
+            _cache_entry = _swr_cache["market_movers"]
+
+    # Background refresh when expired or cache empty
+    age = now - _cache_entry.get("ts", 0)
+    if age > 300 or _cache_entry["data"] is None:
+        if _swr_locks.get("market_movers") and _swr_locks["market_movers"].acquire(blocking=False):
+            _swr_refreshing.add("market_movers")
+            def _mm_refresh():
+                try:
+                    data = get_market_movers()
+                    _swr_cache["market_movers"] = {"data": data, "ts": _t.time()}
+                except Exception:
+                    pass
+                finally:
+                    _swr_refreshing.discard("market_movers")
+                    _swr_locks["market_movers"].release()
+            threading.Thread(target=_mm_refresh, daemon=True).start()
+
+    result = _cache_entry["data"] or {"gainers": [], "losers": [], "most_active": [], "timestamp": ""}
+    return {**result, "is_updating": "market_movers" in _swr_refreshing}
+
+
+@app.get("/api/winners-losers")
+def winners_losers():
+    """Top 5 winning and losing open positions across all AI players, ranked by day P&L."""
+    import time as _t
+
+    cache_key = "winners_losers"
+    now = _t.time()
+    entry = _swr_cache.get(cache_key, {"data": None, "ts": 0})
+    age = now - entry.get("ts", 0)
+
+    if age > 60 or entry["data"] is None:
+        if _swr_locks.setdefault(cache_key, threading.Lock()).acquire(blocking=False):
+            _swr_refreshing.add(cache_key)
+            def _refresh():
+                try:
+                    data = _compute_winners_losers()
+                    _swr_cache[cache_key] = {"data": data, "ts": _t.time()}
+                except Exception:
+                    pass
+                finally:
+                    _swr_refreshing.discard(cache_key)
+                    _swr_locks[cache_key].release()
+            threading.Thread(target=_refresh, daemon=True).start()
+            if entry["data"] is None:
+                # First call — block once so we return real data
+                _swr_locks[cache_key].acquire()
+                _swr_locks[cache_key].release()
+                entry = _swr_cache.get(cache_key, entry)
+
+    result = entry["data"] or {"winners": [], "losers": [], "timestamp": ""}
+    return {**result, "is_updating": cache_key in _swr_refreshing}
+
+
+def _compute_winners_losers():
+    """Fetch all open stock positions across AI players, compute day P&L via yfinance."""
+    import yfinance as yf
+    from datetime import datetime
+
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT t.symbol, t.qty, t.price AS entry_price, p.display_name AS model "
+            "FROM trades t "
+            "JOIN ai_players p ON p.id = t.player_id "
+            "WHERE t.exit_price IS NULL AND t.action='BUY' AND t.asset_type='stock' "
+            "AND p.is_active=1"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return {"winners": [], "losers": [], "timestamp": datetime.now().isoformat()}
+
+    # Deduplicate symbols for batch yfinance fetch
+    symbols = list({r["symbol"] for r in rows})
+    price_map = {}  # symbol -> {price, prev_close, day_pct}
+    try:
+        tickers = yf.Tickers(" ".join(symbols))
+        for sym in symbols:
+            try:
+                info = tickers.tickers[sym].fast_info
+                price = float(info.last_price) if hasattr(info, "last_price") else 0
+                prev = float(info.previous_close) if hasattr(info, "previous_close") else price
+                day_pct = ((price - prev) / prev * 100) if prev > 0 else 0
+                price_map[sym] = {"price": price, "prev_close": prev, "day_pct": round(day_pct, 2)}
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    # Build position list with day P&L
+    positions = []
+    for r in rows:
+        sym = r["symbol"]
+        pm = price_map.get(sym)
+        if not pm or pm["price"] == 0:
+            continue
+        day_pnl = round(r["qty"] * pm["price"] * pm["day_pct"] / 100, 2)
+        positions.append({
+            "symbol": sym,
+            "model": r["model"],
+            "day_pnl": day_pnl,
+            "day_pct": pm["day_pct"],
+            "price": pm["price"],
+            "qty": round(r["qty"], 4),
+        })
+
+    # Sort and slice
+    sorted_pos = sorted(positions, key=lambda x: x["day_pnl"], reverse=True)
+    winners = sorted_pos[:5]
+    losers = sorted_pos[-5:][::-1]  # worst first
+
+    return {
+        "winners": winners,
+        "losers": losers,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+@app.get("/api/holdings-top")
+def holdings_top():
+    """Top 5 winning and losing open positions across all AI players, ranked by unrealized P&L."""
+    import time as _t
+    from datetime import datetime
+    import pytz
+
+    cache_key = "holdings_top"
+    now = _t.time()
+    entry = _swr_cache.get(cache_key, {"data": None, "ts": 0})
+    age = now - entry.get("ts", 0)
+
+    # Market-hours TTL: 60s during 6:30–1:30 PM MST, 300s outside
+    try:
+        _az = pytz.timezone("US/Arizona")
+        _now_az = datetime.now(_az)
+        _mins = _az_h = _now_az.hour * 60 + _now_az.minute
+        is_market = 390 <= _mins <= 810
+    except Exception:
+        is_market = False
+    ttl = 60 if is_market else 300
+
+    # Force synchronous refresh if data is >15 min stale (prevents perpetual staleness)
+    force_sync = age > 900
+
+    if age > ttl or entry["data"] is None:
+        if _swr_locks.setdefault(cache_key, threading.Lock()).acquire(blocking=False):
+            _swr_refreshing.add(cache_key)
+            def _refresh():
+                try:
+                    data = _compute_holdings_top()
+                    _swr_cache[cache_key] = {"data": data, "ts": _t.time()}
+                except Exception as _e:
+                    logger.warning(f"holdings_top refresh failed: {_e}")
+                    # Always update timestamp so we don't serve perpetually stale data
+                    _swr_cache[cache_key] = {"data": {"winners": [], "losers": [],
+                        "timestamp": datetime.now().isoformat()}, "ts": _t.time()}
+                finally:
+                    _swr_refreshing.discard(cache_key)
+                    _swr_locks[cache_key].release()
+            threading.Thread(target=_refresh, daemon=True).start()
+            if entry["data"] is None or force_sync:
+                _swr_locks[cache_key].acquire()
+                _swr_locks[cache_key].release()
+                entry = _swr_cache.get(cache_key, entry)
+
+    result = entry["data"] or {"winners": [], "losers": [], "timestamp": ""}
+    return {**result, "is_updating": cache_key in _swr_refreshing}
+
+
+def _compute_holdings_top():
+    """Fetch all open positions across AI players, compute unrealized P&L."""
+    import yfinance as yf
+    from engine.market_data import get_bulk_prices
+    from engine.paper_trader import estimate_option_price
+    from datetime import datetime
+
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT pos.symbol, pos.qty, pos.avg_price AS entry_price, pos.asset_type, "
+            "pos.option_type, pos.strike_price, pos.expiry_date, "
+            "p.display_name AS model, p.id AS player_id "
+            "FROM positions pos "
+            "JOIN ai_players p ON p.id = pos.player_id "
+            "WHERE p.is_active=1 AND pos.qty > 0"
+        ).fetchall()
+    finally:
+        conn.close()
+
+    if not rows:
+        return {"winners": [], "losers": [], "timestamp": datetime.now().isoformat()}
+
+    symbols = list({r["symbol"] for r in rows})
+    price_map = {}
+    try:
+        tickers = yf.Tickers(" ".join(symbols))
+        for sym in symbols:
+            try:
+                info = tickers.tickers[sym].fast_info
+                price = float(info.last_price) if hasattr(info, "last_price") else 0
+                price_map[sym] = price
+            except Exception:
+                pass
+    except Exception:
+        pass
+
+    positions = []
+    for r in rows:
+        sym = r["symbol"]
+        stock_price = price_map.get(sym, 0)
+        if stock_price == 0 or r["entry_price"] == 0:
+            continue
+
+        # Options: use estimated option price, not the underlying stock price
+        is_option = r["asset_type"] == "option"
+        if is_option:
+            current = estimate_option_price(
+                r["option_type"], r["strike_price"],
+                stock_price, r["entry_price"], r["expiry_date"]
+            )
+        else:
+            current = stock_price
+
+        unrealized_pnl = round(r["qty"] * (current - r["entry_price"]), 2)
+        unrealized_pct = round((current - r["entry_price"]) / r["entry_price"] * 100, 2)
+        positions.append({
+            "symbol": sym,
+            "model": r["model"],
+            "unrealized_pnl": unrealized_pnl,
+            "unrealized_pct": unrealized_pct,
+            "price": round(current, 2),
+            "entry_price": round(r["entry_price"], 2),
+            "qty": round(r["qty"], 4),
+            "asset_type": r["asset_type"] or "stock",
+            "option_type": r["option_type"],
+            "strike_price": r["strike_price"],
+            "expiry_date": r["expiry_date"],
+        })
+
+    sorted_pos = sorted(positions, key=lambda x: x["unrealized_pnl"], reverse=True)
+    winners = sorted_pos[:5]
+    losers = sorted_pos[-5:][::-1]
+
+    return {
+        "winners": winners,
+        "losers": losers,
+        "timestamp": datetime.now().isoformat(),
+    }
+
+
+# --- Combined Intelligence Feed (enhanced) ---
+
+@app.get("/api/intelligence/full/{symbol}")
+def full_intelligence(symbol: str):
+    """Get ALL intelligence from ALL data sources for AI prompt enrichment."""
+    parts = []
+    sources = [
+        ("finnhub", lambda: __import__("engine.finnhub_data", fromlist=["build_ai_context"]).build_ai_context(symbol)),
+        ("alphavantage", lambda: __import__("engine.alphavantage_data", fromlist=["build_ai_context"]).build_ai_context(symbol)),
+        ("sec_edgar", lambda: __import__("engine.sec_edgar", fromlist=["build_ai_context"]).build_ai_context(symbol)),
+        ("earnings", lambda: __import__("engine.earnings_hub", fromlist=["build_ai_context"]).build_ai_context(symbol)),
+        ("macro", lambda: __import__("engine.alphavantage_data", fromlist=["build_macro_context"]).build_macro_context()),
+        ("movers", lambda: __import__("engine.market_movers", fromlist=["build_ai_context"]).build_ai_context()),
+    ]
+    for name, fn in sources:
+        try:
+            ctx = fn()
+            if ctx:
+                parts.append({"source": name, "context": ctx})
+        except Exception:
+            pass
+    combined = " | ".join(p["context"] for p in parts)
+    return {"symbol": symbol, "context": combined, "sources": parts}
+
+
+# --- Rallies Arena Intelligence (Comms Upgrade) ---
+
+@app.get("/api/rallies/leaderboard")
+def rallies_leaderboard():
+    """Get Rallies Arena standings."""
+    from engine.rallies_intel import get_leaderboard
+    return {"leaderboard": get_leaderboard()}
+
+
+@app.get("/api/rallies/trades")
+def rallies_trades(limit: int = 50):
+    """Get recent Rallies Arena trades."""
+    from engine.rallies_intel import get_recent_trades
+    return {"trades": get_recent_trades(limit)}
+
+
+@app.get("/api/rallies/confirmations")
+def rallies_confirmations(limit: int = 20):
+    """Get confirmation signals (Rallies buys matching crew holdings)."""
+    from engine.rallies_intel import get_confirmation_signals
+    return {"confirmations": get_confirmation_signals(limit)}
+
+
+@app.get("/api/rallies/consensus")
+def rallies_consensus(limit: int = 20):
+    """Get consensus alerts (3+ Rallies models agree on direction)."""
+    from engine.rallies_intel import get_consensus_alerts
+    return {"consensus": get_consensus_alerts(limit)}
+
+
+@app.get("/api/rallies/alerts")
+def rallies_alerts(limit: int = 50):
+    """Get all Rallies intel alerts (confirmations + consensus)."""
+    from engine.rallies_intel import get_rallies_alerts
+    return {"alerts": get_rallies_alerts(limit)}
+
+
+@app.get("/api/rallies/comparison")
+def rallies_comparison():
+    """Compare USS TradeMinds crew vs Rallies Arena top performers."""
+    from engine.rallies_intel import compare_crew_vs_rallies
+    return compare_crew_vs_rallies()
+
+
+@app.post("/api/rallies/import")
+def rallies_import(data: dict = None):
+    """Import Rallies Arena data (leaderboard + trades).
+
+    Accepts structured JSON:
+        {"leaderboard": [...], "trades": [...]}
+
+    Or raw pasted text:
+        {"raw": "1. Grok 4 +7.0%\\n2. Claude Sonnet +5.7%\\n..."}
+    """
+    if not data:
+        return {"error": "No data provided"}
+    from engine.rallies_intel import import_bulk
+    return import_bulk(data)
+
+
+@app.post("/api/rallies/import-trades")
+def rallies_import_trades(data: dict = None):
+    """Import individual Rallies trades."""
+    if not data or "trades" not in data:
+        return {"error": "trades array required"}
+    from engine.rallies_intel import import_trades
+    return import_trades(data["trades"])
+
+
+@app.post("/api/rallies/import-text")
+def rallies_import_text(data: dict = None):
+    """Import Rallies data from raw pasted text."""
+    if not data or "text" not in data:
+        return {"error": "text field required"}
+    from engine.rallies_intel import parse_raw_text
+    return parse_raw_text(data["text"])
+
+
+# --- Officer Consensus ---
+
+@app.get("/api/consensus")
+@timed_cache(120)
+def officer_consensus():
+    """Officer Consensus Dashboard — Spock vs Data + full crew poll."""
+    from engine.consensus import build_consensus
+    return build_consensus()
+
+
+# --- Q Daily Quote ---
+
+@app.post("/api/q/daily-quote")
+def q_daily_quote():
+    """Generate Q's daily market observation."""
+    from engine.q_daily import generate_q_daily_quote
+    quote = generate_q_daily_quote()
+    return {"ok": bool(quote), "quote": quote}
+
+
+# --- Captain's Decision Tracker ---
+
+@app.post("/api/captain/decide")
+def captain_decide(data: dict = None):
+    """Log a Captain's decision on a crew recommendation."""
+    if not data or not data.get("ticker") or not data.get("captain_action"):
+        return {"error": "ticker, crew_member, crew_action, captain_action required"}
+    from engine.captain_decisions import log_decision
+    return log_decision(
+        ticker=data["ticker"],
+        crew_member=data.get("crew_member", "unknown"),
+        crew_action=data.get("crew_action", "HOLD"),
+        captain_action=data["captain_action"],
+        conviction=data.get("conviction", 0),
+        notes=data.get("notes", ""),
+        entry_price=data.get("entry_price", 0),
+    )
+
+
+@app.get("/api/captain/scorecard")
+@timed_cache(300)
+def captain_scorecard():
+    """Captain's decision scorecard — follow vs ignore outcomes."""
+    from engine.captain_decisions import get_scorecard
+    return {"scorecard": get_scorecard()}
+
+
+@app.get("/api/captain/decisions")
+def captain_decisions(crew: str = None, limit: int = 50):
+    """Get captain's decisions."""
+    from engine.captain_decisions import get_decisions
+    return {"decisions": get_decisions(crew, limit)}
+
+
+@app.post("/api/captain/resolve")
+def captain_resolve(data: dict = None):
+    """Resolve a decision with P&L outcome."""
+    if not data or "id" not in data or "outcome_pnl" not in data:
+        return {"error": "id and outcome_pnl required"}
+    from engine.captain_decisions import resolve_decision
+    return resolve_decision(int(data["id"]), float(data["outcome_pnl"]), float(data.get("outcome_pct", 0)))
+
+
+@app.post("/api/captain/ask")
+def captain_ask(data: dict = None):
+    """Super Agent answers a question pulling real crew data.
+
+    Body: { "question": "..." }
+    Returns: { "answer": "...", "player_id": "super-agent" }
+    """
+    question = (data or {}).get("question", "").strip()
+    if not question:
+        return {"error": "question required"}
+
+    try:
+        import config as _cfg
+        from engine.openai_text import DEFAULT_CODEX_MINI_MODEL, generate_text
+        key = getattr(_cfg, "OPENAI_API_KEY", None)
+        if not key:
+            return {"error": "OpenAI API key not configured"}
+
+        conn = _conn()
+
+        # Gather crew data
+        positions = conn.execute(
+            "SELECT p.player_id, a.display_name, p.symbol, p.qty, p.avg_price, p.asset_type "
+            "FROM positions p JOIN ai_players a ON a.id = p.player_id "
+            "WHERE p.player_id != 'steve-webull' AND p.player_id != 'super-agent' "
+            "AND p.qty != 0 ORDER BY a.display_name"
+        ).fetchall()
+
+        recent_trades = conn.execute(
+            "SELECT a.display_name, t.symbol, t.action, t.price, t.realized_pnl "
+            "FROM trades t JOIN ai_players a ON a.id = t.player_id "
+            "WHERE t.player_id != 'steve-webull' "
+            "AND t.executed_at > datetime('now', '-24 hours') "
+            "ORDER BY t.executed_at DESC LIMIT 20"
+        ).fetchall()
+
+        leaderboard = conn.execute(
+            "SELECT a.display_name, ph.total_value, ph.cash "
+            "FROM portfolio_history ph JOIN ai_players a ON a.id = ph.player_id "
+            "WHERE ph.id IN ("
+            "  SELECT MAX(id) FROM portfolio_history GROUP BY player_id"
+            ") AND ph.player_id NOT IN ('steve-webull', 'super-agent') "
+            "ORDER BY ph.total_value DESC"
+        ).fetchall()
+
+        stats = conn.execute(
+            "SELECT "
+            "  COUNT(CASE WHEN realized_pnl > 0 THEN 1 END) as wins, "
+            "  COUNT(CASE WHEN realized_pnl < 0 THEN 1 END) as losses, "
+            "  COALESCE(SUM(realized_pnl), 0) as total_pnl "
+            "FROM trades WHERE player_id != 'steve-webull' "
+            "AND executed_at > datetime('now', '-24 hours')"
+        ).fetchone()
+
+        conn.close()
+
+        # Symbol → holder count for consensus
+        sym_holders: dict = {}
+        for pos in positions:
+            sym_holders[pos["symbol"]] = sym_holders.get(pos["symbol"], [])
+            sym_holders[pos["symbol"]].append(pos["display_name"].split()[-1])
+
+        context = (
+            f"=== CREW STATUS ===\n"
+            f"Open positions: {len(positions)}\n"
+        )
+        if positions:
+            context += "Holdings:\n"
+            for pos in positions:
+                context += (
+                    f"  {pos['display_name'].split()[-1]}: {pos['symbol']} "
+                    f"qty={pos['qty']} avg=${pos['avg_price']:.2f}\n"
+                )
+
+        consensus = [(sym, names) for sym, names in sym_holders.items() if len(names) >= 2]
+        if consensus:
+            context += "Consensus (2+ models agree):\n"
+            for sym, names in sorted(consensus, key=lambda x: -len(x[1])):
+                context += f"  {sym}: {', '.join(names)}\n"
+
+        wins = stats["wins"] if stats else 0
+        losses = stats["losses"] if stats else 0
+        total_pnl = float(stats["total_pnl"] or 0) if stats else 0.0
+        context += (
+            f"\n24h performance: {wins}W/{losses}L, ${total_pnl:+.2f} P&L\n"
+        )
+
+        if leaderboard:
+            context += "\nLeaderboard (current total value):\n"
+            for i, row in enumerate(leaderboard[:5]):
+                context += f"  #{i+1} {row['display_name'].split()[-1]}: ${row['total_value']:,.2f}\n"
+
+        answer = generate_text(
+            f"{context}\n\nQuestion: {question}",
+            system=(
+                "You are the Super Agent — the CrewAI collective intelligence for the TradeMinds arena. "
+                "You speak as 'we' representing the unified crew. "
+                "You are data-driven, authoritative, and reference specific numbers from the crew data provided. "
+                "Answer concisely in 2-4 sentences. Never hedge with 'maybe' or 'I think'."
+            ),
+            model=DEFAULT_CODEX_MINI_MODEL,
+            api_key=key,
+            max_output_tokens=300,
+            reasoning_effort="medium",
+        )
+        return {"answer": answer, "player_id": "super-agent", "provider": "crewai"}
+
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# --- Premium ETF Command Center ---
+
+@app.get("/api/premium-etfs")
+@timed_cache(600)
+def premium_etfs_all():
+    """Full ETF Command Center — all categories with live prices."""
+    from engine.premium_etfs import get_all_etf_data
+    return get_all_etf_data()
+
+
+@app.get("/api/premium-etfs/{category}")
+@timed_cache(600)
+def premium_etfs_category(category: str):
+    """ETFs for a specific category."""
+    from engine.premium_etfs import get_category_data
+    return get_category_data(category)
+
+
+# --- Worf's Inverse ETF Arsenal ---
+
+@app.get("/api/inverse-etfs")
+@timed_cache(300)
+def inverse_etfs():
+    """Worf's defensive arsenal — inverse ETF data + recommendation."""
+    from engine.inverse_etfs import get_inverse_etf_data, should_recommend_inverse
+    try:
+        from engine.regime_detector import detect_regime
+        regime = detect_regime()
+        r = regime["regime"]
+        vix = regime.get("vix", 0)
+        spy_vs_200 = regime.get("spy_vs_200ma", 0) / 100 if regime.get("spy_vs_200ma") else 0
+        spy_vs_50 = regime.get("spy_vs_50ma", 0) / 100 if regime.get("spy_vs_50ma") else 0
+    except Exception:
+        r, vix, spy_vs_200, spy_vs_50 = "UNKNOWN", 0, 0, 0
+
+    etfs = get_inverse_etf_data()
+    recommendation = should_recommend_inverse(r, vix, spy_vs_200, spy_vs_50)
+    visible = r in ("BEAR", "BEAR_TREND", "CRISIS")
+
+    return {
+        "regime": r,
+        "etfs": etfs,
+        "recommendation": recommendation,
+        "visible": visible,
+    }
+
+
+# --- Sector Heatmap, Fear & Greed, Volume Profile, Breadth ---
+
+@app.get("/api/sector-heatmap")
+@timed_cache(300)
+def sector_heatmap():
+    """Sector ETF performance heatmap."""
+    from engine.sector_heatmap import get_sector_heatmap
+    return get_sector_heatmap()
+
+
+@app.get("/api/charts/ohlcv")
+def get_ohlcv(symbol: str = "SPY", interval: str = "5m", days: int = 5):
+    """OHLCV candle data for Lightweight Charts."""
+    import yfinance as yf
+    from datetime import datetime, timedelta
+    try:
+        ticker = yf.Ticker(symbol.upper())
+        end = datetime.now()
+        start = end - timedelta(days=days)
+        df = ticker.history(start=start, end=end, interval=interval)
+        candles = []
+        for idx, row in df.iterrows():
+            candles.append({
+                "time": int(idx.timestamp()),
+                "open": round(row["Open"], 2),
+                "high": round(row["High"], 2),
+                "low": round(row["Low"], 2),
+                "close": round(row["Close"], 2),
+                "volume": int(row["Volume"])
+            })
+        return candles
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/fear-greed")
+def fear_greed():
+    """Custom Fear & Greed index."""
+    # No @timed_cache — fear_greed.py has its own internal 10-min cache.
+    # The decorator was caching 500 errors, preventing recovery.
+    try:
+        from engine.fear_greed import get_fear_greed_index
+        return get_fear_greed_index()
+    except Exception as e:
+        return {"score": 50, "label": "NEUTRAL", "error": f"Fear & Greed data unavailable: {e}", "signals": {}}
+
+
+@app.get("/api/volume-profile/{symbol}")
+@timed_cache(600)
+def volume_profile(symbol: str, period: str = "30d"):
+    """Volume profile for a ticker."""
+    from engine.volume_profile import get_volume_profile
+    return get_volume_profile(symbol.upper(), period)
+
+
+@app.get("/api/breadth")
+@timed_cache(600)
+def market_breadth():
+    """Market breadth indicators."""
+    from engine.market_breadth import get_market_breadth
+    return get_market_breadth()
+
+
+# --- Season Management ---
+
+@app.get("/api/seasons/history")
+def seasons_history():
+    """Get all season summaries with winners."""
+    from engine.season_manager import get_season_history
+    return {"seasons": get_season_history()}
+
+
+@app.post("/api/seasons/rotate")
+def seasons_rotate():
+    """Manually trigger season rotation."""
+    from engine.season_manager import rotate_season
+    new = rotate_season()
+    return {"ok": True, "new_season": new}
+
+
+@app.post("/api/seasons/start")
+def seasons_start(data: dict = None):
+    """Start a specific season number."""
+    if not data or "season" not in data:
+        return {"error": "season number required"}
+    from engine.season_manager import start_season
+    return start_season(int(data["season"]))
+
+
+# --- Command Structure: Picard, Riker, Archer ---
+
+@app.get("/api/picard/strategy")
+@timed_cache(3600)
+def picard_strategy():
+    """Admiral Picard's weekly strategy briefing."""
+    from engine.picard_strategy import get_latest_briefing
+    return get_latest_briefing()
+
+
+@app.post("/api/picard/generate")
+def picard_generate():
+    """Force-generate Picard's briefing (manual trigger)."""
+    from engine.picard_strategy import generate_picard_briefing
+    result = generate_picard_briefing()
+    return {"ok": bool(result), "length": len(result) if result else 0}
+
+
+@app.get("/api/riker/recommendation")
+@timed_cache(300)
+def riker_recommendation():
+    """Commander Riker's crew synthesis recommendation."""
+    from engine.riker_xo import get_latest_recommendation
+    return get_latest_recommendation()
+
+
+@app.post("/api/riker/synthesize")
+def riker_synthesize():
+    """Force Riker to synthesize crew input now."""
+    from engine.riker_xo import generate_riker_synthesis
+    result = generate_riker_synthesis()
+    return {"ok": bool(result), "length": len(result) if result else 0}
+
+
+@app.get("/api/archer/frontier")
+@timed_cache(3600)
+def archer_frontier():
+    """Admiral Archer's frontier scanner report."""
+    from engine.archer_frontier import get_latest_report
+    return get_latest_report()
+
+
+@app.post("/api/archer/scan")
+def archer_scan():
+    """Force Archer to scan the frontier now."""
+    from engine.archer_frontier import generate_archer_report
+    result = generate_archer_report()
+    return {"ok": bool(result), "length": len(result) if result else 0}
+
+
+# --- Congressional Trades ---
+
+@app.get("/api/congress/trades")
+def congress_trades():
+    """Recent congressional stock trades from Capitol Trades + Quiver Quantitative."""
+    from engine.congress_tracker import get_congressional_trades
+    return get_congressional_trades()
+
+
+@app.get("/api/congress/overlap")
+def congress_overlap():
+    """Our portfolio/watchlist tickers vs congressional trades."""
+    from engine.congress_tracker import get_congress_overlap
+    from config import WATCH_STOCKS
+    try:
+        conn = sqlite3.connect(DB, check_same_thread=False, timeout=10)
+        conn.row_factory = sqlite3.Row
+        positions = conn.execute(
+            "SELECT DISTINCT symbol FROM positions WHERE player_id='steve-webull'"
+        ).fetchall()
+        conn.close()
+        tickers = list(set([r["symbol"] for r in positions] + WATCH_STOCKS))
+    except Exception:
+        from config import WATCH_STOCKS
+        tickers = WATCH_STOCKS
+    return {"overlaps": get_congress_overlap(tickers)}
+
+
+@app.get("/api/congress/top-buys")
+def congress_top_buys(days: int = 30):
+    """Most-bought tickers by Congress."""
+    from engine.congress_tracker import get_top_congress_buys
+    return {"top_buys": get_top_congress_buys(days)}
+
+
+# ── Daily Briefing ──────────────────────────────────────────────────────────
+
+@app.get("/api/daily-briefing/alerts")
+def daily_briefing_alerts():
+    """Aggregated risk alerts for the Daily Briefing morning page."""
+    alerts = []
+    conn = _conn()
+    try:
+        # 1. Paused players with drawdown
+        paused = conn.execute(
+            "SELECT id, name, cash FROM ai_players WHERE is_paused=1 AND id NOT IN ('steve-webull','super-agent','dalio-metals')"
+        ).fetchall()
+        for p in paused:
+            starting = 5000 if p["id"] == "dayblade-0dte" else 10000
+            pnl = round(p["cash"] - starting, 2)
+            alerts.append({
+                "type": "drawdown_pause",
+                "severity": "warning",
+                "message": f"{p['name']} paused — cash at ${p['cash']:,.0f} (P&L {'+' if pnl >= 0 else ''}{pnl:,.0f})",
+            })
+
+        # 2. VIX circuit breaker
+        try:
+            from engine.regime_detector import detect_regime
+            regime = detect_regime()
+            vix = regime.get("vix") or 0
+            if vix >= 30:
+                alerts.append({
+                    "type": "vix_circuit",
+                    "severity": "critical",
+                    "message": f"VIX at {vix:.1f} — NO new entries. Max size 25%.",
+                })
+            elif vix >= 25:
+                alerts.append({
+                    "type": "vix_elevated",
+                    "severity": "warning",
+                    "message": f"VIX at {vix:.1f} — Reduce position size. Tighten stops.",
+                })
+        except Exception:
+            pass
+
+        # 3. Correlated positions — 3+ models holding same ticker
+        pos_rows = conn.execute(
+            "SELECT symbol, player_id FROM positions WHERE player_id NOT IN ('steve-webull','super-agent','dalio-metals')"
+        ).fetchall()
+        from collections import Counter
+        ticker_counts = Counter(r["symbol"] for r in pos_rows)
+        ticker_players = {}
+        for r in pos_rows:
+            ticker_players.setdefault(r["symbol"], []).append(r["player_id"])
+        for sym, cnt in ticker_counts.most_common():
+            if cnt >= 3:
+                alerts.append({
+                    "type": "correlated",
+                    "severity": "warning",
+                    "message": f"{sym} held by {cnt} models — correlated risk. Consider trimming.",
+                    "symbol": sym,
+                    "count": cnt,
+                })
+
+        # 4. Options expiring within 7 days
+        import datetime as _dt
+        cutoff = (_dt.date.today() + _dt.timedelta(days=7)).isoformat()
+        expiring = conn.execute(
+            "SELECT symbol, player_id, expiry_date, option_type FROM positions "
+            "WHERE option_type IS NOT NULL AND expiry_date IS NOT NULL AND expiry_date <= ?",
+            (cutoff,)
+        ).fetchall()
+        for e in expiring:
+            days_left = (
+                _dt.date.fromisoformat(e["expiry_date"]) - _dt.date.today()
+            ).days
+            alerts.append({
+                "type": "options_expiring",
+                "severity": "critical" if days_left <= 2 else "warning",
+                "message": f"{e['player_id']}: {e['symbol']} {e['option_type'].upper()} expires in {days_left}d ({e['expiry_date']})",
+                "symbol": e["symbol"],
+                "days": days_left,
+            })
+
+        # 5. Positions near stop loss (avg_price as proxy — flag if no high_watermark set)
+        near_stop = conn.execute(
+            "SELECT player_id, symbol, avg_price, high_watermark FROM positions "
+            "WHERE high_watermark IS NOT NULL AND high_watermark > 0 "
+            "AND player_id NOT IN ('steve-webull','super-agent','dalio-metals')"
+        ).fetchall()
+        for pos in near_stop:
+            trail_stop = pos["high_watermark"] * 0.92  # 8% trail
+            if pos["avg_price"] and pos["avg_price"] <= trail_stop * 1.03:
+                alerts.append({
+                    "type": "near_stop",
+                    "severity": "warning",
+                    "message": f"{pos['player_id']}: {pos['symbol']} near trailing stop (hwm ${pos['high_watermark']:.2f})",
+                    "symbol": pos["symbol"],
+                })
+
+    except Exception as e:
+        alerts.append({"type": "error", "severity": "info", "message": f"Alert scan error: {e}"})
+    finally:
+        conn.close()
+
+    return {"alerts": alerts, "count": len(alerts)}
+
+
+@app.get("/api/squeeze")
+def squeeze_scan(force: bool = False):
+    """Short squeeze scanner — high short interest, small float, volume breakout."""
+    try:
+        from engine.squeeze_scanner import run_scan
+        return run_scan(force=force)
+    except Exception as e:
+        return {"results": [], "error": str(e), "scanned_at": None}
+
+
+# ── Compatibility aliases for 13 historically-dead endpoints ──────────────────
+# These were returning 404; now they redirect to canonical routes or return a
+# "coming_soon" stub so external callers and monitors get a clean 200 response.
+
+from fastapi.responses import RedirectResponse
+
+@app.get("/api/correlation")
+def correlation_alias():
+    return RedirectResponse(url="/api/market/correlation", status_code=307)
+
+@app.get("/api/economy")
+def economy_alias():
+    return RedirectResponse(url="/api/macro", status_code=307)
+
+@app.get("/api/greeks")
+def greeks_alias():
+    return RedirectResponse(url="/api/options/greeks", status_code=307)
+
+@app.get("/api/options-flow")
+def options_flow_alias():
+    return RedirectResponse(url="/api/market/options-flow", status_code=307)
+
+@app.get("/api/premarket")
+def premarket_alias():
+    return RedirectResponse(url="/api/premarket-gaps", status_code=307)
+
+@app.get("/api/short-squeeze")
+def short_squeeze_alias(force: bool = False):
+    return RedirectResponse(url=f"/api/squeeze?force={force}", status_code=307)
+
+@app.get("/api/webull/portfolio")
+def webull_portfolio_alias():
+    return RedirectResponse(url="/api/webull-portfolio", status_code=307)
+
+@app.get("/api/webull/positions")
+def webull_positions_stub():
+    return {"status": "coming_soon", "message": "Feature in development"}
+
+@app.get("/api/pairs")
+def pairs_stub():
+    return RedirectResponse(url="/api/pair-trades", status_code=307)
+
+@app.get("/api/vol-surface")
+def vol_surface_stub():
+    return {"status": "coming_soon", "message": "Use /api/market/vol-surface/{symbol}"}
+
+@app.get("/api/strategy-lab")
+def strategy_lab_stub():
+    return RedirectResponse(url="/api/strategy-lab/strategies", status_code=307)
+
+@app.get("/api/gex")
+def gex_stub():
+    return {"status": "coming_soon", "message": "Use /api/market/gex/{ticker}"}
+
+@app.get("/api/insider-trades")
+def insider_trades_stub():
+    return {"status": "coming_soon", "message": "Use /api/insider-trades/{symbol}"}
+
+
+@app.post("/api/computer/chat")
+async def computer_chat(req: Request):
+    """Ship's Computer chat — Ollama/gemma3:4b backend."""
+    import httpx
+    body = await req.json()
+    user_msg = str(body.get("message", "")).strip()
+    history = body.get("history", [])
+    context = body.get("context", {})
+
+    if not user_msg:
+        return {"reply": "Please provide a message."}
+
+    system_prompt = (
+        "You are the USS TradeMinds Ship's Computer — a calm, precise AI assistant "
+        "integrated into an autonomous trading arena. You respond in the style of the "
+        "Star Trek computer: direct, factual, and slightly formal. You have access to "
+        "fleet context provided in the conversation. Answer trading questions, explain "
+        "positions and strategies, and help the captain navigate market conditions. "
+        "Keep responses concise (under 150 words unless a detailed analysis is requested). "
+        "Never make up specific prices or percentages unless they are in the provided context."
+    )
+
+    ctx_parts = []
+    if context.get("regime"):
+        ctx_parts.append(f"Current market regime: {context['regime']}")
+    if context.get("fleet_value"):
+        ctx_parts.append(f"Fleet total value: ${context['fleet_value']:,.0f}")
+    if context.get("best_model"):
+        ctx_parts.append(f"Best performing model: {context['best_model']}")
+    if context.get("positions_count"):
+        ctx_parts.append(f"Open positions: {context['positions_count']}")
+    if ctx_parts:
+        system_prompt += "\n\nCurrent fleet data:\n" + "\n".join(ctx_parts)
+
+    messages = [{"role": "system", "content": system_prompt}]
+    for h in history[-10:]:
+        if h.get("role") in ("user", "assistant") and h.get("content"):
+            messages.append({"role": h["role"], "content": h["content"]})
+    messages.append({"role": "user", "content": user_msg})
+
+    try:
+        async with httpx.AsyncClient(timeout=30.0) as client:
+            resp = await client.post(
+                "http://localhost:11434/api/chat",
+                json={"model": "gemma3:4b", "messages": messages, "stream": False, "options": {"temperature": 0.3}},
+            )
+            resp.raise_for_status()
+            data = resp.json()
+            reply = data.get("message", {}).get("content", "No response from computer.")
+            return {"reply": reply.strip()}
+    except httpx.ConnectError:
+        return {"reply": "Computer offline — Ollama is not running. Start with: ollama serve"}
+    except Exception as e:
+        logger.error(f"Computer chat error: {e}")
+        return {"reply": f"Computer error: {e}"}
+
+
+@app.post("/api/trade/override")
+async def trade_override(req: Request):
+    """Captain's override — manually execute a trade bypassing the risk manager."""
+    from engine.paper_trader import buy, sell
+    body = await req.json()
+    player_id = body.get("player_id")
+    symbol = body.get("symbol", "").upper()
+    action = body.get("action", "BUY").upper()
+    qty = int(body.get("qty", 1))
+    price = float(body.get("price", 0))
+    reasoning = body.get("reasoning", "Captain manual override")
+    confidence = float(body.get("confidence", 0.8))
+    sources = body.get("sources", "manual-override")
+
+    if not player_id or not symbol or qty <= 0:
+        return {"status": "error", "error": "Missing required fields: player_id, symbol, qty"}
+    if price <= 0:
+        try:
+            from engine.market_data import get_stock_price
+            pd_ = get_stock_price(symbol)
+            price = pd_.get("price", 0) if pd_ else 0
+        except Exception:
+            pass
+    if price <= 0:
+        return {"status": "error", "error": f"Could not get price for {symbol}"}
+    try:
+        if action == "BUY":
+            result = buy(player_id=player_id, symbol=symbol, price=price, qty=qty,
+                         reasoning=reasoning, confidence=confidence, sources=sources, timeframe="SWING")
+        else:
+            result = sell(player_id=player_id, symbol=symbol, price=price,
+                          reasoning=reasoning, confidence=confidence)
+        return {"status": "ok", "result": str(result)}
+    except Exception as e:
+        logger.error(f"Trade override error: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/api/trade/chain/{symbol}")
+def trade_chain(symbol: str, player_id: str = None):
+    """Full trade chain for a symbol — recent trades, open positions, optional rejections."""
+    symbol = symbol.upper()
+    conn = _conn()
+    try:
+        q = "SELECT * FROM trades WHERE symbol=? ORDER BY executed_at DESC LIMIT 5"
+        args = [symbol]
+        if player_id:
+            q = "SELECT * FROM trades WHERE symbol=? AND player_id=? ORDER BY executed_at DESC LIMIT 5"
+            args = [symbol, player_id]
+        trades = [dict(zip([c[0] for c in conn.execute(q, args).description], row))
+                  for row in conn.execute(q, args).fetchall()]
+
+        pos_q = "SELECT p.*, t.price as entry_price FROM positions p LEFT JOIN trades t ON t.symbol=p.symbol AND t.player_id=p.player_id AND t.action='BUY' WHERE p.symbol=? AND p.qty > 0 ORDER BY t.executed_at DESC"
+        positions = [dict(zip([c[0] for c in conn.execute(pos_q, [symbol]).description], row))
+                     for row in conn.execute(pos_q, [symbol]).fetchall()]
+
+        rejections = []
+        try:
+            rejections = [dict(r) for r in conn.execute(
+                "SELECT * FROM trade_rejections WHERE symbol=? ORDER BY rejected_at DESC LIMIT 3", [symbol]
+            ).fetchall()]
+        except Exception:
+            pass
+        return {"symbol": symbol, "trades": trades, "positions": positions, "rejections": rejections}
+    except Exception as e:
+        return {"symbol": symbol, "trades": [], "positions": [], "rejections": [], "error": str(e)}
+    finally:
+        conn.close()
+
+
+# === WATCHLIST MANAGEMENT ===
+
+@app.get("/api/watchlist")
+def get_watchlist():
+    """Fleet-wide shared watchlist."""
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT symbol, added_by, added_at, notes, is_active FROM watchlist ORDER BY symbol"
+    ).fetchall()
+    conn.close()
+    return {"symbols": [dict(r) for r in rows]}
+
+@app.post("/api/watchlist/add")
+def add_to_watchlist(symbol: str, notes: str = ""):
+    conn = _conn()
+    conn.execute(
+        "INSERT OR IGNORE INTO watchlist (symbol, added_by, notes) VALUES (?, 'manual', ?)",
+        (symbol.upper().strip(), notes)
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "added", "symbol": symbol.upper().strip()}
+
+@app.post("/api/watchlist/remove")
+def remove_from_watchlist(symbol: str):
+    conn = _conn()
+    conn.execute("DELETE FROM watchlist WHERE symbol=?", (symbol.upper().strip(),))
+    conn.commit()
+    conn.close()
+    return {"status": "removed", "symbol": symbol.upper().strip()}
+
+@app.get("/api/watchlist/model/{player_id}")
+def get_model_watchlist(player_id: str):
+    """Per-model custom watchlist (addons on top of fleet watchlist)."""
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT symbol, reason, added_at FROM model_watchlist WHERE player_id=? ORDER BY symbol",
+        (player_id,)
+    ).fetchall()
+    conn.close()
+    return {"player_id": player_id, "symbols": [dict(r) for r in rows]}
+
+@app.post("/api/watchlist/model/{player_id}/add")
+def add_to_model_watchlist(player_id: str, symbol: str, reason: str = ""):
+    conn = _conn()
+    conn.execute(
+        "INSERT OR IGNORE INTO model_watchlist (player_id, symbol, reason) VALUES (?, ?, ?)",
+        (player_id, symbol.upper().strip(), reason)
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "added", "player_id": player_id, "symbol": symbol.upper().strip()}
+
+@app.post("/api/watchlist/model/{player_id}/remove")
+def remove_from_model_watchlist(player_id: str, symbol: str):
+    conn = _conn()
+    conn.execute(
+        "DELETE FROM model_watchlist WHERE player_id=? AND symbol=?",
+        (player_id, symbol.upper().strip())
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "removed", "player_id": player_id, "symbol": symbol.upper().strip()}
+
+
+if __name__ == "__main__":
+    uvicorn.run(app, host="127.0.0.1", port=8080)

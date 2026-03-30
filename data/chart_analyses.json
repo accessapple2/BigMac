@@ -1,0 +1,242 @@
+[
+  {
+    "symbol": "AMZN",
+    "model": "claude",
+    "support": [
+      204.32,
+      197.28,
+      196.0
+    ],
+    "resistance": [
+      220.47,
+      217.54,
+      215.7
+    ],
+    "patterns": [
+      "descending triangle",
+      "lower highs"
+    ],
+    "trend": "bearish",
+    "volume_assessment": "Volume has been declining during recent consolidation with notable spike on latest bearish move, suggesting weakening momentum",
+    "recommendation": "Avoid long positions as price trades below 20-day SMA with bearish MACD and RSI showing weakness near key support.",
+    "confidence": 78,
+    "indicators": {
+      "rsi": 46.35,
+      "macd": -2.306,
+      "signal": -2.4169,
+      "sma20": 210.85
+    },
+    "current_price": 205.37,
+    "analyzed_at": "2026-03-22T12:17:49.328972"
+  },
+  {
+    "symbol": "SPY",
+    "model": "claude",
+    "support": [
+      644.72,
+      653.39,
+      660.0
+    ],
+    "resistance": [
+      670.0,
+      680.0,
+      687.55
+    ],
+    "patterns": [
+      "descending triangle",
+      "bear flag"
+    ],
+    "trend": "bearish",
+    "volume_assessment": "High volume on breakdowns with decreasing volume on bounces indicates strong selling pressure and weak buying interest",
+    "recommendation": "Avoid long positions as SPY shows persistent bearish momentum with RSI oversold but MACD still negative and price below key moving averages.",
+    "confidence": 82,
+    "indicators": {
+      "rsi": 38.63,
+      "macd": -7.2874,
+      "signal": -5.2466,
+      "sma20": 672.91
+    },
+    "current_price": 660.31,
+    "analyzed_at": "2026-03-23T07:15:26.373744"
+  },
+  {
+    "symbol": "MU",
+    "model": "claude",
+    "support": [
+      415.0,
+      397.0,
+      370.0
+    ],
+    "resistance": [
+      461.7,
+      444.0,
+      429.0
+    ],
+    "patterns": [
+      "double top",
+      "bearish reversal"
+    ],
+    "trend": "bearish",
+    "volume_assessment": "High volume on March 18-20 confirms the bearish reversal from highs, with declining volume suggesting weakening momentum",
+    "recommendation": "Avoid long positions as the stock has formed a double top pattern around 461-462 and is trading below key support levels with bearish momentum.",
+    "confidence": 78,
+    "indicators": {
+      "rsi": 59.93,
+      "macd": 11.9392,
+      "signal": 11.715,
+      "sma20": 416.59
+    },
+    "current_price": 421.39,
+    "analyzed_at": "2026-03-23T07:17:18.058120"
+  },
+  {
+    "symbol": "SPY",
+    "model": "claude",
+    "support": [
+      644.72,
+      653.39,
+      659.39
+    ],
+    "resistance": [
+      670.24,
+      676.42,
+      684.51
+    ],
+    "patterns": [
+      "falling wedge",
+      "descending triangle"
+    ],
+    "trend": "bearish",
+    "volume_assessment": "High volume on declining days indicates strong selling pressure with volume spike at recent lows suggesting potential capitulation",
+    "recommendation": "Wait for a break above 670 resistance with volume confirmation before considering long positions as RSI at 28 suggests oversold conditions but momentum remains negative.",
+    "confidence": 75,
+    "indicators": {
+      "rsi": 28.07,
+      "macd": NaN,
+      "signal": NaN,
+      "sma20": NaN
+    },
+    "current_price": NaN,
+    "analyzed_at": "2026-03-23T07:18:17.359626"
+  },
+  {
+    "symbol": "SPY",
+    "model": "claude",
+    "support": [
+      644.72,
+      653.39,
+      658.0
+    ],
+    "resistance": [
+      670.24,
+      680.53,
+      687.55
+    ],
+    "patterns": [
+      "descending triangle",
+      "lower highs"
+    ],
+    "trend": "bearish",
+    "volume_assessment": "Elevated volume on breakdowns confirms selling pressure, with volume spikes above average during declines indicating institutional distribution",
+    "recommendation": "Avoid long positions as SPY shows continued bearish momentum below key moving averages with oversold RSI suggesting potential dead cat bounce before further decline.",
+    "confidence": 82,
+    "indicators": {
+      "rsi": 39.2,
+      "macd": -7.2284,
+      "signal": -5.2348,
+      "sma20": 672.95
+    },
+    "current_price": 661.05,
+    "analyzed_at": "2026-03-23T07:18:26.785807"
+  },
+  {
+    "symbol": "SPY",
+    "model": "claude",
+    "support": [
+      644.72,
+      653.39,
+      659.56
+    ],
+    "resistance": [
+      667.21,
+      670.24,
+      676.42
+    ],
+    "patterns": [
+      "descending triangle",
+      "lower highs lower lows"
+    ],
+    "trend": "bearish",
+    "volume_assessment": "High volume on breakdown days (March 20th 163M, March 23rd 125M) confirms selling pressure with sustained distribution pattern",
+    "recommendation": "Avoid long positions as SPY shows clear bearish momentum with RSI oversold but no reversal signals yet - wait for stabilization above 667 resistance.",
+    "confidence": 85,
+    "indicators": {
+      "rsi": 34.6,
+      "macd": -7.6807,
+      "signal": -5.3252,
+      "sma20": 672.66
+    },
+    "current_price": 655.38,
+    "analyzed_at": "2026-03-23T20:30:03.079334"
+  },
+  {
+    "symbol": "MU",
+    "model": "gemini",
+    "support": [
+      374.55,
+      386.55,
+      380.14
+    ],
+    "resistance": [
+      446.16,
+      452.54,
+      464.76
+    ],
+    "patterns": [
+      "Triangle (likely rising)",
+      "Potential Double Bottom (forming around March 6th)"
+    ],
+    "trend": "bullish",
+    "volume_assessment": "Volume has been fluctuating significantly, with higher volumes associated with price increases, particularly in the recent period (March 16th onward).  The overall trend is upward, but volume confirms periods of consolidation.",
+    "recommendation": "Long position with a stop-loss placed just below the March 6th double bottom at 380.14, and a target price of the resistance level at 464.76.",
+    "confidence": 75,
+    "indicators": {
+      "rsi": 46.67,
+      "macd": 3.7554,
+      "signal": 9.1012,
+      "sma20": 412.27
+    },
+    "current_price": 382.09,
+    "analyzed_at": "2026-03-25T14:54:35.833596"
+  },
+  {
+    "symbol": "MU",
+    "model": "ollama",
+    "support": [
+      374.55,
+      386.55,
+      380.14
+    ],
+    "resistance": [
+      446.16,
+      452.54,
+      464.76
+    ],
+    "patterns": [
+      "Double Bottom (likely forming around Feb 27 - Mar 6)",
+      "Triangle (possible formation around Mar 13 - Mar 16)"
+    ],
+    "trend": "bullish",
+    "volume_assessment": "Volume has been fluctuating significantly, with spikes following resistance breaks (particularly around March 16 and 17).  Recent volume is elevated, suggesting increased buying interest.",
+    "recommendation": "Buy on a breakout above 425 with a stop-loss just below the recent swing low (386.57).",
+    "confidence": 75,
+    "indicators": {
+      "rsi": 46.67,
+      "macd": 3.7554,
+      "signal": 9.1012,
+      "sma20": 412.27
+    },
+    "current_price": 382.09,
+    "analyzed_at": "2026-03-25T14:56:05.671818"
+  }
+]

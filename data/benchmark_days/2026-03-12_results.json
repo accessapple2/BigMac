@@ -1,0 +1,499 @@
+{
+  "date": "2026-03-12",
+  "market_data": {
+    "NVDA": {
+      "open": 184.05,
+      "high": 184.94,
+      "low": 181.75,
+      "close": 183.14,
+      "volume": 155762700
+    },
+    "TSLA": {
+      "open": 405.18,
+      "high": 406.5,
+      "low": 394.65,
+      "close": 395.01,
+      "volume": 60973800
+    },
+    "MU": {
+      "open": 410.0,
+      "high": 413.73,
+      "low": 396.67,
+      "close": 405.35,
+      "volume": 31720900
+    },
+    "AMD": {
+      "open": 202.83,
+      "high": 203.62,
+      "low": 196.67,
+      "close": 197.74,
+      "volume": 28886900
+    },
+    "AAPL": {
+      "open": 258.66,
+      "high": 258.95,
+      "low": 254.18,
+      "close": 255.76,
+      "volume": 40794000
+    },
+    "SPY": {
+      "open": 671.16,
+      "high": 671.65,
+      "low": 665.87,
+      "close": 666.06,
+      "volume": 108882200
+    },
+    "QQQ": {
+      "open": 602.76,
+      "high": 604.14,
+      "low": 597.05,
+      "close": 597.26,
+      "volume": 71836600
+    },
+    "ORCL": {
+      "open": 164.66,
+      "high": 167.83,
+      "low": 158.61,
+      "close": 159.16,
+      "volume": 37133700
+    },
+    "AMZN": {
+      "open": 210.39,
+      "high": 211.71,
+      "low": 208.15,
+      "close": 209.53,
+      "volume": 44349500
+    },
+    "NOW": {
+      "open": 115.28,
+      "high": 117.21,
+      "low": 112.42,
+      "close": 112.97,
+      "volume": 18372100
+    },
+    "AVGO": {
+      "open": 337.74,
+      "high": 339.83,
+      "low": 332.2,
+      "close": 335.97,
+      "volume": 21982700
+    },
+    "DELL": {
+      "open": 147.15,
+      "high": 151.85,
+      "low": 147.09,
+      "close": 149.91,
+      "volume": 7340900
+    },
+    "MSFT": {
+      "open": 404.63,
+      "high": 406.12,
+      "low": 401.71,
+      "close": 401.86,
+      "volume": 27263900
+    },
+    "META": {
+      "open": 648.75,
+      "high": 653.5,
+      "low": 636.9,
+      "close": 638.18,
+      "volume": 11617500
+    },
+    "GOOGL": {
+      "open": 306.82,
+      "high": 308.94,
+      "low": 301.03,
+      "close": 303.55,
+      "volume": 24928300
+    },
+    "PLTR": {
+      "open": 153.01,
+      "high": 155.88,
+      "low": 150.98,
+      "close": 153.5,
+      "volume": 54409800
+    }
+  },
+  "actual_scorecards": [
+    {
+      "player_id": "claude-sonnet",
+      "trades": 3,
+      "wins": 0,
+      "losses": 3,
+      "win_rate": 0.0,
+      "total_pnl": -1966.65,
+      "best_trade": -183.06,
+      "worst_trade": -1325.74,
+      "trade_details": [
+        {
+          "symbol": "TSLA",
+          "type": "opt-c",
+          "entry": 25.0,
+          "close": 395.01,
+          "qty": 36.0,
+          "pnl": -183.06,
+          "ret_pct": -20.34,
+          "confidence": 0.72,
+          "time": "2026-03-12 14:00:54"
+        },
+        {
+          "symbol": "AMD",
+          "type": "opt-c",
+          "entry": 12.53,
+          "close": 197.74,
+          "qty": 179.902,
+          "pnl": -457.85,
+          "ret_pct": -20.31,
+          "confidence": 0.75,
+          "time": "2026-03-12 14:18:07"
+        },
+        {
+          "symbol": "TSLA",
+          "type": "opt-c",
+          "entry": 21.48,
+          "close": 395.01,
+          "qty": 260.7155,
+          "pnl": -1325.74,
+          "ret_pct": -23.67,
+          "confidence": 0.72,
+          "time": "2026-03-12 14:31:23"
+        }
+      ]
+    },
+    {
+      "player_id": "dayblade-0dte",
+      "trades": 3,
+      "wins": 0,
+      "losses": 3,
+      "win_rate": 0.0,
+      "total_pnl": -7.85,
+      "best_trade": -2.55,
+      "worst_trade": -2.75,
+      "trade_details": [
+        {
+          "symbol": "SPY",
+          "type": "opt-c",
+          "entry": 670.18,
+          "close": 666.06,
+          "qty": 1.0,
+          "pnl": -2.55,
+          "ret_pct": -0.38,
+          "confidence": 0.85,
+          "time": "2026-03-12 13:50:26"
+        },
+        {
+          "symbol": "SPY",
+          "type": "opt-c",
+          "entry": 670.72,
+          "close": 666.06,
+          "qty": 1.0,
+          "pnl": -2.55,
+          "ret_pct": -0.38,
+          "confidence": 0.85,
+          "time": "2026-03-12 13:50:31"
+        },
+        {
+          "symbol": "QQQ",
+          "type": "opt-c",
+          "entry": 602.36,
+          "close": 597.26,
+          "qty": 1.0,
+          "pnl": -2.75,
+          "ret_pct": -0.46,
+          "confidence": 0.85,
+          "time": "2026-03-12 13:50:49"
+        }
+      ]
+    },
+    {
+      "player_id": "gemini-2.5-flash",
+      "trades": 5,
+      "wins": 0,
+      "losses": 5,
+      "win_rate": 0.0,
+      "total_pnl": -351.33,
+      "best_trade": -20.33,
+      "worst_trade": -124.86,
+      "trade_details": [
+        {
+          "symbol": "TSLA",
+          "type": "opt-c",
+          "entry": 23.3,
+          "close": 395.01,
+          "qty": 8.8365,
+          "pnl": -44.93,
+          "ret_pct": -21.82,
+          "confidence": 0.78,
+          "time": "2026-03-12 14:01:43"
+        },
+        {
+          "symbol": "TSLA",
+          "type": "opt-c",
+          "entry": 22.0,
+          "close": 395.01,
+          "qty": 24.5538,
+          "pnl": -124.86,
+          "ret_pct": -23.11,
+          "confidence": 0.85,
+          "time": "2026-03-12 14:18:42"
+        },
+        {
+          "symbol": "AMD",
+          "type": "opt-c",
+          "entry": 12.53,
+          "close": 197.74,
+          "qty": 38.8002,
+          "pnl": -98.75,
+          "ret_pct": -20.31,
+          "confidence": 0.8,
+          "time": "2026-03-12 14:19:09"
+        },
+        {
+          "symbol": "AVGO",
+          "type": "opt-c",
+          "entry": 19.05,
+          "close": 335.97,
+          "qty": 22.9685,
+          "pnl": -20.33,
+          "ret_pct": -4.65,
+          "confidence": 0.78,
+          "time": "2026-03-12 14:21:36"
+        },
+        {
+          "symbol": "DELL",
+          "type": "opt-p",
+          "entry": 8.7,
+          "close": 149.91,
+          "qty": 45.2637,
+          "pnl": -62.46,
+          "ret_pct": -15.86,
+          "confidence": 0.7,
+          "time": "2026-03-12 14:22:15"
+        }
+      ]
+    },
+    {
+      "player_id": "gemini-2.5-pro",
+      "trades": 5,
+      "wins": 0,
+      "losses": 5,
+      "win_rate": 0.0,
+      "total_pnl": -2954.18,
+      "best_trade": -30.97,
+      "worst_trade": -2396.4,
+      "trade_details": [
+        {
+          "symbol": "AAPL",
+          "type": "opt-c",
+          "entry": 11.9,
+          "close": 255.76,
+          "qty": 21.3603,
+          "pnl": -30.97,
+          "ret_pct": -12.18,
+          "confidence": 0.75,
+          "time": "2026-03-12 13:47:46"
+        },
+        {
+          "symbol": "AMZN",
+          "type": "opt-c",
+          "entry": 8.88,
+          "close": 209.53,
+          "qty": 87.2194,
+          "pnl": -37.5,
+          "ret_pct": -4.84,
+          "confidence": 0.75,
+          "time": "2026-03-12 14:06:49"
+        },
+        {
+          "symbol": "AAPL",
+          "type": "opt-c",
+          "entry": 9.68,
+          "close": 255.76,
+          "qty": 262.1773,
+          "pnl": -380.16,
+          "ret_pct": -14.98,
+          "confidence": 0.75,
+          "time": "2026-03-12 14:19:54"
+        },
+        {
+          "symbol": "AVGO",
+          "type": "opt-c",
+          "entry": 18.52,
+          "close": 335.97,
+          "qty": 123.3309,
+          "pnl": -109.15,
+          "ret_pct": -4.78,
+          "confidence": 0.75,
+          "time": "2026-03-12 14:24:00"
+        },
+        {
+          "symbol": "TSLA",
+          "type": "opt-c",
+          "entry": 21.52,
+          "close": 395.01,
+          "qty": 471.2689,
+          "pnl": -2396.4,
+          "ret_pct": -23.63,
+          "confidence": 0.75,
+          "time": "2026-03-12 14:32:59"
+        }
+      ]
+    },
+    {
+      "player_id": "gpt-4o",
+      "trades": 1,
+      "wins": 0,
+      "losses": 1,
+      "win_rate": 0.0,
+      "total_pnl": -224.82,
+      "best_trade": -224.82,
+      "worst_trade": -224.82,
+      "trade_details": [
+        {
+          "symbol": "AMD",
+          "type": "opt-c",
+          "entry": 11.32,
+          "close": 197.74,
+          "qty": 88.3392,
+          "pnl": -224.82,
+          "ret_pct": -22.48,
+          "confidence": 0.7,
+          "time": "2026-03-12 22:57:36"
+        }
+      ]
+    },
+    {
+      "player_id": "ollama-local",
+      "trades": 11,
+      "wins": 0,
+      "losses": 11,
+      "win_rate": 0.0,
+      "total_pnl": -205.15,
+      "best_trade": -0.82,
+      "worst_trade": -73.51,
+      "trade_details": [
+        {
+          "symbol": "NVDA",
+          "type": "stock",
+          "entry": 186.01,
+          "close": 183.14,
+          "qty": 0.6536,
+          "pnl": -1.88,
+          "ret_pct": -1.54,
+          "confidence": 0.85,
+          "time": "2026-03-12 11:59:01"
+        },
+        {
+          "symbol": "AMD",
+          "type": "stock",
+          "entry": 203.17,
+          "close": 197.74,
+          "qty": 0.7337,
+          "pnl": -3.98,
+          "ret_pct": -2.67,
+          "confidence": 0.75,
+          "time": "2026-03-12 13:39:44"
+        },
+        {
+          "symbol": "AMD",
+          "type": "stock",
+          "entry": 201.25,
+          "close": 197.74,
+          "qty": 0.6667,
+          "pnl": -2.34,
+          "ret_pct": -1.74,
+          "confidence": 0.75,
+          "time": "2026-03-12 13:45:06"
+        },
+        {
+          "symbol": "SPY",
+          "type": "stock",
+          "entry": 670.59,
+          "close": 666.06,
+          "qty": 0.1801,
+          "pnl": -0.82,
+          "ret_pct": -0.68,
+          "confidence": 0.75,
+          "time": "2026-03-12 13:52:10"
+        },
+        {
+          "symbol": "QQQ",
+          "type": "stock",
+          "entry": 602.01,
+          "close": 597.26,
+          "qty": 0.1805,
+          "pnl": -0.86,
+          "ret_pct": -0.79,
+          "confidence": 0.75,
+          "time": "2026-03-12 13:52:45"
+        },
+        {
+          "symbol": "AMD",
+          "type": "stock",
+          "entry": 200.05,
+          "close": 197.74,
+          "qty": 0.4889,
+          "pnl": -1.13,
+          "ret_pct": -1.15,
+          "confidence": 0.75,
+          "time": "2026-03-12 13:54:38"
+        },
+        {
+          "symbol": "TSLA",
+          "type": "opt-c",
+          "entry": 25.0,
+          "close": 395.01,
+          "qty": 6.4051,
+          "pnl": -32.57,
+          "ret_pct": -20.34,
+          "confidence": 0.75,
+          "time": "2026-03-12 14:01:10"
+        },
+        {
+          "symbol": "MU",
+          "type": "opt-c",
+          "entry": 39.1,
+          "close": 405.35,
+          "qty": 10.255,
+          "pnl": -23.84,
+          "ret_pct": -5.95,
+          "confidence": 0.75,
+          "time": "2026-03-12 14:04:08"
+        },
+        {
+          "symbol": "ORCL",
+          "type": "opt-c",
+          "entry": 13.5,
+          "close": 159.16,
+          "qty": 26.7315,
+          "pnl": -73.51,
+          "ret_pct": -20.37,
+          "confidence": 0.75,
+          "time": "2026-03-12 14:06:29"
+        },
+        {
+          "symbol": "NOW",
+          "type": "opt-c",
+          "entry": 7.25,
+          "close": 112.97,
+          "qty": 44.7982,
+          "pnl": -51.74,
+          "ret_pct": -15.93,
+          "confidence": 0.75,
+          "time": "2026-03-12 14:07:11"
+        },
+        {
+          "symbol": "AVGO",
+          "type": "opt-c",
+          "entry": 20.73,
+          "close": 335.97,
+          "qty": 14.1007,
+          "pnl": -12.48,
+          "ret_pct": -4.27,
+          "confidence": 0.75,
+          "time": "2026-03-12 14:07:52"
+        }
+      ]
+    }
+  ]
+}

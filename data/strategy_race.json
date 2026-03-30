@@ -1,0 +1,27 @@
+{
+  "spy_start_price": 677.1799926757812,
+  "start_date": "2026-03-10",
+  "history": [
+    {
+      "date": "2026-03-10",
+      "spy_value": 10000.0,
+      "ai_avg_value": 10000.0,
+      "ai_best_value": 10000.0,
+      "spy_price": 677.18
+    },
+    {
+      "date": "2026-03-11",
+      "spy_value": 9987.45,
+      "ai_avg_value": 10000.0,
+      "ai_best_value": 10000.02,
+      "spy_price": 676.33
+    },
+    {
+      "date": "2026-03-12",
+      "spy_value": 9896.78,
+      "ai_avg_value": 58461.63,
+      "ai_best_value": 286864.43,
+      "spy_price": 670.19
+    }
+  ]
+}

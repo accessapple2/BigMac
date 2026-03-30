@@ -1,0 +1,7932 @@
+{
+  "30d": {
+    "period": "2026-02-19 \u2192 2026-03-21",
+    "days": 22,
+    "tickers": 512,
+    "total_return": -2.02,
+    "total_pnl": -201.97,
+    "final_value": 9798.03,
+    "spy_return": -4.99,
+    "alpha": 2.97,
+    "trades": 53,
+    "wins": 38,
+    "losses": 15,
+    "win_rate": 71.7,
+    "long_pnl": -378.15,
+    "short_pnl": 100.2,
+    "bcs_pnl": 71.24,
+    "ic_pnl": 4.74,
+    "regime_breakdown": {
+      "BEAR": 6,
+      "BULL": 5,
+      "CAUTIOUS": 11
+    },
+    "equity_curve": [
+      {
+        "date": "2026-02-19",
+        "regime": "CAUTIOUS",
+        "vix": 20.2,
+        "value": 9802.37
+      },
+      {
+        "date": "2026-02-20",
+        "regime": "BULL",
+        "vix": 19.1,
+        "value": 9773.25
+      },
+      {
+        "date": "2026-02-23",
+        "regime": "CAUTIOUS",
+        "vix": 21.0,
+        "value": 9722.8
+      },
+      {
+        "date": "2026-02-24",
+        "regime": "BULL",
+        "vix": 19.5,
+        "value": 9771.84
+      },
+      {
+        "date": "2026-02-25",
+        "regime": "BULL",
+        "vix": 17.9,
+        "value": 9672.03
+      },
+      {
+        "date": "2026-02-26",
+        "regime": "BULL",
+        "vix": 18.6,
+        "value": 9749.83
+      },
+      {
+        "date": "2026-02-27",
+        "regime": "BULL",
+        "vix": 19.9,
+        "value": 9801.05
+      },
+      {
+        "date": "2026-03-02",
+        "regime": "CAUTIOUS",
+        "vix": 21.4,
+        "value": 9762.64
+      },
+      {
+        "date": "2026-03-03",
+        "regime": "CAUTIOUS",
+        "vix": 23.6,
+        "value": 9693.58
+      },
+      {
+        "date": "2026-03-04",
+        "regime": "CAUTIOUS",
+        "vix": 21.1,
+        "value": 9663.5
+      },
+      {
+        "date": "2026-03-05",
+        "regime": "CAUTIOUS",
+        "vix": 23.8,
+        "value": 9705.83
+      },
+      {
+        "date": "2026-03-06",
+        "regime": "BEAR",
+        "vix": 29.5,
+        "value": 9723.75
+      },
+      {
+        "date": "2026-03-09",
+        "regime": "BEAR",
+        "vix": 25.5,
+        "value": 9760.72
+      },
+      {
+        "date": "2026-03-10",
+        "regime": "CAUTIOUS",
+        "vix": 24.9,
+        "value": 9696.85
+      },
+      {
+        "date": "2026-03-11",
+        "regime": "CAUTIOUS",
+        "vix": 24.2,
+        "value": 9729.78
+      },
+      {
+        "date": "2026-03-12",
+        "regime": "BEAR",
+        "vix": 27.3,
+        "value": 9662.48
+      },
+      {
+        "date": "2026-03-13",
+        "regime": "BEAR",
+        "vix": 27.2,
+        "value": 9657.7
+      },
+      {
+        "date": "2026-03-16",
+        "regime": "CAUTIOUS",
+        "vix": 23.5,
+        "value": 9645.07
+      },
+      {
+        "date": "2026-03-17",
+        "regime": "CAUTIOUS",
+        "vix": 22.4,
+        "value": 9712.74
+      },
+      {
+        "date": "2026-03-18",
+        "regime": "BEAR",
+        "vix": 25.1,
+        "value": 9703.27
+      },
+      {
+        "date": "2026-03-19",
+        "regime": "CAUTIOUS",
+        "vix": 24.1,
+        "value": 9598.78
+      },
+      {
+        "date": "2026-03-20",
+        "regime": "BEAR",
+        "vix": 26.8,
+        "value": 9507.21
+      }
+    ],
+    "long_trades": [
+      {
+        "ticker": "CRH",
+        "direction": "L",
+        "entry_date": "2026-02-19",
+        "exit_date": "2026-03-03",
+        "entry": 125.05,
+        "exit": 117.08,
+        "qty": 11.9953,
+        "pnl": -95.6,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "MNST",
+        "direction": "L",
+        "entry_date": "2026-02-20",
+        "exit_date": "2026-03-03",
+        "entry": 83.76,
+        "exit": 80.64,
+        "qty": 18.9913,
+        "pnl": -59.25,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "OXY",
+        "direction": "L",
+        "entry_date": "2026-02-19",
+        "exit_date": "2026-03-05",
+        "entry": 51.29,
+        "exit": 53.27,
+        "qty": 29.2475,
+        "pnl": 58.01,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "DOW",
+        "direction": "L",
+        "entry_date": "2026-03-05",
+        "exit_date": "2026-03-10",
+        "entry": 33.72,
+        "exit": 33.96,
+        "qty": 42.6958,
+        "pnl": 10.31,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "L",
+        "direction": "L",
+        "entry_date": "2026-03-03",
+        "exit_date": "2026-03-18",
+        "entry": 111.5,
+        "exit": 107.39,
+        "qty": 9.0637,
+        "pnl": -37.25,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "TGT",
+        "direction": "L",
+        "entry_date": "2026-03-03",
+        "exit_date": "2026-03-20",
+        "entry": 120.8,
+        "exit": 113.37,
+        "qty": 8.3659,
+        "pnl": -62.16,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "VTR",
+        "direction": "L",
+        "entry_date": "2026-03-18",
+        "exit_date": "2026-03-20",
+        "entry": 87.33,
+        "exit": 84.15,
+        "qty": 1.6638,
+        "pnl": -5.29,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "HII",
+        "direction": "L",
+        "entry_date": "2026-02-19",
+        "exit_date": "2026-03-21",
+        "entry": 441.76,
+        "exit": 407.98,
+        "qty": 3.3955,
+        "pnl": -114.7,
+        "exit_type": "EOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "RSG",
+        "direction": "L",
+        "entry_date": "2026-02-20",
+        "exit_date": "2026-03-21",
+        "entry": 219.5,
+        "exit": 219.3,
+        "qty": 5.0729,
+        "pnl": -1.01,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "ADM",
+        "direction": "L",
+        "entry_date": "2026-03-10",
+        "exit_date": "2026-03-21",
+        "entry": 69.39,
+        "exit": 66.17,
+        "qty": 22.1159,
+        "pnl": -71.21,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "ROST",
+        "direction": "L",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 211.19,
+        "exit": 211.19,
+        "qty": 0.6745,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "TRGP",
+        "direction": "L",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 237.41,
+        "exit": 237.41,
+        "qty": 0.6,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      }
+    ],
+    "short_trades": [
+      {
+        "ticker": "LUV",
+        "direction": "S",
+        "entry_date": "2026-02-19",
+        "exit_date": "2026-03-05",
+        "entry": 51.86,
+        "exit": 45.33,
+        "qty": 3.8568,
+        "pnl": 25.17,
+        "exit_type": "TGT",
+        "strategies": [
+          "RR",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "BLK",
+        "direction": "S",
+        "entry_date": "2026-02-23",
+        "exit_date": "2026-03-12",
+        "entry": 1065.08,
+        "exit": 948.52,
+        "qty": 0.1841,
+        "pnl": 21.46,
+        "exit_type": "TGT",
+        "strategies": [
+          "BE",
+          "EB",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "EPAM",
+        "direction": "S",
+        "entry_date": "2026-02-19",
+        "exit_date": "2026-03-21",
+        "entry": 139.16,
+        "exit": 137.43,
+        "qty": 1.4372,
+        "pnl": 2.49,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "BE",
+          "EB"
+        ]
+      },
+      {
+        "ticker": "WEC",
+        "direction": "S",
+        "entry_date": "2026-03-05",
+        "exit_date": "2026-03-21",
+        "entry": 116.09,
+        "exit": 112.18,
+        "qty": 1.6535,
+        "pnl": 6.47,
+        "exit_type": "EOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "SBUX",
+        "direction": "S",
+        "entry_date": "2026-03-12",
+        "exit_date": "2026-03-21",
+        "entry": 100.18,
+        "exit": 92.55,
+        "qty": 5.8469,
+        "pnl": 44.61,
+        "exit_type": "EOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE"
+        ]
+      }
+    ],
+    "opt_trades": [
+      {
+        "t": "LUV",
+        "date": "2026-02-19",
+        "type": "BCS",
+        "pnl": 0.81
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-19",
+        "type": "IC",
+        "pnl": 1.56
+      },
+      {
+        "t": "CVX",
+        "date": "2026-02-20",
+        "type": "BCS",
+        "pnl": -2.37
+      },
+      {
+        "t": "BLK",
+        "date": "2026-02-23",
+        "type": "BCS",
+        "pnl": 14.09
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-23",
+        "type": "IC",
+        "pnl": 1.74
+      },
+      {
+        "t": "CVS",
+        "date": "2026-02-24",
+        "type": "BCS",
+        "pnl": 1.47
+      },
+      {
+        "t": "AVY",
+        "date": "2026-02-25",
+        "type": "BCS",
+        "pnl": 1.46
+      },
+      {
+        "t": "UHS",
+        "date": "2026-02-26",
+        "type": "BCS",
+        "pnl": 1.94
+      },
+      {
+        "t": "AXP",
+        "date": "2026-02-27",
+        "type": "BCS",
+        "pnl": 2.73
+      },
+      {
+        "t": "ECL",
+        "date": "2026-03-02",
+        "type": "BCS",
+        "pnl": 2.59
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-02",
+        "type": "IC",
+        "pnl": -10.1
+      },
+      {
+        "t": "CSX",
+        "date": "2026-03-03",
+        "type": "BCS",
+        "pnl": 0.26
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-03",
+        "type": "IC",
+        "pnl": -9.9
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-04",
+        "type": "IC",
+        "pnl": -9.9
+      },
+      {
+        "t": "ETR",
+        "date": "2026-03-05",
+        "type": "BCS",
+        "pnl": 0.96
+      },
+      {
+        "t": "NWS",
+        "date": "2026-03-05",
+        "type": "IC",
+        "pnl": 0.83
+      },
+      {
+        "t": "MTCH",
+        "date": "2026-03-06",
+        "type": "BCS",
+        "pnl": -0.36
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-06",
+        "type": "IC",
+        "pnl": 0.47
+      },
+      {
+        "t": "BR",
+        "date": "2026-03-09",
+        "type": "BCS",
+        "pnl": 1.62
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-09",
+        "type": "IC",
+        "pnl": 5.58
+      },
+      {
+        "t": "APP",
+        "date": "2026-03-10",
+        "type": "BCS",
+        "pnl": 8.74
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-10",
+        "type": "IC",
+        "pnl": 5.34
+      },
+      {
+        "t": "FICO",
+        "date": "2026-03-11",
+        "type": "BCS",
+        "pnl": 21.44
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-11",
+        "type": "IC",
+        "pnl": 5.85
+      },
+      {
+        "t": "SBUX",
+        "date": "2026-03-12",
+        "type": "BCS",
+        "pnl": 1.09
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-12",
+        "type": "IC",
+        "pnl": 0.5
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-13",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "IT",
+        "date": "2026-03-16",
+        "type": "BCS",
+        "pnl": 3.0
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-16",
+        "type": "IC",
+        "pnl": 0.52
+      },
+      {
+        "t": "AVGO",
+        "date": "2026-03-17",
+        "type": "BCS",
+        "pnl": 5.46
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-17",
+        "type": "IC",
+        "pnl": 5.4
+      },
+      {
+        "t": "AXP",
+        "date": "2026-03-18",
+        "type": "BCS",
+        "pnl": 5.03
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-18",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-19",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "INCY",
+        "date": "2026-03-20",
+        "type": "BCS",
+        "pnl": 1.28
+      },
+      {
+        "t": "ORCL",
+        "date": "2026-03-20",
+        "type": "IC",
+        "pnl": 5.26
+      }
+    ]
+  },
+  "60d": {
+    "period": "2026-01-20 \u2192 2026-03-21",
+    "days": 43,
+    "tickers": 512,
+    "total_return": 2.57,
+    "total_pnl": 256.85,
+    "final_value": 10256.85,
+    "spy_return": -4.02,
+    "alpha": 6.59,
+    "trades": 89,
+    "wins": 62,
+    "losses": 27,
+    "win_rate": 69.7,
+    "long_pnl": 147.24,
+    "short_pnl": 10.14,
+    "bcs_pnl": 96.3,
+    "ic_pnl": 3.17,
+    "regime_breakdown": {
+      "BEAR": 6,
+      "BULL": 20,
+      "CAUTIOUS": 17
+    },
+    "equity_curve": [
+      {
+        "date": "2026-01-20",
+        "regime": "CAUTIOUS",
+        "vix": 20.1,
+        "value": 9796.77
+      },
+      {
+        "date": "2026-01-21",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 9840.15
+      },
+      {
+        "date": "2026-01-22",
+        "regime": "BULL",
+        "vix": 15.6,
+        "value": 9825.34
+      },
+      {
+        "date": "2026-01-23",
+        "regime": "BULL",
+        "vix": 16.1,
+        "value": 9798.91
+      },
+      {
+        "date": "2026-01-26",
+        "regime": "BULL",
+        "vix": 16.1,
+        "value": 9786.17
+      },
+      {
+        "date": "2026-01-27",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 9791.07
+      },
+      {
+        "date": "2026-01-28",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 9821.38
+      },
+      {
+        "date": "2026-01-29",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 9822.24
+      },
+      {
+        "date": "2026-01-30",
+        "regime": "BULL",
+        "vix": 17.4,
+        "value": 9795.71
+      },
+      {
+        "date": "2026-02-02",
+        "regime": "BULL",
+        "vix": 16.3,
+        "value": 9906.68
+      },
+      {
+        "date": "2026-02-03",
+        "regime": "BULL",
+        "vix": 18.0,
+        "value": 9852.84
+      },
+      {
+        "date": "2026-02-04",
+        "regime": "BULL",
+        "vix": 18.6,
+        "value": 9965.16
+      },
+      {
+        "date": "2026-02-05",
+        "regime": "CAUTIOUS",
+        "vix": 21.8,
+        "value": 9848.04
+      },
+      {
+        "date": "2026-02-06",
+        "regime": "CAUTIOUS",
+        "vix": 20.4,
+        "value": 9914.64
+      },
+      {
+        "date": "2026-02-09",
+        "regime": "BULL",
+        "vix": 17.4,
+        "value": 9910.37
+      },
+      {
+        "date": "2026-02-10",
+        "regime": "BULL",
+        "vix": 17.8,
+        "value": 10205.6
+      },
+      {
+        "date": "2026-02-11",
+        "regime": "BULL",
+        "vix": 17.6,
+        "value": 10302.46
+      },
+      {
+        "date": "2026-02-12",
+        "regime": "CAUTIOUS",
+        "vix": 20.8,
+        "value": 10068.7
+      },
+      {
+        "date": "2026-02-13",
+        "regime": "CAUTIOUS",
+        "vix": 20.6,
+        "value": 10187.71
+      },
+      {
+        "date": "2026-02-17",
+        "regime": "CAUTIOUS",
+        "vix": 20.3,
+        "value": 10202.7
+      },
+      {
+        "date": "2026-02-18",
+        "regime": "BULL",
+        "vix": 19.6,
+        "value": 10222.54
+      },
+      {
+        "date": "2026-02-19",
+        "regime": "CAUTIOUS",
+        "vix": 20.2,
+        "value": 10248.23
+      },
+      {
+        "date": "2026-02-20",
+        "regime": "BULL",
+        "vix": 19.1,
+        "value": 10265.8
+      },
+      {
+        "date": "2026-02-23",
+        "regime": "CAUTIOUS",
+        "vix": 21.0,
+        "value": 10239.2
+      },
+      {
+        "date": "2026-02-24",
+        "regime": "BULL",
+        "vix": 19.5,
+        "value": 10272.24
+      },
+      {
+        "date": "2026-02-25",
+        "regime": "BULL",
+        "vix": 17.9,
+        "value": 10311.11
+      },
+      {
+        "date": "2026-02-26",
+        "regime": "BULL",
+        "vix": 18.6,
+        "value": 10283.81
+      },
+      {
+        "date": "2026-02-27",
+        "regime": "BULL",
+        "vix": 19.9,
+        "value": 10254.63
+      },
+      {
+        "date": "2026-03-02",
+        "regime": "CAUTIOUS",
+        "vix": 21.4,
+        "value": 10363.12
+      },
+      {
+        "date": "2026-03-03",
+        "regime": "CAUTIOUS",
+        "vix": 23.6,
+        "value": 10201.06
+      },
+      {
+        "date": "2026-03-04",
+        "regime": "CAUTIOUS",
+        "vix": 21.1,
+        "value": 10163.47
+      },
+      {
+        "date": "2026-03-05",
+        "regime": "CAUTIOUS",
+        "vix": 23.8,
+        "value": 10052.29
+      },
+      {
+        "date": "2026-03-06",
+        "regime": "BEAR",
+        "vix": 29.5,
+        "value": 10036.66
+      },
+      {
+        "date": "2026-03-09",
+        "regime": "BEAR",
+        "vix": 25.5,
+        "value": 10065.7
+      },
+      {
+        "date": "2026-03-10",
+        "regime": "CAUTIOUS",
+        "vix": 24.9,
+        "value": 10095.94
+      },
+      {
+        "date": "2026-03-11",
+        "regime": "CAUTIOUS",
+        "vix": 24.2,
+        "value": 10164.64
+      },
+      {
+        "date": "2026-03-12",
+        "regime": "BEAR",
+        "vix": 27.3,
+        "value": 10193.28
+      },
+      {
+        "date": "2026-03-13",
+        "regime": "BEAR",
+        "vix": 27.2,
+        "value": 10172.39
+      },
+      {
+        "date": "2026-03-16",
+        "regime": "CAUTIOUS",
+        "vix": 23.5,
+        "value": 10175.95
+      },
+      {
+        "date": "2026-03-17",
+        "regime": "CAUTIOUS",
+        "vix": 22.4,
+        "value": 10215.24
+      },
+      {
+        "date": "2026-03-18",
+        "regime": "BEAR",
+        "vix": 25.1,
+        "value": 10201.09
+      },
+      {
+        "date": "2026-03-19",
+        "regime": "CAUTIOUS",
+        "vix": 24.1,
+        "value": 10200.42
+      },
+      {
+        "date": "2026-03-20",
+        "regime": "BEAR",
+        "vix": 26.8,
+        "value": 10051.91
+      }
+    ],
+    "long_trades": [
+      {
+        "ticker": "FITB",
+        "direction": "L",
+        "entry_date": "2026-01-21",
+        "exit_date": "2026-01-28",
+        "entry": 52.86,
+        "exit": 50.24,
+        "qty": 30.0611,
+        "pnl": -78.76,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "TRGP",
+        "direction": "L",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-01-29",
+        "entry": 184.15,
+        "exit": 200.51,
+        "qty": 8.1455,
+        "pnl": 133.25,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "MSCI",
+        "direction": "L",
+        "entry_date": "2026-01-28",
+        "exit_date": "2026-02-03",
+        "entry": 612.46,
+        "exit": 583.98,
+        "qty": 2.0135,
+        "pnl": -57.34,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "PNC",
+        "direction": "L",
+        "entry_date": "2026-01-21",
+        "exit_date": "2026-02-06",
+        "entry": 225.49,
+        "exit": 240.92,
+        "qty": 4.9329,
+        "pnl": 76.11,
+        "exit_type": "TGT",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "LUV",
+        "direction": "L",
+        "entry_date": "2026-01-29",
+        "exit_date": "2026-02-06",
+        "entry": 48.29,
+        "exit": 53.6,
+        "qty": 28.0315,
+        "pnl": 148.81,
+        "exit_type": "TGT",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "BIIB",
+        "direction": "L",
+        "entry_date": "2026-02-06",
+        "exit_date": "2026-02-10",
+        "entry": 201.18,
+        "exit": 189.73,
+        "qty": 5.1843,
+        "pnl": -59.36,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "MAR",
+        "direction": "L",
+        "entry_date": "2026-02-06",
+        "exit_date": "2026-02-10",
+        "entry": 332.6,
+        "exit": 354.7,
+        "qty": 3.1358,
+        "pnl": 69.31,
+        "exit_type": "TGT",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "KVUE",
+        "direction": "L",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-02-11",
+        "entry": 17.39,
+        "exit": 18.29,
+        "qty": 86.255,
+        "pnl": 77.6,
+        "exit_type": "TGT",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "Q",
+        "direction": "L",
+        "entry_date": "2026-02-10",
+        "exit_date": "2026-02-13",
+        "entry": 109.23,
+        "exit": 111.73,
+        "qty": 16.0285,
+        "pnl": 40.13,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "PH",
+        "direction": "L",
+        "entry_date": "2026-02-03",
+        "exit_date": "2026-02-24",
+        "entry": 962.54,
+        "exit": 1022.34,
+        "qty": 1.3507,
+        "pnl": 80.78,
+        "exit_type": "TGT",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "ROST",
+        "direction": "L",
+        "entry_date": "2026-02-10",
+        "exit_date": "2026-02-26",
+        "entry": 191.92,
+        "exit": 203.0,
+        "qty": 6.3857,
+        "pnl": 70.74,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "BLK",
+        "direction": "L",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-03-04",
+        "entry": 1103.9,
+        "exit": 1046.19,
+        "qty": 1.3588,
+        "pnl": -78.42,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "FCX",
+        "direction": "L",
+        "entry_date": "2026-02-24",
+        "exit_date": "2026-03-06",
+        "entry": 67.88,
+        "exit": 61.85,
+        "qty": 22.6931,
+        "pnl": -136.84,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "TKO",
+        "direction": "L",
+        "entry_date": "2026-02-26",
+        "exit_date": "2026-03-06",
+        "entry": 222.91,
+        "exit": 207.49,
+        "qty": 6.5858,
+        "pnl": -101.57,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "DVN",
+        "direction": "L",
+        "entry_date": "2026-03-06",
+        "exit_date": "2026-03-19",
+        "entry": 44.25,
+        "exit": 48.65,
+        "qty": 3.3706,
+        "pnl": 14.83,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "BG",
+        "direction": "L",
+        "entry_date": "2026-02-11",
+        "exit_date": "2026-03-21",
+        "entry": 121.33,
+        "exit": 118.15,
+        "qty": 10.9773,
+        "pnl": -34.94,
+        "exit_type": "EOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "HOLX",
+        "direction": "L",
+        "entry_date": "2026-02-13",
+        "exit_date": "2026-03-21",
+        "entry": 75.04,
+        "exit": 75.41,
+        "qty": 14.2534,
+        "pnl": 5.27,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "ROST",
+        "direction": "L",
+        "entry_date": "2026-03-04",
+        "exit_date": "2026-03-21",
+        "entry": 213.07,
+        "exit": 211.19,
+        "qty": 5.0116,
+        "pnl": -9.41,
+        "exit_type": "EOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "XOM",
+        "direction": "L",
+        "entry_date": "2026-03-06",
+        "exit_date": "2026-03-21",
+        "entry": 151.21,
+        "exit": 159.67,
+        "qty": 0.9863,
+        "pnl": 8.34,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "HAL",
+        "direction": "L",
+        "entry_date": "2026-03-19",
+        "exit_date": "2026-03-21",
+        "entry": 36.93,
+        "exit": 36.53,
+        "qty": 53.2286,
+        "pnl": -21.29,
+        "exit_type": "EOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      }
+    ],
+    "short_trades": [
+      {
+        "ticker": "NI",
+        "direction": "S",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-02-10",
+        "entry": 43.1,
+        "exit": 44.62,
+        "qty": 4.6399,
+        "pnl": -7.03,
+        "exit_type": "STOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE"
+        ]
+      },
+      {
+        "ticker": "RTX",
+        "direction": "S",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-03-02",
+        "entry": 195.71,
+        "exit": 205.49,
+        "qty": 1.0219,
+        "pnl": -9.99,
+        "exit_type": "STOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE"
+        ]
+      },
+      {
+        "ticker": "ROL",
+        "direction": "S",
+        "entry_date": "2026-02-12",
+        "exit_date": "2026-03-20",
+        "entry": 58.51,
+        "exit": 53.49,
+        "qty": 3.4735,
+        "pnl": 17.45,
+        "exit_type": "TGT",
+        "strategies": [
+          "BD",
+          "FB",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "QCOM",
+        "direction": "S",
+        "entry_date": "2026-02-05",
+        "exit_date": "2026-03-21",
+        "entry": 135.43,
+        "exit": 129.9,
+        "qty": 1.4688,
+        "pnl": 8.12,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "BE",
+          "EB"
+        ]
+      },
+      {
+        "ticker": "AES",
+        "direction": "S",
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-03-21",
+        "entry": 14.21,
+        "exit": 14.1,
+        "qty": 14.4497,
+        "pnl": 1.59,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "RR",
+          "FB",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "INCY",
+        "direction": "S",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 90.78,
+        "exit": 90.78,
+        "qty": 6.7068,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "BE",
+          "EB"
+        ]
+      }
+    ],
+    "opt_trades": [
+      {
+        "t": "NI",
+        "date": "2026-01-20",
+        "type": "BCS",
+        "pnl": -0.53
+      },
+      {
+        "t": "ECL",
+        "date": "2026-01-20",
+        "type": "IC",
+        "pnl": -2.7
+      },
+      {
+        "t": "KHC",
+        "date": "2026-01-21",
+        "type": "BCS",
+        "pnl": -0.25
+      },
+      {
+        "t": "PPL",
+        "date": "2026-01-22",
+        "type": "BCS",
+        "pnl": 0.26
+      },
+      {
+        "t": "SWK",
+        "date": "2026-01-23",
+        "type": "BCS",
+        "pnl": -1.3
+      },
+      {
+        "t": "ULTA",
+        "date": "2026-01-26",
+        "type": "BCS",
+        "pnl": 5.23
+      },
+      {
+        "t": "BRO",
+        "date": "2026-01-27",
+        "type": "BCS",
+        "pnl": 0.9
+      },
+      {
+        "t": "APH",
+        "date": "2026-01-28",
+        "type": "BCS",
+        "pnl": 1.65
+      },
+      {
+        "t": "NOW",
+        "date": "2026-01-29",
+        "type": "BCS",
+        "pnl": 1.52
+      },
+      {
+        "t": "MRNA",
+        "date": "2026-01-30",
+        "type": "BCS",
+        "pnl": -1.12
+      },
+      {
+        "t": "EQT",
+        "date": "2026-02-02",
+        "type": "BCS",
+        "pnl": -1.0
+      },
+      {
+        "t": "BR",
+        "date": "2026-02-03",
+        "type": "BCS",
+        "pnl": 2.13
+      },
+      {
+        "t": "BSX",
+        "date": "2026-02-04",
+        "type": "BCS",
+        "pnl": 0.8
+      },
+      {
+        "t": "QCOM",
+        "date": "2026-02-05",
+        "type": "BCS",
+        "pnl": 1.75
+      },
+      {
+        "t": "NI",
+        "date": "2026-02-05",
+        "type": "IC",
+        "pnl": -0.4
+      },
+      {
+        "t": "PGR",
+        "date": "2026-02-06",
+        "type": "BCS",
+        "pnl": 1.61
+      },
+      {
+        "t": "NI",
+        "date": "2026-02-06",
+        "type": "IC",
+        "pnl": -0.4
+      },
+      {
+        "t": "AIZ",
+        "date": "2026-02-09",
+        "type": "BCS",
+        "pnl": 2.47
+      },
+      {
+        "t": "RMD",
+        "date": "2026-02-10",
+        "type": "BCS",
+        "pnl": 2.43
+      },
+      {
+        "t": "BEN",
+        "date": "2026-02-11",
+        "type": "BCS",
+        "pnl": 0.32
+      },
+      {
+        "t": "PH",
+        "date": "2026-02-12",
+        "type": "BCS",
+        "pnl": 6.67
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-12",
+        "type": "IC",
+        "pnl": 1.45
+      },
+      {
+        "t": "BF-B",
+        "date": "2026-02-13",
+        "type": "BCS",
+        "pnl": 0.18
+      },
+      {
+        "t": "APH",
+        "date": "2026-02-13",
+        "type": "IC",
+        "pnl": -0.75
+      },
+      {
+        "t": "ALLE",
+        "date": "2026-02-17",
+        "type": "BCS",
+        "pnl": 1.7
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-17",
+        "type": "IC",
+        "pnl": 1.23
+      },
+      {
+        "t": "NI",
+        "date": "2026-02-18",
+        "type": "BCS",
+        "pnl": -0.36
+      },
+      {
+        "t": "LUV",
+        "date": "2026-02-19",
+        "type": "BCS",
+        "pnl": 0.81
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-19",
+        "type": "IC",
+        "pnl": 1.56
+      },
+      {
+        "t": "CVX",
+        "date": "2026-02-20",
+        "type": "BCS",
+        "pnl": -2.37
+      },
+      {
+        "t": "BLK",
+        "date": "2026-02-23",
+        "type": "BCS",
+        "pnl": 14.09
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-23",
+        "type": "IC",
+        "pnl": 1.74
+      },
+      {
+        "t": "CVS",
+        "date": "2026-02-24",
+        "type": "BCS",
+        "pnl": 1.47
+      },
+      {
+        "t": "AVY",
+        "date": "2026-02-25",
+        "type": "BCS",
+        "pnl": 1.46
+      },
+      {
+        "t": "UHS",
+        "date": "2026-02-26",
+        "type": "BCS",
+        "pnl": 1.94
+      },
+      {
+        "t": "AXP",
+        "date": "2026-02-27",
+        "type": "BCS",
+        "pnl": 2.73
+      },
+      {
+        "t": "ECL",
+        "date": "2026-03-02",
+        "type": "BCS",
+        "pnl": 2.59
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-02",
+        "type": "IC",
+        "pnl": -10.1
+      },
+      {
+        "t": "CSX",
+        "date": "2026-03-03",
+        "type": "BCS",
+        "pnl": 0.26
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-03",
+        "type": "IC",
+        "pnl": -9.9
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-04",
+        "type": "IC",
+        "pnl": -9.9
+      },
+      {
+        "t": "ETR",
+        "date": "2026-03-05",
+        "type": "BCS",
+        "pnl": 0.96
+      },
+      {
+        "t": "NWS",
+        "date": "2026-03-05",
+        "type": "IC",
+        "pnl": 0.83
+      },
+      {
+        "t": "MTCH",
+        "date": "2026-03-06",
+        "type": "BCS",
+        "pnl": -0.36
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-06",
+        "type": "IC",
+        "pnl": 0.47
+      },
+      {
+        "t": "BR",
+        "date": "2026-03-09",
+        "type": "BCS",
+        "pnl": 1.62
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-09",
+        "type": "IC",
+        "pnl": 5.58
+      },
+      {
+        "t": "APP",
+        "date": "2026-03-10",
+        "type": "BCS",
+        "pnl": 8.74
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-10",
+        "type": "IC",
+        "pnl": 5.34
+      },
+      {
+        "t": "FICO",
+        "date": "2026-03-11",
+        "type": "BCS",
+        "pnl": 21.44
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-11",
+        "type": "IC",
+        "pnl": 5.85
+      },
+      {
+        "t": "SBUX",
+        "date": "2026-03-12",
+        "type": "BCS",
+        "pnl": 1.09
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-12",
+        "type": "IC",
+        "pnl": 0.5
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-13",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "IT",
+        "date": "2026-03-16",
+        "type": "BCS",
+        "pnl": 3.0
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-16",
+        "type": "IC",
+        "pnl": 0.52
+      },
+      {
+        "t": "AVGO",
+        "date": "2026-03-17",
+        "type": "BCS",
+        "pnl": 5.46
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-17",
+        "type": "IC",
+        "pnl": 5.4
+      },
+      {
+        "t": "AXP",
+        "date": "2026-03-18",
+        "type": "BCS",
+        "pnl": 5.03
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-18",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-19",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "INCY",
+        "date": "2026-03-20",
+        "type": "BCS",
+        "pnl": 1.28
+      },
+      {
+        "t": "ORCL",
+        "date": "2026-03-20",
+        "type": "IC",
+        "pnl": 5.26
+      }
+    ]
+  },
+  "90d": {
+    "period": "2025-12-21 \u2192 2026-03-21",
+    "days": 61,
+    "tickers": 512,
+    "total_return": -2.28,
+    "total_pnl": -227.58,
+    "final_value": 9772.42,
+    "spy_return": -5.04,
+    "alpha": 2.76,
+    "trades": 118,
+    "wins": 75,
+    "losses": 43,
+    "win_rate": 63.6,
+    "long_pnl": -254.16,
+    "short_pnl": 10.07,
+    "bcs_pnl": 13.34,
+    "ic_pnl": 3.17,
+    "regime_breakdown": {
+      "BEAR": 6,
+      "BULL": 38,
+      "CAUTIOUS": 17
+    },
+    "equity_curve": [
+      {
+        "date": "2025-12-22",
+        "regime": "BULL",
+        "vix": 14.1,
+        "value": 9997.94
+      },
+      {
+        "date": "2025-12-23",
+        "regime": "BULL",
+        "vix": 14.0,
+        "value": 9905.64
+      },
+      {
+        "date": "2025-12-24",
+        "regime": "BULL",
+        "vix": 13.5,
+        "value": 9937.89
+      },
+      {
+        "date": "2025-12-26",
+        "regime": "BULL",
+        "vix": 13.6,
+        "value": 9908.39
+      },
+      {
+        "date": "2025-12-29",
+        "regime": "BULL",
+        "vix": 14.2,
+        "value": 9901.4
+      },
+      {
+        "date": "2025-12-30",
+        "regime": "BULL",
+        "vix": 14.3,
+        "value": 9825.16
+      },
+      {
+        "date": "2025-12-31",
+        "regime": "BULL",
+        "vix": 14.9,
+        "value": 9748.16
+      },
+      {
+        "date": "2026-01-02",
+        "regime": "BULL",
+        "vix": 14.5,
+        "value": 9863.63
+      },
+      {
+        "date": "2026-01-05",
+        "regime": "BULL",
+        "vix": 14.9,
+        "value": 9827.29
+      },
+      {
+        "date": "2026-01-06",
+        "regime": "BULL",
+        "vix": 14.8,
+        "value": 9799.14
+      },
+      {
+        "date": "2026-01-07",
+        "regime": "BULL",
+        "vix": 15.4,
+        "value": 9628.23
+      },
+      {
+        "date": "2026-01-08",
+        "regime": "BULL",
+        "vix": 15.4,
+        "value": 9658.21
+      },
+      {
+        "date": "2026-01-09",
+        "regime": "BULL",
+        "vix": 14.5,
+        "value": 9710.44
+      },
+      {
+        "date": "2026-01-12",
+        "regime": "BULL",
+        "vix": 15.1,
+        "value": 9675.43
+      },
+      {
+        "date": "2026-01-13",
+        "regime": "BULL",
+        "vix": 16.0,
+        "value": 9648.41
+      },
+      {
+        "date": "2026-01-14",
+        "regime": "BULL",
+        "vix": 16.8,
+        "value": 9670.49
+      },
+      {
+        "date": "2026-01-15",
+        "regime": "BULL",
+        "vix": 15.8,
+        "value": 9805.33
+      },
+      {
+        "date": "2026-01-16",
+        "regime": "BULL",
+        "vix": 15.9,
+        "value": 9832.16
+      },
+      {
+        "date": "2026-01-20",
+        "regime": "CAUTIOUS",
+        "vix": 20.1,
+        "value": 9555.68
+      },
+      {
+        "date": "2026-01-21",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 9635.35
+      },
+      {
+        "date": "2026-01-22",
+        "regime": "BULL",
+        "vix": 15.6,
+        "value": 9614.78
+      },
+      {
+        "date": "2026-01-23",
+        "regime": "BULL",
+        "vix": 16.1,
+        "value": 9585.56
+      },
+      {
+        "date": "2026-01-26",
+        "regime": "BULL",
+        "vix": 16.1,
+        "value": 9662.19
+      },
+      {
+        "date": "2026-01-27",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 9726.93
+      },
+      {
+        "date": "2026-01-28",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 9661.78
+      },
+      {
+        "date": "2026-01-29",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 9661.47
+      },
+      {
+        "date": "2026-01-30",
+        "regime": "BULL",
+        "vix": 17.4,
+        "value": 9624.22
+      },
+      {
+        "date": "2026-02-02",
+        "regime": "BULL",
+        "vix": 16.3,
+        "value": 9760.91
+      },
+      {
+        "date": "2026-02-03",
+        "regime": "BULL",
+        "vix": 18.0,
+        "value": 9751.48
+      },
+      {
+        "date": "2026-02-04",
+        "regime": "BULL",
+        "vix": 18.6,
+        "value": 9734.6
+      },
+      {
+        "date": "2026-02-05",
+        "regime": "CAUTIOUS",
+        "vix": 21.8,
+        "value": 9697.91
+      },
+      {
+        "date": "2026-02-06",
+        "regime": "CAUTIOUS",
+        "vix": 20.4,
+        "value": 9794.45
+      },
+      {
+        "date": "2026-02-09",
+        "regime": "BULL",
+        "vix": 17.4,
+        "value": 9699.92
+      },
+      {
+        "date": "2026-02-10",
+        "regime": "BULL",
+        "vix": 17.8,
+        "value": 9958.06
+      },
+      {
+        "date": "2026-02-11",
+        "regime": "BULL",
+        "vix": 17.6,
+        "value": 10131.49
+      },
+      {
+        "date": "2026-02-12",
+        "regime": "CAUTIOUS",
+        "vix": 20.8,
+        "value": 9875.62
+      },
+      {
+        "date": "2026-02-13",
+        "regime": "CAUTIOUS",
+        "vix": 20.6,
+        "value": 9963.13
+      },
+      {
+        "date": "2026-02-17",
+        "regime": "CAUTIOUS",
+        "vix": 20.3,
+        "value": 9951.66
+      },
+      {
+        "date": "2026-02-18",
+        "regime": "BULL",
+        "vix": 19.6,
+        "value": 9921.62
+      },
+      {
+        "date": "2026-02-19",
+        "regime": "CAUTIOUS",
+        "vix": 20.2,
+        "value": 9900.88
+      },
+      {
+        "date": "2026-02-20",
+        "regime": "BULL",
+        "vix": 19.1,
+        "value": 9972.08
+      },
+      {
+        "date": "2026-02-23",
+        "regime": "CAUTIOUS",
+        "vix": 21.0,
+        "value": 9933.51
+      },
+      {
+        "date": "2026-02-24",
+        "regime": "BULL",
+        "vix": 19.5,
+        "value": 9975.36
+      },
+      {
+        "date": "2026-02-25",
+        "regime": "BULL",
+        "vix": 17.9,
+        "value": 10075.23
+      },
+      {
+        "date": "2026-02-26",
+        "regime": "BULL",
+        "vix": 18.6,
+        "value": 10027.66
+      },
+      {
+        "date": "2026-02-27",
+        "regime": "BULL",
+        "vix": 19.9,
+        "value": 10007.53
+      },
+      {
+        "date": "2026-03-02",
+        "regime": "CAUTIOUS",
+        "vix": 21.4,
+        "value": 10072.78
+      },
+      {
+        "date": "2026-03-03",
+        "regime": "CAUTIOUS",
+        "vix": 23.6,
+        "value": 9966.33
+      },
+      {
+        "date": "2026-03-04",
+        "regime": "CAUTIOUS",
+        "vix": 21.1,
+        "value": 9956.21
+      },
+      {
+        "date": "2026-03-05",
+        "regime": "CAUTIOUS",
+        "vix": 23.8,
+        "value": 9804.32
+      },
+      {
+        "date": "2026-03-06",
+        "regime": "BEAR",
+        "vix": 29.5,
+        "value": 9782.05
+      },
+      {
+        "date": "2026-03-09",
+        "regime": "BEAR",
+        "vix": 25.5,
+        "value": 9824.16
+      },
+      {
+        "date": "2026-03-10",
+        "regime": "CAUTIOUS",
+        "vix": 24.9,
+        "value": 9798.57
+      },
+      {
+        "date": "2026-03-11",
+        "regime": "CAUTIOUS",
+        "vix": 24.2,
+        "value": 9833.61
+      },
+      {
+        "date": "2026-03-12",
+        "regime": "BEAR",
+        "vix": 27.3,
+        "value": 9854.22
+      },
+      {
+        "date": "2026-03-13",
+        "regime": "BEAR",
+        "vix": 27.2,
+        "value": 9850.29
+      },
+      {
+        "date": "2026-03-16",
+        "regime": "CAUTIOUS",
+        "vix": 23.5,
+        "value": 9832.95
+      },
+      {
+        "date": "2026-03-17",
+        "regime": "CAUTIOUS",
+        "vix": 22.4,
+        "value": 9885.26
+      },
+      {
+        "date": "2026-03-18",
+        "regime": "BEAR",
+        "vix": 25.1,
+        "value": 9852.29
+      },
+      {
+        "date": "2026-03-19",
+        "regime": "CAUTIOUS",
+        "vix": 24.1,
+        "value": 9748.16
+      },
+      {
+        "date": "2026-03-20",
+        "regime": "BEAR",
+        "vix": 26.8,
+        "value": 9581.21
+      }
+    ],
+    "long_trades": [
+      {
+        "ticker": "GILD",
+        "direction": "L",
+        "entry_date": "2025-12-22",
+        "exit_date": "2026-01-05",
+        "entry": 123.46,
+        "exit": 117.75,
+        "qty": 17.0097,
+        "pnl": -97.11,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "FSLR",
+        "direction": "L",
+        "entry_date": "2025-12-22",
+        "exit_date": "2026-01-07",
+        "entry": 284.59,
+        "exit": 260.41,
+        "qty": 7.379,
+        "pnl": -178.43,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "PH",
+        "direction": "L",
+        "entry_date": "2025-12-22",
+        "exit_date": "2026-01-13",
+        "entry": 884.82,
+        "exit": 933.57,
+        "qty": 1.9665,
+        "pnl": 95.87,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "BAC",
+        "direction": "L",
+        "entry_date": "2026-01-05",
+        "exit_date": "2026-01-13",
+        "entry": 56.57,
+        "exit": 54.83,
+        "qty": 21.1678,
+        "pnl": -36.84,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "BIIB",
+        "direction": "L",
+        "entry_date": "2026-01-07",
+        "exit_date": "2026-01-13",
+        "entry": 186.91,
+        "exit": 178.45,
+        "qty": 7.4224,
+        "pnl": -62.79,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "IR",
+        "direction": "L",
+        "entry_date": "2025-12-23",
+        "exit_date": "2026-01-15",
+        "entry": 81.43,
+        "exit": 87.0,
+        "qty": 10.4648,
+        "pnl": 58.27,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "ED",
+        "direction": "L",
+        "entry_date": "2026-01-13",
+        "exit_date": "2026-01-20",
+        "entry": 99.43,
+        "exit": 103.94,
+        "qty": 20.3504,
+        "pnl": 91.8,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "APH",
+        "direction": "L",
+        "entry_date": "2026-01-13",
+        "exit_date": "2026-01-27",
+        "entry": 148.97,
+        "exit": 161.3,
+        "qty": 11.1527,
+        "pnl": 137.51,
+        "exit_type": "TGT",
+        "strategies": [
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "BLK",
+        "direction": "L",
+        "entry_date": "2026-01-15",
+        "exit_date": "2026-01-27",
+        "entry": 1150.25,
+        "exit": 1101.84,
+        "qty": 0.9467,
+        "pnl": -45.83,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "EW",
+        "direction": "L",
+        "entry_date": "2025-12-23",
+        "exit_date": "2026-01-28",
+        "entry": 86.23,
+        "exit": 82.76,
+        "qty": 14.1179,
+        "pnl": -48.99,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "TRGP",
+        "direction": "L",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-01-29",
+        "entry": 184.15,
+        "exit": 200.51,
+        "qty": 5.565,
+        "pnl": 91.03,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "MSCI",
+        "direction": "L",
+        "entry_date": "2026-01-28",
+        "exit_date": "2026-02-03",
+        "entry": 612.46,
+        "exit": 583.98,
+        "qty": 2.08,
+        "pnl": -59.23,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "CAH",
+        "direction": "L",
+        "entry_date": "2026-01-13",
+        "exit_date": "2026-02-05",
+        "entry": 208.26,
+        "exit": 220.16,
+        "qty": 5.5843,
+        "pnl": 66.45,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "LUV",
+        "direction": "L",
+        "entry_date": "2026-01-29",
+        "exit_date": "2026-02-06",
+        "entry": 48.29,
+        "exit": 53.6,
+        "qty": 25.4081,
+        "pnl": 134.88,
+        "exit_type": "TGT",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "GM",
+        "direction": "L",
+        "entry_date": "2026-01-27",
+        "exit_date": "2026-02-09",
+        "entry": 86.18,
+        "exit": 80.91,
+        "qty": 21.8617,
+        "pnl": -115.12,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "BIIB",
+        "direction": "L",
+        "entry_date": "2026-02-06",
+        "exit_date": "2026-02-10",
+        "entry": 201.18,
+        "exit": 189.73,
+        "qty": 5.117,
+        "pnl": -58.59,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "UDR",
+        "direction": "L",
+        "entry_date": "2026-02-09",
+        "exit_date": "2026-02-13",
+        "entry": 37.75,
+        "exit": 38.16,
+        "qty": 40.2058,
+        "pnl": 16.54,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "Q",
+        "direction": "L",
+        "entry_date": "2026-02-10",
+        "exit_date": "2026-02-13",
+        "entry": 109.23,
+        "exit": 111.73,
+        "qty": 12.9171,
+        "pnl": 32.34,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "PH",
+        "direction": "L",
+        "entry_date": "2026-02-03",
+        "exit_date": "2026-02-24",
+        "entry": 962.54,
+        "exit": 1022.34,
+        "qty": 1.2707,
+        "pnl": 75.99,
+        "exit_type": "TGT",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "TPR",
+        "direction": "L",
+        "entry_date": "2026-02-05",
+        "exit_date": "2026-02-26",
+        "entry": 142.81,
+        "exit": 157.3,
+        "qty": 7.2306,
+        "pnl": 104.79,
+        "exit_type": "TGT",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "F",
+        "direction": "L",
+        "entry_date": "2026-02-13",
+        "exit_date": "2026-03-02",
+        "entry": 14.12,
+        "exit": 13.5,
+        "qty": 74.0602,
+        "pnl": -45.92,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "FCX",
+        "direction": "L",
+        "entry_date": "2026-02-24",
+        "exit_date": "2026-03-06",
+        "entry": 67.88,
+        "exit": 61.85,
+        "qty": 23.8942,
+        "pnl": -144.08,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "TKO",
+        "direction": "L",
+        "entry_date": "2026-02-26",
+        "exit_date": "2026-03-06",
+        "entry": 222.91,
+        "exit": 207.49,
+        "qty": 6.6279,
+        "pnl": -102.22,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "T",
+        "direction": "L",
+        "entry_date": "2026-03-06",
+        "exit_date": "2026-03-11",
+        "entry": 28.64,
+        "exit": 27.35,
+        "qty": 5.0725,
+        "pnl": -6.54,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "HCA",
+        "direction": "L",
+        "entry_date": "2026-01-27",
+        "exit_date": "2026-03-16",
+        "entry": 505.09,
+        "exit": 527.91,
+        "qty": 2.611,
+        "pnl": 59.58,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "LHX",
+        "direction": "L",
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-03-20",
+        "entry": 377.17,
+        "exit": 356.4,
+        "qty": 2.7756,
+        "pnl": -57.64,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "ADM",
+        "direction": "L",
+        "entry_date": "2026-03-11",
+        "exit_date": "2026-03-20",
+        "entry": 70.83,
+        "exit": 66.58,
+        "qty": 26.2098,
+        "pnl": -111.39,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "VTR",
+        "direction": "L",
+        "entry_date": "2026-03-16",
+        "exit_date": "2026-03-20",
+        "entry": 87.79,
+        "exit": 84.64,
+        "qty": 19.6131,
+        "pnl": -61.78,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "HOLX",
+        "direction": "L",
+        "entry_date": "2026-02-13",
+        "exit_date": "2026-03-21",
+        "entry": 75.04,
+        "exit": 75.41,
+        "qty": 13.9356,
+        "pnl": 5.16,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "XOM",
+        "direction": "L",
+        "entry_date": "2026-03-06",
+        "exit_date": "2026-03-21",
+        "entry": 151.21,
+        "exit": 159.67,
+        "qty": 0.9608,
+        "pnl": 8.13,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "ROST",
+        "direction": "L",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 211.19,
+        "exit": 211.19,
+        "qty": 0.682,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "TRGP",
+        "direction": "L",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 237.41,
+        "exit": 237.41,
+        "qty": 0.6066,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "OKE",
+        "direction": "L",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 89.21,
+        "exit": 89.21,
+        "qty": 1.6144,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR"
+        ]
+      }
+    ],
+    "short_trades": [
+      {
+        "ticker": "NI",
+        "direction": "S",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-02-10",
+        "entry": 43.1,
+        "exit": 44.62,
+        "qty": 4.5286,
+        "pnl": -6.86,
+        "exit_type": "STOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE"
+        ]
+      },
+      {
+        "ticker": "RTX",
+        "direction": "S",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-03-02",
+        "entry": 195.71,
+        "exit": 205.49,
+        "qty": 0.9974,
+        "pnl": -9.75,
+        "exit_type": "STOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE"
+        ]
+      },
+      {
+        "ticker": "ROL",
+        "direction": "S",
+        "entry_date": "2026-02-12",
+        "exit_date": "2026-03-20",
+        "entry": 58.51,
+        "exit": 53.49,
+        "qty": 3.4069,
+        "pnl": 17.11,
+        "exit_type": "TGT",
+        "strategies": [
+          "BD",
+          "FB",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "QCOM",
+        "direction": "S",
+        "entry_date": "2026-02-05",
+        "exit_date": "2026-03-21",
+        "entry": 135.43,
+        "exit": 129.9,
+        "qty": 1.4523,
+        "pnl": 8.03,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "BE",
+          "EB"
+        ]
+      },
+      {
+        "ticker": "AES",
+        "direction": "S",
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-03-21",
+        "entry": 14.21,
+        "exit": 14.1,
+        "qty": 14.0323,
+        "pnl": 1.54,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "RR",
+          "FB",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "INCY",
+        "direction": "S",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 90.78,
+        "exit": 90.78,
+        "qty": 6.3461,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "BE",
+          "EB"
+        ]
+      }
+    ],
+    "opt_trades": [
+      {
+        "t": "DLTR",
+        "date": "2025-12-22",
+        "type": "BCS",
+        "pnl": -2.06
+      },
+      {
+        "t": "UAL",
+        "date": "2025-12-23",
+        "type": "BCS",
+        "pnl": 1.12
+      },
+      {
+        "t": "STLD",
+        "date": "2025-12-29",
+        "type": "BCS",
+        "pnl": -2.06
+      },
+      {
+        "t": "ICE",
+        "date": "2025-12-30",
+        "type": "BCS",
+        "pnl": -1.38
+      },
+      {
+        "t": "AVB",
+        "date": "2025-12-31",
+        "type": "BCS",
+        "pnl": 0.83
+      },
+      {
+        "t": "WDAY",
+        "date": "2026-01-02",
+        "type": "BCS",
+        "pnl": 1.75
+      },
+      {
+        "t": "KHC",
+        "date": "2026-01-05",
+        "type": "BCS",
+        "pnl": 0.13
+      },
+      {
+        "t": "NVR",
+        "date": "2026-01-06",
+        "type": "BCS",
+        "pnl": -91.37
+      },
+      {
+        "t": "DVA",
+        "date": "2026-01-07",
+        "type": "BCS",
+        "pnl": 1.1
+      },
+      {
+        "t": "INCY",
+        "date": "2026-01-08",
+        "type": "BCS",
+        "pnl": 0.86
+      },
+      {
+        "t": "HAS",
+        "date": "2026-01-09",
+        "type": "BCS",
+        "pnl": -1.04
+      },
+      {
+        "t": "MAR",
+        "date": "2026-01-12",
+        "type": "BCS",
+        "pnl": 2.43
+      },
+      {
+        "t": "SNPS",
+        "date": "2026-01-13",
+        "type": "BCS",
+        "pnl": 5.3
+      },
+      {
+        "t": "BBY",
+        "date": "2026-01-14",
+        "type": "BCS",
+        "pnl": 0.58
+      },
+      {
+        "t": "MRNA",
+        "date": "2026-01-15",
+        "type": "BCS",
+        "pnl": -0.72
+      },
+      {
+        "t": "MMM",
+        "date": "2026-01-16",
+        "type": "BCS",
+        "pnl": 1.57
+      },
+      {
+        "t": "NI",
+        "date": "2026-01-20",
+        "type": "BCS",
+        "pnl": -0.53
+      },
+      {
+        "t": "ECL",
+        "date": "2026-01-20",
+        "type": "IC",
+        "pnl": -2.7
+      },
+      {
+        "t": "KHC",
+        "date": "2026-01-21",
+        "type": "BCS",
+        "pnl": -0.25
+      },
+      {
+        "t": "PPL",
+        "date": "2026-01-22",
+        "type": "BCS",
+        "pnl": 0.26
+      },
+      {
+        "t": "SWK",
+        "date": "2026-01-23",
+        "type": "BCS",
+        "pnl": -1.3
+      },
+      {
+        "t": "ULTA",
+        "date": "2026-01-26",
+        "type": "BCS",
+        "pnl": 5.23
+      },
+      {
+        "t": "BRO",
+        "date": "2026-01-27",
+        "type": "BCS",
+        "pnl": 0.9
+      },
+      {
+        "t": "APH",
+        "date": "2026-01-28",
+        "type": "BCS",
+        "pnl": 1.65
+      },
+      {
+        "t": "NOW",
+        "date": "2026-01-29",
+        "type": "BCS",
+        "pnl": 1.52
+      },
+      {
+        "t": "MRNA",
+        "date": "2026-01-30",
+        "type": "BCS",
+        "pnl": -1.12
+      },
+      {
+        "t": "EQT",
+        "date": "2026-02-02",
+        "type": "BCS",
+        "pnl": -1.0
+      },
+      {
+        "t": "BR",
+        "date": "2026-02-03",
+        "type": "BCS",
+        "pnl": 2.13
+      },
+      {
+        "t": "BSX",
+        "date": "2026-02-04",
+        "type": "BCS",
+        "pnl": 0.8
+      },
+      {
+        "t": "QCOM",
+        "date": "2026-02-05",
+        "type": "BCS",
+        "pnl": 1.75
+      },
+      {
+        "t": "NI",
+        "date": "2026-02-05",
+        "type": "IC",
+        "pnl": -0.4
+      },
+      {
+        "t": "PGR",
+        "date": "2026-02-06",
+        "type": "BCS",
+        "pnl": 1.61
+      },
+      {
+        "t": "NI",
+        "date": "2026-02-06",
+        "type": "IC",
+        "pnl": -0.4
+      },
+      {
+        "t": "AIZ",
+        "date": "2026-02-09",
+        "type": "BCS",
+        "pnl": 2.47
+      },
+      {
+        "t": "RMD",
+        "date": "2026-02-10",
+        "type": "BCS",
+        "pnl": 2.43
+      },
+      {
+        "t": "BEN",
+        "date": "2026-02-11",
+        "type": "BCS",
+        "pnl": 0.32
+      },
+      {
+        "t": "PH",
+        "date": "2026-02-12",
+        "type": "BCS",
+        "pnl": 6.67
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-12",
+        "type": "IC",
+        "pnl": 1.45
+      },
+      {
+        "t": "BF-B",
+        "date": "2026-02-13",
+        "type": "BCS",
+        "pnl": 0.18
+      },
+      {
+        "t": "APH",
+        "date": "2026-02-13",
+        "type": "IC",
+        "pnl": -0.75
+      },
+      {
+        "t": "ALLE",
+        "date": "2026-02-17",
+        "type": "BCS",
+        "pnl": 1.7
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-17",
+        "type": "IC",
+        "pnl": 1.23
+      },
+      {
+        "t": "NI",
+        "date": "2026-02-18",
+        "type": "BCS",
+        "pnl": -0.36
+      },
+      {
+        "t": "LUV",
+        "date": "2026-02-19",
+        "type": "BCS",
+        "pnl": 0.81
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-19",
+        "type": "IC",
+        "pnl": 1.56
+      },
+      {
+        "t": "CVX",
+        "date": "2026-02-20",
+        "type": "BCS",
+        "pnl": -2.37
+      },
+      {
+        "t": "BLK",
+        "date": "2026-02-23",
+        "type": "BCS",
+        "pnl": 14.09
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-23",
+        "type": "IC",
+        "pnl": 1.74
+      },
+      {
+        "t": "CVS",
+        "date": "2026-02-24",
+        "type": "BCS",
+        "pnl": 1.47
+      },
+      {
+        "t": "AVY",
+        "date": "2026-02-25",
+        "type": "BCS",
+        "pnl": 1.46
+      },
+      {
+        "t": "UHS",
+        "date": "2026-02-26",
+        "type": "BCS",
+        "pnl": 1.94
+      },
+      {
+        "t": "AXP",
+        "date": "2026-02-27",
+        "type": "BCS",
+        "pnl": 2.73
+      },
+      {
+        "t": "ECL",
+        "date": "2026-03-02",
+        "type": "BCS",
+        "pnl": 2.59
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-02",
+        "type": "IC",
+        "pnl": -10.1
+      },
+      {
+        "t": "CSX",
+        "date": "2026-03-03",
+        "type": "BCS",
+        "pnl": 0.26
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-03",
+        "type": "IC",
+        "pnl": -9.9
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-04",
+        "type": "IC",
+        "pnl": -9.9
+      },
+      {
+        "t": "ETR",
+        "date": "2026-03-05",
+        "type": "BCS",
+        "pnl": 0.96
+      },
+      {
+        "t": "NWS",
+        "date": "2026-03-05",
+        "type": "IC",
+        "pnl": 0.83
+      },
+      {
+        "t": "MTCH",
+        "date": "2026-03-06",
+        "type": "BCS",
+        "pnl": -0.36
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-06",
+        "type": "IC",
+        "pnl": 0.47
+      },
+      {
+        "t": "BR",
+        "date": "2026-03-09",
+        "type": "BCS",
+        "pnl": 1.62
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-09",
+        "type": "IC",
+        "pnl": 5.58
+      },
+      {
+        "t": "APP",
+        "date": "2026-03-10",
+        "type": "BCS",
+        "pnl": 8.74
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-10",
+        "type": "IC",
+        "pnl": 5.34
+      },
+      {
+        "t": "FICO",
+        "date": "2026-03-11",
+        "type": "BCS",
+        "pnl": 21.44
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-11",
+        "type": "IC",
+        "pnl": 5.85
+      },
+      {
+        "t": "SBUX",
+        "date": "2026-03-12",
+        "type": "BCS",
+        "pnl": 1.09
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-12",
+        "type": "IC",
+        "pnl": 0.5
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-13",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "IT",
+        "date": "2026-03-16",
+        "type": "BCS",
+        "pnl": 3.0
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-16",
+        "type": "IC",
+        "pnl": 0.52
+      },
+      {
+        "t": "AVGO",
+        "date": "2026-03-17",
+        "type": "BCS",
+        "pnl": 5.46
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-17",
+        "type": "IC",
+        "pnl": 5.4
+      },
+      {
+        "t": "AXP",
+        "date": "2026-03-18",
+        "type": "BCS",
+        "pnl": 5.03
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-18",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-19",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "INCY",
+        "date": "2026-03-20",
+        "type": "BCS",
+        "pnl": 1.28
+      },
+      {
+        "t": "ORCL",
+        "date": "2026-03-20",
+        "type": "IC",
+        "pnl": 5.26
+      }
+    ]
+  },
+  "120d": {
+    "period": "2025-11-21 \u2192 2026-03-21",
+    "days": 81,
+    "tickers": 511,
+    "total_return": 1.14,
+    "total_pnl": 114.43,
+    "final_value": 10114.43,
+    "spy_return": -1.03,
+    "alpha": 2.17,
+    "trades": 146,
+    "wins": 93,
+    "losses": 53,
+    "win_rate": 63.7,
+    "long_pnl": 117.15,
+    "short_pnl": -11.91,
+    "bcs_pnl": 5.62,
+    "ic_pnl": 3.57,
+    "regime_breakdown": {
+      "BEAR": 6,
+      "BULL": 56,
+      "CAUTIOUS": 19
+    },
+    "equity_curve": [
+      {
+        "date": "2025-11-21",
+        "regime": "CAUTIOUS",
+        "vix": 23.4,
+        "value": 10000.14
+      },
+      {
+        "date": "2025-11-24",
+        "regime": "CAUTIOUS",
+        "vix": 20.5,
+        "value": 9836.06
+      },
+      {
+        "date": "2025-11-25",
+        "regime": "BULL",
+        "vix": 18.6,
+        "value": 9907.68
+      },
+      {
+        "date": "2025-11-26",
+        "regime": "BULL",
+        "vix": 17.2,
+        "value": 9939.21
+      },
+      {
+        "date": "2025-11-28",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 9942.32
+      },
+      {
+        "date": "2025-12-01",
+        "regime": "BULL",
+        "vix": 17.2,
+        "value": 9862.61
+      },
+      {
+        "date": "2025-12-02",
+        "regime": "BULL",
+        "vix": 16.6,
+        "value": 9847.77
+      },
+      {
+        "date": "2025-12-03",
+        "regime": "BULL",
+        "vix": 16.1,
+        "value": 9916.76
+      },
+      {
+        "date": "2025-12-04",
+        "regime": "BULL",
+        "vix": 15.8,
+        "value": 9865.09
+      },
+      {
+        "date": "2025-12-05",
+        "regime": "BULL",
+        "vix": 15.4,
+        "value": 9900.46
+      },
+      {
+        "date": "2025-12-08",
+        "regime": "BULL",
+        "vix": 16.7,
+        "value": 9873.35
+      },
+      {
+        "date": "2025-12-09",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 9910.92
+      },
+      {
+        "date": "2025-12-10",
+        "regime": "BULL",
+        "vix": 15.8,
+        "value": 10094.35
+      },
+      {
+        "date": "2025-12-11",
+        "regime": "BULL",
+        "vix": 14.9,
+        "value": 10217.19
+      },
+      {
+        "date": "2025-12-12",
+        "regime": "BULL",
+        "vix": 15.7,
+        "value": 10353.67
+      },
+      {
+        "date": "2025-12-15",
+        "regime": "BULL",
+        "vix": 16.5,
+        "value": 10414.27
+      },
+      {
+        "date": "2025-12-16",
+        "regime": "BULL",
+        "vix": 16.5,
+        "value": 10487.31
+      },
+      {
+        "date": "2025-12-17",
+        "regime": "BULL",
+        "vix": 17.6,
+        "value": 10497.85
+      },
+      {
+        "date": "2025-12-18",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 10471.36
+      },
+      {
+        "date": "2025-12-19",
+        "regime": "BULL",
+        "vix": 14.9,
+        "value": 10487.9
+      },
+      {
+        "date": "2025-12-22",
+        "regime": "BULL",
+        "vix": 14.1,
+        "value": 10517.4
+      },
+      {
+        "date": "2025-12-23",
+        "regime": "BULL",
+        "vix": 14.0,
+        "value": 10488.89
+      },
+      {
+        "date": "2025-12-24",
+        "regime": "BULL",
+        "vix": 13.5,
+        "value": 10519.81
+      },
+      {
+        "date": "2025-12-26",
+        "regime": "BULL",
+        "vix": 13.6,
+        "value": 10511.75
+      },
+      {
+        "date": "2025-12-29",
+        "regime": "BULL",
+        "vix": 14.2,
+        "value": 10495.59
+      },
+      {
+        "date": "2025-12-30",
+        "regime": "BULL",
+        "vix": 14.3,
+        "value": 10473.36
+      },
+      {
+        "date": "2025-12-31",
+        "regime": "BULL",
+        "vix": 14.9,
+        "value": 10416.0
+      },
+      {
+        "date": "2026-01-02",
+        "regime": "BULL",
+        "vix": 14.5,
+        "value": 10483.69
+      },
+      {
+        "date": "2026-01-05",
+        "regime": "BULL",
+        "vix": 14.9,
+        "value": 10505.03
+      },
+      {
+        "date": "2026-01-06",
+        "regime": "BULL",
+        "vix": 14.8,
+        "value": 10496.12
+      },
+      {
+        "date": "2026-01-07",
+        "regime": "BULL",
+        "vix": 15.4,
+        "value": 10242.04
+      },
+      {
+        "date": "2026-01-08",
+        "regime": "BULL",
+        "vix": 15.4,
+        "value": 10312.46
+      },
+      {
+        "date": "2026-01-09",
+        "regime": "BULL",
+        "vix": 14.5,
+        "value": 10383.21
+      },
+      {
+        "date": "2026-01-12",
+        "regime": "BULL",
+        "vix": 15.1,
+        "value": 10321.0
+      },
+      {
+        "date": "2026-01-13",
+        "regime": "BULL",
+        "vix": 16.0,
+        "value": 10374.2
+      },
+      {
+        "date": "2026-01-14",
+        "regime": "BULL",
+        "vix": 16.8,
+        "value": 10344.16
+      },
+      {
+        "date": "2026-01-15",
+        "regime": "BULL",
+        "vix": 15.8,
+        "value": 10422.94
+      },
+      {
+        "date": "2026-01-16",
+        "regime": "BULL",
+        "vix": 15.9,
+        "value": 10452.79
+      },
+      {
+        "date": "2026-01-20",
+        "regime": "CAUTIOUS",
+        "vix": 20.1,
+        "value": 10078.95
+      },
+      {
+        "date": "2026-01-21",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 10166.7
+      },
+      {
+        "date": "2026-01-22",
+        "regime": "BULL",
+        "vix": 15.6,
+        "value": 10221.85
+      },
+      {
+        "date": "2026-01-23",
+        "regime": "BULL",
+        "vix": 16.1,
+        "value": 10179.79
+      },
+      {
+        "date": "2026-01-26",
+        "regime": "BULL",
+        "vix": 16.1,
+        "value": 10181.99
+      },
+      {
+        "date": "2026-01-27",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 10136.94
+      },
+      {
+        "date": "2026-01-28",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 10128.01
+      },
+      {
+        "date": "2026-01-29",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 10126.55
+      },
+      {
+        "date": "2026-01-30",
+        "regime": "BULL",
+        "vix": 17.4,
+        "value": 10077.58
+      },
+      {
+        "date": "2026-02-02",
+        "regime": "BULL",
+        "vix": 16.3,
+        "value": 10205.99
+      },
+      {
+        "date": "2026-02-03",
+        "regime": "BULL",
+        "vix": 18.0,
+        "value": 10212.21
+      },
+      {
+        "date": "2026-02-04",
+        "regime": "BULL",
+        "vix": 18.6,
+        "value": 10304.59
+      },
+      {
+        "date": "2026-02-05",
+        "regime": "CAUTIOUS",
+        "vix": 21.8,
+        "value": 10151.32
+      },
+      {
+        "date": "2026-02-06",
+        "regime": "CAUTIOUS",
+        "vix": 20.4,
+        "value": 10232.46
+      },
+      {
+        "date": "2026-02-09",
+        "regime": "BULL",
+        "vix": 17.4,
+        "value": 10140.37
+      },
+      {
+        "date": "2026-02-10",
+        "regime": "BULL",
+        "vix": 17.8,
+        "value": 10501.64
+      },
+      {
+        "date": "2026-02-11",
+        "regime": "BULL",
+        "vix": 17.6,
+        "value": 10623.28
+      },
+      {
+        "date": "2026-02-12",
+        "regime": "CAUTIOUS",
+        "vix": 20.8,
+        "value": 10347.6
+      },
+      {
+        "date": "2026-02-13",
+        "regime": "CAUTIOUS",
+        "vix": 20.6,
+        "value": 10451.08
+      },
+      {
+        "date": "2026-02-17",
+        "regime": "CAUTIOUS",
+        "vix": 20.3,
+        "value": 10466.84
+      },
+      {
+        "date": "2026-02-18",
+        "regime": "BULL",
+        "vix": 19.6,
+        "value": 10437.29
+      },
+      {
+        "date": "2026-02-19",
+        "regime": "CAUTIOUS",
+        "vix": 20.2,
+        "value": 10473.58
+      },
+      {
+        "date": "2026-02-20",
+        "regime": "BULL",
+        "vix": 19.1,
+        "value": 10495.31
+      },
+      {
+        "date": "2026-02-23",
+        "regime": "CAUTIOUS",
+        "vix": 21.0,
+        "value": 10469.32
+      },
+      {
+        "date": "2026-02-24",
+        "regime": "BULL",
+        "vix": 19.5,
+        "value": 10532.98
+      },
+      {
+        "date": "2026-02-25",
+        "regime": "BULL",
+        "vix": 17.9,
+        "value": 10576.27
+      },
+      {
+        "date": "2026-02-26",
+        "regime": "BULL",
+        "vix": 18.6,
+        "value": 10552.9
+      },
+      {
+        "date": "2026-02-27",
+        "regime": "BULL",
+        "vix": 19.9,
+        "value": 10533.75
+      },
+      {
+        "date": "2026-03-02",
+        "regime": "CAUTIOUS",
+        "vix": 21.4,
+        "value": 10594.33
+      },
+      {
+        "date": "2026-03-03",
+        "regime": "CAUTIOUS",
+        "vix": 23.6,
+        "value": 10415.39
+      },
+      {
+        "date": "2026-03-04",
+        "regime": "CAUTIOUS",
+        "vix": 21.1,
+        "value": 10380.53
+      },
+      {
+        "date": "2026-03-05",
+        "regime": "CAUTIOUS",
+        "vix": 23.8,
+        "value": 10227.33
+      },
+      {
+        "date": "2026-03-06",
+        "regime": "BEAR",
+        "vix": 29.5,
+        "value": 10243.04
+      },
+      {
+        "date": "2026-03-09",
+        "regime": "BEAR",
+        "vix": 25.5,
+        "value": 10275.07
+      },
+      {
+        "date": "2026-03-10",
+        "regime": "CAUTIOUS",
+        "vix": 24.9,
+        "value": 10277.81
+      },
+      {
+        "date": "2026-03-11",
+        "regime": "CAUTIOUS",
+        "vix": 24.2,
+        "value": 10344.82
+      },
+      {
+        "date": "2026-03-12",
+        "regime": "BEAR",
+        "vix": 27.3,
+        "value": 10412.67
+      },
+      {
+        "date": "2026-03-13",
+        "regime": "BEAR",
+        "vix": 27.2,
+        "value": 10395.65
+      },
+      {
+        "date": "2026-03-16",
+        "regime": "CAUTIOUS",
+        "vix": 23.5,
+        "value": 10376.48
+      },
+      {
+        "date": "2026-03-17",
+        "regime": "CAUTIOUS",
+        "vix": 22.4,
+        "value": 10451.88
+      },
+      {
+        "date": "2026-03-18",
+        "regime": "BEAR",
+        "vix": 25.1,
+        "value": 10409.78
+      },
+      {
+        "date": "2026-03-19",
+        "regime": "CAUTIOUS",
+        "vix": 24.1,
+        "value": 10314.59
+      },
+      {
+        "date": "2026-03-20",
+        "regime": "BEAR",
+        "vix": 26.8,
+        "value": 10112.35
+      }
+    ],
+    "long_trades": [
+      {
+        "ticker": "LNT",
+        "direction": "L",
+        "entry_date": "2025-11-21",
+        "exit_date": "2025-12-04",
+        "entry": 67.72,
+        "exit": 65.8,
+        "qty": 22.1502,
+        "pnl": -42.51,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "IDXX",
+        "direction": "L",
+        "entry_date": "2025-11-24",
+        "exit_date": "2025-12-08",
+        "entry": 752.14,
+        "exit": 706.87,
+        "qty": 1.5935,
+        "pnl": -72.14,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "PFG",
+        "direction": "L",
+        "entry_date": "2025-11-24",
+        "exit_date": "2025-12-10",
+        "entry": 83.02,
+        "exit": 88.83,
+        "qty": 18.1275,
+        "pnl": 105.3,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "STLD",
+        "direction": "L",
+        "entry_date": "2025-11-21",
+        "exit_date": "2025-12-11",
+        "entry": 157.7,
+        "exit": 172.48,
+        "qty": 9.5119,
+        "pnl": 140.61,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "CIEN",
+        "direction": "L",
+        "entry_date": "2025-12-08",
+        "exit_date": "2025-12-12",
+        "entry": 212.93,
+        "exit": 235.6,
+        "qty": 5.5928,
+        "pnl": 126.79,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "HAL",
+        "direction": "L",
+        "entry_date": "2025-12-04",
+        "exit_date": "2025-12-23",
+        "entry": 27.7,
+        "exit": 28.05,
+        "qty": 43.9849,
+        "pnl": 15.6,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "PEP",
+        "direction": "L",
+        "entry_date": "2025-12-10",
+        "exit_date": "2025-12-23",
+        "entry": 148.37,
+        "exit": 143.6,
+        "qty": 8.864,
+        "pnl": -42.32,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "ROST",
+        "direction": "L",
+        "entry_date": "2025-11-21",
+        "exit_date": "2026-01-05",
+        "entry": 173.24,
+        "exit": 184.21,
+        "qty": 8.6587,
+        "pnl": 95.02,
+        "exit_type": "TGT",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "JNJ",
+        "direction": "L",
+        "entry_date": "2025-12-12",
+        "exit_date": "2026-01-05",
+        "entry": 210.46,
+        "exit": 203.81,
+        "qty": 6.8411,
+        "pnl": -45.5,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "RTX",
+        "direction": "L",
+        "entry_date": "2025-12-11",
+        "exit_date": "2026-01-06",
+        "entry": 176.83,
+        "exit": 188.06,
+        "qty": 7.9895,
+        "pnl": 89.7,
+        "exit_type": "TGT",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "WDC",
+        "direction": "L",
+        "entry_date": "2026-01-06",
+        "exit_date": "2026-01-08",
+        "entry": 219.28,
+        "exit": 196.63,
+        "qty": 6.0466,
+        "pnl": -136.93,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "BAC",
+        "direction": "L",
+        "entry_date": "2026-01-05",
+        "exit_date": "2026-01-13",
+        "entry": 56.57,
+        "exit": 54.83,
+        "qty": 31.5693,
+        "pnl": -54.94,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "IR",
+        "direction": "L",
+        "entry_date": "2025-12-23",
+        "exit_date": "2026-01-15",
+        "entry": 81.43,
+        "exit": 87.0,
+        "qty": 15.596,
+        "pnl": 86.84,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "SYY",
+        "direction": "L",
+        "entry_date": "2026-01-08",
+        "exit_date": "2026-01-15",
+        "entry": 74.27,
+        "exit": 77.41,
+        "qty": 16.9344,
+        "pnl": 53.17,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "RB",
+          "MC",
+          "BB",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "ED",
+        "direction": "L",
+        "entry_date": "2026-01-13",
+        "exit_date": "2026-01-20",
+        "entry": 99.43,
+        "exit": 103.94,
+        "qty": 14.084,
+        "pnl": 63.53,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "MS",
+        "direction": "L",
+        "entry_date": "2026-01-15",
+        "exit_date": "2026-01-20",
+        "entry": 190.18,
+        "exit": 182.53,
+        "qty": 6.5602,
+        "pnl": -50.2,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "BLK",
+        "direction": "L",
+        "entry_date": "2026-01-15",
+        "exit_date": "2026-01-27",
+        "entry": 1150.25,
+        "exit": 1101.84,
+        "qty": 1.5495,
+        "pnl": -75.01,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "EW",
+        "direction": "L",
+        "entry_date": "2025-12-23",
+        "exit_date": "2026-01-28",
+        "entry": 86.23,
+        "exit": 82.76,
+        "qty": 21.0403,
+        "pnl": -73.01,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "TRGP",
+        "direction": "L",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-01-29",
+        "entry": 184.15,
+        "exit": 200.51,
+        "qty": 5.8629,
+        "pnl": 95.91,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "MSCI",
+        "direction": "L",
+        "entry_date": "2026-01-28",
+        "exit_date": "2026-02-03",
+        "entry": 612.46,
+        "exit": 583.98,
+        "qty": 2.5391,
+        "pnl": -72.3,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "VMC",
+        "direction": "L",
+        "entry_date": "2026-01-05",
+        "exit_date": "2026-02-06",
+        "entry": 296.11,
+        "exit": 312.54,
+        "qty": 4.2218,
+        "pnl": 69.37,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "LUV",
+        "direction": "L",
+        "entry_date": "2026-01-29",
+        "exit_date": "2026-02-06",
+        "entry": 48.29,
+        "exit": 53.6,
+        "qty": 29.855,
+        "pnl": 158.49,
+        "exit_type": "TGT",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "GM",
+        "direction": "L",
+        "entry_date": "2026-01-27",
+        "exit_date": "2026-02-09",
+        "entry": 86.18,
+        "exit": 80.91,
+        "qty": 17.1152,
+        "pnl": -90.13,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "BIIB",
+        "direction": "L",
+        "entry_date": "2026-02-06",
+        "exit_date": "2026-02-10",
+        "entry": 201.18,
+        "exit": 189.73,
+        "qty": 5.3698,
+        "pnl": -61.48,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "MAR",
+        "direction": "L",
+        "entry_date": "2026-02-06",
+        "exit_date": "2026-02-10",
+        "entry": 332.6,
+        "exit": 354.7,
+        "qty": 3.2481,
+        "pnl": 71.79,
+        "exit_type": "TGT",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "KVUE",
+        "direction": "L",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-02-11",
+        "entry": 17.39,
+        "exit": 18.29,
+        "qty": 62.0845,
+        "pnl": 55.86,
+        "exit_type": "TGT",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "UDR",
+        "direction": "L",
+        "entry_date": "2026-02-09",
+        "exit_date": "2026-02-13",
+        "entry": 37.75,
+        "exit": 38.16,
+        "qty": 43.2256,
+        "pnl": 17.79,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "Q",
+        "direction": "L",
+        "entry_date": "2026-02-10",
+        "exit_date": "2026-02-13",
+        "entry": 109.23,
+        "exit": 111.73,
+        "qty": 16.9713,
+        "pnl": 42.49,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "PH",
+        "direction": "L",
+        "entry_date": "2026-02-03",
+        "exit_date": "2026-02-24",
+        "entry": 962.54,
+        "exit": 1022.34,
+        "qty": 1.5105,
+        "pnl": 90.33,
+        "exit_type": "TGT",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "ROST",
+        "direction": "L",
+        "entry_date": "2026-02-10",
+        "exit_date": "2026-02-26",
+        "entry": 191.92,
+        "exit": 203.0,
+        "qty": 6.7613,
+        "pnl": 74.9,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "F",
+        "direction": "L",
+        "entry_date": "2026-02-13",
+        "exit_date": "2026-03-02",
+        "entry": 14.12,
+        "exit": 13.5,
+        "qty": 77.6836,
+        "pnl": -48.16,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "FCX",
+        "direction": "L",
+        "entry_date": "2026-02-24",
+        "exit_date": "2026-03-06",
+        "entry": 67.88,
+        "exit": 61.85,
+        "qty": 25.3424,
+        "pnl": -152.81,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "TKO",
+        "direction": "L",
+        "entry_date": "2026-02-26",
+        "exit_date": "2026-03-06",
+        "entry": 222.91,
+        "exit": 207.49,
+        "qty": 7.2531,
+        "pnl": -111.86,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "T",
+        "direction": "L",
+        "entry_date": "2026-03-06",
+        "exit_date": "2026-03-11",
+        "entry": 28.64,
+        "exit": 27.35,
+        "qty": 5.3103,
+        "pnl": -6.85,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "LHX",
+        "direction": "L",
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-03-20",
+        "entry": 377.17,
+        "exit": 356.4,
+        "qty": 2.9191,
+        "pnl": -60.62,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "ADM",
+        "direction": "L",
+        "entry_date": "2026-03-11",
+        "exit_date": "2026-03-20",
+        "entry": 70.83,
+        "exit": 66.58,
+        "qty": 28.4021,
+        "pnl": -120.71,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "BG",
+        "direction": "L",
+        "entry_date": "2026-02-11",
+        "exit_date": "2026-03-21",
+        "entry": 121.33,
+        "exit": 118.15,
+        "qty": 10.3001,
+        "pnl": -32.78,
+        "exit_type": "EOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "HOLX",
+        "direction": "L",
+        "entry_date": "2026-02-13",
+        "exit_date": "2026-03-21",
+        "entry": 75.04,
+        "exit": 75.41,
+        "qty": 14.6174,
+        "pnl": 5.41,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "XOM",
+        "direction": "L",
+        "entry_date": "2026-03-06",
+        "exit_date": "2026-03-21",
+        "entry": 151.21,
+        "exit": 159.67,
+        "qty": 1.0058,
+        "pnl": 8.51,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "ROST",
+        "direction": "L",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 211.19,
+        "exit": 211.19,
+        "qty": 0.7231,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "TRGP",
+        "direction": "L",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 237.41,
+        "exit": 237.41,
+        "qty": 0.6433,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      }
+    ],
+    "short_trades": [
+      {
+        "ticker": "MOS",
+        "direction": "S",
+        "entry_date": "2025-11-24",
+        "exit_date": "2025-12-12",
+        "entry": 23.19,
+        "exit": 24.99,
+        "qty": 8.6529,
+        "pnl": -15.58,
+        "exit_type": "STOP",
+        "strategies": [
+          "BE",
+          "EB",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "LIN",
+        "direction": "S",
+        "entry_date": "2025-11-24",
+        "exit_date": "2025-12-16",
+        "entry": 404.81,
+        "exit": 418.42,
+        "qty": 0.4957,
+        "pnl": -6.74,
+        "exit_type": "STOP",
+        "strategies": [
+          "BE",
+          "EB",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "NI",
+        "direction": "S",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-02-10",
+        "entry": 43.1,
+        "exit": 44.62,
+        "qty": 4.771,
+        "pnl": -7.23,
+        "exit_type": "STOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE"
+        ]
+      },
+      {
+        "ticker": "RTX",
+        "direction": "S",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-03-02",
+        "entry": 195.71,
+        "exit": 205.49,
+        "qty": 1.0508,
+        "pnl": -10.28,
+        "exit_type": "STOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE"
+        ]
+      },
+      {
+        "ticker": "ROL",
+        "direction": "S",
+        "entry_date": "2026-02-12",
+        "exit_date": "2026-03-20",
+        "entry": 58.51,
+        "exit": 53.49,
+        "qty": 3.5698,
+        "pnl": 17.93,
+        "exit_type": "TGT",
+        "strategies": [
+          "BD",
+          "FB",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "QCOM",
+        "direction": "S",
+        "entry_date": "2026-02-05",
+        "exit_date": "2026-03-21",
+        "entry": 135.43,
+        "exit": 129.9,
+        "qty": 1.5141,
+        "pnl": 8.37,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "BE",
+          "EB"
+        ]
+      },
+      {
+        "ticker": "AES",
+        "direction": "S",
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-03-21",
+        "entry": 14.21,
+        "exit": 14.1,
+        "qty": 14.7579,
+        "pnl": 1.62,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "RR",
+          "FB",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "INCY",
+        "direction": "S",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 90.78,
+        "exit": 90.78,
+        "qty": 6.7291,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "BE",
+          "EB"
+        ]
+      }
+    ],
+    "opt_trades": [
+      {
+        "t": "NI",
+        "date": "2025-11-21",
+        "type": "IC",
+        "pnl": 0.14
+      },
+      {
+        "t": "LIN",
+        "date": "2025-11-24",
+        "type": "BCS",
+        "pnl": 3.39
+      },
+      {
+        "t": "NI",
+        "date": "2025-11-24",
+        "type": "IC",
+        "pnl": 0.26
+      },
+      {
+        "t": "WDAY",
+        "date": "2025-11-26",
+        "type": "BCS",
+        "pnl": 2.97
+      },
+      {
+        "t": "TJX",
+        "date": "2025-11-28",
+        "type": "BCS",
+        "pnl": 0.86
+      },
+      {
+        "t": "NEE",
+        "date": "2025-12-01",
+        "type": "BCS",
+        "pnl": 0.66
+      },
+      {
+        "t": "CTRA",
+        "date": "2025-12-02",
+        "type": "BCS",
+        "pnl": 0.17
+      },
+      {
+        "t": "ARE",
+        "date": "2025-12-03",
+        "type": "BCS",
+        "pnl": -1.11
+      },
+      {
+        "t": "MMM",
+        "date": "2025-12-04",
+        "type": "BCS",
+        "pnl": 1.24
+      },
+      {
+        "t": "CFG",
+        "date": "2025-12-05",
+        "type": "BCS",
+        "pnl": -0.53
+      },
+      {
+        "t": "APD",
+        "date": "2025-12-08",
+        "type": "BCS",
+        "pnl": -4.15
+      },
+      {
+        "t": "HAS",
+        "date": "2025-12-09",
+        "type": "BCS",
+        "pnl": -0.86
+      },
+      {
+        "t": "PH",
+        "date": "2025-12-12",
+        "type": "BCS",
+        "pnl": -12.98
+      },
+      {
+        "t": "ARM",
+        "date": "2025-12-15",
+        "type": "BCS",
+        "pnl": 1.13
+      },
+      {
+        "t": "ES",
+        "date": "2025-12-16",
+        "type": "BCS",
+        "pnl": 1.39
+      },
+      {
+        "t": "FTNT",
+        "date": "2025-12-17",
+        "type": "BCS",
+        "pnl": 0.81
+      },
+      {
+        "t": "CLX",
+        "date": "2025-12-18",
+        "type": "BCS",
+        "pnl": -1.46
+      },
+      {
+        "t": "LW",
+        "date": "2025-12-19",
+        "type": "BCS",
+        "pnl": 0.75
+      },
+      {
+        "t": "DLTR",
+        "date": "2025-12-22",
+        "type": "BCS",
+        "pnl": -2.06
+      },
+      {
+        "t": "UAL",
+        "date": "2025-12-23",
+        "type": "BCS",
+        "pnl": 1.12
+      },
+      {
+        "t": "STLD",
+        "date": "2025-12-29",
+        "type": "BCS",
+        "pnl": -2.06
+      },
+      {
+        "t": "ICE",
+        "date": "2025-12-30",
+        "type": "BCS",
+        "pnl": -1.38
+      },
+      {
+        "t": "AVB",
+        "date": "2025-12-31",
+        "type": "BCS",
+        "pnl": 0.83
+      },
+      {
+        "t": "WDAY",
+        "date": "2026-01-02",
+        "type": "BCS",
+        "pnl": 1.75
+      },
+      {
+        "t": "KHC",
+        "date": "2026-01-05",
+        "type": "BCS",
+        "pnl": 0.13
+      },
+      {
+        "t": "NVR",
+        "date": "2026-01-06",
+        "type": "BCS",
+        "pnl": -91.37
+      },
+      {
+        "t": "DVA",
+        "date": "2026-01-07",
+        "type": "BCS",
+        "pnl": 1.1
+      },
+      {
+        "t": "INCY",
+        "date": "2026-01-08",
+        "type": "BCS",
+        "pnl": 0.86
+      },
+      {
+        "t": "HAS",
+        "date": "2026-01-09",
+        "type": "BCS",
+        "pnl": -1.04
+      },
+      {
+        "t": "MAR",
+        "date": "2026-01-12",
+        "type": "BCS",
+        "pnl": 2.43
+      },
+      {
+        "t": "SNPS",
+        "date": "2026-01-13",
+        "type": "BCS",
+        "pnl": 5.3
+      },
+      {
+        "t": "BBY",
+        "date": "2026-01-14",
+        "type": "BCS",
+        "pnl": 0.58
+      },
+      {
+        "t": "MRNA",
+        "date": "2026-01-15",
+        "type": "BCS",
+        "pnl": -0.72
+      },
+      {
+        "t": "MMM",
+        "date": "2026-01-16",
+        "type": "BCS",
+        "pnl": 1.57
+      },
+      {
+        "t": "NI",
+        "date": "2026-01-20",
+        "type": "BCS",
+        "pnl": -0.53
+      },
+      {
+        "t": "ECL",
+        "date": "2026-01-20",
+        "type": "IC",
+        "pnl": -2.7
+      },
+      {
+        "t": "KHC",
+        "date": "2026-01-21",
+        "type": "BCS",
+        "pnl": -0.25
+      },
+      {
+        "t": "PPL",
+        "date": "2026-01-22",
+        "type": "BCS",
+        "pnl": 0.26
+      },
+      {
+        "t": "SWK",
+        "date": "2026-01-23",
+        "type": "BCS",
+        "pnl": -1.3
+      },
+      {
+        "t": "ULTA",
+        "date": "2026-01-26",
+        "type": "BCS",
+        "pnl": 5.23
+      },
+      {
+        "t": "BRO",
+        "date": "2026-01-27",
+        "type": "BCS",
+        "pnl": 0.9
+      },
+      {
+        "t": "APH",
+        "date": "2026-01-28",
+        "type": "BCS",
+        "pnl": 1.65
+      },
+      {
+        "t": "NOW",
+        "date": "2026-01-29",
+        "type": "BCS",
+        "pnl": 1.52
+      },
+      {
+        "t": "MRNA",
+        "date": "2026-01-30",
+        "type": "BCS",
+        "pnl": -1.12
+      },
+      {
+        "t": "EQT",
+        "date": "2026-02-02",
+        "type": "BCS",
+        "pnl": -1.0
+      },
+      {
+        "t": "BR",
+        "date": "2026-02-03",
+        "type": "BCS",
+        "pnl": 2.13
+      },
+      {
+        "t": "BSX",
+        "date": "2026-02-04",
+        "type": "BCS",
+        "pnl": 0.8
+      },
+      {
+        "t": "QCOM",
+        "date": "2026-02-05",
+        "type": "BCS",
+        "pnl": 1.75
+      },
+      {
+        "t": "NI",
+        "date": "2026-02-05",
+        "type": "IC",
+        "pnl": -0.4
+      },
+      {
+        "t": "PGR",
+        "date": "2026-02-06",
+        "type": "BCS",
+        "pnl": 1.61
+      },
+      {
+        "t": "NI",
+        "date": "2026-02-06",
+        "type": "IC",
+        "pnl": -0.4
+      },
+      {
+        "t": "AIZ",
+        "date": "2026-02-09",
+        "type": "BCS",
+        "pnl": 2.47
+      },
+      {
+        "t": "RMD",
+        "date": "2026-02-10",
+        "type": "BCS",
+        "pnl": 2.43
+      },
+      {
+        "t": "BEN",
+        "date": "2026-02-11",
+        "type": "BCS",
+        "pnl": 0.32
+      },
+      {
+        "t": "PH",
+        "date": "2026-02-12",
+        "type": "BCS",
+        "pnl": 6.67
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-12",
+        "type": "IC",
+        "pnl": 1.45
+      },
+      {
+        "t": "BF-B",
+        "date": "2026-02-13",
+        "type": "BCS",
+        "pnl": 0.18
+      },
+      {
+        "t": "APH",
+        "date": "2026-02-13",
+        "type": "IC",
+        "pnl": -0.75
+      },
+      {
+        "t": "ALLE",
+        "date": "2026-02-17",
+        "type": "BCS",
+        "pnl": 1.7
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-17",
+        "type": "IC",
+        "pnl": 1.23
+      },
+      {
+        "t": "NI",
+        "date": "2026-02-18",
+        "type": "BCS",
+        "pnl": -0.36
+      },
+      {
+        "t": "LUV",
+        "date": "2026-02-19",
+        "type": "BCS",
+        "pnl": 0.81
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-19",
+        "type": "IC",
+        "pnl": 1.56
+      },
+      {
+        "t": "CVX",
+        "date": "2026-02-20",
+        "type": "BCS",
+        "pnl": -2.37
+      },
+      {
+        "t": "BLK",
+        "date": "2026-02-23",
+        "type": "BCS",
+        "pnl": 14.09
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-23",
+        "type": "IC",
+        "pnl": 1.74
+      },
+      {
+        "t": "CVS",
+        "date": "2026-02-24",
+        "type": "BCS",
+        "pnl": 1.47
+      },
+      {
+        "t": "AVY",
+        "date": "2026-02-25",
+        "type": "BCS",
+        "pnl": 1.46
+      },
+      {
+        "t": "UHS",
+        "date": "2026-02-26",
+        "type": "BCS",
+        "pnl": 1.94
+      },
+      {
+        "t": "AXP",
+        "date": "2026-02-27",
+        "type": "BCS",
+        "pnl": 2.73
+      },
+      {
+        "t": "ECL",
+        "date": "2026-03-02",
+        "type": "BCS",
+        "pnl": 2.59
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-02",
+        "type": "IC",
+        "pnl": -10.1
+      },
+      {
+        "t": "CSX",
+        "date": "2026-03-03",
+        "type": "BCS",
+        "pnl": 0.26
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-03",
+        "type": "IC",
+        "pnl": -9.9
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-04",
+        "type": "IC",
+        "pnl": -9.9
+      },
+      {
+        "t": "ETR",
+        "date": "2026-03-05",
+        "type": "BCS",
+        "pnl": 0.96
+      },
+      {
+        "t": "NWS",
+        "date": "2026-03-05",
+        "type": "IC",
+        "pnl": 0.83
+      },
+      {
+        "t": "MTCH",
+        "date": "2026-03-06",
+        "type": "BCS",
+        "pnl": -0.36
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-06",
+        "type": "IC",
+        "pnl": 0.47
+      },
+      {
+        "t": "BR",
+        "date": "2026-03-09",
+        "type": "BCS",
+        "pnl": 1.62
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-09",
+        "type": "IC",
+        "pnl": 5.58
+      },
+      {
+        "t": "APP",
+        "date": "2026-03-10",
+        "type": "BCS",
+        "pnl": 8.74
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-10",
+        "type": "IC",
+        "pnl": 5.34
+      },
+      {
+        "t": "FICO",
+        "date": "2026-03-11",
+        "type": "BCS",
+        "pnl": 21.44
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-11",
+        "type": "IC",
+        "pnl": 5.85
+      },
+      {
+        "t": "SBUX",
+        "date": "2026-03-12",
+        "type": "BCS",
+        "pnl": 1.09
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-12",
+        "type": "IC",
+        "pnl": 0.5
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-13",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "IT",
+        "date": "2026-03-16",
+        "type": "BCS",
+        "pnl": 3.0
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-16",
+        "type": "IC",
+        "pnl": 0.52
+      },
+      {
+        "t": "AVGO",
+        "date": "2026-03-17",
+        "type": "BCS",
+        "pnl": 5.46
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-17",
+        "type": "IC",
+        "pnl": 5.4
+      },
+      {
+        "t": "AXP",
+        "date": "2026-03-18",
+        "type": "BCS",
+        "pnl": 5.03
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-18",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-19",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "INCY",
+        "date": "2026-03-20",
+        "type": "BCS",
+        "pnl": 1.28
+      },
+      {
+        "t": "ORCL",
+        "date": "2026-03-20",
+        "type": "IC",
+        "pnl": 5.26
+      }
+    ]
+  },
+  "180d": {
+    "period": "2025-09-21 \u2192 2026-03-21",
+    "days": 125,
+    "tickers": 512,
+    "total_return": 1.17,
+    "total_pnl": 116.66,
+    "final_value": 10116.66,
+    "spy_return": -2.19,
+    "alpha": 3.35,
+    "trades": 207,
+    "wins": 132,
+    "losses": 75,
+    "win_rate": 63.8,
+    "long_pnl": 180.38,
+    "short_pnl": -79.75,
+    "bcs_pnl": 38.28,
+    "ic_pnl": -22.25,
+    "regime_breakdown": {
+      "BEAR": 8,
+      "BULL": 90,
+      "CAUTIOUS": 27
+    },
+    "equity_curve": [
+      {
+        "date": "2025-09-22",
+        "regime": "BULL",
+        "vix": 16.1,
+        "value": 10000.28
+      },
+      {
+        "date": "2025-09-23",
+        "regime": "BULL",
+        "vix": 16.6,
+        "value": 10019.97
+      },
+      {
+        "date": "2025-09-24",
+        "regime": "BULL",
+        "vix": 16.2,
+        "value": 10022.14
+      },
+      {
+        "date": "2025-09-25",
+        "regime": "BULL",
+        "vix": 16.7,
+        "value": 10018.06
+      },
+      {
+        "date": "2025-09-26",
+        "regime": "BULL",
+        "vix": 15.3,
+        "value": 10105.99
+      },
+      {
+        "date": "2025-09-29",
+        "regime": "BULL",
+        "vix": 16.1,
+        "value": 10139.26
+      },
+      {
+        "date": "2025-09-30",
+        "regime": "BULL",
+        "vix": 16.3,
+        "value": 10183.78
+      },
+      {
+        "date": "2025-10-01",
+        "regime": "BULL",
+        "vix": 16.3,
+        "value": 10094.79
+      },
+      {
+        "date": "2025-10-02",
+        "regime": "BULL",
+        "vix": 16.6,
+        "value": 10092.78
+      },
+      {
+        "date": "2025-10-03",
+        "regime": "BULL",
+        "vix": 16.6,
+        "value": 10086.36
+      },
+      {
+        "date": "2025-10-06",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 10067.84
+      },
+      {
+        "date": "2025-10-07",
+        "regime": "BULL",
+        "vix": 17.2,
+        "value": 9956.16
+      },
+      {
+        "date": "2025-10-08",
+        "regime": "BULL",
+        "vix": 16.3,
+        "value": 9969.27
+      },
+      {
+        "date": "2025-10-09",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 9877.14
+      },
+      {
+        "date": "2025-10-10",
+        "regime": "CAUTIOUS",
+        "vix": 21.7,
+        "value": 9558.28
+      },
+      {
+        "date": "2025-10-13",
+        "regime": "BULL",
+        "vix": 19.0,
+        "value": 9617.53
+      },
+      {
+        "date": "2025-10-14",
+        "regime": "CAUTIOUS",
+        "vix": 20.8,
+        "value": 9475.1
+      },
+      {
+        "date": "2025-10-15",
+        "regime": "CAUTIOUS",
+        "vix": 20.6,
+        "value": 9569.65
+      },
+      {
+        "date": "2025-10-16",
+        "regime": "BEAR",
+        "vix": 25.3,
+        "value": 9595.25
+      },
+      {
+        "date": "2025-10-17",
+        "regime": "CAUTIOUS",
+        "vix": 20.8,
+        "value": 9501.26
+      },
+      {
+        "date": "2025-10-20",
+        "regime": "BULL",
+        "vix": 18.2,
+        "value": 9599.65
+      },
+      {
+        "date": "2025-10-21",
+        "regime": "BULL",
+        "vix": 17.9,
+        "value": 9578.06
+      },
+      {
+        "date": "2025-10-22",
+        "regime": "BULL",
+        "vix": 18.6,
+        "value": 9595.69
+      },
+      {
+        "date": "2025-10-23",
+        "regime": "BULL",
+        "vix": 17.3,
+        "value": 9658.62
+      },
+      {
+        "date": "2025-10-24",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 9676.04
+      },
+      {
+        "date": "2025-10-27",
+        "regime": "BULL",
+        "vix": 15.8,
+        "value": 9882.02
+      },
+      {
+        "date": "2025-10-28",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 10064.11
+      },
+      {
+        "date": "2025-10-29",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 9993.58
+      },
+      {
+        "date": "2025-10-30",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 10003.14
+      },
+      {
+        "date": "2025-10-31",
+        "regime": "BULL",
+        "vix": 17.4,
+        "value": 9910.39
+      },
+      {
+        "date": "2025-11-03",
+        "regime": "BULL",
+        "vix": 17.2,
+        "value": 9932.54
+      },
+      {
+        "date": "2025-11-04",
+        "regime": "BULL",
+        "vix": 19.0,
+        "value": 9828.02
+      },
+      {
+        "date": "2025-11-05",
+        "regime": "BULL",
+        "vix": 18.0,
+        "value": 9985.97
+      },
+      {
+        "date": "2025-11-06",
+        "regime": "BULL",
+        "vix": 19.5,
+        "value": 9971.26
+      },
+      {
+        "date": "2025-11-07",
+        "regime": "BULL",
+        "vix": 19.1,
+        "value": 10032.67
+      },
+      {
+        "date": "2025-11-10",
+        "regime": "BULL",
+        "vix": 17.6,
+        "value": 10240.5
+      },
+      {
+        "date": "2025-11-11",
+        "regime": "BULL",
+        "vix": 17.3,
+        "value": 10237.15
+      },
+      {
+        "date": "2025-11-12",
+        "regime": "BULL",
+        "vix": 17.5,
+        "value": 10264.46
+      },
+      {
+        "date": "2025-11-13",
+        "regime": "CAUTIOUS",
+        "vix": 20.0,
+        "value": 9843.37
+      },
+      {
+        "date": "2025-11-14",
+        "regime": "BULL",
+        "vix": 19.8,
+        "value": 9828.2
+      },
+      {
+        "date": "2025-11-17",
+        "regime": "CAUTIOUS",
+        "vix": 22.4,
+        "value": 9748.01
+      },
+      {
+        "date": "2025-11-18",
+        "regime": "CAUTIOUS",
+        "vix": 24.7,
+        "value": 9677.58
+      },
+      {
+        "date": "2025-11-19",
+        "regime": "CAUTIOUS",
+        "vix": 23.7,
+        "value": 9713.49
+      },
+      {
+        "date": "2025-11-20",
+        "regime": "BEAR",
+        "vix": 26.4,
+        "value": 9512.31
+      },
+      {
+        "date": "2025-11-21",
+        "regime": "CAUTIOUS",
+        "vix": 23.4,
+        "value": 9533.89
+      },
+      {
+        "date": "2025-11-24",
+        "regime": "CAUTIOUS",
+        "vix": 20.5,
+        "value": 9730.14
+      },
+      {
+        "date": "2025-11-25",
+        "regime": "BULL",
+        "vix": 18.6,
+        "value": 9819.6
+      },
+      {
+        "date": "2025-11-26",
+        "regime": "BULL",
+        "vix": 17.2,
+        "value": 10006.59
+      },
+      {
+        "date": "2025-11-28",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 10030.06
+      },
+      {
+        "date": "2025-12-01",
+        "regime": "BULL",
+        "vix": 17.2,
+        "value": 9940.03
+      },
+      {
+        "date": "2025-12-02",
+        "regime": "BULL",
+        "vix": 16.6,
+        "value": 9919.57
+      },
+      {
+        "date": "2025-12-03",
+        "regime": "BULL",
+        "vix": 16.1,
+        "value": 9924.82
+      },
+      {
+        "date": "2025-12-04",
+        "regime": "BULL",
+        "vix": 15.8,
+        "value": 9946.62
+      },
+      {
+        "date": "2025-12-05",
+        "regime": "BULL",
+        "vix": 15.4,
+        "value": 9991.88
+      },
+      {
+        "date": "2025-12-08",
+        "regime": "BULL",
+        "vix": 16.7,
+        "value": 9907.24
+      },
+      {
+        "date": "2025-12-09",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 9956.29
+      },
+      {
+        "date": "2025-12-10",
+        "regime": "BULL",
+        "vix": 15.8,
+        "value": 10080.83
+      },
+      {
+        "date": "2025-12-11",
+        "regime": "BULL",
+        "vix": 14.9,
+        "value": 10104.86
+      },
+      {
+        "date": "2025-12-12",
+        "regime": "BULL",
+        "vix": 15.7,
+        "value": 10297.49
+      },
+      {
+        "date": "2025-12-15",
+        "regime": "BULL",
+        "vix": 16.5,
+        "value": 10367.59
+      },
+      {
+        "date": "2025-12-16",
+        "regime": "BULL",
+        "vix": 16.5,
+        "value": 10297.4
+      },
+      {
+        "date": "2025-12-17",
+        "regime": "BULL",
+        "vix": 17.6,
+        "value": 10324.02
+      },
+      {
+        "date": "2025-12-18",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 10387.67
+      },
+      {
+        "date": "2025-12-19",
+        "regime": "BULL",
+        "vix": 14.9,
+        "value": 10427.87
+      },
+      {
+        "date": "2025-12-22",
+        "regime": "BULL",
+        "vix": 14.1,
+        "value": 10655.54
+      },
+      {
+        "date": "2025-12-23",
+        "regime": "BULL",
+        "vix": 14.0,
+        "value": 10607.24
+      },
+      {
+        "date": "2025-12-24",
+        "regime": "BULL",
+        "vix": 13.5,
+        "value": 10627.62
+      },
+      {
+        "date": "2025-12-26",
+        "regime": "BULL",
+        "vix": 13.6,
+        "value": 10602.99
+      },
+      {
+        "date": "2025-12-29",
+        "regime": "BULL",
+        "vix": 14.2,
+        "value": 10590.77
+      },
+      {
+        "date": "2025-12-30",
+        "regime": "BULL",
+        "vix": 14.3,
+        "value": 10535.49
+      },
+      {
+        "date": "2025-12-31",
+        "regime": "BULL",
+        "vix": 14.9,
+        "value": 10473.67
+      },
+      {
+        "date": "2026-01-02",
+        "regime": "BULL",
+        "vix": 14.5,
+        "value": 10498.24
+      },
+      {
+        "date": "2026-01-05",
+        "regime": "BULL",
+        "vix": 14.9,
+        "value": 10485.18
+      },
+      {
+        "date": "2026-01-06",
+        "regime": "BULL",
+        "vix": 14.8,
+        "value": 10461.73
+      },
+      {
+        "date": "2026-01-07",
+        "regime": "BULL",
+        "vix": 15.4,
+        "value": 10369.11
+      },
+      {
+        "date": "2026-01-08",
+        "regime": "BULL",
+        "vix": 15.4,
+        "value": 10621.28
+      },
+      {
+        "date": "2026-01-09",
+        "regime": "BULL",
+        "vix": 14.5,
+        "value": 10681.7
+      },
+      {
+        "date": "2026-01-12",
+        "regime": "BULL",
+        "vix": 15.1,
+        "value": 10620.58
+      },
+      {
+        "date": "2026-01-13",
+        "regime": "BULL",
+        "vix": 16.0,
+        "value": 10671.2
+      },
+      {
+        "date": "2026-01-14",
+        "regime": "BULL",
+        "vix": 16.8,
+        "value": 10633.79
+      },
+      {
+        "date": "2026-01-15",
+        "regime": "BULL",
+        "vix": 15.8,
+        "value": 10700.88
+      },
+      {
+        "date": "2026-01-16",
+        "regime": "BULL",
+        "vix": 15.9,
+        "value": 10735.96
+      },
+      {
+        "date": "2026-01-20",
+        "regime": "CAUTIOUS",
+        "vix": 20.1,
+        "value": 10404.03
+      },
+      {
+        "date": "2026-01-21",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 10513.92
+      },
+      {
+        "date": "2026-01-22",
+        "regime": "BULL",
+        "vix": 15.6,
+        "value": 10532.92
+      },
+      {
+        "date": "2026-01-23",
+        "regime": "BULL",
+        "vix": 16.1,
+        "value": 10522.55
+      },
+      {
+        "date": "2026-01-26",
+        "regime": "BULL",
+        "vix": 16.1,
+        "value": 10572.15
+      },
+      {
+        "date": "2026-01-27",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 10567.19
+      },
+      {
+        "date": "2026-01-28",
+        "regime": "BULL",
+        "vix": 16.4,
+        "value": 10589.17
+      },
+      {
+        "date": "2026-01-29",
+        "regime": "BULL",
+        "vix": 16.9,
+        "value": 10617.34
+      },
+      {
+        "date": "2026-01-30",
+        "regime": "BULL",
+        "vix": 17.4,
+        "value": 10583.65
+      },
+      {
+        "date": "2026-02-02",
+        "regime": "BULL",
+        "vix": 16.3,
+        "value": 10739.67
+      },
+      {
+        "date": "2026-02-03",
+        "regime": "BULL",
+        "vix": 18.0,
+        "value": 10734.08
+      },
+      {
+        "date": "2026-02-04",
+        "regime": "BULL",
+        "vix": 18.6,
+        "value": 10853.16
+      },
+      {
+        "date": "2026-02-05",
+        "regime": "CAUTIOUS",
+        "vix": 21.8,
+        "value": 10722.8
+      },
+      {
+        "date": "2026-02-06",
+        "regime": "CAUTIOUS",
+        "vix": 20.4,
+        "value": 10792.17
+      },
+      {
+        "date": "2026-02-09",
+        "regime": "BULL",
+        "vix": 17.4,
+        "value": 10723.89
+      },
+      {
+        "date": "2026-02-10",
+        "regime": "BULL",
+        "vix": 17.8,
+        "value": 10989.75
+      },
+      {
+        "date": "2026-02-11",
+        "regime": "BULL",
+        "vix": 17.6,
+        "value": 11099.3
+      },
+      {
+        "date": "2026-02-12",
+        "regime": "CAUTIOUS",
+        "vix": 20.8,
+        "value": 10817.2
+      },
+      {
+        "date": "2026-02-13",
+        "regime": "CAUTIOUS",
+        "vix": 20.6,
+        "value": 10913.6
+      },
+      {
+        "date": "2026-02-17",
+        "regime": "CAUTIOUS",
+        "vix": 20.3,
+        "value": 10917.61
+      },
+      {
+        "date": "2026-02-18",
+        "regime": "BULL",
+        "vix": 19.6,
+        "value": 10885.68
+      },
+      {
+        "date": "2026-02-19",
+        "regime": "CAUTIOUS",
+        "vix": 20.2,
+        "value": 10904.34
+      },
+      {
+        "date": "2026-02-20",
+        "regime": "BULL",
+        "vix": 19.1,
+        "value": 10976.97
+      },
+      {
+        "date": "2026-02-23",
+        "regime": "CAUTIOUS",
+        "vix": 21.0,
+        "value": 10936.71
+      },
+      {
+        "date": "2026-02-24",
+        "regime": "BULL",
+        "vix": 19.5,
+        "value": 11011.37
+      },
+      {
+        "date": "2026-02-25",
+        "regime": "BULL",
+        "vix": 17.9,
+        "value": 11015.06
+      },
+      {
+        "date": "2026-02-26",
+        "regime": "BULL",
+        "vix": 18.6,
+        "value": 11008.11
+      },
+      {
+        "date": "2026-02-27",
+        "regime": "BULL",
+        "vix": 19.9,
+        "value": 11017.7
+      },
+      {
+        "date": "2026-03-02",
+        "regime": "CAUTIOUS",
+        "vix": 21.4,
+        "value": 11063.24
+      },
+      {
+        "date": "2026-03-03",
+        "regime": "CAUTIOUS",
+        "vix": 23.6,
+        "value": 10922.95
+      },
+      {
+        "date": "2026-03-04",
+        "regime": "CAUTIOUS",
+        "vix": 21.1,
+        "value": 10904.32
+      },
+      {
+        "date": "2026-03-05",
+        "regime": "CAUTIOUS",
+        "vix": 23.8,
+        "value": 10800.23
+      },
+      {
+        "date": "2026-03-06",
+        "regime": "BEAR",
+        "vix": 29.5,
+        "value": 10780.17
+      },
+      {
+        "date": "2026-03-09",
+        "regime": "BEAR",
+        "vix": 25.5,
+        "value": 10781.37
+      },
+      {
+        "date": "2026-03-10",
+        "regime": "CAUTIOUS",
+        "vix": 24.9,
+        "value": 10753.23
+      },
+      {
+        "date": "2026-03-11",
+        "regime": "CAUTIOUS",
+        "vix": 24.2,
+        "value": 10808.45
+      },
+      {
+        "date": "2026-03-12",
+        "regime": "BEAR",
+        "vix": 27.3,
+        "value": 10852.15
+      },
+      {
+        "date": "2026-03-13",
+        "regime": "BEAR",
+        "vix": 27.2,
+        "value": 10837.58
+      },
+      {
+        "date": "2026-03-16",
+        "regime": "CAUTIOUS",
+        "vix": 23.5,
+        "value": 10824.77
+      },
+      {
+        "date": "2026-03-17",
+        "regime": "CAUTIOUS",
+        "vix": 22.4,
+        "value": 10889.32
+      },
+      {
+        "date": "2026-03-18",
+        "regime": "BEAR",
+        "vix": 25.1,
+        "value": 10847.62
+      },
+      {
+        "date": "2026-03-19",
+        "regime": "CAUTIOUS",
+        "vix": 24.1,
+        "value": 10767.6
+      },
+      {
+        "date": "2026-03-20",
+        "regime": "BEAR",
+        "vix": 26.8,
+        "value": 10583.91
+      }
+    ],
+    "long_trades": [
+      {
+        "ticker": "XEL",
+        "direction": "L",
+        "entry_date": "2025-09-23",
+        "exit_date": "2025-09-24",
+        "entry": 71.95,
+        "exit": 75.16,
+        "qty": 11.8509,
+        "pnl": 38.06,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "DGX",
+        "direction": "L",
+        "entry_date": "2025-09-22",
+        "exit_date": "2025-10-06",
+        "entry": 183.04,
+        "exit": 177.69,
+        "qty": 9.5063,
+        "pnl": -50.83,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "YUM",
+        "direction": "L",
+        "entry_date": "2025-09-22",
+        "exit_date": "2025-10-09",
+        "entry": 147.88,
+        "exit": 142.54,
+        "qty": 14.2002,
+        "pnl": -75.9,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "LIN",
+        "direction": "L",
+        "entry_date": "2025-09-23",
+        "exit_date": "2025-10-09",
+        "entry": 476.58,
+        "exit": 462.18,
+        "qty": 2.5559,
+        "pnl": -36.8,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "NXPI",
+        "direction": "L",
+        "entry_date": "2025-09-24",
+        "exit_date": "2025-10-10",
+        "entry": 226.65,
+        "exit": 215.29,
+        "qty": 3.8152,
+        "pnl": -43.33,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "PH",
+        "direction": "L",
+        "entry_date": "2025-10-06",
+        "exit_date": "2025-10-10",
+        "entry": 760.38,
+        "exit": 733.5,
+        "qty": 1.4647,
+        "pnl": -39.36,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "PFG",
+        "direction": "L",
+        "entry_date": "2025-10-09",
+        "exit_date": "2025-10-10",
+        "entry": 81.18,
+        "exit": 78.13,
+        "qty": 15.0257,
+        "pnl": -45.9,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "MO",
+        "direction": "L",
+        "entry_date": "2025-10-10",
+        "exit_date": "2025-10-16",
+        "entry": 65.34,
+        "exit": 63.42,
+        "qty": 15.5479,
+        "pnl": -29.92,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "CBOE",
+        "direction": "L",
+        "entry_date": "2025-10-10",
+        "exit_date": "2025-10-21",
+        "entry": 244.11,
+        "exit": 234.62,
+        "qty": 4.1619,
+        "pnl": -39.49,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "XYL",
+        "direction": "L",
+        "entry_date": "2025-09-22",
+        "exit_date": "2025-10-29",
+        "entry": 142.65,
+        "exit": 150.06,
+        "qty": 14.7212,
+        "pnl": 109.06,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "ORCL",
+        "direction": "L",
+        "entry_date": "2025-10-09",
+        "exit_date": "2025-10-30",
+        "entry": 296.18,
+        "exit": 269.73,
+        "qty": 5.8839,
+        "pnl": -155.61,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "PEP",
+        "direction": "L",
+        "entry_date": "2025-10-10",
+        "exit_date": "2025-11-03",
+        "entry": 147.31,
+        "exit": 142.1,
+        "qty": 6.8968,
+        "pnl": -35.93,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "ROK",
+        "direction": "L",
+        "entry_date": "2025-10-16",
+        "exit_date": "2025-11-07",
+        "entry": 345.55,
+        "exit": 370.4,
+        "qty": 0.4162,
+        "pnl": 10.34,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "EXPE",
+        "direction": "L",
+        "entry_date": "2025-11-07",
+        "exit_date": "2025-11-14",
+        "entry": 257.26,
+        "exit": 264.61,
+        "qty": 4.217,
+        "pnl": 31.0,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "EXE",
+        "direction": "L",
+        "entry_date": "2025-11-03",
+        "exit_date": "2025-11-20",
+        "entry": 108.96,
+        "exit": 114.51,
+        "qty": 13.6066,
+        "pnl": 75.52,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "STX",
+        "direction": "L",
+        "entry_date": "2025-10-29",
+        "exit_date": "2025-11-26",
+        "entry": 264.92,
+        "exit": 282.25,
+        "qty": 6.587,
+        "pnl": 114.09,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "STLD",
+        "direction": "L",
+        "entry_date": "2025-11-14",
+        "exit_date": "2025-12-03",
+        "entry": 154.96,
+        "exit": 169.51,
+        "qty": 6.6803,
+        "pnl": 97.23,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "NI",
+        "direction": "L",
+        "entry_date": "2025-11-26",
+        "exit_date": "2025-12-03",
+        "entry": 43.46,
+        "exit": 41.92,
+        "qty": 38.5934,
+        "pnl": -59.5,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "EA",
+        "direction": "L",
+        "entry_date": "2025-11-20",
+        "exit_date": "2025-12-04",
+        "entry": 200.74,
+        "exit": 203.24,
+        "qty": 0.7107,
+        "pnl": 1.78,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "RTX",
+        "direction": "L",
+        "entry_date": "2025-10-21",
+        "exit_date": "2025-12-22",
+        "entry": 171.79,
+        "exit": 184.74,
+        "qty": 8.122,
+        "pnl": 105.2,
+        "exit_type": "TGT",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "HAL",
+        "direction": "L",
+        "entry_date": "2025-12-04",
+        "exit_date": "2025-12-23",
+        "entry": 27.7,
+        "exit": 28.05,
+        "qty": 36.9477,
+        "pnl": 13.11,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "HSIC",
+        "direction": "L",
+        "entry_date": "2025-12-03",
+        "exit_date": "2026-01-05",
+        "entry": 72.88,
+        "exit": 77.77,
+        "qty": 19.2155,
+        "pnl": 93.96,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "GILD",
+        "direction": "L",
+        "entry_date": "2025-12-22",
+        "exit_date": "2026-01-05",
+        "entry": 123.46,
+        "exit": 117.75,
+        "qty": 10.3508,
+        "pnl": -59.09,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "CHRW",
+        "direction": "L",
+        "entry_date": "2025-10-30",
+        "exit_date": "2026-01-09",
+        "entry": 153.74,
+        "exit": 167.68,
+        "qty": 11.0379,
+        "pnl": 153.9,
+        "exit_type": "TGT",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "BAC",
+        "direction": "L",
+        "entry_date": "2026-01-05",
+        "exit_date": "2026-01-13",
+        "entry": 56.57,
+        "exit": 54.83,
+        "qty": 29.2984,
+        "pnl": -50.99,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "ED",
+        "direction": "L",
+        "entry_date": "2026-01-13",
+        "exit_date": "2026-01-20",
+        "entry": 99.43,
+        "exit": 103.94,
+        "qty": 14.6711,
+        "pnl": 66.18,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "EW",
+        "direction": "L",
+        "entry_date": "2025-12-23",
+        "exit_date": "2026-01-28",
+        "entry": 86.23,
+        "exit": 82.76,
+        "qty": 13.9723,
+        "pnl": -48.48,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "TRGP",
+        "direction": "L",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-01-29",
+        "entry": 184.15,
+        "exit": 200.51,
+        "qty": 6.0576,
+        "pnl": 99.09,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "ITW",
+        "direction": "L",
+        "entry_date": "2026-01-09",
+        "exit_date": "2026-02-03",
+        "entry": 255.12,
+        "exit": 267.09,
+        "qty": 5.4673,
+        "pnl": 65.44,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "MSCI",
+        "direction": "L",
+        "entry_date": "2026-01-28",
+        "exit_date": "2026-02-03",
+        "entry": 612.46,
+        "exit": 583.98,
+        "qty": 2.3342,
+        "pnl": -66.47,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "MCD",
+        "direction": "L",
+        "entry_date": "2025-12-03",
+        "exit_date": "2026-02-04",
+        "entry": 306.0,
+        "exit": 320.71,
+        "qty": 6.5379,
+        "pnl": 96.17,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "VMC",
+        "direction": "L",
+        "entry_date": "2026-01-05",
+        "exit_date": "2026-02-06",
+        "entry": 296.11,
+        "exit": 312.54,
+        "qty": 3.9181,
+        "pnl": 64.38,
+        "exit_type": "TGT",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "LUV",
+        "direction": "L",
+        "entry_date": "2026-01-29",
+        "exit_date": "2026-02-06",
+        "entry": 48.29,
+        "exit": 53.6,
+        "qty": 28.2782,
+        "pnl": 150.12,
+        "exit_type": "TGT",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "BIIB",
+        "direction": "L",
+        "entry_date": "2026-02-06",
+        "exit_date": "2026-02-10",
+        "entry": 201.18,
+        "exit": 189.73,
+        "qty": 5.6599,
+        "pnl": -64.81,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "JBHT",
+        "direction": "L",
+        "entry_date": "2026-02-03",
+        "exit_date": "2026-02-13",
+        "entry": 220.17,
+        "exit": 223.08,
+        "qty": 5.7316,
+        "pnl": 16.68,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "Q",
+        "direction": "L",
+        "entry_date": "2026-02-10",
+        "exit_date": "2026-02-13",
+        "entry": 109.23,
+        "exit": 111.73,
+        "qty": 14.1986,
+        "pnl": 35.55,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "PH",
+        "direction": "L",
+        "entry_date": "2026-02-03",
+        "exit_date": "2026-02-24",
+        "entry": 962.54,
+        "exit": 1022.34,
+        "qty": 1.8729,
+        "pnl": 112.01,
+        "exit_type": "TGT",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "F",
+        "direction": "L",
+        "entry_date": "2026-02-13",
+        "exit_date": "2026-03-02",
+        "entry": 14.12,
+        "exit": 13.5,
+        "qty": 81.0922,
+        "pnl": -50.28,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "AVY",
+        "direction": "L",
+        "entry_date": "2026-02-04",
+        "exit_date": "2026-03-05",
+        "entry": 192.18,
+        "exit": 184.35,
+        "qty": 7.873,
+        "pnl": -61.63,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "FCX",
+        "direction": "L",
+        "entry_date": "2026-02-24",
+        "exit_date": "2026-03-06",
+        "entry": 67.88,
+        "exit": 61.85,
+        "qty": 26.6416,
+        "pnl": -160.65,
+        "exit_type": "STOP",
+        "strategies": [
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "CTAS",
+        "direction": "L",
+        "entry_date": "2026-02-06",
+        "exit_date": "2026-03-10",
+        "entry": 195.42,
+        "exit": 198.63,
+        "qty": 5.8267,
+        "pnl": 18.68,
+        "exit_type": "TRAIL",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "ESS",
+        "direction": "L",
+        "entry_date": "2026-03-05",
+        "exit_date": "2026-03-18",
+        "entry": 258.24,
+        "exit": 248.03,
+        "qty": 6.2695,
+        "pnl": -64.01,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "LHX",
+        "direction": "L",
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-03-20",
+        "entry": 377.17,
+        "exit": 356.4,
+        "qty": 3.0488,
+        "pnl": -63.31,
+        "exit_type": "STOP",
+        "strategies": [
+          "BV",
+          "MC",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "VTR",
+        "direction": "L",
+        "entry_date": "2026-03-18",
+        "exit_date": "2026-03-20",
+        "entry": 87.33,
+        "exit": 84.15,
+        "qty": 1.8608,
+        "pnl": -5.92,
+        "exit_type": "STOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "HOLX",
+        "direction": "L",
+        "entry_date": "2026-02-13",
+        "exit_date": "2026-03-21",
+        "entry": 75.04,
+        "exit": 75.41,
+        "qty": 15.2588,
+        "pnl": 5.65,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "MC",
+          "ER",
+          "TR"
+        ]
+      },
+      {
+        "ticker": "XOM",
+        "direction": "L",
+        "entry_date": "2026-03-06",
+        "exit_date": "2026-03-21",
+        "entry": 151.21,
+        "exit": 159.67,
+        "qty": 1.0628,
+        "pnl": 8.99,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "ADM",
+        "direction": "L",
+        "entry_date": "2026-03-10",
+        "exit_date": "2026-03-21",
+        "entry": 69.39,
+        "exit": 66.17,
+        "qty": 29.0673,
+        "pnl": -93.6,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "ROST",
+        "direction": "L",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 211.19,
+        "exit": 211.19,
+        "qty": 0.7576,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      },
+      {
+        "ticker": "TRGP",
+        "direction": "L",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 237.41,
+        "exit": 237.41,
+        "qty": 0.6739,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "PB",
+          "ER",
+          "TR",
+          "RS"
+        ]
+      }
+    ],
+    "short_trades": [
+      {
+        "ticker": "CIEN",
+        "direction": "S",
+        "entry_date": "2025-10-10",
+        "exit_date": "2025-10-15",
+        "entry": 155.94,
+        "exit": 168.4,
+        "qty": 1.241,
+        "pnl": -15.46,
+        "exit_type": "STOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "TDG",
+        "direction": "S",
+        "entry_date": "2025-10-15",
+        "exit_date": "2025-10-20",
+        "entry": 1237.71,
+        "exit": 1292.69,
+        "qty": 0.1531,
+        "pnl": -8.42,
+        "exit_type": "STOP",
+        "strategies": [
+          "BD",
+          "BE",
+          "EB",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "GLW",
+        "direction": "S",
+        "entry_date": "2025-10-10",
+        "exit_date": "2025-10-27",
+        "entry": 82.54,
+        "exit": 87.13,
+        "qty": 2.3444,
+        "pnl": -10.75,
+        "exit_type": "STOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "INTC",
+        "direction": "S",
+        "entry_date": "2025-10-14",
+        "exit_date": "2025-10-28",
+        "entry": 35.63,
+        "exit": 39.78,
+        "qty": 5.3763,
+        "pnl": -22.31,
+        "exit_type": "STOP",
+        "strategies": [
+          "RR",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "BAC",
+        "direction": "S",
+        "entry_date": "2025-11-13",
+        "exit_date": "2025-12-12",
+        "entry": 52.3,
+        "exit": 54.29,
+        "qty": 3.8412,
+        "pnl": -7.64,
+        "exit_type": "STOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "DIS",
+        "direction": "S",
+        "entry_date": "2025-11-13",
+        "exit_date": "2025-12-22",
+        "entry": 106.89,
+        "exit": 112.32,
+        "qty": 1.8795,
+        "pnl": -10.21,
+        "exit_type": "STOP",
+        "strategies": [
+          "BD",
+          "FB",
+          "BE",
+          "EB"
+        ]
+      },
+      {
+        "ticker": "MOS",
+        "direction": "S",
+        "entry_date": "2025-11-17",
+        "exit_date": "2026-01-08",
+        "entry": 24.09,
+        "exit": 26.07,
+        "qty": 8.1729,
+        "pnl": -16.15,
+        "exit_type": "STOP",
+        "strategies": [
+          "BE",
+          "EB",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "NI",
+        "direction": "S",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-02-10",
+        "entry": 43.1,
+        "exit": 44.62,
+        "qty": 4.9294,
+        "pnl": -7.47,
+        "exit_type": "STOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE"
+        ]
+      },
+      {
+        "ticker": "RTX",
+        "direction": "S",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-03-02",
+        "entry": 195.71,
+        "exit": 205.49,
+        "qty": 1.0857,
+        "pnl": -10.62,
+        "exit_type": "STOP",
+        "strategies": [
+          "RR",
+          "FB",
+          "BE"
+        ]
+      },
+      {
+        "ticker": "ROL",
+        "direction": "S",
+        "entry_date": "2026-02-12",
+        "exit_date": "2026-03-20",
+        "entry": 58.51,
+        "exit": 53.49,
+        "qty": 3.7319,
+        "pnl": 18.74,
+        "exit_type": "TGT",
+        "strategies": [
+          "BD",
+          "FB",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "QCOM",
+        "direction": "S",
+        "entry_date": "2026-02-05",
+        "exit_date": "2026-03-21",
+        "entry": 135.43,
+        "exit": 129.9,
+        "qty": 1.5993,
+        "pnl": 8.84,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "BE",
+          "EB"
+        ]
+      },
+      {
+        "ticker": "AES",
+        "direction": "S",
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-03-21",
+        "entry": 14.21,
+        "exit": 14.1,
+        "qty": 15.414,
+        "pnl": 1.7,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "RR",
+          "FB",
+          "BE",
+          "MD"
+        ]
+      },
+      {
+        "ticker": "INCY",
+        "direction": "S",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry": 90.78,
+        "exit": 90.78,
+        "qty": 7.0495,
+        "pnl": 0.0,
+        "exit_type": "EOP",
+        "strategies": [
+          "BD",
+          "BE",
+          "EB"
+        ]
+      }
+    ],
+    "opt_trades": [
+      {
+        "t": "USB",
+        "date": "2025-09-22",
+        "type": "BCS",
+        "pnl": 0.28
+      },
+      {
+        "t": "VST",
+        "date": "2025-09-23",
+        "type": "BCS",
+        "pnl": 2.11
+      },
+      {
+        "t": "EQIX",
+        "date": "2025-09-24",
+        "type": "BCS",
+        "pnl": 4.27
+      },
+      {
+        "t": "KHC",
+        "date": "2025-09-25",
+        "type": "BCS",
+        "pnl": 0.15
+      },
+      {
+        "t": "APH",
+        "date": "2025-09-29",
+        "type": "BCS",
+        "pnl": -1.76
+      },
+      {
+        "t": "YUM",
+        "date": "2025-09-30",
+        "type": "BCS",
+        "pnl": 1.12
+      },
+      {
+        "t": "NWS",
+        "date": "2025-10-01",
+        "type": "BCS",
+        "pnl": 0.37
+      },
+      {
+        "t": "GM",
+        "date": "2025-10-02",
+        "type": "BCS",
+        "pnl": 0.39
+      },
+      {
+        "t": "ROST",
+        "date": "2025-10-03",
+        "type": "BCS",
+        "pnl": 0.93
+      },
+      {
+        "t": "BIIB",
+        "date": "2025-10-06",
+        "type": "BCS",
+        "pnl": 1.23
+      },
+      {
+        "t": "NXPI",
+        "date": "2025-10-07",
+        "type": "BCS",
+        "pnl": 2.16
+      },
+      {
+        "t": "DVA",
+        "date": "2025-10-08",
+        "type": "BCS",
+        "pnl": 1.49
+      },
+      {
+        "t": "ECL",
+        "date": "2025-10-09",
+        "type": "BCS",
+        "pnl": 1.77
+      },
+      {
+        "t": "AMP",
+        "date": "2025-10-10",
+        "type": "BCS",
+        "pnl": 4.93
+      },
+      {
+        "t": "BIIB",
+        "date": "2025-10-10",
+        "type": "IC",
+        "pnl": -1.5
+      },
+      {
+        "t": "MNST",
+        "date": "2025-10-13",
+        "type": "BCS",
+        "pnl": 0.59
+      },
+      {
+        "t": "INTC",
+        "date": "2025-10-14",
+        "type": "BCS",
+        "pnl": 0.27
+      },
+      {
+        "t": "PH",
+        "date": "2025-10-14",
+        "type": "IC",
+        "pnl": -7.3
+      },
+      {
+        "t": "RSG",
+        "date": "2025-10-15",
+        "type": "BCS",
+        "pnl": 1.1
+      },
+      {
+        "t": "PH",
+        "date": "2025-10-15",
+        "type": "IC",
+        "pnl": -7.4
+      },
+      {
+        "t": "DUK",
+        "date": "2025-10-16",
+        "type": "BCS",
+        "pnl": 0.54
+      },
+      {
+        "t": "ECL",
+        "date": "2025-10-16",
+        "type": "IC",
+        "pnl": 2.28
+      },
+      {
+        "t": "NEM",
+        "date": "2025-10-17",
+        "type": "BCS",
+        "pnl": 0.98
+      },
+      {
+        "t": "PH",
+        "date": "2025-10-17",
+        "type": "IC",
+        "pnl": -7.3
+      },
+      {
+        "t": "MU",
+        "date": "2025-10-21",
+        "type": "BCS",
+        "pnl": -3.66
+      },
+      {
+        "t": "TXN",
+        "date": "2025-10-22",
+        "type": "BCS",
+        "pnl": 1.67
+      },
+      {
+        "t": "ATO",
+        "date": "2025-10-23",
+        "type": "BCS",
+        "pnl": 0.89
+      },
+      {
+        "t": "MCHP",
+        "date": "2025-10-24",
+        "type": "BCS",
+        "pnl": 0.78
+      },
+      {
+        "t": "LW",
+        "date": "2025-10-28",
+        "type": "BCS",
+        "pnl": 0.48
+      },
+      {
+        "t": "BR",
+        "date": "2025-10-29",
+        "type": "BCS",
+        "pnl": -2.44
+      },
+      {
+        "t": "AMP",
+        "date": "2025-10-30",
+        "type": "BCS",
+        "pnl": 3.26
+      },
+      {
+        "t": "DXCM",
+        "date": "2025-10-31",
+        "type": "BCS",
+        "pnl": -1.07
+      },
+      {
+        "t": "KMB",
+        "date": "2025-11-03",
+        "type": "BCS",
+        "pnl": 1.06
+      },
+      {
+        "t": "FTNT",
+        "date": "2025-11-04",
+        "type": "BCS",
+        "pnl": 0.69
+      },
+      {
+        "t": "AIG",
+        "date": "2025-11-05",
+        "type": "BCS",
+        "pnl": 0.58
+      },
+      {
+        "t": "NWS",
+        "date": "2025-11-06",
+        "type": "BCS",
+        "pnl": 0.6
+      },
+      {
+        "t": "IBM",
+        "date": "2025-11-07",
+        "type": "BCS",
+        "pnl": 2.43
+      },
+      {
+        "t": "UHS",
+        "date": "2025-11-10",
+        "type": "BCS",
+        "pnl": -3.13
+      },
+      {
+        "t": "APP",
+        "date": "2025-11-11",
+        "type": "BCS",
+        "pnl": 5.76
+      },
+      {
+        "t": "WBD",
+        "date": "2025-11-12",
+        "type": "BCS",
+        "pnl": -0.34
+      },
+      {
+        "t": "BAC",
+        "date": "2025-11-13",
+        "type": "BCS",
+        "pnl": -0.57
+      },
+      {
+        "t": "MOS",
+        "date": "2025-11-17",
+        "type": "BCS",
+        "pnl": 0.19
+      },
+      {
+        "t": "NI",
+        "date": "2025-11-17",
+        "type": "IC",
+        "pnl": 0.35
+      },
+      {
+        "t": "NI",
+        "date": "2025-11-18",
+        "type": "IC",
+        "pnl": 0.34
+      },
+      {
+        "t": "MGM",
+        "date": "2025-11-19",
+        "type": "BCS",
+        "pnl": -0.57
+      },
+      {
+        "t": "ECL",
+        "date": "2025-11-19",
+        "type": "IC",
+        "pnl": 2.91
+      },
+      {
+        "t": "GILD",
+        "date": "2025-11-20",
+        "type": "BCS",
+        "pnl": 0.91
+      },
+      {
+        "t": "PH",
+        "date": "2025-11-20",
+        "type": "IC",
+        "pnl": -8.2
+      },
+      {
+        "t": "NI",
+        "date": "2025-11-21",
+        "type": "IC",
+        "pnl": 0.14
+      },
+      {
+        "t": "LIN",
+        "date": "2025-11-24",
+        "type": "BCS",
+        "pnl": 3.39
+      },
+      {
+        "t": "NI",
+        "date": "2025-11-24",
+        "type": "IC",
+        "pnl": 0.26
+      },
+      {
+        "t": "WDAY",
+        "date": "2025-11-26",
+        "type": "BCS",
+        "pnl": 2.97
+      },
+      {
+        "t": "TJX",
+        "date": "2025-11-28",
+        "type": "BCS",
+        "pnl": 0.86
+      },
+      {
+        "t": "NEE",
+        "date": "2025-12-01",
+        "type": "BCS",
+        "pnl": 0.66
+      },
+      {
+        "t": "CTRA",
+        "date": "2025-12-02",
+        "type": "BCS",
+        "pnl": 0.17
+      },
+      {
+        "t": "ARE",
+        "date": "2025-12-03",
+        "type": "BCS",
+        "pnl": -1.11
+      },
+      {
+        "t": "MMM",
+        "date": "2025-12-04",
+        "type": "BCS",
+        "pnl": 1.24
+      },
+      {
+        "t": "CFG",
+        "date": "2025-12-05",
+        "type": "BCS",
+        "pnl": -0.53
+      },
+      {
+        "t": "APD",
+        "date": "2025-12-08",
+        "type": "BCS",
+        "pnl": -4.15
+      },
+      {
+        "t": "HAS",
+        "date": "2025-12-09",
+        "type": "BCS",
+        "pnl": -0.86
+      },
+      {
+        "t": "PH",
+        "date": "2025-12-12",
+        "type": "BCS",
+        "pnl": -12.98
+      },
+      {
+        "t": "TYL",
+        "date": "2025-12-15",
+        "type": "BCS",
+        "pnl": 3.35
+      },
+      {
+        "t": "ES",
+        "date": "2025-12-16",
+        "type": "BCS",
+        "pnl": 1.39
+      },
+      {
+        "t": "FTNT",
+        "date": "2025-12-17",
+        "type": "BCS",
+        "pnl": 0.81
+      },
+      {
+        "t": "CLX",
+        "date": "2025-12-18",
+        "type": "BCS",
+        "pnl": -1.46
+      },
+      {
+        "t": "LW",
+        "date": "2025-12-19",
+        "type": "BCS",
+        "pnl": 0.75
+      },
+      {
+        "t": "DLTR",
+        "date": "2025-12-22",
+        "type": "BCS",
+        "pnl": -2.06
+      },
+      {
+        "t": "UAL",
+        "date": "2025-12-23",
+        "type": "BCS",
+        "pnl": 1.12
+      },
+      {
+        "t": "STLD",
+        "date": "2025-12-29",
+        "type": "BCS",
+        "pnl": -2.06
+      },
+      {
+        "t": "ICE",
+        "date": "2025-12-30",
+        "type": "BCS",
+        "pnl": -1.38
+      },
+      {
+        "t": "AVB",
+        "date": "2025-12-31",
+        "type": "BCS",
+        "pnl": 0.83
+      },
+      {
+        "t": "WDAY",
+        "date": "2026-01-02",
+        "type": "BCS",
+        "pnl": 1.75
+      },
+      {
+        "t": "KHC",
+        "date": "2026-01-05",
+        "type": "BCS",
+        "pnl": 0.13
+      },
+      {
+        "t": "NVR",
+        "date": "2026-01-06",
+        "type": "BCS",
+        "pnl": -91.37
+      },
+      {
+        "t": "DVA",
+        "date": "2026-01-07",
+        "type": "BCS",
+        "pnl": 1.1
+      },
+      {
+        "t": "INCY",
+        "date": "2026-01-08",
+        "type": "BCS",
+        "pnl": 0.86
+      },
+      {
+        "t": "HAS",
+        "date": "2026-01-09",
+        "type": "BCS",
+        "pnl": -1.04
+      },
+      {
+        "t": "MAR",
+        "date": "2026-01-12",
+        "type": "BCS",
+        "pnl": 2.43
+      },
+      {
+        "t": "SNPS",
+        "date": "2026-01-13",
+        "type": "BCS",
+        "pnl": 5.3
+      },
+      {
+        "t": "BBY",
+        "date": "2026-01-14",
+        "type": "BCS",
+        "pnl": 0.58
+      },
+      {
+        "t": "MRNA",
+        "date": "2026-01-15",
+        "type": "BCS",
+        "pnl": -0.72
+      },
+      {
+        "t": "MMM",
+        "date": "2026-01-16",
+        "type": "BCS",
+        "pnl": 1.57
+      },
+      {
+        "t": "NI",
+        "date": "2026-01-20",
+        "type": "BCS",
+        "pnl": -0.53
+      },
+      {
+        "t": "ECL",
+        "date": "2026-01-20",
+        "type": "IC",
+        "pnl": -2.7
+      },
+      {
+        "t": "KHC",
+        "date": "2026-01-21",
+        "type": "BCS",
+        "pnl": -0.25
+      },
+      {
+        "t": "PPL",
+        "date": "2026-01-22",
+        "type": "BCS",
+        "pnl": 0.26
+      },
+      {
+        "t": "SWK",
+        "date": "2026-01-23",
+        "type": "BCS",
+        "pnl": -1.3
+      },
+      {
+        "t": "ULTA",
+        "date": "2026-01-26",
+        "type": "BCS",
+        "pnl": 5.23
+      },
+      {
+        "t": "BRO",
+        "date": "2026-01-27",
+        "type": "BCS",
+        "pnl": 0.9
+      },
+      {
+        "t": "APH",
+        "date": "2026-01-28",
+        "type": "BCS",
+        "pnl": 1.65
+      },
+      {
+        "t": "NOW",
+        "date": "2026-01-29",
+        "type": "BCS",
+        "pnl": 1.52
+      },
+      {
+        "t": "MRNA",
+        "date": "2026-01-30",
+        "type": "BCS",
+        "pnl": -1.12
+      },
+      {
+        "t": "EQT",
+        "date": "2026-02-02",
+        "type": "BCS",
+        "pnl": -1.0
+      },
+      {
+        "t": "BR",
+        "date": "2026-02-03",
+        "type": "BCS",
+        "pnl": 2.13
+      },
+      {
+        "t": "BSX",
+        "date": "2026-02-04",
+        "type": "BCS",
+        "pnl": 0.8
+      },
+      {
+        "t": "QCOM",
+        "date": "2026-02-05",
+        "type": "BCS",
+        "pnl": 1.75
+      },
+      {
+        "t": "NI",
+        "date": "2026-02-05",
+        "type": "IC",
+        "pnl": -0.4
+      },
+      {
+        "t": "PGR",
+        "date": "2026-02-06",
+        "type": "BCS",
+        "pnl": 1.61
+      },
+      {
+        "t": "NI",
+        "date": "2026-02-06",
+        "type": "IC",
+        "pnl": -0.4
+      },
+      {
+        "t": "AIZ",
+        "date": "2026-02-09",
+        "type": "BCS",
+        "pnl": 2.47
+      },
+      {
+        "t": "RMD",
+        "date": "2026-02-10",
+        "type": "BCS",
+        "pnl": 2.43
+      },
+      {
+        "t": "BEN",
+        "date": "2026-02-11",
+        "type": "BCS",
+        "pnl": 0.32
+      },
+      {
+        "t": "PH",
+        "date": "2026-02-12",
+        "type": "BCS",
+        "pnl": 6.67
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-12",
+        "type": "IC",
+        "pnl": 1.45
+      },
+      {
+        "t": "BF-B",
+        "date": "2026-02-13",
+        "type": "BCS",
+        "pnl": 0.18
+      },
+      {
+        "t": "APH",
+        "date": "2026-02-13",
+        "type": "IC",
+        "pnl": -0.75
+      },
+      {
+        "t": "ALLE",
+        "date": "2026-02-17",
+        "type": "BCS",
+        "pnl": 1.7
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-17",
+        "type": "IC",
+        "pnl": 1.23
+      },
+      {
+        "t": "NI",
+        "date": "2026-02-18",
+        "type": "BCS",
+        "pnl": -0.36
+      },
+      {
+        "t": "LUV",
+        "date": "2026-02-19",
+        "type": "BCS",
+        "pnl": 0.81
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-19",
+        "type": "IC",
+        "pnl": 1.56
+      },
+      {
+        "t": "CVX",
+        "date": "2026-02-20",
+        "type": "BCS",
+        "pnl": -2.37
+      },
+      {
+        "t": "BLK",
+        "date": "2026-02-23",
+        "type": "BCS",
+        "pnl": 14.09
+      },
+      {
+        "t": "RSG",
+        "date": "2026-02-23",
+        "type": "IC",
+        "pnl": 1.74
+      },
+      {
+        "t": "CVS",
+        "date": "2026-02-24",
+        "type": "BCS",
+        "pnl": 1.47
+      },
+      {
+        "t": "AVY",
+        "date": "2026-02-25",
+        "type": "BCS",
+        "pnl": 1.46
+      },
+      {
+        "t": "UHS",
+        "date": "2026-02-26",
+        "type": "BCS",
+        "pnl": 1.94
+      },
+      {
+        "t": "AXP",
+        "date": "2026-02-27",
+        "type": "BCS",
+        "pnl": 2.73
+      },
+      {
+        "t": "ECL",
+        "date": "2026-03-02",
+        "type": "BCS",
+        "pnl": 2.59
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-02",
+        "type": "IC",
+        "pnl": -10.1
+      },
+      {
+        "t": "CSX",
+        "date": "2026-03-03",
+        "type": "BCS",
+        "pnl": 0.26
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-03",
+        "type": "IC",
+        "pnl": -9.9
+      },
+      {
+        "t": "PH",
+        "date": "2026-03-04",
+        "type": "IC",
+        "pnl": -9.9
+      },
+      {
+        "t": "ETR",
+        "date": "2026-03-05",
+        "type": "BCS",
+        "pnl": 0.96
+      },
+      {
+        "t": "NWS",
+        "date": "2026-03-05",
+        "type": "IC",
+        "pnl": 0.83
+      },
+      {
+        "t": "MTCH",
+        "date": "2026-03-06",
+        "type": "BCS",
+        "pnl": -0.36
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-06",
+        "type": "IC",
+        "pnl": 0.47
+      },
+      {
+        "t": "BR",
+        "date": "2026-03-09",
+        "type": "BCS",
+        "pnl": 1.62
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-09",
+        "type": "IC",
+        "pnl": 5.58
+      },
+      {
+        "t": "APP",
+        "date": "2026-03-10",
+        "type": "BCS",
+        "pnl": 8.74
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-10",
+        "type": "IC",
+        "pnl": 5.34
+      },
+      {
+        "t": "FICO",
+        "date": "2026-03-11",
+        "type": "BCS",
+        "pnl": 21.44
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-11",
+        "type": "IC",
+        "pnl": 5.85
+      },
+      {
+        "t": "SBUX",
+        "date": "2026-03-12",
+        "type": "BCS",
+        "pnl": 1.09
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-12",
+        "type": "IC",
+        "pnl": 0.5
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-13",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "IT",
+        "date": "2026-03-16",
+        "type": "BCS",
+        "pnl": 3.0
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-16",
+        "type": "IC",
+        "pnl": 0.52
+      },
+      {
+        "t": "AVGO",
+        "date": "2026-03-17",
+        "type": "BCS",
+        "pnl": 5.46
+      },
+      {
+        "t": "BIIB",
+        "date": "2026-03-17",
+        "type": "IC",
+        "pnl": 5.4
+      },
+      {
+        "t": "AXP",
+        "date": "2026-03-18",
+        "type": "BCS",
+        "pnl": 5.03
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-18",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "NI",
+        "date": "2026-03-19",
+        "type": "IC",
+        "pnl": 0.53
+      },
+      {
+        "t": "INCY",
+        "date": "2026-03-20",
+        "type": "BCS",
+        "pnl": 1.28
+      },
+      {
+        "t": "ORCL",
+        "date": "2026-03-20",
+        "type": "IC",
+        "pnl": 5.26
+      }
+    ]
+  }
+}

@@ -1,0 +1,199 @@
+"""Fear & Greed Index — custom composite sentiment gauge from free data.
+
+Combines VIX, SPY RSI, sector breadth, safe haven demand, and momentum.
+"""
+from __future__ import annotations
+import time
+import threading
+import concurrent.futures
+from rich.console import Console
+
+console = Console()
+
+_cache = {"data": None, "ts": 0}
+_lock = threading.Lock()
+_TTL = 600  # 10 minutes
+_TIMEOUT = 15  # seconds for the entire computation
+
+_FALLBACK = {"score": None, "label": "Unavailable", "error": "data source timeout", "signals": {}}
+
+
+def _safe_close(df, col="Close"):
+    """Extract a clean Series from yfinance data, handling MultiIndex columns.
+
+    yfinance >= 0.2.31 returns MultiIndex columns like ('Close', 'SPY').
+    This helper normalizes to a flat Series regardless of yfinance version.
+    """
+    if df is None or df.empty:
+        return None
+    close = df[col]
+    # If MultiIndex produced a DataFrame with one column, squeeze to Series
+    if hasattr(close, "columns"):
+        close = close.iloc[:, 0] if len(close.columns) == 1 else close
+    # If it's still a DataFrame (multi-ticker), take first column
+    if hasattr(close, "columns"):
+        close = close.iloc[:, 0]
+    return close.dropna()
+
+
+def _compute_fear_greed() -> dict:
+    """Inner computation — runs in a thread with timeout protection."""
+    import yfinance as yf
+
+    signals = {}
+    score = 50.0
+
+    # 1. VIX
+    try:
+        vix = yf.download("^VIX", period="5d", progress=False, timeout=10)
+        close = _safe_close(vix)
+        if close is not None and len(close) > 0:
+            vix_val = float(close.iloc[-1])
+            vix_score = max(0, min(100, 100 - (vix_val - 12) * 3))
+            signals["vix"] = {
+                "value": round(vix_val, 1),
+                "signal": "EXTREME_FEAR" if vix_val > 30 else "FEAR" if vix_val > 20 else "NEUTRAL" if vix_val > 15 else "GREED",
+                "score": round(vix_score),
+            }
+            score += (vix_score - 50) * 0.25
+    except Exception:
+        pass
+
+    # 2. SPY RSI
+    try:
+        spy = yf.download("SPY", period="30d", progress=False, timeout=10)
+        close = _safe_close(spy)
+        if close is not None and len(close) >= 15:
+            delta = close.diff()
+            gain = delta.where(delta > 0, 0).rolling(14).mean()
+            loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
+            rs = gain / loss
+            rsi = float((100 - (100 / (1 + rs))).iloc[-1])
+            signals["rsi"] = {
+                "value": round(rsi, 1),
+                "signal": "EXTREME_FEAR" if rsi < 25 else "FEAR" if rsi < 40 else "NEUTRAL" if rsi < 60 else "GREED" if rsi < 75 else "EXTREME_GREED",
+                "score": round(rsi),
+            }
+            score += (rsi - 50) * 0.25
+    except Exception:
+        pass
+
+    # 3. Sector breadth
+    try:
+        etfs = ["XLK", "XLV", "XLF", "XLE", "XLY", "XLP", "XLI", "XLB", "XLU", "XLRE", "XLC"]
+        data = yf.download(etfs, period="5d", progress=False, group_by="ticker", timeout=10)
+        up_count = 0
+        for etf in etfs:
+            try:
+                etf_close = None
+                # Handle both MultiIndex and flat column layouts
+                try:
+                    etf_close = _safe_close(data[etf])
+                except (KeyError, TypeError):
+                    pass
+                if etf_close is not None and len(etf_close) >= 2:
+                    if float(etf_close.iloc[-1]) > float(etf_close.iloc[-2]):
+                        up_count += 1
+            except Exception:
+                pass
+        breadth = up_count / len(etfs) * 100
+        signals["breadth"] = {
+            "value": round(breadth),
+            "signal": "EXTREME_GREED" if breadth > 80 else "GREED" if breadth > 60 else "NEUTRAL" if breadth > 40 else "FEAR",
+            "score": round(breadth),
+        }
+        score += (breadth - 50) * 0.20
+    except Exception:
+        pass
+
+    # 4. Safe haven demand (Gold vs SPY 30d)
+    try:
+        gld = yf.download("GLD", period="30d", progress=False, timeout=10)
+        spy30 = yf.download("SPY", period="30d", progress=False, timeout=10)
+        gld_close = _safe_close(gld)
+        spy_close = _safe_close(spy30)
+        if gld_close is not None and spy_close is not None and len(gld_close) > 1 and len(spy_close) > 1:
+            gold_ret = (float(gld_close.iloc[-1]) / float(gld_close.iloc[0]) - 1) * 100
+            spy_ret = (float(spy_close.iloc[-1]) / float(spy_close.iloc[0]) - 1) * 100
+            haven = gold_ret - spy_ret
+            haven_score = max(0, min(100, 50 - haven * 5))
+            signals["safe_haven"] = {
+                "value": round(haven, 2),
+                "signal": "EXTREME_FEAR" if haven > 5 else "FEAR" if haven > 2 else "NEUTRAL" if haven > -2 else "GREED",
+                "score": round(haven_score),
+            }
+            score += (haven_score - 50) * 0.15
+    except Exception:
+        pass
+
+    # 5. Momentum (SPY vs 125-day SMA)
+    try:
+        spy_yr = yf.download("SPY", period="1y", progress=False, timeout=10)
+        close = _safe_close(spy_yr)
+        if close is not None and len(close) >= 126:
+            current = float(close.iloc[-1])
+            sma125 = float(close.rolling(125).mean().iloc[-1])
+            momentum = ((current - sma125) / sma125) * 100
+            mom_score = max(0, min(100, 50 + momentum * 5))
+            signals["momentum"] = {
+                "value": round(momentum, 2),
+                "signal": "EXTREME_GREED" if momentum > 10 else "GREED" if momentum > 3 else "NEUTRAL" if momentum > -3 else "FEAR" if momentum > -10 else "EXTREME_FEAR",
+                "score": round(mom_score),
+            }
+            score += (mom_score - 50) * 0.15
+    except Exception:
+        pass
+
+    final = max(0, min(100, score))
+    if final < 15:
+        label = "EXTREME FEAR"
+    elif final < 35:
+        label = "FEAR"
+    elif final < 50:
+        label = "MILD FEAR"
+    elif final < 65:
+        label = "NEUTRAL"
+    elif final < 80:
+        label = "GREED"
+    else:
+        label = "EXTREME GREED"
+
+    return {
+        "score": int(round(final)),
+        "label": label,
+        "signals": signals,
+    }
+
+
+def get_fear_greed_index() -> dict:
+    """Custom fear & greed index from free data sources.
+
+    Returns cached data when fresh, otherwise computes with a hard timeout.
+    Never raises — always returns a dict the frontend can display.
+    """
+    try:
+        with _lock:
+            if _cache["data"] and time.time() - _cache["ts"] < _TTL:
+                return _cache["data"]
+
+        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+            future = pool.submit(_compute_fear_greed)
+            result = future.result(timeout=_TIMEOUT)
+
+        with _lock:
+            _cache["data"] = result
+            _cache["ts"] = time.time()
+
+        return result
+    except concurrent.futures.TimeoutError:
+        console.print("[yellow]Fear & Greed: timed out after {}s[/yellow]".format(_TIMEOUT))
+        with _lock:
+            if _cache["data"]:
+                return {**_cache["data"], "stale": True}
+        return _FALLBACK
+    except Exception as e:
+        console.print("[red]Fear & Greed error: {}[/red]".format(e))
+        with _lock:
+            if _cache["data"]:
+                return {**_cache["data"], "stale": True}
+        return _FALLBACK

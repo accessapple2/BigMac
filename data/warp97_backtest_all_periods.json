@@ -1,0 +1,6136 @@
+{
+  "30d": {
+    "stats": {
+      "period": "2026-02-19 \u2192 2026-03-21",
+      "trading_days": 22,
+      "tickers_scanned": 510,
+      "total_trades": 11,
+      "wins": 1,
+      "losses": 10,
+      "win_rate": 9.1,
+      "total_pnl": -628.98,
+      "total_return_pct": -6.29,
+      "final_value": 9371.02,
+      "best_trade": 0.87,
+      "worst_trade": -114.72,
+      "avg_win": 0.87,
+      "avg_loss": -62.98,
+      "spy_return_pct": -4.99,
+      "alpha": -1.3,
+      "signals_generated": 11,
+      "exit_types": {
+        "target": 0,
+        "trailing_stop": 1,
+        "stop_loss": 5,
+        "end_of_period": 5
+      }
+    },
+    "trades": [
+      {
+        "ticker": "NOC",
+        "entry_date": "2026-02-19",
+        "exit_date": "2026-03-10",
+        "entry_price": 734.52,
+        "exit_price": 735.3,
+        "qty": 1.108,
+        "pnl": 0.87,
+        "pnl_pct": 0.11,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "rs_high"
+        ],
+        "num_strategies": 3,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "MRVL",
+        "entry_date": "2026-03-06",
+        "exit_date": "2026-03-21",
+        "entry_price": 89.57,
+        "exit_price": 87.91,
+        "qty": 11.0186,
+        "pnl": -18.29,
+        "pnl_pct": -1.85,
+        "strategies": [
+          "breakout_vol",
+          "macd_cross",
+          "trend_resume",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "num_strategies": 5,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "CTSH",
+        "entry_date": "2026-03-03",
+        "exit_date": "2026-03-21",
+        "entry_price": 64.34,
+        "exit_price": 62.07,
+        "qty": 15.8203,
+        "pnl": -35.91,
+        "pnl_pct": -3.53,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "CPT",
+        "entry_date": "2026-02-26",
+        "exit_date": "2026-03-09",
+        "entry_price": 110.24,
+        "exit_price": 105.19,
+        "qty": 7.9043,
+        "pnl": -39.92,
+        "pnl_pct": -4.58,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "ANET",
+        "entry_date": "2026-03-09",
+        "exit_date": "2026-03-21",
+        "entry_price": 137.17,
+        "exit_price": 131.22,
+        "qty": 6.9909,
+        "pnl": -41.6,
+        "pnl_pct": -4.34,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "ADM",
+        "entry_date": "2026-03-10",
+        "exit_date": "2026-03-21",
+        "entry_price": 69.39,
+        "exit_price": 66.17,
+        "qty": 13.4455,
+        "pnl": -43.29,
+        "pnl_pct": -4.64,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "BG",
+        "entry_date": "2026-02-19",
+        "exit_date": "2026-03-04",
+        "entry_price": 123.49,
+        "exit_price": 115.36,
+        "qty": 8.0368,
+        "pnl": -65.34,
+        "pnl_pct": -6.58,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "rs_high"
+        ],
+        "num_strategies": 3,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "DE",
+        "entry_date": "2026-02-19",
+        "exit_date": "2026-02-26",
+        "entry_price": 662.0,
+        "exit_price": 620.02,
+        "qty": 1.8283,
+        "pnl": -76.75,
+        "pnl_pct": -6.34,
+        "strategies": [
+          "breakout_vol",
+          "ema_ribbon",
+          "vol_surge",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "KLAC",
+        "entry_date": "2026-03-04",
+        "exit_date": "2026-03-06",
+        "entry_price": 1475.91,
+        "exit_price": 1356.3,
+        "qty": 0.6786,
+        "pnl": -81.17,
+        "pnl_pct": -8.1,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "HII",
+        "entry_date": "2026-02-19",
+        "exit_date": "2026-03-21",
+        "entry_price": 441.76,
+        "exit_price": 407.98,
+        "qty": 3.3412,
+        "pnl": -112.86,
+        "pnl_pct": -7.65,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "CRH",
+        "entry_date": "2026-02-19",
+        "exit_date": "2026-03-03",
+        "entry_price": 125.05,
+        "exit_price": 117.08,
+        "qty": 14.3943,
+        "pnl": -114.72,
+        "pnl_pct": -6.37,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      }
+    ],
+    "equity_curve": [
+      {
+        "date": "2026-02-19",
+        "value": 10000.0
+      },
+      {
+        "date": "2026-02-20",
+        "value": 9934.47
+      },
+      {
+        "date": "2026-02-23",
+        "value": 9870.27
+      },
+      {
+        "date": "2026-02-24",
+        "value": 9927.38
+      },
+      {
+        "date": "2026-02-25",
+        "value": 9777.02
+      },
+      {
+        "date": "2026-02-26",
+        "value": 9801.51
+      },
+      {
+        "date": "2026-02-27",
+        "value": 9804.36
+      },
+      {
+        "date": "2026-03-02",
+        "value": 9858.18
+      },
+      {
+        "date": "2026-03-03",
+        "value": 9759.59
+      },
+      {
+        "date": "2026-03-04",
+        "value": 9749.36
+      },
+      {
+        "date": "2026-03-05",
+        "value": 9659.03
+      },
+      {
+        "date": "2026-03-06",
+        "value": 9644.76
+      },
+      {
+        "date": "2026-03-09",
+        "value": 9634.47
+      },
+      {
+        "date": "2026-03-10",
+        "value": 9578.67
+      },
+      {
+        "date": "2026-03-11",
+        "value": 9535.37
+      },
+      {
+        "date": "2026-03-12",
+        "value": 9481.04
+      },
+      {
+        "date": "2026-03-13",
+        "value": 9463.95
+      },
+      {
+        "date": "2026-03-16",
+        "value": 9514.54
+      },
+      {
+        "date": "2026-03-17",
+        "value": 9533.81
+      },
+      {
+        "date": "2026-03-18",
+        "value": 9503.62
+      },
+      {
+        "date": "2026-03-19",
+        "value": 9483.97
+      },
+      {
+        "date": "2026-03-20",
+        "value": 9371.02
+      }
+    ],
+    "signals": [
+      {
+        "date": "2026-02-19",
+        "ticker": "CRH",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 125.04948425292969,
+        "stop": 117.08,
+        "target": 137.01,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-19",
+        "ticker": "HII",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 441.75958251953125,
+        "stop": 402.4,
+        "target": 500.8,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-19",
+        "ticker": "DE",
+        "strategies": 4,
+        "names": [
+          "breakout_vol",
+          "ema_ribbon",
+          "vol_surge",
+          "rs_high"
+        ],
+        "entry": 662.0,
+        "stop": 620.02,
+        "target": 724.97,
+        "wscore": 4.0
+      },
+      {
+        "date": "2026-02-19",
+        "ticker": "BG",
+        "strategies": 3,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "rs_high"
+        ],
+        "entry": 123.48999786376953,
+        "stop": 115.36,
+        "target": 135.69,
+        "wscore": 3.7
+      },
+      {
+        "date": "2026-02-19",
+        "ticker": "NOC",
+        "strategies": 3,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "rs_high"
+        ],
+        "entry": 734.5175170898438,
+        "stop": 696.95,
+        "target": 790.87,
+        "wscore": 3.7
+      },
+      {
+        "date": "2026-02-26",
+        "ticker": "CPT",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 110.23999786376953,
+        "stop": 105.19,
+        "target": 117.82,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-03-03",
+        "ticker": "CTSH",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "entry": 64.33999633789062,
+        "stop": 58.5,
+        "target": 73.1,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-03-04",
+        "ticker": "KLAC",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "entry": 1475.9100341796875,
+        "stop": 1356.3,
+        "target": 1655.33,
+        "wscore": 3.8
+      },
+      {
+        "date": "2026-03-06",
+        "ticker": "MRVL",
+        "strategies": 5,
+        "names": [
+          "breakout_vol",
+          "macd_cross",
+          "trend_resume",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "entry": 89.56999969482422,
+        "stop": 85.14,
+        "target": 96.22,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-03-09",
+        "ticker": "ANET",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "entry": 137.1699981689453,
+        "stop": 128.46,
+        "target": 150.24,
+        "wscore": 4.0
+      },
+      {
+        "date": "2026-03-10",
+        "ticker": "ADM",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 69.38999938964844,
+        "stop": 65.25,
+        "target": 75.6,
+        "wscore": 4.2
+      }
+    ]
+  },
+  "60d": {
+    "stats": {
+      "period": "2026-01-20 \u2192 2026-03-21",
+      "trading_days": 43,
+      "tickers_scanned": 512,
+      "total_trades": 19,
+      "wins": 5,
+      "losses": 14,
+      "win_rate": 26.3,
+      "total_pnl": -542.98,
+      "total_return_pct": -5.43,
+      "final_value": 9457.02,
+      "best_trade": 63.31,
+      "worst_trade": -102.44,
+      "avg_win": 45.15,
+      "avg_loss": -54.91,
+      "spy_return_pct": -4.02,
+      "alpha": -1.41,
+      "signals_generated": 19,
+      "exit_types": {
+        "target": 1,
+        "trailing_stop": 4,
+        "stop_loss": 9,
+        "end_of_period": 5
+      }
+    },
+    "trades": [
+      {
+        "ticker": "AMAT",
+        "entry_date": "2026-02-13",
+        "exit_date": "2026-03-02",
+        "entry_price": 354.47,
+        "exit_price": 376.15,
+        "qty": 2.9196,
+        "pnl": 63.31,
+        "pnl_pct": 6.12,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "PH",
+        "entry_date": "2026-02-03",
+        "exit_date": "2026-02-24",
+        "entry_price": 962.54,
+        "exit_price": 1022.34,
+        "qty": 1.0426,
+        "pnl": 62.35,
+        "pnl_pct": 6.21,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "WTW",
+        "entry_date": "2026-02-12",
+        "exit_date": "2026-03-10",
+        "entry_price": 282.98,
+        "exit_price": 294.52,
+        "qty": 3.3746,
+        "pnl": 38.94,
+        "pnl_pct": 4.08,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "NTAP",
+        "entry_date": "2026-01-21",
+        "exit_date": "2026-02-12",
+        "entry_price": 97.09,
+        "exit_price": 101.7,
+        "qty": 8.3821,
+        "pnl": 38.62,
+        "pnl_pct": 4.75,
+        "strategies": [
+          "rsi_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "PTC",
+        "entry_date": "2026-02-04",
+        "exit_date": "2026-02-17",
+        "entry_price": 151.34,
+        "exit_price": 154.78,
+        "qty": 6.5365,
+        "pnl": 22.51,
+        "pnl_pct": 2.28,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "ROST",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry_price": 211.19,
+        "exit_price": 211.19,
+        "qty": 4.6061,
+        "pnl": 0.0,
+        "pnl_pct": 0.0,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "GEV",
+        "entry_date": "2026-03-18",
+        "exit_date": "2026-03-21",
+        "entry_price": 858.47,
+        "exit_price": 851.07,
+        "qty": 1.1385,
+        "pnl": -8.42,
+        "pnl_pct": -0.86,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "MRVL",
+        "entry_date": "2026-03-06",
+        "exit_date": "2026-03-21",
+        "entry_price": 89.57,
+        "exit_price": 87.91,
+        "qty": 11.0302,
+        "pnl": -18.31,
+        "pnl_pct": -1.85,
+        "strategies": [
+          "breakout_vol",
+          "macd_cross",
+          "trend_resume",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "num_strategies": 5,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "ADBE",
+        "entry_date": "2026-02-24",
+        "exit_date": "2026-03-21",
+        "entry_price": 255.17,
+        "exit_price": 248.15,
+        "qty": 4.719,
+        "pnl": -33.13,
+        "pnl_pct": -2.75,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "ADM",
+        "entry_date": "2026-03-10",
+        "exit_date": "2026-03-21",
+        "entry_price": 69.39,
+        "exit_price": 66.17,
+        "qty": 14.2533,
+        "pnl": -45.9,
+        "pnl_pct": -4.64,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "NVDA",
+        "entry_date": "2026-01-27",
+        "exit_date": "2026-02-04",
+        "entry_price": 188.51,
+        "exit_price": 178.65,
+        "qty": 5.1738,
+        "pnl": -51.01,
+        "pnl_pct": -5.23,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "CAH",
+        "entry_date": "2026-02-05",
+        "exit_date": "2026-03-18",
+        "entry_price": 227.18,
+        "exit_price": 214.79,
+        "qty": 4.3025,
+        "pnl": -53.31,
+        "pnl_pct": -5.45,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill",
+          "rs_high"
+        ],
+        "num_strategies": 5,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "LHX",
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-03-20",
+        "entry_price": 377.17,
+        "exit_price": 356.4,
+        "qty": 2.6708,
+        "pnl": -55.46,
+        "pnl_pct": -5.51,
+        "strategies": [
+          "breakout_vol",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 5,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "QCOM",
+        "entry_date": "2026-01-21",
+        "exit_date": "2026-02-05",
+        "entry_price": 155.37,
+        "exit_price": 144.6,
+        "qty": 6.3876,
+        "pnl": -68.81,
+        "pnl_pct": -6.93,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill"
+        ],
+        "num_strategies": 3,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "DPZ",
+        "entry_date": "2026-01-21",
+        "exit_date": "2026-02-13",
+        "entry_price": 396.92,
+        "exit_price": 376.27,
+        "qty": 3.7187,
+        "pnl": -76.77,
+        "pnl_pct": -5.2,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "GPN",
+        "entry_date": "2026-01-21",
+        "exit_date": "2026-02-03",
+        "entry_price": 73.11,
+        "exit_price": 68.37,
+        "qty": 16.5548,
+        "pnl": -78.47,
+        "pnl_pct": -6.48,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "FCX",
+        "entry_date": "2026-02-24",
+        "exit_date": "2026-03-06",
+        "entry_price": 67.88,
+        "exit_price": 61.85,
+        "qty": 14.5463,
+        "pnl": -87.71,
+        "pnl_pct": -8.88,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "CVS",
+        "entry_date": "2026-01-20",
+        "exit_date": "2026-01-27",
+        "entry_price": 79.44,
+        "exit_price": 75.51,
+        "qty": 22.6596,
+        "pnl": -88.97,
+        "pnl_pct": -4.94,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "FICO",
+        "entry_date": "2026-02-18",
+        "exit_date": "2026-02-24",
+        "entry_price": 1366.93,
+        "exit_price": 1231.08,
+        "qty": 0.7541,
+        "pnl": -102.44,
+        "pnl_pct": -9.94,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "STOP_LOSS"
+      }
+    ],
+    "equity_curve": [
+      {
+        "date": "2026-01-20",
+        "value": 10000.0
+      },
+      {
+        "date": "2026-01-21",
+        "value": 10031.46
+      },
+      {
+        "date": "2026-01-22",
+        "value": 10167.13
+      },
+      {
+        "date": "2026-01-23",
+        "value": 10157.49
+      },
+      {
+        "date": "2026-01-26",
+        "value": 10193.09
+      },
+      {
+        "date": "2026-01-27",
+        "value": 9975.44
+      },
+      {
+        "date": "2026-01-28",
+        "value": 9923.79
+      },
+      {
+        "date": "2026-01-29",
+        "value": 9912.92
+      },
+      {
+        "date": "2026-01-30",
+        "value": 9903.64
+      },
+      {
+        "date": "2026-02-02",
+        "value": 9890.94
+      },
+      {
+        "date": "2026-02-03",
+        "value": 9726.6
+      },
+      {
+        "date": "2026-02-04",
+        "value": 9777.11
+      },
+      {
+        "date": "2026-02-05",
+        "value": 9733.8
+      },
+      {
+        "date": "2026-02-06",
+        "value": 9789.65
+      },
+      {
+        "date": "2026-02-09",
+        "value": 9808.79
+      },
+      {
+        "date": "2026-02-10",
+        "value": 9825.33
+      },
+      {
+        "date": "2026-02-11",
+        "value": 9781.33
+      },
+      {
+        "date": "2026-02-12",
+        "value": 9652.71
+      },
+      {
+        "date": "2026-02-13",
+        "value": 9739.53
+      },
+      {
+        "date": "2026-02-17",
+        "value": 9794.17
+      },
+      {
+        "date": "2026-02-18",
+        "value": 9830.0
+      },
+      {
+        "date": "2026-02-19",
+        "value": 9825.09
+      },
+      {
+        "date": "2026-02-20",
+        "value": 9859.71
+      },
+      {
+        "date": "2026-02-23",
+        "value": 9755.57
+      },
+      {
+        "date": "2026-02-24",
+        "value": 9748.27
+      },
+      {
+        "date": "2026-02-25",
+        "value": 9843.8
+      },
+      {
+        "date": "2026-02-26",
+        "value": 9829.78
+      },
+      {
+        "date": "2026-02-27",
+        "value": 9829.84
+      },
+      {
+        "date": "2026-03-02",
+        "value": 9836.18
+      },
+      {
+        "date": "2026-03-03",
+        "value": 9797.7
+      },
+      {
+        "date": "2026-03-04",
+        "value": 9806.13
+      },
+      {
+        "date": "2026-03-05",
+        "value": 9732.02
+      },
+      {
+        "date": "2026-03-06",
+        "value": 9765.57
+      },
+      {
+        "date": "2026-03-09",
+        "value": 9797.85
+      },
+      {
+        "date": "2026-03-10",
+        "value": 9721.99
+      },
+      {
+        "date": "2026-03-11",
+        "value": 9704.08
+      },
+      {
+        "date": "2026-03-12",
+        "value": 9677.54
+      },
+      {
+        "date": "2026-03-13",
+        "value": 9569.91
+      },
+      {
+        "date": "2026-03-16",
+        "value": 9626.95
+      },
+      {
+        "date": "2026-03-17",
+        "value": 9650.59
+      },
+      {
+        "date": "2026-03-18",
+        "value": 9551.08
+      },
+      {
+        "date": "2026-03-19",
+        "value": 9549.35
+      },
+      {
+        "date": "2026-03-20",
+        "value": 9457.01
+      }
+    ],
+    "signals": [
+      {
+        "date": "2026-01-20",
+        "ticker": "CVS",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "entry": 79.43641662597656,
+        "stop": 75.51,
+        "target": 85.33,
+        "wscore": 3.8
+      },
+      {
+        "date": "2026-01-21",
+        "ticker": "DPZ",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 396.9152526855469,
+        "stop": 376.27,
+        "target": 427.89,
+        "wscore": 6.3
+      },
+      {
+        "date": "2026-01-21",
+        "ticker": "GPN",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "rsi_divergence"
+        ],
+        "entry": 73.10997772216797,
+        "stop": 68.37,
+        "target": 80.22,
+        "wscore": 5.5
+      },
+      {
+        "date": "2026-01-21",
+        "ticker": "QCOM",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill"
+        ],
+        "entry": 155.3724365234375,
+        "stop": 144.6,
+        "target": 171.54,
+        "wscore": 4.3
+      },
+      {
+        "date": "2026-01-21",
+        "ticker": "NTAP",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 97.08999633789062,
+        "stop": 89.95,
+        "target": 107.8,
+        "wscore": 4.3
+      },
+      {
+        "date": "2026-01-27",
+        "ticker": "NVDA",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 188.50979614257812,
+        "stop": 178.65,
+        "target": 203.3,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-03",
+        "ticker": "PH",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 962.5361328125,
+        "stop": 922.67,
+        "target": 1022.34,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-04",
+        "ticker": "PTC",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 151.33999633789062,
+        "stop": 141.26,
+        "target": 166.46,
+        "wscore": 6.3
+      },
+      {
+        "date": "2026-02-05",
+        "ticker": "CAH",
+        "strategies": 5,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill",
+          "rs_high"
+        ],
+        "entry": 227.17999267578125,
+        "stop": 214.79,
+        "target": 245.77,
+        "wscore": 5.3
+      },
+      {
+        "date": "2026-02-12",
+        "ticker": "WTW",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 282.9800109863281,
+        "stop": 257.48,
+        "target": 321.24,
+        "wscore": 6.3
+      },
+      {
+        "date": "2026-02-13",
+        "ticker": "AMAT",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "entry": 354.4679260253906,
+        "stop": 314.81,
+        "target": 413.96,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-18",
+        "ticker": "FICO",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "entry": 1366.9300537109375,
+        "stop": 1231.08,
+        "target": 1570.71,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-02-24",
+        "ticker": "ADBE",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 255.1699981689453,
+        "stop": 234.21,
+        "target": 286.61,
+        "wscore": 5.8
+      },
+      {
+        "date": "2026-02-24",
+        "ticker": "FCX",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 67.87999725341797,
+        "stop": 61.85,
+        "target": 76.93,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-03-02",
+        "ticker": "LHX",
+        "strategies": 5,
+        "names": [
+          "breakout_vol",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 377.16619873046875,
+        "stop": 356.4,
+        "target": 408.32,
+        "wscore": 5.5
+      },
+      {
+        "date": "2026-03-06",
+        "ticker": "MRVL",
+        "strategies": 5,
+        "names": [
+          "breakout_vol",
+          "macd_cross",
+          "trend_resume",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "entry": 89.56999969482422,
+        "stop": 85.14,
+        "target": 96.22,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-03-10",
+        "ticker": "ADM",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 69.38999938964844,
+        "stop": 65.25,
+        "target": 75.6,
+        "wscore": 4.2
+      },
+      {
+        "date": "2026-03-18",
+        "ticker": "GEV",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 858.469970703125,
+        "stop": 821.72,
+        "target": 913.6,
+        "wscore": 4.0
+      },
+      {
+        "date": "2026-03-20",
+        "ticker": "ROST",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 211.19000244140625,
+        "stop": 205.32,
+        "target": 220.0,
+        "wscore": 4.0
+      }
+    ]
+  },
+  "90d": {
+    "stats": {
+      "period": "2025-12-21 \u2192 2026-03-21",
+      "trading_days": 61,
+      "tickers_scanned": 512,
+      "total_trades": 25,
+      "wins": 12,
+      "losses": 13,
+      "win_rate": 48.0,
+      "total_pnl": 294.33,
+      "total_return_pct": 2.94,
+      "final_value": 10294.33,
+      "best_trade": 202.49,
+      "worst_trade": -113.4,
+      "avg_win": 83.88,
+      "avg_loss": -54.78,
+      "spy_return_pct": -5.04,
+      "alpha": 7.98,
+      "signals_generated": 25,
+      "exit_types": {
+        "target": 10,
+        "trailing_stop": 2,
+        "stop_loss": 8,
+        "end_of_period": 5
+      }
+    },
+    "trades": [
+      {
+        "ticker": "STX",
+        "entry_date": "2025-12-23",
+        "exit_date": "2026-01-06",
+        "entry_price": 282.06,
+        "exit_price": 329.25,
+        "qty": 4.291,
+        "pnl": 202.49,
+        "pnl_pct": 16.73,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "INTC",
+        "entry_date": "2026-01-13",
+        "exit_date": "2026-01-21",
+        "entry_price": 47.29,
+        "exit_price": 53.91,
+        "qty": 21.9063,
+        "pnl": 145.02,
+        "pnl_pct": 14.0,
+        "strategies": [
+          "breakout_vol",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "ALGN",
+        "entry_date": "2026-02-04",
+        "exit_date": "2026-02-06",
+        "entry_price": 161.3,
+        "exit_price": 178.06,
+        "qty": 6.5808,
+        "pnl": 110.29,
+        "pnl_pct": 10.39,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "SNA",
+        "entry_date": "2025-12-23",
+        "exit_date": "2026-01-21",
+        "entry_price": 349.78,
+        "exit_price": 366.86,
+        "qty": 5.1461,
+        "pnl": 87.89,
+        "pnl_pct": 4.88,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "XOM",
+        "entry_date": "2025-12-23",
+        "exit_date": "2026-01-13",
+        "entry_price": 118.63,
+        "exit_price": 125.09,
+        "qty": 12.4421,
+        "pnl": 80.38,
+        "pnl_pct": 5.45,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "LW",
+        "entry_date": "2026-01-12",
+        "exit_date": "2026-01-27",
+        "entry_price": 41.09,
+        "exit_price": 44.45,
+        "qty": 22.4328,
+        "pnl": 75.43,
+        "pnl_pct": 8.18,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence",
+          "vol_dryup"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "PH",
+        "entry_date": "2026-02-03",
+        "exit_date": "2026-02-24",
+        "entry_price": 962.54,
+        "exit_price": 1022.34,
+        "qty": 1.157,
+        "pnl": 69.19,
+        "pnl_pct": 6.21,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "AMAT",
+        "entry_date": "2026-02-13",
+        "exit_date": "2026-03-02",
+        "entry_price": 354.47,
+        "exit_price": 376.15,
+        "qty": 3.1056,
+        "pnl": 67.34,
+        "pnl_pct": 6.12,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "AMGN",
+        "entry_date": "2025-12-23",
+        "exit_date": "2026-02-04",
+        "entry_price": 329.21,
+        "exit_price": 349.96,
+        "qty": 3.0147,
+        "pnl": 62.56,
+        "pnl_pct": 6.3,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "MCK",
+        "entry_date": "2025-12-24",
+        "exit_date": "2026-02-05",
+        "entry_price": 825.74,
+        "exit_price": 866.87,
+        "qty": 0.9856,
+        "pnl": 40.53,
+        "pnl_pct": 4.98,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "ORLY",
+        "entry_date": "2026-01-07",
+        "exit_date": "2026-01-12",
+        "entry_price": 90.85,
+        "exit_price": 94.42,
+        "qty": 10.0741,
+        "pnl": 35.96,
+        "pnl_pct": 3.93,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "PTC",
+        "entry_date": "2026-02-04",
+        "exit_date": "2026-02-17",
+        "entry_price": 151.34,
+        "exit_price": 154.78,
+        "qty": 8.5535,
+        "pnl": 29.45,
+        "pnl_pct": 2.28,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "ROST",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry_price": 211.19,
+        "exit_price": 211.19,
+        "qty": 5.0291,
+        "pnl": 0.0,
+        "pnl_pct": 0.0,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "GEV",
+        "entry_date": "2026-03-18",
+        "exit_date": "2026-03-21",
+        "entry_price": 858.47,
+        "exit_price": 851.07,
+        "qty": 1.2413,
+        "pnl": -9.19,
+        "pnl_pct": -0.86,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "MRVL",
+        "entry_date": "2026-03-06",
+        "exit_date": "2026-03-21",
+        "entry_price": 89.57,
+        "exit_price": 87.91,
+        "qty": 12.1359,
+        "pnl": -20.15,
+        "pnl_pct": -1.85,
+        "strategies": [
+          "breakout_vol",
+          "macd_cross",
+          "trend_resume",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "num_strategies": 5,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "CRH",
+        "entry_date": "2026-01-06",
+        "exit_date": "2026-01-07",
+        "entry_price": 128.42,
+        "exit_price": 123.46,
+        "qty": 7.1769,
+        "pnl": -35.58,
+        "pnl_pct": -3.86,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "ADBE",
+        "entry_date": "2026-02-24",
+        "exit_date": "2026-03-21",
+        "entry_price": 255.17,
+        "exit_price": 248.15,
+        "qty": 5.2259,
+        "pnl": -36.69,
+        "pnl_pct": -2.75,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "CAH",
+        "entry_date": "2026-02-05",
+        "exit_date": "2026-03-18",
+        "entry_price": 227.18,
+        "exit_price": 214.79,
+        "qty": 4.5083,
+        "pnl": -55.86,
+        "pnl_pct": -5.45,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill",
+          "rs_high"
+        ],
+        "num_strategies": 5,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "NVDA",
+        "entry_date": "2026-01-27",
+        "exit_date": "2026-02-04",
+        "entry_price": 188.51,
+        "exit_price": 178.65,
+        "qty": 5.9525,
+        "pnl": -58.69,
+        "pnl_pct": -5.23,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "LHX",
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-03-20",
+        "entry_price": 377.17,
+        "exit_price": 356.4,
+        "qty": 2.9348,
+        "pnl": -60.94,
+        "pnl_pct": -5.51,
+        "strategies": [
+          "breakout_vol",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 5,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "DPZ",
+        "entry_date": "2026-01-21",
+        "exit_date": "2026-02-13",
+        "entry_price": 396.92,
+        "exit_price": 376.27,
+        "qty": 3.5319,
+        "pnl": -72.92,
+        "pnl_pct": -5.2,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "GPN",
+        "entry_date": "2026-01-21",
+        "exit_date": "2026-02-03",
+        "entry_price": 73.11,
+        "exit_price": 68.37,
+        "qty": 15.7234,
+        "pnl": -74.53,
+        "pnl_pct": -6.48,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "CMI",
+        "entry_date": "2026-02-06",
+        "exit_date": "2026-03-21",
+        "entry_price": 575.79,
+        "exit_price": 533.54,
+        "qty": 1.8249,
+        "pnl": -77.11,
+        "pnl_pct": -7.34,
+        "strategies": [
+          "pullback_sma20",
+          "bb_bounce",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "num_strategies": 5,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "FCX",
+        "entry_date": "2026-02-24",
+        "exit_date": "2026-03-06",
+        "entry_price": 67.88,
+        "exit_price": 61.85,
+        "qty": 16.1088,
+        "pnl": -97.14,
+        "pnl_pct": -8.88,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "FICO",
+        "entry_date": "2026-02-18",
+        "exit_date": "2026-02-24",
+        "entry_price": 1366.93,
+        "exit_price": 1231.08,
+        "qty": 0.8347,
+        "pnl": -113.4,
+        "pnl_pct": -9.94,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "STOP_LOSS"
+      }
+    ],
+    "equity_curve": [
+      {
+        "date": "2025-12-22",
+        "value": 10000.0
+      },
+      {
+        "date": "2025-12-23",
+        "value": 10000.0
+      },
+      {
+        "date": "2025-12-24",
+        "value": 10024.32
+      },
+      {
+        "date": "2025-12-26",
+        "value": 10030.31
+      },
+      {
+        "date": "2025-12-29",
+        "value": 10003.65
+      },
+      {
+        "date": "2025-12-30",
+        "value": 9991.45
+      },
+      {
+        "date": "2025-12-31",
+        "value": 9926.3
+      },
+      {
+        "date": "2026-01-02",
+        "value": 10043.55
+      },
+      {
+        "date": "2026-01-05",
+        "value": 10084.22
+      },
+      {
+        "date": "2026-01-06",
+        "value": 10248.01
+      },
+      {
+        "date": "2026-01-07",
+        "value": 10186.28
+      },
+      {
+        "date": "2026-01-08",
+        "value": 10249.71
+      },
+      {
+        "date": "2026-01-09",
+        "value": 10286.38
+      },
+      {
+        "date": "2026-01-12",
+        "value": 10272.59
+      },
+      {
+        "date": "2026-01-13",
+        "value": 10312.78
+      },
+      {
+        "date": "2026-01-14",
+        "value": 10409.04
+      },
+      {
+        "date": "2026-01-15",
+        "value": 10433.0
+      },
+      {
+        "date": "2026-01-16",
+        "value": 10376.7
+      },
+      {
+        "date": "2026-01-20",
+        "value": 10415.65
+      },
+      {
+        "date": "2026-01-21",
+        "value": 10613.59
+      },
+      {
+        "date": "2026-01-22",
+        "value": 10676.32
+      },
+      {
+        "date": "2026-01-23",
+        "value": 10674.07
+      },
+      {
+        "date": "2026-01-26",
+        "value": 10707.23
+      },
+      {
+        "date": "2026-01-27",
+        "value": 10717.57
+      },
+      {
+        "date": "2026-01-28",
+        "value": 10643.44
+      },
+      {
+        "date": "2026-01-29",
+        "value": 10642.9
+      },
+      {
+        "date": "2026-01-30",
+        "value": 10657.82
+      },
+      {
+        "date": "2026-02-02",
+        "value": 10648.43
+      },
+      {
+        "date": "2026-02-03",
+        "value": 10521.65
+      },
+      {
+        "date": "2026-02-04",
+        "value": 10530.68
+      },
+      {
+        "date": "2026-02-05",
+        "value": 10662.46
+      },
+      {
+        "date": "2026-02-06",
+        "value": 10707.3
+      },
+      {
+        "date": "2026-02-09",
+        "value": 10775.37
+      },
+      {
+        "date": "2026-02-10",
+        "value": 10758.06
+      },
+      {
+        "date": "2026-02-11",
+        "value": 10719.59
+      },
+      {
+        "date": "2026-02-12",
+        "value": 10595.07
+      },
+      {
+        "date": "2026-02-13",
+        "value": 10704.2
+      },
+      {
+        "date": "2026-02-17",
+        "value": 10721.62
+      },
+      {
+        "date": "2026-02-18",
+        "value": 10731.29
+      },
+      {
+        "date": "2026-02-19",
+        "value": 10736.85
+      },
+      {
+        "date": "2026-02-20",
+        "value": 10768.11
+      },
+      {
+        "date": "2026-02-23",
+        "value": 10680.56
+      },
+      {
+        "date": "2026-02-24",
+        "value": 10696.56
+      },
+      {
+        "date": "2026-02-25",
+        "value": 10768.22
+      },
+      {
+        "date": "2026-02-26",
+        "value": 10700.63
+      },
+      {
+        "date": "2026-02-27",
+        "value": 10704.52
+      },
+      {
+        "date": "2026-03-02",
+        "value": 10708.41
+      },
+      {
+        "date": "2026-03-03",
+        "value": 10633.85
+      },
+      {
+        "date": "2026-03-04",
+        "value": 10664.18
+      },
+      {
+        "date": "2026-03-05",
+        "value": 10566.15
+      },
+      {
+        "date": "2026-03-06",
+        "value": 10562.9
+      },
+      {
+        "date": "2026-03-09",
+        "value": 10648.05
+      },
+      {
+        "date": "2026-03-10",
+        "value": 10581.66
+      },
+      {
+        "date": "2026-03-11",
+        "value": 10534.99
+      },
+      {
+        "date": "2026-03-12",
+        "value": 10446.92
+      },
+      {
+        "date": "2026-03-13",
+        "value": 10330.87
+      },
+      {
+        "date": "2026-03-16",
+        "value": 10429.87
+      },
+      {
+        "date": "2026-03-17",
+        "value": 10431.53
+      },
+      {
+        "date": "2026-03-18",
+        "value": 10341.76
+      },
+      {
+        "date": "2026-03-19",
+        "value": 10369.07
+      },
+      {
+        "date": "2026-03-20",
+        "value": 10294.38
+      }
+    ],
+    "signals": [
+      {
+        "date": "2025-12-23",
+        "ticker": "SNA",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 349.78125,
+        "stop": 338.4,
+        "target": 366.86,
+        "wscore": 4.5
+      },
+      {
+        "date": "2025-12-23",
+        "ticker": "XOM",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 118.62928771972656,
+        "stop": 114.33,
+        "target": 125.09,
+        "wscore": 4.5
+      },
+      {
+        "date": "2025-12-23",
+        "ticker": "STX",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "entry": 282.05999755859375,
+        "stop": 250.6,
+        "target": 329.25,
+        "wscore": 3.5
+      },
+      {
+        "date": "2025-12-23",
+        "ticker": "AMGN",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "entry": 329.2088623046875,
+        "stop": 315.38,
+        "target": 349.96,
+        "wscore": 3.5
+      },
+      {
+        "date": "2025-12-24",
+        "ticker": "MCK",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "entry": 825.74365234375,
+        "stop": 798.33,
+        "target": 866.87,
+        "wscore": 4.0
+      },
+      {
+        "date": "2026-01-06",
+        "ticker": "CRH",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "entry": 128.41761779785156,
+        "stop": 123.46,
+        "target": 135.86,
+        "wscore": 3.5
+      },
+      {
+        "date": "2026-01-07",
+        "ticker": "ORLY",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "entry": 90.8499984741211,
+        "stop": 88.47,
+        "target": 94.42,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-01-12",
+        "ticker": "LW",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence",
+          "vol_dryup"
+        ],
+        "entry": 41.08745574951172,
+        "stop": 38.85,
+        "target": 44.45,
+        "wscore": 4.4
+      },
+      {
+        "date": "2026-01-13",
+        "ticker": "INTC",
+        "strategies": 4,
+        "names": [
+          "breakout_vol",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "entry": 47.290000915527344,
+        "stop": 42.88,
+        "target": 53.91,
+        "wscore": 4.0
+      },
+      {
+        "date": "2026-01-21",
+        "ticker": "DPZ",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 396.9152526855469,
+        "stop": 376.27,
+        "target": 427.89,
+        "wscore": 6.3
+      },
+      {
+        "date": "2026-01-21",
+        "ticker": "GPN",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "rsi_divergence"
+        ],
+        "entry": 73.10997772216797,
+        "stop": 68.37,
+        "target": 80.22,
+        "wscore": 5.5
+      },
+      {
+        "date": "2026-01-27",
+        "ticker": "NVDA",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 188.50979614257812,
+        "stop": 178.65,
+        "target": 203.3,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-03",
+        "ticker": "PH",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 962.5361328125,
+        "stop": 922.67,
+        "target": 1022.34,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-04",
+        "ticker": "PTC",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 151.33999633789062,
+        "stop": 141.26,
+        "target": 166.46,
+        "wscore": 6.3
+      },
+      {
+        "date": "2026-02-04",
+        "ticker": "ALGN",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "entry": 161.3000030517578,
+        "stop": 150.13,
+        "target": 178.06,
+        "wscore": 5.1
+      },
+      {
+        "date": "2026-02-05",
+        "ticker": "CAH",
+        "strategies": 5,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill",
+          "rs_high"
+        ],
+        "entry": 227.17999267578125,
+        "stop": 214.79,
+        "target": 245.77,
+        "wscore": 5.3
+      },
+      {
+        "date": "2026-02-06",
+        "ticker": "CMI",
+        "strategies": 5,
+        "names": [
+          "pullback_sma20",
+          "bb_bounce",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "entry": 575.7942504882812,
+        "stop": 533.14,
+        "target": 639.78,
+        "wscore": 5.8
+      },
+      {
+        "date": "2026-02-13",
+        "ticker": "AMAT",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "entry": 354.4679260253906,
+        "stop": 314.81,
+        "target": 413.96,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-18",
+        "ticker": "FICO",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "entry": 1366.9300537109375,
+        "stop": 1231.08,
+        "target": 1570.71,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-02-24",
+        "ticker": "ADBE",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 255.1699981689453,
+        "stop": 234.21,
+        "target": 286.61,
+        "wscore": 5.8
+      },
+      {
+        "date": "2026-02-24",
+        "ticker": "FCX",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 67.87999725341797,
+        "stop": 61.85,
+        "target": 76.93,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-03-02",
+        "ticker": "LHX",
+        "strategies": 5,
+        "names": [
+          "breakout_vol",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 377.16619873046875,
+        "stop": 356.4,
+        "target": 408.32,
+        "wscore": 5.5
+      },
+      {
+        "date": "2026-03-06",
+        "ticker": "MRVL",
+        "strategies": 5,
+        "names": [
+          "breakout_vol",
+          "macd_cross",
+          "trend_resume",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "entry": 89.56999969482422,
+        "stop": 85.14,
+        "target": 96.22,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-03-18",
+        "ticker": "GEV",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 858.469970703125,
+        "stop": 821.72,
+        "target": 913.6,
+        "wscore": 4.0
+      },
+      {
+        "date": "2026-03-20",
+        "ticker": "ROST",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 211.19000244140625,
+        "stop": 205.32,
+        "target": 220.0,
+        "wscore": 4.0
+      }
+    ]
+  },
+  "120d": {
+    "stats": {
+      "period": "2025-11-21 \u2192 2026-03-21",
+      "trading_days": 81,
+      "tickers_scanned": 512,
+      "total_trades": 35,
+      "wins": 20,
+      "losses": 15,
+      "win_rate": 57.1,
+      "total_pnl": 539.47,
+      "total_return_pct": 5.39,
+      "final_value": 10539.47,
+      "best_trade": 159.89,
+      "worst_trade": -110.6,
+      "avg_win": 68.04,
+      "avg_loss": -54.76,
+      "spy_return_pct": -1.03,
+      "alpha": 6.42,
+      "signals_generated": 35,
+      "exit_types": {
+        "target": 13,
+        "trailing_stop": 6,
+        "stop_loss": 11,
+        "end_of_period": 5
+      }
+    },
+    "trades": [
+      {
+        "ticker": "BKNG",
+        "entry_date": "2025-11-21",
+        "exit_date": "2025-12-05",
+        "entry_price": 4748.06,
+        "exit_price": 5169.82,
+        "qty": 0.3791,
+        "pnl": 159.89,
+        "pnl_pct": 8.88,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "accumulation",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "FFIV",
+        "entry_date": "2025-11-21",
+        "exit_date": "2025-12-09",
+        "entry_price": 234.29,
+        "exit_price": 254.95,
+        "qty": 6.2999,
+        "pnl": 130.16,
+        "pnl_pct": 8.82,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "ALGN",
+        "entry_date": "2026-02-04",
+        "exit_date": "2026-02-06",
+        "entry_price": 161.3,
+        "exit_price": 178.06,
+        "qty": 6.7639,
+        "pnl": 113.36,
+        "pnl_pct": 10.39,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "QCOM",
+        "entry_date": "2025-11-21",
+        "exit_date": "2026-01-06",
+        "entry_price": 161.43,
+        "exit_price": 181.17,
+        "qty": 5.0412,
+        "pnl": 99.5,
+        "pnl_pct": 12.23,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill"
+        ],
+        "num_strategies": 3,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "LW",
+        "entry_date": "2026-01-12",
+        "exit_date": "2026-01-27",
+        "entry_price": 41.09,
+        "exit_price": 44.45,
+        "qty": 25.9014,
+        "pnl": 87.09,
+        "pnl_pct": 8.18,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence",
+          "vol_dryup"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "EIX",
+        "entry_date": "2025-12-16",
+        "exit_date": "2026-01-14",
+        "entry_price": 57.47,
+        "exit_price": 61.2,
+        "qty": 22.5833,
+        "pnl": 84.15,
+        "pnl_pct": 6.48,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "AMAT",
+        "entry_date": "2026-02-13",
+        "exit_date": "2026-03-02",
+        "entry_price": 354.47,
+        "exit_price": 376.15,
+        "qty": 3.6415,
+        "pnl": 78.97,
+        "pnl_pct": 6.12,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "AVY",
+        "entry_date": "2025-11-21",
+        "exit_date": "2025-12-11",
+        "entry_price": 168.69,
+        "exit_price": 179.52,
+        "qty": 7.1747,
+        "pnl": 77.67,
+        "pnl_pct": 6.42,
+        "strategies": [
+          "pullback_sma20",
+          "rsi_bounce",
+          "bb_bounce"
+        ],
+        "num_strategies": 3,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "MCK",
+        "entry_date": "2026-01-27",
+        "exit_date": "2026-02-05",
+        "entry_price": 833.49,
+        "exit_price": 887.37,
+        "qty": 1.3048,
+        "pnl": 70.3,
+        "pnl_pct": 6.46,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "CBRE",
+        "entry_date": "2025-12-16",
+        "exit_date": "2026-01-16",
+        "entry_price": 160.7,
+        "exit_price": 171.07,
+        "qty": 6.623,
+        "pnl": 68.68,
+        "pnl_pct": 6.45,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "PNC",
+        "entry_date": "2026-01-16",
+        "exit_date": "2026-02-04",
+        "entry_price": 221.48,
+        "exit_price": 234.82,
+        "qty": 5.0728,
+        "pnl": 67.67,
+        "pnl_pct": 6.02,
+        "strategies": [
+          "breakout_vol",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "MU",
+        "entry_date": "2025-12-05",
+        "exit_date": "2025-12-12",
+        "entry_price": 237.12,
+        "exit_price": 251.41,
+        "qty": 4.3957,
+        "pnl": 62.8,
+        "pnl_pct": 6.02,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "ADI",
+        "entry_date": "2026-01-07",
+        "exit_date": "2026-01-28",
+        "entry_price": 291.98,
+        "exit_price": 309.04,
+        "qty": 3.4775,
+        "pnl": 59.34,
+        "pnl_pct": 5.84,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "DTE",
+        "entry_date": "2026-02-05",
+        "exit_date": "2026-02-13",
+        "entry_price": 135.08,
+        "exit_price": 142.55,
+        "qty": 7.9206,
+        "pnl": 59.17,
+        "pnl_pct": 5.53,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "ORLY",
+        "entry_date": "2026-01-07",
+        "exit_date": "2026-01-12",
+        "entry_price": 90.85,
+        "exit_price": 94.42,
+        "qty": 13.6293,
+        "pnl": 48.66,
+        "pnl_pct": 3.93,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "CAT",
+        "entry_date": "2026-01-29",
+        "exit_date": "2026-02-05",
+        "entry_price": 665.24,
+        "exit_price": 687.0,
+        "qty": 1.6313,
+        "pnl": 35.5,
+        "pnl_pct": 3.27,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "PTC",
+        "entry_date": "2026-02-04",
+        "exit_date": "2026-02-17",
+        "entry_price": 151.34,
+        "exit_price": 154.78,
+        "qty": 8.7916,
+        "pnl": 30.27,
+        "pnl_pct": 2.28,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "XOM",
+        "entry_date": "2025-12-09",
+        "exit_date": "2026-01-07",
+        "entry_price": 117.47,
+        "exit_price": 118.84,
+        "qty": 9.7373,
+        "pnl": 13.38,
+        "pnl_pct": 1.17,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "NUE",
+        "entry_date": "2026-01-14",
+        "exit_date": "2026-01-27",
+        "entry_price": 172.29,
+        "exit_price": 174.15,
+        "qty": 6.509,
+        "pnl": 12.13,
+        "pnl_pct": 1.08,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "AXP",
+        "entry_date": "2026-03-19",
+        "exit_date": "2026-03-21",
+        "entry_price": 294.93,
+        "exit_price": 295.5,
+        "qty": 3.7261,
+        "pnl": 2.12,
+        "pnl_pct": 0.19,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "ROST",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry_price": 211.19,
+        "exit_price": 211.19,
+        "qty": 5.3341,
+        "pnl": 0.0,
+        "pnl_pct": 0.0,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "GEV",
+        "entry_date": "2026-03-18",
+        "exit_date": "2026-03-21",
+        "entry_price": 858.47,
+        "exit_price": 851.07,
+        "qty": 1.2964,
+        "pnl": -9.59,
+        "pnl_pct": -0.86,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "LNT",
+        "entry_date": "2025-11-21",
+        "exit_date": "2025-12-04",
+        "entry_price": 67.72,
+        "exit_price": 65.8,
+        "qty": 14.6555,
+        "pnl": -28.13,
+        "pnl_pct": -2.83,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "ADBE",
+        "entry_date": "2026-02-24",
+        "exit_date": "2026-03-21",
+        "entry_price": 255.17,
+        "exit_price": 248.15,
+        "qty": 4.2833,
+        "pnl": -30.07,
+        "pnl_pct": -2.75,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "CRH",
+        "entry_date": "2026-01-06",
+        "exit_date": "2026-01-07",
+        "entry_price": 128.42,
+        "exit_price": 123.46,
+        "qty": 8.0763,
+        "pnl": -40.04,
+        "pnl_pct": -3.86,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "F",
+        "entry_date": "2026-02-13",
+        "exit_date": "2026-03-02",
+        "entry_price": 14.12,
+        "exit_price": 13.5,
+        "qty": 74.9621,
+        "pnl": -46.48,
+        "pnl_pct": -4.39,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "RTX",
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-03-19",
+        "entry_price": 212.16,
+        "exit_price": 202.14,
+        "qty": 5.121,
+        "pnl": -51.31,
+        "pnl_pct": -4.72,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "DPZ",
+        "entry_date": "2026-01-21",
+        "exit_date": "2026-02-13",
+        "entry_price": 396.92,
+        "exit_price": 376.27,
+        "qty": 2.8112,
+        "pnl": -58.04,
+        "pnl_pct": -5.2,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "EQT",
+        "entry_date": "2025-12-04",
+        "exit_date": "2025-12-15",
+        "entry_price": 59.9,
+        "exit_price": 55.33,
+        "qty": 14.0383,
+        "pnl": -64.17,
+        "pnl_pct": -7.63,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "NVDA",
+        "entry_date": "2026-01-27",
+        "exit_date": "2026-02-04",
+        "entry_price": 188.51,
+        "exit_price": 178.65,
+        "qty": 7.0354,
+        "pnl": -69.37,
+        "pnl_pct": -5.23,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "CAH",
+        "entry_date": "2026-02-05",
+        "exit_date": "2026-03-18",
+        "entry_price": 227.18,
+        "exit_price": 214.79,
+        "qty": 5.7433,
+        "pnl": -71.16,
+        "pnl_pct": -5.45,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill",
+          "rs_high"
+        ],
+        "num_strategies": 5,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "LHX",
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-03-20",
+        "entry_price": 377.17,
+        "exit_price": 356.4,
+        "qty": 3.5129,
+        "pnl": -72.95,
+        "pnl_pct": -5.51,
+        "strategies": [
+          "breakout_vol",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 5,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "CMI",
+        "entry_date": "2026-02-06",
+        "exit_date": "2026-03-21",
+        "entry_price": 575.79,
+        "exit_price": 533.54,
+        "qty": 1.9002,
+        "pnl": -80.29,
+        "pnl_pct": -7.34,
+        "strategies": [
+          "pullback_sma20",
+          "bb_bounce",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "num_strategies": 5,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "NFLX",
+        "entry_date": "2025-12-11",
+        "exit_date": "2026-01-21",
+        "entry_price": 94.09,
+        "exit_price": 86.92,
+        "qty": 12.4324,
+        "pnl": -89.14,
+        "pnl_pct": -7.62,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill"
+        ],
+        "num_strategies": 3,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "FICO",
+        "entry_date": "2026-02-18",
+        "exit_date": "2026-02-24",
+        "entry_price": 1366.93,
+        "exit_price": 1231.08,
+        "qty": 0.8141,
+        "pnl": -110.6,
+        "pnl_pct": -9.94,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "STOP_LOSS"
+      }
+    ],
+    "equity_curve": [
+      {
+        "date": "2025-11-21",
+        "value": 10000.0
+      },
+      {
+        "date": "2025-11-24",
+        "value": 10042.62
+      },
+      {
+        "date": "2025-11-25",
+        "value": 10091.49
+      },
+      {
+        "date": "2025-11-26",
+        "value": 10113.96
+      },
+      {
+        "date": "2025-11-28",
+        "value": 10140.94
+      },
+      {
+        "date": "2025-12-01",
+        "value": 10102.28
+      },
+      {
+        "date": "2025-12-02",
+        "value": 10189.3
+      },
+      {
+        "date": "2025-12-03",
+        "value": 10219.8
+      },
+      {
+        "date": "2025-12-04",
+        "value": 10224.95
+      },
+      {
+        "date": "2025-12-05",
+        "value": 10359.21
+      },
+      {
+        "date": "2025-12-08",
+        "value": 10347.92
+      },
+      {
+        "date": "2025-12-09",
+        "value": 10399.13
+      },
+      {
+        "date": "2025-12-10",
+        "value": 10504.24
+      },
+      {
+        "date": "2025-12-11",
+        "value": 10483.57
+      },
+      {
+        "date": "2025-12-12",
+        "value": 10437.83
+      },
+      {
+        "date": "2025-12-15",
+        "value": 10413.6
+      },
+      {
+        "date": "2025-12-16",
+        "value": 10378.03
+      },
+      {
+        "date": "2025-12-17",
+        "value": 10410.82
+      },
+      {
+        "date": "2025-12-18",
+        "value": 10419.51
+      },
+      {
+        "date": "2025-12-19",
+        "value": 10436.65
+      },
+      {
+        "date": "2025-12-22",
+        "value": 10459.08
+      },
+      {
+        "date": "2025-12-23",
+        "value": 10463.3
+      },
+      {
+        "date": "2025-12-24",
+        "value": 10471.32
+      },
+      {
+        "date": "2025-12-26",
+        "value": 10466.12
+      },
+      {
+        "date": "2025-12-29",
+        "value": 10478.52
+      },
+      {
+        "date": "2025-12-30",
+        "value": 10479.34
+      },
+      {
+        "date": "2025-12-31",
+        "value": 10435.74
+      },
+      {
+        "date": "2026-01-02",
+        "value": 10449.59
+      },
+      {
+        "date": "2026-01-05",
+        "value": 10519.31
+      },
+      {
+        "date": "2026-01-06",
+        "value": 10511.97
+      },
+      {
+        "date": "2026-01-07",
+        "value": 10428.85
+      },
+      {
+        "date": "2026-01-08",
+        "value": 10482.25
+      },
+      {
+        "date": "2026-01-09",
+        "value": 10532.51
+      },
+      {
+        "date": "2026-01-12",
+        "value": 10501.59
+      },
+      {
+        "date": "2026-01-13",
+        "value": 10534.62
+      },
+      {
+        "date": "2026-01-14",
+        "value": 10568.01
+      },
+      {
+        "date": "2026-01-15",
+        "value": 10648.28
+      },
+      {
+        "date": "2026-01-16",
+        "value": 10624.82
+      },
+      {
+        "date": "2026-01-20",
+        "value": 10602.38
+      },
+      {
+        "date": "2026-01-21",
+        "value": 10711.54
+      },
+      {
+        "date": "2026-01-22",
+        "value": 10718.94
+      },
+      {
+        "date": "2026-01-23",
+        "value": 10711.8
+      },
+      {
+        "date": "2026-01-26",
+        "value": 10693.96
+      },
+      {
+        "date": "2026-01-27",
+        "value": 10713.64
+      },
+      {
+        "date": "2026-01-28",
+        "value": 10710.81
+      },
+      {
+        "date": "2026-01-29",
+        "value": 10732.5
+      },
+      {
+        "date": "2026-01-30",
+        "value": 10724.76
+      },
+      {
+        "date": "2026-02-02",
+        "value": 10779.46
+      },
+      {
+        "date": "2026-02-03",
+        "value": 10776.65
+      },
+      {
+        "date": "2026-02-04",
+        "value": 10715.62
+      },
+      {
+        "date": "2026-02-05",
+        "value": 10890.44
+      },
+      {
+        "date": "2026-02-06",
+        "value": 10911.34
+      },
+      {
+        "date": "2026-02-09",
+        "value": 10982.38
+      },
+      {
+        "date": "2026-02-10",
+        "value": 10967.05
+      },
+      {
+        "date": "2026-02-11",
+        "value": 10946.49
+      },
+      {
+        "date": "2026-02-12",
+        "value": 10835.49
+      },
+      {
+        "date": "2026-02-13",
+        "value": 10955.71
+      },
+      {
+        "date": "2026-02-17",
+        "value": 10971.72
+      },
+      {
+        "date": "2026-02-18",
+        "value": 10979.29
+      },
+      {
+        "date": "2026-02-19",
+        "value": 10960.68
+      },
+      {
+        "date": "2026-02-20",
+        "value": 11002.83
+      },
+      {
+        "date": "2026-02-23",
+        "value": 10903.34
+      },
+      {
+        "date": "2026-02-24",
+        "value": 10951.64
+      },
+      {
+        "date": "2026-02-25",
+        "value": 11031.84
+      },
+      {
+        "date": "2026-02-26",
+        "value": 10959.07
+      },
+      {
+        "date": "2026-02-27",
+        "value": 10941.07
+      },
+      {
+        "date": "2026-03-02",
+        "value": 10901.4
+      },
+      {
+        "date": "2026-03-03",
+        "value": 10820.32
+      },
+      {
+        "date": "2026-03-04",
+        "value": 10852.19
+      },
+      {
+        "date": "2026-03-05",
+        "value": 10758.12
+      },
+      {
+        "date": "2026-03-06",
+        "value": 10801.76
+      },
+      {
+        "date": "2026-03-09",
+        "value": 10851.88
+      },
+      {
+        "date": "2026-03-10",
+        "value": 10766.85
+      },
+      {
+        "date": "2026-03-11",
+        "value": 10756.83
+      },
+      {
+        "date": "2026-03-12",
+        "value": 10684.01
+      },
+      {
+        "date": "2026-03-13",
+        "value": 10590.43
+      },
+      {
+        "date": "2026-03-16",
+        "value": 10655.3
+      },
+      {
+        "date": "2026-03-17",
+        "value": 10650.24
+      },
+      {
+        "date": "2026-03-18",
+        "value": 10610.75
+      },
+      {
+        "date": "2026-03-19",
+        "value": 10600.61
+      },
+      {
+        "date": "2026-03-20",
+        "value": 10539.49
+      }
+    ],
+    "signals": [
+      {
+        "date": "2025-11-21",
+        "ticker": "BKNG",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "accumulation",
+          "rsi_divergence"
+        ],
+        "entry": 4748.0634765625,
+        "stop": 4466.9,
+        "target": 5169.82,
+        "wscore": 6.0
+      },
+      {
+        "date": "2025-11-21",
+        "ticker": "FFIV",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "entry": 234.2899932861328,
+        "stop": 220.52,
+        "target": 254.95,
+        "wscore": 5.0
+      },
+      {
+        "date": "2025-11-21",
+        "ticker": "AVY",
+        "strategies": 3,
+        "names": [
+          "pullback_sma20",
+          "rsi_bounce",
+          "bb_bounce"
+        ],
+        "entry": 168.69371032714844,
+        "stop": 161.48,
+        "target": 179.52,
+        "wscore": 4.7
+      },
+      {
+        "date": "2025-11-21",
+        "ticker": "LNT",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 67.71934509277344,
+        "stop": 65.8,
+        "target": 70.6,
+        "wscore": 4.5
+      },
+      {
+        "date": "2025-11-21",
+        "ticker": "QCOM",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill"
+        ],
+        "entry": 161.43336486816406,
+        "stop": 148.28,
+        "target": 181.17,
+        "wscore": 4.3
+      },
+      {
+        "date": "2025-12-04",
+        "ticker": "EQT",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "entry": 59.90114974975586,
+        "stop": 55.33,
+        "target": 66.76,
+        "wscore": 3.5
+      },
+      {
+        "date": "2025-12-05",
+        "ticker": "MU",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "entry": 237.12420654296875,
+        "stop": 207.27,
+        "target": 281.91,
+        "wscore": 3.04
+      },
+      {
+        "date": "2025-12-09",
+        "ticker": "XOM",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "entry": 117.467041015625,
+        "stop": 112.75,
+        "target": 124.55,
+        "wscore": 3.5
+      },
+      {
+        "date": "2025-12-11",
+        "ticker": "NFLX",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill"
+        ],
+        "entry": 94.08999633789062,
+        "stop": 86.92,
+        "target": 104.85,
+        "wscore": 4.3
+      },
+      {
+        "date": "2025-12-16",
+        "ticker": "EIX",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 57.473777770996094,
+        "stop": 54.99,
+        "target": 61.2,
+        "wscore": 4.5
+      },
+      {
+        "date": "2025-12-16",
+        "ticker": "CBRE",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 160.6999969482422,
+        "stop": 153.79,
+        "target": 171.07,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-01-06",
+        "ticker": "CRH",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "entry": 128.41761779785156,
+        "stop": 123.46,
+        "target": 135.86,
+        "wscore": 3.5
+      },
+      {
+        "date": "2026-01-07",
+        "ticker": "ORLY",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "entry": 90.8499984741211,
+        "stop": 88.47,
+        "target": 94.42,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-01-07",
+        "ticker": "ADI",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 291.9757995605469,
+        "stop": 280.6,
+        "target": 309.04,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-01-12",
+        "ticker": "LW",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence",
+          "vol_dryup"
+        ],
+        "entry": 41.08745574951172,
+        "stop": 38.85,
+        "target": 44.45,
+        "wscore": 4.4
+      },
+      {
+        "date": "2026-01-14",
+        "ticker": "NUE",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 172.2899932861328,
+        "stop": 163.91,
+        "target": 184.86,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-01-16",
+        "ticker": "PNC",
+        "strategies": 4,
+        "names": [
+          "breakout_vol",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 221.47999572753906,
+        "stop": 212.59,
+        "target": 234.82,
+        "wscore": 3.2
+      },
+      {
+        "date": "2026-01-21",
+        "ticker": "DPZ",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 396.9152526855469,
+        "stop": 376.27,
+        "target": 427.89,
+        "wscore": 6.3
+      },
+      {
+        "date": "2026-01-27",
+        "ticker": "NVDA",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 188.50979614257812,
+        "stop": 178.65,
+        "target": 203.3,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-01-27",
+        "ticker": "MCK",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 833.4872436523438,
+        "stop": 797.57,
+        "target": 887.37,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-01-29",
+        "ticker": "CAT",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 665.239990234375,
+        "stop": 628.86,
+        "target": 719.81,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-04",
+        "ticker": "PTC",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 151.33999633789062,
+        "stop": 141.26,
+        "target": 166.46,
+        "wscore": 6.3
+      },
+      {
+        "date": "2026-02-04",
+        "ticker": "ALGN",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "entry": 161.3000030517578,
+        "stop": 150.13,
+        "target": 178.06,
+        "wscore": 5.1
+      },
+      {
+        "date": "2026-02-05",
+        "ticker": "CAH",
+        "strategies": 5,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill",
+          "rs_high"
+        ],
+        "entry": 227.17999267578125,
+        "stop": 214.79,
+        "target": 245.77,
+        "wscore": 5.3
+      },
+      {
+        "date": "2026-02-05",
+        "ticker": "DTE",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 135.07960510253906,
+        "stop": 130.1,
+        "target": 142.55,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-06",
+        "ticker": "CMI",
+        "strategies": 5,
+        "names": [
+          "pullback_sma20",
+          "bb_bounce",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "entry": 575.7942504882812,
+        "stop": 533.14,
+        "target": 639.78,
+        "wscore": 5.8
+      },
+      {
+        "date": "2026-02-13",
+        "ticker": "AMAT",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "entry": 354.4679260253906,
+        "stop": 314.81,
+        "target": 413.96,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-13",
+        "ticker": "F",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 14.119999885559082,
+        "stop": 13.5,
+        "target": 15.05,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-18",
+        "ticker": "FICO",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "entry": 1366.9300537109375,
+        "stop": 1231.08,
+        "target": 1570.71,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-02-24",
+        "ticker": "ADBE",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 255.1699981689453,
+        "stop": 234.21,
+        "target": 286.61,
+        "wscore": 5.8
+      },
+      {
+        "date": "2026-03-02",
+        "ticker": "LHX",
+        "strategies": 5,
+        "names": [
+          "breakout_vol",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 377.16619873046875,
+        "stop": 356.4,
+        "target": 408.32,
+        "wscore": 5.5
+      },
+      {
+        "date": "2026-03-02",
+        "ticker": "RTX",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 212.16000366210938,
+        "stop": 202.14,
+        "target": 227.2,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-03-18",
+        "ticker": "GEV",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 858.469970703125,
+        "stop": 821.72,
+        "target": 913.6,
+        "wscore": 4.0
+      },
+      {
+        "date": "2026-03-19",
+        "ticker": "AXP",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "entry": 294.92999267578125,
+        "stop": 278.65,
+        "target": 319.35,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-03-20",
+        "ticker": "ROST",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 211.19000244140625,
+        "stop": 205.32,
+        "target": 220.0,
+        "wscore": 4.0
+      }
+    ]
+  },
+  "180d": {
+    "stats": {
+      "period": "2025-09-21 \u2192 2026-03-21",
+      "trading_days": 125,
+      "tickers_scanned": 512,
+      "total_trades": 51,
+      "wins": 26,
+      "losses": 25,
+      "win_rate": 51.0,
+      "total_pnl": 534.28,
+      "total_return_pct": 5.34,
+      "final_value": 10534.28,
+      "best_trade": 176.55,
+      "worst_trade": -112.64,
+      "avg_win": 71.52,
+      "avg_loss": -53.01,
+      "spy_return_pct": -2.19,
+      "alpha": 7.53,
+      "signals_generated": 51,
+      "exit_types": {
+        "target": 15,
+        "trailing_stop": 11,
+        "stop_loss": 20,
+        "end_of_period": 5
+      }
+    },
+    "trades": [
+      {
+        "ticker": "CIEN",
+        "entry_date": "2025-10-13",
+        "exit_date": "2025-10-29",
+        "entry_price": 164.78,
+        "exit_price": 185.21,
+        "qty": 8.6415,
+        "pnl": 176.55,
+        "pnl_pct": 12.4,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "INTC",
+        "entry_date": "2026-01-13",
+        "exit_date": "2026-01-21",
+        "entry_price": 47.29,
+        "exit_price": 53.91,
+        "qty": 23.1025,
+        "pnl": 152.94,
+        "pnl_pct": 14.0,
+        "strategies": [
+          "breakout_vol",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "IBKR",
+        "entry_date": "2025-09-22",
+        "exit_date": "2025-10-02",
+        "entry_price": 64.07,
+        "exit_price": 69.35,
+        "qty": 23.0365,
+        "pnl": 121.58,
+        "pnl_pct": 8.24,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "EXPE",
+        "entry_date": "2025-10-29",
+        "exit_date": "2025-11-07",
+        "entry_price": 218.92,
+        "exit_price": 243.18,
+        "qty": 4.9606,
+        "pnl": 120.35,
+        "pnl_pct": 11.08,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "JBL",
+        "entry_date": "2025-12-17",
+        "exit_date": "2026-01-05",
+        "entry_price": 216.23,
+        "exit_price": 236.48,
+        "qty": 5.7496,
+        "pnl": 116.39,
+        "pnl_pct": 9.36,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "num_strategies": 5,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "HUM",
+        "entry_date": "2025-10-02",
+        "exit_date": "2025-10-06",
+        "entry_price": 255.74,
+        "exit_price": 285.36,
+        "qty": 3.8074,
+        "pnl": 112.76,
+        "pnl_pct": 11.58,
+        "strategies": [
+          "rsi_bounce",
+          "gap_fill",
+          "accumulation",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "AMD",
+        "entry_date": "2025-12-18",
+        "exit_date": "2026-01-07",
+        "entry_price": 201.06,
+        "exit_price": 222.32,
+        "qty": 5.0705,
+        "pnl": 107.79,
+        "pnl_pct": 10.57,
+        "strategies": [
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "KDP",
+        "entry_date": "2025-09-23",
+        "exit_date": "2025-10-27",
+        "entry_price": 26.05,
+        "exit_price": 27.95,
+        "qty": 46.4656,
+        "pnl": 88.39,
+        "pnl_pct": 7.3,
+        "strategies": [
+          "macd_cross",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "LW",
+        "entry_date": "2026-01-12",
+        "exit_date": "2026-01-27",
+        "entry_price": 41.09,
+        "exit_price": 44.45,
+        "qty": 25.923,
+        "pnl": 87.17,
+        "pnl_pct": 8.18,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence",
+          "vol_dryup"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "SLB",
+        "entry_date": "2026-01-05",
+        "exit_date": "2026-01-21",
+        "entry_price": 43.54,
+        "exit_price": 47.05,
+        "qty": 23.9382,
+        "pnl": 83.95,
+        "pnl_pct": 8.05,
+        "strategies": [
+          "breakout_vol",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_surge"
+        ],
+        "num_strategies": 5,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "EIX",
+        "entry_date": "2025-12-16",
+        "exit_date": "2026-01-14",
+        "entry_price": 57.47,
+        "exit_price": 61.2,
+        "qty": 21.935,
+        "pnl": 81.73,
+        "pnl_pct": 6.48,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "PH",
+        "entry_date": "2026-02-03",
+        "exit_date": "2026-02-24",
+        "entry_price": 962.54,
+        "exit_price": 1022.34,
+        "qty": 1.3218,
+        "pnl": 79.05,
+        "pnl_pct": 6.21,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "MCK",
+        "entry_date": "2026-01-27",
+        "exit_date": "2026-02-05",
+        "entry_price": 833.49,
+        "exit_price": 887.37,
+        "qty": 1.3035,
+        "pnl": 70.24,
+        "pnl_pct": 6.46,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "AMAT",
+        "entry_date": "2026-02-13",
+        "exit_date": "2026-03-02",
+        "entry_price": 354.47,
+        "exit_price": 376.15,
+        "qty": 3.1851,
+        "pnl": 69.07,
+        "pnl_pct": 6.12,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "CBRE",
+        "entry_date": "2025-12-16",
+        "exit_date": "2026-01-16",
+        "entry_price": 160.7,
+        "exit_price": 171.07,
+        "qty": 6.4329,
+        "pnl": 66.71,
+        "pnl_pct": 6.45,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "AVY",
+        "entry_date": "2026-02-03",
+        "exit_date": "2026-02-24",
+        "entry_price": 185.9,
+        "exit_price": 196.27,
+        "qty": 5.6121,
+        "pnl": 58.2,
+        "pnl_pct": 5.58,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "MAA",
+        "entry_date": "2025-10-30",
+        "exit_date": "2025-11-26",
+        "entry_price": 127.36,
+        "exit_price": 133.73,
+        "qty": 8.3772,
+        "pnl": 53.33,
+        "pnl_pct": 5.0,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "ORLY",
+        "entry_date": "2026-01-07",
+        "exit_date": "2026-01-12",
+        "entry_price": 90.85,
+        "exit_price": 94.42,
+        "qty": 11.6415,
+        "pnl": 41.56,
+        "pnl_pct": 3.93,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "TARGET"
+      },
+      {
+        "ticker": "EXPE",
+        "entry_date": "2025-11-07",
+        "exit_date": "2025-11-14",
+        "entry_price": 257.26,
+        "exit_price": 264.61,
+        "qty": 4.2448,
+        "pnl": 31.2,
+        "pnl_pct": 2.86,
+        "strategies": [
+          "breakout_vol",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_surge",
+          "rs_high"
+        ],
+        "num_strategies": 6,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "TER",
+        "entry_date": "2025-12-02",
+        "exit_date": "2025-12-12",
+        "entry_price": 189.86,
+        "exit_price": 194.67,
+        "qty": 5.4232,
+        "pnl": 26.07,
+        "pnl_pct": 2.53,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "PTC",
+        "entry_date": "2026-02-04",
+        "exit_date": "2026-02-17",
+        "entry_price": 151.34,
+        "exit_price": 154.78,
+        "qty": 7.1462,
+        "pnl": 24.61,
+        "pnl_pct": 2.28,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "RL",
+        "entry_date": "2025-10-13",
+        "exit_date": "2025-10-30",
+        "entry_price": 316.43,
+        "exit_price": 323.98,
+        "qty": 3.0258,
+        "pnl": 22.86,
+        "pnl_pct": 2.39,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "KLAC",
+        "entry_date": "2025-11-19",
+        "exit_date": "2025-12-17",
+        "entry_price": 1165.94,
+        "exit_price": 1190.7,
+        "qty": 0.9207,
+        "pnl": 22.79,
+        "pnl_pct": 2.12,
+        "strategies": [
+          "pullback_sma20",
+          "rsi_bounce",
+          "bb_bounce"
+        ],
+        "num_strategies": 3,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "EMR",
+        "entry_date": "2025-11-26",
+        "exit_date": "2025-12-17",
+        "entry_price": 130.94,
+        "exit_price": 133.3,
+        "qty": 8.2626,
+        "pnl": 19.49,
+        "pnl_pct": 1.8,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "BK",
+        "entry_date": "2025-10-29",
+        "exit_date": "2025-11-18",
+        "entry_price": 106.58,
+        "exit_price": 107.58,
+        "qty": 12.426,
+        "pnl": 12.41,
+        "pnl_pct": 0.94,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "NUE",
+        "entry_date": "2026-01-14",
+        "exit_date": "2026-01-27",
+        "entry_price": 172.29,
+        "exit_price": 174.15,
+        "qty": 6.6022,
+        "pnl": 12.31,
+        "pnl_pct": 1.08,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "TRAILING_STOP"
+      },
+      {
+        "ticker": "ROST",
+        "entry_date": "2026-03-20",
+        "exit_date": "2026-03-21",
+        "entry_price": 211.19,
+        "exit_price": 211.19,
+        "qty": 5.0349,
+        "pnl": 0.0,
+        "pnl_pct": 0.0,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "GEV",
+        "entry_date": "2026-03-18",
+        "exit_date": "2026-03-21",
+        "entry_price": 858.47,
+        "exit_price": 851.07,
+        "qty": 1.2524,
+        "pnl": -9.27,
+        "pnl_pct": -0.86,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "MRVL",
+        "entry_date": "2026-03-06",
+        "exit_date": "2026-03-21",
+        "entry_price": 89.57,
+        "exit_price": 87.91,
+        "qty": 12.1012,
+        "pnl": -20.09,
+        "pnl_pct": -1.85,
+        "strategies": [
+          "breakout_vol",
+          "macd_cross",
+          "trend_resume",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "num_strategies": 5,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "PPL",
+        "entry_date": "2025-09-24",
+        "exit_date": "2025-12-02",
+        "entry_price": 35.94,
+        "exit_price": 34.96,
+        "qty": 22.6464,
+        "pnl": -22.1,
+        "pnl_pct": -2.72,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "PFG",
+        "entry_date": "2025-10-01",
+        "exit_date": "2025-10-10",
+        "entry_price": 81.53,
+        "exit_price": 78.47,
+        "qty": 10.2635,
+        "pnl": -31.39,
+        "pnl_pct": -3.75,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "PH",
+        "entry_date": "2025-10-06",
+        "exit_date": "2025-10-10",
+        "entry_price": 760.38,
+        "exit_price": 733.5,
+        "qty": 1.4112,
+        "pnl": -37.93,
+        "pnl_pct": -3.53,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "PEP",
+        "entry_date": "2025-11-17",
+        "exit_date": "2026-01-05",
+        "entry_price": 145.1,
+        "exit_price": 139.87,
+        "qty": 7.5647,
+        "pnl": -39.58,
+        "pnl_pct": -3.61,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "trend_resume"
+        ],
+        "num_strategies": 3,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "ADBE",
+        "entry_date": "2026-02-24",
+        "exit_date": "2026-03-21",
+        "entry_price": 255.17,
+        "exit_price": 248.15,
+        "qty": 6.0598,
+        "pnl": -42.54,
+        "pnl_pct": -2.75,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "ETN",
+        "entry_date": "2026-02-24",
+        "exit_date": "2026-03-21",
+        "entry_price": 373.4,
+        "exit_price": 356.8,
+        "qty": 2.7845,
+        "pnl": -46.21,
+        "pnl_pct": -4.44,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "num_strategies": 4,
+        "exit_type": "END_OF_PERIOD"
+      },
+      {
+        "ticker": "CTSH",
+        "entry_date": "2026-01-16",
+        "exit_date": "2026-02-03",
+        "entry_price": 84.31,
+        "exit_price": 80.56,
+        "qty": 13.4127,
+        "pnl": -50.31,
+        "pnl_pct": -4.45,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "MTCH",
+        "entry_date": "2025-09-23",
+        "exit_date": "2025-10-01",
+        "entry_price": 36.52,
+        "exit_price": 34.64,
+        "qty": 27.1736,
+        "pnl": -51.17,
+        "pnl_pct": -5.16,
+        "strategies": [
+          "pullback_sma20",
+          "bb_bounce",
+          "gap_fill"
+        ],
+        "num_strategies": 3,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "CVX",
+        "entry_date": "2025-11-18",
+        "exit_date": "2025-12-16",
+        "entry_price": 152.13,
+        "exit_price": 146.13,
+        "qty": 8.605,
+        "pnl": -51.65,
+        "pnl_pct": -3.95,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "BLK",
+        "entry_date": "2025-10-13",
+        "exit_date": "2025-10-29",
+        "entry_price": 1143.16,
+        "exit_price": 1091.95,
+        "qty": 1.0214,
+        "pnl": -52.31,
+        "pnl_pct": -4.48,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill",
+          "accumulation"
+        ],
+        "num_strategies": 5,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "DGX",
+        "entry_date": "2025-09-22",
+        "exit_date": "2025-10-06",
+        "entry_price": 183.04,
+        "exit_price": 177.69,
+        "qty": 9.8341,
+        "pnl": -52.59,
+        "pnl_pct": -2.92,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "PYPL",
+        "entry_date": "2026-01-05",
+        "exit_date": "2026-01-13",
+        "entry_price": 59.11,
+        "exit_price": 56.61,
+        "qty": 21.5045,
+        "pnl": -53.78,
+        "pnl_pct": -4.23,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "accumulation",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "LHX",
+        "entry_date": "2026-03-02",
+        "exit_date": "2026-03-20",
+        "entry_price": 377.17,
+        "exit_price": 356.4,
+        "qty": 2.8322,
+        "pnl": -58.81,
+        "pnl_pct": -5.51,
+        "strategies": [
+          "breakout_vol",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 5,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "NXPI",
+        "entry_date": "2025-10-08",
+        "exit_date": "2025-10-10",
+        "entry_price": 224.64,
+        "exit_price": 212.54,
+        "qty": 4.9118,
+        "pnl": -59.42,
+        "pnl_pct": -5.39,
+        "strategies": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "CAH",
+        "entry_date": "2026-02-05",
+        "exit_date": "2026-03-18",
+        "entry_price": 227.18,
+        "exit_price": 214.79,
+        "qty": 4.8202,
+        "pnl": -59.72,
+        "pnl_pct": -5.45,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill",
+          "rs_high"
+        ],
+        "num_strategies": 5,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "PHM",
+        "entry_date": "2025-10-06",
+        "exit_date": "2025-10-08",
+        "entry_price": 134.91,
+        "exit_price": 128.02,
+        "qty": 9.6991,
+        "pnl": -66.86,
+        "pnl_pct": -5.11,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "NVDA",
+        "entry_date": "2026-01-27",
+        "exit_date": "2026-02-04",
+        "entry_price": 188.51,
+        "exit_price": 178.65,
+        "qty": 7.0285,
+        "pnl": -69.3,
+        "pnl_pct": -5.23,
+        "strategies": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "DPZ",
+        "entry_date": "2026-01-21",
+        "exit_date": "2026-02-13",
+        "entry_price": 396.92,
+        "exit_price": 376.27,
+        "qty": 3.4118,
+        "pnl": -70.44,
+        "pnl_pct": -5.2,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "GPN",
+        "entry_date": "2026-01-21",
+        "exit_date": "2026-02-03",
+        "entry_price": 73.11,
+        "exit_price": 68.37,
+        "qty": 15.1887,
+        "pnl": -71.99,
+        "pnl_pct": -6.48,
+        "strategies": [
+          "rsi_bounce",
+          "bb_bounce",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "LRCX",
+        "entry_date": "2025-10-27",
+        "exit_date": "2025-11-18",
+        "entry_price": 156.45,
+        "exit_price": 143.66,
+        "qty": 6.5124,
+        "pnl": -83.32,
+        "pnl_pct": -8.18,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "FICO",
+        "entry_date": "2026-02-18",
+        "exit_date": "2026-02-24",
+        "entry_price": 1366.93,
+        "exit_price": 1231.08,
+        "qty": 0.8229,
+        "pnl": -111.8,
+        "pnl_pct": -9.94,
+        "strategies": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "num_strategies": 3,
+        "exit_type": "STOP_LOSS"
+      },
+      {
+        "ticker": "FCX",
+        "entry_date": "2026-02-24",
+        "exit_date": "2026-03-06",
+        "entry_price": 67.88,
+        "exit_price": 61.85,
+        "qty": 18.6793,
+        "pnl": -112.64,
+        "pnl_pct": -8.88,
+        "strategies": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "num_strategies": 4,
+        "exit_type": "STOP_LOSS"
+      }
+    ],
+    "equity_curve": [
+      {
+        "date": "2025-09-22",
+        "value": 10000.0
+      },
+      {
+        "date": "2025-09-23",
+        "value": 10051.41
+      },
+      {
+        "date": "2025-09-24",
+        "value": 9992.29
+      },
+      {
+        "date": "2025-09-25",
+        "value": 9954.01
+      },
+      {
+        "date": "2025-09-26",
+        "value": 10036.5
+      },
+      {
+        "date": "2025-09-29",
+        "value": 10119.48
+      },
+      {
+        "date": "2025-09-30",
+        "value": 10099.37
+      },
+      {
+        "date": "2025-10-01",
+        "value": 9999.54
+      },
+      {
+        "date": "2025-10-02",
+        "value": 10020.01
+      },
+      {
+        "date": "2025-10-03",
+        "value": 10125.81
+      },
+      {
+        "date": "2025-10-06",
+        "value": 10112.17
+      },
+      {
+        "date": "2025-10-07",
+        "value": 10040.26
+      },
+      {
+        "date": "2025-10-08",
+        "value": 10022.85
+      },
+      {
+        "date": "2025-10-09",
+        "value": 9995.61
+      },
+      {
+        "date": "2025-10-10",
+        "value": 9930.84
+      },
+      {
+        "date": "2025-10-13",
+        "value": 9963.17
+      },
+      {
+        "date": "2025-10-14",
+        "value": 10026.97
+      },
+      {
+        "date": "2025-10-15",
+        "value": 10084.09
+      },
+      {
+        "date": "2025-10-16",
+        "value": 10106.34
+      },
+      {
+        "date": "2025-10-17",
+        "value": 10128.57
+      },
+      {
+        "date": "2025-10-20",
+        "value": 10154.19
+      },
+      {
+        "date": "2025-10-21",
+        "value": 10093.34
+      },
+      {
+        "date": "2025-10-22",
+        "value": 10031.42
+      },
+      {
+        "date": "2025-10-23",
+        "value": 10107.95
+      },
+      {
+        "date": "2025-10-24",
+        "value": 10155.54
+      },
+      {
+        "date": "2025-10-27",
+        "value": 10235.58
+      },
+      {
+        "date": "2025-10-28",
+        "value": 10193.67
+      },
+      {
+        "date": "2025-10-29",
+        "value": 10202.9
+      },
+      {
+        "date": "2025-10-30",
+        "value": 10218.58
+      },
+      {
+        "date": "2025-10-31",
+        "value": 10181.84
+      },
+      {
+        "date": "2025-11-03",
+        "value": 10178.54
+      },
+      {
+        "date": "2025-11-04",
+        "value": 10134.01
+      },
+      {
+        "date": "2025-11-05",
+        "value": 10208.83
+      },
+      {
+        "date": "2025-11-06",
+        "value": 10206.83
+      },
+      {
+        "date": "2025-11-07",
+        "value": 10347.53
+      },
+      {
+        "date": "2025-11-10",
+        "value": 10455.81
+      },
+      {
+        "date": "2025-11-11",
+        "value": 10418.38
+      },
+      {
+        "date": "2025-11-12",
+        "value": 10485.22
+      },
+      {
+        "date": "2025-11-13",
+        "value": 10370.96
+      },
+      {
+        "date": "2025-11-14",
+        "value": 10331.81
+      },
+      {
+        "date": "2025-11-17",
+        "value": 10276.06
+      },
+      {
+        "date": "2025-11-18",
+        "value": 10271.3
+      },
+      {
+        "date": "2025-11-19",
+        "value": 10216.68
+      },
+      {
+        "date": "2025-11-20",
+        "value": 10145.96
+      },
+      {
+        "date": "2025-11-21",
+        "value": 10175.58
+      },
+      {
+        "date": "2025-11-24",
+        "value": 10209.42
+      },
+      {
+        "date": "2025-11-25",
+        "value": 10224.91
+      },
+      {
+        "date": "2025-11-26",
+        "value": 10267.51
+      },
+      {
+        "date": "2025-11-28",
+        "value": 10322.25
+      },
+      {
+        "date": "2025-12-01",
+        "value": 10286.78
+      },
+      {
+        "date": "2025-12-02",
+        "value": 10283.32
+      },
+      {
+        "date": "2025-12-03",
+        "value": 10363.75
+      },
+      {
+        "date": "2025-12-04",
+        "value": 10391.19
+      },
+      {
+        "date": "2025-12-05",
+        "value": 10392.07
+      },
+      {
+        "date": "2025-12-08",
+        "value": 10394.99
+      },
+      {
+        "date": "2025-12-09",
+        "value": 10364.66
+      },
+      {
+        "date": "2025-12-10",
+        "value": 10476.1
+      },
+      {
+        "date": "2025-12-11",
+        "value": 10492.81
+      },
+      {
+        "date": "2025-12-12",
+        "value": 10376.51
+      },
+      {
+        "date": "2025-12-15",
+        "value": 10412.94
+      },
+      {
+        "date": "2025-12-16",
+        "value": 10359.79
+      },
+      {
+        "date": "2025-12-17",
+        "value": 10348.61
+      },
+      {
+        "date": "2025-12-18",
+        "value": 10364.69
+      },
+      {
+        "date": "2025-12-19",
+        "value": 10478.78
+      },
+      {
+        "date": "2025-12-22",
+        "value": 10523.41
+      },
+      {
+        "date": "2025-12-23",
+        "value": 10514.63
+      },
+      {
+        "date": "2025-12-24",
+        "value": 10520.33
+      },
+      {
+        "date": "2025-12-26",
+        "value": 10515.45
+      },
+      {
+        "date": "2025-12-29",
+        "value": 10524.77
+      },
+      {
+        "date": "2025-12-30",
+        "value": 10503.13
+      },
+      {
+        "date": "2025-12-31",
+        "value": 10448.6
+      },
+      {
+        "date": "2026-01-02",
+        "value": 10573.05
+      },
+      {
+        "date": "2026-01-05",
+        "value": 10550.91
+      },
+      {
+        "date": "2026-01-06",
+        "value": 10537.73
+      },
+      {
+        "date": "2026-01-07",
+        "value": 10490.77
+      },
+      {
+        "date": "2026-01-08",
+        "value": 10566.58
+      },
+      {
+        "date": "2026-01-09",
+        "value": 10624.14
+      },
+      {
+        "date": "2026-01-12",
+        "value": 10608.4
+      },
+      {
+        "date": "2026-01-13",
+        "value": 10628.86
+      },
+      {
+        "date": "2026-01-14",
+        "value": 10736.24
+      },
+      {
+        "date": "2026-01-15",
+        "value": 10788.85
+      },
+      {
+        "date": "2026-01-16",
+        "value": 10744.71
+      },
+      {
+        "date": "2026-01-20",
+        "value": 10746.54
+      },
+      {
+        "date": "2026-01-21",
+        "value": 10974.03
+      },
+      {
+        "date": "2026-01-22",
+        "value": 11037.6
+      },
+      {
+        "date": "2026-01-23",
+        "value": 11040.84
+      },
+      {
+        "date": "2026-01-26",
+        "value": 11045.24
+      },
+      {
+        "date": "2026-01-27",
+        "value": 11012.01
+      },
+      {
+        "date": "2026-01-28",
+        "value": 10949.89
+      },
+      {
+        "date": "2026-01-29",
+        "value": 10935.69
+      },
+      {
+        "date": "2026-01-30",
+        "value": 10949.33
+      },
+      {
+        "date": "2026-02-02",
+        "value": 10941.82
+      },
+      {
+        "date": "2026-02-03",
+        "value": 10805.96
+      },
+      {
+        "date": "2026-02-04",
+        "value": 10798.39
+      },
+      {
+        "date": "2026-02-05",
+        "value": 10873.01
+      },
+      {
+        "date": "2026-02-06",
+        "value": 10892.96
+      },
+      {
+        "date": "2026-02-09",
+        "value": 10901.46
+      },
+      {
+        "date": "2026-02-10",
+        "value": 10911.59
+      },
+      {
+        "date": "2026-02-11",
+        "value": 10877.85
+      },
+      {
+        "date": "2026-02-12",
+        "value": 10789.11
+      },
+      {
+        "date": "2026-02-13",
+        "value": 10874.44
+      },
+      {
+        "date": "2026-02-17",
+        "value": 10899.69
+      },
+      {
+        "date": "2026-02-18",
+        "value": 10918.46
+      },
+      {
+        "date": "2026-02-19",
+        "value": 10908.82
+      },
+      {
+        "date": "2026-02-20",
+        "value": 10964.2
+      },
+      {
+        "date": "2026-02-23",
+        "value": 10884.38
+      },
+      {
+        "date": "2026-02-24",
+        "value": 10883.41
+      },
+      {
+        "date": "2026-02-25",
+        "value": 10969.33
+      },
+      {
+        "date": "2026-02-26",
+        "value": 10914.84
+      },
+      {
+        "date": "2026-02-27",
+        "value": 10932.58
+      },
+      {
+        "date": "2026-03-02",
+        "value": 10946.74
+      },
+      {
+        "date": "2026-03-03",
+        "value": 10849.98
+      },
+      {
+        "date": "2026-03-04",
+        "value": 10853.4
+      },
+      {
+        "date": "2026-03-05",
+        "value": 10786.54
+      },
+      {
+        "date": "2026-03-06",
+        "value": 10793.72
+      },
+      {
+        "date": "2026-03-09",
+        "value": 10875.69
+      },
+      {
+        "date": "2026-03-10",
+        "value": 10810.07
+      },
+      {
+        "date": "2026-03-11",
+        "value": 10751.56
+      },
+      {
+        "date": "2026-03-12",
+        "value": 10673.94
+      },
+      {
+        "date": "2026-03-13",
+        "value": 10564.45
+      },
+      {
+        "date": "2026-03-16",
+        "value": 10663.55
+      },
+      {
+        "date": "2026-03-17",
+        "value": 10677.85
+      },
+      {
+        "date": "2026-03-18",
+        "value": 10571.38
+      },
+      {
+        "date": "2026-03-19",
+        "value": 10604.01
+      },
+      {
+        "date": "2026-03-20",
+        "value": 10534.31
+      }
+    ],
+    "signals": [
+      {
+        "date": "2025-09-22",
+        "ticker": "DGX",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 183.0374298095703,
+        "stop": 177.69,
+        "target": 191.06,
+        "wscore": 3.6
+      },
+      {
+        "date": "2025-09-22",
+        "ticker": "IBKR",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "entry": 64.0721664428711,
+        "stop": 60.56,
+        "target": 69.35,
+        "wscore": 2.8
+      },
+      {
+        "date": "2025-09-23",
+        "ticker": "KDP",
+        "strategies": 3,
+        "names": [
+          "macd_cross",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 26.04764175415039,
+        "stop": 24.78,
+        "target": 27.95,
+        "wscore": 4.3
+      },
+      {
+        "date": "2025-09-23",
+        "ticker": "MTCH",
+        "strategies": 3,
+        "names": [
+          "pullback_sma20",
+          "bb_bounce",
+          "gap_fill"
+        ],
+        "entry": 36.523040771484375,
+        "stop": 34.64,
+        "target": 39.35,
+        "wscore": 4.0
+      },
+      {
+        "date": "2025-09-24",
+        "ticker": "PPL",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 35.93585205078125,
+        "stop": 34.96,
+        "target": 37.4,
+        "wscore": 4.5
+      },
+      {
+        "date": "2025-10-01",
+        "ticker": "PFG",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "entry": 81.52857208251953,
+        "stop": 78.47,
+        "target": 86.12,
+        "wscore": 3.5
+      },
+      {
+        "date": "2025-10-02",
+        "ticker": "HUM",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "gap_fill",
+          "accumulation",
+          "rsi_divergence"
+        ],
+        "entry": 255.7439727783203,
+        "stop": 236.0,
+        "target": 285.36,
+        "wscore": 4.8
+      },
+      {
+        "date": "2025-10-06",
+        "ticker": "PHM",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 134.913818359375,
+        "stop": 128.02,
+        "target": 145.26,
+        "wscore": 3.6
+      },
+      {
+        "date": "2025-10-06",
+        "ticker": "PH",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 760.3754272460938,
+        "stop": 733.5,
+        "target": 800.69,
+        "wscore": 3.6
+      },
+      {
+        "date": "2025-10-08",
+        "ticker": "NXPI",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "entry": 224.63671875,
+        "stop": 212.54,
+        "target": 242.79,
+        "wscore": 3.8
+      },
+      {
+        "date": "2025-10-13",
+        "ticker": "CIEN",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "entry": 164.77999877929688,
+        "stop": 151.16,
+        "target": 185.21,
+        "wscore": 3.6
+      },
+      {
+        "date": "2025-10-13",
+        "ticker": "BLK",
+        "strategies": 5,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill",
+          "accumulation"
+        ],
+        "entry": 1143.16064453125,
+        "stop": 1091.95,
+        "target": 1219.98,
+        "wscore": 3.44
+      },
+      {
+        "date": "2025-10-13",
+        "ticker": "RL",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "entry": 316.4288635253906,
+        "stop": 298.66,
+        "target": 343.09,
+        "wscore": 3.04
+      },
+      {
+        "date": "2025-10-27",
+        "ticker": "LRCX",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 156.4546661376953,
+        "stop": 143.66,
+        "target": 175.65,
+        "wscore": 3.6
+      },
+      {
+        "date": "2025-10-29",
+        "ticker": "BK",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "entry": 106.57791137695312,
+        "stop": 101.95,
+        "target": 113.52,
+        "wscore": 3.5
+      },
+      {
+        "date": "2025-10-29",
+        "ticker": "EXPE",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "entry": 218.9187774658203,
+        "stop": 202.75,
+        "target": 243.18,
+        "wscore": 3.5
+      },
+      {
+        "date": "2025-10-30",
+        "ticker": "MAA",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 127.36375427246094,
+        "stop": 123.12,
+        "target": 133.73,
+        "wscore": 6.3
+      },
+      {
+        "date": "2025-11-07",
+        "ticker": "EXPE",
+        "strategies": 6,
+        "names": [
+          "breakout_vol",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_surge",
+          "rs_high"
+        ],
+        "entry": 257.2614440917969,
+        "stop": 236.23,
+        "target": 288.81,
+        "wscore": 5.04
+      },
+      {
+        "date": "2025-11-17",
+        "ticker": "PEP",
+        "strategies": 3,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "trend_resume"
+        ],
+        "entry": 145.1017303466797,
+        "stop": 139.87,
+        "target": 152.95,
+        "wscore": 3.5
+      },
+      {
+        "date": "2025-11-18",
+        "ticker": "CVX",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "entry": 152.1317901611328,
+        "stop": 146.13,
+        "target": 161.14,
+        "wscore": 3.5
+      },
+      {
+        "date": "2025-11-19",
+        "ticker": "KLAC",
+        "strategies": 3,
+        "names": [
+          "pullback_sma20",
+          "rsi_bounce",
+          "bb_bounce"
+        ],
+        "entry": 1165.9449462890625,
+        "stop": 1087.19,
+        "target": 1284.08,
+        "wscore": 4.7
+      },
+      {
+        "date": "2025-11-26",
+        "ticker": "EMR",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "trend_resume",
+          "vol_dryup"
+        ],
+        "entry": 130.93682861328125,
+        "stop": 123.87,
+        "target": 141.54,
+        "wscore": 4.0
+      },
+      {
+        "date": "2025-12-02",
+        "ticker": "TER",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 189.86061096191406,
+        "stop": 172.05,
+        "target": 216.58,
+        "wscore": 4.5
+      },
+      {
+        "date": "2025-12-16",
+        "ticker": "EIX",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 57.473777770996094,
+        "stop": 54.99,
+        "target": 61.2,
+        "wscore": 4.5
+      },
+      {
+        "date": "2025-12-16",
+        "ticker": "CBRE",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 160.6999969482422,
+        "stop": 153.79,
+        "target": 171.07,
+        "wscore": 4.5
+      },
+      {
+        "date": "2025-12-17",
+        "ticker": "JBL",
+        "strategies": 5,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "entry": 216.23204040527344,
+        "stop": 197.7,
+        "target": 244.04,
+        "wscore": 4.6
+      },
+      {
+        "date": "2025-12-18",
+        "ticker": "AMD",
+        "strategies": 3,
+        "names": [
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 201.05999755859375,
+        "stop": 184.55,
+        "target": 225.83,
+        "wscore": 4.8
+      },
+      {
+        "date": "2026-01-05",
+        "ticker": "PYPL",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "accumulation",
+          "rsi_divergence"
+        ],
+        "entry": 59.11103057861328,
+        "stop": 56.61,
+        "target": 62.87,
+        "wscore": 4.4
+      },
+      {
+        "date": "2026-01-05",
+        "ticker": "SLB",
+        "strategies": 5,
+        "names": [
+          "breakout_vol",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "vol_surge"
+        ],
+        "entry": 43.5432243347168,
+        "stop": 41.21,
+        "target": 47.05,
+        "wscore": 4.08
+      },
+      {
+        "date": "2026-01-07",
+        "ticker": "ORLY",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "entry": 90.8499984741211,
+        "stop": 88.47,
+        "target": 94.42,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-01-12",
+        "ticker": "LW",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence",
+          "vol_dryup"
+        ],
+        "entry": 41.08745574951172,
+        "stop": 38.85,
+        "target": 44.45,
+        "wscore": 4.4
+      },
+      {
+        "date": "2026-01-13",
+        "ticker": "INTC",
+        "strategies": 4,
+        "names": [
+          "breakout_vol",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "entry": 47.290000915527344,
+        "stop": 42.88,
+        "target": 53.91,
+        "wscore": 4.0
+      },
+      {
+        "date": "2026-01-14",
+        "ticker": "NUE",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 172.2899932861328,
+        "stop": 163.91,
+        "target": 184.86,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-01-16",
+        "ticker": "CTSH",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "entry": 84.31096649169922,
+        "stop": 80.56,
+        "target": 89.94,
+        "wscore": 2.8
+      },
+      {
+        "date": "2026-01-21",
+        "ticker": "DPZ",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 396.9152526855469,
+        "stop": 376.27,
+        "target": 427.89,
+        "wscore": 6.3
+      },
+      {
+        "date": "2026-01-21",
+        "ticker": "GPN",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "rsi_divergence"
+        ],
+        "entry": 73.10997772216797,
+        "stop": 68.37,
+        "target": 80.22,
+        "wscore": 5.5
+      },
+      {
+        "date": "2026-01-27",
+        "ticker": "NVDA",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 188.50979614257812,
+        "stop": 178.65,
+        "target": 203.3,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-01-27",
+        "ticker": "MCK",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume"
+        ],
+        "entry": 833.4872436523438,
+        "stop": 797.57,
+        "target": 887.37,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-03",
+        "ticker": "PH",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 962.5361328125,
+        "stop": 922.67,
+        "target": 1022.34,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-03",
+        "ticker": "AVY",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "accumulation"
+        ],
+        "entry": 185.8988494873047,
+        "stop": 178.99,
+        "target": 196.27,
+        "wscore": 3.5
+      },
+      {
+        "date": "2026-02-04",
+        "ticker": "PTC",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "bb_bounce",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 151.33999633789062,
+        "stop": 141.26,
+        "target": 166.46,
+        "wscore": 6.3
+      },
+      {
+        "date": "2026-02-05",
+        "ticker": "CAH",
+        "strategies": 5,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill",
+          "rs_high"
+        ],
+        "entry": 227.17999267578125,
+        "stop": 214.79,
+        "target": 245.77,
+        "wscore": 5.3
+      },
+      {
+        "date": "2026-02-13",
+        "ticker": "AMAT",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "gap_fill",
+          "rs_high"
+        ],
+        "entry": 354.4679260253906,
+        "stop": 314.81,
+        "target": 413.96,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-18",
+        "ticker": "FICO",
+        "strategies": 3,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "rsi_divergence"
+        ],
+        "entry": 1366.9300537109375,
+        "stop": 1231.08,
+        "target": 1570.71,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-02-24",
+        "ticker": "ADBE",
+        "strategies": 4,
+        "names": [
+          "rsi_bounce",
+          "macd_cross",
+          "gap_fill",
+          "rsi_divergence"
+        ],
+        "entry": 255.1699981689453,
+        "stop": 234.21,
+        "target": 286.61,
+        "wscore": 5.8
+      },
+      {
+        "date": "2026-02-24",
+        "ticker": "FCX",
+        "strategies": 4,
+        "names": [
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 67.87999725341797,
+        "stop": 61.85,
+        "target": 76.93,
+        "wscore": 4.5
+      },
+      {
+        "date": "2026-02-24",
+        "ticker": "ETN",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "gap_fill"
+        ],
+        "entry": 373.39569091796875,
+        "stop": 345.64,
+        "target": 415.03,
+        "wscore": 3.8
+      },
+      {
+        "date": "2026-03-02",
+        "ticker": "LHX",
+        "strategies": 5,
+        "names": [
+          "breakout_vol",
+          "macd_cross",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 377.16619873046875,
+        "stop": 356.4,
+        "target": 408.32,
+        "wscore": 5.5
+      },
+      {
+        "date": "2026-03-06",
+        "ticker": "MRVL",
+        "strategies": 5,
+        "names": [
+          "breakout_vol",
+          "macd_cross",
+          "trend_resume",
+          "vol_surge",
+          "gap_fill"
+        ],
+        "entry": 89.56999969482422,
+        "stop": 85.14,
+        "target": 96.22,
+        "wscore": 5.0
+      },
+      {
+        "date": "2026-03-18",
+        "ticker": "GEV",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 858.469970703125,
+        "stop": 821.72,
+        "target": 913.6,
+        "wscore": 4.0
+      },
+      {
+        "date": "2026-03-20",
+        "ticker": "ROST",
+        "strategies": 4,
+        "names": [
+          "pullback_sma20",
+          "ema_ribbon",
+          "trend_resume",
+          "rs_high"
+        ],
+        "entry": 211.19000244140625,
+        "stop": 205.32,
+        "target": 220.0,
+        "wscore": 4.0
+      }
+    ]
+  }
+}

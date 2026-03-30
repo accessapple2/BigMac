@@ -1,0 +1,231 @@
+{
+  "ollama-local": {
+    "name": "Gemma3 4B",
+    "provider": "ollama",
+    "status": "OK",
+    "decisions": [
+      {
+        "symbol": "DELL",
+        "action": "BUY",
+        "confidence": 0.8,
+        "reasoning": "Strong RSI (72) and positive price movement (+1.7% today, +2.3% 5d). It\u2019s the only significant positive performer in the market and represents a clear contrarian play."
+      },
+      {
+        "symbol": "PLTR",
+        "action": "BUY",
+        "confidence": 0.7,
+        "reasoning": "High RSI (71) and modest positive price action (+1.2% today, +0.5% 5d).  It\u2019s showing resilience and could benefit from continued growth in its specialized tech sector."
+      },
+      {
+        "symbol": "ORCL",
+        "action": "BUY",
+        "confidence": 0.6,
+        "reasoning": "Relatively low RSI (60) coupled with a positive 5-day move (+2.8%). This suggests potential undervaluation and a possible rebound."
+      }
+    ],
+    "raw_response": "DELL | BUY | 0.8 | Strong RSI (72) and positive price movement (+1.7% today, +2.3% 5d). It\u2019s the only significant positive performer in the market and represents a clear contrarian play.\n\nPLTR | BUY | 0.7 | High RSI (71) and modest positive price action (+1.2% today, +0.5% 5d).  It\u2019s showing resilience and could benefit from continued growth in its specialized tech sector.\n\nORCL | BUY | 0.6 | Relatively low RSI (60) coupled with a positive 5-day move (+2.8%). This suggests potential undervaluati",
+    "latency_s": 9.4
+  },
+  "claude-sonnet": {
+    "name": "Claude Sonnet 4",
+    "provider": "anthropic",
+    "status": "NO_API_KEY",
+    "decisions": [
+      {
+        "symbol": "ALL",
+        "action": "HOLD",
+        "confidence": 0.0,
+        "reasoning": "anthropic API key not available for replay"
+      }
+    ],
+    "raw_response": "N/A"
+  },
+  "claude-haiku": {
+    "name": "Claude Haiku 4.5",
+    "provider": "anthropic",
+    "status": "NO_API_KEY",
+    "decisions": [
+      {
+        "symbol": "ALL",
+        "action": "HOLD",
+        "confidence": 0.0,
+        "reasoning": "anthropic API key not available for replay"
+      }
+    ],
+    "raw_response": "N/A"
+  },
+  "gpt-4o": {
+    "name": "GPT-4o",
+    "provider": "openai",
+    "status": "NO_API_KEY",
+    "decisions": [
+      {
+        "symbol": "ALL",
+        "action": "HOLD",
+        "confidence": 0.0,
+        "reasoning": "openai API key not available for replay"
+      }
+    ],
+    "raw_response": "N/A"
+  },
+  "gpt-o3": {
+    "name": "GPT-o3",
+    "provider": "openai",
+    "status": "NO_API_KEY",
+    "decisions": [
+      {
+        "symbol": "ALL",
+        "action": "HOLD",
+        "confidence": 0.0,
+        "reasoning": "openai API key not available for replay"
+      }
+    ],
+    "raw_response": "N/A"
+  },
+  "gemini-2.5-pro": {
+    "name": "Gemini 2.5 Pro",
+    "provider": "google",
+    "status": "NO_API_KEY",
+    "decisions": [
+      {
+        "symbol": "ALL",
+        "action": "HOLD",
+        "confidence": 0.0,
+        "reasoning": "google API key not available for replay"
+      }
+    ],
+    "raw_response": "N/A"
+  },
+  "gemini-2.5-flash": {
+    "name": "Gemini 2.5 Flash",
+    "provider": "google",
+    "status": "NO_API_KEY",
+    "decisions": [
+      {
+        "symbol": "ALL",
+        "action": "HOLD",
+        "confidence": 0.0,
+        "reasoning": "google API key not available for replay"
+      }
+    ],
+    "raw_response": "N/A"
+  },
+  "grok-3": {
+    "name": "Grok 3",
+    "provider": "xai",
+    "status": "NO_API_KEY",
+    "decisions": [
+      {
+        "symbol": "ALL",
+        "action": "HOLD",
+        "confidence": 0.0,
+        "reasoning": "xai API key not available for replay"
+      }
+    ],
+    "raw_response": "N/A"
+  },
+  "grok-4": {
+    "name": "Grok 4",
+    "provider": "xai",
+    "status": "NO_API_KEY",
+    "decisions": [
+      {
+        "symbol": "ALL",
+        "action": "HOLD",
+        "confidence": 0.0,
+        "reasoning": "xai API key not available for replay"
+      }
+    ],
+    "raw_response": "N/A"
+  },
+  "dayblade-0dte": {
+    "name": "DayBlade Options",
+    "provider": "dayblade",
+    "status": "SPECIALIZED",
+    "decisions": [
+      {
+        "symbol": "ALL",
+        "action": "HOLD",
+        "confidence": 0.0,
+        "reasoning": "0-DTE strategy not comparable"
+      }
+    ],
+    "raw_response": "N/A"
+  },
+  "ollama-gemma27b": {
+    "name": "Gemma3 27B",
+    "provider": "ollama",
+    "status": "ERROR",
+    "decisions": [],
+    "raw_response": "HTTPConnectionPool(host='localhost', port=11434): Read timed out. (read timeout=90)"
+  },
+  "ollama-deepseek": {
+    "name": "DeepSeek R1 7B",
+    "provider": "ollama",
+    "status": "OK",
+    "decisions": [
+      {
+        "symbol": "ALL",
+        "action": "HOLD",
+        "confidence": 0.0,
+        "reasoning": "Could not parse response"
+      }
+    ],
+    "raw_response": "Based on the analysis of market conditions and the given stock performance, the top three stocks to consider are:\n\n1. **DELL (DELL)**  \n   - **Rationale:** DELL is a strong candidate due to its positive momentum and higher RSI, indicating potential for short-term reversal.\n\n2. **PLTR (PLTR)**  \n   - **Rationale:** PLTR shows positive momentum with a high RSI, making it a promising investment with potential for gains.\n\n3. **ORCL (ORCL)**  \n   - **Rationale:** ORCL is moderately overbought but has",
+    "latency_s": 87.4
+  },
+  "ollama-qwen3": {
+    "name": "Qwen3 4B",
+    "provider": "ollama",
+    "status": "OK",
+    "decisions": [
+      {
+        "symbol": "DELL",
+        "action": "BUY",
+        "confidence": 0.5,
+        "reasoning": ""
+      },
+      {
+        "symbol": "PLTR",
+        "action": "BUY",
+        "confidence": 0.5,
+        "reasoning": ""
+      },
+      {
+        "symbol": "NOW",
+        "action": "BUY",
+        "confidence": 0.5,
+        "reasoning": ""
+      }
+    ],
+    "raw_response": "Based on the market replay data (March 12, 2026 at 2:30 PM ET), **broad tech selloff** is evident across major indices and stocks (SPY down 1.5%, QQQ down 1.7%, NVDA down 1.6%, etc.). However, **DELL (+1.7%) and PLTR (+1.2%) are the only green stocks** in the list, with **high RSI values (72 and 71)** indicating strong buying momentum. This is critical context\u2014most tech stocks are in bearish territory (RSI < 50), but DELL and PLTR show active buying pressure despite the selloff. \n\n**Top 3 Picks ",
+    "latency_s": 137.2
+  },
+  "ollama-llama": {
+    "name": "Llama 3.1 8B",
+    "provider": "ollama",
+    "status": "OK",
+    "decisions": [
+      {
+        "symbol": "MSFT",
+        "action": "BUY",
+        "confidence": 0.8,
+        "reasoning": "MSFT is relatively stable with a low RSI of 54, indicating it may be a good buying opportunity amidst the tech selloff."
+      },
+      {
+        "symbol": "AVGO",
+        "action": "BUY",
+        "confidence": 0.7,
+        "reasoning": "AVGO has a high RSI of 52, suggesting it may be oversold, and its recent price movement indicates a potential bounceback."
+      },
+      {
+        "symbol": "DELL",
+        "action": "BUY",
+        "confidence": 0.6,
+        "reasoning": "DELL is the only green stock in the portfolio, indicating it may be a safe bet for a short-term trade, given its recent price movement and low RSI of 72."
+      }
+    ],
+    "raw_response": "Here are my top 3 picks:\n\n1. **MSFT** | BUY | 0.8 | MSFT is relatively stable with a low RSI of 54, indicating it may be a good buying opportunity amidst the tech selloff.\n2. **AVGO** | BUY | 0.7 | AVGO has a high RSI of 52, suggesting it may be oversold, and its recent price movement indicates a potential bounceback.\n3. **DELL** | BUY | 0.6 | DELL is the only green stock in the portfolio, indicating it may be a safe bet for a short-term trade, given its recent price movement and low RSI of 72.",
+    "latency_s": 14.4
+  }
+}

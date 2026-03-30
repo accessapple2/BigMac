@@ -1,0 +1,45 @@
+research_task:
+  description: >
+    Analyze the current market environment and historical strategy performance:
+    1. Query strategy_backtests for the best and worst performing strategies
+    2. Get the current market regime (BEAR/BULL/SIDEWAYS, VIX level)
+    3. Check Strategy Lab for what's currently deployed
+    4. Identify 2-3 strategy concepts that fit current conditions
+    Output a research brief with specific strategy ideas and supporting data.
+  expected_output: Research brief with 2-3 strategy concepts and supporting data
+
+writing_task:
+  description: >
+    Based on the research brief, write ONE trading strategy in JSON format:
+    {"name": "descriptive_strategy_name", "thesis": "Why this should work",
+     "symbol": "SPY", "entry_signal": "RSI below 30 AND price above 200MA",
+     "exit_signal": "RSI above 70 OR stop loss hit",
+     "stop_loss_pct": 0.05, "take_profit_pct": 0.10,
+     "position_size_pct": 0.10, "regime_filter": "BEAR",
+     "rsi_window": 14, "rsi_buy_threshold": 30, "rsi_sell_threshold": 70,
+     "period": "2y"}
+    The strategy MUST include all fields above.
+  expected_output: Complete strategy JSON with all required fields
+
+backtest_task:
+  description: >
+    Take the strategy JSON from the writer and run it through VectorBT.
+    Use the run_vectorbt_backtest tool with the strategy JSON.
+    Report: total_return, sharpe_ratio, max_drawdown, win_rate,
+    profit_factor, and total_trades.
+    Flag concerns: fewer than 20 trades = potential overfitting,
+    Sharpe below 0.5 = weak risk-adjusted returns.
+  expected_output: Backtest results with performance metrics and risk flags
+
+review_task:
+  description: >
+    Review the backtest results and decide: APPROVE or REJECT.
+    APPROVAL CRITERIA (ALL must pass):
+    - Sharpe ratio >= 0.5
+    - Max drawdown <= 25%
+    - Win rate >= 35%
+    - Total trades >= 15
+    - Profit factor >= 1.2
+    If APPROVED: Use the save_approved_strategy tool to save it.
+    If REJECTED: Explain exactly what failed and suggest improvements.
+  expected_output: APPROVED with save confirmation, or REJECTED with specific feedback
