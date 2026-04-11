@@ -8,7 +8,7 @@ import requests
 from rich.console import Console
 
 console = Console()
-BACKUP_MODEL = "gemma3:4b"
+BACKUP_MODEL = "qwen3:14b"
 BACKUP_URL = "http://localhost:11434"
 
 
@@ -33,7 +33,7 @@ def check_monthly_reset(api_key: str = "") -> None:
 
 
 def call_ollama_backup(prompt: str, timeout: int = 90) -> str:
-    """Call local Ollama gemma3:4b — the primary (and only) inference backend."""
+    """Call local Ollama qwen3:14b — the primary (and only) inference backend."""
     try:
         r = requests.post(
             f"{BACKUP_URL}/api/generate",
@@ -43,5 +43,5 @@ def call_ollama_backup(prompt: str, timeout: int = 90) -> str:
         if r.ok:
             return r.json().get("response", "")
     except Exception as e:
-        console.log(f"[red]Ollama (gemma3:4b) error: {e}")
+        console.log(f"[red]Ollama (qwen3:14b) error: {e}")
     return ""

@@ -1,41 +1,110 @@
-"""Webull OpenAPI client — fetches live portfolio from Webull brokerage."""
+"""Webull OpenAPI client — fetches live portfolio from Webull brokerage.
 
+Uses direct HTTP requests with HMAC-SHA1 signing, bypassing the vendored
+urllib3/requests in webull-python-sdk-core which are broken on Python 3.12.
+"""
+
+import hashlib
+import hmac
+import json
 import os
+import socket
 import time
+import uuid
+from base64 import b64encode
+from datetime import datetime
+from urllib.parse import quote, urlencode
+
+import requests
 from dotenv import load_dotenv
 
 load_dotenv(override=True)
+
+_WEBULL_HOST = "api.webull.com"
+_WEBULL_BASE = f"https://{_WEBULL_HOST}"
 
 _cache = {}
 _CACHE_TTL = 60  # seconds
 
 
-def _get_api():
+# ---------------------------------------------------------------------------
+# Signing helpers (ported from webullsdkcore without the broken vendored libs)
+# ---------------------------------------------------------------------------
+
+def _get_uuid() -> str:
+    name = socket.gethostname() + str(uuid.uuid1())
+    return str(uuid.uuid5(uuid.NAMESPACE_URL, name))
+
+
+def _iso8601_now() -> str:
+    return datetime.utcnow().strftime("%Y-%m-%dT%H:%M:%SZ")
+
+
+def _hmac_sha1_b64(source: str, secret: str) -> str:
+    key = (secret + "&").encode()
+    h = hmac.new(key, source.encode(), hashlib.sha1)
+    return b64encode(h.digest()).decode().strip()
+
+
+def _build_signed_headers(uri: str, query_params: dict, app_key: str, app_secret: str) -> dict:
+    """Build signed request headers per Webull OpenAPI HMAC-SHA1 scheme."""
+    nonce = _get_uuid()
+    timestamp = _iso8601_now()
+
+    sign_headers = {
+        "x-app-key": app_key,
+        "x-timestamp": timestamp,
+        "x-signature-version": "1.0",
+        "x-signature-algorithm": "HMAC-SHA1",
+        "x-signature-nonce": nonce,
+    }
+
+    # sign_params = lowercased sign_headers + query_params
+    sign_params = {k.lower(): v for k, v in sign_headers.items()}
+    sign_params["host"] = _WEBULL_HOST
+    for k, v in query_params.items():
+        cv = sign_params.get(k)
+        sign_params[k] = f"{cv}&{v}" if cv is not None else str(v)
+
+    # Sorted key=value pairs joined by &, then URL-encode the whole string
+    sorted_kv = "&".join(f"{k}={v}" for k, v in sorted(sign_params.items()))
+    string_to_sign = quote(f"{uri}&{sorted_kv}", safe="")
+
+    signature = _hmac_sha1_b64(string_to_sign, app_secret)
+    sign_headers["x-signature"] = signature
+    sign_headers["Content-Type"] = "application/json"
+    return sign_headers
+
+
+def _webull_get(path: str, params: dict, app_key: str, app_secret: str) -> dict:
+    headers = _build_signed_headers(path, params, app_key, app_secret)
+    url = f"{_WEBULL_BASE}{path}"
+    resp = requests.get(url, params=params, headers=headers, timeout=15)
+    resp.raise_for_status()
+    return resp.json()
+
+
+# ---------------------------------------------------------------------------
+# Portfolio API
+# ---------------------------------------------------------------------------
+
+def _get_creds():
     app_key = os.environ.get("WEBULL_APP_KEY", "")
     app_secret = os.environ.get("WEBULL_APP_SECRET", "")
+    account_number = os.environ.get("WEBULL_ACCOUNT_ID", "")
     if not app_key or not app_secret:
-        return None, None, "Webull API keys not configured"
-
-    try:
-        from webullsdkcore.client import ApiClient
-        from webullsdktrade.api import API
-        from webullsdkcore.common.region import Region
-    except ImportError:
-        return None, None, "Webull SDK not installed"
-
-    client = ApiClient(app_key, app_secret, Region.US.value)
-    api = API(client)
-    return api, os.environ.get("WEBULL_ACCOUNT_ID", ""), None
+        return None, None, None, "Webull API keys not configured"
+    return app_key, app_secret, account_number, None
 
 
-def _resolve_account_id(api, account_number):
+def _resolve_account_id(app_key: str, app_secret: str, account_number: str):
     """Resolve account_number (e.g. CVU599Y4) to internal account_id."""
-    res = api.account.get_app_subscriptions()
-    if res.status_code != 200:
-        return None
-    subs = res.json()
-    match = next((s for s in subs if s["account_number"] == account_number), None)
-    return match["account_id"] if match else (subs[0]["account_id"] if subs else None)
+    data = _webull_get("/app/subscriptions/list", {}, app_key, app_secret)
+    subs = data if isinstance(data, list) else data.get("data", data.get("list", []))
+    match = next((s for s in subs if s.get("account_number") == account_number), None)
+    if match:
+        return match.get("account_id")
+    return subs[0].get("account_id") if subs else None
 
 
 def get_portfolio():
@@ -44,19 +113,25 @@ def get_portfolio():
     if "portfolio" in _cache and now - _cache["portfolio"]["ts"] < _CACHE_TTL:
         return _cache["portfolio"]["data"]
 
-    api, account_number, error = _get_api()
-    if api is None:
-        return {"error": error or "Webull unavailable"}
+    app_key, app_secret, account_number, error = _get_creds()
+    if app_key is None:
+        return {"error": error}
 
-    real_id = _resolve_account_id(api, account_number)
+    try:
+        real_id = _resolve_account_id(app_key, app_secret, account_number)
+    except Exception as e:
+        return {"error": f"Could not resolve account ID: {e}"}
+
     if not real_id:
         return {"error": "Could not resolve account ID"}
 
     # Fetch balance
-    bal_res = api.account.get_account_balance(real_id, "USD")
     balance = {}
-    if bal_res.status_code == 200:
-        b = bal_res.json()
+    try:
+        b = _webull_get("/account/balance", {
+            "account_id": real_id,
+            "total_asset_currency": "USD",
+        }, app_key, app_secret)
         usd = b.get("account_currency_assets", [{}])[0] if b.get("account_currency_assets") else {}
         balance = {
             "total_value": float(b.get("total_market_value", 0)) + float(b.get("total_cash_balance", 0)),
@@ -65,18 +140,20 @@ def get_portfolio():
             "buying_power": float(usd.get("cash_power", 0)),
             "available_withdrawal": float(usd.get("available_withdrawal", 0)),
         }
+    except Exception as e:
+        balance = {"error": str(e)}
 
-    # Fetch all positions (paginate if needed)
+    # Fetch all positions (paginate)
     holdings = []
     last_instrument_id = None
-    for _ in range(10):  # max 10 pages
+    for _ in range(10):
+        params = {"account_id": real_id, "page_size": 100}
         if last_instrument_id:
-            pos_res = api.account.get_account_position(real_id, page_size=100, last_instrument_id=last_instrument_id)
-        else:
-            pos_res = api.account.get_account_position(real_id, page_size=100)
-        if pos_res.status_code != 200:
+            params["last_instrument_id"] = last_instrument_id
+        try:
+            data = _webull_get("/account/positions", params, app_key, app_secret)
+        except Exception:
             break
-        data = pos_res.json()
         for h in data.get("holdings", []):
             holdings.append({
                 "symbol": h.get("symbol", ""),
@@ -116,7 +193,6 @@ def sync_positions_to_db():
     Returns dict with sync summary.
     """
     import sqlite3
-    from datetime import datetime
     from rich.console import Console
     console = Console()
 
@@ -136,7 +212,6 @@ def sync_positions_to_db():
     conn.execute("PRAGMA busy_timeout=30000")
     conn.row_factory = sqlite3.Row
 
-    # Full replace: delete all current positions and re-insert from Webull
     conn.execute("DELETE FROM positions WHERE player_id='steve-webull'")
 
     inserted = []
@@ -153,7 +228,6 @@ def sync_positions_to_db():
         )
         inserted.append(sym)
 
-    # Sync total value for leaderboard
     conn.execute(
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('webull_synced_value', ?)",
         (str(total_value),)
@@ -162,6 +236,14 @@ def sync_positions_to_db():
         "INSERT OR REPLACE INTO settings (key, value) VALUES ('webull_synced_at', ?)",
         (now,)
     )
+
+    # Sync Webull cash to ai_players so kirk_advisory reads the right value
+    webull_cash = balance.get("cash", 0)
+    if webull_cash > 0:
+        conn.execute(
+            "UPDATE ai_players SET cash=? WHERE id='steve-webull'",
+            (webull_cash,)
+        )
 
     conn.commit()
     conn.close()
@@ -175,5 +257,4 @@ def sync_positions_to_db():
     }
 
     console.log(f"[green]Webull sync (full replace): {len(inserted)} positions — {', '.join(inserted)} (${total_value:,.2f})")
-
     return summary

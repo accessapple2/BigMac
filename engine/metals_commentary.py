@@ -16,6 +16,7 @@ DB = "data/trader.db"
 
 _cache = {"commentary": None, "summary": None, "ts": 0}
 _lock = threading.Lock()
+_generating = False   # guard against concurrent scheduler + API double-generation
 _TTL = 14400  # 4 hours
 
 
@@ -28,10 +29,27 @@ def _conn():
 
 def generate_commentary() -> dict:
     """Generate Dalio's daily metals commentary using Ollama."""
+    global _generating
     with _lock:
         if _cache["commentary"] and time.time() - _cache["ts"] < _TTL:
-            return _cache
+            return dict(_cache)
+        # If another thread is already generating, return stale cache rather than
+        # launching a second concurrent qwen3:14b inference which can OOM Ollama.
+        if _generating:
+            return dict(_cache) if _cache.get("commentary") else {
+                "error": "Generation in progress", "commentary": None, "summary": None
+            }
+        _generating = True
 
+    try:
+        return _do_generate()
+    finally:
+        with _lock:
+            _generating = False
+
+
+def _do_generate() -> dict:
+    """Internal: fetch data and call Ollama. Called only when no generation is in progress."""
     from engine.metals_tracker import get_spot_prices, get_portfolio, get_stacking_signal
 
     prices = get_spot_prices()
@@ -94,7 +112,7 @@ End with a clear BUY/HOLD/REDUCE recommendation and confidence level."""
         import requests
         resp = requests.post(
             f"{OLLAMA_URL}/api/generate",
-            json={"model": "gemma3:4b", "prompt": prompt, "stream": False},
+            json={"model": "qwen3:14b", "prompt": prompt, "stream": False},
             timeout=120,
         )
         resp.raise_for_status()
@@ -134,6 +152,9 @@ End with a clear BUY/HOLD/REDUCE recommendation and confidence level."""
         _cache.update(result)
 
     return result
+
+
+
 
 
 def _fallback_commentary(gold, silver, gsr, vix, portfolio, gold_sig, silver_sig, total_pnl, total_ret):

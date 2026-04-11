@@ -1,0 +1,51 @@
+[
+  {
+    "name": "gemma3:4b",
+    "description": "Local Ollama gemma3:4b",
+    "type": "local_ollama",
+    "active": true,
+    "created_date": "2026-03-06T00:00:00"
+  },
+  {
+    "name": "claude-api",
+    "description": "Anthropic Claude API",
+    "type": "claude_api",
+    "active": true,
+    "created_date": "2026-03-06T00:00:00"
+  },
+  {
+    "name": "manual",
+    "description": "Manual analysis",
+    "type": "manual",
+    "active": true,
+    "created_date": "2026-03-06T00:00:00"
+  },
+  {
+    "name": "grok-4",
+    "description": "xAI Grok 4",
+    "type": "other",
+    "active": true,
+    "created_date": "2026-03-06T00:00:00"
+  },
+  {
+    "name": "claude-opus-4-5",
+    "description": "Anthropic Claude Opus 4.5",
+    "type": "claude_api",
+    "active": true,
+    "created_date": "2026-03-06T00:00:00"
+  },
+  {
+    "name": "gemini-pro-2.5",
+    "description": "Google Gemini Pro 2.5",
+    "type": "other",
+    "active": true,
+    "created_date": "2026-03-06T00:00:00"
+  },
+  {
+    "name": "claude-opus-4-6",
+    "description": "Anthropic Claude Opus 4.6",
+    "type": "claude_api",
+    "active": true,
+    "created_date": "2026-03-06T00:00:00"
+  }
+]

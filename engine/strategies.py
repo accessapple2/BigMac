@@ -1,6 +1,6 @@
 """Strategy Engine — 20 technical strategies scored against universe candidates.
 
-Holly-style multi-strategy convergence: only recommend when 3+ strategies agree.
+Multi-strategy convergence: only recommend when 3+ strategies agree.
 All strategies use free Yahoo Finance data (yfinance).
 """
 from __future__ import annotations
@@ -289,14 +289,65 @@ def run_strategies(ticker: str, df, spy_df=None) -> list:
     return triggered
 
 
+def _get_strategy_weight(name: str, stats: dict) -> float:
+    """Return performance-based weight for a strategy.
+
+    Rules (Part D — Trade Memory Loop):
+      >70% win rate AND >=5 trades → 1.5x (top performer)
+      40-70% win rate  OR  <5 trades → 1.0x (neutral)
+      <40% win rate  AND >=5 trades → 0.5x (underperformer)
+    """
+    s = stats.get(name)
+    if not s or s.get("trades", 0) < 5:
+        return 1.0
+    wr = s.get("win_rate", 50.0)
+    if wr > 70:
+        return 1.5
+    if wr < 40:
+        return 0.5
+    return 1.0
+
+
 def score_convergence(ticker: str, triggered: list) -> dict | None:
-    """Holly-style scoring: only recommend when 3+ strategies agree.
+    """Starfleet convergence scoring: 3+ strategies normally; 1+ during power hour / after hours.
+
+    Strategy weights from trade history:
+      >70% win rate (>=5 trades) → 1.5x weight
+      <40% win rate (>=5 trades) → 0.5x weight
+      otherwise                  → 1.0x weight
+
+    A 3-strategy convergence of top performers counts as 4.5 weighted strategies.
 
     Returns signal dict or None if insufficient convergence.
     """
     bullish = [s for s in triggered if s["signal_type"] == "BUY"]
 
-    if len(bullish) < 3:
+    # During power hour (12:30–1:00 PM MST) and after hours (1:00+ PM MST),
+    # allow single-model decisions so the scanner doesn't go dark.
+    import pytz
+    from datetime import datetime as _dt
+    _az = pytz.timezone("US/Arizona")
+    _now = _dt.now(_az)
+    _mins = _now.hour * 60 + _now.minute
+    # 750 = 12:30 PM MST (power hour start / 3:30 PM ET)
+    min_strategies = 1 if _mins >= 750 else 3
+
+    if len(bullish) < min_strategies:
+        return None
+
+    # Load strategy performance weights (gracefully — never blocks a trade)
+    strategy_stats: dict = {}
+    try:
+        from engine.trade_outcomes import get_strategy_stats
+        strategy_stats = get_strategy_stats(lookback_days=60)
+    except Exception:
+        pass
+
+    # Compute weighted score
+    weighted_score = sum(_get_strategy_weight(s["name"], strategy_stats) for s in bullish)
+
+    # Weighted minimum check replaces raw count check
+    if weighted_score < min_strategies:
         return None
 
     entry = bullish[0]["entry_price"]
@@ -313,14 +364,18 @@ def score_convergence(ticker: str, triggered: list) -> dict | None:
     if rr < 1.5:
         return None
 
-    confidence = min(len(bullish) / 5.0, 1.0)
+    # Confidence based on weighted score (not raw count)
+    confidence = min(weighted_score / 5.0, 1.0)
+    if min_strategies < 3:
+        confidence = max(confidence, 0.82)
 
     return {
         "ticker": ticker,
         "action": "BUY",
-        "strategies_triggered": len(bullish),
+        "strategies_triggered": round(weighted_score, 2),  # weighted for routing
         "strategy_names": [s["name"] for s in bullish],
         "strategy_types": list(set(s["type"] for s in bullish)),
+        "raw_strategy_count": len(bullish),
         "entry": entry,
         "stop": round(avg_stop, 2),
         "target": round(avg_target, 2),
@@ -329,14 +384,66 @@ def score_convergence(ticker: str, triggered: list) -> dict | None:
     }
 
 
+def get_scan_universe(max_total: int = 700) -> list[str]:
+    """Build Chekov's combined scan universe: volume scanner hot stocks + core watchlist.
+
+    Volume scanner finds the needles (intraday movers). Core watchlist ensures
+    we never miss blue chips and S&P 500 names.
+
+    Priority: hot stocks first (sorted by relative_volume desc), then core.
+    Cap at max_total to keep Mac Mini M4 happy.
+    """
+    # Hot stocks from today's volume scanner (the new stuff)
+    try:
+        from engine.volume_scanner import get_todays_volume_alerts
+        hot_alerts = get_todays_volume_alerts(limit=max_total)
+        hot_symbols = [a["symbol"] for a in hot_alerts]
+    except Exception:
+        hot_symbols = []
+
+    # Core watchlist (the existing S&P 500 + extras — proven, never removed)
+    try:
+        from engine.universe_scanner import get_core_watchlist
+        core = get_core_watchlist()
+    except Exception:
+        core = []
+
+    # Merge: hot stocks first (priority), then core; deduplicate; cap at max_total
+    seen: set[str] = set()
+    combined: list[str] = []
+    for sym in hot_symbols:
+        if sym not in seen:
+            seen.add(sym)
+            combined.append(sym)
+        if len(combined) >= max_total:
+            break
+
+    # Fill remaining slots with core watchlist
+    for sym in core:
+        if sym not in seen:
+            seen.add(sym)
+            combined.append(sym)
+        if len(combined) >= max_total:
+            break
+
+    console.log(f"[cyan]🧭 Scan universe: {len(hot_symbols)} hot stocks + core = {len(combined)} total (cap {max_total})")
+    return combined
+
+
 def scan_strategies(tickers: list = None, save: bool = True) -> list:
     """Run all strategies against top universe candidates.
 
     Returns list of convergence signals (stocks where 3+ strategies agree).
+    Uses combined volume scanner + core watchlist universe when no tickers given.
     """
     import yfinance as yf
 
     if not tickers:
+        # Try combined universe first (volume hot stocks + core watchlist)
+        tickers = get_scan_universe()
+
+    if not tickers:
+        # Absolute fallback: top 50 from latest nightly scan
         from engine.universe_scanner import get_latest_universe_scan
         scan = get_latest_universe_scan()
         tickers = [s["ticker"] for s in scan.get("results", [])[:50]]
@@ -388,8 +495,13 @@ def scan_strategies(tickers: list = None, save: bool = True) -> list:
     if save and signals:
         _save_strategy_signals(signals)
 
+    import pytz as _pytz
+    from datetime import datetime as _dt2
+    _mins2 = _dt2.now(_pytz.timezone("US/Arizona"))
+    _mins2 = _mins2.hour * 60 + _mins2.minute
+    _threshold_label = "1+ strategy (power hour/AH)" if _mins2 >= 750 else "3+ strategies"
     console.log(f"[green]🧭 Strategy scan complete: {len(signals)} convergence signals "
-                f"(3+ strategies agree)")
+                f"({_threshold_label} agree)")
 
     for sig in signals[:5]:
         console.log(f"  {sig['ticker']}: {sig['strategies_triggered']} strategies, "

@@ -1,0 +1,12 @@
+{
+  "db": "signal-center/signals.db",
+  "tables": {
+    "signal_history": 43923,
+    "sqlite_sequence": 4,
+    "daily_snapshot": 0,
+    "predictions": 50,
+    "prediction_results": 25,
+    "prediction_accuracy": 2
+  },
+  "archived_at": "2026-04-06T21:24:10.891015"
+}

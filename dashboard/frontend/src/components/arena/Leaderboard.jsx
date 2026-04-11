@@ -187,7 +187,7 @@ export default function Leaderboard({ data, onSelect, season, hidePaused = false
     return new Set(_expandedPlayers)
   })
   const [showPaused, setShowPaused] = useState(false)
-  const [sortCol, setSortCol] = useState('total_value')
+  const [sortCol, setSortCol] = useState('return_pct')
   const [sortDir, setSortDir] = useState('desc')
 
   if (!data.length) {

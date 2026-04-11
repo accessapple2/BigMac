@@ -19,12 +19,16 @@ import uvicorn
 from itsdangerous import URLSafeTimedSerializer, BadSignature, SignatureExpired
 from shared.matrix_bridge import annotate_player_payload, ensure_matrix_shared_records, is_independent_player
 
-app = FastAPI(title="TradeMinds — The Bridge")
+app = FastAPI(title="TradeMinds — The Bridge", docs_url=None, redoc_url=None, openapi_url=None)
 ensure_matrix_shared_records()
 
 # UOA (Unusual Options Activity) scanner routes
 from uoa.routes import router as uoa_router
 app.include_router(uoa_router, prefix="/api/uoa", tags=["UOA"])
+
+# Trade Cards — Command Center API
+from engine.trade_cards_api import router as trade_cards_router
+app.include_router(trade_cards_router, tags=["Trade Cards"])
 
 
 @app.on_event("startup")
@@ -344,7 +348,7 @@ async def login_submit(request: Request, username: str = Form(...), password: st
         response = RedirectResponse(url="/", status_code=303)
         response.set_cookie(
             "trademinds_session", token,
-            max_age=_SESSION_MAX_AGE, httponly=True, samesite="lax"
+            max_age=_SESSION_MAX_AGE, httponly=True, samesite="strict"
         )
         return response
     html = _LOGIN_PAGE.replace(
@@ -381,6 +385,53 @@ class AuthMiddleware(BaseHTTPMiddleware):
         return await call_next(request)
 
 app.add_middleware(AuthMiddleware)
+
+# --- Rate Limiting ---
+from collections import defaultdict
+import time as _time
+
+_rate_limits: dict = defaultdict(list)
+_RATE_LIMIT_REQ = 300  # max requests per minute per external IP
+
+class RateLimitMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if request.url.path.startswith("/api/"):
+            ip = (request.client.host if request.client else "unknown")
+            # Skip rate limiting for localhost — dashboard itself makes 20+ calls on load
+            if ip in ("127.0.0.1", "localhost", "::1"):
+                return await call_next(request)
+            now = _time.time()
+            _rate_limits[ip] = [t for t in _rate_limits[ip] if now - t < 60]
+            if len(_rate_limits[ip]) > _RATE_LIMIT_REQ:
+                return JSONResponse({"error": "Rate limited — slow down"}, status_code=429)
+            _rate_limits[ip].append(now)
+        return await call_next(request)
+
+app.add_middleware(RateLimitMiddleware)
+
+# --- Security Headers ---
+class SecurityHeadersMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        response = await call_next(request)
+        response.headers["X-Content-Type-Options"] = "nosniff"
+        response.headers["X-Frame-Options"] = "DENY"
+        response.headers["X-XSS-Protection"] = "1; mode=block"
+        response.headers["Referrer-Policy"] = "strict-origin-when-cross-origin"
+        return response
+
+app.add_middleware(SecurityHeadersMiddleware)
+
+# --- Session cleanup (prunes stale rate-limit buckets every hour) ---
+def _session_cleanup_loop():
+    while True:
+        _time.sleep(3600)
+        cutoff = _time.time() - 60
+        for ip in list(_rate_limits.keys()):
+            _rate_limits[ip] = [t for t in _rate_limits[ip] if t > cutoff]
+            if not _rate_limits[ip]:
+                del _rate_limits[ip]
+
+threading.Thread(target=_session_cleanup_loop, daemon=True).start()
 
 
 def _conn():
@@ -633,7 +684,12 @@ def _normalized_leaderboard_metrics(total_value, day_change, starting_capital):
 
 
 @app.get("/api/arena/leaderboard")
-def leaderboard(season: int = 0, _force: bool = False):
+def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False):
+    if nocache:
+        _force = True
+        _endpoint_cache.pop(f"leaderboard_{season}", None)
+        _leaderboard_disk_cache["data"] = None
+        _leaderboard_disk_cache["ts"] = 0
     """
     Leaderboard API Contract (/api/arena/leaderboard)
 
@@ -995,7 +1051,7 @@ def leaderboard(season: int = 0, _force: bool = False):
                     return_pct = round((total_value - 25000.0) / 25000.0 * 100, 2)
                 
                 # Enterprise Computer uses metals_tracker (physical gold/silver — display only)
-                elif p["id"] in ("enterprise-computer", "dalio-metals"):
+                elif p["id"] == "enterprise-computer":
                     from engine.metals_tracker import get_portfolio as _metals_portfolio
                     _mp = _metals_portfolio()
                     total_value = _mp["total_value"]   # metals market value only (no cash)
@@ -1175,7 +1231,7 @@ def player_detail(player_id: str):
     from engine.correlation import get_portfolio_correlation
     from engine.risk_manager import RiskManager
 
-    metals_alias = player_id in ("enterprise-computer", "dalio-metals")
+    metals_alias = player_id == "enterprise-computer"
     source_player_id = "enterprise-computer" if metals_alias else player_id
 
     conn = _conn()
@@ -1422,10 +1478,11 @@ def player_trades(player_id: str, limit: int = 50):
 
 
 @app.get("/api/arena/player/{player_id}/open-positions")
-def player_open_positions(player_id: str):
+def player_open_positions(player_id: str, nocache: bool = False):
     """Return open positions with live P&L for a player."""
-    # Enterprise Computer: use metals_tracker for enriched positions with unit=oz
-    if player_id in ("enterprise-computer", "dalio-metals"):
+    # Enterprise Computer only: use metals_tracker for Steve's physical gold/silver
+    # dalio-metals holds GC=F/SI=F futures as regular DB positions — use normal path
+    if player_id in ("enterprise-computer",):
         try:
             from engine.metals_tracker import get_portfolio as _mp_fn
             _mp = _mp_fn()
@@ -1438,11 +1495,16 @@ def player_open_positions(player_id: str):
     try:
         from engine.paper_trader import get_portfolio_with_pnl as _gpnl
         from engine.market_data import get_all_prices as _gap
+        import engine.market_data as _md
         conn = _conn()
         syms = [r[0] for r in conn.execute(
             "SELECT DISTINCT symbol FROM positions WHERE player_id=? AND qty>0", (player_id,)
         ).fetchall()]
         conn.close()
+        # Clear price cache for this player's symbols so fresh prices are fetched
+        if nocache and syms:
+            for _sym in syms:
+                _md._price_cache.pop(_sym, None)
         prices = _gap(syms) if syms else {}
         port = _gpnl(player_id, prices)
         return {"positions": port.get("positions", []), "total_unrealized": port.get("total_unrealized_pnl", 0)}
@@ -2453,6 +2515,9 @@ def gex_alpaca(symbol: str):
         snap.pop("levels_json", None)
         snap["regime"] = "pinned" if (snap.get("total_gex") or 0) > 0 else "volatile"
         snap["source"] = snap.get("source", "alpaca")
+        # Normalize: DB column is spot_price, frontend expects spot
+        if "spot_price" in snap and "spot" not in snap:
+            snap["spot"] = snap["spot_price"]
         return snap
 
     return {"error": f"No GEX data for {sym}. Alpaca keys may not be configured."}
@@ -2663,12 +2728,132 @@ def cto_generate(briefing_type: str = "pre_market"):
         return {"ok": False, "error": str(e)}
 
 
+def _get_earnings_symbols():
+    """Build comprehensive earnings watch list: watchlist + holdings + mega caps."""
+    from config import WATCH_STOCKS
+    symbols = set(WATCH_STOCKS)
+    try:
+        conn = _conn()
+        positions = conn.execute("SELECT DISTINCT symbol FROM positions WHERE qty > 0").fetchall()
+        for p in positions:
+            symbols.add(p["symbol"])
+        try:
+            alpaca = conn.execute("SELECT DISTINCT ticker FROM portfolio_positions WHERE status='open'").fetchall()
+            for a in alpaca:
+                symbols.add(a["ticker"])
+        except Exception:
+            pass
+        conn.close()
+    except Exception:
+        pass
+    MEGA_CAPS = [
+        "AAPL", "MSFT", "NVDA", "GOOGL", "AMZN", "META", "TSLA",
+        "AMD", "PLTR", "CRM", "NFLX", "AVGO", "COST", "LLY",
+        "JPM", "BAC", "GS", "V", "MA",
+        "UNH", "JNJ", "PFE", "ABBV",
+        "XOM", "CVX", "COP",
+        "WMT", "HD", "TGT",
+        "DIS", "CMCSA",
+        "BA", "CAT", "GE", "RTX",
+        "COIN", "SQ", "HOOD",
+    ]
+    symbols.update(MEGA_CAPS)
+    symbols -= {"GC=F", "SI=F", "PL=F", "PA=F", "GOLD", "SILVER"}
+    return list(symbols)
+
+
 @app.get("/api/market/earnings")
 def earnings_upcoming():
-    """Get watchlist stocks with earnings in next 7 days."""
+    """Get watchlist + holdings + mega cap stocks with earnings in next 7 days, with source tagging."""
     from config import WATCH_STOCKS
     from engine.earnings_calendar import get_earnings_warnings
-    return get_earnings_warnings(WATCH_STOCKS)
+    watch_set = set(WATCH_STOCKS)
+    holding_set = set()
+    try:
+        conn = _conn()
+        rows = conn.execute("SELECT DISTINCT symbol FROM positions WHERE qty > 0").fetchall()
+        holding_set = {r["symbol"] for r in rows}
+        conn.close()
+    except Exception:
+        pass
+    results = get_earnings_warnings(_get_earnings_symbols())
+    for e in results:
+        sym = e["symbol"]
+        if sym in holding_set:
+            e["source"] = "holding"
+        elif sym in watch_set:
+            e["source"] = "watchlist"
+        else:
+            e["source"] = "mega_cap"
+    return results
+
+
+@app.get("/api/tactical/allocation")
+def tactical_allocation(view: str = "fleet", model: str = "", include_all: int = 0):
+    """Actual portfolio allocation across fleet models vs regime targets."""
+    from fastapi import Query
+    EXCLUDED = ('steve-webull', 'enterprise-computer') if not include_all else ()
+    INVERSE_ETFS = {'SH','SDS','SPXU','SDOW','SQQQ','TZA','VXX','DOG','PSQ','RWM'}
+    conn = _conn()
+    try:
+        if view == "model" and model:
+            players = conn.execute(
+                "SELECT id, cash, display_name FROM ai_players WHERE is_active=1 AND id=?", (model,)
+            ).fetchall()
+        elif EXCLUDED:
+            players = conn.execute(
+                "SELECT id, cash, display_name FROM ai_players WHERE is_active=1 AND id NOT IN ({})".format(
+                    ",".join("?" * len(EXCLUDED))), EXCLUDED
+            ).fetchall()
+        else:
+            players = conn.execute(
+                "SELECT id, cash, display_name FROM ai_players WHERE is_active=1"
+            ).fetchall()
+
+        all_models = conn.execute(
+            "SELECT id, display_name as name FROM ai_players WHERE is_active=1 AND id NOT IN ('enterprise-computer') ORDER BY display_name"
+        ).fetchall()
+
+        total_cash = sum(float(p["cash"] or 0) for p in players)
+        player_ids = [p["id"] for p in players]
+        if not player_ids:
+            return {"actual": {"long_equity": 0, "short_equity": 0, "options": 0, "cash": 100}, "models": [], "model_count": 0}
+
+        positions = conn.execute(
+            "SELECT player_id, symbol, qty, avg_price, asset_type, option_type FROM positions WHERE qty>0 AND player_id IN ({})".format(
+                ",".join("?" * len(player_ids))), player_ids
+        ).fetchall()
+
+        long_equity = short_equity = options_val = 0.0
+        for pos in positions:
+            sym = (pos["symbol"] or "").split("=")[0].upper()
+            qty = float(pos["qty"] or 0)
+            price = float(pos["avg_price"] or 0)
+            value = qty * price
+            asset_type = pos["asset_type"] or "stock"
+            if sym in INVERSE_ETFS:
+                short_equity += value
+            elif asset_type == "option":
+                options_val += value
+            else:
+                long_equity += value
+
+        total = total_cash + long_equity + short_equity + options_val
+        if total <= 0:
+            total = 1
+        return {
+            "total_fleet_value": round(total, 2),
+            "actual": {
+                "long_equity": round(long_equity / total * 100, 1),
+                "short_equity": round(short_equity / total * 100, 1),
+                "options": round(options_val / total * 100, 1),
+                "cash": round(total_cash / total * 100, 1),
+            },
+            "models": [{"id": m["id"], "name": m["name"]} for m in all_models],
+            "model_count": len(player_ids),
+        }
+    finally:
+        conn.close()
 
 
 @app.get("/api/market/sectors")
@@ -3478,6 +3663,105 @@ def _build_war_room_providers() -> dict:
         except Exception:
             pass
     return providers
+
+
+# ── Volume Radar ─────────────────────────────────────────────────────────────
+
+
+@app.get("/api/volume-radar")
+def volume_radar(limit: int = 20):
+    """Today's top volume alerts sorted by relative_volume DESC."""
+    try:
+        from engine.volume_scanner import get_todays_volume_alerts
+        alerts = get_todays_volume_alerts(limit=limit)
+        return {"alerts": alerts, "count": len(alerts)}
+    except Exception as e:
+        return {"error": str(e), "alerts": [], "count": 0}
+
+
+# ── GEX Overlay ──────────────────────────────────────────────────────────────
+
+
+@app.get("/api/gex-overlay/levels")
+def gex_overlay_levels(symbol: str = "SPY"):
+    """Latest GEX Overlay key levels: king node, gamma flip, put/call walls, regime."""
+    try:
+        from engine.gex_overlay import get_latest_gex
+        data = get_latest_gex(symbol.upper())
+        if data:
+            return data
+        # Compute fresh if no DB data yet
+        from engine.gex_overlay import calculate_gex, _save_gex_levels
+        levels = calculate_gex(symbol.upper())
+        if levels:
+            _save_gex_levels(symbol.upper(), levels)
+            return get_latest_gex(symbol.upper()) or {"error": "no data after compute"}
+        return {"error": f"GEX Overlay data unavailable for {symbol}"}
+    except Exception as e:
+        return {"error": str(e)}
+
+
+@app.get("/api/gex-overlay/heatmap")
+def gex_overlay_heatmap(symbol: str = "SPY"):
+    """Per-strike GEX data for heatmap visualization (call_gex, put_gex, net_gex)."""
+    try:
+        from engine.gex_overlay import get_heatmap_data
+        strikes = get_heatmap_data(symbol.upper())
+        return {"symbol": symbol.upper(), "strikes": strikes, "count": len(strikes)}
+    except Exception as e:
+        return {"error": str(e), "strikes": [], "count": 0}
+
+
+# ── Battle Station ────────────────────────────────────────────────────────────
+
+
+@app.get("/api/battle-station/status")
+def battle_station_status():
+    """Battle Station status: active positions, signals, morning levels, GEX regime."""
+    try:
+        from engine.battle_station import get_battle_station_status
+        return get_battle_station_status()
+    except Exception as e:
+        return {"error": str(e), "status": "ERROR", "active_positions": 0}
+
+
+@app.get("/api/battle-station/log")
+def battle_station_log(limit: int = 20):
+    """Recent battle_station_log entries with Greeks, P&L, and signals."""
+    try:
+        from engine.battle_station import get_recent_log
+        entries = get_recent_log(limit=limit)
+        return {"entries": entries, "count": len(entries)}
+    except Exception as e:
+        return {"error": str(e), "entries": [], "count": 0}
+
+
+@app.get("/api/universe/status")
+def universe_status():
+    """Status of the full universe and volume baselines tables."""
+    try:
+        conn = _conn()
+        universe_count = conn.execute("SELECT COUNT(*) FROM universe_stocks").fetchone()[0]
+        universe_updated = conn.execute(
+            "SELECT MAX(updated_at) FROM universe_stocks"
+        ).fetchone()[0]
+        baselines_count = conn.execute("SELECT COUNT(*) FROM volume_baselines").fetchone()[0]
+        baselines_updated = conn.execute(
+            "SELECT MAX(updated_at) FROM volume_baselines"
+        ).fetchone()[0]
+        today_alerts = conn.execute(
+            "SELECT COUNT(*) FROM volume_alerts WHERE date(detected_at)=date('now')"
+        ).fetchone()[0]
+        conn.close()
+        return {
+            "universe_symbols": universe_count,
+            "universe_last_refresh": universe_updated,
+            "baselines_symbols": baselines_count,
+            "baselines_last_update": baselines_updated,
+            "todays_volume_alerts": today_alerts,
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # ── Impulse Alerts ──────────────────────────────────────────────────────────
@@ -5353,6 +5637,44 @@ def player_close(player_id: str, body: dict):
     return result
 
 
+@app.get("/api/wheel/status")
+def wheel_status():
+    """Counselor Troi's Wheel Strategy — current status and open positions."""
+    try:
+        from engine.wheel_strategy import get_wheel_status
+        return get_wheel_status()
+    except Exception as e:
+        return {"puts_open": 0, "stocks_held": 0, "total_premium_collected": 0, "error": str(e)}
+
+
+@app.post("/api/wheel/force-scan")
+def wheel_force_scan():
+    """Force Troi's wheel scan immediately (bypasses daily throttle)."""
+    try:
+        from engine.wheel_strategy import run_wheel_scan, _last_date
+        import engine.wheel_strategy as _ws
+        _ws._done_today = False  # reset daily flag
+        run_wheel_scan()
+        return {"status": "ok", "message": "Wheel scan executed"}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
+@app.post("/api/arena/force-scan/{player_id}")
+def force_scan(player_id: str):
+    """Force a specific model to scan the watchlist immediately."""
+    try:
+        from config import WATCH_STOCKS
+        import main as _main
+        arena = getattr(_main, "arena", None)
+        if arena is None:
+            return {"status": "error", "error": "Arena not initialized"}
+        results = arena.scan_player(player_id, WATCH_STOCKS[:5])
+        return {"status": "ok", "results": str(results)[:500]}
+    except Exception as e:
+        return {"status": "error", "error": str(e)}
+
+
 # --- Model Control Endpoints ---
 
 # Cost estimates per scan
@@ -5388,7 +5710,9 @@ def model_control():
     conn = _conn()
     players = conn.execute("""
         SELECT id, display_name, provider, model_id, is_active, is_halted,
-               COALESCE(is_paused, 0) as is_paused
+               COALESCE(is_paused, 0) as is_paused,
+               COALESCE(is_fallback, 0) as is_fallback,
+               COALESCE(fallback_model, '') as fallback_model
         FROM ai_players ORDER BY provider, id
     """).fetchall()
 
@@ -5400,7 +5724,10 @@ def model_control():
     stats_map = {r["player_id"]: {"api_calls": r["api_calls"], "total_cost": r["total_cost"]} for r in stats}
 
     pause_all = conn.execute("SELECT value FROM settings WHERE key='pause_all'").fetchone()
+    fallbacks_row = conn.execute("SELECT value FROM settings WHERE key='fallbacks_enabled'").fetchone()
     conn.close()
+
+    fallbacks_enabled = not (fallbacks_row and fallbacks_row["value"] == "0")
 
     models = []
     grand_total = 0.0
@@ -5408,9 +5735,10 @@ def model_control():
         pid = p["id"]
         st = stats_map.get(pid, {"api_calls": 0, "total_cost": 0.0})
         is_free = p["provider"] == "ollama" or pid in ("dayblade-0dte", "steve-webull")
-        cost_per_scan = MODEL_COST_MAP.get(pid, 0.0 if is_free else 0.005)
-        # Force $0 for all free/Ollama models regardless of what model_stats says
-        display_cost = 0.0 if is_free else st["total_cost"]
+        is_fb = bool(p["is_fallback"])
+        cost_per_scan = 0.0 if (is_free or is_fb) else MODEL_COST_MAP.get(pid, 0.005)
+        # Force $0 for free/Ollama models and active fallbacks
+        display_cost = 0.0 if (is_free or is_fb) else st["total_cost"]
         grand_total += display_cost
         models.append(annotate_player_payload({
             "player_id": pid,
@@ -5418,6 +5746,8 @@ def model_control():
             "provider": p["provider"],
             "model_id": p["model_id"],
             "is_paused": bool(p["is_paused"]),
+            "is_fallback": is_fb,
+            "fallback_model": p["fallback_model"],
             "is_halted": bool(p["is_halted"]),
             "cost_per_scan": cost_per_scan,
             "api_calls_today": st["api_calls"],
@@ -5426,6 +5756,7 @@ def model_control():
 
     return {
         "pause_all": bool(pause_all and pause_all["value"] == "1"),
+        "fallbacks_enabled": fallbacks_enabled,
         "models": models,
         "grand_total_cost": grand_total,
     }
@@ -5444,6 +5775,21 @@ def toggle_pause_all():
     conn.commit()
     conn.close()
     return {"pause_all": new_val == "1"}
+
+
+@app.post("/api/model-control/fallbacks")
+def toggle_fallbacks():
+    """Toggle global fallback model routing (paused → free local Ollama)."""
+    conn = _conn()
+    current = conn.execute("SELECT value FROM settings WHERE key='fallbacks_enabled'").fetchone()
+    new_val = "0" if (current and current["value"] != "0") else "1"
+    conn.execute(
+        "INSERT OR REPLACE INTO settings (key, value) VALUES ('fallbacks_enabled', ?)",
+        (new_val,)
+    )
+    conn.commit()
+    conn.close()
+    return {"fallbacks_enabled": new_val == "1"}
 
 
 @app.get("/api/settings/pause-all")
@@ -7621,26 +7967,44 @@ def _compute_winners_losers():
 def holdings_top():
     """Top 5 winning and losing open positions across all AI players, ranked by unrealized P&L."""
     import time as _t
+    from datetime import datetime
+    import pytz
 
     cache_key = "holdings_top"
     now = _t.time()
     entry = _swr_cache.get(cache_key, {"data": None, "ts": 0})
     age = now - entry.get("ts", 0)
 
-    if age > 60 or entry["data"] is None:
+    # Market-hours TTL: 60s during 6:30–1:30 PM MST, 300s outside
+    try:
+        _az = pytz.timezone("US/Arizona")
+        _now_az = datetime.now(_az)
+        _mins = _az_h = _now_az.hour * 60 + _now_az.minute
+        is_market = 390 <= _mins <= 810
+    except Exception:
+        is_market = False
+    ttl = 60 if is_market else 300
+
+    # Force synchronous refresh if data is >15 min stale (prevents perpetual staleness)
+    force_sync = age > 900
+
+    if age > ttl or entry["data"] is None:
         if _swr_locks.setdefault(cache_key, threading.Lock()).acquire(blocking=False):
             _swr_refreshing.add(cache_key)
             def _refresh():
                 try:
                     data = _compute_holdings_top()
                     _swr_cache[cache_key] = {"data": data, "ts": _t.time()}
-                except Exception:
-                    pass
+                except Exception as _e:
+                    logger.warning(f"holdings_top refresh failed: {_e}")
+                    # Always update timestamp so we don't serve perpetually stale data
+                    _swr_cache[cache_key] = {"data": {"winners": [], "losers": [],
+                        "timestamp": datetime.now().isoformat()}, "ts": _t.time()}
                 finally:
                     _swr_refreshing.discard(cache_key)
                     _swr_locks[cache_key].release()
             threading.Thread(target=_refresh, daemon=True).start()
-            if entry["data"] is None:
+            if entry["data"] is None or force_sync:
                 _swr_locks[cache_key].acquire()
                 _swr_locks[cache_key].release()
                 entry = _swr_cache.get(cache_key, entry)
@@ -7650,18 +8014,21 @@ def holdings_top():
 
 
 def _compute_holdings_top():
-    """Fetch all open stock positions across AI players, compute unrealized P&L via yfinance."""
+    """Fetch all open positions across AI players, compute unrealized P&L."""
     import yfinance as yf
+    from engine.market_data import get_bulk_prices
+    from engine.paper_trader import estimate_option_price
     from datetime import datetime
 
     conn = _conn()
     try:
         rows = conn.execute(
-            "SELECT t.symbol, t.qty, t.price AS entry_price, p.display_name AS model "
-            "FROM trades t "
-            "JOIN ai_players p ON p.id = t.player_id "
-            "WHERE t.exit_price IS NULL AND t.action='BUY' AND t.asset_type='stock' "
-            "AND p.is_active=1"
+            "SELECT pos.symbol, pos.qty, pos.avg_price AS entry_price, pos.asset_type, "
+            "pos.option_type, pos.strike_price, pos.expiry_date, "
+            "p.display_name AS model, p.id AS player_id "
+            "FROM positions pos "
+            "JOIN ai_players p ON p.id = pos.player_id "
+            "WHERE p.is_active=1 AND pos.qty > 0"
         ).fetchall()
     finally:
         conn.close()
@@ -7686,9 +8053,20 @@ def _compute_holdings_top():
     positions = []
     for r in rows:
         sym = r["symbol"]
-        current = price_map.get(sym, 0)
-        if current == 0 or r["entry_price"] == 0:
+        stock_price = price_map.get(sym, 0)
+        if stock_price == 0 or r["entry_price"] == 0:
             continue
+
+        # Options: use estimated option price, not the underlying stock price
+        is_option = r["asset_type"] == "option"
+        if is_option:
+            current = estimate_option_price(
+                r["option_type"], r["strike_price"],
+                stock_price, r["entry_price"], r["expiry_date"]
+            )
+        else:
+            current = stock_price
+
         unrealized_pnl = round(r["qty"] * (current - r["entry_price"]), 2)
         unrealized_pct = round((current - r["entry_price"]) / r["entry_price"] * 100, 2)
         positions.append({
@@ -7699,6 +8077,10 @@ def _compute_holdings_top():
             "price": round(current, 2),
             "entry_price": round(r["entry_price"], 2),
             "qty": round(r["qty"], 4),
+            "asset_type": r["asset_type"] or "stock",
+            "option_type": r["option_type"],
+            "strike_price": r["strike_price"],
+            "expiry_date": r["expiry_date"],
         })
 
     sorted_pos = sorted(positions, key=lambda x: x["unrealized_pnl"], reverse=True)
@@ -7991,20 +8373,38 @@ def captain_ask(data: dict = None):
 
 # --- Premium ETF Command Center ---
 
+def _sanitize_floats(obj):
+    """Recursively replace nan/inf floats with None for JSON compliance."""
+    import math
+    if isinstance(obj, float):
+        return None if (math.isnan(obj) or math.isinf(obj)) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize_floats(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize_floats(v) for v in obj]
+    return obj
+
+
 @app.get("/api/premium-etfs")
 @timed_cache(600)
 def premium_etfs_all():
     """Full ETF Command Center — all categories with live prices."""
-    from engine.premium_etfs import get_all_etf_data
-    return get_all_etf_data()
+    try:
+        from engine.premium_etfs import get_all_etf_data
+        return _sanitize_floats(get_all_etf_data())
+    except Exception as e:
+        return {"categories": [], "error": str(e)}
 
 
 @app.get("/api/premium-etfs/{category}")
 @timed_cache(600)
 def premium_etfs_category(category: str):
     """ETFs for a specific category."""
-    from engine.premium_etfs import get_category_data
-    return get_category_data(category)
+    try:
+        from engine.premium_etfs import get_category_data
+        return _sanitize_floats(get_category_data(category))
+    except Exception as e:
+        return {"etfs": [], "error": str(e)}
 
 
 # --- Worf's Inverse ETF Arsenal ---
@@ -8042,8 +8442,14 @@ def inverse_etfs():
 @timed_cache(300)
 def sector_heatmap():
     """Sector ETF performance heatmap."""
-    from engine.sector_heatmap import get_sector_heatmap
-    return get_sector_heatmap()
+    try:
+        from engine.sector_heatmap import get_sector_heatmap
+        result = get_sector_heatmap()
+        if not result or not result.get("sectors"):
+            return {"sectors": [], "error": "No sector data available"}
+        return result
+    except Exception as e:
+        return {"sectors": [], "error": str(e)}
 
 
 @app.get("/api/charts/ohlcv")
@@ -8081,6 +8487,94 @@ def fear_greed():
         return get_fear_greed_index()
     except Exception as e:
         return {"score": 50, "label": "NEUTRAL", "error": f"Fear & Greed data unavailable: {e}", "signals": {}}
+
+
+@app.get("/api/uhura/signal")
+@timed_cache(120)
+def uhura_signal():
+    """Lt. Uhura v2 — Full Spectrum Signal. Confluence of 7 independent sources.
+    Only recommends a trade when 4+ signals align (the 86% filter).
+    """
+    try:
+        from engine.uhura import (
+            LtUhura,
+            build_gex_from_gamma_env,
+            build_high_iv_from_scanner,
+            build_options_flows_from_skew,
+            build_congress_from_tracker,
+            build_arena_from_confidence,
+            build_volume_spikes_from_alerts,
+            build_regime_from_detector,
+        )
+        from engine.gamma_environment import detect_gamma_environment
+        from engine.high_iv_scanner import scan_high_iv_opportunities
+        from engine.put_call_skew import get_all_skew
+        from engine.congress_tracker import get_congressional_trades
+        from engine.dynamic_alerts import get_active_alerts
+        from engine.regime_detector import detect_regime
+        from config import WATCH_STOCKS
+
+        # Gather all raw data (each has its own cache; safe to call in sequence)
+        gex_raw = detect_gamma_environment()
+        iv_raw = scan_high_iv_opportunities(WATCH_STOCKS)
+        skew_raw = get_all_skew(["SPY", "QQQ"])
+        congress_raw = get_congressional_trades()
+        alerts_raw = get_active_alerts(60)
+        regime_raw = detect_regime()
+
+        # Arena confidence: aggregate model stances across watchlist from DB
+        arena_raw = {}
+        try:
+            conn = _conn()
+            players = conn.execute(
+                "SELECT id, display_name FROM ai_players WHERE is_active=1 AND id != 'dayblade-0dte'"
+            ).fetchall()
+            for p in players:
+                pid = p["id"]
+                stances = {}
+                for sym in WATCH_STOCKS:
+                    row = conn.execute(
+                        "SELECT signal FROM signals WHERE player_id=? AND symbol=? "
+                        "ORDER BY created_at DESC LIMIT 1", (pid, sym)
+                    ).fetchone()
+                    if row:
+                        sig = row["signal"]
+                        if sig in ("BUY", "BUY_CALL"):
+                            stances[sym] = {"stance": "bullish"}
+                        elif sig == "BUY_PUT":
+                            stances[sym] = {"stance": "bearish"}
+                        else:
+                            stances[sym] = {"stance": "neutral"}
+                if stances:
+                    arena_raw[p["display_name"]] = stances
+            conn.close()
+        except Exception:
+            pass
+
+        # Build typed objects
+        gex = build_gex_from_gamma_env(gex_raw)
+        high_iv = build_high_iv_from_scanner(iv_raw)
+        flows = build_options_flows_from_skew(skew_raw)
+        congress = build_congress_from_tracker(congress_raw)
+        arena = build_arena_from_confidence(arena_raw)
+        spikes = build_volume_spikes_from_alerts(alerts_raw)
+        regime = build_regime_from_detector(regime_raw)
+
+        uhura = LtUhura(account_size=25000)
+        signal = uhura.interpret(
+            volume_spikes=spikes,
+            options_flows=flows,
+            regime=regime,
+            gex=gex,
+            high_iv=high_iv,
+            congress_trades=congress,
+            arena=arena,
+            watchlist=WATCH_STOCKS,
+        )
+        return signal.to_dict()
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
 
 
 @app.get("/api/volume-profile/{symbol}")
@@ -8159,6 +8653,82 @@ def riker_synthesize():
     return {"ok": bool(result), "length": len(result) if result else 0}
 
 
+@app.get("/api/riker/synthesis")
+def get_riker_synthesis():
+    """Get latest Riker XO synthesis — full text for XO Room display."""
+    # First: check in-memory cache (Riker writes here after each synthesis)
+    try:
+        from engine.riker_xo import get_latest_recommendation
+        cached = get_latest_recommendation()
+        if cached.get("recommendation"):
+            return {
+                "synthesis": cached["recommendation"],
+                "timestamp": cached.get("generated_at"),
+                "fresh": cached.get("fresh", False),
+                "source": "cache",
+            }
+    except Exception:
+        pass
+
+    conn = _conn()
+
+    # Try riker_synthesis table (future-proofing)
+    try:
+        row = conn.execute(
+            "SELECT content, created_at FROM riker_synthesis ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        if row:
+            conn.close()
+            return {"synthesis": row[0], "timestamp": row[1], "fresh": False, "source": "db"}
+    except Exception:
+        pass
+
+    # Try war_room with riker-xo player_id
+    try:
+        row = conn.execute(
+            "SELECT take, created_at FROM war_room WHERE player_id='riker-xo' ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        if row:
+            conn.close()
+            return {"synthesis": row[0], "timestamp": row[1], "fresh": False, "source": "war_room"}
+    except Exception:
+        pass
+
+    # Fallback: auto-generate a summary from today's trades
+    try:
+        trades = conn.execute("""
+            SELECT display_name, action, symbol FROM trades
+            WHERE date(executed_at) = date('now')
+            ORDER BY executed_at DESC LIMIT 10
+        """).fetchall()
+
+        if trades:
+            buys = [f"{t[0]} → {t[2]}" for t in trades if t[1] == "BUY"]
+            shorts = [f"{t[0]} → {t[2]}" for t in trades if t[1] == "SHORT"]
+            sells = [f"{t[0]} → {t[2]}" for t in trades if t[1] == "SELL"]
+
+            parts = []
+            if buys:
+                parts.append(f"LONG: {', '.join(buys[:3])}")
+            if shorts:
+                parts.append(f"SHORT: {', '.join(shorts[:2])}")
+            if sells:
+                parts.append(f"CLOSED: {', '.join(sells[:2])}")
+
+            synthesis = (
+                f"Fleet activity: {len(trades)} trades today. "
+                + (" | ".join(parts) + ". " if parts else "")
+                + "Crew is SPLIT — mix of longs and shorts. Stay defensive, size small."
+            )
+            conn.close()
+            return {"synthesis": synthesis, "timestamp": None, "fresh": False, "source": "auto-generated"}
+    except Exception:
+        pass
+
+    conn.close()
+    return {"synthesis": "Awaiting crew signals — no synthesis available yet", "timestamp": None, "fresh": False, "source": "none"}
+
+
 @app.get("/api/archer/frontier")
 @timed_cache(3600)
 def archer_frontier():
@@ -8176,6 +8746,13 @@ def archer_scan():
 
 
 # --- Congressional Trades ---
+
+@app.get("/api/kirk/advisory")
+def get_kirk_advisory():
+    """Actionable recommendations for Captain Kirk's Webull positions."""
+    from engine.kirk_advisory import generate_kirk_advisory
+    return generate_kirk_advisory()
+
 
 @app.get("/api/congress/trades")
 def congress_trades():
@@ -8381,6 +8958,367 @@ def gex_stub():
 @app.get("/api/insider-trades")
 def insider_trades_stub():
     return {"status": "coming_soon", "message": "Use /api/insider-trades/{symbol}"}
+
+
+def _build_computer_context() -> str:
+    """Gather live system data for the Ship's Computer prompt context."""
+    lines = []
+
+    try:
+        conn = _conn()
+        players = conn.execute(
+            "SELECT display_name, cash, "
+            "(SELECT COUNT(*) FROM positions p WHERE p.player_id=ai_players.id AND qty>0) as pos_count, "
+            "COALESCE((SELECT SUM(p.qty*p.avg_price) FROM positions p WHERE p.player_id=ai_players.id AND qty>0), 0) as pos_value "
+            "FROM ai_players WHERE is_paused=0 AND is_active=1 "
+            "ORDER BY (cash + COALESCE((SELECT SUM(p2.qty*p2.avg_price) FROM positions p2 WHERE p2.player_id=ai_players.id AND qty>0), 0)) DESC"
+        ).fetchall()
+        fleet_total = sum((p["cash"] or 0) + (p["pos_value"] or 0) for p in players)
+        lines.append(f"Fleet Total: ${fleet_total:,.0f}")
+        lines.append("MODELS:")
+        for p in players:
+            total = (p["cash"] or 0) + (p["pos_value"] or 0)
+            lines.append(f"  {p['display_name']}: ${total:,.0f} ({p['pos_count']} pos, ${p['cash'] or 0:,.0f} cash)")
+
+        trades = conn.execute(
+            "SELECT a.display_name, t.action, t.symbol, t.qty, t.price, t.executed_at "
+            "FROM trades t JOIN ai_players a ON t.player_id=a.id "
+            "WHERE date(t.executed_at)=date('now') ORDER BY t.executed_at DESC LIMIT 10"
+        ).fetchall()
+        lines.append("\nTODAY'S TRADES:")
+        if trades:
+            for t in trades:
+                lines.append(f"  {t['executed_at'][11:16]} {t['display_name']} {t['action']} {t['symbol']} x{t['qty']:.1f} @ ${t['price']:.2f}")
+        else:
+            lines.append("  No trades today")
+
+        try:
+            cost_row = conn.execute(
+                "SELECT COALESCE(SUM(cost_usd), 0) FROM api_costs WHERE date(timestamp)=date('now')"
+            ).fetchone()
+            lines.append(f"\nDilithium budget: ${cost_row[0]:.2f} used today / $5.00 cap")
+        except Exception:
+            pass
+
+        conn.close()
+    except Exception as e:
+        lines.append(f"DB error: {e}")
+
+    try:
+        from engine.fear_greed import get_fear_greed_index
+        fg = get_fear_greed_index()
+        lines.append(f"\nF&G: {fg.get('score', '?')}/100 ({fg.get('label', '?')})")
+        lines.append(f"VIX: {fg.get('signals', {}).get('vix', {}).get('value', '?')}")
+    except Exception:
+        pass
+
+    try:
+        from gex_calculator import get_latest_snapshot
+        gex = get_latest_snapshot("SPY")
+        if gex:
+            lines.append(
+                f"GEX: {gex.get('regime','?')} | "
+                f"${(gex.get('total_gex', 0) or 0)/1e9:.1f}B | "
+                f"Put Wall ${gex.get('put_wall','?')} | "
+                f"Call Wall ${gex.get('call_wall','?')} | "
+                f"Gamma Flip ${gex.get('gamma_flip','?')}"
+            )
+    except Exception:
+        pass
+
+    try:
+        from engine.kirk_advisory import generate_kirk_advisory
+        kirk = generate_kirk_advisory()
+        if kirk and kirk.get("positions"):
+            lines.append("\nKIRK ADVISORY (Webull):")
+            for p in kirk["positions"]:
+                lines.append(f"  {p['action']} {p['symbol']} ({p['pnl_pct']:+.1f}%) — {p['reasoning']}")
+            cash_rec = kirk.get("cash_recommendation", {})
+            lines.append(f"  Cash ${kirk.get('cash', 0):,.0f}: {cash_rec.get('action','WAIT')} — {cash_rec.get('reasoning','')}")
+    except Exception:
+        pass
+
+    return "\n".join(lines)
+
+
+def _build_chat_system_prompt(context: str) -> str:
+    return (
+        "You are the Ship's Computer aboard the USS TradeMinds — an AI-powered paper trading arena.\n\n"
+        f"LIVE SYSTEM DATA:\n{context}\n\n"
+        "ACTION CAPABILITIES:\n"
+        "When the user asks you to DO something, include action tags in your reply:\n"
+        "[ACTION:force_scan] — trigger fleet-wide scan\n"
+        "[ACTION:cto_refresh] — regenerate CTO briefing\n"
+        "[ACTION:check_logs] — show recent server logs\n"
+        "[ACTION:check_fleet] — show all positions from DB\n"
+        "[ACTION:run_tests] — run pre-restart health checks\n"
+        "[ACTION:capitol_scan] — fetch latest Congress trades\n"
+        "\nRULES:\n"
+        "- Use REAL data above. Never make up numbers.\n"
+        "- Star Trek flavor but accuracy first.\n"
+        "- Concise: 2-3 sentences for simple questions.\n"
+        "- Include [ACTION:...] tags when user asks to DO something.\n"
+        "- Note 'Computer analysis, not financial advice' for trade suggestions."
+    )
+
+
+def _ollama_chat(message: str, system_prompt: str, history: list, model: str = "phi4:14b") -> dict:
+    """Chat via local Ollama — phi4:14b primary, qwen3:8b fallback."""
+    import requests as _req
+    messages = [{"role": "system", "content": system_prompt}]
+    for h in (history or [])[-10:]:
+        if h.get("role") in ("user", "assistant") and h.get("content"):
+            messages.append({"role": h["role"], "content": h["content"]})
+    messages.append({"role": "user", "content": message})
+    for m in (model, "qwen3:8b"):
+        try:
+            r = _req.post(
+                "http://localhost:11434/api/chat",
+                json={"model": m, "messages": messages, "stream": False,
+                      "think": False, "options": {"temperature": 0.3}},
+                timeout=120,
+            )
+            reply = r.json().get("message", {}).get("content", "").strip()
+            if reply:
+                return {"reply": reply, "model": m}
+        except Exception:
+            pass
+    return {"reply": "Computer offline.", "model": "none"}
+
+
+async def _claude_chat(message: str, system_prompt: str, history: list) -> dict:
+    """Ship's Computer — local Ollama phi4:14b (no paid API)."""
+    return _ollama_chat(message, system_prompt, history)
+
+
+@app.post("/api/computer/chat")
+async def computer_chat(req: Request):
+    """Ship's Computer chat — cost-aware Claude/Ollama backend with live fleet data."""
+    body = await req.json()
+    user_msg = str(body.get("message", "")).strip()
+    provider = body.get("provider", "auto")
+    history = body.get("history", [])
+
+    if not user_msg:
+        return {"reply": "Please provide a message."}
+
+    context = _build_computer_context()
+    system_prompt = _build_chat_system_prompt(context)
+
+    # Always use local Ollama (phi4:14b primary, qwen3:8b fallback — no paid API)
+    result = _ollama_chat(user_msg, system_prompt, history)
+    result["provider"] = "ollama"
+    result["provider_label"] = "🤖 Ollama"
+    return result
+
+
+@app.post("/api/computer/action")
+async def computer_action(req: Request):
+    """Execute a Ship's Computer action triggered from the chat."""
+    import subprocess
+    body = await req.json()
+    action = str(body.get("action", "")).strip()
+
+    PROJECT = "/Users/bigmac/autonomous-trader"
+
+    if action == "force_scan":
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=10) as c:
+                r = await c.post("http://localhost:8080/api/model-control/force-scan")
+            return {"ok": True, "output": "Fleet scan triggered."}
+        except Exception as e:
+            return {"ok": False, "output": f"Scan error: {e}"}
+
+    elif action == "cto_refresh":
+        try:
+            import httpx
+            async with httpx.AsyncClient(timeout=30) as c:
+                r = await c.post("http://localhost:8080/api/cto/generate", json={})
+            return {"ok": True, "output": "CTO briefing regenerated."}
+        except Exception as e:
+            return {"ok": False, "output": f"CTO error: {e}"}
+
+    elif action == "check_logs":
+        try:
+            result = subprocess.run(
+                ["tail", "-n", "40", "/tmp/trademinds.log"],
+                capture_output=True, text=True, timeout=5
+            )
+            return {"ok": True, "output": result.stdout or "(empty log)"}
+        except Exception as e:
+            return {"ok": False, "output": f"Log error: {e}"}
+
+    elif action == "run_tests":
+        try:
+            result = subprocess.run(
+                [f"{PROJECT}/venv/bin/python3", f"{PROJECT}/tests/pre_restart.py"],
+                capture_output=True, text=True, timeout=30, cwd=PROJECT
+            )
+            out = result.stdout + result.stderr
+            return {"ok": result.returncode == 0, "output": out[-3000:]}
+        except Exception as e:
+            return {"ok": False, "output": f"Test error: {e}"}
+
+    elif action == "check_fleet":
+        try:
+            conn = _conn()
+            rows = conn.execute(
+                "SELECT a.display_name, p.symbol, p.qty, p.avg_price, p.asset_type "
+                "FROM positions p JOIN ai_players a ON p.player_id=a.id "
+                "WHERE p.qty>0 ORDER BY a.display_name, p.symbol"
+            ).fetchall()
+            conn.close()
+            lines = [f"{r['display_name']}: {r['symbol']} x{r['qty']:.1f} @ ${r['avg_price']:.2f} [{r['asset_type']}]" for r in rows]
+            return {"ok": True, "output": "\n".join(lines) if lines else "No open positions."}
+        except Exception as e:
+            return {"ok": False, "output": f"Fleet error: {e}"}
+
+    elif action == "capitol_scan":
+        try:
+            from engine.congress_tracker import fetch_congress_trades
+            trades = fetch_congress_trades()
+            return {"ok": True, "output": f"Congress tracker refreshed. {len(trades) if trades else 0} trades fetched."}
+        except Exception as e:
+            return {"ok": False, "output": f"Capitol scan error: {e}"}
+
+    else:
+        return {"ok": False, "output": f"Unknown action: {action}"}
+
+
+@app.post("/api/trade/override")
+async def trade_override(req: Request):
+    """Captain's override — manually execute a trade bypassing the risk manager."""
+    from engine.paper_trader import buy, sell
+    body = await req.json()
+    player_id = body.get("player_id")
+    symbol = body.get("symbol", "").upper()
+    action = body.get("action", "BUY").upper()
+    qty = int(body.get("qty", 1))
+    price = float(body.get("price", 0))
+    reasoning = body.get("reasoning", "Captain manual override")
+    confidence = float(body.get("confidence", 0.8))
+    sources = body.get("sources", "manual-override")
+
+    if not player_id or not symbol or qty <= 0:
+        return {"status": "error", "error": "Missing required fields: player_id, symbol, qty"}
+    if price <= 0:
+        try:
+            from engine.market_data import get_stock_price
+            pd_ = get_stock_price(symbol)
+            price = pd_.get("price", 0) if pd_ else 0
+        except Exception:
+            pass
+    if price <= 0:
+        return {"status": "error", "error": f"Could not get price for {symbol}"}
+    try:
+        if action == "BUY":
+            result = buy(player_id=player_id, symbol=symbol, price=price, qty=qty,
+                         reasoning=reasoning, confidence=confidence, sources=sources, timeframe="SWING")
+        else:
+            result = sell(player_id=player_id, symbol=symbol, price=price,
+                          reasoning=reasoning, confidence=confidence)
+        return {"status": "ok", "result": str(result)}
+    except Exception as e:
+        logger.error(f"Trade override error: {e}")
+        return {"status": "error", "error": str(e)}
+
+
+@app.get("/api/trade/chain/{symbol}")
+def trade_chain(symbol: str, player_id: str = None):
+    """Full trade chain for a symbol — recent trades, open positions, optional rejections."""
+    symbol = symbol.upper()
+    conn = _conn()
+    try:
+        q = "SELECT * FROM trades WHERE symbol=? ORDER BY executed_at DESC LIMIT 5"
+        args = [symbol]
+        if player_id:
+            q = "SELECT * FROM trades WHERE symbol=? AND player_id=? ORDER BY executed_at DESC LIMIT 5"
+            args = [symbol, player_id]
+        trades = [dict(zip([c[0] for c in conn.execute(q, args).description], row))
+                  for row in conn.execute(q, args).fetchall()]
+
+        pos_q = "SELECT p.*, t.price as entry_price FROM positions p LEFT JOIN trades t ON t.symbol=p.symbol AND t.player_id=p.player_id AND t.action='BUY' WHERE p.symbol=? AND p.qty > 0 ORDER BY t.executed_at DESC"
+        positions = [dict(zip([c[0] for c in conn.execute(pos_q, [symbol]).description], row))
+                     for row in conn.execute(pos_q, [symbol]).fetchall()]
+
+        rejections = []
+        try:
+            rejections = [dict(r) for r in conn.execute(
+                "SELECT * FROM trade_rejections WHERE symbol=? ORDER BY rejected_at DESC LIMIT 3", [symbol]
+            ).fetchall()]
+        except Exception:
+            pass
+        return {"symbol": symbol, "trades": trades, "positions": positions, "rejections": rejections}
+    except Exception as e:
+        return {"symbol": symbol, "trades": [], "positions": [], "rejections": [], "error": str(e)}
+    finally:
+        conn.close()
+
+
+# === WATCHLIST MANAGEMENT ===
+
+@app.get("/api/watchlist")
+def get_watchlist():
+    """Fleet-wide shared watchlist."""
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT symbol, added_by, added_at, notes, is_active FROM watchlist ORDER BY symbol"
+    ).fetchall()
+    conn.close()
+    return {"symbols": [dict(r) for r in rows]}
+
+@app.post("/api/watchlist/add")
+def add_to_watchlist(symbol: str, notes: str = ""):
+    conn = _conn()
+    conn.execute(
+        "INSERT OR IGNORE INTO watchlist (symbol, added_by, notes) VALUES (?, 'manual', ?)",
+        (symbol.upper().strip(), notes)
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "added", "symbol": symbol.upper().strip()}
+
+@app.post("/api/watchlist/remove")
+def remove_from_watchlist(symbol: str):
+    conn = _conn()
+    conn.execute("DELETE FROM watchlist WHERE symbol=?", (symbol.upper().strip(),))
+    conn.commit()
+    conn.close()
+    return {"status": "removed", "symbol": symbol.upper().strip()}
+
+@app.get("/api/watchlist/model/{player_id}")
+def get_model_watchlist(player_id: str):
+    """Per-model custom watchlist (addons on top of fleet watchlist)."""
+    conn = _conn()
+    rows = conn.execute(
+        "SELECT symbol, reason, added_at FROM model_watchlist WHERE player_id=? ORDER BY symbol",
+        (player_id,)
+    ).fetchall()
+    conn.close()
+    return {"player_id": player_id, "symbols": [dict(r) for r in rows]}
+
+@app.post("/api/watchlist/model/{player_id}/add")
+def add_to_model_watchlist(player_id: str, symbol: str, reason: str = ""):
+    conn = _conn()
+    conn.execute(
+        "INSERT OR IGNORE INTO model_watchlist (player_id, symbol, reason) VALUES (?, ?, ?)",
+        (player_id, symbol.upper().strip(), reason)
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "added", "player_id": player_id, "symbol": symbol.upper().strip()}
+
+@app.post("/api/watchlist/model/{player_id}/remove")
+def remove_from_model_watchlist(player_id: str, symbol: str):
+    conn = _conn()
+    conn.execute(
+        "DELETE FROM model_watchlist WHERE player_id=? AND symbol=?",
+        (player_id, symbol.upper().strip())
+    )
+    conn.commit()
+    conn.close()
+    return {"status": "removed", "player_id": player_id, "symbol": symbol.upper().strip()}
 
 
 if __name__ == "__main__":

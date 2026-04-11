@@ -1,0 +1,452 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Performance Dashboard — TradeMinds Signal Center</title>
+  <style>
+    :root {
+      --bg-primary: #07070c;
+      --bg-secondary: #0b0e18;
+      --bg-card: #0e1420;
+      --bg-card-hover: #131b2a;
+      --border-dim: #1e2d45;
+      --text-primary: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #4b5563;
+      --accent-cyan: #06b6d4;
+      --accent-blue: #3b82f6;
+      --color-win: #10b981;
+      --color-loss: #ef4444;
+      --color-neutral: #f59e0b;
+    }
+    * { margin:0; padding:0; box-sizing:border-box; }
+    body {
+      background:var(--bg-primary);
+      color:var(--text-primary);
+      font-family:'Courier New','SF Mono','Consolas',monospace;
+      min-height:100vh;
+    }
+    .header {
+      position:sticky; top:0; z-index:100;
+      background:rgba(10,14,26,0.95);
+      backdrop-filter:blur(12px);
+      border-bottom:1px solid var(--border-dim);
+      padding:0.75rem 1rem;
+    }
+    .header-inner {
+      max-width:1400px; margin:0 auto;
+      display:flex; align-items:center; gap:1rem; flex-wrap:wrap;
+    }
+    .header h1 { font-size:1rem; font-weight:700; letter-spacing:0.15em; text-transform:uppercase; color:var(--accent-cyan); }
+    .nav-tabs {
+      background:rgba(10,14,26,0.9);
+      border-bottom:1px solid var(--border-dim);
+      padding:0 1rem;
+    }
+    .nav-tabs-inner {
+      max-width:1400px; margin:0 auto; display:flex; gap:0;
+    }
+    .nav-tab {
+      background:none; border:none; border-bottom:2px solid transparent;
+      color:#4b5563; font-family:inherit; font-size:0.75rem; font-weight:700;
+      letter-spacing:0.1em; text-transform:uppercase; padding:0.6rem 1.2rem;
+      cursor:pointer; text-decoration:none; display:inline-block;
+    }
+    .nav-tab.active { border-bottom-color:#06b6d4; color:#06b6d4; }
+
+    .main { max-width:1400px; margin:0 auto; padding:1.5rem 1rem; }
+
+    /* Scorecards */
+    .scorecard-grid {
+      display:grid; grid-template-columns:repeat(auto-fit,minmax(180px,1fr)); gap:0.75rem;
+      margin-bottom:1.5rem;
+    }
+    .scorecard {
+      background:var(--bg-card); border:1px solid var(--border-dim);
+      border-radius:8px; padding:1rem;
+    }
+    .scorecard-label {
+      font-size:0.65rem; font-weight:700; letter-spacing:0.1em;
+      text-transform:uppercase; color:var(--text-muted); margin-bottom:0.4rem;
+    }
+    .scorecard-val {
+      font-size:1.6rem; font-weight:700; line-height:1;
+    }
+    .scorecard-sub { font-size:0.7rem; color:var(--text-secondary); margin-top:0.3rem; }
+    .pos { color:var(--color-win); }
+    .neg { color:var(--color-loss); }
+    .neu { color:var(--color-neutral); }
+
+    /* Sections */
+    .section { margin-bottom:2rem; }
+    .section-title {
+      font-size:0.75rem; font-weight:700; letter-spacing:0.12em;
+      text-transform:uppercase; color:var(--accent-cyan);
+      border-bottom:1px solid var(--border-dim); padding-bottom:0.5rem;
+      margin-bottom:1rem;
+    }
+
+    /* Agent table */
+    .agent-table { width:100%; border-collapse:collapse; font-size:0.75rem; }
+    .agent-table th {
+      text-align:left; color:var(--text-muted); font-size:0.65rem;
+      font-weight:700; letter-spacing:0.08em; text-transform:uppercase;
+      padding:0.4rem 0.6rem; border-bottom:1px solid var(--border-dim);
+      cursor:pointer; user-select:none;
+    }
+    .agent-table th:hover { color:var(--accent-cyan); }
+    .agent-table td {
+      padding:0.5rem 0.6rem; border-bottom:1px solid rgba(30,45,69,0.5);
+    }
+    .agent-table tr:hover td { background:var(--bg-card-hover); }
+    .wr-bar-wrap { display:flex; align-items:center; gap:0.5rem; }
+    .wr-bar-bg { flex:1; height:6px; background:rgba(30,45,69,0.8); border-radius:3px; overflow:hidden; }
+    .wr-bar-fill { height:100%; border-radius:3px; transition:width 0.4s; }
+
+    /* Benchmark */
+    .bench-grid { display:grid; grid-template-columns:repeat(auto-fit,minmax(220px,1fr)); gap:0.75rem; }
+    .bench-card {
+      background:var(--bg-card); border:1px solid var(--border-dim);
+      border-radius:8px; padding:1rem;
+    }
+    .bench-card-label { font-size:0.65rem; font-weight:700; letter-spacing:0.1em; text-transform:uppercase; color:var(--text-muted); margin-bottom:0.75rem; }
+    .bench-row { display:flex; justify-content:space-between; align-items:center; margin-bottom:0.4rem; font-size:0.75rem; }
+    .bench-name { color:var(--text-secondary); }
+
+    /* Loading */
+    .loading { text-align:center; color:var(--text-muted); padding:3rem; font-size:0.8rem; }
+    .error-msg { text-align:center; color:var(--color-loss); padding:1rem; font-size:0.75rem; }
+
+    ::-webkit-scrollbar { width:6px; }
+    ::-webkit-scrollbar-track { background:var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background:var(--border-dim); border-radius:3px; }
+  </style>
+</head>
+<body>
+
+<div class="header">
+  <div class="header-inner">
+    <h1>📊 Performance Dashboard — USS TradeMinds</h1>
+    <div style="margin-left:auto;display:flex;gap:0.5rem;align-items:center;">
+      <span style="font-size:0.7rem;color:var(--text-muted);" id="last-updated">Loading...</span>
+      <button onclick="loadAll()" style="background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.3);color:#06b6d4;font-family:inherit;font-size:0.65rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:0.25rem 0.6rem;border-radius:4px;cursor:pointer;">Refresh</button>
+    </div>
+  </div>
+</div>
+
+<div class="nav-tabs">
+  <div class="nav-tabs-inner">
+    <a href="alerts.html" class="nav-tab">Signals</a>
+    <a href="alerts.html#feed" class="nav-tab" onclick="sessionStorage.setItem('sc-tab','feed')">Intel Feed</a>
+    <span class="nav-tab active">Performance</span>
+  </div>
+</div>
+
+<div class="main">
+
+  <!-- Benchmark Scorecard -->
+  <div class="section">
+    <div class="section-title">Fleet vs Benchmarks</div>
+    <div id="bench-scorecards" class="scorecard-grid">
+      <div class="loading">Loading benchmark data...</div>
+    </div>
+    <div id="bench-detail" class="bench-grid" style="margin-top:0.75rem;"></div>
+  </div>
+
+  <!-- Agent Report Cards -->
+  <div class="section">
+    <div class="section-title">Agent Win Rates (Bootstrap Intelligence)</div>
+    <div id="agent-table-wrap">
+      <div class="loading">Loading agent data...</div>
+    </div>
+  </div>
+
+  <!-- Trust Scores -->
+  <div class="section">
+    <div class="section-title">Adaptive Trust Scores</div>
+    <div id="trust-wrap">
+      <div class="loading">Loading trust scores...</div>
+    </div>
+  </div>
+
+  <!-- Recent Bootstrap Metrics -->
+  <div class="section">
+    <div class="section-title">Bootstrap Intelligence — Recent Metrics</div>
+    <div id="bootstrap-wrap">
+      <div class="loading">Loading bootstrap data...</div>
+    </div>
+  </div>
+
+</div>
+
+<script>
+// All 8080 data comes through /api/proxy/* to avoid CORS
+const PORT9000 = 'http://localhost:9000';
+const PROXY = '';  // same-origin proxy on port 9000
+
+// ── Benchmark ──────────────────────────────────────────────────────────────
+async function loadBenchmark() {
+  try {
+    const res = await fetch(`${PROXY}/api/proxy/benchmark`);
+    const data = await res.json();
+    if (data.error) throw new Error(data.error);
+
+    const sc = document.getElementById('bench-scorecards');
+    const det = document.getElementById('bench-detail');
+
+    // Scorecard summary pills
+    const windows = ['7d','30d','90d'];
+    sc.innerHTML = windows.map(w => {
+      const d = data[w];
+      if (!d) return `<div class="scorecard"><div class="scorecard-label">${w} Fleet</div><div class="scorecard-val neu">N/A</div></div>`;
+      const ret = d.fleet_return;
+      const cls = ret > 0 ? 'pos' : ret < 0 ? 'neg' : 'neu';
+      const alpha = d.alpha_vs_spy;
+      const aCls = alpha > 0 ? 'pos' : alpha < 0 ? 'neg' : 'neu';
+      return `
+        <div class="scorecard">
+          <div class="scorecard-label">${w} Fleet Return</div>
+          <div class="scorecard-val ${cls}">${ret !== null ? (ret > 0 ? '+' : '') + ret.toFixed(1) + '%' : 'N/A'}</div>
+          <div class="scorecard-sub">Alpha vs SPY: <span class="${aCls}">${alpha !== null ? (alpha > 0 ? '+' : '') + alpha.toFixed(1) + '%' : 'N/A'}</span></div>
+          ${d.sharpe !== null ? `<div class="scorecard-sub">Sharpe: ${d.sharpe.toFixed(2)}</div>` : ''}
+        </div>`;
+    }).join('');
+
+    // Detailed 30d breakdown
+    const d30 = data['30d'];
+    if (d30) {
+      const res2 = await fetch(`${PROXY}/api/proxy/benchmark/detail?days=30`);
+      const full = await res2.json();
+      const benchmarks = full.benchmarks || {};
+      det.innerHTML = Object.entries(benchmarks).map(([key, b]) => {
+        const fleet = full.fleet?.return_pct;
+        const bret = b.return_pct;
+        const alpha = fleet !== undefined && bret !== null ? fleet - bret : null;
+        const aCls = alpha > 0 ? 'pos' : alpha < 0 ? 'neg' : 'neu';
+        return `
+          <div class="bench-card">
+            <div class="bench-card-label">vs ${b.name || key} (30d)</div>
+            <div class="bench-row"><span class="bench-name">Fleet</span><span class="${fleet >= 0 ? 'pos':'neg'}">${fleet !== null ? (fleet>0?'+':'')+fleet.toFixed(2)+'%' : 'N/A'}</span></div>
+            <div class="bench-row"><span class="bench-name">${b.name || key}</span><span class="${bret >= 0 ? 'pos':'neg'}">${bret !== null ? (bret>0?'+':'')+bret.toFixed(2)+'%' : 'N/A'}</span></div>
+            <div class="bench-row" style="border-top:1px solid var(--border-dim);padding-top:0.3rem;margin-top:0.3rem;">
+              <span class="bench-name">Alpha</span>
+              <span class="${aCls}">${alpha !== null ? (alpha>0?'+':'')+alpha.toFixed(2)+'%' : 'N/A'}</span>
+            </div>
+          </div>`;
+      }).join('');
+
+      if (full.alert) {
+        sc.insertAdjacentHTML('beforeend', `
+          <div class="scorecard" style="border-color:rgba(239,68,68,0.5);grid-column:1/-1;">
+            <div class="scorecard-label" style="color:#ef4444;">Alert</div>
+            <div style="font-size:0.75rem;color:var(--text-primary);margin-top:0.3rem;">${full.alert.message}</div>
+          </div>`);
+      }
+    }
+  } catch (e) {
+    document.getElementById('bench-scorecards').innerHTML = `<div class="error-msg">Benchmark unavailable: ${e.message}</div>`;
+  }
+}
+
+// ── Canonical grade function — single source of truth ──────────────────────
+// Used by BOTH the list view and the detail view.
+// wr = win rate (0–100), pf = profit factor (wins_pnl / losses_pnl, default 1.0)
+function getGrade(wr, pf) {
+  pf = pf || 1.0;
+  if (wr > 60 && pf > 1.5) return { letter: 'A', color: '#10b981', label: 'Elite' };
+  if (wr > 50 && pf > 1.2) return { letter: 'B', color: '#06b6d4', label: 'Good' };
+  if (wr > 40 || pf > 1.0) return { letter: 'C', color: '#f59e0b', label: 'Average' };
+  if (wr > 30)              return { letter: 'D', color: '#f97316', label: 'Below Avg' };
+  return                           { letter: 'F', color: '#ef4444', label: 'Benched' };
+}
+
+// ── Agent Report Cards ──────────────────────────────────────────────────────
+async function loadAgents() {
+  try {
+    const res = await fetch(`${PROXY}/api/proxy/bootstrap`);
+    const data = await res.json();
+    const metrics = data.metrics || [];
+
+    // Aggregate by player_id: overall win rate + profit factor
+    const agentMap = {};
+    for (const m of metrics) {
+      if (!agentMap[m.player_id]) agentMap[m.player_id] = { wr: null, pf: null, trades: 0, symbols: {} };
+      if (m.metric_type === 'overall_wr') {
+        agentMap[m.player_id].wr = parseFloat(m.value);
+        agentMap[m.player_id].trades = parseInt(m.sample_size || 0);
+      }
+      if (m.metric_type === 'profit_factor') {
+        agentMap[m.player_id].pf = parseFloat(m.value);
+      }
+      if (m.metric_type === 'symbol_wr' && m.symbol) {
+        agentMap[m.player_id].symbols[m.symbol] = {
+          wr: parseFloat(m.value),
+          trades: parseInt(m.sample_size || 0),
+        };
+      }
+    }
+
+    // Only show agents that have an overall_wr metric
+    const agents = Object.entries(agentMap)
+      .filter(([, d]) => d.wr !== null)
+      .sort((a, b) => (b[1].wr || 0) - (a[1].wr || 0));
+
+    if (!agents.length) {
+      document.getElementById('agent-table-wrap').innerHTML = '<div class="error-msg">No bootstrap data yet. Run a scan cycle to populate.</div>';
+      return;
+    }
+
+    const rows = agents.map(([pid, d]) => {
+      const wr = d.wr ?? 0;
+      const pf = d.pf ?? 1.0;
+      const grade = getGrade(wr, pf);
+      const barColor = wr >= 60 ? '#10b981' : wr < 40 ? '#ef4444' : '#f59e0b';
+      return `<tr style="cursor:pointer;" onclick="toggleAgentDetail('${pid}', this)">
+        <td style="color:var(--accent-cyan);font-weight:700;">${pid}</td>
+        <td><div class="wr-bar-wrap">
+          <div class="wr-bar-bg"><div class="wr-bar-fill" style="width:${Math.min(wr,100)}%;background:${barColor};"></div></div>
+          <span style="color:${barColor};min-width:38px;text-align:right;">${wr.toFixed(0)}%</span>
+        </div></td>
+        <td style="color:var(--text-secondary);">${d.trades}</td>
+        <td style="font-weight:700;font-size:1rem;color:${grade.color};">${grade.letter}</td>
+        <td style="color:${grade.color};font-size:0.7rem;">${grade.label}</td>
+      </tr>
+      <tr id="detail-${pid}" style="display:none;">
+        <td colspan="5" style="padding:0;">
+          <div style="background:rgba(6,182,212,0.04);border-left:2px solid ${grade.color};padding:0.75rem 1rem;font-size:0.72rem;">
+            ${_buildDetailHTML(pid, d)}
+          </div>
+        </td>
+      </tr>`;
+    }).join('');
+
+    document.getElementById('agent-table-wrap').innerHTML = `
+      <table class="agent-table">
+        <thead><tr>
+          <th>Agent</th>
+          <th>Win Rate</th>
+          <th>Trades</th>
+          <th>Grade</th>
+          <th>Status</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  } catch (e) {
+    document.getElementById('agent-table-wrap').innerHTML = `<div class="error-msg">Agent data unavailable: ${e.message}</div>`;
+  }
+}
+
+function _buildDetailHTML(pid, d) {
+  const wr = d.wr ?? 0;
+  const pf = d.pf ?? 1.0;
+  // Use the same getGrade() — no separate calculation
+  const grade = getGrade(wr, pf);
+  const syms = Object.entries(d.symbols || {}).sort((a, b) => (b[1].wr || 0) - (a[1].wr || 0));
+
+  let html = `<div style="display:flex;gap:2rem;flex-wrap:wrap;margin-bottom:0.5rem;">
+    <span>Win Rate: <strong style="color:${wr >= 60 ? '#10b981' : wr < 40 ? '#ef4444' : '#f59e0b'}">${wr.toFixed(1)}%</strong></span>
+    <span>Profit Factor: <strong>${pf.toFixed(2)}</strong></span>
+    <span>Trades: <strong>${d.trades}</strong></span>
+    <span>Grade: <strong style="color:${grade.color};">${grade.letter} — ${grade.label}</strong></span>
+  </div>`;
+
+  if (syms.length) {
+    html += `<div style="color:var(--text-muted);margin-bottom:0.3rem;font-size:0.65rem;text-transform:uppercase;letter-spacing:0.08em;">Per-Symbol Edge</div>`;
+    html += `<div style="display:flex;gap:0.5rem;flex-wrap:wrap;">` + syms.slice(0, 10).map(([sym, s]) => {
+      const sg = getGrade(s.wr, 1.0);  // symbol-level: only wr available
+      return `<span style="background:rgba(30,45,69,0.8);border:1px solid ${sg.color}40;padding:0.15rem 0.4rem;border-radius:3px;color:${sg.color};">${sym} ${s.wr.toFixed(0)}% <span style="font-size:0.6rem;">(${sg.letter})</span></span>`;
+    }).join('') + `</div>`;
+  }
+  return html;
+}
+
+function toggleAgentDetail(pid, row) {
+  const detailRow = document.getElementById(`detail-${pid}`);
+  if (!detailRow) return;
+  const isOpen = detailRow.style.display !== 'none';
+  detailRow.style.display = isOpen ? 'none' : 'table-row';
+  row.style.background = isOpen ? '' : 'rgba(6,182,212,0.05)';
+}
+
+// ── Trust Scores ────────────────────────────────────────────────────────────
+async function loadTrustScores() {
+  try {
+    const res = await fetch(`${PORT9000}/api/intelligence-summary`);
+    const data = await res.json();
+    // Show last bridge vote + regime
+    const lines = [];
+    if (data.bridge_vote) {
+      const bv = data.bridge_vote;
+      lines.push(`<div class="bench-card"><div class="bench-card-label">Last Bridge Vote</div>
+        <div class="bench-row"><span class="bench-name">Consensus</span><span style="color:var(--accent-cyan);font-weight:700;">${bv.consensus || '—'}</span></div>
+        <div class="bench-row"><span class="bench-name">Conviction</span><span>${bv.conviction || '—'}</span></div>
+        <div class="bench-row"><span class="bench-name">Confidence</span><span>${bv.confidence ? (bv.confidence*100).toFixed(0)+'%' : '—'}</span></div>
+      </div>`);
+    }
+    if (data.red_alert) {
+      const ra = data.red_alert;
+      const cls = ra.severity === 'critical' ? 'neg' : ra.severity === 'warning' ? 'neu' : 'pos';
+      lines.push(`<div class="bench-card"><div class="bench-card-label">Red Alert State</div>
+        <div class="bench-row"><span class="bench-name">Type</span><span class="${cls}">${ra.alert_type || '—'}</span></div>
+        <div class="bench-row"><span class="bench-name">Severity</span><span class="${cls}">${ra.severity || '—'}</span></div>
+        <div class="bench-row"><span class="bench-name">Message</span><span style="font-size:0.65rem;color:var(--text-secondary);">${(ra.message || '').slice(0,60)}</span></div>
+      </div>`);
+    }
+    if (data.active_signals > 0) {
+      lines.push(`<div class="bench-card"><div class="bench-card-label">Active Signals</div>
+        <div class="scorecard-val pos">${data.active_signals}</div>
+        <div class="scorecard-sub">in feed (last 8h)</div>
+      </div>`);
+    }
+    document.getElementById('trust-wrap').innerHTML = lines.length
+      ? `<div class="bench-grid">${lines.join('')}</div>`
+      : '<div class="error-msg">Signal Center (port 9000) offline or no data yet.</div>';
+  } catch (e) {
+    document.getElementById('trust-wrap').innerHTML = `<div class="error-msg">Signal Center offline: ${e.message}</div>`;
+  }
+}
+
+// ── Bootstrap Metrics table ────────────────────────────────────────────────
+async function loadBootstrap() {
+  try {
+    const res = await fetch(`${PROXY}/api/proxy/bootstrap`);
+    const data = await res.json();
+    const metrics = data.metrics || [];
+    if (!metrics.length) {
+      document.getElementById('bootstrap-wrap').innerHTML = '<div class="error-msg">No bootstrap metrics yet.</div>';
+      return;
+    }
+    const rows = metrics.slice(0, 50).map(m => `<tr>
+      <td style="color:var(--accent-cyan);">${m.player_id || '—'}</td>
+      <td>${m.metric_type || '—'}</td>
+      <td style="color:var(--text-secondary);">${m.symbol || m.key || '—'}</td>
+      <td class="${parseFloat(m.value||0) >= 50 ? 'pos' : 'neg'}">${parseFloat(m.value||0).toFixed(1)}</td>
+      <td style="color:var(--text-muted);">${m.sample_size || 0}</td>
+      <td style="color:var(--text-muted);font-size:0.65rem;">${(m.calculated_at||'').slice(0,16)}</td>
+    </tr>`).join('');
+    document.getElementById('bootstrap-wrap').innerHTML = `
+      <table class="agent-table">
+        <thead><tr>
+          <th>Agent</th><th>Metric</th><th>Symbol/Key</th><th>Value</th><th>Samples</th><th>Calculated</th>
+        </tr></thead>
+        <tbody>${rows}</tbody>
+      </table>`;
+  } catch (e) {
+    document.getElementById('bootstrap-wrap').innerHTML = `<div class="error-msg">Bootstrap data error: ${e.message}</div>`;
+  }
+}
+
+// ── Load All ────────────────────────────────────────────────────────────────
+async function loadAll() {
+  document.getElementById('last-updated').textContent = 'Loading...';
+  await Promise.allSettled([loadBenchmark(), loadAgents(), loadTrustScores(), loadBootstrap()]);
+  document.getElementById('last-updated').textContent = 'Updated: ' + new Date().toLocaleTimeString();
+}
+
+loadAll();
+// Auto-refresh every 5 minutes
+setInterval(loadAll, 300000);
+</script>
+</body>
+</html>

@@ -35,3 +35,32 @@ logs/
 # Misc
 *.log
 nohup.out
+lib/TradingAgents/
+# Large database files
+backups/*.db
+backups/*.db-shm
+backups/*.db-wal
+signal-center/signals.db
+signal-center/*.db
+
+# Virtual environments
+.venv-crew/
+scrapling-venv/
+venv/
+
+# Large databases
+signal-center/signals.db
+data/trader.db
+backups/*.db
+backups/*.db-shm
+backups/*.db-wal
+
+# Logs
+logs/*.log
+
+# Temp files
+*.db-shm
+*.db-wal
+cookies.txt
+trading.db
+autonomous_trader.db

@@ -247,10 +247,28 @@ def _source_policy(scoreboard: AgentScoreboard, bucket: str) -> dict:
         multiplier = 0.5
     elif win_rate is not None and win_rate > 0.60:
         status = "favored"
-        multiplier = 1.0
+        multiplier = 1.2  # Slightly increase weight for high performers
     else:
         status = "neutral"
         multiplier = 1.0
+
+    # Apply short-term performance multiplier based on recent outcomes
+    short_term_multiplier = 1.0
+    if executed >= DEFAULT_MIN_OUTCOME_SAMPLE:
+        # Calculate recent performance (last 5 trades as a simple heuristic)
+        recent_wins = wins - int(stats.get("recent_wins", 0))
+        recent_losses = losses - int(stats.get("recent_losses", 0))
+        recent_total = recent_wins + recent_losses
+        if recent_total >= 5:
+            recent_win_rate = (recent_wins / recent_total) if recent_total else 0.0
+            if recent_win_rate > 0.7:
+                short_term_multiplier = 1.5  # Boost for excellent recent performance
+                status = "hot_streak"
+            elif recent_win_rate < 0.3:
+                short_term_multiplier = 0.7  # Penalty for poor recent performance
+                status = "cooling_off"
+    
+    final_multiplier = multiplier * short_term_multiplier
 
     return {
         "bucket": bucket,
@@ -259,7 +277,9 @@ def _source_policy(scoreboard: AgentScoreboard, bucket: str) -> dict:
         "losses": losses,
         "win_rate": win_rate,
         "status": status,
-        "multiplier": multiplier,
+        "multiplier": final_multiplier,
+        "base_multiplier": multiplier,
+        "short_term_multiplier": short_term_multiplier,
     }
 
 

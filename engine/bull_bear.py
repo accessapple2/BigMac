@@ -46,7 +46,7 @@ def _call_ai(prompt: str, model: str = "codex") -> str:
         elif model == "gemini":
             r = requests.post(
                 f"{config.OLLAMA_URL}/api/generate",
-                json={"model": "gemma3:4b", "prompt": prompt, "stream": False},
+                json={"model": "qwen3.5:9b", "prompt": prompt, "stream": False},
                 timeout=30,
             )
             return r.json().get("response", "")

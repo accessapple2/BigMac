@@ -16,6 +16,7 @@ console = Console()
 
 _cache = {"recommendation": None, "ts": 0}
 _lock = threading.Lock()
+_synthesis_lock = threading.Lock()  # Prevents concurrent synthesis (two callers = one waits, then skips)
 _TTL = 600  # 10 minutes
 
 RIKER_SYSTEM = """You are Commander William T. Riker, First Officer (XO) of USS TradeMinds.
@@ -54,7 +55,21 @@ Keep it under 200 words. The Captain needs clarity, not a thesis."""
 
 def generate_riker_synthesis() -> str | None:
     """Synthesize all crew input into Riker's recommendation."""
-    from config import OLLAMA_URL, OLLAMA_MODEL
+    # Prevent concurrent synthesis (e.g. startup thread + scheduler both firing)
+    if not _synthesis_lock.acquire(blocking=False):
+        console.log("[yellow]Commander Riker: synthesis already in progress, skipping")
+        return None
+
+    try:
+        return _do_riker_synthesis()
+    finally:
+        _synthesis_lock.release()
+
+
+def _do_riker_synthesis() -> str | None:
+    from config import OLLAMA_URL
+    # Use a small, fast model for Riker — gemma3:4b (3.3GB) responds in ~30-60s vs 180s for 9b models
+    OLLAMA_MODEL = "gemma3:4b"
 
     context_parts = []
 
@@ -179,8 +194,8 @@ def generate_riker_synthesis() -> str | None:
     try:
         resp = requests.post(
             f"{OLLAMA_URL}/api/generate",
-            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False},
-            timeout=120,
+            json={"model": OLLAMA_MODEL, "prompt": prompt, "stream": False, "num_predict": 400},
+            timeout=180,
         )
         resp.raise_for_status()
         recommendation = resp.json().get("response", "").strip()

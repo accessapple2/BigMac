@@ -49,6 +49,11 @@ export default function ModelControl() {
     refetch()
   }
 
+  const handleFallbackToggle = async () => {
+    await api.toggleFallbacks()
+    refetch()
+  }
+
   const handleToggle = async (playerId) => {
     await api.togglePausePlayer(playerId)
     refetch()
@@ -91,6 +96,18 @@ export default function ModelControl() {
             <div className="mc-pause-warning">All AI scanning is paused. Models will not analyze stocks.</div>
           )}
           <button
+            className={`mc-pause-btn ${data.fallbacks_enabled ? 'active' : 'paused'}`}
+            onClick={handleFallbackToggle}
+            title="When ON, paused paid models automatically route to a free local Ollama model"
+          >
+            {data.fallbacks_enabled ? '\u26A1 Fallbacks ON' : '\u26A1 Fallbacks OFF'}
+          </button>
+          {data.fallbacks_enabled && (
+            <div className="mc-pause-warning" style={{ color: '#eab308' }}>
+              Paused models will use free local Ollama fallbacks instead of stopping.
+            </div>
+          )}
+          <button
             className={`mc-scan-btn ${scanning ? 'scanning' : ''}`}
             onClick={handleForceScan}
             disabled={scanning}
@@ -115,7 +132,12 @@ export default function ModelControl() {
               {provider.charAt(0).toUpperCase() + provider.slice(1)}
             </h2>
             <span className="card-badge">
-              {models.filter(m => !m.is_paused).length}/{models.length} active
+              {models.filter(m => !m.is_paused || m.is_fallback).length}/{models.length} active
+              {models.some(m => m.is_fallback) && (
+                <span style={{ color: '#eab308', marginLeft: 4 }}>
+                  ({models.filter(m => m.is_fallback).length} fallback)
+                </span>
+              )}
             </span>
           </div>
           {!isCollapsed && <div className="mc-models">
@@ -131,8 +153,20 @@ export default function ModelControl() {
                       style={{ background: PROVIDER_COLORS[m.provider] || '#666' }}
                     />
                     {m.display_name}
+                    {m.is_fallback && (
+                      <span style={{
+                        marginLeft: 8, fontSize: 10, fontWeight: 700,
+                        background: '#78350f', color: '#fbbf24',
+                        padding: '1px 6px', borderRadius: 4, letterSpacing: 1,
+                      }}>FALLBACK</span>
+                    )}
                   </div>
-                  <div className="mc-model-id">{m.model_id}</div>
+                  <div className="mc-model-id">
+                    {m.is_fallback && m.fallback_model
+                      ? <span style={{ color: '#fbbf24' }}>{m.fallback_model} (free)</span>
+                      : m.model_id
+                    }
+                  </div>
                 </div>
 
                 <div className="mc-model-costs">
@@ -189,7 +223,7 @@ export default function ModelControl() {
                         <span className="mc-toggle-thumb" />
                       </span>
                       <span className="mc-toggle-label">
-                        {m.is_paused ? 'Paused' : 'Active'}
+                        {m.is_fallback ? 'Fallback' : m.is_paused ? 'Paused' : 'Active'}
                       </span>
                     </button>
                   )}

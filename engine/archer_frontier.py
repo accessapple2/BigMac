@@ -188,8 +188,26 @@ ARCHER'S TAKE:
         try:
             from engine.war_room import save_hot_take
             preview = report[:400] + ("..." if len(report) > 400 else "")
-            save_hot_take("steve-webull", "FRONTIER",
-                          f"🚀 ADMIRAL ARCHER: {preview}")
+            save_hot_take("archer", "FRONTIER", f"🚀 ADMIRAL ARCHER: {preview}")
+        except Exception:
+            pass
+
+        # Post top picks to Signal Center (trade_signals table)
+        try:
+            from engine.signal_poster import post_signal_to_9000
+            for p in picks[:5]:
+                post_signal_to_9000({
+                    "symbol": p["ticker"],
+                    "action": "BUY",
+                    "type": "FRONTIER",
+                    "timeframe": "SWING",
+                    "price": p["price"],
+                    "confidence": min(p["score"], 100),
+                    "agent": "archer",
+                    "model": "frontier-scanner",
+                    "reasoning": f"Frontier scan: {', '.join(p['signals'])}. "
+                                 f"Change {p['change_pct']:+.1f}%, vol {p['volume_ratio']}x avg.",
+                })
         except Exception:
             pass
 

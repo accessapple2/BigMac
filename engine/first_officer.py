@@ -68,7 +68,7 @@ def _get_mlx_client():
 
 
 # Ollama fallback models for Data briefing (tried in order)
-_OLLAMA_FALLBACK_MODELS = ["gemma3:4b", "qwen3:4b", "qwen3:8b"]
+_OLLAMA_FALLBACK_MODELS = ["qwen3:14b", "qwen3.5:9b", "qwen3:4b"]
 
 
 def _call_ollama(system: str, user: str, max_tokens: int = 2000) -> str | None:
@@ -218,7 +218,7 @@ def get_briefing(force: bool = False) -> dict:
 
     Model priority:
       1. MLX Qwen3 8B (local, fast, zero cost)
-      2. Ollama gemma3:4b / qwen3:4b / qwen3:8b (fallback)
+      2. Ollama qwen3:14b / qwen3:8b / qwen3:4b (fallback)
       3. Stale cache (if available, never older than 24h)
       4. Graceful unavailable response (never surfaces raw error to UI)
     """

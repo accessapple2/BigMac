@@ -51,10 +51,10 @@ MODEL_MAP = {
 CREW_NAMES = {
     "grok-4": "Spock (Grok 4)",
     "gemini-2.5-flash": "Worf (Gemini Flash)",
-    "gpt-4o": "GPT-4o",
-    "gpt-o3": "GPT-o3",
-    "claude-sonnet": "Codex Prime",
-    "claude-haiku": "Codex Scout",
+    "gpt-4o": "Captain Janeway",
+    "gpt-o3": "Lt. Tuvok",
+    "claude-sonnet": "Captain Sisko",
+    "claude-haiku": "Lt. Malcolm Reed",
     "ollama-local": "Gemma3 4B",
     "energy-arnold": "Arnold Energy",
     "options-sosnoff": "Sosnoff Options",
@@ -84,7 +84,7 @@ def map_model_name(external_name: str) -> str | None:
     return None
 
 
-def import_trades(trades: list, source: str = "rallies.ai") -> dict:
+def import_trades(trades: list, source: str = "arena-import") -> dict:
     """Import a list of trade dicts into reference_trades. Returns summary."""
     conn = _conn()
     imported = 0
@@ -130,7 +130,7 @@ def import_trades(trades: list, source: str = "rallies.ai") -> dict:
     return {"imported": imported, "skipped": skipped, "source": source}
 
 
-def import_csv(csv_text: str, source: str = "rallies.ai") -> dict:
+def import_csv(csv_text: str, source: str = "arena-import") -> dict:
     """Import trades from CSV text. Auto-detects column mapping."""
     reader = csv.DictReader(io.StringIO(csv_text))
     trades = []

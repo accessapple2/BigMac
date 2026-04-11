@@ -2,9 +2,8 @@
 # ============================================================================
 # USS TradeMinds — Launch Script
 #
-# Starts two servers:
-#   - Arena Benchmark (main.py)     → port 8080
-#   - Unified Trader (main_crew.py) → port 8000
+# Single server: main.py → port 8080 (all trading, scanning, dashboard)
+# Port 8000 (main_crew.py) decommissioned 2026-04-07.
 #
 # Usage: ./launch-trademinds.sh [--crew | --scout | --servers | default: full dev mode]
 # ============================================================================
@@ -16,30 +15,7 @@ set -euo pipefail
 # ---------------------------------------------------------------------------
 export TRADEMINDS_DIR="${TRADEMINDS_DIR:-$HOME/autonomous-trader}"
 export TRADEMINDS_DB="${TRADEMINDS_DB:-$TRADEMINDS_DIR/data/trader.db}"
-pick_arena_python() {
-    local candidates=(
-        "$TRADEMINDS_DIR/venv/bin/python"
-        "$TRADEMINDS_DIR/.venv/bin/python"
-    )
-    local py
-    for py in "${candidates[@]}"; do
-        if [ -x "$py" ] && "$py" -c "import fastapi, uvicorn" >/dev/null 2>&1; then
-            printf '%s\n' "$py"
-            return 0
-        fi
-    done
-    if [ -x "$TRADEMINDS_DIR/venv/bin/python" ]; then
-        printf '%s\n' "$TRADEMINDS_DIR/venv/bin/python"
-    else
-        printf '%s\n' "$TRADEMINDS_DIR/.venv/bin/python"
-    fi
-}
-VENV_ARENA="$(pick_arena_python)"
-if [ -x "$TRADEMINDS_DIR/.venv-crew/bin/python" ]; then
-    VENV_CREW="$TRADEMINDS_DIR/.venv-crew/bin/python"
-else
-    VENV_CREW="$VENV_ARENA"
-fi
+VENV_ARENA="$TRADEMINDS_DIR/venv/bin/python3"
 
 # Status symbols (colorblind-safe: symbols + text, not just colors)
 OK="[OK]"
@@ -49,14 +25,11 @@ INFO="[INFO]"
 
 # Track background PIDs for cleanup
 ARENA_PID=""
-CREW_PID=""
-MLX_PID=""
 
 cleanup() {
     echo ""
     echo "$INFO Shutting down..."
     [ -n "$ARENA_PID" ] && kill "$ARENA_PID" 2>/dev/null && echo "  Stopped Arena (PID $ARENA_PID)"
-    [ -n "$CREW_PID" ] && kill "$CREW_PID" 2>/dev/null && echo "  Stopped Unified Trader (PID $CREW_PID)"
     exit 0
 }
 trap cleanup SIGINT SIGTERM
@@ -134,24 +107,19 @@ else
     echo "  Run: cd $TRADEMINDS_DIR && python migrations/001_crew_and_portfolios.py"
 fi
 
-# 6. Python environments
+# 6. Python environment
 echo ""
-if [ -x "$VENV_CREW" ]; then
-    CREWAI_VER=$("$VENV_CREW" -c "import crewai; print(crewai.__version__)" 2>/dev/null || echo "not found")
-    echo "$OK .venv-crew: Python 3.12, crewai $CREWAI_VER"
-else
-    echo "$WARN .venv-crew: not found at $VENV_CREW"
-fi
-
 if [ -x "$VENV_ARENA" ]; then
     ARENA_PY_VER=$("$VENV_ARENA" --version 2>/dev/null)
     if "$VENV_ARENA" -c "import fastapi, uvicorn" >/dev/null 2>&1; then
-        echo "$OK venv (arena): $ARENA_PY_VER [$VENV_ARENA]"
+        echo "$OK venv: $ARENA_PY_VER [$VENV_ARENA]"
     else
-        echo "$WARN venv (arena): $ARENA_PY_VER [$VENV_ARENA] missing FastAPI/Uvicorn"
+        echo "$WARN venv: $ARENA_PY_VER [$VENV_ARENA] missing FastAPI/Uvicorn"
     fi
 else
-    echo "$WARN venv (arena): not found at $VENV_ARENA"
+    echo "$FAIL venv: not found at $VENV_ARENA"
+    echo "  Expected: $TRADEMINDS_DIR/venv/bin/python3"
+    exit 1
 fi
 
 # ---------------------------------------------------------------------------
@@ -166,17 +134,17 @@ start_servers() {
 
     cd "$TRADEMINDS_DIR"
 
-    # Arena Benchmark — port 8080
-    echo "$INFO Starting Arena Benchmark on :8080..."
+    # USS TradeMinds — port 8080 (single server)
+    echo "$INFO Starting USS TradeMinds on :8080..."
     "$VENV_ARENA" main.py > "$TRADEMINDS_DIR/logs/arena.log" 2>&1 &
     ARENA_PID=$!
-    echo "$INFO Arena PID: $ARENA_PID (log: logs/arena.log)"
+    echo "$INFO TradeMinds PID: $ARENA_PID (log: logs/arena.log)"
 
     local arena_ready=0
     local attempt
     for attempt in {1..20}; do
         if ! kill -0 "$ARENA_PID" 2>/dev/null; then
-            echo "$FAIL Arena exited before binding to :8080"
+            echo "$FAIL TradeMinds exited before binding to :8080"
             tail -n 40 "$TRADEMINDS_DIR/logs/arena.log" || true
             exit 1
         fi
@@ -187,23 +155,16 @@ start_servers() {
         sleep 1
     done
     if [ "$arena_ready" -eq 1 ]; then
-        echo "$OK Arena listening on 127.0.0.1:8080"
+        echo "$OK TradeMinds listening on 127.0.0.1:8080"
     else
-        echo "$FAIL Arena did not bind to 127.0.0.1:8080 within 20s"
+        echo "$FAIL TradeMinds did not bind to 127.0.0.1:8080 within 20s"
         tail -n 60 "$TRADEMINDS_DIR/logs/arena.log" || true
         exit 1
     fi
 
-    # Unified Trader — port 8000
-    echo "$INFO Starting Unified Trader on :8000..."
-    "$VENV_CREW" main_crew.py > "$TRADEMINDS_DIR/logs/crew.log" 2>&1 &
-    CREW_PID=$!
-    echo "$OK Unified Trader PID: $CREW_PID (log: logs/crew.log)"
-
     echo ""
-    echo "  Arena Benchmark:  http://localhost:8080"
-    echo "  Unified Trader:   http://localhost:8000"
-    echo "  Trader API Docs:  http://localhost:8000/docs"
+    echo "  USS TradeMinds:   http://localhost:8080"
+    echo "  API Docs:         http://localhost:8080/docs"
     echo ""
 }
 
@@ -231,7 +192,7 @@ case "$MODE" in
         echo "$INFO Mode: CrewAI Strategy Pipeline"
         start_servers
         exec claude --enable-auto-mode \
-            -p "You are aboard the USS TradeMinds. Both servers are running: Arena on :8080, Unified Trader on :8000. The CrewAI strategy-writing crew is ready. Available commands: run_crew() for full pipeline, CrewPipeline().run_scout_only() for quick scan, CrewPipeline().run_sunday_review() for Sunday special. API endpoints at /api/crew/* and /api/portfolios/*. CRITICAL: Never auto-trade Webull (is_human=1). Default unproven strategies to Alpaca Paper."
+            -p "You are aboard the USS TradeMinds. Server running on :8080. The CrewAI strategy-writing crew is ready. Available commands: run_crew() for full pipeline, CrewPipeline().run_scout_only() for quick scan, CrewPipeline().run_sunday_review() for Sunday special. API endpoints at /api/crew/* and /api/portfolios/*. CRITICAL: Never auto-trade Webull (is_human=1). Default unproven strategies to Alpaca Paper."
         ;;
     --scout)
         echo "$INFO Mode: Scout Quick Scan"

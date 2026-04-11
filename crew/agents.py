@@ -22,11 +22,11 @@ from uoa.crew_tools import uoa_alerts_tool, uoa_flow_tool, uoa_put_call_scan_too
 DB_PATH = os.environ.get("TRADEMINDS_DB", os.path.expanduser("~/autonomous-trader/data/trader.db"))
 
 LLM_CONFIG = {
-    "scout": "ollama/gemma3:4b",
-    "architect": "ollama/gemma3:4b",
-    "backtester": "ollama/gemma3:4b",
-    "critic": "ollama/gemma3:4b",
-    "commander": "ollama/gemma3:4b",          # fallback from gemini-2.5-flash (spending cap hit)
+    "scout": "ollama/qwen3:14b",
+    "architect": "ollama/qwen3:14b",
+    "backtester": "ollama/qwen3:14b",
+    "critic": "ollama/qwen3:14b",
+    "commander": "ollama/qwen3:14b",          # fallback from gemini-2.5-flash (spending cap hit)
 }
 
 

@@ -29,6 +29,19 @@ METAL_SYMBOLS = {
 # Reverse mapping: DB symbols (futures tickers) → spot price keys
 SYMBOL_TO_SPOT = {v: k for k, v in METAL_SYMBOLS.items()}
 
+# Map positions table symbols → metals_ledger metal name (lowercase)
+POSITION_SYM_TO_LEDGER = {
+    "GC=F": "gold", "GOLD": "gold",
+    "SI=F": "silver", "SILVER": "silver",
+    "PL=F": "platinum", "PA=F": "palladium",
+}
+
+# Map metals_ledger metal name → spot price key
+LEDGER_TO_SPOT = {
+    "gold": "GOLD", "silver": "SILVER",
+    "platinum": "PLATINUM", "palladium": "PALLADIUM",
+}
+
 
 def _conn():
     c = sqlite3.connect(DB, check_same_thread=False, timeout=30)
@@ -68,24 +81,54 @@ def get_spot_prices(fresh: bool = False) -> dict:
 
 
 def get_holdings() -> list:
-    """Get current metal holdings."""
+    """Get current metal holdings from metals_ledger (authoritative source)."""
     conn = _conn()
     rows = conn.execute(
-        "SELECT symbol, qty, avg_price, asset_type, opened_at FROM positions "
-        "WHERE player_id=? ORDER BY symbol", (PLAYER_ID,)
+        "SELECT metal, SUM(qty_oz) as qty, SUM(total_cost) as total_cost "
+        "FROM metals_ledger GROUP BY metal"
     ).fetchall()
     conn.close()
-    return [dict(r) for r in rows]
+    result = []
+    for r in rows:
+        metal = r["metal"].lower()
+        spot_key = LEDGER_TO_SPOT.get(metal, metal.upper())
+        symbol = METAL_SYMBOLS.get(spot_key)
+        if not symbol:
+            continue
+        qty = r["qty"] or 0.0
+        tc = r["total_cost"] or 0.0
+        avg_price = tc / qty if qty > 0 else 0.0
+        result.append({
+            "symbol": symbol,
+            "qty": round(qty, 4),
+            "avg_price": round(avg_price, 2),
+            "asset_type": "metal",
+            "opened_at": None,
+        })
+    return sorted(result, key=lambda x: x["symbol"])
+
+
+def _get_ledger_costs() -> dict:
+    """Get aggregated cost data from metals_ledger. Returns {metal: {total_cost, qty_oz}}."""
+    try:
+        conn = _conn()
+        rows = conn.execute(
+            "SELECT metal, SUM(total_cost) as total_cost, SUM(qty_oz) as qty_oz "
+            "FROM metals_ledger GROUP BY metal"
+        ).fetchall()
+        conn.close()
+        return {r["metal"]: {"total_cost": r["total_cost"], "qty_oz": r["qty_oz"]} for r in rows}
+    except Exception:
+        return {}
 
 
 def get_portfolio() -> dict:
     """Get full portfolio with live valuations."""
     holdings = get_holdings()
     prices = get_spot_prices()
-    conn = _conn()
-    player = conn.execute("SELECT cash FROM ai_players WHERE id=?", (PLAYER_ID,)).fetchone()
-    conn.close()
-    cash = player["cash"] if player else 0
+
+    # Prefer metals_ledger for real cost basis when available
+    ledger_costs = _get_ledger_costs()
 
     positions = []
     metals_value = 0
@@ -95,7 +138,16 @@ def get_portfolio() -> dict:
         sym = h["symbol"]
         qty = h["qty"]
         avg = h["avg_price"]
-        cost = qty * avg
+
+        # Use ledger cost if available, otherwise fall back to positions.avg_price
+        ledger_metal = POSITION_SYM_TO_LEDGER.get(sym)
+        if ledger_metal and ledger_metal in ledger_costs:
+            lc = ledger_costs[ledger_metal]
+            cost = lc["total_cost"]
+            avg = cost / lc["qty_oz"] if lc["qty_oz"] > 0 else avg
+        else:
+            cost = qty * avg
+
         total_cost += cost
 
         # Map position symbol (GC=F/SI=F) to spot price key (GOLD/SILVER)
@@ -136,6 +188,96 @@ def get_portfolio() -> dict:
         "return_pct": return_pct,
         "spot_prices": prices,
     }
+
+
+def get_dilithium_portfolio() -> dict:
+    """Get Dilithium Reserve portfolio from metals_ledger with live spot prices.
+
+    Returns structured data per metal (gold/silver) with real cost basis,
+    live spot prices, P&L, and the full purchase history.
+    """
+    conn = _conn()
+    agg_rows = conn.execute(
+        "SELECT metal, SUM(qty_oz) as qty_oz, SUM(total_cost) as total_cost "
+        "FROM metals_ledger GROUP BY metal"
+    ).fetchall()
+    purchase_rows = conn.execute(
+        "SELECT id, purchase_date, metal, qty_oz, total_cost, cost_per_oz, source, notes "
+        "FROM metals_ledger ORDER BY purchase_date ASC"
+    ).fetchall()
+    conn.close()
+
+    prices = get_spot_prices()
+    result: dict = {}
+    total_invested = 0.0
+    total_value = 0.0
+
+    for r in agg_rows:
+        metal = r["metal"].lower()
+        qty = r["qty_oz"]
+        tc = r["total_cost"]
+        avg_cost = tc / qty if qty > 0 else 0.0
+
+        spot_key = LEDGER_TO_SPOT.get(metal, metal.upper())
+        spot_data = prices.get(spot_key, {})
+        spot_price = spot_data.get("price", 0.0)
+        current_value = qty * spot_price
+        pnl = current_value - tc
+        pnl_pct = (pnl / tc * 100) if tc > 0 else 0.0
+
+        result[metal] = {
+            "qty_oz": round(qty, 4),
+            "total_cost": round(tc, 2),
+            "avg_cost_per_oz": round(avg_cost, 2),
+            "spot_price": round(spot_price, 2),
+            "current_value": round(current_value, 2),
+            "pnl": round(pnl, 2),
+            "pnl_pct": round(pnl_pct, 2),
+        }
+        total_invested += tc
+        total_value += current_value
+
+    total_pnl = total_value - total_invested
+    total_pnl_pct = (total_pnl / total_invested * 100) if total_invested > 0 else 0.0
+
+    return {
+        **result,
+        "total_invested": round(total_invested, 2),
+        "total_value": round(total_value, 2),
+        "total_pnl": round(total_pnl, 2),
+        "total_pnl_pct": round(total_pnl_pct, 2),
+        "spot_prices": prices,
+        "purchases": [dict(p) for p in purchase_rows],
+    }
+
+
+def add_ledger_purchase(data: dict) -> dict:
+    """Add a new physical metal purchase to metals_ledger and return updated portfolio."""
+    metal = (data.get("metal") or "").lower()
+    if metal not in ("gold", "silver", "platinum", "palladium"):
+        return {"error": f"Invalid metal '{metal}'. Use: gold, silver, platinum, palladium"}
+    try:
+        qty_oz = float(data.get("qty_oz", 0))
+        total_cost = float(data.get("total_cost", 0))
+    except (ValueError, TypeError):
+        return {"error": "qty_oz and total_cost must be numbers"}
+    if qty_oz <= 0 or total_cost <= 0:
+        return {"error": "qty_oz and total_cost must be positive"}
+    cost_per_oz = round(total_cost / qty_oz, 2)
+    purchase_date = data.get("purchase_date") or datetime.now().strftime("%Y-%m-%d")
+    source = data.get("source") or ""
+    notes = data.get("notes")
+
+    conn = _conn()
+    conn.execute(
+        "INSERT INTO metals_ledger (purchase_date, metal, qty_oz, total_cost, cost_per_oz, source, notes) "
+        "VALUES (?, ?, ?, ?, ?, ?, ?)",
+        (purchase_date, metal, round(qty_oz, 4), round(total_cost, 2), cost_per_oz, source, notes)
+    )
+    conn.commit()
+    conn.close()
+    console.log(f"[bold yellow]Dilithium Ledger: Added {qty_oz} oz {metal} @ ${cost_per_oz:.2f}/oz from {source}")
+    return get_dilithium_portfolio()
 
 
 def get_stacking_signal() -> dict:

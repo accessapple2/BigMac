@@ -187,7 +187,7 @@ def ensure_player():
     if not row:
         conn.execute(
             "INSERT INTO ai_players (id, display_name, provider, model_id, cash, season) VALUES (?,?,?,?,?,?)",
-            (DAYBLADE_PLAYER, "DayBlade Options", "dayblade", "options-s2", DAYBLADE_CASH, _current_season())
+            (DAYBLADE_PLAYER, "T'Pol", "dayblade", "options-s2", DAYBLADE_CASH, _current_season())
         )
         conn.commit()
     conn.close()
@@ -416,6 +416,21 @@ def buy_option(symbol: str, price: float, option_type: str,
     conn.close()
     dte_label = f"{dte_days}DTE" if dte_days > 0 else "0DTE"
     console.log(f"[bold cyan]DayBlade: BUY {option_type.upper()} {qty} {symbol} @ ${premium:.2f} strike=${atm_strike:.0f} ({dte_label}, {tranche})")
+
+    try:
+        from engine.ntfy import notify_tpol_buy
+        notify_tpol_buy(symbol, price, qty, option_type, atm_strike, dte_days, premium, reasoning)
+    except Exception:
+        pass
+
+    # Forward to Alpaca paper account
+    try:
+        from engine.alpaca_options import execute_options_signal
+        action = f"BUY_{'CALL' if option_type == 'call' else 'PUT'}"
+        execute_options_signal(DAYBLADE_PLAYER, action, symbol, price, target_dte=dte_days)
+    except Exception as _ae:
+        console.log(f"[yellow]DayBlade Alpaca forward error: {_ae}")
+
     return {"action": f"BUY_{option_type.upper()}", "symbol": symbol, "qty": qty, "price": premium, "dte": dte_days}
 
 
@@ -474,6 +489,20 @@ def sell_position(symbol: str, price: float, option_type: str,
         _post_war_room(symbol, pnl, price)
 
     console.log(f"[bold yellow]DayBlade: SELL {option_type.upper()} {qty} {symbol} @ ${price:.2f} PnL: ${pnl:.2f}")
+
+    try:
+        from engine.ntfy import notify_tpol_sell
+        notify_tpol_sell(symbol, option_type, price, pnl, reasoning)
+    except Exception:
+        pass
+
+    # Forward close to Alpaca paper account
+    try:
+        from engine.alpaca_options import close_all_options
+        close_all_options(DAYBLADE_PLAYER)
+    except Exception as _ae:
+        console.log(f"[yellow]DayBlade Alpaca close error: {_ae}")
+
     return {"action": "SELL", "symbol": symbol, "qty": qty, "pnl": pnl}
 
 
@@ -702,6 +731,14 @@ def build_dayblade_prompt(symbol: str, price: float, change_pct: float,
     except Exception:
         pass
 
+    # Battle Station — morning levels + GEX context
+    battle_block = ""
+    try:
+        from engine.battle_station import get_morning_levels_for_prompt
+        battle_block = get_morning_levels_for_prompt(symbol)
+    except Exception:
+        pass
+
     # Held options for this symbol
     held_opts = {p.get("option_type") for p in positions if p["symbol"] == symbol}
     hold_note = ""
@@ -731,6 +768,14 @@ SEASON 2 RULES:
 6. Gamma awareness: Negative gamma = reduce size 50%. Positive = size up 25%.
 7. Momentum chaser: If holding position gains +50% in 30 min, DOUBLE DOWN.
 8. Confidence >= 0.70 to trade. A+ setups only.
+9. STRATEGY SELECTION:
+   - BUY_CALL: Bullish directional play, high conviction, clear breakout.
+   - BUY_PUT: Bearish directional play, high conviction, clear breakdown.
+   - BULL_CALL_SPREAD: Bullish but IV is elevated — buy ATM call, sell OTM call. Defined risk.
+   - BEAR_PUT_SPREAD: Bearish but IV is elevated — buy ATM put, sell OTM put. Defined risk.
+   - IRON_CONDOR: Range-bound market — sell OTM strangle, buy wings. Profit from theta decay.
+   - HOLD: No clear setup. Do NOT trade.
+   Use spreads when IV rank > 50% (reduce premium paid). Use condors on low-VIX consolidation days.
 {hold_note}
 
 Current Positions: {pos_str}
@@ -752,8 +797,19 @@ Breaking News:
 {chain_block}
 {breakout_block}
 
+{battle_block}
+
+TACTICAL RULES (Battle Station):
+- NEVER buy calls above the Call Wall or puts below the Put Wall
+- PREFER entries near the Opening Range (OR) boundaries on pullbacks
+- In POSITIVE GAMMA regime: expect range-bound — sell premium or play reversals
+- In NEGATIVE GAMMA regime: expect trending moves — buy directional momentum
+- If Battle Station signals CLOSE_NOW on your position, DO NOT override — exit immediately
+- Max loss per 0DTE trade: 50% of premium paid. No exceptions.
+- Take profits at 100% gain. Let runners ride only if GEX regime supports direction.
+
 Respond with EXACTLY:
-Decision: BUY_CALL or BUY_PUT or HOLD
+Decision: BUY_CALL or BUY_PUT or BULL_CALL_SPREAD or BEAR_PUT_SPREAD or IRON_CONDOR or HOLD
 DTE: 0 or 1 or 2 or 3 or 5 or 7
 Confidence: [0.0 to 1.0]
 Reasoning: [1-2 sentences]"""
@@ -769,7 +825,16 @@ def parse_dayblade_decision(text: str, symbol: str) -> TradeDecision:
         ls = line.strip().lower()
         if ls.startswith("decision:"):
             val = ls.replace("decision:", "").strip()
-            if "buy_put" in val:
+            if "iron_condor" in val:
+                action = "IRON_CONDOR"
+                option_type = "call"  # condor uses both, call is placeholder
+            elif "bear_put_spread" in val:
+                action = "BEAR_PUT_SPREAD"
+                option_type = "put"
+            elif "bull_call_spread" in val:
+                action = "BULL_CALL_SPREAD"
+                option_type = "call"
+            elif "buy_put" in val:
                 action = "BUY_PUT"
                 option_type = "put"
             elif "buy_call" in val:
@@ -1016,6 +1081,19 @@ class DayBladeScanner:
                 if decision.action == "HOLD":
                     continue
 
+                # Multi-leg strategies: send directly to Alpaca, skip DB buy_option flow
+                if decision.action in ("BULL_CALL_SPREAD", "BEAR_PUT_SPREAD", "IRON_CONDOR"):
+                    dte_days = getattr(decision, "_dte", 0) or 7
+                    try:
+                        from engine.alpaca_options import execute_options_signal
+                        res = execute_options_signal(
+                            DAYBLADE_PLAYER, decision.action, sym, data["price"], target_dte=dte_days
+                        )
+                        console.log(f"[bold cyan]DayBlade: {decision.action} {sym} → {res}")
+                    except Exception as _spe:
+                        console.log(f"[yellow]DayBlade {decision.action} error: {_spe}")
+                    continue
+
                 opt_type = "call" if decision.action == "BUY_CALL" else "put"
                 if opt_type in held_types:
                     console.log(f"[yellow]DayBlade: Already holding {sym} {opt_type.upper()}, skip")
@@ -1035,7 +1113,7 @@ class DayBladeScanner:
                 if dte_days < 3:
                     dte_days, _ = select_dte(sym, "scalp", sym_ind, sym_news)
 
-                # First tranche entry (40%)
+                # First tranche entry (40%) — buy_option also forwards to Alpaca internally
                 result = buy_option(
                     sym, data["price"], opt_type,
                     reasoning=decision.reasoning, confidence=decision.confidence,

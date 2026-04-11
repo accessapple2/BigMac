@@ -1,7 +1,7 @@
 """Gemini Free Tier Rate Limiter.
 
 Hard cap: 400 requests/day (free tier allows 500, keeping 100-request buffer).
-Auto-fallback to Ollama gemma3:4b when limit is hit.
+Auto-fallback to Ollama qwen3:14b when limit is hit.
 Counter persists to data/gemini_daily_count.json — survives restarts.
 Resets at midnight.
 
@@ -23,7 +23,7 @@ GEMINI_MODEL = "gemini-3.1-flash-lite"
 DAILY_LIMIT = 400
 _COUNT_FILE = Path("data/gemini_daily_count.json")
 _OLLAMA_URL = "http://localhost:11434"
-_OLLAMA_MODEL = "gemma3:4b"
+_OLLAMA_MODEL = "qwen3:14b"
 
 _lock = threading.Lock()
 _state: dict = {"date": "", "count": 0}
@@ -93,7 +93,7 @@ def call_gemini(prompt: str, system: str = "", timeout: int = 90) -> str:
         if _state["count"] >= DAILY_LIMIT:
             console.log(
                 f"[bold yellow]⚠ Gemini free tier LIMIT REACHED "
-                f"({_state['count']}/{DAILY_LIMIT} today) — falling back to Ollama gemma3:4b"
+                f"({_state['count']}/{DAILY_LIMIT} today) — falling back to Ollama qwen3:14b"
             )
             return _ollama_fallback(prompt, system)
 
@@ -133,7 +133,7 @@ def call_gemini(prompt: str, system: str = "", timeout: int = 90) -> str:
 
 
 def _ollama_fallback(prompt: str, system: str = "") -> str:
-    """Call local Ollama gemma3:4b as fallback."""
+    """Call local Ollama qwen3:14b as fallback."""
     import requests
     payload = {"model": _OLLAMA_MODEL, "prompt": prompt, "stream": False}
     if system:

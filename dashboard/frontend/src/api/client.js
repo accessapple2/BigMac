@@ -56,6 +56,7 @@ export const api = {
   getModelControl: () => fetchJSON('/model-control'),
   togglePauseAll: () => fetch(`${BASE}/model-control/pause-all`, { method: 'POST' }).then(r => r.json()),
   togglePausePlayer: (id) => fetch(`${BASE}/model-control/pause/${id}`, { method: 'POST' }).then(r => r.json()),
+  toggleFallbacks: () => fetch(`${BASE}/model-control/fallbacks`, { method: 'POST' }).then(r => r.json()),
   forceScan: () => fetch(`${BASE}/model-control/force-scan`, { method: 'POST' }).then(r => r.json()),
 
   // Backtest Lab

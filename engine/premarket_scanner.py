@@ -166,30 +166,21 @@ def _call_model(model: str, prompt: str) -> str:
         elif model == "gemini":
             resp = requests.post(
                 f"{config.OLLAMA_URL}/api/generate",
-                json={"model": "gemma3:4b", "prompt": prompt, "stream": False},
+                json={"model": "qwen3:14b", "prompt": prompt, "stream": False},
                 timeout=90,
             )
             resp.raise_for_status()
             return resp.json().get("response", "")
 
         elif model == "grok":
+            # Routed to local deepseek-r1:14b — eliminates xAI API cost
             resp = requests.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {config.GROK_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "grok-3",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 1000,
-                },
+                config.OLLAMA_URL + "/api/generate",
+                json={"model": "deepseek-r1:14b", "prompt": prompt, "stream": False},
                 timeout=90,
             )
             resp.raise_for_status()
-            data = resp.json()
-            choices = data.get("choices", [])
-            return choices[0].get("message", {}).get("content", "") if choices else ""
+            return resp.json().get("response", "")
 
         elif model == "ollama":
             resp = requests.post(
@@ -475,3 +466,276 @@ def get_sector_heatmap() -> list:
     # Persist atomically — never leaves a 0-byte file
     _save_sector_disk_cache(results)
     return results
+
+
+# ---------------------------------------------------------------------------
+# Finviz-based pre-market watchlist scanner
+# ---------------------------------------------------------------------------
+
+FIXED_WATCHLIST: list[str] = [
+    "SPY", "QQQ", "TQQQ", "NVDA", "TSLA", "AAPL",
+    "META", "AMZN", "MSFT", "AMD", "GOOGL",
+]
+
+DAILY_WATCHLIST_FILE = Path("data/daily_watchlist.json")
+_PREMARKET_DB = Path("data/trader.db")
+
+
+def _init_premarket_scan_table() -> None:
+    """Create premarket_scan table if it doesn't exist (idempotent)."""
+    import sqlite3
+    c = sqlite3.connect(str(_PREMARKET_DB), timeout=10)
+    try:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS premarket_scan (
+                id          INTEGER PRIMARY KEY AUTOINCREMENT,
+                scan_date   TEXT NOT NULL,
+                symbol      TEXT NOT NULL,
+                source      TEXT NOT NULL,
+                gap_pct     REAL,
+                rvol        REAL,
+                sector      TEXT,
+                price       REAL,
+                change_pct  REAL,
+                reason      TEXT,
+                scanned_at  TEXT DEFAULT CURRENT_TIMESTAMP
+            )
+        """)
+        c.commit()
+    finally:
+        c.close()
+
+
+def run_finviz_watchlist_scan() -> dict:
+    """Finviz pre-market watchlist scanner.
+
+    Scans Finviz for top movers with market cap >$2B, price >$5,
+    avg volume >500K, relative volume >1.5x, and change >1% or <-1%.
+
+    Combines up to 10 Finviz movers (VARIABLE) + up to 10 fixed watchlist
+    symbols, writes to data/daily_watchlist.json, and logs to premarket_scan
+    table in data/trader.db.
+
+    Returns the full payload dict.
+    """
+    try:
+        from finvizfinance.screener.overview import Overview
+    except ImportError:
+        console.log("[red]finvizfinance not installed — skipping Finviz scan")
+        return {"error": "finvizfinance not installed", "symbols": list(FIXED_WATCHLIST)}
+
+    import sqlite3
+    try:
+        import yfinance as yf
+    except ImportError:
+        yf = None
+
+    _init_premarket_scan_table()
+
+    scan_date = datetime.now().strftime("%Y-%m-%d")
+    variable_picks: list[dict] = []
+    seen: set[str] = set()
+
+    # ── Scan up movers then down movers ───────────────────────────────────
+    for direction, change_filter in [("up", "Up 1%"), ("down", "Down 1%")]:
+        if len(variable_picks) >= 10:
+            break
+        try:
+            foverview = Overview()
+            foverview.set_filter(filters_dict={
+                "Market Cap.":     "+Mid (over $2bln)",
+                "Average Volume":  "Over 500K",
+                "Price":           "Over $5",
+                "Change":          change_filter,
+                "Relative Volume": "Over 1.5",
+            })
+            df = foverview.screener_view()
+            if df is None or df.empty:
+                continue
+
+            for _, row in df.iterrows():
+                if len(variable_picks) >= 10:
+                    break
+                sym = str(row.get("Ticker", "")).strip().upper()
+                if not sym or sym in seen:
+                    continue
+                seen.add(sym)
+
+                try:
+                    change_raw = str(row.get("Change", "0")).replace("%", "").strip()
+                    price_raw  = str(row.get("Price", "0")).replace("$", "").replace(",", "").strip()
+                    gap_pct = float(change_raw) if change_raw else 0.0
+                    price   = float(price_raw) if price_raw else 0.0
+                except (ValueError, TypeError):
+                    gap_pct = price = 0.0
+
+                # Get actual rvol from yfinance (Finviz filter confirmed >1.5 but no numeric col)
+                rvol = 1.5
+                if yf is not None:
+                    try:
+                        fi = yf.Ticker(sym).fast_info
+                        avg_vol  = getattr(fi, "three_month_average_volume", None) or 1
+                        last_vol = getattr(fi, "last_volume", None) or 0
+                        if avg_vol and last_vol:
+                            rvol = round(last_vol / avg_vol, 2)
+                    except Exception:
+                        pass
+
+                variable_picks.append({
+                    "symbol":     sym,
+                    "source":     "finviz_variable",
+                    "gap_pct":    gap_pct,
+                    "rvol":       rvol,
+                    "sector":     str(row.get("Sector", "")).strip(),
+                    "price":      price,
+                    "change_pct": gap_pct,
+                    "reason":     f"Finviz {direction}: {gap_pct:+.1f}% on {rvol:.1f}x vol",
+                })
+
+        except Exception as e:
+            console.log(f"[yellow]Finviz {direction} scan error: {e}")
+
+    # Sort variable picks by absolute gap magnitude
+    variable_picks.sort(key=lambda x: abs(x["gap_pct"]), reverse=True)
+    variable_picks = variable_picks[:10]
+
+    # ── Build fixed picks (exclude any already in variable) ───────────────
+    variable_syms = {p["symbol"] for p in variable_picks}
+    slots_remaining = max(0, 20 - len(variable_picks))
+    fixed_picks: list[dict] = []
+
+    for sym in FIXED_WATCHLIST:
+        if len(fixed_picks) >= slots_remaining:
+            break
+        if sym in variable_syms:
+            continue
+        price = rvol = 0.0
+        if yf is not None:
+            try:
+                fi = yf.Ticker(sym).fast_info
+                price    = float(getattr(fi, "last_price", 0) or 0)
+                avg_vol  = getattr(fi, "three_month_average_volume", None) or 1
+                last_vol = getattr(fi, "last_volume", None) or 0
+                rvol     = round(last_vol / avg_vol, 2) if avg_vol else 1.0
+            except Exception:
+                pass
+
+        fixed_picks.append({
+            "symbol":     sym,
+            "source":     "fixed_watchlist",
+            "gap_pct":    0.0,
+            "rvol":       rvol,
+            "sector":     "",
+            "price":      price,
+            "change_pct": 0.0,
+            "reason":     "Fixed watchlist: core market leader",
+        })
+
+    combined = variable_picks + fixed_picks
+    combined_symbols = [p["symbol"] for p in combined]
+
+    # ── Write daily_watchlist.json ────────────────────────────────────────
+    payload = {
+        "scan_date":       scan_date,
+        "scanned_at":      datetime.now().isoformat(),
+        "variable_count":  len(variable_picks),
+        "fixed_count":     len(fixed_picks),
+        "symbols":         combined_symbols,
+        "picks":           combined,
+    }
+    try:
+        DAILY_WATCHLIST_FILE.write_text(json.dumps(payload, indent=2))
+        console.log(
+            f"[green]Finviz scan: {len(variable_picks)} movers + {len(fixed_picks)} fixed "
+            f"→ {len(combined)} symbols written to daily_watchlist.json"
+        )
+    except Exception as e:
+        console.log(f"[red]Failed to write daily_watchlist.json: {e}")
+
+    # ── Log to DB ─────────────────────────────────────────────────────────
+    try:
+        c = sqlite3.connect(str(_PREMARKET_DB), timeout=10)
+        c.execute("DELETE FROM premarket_scan WHERE scan_date = ?", (scan_date,))
+        for pick in combined:
+            c.execute(
+                """INSERT INTO premarket_scan
+                       (scan_date, symbol, source, gap_pct, rvol, sector, price, change_pct, reason)
+                   VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                (
+                    scan_date, pick["symbol"], pick["source"],
+                    pick["gap_pct"], pick["rvol"], pick["sector"],
+                    pick["price"], pick["change_pct"], pick["reason"],
+                ),
+            )
+        c.commit()
+        c.close()
+        console.log(f"[dim]premarket_scan table: {len(combined)} rows written for {scan_date}")
+    except Exception as e:
+        console.log(f"[yellow]premarket_scan DB write error: {e}")
+
+    # ── Post variable picks to Signal Center (port 9000) ─────────────────
+    try:
+        import requests as _req
+        sc_posted = 0
+        for pick in variable_picks:
+            sym      = pick["symbol"]
+            gap_pct  = pick["gap_pct"]
+            rvol     = pick["rvol"]
+            price    = pick["price"]
+            score    = min(100, int(abs(gap_pct) * 8 + rvol * 4 + 10))
+            payload_9k = {
+                "feed_type":   "PREMARKET_SCAN",
+                "symbol":      sym,
+                "score":       score,
+                "raw_score":   score,
+                "direction":   "UP" if gap_pct >= 0 else "DOWN",
+                "gap_pct":     round(gap_pct, 2),
+                "rvol":        round(rvol, 2),
+                "price":       round(price, 2),
+                "reason":      pick["reason"],
+                "scan_date":   scan_date,
+            }
+            try:
+                _req.post(
+                    "http://127.0.0.1:9000/api/signals",
+                    json=payload_9k,
+                    timeout=3,
+                )
+                sc_posted += 1
+            except Exception:
+                pass
+        if sc_posted:
+            console.log(f"[dim]Signal Center: posted {sc_posted} PREMARKET_SCAN signals")
+    except ImportError:
+        pass
+    except Exception as e:
+        console.log(f"[yellow]Signal Center post error: {e}")
+
+    return payload
+
+
+def get_todays_watchlist() -> dict:
+    """Return today's watchlist from data/daily_watchlist.json.
+
+    Falls back to FIXED_WATCHLIST if the file doesn't exist or is from a prior day.
+    """
+    try:
+        if DAILY_WATCHLIST_FILE.exists():
+            data = json.loads(DAILY_WATCHLIST_FILE.read_text())
+            today = datetime.now().strftime("%Y-%m-%d")
+            if data.get("scan_date") == today:
+                return data
+    except Exception:
+        pass
+
+    return {
+        "scan_date":      datetime.now().strftime("%Y-%m-%d"),
+        "scanned_at":     None,
+        "variable_count": 0,
+        "fixed_count":    len(FIXED_WATCHLIST),
+        "symbols":        list(FIXED_WATCHLIST),
+        "picks":          [{"symbol": s, "source": "fallback", "gap_pct": 0.0,
+                            "rvol": 0.0, "sector": "", "price": 0.0,
+                            "change_pct": 0.0, "reason": "Finviz scan not yet run"}
+                           for s in FIXED_WATCHLIST],
+    }

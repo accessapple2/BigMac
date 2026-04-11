@@ -11,7 +11,6 @@ from rich.console import Console
 
 console = Console()
 
-_UA = "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36"
 _congress_cache = {"data": None, "ts": 0}
 _CACHE_TTL = 1800  # 30 minutes
 
@@ -19,31 +18,38 @@ _CACHE_TTL = 1800  # 30 minutes
 def scrape_capitol_trades(limit: int = 50, pages: int = 4) -> list:
     """Scrape recent trades from capitoltrades.com (multiple pages)."""
     trades = []
-    from bs4 import BeautifulSoup
+    from scrapling import Adaptor
 
-    for page in range(1, pages + 1):
+    _headers = {
+        "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+        "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
+        "Accept-Language": "en-US,en;q=0.5",
+        "Referer": "https://www.google.com/search?q=capitoltrades",
+    }
+
+    def _cell_text(cell) -> str:
+        return cell.get_all_text(separator="", strip=True)
+
+    for page_num in range(1, pages + 1):
       try:
-        url = f"https://www.capitoltrades.com/trades?page={page}" if page > 1 else "https://www.capitoltrades.com/trades"
-        r = requests.get(url, headers={"User-Agent": _UA}, timeout=15)
-        if not r.ok:
-            console.log(f"[yellow]Capitol Trades page {page} HTTP {r.status_code}")
+        url = f"https://www.capitoltrades.com/trades?page={page_num}" if page_num > 1 else "https://www.capitoltrades.com/trades"
+        resp = requests.get(url, headers=_headers, timeout=20)
+        if resp.status_code != 200:
+            console.log(f"[yellow]Capitol Trades page {page_num} HTTP {resp.status_code}")
             break
 
-        soup = BeautifulSoup(r.text, "lxml")
-        rows = soup.select("tbody tr")
+        page = Adaptor(resp.text, url=url)
+        rows = page.css("tbody tr")
         if not rows:
             break
 
         for row in rows[:limit]:
-            cells = row.select("td")
+            cells = row.css("td")
             if len(cells) < 8:
                 continue
 
             # Cell 0: Politician (e.g., "Mitch McConnellRepublicanSenateKY")
-            pol_el = cells[0]
-            pol_link = pol_el.select_one("a")
-            pol_full = pol_el.get_text(strip=True)
-            # Extract name by splitting on party keywords
+            pol_full = _cell_text(cells[0])
             pol_name = pol_full
             for splitter in ["Democrat", "Republican"]:
                 if splitter in pol_name:
@@ -52,36 +58,34 @@ def scrape_capitol_trades(limit: int = 50, pages: int = 4) -> list:
             party = "D" if "Democrat" in pol_full else "R" if "Republican" in pol_full else ""
 
             # Cell 1: Company + Ticker (e.g., "Wells Fargo & CoWFC:US")
-            issuer_text = cells[1].get_text(strip=True)
-            # Extract ticker from TICKER:US pattern
+            issuer_text = _cell_text(cells[1])
             ticker_match = re.search(r'([A-Z]{1,5}):US', issuer_text)
             if ticker_match:
                 ticker = ticker_match.group(1)
                 company = issuer_text[:ticker_match.start()].strip()
             else:
                 # No public ticker — private fund or treasury
-                # Check for "N/A" suffix
                 ticker = ""
                 company = issuer_text.replace("N/A", "").strip()
 
             # Cell 2: Filed date (e.g., "19 Mar2026")
-            filed_raw = cells[2].get_text(strip=True)
+            filed_raw = _cell_text(cells[2])
             # Cell 3: Trade date
-            traded_raw = cells[3].get_text(strip=True)
+            traded_raw = _cell_text(cells[3])
 
             # Fix date spacing: "19 Mar2026" → "19 Mar 2026"
             filed = re.sub(r'(\w{3})(\d{4})', r'\1 \2', filed_raw)
             traded = re.sub(r'(\w{3})(\d{4})', r'\1 \2', traded_raw)
 
             # Cell 5: Owner
-            owner = cells[5].get_text(strip=True) if len(cells) > 5 else ""
+            owner = _cell_text(cells[5]) if len(cells) > 5 else ""
 
             # Cell 6: Type (buy/sell)
-            type_text = cells[6].get_text(strip=True).lower() if len(cells) > 6 else ""
+            type_text = _cell_text(cells[6]).lower() if len(cells) > 6 else ""
             trade_type = "BUY" if "buy" in type_text or "purchase" in type_text else "SELL"
 
             # Cell 7: Size
-            size = cells[7].get_text(strip=True) if len(cells) > 7 else ""
+            size = _cell_text(cells[7]) if len(cells) > 7 else ""
 
             # Skip entries without a public ticker (private funds, treasuries)
             if not ticker:
@@ -105,7 +109,7 @@ def scrape_capitol_trades(limit: int = 50, pages: int = 4) -> list:
             break
         time.sleep(0.5)  # polite delay between pages
       except Exception as e:
-        console.log(f"[yellow]Capitol Trades page {page} error: {e}")
+        console.log(f"[yellow]Capitol Trades page {page_num} error: {e}")
         break
 
     console.log(f"[cyan]Capitol Trades: scraped {len(trades)} trades from {pages} pages")

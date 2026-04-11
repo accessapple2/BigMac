@@ -1,0 +1,12 @@
+{
+  "db": "autonomous_trader.db",
+  "tables": {
+    "vix_term_structure": 891,
+    "sqlite_sequence": 4,
+    "intraday_momentum": 220,
+    "oi_changes": 0,
+    "intraday_snapshots": 252,
+    "red_alert_log": 16
+  },
+  "archived_at": "2026-04-06T21:24:10.890109"
+}

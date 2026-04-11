@@ -3,6 +3,7 @@
 Combines VIX, SPY RSI, sector breadth, safe haven demand, and momentum.
 """
 from __future__ import annotations
+import math
 import time
 import threading
 import concurrent.futures
@@ -16,6 +17,17 @@ _TTL = 600  # 10 minutes
 _TIMEOUT = 15  # seconds for the entire computation
 
 _FALLBACK = {"score": None, "label": "Unavailable", "error": "data source timeout", "signals": {}}
+
+
+def _sanitize(obj):
+    """Recursively replace nan/inf with None so JSON serialization never fails."""
+    if isinstance(obj, float):
+        return None if not math.isfinite(obj) else obj
+    if isinstance(obj, dict):
+        return {k: _sanitize(v) for k, v in obj.items()}
+    if isinstance(obj, list):
+        return [_sanitize(v) for v in obj]
+    return obj
 
 
 def _safe_close(df, col="Close"):
@@ -158,11 +170,11 @@ def _compute_fear_greed() -> dict:
     else:
         label = "EXTREME GREED"
 
-    return {
-        "score": int(round(final)),
-        "label": label,
+    return _sanitize({
+        "score": int(round(final)) if math.isfinite(final) else 50,
+        "label": label if math.isfinite(final) else "NEUTRAL",
         "signals": signals,
-    }
+    })
 
 
 def get_fear_greed_index() -> dict:

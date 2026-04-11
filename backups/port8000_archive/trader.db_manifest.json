@@ -1,0 +1,11 @@
+{
+  "db": "trader.db",
+  "tables": {
+    "uoa_flow": 28698,
+    "sqlite_sequence": 4,
+    "uoa_alerts": 37740,
+    "uoa_daily_summary": 228,
+    "uoa_scan_log": 9
+  },
+  "archived_at": "2026-04-06T21:24:10.887467"
+}

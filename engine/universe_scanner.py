@@ -158,6 +158,17 @@ def _calculate_macd(closes):
     return float(macd_line[-1]), float(signal[-1])
 
 
+def get_core_watchlist() -> list[str]:
+    """Return the core ~528 stock watchlist (S&P 500 + popular growth names).
+
+    This is the stable, proven list that the nightly universe scan runs against.
+    Volume scanner hot stocks are ADDED to this, not replacing it.
+    """
+    tickers = _get_sp500_tickers()
+    tickers = list(set(tickers + EXTRA_TICKERS))
+    return tickers
+
+
 def scan_universe(max_tickers: int = 600) -> list:
     """Nightly scan of 500+ stocks to find tomorrow's top 50 candidates.
 

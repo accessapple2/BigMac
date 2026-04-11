@@ -139,30 +139,21 @@ def _call_model(model: str, prompt: str) -> str:
         elif model == "gemini":
             resp = requests.post(
                 f"{config.OLLAMA_URL}/api/generate",
-                json={"model": "gemma3:4b", "prompt": prompt, "stream": False},
+                json={"model": "qwen3:14b", "prompt": prompt, "stream": False},
                 timeout=90,
             )
             resp.raise_for_status()
             return resp.json().get("response", "")
 
         elif model == "grok":
+            # Routed to local deepseek-r1:14b — eliminates xAI API cost
             resp = requests.post(
-                "https://api.x.ai/v1/chat/completions",
-                headers={
-                    "Authorization": f"Bearer {config.GROK_API_KEY}",
-                    "Content-Type": "application/json",
-                },
-                json={
-                    "model": "grok-3",
-                    "messages": [{"role": "user", "content": prompt}],
-                    "max_tokens": 800,
-                },
+                config.OLLAMA_URL + "/api/generate",
+                json={"model": "deepseek-r1:14b", "prompt": prompt, "stream": False},
                 timeout=90,
             )
             resp.raise_for_status()
-            data = resp.json()
-            choices = data.get("choices", [])
-            return choices[0].get("message", {}).get("content", "") if choices else ""
+            return resp.json().get("response", "")
 
         elif model == "ollama":
             resp = requests.post(

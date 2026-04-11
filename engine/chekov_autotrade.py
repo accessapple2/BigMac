@@ -1,6 +1,6 @@
 """Chekov Auto-Trader — Executes paper trades on Navigator convergence signals.
 
-Holly-style: when 3+ strategies converge on a ticker, Chekov auto-buys with
+Multi-Convergence Starfleet: when 3+ strategies converge on a ticker, Chekov auto-buys with
 strict position sizing, stop-loss/take-profit from the signal, and overlap protection.
 
 Safety Rails:
@@ -381,8 +381,9 @@ def execute_convergence_trades(signals: list = None):
 
     for sig in signals:
         ticker = sig["ticker"]
-        strat_count = sig["strategies_triggered"]
-        confidence = sig.get("confidence", strat_count / 5.0)
+        strat_count = sig["strategies_triggered"]     # weighted score (float)
+        raw_count = sig.get("raw_strategy_count", int(strat_count))
+        confidence = sig.get("confidence", min(strat_count / 5.0, 1.0))
         entry = sig["entry"]
         stop = sig["stop"]
         target = sig["target"]
@@ -461,13 +462,14 @@ def execute_convergence_trades(signals: list = None):
             continue
 
         strat_list = ", ".join(strat_names[:4])
+        weight_note = f" (weighted {strat_count:.1f})" if strat_count != raw_count else ""
         # quality_reason is set by Rail 5 (only reachable if quality_ok=True)
         reasoning = (
-            f"CONVERGENCE AUTO-TRADE ({timeframe_tag}): {strat_count} strategies agree ({strat_list}). "
+            f"CONVERGENCE AUTO-TRADE ({timeframe_tag}): {raw_count} strategies agree ({strat_list}){weight_note}. "
             f"R/R {rr:.1f}:1. "
             f"[QUALITY: ✅] "
             f"[STOP: ${stop:.2f}] [TARGET: ${target:.2f}] "
-            f"[CONVERGENCE: {strat_count}]"
+            f"[CONVERGENCE: {strat_count:.1f}]"
         )
 
         result = buy(
@@ -488,7 +490,7 @@ def execute_convergence_trades(signals: list = None):
             hold_note = "Minimum 3-day swing hold." if strat_count >= 4 else ""
             _log_to_war_room(ticker, (
                 f"Aye Keptin! Plotting intercept course on {ticker}! "
-                f"{strat_count}-strategy convergence ({strat_list}). "
+                f"{raw_count}-strategy convergence ({strat_list}){weight_note}. "
                 f"QUALITY ✅ passes Dalio/Buffett screen. "
                 f"{'SWING TRADE — ' if strat_count >= 4 else ''}"
                 f"BUY {qty} shares @ ${price:.2f} (${cost:.2f}). "
@@ -497,7 +499,7 @@ def execute_convergence_trades(signals: list = None):
             ))
             console.log(
                 f"[bold green]🧭 Chekov {timeframe_tag}: BUY {qty} {ticker} @ ${price:.2f} "
-                f"({strat_count} strategies, conf {confidence:.0%})"
+                f"({raw_count} strategies / {strat_count:.1f} weighted, conf {confidence:.0%})"
             )
         else:
             console.log(f"[yellow]🧭 Chekov {ticker}: buy blocked by guardrails")

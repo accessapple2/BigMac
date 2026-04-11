@@ -553,7 +553,7 @@ def _parse_feed_format(text: str) -> dict:
     }
 
 
-def import_parsed_feed(parsed: dict, source: str = "rallies.ai-manual") -> dict:
+def import_parsed_feed(parsed: dict, source: str = "external-arena") -> dict:
     """Import parsed feed data into reference_trades and reference_discussions."""
     conn = _conn()
     imported_trades = 0

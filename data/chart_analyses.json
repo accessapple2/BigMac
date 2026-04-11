@@ -238,5 +238,65 @@
     },
     "current_price": 382.09,
     "analyzed_at": "2026-03-25T14:56:05.671818"
+  },
+  {
+    "symbol": "MU",
+    "model": "ollama",
+    "support": [
+      318.4,
+      349.85,
+      371.22
+    ],
+    "resistance": [
+      398.3,
+      405.0,
+      425.95
+    ],
+    "patterns": [
+      "falling wedge",
+      "flag pattern",
+      "double top"
+    ],
+    "trend": "bearish",
+    "volume_assessment": "High volume on down days indicates panic selling; elevated volume on 04-01 recovery suggests potential stabilization but not yet trend reversal",
+    "recommendation": "Wait for confirmed break above 398.30 SMA(20) or RSI > 50 before considering long entry; short-term weakness persists",
+    "confidence": 75,
+    "indicators": {
+      "rsi": 43.41,
+      "macd": -13.7674,
+      "signal": -4.6219,
+      "sma20": 398.3
+    },
+    "current_price": 372.22,
+    "analyzed_at": "2026-04-01T10:54:50.165393"
+  },
+  {
+    "symbol": "MU",
+    "model": "ollama",
+    "support": [
+      320.0,
+      343.0,
+      350.0
+    ],
+    "resistance": [
+      388.76,
+      400.0,
+      415.0
+    ],
+    "patterns": [
+      "double_bottom"
+    ],
+    "trend": "bearish",
+    "volume_assessment": "High volume spike during March crash indicates capitulation selling; April 1 recovery volume suggests institutional absorption at current levels",
+    "recommendation": "Wait for price confirmation above 388 resistance before considering long positions as trend may be bottoming out",
+    "confidence": 65,
+    "indicators": {
+      "rsi": 43.43,
+      "macd": -13.7611,
+      "signal": -4.6206,
+      "sma20": 398.3
+    },
+    "current_price": 372.3,
+    "analyzed_at": "2026-04-01T10:59:36.787970"
   }
 ]

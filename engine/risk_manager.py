@@ -25,6 +25,7 @@ class RiskManager:
         "energy-arnold": 2,      # Trip Tucker: energy only, max 2
         "options-sosnoff": 3,    # Counselor Troi: wheel strategy, max 3 (one per position)
         "navigator": 5,          # Chekov: convergence auto-trader, fills up to 5 per scan
+        "ollie-auto": 10,        # Ollie Super Trader: signal-driven, up to 10/day
     }
 
     # Universal limits
@@ -463,7 +464,8 @@ class RiskManager:
         # Per-model bear market mode + global standdown checks
         # Sulu (day trader) exempt — intraday positions close same day, bear regime is irrelevant
         # Dalio (All Weather) exempt — risk parity trades in all regimes by design
-        if player_id not in ("dayblade-sulu", "dalio-metals"):
+        # Anderson (Alpaca Paper) exempt — WARNING_ONLY portfolio, 75% drawdown is pre-existing
+        if player_id not in ("dayblade-sulu", "dalio-metals", "super-agent"):
             bear_blocked, bear_reason = self.check_bear_market_mode(
                 player_id, portfolio, confidence=confidence, symbol=symbol
             )
@@ -882,6 +884,21 @@ class RiskManager:
             return drawdown >= self.max_drawdown_pct, drawdown
         except Exception:
             return False, 0.0
+
+    @staticmethod
+    def is_extended_trading_hours() -> bool:
+        """Return True during ollie-auto's extended trading windows (ET):
+        Pre-market:  7:00 AM – 9:30 AM ET
+        After-hours: 4:00 PM – 6:00 PM ET
+        Returns False on weekends.
+        """
+        import pytz
+        et = pytz.timezone("US/Eastern")
+        now = datetime.now(et)
+        if now.weekday() >= 5:
+            return False
+        t = now.time()
+        return (dtime(7, 0) <= t < dtime(9, 30)) or (dtime(16, 0) <= t < dtime(18, 0))
 
     @staticmethod
     def is_market_hours() -> str | bool:

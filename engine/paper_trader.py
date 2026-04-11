@@ -101,6 +101,43 @@ from datetime import datetime
 from rich.console import Console
 
 console = Console()
+
+
+def _first_trade_notification(player_id: str, symbol: str, action: str, price: float) -> None:
+    """Fire macOS notification + War Room post on an agent's very first trade."""
+    try:
+        conn_check = sqlite3.connect(DB, check_same_thread=False, timeout=10)
+        count = conn_check.execute(
+            "SELECT COUNT(*) FROM trades WHERE player_id=?", (player_id,)
+        ).fetchone()[0]
+        conn_check.close()
+        if count != 1:  # Only fire on exactly 1 trade (just-inserted first trade)
+            return
+        # macOS notification
+        try:
+            import subprocess
+            msg = f"{player_id} placed their FIRST trade: {action} {symbol} @ ${price:.2f}"
+            subprocess.Popen(
+                ["osascript", "-e",
+                 f'display notification "{msg}" with title "🚀 First Trade!" sound name "Glass"'],
+                stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
+            )
+        except Exception:
+            pass
+        # War Room post
+        try:
+            from engine.war_room import save_hot_take
+            save_hot_take(
+                player_id, symbol,
+                f"🚀 FIRST TRADE MILESTONE: {player_id} has placed their very first trade! "
+                f"{action} {symbol} @ ${price:.2f}. Welcome to the arena, recruit.",
+            )
+        except Exception:
+            pass
+    except Exception:
+        pass
+
+
 DB = os.environ.get(
     "TRADEMINDS_DB",
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
@@ -115,6 +152,7 @@ _EXECUTION_PORTFOLIO_BY_PLAYER = {
     "super-agent": "Alpaca Paper",  # KEEP THIS
     "dalio-metals": "Enterprise Computer",
     "neo-matrix": "Neo Matrix",
+    "ollie-auto": "Alpaca Paper",   # Ollie Super Trader → Alpaca paper account
 }
 
 
@@ -150,29 +188,58 @@ def _get_alpaca():
 
 
 def _forward_to_alpaca(action: str, player_id: str, symbol: str, qty: float,
-                        asset_type: str = "stock"):
-    """Forward a trade to Alpaca paper account. Never raises."""
-    if asset_type != "stock":
-        return  # Only forward stock trades
-    bridge = _get_alpaca()
-    if not bridge:
-        return
-    whole_qty = int(qty)
-    if whole_qty <= 0:
-        return
-    try:
-        if action == "BUY":
-            result = bridge.buy(symbol, whole_qty)
-        elif action == "SELL":
-            result = bridge.sell(symbol, whole_qty)
-        else:
+                        asset_type: str = "stock", price: float = 0.0):
+    """Forward a trade to Alpaca paper account. Never raises.
+
+    Uses fractional qty (rounded to 2 dp) — Alpaca paper supports fractional shares.
+    Falls back to whole shares only if Alpaca rejects the fractional order.
+    For ollie-auto during extended-hours windows, issues limit orders with
+    extended_hours=True so Alpaca accepts the order outside regular session.
+    """
+    if asset_type == "stock":
+        bridge = _get_alpaca()
+        if not bridge:
             return
-        if result.get("error"):
-            console.log(f"[yellow]Alpaca {action} {symbol} failed: {result['error']}")
-        else:
-            console.log(f"[bold cyan]Alpaca {action} {whole_qty} {symbol} — order {result.get('order_id', 'ok')} ({player_id})")
-    except Exception as e:
-        console.log(f"[yellow]Alpaca forward error: {e}")
+        frac_qty = round(qty, 2)
+        if frac_qty < 0.01:
+            return
+        # Extended-hours flag: only ollie-auto trades pre/post market via Alpaca
+        use_ext = False
+        if player_id == "ollie-auto":
+            try:
+                from engine.risk_manager import RiskManager
+                use_ext = RiskManager.is_extended_trading_hours()
+            except Exception:
+                pass
+        try:
+            if action == "BUY":
+                result = bridge.buy(symbol, frac_qty,
+                                    extended_hours=use_ext, limit_price=price)
+            elif action == "SELL":
+                result = bridge.sell(symbol, frac_qty,
+                                     extended_hours=use_ext, limit_price=price)
+            else:
+                return
+            if result.get("error"):
+                # Fractional rejected — retry with whole shares
+                whole_qty = int(qty)
+                if whole_qty <= 0:
+                    console.log(f"[yellow]Alpaca {action} {symbol} failed (frac+whole): {result['error']}")
+                    return
+                if action == "BUY":
+                    result = bridge.buy(symbol, whole_qty,
+                                        extended_hours=use_ext, limit_price=price)
+                else:
+                    result = bridge.sell(symbol, whole_qty,
+                                         extended_hours=use_ext, limit_price=price)
+                if result.get("error"):
+                    console.log(f"[yellow]Alpaca {action} {symbol} failed: {result['error']}")
+                else:
+                    console.log(f"[bold cyan]Alpaca {action} {whole_qty} {symbol} (whole fallback) — order {result.get('order_id', 'ok')} ({player_id})")
+            else:
+                console.log(f"[bold cyan]Alpaca {action} {frac_qty} {symbol} — order {result.get('order_id', 'ok')} ({player_id})")
+        except Exception as e:
+            console.log(f"[yellow]Alpaca forward error: {e}")
 
 
 def estimate_option_price(option_type: str, strike_price: float | None,
@@ -425,7 +492,7 @@ def _detect_ghost_option(player_id: str, symbol: str, price: float,
 def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         qty: float = None, reasoning: str = "", confidence: float = 0.0,
         option_type: str = None, strike_price: float = None, expiry_date: str = None,
-        sources: str = "", timeframe: str = "SWING") -> dict | None:
+        sources: str = "", timeframe: str = "SWING", sizing_multiplier: float = 1.0) -> dict | None:
     # GUARD: Never auto-trade human portfolios
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
@@ -469,6 +536,35 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             player_id, symbol, price, reasoning, option_type, expiry_date
         )
 
+    # === CREW SPECIALIZATION MANDATE GATE ===
+    # Block trades that fall outside an agent's assigned strategy mandate.
+    try:
+        from engine.crew_specialization import should_agent_trade as _mandate_check, is_bridge_voter as _is_voter
+        if _is_voter(player_id):
+            console.log(f"[red]MANDATE BLOCKED: {player_id} is a Bridge Voter — no individual trades allowed")
+            _last_rejection[player_id] = "Bridge Voter: no individual trading"
+            return None
+        # Build lightweight market_data snapshot from latest briefing
+        _mandate_market = {}
+        try:
+            from engine.ready_room import get_latest_briefing as _get_briefing
+            _brief = _get_briefing() or {}
+            _mandate_market = {
+                "session_type": _brief.get("session_type", ""),
+                "vix": _brief.get("vix", 0),
+                "pc_ratio": _brief.get("pc_ratio", 1.0),
+            }
+        except Exception:
+            pass
+        _mandate_ok, _mandate_reason = _mandate_check(player_id, _mandate_market)
+        if not _mandate_ok:
+            console.log(f"[yellow]MANDATE BLOCKED: {player_id} → {_mandate_reason}")
+            _last_rejection[player_id] = f"Mandate: {_mandate_reason}"
+            return None
+    except Exception as _mandate_err:
+        # Don't block on import errors — mandate check is advisory
+        pass
+
     # === UNIVERSAL GUARDRAIL GATE (Strategy Lab S4 fixes) ===
     # These checks run BEFORE any trade execution, cannot be overridden.
     try:
@@ -494,6 +590,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             _rm.UNIVERSAL_MIN_CONVICTION,
             _rm.get_model_guardrail(player_id, "min_conviction") or 0,
         )
+        # 0DTE and intraday agents operate on shorter timeframes — lower floor
+        if player_id in ("dayblade-0dte", "dayblade-sulu"):
+            _min_conv = min(_min_conv, 0.45)
         if _rm.is_bear_market() and player_id not in ("dayblade-sulu", "navigator", "dalio-metals"):
             # Exempt: Sulu (day trader), Chekov (convergence scanner), Dalio (All Weather — trades in all regimes)
             _min_conv = max(_min_conv, _rm.BEAR_MIN_CONVICTION)
@@ -630,6 +729,39 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     except Exception:
         pass
 
+    # READY ROOM ADVISORY (Counselor Troi): Gate on market condition before execution
+    _adv_mult = 1.0  # default: full size
+    _ADVISOR_EXEMPT = {"capitol-trades", "steve-webull", "dalio-metals"}
+    # T'Pol and McCoy operate on their own mandate/VIX gates — Troi STAND_DOWN
+    # (CHOP regime) should not block them. CAUTION sizing still applies.
+    _TROI_STAND_DOWN_EXEMPT = {"dayblade-0dte", "ollama-plutus"}
+    if player_id not in _ADVISOR_EXEMPT:
+        try:
+            from engine.ready_room_advisor import should_i_trade as _advisory
+            _adv = _advisory(symbol=symbol, proposed_action="BUY", player_id=player_id)
+            _adv_signal = _adv.get("signal", "GO")
+            _adv_mult   = _adv.get("position_size_multiplier", 1.0)
+            if _adv_signal == "STAND_DOWN":
+                if player_id in _TROI_STAND_DOWN_EXEMPT:
+                    console.log(
+                        f"[yellow]COUNSELOR TROI: STAND_DOWN override — {player_id} {symbol} "
+                        f"exempt from CHOP gate, proceeding."
+                    )
+                else:
+                    console.log(
+                        f"[bold red]COUNSELOR TROI: STAND_DOWN — {player_id} {symbol} "
+                        f"blocked. {_adv.get('reason', 'RED condition')}"
+                    )
+                    _last_rejection[player_id] = f"Ready Room STAND_DOWN: {_adv.get('reason', 'RED condition')}"
+                    return None
+            elif _adv_signal == "CAUTION":
+                console.log(
+                    f"[yellow]COUNSELOR TROI: CAUTION — {player_id} {symbol} "
+                    f"(×{_adv_mult:.2f}). {_adv.get('reason', 'YELLOW condition')}"
+                )
+        except Exception:
+            _adv_mult = 1.0
+
     # GLOBAL OPTION RISK: Max 6 open option positions across all models combined
     if asset_type == "option" or option_type:
         try:
@@ -725,8 +857,29 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
                 f"trades={_allocation_policy['trade_count']})"
             )
         qty = round((cash * alloc_pct) / price, 4)
+    # Apply sizing multiplier: prefer caller-provided (scan path already ran Troi),
+    # otherwise use the internal Ready Room advisory multiplier.  Never double-apply.
+    if sizing_multiplier < 1.0:
+        # Caller (e.g. crew_scanner) already resolved Troi CAUTION — use their value
+        # and skip _adv_mult to prevent double reduction (0.5 × 0.5 = 0.25).
+        if qty:
+            qty = round(qty * sizing_multiplier, 4)
+    elif _adv_mult < 1.0 and qty:
+        qty = round(qty * _adv_mult, 4)
     if qty <= 0:
         return None
+
+    # Minimum order floor: after CAUTION sizing, ensure the position is at least
+    # min($50, 1 share) in value — whichever costs less — so Alpaca receives a
+    # meaningful order.  Only bumps up; never reduces.  Skips if cash is too low.
+    if asset_type == "stock" and price > 0:
+        _min_qty = round(min(50.0 / price, 1.0), 4)
+        if qty < _min_qty and cash >= _min_qty * price:
+            console.log(
+                f"[cyan]MIN ORDER: {player_id} {symbol} qty {qty:.4f} → {_min_qty:.4f} "
+                f"(${_min_qty * price:.2f} floor)"
+            )
+            qty = _min_qty
 
     # Swing trade 25% position size cap (absolute)
     if is_swing:
@@ -801,10 +954,11 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     conn.commit()
     conn.close()
     console.log(f"[green]{player_id}: BUY {qty} {symbol} @ ${price:.2f}")
+    _first_trade_notification(player_id, symbol, "BUY", price)
 
     # Forward to Alpaca paper trading (non-blocking)
     if route["route_mode"] == "trading":
-        _forward_to_alpaca("BUY", player_id, symbol, qty, asset_type)
+        _forward_to_alpaca("BUY", player_id, symbol, qty, asset_type, price=price)
 
     return {
         "action": "BUY",
@@ -947,7 +1101,7 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
 
     # Forward to Alpaca paper trading (non-blocking)
     if route["route_mode"] == "trading":
-        _forward_to_alpaca("SELL", player_id, symbol, qty, asset_type)
+        _forward_to_alpaca("SELL", player_id, symbol, qty, asset_type, price=price)
 
     # Borg lore: post loss notifications to War Room
     if pnl < 0:
@@ -1080,7 +1234,7 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
     console.log(f"[green]{player_id}: SELL {qty} {symbol} @ ${price:.2f} (partial) PnL: ${pnl:.2f}")
 
     # Forward to Alpaca paper trading (non-blocking)
-    _forward_to_alpaca("SELL", player_id, symbol, qty, asset_type)
+    _forward_to_alpaca("SELL", player_id, symbol, qty, asset_type, price=price)
 
     # Borg lore on loss (partial sell, only if full close)
     if pnl < 0 and remaining <= 0:
@@ -1147,22 +1301,44 @@ def execute_signal(player_id: str, signal: dict, price: float) -> dict | None:
         expiry_date = None
         strike_price = None
         buy_price = price  # fallback: use underlying price
+        target_dte = signal.get("dte", 0)
         try:
             from engine.options_selector import select_option
             from config import OPTIONS_DEFAULT_DTE, OPTIONS_MIN_DTE
+            dte_req = target_dte if target_dte > 0 else OPTIONS_DEFAULT_DTE
             opt = select_option(symbol, option_type,
-                                target_dte=OPTIONS_DEFAULT_DTE, min_dte=OPTIONS_MIN_DTE)
+                                target_dte=dte_req, min_dte=OPTIONS_MIN_DTE)
             if opt:
                 expiry_date = opt["expiry_date"]
                 strike_price = opt["strike_price"]
-                # Use actual option premium if available
                 if opt.get("premium") and opt["premium"] > 0:
                     buy_price = opt["premium"]
         except Exception as e:
             console.log(f"[yellow]Options selector fallback for {symbol}: {e}")
-        return buy(player_id, symbol, buy_price, asset_type="option", option_type=option_type,
-                   reasoning=reasoning, confidence=confidence,
-                   strike_price=strike_price, expiry_date=expiry_date, sources=sources, timeframe=timeframe)
+        result = buy(player_id, symbol, buy_price, asset_type="option", option_type=option_type,
+                     reasoning=reasoning, confidence=confidence,
+                     strike_price=strike_price, expiry_date=expiry_date, sources=sources, timeframe=timeframe)
+        # Forward to Alpaca for options-enabled players
+        try:
+            from engine.alpaca_options import execute_options_signal
+            execute_options_signal(player_id, action, symbol, price, target_dte=target_dte)
+        except Exception as _ae:
+            console.log(f"[yellow]Alpaca options forward error ({player_id} {symbol}): {_ae}")
+        return result
+
+    elif action in ("BULL_CALL_SPREAD", "BEAR_PUT_SPREAD", "IRON_CONDOR"):
+        # Multi-leg strategies: DB-only paper tracking + Alpaca real execution
+        option_type = "call" if "CALL" in action else "put"
+        target_dte = signal.get("dte", 7)  # spreads default to weekly
+        result = buy(player_id, symbol, price * 0.02, asset_type="option", option_type=option_type,
+                     reasoning=f"[{action}] {reasoning}", confidence=confidence, sources=sources, timeframe=timeframe)
+        try:
+            from engine.alpaca_options import execute_options_signal
+            execute_options_signal(player_id, action, symbol, price, target_dte=target_dte)
+        except Exception as _ae:
+            console.log(f"[yellow]Alpaca {action} forward error ({player_id} {symbol}): {_ae}")
+        return result
+
     return None
 
 
@@ -1851,6 +2027,40 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
         max_qty = round((cash * 0.15) / price, 4)
         qty = min(qty, max_qty)
 
+    # READY ROOM ADVISORY (Counselor Troi): Gate on market condition before short execution
+    _short_adv_mult = 1.0
+    _SHORT_ADVISOR_EXEMPT = {"capitol-trades", "steve-webull", "dalio-metals"}
+    if player_id not in _SHORT_ADVISOR_EXEMPT:
+        try:
+            from engine.ready_room_advisor import should_i_trade as _short_advisory
+            _sadv = _short_advisory(symbol=symbol, proposed_action="SHORT", player_id=player_id)
+            _sadv_signal = _sadv.get("signal", "GO")
+            _short_adv_mult = _sadv.get("position_size_multiplier", 1.0)
+            if _sadv_signal == "STAND_DOWN":
+                if player_id in _TROI_STAND_DOWN_EXEMPT:
+                    console.log(
+                        f"[yellow]COUNSELOR TROI: STAND_DOWN override — {player_id} {symbol} "
+                        f"short exempt from CHOP gate, proceeding."
+                    )
+                else:
+                    console.log(
+                        f"[bold red]COUNSELOR TROI: STAND_DOWN — {player_id} {symbol} short "
+                        f"blocked. {_sadv.get('reason', 'RED condition')}"
+                    )
+                    _last_rejection[player_id] = f"Ready Room STAND_DOWN: {_sadv.get('reason', 'RED condition')}"
+                    return None
+            elif _sadv_signal == "CAUTION":
+                console.log(
+                    f"[yellow]COUNSELOR TROI: CAUTION — {player_id} {symbol} short "
+                    f"(×{_short_adv_mult:.2f}). {_sadv.get('reason', 'YELLOW condition')}"
+                )
+        except Exception:
+            _short_adv_mult = 1.0
+
+    # Apply advisory multiplier to short qty
+    if _short_adv_mult < 1.0 and qty:
+        qty = round(qty * _short_adv_mult, 4)
+
     margin = round(qty * price, 2)
     if qty <= 0 or margin > cash:
         console.log(f"[red]{player_id}: Insufficient margin for short {symbol}")
@@ -1883,6 +2093,7 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
     conn.commit()
     conn.close()
     console.log(f"[bold red]{player_id}: SHORT {qty} {symbol} @ ${price:.2f} (margin ${margin:.0f})")
+    _first_trade_notification(player_id, symbol, "SHORT", price)
     return {
         "action": "SHORT",
         "symbol": symbol,

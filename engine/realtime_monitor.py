@@ -23,6 +23,10 @@ _ws_thread: threading.Thread | None = None
 _running = False
 _connected = False
 
+# Tick buffer: last N raw ticks per symbol for SSE streaming
+_tick_buffer: dict[str, list] = {}       # symbol -> [{"ts": float, "price": float, "volume": float}]
+MAX_TICKS_PER_SYMBOL = 600               # ~10 min at 1 tick/sec
+
 # Thresholds
 PRICE_SPIKE_PCT = 3.0     # +/- 3% in rolling window
 VOLUME_SPIKE_MULT = 2.0   # 2x average volume
@@ -94,6 +98,15 @@ def get_monitor_status() -> dict:
     }
 
 
+def get_latest_ticks(symbol: str, since_ts: float = 0.0) -> list:
+    """Return buffered ticks for a symbol, optionally filtered by timestamp."""
+    with _lock:
+        buf = _tick_buffer.get(symbol.upper(), [])
+        if since_ts > 0:
+            return [t for t in buf if t["ts"] > since_ts]
+        return list(buf[-60:])  # first poll: last 60 ticks (≈1 min of seed data)
+
+
 def _get_watchlist() -> list[str]:
     """Get watchlist + active discovery symbols."""
     from config import WATCH_STOCKS
@@ -119,6 +132,14 @@ def _check_spike(symbol: str, new_price: float, volume: float = 0):
             _price_windows[symbol] = deque(maxlen=600)  # ~10 per sec max
         window = _price_windows[symbol]
         window.append((now, new_price, volume))
+
+        # ── tick buffer for SSE live chart feed ──────────────────
+        if symbol not in _tick_buffer:
+            _tick_buffer[symbol] = []
+        _tick_buffer[symbol].append({"ts": now, "price": new_price, "volume": volume})
+        if len(_tick_buffer[symbol]) > MAX_TICKS_PER_SYMBOL:
+            _tick_buffer[symbol] = _tick_buffer[symbol][-MAX_TICKS_PER_SYMBOL:]
+        # ─────────────────────────────────────────────────────────
 
         # Purge old entries outside window
         cutoff = now - WINDOW_SECONDS
@@ -225,10 +246,10 @@ def _run_websocket():
         except Exception:
             pass
 
-    def on_error(ws, error):
-        global _connected
-        _connected = False
-        console.log(f"[red]Realtime Monitor WebSocket error: {error}")
+def on_error(ws, error):
+    global _connected
+    _connected = False
+    console.log(f"[red]Realtime Monitor WebSocket error: {str(error)}. Attempting to reconnect after a short delay.")
 
     def on_close(ws, close_status_code, close_msg):
         global _connected
@@ -266,8 +287,9 @@ def _run_websocket():
                 console.log("[yellow]Realtime Monitor: WebSocket failed 3x — switching to polling fallback")
                 _run_polling_fallback()
                 return
-            console.log(f"[yellow]Realtime Monitor: Reconnecting in 10s (attempt {ws_failures}/3)...")
-            time.sleep(10)
+            backoff = min(10 * (2 ** (ws_failures - 1)), 120)  # 10s, 20s, 40s, max 120s
+            console.log(f"[yellow]Realtime Monitor: Reconnecting in {backoff}s (attempt {ws_failures}/3)...")
+            time.sleep(backoff)
             symbols = _get_watchlist()
 
 

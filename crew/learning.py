@@ -32,32 +32,36 @@ def ensure_schema():
     try:
         conn.execute("""
             CREATE TABLE IF NOT EXISTS crew_trade_results (
-                id               INTEGER PRIMARY KEY AUTOINCREMENT,
-                position_id      INTEGER,
-                strategy_id      INTEGER,
-                ticker           TEXT NOT NULL,
-                direction        TEXT DEFAULT 'long',
-                entry_price      REAL,
-                exit_price       REAL,
-                pnl              REAL,
-                pnl_pct          REAL,
-                qty              INTEGER,
-                dollar_value     REAL,
-                conviction_score REAL,
-                strategy_type    TEXT,
-                outcome          TEXT,   -- 'win' | 'loss' | 'stopped' | 'unknown'
-                duration_days    REAL,
-                what_worked      TEXT,
-                what_failed      TEXT,
-                notes            TEXT,
-                source_bucket    TEXT,
-                source_agent     TEXT,
-                recorded_at      TEXT DEFAULT (datetime('now'))
+                id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+                position_id         INTEGER,
+                strategy_id         INTEGER,
+                ticker              TEXT NOT NULL,
+                direction           TEXT DEFAULT 'long',
+                entry_price         REAL,
+                exit_price          REAL,
+                pnl                 REAL,
+                pnl_pct             REAL,
+                qty                 INTEGER,
+                dollar_value        REAL,
+                conviction_score    REAL,
+                strategy_type       TEXT,
+                outcome             TEXT,   -- 'win' | 'loss' | 'stopped' | 'unknown'
+                duration_days       REAL,
+                what_worked         TEXT,
+                what_failed         TEXT,
+                notes               TEXT,
+                source_bucket       TEXT,
+                source_agent        TEXT,
+                synced_to_scoreboard INTEGER DEFAULT 0,  -- 0 = not synced, 1 = synced
+                recorded_at         TEXT DEFAULT (datetime('now'))
             )
         """)
-        for column_name in ("source_bucket", "source_agent"):
+        for column_name in ("source_bucket", "source_agent", "synced_to_scoreboard"):
             try:
-                conn.execute(f"ALTER TABLE crew_trade_results ADD COLUMN {column_name} TEXT")
+                if column_name == "synced_to_scoreboard":
+                    conn.execute(f"ALTER TABLE crew_trade_results ADD COLUMN {column_name} INTEGER DEFAULT 0")
+                else:
+                    conn.execute(f"ALTER TABLE crew_trade_results ADD COLUMN {column_name} TEXT")
             except sqlite3.OperationalError:
                 pass
         conn.commit()
@@ -93,7 +97,7 @@ def _assert_closed_position_integrity(pos: dict) -> None:
         if not pos.get("closed_at"):
             raise ValueError(f"Closed position missing closed_at for id={pos.get('id')}")
 
-
+def assert_no_broken_closed_positions(conn) -> None:
     """
     Closed-position integrity guard
 
@@ -347,6 +351,60 @@ def sync_closed_positions() -> dict:
         conn.commit()
         return {"recorded": recorded}
 
+    finally:
+        conn.close()
+
+
+def sync_outcomes_to_scoreboard() -> dict:
+    """
+    Sync trade outcomes from crew_trade_results to the agent scoreboard for dynamic weight adjustment.
+    Only processes outcomes that haven't been synced yet (synced_to_scoreboard=0).
+    Returns {"synced": N}.
+    """
+    ensure_schema()
+    conn = _db()
+    synced = 0
+    
+    try:
+        # Fetch unsynced trade outcomes
+        unsynced_outcomes = conn.execute(
+            """SELECT id, source_bucket, source_agent, outcome
+               FROM crew_trade_results
+               WHERE synced_to_scoreboard=0"""
+        ).fetchall()
+        
+        if not unsynced_outcomes:
+            return {"synced": 0}
+            
+        # Load the scoreboard
+        try:
+            from engine.agent_scoreboard import AgentScoreboard
+            scoreboard = AgentScoreboard()
+        except Exception as e:
+            log.error(f"[learning] Failed to load AgentScoreboard: {e}")
+            return {"synced": 0, "error": str(e)}
+        
+        # Process each unsynced outcome
+        for outcome in unsynced_outcomes:
+            agent_name = outcome["source_bucket"] or outcome["source_agent"] or "Unknown"
+            if not agent_name or agent_name == "legacy-unattributed":
+                agent_name = "LegacyCrew"
+                
+            won = outcome["outcome"] == "win"
+            scoreboard.record_trade_outcome(agent_name, won)
+            conn.execute(
+                "UPDATE crew_trade_results SET synced_to_scoreboard=1 WHERE id=?",
+                (outcome["id"],)
+            )
+            synced += 1
+        
+        conn.commit()
+        log.info(f"[learning] Synced {synced} trade outcomes to scoreboard")
+        return {"synced": synced}
+        
+    except Exception as e:
+        log.error(f"[learning] Error in sync_outcomes_to_scoreboard: {e}")
+        return {"synced": 0, "error": str(e)}
     finally:
         conn.close()
 

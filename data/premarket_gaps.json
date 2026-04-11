@@ -1,58 +1,98 @@
 [
   {
-    "symbol": "MU",
-    "prev_close": 357.07,
-    "premarket_price": 320.35,
-    "gap_pct": -10.28,
-    "direction": "gap_down",
-    "scanned_at": "2026-03-30T12:14:38.082784"
-  },
-  {
-    "symbol": "DELL",
-    "prev_close": 171.81,
-    "premarket_price": 162.78,
-    "gap_pct": -5.25,
-    "direction": "gap_down",
-    "scanned_at": "2026-03-30T12:14:39.442435"
-  },
-  {
-    "symbol": "NOW",
-    "prev_close": 99.41,
-    "premarket_price": 104.29,
-    "gap_pct": 4.91,
+    "symbol": "TQQQ",
+    "prev_close": 44.15,
+    "premarket_price": 47.72,
+    "gap_pct": 8.09,
     "direction": "gap_up",
-    "scanned_at": "2026-03-30T12:14:38.592382"
+    "scanned_at": "2026-04-08T15:43:16.745513"
+  },
+  {
+    "symbol": "META",
+    "prev_close": 575.05,
+    "premarket_price": 616.06,
+    "gap_pct": 7.13,
+    "direction": "gap_up",
+    "scanned_at": "2026-04-08T15:43:18.512553"
+  },
+  {
+    "symbol": "MU",
+    "prev_close": 377.58,
+    "premarket_price": 403.78,
+    "gap_pct": 6.94,
+    "direction": "gap_up",
+    "scanned_at": "2026-04-08T15:43:19.568724"
   },
   {
     "symbol": "PLTR",
-    "prev_close": 143.06,
-    "premarket_price": 136.94,
-    "gap_pct": -4.28,
+    "prev_close": 150.07,
+    "premarket_price": 141.17,
+    "gap_pct": -5.93,
     "direction": "gap_down",
-    "scanned_at": "2026-03-30T12:14:39.182096"
-  },
-  {
-    "symbol": "AMD",
-    "prev_close": 201.99,
-    "premarket_price": 193.42,
-    "gap_pct": -4.24,
-    "direction": "gap_down",
-    "scanned_at": "2026-03-30T12:14:36.795825"
+    "scanned_at": "2026-04-08T15:43:20.712746"
   },
   {
     "symbol": "AVGO",
-    "prev_close": 300.68,
-    "premarket_price": 290.41,
-    "gap_pct": -3.42,
-    "direction": "gap_down",
-    "scanned_at": "2026-03-30T12:14:38.934988"
+    "prev_close": 333.97,
+    "premarket_price": 348.74,
+    "gap_pct": 4.42,
+    "direction": "gap_up",
+    "scanned_at": "2026-04-08T15:43:20.448218"
   },
   {
-    "symbol": "TSLA",
-    "prev_close": 361.83,
-    "premarket_price": 352.71,
-    "gap_pct": -2.52,
+    "symbol": "DELL",
+    "prev_close": 177.69,
+    "premarket_price": 185.5,
+    "gap_pct": 4.4,
+    "direction": "gap_up",
+    "scanned_at": "2026-04-08T15:43:20.984865"
+  },
+  {
+    "symbol": "AMD",
+    "prev_close": 221.53,
+    "premarket_price": 230.2,
+    "gap_pct": 3.91,
+    "direction": "gap_up",
+    "scanned_at": "2026-04-08T15:43:18.256328"
+  },
+  {
+    "symbol": "GOOGL",
+    "prev_close": 305.46,
+    "premarket_price": 317.2,
+    "gap_pct": 3.84,
+    "direction": "gap_up",
+    "scanned_at": "2026-04-08T15:43:19.041059"
+  },
+  {
+    "symbol": "AMZN",
+    "prev_close": 213.77,
+    "premarket_price": 220.75,
+    "gap_pct": 3.27,
+    "direction": "gap_up",
+    "scanned_at": "2026-04-08T15:43:19.304526"
+  },
+  {
+    "symbol": "NOW",
+    "prev_close": 100.55,
+    "premarket_price": 97.7,
+    "gap_pct": -2.84,
     "direction": "gap_down",
-    "scanned_at": "2026-03-30T12:14:36.252918"
+    "scanned_at": "2026-04-08T15:43:20.100918"
+  },
+  {
+    "symbol": "QQQ",
+    "prev_close": 588.59,
+    "premarket_price": 604.68,
+    "gap_pct": 2.73,
+    "direction": "gap_up",
+    "scanned_at": "2026-04-08T15:43:16.315374"
+  },
+  {
+    "symbol": "SPY",
+    "prev_close": 659.22,
+    "premarket_price": 675.05,
+    "gap_pct": 2.4,
+    "direction": "gap_up",
+    "scanned_at": "2026-04-08T15:43:15.934330"
   }
 ]

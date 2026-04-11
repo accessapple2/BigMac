@@ -34,6 +34,15 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
     # === CATALYSTS ===
     sections.append(_build_catalyst_block())
 
+    # === GEX OVERLAY (gamma exposure levels) ===
+    try:
+        from engine.gex_overlay import get_gex_context_for_prompt
+        gex_block = get_gex_context_for_prompt()
+        if gex_block:
+            sections.append(gex_block)
+    except Exception:
+        pass
+
     # === OPTIONS DATA ===
     sections.append(_build_options_block(player_id))
 
@@ -75,6 +84,15 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
     except Exception:
         pass
 
+    # === VOLUME RADAR (Full market scanner — intraday hot stocks) ===
+    try:
+        from engine.volume_scanner import build_volume_radar_prompt_section
+        radar_block = build_volume_radar_prompt_section()
+        if radar_block:
+            sections.append(radar_block)
+    except Exception:
+        pass
+
     # === UNIVERSE SCANNER (Chekov's nightly sweep) ===
     try:
         from engine.universe_scanner import build_universe_prompt_section
@@ -84,7 +102,7 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
     except Exception:
         pass
 
-    # === STRATEGY CONVERGENCE (Holly-style multi-strategy signals) ===
+    # === STRATEGY CONVERGENCE (Starfleet multi-strategy signals) ===
     try:
         from engine.strategies import build_strategy_prompt_section
         strat_block = build_strategy_prompt_section()
@@ -92,6 +110,16 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
             sections.append(strat_block)
     except Exception:
         pass
+
+    # === CHEKOV STRATEGY MEMORY (performance weights, last 60 days) ===
+    if player_id in ("navigator", "mlx-qwen3", ""):
+        try:
+            from engine.trade_memory import get_memory_block_for_chekov
+            chekov_mem = get_memory_block_for_chekov()
+            if chekov_mem:
+                sections.append(chekov_mem)
+        except Exception:
+            pass
 
     # === RALLIES ARENA INTEL (External AI Competition) ===
     try:

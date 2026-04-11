@@ -1,0 +1,162 @@
+{
+  "run_at": "2026-04-08T19:44:59.755309",
+  "base_url": "http://127.0.0.1:8080",
+  "endpoints": [
+    {
+      "path": "/api/health",
+      "label": "Health check",
+      "status": 200,
+      "ms": 60,
+      "size_bytes": 161,
+      "pass": true,
+      "error": null,
+      "note": ""
+    },
+    {
+      "path": "/api/regime",
+      "label": "Market regime",
+      "status": 200,
+      "ms": 1,
+      "size_bytes": 242,
+      "pass": true,
+      "error": null,
+      "note": ""
+    },
+    {
+      "path": "/api/fleet/positions",
+      "label": "Fleet positions",
+      "status": 200,
+      "ms": 6,
+      "size_bytes": 2642,
+      "pass": true,
+      "error": null,
+      "note": ""
+    },
+    {
+      "path": "/api/trades",
+      "label": "Trades",
+      "status": 200,
+      "ms": 11,
+      "size_bytes": 57486,
+      "pass": true,
+      "error": null,
+      "note": ""
+    },
+    {
+      "path": "/api/trades/recent",
+      "label": "Recent trades",
+      "status": 200,
+      "ms": 5,
+      "size_bytes": 22866,
+      "pass": true,
+      "error": null,
+      "note": ""
+    },
+    {
+      "path": "/api/arena/leaderboard",
+      "label": "Arena leaderboard",
+      "status": 200,
+      "ms": 2,
+      "size_bytes": 9495,
+      "pass": true,
+      "error": null,
+      "note": ""
+    },
+    {
+      "path": "/api/recent-signals",
+      "label": "Recent signals",
+      "status": 200,
+      "ms": 115,
+      "size_bytes": 21346,
+      "pass": true,
+      "error": null,
+      "note": ""
+    },
+    {
+      "path": "/api/premarket-watchlist",
+      "label": "Premarket watchlist",
+      "status": 200,
+      "ms": 1,
+      "size_bytes": 1558,
+      "pass": true,
+      "error": null,
+      "note": ""
+    },
+    {
+      "path": "/api/screener/quality",
+      "label": "Screener quality",
+      "status": 200,
+      "ms": 1,
+      "size_bytes": 815,
+      "pass": true,
+      "error": null,
+      "note": ""
+    },
+    {
+      "path": "/api/capital",
+      "label": "Capital",
+      "status": 200,
+      "ms": 20,
+      "size_bytes": 2747,
+      "pass": true,
+      "error": null,
+      "note": ""
+    },
+    {
+      "path": "/api/market-movers",
+      "label": "Market movers",
+      "status": 200,
+      "ms": 1,
+      "size_bytes": 1129,
+      "pass": true,
+      "error": null,
+      "note": ""
+    },
+    {
+      "path": "/api/status",
+      "label": "System status",
+      "status": 200,
+      "ms": 21,
+      "size_bytes": 248,
+      "pass": true,
+      "error": null,
+      "note": ""
+    }
+  ],
+  "auth_tests": [
+    {
+      "test": "POST /login with valid credentials",
+      "status": 303,
+      "ms": 3,
+      "pass": true,
+      "detail": "session cookie returned"
+    },
+    {
+      "test": "GET / without session (expect redirect to /login)",
+      "status": 303,
+      "ms": 0,
+      "pass": true,
+      "detail": "redirected to /login"
+    },
+    {
+      "test": "POST /login with wrong password (expect no cookie)",
+      "status": 401,
+      "ms": 1,
+      "pass": true,
+      "detail": "correctly rejected"
+    }
+  ],
+  "summary": {
+    "total_endpoints": 12,
+    "endpoints_passed": 12,
+    "endpoints_failed": 0,
+    "auth_passed": 3,
+    "auth_failed": 0,
+    "total_passed": 15,
+    "total_failed": 0,
+    "total_load_ms": 244,
+    "slowest_endpoint": "/api/recent-signals",
+    "slowest_ms": 115,
+    "errors": []
+  }
+}

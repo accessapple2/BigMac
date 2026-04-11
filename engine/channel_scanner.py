@@ -1,4 +1,4 @@
-"""Channel Bar -- pre-built scan templates like Trade Ideas channels."""
+"""Channel Bar -- pre-built Starfleet scan channel templates."""
 from __future__ import annotations
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.console import Console

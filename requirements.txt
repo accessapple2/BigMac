@@ -6,9 +6,12 @@ openai>=1.50.0
 google-genai>=1.0.0
 rich>=13.0.0
 schedule>=1.2.0
-requests>=2.31.0
+requests>=2.32.3  # Updated for latest security patches
 pytz>=2024.1
 python-dotenv>=1.0.1
 apscheduler>=3.10.4
 itsdangerous>=2.2.0
 python-multipart>=0.0.9
+black>=24.4.2
+flake8>=7.1.1
+

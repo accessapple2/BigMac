@@ -35,6 +35,12 @@ STRATEGY_WEIGHTS = {
     "vol_surge": 0.8,
     "accumulation": 0.5,
     "vol_dryup": 0.5,
+    "hammer_candle": 1.2,
+    "bull_bear_trap": 1.5,
+    "falling_knife": 0.8,
+    "avwap_bounce": 1.5,
+    "five_day_bounce": 1.5,
+    "alpha_predator": 1.0,
 }
 
 # Warp 9.5 Tune 6: Day-of-week confidence multiplier
@@ -169,12 +175,85 @@ def _check_rsi_divergence(c, l):
 def _check_volume_dryup(v, avg_v):
     return float(v[-1]) < avg_v * 0.5
 
+def _check_hammer_candle(c, h, l):
+    """Hammer: long lower wick >= 2x body, small upper wick, close near high."""
+    if len(c) < 2 or len(h) < 2 or len(l) < 2:
+        return False
+    close = float(c[-1]); open_p = float(c[-2]); hi = float(h[-1]); lo = float(l[-1])
+    body = abs(close - open_p)
+    lower_wick = min(close, open_p) - lo
+    upper_wick = hi - max(close, open_p)
+    candle_range = hi - lo
+    if candle_range <= 0 or body <= 0:
+        return False
+    return lower_wick >= 2 * body and upper_wick <= body * 0.5 and close > open_p
+
+def _check_bull_bear_trap(c, h, l):
+    """Bull/bear trap: price broke a level then reversed — false breakout reversal."""
+    if len(c) < 5 or len(h) < 5 or len(l) < 5:
+        return False
+    # Bear trap: prior down-break of recent low, now recovered back above
+    recent_low = float(np.min(l[-5:-1]))
+    prev_low_broke = float(l[-2]) < recent_low * 0.99
+    recovered = float(c[-1]) > recent_low
+    return prev_low_broke and recovered
+
+def _check_falling_knife(c, l):
+    """Falling knife catch: 3+ consecutive down days, RSI <25, current close > prev open."""
+    if len(c) < 6:
+        return False
+    consecutive_down = all(float(c[i]) < float(c[i-1]) for i in range(-4, 0))
+    rsi_val = _rsi(c[-20:]) if len(c) >= 20 else 50.0
+    bounce = float(c[-1]) > float(c[-2])
+    return consecutive_down and rsi_val < 28 and bounce
+
+def _check_avwap_bounce(c, v):
+    """AVWAP bounce: price pulled back to approximate VWAP (SMA20-weighted by volume) and bouncing."""
+    if len(c) < 22 or len(v) < 22:
+        return False
+    # Approximate anchored VWAP as volume-weighted mean of last 20 bars
+    closes_arr = np.array([float(x) for x in c[-20:]])
+    vols_arr = np.array([float(x) for x in v[-20:]])
+    total_vol = float(np.sum(vols_arr))
+    if total_vol <= 0:
+        return False
+    vwap_approx = float(np.sum(closes_arr * vols_arr) / total_vol)
+    price = float(c[-1])
+    prev_price = float(c[-2])
+    # Price dipped to within 1% of VWAP then bounced above it
+    return prev_price <= vwap_approx * 1.01 and price > vwap_approx and price > prev_price
+
+def _check_five_day_bounce(c, l):
+    """Five-day bounce: 5 consecutive down days on close, RSI oversold, now reversing."""
+    if len(c) < 8:
+        return False
+    five_down = all(float(c[-i-1]) < float(c[-i-2]) for i in range(0, 5))
+    rsi_val = _rsi(c[-20:]) if len(c) >= 20 else 50.0
+    reversal = float(c[-1]) > float(c[-2]) * 1.005  # 0.5% bounce to confirm
+    return five_down and rsi_val < 35 and reversal
+
+def _check_alpha_predator(c, v, avg_v):
+    """Alpha predator: 3-day acceleration — each day stronger than last (price + volume momentum compound)."""
+    if len(c) < 5 or len(v) < 4:
+        return False
+    # Price gains accelerating over last 3 days
+    d1 = float(c[-2]) - float(c[-3])
+    d2 = float(c[-1]) - float(c[-2])
+    price_accel = d2 > d1 > 0
+    # Volume confirming (rising for 3 days)
+    vol_rising = float(v[-1]) > float(v[-2]) > float(v[-3]) > avg_v
+    # Not already extended (RSI < 75)
+    rsi_val = _rsi(c[-20:]) if len(c) >= 20 else 50.0
+    return price_accel and vol_rising and rsi_val < 75
+
 
 STRATEGY_NAMES = [
     "breakout_vol", "pullback_sma20", "rsi_bounce", "macd_cross",
     "bb_bounce", "ema_ribbon", "higher_hh", "trend_resume",
     "vol_surge", "gap_fill", "accumulation", "rs_high",
     "rsi_divergence", "vol_dryup",
+    "hammer_candle", "bull_bear_trap", "falling_knife",
+    "avwap_bounce", "five_day_bounce", "alpha_predator",
 ]
 
 
@@ -216,7 +295,7 @@ def _true_range_atr(h, l, c, period=14) -> float:
 
 
 def _run_all_strategies(c, h, l, v, avg_v, spy_c):
-    """Run 14 strategies, return list of triggered strategy names."""
+    """Run 20 strategies, return list of triggered strategy names."""
     triggered = []
     checks = [
         ("breakout_vol", lambda: _check_breakout_volume(c, h, v, avg_v)),
@@ -233,6 +312,12 @@ def _run_all_strategies(c, h, l, v, avg_v, spy_c):
         ("rs_high", lambda: _check_rs_high(c, spy_c)),
         ("rsi_divergence", lambda: _check_rsi_divergence(c, l)),
         ("vol_dryup", lambda: _check_volume_dryup(v, avg_v)),
+        ("hammer_candle", lambda: _check_hammer_candle(c, h, l)),
+        ("bull_bear_trap", lambda: _check_bull_bear_trap(c, h, l)),
+        ("falling_knife",  lambda: _check_falling_knife(c, l)),
+        ("avwap_bounce",   lambda: _check_avwap_bounce(c, v)),
+        ("five_day_bounce",lambda: _check_five_day_bounce(c, l)),
+        ("alpha_predator", lambda: _check_alpha_predator(c, v, avg_v)),
     ]
     for name, fn in checks:
         try:

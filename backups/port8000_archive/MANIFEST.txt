@@ -1,0 +1,20 @@
+USS TradeMinds — Port 8000 (paper-trader) Decommission Archive
+==============================================================
+Archive Date: 2026-04-07
+Source Project: /Users/bigmac/paper-trader
+Reason: Decommissioned — superseded by autonomous-trader (port 8080)
+
+Contents:
+  papertrader_capital.json   — Model capital allocations (all at $10,000 starting)
+  papertrader_models.json    — AI model configuration
+  papertrader_positions.json — Open positions at shutdown
+  papertrader_trades.json    — Trade history (8 trades)
+  papertrader_premarket_gaps.json — Pre-market gap candidates
+  papertrader_trader.db      — SQLite DB (empty, no tables)
+  trader.db_manifest.json    — autonomous-trader DB table counts
+  autonomous_trader.db_manifest.json — aux DB table counts
+  signal-center_signals.db_manifest.json — signal history counts
+
+Port 8000 Status: DECOMMISSIONED
+LaunchD plist: com.papertrader.server — UNLOADED
+Process: PID 931 — KILLED

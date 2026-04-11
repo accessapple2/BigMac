@@ -200,6 +200,27 @@ def generate_picard_briefing() -> str | None:
     except Exception:
         pass
 
+    # Aladdin macro context (cached, non-blocking)
+    try:
+        from agents.aladdin import get_aladdin_brief
+        brief = get_aladdin_brief()
+        flows_summary = ", ".join(
+            f"{f['etf']} {f['flow_signal']} ({f['delta_pct']:+.2f}%)"
+            for f in brief.get("top_etf_flows", [])
+            if f.get("flow_signal") != "UNKNOWN"
+        ) or "no flow data"
+        congress_count = len(brief.get("congress_flags", []))
+        context_parts.append(
+            f"ALADDIN (BlackRock Intelligence):\n"
+            f"  Macro Signal: {brief.get('macro_signal', 'NEUTRAL')} "
+            f"(confidence {brief.get('confidence', 0)}%)\n"
+            f"  BII Headline: {brief.get('bii_headline', 'N/A')}\n"
+            f"  ETF Flows: {flows_summary}\n"
+            f"  Congress BlackRock flags (30d): {congress_count}"
+        )
+    except Exception:
+        pass
+
     context = "\n\n".join(context_parts)
     today = datetime.now().strftime("%A, %B %d, %Y")
 

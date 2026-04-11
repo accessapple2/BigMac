@@ -12,9 +12,25 @@ from datetime import datetime
 DB = "data/trader.db"
 _lock = threading.Lock()
 
-# Rates per 1M tokens (input, output)
+# In-memory set of player IDs currently in fallback mode (free local inference).
+# Maintained by engine/fallback.py — avoids DB query on every log_cost() call.
+_fallback_active: set[str] = set()
+_fallback_set_lock = threading.Lock()
+
+
+def mark_player_fallback(player_id: str, active: bool) -> None:
+    """Called by engine/fallback.py when a player enters or exits fallback mode."""
+    with _fallback_set_lock:
+        if active:
+            _fallback_active.add(player_id)
+        else:
+            _fallback_active.discard(player_id)
+
+# Rates per 1M tokens (input, output).
+# All cloud-named players now route to local Ollama — rates zeroed out.
+# Only dalio-metals uses a real cloud API (Google Gemini Flash free tier).
 TOKEN_RATES = {
-    # Ollama local models — free
+    # ── Ollama local models — always free ──────────────────────────────────
     "ollama-local":      (0.00, 0.00),
     "ollama-gemma27b":   (0.00, 0.00),
     "ollama-deepseek":   (0.00, 0.00),
@@ -23,24 +39,24 @@ TOKEN_RATES = {
     "ollama-glm4":       (0.00, 0.00),
     "ollama-kimi":       (0.00, 0.00),
     "ollama-plutus":     (0.00, 0.00),
-    "energy-arnold":     (0.00, 0.00),  # Trip Tucker: Uses Ollama locally
+    "energy-arnold":     (0.00, 0.00),
     "dayblade-0dte":     (0.00, 0.00),
-    "navigator":         (0.00, 0.00),   # Chekov: system scanner, no API
-    # OpenAI Codex
-    "claude-haiku":      (1.75, 14.00),
-    "claude-sonnet":     (1.75, 14.00),
-    # Google
-    "gemini-2.5-flash":  (0.15, 0.60),
-    "options-sosnoff":   (0.15, 0.60),  # Counselor Troi: Uses Gemini Flash
-    "gemini-2.5-pro":    (1.25, 5.00),
-    # OpenAI
-    "gpt-4o":            (2.50, 10.00),
-    "gpt-o3":            (10.00, 40.00),
-    # xAI
-    "grok-3":            (3.00, 15.00),
-    "grok-4":            (3.00, 15.00),
-    "first-officer":     (0.00, 0.00),   # Mr. Data via MLX (local)
-    "q-entity":          (1.75, 14.00),  # Q via OpenAI Codex
+    "navigator":         (0.00, 0.00),
+    # ── Formerly paid — now routed to Ollama locally ───────────────────────
+    "claude-haiku":      (0.00, 0.00),  # Lt. Malcolm Reed → ollama/qwen2.5-coder:7b
+    "claude-sonnet":     (0.00, 0.00),  # Captain Sisko    → ollama/qwen3.5:9b
+    "gemini-2.5-flash":  (0.00, 0.00),  # Lt. Cmdr. Worf   → ollama/qwen3.5:9b
+    "gemini-2.5-pro":    (0.00, 0.00),  # Seven of Nine    → ollama/qwen3:14b
+    "options-sosnoff":   (0.00, 0.00),  # Counselor Troi   → ollama/qwen3.5:9b
+    "gpt-4o":            (0.00, 0.00),  # Captain Janeway  → ollama/qwen3.5:9b
+    "gpt-o3":            (0.00, 0.00),  # Lt. Tuvok        → ollama/deepseek-r1:7b
+    "grok-3":            (0.00, 0.00),  # Ensign Hoshi     → ollama/qwen3.5:9b
+    "grok-4":            (0.00, 0.00),  # Lt. Cmdr. Spock  → ollama/deepseek-r1:7b
+    "cto-grok42":        (0.00, 0.00),  # CTO Grok 4.2     → ollama/qwen2.5-coder:7b
+    "first-officer":     (0.00, 0.00),
+    "q-entity":          (0.00, 0.00),
+    # ── Google free tier (dalio-metals uses Gemini Flash — $0 under quota) ─
+    "dalio-metals":      (0.00, 0.00),
 }
 
 
@@ -71,13 +87,18 @@ def _is_local_provider(player_id: str) -> bool:
 
 def compute_cost(player_id: str, input_tokens: int, output_tokens: int) -> float:
     """Compute USD cost from token counts using per-model rates."""
-    # Check TOKEN_RATES first, then DB provider type, then default to expensive
+    # Fallback mode: always $0
+    if player_id in _fallback_active:
+        return 0.0
+    # DB provider check comes FIRST — if the player is on Ollama/dayblade, it's free
+    # regardless of what TOKEN_RATES says (prevents stale rates from billing local calls)
+    if player_id.startswith("ollama-") or _is_local_provider(player_id):
+        return 0.0
+    # Then consult TOKEN_RATES for known cloud players
     if player_id in TOKEN_RATES:
         rates = TOKEN_RATES[player_id]
-    elif player_id.startswith("ollama-") or _is_local_provider(player_id):
-        rates = (0.00, 0.00)
     else:
-        rates = (3.00, 15.00)  # default to expensive for unknown paid
+        rates = (3.00, 15.00)  # conservative default for unknown cloud players
     input_cost = (input_tokens / 1_000_000) * rates[0]
     output_cost = (output_tokens / 1_000_000) * rates[1]
     return input_cost + output_cost
@@ -85,6 +106,9 @@ def compute_cost(player_id: str, input_tokens: int, output_tokens: int) -> float
 
 def log_cost(player_id: str, call_type: str, prompt: str, response: str) -> float:
     """Log an API call with estimated tokens and cost. Returns cost_usd."""
+    # Mark fallback calls so they're distinguishable in api_costs table
+    if player_id in _fallback_active:
+        call_type = f"fallback:{call_type}"
     input_tokens = estimate_tokens(prompt)
     output_tokens = estimate_tokens(response)
     cost_usd = compute_cost(player_id, input_tokens, output_tokens)

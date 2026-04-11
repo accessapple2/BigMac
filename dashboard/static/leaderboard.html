@@ -1,0 +1,886 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>TradeMinds Agent Leaderboard</title>
+
+  <!-- Open Graph / iMessage / X sharing -->
+  <meta property="og:type"        content="website">
+  <meta property="og:title"       content="TradeMinds Agent Leaderboard">
+  <meta property="og:description" content="6 active agents — Sniper Mode. CSP, Covered Call, RSI, Bollinger. Alpha gate 0.3.">
+  <meta property="og:image"       content="/static/icon-192.png">
+  <meta property="og:url"         content="/leaderboard">
+  <meta name="twitter:card"       content="summary">
+  <meta name="twitter:title"      content="TradeMinds Agent Leaderboard — Sniper Mode">
+  <meta name="twitter:description" content="6 active agents in Sniper Mode. Alpha gate 0.3. Strategies: CSP, Covered Call, RSI, Bollinger.">
+
+  <style>
+    :root {
+      --bg:       #f5f5f0;
+      --surface:  #ffffff;
+      --border:   #e0ddd5;
+      --text:     #1a1a1a;
+      --muted:    #666;
+      --accent:   #1565c0;
+      --green:    #1a7a3a;
+      --green-bg: #e8f5e9;
+      --red:      #c62828;
+      --red-bg:   #ffebee;
+      --gold:     #c8960c;
+      --radius:   12px;
+      --shadow:   0 2px 8px rgba(0,0,0,0.08);
+    }
+    body.dark {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --accent:   #58a6ff;
+      --green:    #3fb950;
+      --green-bg: #0d2818;
+      --red:      #f85149;
+      --red-bg:   #2d0d0d;
+      --gold:     #e3b341;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+      font-size: 17px;
+      line-height: 1.5;
+      transition: background 0.3s, color 0.3s;
+    }
+    #app { max-width: 900px; margin: 0 auto; padding: 0 12px 40px; }
+
+    /* ── Header ── */
+    #header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 16px 0 12px;
+      gap: 10px;
+      flex-wrap: wrap;
+    }
+    #header-left { display: flex; align-items: center; gap: 10px; }
+    #home-btn {
+      background: none; border: none; cursor: pointer;
+      font-size: 26px; padding: 4px 8px; min-width: 44px; min-height: 44px;
+      display: flex; align-items: center; justify-content: center;
+      border-radius: 8px; color: var(--text);
+    }
+    #home-btn:hover { background: var(--border); }
+    h1 { font-size: 22px; font-weight: 700; color: var(--text); }
+    #season-badge {
+      background: var(--accent); color: #fff;
+      font-size: 12px; font-weight: 600; padding: 3px 10px;
+      border-radius: 20px; white-space: nowrap;
+    }
+    #header-right { display: flex; align-items: center; gap: 8px; }
+    #dark-btn {
+      background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 8px; cursor: pointer; font-size: 20px;
+      min-width: 44px; min-height: 44px;
+      display: flex; align-items: center; justify-content: center;
+    }
+    #refresh-btn {
+      background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 8px; cursor: pointer; font-size: 14px;
+      font-weight: 600; color: var(--accent);
+      padding: 0 14px; min-height: 44px;
+    }
+    #refresh-btn:active { opacity: 0.7; }
+    #last-updated { font-size: 13px; color: var(--muted); }
+
+    /* ── Detail Back ── */
+    #back-bar {
+      display: none;
+      align-items: center;
+      gap: 10px;
+      padding: 10px 0;
+    }
+    #back-bar.show { display: flex; }
+    #back-btn {
+      background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 8px; cursor: pointer; font-size: 14px;
+      font-weight: 600; color: var(--accent);
+      padding: 0 16px; min-height: 44px;
+    }
+    #detail-title { font-size: 18px; font-weight: 700; }
+
+    /* ── Sort bar ── */
+    #sort-bar {
+      display: flex;
+      gap: 8px;
+      flex-wrap: wrap;
+      margin-bottom: 16px;
+      align-items: center;
+    }
+    #sort-bar span { font-size: 14px; color: var(--muted); margin-right: 4px; }
+    .sort-btn {
+      background: var(--surface); border: 1.5px solid var(--border);
+      border-radius: 8px; cursor: pointer;
+      font-size: 14px; font-weight: 600; color: var(--muted);
+      padding: 0 14px; min-height: 40px;
+      transition: all 0.15s;
+    }
+    .sort-btn.active {
+      background: var(--accent); border-color: var(--accent);
+      color: #fff;
+    }
+
+    /* ── Agent grid ── */
+    #lb-grid { display: flex; flex-direction: column; gap: 10px; }
+    .agent-card {
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 14px 16px;
+      cursor: pointer;
+      display: grid;
+      grid-template-columns: 44px 1fr auto;
+      gap: 0 12px;
+      align-items: center;
+      transition: box-shadow 0.15s, border-color 0.15s;
+      -webkit-tap-highlight-color: transparent;
+    }
+    .agent-card:hover { box-shadow: var(--shadow); border-color: var(--accent); }
+    .agent-card.halted { opacity: 0.55; }
+    .rank-num {
+      font-size: 20px; font-weight: 800; color: var(--muted);
+      text-align: center;
+    }
+    .rank-num.gold { color: var(--gold); }
+    .rank-num.silver { color: #aaa; }
+    .rank-num.bronze { color: #cd7f32; }
+    .agent-info { min-width: 0; }
+    .agent-name {
+      font-size: 17px; font-weight: 700;
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .agent-sub {
+      font-size: 13px; color: var(--muted);
+      white-space: nowrap; overflow: hidden; text-overflow: ellipsis;
+    }
+    .agent-stats { text-align: right; white-space: nowrap; }
+    .return-pct {
+      font-size: 20px; font-weight: 800;
+      display: block;
+    }
+    .return-pct.pos { color: var(--green); }
+    .return-pct.neg { color: var(--red); }
+    .return-pct.flat { color: var(--muted); }
+    .equity-val {
+      font-size: 13px; color: var(--muted);
+      display: block;
+    }
+    .day-badge {
+      display: inline-block;
+      font-size: 12px; font-weight: 600;
+      padding: 2px 7px; border-radius: 6px;
+      margin-top: 3px;
+    }
+    .day-badge.pos { background: var(--green-bg); color: var(--green); }
+    .day-badge.neg { background: var(--red-bg); color: var(--red); }
+    .day-badge.flat { background: var(--border); color: var(--muted); }
+
+    /* ── Status badges on cards ── */
+    .status-row { margin-top: 8px; display: flex; gap: 6px; flex-wrap: wrap; }
+    .badge-pill {
+      font-size: 11px; font-weight: 600;
+      padding: 2px 8px; border-radius: 10px;
+    }
+    .badge-halted  { background: var(--red-bg);   color: var(--red);   }
+    .badge-paused  { background: #fff3e0;          color: #e65100;      }
+    .badge-indep   { background: #e8eaf6;          color: #3949ab;      }
+    .badge-shadow  { background: #f3e5f5;          color: #7b1fa2;      }
+
+    /* ── Loading / empty ── */
+    #loading {
+      text-align: center; padding: 60px 20px;
+      font-size: 18px; color: var(--muted);
+      display: none;
+    }
+    #loading.show { display: block; }
+    .spinner {
+      display: inline-block; width: 32px; height: 32px;
+      border: 3px solid var(--border); border-top-color: var(--accent);
+      border-radius: 50%; animation: spin 0.8s linear infinite;
+      margin-bottom: 12px;
+    }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* ── Detail view ── */
+    #detail-view { display: none; }
+    #detail-view.show { display: block; }
+    #lb-list-view.hidden { display: none; }
+
+    .detail-hero {
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      padding: 20px;
+      margin-bottom: 16px;
+    }
+    .detail-hero-name { font-size: 24px; font-weight: 800; margin-bottom: 4px; }
+    .detail-hero-sub { font-size: 15px; color: var(--muted); margin-bottom: 16px; }
+    .detail-stats-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(140px, 1fr));
+      gap: 12px;
+    }
+    .stat-box {
+      background: var(--bg);
+      border-radius: 8px;
+      padding: 12px;
+    }
+    .stat-label { font-size: 12px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat-value { font-size: 20px; font-weight: 700; margin-top: 4px; }
+    .stat-value.pos { color: var(--green); }
+    .stat-value.neg { color: var(--red); }
+
+    /* Recent trades table */
+    #trades-section { margin-top: 16px; }
+    #trades-section h2 { font-size: 17px; font-weight: 700; margin-bottom: 10px; }
+    .trades-table {
+      width: 100%;
+      border-collapse: collapse;
+      font-size: 14px;
+    }
+    .trades-table th {
+      text-align: left;
+      padding: 8px 10px;
+      border-bottom: 2px solid var(--border);
+      color: var(--muted);
+      font-size: 13px;
+      font-weight: 600;
+    }
+    .trades-table td {
+      padding: 10px 10px;
+      border-bottom: 1px solid var(--border);
+    }
+    .trades-table tr:last-child td { border-bottom: none; }
+    .trade-pnl.pos { color: var(--green); font-weight: 700; }
+    .trade-pnl.neg { color: var(--red); font-weight: 700; }
+    .trade-action-buy  { color: var(--green); font-weight: 700; }
+    .trade-action-sell { color: var(--red); font-weight: 700; }
+    .trades-wrapper {
+      background: var(--surface);
+      border: 1.5px solid var(--border);
+      border-radius: var(--radius);
+      overflow: hidden;
+      overflow-x: auto;
+    }
+
+    /* ── Embed widget (shown in /leaderboard/embed mode) ── */
+    body.embed-mode { background: var(--surface); }
+    body.embed-mode #app { max-width: 400px; padding: 12px; }
+    body.embed-mode #header { display: none; }
+    body.embed-mode #sort-bar { display: none; }
+    body.embed-mode .agent-card { padding: 10px 12px; }
+    body.embed-mode .agent-name { font-size: 15px; }
+    body.embed-mode .return-pct { font-size: 18px; }
+    #embed-title {
+      display: none;
+      font-size: 16px; font-weight: 700;
+      padding: 8px 4px 12px;
+      border-bottom: 2px solid var(--border);
+      margin-bottom: 12px;
+    }
+    body.embed-mode #embed-title { display: block; }
+
+    /* ── Footer ── */
+    #footer {
+      margin-top: 32px; padding-top: 16px;
+      border-top: 1px solid var(--border);
+      font-size: 13px; color: var(--muted);
+      text-align: center;
+    }
+    #footer a { color: var(--accent); text-decoration: none; }
+    #footer a:hover { text-decoration: underline; }
+
+    /* ── Mobile ── */
+    @media (max-width: 600px) {
+      h1 { font-size: 18px; }
+      .agent-card {
+        grid-template-columns: 38px 1fr auto;
+        gap: 0 8px;
+        padding: 12px;
+      }
+      .rank-num { font-size: 18px; }
+      .agent-name { font-size: 16px; }
+      .return-pct { font-size: 18px; }
+      .detail-stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+  <div id="embed-title">🚀 TradeMinds — Top Agents</div>
+
+  <div id="header">
+    <div id="header-left">
+      <button id="home-btn" onclick="goHome()" title="Back to Bridge">⬅</button>
+      <div>
+        <h1>Agent Leaderboard</h1>
+        <span id="last-updated"></span>
+      </div>
+      <span id="season-badge">Season 6: Sniper Mode</span>
+    </div>
+    <div id="header-right">
+      <button id="dark-btn" onclick="toggleDark()" title="Toggle dark mode">🌙</button>
+      <button id="refresh-btn" onclick="loadData(true)">↻ Refresh</button>
+    </div>
+  </div>
+
+  <div id="back-bar">
+    <button id="back-btn" onclick="showList()">← All Agents</button>
+    <span id="detail-title"></span>
+  </div>
+
+  <!-- List view -->
+  <div id="lb-list-view">
+    <div id="sort-bar">
+      <span>Sort by:</span>
+      <button class="sort-btn active" data-sort="return_pct" onclick="setSort('return_pct',this)">Return %</button>
+      <button class="sort-btn" data-sort="total_pnl" onclick="setSort('total_pnl',this)">P&amp;L $</button>
+      <button class="sort-btn" data-sort="win_rate" onclick="setSort('win_rate',this)">Win Rate</button>
+      <button class="sort-btn" data-sort="trades" onclick="setSort('trades',this)">Trades</button>
+      <button class="sort-btn" data-sort="day_pnl" onclick="setSort('day_pnl',this)">Today</button>
+    </div>
+    <div id="loading"><div class="spinner"></div><br>Loading agents…</div>
+    <!-- Proving Ground compact bar -->
+    <div id="pg-bar" style="display:flex;gap:14px;flex-wrap:wrap;align-items:center;padding:8px 12px;background:#0a0e14;border:1px solid #1a2030;border-radius:4px;margin-bottom:10px;font-size:11px;">
+      <span style="font-size:9px;letter-spacing:2px;color:#ff7700;text-transform:uppercase;">Proving Ground</span>
+      <span id="lb-pg-day" style="color:#556677">Day —/30</span>
+      <span>WR <b id="lb-pg-wr" style="color:#00cc55">—</b></span>
+      <span>Sharpe <b id="lb-pg-sh" style="color:#00cc55">—</b></span>
+      <span>DD <b id="lb-pg-dd" style="color:#ff4444">—</b></span>
+      <span>Trades <b id="lb-pg-tr" style="color:#aabbcc">—</b></span>
+      <span style="flex:1"></span>
+      <span id="lb-pg-lights" style="display:flex;gap:3px;align-items:center;"></span>
+      <b id="lb-pg-go" style="color:#00cc55">—/6</b>
+    </div>
+    <div id="lb-grid"></div>
+  </div>
+
+  <!-- Detail view -->
+  <div id="detail-view">
+    <div class="detail-hero" id="detail-hero"></div>
+    <div id="trades-section">
+      <h2>Recent Trades</h2>
+      <div class="trades-wrapper">
+        <table class="trades-table">
+          <thead>
+            <tr>
+              <th>Date</th>
+              <th>Symbol</th>
+              <th>Action</th>
+              <th>Qty</th>
+              <th>Price</th>
+              <th>P&amp;L</th>
+              <th>Explain</th>
+            </tr>
+          </thead>
+          <tbody id="trades-body"></tbody>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div id="footer">
+    <a href="/">← Back to Bridge</a> &nbsp;·&nbsp;
+    <a href="/leaderboard/embed" target="_blank">Embed Widget</a> &nbsp;·&nbsp;
+    Auto-refreshes every 5 min
+  </div>
+</div>
+
+<script>
+(function() {
+
+// ── State ──────────────────────────────────────────────────────────────────
+var _agents = [];
+var _sortKey = 'return_pct';
+var _darkMode = false;
+var _refreshTimer = null;
+var _currentSlug = null;
+var _isEmbed = false;
+
+// ── Init ───────────────────────────────────────────────────────────────────
+function init() {
+  // Detect embed mode
+  var path = window.location.pathname;
+  if (path === '/leaderboard/embed' || path.indexOf('/leaderboard/embed') === 0) {
+    _isEmbed = true;
+    document.body.classList.add('embed-mode');
+    _sortKey = 'return_pct';
+  }
+
+  // Dark mode from localStorage
+  var saved = localStorage.getItem('lb_dark');
+  if (saved === null) {
+    // Auto-night after 7 PM like /charts
+    var h = new Date().getHours();
+    _darkMode = (h >= 19 || h < 7);
+  } else {
+    _darkMode = (saved === '1');
+  }
+  applyDark(_darkMode);
+
+  // Check for slug in path: /leaderboard/{slug}
+  var m = path.match(/^\/leaderboard\/([^\/]+)$/);
+  if (m && m[1] !== 'embed') {
+    _currentSlug = m[1];
+  }
+
+  loadData(false);
+
+  // Auto-refresh every 5 min
+  _refreshTimer = setInterval(function() { loadData(false); }, 5 * 60 * 1000);
+}
+
+// ── Theme ──────────────────────────────────────────────────────────────────
+function applyDark(on) {
+  _darkMode = on;
+  document.body.classList.toggle('dark', on);
+  document.getElementById('dark-btn').textContent = on ? '☀️' : '🌙';
+}
+function toggleDark() {
+  applyDark(!_darkMode);
+  localStorage.setItem('lb_dark', _darkMode ? '1' : '0');
+}
+window.toggleDark = toggleDark;
+
+// ── Data ───────────────────────────────────────────────────────────────────
+function loadData(force) {
+  document.getElementById('loading').classList.add('show');
+  var url = '/api/arena/leaderboard' + (force ? '?nocache=true' : '');
+  fetch(url)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      document.getElementById('loading').classList.remove('show');
+      var lb = d.leaderboard || d.players || d.agents || [];
+      // Filter out system/special players for public leaderboard
+      _agents = lb.filter(function(a) {
+        var pid = a.player_id || a.id || '';
+        return !/(super-agent|dayblade|capitol-trades|steve-webull|kirk|enterprise-computer|red-alert)/i.test(pid);
+      });
+
+      // Update season badge
+      if (d.season || d.current_season) {
+        var sn = d.season || d.current_season;
+        document.getElementById('season-badge').textContent = sn >= 6 ? 'Season ' + sn + ': Sniper Mode' : 'Season ' + sn;
+        // Update OG description dynamically too
+        var meta = document.querySelector('meta[property="og:description"]');
+        if (meta) meta.setAttribute('content', _agents.length + ' AI agents competing live in the USS Enterprise trading arena. Season ' + (d.season || d.current_season) + '.');
+      }
+
+      var now = new Date();
+      document.getElementById('last-updated').textContent =
+        'Updated ' + now.getHours() + ':' + String(now.getMinutes()).padStart(2,'0');
+
+      if (_currentSlug) {
+        renderDetail(_currentSlug);
+      } else {
+        renderList();
+        if (_isEmbed) trimToTop5();
+      }
+    })
+    .catch(function(e) {
+      document.getElementById('loading').classList.remove('show');
+      document.getElementById('lb-grid').innerHTML =
+        '<p style="color:var(--red);padding:20px">Failed to load data. ' + e.message + '</p>';
+    });
+}
+
+// ── Sort ───────────────────────────────────────────────────────────────────
+function setSort(key, btn) {
+  _sortKey = key;
+  document.querySelectorAll('.sort-btn').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+  renderList();
+}
+window.setSort = setSort;
+
+function sorted(agents) {
+  return agents.slice().sort(function(a, b) {
+    var av = a[_sortKey] || 0, bv = b[_sortKey] || 0;
+    return bv - av;
+  });
+}
+
+// ── Render list ────────────────────────────────────────────────────────────
+function renderList() {
+  var grid = document.getElementById('lb-grid');
+  var list = sorted(_agents);
+  if (!list.length) {
+    grid.innerHTML = '<p style="padding:40px;text-align:center;color:var(--muted)">No agents found.</p>';
+    return;
+  }
+  grid.innerHTML = list.map(function(a, i) {
+    return agentCard(a, i);
+  }).join('');
+}
+
+function agentCard(a, rank) {
+  var ret = a.return_pct || 0;
+  var retClass = ret > 0 ? 'pos' : (ret < 0 ? 'neg' : 'flat');
+  var retStr = (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%';
+
+  var day = a.day_pnl || a.day_change || 0;
+  var dayClass = day > 0 ? 'pos' : (day < 0 ? 'neg' : 'flat');
+  var dayStr = '$' + (day >= 0 ? '+' : '') + fmt(day);
+
+  var rankClass = '';
+  if (rank === 0) rankClass = 'gold';
+  else if (rank === 1) rankClass = 'silver';
+  else if (rank === 2) rankClass = 'bronze';
+
+  var slug = (a.player_id || a.id || '').replace(/\s+/g, '-').toLowerCase();
+  var name = a.name || a.display_name || slug;
+  var provider = (a.provider || '').toUpperCase();
+  var model = a.model || a.model_id || '';
+  var sub = [provider, model].filter(Boolean).join(' · ');
+
+  var badges = '';
+  if (a.is_halted) badges += '<span class="badge-pill badge-halted">HALTED</span>';
+  if (a.is_paused) badges += '<span class="badge-pill badge-paused">PAUSED</span>';
+  if (a.is_independent) badges += '<span class="badge-pill badge-indep">INDEPENDENT</span>';
+  if (a.has_shadow_options) badges += '<span class="badge-pill badge-shadow">OPTIONS</span>';
+
+  var equity = a.current_equity || a.total_value || 0;
+
+  return '<div class="agent-card' + (a.is_halted ? ' halted' : '') + '" onclick="openDetail(\'' + esc(slug) + '\')">' +
+    '<div class="rank-num ' + rankClass + '">' + (rank + 1) + '</div>' +
+    '<div class="agent-info">' +
+      '<div class="agent-name">' + esc(name) + '</div>' +
+      '<div class="agent-sub">' + esc(sub) + ' · ' + (a.trades || 0) + ' trades · ' + fmtWin(a.win_rate) + ' win</div>' +
+      (badges ? '<div class="status-row">' + badges + '</div>' : '') +
+    '</div>' +
+    '<div class="agent-stats">' +
+      '<span class="return-pct ' + retClass + '">' + retStr + '</span>' +
+      '<span class="equity-val">$' + fmt(equity) + '</span>' +
+      '<span class="day-badge ' + dayClass + '">' + dayStr + '</span>' +
+    '</div>' +
+  '</div>';
+}
+
+function trimToTop5() {
+  var cards = document.getElementById('lb-grid').querySelectorAll('.agent-card');
+  for (var i = 5; i < cards.length; i++) {
+    cards[i].style.display = 'none';
+  }
+}
+
+// ── Detail view ────────────────────────────────────────────────────────────
+function openDetail(slug) {
+  _currentSlug = slug;
+  history.pushState({slug: slug}, '', '/leaderboard/' + slug);
+  updateOGForAgent(slug);
+  renderDetail(slug);
+}
+window.openDetail = openDetail;
+
+function showList() {
+  _currentSlug = null;
+  history.pushState({}, '', '/leaderboard');
+  document.getElementById('detail-view').classList.remove('show');
+  document.getElementById('lb-list-view').classList.remove('hidden');
+  document.getElementById('back-bar').classList.remove('show');
+  document.title = 'TradeMinds Agent Leaderboard';
+}
+window.showList = showList;
+
+function renderDetail(slug) {
+  var agent = null;
+  for (var i = 0; i < _agents.length; i++) {
+    var pid = (_agents[i].player_id || _agents[i].id || '').replace(/\s+/g, '-').toLowerCase();
+    if (pid === slug) { agent = _agents[i]; break; }
+  }
+  if (!agent) {
+    // Try partial match
+    for (var j = 0; j < _agents.length; j++) {
+      var pid2 = (_agents[j].player_id || _agents[j].id || '');
+      if (pid2 === slug || pid2.toLowerCase().indexOf(slug) >= 0) { agent = _agents[j]; break; }
+    }
+  }
+  if (!agent) {
+    document.getElementById('lb-list-view').classList.add('hidden');
+    document.getElementById('detail-view').classList.add('show');
+    document.getElementById('back-bar').classList.add('show');
+    document.getElementById('detail-hero').innerHTML = '<p style="color:var(--red);padding:20px">Agent not found: ' + esc(slug) + '</p>';
+    document.getElementById('trades-body').innerHTML = '';
+    return;
+  }
+
+  document.getElementById('lb-list-view').classList.add('hidden');
+  document.getElementById('detail-view').classList.add('show');
+  document.getElementById('back-bar').classList.add('show');
+
+  var name = agent.name || agent.display_name || slug;
+  document.getElementById('detail-title').textContent = name;
+  document.title = name + ' — TradeMinds Leaderboard';
+
+  var ret = agent.return_pct || 0;
+  var retClass = ret > 0 ? 'pos' : (ret < 0 ? 'neg' : 'flat');
+  var day = agent.day_pnl || agent.day_change || 0;
+  var dayClass = day > 0 ? 'pos' : (day < 0 ? 'neg' : 'flat');
+  var totalPnl = agent.total_pnl || 0;
+  var pnlClass = totalPnl > 0 ? 'pos' : (totalPnl < 0 ? 'neg' : 'flat');
+
+  var provider = (agent.provider || '').toUpperCase();
+  var model = agent.model || agent.model_id || '';
+  var sub = [provider, model].filter(Boolean).join(' · ');
+
+  document.getElementById('detail-hero').innerHTML =
+    '<div class="detail-hero-name">' + esc(name) + '</div>' +
+    '<div class="detail-hero-sub">' + esc(sub) + '</div>' +
+    '<div class="detail-stats-grid">' +
+      statBox('Return', (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%', retClass) +
+      statBox('Total P&L', '$' + fmt(totalPnl), pnlClass) +
+      statBox('Today', '$' + (day >= 0 ? '+' : '') + fmt(day), dayClass) +
+      statBox('Equity', '$' + fmt(agent.current_equity || agent.total_value || 0), '') +
+      statBox('Win Rate', fmtWin(agent.win_rate), agent.win_rate > 50 ? 'pos' : '') +
+      statBox('Trades', String(agent.trades || 0), '') +
+      statBox('Cash', '$' + fmt(agent.cash || 0), '') +
+      statBox('Positions', String(agent.positions_count || 0), '') +
+    '</div>';
+
+  // Load recent trades
+  loadTrades(agent.player_id || agent.id || slug);
+}
+
+function statBox(label, value, cls) {
+  return '<div class="stat-box">' +
+    '<div class="stat-label">' + label + '</div>' +
+    '<div class="stat-value ' + cls + '">' + value + '</div>' +
+  '</div>';
+}
+
+function loadTrades(playerId) {
+  var body = document.getElementById('trades-body');
+  body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">Loading…</td></tr>';
+
+  fetch('/api/v1/signals?limit=200')
+    .then(function(r) { return r.json(); })
+    .catch(function() { return {signals: []}; })
+    .then(function() {
+      // Use the trades endpoint directly from the DB
+      return fetch('/api/trades/recent?player_id=' + encodeURIComponent(playerId) + '&limit=30')
+        .then(function(r) { return r.json(); })
+        .catch(function() { return {trades: []}; });
+    })
+    .then(function(d) {
+      var trades = d.trades || d.rows || [];
+      if (!trades.length) {
+        body.innerHTML = '<tr><td colspan="6" style="text-align:center;color:var(--muted);padding:20px">No recent trades</td></tr>';
+        return;
+      }
+      body.innerHTML = trades.map(function(t) {
+        var pnl = t.realized_pnl || t.corrected_pnl || 0;
+        var pnlStr = pnl !== 0 ? '$' + (pnl >= 0 ? '+' : '') + pnl.toFixed(2) : '—';
+        var pnlClass = pnl > 0 ? 'pos' : (pnl < 0 ? 'neg' : '');
+        var action = (t.action || '').toUpperCase();
+        var actionClass = action === 'BUY' ? 'trade-action-buy' : (action === 'SELL' ? 'trade-action-sell' : '');
+        var dt = t.executed_at ? t.executed_at.substring(0, 10) : '—';
+        return '<tr>' +
+          '<td>' + dt + '</td>' +
+          '<td><strong>' + esc(t.symbol || '') + '</strong></td>' +
+          '<td class="' + actionClass + '">' + action + '</td>' +
+          '<td>' + (t.qty || '—') + '</td>' +
+          '<td>$' + fmtPrice(t.price || t.entry_price || 0) + '</td>' +
+          '<td class="trade-pnl ' + pnlClass + '">' + pnlStr + '</td>' +
+          (t.id ? '<td><button onclick="lbExplainTrade(' + t.id + ')" style="background:rgba(88,166,255,0.15);color:#58a6ff;border:1px solid #58a6ff;border-radius:6px;padding:3px 10px;font-size:12px;cursor:pointer;">🔍 Why</button></td>' : '<td></td>') +
+        '</tr>';
+      }).join('');
+    });
+}
+
+// ── OG update for sharing ──────────────────────────────────────────────────
+function updateOGForAgent(slug) {
+  var agent = null;
+  for (var i = 0; i < _agents.length; i++) {
+    var pid = (_agents[i].player_id || _agents[i].id || '').replace(/\s+/g, '-').toLowerCase();
+    if (pid === slug) { agent = _agents[i]; break; }
+  }
+  if (!agent) return;
+  var name = agent.name || agent.display_name || slug;
+  var ret = agent.return_pct || 0;
+  var retStr = (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%';
+  var setMeta = function(prop, val) {
+    var el = document.querySelector('meta[property="' + prop + '"]');
+    if (el) el.setAttribute('content', val);
+  };
+  setMeta('og:title', name + ' — ' + retStr + ' · TradeMinds');
+  setMeta('og:description', name + ' is ' + retStr + ' return with ' + (agent.trades || 0) + ' trades. ' + fmtWin(agent.win_rate) + ' win rate.');
+  setMeta('og:url', '/leaderboard/' + slug);
+}
+
+// ── Navigation ─────────────────────────────────────────────────────────────
+function goHome() { window.location.href = '/'; }
+window.goHome = goHome;
+
+window.addEventListener('popstate', function(e) {
+  var path = window.location.pathname;
+  var m = path.match(/^\/leaderboard\/([^\/]+)$/);
+  if (m && m[1] !== 'embed') {
+    _currentSlug = m[1];
+    renderDetail(m[1]);
+  } else {
+    showList();
+  }
+});
+
+// ── Helpers ────────────────────────────────────────────────────────────────
+function fmt(n) {
+  if (n === null || n === undefined) return '0';
+  var abs = Math.abs(n);
+  var sign = n < 0 ? '-' : '';
+  if (abs >= 1000) return sign + abs.toLocaleString('en-US', {minimumFractionDigits: 0, maximumFractionDigits: 0});
+  return sign + abs.toFixed(2);
+}
+function fmtPrice(n) {
+  if (!n) return '0.00';
+  return parseFloat(n).toFixed(2);
+}
+function fmtWin(w) {
+  if (w === null || w === undefined || w === 0) return '—';
+  return w.toFixed(1) + '%';
+}
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── Proving Ground bar ─────────────────────────────────────────────────────
+function loadProvingGround() {
+  fetch('/api/proving-ground')
+    .then(function(r) { return r.json(); })
+    .then(function(pg) {
+      if (!pg || pg.error) return;
+      var setText = function(id, v) { var e = document.getElementById(id); if(e) e.textContent = v; };
+      var setCol  = function(id, c) { var e = document.getElementById(id); if(e) e.style.color = c; };
+      setText('lb-pg-day', 'Day ' + (pg.trial_day||0) + '/30');
+      setText('lb-pg-wr',  (pg.win_rate||0).toFixed(1) + '%');
+      setText('lb-pg-sh',  (pg.sharpe||0).toFixed(3));
+      setText('lb-pg-dd',  (pg.max_drawdown||0).toFixed(1) + '%');
+      setText('lb-pg-tr',  pg.total_trades || 0);
+      setText('lb-pg-go',  (pg.go_count||0) + '/6');
+      setCol('lb-pg-go', (pg.go_count||0) >= 6 ? '#00cc55' : (pg.go_count||0) >= 3 ? '#ffcc00' : '#ff4444');
+      // lights
+      var st = pg.statuses || {};
+      var keys = ['win_rate','sharpe','max_drawdown','exec_gap','max_consec_loss','total_trades'];
+      var el = document.getElementById('lb-pg-lights');
+      if (el) {
+        el.innerHTML = keys.map(function(k) {
+          var s = st[k] || 'pending';
+          var c = s==='pass' ? '#00cc55' : s==='fail' ? '#ff4444' : '#334455';
+          return '<span title="'+k+'" style="width:10px;height:10px;border-radius:50%;background:'+c+';display:inline-block;"></span>';
+        }).join('');
+      }
+    }).catch(function(){});
+}
+loadProvingGround();
+setInterval(loadProvingGround, 5 * 60 * 1000);
+
+// ── Start ──────────────────────────────────────────────────────────────────
+init();
+
+})();
+</script>
+
+<!-- ── TRADE EXPLAIN MODAL (Phase 3.4) ──────────────────────────────────── -->
+<div id="lb-explain-modal" style="display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:9000;overflow-y:auto;padding:20px;" onclick="if(event.target===this)lbCloseExplain()">
+  <div style="max-width:640px;margin:0 auto;background:var(--surface);border-radius:16px;overflow:hidden;box-shadow:0 8px 40px rgba(0,0,0,0.35);">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:16px 20px;border-bottom:1.5px solid var(--border);">
+      <div>
+        <div id="lb-explain-title" style="font-size:18px;font-weight:800;color:var(--text);">Trade Decision Chain</div>
+        <div id="lb-explain-sub" style="font-size:13px;color:var(--muted);margin-top:2px;"></div>
+      </div>
+      <button onclick="lbCloseExplain()" style="background:var(--border);border:none;border-radius:8px;padding:6px 14px;font-size:15px;cursor:pointer;color:var(--text);">✕</button>
+    </div>
+    <div id="lb-explain-body" style="padding:20px;">
+      <div style="text-align:center;padding:40px;color:var(--muted);">Loading…</div>
+    </div>
+  </div>
+</div>
+
+<script>
+function lbExplainTrade(tradeId) {
+  var modal = document.getElementById('lb-explain-modal');
+  modal.style.display = 'block';
+  document.getElementById('lb-explain-title').textContent = 'Trade Decision Chain';
+  document.getElementById('lb-explain-sub').textContent = 'Trade #' + tradeId;
+  document.getElementById('lb-explain-body').innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">Loading…</div>';
+  fetch('/api/trades/' + tradeId + '/explain')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.ok) { document.getElementById('lb-explain-body').innerHTML = '<p style="color:var(--red);padding:20px">' + lbEsc(d.error||'Error') + '</p>'; return; }
+      lbRenderExplain(d.explain);
+    })
+    .catch(function(e) {
+      document.getElementById('lb-explain-body').innerHTML = '<p style="color:var(--red);padding:20px">Failed: ' + lbEsc(e.message) + '</p>';
+    });
+}
+window.lbExplainTrade = lbExplainTrade;
+
+function lbCloseExplain() {
+  document.getElementById('lb-explain-modal').style.display = 'none';
+}
+
+function lbRenderExplain(ex) {
+  var action = (ex.action||'').toUpperCase();
+  document.getElementById('lb-explain-title').textContent = action + ' ' + (ex.symbol||'') + (ex.price ? ' @ $'+parseFloat(ex.price).toFixed(2) : '');
+  document.getElementById('lb-explain-sub').textContent = (ex.player_id||'') + ' · ' + (ex.executed_at||'').substring(0,16) + (ex.confidence ? ' · '+Math.round(ex.confidence*100)+'% confidence' : '');
+
+  var html = '';
+  // Reasoning
+  if (ex.reasoning) {
+    html += '<div style="background:var(--bg);border-radius:10px;padding:14px;margin-bottom:16px;font-size:13px;color:var(--text);border-left:3px solid var(--accent);">' +
+      '<div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;margin-bottom:6px;">Agent Reasoning</div>' +
+      lbEsc(ex.reasoning) + '</div>';
+  }
+
+  // Timeline
+  var steps = ex.timeline || [];
+  for (var i=0; i<steps.length; i++) {
+    var s = steps[i];
+    var isLast = i === steps.length-1;
+    var icon = s.status==='ok'?'✅':(s.status==='fail'?'❌':(s.status==='unavailable'?'⚪':'🔵'));
+    var bc = s.status==='ok'?'var(--green)':(s.status==='fail'?'var(--red)':'var(--border)');
+    html += '<div style="display:flex;gap:12px;margin-bottom:'+(isLast?'0':'16px')+';">' +
+      '<div style="display:flex;flex-direction:column;align-items:center;">' +
+        '<div style="width:34px;height:34px;border-radius:50%;border:2px solid '+bc+';background:var(--bg);display:flex;align-items:center;justify-content:center;font-size:15px;flex-shrink:0;">'+icon+'</div>' +
+        (!isLast?'<div style="width:2px;flex:1;background:var(--border);margin:4px 0;min-height:14px;"></div>':'') +
+      '</div>' +
+      '<div style="flex:1;padding-top:2px;">' +
+        '<div style="font-size:14px;font-weight:700;color:var(--text);">'+lbEsc(s.label||'')+'</div>' +
+        '<div style="font-size:12px;color:var(--muted);margin-top:1px;">'+lbEsc(s.ts||'')+'</div>' +
+        '<div style="font-size:13px;color:var(--text);margin-top:4px;background:var(--bg);border-radius:8px;padding:8px;">'+lbEsc(s.detail||'')+'</div>' +
+      '</div>' +
+    '</div>';
+  }
+
+  // Votes summary
+  var votes = ex.votes || {};
+  var buyC = (votes.BUY||[]).length, sellC = (votes.SELL||[]).length, holdC = (votes.HOLD||[]).length;
+  if (buyC+sellC+holdC > 0) {
+    html += '<div style="margin-top:16px;display:flex;gap:12px;">' +
+      '<div style="flex:1;background:var(--green-bg);color:var(--green);border-radius:8px;padding:10px;text-align:center;font-weight:700;">BUY<br><span style="font-size:22px;">'+buyC+'</span></div>' +
+      '<div style="flex:1;background:var(--red-bg);color:var(--red);border-radius:8px;padding:10px;text-align:center;font-weight:700;">SELL<br><span style="font-size:22px;">'+sellC+'</span></div>' +
+      '<div style="flex:1;background:var(--border);color:var(--muted);border-radius:8px;padding:10px;text-align:center;font-weight:700;">HOLD<br><span style="font-size:22px;">'+holdC+'</span></div>' +
+    '</div>';
+  }
+
+  document.getElementById('lb-explain-body').innerHTML = html;
+}
+
+function lbEsc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+</script>
+</body>
+</html>

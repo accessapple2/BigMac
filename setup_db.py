@@ -2,6 +2,9 @@ import sqlite3
 import os
 
 DB_PATH = "data/trader.db"
+# NOTE: All arena data (players, trades, signals, portfolio_history) lives in trader.db.
+# There is no separate arena.db — any empty arena.db files in the project root or data/
+# are dead artifacts and can be safely deleted.
 OPENAI_CODEX_MODEL = os.environ.get("OPENAI_CODEX_MODEL", "gpt-5.2-codex")
 OPENAI_CODEX_MINI_MODEL = os.environ.get("OPENAI_CODEX_MINI_MODEL", OPENAI_CODEX_MODEL)
 
@@ -125,6 +128,35 @@ def setup():
         value TEXT NOT NULL
     )''')
 
+    c.execute('''CREATE TABLE IF NOT EXISTS season_config (
+        season       INTEGER PRIMARY KEY,
+        name         TEXT    NOT NULL,
+        start_date   TEXT    NOT NULL,
+        end_date     TEXT,
+        active_agents TEXT,
+        strategies   TEXT,
+        alpha_gate   REAL    DEFAULT 0.3,
+        triple_filter TEXT,
+        proving_ground INTEGER DEFAULT 0,
+        created_at   TEXT    DEFAULT (datetime('now'))
+    )''')
+
+    c.execute('''CREATE TABLE IF NOT EXISTS ollie_decisions (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        decided_at   TEXT    NOT NULL DEFAULT (datetime('now')),
+        player_id    TEXT    NOT NULL,
+        symbol       TEXT    NOT NULL,
+        decision     TEXT    NOT NULL,
+        ollie_score  REAL    NOT NULL,
+        grade_pts    REAL,
+        alpha_pts    REAL,
+        agent_wr_pts REAL,
+        regime_pts   REAL,
+        reason       TEXT,
+        market_regime TEXT,
+        agent_conf   REAL
+    )''')
+
     c.execute('''CREATE TABLE IF NOT EXISTS model_stats (
         id INTEGER PRIMARY KEY,
         player_id TEXT NOT NULL REFERENCES ai_players(id),
@@ -203,28 +235,31 @@ def setup():
 
     # Seed AI players
     players = [
-        ("ollama-local", "Lt. Cmdr. Geordi", "ollama", "gemma3:4b"),
-        ("ollama-gemma27b", "Gemma3 27B", "ollama", "gemma3:27b"),
-        ("ollama-deepseek", "DeepSeek R1 14B", "ollama", "deepseek-r1:14b"),
-        ("ollama-qwen3", "Lt. Cmdr. Scotty", "ollama", "qwen3:8b"),
+        ("ollama-local", "Lt. Cmdr. Geordi", "ollama", "qwen3:14b"),
+        ("ollama-gemma27b", "Qwen3.5 9B", "ollama", "qwen3.5:9b"),
+        ("ollama-deepseek", "DeepSeek R1 7B", "ollama", "deepseek-r1:7b"),
+        ("ollama-qwen3", "Lt. Cmdr. Scotty", "ollama", "qwen3.5:9b"),
+        ("ollama-kimi", "Kimi → Qwen3.5", "ollama", "qwen3.5:9b"),
+        ("ollama-coder", "Lt. Cmdr. Data", "ollama", "qwen2.5-coder:7b"),
         ("ollama-llama", "Lt. Cmdr. Uhura", "ollama", "llama3.1:latest"),
-        ("claude-sonnet", "Codex Prime", "openai", OPENAI_CODEX_MODEL),
-        ("claude-haiku", "Codex Scout", "openai", OPENAI_CODEX_MINI_MODEL),
-        ("gpt-4o", "GPT-4o", "openai", "gpt-4o"),
-        ("gpt-o3", "GPT-o3", "openai", "o3"),
-        ("gemini-2.5-pro", "Gemini 2.5 Pro", "google", "gemini-2.5-pro"),
-        ("gemini-2.5-flash", "Lt. Cmdr. Worf", "google", "gemini-2.5-flash"),
-        ("grok-3", "Grok 3", "xai", "grok-4-1-fast-reasoning"),
-        ("grok-4", "Lt. Cmdr. Spock", "xai", "grok-4.20-0309-reasoning"),
+        ("claude-sonnet", "Codex Prime", "ollama", "qwen3.5:9b"),
+        ("claude-haiku", "Codex Scout", "ollama", "qwen2.5-coder:7b"),
+        ("gpt-4o", "GPT-4o", "ollama", "qwen3.5:9b"),
+        ("gpt-o3", "GPT-o3", "ollama", "deepseek-r1:7b"),
+        ("gemini-2.5-pro", "Qwen3 14B Pro", "ollama", "qwen3:14b"),
+        ("gemini-2.5-flash", "Lt. Cmdr. Worf", "ollama", "qwen3.5:9b"),
+        ("grok-3", "Grok 3", "ollama", "qwen3.5:9b"),
+        ("grok-4", "Lt. Cmdr. Spock", "ollama", "deepseek-r1:7b"),
         ("dayblade-0dte", "DayBlade Options", "dayblade", "options-s2"),
         ("steve-webull", "Captain Kirk", "webull", "human"),
-        ("cto-grok42", "CTO Grok 4.2", "xai", "grok-4.20-0309-reasoning"),
-        ("ollama-glm4", "GLM4 9B", "ollama", "glm4:9b"),
+        ("cto-grok42", "CTO Grok 4.2", "ollama", "qwen2.5-coder:7b"),
+        ("ollama-glm4", "GLM4 → Qwen3.5", "ollama", "qwen3.5:9b"),
         ("ollama-plutus", "Dr. McCoy", "ollama", "0xroyce/plutus"),
-        ("options-sosnoff", "Counselor Troi", "google", "gemini-2.5-flash"),
-        ("energy-arnold", "Cmdr. Trip Tucker", "ollama", "qwen3:8b"),
-        ("dayblade-sulu", "Lt. Sulu", "ollama", "qwen3:8b"),
+        ("options-sosnoff", "Counselor Troi", "ollama", "qwen3.5:9b"),
+        ("energy-arnold", "Cmdr. Trip Tucker", "ollama", "qwen3.5:9b"),
+        ("dayblade-sulu", "Lt. Sulu", "ollama", "qwen3:14b"),
         ("dalio-metals", "Cmdr. Dalio", "physical", "metals-tracker"),
+        ("mlx-qwen3", "Ensign Chekov", "ollama", "qwen3.5:9b"),
     ]
     for pid, name, provider, model in players:
         cash = 3500.00 if pid == "dayblade-0dte" else (0.0 if pid == "steve-webull" else (0.0 if pid == "cto-grok42" else 7000.00))
@@ -233,15 +268,32 @@ def setup():
             (pid, name, provider, model, cash)
         )
 
-    # Keep legacy player IDs for continuity, but migrate their provider/model to Codex.
-    c.execute(
-        "UPDATE ai_players SET display_name=?, provider='openai', model_id=? WHERE id='claude-sonnet'",
-        ("Codex Prime", OPENAI_CODEX_MODEL),
-    )
-    c.execute(
-        "UPDATE ai_players SET display_name=?, provider='openai', model_id=? WHERE id='claude-haiku'",
-        ("Codex Scout", OPENAI_CODEX_MINI_MODEL),
-    )
+    # Migrate ALL paid/paused players to free local Ollama — every agent active
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b' WHERE id='claude-sonnet'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen2.5-coder:7b' WHERE id='claude-haiku'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b' WHERE id='gpt-4o'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='deepseek-r1:7b' WHERE id='gpt-o3'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b' WHERE id='grok-3'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='deepseek-r1:7b' WHERE id='grok-4'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen2.5-coder:7b' WHERE id='cto-grok42'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='deepseek-r1:7b' WHERE id='ollama-deepseek'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b', display_name='Qwen3.5 9B' WHERE id='ollama-gemma27b'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b', display_name='GLM4 → Qwen3.5' WHERE id='ollama-glm4'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b', display_name='Kimi → Qwen3.5' WHERE id='ollama-kimi'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b' WHERE id='gemini-2.5-flash'")
+    c.execute("UPDATE ai_players SET display_name='Qwen3 14B Pro', provider='ollama', model_id='qwen3:14b' WHERE id='gemini-2.5-pro'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b' WHERE id='options-sosnoff'")
+    c.execute("UPDATE ai_players SET model_id='qwen3.5:9b' WHERE id='ollama-qwen3'")
+    c.execute("UPDATE ai_players SET model_id='qwen3.5:9b' WHERE id='mlx-qwen3'")
+    c.execute("UPDATE ai_players SET model_id='qwen3.5:9b' WHERE id='energy-arnold'")
+    # Activate ALL agents (except permanently shelved Sniper Mode advisory crew)
+    # ollie-auto is NOT shelved — he is Fleet Commander (is_paused=0, crew_role='commander')
+    _shelved = "('capitol-trades','dalio-metals','dayblade-0dte','dayblade-sulu','super-agent')"
+    c.execute(f"UPDATE ai_players SET is_active=1, is_paused=0 WHERE id != 'steve-webull' AND id NOT IN {_shelved}")
+    # Shelved advisory agents: keep paused permanently
+    c.execute(f"UPDATE ai_players SET is_active=1, is_paused=1, crew_role='advisory' WHERE id IN {_shelved}")
+    # Ollie: Fleet Commander — active, not paused, special commander role
+    c.execute("UPDATE ai_players SET is_active=1, is_paused=0, crew_role='commander' WHERE id='ollie-auto'")
 
     c.execute('''CREATE TABLE IF NOT EXISTS watchlist_signals (
         id INTEGER PRIMARY KEY,
@@ -286,6 +338,34 @@ def setup():
         c.execute("ALTER TABLE ai_players ADD COLUMN is_paused INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
+
+    # Add fallback columns to ai_players (for automatic free fallback routing)
+    try:
+        c.execute("ALTER TABLE ai_players ADD COLUMN fallback_model TEXT")
+    except sqlite3.OperationalError:
+        pass
+    try:
+        c.execute("ALTER TABLE ai_players ADD COLUMN is_fallback INTEGER DEFAULT 0")
+    except sqlite3.OperationalError:
+        pass
+    # Seed fallback_model values for known paid players
+    _fallback_seed = [
+        ("grok-3", "qwen3.5:9b"), ("grok-4", "deepseek-r1:7b"),
+        ("cto-grok42", "qwen2.5-coder:7b"), ("gpt-4o", "qwen3.5:9b"),
+        ("gpt-o3", "deepseek-r1:7b"), ("claude-sonnet", "qwen3.5:9b"),
+        ("claude-haiku", "qwen2.5-coder:7b"), ("gemini-2.5-flash", "qwen3.5:9b"),
+        ("gemini-2.5-pro", "qwen3:14b"), ("options-sosnoff", "qwen3.5:9b"),
+        ("dalio-metals", "qwen3.5:9b"), ("super-agent", "deepseek-r1:7b"),
+        ("ollama-llama", "deepseek-r1:7b"),
+    ]
+    for _pid, _model in _fallback_seed:
+        c.execute(
+            "UPDATE ai_players SET fallback_model=? WHERE id=? "
+            "AND (fallback_model IS NULL OR fallback_model='')",
+            (_model, _pid)
+        )
+    # Seed fallbacks_enabled default setting
+    c.execute("INSERT OR IGNORE INTO settings (key, value) VALUES ('fallbacks_enabled', '1')")
 
     # Add is_human flag (human portfolios survive season resets)
     try:
@@ -413,6 +493,18 @@ def setup():
         )
     """)
 
+    # Physical metals purchase ledger — real cost basis tracking (NEVER DROP)
+    c.execute('''CREATE TABLE IF NOT EXISTS metals_ledger (
+        id INTEGER PRIMARY KEY,
+        purchase_date TEXT NOT NULL,
+        metal TEXT NOT NULL,
+        qty_oz REAL NOT NULL,
+        total_cost REAL NOT NULL,
+        cost_per_oz REAL NOT NULL,
+        source TEXT,
+        notes TEXT
+    )''')
+
     # Add strategy_mode column to war_room (for Strategy Mode feature)
     try:
         c.execute("ALTER TABLE war_room ADD COLUMN strategy_mode TEXT")
@@ -496,6 +588,50 @@ def setup():
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
     c.execute("CREATE INDEX IF NOT EXISTS idx_regime_history_date ON regime_history(date)")
+
+    # Agent Performance Rating System
+    c.execute("""CREATE TABLE IF NOT EXISTS agent_ratings (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_id TEXT,
+        timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+        period TEXT,
+        total_trades INTEGER,
+        wins INTEGER,
+        losses INTEGER,
+        win_rate REAL,
+        total_pnl REAL,
+        avg_win REAL,
+        avg_loss REAL,
+        profit_factor REAL,
+        best_trade REAL,
+        worst_trade REAL,
+        consecutive_losses INTEGER,
+        consecutive_wins INTEGER,
+        avg_confidence REAL,
+        volume_accuracy REAL,
+        pass_rate REAL,
+        rating TEXT,
+        rating_score REAL
+    )""")
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_ratings_player_period "
+        "ON agent_ratings(player_id, period, timestamp)"
+    )
+
+    # FinMem Agent Memory — 3-layer lesson storage (self_improvement loop)
+    # INSERT ONLY — never drop or truncate (sacred data rule)
+    c.execute("""CREATE TABLE IF NOT EXISTS agent_memory (
+        id           INTEGER PRIMARY KEY AUTOINCREMENT,
+        player_id    TEXT    NOT NULL,
+        memory_layer TEXT    NOT NULL,  -- LESSON | WORKING | SHORT_TERM | LONG_TERM
+        summary      TEXT    NOT NULL,
+        score        REAL    DEFAULT 0, -- recency × importance (0.0–1.0)
+        created_at   TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )""")
+    c.execute(
+        "CREATE INDEX IF NOT EXISTS idx_agent_memory_player_layer "
+        "ON agent_memory(player_id, memory_layer, created_at)"
+    )
 
     # Performance indexes — safe to re-run (IF NOT EXISTS)
     for _idx in [

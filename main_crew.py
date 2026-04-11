@@ -86,10 +86,14 @@ def _run_pipeline(job_id: str, trigger: str, focus: str, dollar_amount: int = 20
     try:
         # Sync closed positions → learning log before each run
         try:
-            from crew.learning import sync_closed_positions
+            from crew.learning import sync_closed_positions, sync_outcomes_to_scoreboard
             sync_result = sync_closed_positions()
             if sync_result.get("recorded", 0) > 0:
                 print(f"[crew learning] Recorded {sync_result['recorded']} closed position(s)")
+            # Sync trade outcomes to scoreboard for dynamic weighting
+            scoreboard_result = sync_outcomes_to_scoreboard()
+            if scoreboard_result.get("synced", 0) > 0:
+                print(f"[crew learning] Synced {scoreboard_result['synced']} trade outcomes to scoreboard")
         except Exception as le:
             print(f"[crew learning] sync error: {le}")
 
@@ -1615,14 +1619,18 @@ def matrix_neo_mirror_alias(req: NeoMirrorRequest):
     return neo_mirror(req)
 
 
-if __name__ == "__main__":
-    import uvicorn
-    print("=" * 50)
-    print("  USS TradeMinds — Unified Trader")
-    print("  Port 8000 | CrewAI + Portfolios")
-    print("=" * 50)
-    print()
-    print(f"  DB: {os.environ.get('TRADEMINDS_DB')}")
-    print(f"  Docs: http://localhost:8000/docs")
-    print()
-    uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")
+# DECOMMISSIONED 2026-04-07 — archived to backups/port8000_archive
+# CrewAI Unified Trader (port 8000) has been consolidated into main.py (port 8080).
+# All data preserved in data/trader.db. Plist: com.trademinds.crew — UNLOADED.
+#
+# if __name__ == "__main__":
+#     import uvicorn
+#     print("=" * 50)
+#     print("  USS TradeMinds — Unified Trader")
+#     print("  Port 8000 | CrewAI + Portfolios")
+#     print("=" * 50)
+#     print()
+#     print(f"  DB: {os.environ.get('TRADEMINDS_DB')}")
+#     print(f"  Docs: http://localhost:8000/docs")
+#     print()
+#     uvicorn.run(app, host="127.0.0.1", port=8000, log_level="info")

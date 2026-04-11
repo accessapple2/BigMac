@@ -13,7 +13,7 @@ set -euo pipefail
 
 export TRADEMINDS_DIR="${TRADEMINDS_DIR:-$HOME/autonomous-trader}"
 export TRADEMINDS_DB="${TRADEMINDS_DB:-$TRADEMINDS_DIR/data/trader.db}"
-VENV="$TRADEMINDS_DIR/.venv-crew/bin/python"
+VENV="$TRADEMINDS_DIR/venv/bin/python3"
 LOG="$TRADEMINDS_DIR/logs/premarket.log"
 LOCK="/tmp/trademinds-ollama.lock"
 
@@ -37,22 +37,37 @@ if ! curl -s http://localhost:11434/api/tags > /dev/null 2>&1; then
     exit 1
 fi
 
-# Verify crew server is up
-if ! curl -s http://localhost:8000/health > /dev/null 2>&1; then
-    log "[WARN] Crew server not responding on :8000, starting it..."
+# Verify crew server is up — if not, attempt start and wait; exit cleanly (not error) if unavailable
+_crew_up=false
+if curl -s --max-time 5 http://localhost:8000/health > /dev/null 2>&1; then
+    _crew_up=true
+else
+    log "[WARN] Crew server not responding on :8000, attempting start..."
     launchctl start com.trademinds.crew 2>/dev/null || true
-    sleep 5
+    sleep 10
+    if curl -s --max-time 5 http://localhost:8000/health > /dev/null 2>&1; then
+        _crew_up=true
+    fi
+fi
+
+if [ "$_crew_up" = "false" ]; then
+    log "[SKIP] Crew server unavailable after start attempt — running DB-only conviction check, skipping Scout API"
 fi
 
 log "Running Scout scan: pre-market movers, earnings, overnight news"
 
-# Run the Scout via API
-SCOUT_RESULT=$(curl -s -X POST "http://localhost:8000/api/crew/scout" \
-    -H "Content-Type: application/json" \
-    -d '{"focus_area": "pre-market movers, earnings, overnight news, congress trades, gap up/down stocks, sector rotation signals"}' \
-    --max-time 300 2>&1)
+# Run the Scout via API — skip gracefully (exit 0) if crew is down
+SCOUT_RESULT=""
+SCOUT_STATUS="skipped"
+if [ "$_crew_up" = "true" ]; then
+    SCOUT_RESULT=$(curl -s -X POST "http://localhost:8000/api/crew/scout" \
+        -H "Content-Type: application/json" \
+        -d '{"focus_area": "pre-market movers, earnings, overnight news, congress trades, gap up/down stocks, sector rotation signals"}' \
+        --max-time 300 2>&1) || { log "[WARN] Scout curl failed (crew may have died) — continuing with DB scan"; SCOUT_RESULT=""; }
+fi
 
-SCOUT_STATUS=$(echo "$SCOUT_RESULT" | "$VENV" -c "
+if [ -n "$SCOUT_RESULT" ]; then
+    SCOUT_STATUS=$(echo "$SCOUT_RESULT" | "$VENV" -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -61,7 +76,7 @@ except:
     print('error')
 " 2>/dev/null)
 
-SCOUT_DURATION=$(echo "$SCOUT_RESULT" | "$VENV" -c "
+    SCOUT_DURATION=$(echo "$SCOUT_RESULT" | "$VENV" -c "
 import sys, json
 try:
     d = json.load(sys.stdin)
@@ -70,12 +85,13 @@ except:
     print(0)
 " 2>/dev/null)
 
-log "Scout finished: status=$SCOUT_STATUS duration=${SCOUT_DURATION}s"
+    log "Scout finished: status=$SCOUT_STATUS duration=${SCOUT_DURATION}s"
 
-if [ "$SCOUT_STATUS" != "completed" ]; then
-    log "[FAIL] Scout scan failed. Result:"
-    log "$SCOUT_RESULT"
-    exit 1
+    if [ "$SCOUT_STATUS" != "completed" ]; then
+        log "[WARN] Scout API returned non-completed status ($SCOUT_STATUS) — continuing with DB scan"
+    fi
+else
+    log "Scout API skipped (crew unavailable) — proceeding with DB-only conviction check"
 fi
 
 # Save scout result to log
@@ -197,22 +213,26 @@ if [ "$CONVICTION_COUNT" -gt 0 ]; then
     log "RUNNING FULL PIPELINE (high conviction detected)"
     log "========================================"
 
-    # Run full pipeline for stocks
-    log "Pipeline 1/2: Stock opportunities..."
-    PIPE_RESULT=$(curl -s -X POST "http://localhost:8000/api/crew/run" \
-        -H "Content-Type: application/json" \
-        -d '{"focus_area": "pre-market high-conviction stock opportunities from overnight scan", "target_asset_class": "stock", "target_portfolio_id": 1, "trigger": "premarket_auto"}' \
-        --max-time 600 2>&1)
-    log "Stock pipeline launched: $(echo "$PIPE_RESULT" | head -c 200)"
-
-    # Run full pipeline for options if enough conviction
-    if [ "$CONVICTION_COUNT" -ge 3 ]; then
-        log "Pipeline 2/2: Options opportunities (3+ high conviction)..."
-        PIPE_RESULT2=$(curl -s -X POST "http://localhost:8000/api/crew/run" \
+    if [ "$_crew_up" = "true" ]; then
+        # Run full pipeline for stocks
+        log "Pipeline 1/2: Stock opportunities..."
+        PIPE_RESULT=$(curl -s -X POST "http://localhost:8000/api/crew/run" \
             -H "Content-Type: application/json" \
-            -d '{"focus_area": "pre-market high-conviction options plays from overnight catalysts", "target_asset_class": "option", "target_portfolio_id": 1, "trigger": "premarket_auto"}' \
-            --max-time 600 2>&1)
-        log "Options pipeline launched: $(echo "$PIPE_RESULT2" | head -c 200)"
+            -d '{"focus_area": "pre-market high-conviction stock opportunities from overnight scan", "target_asset_class": "stock", "target_portfolio_id": 1, "trigger": "premarket_auto"}' \
+            --max-time 600 2>&1) || { log "[WARN] Stock pipeline curl failed"; PIPE_RESULT=""; }
+        log "Stock pipeline launched: $(echo "$PIPE_RESULT" | head -c 200)"
+
+        # Run full pipeline for options if enough conviction
+        if [ "$CONVICTION_COUNT" -ge 3 ]; then
+            log "Pipeline 2/2: Options opportunities (3+ high conviction)..."
+            PIPE_RESULT2=$(curl -s -X POST "http://localhost:8000/api/crew/run" \
+                -H "Content-Type: application/json" \
+                -d '{"focus_area": "pre-market high-conviction options plays from overnight catalysts", "target_asset_class": "option", "target_portfolio_id": 1, "trigger": "premarket_auto"}' \
+                --max-time 600 2>&1) || { log "[WARN] Options pipeline curl failed"; PIPE_RESULT2=""; }
+            log "Options pipeline launched: $(echo "$PIPE_RESULT2" | head -c 200)"
+        fi
+    else
+        log "Pipeline skipped — crew server unavailable (DB conviction check still ran)"
     fi
 else
     log "No high-conviction opportunities. Scout-only run complete."

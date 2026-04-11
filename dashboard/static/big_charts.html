@@ -1,0 +1,1167 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="apple-mobile-web-app-status-bar-style" content="default">
+  <meta name="apple-mobile-web-app-title" content="Charts">
+  <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <title>TradeMinds Charts</title>
+  <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+    /* ── LIGHT MODE (default) ────────────────────────────────── */
+    :root {
+      --bg:           #ffffff;
+      --surface:      #f5f5f5;
+      --surface2:     #ebebeb;
+      --border:       #cccccc;
+      --text:         #1a1a1a;
+      --muted:        #555555;
+      --green:        #00875a;
+      --red:          #cc0000;
+      --accent:       #0055cc;
+      --gold:         #b06000;
+      --purple:       #6600cc;
+      --chart-bg:     #ffffff;
+      --chart-grid:   rgba(0,0,0,0.05);
+      --chart-text:   #333333;
+      --candle-up:    #00875a;
+      --candle-down:  #cc0000;
+      --ma200-col:    #0066cc;
+      --ma50-col:     #cc8800;
+      --fib-col:      rgba(180,120,0,0.45);
+      --vol-col:      rgba(0,80,160,0.15);
+      --btn-bg:       #ffffff;
+      --btn-border:   #aaaaaa;
+      --btn-text:     #1a1a1a;
+      --btn-active-bg:    #0055cc;
+      --btn-active-text:  #ffffff;
+      --pill-bg:      #e8e8e8;
+      --pill-active:  #00875a;
+      --pill-act-text:#ffffff;
+      --overlay1:     #008080;
+      --overlay2:     #cc7700;
+      --overlay3:     #6600cc;
+      --transition: background 0.3s, color 0.3s, border-color 0.3s;
+    }
+    /* ── DARK MODE ───────────────────────────────────────────── */
+    body.dark {
+      --bg:           #0a0a0f;
+      --surface:      #12121a;
+      --surface2:     #1a1a26;
+      --border:       rgba(255,255,255,0.1);
+      --text:         #e0e0e0;
+      --muted:        rgba(200,200,210,0.85);
+      --green:        #00ff9d;
+      --red:          #ff0055;
+      --accent:       #6366f1;
+      --gold:         #f59e0b;
+      --purple:       #a855f7;
+      --chart-bg:     #0a0a0f;
+      --chart-grid:   rgba(255,255,255,0.04);
+      --chart-text:   #c8c8d0;
+      --candle-up:    #00ff9d;
+      --candle-down:  #ff0055;
+      --ma200-col:    #3b82f6;
+      --ma50-col:     #f59e0b;
+      --fib-col:      rgba(255,214,0,0.45);
+      --vol-col:      rgba(99,102,241,0.25);
+      --btn-bg:       #1a1a26;
+      --btn-border:   rgba(255,255,255,0.15);
+      --btn-text:     #e0e0e0;
+      --btn-active-bg:    #00ff9d;
+      --btn-active-text:  #000000;
+      --pill-bg:      #1a1a26;
+      --pill-active:  #00ff9d;
+      --pill-act-text:#000000;
+      --overlay1:     #00cccc;
+      --overlay2:     #ffcc00;
+      --overlay3:     #cc66ff;
+    }
+
+    body {
+      background: var(--bg);
+      color: var(--text);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+      min-height: 100vh;
+      transition: var(--transition);
+      -webkit-text-size-adjust: 100%;
+      overflow-x: hidden;
+    }
+    body.large { font-size: 112.5%; }
+
+    #app { display: flex; flex-direction: column; min-height: 100vh; }
+
+    /* ── Desktop centering wrapper ───────────────────────────── */
+    @media (min-width: 768px) {
+      #app { max-width: 1400px; margin: 0 auto; width: 100%; }
+      body { background: var(--surface); }
+      #app { background: var(--bg); box-shadow: 0 0 40px rgba(0,0,0,0.08); }
+    }
+
+    /* ── Top bar ─────────────────────────────────────────────── */
+    #top-bar {
+      background: var(--surface);
+      border-bottom: 2px solid var(--border);
+      padding: 10px 12px 8px;
+      transition: var(--transition);
+    }
+    #search-row { display: flex; gap: 8px; align-items: center; }
+    #search-input {
+      flex: 1; height: 54px;
+      font-size: 20px; font-weight: 700;
+      font-family: 'SF Mono', 'Menlo', monospace;
+      background: var(--btn-bg); color: var(--text);
+      border: 2px solid var(--btn-border);
+      border-radius: 12px; padding: 0 16px;
+      text-transform: uppercase; letter-spacing: 1px;
+      -webkit-appearance: none;
+      transition: var(--transition);
+    }
+    body.large #search-input { font-size: 24px; }
+    #search-input:focus { outline: none; border-color: var(--green); }
+    #search-input::placeholder { text-transform: none; color: var(--muted); font-weight: 400; letter-spacing: 0; }
+    @media (min-width: 768px) {
+      #search-input { max-width: 400px; }
+      #search-row { justify-content: flex-start; }
+    }
+    .icon-btn {
+      height: 54px; min-width: 54px; width: 54px;
+      border: 2px solid var(--btn-border);
+      border-radius: 12px;
+      background: var(--btn-bg); color: var(--text);
+      font-size: 22px; cursor: pointer;
+      display: flex; align-items: center; justify-content: center;
+      transition: var(--transition); -webkit-tap-highlight-color: transparent;
+    }
+    .icon-btn:active { opacity: 0.7; }
+    #search-btn { background: var(--green); color: var(--pill-act-text); border-color: var(--green); }
+    #aa-btn { font-size: 15px; font-weight: 900; }
+    body.large #aa-btn { font-size: 19px; }
+    #aa-btn.on { border-color: var(--green); color: var(--green); }
+    #theme-btn { font-size: 26px; }
+
+    #recent-pills { display: flex; gap: 8px; flex-wrap: wrap; margin-top: 8px; }
+    .recent-pill {
+      padding: 5px 12px; border-radius: 20px;
+      background: var(--surface2); border: 1px solid var(--btn-border);
+      color: var(--muted); font-size: 14px; font-weight: 600; cursor: pointer;
+      transition: var(--transition);
+    }
+    body.large .recent-pill { font-size: 17px; }
+    .recent-pill:hover { border-color: var(--green); color: var(--green); }
+
+    /* ── Watchlist ───────────────────────────────────────────── */
+    #watchlist-bar {
+      background: var(--surface); border-bottom: 2px solid var(--border);
+      padding: 8px 12px;
+      overflow-x: auto; -webkit-overflow-scrolling: touch; scrollbar-width: none;
+      transition: var(--transition);
+    }
+    #watchlist-bar::-webkit-scrollbar { display: none; }
+    #watchlist-inner { display: flex; gap: 8px; align-items: center; width: max-content; }
+    .wl-pill {
+      height: 54px; padding: 0 20px;
+      background: var(--pill-bg); border: 2px solid var(--btn-border);
+      border-radius: 28px; color: var(--text);
+      font-size: 20px; font-weight: 800;
+      font-family: 'SF Mono', 'Menlo', monospace;
+      cursor: pointer; white-space: nowrap;
+      display: inline-flex; align-items: center;
+      transition: var(--transition); -webkit-tap-highlight-color: transparent;
+    }
+    body.large .wl-pill { font-size: 24px; height: 64px; }
+    .wl-pill.active { background: var(--pill-active); color: var(--pill-act-text); border-color: var(--pill-active); }
+    @media (min-width: 768px) {
+      .wl-pill { height: 44px; font-size: 16px; padding: 0 16px; }
+      #watchlist-bar { padding: 10px 16px; }
+    }
+    #wl-add-btn {
+      height: 54px; width: 54px; min-width: 54px;
+      background: var(--surface2); border: 2px dashed var(--btn-border);
+      border-radius: 28px; color: var(--muted); font-size: 24px; cursor: pointer;
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: var(--transition);
+    }
+    body.large #wl-add-btn { height: 64px; width: 64px; }
+    #wl-add-btn:hover { border-color: var(--green); color: var(--green); }
+
+    /* ── Price header ────────────────────────────────────────── */
+    #price-header {
+      background: var(--surface2); border-bottom: 2px solid var(--border);
+      min-height: 80px;
+      padding: 16px 16px 12px;
+      display: flex; align-items: flex-start; justify-content: space-between; gap: 12px;
+      transition: var(--transition);
+    }
+    #ph-symbol { font-size: 24px; font-weight: 900; font-family: 'SF Mono', 'Menlo', monospace; letter-spacing: 1px; }
+    #ph-price  { font-size: 42px; font-weight: 900; font-family: 'SF Mono', 'Menlo', monospace; color: var(--green); line-height: 1.1; }
+    body.large #ph-symbol { font-size: 30px; }
+    body.large #ph-price  { font-size: 52px; }
+    #ph-change { font-size: 22px; font-weight: 700; font-family: 'SF Mono', 'Menlo', monospace; }
+    #ph-range  { font-size: 16px; color: var(--muted); margin-top: 4px; }
+    #ph-rsi    { margin-top: 6px; display: none; padding: 4px 12px; border-radius: 8px; background: var(--surface); font-size: 16px; font-weight: 700; font-family: 'SF Mono', 'Menlo', monospace; }
+    body.large #ph-change { font-size: 27px; }
+    body.large #ph-range  { font-size: 20px; }
+    /* Desktop: tighten into a single row */
+    @media (min-width: 768px) {
+      #price-header { flex-direction: row; align-items: center; min-height: 80px; padding: 16px 20px; max-width: 1400px; margin: 0 auto; width: 100%; box-sizing: border-box; }
+      #ph-symbol { font-size: 28px; }
+      #ph-price  { font-size: 36px; }
+      #ph-change { font-size: 24px; }
+      #ph-range  { font-size: 15px; margin-top: 2px; }
+    }
+    @media (min-width: 768px) {
+      #chart-wrap { max-width: 1400px; margin: 0 auto; width: 100%; }
+    }
+
+    /* ── Chart ───────────────────────────────────────────────── */
+    #chart-wrap {
+      position: relative; width: 100%; height: 60vh;
+      background: var(--chart-bg); flex-shrink: 0; transition: background 0.3s;
+    }
+    @media (orientation: landscape) and (max-width: 767px) { #chart-wrap { height: 80vh; } }
+    @media (min-width: 768px) { #chart-wrap { height: 70vh; } }
+    #chart-container { width: 100%; height: 100%; }
+    #chart-loading {
+      display: none; position: absolute; inset: 0;
+      background: rgba(240,240,240,0.85);
+      z-index: 20; flex-direction: column;
+      align-items: center; justify-content: center; gap: 16px;
+    }
+    body.dark #chart-loading { background: rgba(10,10,15,0.85); }
+    #chart-loading.show { display: flex; }
+    .spinner { width: 64px; height: 64px; border: 6px solid var(--border); border-top-color: var(--green); border-radius: 50%; animation: spin 0.7s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+    #loading-label { font-size: 20px; color: var(--muted); font-weight: 600; }
+    body.large #loading-label { font-size: 26px; }
+    #chart-error { display: none; position: absolute; inset: 0; align-items: center; justify-content: center; flex-direction: column; gap: 12px; }
+    #chart-error.show { display: flex; }
+    #fib-pill {
+      position: absolute; bottom: 14px; left: 50%; transform: translateX(-50%);
+      z-index: 15;
+      border: none; border-radius: 30px;
+      padding: 0 28px; height: 52px;
+      font-size: 19px; font-weight: 900; cursor: pointer;
+      white-space: nowrap; box-shadow: 0 2px 14px rgba(0,0,0,0.35);
+      -webkit-tap-highlight-color: transparent;
+      transition: background 0.2s, color 0.2s;
+    }
+    body.large #fib-pill { font-size: 23px; height: 62px; padding: 0 34px; }
+    #fib-pill.fib-on  { background: var(--red);  color: #fff; }
+    #fib-pill.fib-off { background: var(--green); color: #000; }
+
+    #compare-legend {
+      position: absolute; top: 10px; right: 10px; z-index: 10;
+      display: flex; flex-direction: column; gap: 6px;
+    }
+    .legend-item {
+      display: flex; align-items: center; gap: 6px;
+      background: var(--surface); border: 1px solid var(--border);
+      border-radius: 8px; padding: 4px 10px; cursor: pointer;
+      font-size: 14px; font-weight: 700; font-family: 'SF Mono', 'Menlo', monospace;
+      transition: var(--transition);
+    }
+    body.large .legend-item { font-size: 18px; padding: 6px 14px; }
+    .legend-dot { width: 12px; height: 12px; border-radius: 50%; flex-shrink: 0; }
+    .legend-x { margin-left: 4px; color: var(--muted); font-size: 12px; }
+
+    /* ── TF bar ──────────────────────────────────────────────── */
+    #tf-bar {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 8px 12px; display: flex; gap: 8px;
+      transition: var(--transition);
+    }
+    .tf-btn {
+      flex: 1; height: 54px;
+      background: var(--btn-bg); border: 2px solid var(--btn-border);
+      border-radius: 10px; color: var(--muted);
+      font-size: 18px; font-weight: 800; cursor: pointer;
+      transition: var(--transition); -webkit-tap-highlight-color: transparent;
+    }
+    body.large .tf-btn { font-size: 22px; height: 64px; }
+    .tf-btn.active { background: var(--btn-active-bg); color: var(--btn-active-text); border-color: var(--btn-active-bg); }
+    @media (min-width: 768px) {
+      #tf-bar { padding: 10px 16px; gap: 10px; }
+      .tf-btn { flex: 0 0 auto; min-width: 70px; height: 44px; font-size: 16px; }
+    }
+
+    /* ── Toggle row ──────────────────────────────────────────── */
+    #toggle-row {
+      background: var(--surface); border-bottom: 1px solid var(--border);
+      padding: 8px 12px; display: flex; gap: 8px; flex-wrap: wrap; align-items: center;
+      transition: var(--transition);
+    }
+    .tog-btn {
+      height: 54px; padding: 0 16px;
+      background: var(--btn-bg); border: 2px solid var(--btn-border);
+      border-radius: 10px; color: var(--muted);
+      font-size: 16px; font-weight: 800; cursor: pointer;
+      display: inline-flex; align-items: center; gap: 6px;
+      transition: var(--transition); -webkit-tap-highlight-color: transparent;
+    }
+    body.large .tog-btn { font-size: 20px; height: 64px; padding: 0 20px; }
+    .tog-btn.on { background: rgba(0,135,90,0.1); border-color: var(--green); color: var(--green); }
+    body.dark .tog-btn.on { background: rgba(0,255,157,0.08); }
+    .tog-dot { width: 10px; height: 10px; border-radius: 50%; background: var(--muted); transition: background 0.2s; }
+    .tog-btn.on .tog-dot { background: var(--green); }
+    @media (min-width: 768px) {
+      #toggle-row { padding: 8px 16px; flex-wrap: nowrap; }
+      .tog-btn { height: 42px; font-size: 15px; padding: 0 14px; }
+    }
+
+    /* ── Type / compare row ──────────────────────────────────── */
+    #type-row {
+      background: var(--surface); border-bottom: 2px solid var(--border);
+      padding: 6px 12px; display: flex; gap: 8px; align-items: center;
+      transition: var(--transition);
+    }
+    .type-btn {
+      flex: 1; height: 44px;
+      background: var(--btn-bg); border: 1px solid var(--btn-border);
+      border-radius: 8px; color: var(--muted);
+      font-size: 15px; font-weight: 700; cursor: pointer;
+      transition: var(--transition);
+    }
+    body.large .type-btn { font-size: 19px; height: 54px; }
+    .type-btn.active { background: var(--btn-active-bg); color: var(--btn-active-text); border-color: var(--btn-active-bg); }
+    #compare-btn {
+      height: 44px; padding: 0 14px; white-space: nowrap;
+      background: var(--btn-bg); border: 1px solid var(--btn-border);
+      border-radius: 8px; color: var(--muted);
+      font-size: 15px; font-weight: 700; cursor: pointer;
+      transition: var(--transition); display: flex; align-items: center; gap: 6px;
+    }
+    body.large #compare-btn { font-size: 19px; height: 54px; }
+    #compare-btn.active { background: var(--accent); color: #fff; border-color: var(--accent); }
+    #compare-search-row {
+      display: none;
+      background: var(--surface2); border-bottom: 2px solid var(--border);
+      padding: 8px 12px; gap: 8px; align-items: center;
+    }
+    #compare-search-row.show { display: flex; }
+    #compare-input {
+      flex: 1; height: 50px; font-size: 18px; font-weight: 700;
+      font-family: 'SF Mono', 'Menlo', monospace;
+      background: var(--btn-bg); color: var(--text);
+      border: 2px solid var(--btn-border); border-radius: 10px;
+      padding: 0 14px; text-transform: uppercase; letter-spacing: 1px;
+      -webkit-appearance: none; transition: var(--transition);
+    }
+    #compare-input:focus { outline: none; border-color: var(--accent); }
+    #compare-input::placeholder { text-transform: none; letter-spacing: 0; font-weight: 400; color: var(--muted); }
+    #compare-add-btn {
+      height: 50px; padding: 0 18px;
+      background: var(--accent); color: #fff;
+      border: none; border-radius: 10px;
+      font-size: 17px; font-weight: 800; cursor: pointer;
+    }
+    body.large #compare-input { font-size: 22px; height: 60px; }
+    body.large #compare-add-btn { font-size: 21px; height: 60px; }
+
+    /* ── Remove overlay ──────────────────────────────────────── */
+    #remove-overlay {
+      display: none; position: fixed; inset: 0; z-index: 100;
+      background: rgba(0,0,0,0.5); align-items: center; justify-content: center;
+    }
+    #remove-overlay.show { display: flex; }
+    #remove-box {
+      background: var(--surface2); border: 2px solid var(--border);
+      border-radius: 16px; padding: 28px 24px;
+      width: min(320px, 90vw); text-align: center;
+    }
+    #remove-box h2 { font-size: 22px; margin-bottom: 8px; }
+    body.large #remove-box h2 { font-size: 28px; }
+    #remove-box p  { font-size: 16px; color: var(--muted); margin-bottom: 20px; }
+    body.large #remove-box p { font-size: 20px; }
+    #remove-box .btn-row { display: flex; gap: 12px; }
+    #remove-box button { flex: 1; height: 54px; border-radius: 10px; border: none; font-size: 18px; font-weight: 800; cursor: pointer; }
+    body.large #remove-box button { font-size: 22px; height: 64px; }
+    .btn-cancel { background: var(--surface); color: var(--text); }
+    .btn-remove { background: var(--red); color: #fff; }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <!-- Top bar: search + controls -->
+  <div id="top-bar">
+    <div id="search-row">
+      <input id="search-input" type="text" inputmode="text"
+             autocomplete="off" autocorrect="off"
+             autocapitalize="characters" spellcheck="false"
+             enterkeyhint="search"
+             placeholder="Search ticker… (e.g. F, SLV, GLD, AAPL)">
+      <button id="search-btn" class="icon-btn" onclick="doSearch()" aria-label="Search">🔍</button>
+      <button id="aa-btn" class="icon-btn" onclick="toggleLarge()" aria-label="Large text">Aa+</button>
+      <button id="theme-btn" class="icon-btn" onclick="toggleTheme()" aria-label="Toggle theme">🌙</button>
+    </div>
+    <div id="recent-pills"></div>
+  </div>
+
+  <!-- Watchlist pills -->
+  <div id="watchlist-bar">
+    <div id="watchlist-inner"></div>
+  </div>
+
+  <!-- Price header -->
+  <div id="price-header">
+    <div>
+      <div id="ph-symbol">—</div>
+      <div id="ph-price">—</div>
+    </div>
+    <div style="text-align:right;">
+      <div id="ph-change">—</div>
+      <div id="ph-range">—</div>
+      <div id="ph-rsi"></div>
+    </div>
+  </div>
+
+  <!-- Chart -->
+  <div id="chart-wrap">
+    <div id="chart-loading">
+      <div class="spinner"></div>
+      <div id="loading-label">Loading…</div>
+    </div>
+    <div id="chart-error">
+      <div style="font-size:48px;">📉</div>
+      <div id="error-msg" style="font-size:18px;color:var(--muted);text-align:center;padding:0 20px;">Could not load data</div>
+      <button onclick="loadChart(_sym,_tf)" style="margin-top:16px;height:54px;padding:0 28px;background:var(--surface2);color:var(--text);border:2px solid var(--btn-border);border-radius:10px;font-size:18px;font-weight:700;cursor:pointer;">Retry</button>
+    </div>
+    <div id="chart-container"></div>
+    <div id="compare-legend"></div>
+    <button id="fib-pill" class="fib-on" onclick="toggleFibPill()">Hide Fibonacci ✕</button>
+  </div>
+
+  <!-- Timeframe -->
+  <div id="tf-bar">
+    <button class="tf-btn" data-tf="1D" onclick="selectTF(this,'1D')">1D</button>
+    <button class="tf-btn active" data-tf="5D"  onclick="selectTF(this,'5D')">5D</button>
+    <button class="tf-btn" data-tf="1M"  onclick="selectTF(this,'1M')">1M</button>
+    <button class="tf-btn" data-tf="3M"  onclick="selectTF(this,'3M')">3M</button>
+    <button class="tf-btn" data-tf="6M"  onclick="selectTF(this,'6M')">6M</button>
+    <button class="tf-btn" data-tf="1Y"  onclick="selectTF(this,'1Y')">1Y</button>
+  </div>
+
+  <!-- Overlay toggles -->
+  <div id="toggle-row">
+    <button id="tog-200ma" class="tog-btn on" onclick="toggleOv('200ma',this)"><span class="tog-dot"></span>200 MA</button>
+    <button id="tog-50ma"  class="tog-btn"    onclick="toggleOv('50ma',this)"><span class="tog-dot"></span>50 MA</button>
+    <button id="tog-vol"   class="tog-btn on" onclick="toggleOv('vol',this)"><span class="tog-dot"></span>Volume</button>
+    <button id="tog-fib"   class="tog-btn on" onclick="toggleOv('fib',this)"><span class="tog-dot"></span>Fibonacci</button>
+    <button id="tog-trend" class="tog-btn"    onclick="toggleOv('trend',this)"><span class="tog-dot"></span>Trends</button>
+  </div>
+
+  <!-- Chart type + Compare -->
+  <div id="type-row">
+    <button class="type-btn active" onclick="selectType(this,'candle')">Candle</button>
+    <button class="type-btn" onclick="selectType(this,'line')">Line</button>
+    <button class="type-btn" onclick="selectType(this,'area')">Area</button>
+    <button id="compare-btn" onclick="toggleCompareSearch()">Compare +</button>
+  </div>
+
+  <!-- Compare search (hidden by default) -->
+  <div id="compare-search-row">
+    <input id="compare-input" type="text" inputmode="text"
+           autocomplete="off" autocorrect="off"
+           autocapitalize="characters" spellcheck="false"
+           placeholder="Add ticker to compare…">
+    <button id="compare-add-btn" onclick="addCompare()">Add</button>
+  </div>
+
+</div><!-- #app -->
+
+<!-- Remove confirm overlay -->
+<div id="remove-overlay">
+  <div id="remove-box">
+    <h2>Remove ticker?</h2>
+    <p id="remove-label">Remove from watchlist?</p>
+    <div class="btn-row">
+      <button class="btn-cancel" onclick="closeRemove()">Cancel</button>
+      <button class="btn-remove" onclick="confirmRemove()">Remove</button>
+    </div>
+  </div>
+</div>
+
+<script>
+// ═══════════════════════════════════════════════════════════════
+// STATE
+// ═══════════════════════════════════════════════════════════════
+var _sym    = 'SPY';
+var _tf     = '5D';
+var _ctype  = 'candle';
+var _dark   = false;
+var _large  = false;
+var _chart  = null;
+var _mainS  = null;
+var _volS   = null;
+var _ma200S = null;
+var _ma50S  = null;
+var _fibLines   = [];
+var _trendLines = [];
+var _candles    = [];
+var _lastData   = null;
+var _removeTarget = null;
+
+// Compare overlays
+var OVERLAY_COLORS = ['overlay1','overlay2','overlay3'];
+var _overlays = [];  // [{sym, series, data, colorVar}]
+
+var _toggOn = { '200ma':true, '50ma':false, 'vol':true, 'fib':true, 'trend':false };
+
+var DEFAULT_WL = ['SPY','QQQ','TQQQ','NVDA','TSLA','AAPL','META','AMZN','MSFT','AMD','GOOGL'];
+
+// Maps display ticker → actual fetch symbol + friendly label
+var SPOT_MAP = {
+  'GLD':    { fetch: 'GC=F',     label: 'Gold Spot'   },
+  'SLV':    { fetch: 'SI=F',     label: 'Silver Spot' },
+  'GOLD':   { fetch: 'GC=F',     label: 'Gold Spot'   },
+  'SILVER': { fetch: 'SI=F',     label: 'Silver Spot' },
+  'GC=F':   { fetch: 'GC=F',     label: 'Gold Spot'   },
+  'SI=F':   { fetch: 'SI=F',     label: 'Silver Spot' },
+};
+function resolveSym(sym) {
+  return SPOT_MAP[sym] || { fetch: sym, label: sym };
+}
+
+var TF_CFG = {
+  '1D': { tf:'5Min',  bars:100 },
+  '5D': { tf:'15Min', bars:200 },
+  '1M': { tf:'1Hour', bars:160 },
+  '3M': { tf:'1Day',  bars:65  },
+  '6M': { tf:'1Day',  bars:130 },
+  '1Y': { tf:'1Day',  bars:260 },
+};
+
+// ═══════════════════════════════════════════════════════════════
+// LOCALSTORAGE
+// ═══════════════════════════════════════════════════════════════
+function lsGet(k,d){ try{ return JSON.parse(localStorage.getItem(k))??d; }catch(e){ return d; } }
+function lsSet(k,v){ try{ localStorage.setItem(k,JSON.stringify(v)); }catch(e){} }
+
+var WL_VERSION = 2;
+function getWL() {
+  if (lsGet('bc2_wl_ver', 0) < WL_VERSION) {
+    lsSet('bc2_wl', DEFAULT_WL);
+    lsSet('bc2_wl_ver', WL_VERSION);
+  }
+  return lsGet('bc2_wl', DEFAULT_WL);
+}
+function setWL(w) { lsSet('bc2_wl', w); }
+function getRecents()  { return lsGet('bc2_recents', []); }
+function addRecent(s)  { var r=getRecents().filter(function(x){return x!==s;}); r.unshift(s); lsSet('bc2_recents',r.slice(0,10)); }
+
+// ═══════════════════════════════════════════════════════════════
+// THEME
+// ═══════════════════════════════════════════════════════════════
+function applyTheme(dark) {
+  _dark = dark;
+  document.body.classList.toggle('dark', dark);
+  document.getElementById('theme-btn').textContent = dark ? '☀️' : '🌙';
+}
+function toggleTheme() {
+  haptic('light');
+  var next = !_dark;
+  lsSet('bc2_dark', next);
+  lsSet('bc2_dark_override', true);
+  applyTheme(next);
+  // Rebuild chart with new colors
+  if (_candles.length) buildChart(_sym, _lastData);
+}
+function initTheme() {
+  var override = lsGet('bc2_dark_override', false);
+  var saved    = lsGet('bc2_dark', false);
+  if (override) { applyTheme(saved); return; }
+  // Auto-night: dark before 7 AM or after 7 PM
+  var h = new Date().getHours();
+  applyTheme(h >= 19 || h < 7);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LARGE MODE
+// ═══════════════════════════════════════════════════════════════
+function toggleLarge() {
+  haptic('light');
+  _large = !_large;
+  lsSet('bc2_large', _large);
+  document.body.classList.toggle('large', _large);
+  document.getElementById('aa-btn').classList.toggle('on', _large);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// HAPTIC
+// ═══════════════════════════════════════════════════════════════
+function haptic(t) {
+  if (navigator&&navigator.vibrate){
+    if(t==='light') navigator.vibrate(20);
+    else if(t==='medium') navigator.vibrate([30,10,30]);
+    else navigator.vibrate(50);
+  }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// WATCHLIST
+// ═══════════════════════════════════════════════════════════════
+function renderWL() {
+  var wl = getWL();
+  var inner = document.getElementById('watchlist-inner');
+  inner.innerHTML = '';
+  wl.forEach(function(sym) {
+    var btn = document.createElement('button');
+    btn.className = 'wl-pill' + (sym===_sym ? ' active' : '');
+    btn.dataset.sym = sym;
+    btn.textContent = sym;
+    btn.onclick = function(){ haptic('medium'); loadTicker(sym); };
+    btn.oncontextmenu = function(e){ e.preventDefault(); showRemove(sym); };
+    inner.appendChild(btn);
+  });
+  var add = document.createElement('button');
+  add.id = 'wl-add-btn';
+  add.innerHTML = '＋';
+  add.title = 'Add current ticker';
+  add.onclick = addCurrent;
+  inner.appendChild(add);
+}
+
+function addCurrent() {
+  haptic('light');
+  var wl = getWL();
+  if (!_sym || wl.includes(_sym)) return;
+  wl.push(_sym); setWL(wl); renderWL();
+}
+
+function showRemove(sym) {
+  haptic('medium');
+  _removeTarget = sym;
+  document.getElementById('remove-label').textContent = 'Remove ' + sym + ' from watchlist?';
+  document.getElementById('remove-overlay').classList.add('show');
+}
+function closeRemove() { _removeTarget=null; document.getElementById('remove-overlay').classList.remove('show'); }
+function confirmRemove() {
+  if (!_removeTarget) return;
+  setWL(getWL().filter(function(s){ return s!==_removeTarget; }));
+  closeRemove(); renderWL();
+}
+
+// ═══════════════════════════════════════════════════════════════
+// RECENT SEARCHES
+// ═══════════════════════════════════════════════════════════════
+function renderRecents() {
+  var r = getRecents();
+  var el = document.getElementById('recent-pills');
+  el.innerHTML = r.map(function(s){
+    return '<button class="recent-pill" onclick="loadTicker(\''+s+'\')">'+s+'</button>';
+  }).join('');
+}
+
+// ═══════════════════════════════════════════════════════════════
+// SEARCH
+// ═══════════════════════════════════════════════════════════════
+function doSearch() {
+  var inp = document.getElementById('search-input');
+  var sym = inp.value.replace(/[^A-Za-z0-9=.^]/g,'').toUpperCase();
+  if (!sym) return;
+  inp.value = ''; inp.blur();
+  haptic('medium');
+  loadTicker(sym);
+}
+// keyup is more reliable than keydown on iOS Safari for the Return key
+var _searchFired = false;
+document.getElementById('search-input').addEventListener('keydown', function(e){
+  if (e.key === 'Enter') { _searchFired = true; doSearch(); }
+});
+document.getElementById('search-input').addEventListener('keyup', function(e){
+  if (e.key === 'Enter' && !_searchFired) doSearch();
+  _searchFired = false;
+});
+document.getElementById('search-input').addEventListener('input', function(){ this.value = this.value.toUpperCase(); });
+
+// ═══════════════════════════════════════════════════════════════
+// TIMEFRAME / TYPE
+// ═══════════════════════════════════════════════════════════════
+function selectTF(btn, tf) {
+  haptic('light'); _tf = tf;
+  document.querySelectorAll('.tf-btn').forEach(function(b){ b.classList.toggle('active', b===btn); });
+  loadChart(_sym, _tf);
+}
+function selectType(btn, ct) {
+  haptic('light'); _ctype = ct;
+  document.querySelectorAll('.type-btn').forEach(function(b){ b.classList.toggle('active', b===btn); });
+  loadChart(_sym, _tf);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// OVERLAY TOGGLES
+// ═══════════════════════════════════════════════════════════════
+function toggleOv(name, btn) {
+  haptic('light');
+  _toggOn[name] = !_toggOn[name];
+  btn.classList.toggle('on', _toggOn[name]);
+  if (name==='200ma' && _ma200S) _ma200S.applyOptions({visible:_toggOn['200ma']});
+  else if (name==='50ma' && _ma50S) _ma50S.applyOptions({visible:_toggOn['50ma']});
+  else if (name==='vol'  && _volS)  _volS.applyOptions({visible:_toggOn['vol']});
+  else if (name==='fib') { _toggOn['fib'] ? drawFib() : clearFib(); syncFibDismissBtn();  }
+  else if (name==='trend') { _toggOn['trend'] ? drawTrends() : clearTrends(); }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// FIBONACCI — with zone coloring
+// ═══════════════════════════════════════════════════════════════
+var FIB_LEVELS = [
+  { pct:0,     label:'0%',    light:'rgba(0,135,90,0.7)',    dark:'rgba(0,255,157,0.6)',  lw:2 },
+  { pct:0.236, label:'23.6%', light:'rgba(0,135,90,0.45)',   dark:'rgba(0,255,157,0.4)',  lw:1 },
+  { pct:0.382, label:'38.2%', light:'rgba(180,120,0,0.6)',   dark:'rgba(255,214,0,0.55)', lw:2 },
+  { pct:0.5,   label:'50%',   light:'rgba(180,80,0,0.7)',    dark:'rgba(255,160,0,0.65)', lw:2 },
+  { pct:0.618, label:'61.8%', light:'rgba(180,120,0,0.6)',   dark:'rgba(255,214,0,0.55)', lw:2 },
+  { pct:0.786, label:'78.6%', light:'rgba(160,0,0,0.5)',     dark:'rgba(255,80,80,0.5)',  lw:1 },
+  { pct:1,     label:'100%',  light:'rgba(160,0,0,0.7)',     dark:'rgba(255,0,80,0.6)',   lw:2 },
+];
+function syncFibDismissBtn() {
+  var pill = document.getElementById('fib-pill');
+  if (_toggOn['fib']) {
+    pill.textContent = 'Hide Fibonacci ✕';
+    pill.className = 'fib-on';
+  } else {
+    pill.textContent = 'Show Fibonacci';
+    pill.className = 'fib-off';
+  }
+}
+function toggleFibPill() {
+  haptic('light');
+  _toggOn['fib'] = !_toggOn['fib'];
+  document.getElementById('tog-fib').classList.toggle('on', _toggOn['fib']);
+  _toggOn['fib'] ? drawFib() : clearFib();
+  syncFibDismissBtn();
+}
+function clearFib() {
+  _fibLines.forEach(function(l){ try{ _mainS.removePriceLine(l); }catch(e){} });
+  _fibLines = [];
+}
+function drawFib() {
+  if (!_mainS || !_candles.length) return;
+  clearFib();
+  var vis = _chart.timeScale().getVisibleRange();
+  var data = (vis ? _candles.filter(function(c){ return c.time>=vis.from&&c.time<=vis.to; }) : []);
+  if (!data.length) data = _candles;
+  var hi=-Infinity, lo=Infinity;
+  data.forEach(function(c){ if(c.high>hi)hi=c.high; if(c.low<lo)lo=c.low; });
+  if (!isFinite(hi)||!isFinite(lo)||hi<=lo) return;
+  var range = hi-lo;
+  FIB_LEVELS.forEach(function(lv) {
+    var price = hi - lv.pct * range;
+    var col = _dark ? lv.dark : lv.light;
+    var line = _mainS.createPriceLine({
+      price: price,
+      color: col,
+      lineWidth: lv.lw,
+      lineStyle: 2,
+      axisLabelVisible: true,
+      title: lv.label + ' — $' + price.toFixed(2),
+    });
+    _fibLines.push(line);
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// TREND LINES — auto-detect swing highs/lows
+// ═══════════════════════════════════════════════════════════════
+function findSwings(candles, type, win) {
+  win = win || 3;
+  var swings = [];
+  for (var i=win; i<candles.length-win; i++) {
+    var ok = true;
+    for (var j=1; j<=win; j++) {
+      if (type==='low') {
+        if (candles[i].low >= candles[i-j].low || candles[i].low >= candles[i+j].low) { ok=false; break; }
+      } else {
+        if (candles[i].high <= candles[i-j].high || candles[i].high <= candles[i+j].high) { ok=false; break; }
+      }
+    }
+    if (ok) swings.push({ idx:i, time:candles[i].time, price: type==='low' ? candles[i].low : candles[i].high });
+  }
+  return swings;
+}
+function clearTrends() {
+  _trendLines.forEach(function(s){ try{ _chart.removeSeries(s); }catch(e){} });
+  _trendLines = [];
+}
+function drawTrends() {
+  if (!_chart || !_candles.length) return;
+  clearTrends();
+  var win = Math.max(2, Math.round(_candles.length / 30));
+  var lows  = findSwings(_candles,'low', win);
+  var highs = findSwings(_candles,'high',win);
+
+  // Find two most recent higher lows (uptrend)
+  var upPts = [];
+  for (var i=lows.length-1; i>=0 && upPts.length<2; i--) {
+    if (!upPts.length || lows[i].price < upPts[0].price) upPts.unshift(lows[i]);
+  }
+  // Find two most recent lower highs (downtrend)
+  var dnPts = [];
+  for (var i=highs.length-1; i>=0 && dnPts.length<2; i--) {
+    if (!dnPts.length || highs[i].price > dnPts[0].price) dnPts.unshift(highs[i]);
+  }
+
+  function extendLine(pts, col) {
+    if (pts.length < 2) return;
+    var p1=pts[0], p2=pts[1];
+    var slope = (p2.price-p1.price)/(p2.time-p1.time); // price/second
+    // Extend 20 bars forward (estimate avg bar seconds)
+    var avgBarSec = _candles.length>1 ? (_candles[_candles.length-1].time-_candles[0].time)/(_candles.length-1) : 86400;
+    var futureTime = p2.time + avgBarSec*20;
+    var futurePrice = p2.price + slope*(futureTime-p2.time);
+    var s = _chart.addLineSeries({
+      color: col, lineWidth: 2, lineStyle: 1, // dashed
+      crosshairMarkerVisible: false, lastValueVisible: false, priceLineVisible: false,
+    });
+    s.setData([{time:p1.time,value:p1.price},{time:p2.time,value:p2.price},{time:futureTime,value:futurePrice}]);
+    _trendLines.push(s);
+  }
+
+  var upCol  = _dark ? '#00ff9d' : '#00875a';
+  var dnCol  = _dark ? '#ff0055' : '#cc0000';
+  if (upPts.length===2 && upPts[1].price>upPts[0].price) extendLine(upPts, upCol);
+  if (dnPts.length===2 && dnPts[1].price<dnPts[0].price) extendLine(dnPts, dnCol);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COMPARE OVERLAYS
+// ═══════════════════════════════════════════════════════════════
+function toggleCompareSearch() {
+  haptic('light');
+  var row = document.getElementById('compare-search-row');
+  var btn = document.getElementById('compare-btn');
+  var show = !row.classList.contains('show');
+  row.classList.toggle('show', show);
+  btn.classList.toggle('active', show);
+  if (show) document.getElementById('compare-input').focus();
+}
+
+async function addCompare() {
+  var inp = document.getElementById('compare-input');
+  var sym = inp.value.replace(/[^A-Za-z0-9=.^]/g,'').toUpperCase();
+  if (!sym) return;
+  inp.value = '';
+  if (_overlays.length >= 3) { alert('Max 3 compare overlays'); return; }
+  if (_overlays.some(function(o){ return o.sym===sym; })) return;
+  haptic('medium');
+
+  var colorVarName = OVERLAY_COLORS[_overlays.length];
+  var colorVal = getComputedStyle(document.body).getPropertyValue('--'+colorVarName).trim() || '#00cccc';
+
+  try {
+    var cfg = TF_CFG[_tf]||TF_CFG['1D'];
+    var resolvedCmp = resolveSym(sym);
+    var resp = await fetch('/api/chart/data?symbol='+encodeURIComponent(resolvedCmp.fetch)+'&timeframe='+cfg.tf+'&bars='+cfg.bars);
+    if (!resp.ok) throw new Error('HTTP '+resp.status);
+    var d = await resp.json();
+    if (!d||!d.candles||!d.candles.length) throw new Error('No data');
+
+    // Normalize to % change from first close
+    var base = d.candles[0].close;
+    var normData = d.candles.map(function(c){ return { time:c.time, value: (c.close/base-1)*100 }; });
+
+    var s = _chart.addLineSeries({
+      color: colorVal, lineWidth: 2,
+      priceScaleId: 'compare',
+      lastValueVisible: true,
+      title: sym,
+      priceFormat: { type:'custom', formatter: function(v){ return v.toFixed(1)+'%'; } },
+    });
+    s.setData(normData);
+    _chart.priceScale('compare').applyOptions({ visible:true, position:'left', scaleMargins:{top:0.1,bottom:0.1} });
+
+    _overlays.push({ sym:sym, series:s, data:normData, colorVar:colorVarName, colorVal:colorVal });
+    renderCompareLegend();
+  } catch(e) {
+    alert('Could not load ' + sym + ': ' + e.message);
+  }
+}
+
+function removeOverlay(sym) {
+  var idx = _overlays.findIndex(function(o){ return o.sym===sym; });
+  if (idx===-1) return;
+  try { _chart.removeSeries(_overlays[idx].series); } catch(e){}
+  _overlays.splice(idx,1);
+  if (!_overlays.length) { try{ _chart.priceScale('compare').applyOptions({visible:false}); }catch(e){} }
+  renderCompareLegend();
+}
+
+function renderCompareLegend() {
+  var el = document.getElementById('compare-legend');
+  el.innerHTML = '';
+  _overlays.forEach(function(o) {
+    var item = document.createElement('div');
+    item.className = 'legend-item';
+    item.innerHTML = '<div class="legend-dot" style="background:'+o.colorVal+'"></div><span>'+o.sym+'</span><span class="legend-x">✕</span>';
+    item.onclick = function(){ removeOverlay(o.sym); };
+    el.appendChild(item);
+  });
+}
+
+function clearAllOverlays() {
+  _overlays.forEach(function(o){ try{ _chart.removeSeries(o.series); }catch(e){} });
+  _overlays = [];
+  document.getElementById('compare-legend').innerHTML = '';
+}
+
+// ═══════════════════════════════════════════════════════════════
+// PRICE HEADER
+// ═══════════════════════════════════════════════════════════════
+function updatePriceHeader(sym, candles, indicators) {
+  document.getElementById('ph-symbol').textContent = sym;
+  if (!candles||!candles.length) return;
+  var last = candles[candles.length-1];
+  var prev = candles.length>1 ? candles[candles.length-2] : null;
+  var p = last.close;
+  var priceEl = document.getElementById('ph-price');
+  priceEl.textContent = '$'+p.toFixed(2);
+
+  var chgEl = document.getElementById('ph-change');
+  if (prev) {
+    var d=p-prev.close, pct=(d/prev.close)*100;
+    chgEl.textContent=(d>=0?'+':'')+d.toFixed(2)+' ('+(pct>=0?'+':'')+pct.toFixed(2)+'%)';
+    var col = d>=0?'var(--green)':'var(--red)';
+    chgEl.style.color = col; priceEl.style.color = col;
+  }
+
+  var hi=Math.max.apply(null,candles.map(function(c){return c.high;}));
+  var lo=Math.min.apply(null,candles.map(function(c){return c.low;}));
+  document.getElementById('ph-range').textContent = 'H: $'+hi.toFixed(2)+'  L: $'+lo.toFixed(2);
+
+  var rsiEl = document.getElementById('ph-rsi');
+  if (indicators&&indicators.rsi&&indicators.rsi.length) {
+    var rv = indicators.rsi[indicators.rsi.length-1].value;
+    rsiEl.style.display='inline-block';
+    rsiEl.textContent='RSI '+rv.toFixed(1);
+    rsiEl.style.color = rv>70?'var(--red)':rv<30?'var(--green)':'var(--muted)';
+  } else { rsiEl.style.display='none'; }
+}
+
+// ═══════════════════════════════════════════════════════════════
+// BUILD CHART
+// ═══════════════════════════════════════════════════════════════
+function buildChart(sym, d) {
+  var container = document.getElementById('chart-container');
+  var wrap = document.getElementById('chart-wrap');
+  var w = container.offsetWidth || window.innerWidth;
+  var h = wrap.offsetHeight || Math.round(window.innerHeight*0.6);
+
+  // Destroy previous
+  clearAllOverlays();
+  clearFib();
+  clearTrends();
+  if (_chart) {
+    try{ _chart.remove(); } catch(e){}
+    container.innerHTML='';
+    _chart=null; _mainS=null; _volS=null; _ma200S=null; _ma50S=null; _fibLines=[]; _trendLines=[];
+  }
+
+  var chartBg   = _dark ? '#0a0a0f' : '#ffffff';
+  var chartText = _dark ? '#c8c8d0' : '#333333';
+  var gridColor = _dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.05)';
+  var upCol     = _dark ? '#00ff9d' : '#00875a';
+  var dnCol     = _dark ? '#ff0055' : '#cc0000';
+  var ma200Col  = _dark ? '#3b82f6' : '#0066cc';
+  var ma50Col   = _dark ? '#f59e0b' : '#cc8800';
+  var volUp     = _dark ? 'rgba(0,255,157,0.2)' : 'rgba(0,135,90,0.2)';
+  var volDn     = _dark ? 'rgba(255,0,80,0.2)'  : 'rgba(200,0,0,0.2)';
+
+  _chart = LightweightCharts.createChart(container, {
+    width: w, height: h,
+    layout: { background:{color:chartBg}, textColor:chartText, fontSize: _large ? 16 : 13 },
+    grid: { vertLines:{color:gridColor}, horzLines:{color:gridColor} },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: _dark?'rgba(255,255,255,0.08)':'#cccccc', minimumWidth:72 },
+    timeScale: {
+      borderColor: _dark?'rgba(255,255,255,0.08)':'#cccccc',
+      timeVisible: (_tf==='1D'||_tf==='5D'),
+      secondsVisible: false, rightOffset:5,
+    },
+    handleScroll:true, handleScale:true,
+  });
+
+  // Main series
+  if (_ctype==='candle') {
+    _mainS = _chart.addCandlestickSeries({
+      upColor:upCol, downColor:dnCol,
+      borderUpColor:upCol, borderDownColor:dnCol,
+      wickUpColor:upCol, wickDownColor:dnCol,
+    });
+    _mainS.setData(_candles);
+  } else if (_ctype==='line') {
+    _mainS = _chart.addLineSeries({color:upCol, lineWidth:2, lastValueVisible:true});
+    _mainS.setData(_candles.map(function(c){return{time:c.time,value:c.close};}));
+  } else {
+    _mainS = _chart.addAreaSeries({
+      topColor: _dark?'rgba(0,255,157,0.25)':'rgba(0,135,90,0.2)',
+      bottomColor: _dark?'rgba(0,255,157,0.02)':'rgba(0,135,90,0.02)',
+      lineColor:upCol, lineWidth:2, lastValueVisible:true,
+    });
+    _mainS.setData(_candles.map(function(c){return{time:c.time,value:c.close};}));
+  }
+
+  // Volume
+  _volS = _chart.addHistogramSeries({
+    color:'rgba(99,102,241,0.3)',
+    priceFormat:{type:'volume'},
+    priceScaleId:'vol',
+    scaleMargins:{top:0.82,bottom:0},
+  });
+  _volS.setData(_candles.map(function(c){
+    return{time:c.time,value:c.volume||0,color:c.close>=c.open?volUp:volDn};
+  }));
+  _volS.applyOptions({visible:_toggOn['vol']});
+
+  // 200 MA
+  var sma200 = d.indicators&&d.indicators.sma200;
+  if (sma200&&sma200.length) {
+    _ma200S = _chart.addLineSeries({color:ma200Col,lineWidth:2,title:'200',lastValueVisible:false});
+    _ma200S.setData(sma200.map(function(x){return{time:x.time,value:x.value};}));
+    _ma200S.applyOptions({visible:_toggOn['200ma']});
+  }
+
+  // 50 MA
+  var sma50 = d.indicators&&(d.indicators.sma50||d.indicators.ema50);
+  if (sma50&&sma50.length) {
+    _ma50S = _chart.addLineSeries({color:ma50Col,lineWidth:2,title:'50',lastValueVisible:false});
+    _ma50S.setData(sma50.map(function(x){return{time:x.time,value:x.value};}));
+    _ma50S.applyOptions({visible:_toggOn['50ma']});
+  }
+
+  _chart.timeScale().fitContent();
+
+  // Draw overlays if toggled
+  if (_toggOn['fib']) drawFib();
+  if (_toggOn['trend']) drawTrends();
+  syncFibDismissBtn();
+
+  // Crosshair → live price
+  _chart.subscribeCrosshairMove(function(param) {
+    if (!param||!param.seriesData||!_mainS) return;
+    var bar = param.seriesData.get(_mainS);
+    if (bar) {
+      var pv = bar.close!==undefined ? bar.close : bar.value;
+      if (pv!==undefined) document.getElementById('ph-price').textContent='$'+pv.toFixed(2);
+    }
+  });
+
+  // Auto-recalc fib on pan/zoom
+  _chart.timeScale().subscribeVisibleTimeRangeChange(function() {
+    if (_toggOn['fib']) drawFib();
+  });
+}
+
+// ═══════════════════════════════════════════════════════════════
+// LOAD CHART (fetch data → build)
+// ═══════════════════════════════════════════════════════════════
+async function loadChart(sym, tf) {
+  var loading = document.getElementById('chart-loading');
+  var errEl   = document.getElementById('chart-error');
+  loading.classList.add('show');
+  errEl.classList.remove('show');
+  document.getElementById('loading-label').textContent = 'Loading '+sym+'…';
+
+  try {
+    var cfg = TF_CFG[tf]||TF_CFG['1D'];
+    var resolved = resolveSym(sym);
+    var url = '/api/chart/data?symbol='+encodeURIComponent(resolved.fetch)+'&timeframe='+cfg.tf+'&bars='+cfg.bars;
+    var resp = await fetch(url);
+    if (!resp.ok) throw new Error('HTTP '+resp.status);
+    var d = await resp.json();
+    if (!d||!d.candles||!d.candles.length) throw new Error('No candle data returned');
+
+    _candles  = d.candles;
+    _lastData = d;
+    buildChart(sym, d);
+    updatePriceHeader(resolved.label, _candles, d.indicators);
+    loading.classList.remove('show');
+  } catch(e) {
+    loading.classList.remove('show');
+    document.getElementById('error-msg').textContent = 'Could not load '+sym+' — '+e.message;
+    errEl.classList.add('show');
+  }
+}
+
+function loadTicker(sym) {
+  _sym = sym.toUpperCase();
+  document.querySelectorAll('.wl-pill').forEach(function(p){
+    p.classList.toggle('active', p.dataset.sym===_sym);
+  });
+  addRecent(_sym); renderRecents();
+  loadChart(_sym, _tf);
+}
+
+// ═══════════════════════════════════════════════════════════════
+// COMPARE — Enter key on input
+// ═══════════════════════════════════════════════════════════════
+var _compareFired = false;
+document.getElementById('compare-input').addEventListener('keydown', function(e){
+  if (e.key === 'Enter') { _compareFired = true; addCompare(); }
+});
+document.getElementById('compare-input').addEventListener('keyup', function(e){
+  if (e.key === 'Enter' && !_compareFired) addCompare();
+  _compareFired = false;
+});
+document.getElementById('compare-input').addEventListener('input', function(){ this.value = this.value.toUpperCase(); });
+
+// ═══════════════════════════════════════════════════════════════
+// RESIZE — delay lets CSS reflow finish before measuring
+// ═══════════════════════════════════════════════════════════════
+var _resizeTimer = null;
+function doResize() {
+  if (!_chart) return;
+  var c = document.getElementById('chart-container');
+  var w = document.getElementById('chart-wrap');
+  var newW = c.offsetWidth;
+  var newH = w.offsetHeight;
+  if (newW > 0 && newH > 0) {
+    _chart.applyOptions({ width: newW, height: newH });
+    _chart.timeScale().fitContent();
+  }
+}
+window.addEventListener('resize', function() {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(doResize, 120);
+});
+window.addEventListener('orientationchange', function() {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(function() {
+    window.scrollTo({ top: 0, behavior: 'instant' });
+    doResize();
+  }, 350);
+});
+
+// ═══════════════════════════════════════════════════════════════
+// INIT
+// ═══════════════════════════════════════════════════════════════
+(function init() {
+  initTheme();
+
+  _large = lsGet('bc2_large', true);
+  document.body.classList.toggle('large', _large);
+  document.getElementById('aa-btn').classList.toggle('on', _large);
+
+  renderWL();
+  renderRecents();
+
+  var p = new URLSearchParams(window.location.search);
+  var urlSym = (p.get('ticker')||p.get('symbol')||'').replace(/[^A-Za-z0-9=.^]/g,'').toUpperCase();
+  if (urlSym) _sym = urlSym;
+
+  loadChart(_sym, _tf);
+})();
+
+// Notify the bridge that a guest is viewing Big Charts
+(function() {
+  function _ping() { fetch('/api/charts/ping').catch(function(){}); }
+  _ping();
+  setInterval(_ping, 60000); // keep presence alive while tab is open
+})();
+</script>
+</body>
+</html>

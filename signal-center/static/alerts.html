@@ -1,0 +1,1620 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Signal Command Center — TradeMinds</title>
+  <style>
+    :root {
+      --bg-primary: #07070c;
+      --bg-secondary: #0b0e18;
+      --bg-card: #0e1420;
+      --bg-card-hover: #131b2a;
+      --border-dim: #1e2d45;
+      --text-primary: #e2e8f0;
+      --text-secondary: #94a3b8;
+      --text-muted: #4b5563;
+      --accent-cyan: #06b6d4;
+      --accent-blue: #3b82f6;
+      --color-buy: #10b981;
+      --color-sell: #ef4444;
+      --color-short: #ef4444;
+      --color-dte: #ff8c00;
+      --color-swing: #0088ff;
+      --color-oversold: #00ff88;
+      --color-bearish: #ff2222;
+      --color-congress: #aa44ff;
+      --color-volume: #ffdd00;
+      --color-convergence: #ffd700;
+      --glow-cyan: 0 0 20px rgba(6, 182, 212, 0.3);
+      --glow-green: 0 0 20px rgba(0, 255, 136, 0.35);
+      --glow-red: 0 0 20px rgba(255, 34, 34, 0.4);
+    }
+
+    * {
+      margin: 0;
+      padding: 0;
+      box-sizing: border-box;
+    }
+
+    body {
+      background: var(--bg-primary);
+      color: var(--text-primary);
+      font-family: 'Courier New', 'SF Mono', 'Consolas', monospace;
+      min-height: 100vh;
+      overflow-x: hidden;
+    }
+
+    /* Scanline overlay */
+    body::before {
+      content: '';
+      position: fixed;
+      top: 0; left: 0; right: 0; bottom: 0;
+      background: repeating-linear-gradient(
+        0deg,
+        transparent,
+        transparent 2px,
+        rgba(0, 0, 0, 0.03) 2px,
+        rgba(0, 0, 0, 0.03) 4px
+      );
+      pointer-events: none;
+      z-index: 9999;
+    }
+
+    /* ===== HEADER ===== */
+    .header {
+      position: sticky;
+      top: 0;
+      z-index: 100;
+      background: rgba(10, 14, 26, 0.95);
+      backdrop-filter: blur(12px);
+      border-bottom: 1px solid var(--border-dim);
+      padding: 0.75rem 1rem;
+    }
+
+    .header-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      flex-wrap: wrap;
+    }
+
+    .header-title {
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-shrink: 0;
+    }
+
+    .header-title h1 {
+      font-size: 1rem;
+      font-weight: 700;
+      letter-spacing: 0.15em;
+      text-transform: uppercase;
+      color: var(--accent-cyan);
+      text-shadow: var(--glow-cyan);
+    }
+
+    .live-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.35rem;
+      background: rgba(239, 68, 68, 0.15);
+      border: 1px solid rgba(239, 68, 68, 0.4);
+      color: #ef4444;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      padding: 0.2rem 0.5rem;
+      border-radius: 3px;
+      text-transform: uppercase;
+    }
+
+    .live-dot {
+      width: 6px;
+      height: 6px;
+      background: #ef4444;
+      border-radius: 50%;
+      animation: pulse-red 1.5s ease-in-out infinite;
+    }
+
+    @keyframes pulse-red {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.4; transform: scale(0.7); }
+    }
+
+    .header-stats {
+      display: flex;
+      align-items: center;
+      gap: 1rem;
+      margin-left: auto;
+      flex-wrap: wrap;
+    }
+
+    .stat-pill {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+    }
+
+    .stat-pill .val {
+      color: var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .audio-indicator {
+      display: flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.7rem;
+      color: var(--text-muted);
+      cursor: pointer;
+      padding: 0.25rem 0.5rem;
+      border: 1px solid var(--border-dim);
+      border-radius: 4px;
+      transition: all 0.2s;
+    }
+
+    .audio-indicator.active {
+      color: var(--accent-cyan);
+      border-color: var(--accent-cyan);
+      background: rgba(6, 182, 212, 0.08);
+      box-shadow: 0 0 8px rgba(6, 182, 212, 0.2);
+    }
+
+    .audio-icon {
+      font-size: 0.9rem;
+    }
+
+    /* ===== CONTROLS BAR ===== */
+    .controls-bar {
+      background: var(--bg-secondary);
+      border-bottom: 1px solid var(--border-dim);
+      padding: 0.6rem 1rem;
+    }
+
+    .controls-inner {
+      max-width: 1400px;
+      margin: 0 auto;
+      display: flex;
+      align-items: center;
+      gap: 0.75rem;
+      flex-wrap: wrap;
+    }
+
+    .filter-label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      flex-shrink: 0;
+    }
+
+    .filter-btns {
+      display: flex;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+      flex: 1;
+    }
+
+    .filter-btn {
+      background: transparent;
+      border: 1px solid var(--border-dim);
+      color: var(--text-secondary);
+      font-family: inherit;
+      font-size: 0.68rem;
+      font-weight: 600;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.3rem 0.65rem;
+      border-radius: 4px;
+      cursor: pointer;
+      transition: all 0.2s;
+    }
+
+    .filter-btn:hover {
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+
+    .filter-btn.active {
+      background: rgba(6, 182, 212, 0.12);
+      border-color: var(--accent-cyan);
+      color: var(--accent-cyan);
+    }
+
+    .filter-btn[data-type="0DTE"].active    { background: rgba(255,140,0,0.15); border-color: #ff8c00; color: #ff8c00; }
+    .filter-btn[data-type="SWING"].active   { background: rgba(0,136,255,0.15); border-color: #0088ff; color: #0088ff; }
+    .filter-btn[data-type="OVERSOLD"].active{ background: rgba(0,255,136,0.15); border-color: #00ff88; color: #00ff88; }
+    .filter-btn[data-type="BEARISH"].active { background: rgba(255,34,34,0.15); border-color: #ff2222; color: #ff2222; }
+    .filter-btn[data-type="CONGRESS"].active{ background: rgba(170,68,255,0.15); border-color: #aa44ff; color: #aa44ff; }
+    .filter-btn[data-type="VOLUME"].active  { background: rgba(255,221,0,0.15); border-color: #ffdd00; color: #ffdd00; }
+    .filter-btn[data-type="CONVERGENCE"].active { background: rgba(255,215,0,0.15); border-color: #ffd700; color: #ffd700; }
+
+    .player-select-wrap {
+      display: flex;
+      align-items: center;
+      gap: 0.4rem;
+      margin-left: auto;
+    }
+
+    .player-select-wrap label {
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      text-transform: uppercase;
+      letter-spacing: 0.08em;
+      white-space: nowrap;
+    }
+
+    select#player-select {
+      background: var(--bg-card);
+      border: 1px solid var(--border-dim);
+      color: var(--text-primary);
+      font-family: inherit;
+      font-size: 0.75rem;
+      padding: 0.3rem 0.5rem;
+      border-radius: 4px;
+      cursor: pointer;
+      outline: none;
+      min-width: 140px;
+    }
+
+    select#player-select:focus {
+      border-color: var(--accent-cyan);
+    }
+
+    /* ===== MAIN CONTENT ===== */
+    .main {
+      max-width: 1400px;
+      margin: 0 auto;
+      padding: 1rem;
+    }
+
+    .empty-state {
+      text-align: center;
+      padding: 4rem 1rem;
+      color: var(--text-muted);
+    }
+
+    .empty-state .icon {
+      font-size: 3rem;
+      margin-bottom: 1rem;
+    }
+
+    .empty-state p {
+      font-size: 0.85rem;
+      letter-spacing: 0.05em;
+    }
+
+    /* ===== SIGNAL CARDS GRID ===== */
+    .signals-grid {
+      display: grid;
+      grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+      gap: 1rem;
+    }
+
+    @media (max-width: 480px) {
+      .signals-grid {
+        grid-template-columns: 1fr;
+      }
+    }
+
+    /* ===== SIGNAL CARD ===== */
+    .signal-card {
+      background: var(--bg-card);
+      border: 1px solid var(--border-dim);
+      border-radius: 8px;
+      overflow: hidden;
+      position: relative;
+      transition: transform 0.2s, box-shadow 0.2s;
+    }
+
+    .signal-card:hover {
+      transform: translateY(-2px);
+    }
+
+    .signal-card.is-new {
+      animation: card-pulse-new 10s ease-out forwards;
+    }
+
+    @keyframes card-pulse-new {
+      0%   { box-shadow: 0 0 40px rgba(6,182,212,0.9), 0 0 0 2px rgba(6,182,212,0.6); }
+      15%  { box-shadow: 0 0 20px rgba(6,182,212,0.5); }
+      30%  { box-shadow: 0 0 40px rgba(6,182,212,0.7); }
+      45%  { box-shadow: 0 0 15px rgba(6,182,212,0.4); }
+      60%  { box-shadow: 0 0 30px rgba(6,182,212,0.5); }
+      80%  { box-shadow: 0 0 10px rgba(6,182,212,0.2); }
+      100% { box-shadow: none; }
+    }
+
+    .signal-card.executed {
+      opacity: 0.5;
+      filter: grayscale(0.4);
+    }
+
+    .signal-card.dismissed {
+      opacity: 0.3;
+      filter: grayscale(0.7);
+    }
+
+    .signal-card.hidden {
+      display: none;
+    }
+
+    /* ===== PER-TYPE CARD COLORS — background + left border + glow ===== */
+    .signal-card[data-type="0DTE"],
+    .signal-card[data-type="OPTIONS"] {
+      background: #1a0f00;
+      border-left: 4px solid #ff8c00;
+      box-shadow: 0 0 18px rgba(255,140,0,0.25), inset 0 0 30px rgba(255,140,0,0.04);
+    }
+    .signal-card[data-type="SWING"] {
+      background: #000f1a;
+      border-left: 4px solid #0088ff;
+      box-shadow: 0 0 18px rgba(0,136,255,0.22), inset 0 0 30px rgba(0,136,255,0.04);
+    }
+    .signal-card[data-type="OVERSOLD"] {
+      background: #001a0f;
+      border-left: 4px solid #00ff88;
+      box-shadow: 0 0 18px rgba(0,255,136,0.22), inset 0 0 30px rgba(0,255,136,0.04);
+    }
+    .signal-card[data-type="BEARISH"] {
+      background: #1a0000;
+      border-left: 4px solid #ff2222;
+      animation: bearish-pulse 2.5s ease-in-out infinite;
+    }
+    @keyframes bearish-pulse {
+      0%, 100% { box-shadow: 0 0 14px rgba(255,34,34,0.3), inset 0 0 30px rgba(255,34,34,0.04); }
+      50%       { box-shadow: 0 0 28px rgba(255,34,34,0.55), inset 0 0 30px rgba(255,34,34,0.08); }
+    }
+    .signal-card[data-type="CONGRESS"] {
+      background: #0f001a;
+      border-left: 4px solid #aa44ff;
+      box-shadow: 0 0 18px rgba(170,68,255,0.25), inset 0 0 30px rgba(170,68,255,0.04);
+    }
+    .signal-card[data-type="VOLUME"] {
+      background: #1a1a00;
+      border-left: 4px solid #ffdd00;
+      box-shadow: 0 0 18px rgba(255,221,0,0.22), inset 0 0 30px rgba(255,221,0,0.04);
+    }
+    .signal-card[data-type="CONVERGENCE"] {
+      background: #1a1400;
+      border-left: 4px solid #ffd700;
+      animation: convergence-shimmer 3s ease-in-out infinite;
+    }
+    @keyframes convergence-shimmer {
+      0%, 100% { box-shadow: 0 0 16px rgba(255,215,0,0.28), inset 0 0 30px rgba(255,215,0,0.04); }
+      50%       { box-shadow: 0 0 32px rgba(255,215,0,0.5),  inset 0 0 60px rgba(255,215,0,0.08); }
+    }
+
+    /* Hover lift respects type glow */
+    .signal-card:hover { transform: translateY(-2px); filter: brightness(1.06); }
+
+    .card-header {
+      display: flex;
+      align-items: flex-start;
+      justify-content: space-between;
+      padding: 0.85rem 1rem 0.5rem;
+      gap: 0.5rem;
+    }
+
+    .agent-badge {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      font-size: 0.65rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      padding: 0.2rem 0.6rem;
+      border-radius: 3px;
+      flex-shrink: 0;
+    }
+
+    .card-meta {
+      display: flex;
+      flex-direction: column;
+      align-items: flex-end;
+      gap: 0.3rem;
+      flex-shrink: 0;
+    }
+
+    .type-badge {
+      font-size: 0.6rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      padding: 0.15rem 0.45rem;
+      border-radius: 3px;
+      border: 1px solid;
+    }
+
+    .type-badge[data-type="0DTE"],
+    .type-badge[data-type="OPTIONS"]    { color: #ff8c00; border-color: #ff8c00; background: rgba(255,140,0,0.15); font-size: 0.7rem; }
+    .type-badge[data-type="SWING"]      { color: #0088ff; border-color: #0088ff; background: rgba(0,136,255,0.15); font-size: 0.7rem; }
+    .type-badge[data-type="OVERSOLD"]   { color: #00ff88; border-color: #00ff88; background: rgba(0,255,136,0.15); font-size: 0.7rem; }
+    .type-badge[data-type="BEARISH"]    { color: #ff2222; border-color: #ff2222; background: rgba(255,34,34,0.15); font-size: 0.7rem; }
+    .type-badge[data-type="CONGRESS"]   { color: #aa44ff; border-color: #aa44ff; background: rgba(170,68,255,0.15); font-size: 0.7rem; }
+    .type-badge[data-type="VOLUME"]     { color: #ffdd00; border-color: #ffdd00; background: rgba(255,221,0,0.15); font-size: 0.7rem; }
+    .type-badge[data-type="CONVERGENCE"]{ color: #ffd700; border-color: #ffd700; background: rgba(255,215,0,0.15); font-size: 0.7rem; }
+
+    .time-ago {
+      font-size: 0.6rem;
+      color: var(--text-muted);
+      letter-spacing: 0.05em;
+    }
+
+    /* ===== MAIN SIGNAL LINE ===== */
+    .card-signal {
+      padding: 0.25rem 1rem 0.75rem;
+      display: flex;
+      align-items: baseline;
+      gap: 0.6rem;
+      flex-wrap: wrap;
+    }
+
+    .action-label {
+      font-size: 2rem;
+      font-weight: 900;
+      letter-spacing: 0.05em;
+      line-height: 1;
+      text-transform: uppercase;
+    }
+
+    .action-label.buy    { color: #00ff88; text-shadow: 0 0 16px rgba(0,255,136,0.6); }
+    .action-label.sell   { color: #ff2222; text-shadow: 0 0 16px rgba(255,34,34,0.6); }
+    .action-label.short  { color: #ff2222; text-shadow: 0 0 16px rgba(255,34,34,0.6); }
+    .action-label.hold   { color: var(--text-muted); }
+    .action-label.put    { color: #ff8c00; text-shadow: 0 0 14px rgba(255,140,0,0.5); }
+    .action-label.call   { color: #00ff88; text-shadow: 0 0 16px rgba(0,255,136,0.6); }
+
+    .symbol-label {
+      font-size: 1.5rem;
+      font-weight: 800;
+      letter-spacing: 0.05em;
+      color: var(--text-primary);
+    }
+
+    .price-label {
+      font-size: 1rem;
+      font-weight: 600;
+      color: var(--text-secondary);
+      letter-spacing: 0.03em;
+    }
+
+    /* ===== CONFIDENCE BAR ===== */
+    .confidence-wrap {
+      padding: 0 1rem 0.75rem;
+    }
+
+    .confidence-header {
+      display: flex;
+      justify-content: space-between;
+      font-size: 0.65rem;
+      color: var(--text-muted);
+      margin-bottom: 0.3rem;
+      letter-spacing: 0.05em;
+      text-transform: uppercase;
+    }
+
+    .confidence-pct {
+      color: var(--accent-cyan);
+      font-weight: 700;
+    }
+
+    .confidence-bar-track {
+      height: 6px;
+      background: rgba(255,255,255,0.05);
+      border-radius: 3px;
+      overflow: hidden;
+    }
+
+    .confidence-bar-fill {
+      height: 100%;
+      border-radius: 3px;
+      transition: width 0.5s ease;
+      position: relative;
+    }
+
+    .confidence-bar-fill::after {
+      content: '';
+      position: absolute;
+      top: 0; right: 0;
+      width: 20px;
+      height: 100%;
+      background: linear-gradient(90deg, transparent, rgba(255,255,255,0.4));
+      border-radius: 3px;
+    }
+
+    .conf-high   { background: linear-gradient(90deg, #059669, #10b981); box-shadow: 0 0 8px rgba(16,185,129,0.5); }
+    .conf-medium { background: linear-gradient(90deg, #b45309, #f59e0b); box-shadow: 0 0 8px rgba(245,158,11,0.5); }
+    .conf-low    { background: linear-gradient(90deg, #b91c1c, #ef4444); box-shadow: 0 0 8px rgba(239,68,68,0.5); }
+
+    /* ===== REASONING ===== */
+    .card-reasoning {
+      padding: 0 1rem 0.75rem;
+      font-size: 0.75rem;
+      color: var(--text-secondary);
+      line-height: 1.5;
+      border-top: 1px solid var(--border-dim);
+      padding-top: 0.6rem;
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    /* ===== SOURCES ===== */
+    .sources-wrap {
+      padding: 0.5rem 1rem;
+      display: flex;
+      gap: 0.35rem;
+      flex-wrap: wrap;
+    }
+
+    .source-pill {
+      font-size: 0.6rem;
+      font-weight: 600;
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      padding: 0.15rem 0.45rem;
+      border-radius: 10px;
+      background: rgba(255,255,255,0.05);
+      border: 1px solid var(--border-dim);
+      color: var(--text-muted);
+    }
+
+    /* ===== TRADE PARAMS ===== */
+    .trade-params {
+      padding: 0.5rem 1rem;
+      display: flex;
+      gap: 1rem;
+      flex-wrap: wrap;
+      background: rgba(0,0,0,0.2);
+      border-top: 1px solid var(--border-dim);
+    }
+
+    .param {
+      display: flex;
+      flex-direction: column;
+      gap: 0.15rem;
+    }
+
+    .param-label {
+      font-size: 0.55rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      color: var(--text-muted);
+    }
+
+    .param-value {
+      font-size: 0.8rem;
+      font-weight: 700;
+      color: var(--text-primary);
+    }
+
+    .param-value.stop  { color: #ef4444; }
+    .param-value.target{ color: #10b981; }
+    .param-value.rr    { color: var(--color-convergence); }
+
+    /* ===== CARD ACTIONS ===== */
+    .card-actions {
+      padding: 0.6rem 1rem;
+      display: flex;
+      gap: 0.5rem;
+      border-top: 1px solid var(--border-dim);
+    }
+
+    .btn {
+      flex: 1;
+      padding: 0.5rem;
+      border: none;
+      border-radius: 4px;
+      font-family: inherit;
+      font-size: 0.7rem;
+      font-weight: 700;
+      letter-spacing: 0.08em;
+      text-transform: uppercase;
+      cursor: pointer;
+      transition: all 0.2s;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      gap: 0.3rem;
+    }
+
+    .btn-execute {
+      background: linear-gradient(135deg, #065f46, #10b981);
+      color: #ecfdf5;
+      border: 1px solid #10b981;
+    }
+
+    .btn-execute:hover {
+      background: linear-gradient(135deg, #10b981, #34d399);
+      box-shadow: 0 0 12px rgba(16,185,129,0.4);
+    }
+
+    .btn-execute:disabled {
+      background: rgba(255,255,255,0.05);
+      border-color: var(--border-dim);
+      color: var(--text-muted);
+      cursor: not-allowed;
+    }
+
+    .btn-dismiss {
+      background: rgba(255,255,255,0.04);
+      color: var(--text-muted);
+      border: 1px solid var(--border-dim);
+      flex: 0 0 auto;
+      padding: 0.5rem 0.75rem;
+    }
+
+    .btn-dismiss:hover {
+      background: rgba(239,68,68,0.1);
+      border-color: #ef4444;
+      color: #ef4444;
+    }
+
+    .btn-why {
+      background: rgba(139,92,246,0.1);
+      color: #8b5cf6;
+      border: 1px solid rgba(139,92,246,0.3);
+      flex: 0 0 auto;
+      padding: 0.5rem 0.65rem;
+    }
+
+    .btn-why:hover {
+      background: rgba(139,92,246,0.2);
+      box-shadow: 0 0 10px rgba(139,92,246,0.3);
+    }
+
+    /* ===== STATUS OVERLAY ===== */
+    .status-overlay {
+      display: none;
+      position: absolute;
+      inset: 0;
+      background: rgba(0,0,0,0.75);
+      align-items: center;
+      justify-content: center;
+      border-radius: 8px;
+      font-size: 1.2rem;
+      font-weight: 900;
+      letter-spacing: 0.1em;
+      backdrop-filter: blur(2px);
+    }
+
+    .status-overlay.show { display: flex; }
+    .status-overlay.executed { color: #10b981; border: 2px solid #10b981; }
+    .status-overlay.dismissed { color: #ef4444; border: 2px solid #ef4444; }
+
+    /* ===== MODAL ===== */
+    .modal-overlay {
+      display: none;
+      position: fixed;
+      inset: 0;
+      background: rgba(0,0,0,0.8);
+      z-index: 200;
+      align-items: center;
+      justify-content: center;
+      padding: 1rem;
+      backdrop-filter: blur(4px);
+    }
+
+    .modal-overlay.show { display: flex; }
+
+    .modal {
+      background: var(--bg-card);
+      border: 1px solid var(--border-dim);
+      border-top: 3px solid #8b5cf6;
+      border-radius: 8px;
+      width: 100%;
+      max-width: 600px;
+      max-height: 85vh;
+      display: flex;
+      flex-direction: column;
+      box-shadow: 0 20px 60px rgba(0,0,0,0.8);
+    }
+
+    .modal-header {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 1rem 1.25rem;
+      border-bottom: 1px solid var(--border-dim);
+    }
+
+    .modal-title {
+      font-size: 0.85rem;
+      font-weight: 700;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      color: #8b5cf6;
+    }
+
+    .modal-close {
+      background: none;
+      border: none;
+      color: var(--text-muted);
+      font-size: 1.2rem;
+      cursor: pointer;
+      padding: 0.25rem;
+      transition: color 0.2s;
+    }
+
+    .modal-close:hover { color: var(--text-primary); }
+
+    .modal-body {
+      padding: 1.25rem;
+      overflow-y: auto;
+      flex: 1;
+      font-size: 0.8rem;
+      line-height: 1.6;
+      color: var(--text-secondary);
+      font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+    }
+
+    .modal-body h4 {
+      color: var(--accent-cyan);
+      font-family: 'Courier New', monospace;
+      font-size: 0.75rem;
+      letter-spacing: 0.1em;
+      text-transform: uppercase;
+      margin-top: 1rem;
+      margin-bottom: 0.4rem;
+    }
+
+    .modal-body h4:first-child { margin-top: 0; }
+
+    .modal-body pre {
+      background: rgba(0,0,0,0.3);
+      border: 1px solid var(--border-dim);
+      border-radius: 4px;
+      padding: 0.75rem;
+      font-size: 0.7rem;
+      overflow-x: auto;
+      white-space: pre-wrap;
+      word-break: break-word;
+    }
+
+    .modal-loading {
+      text-align: center;
+      padding: 2rem;
+      color: var(--text-muted);
+      font-size: 0.8rem;
+    }
+
+    /* ===== TOAST ===== */
+    .toast-container {
+      position: fixed;
+      bottom: 1.5rem;
+      right: 1rem;
+      z-index: 300;
+      display: flex;
+      flex-direction: column;
+      gap: 0.5rem;
+      pointer-events: none;
+    }
+
+    .toast {
+      background: var(--bg-card);
+      border: 1px solid var(--border-dim);
+      border-radius: 6px;
+      padding: 0.6rem 1rem;
+      font-size: 0.78rem;
+      font-weight: 600;
+      letter-spacing: 0.05em;
+      animation: toast-in 0.3s ease-out;
+      max-width: 280px;
+    }
+
+    .toast.ok { border-left: 3px solid #10b981; color: #10b981; }
+    .toast.err { border-left: 3px solid #ef4444; color: #ef4444; }
+
+    @keyframes toast-in {
+      from { opacity: 0; transform: translateX(20px); }
+      to   { opacity: 1; transform: translateX(0); }
+    }
+
+    /* ===== CONNECTION STATUS ===== */
+    .conn-status {
+      position: fixed;
+      top: 0.5rem;
+      right: 0.75rem;
+      font-size: 0.6rem;
+      text-transform: uppercase;
+      letter-spacing: 0.1em;
+      padding: 0.15rem 0.4rem;
+      border-radius: 3px;
+      z-index: 150;
+      pointer-events: none;
+    }
+
+    .conn-status.connected { background: rgba(16,185,129,0.15); color: #10b981; border: 1px solid rgba(16,185,129,0.3); }
+    .conn-status.disconnected { background: rgba(239,68,68,0.15); color: #ef4444; border: 1px solid rgba(239,68,68,0.3); }
+    .conn-status.reconnecting { background: rgba(245,158,11,0.15); color: #f59e0b; border: 1px solid rgba(245,158,11,0.3); }
+
+    /* ===== SCROLLBAR ===== */
+    ::-webkit-scrollbar { width: 6px; height: 6px; }
+    ::-webkit-scrollbar-track { background: var(--bg-primary); }
+    ::-webkit-scrollbar-thumb { background: var(--border-dim); border-radius: 3px; }
+    ::-webkit-scrollbar-thumb:hover { background: #2e4060; }
+  </style>
+</head>
+<body>
+
+<!-- Connection status indicator -->
+<div class="conn-status disconnected" id="conn-status">connecting...</div>
+
+<!-- HEADER -->
+<header class="header">
+  <div class="header-inner">
+    <div class="header-title">
+      <h1>🔴 SIGNAL CENTER — USS TradeMinds</h1>
+      <span class="live-badge">
+        <span class="live-dot"></span>
+        Live
+      </span>
+    </div>
+
+    <div class="header-stats">
+      <div class="stat-pill">
+        <span>Active</span>
+        <span class="val" id="active-count">0</span>
+        <span>signals</span>
+      </div>
+      <div class="stat-pill">
+        <span id="live-clock" style="color:var(--accent-cyan);font-weight:700;font-variant-numeric:tabular-nums;letter-spacing:0.05em">--:--:--</span>
+      </div>
+      <div class="audio-indicator" id="audio-indicator" title="Voice alerts active (edge-tts on server)">
+        <span class="audio-icon">🔊</span>
+        <span>Voice</span>
+      </div>
+      <button id="notif-btn" onclick="requestNotifications()" style="background:rgba(6,182,212,0.1);border:1px solid rgba(6,182,212,0.3);color:#06b6d4;font-family:inherit;font-size:0.65rem;font-weight:700;letter-spacing:0.08em;text-transform:uppercase;padding:0.25rem 0.6rem;border-radius:4px;cursor:pointer;" title="Enable browser notifications">🔔 Notify</button>
+    </div>
+  </div>
+</header>
+
+<!-- TAB NAV -->
+<div style="background:rgba(10,14,26,0.9);border-bottom:1px solid #1e2d45;padding:0 1rem;">
+  <div style="max-width:1400px;margin:0 auto;display:flex;gap:0;">
+    <button id="tab-signals" onclick="switchTab('signals')" style="background:none;border:none;border-bottom:2px solid #06b6d4;color:#06b6d4;font-family:inherit;font-size:0.75rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:0.6rem 1.2rem;cursor:pointer;">SIGNALS</button>
+    <button id="tab-feed" onclick="switchTab('feed')" style="background:none;border:none;border-bottom:2px solid transparent;color:#4b5563;font-family:inherit;font-size:0.75rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:0.6rem 1.2rem;cursor:pointer;">INTEL FEED</button>
+    <button id="tab-perf" onclick="window.location.href='performance.html'" style="background:none;border:none;border-bottom:2px solid transparent;color:#4b5563;font-family:inherit;font-size:0.75rem;font-weight:700;letter-spacing:0.1em;text-transform:uppercase;padding:0.6rem 1.2rem;cursor:pointer;">PERFORMANCE</button>
+  </div>
+</div>
+
+<!-- CONTROLS -->
+<div class="controls-bar" id="signals-controls">
+  <div class="controls-inner">
+    <span class="filter-label">Filter:</span>
+    <div class="filter-btns">
+      <button class="filter-btn active" data-type="ALL">All</button>
+      <button class="filter-btn" data-type="0DTE">0DTE</button>
+      <button class="filter-btn" data-type="SWING">Swing</button>
+      <button class="filter-btn" data-type="OVERSOLD">Oversold</button>
+      <button class="filter-btn" data-type="BEARISH">Bearish</button>
+      <button class="filter-btn" data-type="CONGRESS">Congress</button>
+      <button class="filter-btn" data-type="VOLUME">Volume</button>
+    </div>
+
+    <div class="player-select-wrap">
+      <label for="player-select">Execute as:</label>
+      <select id="player-select">
+        <option value="claude-trader">Claude Trader</option>
+        <option value="grok-trader">Grok Trader</option>
+        <option value="picard">Picard</option>
+        <option value="spock">Spock</option>
+        <option value="data-android">Data Android</option>
+        <option value="scotty-trader">Scotty Trader</option>
+        <option value="uhura-trader">Uhura Trader</option>
+        <option value="chekov-trader">Chekov Trader</option>
+      </select>
+    </div>
+  </div>
+</div>
+
+<!-- MAIN -->
+<main class="main" id="signals-main">
+  <div id="empty-state" class="empty-state">
+    <div class="icon">📡</div>
+    <p>Awaiting incoming signals...</p>
+    <p style="margin-top:0.5rem;font-size:0.7rem;color:var(--text-muted);">SSE connected — signals will appear here in real time</p>
+  </div>
+  <div class="signals-grid" id="signals-grid"></div>
+</main>
+
+<!-- INTEL FEED PANEL -->
+<div id="feed-main" style="display:none;max-width:1400px;margin:0 auto;padding:1rem;">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:1rem;flex-wrap:wrap;gap:0.5rem;">
+    <div style="font-size:0.8rem;color:var(--text-secondary);letter-spacing:0.08em;text-transform:uppercase;">Intelligence Feed — All Event Types</div>
+    <div style="display:flex;gap:0.4rem;flex-wrap:wrap;" id="feed-filter-row">
+      <button class="feed-filter-btn feed-filter-active" data-ft="ALL" onclick="feedFilter('ALL',this)">ALL</button>
+      <button class="feed-filter-btn" data-ft="BRIDGE_VOTE" onclick="feedFilter('BRIDGE_VOTE',this)">Bridge Vote</button>
+      <button class="feed-filter-btn" data-ft="RED_ALERT" onclick="feedFilter('RED_ALERT',this)" style="--fc:#ef4444;">Red Alert</button>
+      <button class="feed-filter-btn" data-ft="GEX_REFRESH" onclick="feedFilter('GEX_REFRESH',this)" style="--fc:#f59e0b;">GEX</button>
+      <button class="feed-filter-btn" data-ft="SCREENER" onclick="feedFilter('SCREENER',this)" style="--fc:#8b5cf6;">Screener</button>
+      <button class="feed-filter-btn" data-ft="BENCHMARK_ALERT" onclick="feedFilter('BENCHMARK_ALERT',this)" style="--fc:#ef4444;">Benchmark</button>
+    </div>
+  </div>
+  <div id="feed-list" style="display:flex;flex-direction:column;gap:0.4rem;"></div>
+  <div id="feed-empty" style="text-align:center;color:var(--text-muted);padding:3rem;font-size:0.8rem;">No intelligence feed events yet.</div>
+</div>
+
+<style>
+  .feed-filter-btn {
+    background: rgba(30,45,69,0.5);
+    border: 1px solid var(--border-dim);
+    color: var(--fc, var(--accent-cyan));
+    font-family: inherit;
+    font-size: 0.65rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.25rem 0.6rem;
+    border-radius: 4px;
+    cursor: pointer;
+    transition: all 0.15s;
+  }
+  .feed-filter-btn:hover { opacity: 0.8; }
+  .feed-filter-btn.feed-filter-active {
+    background: rgba(6,182,212,0.15);
+    border-color: rgba(6,182,212,0.5);
+    color: #06b6d4;
+  }
+  .feed-row {
+    display: flex;
+    align-items: flex-start;
+    gap: 0.75rem;
+    background: var(--bg-card);
+    border: 1px solid var(--border-dim);
+    border-radius: 6px;
+    padding: 0.6rem 0.85rem;
+    font-size: 0.75rem;
+    transition: background 0.15s;
+  }
+  .feed-row:hover { background: var(--bg-card-hover); }
+  .feed-badge {
+    flex-shrink: 0;
+    font-size: 0.6rem;
+    font-weight: 700;
+    letter-spacing: 0.08em;
+    text-transform: uppercase;
+    padding: 0.2rem 0.5rem;
+    border-radius: 3px;
+    min-width: 80px;
+    text-align: center;
+  }
+  .feed-ts {
+    flex-shrink: 0;
+    color: var(--text-muted);
+    font-size: 0.7rem;
+    min-width: 55px;
+  }
+  .feed-msg { color: var(--text-primary); flex: 1; line-height: 1.5; }
+</style>
+
+<!-- Toast container -->
+<div class="toast-container" id="toast-container"></div>
+
+<!-- WHY? Modal -->
+<div class="modal-overlay" id="why-modal">
+  <div class="modal">
+    <div class="modal-header">
+      <span class="modal-title" id="modal-title">Brain Context</span>
+      <button class="modal-close" onclick="closeModal()">✕</button>
+    </div>
+    <div class="modal-body" id="modal-body">
+      <div class="modal-loading">Loading brain context...</div>
+    </div>
+  </div>
+</div>
+
+<script>
+  // ===== STATE =====
+  let activeFilter = 'ALL';
+  let cards = {}; // signalId -> { el, sig }
+  let activeCount = 0;
+  let audioActive = false;
+  let sseRetryCount = 0;
+
+  // ===== AGENT COLORS (hashed from name) =====
+  const AGENT_PALETTE = [
+    { bg: 'rgba(6,182,212,0.15)',   color: '#06b6d4' },
+    { bg: 'rgba(139,92,246,0.15)',  color: '#8b5cf6' },
+    { bg: 'rgba(249,115,22,0.15)', color: '#f97316' },
+    { bg: 'rgba(16,185,129,0.15)', color: '#10b981' },
+    { bg: 'rgba(245,158,11,0.15)', color: '#f59e0b' },
+    { bg: 'rgba(236,72,153,0.15)', color: '#ec4899' },
+    { bg: 'rgba(59,130,246,0.15)', color: '#3b82f6' },
+    { bg: 'rgba(212,160,48,0.15)', color: '#d4a030' },
+  ];
+
+  function agentColor(name) {
+    let h = 0;
+    for (let i = 0; i < (name||'').length; i++) h = (h * 31 + name.charCodeAt(i)) & 0xffff;
+    return AGENT_PALETTE[h % AGENT_PALETTE.length];
+  }
+
+  // ===== TYPE → normalized =====
+  function normalizeType(type) {
+    if (!type) return 'SWING';
+    const t = type.toUpperCase();
+    if (t.includes('0DTE') || t.includes('OPTIONS') || t.includes('OPTION')) return '0DTE';
+    if (t.includes('SWING')) return 'SWING';
+    if (t.includes('OVERSOLD')) return 'OVERSOLD';
+    if (t.includes('BEARISH') || t.includes('BEAR')) return 'BEARISH';
+    if (t.includes('CONGRESS')) return 'CONGRESS';
+    if (t.includes('VOLUME') || t.includes('VOL')) return 'VOLUME';
+    if (t.includes('CONVERGE') || t.includes('CONVERGENCE')) return 'CONVERGENCE';
+    return type.toUpperCase();
+  }
+
+  // ===== TIME AGO =====
+  function timeAgo(ts) {
+    if (!ts) return '';
+    const d = typeof ts === 'number' ? new Date(ts * 1000) : new Date(ts);
+    const diff = Math.floor((Date.now() - d) / 1000);
+    if (diff < 60) return `${diff}s ago`;
+    if (diff < 3600) return `${Math.floor(diff/60)} min ago`;
+    if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+    return d.toLocaleDateString();
+  }
+
+  // ===== ACTION CLASS =====
+  function actionClass(action) {
+    if (!action) return '';
+    const a = action.toLowerCase();
+    if (a === 'buy' || a === 'call') return a;
+    if (a === 'sell') return 'sell';
+    if (a === 'short' || a === 'put') return a === 'put' ? 'put' : 'short';
+    return '';
+  }
+
+  // ===== CONFIDENCE CLASS =====
+  function confClass(pct) {
+    if (pct >= 0.75) return 'conf-high';
+    if (pct >= 0.5) return 'conf-medium';
+    return 'conf-low';
+  }
+
+  // ===== RR DISPLAY =====
+  function rrDisplay(stop, target, price) {
+    if (!stop || !target || !price) return null;
+    const risk = Math.abs(price - stop);
+    const reward = Math.abs(target - price);
+    if (risk === 0) return null;
+    const rr = (reward / risk).toFixed(1);
+    return `R/R 1:${rr}`;
+  }
+
+  // ===== TYPE BADGES (emoji + label) =====
+  const TYPE_BADGES = {
+    '0DTE':        '⚡ 0DTE',
+    'OPTIONS':     '⚡ OPTIONS',
+    'SWING':       '📈 SWING',
+    'OVERSOLD':    '🟢 OVERSOLD',
+    'BEARISH':     '🔴 BEARISH',
+    'CONGRESS':    '🏛️ CONGRESS',
+    'VOLUME':      '📊 VOLUME',
+    'CONVERGENCE': '🎯 CONVERGENCE',
+  };
+
+  // ===== ACTION ARROW =====
+  function actionArrow(action) {
+    const a = action.toUpperCase();
+    if (a === 'BUY' || a === 'BUY_CALL' || a === 'CALL') return ' ↑';
+    if (a === 'SELL' || a === 'SHORT' || a === 'BUY_PUT' || a === 'PUT') return ' ↓';
+    return '';
+  }
+
+  // ===== BUILD CARD HTML =====
+  function buildCard(sig, isNew) {
+    const type = normalizeType(sig.signal_type || sig.type);
+    const agent = sig.agent_name || sig.agent || 'Unknown';
+    const rawAction = (sig.action || 'BUY').toUpperCase();
+    // Normalize display action
+    const displayAction = rawAction === 'BUY_CALL' ? 'CALL' : rawAction === 'BUY_PUT' ? 'PUT' : rawAction;
+    const symbol = sig.symbol || '???';
+    const price = sig.price ? `$${parseFloat(sig.price).toFixed(2)}` : '';
+    const conf = parseFloat(sig.confidence || 0.5);
+    const confPct = conf > 1 ? Math.round(conf) : Math.round(conf * 100);
+    const confFrac = conf > 1 ? conf / 100 : conf;
+    const reasoning = sig.reasoning || sig.reason || '';
+    const sources = sig.sources || sig.indicators || [];
+    const stop = sig.stop_loss || sig.stop;
+    const target = sig.take_profit || sig.target;
+    const entryPrice = sig.price ? parseFloat(sig.price) : null;
+    const rr = rrDisplay(stop ? parseFloat(stop) : null, target ? parseFloat(target) : null, entryPrice);
+    const ts = sig.created_at || sig.timestamp || sig.ts;
+    const aColor = agentColor(agent);
+    const typeBadgeLabel = TYPE_BADGES[type] || type;
+    const arrow = actionArrow(rawAction);
+
+    const sourcePills = Array.isArray(sources)
+      ? sources.map(s => `<span class="source-pill">${s}</span>`).join('')
+      : (typeof sources === 'string' ? sources.split(',').filter(Boolean).map(s => `<span class="source-pill">${s.trim()}</span>`).join('') : '');
+
+    const tradeParams = (stop || target || rr) ? `
+      <div class="trade-params">
+        ${stop ? `<div class="param"><span class="param-label">Stop</span><span class="param-value stop">$${parseFloat(stop).toFixed(2)}</span></div>` : ''}
+        ${target ? `<div class="param"><span class="param-label">Target</span><span class="param-value target">$${parseFloat(target).toFixed(2)}</span></div>` : ''}
+        ${rr ? `<div class="param"><span class="param-label">Ratio</span><span class="param-value rr">${rr}</span></div>` : ''}
+      </div>
+    ` : '';
+
+    const el = document.createElement('div');
+    el.className = `signal-card${isNew ? ' is-new' : ''}`;
+    el.dataset.id = sig.id;
+    el.dataset.type = type;
+    el.dataset.symbol = symbol;
+
+    el.innerHTML = `
+      <div class="card-header">
+        <div style="display:flex;flex-direction:column;gap:0.35rem;">
+          <span class="type-badge" data-type="${type}" style="align-self:flex-start">${typeBadgeLabel}</span>
+          <span class="agent-badge" style="background:${aColor.bg};color:${aColor.color};border:1px solid ${aColor.color}40">${agent}</span>
+        </div>
+        <div class="card-meta">
+          <span class="time-ago" id="ta-${sig.id}">${timeAgo(ts)}</span>
+        </div>
+      </div>
+      <div class="card-signal">
+        <span class="action-label ${actionClass(rawAction)}">${displayAction}${arrow}</span>
+        <span class="symbol-label">${symbol}</span>
+        ${price ? `<span class="price-label">${price}</span>` : ''}
+      </div>
+      <div class="confidence-wrap">
+        <div class="confidence-header">
+          <span>Confidence</span>
+          <span class="confidence-pct">${confPct}%</span>
+        </div>
+        <div class="confidence-bar-track">
+          <div class="confidence-bar-fill ${confClass(confFrac)}" style="width:${confPct}%"></div>
+        </div>
+      </div>
+      ${reasoning ? `<div class="card-reasoning">${reasoning}</div>` : ''}
+      ${sourcePills ? `<div class="sources-wrap">${sourcePills}</div>` : ''}
+      ${tradeParams}
+      <div class="card-actions">
+        <button class="btn btn-execute" onclick="execute('${sig.id}')">⚡ Execute</button>
+        <button class="btn btn-why" onclick="showWhy('${symbol}', '${sig.id}')">WHY?</button>
+        <button class="btn btn-dismiss" onclick="dismiss('${sig.id}')">✕</button>
+      </div>
+      <div class="status-overlay" id="overlay-${sig.id}"></div>
+    `;
+
+    el._timestamp = ts;
+
+    // Auto-remove is-new class after 10s (animation completes)
+    if (isNew) {
+      setTimeout(() => el.classList.remove('is-new'), 10000);
+    }
+
+    return { el, sig };
+  }
+
+  // ===== ADD SIGNAL CARD =====
+  function addSignalCard(sig, isNew = false) {
+    if (!sig || !sig.id) return;
+    if (cards[sig.id]) return; // already shown
+
+    const { el } = buildCard(sig, isNew);
+    cards[sig.id] = { el, sig };
+
+    const grid = document.getElementById('signals-grid');
+    grid.prepend(el);
+
+    document.getElementById('empty-state').style.display = 'none';
+    activeCount++;
+    updateActiveCount();
+    applyFilter();
+
+    // Flash audio indicator on new signal
+    if (isNew) {
+      flashAudioIndicator();
+      // Keep only last 20 cards
+      const allCards = grid.querySelectorAll('.signal-card');
+      if (allCards.length > 20) {
+        const oldest = allCards[allCards.length - 1];
+        const oldId = oldest.dataset.id;
+        oldest.remove();
+        delete cards[oldId];
+      }
+    }
+  }
+
+  // ===== MARK CARD =====
+  function markCard(signalId, status) {
+    const entry = cards[signalId];
+    if (!entry) return;
+    const overlay = document.getElementById(`overlay-${signalId}`);
+    if (!overlay) return;
+    overlay.textContent = status === 'EXECUTED' ? '✓ EXECUTED' : '✗ DISMISSED';
+    overlay.className = `status-overlay show ${status.toLowerCase()}`;
+    entry.el.classList.add(status.toLowerCase());
+    // Disable buttons
+    entry.el.querySelectorAll('.btn-execute, .btn-dismiss').forEach(b => b.disabled = true);
+    if (status === 'EXECUTED') {
+      activeCount = Math.max(0, activeCount - 1);
+      updateActiveCount();
+    }
+  }
+
+  // ===== FILTER =====
+  function applyFilter() {
+    Object.values(cards).forEach(({ el }) => {
+      const type = el.dataset.type;
+      const match = activeFilter === 'ALL' || type === activeFilter;
+      el.classList.toggle('hidden', !match);
+    });
+  }
+
+  // ===== EXECUTE =====
+  async function execute(signalId) {
+    const playerId = document.getElementById('player-select').value;
+    if (!confirm(`Execute this trade as ${playerId}?`)) return;
+    try {
+      const r = await fetch(`/api/signals/${signalId}/execute`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ player_id: playerId })
+      });
+      const result = await r.json();
+      if (result.ok || result.success || r.ok) {
+        markCard(signalId, 'EXECUTED');
+        showToast('Trade executed successfully!', false);
+      } else {
+        showToast('Error: ' + (result.error || result.message || 'Unknown error'), true);
+      }
+    } catch (err) {
+      showToast('Network error: ' + err.message, true);
+    }
+  }
+
+  // ===== DISMISS =====
+  async function dismiss(signalId) {
+    try {
+      await fetch(`/api/signals/${signalId}/dismiss`, { method: 'POST' });
+    } catch (_) {}
+    markCard(signalId, 'DISMISSED');
+  }
+
+  // ===== WHY? MODAL =====
+  async function showWhy(symbol, signalId) {
+    const playerId = document.getElementById('player-select').value;
+    const modal = document.getElementById('why-modal');
+    const title = document.getElementById('modal-title');
+    const body = document.getElementById('modal-body');
+    title.textContent = `Brain Context — ${symbol}`;
+    body.innerHTML = '<div class="modal-loading">Loading brain context...</div>';
+    modal.classList.add('show');
+    try {
+      const url = `/api/brain-context?symbol=${encodeURIComponent(symbol)}&player_id=${encodeURIComponent(playerId)}`;
+      const r = await fetch(url);
+      if (!r.ok) throw new Error(`HTTP ${r.status}`);
+      const data = await r.json();
+      renderBrainContext(data, body, symbol);
+    } catch (err) {
+      body.innerHTML = `<p style="color:#ef4444">Failed to load brain context: ${err.message}</p>`;
+    }
+  }
+
+  function renderBrainContext(data, container, symbol) {
+    let html = '';
+    if (data.price) {
+      html += `<h4>Price</h4><p>$${data.price} ${data.change_pct ? `(${data.change_pct > 0 ? '+' : ''}${data.change_pct.toFixed(2)}%)` : ''}</p>`;
+    }
+    if (data.technicals) {
+      html += '<h4>Technicals</h4><pre>' + JSON.stringify(data.technicals, null, 2) + '</pre>';
+    }
+    if (data.fundamentals) {
+      html += '<h4>Fundamentals</h4><pre>' + JSON.stringify(data.fundamentals, null, 2) + '</pre>';
+    }
+    if (data.news && data.news.length) {
+      html += '<h4>Recent News</h4>';
+      data.news.slice(0, 5).forEach(n => {
+        html += `<p style="margin-bottom:0.4rem;border-left:2px solid #3b82f6;padding-left:0.5rem">${n.title || n}</p>`;
+      });
+    }
+    if (data.context || data.summary) {
+      html += `<h4>AI Context</h4><p>${data.context || data.summary}</p>`;
+    }
+    if (!html) {
+      html = '<pre>' + JSON.stringify(data, null, 2) + '</pre>';
+    }
+    container.innerHTML = html;
+  }
+
+  function closeModal() {
+    document.getElementById('why-modal').classList.remove('show');
+  }
+
+  // Close modal on backdrop click
+  document.getElementById('why-modal').addEventListener('click', function(e) {
+    if (e.target === this) closeModal();
+  });
+
+  // ===== TOAST =====
+  function showToast(msg, isError = false) {
+    const container = document.getElementById('toast-container');
+    const toast = document.createElement('div');
+    toast.className = `toast ${isError ? 'err' : 'ok'}`;
+    toast.textContent = msg;
+    container.appendChild(toast);
+    setTimeout(() => toast.remove(), 4000);
+  }
+
+  // ===== AUDIO INDICATOR =====
+  function flashAudioIndicator() {
+    const ind = document.getElementById('audio-indicator');
+    ind.classList.add('active');
+    setTimeout(() => ind.classList.remove('active'), 2500);
+  }
+
+  // ===== ACTIVE COUNT =====
+  function updateActiveCount() {
+    document.getElementById('active-count').textContent = activeCount;
+  }
+
+  // ===== LOAD EXISTING SIGNALS =====
+  async function loadSignals() {
+    try {
+      const r = await fetch('/api/signals/active');
+      if (!r.ok) {
+        console.warn('Could not load signals:', r.status);
+        return;
+      }
+      const signals = await r.json();
+      const list = Array.isArray(signals) ? signals : (signals.signals || signals.data || []);
+      // Show newest first (assume list is oldest-first from API)
+      [...list].reverse().forEach(s => addSignalCard(s, false));
+    } catch (err) {
+      console.warn('loadSignals error:', err);
+    }
+  }
+
+  // ===== SSE CONNECTION =====
+  let sseInstance = null;
+
+  function setConnStatus(state) {
+    const el = document.getElementById('conn-status');
+    el.className = `conn-status ${state}`;
+    el.textContent = state === 'connected' ? 'live' : state;
+  }
+
+  function connectSSE() {
+    if (sseInstance) {
+      try { sseInstance.close(); } catch (_) {}
+    }
+    setConnStatus('reconnecting');
+    const es = new EventSource('/api/signals/stream');
+    sseInstance = es;
+
+    es.onopen = () => {
+      setConnStatus('connected');
+      sseRetryCount = 0;
+    };
+
+    es.onmessage = (e) => {
+      let data;
+      try { data = JSON.parse(e.data); } catch (_) { return; }
+
+      if (!data || !data.event) return;
+
+      switch (data.event) {
+        case 'new_signal':
+          if (data.signal) {
+            addSignalCard(data.signal, true);
+            // Browser notification
+            const sig = data.signal;
+            if ('Notification' in window && Notification.permission === 'granted') {
+              const agent = sig.agent_name || sig.agent || 'Agent';
+              const action = sig.action || 'BUY';
+              const sym = sig.symbol || '';
+              const price = sig.price ? ` @ $${parseFloat(sig.price).toFixed(2)}` : '';
+              const conf = sig.confidence > 1 ? sig.confidence : Math.round((sig.confidence||0)*100);
+              new Notification('🔴 TradeMinds Signal', {
+                body: `${agent}: ${action} ${sym}${price} (${conf}%)`,
+                icon: '/static/icon-192.png',
+                tag: `signal-${sig.id}`,
+              });
+            }
+          }
+          break;
+        case 'signal_executed':
+          markCard(data.signal_id, 'EXECUTED');
+          break;
+        case 'signal_dismissed':
+          markCard(data.signal_id, 'DISMISSED');
+          break;
+        case 'stats':
+          if (data.subscribers !== undefined) {
+            document.getElementById('subscriber-count').textContent = data.subscribers;
+          }
+          if (data.active !== undefined) {
+            activeCount = data.active;
+            updateActiveCount();
+          }
+          break;
+        case 'ping':
+          // heartbeat — no action
+          break;
+        default:
+          // Try to handle as raw signal if it has the shape
+          if (data.id && data.symbol) addSignalCard(data, true);
+      }
+    };
+
+    es.onerror = () => {
+      setConnStatus('disconnected');
+      es.close();
+      sseRetryCount++;
+      const delay = Math.min(3000 * sseRetryCount, 30000);
+      setTimeout(connectSSE, delay);
+    };
+  }
+
+  // ===== FILTER BUTTONS =====
+  document.querySelectorAll('.filter-btn').forEach(btn => {
+    btn.addEventListener('click', () => {
+      document.querySelectorAll('.filter-btn').forEach(b => b.classList.remove('active'));
+      btn.classList.add('active');
+      activeFilter = btn.dataset.type;
+      applyFilter();
+    });
+  });
+
+  // ===== LIVE TIME AGO UPDATES =====
+  setInterval(() => {
+    Object.entries(cards).forEach(([id, { el, sig }]) => {
+      const ta = document.getElementById(`ta-${id}`);
+      if (ta) {
+        const ts = sig.created_at || sig.timestamp || sig.ts;
+        ta.textContent = timeAgo(ts);
+      }
+    });
+  }, 30000);
+
+  // ===== KEYBOARD: ESC to close modal =====
+  document.addEventListener('keydown', e => {
+    if (e.key === 'Escape') closeModal();
+  });
+
+  // ===== BROWSER NOTIFICATIONS =====
+  function requestNotifications() {
+    if (!('Notification' in window)) {
+      showToast('Browser notifications not supported', true);
+      return;
+    }
+    if (Notification.permission === 'granted') {
+      showToast('Notifications already enabled ✓', false);
+      return;
+    }
+    Notification.requestPermission().then(perm => {
+      const btn = document.getElementById('notif-btn');
+      if (perm === 'granted') {
+        showToast('Notifications enabled ✓', false);
+        if (btn) { btn.textContent = '🔔 ON'; btn.style.background = 'rgba(0,255,136,0.15)'; btn.style.color = '#00ff88'; btn.style.borderColor = '#00ff88'; }
+      } else {
+        showToast('Notifications blocked', true);
+        if (btn) { btn.textContent = '🔕 Blocked'; btn.style.opacity = '0.5'; }
+      }
+    });
+  }
+
+  // Set initial notification button state
+  (function() {
+    const btn = document.getElementById('notif-btn');
+    if (!btn) return;
+    if (!('Notification' in window)) { btn.style.display = 'none'; return; }
+    if (Notification.permission === 'granted') {
+      btn.textContent = '🔔 ON'; btn.style.background = 'rgba(0,255,136,0.15)'; btn.style.color = '#00ff88'; btn.style.borderColor = '#00ff88';
+    } else if (Notification.permission === 'denied') {
+      btn.textContent = '🔕 Blocked'; btn.style.opacity = '0.5';
+    }
+  })();
+
+  // ===== LIVE CLOCK =====
+  function updateClock() {
+    const el = document.getElementById('live-clock');
+    if (!el) return;
+    const now = new Date();
+    const hh = String(now.getHours()).padStart(2, '0');
+    const mm = String(now.getMinutes()).padStart(2, '0');
+    const ss = String(now.getSeconds()).padStart(2, '0');
+    el.textContent = `${hh}:${mm}:${ss}`;
+  }
+  updateClock();
+  setInterval(updateClock, 1000);
+
+  // ===== INIT =====
+  loadSignals();
+  connectSSE();
+
+  // ===== TAB SWITCHING =====
+  let _activeTab = 'signals';
+  function switchTab(tab) {
+    _activeTab = tab;
+    const sigMain = document.getElementById('signals-main');
+    const sigCtrl = document.getElementById('signals-controls');
+    const feedMain = document.getElementById('feed-main');
+    const tabSig = document.getElementById('tab-signals');
+    const tabFeed = document.getElementById('tab-feed');
+    if (tab === 'signals') {
+      sigMain.style.display = '';
+      sigCtrl.style.display = '';
+      feedMain.style.display = 'none';
+      tabSig.style.borderBottomColor = '#06b6d4';
+      tabSig.style.color = '#06b6d4';
+      tabFeed.style.borderBottomColor = 'transparent';
+      tabFeed.style.color = '#4b5563';
+    } else {
+      sigMain.style.display = 'none';
+      sigCtrl.style.display = 'none';
+      feedMain.style.display = '';
+      tabFeed.style.borderBottomColor = '#06b6d4';
+      tabFeed.style.color = '#06b6d4';
+      tabSig.style.borderBottomColor = 'transparent';
+      tabSig.style.color = '#4b5563';
+      loadFeed();
+    }
+  }
+
+  // ===== INTEL FEED =====
+  const FEED_COLORS = {
+    BRIDGE_VOTE:     { bg: 'rgba(6,182,212,0.15)',   color: '#06b6d4',  label: 'Bridge Vote' },
+    RED_ALERT:       { bg: 'rgba(239,68,68,0.15)',   color: '#ef4444',  label: 'Red Alert' },
+    GEX_REFRESH:     { bg: 'rgba(245,158,11,0.15)',  color: '#f59e0b',  label: 'GEX' },
+    SCREENER:        { bg: 'rgba(139,92,246,0.15)',  color: '#8b5cf6',  label: 'Screener' },
+    BENCHMARK_ALERT: { bg: 'rgba(239,68,68,0.15)',   color: '#ef4444',  label: 'Benchmark' },
+    VOLUME_SPIKE:    { bg: 'rgba(255,221,0,0.15)',   color: '#ffdd00',  label: 'Volume' },
+    CONGRESS:        { bg: 'rgba(170,68,255,0.15)',  color: '#aa44ff',  label: 'Congress' },
+    SYSTEM:          { bg: 'rgba(30,45,69,0.5)',     color: '#94a3b8',  label: 'System' },
+  };
+
+  let _feedFilter = 'ALL';
+  let _feedRows = [];
+
+  function feedFilter(ft, btn) {
+    _feedFilter = ft;
+    document.querySelectorAll('.feed-filter-btn').forEach(b => b.classList.remove('feed-filter-active'));
+    btn.classList.add('feed-filter-active');
+    renderFeed();
+  }
+
+  function renderFeed() {
+    const list = document.getElementById('feed-list');
+    const empty = document.getElementById('feed-empty');
+    const filtered = _feedFilter === 'ALL' ? _feedRows : _feedRows.filter(r => r.type === _feedFilter);
+    if (!filtered.length) {
+      list.innerHTML = '';
+      empty.style.display = '';
+      return;
+    }
+    empty.style.display = 'none';
+    list.innerHTML = filtered.map(r => {
+      const c = FEED_COLORS[r.type] || FEED_COLORS.SYSTEM;
+      const ts = r.received_at ? r.received_at.replace('T',' ').slice(11,19) : '';
+      const msg = r.message || r.summary || r.title || JSON.stringify(r).slice(0,120);
+      return `<div class="feed-row">
+        <span class="feed-badge" style="background:${c.bg};color:${c.color};border:1px solid ${c.color}40;">${c.label}</span>
+        <span class="feed-ts">${ts}</span>
+        <span class="feed-msg">${msg}</span>
+      </div>`;
+    }).join('');
+  }
+
+  async function loadFeed() {
+    try {
+      const res = await fetch('http://localhost:9000/api/feed?limit=100');
+      const data = await res.json();
+      _feedRows = data.entries || data || [];
+      renderFeed();
+    } catch (e) {
+      document.getElementById('feed-empty').textContent = 'Signal Center (port 9000) offline.';
+    }
+  }
+</script>
+</body>
+</html>

@@ -1,0 +1,42 @@
+{
+  "Claude Haiku 4.5": {
+    "starting": 10000,
+    "current": 10000.0
+  },
+  "Claude Sonnet 4": {
+    "starting": 10000,
+    "current": 10000.0
+  },
+  "DayBlade 0DTE": {
+    "starting": 10000,
+    "current": 10000.0
+  },
+  "Gemini 2.5 Flash": {
+    "starting": 10000,
+    "current": 10000.0
+  },
+  "Gemini 2.5 Pro": {
+    "starting": 10000,
+    "current": 10000.0
+  },
+  "GPT-4o": {
+    "starting": 10000,
+    "current": 10000.0
+  },
+  "GPT-o3": {
+    "starting": 10000,
+    "current": 10000.0
+  },
+  "Grok 3": {
+    "starting": 10000,
+    "current": 10000.0
+  },
+  "Grok 4": {
+    "starting": 10000,
+    "current": 10000.0
+  },
+  "Gemma3 4B": {
+    "starting": 10000,
+    "current": 10000.0
+  }
+}

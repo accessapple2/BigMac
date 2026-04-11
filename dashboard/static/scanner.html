@@ -1,0 +1,897 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Main Viewer — Tactical Scan | USS TradeMinds</title>
+<style>
+:root {
+  --bg: #0a0a0f;
+  --surface: #0d0d1a;
+  --surface2: #111122;
+  --border: #1e1e3a;
+  --orange: #ff7700;
+  --blue: #4488ff;
+  --green: #00cc55;
+  --red: #ff3333;
+  --yellow: #ffcc00;
+  --purple: #aa55ff;
+  --text: #ccccdd;
+  --dim: #556677;
+  --font: 'Courier New', monospace;
+}
+* { box-sizing: border-box; margin: 0; padding: 0; }
+body { background: var(--bg); color: var(--text); font-family: var(--font); min-height: 100vh; overflow-x: hidden; padding-bottom: 60px; }
+
+/* ── LCARS STRIPE ───────────────────────────────────────── */
+.lcars-top { height: 4px; background: linear-gradient(90deg, var(--orange) 0%, var(--orange) 35%, transparent 35.1%, transparent 36%, var(--blue) 36%, var(--blue) 65%, transparent 65.1%); }
+
+/* ── HEADER BAR ─────────────────────────────────────────── */
+#header-bar {
+  padding: 12px 20px 8px;
+  border-bottom: 1px solid var(--border);
+  background: linear-gradient(180deg, #0f0f20 0%, var(--bg) 100%);
+}
+#header-top {
+  display: flex; align-items: center; gap: 12px; flex-wrap: wrap;
+}
+#header-title {
+  font-size: 18px; font-weight: bold; color: var(--orange);
+  letter-spacing: 2px; text-transform: uppercase; flex: 1;
+  white-space: nowrap;
+}
+#header-actions { display: flex; gap: 8px; align-items: center; flex-shrink: 0; }
+#header-status {
+  margin-top: 6px; font-size: 10px; color: var(--dim);
+  letter-spacing: 1px; display: flex; gap: 16px; flex-wrap: wrap;
+}
+#header-status span { white-space: nowrap; }
+#header-status .hs-val { color: var(--text); }
+.paper-badge {
+  background: #1a0a0a; border: 1px solid var(--red); color: var(--red);
+  padding: 2px 7px; border-radius: 2px; font-size: 9px; letter-spacing: 1px;
+  font-weight: bold;
+}
+
+/* ── BUTTONS ─────────────────────────────────────────────── */
+.abtn {
+  background: var(--surface2); border: 1px solid var(--border);
+  color: var(--text); padding: 7px 14px; border-radius: 3px;
+  font-family: var(--font); font-size: 11px; cursor: pointer;
+  letter-spacing: 1px; transition: all 0.2s; text-decoration: none;
+  display: inline-flex; align-items: center; gap: 5px;
+}
+.abtn:hover { border-color: var(--orange); color: var(--orange); }
+.abtn.primary { border-color: var(--orange); color: var(--orange); }
+.abtn.spin { opacity: 0.5; pointer-events: none; }
+.abtn.link-btn { border-color: var(--blue); color: var(--blue); }
+.abtn.link-btn:hover { border-color: var(--blue); color: #fff; }
+
+/* ── STRATEGY PILLS ─────────────────────────────────────── */
+#strategy-pills {
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  overflow-x: auto;
+  white-space: nowrap;
+  display: flex;
+  gap: 7px;
+  align-items: center;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+#strategy-pills::-webkit-scrollbar { height: 4px; }
+#strategy-pills::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+#pills-label { font-size: 9px; letter-spacing: 3px; color: var(--orange); text-transform: uppercase; flex-shrink: 0; margin-right: 4px; }
+.s-pill {
+  display: inline-flex; align-items: center; gap: 5px;
+  padding: 4px 10px; border-radius: 20px; font-size: 10px;
+  letter-spacing: 0.5px; cursor: default; border: 1px solid;
+  flex-shrink: 0; white-space: nowrap;
+}
+.pill-green  { background: #052010; border-color: var(--green); color: var(--green); }
+.pill-yellow { background: #151200; border-color: var(--yellow); color: var(--yellow); }
+.pill-orange { background: #150a00; border-color: var(--orange); color: var(--orange); }
+.pill-gray   { background: #0d0d14; border-color: var(--dim); color: var(--dim); }
+.pill-wr { font-size: 9px; opacity: 0.8; }
+
+/* ── FILTER BAR ─────────────────────────────────────────── */
+#filter-bar {
+  padding: 8px 20px;
+  border-bottom: 1px solid var(--border);
+  background: var(--surface);
+  display: flex; gap: 10px; align-items: center; flex-wrap: wrap;
+}
+#filter-bar label { font-size: 9px; letter-spacing: 2px; color: var(--dim); text-transform: uppercase; }
+.f-select, .f-input {
+  background: var(--bg); border: 1px solid var(--border); color: var(--text);
+  font-family: var(--font); font-size: 11px; padding: 4px 8px; border-radius: 2px;
+  outline: none;
+}
+.f-select:focus, .f-input:focus { border-color: var(--orange); }
+.f-input { width: 70px; }
+.f-sep { color: var(--border); }
+#f-confluence-wrap { display: flex; align-items: center; gap: 5px; cursor: pointer; }
+#f-confluence-wrap input { accent-color: var(--orange); cursor: pointer; }
+#filter-count { font-size: 10px; color: var(--dim); margin-left: auto; }
+
+/* ── RESULTS TABLE ──────────────────────────────────────── */
+#results-section { padding: 0 20px 10px; }
+#results-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 0 6px; font-size: 9px; letter-spacing: 3px;
+  color: var(--orange); text-transform: uppercase;
+}
+#results-table-wrap { overflow-x: auto; }
+#results-table {
+  width: 100%; border-collapse: collapse; font-size: 11px;
+}
+#results-table th {
+  padding: 7px 10px; text-align: left; font-size: 9px;
+  letter-spacing: 2px; color: var(--orange); text-transform: uppercase;
+  border-bottom: 2px solid var(--border); cursor: pointer;
+  white-space: nowrap; user-select: none; background: var(--surface);
+  position: sticky; top: 0;
+}
+#results-table th:hover { color: #fff; }
+#results-table th .sort-ind { font-size: 8px; margin-left: 3px; color: var(--yellow); }
+#results-table td {
+  padding: 7px 10px; border-bottom: 1px solid var(--border);
+  white-space: nowrap; vertical-align: middle;
+}
+#results-table tr.data-row { cursor: pointer; transition: background 0.15s; }
+#results-table tr.data-row:hover td { background: var(--surface); }
+#results-table tr.confluence td:first-child { box-shadow: inset 3px 0 var(--orange); }
+#results-table tr.expanded-row td { background: var(--surface); }
+
+/* Signal strength bar */
+.strength-bar-wrap { display: flex; align-items: center; gap: 6px; min-width: 80px; }
+.strength-bar-track { flex: 1; height: 8px; background: var(--border); border-radius: 4px; overflow: hidden; }
+.strength-bar-fill { height: 100%; border-radius: 4px; transition: width 0.4s; }
+.strength-pct { font-size: 9px; color: var(--dim); width: 28px; text-align: right; }
+
+/* Volume coloring */
+.vol-high { color: var(--orange); font-weight: bold; }
+
+/* Chg% coloring */
+.chg-pos { color: var(--green); }
+.chg-neg { color: var(--red); }
+
+/* R/R coloring */
+.rr-good { color: var(--green); }
+.rr-ok   { color: var(--yellow); }
+.rr-bad  { color: var(--red); }
+
+/* Symbol cell */
+.sym-cell { font-weight: bold; color: var(--blue); font-size: 13px; }
+
+/* Expand detail row */
+.detail-row { display: none; }
+.detail-row.open { display: table-row; }
+.detail-cell {
+  padding: 10px 16px 14px 32px !important;
+  background: #0a0a18 !important;
+  border-bottom: 1px solid var(--border);
+}
+.detail-inner {
+  display: grid; grid-template-columns: 1fr 1fr; gap: 12px; font-size: 11px;
+}
+.detail-section { display: flex; flex-direction: column; gap: 5px; }
+.detail-label { font-size: 9px; letter-spacing: 2px; color: var(--orange); text-transform: uppercase; margin-bottom: 2px; }
+.detail-val { color: var(--text); line-height: 1.5; }
+.troi-badge {
+  display: inline-block; padding: 4px 10px; border-radius: 2px; font-weight: bold;
+  font-size: 13px; letter-spacing: 1px; border-left: 3px solid;
+}
+.troi-GO        { background: #052010; border-color: var(--green); color: var(--green); }
+.troi-CAUTION   { background: #151200; border-color: var(--yellow); color: var(--yellow); }
+.troi-STAND_DOWN{ background: #1a0808; border-color: var(--red); color: var(--red); }
+.troi-UNKNOWN   { background: #0f0f1a; border-color: var(--dim); color: var(--dim); }
+.cond-badge { display: inline-block; padding: 2px 7px; border-radius: 2px; font-size: 10px; font-weight: bold; }
+.cond-GREEN  { background:#052010; color:var(--green); }
+.cond-YELLOW { background:#151200; color:var(--yellow); }
+.cond-RED    { background:#1a0808; color:var(--red); }
+.trade-btn {
+  display: inline-flex; align-items: center; gap: 5px;
+  background: var(--surface2); border: 1px solid var(--orange); color: var(--orange);
+  padding: 5px 12px; border-radius: 2px; font-family: var(--font); font-size: 11px;
+  cursor: pointer; text-decoration: none; letter-spacing: 1px; margin-top: 6px;
+  transition: all 0.15s;
+}
+.trade-btn:hover { background: #1a0a00; color: #fff; }
+.troi-loading { color: var(--dim); font-size: 10px; font-style: italic; }
+
+/* Empty state */
+#empty-state {
+  display: none; text-align: center; padding: 40px 20px;
+  color: var(--dim);
+}
+#empty-state.visible { display: block; }
+#empty-state .empty-icon { font-size: 40px; margin-bottom: 12px; }
+#empty-state .empty-title { font-size: 14px; letter-spacing: 3px; color: var(--orange); text-transform: uppercase; margin-bottom: 8px; }
+#empty-state .empty-sub { font-size: 11px; line-height: 1.6; }
+
+/* ── LEADERBOARD ─────────────────────────────────────────── */
+#leaderboard-section { padding: 0 20px 10px; }
+#leaderboard-header {
+  display: flex; justify-content: space-between; align-items: center;
+  padding: 10px 0 6px; font-size: 9px; letter-spacing: 3px;
+  color: var(--blue); text-transform: uppercase; border-top: 1px solid var(--border);
+  cursor: pointer;
+}
+#leaderboard-header:hover { color: var(--text); }
+#lb-toggle-icon { font-size: 10px; color: var(--dim); }
+#leaderboard-body { display: none; }
+#leaderboard-body.open { display: block; }
+#lb-table { width: 100%; border-collapse: collapse; font-size: 11px; }
+#lb-table th {
+  padding: 6px 10px; text-align: left; font-size: 9px; letter-spacing: 2px;
+  color: var(--blue); text-transform: uppercase; border-bottom: 1px solid var(--border);
+  background: var(--surface);
+}
+#lb-table td { padding: 7px 10px; border-bottom: 1px solid var(--border); }
+.lb-rank { font-weight: bold; color: var(--orange); }
+.lb-trend-up   { color: var(--green); }
+.lb-trend-down { color: var(--red); }
+.lb-trend-flat { color: var(--dim); }
+.lb-status-active   { background:#052010; color:var(--green); padding:2px 7px; border-radius:2px; font-size:9px; letter-spacing:1px; font-weight:bold; }
+.lb-status-inactive { background:#0d0d14; color:var(--dim); padding:2px 7px; border-radius:2px; font-size:9px; letter-spacing:1px; }
+
+/* ── FIXED BOTTOM BAR ────────────────────────────────────── */
+#bottom-bar {
+  position: fixed; bottom: 0; left: 0; right: 0;
+  background: linear-gradient(0deg, #0a0a0f 85%, transparent);
+  padding: 8px 20px; display: flex; gap: 8px; align-items: center;
+  border-top: 1px solid var(--border); z-index: 100; flex-wrap: wrap;
+}
+#bottom-paper { margin-right: auto; }
+
+/* ── MISC ───────────────────────────────────────────────── */
+.lcars-label { font-size: 9px; letter-spacing: 3px; color: var(--orange); text-transform: uppercase; }
+.no-data { color: var(--dim); font-size: 11px; padding: 14px 0; font-style: italic; }
+#scan-spinner { display: none; font-size: 10px; color: var(--yellow); letter-spacing: 1px; }
+#scan-spinner.visible { display: inline; }
+
+/* ── RESPONSIVE ─────────────────────────────────────────── */
+@media (max-width: 768px) {
+  #header-title { font-size: 14px; }
+  #header-status { gap: 8px; font-size: 9px; }
+  #results-section, #leaderboard-section { padding: 0 10px 10px; }
+  .detail-inner { grid-template-columns: 1fr; }
+  #gauges { grid-template-columns: repeat(2, 1fr); }
+  #results-table td, #results-table th { padding: 5px 7px; }
+
+  /* Filter bar: stack each label+control pair */
+  #filter-bar {
+    flex-direction: column; align-items: flex-start;
+    padding: 10px 14px; gap: 8px;
+  }
+  .f-sep { display: none; }
+  #filter-bar label { font-size: 11px; letter-spacing: 1px; }
+  .f-select { width: 100%; min-height: 36px; font-size: 14px; padding: 6px 8px; }
+  .f-input { width: 100%; min-height: 36px; font-size: 14px; padding: 6px 8px; }
+  #f-confluence-wrap { font-size: 12px; }
+  #filter-count { margin-left: 0; }
+
+  /* Sticky symbol column */
+  #results-table th:first-child,
+  #results-table td:first-child { position: sticky; left: 0; z-index: 2; background: var(--surface); }
+
+  /* Touch targets */
+  .abtn { min-height: 44px; padding: 10px 14px; -webkit-tap-highlight-color: transparent; }
+}
+@media (max-width: 480px) {
+  #header-title { font-size: 12px; }
+  #strategy-pills { padding: 6px 10px; }
+  #results-section, #leaderboard-section { padding: 0 6px 10px; }
+}
+/* ═══ MOBILE RESPONSIVE SUPPLEMENT — max-width: 768px ════════════════════ */
+@media (max-width: 768px) {
+  body { overflow-x: hidden; }
+
+  /* Strategy pills: wrap */
+  #strategy-pills { flex-wrap: wrap !important; gap: 6px !important; overflow-x: visible !important; }
+
+  /* Results table: horizontal scroll wrapper */
+  #results-table-wrap { overflow-x: auto !important; -webkit-overflow-scrolling: touch; }
+
+  /* Images */
+  img { max-width: 100%; height: auto; }
+
+  /* Inputs — prevent iOS zoom */
+  input, select { font-size: 16px !important; }
+}
+</style>
+</head>
+<body>
+
+<div class="lcars-top"></div>
+
+<!-- ── HEADER BAR ────────────────────────────────────────── -->
+<div id="header-bar">
+  <div id="header-top">
+    <div id="header-title">&#x1F596; MAIN VIEWER &mdash; TACTICAL SCAN</div>
+    <div id="header-actions">
+      <span id="scan-spinner">&#x23F3; SCANNING&hellip;</span>
+      <button class="abtn primary" id="rescan-btn" onclick="runRescan()">&#x26A1; RESCAN</button>
+      <a class="abtn link-btn" href="/">&#x1F4CA; Bridge</a>
+    </div>
+  </div>
+  <div id="header-status">
+    <span>Active: <span class="hs-val" id="hs-active">&#x2014;</span></span>
+    <span>Universe: <span class="hs-val" id="hs-universe">&#x2014;</span></span>
+    <span>Last scan: <span class="hs-val" id="hs-last">&#x2014;</span></span>
+    <span class="paper-badge">PAPER TRADING</span>
+  </div>
+</div>
+
+<!-- ── STRATEGY PILLS ─────────────────────────────────────── -->
+<div id="strategy-pills">
+  <span id="pills-label">Strategies</span>
+  <span id="pills-inner" style="display:inline-flex;gap:7px;flex-wrap:nowrap;">
+    <span class="s-pill pill-gray">Loading&hellip;</span>
+  </span>
+</div>
+
+<!-- ── TROI ADVISORY BAR ──────────────────────────────────── -->
+<div id="troi-bar" style="
+  padding: 8px 20px; border-bottom: 1px solid var(--border);
+  background: linear-gradient(135deg, #0d0a1a 0%, var(--bg) 100%);
+  display: flex; align-items: center; gap: 14px; flex-wrap: wrap;
+  border-left: 4px solid var(--purple); transition: border-color 0.5s;
+">
+  <span style="font-size:11px;letter-spacing:2px;color:var(--purple);text-transform:uppercase;flex-shrink:0;">🔮 Troi</span>
+  <span id="troi-bar-emoji" style="font-size:15px;flex-shrink:0;">—</span>
+  <span id="troi-bar-headline" style="font-size:14px;color:#e0d0ff;font-weight:600;flex:1;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">Loading advisory…</span>
+  <span style="font-size:11px;letter-spacing:1px;color:#8899aa;flex-shrink:0;">Today's conditions favor:</span>
+  <span id="troi-bar-favor" style="font-size:14px;font-weight:800;color:var(--yellow);flex-shrink:0;">—</span>
+  <span id="troi-bar-updated" style="font-size:11px;color:var(--dim);flex-shrink:0;"></span>
+</div>
+
+<!-- ── FILTER BAR ─────────────────────────────────────────── -->
+<div id="filter-bar">
+  <label for="f-strategy">Strategy</label>
+  <select class="f-select" id="f-strategy" onchange="applyFilters()">
+    <option value="">All</option>
+  </select>
+  <span class="f-sep">|</span>
+  <label for="f-sector">Sector</label>
+  <select class="f-select" id="f-sector" onchange="applyFilters()">
+    <option value="">All</option>
+  </select>
+  <span class="f-sep">|</span>
+  <label for="f-strength">Signal &ge;</label>
+  <input class="f-input" type="number" id="f-strength" min="0" max="1" step="0.1" value="0" oninput="applyFilters()">
+  <span class="f-sep">|</span>
+  <label for="f-volume">Vol &ge; (M)</label>
+  <input class="f-input" type="number" id="f-volume" min="0" step="0.1" value="0" placeholder="0.5" oninput="applyFilters()">
+  <span class="f-sep">|</span>
+  <label id="f-confluence-wrap" for="f-confluence">
+    <input type="checkbox" id="f-confluence" onchange="applyFilters()">
+    Confluence Only
+  </label>
+  <span id="filter-count"></span>
+</div>
+
+<!-- ── RESULTS TABLE ──────────────────────────────────────── -->
+<div id="results-section">
+  <div id="results-header">
+    <span>Scan Results</span>
+    <span id="results-count" style="color:var(--dim);font-size:10px;"></span>
+  </div>
+  <div id="results-table-wrap">
+    <table id="results-table">
+      <thead>
+        <tr>
+          <th onclick="sortBy('symbol')">Symbol<span class="sort-ind" id="si-symbol"></span></th>
+          <th onclick="sortBy('strategy')">Strategy<span class="sort-ind" id="si-strategy"></span></th>
+          <th onclick="sortBy('confidence')">Strength<span class="sort-ind" id="si-confidence"></span></th>
+          <th onclick="sortBy('price')">Price<span class="sort-ind" id="si-price"></span></th>
+          <th onclick="sortBy('change_pct')">Chg%<span class="sort-ind" id="si-change_pct"></span></th>
+          <th onclick="sortBy('volume')">Volume<span class="sort-ind" id="si-volume"></span></th>
+          <th onclick="sortBy('sector')">Sector<span class="sort-ind" id="si-sector"></span></th>
+          <th onclick="sortBy('entry')">Entry<span class="sort-ind" id="si-entry"></span></th>
+          <th onclick="sortBy('stop')">Stop<span class="sort-ind" id="si-stop"></span></th>
+          <th onclick="sortBy('target')">Target<span class="sort-ind" id="si-target"></span></th>
+          <th onclick="sortBy('rr')">R/R<span class="sort-ind" id="si-rr"></span></th>
+        </tr>
+      </thead>
+      <tbody id="results-body"></tbody>
+    </table>
+    <div id="empty-state">
+      <div class="empty-icon">&#x1F50D;</div>
+      <div class="empty-title">No Signals Detected</div>
+      <div class="empty-sub">No scan results match the current filters.<br>Try adjusting filters or running a fresh scan.</div>
+    </div>
+  </div>
+</div>
+
+<!-- ── STRATEGY LEADERBOARD ───────────────────────────────── -->
+<div id="leaderboard-section">
+  <div id="leaderboard-header" onclick="toggleLeaderboard()">
+    <span>&#x1F3C6; Strategy Leaderboard</span>
+    <span id="lb-toggle-icon">&#x25BC; expand</span>
+  </div>
+  <div id="leaderboard-body">
+    <table id="lb-table">
+      <thead>
+        <tr>
+          <th>Rank</th>
+          <th>Strategy</th>
+          <th>Win Rate</th>
+          <th>Profit Factor</th>
+          <th>Trades</th>
+          <th>Trend</th>
+          <th>Status</th>
+        </tr>
+      </thead>
+      <tbody id="lb-body"></tbody>
+    </table>
+  </div>
+</div>
+
+<!-- ── FIXED BOTTOM BAR ───────────────────────────────────── -->
+<div id="bottom-bar">
+  <div id="bottom-paper">
+    <span class="paper-badge" style="font-size:10px;">&#x26A0; PAPER TRADING ONLY</span>
+  </div>
+  <a class="abtn" href="/tactical">&#x2B05; Tactical</a>
+  <a class="abtn link-btn" href="/">&#x1F4CA; Bridge</a>
+</div>
+
+<script>
+// ── STATE ────────────────────────────────────────────────────
+const S = {
+  scanResults: [],
+  rotation: null,
+  lastFetch: null,
+  isOpen: false,
+  sortCol: 'confidence',
+  sortDir: -1,
+  expandedRow: null,
+  troiCache: {},
+  refreshTimer: null,
+  leaderboardOpen: false,
+  filteredRows: [],
+};
+
+// ── HELPERS ──────────────────────────────────────────────────
+async function api(path, opts = {}) {
+  const r = await fetch(path, opts);
+  if (!r.ok) throw new Error(`HTTP ${r.status}`);
+  return r.json();
+}
+
+function fmtVol(v) {
+  if (!v && v !== 0) return '—';
+  if (v >= 1e6) return (v / 1e6).toFixed(1) + 'M';
+  if (v >= 1e3) return Math.round(v / 1e3) + 'K';
+  return String(v);
+}
+
+function fmtPrice(v) {
+  if (v == null) return '—';
+  return '$' + Number(v).toFixed(2);
+}
+
+function fmtPct(v) {
+  if (v == null) return '—';
+  const n = Number(v);
+  return (n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+
+function fmtRR(v) {
+  if (v == null) return '—';
+  return Number(v).toFixed(2);
+}
+
+function timeAgo(ts) {
+  if (!ts) return '—';
+  const diff = Math.floor((Date.now() - new Date(ts).getTime()) / 1000);
+  if (diff < 60) return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  return Math.floor(diff / 3600) + 'h ago';
+}
+
+function strengthColor(v) {
+  const n = Number(v) || 0;
+  if (n >= 0.75) return 'var(--green)';
+  if (n >= 0.55) return 'var(--yellow)';
+  if (n >= 0.35) return 'var(--orange)';
+  return 'var(--red)';
+}
+
+function isMarketOpen() {
+  const now = new Date();
+  const d = now.getDay();
+  if (d === 0 || d === 6) return false;
+  const h = now.getHours(), m = now.getMinutes();
+  const mins = h * 60 + m;
+  return mins >= 9 * 60 + 30 && mins < 16 * 60;
+}
+
+// ── FETCH ALL ────────────────────────────────────────────────
+async function fetchAll() {
+  const [statusRes, rotationRes] = await Promise.allSettled([
+    api('/api/phase4/scanner-status'),
+    api('/api/phase4/strategy-rotation/latest'),
+  ]);
+
+  if (statusRes.status === 'fulfilled') {
+    const d = statusRes.value;
+    S.scanResults = d.signals || d.results || d.scan_results || [];
+    S.lastFetch = new Date().toISOString();
+    S.isOpen = d.market_open ?? isMarketOpen();
+    updateHeader(d);
+  }
+
+  if (rotationRes.status === 'fulfilled') {
+    S.rotation = rotationRes.value;
+  }
+
+  renderStrategyPills();
+  populateFilterSelects();
+  applyFilters();
+  renderLeaderboard();
+  scheduleRefresh();
+}
+
+// ── HEADER ───────────────────────────────────────────────────
+function updateHeader(d) {
+  const strategies = S.rotation ? (S.rotation.active_strategies || []) : [];
+  const totalStrats = S.rotation ? (S.rotation.total_strategies || strategies.length) : strategies.length;
+  document.getElementById('hs-active').textContent =
+    strategies.length + '/' + (totalStrats || '?');
+  document.getElementById('hs-universe').textContent =
+    (d.universe_size || d.stocks_scanned || S.scanResults.length || '—').toLocaleString();
+  document.getElementById('hs-last').textContent = timeAgo(d.last_scan || S.lastFetch);
+}
+
+// ── STRATEGY PILLS ───────────────────────────────────────────
+function renderStrategyPills() {
+  const container = document.getElementById('pills-inner');
+  if (!S.rotation) {
+    container.innerHTML = '<span class="s-pill pill-gray">No rotation data</span>';
+    return;
+  }
+  const strategies = S.rotation.strategies || S.rotation.active_strategies || [];
+  if (!strategies.length) {
+    container.innerHTML = '<span class="s-pill pill-gray">No strategies</span>';
+    return;
+  }
+  container.innerHTML = strategies.map(st => {
+    const name = st.name || st.strategy_name || st;
+    const wr = st.win_rate != null ? Math.round(st.win_rate * 100) : null;
+    const active = st.active !== false;
+    let cls = 'pill-gray';
+    if (active) {
+      if (wr > 65) cls = 'pill-green';
+      else if (wr > 55) cls = 'pill-yellow';
+      else cls = 'pill-orange';
+    }
+    return `<span class="s-pill ${cls}">${name}${wr != null ? ` <span class="pill-wr">${wr}%WR</span>` : ''}</span>`;
+  }).join('');
+}
+
+// ── FILTER SELECTS ───────────────────────────────────────────
+function populateFilterSelects() {
+  const strategies = [...new Set(S.scanResults.map(r => r.strategy || r.strategy_name).filter(Boolean))].sort();
+  const sectors = [...new Set(S.scanResults.map(r => r.sector).filter(Boolean))].sort();
+
+  const sStrat = document.getElementById('f-strategy');
+  const curStrat = sStrat.value;
+  sStrat.innerHTML = '<option value="">All</option>' +
+    strategies.map(s => `<option value="${s}"${s === curStrat ? ' selected' : ''}>${s}</option>`).join('');
+
+  const sSect = document.getElementById('f-sector');
+  const curSect = sSect.value;
+  sSect.innerHTML = '<option value="">All</option>' +
+    sectors.map(s => `<option value="${s}"${s === curSect ? ' selected' : ''}>${s}</option>`).join('');
+}
+
+// ── FILTERING ────────────────────────────────────────────────
+function getFiltered() {
+  const fStrat = document.getElementById('f-strategy').value;
+  const fSect = document.getElementById('f-sector').value;
+  const fStr = parseFloat(document.getElementById('f-strength').value) || 0;
+  const fVol = (parseFloat(document.getElementById('f-volume').value) || 0) * 1e6;
+  const fConf = document.getElementById('f-confluence').checked;
+
+  let rows = S.scanResults;
+
+  if (fStrat) rows = rows.filter(r => (r.strategy || r.strategy_name) === fStrat);
+  if (fSect)  rows = rows.filter(r => r.sector === fSect);
+  if (fStr > 0) rows = rows.filter(r => (r.confidence || r.strength || r.signal_strength || 0) >= fStr);
+  if (fVol > 0) rows = rows.filter(r => (r.volume || 0) >= fVol);
+
+  if (fConf) {
+    const countMap = {};
+    rows.forEach(r => { const sym = r.symbol; countMap[sym] = (countMap[sym] || 0) + 1; });
+    rows = rows.filter(r => countMap[r.symbol] >= 2);
+  }
+
+  return rows;
+}
+
+function applyFilters() {
+  S.filteredRows = getFiltered();
+  renderTable();
+  document.getElementById('filter-count').textContent =
+    S.filteredRows.length + ' of ' + S.scanResults.length + ' signals';
+}
+
+// ── SORTING ──────────────────────────────────────────────────
+function sortBy(col) {
+  if (S.sortCol === col) { S.sortDir *= -1; }
+  else { S.sortCol = col; S.sortDir = -1; }
+  // update indicators
+  document.querySelectorAll('.sort-ind').forEach(el => el.textContent = '');
+  const ind = document.getElementById('si-' + col);
+  if (ind) ind.textContent = S.sortDir === -1 ? '▼' : '▲';
+  renderTable();
+}
+
+function getSorted(rows) {
+  const col = S.sortCol;
+  return [...rows].sort((a, b) => {
+    let av = a[col]; let bv = b[col];
+    // normalize confidence / strength
+    if (col === 'confidence') { av = a.confidence ?? a.strength ?? a.signal_strength ?? 0; bv = b.confidence ?? b.strength ?? b.signal_strength ?? 0; }
+    if (av == null) av = '';
+    if (bv == null) bv = '';
+    if (typeof av === 'string') return S.sortDir * av.localeCompare(bv);
+    return S.sortDir * (av - bv);
+  });
+}
+
+// ── RENDER TABLE ─────────────────────────────────────────────
+function renderTable() {
+  const tbody = document.getElementById('results-body');
+  const empty = document.getElementById('empty-state');
+  const countEl = document.getElementById('results-count');
+
+  const rows = getSorted(S.filteredRows);
+  countEl.textContent = rows.length + ' signal' + (rows.length !== 1 ? 's' : '');
+
+  // confluence count map
+  const confMap = {};
+  S.filteredRows.forEach(r => { confMap[r.symbol] = (confMap[r.symbol] || 0) + 1; });
+
+  if (!rows.length) {
+    tbody.innerHTML = '';
+    empty.classList.add('visible');
+    return;
+  }
+  empty.classList.remove('visible');
+
+  tbody.innerHTML = rows.map((r, i) => {
+    const sym = r.symbol || '?';
+    const strat = r.strategy || r.strategy_name || '—';
+    const conf = r.confidence ?? r.strength ?? r.signal_strength ?? 0;
+    const confPct = Math.round(conf * 100);
+    const price = r.price ?? r.current_price;
+    const chg = r.change_pct ?? r.chg_pct;
+    const vol = r.volume;
+    const avgVol = r.avg_volume;
+    const isHighVol = avgVol && vol > avgVol * 2;
+    const sector = r.sector || '—';
+    const entry = r.entry ?? r.entry_price;
+    const stop = r.stop ?? r.stop_loss;
+    const target = r.target ?? r.target_price;
+    const rr = r.rr ?? r.risk_reward;
+    const isConf = confMap[sym] >= 2;
+    const session = r.session_type || r.session || '—';
+    const condition = r.condition || r.market_condition || '—';
+    const reasoning = r.reasoning || r.signal_reason || '';
+    const rowId = `row-${sym}-${strat}-${i}`;
+
+    const rrNum = parseFloat(rr);
+    const rrCls = isNaN(rrNum) ? '' : (rrNum >= 2.0 ? 'rr-good' : rrNum >= 1.5 ? 'rr-ok' : 'rr-bad');
+    const chgNum = parseFloat(chg);
+    const chgCls = isNaN(chgNum) ? '' : (chgNum >= 0 ? 'chg-pos' : 'chg-neg');
+    const barColor = strengthColor(conf);
+
+    return `
+<tr class="data-row${isConf ? ' confluence' : ''}" onclick="expandRow('${rowId}', '${sym}', '${strat}', '${session}', '${condition}', ${JSON.stringify(reasoning)})">
+  <td class="sym-cell">${sym}</td>
+  <td>${strat}</td>
+  <td>
+    <div class="strength-bar-wrap">
+      <div class="strength-bar-track">
+        <div class="strength-bar-fill" style="width:${confPct}%;background:${barColor};"></div>
+      </div>
+      <span class="strength-pct">${confPct}%</span>
+    </div>
+  </td>
+  <td>${fmtPrice(price)}</td>
+  <td class="${chgCls}">${fmtPct(chg)}</td>
+  <td class="${isHighVol ? 'vol-high' : ''}">${fmtVol(vol)}</td>
+  <td>${sector}</td>
+  <td>${fmtPrice(entry)}</td>
+  <td>${fmtPrice(stop)}</td>
+  <td>${fmtPrice(target)}</td>
+  <td class="${rrCls}">${fmtRR(rr)}</td>
+</tr>
+<tr class="detail-row" id="${rowId}">
+  <td class="detail-cell" colspan="11">
+    <div class="detail-inner">
+      <div class="detail-section">
+        <div class="detail-label">Strategy</div>
+        <div class="detail-val"><strong>${strat}</strong>${reasoning ? '<br><span style="color:var(--dim);font-size:10px;">' + reasoning + '</span>' : ''}</div>
+        <div class="detail-label" style="margin-top:8px;">Session / Condition</div>
+        <div class="detail-val">${session} | <span class="cond-badge cond-${condition}">${condition}</span></div>
+        <a class="trade-btn" href="/tactical?symbol=${sym}">Trade This &#x2192;</a>
+      </div>
+      <div class="detail-section">
+        <div class="detail-label">Counselor Troi</div>
+        <div class="troi-loading" id="troi-${rowId}">Loading advisory&hellip;</div>
+      </div>
+    </div>
+  </td>
+</tr>`;
+  }).join('');
+}
+
+// ── EXPAND ROW ───────────────────────────────────────────────
+function expandRow(rowId, symbol, strategy, session, condition, reasoning) {
+  const detailRow = document.getElementById(rowId);
+  if (!detailRow) return;
+  const isOpen = detailRow.classList.contains('open');
+
+  // close previously opened row
+  if (S.expandedRow && S.expandedRow !== rowId) {
+    const prev = document.getElementById(S.expandedRow);
+    if (prev) prev.classList.remove('open');
+  }
+
+  if (isOpen) {
+    detailRow.classList.remove('open');
+    S.expandedRow = null;
+  } else {
+    detailRow.classList.add('open');
+    S.expandedRow = rowId;
+    loadTroi(rowId, symbol);
+  }
+}
+
+// ── TROI ADVISORY (LAZY) ─────────────────────────────────────
+async function loadTroi(rowId, symbol) {
+  const el = document.getElementById('troi-' + rowId);
+  if (!el) return;
+  if (S.troiCache[symbol]) { renderTroi(el, S.troiCache[symbol]); return; }
+  try {
+    const d = await api('/api/ready-room/advisor?symbol=' + symbol + '&action=BUY');
+    S.troiCache[symbol] = d;
+    renderTroi(el, d);
+  } catch (e) {
+    el.innerHTML = '<span style="color:var(--dim);font-size:10px;">Advisory unavailable</span>';
+  }
+}
+
+function renderTroi(el, d) {
+  if (!el || !d) return;
+  var verdict = (d.market_read || d).signal || 'UNKNOWN';
+  var colors = {GO:'var(--green)',CAUTION:'var(--yellow)',STAND_DOWN:'var(--red)',UNKNOWN:'var(--dim)'};
+  var c = colors[verdict] || 'var(--dim)';
+  el.innerHTML =
+    '<span class="troi-badge troi-' + verdict + '">' + verdict.replace('_',' ') + '</span> '
+    + '<span style="font-size:13px;color:#c0c0c0;">' + ((d.market_read||d).headline || '') + '</span>';
+}
+
+// ── LEADERBOARD ──────────────────────────────────────────────
+function toggleLeaderboard() {
+  S.leaderboardOpen = !S.leaderboardOpen;
+  const body = document.getElementById('leaderboard-body');
+  const icon = document.getElementById('lb-toggle-icon');
+  if (S.leaderboardOpen) {
+    body.classList.add('open');
+    icon.textContent = '▲ collapse';
+  } else {
+    body.classList.remove('open');
+    icon.textContent = '▼ expand';
+  }
+}
+
+function renderLeaderboard() {
+  const tbody = document.getElementById('lb-body');
+  if (!S.rotation) { tbody.innerHTML = '<tr><td colspan="7" class="no-data">No leaderboard data</td></tr>'; return; }
+
+  const strategies = (S.rotation.strategies || S.rotation.active_strategies || [])
+    .slice()
+    .sort((a, b) => {
+      const aw = a.win_rate ?? 0; const bw = b.win_rate ?? 0;
+      return bw - aw;
+    });
+
+  if (!strategies.length) {
+    tbody.innerHTML = '<tr><td colspan="7" class="no-data">No strategy data</td></tr>';
+    return;
+  }
+
+  tbody.innerHTML = strategies.map((st, i) => {
+    const name = st.name || st.strategy_name || st;
+    const wr = st.win_rate != null ? (st.win_rate * 100).toFixed(1) + '%' : '—';
+    const pf = st.profit_factor != null ? Number(st.profit_factor).toFixed(2) : '—';
+    const trades = st.total_trades ?? st.trade_count ?? '—';
+    const active = st.active !== false;
+    const trend = st.trend || '';
+    let trendHtml = '<span class="lb-trend-flat">&#x2014;</span>';
+    if (trend === 'improving' || trend === 'up') trendHtml = '<span class="lb-trend-up">&#x25B2;</span>';
+    else if (trend === 'declining' || trend === 'down') trendHtml = '<span class="lb-trend-down">&#x25BC;</span>';
+    const statusHtml = active
+      ? '<span class="lb-status-active">ACTIVE</span>'
+      : '<span class="lb-status-inactive">INACTIVE</span>';
+    return `<tr>
+      <td class="lb-rank">#${i + 1}</td>
+      <td>${name}</td>
+      <td>${wr}</td>
+      <td>${pf}</td>
+      <td>${trades}</td>
+      <td>${trendHtml}</td>
+      <td>${statusHtml}</td>
+    </tr>`;
+  }).join('');
+}
+
+// ── RESCAN ───────────────────────────────────────────────────
+async function runRescan() {
+  const btn = document.getElementById('rescan-btn');
+  const spinner = document.getElementById('scan-spinner');
+  btn.classList.add('spin');
+  spinner.classList.add('visible');
+  try {
+    await api('/api/phase4/deep-scan/run', { method: 'POST' });
+    await new Promise(r => setTimeout(r, 1500));
+    await fetchAll();
+  } catch (e) {
+    console.error('Rescan failed:', e);
+  } finally {
+    btn.classList.remove('spin');
+    spinner.classList.remove('visible');
+  }
+}
+
+// ── AUTO REFRESH ─────────────────────────────────────────────
+function scheduleRefresh() {
+  if (S.refreshTimer) clearTimeout(S.refreshTimer);
+  const interval = isMarketOpen() ? 60000 : 120000;
+  S.refreshTimer = setTimeout(() => fetchAll(), interval);
+}
+
+// ── TROI ADVISORY BAR ────────────────────────────────────────
+async function fetchTroiBar() {
+  try {
+    const d = await api('/api/ready-room/advisory');
+    const mr = d.market_read || {};
+    const signal = mr.signal || 'CAUTION';
+    const sigColors = {GO:'var(--green)',CAUTION:'var(--yellow)',STAND_DOWN:'var(--red)'};
+    const c = sigColors[signal] || 'var(--purple)';
+    const bar = document.getElementById('troi-bar');
+    if (bar) bar.style.borderLeftColor = c;
+    const emo = document.getElementById('troi-bar-emoji');
+    if (emo) emo.textContent = mr.emoji || '🔮';
+    const hl = document.getElementById('troi-bar-headline');
+    if (hl) { hl.textContent = mr.headline || '—'; hl.style.color = c; }
+    const fav = document.getElementById('troi-bar-favor');
+    const ap = d.action_plan || {};
+    if (fav) { fav.textContent = ap.primary || '—'; fav.style.color = c; }
+    const upd = document.getElementById('troi-bar-updated');
+    if (upd && d.generated_at) {
+      const t = new Date(d.generated_at);
+      upd.textContent = t.toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit'});
+    }
+  } catch(e) { /* silent */ }
+}
+
+// ── INIT ─────────────────────────────────────────────────────
+document.addEventListener('DOMContentLoaded', () => {
+  // set initial sort indicator
+  const ind = document.getElementById('si-confidence');
+  if (ind) ind.textContent = '▼';
+  fetchAll();
+  fetchTroiBar();
+  setInterval(fetchTroiBar, 60000);
+});
+</script>
+<script src="/static/ship_computer.js"></script>
+</body>
+</html>

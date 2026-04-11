@@ -33,19 +33,35 @@ NEUTRAL_WORDS = {"neutral", "sideways", "range-bound", "mixed", "choppy", "uncer
 CREW_INFO = {
     "grok-4": ("🖖", "Lt. Cmdr. Spock"),
     "first-officer": ("🤖", "Lt. Cmdr. Data"),
-    "mlx-qwen3": ("🧭", "Ensign Chekov"),
+    "ollama-coder": ("🤖", "Lt. Cmdr. Data"),
+    "mlx-qwen3": ("🧭", "Ensign Ro"),
+    "navigator": ("🧭", "Ensign Chekov"),
     "riker": ("🫡", "Cmdr. Riker"),
-    "ollama-local": ("🔧", "Geordi"),
-    "gemini-2.5-flash": ("⚔️", "Worf"),
-    "ollama-qwen3": ("⚙️", "Scotty"),
-    "ollama-plutus": ("💉", "Bones"),
-    "energy-arnold": ("⚡", "Trip"),
-    "options-sosnoff": ("💜", "Troi"),
+    "ollama-local": ("🔧", "Lt. Cmdr. Geordi"),
+    "gemini-2.5-flash": ("⚔️", "Lt. Cmdr. Worf"),
+    "ollama-qwen3": ("⚙️", "Lt. Cmdr. Scotty"),
+    "ollama-plutus": ("💉", "Dr. McCoy"),
+    "energy-arnold": ("⚡", "Cmdr. Trip Tucker"),
+    "options-sosnoff": ("💜", "Counselor Troi"),
     "q-entity": ("✨", "Q"),
     "dalio-metals": ("📊", "Mr. Dalio"),
     "enterprise-computer": ("⚙️", "Computer"),
-    "ollama-llama": ("U", "Uhura"),
+    "ollama-llama": ("📡", "Lt. Cmdr. Uhura"),
     "neo-matrix": ("🕶️", "Neo"),
+    "dayblade-sulu": ("🚀", "Lt. Sulu"),
+    "super-agent": ("💊", "Mr. Anderson"),
+    "grok-3": ("🧠", "Ensign Hoshi"),
+    "gemini-2.5-pro": ("✨", "Seven of Nine"),
+    "gpt-4o": ("🤖", "Captain Janeway"),
+    "gpt-o3": ("🤖", "Lt. Tuvok"),
+    "dayblade-0dte": ("⚡", "T'Pol"),
+    "claude-sonnet": ("🔵", "Captain Sisko"),
+    "claude-haiku": ("🔵", "Lt. Malcolm Reed"),
+    "cto-grok42": ("🖖", "CTO Grok 4.2"),
+    "ollama-deepseek": ("🔍", "Constable Odo"),
+    "ollama-gemma27b": ("⚙️", "Lt. Jadzia Dax"),
+    "ollama-kimi": ("⚙️", "Dr. Bashir"),
+    "ollama-glm4": ("⚙️", "Q"),
 }
 
 
@@ -155,6 +171,8 @@ def _get_spock_stance(tickers: list[str]) -> tuple[str, dict]:
         if not briefing or not briefing.get("briefing"):
             return "NEUTRAL", {}
         text = briefing["briefing"]
+        # Strip markdown bold/italic markers so "**AMD:** Hold" parses as "AMD: HOLD"
+        text = re.sub(r'\*{1,3}', '', text)
         outlook = parse_outlook(text)
         stances = parse_officer_stance(text, tickers)
         return outlook, stances
@@ -303,7 +321,7 @@ def _get_crew_stances(tickers: list[str]) -> dict:
 
     # Also pull from latest signals (last 24h) for models that may not have War Room posts
     signal_rows = conn.execute(
-        "SELECT player_id, symbol, signal, confidence FROM signals "
+        "SELECT player_id, symbol, signal, confidence, reasoning FROM signals "
         "WHERE created_at >= datetime('now', '-24 hours') "
         "ORDER BY created_at DESC"
     ).fetchall()
@@ -330,7 +348,11 @@ def _get_crew_stances(tickers: list[str]) -> dict:
             if pid not in crew:
                 crew[pid] = {}
             conviction = r["confidence"] or 0.5
-            crew[pid][sym] = {"action": action, "conviction": round(conviction, 2)}
+            crew[pid][sym] = {
+                "action": action,
+                "conviction": round(conviction, 2),
+                "reasoning": r["reasoning"] or "",
+            }
 
     conn.close()
     return crew
@@ -369,24 +391,34 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
 
     Returns structured data for the dashboard API.
     """
-    # Get Steve's portfolio tickers if not provided
+    # Get Steve's portfolio tickers if not provided — always union with WATCH_STOCKS
     if not tickers:
+        position_symbols: set[str] = set()
         try:
             conn = _conn()
             positions = conn.execute(
                 "SELECT DISTINCT symbol FROM positions WHERE player_id='steve-webull'"
             ).fetchall()
             conn.close()
-            tickers = [r["symbol"] for r in positions]
+            position_symbols = {r["symbol"] for r in positions}
         except Exception:
             pass
 
-    if not tickers:
         try:
             from config import WATCH_STOCKS
-            tickers = WATCH_STOCKS[:10]
+            tickers = list(position_symbols | set(WATCH_STOCKS))
         except Exception:
-            tickers = []
+            tickers = list(position_symbols) if position_symbols else []
+
+    # Build display_name lookup from ai_players for player IDs not in CREW_INFO
+    _display_names: dict[str, str] = {}
+    try:
+        _dn_conn = _conn()
+        for _r in _dn_conn.execute("SELECT id, display_name FROM ai_players").fetchall():
+            _display_names[_r["id"]] = _r["display_name"] or _r["id"]
+        _dn_conn.close()
+    except Exception:
+        pass
 
     # Get officer stances
     spock_outlook, spock_stances = _get_spock_stance(tickers)
@@ -448,13 +480,15 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
         for pid, stances in crew_stances.items():
             if ticker in stances:
                 stance = stances[ticker]
-                emoji, name = CREW_INFO.get(pid, ("👤", pid))
+                _fallback_name = _display_names.get(pid, pid)
+                emoji, name = CREW_INFO.get(pid, ("👤", _fallback_name))
                 crew_entries.append({
                     "player_id": pid,
                     "emoji": emoji,
                     "name": name,
                     "action": stance["action"],
                     "conviction": stance["conviction"],
+                    "reasoning": stance.get("reasoning", ""),
                 })
                 act = stance["action"]
                 action_counts[act] = action_counts.get(act, 0) + 1

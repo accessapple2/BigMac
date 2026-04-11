@@ -206,6 +206,8 @@ def _yahoo_chart(symbol, interval="1m", range_="1d"):
 
 def get_bulk_prices(symbols: list, timeout: int = 5) -> dict:
     """Fetch ALL symbols in ONE Yahoo Finance batch request — much faster than individual calls.
+    Uses extended-hours prices (postMarketPrice / preMarketPrice) when available so the
+    leaderboard and FLEET bar stay current during AH/PM sessions.
     Falls back to get_all_prices() on any error. Returns {symbol: price_data}."""
     if not symbols:
         return {}
@@ -216,9 +218,16 @@ def get_bulk_prices(symbols: list, timeout: int = 5) -> dict:
             f"?symbols={sym_str}"
             "&fields=regularMarketPrice,regularMarketChangePercent,"
             "regularMarketVolume,regularMarketDayHigh,regularMarketDayLow,"
-            "regularMarketPreviousClose"
+            "regularMarketPreviousClose,"
+            "postMarketPrice,postMarketChangePercent,"
+            "preMarketPrice,preMarketChangePercent"
         )
-        r = requests.get(url, headers=_get_yahoo_headers(), timeout=timeout)
+        session, crumb = _get_yahoo_session()
+        if session and crumb:
+            url += f"&crumb={crumb}"
+            r = session.get(url, headers=_get_yahoo_headers(), timeout=timeout)
+        else:
+            r = requests.get(url, headers=_get_yahoo_headers(), timeout=timeout)
         if r.status_code != 200:
             raise ValueError(f"HTTP {r.status_code}")
         body = r.json()
@@ -228,18 +237,33 @@ def get_bulk_prices(symbols: list, timeout: int = 5) -> dict:
         results = {}
         for q in quotes:
             sym = q.get("symbol")
-            price = q.get("regularMarketPrice", 0)
-            prev = q.get("regularMarketPreviousClose", price) or price
-            chg = round((price - prev) / prev * 100, 2) if prev else 0
+            regular_price = float(q.get("regularMarketPrice") or 0)
+            # Prefer extended-hours price when available (non-zero means session is active)
+            post_price = float(q.get("postMarketPrice") or 0)
+            pre_price = float(q.get("preMarketPrice") or 0)
+            if post_price:
+                price = post_price
+                chg = round(float(q.get("postMarketChangePercent") or 0), 2)
+                source = "yahoo_bulk_ah"
+            elif pre_price:
+                price = pre_price
+                chg = round(float(q.get("preMarketChangePercent") or 0), 2)
+                source = "yahoo_bulk_pm"
+            else:
+                price = regular_price
+                prev = float(q.get("regularMarketPreviousClose") or price) or price
+                chg = round((price - prev) / prev * 100, 2) if prev else 0
+                chg = round(float(q.get("regularMarketChangePercent") or chg), 2)
+                source = "yahoo_bulk"
             data = {
                 "symbol": sym,
-                "price": round(float(price), 2),
-                "change_pct": round(float(q.get("regularMarketChangePercent", chg)), 2),
-                "high": round(float(q.get("regularMarketDayHigh", price)), 2),
-                "low": round(float(q.get("regularMarketDayLow", price)), 2),
-                "volume": int(q.get("regularMarketVolume", 0)),
+                "price": round(price, 2),
+                "change_pct": chg,
+                "high": round(float(q.get("regularMarketDayHigh") or price), 2),
+                "low": round(float(q.get("regularMarketDayLow") or price), 2),
+                "volume": int(q.get("regularMarketVolume") or 0),
                 "timestamp": datetime.now().isoformat(),
-                "source": "yahoo_bulk",
+                "source": source,
             }
             if sym:
                 results[sym] = data
@@ -464,7 +488,7 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
             if i >= len(closes) or closes[i] is None:
                 continue
             candles.append({
-                "time": datetime.fromtimestamp(ts).isoformat(),
+                "time": datetime.utcfromtimestamp(ts).isoformat() + "Z",
                 "open": round(float(opens[i] or closes[i]), 2),
                 "high": round(float(highs[i] or closes[i]), 2),
                 "low": round(float(lows[i] or closes[i]), 2),

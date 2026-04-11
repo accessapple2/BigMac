@@ -62,30 +62,56 @@ class AlpacaBridge:
         except Exception as e:
             return [{'error': str(e)}]
 
-    def buy(self, symbol, qty):
+    def buy(self, symbol, qty, extended_hours: bool = False, limit_price: float = 0.0):
         if not self.client:
             return {'error': 'Not connected'}
         try:
-            from alpaca.trading.requests import MarketOrderRequest
             from alpaca.trading.enums import OrderSide, TimeInForce
-            o = self.client.submit_order(MarketOrderRequest(
-                symbol=symbol, qty=qty, side=OrderSide.BUY, time_in_force=TimeInForce.GTC
-            ))
-            console.log(f"[green]Alpaca BUY {qty} {symbol} — order {o.id}")
+            if extended_hours and limit_price > 0:
+                # Alpaca requires limit orders for extended-hours trading.
+                # Use a 0.5% premium above current price to favour a fill.
+                from alpaca.trading.requests import LimitOrderRequest
+                lp = round(limit_price * 1.005, 2)
+                o = self.client.submit_order(LimitOrderRequest(
+                    symbol=symbol, qty=float(qty), side=OrderSide.BUY,
+                    time_in_force=TimeInForce.DAY, limit_price=lp,
+                    extended_hours=True,
+                ))
+                console.log(f"[green]Alpaca BUY {qty} {symbol} EXTENDED limit=${lp:.2f} — order {o.id}")
+            else:
+                from alpaca.trading.requests import MarketOrderRequest
+                o = self.client.submit_order(MarketOrderRequest(
+                    symbol=symbol, qty=float(qty), side=OrderSide.BUY,
+                    time_in_force=TimeInForce.DAY,
+                ))
+                console.log(f"[green]Alpaca BUY {qty} {symbol} — order {o.id}")
             return {'success': True, 'order_id': str(o.id), 'symbol': o.symbol, 'status': o.status.value}
         except Exception as e:
             return {'error': str(e)}
 
-    def sell(self, symbol, qty):
+    def sell(self, symbol, qty, extended_hours: bool = False, limit_price: float = 0.0):
         if not self.client:
             return {'error': 'Not connected'}
         try:
-            from alpaca.trading.requests import MarketOrderRequest
             from alpaca.trading.enums import OrderSide, TimeInForce
-            o = self.client.submit_order(MarketOrderRequest(
-                symbol=symbol, qty=qty, side=OrderSide.SELL, time_in_force=TimeInForce.GTC
-            ))
-            console.log(f"[red]Alpaca SELL {qty} {symbol} — order {o.id}")
+            if extended_hours and limit_price > 0:
+                # Alpaca requires limit orders for extended-hours trading.
+                # Use a 0.5% discount below current price to favour a fill.
+                from alpaca.trading.requests import LimitOrderRequest
+                lp = round(limit_price * 0.995, 2)
+                o = self.client.submit_order(LimitOrderRequest(
+                    symbol=symbol, qty=float(qty), side=OrderSide.SELL,
+                    time_in_force=TimeInForce.DAY, limit_price=lp,
+                    extended_hours=True,
+                ))
+                console.log(f"[red]Alpaca SELL {qty} {symbol} EXTENDED limit=${lp:.2f} — order {o.id}")
+            else:
+                from alpaca.trading.requests import MarketOrderRequest
+                o = self.client.submit_order(MarketOrderRequest(
+                    symbol=symbol, qty=float(qty), side=OrderSide.SELL,
+                    time_in_force=TimeInForce.DAY,
+                ))
+                console.log(f"[red]Alpaca SELL {qty} {symbol} — order {o.id}")
             return {'success': True, 'order_id': str(o.id), 'symbol': o.symbol, 'status': o.status.value}
         except Exception as e:
             return {'error': str(e)}

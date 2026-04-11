@@ -1,0 +1,11 @@
+{
+  "mcpServers": {
+    "trademinds": {
+      "type": "http",
+      "url": "http://127.0.0.1:8081/mcp",
+      "headers": {
+        "Authorization": "Bearer tm-ec8f402e2833625c9e8515d1d8d83f66a3872cb2666b7d86"
+      }
+    }
+  }
+}

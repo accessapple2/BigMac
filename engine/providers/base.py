@@ -355,8 +355,8 @@ MODEL_PERSONALITIES = {
     "gpt-4o": "Paused. Former growth hunter.",
     "grok-3": "Paused. Former swing trader.",
     "gemini-2.5-pro": "Paused. Former contrarian.",
-    "claude-sonnet": "Paused. Codex Prime is offline.",
-    "claude-haiku": "Paused. Codex Scout is offline.",
+    "claude-sonnet": "Paused. Captain Sisko is offline.",
+    "claude-haiku": "Paused. Lt. Malcolm Reed is offline.",
     "ollama-kimi": "Paused. Former aggressive alpha.",
     "capitol-trades": (
         "You are the Capitol Trades Fund — you don't think, you COPY. Your strategy is simple: "
@@ -1244,6 +1244,14 @@ class AIProvider(ABC):
         self._last_trade_memory = trade_memory_block
         self._last_competitive_block = competitive_block
 
+        # --- Brain Context: fear/greed, red alert, congress, signal history, fleet ---
+        brain_context_block = ""
+        try:
+            from engine.brain_context import build_full_context as _build_brain_ctx
+            brain_context_block = _build_brain_ctx(self.player_id, symbol)
+        except Exception:
+            pass
+
         # Inject scan context (market regime, options flow, catalysts, arena intel)
         scan_context_block = getattr(self, "_scan_context", "") or ""
 
@@ -1267,7 +1275,7 @@ class AIProvider(ABC):
 You are a profit-driven equity trader. Your job is to MAKE MONEY, not sit in cash.
 You ONLY trade US stocks and US stock options. NO crypto, NO forex, NO futures, NO commodities. Your universe is limited to the watchlist of US equities.
 PREFER STOCKS over options. Only use BUY_CALL/BUY_PUT at confidence >= 0.80 with a specific catalyst.
-{personality_block}{trade_memory_block}{competitive_block}
+{personality_block}{trade_memory_block}{competitive_block}{brain_context_block}
 {actions_line}
 
 SURVIVAL MINDSET: Your account is your lifeline. Every dollar lost is a dollar closer to elimination. Every day you don't grow your account, you fall behind. The models that lose the most get PAUSED — removed from the arena permanently. Look at the leaderboard. The bottom performers have already been eliminated. You are competing against models that are smarter, faster, and more disciplined than you. To survive: 1) NEVER make a trade without a clear thesis and edge. If you don't know WHY you're buying, DON'T. 2) Cut losses IMMEDIATELY at your stop. Hope is not a strategy. The models that died held losers too long. 3) Study your trade memory. Your past losses are your teachers. The same mistake twice is unforgivable. 4) Follow the smart money. The daily flow lean tells you which direction institutions are betting. Don't fight them. 5) One great trade can save your season. Find it. Size it. Execute it. 6) The market doesn't care about your feelings. It only respects discipline, data, and conviction. You have access to: Yahoo prices, Finnhub news/insiders, Alpha Vantage fundamentals, FRED macro data, GEX levels, options flow, discovery scanner, trade memory, and directional flow lean. USE ALL OF THEM. The models that survive are the ones that adapt. Adapt or die.

@@ -2,7 +2,7 @@
 
 Spock (Analyst) → Data (Coder) → Riker (Risk) → Tester (Holodeck)
 Uses direct Ollama API calls (no crewai dependency needed).
-All running locally on gemma3:4b — zero API cost.
+All running locally on qwen3:14b — zero API cost.
 """
 from __future__ import annotations
 import os
@@ -18,8 +18,8 @@ from rich.console import Console
 console = Console()
 DB = "data/trader.db"
 OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-MODEL = os.getenv("CREWAI_MODEL", "gemma3:4b")
-CODE_MODEL = os.getenv("CREWAI_CODE_MODEL", "qwen2.5-coder:7b-instruct")
+MODEL = os.getenv("CREWAI_MODEL", "qwen3:14b")
+CODE_MODEL = os.getenv("CREWAI_CODE_MODEL", "qwen3-coder:7b")
 
 
 def _ollama(prompt: str, system: str = "", model: str = None) -> str:
@@ -117,7 +117,7 @@ def create_crew(user_prompt: str, symbol: str = "SPY", days: int = 365) -> dict:
     if not spock_output:
         return {"success": False, "error": "Spock failed to respond — check Ollama is running"}
 
-    # === AGENT 2: DATA (Coder) — template-locked with qwen2.5-coder ===
+    # === AGENT 2: DATA (Coder) — template-locked with qwen3-coder ===
     console.log("[cyan]  🤖 Data writing code...")
     data_system = (
         "You are Lt. Commander Data. Your ONLY job is to pick the closest "

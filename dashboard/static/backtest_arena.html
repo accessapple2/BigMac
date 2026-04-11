@@ -1,0 +1,522 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1">
+  <title>TradeMinds Backtest Arena</title>
+  <meta property="og:title"       content="TradeMinds Backtest Arena">
+  <meta property="og:description" content="Run free strategy backtests. Compare RSI, MA Crossover, Momentum & Buy-and-Hold on any ticker.">
+  <meta property="og:image"       content="/static/icon-192.png">
+  <script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+  <style>
+    :root {
+      --bg:       #f5f5f0;
+      --surface:  #ffffff;
+      --surface2: #f0ede6;
+      --border:   #e0ddd5;
+      --text:     #1a1a1a;
+      --muted:    #666;
+      --accent:   #1565c0;
+      --green:    #1a7a3a;
+      --green-bg: #e8f5e9;
+      --red:      #c62828;
+      --red-bg:   #ffebee;
+      --radius:   12px;
+      --shadow:   0 2px 8px rgba(0,0,0,0.08);
+    }
+    body.dark {
+      --bg:       #0d1117;
+      --surface:  #161b22;
+      --surface2: #1c2128;
+      --border:   #30363d;
+      --text:     #e6edf3;
+      --muted:    #8b949e;
+      --accent:   #58a6ff;
+      --green:    #3fb950;
+      --green-bg: #0d2818;
+      --red:      #f85149;
+      --red-bg:   #2d0d0d;
+    }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { background: var(--bg); color: var(--text); font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; font-size: 17px; line-height: 1.5; }
+    #app { max-width: 860px; margin: 0 auto; padding: 0 14px 60px; }
+
+    /* Header */
+    #header { display: flex; align-items: center; justify-content: space-between; padding: 16px 0 12px; flex-wrap: wrap; gap: 8px; }
+    #header-left { display: flex; align-items: center; gap: 10px; }
+    #home-btn { background: none; border: none; cursor: pointer; font-size: 24px; min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; border-radius: 8px; color: var(--text); }
+    #home-btn:hover { background: var(--border); }
+    h1 { font-size: 22px; font-weight: 800; }
+    #dark-btn { background: var(--surface); border: 1.5px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 20px; min-width: 44px; min-height: 44px; display: flex; align-items: center; justify-content: center; }
+
+    /* Form card */
+    .card { background: var(--surface); border: 1.5px solid var(--border); border-radius: var(--radius); padding: 20px; margin-bottom: 16px; }
+    .card-title { font-size: 17px; font-weight: 700; margin-bottom: 16px; }
+
+    /* Form fields */
+    .form-row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; margin-bottom: 12px; }
+    .form-group { display: flex; flex-direction: column; gap: 6px; }
+    .form-group label { font-size: 13px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .form-group input, .form-group select {
+      background: var(--bg); color: var(--text);
+      border: 1.5px solid var(--border); border-radius: 8px;
+      padding: 0 12px; height: 48px; font-size: 16px;
+      outline: none; transition: border-color 0.15s;
+    }
+    .form-group input:focus, .form-group select:focus { border-color: var(--accent); }
+
+    /* Strategy buttons */
+    .strategy-grid { display: grid; grid-template-columns: repeat(2, 1fr); gap: 8px; margin-bottom: 14px; }
+    .strat-btn {
+      background: var(--bg); border: 2px solid var(--border);
+      border-radius: 10px; cursor: pointer; padding: 12px;
+      text-align: left; transition: all 0.15s; -webkit-tap-highlight-color: transparent;
+    }
+    .strat-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+    .strat-btn .strat-name { font-size: 15px; font-weight: 700; }
+    .strat-btn .strat-desc { font-size: 12px; opacity: 0.75; margin-top: 2px; }
+
+    /* Period buttons */
+    .period-row { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px; }
+    .period-btn {
+      background: var(--bg); border: 1.5px solid var(--border);
+      border-radius: 8px; cursor: pointer; padding: 0 16px; height: 44px;
+      font-size: 14px; font-weight: 700; color: var(--muted);
+      transition: all 0.15s;
+    }
+    .period-btn.active { background: var(--accent); border-color: var(--accent); color: #fff; }
+
+    /* Run button */
+    #run-btn {
+      width: 100%; height: 56px; background: var(--accent); color: #fff;
+      border: none; border-radius: var(--radius); font-size: 18px; font-weight: 800;
+      cursor: pointer; transition: opacity 0.15s;
+    }
+    #run-btn:disabled { opacity: 0.5; cursor: not-allowed; }
+    #run-btn:active { opacity: 0.85; }
+
+    /* Results */
+    #results-section { display: none; }
+    #results-section.show { display: block; }
+
+    .stats-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(130px, 1fr)); gap: 10px; margin-bottom: 16px; }
+    .stat-box { background: var(--surface2); border-radius: 10px; padding: 14px; }
+    .stat-label { font-size: 11px; font-weight: 700; color: var(--muted); text-transform: uppercase; letter-spacing: 0.04em; }
+    .stat-value { font-size: 22px; font-weight: 800; margin-top: 4px; }
+    .stat-value.pos { color: var(--green); }
+    .stat-value.neg { color: var(--red); }
+
+    /* Chart */
+    #equity-chart { height: 280px; border-radius: 10px; overflow: hidden; margin-bottom: 16px; }
+
+    /* Share row */
+    #share-row { display: flex; gap: 8px; align-items: center; flex-wrap: wrap; }
+    #share-url { flex: 1; background: var(--bg); border: 1.5px solid var(--border); border-radius: 8px; padding: 0 12px; height: 44px; font-size: 14px; color: var(--muted); font-family: monospace; min-width: 0; }
+    .copy-btn { background: var(--surface2); border: 1.5px solid var(--border); border-radius: 8px; cursor: pointer; font-size: 14px; font-weight: 700; padding: 0 16px; height: 44px; color: var(--text); white-space: nowrap; }
+
+    /* Leaderboard */
+    .lb-table { width: 100%; border-collapse: collapse; font-size: 14px; }
+    .lb-table th { text-align: left; padding: 8px 10px; border-bottom: 2px solid var(--border); color: var(--muted); font-size: 13px; font-weight: 700; }
+    .lb-table td { padding: 10px; border-bottom: 1px solid var(--border); }
+    .lb-table tr:last-child td { border-bottom: none; }
+    .lb-table tr:hover td { background: var(--surface2); cursor: pointer; }
+    .ret-pos { color: var(--green); font-weight: 700; }
+    .ret-neg { color: var(--red); font-weight: 700; }
+
+    /* Rate limit notice */
+    #rate-notice { display: none; background: var(--red-bg); color: var(--red); border-radius: 8px; padding: 12px 16px; margin-bottom: 12px; font-size: 14px; font-weight: 600; }
+    #rate-notice.show { display: block; }
+
+    /* Loading spinner */
+    #loading-overlay { display: none; text-align: center; padding: 40px; color: var(--muted); }
+    #loading-overlay.show { display: block; }
+    .spinner { display: inline-block; width: 32px; height: 32px; border: 3px solid var(--border); border-top-color: var(--accent); border-radius: 50%; animation: spin 0.8s linear infinite; }
+    @keyframes spin { to { transform: rotate(360deg); } }
+
+    /* Footer */
+    #footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); text-align: center; }
+    #footer a { color: var(--accent); text-decoration: none; }
+
+    /* Responsive */
+    @media (max-width: 600px) {
+      h1 { font-size: 18px; }
+      .form-row { grid-template-columns: 1fr; }
+      .strategy-grid { grid-template-columns: 1fr; }
+      .stats-grid { grid-template-columns: repeat(2, 1fr); }
+    }
+  </style>
+</head>
+<body>
+<div id="app">
+
+  <div id="header">
+    <div id="header-left">
+      <button id="home-btn" onclick="window.location.href='/'" title="Back to Bridge">⬅</button>
+      <div>
+        <h1>Backtest Arena</h1>
+        <div style="font-size:13px;color:var(--muted)">Test any strategy on any ticker, free.</div>
+      </div>
+    </div>
+    <button id="dark-btn" onclick="toggleDark()" title="Toggle dark mode">🌙</button>
+  </div>
+
+  <!-- Config card -->
+  <div class="card" id="config-card">
+    <div class="card-title">📊 Configure Backtest</div>
+
+    <div class="form-row">
+      <div class="form-group">
+        <label>Ticker</label>
+        <input id="ticker-input" type="text" placeholder="SPY, AAPL, BTC-USD…" value="SPY" maxlength="12" autocapitalize="characters" autocomplete="off" style="text-transform:uppercase">
+      </div>
+      <div class="form-group">
+        <label>Period</label>
+        <div class="period-row" style="margin-bottom:0">
+          <button class="period-btn" data-d="30" onclick="setPeriod(30,this)">1M</button>
+          <button class="period-btn" data-d="90" onclick="setPeriod(90,this)">3M</button>
+          <button class="period-btn" data-d="180" onclick="setPeriod(180,this)">6M</button>
+          <button class="period-btn active" data-d="365" onclick="setPeriod(365,this)">1Y</button>
+          <button class="period-btn" data-d="730" onclick="setPeriod(730,this)">2Y</button>
+        </div>
+      </div>
+    </div>
+
+    <div style="font-size:13px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.04em;margin-bottom:10px;">Strategy</div>
+    <div class="strategy-grid">
+      <button class="strat-btn active" data-strat="buy_hold" onclick="setStrategy('buy_hold',this)">
+        <div class="strat-name">Buy &amp; Hold</div>
+        <div class="strat-desc">Buy on day 1, hold through period</div>
+      </button>
+      <button class="strat-btn" data-strat="ma_cross" onclick="setStrategy('ma_cross',this)">
+        <div class="strat-name">MA Crossover</div>
+        <div class="strat-desc">50MA crosses above/below 200MA</div>
+      </button>
+      <button class="strat-btn" data-strat="rsi" onclick="setStrategy('rsi',this)">
+        <div class="strat-name">RSI Mean Reversion</div>
+        <div class="strat-desc">Buy RSI &lt; 30, sell RSI &gt; 70</div>
+      </button>
+      <button class="strat-btn" data-strat="momentum" onclick="setStrategy('momentum',this)">
+        <div class="strat-name">Momentum</div>
+        <div class="strat-desc">Follow 20-day price momentum</div>
+      </button>
+    </div>
+
+    <div id="rate-notice">⚠️ Rate limit: max 3 backtests per hour. Try again shortly.</div>
+    <div id="loading-overlay"><div class="spinner"></div><br>Running backtest…</div>
+
+    <button id="run-btn" onclick="runBacktest()">▶ Run Backtest</button>
+  </div>
+
+  <!-- Results -->
+  <div id="results-section">
+    <div class="card">
+      <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+        <div id="results-title" style="font-size:17px;font-weight:800;"></div>
+        <button onclick="runBacktest()" style="background:var(--surface2);border:1.5px solid var(--border);border-radius:8px;padding:0 14px;height:40px;cursor:pointer;font-size:13px;font-weight:700;color:var(--text);">↻ Rerun</button>
+      </div>
+      <div class="stats-grid" id="stats-grid"></div>
+      <div id="equity-chart"></div>
+      <div id="share-row">
+        <input id="share-url" type="text" readonly onclick="this.select()">
+        <button class="copy-btn" onclick="copyShareUrl()">📋 Copy Link</button>
+      </div>
+    </div>
+  </div>
+
+  <!-- Community Leaderboard -->
+  <div class="card" id="lb-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;">
+      <div class="card-title" style="margin-bottom:0">🏆 Community Leaderboard</div>
+      <button onclick="loadLeaderboard()" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--accent);font-weight:700;">Refresh</button>
+    </div>
+    <div id="lb-body">
+      <div style="color:var(--muted);font-size:13px;padding:16px;text-align:center">Loading leaderboard…</div>
+    </div>
+  </div>
+
+  <div id="footer">
+    <a href="/">← Back to Bridge</a> &nbsp;·&nbsp;
+    <a href="/leaderboard">Agent Leaderboard</a> &nbsp;·&nbsp;
+    <a href="/charts">Charts</a>
+    <br><br>
+    Results for educational purposes only. Not financial advice.<br>
+    Rate limit: 3 backtests/hour. Data via yfinance.
+  </div>
+</div>
+
+<script>
+(function() {
+
+var _strategy  = 'buy_hold';
+var _periodDays = 365;
+var _darkMode  = false;
+var _chart     = null;
+var _shareId   = null;
+
+// ── Init ──────────────────────────────────────────────────────────────────
+function init() {
+  // Dark mode
+  var h = new Date().getHours();
+  var saved = localStorage.getItem('bt_dark');
+  _darkMode = saved !== null ? saved === '1' : (h >= 19 || h < 7);
+  applyDark(_darkMode);
+
+  // Check if loading a shared result
+  var path = window.location.pathname;
+  var m = path.match(/^\/backtest\/result\/([^\/]+)$/);
+  if (m) {
+    _shareId = m[1];
+    loadSharedResult(m[1]);
+  }
+
+  loadLeaderboard();
+}
+
+function applyDark(on) {
+  _darkMode = on;
+  document.body.classList.toggle('dark', on);
+  document.getElementById('dark-btn').textContent = on ? '☀️' : '🌙';
+}
+window.toggleDark = function() {
+  applyDark(!_darkMode);
+  localStorage.setItem('bt_dark', _darkMode ? '1' : '0');
+};
+
+// ── Form controls ─────────────────────────────────────────────────────────
+window.setPeriod = function(days, btn) {
+  _periodDays = days;
+  document.querySelectorAll('.period-btn').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+};
+
+window.setStrategy = function(strat, btn) {
+  _strategy = strat;
+  document.querySelectorAll('.strat-btn').forEach(function(b) { b.classList.remove('active'); });
+  btn.classList.add('active');
+};
+
+// ── Run ───────────────────────────────────────────────────────────────────
+window.runBacktest = function() {
+  var ticker = document.getElementById('ticker-input').value.trim().toUpperCase();
+  if (!ticker) { alert('Enter a ticker symbol'); return; }
+
+  document.getElementById('run-btn').disabled = true;
+  document.getElementById('loading-overlay').classList.add('show');
+  document.getElementById('rate-notice').classList.remove('show');
+  document.getElementById('results-section').classList.remove('show');
+
+  var body = {
+    ticker:      ticker,
+    strategy:    _strategy,
+    period_days: _periodDays,
+    params:      {},
+  };
+
+  fetch('/api/backtest/community/run', {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  })
+  .then(function(r) {
+    if (r.status === 429) {
+      document.getElementById('rate-notice').classList.add('show');
+      document.getElementById('loading-overlay').classList.remove('show');
+      document.getElementById('run-btn').disabled = false;
+      return null;
+    }
+    return r.json();
+  })
+  .then(function(d) {
+    document.getElementById('loading-overlay').classList.remove('show');
+    document.getElementById('run-btn').disabled = false;
+    if (!d) return;
+    if (!d.ok) {
+      alert('Backtest error: ' + (d.error || 'Unknown error'));
+      return;
+    }
+    renderResults(d);
+    loadLeaderboard();
+  })
+  .catch(function(e) {
+    document.getElementById('loading-overlay').classList.remove('show');
+    document.getElementById('run-btn').disabled = false;
+    alert('Error: ' + e.message);
+  });
+};
+
+// ── Render results ────────────────────────────────────────────────────────
+function renderResults(d) {
+  var section = document.getElementById('results-section');
+  section.classList.add('show');
+
+  var stratNames = {
+    'buy_hold': 'Buy & Hold',
+    'ma_cross': 'MA Crossover (50/200)',
+    'rsi':      'RSI Mean Reversion',
+    'momentum': 'Momentum',
+  };
+  var periodLabel = {30:'1M', 90:'3M', 180:'6M', 365:'1Y', 730:'2Y'}[d.period_days] || d.period_days + 'd';
+
+  document.getElementById('results-title').textContent =
+    (d.ticker || '') + ' · ' + (stratNames[d.strategy] || d.strategy) + ' · ' + periodLabel;
+
+  // Stats grid
+  var ret = d.total_return || 0;
+  var stats = [
+    {label: 'Total Return', value: (ret >= 0 ? '+' : '') + (ret != null ? ret.toFixed(2) : '—') + '%', cls: ret > 0 ? 'pos' : (ret < 0 ? 'neg' : '')},
+    {label: 'Final Value',  value: d.final_value != null ? '$' + d.final_value.toLocaleString() : '—', cls: ''},
+    {label: 'Max Drawdown', value: d.max_drawdown != null ? d.max_drawdown.toFixed(2) + '%' : '—', cls: d.max_drawdown < -20 ? 'neg' : ''},
+    {label: 'Sharpe Ratio', value: d.sharpe != null ? d.sharpe.toFixed(2) : '—', cls: d.sharpe > 1 ? 'pos' : ''},
+    {label: 'Win Rate',     value: d.win_rate != null ? d.win_rate.toFixed(1) + '%' : '—', cls: ''},
+    {label: '# Trades',     value: d.num_trades != null ? String(d.num_trades) : '—', cls: ''},
+  ];
+  document.getElementById('stats-grid').innerHTML = stats.map(function(s) {
+    return '<div class="stat-box"><div class="stat-label">'+s.label+'</div><div class="stat-value '+s.cls+'">'+s.value+'</div></div>';
+  }).join('');
+
+  // Equity chart
+  renderEquityChart(d.equity_curve || []);
+
+  // Share URL
+  if (d.share_id) {
+    _shareId = d.share_id;
+    var shareUrl = window.location.origin + '/backtest/result/' + d.share_id;
+    document.getElementById('share-url').value = shareUrl;
+    history.replaceState({}, '', '/backtest/result/' + d.share_id);
+  }
+
+  section.scrollIntoView({behavior: 'smooth', block: 'start'});
+}
+
+function renderEquityChart(equity) {
+  var container = document.getElementById('equity-chart');
+  container.innerHTML = '';
+  if (!equity || equity.length < 2) {
+    container.innerHTML = '<div style="text-align:center;padding:40px;color:var(--muted);">No equity data</div>';
+    return;
+  }
+  if (_chart) { try { _chart.remove(); } catch(e) {} }
+  _chart = LightweightCharts.createChart(container, {
+    width:  container.clientWidth || 600,
+    height: 260,
+    layout: {
+      background: {color: _darkMode ? '#161b22' : '#ffffff'},
+      textColor:  _darkMode ? '#8b949e' : '#666',
+    },
+    grid: {
+      vertLines: {color: _darkMode ? '#21262d' : '#f0ede6'},
+      horzLines: {color: _darkMode ? '#21262d' : '#f0ede6'},
+    },
+    rightPriceScale: {borderColor: _darkMode ? '#30363d' : '#e0ddd5'},
+    timeScale: {borderColor: _darkMode ? '#30363d' : '#e0ddd5', timeVisible: true},
+    handleScroll: false,
+    handleScale: false,
+  });
+  var series = _chart.addAreaSeries({
+    topColor:    'rgba(21,101,192,0.4)',
+    bottomColor: 'rgba(21,101,192,0.0)',
+    lineColor:   '#1565c0',
+    lineWidth: 2,
+  });
+  var data = equity.map(function(p) {
+    return {time: p.date, value: p.value};
+  }).filter(function(p) { return p.time && p.value != null; });
+  series.setData(data);
+  _chart.timeScale().fitContent();
+}
+
+// ── Shared result ─────────────────────────────────────────────────────────
+function loadSharedResult(shareId) {
+  fetch('/api/backtest/result/' + shareId)
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.ok) { return; }
+      renderResults(d);
+      // Populate form to match
+      document.getElementById('ticker-input').value = d.ticker || 'SPY';
+      setStrategy(d.strategy || 'buy_hold', document.querySelector('[data-strat="'+d.strategy+'"]') || document.querySelector('.strat-btn'));
+    })
+    .catch(function() {});
+}
+
+// ── Share / copy ──────────────────────────────────────────────────────────
+window.copyShareUrl = function() {
+  var el = document.getElementById('share-url');
+  el.select();
+  try {
+    document.execCommand('copy');
+    var btn = document.querySelector('.copy-btn');
+    var orig = btn.textContent;
+    btn.textContent = '✅ Copied!';
+    setTimeout(function() { btn.textContent = orig; }, 1500);
+  } catch(e) {}
+};
+
+// ── Community Leaderboard ─────────────────────────────────────────────────
+window.loadLeaderboard = function() {
+  fetch('/api/backtest/community-leaderboard?limit=20')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.ok || !d.results || !d.results.length) {
+        document.getElementById('lb-body').innerHTML =
+          '<div style="color:var(--muted);font-size:13px;padding:16px;text-align:center">No community backtests yet. Run one above!</div>';
+        return;
+      }
+      var stratNames = {'buy_hold':'Buy & Hold','ma_cross':'MA Cross','rsi':'RSI','momentum':'Momentum'};
+      var html = '<div style="overflow-x:auto"><table class="lb-table">' +
+        '<thead><tr><th>#</th><th>Ticker</th><th>Strategy</th><th>Period</th><th>Return</th><th>Max DD</th><th>Trades</th></tr></thead>' +
+        '<tbody>';
+      d.results.forEach(function(r, i) {
+        var ret = r.total_return != null ? r.total_return : 0;
+        var retStr = (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%';
+        var retCls = ret > 0 ? 'ret-pos' : (ret < 0 ? 'ret-neg' : '');
+        var periodLabel = {30:'1M', 90:'3M', 180:'6M', 365:'1Y', 730:'2Y'}[r.period_days] || r.period_days + 'd';
+        html += '<tr onclick="loadResult(\'' + r.share_id + '\')" style="cursor:pointer">' +
+          '<td style="color:var(--muted);">' + (i+1) + '</td>' +
+          '<td><strong>' + esc(r.ticker) + '</strong></td>' +
+          '<td style="color:var(--muted);">' + esc(stratNames[r.strategy] || r.strategy) + '</td>' +
+          '<td style="color:var(--muted);">' + periodLabel + '</td>' +
+          '<td class="' + retCls + '">' + retStr + '</td>' +
+          '<td style="color:var(--muted);">' + (r.max_drawdown != null ? r.max_drawdown.toFixed(1)+'%' : '—') + '</td>' +
+          '<td style="color:var(--muted);">' + (r.num_trades || '—') + '</td>' +
+        '</tr>';
+      });
+      html += '</tbody></table></div>';
+      document.getElementById('lb-body').innerHTML = html;
+    })
+    .catch(function() {
+      document.getElementById('lb-body').innerHTML =
+        '<div style="color:var(--muted);font-size:13px;padding:16px;text-align:center">Leaderboard unavailable</div>';
+    });
+};
+
+window.loadResult = function(shareId) {
+  history.pushState({}, '', '/backtest/result/' + shareId);
+  loadSharedResult(shareId);
+  document.getElementById('config-card').scrollIntoView({behavior: 'smooth'});
+};
+
+// ── Helpers ───────────────────────────────────────────────────────────────
+function esc(s) {
+  if (!s) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// Resize chart on window resize
+var _resizeTimer;
+window.addEventListener('resize', function() {
+  clearTimeout(_resizeTimer);
+  _resizeTimer = setTimeout(function() {
+    if (_chart) {
+      var c = document.getElementById('equity-chart');
+      _chart.applyOptions({width: c.clientWidth});
+    }
+  }, 200);
+});
+
+init();
+
+})();
+</script>
+</body>
+</html>

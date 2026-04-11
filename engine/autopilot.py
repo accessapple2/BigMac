@@ -214,6 +214,17 @@ def run_autopilot(prices: dict):
 
             for tier_pct, sell_frac in TAKE_PROFIT_TIERS:
                 if gain_pct >= tier_pct:
+                    # Cooldown: skip if this tier already fired for this symbol in the last 24h
+                    _conn2 = _conn()
+                    _recent = _conn2.execute(
+                        "SELECT COUNT(*) FROM trades WHERE player_id=? AND symbol=? "
+                        "AND action='SELL' AND reasoning LIKE ? "
+                        "AND executed_at >= datetime('now', '-24 hours')",
+                        (pid, sym, f"%hit +{tier_pct:.0%} tier%"),
+                    ).fetchone()[0]
+                    _conn2.close()
+                    if _recent > 0:
+                        break  # Already took profits at this tier today
                     sell_qty = round(pos["qty"] * sell_frac, 4)
                     if sell_qty > 0.001 and pos["qty"] > sell_qty:
                         result = sell_partial(

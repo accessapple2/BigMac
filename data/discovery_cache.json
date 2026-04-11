@@ -1,291 +1,297 @@
 {
   "discoveries": [
     {
-      "symbol": "U",
-      "price": 19.45,
-      "change_pct": 13.54,
-      "volume": 51491962,
-      "rel_volume": 3.1,
-      "short_float": 10.1,
-      "name": "Unity Software Inc.",
+      "symbol": "APLS",
+      "price": 40.23,
+      "change_pct": 135.4,
+      "volume": 89847985,
+      "rel_volume": 31.7,
+      "short_float": 27.5,
+      "name": "Apellis Pharmaceuticals, Inc.",
       "triggers": [
-        "unusual_volume (3.1x avg)",
-        "gapping_up (+13.5%)"
-      ],
-      "trigger_type": "unusual_volume",
-      "score": 148.7
-    },
-    {
-      "symbol": "MARA",
-      "price": 8.02,
-      "change_pct": -6.53,
-      "volume": 50333091,
-      "rel_volume": 1.1,
-      "short_float": 30.7,
-      "name": "MARA Holdings, Inc.",
-      "triggers": [
-        "short_squeeze (31% short float)",
-        "gapping_down (-6.5%)"
+        "short_squeeze (28% short float)",
+        "unusual_volume (31.7x avg)",
+        "gapping_up (+135.4%)",
+        "unusual_volume [finviz], change +1.4%"
       ],
       "trigger_type": "short_squeeze",
-      "score": 93.65
+      "score": 1120.77
+    },
+    {
+      "symbol": "CNTA",
+      "price": 39.72,
+      "change_pct": 44.02,
+      "volume": 47690198,
+      "rel_volume": 33.3,
+      "short_float": 8.0,
+      "name": "Centessa Pharmaceuticals plc",
+      "triggers": [
+        "unusual_volume (33.3x avg)",
+        "gapping_up (+44.0%)"
+      ],
+      "trigger_type": "unusual_volume",
+      "score": 603.1
+    },
+    {
+      "symbol": "SNAP",
+      "price": 4.6,
+      "change_pct": 14.43,
+      "volume": 113221851,
+      "rel_volume": 2.2,
+      "short_float": 8.7,
+      "name": "Snap Inc.",
+      "triggers": [
+        "unusual_volume (2.2x avg)",
+        "gapping_up (+14.4%)"
+      ],
+      "trigger_type": "unusual_volume",
+      "score": 144.15
+    },
+    {
+      "symbol": "MRVL",
+      "price": 99.05,
+      "change_pct": 12.8,
+      "volume": 50923639,
+      "rel_volume": 3.0,
+      "short_float": 3.9,
+      "name": "Marvell Technology, Inc.",
+      "triggers": [
+        "unusual_volume (3.0x avg)",
+        "gapping_up (+12.8%)"
+      ],
+      "trigger_type": "unusual_volume",
+      "score": 144.0
+    },
+    {
+      "symbol": "HIMS",
+      "price": 20.76,
+      "change_pct": 10.54,
+      "volume": 34389301,
+      "rel_volume": 1.0,
+      "short_float": 40.2,
+      "name": "Hims & Hers Health, Inc.",
+      "triggers": [
+        "short_squeeze (40% short float)",
+        "gapping_up (+10.5%)"
+      ],
+      "trigger_type": "short_squeeze",
+      "score": 112.69999999999999
     },
     {
       "symbol": "ONDS",
-      "price": 8.8,
-      "change_pct": -6.71,
-      "volume": 55542017,
+      "price": 9.04,
+      "change_pct": 10.92,
+      "volume": 58122331,
       "rel_volume": 0.6,
       "short_float": 41.1,
       "name": "Ondas Inc",
       "triggers": [
         "short_squeeze (41% short float)",
-        "gapping_down (-6.7%)"
+        "gapping_up (+10.9%)"
       ],
       "trigger_type": "short_squeeze",
-      "score": 89.55
+      "score": 110.6
     },
     {
-      "symbol": "IREN",
-      "price": 35.09,
-      "change_pct": -6.3,
-      "volume": 27877313,
-      "rel_volume": 0.7,
-      "short_float": 17.1,
-      "name": "IREN LIMITED",
+      "symbol": "CDE",
+      "price": 18.77,
+      "change_pct": 13.76,
+      "volume": 35104878,
+      "rel_volume": 1.2,
+      "short_float": 11.2,
+      "name": "Coeur Mining, Inc.",
       "triggers": [
-        "short_squeeze (17% short float)",
-        "gapping_down (-6.3%)"
+        "gapping_up (+13.8%)"
+      ],
+      "trigger_type": "gapping_up",
+      "score": 105.8
+    },
+    {
+      "symbol": "VG",
+      "price": 15.76,
+      "change_pct": -6.69,
+      "volume": 44475918,
+      "rel_volume": 2.2,
+      "short_float": 9.7,
+      "name": "Venture Global, Inc.",
+      "triggers": [
+        "unusual_volume (2.2x avg)",
+        "gapping_down (-6.7%)"
+      ],
+      "trigger_type": "unusual_volume",
+      "score": 105.45
+    },
+    {
+      "symbol": "NIO",
+      "price": 6.03,
+      "change_pct": 9.44,
+      "volume": 70060286,
+      "rel_volume": 1.5,
+      "short_float": 7.7,
+      "name": "NIO Inc.",
+      "triggers": [
+        "gapping_up (+9.4%)"
+      ],
+      "trigger_type": "gapping_up",
+      "score": 87.19999999999999
+    },
+    {
+      "symbol": "MARA",
+      "price": 8.16,
+      "change_pct": 4.68,
+      "volume": 47174988,
+      "rel_volume": 1.0,
+      "short_float": 30.7,
+      "name": "MARA Holdings, Inc.",
+      "triggers": [
+        "short_squeeze (31% short float)",
+        "gapping_up (+4.7%)"
       ],
       "trigger_type": "short_squeeze",
-      "score": 88.5
+      "score": 83.4
     },
     {
       "symbol": "PLUG",
-      "price": 2.18,
-      "change_pct": -3.11,
-      "volume": 51057296,
+      "price": 2.26,
+      "change_pct": 5.61,
+      "volume": 46521158,
       "rel_volume": 0.5,
       "short_float": 24.7,
       "name": "Plug Power, Inc.",
       "triggers": [
         "short_squeeze (25% short float)",
-        "gapping_down (-3.1%)"
+        "gapping_up (+5.6%)"
       ],
       "trigger_type": "short_squeeze",
-      "score": 70.55
-    },
-    {
-      "symbol": "CDE",
-      "price": 17.13,
-      "change_pct": 5.94,
-      "volume": 34252476,
-      "rel_volume": 1.4,
-      "short_float": 11.2,
-      "name": "Coeur Mining, Inc.",
-      "triggers": [
-        "gapping_up (+5.9%)"
-      ],
-      "trigger_type": "gapping_up",
-      "score": 68.7
-    },
-    {
-      "symbol": "HOOD",
-      "price": 66.02,
-      "change_pct": -6.15,
-      "volume": 30222076,
-      "rel_volume": 1.1,
-      "short_float": 3.9,
-      "name": "Robinhood Markets, Inc.",
-      "triggers": [
-        "gapping_down (-6.2%)"
-      ],
-      "trigger_type": "gapping_down",
-      "score": 66.75
+      "score": 83.05
     },
     {
       "symbol": "BMNR",
-      "price": 18.39,
-      "change_pct": -5.55,
-      "volume": 48551523,
-      "rel_volume": 1.1,
+      "price": 19.78,
+      "change_pct": 8.09,
+      "volume": 70114817,
+      "rel_volume": 1.5,
       "short_float": 4.7,
       "name": "BitMine Immersion Technologies,",
       "triggers": [
-        "gapping_down (-5.5%)"
-      ],
-      "trigger_type": "gapping_down",
-      "score": 63.75
-    },
-    {
-      "symbol": "CCL",
-      "price": 24.19,
-      "change_pct": -4.31,
-      "volume": 39065977,
-      "rel_volume": 1.7,
-      "short_float": 3.3,
-      "name": "Carnival Corporation",
-      "triggers": [
-        "gapping_down (-4.3%)"
-      ],
-      "trigger_type": "gapping_down",
-      "score": 63.55
-    },
-    {
-      "symbol": "VG",
-      "price": 17.53,
-      "change_pct": 4.22,
-      "volume": 26837272,
-      "rel_volume": 1.5,
-      "short_float": 9.7,
-      "name": "Venture Global, Inc.",
-      "triggers": [
-        "gapping_up (+4.2%)"
+        "gapping_up (+8.1%)"
       ],
       "trigger_type": "gapping_up",
-      "score": 61.099999999999994
-    },
-    {
-      "symbol": "GRAB",
-      "price": 3.57,
-      "change_pct": -3.77,
-      "volume": 66352390,
-      "rel_volume": 1.4,
-      "short_float": 9.0,
-      "name": "Grab Holdings Limited",
-      "triggers": [
-        "gapping_down (-3.8%)"
-      ],
-      "trigger_type": "gapping_down",
-      "score": 57.85
-    },
-    {
-      "symbol": "JOBY",
-      "price": 8.1,
-      "change_pct": -4.37,
-      "volume": 27200622,
-      "rel_volume": 1.0,
-      "short_float": 12.8,
-      "name": "Joby Aviation, Inc.",
-      "triggers": [
-        "gapping_down (-4.4%)"
-      ],
-      "trigger_type": "gapping_down",
-      "score": 56.85
-    },
-    {
-      "symbol": "NIO",
-      "price": 5.31,
-      "change_pct": -4.5,
-      "volume": 36418816,
-      "rel_volume": 0.8,
-      "short_float": 7.7,
-      "name": "NIO Inc.",
-      "triggers": [
-        "gapping_down (-4.5%)"
-      ],
-      "trigger_type": "gapping_down",
-      "score": 55.5
-    },
-    {
-      "symbol": "XOM",
-      "price": 170.99,
-      "change_pct": 3.36,
-      "volume": 26461934,
-      "rel_volume": 1.3,
-      "short_float": 1.2,
-      "name": "Exxon Mobil Corporation",
-      "triggers": [
-        "gapping_up (+3.4%)"
-      ],
-      "trigger_type": "gapping_up",
-      "score": 54.8
-    },
-    {
-      "symbol": "SOFI",
-      "price": 15.23,
-      "change_pct": -4.03,
-      "volume": 53591592,
-      "rel_volume": 0.9,
-      "short_float": 11.1,
-      "name": "SoFi Technologies, Inc.",
-      "triggers": [
-        "gapping_down (-4.0%)"
-      ],
-      "trigger_type": "gapping_down",
-      "score": 54.150000000000006
-    },
-    {
-      "symbol": "NOK",
-      "price": 7.98,
-      "change_pct": -3.62,
-      "volume": 48974896,
-      "rel_volume": 1.1,
-      "short_float": 1.2,
-      "name": "Nokia Corporation Sponsored",
-      "triggers": [
-        "gapping_down (-3.6%)"
-      ],
-      "trigger_type": "gapping_down",
-      "score": 54.1
-    },
-    {
-      "symbol": "BTG",
-      "price": 4.25,
-      "change_pct": 3.91,
-      "volume": 35594145,
-      "rel_volume": 0.9,
-      "short_float": 4.6,
-      "name": "B2Gold Corp",
-      "triggers": [
-        "gapping_up (+3.9%)"
-      ],
-      "trigger_type": "gapping_up",
-      "score": 53.55
-    },
-    {
-      "symbol": "AAL",
-      "price": 10.3,
-      "change_pct": -3.83,
-      "volume": 47101193,
-      "rel_volume": 0.7,
-      "short_float": 8.7,
-      "name": "American Airlines Group, Inc.",
-      "triggers": [
-        "gapping_down (-3.8%)"
-      ],
-      "trigger_type": "gapping_down",
-      "score": 51.15
+      "score": 80.45
     },
     {
       "symbol": "NU",
-      "price": 13.6,
-      "change_pct": -3.0,
-      "volume": 59321180,
-      "rel_volume": 1.1,
+      "price": 14.37,
+      "change_pct": 6.37,
+      "volume": 74909150,
+      "rel_volume": 1.3,
       "short_float": 3.7,
       "name": "Nu Holdings Ltd.",
       "triggers": [
-        "gapping_down (-3.0%)"
+        "gapping_up (+6.4%)"
       ],
-      "trigger_type": "gapping_down",
-      "score": 51.0
+      "trigger_type": "gapping_up",
+      "score": 69.85
     },
     {
-      "symbol": "SMCI",
-      "price": 21.97,
-      "change_pct": -1.08,
-      "volume": 32884292,
-      "rel_volume": 1.0,
-      "short_float": 17.7,
-      "name": "Super Micro Computer, Inc.",
+      "symbol": "BTG",
+      "price": 4.53,
+      "change_pct": 7.35,
+      "volume": 32363933,
+      "rel_volume": 0.8,
+      "short_float": 4.6,
+      "name": "B2Gold Corp",
       "triggers": [
-        "short_squeeze (18% short float)"
+        "gapping_up (+7.3%)"
       ],
-      "trigger_type": "short_squeeze",
-      "score": 40.4
+      "trigger_type": "gapping_up",
+      "score": 69.75
+    },
+    {
+      "symbol": "INTC",
+      "price": 44.13,
+      "change_pct": 7.14,
+      "volume": 93640573,
+      "rel_volume": 0.9,
+      "short_float": 2.3,
+      "name": "Intel Corporation",
+      "triggers": [
+        "gapping_up (+7.1%)"
+      ],
+      "trigger_type": "gapping_up",
+      "score": 69.69999999999999
+    },
+    {
+      "symbol": "DNN",
+      "price": 3.53,
+      "change_pct": 6.97,
+      "volume": 44415914,
+      "rel_volume": 0.9,
+      "short_float": 7.8,
+      "name": "Denison Mines Corp",
+      "triggers": [
+        "gapping_up (+7.0%)"
+      ],
+      "trigger_type": "gapping_up",
+      "score": 68.85
+    },
+    {
+      "symbol": "HOOD",
+      "price": 69.3,
+      "change_pct": 6.35,
+      "volume": 35442616,
+      "rel_volume": 1.2,
+      "short_float": 3.9,
+      "name": "Robinhood Markets, Inc.",
+      "triggers": [
+        "gapping_up (+6.3%)"
+      ],
+      "trigger_type": "gapping_up",
+      "score": 68.75
+    },
+    {
+      "symbol": "RKT",
+      "price": 14.25,
+      "change_pct": 5.63,
+      "volume": 32053148,
+      "rel_volume": 1.0,
+      "short_float": 5.1,
+      "name": "Rocket Companies, Inc.",
+      "triggers": [
+        "gapping_up (+5.6%)"
+      ],
+      "trigger_type": "gapping_up",
+      "score": 63.15
+    },
+    {
+      "symbol": "BTE",
+      "price": 4.47,
+      "change_pct": 2.76,
+      "volume": 47700485,
+      "rel_volume": 2.3,
+      "short_float": 2.9,
+      "name": "Baytex Energy Corp",
+      "triggers": [
+        "unusual_volume (2.3x avg)"
+      ],
+      "trigger_type": "unusual_volume",
+      "score": 61.8
+    },
+    {
+      "symbol": "AAL",
+      "price": 10.74,
+      "change_pct": 5.5,
+      "volume": 58042059,
+      "rel_volume": 0.9,
+      "short_float": 8.7,
+      "name": "American Airlines Group, Inc.",
+      "triggers": [
+        "gapping_up (+5.5%)"
+      ],
+      "trigger_type": "gapping_up",
+      "score": 61.5
     }
   ],
-  "scanned_at": "2026-03-27T19:40:08.653163",
+  "scanned_at": "2026-03-31T16:37:27.483603",
   "candidates_checked": 30
 }

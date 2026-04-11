@@ -2,7 +2,7 @@
 
 Primary:    Google Gemini 2.5 Flash (REST API, real call)
 Fallback 1: Ollama gemma3:27b (macro-scale thinking — bigger model fits Dalio's style)
-Fallback 2: Ollama gemma3:4b  (last resort)
+Fallback 2: Ollama qwen3:14b  (last resort)
 
 Stagger: module-level lock enforces ≥15s between Gemini API calls so Worf,
 Troi, and Dalio don't hammer the same endpoint simultaneously.
@@ -66,7 +66,7 @@ def _call_gemini_api(api_key: str, prompt: str) -> str:
 
 
 class DalioFallbackProvider(OllamaProvider):
-    """Mr. Dalio's fallback chain: Gemini Flash → gemma3:27b → gemma3:4b.
+    """Mr. Dalio's fallback chain: Gemini Flash → qwen3:14b.
 
     Extends OllamaProvider so it slots into the Ollama provider batch
     (serialised via _ollama_lock for local calls, stagger lock for Gemini).
@@ -74,11 +74,11 @@ class DalioFallbackProvider(OllamaProvider):
 
     def __init__(self, api_key: str = "", player_id: str = "dalio-metals",
                  url: str = "http://localhost:11434"):
-        # Parent init: model_id=gemma3:4b is the final fallback
-        super().__init__(player_id=player_id, model="gemma3:4b", url=url)
+        # Parent init: model_id=qwen3:14b is the final fallback
+        super().__init__(player_id=player_id, model="qwen3:14b", url=url)
         self.api_key = api_key
         self._ollama_base_url = url
-        self.model_used = "gemma3:4b (default)"   # updated on every call
+        self.model_used = "qwen3:14b (default)"   # updated on every call
 
     # ------------------------------------------------------------------
     # Override call_model — this is the only thing the base analyze()
@@ -95,14 +95,14 @@ class DalioFallbackProvider(OllamaProvider):
                     console.log("[bold green]Dalio: gemini-2.5-flash")
                     return result
             except GeminiRateLimitError:
-                console.log(f"[yellow]Dalio: Gemini rate-limited → gemma3:4b (skipping 27b for speed)")
+                console.log(f"[yellow]Dalio: Gemini rate-limited → qwen3:14b (skipping 27b for speed)")
             except _req.exceptions.RequestException as e:
-                console.log(f"[yellow]Dalio: Gemini connection error ({e}) → gemma3:4b")
+                console.log(f"[yellow]Dalio: Gemini connection error ({e}) → qwen3:14b")
             except Exception as e:
-                console.log(f"[yellow]Dalio: Gemini error ({e}) → gemma3:4b")
+                console.log(f"[yellow]Dalio: Gemini error ({e}) → qwen3:14b")
 
-        # ── 2. Fallback: gemma3:4b (fast, already loaded by sibling models) ──
+        # ── 2. Fallback: qwen3:14b ──
         # gemma3:27b removed from fallback chain — 5+ min inference blocks the entire scan cycle
-        self.model_used = "gemma3:4b (Gemini fallback)"
-        console.log("[yellow]Dalio: gemma3:4b (Gemini unavailable)")
+        self.model_used = "qwen3:14b (Gemini fallback)"
+        console.log("[yellow]Dalio: qwen3:14b (Gemini unavailable)")
         return super().call_model(prompt)

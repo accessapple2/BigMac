@@ -19,7 +19,8 @@ console = Console()
 # === SCAN SCHEDULING ===
 # Paid models (API cost) scan 3x/day. Gemma3 4B scans 5x/day (strategic deep scans).
 # Qwen3 8B and Plutus 9B scan continuously every 120-180s (free, always running).
-PAID_MODEL_IDS = {"grok-4", "cto-grok42"}
+# grok-4 removed — Spock now runs on ollama/deepseek-r1:7b (free). No API cost.
+PAID_MODEL_IDS = {"cto-grok42"}
 STRATEGIC_SCAN_MODEL_IDS = {"ollama-local"}  # Gemma3 4B: fewer but deeper scans
 
 # Models that run independently — not gated by tier1_has_signal (they have their own signal sources)
@@ -204,8 +205,12 @@ class Arena:
         except Exception as e:
             console.log(f"[red]Trade grade callback error for {player_id}: {e}")
 
-    def run_scan(self, symbols: list, force: bool = False):
-        """Run one full scan cycle: fetch prices, indicators, all AIs analyze, execute trades."""
+    def run_scan(self, symbols: list, force: bool = False, player_ids: set | None = None):
+        """Run one full scan cycle: fetch prices, indicators, all AIs analyze, execute trades.
+
+        player_ids — optional allowlist of player IDs to run this cycle.
+        If None, all active providers run (legacy behaviour).
+        """
         session = self.risk.is_market_hours()
         if not session and not force:
             console.log("[yellow]Market closed (weekends & 6PM-2AM MT). Skipping scan.")
@@ -303,12 +308,16 @@ class Arena:
 
         # 4. Run AI players in batches of 4 to limit RAM usage
         import _sqlite3
-        _paused_conn = _sqlite3.connect("data/trader.db", check_same_thread=False, timeout=30)
-        _paused_rows = _paused_conn.execute(
-            "SELECT id FROM ai_players WHERE is_paused=1 OR is_active=0"
-        ).fetchall()
-        _paused_conn.close()
-        paused_ids = {r[0] for r in _paused_rows}
+        paused_ids: set = set()
+        try:
+            _paused_conn = _sqlite3.connect("data/trader.db", check_same_thread=False, timeout=10)
+            _paused_rows = _paused_conn.execute(
+                "SELECT id FROM ai_players WHERE is_paused=1 OR is_active=0"
+            ).fetchall()
+            _paused_conn.close()
+            paused_ids = {r[0] for r in _paused_rows}
+        except Exception as _e:
+            console.log(f"[yellow]Paused IDs query failed (using empty set): {_e}")
 
         # Separate fast (API) and slow (Ollama/MLX) providers so slow models don't block API models
         # Paid models scan 3x/day, Gemma3 4B scans 5x/day, free models scan continuously
@@ -318,6 +327,27 @@ class Arena:
         except ImportError:
             _MlxP = None
         _is_local = lambda p: isinstance(p, _OllamaP) or (_MlxP and isinstance(p, _MlxP))
+
+        # Build fallback providers for paused players — free local Ollama brain,
+        # same player_id so trading history/personality/portfolio stay intact.
+        from engine.fallback import is_fallbacks_enabled, get_fallback_model, set_player_fallback_state
+        from config import OLLAMA_URL as _OLLAMA_URL
+        fallback_providers: dict = {}
+        if is_fallbacks_enabled():
+            for _fb_pid in list(paused_ids):
+                if _fb_pid in self.providers:
+                    _fb_model = get_fallback_model(_fb_pid)
+                    if _fb_model:
+                        _fb_prov = _OllamaP(player_id=_fb_pid, model=_fb_model,
+                                            url=_OLLAMA_URL, timeout=180)
+                        fallback_providers[_fb_pid] = _fb_prov
+                        set_player_fallback_state(_fb_pid, True)
+                        console.log(f"[yellow]FALLBACK: {_fb_pid} → {_fb_model} (free)")
+        # Clear fallback state for non-paused players
+        for _pid in self.providers:
+            if _pid not in paused_ids:
+                set_player_fallback_state(_pid, False)
+
         paid_window_open = _is_paid_scan_window()
         spock_window_open = _is_spock_scan_window()
         strategic_window_open = _is_strategic_scan_window()
@@ -362,7 +392,18 @@ class Arena:
         # - Ollama models grouped by model_id → load once, run all, unload once (no swap overhead)
         # - Gated API models run after Ollama only if signal found
         # - Result: ~2-3 min cycle vs 15-20 min before
-        console.log(f"[cyan]TIER 1 (free): {len(ollama_providers)} Ollama + {len(mlx_providers)} MLX | TIER 2 (paid): {len(api_providers)} API ({len(paused_ids)} paused, {len(skipped_paid)} paid-waiting)")
+        # Inject fallback providers into Tier 1 Ollama batch
+        for _fb_pid, _fb_prov in fallback_providers.items():
+            if not any(p == _fb_pid for p, _ in ollama_providers):
+                ollama_providers.append((_fb_pid, _fb_prov))
+
+        # Apply scan-tier allowlist (set by main.py tier scheduler)
+        if player_ids is not None:
+            ollama_providers = [(pid, prov) for pid, prov in ollama_providers if pid in player_ids]
+            api_providers    = [(pid, prov) for pid, prov in api_providers    if pid in player_ids]
+            mlx_providers    = [(pid, prov) for pid, prov in mlx_providers    if pid in player_ids]
+
+        console.log(f"[cyan]TIER 1 (free): {len(ollama_providers)} Ollama + {len(mlx_providers)} MLX | TIER 2 (paid): {len(api_providers)} API ({len(paused_ids)} paused/{len(fallback_providers)} fallback, {len(skipped_paid)} paid-waiting)")
 
         # Separate independent (always-run) vs gated API providers upfront
         independent_providers = [(pid, prov) for pid, prov in api_providers if pid in INDEPENDENT_TIER2_IDS]
@@ -386,17 +427,18 @@ class Arena:
             import requests as _requests
             from collections import defaultdict as _defaultdict
 
-            _OLLAMA_SIZE_ORDER = {
-                "ollama-local": 0,
-                "dayblade-sulu": 1,
-                "energy-arnold": 2,
-                "dalio-metals": 3,
-                "gemini-2.5-flash": 4,
-                "options-sosnoff": 5,
-                "ollama-qwen3": 6,
-                "ollama-plutus": 7,
+            # Sort by model_id so same-model agents are consecutive.
+            # Ollama loads each model once, runs all agents in the group, then unloads.
+            _MODEL_RUN_ORDER = {
+                "deepseek-r1:7b":   0,  # Spock (grok-4) runs first — small group, gets signals early
+                "qwen3.5:9b":       1,  # largest group — stays loaded for all 10 players after Spock
+                "qwen3:14b":        2,
+                "gemma3:4b":        3,  # two active players (Geordi + Sulu) — load once
+                "qwen2.5-coder:7b": 4,
+                "0xroyce/plutus":   5,
+                "mistral-small":    6,
             }
-            ollama_providers.sort(key=lambda x: _OLLAMA_SIZE_ORDER.get(x[0], 99))
+            ollama_providers.sort(key=lambda x: (_MODEL_RUN_ORDER.get(x[1].model_id, 99), x[0]))
 
             # Group providers by model_id so we load each model exactly once
             model_groups = _defaultdict(list)
@@ -414,17 +456,64 @@ class Arena:
                     pass
             _time.sleep(3)
 
+            # Flush brain_context cache so each cycle gets fresh intelligence
+            try:
+                from engine.brain_context import invalidate_cache as _bc_invalidate
+                _bc_invalidate()
+            except Exception:
+                pass
+
             # Run each model group: load once → scan all providers → unload once
+            from engine.ollama_watchdog import get_watchdog as _get_watchdog
+            _wd = _get_watchdog()
+            _cycle_total = 0
+            _cycle_responded = 0
+            _cycle_timeouts_by_model: dict = {}
+            _cycle_response_times: list = []
+
             for model_id, group in model_groups.items():
+                # Check pause_all before loading — skip if backtest is in progress
+                try:
+                    import sqlite3 as _sq_pause
+                    _pc = _sq_pause.connect("data/trader.db", check_same_thread=False, timeout=5)
+                    _prow = _pc.execute("SELECT value FROM settings WHERE key='pause_all'").fetchone()
+                    _pc.close()
+                    if _prow and _prow[0] == '1':
+                        console.log(f"[yellow]⏸ Model load skipped — pause_all=1 (backtest in progress)")
+                        continue
+                except Exception:
+                    pass  # If check fails, proceed normally
+
+                if _wd.is_skipped(model_id):
+                    console.log(f"[yellow]WATCHDOG: {model_id} in skip window — bypassing this cycle")
+                    continue
+
                 pids_in_group = [pid for pid, _ in group]
                 console.log(f"[cyan]TIER 1: loading {model_id} for [{', '.join(pids_in_group)}]...")
 
                 for pid, provider in group:
                     console.log(f"[cyan]TIER 1: scanning {pid} ({model_id})...")
+                    _cycle_total += 1
+                    _t0 = _time.monotonic()
                     try:
                         self._run_player(pid, provider, prices, indicators, news_by_symbol)
+                        _cycle_responded += 1
+                        _wd.record_success(model_id)
+                        _cycle_response_times.append(_time.monotonic() - _t0)
                     except Exception as e:
-                        console.log(f"[red]{pid} failed: {e}")
+                        _elapsed = _time.monotonic() - _t0
+                        _is_to = isinstance(e, TimeoutError) or "timed out" in str(e).lower()
+                        if _is_to:
+                            _cycle_timeouts_by_model[model_id] = (
+                                _cycle_timeouts_by_model.get(model_id, 0) + 1
+                            )
+                            _action = _wd.record_timeout(model_id)
+                            if _action == "recycle":
+                                console.log(f"[yellow]WATCHDOG: recycling {model_id} after consecutive timeouts")
+                                _wd.recycle_model(model_id)
+                            console.log(f"[red]{pid} TIMEOUT ({_elapsed:.0f}s): {e}")
+                        else:
+                            console.log(f"[red]{pid} failed: {e}")
                     # No sleep between same-model providers — model stays loaded
 
                 # Unload after all providers in this group are done
@@ -434,7 +523,19 @@ class Arena:
                                    json={"model": model_id, "keep_alive": 0}, timeout=10)
                 except Exception:
                     pass
-                _time.sleep(3)  # Brief pause for model unload before next group
+                _time.sleep(10)  # Stagger between model groups — gives Ollama time to fully unload and free VRAM before next group loads
+
+            # --- Scan health report + circuit breaker (runs once per full Ollama cycle) ---
+            _avg_rt = (
+                round(sum(_cycle_response_times) / len(_cycle_response_times), 1)
+                if _cycle_response_times else None
+            )
+            _wd.record_scan_health(
+                _cycle_total, _cycle_responded, _cycle_timeouts_by_model, _avg_rt
+            )
+            _wd.check_and_fire_circuit_breaker(
+                _cycle_total, sum(_cycle_timeouts_by_model.values())
+            )
 
             # Check if any Ollama model found an actionable signal
             try:
@@ -750,6 +851,15 @@ class Arena:
                 scan_ctx += learning_ctx
         except Exception as e:
             console.log(f"[dim]{player_id}: learning context error: {e}")
+
+        # Inject trade memory — player's own 30-day track record (before market data)
+        try:
+            from engine.trade_memory import get_memory_block_for_player
+            memory_block = get_memory_block_for_player(player_id)
+            if memory_block:
+                scan_ctx += memory_block
+        except Exception:
+            pass
 
         # Inject pre-market gap data so models know what gapped overnight
         try:
@@ -1166,6 +1276,60 @@ class Arena:
                         _reason = f"{result.get('portfolio_name', 'portfolio')} is tracking-only"
                     update_signal_status(signal_id, _signal_status, _reason)
                     console.log(f"[green]{player_id}: {_signal_status} {result}")
+
+                    # Post to Signal Center (port 9000) for high-confidence decisions
+                    if decision.confidence >= 0.70:
+                        try:
+                            import threading as _sc_th
+                            _sl_pct = 0.12  # default 12% stop-loss
+                            _sc_stop = round(data["price"] * (1 - _sl_pct), 2)
+                            _sc_tp   = round(data["price"] * 1.20, 2)  # default 20% target
+                            _sig_type = "SWING"
+                            _src_list = (decision.sources or "").split(",") if decision.sources else []
+                            _src_lower = [s.lower() for s in _src_list]
+                            _reason_lower = (decision.reasoning or "").lower()
+                            # Classify signal type
+                            if decision.option_type or decision.action in ("BUY_CALL", "BUY_PUT"):
+                                _sig_type = "0DTE" if decision.timeframe == "SCALP" else "OPTIONS"
+                            elif decision.action in ("BUY_PUT", "SHORT"):
+                                _sig_type = "BEARISH"
+                            elif "congress" in _reason_lower or any("congress" in s for s in _src_lower):
+                                _sig_type = "CONGRESS"
+                            elif "volume" in _reason_lower or any("volume" in s for s in _src_lower):
+                                _sig_type = "VOLUME"
+                            elif "rsi" in _reason_lower and ("oversold" in _reason_lower or "bounce" in _reason_lower):
+                                _sig_type = "OVERSOLD"
+                            elif decision.timeframe == "SWING":
+                                _sig_type = "SWING"
+                            _sc_payload = {
+                                "type": _sig_type,
+                                "action": decision.action,
+                                "symbol": symbol,
+                                "price": data["price"],
+                                "confidence": round(decision.confidence * 100),
+                                "agent": getattr(provider, "display_name", player_id),
+                                "model": getattr(provider, "model_id", player_id),
+                                "reasoning": (decision.reasoning or "")[:500],
+                                "sources": _src_list,
+                                "timeframe": decision.timeframe or "SWING",
+                                "stop_loss": _sc_stop,
+                                "take_profit": _sc_tp,
+                                "context_summary": "",
+                                "timestamp": decision.timestamp if hasattr(decision, 'timestamp') else __import__('datetime').datetime.now().isoformat(),
+                            }
+                            def _post_sc(payload=_sc_payload):
+                                try:
+                                    import requests as _req
+                                    _req.post(
+                                        "http://localhost:9000/api/signal",
+                                        json=payload, timeout=3,
+                                    )
+                                except Exception:
+                                    pass
+                            _sc_th.Thread(target=_post_sc, daemon=True).start()
+                        except Exception:
+                            pass
+
                 elif decision.action not in ("HOLD", "SELL"):
                     _rej = _last_rejection.get(player_id, "Execution failed")
                     update_signal_status(signal_id, "REJECTED", _rej)

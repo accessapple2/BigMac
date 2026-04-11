@@ -18,10 +18,10 @@ from rich.console import Console
 console = Console()
 DB = "data/trader.db"
 
-# Grok 4.2 CTO config
+# Ollama CTO config — mistral:7b for rich strategic briefings
 CTO_PLAYER_ID = "cto-grok42"
-CTO_MODEL = "grok-4.20-0309-reasoning"
-CTO_MAX_TOKENS = 2000  # Full briefing needs more room than a trade decision
+CTO_MODEL = "mistral:7b"
+CTO_MAX_TOKENS = 2000  # kept for compatibility, Ollama uses num_predict
 
 
 def _conn():
@@ -96,19 +96,15 @@ def ensure_tables():
         "INSERT OR IGNORE INTO ai_players "
         "(id, display_name, provider, model_id, cash, is_active, is_human) "
         "VALUES (?, ?, ?, ?, ?, ?, ?)",
-        (CTO_PLAYER_ID, "CTO Grok 4.2", "xai", CTO_MODEL, 0.0, 1, 0)
+        (CTO_PLAYER_ID, "CTO Grok 4.2", "ollama", CTO_MODEL, 0.0, 1, 0)
     )
     conn.commit()
     conn.close()
 
 
 def _get_grok_client():
-    """Get xAI Grok client using OpenAI SDK."""
-    from config import GROK_API_KEY
-    if not GROK_API_KEY:
-        return None
-    from openai import OpenAI
-    return OpenAI(api_key=GROK_API_KEY, base_url="https://api.x.ai/v1", timeout=120.0)
+    """Deprecated — xAI removed. Returns None; callers use local Ollama."""
+    return None
 
 
 def _gather_signals() -> str:
@@ -271,7 +267,7 @@ def _gather_regime() -> str:
 
 
 def generate_cto_briefing(briefing_type: str = "pre_market") -> str | None:
-    """Generate a CTO briefing of the given type using Grok 4.1 Fast.
+    """Generate a CTO briefing of the given type using local Ollama mistral-small.
 
     briefing_type: one of pre_market, post_open, pre_close, post_close
     Returns the briefing text or None on failure.
@@ -281,11 +277,6 @@ def generate_cto_briefing(briefing_type: str = "pre_market") -> str | None:
         return None
 
     ensure_tables()
-
-    client = _get_grok_client()
-    if not client:
-        console.log("[yellow]CTO Advisory: No GROK_API_KEY configured, skipping")
-        return None
 
     # Check if this specific briefing type already generated today
     conn = _conn()
@@ -359,16 +350,24 @@ RISK ALERT: [Any warnings — earnings, FOMC, credit stress, VIX spike risk, etc
 Be direct, specific, and actionable. Give exact price levels, not vague advice. If a position should be trimmed, say how many shares. If a stop should be set, give the exact price."""
 
     try:
-        console.log(f"[cyan]CTO Advisory [{bt['label']}]: calling Grok 4.1 Fast...")
-        response = client.chat.completions.create(
-            model=CTO_MODEL,
-            messages=[{"role": "user", "content": prompt}],
-            max_tokens=CTO_MAX_TOKENS,
+        import requests as _req
+        console.log(f"[cyan]CTO Advisory [{bt['label']}]: calling Ollama {CTO_MODEL}...")
+        r = _req.post(
+            "http://localhost:11434/api/generate",
+            json={
+                "model": CTO_MODEL,
+                "prompt": prompt,
+                "stream": False,
+                "think": False,
+                "options": {"temperature": 0.5, "num_predict": CTO_MAX_TOKENS},
+            },
+            timeout=300,
         )
-        briefing = response.choices[0].message.content or ""
+        r.raise_for_status()
+        briefing = r.json().get("response", "")
 
         if not briefing.strip():
-            console.log("[red]CTO Advisory: empty response from Grok")
+            console.log("[red]CTO Advisory: empty response from Ollama")
             return None
 
         # Log cost
@@ -410,7 +409,7 @@ Be direct, specific, and actionable. Give exact price levels, not vague advice. 
         return briefing
 
     except Exception as e:
-        console.log(f"[red]CTO Advisory [{bt['label']}] error: {e}")
+        console.log(f"[red]CTO Advisory [{bt['label']}] error: {e}. Ensure Ollama server is running and model {CTO_MODEL} is available for the request.")
         return None
 
 

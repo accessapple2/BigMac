@@ -1,0 +1,96 @@
+{
+  "status": "ok",
+  "run_date": "2026-04-09",
+  "elapsed_s": 208.1,
+  "window_start": "2026-01-09",
+  "window_end": "2026-04-09",
+  "spy_return": -2.34,
+  "trading_days": 61,
+  "universe_size": 183,
+  "test_A": {
+    "metrics": {
+      "total_return": 0.0,
+      "win_rate": 0.0,
+      "sharpe": 0.0,
+      "max_drawdown": 0.0,
+      "profit_factor": 0.0,
+      "num_trades": 0,
+      "avg_hold_days": 0.0,
+      "best_trade_pct": 0.0,
+      "worst_trade_pct": 0.0,
+      "max_consec_wins": 0,
+      "max_consec_losses": 0,
+      "avg_trade_return": 0.0,
+      "realistic_sharpe": 0.0,
+      "needs_validation": 0,
+      "spy_return": -2.34,
+      "vs_spy": 2.34,
+      "days_in_market": 0,
+      "days_in_cash": 5
+    },
+    "status": "ok"
+  },
+  "test_B": {
+    "metrics": {
+      "total_return": 7.49,
+      "win_rate": 55.9,
+      "sharpe": 0.011,
+      "realistic_sharpe": 0.011,
+      "needs_validation": 0,
+      "max_drawdown": -100.0,
+      "profit_factor": 1.004,
+      "num_trades": 145,
+      "avg_hold_days": 3.8,
+      "avg_trade_return": 0.052,
+      "best_trade_pct": 100.0,
+      "worst_trade_pct": -100.0,
+      "max_consec_wins": 11,
+      "max_consec_losses": 6,
+      "spy_return": -2.34,
+      "vs_spy": 9.83
+    },
+    "status": "ok"
+  },
+  "test_C": {
+    "metrics": {
+      "total_return": -7.65,
+      "win_rate": 80.0,
+      "sharpe": -0.098,
+      "realistic_sharpe": -0.098,
+      "needs_validation": 0,
+      "max_drawdown": -100.0,
+      "profit_factor": 0.935,
+      "num_trades": 15,
+      "avg_hold_days": 7.5,
+      "avg_trade_return": -0.51,
+      "best_trade_pct": 41.03,
+      "worst_trade_pct": -100.0,
+      "max_consec_wins": 8,
+      "max_consec_losses": 1,
+      "spy_return": -2.34,
+      "vs_spy": -5.31
+    },
+    "status": "ok"
+  },
+  "test_D": {
+    "metrics": {
+      "total_return": -1427.26,
+      "win_rate": 47.3,
+      "sharpe": -0.346,
+      "realistic_sharpe": -0.346,
+      "needs_validation": 0,
+      "max_drawdown": -100.0,
+      "profit_factor": 0.862,
+      "num_trades": 713,
+      "avg_hold_days": 4.7,
+      "avg_trade_return": -2.002,
+      "best_trade_pct": 100.0,
+      "worst_trade_pct": -100.0,
+      "max_consec_wins": 16,
+      "max_consec_losses": 16,
+      "spy_return": -2.34,
+      "vs_spy": -1424.92
+    },
+    "status": "ok"
+  }
+}

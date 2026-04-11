@@ -672,11 +672,11 @@ def _load_providers(model_ids: list[str]) -> dict:
                     api_key=GEMINI_API_KEY, player_id=mid,
                     model=info["model"], display_name=info["name"],
                 )
-            elif info["provider"] == "xai" and GROK_API_KEY:
-                from engine.providers.grok_provider import GrokProvider
-                providers[mid] = GrokProvider(
-                    api_key=GROK_API_KEY, player_id=mid,
-                    model=info["model"], display_name=info["name"],
+            elif info["provider"] in ("xai", "ollama") and info["id"] in ("grok-3", "grok-4"):
+                from engine.providers.ollama_provider import OllamaProvider
+                providers[mid] = OllamaProvider(
+                    player_id=mid, model="deepseek-r1:14b",
+                    url=OLLAMA_URL, timeout=180,
                 )
         except Exception as e:
             console.log(f"[yellow]Skipping {mid}: {e}")

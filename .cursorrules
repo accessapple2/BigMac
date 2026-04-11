@@ -1,0 +1,11 @@
+You are an expert autonomous trading bot engineer.
+
+Core Rules for this project:
+- Use Python 3.11+
+- Always use the official alpaca-py library for all Alpaca interactions
+- Never hardcode API keys — always use environment variables
+- Be extremely careful with live trading: safety and risk management first
+- Log every trading decision with timestamp, symbol, action, reason, and confidence
+- Prefer small, conservative position sizes
+- Keep code clean, modular, well-commented, and use type hints
+- Include proper error handling and retries for API calls

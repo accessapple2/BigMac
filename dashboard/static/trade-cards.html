@@ -1,0 +1,1378 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>TradeMinds — Command Center</title>
+<style>
+  /* ── Reset & Base ─────────────────────────────────────────── */
+  *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
+
+  :root {
+    --bg:        #0a0c12;
+    --surface:   #111520;
+    --surface2:  #181d2e;
+    --border:    #232840;
+    --accent:    #4f8ef7;
+    --accent2:   #7c5cf6;
+    --green:     #22c55e;
+    --yellow:    #eab308;
+    --orange:    #f97316;
+    --red:       #ef4444;
+    --text:      #e2e8f0;
+    --muted:     #64748b;
+    --font:      'SF Mono', 'Fira Code', 'Consolas', monospace;
+  }
+
+  :root.light {
+    --bg:        #f1f5f9;
+    --surface:   #ffffff;
+    --surface2:  #f8fafc;
+    --border:    #e2e8f0;
+    --accent:    #2563eb;
+    --accent2:   #7c3aed;
+    --green:     #16a34a;
+    --yellow:    #ca8a04;
+    --orange:    #ea580c;
+    --red:       #dc2626;
+    --text:      #1e293b;
+    --muted:     #64748b;
+  }
+
+  body {
+    background: var(--bg);
+    color: var(--text);
+    font-family: var(--font);
+    font-size: 13px;
+    min-height: 100vh;
+  }
+
+  /* ── Header ───────────────────────────────────────────────── */
+  header {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    padding: 14px 24px;
+    background: var(--surface);
+    border-bottom: 1px solid var(--border);
+    position: sticky;
+    top: 0;
+    z-index: 100;
+  }
+  header .logo {
+    font-size: 16px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+  }
+  header .subtitle {
+    color: var(--muted);
+    font-size: 11px;
+  }
+  header .spacer { flex: 1; }
+  #refresh-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 14px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-family: var(--font);
+    font-size: 12px;
+    transition: border-color 0.2s;
+  }
+  #refresh-btn:hover { border-color: var(--accent); color: var(--accent); }
+
+  #theme-btn {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 6px;
+    cursor: pointer;
+    font-size: 14px;
+    line-height: 1;
+    transition: border-color 0.2s;
+  }
+  #theme-btn:hover { border-color: var(--accent); }
+
+  /* ── Tabs ─────────────────────────────────────────────────── */
+  .tabs {
+    display: flex;
+    gap: 2px;
+    padding: 12px 24px 0;
+    border-bottom: 1px solid var(--border);
+    background: var(--surface);
+  }
+  .tab {
+    padding: 8px 20px;
+    border-radius: 6px 6px 0 0;
+    cursor: pointer;
+    color: var(--muted);
+    border: 1px solid transparent;
+    border-bottom: none;
+    transition: all 0.15s;
+    font-family: var(--font);
+    font-size: 12px;
+    letter-spacing: 0.04em;
+  }
+  .tab:hover { color: var(--text); }
+  .tab.active {
+    color: var(--accent);
+    background: var(--bg);
+    border-color: var(--border);
+    border-bottom-color: var(--bg);
+  }
+
+  /* ── Main Content ─────────────────────────────────────────── */
+  main { padding: 20px 24px; }
+
+  .panel { display: none; }
+  .panel.active { display: block; }
+
+  /* ── Filter Bar ───────────────────────────────────────────── */
+  .filter-bar {
+    display: flex;
+    gap: 10px;
+    align-items: center;
+    margin-bottom: 16px;
+    flex-wrap: wrap;
+  }
+  .filter-bar input, .filter-bar select {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    color: var(--text);
+    padding: 6px 10px;
+    border-radius: 6px;
+    font-family: var(--font);
+    font-size: 12px;
+    outline: none;
+  }
+  .filter-bar input:focus, .filter-bar select:focus { border-color: var(--accent); }
+  .filter-bar label { color: var(--muted); font-size: 11px; }
+  .count-badge {
+    margin-left: auto;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    padding: 4px 10px;
+    border-radius: 20px;
+    font-size: 11px;
+  }
+
+  /* ── Cards Grid ───────────────────────────────────────────── */
+  .cards-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(340px, 1fr));
+    gap: 14px;
+  }
+
+  .card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 20px;
+    cursor: pointer;
+    transition: border-color 0.2s, transform 0.1s;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+  .card:hover { border-color: var(--accent); transform: translateY(-1px); box-shadow: 0 4px 16px rgba(0,0,0,0.18); }
+
+  .card-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 12px;
+  }
+  .ticker-badge {
+    font-size: 22px;
+    font-weight: 700;
+    color: var(--accent);
+    letter-spacing: 0.05em;
+    min-width: 60px;
+  }
+  .decision-badge {
+    padding: 3px 9px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.07em;
+    text-transform: uppercase;
+  }
+  .badge-STRONG_BUY, .badge-BUY   { background: rgba(34,197,94,0.15); color: var(--green); border: 1px solid rgba(34,197,94,0.3); }
+  .badge-LEAN_BUY                  { background: rgba(34,197,94,0.08); color: #86efac; border: 1px solid rgba(34,197,94,0.2); }
+  .badge-HOLD                      { background: rgba(234,179,8,0.1);  color: var(--yellow); border: 1px solid rgba(234,179,8,0.25); }
+  .badge-LEAN_SELL                 { background: rgba(249,115,22,0.1); color: var(--orange); border: 1px solid rgba(249,115,22,0.25); }
+  .badge-SELL, .badge-STRONG_SELL  { background: rgba(239,68,68,0.1);  color: var(--red); border: 1px solid rgba(239,68,68,0.25); }
+
+  .risk-badge {
+    margin-left: auto;
+    padding: 3px 8px;
+    border-radius: 4px;
+    font-size: 10px;
+    font-weight: 700;
+    letter-spacing: 0.06em;
+  }
+  .risk-LOW      { background: rgba(34,197,94,0.1);  color: var(--green);  border: 1px solid rgba(34,197,94,0.2); }
+  .risk-MEDIUM   { background: rgba(234,179,8,0.1);  color: var(--yellow); border: 1px solid rgba(234,179,8,0.2); }
+  .risk-HIGH     { background: rgba(249,115,22,0.1); color: var(--orange); border: 1px solid rgba(249,115,22,0.2); }
+  .risk-CRITICAL { background: rgba(239,68,68,0.1);  color: var(--red);    border: 1px solid rgba(239,68,68,0.2); }
+
+  .conviction-row {
+    display: grid;
+    grid-template-columns: repeat(4, 1fr);
+    gap: 8px;
+    margin-bottom: 12px;
+  }
+  .conv-item { display: flex; flex-direction: column; gap: 4px; }
+  .conv-label { font-size: 13px; color: var(--muted); text-transform: uppercase; letter-spacing: 0.08em; }
+  .conv-value { font-size: 18px; font-weight: 700; }
+  .conv-green  { color: var(--green); }
+  .conv-yellow { color: var(--yellow); }
+  .conv-orange { color: var(--orange); }
+  .conv-red    { color: var(--red); }
+
+  .synthesis {
+    font-size: 13px;
+    color: var(--muted);
+    line-height: 1.5;
+    margin-bottom: 12px;
+    margin-top: 6px;
+    border-left: 2px solid var(--border);
+    padding-left: 8px;
+  }
+
+  /* Scenario targets */
+  .scenarios {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+    margin-top: 10px;
+  }
+  .scenario-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 8px;
+    text-align: center;
+  }
+  .scenario-box .s-label { font-size: 9px; color: var(--muted); text-transform: uppercase; margin-bottom: 4px; }
+  .scenario-box .s-prob  { font-size: 10px; color: var(--muted); }
+  .scenario-box .s-price { font-size: 13px; font-weight: 700; }
+  .scenario-box .s-ret   { font-size: 10px; }
+  .bull-box .s-price { color: var(--green); }
+  .bull-box .s-ret   { color: var(--green); }
+  .base-box .s-price { color: var(--yellow); }
+  .base-box .s-ret   { color: var(--yellow); }
+  .bear-box .s-price { color: var(--red); }
+  .bear-box .s-ret   { color: var(--red); }
+
+  .ev-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 10px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    font-size: 14px;
+    color: var(--muted);
+  }
+  .ev-val { font-weight: 700; font-size: 16px; }
+  .ev-pos { color: var(--green); }
+  .ev-neg { color: var(--red); }
+
+  .card-footer {
+    margin-top: 10px;
+    font-size: 13px;
+    color: var(--muted);
+    display: flex;
+    justify-content: space-between;
+  }
+
+  /* ── Strategy Picker ──────────────────────────────────────── */
+  .picks-grid {
+    display: grid;
+    grid-template-columns: repeat(auto-fill, minmax(300px, 1fr));
+    gap: 12px;
+  }
+  .pick-card {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 14px;
+  }
+  .pick-header {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    margin-bottom: 10px;
+  }
+  .pick-ticker { font-size: 15px; font-weight: 700; color: var(--accent); }
+  .pick-strat-count {
+    margin-left: auto;
+    font-size: 10px;
+    color: var(--muted);
+    background: var(--surface2);
+    padding: 2px 7px;
+    border-radius: 10px;
+    border: 1px solid var(--border);
+  }
+  .pick-levels {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 6px;
+    margin-bottom: 10px;
+  }
+  .level-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 5px;
+    padding: 6px;
+    text-align: center;
+  }
+  .level-box .lbl { font-size: 9px; color: var(--muted); text-transform: uppercase; margin-bottom: 2px; }
+  .level-box .val { font-size: 12px; font-weight: 600; }
+  .val-entry  { color: var(--accent); }
+  .val-target { color: var(--green); }
+  .val-stop   { color: var(--red); }
+
+  .strat-list { display: flex; flex-direction: column; gap: 4px; }
+  .strat-row {
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 6px;
+    background: var(--surface2);
+    border-radius: 4px;
+    border: 1px solid var(--border);
+  }
+  .strat-name { flex: 1; font-size: 10px; color: var(--text); }
+  .strat-sig {
+    font-size: 9px;
+    font-weight: 700;
+    padding: 1px 6px;
+    border-radius: 3px;
+  }
+  .sig-BUY  { background: rgba(34,197,94,0.15); color: var(--green); }
+  .sig-SELL { background: rgba(239,68,68,0.1);  color: var(--red); }
+  .strat-conf { font-size: 10px; color: var(--muted); min-width: 30px; text-align: right; }
+
+  .upside-row {
+    display: flex;
+    justify-content: space-between;
+    margin-top: 8px;
+    padding-top: 8px;
+    border-top: 1px solid var(--border);
+    font-size: 10px;
+    color: var(--muted);
+  }
+  .upside-val { color: var(--green); font-weight: 700; }
+  .risk-val   { color: var(--red); font-weight: 700; }
+
+  /* ── Fast Scanner ─────────────────────────────────────────── */
+  table {
+    width: 100%;
+    border-collapse: collapse;
+    font-size: 12px;
+  }
+  thead th {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    padding: 8px 10px;
+    text-align: left;
+    color: var(--muted);
+    font-size: 10px;
+    text-transform: uppercase;
+    letter-spacing: 0.06em;
+    position: sticky;
+    top: 57px;
+    z-index: 10;
+    cursor: pointer;
+    user-select: none;
+  }
+  thead th:hover { color: var(--accent); }
+  thead th .sort-arrow { margin-left: 4px; opacity: 0.4; }
+  thead th.sorted .sort-arrow { opacity: 1; color: var(--accent); }
+
+  tbody tr {
+    border-bottom: 1px solid var(--border);
+    transition: background 0.1s;
+  }
+  tbody tr:hover { background: var(--surface); }
+  td { padding: 8px 10px; vertical-align: top; }
+
+  .td-ticker { color: var(--accent); font-weight: 700; font-size: 13px; }
+  .td-score {
+    font-weight: 700;
+    font-size: 14px;
+  }
+  .score-high   { color: var(--green); }
+  .score-mid    { color: var(--yellow); }
+  .score-low    { color: var(--muted); }
+
+  .td-rsi { }
+  .rsi-ob { color: var(--red); }
+  .rsi-os { color: var(--green); }
+  .rsi-n  { color: var(--muted); }
+
+  .gap-pos { color: var(--green); }
+  .gap-neg { color: var(--red); }
+
+  .signal-pills { display: flex; flex-wrap: wrap; gap: 3px; }
+  .signal-pill {
+    font-size: 9px;
+    padding: 2px 5px;
+    border-radius: 3px;
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    color: var(--muted);
+    white-space: nowrap;
+  }
+  .signal-pill.volume  { border-color: rgba(79,142,247,0.3); color: var(--accent); }
+  .signal-pill.bullish { border-color: rgba(34,197,94,0.3);  color: var(--green); }
+  .signal-pill.bearish { border-color: rgba(239,68,68,0.3);  color: var(--red); }
+  .signal-pill.neutral { border-color: var(--border); color: var(--muted); }
+
+  .alerts-cell { max-width: 200px; }
+  .alert-item {
+    font-size: 10px;
+    color: var(--muted);
+    margin-bottom: 2px;
+    padding: 2px 5px;
+    border-left: 2px solid var(--border);
+  }
+  .alert-HIGH, .alert-CRITICAL { border-left-color: var(--red); color: var(--orange); }
+  .alert-MEDIUM { border-left-color: var(--yellow); }
+
+  /* ── Rich card enhancements ───────────────────────────────── */
+  .card { border-left: 3px solid var(--border); }
+  .card.tc-buy  { border-left-color: var(--green); }
+  .card.tc-sell { border-left-color: var(--red); }
+  .card.tc-hold { border-left-color: var(--muted); }
+
+  /* Target probability bar */
+  .target-bar-wrap { margin: 10px 0 4px; }
+  .target-bar { display:flex; height:28px; border-radius:4px; overflow:hidden; }
+  .tb-seg { display:flex; flex-direction:column; align-items:center; justify-content:center;
+            font-size:13px; font-weight:700; line-height:1.2; min-width:0; }
+  .tb-bear { background:rgba(239,68,68,.2);  color:var(--red); }
+  .tb-base { background:rgba(234,179,8,.15); color:var(--yellow); }
+  .tb-bull { background:rgba(34,197,94,.15); color:var(--green); }
+  .tb-labels { display:flex; justify-content:space-between; font-size:13px; color:var(--muted); margin-top:3px; }
+
+  /* Entry/Stop/RR boxes */
+  .card-levels { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:10px 0; }
+  .level-kv { background:var(--surface2); border:1px solid var(--border); border-radius:5px;
+              padding:7px 8px; text-align:center; }
+  .level-kv .lbl { font-size:12px; text-transform:uppercase; letter-spacing:.06em; color:var(--muted); margin-bottom:3px; }
+  .level-kv .val { font-size:18px; font-weight:700; }
+
+  /* Position sizing */
+  .sizing-row { display:flex; gap:6px; justify-content:center; margin:8px 0; flex-wrap:wrap; }
+  .size-pill { font-size:14px; padding:3px 9px; border-radius:12px; background:var(--surface2); border:1px solid var(--border); }
+  .sz-lbl { color:var(--muted); margin-right:3px; }
+  .sz-val { font-weight:700; }
+
+  /* Triad inline */
+  .triad-mini { display:flex; flex-direction:column; gap:3px; margin:8px 0; }
+  .triad-mini-row { font-size:10px; color:var(--muted); line-height:1.4; }
+  .triad-mini-row strong { color:var(--accent); margin-right:4px; }
+
+  /* Cat vs risk */
+  .cat-risk-grid { display:grid; grid-template-columns:1fr 1fr; gap:8px; margin:8px 0; }
+  .cv-col .cv-header { font-size:9px; text-transform:uppercase; letter-spacing:.06em; margin-bottom:4px; font-weight:700; }
+  .cv-col.bull .cv-header { color:var(--green); }
+  .cv-col.bear .cv-header { color:var(--red); }
+  .cv-item { font-size:10px; color:var(--muted); margin-bottom:3px; padding-left:10px; position:relative; line-height:1.4; }
+  .cv-item::before { content:'•'; position:absolute; left:0; }
+
+  /* ── Kirk Advisory Toasts ──────────────────────────────────── */
+  .kirk-advisory-bar {
+    margin-bottom: 16px;
+    padding: 12px 0 0;
+  }
+  .kirk-toast {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-left: 3px solid var(--yellow);
+    border-radius: 8px;
+    padding: 10px 14px;
+    margin-bottom: 8px;
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    cursor: pointer;
+    transition: border-color .15s, transform .1s;
+  }
+  .kirk-toast:hover { border-color: var(--accent); transform: translateX(2px); }
+  .kirk-toast.urgency-critical { border-left-color: var(--red); }
+  .kirk-toast.urgency-high     { border-left-color: var(--orange); }
+  .kirk-toast.urgency-low      { border-left-color: var(--border); opacity:.7; }
+  .kt-sym  { font-size:14px; font-weight:700; color:var(--accent); min-width:50px; }
+  .kt-act  { font-size:10px; font-weight:700; padding:2px 7px; border-radius:3px; text-transform:uppercase; }
+  .kt-SELL,.kt-TRIM { background:rgba(239,68,68,.12); color:var(--red); border:1px solid rgba(239,68,68,.25); }
+  .kt-HOLD           { background:rgba(234,179,8,.1);  color:var(--yellow); border:1px solid rgba(234,179,8,.2); }
+  .kt-DEPLOY         { background:rgba(34,197,94,.1);  color:var(--green); border:1px solid rgba(34,197,94,.2); }
+  .kt-WAIT           { background:var(--surface2); color:var(--muted); border:1px solid var(--border); }
+  .kt-msg  { flex:1; font-size:11px; color:var(--muted); }
+  .kt-fg   { font-size:10px; color:var(--muted); white-space:nowrap; }
+
+  /* ── Kirk Status Banner ────────────────────────────────────── */
+  .kirk-status-banner {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 10px;
+    padding: 12px 16px;
+    margin-bottom: 14px;
+    box-shadow: 0 2px 8px rgba(0,0,0,0.12);
+  }
+  .kirk-banner-header {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    margin-bottom: 10px;
+    font-size: 11px;
+    text-transform: uppercase;
+    letter-spacing: .08em;
+    color: var(--muted);
+  }
+  .kirk-banner-row {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+  }
+  .kirk-pos-pill {
+    display: flex;
+    align-items: center;
+    gap: 7px;
+    padding: 6px 12px;
+    border-radius: 8px;
+    background: var(--surface2);
+    border-left: 3px solid var(--border);
+    font-size: 12px;
+    cursor: pointer;
+    transition: transform .1s;
+  }
+  .kirk-pos-pill:hover { transform: translateY(-1px); }
+  .kirk-pos-pill.act-HOLD   { border-left-color: var(--green); }
+  .kirk-pos-pill.act-TRIM   { border-left-color: var(--orange); }
+  .kirk-pos-pill.act-SELL   { border-left-color: var(--red); }
+  .kirk-pos-pill.act-DEPLOY { border-left-color: var(--accent); }
+  .kirk-pos-pill.act-WAIT   { border-left-color: var(--muted); opacity: .7; }
+  .kp-sym  { font-weight: 700; color: var(--accent); min-width: 44px; }
+  .kp-act  { font-size: 10px; font-weight: 700; padding: 1px 6px; border-radius: 3px; text-transform: uppercase; }
+  .kp-HOLD   { background: rgba(34,197,94,.1);   color: var(--green);  border: 1px solid rgba(34,197,94,.2); }
+  .kp-TRIM   { background: rgba(249,115,22,.1);  color: var(--orange); border: 1px solid rgba(249,115,22,.2); }
+  .kp-SELL   { background: rgba(239,68,68,.1);   color: var(--red);    border: 1px solid rgba(239,68,68,.2); }
+  .kp-DEPLOY { background: rgba(0,212,170,.1);   color: var(--accent); border: 1px solid rgba(0,212,170,.2); }
+  .kp-WAIT   { background: var(--surface);       color: var(--muted);  border: 1px solid var(--border); }
+  .kp-ctx { font-size: 10px; color: var(--muted); margin-left: auto; }
+
+  /* ── Empty / Loading States ───────────────────────────────── */
+  .empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--muted);
+  }
+  .empty-state .icon { font-size: 36px; margin-bottom: 12px; }
+  .spinner {
+    display: inline-block;
+    width: 18px;
+    height: 18px;
+    border: 2px solid var(--border);
+    border-top-color: var(--accent);
+    border-radius: 50%;
+    animation: spin 0.7s linear infinite;
+    vertical-align: middle;
+    margin-right: 6px;
+  }
+  @keyframes spin { to { transform: rotate(360deg); } }
+
+  /* ── Modal ────────────────────────────────────────────────── */
+  .modal-overlay {
+    display: none;
+    position: fixed;
+    inset: 0;
+    background: rgba(0,0,0,0.7);
+    z-index: 200;
+    justify-content: center;
+    align-items: flex-start;
+    padding: 40px 20px;
+    overflow-y: auto;
+  }
+  .modal-overlay.open { display: flex; }
+  .modal {
+    background: var(--surface);
+    border: 1px solid var(--border);
+    border-radius: 12px;
+    padding: 24px;
+    max-width: 700px;
+    width: 100%;
+    position: relative;
+  }
+  .modal-close {
+    position: absolute;
+    top: 14px;
+    right: 16px;
+    background: none;
+    border: none;
+    color: var(--muted);
+    font-size: 18px;
+    cursor: pointer;
+    font-family: var(--font);
+  }
+  .modal-close:hover { color: var(--text); }
+  .modal h2 { font-size: 24px; color: var(--accent); margin-bottom: 16px; }
+  .modal { font-size: 14px; line-height: 1.6; }
+
+  .triad-grid {
+    display: grid;
+    grid-template-columns: 1fr 1fr 1fr;
+    gap: 10px;
+    margin: 14px 0;
+  }
+  .triad-box {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 7px;
+    padding: 10px;
+  }
+  .triad-name { font-size: 13px; color: var(--accent); text-transform: uppercase; margin-bottom: 6px; font-weight: 700; }
+  .triad-text { font-size: 13px; color: var(--muted); line-height: 1.6; }
+
+  .verdicts-section { margin-top: 18px; }
+  .verdicts-section h3 { font-size: 13px; color: var(--muted); margin-bottom: 10px; text-transform: uppercase; letter-spacing: 0.06em; }
+  .verdicts-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+  .verdict-row {
+    background: var(--surface2);
+    border: 1px solid var(--border);
+    border-radius: 6px;
+    padding: 10px;
+  }
+  .verdict-row.bull { border-left: 3px solid var(--green); }
+  .verdict-row.bear { border-left: 3px solid var(--red); }
+  .verdict-agent { font-size: 15px; color: var(--accent); font-weight: 700; display: block; margin-bottom: 2px; }
+  .verdict-lens  { font-size: 11px; color: var(--muted); text-transform: uppercase; }
+  .verdict-conv  { font-size: 16px; font-weight: 700; float: right; }
+  .verdict-thesis { font-size: 14px; color: var(--muted); margin-top: 6px; line-height: 1.6; clear: both; }
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <div class="logo">⚡ TradeMinds</div>
+    <div class="subtitle">Command Center</div>
+  </div>
+  <div class="spacer"></div>
+  <button id="theme-btn" onclick="toggleTheme()" title="Toggle light/dark mode">🌙</button>
+  <button id="refresh-btn" onclick="refreshAll()">↺ Refresh</button>
+</header>
+
+<div class="tabs">
+  <div class="tab active" onclick="switchTab('cards')" title="14 rich trade cards with Bull/Base/Bear scenario targets, 12-agent AI debate results, conviction scores, position sizing, and Risk Triad (Spock/Crusher/Scotty). Click any ticker in Kirk Advisory to jump directly to its card.">🃏 Trade Cards</div>
+  <div class="tab" onclick="switchTab('strategy')" title="19 trading strategies with risk tiers (Low/Medium/High). Enter a ticker to get the best-fit strategy recommendation with entry rules, stop loss, and target guidance.">🎯 Strategy Picker</div>
+  <div class="tab" onclick="switchTab('scanner')" title="Fast Scanner — universe scan updated every 15 min during market hours. RSI zones, volume ratio vs 20d avg, signal pills. High-conviction hits trigger macOS desktop popups.">🔭 Fast Scanner</div>
+</div>
+
+<main>
+
+  <!-- ── Kirk Advisory Toasts ──────────────────────────────── -->
+  <div id="kirk-advisory-bar" style="display:none;margin-bottom:12px;">
+    <div style="font-size:10px;text-transform:uppercase;letter-spacing:.08em;color:var(--muted);margin-bottom:8px;padding-top:8px;">🎖️ Kirk Advisory <span id="kirk-ctx" style="text-transform:none;letter-spacing:0;margin-left:6px;font-size:11px;"></span></div>
+    <div id="kirk-toasts"></div>
+  </div>
+
+  <!-- ── Tab 1: Trade Cards ──────────────────────────────── -->
+  <div id="panel-cards" class="panel active">
+    <div id="kirk-banner-cards" class="kirk-status-banner" style="display:none;">
+      <div class="kirk-banner-header">🎖️ Kirk Advisory <span id="kirk-banner-ctx-cards" class="kp-ctx"></span></div>
+      <div class="kirk-banner-row" id="kirk-banner-pills-cards"></div>
+    </div>
+    <div class="filter-bar">
+      <label>Filter:</label>
+      <input id="cards-search" type="text" placeholder="Ticker…" oninput="filterCards()" style="width:120px" />
+      <select id="cards-decision" onchange="filterCards()">
+        <option value="">All Decisions</option>
+        <option>STRONG_BUY</option><option>BUY</option><option>LEAN_BUY</option>
+        <option>HOLD</option><option>LEAN_SELL</option><option>SELL</option><option>STRONG_SELL</option>
+      </select>
+      <select id="cards-risk" onchange="filterCards()">
+        <option value="">All Risk</option>
+        <option>LOW</option><option>MEDIUM</option><option>HIGH</option><option>CRITICAL</option>
+      </select>
+      <span class="count-badge" id="cards-count">— cards</span>
+    </div>
+    <div id="cards-loading" class="empty-state"><span class="spinner"></span>Loading trade cards…</div>
+    <div class="cards-grid" id="cards-grid"></div>
+  </div>
+
+  <!-- ── Tab 2: Strategy Picker ──────────────────────────── -->
+  <div id="panel-strategy" class="panel">
+    <div id="kirk-banner-strategy" class="kirk-status-banner" style="display:none;">
+      <div class="kirk-banner-header">🎖️ Kirk Advisory <span id="kirk-banner-ctx-strategy" class="kp-ctx"></span></div>
+      <div class="kirk-banner-row" id="kirk-banner-pills-strategy"></div>
+    </div>
+    <div class="filter-bar">
+      <label>Signal:</label>
+      <select id="strat-signal" onchange="filterPicks()">
+        <option value="">All</option>
+        <option>BUY</option><option>SELL</option>
+      </select>
+      <input id="strat-search" type="text" placeholder="Ticker…" oninput="filterPicks()" style="width:120px" />
+      <span class="count-badge" id="strat-count">— picks</span>
+    </div>
+    <div id="strat-loading" class="empty-state"><span class="spinner"></span>Loading strategy picks…</div>
+    <div class="picks-grid" id="picks-grid"></div>
+  </div>
+
+  <!-- ── Tab 3: Fast Scanner ─────────────────────────────── -->
+  <div id="panel-scanner" class="panel">
+    <div class="filter-bar">
+      <label>Min Score:</label>
+      <input id="scan-min-score" type="number" value="0" min="0" max="100" style="width:70px" onchange="loadScanner()" />
+      <input id="scan-search" type="text" placeholder="Ticker…" oninput="filterScanner()" style="width:120px" />
+      <label>RSI Zone:</label>
+      <select id="scan-rsi" onchange="filterScanner()">
+        <option value="">All</option>
+        <option value="overbought">Overbought (≥70)</option>
+        <option value="oversold">Oversold (≤30)</option>
+        <option value="neutral">Neutral</option>
+      </select>
+      <span class="count-badge" id="scan-count">— results</span>
+    </div>
+    <div id="scan-loading" class="empty-state"><span class="spinner"></span>Loading scanner…</div>
+    <table id="scan-table" style="display:none">
+      <thead>
+        <tr>
+          <th onclick="sortScanner('ticker')">Ticker <span class="sort-arrow">⇅</span></th>
+          <th onclick="sortScanner('score')" class="sorted">Score <span class="sort-arrow">↓</span></th>
+          <th onclick="sortScanner('price')">Price <span class="sort-arrow">⇅</span></th>
+          <th onclick="sortScanner('vol_ratio')">Vol Ratio <span class="sort-arrow">⇅</span></th>
+          <th onclick="sortScanner('rsi')">RSI <span class="sort-arrow">⇅</span></th>
+          <th onclick="sortScanner('gap_pct')">Gap % <span class="sort-arrow">⇅</span></th>
+          <th>Signals</th>
+          <th>Alerts</th>
+        </tr>
+      </thead>
+      <tbody id="scan-tbody"></tbody>
+    </table>
+  </div>
+
+</main>
+
+<!-- ── Detail Modal ────────────────────────────────────────── -->
+<div class="modal-overlay" id="modal-overlay" onclick="closeModal(event)">
+  <div class="modal">
+    <button class="modal-close" onclick="closeModal()">✕</button>
+    <div id="modal-content"></div>
+  </div>
+</div>
+
+<script>
+// ── State ──────────────────────────────────────────────────────
+let allCards   = [];
+let allPicks   = [];
+let allScan    = [];
+let scanSort   = { key: 'score', dir: -1 };
+
+// ── Tab switching ──────────────────────────────────────────────
+function switchTab(name) {
+  document.querySelectorAll('.tab').forEach((t, i) => {
+    t.classList.toggle('active', ['cards','strategy','scanner'][i] === name);
+  });
+  document.querySelectorAll('.panel').forEach(p => p.classList.remove('active'));
+  document.getElementById('panel-' + name).classList.add('active');
+}
+
+// ── Fetch helpers ──────────────────────────────────────────────
+async function fetchJSON(url) {
+  const r = await fetch(url);
+  if (!r.ok) throw new Error(`${r.status} ${r.statusText}`);
+  return r.json();
+}
+
+// ── Trade Cards ────────────────────────────────────────────────
+async function loadCards() {
+  document.getElementById('cards-loading').style.display = 'block';
+  document.getElementById('cards-grid').innerHTML = '';
+  try {
+    const data = await fetchJSON('/api/trade-cards?limit=200');
+    allCards = data.cards || [];
+    renderCards(allCards);
+  } catch(e) {
+    document.getElementById('cards-loading').innerHTML =
+      `<div class="icon">⚠️</div><div>Failed to load: ${e.message}</div>`;
+  }
+}
+
+function renderCards(cards) {
+  document.getElementById('cards-loading').style.display = 'none';
+  document.getElementById('cards-count').textContent = `${cards.length} cards`;
+  const grid = document.getElementById('cards-grid');
+  if (!cards.length) {
+    grid.innerHTML = '<div class="empty-state"><div class="icon">🃏</div><div>No trade cards found</div></div>';
+    return;
+  }
+  grid.innerHTML = cards.map(c => cardHTML(c)).join('');
+}
+
+function tcBorderCls(decision) {
+  const d = (decision||'').toUpperCase();
+  if (d.includes('BUY'))  return 'tc-buy';
+  if (d.includes('SELL')) return 'tc-sell';
+  return 'tc-hold';
+}
+function getSizing(conviction) {
+  const c = Number(conviction)||5;
+  if (c >= 9) return { cons:'3%', rec:'5%', agg:'8%' };
+  if (c >= 7) return { cons:'2%', rec:'4%', agg:'6%' };
+  if (c >= 5) return { cons:'1%', rec:'2%', agg:'3%' };
+  return null;
+}
+
+function parseSynthesis(raw) {
+  if (!raw) return '';
+  if (typeof raw === 'object') {
+    raw = raw.synthesis || raw.reasoning || raw.text || raw.summary || JSON.stringify(raw);
+  }
+  let s = String(raw).trim();
+  // Up to 3 passes — handles double/triple-encoded JSON (e.g. HIMS)
+  for (let i = 0; i < 3; i++) {
+    if (!s.startsWith('{') && !s.startsWith('[')) break;
+    try {
+      const obj = JSON.parse(s);
+      if (typeof obj === 'string') { s = obj.trim(); continue; }
+      s = String(obj.synthesis || obj.reasoning || obj.text || obj.summary || s).trim();
+    } catch(e) { break; }
+  }
+  return s;
+}
+
+function cardHTML(c) {
+  const conv      = c.adjusted_conviction ?? c.picard_conviction ?? 5;
+  const convClass = `conv-${c.conviction_color || 'yellow'}`;
+  const risk      = (c.risk_rating || 'MEDIUM').toUpperCase();
+  const decision  = (c.picard_decision || 'HOLD').toUpperCase();
+  const price     = c.current_price;
+  const hasScen   = c.bull_target != null;
+  const ev        = c.expected_value_pct;
+  const synthesis = parseSynthesis(c.picard_synthesis);
+
+  // Entry zone, stop, R/R
+  const stop   = price ? +(price * 0.92).toFixed(2) : null;
+  const ezLow  = price ? +(price * 0.985).toFixed(2) : null;
+  const ezHigh = price ? +(price * 1.015).toFixed(2) : null;
+  const rr     = (price && stop && c.bull_target)
+    ? ((c.bull_target - price) / (price - stop)).toFixed(1) : null;
+
+  const levelsHTML = price ? `
+    <div class="card-levels">
+      <div class="level-kv">
+        <div class="lbl">Entry Zone</div>
+        <div class="val" style="color:var(--accent)">$${fmt(ezLow)}–$${fmt(ezHigh)}</div>
+      </div>
+      <div class="level-kv">
+        <div class="lbl">Stop Loss</div>
+        <div class="val" style="color:var(--red)">$${fmt(stop)}</div>
+      </div>
+      <div class="level-kv">
+        <div class="lbl">R/R</div>
+        <div class="val" style="color:${rr&&rr>2?'var(--green)':'var(--yellow)'}">${rr?rr+':1':'—'}</div>
+      </div>
+    </div>` : '';
+
+  // Target probability bar
+  const tbHTML = hasScen ? `
+    <div class="target-bar-wrap">
+      <div class="target-bar">
+        <div class="tb-seg tb-bear" style="flex:${c.bear_probability||20}">${c.bear_probability||20}%<br>${sign(c.bear_return_pct)}%</div>
+        <div class="tb-seg tb-base" style="flex:${c.base_probability||45}">${c.base_probability||45}%<br>${sign(c.base_return_pct)}%</div>
+        <div class="tb-seg tb-bull" style="flex:${c.bull_probability||35}">${c.bull_probability||35}%<br>${sign(c.bull_return_pct)}%</div>
+      </div>
+      <div class="tb-labels">
+        <span>Bear $${fmt(c.bear_target)}</span>
+        <span>Base $${fmt(c.base_target)}</span>
+        <span>Bull $${fmt(c.bull_target)}</span>
+      </div>
+    </div>
+    ${ev != null ? `
+    <div class="ev-row">
+      <span>Expected Value</span>
+      <span class="ev-val ${ev >= 0 ? 'ev-pos' : 'ev-neg'}">${sign(ev)}%</span>
+    </div>` : ''}` : '';
+
+  // Sizing
+  const sz = getSizing(conv);
+  const sizingHTML = sz ? `
+    <div class="sizing-row">
+      <div class="size-pill"><span class="sz-lbl">Conservative</span><span class="sz-val">${sz.cons}</span></div>
+      <div class="size-pill"><span class="sz-lbl">Recommended</span><span class="sz-val" style="color:var(--accent)">${sz.rec}</span></div>
+      <div class="size-pill"><span class="sz-lbl">Aggressive</span><span class="sz-val">${sz.agg}</span></div>
+    </div>` : '';
+
+  // Override metadata — REDUCE_SIZE is amber (still a buy!), not red
+  const override = (c.risk_override || 'PROCEED').toUpperCase();
+  const overrideDisplay = override.replace(/_/g,' ');
+  const overrideMeta = {
+    PROCEED:     { color:'var(--green)',  icon:'✅', msg:'Full position size approved',           bg:'rgba(34,197,94,0.07)',  border:'rgba(34,197,94,0.25)' },
+    REDUCE_SIZE: { color:'var(--yellow)', icon:'⚠️', msg:'Buy with half position — elevated risk', bg:'rgba(234,179,8,0.07)', border:'rgba(234,179,8,0.3)'  },
+    PAPER_ONLY:  { color:'#3b82f6',       icon:'📋', msg:'Paper trade only — watch first',         bg:'rgba(59,130,246,0.07)', border:'rgba(59,130,246,0.3)' },
+    SKIP:        { color:'var(--red)',    icon:'🚫', msg:'Too risky — crew says pass',             bg:'rgba(239,68,68,0.07)', border:'rgba(239,68,68,0.25)' },
+  };
+  const om = overrideMeta[override] || { color:'var(--muted)', icon:'', msg:'', bg:'transparent', border:'transparent' };
+  const overrideBannerHTML = om.msg ? `
+    <div style="display:flex;align-items:center;gap:8px;margin-top:8px;margin-bottom:4px;padding:6px 10px;border-radius:6px;background:${om.bg};border:1px solid ${om.border};">
+      <span style="flex-shrink:0;font-size:13px;">${om.icon}</span>
+      <span style="font-size:12px;font-style:italic;color:${om.color};">${om.msg}</span>
+    </div>` : '';
+
+  // Conviction: show 7→5 (risk-adjusted) when they differ
+  const origConv = c.picard_conviction ?? conv;
+  const wasAdjusted = c.adjusted_conviction != null && c.picard_conviction != null
+    && Number(c.adjusted_conviction) !== Number(c.picard_conviction);
+  const convDisplay = wasAdjusted
+    ? `<span style="color:var(--muted);text-decoration:line-through;font-size:14px;">${origConv}</span>`
+      + `<span style="font-size:13px;color:var(--muted);margin:0 3px;">→</span>`
+      + `${c.adjusted_conviction}`
+      + `<span style="font-size:11px;color:var(--muted);display:block;font-weight:400;margin-top:1px;">risk-adjusted</span>`
+    : `${conv}<span style="font-size:11px;color:var(--muted)">/10</span>`;
+
+  return `
+  <div class="card ${tcBorderCls(decision)}" id="card-${c.ticker}" onclick="openCardDetail('${c.ticker}')">
+    <div class="card-header">
+      <div class="ticker-badge">${c.ticker}</div>
+      <div class="decision-badge badge-${decision}">${decision.replace(/_/g,' ')}</div>
+      <div class="risk-badge risk-${risk}">${risk}</div>
+    </div>
+    <div class="conviction-row">
+      <div class="conv-item">
+        <div class="conv-label">Conviction</div>
+        <div class="conv-value ${convClass}">${convDisplay}</div>
+      </div>
+      <div class="conv-item">
+        <div class="conv-label">Override</div>
+        <div class="conv-value" style="font-size:13px;color:${om.color};font-weight:700;">${overrideDisplay}</div>
+      </div>
+      <div class="conv-item">
+        <div class="conv-label">Bull avg</div>
+        <div class="conv-value" style="color:var(--green);">${fmt1(c.bull_avg_conviction)}</div>
+      </div>
+      <div class="conv-item">
+        <div class="conv-label">Bear avg</div>
+        <div class="conv-value" style="color:var(--red);">${fmt1(c.bear_avg_conviction)}</div>
+      </div>
+    </div>
+    ${overrideBannerHTML}
+    ${synthesis ? `<div class="synthesis">${synthesis}</div>` : ''}
+    ${levelsHTML}
+    ${tbHTML}
+    ${sizingHTML}
+    <div class="card-footer">
+      <span>${c.ticker} · ${c.agent_count || 12} agents${price ? ` · $${fmt(price)}` : ''}</span>
+      <span>${timeAgo(c.debated_at)}</span>
+    </div>
+  </div>`;
+}
+
+function filterCards() {
+  const q    = document.getElementById('cards-search').value.toUpperCase().trim();
+  const dec  = document.getElementById('cards-decision').value;
+  const risk = document.getElementById('cards-risk').value;
+  const filtered = allCards.filter(c => {
+    if (q   && !c.ticker.includes(q)) return false;
+    if (dec && c.picard_decision !== dec) return false;
+    if (risk && (c.risk_rating || 'MEDIUM').toUpperCase() !== risk) return false;
+    return true;
+  });
+  renderCards(filtered);
+}
+
+// ── Card Detail Modal ──────────────────────────────────────────
+async function openCardDetail(ticker) {
+  document.getElementById('modal-overlay').classList.add('open');
+  document.getElementById('modal-content').innerHTML =
+    `<h2>${ticker}</h2><div class="empty-state"><span class="spinner"></span>Loading…</div>`;
+  try {
+    const d = await fetchJSON(`/api/trade-cards/${ticker}`);
+    document.getElementById('modal-content').innerHTML = detailHTML(d);
+  } catch(e) {
+    document.getElementById('modal-content').innerHTML =
+      `<h2>${ticker}</h2><div style="color:var(--red)">Error: ${e.message}</div>`;
+  }
+}
+
+function detailHTML(d) {
+  const debate = d.debate || {};
+  const verdicts = d.verdicts || [];
+  const bull = verdicts.filter(v => v.side === 'bull');
+  const bear = verdicts.filter(v => v.side === 'bear');
+
+  const triad = `
+  <div class="triad-grid">
+    <div class="triad-box">
+      <div class="triad-name">🖖 Spock</div>
+      <div class="triad-text">${debate.spock_assessment || '—'}</div>
+    </div>
+    <div class="triad-box">
+      <div class="triad-name">💊 Crusher</div>
+      <div class="triad-text">${debate.crusher_assessment || '—'}</div>
+    </div>
+    <div class="triad-box">
+      <div class="triad-name">🔧 Scotty</div>
+      <div class="triad-text">${debate.scotty_assessment || '—'}</div>
+    </div>
+  </div>`;
+
+  const verdictRows = side => side.map(v => `
+    <div class="verdict-row ${v.side}">
+      <span class="verdict-agent">${v.agent_name}</span>
+      <span class="verdict-lens"> · ${v.lens}</span>
+      <span class="verdict-conv ${v.side === 'bull' ? 'ev-pos' : 'ev-neg'}">${v.conviction}/10</span>
+      <div class="verdict-thesis">${v.thesis}</div>
+    </div>`).join('');
+
+  const modalOverride = (debate.risk_override || 'PROCEED').toUpperCase();
+  const modalOM = {
+    PROCEED:     { color:'var(--green)',  label:'✅ PROCEED — full position approved' },
+    REDUCE_SIZE: { color:'var(--yellow)', label:'⚠️ REDUCE SIZE — buy with half position' },
+    PAPER_ONLY:  { color:'#3b82f6',       label:'📋 PAPER ONLY — watch first' },
+    SKIP:        { color:'var(--red)',    label:'🚫 SKIP — too risky' },
+  }[modalOverride] || { color:'var(--muted)', label:debate.risk_override };
+  const origConvModal = debate.picard_conviction ?? debate.adjusted_conviction;
+  const adjConvModal  = debate.adjusted_conviction;
+  const convModalStr  = (origConvModal != null && adjConvModal != null && origConvModal !== adjConvModal)
+    ? `<span style="text-decoration:line-through;opacity:.6;">${origConvModal}</span> → ${adjConvModal}/10 <span style="font-size:12px;color:var(--muted);">(risk-adjusted)</span>`
+    : `${adjConvModal ?? origConvModal ?? '—'}/10`;
+
+  return `
+  <h2>${d.ticker} — Debate #${debate.id}</h2>
+  <div style="display:flex;gap:10px;margin-bottom:14px;flex-wrap:wrap;align-items:center;">
+    <span class="decision-badge badge-${debate.picard_decision}">${(debate.picard_decision||'').replace('_',' ')}</span>
+    <span class="risk-badge risk-${debate.risk_rating}">${debate.risk_rating}</span>
+    <span style="font-size:13px;font-weight:700;color:${modalOM.color};">${modalOM.label}</span>
+    <span style="font-size:13px;color:var(--muted);">Conviction: ${convModalStr}</span>
+  </div>
+  <div class="synthesis" style="margin-bottom:14px;font-size:14px;line-height:1.6;">${parseSynthesis(debate.picard_synthesis)}</div>
+  ${triad}
+  <div class="verdicts-section">
+    <h3>🐂 Bull Squad</h3>
+    <div class="verdicts-grid">${verdictRows(bull)}</div>
+  </div>
+  <div class="verdicts-section" style="margin-top:14px">
+    <h3>🐻 Bear Squad</h3>
+    <div class="verdicts-grid">${verdictRows(bear)}</div>
+  </div>`;
+}
+
+function closeModal(e) {
+  if (!e || e.target === document.getElementById('modal-overlay') || !e.target) {
+    document.getElementById('modal-overlay').classList.remove('open');
+  }
+}
+
+// ── Strategy Picker ────────────────────────────────────────────
+async function loadPicks() {
+  document.getElementById('strat-loading').style.display = 'block';
+  document.getElementById('picks-grid').innerHTML = '';
+  try {
+    const data = await fetchJSON('/api/strategy-picks?limit=500');
+    allPicks = data.picks || [];
+    renderPicks(allPicks);
+  } catch(e) {
+    document.getElementById('strat-loading').innerHTML =
+      `<div class="icon">⚠️</div><div>Failed: ${e.message}</div>`;
+  }
+}
+
+function renderPicks(picks) {
+  document.getElementById('strat-loading').style.display = 'none';
+  document.getElementById('strat-count').textContent = `${picks.length} picks`;
+  const grid = document.getElementById('picks-grid');
+  if (!picks.length) {
+    grid.innerHTML = '<div class="empty-state"><div class="icon">🎯</div><div>No strategy picks</div></div>';
+    return;
+  }
+  grid.innerHTML = picks.map(p => pickHTML(p)).join('');
+}
+
+function pickHTML(p) {
+  const strats = p.strategies || [];
+  const stratRows = strats.map(s => `
+    <div class="strat-row">
+      <span class="strat-name">${s.name.replace(/_/g,' ')}</span>
+      <span class="strat-sig sig-${s.signal}">${s.signal}</span>
+      <span class="strat-conf">${s.confidence_pct}%</span>
+    </div>`).join('');
+
+  return `
+  <div class="pick-card">
+    <div class="pick-header">
+      <div class="pick-ticker">${p.ticker}</div>
+      <div class="pick-strat-count">${strats.length} strategies</div>
+    </div>
+    <div class="pick-levels">
+      <div class="level-box">
+        <div class="lbl">Entry</div>
+        <div class="val val-entry">$${fmt(p.entry_price)}</div>
+      </div>
+      <div class="level-box">
+        <div class="lbl">Target</div>
+        <div class="val val-target">$${fmt(p.target_price)}</div>
+      </div>
+      <div class="level-box">
+        <div class="lbl">Stop</div>
+        <div class="val val-stop">$${fmt(p.stop_price)}</div>
+      </div>
+    </div>
+    <div class="strat-list">${stratRows}</div>
+    <div class="upside-row">
+      <span>Upside: <span class="upside-val">+${fmt(p.upside_pct)}%</span></span>
+      <span>Risk: <span class="risk-val">-${fmt(p.risk_pct)}%</span></span>
+    </div>
+  </div>`;
+}
+
+function filterPicks() {
+  const sig = document.getElementById('strat-signal').value;
+  const q   = document.getElementById('strat-search').value.toUpperCase().trim();
+  const filtered = allPicks.filter(p => {
+    if (q && !p.ticker.includes(q)) return false;
+    if (sig) {
+      const hasMatch = (p.strategies || []).some(s => s.signal === sig);
+      if (!hasMatch) return false;
+    }
+    return true;
+  });
+  renderPicks(filtered);
+}
+
+// ── Fast Scanner ───────────────────────────────────────────────
+async function loadScanner() {
+  document.getElementById('scan-loading').style.display = 'block';
+  document.getElementById('scan-table').style.display = 'none';
+  const minScore = document.getElementById('scan-min-score').value || 0;
+  try {
+    const data = await fetchJSON(`/api/fast-scan?min_score=${minScore}&limit=500`);
+    allScan = data.results || [];
+    renderScanner(allScan);
+  } catch(e) {
+    document.getElementById('scan-loading').innerHTML =
+      `<div class="icon">⚠️</div><div>Failed: ${e.message}</div>`;
+  }
+}
+
+function renderScanner(rows) {
+  document.getElementById('scan-loading').style.display = 'none';
+  document.getElementById('scan-count').textContent = `${rows.length} results`;
+  const table = document.getElementById('scan-table');
+  const tbody = document.getElementById('scan-tbody');
+
+  if (!rows.length) {
+    table.style.display = 'none';
+    document.getElementById('scan-loading').style.display = 'block';
+    document.getElementById('scan-loading').innerHTML =
+      '<div class="icon">🔭</div><div>No results</div>';
+    return;
+  }
+
+  table.style.display = 'table';
+  tbody.innerHTML = rows.map(r => scanRowHTML(r)).join('');
+}
+
+function scanRowHTML(r) {
+  const scoreClass = r.score >= 70 ? 'score-high' : r.score >= 40 ? 'score-mid' : 'score-low';
+  const rsiClass   = r.rsi_zone === 'overbought' ? 'rsi-ob' : r.rsi_zone === 'oversold' ? 'rsi-os' : 'rsi-n';
+  const gapClass   = (r.gap_pct || 0) >= 0 ? 'gap-pos' : 'gap-neg';
+
+  const signals = (r.signals || []).map(s => {
+    let cls = 'neutral';
+    if (s.includes('VOLUME') || s.includes('UNUSUAL')) cls = 'volume';
+    else if (s.includes('BULL') || s.includes('UPTREND') || s.includes('OVERSOLD') || s.includes('BUY')) cls = 'bullish';
+    else if (s.includes('BEAR') || s.includes('DOWN') || s.includes('OVERBOUGHT') || s.includes('SELL')) cls = 'bearish';
+    return `<span class="signal-pill ${cls}">${s}</span>`;
+  }).join('');
+
+  const alerts = (r.alerts || []).map(a =>
+    `<div class="alert-item alert-${(a.severity||'').toUpperCase()}">${a.alert_type}: ${a.message.slice(0,60)}</div>`
+  ).join('');
+
+  return `
+  <tr>
+    <td class="td-ticker">${r.ticker}</td>
+    <td class="td-score ${scoreClass}">${r.score}</td>
+    <td>$${fmt(r.price)}</td>
+    <td>${r.vol_ratio}×</td>
+    <td class="${rsiClass}">${r.rsi}</td>
+    <td class="${gapClass}">${r.gap_pct != null ? sign(r.gap_pct)+'%' : '—'}</td>
+    <td><div class="signal-pills">${signals}</div></td>
+    <td class="alerts-cell">${alerts || '<span style="color:var(--muted)">—</span>'}</td>
+  </tr>`;
+}
+
+function filterScanner() {
+  const q    = document.getElementById('scan-search').value.toUpperCase().trim();
+  const zone = document.getElementById('scan-rsi').value;
+  const filtered = allScan.filter(r => {
+    if (q    && !r.ticker.includes(q)) return false;
+    if (zone && r.rsi_zone !== zone)   return false;
+    return true;
+  });
+  renderScanner(filtered);
+}
+
+function sortScanner(key) {
+  if (scanSort.key === key) {
+    scanSort.dir *= -1;
+  } else {
+    scanSort.key = key;
+    scanSort.dir = -1;
+  }
+  document.querySelectorAll('thead th').forEach(th => th.classList.remove('sorted'));
+  const sorted = [...allScan].sort((a, b) => {
+    const av = a[key] ?? 0;
+    const bv = b[key] ?? 0;
+    return typeof av === 'string'
+      ? av.localeCompare(bv) * scanSort.dir
+      : (av - bv) * scanSort.dir;
+  });
+  renderScanner(sorted);
+}
+
+// ── Utilities ──────────────────────────────────────────────────
+function fmt(n)  { return n != null ? Number(n).toFixed(2) : '—'; }
+function fmt1(n) { return n != null ? Number(n).toFixed(1) : '—'; }
+function sign(n) { return n >= 0 ? `+${Number(n).toFixed(1)}` : Number(n).toFixed(1); }
+
+function timeAgo(ts) {
+  if (!ts) return '';
+  const diff = (Date.now() - new Date(ts + (ts.includes('T') ? '' : 'Z')).getTime()) / 1000;
+  if (diff < 60)   return 'just now';
+  if (diff < 3600) return `${Math.floor(diff/60)}m ago`;
+  if (diff < 86400) return `${Math.floor(diff/3600)}h ago`;
+  return `${Math.floor(diff/86400)}d ago`;
+}
+
+function refreshAll() {
+  loadCards();
+  loadPicks();
+  loadScanner();
+}
+
+// ── Theme ──────────────────────────────────────────────────────
+function applyTheme(mode) {
+  document.documentElement.classList.toggle('light', mode === 'light');
+  document.getElementById('theme-btn').textContent = mode === 'light' ? '🌙' : '☀️';
+}
+
+function toggleTheme() {
+  const next = document.documentElement.classList.contains('light') ? 'dark' : 'light';
+  localStorage.setItem('tc-theme', next);
+  applyTheme(next);
+}
+
+// ── Kirk Advisory ──────────────────────────────────────────────
+function renderKirkBanners(pos, ctx) {
+  const ctxStr = `F&G: ${ctx.fg_score||'—'} · VIX: ${ctx.vix||'—'}`;
+  const pillsHTML = pos.map(p => `
+    <div class="kirk-pos-pill act-${p.action}" onclick="jumpToCard('${p.symbol}')" title="${p.reasoning||''}">
+      <span class="kp-sym">${p.symbol}</span>
+      <span class="kp-act kp-${p.action}">${p.action}</span>
+    </div>`).join('');
+
+  ['cards','strategy'].forEach(tab => {
+    const banner = document.getElementById(`kirk-banner-${tab}`);
+    const pills  = document.getElementById(`kirk-banner-pills-${tab}`);
+    const ctxEl  = document.getElementById(`kirk-banner-ctx-${tab}`);
+    if (!banner) return;
+    if (pos.length) {
+      banner.style.display = 'block';
+      if (pills)  pills.innerHTML  = pillsHTML;
+      if (ctxEl)  ctxEl.textContent = ctxStr;
+    } else {
+      banner.style.display = 'none';
+    }
+  });
+}
+
+async function loadKirkAdvisory() {
+  try {
+    const data = await fetchJSON('/api/kirk/advisory');
+    const pos = data.positions || [];
+    const cashRec = data.cash_recommendation || {};
+    const ctx = data.market_context || {};
+
+    // Persistent banners — show ALL positions
+    renderKirkBanners(pos, ctx);
+
+    // Floating toasts — only urgent items
+    const toasts = pos.filter(p=>p.action!=='HOLD'||p.urgency!=='low');
+    if (cashRec.action==='DEPLOY') toasts.push({symbol:'CASH',action:'DEPLOY',reasoning:cashRec.reasoning,urgency:'medium'});
+
+    // Log to DB (deduplicated server-side)
+    toasts.forEach(t=>{
+      fetch('/api/kirk-advisory/log',{method:'POST',headers:{'Content-Type':'application/json'},
+        body:JSON.stringify({ticker:t.symbol,action:t.action,message:t.reasoning,
+          alert_type:t.urgency,fear_greed_score:ctx.fg_score,vix_level:ctx.vix})
+      }).catch(()=>{});
+    });
+
+    if (toasts.length) {
+      document.getElementById('kirk-advisory-bar').style.display='block';
+      document.getElementById('kirk-ctx').textContent = `F&G: ${ctx.fg_score||'—'} · VIX: ${ctx.vix||'—'}`;
+      document.getElementById('kirk-toasts').innerHTML = toasts.map(t => `
+        <div class="kirk-toast urgency-${t.urgency}" onclick="jumpToCard('${t.symbol}')">
+          <div class="kt-sym">${t.symbol}</div>
+          <span class="kt-act kt-${t.action}">${t.action}</span>
+          <div class="kt-msg">${t.reasoning}</div>
+          <div class="kt-fg">F&G ${ctx.fg_score||'—'} · VIX ${ctx.vix||'—'}</div>
+        </div>`).join('');
+    }
+  } catch(e) { /* non-critical */ }
+}
+
+function jumpToCard(ticker) {
+  // If we can find the card in the current view, scroll to it
+  const el = document.getElementById('card-'+ticker);
+  if (el) {
+    el.scrollIntoView({behavior:'smooth', block:'center'});
+    el.style.boxShadow='0 0 0 2px var(--accent)';
+    setTimeout(()=>el.style.boxShadow='',2000);
+    return;
+  }
+  // Otherwise filter to that ticker
+  const input = document.getElementById('cards-search');
+  if (input) { input.value=ticker; filterCards(); }
+  // Switch to cards tab if needed
+  switchTab('cards');
+  // Also handle URL anchor navigation
+  history.replaceState(null,'',`#${ticker}`);
+}
+
+// Handle #TICKER anchors in URL for direct linking
+function handleAnchorNav() {
+  const hash = window.location.hash.replace('#','').toUpperCase().trim();
+  if (!hash || hash==='SCANNER') return;
+  if (hash==='SCANNER') { switchTab('scanner'); return; }
+  // Filter to the anchored ticker once cards are loaded
+  setTimeout(()=>{
+    const input=document.getElementById('cards-search');
+    if(input && allCards.some(c=>c.ticker===hash)) {
+      input.value=hash; filterCards();
+    }
+    const el=document.getElementById('card-'+hash);
+    if(el) el.scrollIntoView({behavior:'smooth',block:'center'});
+  }, 800);
+}
+
+// ── Init ───────────────────────────────────────────────────────
+applyTheme(localStorage.getItem('tc-theme') || 'dark');
+loadCards();
+loadPicks();
+loadScanner();
+loadKirkAdvisory();
+setInterval(loadKirkAdvisory, 60000);
+handleAnchorNav();
+</script>
+</body>
+</html>

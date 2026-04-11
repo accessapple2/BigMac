@@ -1,4 +1,9 @@
 {
+  "LegacyCrew": {
+    "losses": 0,
+    "signals": 3,
+    "wins": 0
+  },
   "MeanReversion": {
     "losses": 7,
     "signals": 8,
@@ -8,5 +13,8 @@
     "losses": 4,
     "signals": 10,
     "wins": 8
+  },
+  "_ensemble_meta": {
+    "cycles": 4
   }
 }
