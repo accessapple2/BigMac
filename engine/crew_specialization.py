@@ -39,17 +39,17 @@ logger = logging.getLogger(__name__)
 # SCOUTS: Spock, Data, Dax, Chekov, Capitol — signal generation only
 #
 # ALPHA_SQUAD: Ollama models that scan every cycle, rotating in pairs to cap RAM
-#   Pair 1 (deepseek+coder):  Spock (grok-4) + Data (ollama-coder) — scouts
+#   Pair 1 (coder solo):      Data (ollama-coder) — quant scout (Spock moved to RULES_SCANNERS)
 #   Pair 2 (qwen3+plutus):    Dax (ollama-qwen3) + McCoy (ollama-plutus) — McCoy executes income
-# Rule-based agents (navigator, capitol-trades, dayblade-sulu) run independently
+# Rule-based agents (navigator, capitol-trades, dayblade-sulu, grok-4) run independently
 # T'Pol (dayblade-0dte) SHELVED: 0DTE execution delay = guaranteed loss
 ALPHA_SQUAD: list[str] = [
-    "grok-4",       "ollama-coder",   # Pair 1 — Spock (RSI scout) + Data (Quant scout)
+    "ollama-coder",                   # Pair 1 — Data (Quant scout); Spock → RULES_SCANNERS
     "ollama-qwen3", "ollama-plutus",  # Pair 2 — Dax (Swing scout) + McCoy (Income primary)
 ]
 
 SCAN_PAIRS: list[list[str]] = [
-    ["grok-4",       "ollama-coder"],  # Pair 1: Spock + Data (scouts)
+    ["ollama-coder"],                  # Pair 1: Data solo (Spock moved to RULES_SCANNERS)
     ["ollama-qwen3", "ollama-plutus"], # Pair 2: Dax + McCoy
 ]
 

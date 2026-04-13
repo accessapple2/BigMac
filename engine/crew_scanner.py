@@ -207,6 +207,7 @@ RULES_SCANNERS: list[str] = [
     "dalio-metals",    # Metals macro
     "dayblade-sulu",   # Sulu — spreads/momentum (S6.1 activated)
     "navigator",       # Chekov — EMA pullback (S6.1 activated)
+    "grok-4",          # Spock — RSI mean reversion (pure rules, bypasses Sniper Alpha gate)
 ]
 
 # Alpha Squad pair rotation — index cycles 0→1→2→0 each scan window
@@ -599,13 +600,13 @@ def _query_ollama(player_id: str, model: str, system_prompt: str,
     """Call Ollama /api/generate and return the raw response text."""
     global _last_ollama_query
     base_url = _get_ollama_base_url()
-    full_prompt = f"<system>{system_prompt}</system>\n\n{user_prompt}"
     try:
         resp = requests.post(
             f"{base_url}/api/generate",
             json={
                 "model":   model,
-                "prompt":  full_prompt,
+                "system":  system_prompt,
+                "prompt":  user_prompt,
                 "stream":  False,
                 "think":   False,
                 "options": {"num_predict": 120 if player_id == "neo-matrix" else 80, "temperature": 0.3},
@@ -2386,6 +2387,43 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
             f"Decision?"
         )
 
+    elif player_id == "ollama-coder":
+        # ── DATA: pure quant — concrete examples, no placeholder text ─────────
+        ds_syms = ", ".join(
+            f"{r.get('symbol','?')}(str={float(r.get('signal_strength',0)):.2f})"
+            for r in ds_top[:5]
+        ) if ds_top else "none"
+        spike_str = (
+            ", ".join(
+                f"{s['symbol']} {s['volume_ratio']:.1f}x"
+                f"({'+'if s['change_pct']>=0 else ''}{s['change_pct']:.1f}%)"
+                for s in vol_spikes[:5]
+            ) if vol_spikes else "none"
+        )
+        system_prompt = (
+            "You are Lt. Cmdr. Data — pure quantitative analyst. No bias, no intuition. Numbers only.\n"
+            "Pick the symbol with the highest signal_strength from the scan if composite score > 0.6.\n\n"
+            "Respond with exactly one of these formats:\n"
+            "  TRADE BUY MSFT 75 momentum breakout above 50MA on 2.1x volume\n"
+            "  TRADE BUY NVDA 82 RSI 34 oversold bounce, MACD cross up, 3.2x volume\n"
+            "  TRADE HOLD - no setup meets quant threshold\n"
+            "  TRADE SELL AAPL 70 - resistance hit, signal_strength dropped below 0.5\n"
+            "One line only. Replace the example ticker/numbers with real data."
+        )
+        user_prompt = (
+            f"Session: {market_ctx.get('session_type','?')}{vol_flag}\n"
+            f"{time_line}"
+            f"VIX: {float(market_ctx.get('vix', 0)):.1f} | "
+            f"SPY vol: {spy_vol_ratio:.1f}x avg\n"
+            f"Volume spikes: {spike_str}\n"
+            f"Momentum: {float(market_ctx.get('momentum_score', 0)):.0f} | "
+            f"F&G: {market_ctx.get('fg_score','?')} | "
+            f"Breadth: {market_ctx.get('breadth_score','?')}/11\n"
+            f"Top scan picks (signal_strength): {ds_syms}\n"
+            f"Your rule: BUY only if signal_strength > 0.6. No sentiment. Pure numbers.\n"
+            f"Decision?"
+        )
+
     else:
         # ── All other Ollama agents — standard prompt ──────────────────────────
         _raw_hint = _AGENT_SCAN_HINTS.get(
@@ -2406,9 +2444,11 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
         )
         system_prompt = (
             f"You are {display_name}. Decide: TRADE or PASS.\n"
-            f"Format: TRADE BUY/SELL [SYMBOL] [CONFIDENCE 0-100] [REASON]\n"
-            f"Or: PASS [REASON]\n"
-            f"One line only. No explanation."
+            f"Respond with one line. Examples:\n"
+            f"  TRADE BUY NVDA 78 RSI oversold bounce on 2x volume\n"
+            f"  TRADE SELL TSLA 65 resistance hit, momentum fading\n"
+            f"  PASS no setup meets criteria today\n"
+            f"Use real ticker and real numbers. One line only."
         )
         user_prompt = (
             f"Session: {market_ctx.get('session_type','?')}{vol_flag}\n"
