@@ -8248,6 +8248,63 @@ def holly_get_history(days: int = 30):
         return {"error": str(e)}
 
 
+@app.get("/api/holly/deepdives")
+def holly_get_deepdives(limit: int = 20):
+    """Return last N Scout→Critic deep-dive reviews from holly_deepdives table."""
+    try:
+        from engine.scout_critic import ensure_tables
+        ensure_tables()
+        import sqlite3 as _sq
+        conn = _sq.connect(DB, timeout=15)
+        conn.row_factory = _sq.Row
+        rows = conn.execute("""
+            SELECT id, signal_id, ticker, grade,
+                   critic_score, critic_reasoning, approved, created_at,
+                   CASE WHEN LENGTH(scout_brief) > 300
+                        THEN SUBSTR(scout_brief, 1, 300) || '…'
+                        ELSE scout_brief END AS scout_brief_short
+            FROM holly_deepdives
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        conn.close()
+        return {
+            "deepdives": [dict(r) for r in rows],
+            "count": len(rows),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ---------------------------------------------------------------------------
+# Signal Multiplier Log — GEX + options flow impact analysis
+# ---------------------------------------------------------------------------
+
+@app.get("/api/multipliers/log")
+def multipliers_get_log(limit: int = 50):
+    """Return last N signal_multiplier_log rows for GEX/flow impact analysis."""
+    try:
+        from engine.super_trader import ensure_tables
+        ensure_tables()
+        import sqlite3 as _sq
+        conn = _sq.connect(DB, timeout=15)
+        conn.row_factory = _sq.Row
+        rows = conn.execute("""
+            SELECT ticker, date, base_score, gex_mult, flow_mult,
+                   final_score, trade_taken, created_at
+            FROM signal_multiplier_log
+            ORDER BY created_at DESC
+            LIMIT ?
+        """, (limit,)).fetchall()
+        conn.close()
+        return {
+            "log": [dict(r) for r in rows],
+            "count": len(rows),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
 # ---------------------------------------------------------------------------
 # Master Backtest API (9-tier comprehensive)
 # ---------------------------------------------------------------------------

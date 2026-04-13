@@ -2442,6 +2442,21 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
     if troi_caution_multiplier < 1.0:
         reason_str = f"[CAUTION half-size] {reason_str}"
 
+    # ── Soft confidence multipliers: GEX + options flow ──────────────────────
+    # BUY signals only. Not gates — confidence floats, never hard-blocked here.
+    if action == "BUY" and symbol:
+        try:
+            from engine.super_trader import apply_multipliers
+            confidence, _gex_m, _flow_m = apply_multipliers(
+                symbol, float(confidence), action="BUY"
+            )
+            if _gex_m != 1.0 or _flow_m != 1.0:
+                reason_str = (
+                    f"[GEX×{_gex_m:.2f} flow×{_flow_m:.2f}] {reason_str}"
+                )
+        except Exception as _me:
+            logger.debug(f"Multipliers skipped for {symbol}: {_me}")
+
     if action == "PASS":
         # Neo gets a second shot on high-volume days — focused query on top spikes only
         if player_id == "neo-matrix" and spy_vol_ratio >= 1.5:

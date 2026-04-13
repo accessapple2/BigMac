@@ -241,7 +241,7 @@ def approve_or_reject(
 
     approved = ollie_score >= THRESHOLD
 
-    # Build reason string
+    # Build base reason string
     grade_label = "A+" if comp_score >= 1.5 else "A" if comp_score >= 1.0 else "B" if comp_score >= 0.5 else "C" if comp_score >= 0 else "D"
     reason = (
         f"OllieScore={ollie_score:.2f}/5 ({'GO' if approved else 'NO-GO'}) | "
@@ -252,6 +252,32 @@ def approve_or_reject(
         f"GEX={gex_pts:.2f} | "
         f"Regime={regime}"
     )
+
+    # ── Scout→Critic deep-dive for A+ signals ────────────────────────────────
+    # Fires when grade is A+ (comp_score >= 1.5) OR agent confidence >= 90.
+    # Critic score < 7 vetoes the trade even if Ollie approved it.
+    # On any timeout/error: APPROVE with flag — never block on infra failures.
+    if grade_label == "A+" or confidence >= 90:
+        try:
+            from engine.scout_critic import run_scout_critic
+            _signal_id = (
+                f"{player_id}|{symbol}|"
+                f"{datetime.utcnow().strftime('%Y%m%d%H%M%S')}"
+            )
+            _dd = run_scout_critic(
+                symbol       = symbol,
+                grade        = grade_label,
+                signal_id    = _signal_id,
+                signal_reason= reason,
+                market_ctx   = market_ctx,
+            )
+            if not _dd["approved"]:
+                approved = False   # Critic veto overrides Ollie approval
+            _cs  = _dd["critic_score"]
+            _tag = "[scout_timeout]" if _dd["scout_timeout"] else f"Critic={_cs}/10"
+            reason = f"🧠 Deep Dive {_tag} | {reason}"
+        except Exception as _sce:
+            logger.warning(f"Scout→Critic pipeline error for {symbol}: {_sce}")
 
     # ── Log decision ──────────────────────────────────────────────────────────
     try:
