@@ -1318,10 +1318,14 @@ def execute_signal(player_id: str, signal: dict, price: float) -> dict | None:
         result = buy(player_id, symbol, buy_price, asset_type="option", option_type=option_type,
                      reasoning=reasoning, confidence=confidence,
                      strike_price=strike_price, expiry_date=expiry_date, sources=sources, timeframe=timeframe)
-        # Forward to Alpaca for options-enabled players
+        # Forward to Alpaca for options-enabled players; record order ID
         try:
             from engine.alpaca_options import execute_options_signal
-            execute_options_signal(player_id, action, symbol, price, target_dte=target_dte)
+            _ap_res = execute_options_signal(player_id, action, symbol, price, target_dte=target_dte)
+            if _ap_res and not _ap_res.get("skipped") and not _ap_res.get("error"):
+                _order_id = _ap_res.get("order_id") or _ap_res.get("id", "")
+                _exec_type = "alpaca_paper" if _order_id else "simulated"
+                _update_trade_alpaca_fields(player_id, symbol, _order_id, _exec_type)
         except Exception as _ae:
             console.log(f"[yellow]Alpaca options forward error ({player_id} {symbol}): {_ae}")
         return result
@@ -1334,12 +1338,33 @@ def execute_signal(player_id: str, signal: dict, price: float) -> dict | None:
                      reasoning=f"[{action}] {reasoning}", confidence=confidence, sources=sources, timeframe=timeframe)
         try:
             from engine.alpaca_options import execute_options_signal
-            execute_options_signal(player_id, action, symbol, price, target_dte=target_dte)
+            _ap_res = execute_options_signal(player_id, action, symbol, price, target_dte=target_dte)
+            if _ap_res and not _ap_res.get("skipped") and not _ap_res.get("error"):
+                _order_ids = _ap_res.get("order_ids") or []
+                _order_id  = ",".join(str(o) for o in _order_ids) if _order_ids else _ap_res.get("order_id", "")
+                _exec_type = "alpaca_paper" if _order_id else "simulated"
+                _update_trade_alpaca_fields(player_id, symbol, _order_id, _exec_type)
         except Exception as _ae:
             console.log(f"[yellow]Alpaca {action} forward error ({player_id} {symbol}): {_ae}")
         return result
 
     return None
+
+
+def _update_trade_alpaca_fields(player_id: str, symbol: str, order_id: str, exec_type: str) -> None:
+    """Update most recent trade record for player+symbol with Alpaca order metadata."""
+    try:
+        conn = _conn()
+        conn.execute(
+            """UPDATE trades SET alpaca_order_id=?, alpaca_status='submitted', execution_type=?
+               WHERE player_id=? AND symbol=? AND action IN ('BUY','BUY_CALL','BUY_PUT')
+               ORDER BY executed_at DESC LIMIT 1""",
+            (order_id or None, exec_type, player_id, symbol),
+        )
+        conn.commit()
+        conn.close()
+    except Exception:
+        pass
 
 
 def record_portfolio_snapshot(player_id: str, prices: dict):

@@ -277,6 +277,37 @@ def timed_cache(seconds: int):
 
 _swr_cache: dict = {}
 _swr_locks: dict = {}
+
+# --- Market-hours-aware cache for expensive endpoints ---
+_MARKET_CACHE: dict = {}
+
+
+def _cached_response(key: str, ttl_seconds: int, fetch_fn):
+    """Return cached data if market is closed and cache is fresh, else fetch live.
+
+    When market is open, always fetches fresh and refreshes the cache.
+    When market is closed, returns the cached value until TTL expires, then
+    fetches once and caches again.
+    """
+    try:
+        from engine.fast_scanner import is_market_hours as _is_mh
+    except Exception:
+        _is_mh = lambda: True  # assume open if import fails
+
+    now = _time.time()
+    cached = _MARKET_CACHE.get(key)
+
+    if _is_mh():
+        data = fetch_fn()
+        _MARKET_CACHE[key] = {"data": data, "ts": now}
+        return data
+
+    if cached and (now - cached["ts"]) < ttl_seconds:
+        return cached["data"]
+
+    data = fetch_fn()
+    _MARKET_CACHE[key] = {"data": data, "ts": now}
+    return data
 _swr_refreshing: set = set()  # keys currently being background-refreshed (for is_updating flag)
 
 def stale_while_revalidate(fresh_seconds: int):
@@ -715,11 +746,15 @@ async def login_submit(request: Request, step: str = "",
     if entry and entry["password"] and password == entry["password"]:
         role = entry["role"]
         if role == "admin":
-            # Admin requires 2FA — issue pending cookie, redirect to step 2
-            pending_token = _signer.dumps({"username": entry["username"]}, salt="totp_pending")
-            response = RedirectResponse(url="/login?step=2", status_code=303)
-            response.set_cookie("_totp_pending", pending_token,
-                                max_age=_TOTP_PENDING_MAX_AGE, httponly=True, samesite="strict")
+            # 2FA disabled — issue session directly
+            full_token = _signer.dumps({
+                "authenticated": True, "username": entry["username"], "role": role
+            })
+            response = RedirectResponse(url="/", status_code=303)
+            response.set_cookie("trademinds_session", full_token,
+                                max_age=_SESSION_MAX_AGE, httponly=True, samesite="strict")
+            _active_sessions[entry["username"]] = _time_module.time()
+            _sec_logger.warning("LOGIN_OK ip=%s user=%s role=%s", ip, entry["username"], role)
             return response
         else:
             # Non-admin (observer, charts) — session issued directly, no 2FA
@@ -1271,13 +1306,17 @@ PROTECTED_AGENTS = {
 # Sniper Mode — 6 active Alpha Squad agents + Neo (advisory/shelved agents hidden)
 # Season 6: Sniper Mode — 6 active Alpha Squad agents + Neo + Ollie (Fleet Commander)
 FLEET_ACTIVE = [
-    "ollie-auto",       # Ollie (Fleet Commander — master filter)
-    "ollama-llama",     # Uhura (Alpha Lead)
-    "gemini-2.5-flash", # Worf
-    "grok-4",           # Spock
-    "gemini-2.5-pro",   # Seven of Nine
-    "ollama-plutus",    # McCoy
-    "neo-matrix",       # Neo
+    # SEASON 6.3 "IRON CONDOR KING" — 180-day backtest: +572% realistic, +587% Model F exits
+    # PRIMARY: Sulu (iron_condor, Model F tiered exits) + McCoy (income backup)
+    # SCOUTS: Spock, Data, Dax, Chekov, Capitol — signal generation
+    "dayblade-sulu",    # PRIMARY — Spread King (iron_condor/bear_call/bull_put)
+    "ollama-plutus",    # PRIMARY — Income (bull_put_spread/covered_call/csp)
+    "ollie-auto",       # Fleet Commander (gate)
+    "grok-4",           # Scout — Spock (RSI signals)
+    "navigator",        # Scout — Chekov (EMA pullback)
+    "capitol-trades",   # Scout — Congress signals
+    "ollama-coder",     # Scout — Data (Quant signals)
+    "ollama-qwen3",     # Scout — Dax (Swing signals)
 ]
 
 _LEADERBOARD_CACHE_FILE = os.path.join(_proj_root, "data", "leaderboard_cache.json")
@@ -3724,52 +3763,51 @@ def gex_alpaca(symbol: str):
     Alpaca-based GEX profile for a symbol.
     Returns cached result (in-memory → DB) if a live compute would be too slow.
     Pass ?force=true to trigger a fresh Alpaca API call.
+    Cached 15 min when market closed.
     """
-    from fastapi import Query as _Query
-    import inspect as _inspect
-    from gex_calculator import compute_gex_sync, get_latest_snapshot, GEX_SYMBOLS
+    from gex_calculator import compute_gex_sync, get_latest_snapshot
 
     sym = symbol.upper()
-    profile = compute_gex_sync(sym, force=False)
 
-    if profile is not None:
-        return {
-            "symbol": profile.symbol,
-            "spot": profile.spot_price,
-            "timestamp": profile.timestamp,
-            "max_gamma_strike": profile.max_gamma_strike,
-            "zero_gamma_level": profile.zero_gamma_level,
-            "put_wall": profile.put_wall,
-            "call_wall": profile.call_wall,
-            "gamma_flip": profile.gamma_flip,
-            "total_gex": profile.total_gex,
-            "regime": "pinned" if profile.total_gex > 0 else "volatile",
-            "source": profile.source,
-            "levels": [
-                {
-                    "strike": l.strike,
-                    "net_gex": l.net_gex,
-                    "call_gex": l.call_gex,
-                    "put_gex": l.put_gex,
-                    "call_oi": l.call_oi,
-                    "put_oi": l.put_oi,
-                }
-                for l in profile.levels
-            ],
-        }
+    def _fetch():
+        profile = compute_gex_sync(sym, force=False)
+        if profile is not None:
+            return {
+                "symbol": profile.symbol,
+                "spot": profile.spot_price,
+                "timestamp": profile.timestamp,
+                "max_gamma_strike": profile.max_gamma_strike,
+                "zero_gamma_level": profile.zero_gamma_level,
+                "put_wall": profile.put_wall,
+                "call_wall": profile.call_wall,
+                "gamma_flip": profile.gamma_flip,
+                "total_gex": profile.total_gex,
+                "regime": "pinned" if profile.total_gex > 0 else "volatile",
+                "source": profile.source,
+                "levels": [
+                    {
+                        "strike": l.strike,
+                        "net_gex": l.net_gex,
+                        "call_gex": l.call_gex,
+                        "put_gex": l.put_gex,
+                        "call_oi": l.call_oi,
+                        "put_oi": l.put_oi,
+                    }
+                    for l in profile.levels
+                ],
+            }
+        # Fall back to DB snapshot
+        snap = get_latest_snapshot(sym)
+        if snap:
+            snap.pop("levels_json", None)
+            snap["regime"] = "pinned" if (snap.get("total_gex") or 0) > 0 else "volatile"
+            snap["source"] = snap.get("source", "alpaca")
+            if "spot_price" in snap and "spot" not in snap:
+                snap["spot"] = snap["spot_price"]
+            return snap
+        return {"error": f"No GEX data for {sym}. Alpaca keys may not be configured."}
 
-    # Fall back to DB snapshot
-    snap = get_latest_snapshot(sym)
-    if snap:
-        snap.pop("levels_json", None)
-        snap["regime"] = "pinned" if (snap.get("total_gex") or 0) > 0 else "volatile"
-        snap["source"] = snap.get("source", "alpaca")
-        # Normalize: DB column is spot_price, frontend expects spot
-        if "spot_price" in snap and "spot" not in snap:
-            snap["spot"] = snap["spot_price"]
-        return snap
-
-    return {"error": f"No GEX data for {sym}. Alpaca keys may not be configured."}
+    return _cached_response(f"gex:{sym}", 900, _fetch)
 
 
 @app.get("/api/gex/{symbol}/history")
@@ -4410,22 +4448,10 @@ def war_room(limit: int = 50):
 
 
 @app.post("/api/webull/sync")
-def webull_sync(data: dict = None):
-    """Manually sync Webull Portfolio value."""
-    if not data:
-        return {"error": "No data provided"}
-    total_value = data.get("total_value")
-    if total_value is None:
-        return {"error": "total_value is required"}
-    try:
-        total_value = float(total_value)
-    except (ValueError, TypeError):
-        return {"error": "total_value must be a number"}
-
-    from engine.paper_trader import sync_webull_value, get_webull_synced
-    sync_webull_value(total_value)
-    synced = get_webull_synced()
-    return {"ok": True, "synced": synced}
+def webull_sync():
+    """Pull live positions from Webull OpenAPI and sync into trader.db."""
+    from engine.webull_client import sync_positions_to_db
+    return sync_positions_to_db()
 
 
 @app.get("/api/webull/synced")
@@ -4935,11 +4961,15 @@ def _build_war_room_providers() -> dict:
 
 @app.get("/api/volume-radar")
 def volume_radar(limit: int = 20):
-    """Today's top volume alerts sorted by relative_volume DESC."""
+    """Today's top volume alerts sorted by relative_volume DESC. Cached 5 min when market closed."""
     try:
         from engine.volume_scanner import get_todays_volume_alerts
-        alerts = get_todays_volume_alerts(limit=limit)
-        return {"alerts": alerts, "count": len(alerts)}
+
+        def _fetch():
+            alerts = get_todays_volume_alerts(limit=limit)
+            return {"alerts": alerts, "count": len(alerts)}
+
+        return _cached_response(f"volume_radar:{limit}", 300, _fetch)
     except Exception as e:
         return {"error": str(e), "alerts": [], "count": 0}
 
@@ -9306,6 +9336,16 @@ def backtest_rankings():
     return get_model_rankings()
 
 
+@app.get("/api/backtest/history")
+def _backtest_history_stub(): return api_backtest_history()
+
+@app.get("/api/backtest/templates")
+def _backtest_templates_stub(): return api_backtest_templates()
+
+@app.get("/api/backtest/matrix")
+def _backtest_matrix_stub(): return api_backtest_matrix()
+
+
 @app.get("/api/backtest/{player_id}")
 def backtest(player_id: str, days: int = 30,
              start_date: str = None, end_date: str = None,
@@ -11767,15 +11807,18 @@ def inverse_etfs():
 # --- Sector Heatmap, Fear & Greed, Volume Profile, Breadth ---
 
 @app.get("/api/sector-heatmap")
-@timed_cache(300)
 def sector_heatmap():
-    """Sector ETF performance heatmap."""
+    """Sector ETF performance heatmap. Cached 15 min when market closed."""
     try:
         from engine.sector_heatmap import get_sector_heatmap
-        result = get_sector_heatmap()
-        if not result or not result.get("sectors"):
-            return {"sectors": [], "error": "No sector data available"}
-        return result
+
+        def _fetch():
+            result = get_sector_heatmap()
+            if not result or not result.get("sectors"):
+                return {"sectors": [], "error": "No sector data available"}
+            return result
+
+        return _cached_response("sector_heatmap", 900, _fetch)
     except Exception as e:
         return {"sectors": [], "error": str(e)}
 
@@ -11807,12 +11850,10 @@ def get_ohlcv(symbol: str = "SPY", interval: str = "5m", days: int = 5):
 
 @app.get("/api/fear-greed")
 def fear_greed():
-    """Custom Fear & Greed index."""
-    # No @timed_cache — fear_greed.py has its own internal 10-min cache.
-    # The decorator was caching 500 errors, preventing recovery.
+    """Custom Fear & Greed index. Cached 15 min when market closed."""
     try:
         from engine.fear_greed import get_fear_greed_index
-        return get_fear_greed_index()
+        return _cached_response("fear_greed", 900, get_fear_greed_index)
     except Exception as e:
         return {"score": 50, "label": "NEUTRAL", "error": f"Fear & Greed data unavailable: {e}", "signals": {}}
 
@@ -12168,6 +12209,94 @@ def dismiss_kirk_advisory(log_id: int):
     return {"ok": True}
 
 
+@app.get("/api/grok-advisor/advice")
+def get_grok_advice():
+    """Latest Grok swing trade advice for Kirk's positions."""
+    from engine.kirk_grok_advisor import get_latest_advice, get_scan_meta
+    return {"advice": get_latest_advice(), "meta": get_scan_meta()}
+
+
+@app.post("/api/grok-advisor/scan")
+def trigger_grok_scan():
+    """Manually trigger a Grok advisory scan (subject to daily cost cap)."""
+    from engine.kirk_grok_advisor import run_grok_advisory
+    return run_grok_advisory()
+
+
+@app.post("/api/grok-advisor/advice/{advice_id}/acknowledge")
+def acknowledge_grok_advice(advice_id: int):
+    """Mark a Grok advice row as acknowledged."""
+    from datetime import datetime
+    conn = _conn()
+    conn.execute(
+        "UPDATE portfolio_advice SET acknowledged=1, acknowledged_at=? WHERE id=?",
+        (datetime.now().isoformat(timespec="seconds"), advice_id),
+    )
+    conn.commit()
+    conn.close()
+    return {"ok": True}
+
+
+@app.get("/api/grok-advisor/cost")
+def get_grok_advisor_cost():
+    """Return today's Grok advisor spend vs daily cap."""
+    from engine.kirk_grok_advisor import get_daily_cost, DAILY_COST_CAP
+    return {"daily_cost": get_daily_cost(), "daily_cap": DAILY_COST_CAP}
+
+
+@app.get("/api/wb-team/advice")
+def get_wb_team_advice():
+    """Latest advice from all three advisors: Grok/Ollie, Troi, Worf."""
+    from engine.wb_advisory_team import get_team_advice
+    from engine.kirk_grok_advisor import get_scan_meta
+    return {"advisors": get_team_advice(), "meta": get_scan_meta()}
+
+
+@app.post("/api/wb-team/scan")
+def trigger_wb_team_scan():
+    """Manually trigger full advisory team scan (Grok/Ollie + Troi + Worf)."""
+    from engine.wb_advisory_team import run_team_scan
+    return run_team_scan()
+
+
+@app.post("/api/wb-team/troi/scan")
+def trigger_troi_scan():
+    """Manually trigger Troi sentiment scan only."""
+    from engine.wb_advisory_team import run_troi_scan
+    return run_troi_scan()
+
+
+@app.post("/api/wb-team/worf/scan")
+def trigger_worf_scan():
+    """Manually trigger Worf risk scan only."""
+    from engine.wb_advisory_team import run_worf_scan
+    return run_worf_scan()
+
+
+@app.get("/api/ship-computer/portfolio-alerts")
+def get_portfolio_alerts():
+    """Recent Ship's Computer Captain's Portfolio alerts (stop breaches, big moves, new advice)."""
+    from engine.portfolio_monitor import get_recent_alerts
+    return {"alerts": get_recent_alerts()}
+
+
+@app.post("/api/ship-computer/portfolio-check")
+def trigger_portfolio_check():
+    """Manually trigger a Ship's Computer portfolio check."""
+    from engine.portfolio_monitor import check_captains_portfolio
+    alerts = check_captains_portfolio()
+    return {"alerts_fired": len(alerts), "alerts": alerts}
+
+
+@app.post("/api/ship-computer/portfolio-alerts/seen")
+def mark_portfolio_alerts_seen(body: dict):
+    """Mark alert IDs as seen."""
+    from engine.portfolio_monitor import mark_seen
+    ids = body.get("ids", [])
+    mark_seen(ids)
+    return {"ok": True}
+
+
 @app.get("/api/congress/trades")
 @timed_cache(600)
 def congress_trades():
@@ -12351,8 +12480,10 @@ def webull_portfolio_alias():
     return RedirectResponse(url="/api/webull-portfolio", status_code=307)
 
 @app.get("/api/webull/positions")
-def webull_positions_stub():
-    return {"status": "coming_soon", "message": "Feature in development"}
+def webull_positions_live():
+    """Live Captain's Portfolio from Webull OpenAPI — returns dashboard-ready format."""
+    from engine.webull_client import get_portfolio_for_dashboard
+    return get_portfolio_for_dashboard()
 
 @app.get("/api/pairs")
 def pairs_stub():
@@ -15145,6 +15276,265 @@ def api_community_leaderboard(limit: int = 20):
         return JSONResponse({"ok": True, "results": [dict(r) for r in rows]})
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+# ── Backtest Arena v6: history / templates / matrix ──────────────────────────
+
+_BT_SEED = [
+    # (run_name, version_tag, days, date, agent_n, return_pct, sharpe, win_rate, max_dd, trades, note)
+    ("v1_180d",      "V1",          180, "2026-01-14", 29,  41.33, -0.061, 41.8, None,  2329, "Full 29 agents"),
+    ("v2_180d",      "V2_LEAN",     180, "2026-01-14",  5,   8.42,  0.874, 57.6, None,   298, "Double filter"),
+    ("v3_buggy",     "V3_BUGGY",     90, "2026-02-01",  5, -36.99, -0.034, 48.8, None,  None, "P&L cap missing"),
+    ("v3b_fixed",    "V3B_FIXED",    90, "2026-02-15",  5,  16.30,  1.003, 61.5, None,    87, "Bug fixed"),
+    ("sniper_tt",    "SNIPER_TT",  None, "2026-03-01",  5,   None,  1.136, 83.3, None,    18, "Best Sharpe ever"),
+    ("iron_condor",  "IRON_CONDOR",  90, "2026-03-15",  1, 249.60,   None, 82.1, None,   319, "Best single strategy"),
+    ("v5_baseline",  "V5_BASELINE",  60, "2026-04-10",  3,   0.00,  0.000,  0.0,  0.0,     0, "RSI never fired bear"),
+    ("v5_v2replay",  "V5_V2REPLAY",  60, "2026-04-10",  3,  -7.07, -3.310, 10.4,  9.7,    10, "Failed bear market"),
+    ("v5_s6current", "V5_S6",        60, "2026-04-10",  3,   1.08,  1.140, 38.9,  2.3,     4, "WINNER beat SPY +2.39%"),
+]
+_BT_SPY_MAP = {  # approximate SPY return for seed-row period
+    "2026-01-14": 8.4, "2026-02-01": 5.2, "2026-02-15": 3.1,
+    "2026-03-01": -1.0, "2026-03-15": 2.5, "2026-04-10": -1.31,
+}
+
+
+@app.get("/api/backtest/history")
+def api_backtest_history():
+    """All-time backtest history: DB + v5 JSON + historical seed data."""
+    rows: list[dict] = []
+
+    # 1. From DB
+    try:
+        conn = _conn()
+        db_rows = conn.execute(
+            """SELECT br.id, br.run_name, br.version_tag, br.days, br.spy_return,
+                      br.end_date, br.created_at, br.status, br.notes,
+                      res.player_id, res.display_name, res.total_return_pct,
+                      res.sharpe_ratio, res.win_rate, res.max_drawdown, res.num_trades
+               FROM backtest_runs br
+               LEFT JOIN backtest_results res ON res.run_id = br.id
+               ORDER BY br.created_at DESC"""
+        ).fetchall()
+        conn.close()
+        for r in db_rows:
+            r = dict(r)
+            spy_dec = r.get("spy_return") or 0
+            ret_pct = round((r.get("total_return_pct") or 0) * 100, 2)
+            rows.append({
+                "run_id":      f"db-{r['id']}",
+                "date":        (r.get("end_date") or r.get("created_at") or "")[:10],
+                "version_tag": r.get("version_tag") or r.get("run_name") or "—",
+                "agent":       r.get("display_name") or r.get("player_id") or "—",
+                "model":       r.get("player_id") or "—",
+                "strategy":    r.get("version_tag") or "—",
+                "days":        r.get("days"),
+                "return_pct":  ret_pct,
+                "sharpe":      r.get("sharpe_ratio"),
+                "win_rate":    round((r.get("win_rate") or 0) * 100, 1),
+                "max_dd":      round((r.get("max_drawdown") or 0) * 100, 1),
+                "trades":      r.get("num_trades"),
+                "vs_spy":      round(ret_pct - spy_dec * 100, 2),
+                "status":      r.get("status") or "completed",
+                "source":      "db",
+                "notes":       r.get("notes") or "",
+            })
+    except Exception as e:
+        logger.warning("backtest history DB: %s", e)
+
+    # 2. From data/backtest_v5_results.json
+    try:
+        v5_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "backtest_v5_results.json")
+        if os.path.exists(v5_path):
+            with open(v5_path) as _f:
+                v5 = json.load(_f)
+            spy_ret = v5.get("spy_return_pct", 0)
+            p_end   = v5.get("period_end", "")
+            days_v5 = v5.get("trading_days", 60)
+            _amap   = {"navigator": "Chekov", "ollama-qwen3": "Dax",
+                       "ollama-plutus": "McCoy", "ollama-coder": "Data", "neo-matrix": "Neo"}
+            ta = v5.get("test_a_baseline") or {}
+            rows.append({
+                "run_id": "v5-A", "date": p_end, "version_tag": "V5_BASELINE",
+                "agent": "Fleet", "model": "3 agents", "strategy": "BASELINE",
+                "days": days_v5, "return_pct": round(ta.get("total_return_pct", 0), 2),
+                "sharpe": ta.get("sharpe", 0), "win_rate": round(ta.get("win_rate", 0), 1),
+                "max_dd": round(ta.get("max_drawdown_pct", 0), 1), "trades": ta.get("total_trades", 0),
+                "vs_spy": round((ta.get("total_return_pct", 0)) - spy_ret, 2),
+                "status": "completed", "source": "json", "notes": "v5 RSI baseline",
+            })
+            for pid, s in (v5.get("test_b_v2_replay") or {}).items():
+                if not isinstance(s, dict): continue
+                rows.append({
+                    "run_id": f"v5-B-{pid}", "date": p_end, "version_tag": "V5_V2REPLAY",
+                    "agent": _amap.get(pid, pid), "model": pid, "strategy": "V2_REPLAY",
+                    "days": days_v5,
+                    "return_pct": round(s.get("total_return_pct", 0), 2),
+                    "sharpe": s.get("sharpe"), "win_rate": round(s.get("win_rate", 0), 1),
+                    "max_dd": round(s.get("max_drawdown_pct", 0), 1), "trades": s.get("total_trades"),
+                    "vs_spy": round(s.get("total_return_pct", 0) - spy_ret, 2),
+                    "status": "completed", "source": "json", "notes": "v5 V2 replay",
+                })
+            for pid, s in (v5.get("test_c_current_s6") or {}).items():
+                if not isinstance(s, dict): continue
+                rows.append({
+                    "run_id": f"v5-C-{pid}", "date": p_end, "version_tag": "V5_S6",
+                    "agent": _amap.get(pid, pid), "model": pid, "strategy": "S6_CURRENT",
+                    "days": days_v5,
+                    "return_pct": round(s.get("total_return_pct", 0), 2),
+                    "sharpe": s.get("sharpe"), "win_rate": round(s.get("win_rate", 0), 1),
+                    "max_dd": round(s.get("max_drawdown_pct", 0), 1), "trades": s.get("total_trades"),
+                    "vs_spy": round(s.get("total_return_pct", 0) - spy_ret, 2),
+                    "status": "completed", "source": "json", "notes": "v5 S6 current",
+                })
+    except Exception as e:
+        logger.warning("backtest history v5 json: %s", e)
+
+    # 3. Seed rows (only if not already present from DB by run_name)
+    existing_ids = {r["run_id"] for r in rows}
+    for (rname, ver, days_s, dt, agent_n, ret, sharpe, wr, mdd, trades, note) in _BT_SEED:
+        if rname in existing_ids:
+            continue
+        spy_s = _BT_SPY_MAP.get(dt, 0)
+        rows.append({
+            "run_id": rname, "date": dt, "version_tag": ver,
+            "agent": f"Fleet ({agent_n})", "model": f"{agent_n} agents",
+            "strategy": ver, "days": days_s, "return_pct": ret,
+            "sharpe": sharpe, "win_rate": wr, "max_dd": mdd, "trades": trades,
+            "vs_spy": round((ret or 0) - spy_s, 2),
+            "status": "completed", "source": "seed", "notes": note,
+        })
+
+    # Best-ever
+    def _best(lst, key):
+        valid = [r for r in lst if r.get(key) is not None]
+        if not valid: return None
+        b = max(valid, key=lambda x: x[key] or -999)
+        return {"value": b[key], "agent": b.get("agent"), "date": b.get("date")}
+
+    best = {
+        "return":   _best(rows, "return_pct"),
+        "sharpe":   _best(rows, "sharpe"),
+        "win_rate": _best(rows, "win_rate"),
+        "trades":   _best(rows, "trades"),
+    }
+    return JSONResponse({"ok": True, "rows": _sanitize_floats(rows), "best": _sanitize_floats(best)})
+
+
+@app.get("/api/backtest/templates")
+def api_backtest_templates():
+    """Strategy template library for quick-launch backtest configs."""
+    templates = [
+        {"id": "s6_sniper",       "tier": 1, "name": "S6 Sniper Mode",
+         "ticker": "SPY",  "period_days": 365, "strategy": "momentum",
+         "label": "Current Live Config",
+         "desc": "Triple filter + Ollie gate. Season 6 production config.",
+         "metrics": {"return_pct": 1.08, "sharpe": 1.14, "win_rate": 38.9}},
+        {"id": "iron_condor",     "tier": 1, "name": "Iron Condor King",
+         "ticker": "SPY",  "period_days": 365, "strategy": "buy_hold",
+         "label": "Best All-Time",
+         "desc": "Range-bound options. Best recorded: +249.6%, WR 82.1%",
+         "metrics": {"return_pct": 249.6, "sharpe": None, "win_rate": 82.1}},
+        {"id": "v3b_fixed",       "tier": 1, "name": "V3b Fixed",
+         "ticker": "SPY",  "period_days": 180, "strategy": "rsi",
+         "label": "Proven Formula",
+         "desc": "11 agents, P&L capped. Best: +16.30%, Sharpe 1.003",
+         "metrics": {"return_pct": 16.30, "sharpe": 1.003, "win_rate": 61.5}},
+        {"id": "chekov_scanner",  "tier": 2, "name": "Chekov Scanner",
+         "ticker": "QQQ",  "period_days": 90,  "strategy": "momentum",
+         "label": "Best Free Agent",
+         "desc": "navigator agent, top free performer. Momentum-based.",
+         "metrics": {"return_pct": None, "sharpe": None, "win_rate": None}},
+        {"id": "mccoy_crisis",    "tier": 2, "name": "McCoy Crisis Mode",
+         "ticker": "SPY",  "period_days": 180, "strategy": "rsi",
+         "label": "Bear Market Play",
+         "desc": "ollama-plutus · VIX>22 filter · RSI mean reversion",
+         "metrics": {"return_pct": None, "sharpe": None, "win_rate": None}},
+        {"id": "neo_conviction",  "tier": 2, "name": "Neo High Conviction",
+         "ticker": "QQQ",  "period_days": 365, "strategy": "momentum",
+         "label": "Conviction Filter",
+         "desc": "neo-matrix · alpha >= 0.6 only · concentrated bets",
+         "metrics": {"return_pct": None, "sharpe": None, "win_rate": None}},
+        {"id": "debate_pipeline", "tier": 3, "name": "Debate Pipeline",
+         "ticker": "SPY",  "period_days": 365, "strategy": "buy_hold",
+         "label": "Near SPY",
+         "desc": "Multi-agent Riker+Worf+Picard. +13.3% return, 0.42 Sharpe",
+         "metrics": {"return_pct": 13.3, "sharpe": 0.42, "win_rate": None}},
+        {"id": "rsi_sweep",       "tier": 3, "name": "RSI Sweep SPY",
+         "ticker": "SPY",  "period_days": 365, "strategy": "rsi",
+         "label": "Baseline Reference",
+         "desc": "RSI 14 · entry 30 · exit 70 · classic setup",
+         "metrics": {"return_pct": None, "sharpe": None, "win_rate": None}},
+        {"id": "congress_copy",   "tier": 3, "name": "Congress Copycat",
+         "ticker": "SPY",  "period_days": 180, "strategy": "momentum",
+         "label": "Free Signal",
+         "desc": "Alt data signal source · Capitol trades feed",
+         "metrics": {"return_pct": None, "sharpe": None, "win_rate": None}},
+    ]
+    return JSONResponse({"ok": True, "templates": templates})
+
+
+@app.get("/api/backtest/matrix")
+def api_backtest_matrix():
+    """Agent × strategy Sharpe heatmap. Best Sharpe per (player_id, version_tag)."""
+    agents = ["navigator", "ollama-plutus", "ollama-qwen3", "ollama-coder", "neo-matrix"]
+    _adisp = {"navigator": "Chekov", "ollama-plutus": "McCoy",
+              "ollama-qwen3": "Dax", "ollama-coder": "Data", "neo-matrix": "Neo"}
+    strategies = ["BASELINE", "V2_ALPHA", "V3_CONC", "V5_S6", "V5_V2REPLAY", "V5_BASELINE"]
+
+    matrix: dict[str, dict[str, float | None]] = {a: {s: None for s in strategies} for a in agents}
+
+    try:
+        conn = _conn()
+        rows = conn.execute(
+            """SELECT res.player_id, br.version_tag, MAX(res.sharpe_ratio) as best
+               FROM backtest_results res
+               JOIN backtest_runs br ON br.id = res.run_id
+               WHERE res.sharpe_ratio IS NOT NULL AND br.version_tag IS NOT NULL
+               GROUP BY res.player_id, br.version_tag"""
+        ).fetchall()
+        conn.close()
+        for r in rows:
+            pid, ver, sh = r["player_id"], r["version_tag"], r["best"]
+            if pid in matrix and ver in strategies:
+                matrix[pid][ver] = round(sh, 3)
+    except Exception as e:
+        logger.warning("backtest matrix DB: %s", e)
+
+    try:
+        v5_path = os.path.join(os.path.dirname(os.path.dirname(__file__)), "data", "backtest_v5_results.json")
+        if os.path.exists(v5_path):
+            with open(v5_path) as _f:
+                v5 = json.load(_f)
+            for pid, s in (v5.get("test_b_v2_replay") or {}).items():
+                if isinstance(s, dict) and s.get("sharpe") is not None and pid in matrix:
+                    cur = matrix[pid].get("V5_V2REPLAY")
+                    if cur is None or s["sharpe"] > cur:
+                        matrix[pid]["V5_V2REPLAY"] = round(s["sharpe"], 3)
+            for pid, s in (v5.get("test_c_current_s6") or {}).items():
+                if isinstance(s, dict) and s.get("sharpe") is not None and pid in matrix:
+                    cur = matrix[pid].get("V5_S6")
+                    if cur is None or s["sharpe"] > cur:
+                        matrix[pid]["V5_S6"] = round(s["sharpe"], 3)
+    except Exception:
+        pass
+
+    best_combo: dict = {"agent": None, "strategy": None, "sharpe": None}
+    for a in agents:
+        for s in strategies:
+            v = matrix[a][s]
+            if v is not None and (best_combo["sharpe"] is None or v > best_combo["sharpe"]):
+                best_combo = {"agent": _adisp.get(a, a), "strategy": s, "sharpe": v}
+
+    result = [
+        {"agent_id": a, "agent": _adisp.get(a, a),
+         "combos": {s: matrix[a][s] for s in strategies}}
+        for a in agents
+    ]
+    return JSONResponse({
+        "ok": True, "strategies": strategies,
+        "matrix": _sanitize_floats(result),
+        "best_combo": _sanitize_floats(best_combo),
+    })
 
 
 if __name__ == "__main__":

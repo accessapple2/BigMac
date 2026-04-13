@@ -1,0 +1,396 @@
+"""Webull Advisory Team — Troi (sentiment) + Worf (risk) advisors for Kirk's portfolio.
+
+Both run on local Ollama (free). Orchestrated by run_team_scan() which calls
+kirk_grok_advisor.run_grok_advisory() (Grok/Ollie) then Troi then Worf, combining
+all three into a unified portfolio_advice row per symbol with advisor='troi'/'worf'.
+"""
+from __future__ import annotations
+
+import json
+import logging
+import os
+import sqlite3
+import time
+from datetime import datetime, timedelta
+
+import requests
+
+logger = logging.getLogger("wb_advisory_team")
+
+DB = "data/trader.db"
+OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+
+# Troi uses a lighter model — fast sentiment pass
+TROI_MODEL = os.getenv("TROI_MODEL", os.getenv("CREWAI_CODE_MODEL", "qwen2.5-coder:7b-instruct"))
+# Worf uses the larger model for deeper risk analysis
+WORF_MODEL = os.getenv("WORF_MODEL", os.getenv("CREWAI_MODEL", "qwen3:14b"))
+
+
+TROI_SYSTEM = (
+    "You are Counselor Troi, sentiment and market psychology advisor for a retail swing portfolio. "
+    "For each position analyze:\\n"
+    "- Market sentiment (fear/greed index context)\\n"
+    "- News/social sentiment for the ticker (bullish/bearish/neutral)\\n"
+    "- Crowd behavior risk (momentum chasing, panic selling risk)\\n"
+    "- Emotional bias check (is Kirk likely overconfident or fearful in this position?)\\n\\n"
+    "Keep analysis concise (1-2 sentences). Focus on psychology, not technicals.\\n\\n"
+    "Respond with a JSON array only. Each element must have exactly these keys:\\n"
+    '{"symbol":"AAPL","sentiment":"bullish","crowd_risk":"low","bias_check":"neutral",'
+    '"reasoning":"...","confidence":0.70}\\n\\n'
+    "Return ONLY valid JSON — no markdown, no preamble, no trailing text."
+)
+
+WORF_SYSTEM = (
+    "You are Lieutenant Worf, tactical risk officer for a retail swing portfolio. "
+    "For each position assess:\\n"
+    "- Downside risk (% loss if stop triggered)\\n"
+    "- Position size risk (too large relative to $6,500 account?)\\n"
+    "- Sector/macro risk (upcoming earnings, Fed events, geopolitical)\\n"
+    "- Tactical recommendation: HOLD_POSITION / REDUCE_EXPOSURE / EXIT_NOW\\n\\n"
+    "Keep analysis concise (1-2 sentences). Be direct — Worf is blunt.\\n\\n"
+    "Respond with a JSON array only. Each element must have exactly these keys:\\n"
+    '{"symbol":"AAPL","risk_level":"medium","downside_pct":8.5,'
+    '"tactical":"HOLD_POSITION","risk_factors":"...","confidence":0.80}\\n\\n'
+    "Return ONLY valid JSON — no markdown, no preamble, no trailing text."
+)
+
+
+# ── DB helpers ───────────────────────────────────────────────────────────────
+
+
+def _conn() -> sqlite3.Connection:
+    c = sqlite3.connect(DB, check_same_thread=False)
+    c.execute("PRAGMA journal_mode=WAL")
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def _init_db():
+    """Ensure portfolio_advice table exists (shared with grok advisor)."""
+    conn = _conn()
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS portfolio_advice (
+            id               INTEGER PRIMARY KEY AUTOINCREMENT,
+            symbol           TEXT NOT NULL,
+            advisor          TEXT NOT NULL DEFAULT 'grok',
+            action           TEXT,
+            confidence       REAL,
+            reasoning        TEXT,
+            support_level    REAL,
+            resistance_level REAL,
+            stop_loss        REAL,
+            target_price     REAL,
+            hold_period      TEXT,
+            model_used       TEXT,
+            response_time_ms INTEGER,
+            created_at       TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            expires_at       TIMESTAMP,
+            acknowledged     INTEGER DEFAULT 0,
+            acknowledged_at  TIMESTAMP,
+            raw_response     TEXT
+        )
+    """)
+    # Safe column additions for older tables
+    for col, typedef in [
+        ("model_used", "TEXT"),
+        ("response_time_ms", "INTEGER"),
+        ("sentiment", "TEXT"),
+        ("crowd_risk", "TEXT"),
+        ("bias_check", "TEXT"),
+        ("risk_level", "TEXT"),
+        ("downside_pct", "REAL"),
+        ("tactical", "TEXT"),
+        ("risk_factors", "TEXT"),
+    ]:
+        try:
+            conn.execute(f"ALTER TABLE portfolio_advice ADD COLUMN {col} {typedef}")
+        except Exception:
+            pass
+    conn.commit()
+    conn.close()
+
+
+# ── Position fetch ───────────────────────────────────────────────────────────
+
+
+def _get_positions() -> list[dict]:
+    """Return Kirk's current Webull positions from DB."""
+    try:
+        conn = _conn()
+        rows = conn.execute(
+            "SELECT p.symbol, p.qty, p.avg_price, "
+            "  COALESCE(p.current_price, p.avg_price) AS current_price "
+            "FROM positions p "
+            "WHERE p.player_id='steve-webull' AND p.qty > 0 "
+            "ORDER BY p.symbol",
+        ).fetchall()
+        conn.close()
+        result = []
+        for r in rows:
+            row = dict(r)
+            avg = row.get("avg_price") or 0
+            cur = row.get("current_price") or avg
+            row["pnl_pct"] = round((cur - avg) / avg * 100, 2) if avg else 0
+            result.append(row)
+        return result
+    except Exception as e:
+        logger.warning("Failed to fetch positions: %s", e)
+        return []
+
+
+def _build_position_prompt(positions: list[dict]) -> str:
+    lines = []
+    for p in positions:
+        lines.append(
+            f"  {p['symbol']}: {p['qty']} shares, "
+            f"entry ${p.get('avg_price', 0):.2f}, "
+            f"current ${p.get('current_price', 0):.2f}, "
+            f"P&L {p.get('pnl_pct', 0):+.1f}%"
+        )
+    return (
+        "Kirk's Webull swing portfolio (~$6,500 account):\n"
+        + "\n".join(lines)
+    )
+
+
+# ── Ollama call ──────────────────────────────────────────────────────────────
+
+
+def _call_ollama(system: str, prompt: str, model: str, timeout: int = 120) -> tuple[str, int]:
+    """POST to Ollama. Returns (text, response_time_ms)."""
+    full_prompt = system + "\n\n" + prompt
+    t0 = time.time()
+    resp = requests.post(
+        f"{OLLAMA_BASE_URL}/api/generate",
+        json={"model": model, "prompt": full_prompt, "stream": False},
+        timeout=timeout,
+    )
+    resp.raise_for_status()
+    content = resp.json().get("response", "")
+    ms = int((time.time() - t0) * 1000)
+    return content, ms
+
+
+def _parse_json(raw: str) -> list[dict]:
+    text = raw.strip()
+    if text.startswith("```"):
+        lines = text.splitlines()
+        text = "\n".join(lines[1:-1]).strip()
+    return json.loads(text)
+
+
+# ── Save helpers ─────────────────────────────────────────────────────────────
+
+
+def _save_troi(items: list[dict], raw: str, model: str, ms: int):
+    now = datetime.utcnow()
+    now_iso = now.isoformat()
+    expires_iso = (now + timedelta(hours=8)).isoformat()
+    conn = _conn()
+    for item in items:
+        symbol = (item.get("symbol") or "").upper().strip()
+        if not symbol:
+            continue
+        conn.execute(
+            "UPDATE portfolio_advice SET expires_at=? "
+            "WHERE symbol=? AND advisor='troi' AND acknowledged=0 "
+            "  AND (expires_at IS NULL OR expires_at > ?)",
+            (now_iso, symbol, now_iso),
+        )
+        conn.execute(
+            "INSERT INTO portfolio_advice "
+            "(symbol, advisor, action, confidence, reasoning, "
+            " sentiment, crowd_risk, bias_check, "
+            " model_used, response_time_ms, created_at, expires_at, raw_response) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                symbol, "troi",
+                item.get("sentiment", "neutral").upper(),
+                item.get("confidence"),
+                item.get("reasoning", ""),
+                item.get("sentiment", ""),
+                item.get("crowd_risk", ""),
+                item.get("bias_check", ""),
+                model,
+                ms,
+                now_iso,
+                expires_iso,
+                raw,
+            ),
+        )
+    conn.commit()
+    conn.close()
+
+
+def _save_worf(items: list[dict], raw: str, model: str, ms: int):
+    now = datetime.utcnow()
+    now_iso = now.isoformat()
+    expires_iso = (now + timedelta(hours=8)).isoformat()
+    conn = _conn()
+    for item in items:
+        symbol = (item.get("symbol") or "").upper().strip()
+        if not symbol:
+            continue
+        conn.execute(
+            "UPDATE portfolio_advice SET expires_at=? "
+            "WHERE symbol=? AND advisor='worf' AND acknowledged=0 "
+            "  AND (expires_at IS NULL OR expires_at > ?)",
+            (now_iso, symbol, now_iso),
+        )
+        conn.execute(
+            "INSERT INTO portfolio_advice "
+            "(symbol, advisor, action, confidence, reasoning, "
+            " risk_level, downside_pct, tactical, risk_factors, "
+            " model_used, response_time_ms, created_at, expires_at, raw_response) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                symbol, "worf",
+                item.get("tactical", "HOLD_POSITION"),
+                item.get("confidence"),
+                item.get("risk_factors", ""),
+                item.get("risk_level", ""),
+                item.get("downside_pct"),
+                item.get("tactical", ""),
+                item.get("risk_factors", ""),
+                model,
+                ms,
+                now_iso,
+                expires_iso,
+                raw,
+            ),
+        )
+    conn.commit()
+    conn.close()
+
+
+# ── Individual advisor runs ──────────────────────────────────────────────────
+
+
+def run_troi_scan(positions: list[dict] | None = None) -> dict:
+    """Run Troi sentiment scan. Returns summary dict."""
+    _init_db()
+    if positions is None:
+        positions = _get_positions()
+    if not positions:
+        return {"skipped": True, "reason": "no_positions"}
+
+    prompt = _build_position_prompt(positions) + "\n\nProvide sentiment analysis for each position."
+    try:
+        raw, ms = _call_ollama(TROI_SYSTEM, prompt, TROI_MODEL)
+    except Exception as e:
+        logger.error("Troi scan failed: %s", e)
+        return {"error": str(e)}
+
+    try:
+        items = _parse_json(raw)
+    except Exception as e:
+        logger.error("Troi parse error: %s | raw: %.200s", e, raw)
+        return {"error": f"parse_error: {e}", "raw_preview": raw[:400]}
+
+    _save_troi(items, raw, TROI_MODEL, ms)
+    logger.info("Troi scan saved: %d sentiment assessments (%dms)", len(items), ms)
+    return {
+        "symbols_analyzed": len(items),
+        "model": TROI_MODEL,
+        "response_time_ms": ms,
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+
+def run_worf_scan(positions: list[dict] | None = None) -> dict:
+    """Run Worf risk scan. Returns summary dict."""
+    _init_db()
+    if positions is None:
+        positions = _get_positions()
+    if not positions:
+        return {"skipped": True, "reason": "no_positions"}
+
+    prompt = _build_position_prompt(positions) + "\n\nProvide risk assessment for each position."
+    try:
+        raw, ms = _call_ollama(WORF_SYSTEM, prompt, WORF_MODEL)
+    except Exception as e:
+        logger.error("Worf scan failed: %s", e)
+        return {"error": str(e)}
+
+    try:
+        items = _parse_json(raw)
+    except Exception as e:
+        logger.error("Worf parse error: %s | raw: %.200s", e, raw)
+        return {"error": f"parse_error: {e}", "raw_preview": raw[:400]}
+
+    _save_worf(items, raw, WORF_MODEL, ms)
+    logger.info("Worf scan saved: %d risk assessments (%dms)", len(items), ms)
+    return {
+        "symbols_analyzed": len(items),
+        "model": WORF_MODEL,
+        "response_time_ms": ms,
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+
+# ── Team orchestrator ────────────────────────────────────────────────────────
+
+
+def run_team_scan() -> dict:
+    """Run full advisory team: Grok/Ollie → Troi → Worf in parallel-ish sequence.
+
+    Returns combined summary.
+    """
+    from engine.kirk_grok_advisor import run_grok_advisory
+
+    positions = _get_positions()
+    if not positions:
+        return {"skipped": True, "reason": "no_positions"}
+
+    results = {}
+    results["grok"] = run_grok_advisory()
+    results["troi"] = run_troi_scan(positions)
+    results["worf"] = run_worf_scan(positions)
+
+    logger.info(
+        "Team scan complete — grok:%s troi:%s worf:%s",
+        results["grok"].get("symbols_analyzed", results["grok"].get("error", "skip")),
+        results["troi"].get("symbols_analyzed", results["troi"].get("error", "skip")),
+        results["worf"].get("symbols_analyzed", results["worf"].get("error", "skip")),
+    )
+    return {
+        "team_scan": True,
+        "positions": len(positions),
+        "grok": results["grok"],
+        "troi": results["troi"],
+        "worf": results["worf"],
+        "generated_at": datetime.utcnow().isoformat() + "Z",
+    }
+
+
+# ── Read helpers ─────────────────────────────────────────────────────────────
+
+
+def get_team_advice() -> dict[str, list[dict]]:
+    """Return latest non-expired advice grouped by advisor: {grok: [...], troi: [...], worf: [...]}."""
+    _init_db()
+    result: dict[str, list[dict]] = {"grok": [], "troi": [], "worf": []}
+    try:
+        conn = _conn()
+        rows = conn.execute(
+            "SELECT id, symbol, advisor, action, confidence, reasoning, "
+            "  support_level, resistance_level, stop_loss, target_price, hold_period, "
+            "  sentiment, crowd_risk, bias_check, "
+            "  risk_level, downside_pct, tactical, risk_factors, "
+            "  model_used, response_time_ms, created_at, expires_at, acknowledged "
+            "FROM portfolio_advice "
+            "WHERE advisor IN ('grok','troi','worf') "
+            "  AND (expires_at IS NULL OR expires_at > datetime('now')) "
+            "ORDER BY advisor, created_at DESC",
+        ).fetchall()
+        conn.close()
+        seen: dict[str, set[str]] = {"grok": set(), "troi": set(), "worf": set()}
+        for r in rows:
+            adv = r["advisor"]
+            sym = r["symbol"]
+            if adv in seen and sym not in seen[adv]:
+                seen[adv].add(sym)
+                result[adv].append(dict(r))
+    except Exception as e:
+        logger.error("get_team_advice: %s", e)
+    return result

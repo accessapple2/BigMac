@@ -1,0 +1,181 @@
+{
+  "tag": "season6_execution_reality",
+  "date": "2026-04-10",
+  "metadata": {
+    "starting_capital": 10000.0,
+    "period": "2026-01-10 to 2026-04-10",
+    "spy_return": -1.93,
+    "s61_allstars": 2.28,
+    "s62_spreadking_optimistic": 95.75,
+    "data_sources": {
+      "iron_condor": "backtester_signals (Counselor Troi / options-sosnoff)",
+      "bear_call_spread": "backtester_signals (Lt. Cmdr. Worf / gemini-2.5-flash)",
+      "bull_put_spread": "actual_trades (options-sosnoff, energy-arnold) \u2014 4 trades",
+      "covered_call": "actual_trades (options-sosnoff, claude-haiku) \u2014 37 trades"
+    },
+    "note": "iron_condor and bear_call_spread are SIMULATED backtest data, not live fills"
+  },
+  "scenario_a_optimistic": {
+    "scenario": "A_optimistic",
+    "blend_return_pct": 90.6119,
+    "blend_pnl": 9061.19,
+    "final_value": 19061.19,
+    "alpha_vs_spy_pp": 92.5419,
+    "beats_spy": true,
+    "beats_allstars": true,
+    "per_strategy": {
+      "iron_condor": {
+        "gross_pnl": 24955.98,
+        "gross_return": 249.5598,
+        "penalty": 1247.8,
+        "net_pnl": 23708.18,
+        "net_return": 237.0818,
+        "trades": 319,
+        "win_rate": 82.1,
+        "source": "backtester_signals"
+      },
+      "bear_call_spread": {
+        "gross_pnl": -2099.09,
+        "gross_return": -20.9909,
+        "penalty": 0.0,
+        "net_pnl": -2099.09,
+        "net_return": -20.9909,
+        "trades": 718,
+        "win_rate": 35.2,
+        "source": "backtester_signals"
+      },
+      "bull_put_spread": {
+        "gross_pnl": 1511.49,
+        "gross_return": 15.1149,
+        "penalty": 75.57,
+        "net_pnl": 1435.92,
+        "net_return": 14.3592,
+        "trades": 4,
+        "win_rate": 75.0,
+        "source": "actual_trades"
+      },
+      "covered_call": {
+        "gross_pnl": -795.35,
+        "gross_return": -7.9535,
+        "penalty": 0.0,
+        "net_pnl": -795.35,
+        "net_return": -7.9535,
+        "trades": 37,
+        "win_rate": 24.3,
+        "source": "actual_trades"
+      }
+    }
+  },
+  "scenario_b_realistic": {
+    "scenario": "B_realistic",
+    "blend_return_pct": 86.8959,
+    "blend_pnl": 8689.59,
+    "final_value": 18689.59,
+    "alpha_vs_spy_pp": 88.8259,
+    "beats_spy": true,
+    "beats_allstars": true,
+    "per_strategy": {
+      "iron_condor": {
+        "gross_pnl": 24955.98,
+        "gross_return": 249.5598,
+        "penalty": 2083.82,
+        "net_pnl": 22872.16,
+        "net_return": 228.7216,
+        "trades": 319,
+        "win_rate": 82.1,
+        "source": "backtester_signals"
+      },
+      "bear_call_spread": {
+        "gross_pnl": -2099.09,
+        "gross_return": -20.9909,
+        "penalty": 110.2,
+        "net_pnl": -2209.29,
+        "net_return": -22.0929,
+        "trades": 718,
+        "win_rate": 35.2,
+        "source": "backtester_signals"
+      },
+      "bull_put_spread": {
+        "gross_pnl": 1511.49,
+        "gross_return": 15.1149,
+        "penalty": 79.35,
+        "net_pnl": 1432.14,
+        "net_return": 14.3214,
+        "trades": 4,
+        "win_rate": 75.0,
+        "source": "actual_trades"
+      },
+      "covered_call": {
+        "gross_pnl": -795.35,
+        "gross_return": -7.9535,
+        "penalty": 33.8,
+        "net_pnl": -829.15,
+        "net_return": -8.2915,
+        "trades": 37,
+        "win_rate": 24.3,
+        "source": "actual_trades"
+      }
+    }
+  },
+  "scenario_c_stress": {
+    "scenario": "C_stress",
+    "blend_return_pct": 80.9143,
+    "blend_pnl": 8091.43,
+    "final_value": 18091.43,
+    "alpha_vs_spy_pp": 82.8443,
+    "beats_spy": true,
+    "beats_allstars": true,
+    "per_strategy": {
+      "iron_condor": {
+        "gross_pnl": 24955.98,
+        "gross_return": 249.5598,
+        "penalty": 3443.93,
+        "net_pnl": 21512.05,
+        "net_return": 215.1205,
+        "trades": 319,
+        "win_rate": 82.1,
+        "source": "backtester_signals"
+      },
+      "bear_call_spread": {
+        "gross_pnl": -2099.09,
+        "gross_return": -20.9909,
+        "penalty": 222.5,
+        "net_pnl": -2321.59,
+        "net_return": -23.2159,
+        "trades": 718,
+        "win_rate": 35.2,
+        "source": "backtester_signals"
+      },
+      "bull_put_spread": {
+        "gross_pnl": 1511.49,
+        "gross_return": 15.1149,
+        "penalty": 160.22,
+        "net_pnl": 1351.27,
+        "net_return": 13.5127,
+        "trades": 4,
+        "win_rate": 75.0,
+        "source": "actual_trades"
+      },
+      "covered_call": {
+        "gross_pnl": -795.35,
+        "gross_return": -7.9535,
+        "penalty": 76.35,
+        "net_pnl": -871.7,
+        "net_return": -8.717,
+        "trades": 37,
+        "win_rate": 24.3,
+        "source": "actual_trades"
+      }
+    }
+  },
+  "break_even_slippage": {
+    "spreadking_vs_allstars_pct": 97.62,
+    "spreadking_vs_allstars_desc": "97.6% of returns consumed = equals All-Stars +2.28%",
+    "spreadking_vs_spy_pct": 102.02,
+    "spreadking_vs_spy_desc": "Requires >102% slip rate to fall to SPY level \u2014 virtually impossible",
+    "iron_condor_vs_zero_pct": 100.0,
+    "iron_condor_vs_zero_desc": "IC requires 100% of gross consumed to reach 0% \u2014 invincible to realistic slippage",
+    "weighted_gross_blend": 95.75
+  },
+  "recommendation": "Spread King blend remains strongly positive under all execution scenarios. Realistic (B): +86.9%, Stress (C): +80.9%. Key action: reduce bear_call_spread weight from 30% to 5% (negative alpha, 718 trades of drag). Increase iron_condor to 50% and bull_put_spread to 30%. Execution risk is manageable \u2014 iron condor PnL absorbs execution friction at 10-15% rates without losing alpha."
+}

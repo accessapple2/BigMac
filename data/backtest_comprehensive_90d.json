@@ -1,0 +1,848 @@
+{
+  "metadata": {
+    "generated_at": "2026-04-10T21:36:23.269864",
+    "start_date": "2026-01-10",
+    "end_date": "2026-04-10",
+    "starting_capital": 10000.0,
+    "slippage_equity": 0.001,
+    "slippage_options": 0.03,
+    "position_size_pct": 0.05,
+    "db_path": "/Users/bigmac/autonomous-trader/data/trader.db"
+  },
+  "spy_benchmark": {
+    "symbol": "SPY",
+    "start_price": 693.27,
+    "end_price": 679.91,
+    "return_pct": -1.93,
+    "pnl": -192.66,
+    "start_date": "2026-01-10",
+    "end_date": "2026-04-10"
+  },
+  "individual_strategies": [
+    {
+      "strategy": "long_equity",
+      "source": "actual_trades",
+      "players": [
+        "grok-4",
+        "claude-sonnet",
+        "gpt-4o"
+      ],
+      "trades": 85,
+      "wins": 12,
+      "losses": 73,
+      "win_rate": 14.1,
+      "total_pnl": -3799.48,
+      "avg_pnl": -44.7,
+      "worst": -873.0,
+      "best": 35.81,
+      "return_pct": -37.99,
+      "note": "85 closed trades from 3 player(s)"
+    },
+    {
+      "strategy": "swing_trade",
+      "source": "actual_trades",
+      "players": [
+        "dayblade-sulu",
+        "options-sosnoff",
+        "grok-3"
+      ],
+      "trades": 60,
+      "wins": 18,
+      "losses": 42,
+      "win_rate": 30.0,
+      "total_pnl": -3817.08,
+      "avg_pnl": -63.62,
+      "worst": -794.43,
+      "best": 1500.11,
+      "return_pct": -38.17,
+      "note": "60 closed trades from 3 player(s)"
+    },
+    {
+      "strategy": "momentum",
+      "source": "actual_trades",
+      "players": [
+        "ollama-local",
+        "gemini-2.5-flash",
+        "ollama-plutus"
+      ],
+      "trades": 92,
+      "wins": 18,
+      "losses": 74,
+      "win_rate": 19.6,
+      "total_pnl": -11938.19,
+      "avg_pnl": -129.76,
+      "worst": -953.47,
+      "best": 7.26,
+      "return_pct": -119.38,
+      "note": "92 closed trades from 3 player(s)"
+    },
+    {
+      "strategy": "ema_pullback",
+      "source": "actual_trades",
+      "players": [
+        "mlx-qwen3",
+        "ollama-deepseek"
+      ],
+      "trades": 29,
+      "wins": 5,
+      "losses": 24,
+      "win_rate": 17.2,
+      "total_pnl": -3387.77,
+      "avg_pnl": -116.82,
+      "worst": -970.0,
+      "best": 29.7,
+      "return_pct": -33.88,
+      "note": "29 closed trades from 2 player(s)"
+    },
+    {
+      "strategy": "mean_reversion",
+      "source": "actual_trades",
+      "players": [
+        "ollama-llama",
+        "ollama-kimi"
+      ],
+      "trades": 52,
+      "wins": 8,
+      "losses": 44,
+      "win_rate": 15.4,
+      "total_pnl": -6675.37,
+      "avg_pnl": -128.37,
+      "worst": -760.58,
+      "best": 71.79,
+      "return_pct": -66.75,
+      "note": "52 closed trades from 2 player(s)"
+    },
+    {
+      "strategy": "rsi_bounce",
+      "source": "actual_trades",
+      "players": [
+        "energy-arnold",
+        "grok-4"
+      ],
+      "trades": 11,
+      "wins": 10,
+      "losses": 1,
+      "win_rate": 90.9,
+      "total_pnl": 32.58,
+      "avg_pnl": 2.96,
+      "worst": 0.0,
+      "best": 10.54,
+      "return_pct": 0.33,
+      "note": "11 closed trades from 2 player(s)"
+    },
+    {
+      "strategy": "short_equity",
+      "source": "actual_trades",
+      "players": [
+        "dalio-metals",
+        "gemini-2.5-flash",
+        "grok-4"
+      ],
+      "trades": 28,
+      "wins": 19,
+      "losses": 9,
+      "win_rate": 67.9,
+      "total_pnl": -163.74,
+      "avg_pnl": -5.85,
+      "worst": -229.25,
+      "best": 13.21,
+      "return_pct": -1.64,
+      "note": "28 closed trades from 3 player(s)"
+    },
+    {
+      "strategy": "inverse_etf",
+      "source": "actual_trades",
+      "players": [
+        "grok-4",
+        "gemini-2.5-flash"
+      ],
+      "trades": 10,
+      "wins": 10,
+      "losses": 0,
+      "win_rate": 100.0,
+      "total_pnl": 32.12,
+      "avg_pnl": 3.21,
+      "worst": 0.2,
+      "best": 10.54,
+      "return_pct": 0.32,
+      "note": "10 closed trades from 2 player(s)"
+    },
+    {
+      "strategy": "long_call",
+      "source": "actual_trades",
+      "players": [
+        "claude-haiku",
+        "claude-sonnet",
+        "ollama-local"
+      ],
+      "trades": 162,
+      "wins": 26,
+      "losses": 136,
+      "win_rate": 16.0,
+      "total_pnl": -17859.77,
+      "avg_pnl": -110.25,
+      "worst": -953.47,
+      "best": 46.43,
+      "return_pct": -178.6,
+      "note": "162 closed trades from 3 player(s)"
+    },
+    {
+      "strategy": "long_put",
+      "source": "actual_trades",
+      "players": [
+        "grok-4",
+        "gemini-2.5-flash"
+      ],
+      "trades": 10,
+      "wins": 10,
+      "losses": 0,
+      "win_rate": 100.0,
+      "total_pnl": 32.12,
+      "avg_pnl": 3.21,
+      "worst": 0.2,
+      "best": 10.54,
+      "return_pct": 0.32,
+      "note": "10 closed trades from 2 player(s)"
+    },
+    {
+      "strategy": "iron_condor",
+      "source": "backtester_signals",
+      "players": [
+        "options-sosnoff"
+      ],
+      "trades": 319,
+      "wins": 262,
+      "losses": 57,
+      "win_rate": 82.1,
+      "total_pnl": 24955.98,
+      "avg_pnl": 78.23,
+      "worst": 1500.11,
+      "best": 1500.11,
+      "return_pct": 249.56,
+      "note": "From backtester signals (Counselor Troi)"
+    },
+    {
+      "strategy": "bear_call_spread",
+      "source": "backtester_signals",
+      "players": [
+        "gemini-2.5-flash"
+      ],
+      "trades": 718,
+      "wins": 253,
+      "losses": 465,
+      "win_rate": 35.2,
+      "total_pnl": -2099.09,
+      "avg_pnl": -2.92,
+      "worst": 3.66,
+      "best": 7.26,
+      "return_pct": -20.99,
+      "note": "From backtester signals (Lt. Cmdr. Worf)"
+    },
+    {
+      "strategy": "bull_put_spread",
+      "source": "actual_trades",
+      "players": [
+        "options-sosnoff",
+        "energy-arnold"
+      ],
+      "trades": 4,
+      "wins": 3,
+      "losses": 1,
+      "win_rate": 75.0,
+      "total_pnl": 1511.49,
+      "avg_pnl": 377.87,
+      "worst": 0.0,
+      "best": 1500.11,
+      "return_pct": 15.11,
+      "note": "4 closed trades from 2 player(s)"
+    },
+    {
+      "strategy": "bear_put_spread",
+      "source": "actual_trades",
+      "players": [
+        "grok-4",
+        "gemini-2.5-flash"
+      ],
+      "trades": 10,
+      "wins": 10,
+      "losses": 0,
+      "win_rate": 100.0,
+      "total_pnl": 32.12,
+      "avg_pnl": 3.21,
+      "worst": 0.2,
+      "best": 10.54,
+      "return_pct": 0.32,
+      "note": "10 closed trades from 2 player(s)"
+    },
+    {
+      "strategy": "bull_call_spread",
+      "source": "actual_trades",
+      "players": [
+        "claude-haiku",
+        "gpt-4o"
+      ],
+      "trades": 77,
+      "wins": 10,
+      "losses": 67,
+      "win_rate": 13.0,
+      "total_pnl": -2500.95,
+      "avg_pnl": -32.48,
+      "worst": -485.0,
+      "best": 46.43,
+      "return_pct": -25.01,
+      "note": "77 closed trades from 2 player(s)"
+    },
+    {
+      "strategy": "covered_call",
+      "source": "actual_trades",
+      "players": [
+        "options-sosnoff",
+        "claude-haiku"
+      ],
+      "trades": 37,
+      "wins": 9,
+      "losses": 28,
+      "win_rate": 24.3,
+      "total_pnl": -795.35,
+      "avg_pnl": -21.5,
+      "worst": -485.0,
+      "best": 1500.11,
+      "return_pct": -7.95,
+      "note": "37 closed trades from 2 player(s)"
+    },
+    {
+      "strategy": "csp",
+      "source": "actual_trades",
+      "players": [
+        "options-sosnoff",
+        "energy-arnold"
+      ],
+      "trades": 4,
+      "wins": 3,
+      "losses": 1,
+      "win_rate": 75.0,
+      "total_pnl": 1511.49,
+      "avg_pnl": 377.87,
+      "worst": 0.0,
+      "best": 1500.11,
+      "return_pct": 15.11,
+      "note": "4 closed trades from 2 player(s)"
+    },
+    {
+      "strategy": "congress_copy",
+      "source": "db_no_trades",
+      "trades": 0,
+      "win_rate": 0,
+      "total_pnl": 0,
+      "avg_pnl": 0,
+      "worst": 0,
+      "best": 0,
+      "note": "No closed trades in period"
+    },
+    {
+      "strategy": "ollie_scanner",
+      "source": "actual_trades",
+      "players": [
+        "ollie-auto"
+      ],
+      "trades": 4,
+      "wins": 1,
+      "losses": 3,
+      "win_rate": 25.0,
+      "total_pnl": -0.03,
+      "avg_pnl": -0.01,
+      "worst": -0.03,
+      "best": 0.01,
+      "return_pct": -0.0,
+      "note": "4 closed trades from 1 player(s)"
+    }
+  ],
+  "blended_portfolios": [
+    {
+      "blend_id": "A",
+      "name": "Blend A: Conservative",
+      "description": "50% swing_trade, 30% covered_call+csp, 20% congress_copy",
+      "total_trades": 101,
+      "win_rate": 29.9,
+      "total_pnl": -1801.1,
+      "return_pct": -18.01,
+      "final_value": 8198.9,
+      "components": {
+        "swing_trade": {
+          "weight": 50.0,
+          "pnl_contrib": -1908.5,
+          "trades": 60,
+          "win_rate": 30.0,
+          "return_pct": -38.17
+        },
+        "covered_call": {
+          "weight": 15.0,
+          "pnl_contrib": -119.25,
+          "trades": 37,
+          "win_rate": 24.3,
+          "return_pct": -7.95
+        },
+        "csp": {
+          "weight": 15.0,
+          "pnl_contrib": 226.65,
+          "trades": 4,
+          "win_rate": 75.0,
+          "return_pct": 15.11
+        },
+        "congress_copy": {
+          "weight": 20.0,
+          "pnl_contrib": 0.0,
+          "trades": 0,
+          "win_rate": 0,
+          "return_pct": 0
+        }
+      }
+    },
+    {
+      "blend_id": "B",
+      "name": "Blend B: Balanced",
+      "description": "30% rsi_bounce+mean_reversion, 30% iron_condor+bear_call_spread, 25% swing+ema, 15% long_call",
+      "total_trades": 1351,
+      "win_rate": 41.8,
+      "total_pnl": -1147.37,
+      "return_pct": -11.47,
+      "final_value": 8852.62,
+      "components": {
+        "rsi_bounce": {
+          "weight": 15.0,
+          "pnl_contrib": 4.95,
+          "trades": 11,
+          "win_rate": 90.9,
+          "return_pct": 0.33
+        },
+        "mean_reversion": {
+          "weight": 15.0,
+          "pnl_contrib": -1001.25,
+          "trades": 52,
+          "win_rate": 15.4,
+          "return_pct": -66.75
+        },
+        "iron_condor": {
+          "weight": 15.0,
+          "pnl_contrib": 3743.4,
+          "trades": 319,
+          "win_rate": 82.1,
+          "return_pct": 249.56
+        },
+        "bear_call_spread": {
+          "weight": 15.0,
+          "pnl_contrib": -314.85,
+          "trades": 718,
+          "win_rate": 35.2,
+          "return_pct": -20.99
+        },
+        "swing_trade": {
+          "weight": 12.5,
+          "pnl_contrib": -477.13,
+          "trades": 60,
+          "win_rate": 30.0,
+          "return_pct": -38.17
+        },
+        "ema_pullback": {
+          "weight": 12.5,
+          "pnl_contrib": -423.5,
+          "trades": 29,
+          "win_rate": 17.2,
+          "return_pct": -33.88
+        },
+        "long_call": {
+          "weight": 15.0,
+          "pnl_contrib": -2679.0,
+          "trades": 162,
+          "win_rate": 16.0,
+          "return_pct": -178.6
+        }
+      }
+    },
+    {
+      "blend_id": "C",
+      "name": "Blend C: Aggressive",
+      "description": "35% momentum+ollie_scanner, 30% long_call+long_put, 20% rsi_bounce, 15% short_equity",
+      "total_trades": 307,
+      "win_rate": 53.6,
+      "total_pnl": -4781.35,
+      "return_pct": -47.81,
+      "final_value": 5218.65,
+      "components": {
+        "momentum": {
+          "weight": 17.5,
+          "pnl_contrib": -2089.15,
+          "trades": 92,
+          "win_rate": 19.6,
+          "return_pct": -119.38
+        },
+        "ollie_scanner": {
+          "weight": 17.5,
+          "pnl_contrib": -0.0,
+          "trades": 4,
+          "win_rate": 25.0,
+          "return_pct": -0.0
+        },
+        "long_call": {
+          "weight": 15.0,
+          "pnl_contrib": -2679.0,
+          "trades": 162,
+          "win_rate": 16.0,
+          "return_pct": -178.6
+        },
+        "long_put": {
+          "weight": 15.0,
+          "pnl_contrib": 4.8,
+          "trades": 10,
+          "win_rate": 100.0,
+          "return_pct": 0.32
+        },
+        "rsi_bounce": {
+          "weight": 20.0,
+          "pnl_contrib": 6.6,
+          "trades": 11,
+          "win_rate": 90.9,
+          "return_pct": 0.33
+        },
+        "short_equity": {
+          "weight": 15.0,
+          "pnl_contrib": -24.6,
+          "trades": 28,
+          "win_rate": 67.9,
+          "return_pct": -1.64
+        }
+      }
+    },
+    {
+      "blend_id": "D",
+      "name": "Blend D: All-Weather (Bear Regime)",
+      "description": "40% inverse_etf, 30% long_put, 20% bear_call_spread, 10% cash",
+      "total_trades": 738,
+      "win_rate": 85.6,
+      "total_pnl": -441.56,
+      "return_pct": -4.42,
+      "final_value": 9558.44,
+      "components": {
+        "inverse_etf": {
+          "weight": 44.4,
+          "pnl_contrib": 14.22,
+          "trades": 10,
+          "win_rate": 100.0,
+          "return_pct": 0.32
+        },
+        "long_put": {
+          "weight": 33.3,
+          "pnl_contrib": 10.67,
+          "trades": 10,
+          "win_rate": 100.0,
+          "return_pct": 0.32
+        },
+        "bear_call_spread": {
+          "weight": 22.2,
+          "pnl_contrib": -466.44,
+          "trades": 718,
+          "win_rate": 35.2,
+          "return_pct": -20.99
+        }
+      }
+    },
+    {
+      "blend_id": "E",
+      "name": "Blend E: Spread King",
+      "description": "40% iron_condor, 30% bear_call_spread, 20% bull_put_spread, 10% covered_call",
+      "total_trades": 1078,
+      "win_rate": 60.8,
+      "total_pnl": 9575.4,
+      "return_pct": 95.75,
+      "final_value": 19575.4,
+      "components": {
+        "iron_condor": {
+          "weight": 40.0,
+          "pnl_contrib": 9982.4,
+          "trades": 319,
+          "win_rate": 82.1,
+          "return_pct": 249.56
+        },
+        "bear_call_spread": {
+          "weight": 30.0,
+          "pnl_contrib": -629.7,
+          "trades": 718,
+          "win_rate": 35.2,
+          "return_pct": -20.99
+        },
+        "bull_put_spread": {
+          "weight": 20.0,
+          "pnl_contrib": 302.2,
+          "trades": 4,
+          "win_rate": 75.0,
+          "return_pct": 15.11
+        },
+        "covered_call": {
+          "weight": 10.0,
+          "pnl_contrib": -79.5,
+          "trades": 37,
+          "win_rate": 24.3,
+          "return_pct": -7.95
+        }
+      }
+    },
+    {
+      "blend_id": "F",
+      "name": "Blend F: Sniper V2",
+      "description": "40% rsi_bounce, 25% spreads, 20% swing_trade, 15% csp",
+      "total_trades": 1112,
+      "win_rate": 68.3,
+      "total_pnl": 2333.57,
+      "return_pct": 23.34,
+      "final_value": 12333.58,
+      "components": {
+        "rsi_bounce": {
+          "weight": 40.0,
+          "pnl_contrib": 13.2,
+          "trades": 11,
+          "win_rate": 90.9,
+          "return_pct": 0.33
+        },
+        "iron_condor": {
+          "weight": 12.5,
+          "pnl_contrib": 3119.5,
+          "trades": 319,
+          "win_rate": 82.1,
+          "return_pct": 249.56
+        },
+        "bear_call_spread": {
+          "weight": 12.5,
+          "pnl_contrib": -262.37,
+          "trades": 718,
+          "win_rate": 35.2,
+          "return_pct": -20.99
+        },
+        "swing_trade": {
+          "weight": 20.0,
+          "pnl_contrib": -763.4,
+          "trades": 60,
+          "win_rate": 30.0,
+          "return_pct": -38.17
+        },
+        "csp": {
+          "weight": 15.0,
+          "pnl_contrib": 226.65,
+          "trades": 4,
+          "win_rate": 75.0,
+          "return_pct": 15.11
+        }
+      }
+    }
+  ],
+  "optimal_blend": {
+    "top_5_strategies": [
+      "iron_condor",
+      "bull_put_spread",
+      "csp",
+      "rsi_bounce",
+      "inverse_etf"
+    ],
+    "all_ranked": [
+      [
+        "iron_condor",
+        24955.98,
+        82.1,
+        319
+      ],
+      [
+        "bull_put_spread",
+        1511.49,
+        75.0,
+        4
+      ],
+      [
+        "csp",
+        1511.49,
+        75.0,
+        4
+      ],
+      [
+        "rsi_bounce",
+        32.58,
+        90.9,
+        11
+      ],
+      [
+        "inverse_etf",
+        32.12,
+        100.0,
+        10
+      ],
+      [
+        "long_put",
+        32.12,
+        100.0,
+        10
+      ],
+      [
+        "bear_put_spread",
+        32.12,
+        100.0,
+        10
+      ],
+      [
+        "ollie_scanner",
+        -0.03,
+        25.0,
+        4
+      ],
+      [
+        "short_equity",
+        -163.74,
+        67.9,
+        28
+      ],
+      [
+        "covered_call",
+        -795.35,
+        24.3,
+        37
+      ],
+      [
+        "bear_call_spread",
+        -2099.09,
+        35.2,
+        718
+      ],
+      [
+        "bull_call_spread",
+        -2500.95,
+        13.0,
+        77
+      ],
+      [
+        "ema_pullback",
+        -3387.77,
+        17.2,
+        29
+      ],
+      [
+        "long_equity",
+        -3799.48,
+        14.1,
+        85
+      ],
+      [
+        "swing_trade",
+        -3817.08,
+        30.0,
+        60
+      ],
+      [
+        "mean_reversion",
+        -6675.37,
+        15.4,
+        52
+      ],
+      [
+        "momentum",
+        -11938.19,
+        19.6,
+        92
+      ],
+      [
+        "long_call",
+        -17859.77,
+        16.0,
+        162
+      ]
+    ],
+    "allocations_tested": [
+      {
+        "allocation": "50/50 (top 2)",
+        "weights": {
+          "iron_condor": 0.5,
+          "bull_put_spread": 0.5
+        },
+        "total_pnl": 13233.5,
+        "return_pct": 132.34,
+        "win_rate": 78.5,
+        "final_value": 23233.5,
+        "total_trades": 323
+      },
+      {
+        "allocation": "40/30/30 (top 3)",
+        "weights": {
+          "iron_condor": 0.4,
+          "bull_put_spread": 0.3,
+          "csp": 0.3
+        },
+        "total_pnl": 10889.0,
+        "return_pct": 108.89,
+        "win_rate": 77.8,
+        "final_value": 20889.0,
+        "total_trades": 327
+      },
+      {
+        "allocation": "30/25/25/20 (top 4)",
+        "weights": {
+          "iron_condor": 0.3,
+          "bull_put_spread": 0.25,
+          "csp": 0.25,
+          "rsi_bounce": 0.2
+        },
+        "total_pnl": 8248.9,
+        "return_pct": 82.49,
+        "win_rate": 80.3,
+        "final_value": 18248.9,
+        "total_trades": 338
+      },
+      {
+        "allocation": "25/20/20/20/15 (top 5)",
+        "weights": {
+          "iron_condor": 0.25,
+          "bull_put_spread": 0.2,
+          "csp": 0.2,
+          "rsi_bounce": 0.2,
+          "inverse_etf": 0.15
+        },
+        "total_pnl": 6854.8,
+        "return_pct": 68.55,
+        "win_rate": 83.7,
+        "final_value": 16854.8,
+        "total_trades": 348
+      },
+      {
+        "allocation": "Equal weight (top 5)",
+        "weights": {
+          "iron_condor": 0.2,
+          "bull_put_spread": 0.2,
+          "csp": 0.2,
+          "rsi_bounce": 0.2,
+          "inverse_etf": 0.2
+        },
+        "total_pnl": 5608.6,
+        "return_pct": 56.09,
+        "win_rate": 84.6,
+        "final_value": 15608.6,
+        "total_trades": 348
+      }
+    ],
+    "optimal": {
+      "allocation": "50/50 (top 2)",
+      "weights": {
+        "iron_condor": 0.5,
+        "bull_put_spread": 0.5
+      },
+      "total_pnl": 13233.5,
+      "return_pct": 132.34,
+      "win_rate": 78.5,
+      "final_value": 23233.5,
+      "total_trades": 323
+    }
+  },
+  "summary": {
+    "total_strategies_tested": 19,
+    "strategies_with_data": 18,
+    "profitable_strategies": 7,
+    "best_strategy": "iron_condor",
+    "best_blend": "Blend E: Spread King",
+    "optimal_allocation": "50/50 (top 2)",
+    "spy_return_pct": -1.93
+  }
+}

@@ -395,6 +395,196 @@ def _source_options_chain(symbol: str) -> dict[str, Any] | None:
         return None
 
 
+# ── Fleet-Wide Learning ───────────────────────────────────────────────────────
+
+def get_fleet_recent_trades(limit: int = 20) -> str:
+    """Get recent trades from ALL agents for fleet-wide learning."""
+    try:
+        conn = sqlite3.connect("data/trader.db", check_same_thread=False, timeout=5)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT p.display_name, t.action, t.symbol, t.price,
+                   t.realized_pnl, t.executed_at
+            FROM trades t
+            JOIN ai_players p ON t.player_id = p.id
+            WHERE t.executed_at > datetime('now', '-7 days')
+            ORDER BY t.executed_at DESC
+            LIMIT ?
+        """, (limit,))
+        trades = cursor.fetchall()
+        conn.close()
+    except Exception:
+        return "No recent fleet trades."
+
+    if not trades:
+        return "No recent fleet trades."
+
+    lines = ["FLEET ACTIVITY (learn from your crewmates):"]
+    wins = 0
+    total = 0
+    for name, action, symbol, price, pnl, ts in trades:
+        if pnl is not None:
+            total += 1
+            result = "WIN" if pnl > 0 else "LOSS"
+            if pnl > 0:
+                wins += 1
+            lines.append(f"  - {name} {action} {symbol} @ ${price:.2f} → {result} ${pnl:+.2f}")
+        else:
+            lines.append(f"  - {name} {action} {symbol} @ ${price:.2f} → OPEN")
+
+    if total > 0:
+        lines.append(f"Fleet win rate: {wins/total*100:.0f}% ({wins}/{total})")
+
+    return "\n".join(lines)
+
+
+def get_strategy_leaderboard(days: int = 30) -> str:
+    """Rank strategies by performance across ALL agents (uses timeframe column)."""
+    try:
+        conn = sqlite3.connect("data/trader.db", check_same_thread=False, timeout=5)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                COALESCE(timeframe, 'unknown') as strategy,
+                COUNT(*) as trades,
+                SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as wins,
+                SUM(realized_pnl) as total_pnl
+            FROM trades
+            WHERE executed_at > datetime('now', ? || ' days')
+              AND realized_pnl IS NOT NULL
+            GROUP BY strategy
+            HAVING trades >= 3
+            ORDER BY total_pnl DESC
+        """, (f"-{days}",))
+        results = cursor.fetchall()
+        conn.close()
+    except Exception:
+        return "No strategy data yet."
+
+    if not results:
+        return "No strategy data yet."
+
+    lines = [f"TOP STRATEGIES (last {days} days):"]
+    for i, (strat, trades, wins, pnl) in enumerate(results[:5], 1):
+        wr = wins / trades * 100 if trades > 0 else 0
+        lines.append(f"  {i}. {strat}: {wr:.0f}% WR, ${pnl:+.2f} ({trades} trades)")
+
+    if len(results) > 5:
+        worst = results[-1]
+        wr = worst[2] / worst[1] * 100 if worst[1] > 0 else 0
+        lines.append(f"  WORST: {worst[0]} {wr:.0f}% WR, ${worst[3]:+.2f}")
+
+    return "\n".join(lines)
+
+
+def get_hot_agents(days: int = 7) -> str:
+    """Find best and worst performing agents this week."""
+    try:
+        conn = sqlite3.connect("data/trader.db", check_same_thread=False, timeout=5)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                p.display_name,
+                COUNT(*) as trades,
+                SUM(CASE WHEN t.realized_pnl > 0 THEN 1 ELSE 0 END) as wins,
+                SUM(t.realized_pnl) as total_pnl
+            FROM trades t
+            JOIN ai_players p ON t.player_id = p.id
+            WHERE t.executed_at > datetime('now', ? || ' days')
+              AND t.realized_pnl IS NOT NULL
+            GROUP BY t.player_id
+            HAVING trades >= 2
+            ORDER BY total_pnl DESC
+        """, (f"-{days}",))
+        results = cursor.fetchall()
+        conn.close()
+    except Exception:
+        return "No agent performance data yet."
+
+    if not results:
+        return "No agent performance data yet."
+
+    lines = [f"TOP PERFORMERS (last {days} days):"]
+    for i, (name, trades, wins, pnl) in enumerate(results[:3], 1):
+        wr = wins / trades * 100 if trades > 0 else 0
+        lines.append(f"  {i}. {name}: ${pnl:+.2f} ({trades} trades, {wr:.0f}% WR)")
+
+    if len(results) > 3 and results[-1][3] < 0:
+        cold = results[-1]
+        wr = cold[2] / cold[1] * 100 if cold[1] > 0 else 0
+        lines.append(f"  COLD: {cold[0]} ${cold[3]:+.2f} (avoid recent picks)")
+
+    return "\n".join(lines)
+
+
+def get_danger_tickers(days: int = 14, min_losses: int = 2) -> str:
+    """Find tickers where the fleet keeps losing money."""
+    try:
+        conn = sqlite3.connect("data/trader.db", check_same_thread=False, timeout=5)
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT
+                symbol,
+                COUNT(*) as losses,
+                SUM(realized_pnl) as total_loss
+            FROM trades
+            WHERE executed_at > datetime('now', ? || ' days')
+              AND realized_pnl < 0
+            GROUP BY symbol
+            HAVING losses >= ?
+            ORDER BY total_loss ASC
+            LIMIT 5
+        """, (f"-{days}", min_losses))
+        results = cursor.fetchall()
+        conn.close()
+    except Exception:
+        return ""
+
+    if not results:
+        return ""
+
+    lines = ["DANGER TICKERS (fleet lost money — avoid unless high conviction):"]
+    for symbol, losses, total_loss in results:
+        lines.append(f"  - {symbol}: {losses} losses, ${total_loss:.2f} total")
+
+    return "\n".join(lines)
+
+
+def _source_fleet_intelligence() -> dict[str, Any] | None:
+    """Aggregate fleet-wide learning via FleetCache (<1ms read, 5-min background refresh)."""
+    try:
+        # Fast-path: use pre-computed cached context (no DB hit at scan time)
+        from engine.fleet_cache import get_fleet_context as _get_cached
+        cached = _get_cached()
+        if cached and cached.strip():
+            return {"label": "Fleet Intelligence", "text": cached}
+
+        # Fallback: compute on-demand if cache is empty
+        fleet_trades   = get_fleet_recent_trades(20)
+        strategy_board = get_strategy_leaderboard(30)
+        hot_agents     = get_hot_agents(7)
+        danger         = get_danger_tickers(14)
+
+        parts = [fleet_trades, strategy_board, hot_agents]
+        if danger:
+            parts.append(danger)
+        parts.append(
+            "LESSON: Follow what's working. Avoid what's failing. "
+            "The fleet's experience is YOUR experience. 62,000+ trades of wisdom."
+        )
+
+        text = "\n\n".join(p for p in parts if p and p.strip())
+        if not text.strip():
+            return None
+
+        return {
+            "label": "Fleet Intelligence",
+            "text": text,
+        }
+    except Exception:
+        return None
+
+
 # ── Main entry points ────────────────────────────────────────────────────────
 
 _SOURCE_KEYS = (
@@ -409,6 +599,7 @@ _SOURCE_KEYS = (
     "debate_intel",
     "bootstrap_intel",
     "options_chain",
+    "fleet_intelligence",
 )
 
 
@@ -419,17 +610,18 @@ def build_full_context_raw(player_id: str, symbol: str) -> dict[str, Any]:
         return cached
 
     source_fns = [
-        ("fear_greed",       lambda: _source_fear_greed()),
-        ("red_alert",        lambda: _source_red_alert()),
-        ("congress_trades",  lambda: _source_congress_trades(symbol)),
-        ("signal_scorecard", lambda: _source_signal_scorecard(symbol)),
-        ("fleet_consensus",  lambda: _source_fleet_consensus(player_id, symbol)),
-        ("backtest",         lambda: _source_backtest_performance(player_id, symbol)),
-        ("layered_memory",   lambda: _source_layered_memory(player_id)),
-        ("news_sentiment",   lambda: _source_news_sentiment(symbol)),
-        ("debate_intel",     lambda: _source_debate_intel()),
-        ("bootstrap_intel",  lambda: _source_bootstrap_intelligence(player_id, symbol)),
-        ("options_chain",    lambda: _source_options_chain(symbol)),
+        ("fear_greed",         lambda: _source_fear_greed()),
+        ("red_alert",          lambda: _source_red_alert()),
+        ("congress_trades",    lambda: _source_congress_trades(symbol)),
+        ("signal_scorecard",   lambda: _source_signal_scorecard(symbol)),
+        ("fleet_consensus",    lambda: _source_fleet_consensus(player_id, symbol)),
+        ("backtest",           lambda: _source_backtest_performance(player_id, symbol)),
+        ("layered_memory",     lambda: _source_layered_memory(player_id)),
+        ("news_sentiment",     lambda: _source_news_sentiment(symbol)),
+        ("debate_intel",       lambda: _source_debate_intel()),
+        ("bootstrap_intel",    lambda: _source_bootstrap_intelligence(player_id, symbol)),
+        ("options_chain",      lambda: _source_options_chain(symbol)),
+        ("fleet_intelligence", lambda: _source_fleet_intelligence()),
     ]
 
     result: dict[str, Any] = {

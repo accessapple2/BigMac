@@ -29,48 +29,114 @@ logger = logging.getLogger(__name__)
 #   universe    : optional list[str] — if set, agent may ONLY trade these symbols
 #   bridge_voter: bool — Tier 3 agents vote but don't trade individually
 
-# ── Lean Fleet Protocol — 12 active agents ─────────────────────────────────
-# ALPHA_SQUAD: scan every 15 min, rotate in pairs to cap RAM at 2 models loaded
-#   Pair 1 (llama3.1+qwen3):       Uhura (ollama-llama) [LEAD] + Seven (gemini-2.5-pro)
-#   Pair 2 (qwen3:14b+deepseek):   Worf (gemini-2.5-flash)    + Spock (grok-4)
-#   McCoy (ollama-plutus) solo: crisis doctor, low-alpha fill
-# T'Pol (dayblade-0dte) SHELVED: 0DTE with execution delay = guaranteed loss
-# Sulu (dayblade-sulu) SHELVED: Sniper Go Live — momentum too noisy, bridge vote only
+# ── Season 6.3 "Iron Condor King" ────────────────────────────────────────────
+# 180-day backtest (Oct 10 2025 – Apr 10 2026):
+#   Iron Condor Pure: +572% realistic, +587% with Model F tiered exits
+#   vs SPY +4.64% — +567pp alpha
+#   Model F exits (50%@50p / 30%@75p / 20%@90p): +15pp over all-or-nothing
+# STRATEGY: iron_condor primary, Model F tiered exits, execution rules enforced
+# PRIMARY TRADERS: Sulu (iron condors) + McCoy (income backup)
+# SCOUTS: Spock, Data, Dax, Chekov, Capitol — signal generation only
+#
+# ALPHA_SQUAD: Ollama models that scan every cycle, rotating in pairs to cap RAM
+#   Pair 1 (deepseek+coder):  Spock (grok-4) + Data (ollama-coder) — scouts
+#   Pair 2 (qwen3+plutus):    Dax (ollama-qwen3) + McCoy (ollama-plutus) — McCoy executes income
+# Rule-based agents (navigator, capitol-trades, dayblade-sulu) run independently
+# T'Pol (dayblade-0dte) SHELVED: 0DTE execution delay = guaranteed loss
 ALPHA_SQUAD: list[str] = [
-    "ollama-llama",     "gemini-2.5-pro",    # Pair 1 — Uhura (Alpha Lead) + Seven
-    "gemini-2.5-flash", "grok-4",            # Pair 2 — Worf + Spock
-    "ollama-plutus",                         # McCoy solo (Sulu shelved)
+    "grok-4",       "ollama-coder",   # Pair 1 — Spock (RSI scout) + Data (Quant scout)
+    "ollama-qwen3", "ollama-plutus",  # Pair 2 — Dax (Swing scout) + McCoy (Income primary)
 ]
 
 SCAN_PAIRS: list[list[str]] = [
-    ["ollama-llama",     "gemini-2.5-pro"],  # Pair 1: Uhura (Alpha Lead) + Seven
-    ["gemini-2.5-flash", "grok-4"],          # Pair 2: Worf + Spock
-    ["ollama-plutus",    "ollama-plutus"],   # McCoy solo (Sulu shelved — deduped in get_alpha_pair)
+    ["grok-4",       "ollama-coder"],  # Pair 1: Spock + Data (scouts)
+    ["ollama-qwen3", "ollama-plutus"], # Pair 2: Dax + McCoy
 ]
 
 # Advisory crew — bridge vote only, no individual scanning
 ADVISORY_CREW: list[str] = [
-    "energy-arnold",   # Trip Tucker
-    "options-sosnoff", # Troi
-    "ollama-coder",    # Data
-    "mlx-qwen3",       # Ensign Ro
-    "ollama-local",    # Geordi
-    "gpt-4o",          # Janeway
-    "claude-haiku",    # Reed
-    "claude-sonnet",   # Sisko
-    "gpt-o3",          # Tuvok
-    "grok-3",          # Hoshi
-    "ollama-kimi",     # Bashir
-    "ollama-qwen3",    # Dax
-    "ollama-glm4",     # Q
-    "ollama-deepseek", # Odo
-    "ollama-gemma27b", # Dax (duplicate)
-    "dayblade-0dte",   # T'Pol — shelved (0DTE execution delay = guaranteed loss)
-    "dayblade-sulu",   # Sulu — shelved (Sniper Go Live: momentum too noisy)
-    "super-agent",     # Anderson — shelved (Sniper Go Live: unrestricted aggression conflicts with alpha gate)
-    "dalio-metals",    # Dalio — shelved (Sniper Go Live: metals macro not in Sniper whitelist)
-    "capitol-trades",  # Capitol Trades — shelved (Sniper Go Live: congress data latency too high)
+    "energy-arnold",    # Trip Tucker
+    "options-sosnoff",  # Troi
+    "mlx-qwen3",        # Ensign Ro
+    "ollama-local",     # Geordi
+    "gpt-4o",           # Janeway
+    "claude-haiku",     # Reed
+    "claude-sonnet",    # Sisko
+    "gpt-o3",           # Tuvok
+    "grok-3",           # Hoshi
+    "ollama-kimi",      # Bashir
+    "ollama-glm4",      # Q
+    "ollama-deepseek",  # Odo
+    "ollama-gemma27b",  # Qwen3.5 fallback
+    "dayblade-0dte",    # T'Pol — shelved (0DTE execution delay = guaranteed loss)
+    "super-agent",      # Anderson — shelved (unrestricted aggression conflicts with alpha gate)
+    "dalio-metals",     # Dalio — shelved (metals macro not in arsenal whitelist)
+    # Benched S6 agents (performance review):
+    "ollama-llama",     # Uhura — benched S6.1 (-3.49%)
+    "gemini-2.5-flash", # Worf  — benched S6.1 (-0.36%)
+    "gemini-2.5-pro",   # Seven — benched S6.1 (+0.64% meh)
+    "neo-matrix",       # Neo   — benched S6.1 (redundant)
 ]
+
+# ── Strategy Arsenal ─────────────────────────────────────────────────────────
+ENABLED_STRATEGIES: list[str] = [
+    # === STOCKS ===
+    "long_equity",      # Buy shares (bullish convergence)
+    "swing_trade",      # 7-day holds
+    "ema_pullback",     # Weekly EMA bounce
+    "momentum",         # Breakout plays
+    "mean_reversion",   # RSI oversold bounce
+    # === SHORTS ===
+    "short_equity",     # Short shares (bearish convergence)
+    "inverse_etf",      # SH, SQQQ, SPXU for bears
+    # === OPTIONS — DIRECTIONAL ===
+    "long_call",        # Bullish conviction
+    "long_put",         # Bearish conviction
+    # === OPTIONS — SPREADS (highest win-rate) ===
+    "bull_put_spread",  # Credit spread bullish
+    "bear_call_spread", # Credit spread bearish
+    "iron_condor",      # Range-bound premium
+    "bull_call_spread", # Debit spread bullish
+    "bear_put_spread",  # Debit spread bearish
+    # === OPTIONS — INCOME ===
+    "covered_call",     # Sell calls on holdings
+    "csp",              # Cash-secured puts
+    # === SPECIAL ===
+    "congress_copy",    # Follow Congress trades
+    "rsi_bounce",       # Spock's specialty
+]
+
+# Per-agent strategy mandates (drives prompt context + signal filtering)
+# S6.3 Iron Condor King: Sulu = iron_condor PRIMARY with Model F tiered exits
+# McCoy = income backup (csp/covered_call when conditions favor)
+# Scouts generate signals; only Sulu executes spreads
+AGENT_STRATEGIES: dict[str, list[str]] = {
+    "ollie-auto":     ["gate_commander"],
+    # ── PRIMARY TRADERS ──────────────────────────────────────────────────────
+    "dayblade-sulu":  ["iron_condor",         # S6.3 PRIMARY — 180d: +572% realistic
+                       "bear_call_spread",     # Secondary spread
+                       "bull_put_spread"],     # Tertiary spread (Model F exits on all)
+    "ollama-plutus":  ["csp", "covered_call", "bull_put_spread", "long_put"],  # Income backup
+    # ── SCOUTS ───────────────────────────────────────────────────────────────
+    "grok-4":         ["rsi_bounce", "mean_reversion"],
+    "ollama-coder":   ["long_equity", "momentum", "short_equity", "inverse_etf"],
+    "ollama-qwen3":   ["swing_trade", "ema_pullback"],
+    "navigator":      ["ema_pullback", "momentum"],
+    "capitol-trades": ["congress_copy"],
+}
+
+# S6.3 Execution rules (enforcement in crew_scanner gate)
+EXECUTION_RULES_6_3 = {
+    "trade_window_start_et": "10:30",
+    "trade_window_end_et":   "15:00",
+    "min_option_oi":          500,
+    "max_bid_ask_spread_pct": 0.10,   # 10%
+    "vix_pause_threshold":    35,      # Pause all spreads if VIX > 35
+    "max_trades_per_day":      3,
+    "target_dte":             45,      # Ideal entry
+    "min_dte":                21,      # Never enter < 21 DTE
+    "exit_model":             "model_f",
+}
 
 CREW_MANIFEST: dict[str, dict[str, Any]] = {
 
@@ -93,17 +159,24 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
     },
 
     "dayblade-sulu": {
-        "tier": "advisory",
+        "tier": 1,
         "display_name": "Lt. Sulu",
-        "role": "Momentum Pilot [ADVISORY]",
-        "strategy": "Trend-following only. SHELVED — Sniper Go Live: momentum too noisy. Bridge vote only.",
-        "model": "phi4:14b",  # upgraded from gemma3:4b — math-heavy momentum
-        "max_positions": 3,
-        "size_factor": 1.0,
+        "role": "Iron Condor King [S6.3]",
+        "strategy": (
+            "S6.3 PRIMARY TRADER. 180-day backtest: iron_condor +572% (realistic), +587% with Model F tiered exits. "
+            "vs SPY +4.64% = +567pp alpha. Exit model: 50% at 50% max profit, 30% at 75%, 20% at 90%/21DTE. "
+            "Stop: 2× credit received. Trade window: 10:30–15:00 ET. Min OI: 500. VIX > 35: pause."
+        ),
+        "model": "phi4:14b",
+        "max_positions": 4,
+        "size_factor": 1.2,
         "bridge_voter": False,
+        "exit_model": "model_f",   # tiered exits
         "conditions": {
-            "required_session_types": ["TRENDING_BULL", "TRENDING_BEAR"],
-            "min_momentum_score": 20,
+            "min_vix_for_spread": 14,
+            "max_vix_for_spread": 35,  # pause at extreme VIX (fills collapse)
+            "min_dte": 21,
+            "target_dte": 45,
         },
         "universe": None,
     },
@@ -448,28 +521,30 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
     },
 
     "capitol-trades": {
-        "tier": "advisory",
+        "tier": 1,
         "display_name": "Capitol Trades",
-        "role": "Congress Tracker [ADVISORY]",
-        "strategy": "Follows congressional trade disclosures. SHELVED — Sniper Go Live: congress data latency too high for alpha gate. Bridge vote only.",
+        "role": "Congress Scout [S6.2]",
+        "strategy": "S6.2 SCOUT. Follows congressional trade disclosures (SEC filings). Bypasses alpha gate — congress signals are regime-agnostic. Feeds signals to fleet.",
         "model": "qwen3.5:9b",
-        "max_positions": 3,
-        "size_factor": 1.0,
+        "max_positions": 2,
+        "size_factor": 0.8,
         "bridge_voter": False,
         "conditions": {},
         "universe": None,
     },
 
     "navigator": {
-        "tier": "special",
+        "tier": 1,
         "display_name": "Ensign Chekov",
-        "role": "Navigator",
-        "strategy": "Navigates course corrections. No mandate restrictions.",
+        "role": "EMA Scout [S6.2]",
+        "strategy": "S6.2 SCOUT. EMA pullback specialist — price within 3% of SMA20, RSI 35-55, above SMA50. Bypasses alpha gate — technical patterns work in all regimes.",
         "model": "qwen3.5:9b",
-        "max_positions": 3,
-        "size_factor": 1.0,
+        "max_positions": 2,
+        "size_factor": 0.8,
         "bridge_voter": False,
-        "conditions": {},
+        "conditions": {
+            "ema_pullback_only": True,
+        },
         "universe": None,
     },
 

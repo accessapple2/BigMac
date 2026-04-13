@@ -72,11 +72,11 @@ def initialize_arena():
     providers = [
         OllamaProvider(model=OLLAMA_MODEL, url=OLLAMA_URL),
         OllamaProvider(player_id="ollama-gemma27b", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180),
-        OllamaProvider(player_id="ollama-deepseek", model="deepseek-r1:7b", url=OLLAMA_URL, timeout=180),
+        OllamaProvider(player_id="ollama-deepseek", model="deepseek-r1:14b", url=OLLAMA_URL, timeout=180),
         OllamaProvider(player_id="ollama-qwen3", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180),
         OllamaProvider(player_id="ollama-kimi", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180),
         OllamaProvider(player_id="ollama-glm4", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180),
-        OllamaProvider(player_id="ollama-plutus", model="mistral:7b", url=OLLAMA_URL, timeout=300),
+        OllamaProvider(player_id="ollama-plutus", model="0xroyce/plutus:latest", url=OLLAMA_URL, timeout=300),
         # Lt. Sulu — DayBlade 2.0 (intraday day trader, free local compute)
         OllamaProvider(player_id="dayblade-sulu", model="qwen3.5:9b", url=OLLAMA_URL, timeout=90),
     ]
@@ -89,7 +89,7 @@ def initialize_arena():
 
     # gpt-4o / gpt-o3 — routed to free local Ollama (no OpenAI spend)
     providers.append(OllamaProvider("gpt-4o", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
-    providers.append(OllamaProvider("gpt-o3", "deepseek-r1:7b", url=OLLAMA_URL, timeout=180))
+    providers.append(OllamaProvider("gpt-o3", "deepseek-r1:14b", url=OLLAMA_URL, timeout=180))
 
     # Gemini players — local Ollama
     providers.append(OllamaProvider("gemini-2.5-pro", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
@@ -107,7 +107,7 @@ def initialize_arena():
     providers.append(OllamaProvider("claude-haiku", "qwen2.5-coder:7b", url=OLLAMA_URL, timeout=180))
     # Grok players → free local Ollama
     providers.append(OllamaProvider("grok-3", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
-    providers.append(OllamaProvider("grok-4", "deepseek-r1:7b", url=OLLAMA_URL, timeout=180))
+    providers.append(OllamaProvider("grok-4", "deepseek-r1:14b", url=OLLAMA_URL, timeout=180))
     providers.append(OllamaProvider("cto-grok42", "qwen2.5-coder:7b", url=OLLAMA_URL, timeout=180))
 
     if GROQ_API_KEY:
@@ -170,6 +170,35 @@ def _stagger_schedule_jobs() -> None:
 _last_scan_time = 0
 _scan_lock = threading.Lock()
 
+# === MARKET HOURS TASK THROTTLE (Opt 5) ===
+# Non-essential tasks run at reduced frequency during market hours
+# to free Ollama VRAM / CPU for live trading scans.
+_MARKET_HOURS_DISABLED: frozenset = frozenset({
+    "run_strategy_race",
+    "run_signal_scorecard",
+    "run_trend_forecast",
+    "run_strategy_presets",
+    "run_auto_screener",
+})
+_market_throttle_last: dict = {}  # task_name → last_run_epoch
+
+
+def should_run_task(task_name: str, throttle_mins: int = 30) -> bool:
+    """Return False for non-essential tasks during active market hours.
+
+    Non-essential tasks are throttled to ``throttle_mins`` interval during
+    regular market session and power hour to prioritise Ollama bandwidth.
+    """
+    import time as _trt
+    from engine.risk_manager import RiskManager
+    session = RiskManager.is_market_hours()
+    if session in ("market", "power_hour") and task_name in _MARKET_HOURS_DISABLED:
+        now = _trt.time()
+        if now - _market_throttle_last.get(task_name, 0) < throttle_mins * 60:
+            return False
+        _market_throttle_last[task_name] = now
+    return True
+
 # === SCAN TIER DEFINITIONS ===
 # Agents sorted within each tier by model_id to minimise Ollama load/unload swaps
 # (ai_brain.py re-sorts by _MODEL_RUN_ORDER internally, but grouping here keeps
@@ -177,6 +206,7 @@ _scan_lock = threading.Lock()
 
 # Tier 1 — Bridge Crew: core decision-makers, every 30 min during market hours
 _SCAN_TIER1: frozenset = frozenset({
+    "dayblade-sulu",     # Sulu    S6.3 primary options trader (qwen3.5:9b) — PRIORITY 1
     "super-agent",       # Anderson      (crewai)
     "grok-4",            # Spock         (deepseek-r1:7b)
     "ollama-coder",      # Data          (qwen2.5-coder:7b)
@@ -189,7 +219,6 @@ _SCAN_TIER2: frozenset = frozenset({
     "energy-arnold",     # Trip Tucker   (qwen3.5:9b)
     "ollama-plutus",     # McCoy         (mistral:7b)
     "ollama-local",      # Geordi        (gemma3:4b)
-    # "dayblade-sulu",     # Sulu DISABLED — VRAM starving T'Pol
     "ollama-llama",      # Uhura         (llama3.1:latest)
     "gemini-2.5-flash",  # Worf          (qwen3.5:9b)
     "ollama-qwen3",      # Scotty        (qwen3.5:9b)
@@ -264,6 +293,9 @@ def _get_scan_interval():
         # 1:00 AM - 6:30 AM MST: Full pre-market (5 min — sequential Ollama needs breathing room)
         return 300
     if 390 <= mins < 720:
+        if 540 <= mins < 600:
+            # Lunch lull 9:00–10:00 AM MST (12:00–1:00 PM ET) — scan 10 min (low volume)
+            return 600
         # 6:30 AM - 12:00 PM MST: Market hours (3 min)
         return SCAN_INTERVAL_MARKET  # 180s
     if 720 <= mins < 810:
@@ -660,9 +692,12 @@ def run_war_room():
     if not session:
         return  # Fully closed (weekends, overnight)
 
-    # Slower interval during post-market (5 min) to reduce DB contention
+    # Throttle: 10 min during active market (Ollama bandwidth), 5 min pre/post-market
     now = _time.time()
-    if session in ("pre_market", "post_market"):
+    if session == "market" or session == "power_hour":
+        if now - _last_war_room_time < 600:
+            return
+    elif session in ("pre_market", "post_market"):
         if now - _last_war_room_time < 300:
             return
     _last_war_room_time = now
@@ -737,6 +772,8 @@ def run_strength_scan():
 
 def run_trend_forecast():
     """Trend Forecast: predict trends for all watchlist stocks."""
+    if not should_run_task("run_trend_forecast", throttle_mins=60):
+        return
     from engine.risk_manager import RiskManager
     if not RiskManager.is_market_hours():
         return
@@ -753,6 +790,8 @@ def run_trend_forecast():
 
 def run_strategy_presets():
     """Strategy Presets: evaluate strategy fits for watchlist."""
+    if not should_run_task("run_strategy_presets", throttle_mins=60):
+        return
     from engine.risk_manager import RiskManager
     if not RiskManager.is_market_hours():
         return
@@ -1019,6 +1058,8 @@ def run_sma_scan():
 
 def run_strategy_race():
     """Strategy Race: update AI vs SPY comparison (daily)."""
+    if not should_run_task("run_strategy_race", throttle_mins=120):
+        return
     try:
         from engine.strategy_race import update_strategy_race
         result = update_strategy_race()
@@ -1112,6 +1153,24 @@ def run_flow_lean():
         refresh_flow_lean()
     except Exception as e:
         console.log(f"[red]Flow lean error: {e}")
+
+
+def run_ai_saas_disruption():
+    """AI SaaS Disruption Scanner: monitors IGV + 13 SaaS names for disruption signals."""
+    from engine.risk_manager import RiskManager
+    if not RiskManager.is_market_hours():
+        return
+    try:
+        from engine.ai_saas_disruption_scanner import run_scan
+        result = run_scan()
+        sigs = result.get("signals", [])
+        if sigs:
+            console.log(
+                f"[bold cyan]AI SaaS: {len(sigs)} signal(s) — "
+                + ", ".join(f"{s['symbol']}({s['direction']})" for s in sigs)
+            )
+    except Exception as e:
+        console.log(f"[red]AI SaaS Disruption error: {e}")
 
 
 # ── Ready Room ──────────────────────────────────────────────────────────────
@@ -1261,6 +1320,85 @@ def run_cto_advisory():
                 console.log(f"[red]CTO Advisory [{btype}] error: {e}")
                 _cto_slots_done_today.add(btype)  # Don't retry on error
             break  # Only fire one per cycle
+
+
+_grok_advisor_slots_done_today: set = set()
+
+def run_grok_advisor():
+    """Kirk Grok Swing Advisor: fires at 9:30 AM and 1:30 PM ET on weekdays."""
+    global _grok_advisor_slots_done_today
+    from datetime import datetime
+    import pytz
+
+    try:
+        et = pytz.timezone("US/Eastern")
+        now = datetime.now(et)
+    except Exception:
+        return
+
+    # Reset flags at midnight
+    if now.hour < 1:
+        _grok_advisor_slots_done_today = set()
+        return
+
+    # Weekdays only
+    if now.weekday() >= 5:
+        return
+
+    # Fire within a 20-minute window after each target time
+    # Slot "open"  = 9:30 AM ET  (market open)
+    # Slot "mid"   = 1:30 PM ET  (midday check)
+    slots = [("open", 9, 30), ("mid", 13, 30)]
+    for slot_id, target_h, target_m in slots:
+        if slot_id in _grok_advisor_slots_done_today:
+            continue
+        now_mins = now.hour * 60 + now.minute
+        target_mins = target_h * 60 + target_m
+        if target_mins <= now_mins <= target_mins + 20:
+            try:
+                from engine.wb_advisory_team import run_team_scan
+                result = run_team_scan()
+                if result.get("skipped"):
+                    console.log(f"[dim]Advisory Team [{slot_id}]: skipped — {result.get('reason')}")
+                else:
+                    g = result.get("grok", {})
+                    t = result.get("troi", {})
+                    w = result.get("worf", {})
+                    console.log(
+                        f"[green]Advisory Team [{slot_id}]: "
+                        f"Grok {g.get('symbols_analyzed',g.get('error','skip'))} sym "
+                        f"${g.get('cost_usd',0):.4f} | "
+                        f"Troi {t.get('symbols_analyzed',t.get('error','skip'))} | "
+                        f"Worf {w.get('symbols_analyzed',w.get('error','skip'))}"
+                    )
+            except Exception as e:
+                console.log(f"[red]Advisory Team [{slot_id}] error: {e}")
+            finally:
+                _grok_advisor_slots_done_today.add(slot_id)
+            break  # One slot per poll cycle
+
+
+def run_portfolio_monitor():
+    """Ship's Computer: check Captain's Portfolio every 5 min during market hours."""
+    from datetime import datetime
+    import pytz
+    try:
+        et = pytz.timezone("US/Eastern")
+        now = datetime.now(et)
+        if now.weekday() >= 5:
+            return
+        h = now.hour
+        if not (9 <= h < 16):
+            return
+        from engine.portfolio_monitor import check_captains_portfolio
+        alerts = check_captains_portfolio()
+        for a in alerts:
+            console.log(
+                f"[{'red' if 'STOP' in a['type'] else 'yellow'}]"
+                f"Ship's Computer [{a['type']}]: {a['message']}"
+            )
+    except Exception as e:
+        logger.warning("Portfolio monitor error: %s", e)
 
 
 _elimination_done_this_week = False
@@ -2022,35 +2160,40 @@ if __name__ == "__main__":
     ))
 
     # Scanner ticks every 30s; run_scanner enforces dynamic cooldown internally
-    schedule.every(30).seconds.do(run_scanner)
-    schedule.every(2).minutes.do(run_dayblade)  # DayBlade 0DTE: T'Pol on plutus, every 2min
+    schedule.every(2).minutes.do(run_scanner)
+    schedule.every(5).minutes.do(run_dayblade)  # DayBlade 0DTE: T'Pol on plutus, every 2min
     schedule.every(15).minutes.do(run_ma_regime_update)  # 8/21 MA Cross Regime: every 15 min
-    schedule.every(5).minutes.do(run_vix_check)          # VIX: every 5 min
+    schedule.every(15).minutes.do(run_vix_check)          # VIX: every 5 min
     schedule.every(1).hours.do(run_earnings_check)       # Earnings: hourly
-    schedule.every(5).minutes.do(run_daily_summary)      # Daily summary: checks every 5 min, sends once at close
-    schedule.every(5).minutes.do(run_daily_rating_update) # Agent ratings: checks every 5 min, fires once at 4:30 PM ET
-    schedule.every(5).minutes.do(run_journal)             # AI journal: checks every 5 min, writes once at close
+    schedule.every(30).minutes.do(run_daily_summary)      # Daily summary: checks every 5 min, sends once at close
+    schedule.every(30).minutes.do(run_daily_rating_update) # Agent ratings: checks every 5 min, fires once at 4:30 PM ET
+    schedule.every(30).minutes.do(run_journal)             # AI journal: checks every 5 min, writes once at close
     schedule.every(15).minutes.do(run_gex_refresh)        # GEX (CBOE): every 15 min during market hours
-    schedule.every(5).minutes.do(run_alpaca_gex_refresh)  # GEX (Alpaca): 4x/day at 9:00/9:35/12:00/15:00 ET
+    schedule.every(30).minutes.do(run_alpaca_gex_refresh)  # GEX (Alpaca): 4x/day at 9:00/9:35/12:00/15:00 ET
     schedule.every(15).minutes.do(run_gex_overlay_update) # GEX Overlay DB: every 15 min (king node, flip, walls)
-    schedule.every(5).minutes.do(run_morning_briefing)    # Battle Station: fires at 6:25 AM MST weekdays
-    schedule.every(5).minutes.do(run_archer_morning_briefing)  # Phase 3.6: Archer briefing at 6:00 AM AZ
-    schedule.every(5).minutes.do(run_opening_range)       # Battle Station: fires at 6:45 AM MST weekdays
-    schedule.every(30).seconds.do(run_battle_station_monitor)  # Battle Station: 60s options position monitor
-    schedule.every(3).minutes.do(run_war_room)             # War Room: every 3 min during market hours (trash talk mode)
+    schedule.every().day.at("06:00").do(run_morning_briefing)         # Battle Station: 6:00 AM AZ (was every 5 min)
+    schedule.every().day.at("06:00").do(run_archer_morning_briefing)  # Phase 3.6: Archer briefing 6:00 AM AZ
+    schedule.every().day.at("06:45").do(run_opening_range)            # Battle Station: opening range 6:45 AM AZ
+    schedule.every(2).minutes.do(run_battle_station_monitor)  # Battle Station: 60s options position monitor
+    schedule.every(10).minutes.do(run_war_room)             # War Room: every 3 min during market hours (trash talk mode)
     schedule.every(30).minutes.do(run_autopilot)           # Autopilot: every 30 min
     schedule.every(10).minutes.do(run_whisper)             # Whisper Network: every 10 min
-    schedule.every(5).minutes.do(run_strength_scan)        # Strength Scanner: every 5 min
+    schedule.every(15).minutes.do(run_strength_scan)        # Strength Scanner: every 5 min
     schedule.every(1).hours.do(run_strategy_race)           # Strategy Race: hourly update
-    schedule.every(5).minutes.do(run_weekly_picks)          # Weekly Picks: checks every 5 min, sends Sunday 6PM ET
-    schedule.every(5).minutes.do(run_cross_asset_check)    # Cross-Asset: every 5 min
+    schedule.every(30).minutes.do(run_weekly_picks)          # Weekly Picks: checks every 5 min, sends Sunday 6PM ET
+    schedule.every(15).minutes.do(run_cross_asset_check)    # Cross-Asset: every 5 min
     schedule.every(15).minutes.do(run_flow_lean)            # Flow Lean: every 15 min (options premium directional bias)
-    schedule.every(5).minutes.do(run_cto_advisory)          # CTO Advisory: checks every 5 min, fires 4x daily (pre_market, post_open, pre_close, post_close)
-    schedule.every(5).minutes.do(run_ready_room)             # Ready Room: checks every 5 min, fires 4x daily (8:00/9:15/12:00/3:30 ET)
-    schedule.every(1).minutes.do(run_oi_morning_snapshot)    # OI Tracker: baseline snapshot at market open (9:30 ET)
+    schedule.every(15).minutes.do(run_ai_saas_disruption)   # AI SaaS Disruption: IGV + 13 SaaS names, 4 triggers, posts to 9000
+    schedule.every(30).minutes.do(run_cto_advisory)          # CTO Advisory: checks every 5 min, fires 4x daily (pre_market, post_open, pre_close, post_close)
+    schedule.every(30).minutes.do(run_ready_room)             # Ready Room: checks every 5 min, fires 4x daily (8:00/9:15/12:00/3:30 ET)
+    schedule.every(30).minutes.do(run_grok_advisor)           # Advisory Team (Grok/Ollie+Troi+Worf): fires at 9:30 AM and 1:30 PM ET
+    schedule.every(5).minutes.do(run_portfolio_monitor)       # Ship's Computer: Captain's Portfolio monitor (stop breaches, big moves, new advice)
+    schedule.every(5).minutes.do(run_oi_morning_snapshot)    # OI Tracker: baseline snapshot at market open (9:30 ET)
 
     # Auto-Screener: runs presets every 15 min, posts new finds to port 9000
     def run_auto_screener():
+        if not should_run_task("run_auto_screener", throttle_mins=30):
+            return
         try:
             from engine.screener_engine import run_screener, PRESETS
             from engine.signal_poster import post_to_9000
@@ -2118,7 +2261,7 @@ if __name__ == "__main__":
             _enrich()
         except Exception as _de:
             console.log(f"[yellow]Daily enrichment skip: {_de}")
-    schedule.every(5).minutes.do(run_daily_enrichment)        # Enrichment gate fires at 2:30 PM AZ
+    schedule.every(30).minutes.do(run_daily_enrichment)        # Enrichment gate fires at 2:30 PM AZ
 
     # Dr. Crusher Healthcheck — auto-detect and repair common failures every 5 min
     def dr_crusher_check():
@@ -2180,7 +2323,7 @@ if __name__ == "__main__":
         except Exception:
             pass
 
-    schedule.every(5).minutes.do(dr_crusher_check)
+    schedule.every(15).minutes.do(dr_crusher_check)
 
     # EOD Scorecard — Captain's Log (4:15 PM ET = 13:15 AZ)
     def run_eod_scorecard_job():
@@ -2189,7 +2332,7 @@ if __name__ == "__main__":
             _run()
         except Exception as e:
             console.log(f"[yellow]EOD Scorecard error: {e}")
-    schedule.every(1).minutes.do(run_eod_scorecard_job)      # EOD: checks every min, fires once at 4:15 PM ET
+    schedule.every(5).minutes.do(run_eod_scorecard_job)      # EOD: checks every min, fires once at 4:15 PM ET
 
     # Pattern Matcher fingerprint — Mr. Spock (capture at morning briefing time ~8 AM ET = 5 AM AZ)
     _fingerprint_done_today = [False]
@@ -2212,13 +2355,15 @@ if __name__ == "__main__":
                     console.log(f"[cyan]Spock: session fingerprint captured — {result.get('session_type','?')}")
             except Exception as e:
                 console.log(f"[yellow]Pattern fingerprint error: {e}")
-    schedule.every(5).minutes.do(run_fingerprint_capture)    # Fingerprint: capture once per morning
-    schedule.every(5).minutes.do(run_weekly_elimination)    # Weekly Elimination: checks every 5 min, fires Friday post_market only
+    schedule.every(30).minutes.do(run_fingerprint_capture)    # Fingerprint: capture once per morning
+    schedule.every(30).minutes.do(run_weekly_elimination)    # Weekly Elimination: checks every 5 min, fires Friday post_market only
     schedule.every(15).minutes.do(run_skew_check)          # Skew Monitor: every 15 min
     schedule.every(1).hours.do(run_fundamental_scan)       # Fundamentals: hourly refresh
 
     # Alpha Engine — Signal Scorecard (hourly outcome scoring)
     def run_signal_scorecard():
+        if not should_run_task("run_signal_scorecard", throttle_mins=120):
+            return
         try:
             from engine.signal_scorecard import score_signals
             score_signals()
@@ -2233,20 +2378,20 @@ if __name__ == "__main__":
             run_indicator_bench()
         except Exception as e:
             console.log(f"[yellow]Indicator Bench error: {e}")
-    schedule.every(5).minutes.do(run_indicator_bench)      # Alpha Engine: daily 4:30 PM ET benchmark
+    schedule.every(30).minutes.do(run_indicator_bench)      # Alpha Engine: daily 4:30 PM ET benchmark
     schedule.every(30).minutes.do(run_trend_forecast)       # Trend Forecast: every 30 min
     schedule.every(30).minutes.do(run_strategy_presets)      # Strategy Presets: every 30 min
     # schedule.every(30).minutes.do(run_discovery_scan)      # RETIRED: replaced by Volume Radar below
     schedule.every().sunday.at("22:00").do(run_volume_universe_refresh)   # Universe refresh: Sunday 10 PM MST
     schedule.every().day.at("23:00").do(run_volume_baselines)             # Baselines: nightly 11 PM MST (skip weekends internally)
     schedule.every(15).minutes.do(run_volume_market_scan)                 # Volume Radar: every 15 min during market hours
-    schedule.every(2).minutes.do(run_volume_red_alert)                    # Red Alert: every 2 min during market hours
+    schedule.every(5).minutes.do(run_volume_red_alert)                    # Red Alert: every 2 min during market hours
     schedule.every(30).minutes.do(run_sma_scan)               # 200 SMA Filter: checks every 30 min, runs every 4 hours
     schedule.every(1).hours.do(run_impulse_check)              # Impulse Detector: hourly during market hours
     schedule.every(2).hours.do(run_imbalance_scan)             # Imbalance Zones: every 2 hours (zones are stable)
     schedule.every(30).minutes.do(run_theta_scan)              # Theta Scanner: checks every 30 min, runs every 4 hours
-    schedule.every(5).minutes.do(run_gap_scan)                 # Gap Scanner: checks every 5 min, fires once at market open
-    schedule.every(5).minutes.do(run_gap_fill_check)           # Gap Fill Tracker: every 5 min during market hours
+    schedule.every(15).minutes.do(run_gap_scan)                 # Gap Scanner: checks every 5 min, fires once at market open
+    schedule.every(15).minutes.do(run_gap_fill_check)           # Gap Fill Tracker: every 5 min during market hours
     # Capitol Trades Fund — Congress copycat scan (daily at market open, 9:35 AM ET)
     from engine.capitol_fund import run_capitol_scan as _raw_capitol_scan
     def run_capitol_scan():
@@ -2259,7 +2404,7 @@ if __name__ == "__main__":
             })
         except Exception:
             pass
-    schedule.every(5).minutes.do(run_capitol_scan)
+    schedule.every(15).minutes.do(run_capitol_scan)
     schedule.every(15).minutes.do(run_cost_monitor)         # Cost Monitor: every 15 min (budget alert, auto-pause)
     # Bridge Vote — Tier 3 morning vote at 9:00 AM ET (fires once per day)
     try:
@@ -2269,11 +2414,11 @@ if __name__ == "__main__":
         console.log(f"[yellow]Bridge Vote scheduler skip: {_bv_sched_err}")
     schedule.every(30).minutes.do(run_universe_scan)         # Universe Scanner: checks every 30 min, runs 9 PM MST (12 AM ET)
     schedule.every(30).minutes.do(run_strategy_scan)         # Strategy Scan: checks every 30 min, runs 10 PM MST (1 AM ET)
-    schedule.every(5).minutes.do(run_chekov_stoploss)        # Chekov SL/TP: every 5 min, check positions vs stop/target
+    schedule.every(10).minutes.do(run_chekov_stoploss)        # Chekov SL/TP: every 5 min, check positions vs stop/target
     schedule.every(30).minutes.do(run_metals_commentary)     # Dalio Metals: checks every 30 min, runs 7 AM MST only
     schedule.every(15).minutes.do(run_premarket_gaps)         # Pre-market gaps: checks every 15 min, fires 1 AM MST (4 AM ET)
-    schedule.every(5).minutes.do(run_finviz_premarket_scan)   # Finviz watchlist: 5-min check, fires 6:15 AZ (9:15 ET)
-    schedule.every(1).minutes.do(run_sulu_autoclose)          # Lt. Sulu EOD: auto-close all positions at 12:45 PM MST (3:45 PM ET)
+    schedule.every(15).minutes.do(run_finviz_premarket_scan)   # Finviz watchlist: 5-min check, fires 6:15 AZ (9:15 ET)
+    schedule.every(5).minutes.do(run_sulu_autoclose)          # Lt. Sulu EOD: auto-close all positions at 12:45 PM MST (3:45 PM ET)
     schedule.every(2).minutes.do(run_crew_scanner_job)        # Crew Scanner: agent signal pipeline (every 2 min, alpha squad only)
 
     # Ollie Extended-Hours Scan — pre-market (7–9:30 AM ET) + after-hours (4–6 PM ET)
@@ -2293,7 +2438,7 @@ if __name__ == "__main__":
         except Exception as _oex_err:
             console.log(f"[yellow]Ollie Extended-Hours error: {_oex_err}")
     schedule.every(10).minutes.do(run_ollie_extended_scan)   # Ollie Extended-Hours: every 10 min during pre/post market
-    schedule.every(2).minutes.do(run_battle_station_0dte_job) # Battle Station 0DTE: rules-based SPY 0DTE scanner
+    schedule.every(5).minutes.do(run_battle_station_0dte_job) # Battle Station 0DTE: rules-based SPY 0DTE scanner
     from engine.recovery_protocol import run_recovery_scan
     schedule.every(15).minutes.do(run_recovery_scan)           # Recovery Protocol: checks every 15 min during market hours
     from engine.wheel_strategy import run_wheel_scan, check_wheel_assignments
@@ -2302,7 +2447,7 @@ if __name__ == "__main__":
     # Self-Improvement Loop — 2:30 PM AZ (4:30 PM ET), generates 3 rules per agent
     try:
         from engine.self_improvement import run_daily_reflection
-        schedule.every(5).minutes.do(run_daily_reflection)  # gate fires once at 2:30 PM AZ
+        schedule.every(30).minutes.do(run_daily_reflection)  # gate fires once at 2:30 PM AZ
     except Exception as _si_err:
         console.log(f"[yellow]Self-Improvement scheduler skip: {_si_err}")
 
@@ -2396,7 +2541,7 @@ if __name__ == "__main__":
         except Exception as _e:
             logger.debug(f"VaR calculation error: {_e}")
 
-    schedule.every(5).minutes.do(_run_agent_watchdog)        # User agent conditions checked every 5 min (market hours)
+    schedule.every(15).minutes.do(_run_agent_watchdog)        # User agent conditions checked every 5 min (market hours)
     schedule.every(30).minutes.do(_run_cash_sweep_check)     # Cash sweep rules every 30 min (market hours)
     schedule.every(15).minutes.do(_run_tax_harvest_scan)     # Tax harvest scan every 15 min (fires only at 3:30-4 PM ET)
     schedule.every(30).minutes.do(_run_drift_check)          # Drift rebalancer every 30 min (market hours)
@@ -2413,7 +2558,7 @@ if __name__ == "__main__":
         except Exception as e:
             console.log(f"[red]Webull auto-sync error: {e}")
 
-    schedule.every(5).minutes.do(run_webull_sync)
+    schedule.every(15).minutes.do(run_webull_sync)
 
     # Alpaca Portfolio Sync — tiered schedule (2min market / 10min pre-post / 60min after / 6hr weekend)
     def run_alpaca_portfolio_sync():
@@ -2436,7 +2581,7 @@ if __name__ == "__main__":
         except Exception as e:
             logger.debug(f"Alpaca portfolio sync error: {e}")
 
-    schedule.every(1).minutes.do(run_alpaca_portfolio_sync)   # Runs every minute; interval gating inside
+    schedule.every(5).minutes.do(run_alpaca_portfolio_sync)   # Runs every minute; interval gating inside
 
     # Q's daily quote: 6 AM MST weekdays
     def run_q_daily_quote():
@@ -2563,7 +2708,7 @@ if __name__ == "__main__":
         except Exception as e:
             console.log(f"[red]Season rotation error: {e}")
 
-    schedule.every(5).minutes.do(run_season_rotation)        # Season rotation: checks every 5 min, fires Sunday 11:59 PM MST
+    schedule.every(30).minutes.do(run_season_rotation)        # Season rotation: checks every 5 min, fires Sunday 11:59 PM MST
 
     # Trade Memory Loop: backfill closed trade outcomes every 5 minutes (no market hours gate)
     def run_trade_outcomes_backfill():
@@ -2574,7 +2719,7 @@ if __name__ == "__main__":
         except Exception as e:
             console.log(f"[yellow]Trade outcomes backfill error: {e}")
 
-    schedule.every(5).minutes.do(run_trade_outcomes_backfill)  # Trade Memory: backfill every 5 min, no gate
+    schedule.every(15).minutes.do(run_trade_outcomes_backfill)  # Trade Memory: backfill every 5 min, no gate
 
     # === DATA INGESTION SCHEDULER (Module 8) ===
 
@@ -2702,7 +2847,7 @@ if __name__ == "__main__":
         except Exception as e:
             console.log(f"[red]Daily Review error: {e}")
 
-    schedule.every(5).minutes.do(run_daily_review)  # Checks every 5 min, fires 1:15 PM MST Mon-Fri
+    schedule.every(30).minutes.do(run_daily_review)  # Checks every 5 min, fires 1:15 PM MST Mon-Fri
 
     # Reference Data Import: Sunday at 8:00 PM MST (before Weekly Tuning at 9 PM)
     def run_reference_import():
@@ -2820,7 +2965,7 @@ if __name__ == "__main__":
             get_correlations(force=True)
         except Exception as e:
             console.log(f"[yellow]Breadth/sector/correlation error: {e}")
-    schedule.every(5).minutes.do(run_breadth_sector_corr)
+    schedule.every(15).minutes.do(run_breadth_sector_corr)
 
     def run_holodeck_weekly():
         try:
@@ -2929,7 +3074,7 @@ if __name__ == "__main__":
             console.log(f"[red]Universe refresh error: {_e}")
 
     schedule.every(30).minutes.do(run_deep_scan_job)        # deep scan at 8AM ET
-    schedule.every(5).minutes.do(run_strategy_rotation_job) # rotation at 5:30PM ET
+    schedule.every(30).minutes.do(run_strategy_rotation_job) # rotation at 5:30PM ET
     schedule.every().sunday.at("20:30").do(run_universe_refresh_job)  # Sunday 11:30PM AZ
 
     # ── Season 6: Proving Ground — 30-Day Sniper Mode Trial ────────────────────
@@ -3022,7 +3167,7 @@ if __name__ == "__main__":
         except Exception as _e:
             console.log(f"[yellow]Season 6 opening bell error: {_e}")
 
-    schedule.every(5).minutes.do(run_season6_opening_bell)   # check window every 5 min
+    schedule.every(15).minutes.do(run_season6_opening_bell)   # check window every 5 min
 
     _stagger_schedule_jobs()
 
@@ -3088,6 +3233,21 @@ if __name__ == "__main__":
     console.log("[STARTUP] Drift Rebalancer: check every 30 min during market hours")
     console.log("[STARTUP] VaR Calculator: daily snapshot at 4:05–4:15 PM ET")
     console.log("[STARTUP] Ollama: warming qwen3.5:9b + gemma3:4b + 0xroyce/plutus in background")
+
+    # ── Season 6.3 Fleet Cache ─────────────────────────────────────────────
+    try:
+        from engine.fleet_cache import init_fleet_cache as _init_fc
+        _fc = _init_fc()
+        console.log("[green][STARTUP] Fleet Cache: ACTIVE — collective intelligence <1ms (5-min refresh)")
+    except Exception as _fc_err:
+        console.log(f"[yellow][STARTUP] Fleet Cache: failed to init — {_fc_err}")
+
+    # ── Season 6.3 Tiered Exits ────────────────────────────────────────────
+    try:
+        from engine.tiered_exits import MODEL_F_THRESHOLDS as _mf
+        console.log("[green][STARTUP] Tiered Exits: Model F loaded — 50/30/20 @ 50/75/90% max profit, 2× stop")
+    except Exception as _te_err:
+        console.log(f"[yellow][STARTUP] Tiered Exits: failed to load — {_te_err}")
 
     # Warm up price cache in background so dashboard loads fast
     def _warmup():

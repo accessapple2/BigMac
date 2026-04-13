@@ -1601,23 +1601,8 @@ window._cachedFetch = function(url, ttlMs) {
 </script>
 <script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
 
+/* hide-kirk removed — Kirk/Webull portfolio visible */
 <style id="hide-kirk">
-/* Hide Kirk/Webull portfolio - data preserved in DB */
-#section-webull            { display: none !important; height: 0 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; }
-#section-kirk-detail       { display: none !important; height: 0 !important; overflow: hidden !important; margin: 0 !important; padding: 0 !important; }
-#kirk-advisory-card        { display: none !important; }
-#fleetKirkLabel            { display: none !important; }
-#trc-kirk                  { display: none !important; }
-#webullStatCards            { display: none !important; }
-#webullPortfolio            { display: none !important; }
-#mergedOverviewCard         { display: none !important; }
-#kirk-footer               { display: none !important; }
-#btip-title                { display: none !important; }
-#btip-act                  { display: none !important; }
-[onclick*="webull"]        { display: none !important; }
-[onclick*="kirk"]          { display: none !important; }
-label[for*="kirk"]         { display: none !important; }
-#cb-kirk, .kirk-toggle     { display: none !important; }
 /* Hide CTO Daily Advisory — data preserved, UI hidden */
 #ctoBanner                 { display: none !important; }
 </style>
@@ -1899,13 +1884,14 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="sidebar-item" onclick="showSection('dayblade')"><span class="icon">⚔️</span> Battle Station</div>
   <div class="sidebar-item" onclick="showSection('charts')"><span class="icon">📈</span> Charts</div>
   <div class="sidebar-item" onclick="showSection('livechart')"><span class="icon">⚡</span> Live Chart</div>
-  <div class="sidebar-item" onclick="showSection('screener-pro')"><span class="icon">🔍</span> Screener Pro</div>
-  <div class="sidebar-item" onclick="showSection('big-charts')"><span class="icon">📱</span> Big Charts</div>
+<div class="sidebar-item" onclick="showSection('screener-pro')"><span class="icon">🔍</span> Screener Pro</div>
+<div class="sidebar-item" onclick="showSection('sector-watch')"><span class="icon">📡</span> Sector Watch</div>
+<div class="sidebar-item" onclick="showSection('big-charts')"><span class="icon">📱</span> Big Charts</div>
   <div class="sidebar-item" onclick="showSection('alert-history')"><span class="icon">🔔</span> Alerts</div>
   <div class="sidebar-item" onclick="showSection('leaderboard')"><span class="icon">🏆</span> Leaderboard</div>
   <div class="sidebar-item" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
   <div class="sidebar-item" onclick="showSection('congress')"><span class="icon">🏛️</span> Congress</div>
-  <!-- HIDDEN: Kirk/Webull sidebar entry - data preserved in DB -->
+  <div class="sidebar-item" onclick="showSection('webull')"><span class="icon">👨‍✈️</span> Captain's Portfolio</div>
 
   <!-- TIER 2 — More dropdown -->
   <div style="margin:4px 8px 0;">
@@ -3678,7 +3664,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
   <!-- Kirk Advisory Card -->
   <div class="card" id="kirk-advisory-card" style="margin-bottom:16px;border-left:3px solid #f59e0b;">
     <div class="card-header">
-      <!-- HIDDEN: <div class="card-title" style="cursor:pointer;" onclick="showSection('kirk-detail')"> -->👨‍✈️ Kirk Advisory — Webull Action Plan <span style="font-size:12px;color:var(--muted);margin-left:8px;">click for details →</span></div>
+      <!-- HIDDEN: <div class="card-title" style="cursor:pointer;" onclick="showSection('kirk-detail')"> -->👨‍✈️ Kirk Advisory — Captain's Action Plan <span style="font-size:12px;color:var(--muted);margin-left:8px;">click for details →</span></div>
       <span id="kirkAdvTime" style="font-size:13px;color:var(--muted);"></span>
     </div>
     <div id="kirkAdvBody" style="padding:12px 16px;">Loading advisory...</div>
@@ -3776,7 +3762,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
   var _SECTOR_TIPS={'Technology':'Technology (XLK) — FAANG, semiconductors, software. High beta: first to fall in risk-off, first to rally in risk-on. Watch NVDA, AAPL, MSFT as sector leaders.','Healthcare':'Healthcare (XLV) — pharmaceuticals, biotech, medical devices. Defensive growth: holds up in downturns. FDA catalysts drive biotech swings. Lower volatility than tech.','Financials':'Financials (XLF) — banks, insurance, asset managers. Profits from rising rates (net interest margin). Inverted yield curve crushes bank earnings — watch the 2yr/10yr spread.','Energy':'Energy (XLE) — oil, gas, pipelines. Tracks crude oil prices closely. A global growth barometer — when economies slow, energy falls first. Geopolitics matter.','Utilities':'Utilities (XLU) — electric, water, gas. Defensive yield play. Inversely correlated with interest rates: rallies when investors flee to safety and dividends.','Consumer Discretionary':'Consumer Discretionary (XLY) — Amazon, Tesla, retail. Cyclical: thrives when consumers are confident. Tanks first in recession fears. Leading economic indicator.','Consumer Staples':'Consumer Staples (XLP) — food, beverages, household goods. Recession-proof spending. Strong relative performance signals defensive rotation — money moving to safety.','Industrials':'Industrials (XLI) — manufacturing, defense, transportation. Economic bellwether. Tends to lead recoveries and lag at peaks. Watch freight volumes for early signals.','Real Estate':'Real Estate (XLRE) — REITs and property. Rate-sensitive: rising rates hurt REIT valuations (higher cap rates). Benefits from falling rates and inflation hedging.','Materials':'Materials (XLB) — metals, mining, chemicals, packaging. Cyclical and China-sensitive. Copper is the PhD in economics — rising copper = global growth signal.','Communication Services':'Communications (XLC) — Meta, Alphabet, Netflix, telecom. Blend of growth (tech-like ad revenue) and stability (telecom). Ad spend drops fast in economic slowdowns.','Comm Services':'Communications (XLC) — Meta, Alphabet, Netflix, telecom. Blend of growth and stability. Ad revenue sensitive to economic cycles. Watch digital ad trends.'};
   var _bridgeHeatmapRetries = 0;
   function loadBridgeHeatmap() {
-    _cachedFetch('/api/sector-heatmap', 30000).then(function(r){return r.json();}).then(function(d) {
+    _cachedFetch('/api/sector-heatmap', 30000).then(function(d) {
       _bridgeHeatmapRetries = 0; // reset on success
       var el = document.getElementById('heatmapGrid');
       if (!d.sectors || d.sectors.length === 0) {
@@ -3809,7 +3795,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       setTimeout(function(){ loadBridgeHeatmap(); }, delay);
     });
     // Fear & Greed
-    _cachedFetch('/api/fear-greed', 30000).then(function(r){return r.json();}).then(function(d) {
+    _cachedFetch('/api/fear-greed', 30000).then(function(d) {
       var score = d.score || 50;
       var label = d.label || 'NEUTRAL';
       var color = score < 25 ? 'var(--red)' : score < 45 ? '#f97316' : score < 65 ? 'var(--muted)' : score < 80 ? 'var(--green)' : '#2563eb';
@@ -3836,7 +3822,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       document.getElementById('fgLabel').textContent='Loading...';
       // Auto-retry after 3s on failure
       setTimeout(function(){
-        _cachedFetch('/api/fear-greed', 30000).then(function(r){return r.json();}).then(function(d){
+        _cachedFetch('/api/fear-greed', 30000).then(function(d){
           var score=d.score||50; var label=d.label||'NEUTRAL';
           var color=score<25?'var(--red)':score<45?'#f97316':score<65?'var(--muted)':score<80?'var(--green)':'#2563eb';
           document.getElementById('fgScore').textContent=score;
@@ -4655,14 +4641,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     </summary>
     <div style="background:rgba(37,99,235,0.06);border-left:3px solid #2563eb;padding:8px 14px;margin:0 14px 10px;border-radius:0 6px 6px 0;font-size:12px;color:var(--muted);line-height:1.5;">Market movers vs fleet positions — today's biggest moves on the left, our open P&amp;L on the right.</div>
     <div class="mpo-outer">
-      <div>
-        <div class="mpo-section-label">📊 Market Movers</div>
-        <div id="moversContent"><div style="color:var(--muted);font-size:13px;text-align:center;padding:16px 0;">Loading...</div></div>
-      </div>
-      <div>
-        <div class="mpo-section-label">💼 Portfolio Holdings</div>
-        <div id="holdingsContent"><div style="color:var(--muted);font-size:13px;text-align:center;padding:16px 0;">Loading...</div></div>
-      </div>
+      
     </div>
   </details>
 
@@ -4683,7 +4662,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
 <div id="section-kirk-detail" style="display:none;">
   <div style="background:rgba(245,158,11,0.06);border-left:3px solid #f59e0b;padding:14px 18px;margin-bottom:16px;border-radius:0 8px 8px 0;">
     <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px;">👨‍✈️ Kirk Advisory — Full Analysis</div>
-    <div style="font-size:14px;color:var(--muted);line-height:1.6;">Deep dive into your Webull positions. Cross-references GEX levels, Fear &amp; Greed, VIX, fleet intelligence, Congress trades, and volume spikes to generate actionable signals.</div>
+    <div style="font-size:14px;color:var(--muted);line-height:1.6;">Deep dive into Captain's Portfolio positions. Cross-references GEX levels, Fear &amp; Greed, VIX, fleet intelligence, Congress trades, and volume spikes to generate actionable signals.</div>
   </div>
   <div id="kirkDetailBody" style="font-size:14px;">Loading full analysis...</div>
 </div>
@@ -4691,22 +4670,11 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
 <!-- WEBULL SECTION -->
 <div id="section-webull" style="display:none;">
   <div id="guide-container-webull"></div>
-  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Captain's Real Account</div><div style="font-size:13px;color:#94a3b8;">Your live Webull portfolio — Captain Kirk competing against the AI fleet. Manually sync your account value to track performance in the arena.</div></div>
-  <!-- Manual Sync Card -->
-  <div class="card" style="margin-bottom:12px;padding:16px 20px;">
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <span style="font-size:16px;">🔄</span>
-      <span style="font-weight:700;font-size:13px;color:var(--accent);">Sync Webull Value</span>
-      <div style="display:flex;gap:6px;align-items:center;">
-        <span style="color:var(--muted);font-size:12px;">$</span>
-        <input id="webullSyncInput" type="number" step="0.01" placeholder="7009.96"
-          style="width:120px;padding:8px 12px;border-radius:6px;border:1px solid var(--border);background:var(--input-bg);color:var(--text);font-size:13px;font-family:var(--font-mono);"
-          onkeydown="if(event.key==='Enter')syncWebullValue()" />
-        <!-- HIDDEN: <button onclick="syncWebullValue()" class="btn btn-primary" style="padding:8px 16px;font-size:12px;"> -->Sync</button>
-      </div>
-      <span id="webullSyncStatus" style="font-size:13px;color:var(--muted);margin-left:auto;"></span>
-    </div>
+  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
+    <div><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Captain's Live Portfolio</div><div style="font-size:13px;color:#94a3b8;">Live positions from Webull — Captain Kirk vs the AI fleet. Prices refresh every 60s.</div></div>
+    <button id="wbSyncBtn" onclick="syncWebullLive()" style="padding:8px 18px;border-radius:6px;border:1px solid #2563eb;background:rgba(37,99,235,0.15);color:#7cc8f8;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">🔄 Sync from Webull</button>
   </div>
+  <div id="webullSyncStatus" style="font-size:12px;color:var(--muted);margin-bottom:8px;min-height:18px;padding:0 4px;"></div>
   <!-- Stat Cards -->
   <div class="stats-grid" id="webullStatCards" style="margin-bottom:12px;">
     <div class="stat-card">
@@ -4749,20 +4717,59 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       <span>📋</span><span>REVIEW</span>
       <span style="font-size:12px;font-weight:400;color:var(--muted);margin-left:auto;">Full Kirk Advisory</span>
     </div>
+<div>
+        <div class="mpo-section-label">📊 Market Movers</div>
+        <div id="moversContent"><div style="color:var(--muted);font-size:13px;text-align:center;padding:16px 0;">Loading...</div></div>
+      </div>
+      <div>
+        <div class="mpo-section-label">💼 Portfolio Holdings</div>
+        <div id="holdingsContent"><div style="color:var(--muted);font-size:13px;text-align:center;padding:16px 0;">Loading...</div></div>
+      </div>
   </div>
   <div class="wb-action-panel" id="wb-panel-buy"></div>
   <div class="wb-action-panel" id="wb-panel-sell"></div>
   <!-- Positions Tables -->
   <div class="card">
     <div class="card-header">
-      <div class="card-title">📈 Webull Live Portfolio</div>
+      <div class="card-title">📈 Captain's Portfolio</div>
       <div style="display:flex;gap:8px;align-items:center;">
         <span id="webullLastUpdate" style="font-size:13px;color:var(--muted);"></span>
-        <span style="font-size:12px;color:var(--muted);opacity:0.6;">Auto-refresh: 60s</span>
-        <!-- HIDDEN: <button class="btn btn-primary" onclick="fetchWebullPortfolio()"> -->Refresh</button>
+        <button class="btn btn-primary" onclick="fetchWebullPortfolio()" style="padding:5px 12px;font-size:12px;">Refresh</button>
       </div>
     </div>
-    <div id="webullPortfolio"><div style="text-align:center;padding:40px;color:var(--muted);"><div class="spinner" style="margin:0 auto 12px;width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;"></div>Loading Webull portfolio...</div></div>
+    <div id="webullPortfolio"><div style="text-align:center;padding:40px;color:var(--muted);"><div class="spinner" style="margin:0 auto 12px;width:28px;height:28px;border:3px solid var(--border);border-top-color:var(--accent);border-radius:50%;animation:spin 0.8s linear infinite;"></div>Loading portfolio...</div></div>
+  </div>
+
+  <!-- Kirk Advisory Team Card -->
+  <div class="card" id="wb-advisory-team-card" style="margin-top:16px;margin-bottom:0;border-left:3px solid #7c3aed;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:18px;">🛸</span>
+        <div class="card-title" style="margin:0;">Advisory Team</div>
+        <span id="wbTeamModelBadge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(124,58,237,0.15);color:#a78bfa;font-family:var(--font-mono);display:none;"></span>
+        <span id="wbTeamFallbackBadge" style="font-size:10px;padding:2px 7px;border-radius:10px;background:rgba(234,179,8,0.15);color:#fbbf24;display:none;">Ollie fallback</span>
+      </div>
+      <div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;">
+        <span style="font-size:11px;color:var(--muted);" id="wbTeamCostBadge"></span>
+        <span style="font-size:12px;color:var(--muted);" id="wbTeamMeta"></span>
+        <button id="wbTeamScanBtn" onclick="triggerWbTeamScan()" style="padding:4px 12px;border-radius:5px;border:1px solid #7c3aed;color:#a78bfa;background:rgba(124,58,237,0.1);font-size:12px;cursor:pointer;font-weight:600;">Scan Now</button>
+      </div>
+    </div>
+    <!-- Advisor tabs -->
+    <div style="display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 16px;">
+      <button id="wbAdvTab-grok" onclick="wbAdvShowTab('grok')" style="padding:7px 14px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid #7c3aed;color:#a78bfa;">🧠 Grok</button>
+      <button id="wbAdvTab-troi" onclick="wbAdvShowTab('troi')" style="padding:7px 14px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted);">💜 Troi</button>
+      <button id="wbAdvTab-worf" onclick="wbAdvShowTab('worf')" style="padding:7px 14px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted);">⚔️ Worf</button>
+    </div>
+    <div id="wbAdvPanel-grok" style="padding:12px 16px 4px;">
+      <div style="color:var(--muted);font-size:13px;padding:8px 0;">Loading Grok advice…</div>
+    </div>
+    <div id="wbAdvPanel-troi" style="padding:12px 16px 4px;display:none;">
+      <div style="color:var(--muted);font-size:13px;padding:8px 0;">Loading Troi sentiment…</div>
+    </div>
+    <div id="wbAdvPanel-worf" style="padding:12px 16px 4px;display:none;">
+      <div style="color:var(--muted);font-size:13px;padding:8px 0;">Loading Worf risk…</div>
+    </div>
   </div>
 
   <!-- Portfolio Value + Sector Allocation row -->
@@ -4866,7 +4873,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
   <!-- ── Embedded Webull Command ─────────────────────────────── -->
   <div class="card" style="margin-top:12px;padding:0;overflow:hidden;">
     <div style="padding:10px 16px 0;border-bottom:1px solid var(--border);">
-      <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">Webull Command</div>
+      <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.6px;margin-bottom:8px;">Captain's Command</div>
       <div style="display:flex;gap:2px;flex-wrap:wrap;">
         <button class="wbc-tab active" onclick="wbcSwitchTab('holdings',this)">📋 Holdings</button>
         <button class="wbc-tab" onclick="wbcSwitchTab('rebalance',this)">⚖️ Rebalance</button>
@@ -6456,10 +6463,49 @@ document.addEventListener('keydown', function(e) {
 </script>
 
 <!-- SCREENER PRO SECTION -->
+</div>
+<div id="section-sector-watch" style="display:none;overflow-y:auto;height:calc(100vh - 120px);"></div>
+<script>
+(function(){
+  var swLoaded=false;
+  function loadSectorWatch(){
+    if(swLoaded) return;
+    swLoaded=true;
+    fetch("/static/sector_watch.html")
+      .then(function(r){return r.text();})
+      .then(function(html){
+        var el=document.getElementById("section-sector-watch");
+        var parser=new DOMParser();
+        var doc=parser.parseFromString(html,"text/html");
+        doc.querySelectorAll("style").forEach(function(st){document.head.appendChild(st.cloneNode(true));});
+        el.innerHTML=doc.body.innerHTML;
+        doc.querySelectorAll("script").forEach(function(sc){
+          var s=document.createElement("script");
+          s.textContent=sc.textContent;
+          document.body.appendChild(s);
+        });
+      });
+  }
+  window.addEventListener("DOMContentLoaded",function(){
+    var el=document.getElementById("section-sector-watch");
+    if(!el) return;
+    new MutationObserver(function(mutations){
+      mutations.forEach(function(m){
+        if(m.attributeName==="style" && el.style.display!=="none"){
+          loadSectorWatch();
+        }
+      });
+    }).observe(el,{attributes:true,attributeFilter:["style"]});
+    var item=document.querySelector(".sidebar-item[onclick*=\"sector-watch\"]");
+    if(item) item.addEventListener("click",loadSectorWatch);
+  });
+})();
+</script>
 <div id="section-screener-pro" style="display:none;">
   <div class="card">
-    <div class="card-header" style="flex-wrap:wrap;gap:8px;">
+      <div class="card-header" style="flex-wrap:wrap;gap:8px;">
       <div class="card-title">&#9889; Screener Pro</div>
+
       <div style="display:flex;gap:6px;align-items:center;">
         <button id="scrp-view-table-btn" onclick="screenerPro.setView('table')"
           style="font-size:11px;padding:3px 10px;background:#00aaff22;border:1px solid #00aaff;border-radius:4px;color:#00aaff;cursor:pointer;">Table</button>
@@ -6811,7 +6857,9 @@ var screenerPro = (function() {
 })();
 // Auto-run screener on first section visit
 if (typeof registerSectionInit === 'function') {
-  registerSectionInit('screener-pro', function() { screenerPro.run(); });
+  registerSectionInit('screener-pro',
+  'sector-watch',
+  'sector-watch', function() { screenerPro.run(); });
 }
 </script>
 
@@ -7303,7 +7351,7 @@ registerSectionInit('etf-center',fetchETFCenter,[]);
         <select id="clPlayerFilter" onchange="fetchCaptainsLog()" style="background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:13px;">
           <option value="">All Manual/Options</option>
           <option value="dayblade-0dte">DayBlade 0DTE</option>
-          <option value="steve-webull" hidden>Webull Portfolio</option>
+          <option value="steve-webull" hidden>Captain's Portfolio</option>
           <option value="options-sosnoff">Troi's Empathic Read</option>
         </select>
         <button class="btn btn-ghost" onclick="fetchCaptainsLog()" style="font-size:13px;">Refresh</button>
@@ -12586,6 +12634,8 @@ const LEAN_NAV_VISIBLE_SECTIONS = new Set([
   'charts',
   'livechart',
   'screener-pro',
+  'sector-watch',
+  'sector-watch',
 ]);
 
 function _extractNavSection(el) {
@@ -13025,7 +13075,7 @@ var PAGE_GUIDES = {
   'war-room': {
     title: "War Room — Trade Execution",
     steps: [
-      "Submit BUY or SELL orders here — these log as your personal Webull Portfolio entries.",
+      "Submit BUY or SELL orders here — these log as your personal Captain's Portfolio entries.",
       "Add your reasoning — the AI crew will react to your trades.",
       "Check Arena Intel to see if any model agrees with your thesis before entering.",
       "Set confidence 1–10. High confidence trades get priority in the crew debate.",
@@ -13043,13 +13093,13 @@ var PAGE_GUIDES = {
     ]
   },
   'webull': {
-    title: "Webull Portfolio — Your Holdings",
+    title: "Captain's Portfolio — Holdings",
     steps: [
-      "This page mirrors your live Webull account and refreshes every 60 seconds.",
+      "This page mirrors your live portfolio and refreshes every 60 seconds.",
       "OPEN P&L = unrealized gains/losses across all open positions.",
       "DAY P&L = today's dollar change from yesterday's close.",
       "WIN RATE = percentage of your closed trades that were profitable.",
-      "Use 'Sync Webull Value' to manually push your current account value to the leaderboard."
+      "Use 'Sync Portfolio Value' to manually push your current account value to the leaderboard."
     ]
   },
   'dalio': {
@@ -13471,7 +13521,7 @@ function updateFleetBar() {
   var prevMetals = (document.getElementById('fleetIncludeMetals') || {}).checked || false;
   var prevKirk   = (document.getElementById('fleetIncludeKirk')   || {}).checked || false;
 
-  // Active fleet — only _FLEET_CORE (7 agents), plus optional add-ons
+  // Active fleet — only _FLEET_CORE (8 agents), plus optional add-ons
   var players = window.arenaData.filter(function(p) {
     if (_FLEET_CORE.has(p.player_id)) return true;
     if (p.player_id === 'enterprise-computer' && prevMetals) return true;
@@ -13730,9 +13780,10 @@ function toggleLbShowAll() {
   if (btn) btn.textContent = isHidden ? '\u25BC Active Only' : '\u25BA Show All';
 }
 
-/// Fleet Totals: Season 5 Final Seven — verified 2026-04-04.
+/// Fleet Totals: Season 6.3 "Iron Condor King" — deployed 2026-04-10.
+// PRIMARY: Sulu (iron_condor, Model F exits) + McCoy (income). SCOUTS: Spock, Data, Dax, Chekov, Capitol.
 // Kirk/Metals shown as optional add-ons via checkboxes.
-var _FLEET_CORE = new Set(['neo-matrix','ollama-coder','ollama-llama','ollama-plutus','ollama-qwen3','gemini-2.5-flash','dayblade-0dte']);
+var _FLEET_CORE = new Set(['ollie-auto','grok-4','ollama-coder','ollama-qwen3','navigator','capitol-trades','dayblade-sulu','ollama-plutus']);
 
 function _getFleetTeam(players) {
   var ids = new Set(_FLEET_CORE);
@@ -14579,8 +14630,8 @@ async function generateCTOBriefing() {
   setTimeout(function() { btn.textContent = origText; btn.disabled = false; }, 3000);
 }
 
-// Season 5 Final Seven — shown in sidebar fleet panel
-var SIDEBAR_FLEET_IDS = new Set(['neo-matrix','ollama-coder','ollama-llama','ollama-plutus','ollama-qwen3','gemini-2.5-flash','dayblade-0dte','capitol-trades']);
+// Season 6.3 "Iron Condor King" — shown in sidebar fleet panel
+var SIDEBAR_FLEET_IDS = new Set(['ollie-auto','grok-4','ollama-coder','ollama-qwen3','navigator','capitol-trades','dayblade-sulu','ollama-plutus']);
 
 function toggleFleetCapital() {
   var el = document.getElementById('sidebarCapital');
@@ -15113,51 +15164,39 @@ async function fetchNews() {
 }
 
 // WEBULL LIVE PORTFOLIO
-async function syncWebullValue() {
-  var input = document.getElementById('webullSyncInput');
-  var val = parseFloat(input.value);
-  if (!val || val <= 0) { alert('Enter a valid dollar amount'); return; }
+async function syncWebullLive() {
+  var btn = document.getElementById('wbSyncBtn');
   var status = document.getElementById('webullSyncStatus');
   try {
-    status.textContent = 'Syncing...';
-    status.style.color = 'var(--accent)';
-    var r = await fetch('/api/webull/sync', {
-      method: 'POST',
-      headers: {'Content-Type': 'application/json'},
-      body: JSON.stringify({total_value: val})
-    });
+    if (btn) { btn.disabled = true; btn.textContent = '⏳ Syncing…'; }
+    if (status) { status.innerHTML = '<span style="color:var(--accent);">Pulling from Webull API…</span>'; }
+    var r = await fetch('/api/webull/sync', { method: 'POST' });
     var d = await r.json();
     if (d.ok) {
-      var ts = d.synced && d.synced.synced_at ? new Date(d.synced.synced_at).toLocaleTimeString() : 'now';
-      status.innerHTML = '<span style="color:var(--green);">✓ Synced $' + val.toLocaleString(undefined,{minimumFractionDigits:2}) + ' at ' + ts + '</span>';
-      input.value = '';
+      var tv = d.total_value ? '$' + Number(d.total_value).toLocaleString('en',{minimumFractionDigits:2,maximumFractionDigits:2}) : '';
+      if (status) status.innerHTML = '<span style="color:var(--green);">✓ Synced ' + d.positions + ' positions' + (tv ? ' · ' + tv : '') + ' · ' + new Date().toLocaleTimeString() + '</span>';
+      // Invalidate cache and reload live portfolio
+      _cache = {};
+      await fetchWebullPortfolio();
     } else {
-      status.innerHTML = '<span style="color:var(--red);">Error: ' + (d.error || 'unknown') + '</span>';
+      if (status) status.innerHTML = '<span style="color:var(--red);">Sync failed: ' + (d.error || 'unknown') + '</span>';
     }
   } catch(e) {
-    status.innerHTML = '<span style="color:var(--red);">Sync failed</span>';
+    if (status) status.innerHTML = '<span style="color:var(--red);">Sync error: ' + e.message + '</span>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = '🔄 Sync from Webull'; }
   }
 }
 
-// Load last sync status on page load
-async function loadSyncStatus() {
-  try {
-    var r = await fetch('/api/webull/synced');
-    var d = await r.json();
-    var status = document.getElementById('webullSyncStatus');
-    if (d && d.total_value) {
-      var ts = d.synced_at ? new Date(d.synced_at).toLocaleTimeString() : '?';
-      status.innerHTML = 'Last synced: $' + Number(d.total_value).toLocaleString(undefined,{minimumFractionDigits:2}) + ' at ' + ts;
-    }
-  } catch(e) {}
-}
-loadSyncStatus();
+// Legacy stub — no longer needed but kept to avoid errors from other callers
+async function syncWebullValue() {}
+async function loadSyncStatus() {}
 
 async function fetchWebullLive() { return fetchWebullPortfolio(); }
 
 async function fetchWebullPortfolio() {
   try {
-    var r = await fetch('/api/webull-portfolio');
+    var r = await fetch('/api/webull/positions');
     var d = await r.json();
     var el = document.getElementById('webullPortfolio');
     if (d.error) { if (el) el.innerHTML='<div style="color:var(--red)">'+d.error+'</div>'; return; }
@@ -15205,13 +15244,22 @@ async function fetchWebullPortfolio() {
       h += '<th style="padding:8px;text-align:right;">Avg Cost</th><th style="padding:8px;text-align:right;">Current</th>';
       h += '<th style="padding:8px;text-align:right;">Value</th><th style="padding:8px;text-align:right;">Open P&L</th>';
       h += '<th style="padding:8px;text-align:right;">P&L %</th><th style="padding:8px;text-align:right;">Day %</th>';
-      h += '<th style="padding:8px;text-align:right;">Weight</th></tr></thead><tbody>';
+      h += '<th style="padding:8px;text-align:right;">Weight</th>';
+      h += '<th style="padding:8px;text-align:center;">Kirk</th>';
+      h += '</tr></thead><tbody>';
       for (var i=0; i<rows.length; i++) {
         var p = rows[i];
         var c = p.unrealized_pnl>=0?'var(--green)':'var(--red)';
         var dc = p.day_change_pct>=0?'var(--green)':'var(--red)';
         var wt = totalMkt > 0 ? (p.market_value/totalMkt*100).toFixed(1) : '0.0';
-        h += '<tr style="border-bottom:1px solid var(--border);">';
+        var _km = window._kirkPositionMap && window._kirkPositionMap[p.symbol];
+        var _ka = _km ? _km.action : 'HOLD';
+        var _kc = _ka === 'SELL' ? '#dc2626' : _ka === 'TRIM' ? '#ea580c' : _ka === 'ADD' ? '#059669' : '#374151';
+        var _kb = (_ka === 'SELL' || _ka === 'TRIM' || _ka === 'ADD')
+          ? '<button onclick="kirkPositionAction(\''+_ka+'\',\''+p.symbol+'\','+p.qty+','+p.current_price+')" style="background:'+_kc+';color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;border:none;cursor:pointer;" title="'+(_km?_km.reasoning:'')+'">'+_ka+'</button>'
+          : '<span style="background:'+_kc+';color:#9ca3af;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:600;">HOLD</span>';
+        var _rowBg = _ka === 'SELL' ? 'background:rgba(220,38,38,0.07);' : _ka === 'TRIM' ? 'background:rgba(234,88,12,0.05);' : '';
+        h += '<tr style="border-bottom:1px solid var(--border);'+_rowBg+'">';
         h += '<td style="padding:8px 12px;font-weight:700;font-family:var(--font-mono);"><span class="ticker-click" onclick="openTickerDetail(\''+p.symbol+'\')" title="View detail">'+p.symbol+'</span></td>';
         h += '<td style="padding:8px;text-align:right;">'+p.qty+'</td>';
         h += '<td style="padding:8px;text-align:right;color:var(--muted);">$'+p.avg_price.toFixed(2)+'</td>';
@@ -15221,6 +15269,7 @@ async function fetchWebullPortfolio() {
         h += '<td style="padding:8px;text-align:right;color:'+c+';font-weight:700;">'+(p.unrealized_pnl_pct>=0?'+':'')+p.unrealized_pnl_pct.toFixed(2)+'%</td>';
         h += '<td style="padding:8px;text-align:right;color:'+dc+';">'+(p.day_change_pct>=0?'+':'')+p.day_change_pct.toFixed(2)+'%</td>';
         h += '<td style="padding:8px;text-align:right;color:var(--muted);">'+wt+'%</td>';
+        h += '<td style="padding:8px;text-align:center;">'+_kb+'</td>';
         h += '</tr>';
       }
       h += '</tbody></table>';
@@ -15259,8 +15308,8 @@ async function fetchWebullPortfolio() {
     console.error('[Webull] fetchWebullPortfolio error:', e);
   }
 }
-// [LazyInit] fetchWebullPortfolio();
-// [LazyInit] setInterval(fetchWebullPortfolio, 60000);
+fetchWebullPortfolio();
+setInterval(fetchWebullPortfolio, 60000);
 
 function selectChartTicker(sym) {
   showSection('charts');
@@ -15895,7 +15944,220 @@ registerSectionInit('webull', function(){
   if (!_wbcTabLoaded['holdings']) { _wbcTabLoaded['holdings']=true; wbcLoadHoldings(); }
   if (!_wbiTabLoaded['tc'])       { _wbiTabLoaded['tc']=true; wbiLoadCards(); }
   fetchWbRecentTrades();
+  fetchWbTeamAdvice();
 });
+
+// ── Kirk Advisory Team ──────────────────────────────────────────────────────
+var _wbTeamCache = null;
+var _wbAdvActiveTab = 'grok';
+
+function wbAdvShowTab(tab) {
+  _wbAdvActiveTab = tab;
+  ['grok','troi','worf'].forEach(function(t) {
+    var panel = document.getElementById('wbAdvPanel-' + t);
+    var btn = document.getElementById('wbAdvTab-' + t);
+    if (panel) panel.style.display = t === tab ? '' : 'none';
+    if (btn) {
+      btn.style.borderBottomColor = t === tab ? '#7c3aed' : 'transparent';
+      btn.style.color = t === tab ? '#a78bfa' : 'var(--muted)';
+    }
+  });
+}
+
+function _advTimeAgo(iso) {
+  if (!iso) return '—';
+  var diff = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
+  if (diff < 1) return 'just now';
+  if (diff < 60) return diff + 'm ago';
+  if (diff < 1440) return Math.floor(diff/60) + 'h ago';
+  return Math.floor(diff/1440) + 'd ago';
+}
+
+function _renderGrokPanel(advice) {
+  var body = document.getElementById('wbAdvPanel-grok');
+  if (!body) return;
+  if (!advice || !advice.length) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">No Grok advice yet. Click <strong>Scan Now</strong> to analyze positions.</div>';
+    return;
+  }
+  var ac = {'SELL':'#dc2626','TRIM':'#ea580c','ADD':'#059669','HOLD':'#374151'};
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+  html += '<thead><tr style="border-bottom:1px solid var(--border);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.6px;">';
+  ['Symbol','Action','Conf','Target','Stop','Hold','Model','Reasoning',''].forEach(function(h){
+    html += '<th style="padding:6px 8px;text-align:left;">' + h + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+  for (var i = 0; i < advice.length; i++) {
+    var a = advice[i];
+    var bgColor = a.action === 'SELL' ? 'rgba(220,38,38,0.06)' : a.action === 'TRIM' ? 'rgba(234,88,12,0.04)' : '';
+    var badgeColor = ac[a.action] || '#374151';
+    var conf = a.confidence != null ? Math.round(a.confidence * 100) + '%' : '—';
+    var target = a.target_price != null ? '$' + parseFloat(a.target_price).toFixed(2) : '—';
+    var stop = a.stop_loss != null ? '$' + parseFloat(a.stop_loss).toFixed(2) : '—';
+    var ackd = a.acknowledged ? 'opacity:0.4;' : '';
+    var modelBadge = a.model_used ? '<span style="font-size:9px;padding:1px 5px;border-radius:8px;background:rgba(124,58,237,0.12);color:#a78bfa;">' + a.model_used.split('-')[0] + '</span>' : '';
+    html += '<tr style="border-bottom:1px solid var(--border);' + bgColor + ackd + '">';
+    html += '<td style="padding:7px 8px;font-family:var(--font-mono);font-weight:700;cursor:pointer;" onclick="openTickerDetail(\'' + a.symbol + '\')">' + a.symbol + '</td>';
+    html += '<td style="padding:7px 8px;"><span style="background:' + badgeColor + ';color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">' + (a.action||'HOLD') + '</span></td>';
+    html += '<td style="padding:7px 8px;font-family:var(--font-mono);color:var(--muted);">' + conf + '</td>';
+    html += '<td style="padding:7px 8px;font-family:var(--font-mono);color:#22c55e;">' + target + '</td>';
+    html += '<td style="padding:7px 8px;font-family:var(--font-mono);color:#ea580c;">' + stop + '</td>';
+    html += '<td style="padding:7px 8px;color:var(--muted);">' + (a.hold_period||'—') + '</td>';
+    html += '<td style="padding:7px 8px;">' + modelBadge + '</td>';
+    html += '<td style="padding:7px 8px;color:var(--text);max-width:260px;font-size:12px;">' + (a.reasoning||'').substring(0,100) + '</td>';
+    html += '<td style="padding:7px 8px;">';
+    if (!a.acknowledged) {
+      html += '<button onclick="ackGrokAdvice(' + a.id + ',this)" style="padding:2px 8px;border-radius:4px;border:1px solid #7c3aed;color:#a78bfa;background:transparent;font-size:11px;cursor:pointer;">✓ Ack</button>';
+    }
+    html += '</td></tr>';
+  }
+  html += '</tbody></table>';
+  body.innerHTML = html;
+}
+
+function _renderTroiPanel(advice) {
+  var body = document.getElementById('wbAdvPanel-troi');
+  if (!body) return;
+  if (!advice || !advice.length) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">No Troi sentiment yet. Run a team scan to populate.</div>';
+    return;
+  }
+  var sc = {'BULLISH':'#059669','BEARISH':'#dc2626','NEUTRAL':'#374151'};
+  var rc = {'low':'#22c55e','medium':'#f59e0b','high':'#dc2626'};
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+  html += '<thead><tr style="border-bottom:1px solid var(--border);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.6px;">';
+  ['Symbol','Sentiment','Crowd Risk','Bias Check','Conf','Reasoning'].forEach(function(h){
+    html += '<th style="padding:6px 8px;text-align:left;">' + h + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+  for (var i = 0; i < advice.length; i++) {
+    var a = advice[i];
+    var sentUp = (a.sentiment||'neutral').toUpperCase();
+    var sentColor = sc[sentUp] || '#374151';
+    var crowdUp = (a.crowd_risk||'').toLowerCase();
+    var crowdColor = rc[crowdUp] || 'var(--muted)';
+    var conf = a.confidence != null ? Math.round(a.confidence * 100) + '%' : '—';
+    html += '<tr style="border-bottom:1px solid var(--border);">';
+    html += '<td style="padding:7px 8px;font-family:var(--font-mono);font-weight:700;cursor:pointer;" onclick="openTickerDetail(\'' + a.symbol + '\')">' + a.symbol + '</td>';
+    html += '<td style="padding:7px 8px;"><span style="background:' + sentColor + ';color:white;padding:2px 8px;border-radius:4px;font-size:11px;font-weight:700;">' + sentUp + '</span></td>';
+    html += '<td style="padding:7px 8px;color:' + crowdColor + ';font-weight:600;font-size:12px;">' + (a.crowd_risk||'—') + '</td>';
+    html += '<td style="padding:7px 8px;color:var(--muted);font-size:12px;">' + (a.bias_check||'—') + '</td>';
+    html += '<td style="padding:7px 8px;font-family:var(--font-mono);color:var(--muted);">' + conf + '</td>';
+    html += '<td style="padding:7px 8px;color:var(--text);font-size:12px;max-width:300px;">' + (a.reasoning||'').substring(0,120) + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  body.innerHTML = html;
+}
+
+function _renderWorfPanel(advice) {
+  var body = document.getElementById('wbAdvPanel-worf');
+  if (!body) return;
+  if (!advice || !advice.length) {
+    body.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">No Worf risk assessment yet. Run a team scan to populate.</div>';
+    return;
+  }
+  var rl = {'low':'#22c55e','medium':'#f59e0b','high':'#dc2626','critical':'#991b1b'};
+  var tc = {'HOLD_POSITION':'#374151','REDUCE_EXPOSURE':'#ea580c','EXIT_NOW':'#dc2626'};
+  var html = '<table style="width:100%;border-collapse:collapse;font-size:13px;">';
+  html += '<thead><tr style="border-bottom:1px solid var(--border);color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.6px;">';
+  ['Symbol','Risk','Downside','Tactical','Conf','Risk Factors'].forEach(function(h){
+    html += '<th style="padding:6px 8px;text-align:left;">' + h + '</th>';
+  });
+  html += '</tr></thead><tbody>';
+  for (var i = 0; i < advice.length; i++) {
+    var a = advice[i];
+    var riskLow = (a.risk_level||'medium').toLowerCase();
+    var riskColor = rl[riskLow] || 'var(--muted)';
+    var tacColor = tc[a.tactical] || '#374151';
+    var downside = a.downside_pct != null ? '-' + parseFloat(a.downside_pct).toFixed(1) + '%' : '—';
+    var conf = a.confidence != null ? Math.round(a.confidence * 100) + '%' : '—';
+    html += '<tr style="border-bottom:1px solid var(--border);">';
+    html += '<td style="padding:7px 8px;font-family:var(--font-mono);font-weight:700;cursor:pointer;" onclick="openTickerDetail(\'' + a.symbol + '\')">' + a.symbol + '</td>';
+    html += '<td style="padding:7px 8px;"><span style="color:' + riskColor + ';font-weight:700;font-size:12px;text-transform:uppercase;">' + (a.risk_level||'—') + '</span></td>';
+    html += '<td style="padding:7px 8px;font-family:var(--font-mono);color:#ea580c;">' + downside + '</td>';
+    html += '<td style="padding:7px 8px;"><span style="background:' + tacColor + ';color:white;padding:2px 8px;border-radius:4px;font-size:10px;font-weight:700;">' + (a.tactical||'—').replace(/_/g,' ') + '</span></td>';
+    html += '<td style="padding:7px 8px;font-family:var(--font-mono);color:var(--muted);">' + conf + '</td>';
+    html += '<td style="padding:7px 8px;color:var(--text);font-size:12px;max-width:300px;">' + (a.risk_factors||a.reasoning||'').substring(0,120) + '</td>';
+    html += '</tr>';
+  }
+  html += '</tbody></table>';
+  body.innerHTML = html;
+}
+
+async function fetchWbTeamAdvice() {
+  try {
+    var d = await fetch('/api/wb-team/advice').then(function(r){return r.json();});
+    _wbTeamCache = d;
+    var meta = d.meta || {};
+    var advisors = d.advisors || {};
+
+    // Update header badges
+    var modelBadge = document.getElementById('wbTeamModelBadge');
+    var fallbackBadge = document.getElementById('wbTeamFallbackBadge');
+    var costBadge = document.getElementById('wbTeamCostBadge');
+    var metaEl = document.getElementById('wbTeamMeta');
+
+    if (modelBadge) {
+      modelBadge.style.display = '';
+      modelBadge.textContent = meta.last_model || meta.model || '';
+    }
+    if (fallbackBadge) {
+      fallbackBadge.style.display = meta.using_fallback ? '' : 'none';
+    }
+    if (costBadge) {
+      var capColor = (meta.daily_cost||0) >= (meta.daily_cap||0.5) ? 'var(--red)' : '#f59e0b';
+      costBadge.innerHTML = '<span style="color:' + capColor + ';">$' + (meta.daily_cost||0).toFixed(4) + '</span> / $' + (meta.daily_cap||0.50).toFixed(2) + ' cap';
+    }
+    if (metaEl) {
+      metaEl.textContent = meta.last_scan ? _advTimeAgo(meta.last_scan) : 'never scanned';
+    }
+
+    _renderGrokPanel(advisors.grok || []);
+    _renderTroiPanel(advisors.troi || []);
+    _renderWorfPanel(advisors.worf || []);
+  } catch(e) {
+    var p = document.getElementById('wbAdvPanel-' + _wbAdvActiveTab);
+    if (p) p.innerHTML = '<div style="color:var(--red);font-size:13px;">Error: ' + e.message + '</div>';
+  }
+}
+
+// Keep legacy function name for compatibility with _kirkPositionMap / alert handlers
+var fetchGrokAdvisorAdvice = fetchWbTeamAdvice;
+
+async function triggerWbTeamScan() {
+  var btn = document.getElementById('wbTeamScanBtn');
+  if (btn) { btn.disabled = true; btn.textContent = 'Scanning…'; }
+  try {
+    var d = await fetch('/api/wb-team/scan', {method:'POST'}).then(function(r){return r.json();});
+    if (d.skipped) {
+      var p = document.getElementById('wbAdvPanel-grok');
+      if (p) p.innerHTML = '<div style="color:#f59e0b;font-size:13px;padding:8px 0;">⚠️ ' + (d.reason === 'no_positions' ? 'No Kirk positions found.' : d.reason) + '</div>';
+    } else {
+      await fetchWbTeamAdvice();
+    }
+  } catch(e) {
+    var p2 = document.getElementById('wbAdvPanel-grok');
+    if (p2) p2.innerHTML = '<div style="color:var(--red);font-size:13px;">Scan failed: ' + e.message + '</div>';
+  } finally {
+    if (btn) { btn.disabled = false; btn.textContent = 'Scan Now'; }
+  }
+}
+
+// Keep legacy alias
+var triggerGrokScan = triggerWbTeamScan;
+
+async function ackGrokAdvice(id, btn) {
+  if (btn) btn.disabled = true;
+  try {
+    await fetch('/api/grok-advisor/advice/' + id + '/acknowledge', {method:'POST'});
+    fetchWbTeamAdvice();
+  } catch(e) {
+    if (btn) btn.disabled = false;
+  }
+}
+
+function _grokTimeAgo(iso) { return _advTimeAgo(iso); }
 
 async function askArena(tradeId) {
   var span = document.getElementById('arena-' + tradeId);
@@ -15921,7 +16183,7 @@ async function askArena(tradeId) {
 // ── TICKER TAPE ─────────────────────────────────────────────────────────────
 (function() {
   var LS_KEY = 'tickerEnabled';
-  var _enabled = localStorage.getItem(LS_KEY) !== 'true'; // default OFF
+  var _enabled = localStorage.getItem(LS_KEY) === 'true'; // default OFF
   var _intervals = [];
   var _tapeRetries = 0;
 
@@ -22642,6 +22904,10 @@ async function fetchKirkAdvisory() {
     var d = await r.json();
     if (d.error) { el.innerHTML = '<div style="color:#ea580c;">' + d.error + '</div>'; return; }
 
+    // Cache Kirk recommendations so Webull Portfolio table can show action badges
+    window._kirkPositionMap = {};
+    if (d.positions) d.positions.forEach(function(p){ window._kirkPositionMap[p.symbol] = p; });
+
     var html = '';
 
     // Market context bar
@@ -22681,16 +22947,21 @@ async function fetchKirkAdvisory() {
     // Prepend critical action banners
     var criticals = d.positions.filter(function(p){ return p.action === 'SELL' || p.action === 'TRIM'; });
     if (criticals.length > 0) {
-      var alertHtml = '<div style="background:linear-gradient(135deg,#dc2626 0%,#7c2d12 100%);border-radius:10px;padding:14px 18px;margin-bottom:12px;animation:kirkPulse 2s ease-in-out infinite;">';
-      alertHtml += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:20px;">🚨</span><span style="font-size:16px;font-weight:800;color:white;letter-spacing:0.5px;">ACTION REQUIRED</span></div>';
-      for (var c of criticals) {
-        alertHtml += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);">';
-        alertHtml += '<div style="color:white;font-weight:700;font-size:15px;">' + c.action + ' ' + c.symbol + '</div>';
-        alertHtml += '<div style="color:#fca5a5;font-family:var(--font-mono);font-weight:700;">' + (c.pnl_pct >= 0 ? '+' : '') + c.pnl_pct + '%</div>';
+      var _alertKey = 'kirk-alert-dismissed-' + criticals.map(function(c){return c.symbol;}).sort().join('-');
+      if (!sessionStorage.getItem(_alertKey)) {
+        var alertHtml = '<div id="kirk-alert-banner" onclick="showSection(\'webull\');(function(){var _a=0;var _s=function(){var _h=document.getElementById(\'webullPortfolio\');if(_h&&_h.offsetParent)_h.scrollIntoView({behavior:\'smooth\'});else if(++_a<8)setTimeout(_s,250);};setTimeout(_s,400);})();" style="position:relative;cursor:pointer;background:linear-gradient(135deg,#dc2626 0%,#7c2d12 100%);border-radius:10px;padding:14px 18px;margin-bottom:12px;animation:kirkPulse 2s ease-in-out infinite;" onmouseover="this.style.filter=\'brightness(1.12)\'" onmouseout="this.style.filter=\'\'">';
+        alertHtml += '<button onclick="event.stopPropagation();sessionStorage.setItem(\'' + _alertKey + '\',\'1\');var _b=document.getElementById(\'kirk-alert-banner\');if(_b)_b.style.display=\'none\';" style="position:absolute;top:8px;right:10px;background:rgba(255,255,255,0.18);border:none;color:white;font-size:13px;width:22px;height:22px;border-radius:50%;cursor:pointer;line-height:22px;text-align:center;padding:0;" title="Dismiss for this session">✕</button>';
+        alertHtml += '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:20px;">🚨</span><span style="font-size:16px;font-weight:800;color:white;letter-spacing:0.5px;">ACTION REQUIRED</span><span style="font-size:11px;color:rgba(255,255,255,0.55);margin-left:6px;">▶ click for details</span></div>';
+        for (var c of criticals) {
+          var _srcBadge = (_SOURCE_BADGES && _SOURCE_BADGES[c.source || 'grok']) || '🧠';
+          alertHtml += '<div style="display:flex;justify-content:space-between;align-items:center;padding:6px 0;border-bottom:1px solid rgba(255,255,255,0.1);">';
+          alertHtml += '<div style="color:white;font-weight:700;font-size:15px;display:flex;align-items:center;gap:6px;"><span style="font-size:13px;" title="' + (c.source||'grok') + '">' + _srcBadge + '</span>' + c.action + ' ' + c.symbol + '</div>';
+          alertHtml += '<div style="color:#fca5a5;font-family:var(--font-mono);font-weight:700;">' + (c.pnl_pct >= 0 ? '+' : '') + c.pnl_pct + '%</div>';
+          alertHtml += '</div>';
+        }
         alertHtml += '</div>';
+        html = alertHtml + html;
       }
-      alertHtml += '</div>';
-      html = alertHtml + html;
     }
     if (d.cash_recommendation && d.cash_recommendation.action === 'DEPLOY') {
       var deployHtml = '<div style="background:linear-gradient(135deg,#1e40af 0%,#0c1445 100%);border-radius:10px;padding:14px 18px;margin-bottom:12px;animation:kirkPulse 2s ease-in-out infinite;">';
@@ -22913,7 +23184,12 @@ setInterval(fetchTroiAdvisory, 60000);
 setTimeout(fetchBridgeVote, 5000);
 setInterval(fetchBridgeVote, 300000);
 
-function showKirkAlert(action, symbol, pnlPct, reasoning) {
+var _SOURCE_BADGES = {
+  'grok': '🧠', 'ollie': '🦙', 'ship_computer': '🖥️',
+  'worf': '🛡️', 'troi': '💜', 'archer': '⚓'
+};
+
+function showKirkAlert(action, symbol, pnlPct, reasoning, source) {
   var container = document.getElementById('toastContainer');
   if (!container) return;
   var actionColors = {
@@ -22923,19 +23199,29 @@ function showKirkAlert(action, symbol, pnlPct, reasoning) {
     'HOLD':   {bg: '#059669', text: 'HOLD'}
   };
   var ac = actionColors[action] || {bg: '#f59e0b', text: action};
+  var badge = source ? (_SOURCE_BADGES[source] || '🖥️') : '👨\u200d✈️';
   var pnlStr = typeof pnlPct === 'number' && pnlPct !== 0
     ? '<div style="font-size:14px;color:#fbbf24;font-weight:700;">' + (pnlPct >= 0 ? '+' : '') + pnlPct.toFixed(1) + '%</div>'
     : '';
   var toast = document.createElement('div');
   toast.className = 'toast toast-kirk';
   toast.style.cursor = 'pointer';
-  toast.title = 'Click to view full Kirk Advisory';
+  toast.title = "Click to view Captain's Portfolio";
   toast.onclick = function() {
-    showSection('kirk-detail');
-    setTimeout(function(){ var el=document.getElementById('kirkDetailBody'); if(el) el.scrollIntoView({behavior:'smooth'}); }, 300);
+    showSection('webull');
+    var _attempts = 0;
+    var _tryScroll = function() {
+      var el = document.getElementById('webullPortfolio');
+      if (el && el.offsetParent !== null) {
+        el.scrollIntoView({behavior:'smooth'});
+      } else if (++_attempts < 8) {
+        setTimeout(_tryScroll, 250);
+      }
+    };
+    setTimeout(_tryScroll, 400);
   };
   toast.innerHTML =
-    '<div class="kirk-badge">👨\u200d✈️ KIRK ADVISORY <span style="font-size:9px;opacity:.7;margin-left:6px;">▶ Click for details</span></div>' +
+    '<div class="kirk-badge">' + badge + " CAPTAIN'S PORTFOLIO" + '<span style="font-size:9px;opacity:.7;margin-left:6px;">▶ Click for details</span></div>' +
     '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">' +
       '<div style="font-size:20px;font-weight:800;color:white;font-family:var(--font-mono);">' + symbol + '</div>' +
       '<div style="background:' + ac.bg + ';color:white;padding:4px 14px;border-radius:6px;font-size:14px;font-weight:800;">' + ac.text + '</div>' +
@@ -22957,13 +23243,13 @@ async function checkKirkAlerts() {
     for (var p of d.positions) {
       var key = p.symbol + '_' + p.action;
       if (_lastKirkState[p.symbol] !== key && (p.action === 'SELL' || p.action === 'TRIM')) {
-        showKirkAlert(p.action, p.symbol, p.pnl_pct, p.reasoning);
+        showKirkAlert(p.action, p.symbol, p.pnl_pct, p.reasoning, 'grok');
       }
       _lastKirkState[p.symbol] = key;
     }
     if (d.cash_recommendation && d.cash_recommendation.action === 'DEPLOY') {
       if (_lastKirkState['_cash'] !== 'CASH_DEPLOY') {
-        showKirkAlert('DEPLOY', 'CASH $' + Math.round(d.cash||0).toLocaleString(), 0, d.cash_recommendation.reasoning);
+        showKirkAlert('DEPLOY', 'CASH $' + Math.round(d.cash||0).toLocaleString(), 0, d.cash_recommendation.reasoning, 'grok');
         _lastKirkState['_cash'] = 'CASH_DEPLOY';
       }
     } else {
@@ -22974,6 +23260,36 @@ async function checkKirkAlerts() {
 setTimeout(checkKirkAlerts, 8000);
 setInterval(checkKirkAlerts, 120000);
 
+// Ship's Computer portfolio alert poller
+var _lastShipAlertId = 0;
+async function pollShipComputerAlerts() {
+  try {
+    var d = await fetch('/api/ship-computer/portfolio-alerts').then(function(r){return r.json();});
+    var alerts = d.alerts || [];
+    var newIds = [];
+    for (var i = 0; i < alerts.length; i++) {
+      var a = alerts[i];
+      if (a.id > _lastShipAlertId && !a.seen) {
+        var action = a.alert_type === 'STOP_BREACH' ? 'SELL'
+                   : a.alert_type === 'NEW_ADVICE'  ? 'SELL'
+                   : 'HOLD';
+        showKirkAlert(action, a.symbol, null, a.message, 'ship_computer');
+        newIds.push(a.id);
+      }
+    }
+    if (alerts.length) _lastShipAlertId = Math.max(_lastShipAlertId, alerts[0].id);
+    if (newIds.length) {
+      fetch('/api/ship-computer/portfolio-alerts/seen', {
+        method: 'POST',
+        headers: {'Content-Type': 'application/json'},
+        body: JSON.stringify({ids: newIds})
+      }).catch(function(){});
+    }
+  } catch(e) {}
+}
+setTimeout(pollShipComputerAlerts, 12000);
+setInterval(pollShipComputerAlerts, 300000);
+
 async function fetchKirkDetail() {
   var el = document.getElementById('kirkDetailBody');
   if (!el) return;
@@ -22982,7 +23298,7 @@ async function fetchKirkDetail() {
   try {
     var [kirk, fg, gex, congress, fleetPos] = await Promise.all([
       fetch('/api/kirk/advisory').then(function(r){return r.json();}),
-      _cachedFetch('/api/fear-greed', 30000).then(function(r){return r.json();}),
+      _cachedFetch('/api/fear-greed', 30000),
       fetch('/api/gex/SPY').then(function(r){return r.json();}),
       fetch('/api/congress/top-buys?days=30').then(function(r){return r.json();}).catch(function(){return {};}),
       fetch('/api/fleet/positions').then(function(r){return r.json();}).catch(function(){return {fleet_cash:0, agents:[]};})
@@ -23074,7 +23390,7 @@ async function fetchKirkDetail() {
     html += '</div></div>';
 
     // ── SECTION 2b: CAPTAIN'S POSITIONS (collapsible) ─────────────────────
-    html += '<details class="card" style="margin-bottom:16px;">';
+    html += '<details id="kirk-positions-section" class="card" open style="margin-bottom:16px;">';
     html += '<summary style="display:flex;justify-content:space-between;align-items:center;padding:12px 16px;cursor:pointer;list-style:none;user-select:none;">';
     html += '<span style="font-weight:700;font-size:14px;">👨‍✈️ Captain\'s Positions (Kirk)</span>';
     html += '<span style="font-size:11px;color:var(--muted);">▼</span></summary>';
@@ -23092,7 +23408,11 @@ async function fetchKirkDetail() {
         var ac = p.action === 'SELL' ? '#ea580c' : p.action === 'TRIM' ? '#f59e0b' : '#2563eb';
         var bg = p.urgency === 'critical' ? 'rgba(234,88,12,0.1)' : p.urgency === 'high' ? 'rgba(245,158,11,0.06)' : 'transparent';
         html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);background:' + bg + ';">';
-        html += '<td style="padding:10px 8px;"><span style="background:' + ac + ';color:white;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:700;">' + p.action + '</span></td>';
+        if (p.action === 'SELL' || p.action === 'TRIM' || p.action === 'ADD') {
+          html += '<td style="padding:10px 8px;"><button onclick="kirkPositionAction(\''+p.action+'\',\''+p.symbol+'\','+(p.qty||0)+','+(p.current||0)+')" style="background:'+ac+';color:white;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:700;border:none;cursor:pointer;" title="Execute '+p.action+' via Alpaca paper">'+p.action+'</button></td>';
+        } else {
+          html += '<td style="padding:10px 8px;"><span style="background:' + ac + ';color:white;padding:3px 10px;border-radius:4px;font-size:12px;font-weight:700;">' + p.action + '</span></td>';
+        }
         html += '<td style="padding:10px 8px;font-family:var(--font-mono);font-weight:700;font-size:15px;cursor:pointer;" onclick="openTickerDetail(\'' + p.symbol + '\')">' + p.symbol + '</td>';
         html += '<td style="padding:10px 8px;text-align:right;font-family:var(--font-mono);">' + (p.qty||0) + '</td>';
         html += '<td style="padding:10px 8px;text-align:right;font-family:var(--font-mono);">$' + (p.entry||0).toFixed(2) + '</td>';
@@ -23330,6 +23650,39 @@ async function kirkDismiss(id, btn) {
   btn.disabled = true;
   await fetch('/api/kirk/advisory/'+id+'/dismiss', {method:'POST'});
   fetchKirkHistory();
+}
+
+async function kirkPositionAction(action, symbol, qty, price) {
+  var execQty = qty;
+  if (action === 'TRIM') {
+    execQty = Math.max(1, Math.floor(qty * 0.5));
+    if (!confirm('TRIM — sell ' + execQty + ' of ' + qty + ' shares of ' + symbol + ' @ ~$' + price.toFixed(2) + '?\nThis will execute via Alpaca paper account.')) return;
+  } else if (action === 'SELL') {
+    if (!confirm('SELL ALL ' + qty + ' shares of ' + symbol + ' @ ~$' + price.toFixed(2) + '?\nThis will execute via Alpaca paper account.')) return;
+  } else if (action === 'ADD') {
+    var qtyStr = window.prompt('BUY more ' + symbol + ' @ ~$' + price.toFixed(2) + ' (Alpaca paper).\nHow many shares?');
+    if (!qtyStr) return;
+    execQty = parseInt(qtyStr);
+    if (!execQty || execQty <= 0) { alert('Invalid quantity.'); return; }
+  }
+  try {
+    var r, d;
+    if (action === 'SELL') {
+      r = await fetch('/api/alpaca/close/' + symbol, {method:'POST'});
+    } else if (action === 'TRIM') {
+      r = await fetch('/api/alpaca/sell', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbol:symbol, qty:execQty})});
+    } else {
+      r = await fetch('/api/alpaca/buy', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbol:symbol, qty:execQty})});
+    }
+    d = await r.json();
+    if (d.success) {
+      showKirkAlert('HOLD', symbol, 0, '✅ ' + action + ' order submitted — ' + (d.order_id || 'OK'));
+    } else {
+      alert('❌ Order failed: ' + (d.error || 'Unknown error'));
+    }
+  } catch(e) {
+    alert('❌ Error: ' + e.message);
+  }
 }
 
 registerSectionInit('kirk-detail', fetchKirkDetail, []);
@@ -24136,7 +24489,7 @@ function loadGlanceData() {
   }).catch(function(){});
 
   // Fear & Greed
-  _cachedFetch('/api/fear-greed', 30000).then(function(r){return r.json();}).then(function(d) {
+  _cachedFetch('/api/fear-greed', 30000).then(function(d) {
     var el = document.getElementById('g-fear-text');
     if (!el || !d) return;
     var score = d.score || 50;
@@ -24215,7 +24568,7 @@ function loadGlanceData() {
   }).catch(function(){});
 
   // Sectors
-  _cachedFetch('/api/sector-heatmap', 30000).then(function(r){return r.json();}).then(function(d) {
+  _cachedFetch('/api/sector-heatmap', 30000).then(function(d) {
     var el = document.getElementById('g-sectors-text');
     if (!el || !d.sectors) return;
     var leaders = d.sectors.filter(function(s){return s.change_1d > 0;}).slice(0,2).map(function(s){return s.name;});
@@ -24915,20 +25268,33 @@ function playNotifSound(severity) {
   } catch(e) {}
 }
 
-// Browser notification permission (ask once, delayed so it doesn't interrupt load)
+// Browser notification permission (ask once, remembered via localStorage)
 setTimeout(function() {
-  if (typeof Notification !== 'undefined' && Notification.permission === 'default') {
+  if (typeof Notification === 'undefined') return;
+  var stored = localStorage.getItem('tradeAlertsEnabled');
+  // Already granted at browser level — nothing to do
+  if (Notification.permission === 'granted') return;
+  // User previously clicked Enable but browser dialog was dismissed — silently re-request
+  if (stored === 'true' && Notification.permission === 'default') {
+    Notification.requestPermission();
+    return;
+  }
+  // User permanently dismissed the banner — don't show again
+  if (stored === 'false') return;
+  // First visit or undecided — show the prompt
+  if (Notification.permission === 'default') {
     var banner = document.createElement('div');
     banner.id = 'notif-permission-banner';
     banner.style.cssText = 'position:fixed;bottom:20px;left:50%;transform:translateX(-50%);background:#1e3a5f;border:1px solid #3b82f6;border-radius:8px;padding:10px 16px;text-align:center;z-index:10001;font-size:12px;color:#e2e8f0;display:flex;align-items:center;gap:10px;box-shadow:0 4px 20px rgba(0,0,0,0.5);';
     banner.innerHTML = '<span>🔔 Enable trade alerts on this device</span>' +
       '<button onclick="requestNotifPermission()" style="background:#3b82f6;border:none;color:#fff;padding:4px 12px;border-radius:4px;cursor:pointer;font-size:12px;">Enable</button>' +
-      '<button onclick="document.getElementById(\'notif-permission-banner\').remove()" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:16px;">✕</button>';
+      '<button onclick="dismissNotifBanner()" style="background:none;border:none;color:#64748b;cursor:pointer;font-size:16px;" title="Dismiss — won\'t ask again">✕</button>';
     document.body.appendChild(banner);
   }
 }, 5000);
 
 function requestNotifPermission() {
+  localStorage.setItem('tradeAlertsEnabled', 'true');
   var banner = document.getElementById('notif-permission-banner');
   if (banner) banner.remove();
   if (typeof Notification !== 'undefined') {
@@ -24938,6 +25304,12 @@ function requestNotifPermission() {
       }
     });
   }
+}
+
+function dismissNotifBanner() {
+  localStorage.setItem('tradeAlertsEnabled', 'false');
+  var banner = document.getElementById('notif-permission-banner');
+  if (banner) banner.remove();
 }
 
 setInterval(pollNotifications, 60000); // was 15s
@@ -29230,5 +29602,62 @@ var liveChart = (function() {
 })();
 </script>
 
+<script src="/static/health-beacon.js"></script>
+<script src="/static/market-closed.js"></script>
+<!-- 🗺️ Page Map floating button -->
+<div id="pagemap-fab" style="position:fixed;bottom:80px;right:18px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+  <div id="pagemap-menu" style="display:none;flex-direction:column;gap:4px;align-items:flex-end;margin-bottom:4px;"></div>
+  <button id="pagemap-btn" title="Page Map" onclick="togglePageMap()"
+    style="width:48px;height:48px;border-radius:50%;background:#1565c0;color:#fff;border:none;font-size:22px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;transition:transform 0.15s;">
+    🗺️
+  </button>
+</div>
+<script>
+(function(){
+  var _open = false;
+  var SECTIONS = [
+    {id:'bridge-header',     label:'🚀 Bridge'},
+    {id:'portfolio-section', label:'💼 Portfolio'},
+    {id:'signal-center',     label:'📡 Signals'},
+    {id:'leaderboard',       label:'🏆 Leaderboard'},
+    {id:'charts-section',    label:'📈 Charts'},
+    {id:'arena-section',     label:'⚔️ Arena'},
+    {id:'logs-section',      label:'📋 Logs'},
+  ];
+  window.togglePageMap = function() {
+    _open = !_open;
+    var menu = document.getElementById('pagemap-menu');
+    var btn  = document.getElementById('pagemap-btn');
+    if (_open) {
+      var items = SECTIONS.filter(function(s){ return document.getElementById(s.id); });
+      if (!items.length) {
+        // fallback: collect all section headings
+        items = Array.from(document.querySelectorAll('h2,h3,[data-section]')).slice(0,12).map(function(el,i){
+          return {id: el.id || null, label: el.textContent.trim().slice(0,28), el: el};
+        });
+      }
+      menu.innerHTML = items.map(function(s){
+        return '<button onclick="pmGo(\''+s.id+'\')" style="background:rgba(21,101,192,0.92);color:#fff;border:none;border-radius:20px;padding:6px 14px;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;box-shadow:0 2px 8px rgba(0,0,0,0.18);backdrop-filter:blur(4px);">'+s.label+'</button>';
+      }).join('');
+      menu.style.display = 'flex';
+      btn.style.transform = 'rotate(20deg)';
+    } else {
+      menu.style.display = 'none';
+      btn.style.transform = '';
+    }
+  };
+  window.pmGo = function(id) {
+    var el = id ? document.getElementById(id) : null;
+    if (el) el.scrollIntoView({behavior:'smooth', block:'start'});
+    window.togglePageMap();
+  };
+  // Close on outside click
+  document.addEventListener('click', function(e){
+    if (_open && !document.getElementById('pagemap-fab').contains(e.target)) {
+      _open = true; window.togglePageMap();
+    }
+  });
+})();
+</script>
 </body>
 </html>

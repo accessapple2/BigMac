@@ -16,6 +16,11 @@ from engine.telegram_alerts import alert_trade, alert_stop_loss
 
 console = Console()
 
+# === OPT 2/3: CYCLE-SCOPED CACHES ===
+# Premarket gaps: same for all agents — cache 5 min to avoid N localhost HTTP calls/cycle.
+_premarket_gap_cache: dict = {"ts": 0.0, "gaps": []}
+_PREMARKET_GAP_TTL = 300  # seconds
+
 # === SCAN SCHEDULING ===
 # Paid models (API cost) scan 3x/day. Gemma3 4B scans 5x/day (strategic deep scans).
 # Qwen3 8B and Plutus 9B scan continuously every 120-180s (free, always running).
@@ -433,12 +438,26 @@ class Arena:
                 "deepseek-r1:7b":   0,  # Spock (grok-4) runs first — small group, gets signals early
                 "qwen3.5:9b":       1,  # largest group — stays loaded for all 10 players after Spock
                 "qwen3:14b":        2,
-                "gemma3:4b":        3,  # two active players (Geordi + Sulu) — load once
+                "gemma3:4b":        3,
                 "qwen2.5-coder:7b": 4,
                 "0xroyce/plutus":   5,
-                "mistral-small":    6,
+                "mistral:7b":       6,  # McCoy / Plutus
+                "mistral-small":    7,
             }
-            ollama_providers.sort(key=lambda x: (_MODEL_RUN_ORDER.get(x[1].model_id, 99), x[0]))
+            # Opt 6 — Agent priority within model group (lower = runs first)
+            _AGENT_PRIORITY = {
+                "dayblade-sulu":  0,   # S6.3 Iron Condor King — primary options trader
+                "grok-4":         1,   # Spock — pure data signal leader
+                "super-agent":    2,   # Anderson — crewai collective
+                "ollama-coder":   3,   # Data — code/technicals specialist
+                "mlx-qwen3":      4,   # Chekov — navigator
+                "ollama-plutus":  5,   # McCoy — options specialist
+            }
+            ollama_providers.sort(key=lambda x: (
+                _MODEL_RUN_ORDER.get(x[1].model_id, 99),
+                _AGENT_PRIORITY.get(x[0], 50),
+                x[0],
+            ))
 
             # Group providers by model_id so we load each model exactly once
             model_groups = _defaultdict(list)
@@ -446,15 +465,10 @@ class Arena:
                 model_groups[prov.model_id].append((pid, prov))
 
             console.log(f"[cyan]TIER 1: {len(ollama_providers)} models in {len(model_groups)} model group(s): {', '.join(model_groups.keys())}")
-
-            # Clear slate: unload everything first
-            for model_id in model_groups:
-                try:
-                    _requests.post("http://localhost:11434/api/generate",
-                                   json={"model": model_id, "keep_alive": 0}, timeout=10)
-                except Exception:
-                    pass
-            _time.sleep(3)
+            # Opt 1 — Lazy loading: skip clear-slate blast.
+            # keep_alive=60s in every call auto-unloads after 60s of inactivity.
+            # Scan intervals are 90s+ so models are already unloaded before each cycle.
+            # Sending N unload requests + sleep(3) was pure overhead.
 
             # Flush brain_context cache so each cycle gets fresh intelligence
             try:
@@ -861,11 +875,16 @@ class Arena:
         except Exception:
             pass
 
-        # Inject pre-market gap data so models know what gapped overnight
+        # Inject pre-market gap data — shared cache (5 min TTL) avoids N HTTP calls/cycle
         try:
+            import time as _gc_time
             import requests as _req
-            _gap_resp = _req.get("http://127.0.0.1:8080/api/premarket-gaps", timeout=10).json()
-            _gaps = _gap_resp.get("gaps", [])
+            _now_gc = _gc_time.time()
+            if _now_gc - _premarket_gap_cache["ts"] >= _PREMARKET_GAP_TTL:
+                _gap_resp = _req.get("http://127.0.0.1:8080/api/premarket-gaps", timeout=10).json()
+                _premarket_gap_cache["gaps"] = _gap_resp.get("gaps", [])
+                _premarket_gap_cache["ts"] = _now_gc
+            _gaps = _premarket_gap_cache["gaps"]
             if _gaps:
                 gap_context = "\n=== PRE-MARKET GAPS (today) ===\n"
                 for g in _gaps:

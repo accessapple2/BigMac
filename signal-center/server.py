@@ -10,6 +10,7 @@ import os
 import subprocess
 import threading
 import urllib.request
+from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime, timedelta
 from queue import Queue, Empty
 import sys
@@ -637,9 +638,13 @@ def sc_login():
     password = (request.form.get("password") or "").strip()
 
     if username == _SC_USER and password == _SC_PASS:
-        session["totp_pending"] = True
-        session["totp_pending_user"] = username
-        return redirect("/login?step=2")
+        # 2FA disabled — authenticate directly
+        session.permanent = True
+        session["authenticated"] = True
+        session["username"] = username
+        _sc_failures.pop(ip, None)
+        _sec_log.warning("SC_LOGIN_OK ip=%s user=%s", ip, username)
+        return redirect("/")
 
     # Failed login
     failure["count"] = failure.get("count", 0) + 1
@@ -693,56 +698,70 @@ def sc_active_users():
     except Exception:
         return jsonify({"count": 1, "users": [session.get('username', _SC_USER)]})
 
-@app.route('/api/signals/all')
-def all_signals():
-    endpoints = {
-        'regime':             '/api/regime',
-        'leaderboard':        '/api/arena/leaderboard',
-        'vix':                '/api/market/vix',
-        'gex':                '/api/gex/SPY',
-        'fear_greed':         '/api/fear-greed',
-        'breadth':            '/api/breadth',
-        'congress':           '/api/congress/trades',
-        'metals':             '/api/metals/signals',
-        'status':             '/api/status',
-        'positions':          '/api/alpaca/positions',
-        'options_flow':       '/api/market/options-flow',
-        'options_alignment':  '/api/market/options-alignment',
-        'bull_bear':          '/api/bull-bear/all?model=all',
-        'consensus':          '/api/bridge/consensus',
-        'cross_asset':        '/api/cross-asset',
-        'high_iv':            '/api/high-iv',
-        'convergence':        '/api/navigator/convergence',
-        'signal_tracker':     '/api/signal-tracker',
-        'gamma_env':          '/api/gamma-environment',
-        'ghost_trades':       '/api/ghost-trades',
-        'economic':           '/api/macro',
-        'volume_radar':       '/api/volume-radar',
-        'smart_money':        '/api/smart-money',
-        'insider':            '/api/insider-trades',
-        'earnings':           '/api/market/earnings',
-        'dayblade':           '/api/dayblade/status',
-        'analytics':          '/api/arena/analytics',
-        'risk_radar':         '/api/risk-radar',
-        'market_movers':      '/api/market-movers',
-        'fast_scan':          '/api/fast-scan',
-        'ema_pullback':       '/api/ema-pullback',
-        'gex_overlay':        '/api/gex-overlay/levels?symbol=SPY',
-        'flow_lean':          '/api/market/options-flow',
-        'critical_alerts':    '/api/volume-radar',
-        'red_alert_score':    '/api/red-alert/status',
-        'holly_winners':      '/api/holly/winners',
-    }
+# --- /api/signals/all cache (SWR pattern) ------------------------------------
+_signals_cache: dict = {"data": None, "ts": 0.0, "refreshing": False}
+_signals_lock = threading.Lock()
+_SIGNALS_TTL        = 60    # serve from cache for 60 s
+_SIGNALS_SWR_MAX    = 120   # stale-while-revalidate up to 120 s
 
-    signals = {}
-    for key, ep in endpoints.items():
-        signals[key] = _bridge_get(ep)
+_SIGNALS_ENDPOINTS = {
+    'regime':             '/api/regime',
+    'leaderboard':        '/api/arena/leaderboard',
+    'vix':                '/api/market/vix',
+    'gex':                '/api/gex/SPY',
+    'fear_greed':         '/api/fear-greed',
+    'breadth':            '/api/breadth',
+    'congress':           '/api/congress/trades',
+    'metals':             '/api/metals/signals',
+    'status':             '/api/status',
+    'positions':          '/api/alpaca/positions',
+    'options_flow':       '/api/market/options-flow',
+    'options_alignment':  '/api/market/options-alignment',
+    'bull_bear':          '/api/bull-bear/all?model=all',
+    'consensus':          '/api/bridge/consensus',
+    'cross_asset':        '/api/cross-asset',
+    'high_iv':            '/api/high-iv',
+    'convergence':        '/api/navigator/convergence',
+    'signal_tracker':     '/api/signal-tracker',
+    'gamma_env':          '/api/gamma-environment',
+    'ghost_trades':       '/api/ghost-trades',
+    'economic':           '/api/macro',
+    'volume_radar':       '/api/volume-radar',
+    'smart_money':        '/api/smart-money',
+    'insider':            '/api/insider-trades',
+    'earnings':           '/api/market/earnings',
+    'dayblade':           '/api/dayblade/status',
+    'analytics':          '/api/arena/analytics',
+    'risk_radar':         '/api/risk-radar',
+    'market_movers':      '/api/market-movers',
+    'fast_scan':          '/api/fast-scan',
+    'ema_pullback':       '/api/ema-pullback',
+    'gex_overlay':        '/api/gex-overlay/levels?symbol=SPY',
+    'flow_lean':          '/api/market/options-flow',
+    'critical_alerts':    '/api/volume-radar',
+    'red_alert_score':    '/api/red-alert/status',
+    'holly_winners':      '/api/holly/winners',
+}
+
+
+def _fetch_all_signals() -> dict:
+    """Fetch all bridge endpoints in parallel and persist to history."""
+    results: dict = {}
+    with ThreadPoolExecutor(max_workers=12) as pool:
+        futures = {pool.submit(_bridge_get, ep): key
+                   for key, ep in _SIGNALS_ENDPOINTS.items()}
+        for fut in as_completed(futures):
+            key = futures[fut]
+            try:
+                results[key] = fut.result()
+            except Exception:
+                results[key] = None
 
     # Persist to history (only non-None results)
     try:
         db  = get_db()
         now = datetime.now().isoformat()
-        for key, data in signals.items():
+        for key, data in results.items():
             if data is not None:
                 db.execute(
                     "INSERT INTO signal_history (timestamp, signal_name, value, raw_data, source) "
@@ -754,7 +773,52 @@ def all_signals():
     except Exception as e:
         print(f"[signal-center] History save error: {e}")
 
-    return jsonify(signals)
+    return results
+
+
+def _bg_refresh_signals():
+    """Background thread: fetch fresh signals and update cache."""
+    try:
+        data = _fetch_all_signals()
+        with _signals_lock:
+            _signals_cache["data"] = data
+            _signals_cache["ts"]   = _time.time()
+    except Exception as e:
+        print(f"[signal-center] Background refresh error: {e}")
+    finally:
+        with _signals_lock:
+            _signals_cache["refreshing"] = False
+
+
+@app.route('/api/signals/all')
+def all_signals():
+    now = _time.time()
+    with _signals_lock:
+        cached_data  = _signals_cache["data"]
+        cached_ts    = _signals_cache["ts"]
+        is_refreshing = _signals_cache["refreshing"]
+
+    age = now - cached_ts
+
+    # Fresh cache — return immediately
+    if cached_data is not None and age < _SIGNALS_TTL:
+        return jsonify(cached_data)
+
+    # Stale but usable — return stale data and kick off background refresh
+    if cached_data is not None and age < _SIGNALS_SWR_MAX:
+        if not is_refreshing:
+            with _signals_lock:
+                _signals_cache["refreshing"] = True
+            threading.Thread(target=_bg_refresh_signals, daemon=True).start()
+        return jsonify(cached_data)
+
+    # Cache empty or too stale — block once to build it
+    data = _fetch_all_signals()
+    with _signals_lock:
+        _signals_cache["data"] = data
+        _signals_cache["ts"]   = _time.time()
+        _signals_cache["refreshing"] = False
+    return jsonify(data)
 
 @app.route('/api/signals/history')
 def signal_history():

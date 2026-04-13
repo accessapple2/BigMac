@@ -8,6 +8,7 @@ Scoring factors (combined Ollie Score, threshold >= 2.0):
   2. Composite alpha score                      (0-2 scale → 0-3 pts)
   3. Agent rolling 30-day win rate              (0-2 pts)
   4. Regime alignment (strategy vs VIX regime)  (0-2 pts)
+  5. GEX alignment from gex_levels              (0-0.4 pts)
 
 Ollie approves if OllieScore >= 2.0, otherwise NO-GO.
 Threshold lowered from 3.0 to 2.0 after v5 backtest showed Ollie blocked 4 winners.
@@ -24,20 +25,22 @@ ALPHA_DB   = "data/alpha_signals.db"
 OLLIE_ID   = "ollie-auto"
 THRESHOLD  = 2.0   # minimum Ollie Score to approve (lowered from 3.0 — was blocking winners)
 
-# Score weights
-W_GRADE    = 0.30   # Signal Center grade
+# Score weights (must sum to 1.0)
+W_GRADE    = 0.25   # Signal Center grade
 W_ALPHA    = 0.25   # Composite alpha
-W_AGENT_WR = 0.25   # Agent win rate
+W_AGENT_WR = 0.20   # Agent win rate
 W_REGIME   = 0.20   # Regime alignment
+W_GEX      = 0.10   # GEX alignment (gex_levels.composite_score)
 
 # Regime × strategy alignment table
-# "covered_call" → prefers CAUTIOUS/BEAR, "csp" → any, "rsi_bounce" → BULL
+# Keys must match what gather_market_context() returns:
+#   TRENDING_UP, BULL_CALM, NEUTRAL, CAUTIOUS, BEAR, CRISIS
 REGIME_ALIGNMENT = {
-    "covered_call": {"TRENDING_BULL": 1.0, "BULL": 1.2, "CAUTIOUS": 2.0, "BEAR": 2.0, "CRISIS": 0.0},
-    "csp":          {"TRENDING_BULL": 1.5, "BULL": 2.0, "CAUTIOUS": 1.5, "BEAR": 0.5, "CRISIS": 0.0},
-    "rsi_bounce":   {"TRENDING_BULL": 2.0, "BULL": 2.0, "CAUTIOUS": 1.0, "BEAR": 0.5, "CRISIS": 0.0},
-    "bollinger":    {"TRENDING_BULL": 1.5, "BULL": 1.5, "CAUTIOUS": 1.0, "BEAR": 0.5, "CRISIS": 0.0},
-    "default":      {"TRENDING_BULL": 1.5, "BULL": 1.5, "CAUTIOUS": 1.0, "BEAR": 0.5, "CRISIS": 0.0},
+    "covered_call": {"TRENDING_UP": 1.0, "BULL_CALM": 1.2, "NEUTRAL": 1.5, "CAUTIOUS": 2.0, "BEAR": 2.0, "CRISIS": 0.0},
+    "csp":          {"TRENDING_UP": 1.5, "BULL_CALM": 2.0, "NEUTRAL": 1.5, "CAUTIOUS": 1.5, "BEAR": 0.5, "CRISIS": 0.0},
+    "rsi_bounce":   {"TRENDING_UP": 2.0, "BULL_CALM": 2.0, "NEUTRAL": 1.5, "CAUTIOUS": 1.0, "BEAR": 0.5, "CRISIS": 0.0},
+    "bollinger":    {"TRENDING_UP": 1.5, "BULL_CALM": 1.5, "NEUTRAL": 2.0, "CAUTIOUS": 1.0, "BEAR": 0.5, "CRISIS": 0.0},
+    "default":      {"TRENDING_UP": 1.5, "BULL_CALM": 1.5, "NEUTRAL": 1.5, "CAUTIOUS": 1.0, "BEAR": 0.5, "CRISIS": 0.0},
 }
 
 
@@ -71,10 +74,17 @@ def ensure_tables() -> None:
         alpha_pts   REAL,
         agent_wr_pts REAL,
         regime_pts  REAL,
+        gex_pts     REAL,
         reason      TEXT,
         market_regime TEXT,
         agent_conf  REAL
     )""")
+    # Migration: add gex_pts column if table was created before this factor was added
+    try:
+        c.execute("ALTER TABLE ollie_decisions ADD COLUMN gex_pts REAL")
+        c.commit()
+    except Exception:
+        pass  # column already exists
     c.commit()
     c.close()
 
@@ -138,13 +148,37 @@ def _get_agent_wr_pts(player_id: str) -> float:
 
 
 def _get_regime_pts(strategy: str | None, regime: str) -> float:
-    """Regime alignment → 0-2 pts."""
+    """Regime alignment → 0-2 pts. Exact lookup against gather_market_context() values."""
     key = (strategy or "default").lower()
     table = REGIME_ALIGNMENT.get(key, REGIME_ALIGNMENT["default"])
-    for r_key, pts in table.items():
-        if r_key.upper() in regime.upper():
-            return pts
-    return 1.0   # neutral fallback
+    return table.get(regime.upper(), 1.0)   # exact lookup, neutral fallback
+
+
+def _get_gex_pts(symbol: str, action: str = "BUY") -> float:
+    """GEX alignment from gex_levels → 0-0.4 pts. Neutral (0.2) if no data."""
+    try:
+        c = _conn_trader()
+        row = c.execute(
+            "SELECT composite_score, composite_signal FROM gex_levels "
+            "WHERE symbol=? ORDER BY calc_time DESC LIMIT 1",
+            (symbol,)
+        ).fetchone()
+        c.close()
+        if not row or row[0] is None:
+            return 0.2   # neutral — no GEX data for this ticker
+        score  = float(row[0])
+        signal = str(row[1] or "").lower()
+        is_bullish = "bull" in signal or "positive" in signal
+        is_bearish = "bear" in signal or "negative" in signal
+        if action == "BUY":
+            if score > 0.6 and is_bullish:
+                return 0.4   # strong GEX alignment with trade direction
+            if score > 0.6 and is_bearish:
+                return 0.0   # GEX actively opposes the trade
+            return 0.2       # moderate score or neutral signal
+        return 0.2           # non-BUY: neutral
+    except Exception:
+        return 0.2           # neutral on any DB error
 
 
 # ── Main gate function ─────────────────────────────────────────────────────────
@@ -180,22 +214,28 @@ def approve_or_reject(
     # ── Factor 4: Regime alignment (20%) ─────────────────────────────────────
     regime_pts  = _get_regime_pts(strategy, regime)
 
+    # ── Factor 5: GEX alignment (10%) ────────────────────────────────────────
+    gex_pts = _get_gex_pts(symbol, action="BUY")
+
     # ── Weighted score ────────────────────────────────────────────────────────
     # Normalise each factor to 0-5 scale first, then weight
     # grade_pts:    0-5 already
     # alpha_pts:    0-3 → ×(5/3)
     # agent_wr_pts: 0-2 → ×(5/2)
     # regime_pts:   0-2 → ×(5/2)
+    # gex_pts:      0-0.4 → ×(5/0.4)
     norm_grade  = grade_pts
-    norm_alpha  = alpha_pts  * (5.0 / 3.0)
+    norm_alpha  = alpha_pts    * (5.0 / 3.0)
     norm_wr     = agent_wr_pts * (5.0 / 2.0)
     norm_regime = regime_pts   * (5.0 / 2.0)
+    norm_gex    = gex_pts      * (5.0 / 0.4)
 
     ollie_score = round(
         W_GRADE    * norm_grade  +
         W_ALPHA    * norm_alpha  +
         W_AGENT_WR * norm_wr     +
-        W_REGIME   * norm_regime,
+        W_REGIME   * norm_regime +
+        W_GEX      * norm_gex,
         3
     )
 
@@ -208,7 +248,8 @@ def approve_or_reject(
         f"Grade={grade_label}({grade_pts:.1f}) "
         f"Alpha={comp_score:+.2f}({alpha_pts:.1f}) "
         f"AgentWR={agent_wr_pts:.1f} "
-        f"Regime={regime_pts:.1f} | "
+        f"Regime={regime_pts:.1f} "
+        f"GEX={gex_pts:.2f} | "
         f"Regime={regime}"
     )
 
@@ -218,13 +259,13 @@ def approve_or_reject(
         c.execute(
             """INSERT INTO ollie_decisions
                (player_id, symbol, decision, ollie_score,
-                grade_pts, alpha_pts, agent_wr_pts, regime_pts,
+                grade_pts, alpha_pts, agent_wr_pts, regime_pts, gex_pts,
                 reason, market_regime, agent_conf)
-               VALUES (?,?,?,?,?,?,?,?,?,?,?)""",
+               VALUES (?,?,?,?,?,?,?,?,?,?,?,?)""",
             (player_id, symbol,
              "APPROVE" if approved else "REJECT",
              ollie_score,
-             grade_pts, alpha_pts, agent_wr_pts, regime_pts,
+             grade_pts, alpha_pts, agent_wr_pts, regime_pts, gex_pts,
              reason, regime, confidence)
         )
         c.commit()

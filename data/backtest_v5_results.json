@@ -1,0 +1,546 @@
+{
+  "generated_at": "2026-04-12T18:04:51.947445",
+  "period_start": "2026-01-14",
+  "period_end": "2026-04-10",
+  "trading_days": 60,
+  "spy_return_pct": -1.31,
+  "test_a_baseline": {
+    "final_value": 10000.0,
+    "total_return_pct": 0.0,
+    "sharpe": 0.0,
+    "win_rate": 0.0,
+    "max_drawdown_pct": 0.0,
+    "total_trades": 0,
+    "winners": 0,
+    "losers": 0,
+    "avg_trade_return": 0.0,
+    "best_trade": null,
+    "worst_trade": null,
+    "spy_return_pct": -1.31,
+    "alpha_pct": 1.31,
+    "monthly": {}
+  },
+  "test_b_v2_replay": {
+    "navigator": {
+      "final_value": 9264.13,
+      "total_return_pct": -7.36,
+      "sharpe": -3.39,
+      "win_rate": 10.0,
+      "max_drawdown_pct": 9.9,
+      "total_trades": 10,
+      "winners": 1,
+      "losers": 9,
+      "avg_trade_return": -6.43,
+      "best_trade": {
+        "symbol": "META",
+        "pnl": 152.42,
+        "pnl_pct": 14.88,
+        "date": "2026-01-29"
+      },
+      "worst_trade": {
+        "symbol": "AMZN",
+        "pnl": -172.29,
+        "pnl_pct": -13.46,
+        "date": "2026-02-06"
+      },
+      "spy_return_pct": -1.31,
+      "alpha_pct": -6.05,
+      "monthly": {
+        "2026-01": {
+          "pnl": 77.65999999999998,
+          "trades": 2,
+          "wins": 1
+        },
+        "2026-02": {
+          "pnl": -615.02,
+          "trades": 5,
+          "wins": 0
+        },
+        "2026-03": {
+          "pnl": -318.92,
+          "trades": 3,
+          "wins": 0
+        }
+      }
+    },
+    "ollama-qwen3": {
+      "final_value": 9264.13,
+      "total_return_pct": -7.36,
+      "sharpe": -3.39,
+      "win_rate": 10.0,
+      "max_drawdown_pct": 9.9,
+      "total_trades": 10,
+      "winners": 1,
+      "losers": 9,
+      "avg_trade_return": -6.43,
+      "best_trade": {
+        "symbol": "META",
+        "pnl": 152.42,
+        "pnl_pct": 14.88,
+        "date": "2026-01-29"
+      },
+      "worst_trade": {
+        "symbol": "AMZN",
+        "pnl": -172.29,
+        "pnl_pct": -13.46,
+        "date": "2026-02-06"
+      },
+      "spy_return_pct": -1.31,
+      "alpha_pct": -6.05,
+      "monthly": {
+        "2026-01": {
+          "pnl": 77.65999999999998,
+          "trades": 2,
+          "wins": 1
+        },
+        "2026-02": {
+          "pnl": -615.02,
+          "trades": 5,
+          "wins": 0
+        },
+        "2026-03": {
+          "pnl": -318.92,
+          "trades": 3,
+          "wins": 0
+        }
+      }
+    },
+    "ollama-plutus": {
+      "final_value": 9437.19,
+      "total_return_pct": -5.63,
+      "sharpe": -2.94,
+      "win_rate": 12.5,
+      "max_drawdown_pct": 8.82,
+      "total_trades": 8,
+      "winners": 1,
+      "losers": 7,
+      "avg_trade_return": -6.02,
+      "best_trade": {
+        "symbol": "META",
+        "pnl": 190.53,
+        "pnl_pct": 14.88,
+        "date": "2026-01-29"
+      },
+      "worst_trade": {
+        "symbol": "AMZN",
+        "pnl": -215.37,
+        "pnl_pct": -13.46,
+        "date": "2026-02-06"
+      },
+      "spy_return_pct": -1.31,
+      "alpha_pct": -4.32,
+      "monthly": {
+        "2026-01": {
+          "pnl": 97.08,
+          "trades": 2,
+          "wins": 1
+        },
+        "2026-02": {
+          "pnl": -683.59,
+          "trades": 5,
+          "wins": 0
+        },
+        "2026-03": {
+          "pnl": -118.38,
+          "trades": 1,
+          "wins": 0
+        }
+      }
+    },
+    "ollama-coder": {
+      "final_value": 9264.13,
+      "total_return_pct": -7.36,
+      "sharpe": -3.39,
+      "win_rate": 10.0,
+      "max_drawdown_pct": 9.9,
+      "total_trades": 10,
+      "winners": 1,
+      "losers": 9,
+      "avg_trade_return": -6.43,
+      "best_trade": {
+        "symbol": "META",
+        "pnl": 152.42,
+        "pnl_pct": 14.88,
+        "date": "2026-01-29"
+      },
+      "worst_trade": {
+        "symbol": "AMZN",
+        "pnl": -172.29,
+        "pnl_pct": -13.46,
+        "date": "2026-02-06"
+      },
+      "spy_return_pct": -1.31,
+      "alpha_pct": -6.05,
+      "monthly": {
+        "2026-01": {
+          "pnl": 77.65999999999998,
+          "trades": 2,
+          "wins": 1
+        },
+        "2026-02": {
+          "pnl": -615.02,
+          "trades": 5,
+          "wins": 0
+        },
+        "2026-03": {
+          "pnl": -318.92,
+          "trades": 3,
+          "wins": 0
+        }
+      }
+    },
+    "neo-matrix": {
+      "final_value": 9264.13,
+      "total_return_pct": -7.36,
+      "sharpe": -3.39,
+      "win_rate": 10.0,
+      "max_drawdown_pct": 9.9,
+      "total_trades": 10,
+      "winners": 1,
+      "losers": 9,
+      "avg_trade_return": -6.43,
+      "best_trade": {
+        "symbol": "META",
+        "pnl": 152.42,
+        "pnl_pct": 14.88,
+        "date": "2026-01-29"
+      },
+      "worst_trade": {
+        "symbol": "AMZN",
+        "pnl": -172.29,
+        "pnl_pct": -13.46,
+        "date": "2026-02-06"
+      },
+      "spy_return_pct": -1.31,
+      "alpha_pct": -6.05,
+      "monthly": {
+        "2026-01": {
+          "pnl": 77.65999999999998,
+          "trades": 2,
+          "wins": 1
+        },
+        "2026-02": {
+          "pnl": -615.02,
+          "trades": 5,
+          "wins": 0
+        },
+        "2026-03": {
+          "pnl": -318.92,
+          "trades": 3,
+          "wins": 0
+        }
+      }
+    },
+    "ollama-llama": {
+      "final_value": 9264.13,
+      "total_return_pct": -7.36,
+      "sharpe": -3.39,
+      "win_rate": 10.0,
+      "max_drawdown_pct": 9.9,
+      "total_trades": 10,
+      "winners": 1,
+      "losers": 9,
+      "avg_trade_return": -6.43,
+      "best_trade": {
+        "symbol": "META",
+        "pnl": 152.42,
+        "pnl_pct": 14.88,
+        "date": "2026-01-29"
+      },
+      "worst_trade": {
+        "symbol": "AMZN",
+        "pnl": -172.29,
+        "pnl_pct": -13.46,
+        "date": "2026-02-06"
+      },
+      "spy_return_pct": -1.31,
+      "alpha_pct": -6.05,
+      "monthly": {
+        "2026-01": {
+          "pnl": 77.65999999999998,
+          "trades": 2,
+          "wins": 1
+        },
+        "2026-02": {
+          "pnl": -615.02,
+          "trades": 5,
+          "wins": 0
+        },
+        "2026-03": {
+          "pnl": -318.92,
+          "trades": 3,
+          "wins": 0
+        }
+      }
+    }
+  },
+  "test_c_current_s6": {
+    "navigator": {
+      "final_value": 10142.09,
+      "total_return_pct": 1.42,
+      "sharpe": 0.94,
+      "win_rate": 33.3,
+      "max_drawdown_pct": 4.06,
+      "total_trades": 6,
+      "winners": 2,
+      "losers": 4,
+      "avg_trade_return": -0.43,
+      "best_trade": {
+        "symbol": "META",
+        "pnl": 148.85,
+        "pnl_pct": 14.88,
+        "date": "2026-01-29"
+      },
+      "worst_trade": {
+        "symbol": "MSFT",
+        "pnl": -74.98,
+        "pnl_pct": -8.09,
+        "date": "2026-02-05"
+      },
+      "spy_return_pct": -1.31,
+      "alpha_pct": 2.73,
+      "monthly": {
+        "2026-01": {
+          "pnl": 76.02,
+          "trades": 2,
+          "wins": 1
+        },
+        "2026-02": {
+          "pnl": -74.98,
+          "trades": 1,
+          "wins": 0
+        },
+        "2026-03": {
+          "pnl": -128.59,
+          "trades": 2,
+          "wins": 0
+        },
+        "2026-04": {
+          "pnl": 110.82,
+          "trades": 1,
+          "wins": 1
+        }
+      }
+    },
+    "ollama-qwen3": {
+      "final_value": 10098.39,
+      "total_return_pct": 0.98,
+      "sharpe": 1.15,
+      "win_rate": 33.3,
+      "max_drawdown_pct": 1.94,
+      "total_trades": 3,
+      "winners": 1,
+      "losers": 2,
+      "avg_trade_return": -0.43,
+      "best_trade": {
+        "symbol": "META",
+        "pnl": 133.96,
+        "pnl_pct": 14.88,
+        "date": "2026-01-29"
+      },
+      "worst_trade": {
+        "symbol": "MSFT",
+        "pnl": -81.35,
+        "pnl_pct": -8.09,
+        "date": "2026-03-26"
+      },
+      "spy_return_pct": -1.31,
+      "alpha_pct": 2.29,
+      "monthly": {
+        "2026-01": {
+          "pnl": 133.96,
+          "trades": 1,
+          "wins": 1
+        },
+        "2026-02": {
+          "pnl": -80.92,
+          "trades": 1,
+          "wins": 0
+        },
+        "2026-03": {
+          "pnl": -81.35,
+          "trades": 1,
+          "wins": 0
+        }
+      }
+    },
+    "ollama-plutus": {
+      "final_value": 10098.39,
+      "total_return_pct": 0.98,
+      "sharpe": 1.15,
+      "win_rate": 33.3,
+      "max_drawdown_pct": 1.94,
+      "total_trades": 3,
+      "winners": 1,
+      "losers": 2,
+      "avg_trade_return": -0.43,
+      "best_trade": {
+        "symbol": "META",
+        "pnl": 133.96,
+        "pnl_pct": 14.88,
+        "date": "2026-01-29"
+      },
+      "worst_trade": {
+        "symbol": "MSFT",
+        "pnl": -81.35,
+        "pnl_pct": -8.09,
+        "date": "2026-03-26"
+      },
+      "spy_return_pct": -1.31,
+      "alpha_pct": 2.29,
+      "monthly": {
+        "2026-01": {
+          "pnl": 133.96,
+          "trades": 1,
+          "wins": 1
+        },
+        "2026-02": {
+          "pnl": -80.92,
+          "trades": 1,
+          "wins": 0
+        },
+        "2026-03": {
+          "pnl": -81.35,
+          "trades": 1,
+          "wins": 0
+        }
+      }
+    },
+    "ollama-coder": {
+      "final_value": 10106.76,
+      "total_return_pct": 1.07,
+      "sharpe": 1.22,
+      "win_rate": 50.0,
+      "max_drawdown_pct": 1.96,
+      "total_trades": 4,
+      "winners": 2,
+      "losers": 2,
+      "avg_trade_return": 3.4,
+      "best_trade": {
+        "symbol": "AMZN",
+        "pnl": 134.68,
+        "pnl_pct": 14.89,
+        "date": "2026-04-09"
+      },
+      "worst_trade": {
+        "symbol": "MSFT",
+        "pnl": -81.35,
+        "pnl_pct": -8.09,
+        "date": "2026-03-26"
+      },
+      "spy_return_pct": -1.31,
+      "alpha_pct": 2.38,
+      "monthly": {
+        "2026-01": {
+          "pnl": 133.96,
+          "trades": 1,
+          "wins": 1
+        },
+        "2026-02": {
+          "pnl": -80.92,
+          "trades": 1,
+          "wins": 0
+        },
+        "2026-03": {
+          "pnl": -81.35,
+          "trades": 1,
+          "wins": 0
+        },
+        "2026-04": {
+          "pnl": 134.68,
+          "trades": 1,
+          "wins": 1
+        }
+      }
+    },
+    "neo-matrix": {
+      "final_value": 10106.76,
+      "total_return_pct": 1.07,
+      "sharpe": 1.22,
+      "win_rate": 50.0,
+      "max_drawdown_pct": 1.96,
+      "total_trades": 4,
+      "winners": 2,
+      "losers": 2,
+      "avg_trade_return": 3.4,
+      "best_trade": {
+        "symbol": "AMZN",
+        "pnl": 134.68,
+        "pnl_pct": 14.89,
+        "date": "2026-04-09"
+      },
+      "worst_trade": {
+        "symbol": "MSFT",
+        "pnl": -81.35,
+        "pnl_pct": -8.09,
+        "date": "2026-03-26"
+      },
+      "spy_return_pct": -1.31,
+      "alpha_pct": 2.38,
+      "monthly": {
+        "2026-01": {
+          "pnl": 133.96,
+          "trades": 1,
+          "wins": 1
+        },
+        "2026-02": {
+          "pnl": -80.92,
+          "trades": 1,
+          "wins": 0
+        },
+        "2026-03": {
+          "pnl": -81.35,
+          "trades": 1,
+          "wins": 0
+        },
+        "2026-04": {
+          "pnl": 134.68,
+          "trades": 1,
+          "wins": 1
+        }
+      }
+    },
+    "ollama-llama": {
+      "final_value": 10098.39,
+      "total_return_pct": 0.98,
+      "sharpe": 1.15,
+      "win_rate": 33.3,
+      "max_drawdown_pct": 1.94,
+      "total_trades": 3,
+      "winners": 1,
+      "losers": 2,
+      "avg_trade_return": -0.43,
+      "best_trade": {
+        "symbol": "META",
+        "pnl": 133.96,
+        "pnl_pct": 14.88,
+        "date": "2026-01-29"
+      },
+      "worst_trade": {
+        "symbol": "MSFT",
+        "pnl": -81.35,
+        "pnl_pct": -8.09,
+        "date": "2026-03-26"
+      },
+      "spy_return_pct": -1.31,
+      "alpha_pct": 2.29,
+      "monthly": {
+        "2026-01": {
+          "pnl": 133.96,
+          "trades": 1,
+          "wins": 1
+        },
+        "2026-02": {
+          "pnl": -80.92,
+          "trades": 1,
+          "wins": 0
+        },
+        "2026-03": {
+          "pnl": -81.35,
+          "trades": 1,
+          "wins": 0
+        }
+      }
+    }
+  }
+}

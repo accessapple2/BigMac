@@ -324,87 +324,87 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863862.530282,
-    "price": 237.93
+    "timestamp": 1776051026.501902,
+    "price": 238.38
   },
   "ORCL:all": {
     "symbol": "ORCL",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863862.532607,
-    "price": 138.22
+    "timestamp": 1776051026.508708,
+    "price": 138.09
   },
   "GOOGL:all": {
     "symbol": "GOOGL",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863862.534187,
-    "price": 317.44
+    "timestamp": 1776051026.510255,
+    "price": 317.24
   },
   "NVDA:all": {
     "symbol": "NVDA",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863862.5353322,
-    "price": 188.16
+    "timestamp": 1776051408.795362,
+    "price": 188.63
   },
   "AAPL:all": {
     "symbol": "AAPL",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863862.536334,
-    "price": 260.61
+    "timestamp": 1776051408.797516,
+    "price": 260.48
   },
   "MU:all": {
     "symbol": "MU",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863862.5373282,
-    "price": 419.58
+    "timestamp": 1776051429.335498,
+    "price": 420.59
   },
   "GC=F:all": {
     "symbol": "GC=F",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863862.5383098,
-    "price": 4771.0
+    "timestamp": 1776051429.340348,
+    "price": 4741.5
   },
   "SI=F:all": {
     "symbol": "SI=F",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863862.539534,
-    "price": 76.03
+    "timestamp": 1776051465.534111,
+    "price": 74.38
   },
   "TQQQ:all": {
     "symbol": "TQQQ",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863890.684351,
-    "price": 49.27
+    "timestamp": 1776040057.635554,
+    "price": 49.17
   },
   "DELL:all": {
     "symbol": "DELL",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863862.541076,
-    "price": 178.25
+    "timestamp": 1776051465.5400598,
+    "price": 177.8
   },
   "LGIH:all": {
     "symbol": "LGIH",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863863.958754,
+    "timestamp": 1776051489.369813,
     "price": 39.75
   },
   "RPM:all": {
@@ -412,7 +412,7 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863866.707029,
+    "timestamp": 1776051499.342887,
     "price": 109.2
   },
   "ANET:all": {
@@ -428,7 +428,7 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863867.228286,
+    "timestamp": 1776051503.358561,
     "price": 28.39
   },
   "PLTR:all": {
@@ -444,7 +444,7 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863870.4721012,
+    "timestamp": 1776051510.658071,
     "price": 285.88
   },
   "XLE:all": {
@@ -452,39 +452,39 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863890.674544,
-    "price": 56.91
+    "timestamp": 1776051514.344301,
+    "price": 56.94
   },
   "AMD:all": {
     "symbol": "AMD",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863890.680693,
-    "price": 244.99
+    "timestamp": 1776040057.6307101,
+    "price": 245.04
   },
   "NOW:all": {
     "symbol": "NOW",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863890.6773272,
-    "price": 83.18
+    "timestamp": 1776051514.347409,
+    "price": 83.0
   },
   "MSFT:all": {
     "symbol": "MSFT",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863870.475574,
-    "price": 371.53
+    "timestamp": 1776051510.663293,
+    "price": 370.87
   },
   "KMI:all": {
     "symbol": "KMI",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775864784.0599098,
+    "timestamp": 1776053793.3669918,
     "price": 32.68
   },
   "QQQ:all": {
@@ -492,15 +492,15 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775864781.629332,
-    "price": 612.07
+    "timestamp": 1776053793.371702,
+    "price": 611.07
   },
   "WMB:all": {
     "symbol": "WMB",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775864805.435199,
+    "timestamp": 1776053845.882217,
     "price": 72.74
   },
   "INTC:all": {
@@ -508,8 +508,8 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863890.6824021,
-    "price": 62.27
+    "timestamp": 1776040057.632121,
+    "price": 62.38
   },
   "SNAP:all": {
     "symbol": "SNAP",
@@ -524,15 +524,15 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863890.687943,
-    "price": 70.57
+    "timestamp": 1776040057.634379,
+    "price": 69.66
   },
   "HD:all": {
     "symbol": "HD",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863871.1453,
+    "timestamp": 1776051514.3304472,
     "price": 337.34
   },
   "FSV:all": {
@@ -540,7 +540,7 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863874.115157,
+    "timestamp": 1776051514.3397481,
     "price": 145.9
   },
   "BLK:all": {
@@ -548,7 +548,7 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863890.6700668,
+    "timestamp": 1776051514.341881,
     "price": 999.31
   },
   "STAA:all": {
@@ -748,15 +748,15 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863890.67925,
-    "price": 629.65
+    "timestamp": 1776051514.3497422,
+    "price": 629.86
   },
   "NET:all": {
     "symbol": "NET",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775863890.6861079,
+    "timestamp": 1776040057.633308,
     "price": 166.99
   }
 }

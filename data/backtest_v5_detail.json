@@ -1,0 +1,925 @@
+{
+  "generated_at": "2026-04-12T18:04:51.947445",
+  "period_start": "2026-01-14",
+  "period_end": "2026-04-10",
+  "test_a_baseline_trades": [],
+  "test_b_v2_replay_trades": {
+    "navigator": [
+      {
+        "date": "2026-01-29",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 740.8505,
+        "qty": 1.5879,
+        "proceeds": 1176.42,
+        "pnl": 152.42,
+        "pnl_pct": 14.88,
+        "reason": "TAKE_PROFIT"
+      },
+      {
+        "date": "2026-01-29",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 438.549,
+        "qty": 1.6975,
+        "proceeds": 744.44,
+        "pnl": -74.76,
+        "pnl_pct": -9.13,
+        "reason": "STOP_GAP"
+      },
+      {
+        "date": "2026-02-04",
+        "symbol": "NVDA",
+        "action": "SELL",
+        "price": 173.944,
+        "qty": 8.454,
+        "proceeds": 1470.53,
+        "pnl": -129.47,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-04",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 677.8546,
+        "qty": 1.1276,
+        "proceeds": 764.33,
+        "pnl": -67.3,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-05",
+        "symbol": "GOOGL",
+        "action": "SELL",
+        "price": 308.0381,
+        "qty": 5.9673,
+        "proceeds": 1838.16,
+        "pnl": -161.84,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-05",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 403.8685,
+        "qty": 2.3657,
+        "proceeds": 955.41,
+        "pnl": -84.12,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-06",
+        "symbol": "AMZN",
+        "action": "SELL",
+        "price": 202.4973,
+        "qty": 5.4702,
+        "proceeds": 1107.71,
+        "pnl": -172.29,
+        "pnl_pct": -13.46,
+        "reason": "STOP_GAP"
+      },
+      {
+        "date": "2026-03-13",
+        "symbol": "AAPL",
+        "action": "SELL",
+        "price": 250.2724,
+        "qty": 4.0846,
+        "proceeds": 1022.27,
+        "pnl": -90.0,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-26",
+        "symbol": "GOOGL",
+        "action": "SELL",
+        "price": 287.0401,
+        "qty": 4.6381,
+        "proceeds": 1331.32,
+        "pnl": -117.22,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-27",
+        "symbol": "NVDA",
+        "action": "SELL",
+        "price": 169.5099,
+        "qty": 7.4843,
+        "proceeds": 1268.67,
+        "pnl": -111.7,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      }
+    ],
+    "ollama-qwen3": [
+      {
+        "date": "2026-01-29",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 740.8505,
+        "qty": 1.5879,
+        "proceeds": 1176.42,
+        "pnl": 152.42,
+        "pnl_pct": 14.88,
+        "reason": "TAKE_PROFIT"
+      },
+      {
+        "date": "2026-01-29",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 438.549,
+        "qty": 1.6975,
+        "proceeds": 744.44,
+        "pnl": -74.76,
+        "pnl_pct": -9.13,
+        "reason": "STOP_GAP"
+      },
+      {
+        "date": "2026-02-04",
+        "symbol": "NVDA",
+        "action": "SELL",
+        "price": 173.944,
+        "qty": 8.454,
+        "proceeds": 1470.53,
+        "pnl": -129.47,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-04",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 677.8546,
+        "qty": 1.1276,
+        "proceeds": 764.33,
+        "pnl": -67.3,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-05",
+        "symbol": "GOOGL",
+        "action": "SELL",
+        "price": 308.0381,
+        "qty": 5.9673,
+        "proceeds": 1838.16,
+        "pnl": -161.84,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-05",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 403.8685,
+        "qty": 2.3657,
+        "proceeds": 955.41,
+        "pnl": -84.12,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-06",
+        "symbol": "AMZN",
+        "action": "SELL",
+        "price": 202.4973,
+        "qty": 5.4702,
+        "proceeds": 1107.71,
+        "pnl": -172.29,
+        "pnl_pct": -13.46,
+        "reason": "STOP_GAP"
+      },
+      {
+        "date": "2026-03-13",
+        "symbol": "AAPL",
+        "action": "SELL",
+        "price": 250.2724,
+        "qty": 4.0846,
+        "proceeds": 1022.27,
+        "pnl": -90.0,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-26",
+        "symbol": "GOOGL",
+        "action": "SELL",
+        "price": 287.0401,
+        "qty": 4.6381,
+        "proceeds": 1331.32,
+        "pnl": -117.22,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-27",
+        "symbol": "NVDA",
+        "action": "SELL",
+        "price": 169.5099,
+        "qty": 7.4843,
+        "proceeds": 1268.67,
+        "pnl": -111.7,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      }
+    ],
+    "ollama-plutus": [
+      {
+        "date": "2026-01-29",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 740.8505,
+        "qty": 1.9849,
+        "proceeds": 1470.53,
+        "pnl": 190.53,
+        "pnl_pct": 14.88,
+        "reason": "TAKE_PROFIT"
+      },
+      {
+        "date": "2026-01-29",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 438.549,
+        "qty": 2.1219,
+        "proceeds": 930.55,
+        "pnl": -93.45,
+        "pnl_pct": -9.13,
+        "reason": "STOP_GAP"
+      },
+      {
+        "date": "2026-02-04",
+        "symbol": "NVDA",
+        "action": "SELL",
+        "price": 173.944,
+        "qty": 10.5675,
+        "proceeds": 1838.16,
+        "pnl": -161.84,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-04",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 677.8546,
+        "qty": 1.4095,
+        "proceeds": 955.41,
+        "pnl": -84.12,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-05",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 403.8685,
+        "qty": 2.9571,
+        "proceeds": 1194.27,
+        "pnl": -105.15,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-06",
+        "symbol": "AMZN",
+        "action": "SELL",
+        "price": 202.4973,
+        "qty": 6.8378,
+        "proceeds": 1384.63,
+        "pnl": -215.37,
+        "pnl_pct": -13.46,
+        "reason": "STOP_GAP"
+      },
+      {
+        "date": "2026-02-27",
+        "symbol": "NVDA",
+        "action": "SELL",
+        "price": 177.0442,
+        "qty": 7.5129,
+        "proceeds": 1330.11,
+        "pnl": -117.11,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-26",
+        "symbol": "GOOGL",
+        "action": "SELL",
+        "price": 287.0401,
+        "qty": 4.684,
+        "proceeds": 1344.49,
+        "pnl": -118.38,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      }
+    ],
+    "ollama-coder": [
+      {
+        "date": "2026-01-29",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 740.8505,
+        "qty": 1.5879,
+        "proceeds": 1176.42,
+        "pnl": 152.42,
+        "pnl_pct": 14.88,
+        "reason": "TAKE_PROFIT"
+      },
+      {
+        "date": "2026-01-29",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 438.549,
+        "qty": 1.6975,
+        "proceeds": 744.44,
+        "pnl": -74.76,
+        "pnl_pct": -9.13,
+        "reason": "STOP_GAP"
+      },
+      {
+        "date": "2026-02-04",
+        "symbol": "NVDA",
+        "action": "SELL",
+        "price": 173.944,
+        "qty": 8.454,
+        "proceeds": 1470.53,
+        "pnl": -129.47,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-04",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 677.8546,
+        "qty": 1.1276,
+        "proceeds": 764.33,
+        "pnl": -67.3,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-05",
+        "symbol": "GOOGL",
+        "action": "SELL",
+        "price": 308.0381,
+        "qty": 5.9673,
+        "proceeds": 1838.16,
+        "pnl": -161.84,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-05",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 403.8685,
+        "qty": 2.3657,
+        "proceeds": 955.41,
+        "pnl": -84.12,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-06",
+        "symbol": "AMZN",
+        "action": "SELL",
+        "price": 202.4973,
+        "qty": 5.4702,
+        "proceeds": 1107.71,
+        "pnl": -172.29,
+        "pnl_pct": -13.46,
+        "reason": "STOP_GAP"
+      },
+      {
+        "date": "2026-03-13",
+        "symbol": "AAPL",
+        "action": "SELL",
+        "price": 250.2724,
+        "qty": 4.0846,
+        "proceeds": 1022.27,
+        "pnl": -90.0,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-26",
+        "symbol": "GOOGL",
+        "action": "SELL",
+        "price": 287.0401,
+        "qty": 4.6381,
+        "proceeds": 1331.32,
+        "pnl": -117.22,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-27",
+        "symbol": "NVDA",
+        "action": "SELL",
+        "price": 169.5099,
+        "qty": 7.4843,
+        "proceeds": 1268.67,
+        "pnl": -111.7,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      }
+    ],
+    "neo-matrix": [
+      {
+        "date": "2026-01-29",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 740.8505,
+        "qty": 1.5879,
+        "proceeds": 1176.42,
+        "pnl": 152.42,
+        "pnl_pct": 14.88,
+        "reason": "TAKE_PROFIT"
+      },
+      {
+        "date": "2026-01-29",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 438.549,
+        "qty": 1.6975,
+        "proceeds": 744.44,
+        "pnl": -74.76,
+        "pnl_pct": -9.13,
+        "reason": "STOP_GAP"
+      },
+      {
+        "date": "2026-02-04",
+        "symbol": "NVDA",
+        "action": "SELL",
+        "price": 173.944,
+        "qty": 8.454,
+        "proceeds": 1470.53,
+        "pnl": -129.47,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-04",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 677.8546,
+        "qty": 1.1276,
+        "proceeds": 764.33,
+        "pnl": -67.3,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-05",
+        "symbol": "GOOGL",
+        "action": "SELL",
+        "price": 308.0381,
+        "qty": 5.9673,
+        "proceeds": 1838.16,
+        "pnl": -161.84,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-05",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 403.8685,
+        "qty": 2.3657,
+        "proceeds": 955.41,
+        "pnl": -84.12,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-06",
+        "symbol": "AMZN",
+        "action": "SELL",
+        "price": 202.4973,
+        "qty": 5.4702,
+        "proceeds": 1107.71,
+        "pnl": -172.29,
+        "pnl_pct": -13.46,
+        "reason": "STOP_GAP"
+      },
+      {
+        "date": "2026-03-13",
+        "symbol": "AAPL",
+        "action": "SELL",
+        "price": 250.2724,
+        "qty": 4.0846,
+        "proceeds": 1022.27,
+        "pnl": -90.0,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-26",
+        "symbol": "GOOGL",
+        "action": "SELL",
+        "price": 287.0401,
+        "qty": 4.6381,
+        "proceeds": 1331.32,
+        "pnl": -117.22,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-27",
+        "symbol": "NVDA",
+        "action": "SELL",
+        "price": 169.5099,
+        "qty": 7.4843,
+        "proceeds": 1268.67,
+        "pnl": -111.7,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      }
+    ],
+    "ollama-llama": [
+      {
+        "date": "2026-01-29",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 740.8505,
+        "qty": 1.5879,
+        "proceeds": 1176.42,
+        "pnl": 152.42,
+        "pnl_pct": 14.88,
+        "reason": "TAKE_PROFIT"
+      },
+      {
+        "date": "2026-01-29",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 438.549,
+        "qty": 1.6975,
+        "proceeds": 744.44,
+        "pnl": -74.76,
+        "pnl_pct": -9.13,
+        "reason": "STOP_GAP"
+      },
+      {
+        "date": "2026-02-04",
+        "symbol": "NVDA",
+        "action": "SELL",
+        "price": 173.944,
+        "qty": 8.454,
+        "proceeds": 1470.53,
+        "pnl": -129.47,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-04",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 677.8546,
+        "qty": 1.1276,
+        "proceeds": 764.33,
+        "pnl": -67.3,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-05",
+        "symbol": "GOOGL",
+        "action": "SELL",
+        "price": 308.0381,
+        "qty": 5.9673,
+        "proceeds": 1838.16,
+        "pnl": -161.84,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-05",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 403.8685,
+        "qty": 2.3657,
+        "proceeds": 955.41,
+        "pnl": -84.12,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-06",
+        "symbol": "AMZN",
+        "action": "SELL",
+        "price": 202.4973,
+        "qty": 5.4702,
+        "proceeds": 1107.71,
+        "pnl": -172.29,
+        "pnl_pct": -13.46,
+        "reason": "STOP_GAP"
+      },
+      {
+        "date": "2026-03-13",
+        "symbol": "AAPL",
+        "action": "SELL",
+        "price": 250.2724,
+        "qty": 4.0846,
+        "proceeds": 1022.27,
+        "pnl": -90.0,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-26",
+        "symbol": "GOOGL",
+        "action": "SELL",
+        "price": 287.0401,
+        "qty": 4.6381,
+        "proceeds": 1331.32,
+        "pnl": -117.22,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-27",
+        "symbol": "NVDA",
+        "action": "SELL",
+        "price": 169.5099,
+        "qty": 7.4843,
+        "proceeds": 1268.67,
+        "pnl": -111.7,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      }
+    ]
+  },
+  "test_c_current_s6_trades": {
+    "navigator": [
+      {
+        "date": "2026-01-29",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 719.8579,
+        "qty": 1.5959,
+        "proceeds": 1148.85,
+        "pnl": 148.85,
+        "pnl_pct": 14.88,
+        "reason": "TAKE_PROFIT"
+      },
+      {
+        "date": "2026-01-29",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 426.0177,
+        "qty": 1.9416,
+        "proceeds": 827.17,
+        "pnl": -72.83,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-02-05",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 403.116,
+        "qty": 2.1126,
+        "proceeds": 851.62,
+        "pnl": -74.98,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-20",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 588.0108,
+        "qty": 1.0473,
+        "proceeds": 615.81,
+        "pnl": -54.22,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-26",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 366.3997,
+        "qty": 2.3055,
+        "proceeds": 844.73,
+        "pnl": -74.37,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-04-09",
+        "symbol": "AMZN",
+        "action": "SELL",
+        "price": 233.1048,
+        "qty": 3.6691,
+        "proceeds": 855.29,
+        "pnl": 110.82,
+        "pnl_pct": 14.89,
+        "reason": "TAKE_PROFIT"
+      }
+    ],
+    "ollama-qwen3": [
+      {
+        "date": "2026-01-29",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 740.8505,
+        "qty": 1.3956,
+        "proceeds": 1033.96,
+        "pnl": 133.96,
+        "pnl_pct": 14.88,
+        "reason": "TAKE_PROFIT"
+      },
+      {
+        "date": "2026-02-03",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 410.8721,
+        "qty": 2.2369,
+        "proceeds": 919.08,
+        "pnl": -80.92,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-26",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 366.3997,
+        "qty": 2.5217,
+        "proceeds": 923.96,
+        "pnl": -81.35,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      }
+    ],
+    "ollama-plutus": [
+      {
+        "date": "2026-01-29",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 740.8505,
+        "qty": 1.3956,
+        "proceeds": 1033.96,
+        "pnl": 133.96,
+        "pnl_pct": 14.88,
+        "reason": "TAKE_PROFIT"
+      },
+      {
+        "date": "2026-02-03",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 410.8721,
+        "qty": 2.2369,
+        "proceeds": 919.08,
+        "pnl": -80.92,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-26",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 366.3997,
+        "qty": 2.5217,
+        "proceeds": 923.96,
+        "pnl": -81.35,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      }
+    ],
+    "ollama-coder": [
+      {
+        "date": "2026-01-29",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 740.8505,
+        "qty": 1.3956,
+        "proceeds": 1033.96,
+        "pnl": 133.96,
+        "pnl_pct": 14.88,
+        "reason": "TAKE_PROFIT"
+      },
+      {
+        "date": "2026-02-03",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 410.8721,
+        "qty": 2.2369,
+        "proceeds": 919.08,
+        "pnl": -80.92,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-26",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 366.3997,
+        "qty": 2.5217,
+        "proceeds": 923.96,
+        "pnl": -81.35,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-04-09",
+        "symbol": "AMZN",
+        "action": "SELL",
+        "price": 233.1048,
+        "qty": 4.4592,
+        "proceeds": 1039.45,
+        "pnl": 134.68,
+        "pnl_pct": 14.89,
+        "reason": "TAKE_PROFIT"
+      }
+    ],
+    "neo-matrix": [
+      {
+        "date": "2026-01-29",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 740.8505,
+        "qty": 1.3956,
+        "proceeds": 1033.96,
+        "pnl": 133.96,
+        "pnl_pct": 14.88,
+        "reason": "TAKE_PROFIT"
+      },
+      {
+        "date": "2026-02-03",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 410.8721,
+        "qty": 2.2369,
+        "proceeds": 919.08,
+        "pnl": -80.92,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-26",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 366.3997,
+        "qty": 2.5217,
+        "proceeds": 923.96,
+        "pnl": -81.35,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-04-09",
+        "symbol": "AMZN",
+        "action": "SELL",
+        "price": 233.1048,
+        "qty": 4.4592,
+        "proceeds": 1039.45,
+        "pnl": 134.68,
+        "pnl_pct": 14.89,
+        "reason": "TAKE_PROFIT"
+      }
+    ],
+    "ollama-llama": [
+      {
+        "date": "2026-01-29",
+        "symbol": "META",
+        "action": "SELL",
+        "price": 740.8505,
+        "qty": 1.3956,
+        "proceeds": 1033.96,
+        "pnl": 133.96,
+        "pnl_pct": 14.88,
+        "reason": "TAKE_PROFIT"
+      },
+      {
+        "date": "2026-02-03",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 410.8721,
+        "qty": 2.2369,
+        "proceeds": 919.08,
+        "pnl": -80.92,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      },
+      {
+        "date": "2026-03-26",
+        "symbol": "MSFT",
+        "action": "SELL",
+        "price": 366.3997,
+        "qty": 2.5217,
+        "proceeds": 923.96,
+        "pnl": -81.35,
+        "pnl_pct": -8.09,
+        "reason": "STOP_LOSS"
+      }
+    ]
+  }
+}

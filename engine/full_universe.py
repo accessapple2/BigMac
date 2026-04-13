@@ -149,9 +149,14 @@ def get_universe() -> list[str]:
     """
     _init_tables()
     try:
+        from config import DELISTED_BLACKLIST
+    except Exception:
+        DELISTED_BLACKLIST = set()
+
+    try:
         with _conn() as c:
             rows = c.execute("SELECT symbol FROM universe_stocks ORDER BY symbol").fetchall()
-        symbols = [r["symbol"] for r in rows]
+        symbols = [r["symbol"] for r in rows if r["symbol"] not in DELISTED_BLACKLIST]
         if symbols:
             return symbols
     except Exception as e:

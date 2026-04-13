@@ -410,11 +410,16 @@ def get_universe() -> list[str]:
     table is empty or unavailable.
     """
     try:
+        from config import DELISTED_BLACKLIST
+    except Exception:
+        DELISTED_BLACKLIST = set()
+
+    try:
         with _conn() as c:
             rows = c.execute(
                 "SELECT symbol FROM scan_universe ORDER BY avg_volume DESC"
             ).fetchall()
-        symbols = [r["symbol"] for r in rows]
+        symbols = [r["symbol"] for r in rows if r["symbol"] not in DELISTED_BLACKLIST]
         if symbols:
             return symbols
     except Exception as e:

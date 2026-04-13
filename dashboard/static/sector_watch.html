@@ -1,0 +1,158 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sector Watch</title>
+  <link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+  <style>
+    *{box-sizing:border-box;margin:0;padding:0}
+    body{background:#050d18;color:#c8d6e5;font-family:'IBM Plex Mono',monospace;padding:16px}
+    #hero{background:#0a1520;border:2px solid #555;border-radius:6px;padding:16px 20px;margin-bottom:14px;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:12px}
+    .hero-label{font-size:10px;color:#4a6580;letter-spacing:2px;margin-bottom:4px}
+    .hero-ticker{font-size:36px;font-weight:700;color:#e8f4f8;letter-spacing:2px}
+    .hero-price{font-size:28px;font-weight:600;color:#e8f4f8}
+    .hero-change{font-size:18px;font-weight:600}
+    .hero-stats{font-size:11px;color:#4a6580;line-height:2}
+    .signal-badge{border-radius:4px;padding:8px 16px;text-align:center;border:1px solid}
+    .signal-text{font-size:20px;font-weight:700;letter-spacing:2px}
+    .legend{background:#0d1117;border:1px solid #1a2d3d;border-radius:4px;padding:8px 16px;margin-bottom:14px;display:flex;gap:20px;flex-wrap:wrap;font-size:9px;letter-spacing:1px;color:#4a6580}
+    .grid{display:grid;grid-template-columns:repeat(auto-fill,minmax(165px,1fr));gap:8px;margin-bottom:14px}
+    .card{background:#090f1a;border:1px solid #1a2d3d;border-radius:4px;padding:11px;transition:border-color .2s,transform .2s;cursor:default}
+    .card:hover{transform:translateY(-2px)}
+    .card-ticker{font-size:20px;font-weight:700;color:#e8f4f8;letter-spacing:1px;line-height:1}
+    .card-role{font-size:7px;color:#2a4a60;letter-spacing:1px;margin-top:2px;margin-bottom:7px}
+    .card-price{font-size:15px;font-weight:600;color:#e8f4f8;margin-bottom:3px}
+    .card-change{font-size:13px;font-weight:600;margin-bottom:7px}
+    .card-stats{font-size:8px;color:#2a4a60;line-height:1.9}
+    .card-signal{font-size:8px;font-weight:700;letter-spacing:1px;text-align:right}
+    #timer{position:fixed;bottom:12px;right:14px;background:#0d1117;border:1px solid #1a2d3d;border-radius:4px;padding:6px 12px;font-size:9px;color:#4a6580;letter-spacing:1px}
+    .up{color:#00c087} .down{color:#ff4757} .amber{color:#ffd32a}
+    @keyframes pulse{0%,100%{opacity:1}50%{opacity:.3}}
+    .loading{animation:pulse 1.5s infinite;color:#4a6580}
+  </style>
+</head>
+<body>
+  <div id="hero">
+    <div><div class="hero-label">SECTOR HEALTH</div><div class="hero-ticker">IGV</div><div style="font-size:9px;color:#4a6580;margin-top:2px">iShares Expanded Tech-Software ETF</div></div>
+    <div id="hero-prices"><div class="loading">LOADING...</div></div>
+    <div id="hero-stats" class="hero-stats"></div>
+    <div id="hero-badge" class="signal-badge" style="border-color:#333"><div class="signal-text" style="color:#555">—</div></div>
+  </div>
+  <div class="legend">
+    <span style="color:#4a6580">MONITORING:</span>
+    <span><span class="up">■ S1</span> AI hype overblown → buy SaaS dips</span>
+    <span><span class="down">■ S2</span> Real disruption → churn up, shorts win</span>
+  </div>
+  <div class="grid" id="grid"></div>
+  <div id="timer">REFRESH IN <span id="cd">60</span>s</div>
+
+<script>
+const TICKERS = ['IGV','MSFT','CRM','PLTR','ORCL','SNOW','OKTA','DDOG','ADBE','NOW','PANW','APP','CRWD','INTU'];
+const META = {
+  IGV:'Sector ETF', MSFT:'AI Beneficiary', CRM:'SaaS Leader', PLTR:'AI Beneficiary',
+  ORCL:'Cloud/DB', SNOW:'SaaS Risk', OKTA:'SaaS Risk', DDOG:'SaaS Risk',
+  ADBE:'AI Risk/Opp', NOW:'Enterprise SaaS', PANW:'Cybersecurity',
+  APP:'Ad Tech', CRWD:'Cybersecurity', INTU:'Fin Software'
+};
+const PROXY = 'https://corsproxy.io/?';
+
+function fmt(n,d=2,sign=false){
+  if(n==null||isNaN(n)) return '—';
+  const s=Math.abs(n).toFixed(d);
+  return sign?(n>=0?'+'+s:'-'+s):s;
+}
+function fmtV(v){
+  if(!v) return '—';
+  if(v>=1e9) return (v/1e9).toFixed(1)+'B';
+  if(v>=1e6) return (v/1e6).toFixed(1)+'M';
+  return (v/1e3).toFixed(0)+'K';
+}
+function signal(d){
+  if(!d) return {label:'...',color:'#333',pri:0};
+  const {dayPct,relVol,vsSma50,ticker}=d, isEtf=ticker==='IGV';
+  if(dayPct<-4&&relVol>2)   return {label:isEtf?'BREAKDOWN':'SELL',    color:'#ff3b3b',pri:6};
+  if(dayPct<-3&&relVol>1.5) return {label:isEtf?'SECTOR WEAK':'BEARISH',color:'#ff6b6b',pri:5};
+  if(dayPct<-2)              return {label:'WEAK',    color:'#ff8c00',pri:3};
+  if(dayPct<-1)              return {label:'SOFT',    color:'#cc7700',pri:2};
+  if(vsSma50!=null&&vsSma50<-12&&Math.abs(dayPct)<1) return {label:'OVERSOLD',color:'#ffd32a',pri:2};
+  if(dayPct>3&&relVol>1.5)  return {label:isEtf?'RECOVERY':'BUY',     color:'#00c087',pri:5};
+  if(dayPct>1.5)             return {label:'RISING',  color:'#2ed573',pri:2};
+  if(dayPct>0.3)             return {label:'MILD UP', color:'#7bed9f',pri:1};
+  return                           {label:'NEUTRAL',  color:'#4a6580',pri:0};
+}
+
+async function fetchOne(ticker){
+  try{
+    const url = PROXY+'https://query1.finance.yahoo.com/v8/finance/chart/'+ticker+'?range=3mo&interval=1d';
+    const r = await fetch(url);
+    const d = await r.json();
+    const res = d.chart?.result?.[0];
+    if(!res) return null;
+    const meta = res.meta;
+    const closes = res.indicators?.quote?.[0]?.close || [];
+    const vols = res.indicators?.quote?.[0]?.volume || [];
+    const n = closes.length;
+    const price = meta.regularMarketPrice;
+    const prev = meta.chartPreviousClose;
+    const dayPct = prev ? ((price-prev)/prev)*100 : 0;
+    const todayVol = meta.regularMarketVolume || vols[n-1] || 0;
+    const avgVol = vols.slice(Math.max(0,n-11),n-1).filter(Boolean).reduce((a,b)=>a+b,0) / Math.min(10,n-1) || 1;
+    const smaData = closes.slice(Math.max(0,n-50)).filter(Boolean);
+    const sma50 = smaData.length ? smaData.reduce((a,b)=>a+b,0)/smaData.length : null;
+    const vsSma50 = sma50 ? ((price-sma50)/sma50)*100 : null;
+    return {ticker, price, dayPct, volume:todayVol, avgVol, relVol:todayVol/avgVol,
+            sma50, vsSma50, high52:meta.fiftyTwoWeekHigh, low52:meta.fiftyTwoWeekLow};
+  }catch(e){return null;}
+}
+
+async function refresh(){
+  const results = await Promise.all(TICKERS.map(fetchOne));
+  const data = {};
+  results.forEach((r,i)=>{ if(r) data[TICKERS[i]]=r; });
+
+  // IGV hero
+  const igv = data['IGV'];
+  const sig = signal(igv);
+  if(igv){
+    document.getElementById('hero-prices').innerHTML =
+      '<div class="hero-price">$'+fmt(igv.price)+'</div>'+
+      '<div class="hero-change '+(igv.dayPct>=0?'up':'down')+'">'+fmt(igv.dayPct,2,true)+'%</div>';
+    document.getElementById('hero-stats').innerHTML =
+      'VOLUME&nbsp;&nbsp; <span style="color:#c8d6e5">'+fmtV(igv.volume)+'</span><br>'+
+      'REL VOL&nbsp; <span class="'+(igv.relVol>1.5?'amber':'')+'">'+fmt(igv.relVol,1)+'x</span><br>'+
+      'vs50SMA&nbsp; <span class="'+(igv.vsSma50<0?'down':'up')+'">'+fmt(igv.vsSma50,1,true)+'%</span><br>'+
+      '52W HI&nbsp;&nbsp; <span style="color:#c8d6e5">$'+fmt(igv.high52)+'</span>';
+    const b=document.getElementById('hero-badge');
+    b.style.background=sig.color+'22'; b.style.borderColor=sig.color;
+    b.innerHTML='<div class="signal-text" style="color:'+sig.color+'">'+sig.label+'</div>'+
+      '<div style="font-size:9px;color:#4a6580;margin-top:3px">FROM 52W HI: <span class="down">'+
+      fmt(igv.high52?((igv.price-igv.high52)/igv.high52)*100:0,1,true)+'%</span></div>';
+  }
+
+  // Grid — sorted by signal priority
+  const others = TICKERS.filter(t=>t!=='IGV').sort((a,b)=>signal(data[b]).pri-signal(data[a]).pri);
+  document.getElementById('grid').innerHTML = others.map(t=>{
+    const d=data[t], s=signal(d);
+    const hi=s.pri>=3;
+    return '<div class="card" style="border-color:'+(hi?s.color+'88':'#1a2d3d')+';background:'+(hi?s.color+'0d':'#090f1a')+'">'+
+      '<div style="display:flex;justify-content:space-between;align-items:flex-start">'+
+      '<div><div class="card-ticker">'+t+'</div><div class="card-role">'+META[t]+'</div></div>'+
+      '<div class="card-signal" style="color:'+s.color+'">'+s.label+'</div></div>'+
+      (d?'<div class="card-price">$'+fmt(d.price)+'</div>'+
+      '<div class="card-change '+(d.dayPct>=0?'up':'down')+'">'+fmt(d.dayPct,2,true)+'%</div>'+
+      '<div class="card-stats">REL VOL <span class="'+(d.relVol>1.5?'amber':'')+'">'+fmt(d.relVol,1)+'x</span><br>'+
+      'vs50SMA <span style="color:'+(d.vsSma50==null?'#6a8a9a':d.vsSma50<-10?'#ff6b6b':d.vsSma50>0?'#2ed573':'#6a8a9a')+'">'+
+      (d.vsSma50!=null?fmt(d.vsSma50,1,true)+'%':'—')+'</span></div>'
+      :'<div class="loading" style="font-size:10px">—</div>')+
+      '</div>';
+  }).join('');
+}
+
+let cd=60;
+function tick(){cd--;document.getElementById('cd').textContent=cd;if(cd<=0){cd=60;refresh();}}
+refresh();
+setInterval(tick,1000);
+</script>
+</body>
+</html>

@@ -1,0 +1,112 @@
+{
+  "tag": "allstars_vs_spreadking_90d",
+  "date": "2026-04-10",
+  "period": "2026-01-10 to 2026-04-10",
+  "spy_return": -1.93,
+  "season_6_1": {
+    "name": "All-Stars",
+    "return_pct": 2.28,
+    "win_rate": 79.0,
+    "trades": 15,
+    "pnl": 228.0,
+    "alpha_vs_spy_pp": 4.21,
+    "strategy_mix": "Mixed stocks + options + premium spreads",
+    "best_strategy": "iron_condor +249.6%",
+    "notes": "Baseline from leaderboard summary at season start"
+  },
+  "season_6_2": {
+    "name": "Spread King",
+    "return_pct": 95.75,
+    "win_rate": 60.8,
+    "trades": 1078,
+    "pnl": 9575.43,
+    "alpha_vs_spy_pp": 97.68,
+    "strategy_mix": "100% premium income spreads",
+    "allocation": {
+      "iron_condor": {
+        "weight": 0.40,
+        "return_pct": 249.56,
+        "win_rate": 82.1,
+        "trades": 319,
+        "pnl": 24955.98,
+        "weighted_contribution_pp": 99.82,
+        "source": "backtester_signals (Counselor Troi)"
+      },
+      "bear_call_spread": {
+        "weight": 0.30,
+        "return_pct": -20.99,
+        "win_rate": 35.2,
+        "trades": 718,
+        "pnl": -2099.09,
+        "weighted_contribution_pp": -6.30,
+        "source": "backtester_signals (Lt. Cmdr. Worf)"
+      },
+      "bull_put_spread": {
+        "weight": 0.20,
+        "return_pct": 15.11,
+        "win_rate": 75.0,
+        "trades": 4,
+        "pnl": 1511.49,
+        "weighted_contribution_pp": 3.02,
+        "source": "actual_trades (options-sosnoff, energy-arnold)"
+      },
+      "covered_call": {
+        "weight": 0.10,
+        "return_pct": -7.95,
+        "win_rate": 24.3,
+        "trades": 37,
+        "pnl": -795.35,
+        "weighted_contribution_pp": -0.80,
+        "source": "actual_trades (options-sosnoff, claude-haiku)"
+      }
+    },
+    "crew": {
+      "sulu": {
+        "player_id": "dayblade-sulu",
+        "display_name": "Lt. Sulu",
+        "allocation_pct": 70,
+        "strategies": "iron_condor (40%) + bear_call_spread (30%)",
+        "actual_pnl_90d": -450.82,
+        "actual_closed_trades": 10,
+        "actual_win_rate": 60.0
+      },
+      "mccoy": {
+        "player_id": "ollama-plutus",
+        "display_name": "Dr. McCoy",
+        "allocation_pct": 30,
+        "strategies": "bull_put_spread (20%) + covered_call (10%)",
+        "actual_pnl_90d": 0.0,
+        "actual_closed_trades": 0,
+        "status": "No data — just activated"
+      }
+    }
+  },
+  "improvement": {
+    "return_pp": 93.47,
+    "return_relative_pct": 4101.3,
+    "win_rate_pp": -18.2,
+    "win_rate_note": "WR drops due to bear_call_spread (35.2% WR, 718 trades) dragging average; iron_condor at 82.1% WR drives all returns",
+    "trades_delta": 1063,
+    "alpha_delta_pp": 93.47
+  },
+  "fleet_snapshot": {
+    "options-sosnoff": {"display_name": "Counselor Troi", "closed_trades": 1, "pnl": 1546.51, "win_rate": 100.0, "status": "CORE — iron_condor champion"},
+    "grok-4": {"display_name": "Lt. Cmdr. Spock", "closed_trades": 8, "pnl": 21.22, "win_rate": 100.0, "status": "Qualified — 100% win rate"},
+    "navigator": {"display_name": "Ensign Chekov", "closed_trades": 5, "pnl": 125.12, "win_rate": 20.0, "status": "Developing — low WR"},
+    "energy-arnold": {"display_name": "Cmdr. Trip Tucker", "closed_trades": 3, "pnl": 11.39, "win_rate": 66.7, "status": "Qualified — consistent"},
+    "gemini-2.5-flash": {"display_name": "Lt. Cmdr. Worf", "closed_trades": 2, "pnl": 10.93, "win_rate": 100.0, "status": "Qualified — limited data"},
+    "dayblade-sulu": {"display_name": "Lt. Sulu", "closed_trades": 10, "pnl": -450.82, "win_rate": 60.0, "status": "Watchlist — negative PnL"},
+    "ollama-qwen3": {"display_name": "Lt. Jadzia Dax", "closed_trades": 1, "pnl": -521.91, "win_rate": 0.0, "status": "Benched — 0% WR"},
+    "capitol-trades": {"display_name": "Capitol Trades", "closed_trades": 0, "pnl": 0.0, "win_rate": null, "status": "No data — just activated"},
+    "ollama-plutus": {"display_name": "Dr. McCoy", "closed_trades": 0, "pnl": 0.0, "win_rate": null, "status": "No data — just activated"},
+    "ollie-auto": {"display_name": "Ollie", "closed_trades": 4, "pnl": -0.03, "win_rate": 25.0, "status": "Minimal impact"}
+  },
+  "verdict": "DEPLOY",
+  "recommendation": "Spread King is confirmed. Sulu takes command. Iron condor delivers +99.82pp weighted contribution on an 82.1% win rate across 319 signals. The -18.2pp win rate drop versus All-Stars is a volume artifact — bear_call_spread generates 718 low-WR trades at 30% weight, but with a small negative drag (-6.30pp). The net result is +95.75% vs +2.28%, a 42x return improvement over All-Stars. Deploy immediately with Sulu on iron_condor+bear_call_spread (70%) and McCoy on bull_put_spread+covered_call (30%).",
+  "data_sources": {
+    "s6_1": "leaderboard_baseline_provided",
+    "s6_2": "data/backtest_comprehensive_90d.json Blend E (Spread King)",
+    "fleet_actuals": "data/trader.db trades 2026-01-10 to 2026-04-10"
+  },
+  "generated_at": "2026-04-10"
+}

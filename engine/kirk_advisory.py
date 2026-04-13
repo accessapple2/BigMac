@@ -153,11 +153,30 @@ def _get_gex_context():
         return "unknown", 0
 
 
+def _get_live_webull_portfolio():
+    """Try to get live Webull positions from the synced cache in DB."""
+    try:
+        import json
+        db = _get_db()
+        row = db.execute("SELECT value FROM settings WHERE key='webull_positions_cache'").fetchone()
+        db.close()
+        if row and row[0]:
+            return json.loads(row[0])
+    except Exception:
+        pass
+    return None
+
+
 def generate_kirk_advisory():
     """Generate actionable recommendations for Kirk's Webull positions."""
     try:
         from engine.paper_trader import get_portfolio
-        portfolio = get_portfolio(PLAYER_ID)
+        # Try live Webull cache first; fall back to paper_trader DB
+        live = _get_live_webull_portfolio()
+        if live and live.get("positions"):
+            portfolio = live
+        else:
+            portfolio = get_portfolio(PLAYER_ID)
         positions = portfolio.get("positions", [])
         cash = _get_live_cash(fallback=portfolio.get("cash", 0))
 

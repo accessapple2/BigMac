@@ -183,6 +183,92 @@ def get_portfolio():
     return result
 
 
+_STARTING_VALUE = 7021.81  # Captain Kirk's season starting capital
+
+
+def get_portfolio_for_dashboard() -> dict:
+    """Return live Webull portfolio in the format dashboard JS expects.
+
+    Maps field names from the Webull API to what fetchWebullPortfolio() renders:
+      avg_cost      → avg_price
+      last_price    → current_price
+      pnl_pct       → unrealized_pnl_pct
+      type (STOCK)  → asset_type (stock)
+    Also computes total_cost_basis, total_unrealized_pnl, return_pct, and win_rate
+    from DB trade history.
+    """
+    import sqlite3
+
+    data = get_portfolio()
+    if "error" in data:
+        return data
+
+    balance = data.get("balance", {})
+    raw_positions = data.get("positions", [])
+
+    total_cost_basis = sum(p.get("total_cost", 0) for p in raw_positions)
+    total_unrealized_pnl = sum(p.get("unrealized_pnl", 0) for p in raw_positions)
+    total_value = balance.get("total_value", 0)
+    return_pct = round((total_value - _STARTING_VALUE) / _STARTING_VALUE * 100, 2) if _STARTING_VALUE else 0.0
+
+    positions = []
+    for p in raw_positions:
+        raw_type = (p.get("type") or "STOCK").upper()
+        asset_type = "option" if raw_type in ("OPTIONS", "OPTION") else "stock"
+        positions.append({
+            "symbol": p.get("symbol", ""),
+            "qty": p.get("qty", 0),
+            "avg_price": p.get("avg_cost", 0),
+            "current_price": p.get("last_price", 0),
+            "market_value": p.get("market_value", 0),
+            "unrealized_pnl": p.get("unrealized_pnl", 0),
+            "unrealized_pnl_pct": p.get("pnl_pct", 0),
+            "day_change_pct": 0.0,  # not provided by Webull positions API
+            "asset_type": asset_type,
+            "market": "webull",
+        })
+
+    # Win rate from closed trade history
+    win_rate, win_count, loss_count = 0.0, 0, 0
+    try:
+        conn = sqlite3.connect("data/trader.db", check_same_thread=False, timeout=10)
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT CASE WHEN realized_pnl IS NOT NULL THEN realized_pnl "
+            "ELSE (price - (SELECT b.price FROM trades b WHERE b.player_id='steve-webull' "
+            "AND b.action='BUY' AND b.symbol=t.symbol AND b.executed_at<=t.executed_at "
+            "ORDER BY b.executed_at DESC LIMIT 1)) * qty END AS pnl "
+            "FROM trades t WHERE player_id='steve-webull' AND action='SELL'"
+        ).fetchall()
+        conn.close()
+        if rows:
+            win_count = sum(1 for r in rows if r["pnl"] is not None and r["pnl"] > 0)
+            loss_count = len(rows) - win_count
+            win_rate = round(win_count / len(rows) * 100, 1)
+    except Exception:
+        pass
+
+    return {
+        "cash": balance.get("cash", 0),
+        "buying_power": balance.get("buying_power", 0),
+        "total_value": total_value,
+        "total_cost_basis": round(total_cost_basis, 2),
+        "total_unrealized_pnl": round(total_unrealized_pnl, 2),
+        "return_pct": return_pct,
+        "total_day_pnl": 0.0,
+        "total_day_pnl_pct": 0.0,
+        "starting_value": _STARTING_VALUE,
+        "win_rate": win_rate,
+        "win_count": win_count,
+        "loss_count": loss_count,
+        "positions": positions,
+        "position_count": len(positions),
+        "last_synced_label": data.get("fetched_at", ""),
+        "account_number": data.get("account_number", ""),
+        "source": "webull_live",
+    }
+
+
 def sync_positions_to_db():
     """Sync live Webull positions into the positions table for steve-webull.
 

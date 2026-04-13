@@ -143,12 +143,26 @@ _MAX_DAILY_TRADES_PER_AGENT = 2   # guardrail: max trades per agent per day
 _FLEET_EXPOSURE_MAX_PCT     = 60  # max % of total fleet invested at once
 
 # ── Sniper Mode live gate (matches triple_threat.py SNIPER_ALPHA_THRESHOLD) ──
-SNIPER_ALPHA_THRESHOLD = 0.3   # composite_alpha >= 0.3 required
-SNIPER_MIN_CONFIDENCE  = 65    # LLM confidence >= 65 required (Signal Center B-grade proxy)
-CSP_MIN_IVR            = 30    # CSP entries require IV Rank >= 30 (low-IV assignment risk)
+SNIPER_ALPHA_THRESHOLD    = 0.3   # composite_alpha >= 0.3 required (LLM agents only)
+SNIPER_MIN_CONFIDENCE     = 55    # LLM confidence >= 55 required (loosened from 65)
+CSP_MIN_IVR               = 30    # CSP entries require IV Rank >= 30 (low-IV assignment risk)
+SPREAD_MIN_CONFIDENCE     = 55    # Min confidence for spread strategies (loosened from 60)
+OPTIONS_MIN_CONFIDENCE    = 50    # Min confidence for options directional (loosened from 55)
 
 # Strategies that bypass the Ollie gate (equity signals score low on options-heavy rubric)
-BYPASS_OLLIE = {"rsi_bounce"}
+BYPASS_OLLIE = {"rsi_bounce", "congress_copy", "ema_pullback", "momentum", "swing_trade"}
+
+# Strategies that bypass the Sniper Alpha gate (rules-based agents have own internal filters)
+# Alpha scores go negative in bear markets — rules agents should still fire bearish plays
+BYPASS_SNIPER_ALPHA = {
+    "congress_copy",   # Capitol Trades: based on SEC filings, not alpha
+    "ema_pullback",    # Chekov: technical pattern, not sentiment
+    "momentum",        # Data: price momentum is regime-agnostic
+    "swing_trade",     # Data: multi-day hold, manages its own entries
+    "long_equity",     # Data: fundamental entry
+    "short_equity",    # Data: bearish equity — thrives in bear market
+    "inverse_etf",     # Data: explicit bear play
+}
 
 # ── Ollie Commander (Fleet Commander — master approval gate) ──────────────────
 OLLIE_ID = "ollie-auto"        # Ollie does not judge himself
@@ -187,7 +201,13 @@ from engine.crew_specialization import ALPHA_SQUAD, SCAN_PAIRS, ADVISORY_CREW
 ACTIVE_SCANNERS: list[str] = ["neo-matrix"]  # always-on (non-Ollama)
 
 # Rules-based agents (no Ollama cost — API or rules engine)
-RULES_SCANNERS: list[str] = ["dayblade-0dte", "capitol-trades", "dalio-metals"]
+RULES_SCANNERS: list[str] = [
+    "dayblade-0dte",   # T'Pol — 0DTE options (shelved, kept for position management)
+    "capitol-trades",  # Congress copycat
+    "dalio-metals",    # Metals macro
+    "dayblade-sulu",   # Sulu — spreads/momentum (S6.1 activated)
+    "navigator",       # Chekov — EMA pullback (S6.1 activated)
+]
 
 # Alpha Squad pair rotation — index cycles 0→1→2→0 each scan window
 _ALPHA_PAIR_IDX: int = 0
@@ -281,8 +301,28 @@ def _init_once() -> None:
 # Market context
 # ---------------------------------------------------------------------------
 
+# Opt 3 — Cache SPY levels + market context for 2 minutes.
+# gather_market_context() calls fear_greed, breadth, sector, SPY price etc.
+# In a single scan cycle multiple agents call it — cache avoids redundant work.
+_mkt_ctx_cache: dict = {"ts": 0.0, "ctx": None}
+_MKT_CTX_TTL = 120  # seconds
+
+
 def gather_market_context() -> dict[str, Any]:
-    """Pull current market state from all available sources."""
+    """Pull current market state from all available sources (2-min TTL cache)."""
+    import time as _gmc_t
+    _now = _gmc_t.time()
+    if _mkt_ctx_cache["ctx"] is not None and _now - _mkt_ctx_cache["ts"] < _MKT_CTX_TTL:
+        return dict(_mkt_ctx_cache["ctx"])  # return shallow copy so callers can mutate
+
+    ctx = _gather_market_context_uncached()
+    _mkt_ctx_cache["ts"] = _gmc_t.time()
+    _mkt_ctx_cache["ctx"] = ctx
+    return dict(ctx)
+
+
+def _gather_market_context_uncached() -> dict[str, Any]:
+    """Internal: pulls fresh market state — called by gather_market_context()."""
     ctx: dict[str, Any] = {
         "session_type":      "UNKNOWN",
         "vix":               0.0,
@@ -1267,6 +1307,198 @@ def tpol_rules(market_ctx: dict[str, Any], scan_picks: list[dict]) -> dict[str, 
     }
 
 
+def sulu_rules(market_ctx: dict[str, Any], scan_picks: list[dict]) -> dict[str, Any]:
+    """Sulu — Spreads & Options: momentum pilot, targets high-vol setups for credit spreads.
+
+    Strategy: find stocks with vol spike + momentum for bear_call_spread (bear) or
+    bull_put_spread (bull). Falls back to long_equity on strong breakouts.
+    Loosened confidence: SPREAD_MIN_CONFIDENCE (60) vs generic 65.
+    """
+    vix     = float(market_ctx.get("vix", 20))
+    session = market_ctx.get("session_type", "")
+
+    # Spreads need elevated volatility to collect premium
+    if vix < 16:
+        return {"action": "PASS", "reason": f"Sulu: VIX {vix:.1f} too low for premium collection"}
+
+    # Priority 1: Volume spike + momentum reversal → bear_call_spread on overbought
+    for spike in market_ctx.get("volume_spikes", []):
+        sym        = spike.get("symbol", "")
+        vol_ratio  = float(spike.get("volume_ratio", 1))
+        change_pct = float(spike.get("change_pct", 0))
+        if vol_ratio >= 2.0 and change_pct > 4.0:
+            conf = min(85, SPREAD_MIN_CONFIDENCE + int(vol_ratio * 5))
+            return {
+                "action": "BUY", "symbol": sym, "confidence": conf,
+                "reason": (
+                    f"Sulu spread: {sym} {change_pct:+.1f}% on {vol_ratio:.1f}x vol — "
+                    "bear call spread on extended move"
+                ),
+            }
+
+    # Priority 2: EMA bounce from scan picks — bull_put_spread
+    for pick in scan_picks[:6]:
+        sym       = pick.get("symbol", "")
+        close     = float(pick.get("close", 0))
+        sma20     = float(pick.get("sma_20", 0))
+        rsi       = float(pick.get("rsi_14", 50))
+        vol_ratio = float(pick.get("volume_ratio", 1))
+
+        if (sma20 > 0
+                and 0.97 <= close / sma20 <= 1.03   # near EMA
+                and 35 <= rsi <= 55                  # not overbought
+                and vol_ratio >= 1.5):               # confirming volume
+            conf = SPREAD_MIN_CONFIDENCE + (5 if vol_ratio >= 2.0 else 0)
+            return {
+                "action": "BUY", "symbol": sym, "confidence": conf,
+                "reason": (
+                    f"Sulu: {sym} EMA bounce (close={close:.2f} near SMA20={sma20:.2f}), "
+                    f"RSI={rsi:.0f}, vol={vol_ratio:.1f}x — bull put spread"
+                ),
+            }
+
+    return {"action": "PASS", "reason": f"Sulu: no spread setups (VIX={vix:.1f}, session={session})"}
+
+
+def chekov_rules(market_ctx: dict[str, Any], scan_picks: list[dict]) -> dict[str, Any]:
+    """Chekov — EMA Pullback navigator: buys orderly pullbacks to 20MA with positive momentum.
+
+    Strategy: price pulls back to SMA20 but uptrend intact (above SMA50), RSI 35-55,
+    volume expanding on the bounce. Classic swing entry.
+    """
+    session = market_ctx.get("session_type", "")
+    vix     = float(market_ctx.get("vix", 20))
+
+    # Stand down in confirmed bear sessions
+    if "BEAR" in session or vix > 35:
+        return {"action": "PASS", "reason": f"Chekov: bear session or VIX {vix:.1f} — holding course"}
+
+    best: dict | None = None
+    best_score = 0
+
+    for pick in scan_picks[:8]:
+        sym       = pick.get("symbol", "")
+        close     = float(pick.get("close", 0))
+        sma20     = float(pick.get("sma_20", 0))
+        sma50     = float(pick.get("sma_50", 0))
+        rsi       = float(pick.get("rsi_14", 50))
+        vol_ratio = float(pick.get("volume_ratio", 1.0))
+        roc_5d    = float(pick.get("roc_5d", 0))
+
+        if close <= 0 or sma20 <= 0:
+            continue
+
+        score = 0
+        dist_from_ema = (close - sma20) / sma20
+
+        # Ideal: price within 3% of SMA20 (pullback zone)
+        if -0.03 <= dist_from_ema <= 0.02:
+            score += 4
+        elif -0.05 <= dist_from_ema <= 0.04:
+            score += 2
+
+        # Uptrend: above SMA50
+        if sma50 > 0 and close > sma50:
+            score += 2
+
+        # RSI in buy zone (not oversold crash, not overbought)
+        if 35 <= rsi <= 55:
+            score += 3
+        elif rsi < 35:
+            score += 1  # oversold is OK too
+
+        # Volume expanding (bounce confirmation)
+        if vol_ratio >= 1.5:
+            score += 2
+        elif vol_ratio >= 1.2:
+            score += 1
+
+        # 5-day momentum slightly positive (trend resuming)
+        if 0 <= roc_5d <= 5:
+            score += 2
+
+        if score > best_score:
+            best_score = score
+            best = {
+                "symbol": sym, "score": score, "rsi": rsi,
+                "dist": dist_from_ema, "vol": vol_ratio,
+            }
+
+    if best and best_score >= 6:
+        conf = min(80, 55 + best_score * 2)
+        return {
+            "action": "BUY", "symbol": best["symbol"], "confidence": conf,
+            "reason": (
+                f"Chekov: {best['symbol']} EMA pullback score={best_score} "
+                f"(dist={best['dist']:+.1%}, RSI={best['rsi']:.0f}, vol={best['vol']:.1f}x)"
+            ),
+        }
+
+    return {"action": "PASS", "reason": f"Chekov: no clean EMA pullback setups (best score={best_score})"}
+
+
+def capitol_rules(market_ctx: dict[str, Any], scan_picks: list[dict]) -> dict[str, Any]:
+    """Capitol Trades — Congress copycat: follows recent congressional disclosures.
+
+    Strategy: check congress_scraper for recent buys by members of Congress.
+    If congress bought a symbol that also shows up in scan_picks → high conviction.
+    Fallback: if scraper unavailable, pick highest signal_strength pick in
+    congress-favored sectors (defense, tech, healthcare, financials).
+    """
+    # Congress-favored sectors for fallback
+    _CONGRESS_SECTORS = {
+        "NVDA", "AMD", "MSFT", "GOOGL", "AMZN", "META", "AAPL",   # tech
+        "LMT", "RTX", "NOC", "GD", "BA",                           # defense
+        "UNH", "LLY", "PFE", "ABBV", "MRK",                        # healthcare
+        "JPM", "BAC", "GS", "V", "MA",                             # financials
+        "XOM", "CVX", "OXY",                                        # energy
+    }
+
+    # Priority 1: live congress data
+    try:
+        from engine.congress_scraper import get_congress_trades_for_ticker
+        scan_syms = {p["symbol"] for p in scan_picks}
+        for pick in scan_picks[:10]:
+            sym = pick.get("symbol", "")
+            if sym not in scan_syms:
+                continue
+            trades = get_congress_trades_for_ticker(sym)
+            recent_buys = [
+                t for t in (trades or [])
+                if "buy" in str(t.get("transaction", "")).lower()
+                or "purchase" in str(t.get("transaction", "")).lower()
+            ]
+            if recent_buys:
+                vol_ratio = float(pick.get("volume_ratio", 1))
+                conf = 70 if vol_ratio >= 1.5 else 62
+                rep = recent_buys[0].get("politician") or recent_buys[0].get("name", "Congress")
+                return {
+                    "action": "BUY", "symbol": sym, "confidence": conf,
+                    "reason": (
+                        f"Capitol Trades: {rep} bought {sym} recently — "
+                        f"congress disclosure + scan pick (vol={vol_ratio:.1f}x)"
+                    ),
+                }
+    except Exception:
+        pass
+
+    # Priority 2: fallback — congress sector + highest signal_strength
+    sector_picks = [p for p in scan_picks if p.get("symbol", "") in _CONGRESS_SECTORS]
+    if sector_picks:
+        best = max(sector_picks, key=lambda p: float(p.get("signal_strength", 0)))
+        strength = float(best.get("signal_strength", 0))
+        if strength >= 0.45:
+            return {
+                "action": "BUY", "symbol": best["symbol"], "confidence": 62,
+                "reason": (
+                    f"Capitol Trades: {best['symbol']} congress-sector pick "
+                    f"(signal_strength={strength:.2f}, no live disclosure data)"
+                ),
+            }
+
+    return {"action": "PASS", "reason": "Capitol Trades: no congress buys found in current scan picks"}
+
+
 # ---------------------------------------------------------------------------
 # Pattern filters
 # ---------------------------------------------------------------------------
@@ -1477,6 +1709,158 @@ def _check_scaled_exits(volatile_day: bool = False) -> int:
         except Exception as e:
             logger.error(f"_check_scaled_exits error for {player_id}: {e}")
     return sold
+
+
+def _check_spread_tiered_exits() -> int:
+    """
+    Model F tiered exits for open option/spread positions held by spread players.
+    Fires at most once per tier per (player, symbol, option_type) per day.
+
+    Uses DTE-based proxy for profit estimation (no live option mark price needed):
+      - Tier 1: 50%+ of position duration elapsed  → sell 50% of qty
+      - Tier 2: 75%+ of position duration elapsed  → sell 30% of qty
+      - Tier 3: DTE ≤ 21                           → sell remaining qty (time exit)
+      - Stop:   underlying moved > 20% adverse     → sell all qty
+
+    When Alpaca keys are configured, this will use real mark prices via alpaca_options.py.
+    Returns count of partial exits executed.
+    """
+    from datetime import date as _date
+    exited = 0
+    today  = datetime.now().strftime("%Y-%m-%d")
+    today_d = datetime.now().date()
+
+    # Only spread players; dayblade-0dte is shelved
+    _SPREAD_PLAYERS = ["dayblade-sulu", "ollama-plutus"]
+    # Strategies that use Model F exits
+    _SPREAD_STRATS = {"iron_condor", "bear_call_spread", "bull_put_spread",
+                      "bear_put_spread", "bull_call_spread", "covered_call", "csp"}
+
+    for player_id in _SPREAD_PLAYERS:
+        try:
+            from engine.paper_trader import get_portfolio, sell, sell_partial
+            from engine.market_data import get_stock_price
+            port = get_portfolio(player_id)
+            for pos in port.get("positions", []):
+                if pos.get("asset_type") != "option":
+                    continue
+                symbol     = pos["symbol"]
+                qty        = float(pos.get("qty") or 0)
+                avg_price  = float(pos.get("avg_price") or 0)
+                opt_type   = pos.get("option_type") or "call"
+                expiry_str = pos.get("expiry_date") or ""
+                opened_str = pos.get("opened_at") or ""
+                if qty <= 0 or avg_price <= 0:
+                    continue
+
+                # Compute DTE
+                dte = None
+                duration_fraction = 0.0
+                try:
+                    exp_d = _date.fromisoformat(expiry_str[:10])
+                    dte = (exp_d - today_d).days
+                    if opened_str:
+                        open_d = _date.fromisoformat(str(opened_str)[:10])
+                        total_days = max(1, (exp_d - open_d).days)
+                        elapsed    = (today_d - open_d).days
+                        duration_fraction = min(1.0, elapsed / total_days)
+                except Exception:
+                    pass
+
+                pos_key = f"{player_id}|{symbol}|{opt_type}"
+                t1_key  = f"{pos_key}|MF1"
+                t2_key  = f"{pos_key}|MF2"
+                t1_done = _tiers_triggered.get(t1_key) is not None
+                t2_done = _tiers_triggered.get(t2_key) is not None
+
+                # ── Stop: underlying adverse move > 20% ──────────────────
+                px = get_stock_price(symbol)
+                current_px = float(px.get("price") or 0)
+                if current_px > 0 and avg_price > 0:
+                    # For calls: adverse = price DOWN; for puts: adverse = price UP
+                    underlying_move = (current_px - avg_price) / avg_price
+                    is_adverse = (opt_type == "call" and underlying_move < -0.20) or \
+                                 (opt_type == "put"  and underlying_move >  0.20)
+                    if is_adverse:
+                        result = sell(
+                            player_id  = player_id,
+                            symbol     = symbol,
+                            price      = current_px,
+                            reasoning  = (
+                                f"Model F STOP: {symbol} {opt_type} adverse move "
+                                f"{underlying_move*100:.1f}% > 20% threshold"
+                            ),
+                            confidence = 1.0,
+                            asset_type = "option",
+                            option_type = opt_type,
+                        )
+                        if result:
+                            exited += 1
+                            logger.info(f"🛑 Model F STOP: {player_id} closed {symbol} {opt_type} "
+                                        f"(adverse {underlying_move*100:.1f}%)")
+                        continue  # Skip other checks
+
+                # ── Tier 3 (DTE ≤ 21 time exit) — highest priority ───────
+                if dte is not None and dte <= 21 and t1_done and t2_done:
+                    result = sell(
+                        player_id  = player_id,
+                        symbol     = symbol,
+                        price      = current_px if current_px > 0 else avg_price,
+                        reasoning  = f"Model F Tier 3: {dte} DTE ≤ 21, time exit",
+                        confidence = 0.95,
+                        asset_type = "option",
+                        option_type = opt_type,
+                    )
+                    if result:
+                        exited += 1
+                        logger.info(f"🏁 Model F T3: {player_id} closed {symbol} {opt_type} ({dte} DTE)")
+                    continue
+
+                # ── Tier 1: 50%+ duration elapsed → sell 50% ─────────────
+                if not t1_done and duration_fraction >= 0.50:
+                    sell_qty = max(1, int(qty * 0.50))
+                    result = sell_partial(
+                        player_id  = player_id,
+                        symbol     = symbol,
+                        price      = current_px if current_px > 0 else avg_price,
+                        qty        = sell_qty,
+                        reasoning  = (
+                            f"Model F Tier 1: {duration_fraction*100:.0f}% duration elapsed "
+                            f"(theta decay ~50%), exiting 50% of {symbol} {opt_type}"
+                        ),
+                        confidence = 0.90,
+                    )
+                    if result:
+                        _tiers_triggered[t1_key] = today
+                        exited += 1
+                        logger.info(f"📊 Model F T1: {player_id} sold 50% {symbol} {opt_type} "
+                                    f"({duration_fraction*100:.0f}% elapsed)")
+                    continue
+
+                # ── Tier 2: 75%+ duration elapsed → sell 30% ─────────────
+                if t1_done and not t2_done and duration_fraction >= 0.75:
+                    sell_qty = max(1, int(qty * 0.30))
+                    result = sell_partial(
+                        player_id  = player_id,
+                        symbol     = symbol,
+                        price      = current_px if current_px > 0 else avg_price,
+                        qty        = sell_qty,
+                        reasoning  = (
+                            f"Model F Tier 2: {duration_fraction*100:.0f}% duration elapsed "
+                            f"(theta decay ~75%), exiting 30% of {symbol} {opt_type}"
+                        ),
+                        confidence = 0.90,
+                    )
+                    if result:
+                        _tiers_triggered[t2_key] = today
+                        exited += 1
+                        logger.info(f"📈 Model F T2: {player_id} sold 30% {symbol} {opt_type} "
+                                    f"({duration_fraction*100:.0f}% elapsed)")
+
+        except Exception as e:
+            logger.error(f"_check_spread_tiered_exits error for {player_id}: {e}")
+
+    return exited
 
 
 def _check_dip_buys() -> int:
@@ -1691,6 +2075,12 @@ def _scan_rules_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, A
         decision = worf_rules(market_ctx, scan_picks)
     elif player_id == "dayblade-0dte":
         decision = tpol_rules(market_ctx, scan_picks)
+    elif player_id == "dayblade-sulu":
+        decision = sulu_rules(market_ctx, scan_picks)
+    elif player_id == "navigator":
+        decision = chekov_rules(market_ctx, scan_picks)
+    elif player_id == "capitol-trades":
+        decision = capitol_rules(market_ctx, scan_picks)
     else:
         decision = {"action": "PASS", "reason": "Unknown rules agent"}
 
@@ -2140,11 +2530,15 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
         return {"player_id": player_id, "action": "PASS", "reason": reason_np}
 
     # ── Gate 7: Sniper Mode alpha gate ────────────────────────────────────────
-    # Dual filter: composite_alpha >= 0.3 AND LLM confidence >= 65
+    # Dual filter: composite_alpha >= 0.3 AND LLM confidence >= 55
     # Unrestricted agents (Neo) bypass alpha gate — they trust their own signals
+    # Rules-based strategies in BYPASS_SNIPER_ALPHA bypass the alpha check only
+    # (alpha scores go negative in bear markets, blocking valid bearish signals)
+    _gate7_strategy = mandate.get("strategy") or mandate.get("preferred_strategies", [None])[0]
+    _bypass_alpha = _gate7_strategy in BYPASS_SNIPER_ALPHA
     if not is_unrestricted and action == "BUY":
         live_alpha = _get_live_alpha(symbol)
-        if live_alpha < SNIPER_ALPHA_THRESHOLD:
+        if not _bypass_alpha and live_alpha < SNIPER_ALPHA_THRESHOLD:
             sniper_reason = (
                 f"Sniper gate: {symbol} alpha={live_alpha:.3f} < {SNIPER_ALPHA_THRESHOLD} threshold"
             )
@@ -2239,6 +2633,55 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
             neo_qty = (_cash * _size_pct) / price
         except Exception:
             neo_qty = None
+
+    # ── Alpaca real execution for Sulu options ────────────────────────────────
+    # Sulu signals go to real Alpaca paper account AND paper_trader (for dashboard).
+    # If Alpaca keys are absent or the call fails, paper_trader is the fallback.
+    if action == "BUY" and player_id == "dayblade-sulu" and price > 0:
+        _sulu_strat = mandate.get("strategy") or ""
+        if _sulu_strat in {"iron_condor", "bear_call_spread", "bull_put_spread"}:
+            try:
+                from engine.alpaca_options import (
+                    get_iron_condor_contracts, get_spread_contracts,
+                    submit_iron_condor, submit_vertical_spread,
+                )
+                _alpaca_result: dict | None = None
+                if _sulu_strat == "iron_condor":
+                    cb, cs, pb, ps = get_iron_condor_contracts(symbol, 30, price)
+                    if all([cb, cs, pb, ps]):
+                        _alpaca_result = submit_iron_condor(
+                            player_id="dayblade-sulu",
+                            call_buy=cb, call_sell=cs,
+                            put_buy=pb, put_sell=ps,
+                            qty=1,
+                        )
+                else:
+                    _opt_type = "call" if _sulu_strat == "bear_call_spread" else "put"
+                    buy_c, sell_c = get_spread_contracts(symbol, _opt_type, 30, price)
+                    if buy_c and sell_c:
+                        _alpaca_result = submit_vertical_spread(
+                            player_id="dayblade-sulu",
+                            buy_symbol=buy_c, sell_symbol=sell_c,
+                            qty=1, strategy=_sulu_strat,
+                        )
+                if _alpaca_result and _alpaca_result.get("success"):
+                    logger.info(
+                        f"🎯 Alpaca {_sulu_strat}: {symbol} "
+                        f"order={_alpaca_result.get('order_id','?')} — "
+                        f"recording in paper_trader for dashboard"
+                    )
+                    reason_str = f"[Alpaca:{_alpaca_result.get('order_id','?')}] {reason_str}"
+                elif _alpaca_result and _alpaca_result.get("error"):
+                    logger.warning(
+                        f"Alpaca {_sulu_strat} {symbol} failed: "
+                        f"{_alpaca_result['error']} — paper_trader fallback"
+                    )
+                # paper_trader.buy() always runs below for dashboard tracking
+            except Exception as _ae:
+                logger.warning(
+                    f"Alpaca options error for {symbol} ({_sulu_strat}): {_ae} "
+                    f"— paper_trader fallback"
+                )
 
     try:
         from engine.paper_trader import buy, sell
@@ -2341,10 +2784,11 @@ def _run_scan_cycle_body(
     volatile_day = float(ctx.get("spy_volume_ratio", 1.0)) >= 1.5
 
     # ── Position management (no LLM, instant) ─────────────────────────────────
-    neo_trail_exits = _update_neo_trailing_stops()
-    hard_stops_cut  = _check_hard_stops()
-    scaled_exits    = _check_scaled_exits(volatile_day=volatile_day)
-    dip_buys        = _check_dip_buys()
+    neo_trail_exits  = _update_neo_trailing_stops()
+    hard_stops_cut   = _check_hard_stops()
+    scaled_exits     = _check_scaled_exits(volatile_day=volatile_day)
+    spread_tier_exits = _check_spread_tiered_exits()   # Model F tiered exits (S6.3)
+    dip_buys         = _check_dip_buys()
     if neo_trail_exits:
         logger.info(f"🏃 Neo trailing stops fired: {neo_trail_exits} runner(s) closed")
     if hard_stops_cut:
@@ -2352,6 +2796,8 @@ def _run_scan_cycle_body(
     if scaled_exits:
         logger.info(f"📈 Scaled exits fired: {scaled_exits} partial sell(s)"
                     + (" [volatile day]" if volatile_day else ""))
+    if spread_tier_exits:
+        logger.info(f"📊 Model F tiered exits fired: {spread_tier_exits} spread exit(s)")
     if dip_buys:
         logger.info(f"📉 Dip buys fired: {dip_buys} position(s) averaged")
 

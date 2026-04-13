@@ -6,8 +6,15 @@ load_dotenv(override=True)
 PAPER_TRADING = True
 TRADING_MODE = os.environ.get("TRADING_MODE", "paper")  # "paper" or "live"
 
+# Tickers confirmed delisted/halted — excluded from all scan universes
+DELISTED_BLACKLIST: set[str] = {
+    "XCEM", "EAOA", "YFYA", "BULZ", "TDWDR", "TWLVR", "UCFIW", "VSTA",
+    "WTGUR", "WSTNR", "WHLRL", "YHNAR", "CHARR", "CHPGR", "CCXIW", "EMISR",
+    "EURKR", "FVNNR", "ASPCR", "ESHAR", "NOEMR",
+}
+
 # Watchlist (stocks only)
-WATCH_STOCKS = ["SPY", "QQQ", "TQQQ", "NVDA", "TSLA", "AAPL", "AMD", "META", "MSFT", "GOOGL", "AMZN", "MU", "ORCL", "NOW", "AVGO", "PLTR", "DELL", "XLE", "INTC", "NUKZ"]
+WATCH_STOCKS =["SPY", "QQQ", "TQQQ", "NVDA", "TSLA", "AAPL", "AMD", "META", "MSFT", "GOOGL", "AMZN", "MU", "ORCL", "NOW", "AVGO", "PLTR", "DELL", "XLE", "INTC", "NUKZ"]
 # Extended tickers (re-enable when RAM permits): XOM, COIN, MSTR, SOFI, RIVN, NIO, HIMS, IWM
 
 # Mr. Dalio's All Weather universe — bonds, gold ETF, commodities

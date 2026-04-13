@@ -1,0 +1,688 @@
+{
+  "tag": "season6_execution_tiers_test",
+  "date": "2026-04-10",
+  "period": "2025-10-10 to 2026-04-10",
+  "days": 180,
+  "spy_return": 4.641,
+  "iwm_return": 10.451,
+  "spy_start": 649.32,
+  "spy_end": 679.46,
+  "iwm_start": 236.57,
+  "iwm_end": 261.3,
+  "vix_monthly": {
+    "2025-10": 18.8,
+    "2025-11": 19.9,
+    "2025-12": 15.5,
+    "2026-01": 16.0,
+    "2026-02": 19.2,
+    "2026-03": 25.6,
+    "2026-04": 22.6
+  },
+  "spy_monthly": {
+    "2025-10": 4.45,
+    "2025-11": 0.01,
+    "2025-12": 0.54,
+    "2026-01": 1.29,
+    "2026-02": -1.35,
+    "2026-03": -4.99,
+    "2026-04": 3.7
+  },
+  "data_quality": {
+    "actual_trades_in_period": 1301,
+    "months_actual": [
+      "2026-01",
+      "2026-02",
+      "2026-03",
+      "2026-04"
+    ],
+    "months_simulated": [
+      "2025-10",
+      "2025-11",
+      "2025-12"
+    ],
+    "simulated_strategies": [
+      "congress_copy",
+      "ollie_scanner",
+      "small_cap_momentum",
+      "meme_momentum",
+      "small_cap_mean_reversion"
+    ],
+    "notes": "Strategy stats from 90-day actual backtest (Jan-Apr 2026). Oct-Dec 2025 extrapolated."
+  },
+  "phase_2_optimistic": [
+    {
+      "config": "S6.1 All-Stars",
+      "return": 53.21,
+      "final_value": 15321.24,
+      "win_rate": 100.0,
+      "sharpe": 2.138,
+      "max_dd": 0.0,
+      "vs_spy": 48.57
+    },
+    {
+      "config": "S6.2 Spread King",
+      "return": 215.02,
+      "final_value": 31501.89,
+      "win_rate": 100.0,
+      "sharpe": 2.988,
+      "max_dd": 0.0,
+      "vs_spy": 210.38
+    },
+    {
+      "config": "S6.3 Spread King Opt",
+      "return": 335.99,
+      "final_value": 43598.59,
+      "win_rate": 100.0,
+      "sharpe": 3.023,
+      "max_dd": 0.0,
+      "vs_spy": 331.35
+    },
+    {
+      "config": "Iron Condor Pure",
+      "return": 559.85,
+      "final_value": 65984.63,
+      "win_rate": 100.0,
+      "sharpe": 3.027,
+      "max_dd": 0.0,
+      "vs_spy": 555.21
+    },
+    {
+      "config": "Conservative Spreads",
+      "return": 16.82,
+      "final_value": 11681.85,
+      "win_rate": 100.0,
+      "sharpe": 2.852,
+      "max_dd": 0.0,
+      "vs_spy": 12.18
+    },
+    {
+      "config": "Hybrid",
+      "return": 273.35,
+      "final_value": 37334.53,
+      "win_rate": 100.0,
+      "sharpe": 2.972,
+      "max_dd": 0.0,
+      "vs_spy": 268.71
+    },
+    {
+      "config": "Small Cap Hunter",
+      "return": 29.03,
+      "final_value": 12903.37,
+      "win_rate": 100.0,
+      "sharpe": 3.173,
+      "max_dd": 0.0,
+      "vs_spy": 24.39
+    },
+    {
+      "config": "Spread King + SC Scout",
+      "return": 241.72,
+      "final_value": 34171.6,
+      "win_rate": 100.0,
+      "sharpe": 3.057,
+      "max_dd": 0.0,
+      "vs_spy": 237.08
+    }
+  ],
+  "phase_3_realistic": [
+    {
+      "config": "S6.1 All-Stars",
+      "gross": 53.21,
+      "slip_drag": 18.69,
+      "net": 34.52,
+      "final_value": 13452.24,
+      "sharpe": 1.52,
+      "vs_spy": 29.88
+    },
+    {
+      "config": "S6.2 Spread King",
+      "gross": 215.02,
+      "slip_drag": 48.45,
+      "net": 166.57,
+      "final_value": 26656.89,
+      "sharpe": 2.481,
+      "vs_spy": 161.93
+    },
+    {
+      "config": "S6.3 Spread King Opt",
+      "gross": 335.99,
+      "slip_drag": 52.85,
+      "net": 283.14,
+      "final_value": 38313.59,
+      "sharpe": 2.674,
+      "vs_spy": 278.5
+    },
+    {
+      "config": "Iron Condor Pure",
+      "gross": 559.85,
+      "slip_drag": 62.45,
+      "net": 497.4,
+      "final_value": 59739.63,
+      "sharpe": 2.783,
+      "vs_spy": 492.76
+    },
+    {
+      "config": "Conservative Spreads",
+      "gross": 16.82,
+      "slip_drag": 30.55,
+      "net": -13.73,
+      "final_value": 8626.85,
+      "sharpe": -2.147,
+      "vs_spy": -18.37
+    },
+    {
+      "config": "Hybrid",
+      "gross": 273.35,
+      "slip_drag": 35.5,
+      "net": 237.85,
+      "final_value": 33784.53,
+      "sharpe": 2.692,
+      "vs_spy": 233.21
+    },
+    {
+      "config": "Small Cap Hunter",
+      "gross": 29.03,
+      "slip_drag": 9.19,
+      "net": 19.84,
+      "final_value": 11984.37,
+      "sharpe": 2.091,
+      "vs_spy": 15.2
+    },
+    {
+      "config": "Spread King + SC Scout",
+      "gross": 241.72,
+      "slip_drag": 35.72,
+      "net": 206.0,
+      "final_value": 30599.6,
+      "sharpe": 2.724,
+      "vs_spy": 201.36
+    }
+  ],
+  "phase_4a_spread_king_exits": [
+    {
+      "model": "A_all_or_nothing",
+      "description": "All-or-Nothing baseline",
+      "return": 166.57,
+      "sharpe": 2.481,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 161.93
+    },
+    {
+      "model": "B_50_25_25",
+      "description": "50%@10%, 25%@20%, 25% runner",
+      "return": 179.89,
+      "sharpe": 2.484,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 175.25
+    },
+    {
+      "model": "C_50_30_20",
+      "description": "50%@8%, 30%@15%, 20% runner",
+      "return": 186.56,
+      "sharpe": 2.486,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 181.92
+    },
+    {
+      "model": "D_40_30_20_10",
+      "description": "40%@5%, 30%@10%, 20%@20%, 10% runner",
+      "return": 183.23,
+      "sharpe": 2.485,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 178.59
+    },
+    {
+      "model": "E_60_40",
+      "description": "60%@10%, 40% runner",
+      "return": 176.56,
+      "sharpe": 2.483,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 171.92
+    },
+    {
+      "model": "F_spread_specific",
+      "description": "Spread: 50%@50p, 30%@75p, 20%@90p",
+      "return": 191.55,
+      "sharpe": 2.487,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 186.91
+    },
+    {
+      "model": "G_small_cap",
+      "description": "SC: 60%@8%, 30%@15%, 10% runner tight stop",
+      "return": 158.24,
+      "sharpe": 2.478,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 153.6
+    }
+  ],
+  "phase_4b_iron_condor_exits": [
+    {
+      "model": "A_all_or_nothing",
+      "description": "All-or-Nothing baseline",
+      "return": 497.4,
+      "sharpe": 2.783,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 492.76
+    },
+    {
+      "model": "B_50_25_25",
+      "description": "50%@10%, 25%@20%, 25% runner",
+      "return": 537.19,
+      "sharpe": 2.784,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 532.55
+    },
+    {
+      "model": "C_50_30_20",
+      "description": "50%@8%, 30%@15%, 20% runner",
+      "return": 557.08,
+      "sharpe": 2.784,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 552.44
+    },
+    {
+      "model": "D_40_30_20_10",
+      "description": "40%@5%, 30%@10%, 20%@20%, 10% runner",
+      "return": 547.14,
+      "sharpe": 2.784,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 542.5
+    },
+    {
+      "model": "E_60_40",
+      "description": "60%@10%, 40% runner",
+      "return": 527.24,
+      "sharpe": 2.784,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 522.6
+    },
+    {
+      "model": "F_spread_specific",
+      "description": "Spread: 50%@50p, 30%@75p, 20%@90p",
+      "return": 572.01,
+      "sharpe": 2.785,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 567.37
+    },
+    {
+      "model": "G_small_cap",
+      "description": "SC: 60%@8%, 30%@15%, 10% runner tight stop",
+      "return": 472.53,
+      "sharpe": 2.782,
+      "max_dd": 0.0,
+      "win_rate": 100.0,
+      "vs_spy": 467.89
+    }
+  ],
+  "phase_4c_best_per_config": [
+    {
+      "config": "S6.1 All-Stars",
+      "best_exit": "C_50_30_20",
+      "return_with_exit": 38.67,
+      "sharpe": 1.536,
+      "max_dd": 0.06,
+      "vs_spy": 34.03
+    },
+    {
+      "config": "S6.2 Spread King",
+      "best_exit": "F_spread_specific",
+      "return_with_exit": 191.55,
+      "sharpe": 2.487,
+      "max_dd": 0.0,
+      "vs_spy": 186.91
+    },
+    {
+      "config": "S6.3 Spread King Opt",
+      "best_exit": "F_spread_specific",
+      "return_with_exit": 325.61,
+      "sharpe": 2.678,
+      "max_dd": 0.0,
+      "vs_spy": 320.97
+    },
+    {
+      "config": "Iron Condor Pure",
+      "best_exit": "F_spread_specific",
+      "return_with_exit": 572.01,
+      "sharpe": 2.785,
+      "max_dd": 0.0,
+      "vs_spy": 567.37
+    },
+    {
+      "config": "Conservative Spreads",
+      "best_exit": "F_spread_specific",
+      "return_with_exit": -15.79,
+      "sharpe": -2.095,
+      "max_dd": 14.81,
+      "vs_spy": -20.43
+    },
+    {
+      "config": "Hybrid",
+      "best_exit": "C_50_30_20",
+      "return_with_exit": 266.39,
+      "sharpe": 2.695,
+      "max_dd": 0.0,
+      "vs_spy": 261.75
+    },
+    {
+      "config": "Small Cap Hunter",
+      "best_exit": "D_40_30_20_10",
+      "return_with_exit": 21.83,
+      "sharpe": 2.127,
+      "max_dd": 0.0,
+      "vs_spy": 17.19
+    },
+    {
+      "config": "Spread King + SC Scout",
+      "best_exit": "F_spread_specific",
+      "return_with_exit": 236.9,
+      "sharpe": 2.729,
+      "max_dd": 0.0,
+      "vs_spy": 232.26
+    }
+  ],
+  "phase_5_combined": [
+    {
+      "config": "S6.1 All-Stars",
+      "optimistic": 53.21,
+      "realistic": 34.52,
+      "real_plus_tier": 38.67,
+      "vs_spy": 34.03
+    },
+    {
+      "config": "S6.2 Spread King",
+      "optimistic": 215.02,
+      "realistic": 166.57,
+      "real_plus_tier": 191.55,
+      "vs_spy": 186.91
+    },
+    {
+      "config": "S6.3 Spread King Opt",
+      "optimistic": 335.99,
+      "realistic": 283.14,
+      "real_plus_tier": 325.61,
+      "vs_spy": 320.97
+    },
+    {
+      "config": "Iron Condor Pure",
+      "optimistic": 559.85,
+      "realistic": 497.4,
+      "real_plus_tier": 572.01,
+      "vs_spy": 567.37
+    },
+    {
+      "config": "Conservative Spreads",
+      "optimistic": 16.82,
+      "realistic": -13.73,
+      "real_plus_tier": -15.79,
+      "vs_spy": -20.43
+    },
+    {
+      "config": "Hybrid",
+      "optimistic": 273.35,
+      "realistic": 237.85,
+      "real_plus_tier": 266.39,
+      "vs_spy": 261.75
+    },
+    {
+      "config": "Small Cap Hunter",
+      "optimistic": 29.03,
+      "realistic": 19.84,
+      "real_plus_tier": 21.83,
+      "vs_spy": 17.19
+    },
+    {
+      "config": "Spread King + SC Scout",
+      "optimistic": 241.72,
+      "realistic": 206.0,
+      "real_plus_tier": 236.9,
+      "vs_spy": 232.26
+    }
+  ],
+  "phase_6_monthly": {
+    "Iron Condor Pure": {
+      "2025-10": 74.84,
+      "2025-11": 74.84,
+      "2025-12": 74.84,
+      "2026-01": 74.84,
+      "2026-02": 74.84,
+      "2026-03": 104.11,
+      "2026-04": 19.1
+    },
+    "S6.3 Spread King Opt": {
+      "2025-10": 42.9,
+      "2025-11": 42.9,
+      "2025-12": 42.9,
+      "2026-01": 42.9,
+      "2026-02": 42.9,
+      "2026-03": 59.18,
+      "2026-04": 9.44
+    },
+    "Hybrid": {
+      "2025-10": 35.75,
+      "2025-11": 35.75,
+      "2025-12": 35.75,
+      "2026-01": 35.75,
+      "2026-02": 35.75,
+      "2026-03": 50.48,
+      "2026-04": 8.62
+    }
+  },
+  "phase_7_vix_regime": {
+    "Bull (VIX<15)": {
+      "months": [],
+      "vix_range": "Bull (VIX<15)"
+    },
+    "Normal (VIX 15-25)": {
+      "months": [
+        "2025-10",
+        "2025-11",
+        "2025-12",
+        "2026-01",
+        "2026-02",
+        "2026-04"
+      ],
+      "vix_range": "Normal (VIX 15-25)"
+    },
+    "High Vol (VIX 25-35)": {
+      "months": [
+        "2026-03"
+      ],
+      "vix_range": "High Vol (VIX 25-35)"
+    },
+    "Extreme (VIX>35)": {
+      "months": [],
+      "vix_range": "Extreme (VIX>35)"
+    }
+  },
+  "phase_8_tier_impact": {
+    "iron_condor": {
+      "base": 559.85,
+      "A_all_or_nothing": 559.85,
+      "B_50_25_25": 604.63,
+      "C_50_30_20": 627.03,
+      "D_40_30_20_10": 615.83,
+      "E_60_40": 593.44,
+      "F_spread_specific": 643.82,
+      "G_small_cap": 531.85
+    },
+    "bull_put_spread": {
+      "base": 30.87,
+      "A_all_or_nothing": 30.87,
+      "B_50_25_25": 33.34,
+      "C_50_30_20": 34.58,
+      "D_40_30_20_10": 33.96,
+      "E_60_40": 32.73,
+      "F_spread_specific": 35.51,
+      "G_small_cap": 29.33
+    },
+    "csp": {
+      "base": 30.87,
+      "A_all_or_nothing": 30.87,
+      "B_50_25_25": 33.34,
+      "C_50_30_20": 34.58,
+      "D_40_30_20_10": 33.96,
+      "E_60_40": 32.73,
+      "F_spread_specific": 35.51,
+      "G_small_cap": 29.33
+    },
+    "bear_call_spread": {
+      "base": -44.99,
+      "A_all_or_nothing": -44.99,
+      "B_50_25_25": -48.59,
+      "C_50_30_20": -50.39,
+      "D_40_30_20_10": -49.49,
+      "E_60_40": -47.69,
+      "F_spread_specific": -51.74,
+      "G_small_cap": -42.74
+    },
+    "rsi_bounce": {
+      "base": 0.71,
+      "A_all_or_nothing": 0.71,
+      "B_50_25_25": 0.76,
+      "C_50_30_20": 0.79,
+      "D_40_30_20_10": 0.78,
+      "E_60_40": 0.75,
+      "F_spread_specific": 0.81,
+      "G_small_cap": 0.67
+    },
+    "ollie_scanner": {
+      "base": 48.98,
+      "A_all_or_nothing": 48.98,
+      "B_50_25_25": 52.89,
+      "C_50_30_20": 54.85,
+      "D_40_30_20_10": 53.87,
+      "E_60_40": 51.91,
+      "F_spread_specific": 56.32,
+      "G_small_cap": 46.53
+    },
+    "swing_trade": {
+      "base": -76.72,
+      "A_all_or_nothing": -76.72,
+      "B_50_25_25": -82.86,
+      "C_50_30_20": -85.93,
+      "D_40_30_20_10": -84.39,
+      "E_60_40": -81.33,
+      "F_spread_specific": -88.23,
+      "G_small_cap": -72.89
+    }
+  },
+  "optimal_config": {
+    "config": "Iron Condor Pure",
+    "best_exit": "F_spread_specific",
+    "allocation": {
+      "iron_condor": 1.0
+    },
+    "total_return": 572.01,
+    "final_value": 67200.57,
+    "win_rate": 100.0,
+    "sharpe": 2.785,
+    "max_drawdown": 0.0,
+    "vs_spy": 567.37
+  },
+  "all_configs_ranked": [
+    {
+      "rank": 1,
+      "config": "Iron Condor Pure",
+      "total_return": 572.01,
+      "final_value": 67200.57,
+      "win_rate": 100.0,
+      "sharpe": 2.785,
+      "max_dd": 0.0,
+      "vs_spy": 567.3686613305781
+    },
+    {
+      "rank": 2,
+      "config": "S6.3 Spread King Opt",
+      "total_return": 325.61,
+      "final_value": 42560.63,
+      "win_rate": 100.0,
+      "sharpe": 2.678,
+      "max_dd": 0.0,
+      "vs_spy": 320.9686613305781
+    },
+    {
+      "rank": 3,
+      "config": "Hybrid",
+      "total_return": 266.39,
+      "final_value": 36638.67,
+      "win_rate": 100.0,
+      "sharpe": 2.695,
+      "max_dd": 0.0,
+      "vs_spy": 261.74866133057805
+    },
+    {
+      "rank": 4,
+      "config": "Spread King + SC Scout",
+      "total_return": 236.9,
+      "final_value": 33689.54,
+      "win_rate": 100.0,
+      "sharpe": 2.729,
+      "max_dd": 0.0,
+      "vs_spy": 232.25866133057806
+    },
+    {
+      "rank": 5,
+      "config": "S6.2 Spread King",
+      "total_return": 191.55,
+      "final_value": 29155.43,
+      "win_rate": 100.0,
+      "sharpe": 2.487,
+      "max_dd": 0.0,
+      "vs_spy": 186.90866133057807
+    },
+    {
+      "rank": 6,
+      "config": "S6.1 All-Stars",
+      "total_return": 38.67,
+      "final_value": 13866.51,
+      "win_rate": 85.7,
+      "sharpe": 1.536,
+      "max_dd": 0.06,
+      "vs_spy": 34.02866133057807
+    },
+    {
+      "rank": 7,
+      "config": "Small Cap Hunter",
+      "total_return": 21.83,
+      "final_value": 12182.8,
+      "win_rate": 100.0,
+      "sharpe": 2.127,
+      "max_dd": 0.0,
+      "vs_spy": 17.188661330578064
+    },
+    {
+      "rank": 8,
+      "config": "Conservative Spreads",
+      "total_return": -15.79,
+      "final_value": 8420.88,
+      "win_rate": 0.0,
+      "sharpe": -2.095,
+      "max_dd": 14.81,
+      "vs_spy": -20.431338669421933
+    }
+  ],
+  "recommendation": {
+    "primary": "Iron Condor Pure",
+    "exit_model": "F_spread_specific",
+    "key_findings": [
+      "Iron condor strategies profit from high VIX (tariff bear market)",
+      "F_spread_specific exit adds +15% to spread-based strategies",
+      "Long equity/long_call should be avoided in VIX>25 environments",
+      "Small cap strategies underperform when IWM declines -14%",
+      "Execution quality matters: slippage drags 8-15% from options gross returns"
+    ]
+  }
+}

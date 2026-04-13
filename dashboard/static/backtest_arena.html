@@ -137,12 +137,104 @@
     #footer { margin-top: 32px; padding-top: 16px; border-top: 1px solid var(--border); font-size: 13px; color: var(--muted); text-align: center; }
     #footer a { color: var(--accent); text-decoration: none; }
 
+    /* ── History table ────────────────────────────────────────────────── */
+    .hist-filters { display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 12px; }
+    .hist-filters select, .hist-filters input {
+      background: var(--bg); color: var(--text);
+      border: 1.5px solid var(--border); border-radius: 8px;
+      padding: 0 10px; height: 38px; font-size: 13px; outline: none;
+    }
+    .hist-filters input { flex: 1; min-width: 120px; }
+    .best-bar {
+      display: flex; gap: 8px; flex-wrap: wrap; margin-bottom: 14px;
+      background: var(--surface2); border-radius: 10px; padding: 12px 14px;
+    }
+    .best-pill {
+      font-size: 12px; font-weight: 700; border-radius: 6px;
+      padding: 4px 10px; background: var(--bg); border: 1.5px solid var(--border);
+      color: var(--muted); white-space: nowrap;
+    }
+    .best-pill span { color: var(--green); }
+    .hist-wrap { overflow-x: auto; }
+    .hist-table { width: 100%; border-collapse: collapse; font-size: 13px; }
+    .hist-table th {
+      padding: 8px 10px; border-bottom: 2px solid var(--border);
+      color: var(--muted); font-size: 12px; font-weight: 700;
+      text-align: left; white-space: nowrap; cursor: pointer; user-select: none;
+    }
+    .hist-table th:hover { color: var(--accent); }
+    .hist-table th.sort-asc::after  { content: ' ↑'; }
+    .hist-table th.sort-desc::after { content: ' ↓'; }
+    .hist-table td { padding: 9px 10px; border-bottom: 1px solid var(--border); white-space: nowrap; }
+    .hist-table tr:last-child td { border-bottom: none; }
+    .hist-table tr:hover td { background: var(--surface2); }
+    .badge {
+      display: inline-block; font-size: 11px; font-weight: 700; border-radius: 4px;
+      padding: 2px 6px; letter-spacing: 0.03em;
+    }
+    .badge-baseline { background: #e3f2fd; color: #1565c0; }
+    .badge-v2 { background: #f3e5f5; color: #6a1b9a; }
+    .badge-v3 { background: #e8f5e9; color: #1a7a3a; }
+    .badge-v5 { background: #fff3e0; color: #e65100; }
+    .badge-v6 { background: #fce4ec; color: #880e4f; }
+    .badge-other { background: var(--surface2); color: var(--muted); }
+    body.dark .badge-baseline { background: #0d1f2d; color: #58a6ff; }
+    body.dark .badge-v2 { background: #1e0d2d; color: #ce93d8; }
+    body.dark .badge-v3 { background: #0d2818; color: #3fb950; }
+    body.dark .badge-v5 { background: #2d1a00; color: #ffb74d; }
+    body.dark .badge-v6 { background: #2d0d1a; color: #f48fb1; }
+
+    /* ── Template grid ─────────────────────────────────────────────────── */
+    .tmpl-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 10px; }
+    .tmpl-card {
+      border-radius: 10px; padding: 14px; cursor: pointer;
+      border: 2px solid var(--border); transition: all 0.15s;
+      background: var(--bg);
+    }
+    .tmpl-card:hover { border-color: var(--accent); background: var(--surface2); transform: translateY(-1px); }
+    .tmpl-card.tier-1 { border-color: var(--green); }
+    .tmpl-card.tier-2 { border-color: var(--accent); }
+    .tmpl-card .tmpl-name { font-size: 14px; font-weight: 800; margin-bottom: 4px; }
+    .tmpl-card .tmpl-meta { font-size: 11px; color: var(--muted); margin-bottom: 6px; }
+    .tmpl-card .tmpl-stat { font-size: 13px; font-weight: 700; }
+    .tmpl-card .tmpl-stat.pos { color: var(--green); }
+    .tmpl-card .tmpl-desc { font-size: 11px; color: var(--muted); margin-top: 4px; }
+
+    /* ── Matrix heatmap ────────────────────────────────────────────────── */
+    .matrix-wrap { overflow-x: auto; }
+    .matrix-table { border-collapse: collapse; font-size: 12px; width: 100%; }
+    .matrix-table th {
+      padding: 6px 10px; border-bottom: 2px solid var(--border);
+      color: var(--muted); font-weight: 700; text-align: center; white-space: nowrap;
+    }
+    .matrix-table th.row-header { text-align: left; min-width: 80px; }
+    .matrix-table td {
+      padding: 8px 6px; text-align: center; font-weight: 700; font-size: 12px;
+      border: 1px solid var(--border); min-width: 64px;
+    }
+    .matrix-table .agent-cell { text-align: left; font-weight: 700; padding: 8px 10px; white-space: nowrap; }
+    .best-combo-bar {
+      margin-top: 12px; padding: 10px 14px; background: var(--green-bg);
+      border-radius: 8px; font-size: 13px; color: var(--green); font-weight: 700;
+    }
+
+    /* ── Progress bar ──────────────────────────────────────────────────── */
+    #run-progress { display: none; margin-top: 10px; }
+    #run-progress.show { display: block; }
+    .progress-bar-outer { height: 6px; background: var(--border); border-radius: 3px; overflow: hidden; }
+    .progress-bar-inner { height: 100%; background: var(--accent); border-radius: 3px; transition: width 0.3s; }
+    #progress-label { font-size: 12px; color: var(--muted); margin-top: 4px; text-align: center; }
+
     /* Responsive */
     @media (max-width: 600px) {
       h1 { font-size: 18px; }
       .form-row { grid-template-columns: 1fr; }
       .strategy-grid { grid-template-columns: 1fr; }
       .stats-grid { grid-template-columns: repeat(2, 1fr); }
+      .tmpl-grid { grid-template-columns: 1fr 1fr; }
+    }
+    @media (max-width: 400px) {
+      .tmpl-grid { grid-template-columns: 1fr; }
     }
   </style>
 </head>
@@ -234,6 +326,82 @@
     </div>
   </div>
 
+  <!-- ── Section 1: All-Time Backtest History ─────────────────────────── -->
+  <div class="card" id="hist-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+      <div class="card-title" style="margin-bottom:0">📜 All-Time Backtest History</div>
+      <button onclick="loadHistory()" style="background:none;border:none;cursor:pointer;font-size:14px;color:var(--accent);font-weight:700;">Refresh</button>
+    </div>
+    <div id="best-bar" class="best-bar" style="display:none"></div>
+    <div class="hist-filters">
+      <select id="hist-agent" onchange="filterHistory()">
+        <option value="">All Agents</option>
+        <option value="navigator">Chekov (Navigator)</option>
+        <option value="ollama-plutus">McCoy (Plutus)</option>
+        <option value="ollama-qwen3">Dax (Qwen3)</option>
+        <option value="ollama-coder">Data (Coder)</option>
+        <option value="neo-matrix">Neo (Matrix)</option>
+      </select>
+      <select id="hist-version" onchange="filterHistory()">
+        <option value="">All Versions</option>
+        <option value="BASELINE">BASELINE</option>
+        <option value="V2">V2</option>
+        <option value="V3">V3 / V3B</option>
+        <option value="V5">V5</option>
+        <option value="V6">V6</option>
+      </select>
+      <select id="hist-period" onchange="filterHistory()">
+        <option value="">All Periods</option>
+        <option value="5">5 day</option>
+        <option value="60">60 day</option>
+        <option value="90">90 day</option>
+        <option value="180">180 day</option>
+      </select>
+      <input id="hist-search" type="text" placeholder="Search notes / agent…" oninput="filterHistory()">
+    </div>
+    <div class="hist-wrap">
+      <table class="hist-table" id="hist-table">
+        <thead>
+          <tr>
+            <th onclick="sortHistory('run_name')">Run</th>
+            <th onclick="sortHistory('version_tag')">Version</th>
+            <th onclick="sortHistory('agent')">Agent</th>
+            <th onclick="sortHistory('days')">Days</th>
+            <th onclick="sortHistory('return')">Return</th>
+            <th onclick="sortHistory('sharpe')">Sharpe</th>
+            <th onclick="sortHistory('win_rate')">WR%</th>
+            <th onclick="sortHistory('trades')">Trades</th>
+            <th onclick="sortHistory('date')">Date</th>
+            <th>Notes</th>
+          </tr>
+        </thead>
+        <tbody id="hist-tbody">
+          <tr><td colspan="10" style="text-align:center;color:var(--muted);padding:20px;">Loading history…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- ── Section 2: Strategy Templates ────────────────────────────────── -->
+  <div class="card" id="tmpl-card">
+    <div class="card-title">🗂️ Strategy Templates — Ready to Run</div>
+    <div id="tmpl-grid" class="tmpl-grid">
+      <div style="color:var(--muted);font-size:13px;grid-column:1/-1;text-align:center;padding:16px;">Loading templates…</div>
+    </div>
+  </div>
+
+  <!-- ── Section 3: Agent × Strategy DNA Heatmap ───────────────────────── -->
+  <div class="card" id="matrix-card">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px;flex-wrap:wrap;gap:8px;">
+      <div class="card-title" style="margin-bottom:0">🧬 Agent × Strategy DNA</div>
+      <span style="font-size:12px;color:var(--muted);">Best Sharpe per combo</span>
+    </div>
+    <div class="matrix-wrap" id="matrix-wrap">
+      <div style="color:var(--muted);font-size:13px;text-align:center;padding:16px;">Loading matrix…</div>
+    </div>
+    <div id="best-combo-bar" class="best-combo-bar" style="display:none"></div>
+  </div>
+
   <div id="footer">
     <a href="/">← Back to Bridge</a> &nbsp;·&nbsp;
     <a href="/leaderboard">Agent Leaderboard</a> &nbsp;·&nbsp;
@@ -270,6 +438,9 @@ function init() {
   }
 
   loadLeaderboard();
+  loadHistory();
+  loadTemplates();
+  loadMatrix();
 }
 
 function applyDark(on) {
@@ -336,6 +507,7 @@ window.runBacktest = function() {
     }
     renderResults(d);
     loadLeaderboard();
+    loadHistory();
   })
   .catch(function(e) {
     document.getElementById('loading-overlay').classList.remove('show');
@@ -500,6 +672,224 @@ window.loadResult = function(shareId) {
 function esc(s) {
   if (!s) return '';
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+// ── History ───────────────────────────────────────────────────────────────
+var _histRows = [];
+var _histSort = {col: 'date', dir: 'desc'};
+
+window.loadHistory = function() {
+  fetch('/api/backtest/history')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.ok) return;
+      _histRows = d.rows || [];
+      // Best bar
+      var best = d.best || {};
+      var bar = document.getElementById('best-bar');
+      if (best && Object.keys(best).length) {
+        bar.style.display = 'flex';
+        bar.innerHTML =
+          '<span style="font-size:12px;color:var(--muted);font-weight:700;margin-right:4px;">🏆 BEST EVER:</span>' +
+          (best.return != null  ? '<div class="best-pill">Return <span>+'+(best.return*100).toFixed(2)+'%</span></div>' : '') +
+          (best.sharpe != null  ? '<div class="best-pill">Sharpe <span>'+best.sharpe.toFixed(2)+'</span></div>' : '') +
+          (best.win_rate != null? '<div class="best-pill">WR <span>'+(best.win_rate*100).toFixed(1)+'%</span></div>' : '') +
+          (best.trades != null  ? '<div class="best-pill">Trades <span>'+best.trades+'</span></div>' : '');
+      }
+      renderHistTable();
+    })
+    .catch(function() {});
+};
+
+window.filterHistory = function() { renderHistTable(); };
+
+window.sortHistory = function(col) {
+  if (_histSort.col === col) {
+    _histSort.dir = _histSort.dir === 'asc' ? 'desc' : 'asc';
+  } else {
+    _histSort.col = col;
+    _histSort.dir = 'desc';
+  }
+  // Update header classes
+  document.querySelectorAll('.hist-table th').forEach(function(th) {
+    th.classList.remove('sort-asc', 'sort-desc');
+    if (th.textContent.trim().toLowerCase().replace(/[^a-z]/g,'') === col.replace(/[^a-z]/g,'')) {
+      th.classList.add(_histSort.dir === 'asc' ? 'sort-asc' : 'sort-desc');
+    }
+  });
+  renderHistTable();
+};
+
+function renderHistTable() {
+  var agentF   = document.getElementById('hist-agent').value;
+  var versionF = document.getElementById('hist-version').value;
+  var periodF  = document.getElementById('hist-period').value;
+  var searchF  = document.getElementById('hist-search').value.toLowerCase();
+
+  var rows = _histRows.filter(function(r) {
+    if (agentF   && (r.agent || '').toLowerCase().indexOf(agentF.toLowerCase()) < 0) return false;
+    if (versionF && (r.version_tag || '').toUpperCase().indexOf(versionF.toUpperCase()) < 0) return false;
+    if (periodF  && String(r.days) !== periodF) return false;
+    if (searchF) {
+      var hay = ((r.run_name||'') + ' ' + (r.notes||'') + ' ' + (r.agent||'')).toLowerCase();
+      if (hay.indexOf(searchF) < 0) return false;
+    }
+    return true;
+  });
+
+  var col = _histSort.col, dir = _histSort.dir;
+  rows.sort(function(a, b) {
+    var av, bv;
+    if (col === 'return') { av = a.return || 0; bv = b.return || 0; }
+    else if (col === 'sharpe') { av = a.sharpe || 0; bv = b.sharpe || 0; }
+    else if (col === 'win_rate') { av = a.win_rate || 0; bv = b.win_rate || 0; }
+    else if (col === 'trades') { av = a.trades || 0; bv = b.trades || 0; }
+    else if (col === 'days') { av = a.days || 0; bv = b.days || 0; }
+    else { av = String(a[col] || ''); bv = String(b[col] || ''); }
+    if (av < bv) return dir === 'asc' ? -1 : 1;
+    if (av > bv) return dir === 'asc' ? 1 : -1;
+    return 0;
+  });
+
+  if (!rows.length) {
+    document.getElementById('hist-tbody').innerHTML =
+      '<tr><td colspan="10" style="text-align:center;color:var(--muted);padding:20px;">No results match filters</td></tr>';
+    return;
+  }
+
+  var versionBadge = function(ver) {
+    var v = (ver || '').toUpperCase();
+    var cls = v.startsWith('V6') ? 'badge-v6'
+            : v.startsWith('V5') ? 'badge-v5'
+            : v.startsWith('V3') ? 'badge-v3'
+            : v.startsWith('V2') ? 'badge-v2'
+            : v === 'BASELINE'   ? 'badge-baseline'
+            : 'badge-other';
+    return '<span class="badge '+cls+'">'+esc(ver||'—')+'</span>';
+  };
+
+  var html = rows.map(function(r) {
+    var ret = r.return != null ? r.return * 100 : null;
+    var retStr = ret != null ? (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%' : '—';
+    var retCls = ret != null ? (ret > 0 ? 'ret-pos' : (ret < 0 ? 'ret-neg' : '')) : '';
+    var wr  = r.win_rate != null ? (r.win_rate * 100).toFixed(1) + '%' : '—';
+    var sh  = r.sharpe != null ? r.sharpe.toFixed(2) : '—';
+    var shCls = r.sharpe > 1 ? 'style="color:var(--green);font-weight:700"' : (r.sharpe < 0 ? 'style="color:var(--red)"' : '');
+    var dateStr = (r.date || '').slice(0, 10);
+    var agentDisplay = (r.agent || '').replace('ollama-', '').replace('navigator', 'Chekov')
+      .replace('plutus', 'McCoy').replace('qwen3', 'Dax').replace('coder', 'Data')
+      .replace('neo-matrix', 'Neo');
+    return '<tr>' +
+      '<td style="font-family:monospace;font-size:11px;color:var(--muted)">'+esc(r.run_name||'—')+'</td>' +
+      '<td>'+versionBadge(r.version_tag)+'</td>' +
+      '<td>'+esc(agentDisplay||'—')+'</td>' +
+      '<td style="color:var(--muted)">'+esc(r.days != null ? r.days+'d' : '—')+'</td>' +
+      '<td class="'+retCls+'">'+retStr+'</td>' +
+      '<td '+shCls+'>'+sh+'</td>' +
+      '<td style="color:var(--muted)">'+wr+'</td>' +
+      '<td style="color:var(--muted)">'+esc(r.trades != null ? String(r.trades) : '—')+'</td>' +
+      '<td style="color:var(--muted);font-size:11px">'+esc(dateStr)+'</td>' +
+      '<td style="color:var(--muted);font-size:11px;max-width:160px;overflow:hidden;text-overflow:ellipsis">'+esc(r.notes||'')+'</td>' +
+      '</tr>';
+  }).join('');
+  document.getElementById('hist-tbody').innerHTML = html;
+}
+
+// ── Templates ─────────────────────────────────────────────────────────────
+window.loadTemplates = function() {
+  fetch('/api/backtest/templates')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.ok) return;
+      var grid = document.getElementById('tmpl-grid');
+      if (!d.templates || !d.templates.length) {
+        grid.innerHTML = '<div style="color:var(--muted);text-align:center;grid-column:1/-1;padding:16px;">No templates available</div>';
+        return;
+      }
+      grid.innerHTML = d.templates.map(function(t) {
+        var tierCls = t.tier === 1 ? 'tier-1' : (t.tier === 2 ? 'tier-2' : '');
+        var retStr = t.return_pct != null ? (t.return_pct >= 0 ? '+' : '') + t.return_pct.toFixed(1) + '%' : '—';
+        var retCls = t.return_pct > 0 ? 'pos' : (t.return_pct < 0 ? 'neg' : '');
+        var sharpeStr = t.sharpe != null ? 'Sharpe ' + t.sharpe.toFixed(2) : '';
+        return '<div class="tmpl-card '+tierCls+'" onclick="loadTemplate('+JSON.stringify(t)+')">' +
+          '<div class="tmpl-name">'+esc(t.name)+'</div>' +
+          '<div class="tmpl-meta">'+esc(t.ticker||'')+(t.period_days ? ' · '+(t.period_label||t.period_days+'d') : '')+'</div>' +
+          '<div class="tmpl-stat '+retCls+'">'+retStr+(sharpeStr ? '<span style="font-size:11px;font-weight:400;color:var(--muted);margin-left:6px;">'+esc(sharpeStr)+'</span>' : '')+'</div>' +
+          '<div class="tmpl-desc">'+esc(t.description||'')+'</div>' +
+          '</div>';
+      }).join('');
+    })
+    .catch(function() {});
+};
+
+window.loadTemplate = function(t) {
+  if (t.ticker) document.getElementById('ticker-input').value = t.ticker;
+  if (t.strategy) {
+    var btn = document.querySelector('[data-strat="'+t.strategy+'"]');
+    if (btn) setStrategy(t.strategy, btn);
+  }
+  if (t.period_days) {
+    var pb = document.querySelector('[data-d="'+t.period_days+'"]');
+    if (pb) setPeriod(t.period_days, pb);
+    else _periodDays = t.period_days;
+  }
+  document.getElementById('config-card').scrollIntoView({behavior: 'smooth', block: 'start'});
+};
+
+// ── Matrix ─────────────────────────────────────────────────────────────────
+window.loadMatrix = function() {
+  fetch('/api/backtest/matrix')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d.ok) return;
+      renderMatrix(d);
+    })
+    .catch(function() {});
+};
+
+function sharpeCellColor(v) {
+  if (v == null) return 'background:var(--surface2);color:var(--muted)';
+  if (v < 0)    return 'background:#ffebee;color:#c62828';
+  if (v < 0.5)  return 'background:#fff3e0;color:#e65100';
+  if (v < 1.0)  return 'background:#fffde7;color:#f57f17';
+  if (v < 2.0)  return 'background:#e8f5e9;color:#1a7a3a';
+  return 'background:#c8e6c9;color:#1a7a3a';
+}
+
+function renderMatrix(d) {
+  var strategies = d.strategies || [];
+  var matrix = d.matrix || [];
+  var wrap = document.getElementById('matrix-wrap');
+
+  if (!strategies.length || !matrix.length) {
+    wrap.innerHTML = '<div style="color:var(--muted);text-align:center;padding:16px;">Not enough data yet — run some backtests!</div>';
+    return;
+  }
+
+  var html = '<table class="matrix-table"><thead><tr>' +
+    '<th class="row-header">Agent</th>' +
+    strategies.map(function(s) { return '<th>'+esc(s)+'</th>'; }).join('') +
+    '</tr></thead><tbody>';
+
+  matrix.forEach(function(row) {
+    html += '<tr><td class="agent-cell">'+esc(row.agent_display||row.agent)+'</td>';
+    strategies.forEach(function(strat) {
+      var v = row.sharpe[strat];
+      var style = sharpeCellColor(v);
+      html += '<td style="'+style+'">'+(v != null ? v.toFixed(2) : '—')+'</td>';
+    });
+    html += '</tr>';
+  });
+
+  html += '</tbody></table>';
+  wrap.innerHTML = html;
+
+  var bestBar = document.getElementById('best-combo-bar');
+  if (d.best_combo && d.best_combo.agent) {
+    bestBar.style.display = 'block';
+    bestBar.textContent = '🏆 Best combo: ' + (d.best_combo.agent_display||d.best_combo.agent) +
+      ' × ' + d.best_combo.strategy + ' — Sharpe ' + d.best_combo.sharpe.toFixed(2);
+  }
 }
 
 // Resize chart on window resize
