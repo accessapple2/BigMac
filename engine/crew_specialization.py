@@ -120,7 +120,7 @@ AGENT_STRATEGIES: dict[str, list[str]] = {
     # ── SCOUTS ───────────────────────────────────────────────────────────────
     "grok-4":         ["rsi_bounce", "mean_reversion"],
     "ollama-coder":   ["long_equity", "momentum", "short_equity", "inverse_etf"],
-    "ollama-qwen3":   ["swing_trade", "ema_pullback"],
+    "ollama-qwen3":   ["swing_trade", "ema_pullback", "momentum"],
     "navigator":      ["ema_pullback", "momentum"],
     "capitol-trades": ["congress_copy"],
 }
@@ -304,10 +304,10 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
     },
 
     "ollama-qwen3": {
-        "tier": "advisory",
+        "tier": "active",
         "display_name": "Lt. Jadzia Dax",
-        "role": "Swing Breakout [ADVISORY]",
-        "strategy": "Breakout above 20MA on 1.5x+ volume, or volume momentum spikes. Sits out bear sessions.",
+        "role": "Swing Breakout",
+        "strategy": "Breakout above 20MA on 1.5x+ volume, momentum entries on rally days, or volume momentum spikes. Sits out bear sessions.",
         "model": "qwen3.5:9b",
         "max_positions": 3,
         "size_factor": 0.9,
