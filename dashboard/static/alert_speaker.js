@@ -180,7 +180,7 @@
       .catch(function () {});
     // Also try alternate endpoint if needed
     if (!_allPositions) {
-      fetch('/api/positions')
+      fetch('/api/alpaca/positions')
         .then(function (r) { return r.ok ? r.json() : null; })
         .then(function (d) {
           if (!d || _allPositions) return;

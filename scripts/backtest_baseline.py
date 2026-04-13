@@ -11,6 +11,7 @@ import re
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
+from typing import Optional
 
 import pandas as pd
 import yfinance as yf
@@ -127,7 +128,15 @@ def fetch_vix_history(start: str, end: str) -> dict[str, float]:
     if cache_file.exists():
         try:
             with open(cache_file) as f:
-                return json.load(f)
+                raw = json.load(f)
+            # Normalize keys: old cache files may have timestamp strings instead of YYYY-MM-DD
+            normalized: dict[str, float] = {}
+            for k, v in raw.items():
+                try:
+                    normalized[pd.Timestamp(k).strftime("%Y-%m-%d")] = float(v)
+                except Exception:
+                    normalized[k] = float(v)
+            return normalized
         except Exception:
             pass
     try:
@@ -150,8 +159,26 @@ def fetch_vix_history(start: str, end: str) -> dict[str, float]:
         return {}
 
 
-def fetch_fear_greed_history(start: str, end: str) -> dict[str, float]:
-    """CNN Fear & Greed historical scores. Returns {YYYY-MM-DD: score}. Cached."""
+def _vix_to_fg(vix: float) -> float:
+    """Convert VIX level to approximate Fear & Greed score (proxy for old dates)."""
+    if vix < 15:
+        return 72.0   # greed
+    if vix < 20:
+        return 55.0   # neutral
+    if vix < 25:
+        return 38.0   # fear
+    if vix < 30:
+        return 22.0   # extreme fear
+    return 12.0       # extreme fear
+
+
+def fetch_fear_greed_history(start: str, end: str,
+                             vix_data: Optional[dict] = None) -> dict[str, float]:
+    """CNN Fear & Greed historical scores. Returns {YYYY-MM-DD: score}. Cached.
+
+    CNN only keeps ~30 days of history. For dates older than 30 days the CNN
+    API returns nothing, so we fall back to VIX-as-proxy using vix_data.
+    """
     cache_file = CACHE_DIR / f"FG_{start}_{end}.json"
     if cache_file.exists():
         try:
@@ -159,32 +186,57 @@ def fetch_fear_greed_history(start: str, end: str) -> dict[str, float]:
                 return json.load(f)
         except Exception:
             pass
-    if not _HAS_REQUESTS:
-        print("  [F&G] requests not available — using neutral 50")
-        return {}
-    try:
-        url = f"https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{start}"
-        resp = _requests.get(url, timeout=15,
-                             headers={"User-Agent": "Mozilla/5.0"})
-        resp.raise_for_status()
-        data = resp.json()
-        scores: dict[str, float] = {}
-        for point in data.get("fear_and_greed_historical", {}).get("data", []):
-            try:
-                date_str = datetime.fromtimestamp(point["x"] / 1000).strftime("%Y-%m-%d")
-                scores[date_str] = round(float(point["y"]), 1)
-            except Exception:
-                pass
-        if scores:
-            with open(cache_file, "w") as f:
-                json.dump(scores, f)
-            print(f"  [F&G] fetched {len(scores)} days from CNN ({min(scores)} → {max(scores)})")
-        else:
-            print("  [F&G] empty response — using neutral 50")
-        return scores
-    except Exception as e:
-        print(f"  [F&G] fetch failed: {e} — using neutral 50")
-        return {}
+
+    scores: dict[str, float] = {}
+
+    # --- Try CNN API (only ~30 days of history available) ---
+    if _HAS_REQUESTS:
+        try:
+            url = f"https://production.dataviz.cnn.io/index/fearandgreed/graphdata/{start}"
+            resp = _requests.get(url, timeout=15,
+                                 headers={"User-Agent": "Mozilla/5.0"})
+            resp.raise_for_status()
+            data = resp.json()
+            for point in data.get("fear_and_greed_historical", {}).get("data", []):
+                try:
+                    date_str = datetime.fromtimestamp(point["x"] / 1000).strftime("%Y-%m-%d")
+                    scores[date_str] = round(float(point["y"]), 1)
+                except Exception:
+                    pass
+            if scores:
+                print(f"  [F&G] fetched {len(scores)} days from CNN ({min(scores)} → {max(scores)})")
+            else:
+                print("  [F&G] empty CNN response")
+        except Exception as e:
+            print(f"  [F&G] CNN fetch failed: {e}")
+    else:
+        print("  [F&G] requests not available")
+
+    # --- Fill missing dates with VIX proxy ---
+    if vix_data:
+        cutoff = (datetime.utcnow() - timedelta(days=30)).strftime("%Y-%m-%d")
+        try:
+            cur = datetime.strptime(start, "%Y-%m-%d")
+            end_dt = datetime.strptime(end, "%Y-%m-%d")
+            filled = 0
+            while cur <= end_dt:
+                ds = cur.strftime("%Y-%m-%d")
+                if ds not in scores and ds < cutoff:
+                    vix_val = _closest_prior(vix_data, ds, default=20.0)
+                    scores[ds] = _vix_to_fg(vix_val)
+                    filled += 1
+                cur += timedelta(days=1)
+            if filled:
+                print(f"  [F&G] VIX proxy filled {filled} days older than 30d")
+        except Exception as e:
+            print(f"  [F&G] VIX proxy fill error: {e}")
+
+    if scores:
+        with open(cache_file, "w") as f:
+            json.dump(scores, f)
+    else:
+        print("  [F&G] no data at all — using neutral 50 at runtime")
+    return scores
 
 
 def fetch_spy_vs_200ma(start: str, end: str) -> dict[str, bool]:

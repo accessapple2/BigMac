@@ -24626,6 +24626,7 @@ function loadGlanceData() {
         + (mRows.length > 0 ? mRows.join('') : '<span style="color:var(--muted);">No FRED data available.</span>');
     }
   }).catch(function(){ var el=document.getElementById('g-macro-text'); if(el) el.textContent='FRED unavailable'; });
+})();
 
   // GEX (Gamma Exposure) glance row
   fetch('/api/gex/spy').then(function(r){return r.json();}).then(function(d) {

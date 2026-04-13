@@ -1241,7 +1241,7 @@ def main() -> None:
     # Fetch all signal sources (cached to data/backtest_cache/)
     print("\n  Fetching signal sources ...")
     vix_data   = fetch_vix_history(start_str, end_str)
-    fg_data    = fetch_fear_greed_history(start_str, end_str)
+    fg_data    = fetch_fear_greed_history(start_str, end_str, vix_data=vix_data)
     spy200     = fetch_spy_vs_200ma(start_str, end_str)
     print(f"  VIX days: {len(vix_data)}  |  F&G days: {len(fg_data)}  |  SPY/200MA days: {len(spy200)}")
 
