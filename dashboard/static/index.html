@@ -3018,13 +3018,31 @@ async function fetchPicardBriefing() {
   } catch(e) {}
 }
 async function generatePicardBriefing() {
-  document.getElementById('picardBriefing').innerHTML = '<div style="color:var(--accent);text-align:center;padding:30px;">⭐ Admiral Picard is composing his strategic thesis... (30-60 seconds)</div>';
+  var el = document.getElementById('picardBriefing');
+  var ts = document.getElementById('picardTimestamp');
+  el.innerHTML = '<div style="color:var(--accent);text-align:center;padding:30px;">⭐ Admiral Picard is composing his strategic thesis... (30-90 seconds)</div>';
+  var ctrl = new AbortController();
+  var timer = setTimeout(function() {
+    ctrl.abort();
+  }, 90000);
   try {
-    var r = await fetch('/api/picard/generate', {method:'POST'});
+    var r = await fetch('/api/picard/generate', {method:'POST', signal: ctrl.signal});
+    clearTimeout(timer);
     var d = await r.json();
-    if (d.ok) fetchPicardBriefing();
-    else document.getElementById('picardBriefing').innerHTML = '<div style="color:var(--red);text-align:center;">Briefing generation failed. Is Ollama running?</div>';
-  } catch(e) { document.getElementById('picardBriefing').innerHTML = '<div style="color:var(--red);">Error: ' + e.message + '</div>'; }
+    if (d.ok) {
+      if (ts) ts.textContent = 'Generated: ' + new Date().toLocaleTimeString();
+      fetchPicardBriefing();
+    } else {
+      el.innerHTML = '<div style="color:var(--red);text-align:center;">Briefing generation failed. Is Ollama running?</div>';
+    }
+  } catch(e) {
+    clearTimeout(timer);
+    if (e.name === 'AbortError') {
+      el.innerHTML = '<div style="color:var(--yellow);text-align:center;padding:30px;">⚠️ Timed out — <span style="cursor:pointer;text-decoration:underline;" onclick="generatePicardBriefing()">click to retry</span></div>';
+    } else {
+      el.innerHTML = '<div style="color:var(--red);text-align:center;">Error: ' + e.message + '</div>';
+    }
+  }
 }
 registerSectionInit('ready-room', function() {
   fetchReadyRoomBriefing();
@@ -6464,28 +6482,60 @@ document.addEventListener('keydown', function(e) {
 
 <!-- SCREENER PRO SECTION -->
 </div>
-<div id="section-sector-watch" style="display:none;overflow-y:auto;height:calc(100vh - 120px);"></div>
+<div id="section-sector-watch" style="display:none;overflow-y:auto;height:calc(100vh - 120px);">
+  <div style="display:flex;align-items:center;justify-content:flex-end;padding:8px 16px;gap:10px;border-bottom:1px solid var(--border);">
+    <span id="sw-last-updated" style="font-size:12px;color:var(--muted);"></span>
+    <button onclick="window.refreshSectorWatch()" style="font-size:12px;padding:3px 10px;background:#1a1a2e;border:1px solid #333;border-radius:4px;color:#94a3b8;cursor:pointer;">&#128260; Refresh</button>
+  </div>
+  <div id="sector-watch-content"></div>
+</div>
 <script>
 (function(){
   var swLoaded=false;
+  var swLoadedAt=null;
   function loadSectorWatch(){
     if(swLoaded) return;
     swLoaded=true;
+    var content=document.getElementById("sector-watch-content");
+    if(content) content.innerHTML='<div style="color:var(--muted);text-align:center;padding:20px;">Loading&#8230;</div>';
+    var sectorTimeout=setTimeout(function(){
+      if(content) content.innerHTML='<div style="color:#f59e0b;padding:16px;">&#9888; Sector data timeout \u2014 <span onclick="window.refreshSectorWatch()" style="cursor:pointer;text-decoration:underline;">click to retry</span></div>';
+    },10000);
     fetch("/static/sector_watch.html")
       .then(function(r){return r.text();})
       .then(function(html){
-        var el=document.getElementById("section-sector-watch");
+        clearTimeout(sectorTimeout);
+        swLoadedAt=Date.now();
+        updateSwTimestamp();
         var parser=new DOMParser();
         var doc=parser.parseFromString(html,"text/html");
         doc.querySelectorAll("style").forEach(function(st){document.head.appendChild(st.cloneNode(true));});
-        el.innerHTML=doc.body.innerHTML;
+        if(content) content.innerHTML=doc.body.innerHTML;
         doc.querySelectorAll("script").forEach(function(sc){
           var s=document.createElement("script");
           s.textContent=sc.textContent;
           document.body.appendChild(s);
         });
+      })
+      .catch(function(){
+        clearTimeout(sectorTimeout);
+        if(content) content.innerHTML='<div style="color:#f59e0b;padding:16px;">&#9888; Failed to load sector data \u2014 <span onclick="window.refreshSectorWatch()" style="cursor:pointer;text-decoration:underline;">click to retry</span></div>';
       });
   }
+  function updateSwTimestamp(){
+    var el=document.getElementById("sw-last-updated");
+    if(!el||!swLoadedAt) return;
+    var secs=Math.floor((Date.now()-swLoadedAt)/1000);
+    el.textContent=secs<10?"Last updated: just now":secs<120?"Last updated: "+secs+"s ago":"Last updated: "+Math.floor(secs/60)+"m ago";
+  }
+  setInterval(updateSwTimestamp,15000);
+  window.refreshSectorWatch=function(){
+    swLoaded=false;
+    swLoadedAt=null;
+    var el=document.getElementById("sw-last-updated");
+    if(el) el.textContent="";
+    loadSectorWatch();
+  };
   window.addEventListener("DOMContentLoaded",function(){
     var el=document.getElementById("section-sector-watch");
     if(!el) return;
@@ -17616,8 +17666,7 @@ async function fetchHeatMap() {
   } catch(e) {}
 }
 
-// [LazyInit] fetchHeatMap();
-setInterval(function(){ if (heatmapMode === 'watchlist') fetchHeatMap(); else if (heatmapMode === 'sectors') fetchSectorHeatmap(); }, 60000);
+// [LazyInit] fetchHeatMap — interval managed by _sectionIntervalDefs['heatmap']
 
 var heatmapMode = 'watchlist';
 function switchHeatmapMode(mode, el) {
@@ -23715,9 +23764,7 @@ var _sectionIntervalDefs = {
   'weekly-picks':    [{fn: fetchWeeklyPicks, ms: 600000}],
   'stock-race':      [{fn: fetchStockRace, ms: 60000}],
   'dynamic-alerts':  [{fn: fetchDynamicAlerts, ms: 60000}],
-  'patterns':        [{fn: fetchPatterns, ms: 300000}],
   'gamma-env':       [{fn: fetchGammaEnv, ms: 300000}],
-  'skew':            [{fn: fetchSkew, ms: 300000}],
   'high-iv':         [{fn: fetchHighIV, ms: 600000}],
   'cross-asset':     [{fn: fetchCrossAsset, ms: 300000}],
   'trend-forecast':  [{fn: fetchTrendForecast, ms: 300000}],
@@ -23727,6 +23774,7 @@ var _sectionIntervalDefs = {
   'fundamentals':    [{fn: fetchFundamentals, ms: 3600000}],
   'dayblade':        [{fn: fetchDayBlade, ms: 15000}, {fn: fetchDayBladeTradesTable, ms: 30000}, {fn: fetch0DTEScanner, ms: 30000}],
   'webull':          [{fn: fetchWebullPortfolio, ms: 60000}, {fn: function(){ wbiLoadCards(); fetchWbRecentTrades(); wbcLoadWatchlist(); }, ms: 0}],
+  'heatmap':         [{fn: function(){ if (heatmapMode === 'sp500') fetchSP500Treemap(); else if (heatmapMode === 'sectors') fetchSectorHeatmap(); else fetchHeatMap(); }, ms: 60000}],
 };
 for (var _sec in _sectionIntervalDefs) {
   var _initName = _sectionFetchMap[_sec];
@@ -29659,6 +29707,25 @@ var liveChart = (function() {
     }
   });
 })();
+</script>
+<script>
+// Loading timeout warnings
+setTimeout(function(){
+  document.querySelectorAll('.loading-text,[class*="loading"]').forEach(function(el){
+    if(el.offsetParent!==null&&el.textContent.includes('Loading')){
+      el.title='Taking longer than usual \u2014 try Cmd+Shift+R';
+      el.style.cursor='pointer';
+      el.onclick=function(){location.reload(true);};
+    }
+  });
+},8000);
+setTimeout(function(){
+  document.querySelectorAll('.loading-text,[class*="loading"]').forEach(function(el){
+    if(el.offsetParent!==null&&el.textContent.includes('Loading')){
+      el.title='Server may be busy \u2014 click to reload';
+    }
+  });
+},20000);
 </script>
 </body>
 </html>

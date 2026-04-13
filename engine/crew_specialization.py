@@ -236,9 +236,9 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
     },
 
     "ollama-coder": {
-        "tier": "advisory",
+        "tier": "active",
         "display_name": "Lt. Cmdr. Data",
-        "role": "Pure Quant [ADVISORY]",
+        "role": "Pure Quant",
         "strategy": "Deep Scan signal_strength ≥ 0.6 only. No sentiment. Pure numbers.",
         "model": "qwen2.5-coder:7b",
         "max_positions": 4,
