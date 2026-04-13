@@ -142,10 +142,16 @@ def refresh_universe() -> int:
     return count
 
 
-def get_universe() -> list[str]:
-    """Return all symbols from universe_stocks table.
+_UNIVERSE_MIN_VOLUME = 1_000_000  # only liquid symbols; cuts 10k → ~1,700
+_UNIVERSE_HARD_CAP   = 500        # fallback cap when volume data unavailable
 
-    Falls back to a curated ~500-symbol list if the table is empty (before first refresh).
+
+def get_universe() -> list[str]:
+    """Return liquid symbols from universe_stocks, filtered by avg_volume >= 1M.
+
+    Joins scan_universe for volume data (same DB).  If that join yields nothing
+    (scan_universe not yet populated), falls back to top-500 alphabetically.
+    Falls back to S&P 500 + extras if the table is empty.
     """
     _init_tables()
     try:
@@ -155,18 +161,43 @@ def get_universe() -> list[str]:
 
     try:
         with _conn() as c:
-            rows = c.execute("SELECT symbol FROM universe_stocks ORDER BY symbol").fetchall()
+            # Primary: join scan_universe for volume filter, sorted best-first
+            rows = c.execute(
+                """
+                SELECT u.symbol
+                FROM universe_stocks u
+                INNER JOIN scan_universe s ON u.symbol = s.symbol
+                WHERE s.avg_volume >= ?
+                ORDER BY s.avg_volume DESC
+                """,
+                (_UNIVERSE_MIN_VOLUME,),
+            ).fetchall()
         symbols = [r["symbol"] for r in rows if r["symbol"] not in DELISTED_BLACKLIST]
         if symbols:
+            logger.info("get_universe: %d liquid symbols (avg_vol >= %s)", len(symbols), f"{_UNIVERSE_MIN_VOLUME:,}")
+            return symbols
+    except Exception as e:
+        logger.warning(f"get_universe volume-join failed: {e}")
+
+    # Fallback: no volume data yet — return top 500 alphabetically
+    try:
+        with _conn() as c:
+            rows = c.execute(
+                "SELECT symbol FROM universe_stocks ORDER BY symbol LIMIT ?",
+                (_UNIVERSE_HARD_CAP,),
+            ).fetchall()
+        symbols = [r["symbol"] for r in rows if r["symbol"] not in DELISTED_BLACKLIST]
+        if symbols:
+            logger.info("get_universe fallback (no volume data): %d symbols (cap=%d)", len(symbols), _UNIVERSE_HARD_CAP)
             return symbols
     except Exception as e:
         logger.warning(f"get_universe DB read failed: {e}")
 
-    # Fallback: S&P 500 from universe_scanner so we can scan even before first refresh
+    # Last resort: S&P 500 from universe_scanner
     try:
         from engine.universe_scanner import _get_sp500_tickers, EXTRA_TICKERS
         tickers = list(set(_get_sp500_tickers() + EXTRA_TICKERS))
-        logger.info(f"get_universe fallback: {len(tickers)} S&P 500 + extras")
+        logger.info(f"get_universe last-resort: {len(tickers)} S&P 500 + extras")
         return tickers
     except Exception:
         return []

@@ -47,7 +47,7 @@ ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "")
 _VALID_EXCHANGES = {"NYSE", "NASDAQ", "AMEX", "ARCA"}
 _UNIVERSE_STALE_DAYS = 6       # rebuild if older than this
 _CHUNK_SIZE = 200              # symbols per Alpaca bars request
-_MIN_AVG_VOLUME = 500_000.0
+_MIN_AVG_VOLUME = 1_000_000.0
 _MIN_AVG_PRICE = 5.0
 _MAX_AVG_PRICE = 500.0
 _BARS_LOOKBACK = 20            # trading days for avg_volume / avg_price
@@ -440,14 +440,14 @@ def get_universe() -> list[str]:
     return list(_SP500_FALLBACK)
 
 
-def run_deep_scan(max_symbols: int = 2000, force: bool = False) -> dict:
+def run_deep_scan(max_symbols: int = 500, force: bool = False) -> dict:
     """Execute all strategies across the expanded universe and store results.
 
     Processes symbols in batches of 200, calling the rate limiter between
     batches.  Results are saved to deep_scan_results.
 
     Args:
-        max_symbols: cap on how many symbols to scan (default 2000).
+        max_symbols: cap on how many symbols to scan (default 500).
         force:       if True, rebuild universe first even if fresh.
 
     Returns:
