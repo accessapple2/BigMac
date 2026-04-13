@@ -184,9 +184,8 @@ def _get_live_alpha(symbol: str) -> float:
         return 0.0
 _MAX_POSITION_PCT           = 5   # max % of agent equity per position
 
-# Fast model used for all scan decisions — loads quickly, good enough for BUY/SELL/PASS.
-# Each agent's assigned model is reserved for Ship's Computer chat and detailed analysis.
-SCAN_MODEL = "0xroyce/plutus"
+# Default scan model — used when an agent has no specific model in CREW_MANIFEST.
+SCAN_MODEL = "qwen3.5:9b"
 
 # ---------------------------------------------------------------------------
 # Lean Fleet Protocol — Active scanner roster
@@ -2464,8 +2463,9 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
             f"Decision?"
         )
 
-    logger.info(f"Querying Ollama: {display_name} ({SCAN_MODEL})…")
-    response = _query_ollama(player_id, SCAN_MODEL, system_prompt, user_prompt)
+    _model = CREW_MANIFEST.get(player_id, {}).get("model", SCAN_MODEL)
+    logger.info(f"Querying Ollama: {display_name} ({_model})…")
+    response = _query_ollama(player_id, _model, system_prompt, user_prompt)
 
     if not response:
         reason = "Ollama timeout — no response"
@@ -2515,7 +2515,7 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
                     f"TRADE BUY [SYMBOL] [CONFIDENCE] [REASON] or PASS [WHY]"
                 )
                 logger.info(f"Neo PASS on vol day — second look: {[s['symbol'] for s in neo_vol_picks]}")
-                r2 = _query_ollama(player_id, SCAN_MODEL, system_prompt, retry_prompt)
+                r2 = _query_ollama(player_id, _model, system_prompt, retry_prompt)
                 if r2:
                     d2 = _parse_ollama_decision(r2)
                     if d2["action"] != "PASS":
