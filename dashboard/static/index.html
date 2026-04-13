@@ -3633,6 +3633,163 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
   </div>
   <div id="sectorDetailPopup" style="display:none;padding:14px 16px;background:var(--surface2);border-radius:8px;margin-bottom:12px;border:1px solid var(--border);"></div>
 
+  <!-- Tomorrow's Game Plan — Daily Intel Card -->
+  <div class="card" id="game-plan-card" style="margin-bottom:16px;border-left:4px solid #8b5cf6;">
+    <div style="display:flex;align-items:center;justify-content:space-between;padding:10px 14px;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:18px;">🎯</span>
+        <span style="font-weight:700;font-size:14px;">Tomorrow's Game Plan</span>
+        <span id="gp-regime-badge" style="font-size:11px;padding:2px 8px;border-radius:4px;background:#8b5cf6;color:#fff;font-weight:700;display:none;"></span>
+      </div>
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span id="gp-updated" style="font-size:11px;color:var(--muted);"></span>
+        <button onclick="loadGamePlan(true)" style="font-size:11px;padding:3px 10px;border-radius:5px;border:1px solid var(--border);background:transparent;color:var(--muted);cursor:pointer;">↻ Refresh</button>
+      </div>
+    </div>
+    <div id="gp-body" style="padding:12px 14px;">
+      <div style="color:var(--muted);font-size:13px;text-align:center;">Loading daily intel...</div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    var _gpLoaded = false;
+
+    function _gpToneColor(tone) {
+      return {bull:'#2563eb', bear:'#ea580c', crisis:'#991b1b',
+              cautious:'#eab308', contrarian:'#10b981', neutral:'#6b7280'}[tone] || '#8b5cf6';
+    }
+
+    function _gpSectorRows(rotation) {
+      if (!rotation || rotation.error) return '';
+      var html = '<div style="display:flex;flex-wrap:wrap;gap:6px;margin-top:6px;">';
+      (rotation.rotating_into || []).forEach(function(s) {
+        html += '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(37,99,235,0.15);color:#60a5fa;font-weight:600;">▲ '+s.name+' '+s.ret_5d.toFixed(1)+'%</span>';
+      });
+      (rotation.rotating_out_of || []).forEach(function(s) {
+        html += '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(234,88,12,0.15);color:#fb923c;font-weight:600;">▼ '+s.name+' '+s.ret_5d.toFixed(1)+'%</span>';
+      });
+      html += '</div>';
+      if (rotation.hot_sector_picks && rotation.hot_sector_picks.length) {
+        html += '<div style="font-size:11px;color:var(--muted);margin-top:4px;">Watch: <strong style="color:var(--text);">'+rotation.hot_sector_picks.join(', ')+'</strong></div>';
+      }
+      return html;
+    }
+
+    function _gpEarningsRows(earnings) {
+      if (!earnings || !earnings.length) return '';
+      var items = earnings.filter(function(e){return e.ticker;});
+      if (!items.length) return '';
+      var html = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">';
+      items.slice(0,5).forEach(function(e) {
+        var flag = e.in_portfolio ? ' 🚨' : '';
+        html += '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(234,179,8,0.12);color:#fcd34d;font-weight:600;">'+e.ticker+' '+e.date.slice(5)+(e.trend_30d==='up'?' ▲':'')+(e.trend_30d==='down'?' ▼':'')+flag+'</span>';
+      });
+      html += '</div>';
+      return html;
+    }
+
+    function _gpCongressFlags(congress) {
+      if (!congress || !congress.length) return '';
+      var buys = congress.filter(function(c){return c.flag;});
+      if (!buys.length) return '';
+      var html = '<div style="margin-top:6px;font-size:12px;">';
+      buys.slice(0,3).forEach(function(c) {
+        html += '<div style="color:#a78bfa;">🏛 '+c.politician+' BOUGHT <strong>'+c.ticker+'</strong> '+c.amount+'</div>';
+      });
+      html += '</div>';
+      return html;
+    }
+
+    function _gpSetups(setups) {
+      if (!setups || !setups.length) return '';
+      var items = setups.filter(function(s){return s.symbol;});
+      if (!items.length) return '';
+      var html = '<div style="margin-top:6px;">';
+      items.slice(0,4).forEach(function(s) {
+        html += '<div style="font-size:12px;color:var(--muted);padding:2px 0;">📐 '+s.note+' <span style="color:var(--text);font-weight:600;">('+Math.round(s.confidence*100)+'% conf'+(s.rr?' RR '+s.rr:'')+')</span></div>';
+      });
+      html += '</div>';
+      return html;
+    }
+
+    function _gpPortfolio(review) {
+      if (!review || review.error) return '';
+      var parts = [];
+      if (review.trim_candidates && review.trim_candidates.length) {
+        parts.push('<span style="color:#2563eb;font-weight:600;">✂ Trim: '+review.trim_candidates.map(function(t){return t.ticker+' +'+t.pnl_pct+'%';}).join(', ')+'</span>');
+      }
+      if (review.review_candidates && review.review_candidates.length) {
+        parts.push('<span style="color:#ea580c;font-weight:600;">⚠ Review: '+review.review_candidates.map(function(t){return t.ticker+' '+t.pnl_pct+'%';}).join(', ')+'</span>');
+      }
+      if (review.earnings_risk && review.earnings_risk.length) {
+        parts.push('<span style="color:#fcd34d;font-weight:600;">📅 Earnings risk: '+review.earnings_risk.join(', ')+'</span>');
+      }
+      if (!parts.length) return '';
+      return '<div style="margin-top:6px;display:flex;flex-wrap:wrap;gap:8px;font-size:12px;">'+parts.join('')+'</div>';
+    }
+
+    window.loadGamePlan = function(force) {
+      var url = force ? '/api/morning-brief/run' : '/api/morning-brief';
+      fetch(url).then(function(r){return r.json();}).then(function(d) {
+        var gp = d.game_plan || {};
+        var body = document.getElementById('gp-body');
+        if (!body) return;
+        if (!gp.headline) {
+          body.innerHTML = '<div style="color:var(--muted);font-size:13px;">No intel report yet — runs at 6 AM & 8 PM AZ</div>';
+          return;
+        }
+        var color = _gpToneColor(gp.tone);
+        var badge = document.getElementById('gp-regime-badge');
+        if (badge) { badge.textContent = gp.regime || ''; badge.style.background = color; badge.style.display = gp.regime ? '' : 'none'; }
+        var upd = document.getElementById('gp-updated');
+        if (upd && d.generated_at) upd.textContent = 'Updated ' + new Date(d.generated_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/Phoenix'}) + ' AZ';
+        var html = '';
+        // Headline
+        html += '<div style="font-size:16px;font-weight:700;color:'+color+';margin-bottom:6px;">'+gp.headline+'</div>';
+        // Plan
+        html += '<div style="font-size:13px;color:var(--text);line-height:1.5;margin-bottom:4px;">'+gp.plan+'</div>';
+        // Focus
+        html += '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Focus: <strong style="color:var(--text);">'+gp.focus+'</strong></div>';
+        // Stats row
+        html += '<div style="display:flex;gap:16px;font-size:12px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px;margin-bottom:8px;">';
+        if (gp.vix) html += '<span>VIX <strong style="color:'+(gp.vix>25?'#ea580c':gp.vix>20?'#eab308':'#2563eb')+'">'+gp.vix+'</strong></span>';
+        if (gp.fg_score !== null && gp.fg_score !== undefined) html += '<span>F&amp;G <strong style="color:'+(gp.fg_score<30?'#ea580c':gp.fg_score>70?'#fbbf24':'#2563eb')+'">'+gp.fg_score+'</strong></span>';
+        if (gp.size_modifier) html += '<span>Size <strong style="color:var(--text);">'+gp.size_modifier+'x</strong></span>';
+        html += '</div>';
+        // Sections
+        html += _gpSectorRows(d.sector_rotation);
+        html += _gpEarningsRows(d.earnings);
+        html += _gpCongressFlags(d.congress_radar);
+        html += _gpSetups(d.technical_setups);
+        html += _gpPortfolio(d.portfolio_review);
+        body.innerHTML = html;
+        // Update card border color
+        var card = document.getElementById('game-plan-card');
+        if (card) card.style.borderLeftColor = color;
+      }).catch(function() {
+        var body = document.getElementById('gp-body');
+        if (body) body.innerHTML = '<div style="color:var(--muted);font-size:13px;">Intel report unavailable</div>';
+      });
+    };
+
+    // Auto-load when dashboard section becomes visible
+    document.addEventListener('section-shown', function(e) {
+      if (e.detail && e.detail.section === 'dashboard' && !_gpLoaded) {
+        _gpLoaded = true;
+        window.loadGamePlan(false);
+      }
+    });
+    // Also load after a short delay on page load if dashboard is already active
+    setTimeout(function() {
+      if (document.getElementById('section-dashboard') &&
+          document.getElementById('section-dashboard').style.display !== 'none') {
+        if (!_gpLoaded) { _gpLoaded = true; window.loadGamePlan(false); }
+      }
+    }, 1800);
+  })();
+  </script>
+
   <!-- Fleet Report Card -->
   <div class="card" id="fleet-report-card" style="margin-bottom:16px;">
     <div class="card-header" style="cursor:pointer;" onclick="toggleFleetReport()" data-tip="WHAT: Agent performance scorecards — grades each AI crew member by win rate, P&amp;L, and streak. WHY: Identifies which models are hot (ride them) vs cold (trim allocation). HOW: A/B/C/D/F grades from win %, Sharpe proxy, and recent trade history. Drill down on any agent to see their open positions.">
@@ -5326,6 +5483,11 @@ async function loadSECFilings() {
         <option value="codex">OpenAI</option>
       </select>
       <button class="btn btn-primary" onclick="analyzeChart(this)" style="font-size:13px;padding:5px 14px;white-space:nowrap;">AI Analyze</button>
+      <input id="chart-ticker-search" type="text"
+        placeholder="Search: GS"
+        style="background:#1e3a5f;border:1px solid #0ea5e9;color:#e2e8f0;border-radius:6px;padding:4px 8px;width:90px;font-size:12px;outline:none;"
+        onkeydown="if(event.key==='Enter'){var t=this.value.trim().toUpperCase();if(t){selectChart(t);this.blur();}}"
+      >
     </div>
     <!-- Timeframe selector -->
     <div id="lw-tf-bar" style="display:flex;align-items:center;gap:4px;padding:6px 16px 0;border-top:1px solid var(--border);">

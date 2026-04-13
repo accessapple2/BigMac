@@ -610,6 +610,44 @@ def run_archer_morning_briefing():
         console.log(f"[red]Archer briefing error: {e}")
 
 
+def run_intel_report_morning():
+    """6:00 AM AZ — daily intel report + ntfy push to ollietrades-admin."""
+    import datetime as _dt
+    import pytz
+    az  = pytz.timezone("US/Arizona")
+    now = _dt.datetime.now(az)
+    if now.weekday() >= 5:          # Skip weekends
+        return
+    if now.hour != 6 or now.minute > 20:
+        return
+    try:
+        from engine.morning_briefing import generate_daily_intel_report
+        result = generate_daily_intel_report(force=True, push_ntfy=True)
+        gp = result.get("game_plan", {})
+        console.log(f"[cyan]Intel Report (AM): {gp.get('headline', 'generated')}")
+    except Exception as e:
+        console.log(f"[red]Intel Report AM error: {e}")
+
+
+def run_intel_report_evening():
+    """8:00 PM AZ — evening intel prep (no ntfy, just refresh JSON)."""
+    import datetime as _dt
+    import pytz
+    az  = pytz.timezone("US/Arizona")
+    now = _dt.datetime.now(az)
+    if now.weekday() >= 5:          # Skip weekends
+        return
+    if now.hour != 20 or now.minute > 20:
+        return
+    try:
+        from engine.morning_briefing import generate_daily_intel_report
+        result = generate_daily_intel_report(force=True, push_ntfy=False)
+        gp = result.get("game_plan", {})
+        console.log(f"[cyan]Intel Report (PM): {gp.get('headline', 'generated')}")
+    except Exception as e:
+        console.log(f"[red]Intel Report PM error: {e}")
+
+
 def run_opening_range():
     """Set opening range at 6:45 AM MST (after first 15 min of trading)."""
     import datetime as _dt
@@ -2173,6 +2211,8 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(run_gex_overlay_update) # GEX Overlay DB: every 15 min (king node, flip, walls)
     schedule.every().day.at("06:00").do(run_morning_briefing)         # Battle Station: 6:00 AM AZ (was every 5 min)
     schedule.every().day.at("06:00").do(run_archer_morning_briefing)  # Phase 3.6: Archer briefing 6:00 AM AZ
+    schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
+    schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
     schedule.every().day.at("06:45").do(run_opening_range)            # Battle Station: opening range 6:45 AM AZ
     schedule.every(2).minutes.do(run_battle_station_monitor)  # Battle Station: 60s options position monitor
     schedule.every(10).minutes.do(run_war_room)             # War Room: every 3 min during market hours (trash talk mode)

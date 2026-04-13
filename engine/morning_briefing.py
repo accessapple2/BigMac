@@ -477,3 +477,622 @@ def _post_to_cic(text: str, date_str: str) -> None:
         logger.info("Morning briefing posted to CIC for %s", date_str)
     except Exception as e:
         logger.warning("Failed to post to CIC: %s", e)
+
+
+# ══════════════════════════════════════════════════════════════════════════════
+# DAILY INTEL REPORT — 6-section proactive intelligence engine
+# Runs at 8 PM AZ (evening prep) and 6 AM AZ (morning push with ntfy)
+# Saves to data/morning_brief.json + pushes to ntfy ollietrades-admin
+# ══════════════════════════════════════════════════════════════════════════════
+
+_INTEL_JSON_PATH = os.path.expanduser("~/autonomous-trader/data/morning_brief.json")
+_ADMIN_NTFY_TOPIC = "ollietrades-admin"
+
+_SECTOR_ETFS = {
+    "XLK": "Technology",   "XLF": "Financials",      "XLE": "Energy",
+    "XLV": "Healthcare",   "XLU": "Utilities",        "XLI": "Industrials",
+    "XLB": "Materials",    "XLY": "Cons.Disc",        "XLP": "Cons.Staples",
+}
+_SECTOR_PICKS = {
+    "XLK": ["NVDA", "MSFT", "AAPL"], "XLF": ["JPM", "GS", "BAC"],
+    "XLE": ["XOM", "CVX", "COP"],    "XLV": ["UNH", "JNJ", "LLY"],
+    "XLU": ["NEE", "SO", "DUK"],     "XLI": ["HON", "CAT", "GE"],
+    "XLB": ["FCX", "NEM", "APD"],    "XLY": ["AMZN", "TSLA", "MCD"],
+    "XLP": ["PG", "KO", "WMT"],
+}
+_EARN_UNIVERSE = [
+    "AAPL", "MSFT", "NVDA", "AMZN", "GOOG", "META", "TSLA", "ORCL",
+    "AMD", "INTC", "JPM", "GS", "MS", "BAC", "V", "MA", "UNH", "LLY",
+    "XOM", "CVX", "AVGO", "NOW", "PLTR", "MU", "DELL",
+]
+
+_intel_lock = threading.Lock()
+_intel_cache: dict = {}
+
+
+# ── Section 1: Earnings Intel (next 3 days) ────────────────────────────────
+
+def _get_earnings_intel_3d() -> list:
+    """Earnings in the next 3 days with date, ticker, trend, action rec."""
+    results = []
+    try:
+        import yfinance as yf
+        today = datetime.date.today()
+        open_tickers: set = set()
+        try:
+            conn = _conn()
+            open_tickers = set(
+                r[0] for r in conn.execute(
+                    "SELECT DISTINCT ticker FROM portfolio_positions WHERE status='open'"
+                ).fetchall()
+            )
+            conn.close()
+        except Exception:
+            pass
+
+        for sym in _EARN_UNIVERSE:
+            try:
+                tk = yf.Ticker(sym)
+                cal = tk.calendar
+                if cal is None:
+                    continue
+                if hasattr(cal, "empty") and cal.empty:
+                    continue
+                dates = cal.columns.tolist() if hasattr(cal, "columns") else []
+                if not dates:
+                    continue
+                d = dates[0]
+                if hasattr(d, "date"):
+                    d = d.date()
+                if isinstance(d, datetime.datetime):
+                    d = d.date()
+                if not isinstance(d, datetime.date):
+                    continue
+                days_out = (d - today).days
+                if not (0 <= days_out <= 3):
+                    continue
+                # EPS estimate (best effort)
+                eps_est = None
+                try:
+                    row = cal.get("Earnings Per Share")
+                    if row is not None and len(row) > 0:
+                        v = row.iloc[0]
+                        if v is not None and str(v) not in ("nan", "None", ""):
+                            eps_est = round(float(v), 2)
+                except Exception:
+                    pass
+                # 30-day trend
+                trend = "flat"
+                try:
+                    hist = tk.history(period="35d", interval="1d", progress=False)
+                    if len(hist) >= 5:
+                        first = float(hist["Close"].iloc[0])
+                        last  = float(hist["Close"].iloc[-1])
+                        chg30 = (last - first) / first * 100 if first else 0
+                        trend = "up" if chg30 > 3 else ("down" if chg30 < -3 else "flat")
+                except Exception:
+                    pass
+                # Action
+                if trend == "up":
+                    action = "watch — elevated momentum into earnings"
+                elif trend == "down":
+                    action = "sell premium — consider straddle/strangle"
+                else:
+                    action = "watch"
+                results.append({
+                    "ticker":       sym,
+                    "date":         d.isoformat(),
+                    "days_out":     days_out,
+                    "eps_est":      eps_est,
+                    "trend_30d":    trend,
+                    "action":       action,
+                    "in_portfolio": sym in open_tickers,
+                })
+            except Exception:
+                pass
+    except Exception as e:
+        results = [{"error": str(e)}]
+    return results
+
+
+# ── Section 2: Sector Rotation Radar ──────────────────────────────────────
+
+def _get_sector_rotation_radar() -> dict:
+    """Compare sector ETF 5-day returns, flag money flow direction."""
+    try:
+        import yfinance as yf
+        etfs = list(_SECTOR_ETFS.keys())
+        data = yf.download(
+            etfs, period="8d", interval="1d",
+            group_by="ticker", auto_adjust=True,
+            progress=False, threads=True
+        )
+        returns: dict = {}
+        for sym in etfs:
+            try:
+                df = data[sym] if len(etfs) > 1 else data
+                if df is None or df.empty or len(df) < 2:
+                    continue
+                closes = df["Close"].dropna()
+                if len(closes) < 2:
+                    continue
+                first = float(closes.iloc[max(0, len(closes) - 6)])
+                last  = float(closes.iloc[-1])
+                if first <= 0:
+                    continue
+                returns[sym] = round((last - first) / first * 100, 2)
+            except Exception:
+                pass
+
+        if not returns:
+            # Fallback: DB sector_rotation table
+            try:
+                conn = _conn()
+                rows = conn.execute(
+                    "SELECT sector, change_pct FROM sector_rotation "
+                    "WHERE date(trade_date) >= date('now', '-5 days') "
+                    "ORDER BY trade_date DESC LIMIT 20"
+                ).fetchall()
+                conn.close()
+                for r in rows:
+                    match = next(
+                        (k for k, v in _SECTOR_ETFS.items() if v.lower() in (r["sector"] or "").lower()),
+                        None,
+                    )
+                    if match and match not in returns:
+                        returns[match] = round(float(r["change_pct"] or 0), 2)
+            except Exception:
+                pass
+
+        if not returns:
+            return {"error": "Sector data unavailable"}
+
+        sorted_secs = sorted(returns.items(), key=lambda x: x[1], reverse=True)
+        hot  = sorted_secs[:2]
+        cold = sorted_secs[-2:]
+        hot_picks: list = []
+        for sym, _ in hot:
+            hot_picks.extend(_SECTOR_PICKS.get(sym, [])[:2])
+
+        return {
+            "returns":          {k: v for k, v in sorted_secs},
+            "rotating_into":    [{"etf": s, "name": _SECTOR_ETFS.get(s, s), "ret_5d": r} for s, r in hot],
+            "rotating_out_of":  [{"etf": s, "name": _SECTOR_ETFS.get(s, s), "ret_5d": r} for s, r in cold],
+            "hot_sector_picks": hot_picks[:4],
+            "summary": (
+                f"Money rotating INTO {_SECTOR_ETFS.get(hot[0][0], hot[0][0])} "
+                f"(+{hot[0][1]:.1f}%) / "
+                f"OUT OF {_SECTOR_ETFS.get(cold[-1][0], cold[-1][0])} "
+                f"({cold[-1][1]:+.1f}%)"
+            ),
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ── Section 3: Congress Radar (last 48 h) ─────────────────────────────────
+
+def _get_congress_radar_48h() -> list:
+    """Congress trades in the last 48 hours, flagged against open positions."""
+    results = []
+    try:
+        # Open positions for cross-reference
+        open_tickers: set = set()
+        try:
+            conn = _conn()
+            open_tickers = set(
+                r[0] for r in conn.execute(
+                    "SELECT DISTINCT ticker FROM portfolio_positions WHERE status='open'"
+                ).fetchall()
+            )
+            conn.close()
+        except Exception:
+            pass
+
+        # Try live congress scraper first
+        try:
+            from engine.congress_tracker import get_congressional_trades
+            data   = get_congressional_trades()
+            trades = data.get("trades", [])
+            # Filter last 48 hours
+            cutoff = datetime.datetime.utcnow() - datetime.timedelta(hours=48)
+            for t in trades[:30]:
+                dt_str = t.get("transaction_date") or t.get("filing_date") or ""
+                try:
+                    dt_parsed = datetime.datetime.strptime(dt_str[:10], "%Y-%m-%d")
+                except Exception:
+                    dt_parsed = None
+                tx = (t.get("transaction") or "").lower()
+                is_buy = any(w in tx for w in ["purchase", "buy", "acquired"])
+                ticker = t.get("ticker") or ""
+                already = ticker in open_tickers
+                results.append({
+                    "ticker":               ticker,
+                    "transaction":          t.get("transaction", ""),
+                    "amount":               t.get("amount_range") or "unknown",
+                    "politician":           t.get("politician") or "Unknown",
+                    "traded_at":            dt_str[:10],
+                    "is_buy":               is_buy,
+                    "already_in_portfolio": already,
+                    "flag": "Congress bought — consider adding" if is_buy and not already else "",
+                })
+            if results:
+                return results
+        except Exception:
+            pass
+
+        # Fallback: DB insider_trades (corporate insiders, not congress, but useful signal)
+        conn = _conn()
+        rows = conn.execute(
+            "SELECT symbol, insider_name, transaction_type, total_value, transaction_date "
+            "FROM insider_trades "
+            "WHERE date(transaction_date) >= date('now', '-2 days') "
+            "ORDER BY transaction_date DESC LIMIT 15"
+        ).fetchall()
+        conn.close()
+        for r in rows:
+            tx = (r["transaction_type"] or "").lower()
+            is_buy = any(w in tx for w in ["purchase", "buy", "acquired"])
+            sym    = r["symbol"] or ""
+            results.append({
+                "ticker":               sym,
+                "transaction":          r["transaction_type"],
+                "amount":               f"${float(r['total_value'] or 0):,.0f}" if r["total_value"] else "unknown",
+                "politician":           r["insider_name"] or "Unknown insider",
+                "traded_at":            str(r["transaction_date"] or "")[:10],
+                "is_buy":               is_buy,
+                "already_in_portfolio": sym in open_tickers,
+                "flag": "Insider bought — consider adding" if is_buy and sym not in open_tickers else "",
+            })
+        if not results:
+            results = [{"note": "No insider/congress activity in past 48 hours"}]
+    except Exception as e:
+        results = [{"error": str(e)}]
+    return results
+
+
+# ── Section 4: Technical Setups Loading ───────────────────────────────────
+
+def _get_technical_setups_convergent() -> list:
+    """Deep scan results with high confidence from last 24 hours."""
+    results = []
+    try:
+        conn = _conn()
+        rows = conn.execute(
+            "SELECT symbol, strategy_name, confidence, entry_price, stop_price, "
+            "target_price, risk_reward, sector "
+            "FROM deep_scan_results "
+            "WHERE confidence >= 0.5 "
+            "AND date(created_at) >= date('now', '-1 day') "
+            "ORDER BY confidence DESC LIMIT 10"
+        ).fetchall()
+        conn.close()
+        for r in rows:
+            strat = (r["strategy_name"] or "").lower()
+            if "support" in strat or "bounce" in strat:
+                note = "near support — watch for bounce"
+            elif "breakout" in strat:
+                note = "breakout setup loading"
+            elif "ma" in strat or "moving" in strat or "200" in strat:
+                note = "near key moving average"
+            elif "momentum" in strat:
+                note = "momentum signal"
+            else:
+                note = f"{r['strategy_name'] or 'technical'} signal"
+            results.append({
+                "symbol":     r["symbol"],
+                "strategy":   r["strategy_name"] or "",
+                "confidence": round(float(r["confidence"] or 0), 2),
+                "entry":      round(float(r["entry_price"] or 0), 2),
+                "stop":       round(float(r["stop_price"] or 0), 2),
+                "target":     round(float(r["target_price"] or 0), 2),
+                "rr":         round(float(r["risk_reward"] or 0), 1),
+                "sector":     r["sector"] or "",
+                "note":       f"{r['symbol']} — {note}",
+            })
+        if not results:
+            results = [{"note": "No high-confidence setups in past 24 hours"}]
+    except Exception as e:
+        results = [{"error": str(e)}]
+    return results
+
+
+# ── Section 5: Tomorrow's Game Plan ───────────────────────────────────────
+
+def _get_tomorrows_game_plan() -> dict:
+    """VIX + regime + F&G → structured game plan for the next session."""
+    vix      = 0.0
+    fg_score = None
+    regime   = "UNKNOWN"
+    size_mod = 1.0
+
+    # Regime from DB
+    try:
+        conn = _conn()
+        rh = conn.execute(
+            "SELECT regime, size_modifier FROM regime_history ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if rh:
+            regime   = rh["regime"] or "UNKNOWN"
+            size_mod = float(rh["size_modifier"] or 1.0)
+    except Exception:
+        pass
+
+    # Live VIX
+    try:
+        import yfinance as yf
+        vd = yf.download("^VIX", period="2d", interval="1d",
+                         auto_adjust=True, progress=False)
+        if not vd.empty:
+            vix = round(float(vd["Close"].iloc[-1]), 1)
+    except Exception:
+        pass
+
+    # Fear & Greed
+    try:
+        from engine.fear_greed import get_fear_greed_index
+        fg = get_fear_greed_index()
+        if fg and fg.get("score") is not None:
+            fg_score = int(fg["score"])
+    except Exception:
+        pass
+
+    # Determine plan
+    if vix >= 35:
+        headline = "CRISIS — Maximum defense"
+        plan     = "Hold max cash. No new entries. Watch for capitulation candle before any longs."
+        focus    = "Capital preservation. Inverse ETFs only."
+        tone     = "crisis"
+    elif vix >= 25:
+        headline = "CAUTIOUS — Risk-off environment"
+        plan     = "Reduce position sizes 50%. Tight stops. No chasing moves. Wait for VIX < 20."
+        focus    = "Defensive plays: XLU, XLP, GLD. Avoid growth."
+        tone     = "cautious"
+    elif fg_score is not None and fg_score <= 25:
+        headline = "EXTREME FEAR — Contrarian opportunity"
+        plan     = "Fear is peaking. Scale into quality names at support. Buy in tranches — don't catch a falling knife."
+        focus    = "XLK, SPY, QQQ dips. Staged entries."
+        tone     = "contrarian"
+    elif fg_score is not None and fg_score >= 75:
+        headline = "GREED — Market extended"
+        plan     = "Overbought. Trim winners >+15%. Avoid FOMO. Let the trade come to you."
+        focus    = "Trim and protect. Wait for pullbacks."
+        tone     = "cautious"
+    elif any(k in regime for k in ("BULL", "UP", "TRENDING_UP")):
+        headline = "BULL setup — Offense mode"
+        plan     = "Momentum favors longs. Focus on breakouts and pullbacks to key MAs. Full position sizing."
+        focus    = f"XLK leaders, momentum names. Size modifier: {size_mod:.1f}x"
+        tone     = "bull"
+    elif any(k in regime for k in ("BEAR", "DOWN", "TRENDING_DOWN")):
+        headline = "BEAR trend — Stay defensive"
+        plan     = "Trend is down. Favor cash, inverse ETFs, and premium selling. No buy-and-hold."
+        focus    = "SH, SPXU, cash. Options premium collection."
+        tone     = "bear"
+    else:
+        headline = "NEUTRAL — Wait for confirmation"
+        plan     = "Mixed signals. Trade smaller. Wait for confirmed breaks above/below key levels."
+        focus    = "Watch sector rotation. No full-size bets."
+        tone     = "neutral"
+
+    return {
+        "headline":      headline,
+        "plan":          plan,
+        "focus":         focus,
+        "tone":          tone,
+        "vix":           vix,
+        "fg_score":      fg_score,
+        "regime":        regime,
+        "size_modifier": size_mod,
+    }
+
+
+# ── Section 6: Captain's Portfolio Review ─────────────────────────────────
+
+def _get_captain_portfolio_review() -> dict:
+    """Review open positions — flag big gains, losses, and earnings risk."""
+    try:
+        conn = _conn()
+        # Prefer human portfolio; fall back to all positions
+        human_port = conn.execute(
+            "SELECT id FROM portfolios WHERE is_human=1 AND is_active=1 LIMIT 1"
+        ).fetchone()
+
+        if human_port:
+            positions = conn.execute(
+                "SELECT ticker, quantity, entry_price, current_price, unrealized_pnl "
+                "FROM portfolio_positions WHERE status='open' "
+                "AND portfolio_id=? "
+                "ORDER BY unrealized_pnl DESC",
+                (human_port["id"],),
+            ).fetchall()
+        else:
+            positions = conn.execute(
+                "SELECT ticker, quantity, entry_price, current_price, unrealized_pnl "
+                "FROM portfolio_positions WHERE status='open' "
+                "ORDER BY unrealized_pnl DESC"
+            ).fetchall()
+
+        conn.close()
+        # Earnings this week — cross-ref from deep_scan_results strategy hints
+        earnings_this_week: set = set()
+
+        trim_candidates: list = []
+        review_candidates: list = []
+        earnings_risk: list = []
+
+        for p in positions:
+            entry   = float(p["entry_price"] or 1) or 1
+            current = float(p["current_price"] or entry)
+            pnl_pct = (current - entry) / entry * 100
+            upnl    = float(p["unrealized_pnl"] or 0)
+
+            if pnl_pct >= 10:
+                trim_candidates.append({
+                    "ticker":  p["ticker"],
+                    "pnl_pct": round(pnl_pct, 1),
+                    "upnl":    round(upnl, 2),
+                    "action":  f"Up {pnl_pct:.1f}% — consider trimming 25–50%",
+                })
+            elif pnl_pct <= -8:
+                review_candidates.append({
+                    "ticker":  p["ticker"],
+                    "pnl_pct": round(pnl_pct, 1),
+                    "upnl":    round(upnl, 2),
+                    "action":  f"Down {abs(pnl_pct):.1f}% — review stop loss",
+                })
+
+            if p["ticker"] in earnings_this_week:
+                earnings_risk.append(p["ticker"])
+
+        return {
+            "total_positions":   len(positions),
+            "trim_candidates":   trim_candidates,
+            "review_candidates": review_candidates,
+            "earnings_risk":     earnings_risk,
+            "summary": (
+                f"{len(positions)} open positions. "
+                f"{len(trim_candidates)} trim candidates. "
+                f"{len(review_candidates)} need review. "
+                f"Earnings risk: {', '.join(earnings_risk) if earnings_risk else 'none this week'}."
+            ),
+        }
+    except Exception as e:
+        return {"error": str(e), "summary": f"Portfolio review unavailable: {e}"}
+
+
+# ── ntfy admin push ────────────────────────────────────────────────────────
+
+def _push_admin_ntfy(title: str, body: str, priority: int = 4) -> None:
+    """Fire-and-forget ntfy push to ollietrades-admin topic."""
+    import urllib.request
+
+    def _send():
+        try:
+            payload = json.dumps({
+                "topic":    _ADMIN_NTFY_TOPIC,
+                "title":    title,
+                "message":  body,
+                "priority": priority,
+                "tags":     ["newspaper"],
+            }).encode()
+            req = urllib.request.Request(
+                "https://ntfy.sh",
+                data=payload,
+                headers={"Content-Type": "application/json"},
+                method="POST",
+            )
+            urllib.request.urlopen(req, timeout=8)
+        except Exception:
+            pass  # ntfy failures must never crash trading logic
+
+    threading.Thread(target=_send, daemon=True).start()
+
+
+def _build_and_push_ntfy(report: dict) -> None:
+    """Compose 3-line morning summary and fire to ollietrades-admin."""
+    try:
+        today    = report.get("date", "")
+        gp       = report.get("game_plan", {}) or {}
+        sectors  = report.get("sector_rotation", {}) or {}
+        earnings = [e for e in report.get("earnings", []) if isinstance(e, dict) and "ticker" in e]
+        congress = [c for c in report.get("congress_radar", []) if isinstance(c, dict) and c.get("is_buy")]
+        setups   = [s for s in report.get("technical_setups", []) if isinstance(s, dict) and "symbol" in s]
+
+        line1 = (
+            f"📊 {gp.get('headline', 'Market update')} "
+            f"| VIX {gp.get('vix', '—')} "
+            f"| F&G {gp.get('fg_score', '—')}"
+        )
+
+        if setups:
+            top   = setups[0]
+            line2 = (
+                f"🎯 Top setup: {top['symbol']} "
+                f"({top.get('strategy', 'setup')}) "
+                f"conf {int(top.get('confidence', 0) * 100)}%"
+            )
+        elif sectors.get("rotating_into"):
+            hot   = sectors["rotating_into"][0]
+            picks = sectors.get("hot_sector_picks", [])
+            line2 = (
+                f"🔥 Money into {hot.get('name', hot.get('etf', '?'))} "
+                f"(+{hot.get('ret_5d', 0):.1f}%) "
+                f"— watch {', '.join(picks[:2])}"
+            )
+        else:
+            line2 = f"🔍 Focus: {gp.get('focus', 'Monitor key levels')[:80]}"
+
+        if earnings:
+            names = [f"{e['ticker']} ({e['date'][5:]})" for e in earnings[:3]]
+            line3 = f"📅 Earnings: {', '.join(names)}"
+        elif congress:
+            c     = congress[0]
+            line3 = (
+                f"🏛 Congress: {c.get('politician', '?')} "
+                f"BOUGHT {c.get('ticker', '?')} {c.get('amount', '')}"
+            )
+        else:
+            line3 = f"📋 {gp.get('plan', '')[:100]}"
+
+        _push_admin_ntfy(
+            title=f"OllieTrades Intel — {today}",
+            body=f"{line1}\n{line2}\n{line3}",
+            priority=4,
+        )
+        logger.info("Morning intel ntfy pushed to %s", _ADMIN_NTFY_TOPIC)
+    except Exception as e:
+        logger.warning("Failed to build ntfy push: %s", e)
+
+
+# ── Main entry point ───────────────────────────────────────────────────────
+
+def generate_daily_intel_report(force: bool = False, push_ntfy: bool = False) -> dict:
+    """
+    Generate the full daily intelligence report (6 sections).
+    Saves to data/morning_brief.json.
+    push_ntfy=True fires the admin ntfy notification (6 AM run only).
+    Cached per calendar day; force=True regenerates.
+    Returns the full report dict.
+    """
+    with _intel_lock:
+        today = _today_str()
+        if not force and _intel_cache.get("date") == today and _intel_cache.get("generated_at"):
+            return dict(_intel_cache)
+
+        import pytz
+        az      = pytz.timezone("US/Arizona")
+        now_str = datetime.datetime.now(az).strftime("%A, %B %-d, %Y — %I:%M %p AZ")
+
+        earnings    = _get_earnings_intel_3d()
+        sectors     = _get_sector_rotation_radar()
+        congress    = _get_congress_radar_48h()
+        setups      = _get_technical_setups_convergent()
+        game_plan   = _get_tomorrows_game_plan()
+        port_review = _get_captain_portfolio_review()
+
+        report = {
+            "date":             today,
+            "generated_at":     datetime.datetime.now().isoformat(),
+            "label":            f"Daily Intel — {now_str}",
+            "earnings":         earnings,
+            "sector_rotation":  sectors,
+            "congress_radar":   congress,
+            "technical_setups": setups,
+            "game_plan":        game_plan,
+            "portfolio_review": port_review,
+        }
+
+        # Persist to JSON
+        try:
+            with open(_INTEL_JSON_PATH, "w") as fh:
+                json.dump(report, fh, indent=2, default=str)
+            logger.info("Daily intel report saved → %s", _INTEL_JSON_PATH)
+        except Exception as e:
+            logger.warning("Failed to save intel JSON: %s", e)
+
+        if push_ntfy:
+            _build_and_push_ntfy(report)
+
+        _intel_cache.update(report)
+        return report

@@ -14991,6 +14991,48 @@ def brain_context_endpoint(symbol: str = "SPY", player_id: str = "claude-trader"
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
+# ── Daily Intel Report endpoints ─────────────────────────────────────────────
+
+@app.get("/api/morning-brief")
+async def morning_brief_latest():
+    """Return the latest daily intel report JSON (from file or cache)."""
+    import os as _os, json as _json
+    path = _os.path.expanduser("~/autonomous-trader/data/morning_brief.json")
+    try:
+        # Try the in-memory cache first (zero I/O)
+        from engine.morning_briefing import _intel_cache, _today_str
+        if _intel_cache.get("date") == _today_str() and _intel_cache.get("generated_at"):
+            return JSONResponse({"ok": True, **_intel_cache})
+    except Exception:
+        pass
+    # Fall back to file
+    try:
+        if _os.path.exists(path):
+            with open(path) as fh:
+                data = _json.load(fh)
+            return JSONResponse({"ok": True, **data})
+        return JSONResponse({"ok": False, "error": "No report generated yet"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
+@app.get("/api/morning-brief/run")
+async def morning_brief_run(force: bool = True):
+    """Trigger a fresh daily intel report generation (no ntfy push)."""
+    try:
+        from engine.morning_briefing import generate_daily_intel_report
+        result = generate_daily_intel_report(force=force, push_ntfy=False)
+        return JSONResponse({
+            "ok":           True,
+            "generated_at": result.get("generated_at"),
+            "date":         result.get("date"),
+            "game_plan":    result.get("game_plan", {}),
+            "message":      "Intel report generated successfully",
+        })
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
 # ── Phase 3.6 — Morning Briefing endpoint ────────────────────────────────────
 
 @app.get("/api/briefing/today")
