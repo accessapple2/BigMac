@@ -19,13 +19,16 @@ class RiskManager:
         "default": 3,            # Most models: max 3 trades per day
         "ollama-local": 2,       # Geordi: max 2 (was unlimited, made 2795)
         "gemini-2.5-flash": 2,   # Worf: max 2 (made 481)
-        "grok-4": 3,             # Spock: max 3 (made 513)
-        "ollama-qwen3": 3,       # Scotty: already disciplined
-        "ollama-plutus": 3,      # Bones: already disciplined
+        "grok-4": 8,             # Spock: 100% WR, 15 trades proven
+        "ollama-qwen3": 3,       # Dax: 1 bad trade, cautious
+        "ollama-plutus": 3,      # McCoy: no closed trades yet S6
+        "ollama-coder": 3,       # Data: no closed trades yet S6
+        "ollama-llama": 2,       # Uhura: 19% WR history — watch closely
         "energy-arnold": 2,      # Trip Tucker: energy only, max 2
         "options-sosnoff": 3,    # Counselor Troi: wheel strategy, max 3 (one per position)
-        "navigator": 5,          # Chekov: convergence auto-trader, fills up to 5 per scan
-        "ollie-auto": 10,        # Ollie Super Trader: signal-driven, up to 10/day
+        "navigator": 8,          # Chekov: positive P&L, scanner role
+        "neo-matrix": 5,         # Neo: 1 trade only, prove first
+        "ollie-auto": 15,        # Ollie Super Trader: signal-driven, up to 15/day
     }
 
     # Universal limits
