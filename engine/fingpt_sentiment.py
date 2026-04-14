@@ -36,27 +36,30 @@ def _score_headline(symbol: str, headline: str) -> dict | None:
         f'Reply with ONLY a JSON: {{"sentiment":"BULLISH" or "BEARISH" or "NEUTRAL",'
         f'"strength":1-10,"reasoning":"one sentence"}}\n\nHeadline: {headline}'
     )
-    try:
-        r = requests.post(
-            f"{_OLLAMA}/api/generate",
-            json={
-                "model": "mistral:7b",
-                "prompt": prompt,
-                "stream": False,
-                "options": {"temperature": 0.1, "num_predict": 80},
-            },
-            timeout=15,
-        )
-        r.raise_for_status()
-        raw = r.json().get("response", "").strip()
-        # Strip markdown fences
-        if "```" in raw:
-            raw = raw.split("```")[1]
-            if raw.startswith("json"):
-                raw = raw[4:]
-        return json.loads(raw.strip())
-    except Exception:
-        return None
+    for model in ["mistral:7b", "0xroyce/plutus:latest"]:
+        try:
+            r = requests.post(
+                f"{_OLLAMA}/api/generate",
+                json={
+                    "model": model,
+                    "prompt": prompt,
+                    "stream": False,
+                    "options": {"temperature": 0.1, "num_predict": 80},
+                },
+                timeout=15,
+            )
+            r.raise_for_status()
+            raw = r.json().get("response", "").strip()
+            if "```" in raw:
+                raw = raw.split("```")[1]
+                if raw.startswith("json"):
+                    raw = raw[4:]
+            result = json.loads(raw.strip())
+            if result.get("sentiment"):
+                return result
+        except Exception:
+            continue
+    return None
 
 
 def get_sentiment(symbol: str) -> dict | None:

@@ -1542,6 +1542,29 @@ def run_all_signals(as_of: date | None = None) -> dict:
     except Exception as e:
         logger.error(f"Reddit sentiment failed: {e}")
 
+    # Blend FinGPT news sentiment into sentiment_scores
+    try:
+        from engine.fingpt_sentiment import get_sentiment
+        for sym in ALPHA_UNIVERSE:
+            news = get_sentiment(sym)
+            if news and news.get("sentiment"):
+                s = news["sentiment"]
+                strength = news.get("avg_strength", 5) / 10.0  # normalize 0-1
+                if "BULLISH" in s:
+                    news_score = strength
+                elif "BEARISH" in s:
+                    news_score = -strength
+                else:
+                    news_score = 0.0
+                # Blend: average with Reddit if available, else use news alone
+                if sym in sentiment_scores:
+                    sentiment_scores[sym] = round((sentiment_scores[sym] + news_score) / 2, 4)
+                else:
+                    sentiment_scores[sym] = round(news_score, 4)
+        logger.info(f"[6b/10] FinGPT news sentiment blended for {len(sentiment_scores)} symbols")
+    except Exception as e:
+        logger.warning(f"FinGPT news sentiment blend failed: {e}")
+
     logger.info("[7/10] Earnings signals (yfinance)...")
     earnings_scores = {}
     try:
