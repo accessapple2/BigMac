@@ -72,13 +72,13 @@ BACKTEST_DAYS = 90
 # ── Sniper v5 config ──────────────────────────────────────────────────────────
 SNIPER_ALPHA_THRESHOLD = 0.3
 SNIPER_CONF_THRESHOLD  = 0.70          # raised from 0.65 per Season 6
-SNIPER_BULL_MIN        = 3
+SNIPER_BULL_MIN        = 2
 
 # Ollie Commander thresholds
-OLLIE_THRESHOLD  = 3.0
-OLLIE_W_GRADE    = 0.30
-OLLIE_W_ALPHA    = 0.25
-OLLIE_W_AGENT_WR = 0.25
+OLLIE_THRESHOLD  = 2.7
+OLLIE_W_GRADE    = 0.25
+OLLIE_W_ALPHA    = 0.35
+OLLIE_W_AGENT_WR = 0.20
 OLLIE_W_REGIME   = 0.20
 
 # Regime alignment bonus for each strategy
@@ -90,19 +90,21 @@ REGIME_ALIGN = {
 
 # Agent assignment: strategy → agent_id
 STRAT_AGENT_V5 = {
-    "rsi_bounce":    "grok-4",          # Spock
+    "rsi_bounce":    "navigator",       # Navigator
     "csp":           "ollama-plutus",    # McCoy (high-VIX) or Uhura
-    "covered_call":  "gemini-2.5-flash", # Worf (CAUTIOUS/BEAR) or Uhura (BULL)
+    "covered_call":  "capitol-trades",    # Capitol (CAUTIOUS/BEAR) or Uhura (BULL)
 }
 
 SNIPER_FLEET_V5 = {
-    "ollie-auto":       {"name": "Ollie",  "model": "commander",        "role": "gate"},
-    "ollama-llama":     {"name": "Uhura",  "model": "llama3.1:latest",  "tiers": [5, 6]},
-    "gemini-2.5-flash": {"name": "Worf",   "model": "qwen3:14b",        "tiers": [5]},
-    "grok-4":           {"name": "Spock",  "model": "phi4:14b",         "tiers": [1]},
-    "gemini-2.5-pro":   {"name": "Seven",  "model": "qwen3:14b",        "tiers": [1]},
-    "ollama-plutus":    {"name": "McCoy",  "model": "0xroyce/plutus",   "tiers": [5]},
-    "neo-matrix":       {"name": "Neo",    "model": "0xroyce/plutus",   "tiers": [3]},
+    "ollie-auto":     {"name": "Ollie",     "model": "commander",        "role": "gate"},
+    "ollama-llama":   {"name": "Uhura",     "model": "llama3.1:latest",  "tiers": [5, 6]},
+    "navigator":      {"name": "Navigator", "model": "qwen2.5:7b",       "tiers": [5]},
+    "chekov":         {"name": "Chekov",    "model": "qwen2.5:7b",       "tiers": [5]},
+    "ollama-plutus":  {"name": "McCoy",     "model": "0xroyce/plutus",   "tiers": [5]},
+    "ollama-qwen3":   {"name": "Dax",       "model": "qwen3:8b",         "tiers": [1, 5]},
+    "ollama-coder":   {"name": "Data",      "model": "qwen2.5-coder:7b", "tiers": [3]},
+    "neo-matrix":     {"name": "Neo",       "model": "0xroyce/plutus",   "tiers": [3]},
+    "capitol-trades": {"name": "Capitol",   "model": "congress",         "tiers": [5]},
 }
 
 V5_STRATEGIES = ("rsi_bounce", "csp", "covered_call")
@@ -234,6 +236,8 @@ def _ollie_score(
         OLLIE_W_REGIME   * norm_regime,
         3,
     )
+    chekov_threshold = 2.3  # chekov proven live, less filtering needed
+    threshold = chekov_threshold if agent_wr < 0.1 else OLLIE_THRESHOLD
     return score, score >= OLLIE_THRESHOLD
 
 
@@ -278,6 +282,7 @@ def _run_sniper_v5_event_loop(
     vix_map: dict,
     alpha_scores: dict,
     agent_wr_tracker: dict,   # mutable: {agent_id: [win/loss, ...]}
+    spy_map: dict = {},
 ) -> tuple[dict, dict, list, list, int]:
     """
     Sniper event loop: rsi_bounce only.
@@ -336,6 +341,21 @@ def _run_sniper_v5_event_loop(
             t3 = _tier3_signals(c, h, l, v, avg_v)
             bull_signals = sum(1 for bv in list(t2.values()) + list(t3.values()) if bv)
 
+            # ── ALMU Pattern: 200 SMA proximity bonus ─────────────────────────
+            # Stock within 15% below 200 SMA = target above, add bull signal
+            if len(c) >= 200:
+                sma200 = float(np.mean(c[-200:]))
+                below_200 = (sma200 - px) / sma200
+                if 0.0 < below_200 < 0.15:
+                    bull_signals += 1  # 200 SMA is nearby target above
+
+            # ── Relative Strength: stock up when SPY down ─────────────────────
+            if len(c) >= 5:
+                stock_5d = (c[-1] - c[-5]) / c[-5] if c[-5] > 0 else 0
+                spy_day  = spy_map.get(day.date() if hasattr(day, "date") else day, None)
+                if spy_day is not None and stock_5d > 0 and spy_day < 0:
+                    bull_signals += 1  # green when market red = relative strength
+
             # ── Exit existing approved positions ──────────────────────────────
             rsi_sig = rsi_val < 30
             key = f"{sym}_rsi_bounce"
@@ -392,11 +412,16 @@ def _run_sniper_v5_event_loop(
                 continue
 
             # ── Triple filter ─────────────────────────────────────────────────
-            if bull_signals < SNIPER_BULL_MIN:
+            if sym in {"TME", "BSX", "SCHG"}:  # rsi_bounce losers
+                sniper_skipped += 1
+                continue
+            _bull_min = SNIPER_BULL_MIN if regime == "BULL" else 1
+            if bull_signals < _bull_min:
                 sniper_skipped += 1
                 continue
 
-            agent_id = STRAT_AGENT_V5["rsi_bounce"]
+            _rb_agents = ["navigator", "chekov"] if regime == "BULL" else ["ollama-llama", "chekov"]
+            agent_id = _rb_agents[day_counter % 2]
 
             # ── Gate 8: Ollie Commander ───────────────────────────────────────
             wr_hist  = agent_wr_tracker.get(agent_id, [])
@@ -507,7 +532,13 @@ def _run_sniper_v5_options_loop(
         vix_val = vix_map.get(day, 18.0)
         regime  = _classify_regime(vix_val)
 
+        # Blacklist: tickers with proven poor options performance
+        OPTIONS_BLACKLIST = {"TME"}
+        RSI_BLACKLIST    = {"TME", "BSX", "SCHG"}
+
         for sym in list(td.keys()):
+            if sym in OPTIONS_BLACKLIST:
+                continue
             df = td[sym]
             if len(df) < 30:
                 continue
@@ -546,9 +577,10 @@ def _run_sniper_v5_options_loop(
                 "pos_factor":  pos_factor,
             }
 
+
             # ── CSP ───────────────────────────────────────────────────────────
             if ivr > 60 and bull >= 2 and regime in ("BULL", "CAUTIOUS"):
-                agent_id = "ollama-plutus" if vix_val >= 25 else "ollama-llama"
+                agent_id = "ollama-plutus" if vix_val >= 20 else ("ollama-qwen3" if vix_val >= 14 else "ollama-coder")
                 wr_hist  = agent_wr_tracker.get(agent_id, [])
                 agent_wr = (sum(wr_hist) / len(wr_hist)) if len(wr_hist) >= 3 else 0.55
                 o_score, o_approved = _ollie_score(alpha, regime, "csp", agent_wr)
@@ -581,7 +613,7 @@ def _run_sniper_v5_options_loop(
 
             # ── Covered Call ──────────────────────────────────────────────────
             if ivr > 50 and bull >= 2:
-                agent_id = "ollama-llama" if regime == "BULL" else "gemini-2.5-flash"
+                agent_id = "ollama-llama" if regime in ("BULL", "CAUTIOUS") else ("neo-matrix" if regime == "BEAR" else "capitol-trades")
                 wr_hist  = agent_wr_tracker.get(agent_id, [])
                 agent_wr = (sum(wr_hist) / len(wr_hist)) if len(wr_hist) >= 3 else 0.55
                 o_score, o_approved = _ollie_score(alpha, regime, "covered_call", agent_wr)
@@ -638,9 +670,25 @@ def _run_sniper_v5(td: dict, trading_days: list, vix_map: dict,
     # Rolling win-rate tracker (shared across event + options loops)
     agent_wr_tracker: dict[str, list] = defaultdict(list)
 
+    # Build SPY daily return map for relative strength signal
+    spy_map: dict = {}
+    try:
+        import pandas as pd
+        _spy_start = min(trading_days) - timedelta(days=10)
+        _spy_end   = max(trading_days) + timedelta(days=2)
+        _spy_df    = _download_spy_with_retry(_spy_start, _spy_end, max_retries=2, delay=1)
+        if _spy_df is not None and not _spy_df.empty:
+            _spy_df.index = pd.to_datetime(_spy_df.index).normalize()
+            _spy_c = _spy_df["Close"].values
+            _spy_d = list(_spy_df.index)
+            for i in range(1, len(_spy_c)):
+                spy_map[_spy_d[i].date()] = (_spy_c[i] - _spy_c[i-1]) / _spy_c[i-1]
+    except Exception as _e:
+        logger.warning(f"spy_map build failed: {_e}")
+
     # Run loops
     event_trades, agent_trades, ev_ollie, ev_shadow, ev_skipped = _run_sniper_v5_event_loop(
-        sniper_universe, trading_days, vix_map, alpha_scores, agent_wr_tracker
+        sniper_universe, trading_days, vix_map, alpha_scores, agent_wr_tracker, spy_map
     )
     opt_trades, opt_ollie, opt_shadow, opt_skipped = _run_sniper_v5_options_loop(
         sniper_universe, trading_days, vix_map, alpha_scores, agent_wr_tracker
@@ -745,8 +793,9 @@ def _run_sniper_v5(td: dict, trading_days: list, vix_map: dict,
              profit_factor, num_trades, avg_hold_days,
              best_trade_pct, worst_trade_pct,
              bull_return, cautious_return, bear_return,
-             spy_return, vs_spy, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+             spy_return, vs_spy, created_at,
+             expectancy, recovery_factor)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             run_date, aid, spec.get("name", aid), spec.get("model", ""),
             am["total_return"], am["win_rate"], am["sharpe"], am["max_drawdown"],
@@ -754,6 +803,7 @@ def _run_sniper_v5(td: dict, trading_days: list, vix_map: dict,
             am["best_trade_pct"], am["worst_trade_pct"],
             am.get("bull_return", 0), am.get("cautious_return", 0), am.get("bear_return", 0),
             spy_return, round(am["total_return"] - spy_return, 2), now,
+            am.get("expectancy", 0.0), am.get("recovery_factor", 0.0),
         ))
 
     for (strat, sym), trades in by_strat_sym.items():

@@ -9946,6 +9946,19 @@ registerSectionInit('costs', fetchCosts, [{fn: fetchCosts, ms: 60000}]);
 
 <!-- KILL SWITCH SECTION -->
 <div id="section-kill-switch" class="admin-only" style="display:none;">
+  <!-- Per-Agent Gateway Kill Switches -->
+  <div class="card" style="border:2px solid #6366f1;margin-bottom:16px;">
+    <div class="card-header">
+      <div class="card-title" style="color:#6366f1;">AGENT GATEWAY — Per-Agent Trade Control</div>
+    </div>
+    <div style="padding:16px;">
+      <p style="color:var(--muted);margin-bottom:16px;font-size:13px;">Block individual agents from submitting trades. Toggling OFF blocks new trades but does NOT close existing positions.</p>
+      <div id="agentGatewayList" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:10px;">
+        <div style="color:var(--muted);font-size:13px;">Loading agents...</div>
+      </div>
+      <div id="agentGatewayMsg" style="margin-top:12px;font-size:13px;font-weight:700;"></div>
+    </div>
+  </div>
   <!-- Pause Toggle (reversible) -->
   <div class="card" style="border:2px solid #eab308;margin-bottom:16px;">
     <div class="card-header">
@@ -9971,6 +9984,41 @@ registerSectionInit('costs', fetchCosts, [{fn: fetchCosts, ms: 60000}]);
   </div>
 </div>
 <script>
+
+
+async function loadKillSwitchSection() {
+  loadKillHistory();
+  loadAgentGateway();
+}
+
+async function loadAgentGateway() {
+  var r = await fetch('/api/gateway/agent-status');
+  var data = await r.json();
+  var el = document.getElementById('agentGatewayList');
+  if (!el) return;
+  el.innerHTML = data.agents.map(a => {
+    var blocked = a.blocked;
+    var color = blocked ? '#e00' : '#22c55e';
+    var label = blocked ? 'BLOCKED' : 'ACTIVE';
+    var name = (window.AGENT_NAMES && AGENT_NAMES[a.agent_id]) || a.agent_id;
+    return `<div style="background:var(--surface2);border:1px solid var(--border);border-radius:8px;padding:10px;display:flex;justify-content:space-between;align-items:center;">
+      <span style="font-size:12px;font-weight:700;">${name}</span>
+      <button onclick="toggleAgentGateway('${a.agent_id}')" style="background:${color};color:#fff;border:none;border-radius:6px;padding:4px 10px;font-size:11px;font-weight:700;cursor:pointer;">${label}</button>
+    </div>`;
+  }).join('');
+}
+
+async function toggleAgentGateway(agent_id) {
+  var r = await fetch('/api/gateway/kill-switch/' + agent_id, {method:'POST'});
+  var data = await r.json();
+  var msg = document.getElementById('agentGatewayMsg');
+  msg.style.color = data.blocked ? '#e00' : '#22c55e';
+  msg.textContent = agent_id + ' is now ' + (data.blocked ? 'BLOCKED' : 'ACTIVE');
+  loadAgentGateway();
+}
+
+
+
 var _pauseAllState = false;
 async function togglePauseAll() {
   var btn = document.getElementById('pauseAllBtn');
@@ -12930,7 +12978,7 @@ var _sectionFetchMap = {
   'strength': 'fetchStrength',
   'pairs': 'fetchPairTrades',
   'autopilot': 'fetchAutopilotStatus',
-  'kill-switch': 'loadKillHistory',
+  'kill-switch': 'loadKillSwitchSection',
   'strategy-presets': 'fetchStrategyPresets',
   'dynamic-alerts': 'fetchDynamicAlerts',
   'strategy-race': 'fetchStrategyRace',

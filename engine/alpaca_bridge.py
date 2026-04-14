@@ -1,6 +1,7 @@
 """Alpaca Paper Trading Bridge — connects to Alpaca's paper trading API."""
 import os
 from rich.console import Console
+from engine.trade_gateway import check_trade
 
 console = Console()
 
@@ -62,10 +63,13 @@ class AlpacaBridge:
         except Exception as e:
             return [{'error': str(e)}]
 
-    def buy(self, symbol, qty, extended_hours: bool = False, limit_price: float = 0.0):
+    def buy(self, symbol, qty, agent_id: str = "unknown", extended_hours: bool = False, limit_price: float = 0.0):
         if not self.client:
             return {'error': 'Not connected'}
         try:
+            result = check_trade(agent_id, symbol, "BUY", float(qty), float(limit_price or 0))
+            if not result["allowed"]:
+                return {"error": f"Gateway blocked: {result['reason']}"}
             from alpaca.trading.enums import OrderSide, TimeInForce
             if extended_hours and limit_price > 0:
                 # Alpaca requires limit orders for extended-hours trading.
@@ -89,10 +93,13 @@ class AlpacaBridge:
         except Exception as e:
             return {'error': str(e)}
 
-    def sell(self, symbol, qty, extended_hours: bool = False, limit_price: float = 0.0):
+    def sell(self, symbol, qty, agent_id: str = "unknown", extended_hours: bool = False, limit_price: float = 0.0):
         if not self.client:
             return {'error': 'Not connected'}
         try:
+            result = check_trade(agent_id, symbol, "SELL", float(qty), float(limit_price or 0))
+            if not result["allowed"]:
+                return {"error": f"Gateway blocked: {result['reason']}"}
             from alpaca.trading.enums import OrderSide, TimeInForce
             if extended_hours and limit_price > 0:
                 # Alpaca requires limit orders for extended-hours trading.

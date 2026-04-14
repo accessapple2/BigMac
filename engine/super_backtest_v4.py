@@ -179,7 +179,7 @@ def _trade_metrics_v4(trades: list[dict]) -> dict:
             total_return=0.0, win_rate=0.0, sharpe=0.0, max_drawdown=0.0,
             profit_factor=0.0, num_trades=0, avg_hold_days=0.0,
             best_trade_pct=0.0, worst_trade_pct=0.0,
-            max_consec_wins=0, max_consec_losses=0, avg_trade_return=0.0,
+            max_consec_wins=0, max_consec_losses=0, avg_trade_return=0.0, expectancy=0.0, recovery_factor=0.0,
             realistic_sharpe=0.0, needs_validation=0,
         )
 
@@ -208,6 +208,12 @@ def _trade_metrics_v4(trades: list[dict]) -> dict:
         else:
             cur_l += 1; cur_w = 0; consec_l = max(consec_l, cur_l)
 
+    avg_win  = float(np.mean(wins))  if wins   else 0.0
+    avg_loss = float(np.mean(losses)) if losses else 0.0
+    loss_rate = len(losses) / len(pcts)
+    expectancy = round((win_rate/100 * avg_win) + (loss_rate * avg_loss), 3)
+    recovery_factor = round(total_return / abs(max_dd), 3) if max_dd != 0 else 0.0
+
     return dict(
         total_return=round(total_return, 2),
         win_rate=round(win_rate, 1),
@@ -223,6 +229,8 @@ def _trade_metrics_v4(trades: list[dict]) -> dict:
         worst_trade_pct=round(min(pcts), 2),
         max_consec_wins=consec_w,
         max_consec_losses=consec_l,
+        expectancy=expectancy,
+        recovery_factor=recovery_factor,
     )
 
 

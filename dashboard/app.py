@@ -15638,3 +15638,51 @@ def api_backtest_matrix():
 
 if __name__ == "__main__":
     uvicorn.run(app, host="127.0.0.1", port=8080)
+
+
+# --- Per-Agent Gateway Kill Switch ---
+
+@app.get("/api/gateway/agent-status")
+def gateway_agent_status():
+    """Get kill switch status for all active agents."""
+    agents = ["ollie-auto", "navigator", "chekov", "ollama-llama", "ollama-plutus",
+              "ollama-qwen3", "ollama-coder", "neo-matrix", "capitol-trades"]
+    conn = sqlite3.connect("data/trader.db")
+    result = []
+    try:
+        for agent_id in agents:
+            row = conn.execute(
+                "SELECT value FROM settings WHERE key=?",
+                (f"kill_switch_{agent_id}",)
+            ).fetchone()
+            blocked = row and row[0] == "1"
+            result.append({"agent_id": agent_id, "blocked": blocked})
+    finally:
+        conn.close()
+    return {"agents": result}
+
+
+@app.post("/api/gateway/kill-switch/{agent_id}")
+def toggle_agent_kill_switch(agent_id: str, action: str = "toggle"):
+    """Toggle kill switch for a specific agent. action=on|off|toggle"""
+    conn = sqlite3.connect("data/trader.db")
+    try:
+        row = conn.execute(
+            "SELECT value FROM settings WHERE key=?",
+            (f"kill_switch_{agent_id}",)
+        ).fetchone()
+        current = row[0] if row else "0"
+        if action == "on":
+            new_val = "1"
+        elif action == "off":
+            new_val = "0"
+        else:
+            new_val = "0" if current == "1" else "1"
+        conn.execute(
+            "INSERT OR REPLACE INTO settings (key, value) VALUES (?, ?)",
+            (f"kill_switch_{agent_id}", new_val)
+        )
+        conn.commit()
+        return {"agent_id": agent_id, "blocked": new_val == "1"}
+    finally:
+        conn.close()
