@@ -83,7 +83,8 @@ OLLIE_W_REGIME   = 0.20
 
 # Per-agent threshold overrides (lower = more trades approved)
 AGENT_THRESHOLDS: dict[str, float] = {
-    "ollama-qwen3":   2.5,   # Dax: 13 blocked trades w/ +20.88% avg PnL — unlock them
+    "ollama-qwen3":   2.4,   # Dax: shadow trades avg +20.88% — unlock more
+    "ollama-llama":   2.5,   # Uhura: 61 of 79 blocked would have won at +3.07%
     "capitol-trades": 2.6,   # Congress copycat: slightly lower bar for insider intel
 }
 
@@ -423,7 +424,7 @@ def _run_sniper_v5_event_loop(
                 continue
 
             # ── Triple filter ─────────────────────────────────────────────────
-            if sym in {"TME", "BSX", "SCHG"}:  # rsi_bounce losers
+            if sym in {"TME", "BSX", "SCHG", "NVD", "DUST", "HDB"}:  # rsi_bounce losers
                 sniper_skipped += 1
                 continue
             _bull_min = SNIPER_BULL_MIN if regime == "BULL" else 1
@@ -621,7 +622,7 @@ def _run_sniper_v5_options_loop(
         regime  = _classify_regime(vix_val)
 
         # Blacklist: tickers with proven poor options performance
-        OPTIONS_BLACKLIST = {"TME"}
+        OPTIONS_BLACKLIST = {"TME", "SCHG"}  # confirmed losers on CSP
         RSI_BLACKLIST    = {"TME", "BSX", "SCHG"}
 
         for sym in list(td.keys()):
