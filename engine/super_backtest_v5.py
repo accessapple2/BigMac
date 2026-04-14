@@ -65,9 +65,9 @@ TRADER_DB   = _ROOT / "data" / "trader.db"
 ALPHA_DB    = _ROOT / "data" / "alpha_signals.db"
 DATA_DIR    = _ROOT / "data"
 
-WINDOW_START  = date(2026, 1, 9)
+WINDOW_START  = date(2025, 4, 13)
 WINDOW_END    = date(2026, 4, 9)
-BACKTEST_DAYS = 90
+BACKTEST_DAYS = 365
 
 # ── Sniper v5 config ──────────────────────────────────────────────────────────
 SNIPER_ALPHA_THRESHOLD = 0.3
@@ -81,11 +81,18 @@ OLLIE_W_ALPHA    = 0.35
 OLLIE_W_AGENT_WR = 0.20
 OLLIE_W_REGIME   = 0.20
 
+# Per-agent threshold overrides (lower = more trades approved)
+AGENT_THRESHOLDS: dict[str, float] = {
+    "ollama-qwen3":   2.5,   # Dax: 13 blocked trades w/ +20.88% avg PnL — unlock them
+    "capitol-trades": 2.6,   # Congress copycat: slightly lower bar for insider intel
+}
+
 # Regime alignment bonus for each strategy
 REGIME_ALIGN = {
-    "covered_call": {"BULL": 1.2, "CAUTIOUS": 2.0, "BEAR": 2.0, "CRISIS": 0.0},
-    "csp":          {"BULL": 2.0, "CAUTIOUS": 1.5, "BEAR": 0.5, "CRISIS": 0.0},
-    "rsi_bounce":   {"BULL": 2.0, "CAUTIOUS": 1.0, "BEAR": 0.5, "CRISIS": 0.0},
+    "covered_call":  {"BULL": 1.2, "CAUTIOUS": 2.0, "BEAR": 2.0, "CRISIS": 0.0},
+    "csp":           {"BULL": 2.0, "CAUTIOUS": 1.5, "BEAR": 0.5, "CRISIS": 0.0},
+    "rsi_bounce":    {"BULL": 2.0, "CAUTIOUS": 1.0, "BEAR": 0.5, "CRISIS": 0.0},
+    "bull_momentum": {"BULL": 2.0, "CAUTIOUS": 1.5, "BEAR": 0.0, "CRISIS": 0.0},
 }
 
 # Agent assignment: strategy → agent_id
@@ -107,7 +114,7 @@ SNIPER_FLEET_V5 = {
     "capitol-trades": {"name": "Capitol",   "model": "congress",         "tiers": [5]},
 }
 
-V5_STRATEGIES = ("rsi_bounce", "csp", "covered_call")
+V5_STRATEGIES = ("rsi_bounce", "csp", "covered_call", "bull_momentum")
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -216,6 +223,7 @@ def _ollie_score(
     regime: str,
     strategy: str,
     agent_wr: float,          # 0.0–1.0 rolling win rate
+    agent_id: str = "",       # optional: enables per-agent threshold override
 ) -> tuple[float, bool]:
     """Return (ollie_score, approved)."""
     grade_pts    = _ollie_grade_pts(alpha)
@@ -236,9 +244,12 @@ def _ollie_score(
         OLLIE_W_REGIME   * norm_regime,
         3,
     )
-    chekov_threshold = 2.3  # chekov proven live, less filtering needed
-    threshold = chekov_threshold if agent_wr < 0.1 else OLLIE_THRESHOLD
-    return score, score >= OLLIE_THRESHOLD
+    # Per-agent threshold override; chekov proven live so also gets a low bar
+    if agent_id == "chekov":
+        threshold = 2.3
+    else:
+        threshold = AGENT_THRESHOLDS.get(agent_id, OLLIE_THRESHOLD)
+    return score, score >= threshold
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
@@ -426,7 +437,7 @@ def _run_sniper_v5_event_loop(
             # ── Gate 8: Ollie Commander ───────────────────────────────────────
             wr_hist  = agent_wr_tracker.get(agent_id, [])
             agent_wr = (sum(wr_hist) / len(wr_hist)) if len(wr_hist) >= 3 else 0.55
-            o_score, o_approved = _ollie_score(alpha, regime, "rsi_bounce", agent_wr)
+            o_score, o_approved = _ollie_score(alpha, regime, "rsi_bounce", agent_wr, agent_id)
 
             ollie_decisions.append({
                 "symbol":       sym,
@@ -463,6 +474,83 @@ def _run_sniper_v5_event_loop(
                         "agent_id":   agent_id,
                     }
                 sniper_skipped += 1
+
+            # ── BULL MOMENTUM BREAKOUT ────────────────────────────────────────
+            # Entry: BULL regime (or CAUTIOUS + 3+ bull signals) + momentum
+            # breakout (price > 21-day high on 1.5x volume) + RSI 50-70
+            bm_key = f"{sym}_bull_momentum"
+            bm_qualify = (
+                regime == "BULL" or (regime == "CAUTIOUS" and bull_signals >= 3)
+            )
+            # momentum_breakout: price > 21-day high AND relative volume > 1.5x
+            if len(c) >= 21:
+                high_21 = float(np.max(c[-22:-1]))   # 21 days before today
+                vol_ratio = (float(v[-1]) / avg_v) if avg_v > 0 else 1.0
+                bm_breakout = (px > high_21) and (vol_ratio >= 1.5)
+            else:
+                bm_breakout = False
+            bm_rsi_ok = 50 <= rsi_val <= 70
+            bm_alpha_ok = alpha >= 0.35
+
+            # Exit existing bull_momentum positions
+            if bm_key in positions:
+                bpos = positions[bm_key]
+                bgain = (px - bpos["entry"]) / bpos["entry"]
+                bheld = bpos.get("days_held", 0)
+                if bgain >= 0.08 or bgain <= -0.05 or bheld >= 10:
+                    bpnl = bgain * 100 * pos_factor - SLIPPAGE * 200
+                    bpnl = max(-100.0, min(100.0, bpnl))
+                    bt = {
+                        "strategy":    "bull_momentum",
+                        "ticker":      sym,
+                        "entry_date":  bpos["entry_date"],
+                        "exit_date":   day_str,
+                        "pnl_pct":     round(bpnl, 2),
+                        "hold_days":   bheld,
+                        "alpha_score": alpha,
+                        "regime":      regime,
+                        "month":       month,
+                        "win":         1 if bpnl > 0 else 0,
+                        "agent_id":    bpos["agent_id"],
+                        "ollie_approved": True,
+                    }
+                    event_trades["bull_momentum"].append(bt)
+                    agent_trades[bpos["agent_id"]].append(bt)
+                    agent_wr_tracker[bpos["agent_id"]].append(1 if bpnl > 0 else 0)
+                    del positions[bm_key]
+                else:
+                    positions[bm_key]["days_held"] = bheld + 1
+
+            # Enter new bull_momentum position
+            if bm_qualify and bm_breakout and bm_rsi_ok and bm_alpha_ok and bm_key not in positions:
+                bm_agent = "navigator" if regime == "BULL" else "chekov"
+                wr_bm    = agent_wr_tracker.get(bm_agent, [])
+                bm_wr    = (sum(wr_bm) / len(wr_bm)) if len(wr_bm) >= 3 else 0.55
+                bm_score, bm_approved = _ollie_score(alpha, regime, "bull_momentum", bm_wr, bm_agent)
+
+                ollie_decisions.append({
+                    "symbol":      sym,
+                    "strategy":    "bull_momentum",
+                    "agent_id":    bm_agent,
+                    "decision":    "APPROVE" if bm_approved else "REJECT",
+                    "ollie_score": bm_score,
+                    "trade_alpha": alpha,
+                    "regime":      regime,
+                    "day":         day_str,
+                })
+
+                bm_entry = px * (1 + SLIPPAGE + EXEC_DELAY)
+                if bm_approved:
+                    positions[bm_key] = {
+                        "entry":      bm_entry,
+                        "entry_date": day_str,
+                        "days_held":  0,
+                        "alpha":      alpha,
+                        "agent_id":   bm_agent,
+                        "strategy":   "bull_momentum",
+                    }
+                else:
+                    sniper_skipped += 1
 
         # ── Force-close open positions at end-of-period ───────────────────────
         px_last = float(df["Close"].iloc[-1])
@@ -580,10 +668,10 @@ def _run_sniper_v5_options_loop(
 
             # ── CSP ───────────────────────────────────────────────────────────
             if ivr > 60 and bull >= 2 and regime in ("BULL", "CAUTIOUS"):
-                agent_id = "ollama-plutus" if vix_val >= 20 else ("ollama-qwen3" if vix_val >= 14 else "ollama-coder")
+                agent_id = "ollama-plutus" if vix_val >= 20 else ("ollama-qwen3" if vix_val >= 14 else "capitol-trades" if day_counter % 3 == 0 else "ollama-coder")
                 wr_hist  = agent_wr_tracker.get(agent_id, [])
                 agent_wr = (sum(wr_hist) / len(wr_hist)) if len(wr_hist) >= 3 else 0.55
-                o_score, o_approved = _ollie_score(alpha, regime, "csp", agent_wr)
+                o_score, o_approved = _ollie_score(alpha, regime, "csp", agent_wr, agent_id)
 
                 ollie_decisions.append({
                     "symbol": sym, "strategy": "csp", "agent_id": agent_id,
@@ -613,10 +701,18 @@ def _run_sniper_v5_options_loop(
 
             # ── Covered Call ──────────────────────────────────────────────────
             if ivr > 50 and bull >= 2:
-                agent_id = "ollama-llama" if regime in ("BULL", "CAUTIOUS") else ("neo-matrix" if regime == "BEAR" else "capitol-trades")
+                if regime == "BULL":
+                    # Rotate capitol-trades in every 3rd BULL covered_call
+                    agent_id = "capitol-trades" if day_counter % 3 == 0 else "ollama-llama"
+                elif regime == "CAUTIOUS":
+                    agent_id = "ollama-llama"
+                elif regime == "BEAR":
+                    agent_id = "neo-matrix"
+                else:
+                    agent_id = "capitol-trades"
                 wr_hist  = agent_wr_tracker.get(agent_id, [])
                 agent_wr = (sum(wr_hist) / len(wr_hist)) if len(wr_hist) >= 3 else 0.55
-                o_score, o_approved = _ollie_score(alpha, regime, "covered_call", agent_wr)
+                o_score, o_approved = _ollie_score(alpha, regime, "covered_call", agent_wr, agent_id)
 
                 ollie_decisions.append({
                     "symbol": sym, "strategy": "covered_call", "agent_id": agent_id,
