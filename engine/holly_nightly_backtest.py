@@ -241,6 +241,9 @@ def _run_rsi(data, params: dict, cash: float = 10_000, fees: float = 0.001) -> d
         rsi      = vbt.RSI.run(data, window=window)
         entries  = rsi.rsi_crossed_above(entry_th)
         exits    = rsi.rsi_crossed_below(exit_th)
+        # Force-close open trades on last bar so win_rate/profit_factor aren't nan
+        exits = exits.copy()
+        exits.iloc[-1] = True
         pf       = vbt.Portfolio.from_signals(data, entries, exits, freq="1D", fees=fees, init_cash=cash)
         stats    = pf.stats()
         return {
@@ -269,6 +272,9 @@ def _run_macd(data, params: dict, cash: float = 10_000, fees: float = 0.001) -> 
         macd     = vbt.MACD.run(data, fast_window=fast, slow_window=slow, signal_window=sig)
         entries  = macd.macd_crossed_above(macd.signal)
         exits    = macd.macd_crossed_below(macd.signal)
+        # Force-close open trades on last bar so win_rate/profit_factor aren't nan
+        exits = exits.copy()
+        exits.iloc[-1] = True
         pf       = vbt.Portfolio.from_signals(data, entries, exits, freq="1D", fees=fees, init_cash=cash)
         stats    = pf.stats()
         return {
@@ -294,6 +300,9 @@ def _run_bollinger(data, params: dict, cash: float = 10_000, fees: float = 0.001
         bb       = vbt.BBANDS.run(data, window=window, alpha=std)
         entries  = data < bb.lower
         exits    = data > bb.middle
+        # Force-close open trades on last bar so win_rate/profit_factor aren't nan
+        exits = exits.copy()
+        exits.iloc[-1] = True
         pf       = vbt.Portfolio.from_signals(data, entries, exits, freq="1D", fees=fees, init_cash=cash)
         stats    = pf.stats()
         return {
@@ -322,6 +331,9 @@ def _run_sma_cross(data, params: dict, cash: float = 10_000, fees: float = 0.001
         slow_ma  = vbt.MA.run(data, window=slow)
         entries  = fast_ma.ma_crossed_above(slow_ma.ma)
         exits    = fast_ma.ma_crossed_below(slow_ma.ma)
+        # Force-close open trades on last bar so win_rate/profit_factor aren't nan
+        exits = exits.copy()
+        exits.iloc[-1] = True
         pf       = vbt.Portfolio.from_signals(data, entries, exits, freq="1D", fees=fees, init_cash=cash)
         stats    = pf.stats()
         return {
@@ -366,6 +378,9 @@ def _run_gap(data, params: dict, cash: float = 10_000, fees: float = 0.001) -> d
         exits     = entries.shift(1).fillna(False)
 
         close_s  = close_col
+        # Force-close open trades on last bar so win_rate/profit_factor aren't nan
+        exits = exits.copy()
+        exits.iloc[-1] = True
         pf       = vbt.Portfolio.from_signals(
             close_s, entries, exits, freq="1D", fees=fees, init_cash=cash
         )

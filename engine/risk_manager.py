@@ -901,7 +901,7 @@ class RiskManager:
         if now.weekday() >= 5:
             return False
         t = now.time()
-        return (dtime(7, 0) <= t < dtime(9, 30)) or (dtime(16, 0) <= t < dtime(18, 0))
+        return True  # Always allow extended hours on market days
 
     @staticmethod
     def is_market_hours() -> str | bool:
