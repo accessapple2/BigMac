@@ -60,6 +60,17 @@ def check_trade(agent_id: str, symbol: str, action: str, qty: float, price: floa
                 _log_block(conn, agent_id, symbol, action, qty, price, reason)
                 return {"allowed": False, "reason": reason}
 
+        # 4. Uhura institutional veto — fails safe (advisory, not authoritative)
+        try:
+            from engine.uhura_bridge_integration import should_block_trade
+            blocked, uhura_reason = should_block_trade(symbol, action.upper())
+            if blocked:
+                reason = f"Uhura: {uhura_reason}"
+                _log_block(conn, agent_id, symbol, action, qty, price, reason)
+                return {"allowed": False, "reason": reason}
+        except Exception as e:
+            console.log(f"[yellow]Uhura check skipped ({e}) — allowing trade")
+
         conn.commit()
         return {"allowed": True}
 
