@@ -82,14 +82,15 @@ def check_trade(agent_id: str, symbol: str, action: str, qty: float, price: floa
 
 
 def _log_block(conn, agent_id, symbol, action, qty, price, reason):
-    """Log blocked trades to kill_switch_log table."""
+    """Log blocked trades to trade_block_log table."""
     try:
         conn.execute(
-            """INSERT INTO kill_switch_log
+            """INSERT INTO trade_block_log
                (agent_id, symbol, action, qty, price, reason, blocked_at)
                VALUES (?, ?, ?, ?, ?, ?, ?)""",
             (agent_id, symbol, action, qty, price, reason, datetime.utcnow().isoformat())
         )
+        conn.commit()
         console.log(f"[red]🚫 GATEWAY BLOCKED [{agent_id}] {action} {qty} {symbol} — {reason}")
     except Exception as e:
         console.log(f"[yellow]Could not log blocked trade: {e}")
