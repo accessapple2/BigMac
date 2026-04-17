@@ -36,7 +36,7 @@ XAI_BASE_URL = "https://api.x.ai/v1"
 
 # Ollama fallback
 OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("CREWAI_MODEL", "qwen3:14b")
+OLLAMA_MODEL = os.getenv("CREWAI_MODEL", "qwen3.5:9b")  # Free-Models-First 2026-04-17: qwen3:14b not installed; 9b is warm per main.py fleet
 
 SYSTEM_PROMPT = (
     "You are a swing trade advisor for a small retail portfolio (~$6,500). "
@@ -327,8 +327,11 @@ def run_grok_advisory() -> dict:
         + "\n\nProvide swing trade advice for each position."
     )
 
-    # Try Grok first; fall back to Ollama if cap hit or API error
-    use_ollama = daily_cost >= DAILY_COST_CAP * 0.9  # near-cap → pre-emptively switch
+    # Free-Models-First patch 2026-04-17: Grok was retired on 2026-04-16 (CLAUDE.md).
+    # Force local Ollama unconditionally. The xAI path remains in the file (dead code)
+    # so the Admiral can re-enable per-agent with explicit approval if ever needed.
+    # Previously: use_ollama = daily_cost >= DAILY_COST_CAP * 0.9
+    use_ollama = True
     cost = 0.0
     model_used = ""
     t0 = time.time()
