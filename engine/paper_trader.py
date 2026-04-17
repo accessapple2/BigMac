@@ -187,6 +187,26 @@ def _get_alpaca():
     return _alpaca
 
 
+def _alpaca_position_qty(bridge, symbol: str) -> float:
+    """Return Alpaca's current qty for symbol (signed: + long, - short, 0 flat).
+
+    Short-circuit guard patch 2026-04-17: queries the live Alpaca paper account
+    so _forward_to_alpaca can cap SELLs against drift. Never raises; returns
+    None if we can't tell (treat unknown as 'do not forward').
+    """
+    try:
+        if not bridge or not getattr(bridge, "client", None):
+            return None
+        try:
+            pos = bridge.client.get_open_position(symbol)
+            return float(pos.qty)
+        except Exception:
+            # Alpaca returns 404 when no position exists — treat as flat.
+            return 0.0
+    except Exception:
+        return None
+
+
 def _forward_to_alpaca(action: str, player_id: str, symbol: str, qty: float,
                         asset_type: str = "stock", price: float = 0.0):
     """Forward a trade to Alpaca paper account. Never raises.
@@ -195,6 +215,11 @@ def _forward_to_alpaca(action: str, player_id: str, symbol: str, qty: float,
     Falls back to whole shares only if Alpaca rejects the fractional order.
     For ollie-auto during extended-hours windows, issues limit orders with
     extended_hours=True so Alpaca accepts the order outside regular session.
+
+    SHORT-GUARD patch 2026-04-17: multiple players share one Alpaca account,
+    so internal per-player ledger can drift from Alpaca aggregate. Before
+    forwarding a SELL, check Alpaca's current qty — if flat or short, skip
+    the forward entirely so we never accidentally open or worsen a short.
     """
     if asset_type == "stock":
         bridge = _get_alpaca()
@@ -203,14 +228,28 @@ def _forward_to_alpaca(action: str, player_id: str, symbol: str, qty: float,
         frac_qty = round(qty, 2)
         if frac_qty < 0.01:
             return
-        # Extended-hours flag: only ollie-auto trades pre/post market via Alpaca
+        # SHORT-GUARD: before SELL, verify Alpaca actually holds enough to sell.
+        if action == "SELL":
+            alpaca_qty = _alpaca_position_qty(bridge, symbol)
+            if alpaca_qty is None:
+                console.log(f"[yellow]Alpaca SELL {symbol} skipped: could not verify Alpaca position (drift protection)")
+                return
+            if alpaca_qty <= 0:
+                console.log(f"[yellow]Alpaca SELL {symbol} skipped: Alpaca qty={alpaca_qty} (would create/worsen short — internal ledger drift, player={player_id})")
+                return
+            if alpaca_qty < frac_qty:
+                old = frac_qty
+                frac_qty = round(alpaca_qty, 2)
+                console.log(f"[yellow]Alpaca SELL {symbol} capped: {old} → {frac_qty} (Alpaca holds {alpaca_qty}, player={player_id})")
+                if frac_qty < 0.01:
+                    return
+        # Extended-hours flag: all agents trade pre/post market via Alpaca
         use_ext = False
-        if player_id == "ollie-auto":
-            try:
-                from engine.risk_manager import RiskManager
-                use_ext = RiskManager.is_extended_trading_hours()
-            except Exception:
-                pass
+        try:
+            from engine.risk_manager import RiskManager
+            use_ext = RiskManager.is_extended_trading_hours()
+        except Exception:
+            pass
         try:
             if action == "BUY":
                 result = bridge.buy(symbol, frac_qty,
@@ -1850,9 +1889,8 @@ def _get_vix_cached() -> float | None:
     if _vix_cache["value"] is not None and (now - _vix_cache["fetched_at"]) < 1800:
         return _vix_cache["value"]
     try:
-        import yfinance as _yf
-        t = _yf.Ticker("^VIX")
-        v = t.fast_info.get("last_price") or t.fast_info.get("regularMarketPrice")
+        from engine.market_data import get_vix as _get_vix_fn
+        v = _get_vix_fn()
         if v:
             _vix_cache["value"] = float(v)
             _vix_cache["fetched_at"] = now
