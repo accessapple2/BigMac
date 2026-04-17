@@ -981,7 +981,7 @@ textarea:focus { outline: none; border-color: var(--accent); }
 /* Hamburger button — hidden on desktop, shown via @media */
 #mobileMenuBtn { display: none; position: fixed; top: 12px; left: 12px; z-index: 999; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 20px; line-height: 1; width: 44px; height: 44px; padding: 0; cursor: pointer; align-items: center; justify-content: center; -webkit-tap-highlight-color: transparent; }
 #mobileMenuBtn:hover { background: var(--surface3); }
-#sbCloseBtn { display: none; position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 18px; line-height: 1; cursor: pointer; align-items: center; justify-content: center; z-index: 2; -webkit-tap-highlight-color: transparent; }
+#sbCloseBtn { display: none; position: absolute; top: 10px; right: 10px; width: 36px; height: 36px; background: var(--surface2); border: 1px solid var(--border); border-radius: 8px; color: var(--text); font-size: 18px; line-height: 1; cursor: pointer; align-items: center; justify-content: center; z-index: 9999; -webkit-tap-highlight-color: transparent; }
 
 /* ── Mobile responsive ── */
 @media (max-width: 768px) {
@@ -1026,8 +1026,8 @@ textarea:focus { outline: none; border-color: var(--accent); }
   /* Arena leaderboard table — hide less important columns, sticky name col */
   .arena-lb { font-size: 12px; }
   .arena-lb th, .arena-lb td { padding: 8px 6px; }
-  .arena-lb th:first-child, .arena-lb td:first-child { position: sticky; left: 0; z-index: 2; background: var(--bg); }
-  .arena-lb th:nth-child(2), .arena-lb td:nth-child(2) { position: sticky; left: 40px; z-index: 2; background: var(--bg); }
+  .arena-lb th:first-child, .arena-lb td:first-child { position: sticky; left: 0; z-index: 9999; background: var(--bg); }
+  .arena-lb th:nth-child(2), .arena-lb td:nth-child(2) { position: sticky; left: 40px; z-index: 9999; background: var(--bg); }
   .arena-lb .rank-cell { font-size: 14px; width: 28px; }
   .arena-lb .model-icon { width: 26px; height: 26px; font-size: 13px; border-radius: 6px; }
   .arena-lb .model-name { font-size: 12px; }
@@ -1451,6 +1451,49 @@ window._cachedFetch = function(url, ttlMs) {
     return data;
   });
 };
+
+// ── Auto-dedup Response cache (2026-04-16) ────────────────────────────────────
+// Intercept fetch() on endpoints the inventory flagged as being hit by 3+ panels
+// (VIX, regime, market status, fleet). 30-second TTL. Returns the same Response
+// clone to concurrent callers instead of firing parallel HTTP requests. Kills
+// the "5 places fetch VIX" problem without touching any existing call sites.
+(function installFetchDedup() {
+  var DEDUP_TTL_MS = 30000;
+  var PATTERNS = [
+    /^\/api\/regime(\?|$)/,
+    /^\/api\/vix(\?|$)/,
+    /^\/api\/market\/vix(\?|$)/,
+    /^\/api\/market-status(\?|$)/,
+    /^\/api\/fleet\/(status|summary)(\?|$)/
+  ];
+  var respCache = {};
+  var origFetch = window.fetch.bind(window);
+  window.fetch = function(input, init) {
+    try {
+      var url = typeof input === 'string' ? input : (input && input.url) || '';
+      // Strip query-string for pattern match (keep for cache key)
+      var path = url.indexOf('?') >= 0 ? url.substring(0, url.indexOf('?')) : url;
+      var matched = PATTERNS.some(function(p){ return p.test(path) || p.test(url); });
+      if (!matched) return origFetch(input, init);
+      // Only dedupe GET (default) requests
+      var method = (init && init.method) ? init.method.toUpperCase() : 'GET';
+      if (method !== 'GET') return origFetch(input, init);
+      var now = Date.now();
+      var entry = respCache[url];
+      if (entry && (now - entry.ts) < DEDUP_TTL_MS && entry.resp) {
+        return Promise.resolve(entry.resp.clone());
+      }
+      return origFetch(input, init).then(function(r){
+        if (r && r.ok) {
+          try { respCache[url] = { ts: Date.now(), resp: r.clone() }; } catch(_){}
+        }
+        return r;
+      });
+    } catch(e) {
+      return origFetch(input, init);
+    }
+  };
+})();
 </script>
 
 <script>
@@ -1930,7 +1973,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="sidebar-item active" onclick="showSection('dashboard')"><span class="icon">🖥️</span> Bridge</div>
   <div class="sidebar-item" onclick="showSection('ready-room')"><span class="icon">📋</span> Ready Room</div>
   <div class="sidebar-item" onclick="showSection('ollie')"><span class="icon">💻</span> Ollie</div>
-  <div class="sidebar-item" onclick="showSection('webull')"><span class="icon">👨‍✈️</span> Captain's Portfolio</div>
+  <div class="sidebar-item" onclick="showSection('webull')"><span class="icon">🛸</span> Starfleet</div>
   <div class="sidebar-item" onclick="showSection('feed')"><span class="icon">👥</span> Crew Activity</div>
   <div class="sidebar-item" onclick="showSection('dayblade')"><span class="icon">⚔️</span> Battle Station</div>
   <div class="sidebar-item" onclick="showSection('charts')"><span class="icon">📈</span> Charts</div>
@@ -5049,7 +5092,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
 <div id="section-kirk-detail" style="display:none;">
   <div style="background:rgba(245,158,11,0.06);border-left:3px solid #f59e0b;padding:14px 18px;margin-bottom:16px;border-radius:0 8px 8px 0;">
     <div style="font-size:16px;font-weight:700;color:var(--text);margin-bottom:4px;">👨‍✈️ Kirk Advisory — Full Analysis</div>
-    <div style="font-size:14px;color:var(--muted);line-height:1.6;">Deep dive into Captain's Portfolio positions. Cross-references GEX levels, Fear &amp; Greed, VIX, fleet intelligence, Congress trades, and volume spikes to generate actionable signals.</div>
+    <div style="font-size:14px;color:var(--muted);line-height:1.6;">Deep dive into Starfleet portfolio positions. Cross-references GEX levels, Fear &amp; Greed, VIX, fleet intelligence, Congress trades, and volume spikes to generate actionable signals.</div>
   </div>
   <div id="kirkDetailBody" style="font-size:14px;">Loading full analysis...</div>
 </div>
@@ -5118,7 +5161,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
   <!-- Positions Tables -->
   <div class="card">
     <div class="card-header">
-      <div class="card-title">📈 Captain's Portfolio</div>
+      <div class="card-title">🛸 Starfleet</div>
       <div style="display:flex;gap:8px;align-items:center;">
         <span id="webullLastUpdate" style="font-size:13px;color:var(--muted);"></span>
         <button class="btn btn-primary" onclick="fetchWebullPortfolio()" style="padding:5px 12px;font-size:12px;">Refresh</button>
@@ -7903,7 +7946,7 @@ registerSectionInit('etf-center',fetchETFCenter,[]);
         <select id="clPlayerFilter" onchange="fetchCaptainsLog()" style="background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:13px;">
           <option value="">All Manual/Options</option>
           <option value="dayblade-0dte">DayBlade 0DTE</option>
-          <option value="steve-webull" hidden>Captain's Portfolio</option>
+          <option value="steve-webull" hidden>Starfleet</option>
           <option value="options-sosnoff">Troi's Empathic Read</option>
         </select>
         <button class="btn btn-ghost" onclick="fetchCaptainsLog()" style="font-size:13px;">Refresh</button>
@@ -8786,27 +8829,179 @@ registerSectionInit('alpaca', fetchAlpacaAll, [{fn:fetchAlpacaAll, ms:30000}]);
     </div>
   </div>
 
-  <!-- Stacking Advisor -->
-  <div class="card" style="margin-bottom:16px;">
+  <!-- Metals Command — ETF Flow Bar (S6.3, 2026-04-16) -->
+  <!-- Tracks: GLD, SLV, COPX, GDX, SIL, PPLT, PALL, REMX, URA -->
+  <div class="card" style="margin-bottom:16px;border-left:3px solid #94a3b8;">
     <div class="card-header">
-      <div class="card-title">📊 Smart Stacking Advisor</div>
+      <div class="card-title">🛒 ETF Flow Tracker</div>
+      <span style="font-size:11px;color:var(--muted);">GLD · SLV · COPX · GDX · SIL · PPLT · PALL · REMX · URA</span>
     </div>
-    <div id="metalsSignals" style="padding:16px;">
-      <div style="color:var(--muted);text-align:center;">Loading signals...</div>
+    <div id="metalsEtfBar" style="padding:12px 16px;display:flex;gap:10px;flex-wrap:wrap;">
+      <div style="color:var(--muted);font-size:12px;">Loading ETF flows…</div>
     </div>
   </div>
 
-  <!-- Quartermaster's Report -->
-  <div class="card" style="margin-bottom:16px;border:1px solid rgba(212,160,23,0.2);">
-    <div class="card-header">
-      <div class="card-title">🪙 Quartermaster's Report</div>
-      <button class="btn btn-ghost" onclick="fetchMetalsCommentary()" style="font-size:13px;">Refresh</button>
+  <!-- Metals Command — 4-Quadrant Grid (S6.3, 2026-04-16) -->
+  <!-- Projections (Dalio) · News (Scotty) · Reports (rule-based) · Recommendations (O'Brien) -->
+  <div id="metalsCommandGrid" style="display:grid;grid-template-columns:repeat(2,minmax(0,1fr));gap:16px;margin-bottom:16px;">
+
+    <!-- Q1: Projections -->
+    <div class="card" style="border-left:3px solid #d4a017;">
+      <div class="card-header">
+        <div class="card-title">📈 Projections — Dalio (Bridgewater Macro)</div>
+      </div>
+      <div id="metalsSignals" style="padding:16px;min-height:160px;">
+        <div style="color:var(--muted);text-align:center;">Loading projections…</div>
+      </div>
     </div>
-    <div id="metalsCommentary" style="padding:16px;">
-      <div style="color:var(--muted);text-align:center;">Loading commentary...</div>
+
+    <!-- Q2: News (Scotty / gemma3:4b + FinGPT sentiment) -->
+    <div class="card" style="border-left:3px solid #5b9bd5;">
+      <div class="card-header">
+        <div class="card-title">📰 News — Scotty (Kitco · LBMA · Reuters)</div>
+        <button class="btn btn-ghost" onclick="fetchMetalsNews()" style="font-size:13px;">Refresh</button>
+      </div>
+      <div id="metalsNewsFeed" style="padding:16px;min-height:160px;">
+        <div style="color:var(--muted);text-align:center;">Awaiting Scotty's wire feed…</div>
+      </div>
     </div>
+
+    <!-- Q3: Reports (rule-based: USGS + ETF flows + 13F miner changes) -->
+    <div class="card" style="border-left:3px solid #6b9e5b;">
+      <div class="card-header">
+        <div class="card-title">📊 Reports — USGS · ETF Flows · 13F Miners</div>
+        <button class="btn btn-ghost" onclick="fetchMetalsReports()" style="font-size:13px;">Refresh</button>
+      </div>
+      <div id="metalsReports" style="padding:16px;min-height:160px;">
+        <div style="color:var(--muted);text-align:center;">Awaiting USGS/ETF/13F roll-up…</div>
+      </div>
+    </div>
+
+    <!-- Q4: Recommendations (O'Brien — deepseek-r1:7b synthesizer, shared with Spock) -->
+    <div class="card" style="border-left:3px solid #c8a800;">
+      <div class="card-header">
+        <div class="card-title">🪙 Recommendations — O'Brien (Quartermaster)</div>
+        <button class="btn btn-ghost" onclick="fetchMetalsCommentary()" style="font-size:13px;">Refresh</button>
+      </div>
+      <div id="metalsCommentary" style="padding:16px;min-height:160px;">
+        <div style="color:var(--muted);text-align:center;">Awaiting O'Brien's buy/hold/trim call…</div>
+      </div>
+    </div>
+
   </div>
+
+  <!-- Mobile fallback: stack quadrants vertically on narrow viewports -->
+  <style>
+    @media (max-width: 760px) {
+      #metalsCommandGrid { grid-template-columns: 1fr !important; }
+    }
+  </style>
 </div>
+
+<script>
+// Metals Command — ETF Flow Tracker (placeholder fetcher; wired to /api/metals/etf-flows when backend ships)
+async function fetchMetalsEtfFlows() {
+  var bar = document.getElementById('metalsEtfBar');
+  if (!bar) return;
+  try {
+    var r = await fetch('/api/metals/etf-flows', {cache: 'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var data = await r.json();
+    var rows = Array.isArray(data) ? data : (data.flows || []);
+    if (!rows.length) {
+      bar.innerHTML = '<div style="color:var(--muted);font-size:12px;">No ETF flow data yet — backend pending.</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < rows.length; i++) {
+      var f = rows[i];
+      var dir = (f.flow_5d || 0) >= 0 ? '▲' : '▼';
+      var color = (f.flow_5d || 0) >= 0 ? '#22c55e' : '#ef4444';
+      html += '<div style="background:rgba(148,163,184,0.06);border:1px solid var(--border);border-radius:6px;padding:8px 12px;min-width:110px;">'
+            + '<div style="font-size:11px;color:var(--muted);font-weight:700;letter-spacing:0.5px;">' + (f.ticker||'?') + '</div>'
+            + '<div style="font-size:14px;font-weight:700;color:' + color + ';">' + dir + ' $' + Math.abs(f.flow_5d||0).toFixed(1) + 'M</div>'
+            + '<div style="font-size:10px;color:var(--muted);">5d net</div>'
+            + '</div>';
+    }
+    bar.innerHTML = html;
+  } catch (e) {
+    bar.innerHTML = '<div style="color:var(--muted);font-size:12px;">ETF flow API not ready yet (Metals Command backend pending).</div>';
+  }
+}
+
+// Scotty news feed (placeholder; wired to /api/metals/news when agent ships)
+async function fetchMetalsNews() {
+  var el = document.getElementById('metalsNewsFeed');
+  if (!el) return;
+  try {
+    var r = await fetch('/api/metals/news', {cache: 'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var data = await r.json();
+    var items = Array.isArray(data) ? data : (data.items || []);
+    if (!items.length) {
+      el.innerHTML = '<div style="color:var(--muted);text-align:center;">No headlines yet — Scotty (gemma3:4b) not yet active.</div>';
+      return;
+    }
+    var html = '';
+    for (var i = 0; i < Math.min(items.length, 8); i++) {
+      var it = items[i];
+      var sentColor = (it.sentiment > 0) ? '#22c55e' : (it.sentiment < 0 ? '#ef4444' : '#94a3b8');
+      html += '<div style="padding:8px 0;border-bottom:1px solid var(--border);">'
+           + '<div style="font-size:13px;color:var(--text);font-weight:600;">' + (it.headline||'') + '</div>'
+           + '<div style="font-size:11px;color:var(--muted);margin-top:2px;">'
+           + (it.source||'') + ' · <span style="color:' + sentColor + ';">' + (it.sentiment_label||'neutral') + '</span>'
+           + '</div></div>';
+    }
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;">Scotty news feed offline — agent not yet built.</div>';
+  }
+}
+
+// Rule-based Reports quadrant (USGS + ETF flows + 13F miner changes)
+async function fetchMetalsReports() {
+  var el = document.getElementById('metalsReports');
+  if (!el) return;
+  try {
+    var r = await fetch('/api/metals/reports', {cache: 'no-store'});
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var data = await r.json();
+    var rows = Array.isArray(data) ? data : (data.rows || []);
+    if (!rows.length) {
+      el.innerHTML = '<div style="color:var(--muted);text-align:center;">USGS/ETF/13F roll-up not yet wired.</div>';
+      return;
+    }
+    var html = '<div style="display:flex;flex-direction:column;gap:8px;">';
+    for (var i = 0; i < rows.length; i++) {
+      var row = rows[i];
+      html += '<div style="padding:8px 10px;background:rgba(107,158,91,0.05);border-radius:5px;">'
+           + '<div style="font-size:11px;color:#6b9e5b;font-weight:700;text-transform:uppercase;letter-spacing:0.4px;">' + (row.category||'') + '</div>'
+           + '<div style="font-size:13px;color:var(--text);">' + (row.summary||'') + '</div>'
+           + '</div>';
+    }
+    html += '</div>';
+    el.innerHTML = html;
+  } catch (e) {
+    el.innerHTML = '<div style="color:var(--muted);text-align:center;">Reports backend not yet built.</div>';
+  }
+}
+
+// Hook the new fetchers into the existing section-load lifecycle
+(function _wireMetalsCommand(){
+  try {
+    if (typeof _GLOBAL_FNS !== 'undefined' && Array.isArray(_GLOBAL_FNS)) {
+      // No-op — section-gated polling will be added when backend endpoints ship
+    }
+    // Initial paint when metals section is opened
+    document.addEventListener('DOMContentLoaded', function(){
+      if (typeof showSection === 'function') {
+        var origShow = showSection;
+        // do not patch — just rely on section load via existing handlers
+      }
+    });
+  } catch(_e) {}
+})();
+</script>
 
 <!-- MARKET REGIME SECTION -->
 <div id="section-regime" style="display:none;">
@@ -13890,7 +14085,7 @@ var PAGE_GUIDES = {
   'war-room': {
     title: "War Room — Trade Execution",
     steps: [
-      "Submit BUY or SELL orders here — these log as your personal Captain's Portfolio entries.",
+      "Submit BUY or SELL orders here — these log as your personal Starfleet portfolio entries.",
       "Add your reasoning — the AI crew will react to your trades.",
       "Check Arena Intel to see if any model agrees with your thesis before entering.",
       "Set confidence 1–10. High confidence trades get priority in the crew debate.",
@@ -13908,7 +14103,7 @@ var PAGE_GUIDES = {
     ]
   },
   'webull': {
-    title: "Captain's Portfolio — Holdings",
+    title: "Starfleet — Holdings",
     steps: [
       "This page mirrors your live portfolio and refreshes every 60 seconds.",
       "OPEN P&L = unrealized gains/losses across all open positions.",
@@ -14530,11 +14725,16 @@ function _arenaGetVal(p, col) {
   if (col === 'win_rate') return Number(p.win_rate || 0);
   return 0;
 }
+// Agents permanently benched — polled by the API but hidden from the leaderboard UI.
+// Ghost signals still recorded for scoring, but rank rows are suppressed per Admiral 2026-04-16.
+var _LB_BENCHED = { 'gemini-2.5-pro': 1, 'dayblade-sulu': 1 };
+
 function buildArenaLbRows(players, expandPrefix, includeHomeBody) {
   var medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
   var html = '';
   for (var i = 0; i < players.length; i++) {
     var p = players[i];
+    if (p && _LB_BENCHED[p.player_id]) continue; // skip Seven, Sulu
     var mc = MCOLORS[p.name] || '#888';
 
     var value = (p.current_equity != null ? Number(p.current_equity) : (p.total_value != null ? Number(p.total_value) : 0));
@@ -15284,6 +15484,19 @@ function _buildFeedCardHtml(t, srcIdSuffix, isNew) {
   return h;
 }
 
+// Move #4 (2026-04-16): Crew Feed virtualization helper.
+// Prunes excess .feed-card nodes beyond `cap` so incremental inserts don't
+// grow the DOM forever. Removes from the bottom (oldest cards).
+function _pruneFeedCards(container, cap) {
+  if (!container) return;
+  var cards = container.querySelectorAll('.feed-card');
+  if (cards.length <= cap) return;
+  for (var i = cap; i < cards.length; i++) {
+    var c = cards[i];
+    if (c && c.parentNode) c.parentNode.removeChild(c);
+  }
+}
+
 async function fetchArenaFeed() {
   try {
     // If AZ date has rolled over since last full render, force a fresh render
@@ -15337,6 +15550,11 @@ async function fetchArenaFeed() {
           if (insertRefF) { insertRefF.insertAdjacentHTML('beforebegin', newHtml); }
           else { feedEl.insertAdjacentHTML('afterbegin', newHtml); }
         }
+        // Move #4 (2026-04-16): Virtualize Crew Feed — cap card DOM to FEED_CARD_CAP
+        // to prevent unbounded growth from incremental inserts running every 20s.
+        // Matches full-render cap (40) so behaviour is consistent across paths.
+        try { _pruneFeedCards(el, 40); } catch(_e) {}
+        if (feedEl) { try { _pruneFeedCards(feedEl, 40); } catch(_e) {} }
       }
       return;
     }
@@ -17166,7 +17384,7 @@ setInterval(loadCTOBriefing, 300000);
 setInterval(loadTactical, 60000);
 setInterval(fetchTacticalAllocation, 120000);
 setInterval(fetchArenaLeaderboard, 60000); // was 30s
-setInterval(fetchArenaFeed, 10000); // real-time feed — 10s poll
+setInterval(fetchArenaFeed, 20000); // real-time feed — 20s poll (was 10s, halved 2026-04-16 for CPU/RAM relief; still fast enough for live trade ticker)
 setInterval(fetchScannerTier, 120000);
 
 // Tier 1 (0ms): core portfolio — bare minimum to render numbers
@@ -20676,7 +20894,15 @@ async function fetchMetalsCommentary() {
   } catch(e) { console.error('Metals commentary error:', e); }
 }
 
-registerSectionInit('metals', function() { fetchMetals(); fetchDilithiumPortfolio(); fetchMetalsCommentary(); }, []);
+// Metals Command 4-quadrant init (S6.3, 2026-04-16): adds ETF flows, Scotty news, rule-based reports
+registerSectionInit('metals', function() {
+  fetchMetals();
+  fetchDilithiumPortfolio();
+  fetchMetalsCommentary();
+  if (typeof fetchMetalsEtfFlows === 'function') fetchMetalsEtfFlows();
+  if (typeof fetchMetalsNews === 'function') fetchMetalsNews();
+  if (typeof fetchMetalsReports === 'function') fetchMetalsReports();
+}, []);
 </script>
 
 <script>
@@ -26158,6 +26384,9 @@ function openCIC() {
   var msgs = document.getElementById('computer-chat-messages');
   if (msgs) msgs.scrollTop = 0;
   if (typeof setArcherBadge === 'function') setArcherBadge(0);
+  // Hide the small floater while the full CIC panel is open — prevents
+  // the two-Archer overlap. Restored when panel closes (see toggleComputerChat).
+  if (typeof hideArcherFloat === 'function') hideArcherFloat();
 }
 
 function _notifDestination(notif) {
@@ -26477,9 +26706,10 @@ setTimeout(pollNotifications, 3000); // First poll after 3s
 [data-theme="light"] #computer-chat-messages .cc-msg.computer { color: #0f172a; }
 </style>
 
-<button id="computerChatBtn" onclick="toggleComputerChat()" title="CIC — Combat Information Center"><img src="/static/archer-portrait.png?v=4" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid #d4a030;display:block;"><span class="chat-btn-label">CIC</span></button>
+<!-- PARKED 2026-04-16 per Admiral: parked CIC widget + panel to reduce RAM/CPU overclocking during market hours. To un-park, remove the "data-parked" attribute and the inline style="display:none" blocks. -->
+<button id="computerChatBtn" data-parked="1" style="display:none !important;" onclick="toggleComputerChat()" title="CIC — Combat Information Center"><img src="/static/archer-portrait.png?v=4" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid #d4a030;display:block;"><span class="chat-btn-label">CIC</span></button>
 
-<div id="computerChatPanel">
+<div id="computerChatPanel" data-parked="1" style="display:none !important;">
   <!-- Archer Profile Bar with SVG Avatar -->
   <div id="archer-profile-bar" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid rgba(0,200,255,0.15);background:rgba(0,5,20,0.5);">
     <div id="archer-avatar-container" style="position:relative;width:64px;height:64px;border-radius:50%;overflow:hidden;border:2px solid #d4a030;box-shadow:0 0 10px rgba(212,160,48,0.3);flex-shrink:0;transition:box-shadow 0.3s ease,border-color 0.3s ease;">
@@ -26661,6 +26891,8 @@ function toggleComputerChat() {
     var inpRow = document.getElementById('computer-chat-input-row');
     if (msgs3)  msgs3.style.display  = '';
     if (inpRow) inpRow.style.display = '';
+    // Restore the small Archer floater now that the full panel is closed
+    if (typeof showArcherFloat === 'function') showArcherFloat();
   }
 }
 
@@ -26864,12 +27096,12 @@ document.addEventListener('DOMContentLoaded', function() {
   var el = document.getElementById('archer-initial-msg');
   if (!el) return;
 
-  // Step 1: time-based greeting
+  // Step 1: time-based greeting (short form — "Good Morning Admiral")
   var h = new Date().getHours();
-  var greeting = h < 12 ? 'Good morning, Captain.'
-               : h < 17 ? 'Good afternoon, Captain.'
-               : h < 21 ? 'Good evening, Captain.'
-               :            'Still at it, Captain.';
+  var greeting = h < 12 ? 'Good morning, Admiral.'
+               : h < 17 ? 'Good afternoon, Admiral.'
+               : h < 21 ? 'Good evening, Admiral.'
+               :            'Still at it, Admiral.';
   el.textContent = greeting;
 
   // Step 2: health check — add ONE short sentence only if something is wrong
@@ -26907,21 +27139,17 @@ document.addEventListener('DOMContentLoaded', function() {
         problems.push('Scheduler is reporting errors.');
       }
 
-      // Build short greeting from live data already on page
-      var vixEl = document.getElementById('sniff-vix-label') ||
-                  document.querySelector('[id*="vix"]');
-      var regimeEl = document.querySelector('[id*="regime"]');
-      var vix = vixEl ? vixEl.textContent.trim() : '';
-      var regime = regimeEl ? regimeEl.textContent.trim() : '';
-      // Strip emoji / extra tokens from regime text
-      if (regime) regime = regime.replace(/[^\w\s_-]/g, '').trim().split(/\s+/).slice(0,2).join(' ');
-      var shortGreeting = (vix && vix !== '—' && regime && regime.length > 1)
-        ? 'Regime ' + regime + ', VIX ' + vix + '. Standing by, Admiral.'
-        : 'Standing by, Admiral. Ready Room briefing is up.';
-      el.textContent = shortGreeting;
+      // Keep the short time-of-day greeting. Regime + VIX live in the dashboard
+      // panels already — no need to duplicate them in Archer's first line.
+      // Only overwrite the greeting if health check found a real problem.
+      var shortGreeting = greeting; // from Step 1 above
+      if (problems.length) {
+        shortGreeting = greeting + ' ' + problems[0];
+        el.textContent = shortGreeting;
+      }
 
       // Speak via browser speechSynthesis (no Edge TTS cost)
-      if (window.speechSynthesis) {
+      if (window.speechSynthesis && problems.length) {
         var _speak = function() {
           window.speechSynthesis.cancel();
           var utt = new SpeechSynthesisUtterance(shortGreeting);
@@ -26946,7 +27174,7 @@ document.addEventListener('DOMContentLoaded', function() {
       }
     })
     .catch(function() {
-      el.textContent = 'Standing by, Admiral. Ready Room briefing is up.';
+      // Silent failure — keep the short time-of-day greeting from Step 1.
     });
 })();
 </script>
@@ -30720,8 +30948,8 @@ var liveChart = (function() {
 
 <script src="/static/health-beacon.js"></script>
 <script src="/static/market-closed.js"></script>
-<!-- 🗺️ Page Map floating button -->
-<div id="pagemap-fab" style="position:fixed;bottom:80px;right:18px;z-index:9999;display:flex;flex-direction:column;align-items:flex-end;gap:8px;">
+<!-- 🗺️ Page Map floating button — PARKED 2026-04-16 per Admiral (redundant with sidebar nav). To un-park, remove data-parked and display:none. -->
+<div id="pagemap-fab" data-parked="1" style="display:none !important;position:fixed;bottom:80px;right:18px;z-index:9999;flex-direction:column;align-items:flex-end;gap:8px;">
   <div id="pagemap-menu" style="display:none;flex-direction:column;gap:4px;align-items:flex-end;margin-bottom:4px;"></div>
   <button id="pagemap-btn" title="Page Map" onclick="togglePageMap()"
     style="width:48px;height:48px;border-radius:50%;background:#1565c0;color:#fff;border:none;font-size:22px;cursor:pointer;box-shadow:0 4px 14px rgba(0,0,0,0.25);display:flex;align-items:center;justify-content:center;transition:transform 0.15s;">
@@ -31182,7 +31410,7 @@ setTimeout(function(){
     if (_lsLoaded) return;
     _lsLoaded = true;
     lsFetch(true);  // initial load — fetch last 60 signals
-    _lsInterval = setInterval(lsFetch, 5000);
+    _lsInterval = setInterval(lsFetch, 15000); // 15s poll (was 5s, tripled 2026-04-16 for CPU relief; SSE fallback runs at 30s)
   };
 
   // ── Fetch ─────────────────────────────────────────────────────────────────

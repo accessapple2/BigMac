@@ -22,8 +22,12 @@ ALERT_TTL_HOURS = 4        # dedupe window
 
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(DB, check_same_thread=False)
+    # Lock patch 2026-04-17: was connect(DB) with 5s default timeout and no
+    # busy_timeout PRAGMA — caused "database is locked" errors on startup.
+    c = sqlite3.connect(DB, check_same_thread=False, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
+    c.execute("PRAGMA busy_timeout=30000")
+    c.execute("PRAGMA synchronous=NORMAL")
     c.row_factory = sqlite3.Row
     return c
 
@@ -77,14 +81,21 @@ def check_captains_portfolio() -> list[dict]:
     try:
         # ── Fetch current positions ──────────────────────────────────────────
         positions = conn.execute(
-            "SELECT symbol, qty, avg_price, "
-            "  COALESCE(current_price, avg_price) AS current_price "
+            "SELECT symbol, qty, avg_price "
             "FROM positions "
             "WHERE player_id='steve-webull' AND qty > 0",
         ).fetchall()
 
         if not positions:
             return []
+
+        # ── Fetch live prices (Alpaca primary, Yahoo fallback) ───────────────
+        try:
+            from engine.market_data import get_bulk_prices
+            syms = [p["symbol"] for p in positions]
+            live_prices = get_bulk_prices(syms)
+        except Exception:
+            live_prices = {}
 
         # ── Fetch latest non-expired Grok stop levels ────────────────────────
         stop_map: dict[str, float] = {}
@@ -105,7 +116,7 @@ def check_captains_portfolio() -> list[dict]:
         for p in positions:
             sym = p["symbol"]
             avg = float(p["avg_price"] or 0)
-            cur = float(p["current_price"] or avg)
+            cur = float((live_prices.get(sym) or {}).get("price") or avg)
             pnl_pct = round((cur - avg) / avg * 100, 2) if avg else 0
 
             # STOP_BREACH

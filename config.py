@@ -92,7 +92,7 @@ FREE_CALLS_DAILY_LIMIT = int(os.environ.get("FREE_CALLS_DAILY_LIMIT", "1000"))
 
 # AI Arena Players
 AI_PLAYERS = [
-    {"id": "ollama-local", "name": "Qwen3 14B", "provider": "ollama", "model": "qwen3:14b"},
+    {"id": "ollama-local", "name": "Qwen3.5 9B", "provider": "ollama", "model": "qwen3.5:9b"},  # RAM fix 2026-04-17: was qwen3:14b (~9GB), funneled to 9b per CLAUDE.md
     {"id": "ollama-gemma27b", "name": "Qwen3.5 9B", "provider": "ollama", "model": "qwen3.5:9b"},
     {"id": "ollama-deepseek", "name": "DeepSeek R1 7B", "provider": "ollama", "model": "deepseek-r1:7b"},
     {"id": "ollama-qwen3", "name": "Qwen3.5 9B (Scotty)", "provider": "ollama", "model": "qwen3.5:9b"},
@@ -104,8 +104,8 @@ AI_PLAYERS = [
     {"id": "claude-haiku", "name": "Codex Scout", "provider": "openai", "model": OPENAI_CODEX_MINI_MODEL},
     {"id": "gpt-4o", "name": "GPT-4o", "provider": "openai", "model": "gpt-4o"},
     {"id": "gpt-o3", "name": "GPT-o3", "provider": "openai", "model": "o3"},
-    {"id": "gemini-2.5-pro", "name": "Qwen3 14B Pro", "provider": "ollama", "model": "qwen3:14b"},
+    {"id": "gemini-2.5-pro", "name": "Qwen3.5 9B Pro", "provider": "ollama", "model": "qwen3.5:9b"},  # RAM fix 2026-04-17: was qwen3:14b
     {"id": "gemini-2.5-flash", "name": "Lt. Cmdr. Worf", "provider": "ollama", "model": "qwen3.5:9b"},
-    {"id": "grok-3", "name": "Grok 3", "provider": "ollama", "model": "deepseek-r1:14b"},
-    {"id": "grok-4", "name": "Grok 4", "provider": "ollama", "model": "deepseek-r1:14b"},
+    {"id": "grok-3", "name": "Qwen3.5 9B (ex-Grok3)", "provider": "ollama", "model": "qwen3.5:9b"},  # Retired 2026-04-16 per CLAUDE.md; funneled to 9b to kill deepseek-r1:14b spawns
+    {"id": "grok-4", "name": "Qwen3.5 9B (ex-Grok4)", "provider": "ollama", "model": "qwen3.5:9b"},  # Retired 2026-04-16; replaced by Kirk+Pike on Starfleet
 ]

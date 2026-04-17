@@ -22,6 +22,7 @@ import os
 import re
 import sqlite3
 import subprocess
+import sys
 import threading
 import time
 from datetime import datetime, timezone
@@ -314,8 +315,8 @@ _last_ollama_query: float = 0.0
 # Memory protection
 # ---------------------------------------------------------------------------
 
-_LOW_RAM_THRESHOLD_BYTES  = 2 * 1024 ** 3   # 2 GB — skip Ollama scan below this
-_CRIT_RAM_THRESHOLD_BYTES = 500 * 1024 ** 2  # 500 MB — force-unload all models
+_LOW_RAM_THRESHOLD_BYTES  = 1 * 1024 ** 3   # 1 GB — skip Ollama scan below this (MemGuard patch 2026-04-17: was 2 GB)
+_CRIT_RAM_THRESHOLD_BYTES = 300 * 1024 ** 2  # 300 MB — force-unload all models (was 500 MB)
 
 # Tracks which Ollama model is currently loaded (one at a time).
 _current_ollama_model: str | None = None
@@ -323,10 +324,37 @@ _ollama_model_lock = threading.Lock()
 
 
 def _free_ram_bytes() -> int:
-    """Return available RAM in bytes, or maxint if psutil is unavailable."""
+    """Return available RAM in bytes (macOS-aware).
+
+    MemGuard patch 2026-04-17: psutil's .available on macOS counts
+    free + inactive + speculative, but OMITS purgeable pages (reclaimable
+    caches) which can be 1-3 GB on a 16 GB box running Ollama. Those
+    pages ARE freeable under pressure, so include them in the budget.
+    """
     if not _PSUTIL_OK:
         return 2 ** 62
-    return _psutil.virtual_memory().available
+    base = _psutil.virtual_memory().available
+    if sys.platform != "darwin":
+        return base
+    try:
+        out = subprocess.run(
+            ["vm_stat"], capture_output=True, text=True, timeout=2
+        ).stdout
+        page_size = 16384  # Apple Silicon default; overridden if header present
+        purgeable_pages = 0
+        for line in out.splitlines():
+            if "page size of" in line:
+                for tok in line.replace(")", " ").split():
+                    if tok.isdigit():
+                        page_size = int(tok)
+                        break
+            elif line.startswith("Pages purgeable"):
+                val = line.split(":", 1)[1].strip().rstrip(".")
+                if val.isdigit():
+                    purgeable_pages = int(val)
+        return base + purgeable_pages * page_size
+    except Exception:
+        return base
 
 
 def _unload_ollama_model(model: str, base_url: str) -> None:
@@ -740,9 +768,10 @@ def _query_ollama(player_id: str, model: str, system_prompt: str,
     free = _free_ram_bytes()
     if free < _LOW_RAM_THRESHOLD_BYTES:
         free_mb = free // (1024 ** 2)
+        need_mb = _LOW_RAM_THRESHOLD_BYTES // (1024 ** 2)
         logger.warning(
             f"LOW RAM: skipping Ollama scan for {player_id} "
-            f"({free_mb} MB free, need 2048 MB)"
+            f"({free_mb} MB avail, need {need_mb} MB)"
         )
         return ""
 

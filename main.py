@@ -243,6 +243,23 @@ _TIER2_INTERVAL = 120 * 60      # 2 hours
 _TIER3_INTERVAL = 4 * 60 * 60   # min gap between tier3 runs (open → close separation)
 _tier_last_scan: dict = {1: 0.0, 2: 0.0, 3: 0.0}
 
+# Per-category scan frequency reference (seconds).  Informational + used by earnings-day logic.
+_sectionIntervalDefs: dict = {
+    "tier1_agents":    30 * 60,          # 30 min  — core agent signals
+    "tier2_agents":   120 * 60,          # 2 hrs   — secondary agents
+    "tier3_agents":     4 * 60 * 60,     # open/close only
+    "deep_scan":       30 * 60,          # 30 min  — universe-wide strategy scan
+    "gex_refresh":     15 * 60,          # 15 min
+    "vix_check":       15 * 60,          # 15 min
+    "premarket_gaps":  15 * 60,          # 15 min
+    "ah_scanner":      30 * 60,          # 30 min  — after-hours earnings movers
+    "intel_report":    "06:00 AZ daily", # morning brief + ntfy push
+    "earnings_day":     5 * 60,          # 5 min   — earnings-day tickers (priority rescan)
+}
+
+# Earnings tickers injected at 6 AM AZ — rescanned every 5 min during market hours
+_earnings_today_tickers: set = set()
+
 
 def _tier3_window_open() -> bool:
     """True during market-open (6:30–7:00 AM MST) and pre-close (12:45–1:30 PM MST) windows."""
@@ -646,6 +663,310 @@ def run_intel_report_evening():
         console.log(f"[cyan]Intel Report (PM): {gp.get('headline', 'generated')}")
     except Exception as e:
         console.log(f"[red]Intel Report PM error: {e}")
+
+
+# ── Earnings Universe Injection ───────────────────────────────────────────────
+
+def run_earnings_universe_inject():
+    """6:00 AM AZ — detect today's earnings reporters and inject into scan_universe.
+
+    Sweeps _AH_PM_UNIVERSE + morning_briefing._EARN_UNIVERSE via yfinance calendar.
+    Populates _earnings_today_tickers so run_earnings_day_scan() can rescan every 5 min.
+    """
+    import datetime as _dt
+    import pytz
+    az = pytz.timezone("US/Arizona")
+    now = _dt.datetime.now(az)
+    if now.weekday() >= 5:
+        return
+    if now.hour != 6 or now.minute > 30:
+        return
+    global _earnings_today_tickers
+    try:
+        import yfinance as _yf
+        from engine.deep_scan import inject_earnings_tickers
+
+        today_str = now.strftime("%Y-%m-%d")
+
+        # Build sweep list: AH/PM universe + morning briefing universe
+        sweep = list(_AH_PM_UNIVERSE)
+        try:
+            from engine.morning_briefing import _EARN_UNIVERSE as _mb_earn  # type: ignore
+            sweep = list(dict.fromkeys(sweep + list(_mb_earn)))
+        except Exception:
+            pass
+
+        reporters = []
+        for sym in sweep:
+            try:
+                cal = _yf.Ticker(sym).calendar
+                if cal is None or (hasattr(cal, "empty") and cal.empty):
+                    continue
+                if hasattr(cal, "get"):
+                    dates = cal.get("Earnings Date") or cal.get("Earnings Dates")
+                elif hasattr(cal, "columns") and "Earnings Date" in cal.columns:
+                    dates = cal["Earnings Date"]
+                else:
+                    dates = None
+                if dates is None:
+                    continue
+                date_list = list(dates) if hasattr(dates, "__iter__") else [dates]
+                for d in date_list:
+                    if str(d)[:10] == today_str:
+                        reporters.append(sym)
+                        break
+            except Exception:
+                continue
+
+        if reporters:
+            injected = inject_earnings_tickers(reporters)
+            _earnings_today_tickers = set(reporters)
+            console.log(
+                f"[cyan][EarningsInject] {injected} tickers added for today: {reporters}"
+            )
+        else:
+            console.log("[dim][EarningsInject] No earnings reporters found for today")
+
+    except Exception as e:
+        console.log(f"[red]run_earnings_universe_inject error: {e}")
+
+
+def run_earnings_day_scan():
+    """Every 5 min market hours — rescan earnings-day tickers at high frequency.
+
+    Only runs if _earnings_today_tickers is non-empty (populated by run_earnings_universe_inject).
+    Results are stored with earnings_today=1 so the dashboard can surface them separately.
+    """
+    if not _earnings_today_tickers:
+        return
+    import datetime as _dt
+    import pytz
+    az = pytz.timezone("US/Arizona")
+    now = _dt.datetime.now(az)
+    if now.weekday() >= 5:
+        return
+    # Market hours gate: 6:30 AM – 1:15 PM AZ (9:30 AM – 4:15 PM ET)
+    mins = now.hour * 60 + now.minute
+    if not (390 <= mins <= 795):
+        return
+    try:
+        from engine.deep_scan import scan_earnings_tickers
+        result = scan_earnings_tickers(list(_earnings_today_tickers))
+        if result.get("signals_found", 0) > 0:
+            console.log(
+                f"[yellow][EarningsDay] {result['signals_found']} signals on "
+                f"{sorted(_earnings_today_tickers)}: top={result.get('top_symbols', [])}"
+            )
+    except Exception as e:
+        console.log(f"[red]run_earnings_day_scan error: {e}")
+
+
+# ── After-Hours & Pre-Market Scanners ─────────────────────────────────────────
+
+_AH_PM_UNIVERSE = [
+    "AAPL","MSFT","NVDA","AMZN","GOOG","META","TSLA","AMD","PLTR","CRM",
+    "NFLX","AVGO","COST","LLY","JPM","BAC","GS","V","MA","UNH","JNJ",
+    "PFE","ABBV","XOM","CVX","WMT","HD","DIS","COIN","ORCL","NOW",
+    "MU","DELL","INTC","QCOM","ADBE","MRVL","SNOW","NET","DDOG","SMCI",
+]
+
+_ah_ntfy_sent: set = set()   # dedup: "SYM-DATE" strings already pushed today
+
+
+def _fetch_prepost_gaps(symbols: list, mode: str) -> list:
+    """
+    Fetch pre/post-market gaps for a list of symbols.
+    mode='ah'  → compare AH price  vs regular close (bars after  16:00 ET)
+    mode='pre' → compare PM price  vs prev-day close (bars before 09:30 ET)
+    Returns list of dicts sorted by abs(gap_pct) desc.
+    """
+    import datetime as _dt
+    import yfinance as _yf
+
+    results = []
+    # Batch download to reduce HTTP round-trips
+    batch_size = 10
+    for i in range(0, len(symbols), batch_size):
+        batch = symbols[i:i + batch_size]
+        try:
+            raw = _yf.download(
+                batch, period="2d", interval="1m",
+                prepost=True, auto_adjust=True,
+                group_by="ticker", progress=False, threads=True,
+                timeout=20,
+            )
+        except Exception:
+            continue
+
+        for sym in batch:
+            try:
+                df = raw[sym] if len(batch) > 1 else raw
+                if df is None or df.empty:
+                    continue
+                closes = df["Close"].dropna()
+                if len(closes) < 5:
+                    continue
+
+                # Convert index → Eastern time for comparison
+                idx_et = closes.index.tz_convert("America/New_York")
+
+                if mode == "ah":
+                    # Regular close = last bar on or before 16:00 ET today
+                    today_et = idx_et.date[-1]
+                    today_regular = closes[
+                        (idx_et.date == today_et) &
+                        (idx_et.time <= _dt.time(16, 0, 0))
+                    ]
+                    today_ah = closes[
+                        (idx_et.date == today_et) &
+                        (idx_et.time > _dt.time(16, 0, 0))
+                    ]
+                    if today_regular.empty or today_ah.empty:
+                        continue
+                    reg_close = float(today_regular.iloc[-1])
+                    ext_price = float(today_ah.iloc[-1])
+                    ext_ts    = idx_et[closes.index.get_loc(today_ah.index[-1])].strftime("%H:%M ET")
+                else:  # pre-market
+                    # today's pre-market = bars before 09:30 ET today
+                    today_et = idx_et.date[-1]
+                    prev_regular = closes[
+                        (idx_et.date < today_et) &
+                        (idx_et.time <= _dt.time(16, 0, 0))
+                    ]
+                    today_pre = closes[
+                        (idx_et.date == today_et) &
+                        (idx_et.time < _dt.time(9, 30, 0))
+                    ]
+                    if prev_regular.empty or today_pre.empty:
+                        continue
+                    reg_close = float(prev_regular.iloc[-1])
+                    ext_price = float(today_pre.iloc[-1])
+                    ext_ts    = idx_et[closes.index.get_loc(today_pre.index[-1])].strftime("%H:%M ET")
+
+                if reg_close <= 0:
+                    continue
+                gap_pct = (ext_price - reg_close) / reg_close * 100
+                if abs(gap_pct) < (2.0 if mode == "pre" else 2.5):
+                    continue   # skip noise — only keep meaningful moves
+
+                results.append({
+                    "symbol":    sym,
+                    "reg_close": round(reg_close, 2),
+                    "ext_price": round(ext_price, 2),
+                    "gap_pct":   round(gap_pct, 2),
+                    "timestamp": ext_ts,
+                    "direction": "up" if gap_pct > 0 else "down",
+                })
+            except Exception:
+                continue
+
+    results.sort(key=lambda x: abs(x["gap_pct"]), reverse=True)
+    return results
+
+
+def _update_brief_json(key: str, data) -> None:
+    """Merge a key into data/morning_brief.json in-place."""
+    import json as _json, os as _os
+    path = _os.path.expanduser("~/autonomous-trader/data/morning_brief.json")
+    try:
+        existing = {}
+        if _os.path.exists(path):
+            with open(path) as fh:
+                existing = _json.load(fh)
+        existing[key] = data
+        import datetime as _dt
+        existing[f"{key}_updated"] = _dt.datetime.now().isoformat()
+        with open(path, "w") as fh:
+            _json.dump(existing, fh, indent=2, default=str)
+    except Exception as e:
+        console.log(f"[red]_update_brief_json({key}) error: {e}")
+
+
+def run_ah_scanner():
+    """AH Earnings Scanner — runs every 30 min from 4 PM to 7 PM AZ (7–10 PM ET).
+    Flags stocks moving > 3% after hours, ntfy push if > 5%.
+    Writes 'ah_movers' to morning_brief.json.
+    """
+    import datetime as _dt
+    import pytz
+    global _ah_ntfy_sent
+
+    az  = pytz.timezone("US/Arizona")
+    now = _dt.datetime.now(az)
+    if now.weekday() >= 5:
+        return
+    # AZ 4 PM – 7 PM = ~7 PM – 10 PM ET (extended AH window)
+    if not (16 <= now.hour < 19):
+        return
+
+    console.log("[cyan]AH Scanner: checking post-market movers...")
+    try:
+        from config import WATCH_STOCKS
+        universe = list(set(list(WATCH_STOCKS) + _AH_PM_UNIVERSE))
+    except Exception:
+        universe = _AH_PM_UNIVERSE
+
+    movers = _fetch_prepost_gaps(universe, mode="ah")
+    flagged = [m for m in movers if abs(m["gap_pct"]) >= 3.0]
+
+    if flagged:
+        console.log(f"[yellow]AH movers (>3%): {[(m['symbol'], m['gap_pct']) for m in flagged]}")
+        _update_brief_json("ah_movers", flagged)
+
+        # ntfy push for big gaps > 5%
+        big = [m for m in flagged if abs(m["gap_pct"]) >= 5.0]
+        today_str = now.strftime("%Y-%m-%d")
+        for m in big:
+            key = f"{m['symbol']}-{today_str}"
+            if key in _ah_ntfy_sent:
+                continue
+            _ah_ntfy_sent.add(key)
+            arrow = "▲" if m["gap_pct"] > 0 else "▼"
+            title = f"AH Mover: {m['symbol']} {arrow}{abs(m['gap_pct']):.1f}%"
+            body  = (
+                f"Close: ${m['reg_close']:.2f} → AH: ${m['ext_price']:.2f} "
+                f"({m['gap_pct']:+.1f}%) @ {m['timestamp']}"
+            )
+            try:
+                from engine.morning_briefing import _push_admin_ntfy
+                _push_admin_ntfy(title, body, priority=4)
+            except Exception:
+                pass
+    else:
+        console.log("[dim]AH Scanner: no movers > 3%")
+
+
+def run_premarket_scanner():
+    """Pre-Market Scanner — runs every 15 min from 6 AM to 9:25 AM AZ (9 AM – 12:25 PM ET).
+    Flags pre-market gaps > 2%, writes 'premarket_movers' to morning_brief.json.
+    """
+    import datetime as _dt
+    import pytz
+
+    az  = pytz.timezone("US/Arizona")
+    now = _dt.datetime.now(az)
+    if now.weekday() >= 5:
+        return
+    # AZ 6:00 AM – 9:25 AM
+    if not (6 <= now.hour < 9 or (now.hour == 9 and now.minute <= 25)):
+        return
+
+    console.log("[cyan]Pre-Market Scanner: checking pre-market movers...")
+    try:
+        from config import WATCH_STOCKS
+        universe = list(set(list(WATCH_STOCKS) + _AH_PM_UNIVERSE))
+    except Exception:
+        universe = _AH_PM_UNIVERSE
+
+    movers = _fetch_prepost_gaps(universe, mode="pre")
+    flagged = [m for m in movers if abs(m["gap_pct"]) >= 2.0]
+
+    if flagged:
+        top20 = sorted(flagged, key=lambda x: abs(x["gap_pct"]), reverse=True)[:20]
+        console.log(f"[yellow]Pre-market movers (>2%): {[(m['symbol'], m['gap_pct']) for m in top20[:5]]}")
+        _update_brief_json("premarket_movers", top20)
+    else:
+        console.log("[dim]Pre-Market Scanner: no movers > 2%")
 
 
 def run_opening_range():
@@ -2093,7 +2414,7 @@ def maybe_reset_equity():
         c.execute('''INSERT OR REPLACE INTO system_settings
             (key, value) VALUES ('s5_equity_reset', 'done')''')
         c.commit()
-        console.log("[bold green]EQUITY RESET: All agents reset to $10,000 (Season 5)")
+        console.log("[bold green]EQUITY RESET: All agents reset to $10,000 (Season 6.3)")
     c.close()
 
 
@@ -2122,7 +2443,7 @@ if __name__ == "__main__":
         except Exception as _wal_e:
             console.log(f"[yellow]WAL mode warning ({os.path.basename(_wal_db)}): {_wal_e}")
 
-    # Season 5 one-time equity reset
+    # Season 6.3 equity reset
     maybe_reset_equity()
 
     # Init fallback columns (idempotent migration)
@@ -2136,7 +2457,7 @@ if __name__ == "__main__":
     except Exception as _e:
         console.log(f"[yellow]Trade outcomes table init warning: {_e}")
 
-    # Seed/refresh agent ratings with clean Season 5 data on startup
+    # Seed/refresh agent ratings with clean Season 6.3 data on startup
     try:
         from engine.agent_ratings import recalculate_all_ratings
         recalculate_all_ratings()
@@ -2179,7 +2500,7 @@ if __name__ == "__main__":
 
     from engine.crew_scanner import ACTIVE_SCANNERS, RULES_SCANNERS
     _startup_log.info("=" * 60)
-    _startup_log.info("USS TRADEMINDS — SEASON 5 — MONDAY STARTUP")
+    _startup_log.info(f"USS OLLIETRADES — SEASON 6.3 — {datetime.now().strftime('%A').upper()} STARTUP")
     _startup_log.info("=" * 60)
     _startup_log.info(f"Active Scanners: {ACTIVE_SCANNERS}")
     _startup_log.info(f"Rules Scanners: {RULES_SCANNERS}")
@@ -2192,8 +2513,8 @@ if __name__ == "__main__":
     _startup_log.info("ALL SYSTEMS OPERATIONAL — ENGAGE")
 
     console.print(Panel.fit(
-        "[bold green]USS TradeMinds[/bold green] — [bold cyan]All systems operational[/bold cyan]\n"
-        "[dim]Season 5 — Final Seven active | Dashboard: http://127.0.0.1:8080[/dim]",
+        "[bold green]USS OllieTrades[/bold green] — [bold cyan]All systems operational[/bold cyan]\n"
+        "[dim]Season 6.3 — Fleet Online | Dashboard: http://127.0.0.1:8080[/dim]",
         border_style="green"
     ))
 
@@ -2213,6 +2534,10 @@ if __name__ == "__main__":
     schedule.every().day.at("06:00").do(run_archer_morning_briefing)  # Phase 3.6: Archer briefing 6:00 AM AZ
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
+    schedule.every(30).minutes.do(run_ah_scanner)                     # AH Earnings Scanner: 4–7 PM AZ (30 min)
+    schedule.every(15).minutes.do(run_premarket_scanner)              # Pre-Market Scanner: 6–9:25 AM AZ (15 min)
+    schedule.every().day.at("06:00").do(run_earnings_universe_inject) # Earnings Inject: 6:00 AM AZ (5-min window)
+    schedule.every(5).minutes.do(run_earnings_day_scan)               # Earnings Day: every 5 min market hours
     schedule.every().day.at("06:45").do(run_opening_range)            # Battle Station: opening range 6:45 AM AZ
     schedule.every(2).minutes.do(run_battle_station_monitor)  # Battle Station: 60s options position monitor
     schedule.every(10).minutes.do(run_war_room)             # War Room: every 3 min during market hours (trash talk mode)
@@ -2731,6 +3056,34 @@ if __name__ == "__main__":
 
     schedule.every(30).minutes.do(run_archer_frontier)       # Archer: Sunday 10:30 PM MST frontier scan
 
+    # Debate pipeline: weekdays at 5 PM MST (after market close) — refreshes trade cards
+    _debate_pipeline_done_today: list[str] = []
+    def run_debate_pipeline():
+        """Run full debate pipeline after market close. Refreshes debate_history_v2 / trade cards."""
+        import pytz
+        from datetime import datetime as _dt
+        az = pytz.timezone("US/Arizona")
+        now = _dt.now(az)
+        today = now.strftime("%Y-%m-%d")
+        if now.weekday() >= 5:
+            return  # skip weekends
+        if now.hour != 17 or now.minute > 30:
+            return  # only fire in the 17:00–17:30 window
+        if today in _debate_pipeline_done_today:
+            return  # once per day
+        _debate_pipeline_done_today.clear()
+        _debate_pipeline_done_today.append(today)
+        try:
+            from engine.pipeline import run_pipeline
+            console.log("[bold cyan]Debate pipeline: starting post-close run...")
+            result = run_pipeline(top_n=10, execute=False)
+            n = len(result.get("debates", {}))
+            console.log(f"[bold green]Debate pipeline complete: {n} tickers debated")
+        except Exception as e:
+            console.log(f"[red]Debate pipeline error: {e}")
+
+    schedule.every(15).minutes.do(run_debate_pipeline)       # Debate pipeline: weekdays 5 PM MST post-close
+
     # Season rotation: every Sunday at 11:59 PM MST
     def run_season_rotation():
         """Auto-rotate season every Sunday at 11:59 PM MST."""
@@ -2948,6 +3301,80 @@ if __name__ == "__main__":
             console.log(f"[red]Aladdin brief error: {e}")
 
     schedule.every(30).minutes.do(run_aladdin_brief)   # Aladdin: checks every 30 min, runs every 4 hours
+
+    # ── Elder Council (S6.3, 2026-04-16): Sarek / Janeway / Surak ────────────
+    # Patient long-horizon agents. Scheduler fires daily at 05:30-05:45 AZ, but
+    # each handler gates itself by calendar date so DCAs only run on their cadence.
+    _elder_state = {"sarek_mo": "", "janeway_q": "", "surak_yr": ""}
+
+    def _az_today():
+        from datetime import datetime, timezone, timedelta
+        return (datetime.now(timezone.utc) + timedelta(hours=-7))
+
+    def run_sarek_monthly():
+        """Sarek (5yr): DCA on 1st of each month."""
+        today = _az_today()
+        if today.day != 1:
+            return
+        ym = today.strftime("%Y-%m")
+        if _elder_state["sarek_mo"] == ym:
+            return  # already ran this month
+        try:
+            from agents.sarek import run_monthly_dca
+            rows = run_monthly_dca(500.0)
+            _elder_state["sarek_mo"] = ym
+            console.log(f"[bold cyan]Sarek monthly DCA: {len(rows)} tranches @ $500 total")
+        except Exception as e:
+            console.log(f"[red]Sarek DCA error: {e}")
+
+    def run_janeway_quarterly():
+        """Janeway (10yr): DCA on 1st of Jan/Apr/Jul/Oct."""
+        today = _az_today()
+        if today.day != 1 or today.month not in (1, 4, 7, 10):
+            return
+        q_key = f"{today.year}Q{(today.month - 1) // 3 + 1}"
+        if _elder_state["janeway_q"] == q_key:
+            return
+        try:
+            from agents.janeway import run_quarterly_dca
+            rows = run_quarterly_dca(1000.0)
+            _elder_state["janeway_q"] = q_key
+            console.log(f"[bold cyan]Janeway quarterly DCA: {len(rows)} tranches @ $1000 total")
+        except Exception as e:
+            console.log(f"[red]Janeway DCA error: {e}")
+
+    def run_surak_annual():
+        """Surak (20yr): DCA on Jan 1."""
+        today = _az_today()
+        if today.day != 1 or today.month != 1:
+            return
+        yr_key = str(today.year)
+        if _elder_state["surak_yr"] == yr_key:
+            return
+        try:
+            from agents.surak import run_annual_dca
+            rows = run_annual_dca(2000.0)
+            _elder_state["surak_yr"] = yr_key
+            console.log(f"[bold cyan]Surak annual DCA: {len(rows)} tranches @ $2000 total")
+        except Exception as e:
+            console.log(f"[red]Surak DCA error: {e}")
+
+    # Brief refreshers (cheap — just regenerates thesis cache; DCA only fires on cadence)
+    def run_elder_briefs():
+        try:
+            from agents.sarek   import get_sarek_brief
+            from agents.janeway import get_janeway_brief
+            from agents.surak   import get_surak_brief
+            get_sarek_brief()      # 24h cache
+            get_janeway_brief()    # 7d  cache
+            get_surak_brief()      # 30d cache
+        except Exception as e:
+            console.log(f"[yellow]Elder Council brief refresh: {e}")
+
+    schedule.every().day.at("05:30").do(run_sarek_monthly)     # 8:30 AM ET
+    schedule.every().day.at("05:35").do(run_janeway_quarterly) # 8:35 AM ET
+    schedule.every().day.at("05:40").do(run_surak_annual)      # 8:40 AM ET
+    schedule.every().day.at("05:45").do(run_elder_briefs)      # thesis-cache warm
 
     # ── Phase 4: Event Shield, News Pulse, Breadth/Sector/Correlation ─────────
     def run_event_shield():
@@ -3272,7 +3699,7 @@ if __name__ == "__main__":
     console.log("[STARTUP] Tax Harvester: daily scan at 3:30–4:00 PM ET")
     console.log("[STARTUP] Drift Rebalancer: check every 30 min during market hours")
     console.log("[STARTUP] VaR Calculator: daily snapshot at 4:05–4:15 PM ET")
-    console.log("[STARTUP] Ollama: warming qwen3.5:9b + gemma3:4b + 0xroyce/plutus in background")
+    console.log("[STARTUP] Ollama: warming gemma3:4b + qwen3.5:9b + mistral:7b (≤6 GB only — deepseek-r1:14b excluded)")
 
     # ── Season 6.3 Fleet Cache ─────────────────────────────────────────────
     try:
@@ -3299,13 +3726,17 @@ if __name__ == "__main__":
     threading.Thread(target=_warmup, daemon=True).start()
 
     # Pre-load all required Ollama models — auto-pull if missing, then warm each
+    # Models over 6 GB are skipped at startup to prevent RAM starvation.
+    # deepseek-r1:14b (9 GB) removed — 15-min warm blocks scanner startup.
     def _warmup_ollama():
         import requests as _req, subprocess as _sp
+        _MAX_STARTUP_GB = 6.0
+        # (model, think, size_gb)
         _REQUIRED_MODELS = [
-            ("0xroyce/plutus",  False),   # T'Pol (dayblade-0dte) — finance-trained 0DTE brain
-            ("qwen3.5:9b",      False),   # DayBlade Sulu + Chekov + main arena
-            ("mistral:7b",      False),   # McCoy (ollama-plutus) — Mistral 7B scanner
-            ("deepseek-r1:14b", False),   # Deep analysis
+            ("gemma3:4b",      False, 3.3),   # fast scanner — small, always warm
+            ("qwen3.5:9b",     False, 5.5),   # DayBlade Sulu + Chekov + main arena
+            ("mistral:7b",     False, 4.1),   # McCoy (ollama-plutus) — Mistral 7B scanner
+            ("0xroyce/plutus", False, 8.0),   # T'Pol (dayblade-0dte) — >6 GB, skip startup
         ]
         # Check which models are installed
         try:
@@ -3317,7 +3748,10 @@ if __name__ == "__main__":
             console.log("[yellow][STARTUP] Ollama: API unreachable — skipping model warmup")
             return
 
-        for _model, _think in _REQUIRED_MODELS:
+        for _model, _think, _size_gb in _REQUIRED_MODELS:
+            if _size_gb > _MAX_STARTUP_GB:
+                console.log(f"[yellow][STARTUP] Ollama: {_model} skipped ({_size_gb} GB > {_MAX_STARTUP_GB} GB limit)")
+                continue
             _base = _model.split(":")[0]
             # Auto-pull if not installed (non-blocking background pull)
             if _base not in _installed and _model not in _installed:
