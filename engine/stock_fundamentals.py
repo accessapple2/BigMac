@@ -79,15 +79,21 @@ def _save_to_db(symbol: str, data: dict, score: int, grade: str):
 
 
 def _safe_get(d: dict, *keys, default=None):
-    """Safely traverse nested dicts, handling Yahoo's {raw, fmt} format."""
+    """Safely traverse nested dicts, handling Yahoo's {raw, fmt} format.
+
+    Bug fix 2026-04-17: previously returned the nested dict itself when a
+    Yahoo node was shaped unexpectedly (no "raw" key), causing downstream
+    `dict > int` TypeErrors (e.g. JNJ quality-gate crash every cycle).
+    Now any dict without a "raw" key is treated as missing and returns default.
+    """
     val = d
     for k in keys:
         if isinstance(val, dict):
             val = val.get(k)
         else:
             return default
-    if isinstance(val, dict) and "raw" in val:
-        return val["raw"]
+    if isinstance(val, dict):
+        return val["raw"] if "raw" in val else default
     return val if val is not None else default
 
 
