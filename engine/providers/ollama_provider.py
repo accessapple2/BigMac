@@ -15,12 +15,15 @@ class OllamaProvider(AIProvider):
 
     def call_model(self, prompt: str) -> str:
         # Route through global FIFO queue — one Ollama inference at a time system-wide.
-        # keep_alive=60s so the model unloads quickly when the next agent needs a different model.
+        # RAM patch 2026-04-17: keep_alive lowered 30s → 5s to prevent 2-model stacking
+        # on the 16 GB M4. qwen3.5:9b + gemma3:4b concurrently = 12.9 GB wired; with 5s
+        # unload, the next agent's different model doesn't pile on top. Trade-off:
+        # ~3-5s cold-load penalty per agent fire, acceptable on 60s+ scan cycles.
         payload = {
             "model": self.model_id,
             "prompt": prompt,
             "stream": False,
-            "keep_alive": "60s",
+            "keep_alive": "5s",
             "options": {"temperature": self._temperature},
         }
 

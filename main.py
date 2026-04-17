@@ -3699,7 +3699,7 @@ if __name__ == "__main__":
     console.log("[STARTUP] Tax Harvester: daily scan at 3:30–4:00 PM ET")
     console.log("[STARTUP] Drift Rebalancer: check every 30 min during market hours")
     console.log("[STARTUP] VaR Calculator: daily snapshot at 4:05–4:15 PM ET")
-    console.log("[STARTUP] Ollama: warming gemma3:4b + qwen3.5:9b + mistral:7b (≤6 GB only — deepseek-r1:14b excluded)")
+    console.log("[STARTUP] Ollama: warming gemma3:4b + mistral:7b only (≤6 GB; qwen3.5:9b cold-loads on demand — RAM patch 2026-04-17)")
 
     # ── Season 6.3 Fleet Cache ─────────────────────────────────────────────
     try:
@@ -3734,7 +3734,10 @@ if __name__ == "__main__":
         # (model, think, size_gb)
         _REQUIRED_MODELS = [
             ("gemma3:4b",      False, 3.3),   # fast scanner — small, always warm
-            ("qwen3.5:9b",     False, 5.5),   # DayBlade Sulu + Chekov + main arena
+            # RAM patch 2026-04-17: qwen3.5:9b actual loaded size is 8.6 GB (not 5.5 GB metadata).
+            # Bumped to 7.0 so it EXCEEDS the 6.0 GB MAX_STARTUP threshold → cold-loads on first
+            # real query instead of inflating baseline. Pairs with keep_alive=5s in OllamaProvider.
+            ("qwen3.5:9b",     False, 7.0),   # DayBlade Sulu + Chekov + main arena — cold-load on demand
             ("mistral:7b",     False, 4.1),   # McCoy (ollama-plutus) — Mistral 7B scanner
             ("0xroyce/plutus", False, 8.0),   # T'Pol (dayblade-0dte) — >6 GB, skip startup
         ]
