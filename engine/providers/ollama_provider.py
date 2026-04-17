@@ -6,7 +6,7 @@ from engine.ollama_queue import get_queue
 
 class OllamaProvider(AIProvider):
     def __init__(self, player_id: str = "ollama-local", model: str = "qwen3:14b",
-                 url: str = "http://localhost:11434", timeout: int = 120):
+                 url: str = "http://localhost:11434", timeout: int = 180):
         super().__init__(player_id, f"Ollama {model}", model, rate_limit=999)
         self.url = f"{url}/api/generate"
         self.timeout = timeout
@@ -15,15 +15,18 @@ class OllamaProvider(AIProvider):
 
     def call_model(self, prompt: str) -> str:
         # Route through global FIFO queue — one Ollama inference at a time system-wide.
-        # RAM patch 2026-04-17: keep_alive lowered 30s → 5s to prevent 2-model stacking
-        # on the 16 GB M4. qwen3.5:9b + gemma3:4b concurrently = 12.9 GB wired; with 5s
-        # unload, the next agent's different model doesn't pile on top. Trade-off:
-        # ~3-5s cold-load penalty per agent fire, acceptable on 60s+ scan cycles.
+        # RAM patch 2026-04-17 (v2): keep_alive lowered 30s → 5s prevented stacking BUT
+        # caused 120s-timeout storms: every agent fire was a full cold-load (8.6 GB from
+        # disk for qwen3.5:9b), and serial queue waits pushed later agents past 120s.
+        # Compromise: 45s keeps the model warm across back-to-back queue items (Neo +
+        # War Room fire within ~30s of each other), short enough that a different-model
+        # agent hitting ~30s+ later doesn't stack. Paired with timeout bumped 120s → 180s
+        # so the rare genuine cold-load still completes instead of erroring out.
         payload = {
             "model": self.model_id,
             "prompt": prompt,
             "stream": False,
-            "keep_alive": "5s",
+            "keep_alive": "45s",
             "options": {"temperature": self._temperature},
         }
 
