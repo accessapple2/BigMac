@@ -94,16 +94,19 @@ OLLIE_W_ALPHA    = 0.35
 OLLIE_W_AGENT_WR = 0.20
 OLLIE_W_REGIME   = 0.20
 
-# Per-agent threshold overrides — OOS: REVERTED to CLAUDE.md spec
-# Removed in-sample-fitted overrides on qwen3 (2.4) and capitol-trades (2.4).
-# neo-matrix: 1.75 per CLAUDE.md (was missing → defaulted to OLLIE_THRESHOLD 2.7).
-# chekov handled separately in _ollie_score (removed hardcoded 2.3, uses OLLIE_THRESHOLD).
+# Per-agent threshold overrides — OOS: CLAUDE.md spec
+# Chekov: CLAUDE.md says ≥5. Max possible Ollie score is 5.0 (requires perfect
+# sub-scores in all four components). Setting 5.0 effectively retires Chekov
+# from the backtest — empirically confirmed: 42.6% OOS WR at 2.7 validates the spec.
+# neo-matrix: 1.75 per CLAUDE.md (was missing → defaulted to 2.7).
+# qwen3/capitol-trades: reverted to 2.7 (were 2.4, fitted from shadow analysis).
 AGENT_THRESHOLDS: dict[str, float] = {
-    "neo-matrix":     1.75,  # OOS: CLAUDE.md spec (was missing, now explicit)
-    "ollama-qwen3":   2.7,   # OOS: reverted to OLLIE_THRESHOLD (was 2.4, shadow-fitted)
-    "ollama-llama":   2.5,   # Uhura: unchanged (not flagged as overfit)
-    "capitol-trades": 2.7,   # OOS: reverted to OLLIE_THRESHOLD (was 2.4, shadow-fitted)
-    "navigator":      2.5,   # navigator: unchanged (not flagged as overfit)
+    "neo-matrix":     1.75,  # CLAUDE.md spec
+    "chekov":         5.0,   # CLAUDE.md spec (≥5 = effectively retired; 42.6% WR confirmed broken)
+    "ollama-qwen3":   2.7,   # reverted from shadow-fitted 2.4
+    "ollama-llama":   2.5,   # unchanged
+    "capitol-trades": 2.7,   # reverted from shadow-fitted 2.4
+    "navigator":      2.5,   # unchanged
 }
 
 # Regime alignment bonus for each strategy
@@ -265,9 +268,8 @@ def _ollie_score(
         OLLIE_W_REGIME   * norm_regime,
         3,
     )
-    # OOS: chekov hardcoded 2.3 was in-sample fitted. CLAUDE.md says "chekov ≥5"
-    # which refers to the live agent's own 0-10 signal score, not the Ollie 0-5 composite.
-    # For backtest simulation, chekov uses global OLLIE_THRESHOLD (2.7) — no special case.
+    # OOS: all per-agent thresholds in AGENT_THRESHOLDS (includes chekov=5.0 per CLAUDE.md spec).
+    # No special-case overrides — every agent uses AGENT_THRESHOLDS or falls back to OLLIE_THRESHOLD.
     threshold = AGENT_THRESHOLDS.get(agent_id, OLLIE_THRESHOLD)
     return score, score >= threshold
 
@@ -1395,14 +1397,18 @@ def _print_v5_report(run_date: str, bC_v5: dict, spy_return: float) -> None:
               f"{am.get('bear_return',0):>+7.2f}%{star}")
 
     # ── [4] Per-strategy breakdown ────────────────────────────────────────────
-    print(f"\n  [4] PER-STRATEGY BREAKDOWN (by Sharpe)")
-    print(f"  {'Strategy':<20}{'Trades':>8}{'Return':>10}{'WR':>8}{'Sharpe':>10}{'DD':>10}{'Best':>8}{'Worst':>8}")
-    print(f"  {'─'*84}")
+    print(f"\n  [4] PER-STRATEGY BREAKDOWN (by Sharpe)  [SPY benchmark: {spy_return:+.2f}%]")
+    print(f"  {'Strategy':<20}{'Trades':>8}{'Return':>10}{'vsSPY':>8}{'WR':>8}{'Sharpe':>10}{'DD':>10}{'Best':>8}{'Worst':>8}")
+    print(f"  {'─'*94}")
     strat_rows = sorted(bC_v5.get("by_strategy", {}).items(),
                         key=lambda x: -x[1].get("sharpe", -99))
     for strat, sm in strat_rows:
+        ret    = sm.get('total_return', 0)
+        vs_spy = ret - spy_return
+        beat   = "✓" if vs_spy > 0 else "✗"
         print(f"  {strat:<20}{sm.get('num_trades',0):>8}"
-              f"{sm.get('total_return',0):>+9.2f}%"
+              f"{ret:>+9.2f}%"
+              f"{vs_spy:>+6.2f}%{beat}"
               f"{sm.get('win_rate',0):>7.1f}%"
               f"{sm.get('sharpe',0):>+10.3f}"
               f"{sm.get('max_drawdown',0):>9.2f}%"

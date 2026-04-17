@@ -888,16 +888,26 @@ def _sim_covered_call(future_df, entry_px, iv, dte) -> dict | None:
         px  = float(future_df["Close"].iloc[i])
         rem = max(1, dte - i - 1) / 365
         cur = _bs_price(px, strike, rem, RISK_FREE, iv * 0.85, "call")
-        pnl = credit - cur
-        if pnl >= credit * 0.5:
-            return {"pnl": pnl, "pnl_pct": pnl / entry_px * 100,
+        option_pnl = credit - cur
+        if option_pnl >= credit * 0.5:
+            # Close option at 50% profit; close stock position at current price.
+            # Total P&L = option gain + stock gain (position notional = entry_px).
+            stock_pnl = px - entry_px
+            total_pnl = option_pnl + stock_pnl
+            return {"pnl": total_pnl, "pnl_pct": total_pnl / entry_px * 100,
                     "credit": credit, "exit_type": "PROFIT_50", "days": i + 1,
                     "delta": delta, "theta": theta, "iv_entry": iv, "iv_exit": iv * 0.85,
                     "assignment": 0, "pop": pop, "premium": credit}
     final_px = float(future_df["Close"].iloc[-1]) if len(future_df) > 0 else entry_px
     win = final_px <= strike
-    return {"pnl": credit if win else credit - (final_px - strike),
-            "pnl_pct": (credit if win else credit - (final_px - strike)) / entry_px * 100,
+    if win:
+        # Option expires worthless; sell stock at final_px.
+        total_pnl = credit + (final_px - entry_px)
+    else:
+        # Stock called away at strike; receive strike price for shares.
+        # Upside is capped at strike, not final_px — covered call, not naked.
+        total_pnl = credit + (strike - entry_px)
+    return {"pnl": total_pnl, "pnl_pct": total_pnl / entry_px * 100,
             "credit": credit, "exit_type": "EXPIRED_WIN" if win else "CALLED_AWAY",
             "days": dte, "delta": delta, "theta": theta,
             "iv_entry": iv, "iv_exit": iv * 0.80,
