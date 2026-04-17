@@ -1,0 +1,144 @@
+/Users/bigmac/autonomous-trader/venv/lib/python3.9/site-packages/urllib3/__init__.py:35: NotOpenSSLWarning: urllib3 v2 only supports OpenSSL 1.1.1+, currently the 'ssl' module is compiled with 'LibreSSL 2.8.3'. See: https://github.com/urllib3/urllib3/issues/3020
+  warnings.warn(
+21:01:56 INFO ══════════════════════════════════════════════════════════════════════
+21:01:56 INFO   OOS-C Validation: Held-Out 2022 Bear Regime Backtest (Candidate C)
+21:01:56 INFO   Run date: 2026-04-16  |  Window: 2022-01-03 → 2022-10-14
+21:01:56 INFO ══════════════════════════════════════════════════════════════════════
+21:01:56 INFO [STEP 1] Downloading SPY for return calculation...
+/Users/bigmac/autonomous-trader/engine/super_backtest_oos_c.py:1566: FutureWarning: Calling float on a single element Series is deprecated and will raise a TypeError in the future. Use float(ser.iloc[0]) instead
+  (float(spy_sub["Close"].iloc[-1]) / float(spy_sub["Close"].iloc[0]) - 1) * 100, 2
+21:01:58 INFO SPY return in window: -24.27%
+21:01:58 INFO [STEP 2] Building point-in-time S&P 500 universe as of 2022-01-03...
+21:01:58 INFO [PIT_UNIVERSE] Loaded 200 symbols from disk cache /Users/bigmac/autonomous-trader/data/pit_universe_2022.json
+21:01:58 INFO [STEP 2] PIT universe: 200 symbols | alpha=0.5 (neutral, no look-ahead)
+21:01:58 INFO [STEP 3] Downloading 200 symbols + ^VIX (1960d)...
+21:01:58 INFO Downloading 202 symbols in 11 batches...
+21:02:21 INFO   Downloaded 5/11 batches, 100 symbols ready
+21:02:41 INFO   Downloaded 10/11 batches, 200 symbols ready
+21:02:43 INFO Download complete: 202/202 symbols with data
+21:02:43 INFO [STEP 4] 198 trading days, 1388 VIX entries
+21:02:43 INFO [STEP 5] Running Sniper v5 (alpha fixed + Ollie gate)...
+21:02:43 INFO [SNIPER_V5] Starting on 202 symbols, 198 days
+21:02:43 INFO [SNIPER_V5] 200 symbols pass alpha>=0.25
+21:02:46 INFO [SNIPER_V5_EVENT] 444 approved trades, 419 rejected shadows, 6774 skipped
+21:03:01 INFO [SNIPER_V5_OPT] 446 approved, 0 shadows, 15143 skipped
+21:03:01 INFO [SNIPER_V5] Done: 890 trades, return=+3989.67%, Sharpe=2.087, Ollie: 926/1401 approved
+21:03:01 INFO OOS-C Backtest 2022 complete in 64.9s
+21:03:01 INFO Results in backtest.db tables: backtest_results_oos_c, backtest_trades_oos_c, backtest_summary_oos_c, backtest_equity_oos_c, backtest_monthly_oos_c, backtest_decisions_oos_c
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  WARP CORE REACTOR v5 — Alpha Gate Fixed + Ollie Commander
+  Jan 9 – Apr 9, 2026  |  run=2026-04-16
+  3 strategies: rsi_bounce · csp · covered_call
+  7 agents: Ollie (gate) + Uhura + Worf + Spock + Seven + McCoy + Neo
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  [1] FULL HISTORY COMPARISON
+
+  Metric            Actual        v1  v2(180d)       v3b  SniperTT    v4 v2R  v4 Snipe        v5      BEST
+  ──────────────────────────────────────────────────────────────────────────────────────────────────────────────
+  Return %         -23.66%   +41.33%    +8.42%   +16.30%    +0.00%    +7.49%    -7.65% +3989.67%        v5
+  Sharpe            -6.516    -0.061    +0.874    +1.003    +1.136    +0.011    -0.098    +2.087        v5
+  Win Rate           17.7%     41.8%     57.6%     61.5%     83.3%     55.9%     80.0%     49.7%  SniperTT
+  Trades               558      2329       277        87        18       145        15       890
+
+  [2] OLLIE COMMANDER REPORT
+  ┌─────────────────────────┬────────────┐
+  │ Metric                  │      Value │
+  ├─────────────────────────┼────────────┤
+  │ Trades submitted        │       1401 │
+  │ Ollie approved          │        926 │
+  │ Ollie rejected          │        475 │
+  │ Approved win rate       │      49.7% │
+  │ Rejected would-have WR  │      50.4% │
+  │ Ollie added value?      │      NO  ✗ │
+  └─────────────────────────┴────────────┘
+
+  [3] PER-AGENT LEADERBOARD (by Sharpe)
+  Rank  Agent                   Trades    Return      WR    Sharpe        DD    Bull    Bear
+  ──────────────────────────────────────────────────────────────────────────────────────────
+  1     Dax                          5   +81.27%  100.0%   +10.164    -0.00%  +0.00%  +0.00% *
+  2     McCoy                       26  +261.07%   80.8%    +2.794   -43.26%  +0.00%  +0.00%
+  3     Neo                        811 +3626.27%   49.2%    +2.103   -85.21%  +0.00%+1705.87%
+  4     Capitol                     16   +28.78%   25.0%    +1.493   -19.54%  +0.00%  +0.00%
+  5     Uhura                       32    -7.72%   40.6%    -0.782   -15.21%  +0.00%  +0.00%
+
+  [4] PER-STRATEGY BREAKDOWN (by Sharpe)  [SPY benchmark: -24.27%]
+  Strategy              Trades    Return   vsSPY      WR    Sharpe        DD    Best   Worst
+  ──────────────────────────────────────────────────────────────────────────────────────────────
+  csp                      199 +2985.98%+3010.25%✓   89.9%    +5.420   -84.30% +52.98% -84.30%
+  rsi_bounce               444 +1140.28%+1164.55%✓   42.3%    +1.457   -53.39%+100.00% -33.43%
+  covered_call             247  -136.59%-112.32%✗   30.4%    -0.556   -87.01% +25.33% -53.37%
+
+  [5] REGIME RESULTS
+  Regime+Strategy               Trades    Return      WR    Sharpe
+  ────────────────────────────────────────────────────────────────
+  CAUTIOUS_rsi_bounce              117  +511.47%   92.3%   +11.206
+  MIXED_rsi_bounce                  49 +1363.47%   81.6%    +6.997
+  BEAR_csp                         153 +2441.93%   90.8%    +6.164
+  CRISIS_csp                        13  +157.10%   92.3%    +4.449
+  CAUTIOUS_csp                      33  +386.96%   84.8%    +3.521
+  BEAR_covered_call                187   -86.12%   28.9%    -0.535
+  CRISIS_covered_call               14   -26.91%   42.9%    -0.574
+  CAUTIOUS_covered_call             46   -23.56%   32.6%    -1.525
+  BEAR_rsi_bounce                  255  -649.94%   14.9%    -6.606
+  CRISIS_rsi_bounce                 23   -84.72%    8.7%   -12.896
+
+  [6] MONTHLY BREAKDOWN
+  2022-01  total=+151.10%  avg/agent=+50.37%  agents=3
+  2022-02  total=+371.99%  avg/agent=+93.00%  agents=4
+  2022-03  total=+548.45%  avg/agent=+182.82%  agents=3
+  2022-04  total=+105.65%  avg/agent=+26.41%  agents=4
+  2022-05  total=+425.94%  avg/agent=+212.97%  agents=2
+  2022-06  total=-29.52%  avg/agent=-9.84%  agents=3
+  2022-07  total=+1120.84%  avg/agent=+1120.84%  agents=1
+  2022-08  total=+53.92%  avg/agent=+13.48%  agents=4
+  2022-09  total=-237.06%  avg/agent=-79.02%  agents=3
+  2022-10  total=+1453.24%  avg/agent=+1453.24%  agents=1
+  2022-11  total=+25.15%  avg/agent=+25.15%  agents=1
+
+  [7] ALPHA SIGNAL REPORT CARD (12 Dilithium Crystals)
+  Avg composite on WINS:   +0.500
+  Avg composite on LOSSES: +0.500
+  Composite signal edge:   +0.000
+
+  Dark Pool          (wt 0.20)         wins=-0.057  losses=-0.075  edge=+0.018 ~
+  Insider Activity   (wt 0.20)         wins=+0.000  losses=+0.000  edge=+0.000 ~
+  Failure-to-Deliver (wt 0.15)         wins=+0.000  losses=+0.000  edge=+0.000 ~
+  Put/Call Ratio     (wt 0.10)         wins=+0.000  losses=+0.000  edge=+0.000 ~
+  VIX Structure      (wt 0.10)         wins=+0.000  losses=+0.000  edge=+0.000 ~
+  Sentiment          (wt 0.10)         wins=-0.054  losses=-0.061  edge=+0.007 ~
+  OpEx               (wt 0.05)         wins=+0.000  losses=+0.000  edge=+0.000 ~
+  Yield Curve        (wt 0.03)         wins=+0.000  losses=+0.000  edge=+0.000 ~
+  Earnings           (wt 0.03)         wins=+0.059  losses=+0.078  edge=-0.019 ~
+  Rebalancing        (wt 0.00)         wins=+0.000  losses=+0.000  edge=+0.000 ~
+  Rallies Consensus  (wt 0.05)         wins=+0.000  losses=+0.000  edge=+0.000 ~
+  Rallies Debate     (wt 0.05)         wins=+0.000  losses=+0.000  edge=+0.000 ~
+
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+  VERDICT
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+  ALPHA GATE IMPACT (v5 vs v4 Sniper):
+    Return:  -7.65% → +3989.67%  (+3997.32% ↑)
+    Sharpe:  -0.098  → +2.087   (+2.185 ↑)
+    ALPHA GATE IMPACT: +3997.32% return,  +2.185 Sharpe
+
+  OLLIE COMMANDER IMPACT:
+    Approved WR:  49.7%
+    Rejected WR:  50.4%  (shadow — would-have)
+    Delta:        -0.7pp
+    Verdict:      Ollie is BLOCKING GOOD TRADES
+
+  SNIPER MODE STATUS:
+    ✓ Alpha gate fix improved both return and Sharpe vs v4 sniper
+    ✗ Win rate 49.7% below 65% Proving Ground target
+
+  RECOMMENDATION:
+    INVESTIGATE — Both return and WR below target. Review alpha signal calibration.
+
+  SPY Buy & Hold:  -24.27%  |  v5 vs SPY: +4013.94%
+
+  * = single-trade Sharpe (std ≈ 0, magnitude unreliable)
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+

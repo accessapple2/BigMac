@@ -1,0 +1,37 @@
+{
+  "run_date": "2026-04-16",
+  "metrics": {
+    "total_return": 3989.67,
+    "win_rate": 49.7,
+    "sharpe": 2.087,
+    "realistic_sharpe": 2.087,
+    "needs_validation": 0,
+    "max_drawdown": -85.21,
+    "profit_factor": 2.983,
+    "num_trades": 890,
+    "avg_hold_days": 5.7,
+    "avg_trade_return": 4.483,
+    "best_trade_pct": 100.0,
+    "worst_trade_pct": -84.3,
+    "max_consec_wins": 20,
+    "max_consec_losses": 10,
+    "expectancy": 4.483,
+    "recovery_factor": 46.821,
+    "spy_return": -24.27,
+    "vs_spy": 4013.94
+  },
+  "ollie": {
+    "submitted": 1401,
+    "approved": 926,
+    "rejected": 475,
+    "approved_wr": 49.7,
+    "rejected_shadow_wr": 50.4,
+    "value_added": false
+  },
+  "alpha_impact": {
+    "return_pp": 3997.32,
+    "sharpe_pts": 2.185,
+    "vs_v4_sniper_ret": -7.65,
+    "vs_v4_sniper_sharpe": -0.098
+  }
+}
