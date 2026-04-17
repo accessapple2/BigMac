@@ -24,24 +24,20 @@ def scan_premarket_gaps() -> list:
 
     Returns list of dicts with symbol, prev_close, premarket_price, gap_pct, direction.
     """
-    try:
-        import yfinance as yf
-    except ImportError:
-        return [{"error": "yfinance not installed"}]
+    from engine.market_data import get_stock_price, get_alpaca_bars
 
     gaps = []
     for symbol in config.WATCH_STOCKS:
         try:
-            ticker = yf.Ticker(symbol)
-            info = ticker.info or {}
+            data = get_stock_price(symbol) or {}
+            bars = get_alpaca_bars(symbol, days=2)
 
-            prev_close = info.get("previousClose") or info.get("regularMarketPreviousClose")
-            # Try pre-market price first, then post-market, then current
-            premarket_price = (
-                info.get("preMarketPrice")
-                or info.get("postMarketPrice")
-                or info.get("regularMarketPrice")
-            )
+            premarket_price = data.get("price")
+            prev_close = None
+            if bars is not None and len(bars) >= 2:
+                prev_close = float(bars["Close"].iloc[-2])
+            elif bars is not None and len(bars) >= 1:
+                prev_close = float(bars["Close"].iloc[-1])
 
             if not prev_close or not premarket_price or prev_close <= 0:
                 continue
@@ -173,10 +169,11 @@ def _call_model(model: str, prompt: str) -> str:
             return resp.json().get("response", "")
 
         elif model == "grok":
-            # Routed to local deepseek-r1:14b — eliminates xAI API cost
+            # Routed to local qwen3.5:9b — eliminates xAI API cost
+            # RAM patch 2026-04-17: was deepseek-r1:14b (9.7GB); funneled to 9b warm model.
             resp = requests.post(
                 config.OLLAMA_URL + "/api/generate",
-                json={"model": "deepseek-r1:14b", "prompt": prompt, "stream": False},
+                json={"model": "qwen3.5:9b", "prompt": prompt, "stream": False},
                 timeout=90,
             )
             resp.raise_for_status()
@@ -525,10 +522,7 @@ def run_finviz_watchlist_scan() -> dict:
         return {"error": "finvizfinance not installed", "symbols": list(FIXED_WATCHLIST)}
 
     import sqlite3
-    try:
-        import yfinance as yf
-    except ImportError:
-        yf = None
+    from engine.market_data import get_stock_price as _get_stock_price, get_alpaca_bars
 
     _init_premarket_scan_table()
 
@@ -569,17 +563,17 @@ def run_finviz_watchlist_scan() -> dict:
                 except (ValueError, TypeError):
                     gap_pct = price = 0.0
 
-                # Get actual rvol from yfinance (Finviz filter confirmed >1.5 but no numeric col)
+                # Get actual rvol from Alpaca (Finviz filter confirmed >1.5 but no numeric col)
                 rvol = 1.5
-                if yf is not None:
-                    try:
-                        fi = yf.Ticker(sym).fast_info
-                        avg_vol  = getattr(fi, "three_month_average_volume", None) or 1
-                        last_vol = getattr(fi, "last_volume", None) or 0
-                        if avg_vol and last_vol:
-                            rvol = round(last_vol / avg_vol, 2)
-                    except Exception:
-                        pass
+                try:
+                    _data = _get_stock_price(sym) or {}
+                    last_vol = _data.get("volume") or 0
+                    _bars = get_alpaca_bars(sym, days=60)
+                    avg_vol = float(_bars["Volume"].mean()) if _bars is not None and not _bars.empty else 1
+                    if avg_vol and last_vol:
+                        rvol = round(last_vol / avg_vol, 2)
+                except Exception:
+                    pass
 
                 variable_picks.append({
                     "symbol":     sym,
@@ -610,15 +604,15 @@ def run_finviz_watchlist_scan() -> dict:
         if sym in variable_syms:
             continue
         price = rvol = 0.0
-        if yf is not None:
-            try:
-                fi = yf.Ticker(sym).fast_info
-                price    = float(getattr(fi, "last_price", 0) or 0)
-                avg_vol  = getattr(fi, "three_month_average_volume", None) or 1
-                last_vol = getattr(fi, "last_volume", None) or 0
-                rvol     = round(last_vol / avg_vol, 2) if avg_vol else 1.0
-            except Exception:
-                pass
+        try:
+            _data = _get_stock_price(sym) or {}
+            price    = float(_data.get("price") or 0)
+            last_vol = _data.get("volume") or 0
+            _bars    = get_alpaca_bars(sym, days=60)
+            avg_vol  = float(_bars["Volume"].mean()) if _bars is not None and not _bars.empty else 1
+            rvol     = round(last_vol / avg_vol, 2) if avg_vol else 1.0
+        except Exception:
+            pass
 
         fixed_picks.append({
             "symbol":     sym,

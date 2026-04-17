@@ -1,0 +1,39 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  OllieTrades RAM patch 2026-04-17
+
+  Persists `launchctl setenv OLLAMA_KEEP_ALIVE 5s` across reboots.
+  Sets Ollama's server-side default keep_alive to 5 seconds so any
+  /api/generate request that doesn't explicitly pass keep_alive (e.g.
+  chart_analyzer, dashboard/app.py, grok_provider) falls back to a
+  fast unload instead of Ollama's 5-minute default.
+
+  Install:
+    cp ops/com.ollietrades.ollama-keepalive.plist ~/Library/LaunchAgents/
+    launchctl load ~/Library/LaunchAgents/com.ollietrades.ollama-keepalive.plist
+
+  Uninstall:
+    launchctl unload ~/Library/LaunchAgents/com.ollietrades.ollama-keepalive.plist
+    rm ~/Library/LaunchAgents/com.ollietrades.ollama-keepalive.plist
+
+  Verify after reboot:
+    launchctl getenv OLLAMA_KEEP_ALIVE      # should print "5s"
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.ollietrades.ollama-keepalive</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/launchctl</string>
+        <string>setenv</string>
+        <string>OLLAMA_KEEP_ALIVE</string>
+        <string>5s</string>
+    </array>
+
+    <key>RunAtLoad</key>
+    <true/>
+</dict>
+</plist>
