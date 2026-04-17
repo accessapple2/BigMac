@@ -1,0 +1,247 @@
+OOS BACKTEST AUDIT REPORT
+engine/super_backtest_v5.py
+Generated: 2026-04-16
+Auditor: Claude Code (OOS Validation Step 2)
+==============================================================
+
+PURPOSE
+-------
+Pre-run audit of the in-sample backtest engine before out-of-sample
+replication. Goal: identify structural issues that may explain the
+reported 180-day Sharpe 4.845 / 100% win rate, and flag anything
+that would contaminate an OOS test if carried forward unchanged.
+
+==============================================================
+QUESTION 1: UNIVERSE DEFINITION
+==============================================================
+
+Source file: engine/super_backtest_v2.py, lines 360–371
+Function:    _expand_alpha_universe()
+
+SQL:
+    SELECT symbol FROM scan_universe
+    WHERE avg_volume IS NOT NULL AND avg_price >= 3.0
+    ORDER BY avg_volume DESC LIMIT 200
+
+scan_universe schema: id, symbol, name, exchange, sector,
+    avg_volume, avg_price, last_updated
+
+last_updated sample: '2026-04-05T20:30:01' (all rows ~April 2026)
+Total rows: 2,335
+
+VERDICT: TYPE (a) — SURVIVORSHIP BIAS CONFIRMED
+
+The universe is drawn from a live snapshot of stocks as of April 2026.
+Stocks that went bankrupt, were delisted, or were acquired during
+Oct 2025 → Apr 2026 are categorically absent from the backtest.
+Any failed companies that would have generated losing trades are
+silently excluded. This inflates win rate and return.
+
+Severity: HIGH. Survivorship bias is a primary explanation for the
+100% win rate. The OOS backtest on 2024 will suffer the same bias
+unless the universe is reconstructed from 2024-era membership.
+For the OOS run, we note this as a structural limitation and will
+use yfinance to pull price data only for symbols that still traded
+in the OOS window — which is a partial mitigation (tickers
+survivorship-selected from 2026 but price data actually from 2024).
+
+==============================================================
+QUESTION 2: SLIPPAGE MODEL
+==============================================================
+
+Source file: engine/master_backtest.py, lines 39–62
+
+    SLIPPAGE       = 0.001     # 0.1% per equity trade
+    OPT_SLIP_PER_LEG = 0.03   # 3% of premium per leg
+    OPT_SLIPPAGE_LEGS = {1: 0.03, 2: 0.06, 4: 0.12}
+    EXEC_DELAY     = 0.0015   # 0.15% adverse move on entry
+    OPT_COST       = 0.65     # $0.65 per contract hard cost
+
+Applied in v5 (engine/super_backtest_v5.py):
+    Line 568-569: fill_cost = SLIPPAGE + EXEC_DELAY (0.25% total)
+    Line 381:     pnl_pct -= SLIPPAGE * 200 (0.2% round-trip deduction)
+    Line 446:     same pattern for bull_momentum
+
+COMPARISON TO SPEC:
+    Options 3% per leg:       ✓ MATCHES
+    Equity 0.1%:              ✓ MATCHES
+    Execution delay 0.15%:    ✓ MATCHES
+    Iron condor 12% (4 legs): ✓ MATCHES (OPT_SLIPPAGE_LEGS[4])
+
+No deviation from spec. Slippage model is reasonable for liquid names.
+CAVEAT: For small/micro-cap names in the universe (avg_price >= $3),
+real-world slippage may be 2–5x higher than 0.1%. This is industry-
+acceptable for large-cap screening but optimistic for the full 200-
+symbol universe.
+
+==============================================================
+QUESTION 3: FILL LOGIC
+==============================================================
+
+Source file: engine/super_backtest_v5.py
+
+Signal detection (lines 340–355):
+    Uses sub["Close"].values where m = (df.index <= day)
+    px = float(c[-1])  →  today's closing price
+
+Fill price (lines 568-569):
+    entry_px = px * (1 + SLIPPAGE + EXEC_DELAY)
+    = Close[-1] * 1.0025
+
+VERDICT: SAME-DAY CLOSE FILL — MINOR LOOK-AHEAD ISSUE
+
+The RSI signal is computed on today's closing prices AND the entry
+fill uses today's close + slippage. In reality:
+  - RSI < 30 is only knowable at the close
+  - An entry at today's close is impractical (order must be placed
+    BEFORE close to fill AT close)
+  - Industry-realistic alternative: next-open fill
+
+Impact: The same-day fill tends to overstate performance because
+the system "enters" at the price that triggered the signal. In
+trending down days (which cause RSI < 30), close is usually better
+than next open. This creates a slight entry-timing advantage.
+
+For the OOS test: this bias is UNCHANGED (same code, same window).
+It will affect OOS results in the same way as in-sample — so it
+does not invalidate OOS comparison, but it means absolute OOS
+numbers are slightly optimistic vs real-world execution.
+
+==============================================================
+QUESTION 4: WINDOW DEFINITION
+==============================================================
+
+Source file: engine/super_backtest_v5.py, lines 68–70
+
+    WINDOW_START  = date(2025, 10, 13)
+    WINDOW_END    = date(2026, 4, 9)
+    BACKTEST_DAYS = 365
+
+Window length: ~178 calendar days (~127 trading days)
+Classification: IN-SAMPLE (this is the tuning window)
+
+Data download: start_dt = today - (BACKTEST_DAYS + 30) = ~Mar 2025
+Downloads 13+ months of price data, filters to WINDOW_START→END.
+
+IMPORTANT: BACKTEST_DAYS=365 but the actual signal window is only
+~178 days. The extra 365-178=187 days of data serves as a lookback
+buffer for technical indicators (RSI, ATR, SMA200). This is correct
+practice — warm-up data is separated from the trading window.
+
+==============================================================
+QUESTION 5: GATE THRESHOLDS (IN-SAMPLE TUNED)
+==============================================================
+
+Source file: engine/super_backtest_v5.py
+
+A. SNIPER ALPHA THRESHOLD
+   Line 73:  SNIPER_ALPHA_THRESHOLD = 0.3
+   CLAUDE.md states: "sniper alpha 0.25"
+   STATUS: *** DISCREPANCY — CODE USES 0.3, CLAUDE.md SAYS 0.25 ***
+   The code value (0.3) is more restrictive than documented.
+   The threshold was likely tuned upward from 0.25 at some point.
+   OOS impact: stricter gate → fewer trades → potential Sharpe inflation
+   from small N.
+
+B. OLLIE COMMANDER (global default threshold)
+   Line 78:  OLLIE_THRESHOLD = 2.7
+   Components: grade(25%), alpha(35%), agent_wr(20%), regime(20%)
+   CLAUDE.md: no explicit Ollie threshold documented.
+
+C. PER-AGENT THRESHOLD OVERRIDES (lines 85-90, 250-254)
+   "ollama-qwen3"   (Dax):      2.4  (AGENT_THRESHOLDS)
+   "ollama-llama"   (Uhura):    2.5  (AGENT_THRESHOLDS)
+   "capitol-trades" (Capitol):  2.4  (AGENT_THRESHOLDS)
+   "navigator":                 2.5  (AGENT_THRESHOLDS)
+   "chekov":                    2.3  (hardcoded line 251)
+
+D. NEO-MATRIX THRESHOLD
+   No dedicated entry in AGENT_THRESHOLDS.
+   Neo-matrix falls through to OLLIE_THRESHOLD = 2.7.
+   CLAUDE.md states: "neo-matrix 1.75"
+   STATUS: *** DISCREPANCY — CLAUDE.md SAYS 1.75, CODE USES 2.7 ***
+   The code is MORE restrictive for Neo than documented, meaning
+   Neo approves fewer trades than the documented config suggests.
+
+E. CHEKOV SCORE MINIMUM
+   Line 251: hardcoded threshold = 2.3 (the Ollie scoring scale 0-5)
+   CLAUDE.md states: "chekov ≥5"
+   STATUS: *** MAJOR DISCREPANCY — SCALES ARE DIFFERENT ***
+   The "chekov ≥5" in CLAUDE.md likely refers to a DIFFERENT
+   Chekov scoring metric (possibly the live agent's own signal score
+   0-10 or 0-5 raw), NOT the Ollie Commander composite score.
+   In the backtest, chekov's Ollie gate is 2.3 out of 5.0 max.
+   This is a documentation ambiguity, not necessarily a bug.
+
+F. QWEN3 THRESHOLD (Dax)
+   Line 86: "ollama-qwen3": 2.4
+   Comment: "shadow trades avg +20.88% — unlock more"
+   This comment reveals the threshold was LOWERED based on in-sample
+   shadow trade analysis — classic overfitting signal.
+
+G. CAPITOL-TRADES THRESHOLD
+   Line 88: "capitol-trades": 2.4
+   Comment: "lowered — was blocking 100% WR shadow trades"
+   Again: threshold was tuned DOWN because in-sample shadows looked good.
+
+H. CAUTIOUS REGIME DISABLED
+   Line 528-531: CAUTIOUS rsi_bounce is entirely disabled.
+   Comment: "CAUTIOUS rsi_bounce disabled — 0% WR across all runs"
+   This is an explicit in-sample-derived rule that suppresses trades
+   in CAUTIOUS regime. If the OOS window has more CAUTIOUS days, this
+   will reduce trade count but may miss recovery plays.
+
+I. TICKER BLACKLIST (triple filter)
+   Line 536: sym in {"TME","BSX","SCHG","NVD","DUST","HDB","CRCL","AAPD"}
+   Comment: "rsi_bounce 0% WR losers / invalid ETFs — all regimes"
+   These tickers were individually blacklisted based on in-sample results.
+   Overfitting risk: LOW (8 symbols out of 200, and some are clearly
+   invalid ETFs). Acceptable defensive exclusion.
+
+==============================================================
+SUMMARY: AUDIT FLAGS
+==============================================================
+
+CRITICAL:
+  [C1] SURVIVORSHIP BIAS: Universe is today's live survivors (Apr 2026
+       snapshot). Backtest excludes any stock that failed during Oct
+       2025 – Apr 2026. Likely a major contributor to 100% win rate.
+
+HIGH:
+  [H1] THRESHOLD DISCREPANCY: SNIPER_ALPHA_THRESHOLD = 0.3 in code,
+       0.25 in CLAUDE.md. OOS must use 0.3 (what code actually ran).
+  [H2] NEO-MATRIX DISCREPANCY: CLAUDE.md says 1.75, code uses 2.7.
+       OOS must use 2.7 (what code actually ran).
+  [H3] GATE TUNING FINGERPRINTS: qwen3 and capitol-trades thresholds
+       were lowered BECAUSE in-sample shadows looked good. This is
+       explicit in-sample overfitting. OOS will expose this.
+
+MEDIUM:
+  [M1] SAME-DAY CLOSE FILL: Entry fills at same bar's close that
+       triggered the signal. Slightly optimistic vs next-open fill.
+       Affects absolute numbers but not IS/OOS comparison.
+  [M2] SMALL TRADE COUNT: 100% win rate on small N is consistent with
+       Sharpe inflation. OOS will show true N and distribution.
+
+LOW:
+  [L1] CAUTIOUS regime disabled entirely for rsi_bounce based on IS
+       result. Will silently skip CAUTIOUS trades in OOS too.
+  [L2] CHEKOV ≥5 documentation is ambiguous (different scale than
+       Ollie gate score). Not a code bug.
+
+==============================================================
+RECOMMENDATION FOR OOS RUN
+==============================================================
+
+1. Copy super_backtest_v5.py to super_backtest_oos.py
+2. Change ONLY WINDOW_START and WINDOW_END
+3. DO NOT change any thresholds — run the EXACT same gate config
+   that produced the in-sample result (including the 0.3 alpha
+   threshold, not the CLAUDE.md-documented 0.25)
+4. Log the survivorship bias caveat prominently in the verdict
+5. If OOS win rate < 80%, the in-sample 100% is almost certainly
+   an artifact of: survivorship bias + gate overfitting
+
+==============================================================
+END OF AUDIT REPORT
+==============================================================
