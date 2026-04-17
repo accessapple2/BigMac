@@ -7090,10 +7090,11 @@ def ai_chat(msg: dict):
                     reasoning_effort="medium",
                 )[:300]
             elif "grok" in model_name:
-                # Routed to local deepseek-r1:14b — eliminates xAI API cost
+                # Routed to local qwen3.5:9b — eliminates xAI API cost
+                # RAM patch 2026-04-17: was deepseek-r1:14b (9.7GB); funneled to 9b warm model.
                 ollama_url = os.environ.get("OLLAMA_BASE_URL", "http://localhost:11434")
                 r = req.post(f"{ollama_url}/api/generate",
-                    json={"model": "deepseek-r1:14b", "prompt": prompt, "stream": False},
+                    json={"model": "qwen3.5:9b", "prompt": prompt, "stream": False},
                     timeout=60)
                 response = (r.json().get("response", "") or "No response").strip()[:300]
             elif "gemini" in model_name:
@@ -7196,9 +7197,10 @@ def player_recommendation(player_id: str, symbol: str):
                 reasoning_effort="medium",
             )
         elif provider == "xai":
-            # Routed to local deepseek-r1:14b — eliminates xAI API cost
+            # Routed to local qwen3.5:9b — eliminates xAI API cost
+            # RAM patch 2026-04-17: was deepseek-r1:14b (9.7GB); funneled to 9b warm model.
             r = req.post("http://localhost:11434/api/generate",
-                json={"model": "deepseek-r1:14b", "prompt": prompt, "stream": False},
+                json={"model": "qwen3.5:9b", "prompt": prompt, "stream": False},
                 timeout=60)
             response_text = r.json().get("response", "") if r.ok else ""
         elif provider == "google":

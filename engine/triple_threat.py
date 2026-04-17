@@ -58,12 +58,12 @@ WINDOW_START = date(2026, 1, 9)
 WINDOW_END   = date(2026, 4, 9)
 
 # ── Sniper constants ──────────────────────────────────────────────────────────
-SNIPER_ALPHA_THRESHOLD = 0.3
+SNIPER_ALPHA_THRESHOLD = 0.25
 SNIPER_CONF_THRESHOLD  = 0.65
 SNIPER_BULL_MIN        = 3
 
 SNIPER_FLEET: dict[str, dict] = {
-    "grok-4":           {"name": "Spock",  "model": "deepseek-r1:14b",  "tiers": [1]},
+    "grok-4":           {"name": "Spock",  "model": "deepseek-r1:7b",   "tiers": [1]},  # RAM patch 2026-04-17: 14b → 7b
     "gemini-2.5-flash": {"name": "Worf",   "model": "qwen3:14b",        "tiers": [5]},
     "ollama-plutus":    {"name": "McCoy",  "model": "0xroyce/plutus",   "tiers": [5]},
     "gemini-2.5-pro":   {"name": "Seven",  "model": "qwen3:14b",        "tiers": [1]},

@@ -149,7 +149,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Lt. Cmdr. Spock",
         "role": "Mean Reversion",
         "strategy": "RSI extremes only — buy oversold, short overbought. Avoids trending sessions.",
-        "model": "deepseek-r1:14b",  # upgraded from 7b
+        "model": "deepseek-r1:7b",  # RAM patch 2026-04-17: back to 7b (14b was 9.7GB on a 16GB box)
         "max_positions": 2,
         "size_factor": 0.8,
         "bridge_voter": False,

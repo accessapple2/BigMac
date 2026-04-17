@@ -146,10 +146,11 @@ def _call_model(model: str, prompt: str) -> str:
             return resp.json().get("response", "")
 
         elif model == "grok":
-            # Routed to local deepseek-r1:14b — eliminates xAI API cost
+            # Routed to local qwen3.5:9b — eliminates xAI API cost
+            # RAM patch 2026-04-17: was deepseek-r1:14b (9.7GB); funneled to 9b warm model.
             resp = requests.post(
                 config.OLLAMA_URL + "/api/generate",
-                json={"model": "deepseek-r1:14b", "prompt": prompt, "stream": False},
+                json={"model": "qwen3.5:9b", "prompt": prompt, "stream": False},
                 timeout=90,
             )
             resp.raise_for_status()

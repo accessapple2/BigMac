@@ -72,7 +72,7 @@ def initialize_arena():
     providers = [
         OllamaProvider(model=OLLAMA_MODEL, url=OLLAMA_URL),
         OllamaProvider(player_id="ollama-gemma27b", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180),
-        OllamaProvider(player_id="ollama-deepseek", model="deepseek-r1:14b", url=OLLAMA_URL, timeout=180),
+        OllamaProvider(player_id="ollama-deepseek", model="deepseek-r1:7b", url=OLLAMA_URL, timeout=180),  # RAM patch 2026-04-17: 14b (9.7GB) → 7b (4.7GB), Spock per CLAUDE.md
         OllamaProvider(player_id="ollama-qwen3", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180),
         OllamaProvider(player_id="ollama-kimi", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180),
         OllamaProvider(player_id="ollama-glm4", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180),
@@ -89,7 +89,7 @@ def initialize_arena():
 
     # gpt-4o / gpt-o3 — routed to free local Ollama (no OpenAI spend)
     providers.append(OllamaProvider("gpt-4o", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
-    providers.append(OllamaProvider("gpt-o3", "deepseek-r1:14b", url=OLLAMA_URL, timeout=180))
+    providers.append(OllamaProvider("gpt-o3", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))  # RAM patch 2026-04-17: retired o3 → 9b (funnel to existing warm model)
 
     # Gemini players — local Ollama
     providers.append(OllamaProvider("gemini-2.5-pro", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
@@ -107,7 +107,7 @@ def initialize_arena():
     providers.append(OllamaProvider("claude-haiku", "qwen2.5-coder:7b", url=OLLAMA_URL, timeout=180))
     # Grok players → free local Ollama
     providers.append(OllamaProvider("grok-3", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
-    providers.append(OllamaProvider("grok-4", "deepseek-r1:14b", url=OLLAMA_URL, timeout=180))
+    providers.append(OllamaProvider("grok-4", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))  # RAM patch 2026-04-17: retired grok-4 → 9b (Kirk+Pike replaced Grok on 2026-04-16)
     providers.append(OllamaProvider("cto-grok42", "qwen2.5-coder:7b", url=OLLAMA_URL, timeout=180))
 
     if GROQ_API_KEY:
