@@ -21,13 +21,50 @@ import logging
 import os
 import re
 import sqlite3
+import subprocess
+import threading
 import time
 from datetime import datetime, timezone
 from typing import Any
 
 import requests
 
+try:
+    import psutil as _psutil
+    _PSUTIL_OK = True
+except ImportError:
+    _psutil = None  # type: ignore
+    _PSUTIL_OK = False
+
 from engine.crew_specialization import CREW_MANIFEST, should_agent_trade
+
+# Long Range Sensors — optional whale volume detection (Feature 7)
+try:
+    from engine.long_range_sensors import scan_for_whales as _lrs_scan
+    LRS_AVAILABLE = True
+except ImportError:
+    LRS_AVAILABLE = False
+
+# Uhura institutional intelligence — optional confidence boost + vote weight
+try:
+    from engine.uhura_bridge_integration import (
+        get_institutional_vote,
+        apply_institutional_boost,
+        should_block_trade as uhura_should_block,
+    )
+    UHURA_AVAILABLE = True
+except ImportError:
+    UHURA_AVAILABLE = False
+    def get_institutional_vote(ticker):           return 0.0
+    def apply_institutional_boost(ticker, conf):  return conf, None
+    def uhura_should_block(ticker, action="BUY"): return False, None
+
+try:
+    from engine.blocked_symbols import is_symbol_blocked as _is_symbol_blocked
+    BLOCKED_SYMBOLS_AVAILABLE = True
+except ImportError:
+    BLOCKED_SYMBOLS_AVAILABLE = False
+    def _is_symbol_blocked(agent_id, symbol): return False
 
 logger = logging.getLogger("crew_scanner")
 logging.basicConfig(
@@ -143,7 +180,7 @@ _MAX_DAILY_TRADES_PER_AGENT = 2   # guardrail: max trades per agent per day
 _FLEET_EXPOSURE_MAX_PCT     = 60  # max % of total fleet invested at once
 
 # ── Sniper Mode live gate (matches triple_threat.py SNIPER_ALPHA_THRESHOLD) ──
-SNIPER_ALPHA_THRESHOLD    = 0.3   # composite_alpha >= 0.3 required (LLM agents only)
+SNIPER_ALPHA_THRESHOLD    = 0.25  # composite_alpha >= 0.25 required (LLM agents only)
 SNIPER_MIN_CONFIDENCE     = 55    # LLM confidence >= 55 required (loosened from 65)
 CSP_MIN_IVR               = 30    # CSP entries require IV Rank >= 30 (low-IV assignment risk)
 SPREAD_MIN_CONFIDENCE     = 55    # Min confidence for spread strategies (loosened from 60)
@@ -151,6 +188,11 @@ OPTIONS_MIN_CONFIDENCE    = 50    # Min confidence for options directional (loos
 
 # Strategies that bypass the Ollie gate (equity signals score low on options-heavy rubric)
 BYPASS_OLLIE = {"rsi_bounce", "congress_copy", "ema_pullback", "momentum", "swing_trade"}
+
+# OOS verdict 2026-04-17: rsi_bounce breaks in BEAR/CRISIS (Sharpe -6.6 / -12.9 in 2022 OOS-C)
+# Gate: rsi_bounce only allowed in CAUTIOUS or MIXED regimes. Disabled in BULL, BEAR, CRISIS.
+# Ref: data/oos_c_verdict.md
+RSI_BOUNCE_ALLOWED_REGIMES = {"CAUTIOUS", "MIXED"}
 
 # Strategies that bypass the Sniper Alpha gate (rules-based agents have own internal filters)
 # Alpha scores go negative in bear markets — rules agents should still fire bearish plays
@@ -204,9 +246,10 @@ RULES_SCANNERS: list[str] = [
     "dayblade-0dte",   # T'Pol — 0DTE options (shelved, kept for position management)
     "capitol-trades",  # Congress copycat
     "dalio-metals",    # Metals macro
-    "dayblade-sulu",   # Sulu — spreads/momentum (S6.1 activated)
+    # "dayblade-sulu", # Sulu — benched S6.3 (XO coaching: R:R 0.10, META -$525)
     "navigator",       # Chekov — EMA pullback (S6.1 activated)
     "grok-4",          # Spock — RSI mean reversion (pure rules, bypasses Sniper Alpha gate)
+    "holly-scanner",   # Holly — 6-pattern detector (S6.2: vol spike, gap, RSI, breakout, pullback, sector)
 ]
 
 # Alpha Squad pair rotation — index cycles 0→1→2→0 each scan window
@@ -266,6 +309,79 @@ def _ensure_table() -> None:
 
 _table_initialized  = False
 _last_ollama_query: float = 0.0
+
+# ---------------------------------------------------------------------------
+# Memory protection
+# ---------------------------------------------------------------------------
+
+_LOW_RAM_THRESHOLD_BYTES  = 2 * 1024 ** 3   # 2 GB — skip Ollama scan below this
+_CRIT_RAM_THRESHOLD_BYTES = 500 * 1024 ** 2  # 500 MB — force-unload all models
+
+# Tracks which Ollama model is currently loaded (one at a time).
+_current_ollama_model: str | None = None
+_ollama_model_lock = threading.Lock()
+
+
+def _free_ram_bytes() -> int:
+    """Return available RAM in bytes, or maxint if psutil is unavailable."""
+    if not _PSUTIL_OK:
+        return 2 ** 62
+    return _psutil.virtual_memory().available
+
+
+def _unload_ollama_model(model: str, base_url: str) -> None:
+    """Send keep_alive=0 to immediately unload a model from Ollama."""
+    try:
+        requests.post(
+            f"{base_url}/api/generate",
+            json={"model": model, "prompt": "", "stream": False,
+                  "keep_alive": 0, "options": {"num_predict": 1}},
+            timeout=10,
+        )
+        logger.info(f"[MemGuard] Unloaded Ollama model: {model}")
+    except Exception as e:
+        logger.warning(f"[MemGuard] Failed to unload {model}: {e}")
+
+
+def _force_unload_all_ollama() -> None:
+    """Force-unload all known Ollama models via keep_alive=0 and ollama stop."""
+    global _current_ollama_model
+    base_url = _get_ollama_base_url()
+    with _ollama_model_lock:
+        if _current_ollama_model:
+            _unload_ollama_model(_current_ollama_model, base_url)
+            _current_ollama_model = None
+    # Belt-and-suspenders: also call `ollama stop` to cover any stale model
+    try:
+        subprocess.run(["ollama", "stop"], capture_output=True, timeout=10)
+        logger.warning("[MemGuard] ollama stop issued — all models unloaded")
+    except Exception as e:
+        logger.warning(f"[MemGuard] ollama stop failed: {e}")
+
+
+def _ram_watchdog_loop() -> None:
+    """Background thread: checks free RAM every 60 s.
+    If below 500 MB, force-unloads all Ollama models immediately."""
+    while True:
+        time.sleep(60)
+        try:
+            free = _free_ram_bytes()
+            if free < _CRIT_RAM_THRESHOLD_BYTES:
+                free_mb = free // (1024 ** 2)
+                logger.warning(
+                    f"[MemGuard] CRITICAL RAM: {free_mb} MB free — "
+                    "force-unloading all Ollama models"
+                )
+                _force_unload_all_ollama()
+        except Exception as e:
+            logger.warning(f"[MemGuard] watchdog error: {e}")
+
+
+# Start watchdog once at module import (daemon so it doesn't block exit).
+_ram_watchdog_thread = threading.Thread(
+    target=_ram_watchdog_loop, name="ram-watchdog", daemon=True
+)
+_ram_watchdog_thread.start()
 
 
 def _ensure_warm() -> None:
@@ -521,45 +637,58 @@ _SPIKE_TICKERS = [
 def _get_volume_spikes() -> list[dict]:
     """
     Find tickers with unusual volume today (>1.5x 5-day avg).
-    Uses 6 days of OHLCV via yfinance — runs in ~1-2s.
+    Uses 6 days of daily bars via Alpaca (no Yahoo dependency).
     Returns list sorted by volume_ratio descending.
     """
     try:
-        import yfinance as yf
-        import pandas as pd
-        raw = yf.download(
-            _SPIKE_TICKERS, period="6d", progress=False,
-            auto_adjust=True, threads=True,
+        import os
+        from dotenv import load_dotenv
+        load_dotenv()
+        key    = os.getenv("ALPACA_API_KEY", "")
+        secret = os.getenv("ALPACA_SECRET_KEY", "")
+        if not key or not secret:
+            return []
+
+        import requests as _req
+        from datetime import datetime as _dt, timedelta as _td
+        start = (_dt.utcnow() - _td(days=10)).strftime("%Y-%m-%d")
+        r = _req.get(
+            "https://data.alpaca.markets/v2/stocks/bars",
+            headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret},
+            params={
+                "symbols":   ",".join(_SPIKE_TICKERS),
+                "timeframe": "1Day",
+                "start":     start,
+                "limit":     700,   # 10d × ~70 tickers
+                "feed":      "iex",
+            },
+            timeout=15,
         )
+        if not r.ok:
+            logger.warning(f"_get_volume_spikes Alpaca error: {r.status_code}")
+            return []
+
+        bars_by_sym = r.json().get("bars", {})
         spikes: list[dict] = []
+
         for t in _SPIKE_TICKERS:
             try:
-                # Handle both MultiIndex layouts yfinance uses
-                if isinstance(raw.columns, pd.MultiIndex):
-                    top = raw.columns.get_level_values(0)[0]
-                    if top in ("Close", "Open", "High", "Low", "Volume"):
-                        # Default layout: (field, ticker)
-                        vol   = raw["Volume"][t].dropna()
-                        close = raw["Close"][t].dropna()
-                    else:
-                        # group_by="ticker" layout: (ticker, field)
-                        vol   = raw[t]["Volume"].dropna()
-                        close = raw[t]["Close"].dropna()
-                else:
-                    vol   = raw["Volume"].dropna()
-                    close = raw["Close"].dropna()
-
-                if len(vol) < 2:
+                bars = bars_by_sym.get(t, [])
+                if len(bars) < 2:
                     continue
-                today_vol = float(vol.iloc[-1])
-                avg_vol   = float(vol.iloc[:-1].mean())
+                vols   = [float(b.get("v") or 0) for b in bars]
+                closes = [float(b.get("c") or 0) for b in bars]
+                if len(vols) < 2 or not closes[-1]:
+                    continue
+                today_vol = vols[-1]
+                avg_vol   = sum(vols[:-1]) / max(len(vols) - 1, 1)
                 if avg_vol <= 0:
                     continue
                 ratio = today_vol / avg_vol
                 if ratio < 1.5:
                     continue
-                today_px = float(close.iloc[-1])
-                prev_px  = float(close.iloc[-2]) if len(close) >= 2 else today_px
+                today_px = closes[-1]
+                prev_px  = closes[-2] if len(closes) >= 2 else today_px
                 change   = (today_px / prev_px - 1) * 100 if prev_px > 0 else 0.0
                 spikes.append({
                     "symbol":       t,
@@ -596,19 +725,52 @@ def _get_ollama_base_url() -> str:
 
 def _query_ollama(player_id: str, model: str, system_prompt: str,
                   user_prompt: str, timeout: int = 90) -> str:
-    """Call Ollama /api/generate and return the raw response text."""
-    global _last_ollama_query
+    """Call Ollama /api/generate and return the raw response text.
+
+    Memory protection:
+    - Skips the call if free RAM < 2 GB.
+    - Unloads the previous model (keep_alive=0) before loading a new one,
+      ensuring only ONE Ollama model is resident at any time.
+    - Sets keep_alive=30s so models unload quickly when idle.
+    """
+    global _last_ollama_query, _current_ollama_model
     base_url = _get_ollama_base_url()
+
+    # ── (1) RAM guard — skip scan if memory is too low ──────────────────────
+    free = _free_ram_bytes()
+    if free < _LOW_RAM_THRESHOLD_BYTES:
+        free_mb = free // (1024 ** 2)
+        logger.warning(
+            f"LOW RAM: skipping Ollama scan for {player_id} "
+            f"({free_mb} MB free, need 2048 MB)"
+        )
+        return ""
+
+    # ── (2) One model at a time — unload previous model before loading new ──
+    with _ollama_model_lock:
+        if _current_ollama_model and _current_ollama_model != model:
+            logger.info(
+                f"[MemGuard] Switching model {_current_ollama_model} → {model}; "
+                "unloading previous first"
+            )
+            _unload_ollama_model(_current_ollama_model, base_url)
+        _current_ollama_model = model
+
+    # ── (3) Actual inference call ────────────────────────────────────────────
     try:
         resp = requests.post(
             f"{base_url}/api/generate",
             json={
-                "model":   model,
-                "system":  system_prompt,
-                "prompt":  user_prompt,
-                "stream":  False,
-                "think":   False,
-                "options": {"num_predict": 120 if player_id == "neo-matrix" else 80, "temperature": 0.3},
+                "model":      model,
+                "system":     system_prompt,
+                "prompt":     user_prompt,
+                "stream":     False,
+                "think":      False,
+                "keep_alive": "30s",
+                "options": {
+                    "num_predict": 120 if player_id == "neo-matrix" else 80,
+                    "temperature": 0.3,
+                },
             },
             timeout=timeout,
         )
@@ -1238,20 +1400,8 @@ def _check_upcoming_earnings() -> list[dict]:
 
     upcoming: list[dict] = []
     try:
-        import yfinance as yf
-        today = _dt.now()
-        for sym in _UHURA_EARNINGS_WATCH:
-            try:
-                t = yf.Ticker(sym)
-                dates = t.earnings_dates
-                if dates is not None and len(dates) > 0:
-                    next_date = dates.index[0]
-                    nd = next_date.date() if hasattr(next_date, "date") else next_date
-                    days_until = (nd - today.date()).days
-                    if 0 <= days_until <= 3:
-                        upcoming.append({"symbol": sym, "days_until": days_until})
-            except Exception:
-                pass
+        # Earnings dates via Alpaca not available — skip gracefully
+        pass
     except Exception:
         pass
 
@@ -1368,13 +1518,31 @@ def chekov_rules(market_ctx: dict[str, Any], scan_picks: list[dict]) -> dict[str
     """
     session = market_ctx.get("session_type", "")
     vix     = float(market_ctx.get("vix", 20))
+    regime  = str(market_ctx.get("regime", market_ctx.get("market_regime", "NEUTRAL"))).upper()
 
-    # Stand down in confirmed bear sessions
-    if "BEAR" in session or vix > 35:
-        return {"action": "PASS", "reason": f"Chekov: bear session or VIX {vix:.1f} — holding course"}
+    # Stand down: confirmed bear session, VIX spike, or adverse regime
+    if "BEAR" in session or vix > 35 or regime in ("BEAR", "CRISIS"):
+        return {"action": "PASS", "reason": f"Chekov: adverse conditions (regime={regime}, VIX={vix:.1f})"}
 
     best: dict | None = None
     best_score = 0
+
+    # Fetch tractor-beam signals (last 2h); boost only applied when conf >= 80
+    _tb_conf_map: dict[str, float] = {}  # symbol -> confidence
+    try:
+        import sqlite3 as _sq
+        from pathlib import Path as _P
+        _sc_db = _P(__file__).resolve().parent.parent / "signal-center" / "signals.db"
+        if _sc_db.exists():
+            _sc = _sq.connect(str(_sc_db), timeout=3)
+            _tb_conf_map = {r[0]: float(r[1]) for r in _sc.execute(
+                "SELECT symbol, confidence FROM trade_signals "
+                "WHERE agent_name='tractor-beam' AND action='BUY' "
+                "  AND created_at >= datetime('now', '-2 hours')"
+            ).fetchall()}
+            _sc.close()
+    except Exception:
+        pass
 
     for pick in scan_picks[:8]:
         sym       = pick.get("symbol", "")
@@ -1417,86 +1585,295 @@ def chekov_rules(market_ctx: dict[str, Any], scan_picks: list[dict]) -> dict[str
         if 0 <= roc_5d <= 5:
             score += 2
 
+        # Tractor Beam signal boost (+2) — tiebreaker only when conf >= 80
+        _tb_conf = _tb_conf_map.get(sym, 0)
+        if _tb_conf >= 80:
+            score += 2
+        elif _tb_conf > 0:
+            console.log(f"[dim]TB boost skipped for {sym} (conf={_tb_conf:.0f} < 80)[/dim]")
+
         if score > best_score:
             best_score = score
             best = {
-                "symbol": sym, "score": score, "rsi": rsi,
-                "dist": dist_from_ema, "vol": vol_ratio,
+                "symbol":   sym, "score": score, "rsi": rsi,
+                "dist":     dist_from_ema, "vol": vol_ratio,
+                "tb_boost": _tb_conf_map.get(sym, 0) >= 80,
+                "strategy": "ema_pullback",
             }
 
-    if best and best_score >= 6:
-        conf = min(80, 55 + best_score * 2)
+    # ── Bull Momentum Breakout path (BULL / TRENDING_UP regime only) ─────────
+    if regime in ("BULL_CALM", "TRENDING_UP", "BULL"):
+        for pick in scan_picks[:8]:
+            if pick.get("strategy_name") != "bull_momentum_breakout":
+                continue
+            sym  = pick.get("symbol", "")
+            sig  = float(pick.get("signal_strength", 0))
+            rr   = float(pick.get("risk_reward", 0))
+
+            # Conviction: signal_strength (60%) + R:R quality (40%, capped at 4:1)
+            conviction = round(min(1.0, sig / 100.0 * 0.6 + min(rr, 4.0) / 4.0 * 0.4), 3)
+            pos_size   = 4.0 if conviction >= 0.8 else 2.0   # % of portfolio
+            bmb_score  = int(sig / 10) + (2 if _tb_conf_map.get(sym, 0) >= 80 else 0)
+
+            if bmb_score > best_score and conviction >= 0.4:
+                best_score = bmb_score
+                best = {
+                    "symbol":        sym,
+                    "score":         bmb_score,
+                    "rsi":           0.0,
+                    "dist":          0.0,
+                    "vol":           1.0,
+                    "tb_boost":      _tb_conf_map.get(sym, 0) >= 80,
+                    "strategy":      "bull_momentum_breakout",
+                    "pos_size":      pos_size,
+                    "conviction":    conviction,
+                    "stop_pct":      0.02,    # 2% hard stop
+                    "target_pct":    0.06,    # 6% target (3:1 R/R)
+                    "trail_trigger": 0.03,    # begin trailing once up 3%
+                    "trail_pct":     0.015,   # 1.5% trailing stop width
+                }
+
+    if best and best_score >= 5:
+        conf   = min(85, 55 + best_score * 2)
+        tb_tag = " +TB" if best.get("tb_boost") else ""
+        strat  = best.get("strategy", "ema_pullback")
+
+        if strat == "bull_momentum_breakout":
+            pos  = best["pos_size"]
+            conv = best["conviction"]
+            return {
+                "action":            "BUY",
+                "symbol":            best["symbol"],
+                "confidence":        conf,
+                "position_size_pct": pos,
+                "stop_loss_pct":     best["stop_pct"],
+                "take_profit_pct":   best["target_pct"],
+                "trail_trigger_pct": best["trail_trigger"],
+                "trail_stop_pct":    best["trail_pct"],
+                "reason": (
+                    f"Chekov: {best['symbol']} BULL_MOMENTUM_BREAKOUT{tb_tag} "
+                    f"score={best_score} pos={pos:.0f}% conviction={conv:.2f} "
+                    f"(stop=2% target=6% trail@3%→1.5%)"
+                ),
+            }
+
         return {
             "action": "BUY", "symbol": best["symbol"], "confidence": conf,
             "reason": (
-                f"Chekov: {best['symbol']} EMA pullback score={best_score} "
+                f"Chekov: {best['symbol']} EMA pullback score={best_score}{tb_tag} "
                 f"(dist={best['dist']:+.1%}, RSI={best['rsi']:.0f}, vol={best['vol']:.1f}x)"
             ),
         }
 
-    return {"action": "PASS", "reason": f"Chekov: no clean EMA pullback setups (best score={best_score})"}
+    return {"action": "PASS", "reason": f"Chekov: no setups (best score={best_score}, regime={regime})"}
 
 
 def capitol_rules(market_ctx: dict[str, Any], scan_picks: list[dict]) -> dict[str, Any]:
-    """Capitol Trades — Congress copycat: follows recent congressional disclosures.
+    """Capitol Trades — 5-condition signal engine with weighted scoring.
 
-    Strategy: check congress_scraper for recent buys by members of Congress.
-    If congress bought a symbol that also shows up in scan_picks → high conviction.
-    Fallback: if scraper unavailable, pick highest signal_strength pick in
-    congress-favored sectors (defense, tech, healthcare, financials).
+    Conditions (any can independently fire, score ≥ 65 required):
+      1. Any BUY disclosure filed ≤ 24h ago          base 60 + 12 = 72
+      2. Options / call purchase                      × 1.3 weight
+      3. Committee chair disclosure                   × 1.5 weight
+      4. 2+ members same ticker within 7 days         × 2.0 weight
+      5. Sector concentration: 3+ trades in 30d       + 8 confidence
+      6. Copycat: high-conviction member in 30d       + 5 confidence
+
+    Minimum to fire: weighted score ≥ 65. Confidence capped at 90.
     """
-    # Congress-favored sectors for fallback
-    _CONGRESS_SECTORS = {
-        "NVDA", "AMD", "MSFT", "GOOGL", "AMZN", "META", "AAPL",   # tech
-        "LMT", "RTX", "NOC", "GD", "BA",                           # defense
-        "UNH", "LLY", "PFE", "ABBV", "MRK",                        # healthcare
-        "JPM", "BAC", "GS", "V", "MA",                             # financials
-        "XOM", "CVX", "OXY",                                        # energy
+    from datetime import datetime, timezone
+
+    # ── Known committee chairs (119th Congress) ──────────────────────────────
+    _COMMITTEE_CHAIRS = {
+        "Chuck Grassley", "Roger Wicker", "Tim Scott", "John Barrasso",
+        "Lindsey Graham", "Ted Cruz", "John Cornyn", "Mike Crapo",
+        "Jason Smith", "French Hill", "Mike Turner", "Cathy McMorris Rodgers",
+        "James Comer", "Jim Jordan",
+    }
+    # Members with historically above-market disclosed returns
+    _HIGH_CONVICTION = {
+        "Nancy Pelosi", "Austin Scott", "Brian Mast",
+        "Mike Kelly", "Josh Gottheimer", "Dan Crenshaw",
+    }
+    # Sector lookup for concentration check
+    _SECTOR_MAP = {
+        "NVDA":"Tech",  "AMD":"Tech",   "MSFT":"Tech",  "AAPL":"Tech",  "GOOGL":"Tech",
+        "META":"Tech",  "AMZN":"Tech",  "TSLA":"Tech",  "CRM":"Tech",   "ORCL":"Tech",
+        "INTC":"Tech",  "AVGO":"Tech",  "MU":"Tech",    "PLTR":"Tech",  "DELL":"Tech",
+        "LMT":"Defense","RTX":"Defense","NOC":"Defense","GD":"Defense", "BA":"Defense",
+        "UNH":"Healthcare","LLY":"Healthcare","PFE":"Healthcare",
+        "ABBV":"Healthcare","MRK":"Healthcare","JNJ":"Healthcare",
+        "JPM":"Financials","BAC":"Financials","GS":"Financials",
+        "V":"Financials","MA":"Financials","BLK":"Financials",
+        "XOM":"Energy","CVX":"Energy","OXY":"Energy","COP":"Energy",
     }
 
-    # Priority 1: live congress data
-    try:
-        from engine.congress_scraper import get_congress_trades_for_ticker
-        scan_syms = {p["symbol"] for p in scan_picks}
-        for pick in scan_picks[:10]:
-            sym = pick.get("symbol", "")
-            if sym not in scan_syms:
+    def _parse_date(s: str):
+        """Handle Capitol Trades ('19 Mar 2026') and Quiver Quant ('2026-03-19')."""
+        if not s:
+            return None
+        for fmt in ("%d %b %Y", "%Y-%m-%d", "%m/%d/%Y"):
+            try:
+                return datetime.strptime(s.strip(), fmt).replace(tzinfo=timezone.utc)
+            except ValueError:
                 continue
-            trades = get_congress_trades_for_ticker(sym)
-            recent_buys = [
-                t for t in (trades or [])
-                if "buy" in str(t.get("transaction", "")).lower()
-                or "purchase" in str(t.get("transaction", "")).lower()
-            ]
-            if recent_buys:
-                vol_ratio = float(pick.get("volume_ratio", 1))
-                conf = 70 if vol_ratio >= 1.5 else 62
-                rep = recent_buys[0].get("politician") or recent_buys[0].get("name", "Congress")
+        return None
+
+    now       = datetime.now(timezone.utc)
+    scan_syms = {p["symbol"] for p in scan_picks}
+
+    # ── Load all trades once (cached in scraper) ──────────────────────────────
+    try:
+        from engine.congress_scraper import get_all_congress_trades
+        all_trades = get_all_congress_trades()
+    except Exception:
+        all_trades = []
+
+    buys = [
+        t for t in all_trades
+        if t.get("type", "").upper() == "BUY"
+        and t.get("ticker", "").strip()
+    ]
+
+    if not buys:
+        # Fallback: congress-sector scan picks
+        _FALLBACK = {
+            "NVDA","AMD","MSFT","GOOGL","AMZN","META","AAPL",
+            "LMT","RTX","NOC","GD","BA",
+            "UNH","LLY","PFE","ABBV","MRK",
+            "JPM","BAC","GS","V","MA",
+            "XOM","CVX","OXY",
+        }
+        sector_picks = [p for p in scan_picks if p.get("symbol") in _FALLBACK]
+        if sector_picks:
+            best_fb = max(sector_picks, key=lambda p: float(p.get("signal_strength", 0)))
+            strength = float(best_fb.get("signal_strength", 0))
+            if strength >= 0.45:
                 return {
-                    "action": "BUY", "symbol": sym, "confidence": conf,
+                    "action": "BUY", "symbol": best_fb["symbol"], "confidence": 62,
                     "reason": (
-                        f"Capitol Trades: {rep} bought {sym} recently — "
-                        f"congress disclosure + scan pick (vol={vol_ratio:.1f}x)"
+                        f"Capitol Trades: {best_fb['symbol']} congress-sector pick "
+                        f"(signal_strength={strength:.2f}, no live disclosure data)"
                     ),
                 }
-    except Exception:
-        pass
+        return {"action": "PASS", "reason": "Capitol Trades: no congress disclosure data available"}
 
-    # Priority 2: fallback — congress sector + highest signal_strength
-    sector_picks = [p for p in scan_picks if p.get("symbol", "") in _CONGRESS_SECTORS]
-    if sector_picks:
-        best = max(sector_picks, key=lambda p: float(p.get("signal_strength", 0)))
-        strength = float(best.get("signal_strength", 0))
-        if strength >= 0.45:
-            return {
-                "action": "BUY", "symbol": best["symbol"], "confidence": 62,
-                "reason": (
-                    f"Capitol Trades: {best['symbol']} congress-sector pick "
-                    f"(signal_strength={strength:.2f}, no live disclosure data)"
-                ),
+    # ── Aggregate per ticker ──────────────────────────────────────────────────
+    ticker_data: dict[str, dict] = {}
+
+    for t in buys:
+        sym        = t.get("ticker", "").upper()
+        politician = t.get("politician", "Unknown")
+        is_option  = t.get("asset_type", "stock") == "option"
+        filed_dt   = _parse_date(t.get("filed_date", "")) or now
+        hours_old  = (now - filed_dt).total_seconds() / 3600
+
+        d = ticker_data.setdefault(sym, {
+            "fresh":       False,   # filed ≤ 24h ago
+            "has_chair":   False,
+            "has_option":  False,
+            "has_copycat": False,
+            "member_7d":   set(),   # unique members buying within 7 days
+            "member_30d":  set(),   # unique members buying within 30 days
+            "latest_rep":  politician,
+        })
+
+        if hours_old <= 24:
+            d["fresh"]      = True
+            d["latest_rep"] = politician
+        if politician in _COMMITTEE_CHAIRS:
+            d["has_chair"]  = True
+        if is_option:
+            d["has_option"] = True
+        if politician in _HIGH_CONVICTION:
+            d["has_copycat"]= True
+        if hours_old <= 7 * 24:
+            d["member_7d"].add(politician)
+        if hours_old <= 30 * 24:
+            d["member_30d"].add(politician)
+
+    # ── Sector concentration (3+ unique member trades in same sector, 30d) ────
+    sector_30d: dict[str, int] = {}
+    for sym, d in ticker_data.items():
+        sector = _SECTOR_MAP.get(sym, "Unknown")
+        sector_30d[sector] = sector_30d.get(sector, 0) + len(d["member_30d"])
+    hot_sectors = {s for s, cnt in sector_30d.items() if cnt >= 3 and s != "Unknown"}
+
+    # ── Score each ticker ─────────────────────────────────────────────────────
+    best_sym   = None
+    best_score = 0.0
+    best_meta: dict = {}
+
+    for sym, d in ticker_data.items():
+        if not d["member_30d"]:     # no activity in 30 days — skip
+            continue
+
+        base = 60.0
+        tags: list[str] = []
+
+        # Condition 1: fresh disclosure ≤ 24h
+        if d["fresh"]:
+            base += 12
+            tags.append("FRESH_24H")
+
+        # Condition 6: copycat — high-conviction member bought within 30d
+        if d["has_copycat"]:
+            base += 5
+            tags.append("COPYCAT")
+
+        # Condition 5: sector concentration
+        if _SECTOR_MAP.get(sym, "Unknown") in hot_sectors:
+            base += 8
+            tags.append(f"HOT_SECTOR({_SECTOR_MAP[sym]})")
+
+        # Signal weights (multiplicative, applied to base)
+        weight = 1.0
+        if len(d["member_7d"]) >= 2:    # condition 4: multi-member 7d
+            weight *= 2.0
+            tags.append(f"MULTI({len(d['member_7d'])})")
+        if d["has_chair"]:              # condition 3: committee chair
+            weight *= 1.5
+            tags.append("CHAIR")
+        if d["has_option"]:             # condition 2: options trade
+            weight *= 1.3
+            tags.append("OPTIONS")
+
+        score = base * weight
+
+        # Technical confirmation: scan_picks overlap → 10% bonus
+        if sym in scan_syms:
+            score *= 1.1
+            tags.append("SCAN+")
+
+        if score > best_score:
+            best_score = score
+            best_sym   = sym
+            best_meta  = {
+                "rep":    d["latest_rep"],
+                "tags":   tags,
+                "n_mbrs": len(d["member_7d"]),
             }
 
-    return {"action": "PASS", "reason": "Capitol Trades: no congress buys found in current scan picks"}
+    if best_sym and best_score >= 65:
+        conf      = min(90, int(best_score))
+        rep       = best_meta["rep"]
+        tags_s    = " ".join(best_meta["tags"]) or "DISCLOSURE"
+        n_members = best_meta["n_mbrs"]
+        mbr_tag   = f" ({n_members} members)" if n_members >= 2 else ""
+        return {
+            "action":     "BUY",
+            "symbol":     best_sym,
+            "confidence": conf,
+            "reason": (
+                f"Capitol Trades: {rep}{mbr_tag} → {best_sym} "
+                f"[{tags_s}] score={best_score:.0f}"
+            ),
+        }
+
+    return {
+        "action": "PASS",
+        "reason": f"Capitol Trades: no qualifying signal (best={best_score:.0f})",
+    }
 
 
 # ---------------------------------------------------------------------------
@@ -2081,6 +2458,13 @@ def _scan_rules_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, A
         decision = chekov_rules(market_ctx, scan_picks)
     elif player_id == "capitol-trades":
         decision = capitol_rules(market_ctx, scan_picks)
+    elif player_id == "holly-scanner":
+        try:
+            from engine.holly_patterns import holly_rules as _holly_rules
+            decision = _holly_rules(market_ctx, scan_picks)
+        except Exception as _holly_err:
+            logger.warning(f"holly_patterns import error: {_holly_err}")
+            decision = {"action": "PASS", "reason": "Holly: module error"}
     else:
         decision = {"action": "PASS", "reason": "Unknown rules agent"}
 
@@ -2482,6 +2866,15 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
     if troi_caution_multiplier < 1.0:
         reason_str = f"[CAUTION half-size] {reason_str}"
 
+    # ── XO coaching: blocked symbols per agent ────────────────────────────────
+    if action == "BUY" and symbol and _is_symbol_blocked(player_id, symbol):
+        _log_decision(player_id, display_name, "PASS", symbol, confidence,
+                      f"XO block: {symbol} blocked for {player_id}",
+                      market_ctx, "SYMBOL_BLOCK", False)
+        return {"player_id": player_id, "action": "PASS",
+                "reason": f"XO block: {symbol} blocked for {player_id}",
+                "gate": "blocked_symbols"}
+
     # ── Soft confidence multipliers: GEX + options flow ──────────────────────
     # BUY signals only. Not gates — confidence floats, never hard-blocked here.
     if action == "BUY" and symbol:
@@ -2496,6 +2889,22 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
                 )
         except Exception as _me:
             logger.debug(f"Multipliers skipped for {symbol}: {_me}")
+
+    # ── Uhura institutional intelligence ──────────────────────────────────────
+    # Block STRONG_SELL tickers; boost or trim confidence based on inst. signal
+    if action == "BUY" and symbol and UHURA_AVAILABLE:
+        try:
+            _uhura_blocked, _uhura_reason = uhura_should_block(symbol, action="BUY")
+            if _uhura_blocked:
+                _log_decision(player_id, display_name, "PASS", symbol, confidence,
+                              _uhura_reason, market_ctx, "UHURA_BLOCK", False)
+                return {"player_id": player_id, "action": "PASS",
+                        "reason": _uhura_reason, "gate": "uhura"}
+            confidence, _uhura_info = apply_institutional_boost(symbol, float(confidence))
+            if _uhura_info:
+                reason_str = f"[Uhura:{_uhura_info}] {reason_str}"
+        except Exception as _uh_err:
+            logger.debug(f"Uhura boost skipped for {symbol}: {_uh_err}")
 
     if action == "PASS":
         # Neo gets a second shot on high-volume days — focused query on top spikes only
@@ -2628,6 +3037,19 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
                               _ivr_reason, market_ctx, "CSP_LOW_IVR", False)
                 logger.info(f"📉 CSP blocked {symbol}: IVR={_ivr_val:.1f} < {CSP_MIN_IVR}")
                 return {"player_id": player_id, "action": "PASS", "reason": _ivr_reason, "gate": "csp_ivr"}
+
+    # ── Gate 7b: rsi_bounce regime gate (OOS verdict 2026-04-17) ─────────────
+    # rsi_bounce is only allowed in CAUTIOUS or MIXED regimes.
+    # In BEAR/CRISIS: 14.9% WR (Sharpe -6.6); in BULL: 41.4% WR (Sharpe -1.27).
+    # Ref: data/oos_c_verdict.md, data/oos_verdict.md
+    if action == "BUY":
+        _gate7b_strategy = mandate.get("strategy") or (mandate.get("preferred_strategies") or [None])[0]
+        if _gate7b_strategy == "rsi_bounce":
+            _gate7b_regime = str(market_ctx.get("regime", market_ctx.get("market_regime", "UNKNOWN"))).upper()
+            if _gate7b_regime not in RSI_BOUNCE_ALLOWED_REGIMES:
+                _gate7b_reason = f"rsi_bounce blocked: regime={_gate7b_regime} not in {RSI_BOUNCE_ALLOWED_REGIMES}"
+                logger.info(f"🚫 {_gate7b_reason} [{symbol}]")
+                return {"player_id": player_id, "action": "PASS", "reason": _gate7b_reason, "gate": "rsi_bounce_regime"}
 
     # ── Gate 8: Ollie Commander approval ──────────────────────────────────────
     # Ollie scores every Sniper BUY — unrestricted agents (Neo) still pass through
@@ -2834,6 +3256,27 @@ def _run_scan_cycle_body(
 
     # ── Market context first — position management needs vol/VIX data ────────
     ctx = gather_market_context()
+
+    # ── LRS: Whale volume detection (enriches volume_spikes in ctx) ───────────
+    if LRS_AVAILABLE:
+        try:
+            _lrs_hits = _lrs_scan()   # list of (alert_type, symbol, rv)
+            if _lrs_hits:
+                _existing_syms = {s.get("symbol") for s in ctx.get("volume_spikes", [])}
+                for _alert, _sym, _rv in _lrs_hits:
+                    if _sym not in _existing_syms:
+                        ctx.setdefault("volume_spikes", []).append({
+                            "symbol": _sym, "volume_ratio": _rv,
+                            "price": 0.0, "change_pct": 0.0,
+                            "lrs_alert": _alert,
+                        })
+                logger.info(
+                    "🐋 LRS: %d detection(s): %s",
+                    len(_lrs_hits),
+                    [f"{a}:{s}" for a, s, _ in _lrs_hits],
+                )
+        except Exception as _lrs_err:
+            logger.warning(f"LRS scan error: {_lrs_err}")
 
     # Volatile day: SPY volume > 1.5x avg → shift scaled-exit thresholds down 1%
     volatile_day = float(ctx.get("spy_volume_ratio", 1.0)) >= 1.5
@@ -3410,7 +3853,6 @@ def ollie_auto_check(ctx: dict | None = None) -> list[dict]:
     size_factor  = 0.25 if cautious else 1.0
 
     try:
-        import yfinance as yf
         from engine.paper_trader import buy as pt_buy, get_portfolio as pt_portfolio
 
         # ── Signal Center grade A/B picks ─────────────────────────────────
@@ -3486,8 +3928,8 @@ def ollie_auto_check(ctx: dict | None = None) -> list[dict]:
 
             # ── Live price ─────────────────────────────────────────────────
             try:
-                fi    = yf.Ticker(symbol).fast_info
-                price = float(fi.get("lastPrice") or fi.get("last_price") or 0)
+                from engine.market_data import get_stock_price as _gsp
+                price = float((_gsp(symbol) or {}).get("price") or 0)
             except Exception:
                 continue
             if price <= 0:
@@ -3633,7 +4075,6 @@ def _ollie_small_cap_scan() -> list[dict]:
       - TP2:  +15% (sell 25%)
       - TP3:  +20% (close remaining 25%)
     """
-    import yfinance as yf
     from engine.paper_trader import buy as pt_buy, get_portfolio as pt_portfolio
 
     executed: list[dict] = []
@@ -3694,8 +4135,8 @@ def _ollie_small_cap_scan() -> list[dict]:
 
             # Live price confirmation
             try:
-                fi    = yf.Ticker(symbol).fast_info
-                price = float(fi.get("lastPrice") or fi.get("last_price") or 0)
+                from engine.market_data import get_stock_price as _gsp
+                price = float((_gsp(symbol) or {}).get("price") or 0)
             except Exception:
                 continue
             if not (PRICE_MIN <= price <= PRICE_MAX):
@@ -3791,7 +4232,6 @@ def _ollie_channel_scan() -> list[dict]:
       - Stop: 2.5% below entry, TP1/TP2/TP3 tiers
       - Max 3 new channel trades per run
     """
-    import yfinance as yf
     from engine.paper_trader import buy as pt_buy, get_portfolio as pt_portfolio
 
     executed: list[dict] = []
@@ -3851,8 +4291,8 @@ def _ollie_channel_scan() -> list[dict]:
 
                 # Get live price
                 try:
-                    fi    = yf.Ticker(symbol).fast_info
-                    price = float(fi.get("lastPrice") or fi.get("last_price") or 0)
+                    from engine.market_data import get_stock_price as _gsp
+                    price = float((_gsp(symbol) or {}).get("price") or 0)
                 except Exception:
                     price = float(sig.get("price") or 0)
                 if price <= 0:
@@ -3949,7 +4389,6 @@ def _ollie_check_tiered_tp() -> list[dict]:
     Trail stop: 3% below highest price after TP1 hit (updated each cycle)
     Hard stop: close all if price ≤ stop and TP1 not yet hit
     """
-    import yfinance as yf
     from engine.paper_trader import sell_partial, get_position
 
     _init_ollie_super_trades_table()
@@ -3991,8 +4430,8 @@ def _ollie_check_tiered_tp() -> list[dict]:
             continue
 
         try:
-            fi    = yf.Ticker(symbol).fast_info
-            price = float(fi.get("lastPrice") or fi.get("last_price") or 0)
+            from engine.market_data import get_stock_price as _gsp
+            price = float((_gsp(symbol) or {}).get("price") or 0)
         except Exception:
             continue
         if price <= 0:

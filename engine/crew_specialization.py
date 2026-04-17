@@ -75,7 +75,8 @@ ADVISORY_CREW: list[str] = [
     "ollama-llama",     # Uhura — benched S6.1 (-3.49%)
     "gemini-2.5-flash", # Worf  — benched S6.1 (-0.36%)
     "gemini-2.5-pro",   # Seven — benched S6.1 (+0.64% meh)
-    "neo-matrix",       # Neo   — benched S6.1 (redundant)
+    # "neo-matrix",     # Neo   — re-activated S6.2 (threshold 1.75, ACTIVE_SCANNERS)
+    "dayblade-sulu",   # Sulu  — benched S6.3 XO coaching: R:R 0.10, META losses
 ]
 
 # ── Strategy Arsenal ─────────────────────────────────────────────────────────
@@ -99,7 +100,8 @@ ENABLED_STRATEGIES: list[str] = [
     "bull_call_spread", # Debit spread bullish
     "bear_put_spread",  # Debit spread bearish
     # === OPTIONS — INCOME ===
-    "covered_call",     # Sell calls on holdings
+    # "covered_call",   # DISABLED 2026-04-17: OOS verdict (oos_verdict.md + oos_c_verdict.md)
+    #                   # Negative Sharpe in bear market; P&L methodology flaw. Rebuild before re-enabling.
     "csp",              # Cash-secured puts
     # === SPECIAL ===
     "congress_copy",    # Follow Congress trades
@@ -108,7 +110,7 @@ ENABLED_STRATEGIES: list[str] = [
 
 # Per-agent strategy mandates (drives prompt context + signal filtering)
 # S6.3 Iron Condor King: Sulu = iron_condor PRIMARY with Model F tiered exits
-# McCoy = income backup (csp/covered_call when conditions favor)
+# McCoy = income backup (csp primary; covered_call disabled per OOS verdict 2026-04-17)
 # Scouts generate signals; only Sulu executes spreads
 AGENT_STRATEGIES: dict[str, list[str]] = {
     "ollie-auto":     ["gate_commander"],
@@ -116,12 +118,12 @@ AGENT_STRATEGIES: dict[str, list[str]] = {
     "dayblade-sulu":  ["iron_condor",         # S6.3 PRIMARY — 180d: +572% realistic
                        "bear_call_spread",     # Secondary spread
                        "bull_put_spread"],     # Tertiary spread (Model F exits on all)
-    "ollama-plutus":  ["csp", "covered_call", "bull_put_spread", "long_put"],  # Income backup
+    "ollama-plutus":  ["csp", "bull_put_spread", "long_put"],  # Income; covered_call disabled 2026-04-17 (OOS verdict)
     # ── SCOUTS ───────────────────────────────────────────────────────────────
     "grok-4":         ["rsi_bounce", "mean_reversion"],
     "ollama-coder":   ["long_equity", "momentum", "short_equity", "inverse_etf"],
     "ollama-qwen3":   ["swing_trade", "ema_pullback", "momentum"],
-    "navigator":      ["ema_pullback", "momentum"],
+    "navigator":      ["ema_pullback", "momentum", "bull_momentum_breakout"],
     "capitol-trades": ["congress_copy"],
 }
 
@@ -537,14 +539,30 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "tier": 1,
         "display_name": "Ensign Chekov",
         "role": "EMA Scout [S6.2]",
-        "strategy": "S6.2 SCOUT. EMA pullback specialist — price within 3% of SMA20, RSI 35-55, above SMA50. Bypasses alpha gate — technical patterns work in all regimes.",
+        "strategy": "S6.2 SCOUT. EMA pullback + BULL momentum breakout specialist — pullbacks to SMA20 and 20d-high breaks with volume/RSI/ADX confirmation. Bypasses alpha gate — technical patterns work in all regimes.",
         "model": "qwen3.5:9b",
         "max_positions": 2,
         "size_factor": 0.8,
         "bridge_voter": False,
         "conditions": {
-            "ema_pullback_only": True,
+            "ema_pullback_only":      False,
+            "bull_momentum_breakout": True,
         },
+        "universe": None,
+    },
+
+    "holly-scanner": {
+        "tier": 1,
+        "display_name": "Holly",
+        "role": "Pattern Scout [S6.2]",
+        "strategy": "S6.2 SCOUT. 6-pattern detector: volume spike, gap up, RSI oversold bounce, "
+                    "SMA20 breakout, pullback-to-SMA50 support, sector momentum. Scores picks "
+                    "across all detectors and fires on highest-conviction setup.",
+        "model": None,  # rules-based, no LLM
+        "max_positions": 2,
+        "size_factor": 0.8,
+        "bridge_voter": False,
+        "conditions": {},
         "universe": None,
     },
 
