@@ -1,6 +1,9 @@
 # Secrets
 .env
 .env.save
+.env.bak
+.env.backup
+.env.old
 *.env
 .env.beforeDBpathFix.backup
 .env.*.backup
@@ -24,6 +27,11 @@ data/*.db-shm
 data/*.db-wal
 data/.force_scan
 data/*_cache.json
+data/.fuse_hidden*
+data/s6_180d_backtest.json
+data/s6_sim_180d_backtest.json
+data/holly_nightly_*.txt
+data/danelfin_scores.json
 logs/
 
 # Migration artifacts (pre-cutover DB snapshots)
@@ -82,3 +90,9 @@ arena.db
 scanner.db
 # UOA database at repo root (distinct from data/trader.db main DB)
 trader.db
+
+# Manual UI backups (use git history instead)
+dashboard/static/*.bak
+
+# Local backup archive directory (relocate outside repo)
+backups_archive/
