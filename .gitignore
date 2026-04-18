@@ -70,3 +70,5 @@ logs/*.log
 cookies.txt
 trading.db
 autonomous_trader.db
+# UOA database at repo root (distinct from data/trader.db main DB)
+trader.db
