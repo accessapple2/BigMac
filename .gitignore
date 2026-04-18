@@ -29,6 +29,12 @@ logs/
 # Migration artifacts (pre-cutover DB snapshots)
 *.preMigration.archive
 
+# Defensive backups created before major operations
+# Convention: <file>.pre_<operation>_<timestamp>
+*.pre_sprint_*
+*.pre_rotation_*
+*.pre_migration_*
+
 # macOS
 .DS_Store
 **/.DS_Store
