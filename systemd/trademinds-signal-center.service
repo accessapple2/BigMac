@@ -1,0 +1,25 @@
+[Unit]
+Description=OllieTrades Signal Center — Flask signals API on :9000
+Documentation=file:///home/bigmac/autonomous-trader/systemd/README.md
+After=network-online.target ollama.service trademinds-dashboard.service
+Wants=network-online.target ollama.service trademinds-dashboard.service
+
+[Service]
+Type=simple
+User=bigmac
+Group=bigmac
+WorkingDirectory=/home/bigmac/autonomous-trader/signal-center
+
+EnvironmentFile=/home/bigmac/autonomous-trader/.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+ExecStart=/home/bigmac/autonomous-trader/venv/bin/python3 /home/bigmac/autonomous-trader/signal-center/server.py
+
+Restart=on-failure
+RestartSec=10
+
+# Journal handles stdout/stderr by default.
+# Follow live: journalctl -u trademinds-signal-center -f
+
+[Install]
+WantedBy=multi-user.target

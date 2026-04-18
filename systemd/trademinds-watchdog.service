@@ -1,0 +1,35 @@
+[Unit]
+Description=OllieTrades Watchdog — HTTP health probes + ntfy alerts (watchdog.py, 60s interval)
+Documentation=file:///home/bigmac/autonomous-trader/systemd/README.md
+After=network-online.target ollama.service trademinds-dashboard.service trademinds-signal-center.service trademinds-scanner.service trademinds-mcp.service
+# No Wants= on monitored services — watchdog must NOT pull them up; if they're down, that's the alert.
+
+[Service]
+Type=simple
+User=bigmac
+Group=bigmac
+WorkingDirectory=/home/bigmac/autonomous-trader
+
+EnvironmentFile=/home/bigmac/autonomous-trader/.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+Environment=PYTHONUNBUFFERED=1
+
+# Ollie has no cloudflared yet (Phase 2 work).
+# Remove this line once the tunnel is running here.
+Environment=WATCHDOG_SKIP_CLOUDFLARED=1
+
+ExecStart=/home/bigmac/autonomous-trader/venv/bin/python3 /home/bigmac/autonomous-trader/watchdog.py
+
+Restart=on-failure
+RestartSec=60
+
+# Journal handles stdout/stderr by default.
+# Follow live: journalctl -u trademinds-watchdog -f
+#
+# Known follow-ups (not blocking today):
+#   - watchdog.py's macOS auto-repair paths (osascript/launchctl/brew) fail gracefully on Linux.
+#     Replace with notify-send/systemctl-restart in a future refactor.
+#   - watchdog.py does NOT currently monitor MCP (:8081). Add in future refactor.
+
+[Install]
+WantedBy=multi-user.target

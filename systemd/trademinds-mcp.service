@@ -1,0 +1,25 @@
+[Unit]
+Description=OllieTrades MCP Server — HTTP/JSON-RPC bridge for Claude Code on :8081
+Documentation=file:///home/bigmac/autonomous-trader/systemd/README.md
+After=network-online.target ollama.service trademinds-dashboard.service
+Wants=network-online.target ollama.service trademinds-dashboard.service
+
+[Service]
+Type=simple
+User=bigmac
+Group=bigmac
+WorkingDirectory=/home/bigmac/autonomous-trader
+
+EnvironmentFile=/home/bigmac/autonomous-trader/.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin
+
+ExecStart=/home/bigmac/autonomous-trader/venv/bin/python3 /home/bigmac/autonomous-trader/engine/mcp_server.py
+
+Restart=on-failure
+RestartSec=10
+
+# Journal handles stdout/stderr by default.
+# Follow live: journalctl -u trademinds-mcp -f
+
+[Install]
+WantedBy=multi-user.target

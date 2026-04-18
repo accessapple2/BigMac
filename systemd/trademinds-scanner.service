@@ -1,0 +1,26 @@
+[Unit]
+Description=OllieTrades Scanner — engine.fast_scanner --daemon (intraday ticker scan)
+Documentation=file:///home/bigmac/autonomous-trader/systemd/README.md
+After=network-online.target ollama.service
+Wants=network-online.target ollama.service
+
+[Service]
+Type=simple
+User=bigmac
+Group=bigmac
+WorkingDirectory=/home/bigmac/autonomous-trader
+
+EnvironmentFile=/home/bigmac/autonomous-trader/.env
+Environment=PATH=/usr/local/bin:/usr/bin:/bin:/home/bigmac/autonomous-trader/venv/bin
+Environment=PYTHONUNBUFFERED=1
+
+ExecStart=/home/bigmac/autonomous-trader/venv/bin/python3 -m engine.fast_scanner --daemon
+
+Restart=on-failure
+RestartSec=60
+
+# Journal handles stdout/stderr by default.
+# Follow live: journalctl -u trademinds-scanner -f
+
+[Install]
+WantedBy=multi-user.target

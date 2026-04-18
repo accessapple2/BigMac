@@ -256,6 +256,8 @@ def check_ollama() -> None:
 
 
 def check_cloudflare() -> None:
+    if os.environ.get("WATCHDOG_SKIP_CLOUDFLARED") == "1":
+        return
     if process_running("cloudflared"):
         return
     alert("🚨 Cloudflare Tunnel Down", "cloudflared not running — restarting via launchd", "cf")
