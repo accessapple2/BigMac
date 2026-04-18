@@ -71,5 +71,8 @@ logs/*.log
 cookies.txt
 trading.db
 autonomous_trader.db
+# Root-level legacy DB stubs (absent from working tree, untracked for hygiene)
+arena.db
+scanner.db
 # UOA database at repo root (distinct from data/trader.db main DB)
 trader.db
