@@ -1,0 +1,229 @@
+# requirements.ollie.txt — Canonical source-of-truth for the Ollie venv
+# =====================================================================
+# Generated: 2026-04-17
+# Host:      Ollie (G1 Pro, Ryzen 9 8945HX, x86_64 Linux)
+# Python:    3.10.20 (from deadsnakes PPA: ppa:deadsnakes/ppa)
+# Venv:      ~/autonomous-trader/venv/
+# Packages:  178 (pip freeze output)
+#
+# Purpose
+# -------
+# Captures the COMPLETE frozen state of the Ollie Py3.10 venv, pinned to
+# bigmac-exact versions for backtest reproducibility. Use this — NOT
+# requirements.txt — to rebuild the venv on Ollie or any other Linux host.
+#
+# The original requirements.txt uses >= bounds and was insufficient on
+# its own: it pulled numpy 2.x / pandas 3.x / openbb 4.7.1 which broke
+# numba 0.56.4 + vectorbt 0.28.2 compatibility (bigmac's backtest stack).
+# It also omitted alpaca-py entirely.
+#
+# Rebuild instructions
+# --------------------
+#   sudo apt install python3.10 python3.10-venv python3.10-dev
+#   python3.10 -m venv ~/autonomous-trader/venv
+#   ~/autonomous-trader/venv/bin/pip install --upgrade pip wheel setuptools
+#   ~/autonomous-trader/venv/bin/pip install -r requirements.ollie.txt
+#
+# Critical pins (bigmac-exact, verified 2026-04-17)
+# -------------------------------------------------
+#   numpy 1.23.5, pandas 2.3.3, scipy 1.13.1
+#   numba 0.56.4, llvmlite 0.39.1, vectorbt 0.28.2
+#   openbb 4.4.2 + all 28 openbb-* sub-providers at bigmac 1.x.x versions
+#   fastapi 0.115.14, starlette 0.46.2, uvicorn 0.34.3
+#   pydantic 2.12.5, pydantic_core 2.41.5
+#   yfinance 0.2.66, alpaca-py 0.43.2
+#
+# Why Python 3.10 (not 3.12)
+# --------------------------
+# numba 0.56.4 + llvmlite 0.39.1 + numpy 1.23.5 have no Py3.12 wheels.
+# bigmac runs a Py3.10-era stack. Changing Python version would force a
+# numeric-stack upgrade and invalidate every existing backtest result.
+# =====================================================================
+
+aiohappyeyeballs==2.6.1
+aiohttp==3.13.5
+aiohttp-client-cache==0.11.1
+aiosignal==1.4.0
+aiosqlite==0.20.0
+alpaca-py==0.43.2
+annotated-types==0.7.0
+anthropic==0.84.0
+anyio==4.13.0
+APScheduler==3.11.2
+asttokens==3.0.1
+async-lru==2.3.0
+async-timeout==5.0.1
+attrs==26.1.0
+babel==2.18.0
+backoff==2.2.1
+beautifulsoup4==4.14.3
+black==26.3.1
+cattrs==26.1.0
+certifi==2026.2.25
+cffi==2.0.0
+charset-normalizer==3.4.7
+click==8.3.2
+comm==0.2.3
+contourpy==1.3.2
+courlan==1.3.2
+cryptography==46.0.7
+curl_cffi==0.15.0
+cycler==0.12.1
+dateparser==1.4.0
+decorator==5.2.1
+deepdiff==9.0.0
+defusedxml==0.8.0rc2
+dill==0.4.1
+distro==1.9.0
+et_xmlfile==2.0.0
+exceptiongroup==1.3.1
+executing==2.2.1
+fastapi==0.115.14
+feedparser==6.0.12
+FinNews==1.1.0
+flake8==7.3.0
+fonttools==4.62.1
+frozendict==2.4.7
+frozenlist==1.8.0
+google-auth==2.49.2
+google-genai==1.73.1
+h11==0.16.0
+html5lib==1.1
+htmldate==1.9.4
+httpcore==1.0.9
+httpx==0.28.1
+idna==3.11
+ImageIO==2.37.3
+importlib_metadata==9.0.0
+inscriptis==2.7.1
+ipython==8.39.0
+ipywidgets==8.1.8
+itsdangerous==2.2.0
+jedi==0.19.2
+jiter==0.14.0
+joblib==1.5.3
+jupyterlab_widgets==3.0.16
+jusText==3.0.2
+kiwisolver==1.5.0
+llvmlite==0.39.1
+lxml==5.4.0
+lxml_html_clean==0.4.4
+markdown-it-py==4.0.0
+matplotlib==3.10.8
+matplotlib-inline==0.2.1
+mccabe==0.7.0
+mdurl==0.1.2
+monotonic==1.6
+msgpack==1.1.2
+multidict==6.7.1
+multitasking==0.0.12
+mypy_extensions==1.1.0
+narwhals==2.19.0
+numba==0.56.4
+numpy==1.23.5
+openai==2.32.0
+openbb==4.4.2
+openbb-benzinga==1.4.0
+openbb-bls==1.1.1
+openbb-cftc==1.1.0
+openbb-commodity==1.3.0
+openbb-core==1.4.3
+openbb-crypto==1.4.0
+openbb-currency==1.4.0
+openbb-derivatives==1.4.0
+openbb-econdb==1.3.0
+openbb-economy==1.4.1
+openbb-equity==1.4.0
+openbb-etf==1.4.0
+openbb-federal-reserve==1.4.1
+openbb-fixedincome==1.4.2
+openbb-fmp==1.4.1
+openbb-fred==1.4.1
+openbb-imf==1.1.0
+openbb-index==1.4.0
+openbb-intrinio==1.4.0
+openbb-news==1.4.0
+openbb-oecd==1.4.0
+openbb-platform-api==1.1.5
+openbb-polygon==1.4.0
+openbb-regulators==1.4.1
+openbb-sec==1.4.1
+openbb-tiingo==1.4.0
+openbb-tradingeconomics==1.4.0
+openbb-us-eia==1.1.0
+openbb-yfinance==1.4.2
+openpyxl==3.1.5
+orderly-set==5.5.0
+packaging==26.1
+pandas==2.3.3
+parso==0.8.6
+pathspec==1.0.4
+peewee==4.0.4
+pexpect==4.9.0
+pillow==12.2.0
+platformdirs==4.9.6
+plotly==6.7.0
+posthog==3.25.0
+prompt_toolkit==3.0.52
+propcache==0.4.1
+protobuf==7.34.1
+psutil==7.2.2
+ptyprocess==0.7.0
+pure_eval==0.2.3
+pyasn1==0.6.3
+pyasn1_modules==0.4.2
+pycodestyle==2.14.0
+pycparser==3.0
+pydantic==2.12.5
+pydantic_core==2.41.5
+pyflakes==3.4.0
+Pygments==2.20.0
+PyJWT==2.12.1
+pyotp==2.9.0
+pyparsing==3.3.2
+python-dateutil==2.9.0.post0
+python-dotenv==1.2.2
+python-multipart==0.0.20
+pytokens==0.4.1
+pytz==2026.1.post1
+qrcode==8.2
+regex==2026.4.4
+requests==2.33.1
+requests-cache==1.2.1
+rich==15.0.0
+ruff==0.7.4
+schedule==1.2.2
+scikit-learn==1.7.2
+scipy==1.13.1
+six==1.17.0
+sniffio==1.3.1
+soupsieve==2.8.3
+sseclient-py==1.9.0
+stack-data==0.6.3
+starlette==0.46.2
+tenacity==9.1.4
+threadpoolctl==3.6.0
+tld==0.13.2
+tomli==2.4.1
+tqdm==4.67.3
+trafilatura==2.0.0
+traitlets==5.14.3
+typing-inspection==0.4.2
+typing_extensions==4.15.0
+tzdata==2026.1
+tzlocal==5.3.1
+url-normalize==1.4.3
+urllib3==2.6.3
+uuid7==0.1.0
+uvicorn==0.34.3
+vectorbt==0.28.2
+wcwidth==0.6.0
+webencodings==0.5.1
+websockets==15.0.1
+webull==0.6.1
+widgetsnbextension==4.0.15
+xlrd==2.0.2
+xmltodict==0.13.0
+yarl==1.23.0
+yfinance==0.2.66
+zipp==3.23.1

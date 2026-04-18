@@ -69,7 +69,7 @@ TradeMinds is an autonomous AI trading arena where 14+ AI models ("crew members"
 
 ### CRITICAL: The UI at port 8080 is vanilla HTML — NOT React
 
-`/Users/bigmac/autonomous-trader/dashboard/static/index.html` is a **single 14,387-line vanilla HTML/JS file**. It is served by FastAPI's StaticFiles mount. DO NOT edit `.jsx` files to change port 8080. React files exist at `dashboard/frontend/src/` but are NOT used by the main dashboard.
+`~/autonomous-trader/dashboard/static/index.html` is a **single 14,387-line vanilla HTML/JS file**. It is served by FastAPI's StaticFiles mount. DO NOT edit `.jsx` files to change port 8080. React files exist at `dashboard/frontend/src/` but are NOT used by the main dashboard.
 
 ---
 

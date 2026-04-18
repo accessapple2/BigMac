@@ -2,9 +2,12 @@
 .env
 .env.save
 *.env
+.env.beforeDBpathFix.backup
+.env.*.backup
 
 # Virtual environments
 venv/
+venv_py312_archive/
 .venv/
 .venv-crew/
 
@@ -21,6 +24,9 @@ data/*.db-shm
 data/*.db-wal
 data/.force_scan
 logs/
+
+# Migration artifacts (pre-cutover DB snapshots)
+*.preMigration.archive
 
 # macOS
 .DS_Store

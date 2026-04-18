@@ -1,19 +1,19 @@
 # TradeMinds System Audit
 
 Date: `2026-03-27`
-Workspace: `/Users/bigmac/autonomous-trader`
+Workspace: `~/autonomous-trader`
 
 ## Architecture
-- Arena service on `127.0.0.1:8080`: [main.py](/Users/bigmac/autonomous-trader/main.py) launches the FastAPI app in [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py).
-- Unified Trader on `127.0.0.1:8000`: [main_crew.py](/Users/bigmac/autonomous-trader/main_crew.py) serves the CrewAI dashboard and mounts [crew/routes.py](/Users/bigmac/autonomous-trader/crew/routes.py).
-- UOA module: [uoa/routes.py](/Users/bigmac/autonomous-trader/uoa/routes.py) is mounted under `/api/uoa`.
+- Arena service on `127.0.0.1:8080`: [main.py](~/autonomous-trader/main.py) launches the FastAPI app in [dashboard/app.py](~/autonomous-trader/dashboard/app.py).
+- Unified Trader on `127.0.0.1:8000`: [main_crew.py](~/autonomous-trader/main_crew.py) serves the CrewAI dashboard and mounts [crew/routes.py](~/autonomous-trader/crew/routes.py).
+- UOA module: [uoa/routes.py](~/autonomous-trader/uoa/routes.py) is mounted under `/api/uoa`.
 - Primary datastore: `data/trader.db`.
 - Broker integrations:
-  - Alpaca Paper via [engine/alpaca_bridge.py](/Users/bigmac/autonomous-trader/engine/alpaca_bridge.py)
-  - Webull via [engine/webull_client.py](/Users/bigmac/autonomous-trader/engine/webull_client.py)
+  - Alpaca Paper via [engine/alpaca_bridge.py](~/autonomous-trader/engine/alpaca_bridge.py)
+  - Webull via [engine/webull_client.py](~/autonomous-trader/engine/webull_client.py)
 - Background schedulers:
-  - Arena `schedule` loop in [main.py](/Users/bigmac/autonomous-trader/main.py)
-  - Crew APScheduler in [main_crew.py](/Users/bigmac/autonomous-trader/main_crew.py)
+  - Arena `schedule` loop in [main.py](~/autonomous-trader/main.py)
+  - Crew APScheduler in [main_crew.py](~/autonomous-trader/main_crew.py)
 
 ## Verified Working
 - Core startup:
@@ -62,22 +62,22 @@ Workspace: `/Users/bigmac/autonomous-trader`
   - Webull sync populates legacy `positions`
 
 ## Fixes Applied During Audit
-- [launch-trademinds.sh](/Users/bigmac/autonomous-trader/launch-trademinds.sh)
+- [launch-trademinds.sh](~/autonomous-trader/launch-trademinds.sh)
   - Prefer a working Arena interpreter with `fastapi` and `uvicorn`
   - Verify `8080` is actually listening before claiming success
-- [main.py](/Users/bigmac/autonomous-trader/main.py)
+- [main.py](~/autonomous-trader/main.py)
   - Added missing `import os` needed by Alpaca sync path handling
   - Hardened startup logging earlier in the audit
-- [crew/routes.py](/Users/bigmac/autonomous-trader/crew/routes.py)
+- [crew/routes.py](~/autonomous-trader/crew/routes.py)
   - Added `GET /api/positions` for legacy Arena positions
-- [main_crew.py](/Users/bigmac/autonomous-trader/main_crew.py)
+- [main_crew.py](~/autonomous-trader/main_crew.py)
   - Added Starfleet Positions UI panel and auto-load
   - Added low-risk aliases `/healthz` and `/api/schedule`
-- [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py)
+- [dashboard/app.py](~/autonomous-trader/dashboard/app.py)
   - Added low-risk aliases for stale clients
   - Moved `GET /api/backtest/{player_id}` below specific `/api/backtest/*` routes
   - Parallelized DayBlade price fetch loop
-- [uoa/routes.py](/Users/bigmac/autonomous-trader/uoa/routes.py)
+- [uoa/routes.py](~/autonomous-trader/uoa/routes.py)
   - Added `/api/uoa/scans` compatibility alias to `/api/uoa/scan-log`
 
 ## Issues Still Open
@@ -94,11 +94,11 @@ Workspace: `/Users/bigmac/autonomous-trader`
 - Time-based background jobs over an extended soak period
 
 ## Startup Sequencing
-- Launcher sequencing is preserved in [launch-trademinds.sh](/Users/bigmac/autonomous-trader/launch-trademinds.sh#L160):
+- Launcher sequencing is preserved in [launch-trademinds.sh](~/autonomous-trader/launch-trademinds.sh#L160):
   - Arena starts first on `8080`
   - launcher waits for an actual listener before proceeding
   - Unified Trader starts only after Arena is bound
-- Arena boot remains mostly lazy in [main.py](/Users/bigmac/autonomous-trader/main.py#L1546):
+- Arena boot remains mostly lazy in [main.py](~/autonomous-trader/main.py#L1546):
   - dashboard thread starts first
   - most heavy scanners are only armed, not executed immediately
   - Arena model graph is initialized lazily on first `run_scanner()` call, not at process boot
@@ -106,18 +106,18 @@ Workspace: `/Users/bigmac/autonomous-trader`
   - Riker startup synthesis only runs if market hours are open and the latest recommendation is stale
   - realtime monitor sleeps when the market is closed
 - Unified Trader startup is already lightweight:
-  - APScheduler only arms 8 cron jobs in [main_crew.py](/Users/bigmac/autonomous-trader/main_crew.py#L359)
+  - APScheduler only arms 8 cron jobs in [main_crew.py](~/autonomous-trader/main_crew.py#L359)
   - job execution is locked by `_pipeline_lock`, preventing overlapping Crew runs
-- Dashboard cache warmups are still present for fast first paint, but are now staggered instead of launched simultaneously in [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py#L112).
+- Dashboard cache warmups are still present for fast first paint, but are now staggered instead of launched simultaneously in [dashboard/app.py](~/autonomous-trader/dashboard/app.py#L112).
 
 ## CPU/RAM Optimization
 - Low-risk optimization applied:
-  - Arena interval jobs are now offset after registration via [_stagger_schedule_jobs()](/Users/bigmac/autonomous-trader/main.py#L106) and activated in [main.py](/Users/bigmac/autonomous-trader/main.py#L1544). This reduces same-second bursts from the many `5m`, `15m`, `30m`, and `1h` check jobs.
-  - dashboard startup warmups are delayed in small steps at [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py#L112) to avoid boot-time CPU and network spikes.
+  - Arena interval jobs are now offset after registration via [_stagger_schedule_jobs()](~/autonomous-trader/main.py#L106) and activated in [main.py](~/autonomous-trader/main.py#L1544). This reduces same-second bursts from the many `5m`, `15m`, `30m`, and `1h` check jobs.
+  - dashboard startup warmups are delayed in small steps at [dashboard/app.py](~/autonomous-trader/dashboard/app.py#L112) to avoid boot-time CPU and network spikes.
 - Preserved behaviors that already help resource use:
-  - single global Ollama serialization in [engine/providers/ollama_provider.py](/Users/bigmac/autonomous-trader/engine/providers/ollama_provider.py#L6)
-  - scanner overlap prevention through `_scan_lock` in [main.py](/Users/bigmac/autonomous-trader/main.py#L145)
-  - Crew overlap prevention through `_pipeline_lock` in [main_crew.py](/Users/bigmac/autonomous-trader/main_crew.py#L47)
+  - single global Ollama serialization in [engine/providers/ollama_provider.py](~/autonomous-trader/engine/providers/ollama_provider.py#L6)
+  - scanner overlap prevention through `_scan_lock` in [main.py](~/autonomous-trader/main.py#L145)
+  - Crew overlap prevention through `_pipeline_lock` in [main_crew.py](~/autonomous-trader/main_crew.py#L47)
   - market-hours gating and cooldown checks across many Arena jobs
   - WebSocket-first realtime path with sleeping fallback when markets are closed
 - Not changed intentionally:
@@ -126,10 +126,10 @@ Workspace: `/Users/bigmac/autonomous-trader`
   - no removal of time-gated jobs
 
 ## Concurrency Limits
-- Global Ollama calls are serialized one-at-a-time in [engine/providers/ollama_provider.py](/Users/bigmac/autonomous-trader/engine/providers/ollama_provider.py#L20).
-- Arena scan execution is single-flight via `_scan_lock` in [main.py](/Users/bigmac/autonomous-trader/main.py#L161).
-- Crew scheduled pipelines are single-flight via `_pipeline_lock` in [main_crew.py](/Users/bigmac/autonomous-trader/main_crew.py#L62).
-- DayBlade status endpoint now uses bounded parallelism with `max_workers=min(8, len(tickers))` in [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py#L1741).
+- Global Ollama calls are serialized one-at-a-time in [engine/providers/ollama_provider.py](~/autonomous-trader/engine/providers/ollama_provider.py#L20).
+- Arena scan execution is single-flight via `_scan_lock` in [main.py](~/autonomous-trader/main.py#L161).
+- Crew scheduled pipelines are single-flight via `_pipeline_lock` in [main_crew.py](~/autonomous-trader/main_crew.py#L62).
+- DayBlade status endpoint now uses bounded parallelism with `max_workers=min(8, len(tickers))` in [dashboard/app.py](~/autonomous-trader/dashboard/app.py#L1741).
 - Holodeck and some analysis endpoints already use bounded thread pools rather than unbounded fan-out.
 
 ## Lazy-Load Opportunities
@@ -139,7 +139,7 @@ Workspace: `/Users/bigmac/autonomous-trader`
   - many dashboard endpoints use stale-while-revalidate caches instead of recomputing on every hit
 - Still available for future low-risk work:
   - make Arena price-cache warmup opt-in or market-hours-only if boot-time network cost becomes noticeable
-  - reduce front-end lock polling frequency when the Unified Trader tab is hidden; current UI polls `/api/crew/lock/status` every 5s and reloads the page every 30s in [main_crew.py](/Users/bigmac/autonomous-trader/main_crew.py#L807) and [main_crew.py](/Users/bigmac/autonomous-trader/main_crew.py#L1309)
+  - reduce front-end lock polling frequency when the Unified Trader tab is hidden; current UI polls `/api/crew/lock/status` every 5s and reloads the page every 30s in [main_crew.py](~/autonomous-trader/main_crew.py#L807) and [main_crew.py](~/autonomous-trader/main_crew.py#L1309)
   - add short response caching for expensive read-only endpoints like `/api/dayblade/scanner` if dashboard refresh pressure grows
 
 ## Recommended Safe Settings
@@ -169,14 +169,14 @@ Workspace: `/Users/bigmac/autonomous-trader`
 
 ## Overlapping WATCH_STOCKS Work
 - Highest-overlap recurring Arena jobs hitting the shared watchlist:
-  - `run_scanner()` in [main.py](/Users/bigmac/autonomous-trader/main.py#L197) scans the full watchlist and periodically refreshes news for the same symbols
-  - `run_strength_scan()` in [main.py](/Users/bigmac/autonomous-trader/main.py#L1249) scans relative strength across `WATCH_STOCKS`
-  - `run_trend_forecast()` in [main.py](/Users/bigmac/autonomous-trader/main.py#L1258) predicts trends across `WATCH_STOCKS`
-  - `run_gap_scan()` in [main.py](/Users/bigmac/autonomous-trader/main.py#L1265) scans gaps across `WATCH_STOCKS`
-  - `run_theta_scan()` in [main.py](/Users/bigmac/autonomous-trader/main.py#L1264) scans theta opportunities across `WATCH_STOCKS`
-  - `run_imbalance_scan()` in [main.py](/Users/bigmac/autonomous-trader/main.py#L1263) scans imbalance zones across `WATCH_STOCKS`
-  - `run_sma_scan()` in [main.py](/Users/bigmac/autonomous-trader/main.py#L1261) scans SMA status across `WATCH_STOCKS`
-  - `run_fundamental_scan()` in [main.py](/Users/bigmac/autonomous-trader/main.py#L1257) refreshes fundamentals across the same universe
+  - `run_scanner()` in [main.py](~/autonomous-trader/main.py#L197) scans the full watchlist and periodically refreshes news for the same symbols
+  - `run_strength_scan()` in [main.py](~/autonomous-trader/main.py#L1249) scans relative strength across `WATCH_STOCKS`
+  - `run_trend_forecast()` in [main.py](~/autonomous-trader/main.py#L1258) predicts trends across `WATCH_STOCKS`
+  - `run_gap_scan()` in [main.py](~/autonomous-trader/main.py#L1265) scans gaps across `WATCH_STOCKS`
+  - `run_theta_scan()` in [main.py](~/autonomous-trader/main.py#L1264) scans theta opportunities across `WATCH_STOCKS`
+  - `run_imbalance_scan()` in [main.py](~/autonomous-trader/main.py#L1263) scans imbalance zones across `WATCH_STOCKS`
+  - `run_sma_scan()` in [main.py](~/autonomous-trader/main.py#L1261) scans SMA status across `WATCH_STOCKS`
+  - `run_fundamental_scan()` in [main.py](~/autonomous-trader/main.py#L1257) refreshes fundamentals across the same universe
 - Highest-overlap read-only dashboard paths:
   - `/api/market/prices`
   - leaderboard and comparison warmers
@@ -187,19 +187,19 @@ Workspace: `/Users/bigmac/autonomous-trader`
   - no low-risk feature-preserving dedupe was applied beyond stagger and front-end polling reduction
 
 ## Low-Risk Resource Changes Applied
-- File: [main.py](/Users/bigmac/autonomous-trader/main.py#L1296)
+- File: [main.py](~/autonomous-trader/main.py#L1296)
   - Current behavior before change: Arena imported `crew.agents` inside the recurring 5-minute Alpaca sync job, which pulled in `crewai` under Python 3.9 and threw `unsupported operand type(s) for |: 'type' and 'NoneType'`.
-  - Change: moved the sync path to [shared/alpaca_sync.py](/Users/bigmac/autonomous-trader/shared/alpaca_sync.py) and updated Arena to import that lightweight helper instead.
+  - Change: moved the sync path to [shared/alpaca_sync.py](~/autonomous-trader/shared/alpaca_sync.py) and updated Arena to import that lightweight helper instead.
   - Expected benefit: removes repeated import failures and wasted scheduler wakeups; slightly lowers CPU/log churn every 5 minutes.
   - Risk level: low.
   - User-visible behavior: no intended UI change; sync now works instead of erroring.
-- File: [main_crew.py](/Users/bigmac/autonomous-trader/main_crew.py#L807)
+- File: [main_crew.py](~/autonomous-trader/main_crew.py#L807)
   - Current behavior before change: full page reload every 30 seconds.
   - Change: reload interval increased to 60 seconds and reloads are skipped while the tab is hidden.
   - Expected benefit: lower browser CPU, DOM churn, and request volume.
   - Risk level: low.
   - User-visible behavior: page-wide freshness is slightly less aggressive, but still automatic.
-- File: [main_crew.py](/Users/bigmac/autonomous-trader/main_crew.py#L1283)
+- File: [main_crew.py](~/autonomous-trader/main_crew.py#L1283)
   - Current behavior before change: `/api/crew/lock/status` polled every 5 seconds regardless of page visibility.
   - Change: poll interval increased to 10 seconds and polling is skipped while the tab is hidden.
   - Expected benefit: about 50% fewer lock-status requests per visible tab, and near-zero polling when hidden.
@@ -212,34 +212,34 @@ Workspace: `/Users/bigmac/autonomous-trader`
   - Neo is shared into `8080` comparison and conversation surfaces
   - Arena can read and react to Neo, but cannot pause, approve, reset, or execute Neo
 - Architecture:
-  - Shared Neo identity and metadata live in [shared/matrix_bridge.py](/Users/bigmac/autonomous-trader/shared/matrix_bridge.py)
+  - Shared Neo identity and metadata live in [shared/matrix_bridge.py](~/autonomous-trader/shared/matrix_bridge.py)
   - Neo is represented as `ai_players.id='neo-matrix'`, `provider='matrix'`, `model_id='8000 / Independent'`
-  - Matrix-owned publishing happens through `8000` mirror endpoints in [crew/routes.py](/Users/bigmac/autonomous-trader/crew/routes.py) with direct aliases in [main_crew.py](/Users/bigmac/autonomous-trader/main_crew.py)
+  - Matrix-owned publishing happens through `8000` mirror endpoints in [crew/routes.py](~/autonomous-trader/crew/routes.py) with direct aliases in [main_crew.py](~/autonomous-trader/main_crew.py)
   - Shared surfaces on `8080` read Neo from the same DB tables as everyone else: `ai_players`, `war_room`, `ai_chat`, `positions`, `trades`, `portfolio_history`
   - Arena never instantiates Neo as a War Room provider, so Neo can appear in the shared discussion without Arena owning Neo’s runtime
 - Live data flow:
   - Matrix/`8000` posts Neo snapshot or commentary to `/api/matrix/neo/mirror`
-  - [shared/matrix_bridge.py](/Users/bigmac/autonomous-trader/shared/matrix_bridge.py) upserts Neo identity, shared portfolio metadata, optional positions/trades, chat, War Room take, and portfolio history
+  - [shared/matrix_bridge.py](~/autonomous-trader/shared/matrix_bridge.py) upserts Neo identity, shared portfolio metadata, optional positions/trades, chat, War Room take, and portfolio history
   - `8080` surfaces automatically render Neo from the shared tables
   - other Arena agents see Neo’s War Room and AI chat messages as prior conversation context, so they can reply to or challenge Neo naturally
 - Exact control files:
   - Conversation participation:
-    - [engine/war_room.py](/Users/bigmac/autonomous-trader/engine/war_room.py)
-    - [engine/ai_chat.py](/Users/bigmac/autonomous-trader/engine/ai_chat.py)
-    - [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py)
-    - [dashboard/static/index.html](/Users/bigmac/autonomous-trader/dashboard/static/index.html)
+    - [engine/war_room.py](~/autonomous-trader/engine/war_room.py)
+    - [engine/ai_chat.py](~/autonomous-trader/engine/ai_chat.py)
+    - [dashboard/app.py](~/autonomous-trader/dashboard/app.py)
+    - [dashboard/static/index.html](~/autonomous-trader/dashboard/static/index.html)
   - Leaderboard membership and player stats:
-    - [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py)
-    - [shared/matrix_bridge.py](/Users/bigmac/autonomous-trader/shared/matrix_bridge.py)
+    - [dashboard/app.py](~/autonomous-trader/dashboard/app.py)
+    - [shared/matrix_bridge.py](~/autonomous-trader/shared/matrix_bridge.py)
   - Trade/stat mirroring:
-    - [shared/matrix_bridge.py](/Users/bigmac/autonomous-trader/shared/matrix_bridge.py)
-    - [crew/routes.py](/Users/bigmac/autonomous-trader/crew/routes.py)
-    - [main_crew.py](/Users/bigmac/autonomous-trader/main_crew.py)
+    - [shared/matrix_bridge.py](~/autonomous-trader/shared/matrix_bridge.py)
+    - [crew/routes.py](~/autonomous-trader/crew/routes.py)
+    - [main_crew.py](~/autonomous-trader/main_crew.py)
   - Approval/control exclusions:
-    - [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py)
-    - [engine/leader_signal.py](/Users/bigmac/autonomous-trader/engine/leader_signal.py)
-    - [engine/season_manager.py](/Users/bigmac/autonomous-trader/engine/season_manager.py)
-    - [shared/matrix_bridge.py](/Users/bigmac/autonomous-trader/shared/matrix_bridge.py)
+    - [dashboard/app.py](~/autonomous-trader/dashboard/app.py)
+    - [engine/leader_signal.py](~/autonomous-trader/engine/leader_signal.py)
+    - [engine/season_manager.py](~/autonomous-trader/engine/season_manager.py)
+    - [shared/matrix_bridge.py](~/autonomous-trader/shared/matrix_bridge.py)
 - Current live verification:
   - `8000 /api/matrix/neo/status` returns Neo as `Matrix / 8000 / Independent`
   - `8080 /api/arena/leaderboard` includes `neo-matrix` with `arena_governed=false` and `can_pause=false`
@@ -249,11 +249,11 @@ Workspace: `/Users/bigmac/autonomous-trader`
   - `8080 /api/model-control/pause/neo-matrix` returns a read-only rejection
 - Neo Bridge Completion:
   - What was missing:
-    - Neo trade history was already visible on `8080`, but the native `8000` sync path in [shared/matrix_bridge.py](/Users/bigmac/autonomous-trader/shared/matrix_bridge.py) still deleted and rebuilt Neo's mirrored `trades` rows during refresh
+    - Neo trade history was already visible on `8080`, but the native `8000` sync path in [shared/matrix_bridge.py](~/autonomous-trader/shared/matrix_bridge.py) still deleted and rebuilt Neo's mirrored `trades` rows during refresh
     - that behavior violated the preservation rule for historical records even though the UI looked correct
   - Files changed:
-    - [shared/matrix_bridge.py](/Users/bigmac/autonomous-trader/shared/matrix_bridge.py)
-    - [SYSTEM_AUDIT.md](/Users/bigmac/autonomous-trader/SYSTEM_AUDIT.md)
+    - [shared/matrix_bridge.py](~/autonomous-trader/shared/matrix_bridge.py)
+    - [SYSTEM_AUDIT.md](~/autonomous-trader/SYSTEM_AUDIT.md)
   - Exact working routes:
     - `GET /api/matrix/neo/status`
     - `POST /api/matrix/neo/mirror`
@@ -267,7 +267,7 @@ Workspace: `/Users/bigmac/autonomous-trader`
   - Data flow now:
     - `8000` owns Neo execution and source portfolio state
     - `main_crew.py` runs the lightweight staggered Neo shared sync every 5 minutes
-    - [shared/matrix_bridge.py](/Users/bigmac/autonomous-trader/shared/matrix_bridge.py) appends only missing Neo trades, replaces only Neo's current-state open-position mirror, and appends `portfolio_history` snapshots
+    - [shared/matrix_bridge.py](~/autonomous-trader/shared/matrix_bridge.py) appends only missing Neo trades, replaces only Neo's current-state open-position mirror, and appends `portfolio_history` snapshots
     - `8080` renders Neo from shared DB tables only and never governs Neo execution
   - Verification results on 2026-03-27:
     - `GET /api/arena/leaderboard` includes Neo with real mirrored totals: `cash=6050.0`, `positions_value=2488.0`, `total_value=8538.0`, `trades=3`, `source_label="Matrix / 8000 / Independent"`
@@ -289,40 +289,40 @@ Workspace: `/Users/bigmac/autonomous-trader`
   - no new paid APIs were added
   - startup staggering and bounded concurrency were preserved
 - New risk logic:
-  - [engine/correlation.py](/Users/bigmac/autonomous-trader/engine/correlation.py)
+  - [engine/correlation.py](~/autonomous-trader/engine/correlation.py)
     - upgraded correlation calculations from a simple 30-day matrix to cached 60-day rolling correlation output
     - adds `pairs`, `groups`, `group_exposure`, `symbol_exposure`, `lookback_days`, and `threshold`
     - groups symbols when correlation is greater than `0.70`
-  - [engine/risk_manager.py](/Users/bigmac/autonomous-trader/engine/risk_manager.py)
+  - [engine/risk_manager.py](~/autonomous-trader/engine/risk_manager.py)
     - adds a correlation-aware buy guardrail on the existing execution path
     - per-symbol stock cap is now enforced around `18%` in normal conditions and `15%` in bear conditions
     - correlated-group cap is enforced around `40%`
     - these checks are additive and only run inside the existing `check_buy()` flow
 - New scoring logic:
-  - [engine/fundamental_score.py](/Users/bigmac/autonomous-trader/engine/fundamental_score.py)
-    - now uses the repo’s cached fundamentals layer in [engine/stock_fundamentals.py](/Users/bigmac/autonomous-trader/engine/stock_fundamentals.py) instead of direct ad hoc `yfinance`
+  - [engine/fundamental_score.py](~/autonomous-trader/engine/fundamental_score.py)
+    - now uses the repo’s cached fundamentals layer in [engine/stock_fundamentals.py](~/autonomous-trader/engine/stock_fundamentals.py) instead of direct ad hoc `yfinance`
     - produces investor-style `valuation_score`, `growth_score`, `quality_score`, and `macro_score`
     - macro fit is derived from existing regime and cross-asset monitors only
     - includes a neutral degraded fallback if fresh fundamentals are unavailable, so prompts and scanners do not fail hard
 - Agent logic upgrades:
-  - [engine/picard_strategy.py](/Users/bigmac/autonomous-trader/engine/picard_strategy.py)
+  - [engine/picard_strategy.py](~/autonomous-trader/engine/picard_strategy.py)
     - Picard now ingests cross-asset macro bias plus sector-rotation leaders and laggards before generating the weekly briefing
-  - [engine/first_officer.py](/Users/bigmac/autonomous-trader/engine/first_officer.py)
+  - [engine/first_officer.py](~/autonomous-trader/engine/first_officer.py)
     - Data now receives a valuation/growth/macro scoring block for Captain Kirk’s holdings before generating recommendations
-  - [engine/archer_frontier.py](/Users/bigmac/autonomous-trader/engine/archer_frontier.py)
+  - [engine/archer_frontier.py](~/autonomous-trader/engine/archer_frontier.py)
     - Archer now scores contrarian rebound setups using existing price history only; no new data feeds
 - UI and API exposure:
-  - [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py)
+  - [dashboard/app.py](~/autonomous-trader/dashboard/app.py)
     - `GET /api/arena/player/{player_id}` now includes `risk.sector_exposure` and `risk.correlation`
     - existing `GET /api/market/correlation/{player_id}` now returns grouped exposure payloads from the upgraded correlation service
 - Files changed:
-  - [engine/correlation.py](/Users/bigmac/autonomous-trader/engine/correlation.py)
-  - [engine/risk_manager.py](/Users/bigmac/autonomous-trader/engine/risk_manager.py)
-  - [engine/fundamental_score.py](/Users/bigmac/autonomous-trader/engine/fundamental_score.py)
-  - [engine/first_officer.py](/Users/bigmac/autonomous-trader/engine/first_officer.py)
-  - [engine/picard_strategy.py](/Users/bigmac/autonomous-trader/engine/picard_strategy.py)
-  - [engine/archer_frontier.py](/Users/bigmac/autonomous-trader/engine/archer_frontier.py)
-  - [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py)
+  - [engine/correlation.py](~/autonomous-trader/engine/correlation.py)
+  - [engine/risk_manager.py](~/autonomous-trader/engine/risk_manager.py)
+  - [engine/fundamental_score.py](~/autonomous-trader/engine/fundamental_score.py)
+  - [engine/first_officer.py](~/autonomous-trader/engine/first_officer.py)
+  - [engine/picard_strategy.py](~/autonomous-trader/engine/picard_strategy.py)
+  - [engine/archer_frontier.py](~/autonomous-trader/engine/archer_frontier.py)
+  - [dashboard/app.py](~/autonomous-trader/dashboard/app.py)
 - Verification results:
   - syntax/import pass succeeded with `PYTHONPYCACHEPREFIX=/tmp/pycache ./venv/bin/python -m py_compile ...`
   - mocked buy-guard validation in the real `venv` confirmed:
@@ -345,7 +345,7 @@ Workspace: `/Users/bigmac/autonomous-trader`
   - `8000` and `8080` responsibilities remain separate
   - startup staggering and low-resource behavior were not changed
 - New sector-bucket risk logic:
-  - [engine/sector_tracker.py](/Users/bigmac/autonomous-trader/engine/sector_tracker.py)
+  - [engine/sector_tracker.py](~/autonomous-trader/engine/sector_tracker.py)
     - adds declarative stock bucket caps:
       - `Tech/Semi` `35%`
       - `Software` `30%`
@@ -353,7 +353,7 @@ Workspace: `/Users/bigmac/autonomous-trader`
       - `Index` `40%`
       - `Other` `25%`
     - adds `build_sector_bucket_profile()` for warning and cap diagnostics
-  - [engine/risk_manager.py](/Users/bigmac/autonomous-trader/engine/risk_manager.py)
+  - [engine/risk_manager.py](~/autonomous-trader/engine/risk_manager.py)
     - enforces sector-bucket caps only at new stock buy time
     - existing concentrated books are not auto-liquidated
     - warning-only players are excluded from enforcement:
@@ -362,7 +362,7 @@ Workspace: `/Users/bigmac/autonomous-trader`
       - `steve-webull`
       - `super-agent`
 - Smarter portfolio construction weights:
-  - [engine/paper_trader.py](/Users/bigmac/autonomous-trader/engine/paper_trader.py)
+  - [engine/paper_trader.py](~/autonomous-trader/engine/paper_trader.py)
     - adds `_target_weight_adjustment()` as a soft sizing layer for auto-derived stock quantities only
     - sizing is reduced when:
       - a sector bucket is near or over cap
@@ -370,9 +370,9 @@ Workspace: `/Users/bigmac/autonomous-trader`
       - macro bias is bearish / risk-off without very high conviction
     - explicit quantities and mirrored positions are untouched
 - Warning-only construction overlays:
-  - [engine/risk_manager.py](/Users/bigmac/autonomous-trader/engine/risk_manager.py)
+  - [engine/risk_manager.py](~/autonomous-trader/engine/risk_manager.py)
     - adds `get_portfolio_construction_warnings()` for UI overlays
-  - [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py)
+  - [dashboard/app.py](~/autonomous-trader/dashboard/app.py)
     - `GET /api/arena/player/{player_id}` now includes:
       - `risk.construction`
       - `season_overlay`
@@ -393,10 +393,10 @@ Workspace: `/Users/bigmac/autonomous-trader`
     - excluded from enforcement
     - only receives read-only overlay analytics
 - Files changed in Phase 2:
-  - [engine/sector_tracker.py](/Users/bigmac/autonomous-trader/engine/sector_tracker.py)
-  - [engine/risk_manager.py](/Users/bigmac/autonomous-trader/engine/risk_manager.py)
-  - [engine/paper_trader.py](/Users/bigmac/autonomous-trader/engine/paper_trader.py)
-  - [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py)
+  - [engine/sector_tracker.py](~/autonomous-trader/engine/sector_tracker.py)
+  - [engine/risk_manager.py](~/autonomous-trader/engine/risk_manager.py)
+  - [engine/paper_trader.py](~/autonomous-trader/engine/paper_trader.py)
+  - [dashboard/app.py](~/autonomous-trader/dashboard/app.py)
 - Verification:
   - syntax pass succeeded with `PYTHONPYCACHEPREFIX=/tmp/pycache ./venv/bin/python -m py_compile ...`
   - mocked risk validation in the live `venv` confirmed:
@@ -406,7 +406,7 @@ Workspace: `/Users/bigmac/autonomous-trader`
     - `risk.construction`
     - `season_overlay`
   - live `GET /api/status` and `GET /healthz` still return `200`
-  - minimal safe leaderboard optimization applied in [dashboard/app.py](/Users/bigmac/autonomous-trader/dashboard/app.py):
+  - minimal safe leaderboard optimization applied in [dashboard/app.py](~/autonomous-trader/dashboard/app.py):
     - cached leaderboard rows now get `season_overlay` patched in with one batched DB read
     - stale cached leaderboard can return quickly while full refresh still happens in background
   - focused verification after the cache patch confirmed:
