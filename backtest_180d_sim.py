@@ -13,7 +13,7 @@ import sys
 
 warnings.filterwarnings('ignore')
 
-OUTPUT_PATH = '/Users/bigmac/autonomous-trader/data/backtest_180d_execution_tiers.json'
+OUTPUT_PATH = 'data/backtest_180d_execution_tiers.json'
 
 # ── STEP 1: DB Query ────────────────────────────────────────────────────────
 

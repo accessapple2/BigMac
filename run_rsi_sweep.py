@@ -1,6 +1,6 @@
 """RSI sweep backtest for 12 tickers using Holodeck engine."""
-import sys
-sys.path.insert(0, '/Users/bigmac/autonomous-trader')
+import os, sys
+sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 
 from engine.holodeck import Holodeck
 from datetime import datetime
@@ -84,7 +84,7 @@ lines.append(f"- Entry signal: RSI **crossed above** buy threshold (ascending fr
 lines.append(f"- Exit signal: RSI **crossed below** sell threshold (descending from overbought)")
 
 output = "\n".join(lines) + "\n"
-out_path = "/Users/bigmac/autonomous-trader/backtest_results.md"
+out_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "backtest_results.md")
 with open(out_path, "w") as f:
     f.write(output)
 

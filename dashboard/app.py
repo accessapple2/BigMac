@@ -1800,7 +1800,7 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
     2. Kill the listed PID:
            kill -9 <PID>
     3. Restart the dashboard:
-           cd /Users/bigmac/autonomous-trader
+           cd ~/autonomous-trader
            ./venv/bin/python dashboard/app.py
     4. Verify live output:
            curl -s http://127.0.0.1:8080/api/arena/leaderboard | jq '.leaderboard[0]'
@@ -14036,7 +14036,7 @@ async def computer_action(req: Request):
     body = await req.json()
     action = str(body.get("action", "")).strip()
 
-    PROJECT = "/Users/bigmac/autonomous-trader"
+    PROJECT = os.path.expanduser("~/autonomous-trader")
 
     if action == "force_scan":
         try:

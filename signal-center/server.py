@@ -465,7 +465,6 @@ def _update_outcome(signal_id: int, entry_price: float, stop_loss: float, take_p
 def _outcome_tracker_loop():
     """Background thread: update tracked prices every 15 min during market hours."""
     import sqlite3 as _sq
-    _TRADER_DB = "/Users/bigmac/autonomous-trader/data/trader.db"
     while True:
         try:
             _time.sleep(900)  # 15 minutes

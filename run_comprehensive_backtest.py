@@ -12,16 +12,17 @@ from datetime import datetime, timedelta
 from collections import defaultdict
 
 # Add project root to path
-sys.path.insert(0, '/Users/bigmac/autonomous-trader')
+_HERE = os.path.dirname(os.path.abspath(__file__))
+sys.path.insert(0, _HERE)
 
-DB_PATH = '/Users/bigmac/autonomous-trader/data/trader.db'
+DB_PATH = os.path.join(_HERE, 'data', 'trader.db')
 START_DATE = '2026-01-10'
 END_DATE = '2026-04-10'
 STARTING_CAPITAL = 10_000.0
 POSITION_SIZE_PCT = 0.05  # 5% per trade
 SLIPPAGE_EQUITY = 0.001   # 0.1%
 SLIPPAGE_OPTIONS = 0.03   # 3%
-OUTPUT_PATH = '/Users/bigmac/autonomous-trader/data/backtest_comprehensive_90d.json'
+OUTPUT_PATH = os.path.join(_HERE, 'data', 'backtest_comprehensive_90d.json')
 
 
 def conn():
