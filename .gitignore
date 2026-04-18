@@ -23,6 +23,7 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 data/.force_scan
+data/*_cache.json
 logs/
 
 # Migration artifacts (pre-cutover DB snapshots)
