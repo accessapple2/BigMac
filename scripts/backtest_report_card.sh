@@ -133,6 +133,68 @@ if [ -n "$HC_BUYS" ]; then
     fmt "  $line"
   done <<< "$HC_BUYS"
 fi
+# ── ANOMALY DETECTION ─────────────────────────────────────────────────────
+# Agents whose prompts only ask for BUY (exits are mechanical TP/SL/trail)
+PURE_ENTRY_AGENTS="navigator ollama-qwen3 ollama-coder"
+
+is_pure_entry() {
+  local id="$1"
+  case " $PURE_ENTRY_AGENTS " in *" $id "*) return 0;; esac
+  return 1
+}
+
+anomaly_check() {
+  local name="$1" agent_id="$2" calls="$3" buys="$4" sells="$5" holds="$6" gated="${7:-0}"
+  local total=$(( buys + sells + holds ))
+
+  if [ "$total" -eq 0 ]; then
+    fmt "  ✅  $name: no calls yet"
+    return
+  fi
+
+  local hold_pct=0
+  [ "$total" -gt 0 ] && hold_pct=$(( holds * 100 / total ))
+  local warned=0
+
+  if is_pure_entry "$agent_id"; then
+    # Whitelisted: always ℹ️, never ⚠️ for BUY-only patterns
+    fmt "  ℹ️   $name: pure-entry mode by design — B=${buys} S=${sells} H=${holds} (exits = mechanical TP/SL/trail)"
+  else
+    # Non-whitelisted: check for real bias signals
+
+    # 0 SELLs with BUYs present — prompt includes SELL, so this is suspicious
+    if [ "$sells" -eq 0 ] && [ "$buys" -gt 0 ]; then
+      fmt "  ⚠️  $name: prompt includes SELL in action space but 0 SELL signals — possible bias"
+      warned=1
+    fi
+
+    # Buy:sell ratio > 20:1
+    if [ "$sells" -gt 0 ]; then
+      local ratio=$(( buys / sells ))
+      if [ "$ratio" -ge 20 ]; then
+        fmt "  ⚠️  $name: BUY:SELL ratio ${ratio}:1 — strong buy bias"
+        warned=1
+      fi
+    fi
+
+    # >95% HOLDs with enough data — skip if regime-gated OR if 0 SELLs already flagged above
+    if [ "$hold_pct" -ge 95 ] && [ "$gated" -eq 0 ] && [ "$total" -gt 20 ] && [ "$warned" -eq 0 ]; then
+      fmt "  ⚠️  $name: ${hold_pct}% HOLDs (${holds}/${total}) — possibly stuck or overly conservative"
+      warned=1
+    fi
+
+    [ "$warned" -eq 0 ] && fmt "  ✅  $name: distribution looks healthy (B=${buys} S=${sells} H=${holds})"
+  fi
+}
+
+echo "├─ ANOMALY DETECTION $(printf '─%.0s' {1..50})┤"
+anomaly_check "Data"   "ollama-coder" "$DATA_CALLS" "$DATA_B" "$DATA_S" "$DATA_H"
+anomaly_check "Neo"    "neo-matrix"   "$NEO_CALLS"  "$NEO_B"  "$NEO_S"  "$NEO_H"
+anomaly_check "Chekov" "navigator"    "$CHEK_CALLS" "$CHEK_B" "$CHEK_S" "$CHEK_H"
+anomaly_check "Dax"    "ollama-qwen3" "$DAX_CALLS"  "$DAX_B"  "$DAX_S"  "$DAX_H"
+anomaly_check "McCoy"  "ollama-plutus" "$MCCY_CALLS" "$MCCY_B" "$MCCY_S" "$MCCY_H" 1
+fmt "Note: pure-entry agents rely on mechanical exits (TP/SL/trailing stops). LLM gates entries only."
+
 if [ -n "$DB_RESULTS" ]; then
   echo "├─ DB RESULTS (180-day final) $(printf '─%.0s' {1..41})┤"
   while IFS= read -r line; do
