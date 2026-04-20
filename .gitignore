@@ -26,7 +26,9 @@ data/*.db
 data/*.db-shm
 data/*.db-wal
 data/.force_scan
+data/*.json
 data/*_cache.json
+data/backtest_cache/
 data/.fuse_hidden*
 data/s6_180d_backtest.json
 data/s6_sim_180d_backtest.json
@@ -93,6 +95,20 @@ trader.db
 
 # Manual UI backups (use git history instead)
 dashboard/static/*.bak
+
+# Generated assets (rebuilt each morning run)
+dashboard/static/briefing_audio.mp3
+
+# Python/library artifacts
+did.bin
+
+# Dated backup files (.bak-2026-04-19, .bak_152251 styles)
+*.bak-*
+*.bak_*
+
+# Pre-op snapshots (.before_fix_20260418, .before_port8000_fix style)
+*.before_fix_*
+*.before_port*
 
 # Local backup archive directory (relocate outside repo)
 backups_archive/
