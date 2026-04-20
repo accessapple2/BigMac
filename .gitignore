@@ -29,6 +29,8 @@ data/.force_scan
 data/*.json
 data/*_cache.json
 data/backtest_cache/
+# Strategy lab auto-optimizer output (regenerated per run)
+data/strategy_lab/
 data/.fuse_hidden*
 data/s6_180d_backtest.json
 data/s6_sim_180d_backtest.json
