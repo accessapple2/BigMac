@@ -24,7 +24,8 @@ DALIO_BOND_SYMBOLS = {"TLT", "IEF"}  # stored as asset_type='bond' in paper_trad
 
 # AI Provider Keys
 OLLAMA_MODEL = "qwen3.5:9b"
-OLLAMA_URL = "http://localhost:11434"
+OLLAMA_URL = "http://localhost:11434"              # bigmac CPU (fallback)
+OLLIE_URL  = "http://192.168.1.166:11434"          # Ollie G1 Pro — RTX 5060 GPU primary
 MLX_URL = "http://localhost:8899"
 MLX_MODEL = "mlx-community/Qwen3-8B-4bit"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
@@ -92,20 +93,23 @@ FREE_CALLS_DAILY_LIMIT = int(os.environ.get("FREE_CALLS_DAILY_LIMIT", "1000"))
 
 # AI Arena Players
 AI_PLAYERS = [
-    {"id": "ollama-local", "name": "Qwen3.5 9B", "provider": "ollama", "model": "qwen3.5:9b"},  # RAM fix 2026-04-17: was qwen3:14b (~9GB), funneled to 9b per CLAUDE.md
-    {"id": "ollama-gemma27b", "name": "Qwen3.5 9B", "provider": "ollama", "model": "qwen3.5:9b"},
-    {"id": "ollama-deepseek", "name": "DeepSeek R1 7B", "provider": "ollama", "model": "deepseek-r1:7b"},
-    {"id": "ollama-qwen3", "name": "Qwen3.5 9B (Scotty)", "provider": "ollama", "model": "qwen3.5:9b"},
-    {"id": "ollama-coder", "name": "Lt. Cmdr. Data", "provider": "ollama", "model": "qwen3-coder:7b"},
-    {"id": "ollama-llama", "name": "Llama 3.1 8B", "provider": "ollama", "model": "llama3.1:latest"},
-    {"id": "ollama-kimi", "name": "Kimi K2.5", "provider": "ollama", "model": "kimi-k2.5:cloud"},
-    {"id": "mlx-qwen3", "name": "Qwen3 8B MLX", "provider": "mlx", "model": "mlx-community/Qwen3-8B-4bit"},
-    {"id": "claude-sonnet", "name": "Codex Prime", "provider": "openai", "model": OPENAI_CODEX_MODEL},
-    {"id": "claude-haiku", "name": "Codex Scout", "provider": "openai", "model": OPENAI_CODEX_MINI_MODEL},
-    {"id": "gpt-4o", "name": "GPT-4o", "provider": "openai", "model": "gpt-4o"},
-    {"id": "gpt-o3", "name": "GPT-o3", "provider": "openai", "model": "o3"},
-    {"id": "gemini-2.5-pro", "name": "Qwen3.5 9B Pro", "provider": "ollama", "model": "qwen3.5:9b"},  # RAM fix 2026-04-17: was qwen3:14b
-    {"id": "gemini-2.5-flash", "name": "Lt. Cmdr. Worf", "provider": "ollama", "model": "qwen3.5:9b"},
-    {"id": "grok-3", "name": "Qwen3.5 9B (ex-Grok3)", "provider": "ollama", "model": "qwen3.5:9b"},  # Retired 2026-04-16 per CLAUDE.md; funneled to 9b to kill deepseek-r1:14b spawns
-    {"id": "grok-4", "name": "Qwen3.5 9B (ex-Grok4)", "provider": "ollama", "model": "qwen3.5:9b"},  # Retired 2026-04-16; replaced by Kirk+Pike on Starfleet
+    {"id": "ollama-local",    "name": "Pike/Kirk 14B",      "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU
+    {"id": "ollama-gemma27b", "name": "Qwen3 8B",           "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — was qwen3:14b
+    {"id": "ollama-deepseek", "name": "Spock R1 14B",       "provider": "ollama", "model": "deepseek-r1:14b",   "url": OLLIE_URL},  # Ollie GPU
+    {"id": "ollama-qwen3",    "name": "Scotty 8B",          "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU
+    {"id": "ollama-coder",    "name": "Lt. Cmdr. Data",     "provider": "ollama", "model": "qwen2.5-coder:7b",  "url": OLLIE_URL},  # Ollie GPU — was qwen3-coder:30b
+    {"id": "ollama-plutus",   "name": "Uhura Plutus",       "provider": "ollama", "model": "0xroyce/plutus",    "url": OLLIE_URL},  # Ollie GPU — McCoy's finance brain
+    {"id": "navigator",       "name": "Ensign Chekov",       "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — backtest routing; live uses chekov_rules()
+    {"id": "neo-matrix",      "name": "Neo Matrix",          "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU — backtest routing; live is deterministic
+    {"id": "ollama-llama",    "name": "Llama 3.1 8B",       "provider": "ollama", "model": "llama3.1:latest"},                      # bigmac localhost fallback
+    {"id": "ollama-kimi",     "name": "Kimi K2.5",          "provider": "ollama", "model": "kimi-k2.5:cloud"},                      # cloud — unchanged
+    {"id": "mlx-qwen3",       "name": "Qwen3 8B MLX",       "provider": "mlx",    "model": "mlx-community/Qwen3-8B-4bit"},
+    {"id": "claude-sonnet",   "name": "Codex Prime",        "provider": "openai", "model": OPENAI_CODEX_MODEL},
+    {"id": "claude-haiku",    "name": "Codex Scout",        "provider": "openai", "model": OPENAI_CODEX_MINI_MODEL},
+    {"id": "gpt-4o",          "name": "GPT-4o",             "provider": "openai", "model": "gpt-4o"},
+    {"id": "gpt-o3",          "name": "GPT-o3",             "provider": "openai", "model": "o3"},
+    {"id": "gemini-2.5-pro",  "name": "Dalio Macro 14B",    "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU — was gemini
+    {"id": "gemini-2.5-flash","name": "Worf 8B",            "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — was gemini
+    {"id": "grok-3",          "name": "ex-Grok3 14B",       "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU — retired 2026-04-16
+    {"id": "grok-4",          "name": "ex-Grok4 8B",        "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — retired 2026-04-16
 ]

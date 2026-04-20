@@ -762,7 +762,14 @@ def _query_ollama(player_id: str, model: str, system_prompt: str,
     - Sets keep_alive=30s so models unload quickly when idle.
     """
     global _last_ollama_query, _current_ollama_model
-    base_url = _get_ollama_base_url()
+    try:
+        from config import AI_PLAYERS as _AI_PLAYERS, OLLAMA_URL as _OLLAMA_URL
+        base_url = next(
+            (p.get("url", _OLLAMA_URL) for p in _AI_PLAYERS if p["id"] == player_id),
+            _OLLAMA_URL,
+        ).rstrip("/")
+    except Exception:
+        base_url = _get_ollama_base_url()
 
     # ── (1) RAM guard — skip scan if memory is too low ──────────────────────
     free = _free_ram_bytes()

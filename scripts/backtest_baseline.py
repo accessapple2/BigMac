@@ -28,13 +28,13 @@ CACHE_DIR.mkdir(parents=True, exist_ok=True)
 OLLAMA_URL = "http://localhost:11434/api/chat"
 
 AGENT_MODELS = {
-    "navigator":     "qwen3.5:9b",
+    "navigator":     "qwen3:8b",
     "ollama-plutus": "0xroyce/plutus",
-    "ollama-qwen3":  "qwen3.5:9b",
-    "ollama-coder":  "qwen3.5:9b",
-    "neo-matrix":    "qwen3.5:9b",
-    "ollama-llama":  "llama3.1",
-    "ollie-auto":    "qwen3.5:9b",
+    "ollama-qwen3":  "qwen3:8b",
+    "ollama-coder":  "qwen2.5-coder:7b",
+    "neo-matrix":    "qwen3:14b",
+    "ollama-llama":  "llama3.1:latest",
+    "ollie-auto":    "qwen3:8b",
 }
 
 AGENT_STRATEGIES = {

@@ -97,8 +97,12 @@ AGENTS: dict[str, dict] = {
 # McCoy's defensive universe: only active when VIX >= 22
 MCCOY_UNIVERSE: list[str] = ["GLD", "TLT", "XLU", "SH", "PSQ", "GDX"]
 
-OLLAMA_GENERATE = "http://localhost:11434/api/generate"
-OLLAMA_CHAT     = "http://localhost:11434/api/chat"
+_LOCALHOST = "http://localhost:11434"
+try:
+    from config import AI_PLAYERS as _AI_PLAYERS
+    _PLAYER_BASE_URLS: dict = {p["id"]: p.get("url", _LOCALHOST) for p in _AI_PLAYERS}
+except Exception:
+    _PLAYER_BASE_URLS: dict = {}
 # Models that support think:false suppression
 THINK_MODELS    = {"qwen3.5:9b", "qwen3:8b", "qwen3:14b", "qwen3:30b", "deepseek-r1:14b"}
 
@@ -268,24 +272,25 @@ def _strip_think(text: str) -> str:
     return text.strip()
 
 
-def _call_model(model_id: str, prompt: str, timeout: int = 90) -> str:
+def _call_model(model_id: str, prompt: str, agent_id: str = "", timeout: int = 90) -> str:
     """HTTP call to Ollama. Returns raw text or '' on failure."""
     if not _HAS_REQUESTS:
         return ""
     is_think = model_id in THINK_MODELS
+    _base = _PLAYER_BASE_URLS.get(agent_id, _LOCALHOST)
     for attempt in range(3):
         try:
             if attempt > 0:
                 time.sleep(20 * attempt)
             if is_think:
-                resp = _requests.post(OLLAMA_CHAT, json={
+                resp = _requests.post(_base + "/api/chat", json={
                     "model": model_id,
                     "messages": [{"role": "user", "content": prompt}],
                     "stream": False, "think": False,
                     "options": {"temperature": 0.1, "num_predict": 80, "num_ctx": 512},
                 }, timeout=timeout)
             else:
-                resp = _requests.post(OLLAMA_GENERATE, json={
+                resp = _requests.post(_base + "/api/generate", json={
                     "model": model_id,
                     "prompt": prompt, "stream": False,
                     "options": {"temperature": 0.1, "num_predict": 80, "num_ctx": 512},
@@ -337,7 +342,7 @@ def ask_ollama(agent_id: str, sym: str, snap: dict,
         agent_id, sym, snap["date"], {"close": snap["price"]},
         regime, vix, fg, snap["rsi"], snap["sma20"], snap["sma50"],
     )
-    raw = _call_model(model_id, prompt)
+    raw = _call_model(model_id, prompt, agent_id=agent_id)
     signal, conf = _parse_signal(raw)
 
     print(f"      [OLLAMA] {agent_display}/{model_id} {sym} {snap['date']}: "

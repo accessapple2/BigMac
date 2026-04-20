@@ -532,6 +532,11 @@ async def dashboard():
 
 # --- Authentication ---
 _SECRET_KEY = os.environ.get("TRADEMINDS_SECRET", "")
+if not _SECRET_KEY or len(_SECRET_KEY) < 32:
+    raise SystemExit(
+        "FATAL: TRADEMINDS_SECRET must be set to a 32+ character string. "
+        "Refusing to start with empty/weak signing key."
+    )
 _SESSION_MAX_AGE = 86400  # 24 hours
 _signer = URLSafeTimedSerializer(_SECRET_KEY)
 _TOTP_PENDING_MAX_AGE = 300  # 5-minute window to complete step-2 TOTP
@@ -866,15 +871,12 @@ async def login_submit(request: Request, step: str = "",
     if entry and entry["password"] and password == entry["password"]:
         role = entry["role"]
         if role == "admin":
-            # 2FA disabled — issue session directly
-            full_token = _signer.dumps({
-                "authenticated": True, "username": entry["username"], "role": role
-            })
-            response = RedirectResponse(url="/", status_code=303)
-            response.set_cookie("trademinds_session", full_token,
-                                max_age=_SESSION_MAX_AGE, httponly=True, samesite="strict")
-            _active_sessions[entry["username"]] = _time_module.time()
-            _sec_logger.warning("LOGIN_OK ip=%s user=%s role=%s", ip, entry["username"], role)
+            # Step 1 OK — issue TOTP pending cookie, redirect to step 2
+            pending_token = _signer.dumps({"username": entry["username"]}, salt="totp_pending")
+            response = RedirectResponse(url="/login?step=2", status_code=303)
+            response.set_cookie("_totp_pending", pending_token,
+                                max_age=_TOTP_PENDING_MAX_AGE, httponly=True, samesite="strict")
+            _sec_logger.warning("LOGIN_STEP1_OK ip=%s user=%s — awaiting TOTP", ip, entry["username"])
             return response
         else:
             # Non-admin (observer, charts) — session issued directly, no 2FA
@@ -4926,13 +4928,17 @@ def trigger_war_room():
                         providers[pid] = OpenAIProvider(os.getenv("OPENAI_API_KEY"), pid, model, dname)
                     elif prov == "google":
                         from engine.providers.ollama_provider import OllamaProvider
-                        providers[pid] = OllamaProvider(player_id=pid, model="qwen3:14b")
+                        from config import AI_PLAYERS, OLLAMA_URL
+                        _url = next((pl.get("url", OLLAMA_URL) for pl in AI_PLAYERS if pl["id"] == pid), OLLAMA_URL)
+                        providers[pid] = OllamaProvider(player_id=pid, model="qwen3:14b", url=_url)
                     elif prov == "xai":
                         from engine.providers.grok_provider import GrokProvider
                         providers[pid] = GrokProvider(os.getenv("XAI_API_KEY"), pid, model, dname)
                     elif prov == "ollama":
                         from engine.providers.ollama_provider import OllamaProvider
-                        providers[pid] = OllamaProvider(player_id=pid, model=model)
+                        from config import AI_PLAYERS, OLLAMA_URL
+                        _url = next((pl.get("url", OLLAMA_URL) for pl in AI_PLAYERS if pl["id"] == pid), OLLAMA_URL)
+                        providers[pid] = OllamaProvider(player_id=pid, model=model, url=_url)
                 except Exception:
                     pass
 
@@ -5245,13 +5251,17 @@ def _build_war_room_providers() -> dict:
                 providers[pid] = OpenAIProvider(os.getenv("OPENAI_API_KEY"), pid, model, dname)
             elif prov == "google":
                 from engine.providers.ollama_provider import OllamaProvider
-                providers[pid] = OllamaProvider(player_id=pid, model="qwen3:14b")
+                from config import AI_PLAYERS, OLLAMA_URL
+                _url = next((pl.get("url", OLLAMA_URL) for pl in AI_PLAYERS if pl["id"] == pid), OLLAMA_URL)
+                providers[pid] = OllamaProvider(player_id=pid, model="qwen3:14b", url=_url)
             elif prov == "xai":
                 from engine.providers.grok_provider import GrokProvider
                 providers[pid] = GrokProvider(os.getenv("XAI_API_KEY"), pid, model, dname)
             elif prov == "ollama":
                 from engine.providers.ollama_provider import OllamaProvider
-                providers[pid] = OllamaProvider(player_id=pid, model=model)
+                from config import AI_PLAYERS, OLLAMA_URL
+                _url = next((pl.get("url", OLLAMA_URL) for pl in AI_PLAYERS if pl["id"] == pid), OLLAMA_URL)
+                providers[pid] = OllamaProvider(player_id=pid, model=model, url=_url)
         except Exception:
             pass
     return providers
