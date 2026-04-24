@@ -17,14 +17,30 @@ DELISTED_BLACKLIST: set[str] = {
 WATCH_STOCKS =["SPY", "QQQ", "TQQQ", "NVDA", "TSLA", "AAPL", "AMD", "META", "MSFT", "GOOGL", "AMZN", "MU", "ORCL", "NOW", "AVGO", "PLTR", "DELL", "XLE", "INTC", "NUKZ"]
 # Extended tickers (re-enable when RAM permits): XOM, COIN, MSTR, SOFI, RIVN, NIO, HIMS, IWM
 
+
+def get_effective_watchlist() -> list:
+    """WATCH_STOCKS + any manually-added extras from data/watchlist_extras.json."""
+    base = list(WATCH_STOCKS)
+    try:
+        import json as _j
+        with open("data/watchlist_extras.json") as _f:
+            extras = _j.load(_f)
+        for sym in extras.get("symbols", []):
+            if sym and sym not in base:
+                base.append(sym)
+    except (FileNotFoundError, ValueError):
+        pass
+    return base
+
 # Mr. Dalio's All Weather universe — bonds, gold ETF, commodities
 # All four are GATE_EXEMPT in quality_gate.py (no earnings/revenue metrics for macro assets)
 DALIO_SYMBOLS = ["TLT", "IEF", "GLD", "GSG", "DJP"]
 DALIO_BOND_SYMBOLS = {"TLT", "IEF"}  # stored as asset_type='bond' in paper_trader
 
 # AI Provider Keys
-OLLAMA_MODEL = "qwen3.5:9b"
-OLLAMA_URL = "http://localhost:11434"              # bigmac CPU (fallback)
+OLLAMA_MODEL = "phi3:mini"
+OLLAMA_URL = "http://192.168.1.166:11434"          # Ollie Box (all heavy inference — 2026-04-24 routing fix)
+OLLAMA_LOCAL_URL = "http://localhost:11434"        # bigmac residents only (phi3/gemma3/mistral)
 OLLIE_URL  = "http://192.168.1.166:11434"          # Ollie G1 Pro — RTX 5060 GPU primary
 MLX_URL = "http://localhost:8899"
 MLX_MODEL = "mlx-community/Qwen3-8B-4bit"
@@ -38,6 +54,12 @@ FINNHUB_API_KEY = os.environ.get("FINNHUB_API_KEY", "")
 ALPHA_VANTAGE_KEY = os.environ.get("ALPHA_VANTAGE_KEY", "")
 FRED_API_KEY = os.environ.get("FRED_API_KEY")
 POLYGON_API_KEY = os.environ.get("POLYGON_API_KEY", "")  # Polygon.io — activates when key is added
+
+# Alpaca Broker — canonical APCA_* names (paper trading only)
+APCA_API_KEY_ID     = os.environ.get("APCA_API_KEY_ID", "")
+APCA_API_SECRET_KEY = os.environ.get("APCA_API_SECRET_KEY", "")
+ALPACA_API_KEY      = APCA_API_KEY_ID      # legacy alias — use APCA_* in new code
+ALPACA_SECRET_KEY   = APCA_API_SECRET_KEY  # legacy alias — use APCA_* in new code
 
 # Webull Broker
 WEBULL_APP_KEY = os.environ.get("WEBULL_APP_KEY", "")
@@ -100,16 +122,16 @@ AI_PLAYERS = [
     {"id": "ollama-coder",    "name": "Lt. Cmdr. Data",     "provider": "ollama", "model": "qwen2.5-coder:7b",  "url": OLLIE_URL},  # Ollie GPU — was qwen3-coder:30b
     {"id": "ollama-plutus",   "name": "Uhura Plutus",       "provider": "ollama", "model": "0xroyce/plutus",    "url": OLLIE_URL},  # Ollie GPU — McCoy's finance brain
     {"id": "navigator",       "name": "Ensign Chekov",       "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — backtest routing; live uses chekov_rules()
-    {"id": "neo-matrix",      "name": "Neo Matrix",          "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU — backtest routing; live is deterministic
+    {"id": "neo-matrix",      "name": "Neo Matrix",          "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # 2026-04-23: rerouted to Ollie Box, freed bigmac RAM (Ollie Box has 32GB RAM, handles qwen3:14b)
     {"id": "ollama-llama",    "name": "Llama 3.1 8B",       "provider": "ollama", "model": "llama3.1:latest"},                      # bigmac localhost fallback
     {"id": "ollama-kimi",     "name": "Kimi K2.5",          "provider": "ollama", "model": "kimi-k2.5:cloud"},                      # cloud — unchanged
     {"id": "mlx-qwen3",       "name": "Qwen3 8B MLX",       "provider": "mlx",    "model": "mlx-community/Qwen3-8B-4bit"},
-    {"id": "claude-sonnet",   "name": "Codex Prime",        "provider": "openai", "model": OPENAI_CODEX_MODEL},
-    {"id": "claude-haiku",    "name": "Codex Scout",        "provider": "openai", "model": OPENAI_CODEX_MINI_MODEL},
-    {"id": "gpt-4o",          "name": "GPT-4o",             "provider": "openai", "model": "gpt-4o"},
-    {"id": "gpt-o3",          "name": "GPT-o3",             "provider": "openai", "model": "o3"},
-    {"id": "gemini-2.5-pro",  "name": "Dalio Macro 14B",    "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU — was gemini
-    {"id": "gemini-2.5-flash","name": "Worf 8B",            "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — was gemini
-    {"id": "grok-3",          "name": "ex-Grok3 14B",       "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU — retired 2026-04-16
-    {"id": "grok-4",          "name": "ex-Grok4 8B",        "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — retired 2026-04-16
+    {"id": "qwen3-8b-sonnet",   "name": "Codex Prime",        "provider": "openai", "model": OPENAI_CODEX_MODEL},
+    {"id": "qwen-coder-haiku",    "name": "Codex Scout",        "provider": "openai", "model": OPENAI_CODEX_MINI_MODEL},
+    {"id": "qwen3-8b-4o",          "name": "GPT-4o",             "provider": "openai", "model": "qwen3-8b-4o"},
+    {"id": "qwen3-8b-o3",          "name": "GPT-o3",             "provider": "openai", "model": "o3"},
+    {"id": "qwen3-14b-pro",  "name": "Dalio Macro 14B",    "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU — was gemini
+    {"id": "qwen3-8b-flash","name": "Worf 8B",            "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — was gemini
+    {"id": "qwen3-14b-grok3",          "name": "ex-Grok3 14B",       "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU — retired 2026-04-16
+    {"id": "deepseek-7b-grok4",          "name": "ex-Grok4 8B",        "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — retired 2026-04-16
 ]
