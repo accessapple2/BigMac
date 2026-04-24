@@ -22,7 +22,10 @@ import sqlite3
 import time
 import traceback
 from datetime import datetime, timedelta
+from pathlib import Path
 from typing import Optional
+
+_DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
 
 # yfinance is our primary free source
 try:
@@ -62,7 +65,7 @@ THRESHOLDS = {
 class UOAScraper:
     """Scrapes options data from free sources and detects unusual activity."""
 
-    def __init__(self, db_path: str = 'trader.db'):
+    def __init__(self, db_path: str = _DB_PATH):
         self.db_path = db_path
         self.scan_date = datetime.now().strftime('%Y-%m-%d')
         self.scan_time = datetime.now().strftime('%H:%M:%S')
@@ -654,10 +657,9 @@ class UOAScraper:
 if __name__ == '__main__':
     import sys
 
-    db = 'trader.db'
     mode = sys.argv[1] if len(sys.argv) > 1 else 'quick'
 
-    scraper = UOAScraper(db_path=db)
+    scraper = UOAScraper()
 
     if mode == 'full':
         results = scraper.scan_watchlist()

@@ -50,7 +50,7 @@ def run_post_close():
     print(f"\n{'='*60}")
     print(f"  UOA POST-CLOSE FULL SCAN - {get_mst_now().strftime('%Y-%m-%d %H:%M MST')}")
     print(f"{'='*60}")
-    scraper = UOAScraper(db_path='trader.db')
+    scraper = UOAScraper()
     return scraper.scan_watchlist()
 
 
@@ -59,7 +59,7 @@ def run_premarket():
     print(f"\n{'='*60}")
     print(f"  UOA PRE-MARKET QUICK SCAN - {get_mst_now().strftime('%Y-%m-%d %H:%M MST')}")
     print(f"{'='*60}")
-    scraper = UOAScraper(db_path='trader.db')
+    scraper = UOAScraper()
     return scraper.scan_quick(top_n=50)
 
 
@@ -99,5 +99,5 @@ if __name__ == '__main__':
             print(f"Usage: python -m uoa.scheduler [post-close|premarket|loop]")
     else:
         # Default: run a quick scan right now
-        scraper = UOAScraper(db_path='trader.db')
+        scraper = UOAScraper()
         results = scraper.scan_quick(top_n=50)

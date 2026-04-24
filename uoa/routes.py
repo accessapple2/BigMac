@@ -11,6 +11,7 @@ Usage in main.py:
 
 import sqlite3
 from datetime import datetime
+from pathlib import Path
 from fastapi import APIRouter, BackgroundTasks, Query
 from typing import Optional
 
@@ -18,7 +19,7 @@ from uoa.scraper import UOAScraper
 
 router = APIRouter()
 
-DB_PATH = 'trader.db'
+DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
 
 
 # ------------------------------------------------------------------

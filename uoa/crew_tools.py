@@ -14,6 +14,7 @@ Usage in crew/agents.py:
 import sqlite3
 import json
 from datetime import datetime
+from pathlib import Path
 
 try:
     from crewai.tools import tool
@@ -25,7 +26,7 @@ except ImportError:
         func.is_tool = True
         return func
 
-DB_PATH = 'trader.db'
+DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
 
 
 @tool
