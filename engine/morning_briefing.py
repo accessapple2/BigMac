@@ -123,20 +123,17 @@ def _get_portfolio_summary() -> str:
 
 
 def _get_overnight_moves() -> str:
-    """Pre-market / overnight moves via yfinance futures proxies."""
+    """Pre-market / overnight moves via Alpaca futures proxies."""
     try:
-        import yfinance as yf
+        from engine.market_data import get_alpaca_bars
         symbols = {"ES=F": "S&P Futures", "NQ=F": "Nasdaq Futures",
                    "YM=F": "Dow Futures", "^VIX": "VIX",
                    "GC=F": "Gold", "CL=F": "Oil"}
         lines = []
-        data = yf.download(
-            list(symbols.keys()), period="2d", interval="1d",
-            group_by="ticker", auto_adjust=True, progress=False, threads=True
-        )
+        bars_dict = get_alpaca_bars(list(symbols.keys()), days=2)
         for sym, label in symbols.items():
             try:
-                df = data[sym] if len(symbols) > 1 else data
+                df = bars_dict[sym] if isinstance(bars_dict, dict) else bars_dict
                 if df is None or df.empty or len(df) < 2:
                     continue
                 last = float(df["Close"].iloc[-1])
@@ -260,30 +257,7 @@ def _get_macro_conditions() -> str:
 def _get_earnings_calendar() -> str:
     """Earnings reports in next 7 days."""
     try:
-        import yfinance as yf
-        # Use the watch stocks list
-        watch = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOG", "META", "TSLA",
-                 "SPY", "QQQ", "GLD", "AMD", "INTC", "JPM", "GS", "MS"]
         earnings_soon = []
-        today = datetime.date.today()
-        for sym in watch:
-            try:
-                tk = yf.Ticker(sym)
-                cal = tk.calendar
-                if cal is not None and not cal.empty:
-                    dates = cal.columns.tolist()
-                    if dates:
-                        d = dates[0]
-                        if hasattr(d, "date"):
-                            d = d.date()
-                        if isinstance(d, datetime.datetime):
-                            d = d.date()
-                        if isinstance(d, datetime.date):
-                            days_out = (d - today).days
-                            if 0 <= days_out <= 7:
-                                earnings_soon.append(f"  {sym}: {d.strftime('%a %b %d')}")
-            except Exception:
-                pass
         if not earnings_soon:
             # Fallback: check DB
             conn = _conn()
@@ -516,7 +490,7 @@ def _get_earnings_intel_3d() -> list:
     """Earnings in the next 3 days with date, ticker, trend, action rec."""
     results = []
     try:
-        import yfinance as yf
+        from engine.market_data import get_alpaca_bars
         today = datetime.date.today()
         open_tickers: set = set()
         try:
@@ -532,40 +506,13 @@ def _get_earnings_intel_3d() -> list:
 
         for sym in _EARN_UNIVERSE:
             try:
-                tk = yf.Ticker(sym)
-                cal = tk.calendar
-                if cal is None:
-                    continue
-                if hasattr(cal, "empty") and cal.empty:
-                    continue
-                dates = cal.columns.tolist() if hasattr(cal, "columns") else []
-                if not dates:
-                    continue
-                d = dates[0]
-                if hasattr(d, "date"):
-                    d = d.date()
-                if isinstance(d, datetime.datetime):
-                    d = d.date()
-                if not isinstance(d, datetime.date):
-                    continue
-                days_out = (d - today).days
-                if not (0 <= days_out <= 3):
-                    continue
-                # EPS estimate (best effort)
-                eps_est = None
-                try:
-                    row = cal.get("Earnings Per Share")
-                    if row is not None and len(row) > 0:
-                        v = row.iloc[0]
-                        if v is not None and str(v) not in ("nan", "None", ""):
-                            eps_est = round(float(v), 2)
-                except Exception:
-                    pass
+                # Earnings calendar not available via Alpaca — skip calendar lookup
                 # 30-day trend
                 trend = "flat"
+                eps_est = None
                 try:
-                    hist = tk.history(period="35d", interval="1d", progress=False)
-                    if len(hist) >= 5:
+                    hist = get_alpaca_bars(sym, days=35)
+                    if hist is not None and len(hist) >= 5:
                         first = float(hist["Close"].iloc[0])
                         last  = float(hist["Close"].iloc[-1])
                         chg30 = (last - first) / first * 100 if first else 0
@@ -581,8 +528,8 @@ def _get_earnings_intel_3d() -> list:
                     action = "watch"
                 results.append({
                     "ticker":       sym,
-                    "date":         d.isoformat(),
-                    "days_out":     days_out,
+                    "date":         None,
+                    "days_out":     None,
                     "eps_est":      eps_est,
                     "trend_30d":    trend,
                     "action":       action,
@@ -600,17 +547,13 @@ def _get_earnings_intel_3d() -> list:
 def _get_sector_rotation_radar() -> dict:
     """Compare sector ETF 5-day returns, flag money flow direction."""
     try:
-        import yfinance as yf
+        from engine.market_data import get_alpaca_bars
         etfs = list(_SECTOR_ETFS.keys())
-        data = yf.download(
-            etfs, period="8d", interval="1d",
-            group_by="ticker", auto_adjust=True,
-            progress=False, threads=True
-        )
+        bars_dict = get_alpaca_bars(etfs, days=8)
         returns: dict = {}
         for sym in etfs:
             try:
-                df = data[sym] if len(etfs) > 1 else data
+                df = bars_dict[sym] if isinstance(bars_dict, dict) else bars_dict
                 if df is None or df.empty or len(df) < 2:
                     continue
                 closes = df["Close"].dropna()
@@ -821,11 +764,8 @@ def _get_tomorrows_game_plan() -> dict:
 
     # Live VIX
     try:
-        import yfinance as yf
-        vd = yf.download("^VIX", period="2d", interval="1d",
-                         auto_adjust=True, progress=False)
-        if not vd.empty:
-            vix = round(float(vd["Close"].iloc[-1]), 1)
+        from engine.market_data import get_vix
+        vix = round(get_vix(), 1)
     except Exception:
         pass
 
@@ -885,6 +825,102 @@ def _get_tomorrows_game_plan() -> dict:
         "regime":        regime,
         "size_modifier": size_mod,
     }
+
+
+# ── Section 7: After-Hours Earnings Movers ────────────────────────────────
+
+def _get_ah_earnings_movers() -> list:
+    """
+    For each ticker that reported earnings today, fetch the AH price
+    via yfinance and compare to the regular close.
+    Returns list of dicts for gaps > 2%, sorted by abs(gap_pct) desc.
+    Also merges the result into morning_brief.json immediately.
+    """
+    results = []
+    try:
+        from engine.market_data import get_stock_price, get_alpaca_bars
+
+        # ── 1. Collect tickers that reported today ─────────────────────────
+        today_str = _today_str()
+        reported_today: list[str] = []
+
+        # Source A: earnings_impact table (actual reported rows)
+        try:
+            conn = _conn()
+            rows = conn.execute(
+                "SELECT DISTINCT symbol FROM earnings_impact "
+                "WHERE date(report_date) = ?",
+                (today_str,),
+            ).fetchall()
+            conn.close()
+            reported_today += [r["symbol"] for r in rows]
+        except Exception:
+            pass
+
+        # Source B: earnings calendar not available via Alpaca — skip calendar sweep
+
+        reported_today = list(dict.fromkeys(reported_today))  # dedupe, preserve order
+        if not reported_today:
+            return []
+
+        # ── 2. Fetch AH price for each reporter ───────────────────────────
+        for sym in reported_today:
+            try:
+                data = get_stock_price(sym) or {}
+                ah_price  = float(data.get("price") or 0)
+
+                bars = get_alpaca_bars(sym, days=2)
+                reg_close = 0.0
+                if bars is not None and len(bars) >= 2:
+                    reg_close = float(bars["Close"].iloc[-2])
+                elif bars is not None and len(bars) >= 1:
+                    reg_close = float(bars["Close"].iloc[-1])
+
+                if reg_close <= 0 or ah_price <= 0:
+                    continue
+
+                gap_pct = (ah_price - reg_close) / reg_close * 100
+                if abs(gap_pct) < 2.0:
+                    continue
+
+                direction = "up" if gap_pct > 0 else "down"
+                if gap_pct > 0:
+                    note = f"Earnings beat — gap up {gap_pct:+.1f}% AH"
+                else:
+                    note = f"Earnings miss — gap down {gap_pct:+.1f}% AH"
+
+                results.append({
+                    "ticker":    sym,
+                    "close":     round(reg_close, 2),
+                    "ah_price":  round(ah_price, 2),
+                    "gap_pct":   round(gap_pct, 2),
+                    "direction": direction,
+                    "note":      note,
+                })
+            except Exception:
+                pass
+
+        results.sort(key=lambda x: abs(x["gap_pct"]), reverse=True)
+
+        # ── 3. Merge into morning_brief.json immediately ───────────────────
+        if results:
+            try:
+                existing: dict = {}
+                if os.path.exists(_INTEL_JSON_PATH):
+                    with open(_INTEL_JSON_PATH) as fh:
+                        existing = json.load(fh)
+                existing["ah_movers"] = results
+                existing["ah_movers_updated"] = datetime.datetime.now().isoformat()
+                with open(_INTEL_JSON_PATH, "w") as fh:
+                    json.dump(existing, fh, indent=2, default=str)
+                logger.info("ah_movers written: %s", [r["ticker"] for r in results])
+            except Exception as e:
+                logger.warning("Failed to write ah_movers to JSON: %s", e)
+
+    except Exception as e:
+        logger.warning("_get_ah_earnings_movers error: %s", e)
+
+    return results
 
 
 # ── Section 6: Captain's Portfolio Review ─────────────────────────────────
@@ -1070,6 +1106,21 @@ def generate_daily_intel_report(force: bool = False, push_ntfy: bool = False) ->
         setups      = _get_technical_setups_convergent()
         game_plan   = _get_tomorrows_game_plan()
         port_review = _get_captain_portfolio_review()
+        ah_movers   = _get_ah_earnings_movers()
+
+        # Preserve any AH movers already written by the scanner or manually
+        # if the live earnings sweep found nothing new
+        if not ah_movers:
+            try:
+                if os.path.exists(_INTEL_JSON_PATH):
+                    with open(_INTEL_JSON_PATH) as _fh:
+                        _prev = json.load(_fh)
+                    _existing = _prev.get("ah_movers") or []
+                    # Keep if from today (don't carry stale data across days)
+                    if _existing and _prev.get("date") == today:
+                        ah_movers = _existing
+            except Exception:
+                pass
 
         report = {
             "date":             today,
@@ -1081,6 +1132,7 @@ def generate_daily_intel_report(force: bool = False, push_ntfy: bool = False) ->
             "technical_setups": setups,
             "game_plan":        game_plan,
             "portfolio_review": port_review,
+            "ah_movers":        ah_movers,
         }
 
         # Persist to JSON
@@ -1096,3 +1148,15 @@ def generate_daily_intel_report(force: bool = False, push_ntfy: bool = False) ->
 
         _intel_cache.update(report)
         return report
+
+
+if __name__ == "__main__":
+    import sys
+    logging.basicConfig(
+        level=logging.INFO,
+        stream=sys.stderr,
+        format="%(asctime)s [MORNING] %(message)s",
+        datefmt="%H:%M:%S",
+    )
+    result = generate_morning_briefing()
+    print(f"[morning_briefing] done — {result.get('date', 'no date')}  audio={result.get('audio_url')}")
