@@ -26,13 +26,15 @@ from typing import Optional
 
 import requests
 
+from config import OLLIE_URL as _OLLIE_URL
+
 logger = logging.getLogger("agent_builder")
 
 DB_PATH = os.environ.get(
     "TRADEMINDS_DB",
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
 )
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", _OLLIE_URL)  # Ollie Box GPU (was localhost)
 MAX_USER_AGENTS = 10
 DEFAULT_SIZE_PCT = 0.01   # 1% of portfolio value
 PLAYER_ID = "user-agent"  # paper player for all user-created agents

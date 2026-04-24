@@ -16,13 +16,14 @@ import threading
 from datetime import date
 from pathlib import Path
 from rich.console import Console
+from config import OLLIE_URL as _OLLIE_URL
 
 console = Console()
 
 GEMINI_MODEL = "gemini-3.1-flash-lite"
 DAILY_LIMIT = 400
 _COUNT_FILE = Path("data/gemini_daily_count.json")
-_OLLAMA_URL = "http://localhost:11434"
+_OLLAMA_URL = os.environ.get("OLLAMA_URL", _OLLIE_URL)  # Ollie Box GPU (was localhost)
 _OLLAMA_MODEL = "qwen3:14b"
 
 _lock = threading.Lock()

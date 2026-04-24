@@ -9,14 +9,17 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import threading
 import time
 
+from config import OLLIE_URL as _OLLIE_URL
+
 logger = logging.getLogger(__name__)
 
 _DB_PATH   = "data/trader.db"
-_OLLAMA    = "http://localhost:11434"
+_OLLAMA    = os.environ.get("OLLAMA_URL", _OLLIE_URL)  # Ollie Box GPU (was localhost)
 _CACHE_TTL = 900   # 15 minutes
 _cache: dict[str, dict] = {}
 _cache_lock = threading.Lock()

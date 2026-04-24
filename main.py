@@ -2645,10 +2645,10 @@ if __name__ == "__main__":
             subprocess.run(["pkill", "-9", "ollama"], capture_output=True)
             subprocess.run(["open", "-a", "Ollama"], capture_output=True)
 
-        # Check 2: Is the scan model responsive?
+        # Check 2: Is the scan model responsive? (plutus lives on Ollie Box)
         try:
             r = _req.post(
-                "http://127.0.0.1:11434/api/generate",
+                f"{OLLIE_URL}/api/generate",
                 json={"model": "0xroyce/plutus", "prompt": "ok",
                       "stream": False, "think": False,
                       "options": {"num_predict": 3}},

@@ -15,13 +15,15 @@ from typing import Optional
 
 import requests
 
+from config import OLLIE_URL as _OLLIE_URL
+
 logger = logging.getLogger("generated_assets")
 
 DB_PATH = os.environ.get(
     "TRADEMINDS_DB",
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
 )
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+OLLAMA_URL = os.environ.get("OLLAMA_URL", _OLLIE_URL)  # Ollie Box GPU (was localhost)
 MAX_HOLDINGS = 25
 
 

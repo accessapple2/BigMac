@@ -59,11 +59,11 @@ ADVISORY_CREW: list[str] = [
     "options-sosnoff",  # Troi
     "mlx-qwen3",        # Ensign Ro
     "ollama-local",     # Geordi
-    "gpt-4o",           # Janeway
-    "claude-haiku",     # Reed
-    "claude-sonnet",    # Sisko
-    "gpt-o3",           # Tuvok
-    "grok-3",           # Hoshi
+    "qwen3-8b-4o",           # Janeway
+    "qwen-coder-haiku",     # Reed
+    "qwen3-8b-sonnet",    # Sisko
+    "qwen3-8b-o3",           # Tuvok
+    "qwen3-14b-grok3",           # Hoshi
     "ollama-kimi",      # Bashir
     "ollama-glm4",      # Q
     "ollama-deepseek",  # Odo
@@ -73,8 +73,8 @@ ADVISORY_CREW: list[str] = [
     "dalio-metals",     # Dalio — shelved (metals macro not in arsenal whitelist)
     # Benched S6 agents (performance review):
     "ollama-llama",     # Uhura — benched S6.1 (-3.49%)
-    "gemini-2.5-flash", # Worf  — benched S6.1 (-0.36%)
-    "gemini-2.5-pro",   # Seven — benched S6.1 (+0.64% meh)
+    "qwen3-8b-flash", # Worf  — benched S6.1 (-0.36%)
+    "qwen3-14b-pro",   # Seven — benched S6.1 (+0.64% meh)
     # "neo-matrix",     # Neo   — re-activated S6.2 (threshold 1.75, ACTIVE_SCANNERS)
     "dayblade-sulu",   # Sulu  — benched S6.3 XO coaching: R:R 0.10, META losses
 ]
@@ -120,7 +120,7 @@ AGENT_STRATEGIES: dict[str, list[str]] = {
                        "bull_put_spread"],     # Tertiary spread (Model F exits on all)
     "ollama-plutus":  ["csp", "bull_put_spread", "long_put"],  # Income; covered_call disabled 2026-04-17 (OOS verdict)
     # ── SCOUTS ───────────────────────────────────────────────────────────────
-    "grok-4":         ["rsi_bounce", "mean_reversion"],
+    "deepseek-7b-grok4":         ["rsi_bounce", "mean_reversion"],
     "ollama-coder":   ["long_equity", "momentum", "short_equity", "inverse_etf"],
     "ollama-qwen3":   ["swing_trade", "ema_pullback", "momentum"],
     "navigator":      ["ema_pullback", "momentum", "bull_momentum_breakout"],
@@ -144,7 +144,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
 
     # ── Tier 1 ── Active Core Officers (Alpha Squad) ──────────────────────
 
-    "grok-4": {
+    "deepseek-7b-grok4": {
         "tier": 1,
         "display_name": "Lt. Cmdr. Spock",
         "role": "Mean Reversion",
@@ -188,7 +188,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Cmdr. Trip Tucker",
         "role": "Contrarian [ADVISORY]",
         "strategy": "Fades crowd extremes. P/C >1.5 = buy, <0.6 = short. F&G extremes.",
-        "model": "qwen3.5:9b",
+        "model": "qwen3:8b",  # 2026-04-20: qwen3.5:9b → qwen3:8b (Ollie GPU)
         "max_positions": 2,
         "size_factor": 0.6,
         "bridge_voter": True,
@@ -202,7 +202,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "universe": None,
     },
 
-    "gemini-2.5-flash": {
+    "qwen3-8b-flash": {
         "tier": 1,
         "display_name": "Lt. Cmdr. Worf",
         "role": "Bear Specialist",
@@ -225,7 +225,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Counselor Troi",
         "role": "Sentiment Reader [ADVISORY]",
         "strategy": "Sentiment divergences between news_pulse, F&G, and options structure.",
-        "model": "qwen3.5:9b",
+        "model": "qwen3:8b",  # 2026-04-20: qwen3.5:9b → qwen3:8b (Ollie GPU)
         "max_positions": 2,
         "size_factor": 1.0,   # 1.0x on divergence, 0.5x single-signal (applied in logic)
         "bridge_voter": True,
@@ -260,7 +260,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Ensign Ro",
         "role": "Breakout Hunter [ADVISORY]",
         "strategy": "20-day highs on 2x+ volume in trending sessions only. Max 2-day hold.",
-        "model": "qwen3.5:9b",
+        "model": "phi3:mini",  # 2026-04-20: qwen3.5:9b → phi3:mini (bigmac localhost)
         "max_positions": 3,
         "size_factor": 0.9,
         "bridge_voter": True,
@@ -310,7 +310,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Lt. Jadzia Dax",
         "role": "Swing Breakout",
         "strategy": "Breakout above 20MA on 1.5x+ volume, momentum entries on rally days, or volume momentum spikes. Sits out bear sessions.",
-        "model": "qwen3.5:9b",
+        "model": "qwen3:8b",  # 2026-04-20: qwen3.5:9b → qwen3:8b (Ollie GPU)
         "max_positions": 3,
         "size_factor": 0.9,
         "bridge_voter": False,
@@ -337,12 +337,12 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
 
     # ── Tier 3 ── Bridge Vote (no individual trading) ──────────────────────
 
-    "claude-haiku": {
+    "qwen-coder-haiku": {
         "tier": "advisory",
         "display_name": "Lt. Malcolm Reed",
         "role": "Tactical / Defense [ADVISORY]",
         "strategy": "Defensive bridge voter. Risk-aware, cautious posture. No individual trades.",
-        "model": "qwen3.5:9b",  # used for local vote simulation fallback
+        "model": "qwen2.5-coder:7b",  # 2026-04-20: qwen3.5:9b → qwen2.5-coder:7b; 2026-04-24: routed to Ollie Box
         "max_positions": 0,
         "size_factor": 0.0,
         "bridge_voter": True,
@@ -350,12 +350,12 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "universe": None,
     },
 
-    "claude-sonnet": {
+    "qwen3-8b-sonnet": {
         "tier": "advisory",
         "display_name": "Captain Sisko",
         "role": "Decisive Strategist [ADVISORY]",
         "strategy": "Big-picture decisive bridge voter. Commands clarity under pressure. No individual trades.",
-        "model": "qwen3.5:9b",
+        "model": "qwen3:8b",  # 2026-04-20: qwen3.5:9b → qwen3:8b (Ollie GPU)
         "max_positions": 0,
         "size_factor": 0.0,
         "bridge_voter": True,
@@ -363,7 +363,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "universe": None,
     },
 
-    "gemini-2.5-pro": {
+    "qwen3-14b-pro": {
         "tier": 1,
         "display_name": "Seven of Nine",
         "role": "Pure Data Analysis",
@@ -376,12 +376,12 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "universe": None,
     },
 
-    "gpt-4o": {
+    "qwen3-8b-4o": {
         "tier": "advisory",
         "display_name": "Captain Janeway",
         "role": "All-Conditions Trader [ADVISORY]",
         "strategy": "Trades in ANY market condition. Resourceful adapter — finds the path regardless of session.",
-        "model": "qwen3.5:9b",
+        "model": "qwen3:8b",  # 2026-04-20: qwen3.5:9b → qwen3:8b (Ollie GPU)
         "max_positions": 3,
         "size_factor": 1.0,
         "bridge_voter": False,
@@ -390,7 +390,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "universe": None,
     },
 
-    "gpt-o3": {
+    "qwen3-8b-o3": {
         "tier": "advisory",
         "display_name": "Lt. Tuvok",
         "role": "Vulcan Risk Assessment [ADVISORY]",
@@ -403,7 +403,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "universe": None,
     },
 
-    "grok-3": {
+    "qwen3-14b-grok3": {
         "tier": "advisory",
         "display_name": "Ensign Hoshi",
         "role": "Signal Interceptor [ADVISORY]",
@@ -421,7 +421,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Q",
         "role": "Wildcard [ADVISORY]",
         "strategy": "Omnipotent wildcard. Ignores most gates. Trades anything, anytime, any condition.",
-        "model": "qwen3.5:9b",
+        "model": "qwen3:8b",  # 2026-04-20: qwen3.5:9b → qwen3:8b (Ollie GPU)
         "max_positions": 3,
         "size_factor": 1.2,
         "bridge_voter": False,
@@ -435,7 +435,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Dr. Bashir",
         "role": "Sharp Diagnostics [ADVISORY]",
         "strategy": "Genetically enhanced analytical bridge voter. Sharp pattern recognition. No individual trades.",
-        "model": "qwen3.5:9b",
+        "model": "phi3:mini",  # 2026-04-20: qwen3.5:9b → phi3:mini (bigmac localhost)
         "max_positions": 0,
         "size_factor": 0.0,
         "bridge_voter": True,
@@ -465,7 +465,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Lt. Jadzia Dax",
         "role": "Patient Swing Trader [ADVISORY]",
         "strategy": "300 years of experience. Patient swing setups. Pullback to 20-day MA in uptrend.",
-        "model": "qwen3.5:9b",
+        "model": "qwen3:8b",  # 2026-04-20: qwen3.5:9b → qwen3:8b (Ollie GPU)
         "max_positions": 3,
         "size_factor": 0.9,
         "bridge_voter": False,
@@ -483,7 +483,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Mr. Anderson",
         "role": "Neo of the Fleet — Aggressive Momentum Predator [ADVISORY]",
         "strategy": "SHELVED — Sniper Go Live: unrestricted aggression conflicts with alpha gate 0.3. Bridge vote only.",
-        "model": "qwen3.5:9b",
+        "model": "qwen3:8b",  # 2026-04-20: qwen3.5:9b → qwen3:8b (Ollie GPU)
         "max_positions": 5,
         "size_factor": 2.0,
         "bridge_voter": False,
@@ -500,7 +500,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Neo",
         "role": "Matrix Agent",
         "strategy": "Independent — no mandate restrictions.",
-        "model": "qwen3.5:9b",
+        "model": "phi3:mini",  # 2026-04-20: qwen3.5:9b → phi3:mini (rule-based, bigmac resident)
         "max_positions": 3,
         "size_factor": 1.0,
         "bridge_voter": False,
@@ -514,7 +514,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Mr. Dalio",
         "role": "Metals / Macro [ADVISORY]",
         "strategy": "Gold, silver, macro hedge. SHELVED — Sniper Go Live: metals not in strategy whitelist. Bridge vote only.",
-        "model": "qwen3.5:9b",
+        "model": "qwen3:8b",  # 2026-04-20: qwen3.5:9b → qwen3:8b (Ollie GPU)
         "max_positions": 4,
         "size_factor": 1.0,
         "bridge_voter": False,
@@ -527,7 +527,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Capitol Trades",
         "role": "Congress Scout [S6.2]",
         "strategy": "S6.2 SCOUT. Follows congressional trade disclosures (SEC filings). Bypasses alpha gate — congress signals are regime-agnostic. Feeds signals to fleet.",
-        "model": "qwen3.5:9b",
+        "model": "phi3:mini",  # 2026-04-20: qwen3.5:9b → phi3:mini (data feed, bigmac resident)
         "max_positions": 2,
         "size_factor": 0.8,
         "bridge_voter": False,
@@ -540,7 +540,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Ensign Chekov",
         "role": "EMA Scout [S6.2]",
         "strategy": "S6.2 SCOUT. EMA pullback + BULL momentum breakout specialist — pullbacks to SMA20 and 20d-high breaks with volume/RSI/ADX confirmation. Bypasses alpha gate — technical patterns work in all regimes.",
-        "model": "qwen3.5:9b",
+        "model": "qwen3:8b",  # 2026-04-20: qwen3.5:9b → qwen3:8b (Ollie GPU)
         "max_positions": 2,
         "size_factor": 0.8,
         "bridge_voter": False,
@@ -571,7 +571,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Dilithium Reserve",
         "role": "Reserve Fund",
         "strategy": "Capital reserve and rebalancing. No mandate restrictions.",
-        "model": "qwen3.5:9b",
+        "model": "qwen3:8b",  # 2026-04-20: qwen3.5:9b → qwen3:8b (Ollie GPU)
         "max_positions": 2,
         "size_factor": 0.5,
         "bridge_voter": False,
@@ -597,7 +597,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "T'Pol",
         "role": "Vulcan Precision Options [ADVISORY]",
         "strategy": "Vulcan precision 0DTE options specialist. Logic-driven, no emotional holds.",
-        "model": "qwen3.5:9b",
+        "model": "phi3:mini",  # 2026-04-20: qwen3.5:9b → phi3:mini (bigmac localhost, shelved)
         "max_positions": 3,
         "size_factor": 1.0,
         "bridge_voter": True,      # still votes on bridge
@@ -623,7 +623,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Red Alert System",
         "role": "Risk Monitor",
         "strategy": "Automated risk system. No mandate restrictions.",
-        "model": "qwen3.5:9b",
+        "model": "qwen3:8b",  # 2026-04-20: qwen3.5:9b → qwen3:8b (Ollie GPU)
         "max_positions": 0,
         "size_factor": 0.0,
         "bridge_voter": False,
@@ -653,7 +653,7 @@ def should_agent_trade(player_id: str, market_data: dict) -> tuple[bool, str]:
     Gate check: should this agent make a trade given current market conditions?
 
     Args:
-        player_id  : DB player id (e.g. "grok-4")
+        player_id  : DB player id (e.g. "deepseek-7b-grok4")
         market_data: dict with any of:
             session_type    : str  (TRENDING_BULL | TRENDING_BEAR | CHOP | REVERSAL_RISK | VOLATILE)
             vix             : float
@@ -975,13 +975,13 @@ if __name__ == "__main__":
 
     print("\n=== GATE TESTS ===")
     tests = [
-        ("grok-4",     {"session_type": "TRENDING_BULL"},                "Spock → blocked (trending)"),
-        ("grok-4",     {"session_type": "CHOP", "rsi": 28},              "Spock → allowed (chop+oversold)"),
+        ("deepseek-7b-grok4",     {"session_type": "TRENDING_BULL"},                "Spock → blocked (trending)"),
+        ("deepseek-7b-grok4",     {"session_type": "CHOP", "rsi": 28},              "Spock → allowed (chop+oversold)"),
         ("ollama-plutus", {"vix": 18},                                   "McCoy → blocked (VIX too low)"),
         ("ollama-plutus", {"vix": 28, "fg_score": 22, "breadth_score": 25}, "McCoy → allowed (crisis)"),
         ("dayblade-sulu", {"session_type": "CHOP", "momentum_score": 10}, "Sulu → blocked (chop)"),
         ("dayblade-sulu", {"session_type": "TRENDING_BULL", "momentum_score": 45}, "Sulu → allowed"),
-        ("claude-haiku", {},                                             "Lt. Malcolm Reed → bridge voter"),
+        ("qwen-coder-haiku", {},                                             "Lt. Malcolm Reed → bridge voter"),
     ]
     for pid, md, label in tests:
         ok, reason = should_agent_trade(pid, md)

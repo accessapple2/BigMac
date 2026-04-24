@@ -10,10 +10,13 @@ Each briefing has a different focus. Uses Grok 4.1 Fast for cost efficiency.
 Stored in DB for dashboard display as "CTO Advisory".
 """
 from __future__ import annotations
+import os
 import sqlite3
 import time
 from datetime import datetime
 from rich.console import Console
+
+from config import OLLIE_URL as _OLLIE_URL
 
 console = Console()
 DB = "data/trader.db"
@@ -22,6 +25,7 @@ DB = "data/trader.db"
 CTO_PLAYER_ID = "cto-grok42"
 CTO_MODEL = "mistral:7b"
 CTO_MAX_TOKENS = 2000  # kept for compatibility, Ollama uses num_predict
+_ollie = os.environ.get("OLLAMA_URL", _OLLIE_URL)  # Ollie Box GPU (was localhost)
 
 
 def _conn():
@@ -353,7 +357,7 @@ Be direct, specific, and actionable. Give exact price levels, not vague advice. 
         import requests as _req
         console.log(f"[cyan]CTO Advisory [{bt['label']}]: calling Ollama {CTO_MODEL}...")
         r = _req.post(
-            "http://localhost:11434/api/generate",
+            f"{_ollie}/api/generate",
             json={
                 "model": CTO_MODEL,
                 "prompt": prompt,

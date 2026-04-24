@@ -25,24 +25,29 @@ from datetime import datetime, timezone
 
 import requests
 
+from config import OLLIE_URL as _OLLIE_URL
+
 logger = logging.getLogger(__name__)
 
 DB_PATH = os.environ.get(
     "TRADEMINDS_DB",
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
 )
-OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://localhost:11434")
+def _voter_url(player_id: str) -> str:  # noqa: ARG001
+    """Return Ollama base URL for a bridge voter — all voters → Ollie Box GPU."""
+    return _OLLIE_URL
+
 
 # ── Bridge voters (Tier 3) — active fleet ───────────────────────────────────
 BRIDGE_VOTERS: list[dict] = [
-    {"player_id": "neo-matrix",     "name": "Neo",               "model": "qwen3.5:9b"},
-    {"player_id": "grok-4",         "name": "Spock",             "model": "qwen3.5:9b"},
-    {"player_id": "ollama-glm4",    "name": "Q",                 "model": "qwen3.5:9b"},
-    {"player_id": "ollama-qwen3",   "name": "Dax",               "model": "qwen3.5:9b"},
-    {"player_id": "super-agent",    "name": "Mr. Anderson",      "model": "qwen3.5:9b"},
-    {"player_id": "navigator",      "name": "Ensign Chekov",     "model": "qwen3.5:9b"},
-    {"player_id": "capitol-trades", "name": "Capitol Trades",    "model": "qwen3.5:9b"},
-    {"player_id": "ollama-plutus",  "name": "Dr. McCoy",         "model": "qwen3.5:9b"},
+    {"player_id": "neo-matrix",     "name": "Neo",               "model": "phi3:mini"},            # Ollie — 2026-04-24: routed to Ollie Box (was bigmac phi3:mini)
+    {"player_id": "deepseek-7b-grok4",         "name": "Spock",             "model": "qwen3:8b"},              # Ollie  — 2026-04-20: qwen3.5:9b → qwen3:8b
+    {"player_id": "ollama-glm4",    "name": "Q",                 "model": "qwen3:8b"},              # Ollie
+    {"player_id": "ollama-qwen3",   "name": "Dax",               "model": "qwen3:8b"},              # Ollie
+    {"player_id": "super-agent",    "name": "Mr. Anderson",      "model": "qwen3:8b"},              # Ollie
+    {"player_id": "navigator",      "name": "Ensign Chekov",     "model": "qwen3:8b"},              # Ollie
+    {"player_id": "capitol-trades", "name": "Capitol Trades",    "model": "phi3:mini"},             # Ollie — 2026-04-24: routed to Ollie Box (was bigmac phi3:mini)
+    {"player_id": "ollama-plutus",  "name": "Dr. McCoy",         "model": "0xroyce/plutus:latest"}, # Ollie
 ]
 
 # Module-level lock: prevents concurrent vote sessions (e.g. two scheduler ticks)
@@ -116,6 +121,7 @@ def _ask_voter(voter: dict, briefing_text: str, session_type: str) -> dict:
     """
     model = voter["model"]
     name = voter["name"]
+    player_id = voter["player_id"]
 
     system_prompt = (
         f"You are {name}, a trading analyst on the USS TradeMinds Bridge Crew. "
@@ -140,12 +146,12 @@ def _ask_voter(voter: dict, briefing_text: str, session_type: str) -> dict:
         f"Cast your vote as {name}. Use the VOTE:/CONFIDENCE:/REASON: format only."
     )
 
-    # Try the model, fallback to mistral:7b (different model so qwen busy → mistral steps in)
-    fallback = "mistral:7b" if model != "mistral:7b" else "qwen3.5:9b"
+    # Try the model, fallback to mistral:7b (bigmac resident); last-resort qwen3:8b on Ollie
+    fallback = "mistral:7b" if model != "mistral:7b" else "qwen3:8b"  # 2026-04-20: was qwen3.5:9b
     for attempt_model in (model, fallback):
         try:
             resp = requests.post(
-                f"{OLLAMA_URL}/api/chat",
+                f"{_voter_url(player_id)}/api/chat",
                 json={
                     "model": attempt_model,
                     "messages": [
@@ -583,6 +589,9 @@ def run_bridge_vote_job() -> None:
     Scheduled job wrapper: runs morning vote at 9:00 AM ET on weekdays.
     main.py calls this every 5 minutes; gate fires once per day.
     """
+    from engine.fleet_halt import check_or_bail
+    if check_or_bail("bridge_vote"):
+        return
     import pytz
     tz_et = pytz.timezone("America/New_York")
     now_et = datetime.now(tz_et)
