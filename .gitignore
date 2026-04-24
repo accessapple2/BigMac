@@ -114,3 +114,6 @@ did.bin
 
 # Local backup archive directory (relocate outside repo)
 backups_archive/
+backups/archive-*/
+data/real_holdings.json
+data/metals.json
