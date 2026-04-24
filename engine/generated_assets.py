@@ -73,7 +73,7 @@ Output JSON only — no explanation, no markdown fences."""
 
 def parse_thesis(thesis: str) -> Optional[dict]:
     """Convert plain-English thesis to structured screening criteria via Ollama."""
-    model = "qwen3.5:9b"
+    model = "qwen3:8b"  # 2026-04-24: qwen3.5:9b renamed to qwen3:8b
     try:
         ps = requests.get(f"{OLLAMA_URL}/api/ps", timeout=3).json()
         loaded = (ps.get("models") or [{}])[0].get("name", "")

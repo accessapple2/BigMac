@@ -436,7 +436,7 @@ class Arena:
             # Ollama loads each model once, runs all agents in the group, then unloads.
             _MODEL_RUN_ORDER = {
                 "deepseek-r1:7b":   0,  # Spock (grok-4) runs first — small group, gets signals early
-                "qwen3.5:9b":       1,  # largest group — stays loaded for all 10 players after Spock
+                "qwen3:8b":         1,  # largest group — stays loaded for all 10 players after Spock
                 "qwen3:14b":        2,
                 "gemma3:4b":        3,
                 "qwen2.5-coder:7b": 4,

@@ -18,6 +18,31 @@ MIN_BUY_COUNT = 2
 _done_today = False
 
 
+def _already_bought_today(symbol: str) -> bool:
+    """Check DB: did capitol-trades already BUY this symbol today? Restart-resistant dedup."""
+    import sqlite3 as _sqlite3
+    import os as _os
+    from datetime import date as _date
+    db_path = _os.environ.get(
+        "TRADEMINDS_DB", _os.path.expanduser("~/autonomous-trader/data/trader.db")
+    )
+    try:
+        conn = _sqlite3.connect(db_path, timeout=5)
+        row = conn.execute(
+            "SELECT 1 FROM trades WHERE player_id=? AND symbol=? "
+            "AND action='BUY' AND date(executed_at)=?",
+            (PLAYER_ID, symbol, str(_date.today()))
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except Exception as e:
+        logger.warning(
+            f"[capitol-trades] _already_bought_today check failed for {symbol}: {e} "
+            "— failing closed (treat as already bought)"
+        )
+        return True
+
+
 def run_capitol_scan():
     """Scan top Congress buys and auto-trade. Fires once per trading day at market open."""
     global _done_today
@@ -67,6 +92,7 @@ def _execute_scan():
         t for t in top_buys
         if t["buy_count"] >= MIN_BUY_COUNT
         and t["ticker"] not in held_symbols
+        and not _already_bought_today(t["ticker"])  # dedup: skip if already bought today (restart-safe)
         and t.get("ticker")
     ]
 
