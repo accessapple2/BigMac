@@ -19,13 +19,14 @@ BASE_DIR      = os.path.expanduser("~/autonomous-trader")
 PLIST         = os.path.expanduser("~/Library/LaunchAgents/com.trademinds.trader.plist")
 TUNNEL_PLIST  = os.path.expanduser("~/Library/LaunchAgents/com.trademinds.tunnel.plist")
 DASHBOARD_URL = "http://127.0.0.1:8080"
-CREW_URL      = "http://127.0.0.1:8000"
+NTFY_ADMIN_TOPIC = os.environ.get("NTFY_ADMIN_TOPIC", "Ollie-Alert-35")  # iPhone push topic
 OLLAMA_URL    = "http://127.0.0.1:11434"
+OLLIE_URL     = "http://192.168.1.166:11434"   # 2026-04-20: Ollie GPU (RTX 5060, primary inference)
 TUNNEL_URL    = "https://bridge.accessapple.com"
 DB_PATH       = os.path.join(BASE_DIR, "data", "trader.db")
 AUTO_DB_PATH  = os.path.join(BASE_DIR, "autonomous_trader.db")
 BACKUP_DIR    = os.path.join(BASE_DIR, "backups")
-SCANNER_LOG   = os.path.join(BASE_DIR, "logs", "trader.err")
+SCANNER_LOG   = os.path.join(BASE_DIR, "logs", "scanner.err")
 HEALTH_LOG    = os.path.join(BASE_DIR, "logs", "healthcheck.log")
 LOG_STALE_MIN = 15   # logs/trader.err freshness threshold (minutes)
 RESTART_WAIT  = 12   # seconds to wait after launchctl load before verifying
@@ -62,16 +63,6 @@ def check_dashboard() -> bool:
         return False
 
 
-def check_crew_engine() -> bool:
-    """Check if crew engine on port 8000 is responding."""
-    try:
-        req = Request(CREW_URL + "/", headers={"User-Agent": "TradeMinds-Healthcheck/1.0"})
-        with urlopen(req, timeout=6) as r:
-            return r.status == 200
-    except Exception:
-        return False
-
-
 def check_ollama() -> tuple[bool, str]:
     """Check if Ollama is reachable and return list of loaded models."""
     try:
@@ -85,6 +76,32 @@ def check_ollama() -> tuple[bool, str]:
     except Exception as e:
         return False, str(e)[:60]
 
+
+
+def check_ollie() -> tuple[bool, str]:
+    """Check Ollie GPU: TCP reachability, HTTP 200 on /api/tags, qwen3:8b present.
+    2026-04-20: added — Ollie is primary inference box; bigmac degrades badly if unreachable."""
+    import socket
+    # Step 1: TCP connect (1s timeout — fast ping substitute)
+    try:
+        sock = socket.create_connection(("192.168.1.166", 11434), timeout=1)
+        sock.close()
+    except (socket.timeout, ConnectionRefusedError, OSError) as e:
+        return False, f"unreachable (TCP): {str(e)[:50]}"
+    # Step 2: /api/tags (3s timeout, expect HTTP 200)
+    try:
+        req = Request(OLLIE_URL + "/api/tags", headers={"User-Agent": "TradeMinds-Healthcheck/1.0"})
+        with urlopen(req, timeout=3) as r:
+            if r.status != 200:
+                return False, f"HTTP {r.status} from /api/tags"
+            data = json.loads(r.read())
+            models = [m.get("name", "") for m in data.get("models", [])]
+    except Exception as e:
+        return False, f"api/tags failed: {str(e)[:60]}"
+    # Step 3: verify qwen3:8b available
+    if not any("qwen3:8b" in m for m in models):
+        return False, f"qwen3:8b missing from Ollie (have: {', '.join(models[:5])})"
+    return True, f"ok — {len(models)} models, qwen3:8b present"
 
 
 def check_db() -> tuple[bool, str]:
@@ -132,10 +149,33 @@ def get_db_stats() -> str:
 
 
 # --- Actions ---
-def notify(title: str, message: str) -> None:
-    """macOS notification via osascript."""
+def push_ntfy(title: str, body: str, priority: str = "default",
+              tags: str = "warning,bigmac,drcrusher") -> None:
+    """Fire-and-forget ntfy.sh push to the admin topic. Stdlib only; silent on failure.
+    Mirrors watchdog.py push_alert() pattern for consistency."""
+    try:
+        ascii_title = title.encode("ascii", errors="ignore").decode("ascii").strip() or "Dr. Crusher"
+        req = Request(
+            f"https://ntfy.sh/{NTFY_ADMIN_TOPIC}",
+            data=body.encode("utf-8"),
+            headers={
+                "Title":        ascii_title,
+                "Priority":     priority,
+                "Tags":         tags,
+                "Content-Type": "text/plain; charset=utf-8",
+            },
+            method="POST",
+        )
+        urlopen(req, timeout=6)
+    except Exception:
+        pass  # ntfy failures must never crash the healthcheck
+
+
+def notify(title: str, message: str, priority: str = "default") -> None:
+    """macOS desktop popup (osascript) + iPhone ntfy push. Dual-channel."""
     script = f'display notification "{message}" with title "{title}" sound name "Sosumi"'
     subprocess.run(["osascript", "-e", script], capture_output=True)
+    push_ntfy(title, message, priority=priority)
 
 
 def notify_with_show(title: str, message: str, log_path: str) -> None:
@@ -246,7 +286,7 @@ def auto_restart(reason: str, also_restart_ollama: bool = False) -> None:
     rotate_scanner_log()
     if also_restart_ollama:
         restart_ollama()
-    notify("🚨 Dr. Crusher AUTO-RESTART", reason)
+    notify("🚨 Dr. Crusher AUTO-RESTART", reason, priority="urgent")
     restart_server()
     # Verify + report
     if check_dashboard():
@@ -257,7 +297,7 @@ def auto_restart(reason: str, also_restart_ollama: bool = False) -> None:
     else:
         fail_msg = f"Auto-restart FAILED after: {reason} — manual intervention required"
         log(f"CRITICAL: {fail_msg}")
-        notify("🚨 USS TradeMinds CRITICAL", fail_msg)
+        notify("🚨 USS TradeMinds CRITICAL", fail_msg, priority="urgent")
         post_war_room(f"🚨 {fail_msg}")
 
 
@@ -617,8 +657,8 @@ def main() -> None:
 
     proc_ok                = check_process()
     dash_ok                = check_dashboard()
-    crew_ok                = check_crew_engine()
     ollama_ok, ollama_info = check_ollama()
+    ollie_ok,  ollie_info  = check_ollie()   # 2026-04-20: Ollie GPU healthcheck
     db_ok, db_msg          = check_db()
     log_ok, log_age        = check_log_freshness()
     db_stats               = get_db_stats()
@@ -626,8 +666,15 @@ def main() -> None:
 
     log(f"  Process (8080)    : {'✓' if proc_ok   else '✗ DOWN'}")
     log(f"  Dashboard (8080)  : {'✓' if dash_ok   else '✗ NOT RESPONDING'}")
-    log(f"  Crew Engine (8000): {'✓' if crew_ok   else '✗ NOT RESPONDING'}")
     log(f"  Ollama (11434)    : {'✓ ' + ollama_info if ollama_ok else '✗ ' + ollama_info}")
+    log(f"  Ollie GPU         : {'✓ ' + ollie_info if ollie_ok else '⚠️ UNREACHABLE — ' + ollie_info}")
+    if not ollie_ok:
+        push_ntfy(
+            "Ollie unreachable — war_room degrading",
+            f"Ollie GPU ({OLLIE_URL}) failed: {ollie_info}\nInference routing to bigmac localhost (swap risk!)",
+            priority="high",
+            tags="warning,ollie,gpu",
+        )
     log(f"  trader.db         : {'✓' if db_ok     else f'✗ {db_msg}'}")
     log(f"  DB stats          : {db_stats}")
     log(f"  log age           : {log_age}m {'✓' if log_ok else f'✗ STALE (>{LOG_STALE_MIN}m)'}")
@@ -769,7 +816,7 @@ def main() -> None:
     if not db_ok:
         warnings.append(f"trader.db integrity: {db_msg}")
     if not log_ok:
-        warnings.append(f"logs/trader.err stale ({log_age}m)")
+        warnings.append(f"logs/scanner.err stale ({log_age}m)")
         notify_with_show(
             "⚠️ Dr. Crusher",
             f"trader_error.log is stale ({log_age}m) — server may be stuck",
@@ -820,8 +867,6 @@ def main() -> None:
             warnings.append("Alpaca sync: no 'SYNC.*Portfolio' match found in scanner.log")
     except Exception:
         pass
-    if not crew_ok:
-        warnings.append("Crew engine (port 8000) not responding")
     if not rr.get("briefing_today"):
         warnings.append("Ready Room: no briefing today (expected by 9:30 AM ET)")
     if not rr.get("condition_endpoint"):
@@ -832,7 +877,17 @@ def main() -> None:
         log(f"WARNING: {w}")
     if warnings:
         # Only send one bulk notification to avoid spam
-        notify("⚠️ USS TradeMinds", f"{len(warnings)} warning(s) — check healthcheck.log")
+        summary_body = "\n".join([
+            f"{len(warnings)} warning(s) on bigmac:",
+            "",
+            *[f"• {w}" for w in warnings],
+            "",
+            f"Time: {datetime.now().strftime('%H:%M:%S %Z')}",
+            "",
+            "Diagnose:",
+            "  ssh bigmac 'tail -80 ~/autonomous-trader/logs/healthcheck.log'",
+        ])
+        notify("⚠️ USS TradeMinds", summary_body, priority="high")
         post_war_room("⚠️ Health check warnings: " + "; ".join(warnings))
     else:
         log("All systems nominal — no warnings")
