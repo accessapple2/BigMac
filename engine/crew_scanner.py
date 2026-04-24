@@ -137,19 +137,23 @@ def _save_spock_alert(severity: str, message: str, agent_id: str = None, detail:
     """Persist a Spock risk alert. severity: CRITICAL | HIGH | MEDIUM."""
     try:
         c = sqlite3.connect(DB_PATH, timeout=10)
-        # Avoid duplicate alerts in the last hour for the same agent+message
-        exists = c.execute(
-            """SELECT id FROM risk_alerts
-               WHERE agent_id IS ? AND message=? AND acknowledged=0
-               AND created_at >= datetime('now','-1 hour')""",
-            (agent_id, message),
-        ).fetchone()
-        if not exists:
-            c.execute(
-                "INSERT INTO risk_alerts (severity, agent_id, message, detail) VALUES (?,?,?,?)",
-                (severity, agent_id, message, detail),
-            )
-            c.commit()
+        # Atomic dedup+insert — no TOCTOU race between concurrent processes.
+        # WHERE NOT EXISTS fires inside a single SQLite statement; second writer
+        # blocks on the implicit row lock until the first commits, then its
+        # NOT EXISTS check re-evaluates to FALSE and inserts 0 rows.
+        c.execute(
+            """INSERT INTO risk_alerts (severity, agent_id, message, detail, acknowledged, created_at)
+               SELECT ?, ?, ?, ?, 0, datetime('now')
+               WHERE NOT EXISTS (
+                 SELECT 1 FROM risk_alerts
+                 WHERE agent_id IS ? AND message=? AND acknowledged=0
+                   AND created_at >= datetime('now','-4 hours')
+               )""",
+            (severity, agent_id, message, detail, agent_id, message),
+        )
+        inserted = c.execute("SELECT changes()").fetchone()[0]
+        c.commit()
+        if inserted:
             # Also push to notifications table
             _save_notification(
                 title="🖖 Spock Risk Alert",
@@ -177,7 +181,7 @@ def _is_agent_paused(player_id: str) -> bool:
         return False
 
 
-_MAX_DAILY_TRADES_PER_AGENT = 2   # guardrail: max trades per agent per day
+_MAX_DAILY_TRADES_PER_AGENT = 10  # raised from 2 on 2026-04-21 after PDT unblock
 _FLEET_EXPOSURE_MAX_PCT     = 60  # max % of total fleet invested at once
 
 # ── Sniper Mode live gate (matches triple_threat.py SNIPER_ALPHA_THRESHOLD) ──
@@ -228,7 +232,9 @@ def _get_live_alpha(symbol: str) -> float:
 _MAX_POSITION_PCT           = 5   # max % of agent equity per position
 
 # Default scan model — used when an agent has no specific model in CREW_MANIFEST.
-SCAN_MODEL = "qwen3.5:9b"
+# 2026-04-20: qwen3.5:9b caused swap storms on bigmac (8GB, no longer installed).
+# phi3:mini is bigmac's lightest resident model; _ensure_warm() uses this for keep-alive pings.
+SCAN_MODEL = "phi3:mini"
 
 # ---------------------------------------------------------------------------
 # Lean Fleet Protocol — Active scanner roster
@@ -249,7 +255,7 @@ RULES_SCANNERS: list[str] = [
     "dalio-metals",    # Metals macro
     # "dayblade-sulu", # Sulu — benched S6.3 (XO coaching: R:R 0.10, META -$525)
     "navigator",       # Chekov — EMA pullback (S6.1 activated)
-    "grok-4",          # Spock — RSI mean reversion (pure rules, bypasses Sniper Alpha gate)
+    "deepseek-7b-grok4",          # Spock — RSI mean reversion (pure rules, bypasses Sniper Alpha gate)
     "holly-scanner",   # Holly — 6-pattern detector (S6.2: vol spike, gap, RSI, breakout, pullback, sector)
 ]
 
@@ -672,8 +678,8 @@ def _get_volume_spikes() -> list[dict]:
         import os
         from dotenv import load_dotenv
         load_dotenv()
-        key    = os.getenv("ALPACA_API_KEY", "")
-        secret = os.getenv("ALPACA_SECRET_KEY", "")
+        key    = os.getenv("APCA_API_KEY_ID", "")
+        secret = os.getenv("APCA_API_SECRET_KEY", "")
         if not key or not secret:
             return []
 
@@ -740,14 +746,22 @@ _OLLAMA_URL_CACHE: str | None = None
 
 
 def _get_ollama_base_url() -> str:
+    """Return the primary Ollama host (Ollie Box GPU).
+    MemGuard unloads and warmup pings must hit the SAME host as queries
+    so VRAM is actually freed between scanner cycles.
+    Fixed 2026-04-21: was importing OLLAMA_URL (localhost) instead of OLLIE_URL.
+    """
     global _OLLAMA_URL_CACHE
     if _OLLAMA_URL_CACHE:
         return _OLLAMA_URL_CACHE
     try:
-        from config import OLLAMA_URL
-        _OLLAMA_URL_CACHE = OLLAMA_URL.rstrip("/")
+        from config import OLLIE_URL
+        _OLLAMA_URL_CACHE = OLLIE_URL.rstrip("/")
     except Exception:
-        _OLLAMA_URL_CACHE = os.environ.get("OLLAMA_URL", "http://localhost:11434").rstrip("/")
+        _OLLAMA_URL_CACHE = os.environ.get(
+            "OLLIE_URL",
+            os.environ.get("OLLAMA_URL", "http://192.168.1.166:11434")
+        ).rstrip("/")
     return _OLLAMA_URL_CACHE
 
 
@@ -830,15 +844,15 @@ def _query_ollama(player_id: str, model: str, system_prompt: str,
 
 # Per-agent scan focus hints
 _AGENT_SCAN_HINTS: dict[str, str] = {
-    "grok-4":          "RSI oversold/overbought stocks from Deep Scan. Session must NOT be trending. Give me mean reversion setups.",
+    "deepseek-7b-grok4":          "RSI oversold/overbought stocks from Deep Scan. Session must NOT be trending. Give me mean reversion setups.",
     "dayblade-sulu":   "Trending stocks with momentum > 30 from Deep Scan. Session must be trending. Give me momentum entries.",
     "energy-arnold":   "P/C ratio extremes and F&G extremes. Give me contrarian plays against the crowd.",
-    "gemini-2.5-flash":"Bearish setups: rising VIX, weak breadth, inverse ETFs or shorts. Only if session is bearish.",
+    "qwen3-8b-flash":"Bearish setups: rising VIX, weak breadth, inverse ETFs or shorts. Only if session is bearish.",
     "options-sosnoff": "Sentiment divergences: news vs options vs F&G. Where is the crowd wrong?",
     "ollama-coder":    "Pure quant: highest signal_strength from Deep Scan. No sentiment, just numbers.",
     "mlx-qwen3":       "Breakout stocks: 20-day high on 2x volume from Deep Scan.",
     "ollama-local":    "Sector rotation: buy leading sector ETF, short lagging.",
-    "gemini-2.5-pro":  "Pure quant: pick the symbol with highest signal_strength from Deep Scan. No sentiment.",
+    "qwen3-14b-pro":  "Pure quant: pick the symbol with highest signal_strength from Deep Scan. No sentiment.",
     "ollama-plutus":   "Crisis doctor: only if VIX > 22. Look for oversold bounces and panic sells to fade.",
     "ollama-qwen3":    "Defensive/value: XLU, XLP, XLV when risk-off rotation.",
     "ollama-llama":    "Options flow confluence: 4+ signals aligning.",
@@ -1949,7 +1963,7 @@ def _find_bounces(scan_picks: list[dict]) -> list[dict]:
 # Listed in descending order of threshold; highest tier fires first.
 _SCALED_EXIT_TIERS: dict[str, list[tuple[float, float, str]]] = {
     "neo-matrix":    [(0.08, 0.15, "T3"), (0.05, 0.25, "T2"), (0.03, 0.50, "T1")],
-    "grok-4":        [(0.05, 0.25, "T2"), (0.03, 0.50, "T1")],
+    "deepseek-7b-grok4":        [(0.05, 0.25, "T2"), (0.03, 0.50, "T1")],
     "ollama-qwen3":  [(0.06, 0.25, "T2"), (0.04, 0.50, "T1")],
     "ollama-plutus": [(0.04, 0.50, "T1")],
 }
@@ -2381,14 +2395,16 @@ def _get_market_session_label() -> str:
 def _check_cooldown(player_id: str) -> bool:
     """
     Return True if agent is on a 1-day cooldown due to 3 consecutive losses.
-    Checks the last 3 SELL trades for the agent; if all have realized_pnl < 0,
-    the agent is in cooldown for the rest of the trading day.
+    Only considers SELL trades within the last 24 hours — prevents agents with
+    old losses and no recent activity from triggering stale-streak alerts forever.
+    Requires exactly 3 qualifying trades; fewer than 3 in window = no alert.
     """
     try:
         c = _conn()
         rows = c.execute(
             """SELECT realized_pnl FROM trades
                WHERE player_id = ? AND action = 'SELL' AND realized_pnl IS NOT NULL
+                 AND executed_at >= datetime('now', '-24 hours')
                ORDER BY executed_at DESC LIMIT 3""",
             (player_id,),
         ).fetchall()
@@ -2474,7 +2490,7 @@ def _scan_rules_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, A
 
     # ── Rules decision ────────────────────────────────────────────────────────
     scan_picks = market_ctx.get("deep_scan_top", [])
-    if player_id == "grok-4":
+    if player_id == "deepseek-7b-grok4":
         decision = spock_rules(market_ctx, scan_picks)
     elif player_id == "ollama-qwen3":
         decision = dax_rules(market_ctx, scan_picks)
@@ -2484,7 +2500,7 @@ def _scan_rules_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, A
         decision = data_rules(market_ctx, scan_picks)
     elif player_id == "ollama-llama":
         decision = uhura_rules(market_ctx, scan_picks)
-    elif player_id == "gemini-2.5-flash":
+    elif player_id == "qwen3-8b-flash":
         decision = worf_rules(market_ctx, scan_picks)
     elif player_id == "dayblade-0dte":
         decision = tpol_rules(market_ctx, scan_picks)
@@ -3715,12 +3731,17 @@ def _fetch_trade_levels_bulk(symbols: list) -> dict:
 
 
 def _get_regime_from_8080() -> str:
-    """Return current market regime string from 8080/api/regime."""
-    import urllib.request
+    """Return current regime from Warp 10 engine.
+    Formerly HTTP to localhost:8080/api/regime; now calls the engine
+    directly so it works when the dashboard is down.
+    """
     try:
-        with urllib.request.urlopen("http://127.0.0.1:8080/api/regime", timeout=3) as r:
-            data = json.loads(r.read())
-        return (data.get("regime") or "UNKNOWN").upper()
+        from engine.warp10_engine import get_current_allocation
+        alloc = get_current_allocation()
+        regime = alloc.get("regime") if isinstance(alloc, dict) else None
+        if regime:
+            return str(regime).upper()
+        return "UNKNOWN"
     except Exception:
         return "UNKNOWN"
 
