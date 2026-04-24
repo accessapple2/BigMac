@@ -77,9 +77,10 @@ def _select_first_trade_width(
       - credit/width >= 0.25  for bull_put_spread  (credit quality gate)
       - R/R     >= 1.3x       for bull_call_spread (reward-to-risk gate)
 
-    FIRST_TRADE_MODE is credit-only: bull_call_spread returns (None, None) immediately.
-    # TODO: expand DTE to 21 for debit structures (see Gate 2 investigation — R/R
-    #       math does not work at ATM 10 DTE within the $500 risk cap).
+    FIRST_TRADE_MODE: credit put spreads use caller DTE; debit call spreads
+    override DTE to 21 (Gate 2 fix — R/R infeasible at 10 DTE within $500 cap).
+    # Fixed 2026-04-24: expanded DTE to 21 for debit structures (see Gate 2 investigation —
+    #   R/R does not work at ATM 10 DTE within the $500 risk cap; 21 DTE resolves this).
 
     Width ladder [15, 10, 5] is hardcoded for SPY-range tickers (~$700).
     # TODO: scale as [round(spot*0.02/5)*5, round(spot*0.014/5)*5, round(spot*0.007/5)*5]
@@ -91,15 +92,13 @@ def _select_first_trade_width(
     Returns (None, None) for skipped structures; (0.0, None) if no width satisfies gates.
     Caller's `if quote is None: continue` handles both cases correctly.
     """
-    # FIRST_TRADE_MODE is credit-only — debit spreads require longer DTE to achieve
-    # acceptable R/R within the risk cap. Skip until TODO above is resolved.
+    # Gate 2 fix 2026-04-24: debit call spreads (bull_call_spread) need 21 DTE to
+    # achieve R/R >= 1.3 within FIRST_TRADE_MAX_RISK=$500. Caller-supplied dte is
+    # overridden here, before the width-ladder runs. Credit put spreads
+    # (bull_put_spread) fall through to the width-ladder with caller dte unchanged.
     if structure == "bull_call_spread":
-        print(
-            "[first_trade_width] SKIP bull_call_spread — FIRST_TRADE_MODE is credit-only "
-            "until longer DTE supported. "
-            "TODO: expand DTE to 21 for debit structures (see Gate 2 investigation)."
-        )
-        return None, None
+        dte = 21
+        print(f"[first_trade_width] bull_call_spread DTE override -> 21 (Gate 2 fix 2026-04-24)")
 
     WIDTHS = [15.0, 10.0, 5.0]
 
