@@ -271,3 +271,14 @@ class BullSpreadV1(Strategy):
                 ))
 
         return signals
+
+
+# Auto-register at import time so the singleton picks up this strategy
+# whenever bull_spread_v1 is imported anywhere (scheduler, tests, REPL).
+# Wrapped in try/except: if registration fails (DB lock, sqlite race),
+# the import still succeeds; scheduler can retry on next tick.
+try:
+    from .registry import registry as _registry
+    _registry().register(BullSpreadV1(enabled=True))
+except Exception as _reg_err:
+    print(f"[bull_spread_v1] auto-registration skipped: {_reg_err}")

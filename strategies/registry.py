@@ -18,7 +18,8 @@ class StrategyRegistry:
 
     def register(self, strategy: Strategy) -> None:
         if strategy.strategy_id in self._strategies:
-            raise ValueError(f"Strategy {strategy.strategy_id} already registered")
+            print(f"[registry] {strategy.strategy_id} already registered — skipping (idempotent)")
+            return
         self._strategies[strategy.strategy_id] = strategy
         self._sync_db(strategy)
 
