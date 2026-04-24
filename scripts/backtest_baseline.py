@@ -365,7 +365,7 @@ def query_ollama(agent_id: str, context_prompt: str,
     Falls back to ('HOLD', 5, reason) on timeout/error."""
     if not _HAS_REQUESTS:
         return "HOLD", 5, "requests unavailable"
-    model = AGENT_MODELS.get(agent_id, "qwen3.5:9b")
+    model = AGENT_MODELS.get(agent_id, "qwen3:8b")
     try:
         resp = _requests.post(OLLAMA_URL, json={
             "model": model,

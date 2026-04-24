@@ -104,7 +104,7 @@ try:
 except Exception:
     _PLAYER_BASE_URLS: dict = {}
 # Models that support think:false suppression
-THINK_MODELS    = {"qwen3.5:9b", "qwen3:8b", "qwen3:14b", "qwen3:30b", "deepseek-r1:14b"}
+THINK_MODELS    = {"qwen3:8b", "qwen3:14b", "qwen3:30b", "deepseek-r1:14b"}
 
 # Shared cache: (agent_id, sym, date_str) → (signal, confidence)
 _ollama_cache: dict[tuple, tuple] = {}
@@ -336,7 +336,7 @@ def ask_ollama(agent_id: str, sym: str, snap: dict,
     if cache_key in _ollama_cache:
         return _ollama_cache[cache_key]
 
-    model_id = AGENT_MODELS.get(agent_id, "qwen3.5:9b")
+    model_id = AGENT_MODELS.get(agent_id, "qwen3:8b")
     agent_display = AGENTS[agent_id]["display"]
     prompt = build_agent_prompt(
         agent_id, sym, snap["date"], {"close": snap["price"]},
