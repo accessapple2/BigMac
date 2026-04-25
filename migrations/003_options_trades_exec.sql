@@ -1,0 +1,4 @@
+-- Migration 003: Execution metadata on options_trades.
+-- Sacred DB rule: CREATE IF NOT EXISTS only. ALTER TABLE guarded in Python.
+-- Purpose: let the executor record broker order IDs, signal linkage,
+-- and status transitions per spread.
