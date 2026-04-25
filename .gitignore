@@ -117,3 +117,18 @@ backups_archive/
 backups/archive-*/
 data/real_holdings.json
 data/metals.json
+
+# Dated .env backups with dot-suffix (e.g. .env.bak.2026-04-20-alpaca)
+.env.bak.*
+
+# Trader DB stub archives
+trader.db.stub-archive-*
+
+# Gitignore backup files
+.gitignore.before_*
+
+# Decommissioned backup subdirs
+backups/decommissioned-*/
+
+# Pre-unpause operation snapshots
+*_pre_unpause_*.txt
