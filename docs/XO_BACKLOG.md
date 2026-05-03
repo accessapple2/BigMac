@@ -17,6 +17,56 @@
 
 ---
 
+## NEW BOMBS DISCOVERED 2026-05-03 — Health Audit (Sunday afternoon)
+
+Comprehensive system health audit (Opus 4.7, read-only). Full report at `/tmp/scotty_session_2026-05-03/health_audit_2026-05-03.md`.
+
+| ID  | File | Line(s) | Description | Severity | Evidence |
+|-----|------|---------|-------------|----------|----------|
+| B16 | `healthcheck.py` | 25, 474 | **Reframed**: false-alarm tunnel restart loop. Root cause: `TUNNEL_URL` hardcoded to `https://bridge.accessapple.com`, an orphaned domain from incomplete project rebrand. **Real bridge `bridge.ollietrades.com` is HEALTHY** (HTTP 303 from Cloudflare Access = correct). Healthcheck has been bouncing a working tunnel hourly for 3 weeks. **NOT an infrastructure outage.** Severity downgraded from CRITICAL to MEDIUM. Fix is part of larger 'accessapple rebrand cleanup' sprint, not urgent. | MEDIUM | 540 STALE entries in `healthcheck.log`, 326 plist reloads since 2026-04-11. Curl-confirmed `accessapple.com` = NXDOMAIN, `ollietrades.com` = 303 OK. |
+| B17 | unknown (libxml2 caller) | — | XML scraper passing Wikipedia HTML response *body* as filename to libxml2. Likely S&P 500 universe scraper using `lxml.html.parse(string)` instead of `parse(BytesIO(content))`. | MEDIUM | 49 `I/O error : Filename too long: %3C!DOCTYPE…` in `trader_error.log` |
+| B18 | `engine/fast_scanner.py` | 389/489-490 | SQLite WAL contention — scanner writes silently dropped when trader process holds lock. | MEDIUM | 5 `sqlite3.OperationalError: database is locked` in `scanner.err` |
+| B19 | aladdin scraper write path | — | Same DB-lock contention family as B18. | LOW-MEDIUM | 35 db-lock-adjacent entries in `aladdin.log` |
+| B20 | yfinance internal | — | Yahoo Finance "Invalid Crumb" 401 auth bursts. ~9 retries per burst before yfinance refreshes crumb. Always self-recovers. | LOW | 25 `HTTP 401 Invalid Crumb` in 2 daily bursts (~12:27 and ~15:46) |
+| B21 | polygon-backfill cron + iv_history writer | — | iv_history Day 5 (2026-05-02) MISSING. Last entry 2026-05-01 polygon-backfill 10 rows. Was XO H4 pending verification. | MEDIUM | `SELECT MAX(as_of_date) FROM iv_history` = 2026-05-01 |
+| B22 | `arena.db` (root) AND `data/arena.db` | — | Two 0-byte arena.db files. Code may write to whichever cwd it has — silent path-collision bug. | LOW | both `ls -la` confirmed 0 bytes |
+| B23 | `CLAUDE.md` SACRED DATA RULES | — | `tractor.db` referenced in sacred-data list but file does not exist. Doc drift. | LOW | `find -name "tractor*.db"` = 0 hits |
+| B24 | `logs/*.log` | — | No log rotation policy. trader.log 26.3 MB / 337k lines, trader_error.log 13.7 MB / 142k lines and growing. Once B15 is fixed the bleed slows; rotation still needed. | MEDIUM | no `.log.1` / `.log.gz` anywhere |
+| B25 | `data/.fuse_hidden*` × 19 | — | Zombie files from prior FUSE mount/unmount glitch. `lsof` shows 0 processes hold open. Safe to clean. Oldest 2026-04-17. | LOW | 19 files, 32KB each |
+| B26 | `main.py` | 2554-2587 | Scheduler comment-vs-cadence drift (~7 mismatches). Comments say "every 5 min" while code is `every(15).minutes`, etc. Cosmetic, no runtime impact. | LOW | 7+ direct comment lies in 35-line block |
+| B27 | `healthcheck.py` (Ready Room + Red Alert checks) | — | Crusher healthcheck has weekend false-positives — flags "no Ready Room briefing" / "no Red Alert poll" on Sat/Sun. Alert-fatigue risk. | LOW | every weekend in `healthcheck.log` |
+| B28 | `backups/trader_2026-04-07.db-shm`/`-wal`, `backups/trader_2026-04-08.db-shm`/`-wal` | — | Backup orphan WAL files — main `.db` purged but `-shm`/`-wal` siblings remain. Backup pruning script doesn't clean them. | LOW | 4 sidecar files, no main DB |
+| B29 | `data/trader.db` `ghost_trades` table | — | Only **9 rows total**. CLAUDE.md describes Bench 4 ghost-trading recording every signal. Likely writer is silently failing OR ghosts write to per-agent tables (`janeway_paper_trades`, `sarek_paper_trades`, etc.) instead. Same import-drift family as B12-B15. | MEDIUM | `SELECT COUNT(*) FROM ghost_trades` = 9 |
+
+**Pattern note (audit-level)**: Health audit revealed an incomplete project rebrand (`accessapple` → `ollietrades`) is the root cause of multiple symptoms including B16. **Future drydock should include 'rebrand cleanup verification' as a checklist item — when renaming a project, grep all source files plus docs for the old name.** Also: half of B12-B29 share the same family ("symbol moved, callers not updated, error swallowed"). One disciplined import-drift / rename-drift sweep would close 8+ items at once.
+
+---
+
+## ACCESSAPPLE REBRAND CLEANUP (planned sprint, NOT TONIGHT)
+
+24 references to the old `accessapple` brand still live in code + docs. Sprint requires CORS testing and dashboard verification — not a drop-in fix.
+
+| File | Line(s) | Reference type | Risk if changed wrong |
+|------|---------|----------------|------------------------|
+| `healthcheck.py` | 25 | `TUNNEL_URL` constant | Triggers B16 — top of fix order |
+| `healthcheck.py` | 474 | Docstring | Cosmetic |
+| `dashboard/app.py` | 1237 | Likely **CORS allow_origins list** | **CRITICAL — verify `bridge.ollietrades.com` is added (not just replacing accessapple)** before live dashboard testing |
+| `dashboard/app.py` | 16147, 16160, 16167, 16179, 16186, 16193, 16200, 16207, 16214, 16223 | Public API docs HTML page | External users following docs hit NXDOMAIN — 10 string replacements |
+| `main.py` | 2541 | Startup log message | Cosmetic, shows wrong info every restart |
+| `docs/G1_MIGRATION_INVENTORY.md` | 288, 314, 319, 320, 374 | Migration doc — also references `accessapple2` GitHub remote | Verify `git remote -v` matches reality before commit |
+| `docs/SECURITY_AUDIT.md` | 40, 149, 169 | Security audit doc — names `bridge.accessapple.com` as public domain | Doc-only, low risk |
+
+**Pre-sprint checklist:**
+1. Confirm `bridge.ollietrades.com` is in CORS allow-list at `dashboard/app.py:1237` (don't just swap — *verify*)
+2. `git remote -v` to confirm GitHub remote — is `accessapple2/BigMac.git` still valid or also renamed?
+3. After fix: end-to-end test from external browser via `bridge.ollietrades.com` → dashboard → API call
+4. Update `healthcheck.py:481-487` success criteria to accept 2xx/3xx (Cloudflare Access redirects to login page returning 200 = healthy)
+5. Pair with B16 fix — fixing only the URL without success-criteria fix leaves Crusher still flagging stale on the 303
+
+**Why not tonight:** sprint touches CORS (security boundary) and external API docs (user-facing). Needs Admiral approval + a weekday window with browser at hand for verification.
+
+---
+
 ## BLEEDING NOW (production errors, running every tick)
 
 | ID | File | Line | Description | Impact |
