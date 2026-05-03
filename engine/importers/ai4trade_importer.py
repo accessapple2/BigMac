@@ -203,6 +203,10 @@ def _fetch_replies(signal_id: int) -> list:
     return []
 
 
+def run_import(limit: int = 100) -> dict:
+    return import_signals(limit)
+
+
 if __name__ == "__main__":
     from dotenv import load_dotenv
     load_dotenv(override=True)

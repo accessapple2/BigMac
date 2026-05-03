@@ -43,7 +43,8 @@ if curl -s --max-time 5 http://localhost:8000/health > /dev/null 2>&1; then
     _crew_up=true
 else
     log "[WARN] Crew server not responding on :8000, attempting start..."
-    launchctl start com.trademinds.crew 2>/dev/null || true
+    # ARCHIVED 2026-05-02: com.trademinds.crew decommissioned Apr 21
+    # launchctl start com.trademinds.crew 2>/dev/null || true
     sleep 10
     if curl -s --max-time 5 http://localhost:8000/health > /dev/null 2>&1; then
         _crew_up=true

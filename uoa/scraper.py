@@ -13,7 +13,7 @@ Computes unusual activity signals locally:
 
 Usage:
     from uoa.scraper import UOAScraper
-    scraper = UOAScraper(db_path='trader.db')
+    scraper = UOAScraper(db_path=str(Path(__file__).resolve().parent.parent / "data" / "trader.db"))
     results = scraper.scan_watchlist()       # scan Chekov's 528 stocks
     results = scraper.scan_tickers(['META', 'NVDA', 'AAPL'])  # specific tickers
 """
