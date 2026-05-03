@@ -412,7 +412,7 @@ def check_port_zombie() -> tuple[bool, str]:
 # DB backup (Fix 2)
 # ---------------------------------------------------------------------------
 
-def backup_trader_db() -> tuple[bool, str]:
+def backup_trader_db(operation_name: str = "daily_backup") -> tuple[bool, str]:
     """Copy trader.db to backups/trader_YYYY-MM-DD.db. Keep last 7 days.
     Returns (did_backup, message). NEVER deletes source DB."""
     global _db_backup_done_today
@@ -433,6 +433,20 @@ def backup_trader_db() -> tuple[bool, str]:
         src_con.close()
         size_kb = os.path.getsize(dest) // 1024
         _db_backup_done_today = today
+        # OPS_LOG audit trail
+        try:
+            from pathlib import Path as _Path_olog
+            _ops_log = _Path_olog(__file__).resolve().parent / "docs" / "OPS_LOG.md"
+            _ops_log.parent.mkdir(exist_ok=True)
+            if not _ops_log.exists():
+                _ops_log.write_text("# OllieTrades Ops Log\nAutomated audit trail for DB operations.\n\n## Live entries\n")
+            with _ops_log.open("a") as _f_olog:
+                _f_olog.write(
+                    f"- {datetime.now().isoformat(timespec='seconds')} | {operation_name}"
+                    f" | backup={os.path.basename(dest)} | {size_kb}KB\n"
+                )
+        except Exception:
+            pass
         # Prune backups older than DB_BACKUP_KEEP days
         pruned = 0
         all_backups = sorted([

@@ -2598,7 +2598,9 @@ if __name__ == "__main__":
             from strategies.base import MarketContext
             from datetime import datetime, timezone
             # Reuse cached regime from run_ma_regime_update (fires every 15 min)
-            regime = _last_ma_regime or "BULL"
+            # Normalize regime_ma vocabulary → strategy-facing BULL/BEAR
+            _r = _last_ma_regime or "BULL_CROSS"
+            regime = "BULL" if _r in ("BULL_CROSS", "CAUTIOUS_BULL") else "BEAR"
             ctx = MarketContext(
                 as_of=datetime.now(timezone.utc),
                 regime=regime,
@@ -2643,7 +2645,9 @@ if __name__ == "__main__":
             from strategies.executor import execute_signal
             from strategies.base import MarketContext
             from datetime import datetime, timezone
-            regime = _last_ma_regime or "BEAR"
+            # Same regime normalization as bull_spread_v1 scheduler
+            _r = _last_ma_regime or "BULL_CROSS"
+            regime = "BULL" if _r in ("BULL_CROSS", "CAUTIOUS_BULL") else "BEAR"
             ctx = MarketContext(
                 as_of=datetime.now(timezone.utc),
                 regime=regime,
@@ -2687,8 +2691,13 @@ if __name__ == "__main__":
             import strategies.bull_call_spread_v1  # noqa: F401 — auto-registers BullCallSpreadV1
             from strategies.registry import registry
             from strategies.executor import execute_signal
-            from engine.market_data import get_regime
-            ctx = {"regime": get_regime()}
+            # engine.market_data.get_regime does not exist — ImportError every tick since May 1.
+            # Use same normalization as other spread schedulers + proper MarketContext.
+            from strategies.base import MarketContext
+            from datetime import datetime, timezone
+            _r = _last_ma_regime or "BULL_CROSS"
+            _regime = "BULL" if _r in ("BULL_CROSS", "CAUTIOUS_BULL") else "BEAR"
+            ctx = MarketContext(as_of=datetime.now(timezone.utc), regime=_regime, vix=0.0, spy_price=0.0)
             all_sigs = [s for s in registry().evaluate_all(ctx)
                         if s.strategy_id == "bull_call_spread_v1"]
             if not all_sigs:
