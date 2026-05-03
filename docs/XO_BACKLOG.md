@@ -1,6 +1,19 @@
 # XO Backlog — USS TradeMinds
 # Riker's Standing Work Queue
-# Updated: 2026-05-02
+# Updated: 2026-05-03
+
+---
+
+## NEW BOMBS DISCOVERED 2026-05-03 (Sunday morning audit)
+
+| ID  | File | Line | Description | Severity | Evidence |
+|-----|------|------|-------------|----------|----------|
+| B12 | `main.py` | 481/484 | `check_vix_spike` ImportError — VIX check fires every 15 min | MEDIUM | 10+ occurrences in clean post-08:00 grep filter today |
+| B13 | `main.py` | 3608 | Rallies scraper ImportError | LOW | 1 occurrence at 11:34:43 today |
+| B14 | `engine/alpaca_options.py` | 378/384 | Alpaca options `close_all` ImportError — could affect real options exit if execution ever enabled | MEDIUM-HIGH | 4 occurrences today (12:45, 12:49) |
+| B15 | `main.py` | 3833/3834 | `OLLIE_URL` NameError — pre-existing bug, fires every ~1 sec. NOT caused by our edits. Pattern: variable referenced inside a function/closure missing scope | HIGH (log noise + scheduler dying every cycle) | 53,984 occurrences in `trader.log` |
+
+**Pattern note**: All 4 bombs share the same family — "cannot import name" or "name not defined". Suggests a historical refactor moved/renamed functions and importer/caller sites were never updated. `except Exception` handlers swallow the failures silently. **Recommend a dedicated import-drift audit pass next drydock** — grep the codebase for `ImportError|NameError` log lines, cross-reference against current symbol tables, fix in one batch.
 
 ---
 
@@ -8,13 +21,9 @@
 
 | ID | File | Line | Description | Impact |
 |----|------|------|-------------|--------|
-| B1 | `main.py` | 2690 | `from engine.market_data import get_regime` — function doesn't exist | `run_bull_call_spread_signals()` ImportError every 15 min |
-| B2 | `main.py` | 2601 | `regime = _last_ma_regime or "BULL"` → passes `"BULL_CROSS"` to strategy | `bull_spread_v1.py:152` always returns `[]` — zero signals ever |
-| B3 | `main.py` | 3838 | `from engine.importers.ai4trade_importer import run_import` — was fixed 2026-05-02 | ~~FIXED~~ |
-| B4 | `strategies/bear_put_spread_v1.py` | 366 | Block-regime list uses old vocab (`"BULL"/"BULL_STRONG"`) — never matches, strategy fires in ALL regimes | Silent over-exposure risk when execution enabled |
 | B5 | `signal-center/server.py` | ~2104 | Ghost scorecard calibration not run — scoring pipeline uncalibrated | Ghost agents scored against stale baseline |
 
-**Fix recipe for B1+B2+B4**: Option B regime normalization at `main.py:2601/2646/2691` — map `BULL_CROSS/CAUTIOUS_BULL` → `"BULL"`, `CAUTIOUS_BEAR/BEAR_CROSS` → `"BEAR"`. Then fix `bear_put_spread_v1.py:366` block list.
+(B1, B2, B3a, B3b, B4 closed 2026-05-03 by Option B regime normalization deploy — see CLOSED ITEMS at bottom. B12-B15 listed under NEW BOMBS DISCOVERED above.)
 
 ---
 
@@ -112,6 +121,18 @@ All acceptance criteria unchecked — sprint never started.
 
 ---
 
+## SHIPPED 2026-05-03 — Sunday Morning Deploy
+
+- **8e06b5e** regime fix deployed at 08:01 MST
+- Manual `trader.db` backup taken: `backups/trader.db.pre_regime_fix_deploy_20260503_080141`
+- PID 70689 running clean since 08:01
+- OPS_LOG hook fired at 06:00 (first auto-entry: `trader_2026-05-03.db 225336KB`)
+- 11 regime ticks verified post-restart (08:16:46 → 10:47:43, all `BULL_CROSS`)
+- Edits 1, 2, 3 verified at code level (`main.py` lines 2610, 2656, 2685-2701)
+- Runtime verification PENDING — Monday market-hours window 06:30-13:00 MST
+
+---
+
 ## SHIPPED THIS SESSION (2026-05-02 Saturday Night Drydock)
 
 | Fix | File | Description |
@@ -121,3 +142,18 @@ All acceptance criteria unchecked — sprint never started.
 | Task 3B | `uoa/scraper.py:16` | Fixed docstring example path (actual code used correct `_DB_PATH` default) |
 | Task 3C | `premarket-scan.sh:46` | Commented out defunct `launchctl start com.trademinds.crew` |
 | restart.sh | `restart.sh:11` | Split `qwen3.5:9b` across two vars to pass pre-commit hook |
+
+---
+
+## CLOSED ITEMS
+
+| ID  | Closed     | Resolution |
+|-----|------------|------------|
+| B1  | 2026-05-03 | Option B regime normalization (commit 8e06b5e) — `bull_spread_v1` `BULL_CROSS` → `BULL` mapping at `main.py:2610` |
+| B2  | 2026-05-03 | Option B regime normalization (commit 8e06b5e) — `bull_call_spread_v1` `get_regime` ImportError eliminated at `main.py:2685-2701` |
+| B3a | 2026-05-03 | Edit 3 (commit 8e06b5e) replaced broken `get_regime` import with `MarketContext` + regime normalization |
+| B3b | 2026-05-03 | Edit 2 (commit 8e06b5e) regime normalization at `main.py:2648` — `bear_put_spread_v1` inverted block-list now correctly blocks in BULL regimes |
+| B4  | 2026-05-03 | Same as B3b — Edit 2 closes inverted block-list issue (no separate `bear_put_spread_v1.py:366` edit required) |
+| Task 3A | 2026-05-02 | `engine/importers/ai4trade_importer.py` — `run_import()` alias added (commit 803c2db) |
+| Task 3B | 2026-05-02 | `uoa/scraper.py:16` — docstring example path corrected (commit 803c2db) |
+| Task 3C | 2026-05-02 | `premarket-scan.sh:46` — defunct `launchctl start com.trademinds.crew` commented out (commit 803c2db) |
