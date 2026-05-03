@@ -238,8 +238,13 @@ def sync_learning():
 
 portfolio_router = APIRouter()
 positions_router = APIRouter()
-_pm = PortfolioManager()
-ensure_matrix_shared_records()
+_pm: "PortfolioManager | None" = None
+
+def _get_pm() -> "PortfolioManager":
+    global _pm
+    if _pm is None:
+        _pm = PortfolioManager()
+    return _pm
 
 
 class NeoMirrorRequest(BaseModel):
@@ -367,25 +372,25 @@ def neo_mirror(req: NeoMirrorRequest):
 @portfolio_router.get("/")
 def list_portfolios(active_only: bool = False):
     """List all portfolios."""
-    return _pm.get_portfolios(active_only=active_only)
+    return _get_pm().get_portfolios(active_only=active_only)
 
 
 @portfolio_router.get("/unified")
 def unified_view():
     """Unified P&L view across ALL portfolios."""
-    return _pm.get_unified_view()
+    return _get_pm().get_unified_view()
 
 
 @portfolio_router.get("/exposure")
 def exposure(portfolio_id: Optional[int] = None):
     """Exposure breakdown for a portfolio (or all)."""
-    return _pm.get_exposure(portfolio_id)
+    return _get_pm().get_exposure(portfolio_id)
 
 
 @portfolio_router.get("/{portfolio_id}")
 def get_portfolio(portfolio_id: int):
     """Get specific portfolio."""
-    result = _pm.get_portfolio(portfolio_id)
+    result = _get_pm().get_portfolio(portfolio_id)
     if not result:
         raise HTTPException(status_code=404, detail="Portfolio not found.")
     return result
@@ -394,7 +399,7 @@ def get_portfolio(portfolio_id: int):
 @portfolio_router.post("/add")
 def add_portfolio(req: AddPortfolioRequest):
     """Add a new portfolio."""
-    return _pm.add_portfolio(
+    return _get_pm().add_portfolio(
         name=req.name, broker=req.broker, account_type=req.account_type,
         initial_balance=req.initial_balance, is_human=req.is_human, notes=req.notes,
         execution_mode=req.execution_mode, portfolio_type=req.type,
@@ -404,13 +409,13 @@ def add_portfolio(req: AddPortfolioRequest):
 @portfolio_router.post("/{portfolio_id}/activate")
 def activate_portfolio(portfolio_id: int, req: ActivatePortfolioRequest):
     """Activate or deactivate a portfolio."""
-    return _pm.activate_portfolio(portfolio_id, active=req.active)
+    return _get_pm().activate_portfolio(portfolio_id, active=req.active)
 
 
 @portfolio_router.get("/positions/open")
 def open_positions(portfolio_id: Optional[int] = None, asset_class: Optional[str] = None):
     """List open positions with optional filters."""
-    return _pm.get_open_positions(portfolio_id=portfolio_id, asset_class=asset_class)
+    return _get_pm().get_open_positions(portfolio_id=portfolio_id, asset_class=asset_class)
 
 
 @portfolio_router.post("/positions/open")
@@ -433,7 +438,7 @@ def open_position(req: OpenPositionRequest):
     finally:
         conn.close()
 
-    return _pm.open_position(
+    return _get_pm().open_position(
         portfolio_id=req.portfolio_id, ticker=req.ticker, asset_class=req.asset_class,
         direction=req.direction, quantity=req.quantity, entry_price=req.entry_price,
         stop_loss=req.stop_loss, take_profit=req.take_profit,
@@ -447,7 +452,7 @@ def open_position(req: OpenPositionRequest):
 @portfolio_router.post("/positions/close")
 def close_position(req: ClosePositionRequest):
     """Close a position and calculate P&L."""
-    return _pm.close_position(req.position_id, req.close_price, req.notes)
+    return _get_pm().close_position(req.position_id, req.close_price, req.notes)
 
 
 @portfolio_router.get("/{portfolio_id}/closed_trades")

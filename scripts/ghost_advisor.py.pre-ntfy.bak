@@ -1,0 +1,557 @@
+#!/usr/bin/env python3
+"""
+ghost_advisor.py - Ghost Trader autonomous decision engine.
+
+Reads new signals from 4 advisor sources in trader.db, applies Hybrid 2.0
+policy, executes virtual paper trades against ghost_portfolio + ghost_cash.
+
+Usage:
+    python3 scripts/ghost_advisor.py --dry-run     # preview only, no writes
+    python3 scripts/ghost_advisor.py --verbose     # print every decision
+    python3 scripts/ghost_advisor.py               # live run
+
+Policy (Hybrid 2.0):
+    - Max 15 positions
+    - Sizing: $1,500 normal / $750 small-cap (cap line: $10B market cap)
+    - Cash floor: $500 minimum after any trade
+    - Whitelist gate: data/ghost_theme_whitelist.txt
+    - Bypasses: ollie_super_trades grade A/B, smart_money_signals 2+ buyers
+    - trade_advisories BUYs: multiplier >= 0.50, on whitelist
+    - 24h cooldown after stop-out / SELL on a symbol
+    - Trailing stops: 9% high-beta, 7% stable (data/ghost_stop_tiers.json)
+
+Data sources (read-only):
+    ollie_super_trades, smart_money_signals, trade_advisories, kirk_advisory_log
+
+Cursor: ghost_advisor_state tracks last processed id per source.
+
+Author: ghost_advisor v1
+"""
+import argparse
+import json
+import sqlite3
+import sys
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
+
+import yfinance as yf
+
+# ---------------- config ----------------
+ROOT = Path(__file__).resolve().parent.parent
+DB = ROOT / "data" / "trader.db"
+WHITELIST_FILE = ROOT / "data" / "ghost_theme_whitelist.txt"
+TIERS_FILE = ROOT / "data" / "ghost_stop_tiers.json"
+
+MAX_POSITIONS = 15
+SIZE_NORMAL = 1500.0
+SIZE_SMALL_CAP = 750.0
+SMALL_CAP_THRESHOLD = 10_000_000_000  # $10B
+CASH_FLOOR = 500.0
+ADVISORY_MIN_MULTIPLIER = 0.50
+COOLDOWN_HOURS = 24
+QUOTE_CACHE_SECONDS = 3600  # 1h
+
+# ---------------- helpers ----------------
+def now_iso():
+    return datetime.now(timezone.utc).isoformat()
+
+def now_dt():
+    return datetime.now(timezone.utc)
+
+def vlog(msg, verbose):
+    if verbose:
+        print(msg)
+
+# ---------------- file loaders ----------------
+def load_whitelist():
+    syms = set()
+    with open(WHITELIST_FILE) as f:
+        for line in f:
+            line = line.strip()
+            if line and not line.startswith("#"):
+                syms.add(line.upper())
+    return syms
+
+def load_tiers():
+    with open(TIERS_FILE) as f:
+        return json.load(f)
+
+def trail_pct_for(sym, tiers):
+    for tier in tiers["tiers"].values():
+        if sym in tier["tickers"]:
+            return tier["trail_pct"]
+    return tiers["default_trail_pct"]
+
+# ---------------- yfinance with cache ----------------
+def get_quote(sym, cur):
+    """Return (price, market_cap). Caches to ghost_ticker_cache for 1h."""
+    row = cur.execute(
+        "SELECT price, market_cap, updated_at FROM ghost_ticker_cache WHERE symbol=?",
+        (sym,)
+    ).fetchone()
+    if row:
+        try:
+            updated = datetime.fromisoformat(row[2])
+            if (now_dt() - updated).total_seconds() < QUOTE_CACHE_SECONDS:
+                return row[0], row[1]
+        except Exception:
+            pass
+
+    try:
+        t = yf.Ticker(sym)
+        info = t.info or {}
+        price = info.get("regularMarketPrice") or info.get("previousClose")
+        mcap = info.get("marketCap")
+        if price is None:
+            return None, None
+        cur.execute(
+            "INSERT OR REPLACE INTO ghost_ticker_cache (symbol, price, market_cap, updated_at) "
+            "VALUES (?, ?, ?, ?)",
+            (sym, float(price), float(mcap) if mcap else None, now_iso())
+        )
+        return float(price), float(mcap) if mcap else None
+    except Exception as e:
+        print(f"  [yfinance fail] {sym}: {e}")
+        return None, None
+
+# ---------------- portfolio queries ----------------
+def get_portfolio(cur):
+    rows = cur.execute(
+        "SELECT symbol, qty, avg_cost, hwm, trail_pct FROM ghost_portfolio"
+    ).fetchall()
+    return {r[0]: {"qty": r[1], "avg_cost": r[2], "hwm": r[3], "trail_pct": r[4]} for r in rows}
+
+def get_cash(cur):
+    row = cur.execute("SELECT cash, equity FROM ghost_cash WHERE id=1").fetchone()
+    if row:
+        return row[0], row[1]
+    return 0.0, 0.0
+
+def position_count(cur):
+    return cur.execute("SELECT COUNT(*) FROM ghost_portfolio").fetchone()[0]
+
+def in_cooldown(sym, cur):
+    row = cur.execute(
+        "SELECT until_ts FROM ghost_cooldowns WHERE symbol=?", (sym,)
+    ).fetchone()
+    if not row:
+        return False
+    try:
+        return now_dt() < datetime.fromisoformat(row[0])
+    except Exception:
+        return False
+
+# ---------------- migration: add HWM + trail_pct columns ----------------
+def ensure_columns(cur, tiers):
+    cols = [r[1] for r in cur.execute("PRAGMA table_info(ghost_portfolio)").fetchall()]
+    added = False
+    if "hwm" not in cols:
+        cur.execute("ALTER TABLE ghost_portfolio ADD COLUMN hwm REAL")
+        added = True
+    if "trail_pct" not in cols:
+        cur.execute("ALTER TABLE ghost_portfolio ADD COLUMN trail_pct REAL")
+        added = True
+    if added:
+        print("[migration] added hwm + trail_pct columns to ghost_portfolio")
+    null_rows = cur.execute(
+        "SELECT symbol, avg_cost FROM ghost_portfolio WHERE hwm IS NULL OR trail_pct IS NULL"
+    ).fetchall()
+    for sym, avg_cost in null_rows:
+        tp = trail_pct_for(sym, tiers)
+        cur.execute(
+            "UPDATE ghost_portfolio "
+            "SET hwm = COALESCE(hwm, ?), trail_pct = COALESCE(trail_pct, ?) "
+            "WHERE symbol = ?",
+            (avg_cost, tp, sym)
+        )
+    if null_rows:
+        print(f"[migration] backfilled hwm/trail_pct on {len(null_rows)} positions")
+
+# ---------------- trade execution ----------------
+def execute_buy(sym, qty, price, advisor, signal_id, rationale, tiers, cur, dry):
+    notional = qty * price
+    if dry:
+        print(f"  [DRY] BUY  {qty} {sym} @ {price:.2f} = ${notional:,.2f}  ({advisor})")
+        return
+    cur.execute(
+        "INSERT INTO ghost_trades (ts, symbol, side, qty, price, fill_price, venue, "
+        "advisor, signal_id, status, rationale) "
+        "VALUES (?, ?, 'BUY', ?, ?, ?, 'virtual', ?, ?, 'filled', ?)",
+        (now_iso(), sym, qty, price, price, advisor, str(signal_id), rationale[:500])
+    )
+    existing = cur.execute(
+        "SELECT qty, avg_cost FROM ghost_portfolio WHERE symbol=?", (sym,)
+    ).fetchone()
+    if existing:
+        old_qty, old_cost = existing
+        new_qty = old_qty + qty
+        new_avg = (old_qty * old_cost + qty * price) / new_qty
+        cur.execute(
+            "UPDATE ghost_portfolio SET qty=?, avg_cost=? WHERE symbol=?",
+            (new_qty, new_avg, sym)
+        )
+    else:
+        tp = trail_pct_for(sym, tiers)
+        cur.execute(
+            "INSERT INTO ghost_portfolio "
+            "(symbol, qty, avg_cost, opened_at, source_advisor, source_signal_id, "
+            " hwm, trail_pct, notes) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            (sym, qty, price, now_iso(), advisor, str(signal_id),
+             price, tp, rationale[:200])
+        )
+    cur.execute(
+        "UPDATE ghost_cash SET cash = cash - ?, last_updated = ? WHERE id=1",
+        (notional, now_iso())
+    )
+    print(f"  BUY  {qty} {sym} @ {price:.2f} = ${notional:,.2f}  ({advisor})")
+
+def execute_sell(sym, qty_to_sell, price, advisor, signal_id, rationale, cur, dry, partial=False):
+    pos = cur.execute(
+        "SELECT qty FROM ghost_portfolio WHERE symbol=?", (sym,)
+    ).fetchone()
+    if not pos:
+        return
+    cur_qty = pos[0]
+    qty_to_sell = min(qty_to_sell, cur_qty)
+    if qty_to_sell <= 0:
+        return
+    notional = qty_to_sell * price
+    action = "TRIM" if partial else "SELL"
+    if dry:
+        print(f"  [DRY] {action} {qty_to_sell} {sym} @ {price:.2f} = ${notional:,.2f}  ({advisor})")
+        return
+    cur.execute(
+        "INSERT INTO ghost_trades (ts, symbol, side, qty, price, fill_price, venue, "
+        "advisor, signal_id, status, rationale) "
+        "VALUES (?, ?, 'SELL', ?, ?, ?, 'virtual', ?, ?, 'filled', ?)",
+        (now_iso(), sym, qty_to_sell, price, price, advisor, str(signal_id), rationale[:500])
+    )
+    new_qty = cur_qty - qty_to_sell
+    if new_qty > 0:
+        cur.execute(
+            "UPDATE ghost_portfolio SET qty=? WHERE symbol=?", (new_qty, sym)
+        )
+    else:
+        cur.execute("DELETE FROM ghost_portfolio WHERE symbol=?", (sym,))
+        until = (now_dt() + timedelta(hours=COOLDOWN_HOURS)).isoformat()
+        cur.execute(
+            "INSERT OR REPLACE INTO ghost_cooldowns (symbol, until_ts, reason) "
+            "VALUES (?, ?, ?)",
+            (sym, until, f"closed via {advisor}")
+        )
+    cur.execute(
+        "UPDATE ghost_cash SET cash = cash + ?, last_updated = ? WHERE id=1",
+        (notional, now_iso())
+    )
+    print(f"  {action} {qty_to_sell} {sym} @ {price:.2f} = ${notional:,.2f}  ({advisor})")
+
+# ---------------- trailing stop engine ----------------
+def update_hwms_and_check_stops(cur, dry, verbose):
+    triggered = []
+    portfolio = get_portfolio(cur)
+    for sym, p in portfolio.items():
+        price, _ = get_quote(sym, cur)
+        if price is None:
+            vlog(f"  [skip-stop] {sym} (no price)", verbose)
+            continue
+        hwm = p["hwm"] or p["avg_cost"]
+        trail_pct = p["trail_pct"] or 9.0
+        new_hwm = max(hwm, price)
+        if new_hwm > hwm and not dry:
+            cur.execute(
+                "UPDATE ghost_portfolio SET hwm=? WHERE symbol=?", (new_hwm, sym)
+            )
+        stop_price = new_hwm * (1 - trail_pct / 100.0)
+        if price <= stop_price:
+            print(f"  [TRAIL STOP] {sym} price {price:.2f} <= stop {stop_price:.2f} "
+                  f"(HWM {new_hwm:.2f}, -{trail_pct}%)")
+            execute_sell(sym, p["qty"], price, "trailing_stop",
+                         f"trail_{trail_pct}pct",
+                         f"trail stop hit at {price:.2f} from HWM {new_hwm:.2f}",
+                         cur, dry, partial=False)
+            triggered.append(sym)
+        else:
+            vlog(f"  [hold] {sym} {price:.2f}, HWM {new_hwm:.2f}, "
+                 f"stop {stop_price:.2f} (-{trail_pct}%)", verbose)
+    return triggered
+
+# ---------------- signal readers ----------------
+def read_super_trades(cur, last_id):
+    rows = cur.execute(
+        "SELECT id, symbol, signal_grade, signal_score, success_prob, regime, signal_source "
+        "FROM ollie_super_trades "
+        "WHERE id > ? AND closed = 0 AND signal_grade IN ('A','B') "
+        "ORDER BY id ASC",
+        (last_id,)
+    ).fetchall()
+    decisions, max_id = [], last_id
+    for rid, sym, grade, score, prob, regime, src in rows:
+        max_id = max(max_id, rid)
+        if not sym:
+            continue
+        decisions.append({
+            "action": "BUY",
+            "symbol": sym.upper(),
+            "advisor": "ollie_super_trades",
+            "signal_id": rid,
+            "rationale": f"super-trader grade {grade} score {score} prob {prob} "
+                         f"regime {regime} src {src}",
+            "bypass_whitelist": True,
+        })
+    return decisions, max_id
+
+def read_smart_money(cur, last_id):
+    rows = cur.execute(
+        "SELECT id, symbol, buyers FROM smart_money_signals WHERE id > ? ORDER BY id ASC",
+        (last_id,)
+    ).fetchall()
+    decisions, max_id = [], last_id
+    for rid, sym, buyers_json in rows:
+        max_id = max(max_id, rid)
+        if not sym:
+            continue
+        try:
+            buyers = json.loads(buyers_json) if buyers_json else []
+        except Exception:
+            buyers = []
+        if len(buyers) >= 2:
+            names = ", ".join(b.get("display_name", b.get("player_id", "?")) for b in buyers)
+            decisions.append({
+                "action": "BUY",
+                "symbol": sym.upper(),
+                "advisor": "smart_money_signals",
+                "signal_id": rid,
+                "rationale": f"smart money: {len(buyers)} buyers ({names})",
+                "bypass_whitelist": True,
+            })
+    return decisions, max_id
+
+def read_advisories(cur, last_id):
+    rows = cur.execute(
+        "SELECT id, symbol, proposed_action, signal, multiplier, reason, vix_regime "
+        "FROM trade_advisories WHERE id > ? AND symbol IS NOT NULL "
+        "ORDER BY id ASC",
+        (last_id,)
+    ).fetchall()
+    decisions, max_id = [], last_id
+    for rid, sym, action, sig, mult, reason, vix in rows:
+        max_id = max(max_id, rid)
+        if not sym:
+            continue
+        sym = sym.upper()
+        if action == "BUY":
+            if (mult or 0) < ADVISORY_MIN_MULTIPLIER:
+                continue
+            decisions.append({
+                "action": "BUY",
+                "symbol": sym,
+                "advisor": "trade_advisories",
+                "signal_id": rid,
+                "rationale": f"advisory BUY mult {mult} sig {sig} vix {vix}: "
+                             f"{(reason or '')[:120]}",
+                "bypass_whitelist": False,
+            })
+        elif action == "SELL":
+            decisions.append({
+                "action": "SELL",
+                "symbol": sym,
+                "advisor": "trade_advisories",
+                "signal_id": rid,
+                "rationale": f"advisory SELL sig {sig}: {(reason or '')[:120]}",
+                "bypass_whitelist": True,
+            })
+    return decisions, max_id
+
+def read_kirk(cur, last_id):
+    rows = cur.execute(
+        "SELECT id, ticker, action, message FROM kirk_advisory_log "
+        "WHERE id > ? AND action IN ('TRIM','SELL') ORDER BY id ASC",
+        (last_id,)
+    ).fetchall()
+    decisions, max_id = [], last_id
+    for rid, sym, action, msg in rows:
+        max_id = max(max_id, rid)
+        if not sym:
+            continue
+        decisions.append({
+            "action": "TRIM" if action == "TRIM" else "SELL",
+            "symbol": sym.upper(),
+            "advisor": "kirk_advisory_log",
+            "signal_id": rid,
+            "rationale": f"kirk {action}: {(msg or '')[:120]}",
+            "bypass_whitelist": True,
+        })
+    return decisions, max_id
+
+# ---------------- decision applier ----------------
+def apply_decision(d, cur, whitelist, tiers, dry, verbose):
+    sym = d["symbol"]
+    action = d["action"]
+    advisor = d["advisor"]
+    sigid = d["signal_id"]
+    rationale = d["rationale"]
+    bypass = d.get("bypass_whitelist", False)
+
+    portfolio = get_portfolio(cur)
+    held = sym in portfolio
+
+    if action == "SELL":
+        if not held:
+            vlog(f"  [skip] SELL {sym} not held  ({advisor}#{sigid})", verbose)
+            return
+        price, _ = get_quote(sym, cur)
+        if price is None:
+            vlog(f"  [skip] SELL {sym} no price  ({advisor}#{sigid})", verbose)
+            return
+        execute_sell(sym, portfolio[sym]["qty"], price,
+                     advisor, sigid, rationale, cur, dry, partial=False)
+        return
+
+    if action == "TRIM":
+        if not held:
+            vlog(f"  [skip] TRIM {sym} not held  ({advisor}#{sigid})", verbose)
+            return
+        price, _ = get_quote(sym, cur)
+        if price is None:
+            vlog(f"  [skip] TRIM {sym} no price  ({advisor}#{sigid})", verbose)
+            return
+        half = max(1, int(portfolio[sym]["qty"] // 2))
+        execute_sell(sym, half, price,
+                     advisor, sigid, rationale, cur, dry, partial=True)
+        return
+
+    if action == "BUY":
+        if not bypass and sym not in whitelist:
+            vlog(f"  [skip] BUY {sym} not whitelisted, no bypass  ({advisor}#{sigid})", verbose)
+            return
+        if held:
+            vlog(f"  [skip] BUY {sym} already held  ({advisor}#{sigid})", verbose)
+            return
+        if in_cooldown(sym, cur):
+            vlog(f"  [skip] BUY {sym} in cooldown  ({advisor}#{sigid})", verbose)
+            return
+        n = position_count(cur)
+        if n >= MAX_POSITIONS:
+            vlog(f"  [skip] BUY {sym} cap {MAX_POSITIONS} hit ({n} held)  ({advisor}#{sigid})", verbose)
+            return
+        price, mcap = get_quote(sym, cur)
+        if price is None:
+            vlog(f"  [skip] BUY {sym} no price  ({advisor}#{sigid})", verbose)
+            return
+        target = SIZE_NORMAL if (mcap and mcap >= SMALL_CAP_THRESHOLD) else SIZE_SMALL_CAP
+        qty = int(target // price)
+        if qty < 1:
+            vlog(f"  [skip] BUY {sym} price {price:.2f} > target {target}  ({advisor}#{sigid})", verbose)
+            return
+        notional = qty * price
+        cash, _ = get_cash(cur)
+        if cash - notional < CASH_FLOOR:
+            vlog(f"  [skip] BUY {sym} cash {cash:.2f} - {notional:.2f} < floor "
+                 f"{CASH_FLOOR}  ({advisor}#{sigid})", verbose)
+            return
+        execute_buy(sym, qty, price, advisor, sigid, rationale, tiers, cur, dry)
+
+# ---------------- equity recalc ----------------
+def recalc_equity(cur):
+    portfolio = get_portfolio(cur)
+    cash, _ = get_cash(cur)
+    pos_val = 0.0
+    for sym, p in portfolio.items():
+        price, _ = get_quote(sym, cur)
+        if price is None:
+            price = p["avg_cost"]
+        pos_val += p["qty"] * price
+    equity = cash + pos_val
+    cur.execute(
+        "UPDATE ghost_cash SET equity=?, last_updated=? WHERE id=1",
+        (equity, now_iso())
+    )
+    return cash, pos_val, equity
+
+# ---------------- cursor ----------------
+def get_cursor(cur, source):
+    row = cur.execute(
+        "SELECT last_id FROM ghost_advisor_state WHERE source=?", (source,)
+    ).fetchone()
+    return row[0] if row else 0
+
+def advance_cursor(cur, source, max_id):
+    cur.execute(
+        "UPDATE ghost_advisor_state SET last_id=?, last_run=? WHERE source=?",
+        (max_id, now_iso(), source)
+    )
+
+# ---------------- main ----------------
+def main():
+    ap = argparse.ArgumentParser(description="Ghost Trader autonomous decision engine")
+    ap.add_argument("--dry-run", action="store_true",
+                    help="preview only, rolls back at end (no DB writes)")
+    ap.add_argument("--verbose", action="store_true",
+                    help="print all skips and holds")
+    args = ap.parse_args()
+
+    for path, label in [(DB, "trader.db"), (WHITELIST_FILE, "whitelist"),
+                        (TIERS_FILE, "tier file")]:
+        if not Path(path).exists():
+            print(f"ERROR: {label} not found at {path}")
+            sys.exit(1)
+
+    whitelist = load_whitelist()
+    tiers = load_tiers()
+
+    con = sqlite3.connect(str(DB))
+    cur = con.cursor()
+
+    try:
+        ensure_columns(cur, tiers)
+
+        mode = "DRY-RUN" if args.dry_run else "LIVE"
+        print(f"=== ghost_advisor [{mode}] @ {now_iso()} ===")
+        print(f"  whitelist: {len(whitelist)} tickers   "
+              f"max {MAX_POSITIONS} positions   cash floor ${CASH_FLOOR}")
+
+        print("\n[1/3] trailing stops")
+        update_hwms_and_check_stops(cur, args.dry_run, args.verbose)
+
+        print("\n[2/3] reading new signals")
+        all_decisions = []
+        sources = [
+            (read_super_trades, "ollie_super_trades"),
+            (read_smart_money,  "smart_money_signals"),
+            (read_advisories,   "trade_advisories"),
+            (read_kirk,         "kirk_advisory_log"),
+        ]
+        for fn, src in sources:
+            last_id = get_cursor(cur, src)
+            decisions, new_max = fn(cur, last_id)
+            print(f"  {src:<24} {len(decisions):>4} decisions   "
+                  f"cursor {last_id} -> {new_max}")
+            all_decisions.extend(decisions)
+            if not args.dry_run:
+                advance_cursor(cur, src, new_max)
+
+        print(f"\n[3/3] applying {len(all_decisions)} decisions")
+        for d in all_decisions:
+            apply_decision(d, cur, whitelist, tiers, args.dry_run, args.verbose)
+
+        if not args.dry_run:
+            cash, pos_val, equity = recalc_equity(cur)
+            print(f"\n  cash=${cash:,.2f}  positions=${pos_val:,.2f}  "
+                  f"equity=${equity:,.2f}")
+
+        if args.dry_run:
+            con.rollback()
+            print("\n=== DRY-RUN complete, no changes written ===")
+        else:
+            con.commit()
+            print("\n=== run complete ===")
+    except Exception as e:
+        con.rollback()
+        print(f"\nERROR: {e}")
+        raise
+    finally:
+        con.close()
+
+if __name__ == "__main__":
+    main()

@@ -10,8 +10,8 @@ class AlpacaBridge:
     def __init__(self):
         from dotenv import load_dotenv
         load_dotenv()
-        key = os.getenv('ALPACA_API_KEY', '')
-        secret = os.getenv('ALPACA_SECRET_KEY', '')
+        key = os.getenv('APCA_API_KEY_ID', '')
+        secret = os.getenv('APCA_API_SECRET_KEY', '')
         self.client = None
         if key and secret:
             try:
@@ -46,6 +46,24 @@ class AlpacaBridge:
             } for p in self.client.get_all_positions()]
         except Exception as e:
             return [{'error': str(e)}]
+
+
+    def latest_prices(self, symbols):
+        """Return {symbol: last_price} for a list of symbols (used for real-position P/L)."""
+        if not symbols or not self.client:
+            return {}
+        try:
+            from alpaca.data.historical import StockHistoricalDataClient
+            from alpaca.data.requests import StockLatestTradeRequest
+            key = os.getenv('APCA_API_KEY_ID', '')
+            secret = os.getenv('APCA_API_SECRET_KEY', '')
+            dc = StockHistoricalDataClient(key, secret)
+            req = StockLatestTradeRequest(symbol_or_symbols=list(set(symbols)))
+            trades = dc.get_stock_latest_trade(req)
+            return {s: float(trades[s].price) for s in trades}
+        except Exception as e:
+            console.log(f"[yellow]latest_prices error: {e}")
+            return {}
 
     def orders(self, status='all'):
         if not self.client:
@@ -119,6 +137,26 @@ class AlpacaBridge:
                     time_in_force=TimeInForce.DAY,
                 ))
                 console.log(f"[red]Alpaca SELL {qty} {symbol} — order {o.id}")
+            return {'success': True, 'order_id': str(o.id), 'symbol': o.symbol, 'status': o.status.value}
+        except Exception as e:
+            return {'error': str(e)}
+
+    def short_sell(self, symbol, qty, agent_id: str = "unknown"):
+        """Open a short position via Alpaca paper. Submits a SELL order with no existing long.
+        Alpaca paper accounts allow short selling — the position will show as negative qty."""
+        if not self.client:
+            return {'error': 'Not connected'}
+        try:
+            result = check_trade(agent_id, symbol, "SHORT", float(qty), 0.0)
+            if not result["allowed"]:
+                return {"error": f"Gateway blocked: {result['reason']}"}
+            from alpaca.trading.enums import OrderSide, TimeInForce
+            from alpaca.trading.requests import MarketOrderRequest
+            o = self.client.submit_order(MarketOrderRequest(
+                symbol=symbol, qty=float(qty), side=OrderSide.SELL,
+                time_in_force=TimeInForce.DAY,
+            ))
+            console.log(f"[bold red]Alpaca SHORT {qty} {symbol} — order {o.id}")
             return {'success': True, 'order_id': str(o.id), 'symbol': o.symbol, 'status': o.status.value}
         except Exception as e:
             return {'error': str(e)}

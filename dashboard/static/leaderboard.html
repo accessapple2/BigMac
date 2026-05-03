@@ -465,7 +465,7 @@ function loadData(force) {
       // Filter out system/special players for public leaderboard
       _agents = lb.filter(function(a) {
         var pid = a.player_id || a.id || '';
-        return !/(super-agent|dayblade|capitol-trades|steve-webull|kirk|enterprise-computer|red-alert)/i.test(pid);
+        return !/(super-agent|dayblade|capitol-trades|webull|kirk|enterprise-computer|red-alert)/i.test(pid);
       });
 
       // Update season badge

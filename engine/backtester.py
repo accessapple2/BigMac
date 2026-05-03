@@ -90,8 +90,8 @@ def _is_bear_day(date_str: str, vix_history: dict) -> bool:
 DAILY_LIMITS = {
     "default": 3,
     "ollama-local": 2,
-    "gemini-2.5-flash": 2,
-    "grok-4": 3,
+    "qwen3-8b-flash": 2,
+    "deepseek-7b-grok4": 3,
     "ollama-qwen3": 3,
     "ollama-plutus": 3,
     "energy-arnold": 2,
@@ -101,8 +101,8 @@ DAILY_LIMITS = {
 BEAR_DAILY_LIMITS = {
     "default": 1,
     "ollama-local": 0,      # Geordi: ALL STOP when VIX > 25
-    "gemini-2.5-flash": 0,  # Troi: WATCHLIST mode, no buys
-    "grok-4": 1,
+    "qwen3-8b-flash": 0,  # Troi: WATCHLIST mode, no buys
+    "deepseek-7b-grok4": 1,
     "ollama-qwen3": 1,
     "ollama-plutus": 1,
     "energy-arnold": 1,
@@ -111,13 +111,13 @@ BEAR_DAILY_LIMITS = {
 
 MIN_CONVICTION = {
     "default": 0.65,
-    "grok-4": 0.75,
-    "gemini-2.5-flash": 0.70,
+    "deepseek-7b-grok4": 0.75,
+    "qwen3-8b-flash": 0.70,
 }
 
 BEAR_MIN_CONVICTION = {
     "default": 0.80,
-    "grok-4": 0.85,
+    "deepseek-7b-grok4": 0.85,
 }
 
 # V2: Conviction-scaled position sizing (replaces flat MAX_POSITION_PCT)
@@ -155,8 +155,8 @@ def _get_stop_loss_pct(conviction: float) -> float:
 # V2: Minimum holding periods (days)
 MIN_HOLD_DAYS = {
     "default": 5,
-    "grok-4": 7,
-    "gemini-2.5-flash": 5,
+    "deepseek-7b-grok4": 7,
+    "qwen3-8b-flash": 5,
     "ollama-local": 5,
     "ollama-qwen3": 10,
     "ollama-plutus": 7,
@@ -169,9 +169,9 @@ NORMAL_MAX_POSITIONS = 5  # V3: was 6
 # V3: Per-model position limits (fewer picks, bigger bets)
 MAX_POSITIONS_PER_MODEL = {
     "default": 5,
-    "grok-4": 3,
+    "deepseek-7b-grok4": 3,
     "ollama-local": 3,
-    "gemini-2.5-flash": 4,
+    "qwen3-8b-flash": 4,
     "ollama-qwen3": 3,
     "ollama-plutus": 4,
     "energy-arnold": 3,

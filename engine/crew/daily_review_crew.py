@@ -15,8 +15,10 @@ from rich.console import Console
 
 console = Console()
 DB = "data/trader.db"
-OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("CREWAI_MODEL", "qwen3.5:9b")
+from config import OLLIE_URL as _OLLIE_URL
+OLLAMA_URL = os.getenv("ADVISORY_OLLAMA_URL",
+             os.getenv("OLLAMA_BASE_URL", _OLLIE_URL))
+OLLAMA_MODEL = os.getenv("CREWAI_MODEL", "qwen3:8b")  # 2026-04-20: qwen3:8b → qwen3:8b on Ollie GPU
 
 
 def _conn():
@@ -193,8 +195,8 @@ def run_daily_review():
     # Get unique players who traded today
     player_ids = list(set(t["player_id"] for t in trades))
     histories = {}
-    for pid in player_ids[:5]:  # Cap at 5 to avoid timeout
-        histories[pid] = _get_model_history(pid, 30)
+    for pid in player_ids[:3]:  # Cap at 3 to avoid timeout (was 5) to avoid timeout
+        histories[pid] = _get_model_history(pid, 14)  # was 30, trimmed
 
     # Get reference data for cross-arena pattern comparison
     ref_context = ""

@@ -14,8 +14,10 @@ from rich.console import Console
 
 console = Console()
 DB = "data/trader.db"
-OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("CREWAI_MODEL", "qwen3.5:9b")
+from config import OLLIE_URL as _OLLIE_URL
+OLLAMA_URL = os.getenv("ADVISORY_OLLAMA_URL",
+             os.getenv("OLLAMA_BASE_URL", _OLLIE_URL))
+OLLAMA_MODEL = os.getenv("CREWAI_MODEL", "qwen3:8b")  # 2026-04-20: qwen3:8b → qwen3:8b on Ollie GPU
 
 
 def _conn():
@@ -194,7 +196,7 @@ def run_weekly_tuning():
         f"SCORES:\n{scores_text}\n\n"
         f"LESSONS:\n{lessons_text}\n\n"
         f"Write adjustments that inject warnings into model prompts. Examples:\n"
-        f'- {{"player_id":"grok-4","adjustment_type":"confidence_modifier","new_value":"0.85","reason":"overconfident last week"}}\n'
+        f'- {{"player_id":"deepseek-7b-grok4","adjustment_type":"confidence_modifier","new_value":"0.85","reason":"overconfident last week"}}\n'
         f'- {{"player_id":"energy-arnold","adjustment_type":"regime_filter","new_value":"BEAR_ONLY_SELL","reason":"bought in BEAR, lost money"}}\n'
         f"Only adjust models scoring below 60. Max 2 per model.\n"
         f"Output JSON array.",

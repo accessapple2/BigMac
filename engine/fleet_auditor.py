@@ -26,7 +26,7 @@ MANIFEST_PATH    = os.path.join(os.path.dirname(__file__), "..", "data", "health
 DASHBOARD_URL    = "http://localhost:8080"
 BIGMAC_OLLAMA    = "http://localhost:11434"
 OLLIE_OLLAMA     = "http://192.168.1.166:11434"
-NTFY_TOPIC       = os.environ.get("NTFY_ADMIN_TOPIC", "Ollie-Alert-35")
+NTFY_TOPIC       = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")
 HTTP_TIMEOUT     = 8   # seconds for API checks
 OLLAMA_TIMEOUT   = 5   # seconds for Ollama ping
 

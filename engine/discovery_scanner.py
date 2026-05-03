@@ -159,10 +159,10 @@ def enrich_ticker(ticker: dict) -> dict | None:
         # Short float (from fundamentals cache if available)
         short_float = 0
         try:
-            import yfinance as yf
-            info = yf.Ticker(sym).info
-            shares_short = info.get("sharesShort", 0) or 0
-            shares_float = info.get("floatShares", 0) or 0
+            from engine.market_data import get_stock_price
+            _info = get_stock_price(sym) or {}
+            shares_short = _info.get("sharesShort", 0) or 0
+            shares_float = _info.get("floatShares", 0) or 0
             if shares_float > 0:
                 short_float = round(shares_short / shares_float * 100, 1)
         except Exception:

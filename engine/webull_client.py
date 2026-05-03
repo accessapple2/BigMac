@@ -235,10 +235,10 @@ def get_portfolio_for_dashboard() -> dict:
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT CASE WHEN realized_pnl IS NOT NULL THEN realized_pnl "
-            "ELSE (price - (SELECT b.price FROM trades b WHERE b.player_id='steve-webull' "
+            "ELSE (price - (SELECT b.price FROM trades b WHERE b.player_id='webull' "
             "AND b.action='BUY' AND b.symbol=t.symbol AND b.executed_at<=t.executed_at "
             "ORDER BY b.executed_at DESC LIMIT 1)) * qty END AS pnl "
-            "FROM trades t WHERE player_id='steve-webull' AND action='SELL'"
+            "FROM trades t WHERE player_id='webull' AND action='SELL'"
         ).fetchall()
         conn.close()
         if rows:
@@ -270,9 +270,9 @@ def get_portfolio_for_dashboard() -> dict:
 
 
 def sync_positions_to_db():
-    """Sync live Webull positions into the positions table for steve-webull.
+    """Sync live Webull positions into the positions table for webull.
 
-    Full mirror: DELETE all steve-webull positions, INSERT fresh from Webull.
+    Full mirror: DELETE all webull positions, INSERT fresh from Webull.
     This guarantees the DB exactly matches Webull — no stale/merged state.
 
     SAFETY: Never deletes trade history. Only updates current positions table.
@@ -298,7 +298,7 @@ def sync_positions_to_db():
     conn.execute("PRAGMA busy_timeout=30000")
     conn.row_factory = sqlite3.Row
 
-    conn.execute("DELETE FROM positions WHERE player_id='steve-webull'")
+    conn.execute("DELETE FROM positions WHERE player_id='webull'")
 
     inserted = []
     for p in positions:
@@ -309,7 +309,7 @@ def sync_positions_to_db():
         avg_cost = p.get("avg_cost", 0)
         conn.execute(
             "INSERT INTO positions (player_id, symbol, qty, avg_price, asset_type, opened_at) "
-            "VALUES ('steve-webull', ?, ?, ?, 'stock', ?)",
+            "VALUES ('webull', ?, ?, ?, 'stock', ?)",
             (sym, qty, avg_cost, now)
         )
         inserted.append(sym)
@@ -327,7 +327,7 @@ def sync_positions_to_db():
     webull_cash = balance.get("cash", 0)
     if webull_cash > 0:
         conn.execute(
-            "UPDATE ai_players SET cash=? WHERE id='steve-webull'",
+            "UPDATE ai_players SET cash=? WHERE id='webull'",
             (webull_cash,)
         )
 

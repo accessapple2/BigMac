@@ -26,8 +26,8 @@ from typing import Optional
 router = APIRouter()
 
 DB_PATH    = "data/trader.db"
-UOA_DB     = "trader.db"          # UOA tables live in the root-level DB
-WEBULL_PID = "steve-webull"
+UOA_DB     = "data/trader.db"     # UOA tables live in the main live DB
+WEBULL_PID = "webull"
 
 # Confluence: min distinct alert_types in last 7d to mark as "actionable"
 UOA_CONFLUENCE_THRESHOLD = 4
@@ -244,21 +244,27 @@ def get_pipeline_health():
 
 
 @router.get("/api/portfolio-history")
-def get_portfolio_history(days: int = Query(30, le=365)):
-    """Webull (steve-webull) portfolio value history for P&L chart."""
+def get_portfolio_history(days: int = Query(30, le=365), account: str = "schwab"):
+    """Real (Schwab) portfolio history for P&L chart. Reads real_portfolio_history."""
     conn = _db()
     try:
         rows = conn.execute("""
-            SELECT DATE(recorded_at) AS date,
-                   AVG(total_value)  AS total_value,
-                   AVG(cash)         AS cash
-            FROM portfolio_history
-            WHERE player_id = ?
-              AND recorded_at >= datetime('now', ? || ' days')
-            GROUP BY DATE(recorded_at)
+            SELECT date, total_value, cash, sector_breakdown
+            FROM real_portfolio_history
+            WHERE account = ?
+              AND date >= date('now', ? || ' days')
             ORDER BY date ASC
-        """, (WEBULL_PID, f"-{days}")).fetchall()
-        return {"history": [dict(r) for r in rows], "player_id": WEBULL_PID}
+        """, (account, f"-{days}")).fetchall()
+        history = []
+        latest_sectors = None
+        for r in rows:
+            d = dict(r)
+            try:
+                latest_sectors = __import__("json").loads(d.pop("sector_breakdown") or "{}")
+            except Exception:
+                latest_sectors = {}
+            history.append(d)
+        return {"history": history, "player_id": account, "sector_breakdown": latest_sectors or {}}
     finally:
         conn.close()
 

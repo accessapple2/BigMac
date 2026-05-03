@@ -177,7 +177,7 @@ def _extract_mid(symbol: str, snapshots: dict) -> Optional[float]:
 
 def build_spread_quote(
     ticker: str,
-    structure: str,   # "bull_call_spread" | "bull_put_spread"
+    structure: str,   # "bull_call_spread" | "bull_put_spread" | "bear_put_spread" | "bear_call_spread"
     dte_target: int,
     width: float,
 ) -> Optional[SpreadQuote]:
@@ -185,10 +185,23 @@ def build_spread_quote(
     Build a SpreadQuote from live Alpaca chain data.
     Returns None on any failure — caller should fall back to mock.
 
+    Supported structures:
+      bull_call_spread — long ATM call, short OTM call (debit, bullish)
+      bull_put_spread  — short ATM put, long OTM put   (credit, bullish)
+      bear_put_spread  — long ATM put, short OTM put   (debit, bearish)
+      bear_call_spread — short ATM call, long OTM call  (credit, bearish)
+
     Rate budget: 3 calls (spot + contracts + snapshots).
     Alpaca paper limit: 200 req/min. Safe for FIRST_TRADE_MODE (1 ticker).
     """
-    option_type = "call" if structure == "bull_call_spread" else "put"
+    _CALL_STRUCTURES = ("bull_call_spread", "bear_call_spread")
+    _PUT_STRUCTURES  = ("bull_put_spread",  "bear_put_spread")
+
+    if structure not in _CALL_STRUCTURES + _PUT_STRUCTURES:
+        print(f"[alpaca_chain] unknown structure: {structure}")
+        return None
+
+    option_type = "call" if structure in _CALL_STRUCTURES else "put"
 
     # ── 1. Spot price ──────────────────────────────────────────────────────
     spot = _fetch_spot(ticker)
@@ -197,12 +210,12 @@ def build_spread_quote(
         return None
 
     # ── 2. Chain discovery ─────────────────────────────────────────────────
-    if structure == "bull_call_spread":
-        # long ~ATM, short ~ATM+width  →  need strikes from spot-5 to spot+width+10
+    # Call structures need strikes ATM → OTM-above: [spot-5, spot+width+10]
+    # Put structures need strikes OTM-below → ATM:  [spot-width-10, spot+5]
+    if structure in _CALL_STRUCTURES:
         strike_gte = spot - 5
         strike_lte = spot + width + 10
     else:
-        # bull_put_spread: short ~ATM, long ~ATM-width  →  spot-width-10 to spot+5
         strike_gte = spot - width - 10
         strike_lte = spot + 5
 
@@ -216,12 +229,22 @@ def build_spread_quote(
     strike_map = {float(c["strike_price"]): c for c in contracts}
 
     # ── 3. Strike selection ────────────────────────────────────────────────
+    # Bull call: long ATM call, short ATM+width call
+    # Bull put:  short ATM put, long ATM-width put
+    # Bear put:  long ATM put, short ATM-width put   (debit, bear)
+    # Bear call: short ATM call, long ATM+width call  (credit, bear)
     if structure == "bull_call_spread":
         long_strike  = min(strike_map, key=lambda s: abs(s - spot))
         short_strike = min(strike_map, key=lambda s: abs(s - (spot + width)))
-    else:
+    elif structure == "bull_put_spread":
         short_strike = min(strike_map, key=lambda s: abs(s - spot))
         long_strike  = min(strike_map, key=lambda s: abs(s - (spot - width)))
+    elif structure == "bear_put_spread":
+        long_strike  = min(strike_map, key=lambda s: abs(s - spot))
+        short_strike = min(strike_map, key=lambda s: abs(s - (spot - width)))
+    else:  # bear_call_spread
+        short_strike = min(strike_map, key=lambda s: abs(s - spot))
+        long_strike  = min(strike_map, key=lambda s: abs(s - (spot + width)))
 
     if long_strike == short_strike:
         print(f"[alpaca_chain] {ticker}: identical strikes ({long_strike}) — width ${width:.0f} too narrow?")
@@ -241,34 +264,42 @@ def build_spread_quote(
         return None
 
     # ── 5. Spread math + sanity check ─────────────────────────────────────
-    actual_width = abs(short_strike - long_strike)
+    actual_width = abs(long_strike - short_strike)
 
-    if structure == "bull_call_spread":
+    # Debit structures: bull_call_spread, bear_put_spread
+    if structure in ("bull_call_spread", "bear_put_spread"):
         net_debit = long_mid - short_mid
         if net_debit <= 0:
-            print(f"[alpaca_chain] {ticker}: call debit={net_debit:.2f} <= 0 — bad quote")
+            print(f"[alpaca_chain] {ticker}: {structure} debit={net_debit:.2f} <= 0 — bad quote")
             return None
+        if net_debit >= actual_width:
+            print(f"[alpaca_chain] {ticker}: debit {net_debit:.2f} >= width {actual_width:.0f} — bad quote")
+            return None
+        opt_type = "call" if structure == "bull_call_spread" else "put"
         return SpreadQuote(
             ticker=ticker, structure=structure,
-            long_leg=OptionLeg("buy",  "call", long_strike,  expiry, long_mid),
-            short_leg=OptionLeg("sell", "call", short_strike, expiry, short_mid),
+            long_leg=OptionLeg("buy",  opt_type, long_strike,  expiry, long_mid),
+            short_leg=OptionLeg("sell", opt_type, short_strike, expiry, short_mid),
             net_debit=net_debit, net_credit=0.0,
             max_profit=(actual_width - net_debit) * 100.0,
             max_loss=net_debit * 100.0,
             width=actual_width, dte=actual_dte,
         )
-    else:  # bull_put_spread
+
+    # Credit structures: bull_put_spread, bear_call_spread
+    else:
         net_credit = short_mid - long_mid
         if net_credit <= 0:
-            print(f"[alpaca_chain] {ticker}: put credit={net_credit:.2f} <= 0 — bad quote")
+            print(f"[alpaca_chain] {ticker}: {structure} credit={net_credit:.2f} <= 0 — bad quote")
             return None
         if net_credit >= actual_width:
             print(f"[alpaca_chain] {ticker}: credit {net_credit:.2f} >= width {actual_width:.0f} — bad quote")
             return None
+        opt_type = "put" if structure == "bull_put_spread" else "call"
         return SpreadQuote(
             ticker=ticker, structure=structure,
-            short_leg=OptionLeg("sell", "put", short_strike, expiry, short_mid),
-            long_leg=OptionLeg("buy",  "put", long_strike,  expiry, long_mid),
+            short_leg=OptionLeg("sell", opt_type, short_strike, expiry, short_mid),
+            long_leg=OptionLeg("buy",  opt_type, long_strike,  expiry, long_mid),
             net_debit=0.0, net_credit=net_credit,
             max_profit=net_credit * 100.0,
             max_loss=(actual_width - net_credit) * 100.0,

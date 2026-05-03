@@ -31,14 +31,14 @@ NEUTRAL_WORDS = {"neutral", "sideways", "range-bound", "mixed", "choppy", "uncer
 
 # Crew mapping: player_id → (emoji, display_name)
 CREW_INFO = {
-    "grok-4": ("🖖", "Lt. Cmdr. Spock"),
+    "deepseek-7b-grok4": ("🖖", "Lt. Cmdr. Spock"),
     "first-officer": ("🤖", "Lt. Cmdr. Data"),
     "ollama-coder": ("🤖", "Lt. Cmdr. Data"),
     "mlx-qwen3": ("🧭", "Ensign Ro"),
     "navigator": ("🧭", "Ensign Chekov"),
     "riker": ("🫡", "Cmdr. Riker"),
     "ollama-local": ("🔧", "Lt. Cmdr. Geordi"),
-    "gemini-2.5-flash": ("⚔️", "Lt. Cmdr. Worf"),
+    "qwen3-8b-flash": ("⚔️", "Lt. Cmdr. Worf"),
     "ollama-qwen3": ("⚙️", "Lt. Cmdr. Scotty"),
     "ollama-plutus": ("💉", "Dr. McCoy"),
     "energy-arnold": ("⚡", "Cmdr. Trip Tucker"),
@@ -50,13 +50,13 @@ CREW_INFO = {
     "neo-matrix": ("🕶️", "Neo"),
     "dayblade-sulu": ("🚀", "Lt. Sulu"),
     "super-agent": ("💊", "Mr. Anderson"),
-    "grok-3": ("🧠", "Ensign Hoshi"),
-    "gemini-2.5-pro": ("✨", "Seven of Nine"),
-    "gpt-4o": ("🤖", "Captain Janeway"),
-    "gpt-o3": ("🤖", "Lt. Tuvok"),
+    "qwen3-14b-grok3": ("🧠", "Ensign Hoshi"),
+    "qwen3-14b-pro": ("✨", "Seven of Nine"),
+    "qwen3-8b-4o": ("🤖", "Captain Janeway"),
+    "qwen3-8b-o3": ("🤖", "Lt. Tuvok"),
     "dayblade-0dte": ("⚡", "T'Pol"),
-    "claude-sonnet": ("🔵", "Captain Sisko"),
-    "claude-haiku": ("🔵", "Lt. Malcolm Reed"),
+    "qwen3-8b-sonnet": ("🔵", "Captain Sisko"),
+    "qwen-coder-haiku": ("🔵", "Lt. Malcolm Reed"),
     "cto-grok42": ("🖖", "CTO Grok 4.2"),
     "ollama-deepseek": ("🔍", "Constable Odo"),
     "ollama-gemma27b": ("⚙️", "Lt. Jadzia Dax"),
@@ -397,7 +397,7 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
         try:
             conn = _conn()
             positions = conn.execute(
-                "SELECT DISTINCT symbol FROM positions WHERE player_id='steve-webull'"
+                "SELECT DISTINCT symbol FROM positions WHERE player_id='webull'"
             ).fetchall()
             conn.close()
             position_symbols = {r["symbol"] for r in positions}
@@ -495,7 +495,7 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
 
         # Add Spock, Data, and Uhura to crew entries if not already present
         for pid, stance, label_emoji, label_name in [
-            ("grok-4", spock, "S", "Spock"),
+            ("deepseek-7b-grok4", spock, "S", "Spock"),
             ("first-officer", data, "D", "Data"),
             ("ollama-llama", uhura, "U", "Uhura"),
         ]:
@@ -572,7 +572,7 @@ def post_consensus_alert(ticker: str, consensus_pct: int, action: str):
         f"{action} {ticker}. When the crew speaks with one voice, the Captain should listen."
     )
     try:
-        save_hot_take("steve-webull", ticker, msg)
+        save_hot_take("webull", ticker, msg)
         console.log(f"[bold cyan]Consensus alert posted: {ticker} {action} ({consensus_pct}%)")
     except Exception as e:
         console.log(f"[red]Consensus alert failed: {e}")

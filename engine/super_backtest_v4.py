@@ -82,15 +82,15 @@ KNOWN = {
 
 # ── V2 Replay Fleet (old model labels) ───────────────────────────────────────
 V2_REPLAY_FLEET: dict[str, dict] = {
-    "grok-4":           {"name": "Spock",   "model": "deepseek-r1:7b",   "tiers": [1],
+    "deepseek-7b-grok4":           {"name": "Spock",   "model": "deepseek-r1:7b",   "tiers": [1],
                          "specialization": "mean_reversion"},
-    "gemini-2.5-flash": {"name": "Worf",    "model": "qwen3.5:9b",       "tiers": [5, 6, 9],
+    "qwen3-8b-flash": {"name": "Worf",    "model": "qwen3:8b",       "tiers": [5, 6, 9],
                          "specialization": "bear_specialist"},
     "dayblade-sulu":    {"name": "Sulu",    "model": "gemma3:4b",        "tiers": [2],
                          "specialization": "momentum"},
     "ollama-plutus":    {"name": "McCoy",   "model": "0xroyce/plutus",   "tiers": [1, 2],
                          "specialization": "crisis_doctor", "min_vix": 25},
-    "gemini-2.5-pro":   {"name": "Seven",   "model": "qwen3.5:9b",       "tiers": [1],
+    "qwen3-14b-pro":   {"name": "Seven",   "model": "qwen3:14b",      "tiers": [1],
                          "specialization": "pure_quant"},
     "ollama-llama":     {"name": "Uhura",   "model": "llama3.1:latest",  "tiers": [5, 6],
                          "specialization": "options_flow"},
@@ -100,7 +100,7 @@ V2_REPLAY_FLEET: dict[str, dict] = {
                          "specialization": "plutus_scoring"},
     "capitol-trades":   {"name": "Capitol", "model": "congress",         "tiers": [1, 2],
                          "specialization": "congress_copycat"},
-    "dalio-metals":     {"name": "Dalio",   "model": "qwen3.5:9b",       "tiers": [4],
+    "dalio-metals":     {"name": "Dalio",   "model": "qwen3:8b",       "tiers": [4],
                          "specialization": "metals_macro",
                          "universe": ["GLD", "SLV", "CPER", "TIPS", "IAU"]},
     "dayblade-0dte":    {"name": "TPol",    "model": "options-s2",       "tiers": [8],
@@ -112,9 +112,9 @@ V2_REPLAY_FLEET: dict[str, dict] = {
 # ── Sniper Fleet v4 ───────────────────────────────────────────────────────────
 SNIPER_FLEET_V4: dict[str, dict] = {
     "ollama-llama":     {"name": "Uhura",  "model": "llama3.1:latest",  "tiers": [5, 6]},
-    "gemini-2.5-flash": {"name": "Worf",   "model": "qwen3:14b",        "tiers": [5]},
-    "grok-4":           {"name": "Spock",  "model": "phi4:14b",         "tiers": [1]},
-    "gemini-2.5-pro":   {"name": "Seven",  "model": "qwen3:14b",        "tiers": [1]},
+    "qwen3-8b-flash": {"name": "Worf",   "model": "qwen3:14b",        "tiers": [5]},
+    "deepseek-7b-grok4":           {"name": "Spock",  "model": "phi4:14b",         "tiers": [1]},
+    "qwen3-14b-pro":   {"name": "Seven",  "model": "qwen3:14b",        "tiers": [1]},
     "ollama-plutus":    {"name": "McCoy",  "model": "0xroyce/plutus",   "tiers": [5]},
     "neo-matrix":       {"name": "Neo",    "model": "0xroyce/plutus",   "tiers": [3]},
 }
@@ -439,9 +439,9 @@ def _agent_accepts_trade_v4(agent_id: str, fleet: dict, strategy: str, regime: s
 def _route_to_agent_v4(fleet: dict, strategy: str, regime: str,
                         vix: float, bull: int, bear: int, rsi: float) -> Optional[str]:
     STRATEGY_AGENT = {
-        "rsi_bounce":          "grok-4",
-        "bollinger":           "gemini-2.5-pro",
-        "sma_cross":           "gemini-2.5-pro",
+        "rsi_bounce":          "deepseek-7b-grok4",
+        "bollinger":           "qwen3-14b-pro",
+        "sma_cross":           "qwen3-14b-pro",
         "momentum_breakout":   "dayblade-sulu",
         "vwap_reclaim":        "dayblade-sulu",
         "volume_spike":        "dayblade-sulu",
@@ -457,11 +457,11 @@ def _route_to_agent_v4(fleet: dict, strategy: str, regime: str,
     min_vix = agent.get("min_vix", 0)
     if min_vix > 0 and vix < min_vix:
         return None
-    if agent_id == "grok-4" and not (rsi < 30 or rsi > 70):
+    if agent_id == "deepseek-7b-grok4" and not (rsi < 30 or rsi > 70):
         return None
     if agent_id == "dayblade-sulu" and regime not in ("BULL", "CAUTIOUS"):
         return None
-    if agent_id == "gemini-2.5-flash" and regime == "BULL":
+    if agent_id == "qwen3-8b-flash" and regime == "BULL":
         return None
     if agent_id == "super-agent" and bull < 3 and bear < 3:
         return None
@@ -1002,7 +1002,7 @@ def _run_options_loop_v4(td: dict, days: list, vix_map: dict,
                 r = _sim_long_put(future, px, iv, OPT_DTE_DEFAULT)
                 if r:
                     options_trades.append({**r, **extra, "strategy": "long_put",
-                                           "option_type": "put", "agent_id": "gemini-2.5-flash",
+                                           "option_type": "put", "agent_id": "qwen3-8b-flash",
                                            "exit_date": _exit_date_str(future, r["days"], day_str),
                                            "hold_days": r.get("days", 1),
                                            "win": 1 if r["pnl"] > 0 else 0})
@@ -1030,14 +1030,14 @@ def _run_options_loop_v4(td: dict, days: list, vix_map: dict,
                 r = _sim_bear_call_spread(future, px, iv, OPT_DTE_DEFAULT)
                 if r:
                     spread_trades.append({**r, **extra, "strategy": "bear_call_spread",
-                                          "spread_type": "BEAR_CALL", "agent_id": "gemini-2.5-flash",
+                                          "spread_type": "BEAR_CALL", "agent_id": "qwen3-8b-flash",
                                           "exit_date": _exit_date_str(future, r["days"], day_str),
                                           "hold_days": r.get("days", 1),
                                           "win": 1 if r.get("pnl", 0) > 0 else 0})
                 r = _sim_bear_put_spread(future, px, iv, OPT_DTE_DEFAULT)
                 if r:
                     spread_trades.append({**r, **extra, "strategy": "bear_put_spread",
-                                          "spread_type": "BEAR_PUT", "agent_id": "gemini-2.5-flash",
+                                          "spread_type": "BEAR_PUT", "agent_id": "qwen3-8b-flash",
                                           "exit_date": _exit_date_str(future, r["days"], day_str),
                                           "hold_days": r.get("days", 1),
                                           "win": 1 if r.get("pnl", 0) > 0 else 0})
@@ -1049,14 +1049,14 @@ def _run_options_loop_v4(td: dict, days: list, vix_map: dict,
                     r = _sim_ic(future, px, iv, OPT_DTE_DEFAULT)
                     if r:
                         spread_trades.append({**r, **extra, "strategy": "iron_condor",
-                                              "spread_type": "IC", "agent_id": "gemini-2.5-pro",
+                                              "spread_type": "IC", "agent_id": "qwen3-14b-pro",
                                               "exit_date": _exit_date_str(future, r["days"], day_str),
                                               "hold_days": r.get("days", 1),
                                               "win": 1 if r.get("pnl", 0) > 0 else 0})
                     r = _sim_broken_wing_ic(future, px, iv, OPT_DTE_DEFAULT)
                     if r:
                         spread_trades.append({**r, **extra, "strategy": "broken_wing_ic",
-                                              "spread_type": "BW_IC", "agent_id": "gemini-2.5-pro",
+                                              "spread_type": "BW_IC", "agent_id": "qwen3-14b-pro",
                                               "exit_date": _exit_date_str(future, r["days"], day_str),
                                               "hold_days": r.get("days", 1),
                                               "win": 1 if r.get("pnl", 0) > 0 else 0})
@@ -1084,8 +1084,8 @@ def _run_sniper_event_loop_v4(td: dict, days: list, vix_map: dict,
     day_counter = 0
 
     STRAT_AGENT = {
-        "rsi_bounce": "grok-4",
-        "bollinger":  "gemini-2.5-pro",
+        "rsi_bounce": "deepseek-7b-grok4",
+        "bollinger":  "qwen3-14b-pro",
     }
 
     for sym in td:
@@ -1306,7 +1306,7 @@ def _run_sniper_options_loop_v4(td: dict, days: list, vix_map: dict,
             if ivr > 50 and bull >= 2:
                 r = _sim_covered_call(future, px, iv, OPT_DTE_DEFAULT)
                 if r:
-                    agent_id = "ollama-llama" if regime == "BULL" else "gemini-2.5-flash"
+                    agent_id = "ollama-llama" if regime == "BULL" else "qwen3-8b-flash"
                     options_trades.append({
                         **r, **extra,
                         "strategy":  "covered_call",
@@ -1344,7 +1344,7 @@ def _run_v2replay_v4(td: dict, trading_days: list, vix_map: dict,
     for t in opt_trades:
         strat = t.get("strategy", "")
         aid   = t.get("agent_id",
-                      "gemini-2.5-flash" if ("bear" in strat or "put" in strat) else "ollama-llama")
+                      "qwen3-8b-flash" if ("bear" in strat or "put" in strat) else "ollama-llama")
         t["agent_id"] = aid
         t.setdefault("month", t.get("entry_date", "")[:7])
         t.setdefault("win", 1 if t.get("pnl_pct", 0) > 0 else 0)
@@ -1353,8 +1353,8 @@ def _run_v2replay_v4(td: dict, trading_days: list, vix_map: dict,
     for t in spread_trades:
         strat = t.get("strategy", "")
         aid   = t.get("agent_id",
-                      "gemini-2.5-flash" if "bear" in strat else
-                      "dayblade-sulu"     if "bull" in strat else "gemini-2.5-pro")
+                      "qwen3-8b-flash" if "bear" in strat else
+                      "dayblade-sulu"     if "bull" in strat else "qwen3-14b-pro")
         t["agent_id"] = aid
         t.setdefault("month", t.get("entry_date", "")[:7])
         t.setdefault("win", 1 if t.get("pnl_pct", 0) > 0 else 0)
@@ -1674,7 +1674,7 @@ def _run_v1replay_v4(td: dict, trading_days: list, vix_map: dict,
     for t in opt_trades:
         strat = t.get("strategy", "")
         aid   = t.get("agent_id",
-                      "gemini-2.5-flash" if ("bear" in strat or "put" in strat) else "ollama-llama")
+                      "qwen3-8b-flash" if ("bear" in strat or "put" in strat) else "ollama-llama")
         t["agent_id"] = aid
         t.setdefault("month", t.get("entry_date", "")[:7])
         t.setdefault("win", 1 if t.get("pnl_pct", 0) > 0 else 0)
@@ -1683,8 +1683,8 @@ def _run_v1replay_v4(td: dict, trading_days: list, vix_map: dict,
     for t in spread_trades:
         strat = t.get("strategy", "")
         aid   = t.get("agent_id",
-                      "gemini-2.5-flash" if "bear" in strat else
-                      "dayblade-sulu"     if "bull" in strat else "gemini-2.5-pro")
+                      "qwen3-8b-flash" if "bear" in strat else
+                      "dayblade-sulu"     if "bull" in strat else "qwen3-14b-pro")
         t["agent_id"] = aid
         t.setdefault("month", t.get("entry_date", "")[:7])
         t.setdefault("win", 1 if t.get("pnl_pct", 0) > 0 else 0)
@@ -2092,7 +2092,7 @@ def _print_v4_report(run_date: str, bA: dict, bB: dict, bC: dict, bD: dict) -> N
     delta_sh  = new_v2_sh  - orig_v2_sh
     direction = "IMPROVED" if delta_ret > 0 else "REGRESSED"
     print(f"  Delta: Return {delta_ret:+.2f}pp  Sharpe {delta_sh:+.3f}  — {direction}")
-    print(f"  Key difference: old model labels (deepseek-r1:7b / qwen3.5:9b) vs current fleet models")
+    print(f"  Key difference: old model labels (deepseek-r1:7b / qwen3:8b) vs current fleet models")
     print(f"  Interpretation: model upgrade impact = {delta_ret:+.2f}pp return, {delta_sh:+.3f} Sharpe")
 
     # ── [9] Verdict ───────────────────────────────────────────────────────────

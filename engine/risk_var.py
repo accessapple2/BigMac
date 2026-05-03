@@ -129,16 +129,15 @@ def _get_positions() -> list[dict]:
             "market_value": 0.0,
         })
 
-    # Batch live-price fetch via yfinance
+    # Batch live-price fetch via Alpaca
     symbols = list({p["symbol"] for p in positions})
     prices: dict[str, float] = {}
     try:
-        import yfinance as yf
-        tks = yf.Tickers(" ".join(symbols))
+        from engine.market_data import get_stock_price
         for sym in symbols:
             try:
-                info = tks.tickers[sym].fast_info
-                p = getattr(info, "last_price", None) or getattr(info, "regular_market_price", None)
+                data = get_stock_price(sym)
+                p = data.get("price")
                 if p:
                     prices[sym] = float(p)
             except Exception:
@@ -178,28 +177,24 @@ def _historical_returns(symbols: list[str], days: int = 30) -> dict[str, list[fl
     end   = datetime.now()
     start = end - timedelta(days=days + 10)
 
-    # Try yfinance first
+    # Try Alpaca first
     try:
-        import yfinance as yf
-        import warnings
-        with warnings.catch_warnings():
-            warnings.simplefilter("ignore")
-            data = yf.download(
-                symbols, start=start.strftime("%Y-%m-%d"),
-                end=end.strftime("%Y-%m-%d"),
-                auto_adjust=True, progress=False,
-            )
-        if not data.empty:
-            close = data["Close"] if "Close" in data.columns else data
-            pct   = close.pct_change().dropna()
-            for sym in symbols:
-                try:
-                    col = pct[sym] if sym in pct.columns else pct.iloc[:, 0]
-                    returns[sym] = list(col.dropna().values[-days:])
-                except Exception:
-                    pass
-            if returns:
-                return returns
+        from engine.market_data import get_alpaca_bars
+        bars_dict = get_alpaca_bars(symbols, days=days + 10)
+        if not isinstance(bars_dict, dict):
+            bars_dict = {symbols[0]: bars_dict} if len(symbols) == 1 else {}
+        for sym in symbols:
+            try:
+                df = bars_dict.get(sym)
+                if df is None or df.empty:
+                    continue
+                close = df["Close"].dropna()
+                pct = close.pct_change().dropna()
+                returns[sym] = list(pct.values[-days:])
+            except Exception:
+                pass
+        if returns:
+            return returns
     except Exception:
         pass
 

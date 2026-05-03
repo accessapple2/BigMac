@@ -14,8 +14,10 @@ from rich.console import Console
 
 console = Console()
 DB = "data/trader.db"
-OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("CREWAI_MODEL", "qwen3.5:9b")
+from config import OLLIE_URL as _OLLIE_URL
+OLLAMA_URL = os.getenv("ADVISORY_OLLAMA_URL",
+             os.getenv("OLLAMA_BASE_URL", _OLLIE_URL))
+OLLAMA_MODEL = os.getenv("CREWAI_MODEL", "qwen3:8b")  # 2026-04-20: qwen3:8b → qwen3:8b on Ollie GPU
 
 
 def _conn():

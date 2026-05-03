@@ -23,6 +23,11 @@ def check_trade(agent_id: str, symbol: str, action: str, qty: float, price: floa
     """
     Returns {'allowed': True} or {'allowed': False, 'reason': '...'}
     """
+    # 0. File-based fleet halt (created 2026-04-20, Phase C3)
+    from engine.fleet_halt import is_active as _fleet_halted
+    if _fleet_halted():
+        return {"allowed": False, "reason": "KILL_SWITCH file active — fleet halted"}
+
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")

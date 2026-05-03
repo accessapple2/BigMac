@@ -10,8 +10,10 @@ import os
 import sqlite3
 from datetime import datetime, timedelta
 
+import config as _config
 from crewai import Agent
 from crewai.tools import tool
+from langchain_community.chat_models import ChatOllama
 from shared.finviz_scanner import scan_finviz
 from uoa.crew_tools import uoa_alerts_tool, uoa_flow_tool, uoa_put_call_scan_tool
 
@@ -21,12 +23,16 @@ from uoa.crew_tools import uoa_alerts_tool, uoa_flow_tool, uoa_put_call_scan_too
 
 DB_PATH = os.environ.get("TRADEMINDS_DB", os.path.expanduser("~/autonomous-trader/data/trader.db"))
 
+# 2026-04-23: was "ollama/qwen3:14b" strings (localhost — bigmac RAM killer).
+# Now ChatOllama routed to Ollie GPU (192.168.1.166); Ollie has 32GB RAM,
+# handles qwen3:14b without touching bigmac's 16GB budget.
+_OLLIE_LLM = ChatOllama(model="qwen3:14b", base_url=_config.OLLIE_URL)
 LLM_CONFIG = {
-    "scout": "ollama/qwen3:14b",
-    "architect": "ollama/qwen3:14b",
-    "backtester": "ollama/qwen3:14b",
-    "critic": "ollama/qwen3:14b",
-    "commander": "ollama/qwen3:14b",          # fallback from gemini-2.5-flash (spending cap hit)
+    "scout":      _OLLIE_LLM,
+    "architect":  _OLLIE_LLM,
+    "backtester": _OLLIE_LLM,
+    "critic":     _OLLIE_LLM,
+    "commander":  _OLLIE_LLM,   # fallback from gemini-2.5-flash (spending cap hit)
 }
 
 
@@ -587,7 +593,7 @@ def execute_paper_trade(trade_json: str) -> str:
         bridge = AlpacaBridge()
         acct = bridge.status()
         if not acct.get("connected"):
-            return json.dumps({"error": "Alpaca Paper not connected. Check ALPACA_API_KEY / ALPACA_SECRET_KEY."})
+            return json.dumps({"error": "Alpaca Paper not connected. Check APCA_API_KEY_ID / APCA_API_SECRET_KEY."})
         equity = acct.get("equity", 100000)
         buying_power = acct.get("buying_power", equity)
     except Exception as e:
@@ -639,11 +645,19 @@ def execute_paper_trade(trade_json: str) -> str:
     if pre_price > 0 and qty * pre_price > 5000:
         qty = max(1, int(5000 / pre_price))
 
+    # --- Extended-hours flag ---
+    use_ext = False
+    try:
+        from engine.risk_manager import RiskManager
+        use_ext = RiskManager.is_extended_trading_hours()
+    except Exception:
+        pass
+
     # --- Execute on Alpaca Paper ---
     if direction == "long":
-        order_result = bridge.buy(ticker, qty)
+        order_result = bridge.buy(ticker, qty, extended_hours=use_ext, limit_price=pre_price)
     else:
-        order_result = bridge.sell(ticker, qty)
+        order_result = bridge.sell(ticker, qty, extended_hours=use_ext, limit_price=pre_price)
 
     if order_result.get("error"):
         return json.dumps({

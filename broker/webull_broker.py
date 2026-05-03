@@ -36,67 +36,19 @@ class WebullBroker(Broker):
 
     def buy(self, player_id: str, symbol: str, price: float,
             qty: float = None, reasoning: str = "") -> OrderResult:
-        instrument_id = self.INSTRUMENT_MAP.get(symbol)
-        if not instrument_id:
-            return OrderResult(False, "", symbol, "BUY", 0, price, f"Unknown symbol: {symbol}")
-
-        if qty is None:
-            portfolio = self.get_portfolio(player_id)
-            qty = round((portfolio["cash"] * 0.10) / price, 0)
-
-        try:
-            response = self.api.order.place_order(
-                account_id=self.account_id,
-                qty=str(int(qty)),
-                instrument_id=instrument_id,
-                side="BUY",
-                order_type="LIMIT",
-                limit_price=str(price),
-                tif="DAY",
-                extended_hours_trading=False,
-                client_order_id=str(uuid.uuid4())
-            )
-            if response.status_code == 200:
-                return OrderResult(
-                    True, response.json().get("order_id", ""),
-                    symbol, "BUY", qty, price
-                )
-            return OrderResult(False, "", symbol, "BUY", qty, price, response.text)
-        except Exception as e:
-            return OrderResult(False, "", symbol, "BUY", qty, price, str(e))
+        raise PermissionError(
+            "BLOCKED: Webull is in MONITOR_ONLY mode per Admiral posture "
+            "(2026-04-20). Memory rule #22. To un-mute, remove this "
+            "guard AND confirm with Admiral."
+        )
 
     def sell(self, player_id: str, symbol: str, price: float,
              reasoning: str = "") -> OrderResult:
-        instrument_id = self.INSTRUMENT_MAP.get(symbol)
-        if not instrument_id:
-            return OrderResult(False, "", symbol, "SELL", 0, price, f"Unknown symbol: {symbol}")
-
-        positions = self.get_positions(player_id)
-        pos = next((p for p in positions if p["symbol"] == symbol), None)
-        if not pos:
-            return OrderResult(False, "", symbol, "SELL", 0, price, "No position")
-
-        qty = pos["qty"]
-        try:
-            response = self.api.order.place_order(
-                account_id=self.account_id,
-                qty=str(int(qty)),
-                instrument_id=instrument_id,
-                side="SELL",
-                order_type="LIMIT",
-                limit_price=str(price),
-                tif="DAY",
-                extended_hours_trading=False,
-                client_order_id=str(uuid.uuid4())
-            )
-            if response.status_code == 200:
-                return OrderResult(
-                    True, response.json().get("order_id", ""),
-                    symbol, "SELL", qty, price
-                )
-            return OrderResult(False, "", symbol, "SELL", qty, price, response.text)
-        except Exception as e:
-            return OrderResult(False, "", symbol, "SELL", qty, price, str(e))
+        raise PermissionError(
+            "BLOCKED: Webull is in MONITOR_ONLY mode per Admiral posture "
+            "(2026-04-20). Memory rule #22. To un-mute, remove this "
+            "guard AND confirm with Admiral."
+        )
 
     def get_positions(self, player_id: str) -> list:
         try:

@@ -38,7 +38,7 @@ _DB_PATH = os.environ.get(
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
 )
 
-NTFY_TOPIC       = os.environ.get("NTFY_TOPIC", "trademinds-captain-sv")
+NTFY_TOPIC       = os.environ.get("NTFY_TOPIC", "ollietrades-admin")
 NTFY_ADMIN_TOPIC = os.environ.get("NTFY_ADMIN_TOPIC", "") or NTFY_TOPIC
 NTFY_CREW_TOPIC  = os.environ.get("NTFY_CREW_TOPIC", "") or NTFY_TOPIC
 NTFY_BASE        = "https://ntfy.sh"
@@ -134,7 +134,7 @@ def _rate_ok(alert_type: str) -> bool:
 
 # ── Channel senders ────────────────────────────────────────────────────────────
 
-def _send_ntfy(title: str, message: str, priority: str = "default", tags: str = "trademinds", topic: str = "") -> bool:
+def _send_ntfy(title: str, message: str, priority: str = "default", tags: str = "ollietrades", topic: str = "") -> bool:
     """Push via ntfy.sh (iPhone / Android / browser). topic overrides NTFY_TOPIC."""
     _topic = topic or NTFY_TOPIC
     if not _topic:
@@ -217,10 +217,10 @@ def send_alert(
     }.get(level, "default")
 
     ntfy_tags = {
-        AlertLevel.INFO:      "trademinds",
-        AlertLevel.WARNING:   "warning,trademinds",
-        AlertLevel.RED_ALERT: "rotating_light,trademinds",
-    }.get(level, "trademinds")
+        AlertLevel.INFO:      "ollietrades",
+        AlertLevel.WARNING:   "warning,ollietrades",
+        AlertLevel.RED_ALERT: "rotating_light,ollietrades",
+    }.get(level, "ollietrades")
 
     # Resolve ntfy topic(s) based on audience
     def _ntfy_topics() -> list[str]:
@@ -264,7 +264,7 @@ def send_test_alert(channel: str | None = None) -> dict:
     title = "🧪 TradeMinds Test Alert"
     results = {}
     if channel in (None, "ntfy"):
-        results["ntfy"] = _send_ntfy(title, msg, "default", "test,trademinds")
+        results["ntfy"] = _send_ntfy(title, msg, "default", "test,ollietrades")
     if channel in (None, "email"):
         results["email"] = _send_email(title, msg)
     if channel in (None, "browser"):

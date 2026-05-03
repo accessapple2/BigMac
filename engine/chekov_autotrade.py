@@ -126,10 +126,8 @@ def _get_current_price(symbol: str) -> float | None:
 def _get_vix() -> float:
     """Return current VIX level (0 = unavailable)."""
     try:
-        import yfinance as yf
-        tick = yf.Ticker("^VIX")
-        info = tick.fast_info
-        return float(info.last_price or 0)
+        from engine.market_data import get_vix
+        return get_vix()
     except Exception:
         return 0.0
 
@@ -137,10 +135,10 @@ def _get_vix() -> float:
 def _get_atr(symbol: str, period: int = 14) -> float:
     """Return 14-day ATR for symbol (0 if unavailable)."""
     try:
-        import yfinance as yf
+        from engine.market_data import get_alpaca_bars
         import pandas as pd
-        df = yf.download(symbol, period="30d", progress=False, auto_adjust=True)
-        if df.empty or len(df) < period:
+        df = get_alpaca_bars(symbol, days=30)
+        if df is None or df.empty or len(df) < period:
             return 0.0
         hi = df["High"].squeeze()
         lo = df["Low"].squeeze()

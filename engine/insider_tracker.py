@@ -84,48 +84,55 @@ def scan_insider_alerts() -> list:
     """Scan all WATCH_STOCKS for significant insider buying in the last 30 days.
 
     Flags purchases > $500,000 as notable alerts.
+    Parallelized: 4 workers, 10s total budget, 2s per-symbol cap.
 
     Returns list of alert dicts with: symbol, insider_name, value, shares,
     date, alert_type, significance.
     """
+    from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
+
     cutoff = datetime.now() - timedelta(days=30)
     cutoff_str = cutoff.strftime("%Y-%m-%d")
     alerts = []
 
-    for symbol in config.WATCH_STOCKS:
+    def _fetch_symbol(symbol):
         try:
-            trades = get_insider_trades(symbol)
-            for trade in trades:
-                # Filter to recent purchases only
-                txn_type = trade.get("transaction_type", "").lower()
-                is_buy = any(kw in txn_type for kw in ["purchase", "buy", "acquisition"])
-                if not is_buy:
-                    continue
-
-                # Check date is within 30 days
-                trade_date = trade.get("date", "")
-                if trade_date and trade_date < cutoff_str:
-                    continue
-
-                value = trade.get("value", 0) or 0
-
-                # Flag significant purchases (> $500k)
-                if value >= 500_000:
-                    alert = {
-                        "symbol": symbol,
-                        "insider_name": trade["insider_name"],
-                        "relation": trade.get("relation", ""),
-                        "value": value,
-                        "shares": trade.get("shares", 0),
-                        "date": trade_date,
-                        "alert_type": "large_insider_buy",
-                        "significance": _classify_significance(value),
-                        "scanned_at": datetime.now().isoformat(),
-                    }
-                    alerts.append(alert)
-
+            return symbol, get_insider_trades(symbol)
         except Exception as e:
             console.log(f"[red]Insider alert scan error for {symbol}: {e}")
+            return symbol, []
+
+    try:
+        with ThreadPoolExecutor(max_workers=4) as pool:
+            futures = {pool.submit(_fetch_symbol, s): s for s in config.get_effective_watchlist()}
+            for f in as_completed(futures, timeout=10):
+                try:
+                    symbol, trades = f.result(timeout=2)
+                    for trade in trades:
+                        txn_type = trade.get("transaction_type", "").lower()
+                        is_buy = any(kw in txn_type for kw in ["purchase", "buy", "acquisition"])
+                        if not is_buy:
+                            continue
+                        trade_date = trade.get("date", "")
+                        if trade_date and trade_date < cutoff_str:
+                            continue
+                        value = trade.get("value", 0) or 0
+                        if value >= 500_000:
+                            alerts.append({
+                                "symbol": symbol,
+                                "insider_name": trade["insider_name"],
+                                "relation": trade.get("relation", ""),
+                                "value": value,
+                                "shares": trade.get("shares", 0),
+                                "date": trade_date,
+                                "alert_type": "large_insider_buy",
+                                "significance": _classify_significance(value),
+                                "scanned_at": datetime.now().isoformat(),
+                            })
+                except (FuturesTimeout, Exception):
+                    continue
+    except FuturesTimeout:
+        pass  # return partial results collected so far
 
     # Sort by value descending
     alerts.sort(key=lambda x: x.get("value", 0), reverse=True)

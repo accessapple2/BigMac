@@ -1,0 +1,76 @@
+# Starter universe for base_rates ingest.
+# One ticker per line. # for comments. Edit freely.
+#
+# This is intentionally small — ~50 names — so first ingest finishes in
+# minutes, not hours. Expand later by appending S&P 500 etc.
+
+# Core indices / sentiment
+SPY
+QQQ
+IWM
+DIA
+
+# Mega caps
+AAPL
+MSFT
+NVDA
+GOOGL
+AMZN
+META
+TSLA
+
+# Steve's watchlist favorites
+AMD
+COIN
+PLTR
+NFLX
+
+# Semis
+INTC
+AVGO
+MU
+LRCX
+TSM
+WDC
+
+# AI / cloud
+ORCL
+CRM
+SNOW
+ADBE
+
+# Financials
+JPM
+BAC
+GS
+MS
+
+# Healthcare
+LLY
+UNH
+JNJ
+PFE
+
+# Energy
+XOM
+CVX
+OXY
+
+# Consumer
+COST
+WMT
+HD
+MCD
+
+# Volatility-prone movers (TradeOdds examples)
+AAOI
+ONDS
+LITE
+
+# ETFs for thematic exposure
+TQQQ
+SQQQ
+SOXL
+ARKK
+GLD
+SLV

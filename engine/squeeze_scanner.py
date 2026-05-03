@@ -40,15 +40,14 @@ def _fetch_finviz_candidates() -> list[dict]:
 
 
 def _get_yfinance_data(ticker: str) -> dict | None:
-    """Fetch RSI, volume ratio, 10d high via yfinance."""
+    """Fetch RSI, volume ratio, 10d high — migrated 2026-04-27 yfinance -> Alpaca."""
     try:
-        import yfinance as yf
-        hist = yf.download(ticker, period="30d", interval="1d",
-                           progress=False, auto_adjust=True)
+        from engine.market_data import get_alpaca_bars
+        hist = get_alpaca_bars(ticker, timeframe="1Day", days=30)
         if hist is None or len(hist) < 11:
             return None
-        close = hist["Close"].dropna()
-        volume = hist["Volume"].dropna()
+        close = hist["Close"].squeeze().dropna()
+        volume = hist["Volume"].squeeze().dropna()
         if len(close) < 11 or len(volume) < 11:
             return None
 
@@ -214,6 +213,7 @@ def run_scan(force: bool = False) -> dict:
                 "ticker": ticker,
                 "short_interest_pct": round(short_pct, 1),
                 "float_m": round(float_m, 2),
+                "days_to_cover": _parse_float_val(row.get("Short Ratio")),
                 "vol_ratio": vol_ratio,
                 "price": yf_data["price"],
                 "day_change_pct": round(change_pct, 2),

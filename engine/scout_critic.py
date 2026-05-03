@@ -19,9 +19,10 @@ import requests
 
 logger = logging.getLogger("scout_critic")
 
+from config import OLLIE_URL as _OLLIE_URL
 TRADER_DB        = "data/trader.db"
-OLLAMA_URL       = "http://127.0.0.1:11434/api/generate"
-CRITIC_MODEL     = "qwen3.5:9b"
+OLLAMA_URL       = f"{_OLLIE_URL}/api/generate"  # 2026-04-20: localhost → Ollie GPU
+CRITIC_MODEL     = "qwen3:8b"  # 2026-04-20: qwen3:8b → qwen3:8b
 SCOUT_TIMEOUT    = 45   # seconds
 CRITIC_TIMEOUT   = 45   # seconds
 CRITIC_MIN_SCORE = 7    # approve if Critic scores >= this

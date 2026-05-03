@@ -172,12 +172,12 @@ def _gather_steves_portfolio() -> str:
     positions = conn.execute(
         "SELECT symbol, qty, avg_price, asset_type, option_type, "
         "strike_price, expiry_date "
-        "FROM positions WHERE player_id='steve-webull'"
+        "FROM positions WHERE player_id='webull'"
     ).fetchall()
 
     # Get cash
     cash_row = conn.execute(
-        "SELECT cash FROM ai_players WHERE id='steve-webull'"
+        "SELECT cash FROM ai_players WHERE id='webull'"
     ).fetchone()
     conn.close()
 

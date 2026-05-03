@@ -45,14 +45,27 @@ MEM_CRIT_PCT    = 95    # kill non-essential processes to free RAM
 BRIDGE_URL        = "http://127.0.0.1:8080/api/status"
 SIGNAL_CENTER_URL = "http://127.0.0.1:9000/"
 OLLAMA_URL        = "http://127.0.0.1:11434/api/tags"
-NTFY_TOPIC        = "ollietrades-admin"   # subscribe in ntfy app on iPhone
+NTFY_TOPIC        = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")  # subscribe in ntfy app on iPhone
 
 DAILY_SNAPSHOT_HOUR_ET = 16   # 4 PM ET
 DAILY_SNAPSHOT_MIN_ET  =  5   # 4:05 PM ET
 
+# Bridge restart controls — added 2026-04-17 after cascading-restart incident.
+# Dashboard warmup (Ollama model preload + price cache + market history backfill)
+# takes ~25-30s; prior 5s HTTP timeout + 6s post-kickstart wait + no cooldown
+# meant a single slow startup triggered a kickstart loop every 60s. Fix:
+# require 3 consecutive strikes (180s grace), cool down 5 min between
+# kickstarts, and wait 30s after kickstart for warmup to complete.
+BRIDGE_HTTP_TIMEOUT      = 8     # was implicit 5s; slow cycles were false-flagging
+BRIDGE_STRIKES_NEEDED    = 3     # 3 × 60s check interval = 180s grace
+BRIDGE_RESTART_COOLDOWN  = 300   # max one kickstart per 5 min
+BRIDGE_POST_RESTART_WAIT = 30    # was 6s — matches actual dashboard warmup
+
 # State
 _last_notify: dict = {}
 _last_snapshot_date: str = ""
+_bridge_down_count: int = 0
+_bridge_last_restart_ts: float = 0.0
 
 
 # ── alert helpers ─────────────────────────────────────────────────────────────
@@ -77,7 +90,7 @@ def mac_notify(title: str, body: str, key: str = "") -> None:
 
 def push_alert(title: str, body: str, key: str = "", priority: str = "high") -> None:
     """iPhone push via ntfy.sh — free, no account needed.
-    Install 'ntfy' from App Store → subscribe to: ollietrades-admin
+    Install 'ntfy' from App Store → subscribe to: Ollie-Alert-35
     """
     if not _cooldown_ok((key or title) + "_ntfy"):
         return
@@ -179,8 +192,28 @@ def trigger_snapshot() -> None:
 
 # ── service checks ────────────────────────────────────────────────────────────
 def check_bridge() -> None:
-    if http_ok(BRIDGE_URL):
+    global _bridge_down_count, _bridge_last_restart_ts
+    if http_ok(BRIDGE_URL, timeout=BRIDGE_HTTP_TIMEOUT):
+        _bridge_down_count = 0   # reset strikes on any success
         return
+    # ── strike system: require N consecutive failures before acting ──
+    # Dashboard warmup takes ~25-30s after kickstart; a single slow response
+    # during that window used to trigger another kickstart, creating a loop.
+    _bridge_down_count += 1
+    if _bridge_down_count < BRIDGE_STRIKES_NEEDED:
+        log.info(
+            f"Bridge unresponsive ({_bridge_down_count}/{BRIDGE_STRIKES_NEEDED} strikes) — "
+            f"waiting before kickstart (dashboard warmup can take 30s)"
+        )
+        return
+    # ── cooldown: no more than one kickstart per BRIDGE_RESTART_COOLDOWN sec ──
+    now = time.time()
+    if now - _bridge_last_restart_ts < BRIDGE_RESTART_COOLDOWN:
+        remaining = int(BRIDGE_RESTART_COOLDOWN - (now - _bridge_last_restart_ts))
+        log.warning(f"Bridge still down but cooldown active ({remaining}s remaining)")
+        return
+    _bridge_last_restart_ts = now
+    _bridge_down_count = 0
     # ── diagnose WHY it's down ──
     diag = []
     import subprocess, shutil
@@ -221,8 +254,8 @@ def check_bridge() -> None:
     diagnosis = " | ".join(diag) if diag else "Unknown cause"
     alert("🚨 Bridge Down", f"Port 8080 unresponsive — {diagnosis}\nRestarting via launchd", "bridge")
     launchctl_kickstart("com.trademinds.trader")
-    time.sleep(6)
-    if http_ok(BRIDGE_URL):
+    time.sleep(BRIDGE_POST_RESTART_WAIT)
+    if http_ok(BRIDGE_URL, timeout=BRIDGE_HTTP_TIMEOUT):
         log.info("Bridge RECOVERED")
         push_alert("✅ Bridge Recovered", "Port 8080 is back online", "bridge_ok", "low")
     else:

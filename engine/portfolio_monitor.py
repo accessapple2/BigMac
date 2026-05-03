@@ -80,10 +80,16 @@ def check_captains_portfolio() -> list[dict]:
     conn = _conn()
     try:
         # ── Fetch current positions ──────────────────────────────────────────
+        # Source: schwab_holdings table (latest snapshot)
+        # 2026-04-28: rerouted from Webull positions table after Schwab migration
         positions = conn.execute(
-            "SELECT symbol, qty, avg_price "
-            "FROM positions "
-            "WHERE player_id='steve-webull' AND qty > 0",
+            "SELECT symbol, qty, "
+            "       CASE WHEN qty > 0 THEN cost_basis/qty ELSE 0 END AS avg_price "
+            "FROM schwab_holdings "
+            "WHERE snapshot_id = (SELECT MAX(snapshot_id) FROM schwab_holdings) "
+            "  AND is_summary_row = 0 "
+            "  AND symbol != 'CASH' "
+            "  AND qty > 0",
         ).fetchall()
 
         if not positions:

@@ -38,9 +38,9 @@ def compute_strength_score(symbol: str, spy_perf_5d: float = 0.0) -> dict | None
     if _is_yf_limited():
         return None
     try:
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="1y", interval="1d")
-        if hist.empty or len(hist) < 10:
+        from engine.market_data import get_alpaca_bars
+        hist = get_alpaca_bars(symbol, days=365)
+        if hist is None or hist.empty or len(hist) < 10:
             return None
 
         close = hist["Close"]
@@ -153,9 +153,9 @@ def scan_relative_strength(symbols: list) -> list:
     # Get SPY's 5-day performance as benchmark
     spy_perf_5d = 0.0
     try:
-        spy = yf.Ticker("SPY")
-        spy_hist = spy.history(period="10d", interval="1d")
-        if len(spy_hist) >= 6:
+        from engine.market_data import get_alpaca_bars
+        spy_hist = get_alpaca_bars("SPY", days=10)
+        if spy_hist is not None and len(spy_hist) >= 6:
             spy_perf_5d = (float(spy_hist["Close"].iloc[-1]) / float(spy_hist["Close"].iloc[-6]) - 1) * 100
     except Exception as e:
         err = str(e)

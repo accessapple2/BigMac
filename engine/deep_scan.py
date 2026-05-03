@@ -41,8 +41,8 @@ logging.basicConfig(
 # ---------------------------------------------------------------------------
 
 DB_PATH = os.environ.get("TRADEMINDS_DB", "data/trader.db")
-ALPACA_API_KEY = os.environ.get("ALPACA_API_KEY", "")
-ALPACA_SECRET_KEY = os.environ.get("ALPACA_SECRET_KEY", "")
+APCA_API_KEY_ID = os.environ.get("APCA_API_KEY_ID", "")
+APCA_API_SECRET_KEY = os.environ.get("APCA_API_SECRET_KEY", "")
 
 _VALID_EXCHANGES = {"NYSE", "NASDAQ", "AMEX", "ARCA"}
 _UNIVERSE_STALE_DAYS = 6       # rebuild if older than this
@@ -51,6 +51,9 @@ _MIN_AVG_VOLUME = 1_000_000.0
 _MIN_AVG_PRICE = 5.0
 _MAX_AVG_PRICE = 500.0
 _BARS_LOOKBACK = 20            # trading days for avg_volume / avg_price
+
+# Module-level set of today's earnings reporters — populated by inject_earnings_tickers()
+_earnings_day_set: set = set()
 
 # ---------------------------------------------------------------------------
 # Hardcoded S&P 500 + extras fallback (~528 symbols)
@@ -171,6 +174,12 @@ def _init_db() -> None:
                 created_at TEXT NOT NULL DEFAULT (datetime('now'))
             )
         """)
+        # Add earnings_today flag if the column doesn't exist yet (additive migration)
+        try:
+            c.execute("ALTER TABLE deep_scan_results ADD COLUMN earnings_today INTEGER DEFAULT 0")
+            c.commit()
+        except Exception:
+            pass  # Column already exists — safe to ignore
         # Indexes
         c.execute(
             "CREATE INDEX IF NOT EXISTS idx_scan_universe_symbol "
@@ -199,7 +208,7 @@ def _chunks(lst: list, n: int):
 
 
 def _alpaca_configured() -> bool:
-    return bool(ALPACA_API_KEY and ALPACA_SECRET_KEY)
+    return bool(APCA_API_KEY_ID and APCA_API_SECRET_KEY)
 
 
 # ---------------------------------------------------------------------------
@@ -229,7 +238,7 @@ def build_universe(force: bool = False) -> dict:
     t0 = time.time()
 
     if not _alpaca_configured():
-        return {"error": "Alpaca keys not configured (ALPACA_API_KEY / ALPACA_SECRET_KEY)"}
+        return {"error": "Alpaca keys not configured (APCA_API_KEY_ID / APCA_API_SECRET_KEY)"}
 
     # Freshness check
     if not force:
@@ -270,8 +279,8 @@ def build_universe(force: bool = False) -> dict:
     except ImportError as e:
         return {"error": f"Import failed: {e}"}
 
-    trading_client = TradingClient(ALPACA_API_KEY, ALPACA_SECRET_KEY, paper=True)
-    data_client = StockHistoricalDataClient(ALPACA_API_KEY, ALPACA_SECRET_KEY)
+    trading_client = TradingClient(APCA_API_KEY_ID, APCA_API_SECRET_KEY, paper=True)
+    data_client = StockHistoricalDataClient(APCA_API_KEY_ID, APCA_API_SECRET_KEY)
 
     # ----------------------------------------------------------------
     # Step 1 — fetch all active tradeable US equity assets
@@ -440,6 +449,145 @@ def get_universe() -> list[str]:
     return list(_SP500_FALLBACK)
 
 
+def inject_earnings_tickers(tickers: list) -> int:
+    """UPSERT earnings-day tickers into scan_universe and mark them for priority scanning.
+
+    Called by main.py at 6 AM AZ each trading day.  Adds any missing tickers so the
+    deep-scan pipeline picks them up even if they weren't in the filtered universe.
+
+    Args:
+        tickers: list of ticker symbols reporting earnings today.
+
+    Returns:
+        Number of tickers injected (new or refreshed).
+    """
+    global _earnings_day_set
+    if not tickers:
+        return 0
+
+    _earnings_day_set = set(tickers)
+    today = datetime.now().strftime("%Y-%m-%d")
+    count = 0
+    try:
+        with _conn() as c:
+            for sym in tickers:
+                c.execute(
+                    """
+                    INSERT INTO scan_universe (symbol, name, exchange, sector, avg_volume, avg_price, last_updated)
+                    VALUES (?, ?, ?, ?, ?, ?, ?)
+                    ON CONFLICT(symbol) DO UPDATE SET last_updated = excluded.last_updated
+                    """,
+                    (sym, sym, "NYSE", "Unknown", 0.0, 0.0, today),
+                )
+                count += 1
+            c.commit()
+        logger.info("inject_earnings_tickers: %d tickers injected into scan_universe", count)
+    except Exception as e:
+        logger.error("inject_earnings_tickers DB error: %s", e)
+
+    return count
+
+
+def scan_earnings_tickers(tickers: list) -> dict:
+    """Run the full strategy suite on earnings-day tickers and tag results earnings_today=1.
+
+    Meant to be called every 5 minutes during market hours when earnings names are active.
+
+    Args:
+        tickers: list of symbols to scan (typically list(_earnings_day_set)).
+
+    Returns:
+        dict with symbols_scanned, signals_found, top_symbols.
+    """
+    if not tickers:
+        return {"symbols_scanned": 0, "signals_found": 0, "top_symbols": []}
+
+    scan_date = datetime.now().strftime("%Y-%m-%d")
+    scan_time = datetime.now().strftime("%H:%M:%S")
+
+    try:
+        from engine.strategies import scan_strategies  # type: ignore
+    except ImportError as e:
+        logger.error("scan_earnings_tickers import failed: %s", e)
+        return {"symbols_scanned": 0, "signals_found": 0, "top_symbols": [], "error": str(e)}
+
+    try:
+        results = scan_strategies(tickers=list(tickers), save=False)
+    except Exception as e:
+        logger.error("scan_earnings_tickers scan_strategies error: %s", e)
+        return {"symbols_scanned": len(tickers), "signals_found": 0, "top_symbols": [], "error": str(e)}
+
+    if not results:
+        return {"symbols_scanned": len(tickers), "signals_found": 0, "top_symbols": []}
+
+    rows_to_insert: list = []
+    for sig in results:
+        try:
+            symbol = sig.get("ticker") or sig.get("symbol", "")
+            if not symbol:
+                continue
+            strategy_names = sig.get("strategy_names", [])
+            entry = sig.get("entry") or sig.get("entry_price")
+            stop = sig.get("stop") or sig.get("stop_price")
+            target = sig.get("target") or sig.get("target_price")
+            names_to_store = strategy_names if strategy_names else ["convergence"]
+            for strat_name in names_to_store:
+                rows_to_insert.append({
+                    "scan_date": scan_date,
+                    "scan_time": scan_time,
+                    "symbol": symbol,
+                    "strategy_name": strat_name,
+                    "signal_strength": float(sig.get("strategies_triggered", 0)),
+                    "confidence": float(sig.get("confidence", 0.0)),
+                    "entry_price": float(entry) if entry is not None else None,
+                    "stop_price": float(stop) if stop is not None else None,
+                    "target_price": float(target) if target is not None else None,
+                    "risk_reward": float(sig.get("risk_reward", 0.0)),
+                    "volume": None,
+                    "avg_volume": None,
+                    "rel_volume": None,
+                    "sector": None,
+                    "earnings_today": 1,
+                })
+        except Exception as e:
+            logger.debug("scan_earnings_tickers row prep error: %s", e)
+
+    if rows_to_insert:
+        try:
+            with _conn() as c:
+                c.executemany(
+                    """
+                    INSERT INTO deep_scan_results
+                        (scan_date, scan_time, symbol, strategy_name,
+                         signal_strength, confidence, entry_price, stop_price,
+                         target_price, risk_reward, volume, avg_volume,
+                         rel_volume, sector, earnings_today)
+                    VALUES
+                        (:scan_date, :scan_time, :symbol, :strategy_name,
+                         :signal_strength, :confidence, :entry_price, :stop_price,
+                         :target_price, :risk_reward, :volume, :avg_volume,
+                         :rel_volume, :sector, :earnings_today)
+                    """,
+                    rows_to_insert,
+                )
+                c.commit()
+        except Exception as e:
+            logger.error("scan_earnings_tickers DB insert failed: %s", e)
+
+    top = sorted(results, key=lambda x: float(x.get("confidence", 0)), reverse=True)[:5]
+    top_symbols = [s.get("ticker") or s.get("symbol", "") for s in top]
+
+    logger.info(
+        "scan_earnings_tickers: %d tickers → %d signals (%s)",
+        len(tickers), len(results), top_symbols,
+    )
+    return {
+        "symbols_scanned": len(tickers),
+        "signals_found": len(results),
+        "top_symbols": top_symbols,
+    }
+
+
 def run_deep_scan(max_symbols: int = 500, force: bool = False) -> dict:
     """Execute all strategies across the expanded universe and store results.
 
@@ -485,6 +633,20 @@ def run_deep_scan(max_symbols: int = 500, force: bool = False) -> dict:
         }
 
     universe = universe[:max_symbols]
+
+    # Promote earnings-day tickers to front of scan queue
+    if _earnings_day_set:
+        earn_front = [s for s in universe if s in _earnings_day_set]
+        earn_extra = [s for s in _earnings_day_set if s not in set(universe)]
+        rest = [s for s in universe if s not in _earnings_day_set]
+        universe = earn_front + earn_extra + rest
+        if earn_front or earn_extra:
+            logger.info(
+                "run_deep_scan: promoting %d earnings tickers to front (%s)",
+                len(earn_front) + len(earn_extra),
+                (earn_front + earn_extra)[:10],
+            )
+
     console.log(
         f"[cyan][DeepScan] Starting deep scan across {len(universe)} symbols…"
     )
@@ -639,10 +801,11 @@ def get_deep_scan_results(limit: int = 50, min_strength: float = 0.0) -> dict:
                 """
                 SELECT symbol, strategy_name, signal_strength, confidence,
                        entry_price, stop_price, target_price, risk_reward,
-                       volume, avg_volume, rel_volume, sector
+                       volume, avg_volume, rel_volume, sector,
+                       COALESCE(earnings_today, 0) as earnings_today
                 FROM deep_scan_results
                 WHERE scan_date = ? AND signal_strength >= ?
-                ORDER BY confidence DESC, signal_strength DESC
+                ORDER BY earnings_today DESC, confidence DESC, signal_strength DESC
                 LIMIT ?
                 """,
                 (use_date, min_strength, limit),

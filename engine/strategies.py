@@ -8,11 +8,13 @@ import sqlite3
 import json
 import time
 from datetime import datetime
+from pathlib import Path
 from rich.console import Console
 import numpy as np
 
 console = Console()
 DB = "data/trader.db"
+_SIGNAL_CENTER_DB = Path(__file__).resolve().parent.parent / "signal-center" / "signals.db"
 
 
 def _conn():
@@ -57,6 +59,57 @@ def _macd(closes):
         return float(macd_line[-1]), 0
     signal = _ema(macd_line, 9)
     return float(macd_line[-1]), float(signal[-1])
+
+
+def _adx(high, low, close, period=14):
+    """Wilder's Average Directional Index. Returns (adx, plus_di, minus_di)."""
+    high  = np.array(high,  dtype=float)
+    low   = np.array(low,   dtype=float)
+    close = np.array(close, dtype=float)
+    if len(close) < period * 2 + 1:
+        return 0.0, 0.0, 0.0
+
+    tr        = np.maximum(high[1:] - low[1:],
+                np.maximum(np.abs(high[1:] - close[:-1]),
+                           np.abs(low[1:]  - close[:-1])))
+    up_move   = high[1:] - high[:-1]
+    down_move = low[:-1] - low[1:]
+    plus_dm   = np.where((up_move > down_move) & (up_move > 0),   up_move,   0.0)
+    minus_dm  = np.where((down_move > up_move) & (down_move > 0), down_move, 0.0)
+
+    # Wilder smoothing for TR/+DM/-DM: first = sum of n bars, then rolling subtract+add
+    def _wilder_sum(arr, n):
+        out = np.zeros(len(arr))
+        out[n - 1] = np.sum(arr[:n])
+        for i in range(n, len(arr)):
+            out[i] = out[i - 1] - out[i - 1] / n + arr[i]
+        return out
+
+    atr_s  = _wilder_sum(tr,       period)
+    pdm_s  = _wilder_sum(plus_dm,  period)
+    mdm_s  = _wilder_sum(minus_dm, period)
+
+    # +DI / -DI (safe divide — avoid both NaN warnings and zero-division)
+    atr_safe = np.where(atr_s > 0, atr_s, 1.0)
+    pdi      = 100 * pdm_s / atr_safe
+    mdi      = 100 * mdm_s / atr_safe
+    pdi      = np.where(atr_s > 0, pdi, 0.0)
+    mdi      = np.where(atr_s > 0, mdi, 0.0)
+
+    # DX
+    di_sum   = pdi + mdi
+    di_diff  = np.abs(pdi - mdi)
+    di_safe  = np.where(di_sum > 0, di_sum, 1.0)
+    dx       = np.where(di_sum > 0, 100 * di_diff / di_safe, 0.0)
+
+    # Wilder EMA for ADX: first = mean of first n DX values, then α=1/n EMA
+    dx_slice = dx[period - 1:]
+    adx_arr  = np.zeros(len(dx_slice))
+    adx_arr[period - 1] = float(np.mean(dx_slice[:period]))
+    for i in range(period, len(dx_slice)):
+        adx_arr[i] = (adx_arr[i - 1] * (period - 1) + dx_slice[i]) / period
+
+    return float(adx_arr[-1]), float(pdi[-1]), float(mdi[-1])
 
 
 # ============================================================
@@ -209,6 +262,55 @@ def check_relative_strength_high(close, spy_close):
     return rs_now >= rs_max
 
 
+def check_bull_momentum_breakout(close, high, low, volume, avg_vol, regime=None):
+    """BULL Momentum Breakout — 4-factor entry filter.
+
+    Entry conditions:
+      1. Price breaks above prior 20-day high (new high breakout)
+      2. Volume > 1.5x 20-day average (institutional participation)
+      3. RSI 50-70 (momentum zone, not overbought)
+      4. ADX > 25 (confirmed directional trend)
+
+    Regime filter: blocked in BEAR, HIGH_VOL, CRISIS regimes.
+    Position sizing: 2% of portfolio; scale to 4% if conviction score >= 0.8.
+    Exits: stop 2% below entry, target 6% above (3:1 R/R),
+           trailing stop 1.5% once up 3%.
+    """
+    if regime and regime.upper() in ("BEAR", "HIGH_VOL", "CRISIS"):
+        return False
+    if len(close) < 22 or len(high) < 22 or len(low) < 22:
+        return False
+
+    price   = float(close[-1])
+    high_20 = float(np.max(high[-21:-1]))           # prior 20 days, excludes today
+    vol_ok  = float(volume[-1]) > float(avg_vol) * 1.5
+    rsi     = _rsi(close)
+    adx, _, _ = _adx(high, low, close)
+
+    return (
+        price > high_20           # 1. 20-day high breakout
+        and vol_ok                # 2. volume surge ≥ 1.5x
+        and 50.0 <= rsi <= 70.0   # 3. momentum RSI (not overbought)
+        and adx > 25.0            # 4. trending market
+    )
+
+
+def check_bear_momentum_breakdown(close, high, low, volume, avg_vol, regime=None):
+    """BEAR Momentum Breakdown - 4-factor SHORT entry (mirror of BULL).
+    Blocked in BULL/LOW_VOL. Stops 2% above, target 6% below (3:1).
+    """
+    if regime and regime.upper() in ("BULL", "LOW_VOL", "CRISIS"):
+        return False
+    if len(close) < 22 or len(high) < 22 or len(low) < 22:
+        return False
+    price   = float(close[-1])
+    low_20  = float(np.min(low[-21:-1]))
+    vol_ok  = float(volume[-1]) > float(avg_vol) * 1.5
+    rsi     = _rsi(close)
+    adx, _, _ = _adx(high, low, close)
+    return (price < low_20 and vol_ok and 30.0 <= rsi <= 50.0 and adx > 25.0)
+
+
 # Strategy registry
 STRATEGIES = {
     # Momentum
@@ -231,6 +333,9 @@ STRATEGIES = {
     "trend_resumption": {"fn": "trend_resumption", "type": "trend", "desc": "Resumes uptrend after pullback"},
     # Relative Strength
     "relative_strength_high": {"fn": "relative_strength_high", "type": "momentum", "desc": "RS line at new high vs SPY"},
+    # Bull Momentum
+    "bull_momentum_breakout": {"fn": "bull_momentum_breakout", "type": "momentum", "desc": "20d-high break + 1.5x vol + RSI 50-70 + ADX>25 (BULL regime)"},
+    "bear_momentum_breakdown": {"fn": "bear_momentum_breakdown", "type": "momentum_short", "desc": "20d-low break + 1.5x vol + RSI 30-50 + ADX>25 (BEAR/NEUTRAL)"},
 }
 
 
@@ -262,6 +367,8 @@ def run_strategies(ticker: str, df, spy_df=None) -> list:
         "higher_highs": lambda: check_higher_highs(high, low),
         "trend_resumption": lambda: check_trend_resumption(close),
         "relative_strength_high": lambda: check_relative_strength_high(close, spy_close) if spy_close is not None else False,
+        "bull_momentum_breakout": lambda: check_bull_momentum_breakout(close, high, low, volume, avg_vol),
+        "bear_momentum_breakdown": lambda: check_bear_momentum_breakdown(close, high, low, volume, avg_vol),
     }
 
     for name, check_fn in checks.items():
@@ -269,16 +376,23 @@ def run_strategies(ticker: str, df, spy_df=None) -> list:
             if check_fn():
                 meta = STRATEGIES[name]
                 entry = float(close[-1])
-                # Calculate stop and target based on strategy type
-                atr = float(np.mean(np.abs(np.diff(close[-15:])))) if len(close) >= 15 else entry * 0.02
-                stop = round(entry - 2 * atr, 2)
-                target = round(entry + 3 * atr, 2)  # 1.5:1 minimum R/R
+                # Strategy-specific stops/targets override the generic ATR calc
+                if name == "bull_momentum_breakout":
+                    stop   = round(entry * 0.98, 2)   # 2% hard stop
+                    target = round(entry * 1.06, 2)   # 6% target → 3:1 R/R
+                elif name == "bear_momentum_breakdown":
+                    stop   = round(entry * 1.02, 2)   # 2% stop ABOVE
+                    target = round(entry * 0.94, 2)   # 6% target BELOW
+                else:
+                    atr    = float(np.mean(np.abs(np.diff(close[-15:])))) if len(close) >= 15 else entry * 0.02
+                    stop   = round(entry - 2 * atr, 2)
+                    target = round(entry + 3 * atr, 2)  # 1.5:1 minimum R/R
 
                 triggered.append({
                     "name": name,
                     "type": meta["type"],
                     "desc": meta["desc"],
-                    "signal_type": "BUY",
+                    "signal_type": "SHORT" if str(meta.get("type","")).endswith("_short") else "BUY",
                     "entry_price": round(entry, 2),
                     "stop_price": stop,
                     "target_price": target,
@@ -436,7 +550,7 @@ def scan_strategies(tickers: list = None, save: bool = True) -> list:
     Returns list of convergence signals (stocks where 3+ strategies agree).
     Uses combined volume scanner + core watchlist universe when no tickers given.
     """
-    import yfinance as yf
+    from engine.market_data import get_alpaca_bars
 
     if not tickers:
         # Try combined universe first (volume hot stocks + core watchlist)
@@ -456,15 +570,18 @@ def scan_strategies(tickers: list = None, save: bool = True) -> list:
     # Download data
     all_tickers = list(set(tickers + ["SPY"]))
     try:
-        data = yf.download(all_tickers, period="1y", group_by="ticker",
-                           threads=True, progress=False, auto_adjust=True)
+        data = get_alpaca_bars(all_tickers, days=365)
+        if not isinstance(data, dict):
+            data = {all_tickers[0]: data} if len(all_tickers) == 1 else {}
     except Exception as e:
         console.log(f"[red]Strategy scan download failed: {e}")
         return []
 
     # Extract SPY for relative strength
     try:
-        spy_df = data["SPY"].dropna() if "SPY" in data.columns.get_level_values(0) else None
+        spy_df = data.get("SPY")
+        if spy_df is not None:
+            spy_df = spy_df.dropna()
     except Exception:
         spy_df = None
 
@@ -474,7 +591,10 @@ def scan_strategies(tickers: list = None, save: bool = True) -> list:
     for ticker in tickers:
         try:
             try:
-                df = data[ticker].dropna()
+                df = data.get(ticker)
+                if df is None:
+                    continue
+                df = df.dropna()
             except (KeyError, TypeError):
                 continue
             if df is None or len(df) < 20:
@@ -535,23 +655,239 @@ def _save_strategy_signals(signals: list):
     conn.close()
 
 
+# ── TB Direct Bypass ──────────────────────────────────────────────────────────
+# TB signals with confidence >= 90% skip convergence entirely and go straight
+# to Ollie. Only symbols in the liquid universe are eligible.
+
+TB_DIRECT_THRESHOLD = 85  # minimum confidence to bypass convergence
+
+TB_LIQUID_UNIVERSE: set[str] = {
+    # S&P 500 + NASDAQ-100 + Russell 1000 mid-caps + ETFs (~680 symbols)
+    "A", "AA", "AAL", "AAPL", "ABBV", "ABC", "ABNB", "ABR", "ABT", "ACAD", "ACLS", "ACN",
+    "ADBE", "ADI", "ADM", "ADP", "ADT", "AEE", "AEHR", "AEM", "AEO", "AEP", "AFL", "AFRM",
+    "AGG", "AIG", "AJG", "ALB", "ALGN", "ALK", "ALL", "ALLY", "ALNY", "AMAT", "AMBA", "AMCR",
+    "AMD", "AMDL", "AME", "AMGN", "AMT", "AMZN", "ANF", "AON", "APD", "APH", "APPN", "ARE",
+    "ARKF", "ARKG", "ARKK", "ARKQ", "ARKW", "ARM", "ARMK", "ARRY", "ASAN", "ASHR", "ASML", "ATO",
+    "AVB", "AVGO", "AVY", "AWK", "AXP", "AZO", "BA", "BABA", "BAC", "BALL", "BBIO", "BBWI",
+    "BBY", "BEAM", "BIDU", "BILI", "BILL", "BIO", "BJ", "BK", "BKNG", "BKR", "BLK", "BLNK",
+    "BMRN", "BMY", "BND", "BNTX", "BOIL", "BR", "BRK.B", "BRZE", "BSOL", "BSX", "BUG", "BXP",
+    "C", "CAG", "CAH", "CARG", "CARR", "CAT", "CAVA", "CB", "CBRE", "CCI", "CCL", "CDNS",
+    "CE", "CEG", "CF", "CFG", "CFLT", "CHD", "CHH", "CHPT", "CHRW", "CHTR", "CI", "CIBR",
+    "CINF", "CL", "CLF", "CLOU", "CLX", "CMA", "CMC", "CMCSA", "CME", "CMG", "CMI", "CMS",
+    "CNC", "CNP", "COF", "COGT", "COIN", "COO", "COP", "COPX", "COST", "CPB", "CPNG", "CPRT",
+    "CPT", "CRM", "CROX", "CRSP", "CRWD", "CSCO", "CSGP", "CSX", "CTSH", "CTVA", "CUBE", "CVNA",
+    "CVS", "CVX", "D", "DAL", "DASH", "DBA", "DBC", "DD", "DDOG", "DE", "DECK", "DFS",
+    "DG", "DHI", "DHR", "DIA", "DIS", "DKNG", "DLO", "DLR", "DLTR", "DOCN", "DOCU", "DOV",
+    "DOW", "DPZ", "DRI", "DRIV", "DTE", "DUK", "DUOL", "DVN", "DXCM", "EA", "EBAY", "ECL",
+    "ED", "EDIT", "EEM", "EFA", "EFX", "EIX", "EL", "ELV", "EMN", "EMR", "EMXC", "ENPH",
+    "ENTG", "EOG", "EQIX", "EQR", "ES", "ESS", "ESTC", "ETN", "ETR", "ETSY", "EVGO", "EW",
+    "EWBC", "EWJ", "EWT", "EWY", "EWZ", "EXAS", "EXC", "EXPD", "EXPE", "EXR", "F", "FAS",
+    "FAST", "FAZ", "FCX", "FDX", "FE", "FINX", "FIS", "FISV", "FITB", "FIVE", "FIVN", "FL",
+    "FMC", "FNGD", "FNGU", "FOUR", "FOX", "FOXA", "FSLR", "FSLY", "FTNT", "FUTU", "FXI", "GD",
+    "GDX", "GDXJ", "GE", "GILD", "GIS", "GKOS", "GLD", "GM", "GNRC", "GOLD", "GOOG", "GOOGL",
+    "GPN", "GRMN", "GS", "GTLB", "GWRE", "H", "HACK", "HAL", "HBAN", "HCA", "HD", "HES",
+    "HIG", "HLT", "HOLX", "HON", "HOOD", "HRL", "HST", "HSY", "HUBS", "HUM", "HYG", "IBB",
+    "IBM", "ICE", "ICLN", "IDXX", "IEF", "IEMG", "IFF", "IIPR", "IJH", "IJR", "INCY", "INDA",
+    "INTC", "INTU", "INVH", "IONS", "IP", "IPAY", "IPG", "IQV", "IR", "IRM", "ISRG", "IT",
+    "ITB", "ITW", "IVV", "IWM", "IYT", "JBHT", "JBLU", "JD", "JEPI", "JEPQ", "JETS", "JKHY",
+    "JNJ", "JNK", "JPM", "K", "KBE", "KEY", "KGC", "KHC", "KIM", "KLAC", "KMB", "KMI",
+    "KO", "KR", "KRE", "KWEB", "LABD", "LABU", "LCID", "LEN", "LI", "LIN", "LIT", "LLY",
+    "LMT", "LNG", "LOW", "LQD", "LRCX", "LSCC", "LSTR", "LULU", "LUV", "LVS", "LYB", "LYFT",
+    "LYV", "MA", "MAA", "MAGS", "MAR", "MARA", "MCD", "MCHI", "MCHP", "MCK", "MCO", "MDB",
+    "MDLZ", "MDT", "MDY", "MEDP", "MET", "META", "MGM", "MKC", "MLM", "MMC", "MMM", "MNDY",
+    "MO", "MOH", "MOS", "MPC", "MPW", "MPWR", "MRK", "MRNA", "MRVL", "MS", "MSCI", "MSFT",
+    "MSTR", "MTB", "MTCH", "MTD", "MU", "NBIX", "NCLH", "NCNO", "NEE", "NEM", "NET", "NFLX",
+    "NIO", "NKE", "NOC", "NOW", "NRG", "NSC", "NTLA", "NTRA", "NTRS", "NU", "NUE", "NUGT",
+    "NVDA", "NVOX", "NVR", "NVRO", "NXPI", "O", "ODFL", "OHI", "OIH", "OKE", "OKTA", "OLLI",
+    "OMC", "ON", "ONTO", "ORCL", "ORLY", "OTIS", "OXY", "PAGS", "PALL", "PANW", "PARA", "PATH",
+    "PAVE", "PAYC", "PAYX", "PCAR", "PCG", "PCTY", "PDD", "PEG", "PENN", "PEP", "PFE", "PG",
+    "PGR", "PH", "PHM", "PINS", "PKG", "PLD", "PLTR", "PM", "PNC", "PODD", "POOL", "POWI",
+    "PPG", "PPL", "PPLT", "PRU", "PSA", "PSX", "PTCT", "PVH", "PWR", "PYPL", "QCOM", "QQQ",
+    "QS", "RBLX", "RCL", "REG", "REGN", "REXR", "RF", "RIO", "RIOT", "RIVN", "RL", "RMBS",
+    "ROK", "ROKU", "ROST", "RS", "RSG", "RSP", "RTX", "RVMD", "SBAC", "SBUX", "SCCO", "SCHD",
+    "SCHW", "SCO", "SDOW", "SE", "SEDG", "SEE", "SGEN", "SHOP", "SHW", "SHY", "SITM", "SJM",
+    "SKX", "SKYY", "SLB", "SLV", "SMCI", "SMH", "SNAP", "SNOW", "SNPS", "SO", "SOFI", "SOXL",
+    "SOXS", "SOXX", "SPG", "SPGI", "SPLK", "SPOT", "SPT", "SPXL", "SPXS", "SPXU", "SPY", "SQ",
+    "SQQQ", "SRE", "SRPT", "STAG", "STLD", "STNE", "STT", "STZ", "SUI", "SVXY", "SWK", "SWKS",
+    "SYF", "SYK", "SYY", "T", "TAN", "TAP", "TBT", "TCOM", "TDG", "TEAM", "TECL", "TECS",
+    "TENB", "TFC", "TGT", "TIP", "TJX", "TLT", "TME", "TMF", "TMO", "TMUS", "TMV", "TNA",
+    "TNDM", "TOST", "TPR", "TQQQ", "TRGP", "TRV", "TSLA", "TSLL", "TSLR", "TSM", "TSN", "TTD",
+    "TTWO", "TWLO", "TXN", "TZA", "UAL", "UBER", "UCO", "UDOW", "UDR", "ULTA", "UNG", "UNH",
+    "UNP", "UPRO", "UPS", "URBN", "URI", "USB", "USO", "UTHR", "UVXY", "V", "VALE", "VAW",
+    "VB", "VCR", "VDE", "VEA", "VEEV", "VFC", "VFH", "VGT", "VHT", "VICI", "VIG", "VIS",
+    "VLO", "VMC", "VNQ", "VOO", "VOX", "VRSK", "VRTX", "VST", "VTI", "VTR", "VTV", "VUG",
+    "VWO", "VXX", "VZ", "W", "WAB", "WCN", "WDAY", "WEAT", "WEC", "WELL", "WEX", "WFC",
+    "WH", "WM", "WMB", "WMT", "WOLF", "WY", "WYNN", "X", "XBI", "XEL", "XHB", "XLB",
+    "XLC", "XLE", "XLF", "XLI", "XLK", "XLP", "XLRE", "XLU", "XLV", "XLY", "XME", "XOM",
+    "XOP", "XP", "XPEV", "XPO", "XRT", "YUM", "ZBH", "ZION", "ZM", "ZS",
+}
+
+
+def get_tb_direct_signals() -> list:
+    """Query signal-center for TB signals >= TB_DIRECT_THRESHOLD in the liquid universe.
+
+    These bypass the convergence gate entirely. Returns signal dicts in the
+    same format as get_todays_signals(), with an extra 'tb_direct': True flag.
+    Already-executed trades today are excluded to prevent double-firing.
+    """
+    if not _SIGNAL_CENTER_DB.exists():
+        return []
+    try:
+        sc = sqlite3.connect(str(_SIGNAL_CENTER_DB), timeout=5)
+        sc.row_factory = sqlite3.Row
+        rows = sc.execute(
+            "SELECT symbol, confidence, entry_price, stop_loss, take_profit "
+            "FROM trade_signals "
+            "WHERE agent_name = 'tractor-beam' "
+            "  AND action = 'BUY' "
+            "  AND confidence >= ? "
+            "  AND created_at >= datetime('now', '-6 hours') "
+            "ORDER BY confidence DESC",
+            (TB_DIRECT_THRESHOLD,),
+        ).fetchall()
+        sc.close()
+    except Exception:
+        return []
+
+    if not rows:
+        return []
+
+    # Fetch symbols already traded today to avoid double-firing
+    executed_today: set[str] = set()
+    try:
+        today = datetime.now().strftime("%Y-%m-%d")
+        conn = _conn()
+        done = conn.execute(
+            "SELECT DISTINCT ticker FROM trades WHERE date(opened_at) = ?",
+            (today,),
+        ).fetchall()
+        conn.close()
+        executed_today = {r[0] for r in done}
+    except Exception:
+        pass
+
+    direct: list = []
+    seen: set[str] = set()
+    for r in rows:
+        sym = r["symbol"]
+        if sym not in TB_LIQUID_UNIVERSE:
+            continue  # skip non-liquid silently
+        if sym in executed_today:
+            console.log(f"[TB-DIRECT] {sym} skipped — already traded today")
+            continue
+        if sym in seen:
+            continue
+        seen.add(sym)
+        conf = float(r["confidence"])
+        entry = float(r["entry_price"])
+        stop  = float(r["stop_loss"])  if r["stop_loss"]   else round(entry * 0.95, 2)
+        target = float(r["take_profit"]) if r["take_profit"] else round(entry * 1.10, 2)
+        console.log(f"[TB-DIRECT] {sym} conf={conf:.0f}% — bypassing convergence → Ollie")
+        direct.append({
+            "ticker":               sym,
+            "strategies_triggered": 1,
+            "confidence":           round(conf / 100, 4),
+            "entry":                entry,
+            "stop":                 stop,
+            "target":               target,
+            "strategy_names":       ["tractor_beam_direct"],
+            "tb_direct":            True,
+            "tb_confidence":        conf,
+        })
+    return direct
+
+
+def inject_tractor_beam_signals() -> int:
+    """Inject recent tractor-beam alerts into strategy_signals as a tiebreaker record.
+
+    TB does NOT count toward the 3-strategy minimum. It acts as tiebreaker only
+    when exactly 2 real strategies fire AND TB confidence >= 85 (enforced in
+    get_todays_signals). Lookback: 24 hours.
+    Returns number of rows injected.
+    """
+    if not _SIGNAL_CENTER_DB.exists():
+        return 0
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        sc = sqlite3.connect(str(_SIGNAL_CENTER_DB), timeout=5)
+        sc.row_factory = sqlite3.Row
+        rows = sc.execute(
+            "SELECT symbol, confidence, entry_price, stop_loss, take_profit "
+            "FROM trade_signals "
+            "WHERE agent_name = 'tractor-beam' "
+            "  AND action = 'BUY' "
+            "  AND confidence >= 70 "
+            "  AND created_at >= datetime('now', '-24 hours') "
+            "ORDER BY confidence DESC",
+        ).fetchall()
+        sc.close()
+    except Exception:
+        return 0
+    if not rows:
+        return 0
+    from engine.universe_scanner import ensure_universe_tables
+    ensure_universe_tables()
+    conn = _conn()
+    injected = 0
+    for r in rows:
+        # Skip if already injected today
+        exists = conn.execute(
+            "SELECT 1 FROM strategy_signals "
+            "WHERE scan_date=? AND ticker=? AND strategy_name='tractor_beam'",
+            (today, r["symbol"]),
+        ).fetchone()
+        if exists:
+            continue
+        stop   = r["stop_loss"]   or round(float(r["entry_price"]) * 0.95, 2)
+        target = r["take_profit"] or round(float(r["entry_price"]) * 1.10, 2)
+        try:
+            conn.execute(
+                "INSERT INTO strategy_signals "
+                "(scan_date, ticker, strategy_name, signal_type, confidence, "
+                " entry_price, stop_price, target_price, notes) "
+                "VALUES (?, ?, 'tractor_beam', 'BUY', ?, ?, ?, ?, ?)",
+                (today, r["symbol"], float(r["confidence"]),
+                 float(r["entry_price"]), float(stop), float(target),
+                 json.dumps(["tractor_beam"])),
+            )
+            injected += 1
+        except Exception:
+            pass
+    conn.commit()
+    conn.close()
+    return injected
+
+
 def get_todays_signals() -> list:
-    """Get today's convergence signals from DB."""
+    """Get today's convergence signals from DB, plus TB direct bypass signals.
+
+    Two paths merge here:
+      1. Convergence: real_strat_count >= 3 (or 2 + TB tiebreaker at 85%)
+      2. TB-Direct: TB confidence >= TB_DIRECT_THRESHOLD in liquid universe
+         — these skip convergence entirely and go straight to Ollie
+    """
+    inject_tractor_beam_signals()
+    convergence: list = []
     try:
         today = datetime.now().strftime("%Y-%m-%d")
         conn = _conn()
         rows = conn.execute(
-            "SELECT ticker, COUNT(DISTINCT strategy_name) as strat_count, "
-            "AVG(confidence) as avg_conf, MIN(entry_price) as entry, "
-            "MIN(stop_price) as stop, MAX(target_price) as target, "
-            "GROUP_CONCAT(DISTINCT strategy_name) as strategies "
+            "SELECT ticker, "
+            "  COUNT(DISTINCT strategy_name) as strat_count, "
+            "  COUNT(DISTINCT CASE WHEN strategy_name != 'tractor_beam' THEN strategy_name ELSE NULL END) as real_strat_count, "
+            "  MAX(CASE WHEN strategy_name = 'tractor_beam' THEN confidence ELSE 0 END) as tb_conf, "
+            "  AVG(confidence) as avg_conf, MIN(entry_price) as entry, "
+            "  MIN(stop_price) as stop, MAX(target_price) as target, "
+            "  GROUP_CONCAT(DISTINCT strategy_name) as strategies "
             "FROM strategy_signals WHERE scan_date = ? AND signal_type = 'BUY' "
-            "GROUP BY ticker HAVING strat_count >= 3 ORDER BY strat_count DESC",
+            "GROUP BY ticker "
+            "HAVING real_strat_count >= 3 "
+            "   OR (real_strat_count = 2 AND tb_conf >= 85) "
+            "ORDER BY real_strat_count DESC",
             (today,),
         ).fetchall()
         conn.close()
-
-        return [
+        convergence = [
             {
                 "ticker": r["ticker"],
                 "strategies_triggered": r["strat_count"],
@@ -564,7 +900,18 @@ def get_todays_signals() -> list:
             for r in rows
         ]
     except Exception:
-        return []
+        pass
+
+    # TB-Direct bypass — merge, deduping tickers already in convergence
+    tb_direct = get_tb_direct_signals()
+    if tb_direct:
+        convergence_tickers = {s["ticker"] for s in convergence}
+        for sig in tb_direct:
+            if sig["ticker"] not in convergence_tickers:
+                convergence.append(sig)
+                convergence_tickers.add(sig["ticker"])
+
+    return convergence
 
 
 def build_strategy_prompt_section() -> str:

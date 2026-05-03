@@ -57,8 +57,8 @@ def _fetch_bars(symbol: str = "SPY") -> list[dict]:
         from alpaca.data.timeframe import TimeFrame
         from datetime import date
 
-        api_key = os.environ.get("ALPACA_API_KEY", "")
-        secret  = os.environ.get("ALPACA_SECRET_KEY", "")
+        api_key = os.environ.get("APCA_API_KEY_ID", "")
+        secret  = os.environ.get("APCA_API_SECRET_KEY", "")
         client  = StockHistoricalDataClient(api_key, secret)
 
         today = date.today()

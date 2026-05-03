@@ -24,7 +24,7 @@ DB_PATH = os.environ.get(
 # Maps strategy name → player_id substrings (case-insensitive prefix/contains match)
 _STRATEGY_PLAYERS: dict[str, list[str]] = {
     "Bridge Vote Picks": [
-        "claude-sonnet", "gemini-2.5-pro", "gpt-4o", "gpt-o3", "grok-3",
+        "qwen3-8b-sonnet", "qwen3-14b-pro", "qwen3-8b-4o", "qwen3-8b-o3", "qwen3-14b-grok3",
         "captain-sisko", "seven-of-nine", "captain-janeway", "lt-tuvok",
         "ensign-hoshi", "bridge",
     ],

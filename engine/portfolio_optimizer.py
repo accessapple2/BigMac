@@ -9,18 +9,19 @@ Uses Ollama (qwen3:8b) to synthesize findings into a ranked action list.
 Results saved to portfolio_optimizations table in trader.db.
 
 Usage (CLI):
-    python -m engine.portfolio_optimizer steve-webull
+    python -m engine.portfolio_optimizer webull
     python -m engine.portfolio_optimizer claude-sonnet --top 5
 
 Usage (import):
     from engine.portfolio_optimizer import run_optimizer
-    result = run_optimizer("steve-webull")
+    result = run_optimizer("webull")
 """
 
 from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import sys
 from datetime import datetime
@@ -31,9 +32,10 @@ import requests
 # Config
 # ---------------------------------------------------------------------------
 
-OLLAMA_BASE = "http://localhost:11434"
+OLLAMA_BASE = os.getenv("ADVISORY_OLLAMA_URL",
+              os.getenv("OLLAMA_BASE_URL", "http://192.168.1.166:11434"))  # 2026-04-20: route to Ollie
 TRADER_DB = "data/trader.db"
-DEFAULT_MODEL = "qwen3.5:9b"
+DEFAULT_MODEL = "qwen3:8b"  # 2026-04-20: qwen3:8b → qwen3:8b (swap storm risk)
 
 # Weight thresholds
 MAX_SINGLE_WEIGHT = 0.25      # flag any position > 25% of portfolio
@@ -429,7 +431,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="TradeMinds Portfolio Optimizer")
-    parser.add_argument("player_id", help="Player ID (e.g. steve-webull, claude-sonnet)")
+    parser.add_argument("player_id", help="Player ID (e.g. webull, claude-sonnet)")
     parser.add_argument("--top", type=int, default=5, help="Max actions to return (default: 5)")
     parser.add_argument("--model", default=DEFAULT_MODEL,
                         help=f"Ollama model (default: {DEFAULT_MODEL})")

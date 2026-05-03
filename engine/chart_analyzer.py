@@ -138,19 +138,19 @@ def _call_model(model: str, prompt: str) -> str:
             )
         elif model == "gemini":
             resp = requests.post(
-                f"{config.OLLAMA_URL}/api/generate",
-                json={"model": "qwen3:14b", "prompt": prompt, "stream": False},
+                f"{config.OLLIE_URL}/api/generate",  # 2026-04-23: OLLAMA_URL→OLLIE_URL (bigmac RAM fix)
+                json={"model": "qwen3:8b", "prompt": prompt, "stream": False, "think": False},
                 timeout=90,
             )
             resp.raise_for_status()
             return resp.json().get("response", "")
 
         elif model == "grok":
-            # Routed to local qwen3.5:9b — eliminates xAI API cost
-            # RAM patch 2026-04-17: was deepseek-r1:14b (9.7GB); funneled to 9b warm model.
+            # Routed to Ollie GPU (qwen3:8b) — eliminates xAI API cost
+            # 2026-04-20: localhost qwen3:8b → Ollie qwen3:8b (was causing swap storms)
             resp = requests.post(
-                config.OLLAMA_URL + "/api/generate",
-                json={"model": "qwen3.5:9b", "prompt": prompt, "stream": False},
+                config.OLLIE_URL + "/api/generate",
+                json={"model": "qwen3:8b", "prompt": prompt, "stream": False, "think": False},
                 timeout=90,
             )
             resp.raise_for_status()

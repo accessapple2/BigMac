@@ -35,7 +35,7 @@ MODEL_NAMES = {
     "ollama-plutus": "Dr. McCoy", "energy-arnold": "Cmdr. Trip Tucker",
     "options-sosnoff": "Counselor Troi", "dalio-metals": "Cmdr. Dalio",
     "dayblade-sulu": "Lt. Sulu", "navigator": "Ensign Chekov",
-    "ollama-llama": "Lt. Cmdr. Uhura", "steve-webull": "Captain Kirk",
+    "ollama-llama": "Lt. Cmdr. Uhura", "webull": "Captain Kirk",
     "q-entity": "Q", "dayblade-0dte": "DayBlade Options",
 }
 

@@ -41,7 +41,7 @@ _DEFAULT_RESERVE =  2_000.0  # never drop below this
 _SWEEP_COOLDOWN_SECS = 3_600  # 1 sweep action per hour (fleet-wide)
 
 # Player used to execute sweep buys (Bridge Vote representative)
-_SWEEP_PLAYER = "claude-sonnet"
+_SWEEP_PLAYER = "qwen3-8b-sonnet"
 
 
 # ── DB ─────────────────────────────────────────────────────────────────────────

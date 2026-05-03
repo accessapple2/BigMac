@@ -14,7 +14,7 @@ Pipeline:
   6. Optional --execute: send trades via paper_trader buy/sell/sell_partial
 
 Usage:
-    python -m engine.rebalancer steve-webull
+    python -m engine.rebalancer webull
     python -m engine.rebalancer claude-sonnet --execute
     python -m engine.rebalancer gpt-4o --dry-run   (default, same as no --execute)
 """
@@ -23,6 +23,7 @@ from __future__ import annotations
 
 import json
 import logging
+import os
 import sqlite3
 import sys
 from datetime import datetime
@@ -34,9 +35,10 @@ import requests
 # Config
 # ---------------------------------------------------------------------------
 
-OLLAMA_BASE = "http://localhost:11434"
+OLLAMA_BASE = os.getenv("ADVISORY_OLLAMA_URL",
+              os.getenv("OLLAMA_BASE_URL", "http://192.168.1.166:11434"))  # 2026-04-20: route to Ollie
 TRADER_DB = "data/trader.db"
-DEFAULT_MODEL = "qwen3.5:9b"
+DEFAULT_MODEL = "qwen3:8b"  # 2026-04-20: qwen3:8b → qwen3:8b (swap storm risk)
 
 # Max single-trade size as % of portfolio (safety cap)
 MAX_TRADE_PCT = 0.20
@@ -568,7 +570,7 @@ if __name__ == "__main__":
     import argparse
 
     parser = argparse.ArgumentParser(description="TradeMinds Rebalancer")
-    parser.add_argument("player_id", help="Player ID (e.g. steve-webull, claude-sonnet)")
+    parser.add_argument("player_id", help="Player ID (e.g. webull, claude-sonnet)")
     parser.add_argument("--execute", action="store_true",
                         help="Send trades to paper_trader (default: dry-run)")
     parser.add_argument("--dry-run", action="store_true", default=True,

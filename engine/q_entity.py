@@ -108,9 +108,9 @@ def _get_context() -> str:
         conn = sqlite3.connect(DB, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
         positions = conn.execute(
-            "SELECT symbol, qty, avg_price FROM positions WHERE player_id='steve-webull'"
+            "SELECT symbol, qty, avg_price FROM positions WHERE player_id='webull'"
         ).fetchall()
-        cash = conn.execute("SELECT cash FROM ai_players WHERE id='steve-webull'").fetchone()
+        cash = conn.execute("SELECT cash FROM ai_players WHERE id='webull'").fetchone()
         conn.close()
 
         pos_lines = []

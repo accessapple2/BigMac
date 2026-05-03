@@ -1,16 +1,19 @@
 """
 engine/ntfy.py — ntfy.sh push notifications for TradeMinds
 
-Topic: https://ntfy.sh/ollietrades
+Topic: https://ntfy.sh/ollietrades-crew  (trade events)
 No external dependencies — uses stdlib urllib.request only.
 Fire-and-forget: all sends are in a daemon thread, never block the caller.
 """
+import os
 import threading
 import urllib.request
 import urllib.error
 import json
 
-NTFY_URL = "https://ntfy.sh/ollietrades"
+NTFY_TOPIC = os.getenv("NTFY_CREW_TOPIC",
+             os.getenv("NTFY_TOPIC", "ollietrades-crew"))
+NTFY_URL   = f"https://ntfy.sh/{NTFY_TOPIC}"
 
 # Priority constants (ntfy.sh values)
 P_MAX     = 5   # urgent — sound + persistent
@@ -40,7 +43,7 @@ _TAGS = {
 def _send(title: str, body: str, priority: int = P_DEFAULT, tags: str = "") -> None:
     """POST a single ntfy message. Called in a daemon thread."""
     try:
-        data = json.dumps({"topic": "ollietrades",
+        data = json.dumps({"topic": NTFY_TOPIC,
                            "title": title,
                            "message": body,
                            "priority": priority,
@@ -129,3 +132,79 @@ def notify_crusher_restart(reason: str = "Port 8080 down") -> None:
     title = "TradeMinds RESTARTING"
     body  = reason
     _fire(title, body, priority=P_MAX, tags=_TAGS["restart"])
+
+def notify_post_earnings_short(symbol: str, price: float, gap_pct: float,
+                               vwap: float, hours_since_earnings: float,
+                               reasoning: str = "") -> None:
+    """Post-earnings short alert: gap-down + VWAP rejection in 1-48hr window."""
+    title = f"PED SHORT {symbol}"
+    body = (f"${price:.2f} gap {gap_pct:+.1f}% | VWAP ${vwap:.2f} | "
+            f"{hours_since_earnings:.1f}h post-earnings\n"
+            f"{reasoning[:140]}" if reasoning else
+            f"${price:.2f} gap {gap_pct:+.1f}% | VWAP ${vwap:.2f} | "
+            f"{hours_since_earnings:.1f}h post-earnings")
+    _fire(title, body, priority=P_HIGH, tags="chart_with_downwards_trend")
+
+
+def notify_bear_breakdown(symbol: str, price: float, low_20: float,
+                          rsi: float, adx: float, regime: str = "") -> None:
+    """Bear momentum breakdown alert from engine/strategies.py rule scan."""
+    title = f"BEAR BREAKDOWN {symbol}"
+    body = (f"${price:.2f} broke 20d low ${low_20:.2f}\n"
+            f"RSI {rsi:.0f} | ADX {adx:.0f} | regime {regime or 'n/a'}")
+    _fire(title, body, priority=P_HIGH, tags="chart_with_downwards_trend")
+
+
+def notify_bull_spread(
+    symbol: str,
+    structure: str,        # "bull_call_spread" | "bull_put_spread"
+    iv_rank: float,
+    long_strike: float,
+    short_strike: float,
+    expiration: str,
+    net_cost: float,       # net_debit (debit) or net_credit (credit)
+    max_loss: float,
+    max_profit: float,
+    tier: int,             # 1 or 2
+    spot: float = 0.0,
+    regime: str = "",
+) -> None:
+    """Bull Call Spread v1 — entry signal alert."""
+    structure_label = "CALL DEBIT" if structure == "bull_call_spread" else "PUT CREDIT"
+    cost_label      = "debit" if structure == "bull_call_spread" else "credit"
+    title = f"BCS-v1 {structure_label} {symbol}  [Tier {tier}]"
+    body = (
+        f"${spot:.2f} | IV rank {iv_rank:.0f}% → {structure_label}\n"
+        f"Strikes ${long_strike:.0f}/${short_strike:.0f}  exp {expiration}\n"
+        f"Net {cost_label} ${net_cost:.2f} | MaxLoss ${max_loss:.0f} | MaxProfit ${max_profit:.0f}\n"
+        f"Regime: {regime or 'n/a'}"
+    )
+    _fire(title, body, priority=P_HIGH, tags="chart_with_upwards_trend")
+
+
+def notify_bear_spread(
+    symbol: str,
+    structure: str,        # "bear_put_spread" | "bear_call_spread"
+    iv_rank: float,
+    long_strike: float,
+    short_strike: float,
+    expiration: str,
+    net_cost: float,       # net_debit (debit) or net_credit (credit)
+    max_loss: float,
+    max_profit: float,
+    tier: int,             # 1 or 2
+    spot: float = 0.0,
+    regime: str = "",
+) -> None:
+    """Bear Put Spread v1 — entry signal alert."""
+    structure_label = "PUT DEBIT" if structure == "bear_put_spread" else "CALL CREDIT"
+    cost_label      = "debit" if structure == "bear_put_spread" else "credit"
+    title = f"BPS-v1 {structure_label} {symbol}  [Tier {tier}]"
+    body = (
+        f"${spot:.2f} | IV rank {iv_rank:.0f}% → {structure_label}\n"
+        f"Strikes ${long_strike:.0f}/${short_strike:.0f}  exp {expiration}\n"
+        f"Net {cost_label} ${net_cost:.2f} | MaxLoss ${max_loss:.0f} | MaxProfit ${max_profit:.0f}\n"
+        f"Regime: {regime or 'n/a'}"
+    )
+    _fire(title, body, priority=P_HIGH, tags="chart_with_downwards_trend")
+

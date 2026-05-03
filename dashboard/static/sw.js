@@ -1,4 +1,4 @@
-// v4
+// v12-2026-04-20-phase1b-ticker
 self.addEventListener('install', () => self.skipWaiting());
 self.addEventListener('activate', e => {
   e.waitUntil(

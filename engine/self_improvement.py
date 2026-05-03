@@ -3,7 +3,7 @@ USS TradeMinds — Self-Improvement Loop (engine/self_improvement.py)
 
 Daily at 2:30 PM AZ (4:30 PM ET) on weekdays, each active agent reflects on
 today's trading performance and generates 3 concrete rules for tomorrow
-using qwen3.5:9b. Lessons are stored in agent_memory (LAYER: LESSON) and
+using qwen3:8b. Lessons are stored in agent_memory (LAYER: LESSON) and
 surfaced automatically in finmem_memory's Layer 3 the next day.
 
 Sacred rules:
@@ -19,8 +19,9 @@ from datetime import datetime
 
 logger = logging.getLogger(__name__)
 
+from config import OLLIE_URL as _OLLIE_URL
 _DB_PATH   = "data/trader.db"
-_OLLAMA    = "http://localhost:11434"
+_OLLAMA    = _OLLIE_URL  # 2026-04-20: localhost → Ollie GPU
 _run_lock  = threading.Lock()
 _last_date = ""
 
@@ -105,9 +106,10 @@ def _generate_lesson(s: dict) -> str | None:
         resp = requests.post(
             f"{_OLLAMA}/api/generate",
             json={
-                "model": "qwen3.5:9b",
+                "model": "qwen3:8b",  # 2026-04-20: qwen3:8b → qwen3:8b
                 "prompt": prompt,
                 "stream": False,
+                "think": False,
                 "options": {"temperature": 0.5, "num_predict": 200},
             },
             timeout=45,
@@ -173,7 +175,7 @@ def run_daily_reflection() -> None:
         players = db.execute("""
             SELECT id, display_name FROM ai_players
             WHERE is_active = 1
-              AND id NOT IN ('steve-webull', 'dayblade-0dte', 'dalio-metals')
+              AND id NOT IN ('webull', 'dayblade-0dte', 'dalio-metals')
         """).fetchall()
         db.close()
     except Exception as exc:

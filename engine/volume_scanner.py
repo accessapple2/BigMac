@@ -47,6 +47,13 @@ CHEKOV_PLAYER_ID = "navigator"
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [volume_scanner] %(levelname)s: %(message)s")
 logger = logging.getLogger("volume_scanner")
 
+# ---------------------------------------------------------------------------
+# SSE broadcast hook
+# app.py registers broadcast_scanner_alert() here at startup.
+# No circular import — volume_scanner never imports from app.py.
+# ---------------------------------------------------------------------------
+_scan_callbacks: list = []
+
 
 # ---------------------------------------------------------------------------
 # DB helpers
@@ -86,10 +93,10 @@ def _init_tables():
 def _alpaca_headers() -> dict:
     from dotenv import load_dotenv
     load_dotenv()
-    key = os.getenv("ALPACA_API_KEY", "")
-    secret = os.getenv("ALPACA_SECRET_KEY", "")
+    key = os.getenv("APCA_API_KEY_ID", "")
+    secret = os.getenv("APCA_API_SECRET_KEY", "")
     if not key or not secret:
-        raise RuntimeError("ALPACA_API_KEY / ALPACA_SECRET_KEY not set in .env")
+        raise RuntimeError("APCA_API_KEY_ID / APCA_API_SECRET_KEY not set in .env")
     return {
         "APCA-API-KEY-ID": key,
         "APCA-API-SECRET-KEY": secret,
@@ -255,6 +262,7 @@ def scan_full_market() -> list[dict]:
                 continue
 
             stock["alert_type"] = alert_type
+            stock["detected_at"] = now
             hot_stocks.append(stock)
 
             # Save to DB
@@ -272,6 +280,22 @@ def scan_full_market() -> list[dict]:
                 ),
             )
         c.commit()
+
+        # Fire SSE broadcast callbacks (registered by app.py at startup)
+        for _cb in _scan_callbacks:
+            try:
+                for _s in hot_stocks:
+                    _cb({
+                        "symbol":           _s["symbol"],
+                        "alert_type":       _s["alert_type"],
+                        "price":            _s.get("price"),
+                        "relative_volume":  _s.get("relative_volume"),
+                        "gap_pct":          _s.get("gap_pct"),
+                        "dollar_volume":    _s.get("dollar_volume"),
+                        "detected_at":      _s.get("detected_at", now),
+                    })
+            except Exception as _e:
+                logger.warning(f"[SSE] broadcast callback error: {_e}")
 
     elapsed = time.monotonic() - scan_start
     hot_stocks.sort(key=lambda x: x.get("relative_volume", 0), reverse=True)
@@ -390,25 +414,67 @@ def red_alert_check() -> None:
 # ---------------------------------------------------------------------------
 
 def get_todays_volume_alerts(limit: int = 200) -> list[dict]:
-    """Return today's volume alerts sorted by relative_volume descending.
+    """Return today's volume alerts deduplicated to ONE row per symbol (most recent).
 
-    Used by strategies.py to build the combined scan universe.
+    Adds two enrichment fields:
+      hits_today       — how many times this symbol fired today
+      first_seen_today — ISO timestamp of first hit today
+      days_active      — how many of the last 10 calendar days it fired at all
+
+    Used by strategies.py, /api/volume-radar, and Sniff Scan frontend.
     """
     _init_tables()
     today = date.today().isoformat()
     try:
         with _conn() as c:
-            rows = c.execute(
+            # Step 1: one row per symbol — most recent row for price/rvol/alert_type,
+            # plus hit count and first-seen for today.
+            deduped = c.execute(
                 """
-                SELECT symbol, alert_type, price, relative_volume, gap_pct, dollar_volume, detected_at
-                FROM volume_alerts
-                WHERE date(detected_at)=?
-                ORDER BY relative_volume DESC
+                SELECT va.symbol, va.alert_type, va.price, va.relative_volume,
+                       va.gap_pct, va.dollar_volume, va.detected_at,
+                       grouped.hits_today, grouped.first_seen_today
+                FROM volume_alerts va
+                INNER JOIN (
+                    SELECT symbol,
+                           MAX(detected_at)  AS latest,
+                           COUNT(*)          AS hits_today,
+                           MIN(detected_at)  AS first_seen_today
+                    FROM volume_alerts
+                    WHERE date(detected_at, 'localtime') = date('now', 'localtime')
+                    GROUP BY symbol
+                ) grouped
+                  ON va.symbol = grouped.symbol
+                 AND va.detected_at = grouped.latest
+                ORDER BY va.relative_volume DESC
                 LIMIT ?
                 """,
-                (today, limit),
+                (limit,),
             ).fetchall()
-        return [dict(r) for r in rows]
+
+            symbols = [r["symbol"] for r in deduped]
+            # Step 2: multi-day persistence (last 10 calendar days)
+            days_active: dict[str, int] = {}
+            if symbols:
+                placeholders = ",".join("?" * len(symbols))
+                persistence = c.execute(
+                    f"""
+                    SELECT symbol, COUNT(DISTINCT date(detected_at, 'localtime')) AS days_active
+                    FROM volume_alerts
+                    WHERE detected_at >= date('now', 'localtime', '-10 days')
+                      AND symbol IN ({placeholders})
+                    GROUP BY symbol
+                    """,
+                    symbols,
+                ).fetchall()
+                days_active = {r["symbol"]: r["days_active"] for r in persistence}
+
+        result = []
+        for r in deduped:
+            row = dict(r)
+            row["days_active"] = days_active.get(r["symbol"], 1)
+            result.append(row)
+        return result
     except Exception as e:
         logger.warning(f"get_todays_volume_alerts failed: {e}")
         return []

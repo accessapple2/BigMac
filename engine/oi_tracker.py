@@ -51,8 +51,8 @@ def _get_snaps(symbol: str = "SPY") -> list[Any]:
         from alpaca.data import OptionHistoricalDataClient
         from alpaca.data.requests import OptionSnapshotRequest
 
-        api_key = os.environ.get("ALPACA_API_KEY", "")
-        secret  = os.environ.get("ALPACA_SECRET_KEY", "")
+        api_key = os.environ.get("APCA_API_KEY_ID", "")
+        secret  = os.environ.get("APCA_API_SECRET_KEY", "")
         client  = OptionHistoricalDataClient(api_key, secret)
 
         req = OptionSnapshotRequest(underlying_symbols=[symbol])

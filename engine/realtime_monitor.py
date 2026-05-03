@@ -120,6 +120,15 @@ def _get_watchlist() -> list[str]:
                 symbols.append(sym)
     except Exception:
         pass
+    try:
+        import json as _wl_json
+        with open("data/watchlist_extras.json") as _wl_f:
+            _extras = _wl_json.load(_wl_f)
+        for _sym in _extras.get("symbols", []):
+            if _sym and _sym not in symbols:
+                symbols.append(_sym)
+    except (FileNotFoundError, ValueError):
+        pass
     return symbols
 
 

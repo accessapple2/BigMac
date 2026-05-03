@@ -26,7 +26,7 @@ def _get_standings() -> list[dict]:
     conn = _conn()
     players = conn.execute(
         "SELECT id, display_name, cash FROM ai_players "
-        "WHERE is_active=1 AND id NOT IN ('dayblade-0dte','steve-webull') "
+        "WHERE is_active=1 AND id NOT IN ('dayblade-0dte','webull') "
         "AND (is_paused IS NULL OR is_paused=0)"
     ).fetchall()
 

@@ -56,7 +56,7 @@ _CACHE_TTL: int = 300  # 5 min
 # ---------------------------------------------------------------------------
 
 def _fetch_ticker_data(symbol: str) -> dict | None:
-    """Fetch OHLCV + RSI-14 + 20-day SMA + 20-day avg volume via yfinance.
+    """Fetch OHLCV + RSI-14 + 20-day SMA + 20-day avg volume via Alpaca.
 
     Returns:
         {
@@ -67,12 +67,9 @@ def _fetch_ticker_data(symbol: str) -> dict | None:
     or None on error / insufficient history.
     """
     try:
-        import yfinance as yf
+        from engine.market_data import get_alpaca_bars
 
-        hist = yf.download(
-            symbol, period="60d", interval="1d",
-            progress=False, auto_adjust=True,
-        )
+        hist = get_alpaca_bars(symbol, days=60)
         if hist is None or len(hist) < 22:
             return None
 
@@ -124,7 +121,7 @@ def _fetch_ticker_data(symbol: str) -> dict | None:
             "price_vs_sma_pct": price_vs_sma_pct,
         }
     except Exception as e:
-        logger.debug("ai_saas_disruption: yfinance error for %s: %s", symbol, e)
+        logger.debug("ai_saas_disruption: market_data error for %s: %s", symbol, e)
         return None
 
 

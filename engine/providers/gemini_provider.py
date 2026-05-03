@@ -18,7 +18,7 @@ def _trip_quota(hours: float = 1.0) -> None:
 class GeminiProvider(OllamaProvider):
     """Routes all calls to local Ollama qwen3:14b instead of Google API."""
 
-    def __init__(self, api_key: str = "", player_id: str = "gemini-2.5-pro",
+    def __init__(self, api_key: str = "", player_id: str = "qwen3-14b-pro",
                  model: str = "qwen3:14b", display_name: str = "Qwen3 14B"):
         super().__init__(player_id=player_id, model="qwen3:14b")
         self.display_name = display_name

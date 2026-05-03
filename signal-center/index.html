@@ -2623,7 +2623,7 @@ refresh();
   var _prevUsers = null;
 
   function _displayName(u) {
-    if ((u || '').toLowerCase() === 'sniff') return '⭐ Admiral Sniff';
+    if ((u || '').toLowerCase() === 'sniff') return '⭐ Admiral';
     if (u === 'Guest (Charts)') return '👤 Guest (Charts)';
     return '👤 ' + u;
   }
@@ -2688,7 +2688,7 @@ refresh();
               _chime(false);
               var msg = _isGuest(u)
                 ? '🐕 Guest has closed Big Charts'
-                : '🐕 ' + (u.toLowerCase() === 'sniff' ? 'Admiral Sniff' : u) + ' has left the Bridge';
+                : '🐕 ' + (u.toLowerCase() === 'sniff' ? 'Admiral' : u) + ' has left the Bridge';
               _crewToast(msg);
             }
           });

@@ -164,40 +164,40 @@
     "model": "codex",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775447172.673648,
-    "price": 209.78
+    "timestamp": 1776803200.547022,
+    "price": 249.96
   },
   "ORCL:codex": {
     "symbol": "ORCL",
     "model": "codex",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775447175.9250271,
-    "price": 146.19
+    "timestamp": 1776803210.8835242,
+    "price": 181.82
   },
   "GOOGL:codex": {
     "symbol": "GOOGL",
     "model": "codex",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775447179.94313,
-    "price": 295.86
+    "timestamp": 1776803181.4613929,
+    "price": 334.38
   },
   "NVDA:codex": {
     "symbol": "NVDA",
     "model": "codex",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775447184.4138792,
-    "price": 176.67
+    "timestamp": 1776803197.663671,
+    "price": 197.42
   },
   "AAPL:codex": {
     "symbol": "AAPL",
     "model": "codex",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775447187.91841,
-    "price": 255.35
+    "timestamp": 1776803189.90431,
+    "price": 266.39
   },
   "MU:codex": {
     "symbol": "MU",
@@ -212,16 +212,16 @@
     "model": "codex",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775447194.407774,
-    "price": 4651.2
+    "timestamp": 1776803184.42816,
+    "price": 4718.1
   },
   "SI=F:codex": {
     "symbol": "SI=F",
     "model": "codex",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775447197.0308459,
-    "price": 71.94
+    "timestamp": 1776803187.05936,
+    "price": 76.36
   },
   "TQQQ:codex": {
     "symbol": "TQQQ",
@@ -268,8 +268,8 @@
     "model": "codex",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775447214.0937002,
-    "price": 28.89
+    "timestamp": 1776803192.2899048,
+    "price": 30.16
   },
   "PLTR:codex": {
     "symbol": "PLTR",
@@ -308,8 +308,8 @@
     "model": "codex",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775447229.118342,
-    "price": 101.91
+    "timestamp": 1776803205.975185,
+    "price": 105.08
   },
   "MSFT:codex": {
     "symbol": "MSFT",
@@ -324,32 +324,32 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051026.501902,
-    "price": 238.38
+    "timestamp": 1777219225.069887,
+    "price": 246.54
   },
   "ORCL:all": {
     "symbol": "ORCL",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051026.508708,
-    "price": 138.09
+    "timestamp": 1777410208.921248,
+    "price": 159.53
   },
   "GOOGL:all": {
     "symbol": "GOOGL",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051026.510255,
-    "price": 317.24
+    "timestamp": 1777410208.905473,
+    "price": 329.2
   },
   "NVDA:all": {
     "symbol": "NVDA",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051408.795362,
-    "price": 188.63
+    "timestamp": 1777410208.9190452,
+    "price": 210.71
   },
   "AAPL:all": {
     "symbol": "AAPL",
@@ -364,24 +364,24 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051429.335498,
-    "price": 420.59
+    "timestamp": 1777219225.060467,
+    "price": 471.4
   },
   "GC=F:all": {
     "symbol": "GC=F",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051429.340348,
-    "price": 4741.5
+    "timestamp": 1777410208.901532,
+    "price": 4609.2
   },
   "SI=F:all": {
     "symbol": "SI=F",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051465.534111,
-    "price": 74.38
+    "timestamp": 1777410208.903272,
+    "price": 73.57
   },
   "TQQQ:all": {
     "symbol": "TQQQ",
@@ -396,8 +396,8 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051465.5400598,
-    "price": 177.8
+    "timestamp": 1777219225.074381,
+    "price": 217.01
   },
   "LGIH:all": {
     "symbol": "LGIH",
@@ -428,16 +428,16 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051503.358561,
-    "price": 28.39
+    "timestamp": 1777410208.907588,
+    "price": 26.46
   },
   "PLTR:all": {
     "symbol": "PLTR",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1775709390.362598,
-    "price": 140.76
+    "timestamp": 1777410208.9230778,
+    "price": 141.92
   },
   "IBP:all": {
     "symbol": "IBP",
@@ -452,56 +452,56 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051514.344301,
-    "price": 56.94
+    "timestamp": 1777410208.920193,
+    "price": 57.59
   },
   "AMD:all": {
     "symbol": "AMD",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776040057.6307101,
-    "price": 245.04
+    "timestamp": 1777410208.924227,
+    "price": 321.76
   },
   "NOW:all": {
     "symbol": "NOW",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051514.347409,
-    "price": 83.0
+    "timestamp": 1777410208.9223208,
+    "price": 88.26
   },
   "MSFT:all": {
     "symbol": "MSFT",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051510.663293,
-    "price": 370.87
+    "timestamp": 1777410208.9196181,
+    "price": 422.28
   },
   "KMI:all": {
     "symbol": "KMI",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776053793.3669918,
-    "price": 32.68
+    "timestamp": 1777410209.2624059,
+    "price": 31.36
   },
   "QQQ:all": {
     "symbol": "QQQ",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776053793.371702,
-    "price": 611.07
+    "timestamp": 1777410208.926718,
+    "price": 657.8
   },
   "WMB:all": {
     "symbol": "WMB",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776053845.882217,
-    "price": 72.74
+    "timestamp": 1777410209.602541,
+    "price": 68.47
   },
   "INTC:all": {
     "symbol": "INTC",
@@ -532,8 +532,8 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051514.3304472,
-    "price": 337.34
+    "timestamp": 1777410208.909367,
+    "price": 311.67
   },
   "FSV:all": {
     "symbol": "FSV",
@@ -748,8 +748,8 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1776051514.3497422,
-    "price": 629.86
+    "timestamp": 1777219225.065111,
+    "price": 640.03
   },
   "NET:all": {
     "symbol": "NET",
@@ -758,5 +758,85 @@
     "bear_case": "",
     "timestamp": 1776040057.633308,
     "price": 166.99
+  },
+  "HD:codex": {
+    "symbol": "HD",
+    "model": "codex",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1776803194.740795,
+    "price": 327.99
+  },
+  "KMI:codex": {
+    "symbol": "KMI",
+    "model": "codex",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1776803203.031776,
+    "price": 29.71
+  },
+  "QQQ:codex": {
+    "symbol": "QQQ",
+    "model": "codex",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1776803213.5551832,
+    "price": 646.98
+  },
+  "TSLA:codex": {
+    "symbol": "TSLA",
+    "model": "codex",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1776803215.9044669,
+    "price": 389.33
+  },
+  "WMB:codex": {
+    "symbol": "WMB",
+    "model": "codex",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1776803220.021219,
+    "price": 65.55
+  },
+  "FDX:all": {
+    "symbol": "FDX",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1777410208.915651,
+    "price": 366.23
+  },
+  "FMAO:all": {
+    "symbol": "FMAO",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1777410208.917141,
+    "price": 27.98
+  },
+  "AVGO:all": {
+    "symbol": "AVGO",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1777219225.063414,
+    "price": 417.1
+  },
+  "SPY:all": {
+    "symbol": "SPY",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1777219225.0711129,
+    "price": 714.0
+  },
+  "TSLA:all": {
+    "symbol": "TSLA",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1777410208.9250848,
+    "price": 378.06
   }
 }

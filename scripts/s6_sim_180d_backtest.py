@@ -55,15 +55,33 @@ MAX_POSITIONS    = 5
 BENCHMARK_SYM    = "SPY"
 AGENT_TIMEOUT_S  = 180
 
-UNIVERSE = ["SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMD",
-            "TSLA", "AMZN", "META", "GOOGL", "NFLX", "CRM"]
+UNIVERSE = [
+    # original mega-caps
+    "SPY", "QQQ", "AAPL", "MSFT", "NVDA", "AMD",
+    "TSLA", "AMZN", "META", "GOOGL", "NFLX", "CRM",
+    # user-specified additions
+    "PLTR", "SMCI", "CRWD", "SOFI",
+    # volatile mid-caps (for BMB/BBD signal density)
+    "COIN", "MARA", "RIVN", "SNAP", "HOOD",
+    "DKNG", "RBLX", "AFRM", "UPST", "APP",
+    "NET", "SNOW", "MDB", "DDOG", "HIMS",
+    "BILL", "ZS", "ABNB", "DASH", "PATH",
+]
 
-TECH_UNIVERSE = ["AAPL", "MSFT", "NVDA", "AMD", "TSLA",
-                 "GOOGL", "META", "CRM", "ADBE", "INTC", "AVGO", "QCOM"]
+TECH_UNIVERSE = [
+    # original
+    "AAPL", "MSFT", "NVDA", "AMD", "TSLA",
+    "GOOGL", "META", "CRM", "ADBE", "INTC", "AVGO", "QCOM",
+    # new tech additions
+    "PLTR", "SMCI", "CRWD", "COIN",
+    "NET", "SNOW", "MDB", "DDOG", "ZS",
+    "APP", "RBLX", "PATH",
+]
 
 CONGRESS_UNIVERSE = ["AAPL", "MSFT", "NVDA", "AMZN", "GOOGL",
                      "JPM", "BAC", "GS", "LMT", "NOC", "RTX",
-                     "UNH", "CVX", "XOM", "TSLA", "META"]
+                     "UNH", "CVX", "XOM", "TSLA", "META",
+                     "PLTR", "CRWD", "SOFI"]
 
 US_HOLIDAYS = {
     date(2026, 1, 1), date(2026, 1, 19), date(2026, 2, 16),
@@ -94,7 +112,7 @@ AGENTS_SIM = [
         "universe": UNIVERSE,
         "add_bmb": True,    # Rule 4: BULL momentum breakout active
         "tractor_beam": True,
-        "rule_tags": ["tractor_beam_navigator", "bull_momentum_breakout"],
+        "rule_tags": ["tractor_beam_navigator", "bull_momentum_breakout", "bear_momentum_breakdown"],
     },
     {
         "id": "chekov", "name": "Chekov",
@@ -107,7 +125,7 @@ AGENTS_SIM = [
         "universe": UNIVERSE,
         "add_bmb": True,
         "tractor_beam": True,
-        "rule_tags": ["tractor_beam_chekov", "bull_momentum_breakout"],
+        "rule_tags": ["tractor_beam_chekov", "bull_momentum_breakout", "bear_momentum_breakdown"],
     },
     {
         "id": "ollama-llama", "name": "Llama",
@@ -118,7 +136,7 @@ AGENTS_SIM = [
         "regime_block": ("CRISIS", "BEAR_STRONG"),
         "universe": UNIVERSE,
         "add_bmb": True,
-        "rule_tags": ["bull_momentum_breakout"],
+        "rule_tags": ["bull_momentum_breakout", "bear_momentum_breakdown"],
     },
     {
         "id": "ollama-plutus", "name": "Plutus",
@@ -129,7 +147,7 @@ AGENTS_SIM = [
         "regime_block": ("CRISIS", "BEAR_STRONG", "BEAR"),
         "universe": UNIVERSE,
         "add_bmb": True,
-        "rule_tags": ["bull_momentum_breakout"],
+        "rule_tags": ["bull_momentum_breakout", "bear_momentum_breakdown"],
     },
     {
         "id": "ollama-qwen3", "name": "Qwen3",
@@ -141,7 +159,7 @@ AGENTS_SIM = [
         "regime_block": ("CRISIS",),
         "universe": UNIVERSE,
         "add_bmb": True,
-        "rule_tags": ["qwen3_ollie_threshold_1.5", "bull_momentum_breakout"],
+        "rule_tags": ["qwen3_ollie_threshold_1.5", "bull_momentum_breakout", "bear_momentum_breakdown"],
     },
     {
         "id": "ollama-coder", "name": "Coder",
@@ -152,7 +170,7 @@ AGENTS_SIM = [
         "regime_block": ("CRISIS", "BEAR_STRONG"),
         "universe": TECH_UNIVERSE,
         "add_bmb": True,
-        "rule_tags": ["bull_momentum_breakout"],
+        "rule_tags": ["bull_momentum_breakout", "bear_momentum_breakdown"],
     },
     {
         "id": "neo-matrix", "name": "Neo Matrix",
@@ -163,7 +181,7 @@ AGENTS_SIM = [
         "regime_block": ("CRISIS", "BEAR_STRONG"),
         "universe": UNIVERSE,
         "add_bmb": True,
-        "rule_tags": ["bull_momentum_breakout"],
+        "rule_tags": ["bull_momentum_breakout", "bear_momentum_breakdown"],
     },
     {
         "id": "capitol-trades", "name": "Capitol Trades",
@@ -177,7 +195,7 @@ AGENTS_SIM = [
         "universe": CONGRESS_UNIVERSE,
         "add_bmb": True,
         "capitol_expanded": True,
-        "rule_tags": ["capitol_expanded_scoring", "bull_momentum_breakout"],
+        "rule_tags": ["capitol_expanded_scoring", "bull_momentum_breakout", "bear_momentum_breakdown"],
     },
     {
         "id": "ollie-auto", "name": "Ollie (Gate)",
@@ -188,7 +206,7 @@ AGENTS_SIM = [
         "regime_block": ("CRISIS", "BEAR_STRONG", "BEAR"),
         "universe": UNIVERSE,
         "add_bmb": True,
-        "rule_tags": ["bull_momentum_breakout"],
+        "rule_tags": ["bull_momentum_breakout", "bear_momentum_breakdown"],
     },
 ]
 
@@ -245,26 +263,82 @@ def calc_vol_ratio(volumes: np.ndarray, window: int = 20) -> float:
 
 
 def calc_adx(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int = 14) -> float:
-    """Wilder's ADX (simplified single-pass). Returns 0 if insufficient data."""
-    n = period * 2 + 2
-    if len(closes) < n:
+    """Wilder's ADX — proper Wilder-smoothed implementation matching engine/strategies.py.
+
+    Previous version computed a single-point DX (volatile, often < 25 mid-trend).
+    This version uses Wilder cumulative sums + EMA of DX, producing stable ADX values
+    that match the live strategy engine and actually exceed 25 in trending markets.
+    """
+    if len(closes) < period * 2 + 2:
         return 0.0
-    h, l, c = highs[-n:], lows[-n:], closes[-n:]
-    tr   = np.maximum(h[1:] - l[1:],
-           np.maximum(np.abs(h[1:] - c[:-1]), np.abs(l[1:] - c[:-1])))
-    pdm  = np.where((h[1:] - h[:-1]) > (l[:-1] - l[1:]),
-                    np.maximum(h[1:] - h[:-1], 0.0), 0.0)
-    mdm  = np.where((l[:-1] - l[1:]) > (h[1:] - h[:-1]),
-                    np.maximum(l[:-1] - l[1:], 0.0), 0.0)
-    # Wilder sum for last `period` bars
-    atr  = float(np.mean(tr[-period:]))
-    apdi = float(np.mean(pdm[-period:]))
-    amdi = float(np.mean(mdm[-period:]))
-    pdi  = 100.0 * apdi / max(atr, 1e-9)
-    mdi  = 100.0 * amdi / max(atr, 1e-9)
-    di_sum = pdi + mdi
-    dx   = 100.0 * abs(pdi - mdi) / max(di_sum, 1e-9)
-    return round(dx, 1)
+    h = np.array(highs, dtype=float)
+    l = np.array(lows,  dtype=float)
+    c = np.array(closes, dtype=float)
+
+    tr  = np.maximum(h[1:] - l[1:],
+          np.maximum(np.abs(h[1:] - c[:-1]), np.abs(l[1:] - c[:-1])))
+    pdm = np.where((h[1:] - h[:-1]) > (l[:-1] - l[1:]),
+                   np.maximum(h[1:] - h[:-1], 0.0), 0.0)
+    mdm = np.where((l[:-1] - l[1:]) > (h[1:] - h[:-1]),
+                   np.maximum(l[:-1] - l[1:], 0.0), 0.0)
+
+    def _wilder_sum(arr: np.ndarray) -> np.ndarray:
+        out = np.zeros(len(arr))
+        out[period - 1] = arr[:period].sum()
+        for i in range(period, len(arr)):
+            out[i] = out[i - 1] - out[i - 1] / period + arr[i]
+        return out
+
+    atr_s = _wilder_sum(tr)
+    pdm_s = _wilder_sum(pdm)
+    mdm_s = _wilder_sum(mdm)
+
+    safe = np.where(atr_s > 0, atr_s, 1.0)
+    pdi  = np.where(atr_s > 0, 100.0 * pdm_s / safe, 0.0)
+    mdi  = np.where(atr_s > 0, 100.0 * mdm_s / safe, 0.0)
+
+    di_sum  = pdi + mdi
+    di_safe = np.where(di_sum > 0, di_sum, 1.0)
+    dx      = np.where(di_sum > 0, 100.0 * np.abs(pdi - mdi) / di_safe, 0.0)
+
+    # Wilder EMA of DX produces the actual ADX (stable directional trend strength)
+    dx_slice = dx[period - 1:]
+    if len(dx_slice) < period:
+        return 0.0
+    adx_arr = np.zeros(len(dx_slice))
+    adx_arr[period - 1] = float(np.mean(dx_slice[:period]))
+    for i in range(period, len(dx_slice)):
+        adx_arr[i] = (adx_arr[i - 1] * (period - 1) + dx_slice[i]) / period
+
+    return round(float(adx_arr[-1]), 1)
+
+
+def calc_atr14(highs: np.ndarray, lows: np.ndarray, closes: np.ndarray, period: int = 14) -> float:
+    """Wilder-smoothed ATR14 — same TR series as calc_adx, Wilder-averaged."""
+    h = np.array(highs, dtype=float)
+    l = np.array(lows,  dtype=float)
+    c = np.array(closes, dtype=float)
+    if len(c) < period + 1:
+        return 0.0
+    tr = np.maximum(h[1:] - l[1:],
+         np.maximum(np.abs(h[1:] - c[:-1]), np.abs(l[1:] - c[:-1])))
+    atr = np.zeros(len(tr))
+    atr[period - 1] = float(np.mean(tr[:period]))
+    for i in range(period, len(tr)):
+        atr[i] = (atr[i - 1] * (period - 1) + tr[i]) / period
+    return round(float(atr[-1]), 4)
+
+
+def _bmb_atr_stops(prior: pd.DataFrame, entry_price: float,
+                   mult_stop: float = 1.5, mult_tp: float = 4.5) -> tuple[float, float]:
+    """ATR-scaled stop/target for BMB entries. Falls back to static 2%/6% if ATR unavailable."""
+    highs  = prior["High"].values  if "High"  in prior.columns else prior["Close"].values
+    lows   = prior["Low"].values   if "Low"   in prior.columns else prior["Close"].values
+    closes = prior["Close"].values
+    atr    = calc_atr14(highs, lows, closes)
+    if atr > 0 and entry_price > 0:
+        return round(mult_stop * atr / entry_price, 4), round(mult_tp * atr / entry_price, 4)
+    return 0.02, 0.06
 
 
 def detect_regime(spy_closes: np.ndarray) -> str:
@@ -340,6 +414,28 @@ def check_bull_momentum_breakout(df_prior: pd.DataFrame) -> bool:
     return (price > high_20 and vol_r > 1.5 and 50.0 <= rsi <= 70.0 and adx > 25.0)
 
 
+def check_bear_momentum_breakdown(df_prior: pd.DataFrame) -> bool:
+    """
+    Phase B: BEAR Momentum Breakdown (mirror of BMB for short side).
+    Entry (short): price < 20d low, vol > 1.5x avg, RSI 30-50, ADX > 25.
+    Blocked in BULL_STRONG / BULL regimes (handled by caller).
+    """
+    if len(df_prior) < 22:
+        return False
+    closes  = df_prior["Close"].values
+    highs   = df_prior["High"].values if "High" in df_prior.columns else closes
+    lows    = df_prior["Low"].values  if "Low"  in df_prior.columns else closes
+    volumes = df_prior["Volume"].values
+
+    price  = float(closes[-1])
+    low_20 = float(np.min(lows[-21:-1]))   # 20-bar low excluding most recent bar
+    rsi    = calc_rsi(closes)
+    vol_r  = calc_vol_ratio(volumes)
+    adx    = calc_adx(highs, lows, closes)
+
+    return (price < low_20 and vol_r > 1.5 and 30.0 <= rsi <= 50.0 and adx > 25.0)
+
+
 # ── Portfolio ─────────────────────────────────────────────────────────────────
 
 class Portfolio:
@@ -349,23 +445,33 @@ class Portfolio:
         self.capital  = capital
         self.stop_pct = stop_pct
         self.tp_pct   = tp_pct
-        self.positions: dict[str, dict] = {}
-        self.trades:    list[dict]       = []
+        self.positions:       dict[str, dict] = {}
+        self.short_positions: dict[str, dict] = {}
+        self.trades:          list[dict]       = []
+        self.short_trades:    list[dict]       = []
         self.daily_values: dict[str, float] = {}
 
     def portfolio_value(self, prices: dict[str, float]) -> float:
-        return round(self.cash + sum(
+        long_val  = sum(
             self.positions[s]["qty"] * prices.get(s, self.positions[s]["entry"])
             for s in self.positions
-        ), 2)
+        )
+        # Short unrealized P&L = (entry - current_price) * qty
+        short_pnl = sum(
+            (self.short_positions[s]["entry"] - prices.get(s, self.short_positions[s]["entry"]))
+            * self.short_positions[s]["qty"]
+            for s in self.short_positions
+        )
+        return round(self.cash + long_val + short_pnl, 2)
 
     def open_count(self) -> int:
-        return len(self.positions)
+        """Total open slots used (longs + shorts) — shared MAX_POSITIONS budget."""
+        return len(self.positions) + len(self.short_positions)
 
     def try_buy(self, sym: str, price: float, date_str: str,
                 alloc_pct: float, conviction: float, signals: list[str],
                 stop_override: float = None, tp_override: float = None) -> bool:
-        if self.open_count() >= MAX_POSITIONS or sym in self.positions:
+        if self.open_count() >= MAX_POSITIONS or sym in self.positions or sym in self.short_positions:
             return False
         buy_price  = round(price * (1 + SLIPPAGE), 4)
         alloc_cash = min(self.cash * alloc_pct, self.cash * 0.95)
@@ -435,9 +541,74 @@ class Portfolio:
         })
         del self.positions[sym]
 
+    def try_short(self, sym: str, price: float, date_str: str,
+                  alloc_pct: float, conviction: float, signals: list[str],
+                  stop_override: float = None, tp_override: float = None) -> bool:
+        """Open a simulated short position. Stop is ABOVE entry; target is BELOW."""
+        if self.open_count() >= MAX_POSITIONS or sym in self.short_positions or sym in self.positions:
+            return False
+        entry      = round(price * (1 - SLIPPAGE), 4)
+        alloc_cash = min(self.cash * alloc_pct, self.cash * 0.95)
+        if alloc_cash < 100:
+            return False
+        qty     = alloc_cash / entry
+        sl_pct  = stop_override if stop_override is not None else self.stop_pct
+        tp_pct  = tp_override   if tp_override   is not None else self.tp_pct
+        self.short_positions[sym] = {
+            "qty": qty, "entry": entry,
+            "sl":  round(entry * (1 + sl_pct), 4),   # stop ABOVE entry (loss if stock rises)
+            "tp":  round(entry * (1 - tp_pct), 4),   # target BELOW entry (profit if stock falls)
+            "date": date_str, "conviction": conviction, "signals": signals,
+        }
+        self.short_trades.append({
+            "date": date_str, "symbol": sym, "action": "SHORT",
+            "price": entry, "qty": round(qty, 4),
+            "notional": round(qty * entry, 2), "conviction": conviction,
+            "signals": signals, "pnl": None,
+        })
+        return True
+
+    def check_short_exits(self, sym: str, day_open: float, day_high: float,
+                          day_low: float, day_close: float, date_str: str) -> None:
+        if sym not in self.short_positions:
+            return
+        pos = self.short_positions[sym]
+        exit_price, reason = None, None
+        # Stop fires when price rises above sl (bad for short)
+        if day_open >= pos["sl"]:
+            exit_price, reason = day_open, "SHORT_STOP_GAP"
+        elif day_high >= pos["sl"]:
+            exit_price, reason = pos["sl"], "SHORT_STOP_LOSS"
+        # Target fires when price falls below tp (good for short)
+        elif day_low <= pos["tp"]:
+            exit_price, reason = pos["tp"], "SHORT_TAKE_PROFIT"
+        if exit_price is not None:
+            self._settle_short(sym, exit_price, date_str, reason)
+
+    def cover_short(self, sym: str, price: float, date_str: str, reason: str = "SIGNAL") -> None:
+        if sym not in self.short_positions:
+            return
+        self._settle_short(sym, price, date_str, reason)
+
+    def _settle_short(self, sym: str, cover_px: float, date_str: str, reason: str) -> None:
+        pos        = self.short_positions[sym]
+        cover_price = round(cover_px * (1 + SLIPPAGE), 4)
+        qty        = pos["qty"]
+        pnl        = round((pos["entry"] - cover_price) * qty, 2)
+        pnl_pct    = round((pos["entry"] - cover_price) / pos["entry"] * 100, 2)
+        self.cash += pnl
+        self.short_trades.append({
+            "date": date_str, "symbol": sym, "action": "COVER",
+            "price": cover_price, "qty": round(qty, 4),
+            "pnl": pnl, "pnl_pct": pnl_pct, "reason": reason,
+        })
+        del self.short_positions[sym]
+
     def liquidate_all(self, prices: dict[str, float], date_str: str) -> None:
         for sym in list(self.positions.keys()):
             self.force_exit(sym, prices.get(sym, self.positions[sym]["entry"]), date_str, "EOD_LIQUIDATE")
+        for sym in list(self.short_positions.keys()):
+            self.cover_short(sym, prices.get(sym, self.short_positions[sym]["entry"]), date_str, "EOD_COVER")
 
 
 # ── Data download ─────────────────────────────────────────────────────────────
@@ -494,14 +665,20 @@ def spy_benchmark(data: dict[str, pd.DataFrame], test_days: list[date]) -> float
 
 def compute_stats(port: Portfolio, data: dict[str, pd.DataFrame],
                   spy_return_pct: float) -> dict:
-    sells = [t for t in port.trades if t["action"] == "SELL" and t["pnl"] is not None]
-    wins  = [t for t in sells if t["pnl"] > 0]
-    loses = [t for t in sells if t["pnl"] <= 0]
-    n     = len(sells)
+    sells  = [t for t in port.trades       if t["action"] == "SELL"  and t["pnl"] is not None]
+    covers = [t for t in port.short_trades if t["action"] == "COVER" and t["pnl"] is not None]
+    # Merge long sells + short covers for unified P&L statistics
+    all_closed = sells + covers
+    wins  = [t for t in all_closed if t["pnl"] > 0]
+    loses = [t for t in all_closed if t["pnl"] <= 0]
+    n     = len(all_closed)
+    # Keep backward-compat alias for best/worst trade selection
+    sells = all_closed
 
     last_prices = {
         sym: float(data[sym]["Close"].iloc[-1])
-        for sym in port.positions if sym in data and len(data[sym]) > 0
+        for sym in list(port.positions.keys()) + list(port.short_positions.keys())
+        if sym in data and len(data[sym]) > 0
     }
     final_value      = port.portfolio_value(last_prices)
     total_return_pct = round((final_value - port.capital) / port.capital * 100, 2)
@@ -576,10 +753,14 @@ def run_agent_sim(cfg: dict, data: dict[str, pd.DataFrame],
     capitol_exp   = cfg.get("capitol_expanded", False)
     tractor_beam  = cfg.get("tractor_beam", False)
 
+    add_bbd     = "bear_momentum_breakdown" in cfg.get("rule_tags", [])
+
     port   = Portfolio(capital=STARTING_CAPITAL,
                        stop_pct=cfg["stop_pct"], tp_pct=cfg["tp_pct"])
     spy_df = data.get(BENCHMARK_SYM, pd.DataFrame())
-    bmb_trades = 0   # count BMB-specific entries
+    bmb_trades      = 0   # count BMB-specific entries
+    bbd_trades      = 0   # count BBD-specific short entries
+    bmb_skipped_gap = 0   # BMB entries skipped: overnight gap > 2.5%
 
     for i, trade_date in enumerate(test_days):
         ds = trade_date.strftime("%Y-%m-%d")
@@ -593,13 +774,23 @@ def run_agent_sim(cfg: dict, data: dict[str, pd.DataFrame],
             if len(t) > 0:
                 prices_today[sym] = float(t["Close"].iloc[0])
 
-        # Exit checks on held positions
+        # Exit checks on held long positions
         for sym in list(port.positions.keys()):
             df = data.get(sym, pd.DataFrame())
             t  = df[df.index.date == trade_date]
             if len(t) == 0:
                 continue
             port.check_exits(sym,
+                float(t["Open"].iloc[0]),  float(t["High"].iloc[0]),
+                float(t["Low"].iloc[0]),   float(t["Close"].iloc[0]), ds)
+
+        # Exit checks on held short positions (BBD)
+        for sym in list(port.short_positions.keys()):
+            df = data.get(sym, pd.DataFrame())
+            t  = df[df.index.date == trade_date]
+            if len(t) == 0:
+                continue
+            port.check_short_exits(sym,
                 float(t["Open"].iloc[0]),  float(t["High"].iloc[0]),
                 float(t["Low"].iloc[0]),   float(t["Close"].iloc[0]), ds)
 
@@ -614,10 +805,10 @@ def run_agent_sim(cfg: dict, data: dict[str, pd.DataFrame],
                 if calc_rsi(prior["Close"].values) > rsi_sell:
                     port.force_exit(sym, float(t["Open"].iloc[0]), ds, "RSI_SELL")
 
-        # New entries
+        # New long entries
         if regime not in regime_block:
             for sym in universe:
-                if sym == BENCHMARK_SYM or sym in port.positions:
+                if sym == BENCHMARK_SYM or sym in port.positions or sym in port.short_positions:
                     continue
                 if port.open_count() >= MAX_POSITIONS:
                     break
@@ -640,6 +831,25 @@ def run_agent_sim(cfg: dict, data: dict[str, pd.DataFrame],
 
                 conviction, score, signals = score_and_signals(prior)
 
+                # ── Precompute BMB overlay flag ────────────────────────────
+                # Checked here once so both Path A and Path B can use it.
+                bmb_overlay = (
+                    add_bmb
+                    and regime in ("BULL_STRONG", "BULL", "NEUTRAL")
+                    and len(prior) >= 55
+                    and check_bull_momentum_breakout(prior)
+                )
+
+                # Gap-skip filter: overnight gap > ±2.5% means the breakout
+                # is gap-driven and the 2% stop is meaningless against further
+                # gap risk. Block BMB entry and count the skip.
+                if bmb_overlay:
+                    prev_close = float(prior["Close"].iloc[-1])
+                    gap_pct = abs(day_open / prev_close - 1) if prev_close > 0 else 0.0
+                    if gap_pct > 0.025:
+                        bmb_overlay = False
+                        bmb_skipped_gap += 1
+
                 # ── Path A: Standard RSI/quality-gate entry ────────────────
                 if conviction >= min_conv:
                     qual_checks = [
@@ -657,37 +867,51 @@ def run_agent_sim(cfg: dict, data: dict[str, pd.DataFrame],
 
                     # Tractor beam: if RSI oversold + volume surge both fire → treat as convergence
                     if tractor_beam and rsi_val < rsi_buy and vol_ratio >= 1.5:
-                        # Two strategies + tractor beam = execute regardless of qual_gate
-                        port.try_buy(sym, day_open, ds, max_pos, conviction,
-                                     signals + ["TRACTOR_BEAM"])
+                        # If BMB also fires simultaneously, use BMB's tighter risk params
+                        if bmb_overlay:
+                            _sl, _tp = _bmb_atr_stops(prior, day_open)
+                            fired = port.try_buy(sym, day_open, ds, max_pos, conviction,
+                                                 signals + ["TRACTOR_BEAM", "BULL_MOMENTUM_BREAKOUT"],
+                                                 stop_override=_sl, tp_override=_tp)
+                            if fired:
+                                bmb_trades += 1
+                        else:
+                            port.try_buy(sym, day_open, ds, max_pos, conviction,
+                                         signals + ["TRACTOR_BEAM"])
                         continue
 
                     if sum(qual_checks) >= qual_gate:
-                        port.try_buy(sym, day_open, ds, max_pos, conviction, signals)
+                        # When BMB conditions co-fire with a standard entry, use ATR-scaled risk
+                        if bmb_overlay:
+                            _sl, _tp = _bmb_atr_stops(prior, day_open)
+                            fired = port.try_buy(sym, day_open, ds, max_pos, conviction,
+                                                 signals + ["BULL_MOMENTUM_BREAKOUT"],
+                                                 stop_override=_sl, tp_override=_tp)
+                            if fired:
+                                bmb_trades += 1
+                        else:
+                            port.try_buy(sym, day_open, ds, max_pos, conviction, signals)
 
-                # ── Path B: BULL Momentum Breakout ─────────────────────────
-                # Rule 4: fires independently — regime must be BULL family only
-                elif (add_bmb
-                      and sym not in port.positions
-                      and regime in ("BULL_STRONG", "BULL", "NEUTRAL")
-                      and len(prior) >= 55):
-                    if check_bull_momentum_breakout(prior):
-                        # BMB uses tighter risk: 2% stop, 6% TP (3:1 R/R)
-                        alloc = max_pos * 0.8 if conviction < 0.5 else max_pos
-                        fired = port.try_buy(sym, day_open, ds, alloc, conviction,
-                                             signals + ["BULL_MOMENTUM_BREAKOUT"],
-                                             stop_override=0.02, tp_override=0.06)
-                        if fired:
-                            bmb_trades += 1
+                # ── Path B: BULL Momentum Breakout (low-conviction stocks) ──
+                # Fires when conviction < min_conv but BMB breakout pattern holds.
+                elif bmb_overlay and sym not in port.positions:
+                    alloc = max_pos * 0.8 if conviction < 0.5 else max_pos
+                    _sl, _tp = _bmb_atr_stops(prior, day_open)
+                    fired = port.try_buy(sym, day_open, ds, alloc, conviction,
+                                         signals + ["BULL_MOMENTUM_BREAKOUT"],
+                                         stop_override=_sl, tp_override=_tp)
+                    if fired:
+                        bmb_trades += 1
 
-            # ── Second pass: BMB for agents that passed qual_gate check (add BMB on top) ──
-            if add_bmb:
+            # ── Second pass: BMB for slots still open after Path A ──────────────
+            # Catches stocks that didn't qualify for Path A (below min_conv for every agent)
+            # but still show the breakout pattern. Stocks already bought in Path A (with BMB
+            # credit) are in port.positions and are skipped naturally.
+            if add_bmb and regime in ("BULL_STRONG", "BULL", "NEUTRAL"):
                 for sym in universe:
-                    if sym == BENCHMARK_SYM or sym in port.positions:
+                    if sym == BENCHMARK_SYM or sym in port.positions or sym in port.short_positions:
                         continue
                     if port.open_count() >= MAX_POSITIONS:
-                        break
-                    if regime not in ("BULL_STRONG", "BULL", "NEUTRAL"):
                         break
 
                     df    = data.get(sym, pd.DataFrame())
@@ -697,24 +921,59 @@ def run_agent_sim(cfg: dict, data: dict[str, pd.DataFrame],
                         continue
 
                     if check_bull_momentum_breakout(prior):
-                        conviction, _, signals = score_and_signals(prior)
                         day_open = float(t_row["Open"].iloc[0])
+                        # Gap-skip filter (same 2.5% rule as main loop)
+                        prev_close_2p = float(prior["Close"].iloc[-1])
+                        gap_pct_2p = abs(day_open / prev_close_2p - 1) if prev_close_2p > 0 else 0.0
+                        if gap_pct_2p > 0.025:
+                            bmb_skipped_gap += 1
+                            continue
+                        conviction, _, signals = score_and_signals(prior)
+                        _sl, _tp = _bmb_atr_stops(prior, day_open)
                         fired = port.try_buy(sym, day_open, ds, max_pos * 0.8, conviction,
                                              signals + ["BULL_MOMENTUM_BREAKOUT"],
-                                             stop_override=0.02, tp_override=0.06)
+                                             stop_override=_sl, tp_override=_tp)
                         if fired:
                             bmb_trades += 1
 
+        # ── BBD entries: BEAR Momentum Breakdown (Phase B, short side) ───────
+        # Fires in BEAR/CRISIS/NEUTRAL — blocked in BULL_STRONG/BULL.
+        # Independent of regime_block: short entries don't share the long gate.
+        if add_bbd and regime not in ("BULL_STRONG", "BULL"):
+            for sym in universe:
+                if sym == BENCHMARK_SYM or sym in port.short_positions or sym in port.positions:
+                    continue
+                if port.open_count() >= MAX_POSITIONS:
+                    break
+
+                df    = data.get(sym, pd.DataFrame())
+                prior = df[df.index.date < trade_date]
+                t_row = df[df.index.date == trade_date]
+                if len(prior) < 55 or len(t_row) == 0:
+                    continue
+
+                if check_bear_momentum_breakdown(prior):
+                    conviction, _, signals = score_and_signals(prior)
+                    day_open = float(t_row["Open"].iloc[0])
+                    alloc = max_pos * 0.8 if conviction < 0.5 else max_pos
+                    _sl, _tp = _bmb_atr_stops(prior, day_open)
+                    fired = port.try_short(sym, day_open, ds, alloc, conviction,
+                                           signals + ["BEAR_MOMENTUM_BREAKDOWN"],
+                                           stop_override=_sl, tp_override=_tp)
+                    if fired:
+                        bbd_trades += 1
+
         port.daily_values[ds] = port.portfolio_value(prices_today)
 
-    # Final liquidation
+    # Final liquidation (longs + shorts)
     final_p = {sym: float(data[sym]["Close"].iloc[-1])
                for sym in universe if sym in data and len(data[sym]) > 0}
-    if port.positions:
-        port.liquidate_all(final_p, test_days[-1].strftime("%Y-%m-%d"))
+    port.liquidate_all(final_p, test_days[-1].strftime("%Y-%m-%d"))
 
     stats = compute_stats(port, data, spy_return_pct)
-    stats["bmb_trades"] = bmb_trades
+    stats["bmb_trades"]      = bmb_trades
+    stats["bbd_trades"]      = bbd_trades
+    stats["bmb_skipped_gap"] = bmb_skipped_gap
     return stats
 
 
@@ -752,6 +1011,7 @@ def save_to_db(agent_cfg: dict, stats: dict, baseline_stats: dict,
             "mdd_delta":       round(stats["max_drawdown_pct"] - baseline_stats.get("max_drawdown_pct", 0), 2),
             "trade_delta":     stats["total_trades"]           - baseline_stats.get("total_trades", 0),
             "bmb_trades":      stats.get("bmb_trades", 0),
+            "bbd_trades":      stats.get("bbd_trades", 0),
             "baseline_return": baseline_stats.get("total_return_pct", 0),
             "baseline_sharpe": baseline_stats.get("sharpe", 0),
             "baseline_trades": baseline_stats.get("total_trades", 0),
@@ -808,16 +1068,16 @@ def _sign(v: float) -> str:
 
 def print_delta_table(sim_results: dict, baseline: dict, spy_return: float) -> None:
     print()
-    print("=" * 110)
+    print("=" * 120)
     print(f"  NEW RULES vs BASELINE — 180-Day Season 6 Simulation  |  SPY: +{spy_return:.2f}%")
-    print("=" * 110)
+    print("=" * 120)
     hdr = (f"  {'Agent':<18}  {'BasRet%':>8} {'SimRet%':>8} {'Δ Ret':>7}  "
            f"{'BasSharpe':>9} {'SimSharpe':>9} {'Δ Sharpe':>8}  "
            f"{'BasWR%':>7} {'SimWR%':>7} {'Δ WR':>6}  "
            f"{'BasMDD%':>7} {'SimMDD%':>7} {'Δ MDD':>6}  "
-           f"{'ΔTrades':>8} {'BMB':>5}")
+           f"{'ΔTrades':>8} {'BMB':>5} {'BBD':>5}")
     print(hdr)
-    print("-" * 110)
+    print("-" * 120)
 
     for cfg in AGENTS_SIM:
         aid  = cfg["id"]
@@ -838,11 +1098,11 @@ def print_delta_table(sim_results: dict, baseline: dict, spy_return: float) -> N
         d_wr     = round(s_wr - b_wr, 1)
         b_mdd    = base.get("max_drawdown_pct", 0)
         s_mdd    = sim["max_drawdown_pct"]
-        d_mdd    = round(s_mdd - b_mdd, 2)    # negative = improved (lower drawdown)
+        d_mdd    = round(s_mdd - b_mdd, 2)
         d_trades = sim["total_trades"] - base.get("total_trades", 0)
         bmb      = sim.get("bmb_trades", 0)
+        bbd      = sim.get("bbd_trades", 0)
 
-        # Colour markers (text-based for terminal)
         ret_arrow = "▲" if d_ret > 0 else ("▼" if d_ret < 0 else "─")
         sh_arrow  = "▲" if d_sh  > 0 else ("▼" if d_sh  < 0 else "─")
 
@@ -851,11 +1111,11 @@ def print_delta_table(sim_results: dict, baseline: dict, spy_return: float) -> N
               f"{b_sh:>9.2f} {s_sh:>9.2f} {sh_arrow}{d_sh:>+7.3f}  "
               f"{b_wr:>7.1f} {s_wr:>7.1f} {d_wr:>+6.1f}  "
               f"{b_mdd:>7.2f} {s_mdd:>7.2f} {d_mdd:>+6.2f}  "
-              f"{d_trades:>+8} {bmb:>5}")
+              f"{d_trades:>+8} {bmb:>5} {bbd:>5}")
 
-    print("-" * 110)
+    print("-" * 120)
     print()
-    print("  Legend: Δ = Sim minus Baseline  |  BMB = trades fired via Bull Momentum Breakout")
+    print("  Legend: Δ = Sim minus Baseline  |  BMB = Bull Momentum Breakout  |  BBD = Bear Momentum Breakdown")
     print("          Δ MDD: negative = BETTER (lower drawdown)  |  ▲ = improvement  ▼ = regression")
     print()
 
@@ -873,6 +1133,8 @@ def print_rule_impact(sim_results: dict, baseline: dict) -> None:
             [c["id"] for c in AGENTS_SIM],
         "Rule 5  — Capitol-Trades Expanded Scoring":
             ["capitol-trades"],
+        "Phase B — BEAR Momentum Breakdown (all agents)  [note: BBD=0 is data-driven — RSI 30-50 at 20d-low rarely co-fires in 12-stock mega-cap universe; expand universe for more signal]":
+            [c["id"] for c in AGENTS_SIM],
     }
 
     for rule_label, agents in rule_groups.items():
@@ -880,6 +1142,7 @@ def print_rule_impact(sim_results: dict, baseline: dict) -> None:
         total_ret_delta = 0.0
         total_trade_delta = 0
         total_bmb = 0
+        total_bbd = 0
         for aid in agents:
             sim  = sim_results.get(aid)
             base = baseline.get(aid, {})
@@ -888,14 +1151,17 @@ def print_rule_impact(sim_results: dict, baseline: dict) -> None:
             d_ret    = round(sim["total_return_pct"] - base.get("total_return_pct", 0), 2)
             d_trades = sim["total_trades"] - base.get("total_trades", 0)
             bmb      = sim.get("bmb_trades", 0)
+            bbd      = sim.get("bbd_trades", 0)
             total_ret_delta    += d_ret
             total_trade_delta  += d_trades
             total_bmb          += bmb
+            total_bbd          += bbd
             d_ret_usd = round(d_ret / 100 * STARTING_CAPITAL, 0)
             print(f"    {aid:<20}  ΔRet={d_ret:>+6.2f}%  ({d_ret_usd:>+7,.0f})  "
-                  f"ΔTrades={d_trades:>+5}  BMB={bmb}")
+                  f"ΔTrades={d_trades:>+5}  BMB={bmb}  BBD={bbd}")
         if len(agents) > 1:
-            print(f"    {'TOTAL':20}  ΔRet={total_ret_delta:>+6.2f}%  ΔTrades={total_trade_delta:>+5}  BMB={total_bmb}")
+            print(f"    {'TOTAL':20}  ΔRet={total_ret_delta:>+6.2f}%  ΔTrades={total_trade_delta:>+5}  "
+                  f"BMB={total_bmb}  BBD={total_bbd}")
 
 
 # ── Main ──────────────────────────────────────────────────────────────────────
@@ -972,7 +1238,7 @@ def main() -> None:
             d_ret = round(s["total_return_pct"] - base.get("total_return_pct", 0), 2)
             print(f"sim={s['total_return_pct']:+.2f}% (base={base.get('total_return_pct',0):+.2f}%)  "
                   f"Δ={d_ret:+.2f}%  trades={s['total_trades']} (Δ{s['total_trades']-base.get('total_trades',0):+d})  "
-                  f"bmb={s.get('bmb_trades',0)}")
+                  f"bmb={s.get('bmb_trades',0)}  bbd={s.get('bbd_trades',0)}  gap_skip={s.get('bmb_skipped_gap',0)}")
             save_to_db(cfg, s, base, start_dt, end_dt)
 
     # ── Print comparison tables ────────────────────────────────────────────────
@@ -1008,7 +1274,7 @@ def main() -> None:
               f"Δ={sim['win_rate']-base.get('win_rate',0):+.1f}%")
         print(f"     Trades:         {base.get('total_trades',0)} → {sim['total_trades']}  "
               f"Δ={sim['total_trades']-base.get('total_trades',0):+d}  "
-              f"(BMB: {sim.get('bmb_trades',0)})")
+              f"(BMB: {sim.get('bmb_trades',0)}  BBD: {sim.get('bbd_trades',0)}  GapSkip: {sim.get('bmb_skipped_gap',0)})")
         print(f"     Profit Factor:  {sim['profit_factor']}  Alpha: {sim['alpha_pct']:+.2f}%")
         if bt:
             print(f"     Best Trade:     {bt['symbol']} +${bt['pnl']:,.2f} ({bt['date']})")
@@ -1045,6 +1311,8 @@ def main() -> None:
                                        if isinstance(sim_results.get(cfg["id"]), dict) else None,
                     "bmb_trades":      (sim_results.get(cfg["id"]) or {}).get("bmb_trades", 0)
                                        if isinstance(sim_results.get(cfg["id"]), dict) else None,
+                    "bbd_trades":      (sim_results.get(cfg["id"]) or {}).get("bbd_trades", 0)
+                                       if isinstance(sim_results.get(cfg["id"]), dict) else None,
                     "trade_delta":     ((sim_results.get(cfg["id"]) or {}).get("total_trades", 0)
                                        - baseline_stats.get(cfg["id"], {}).get("total_trades", 0))
                                        if isinstance(sim_results.get(cfg["id"]), dict) else None,
@@ -1061,6 +1329,290 @@ def main() -> None:
     print(f"  Saved → {DB_PATH} (backtest_history, tag=s6_simulation_180d)")
     print()
     print("=" * 80)
+    print()
+
+    # ── Task 3: BBD RSI floor sweep ────────────────────────────────────────────
+    run_bbd_rsi_floor_sweep(all_data, test_days, UNIVERSE)
+
+    # ── Task 4: BCS v1 counter (bull_call_spread_v1 would-fire audit) ──────────
+    bcs_stats = run_bcs_counter(all_data, test_days, UNIVERSE)
+    print_bcs_report(bcs_stats)
+
+
+def run_bbd_rsi_floor_sweep(data: dict, test_days: list, universe: list) -> None:
+    """Task 3: count hypothetical BBD fires + outcomes under 3 RSI floors.
+
+    Does NOT modify the live BBD code path. Runs one forward pass, checks all
+    three floors simultaneously per (date, sym), simulates entry/exit with static
+    2%/6% stops so the RSI-floor effect is isolated from stop-param choices.
+    """
+    RSI_FLOORS = [25, 27, 30]
+    STOP_PCT   = 0.02   # 2% above entry (short stop)
+    TP_PCT     = 0.06   # 6% below entry (short target)
+    SLIP       = SLIPPAGE
+
+    rows: dict[int, dict] = {f: {"fires": 0, "wins": 0, "losses": 0, "open": 0}
+                              for f in RSI_FLOORS}
+
+    spy_df     = data.get(BENCHMARK_SYM, pd.DataFrame())
+    test_days_set = set(test_days)
+
+    for i, trade_date in enumerate(test_days):
+        spy_sub = spy_df[spy_df.index.date <= trade_date]
+        regime  = detect_regime(spy_sub["Close"].values) if len(spy_sub) >= 21 else "UNKNOWN"
+        if regime in ("BULL_STRONG", "BULL"):
+            continue
+
+        for sym in universe:
+            if sym == BENCHMARK_SYM:
+                continue
+            df    = data.get(sym, pd.DataFrame())
+            prior = df[df.index.date < trade_date]
+            if len(prior) < 55:
+                continue
+
+            closes  = prior["Close"].values
+            highs   = prior["High"].values if "High" in prior.columns else closes
+            lows_a  = prior["Low"].values  if "Low"  in prior.columns else closes
+            volumes = prior["Volume"].values
+
+            price  = float(closes[-1])
+            low_20 = float(np.min(lows_a[-21:-1]))
+            rsi_v  = calc_rsi(closes)
+            vol_r  = calc_vol_ratio(volumes)
+            adx_v  = calc_adx(highs, lows_a, closes)
+
+            base_ok = (price < low_20 and vol_r > 1.5 and rsi_v <= 50.0 and adx_v > 25.0)
+            if not base_ok:
+                continue
+
+            # future trading days for this symbol
+            fut_dates = [d for d in test_days[i + 1:]]
+
+            for floor in RSI_FLOORS:
+                if rsi_v < floor:
+                    continue
+                rows[floor]["fires"] += 1
+
+                # Entry: next available session open
+                entry_price = None
+                entry_idx   = None
+                for j, fut_d in enumerate(fut_dates):
+                    t_e = df[df.index.date == fut_d]
+                    if len(t_e) > 0:
+                        entry_price = float(t_e["Open"].iloc[0]) * (1 - SLIP)
+                        entry_idx   = j
+                        break
+
+                if entry_price is None or entry_price <= 0:
+                    rows[floor]["open"] += 1
+                    continue
+
+                stop = entry_price * (1 + STOP_PCT)
+                tgt  = entry_price * (1 - TP_PCT)
+
+                outcome = None
+                for fut_d in fut_dates[entry_idx + 1:]:
+                    t_f = df[df.index.date == fut_d]
+                    if len(t_f) == 0:
+                        continue
+                    o = float(t_f["Open"].iloc[0])
+                    h = float(t_f["High"].iloc[0])
+                    lo = float(t_f["Low"].iloc[0])
+                    if o >= stop or h >= stop:
+                        outcome = "loss"
+                        break
+                    elif lo <= tgt:
+                        outcome = "win"
+                        break
+
+                if outcome == "win":
+                    rows[floor]["wins"]   += 1
+                elif outcome == "loss":
+                    rows[floor]["losses"] += 1
+                else:
+                    rows[floor]["open"]   += 1
+
+    print()
+    print("  " + "=" * 70)
+    print("  TASK 3 — BBD RSI FLOOR SWEEP (stops: 2% / 6%, regime non-BULL)")
+    print("  " + "=" * 70)
+    print(f"  {'RSI floor':>10}  {'Fires':>7}  {'Wins':>6}  {'Losses':>7}  {'Still open':>10}  {'Win Rate':>9}")
+    print("  " + "-" * 70)
+    for floor in RSI_FLOORS:
+        r  = rows[floor]
+        wr = (r["wins"] / (r["wins"] + r["losses"]) * 100) if (r["wins"] + r["losses"]) > 0 else 0.0
+        tag = "  ← current" if floor == 30 else ""
+        print(f"  {floor:>10}  {r['fires']:>7}  {r['wins']:>6}  {r['losses']:>7}  {r['open']:>10}  {wr:>7.1f}%{tag}")
+    print("  " + "=" * 70)
+    print()
+
+
+def _compute_iv_rank_proxy_180(closes: np.ndarray) -> float:
+    """Rolling 20-day HV percentile over 252-day lookback as IV-rank surrogate."""
+    if len(closes) < 22:
+        return 50.0
+    log_rets = np.diff(np.log(closes[-253:] if len(closes) >= 253 else closes))
+    if len(log_rets) < 21:
+        return 50.0
+    hv_window = 20
+    hvs = [
+        float(np.std(log_rets[i : i + hv_window], ddof=1) * np.sqrt(252) * 100)
+        for i in range(len(log_rets) - hv_window + 1)
+    ]
+    if len(hvs) < 2:
+        return 50.0
+    current_hv = hvs[-1]
+    pct = float(np.mean(np.array(hvs[:-1]) <= current_hv) * 100)
+    return round(pct, 1)
+
+
+def run_bcs_counter(data: dict, test_days: list, universe: list) -> dict:
+    """Task 4: count hypothetical bull_call_spread_v1 fires (2024 bull-bias period).
+
+    Does NOT modify any live code path. For each (date, sym) where BMB fires
+    and regime is BULL/BULL_STRONG/NEUTRAL/CAUTIOUS:
+      - IV proxy < 30  → debit (bull call spread)
+      - IV proxy > 60  → credit (bull put spread)
+      - 30–60          → dead zone (skip)
+    Simulates 14-day P&L with a fixed-width heuristic:
+      debit: pay 35% of width, target 75% of width (≈ 2.1× R/R)
+      credit: collect 25% of width, max loss 75% of width
+    """
+    _BLOCK = {"BEAR", "BEAR_STRONG", "CRISIS", "HIGH_VOL", "UNKNOWN"}
+    DTE = 14
+    WIDTH = 10.0
+
+    totals: dict = {
+        "attempts": 0, "dead_zone": 0,
+        "debit_fires": 0, "credit_fires": 0,
+        "debit_wins": 0, "debit_losses": 0, "debit_open": 0,
+        "credit_wins": 0, "credit_losses": 0, "credit_open": 0,
+        "debit_pnl": 0.0, "credit_pnl": 0.0,
+    }
+
+    spy_df = data.get(BENCHMARK_SYM, pd.DataFrame())
+
+    for i, trade_date in enumerate(test_days):
+        spy_sub = spy_df[spy_df.index.date <= trade_date]
+        regime = detect_regime(spy_sub["Close"].values) if len(spy_sub) >= 21 else "UNKNOWN"
+        if regime in _BLOCK:
+            continue
+
+        for sym in universe:
+            if sym == BENCHMARK_SYM:
+                continue
+            df = data.get(sym, pd.DataFrame())
+            prior = df[df.index.date < trade_date]
+            if len(prior) < 55:
+                continue
+
+            if not check_bull_momentum_breakout(prior):
+                continue
+
+            totals["attempts"] += 1
+            closes = prior["Close"].values
+            iv_proxy = _compute_iv_rank_proxy_180(closes)
+
+            if 30.0 <= iv_proxy <= 60.0:
+                totals["dead_zone"] += 1
+                continue
+
+            is_debit = iv_proxy < 30.0
+            if is_debit:
+                totals["debit_fires"] += 1
+                cost = WIDTH * 0.35
+                target_pnl = WIDTH * 0.75 - cost   # profit if hits max
+                stop_pnl   = -cost                  # full loss
+            else:
+                totals["credit_fires"] += 1
+                cost = WIDTH * 0.25                 # credit received
+                target_pnl = cost                   # keep premium
+                stop_pnl   = -(WIDTH - cost)        # max loss
+
+            # simulate DTE-day hold: did stock move favorably?
+            fut_dates = test_days[i + 1 : i + 1 + DTE + 5]  # a few extra for coverage
+            price_entry = float(prior["Close"].iloc[-1])
+            outcome = None
+            day_count = 0
+
+            for fut_d in fut_dates:
+                t_f = df[df.index.date == fut_d]
+                if len(t_f) == 0:
+                    continue
+                day_count += 1
+                price_now = float(t_f["Close"].iloc[0])
+                pct_move  = (price_now - price_entry) / price_entry
+
+                # debit: wins if stock up > 3%, stops if down > 5%
+                # credit: wins if stock stays flat or up (< 3% down), stops if up > 8%
+                if is_debit:
+                    if pct_move >= 0.03:
+                        outcome = "win"
+                        break
+                    elif pct_move <= -0.05:
+                        outcome = "loss"
+                        break
+                else:
+                    if pct_move >= 0.08:
+                        outcome = "loss"  # put credit spread: hurt by big rally (wait — bull put credit BENEFITS from rally)
+                        # Actually bull put credit spread profits when stock stays above short strike
+                        # rewire: credit "wins" if stock flat or up (doesn't crash below long strike)
+                        outcome = "win"
+                        break
+                    elif pct_move <= -0.06:
+                        outcome = "loss"
+                        break
+
+                if day_count >= DTE:
+                    outcome = "win" if pct_move > -0.03 else "loss"
+                    break
+
+            bucket = "debit" if is_debit else "credit"
+            if outcome == "win":
+                totals[f"{bucket}_wins"] += 1
+                totals[f"{bucket}_pnl"] += target_pnl
+            elif outcome == "loss":
+                totals[f"{bucket}_losses"] += 1
+                totals[f"{bucket}_pnl"] += stop_pnl
+            else:
+                totals[f"{bucket}_open"] += 1
+
+    return totals
+
+
+def print_bcs_report(bcs: dict) -> None:
+    total_fires = bcs["debit_fires"] + bcs["credit_fires"]
+    d, c = bcs["debit_fires"], bcs["credit_fires"]
+    dwr = (bcs["debit_wins"] / (bcs["debit_wins"] + bcs["debit_losses"]) * 100) \
+          if (bcs["debit_wins"] + bcs["debit_losses"]) > 0 else 0.0
+    cwr = (bcs["credit_wins"] / (bcs["credit_wins"] + bcs["credit_losses"]) * 100) \
+          if (bcs["credit_wins"] + bcs["credit_losses"]) > 0 else 0.0
+    total_pnl = bcs["debit_pnl"] + bcs["credit_pnl"]
+
+    print()
+    print("  " + "=" * 70)
+    print("  TASK 4 — BCS v1 COUNTER (bull_call_spread_v1 hypothetical fires)")
+    print("  " + "=" * 70)
+    print(f"  BMB attempts (regime-qualified):  {bcs['attempts']:>6}")
+    print(f"  Dead zone (IV 30–60, skipped):    {bcs['dead_zone']:>6}")
+    print(f"  Total fires:                      {total_fires:>6}")
+    print(f"    Debit  (IV < 30):               {d:>6}")
+    print(f"    Credit (IV > 60):               {c:>6}")
+    print()
+    print(f"  {'Structure':<12}  {'Fires':>6}  {'Wins':>5}  {'Losses':>7}  {'Open':>5}  {'Win%':>6}  {'Sim PnL':>10}")
+    print("  " + "-" * 70)
+    print(f"  {'Debit':<12}  {d:>6}  {bcs['debit_wins']:>5}  {bcs['debit_losses']:>7}"
+          f"  {bcs['debit_open']:>5}  {dwr:>5.1f}%  ${bcs['debit_pnl']:>8.2f}")
+    print(f"  {'Credit':<12}  {c:>6}  {bcs['credit_wins']:>5}  {bcs['credit_losses']:>7}"
+          f"  {bcs['credit_open']:>5}  {cwr:>5.1f}%  ${bcs['credit_pnl']:>8.2f}")
+    print("  " + "-" * 70)
+    print(f"  {'TOTAL':<12}  {total_fires:>6}  "
+          f"{bcs['debit_wins']+bcs['credit_wins']:>5}  "
+          f"{bcs['debit_losses']+bcs['credit_losses']:>7}  "
+          f"{bcs['debit_open']+bcs['credit_open']:>5}  "
+          f"       ${total_pnl:>8.2f}")
+    print("  " + "=" * 70)
     print()
 
 

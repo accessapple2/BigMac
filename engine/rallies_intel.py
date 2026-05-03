@@ -75,8 +75,8 @@ def import_leaderboard(data: list[dict]) -> dict:
     """Import Rallies Arena leaderboard standings.
 
     Expected format: [
-        {"id": "grok-4", "name": "Grok 4", "return_pct": 7.0, "portfolio_value": 107000},
-        {"id": "claude-sonnet", "name": "Claude Sonnet 4.5", "return_pct": 5.7, ...},
+        {"id": "deepseek-7b-grok4", "name": "Grok 4", "return_pct": 7.0, "portfolio_value": 107000},
+        {"id": "qwen3-8b-sonnet", "name": "Claude Sonnet 4.5", "return_pct": 5.7, ...},
         ...
     ]
     """
@@ -112,7 +112,7 @@ def import_trades(trades: list[dict]) -> dict:
     """Import Rallies Arena trades.
 
     Expected format: [
-        {"model_id": "grok-4", "model_name": "Grok 4", "symbol": "NVDA",
+        {"model_id": "deepseek-7b-grok4", "model_name": "Grok 4", "symbol": "NVDA",
          "action": "BUY", "confidence": 0.85, "reasoning": "...", "price": 130.50},
         ...
     ]
@@ -270,7 +270,7 @@ def _check_confirmation(conn, symbol: str, rallies_model_name: str) -> dict | No
     """Check if a Rallies model bought something our crew already holds."""
     rows = conn.execute("""
         SELECT DISTINCT player_id FROM positions
-        WHERE symbol=? AND qty > 0 AND player_id NOT IN ('steve-webull', 'dayblade-0dte')
+        WHERE symbol=? AND qty > 0 AND player_id NOT IN ('webull', 'dayblade-0dte')
     """, (symbol,)).fetchall()
     if rows:
         holders = [r["player_id"] for r in rows]
@@ -449,7 +449,7 @@ def compare_crew_vs_rallies() -> dict:
                 SELECT COALESCE(value, '1') FROM settings WHERE key='current_season'
             )
         ) ph ON p.id = ph.player_id AND ph.rn = 1
-        WHERE p.is_human = 0 AND p.id NOT IN ('dayblade-0dte', 'steve-webull')
+        WHERE p.is_human = 0 AND p.id NOT IN ('dayblade-0dte', 'webull')
         ORDER BY ph.total_value DESC
     """).fetchall()
 
@@ -489,7 +489,7 @@ def _find_trade_overlaps(crew: list, rallies: list) -> list:
         SELECT DISTINCT symbol FROM trades
         WHERE action IN ('BUY', 'BUY_CALL')
         AND executed_at >= datetime('now', '-7 days')
-        AND player_id NOT IN ('steve-webull', 'dayblade-0dte')
+        AND player_id NOT IN ('webull', 'dayblade-0dte')
     """).fetchall()
     our_symbols = {r["symbol"] for r in our_buys}
 

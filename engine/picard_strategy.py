@@ -108,7 +108,10 @@ Never be vague. The Captain needs strategic clarity, not philosophical musings a
 
 def generate_picard_briefing() -> str | None:
     """Generate Picard's weekly strategy briefing using Ollama."""
-    from config import OLLAMA_URL, OLLAMA_MODEL
+    # 2026-04-20: OLLAMA_MODEL was a stopgap alias (phi3:mini) from the RAM patch.
+    # Picard uses gemma3:4b specifically — hardcode to prevent future stopgap contamination.
+    from config import OLLAMA_LOCAL_URL as OLLAMA_URL  # Picard/gemma3:4b routed to bigmac (gemma3 is a bigmac resident, see config.py line 43)
+    OLLAMA_MODEL = "gemma3:4b"
 
     # Gather weekly intelligence
     context_parts = []
@@ -235,7 +238,7 @@ def generate_picard_briefing() -> str | None:
         resp = requests.post(
             f"{OLLAMA_URL}/api/generate",
             json={
-                "model": OLLAMA_MODEL,
+                "model": OLLAMA_MODEL,  # gemma3:4b — hardcoded above, not from config
                 "prompt": prompt,
                 "stream": False,
                 "options": {
@@ -272,7 +275,7 @@ def generate_picard_briefing() -> str | None:
             ).fetchone()
             c2.close()
             if not recent:
-                save_hot_take("steve-webull", "STRATEGY",
+                save_hot_take("webull", "STRATEGY",
                               f"⭐ ADMIRAL PICARD — READY ROOM BRIEFING:\n\n{briefing}")
                 console.log("[bold cyan]Picard's Ready Room briefing posted to War Room")
             else:

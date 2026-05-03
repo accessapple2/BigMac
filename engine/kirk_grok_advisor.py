@@ -35,8 +35,10 @@ OUTPUT_RATE_PER_M = 15.00
 XAI_BASE_URL = "https://api.x.ai/v1"
 
 # Ollama fallback
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
-OLLAMA_MODEL = os.getenv("CREWAI_MODEL", "qwen3.5:9b")  # Free-Models-First 2026-04-17: qwen3:14b not installed; 9b is warm per main.py fleet
+from config import OLLIE_URL as _OLLIE_URL
+OLLAMA_BASE_URL = os.getenv("ADVISORY_OLLAMA_URL",
+                             os.getenv("OLLAMA_BASE_URL", _OLLIE_URL))
+OLLAMA_MODEL = os.getenv("CREWAI_MODEL", "qwen3:8b")  # 2026-04-20: qwen3:8b → qwen3:8b on Ollie GPU
 
 SYSTEM_PROMPT = (
     "You are a swing trade advisor for a small retail portfolio (~$6,500). "
@@ -161,7 +163,7 @@ def _get_positions() -> list[dict]:
             "SELECT p.symbol, p.qty, p.avg_price, "
             "  p.avg_price AS current_price "
             "FROM positions p "
-            "WHERE p.player_id='steve-webull' AND p.qty > 0 "
+            "WHERE p.player_id='webull' AND p.qty > 0 "
             "ORDER BY p.symbol",
         ).fetchall()
         conn.close()

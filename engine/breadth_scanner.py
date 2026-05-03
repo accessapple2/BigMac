@@ -68,8 +68,8 @@ def _fetch_etf_changes() -> dict[str, float]:
     Returns: {"XLK": 1.23, "XLF": -0.45, ...}
     """
     client = StockHistoricalDataClient(
-        os.environ.get("ALPACA_API_KEY", ""),
-        os.environ.get("ALPACA_SECRET_KEY", ""),
+        os.environ.get("APCA_API_KEY_ID", ""),
+        os.environ.get("APCA_API_SECRET_KEY", ""),
     )
     start = datetime.now(timezone.utc) - timedelta(days=5)
     req = StockBarsRequest(

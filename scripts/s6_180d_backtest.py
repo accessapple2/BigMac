@@ -375,51 +375,54 @@ class Portfolio:
 # ── Data download ─────────────────────────────────────────────────────────────
 
 def download_data(symbols: list[str], start: date, end: date) -> dict[str, pd.DataFrame]:
+    """Polygon-backed bulk download. Replaces yfinance to avoid rate limits.
+
+    get_polygon_bars() returns dict[str, DataFrame] with Open/High/Low/Close/Volume
+    columns and DatetimeIndex — same shape yfinance produced under group_by=ticker.
+    """
     warmup_start = start - timedelta(days=100)
     all_syms = list(set(symbols + [BENCHMARK_SYM]))
-    print(f"  Downloading {len(all_syms)} symbols: {warmup_start} → {end} ...")
+    # Calendar days from warmup_start to end + small buffer
+    days_needed = (end - warmup_start).days + 10
+    print(f"  Downloading {len(all_syms)} symbols via Polygon: {warmup_start} → {end} (days={days_needed}) ...")
+
+    # Lazy import so script still works if engine.market_data is missing
+    sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
+    try:
+        from engine.market_data import get_polygon_bars
+    except ImportError as e:
+        print(f"FATAL: cannot import get_polygon_bars: {e}")
+        sys.exit(1)
 
     for attempt in range(3):
         try:
-            raw = yf.download(
-                all_syms,
-                start=warmup_start.strftime("%Y-%m-%d"),
-                end=(end + timedelta(days=1)).strftime("%Y-%m-%d"),
-                auto_adjust=True, progress=False, group_by="ticker",
-            )
+            data = get_polygon_bars(all_syms, days=days_needed, max_workers=10)
             break
         except Exception as e:
-            print(f"  Download attempt {attempt+1} failed: {e}")
+            print(f"  Polygon download attempt {attempt+1} failed: {e}")
             if attempt < 2:
                 time.sleep(3)
             else:
                 print("FATAL: Could not download data."); sys.exit(1)
 
-    data: dict[str, pd.DataFrame] = {}
+    # Trim each DataFrame to >= warmup_start and dropna on Close
+    trimmed: dict[str, pd.DataFrame] = {}
     for sym in all_syms:
+        df = data.get(sym)
+        if df is None or df.empty:
+            print(f"  WARNING: {sym} returned no data")
+            trimmed[sym] = pd.DataFrame()
+            continue
         try:
-            if len(all_syms) == 1:
-                df = raw.dropna(subset=["Close"])
-            else:
-                try:
-                    df = raw[sym].dropna(subset=["Close"])
-                except Exception:
-                    df = raw.xs(sym, level=1, axis=1).dropna(subset=["Close"])
-            data[sym] = df
-        except Exception:
-            try:
-                df = yf.download(sym, start=warmup_start.strftime("%Y-%m-%d"),
-                                 end=(end + timedelta(days=1)).strftime("%Y-%m-%d"),
-                                 auto_adjust=True, progress=False)
-                data[sym] = df.dropna(subset=["Close"])
-            except Exception as ex:
-                print(f"  WARNING: {sym} failed: {ex}")
-                data[sym] = pd.DataFrame()
-        time.sleep(0.15)
+            df = df[df.index.date >= warmup_start].dropna(subset=["Close"])
+            trimmed[sym] = df
+        except Exception as ex:
+            print(f"  WARNING: {sym} trim failed: {ex}")
+            trimmed[sym] = pd.DataFrame()
 
-    ok = sum(1 for d in data.values() if len(d) > 20)
+    ok = sum(1 for d in trimmed.values() if len(d) > 20)
     print(f"  OK: {ok}/{len(all_syms)} symbols with data")
-    return data
+    return trimmed
 
 
 # ── SPY benchmark ─────────────────────────────────────────────────────────────

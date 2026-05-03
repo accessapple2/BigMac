@@ -43,15 +43,15 @@ TOKEN_RATES = {
     "dayblade-0dte":     (0.00, 0.00),
     "navigator":         (0.00, 0.00),
     # ── Formerly paid — now routed to Ollama locally ───────────────────────
-    "claude-haiku":      (0.00, 0.00),  # Lt. Malcolm Reed → ollama/qwen2.5-coder:7b
-    "claude-sonnet":     (0.00, 0.00),  # Captain Sisko    → ollama/qwen3.5:9b
-    "gemini-2.5-flash":  (0.00, 0.00),  # Lt. Cmdr. Worf   → ollama/qwen3.5:9b
-    "gemini-2.5-pro":    (0.00, 0.00),  # Seven of Nine    → ollama/qwen3:14b
-    "options-sosnoff":   (0.00, 0.00),  # Counselor Troi   → ollama/qwen3.5:9b
-    "gpt-4o":            (0.00, 0.00),  # Captain Janeway  → ollama/qwen3.5:9b
-    "gpt-o3":            (0.00, 0.00),  # Lt. Tuvok        → ollama/deepseek-r1:7b
-    "grok-3":            (0.00, 0.00),  # Ensign Hoshi     → ollama/qwen3.5:9b
-    "grok-4":            (0.00, 0.00),  # Lt. Cmdr. Spock  → ollama/deepseek-r1:7b
+    "qwen-coder-haiku":      (0.00, 0.00),  # Lt. Malcolm Reed → ollama/qwen2.5-coder:7b
+    "qwen3-8b-sonnet":     (0.00, 0.00),  # Captain Sisko    → ollama/qwen3:8b
+    "qwen3-8b-flash":  (0.00, 0.00),  # Lt. Cmdr. Worf   → ollama/qwen3:8b
+    "qwen3-14b-pro":    (0.00, 0.00),  # Seven of Nine    → ollama/qwen3:14b
+    "options-sosnoff":   (0.00, 0.00),  # Counselor Troi   → ollama/qwen3:8b
+    "qwen3-8b-4o":            (0.00, 0.00),  # Captain Janeway  → ollama/qwen3:8b
+    "qwen3-8b-o3":            (0.00, 0.00),  # Lt. Tuvok        → ollama/deepseek-r1:7b
+    "qwen3-14b-grok3":            (0.00, 0.00),  # Ensign Hoshi     → ollama/qwen3:8b
+    "deepseek-7b-grok4":            (0.00, 0.00),  # Lt. Cmdr. Spock  → ollama/deepseek-r1:7b
     "cto-grok42":        (0.00, 0.00),  # CTO Grok 4.2     → ollama/qwen2.5-coder:7b
     "kirk-grok-advisor": (3.00, 15.00), # Kirk Grok Swing Advisor — real xAI API calls
     "first-officer":     (0.00, 0.00),
@@ -305,7 +305,7 @@ def get_free_vs_paid_pnl() -> dict:
     free_models, paid_models = [], []
     for r in rows:
         pid = r["id"]
-        starting = 3500.0 if pid == "dayblade-0dte" else (7021.81 if pid == "steve-webull" else 7000.0)
+        starting = 3500.0 if pid == "dayblade-0dte" else (7021.81 if pid == "webull" else 7000.0)
         pnl = r["cash"] - starting + r["realized_pnl"]
         entry = {"player_id": pid, "name": r["display_name"], "pnl": pnl}
         if pid in free_ids:
@@ -339,7 +339,7 @@ def get_model_roi_ranking() -> list:
 
     result = []
     for p in players:
-        starting = 3500.0 if p["id"] == "dayblade-0dte" else (7021.81 if p["id"] == "steve-webull" else 7000.0)
+        starting = 3500.0 if p["id"] == "dayblade-0dte" else (7021.81 if p["id"] == "webull" else 7000.0)
         pnl = p["cash"] - starting + p["realized_pnl"]
         cost = cost_map.get(p["id"], 0)
         is_free = TOKEN_RATES.get(p["id"], (1, 1))[0] == 0.0

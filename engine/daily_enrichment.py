@@ -76,11 +76,11 @@ def _collect_sector_rotation(db: sqlite3.Connection) -> int:
         "Real Estate": "XLRE", "Communication": "XLC",
     }
     try:
-        import yfinance as yf
+        # 2026-04-27: migrated yfinance -> Alpaca via get_alpaca_bars()
+        from engine.market_data import get_alpaca_bars
         today = datetime.now().strftime("%Y-%m-%d")
         tickers = list(sector_etfs.values())
-        data = yf.download(tickers, period="2d", interval="1d",
-                           group_by="ticker", auto_adjust=True, progress=False)
+        data = get_alpaca_bars(tickers, timeframe="1Day", days=2)
         changes: list[tuple[str, float]] = []
         for sector, etf in sector_etfs.items():
             try:

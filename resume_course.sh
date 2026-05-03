@@ -78,8 +78,8 @@ fi
 echo ""
 echo "[ 7/7 ] Checking Alpaca connection..."
 ALPACA=$(curl -s https://api.alpaca.markets/v2/clock \
-  -H "APCA-API-KEY-ID: $(grep ALPACA_API_KEY $CD/.env | cut -d= -f2)" \
-  -H "APCA-API-SECRET-KEY: $(grep ALPACA_SECRET_KEY $CD/.env | cut -d= -f2)" \
+  -H "APCA-API-KEY-ID: $(grep APCA_API_KEY_ID $CD/.env | cut -d= -f2)" \
+  -H "APCA-API-SECRET-KEY: $(grep APCA_API_SECRET_KEY $CD/.env | cut -d= -f2)" \
   | grep -c "is_open" || true)
 if [ "$ALPACA" -gt 0 ]; then
   echo "  ✓ Alpaca API connected"

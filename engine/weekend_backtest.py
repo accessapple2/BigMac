@@ -7,10 +7,10 @@ across the identical data set.
 
 Usage (quick 3-day test):
     from engine.weekend_backtest import run_backtest
-    run_backtest(days=3, model="qwen3.5:9b")
+    run_backtest(days=3, model="qwen3:8b")
 
 Full bake-off:
-    run_backtest(days=30, model="qwen3.5:9b")
+    run_backtest(days=30, model="qwen3:8b")
     run_backtest(days=30, model="0xroyce/plutus")
 """
 
@@ -51,22 +51,22 @@ POSITION_PCT  = 0.20   # 20% of cash per position
 # Per-agent exit thresholds (item 10: wider stops to avoid shake-outs)
 _AGENT_STOPS: dict[str, dict] = {
     "neo-matrix":       {"stop": -0.05, "target": 0.08, "max_days": 5},
-    "grok-4":           {"stop": -0.04, "target": 0.05, "max_days": 5},
+    "deepseek-7b-grok4":           {"stop": -0.04, "target": 0.05, "max_days": 5},
     "ollama-qwen3":     {"stop": -0.04, "target": 0.06, "max_days": 7},
     "ollama-plutus":    {"stop": -0.03, "target": 0.04, "max_days": 5},
     "ollama-glm4":      {"stop": -0.03, "target": 0.05, "max_days": 5},
     "data-tng":         {"stop": -0.04, "target": 0.06, "max_days": 6},
     # Silent Four
     "dayblade-sulu":    {"stop": -0.03, "target": 0.05, "max_days": 3},   # gap fades fast
-    "gemini-2.5-flash": {"stop": -0.04, "target": 0.06, "max_days": 5},
+    "qwen3-8b-flash": {"stop": -0.04, "target": 0.06, "max_days": 5},
     "ollama-llama":     {"stop": -0.04, "target": 0.07, "max_days": 4},   # catalyst plays
-    "gemini-2.5-pro":   {"stop": -0.04, "target": 0.06, "max_days": 5},
+    "qwen3-14b-pro":   {"stop": -0.04, "target": 0.06, "max_days": 5},
 }
 
 # Scaled exit tiers for backtest: (profit_threshold, fraction_to_sell, label)
 _BT_SCALED_TIERS: dict[str, list[tuple[float, float, str]]] = {
     "neo-matrix":    [(0.08, 0.15, "T3"), (0.05, 0.25, "T2"), (0.03, 0.50, "T1")],
-    "grok-4":        [(0.05, 0.25, "T2"), (0.03, 0.50, "T1")],
+    "deepseek-7b-grok4":        [(0.05, 0.25, "T2"), (0.03, 0.50, "T1")],
     "ollama-qwen3":  [(0.06, 0.25, "T2"), (0.04, 0.50, "T1")],
     "ollama-plutus": [(0.04, 0.50, "T1")],
     "ollama-glm4":   [(0.05, 0.25, "T2"), (0.03, 0.50, "T1")],
@@ -96,22 +96,22 @@ _bt_trail_highs: dict[str, float] = {}
 # 9 bake-off agents (original fleet + Silent Four)
 BAKEOFF_AGENTS = [
     {"id": "neo-matrix",      "name": "Neo",        "strategy": "momentum breakouts",      "hint": "Trade the leaders — NVDA, AMD, TSLA, META, AAPL, AMZN. Momentum + volume."},
-    {"id": "grok-4",          "name": "Spock",       "strategy": "mean reversion RSI",      "hint": "RSI oversold (<35). Session must NOT be trending."},
+    {"id": "deepseek-7b-grok4",          "name": "Spock",       "strategy": "mean reversion RSI",      "hint": "RSI oversold (<35). Session must NOT be trending."},
     {"id": "ollama-glm4",     "name": "Q",           "strategy": "any edge, no constraints","hint": "Find the best asymmetric risk/reward. Surprise me."},
     {"id": "ollama-qwen3",    "name": "Dax",         "strategy": "defensive value XLU/XLP", "hint": "Defensive/value: XLU, XLP, XLV when risk-off."},
     {"id": "ollama-plutus",   "name": "Dr. McCoy",   "strategy": "crisis fading VIX > 22",  "hint": "Only if VIX > 22. Oversold bounces, panic fades."},
     {"id": "data-tng",        "name": "Data",        "strategy": "quantitative scoring",    "hint": "Score: RSI<35+3, vol>2x+2, SMA20+1, MACD cross+2, sector+1, green+1. Buy>=6, half>=4."},
     # Silent Four — added to backtest
     {"id": "dayblade-sulu",   "name": "Sulu",        "strategy": "gap and go momentum",     "hint": "Stocks gapping up >2% at open. Trend-following. Session must be bullish."},
-    {"id": "gemini-2.5-flash","name": "Worf",        "strategy": "bearish inverse ETFs",    "hint": "VIX > 20 only. Buy SH, SQQQ, or UVXY. Skip confirmed bull sessions."},
+    {"id": "qwen3-8b-flash","name": "Worf",        "strategy": "bearish inverse ETFs",    "hint": "VIX > 20 only. Buy SH, SQQQ, or UVXY. Skip confirmed bull sessions."},
     {"id": "ollama-llama",    "name": "Uhura",       "strategy": "earnings catalyst plays", "hint": "Big movers: >4% single-day on >2x volume. Ride the catalyst."},
-    {"id": "gemini-2.5-pro",  "name": "Seven",       "strategy": "pure quant data",         "hint": "Pick the symbol with highest signal_strength. Pure data, no bias."},
+    {"id": "qwen3-14b-pro",  "name": "Seven",       "strategy": "pure quant data",         "hint": "Pick the symbol with highest signal_strength. Pure data, no bias."},
 ]
 
 # Agent split: rules-based (instant) vs Ollama (model under test)
 BACKTEST_RULES_AGENTS  = [a for a in BAKEOFF_AGENTS if a["id"] in (
-    "grok-4", "ollama-qwen3", "ollama-plutus", "data-tng",
-    "gemini-2.5-flash", "ollama-llama",   # active rules agents
+    "deepseek-7b-grok4", "ollama-qwen3", "ollama-plutus", "data-tng",
+    "qwen3-8b-flash", "ollama-llama",   # active rules agents
 )]
 BACKTEST_OLLAMA_AGENTS = [a for a in BAKEOFF_AGENTS if a["id"] in ("neo-matrix", "ollama-glm4")]
 
@@ -945,7 +945,7 @@ def _force_close_all(
 
 def run_backtest(
     days: int = 30,
-    model: str = "qwen3.5:9b",
+    model: str = "qwen3:8b",
     run_id: Optional[int] = None,
     progress_cb = None,
 ) -> dict:
@@ -954,7 +954,7 @@ def run_backtest(
 
     Args:
         days:        Number of trading days to replay
-        model:       Ollama model name (e.g. "qwen3.5:9b", "0xroyce/plutus")
+        model:       Ollama model name (e.g. "qwen3:8b", "0xroyce/plutus")
         run_id:      bakeoff_runs row id (created by caller or auto-created here)
         progress_cb: Optional callable(pct: int, msg: str) for live progress
 
@@ -986,7 +986,7 @@ def run_backtest(
 
 def _run_backtest_inner(
     days: int = 30,
-    model: str = "qwen3.5:9b",
+    model: str = "qwen3:8b",
     run_id: Optional[int] = None,
     progress_cb = None,
 ) -> dict:
@@ -1114,7 +1114,7 @@ def _run_backtest_inner(
             state = states[agent["id"]]
             _apply_exits(state, date_str, ohlcv, trading_days)
             if state.cash > 200:
-                if agent["id"] == "grok-4":
+                if agent["id"] == "deepseek-7b-grok4":
                     decision = spock_rules(ctx, scan_picks)
                 elif agent["id"] == "ollama-qwen3":
                     decision = dax_rules(ctx, scan_picks)
@@ -1124,7 +1124,7 @@ def _run_backtest_inner(
                     decision = data_rules(ctx, scan_picks)
                 elif agent["id"] == "dayblade-sulu":
                     decision = sulu_rules(ctx, scan_picks)
-                elif agent["id"] == "gemini-2.5-flash":
+                elif agent["id"] == "qwen3-8b-flash":
                     decision = worf_rules(ctx, scan_picks)
                 elif agent["id"] == "ollama-llama":
                     decision = uhura_rules(ctx, scan_picks)
@@ -1249,7 +1249,7 @@ def _run_backtest_inner(
 if __name__ == "__main__":
     import sys
     days_arg  = int(sys.argv[1]) if len(sys.argv) > 1 else 3
-    model_arg = sys.argv[2] if len(sys.argv) > 2 else "qwen3.5:9b"
+    model_arg = sys.argv[2] if len(sys.argv) > 2 else "qwen3:8b"
     print(f"\n=== Bake-Off: {model_arg} | {days_arg} days ===\n")
     res = run_backtest(days=days_arg, model=model_arg)
     print(f"\nStart: {res['start_date']}  End: {res['end_date']}")

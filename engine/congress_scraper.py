@@ -14,6 +14,8 @@ console = Console()
 _congress_cache = {"data": None, "ts": 0}
 _CACHE_TTL = 1800  # 30 minutes
 
+QUIVER_ENABLED = False  # 2026-04-26: API returns 401 (no key configured). Capitol Trades only.
+
 
 def scrape_capitol_trades(limit: int = 50, pages: int = 4) -> list:
     """Scrape recent trades from capitoltrades.com (multiple pages)."""
@@ -80,9 +82,10 @@ def scrape_capitol_trades(limit: int = 50, pages: int = 4) -> list:
             # Cell 5: Owner
             owner = _cell_text(cells[5]) if len(cells) > 5 else ""
 
-            # Cell 6: Type (buy/sell)
-            type_text = _cell_text(cells[6]).lower() if len(cells) > 6 else ""
-            trade_type = "BUY" if "buy" in type_text or "purchase" in type_text else "SELL"
+            # Cell 6: Type (buy/sell/option)
+            type_text  = _cell_text(cells[6]).lower() if len(cells) > 6 else ""
+            asset_type = "option" if any(k in type_text for k in ("option", "call", "put")) else "stock"
+            trade_type = "BUY" if any(k in type_text for k in ("buy", "purchase", "call")) else "SELL"
 
             # Cell 7: Size
             size = _cell_text(cells[7]) if len(cells) > 7 else ""
@@ -97,6 +100,7 @@ def scrape_capitol_trades(limit: int = 50, pages: int = 4) -> list:
                 "ticker": ticker,
                 "company": company[:60],
                 "type": trade_type,
+                "asset_type": asset_type,
                 "size": size,
                 "trade_date": traded,
                 "filed_date": filed,
@@ -141,7 +145,9 @@ def scrape_quiver_quant(limit: int = 50) -> list:
             politician = entry.get("Representative", "Unknown")
             party = entry.get("Party", "")
             transaction = entry.get("Transaction", "")
-            trade_type = "BUY" if "purchase" in transaction.lower() else "SELL"
+            tx_lower    = transaction.lower()
+            asset_type  = "option" if any(k in tx_lower for k in ("option", "call", "put")) else "stock"
+            trade_type  = "BUY" if any(k in tx_lower for k in ("purchase", "call")) else "SELL"
             size = entry.get("Range", "")
             filed_date = entry.get("ReportDate", "")
             trade_date = entry.get("TransactionDate", "")
@@ -151,6 +157,7 @@ def scrape_quiver_quant(limit: int = 50) -> list:
                 "party": party,
                 "ticker": ticker,
                 "type": trade_type,
+                "asset_type": asset_type,
                 "size": size,
                 "trade_date": trade_date,
                 "filed_date": filed_date,
@@ -175,12 +182,14 @@ def get_all_congress_trades() -> list:
     all_trades = []
 
     # Run both scrapers with a pause between to avoid rate limiting
-    try:
-        all_trades.extend(scrape_quiver_quant())
-    except Exception as e:
-        console.log(f"[red]Quiver Quant failed: {e}")
-
-    time.sleep(1)
+    if QUIVER_ENABLED:
+        try:
+            all_trades.extend(scrape_quiver_quant())
+        except Exception as e:
+            console.log(f"[red]Quiver Quant failed: {e}")
+        time.sleep(1)
+    else:
+        console.log("[cyan]QuiverQuant disabled (QUIVER_ENABLED=False) — Capitol Trades only")
 
     try:
         all_trades.extend(scrape_capitol_trades())

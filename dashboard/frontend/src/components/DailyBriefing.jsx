@@ -262,7 +262,7 @@ function CrewStatusSection({ leaderboard }) {
   const getStarting = (p) =>
     p.player_id === 'super-agent' ? 25000
     : p.player_id === 'dayblade-0dte' ? 5000
-    : p.player_id === 'steve-webull' ? 7049.68
+    : p.player_id === 'webull' ? 7049.68
     : 10000
 
   return (

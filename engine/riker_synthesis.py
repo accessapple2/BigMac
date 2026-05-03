@@ -16,6 +16,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
+import os
+
 import requests
 
 logging.basicConfig(
@@ -26,7 +28,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 DB_PATH    = Path(__file__).parent.parent / "data" / "trader.db"
-NTFY_TOPIC = "ollietrades-admin"
+NTFY_TOPIC = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")
 
 SIGNIFICANT: dict[str, int] = {
     "high_conf_signals": 3,   # 3+ signals with conf >= 80 in 10 min
@@ -192,7 +194,7 @@ def run_synthesis() -> dict:
     alerts = _check_alerts(synthesis)
     if alerts:
         body = "\n".join(alerts)
-        _ntfy("Riker Fleet Alert", body, priority="high")
+        _ntfy("Fleet Alert", body, priority="high")
         log.info(f"Alerted: {len(alerts)} significant events")
 
     return synthesis

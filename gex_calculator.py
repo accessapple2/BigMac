@@ -194,7 +194,7 @@ class GEXCalculator:
     """
     Compute Gamma Exposure from Alpaca options data.
 
-    Requires ALPACA_API_KEY + ALPACA_SECRET_KEY env vars.
+    Requires APCA_API_KEY_ID + APCA_API_SECRET_KEY env vars.
     """
 
     def __init__(self, api_key: str, secret_key: str, paper: bool = True):
@@ -447,8 +447,8 @@ def _get_calculator() -> Optional[GEXCalculator]:
     with _calc_lock:
         if _calc is not None:
             return _calc
-        key = os.getenv("ALPACA_API_KEY", "")
-        secret = os.getenv("ALPACA_SECRET_KEY", "")
+        key = os.getenv("APCA_API_KEY_ID", "")
+        secret = os.getenv("APCA_API_SECRET_KEY", "")
         if not key or not secret:
             return None
         try:

@@ -672,7 +672,7 @@ def _load_providers(model_ids: list[str]) -> dict:
                     api_key=GEMINI_API_KEY, player_id=mid,
                     model=info["model"], display_name=info["name"],
                 )
-            elif info["provider"] in ("xai", "ollama") and info["id"] in ("grok-3", "grok-4"):
+            elif info["provider"] in ("xai", "ollama") and info["id"] in ("qwen3-14b-grok3", "deepseek-7b-grok4"):
                 from engine.providers.ollama_provider import OllamaProvider
                 providers[mid] = OllamaProvider(
                     player_id=mid, model="deepseek-r1:14b",

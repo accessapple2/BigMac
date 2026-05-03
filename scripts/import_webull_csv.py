@@ -1,11 +1,11 @@
-"""Import Webull trade history CSV into trades table as steve-webull (Captain Kirk)."""
+"""Import Webull trade history CSV into trades table as webull (Captain Kirk)."""
 import csv
 import sqlite3
 from pathlib import Path
 from datetime import datetime
 
 DB = Path(__file__).parent.parent / "data" / "trader.db"
-PLAYER_ID = "steve-webull"
+PLAYER_ID = "webull"
 
 
 def parse_date(d: str) -> str:

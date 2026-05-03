@@ -73,6 +73,12 @@ _PRICE_TTL    = 300    # 5 min
 _FUND_TTL     = 3600   # 1 hour
 _UNIVERSE_TTL = 86400  # 24 hours
 _SCREENER_TTL = 300    # 5 min full-scan result cache
+
+# Single-flight lock — prevents dogpile when N concurrent dashboard
+# requests all miss cache simultaneously. First caller computes,
+# subsequent callers serve last-known result (or empty if none yet).
+_run_screener_lock = threading.Lock()
+_last_known_results: list[dict] = []
 _cache_lock = threading.Lock()
 
 DB_PATH   = "data/trader.db"
@@ -84,8 +90,8 @@ WATCHLIST = [
 ]
 
 # Alpaca paper API — keys from env (same as rest of project)
-_ALPACA_KEY    = os.getenv("ALPACA_API_KEY", "")
-_ALPACA_SECRET = os.getenv("ALPACA_SECRET_KEY", "")
+_APCA_KEY    = os.getenv("APCA_API_KEY_ID", "")
+_APCA_SECRET = os.getenv("APCA_API_SECRET_KEY", "")
 _ALPACA_BASE   = "https://paper-api.alpaca.markets"
 
 # Only major liquid exchanges; OTC/pink sheets excluded
@@ -96,7 +102,7 @@ def _fetch_alpaca_assets() -> list[str]:
     """Fetch all active, tradeable US equity symbols from Alpaca.
     Returns symbols on liquid exchanges only, no special chars (warrants/preferred).
     """
-    if not _ALPACA_KEY:
+    if not _APCA_KEY:
         return []
     symbols: list[str] = []
     page_token: str | None = None
@@ -108,8 +114,8 @@ def _fetch_alpaca_assets() -> list[str]:
             req = urllib.request.Request(
                 url,
                 headers={
-                    "APCA-API-KEY-ID": _ALPACA_KEY,
-                    "APCA-API-SECRET-KEY": _ALPACA_SECRET,
+                    "APCA-API-KEY-ID": _APCA_KEY,
+                    "APCA-API-SECRET-KEY": _APCA_SECRET,
                 },
             )
             with urllib.request.urlopen(req, timeout=10) as r:
@@ -178,6 +184,78 @@ def get_universe() -> list[str]:
     return get_watchlist_universe()
 
 
+def _compute_indicators(df) -> dict:
+    """Compute RSI(14), SMA20/50/200, EMA8/21 from a price DataFrame.
+
+    df must have at least 200 rows of OHLCV data with a 'Close' column for
+    SMA200 to be computed; partial results are returned for shorter histories.
+    """
+    out = {
+        "rsi": None, "sma20": None, "sma50": None, "sma200": None,
+        "ema8": None, "ema21": None,
+        "above_sma20": False, "above_sma50": False, "above_sma200": False,
+        "uptrend": False,
+    }
+    try:
+        if df is None or len(df) < 15 or "Close" not in df.columns:
+            return out
+        closes = df["Close"].astype(float)
+        n = len(closes)
+        last = float(closes.iloc[-1])
+
+        # RSI(14) using Wilder smoothing approximated by EMA alpha=1/14
+        if n >= 15:
+            delta = closes.diff()
+            gain = delta.clip(lower=0)
+            loss = (-delta).clip(lower=0)
+            avg_gain = gain.ewm(alpha=1/14, adjust=False).mean()
+            avg_loss = loss.ewm(alpha=1/14, adjust=False).mean()
+            ag = float(avg_gain.iloc[-1])
+            al = float(avg_loss.iloc[-1])
+            if al > 0:
+                rs = ag / al
+                rsi_val = 100 - (100 / (1 + rs))
+            else:
+                rsi_val = 100.0 if ag > 0 else 50.0
+            if rsi_val == rsi_val:
+                out["rsi"] = round(float(rsi_val), 2)
+
+        if n >= 20:
+            out["sma20"] = round(float(closes.tail(20).mean()), 4)
+            out["above_sma20"] = last > out["sma20"]
+        if n >= 50:
+            out["sma50"] = round(float(closes.tail(50).mean()), 4)
+            out["above_sma50"] = last > out["sma50"]
+        if n >= 200:
+            out["sma200"] = round(float(closes.tail(200).mean()), 4)
+            out["above_sma200"] = last > out["sma200"]
+
+        if n >= 8:
+            out["ema8"] = round(float(closes.ewm(span=8, adjust=False).mean().iloc[-1]), 4)
+        if n >= 21:
+            out["ema21"] = round(float(closes.ewm(span=21, adjust=False).mean().iloc[-1]), 4)
+
+        if out["sma20"] is not None and out["sma50"] is not None:
+            out["uptrend"] = (last > out["sma20"]) and (out["sma20"] > out["sma50"])
+    except Exception:
+        pass
+    return out
+
+
+def _get_market_snapshot() -> list[dict]:
+    """Fetch full US market snapshot (~12k tickers) in one Polygon call.
+
+    Returns list of dicts: ticker, price, prev_close, change, volume,
+    high, low, open, vwap. Used as Pass 0 liquidity pre-filter.
+    """
+    try:
+        from strategies.polygon_client import fetch_market_snapshot
+        return fetch_market_snapshot()
+    except Exception as e:
+        logger.warning("market snapshot failed: %s", e)
+        return []
+
+
 def _parse_yf_row(today, prev, df) -> dict:
     """Extract price-level fields from a yfinance DataFrame row."""
     def _f(val):
@@ -201,10 +279,7 @@ def _parse_yf_row(today, prev, df) -> dict:
         "high":       _f(today.get("High", close)),
         "low":        _f(today.get("Low", close)),
         "open":       _f(today.get("Open", close)),
-        "rsi": None, "sma20": None, "sma50": None, "sma200": None,
-        "ema8": None, "ema21": None,
-        "above_sma20": False, "above_sma50": False, "above_sma200": False,
-        "uptrend": False,
+        **_compute_indicators(df),
     }
 
 
@@ -224,20 +299,20 @@ def _get_prices(symbols: list[str]) -> dict[str, dict]:
     if not missing:
         return result
 
-    import yfinance as yf
+    from engine.market_data import get_polygon_bars as get_alpaca_bars  # Polygon Starter $29/mo
 
-    # Chunk into 200-symbol batches to avoid yfinance request limits
+    # Chunk into 200-symbol batches
     CHUNK = 200
     for i in range(0, len(missing), CHUNK):
         chunk = missing[i: i + CHUNK]
         try:
-            tickers = yf.download(
-                chunk, period="2d", interval="1d",
-                group_by="ticker", auto_adjust=True, progress=False, threads=True,
-            )
+            bars_dict = get_alpaca_bars(chunk, days=300)
+            if not isinstance(bars_dict, dict):
+                # single symbol returned a DataFrame — wrap it
+                bars_dict = {chunk[0]: bars_dict} if len(chunk) == 1 else {}
             for s in chunk:
                 try:
-                    df = tickers if len(chunk) == 1 else tickers.get(s)
+                    df = bars_dict.get(s)
                     if df is None or df.empty or len(df) < 1:
                         continue
                     today = df.iloc[-1]
@@ -250,7 +325,7 @@ def _get_prices(symbols: list[str]) -> dict[str, dict]:
                 except Exception as e:
                     logger.debug("price parse %s: %s", s, e)
         except Exception as e:
-            logger.debug("yfinance chunk %d: %s", i, e)
+            logger.debug("alpaca bars chunk %d: %s", i, e)
 
     return result
 
@@ -269,8 +344,8 @@ def _get_fundamentals(symbol: str) -> dict:
         "profit_margin": None, "debt_equity": None,
     }
     try:
-        import yfinance as yf
-        info = yf.Ticker(symbol).info or {}
+        from engine.market_data import get_stock_price
+        info = get_stock_price(symbol) or {}
         data["market_cap"]    = info.get("marketCap")
         data["pe"]            = info.get("trailingPE")
         data["forward_pe"]    = info.get("forwardPE")
@@ -477,101 +552,161 @@ def run_screener(filters: dict | None = None) -> list[dict]:
             logger.debug("screener cache hit (%d results)", len(cached["results"]))
             return cached["results"]
 
-    # ── Choose universe ───────────────────────────────────────────────────────
-    if f.get("watchlist_only"):
-        symbols = get_watchlist_universe()
-    else:
-        symbols = get_full_universe()
-    logger.info("screener: scanning %d symbols", len(symbols))
+    # ── Single-flight: only one screener compute at a time ───────────────────
+    # Concurrent requests with cache miss serve last-known stale results
+    # rather than dogpiling Alpaca with N parallel 11k-symbol scans.
+    global _last_known_results
+    if not _run_screener_lock.acquire(blocking=False):
+        logger.info("screener: busy — serving %d last-known results", len(_last_known_results))
+        return _last_known_results[:limit] if _last_known_results else []
 
-    # ── PASS 1: bulk price fetch + fast pre-filters ───────────────────────────
-    prices = _get_prices(symbols)
+    try:
+        # ── Re-check cache inside lock (another thread may have just finished) ──
+        with _cache_lock:
+            cached = _screener_cache.get(cache_key)
+            if cached and time.time() - cached["ts"] < _SCREENER_TTL:
+                return cached["results"]
 
-    pass1: list[tuple[float, str, dict]] = []  # (dollar_volume, sym, price_data)
-    for sym, pd in prices.items():
-        price = pd.get("price") or 0.0
-        vol   = pd.get("volume") or 0.0
-        chg   = pd.get("change") or 0.0
-        rvol  = pd.get("rvol") or 0.0
-
-        # Hard liquidity floor — excludes penny stocks and dead tickers
-        if price < 2.0 or vol < 100_000:
-            continue
-
-        # Fast filter checks that only need price data
-        if f.get("change_min") is not None and chg < f["change_min"]:
-            continue
-        if f.get("change_max") is not None and chg > f["change_max"]:
-            continue
-        if f.get("rvol_min") is not None and rvol < f["rvol_min"]:
-            continue
-        if f.get("gap_up_min") is not None and chg < f["gap_up_min"]:
-            continue
-        if f.get("gap_down_max") is not None and chg > f["gap_down_max"]:
-            continue
-
-        dollar_vol = price * vol
-        pass1.append((dollar_vol, sym, pd))
-
-    # Cap at top 200 by dollar-volume to keep pass 2 fast
-    pass1.sort(reverse=True)
-    survivors = pass1[:200]
-    logger.info("screener pass1: %d → %d survivors", len(pass1), len(survivors))
-
-    # ── PASS 2: fundamentals + TradeMinds enrichment + full filters ───────────
-    needs_fund = any(f.get(k) is not None for k in (
-        "mktcap", "pe_max", "pe_min", "div_yield_min", "roe_min",
-        "sector", "beta_max", "beta_min",
-    ))
-
-    results: list[dict] = []
-    for _, sym, price_data in survivors:
-        try:
-            row: dict[str, Any] = {"symbol": sym, **price_data}
-
-            # Fleet (fast DB query — only for watchlist symbols to avoid per-row overhead)
-            if sym in set(WATCHLIST) or f.get("fleet_bull_min") or f.get("fleet_bear_min") \
-                    or f.get("has_active_signal") or f.get("backtest_winrate_min"):
-                row.update(_get_fleet_data(sym))
-            else:
-                row.update({"fleet_bull": 0, "fleet_bear": 0, "fleet_hold": 0,
-                             "fleet_total": 0, "has_active_signal": False,
-                             "backtest_winrate": None})
-
-            # Fundamentals
-            if needs_fund:
-                row.update(_get_fundamentals(sym))
-
-            # Congress
-            if f.get("has_congress"):
-                row["has_congress"] = _get_congress_flag(sym)
-            else:
-                row["has_congress"] = False
-
-            # GEX
-            if f.get("gex_regime"):
-                gex = _get_gex_data(sym)
-                row.update(gex)
-                if row.get("gex_regime") != f["gex_regime"]:
+        # ── Choose universe ───────────────────────────────────────────────────────
+        if f.get("watchlist_only"):
+            symbols = get_watchlist_universe()
+            logger.info("screener: scanning %d watchlist symbols", len(symbols))
+            # Watchlist is small — old path: fetch bars for all of them
+            prices = _get_prices(symbols)
+            pass0_data = {s: pd for s, pd in prices.items()}
+        else:
+            # ── PASS 0: snapshot pre-filter (1 Polygon call, ~12k tickers in 2s) ──
+            snapshot = _get_market_snapshot()
+            logger.info("screener: snapshot returned %d tickers", len(snapshot))
+            # Build dict matching _get_prices() shape
+            pass0_data = {}
+            for s in snapshot:
+                sym = s.get("ticker", "")
+                if not sym:
                     continue
+                price = s.get("price") or 0.0
+                vol = s.get("volume") or 0.0
+                # Use snapshot avg_volume from vwap*volume estimate or fallback
+                avg_vol = vol  # snapshot is single-day; rvol will be ~1.0
+                pass0_data[sym] = {
+                    "price":      price,
+                    "prev_close": s.get("prev_close") or price,
+                    "change":     s.get("change") or 0.0,
+                    "volume":     vol,
+                    "avg_volume": avg_vol,
+                    "rvol":       1.0,  # snapshot-only; will be refined in Pass 1.5
+                    "high":       s.get("high") or price,
+                    "low":        s.get("low") or price,
+                    "open":       s.get("open") or price,
+                    "rsi": None, "sma20": None, "sma50": None, "sma200": None,
+                    "ema8": None, "ema21": None,
+                    "above_sma20": False, "above_sma50": False, "above_sma200": False,
+                    "uptrend": False,
+                }
 
-            row["score"] = _score_stock(row)
+        # ── PASS 1: liquidity floor + user filters on snapshot data ──────────────
+        pass1: list[tuple[float, str, dict]] = []
+        for sym, pd in pass0_data.items():
+            price = pd.get("price") or 0.0
+            vol   = pd.get("volume") or 0.0
+            chg   = pd.get("change") or 0.0
+            rvol  = pd.get("rvol") or 0.0
 
-            if _passes_filters(row, f):
-                results.append(row)
-        except Exception as e:
-            logger.debug("screener pass2 %s: %s", sym, e)
+            # Hard liquidity floor — excludes penny stocks and dead tickers
+            if price < 2.0 or vol < 100_000:
+                continue
 
-    # ── Sort + cache ──────────────────────────────────────────────────────────
-    reverse = sort_dir != "asc"
-    results.sort(key=lambda r: (r.get(sort_by) or 0), reverse=reverse)
-    final = results[:limit]
+            # Fast filter checks that only need price data
+            if f.get("change_min") is not None and chg < f["change_min"]:
+                continue
+            if f.get("change_max") is not None and chg > f["change_max"]:
+                continue
+            if f.get("rvol_min") is not None and rvol < f["rvol_min"]:
+                continue
+            if f.get("gap_up_min") is not None and chg < f["gap_up_min"]:
+                continue
+            if f.get("gap_down_max") is not None and chg > f["gap_down_max"]:
+                continue
 
-    with _cache_lock:
-        _screener_cache[cache_key] = {"ts": time.time(), "results": final}
+            dollar_vol = price * vol
+            pass1.append((dollar_vol, sym, pd))
 
-    logger.info("screener complete: %d results from %d symbols", len(final), len(symbols))
-    return final
+        # Cap at top 200 by dollar-volume to keep pass 2 fast
+        pass1.sort(reverse=True)
+        survivors = pass1[:200]
+        logger.info("screener pass1: %d → %d survivors", len(pass1), len(survivors))
+
+        # ── PASS 1.5: fetch full 300-day bars for survivors only (computes RSI/SMA) ──
+        if survivors and not f.get("watchlist_only"):
+            survivor_syms = [s for _, s, _ in survivors]
+            full_bars = _get_prices(survivor_syms)
+            # Merge full price/indicator data into the survivor tuples
+            enriched = []
+            for dv, sym, snap_data in survivors:
+                full = full_bars.get(sym)
+                if full:
+                    # full has rsi/sma/ema computed; merge while keeping snapshot vol/change
+                    merged = {**snap_data, **full}
+                    enriched.append((dv, sym, merged))
+                else:
+                    enriched.append((dv, sym, snap_data))
+            survivors = enriched
+            logger.info("screener pass1.5: enriched %d survivors with indicators", len(survivors))
+
+        # ── PASS 2: fundamentals + TradeMinds enrichment + full filters ───────────
+        needs_fund = any(f.get(k) is not None for k in (
+            "mktcap", "pe_max", "pe_min", "div_yield_min", "roe_min",
+            "sector", "beta_max", "beta_min",
+        ))
+
+        results: list[dict] = []
+        for _, sym, price_data in survivors:
+            try:
+                row: dict[str, Any] = {"symbol": sym, **price_data}
+
+                # Fleet — unconditional for the 200 survivors (DB query, fast)
+                row.update(_get_fleet_data(sym))
+
+                # Fundamentals
+                if needs_fund:
+                    row.update(_get_fundamentals(sym))
+
+                # Congress
+                if f.get("has_congress"):
+                    row["has_congress"] = _get_congress_flag(sym)
+                else:
+                    row["has_congress"] = False
+
+                # GEX
+                if f.get("gex_regime"):
+                    gex = _get_gex_data(sym)
+                    row.update(gex)
+                    if row.get("gex_regime") != f["gex_regime"]:
+                        continue
+
+                row["score"] = _score_stock(row)
+
+                if _passes_filters(row, f):
+                    results.append(row)
+            except Exception as e:
+                logger.debug("screener pass2 %s: %s", sym, e)
+
+        # ── Sort + cache ──────────────────────────────────────────────────────────
+        reverse = sort_dir != "asc"
+        results.sort(key=lambda r: (r.get(sort_by) or 0), reverse=reverse)
+        final = results[:limit]
+
+        with _cache_lock:
+            _screener_cache[cache_key] = {"ts": time.time(), "results": final}
+
+        # Update last-known for concurrent serve-stale path
+        if final:
+            _last_known_results = final
+
+        logger.info("screener complete: %d results from %d candidates", len(final), len(pass1))
+        return final
+    finally:
+        _run_screener_lock.release()
 
 
 PRESETS = {

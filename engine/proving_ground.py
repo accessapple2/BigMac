@@ -33,9 +33,9 @@ BT_TRADES_PER_WK  = 5.0
 # Active Sniper agents
 SNIPER_AGENTS = [
     "ollama-llama",     # Uhura
-    "gemini-2.5-flash", # Worf
-    "grok-4",           # Spock
-    "gemini-2.5-pro",   # Seven
+    "qwen3-8b-flash", # Worf
+    "deepseek-7b-grok4",           # Spock
+    "qwen3-14b-pro",   # Seven
     "ollama-plutus",    # McCoy
     "neo-matrix",       # Neo
 ]

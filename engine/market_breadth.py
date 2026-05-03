@@ -17,7 +17,7 @@ def get_market_breadth() -> dict:
         if _cache["data"] and time.time() - _cache["ts"] < _TTL:
             return _cache["data"]
 
-    import yfinance as yf
+    from engine.market_data import get_alpaca_bars
 
     tickers = [
         "SPY", "QQQ", "IWM", "DIA",
@@ -27,7 +27,9 @@ def get_market_breadth() -> dict:
     ]
 
     try:
-        data = yf.download(tickers, period="30d", progress=False, group_by="ticker")
+        data = get_alpaca_bars(tickers, days=30)
+        if not isinstance(data, dict):
+            data = {tickers[0]: data} if len(tickers) == 1 else {}
     except Exception:
         return {"error": "Failed to download market data"}
 

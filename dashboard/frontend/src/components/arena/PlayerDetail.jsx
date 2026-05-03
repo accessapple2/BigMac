@@ -48,7 +48,7 @@ export default function PlayerDetail({ playerId, onClose }) {
 
   const totalValue = getDisplayCapital(player)
   const returnPct = safeNumber(player?.return_pct, 0)
-  const startingCapital = player?.player_id === 'super-agent' ? 10000 : player?.player_id === 'steve-webull' ? 7049.68 : player?.player_id === 'dayblade-0dte' ? 5000 : 10000
+  const startingCapital = player?.player_id === 'super-agent' ? 10000 : player?.player_id === 'webull' ? 7049.68 : player?.player_id === 'dayblade-0dte' ? 5000 : 10000
   const isPositive = totalValue >= startingCapital
   const providerColor = PROVIDER_COLORS[player?.provider] || '#fff'
   const displayName = getPortfolioDisplayName(player)

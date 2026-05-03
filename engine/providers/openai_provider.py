@@ -5,7 +5,7 @@ from engine.openai_text import DEFAULT_CODEX_MODEL, generate_text
 
 
 class OpenAIProvider(AIProvider):
-    def __init__(self, api_key: str, player_id: str = "gpt-4o",
+    def __init__(self, api_key: str, player_id: str = "qwen3-8b-4o",
                  model: str = DEFAULT_CODEX_MODEL, display_name: str = "OpenAI"):
         super().__init__(player_id, display_name, model, rate_limit=60)
         self.api_key = api_key

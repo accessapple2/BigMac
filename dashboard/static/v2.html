@@ -1,0 +1,620 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>OllieTrades — v2</title>
+  <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <style>
+    /* === DESIGN TOKENS === */
+    :root {
+      /* Fonts & sizing — shared across themes */
+      --font-body: 'Inter', -apple-system, sans-serif;
+      --font-mono: 'JetBrains Mono', ui-monospace, monospace;
+      --fs-xs:   10px;
+      --fs-sm:   12px;
+      --fs-base: 13px;
+      --fs-md:   14px;
+      --fs-lg:   16px;
+      --fs-xl:   20px;
+      --fs-2xl:  28px;
+    }
+
+    /* === DARK THEME (default) === */
+    :root,
+    :root[data-theme="dark"] {
+      --bg-app:        #191e24;
+      --bg-sidebar:    #1a1f26;
+      --bg-canvas:     #252a32;
+      --bg-panel:      #303741;
+      --bg-rail:       #252a32;
+      --bg-hover:      #303741;
+      --bg-active:     #2a3140;
+
+      --text:          #d9d9d9;
+      --text-strong:   #ffffff;
+      --text-dim:      #8b919c;
+      --text-faint:    #5a6370;
+
+      --success:       #0d7337;
+      --danger:        #cc3d33;
+      --accent:        #0080ff;
+      --warning:       #d97706;
+
+      --border:        #3b434f;
+      --border-subtle: #252a32;
+
+      --shadow-panel:  none;
+    }
+
+    /* === LIGHT THEME === */
+    :root[data-theme="light"] {
+      --bg-app:        #e9ecef;
+      --bg-sidebar:    #ffffff;
+      --bg-canvas:     #ffffff;
+      --bg-panel:      #ffffff;
+      --bg-rail:       #ffffff;
+      --bg-hover:      #f3f4f7;
+      --bg-active:     #e7eaef;
+
+      --text:          #21252c;
+      --text-strong:   #000000;
+      --text-dim:      #55595e;
+      --text-faint:    #9099a5;
+
+      --success:       #0d7337;
+      --danger:        #cc3d33;
+      --accent:        #0080ff;
+      --warning:       #b45309;
+
+      --border:        #d9d9d9;
+      --border-subtle: #eef0f3;
+
+      --shadow-panel:  0 1px 2px rgba(0,0,0,0.04);
+    }
+
+    /* Colorblind overrides stack on top of whichever theme is active */
+    :root[data-cb="true"] {
+      --success: #0080ff;
+      --danger:  #d97706;
+    }
+
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    html, body {
+      height: 100vh;
+      background: var(--bg-app);
+      color: var(--text);
+      font-family: var(--font-body);
+      font-size: var(--fs-base);
+      line-height: 1.4;
+      overflow: hidden;
+    }
+
+    /* === LAYOUT === */
+    .app {
+      display: grid;
+      grid-template-rows: 48px 72px 1fr;
+      grid-template-columns: 220px 1fr 280px;
+      grid-template-areas:
+        "topbar topbar topbar"
+        "strip  strip  strip"
+        "sidebar canvas rail";
+      height: 100vh;
+    }
+
+    /* === TOPBAR === */
+    .topbar {
+      grid-area: topbar;
+      background: var(--bg-app);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: center;
+      padding: 0 16px;
+      gap: 16px;
+    }
+    .logo { color: var(--text-strong); font-weight: 700; font-size: var(--fs-lg); }
+    .search {
+      flex: 1; max-width: 520px;
+      background: var(--bg-canvas);
+      border: 1px solid var(--border);
+      border-radius: 6px;
+      padding: 6px 12px;
+      color: var(--text);
+      font-size: var(--fs-sm);
+    }
+    .search:focus { outline: none; border-color: var(--accent); }
+
+    .theme-toggle {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      width: 32px;
+      height: 32px;
+      border-radius: 6px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      justify-content: center;
+      font-size: 16px;
+      transition: background 0.15s, border-color 0.15s;
+    }
+    .theme-toggle:hover {
+      background: var(--bg-hover);
+      border-color: var(--accent);
+    }
+    .theme-toggle-icon {
+      line-height: 1;
+      display: block;
+    }
+
+    /* === HEADER STRIP (Koyfin stat-strip pattern) === */
+    .strip {
+      grid-area: strip;
+      background: var(--bg-sidebar);
+      border-bottom: 1px solid var(--border);
+      display: flex;
+      align-items: stretch;
+      padding: 0 16px;
+    }
+    .strip-title {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding-right: 20px;
+      border-right: 1px solid var(--border);
+      min-width: 180px;
+    }
+    .strip-title-main {
+      font-size: var(--fs-md);
+      font-weight: 700;
+      color: var(--text-strong);
+      letter-spacing: 0.01em;
+    }
+    .strip-title-sub {
+      font-size: var(--fs-xs);
+      color: var(--text-dim);
+      margin-top: 2px;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .strip-stats {
+      display: flex;
+      flex: 1;
+      overflow-x: auto;
+      gap: 0;
+    }
+    .strip-stat {
+      display: flex;
+      flex-direction: column;
+      justify-content: center;
+      padding: 0 18px;
+      min-width: 110px;
+      border-right: 1px solid var(--border-subtle);
+    }
+    .strip-stat:last-child { border-right: none; }
+    .strip-stat-label {
+      font-size: var(--fs-xs);
+      color: var(--text-dim);
+      letter-spacing: 0.06em;
+      text-transform: uppercase;
+      margin-bottom: 2px;
+    }
+    .strip-stat-value {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+      font-size: var(--fs-md);
+      font-weight: 700;
+      color: var(--text-strong);
+      line-height: 1.15;
+    }
+    .strip-stat-sub {
+      font-size: var(--fs-xs);
+      color: var(--text-dim);
+      margin-top: 2px;
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+    .strip-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding-left: 16px;
+      border-left: 1px solid var(--border);
+    }
+    .strip-btn {
+      background: transparent;
+      border: 1px solid var(--border);
+      color: var(--text);
+      font-size: var(--fs-xs);
+      padding: 6px 10px;
+      border-radius: 4px;
+      cursor: pointer;
+      display: flex;
+      align-items: center;
+      gap: 4px;
+    }
+    .strip-btn:hover { background: var(--bg-hover); color: var(--text-strong); }
+    .strip-btn.primary { border-color: var(--accent); color: var(--accent); }
+
+    /* === SIDEBAR === */
+    .sidebar {
+      grid-area: sidebar;
+      background: var(--bg-sidebar);
+      overflow-y: auto;
+      padding: 12px 0;
+    }
+    .sidebar-group-label {
+      font-size: var(--fs-xs);
+      color: var(--text-faint);
+      letter-spacing: 0.08em;
+      padding: 16px 16px 6px;
+    }
+    .sidebar-item {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      padding: 7px 16px;
+      color: var(--text);
+      font-size: var(--fs-sm);
+      cursor: pointer;
+      border-left: 3px solid transparent;
+      transition: background 0.12s;
+    }
+    .sidebar-item:hover { background: var(--bg-hover); color: var(--text-strong); }
+    .sidebar-item.active {
+      background: var(--bg-active);
+      color: var(--text-strong);
+      border-left-color: var(--accent);
+    }
+    .sidebar-item .hint {
+      font-size: var(--fs-xs);
+      color: var(--text-faint);
+      background: var(--bg-active);
+      padding: 2px 6px;
+      border-radius: 3px;
+      font-family: var(--font-mono);
+    }
+
+    /* === CANVAS === */
+    .canvas {
+      grid-area: canvas;
+      background: var(--bg-canvas);
+      overflow-y: auto;
+      padding: 16px;
+    }
+
+    /* === CONTEXT RAIL === */
+    .rail {
+      grid-area: rail;
+      background: var(--bg-rail);
+      border-left: 1px solid var(--border);
+      overflow-y: auto;
+      padding: 12px;
+    }
+
+    /* === PANELS === */
+    .panel {
+      background: var(--bg-panel);
+      border: 1px solid var(--border);
+      border-radius: 4px;
+      padding: 12px;
+      margin-bottom: 12px;
+      box-shadow: var(--shadow-panel);
+    }
+    .panel-title {
+      font-size: var(--fs-md);
+      color: var(--text-strong);
+      font-weight: 600;
+      margin-bottom: 8px;
+    }
+
+    /* === SEMANTIC COLORS === */
+    .up   { color: var(--success); }
+    .down { color: var(--danger); }
+    .num  { font-family: var(--font-mono); font-variant-numeric: tabular-nums; }
+
+    /* === TABLES === */
+    table { width: 100%; font-size: var(--fs-sm); border-collapse: collapse; }
+    th {
+      text-align: left;
+      font-weight: 500;
+      color: var(--text-dim);
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border);
+    }
+    td {
+      padding: 6px 8px;
+      border-bottom: 1px solid var(--border-subtle);
+    }
+    tr:hover td { background: var(--bg-hover); }
+  </style>
+</head>
+<body>
+  <div class="app">
+    <!-- TOPBAR -->
+    <div class="topbar">
+      <div class="logo">OllieTrades</div>
+      <input class="search" placeholder="Search ticker, agent, function…  ( / )">
+      <div style="margin-left:auto;display:flex;align-items:center;gap:12px">
+        <button id="themeToggle" class="theme-toggle" onclick="toggleTheme()" aria-label="Toggle theme" title="Toggle light/dark (T)">
+          <span class="theme-toggle-icon" id="themeToggleIcon">🌙</span>
+        </button>
+        <div style="color:var(--text-dim);font-size:var(--fs-sm)">v2 preview</div>
+      </div>
+    </div>
+
+    <!-- HEADER STRIP -->
+    <div class="strip" id="strip">
+      <div class="strip-title">
+        <div class="strip-title-main" id="strip-title-main">USS OllieTrades</div>
+        <div class="strip-title-sub" id="strip-title-sub">🇺🇸 Alpaca Paper · Season 6</div>
+      </div>
+      <div class="strip-stats" id="strip-stats">
+        <!-- populated by JS -->
+      </div>
+      <div class="strip-actions">
+        <button class="strip-btn" onclick="alert('Alerts — coming Phase 2')">⚡ Alerts</button>
+        <button class="strip-btn primary" onclick="alert('Pin — coming Phase 2')">⭐ Pin</button>
+      </div>
+    </div>
+
+    <!-- SIDEBAR -->
+    <nav class="sidebar" id="sidebar">
+      <div class="sidebar-group-label">HOME</div>
+      <div class="sidebar-item active" data-section="brief">Brief<span class="hint">BRF</span></div>
+      <div class="sidebar-item" data-section="bridge">Bridge<span class="hint">BRG</span></div>
+      <div class="sidebar-item" data-section="log">Log<span class="hint">LOG</span></div>
+
+      <div class="sidebar-group-label">FLEET</div>
+      <div class="sidebar-item" data-section="fleet-nav">Navigator<span class="hint">NAV</span></div>
+      <div class="sidebar-item" data-section="fleet-chk">Chekov<span class="hint">CHK</span></div>
+      <div class="sidebar-item" data-section="fleet-spk">Spock<span class="hint">SPK</span></div>
+      <div class="sidebar-item" data-section="fleet-mcy">McCoy<span class="hint">MCY</span></div>
+      <div class="sidebar-item" data-section="fleet-dax">Dax<span class="hint">DAX</span></div>
+      <div class="sidebar-item" data-section="fleet-dta">Data<span class="hint">DTA</span></div>
+      <div class="sidebar-item" data-section="fleet-neo">Neo<span class="hint">NEO</span></div>
+      <div class="sidebar-item" data-section="fleet-cap">Capitol<span class="hint">CAP</span></div>
+      <div class="sidebar-item" data-section="fleet-ole">Ollie<span class="hint">OLE</span></div>
+
+      <div class="sidebar-group-label">INTEL</div>
+      <div class="sidebar-item" data-section="uhura">Uhura (13F)<span class="hint">UHR</span></div>
+      <div class="sidebar-item" data-section="congress">Congress<span class="hint">CNG</span></div>
+      <div class="sidebar-item" data-section="navigator">Convergence<span class="hint">NVG</span></div>
+
+      <div class="sidebar-group-label">RESEARCH</div>
+      <div class="sidebar-item" data-section="charts">Charts<span class="hint">CHT</span></div>
+      <div class="sidebar-item" data-section="scanner">Live Scanner<span class="hint">SCN</span></div>
+      <div class="sidebar-item" data-section="heatmap">Heatmap<span class="hint">HMP</span></div>
+      <div class="sidebar-item" data-section="macro">Macro<span class="hint">MAC</span></div>
+      <div class="sidebar-item" data-section="holodeck">Holodeck<span class="hint">HLD</span></div>
+
+      <div class="sidebar-group-label">SETTINGS</div>
+      <div class="sidebar-item" data-section="models">Models<span class="hint">MDL</span></div>
+      <div class="sidebar-item" data-section="costs">Costs<span class="hint">CST</span></div>
+    </nav>
+
+    <!-- CANVAS: Brief — what changed overnight -->
+    <main class="canvas" id="canvas">
+      <div class="panel">
+        <div class="panel-title">Overnight</div>
+        <div class="num" style="font-size:var(--fs-xl)" id="overnight-pnl">—</div>
+        <div style="color:var(--text-dim);font-size:var(--fs-sm)">Fleet P/L since last close</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Alpaca Account</div>
+        <table id="alpaca-summary">
+          <tr><td>Equity</td><td class="num" id="alp-equity">—</td></tr>
+          <tr><td>Cash</td><td class="num" id="alp-cash">—</td></tr>
+          <tr><td>Positions</td><td class="num" id="alp-pos">—</td></tr>
+        </table>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Institutional Signals (Uhura)</div>
+        <div id="uhura-signals" style="color:var(--text-dim);font-size:var(--fs-sm)">Loading…</div>
+      </div>
+    </main>
+
+    <!-- CONTEXT RAIL -->
+    <aside class="rail">
+      <div class="panel">
+        <div class="panel-title">Regime</div>
+        <div style="font-size:var(--fs-xl)" id="regime-label">—</div>
+        <div style="color:var(--text-dim);font-size:var(--fs-sm)" id="regime-detail">—</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Watchlist</div>
+        <div id="watchlist" style="color:var(--text-dim);font-size:var(--fs-sm)">Loading…</div>
+      </div>
+
+      <div class="panel">
+        <div class="panel-title">Recent Alerts</div>
+        <div id="recent-alerts" style="color:var(--text-dim);font-size:var(--fs-sm)">—</div>
+      </div>
+    </aside>
+  </div>
+
+  <script>
+    // ── Theme: init before paint ──────────────────────────────────────────────
+    (function initTheme() {
+      const saved = localStorage.getItem('ot_theme');
+      const osPreference = window.matchMedia('(prefers-color-scheme: light)').matches ? 'light' : 'dark';
+      const theme = saved || osPreference;
+      document.documentElement.setAttribute('data-theme', theme);
+      document.addEventListener('DOMContentLoaded', () => {
+        const icon = document.getElementById('themeToggleIcon');
+        if (icon) icon.textContent = theme === 'light' ? '☀️' : '🌙';
+      });
+    })();
+
+    function toggleTheme() {
+      const current = document.documentElement.getAttribute('data-theme') || 'dark';
+      const next = current === 'light' ? 'dark' : 'light';
+      document.documentElement.setAttribute('data-theme', next);
+      localStorage.setItem('ot_theme', next);
+      const icon = document.getElementById('themeToggleIcon');
+      if (icon) icon.textContent = next === 'light' ? '☀️' : '🌙';
+    }
+
+    // Sidebar click → highlight only (no section switching yet — Phase 2)
+    document.querySelectorAll('.sidebar-item').forEach(el => {
+      el.addEventListener('click', () => {
+        document.querySelectorAll('.sidebar-item').forEach(i => i.classList.remove('active'));
+        el.classList.add('active');
+      });
+    });
+
+    // Keyboard shortcuts: '/' = focus search, 'T' = toggle theme
+    document.addEventListener('keydown', (e) => {
+      const activeTag = document.activeElement?.tagName;
+      const typing = activeTag === 'INPUT' || activeTag === 'TEXTAREA';
+      if (e.key === '/' && !typing) {
+        e.preventDefault();
+        document.querySelector('.search').focus();
+      }
+      if ((e.key === 't' || e.key === 'T') && !typing) {
+        toggleTheme();
+      }
+    });
+
+    // ── Formatters ────────────────────────────────────────────────────────────
+    function fmt(n) {
+      if (n == null || isNaN(n)) return '—';
+      return '$' + Math.round(n).toLocaleString();
+    }
+
+    // ── Header-strip renderer ─────────────────────────────────────────────────
+    // stat = { label, value, sub, tone?: 'up'|'down'|'' }
+    function renderStrip(title, subtitle, stats) {
+      document.getElementById('strip-title-main').textContent = title;
+      document.getElementById('strip-title-sub').textContent = subtitle;
+      const host = document.getElementById('strip-stats');
+      host.innerHTML = stats.map(s => `
+        <div class="strip-stat">
+          <div class="strip-stat-label">${s.label}</div>
+          <div class="strip-stat-value ${s.tone || ''}">${s.value}</div>
+          <div class="strip-stat-sub">${s.sub || ''}</div>
+        </div>
+      `).join('');
+    }
+
+    // Populate strip with fleet-level data for the Brief view.
+    async function renderFleetStrip() {
+      const [alpR, leadR, regR, uhuR] = await Promise.all([
+        fetch('/api/alpaca/status').then(r => r.json()).catch(() => ({})),
+        fetch('/api/arena/leaderboard').then(r => r.json()).catch(() => ({})),
+        fetch('/api/regime').then(r => r.json()).catch(() => ({})),
+        fetch('/api/institutional-intel').then(r => r.json()).catch(() => ({}))
+      ]);
+
+      const fleet = leadR.leaderboard || [];
+      const fleetTotal = fleet.reduce((s, a) => s + (a.current_equity || a.total_value || 0), 0);
+      const fleetPnl   = fleet.reduce((s, a) => s + (a.total_pnl || 0), 0);
+
+      const positionsR = await fetch('/api/alpaca/positions').then(r => r.json()).catch(() => ({ positions: [] }));
+      const positions  = positionsR.positions || [];
+      const topPos     = [...positions].sort((a, b) => (b.unrealized_pl || 0) - (a.unrealized_pl || 0))[0];
+
+      const season     = leadR.season || '—';
+      const totalTrades = fleet.reduce((s, a) => s + (a.trades || 0), 0);
+      const winners    = fleet.filter(a => (a.total_pnl || 0) > 0).length;
+      const winRate    = fleet.length ? Math.round((winners / fleet.length) * 100) : 0;
+
+      const stats = [
+        {
+          label: 'Fleet',
+          value: fmt(fleetTotal),
+          sub:   (fleetPnl >= 0 ? '▴ ' : '▾ ') + fmt(Math.abs(fleetPnl)) + ' season',
+          tone:  fleetPnl > 0 ? 'up' : fleetPnl < 0 ? 'down' : ''
+        },
+        {
+          label: 'Alpaca',
+          value: fmt(alpR.equity),
+          sub:   'cash ' + fmt(alpR.cash),
+          tone:  ''
+        },
+        {
+          label: 'Positions',
+          value: String(positions.length),
+          sub:   topPos
+                   ? 'top ' + topPos.symbol + ' ' + (topPos.unrealized_plpc >= 0 ? '+' : '') + (topPos.unrealized_plpc || 0).toFixed(1) + '%'
+                   : '—',
+          tone:  ''
+        },
+        {
+          label: 'Regime',
+          value: regR.regime || 'NEUTRAL',
+          sub:   'trend ' + (regR.trend_arrow || '→'),
+          tone:  (regR.regime || '').startsWith('BULL') ? 'up'
+               : (regR.regime || '').startsWith('BEAR') ? 'down' : ''
+        },
+        {
+          label: 'VIX',
+          value: regR.vix != null ? regR.vix.toFixed(2) : '—',
+          sub:   regR.vix_change != null
+                   ? (regR.vix_change >= 0 ? '+' : '') + regR.vix_change.toFixed(2)
+                   : '—',
+          tone:  ''
+        },
+        {
+          label: 'Signals',
+          value: String((uhuR.summary && uhuR.summary.active_signals) || 0),
+          sub:   ((uhuR.summary && uhuR.summary.funds_tracked) || 0) + ' funds · Uhura',
+          tone:  ''
+        },
+        {
+          label: 'Season',
+          value: 'S' + season + ' · ' + totalTrades + ' trd',
+          sub:   winRate + '% win-rate',
+          tone:  ''
+        }
+      ];
+
+      renderStrip('USS OllieTrades', '🇺🇸 Alpaca Paper · Season ' + season, stats);
+    }
+
+    // ── Canvas: Brief detail panels ───────────────────────────────────────────
+    async function loadBrief() {
+      try {
+        const r = await fetch('/api/alpaca/status');
+        const d = await r.json();
+        document.getElementById('alp-equity').textContent = fmt(d.equity);
+        document.getElementById('alp-cash').textContent   = fmt(d.cash);
+      } catch(e) {}
+
+      try {
+        const r = await fetch('/api/alpaca/positions');
+        const d = await r.json();
+        document.getElementById('alp-pos').textContent = (d.positions || []).length;
+      } catch(e) {}
+
+      try {
+        const r = await fetch('/api/institutional-intel');
+        const d = await r.json();
+        const sigs = (d.signals || []).slice(0, 3);
+        document.getElementById('uhura-signals').innerHTML = sigs.length
+          ? sigs.map(s => `<div style="padding:4px 0"><span style="color:var(--danger);font-weight:600">${s.signal}</span> ${s.ticker} — <span style="color:var(--text-dim)">${s.reasoning}</span></div>`).join('')
+          : '<span style="color:var(--text-dim)">No active signals</span>';
+      } catch(e) {}
+
+      try {
+        const r = await fetch('/api/regime');
+        const d = await r.json();
+        document.getElementById('regime-label').textContent  = d.regime || 'NEUTRAL';
+        document.getElementById('regime-detail').textContent = 'VIX ' + (d.vix ?? '—');
+      } catch(e) {}
+    }
+
+    // ── Master refresh ────────────────────────────────────────────────────────
+    async function refresh() {
+      renderFleetStrip();
+      loadBrief();
+    }
+    refresh();
+    setInterval(refresh, 30000);
+  </script>
+</body>
+</html>

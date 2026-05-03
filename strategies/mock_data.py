@@ -224,6 +224,54 @@ def mock_spread_quote(
             max_loss=(width - net_credit) * 100.0,
             width=width, dte=dte_target,
         )
+    elif structure == "bear_put_spread":
+        # Debit: buy ATM put (long_strike), sell OTM put below (short_strike)
+        long_strike = float(math.floor(spot))
+        short_strike = long_strike - width
+        long_premium = atm_premium         # ATM put, more expensive
+        short_premium = atm_premium * 0.55  # OTM put, cheaper
+        net_debit = long_premium - short_premium
+        if net_debit >= width:
+            print(f"[mock] reject {ticker} {structure}: "
+                  f"debit ${net_debit:.2f} >= width ${width}", file=sys.stderr)
+            return None
+        if short_strike >= long_strike:
+            print(f"[mock] reject {ticker} {structure}: strikes collapsed",
+                  file=sys.stderr)
+            return None
+        return SpreadQuote(
+            ticker=ticker, structure=structure,
+            long_leg=OptionLeg("buy", "put", long_strike, expiration, long_premium),
+            short_leg=OptionLeg("sell", "put", short_strike, expiration, short_premium),
+            net_debit=net_debit, net_credit=0.0,
+            max_profit=(width - net_debit) * 100.0,
+            max_loss=net_debit * 100.0,
+            width=width, dte=dte_target,
+        )
+    elif structure == "bear_call_spread":
+        # Credit: sell ATM call (short_strike), buy OTM call above (long_strike)
+        short_strike = float(math.ceil(spot))
+        long_strike = short_strike + width
+        short_premium = atm_premium         # ATM call, more expensive
+        long_premium = atm_premium * 0.55   # OTM call, cheaper
+        net_credit = short_premium - long_premium
+        if net_credit >= width:
+            print(f"[mock] reject {ticker} {structure}: "
+                  f"credit ${net_credit:.2f} >= width ${width}", file=sys.stderr)
+            return None
+        if long_strike <= short_strike:
+            print(f"[mock] reject {ticker} {structure}: strikes collapsed",
+                  file=sys.stderr)
+            return None
+        return SpreadQuote(
+            ticker=ticker, structure=structure,
+            short_leg=OptionLeg("sell", "call", short_strike, expiration, short_premium),
+            long_leg=OptionLeg("buy", "call", long_strike, expiration, long_premium),
+            net_debit=0.0, net_credit=net_credit,
+            max_profit=net_credit * 100.0,
+            max_loss=(width - net_credit) * 100.0,
+            width=width, dte=dte_target,
+        )
     else:
         print(f"[mock_data] unknown structure: {structure}", file=sys.stderr)
         return None

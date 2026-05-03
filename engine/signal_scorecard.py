@@ -110,18 +110,14 @@ def score_signals():
     if not pending:
         return
 
-    try:
-        import yfinance as yf
-    except ImportError:
-        logger.warning("yfinance not available — cannot score signals")
-        return
+    from engine.market_data import get_stock_price
 
     tickers_needed = list({row[1] for row in pending})
     prices = {}
     for sym in tickers_needed:
         try:
-            info = yf.Ticker(sym).fast_info
-            prices[sym] = float(info.last_price or 0)
+            data = get_stock_price(sym)
+            prices[sym] = float(data.get("price") or 0)
         except Exception:
             prices[sym] = 0.0
 

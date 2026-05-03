@@ -3,11 +3,11 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>TradeMinds — The Bridge</title>
+<title>OllieTrades — The Bridge</title>
   <link rel="manifest" href="/static/manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
-  <meta name="apple-mobile-web-app-title" content="TradeMinds">
+  <meta name="apple-mobile-web-app-title" content="OllieTrades">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
   <meta name="theme-color" content="#1a1a2e">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&family=Antonio:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
@@ -39,6 +39,16 @@
   color: #0f172a;
   border-color: #2563eb;
   box-shadow: 0 12px 50px rgba(0,0,0,0.2), 0 0 20px rgba(37,99,235,0.1);
+}
+/* Mobile tooltip clamp — keep popup inside viewport */
+@media (max-width: 768px) {
+  #tooltipPopup {
+    left: 8px !important;
+    right: 8px !important;
+    width: auto !important;
+    max-width: calc(100vw - 16px) !important;
+    transform: none !important;
+  }
 }
 [data-tip] { cursor: help; }
 /* CTO Advisory — ALWAYS dark background + light text, ignores theme */
@@ -247,6 +257,7 @@ body { font-size: 14px; }
 .sniff-badge { font-size: 9px; font-weight: 700; padding: 1px 5px; border-radius: 4px;
   background: rgba(99,102,241,.15); color: #a5b4fc; text-transform: uppercase; letter-spacing: .4px; }
 .sniff-time { font-size: 9px; color: var(--muted); margin-left: auto; white-space: nowrap; }
+.sniff-persist { display:block; font-size: 8px; color: var(--muted); opacity: .7; padding: 0 0 2px 0; font-family: var(--font-mono); letter-spacing: .2px; }
 /* === END SNIFF SCAN styles === */
 
 /* TradingView chart modal */
@@ -315,6 +326,174 @@ body.role-observer .admin-only { display: none !important; }
 .nav-logo { font-family: var(--font-head); font-size: 20px; font-weight: 800; color: var(--accent); letter-spacing: -0.5px; }
 .nav-logo span { color: var(--muted); }
 .nav-live { display: flex; align-items: center; gap: 5px; }
+.fleet-pulse { display:inline-flex;align-items:center;gap:8px;padding:4px 12px;border:1px solid rgba(255,255,255,0.15);border-radius:14px;cursor:pointer;font-size:11px;font-weight:600;letter-spacing:0.05em;text-transform:uppercase;transition:all 0.2s; }
+.fleet-pulse:hover { background:rgba(255,255,255,0.05); }
+.pulse-dot { width:10px;height:10px;border-radius:50%;display:inline-block;background:#888;box-shadow:0 0 0 0 currentColor; }
+.pulse-dot.green  { background:#0d7337;animation:pulse-green 2s infinite; }
+.pulse-dot.yellow { background:#d97706;animation:pulse-yellow 1.2s infinite; }
+.pulse-dot.red    { background:#cc3d33;animation:pulse-red 0.6s infinite; }
+@keyframes pulse-green  { 0%,100%{box-shadow:0 0 0 0 rgba(13,115,55,0.6)} 50%{box-shadow:0 0 0 6px rgba(13,115,55,0)} }
+@keyframes pulse-yellow { 0%,100%{box-shadow:0 0 0 0 rgba(217,118,6,0.7)} 50%{box-shadow:0 0 0 7px rgba(217,118,6,0)} }
+@keyframes pulse-red    { 0%,100%{box-shadow:0 0 0 0 rgba(204,61,51,0.9)} 50%{box-shadow:0 0 0 9px rgba(204,61,51,0)} }
+.pulse-label.green  { color:#0d7337; }
+.pulse-label.yellow { color:#d97706; }
+.pulse-label.red    { color:#cc3d33; }
+.pulse-dot.standby  { background:#5a6370;animation:pulse-standby 4s infinite; }
+.pulse-label.standby { color:#8b919c; }
+@keyframes pulse-standby { 0%,100%{box-shadow:0 0 0 0 rgba(90,99,112,0.4)} 50%{box-shadow:0 0 0 5px rgba(90,99,112,0)} }
+.pulse-red-flash { animation:red-flash 1.5s ease-out; }
+@keyframes red-flash { 0%{box-shadow:inset 0 0 0 4px rgba(204,61,51,0)} 30%{box-shadow:inset 0 0 0 4px rgba(204,61,51,0.7)} 100%{box-shadow:inset 0 0 0 4px rgba(204,61,51,0)} }
+.fleet-feed-panel { margin:12px 16px;border:1px solid rgba(255,255,255,0.08);border-radius:6px;background:rgba(255,255,255,0.02);padding:10px 14px; }
+.fleet-feed-panel .panel-header { display:flex;justify-content:space-between;align-items:center;margin-bottom:8px; }
+.fleet-feed-panel .panel-title { font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#d9d9d9; }
+.fleet-feed-panel .panel-meta { font-size:10px;color:#8b919c;font-family:ui-monospace,monospace; }
+.fleet-feed { display:flex;flex-direction:column;gap:4px;max-height:260px;overflow-y:auto; }
+.fleet-feed-empty { color:#5a6370;font-size:12px;padding:8px 0; }
+.feed-row { display:grid;grid-template-columns:60px 80px 60px 60px 90px 1fr;gap:10px;align-items:baseline;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;font-family:ui-monospace,monospace; }
+.feed-row:last-child { border-bottom:none; }
+.feed-row:hover { background:rgba(255,255,255,0.03); }
+.feed-time { color:#8b919c; }
+.feed-agent { color:#d9d9d9;font-weight:600;white-space:nowrap;overflow:hidden;text-overflow:ellipsis; }
+.feed-action-long,.feed-action-buy { color:#0d7337;font-weight:700; }
+.feed-action-short,.feed-action-sell { color:#cc3d33;font-weight:700; }
+.feed-sym { color:#ffffff;font-weight:700; }
+.feed-price { color:#d9d9d9; }
+.feed-reason { color:#8b919c;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;font-family:inherit; }
+.feed-row-new { animation:feed-flash 2s ease-out; }
+@keyframes feed-flash { 0%{background:rgba(13,115,55,0.35)} 100%{background:transparent} }
+/* ── Source Badges (PAPER / REAL / MIXED) ── */
+.source-badge { display:inline-block;padding:2px 6px;margin-left:8px;font-size:9px;font-weight:700;letter-spacing:0.05em;border-radius:2px;vertical-align:middle;text-transform:uppercase; }
+.source-badge.paper { background:rgba(217,118,6,0.2);color:#d97706;border:1px solid rgba(217,118,6,0.4); }
+.source-badge.real  { background:rgba(13,115,55,0.2);color:#0d7337;border:1px solid rgba(13,115,55,0.4); }
+.source-badge.all,.source-badge.mixed { background:rgba(168,85,247,0.2);color:#a855f7;border:1px solid rgba(168,85,247,0.4); }
+.timestamp-pending { color:#8b919c;font-style:italic;font-size:11px; }
+.timestamp-fresh   { color:#d9d9d9;font-size:11px; }
+/* ── Options Engine Panel ── */
+.oe-subtitle{font-size:10px;color:#8b919c;font-weight:400;letter-spacing:.05em;margin-left:8px;text-transform:uppercase;}
+.oe-body{display:grid;grid-template-columns:1fr 1fr;gap:12px;padding:8px;}
+@media(max-width:900px){.oe-body{grid-template-columns:1fr;}}
+.oe-book{padding:10px;border-radius:4px;background:rgba(13,115,55,0.05);border:1px solid rgba(13,115,55,0.25);}
+.oe-book.ghost{background:rgba(168,85,247,0.05);border-color:rgba(168,85,247,0.25);}
+.oe-book-header{display:flex;align-items:center;gap:10px;padding-bottom:8px;border-bottom:1px solid rgba(255,255,255,0.06);margin-bottom:8px;}
+.oe-book-name{font-weight:700;font-size:12px;color:#d9d9d9;letter-spacing:.05em;text-transform:uppercase;}
+.oe-book-cash{margin-left:auto;font-family:ui-monospace,monospace;font-size:13px;color:#0d7337;font-weight:700;}
+.oe-book.ghost .oe-book-cash{color:#a855f7;}
+.oe-book-pnl{font-family:ui-monospace,monospace;font-size:11px;color:#8b919c;}
+.oe-book-sub{display:flex;flex-direction:column;gap:4px;margin-bottom:8px;font-size:11px;}
+.oe-agent-slot{color:#d9d9d9;padding:2px 6px;background:rgba(255,255,255,0.02);border-radius:3px;}
+.oe-agent-slot em{color:#5a6370;font-style:italic;font-size:10px;float:right;}
+.oe-positions{min-height:40px;padding:6px 0;}
+.oe-empty{font-size:11px;color:#5a6370;font-style:italic;text-align:center;padding:10px;}
+.oe-research-label{margin-top:8px;padding:4px 8px;background:rgba(168,85,247,0.08);color:#a855f7;font-size:10px;letter-spacing:.08em;text-transform:uppercase;text-align:center;border-radius:3px;}
+/* ── Missed Picks Banner ── */
+.missed-picks-banner{margin:0 0 8px 0;padding:0;background:rgba(217,119,6,0.08);border:1px solid rgba(217,119,6,0.3);border-radius:4px;font-family:ui-monospace,monospace;}
+.mpb-header{display:flex;align-items:center;gap:8px;padding:8px 12px;cursor:pointer;border-bottom:1px solid rgba(217,119,6,0.2);}
+.missed-picks-banner.collapsed .mpb-body{display:none;}
+.missed-picks-banner.collapsed .mpb-header{border-bottom:none;}
+.mpb-title{font-weight:700;color:#d97706;font-size:12px;letter-spacing:.05em;}
+.mpb-count{background:#d97706;color:#000;padding:1px 8px;border-radius:10px;font-size:10px;font-weight:700;}
+.mpb-toggle{margin-left:auto;background:none;border:none;color:#d97706;cursor:pointer;font-size:12px;padding:0;}
+.mpb-body{padding:6px 12px;}
+.mpb-pick{display:grid;grid-template-columns:70px 90px 90px 1fr auto;gap:8px;align-items:center;padding:5px 0;border-bottom:1px solid rgba(255,255,255,0.05);font-size:12px;}
+.mpb-pick:last-child{border-bottom:none;}
+.mpb-pick .sym{font-weight:700;color:#d9d9d9;}
+.mpb-pick .entry{color:#0d7337;}
+.mpb-pick .stop{color:#cc3d33;}
+.mpb-pick .note{color:#8b919c;font-size:11px;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;}
+.mpb-pick .add-btn{padding:3px 10px;background:#d97706;color:#000;border:none;border-radius:3px;cursor:pointer;font-size:10px;font-weight:700;letter-spacing:.05em;white-space:nowrap;}
+.mpb-pick .add-btn.added{background:transparent;color:#0d7337;border:1px solid #0d7337;cursor:default;}
+/* ── Kirk Source Toggle ── */
+.kirk-source-toggle { display:inline-flex;align-items:center;gap:4px;margin-left:10px;flex-wrap:wrap; }
+.kst-btn { padding:2px 10px;font-size:10px;font-weight:700;background:rgba(255,255,255,0.04);color:#8b919c;border:1px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;letter-spacing:0.05em;font-family:inherit; }
+.kst-btn:hover { background:rgba(255,255,255,0.08);color:#d9d9d9; }
+.kst-btn.active { background:#d97706;color:#000;border-color:#d97706; }
+/* ── P10: Grok-vs-Fleet Diff Panel ── */
+.grok-diff-panel { margin:12px 16px;padding:10px 14px;border:1px solid rgba(255,255,255,0.08);border-radius:6px;background:rgba(255,255,255,0.02); }
+.grok-diff-panel .panel-header { display:flex;justify-content:space-between;align-items:center;margin-bottom:8px; }
+.grok-diff-panel .panel-title { font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#d9d9d9; }
+.grok-diff-panel .panel-meta { font-size:10px;color:#8b919c;font-family:ui-monospace,monospace; }
+.grok-diff-bucket { margin-bottom:6px;font-size:12px; }
+.grok-diff-bucket-label { color:#8b919c;text-transform:uppercase;font-size:10px;letter-spacing:0.05em;margin-bottom:2px; }
+.grok-diff-tickers { font-family:ui-monospace,monospace;color:#d9d9d9; }
+.grok-diff-missed .grok-diff-tickers { color:#d97706; }
+.grok-diff-disagreed .grok-diff-tickers { color:#cc3d33; }
+.grok-diff-recent .grok-diff-tickers { color:#0d7337; }
+/* ── P11: Positions At Risk Panel ── */
+.at-risk-panel { margin:12px 16px;padding:10px 14px;border:1px solid rgba(255,255,255,0.08);border-radius:6px;background:rgba(255,255,255,0.02); }
+.at-risk-panel .panel-header { display:flex;justify-content:space-between;align-items:center;margin-bottom:8px; }
+.at-risk-panel .panel-title { font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#d9d9d9; }
+.at-risk-panel .panel-meta { font-size:10px;color:#8b919c;font-family:ui-monospace,monospace; }
+.at-risk-empty { color:#5a6370;font-size:12px;font-style:italic; }
+.at-risk-source-toggle { display:inline-flex;gap:4px;margin-left:12px; }
+.ars-btn { padding:2px 10px;font-size:10px;font-weight:700;background:rgba(255,255,255,0.04);color:#8b919c;border:1px solid rgba(255,255,255,0.1);border-radius:3px;cursor:pointer;letter-spacing:0.05em; }
+.ars-btn:hover { background:rgba(255,255,255,0.08);color:#d9d9d9; }
+.ars-btn.active { background:#d97706;color:#000;border-color:#d97706; }
+.at-risk-row { display:grid;grid-template-columns:60px 70px 80px 80px 1fr;gap:8px;align-items:center;padding:4px 0;font-size:12px;font-family:ui-monospace,monospace;border-bottom:1px solid rgba(255,255,255,0.04); }
+.at-risk-row:last-child { border-bottom:none; }
+.at-risk-sym { color:#fff;font-weight:700; }
+.at-risk-qty { color:#d9d9d9; }
+.at-risk-mv { color:#d9d9d9; }
+.at-risk-pnl-bleeding,.at-risk-pct-bleeding { color:#cc3d33;font-weight:700; }
+.at-risk-pnl-watch,.at-risk-pct-watch { color:#d97706;font-weight:700; }
+.at-risk-pnl-ok,.at-risk-pct-ok { color:#8b919c; }
+/* ── P12-P13: Scoreboard + Affinity ── */
+.panel-collapsible { margin-bottom:8px;border:1px solid rgba(255,255,255,0.08);border-radius:6px;background:rgba(255,255,255,0.02); }
+.panel-collapsible summary { list-style:none;cursor:pointer;padding:10px 14px;display:flex;align-items:center;gap:8px; }
+.panel-collapsible summary::-webkit-details-marker { display:none; }
+/* ── Metals Exposure Panel ── */
+.metals-panel { margin:12px 16px;padding:10px 14px;border:1px solid rgba(255,255,255,0.08);border-radius:6px;background:rgba(255,255,255,0.02); }
+.metals-panel .panel-header { display:flex;justify-content:space-between;align-items:center;margin-bottom:8px; }
+.metals-panel .panel-title { font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#d9d9d9; }
+.metals-panel .panel-meta { font-size:10px;color:#8b919c;font-family:ui-monospace,monospace; }
+.metals-spot-row { display:grid;grid-template-columns:repeat(4,1fr);gap:10px;margin-bottom:10px; }
+.metal-spot-cell { background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);border-radius:4px;padding:6px 8px; }
+.metal-spot-label { font-size:9px;color:#8b919c;text-transform:uppercase;letter-spacing:0.06em;font-weight:700; }
+.metal-spot-price { font-size:18px;font-weight:700;color:#d9d9d9;font-family:ui-monospace,monospace;margin-top:2px; }
+.metal-spot-chg { font-size:10px;color:#8b919c;margin-top:2px;font-family:ui-monospace,monospace; }
+.metal-spot-chg.up { color:#0d7337; }
+.metal-spot-chg.down { color:#cc3d33; }
+.signal-code { font-size:14px; }
+.signal-code.HOLD { color:#8b919c; }
+.signal-code.SILVER_CHEAP { color:#a855f7; }
+.signal-code.GOLD_CHEAP { color:#d97706; }
+.signal-code.WATCH { color:#0d7337; }
+.signal-code.RICH { color:#cc3d33; }
+.metals-holdings { display:grid;grid-template-columns:1fr 1fr;gap:10px;font-family:ui-monospace,monospace;font-size:11px; }
+.metals-holding-col { background:rgba(255,255,255,0.02);border:1px solid rgba(255,255,255,0.04);border-radius:4px;padding:8px 10px; }
+.metals-holding-title { font-size:10px;color:#8b919c;text-transform:uppercase;letter-spacing:0.05em;margin-bottom:4px;font-weight:700; }
+.metals-holding-row { display:flex;justify-content:space-between;padding:3px 0;color:#d9d9d9; }
+.metals-holding-row .val { color:#ffffff;font-weight:600; }
+.metals-footer { margin-top:10px;padding-top:8px;border-top:1px solid rgba(255,255,255,0.05);font-size:11px;color:#8b919c;display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:4px; }
+/* ── Battle Station 0DTE ── */
+.status-pill { display:inline-block;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:700;letter-spacing:0.05em;text-transform:uppercase; }
+.status-pill.status-live { background:rgba(13,115,55,0.2);color:#0d7337;border:1px solid rgba(13,115,55,0.4); }
+.status-pill.status-offline { background:rgba(139,145,156,0.15);color:#8b919c;border:1px solid rgba(139,145,156,0.3); }
+.bs0dte-regime-note { margin-top:8px;padding:6px 10px;font-size:11px;border-radius:3px;font-family:ui-monospace,monospace; }
+.bs0dte-regime-note.pos-gamma { background:rgba(13,115,55,0.1);color:#0d7337;border-left:2px solid #0d7337; }
+.bs0dte-regime-note.neg-gamma { background:rgba(204,61,51,0.1);color:#cc3d33;border-left:2px solid #cc3d33; }
+/* ── Tactical Display Compact ── */
+.tactical-compact { padding:10px 14px; }
+.tactical-header { display:flex;align-items:center;gap:10px;margin-bottom:8px;flex-wrap:wrap; }
+.tac-regime-badge { padding:2px 9px;border-radius:4px;font-weight:700;font-size:12px;background:#555;color:#fff;white-space:nowrap; }
+.tac-fact { display:flex;align-items:center;gap:4px;font-size:11px; }
+.tac-fact-label { color:var(--muted);text-transform:uppercase;letter-spacing:0.4px; }
+.tac-fact-val { font-weight:700;color:var(--text); }
+.tac-fact-sep { color:var(--border); }
+.tactical-bars { display:grid;grid-template-columns:48px 1fr 30px 1fr 34px;gap:2px 5px;align-items:center;margin-bottom:6px; }
+.tac-bar-label { font-size:10px;font-weight:600;color:var(--muted);text-align:right;padding-right:2px;line-height:1; }
+.tac-bar-wrap { height:8px;background:rgba(255,255,255,0.08);border-radius:4px;overflow:hidden; }
+.tac-bar-wrap-act { height:5px;background:rgba(255,255,255,0.05);border-radius:3px;overflow:hidden; }
+.tac-bar { height:100%;border-radius:4px;transition:width 0.4s ease; }
+.tac-bar-pct { font-size:10px;font-weight:700;text-align:right;color:var(--text); }
+.tac-act-pct { color:var(--muted);font-size:10px; }
+.seg-long { background:#3b82f6; } .seg-long-act { background:rgba(59,130,246,0.45); }
+.seg-bear { background:#2563eb; } .seg-bear-act { background:rgba(37,99,235,0.45); }
+.seg-ic   { background:#8b5cf6; } .seg-ic-act   { background:rgba(139,92,246,0.45); }
+.seg-short{ background:#ea580c; } .seg-short-act{ background:rgba(234,88,12,0.45); }
+.seg-cash { background:#6b7280; } .seg-cash-act { background:rgba(107,114,128,0.45); }
+.tactical-gap { background:rgba(234,88,12,0.10);border-left:3px solid #ea580c;padding:4px 8px;border-radius:0 4px 4px 0;font-size:11px;color:#ea580c;font-weight:600;margin-bottom:4px;display:none; }
+.tactical-footer { display:flex;justify-content:space-between;align-items:center;padding-top:6px;border-top:1px solid var(--border);font-size:11px;color:var(--muted);flex-wrap:wrap;gap:4px; }
+/* ── End Tactical Compact ── */
 .nav-center { display: flex; flex-direction: row; align-items: center; gap: 8px; flex: 1; min-width: 0; overflow: hidden; }
 .nav-ticker-wrap { display: flex; align-items: center; gap: 8px; width: 100%; max-width: 420px; }
 .nav-ticker-wrap input { flex: 1; padding: 8px 14px; background: var(--input-bg); color: var(--text); border: 1.5px solid var(--border); border-radius: 8px; font-family: var(--font-mono); font-size: 14px; font-weight: 700; letter-spacing: 1.5px; text-transform: uppercase; transition: border-color 0.15s, box-shadow 0.15s; }
@@ -899,8 +1078,8 @@ canvas { max-width: 100%; }
 .pos-modal { background:var(--surface); border:1px solid var(--border); border-radius:14px; width:90vw; max-width:1100px; max-height:92vh; overflow-y:auto; box-shadow:0 24px 48px rgba(0,0,0,0.5); }
 .pos-modal-head { display:flex; align-items:center; justify-content:space-between; padding:20px 28px 0; }
 .pos-modal-head h2 { font-family:var(--font-head); font-size:22px; font-weight:800; margin:0; }
-.pos-modal-close { background:none; border:none; color:var(--muted); font-size:24px; cursor:pointer; padding:4px 8px; border-radius:6px; }
-.pos-modal-close:hover { color:var(--text); background:var(--surface2); }
+.pos-modal-close { background:rgba(255,0,0,0.08); border:1px solid rgba(255,0,0,0.25); color:#ff4444; font-size:24px; font-weight:bold; cursor:pointer; min-width:36px; min-height:36px; display:flex; align-items:center; justify-content:center; border-radius:6px; padding:0; flex-shrink:0; }
+.pos-modal-close:hover { background:rgba(255,0,0,0.18); border-color:rgba(255,0,0,0.5); }
 .pos-modal-body { padding:16px 28px 24px; }
 .pos-modal-cols { display:grid; grid-template-columns:3fr 2fr; gap:28px; }
 .pos-modal-left { min-width:0; }
@@ -1409,6 +1588,17 @@ html[data-theme="light"] #ctoBannerContent * {
   .table-wrap, .overflow-x-auto { overflow-x: auto; -webkit-overflow-scrolling: touch; }
 }
 
+/* === HOTFIX 2026-04-20: sidebar overlap on scroll === */
+.main {
+  margin-left: 256px; /* 240px sidebar + 16px gap */
+}
+@media (max-width: 900px) {
+  .main {
+    margin-left: 0;
+  }
+}
+/* === END HOTFIX === */
+
 </style>
 <script>
 // ── Agent Display Name Map — always prefer character name ────────────────────
@@ -1418,14 +1608,14 @@ var AGENT_NAMES = {
   'ollama-plutus': 'McCoy',
   'ollama-coder': 'Data',
   'ollama-llama': 'Uhura',
-  'gemini-2.5-flash': 'Worf',
+  'qwen3-8b-flash': 'Worf',
   'dayblade-0dte': "T'Pol",
-  'grok-4': 'Spock',
+  'deepseek-7b-grok4': 'Spock',
   'ollama-glm4': 'Q',
   'data-tng': 'Data',
-  'gemini-2.5-pro': 'Seven',
+  'qwen3-14b-pro': 'Seven',
   'dayblade-sulu': 'Sulu',
-  'steve-webull': 'Kirk',
+  'webull': 'Kirk',
   'dalio-metals': 'Mr. Dalio',
   'enterprise-computer': 'Dilithium Reserve',
   'super-agent': 'The Captain',
@@ -1622,7 +1812,7 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/system/ram','/api/cto/','/api/costs/','/api/market/prices','/api/webull',
     '/api/market/vix','/api/market/earnings','/api/signals','/api/market/flow',
     '/api/news','/api/smart-money','/api/market/movers','/api/market-movers','/api/price/',
-    '/api/regime','/api/navigator/','/api/sector-heatmap','/api/fear-greed',
+    '/api/regime','/api/navigator/','/api/sectors/heatmap','/api/fear-greed',
     '/api/metals/','/api/earnings/','/api/inverse-etfs','/api/premium-etfs',
     '/api/congress/','/api/volume-radar','/api/universe/status'];
 
@@ -1785,14 +1975,16 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
 <nav class="nav">
   <!-- LEFT: Logo + status -->
   <div class="nav-left">
-    <div class="nav-logo">Trade<span>Minds</span> <span style="font-size:13px;background:rgba(0,212,170,0.1);color:var(--accent);padding:3px 8px;border-radius:4px;font-weight:600;letter-spacing:1px;">ARENA</span></div>
+    <div class="nav-logo">Ollie<span>Trades</span> <span style="font-size:13px;background:rgba(0,212,170,0.1);color:var(--accent);padding:3px 8px;border-radius:4px;font-weight:600;letter-spacing:1px;">ARENA</span></div>
     <div class="nav-live">
-      <span class="dot" id="sysStatusDot"></span>
       <span style="color:#fff;font-weight:700;font-size:13px;">LIVE</span>
-      <span id="sysStatusBadge" style="font-size:11px;color:#22c55e;font-family:var(--font-mono);margin-left:4px;">ALL SYSTEMS ONLINE</span>
+    </div>
+    <div id="fleet-pulse" class="fleet-pulse" onclick="showPulseDetail()" title="Click for details">
+      <span class="pulse-dot" id="pulse-dot"></span>
+      <span class="pulse-label" id="pulse-label">CHECKING…</span>
     </div>
     <span id="marketClock"></span>
-    <a href="https://desire-earlier-stories-stands.trycloudflare.com" target="_blank" style="font-size:12px;color:#2563eb;text-decoration:none;display:flex;align-items:center;gap:4px;background:rgba(37,99,235,0.1);padding:3px 8px;border-radius:4px;border:1px solid rgba(37,99,235,0.3);" title="Remote access URL">🌐 Remote</a>
+    <a href="https://bridge.ollietrades.com/" target="_blank" style="font-size:12px;color:#2563eb;text-decoration:none;display:flex;align-items:center;gap:4px;background:rgba(37,99,235,0.1);padding:3px 8px;border-radius:4px;border:1px solid rgba(37,99,235,0.3);" title="Remote access URL">🌐 Remote</a>
   </div>
 
   <!-- CENTER: Ticker search -->
@@ -1979,6 +2171,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="sidebar-item" onclick="showSection('charts')"><span class="icon">📈</span> Charts</div>
   <div class="sidebar-item" onclick="showSection('livechart')"><span class="icon">⚡</span> Live Chart</div>
   <div class="sidebar-item" id="nav-sniff-scan" onclick="showSection('sniff-scan')"><span class="icon">📡</span> Sniff Scan</div>
+  <a class="sidebar-item" href="/backtest" style="text-decoration:none;color:inherit;"><span class="icon">🧪</span> Backtest</a>
   <div class="sidebar-item" onclick="showSection('institutional-intel')"><span class="icon">🏛️</span> Inst. Intel</div>
 <div class="sidebar-item" onclick="showSection('screener-pro')"><span class="icon">🔍</span> Screener Pro</div>
 <div class="sidebar-item" onclick="showSection('sector-watch')"><span class="icon">📡</span> Sector Watch</div>
@@ -2067,6 +2260,17 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
 
 <!-- SPOCK ALERT BANNERS — shown globally whenever unacknowledged alerts exist -->
 <div id="spock-alerts-container" style="margin-bottom:8px;"></div>
+
+<!-- MISSED PICKS BANNER — Trade-Ideas picks the fleet hasn't traded yet -->
+<div id="missed-picks-banner" class="missed-picks-banner" style="display:none;">
+  <div class="mpb-header" onclick="document.getElementById('missed-picks-banner').classList.toggle('collapsed')">
+    <span class="mpb-icon">📰</span>
+    <span class="mpb-title">Trade-Ideas picks missed today</span>
+    <span class="mpb-count" id="mpb-count">0</span>
+    <button class="mpb-toggle">▼</button>
+  </div>
+  <div class="mpb-body" id="mpb-body"></div>
+</div>
 
 <!-- READY ROOM — Admiral Picard's Weekly Strategy + Daily Session Briefing -->
 <div id="section-ready-room" style="display:none;">
@@ -3545,53 +3749,95 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
 <!-- DASHBOARD SECTION (The Bridge) -->
 <div id="section-dashboard" style="display:none;">
   <div id="guide-container-dashboard"></div>
+
+  <!-- FLEET ACTIVITY FEED — P3 -->
+  <div class="fleet-feed-panel" id="fleet-feed-panel">
+    <div class="panel-header">
+      <span class="panel-title">🛰️ Fleet Activity — Live<span class="source-badge paper" style="margin-left:6px;">PAPER</span></span>
+      <span class="panel-meta" id="fleet-feed-meta">loading…</span>
+    </div>
+    <div class="fleet-feed" id="fleet-feed">
+      <div class="fleet-feed-empty">Polling for activity…</div>
+    </div>
+  </div>
+
+  <!-- P11: Positions At Risk -->
+  <div class="at-risk-panel" id="at-risk-panel">
+    <div class="panel-header">
+      <span class="panel-title">🩸 Positions At Risk<span class="source-badge real" id="at-risk-badge">REAL</span>
+        <div class="at-risk-source-toggle">
+          <button class="ars-btn active" data-source="real">REAL</button>
+        </div>
+      </span>
+      <span class="panel-meta" id="at-risk-meta">—</span>
+    </div>
+    <div id="at-risk-body"><div class="at-risk-empty">Loading…</div></div>
+  </div>
+  <!-- P10: External Picks — Fleet Diff (hidden until picks submitted) -->
+  <div class="grok-diff-panel" id="grok-diff-panel" style="display:none">
+    <div class="panel-header">
+      <span class="panel-title">📰 External Picks — Fleet Diff</span>
+      <span class="panel-meta" id="grok-diff-meta">—</span>
+    </div>
+    <div id="grok-diff-body">—</div>
+  </div>
   <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Main Bridge</div><div style="font-size:13px;color:#94a3b8;">Live fleet overview — market regime, scanner convergence, bridge status, and open positions across all AI crew members.</div></div>
   <!-- Tactical Display Card (collapsible) -->
   <details class="card" id="tactical-card-details" style="border-left:4px solid #eab308;margin-bottom:12px;" open>
   <summary style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);cursor:pointer;list-style:none;user-select:none;" data-tip="WHAT: Market regime detector — BULL/BEAR/CAUTIOUS/CRISIS based on SPY vs moving averages and VIX level. WHY: Regime drives ALL position sizing. BULL=full size, BEAR=cash or inverse, CRISIS=standby. HOW: SPY above 200MA + VIX below 20 = BULL. VIX above 30 = BEAR. VIX above 40 = CRISIS. Changes allocation targets for every agent.">
-    <span style="font-weight:700;font-size:14px;">🎯 Tactical Display</span>
+    <span style="font-weight:700;font-size:14px;">🎯 Tactical Display<span class="source-badge paper">PAPER</span></span>
     <span style="font-size:11px;color:var(--muted);">▼</span>
   </summary>
-  <div class="card" id="tactical-card" style="border:none;margin:0;padding:0;">
-    <div style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);">
-      <span style="font-weight:700;font-size:14px;display:none;">🎯 Tactical Display</span>
-      <div style="display:flex;flex-direction:column;align-items:flex-end;gap:2px;">
-        <span id="regime-badge" data-tip="Market Regime. BULL=uptrend, favor longs. BEAR=downtrend, favor shorts/cash. NEUTRAL=sideways, favor options. Driven by SPY vs moving averages and VIX level." style="padding:3px 10px;border-radius:4px;font-weight:700;font-size:12px;background:#555;color:#fff;">Loading...</span>
-        <span id="regime-tagline" style="font-size:11px;color:var(--muted);"></span>
-      </div>
+  <div class="tactical-compact" id="tactical-card">
+    <!-- Header: regime badge + quick facts -->
+    <div class="tactical-header">
+      <span id="regime-badge" class="tac-regime-badge" data-tip="Market Regime: BULL=uptrend favor longs, CAUTIOUS=mixed signals smaller positions, BEAR=defense favor cash/shorts, CRISIS=maximum defense.">Loading…</span>
+      <span class="tac-fact"><span class="tac-fact-label">VIX</span>&nbsp;<span id="tac-vix" class="tac-fact-val">—</span></span>
+      <span class="tac-fact-sep">·</span>
+      <span class="tac-fact"><span class="tac-fact-label">SPY</span>&nbsp;<span id="tac-spy" class="tac-fact-val">—</span></span>
+      <span class="tac-fact-sep">·</span>
+      <span class="tac-fact"><span class="tac-fact-label">Scan</span>&nbsp;<span id="tac-scan" class="tac-fact-val">—</span></span>
     </div>
-    <div style="background:rgba(37,99,235,0.06);border-left:3px solid #2563eb;padding:10px 14px;margin:0 14px 12px;border-radius:0 6px 6px 0;"><div style="font-size:14px;font-weight:700;color:var(--text);margin-bottom:2px;">How Your Money Is Positioned</div><div style="font-size:13px;color:var(--muted);line-height:1.5;">Current portfolio allocation strategy based on market regime (BULL/BEAR/NEUTRAL). Shows target % across Long Equity (buying stocks), Bear Call Spreads (bearish options), Iron Condors (range-bound options), Short Equity (inverse ETFs), and Cash. Adjusts automatically when regime changes.</div></div>
-    <div style="display:grid;grid-template-columns:1fr 1fr 1fr;gap:14px;padding:12px 14px;" id="tac-grid">
-      <div>
-        <!-- Allocation view toggle -->
-        <div style="display:flex;align-items:center;gap:6px;margin-bottom:7px;flex-wrap:wrap;">
-          <button id="tacFleetBtn" onclick="setTacView('fleet')" style="font-size:14px;padding:6px 14px;border-radius:10px;border:1px solid var(--accent);background:var(--accent);color:#000;cursor:pointer;font-weight:600;">All Fleet</button>
-          <select id="tacModelSelect" onchange="setTacView('model')" style="font-size:14px;padding:6px 8px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);"><option value="">Individual ▼</option></select>
-          <label style="display:none;font-size:13px;color:var(--muted);align-items:center;gap:3px;cursor:pointer;"><input type="checkbox" id="tacIncludeKirk" onchange="fetchTacticalAllocation()"> Kirk &amp; Computer</label>
-        </div>
-        <div id="regime-desc" style="font-size:13px;color:var(--muted);margin-bottom:6px;">Loading regime...</div>
-        <div id="alloc-bars" style="font-size:13px;">
-          <!-- Column headers -->
-          <div style="display:flex;align-items:center;gap:6px;margin-bottom:3px;"><span style="width:108px;"></span><div style="flex:1;"></div><span style="width:40px;text-align:right;font-size:12px;font-weight:700;color:var(--muted);">Target</span><span style="width:12px;"></span><span style="width:48px;text-align:right;font-size:12px;font-weight:700;color:var(--muted);">Actual</span></div>
-          <div style="display:flex;align-items:center;gap:6px;margin:5px 0;"><span data-tip="Buying stocks expecting them to rise. In bull markets this increases. In bear markets like now (20%), it shrinks to limit downside exposure." style="width:108px;font-size:14px;font-weight:600;color:var(--text);">Long Equity</span><div style="flex:1;height:10px;background:rgba(255,255,255,0.08);border-radius:5px;overflow:hidden;"><div id="ab-eq" style="height:100%;background:#3b82f6;width:50%;border-radius:5px;"></div></div><span id="ap-eq" style="width:40px;text-align:right;font-size:15px;font-weight:700;color:var(--text);">50%</span><span style="width:12px;text-align:center;font-size:14px;color:var(--muted);">→</span><span id="tac-actual-long" style="width:48px;text-align:right;font-weight:700;font-size:15px;color:var(--muted);">—</span></div>
-          <div style="display:flex;align-items:center;gap:6px;margin:5px 0;"><span data-tip="Options strategy that profits when stocks stay flat or drop. Sells a call, buys a higher call. Collects premium with limited risk. Defensive income for bear markets." style="width:108px;font-size:14px;font-weight:600;color:var(--text);">Bear Call Sprd</span><div style="flex:1;height:10px;background:rgba(255,255,255,0.08);border-radius:5px;overflow:hidden;"><div id="ab-bcs" style="height:100%;background:#2563eb;width:15%;border-radius:5px;"></div></div><span id="ap-bcs" style="width:40px;text-align:right;font-size:15px;font-weight:700;color:var(--text);">15%</span><span style="width:12px;text-align:center;font-size:14px;color:var(--muted);">→</span><span id="tac-actual-bear" style="width:48px;text-align:right;font-weight:700;font-size:15px;color:var(--muted);">—</span></div>
-          <div style="display:flex;align-items:center;gap:6px;margin:5px 0;"><span data-tip="Options strategy profiting when stocks stay in a range. Sells both call and put spreads. Best in low-volatility sideways markets. Profits from time decay." style="width:108px;font-size:14px;font-weight:600;color:var(--text);">Iron Condors</span><div style="flex:1;height:10px;background:rgba(255,255,255,0.08);border-radius:5px;overflow:hidden;"><div id="ab-ic" style="height:100%;background:#8b5cf6;width:10%;border-radius:5px;"></div></div><span id="ap-ic" style="width:40px;text-align:right;font-size:15px;font-weight:700;color:var(--text);">10%</span><span style="width:12px;text-align:center;font-size:14px;color:var(--muted);">→</span><span id="tac-actual-iron" style="width:48px;text-align:right;font-weight:700;font-size:15px;color:var(--muted);">—</span></div>
-          <div style="display:flex;align-items:center;gap:6px;margin:5px 0;"><span data-tip="Betting stocks go down via inverse ETFs like SH and SPXU. Powerful in bear markets. Currently 15% — defensive positioning." style="width:108px;font-size:14px;font-weight:600;color:var(--text);">Short Equity</span><div style="flex:1;height:10px;background:rgba(255,255,255,0.08);border-radius:5px;overflow:hidden;"><div id="ab-sh" style="height:100%;background:#ea580c;width:5%;border-radius:5px;"></div></div><span id="ap-sh" style="width:40px;text-align:right;font-size:15px;font-weight:700;color:var(--text);">5%</span><span style="width:12px;text-align:center;font-size:14px;color:var(--muted);">→</span><span id="tac-actual-short" style="width:48px;text-align:right;font-weight:700;font-size:15px;color:var(--muted);">—</span></div>
-          <div style="display:flex;align-items:center;gap:6px;margin:5px 0;"><span data-tip="Dry powder on the sidelines. Preserves capital and lets you buy the dip when fear peaks. 25% cash = cautious but ready to deploy when signals improve." style="width:108px;font-size:14px;font-weight:600;color:var(--text);">Cash</span><div style="flex:1;height:10px;background:rgba(255,255,255,0.08);border-radius:5px;overflow:hidden;"><div id="ab-ca" style="height:100%;background:#6b7280;width:20%;border-radius:5px;"></div></div><span id="ap-ca" style="width:40px;text-align:right;font-size:15px;font-weight:700;color:var(--text);">20%</span><span style="width:12px;text-align:center;font-size:14px;color:var(--muted);">→</span><span id="tac-actual-cash" style="width:48px;text-align:right;font-weight:700;font-size:15px;color:var(--muted);">—</span></div>
-        </div>
-      </div>
-      <div>
-        <div class="" data-tip="Convergence = multiple strategies agree on the same trade. No convergence = mixed signals, safest play is cash. When 3+ strategies converge on a ticker, that's a high-conviction signal." style="font-size:13px;font-weight:600;color:var(--accent);margin-bottom:6px;">🧭 Scanner Status</div>
-        <div id="tac-convergence" style="font-size:13px;color:var(--muted);">Loading...</div>
-      </div>
-      <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;">
-        <div id="tac-vix-wrap" data-tip="VIX measures market fear. Under 15=calm. 15-20=normal. 20-30=elevated anxiety. 30+=extreme fear/panic. Buying during VIX spikes above 30 has historically been profitable long-term." style="text-align:center;padding:6px;background:var(--surface);border-radius:6px;"><div style="font-size:13px;color:var(--muted);">VIX</div><div id="tac-vix" style="font-size:16px;font-weight:700;">—</div><div id="tac-vix-label" style="font-size:11px;font-weight:700;margin-top:2px;"></div></div>
-        <div data-tip="When SPY is ABOVE the 200-day moving average = bull trend, favor longs. BELOW = bear trend, favor defense/cash. The most-watched trend indicator on Wall Street." style="text-align:center;padding:6px;background:var(--surface);border-radius:6px;"><div style="font-size:13px;color:var(--muted);">SPY vs 200MA</div><div id="tac-spy" style="font-size:12px;font-weight:700;">—</div><div id="tac-spy-trend" style="font-size:11px;font-weight:700;margin-top:2px;"></div></div>
-        <div class="" data-tip="API costs — most models now run free on local Ollama (mistral-small, phi4:14b, qwen3:8b). Only Grok (journal/Spock) and optional OpenAI players incur API costs. Target: under $0.50/day." style="text-align:center;padding:6px;background:var(--surface);border-radius:6px;"><div style="font-size:13px;color:var(--muted);">Dilithium</div><div id="tac-cost" style="font-size:12px;font-weight:700;">—</div></div>
-        <div class="" data-tip="Time until next scan cycle. Market hours: scans every 15-30 min using free local Ollama models (no API cost). Fast Scanner fires macOS popups on high-conviction signals." style="text-align:center;padding:6px;background:var(--surface);border-radius:6px;"><div style="font-size:13px;color:var(--muted);">Next Scan</div><div id="tac-scan" style="font-size:12px;font-weight:700;">—</div></div>
-      </div>
+    <!-- Allocation bars: target row + actual row per bucket -->
+    <!-- grid: label | tgt-bar | tgt-pct | act-bar | act-pct -->
+    <div class="tactical-bars">
+      <span class="tac-bar-label">Long</span>
+      <div class="tac-bar-wrap"><div class="tac-bar seg-long" id="tgt-long" style="width:50%"></div></div>
+      <span class="tac-bar-pct" id="tgt-long-pct">50%</span>
+      <div class="tac-bar-wrap tac-bar-wrap-act"><div class="tac-bar seg-long-act" id="act-long" style="width:0%"></div></div>
+      <span class="tac-bar-pct tac-act-pct" id="act-long-pct">—</span>
+
+      <span class="tac-bar-label">Bear/CS</span>
+      <div class="tac-bar-wrap"><div class="tac-bar seg-bear" id="tgt-bear" style="width:15%"></div></div>
+      <span class="tac-bar-pct" id="tgt-bear-pct">15%</span>
+      <div class="tac-bar-wrap tac-bar-wrap-act"><div class="tac-bar seg-bear-act" id="act-bear" style="width:0%"></div></div>
+      <span class="tac-bar-pct tac-act-pct" id="act-bear-pct">—</span>
+
+      <span class="tac-bar-label">IC</span>
+      <div class="tac-bar-wrap"><div class="tac-bar seg-ic" id="tgt-ic" style="width:10%"></div></div>
+      <span class="tac-bar-pct" id="tgt-ic-pct">10%</span>
+      <div class="tac-bar-wrap tac-bar-wrap-act"><div class="tac-bar seg-ic-act" id="act-ic" style="width:0%"></div></div>
+      <span class="tac-bar-pct tac-act-pct" id="act-ic-pct">—</span>
+
+      <span class="tac-bar-label">Short</span>
+      <div class="tac-bar-wrap"><div class="tac-bar seg-short" id="tgt-short" style="width:5%"></div></div>
+      <span class="tac-bar-pct" id="tgt-short-pct">5%</span>
+      <div class="tac-bar-wrap tac-bar-wrap-act"><div class="tac-bar seg-short-act" id="act-short" style="width:0%"></div></div>
+      <span class="tac-bar-pct tac-act-pct" id="act-short-pct">—</span>
+
+      <span class="tac-bar-label">Cash</span>
+      <div class="tac-bar-wrap"><div class="tac-bar seg-cash" id="tgt-cash" style="width:20%"></div></div>
+      <span class="tac-bar-pct" id="tgt-cash-pct">20%</span>
+      <div class="tac-bar-wrap tac-bar-wrap-act"><div class="tac-bar seg-cash-act" id="act-cash" style="width:0%"></div></div>
+      <span class="tac-bar-pct tac-act-pct" id="act-cash-pct">—</span>
     </div>
-    <div id="regime-shift" class="" data-tip="Regime transition rule. When VIX drops below 25, system shifts from full BEAR defense to CAUTIOUS — starts looking for long opportunities while keeping some hedges." style="padding:6px 14px;font-size:13px;color:var(--muted);border-top:1px solid var(--border);"></div>
+    <!-- Execution gap warning: shown when Bear/IC/Short targets > 0 but agents not yet live -->
+    <div id="tac-exec-gap" class="tactical-gap"></div>
+    <!-- Footer: convergence + regime thresholds -->
+    <div class="tactical-footer">
+      <span id="tac-convergence" style="color:var(--text);">—</span>
+      <span id="regime-shift" style="color:var(--muted);font-size:10px;"></span>
+    </div>
   </div>
   </details>
   <script>
@@ -3606,121 +3852,99 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
   function _lastActiveAZ() {
     return new Date().toLocaleTimeString('en-US', {timeZone:'America/Phoenix',hour:'numeric',minute:'2-digit'});
   }
-  function loadTactical() {
-    fetch('/api/regime').then(r=>r.json()).then(d=>{
-      var regime=d.regime||'CAUTIOUS', alloc=d.allocation||{};
-      var card=document.getElementById('tactical-card');
-      var colors={BULL:'#2563eb',CAUTIOUS:'#eab308',BEAR:'#ea580c',CRISIS:'#991b1b'};
-      card.style.borderLeftColor=colors[regime]||'#eab308';
-      var badge=document.getElementById('regime-badge');
-      badge.textContent=regime; badge.style.background=colors[regime]||'#eab308';
-      badge.style.color=regime==='BEAR'||regime==='CRISIS'?'#fff':'#000';
-      var taglines={BULL:'Offense mode — favor long equity, full positions',CAUTIOUS:'Mixed signals — smaller positions, tight stops',BEAR:'Defense mode — favor cash, shorts, inverse ETFs',CRISIS:'Emergency — maximum defense, capital preservation'};
-      var tl=document.getElementById('regime-tagline'); if(tl){tl.textContent=taglines[regime]||'';tl.style.color=colors[regime]||'var(--muted)';}
-      document.getElementById('regime-desc').textContent=alloc.description||'';
-      var maps={eq:'long_equity',bcs:'bear_call_spreads',ic:'iron_condors',sh:'short_equity',ca:'cash'};
-      for(var k in maps){var v=(alloc[maps[k]]||0)*100;var bar=document.getElementById('ab-'+k);var pct=document.getElementById('ap-'+k);if(bar)bar.style.width=v+'%';if(pct)pct.textContent=v.toFixed(0)+'%';}
-      document.getElementById('tac-vix').textContent=d.vix?d.vix.toFixed(1):'—';
-      document.getElementById('tac-vix').style.color=(d.vix>25?'#ea580c':d.vix>20?'#eab308':'#2563eb');
-      if(!d.vix){fetch('/api/market/vix').then(function(rv){return rv.json();}).then(function(vd){var v=vd.current&&vd.current.price?vd.current.price:null;if(v){var vEl=document.getElementById('tac-vix');if(vEl){vEl.textContent=parseFloat(v).toFixed(1);vEl.style.color=(v>25?'#ea580c':v>20?'#eab308':'#2563eb');}}}).catch(function(){});}
-      if(d.vix){
-        var vv=parseFloat(d.vix),vLabel='',vColor='',vt='VIX at '+vv.toFixed(1)+' — ';
-        if(vv>30){vLabel='EXTREME FEAR';vColor='#ea580c';vt+='Panic selling, very volatile. Historically buying VIX spikes above 30 is profitable long-term but expect short-term pain.';}
-        else if(vv>25){vLabel='ELEVATED';vColor='#ea580c';vt+='ELEVATED ANXIETY. Market is nervous. Reduce position sizes, defensive positioning recommended.';}
-        else if(vv>20){vLabel='CAUTIOUS';vColor='#f59e0b';vt+='MILD CONCERN. Above normal but not alarming. Keep stops tight, stay cautious.';}
-        else if(vv>15){vLabel='NORMAL';vColor='#2563eb';vt+='NORMAL. Standard market conditions. Trade normally with regular position sizes.';}
-        else{vLabel='CALM';vColor='#2563eb';vt+='CALM/COMPLACENT. Very low fear. Watch for reversals — markets can snap from extreme calm.';}
-        var vl=document.getElementById('tac-vix-label');if(vl){vl.textContent=vLabel;vl.style.color=vColor;}
-        var vw=document.getElementById('tac-vix-wrap');if(vw)vw.setAttribute('data-tip',vt);
-      }
-      document.getElementById('tac-spy').textContent=d.spy_above_200?'ABOVE ▲':'BELOW ▼';
-      document.getElementById('tac-spy').style.color=d.spy_above_200?'#2563eb':'#ea580c';
-      var spyTrend=document.getElementById('tac-spy-trend');
-      if(spyTrend){spyTrend.textContent=d.spy_above_200?'BULL TREND':'BEAR TREND';spyTrend.style.color=d.spy_above_200?'#2563eb':'#ea580c';}
-      var shifts=[];
-      if(regime==='BEAR')shifts.push('→ CAUTIOUS when VIX < 25');
-      if(regime==='CAUTIOUS')shifts.push('→ BULL when VIX < 20 + SPY > 200MA','→ BEAR when VIX > 25');
-      if(regime==='BULL')shifts.push('→ CAUTIOUS when VIX > 20 or SPY < 200MA');
-      document.getElementById('regime-shift').textContent=shifts.join(' | ')||'Regime stable';
-    }).catch(function(){
-      var _offR = _mktIsOpen() ? 'API unavailable' : 'Market closed';
-      document.getElementById('regime-badge').textContent='OFFLINE — ' + _offR;
-      document.getElementById('regime-desc').textContent = _mktIsOpen() ? 'Scanner down — check logs' : 'Weekend — updates at market open';
-    });
-    fetch('/api/navigator/convergence').then(r=>r.json()).then(d=>{
-      var sigs=d.signals||d||[];var el=document.getElementById('tac-convergence');
-      if(sigs.length>0){el.innerHTML=sigs.slice(0,3).map(s=>'🎯 <b class="ticker-click" onclick="openTickerDetail(\''+s.ticker+'\')">'+s.ticker+'</b> — '+s.strategies_triggered+' strats').join('<br>');}
-      else{el.textContent='No convergence — stay in cash';}
-    }).catch(function(){
-      document.getElementById('tac-convergence').textContent='Scanner offline — next scan at market open';
-    });
-    (function(){
-      var el=document.getElementById('tac-scan');
-      // Check if market is open (Mon-Fri, 9:30 AM - 4 PM ET, plus pre/post 4AM-8PM)
-      var now=new Date();var et=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
-      var day=et.getDay(),hr=et.getHours(),mn=et.getMinutes();
-      var isTrading=day>=1&&day<=5&&(hr>=4&&hr<20); // 4AM-8PM ET weekdays covers pre+post
-      if(isTrading){
-        el.textContent='Active ~2m';el.style.color='var(--green)';
-      } else {
-        fetch('/api/navigator/schedule').then(r=>r.json()).then(d=>{
-          var h=Math.floor((d.strategy_countdown_min||0)/60);var m=(d.strategy_countdown_min||0)%60;
-          el.textContent=h+'h '+m+'m';el.style.color='var(--muted)';
-        }).catch(function(){el.textContent='—';});
-      }
-    })();
-    fetch('/api/costs/dilithium').then(r=>r.json()).then(d=>{
-      var el=document.getElementById('tac-cost');
-      if(el&&d){el.textContent='$'+(d.today&&d.today.total_raw?d.today.total_raw.toFixed(2):'0.00');}
-    }).catch(function(){
-      var el=document.getElementById('tac-cost');if(el)el.textContent='—';
-    });
-  }
-
-  var _tacView = 'fleet';
-  function setTacView(mode) {
-    _tacView = mode;
-    var fb = document.getElementById('tacFleetBtn');
-    var sel = document.getElementById('tacModelSelect');
-    if (mode === 'fleet') {
-      if (fb) { fb.style.background='var(--accent)'; fb.style.color='#000'; }
-      if (sel) sel.value = '';
-    } else {
-      if (fb) { fb.style.background='var(--surface)'; fb.style.color='var(--muted)'; }
-    }
-    fetchTacticalAllocation();
-  }
-
-  async function fetchTacticalAllocation() {
+  // === TACTICAL DISPLAY (compact redesign 2026-04-21) ===
+  async function updateTactical() {
+    const colors = {BULL:'#2563eb',CAUTIOUS:'#eab308',BEAR:'#ea580c',CRISIS:'#991b1b'};
     try {
-      var includeAll = document.getElementById('tacIncludeKirk')?.checked ? '&include_all=1' : '';
-      var modelId = _tacView === 'model' ? (document.getElementById('tacModelSelect')?.value || '') : '';
-      var url = '/api/tactical/allocation?view=' + _tacView + (modelId ? '&model=' + encodeURIComponent(modelId) : '') + includeAll;
-      var r = await fetch(url);
-      var d = await r.json();
-      var a = d.actual || {};
-      function setActual(id, val, target) {
-        var el = document.getElementById(id);
-        if (!el) return;
-        if (val === null || val === undefined) { el.textContent = '—'; return; }
-        el.textContent = val.toFixed(1) + '%';
-        el.style.color = Math.abs(val - target) > 5 ? '#ea580c' : '#2563eb';
-        el.style.fontWeight = '700';
+      const [rd, ad] = await Promise.all([
+        fetch('/api/regime').then(r=>r.json()),
+        fetch('/api/tactical/allocation?view=fleet').then(r=>r.json()).catch(()=>({})),
+      ]);
+      const regime = rd.regime || 'CAUTIOUS';
+      const alloc  = rd.allocation || {};
+      const color  = colors[regime] || '#eab308';
+      // Regime badge + details border
+      const badge = document.getElementById('regime-badge');
+      if (badge) { badge.textContent=regime; badge.style.background=color; badge.style.color=(regime==='BULL'||regime==='CAUTIOUS')?'#000':'#fff'; }
+      const det = document.getElementById('tactical-card-details');
+      if (det) det.style.borderLeftColor = color;
+      // Target bars
+      const tgtMap = {long:'long_equity',bear:'bear_call_spreads',ic:'iron_condors',short:'short_equity',cash:'cash'};
+      for (const [k,v] of Object.entries(tgtMap)) {
+        const p = (alloc[v]||0)*100;
+        const bar = document.getElementById('tgt-'+k); if(bar) bar.style.width=p+'%';
+        const pct = document.getElementById('tgt-'+k+'-pct'); if(pct) pct.textContent=p.toFixed(0)+'%';
       }
-      setActual('tac-actual-long',  a.long_equity,  20);
-      setActual('tac-actual-bear',  null,            25);
-      setActual('tac-actual-iron',  null,            15);
-      setActual('tac-actual-short', a.short_equity,  15);
-      setActual('tac-actual-cash',  a.cash,          25);
-      // Populate individual model dropdown (always refresh to pick up new models)
-      var sel = document.getElementById('tacModelSelect');
-      if (sel && d.models && d.models.length > 0) {
-        var prevVal = sel.value;
-        sel.innerHTML = '<option value="">Individual ▼</option>' + _buildAgentOptgroups(d.models, null);
-        if (prevVal) sel.value = prevVal; // restore selection
+      // Execution gap warning (Bear/CS, IC, Short targets > 0 = agents not yet live)
+      const bearT=(alloc.bear_call_spreads||0)*100, icT=(alloc.iron_condors||0)*100, shortT=(alloc.short_equity||0)*100;
+      const gapEl = document.getElementById('tac-exec-gap');
+      if (gapEl) {
+        if (bearT>0||icT>0||shortT>0) {
+          const pts=[];
+          if(bearT>0) pts.push('Bear/CS: '+bearT.toFixed(0)+'%');
+          if(icT>0)   pts.push('IC: '+icT.toFixed(0)+'%');
+          if(shortT>0) pts.push('Short: '+shortT.toFixed(0)+'%');
+          gapEl.textContent='⚠ Execution gap — targets set, agents not yet live: '+pts.join(' · ');
+          gapEl.style.display='';
+        } else {
+          gapEl.style.display='none';
+        }
       }
-    } catch(e) {}
+      // VIX
+      const vixEl=document.getElementById('tac-vix');
+      if(vixEl){
+        const v=rd.vix; if(v){vixEl.textContent=parseFloat(v).toFixed(1);vixEl.style.color=v>25?'#ea580c':v>20?'#eab308':'#2563eb';}
+        else{vixEl.textContent='—';vixEl.style.color='';}
+      }
+      // SPY
+      const spyEl=document.getElementById('tac-spy');
+      if(spyEl){spyEl.textContent=rd.spy_above_200?'▲ ABOVE':'▼ BELOW';spyEl.style.color=rd.spy_above_200?'#2563eb':'#ea580c';}
+      // Regime shift footer
+      const shifts=[];
+      if(regime==='BEAR')shifts.push('→ CAUTIOUS if VIX<25');
+      if(regime==='CAUTIOUS'){shifts.push('→ BULL if VIX<20+SPY>200MA');shifts.push('→ BEAR if VIX>25');}
+      if(regime==='BULL')shifts.push('→ CAUTIOUS if VIX>20 or SPY<200MA');
+      const shEl=document.getElementById('regime-shift');
+      if(shEl) shEl.textContent=shifts.join(' | ')||'Regime stable';
+      // Actual allocation
+      const actual=ad.actual||{};
+      function _setAct(key,val,tgt){
+        const bar=document.getElementById('act-'+key),pctEl=document.getElementById('act-'+key+'-pct');
+        if(val===null||val===undefined){if(pctEl)pctEl.textContent='—';if(bar)bar.style.width='0%';return;}
+        if(bar)bar.style.width=Math.min(val,100)+'%';
+        if(pctEl){pctEl.textContent=val.toFixed(1)+'%';pctEl.style.color=Math.abs(val-tgt)>5?'#ea580c':'#2563eb';}
+      }
+      _setAct('long', actual.long_equity,   (alloc.long_equity||0)*100);
+      _setAct('bear', null,                 bearT);
+      _setAct('ic',   null,                 icT);
+      _setAct('short',actual.short_equity,  shortT);
+      _setAct('cash', actual.cash,          (alloc.cash||0)*100);
+    } catch(e) {
+      const badge=document.getElementById('regime-badge');
+      if(badge){badge.textContent='OFFLINE';badge.style.background='#555';}
+    }
+    // Next scan
+    try {
+      const now=new Date(),et=new Date(now.toLocaleString('en-US',{timeZone:'America/New_York'}));
+      const day=et.getDay(),hr=et.getHours();
+      const isTrading=day>=1&&day<=5&&hr>=4&&hr<20;
+      const scanEl=document.getElementById('tac-scan');
+      if(scanEl){if(isTrading){scanEl.textContent='~2m';scanEl.style.color='var(--green)';}else{scanEl.textContent='closed';scanEl.style.color='var(--muted)';}}
+    } catch(e){}
+    // Convergence
+    try {
+      const cd=await fetch('/api/navigator/convergence').then(r=>r.json());
+      const sigs=cd.signals||cd||[];
+      const convEl=document.getElementById('tac-convergence');
+      if(convEl){
+        if(sigs.length>0){convEl.innerHTML='🧭 '+sigs.slice(0,3).map(s=>'<b class="ticker-click" onclick="openTickerDetail(\''+s.ticker+'\')">'+s.ticker+'</b>('+s.strategies_triggered+')').join(' · ');}
+        else{convEl.textContent='No convergence — stay in cash';}
+      }
+    } catch(e){const convEl=document.getElementById('tac-convergence');if(convEl)convEl.textContent='Scanner offline';}
   }
+  updateTactical();
+  setInterval(updateTactical, 60000);
+  // === END TACTICAL DISPLAY ===
   </script>
 
   <!-- At-a-Glance Summary -->
@@ -4047,7 +4271,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
   <!-- Fleet Report Card -->
   <div class="card" id="fleet-report-card" style="margin-bottom:16px;">
     <div class="card-header" style="cursor:pointer;" onclick="toggleFleetReport()" data-tip="WHAT: Agent performance scorecards — grades each AI crew member by win rate, P&amp;L, and streak. WHY: Identifies which models are hot (ride them) vs cold (trim allocation). HOW: A/B/C/D/F grades from win %, Sharpe proxy, and recent trade history. Drill down on any agent to see their open positions.">
-      <div class="card-title">📊 Fleet Report Card <span class="online-status-dot" title="System Online" style="margin-left:6px;vertical-align:middle;"></span></div>
+      <div class="card-title">📊 Fleet Report Card<span class="source-badge paper" style="margin-left:6px;">PAPER</span> <span class="online-status-dot" title="System Online" style="margin-left:6px;vertical-align:middle;"></span></div>
       <span id="fleet-report-chevron" style="font-size:13px;color:var(--muted);">▼</span>
     </div>
     <div id="fleet-report-body" style="padding:0 14px 14px;">
@@ -4090,10 +4314,94 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     <div id="gexBody" style="padding:12px 16px;">Loading GEX data...</div>
   </div>
 
+  <!-- Options Engine Panel -->
+  <div class="card" id="options-engine-panel">
+    <h2 class="panel-title">
+      ⚙️ Options Engine
+      <span class="source-badge paper">PAPER</span>
+      <span class="oe-subtitle" id="oe-subtitle">infrastructure ready · agents queued</span>
+    </h2>
+    <div class="oe-body">
+      <!-- Production Book -->
+      <div class="oe-book" id="oe-book-fleet">
+        <div class="oe-book-header">
+          <span class="oe-book-name">Production Book</span>
+          <span class="oe-book-cash" id="oe-fleet-cash">$7,500.00</span>
+          <span class="oe-book-pnl" id="oe-fleet-pnl">—</span>
+        </div>
+        <div class="oe-book-sub">
+          <span class="oe-agent-slot">Quark Iron Condor <em>not built</em></span>
+          <span class="oe-agent-slot">McCoy Bull Put <em>not built</em></span>
+          <span class="oe-agent-slot">Anderson Bear Call <em>not built</em></span>
+          <span class="oe-agent-slot">Covered Call <em>not built</em></span>
+        </div>
+        <div class="oe-positions" id="oe-fleet-positions">
+          <div class="oe-empty">No open positions</div>
+        </div>
+      </div>
+      <!-- Ghost Research Book -->
+      <div class="oe-book ghost" id="oe-book-ghost">
+        <div class="oe-book-header">
+          <span class="oe-book-name">👻 Ghost Research</span>
+          <span class="oe-book-cash" id="oe-ghost-cash">$2,500.00</span>
+          <span class="oe-book-pnl" id="oe-ghost-pnl">—</span>
+        </div>
+        <div class="oe-book-sub">
+          <span class="oe-agent-slot">Kirk Bull Call <em>not built</em></span>
+          <span class="oe-agent-slot">Kirk 0DTE BC <em>not built</em></span>
+          <span class="oe-agent-slot">Long Call (control) <em>not built</em></span>
+          <span class="oe-agent-slot">Naked Put (control) <em>not built</em></span>
+        </div>
+        <div class="oe-positions" id="oe-ghost-positions">
+          <div class="oe-empty">No open positions</div>
+        </div>
+        <div class="oe-research-label">RESEARCH — isolated from production · 60-day promotion gate</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Metals Exposure Panel -->
+  <div class="metals-panel" id="metals-panel">
+    <div class="panel-header">
+      <span class="panel-title">🥇 Metals Exposure<span class="source-badge mixed" style="margin-left:6px;">PHYSICAL+ETF</span></span>
+      <span class="panel-meta" id="metals-meta">—</span>
+    </div>
+    <div class="metals-spot-row">
+      <div class="metal-spot-cell" id="metal-spot-gold">
+        <div class="metal-spot-label">GOLD</div>
+        <div class="metal-spot-price">—</div>
+        <div class="metal-spot-chg">—</div>
+      </div>
+      <div class="metal-spot-cell" id="metal-spot-silver">
+        <div class="metal-spot-label">SILVER</div>
+        <div class="metal-spot-price">—</div>
+        <div class="metal-spot-chg">—</div>
+      </div>
+      <div class="metal-spot-cell" id="metal-spot-gsr">
+        <div class="metal-spot-label">GSR</div>
+        <div class="metal-spot-price">—</div>
+        <div class="metal-spot-chg">Gold/Silver Ratio</div>
+      </div>
+      <div class="metal-spot-cell" id="metal-spot-signal">
+        <div class="metal-spot-label">SIGNAL</div>
+        <div class="metal-spot-price signal-code">—</div>
+        <div class="metal-spot-chg">updating…</div>
+      </div>
+    </div>
+    <div class="metals-holdings" id="metals-holdings"></div>
+    <div class="metals-footer" id="metals-footer">—</div>
+  </div>
+
   <!-- Kirk Advisory Card -->
   <div class="card" id="kirk-advisory-card" style="margin-bottom:16px;border-left:3px solid #f59e0b;">
-    <div class="card-header">
-      <!-- HIDDEN: <div class="card-title" style="cursor:pointer;" onclick="showSection('kirk-detail')"> -->👨‍✈️ Kirk Advisory — Captain's Action Plan <span style="font-size:12px;color:var(--muted);margin-left:8px;">click for details →</span></div>
+    <div class="card-header" style="flex-wrap:wrap;gap:6px;">
+      <div style="display:flex;align-items:center;flex-wrap:wrap;gap:4px;">
+        <!-- HIDDEN: <div class="card-title" style="cursor:pointer;" onclick="showSection('kirk-detail')"> -->👨‍✈️ Kirk Advisory — Captain's Action Plan
+        <span class="source-badge real" id="kirk-badge">REAL</span>
+        <div class="kirk-source-toggle">
+          <button class="kst-btn active" data-source="real">REAL</button>
+        </div>
+      </div>
       <span id="kirkAdvTime" style="font-size:13px;color:var(--muted);"></span>
     </div>
     <div id="kirkAdvBody" style="padding:12px 16px;">Loading advisory...</div>
@@ -4191,7 +4499,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
   var _SECTOR_TIPS={'Technology':'Technology (XLK) — FAANG, semiconductors, software. High beta: first to fall in risk-off, first to rally in risk-on. Watch NVDA, AAPL, MSFT as sector leaders.','Healthcare':'Healthcare (XLV) — pharmaceuticals, biotech, medical devices. Defensive growth: holds up in downturns. FDA catalysts drive biotech swings. Lower volatility than tech.','Financials':'Financials (XLF) — banks, insurance, asset managers. Profits from rising rates (net interest margin). Inverted yield curve crushes bank earnings — watch the 2yr/10yr spread.','Energy':'Energy (XLE) — oil, gas, pipelines. Tracks crude oil prices closely. A global growth barometer — when economies slow, energy falls first. Geopolitics matter.','Utilities':'Utilities (XLU) — electric, water, gas. Defensive yield play. Inversely correlated with interest rates: rallies when investors flee to safety and dividends.','Consumer Discretionary':'Consumer Discretionary (XLY) — Amazon, Tesla, retail. Cyclical: thrives when consumers are confident. Tanks first in recession fears. Leading economic indicator.','Consumer Staples':'Consumer Staples (XLP) — food, beverages, household goods. Recession-proof spending. Strong relative performance signals defensive rotation — money moving to safety.','Industrials':'Industrials (XLI) — manufacturing, defense, transportation. Economic bellwether. Tends to lead recoveries and lag at peaks. Watch freight volumes for early signals.','Real Estate':'Real Estate (XLRE) — REITs and property. Rate-sensitive: rising rates hurt REIT valuations (higher cap rates). Benefits from falling rates and inflation hedging.','Materials':'Materials (XLB) — metals, mining, chemicals, packaging. Cyclical and China-sensitive. Copper is the PhD in economics — rising copper = global growth signal.','Communication Services':'Communications (XLC) — Meta, Alphabet, Netflix, telecom. Blend of growth (tech-like ad revenue) and stability (telecom). Ad spend drops fast in economic slowdowns.','Comm Services':'Communications (XLC) — Meta, Alphabet, Netflix, telecom. Blend of growth and stability. Ad revenue sensitive to economic cycles. Watch digital ad trends.'};
   var _bridgeHeatmapRetries = 0;
   function loadBridgeHeatmap() {
-    _cachedFetch('/api/sector-heatmap', 30000).then(function(d) {
+    _cachedFetch('/api/sectors/heatmap', 30000).then(function(d) {
       _bridgeHeatmapRetries = 0; // reset on success
       var el = document.getElementById('heatmapGrid');
       if (!d.sectors || d.sectors.length === 0) {
@@ -4226,7 +4534,11 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     });
     // Fear & Greed
     _cachedFetch('/api/fear-greed', 30000).then(function(d) {
-      var score = d.score || 50;
+      if (d.score === null || d.score === undefined || d.error) {
+        document.getElementById('fgLabel').textContent = d.label || 'Data unavailable';
+        return;
+      }
+      var score = d.score;
       var label = d.label || 'NEUTRAL';
       var color = score < 25 ? 'var(--red)' : score < 45 ? '#f97316' : score < 65 ? 'var(--muted)' : score < 80 ? 'var(--green)' : '#2563eb';
       document.getElementById('fgScore').textContent = score;
@@ -4259,7 +4571,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           document.getElementById('fgScore').style.color=color;
           document.getElementById('fgLabel').textContent=label;
           document.getElementById('fgLabel').style.color=color;
-        }).catch(function(){ document.getElementById('fgLabel').textContent='Market closed'; });
+        }).catch(function(){ document.getElementById('fgLabel').textContent='Data unavailable'; });
       }, 3000);
     });
   }
@@ -4410,12 +4722,8 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       var prices = {};
       await Promise.all(holdings.map(async function(sym) {
         try {
-          var r = await fetch('/api/stock/' + sym + '/price');
-          if (r.ok) { prices[sym] = await r.json(); return; }
-        } catch(e) {}
-        try {
-          var r2 = await fetch('/api/market/quote/' + sym);
-          if (r2.ok) { prices[sym] = await r2.json(); }
+          var r = await fetch('/api/price/' + sym);
+          if (r.ok) { prices[sym] = await r.json(); }
         } catch(e) {}
       }));
 
@@ -4631,7 +4939,9 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           rows += '<td style="padding:7px 8px;font-weight:700;font-family:var(--font-mono);">' + a.symbol + '</td>';
           rows += '<td style="padding:7px 8px;text-align:right;font-family:var(--font-mono);">$' + (a.price||0).toFixed(2) + '</td>';
           rows += '<td style="padding:7px 8px;text-align:right;color:'+gapColor+';">' + gapStr + '</td>';
-          rows += '<td style="padding:7px 8px;text-align:right;background:'+rvBg+';color:'+rvColor+';font-weight:700;font-family:var(--font-mono);">' + rv.toFixed(0) + 'x</td>';
+          var persistAnnotation = '';
+          if (a.days_active > 1) persistAnnotation = '<span style="font-size:10px;color:var(--muted);margin-left:4px;">(' + a.days_active + 'd)</span>';
+          rows += '<td style="padding:7px 8px;text-align:right;background:'+rvBg+';color:'+rvColor+';font-weight:700;font-family:var(--font-mono);">' + rv.toFixed(0) + 'x' + persistAnnotation + '</td>';
           rows += '<td style="padding:7px 8px;">' + _vrAlertBadge(a.alert_type) + '</td>';
           rows += '<td style="padding:7px 8px;color:var(--muted);font-size:12px;">' + t + '</td>';
           rows += '</tr>';
@@ -4806,6 +5116,9 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       </div>
     </div>
 
+    <!-- Regime note (populated by pollBS0DTE) -->
+    <div id="bs0dte-regime" class="bs0dte-regime-note" style="margin:0 14px 10px;">—</div>
+
     <!-- Today's activity -->
     <div style="padding:0 14px 14px;">
       <div style="font-size:12px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:.05em;">Today — <span id="bs0dteTrades">0</span>/<span id="bs0dteMax">2</span> trades</div>
@@ -4817,55 +5130,55 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     function loadBs0dte() {
       window.loadBs0dte = loadBs0dte;
       Promise.all([
-        fetch('/api/battle-station-0dte/status').then(r=>r.json()).catch(()=>({})),
+        fetch('/api/gex/SPY').then(r => r.ok ? r.json() : null).catch(() => null),
+        fetch('/api/regime').then(r => r.ok ? r.json() : null).catch(() => null),
         fetch('/api/battle-station-0dte/history?limit=5').then(r=>r.json()).catch(()=>({trades:[],win_rate:0}))
-      ]).then(([d, h]) => {
+      ]).then(([gex, regime, h]) => {
         const $ = id => document.getElementById(id);
 
-        // Status badge
+        // Status badge — green when GEX data is live, grey otherwise
         const badge = $('bs0dteStatus');
-        const statusColors = {
-          ARMED: ['#22c55e22','#22c55e','🟢 ARMED'],
-          IN_POSITION: ['rgba(108,99,255,0.15)','#6c63ff','🔴 IN POSITION'],
-          STAND_DOWN: ['#6b728022','#6b7280','⚪ STAND DOWN'],
-          ERROR: ['#ef444422','#ef4444','⚠️ ERROR'],
-        };
-        const _bs0Fallback = d.status ? d.status : ('OFFLINE — ' + (_mktIsOpen() ? 'No scan data' : 'Market closed'));
-        const [bg, col, label] = statusColors[d.status] || ['#6b728022','#6b7280', _bs0Fallback];
-        badge.style.background = bg; badge.style.color = col; badge.textContent = label;
-
-        // Levels
-        const f2 = v => v != null ? '$' + Number(v).toFixed(2) : '--';
-        const f0 = v => v != null ? '$' + Number(v).toFixed(0) : '--';
-        $('bs0dteSpy').textContent      = f2(d.spy_price);
-        $('bs0dtePutWall').textContent  = f0(d.put_wall);
-        $('bs0dteCallWall').textContent = f0(d.call_wall);
-        $('bs0dteVix').textContent      = d.vix != null ? Number(d.vix).toFixed(1) : '--';
-        $('bs0dteFlip').textContent     = f0(d.gamma_flip);
-        $('bs0dteDistPut').textContent  = d.dist_put_pct != null ? ' (' + Number(d.dist_put_pct).toFixed(1) + '% away)' : '';
-        $('bs0dteDistCall').textContent = d.dist_call_pct != null ? ' (' + Number(d.dist_call_pct).toFixed(1) + '% away)' : '';
-
-        // Position
-        const posEl = $('bs0dtePosition');
-        if (d.position) {
-          const p = d.position;
-          const pnlCol = p.pnl_pct > 0 ? '#22c55e' : p.pnl_pct < 0 ? '#ef4444' : '#6b7280';
-          posEl.innerHTML =
-            '<span style="font-weight:700;color:' + (p.option_type==='call'?'#22c55e':'#ef4444') + '">' +
-            'SPY ' + (p.option_type==='call'?'CALL':'PUT') + ' $' + Number(p.strike||0).toFixed(0) + ' 0DTE' +
-            '</span> @ $' + Number(p.entry_price||0).toFixed(2) +
-            (p.pnl_pct != null ? ' | <span style="color:' + pnlCol + ';font-weight:700;">' + (p.pnl_pct>0?'+':'') + p.pnl_pct + '%</span>' : '') +
-            '<br><span style="font-size:11px;color:var(--muted);">Stop $' + p.stop_price + ' | Target $' + p.target_price + '</span>';
+        const armed = !!(gex && gex.spot && gex.put_wall && gex.call_wall && gex.gamma_flip);
+        if (armed) {
+          badge.style.background = 'rgba(13,115,55,0.2)'; badge.style.color = '#0d7337';
+          badge.textContent = '🟢 LIVE — RULES ACTIVE';
         } else {
-          const dist = Math.min(d.dist_put_pct||999, d.dist_call_pct||999);
-          posEl.innerHTML = '<span style="color:var(--muted);">' +
-            (d.status === 'ARMED' ? '⚡ Armed — nearest wall ' + (dist < 999 ? dist.toFixed(1)+'% away' : 'loading...') : 'No position') +
-            '</span>';
+          badge.style.background = '#6b728022'; badge.style.color = '#6b7280';
+          badge.textContent = 'OFFLINE — ' + (_mktIsOpen() ? 'No scan data' : 'Market closed');
         }
 
-        // Trades today
-        $('bs0dteTrades').textContent = d.trades_today || 0;
-        $('bs0dteMax').textContent    = d.max_daily || 2;
+        // Levels — sourced from /api/gex/SPY
+        const f2 = v => v != null ? '$' + Number(v).toFixed(2) : '--';
+        const f0 = v => v != null ? '$' + Number(v).toFixed(0) : '--';
+        if (gex) {
+          $('bs0dteSpy').textContent      = f2(gex.spot);
+          $('bs0dtePutWall').textContent  = f0(gex.put_wall);
+          $('bs0dteCallWall').textContent = f0(gex.call_wall);
+          $('bs0dteFlip').textContent     = gex.gamma_flip != null ? '$' + Number(gex.gamma_flip).toFixed(1) : '--';
+          if (gex.spot && gex.put_wall)  $('bs0dteDistPut').textContent  = ' (' + ((gex.spot - gex.put_wall)  / gex.spot * 100).toFixed(1) + '% away)';
+          if (gex.spot && gex.call_wall) $('bs0dteDistCall').textContent = ' (' + ((gex.call_wall - gex.spot) / gex.spot * 100).toFixed(1) + '% away)';
+        }
+        $('bs0dteVix').textContent = regime && regime.vix != null ? Number(regime.vix).toFixed(2) : '--';
+
+        // Position line
+        const posEl = $('bs0dtePosition');
+        posEl.innerHTML = '<span style="color:var(--muted);">' + (armed ? '⚡ Armed — awaiting 0DTE squadron agents' : 'No position') + '</span>';
+
+        // Regime note
+        const regimeEl = $('bs0dte-regime');
+        if (regimeEl && gex && gex.spot && gex.gamma_flip) {
+          if (gex.spot > gex.gamma_flip) {
+            regimeEl.textContent = '🟢 POSITIVE GAMMA — dealers dampen moves, range-bound favored';
+            regimeEl.className = 'bs0dte-regime-note pos-gamma';
+          } else {
+            regimeEl.textContent = '🔴 NEGATIVE GAMMA — dealers amplify moves, trend/momentum favored';
+            regimeEl.className = 'bs0dte-regime-note neg-gamma';
+          }
+        }
+
+        // Trades today (agents not yet wired — keep static until 0DTE squadron ships)
+        $('bs0dteTrades').textContent = 0;
+        $('bs0dteMax').textContent    = 2;
 
         // History
         const hEl = $('bs0dteHistory');
@@ -5009,7 +5322,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
   <!-- Starfleet Intelligence — Crew Performance & Rankings -->
   <div class="card">
     <div class="card-header">
-      <div class="card-title">🕵️ Fleet Leaderboard <span id="lbActiveCount" style="font-size:12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);padding:2px 8px;border-radius:10px;font-weight:600;margin-left:6px;letter-spacing:0;vertical-align:middle;"></span></div>
+      <div class="card-title">🕵️ Fleet Leaderboard <span id="lbActiveCount" style="font-size:12px;background:rgba(34,197,94,0.15);color:#22c55e;border:1px solid rgba(34,197,94,0.3);padding:2px 8px;border-radius:10px;font-weight:600;margin-left:6px;letter-spacing:0;vertical-align:middle;"></span><span class="source-badge paper">PAPER</span></div>
       <div style="display:flex;align-items:center;gap:8px;">
         <span id="pausedToggleContainer"></span>
         <span style="font-size:13px;color:var(--muted);font-family:var(--font-mono);" id="lbUpdateTime">--</span>
@@ -5018,7 +5331,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     <div style="background:rgba(37,99,235,0.06);border-left:3px solid #2563eb;padding:6px 14px;margin:0 14px 8px;border-radius:0 6px 6px 0;font-size:12px;color:var(--muted);">Every AI model ranked by return. Click any row to expand positions.</div>
     <!-- Fleet Totals Bar -->
     <div id="fleetTotalsBar">
-      <div><span class="ft-label">Fleet Value</span><br><span class="ft-val" id="ftValue">$—</span></div>
+      <div title="Alpaca paper account equity (ground truth). Virtual fleet sum preserved for P&amp;L/Return calculations."><span class="ft-label">Alpaca Paper Equity</span><br><span class="ft-val" id="ftValue">$—</span></div>
       <div style="width:1px;height:28px;background:var(--border);flex-shrink:0;"></div>
       <div><span class="ft-label">Day P&amp;L</span><br><span class="ft-val" id="ftDayPnl">—</span></div>
       <div style="width:1px;height:28px;background:var(--border);flex-shrink:0;"></div>
@@ -5101,7 +5414,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
 <div id="section-webull" style="display:none;">
   <div id="guide-container-webull"></div>
   <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;display:flex;align-items:center;justify-content:space-between;flex-wrap:wrap;gap:10px;">
-    <div><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Captain's Live Portfolio</div><div style="font-size:13px;color:#94a3b8;">Live positions from Webull — Captain Kirk vs the AI fleet. Prices refresh every 60s.</div></div>
+    <div><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Captain's Live Portfolio</div><div style="font-size:13px;color:#94a3b8;">Live positions from Schwab — Captain Kirk vs the AI fleet. Prices refresh every 60s.</div></div>
     <button id="wbSyncBtn" onclick="syncWebullLive()" style="padding:8px 18px;border-radius:6px;border:1px solid #2563eb;background:rgba(37,99,235,0.15);color:#7cc8f8;font-size:13px;font-weight:700;cursor:pointer;white-space:nowrap;">🔄 Sync from Webull</button>
   </div>
   <div id="webullSyncStatus" style="font-size:12px;color:var(--muted);margin-bottom:8px;min-height:18px;padding:0 4px;"></div>
@@ -5188,14 +5501,10 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     <!-- Advisor tabs -->
     <div style="display:flex;gap:0;border-bottom:1px solid var(--border);padding:0 16px;">
       <button id="wbAdvTab-grok" onclick="wbAdvShowTab('grok')" style="padding:7px 14px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid #7c3aed;color:#a78bfa;">🧠 Grok</button>
-      <button id="wbAdvTab-troi" onclick="wbAdvShowTab('troi')" style="padding:7px 14px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted);">💜 Troi</button>
       <button id="wbAdvTab-worf" onclick="wbAdvShowTab('worf')" style="padding:7px 14px;font-size:12px;font-weight:600;border:none;background:none;cursor:pointer;border-bottom:2px solid transparent;color:var(--muted);">⚔️ Worf</button>
     </div>
     <div id="wbAdvPanel-grok" style="padding:12px 16px 4px;">
       <div style="color:var(--muted);font-size:13px;padding:8px 0;">Loading Grok advice…</div>
-    </div>
-    <div id="wbAdvPanel-troi" style="padding:12px 16px 4px;display:none;">
-      <div style="color:var(--muted);font-size:13px;padding:8px 0;">Loading Troi sentiment…</div>
     </div>
     <div id="wbAdvPanel-worf" style="padding:12px 16px 4px;display:none;">
       <div style="color:var(--muted);font-size:13px;padding:8px 0;">Loading Worf risk…</div>
@@ -5258,7 +5567,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     <div id="wbi-panel-strategy" class="wbi-panel" style="display:none;padding:14px 16px;">
       <div style="display:flex;gap:8px;align-items:center;margin-bottom:12px;flex-wrap:wrap;">
         <select id="wbi-strat-signal" onchange="wbiFilterPicks()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:5px;font-size:12px;font-family:var(--font-mono);">
-          <option value="">All Signals</option><option>BUY</option><option>SELL</option>
+          <option value="">All Signals</option><option>BUY</option><option>SELL</option><option>SHORT</option><option>CALL</option><option>PUT</option><option>BULL_SPREAD</option><option>SHORT_SPREAD</option>
         </select>
         <input id="wbi-strat-search" type="text" placeholder="Ticker…" oninput="wbiFilterPicks()" style="width:110px;background:var(--surface2);border:1px solid var(--border);color:var(--text);padding:5px 8px;border-radius:5px;font-size:12px;font-family:var(--font-mono);" />
         <span id="wbi-strat-count" style="margin-left:auto;font-size:11px;color:var(--muted);">— picks</span>
@@ -7160,7 +7469,7 @@ document.addEventListener('keydown', function(e) {
         </div>
       </div>
       <div>
-        <div style="font-size:10px;font-weight:700;color:#00aaff;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">&#9889; TradeMinds</div>
+        <div style="font-size:10px;font-weight:700;color:#00aaff;text-transform:uppercase;letter-spacing:1px;margin-bottom:4px;">&#9889; OllieTrades</div>
         <div style="display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
           <select id="scrp-fleet" style="background:var(--bg);color:var(--text);border:1px solid var(--border);border-radius:4px;padding:3px 8px;font-size:12px;">
             <option value="">Fleet: Any</option>
@@ -7348,7 +7657,7 @@ var screenerPro = (function() {
     var _ew = document.getElementById('scrp-ema-wrap'); if (_ew) _ew.style.display = 'none';
     var _rt = document.getElementById('scrp-results-table'); if (_rt) _rt.style.display = '';
     setStatus('Scanning...');
-    fetch('/api/screener')
+    fetch('/api/screener/pro')
       .then(function(r) { return r.json(); })
       .then(function(raw) {
         var arr = raw.results || raw.stocks || (Array.isArray(raw) ? raw : []);
@@ -7359,7 +7668,7 @@ var screenerPro = (function() {
             change:      r.change_pct || r.change || r.pct_change || 0,
             rvol:        r.rvol || r.relative_volume || null,
             rsi:         r.rsi !== undefined ? r.rsi : null,
-            above_200:   r.above_200sma || r.above_200 || false,
+            above_200:   r.above_sma200 || r.above_200sma || r.above_200 || false,
             uptrend:     r.uptrend || false,
             market_cap:  r.market_cap || null,
             sector:      r.sector || '',
@@ -7946,7 +8255,7 @@ registerSectionInit('etf-center',fetchETFCenter,[]);
         <select id="clPlayerFilter" onchange="fetchCaptainsLog()" style="background:var(--input-bg);color:var(--text);border:1px solid var(--border);border-radius:6px;padding:4px 8px;font-size:13px;">
           <option value="">All Manual/Options</option>
           <option value="dayblade-0dte">DayBlade 0DTE</option>
-          <option value="steve-webull" hidden>Starfleet</option>
+          <option value="webull" hidden>Starfleet</option>
           <option value="options-sosnoff">Troi's Empathic Read</option>
         </select>
         <button class="btn btn-ghost" onclick="fetchCaptainsLog()" style="font-size:13px;">Refresh</button>
@@ -7972,7 +8281,7 @@ async function fetchCaptainsLog() {
     var summary = await sr.json();
     var sumEl = document.getElementById('clSummary');
     var sh = '<div style="display:flex;gap:12px;flex-wrap:wrap;">';
-    var labels = {'dayblade-0dte':'DayBlade 0DTE','steve-webull':'Captain Kirk','options-sosnoff':'Troi\'s Empathic Read'};
+    var labels = {'dayblade-0dte':'DayBlade 0DTE','webull':'Captain Kirk','options-sosnoff':'Troi\'s Empathic Read'};
     for (var pid in summary) {
       var s = summary[pid];
       sh += '<div style="padding:8px 14px;background:var(--surface);border-radius:8px;border:1px solid var(--border);font-size:12px;">';
@@ -8410,6 +8719,37 @@ registerSectionInit('model-dna', fetchModelDNA, []);
       <div style="color:var(--muted);text-align:center;padding:20px;">Loading leaderboard...</div>
     </div>
   </div>
+  <!-- P12: Agent Accuracy Scoreboard -->
+  <details class="panel-collapsible" id="agent-scoreboard-panel" style="margin-bottom:12px;">
+    <summary>
+      <span style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#d9d9d9;">🎯 Agent Accuracy Scoreboard<span class="source-badge paper" style="margin-left:6px;">PAPER</span></span>
+      <span style="font-size:10px;color:#8b919c;" id="scoreboard-meta">—</span>
+    </summary>
+    <div style="padding:0 14px 12px;">
+      <table id="scoreboard-table" style="width:100%;font-size:12px;font-family:ui-monospace,monospace;border-collapse:collapse;">
+        <thead>
+          <tr style="color:#8b919c;text-transform:uppercase;font-size:10px;letter-spacing:0.05em;border-bottom:1px solid rgba(255,255,255,0.08);">
+            <th style="text-align:left;padding:6px 4px;">Agent</th>
+            <th style="text-align:right;padding:6px 4px;">Trades</th>
+            <th style="text-align:right;padding:6px 4px;">Win %</th>
+            <th style="text-align:right;padding:6px 4px;">Total P/L</th>
+            <th style="text-align:right;padding:6px 4px;">Avg %</th>
+            <th style="text-align:right;padding:6px 4px;">PF</th>
+            <th style="text-align:right;padding:6px 4px;">Best</th>
+            <th style="text-align:right;padding:6px 4px;">Worst</th>
+          </tr>
+        </thead>
+        <tbody id="scoreboard-body"></tbody>
+      </table>
+    </div>
+  </details>
+  <!-- P13: Agent × Ticker Affinity Matrix -->
+  <details class="panel-collapsible" id="affinity-panel" style="margin-bottom:12px;">
+    <summary>
+      <span style="font-size:12px;font-weight:700;letter-spacing:0.06em;text-transform:uppercase;color:#d9d9d9;">🔥 Agent × Ticker Affinity<span class="source-badge paper" style="margin-left:6px;">PAPER</span></span>
+    </summary>
+    <div id="affinity-body" style="padding:0 14px 12px;overflow-x:auto;"></div>
+  </details>
   <!-- Deep Analytics -->
   <div class="card">
     <div class="card-header">
@@ -8459,8 +8799,8 @@ registerSectionInit('model-dna', fetchModelDNA, []);
       <div id="wrChallengeBar" style="display:none;margin-top:8px;padding:8px;background:var(--surface2);border-radius:8px;">
         <div style="display:flex;gap:6px;align-items:center;">
           <select id="wrChallengeTarget" style="padding:6px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;">
-            <option value="grok-4">Lt. Cmdr. Spock (Science)</option>
-            <option value="gemini-2.5-flash">Lt. Cmdr. Worf (Security)</option>
+            <option value="deepseek-7b-grok4">Lt. Cmdr. Spock (Science)</option>
+            <option value="qwen3-8b-flash">Lt. Cmdr. Worf (Security)</option>
             <option value="ollama-qwen3">Lt. Jadzia Dax (Defensive)</option>
             <option value="ollama-plutus">Dr. McCoy (Quant)</option>
             <option value="ollama-local">Lt. Cmdr. Geordi (Reversion)</option>
@@ -8478,8 +8818,37 @@ registerSectionInit('model-dna', fetchModelDNA, []);
   <!-- War Room Feed -->
   <div class="card">
     <div class="card-header">
-      <div class="card-title" id="wrTitle">⚔️ War Room — USS TradeMinds Command Deck</div>
+      <div class="card-title" id="wrTitle">⚔️ War Room — USS OllieTrades Command Deck</div>
       <button class="btn btn-ghost" onclick="fetchWarRoom()" style="font-size:13px;">Refresh</button>
+    </div>
+    <!-- Debate Progress Strip -->
+    <div id="wrDebateProgress" style="display:none;padding:10px 14px;border-bottom:1px solid var(--border);">
+      <div style="display:flex;align-items:center;gap:10px;margin-bottom:4px;">
+        <span id="wrProgressLabel" style="font-size:13px;font-weight:600;color:var(--text);flex:1;">0 of 0 agents responded</span>
+        <div style="width:140px;height:7px;background:var(--surface2);border-radius:4px;overflow:hidden;flex-shrink:0;">
+          <div id="wrProgressBar" style="height:100%;width:0%;background:#3b82f6;border-radius:4px;transition:width 0.4s;"></div>
+        </div>
+        <span id="wrProgressPct" style="font-size:12px;color:var(--muted);min-width:34px;text-align:right;">0%</span>
+        <span id="wrProgressTimer" style="font-size:12px;color:var(--muted);">⏱ 0:00</span>
+      </div>
+      <div id="wrPendingAgents" style="font-size:11px;color:var(--muted);margin-top:2px;"></div>
+    </div>
+    <!-- Recent Debates History Strip -->
+    <div style="border-bottom:1px solid var(--border);">
+      <div id="wrHistoryToggle" onclick="wrToggleHistory()" style="padding:8px 14px;cursor:pointer;display:flex;align-items:center;gap:6px;user-select:none;">
+        <span id="wrHistoryChevron" style="font-size:11px;color:var(--muted);">▸</span>
+        <span style="font-size:12px;color:var(--muted);font-weight:600;">Recent Debates</span>
+        <span id="wrHistoryCount" style="font-size:11px;color:var(--muted);"></span>
+      </div>
+      <div id="wrHistoryPanel" style="display:none;padding:0 14px 10px;">
+        <div id="wrHistoryFilter" style="display:none;margin-bottom:6px;padding:4px 10px;background:rgba(59,130,246,0.1);border-radius:6px;font-size:12px;color:#60a5fa;display:flex;align-items:center;gap:8px;">
+          <span id="wrHistoryFilterLabel">Filtered by debate</span>
+          <button onclick="wrClearFilter()" style="margin-left:auto;background:none;border:none;color:#60a5fa;cursor:pointer;font-size:12px;">✕ Clear filter</button>
+        </div>
+        <div id="wrHistoryTable" style="overflow-x:auto;">
+          <div style="color:var(--muted);font-size:12px;padding:8px 0;">Loading debate history...</div>
+        </div>
+      </div>
     </div>
     <div id="warRoomContent" style="max-height:600px;overflow-y:auto;padding:10px;">
       <div style="color:var(--muted);text-align:center;">Loading war room...</div>
@@ -8633,7 +9002,7 @@ registerSectionInit('model-dna', fetchModelDNA, []);
 <!-- ALPACA PAPER TRADING -->
 <div id="section-alpaca" style="display:none;">
   <div id="guide-container-alpaca"></div>
-  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Paper Trading Lab</div><div style="font-size:13px;color:#94a3b8;">Alpaca paper trading account — separate from the USS TradeMinds arena. Tests strategy execution via the Alpaca API with zero real capital at risk.</div></div>
+  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Paper Trading Lab</div><div style="font-size:13px;color:#94a3b8;">Alpaca paper trading account — separate from the USS OllieTrades arena. Tests strategy execution via the Alpaca API with zero real capital at risk.</div></div>
   <div class="card" style="margin-bottom:16px;">
     <div class="card-header">
       <div class="card-title">🦙 Alpaca Paper Trading</div>
@@ -10168,7 +10537,7 @@ registerSectionInit('institutional-intel', loadInstitutionalIntel, []);
 <div id="section-seasons" style="display:none;">
   <div class="card">
     <div class="card-header">
-      <div class="card-title">🏆 Season History — USS TradeMinds</div>
+      <div class="card-title">🏆 Season History — USS OllieTrades</div>
       <button class="btn btn-ghost" onclick="fetchSeasonHistory()" style="font-size:13px;">Refresh</button>
     </div>
     <div id="seasonHistoryContent" style="padding:16px;">
@@ -10635,7 +11004,7 @@ async function fetchCosts() {
       + '<div class="stat-card"><div class="stat-label">Today</div><div class="stat-value">$' + (d.daily_total||0).toFixed(4) + '</div></div>'
       + '<div class="stat-card"><div class="stat-label">Month Projection</div><div class="stat-value">$' + (proj.monthly_projected||0).toFixed(2) + '</div></div>'
       + '<div class="stat-card"><div class="stat-label">Daily Avg</div><div class="stat-value">$' + (proj.daily_avg||0).toFixed(4) + '</div></div>'
-      + '<div class="stat-card"><div class="stat-label">Free / Paid Calls</div><div class="stat-value">' + (fvp.free||0) + ' / ' + (fvp.paid||0) + '</div></div>'
+      + '<div class="stat-card"><div class="stat-label">Free P&amp;L / Paid P&amp;L</div><div class="stat-value">$' + ((fvp.free&&fvp.free.total_pnl)||0).toFixed(2) + ' / $' + ((fvp.paid&&fvp.paid.total_pnl)||0).toFixed(2) + '</div></div>'
       + '</div>';
 
     // Model breakdown
@@ -11274,7 +11643,7 @@ function coverShort(symbol) {
 }
 
 function loadDbChain() {
-  fetch('/api/options/chain').then(function(r){ return r.json(); }).then(function(d) {
+  fetch('/api/options/spy-chain').then(function(r){ return r.json(); }).then(function(d) {
     var body = document.getElementById('dbChainBody');
     if (!body) return;
     var contracts = (d.puts || []).concat(d.calls || []);
@@ -11588,7 +11957,7 @@ async function fetchCongressTrades() {
     var h='<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">';
     // Get Fleet Portfolio tickers for overlap highlighting
     var _myTickers = new Set();
-    try { if (window.arenaData) { for (var _p of arenaData) { if (_p.player_id==='steve-webull') { for (var _pos of (_p.positions||[])) { _myTickers.add(_pos.symbol); } } } } } catch(e){}
+    try { if (window.arenaData) { for (var _p of arenaData) { if (_p.player_id==='webull') { for (var _pos of (_p.positions||[])) { _myTickers.add(_pos.symbol); } } } } } catch(e){}
     // Fallback: known holdings
     ['AMD','DELL','MU','NVDA','PLTR','UNH','VRT','XLE'].forEach(function(s){_myTickers.add(s);});
 
@@ -12824,7 +13193,7 @@ function openTickerDetail(symbol) {
   }).catch(function(){ var el=document.getElementById('trc-convergence'); if(el) el.innerHTML='<div class="sec-title">Chekov\'s Convergence</div><div style="color:var(--muted);font-size:12px;">—</div>'; });
 
   // Kirk's Recommendation
-  fetch('/api/kirk/advisory').then(function(r){return r.json();}).then(function(d) {
+  fetch('/api/kirk/advisory?source=' + (typeof _kirkSource !== 'undefined' ? _kirkSource : 'real')).then(function(r){return r.json();}).then(function(d) {
     var el = document.getElementById('trc-kirk');
     if (!el) return;
     var positions = d.positions || [];
@@ -13522,23 +13891,23 @@ const MCOLORS = {
 
 // Legend/nickname map — maps player_id and old display_names to canonical character name (no emojis)
 const MLEGENDS = {
-  'grok-4':'Lt. Cmdr. Spock', 'Grok 4':'Lt. Cmdr. Spock', 'Lt. Cmdr. Spock':'Lt. Cmdr. Spock',
-  'gemini-2.5-flash':'Lt. Cmdr. Worf', 'Gemini 2.5 Flash':'Lt. Cmdr. Worf', 'Lt. Cmdr. Worf':'Lt. Cmdr. Worf',
+  'deepseek-7b-grok4':'Lt. Cmdr. Spock', 'Grok 4':'Lt. Cmdr. Spock', 'Lt. Cmdr. Spock':'Lt. Cmdr. Spock',
+  'qwen3-8b-flash':'Lt. Cmdr. Worf', 'Gemini 2.5 Flash':'Lt. Cmdr. Worf', 'Lt. Cmdr. Worf':'Lt. Cmdr. Worf',
   'ollama-qwen3':'Lt. Jadzia Dax', 'Qwen3 8B':'Lt. Jadzia Dax', 'Lt. Jadzia Dax':'Lt. Jadzia Dax', 'Lt. Cmdr. Scotty':'Lt. Jadzia Dax',
   'ollama-plutus':'Dr. McCoy', 'Plutus 9B':'Dr. McCoy', 'Dr. McCoy':'Dr. McCoy',
   'ollama-local':'Lt. Cmdr. Geordi', 'Gemma3 4B':'Lt. Cmdr. Geordi', 'Lt. Cmdr. Geordi':'Lt. Cmdr. Geordi',
   'options-sosnoff':'Counselor Troi', 'Sosnoff Options':'Counselor Troi', "Troi's Empathic Read":'Counselor Troi', 'Counselor Troi':'Counselor Troi',
   'energy-arnold':'Cmdr. Trip Tucker', 'Arnold Energy':'Cmdr. Trip Tucker', "Trip's Engine Room":'Cmdr. Trip Tucker', 'Cmdr. Trip Tucker':'Cmdr. Trip Tucker',
   'dalio-metals':'Mr. Dalio', 'Dalio Metals':'Mr. Dalio', 'Mr. Dalio':'Mr. Dalio',
-  'steve-webull':'Captain Kirk', 'SBO Plus AI':'Captain Kirk', 'Captain Kirk':'Captain Kirk',
+  'webull':'Captain Kirk', 'SBO Plus AI':'Captain Kirk', 'Captain Kirk':'Captain Kirk',
   'navigator':'Ensign Chekov', 'Ensign Chekov':'Ensign Chekov',
   'dayblade-sulu':'Lt. Sulu', 'Lt. Sulu DayBlade':'Lt. Sulu', 'Lt. Sulu':'Lt. Sulu',
-  'claude-haiku':'Lt. Malcolm Reed', 'Codex Scout':'Lt. Malcolm Reed', 'Lt. Malcolm Reed':'Lt. Malcolm Reed',
-  'claude-sonnet':'Captain Sisko', 'Codex Prime':'Captain Sisko', 'Captain Sisko':'Captain Sisko',
-  'gpt-4o':'Captain Janeway', 'GPT-4o':'Captain Janeway', 'Captain Janeway':'Captain Janeway',
-  'gpt-o3':'Lt. Tuvok', 'GPT-o3':'Lt. Tuvok', 'Lt. Tuvok':'Lt. Tuvok',
-  'grok-3':'Ensign Hoshi', 'Grok 3':'Ensign Hoshi', 'Ensign Hoshi':'Ensign Hoshi',
-  'gemini-2.5-pro':'Seven of Nine', 'Gemini 2.5 Pro':'Seven of Nine', 'Qwen3 14B Pro':'Seven of Nine', 'Seven of Nine':'Seven of Nine',
+  'qwen-coder-haiku':'Lt. Malcolm Reed', 'Codex Scout':'Lt. Malcolm Reed', 'Lt. Malcolm Reed':'Lt. Malcolm Reed',
+  'qwen3-8b-sonnet':'Captain Sisko', 'Codex Prime':'Captain Sisko', 'Captain Sisko':'Captain Sisko',
+  'qwen3-8b-4o':'Captain Janeway', 'GPT-4o':'Captain Janeway', 'Captain Janeway':'Captain Janeway',
+  'qwen3-8b-o3':'Lt. Tuvok', 'GPT-o3':'Lt. Tuvok', 'Lt. Tuvok':'Lt. Tuvok',
+  'qwen3-14b-grok3':'Ensign Hoshi', 'Grok 3':'Ensign Hoshi', 'Ensign Hoshi':'Ensign Hoshi',
+  'qwen3-14b-pro':'Seven of Nine', 'Gemini 2.5 Pro':'Seven of Nine', 'Qwen3 14B Pro':'Seven of Nine', 'Seven of Nine':'Seven of Nine',
   'ollama-deepseek':'Constable Odo', 'DeepSeek R1 7B':'Constable Odo', 'Constable Odo':'Constable Odo',
   'ollama-gemma27b':'Lt. Jadzia Dax', 'Qwen3.5 9B':'Lt. Jadzia Dax', 'Lt. Jadzia Dax':'Lt. Jadzia Dax',
   'ollama-glm4':'Q', 'GLM4 → Qwen3.5':'Q', 'Q':'Q',
@@ -13553,28 +13922,28 @@ function getLegend(nameOrId) { return MLEGENDS[nameOrId] || ''; }
 
 // Crew Specialization — role subtitles and tier badges
 const CREW_ROLES = {
-  'grok-4':'Mean Reversion', 'dayblade-sulu':'Momentum Pilot',
-  'energy-arnold':'Contrarian', 'gemini-2.5-flash':'Bear Specialist',
+  'deepseek-7b-grok4':'Mean Reversion', 'dayblade-sulu':'Momentum Pilot',
+  'energy-arnold':'Contrarian', 'qwen3-8b-flash':'Bear Specialist',
   'options-sosnoff':'Sentiment Reader', 'ollama-coder':'Pure Quant',
   'mlx-qwen3':'Breakout Hunter', 'ollama-local':'Sector Rotation',
   'ollama-plutus':'Crisis Doctor', 'ollama-qwen3':'Dividend Value',
   'ollama-llama':'Options Flow',
-  'claude-haiku':'Tactical / Defense', 'claude-sonnet':'Decisive Strategist',
-  'gemini-2.5-pro':'Pure Data Analysis', 'gpt-4o':'Resourceful Adapter',
-  'gpt-o3':'Vulcan Risk Assessment', 'grok-3':'Signal Interceptor',
+  'qwen-coder-haiku':'Tactical / Defense', 'qwen3-8b-sonnet':'Decisive Strategist',
+  'qwen3-14b-pro':'Pure Data Analysis', 'qwen3-8b-4o':'Resourceful Adapter',
+  'qwen3-8b-o3':'Vulcan Risk Assessment', 'qwen3-14b-grok3':'Signal Interceptor',
   'ollama-glm4':'Wildcard', 'ollama-kimi':'Sharp Diagnostics',
   'ollama-deepseek':'Contrarian', 'ollama-gemma27b':'Patient Swing Trader',
   'super-agent':'Bridge Executor', 'neo-matrix':'Matrix Agent',
   'dalio-metals':'Metals / Macro', 'capitol-trades':'Congress Tracker',
   'navigator':'Navigator', 'enterprise-computer':'Reserve Fund',
-  'steve-webull':'Captain', 'dayblade-0dte':'Vulcan Precision Options',
+  'webull':'Captain', 'dayblade-0dte':'Vulcan Precision Options',
   'cto-grok42':'CTO Advisor', 'red-alert':'Risk Monitor',
   'ollama-coder':'Pure Quant',
 };
 const CREW_TIERS = {
-  'grok-4':1,'dayblade-sulu':1,'energy-arnold':1,'gemini-2.5-flash':1,'options-sosnoff':1,'ollama-coder':1,
+  'deepseek-7b-grok4':1,'dayblade-sulu':1,'energy-arnold':1,'qwen3-8b-flash':1,'options-sosnoff':1,'ollama-coder':1,
   'mlx-qwen3':2,'ollama-local':2,'ollama-plutus':2,'ollama-qwen3':2,'ollama-llama':2,
-  'claude-haiku':3,'claude-sonnet':3,'gemini-2.5-pro':3,'gpt-4o':3,'gpt-o3':3,'grok-3':3,'ollama-glm4':3,'ollama-kimi':3,
+  'qwen-coder-haiku':3,'qwen3-8b-sonnet':3,'qwen3-14b-pro':3,'qwen3-8b-4o':3,'qwen3-8b-o3':3,'qwen3-14b-grok3':3,'ollama-glm4':3,'ollama-kimi':3,
 };
 const TIER_BADGE_STYLES = {
   1: 'background:#b8860b;color:#fff;',
@@ -13591,15 +13960,15 @@ function getTierBadge(pid) {
 }
 // Character name initials — uses the CHARACTER name, not rank
 const MINITIALS = {
-  'grok-4':'S','Lt. Cmdr. Spock':'S','Grok 4':'S',
-  'gemini-2.5-flash':'W','Lt. Cmdr. Worf':'W',
+  'deepseek-7b-grok4':'S','Lt. Cmdr. Spock':'S','Grok 4':'S',
+  'qwen3-8b-flash':'W','Lt. Cmdr. Worf':'W',
   'ollama-qwen3':'D','Lt. Jadzia Dax':'D','Lt. Cmdr. Scotty':'D','Qwen3 8B':'D',
   'ollama-plutus':'M','Dr. McCoy':'M','Plutus 9B':'M',
   'ollama-local':'G','Lt. Cmdr. Geordi':'G','Gemma3 4B':'G',
   'options-sosnoff':'T','Counselor Troi':'T','Sosnoff Options':'T',
   'energy-arnold':'T','Cmdr. Trip Tucker':'T','Arnold Energy':'T',
   'dalio-metals':'D','Mr. Dalio':'D','Dalio Metals':'D',
-  'steve-webull':'K','Captain Kirk':'K','SBO Plus AI':'K',
+  'webull':'K','Captain Kirk':'K','SBO Plus AI':'K',
   'navigator':'C','Ensign Chekov':'C',
   'mlx-qwen3':'R','Ensign Ro':'R',
   'dayblade-sulu':'S','Lt. Sulu':'S',
@@ -14343,22 +14712,7 @@ registerSectionInit('watchlist', initWatchlistSection, [
 async function loadModelControl() {
   try {
     fetchRamStatus();
-    // Load failover badge in parallel
-    fetch('/api/gemini-failover').then(r => r.json()).then(fo => {
-      const badge = document.getElementById('gemini-failover-badge');
-      const detail = document.getElementById('gemini-failover-detail');
-      if (fo && fo.active) {
-        badge.style.display = 'inline-block';
-        const since = fo.activated_at ? ' since ' + fo.activated_at.replace('T', ' ').slice(0, 16) : '';
-        detail.style.display = 'block';
-        detail.innerHTML = `⚔️ <b>Lt. Cmdr. Worf (Gemini 2.5 Flash)</b> is offline — running on understudy <b>${fo.backup_model}</b> (${fo.backup_url}).<br>` +
-          `Triggered${since} &middot; Reason: ${fo.reason || 'quota/spend cap'}<br>` +
-          `<span style="color:var(--muted);">Auto-restore on the 1st of next month (PST).</span>`;
-      } else {
-        badge.style.display = 'none';
-        detail.style.display = 'none';
-      }
-    }).catch(() => {});
+    // Worf/Gemini retired — failover badge stays hidden (no handler)
 
     const data = await fetch('/api/model-control').then(r => r.json());
     const totalCalls = data.models.reduce((s, m) => s + m.api_calls_today, 0);
@@ -14404,9 +14758,11 @@ async function loadModelControl() {
       const costLabel = (m.cost_per_scan === 0 || m.is_fallback) ? '<span style="color:var(--green);font-weight:600;">FREE</span>' : `$${m.cost_per_scan.toFixed(3)}`;
       const statusBtn = m.is_fallback
         ? `<button onclick="togglePausePlayer('${m.player_id}')" style="background:#78350f;color:#fbbf24;border:1px solid #fbbf24;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:12px;font-weight:700;">FALLBACK</button>`
-        : m.is_paused
-          ? `<button onclick="togglePausePlayer('${m.player_id}')" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:12px;">PAUSED</button>`
-          : `<button onclick="togglePausePlayer('${m.player_id}')" style="background:rgba(37,99,235,0.15);color:var(--green);border:1px solid var(--green);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:12px;">ACTIVE</button>`;
+        : m.is_halted
+          ? `<button style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444;border-radius:6px;padding:6px 14px;cursor:default;font-size:12px;font-weight:700;">HALTED</button>`
+          : m.is_paused
+            ? `<button onclick="togglePausePlayer('${m.player_id}')" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:12px;">PAUSED</button>`
+            : `<button onclick="togglePausePlayer('${m.player_id}')" style="background:rgba(37,99,235,0.15);color:var(--green);border:1px solid var(--green);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:12px;">ACTIVE</button>`;
       const modelDisplay = m.is_fallback && m.fallback_model
         ? `<span style="color:#fbbf24;">${m.fallback_model} (free)</span>`
         : m.model_id;
@@ -14541,7 +14897,7 @@ function updateFleetBar() {
   var players = window.arenaData.filter(function(p) {
     if (_FLEET_CORE.has(p.player_id)) return true;
     if (p.player_id === 'enterprise-computer' && prevMetals) return true;
-    if (p.player_id === 'steve-webull' && prevKirk) return true;
+    if (p.player_id === 'webull' && prevKirk) return true;
     return false;
   });
 
@@ -14669,9 +15025,9 @@ var ACTIVE_PLAYER_IDS = new Set([
   'ollama-llama',         // Llama 3.1 (S5 scanner)
   'ollama-plutus',        // Dr. McCoy (S5 scanner)
   'ollama-qwen3',         // Dax (S5 scanner)
-  'gemini-2.5-flash',     // Lt. Cmdr. Worf (S5 scanner)
+  'qwen3-8b-flash',     // Lt. Cmdr. Worf (S5 scanner)
   'dayblade-0dte',        // T'Pol / DayBlade (S5 options)
-  'steve-webull',         // Captain Kirk (human benchmark)
+  'webull',         // Captain Kirk (human benchmark)
   'dalio-metals',         // Mr. Dalio (metals)
   'enterprise-computer',  // Dilithium Reserve (metals)
   'capitol-trades',       // Capitol Trades (Congress intel)
@@ -14683,15 +15039,15 @@ var _arenaSortCol = 'return';
 // 3-tier optgroup: Active Fleet → Special → Inactive
 // Accepts array of {player_id, name} or {id, name} objects.
 // placeholder: text for the blank first option (pass null to omit)
-var _OPTG_ACTIVE  = new Set(['neo-matrix','ollama-coder','ollama-llama','ollama-plutus','ollama-qwen3','gemini-2.5-flash','dayblade-0dte']);
-var _OPTG_SPECIAL = new Set(['steve-webull','enterprise-computer','dayblade-0dte','dalio-metals','dayblade-sulu','gemini-2.5-flash','options-sosnoff']);
+var _OPTG_ACTIVE  = new Set(['neo-matrix','ollama-coder','ollama-llama','ollama-plutus','ollama-qwen3','qwen3-8b-flash','dayblade-0dte']);
+var _OPTG_SPECIAL = new Set(['webull','enterprise-computer','dayblade-0dte','dalio-metals','dayblade-sulu','qwen3-8b-flash','options-sosnoff']);
 var _OPTG_LABELS  = {
-  'neo-matrix':'Neo','grok-4':'Spock','ollama-glm4':'Q','ollama-qwen3':'Dax',
+  'neo-matrix':'Neo','deepseek-7b-grok4':'Spock','ollama-glm4':'Q','ollama-qwen3':'Dax',
   'super-agent':'The Captain','navigator':'Ensign Chekov',
   'capitol-trades':'Capitol Trades','ollama-plutus':'Dr. McCoy',
-  'steve-webull':'Captain Kirk','enterprise-computer':'Dilithium Reserve',
+  'webull':'Captain Kirk','enterprise-computer':'Dilithium Reserve',
   'dayblade-0dte':"T'Pol / DayBlade",'dalio-metals':'Mr. Dalio',
-  'dayblade-sulu':'Lt. Sulu','gemini-2.5-flash':'Lt. Cmdr. Worf',
+  'dayblade-sulu':'Lt. Sulu','qwen3-8b-flash':'Lt. Cmdr. Worf',
   'options-sosnoff':'Counselor Troi'
 };
 function _buildAgentOptgroups(players, placeholder) {
@@ -14727,7 +15083,7 @@ function _arenaGetVal(p, col) {
 }
 // Agents permanently benched — polled by the API but hidden from the leaderboard UI.
 // Ghost signals still recorded for scoring, but rank rows are suppressed per Admiral 2026-04-16.
-var _LB_BENCHED = { 'gemini-2.5-pro': 1, 'dayblade-sulu': 1 };
+var _LB_BENCHED = { 'qwen3-14b-pro': 1, 'dayblade-sulu': 1 };
 
 function buildArenaLbRows(players, expandPrefix, includeHomeBody) {
   var medals = ['\u{1F947}', '\u{1F948}', '\u{1F949}'];
@@ -14807,11 +15163,11 @@ function toggleLbShowAll() {
 /// Fleet Totals: Season 6.3 "Iron Condor King" — deployed 2026-04-10.
 // PRIMARY: Sulu (iron_condor, Model F exits) + McCoy (income). SCOUTS: Spock, Data, Dax, Chekov, Capitol.
 // Kirk/Metals shown as optional add-ons via checkboxes.
-var _FLEET_CORE = new Set(['ollie-auto','grok-4','ollama-coder','ollama-qwen3','navigator','capitol-trades','dayblade-sulu','ollama-plutus']);
+var _FLEET_CORE = new Set(['ollie-auto','deepseek-7b-grok4','ollama-coder','ollama-qwen3','navigator','capitol-trades','dayblade-sulu','ollama-plutus']);
 
 function _getFleetTeam(players) {
   var ids = new Set(_FLEET_CORE);
-  try { if (localStorage.getItem('fleet_include_kirk')   === 'true') ids.add('steve-webull'); } catch(e) {}
+  try { if (localStorage.getItem('fleet_include_kirk')   === 'true') ids.add('webull'); } catch(e) {}
   try { if (localStorage.getItem('fleet_include_metals') === 'true') ids.add('enterprise-computer'); } catch(e) {}
   return (players || []).filter(function(p) { return ids.has(p.player_id); });
 }
@@ -14832,14 +15188,15 @@ function updateFleetTotalsBar(players) {
   var fmtPnl = function(v) { return (v >= 0 ? '+$' : '-$') + Math.abs(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); };
   var col = function(v) { return v >= 0 ? '#22c55e' : '#ef4444'; };
   var g = function(id) { return document.getElementById(id); };
-  if (g('ftValue'))    g('ftValue').textContent    = '$' + totalValue.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
+  var _ftDisplayVal = (window._alpacaEquity && window._alpacaEquity > 0) ? window._alpacaEquity : totalValue;
+  if (g('ftValue'))    g('ftValue').textContent    = '$' + _ftDisplayVal.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2});
   if (g('ftDayPnl'))  { g('ftDayPnl').textContent  = fmtPnl(totalDay);  g('ftDayPnl').style.color  = col(totalDay);  }
   if (g('ftTotalPnl')){ g('ftTotalPnl').textContent = fmtPnl(totalPnl); g('ftTotalPnl').style.color = col(totalPnl); }
   if (g('ftReturn'))  { g('ftReturn').textContent   = (ret >= 0 ? '+' : '') + ret.toFixed(1) + '%'; g('ftReturn').style.color = col(ret); }
   if (g('ftAgentCount')) g('ftAgentCount').textContent = team.length + ' agents';
 
   // Update Kirk add-on checkbox label with current value
-  var kirk = all.find(function(p) { return p.player_id === 'steve-webull'; });
+  var kirk = all.find(function(p) { return p.player_id === 'webull'; });
   if (kirk && g('fleetKirkVal')) g('fleetKirkVal').textContent = '($' + (kirk.total_value||0).toLocaleString(undefined,{maximumFractionDigits:0}) + ')';
   var metals = all.find(function(p) { return p.player_id === 'enterprise-computer'; });
   if (metals && g('fleetMetalsVal')) g('fleetMetalsVal').textContent = '($' + (metals.total_value||0).toLocaleString(undefined,{maximumFractionDigits:0}) + ')';
@@ -15029,7 +15386,7 @@ function toggleLbExpand(rowEl, playerId, expandId) {
 
       // Model bio
       if (_MODEL_BIOS[playerId]) {
-        var _BIO_COLORS = {'super-agent':'#2563eb','dalio-metals':'#facc15','gemini-2.5-flash':'#60a5fa','grok-4':'#f97316','ollama-local':'#94a3b8','steve-webull':'#fbbf24','dayblade-sulu':'#38bdf8','options-sosnoff':'#f472b6','neo-matrix':'#00bcd4','energy-arnold':'#fb923c'};
+        var _BIO_COLORS = {'super-agent':'#2563eb','dalio-metals':'#facc15','qwen3-8b-flash':'#60a5fa','deepseek-7b-grok4':'#f97316','ollama-local':'#94a3b8','webull':'#fbbf24','dayblade-sulu':'#38bdf8','options-sosnoff':'#f472b6','neo-matrix':'#00bcd4','energy-arnold':'#fb923c'};
         var bioColor = _BIO_COLORS[playerId] || '#2563eb';
         html += '<div style="background:rgba(37,99,235,0.06);border-left:3px solid ' + bioColor + ';padding:10px 14px;font-size:15px;color:#cbd5e1;margin-bottom:10px;line-height:1.7;">' + _MODEL_BIOS[playerId] + '</div>';
       }
@@ -15086,7 +15443,7 @@ function toggleLbExpand(rowEl, playerId, expandId) {
         html += '<div style="padding:4px 8px 10px;"><button onclick="showSection(\'metals\')" style="padding:6px 14px;border-radius:6px;font-size:13px;border:1px solid var(--border);background:var(--surface);color:#facc15;cursor:pointer;">⚗️ View Full Metals Portfolio →</button></div>';
       } else if (playerId === 'capitol-trades') {
         html += '<div style="padding:4px 8px 10px;"><button onclick="showSection(\'congress\')" style="padding:6px 14px;border-radius:6px;font-size:13px;border:1px solid var(--border);background:var(--surface);color:#60a5fa;cursor:pointer;">🏛️ View Congress Trades →</button></div>';
-      } else if (playerId === 'steve-webull') {
+      } else if (playerId === 'webull') {
         html += '<div style="padding:4px 8px 10px;"><!-- HIDDEN: <button onclick="showSection(\'kirk-detail\')" style="padding:6px 14px;border-radius:6px;font-size:13px;border:1px solid var(--border);background:var(--surface);color:#fbbf24;cursor:pointer;"> -->👨‍✈️ View Captain\'s Portfolio →</button></div>';
       }
 
@@ -15140,12 +15497,12 @@ var _MODEL_BIOS = {
   'ollama-local': '🔧 <b>Lt. Cmdr. Geordi — Engineering</b><br>Runs on local gemma3:4b — zero API cost. Geordi sees what others miss in the data, finding engineering-precision entries. Practical, methodical, value-focused.',
   'ollama-llama': '🖖 <b>Lt. Cmdr. Uhura — Communications</b><br>Llama 3.1 model. Uhura listens to every frequency — news sentiment, earnings whispers, market chatter. She translates noise into signal.',
   'navigator': '🧭 <b>Ensign Chekov — Navigator/Scanner</b><br>The ship\'s scanner running 24 strategies across the universe. Chekov finds the targets — momentum, mean reversion, breakouts, CAN SLIM, and more. If it moves, he tracks it.',
-  'grok-4': '🖖 <b>Lt. Cmdr. Spock — Science Officer</b><br>Grok 4 reasoning model (paid). Pure logic, zero emotion. Spock calculates probability-weighted outcomes and only acts when the math confirms. Fascinating.',
+  'deepseek-7b-grok4': '🖖 <b>Lt. Cmdr. Spock — Science Officer</b><br>Grok 4 reasoning model (paid). Pure logic, zero emotion. Spock calculates probability-weighted outcomes and only acts when the math confirms. Fascinating.',
   'enterprise-computer': '⚗️ <b>Dilithium Reserve — Strategic Metals Vault</b><br>Read-only physical metals tracker. 1oz gold + 35oz silver — the ship\'s strategic reserve against currency debasement. Never trades, only reports spot prices and reserve value.',
-  'gemini-2.5-flash': '⚔️ <b>Lt. Cmdr. Worf — Tactical</b><br>Gemini 2.5 Flash. Worf fights smart — defensive positioning, inverse ETFs in bear markets, tactical strikes on high-conviction setups. A warrior\'s discipline.',
+  'qwen3-8b-flash': '⚔️ <b>Lt. Cmdr. Worf — Tactical</b><br>Gemini 2.5 Flash. Worf fights smart — defensive positioning, inverse ETFs in bear markets, tactical strikes on high-conviction setups. A warrior\'s discipline.',
   'options-sosnoff': '🎯 <b>Counselor Troi — Empathic Advisor</b><br>Gemini 2.5 Flash. Troi senses the market\'s emotional state — fear, greed, complacency. She adjusts strategy based on what the crowd is feeling, not just what the data says.',
   'dayblade-sulu': '⚡ <b>Lt. Sulu — Helmsman</b><br>DayBlade 2.0 on gemma3:4b (free, fast). Sulu pilots through intraday volatility — quick entries, quick exits, always at the helm. Speed over depth.',
-  'steve-webull': '👨‍✈️ <b>Captain Kirk — The Human Benchmark</b><br>YOUR real Webull portfolio competing against the AI fleet. The captain leads from the front. Are you beating the machines?',
+  'webull': '👨‍✈️ <b>Captain Kirk — The Human Benchmark</b><br>YOUR real Webull portfolio competing against the AI fleet. The captain leads from the front. Are you beating the machines?',
   'energy-arnold': '⚡ <b>Cmdr. Trip Tucker — Chief Engineer</b><br>Energy and commodities specialist. Named for John Arnold, the energy trading legend. Currently paused — tough market for the sector.',
   'ollama-qwen3': '🧭 <b>Ensign Chekov — Scanner</b><br>Qwen3:8b model powering the 24-strategy scanner. Maps the market universe and identifies convergence signals across multiple timeframes.',
   'capitol-trades': '🏛️ <b>Capitol Trades — Follow the Money</b><br>Auto-copies stock purchases by U.S. Congress members. When 2+ members buy the same stock within 30 days, we buy too. Congress historically outperforms the S&amp;P 500 by 6%/yr. $7K competing against the fleet.'
@@ -15155,7 +15512,7 @@ function renderLbPositions(container, data, playerId) {
   var positions = data.positions || [];
   var bioHtml = '';
   if (_MODEL_BIOS[playerId]) {
-    var _BIO_COLORS = {'super-agent':'#2563eb','dalio-metals':'#facc15','gemini-2.5-flash':'#60a5fa','grok-4':'#f97316','ollama-local':'#94a3b8','steve-webull':'#fbbf24','dayblade-sulu':'#38bdf8','options-sosnoff':'#f472b6','neo-matrix':'#00bcd4','energy-arnold':'#fb923c'}; var bioColor = _BIO_COLORS[playerId] || '#2563eb';
+    var _BIO_COLORS = {'super-agent':'#2563eb','dalio-metals':'#facc15','qwen3-8b-flash':'#60a5fa','deepseek-7b-grok4':'#f97316','ollama-local':'#94a3b8','webull':'#fbbf24','dayblade-sulu':'#38bdf8','options-sosnoff':'#f472b6','neo-matrix':'#00bcd4','energy-arnold':'#fb923c'}; var bioColor = _BIO_COLORS[playerId] || '#2563eb';
     bioHtml = '<div style="background:rgba(37,99,235,0.06);border-left:3px solid ' + bioColor + ';padding:10px 14px;font-size:15px;color:#cbd5e1;margin-bottom:10px;line-height:1.7;">' + _MODEL_BIOS[playerId] + '</div>';
   }
   if (positions.length === 0) {
@@ -15623,11 +15980,14 @@ async function loadCTOBriefing() {
         var diffHours = diffMs / (1000 * 60 * 60);
         isStale = diffHours > 24;
       }
-      var staleTag = isStale ? ' <span style="background:#ea580c;color:#fff;padding:4px 12px;border-radius:4px;font-size:13px;font-weight:600;">STALE — awaiting today\'s briefing</span>' : '';
-      ctoTs.innerHTML = (latest.created_at || '') + staleTag;
+      if (isStale) {
+        ctoTs.innerHTML = '<span class="timestamp-pending">Briefing pending (runs pre-market)</span>';
+      } else {
+        ctoTs.innerHTML = '<span class="timestamp-fresh">' + (latest.created_at || '') + '</span>';
+      }
       // Update mobile summary badge
       var staleBadge = document.getElementById('ctoStaleBadge');
-      if (staleBadge) { staleBadge.textContent = isStale ? '⚠ STALE' : '✓ CURRENT'; staleBadge.style.color = isStale ? '#ef4444' : '#22c55e'; }
+      if (staleBadge) { staleBadge.textContent = isStale ? '(pending)' : '✓ CURRENT'; staleBadge.style.color = isStale ? '#8b919c' : '#22c55e'; }
       // Show first ~300 chars on banner
       var preview = latest.briefing.substring(0, 400).replace(/\n/g, ' ');
       bannerContent.textContent = preview + (latest.briefing.length > 400 ? '...' : '');
@@ -15704,7 +16064,7 @@ async function generateCTOBriefing() {
 }
 
 // Season 6.3 "Iron Condor King" — shown in sidebar fleet panel
-var SIDEBAR_FLEET_IDS = new Set(['ollie-auto','grok-4','ollama-coder','ollama-qwen3','navigator','capitol-trades','dayblade-sulu','ollama-plutus']);
+var SIDEBAR_FLEET_IDS = new Set(['ollie-auto','deepseek-7b-grok4','ollama-coder','ollama-qwen3','navigator','capitol-trades','dayblade-sulu','ollama-plutus']);
 
 function toggleFleetCapital() {
   var el = document.getElementById('sidebarCapital');
@@ -15764,17 +16124,24 @@ async function fetchCapital() {
     let html = '';
     const sorted = [...players].filter(p => SIDEBAR_FLEET_IDS.has(p.player_id)).sort((a,b) => (b.current_equity||b.total_value||0) - (a.current_equity||a.total_value||0));
 
-    // Fleet value summary line
-    const _totalVal  = sorted.reduce((s,p) => s + (p.total_value||p.current_equity||0), 0);
+    // Fleet value summary line — use Alpaca paper equity as ground truth
     const _totalDiff = sorted.reduce((s,p) => s + ((p.total_value||p.current_equity||0) - 10000), 0);
     const _vlEl = document.getElementById('fleetValueLine');
+    let _alpacaEq = window._alpacaEquity || 0;
+    if (!_alpacaEq) {
+      try {
+        const _ar = await fetch('/api/alpaca/status');
+        const _ad = await _ar.json();
+        if (_ad.connected) { _alpacaEq = _ad.equity; window._alpacaEquity = _alpacaEq; }
+      } catch(e) {}
+    }
     if (_vlEl && sorted.length) {
       const _col  = _totalDiff >= 0 ? '#3b82f6' : '#ef4444';
-      const _sign = _totalDiff >= 0 ? '+' : '-';
+      const _valStr = _alpacaEq > 0
+        ? '$' + _alpacaEq.toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2})
+        : '$' + Math.round(sorted.reduce((s,p) => s+(p.total_value||p.current_equity||0),0)).toLocaleString();
       _vlEl.innerHTML = '<span style="color:var(--muted);font-weight:600;font-size:11px;">FLEET</span> '
-        + '<span style="color:' + _col + ';font-weight:700;">$'
-        + Math.round(_totalVal).toLocaleString()
-        + ' (' + _sign + '$' + Math.abs(Math.round(_totalDiff)).toLocaleString() + ')</span>';
+        + '<span style="color:' + _col + ';font-weight:700;">' + _valStr + '</span>';
       _vlEl.style.display = '';
     }
     for (const p of sorted) {
@@ -16012,7 +16379,7 @@ var _SC_TIERS = {
   'top10':   { label: '🏆 Top 10', agents: null },
   'tier1':   { label: '⭐ Tier 1', agents: ['spock','sulu','trip','tucker','worf','troi','data'] },
   'tier2':   { label: '🎯 Tier 2', agents: ['ro','geordi','mccoy','scotty','uhura'] },
-  'tier3':   { label: '🗳 Tier 3', agents: ['codex scout','codex prime','qwen3','gpt-4o','gpt-o3','grok','glm4','kimi'] },
+  'tier3':   { label: '🗳 Tier 3', agents: ['codex scout','codex prime','qwen3','qwen3-8b-4o','qwen3-8b-o3','grok','glm4','kimi'] },
   'command': { label: '👑 Command', agents: ['anderson','neo','kirk','dalio'] },
   'system':  { label: '⚙ System', agents: ['capitol','chekov','dilithium','dayblade'] },
   'all':     { label: '📋 All Crew', agents: null },
@@ -16702,12 +17069,10 @@ function wbiFilterCards() {
 async function wbiLoadPicks() {
   var el = document.getElementById('wbi-strat-loading'), grid = document.getElementById('wbi-picks-grid');
   if (!el || !grid) return;
-  try {
-    var d = await fetch('/api/strategy-signals').then(function(r){return r.json();});
-    _wbiAllPicks = d.signals || d.picks || [];
-    el.style.display = 'none';
-    wbiFilterPicks();
-  } catch(e) { if (el) el.textContent = '⚠️ ' + e.message; }
+  // /api/strategy-signals handler removed — feature not yet implemented
+  _wbiAllPicks = [];
+  el.style.display = 'none';
+  wbiFilterPicks();
 }
 function wbiFilterPicks() {
   var sig = (document.getElementById('wbi-strat-signal')||{}).value || '';
@@ -16740,14 +17105,17 @@ function wbiFilterPicks() {
 async function wbiLoadScanner() {
   var el = document.getElementById('wbi-scan-loading'), tbl = document.getElementById('wbi-scan-table');
   if (!el || !tbl) return;
-  try {
-    var min = (document.getElementById('wbi-scan-min')||{}).value || 0;
-    var d = await fetch('/api/universe-scanner?min_score='+min).then(function(r){return r.json();});
-    _wbiAllScan = d.results || d.stocks || [];
-    el.style.display = 'none';
-    tbl.style.display = 'table';
-    wbiFilterScanner();
-  } catch(e) { if (el) el.textContent = '⚠️ ' + e.message; }
+  // /api/universe-scanner removed — use /api/universe/status for status; scored search not yet implemented
+  _wbiAllScan = [];
+  el.style.display = 'none';
+  tbl.style.display = 'none';
+  var parent = el.parentElement;
+  if (parent) {
+    var msg = document.createElement('div');
+    msg.style.cssText = 'color:var(--muted);padding:16px;font-size:13px;';
+    msg.textContent = 'Universe scanner search not available — use Sniff Scan for live volume alerts.';
+    parent.appendChild(msg);
+  }
 }
 function wbiSortScanner(col) {
   if (_wbiScanSort.col === col) _wbiScanSort.asc = !_wbiScanSort.asc;
@@ -17222,13 +17590,8 @@ async function triggerWbTeamScan() {
 var triggerGrokScan = triggerWbTeamScan;
 
 async function ackGrokAdvice(id, btn) {
-  if (btn) btn.disabled = true;
-  try {
-    await fetch('/api/grok-advisor/advice/' + id + '/acknowledge', {method:'POST'});
-    fetchWbTeamAdvice();
-  } catch(e) {
-    if (btn) btn.disabled = false;
-  }
+  // /api/grok-advisor retired — acknowledge is a no-op
+  fetchWbTeamAdvice();
 }
 
 function _grokTimeAgo(iso) { return _advTimeAgo(iso); }
@@ -17381,8 +17744,7 @@ setInterval(fetchStats, 30000);
 setInterval(fetchUnrealized, 30000);
 setInterval(fetchCapital, 30000);
 setInterval(loadCTOBriefing, 300000);
-setInterval(loadTactical, 60000);
-setInterval(fetchTacticalAllocation, 120000);
+// updateTactical interval registered in its own block above
 setInterval(fetchArenaLeaderboard, 60000); // was 30s
 setInterval(fetchArenaFeed, 20000); // real-time feed — 20s poll (was 10s, halved 2026-04-16 for CPU/RAM relief; still fast enough for live trade ticker)
 setInterval(fetchScannerTier, 120000);
@@ -17391,7 +17753,7 @@ setInterval(fetchScannerTier, 120000);
 fetchStats(); fetchUnrealized(); fetchCapital();
 // Tier 2 (500ms): status indicators
 setTimeout(function() {
-  loadTactical(); fetchScannerTier();
+  fetchScannerTier(); // updateTactical already called in its own block
   if (typeof fetchVIX === 'function') fetchVIX();
   if (typeof updateOilPrice === 'function') updateOilPrice();
 }, 500);
@@ -17399,7 +17761,7 @@ setTimeout(function() {
 setTimeout(function() { loadCTOBriefing(); }, 1000);
 // Tier 4 (2000ms): trades + arena (visible on default section)
 setTimeout(function() {
-  fetchTrades(); fetchArenaLeaderboard(); fetchArenaFeed(); fetchTacticalAllocation();
+  fetchTrades(); fetchArenaLeaderboard(); fetchArenaFeed();
 }, 2000);
 // Tier 5 (10000ms): non-critical — news, earnings, movers, ticker bar
 setTimeout(function() {
@@ -20024,15 +20386,15 @@ async function fetchAnalytics() {
 <script>
 // === WAR ROOM — CAPTAIN'S BRIDGE ===
 var _wrModelLegends = {
-  'grok-4': {letter:'S', legend:'Lt. Cmdr. Spock', rank:'SPOCK', trader:'Steve Cohen', model:'Grok 4.1', color:'#ea580c'},
-  'gemini-2.5-flash': {letter:'W', legend:'Lt. Cmdr. Worf', rank:'WORF', trader:'William O\'Neil', model:'Gemini Flash', color:'#3b82f6'},
+  'deepseek-7b-grok4': {letter:'S', legend:'Lt. Cmdr. Spock', rank:'SPOCK', trader:'Steve Cohen', model:'Grok 4.1', color:'#ea580c'},
+  'qwen3-8b-flash': {letter:'W', legend:'Lt. Cmdr. Worf', rank:'WORF', trader:'William O\'Neil', model:'Gemini Flash', color:'#3b82f6'},
   'ollama-qwen3': {letter:'D', legend:'Lt. Jadzia Dax', rank:'DAX', trader:'Druckenmiller', model:'Qwen3 8B', color:'#2563eb'},
   'ollama-plutus': {letter:'M', legend:'Dr. McCoy', rank:'McCOY', trader:'Jim Simons', model:'Plutus 9B', color:'#a855f7'},
   'ollama-local': {letter:'G', legend:'Lt. Cmdr. Geordi', rank:'GEORDI', trader:'Paul Tudor Jones', model:'Gemma3 4B', color:'#f97316'},
   'options-sosnoff': {letter:'T', legend:'Counselor Troi', rank:'TROI', trader:'Empathic Read', model:'Gemini Flash', color:'#ec4899'},
   'energy-arnold': {letter:'T', legend:'Cmdr. Trip Tucker', rank:'TRIP', trader:'Engine Room', model:'Qwen3 8B', color:'#eab308'},
   'dalio-metals': {letter:'D', legend:'Mr. Dalio', rank:'DALIO', trader:'Dalio+Kiyosaki', model:'Physical', color:'#d4a017'},
-  'steve-webull': {letter:'K', legend:'Captain Kirk', rank:'KIRK', trader:'SBO Plus AI', model:'Human', color:'#fbbf24'},
+  'webull': {letter:'K', legend:'Captain Kirk', rank:'KIRK', trader:'SBO Plus AI', model:'Human', color:'#fbbf24'},
   'navigator': {letter:'C', legend:'Ensign Chekov', rank:'CHEKOV', trader:'Convergence', model:'Scanner', color:'#06b6d4'},
   'dayblade-sulu': {letter:'S', legend:'Lt. Sulu', rank:'SULU', trader:'DayBlade', model:'Gemma3 4B', color:'#0ea5e9'},
   'riker': {letter:'R', legend:'Cmdr. Riker', rank:'RIKER', trader:'XO', model:'Ollama', color:'#8b5cf6'},
@@ -20040,6 +20402,175 @@ var _wrModelLegends = {
   'q-entity': {letter:'Q', legend:'Q', rank:'Q', trader:'Omnipotent', model:'OpenAI Codex', color:'#a855f7'},
   'neo-matrix': {letter:'N', legend:'Neo', rank:'NEO', trader:'Matrix', model:'8000 / Independent', color:'#00bcd4'},
 };
+
+// ── War Room: Debate Progress Tracker ──────────────────────────────────────
+var _wrDebatePoller = null;
+var _wrDebateSymbol = null;
+function _wrFmtSecs(s) { var m=Math.floor(s/60),r=s%60; return m+':'+(r<10?'0':'')+r; }
+async function _wrFetchDebateStatus(symbol) {
+  try {
+    var url='/api/war-room/debate-status'+(symbol?'?symbol='+encodeURIComponent(symbol):'');
+    var d = await (await fetch(url)).json();
+    var strip = document.getElementById('wrDebateProgress');
+    if (!strip) return;
+    if (!d || d.status==='no_debate') { strip.style.display='none'; return; }
+    strip.style.display='block';
+    var pct=d.percent||0;
+    document.getElementById('wrProgressPct').textContent=pct+'%';
+    document.getElementById('wrProgressTimer').textContent='⏱ '+_wrFmtSecs(d.elapsed_seconds||0);
+    var bar=document.getElementById('wrProgressBar');
+    bar.style.width=pct+'%';
+    var label=document.getElementById('wrProgressLabel');
+    var pending=document.getElementById('wrPendingAgents');
+    if (d.status==='complete') {
+      bar.style.background='#22c55e';
+      label.innerHTML='✅ Debate complete — '+d.completed_count+' of '+d.expected_count+' responded in '+_wrFmtSecs(d.elapsed_seconds||0);
+      pending.textContent='';
+      if (_wrDebatePoller){clearInterval(_wrDebatePoller);_wrDebatePoller=null;}
+    } else if (d.status==='timeout') {
+      bar.style.background='#f59e0b';
+      var timedOut=(d.pending_agents||[]).join(', ');
+      label.innerHTML='⚠️ Partial — '+d.completed_count+' of '+d.expected_count+' responded'+(timedOut?', timed out: '+timedOut:'');
+      pending.textContent='';
+      if (_wrDebatePoller){clearInterval(_wrDebatePoller);_wrDebatePoller=null;}
+    } else {
+      bar.style.background='#3b82f6';
+      label.textContent='Debate progress: '+d.completed_count+' of '+d.expected_count+' agents responded';
+      pending.textContent=(d.pending_agents||[]).length?'Still waiting: '+(d.pending_agents||[]).join(', '):'';
+    }
+  } catch(e) {}
+}
+function _wrStartPolling(symbol) {
+  if (_wrDebatePoller) clearInterval(_wrDebatePoller);
+  _wrDebateSymbol=symbol;
+  _wrFetchDebateStatus(symbol);
+  _wrDebatePoller=setInterval(function(){_wrFetchDebateStatus(_wrDebateSymbol);},5000);
+}
+
+// ── War Room: Debate History Strip ─────────────────────────────────────────
+var _wrHistoryOpen=false;
+var _wrHistoryPoller=null;
+var _wrActiveFilter=null;  // debate_id being filtered, or null
+var _wrLastFullFeed=null;  // cached full feed data for clearing filter
+var _wrSymbolDebateCount={};  // symbol→count for 🔁 icon
+
+function wrToggleHistory() {
+  _wrHistoryOpen=!_wrHistoryOpen;
+  document.getElementById('wrHistoryPanel').style.display=_wrHistoryOpen?'block':'none';
+  document.getElementById('wrHistoryChevron').textContent=_wrHistoryOpen?'▾':'▸';
+  if (_wrHistoryOpen) {
+    wrFetchHistory();
+    if (!_wrHistoryPoller) _wrHistoryPoller=setInterval(wrFetchHistory,30000);
+  } else {
+    if (_wrHistoryPoller){clearInterval(_wrHistoryPoller);_wrHistoryPoller=null;}
+  }
+}
+
+function _wrSentimentBadge(s) {
+  var map={UNANIMOUS_BULL:'🟢 UNANIMOUS_BULL',BULL_LEAN:'🟢 BULL_LEAN',BEAR_LEAN:'🔴 BEAR_LEAN',UNANIMOUS_BEAR:'🔴 UNANIMOUS_BEAR',SPLIT:'🟡 SPLIT'};
+  return map[s]||s||'—';
+}
+function _wrStatusBadge(s) {
+  if(s==='complete') return '✅';
+  if(s==='timeout')  return '⚠️';
+  if(s==='running')  return '<span style="color:#60a5fa;">●</span>';
+  return s;
+}
+function _wrTriggerLabel(t) {
+  return t==='forced'?'👤 Steve':'auto';
+}
+function _wrFmtTime(iso) {
+  if(!iso) return '—';
+  try { return new Date(iso+'Z').toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}); } catch(e){return iso.substring(11,16);}
+}
+
+async function wrFetchHistory() {
+  try {
+    var rows=await (await fetch('/api/war-room/debate-history?limit=10')).json();
+    var countEl=document.getElementById('wrHistoryCount');
+    if(countEl) countEl.textContent='('+rows.length+')';
+
+    // Build symbol→count map for 🔁
+    _wrSymbolDebateCount={};
+    for(var i=0;i<rows.length;i++){var sym=rows[i].symbol;_wrSymbolDebateCount[sym]=(_wrSymbolDebateCount[sym]||0)+1;}
+
+    var html='<table style="width:100%;border-collapse:collapse;font-size:12px;">';
+    html+='<thead><tr style="color:var(--muted);border-bottom:1px solid var(--border);">';
+    html+='<th style="padding:4px 6px;text-align:left;font-weight:600;">Time</th>';
+    html+='<th style="padding:4px 6px;text-align:left;font-weight:600;">Symbol</th>';
+    html+='<th style="padding:4px 6px;text-align:left;font-weight:600;">Trigger</th>';
+    html+='<th style="padding:4px 6px;text-align:center;font-weight:600;">Agents</th>';
+    html+='<th style="padding:4px 6px;text-align:center;font-weight:600;">Duration</th>';
+    html+='<th style="padding:4px 6px;text-align:left;font-weight:600;">Sentiment</th>';
+    html+='<th style="padding:4px 6px;text-align:center;font-weight:600;">Status</th>';
+    html+='</tr></thead><tbody>';
+
+    var symSeen={};
+    for(var i=0;i<rows.length;i++) {
+      var d=rows[i];
+      var isSteve=d.trigger==='forced';
+      var borderStyle=isSteve?'border-left:3px solid #fbbf24;':'border-left:3px solid transparent;';
+      var repeatIcon=symSeen[d.symbol]?'🔁 ':'';
+      symSeen[d.symbol]=true;
+      var dur=d.duration_seconds!=null?_wrFmtSecs(d.duration_seconds):'—';
+      var filt=_wrActiveFilter===d.debate_id?'background:rgba(59,130,246,0.12);':'';
+      html+='<tr onclick="wrFilterByDebate(\''+d.debate_id+'\',\''+d.symbol+'\',\''+d.started_at+'\',\''+d.finished_at+'\')" '
+           +'style="cursor:pointer;'+borderStyle+filt+'" '
+           +'onmouseover="this.style.background=\'rgba(255,255,255,0.04)\'" '
+           +'onmouseout="this.style.background=\''+(filt?'rgba(59,130,246,0.12)':'')+'\'">';
+      html+='<td style="padding:5px 6px;color:var(--muted);">'+_wrFmtTime(d.started_at)+'</td>';
+      html+='<td style="padding:5px 6px;font-weight:700;color:var(--text);">'+repeatIcon+d.symbol+'</td>';
+      html+='<td style="padding:5px 6px;">'+_wrTriggerLabel(d.trigger)+'</td>';
+      html+='<td style="padding:5px 6px;text-align:center;">'+d.completed_count+'/'+d.expected_count+'</td>';
+      html+='<td style="padding:5px 6px;text-align:center;color:var(--muted);">'+dur+'</td>';
+      html+='<td style="padding:5px 6px;">'+_wrSentimentBadge(d.sentiment)+'</td>';
+      html+='<td style="padding:5px 6px;text-align:center;">'+_wrStatusBadge(d.status)+'</td>';
+      html+='</tr>';
+    }
+    html+='</tbody></table>';
+    if(rows.length===0) html='<div style="color:var(--muted);font-size:12px;padding:8px 0;">No debates recorded yet.</div>';
+    document.getElementById('wrHistoryTable').innerHTML=html;
+  } catch(e) {
+    document.getElementById('wrHistoryTable').innerHTML='<div style="color:var(--muted);font-size:12px;">Could not load history.</div>';
+  }
+}
+
+function wrFilterByDebate(debateId, symbol, startedAt, finishedAt) {
+  _wrActiveFilter=debateId;
+  var filterBar=document.getElementById('wrHistoryFilter');
+  var filterLabel=document.getElementById('wrHistoryFilterLabel');
+  if(filterBar) { filterBar.style.display='flex'; }
+  if(filterLabel) filterLabel.textContent='Filtered: '+symbol+' debate @ '+_wrFmtTime(startedAt);
+  // Re-render history to highlight selected row
+  wrFetchHistory();
+  // Filter the message feed
+  _wrApplyFilter(symbol, startedAt, finishedAt);
+}
+
+function _wrApplyFilter(symbol, startedAt, finishedAt) {
+  var c=document.getElementById('warRoomContent');
+  if(!c) return;
+  var endAt=(!finishedAt||finishedAt==='null')?'9999-12-31':finishedAt;
+  var rows=c.querySelectorAll('[data-wr-sym]');
+  rows.forEach(function(row){
+    var sym=row.getAttribute('data-wr-sym');
+    var ts=row.getAttribute('data-wr-ts')||'';
+    var show=(sym===symbol && ts>=startedAt && ts<=endAt);
+    row.style.display=show?'':'none';
+  });
+}
+
+function wrClearFilter() {
+  _wrActiveFilter=null;
+  var filterBar=document.getElementById('wrHistoryFilter');
+  if(filterBar) filterBar.style.display='none';
+  wrFetchHistory();
+  // Show all messages
+  var rows=document.querySelectorAll('[data-wr-sym]');
+  rows.forEach(function(r){r.style.display='';});
+}
+
+// ───────────────────────────────────────────────────────────────────────────
 
 async function fetchWarRoom() {
   try {
@@ -20054,20 +20585,22 @@ async function fetchWarRoom() {
     var symLabel = document.getElementById('wrPostSymbol');
     if (data[0] && data[0].symbol) {
       var topSym = data[0].symbol;
-      if (titleEl) titleEl.innerHTML = '⚔️ War Room — USS TradeMinds — Debating: ' + topSym;
+      if (titleEl) titleEl.innerHTML = '⚔️ War Room — USS OllieTrades — Debating: ' + topSym;
       if (symLabel) symLabel.textContent = 'Debating: ' + topSym;
+      _wrStartPolling(topSym);
     }
     var html = '';
     for (var i = 0; i < data.length; i++) {
       var m = data[i];
-      var isSteve = m.player_id === 'steve-webull';
+      var isSteve = m.player_id === 'webull';
       var info = _wrModelLegends[m.player_id] || {letter:(m.display_name||m.player_id)[0].toUpperCase(), legend: m.display_name || m.player_id, color:'#888'};
 
       // Q's messages: special omnipotent styling
       var takeText = m.take || '';
       var isQ = takeText.startsWith('✨ Q:') || takeText.startsWith('✨ Q\'s');
+      var _wrAttrs = 'data-wr-sym="'+m.symbol+'" data-wr-ts="'+(m.created_at||'')+'" ';
       if (isSteve && isQ) {
-        html += '<div style="display:flex;gap:12px;padding:14px;border-left:3px solid #c084fc;background:linear-gradient(135deg,rgba(192,132,252,0.08),rgba(251,191,36,0.04));border-radius:8px;margin:6px 0;">';
+        html += '<div '+_wrAttrs+'style="display:flex;gap:12px;padding:14px;border-left:3px solid #c084fc;background:linear-gradient(135deg,rgba(192,132,252,0.08),rgba(251,191,36,0.04));border-radius:8px;margin:6px 0;">';
         html += '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#c084fc,#fbbf24);display:flex;align-items:center;justify-content:center;font-size:20px;flex-shrink:0;">✨</div>';
         html += '<div style="flex:1;">';
         html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
@@ -20079,7 +20612,7 @@ async function fetchWarRoom() {
       }
       // Captain's messages: gold priority styling
       else if (isSteve) {
-        html += '<div style="display:flex;gap:12px;padding:12px;border-left:3px solid #fbbf24;background:rgba(251,191,36,0.06);border-radius:8px;margin:6px 0;">';
+        html += '<div '+_wrAttrs+'style="display:flex;gap:12px;padding:12px;border-left:3px solid #fbbf24;background:rgba(251,191,36,0.06);border-radius:8px;margin:6px 0;">';
         html += '<div style="width:40px;height:40px;border-radius:50%;background:linear-gradient(135deg,#fbbf24,#f59e0b);display:flex;align-items:center;justify-content:center;font-size:16px;font-weight:700;color:#fff;flex-shrink:0;">K</div>';
         html += '<div style="flex:1;">';
         html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
@@ -20090,7 +20623,7 @@ async function fetchWarRoom() {
         html += '</div></div>';
       // BORG ALERT messages: special green-on-black styling
       } else if (takeText.includes('BORG ALERT') || takeText.includes('assimilated')) {
-        html += '<div style="margin:6px 0;">';
+        html += '<div '+_wrAttrs+'style="margin:6px 0;">';
         html += '<div class="borg-message">' + takeText + '</div>';
         html += '<div style="font-size:13px;color:var(--muted);margin-top:4px;">' + m.symbol + ' · ' + (m.created_at ? new Date(m.created_at).toLocaleTimeString() : '') + '</div>';
         html += '</div>';
@@ -20108,7 +20641,7 @@ async function fetchWarRoom() {
           stanceBadge = '<span class="stance-badge neutral" style="margin-left:6px;">■ NEUTRAL</span>';
         }
 
-        html += '<div style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">';
+        html += '<div '+_wrAttrs+'style="display:flex;gap:12px;padding:10px 0;border-bottom:1px solid var(--border);">';
         html += '<div style="width:36px;height:36px;border-radius:50%;background:' + info.color + ';display:flex;align-items:center;justify-content:center;font-size:14px;font-weight:700;color:#fff;flex-shrink:0;">' + (info.letter || info.legend[0]) + '</div>';
         html += '<div style="flex:1;">';
         html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:4px;">';
@@ -20297,7 +20830,7 @@ async function postWarRoomMessage() {
 
   // If @mention a model, route as challenge
   if (isMention) {
-    var modelMap = {'grok':'grok-4','spock':'grok-4','cohen':'grok-4','gemini':'gemini-2.5-flash','oneil':'gemini-2.5-flash',
+    var modelMap = {'grok':'deepseek-7b-grok4','spock':'deepseek-7b-grok4','cohen':'deepseek-7b-grok4','gemini':'qwen3-8b-flash','oneil':'qwen3-8b-flash',
       'qwen':'ollama-qwen3','druck':'ollama-qwen3','plutus':'ollama-plutus','simons':'ollama-plutus',
       'gemma':'ollama-local','ptj':'ollama-local','sosnoff':'options-sosnoff','troi':'options-sosnoff','arnold':'energy-arnold','trip':'energy-arnold','all':'all'};
     var mention = msg.split(' ')[0].substring(1).toLowerCase();
@@ -20858,10 +21391,13 @@ async function addDilithiumPurchase() {
 }
 
 async function fetchMetalsCommentary() {
+  var el = document.getElementById('metalsCommentary');
   try {
-    var r = await fetch('/api/metals/commentary');
+    var ctrl = new AbortController();
+    var t = setTimeout(() => ctrl.abort(), 8000);
+    var r = await fetch('/api/metals/commentary', { signal: ctrl.signal });
+    clearTimeout(t);
     var d = await r.json();
-    var el = document.getElementById('metalsCommentary');
     if (!el) return;
     if (!d || !d.commentary) {
       el.innerHTML = '<div style="color:var(--muted);text-align:center;">No commentary available yet. Dalio generates this on each scan cycle.</div>';
@@ -20891,7 +21427,10 @@ async function fetchMetalsCommentary() {
       h += '<div style="margin-top:10px;font-size:13px;color:var(--muted);">Generated: ' + new Date(d.generated_at).toLocaleString() + '</div>';
     }
     el.innerHTML = h;
-  } catch(e) { console.error('Metals commentary error:', e); }
+  } catch(e) {
+    console.error('Metals commentary error:', e);
+    if (el) el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px">Commentary temporarily unavailable</div>';
+  }
 }
 
 // Metals Command 4-quadrant init (S6.3, 2026-04-16): adds ETF flows, Scotty news, rule-based reports
@@ -22155,7 +22694,7 @@ async function fetchStrategyRace() {
 <div id="section-weekly-picks" style="display:none;">
   <div class="card">
     <div class="card-header">
-      <div class="card-title">TradeMinds Weekly 5</div>
+      <div class="card-title">OllieTrades Weekly 5</div>
       <button class="btn btn-ghost" onclick="fetchWeeklyPicks()" style="font-size:13px;">Refresh</button>
     </div>
     <div id="weeklyPicksContent">Loading...</div>
@@ -23101,7 +23640,7 @@ async function sendToWarRoom(symbol, alertLabel) {
 var _vpSym = 'SPY';
 function fetchVolProfile() {
   var c = document.getElementById('vpContent');
-  fetch('/api/volume-profile/' + _vpSym).then(function(r){return r.json();}).then(function(d) {
+  fetch('/api/sr-heatmap/' + _vpSym).then(function(r){return r.json();}).then(function(d) {
     if (d.error) { c.innerHTML = '<div style="color:var(--muted);">' + d.error + '</div>'; return; }
     var html = '';
     // Stats
@@ -23871,9 +24410,10 @@ async function fetchMoneyMachine() {
 // === EARNINGS HUB ===
 async function fetchEarningsHub() {
   try {
-    var r = await fetch('/api/earnings/countdown?days=14');
+    // Use /api/market/earnings (yfinance-based, no API key required) for consistency with glance badge
+    var r = await fetch('/api/market/earnings');
     var d = await r.json();
-    var earnings = d.earnings || [];
+    var earnings = Array.isArray(d) ? d : (d.earnings || []);
     var el = document.getElementById('earningsHubContent');
     if (!earnings.length) { el.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center;">No upcoming earnings in watchlist</div>'; return; }
     var html = '<div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(220px,1fr));gap:12px;">';
@@ -24117,12 +24657,47 @@ async function fetchGEX() {
 setTimeout(fetchGEX, 4000);
 setInterval(fetchGEX, 300000);
 
+var _kirkSource = 'real';  // 2026-04-28: REAL is default tab
+
+// Wire Kirk source toggle buttons
+(function() {
+  function _wireKirkToggle() {
+    document.querySelectorAll('.kst-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.kst-btn').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        _kirkSource = btn.dataset.source;
+        // Update badge immediately
+        var badge = document.getElementById('kirk-badge');
+        if (badge) { badge.className = 'source-badge ' + (_kirkSource === 'all' ? 'all' : _kirkSource); badge.textContent = _kirkSource.toUpperCase(); }
+        fetchKirkAdvisory();
+      });
+    });
+  }
+  if (document.readyState === 'loading') { document.addEventListener('DOMContentLoaded', _wireKirkToggle); }
+  else { _wireKirkToggle(); }
+})();
+
 async function fetchKirkAdvisory() {
   var el = document.getElementById('kirkAdvBody');
   if (!el) return;
   try {
-    var r = await fetch('/api/kirk/advisory');
+    var r = await fetch('/api/kirk/advisory?source=' + _kirkSource);
     var d = await r.json();
+
+    // Update source label badge
+    var badge = document.getElementById('kirk-badge');
+    if (badge) { badge.className = 'source-badge ' + (_kirkSource === 'all' ? 'all' : _kirkSource); badge.textContent = (d.source_label || _kirkSource).toUpperCase().slice(0,8); }
+
+    // Handle empty REAL state
+    if (_kirkSource === 'real' && (!d.positions || d.positions.length === 0)) {
+      el.innerHTML = '<div style="padding:20px;color:#8b919c;font-style:italic;font-size:13px;">' +
+        '📂 No real positions tracked yet.<br><br>' +
+        'Edit <code>data/real_holdings.json</code> to add Schwab, Webull, IBKR, or TradeStation holdings.<br>' +
+        '<span style="font-size:11px;color:#5a6370;">Cash available: $' + (d.cash||0).toLocaleString() + ' across active accounts</span>' +
+        '</div>';
+      return;
+    }
     if (d.error) { el.innerHTML = '<div style="color:#ea580c;">' + d.error + '</div>'; return; }
 
     // Cache Kirk recommendations so Webull Portfolio table can show action badges
@@ -24149,9 +24724,14 @@ async function fetchKirkAdvisory() {
         html += '<div style="display:flex;align-items:center;gap:10px;flex:1;min-width:0;">';
         html += '<span style="background:' + actionColor + ';color:white;padding:2px 8px;border-radius:4px;font-size:12px;font-weight:700;min-width:40px;text-align:center;flex-shrink:0;">' + p.action + '</span>';
         html += '<span style="font-family:var(--font-mono);font-weight:700;font-size:14px;flex-shrink:0;" class="ticker-click" onclick="openTickerDetail(\'' + p.symbol + '\')">' + p.symbol + '</span>';
-        html += '<span style="font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + p.reasoning + '</span>';
+        if (p.origin) html += '<span class="source-badge ' + p.origin + '" style="margin-left:0;flex-shrink:0;">' + p.origin.toUpperCase() + '</span>';
+        html += '<span style="font-size:13px;color:var(--muted);overflow:hidden;text-overflow:ellipsis;white-space:nowrap;">' + (p.reasoning||p.notes||'') + '</span>';
         html += '</div>';
-        html += '<span style="font-family:var(--font-mono);font-weight:700;color:' + (p.pnl_pct >= 0 ? '#2563eb' : '#ea580c') + ';flex-shrink:0;margin-left:12px;">' + (p.pnl_pct >= 0 ? '+' : '') + p.pnl_pct + '%</span>';
+        var _dayPct = p.day_change_pct, _totPct = p.pnl_pct;
+        html += '<div style="text-align:right;flex-shrink:0;margin-left:12px;line-height:1.35;">';
+        if (_dayPct != null) html += '<div style="font-size:11px;color:' + (_dayPct >= 0 ? '#22c55e' : '#ea580c') + ';">today ' + (_dayPct >= 0 ? '+' : '') + _dayPct.toFixed(2) + '%</div>';
+        html += '<div style="font-family:var(--font-mono);font-weight:700;font-size:13px;color:' + (_totPct >= 0 ? '#2563eb' : '#ea580c') + ';">total ' + (_totPct >= 0 ? '+' : '') + _totPct + '%</div>';
+        html += '</div>';
         html += '</div>';
       }
     } else {
@@ -24494,7 +25074,7 @@ async function pollShipComputerAlerts() {
         var action = a.alert_type === 'STOP_BREACH' ? 'SELL'
                    : a.alert_type === 'NEW_ADVICE'  ? 'SELL'
                    : 'HOLD';
-        showKirkAlert(action, a.symbol, null, a.message, 'ship_computer');
+        if (action !== 'HOLD') showKirkAlert(action, a.symbol, null, a.message, 'ship_computer');
         newIds.push(a.id);
       }
     }
@@ -24531,7 +25111,7 @@ async function fetchKirkDetail() {
     try { alerts = await fetch('/api/realtime/alerts').then(function(r){return r.json();}); } catch(e){}
 
     // Active fleet IDs — matches _FLEET_CORE on leaderboard
-    var _FLEET_IDS_SET = new Set(['neo-matrix','ollama-coder','ollama-llama','ollama-plutus','ollama-qwen3','gemini-2.5-flash','dayblade-0dte']);
+    var _FLEET_IDS_SET = new Set(['neo-matrix','ollama-coder','ollama-llama','ollama-plutus','ollama-qwen3','qwen3-8b-flash','dayblade-0dte']);
 
     var html = '';
     var today = new Date(Date.now() - 7*60*60*1000).toISOString().slice(0,10); // AZ time (UTC-7)
@@ -24816,6 +25396,13 @@ async function fetchKirkHistory() {
   if (!el) return;
   try {
     var rows = await fetch('/api/kirk/advisory/history?limit=50').then(function(r){return r.json();});
+    // 2026-04-28: Filter alerts to match the active Kirk Advisory tab (paper/real/all)
+    if (rows && rows.length && _kirkSource !== 'all' && window._kirkPositionMap) {
+      var allowedTickers = Object.keys(window._kirkPositionMap);
+      if (allowedTickers.length > 0) {
+        rows = rows.filter(function(r){ return allowedTickers.indexOf(r.ticker) !== -1; });
+      }
+    }
     if (!rows || !rows.length) {
       el.innerHTML = '<div style="color:var(--muted);padding:20px;text-align:center;font-size:13px;">No advisory history yet. Recommendations are logged when positions hit TRIM or SELL thresholds.</div>';
       return;
@@ -24970,7 +25557,7 @@ setTimeout(function() {
 </script>
 
 <div id="kirk-footer" style="text-align:center;padding:20px 0 10px;font-size:13px;color:rgba(148,163,184,0.3);">
-  USS TradeMinds — <span title="Don't thank me. It's what I do. — Q" style="cursor:help;">Built by Q</span> • Commanded by the Captain • <span title="We are the Borg. Your stop-loss is irrelevant. Your portfolio will be assimilated." style="cursor:help;">The Borg fear us</span>
+  USS OllieTrades — <span title="Don't thank me. It's what I do. — Q" style="cursor:help;">Built by Q</span> • Commanded by the Captain • <span title="We are the Borg. Your stop-loss is irrelevant. Your portfolio will be assimilated." style="cursor:help;">The Borg fear us</span>
 </div>
 
 <!-- ALERT SYSTEM -->
@@ -25003,7 +25590,7 @@ setTimeout(function() {
 @media(max-width:1024px) and (min-width:769px){
   .sidebar{width:60px!important;}
   .sidebar .sidebar-item span:not(.icon){display:none!important;}
-  .layout{margin-left:60px!important;}
+  .layout{grid-template-columns:60px 1fr!important;margin-left:0!important;}
   #tac-grid{grid-template-columns:1fr 1fr!important;}
 }
 /* Mobile-only collapsible sections */
@@ -25246,7 +25833,7 @@ var _BRIDGE_TIPS = {
     what: 'The 3/5/30 Wheel Rule: sell cash-secured puts on TQQQ, SOXL, or QQQ when VIX > 18 (fat premiums). If assigned, sell covered calls. Target: 5% return per 30-day cycle. High VIX = high IV = more premium income.',
     zones: [['ACTIVE','green'],['HIGH PREMIUM','green'],['STANDBY','blue'],['LOW IV','yellow']],
     history: 'VIX above 22 has historically generated 2–4× the premium income vs VIX below 15. The strategy thrives in volatile, sideways markets.',
-    act: 'View Troi Wheel', actFn: function(){ showSection('troi'); }
+    act: null, actFn: null
   },
   'Worf': {
     title: '⚔️ Worf — Defensive Posture',
@@ -25411,21 +25998,16 @@ function _bridgeTipHide() {
   function checkStatus() {
     fetch('/api/status').then(function(r){return r.json();}).then(function(d) {
       var ok = d && (d.status === 'running' || d.status === 'ok' || d.ok === true);
-      var dot = document.getElementById('sysStatusDot');
-      var badge = document.getElementById('sysStatusBadge');
-      if (dot) { dot.style.background = ok ? 'var(--green)' : '#ef4444'; dot.style.boxShadow = ok ? '0 0 8px var(--green)' : '0 0 8px #ef4444'; }
-      if (badge) { badge.textContent = ok ? 'ALL SYSTEMS ONLINE' : 'DEGRADED'; badge.style.color = ok ? '#22c55e' : '#ef4444'; }
-      // Update all .online-status-dot elements
+      // Update all .online-status-dot elements across panels
       document.querySelectorAll('.online-status-dot').forEach(function(el) {
         el.title = ok ? 'System Online' : 'System Degraded';
         el.style.background = ok ? 'var(--green)' : '#ef4444';
         el.style.boxShadow = ok ? '0 0 6px var(--green)' : '0 0 6px #ef4444';
       });
     }).catch(function() {
-      var dot = document.getElementById('sysStatusDot');
-      var badge = document.getElementById('sysStatusBadge');
-      if (dot) { dot.style.background = '#ef4444'; dot.style.boxShadow = '0 0 8px #ef4444'; }
-      if (badge) { badge.textContent = 'OFFLINE'; badge.style.color = '#ef4444'; }
+      document.querySelectorAll('.online-status-dot').forEach(function(el) {
+        el.title = 'System Offline'; el.style.background = '#ef4444'; el.style.boxShadow = '0 0 6px #ef4444';
+      });
     });
   }
   checkStatus();
@@ -25513,7 +26095,7 @@ function loadGlanceData() {
   fetch('/api/market/earnings').then(function(r){return r.json();}).then(function(data) {
     var el = document.getElementById('g-earnings-text');
     if (!el) return;
-    if (!data || data.length === 0) { el.textContent = 'No earnings in next 14 days'; return; }
+    if (!data || data.length === 0) { el.textContent = 'No earnings in next 7 days'; return; }
     var srcIcon = {'holding':'📊','watchlist':'👀','mega_cap':'📈'};
     var holdings = data.filter(function(e){ return e.source === 'holding'; });
     var urgent = holdings.filter(function(e){ return e.days_until <= 1; });
@@ -25555,11 +26137,11 @@ function loadGlanceData() {
       });
       inner.innerHTML = rows.join('');
     } else if (inner) {
-      inner.innerHTML = '<span style="color:var(--muted);font-size:13px;">No earnings in next 14 days.</span>';
+      inner.innerHTML = '<span style="color:var(--muted);font-size:13px;">No earnings in next 7 days.</span>';
     }
   }).catch(function(){
     var el = document.getElementById('g-earnings-text');
-    if (el) el.textContent = 'No earnings in next 14 days';
+    if (el) el.textContent = 'No earnings in next 7 days';
   });
 
   // Congress overlap + trade count
@@ -25789,21 +26371,23 @@ function loadGlanceData() {
   }).catch(function(){});
 
   // Sectors
-  _cachedFetch('/api/sector-heatmap', 30000).then(function(d) {
+  _cachedFetch('/api/sectors/heatmap', 30000).then(function(d) {
     var el = document.getElementById('g-sectors-text');
     if (!el || !d.sectors) return;
-    var leaders = d.sectors.filter(function(s){return s.change_1d > 0;}).slice(0,2).map(function(s){return s.name;});
-    var laggards = d.sectors.filter(function(s){return s.change_1d < 0;}).slice(-2).map(function(s){return s.name;});
-    el.textContent = d.above_spy + '/' + d.total + ' beating SPY | ▲ ' + leaders.join(', ') + ' | ▼ ' + laggards.join(', ');
+    var leaders = d.sectors.filter(function(s){return s.pct_change > 0;}).slice(0,2).map(function(s){return s.name;});
+    var laggards = d.sectors.filter(function(s){return s.pct_change < 0;}).slice(-2).map(function(s){return s.name;});
+    var aboveSpy = d.sectors.filter(function(s){return s.pct_change > (d.spy_change_pct||0);}).length;
+    el.textContent = aboveSpy + '/' + d.sectors.length + ' beating SPY | ▲ ' + leaders.join(', ') + ' | ▼ ' + laggards.join(', ');
     // Expand
     var exp = document.getElementById('g-sectors-inner');
     if (exp) {
       exp.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">All Sectors vs SPY</div>'
         + d.sectors.map(function(s) {
-          var sCol = s.change_1d >= 0 ? '#22c55e' : '#ef4444';
-          var icon = s.change_1d >= 0 ? '▲' : '▼';
+          var c = s.pct_change || 0;
+          var sCol = c >= 0 ? '#22c55e' : '#ef4444';
+          var icon = c >= 0 ? '▲' : '▼';
           return '<span style="display:inline-block;margin:2px 6px;font-size:13px;font-family:var(--font-mono);">'
-            + s.name + ' <span style="color:'+sCol+';">' + icon + s.change_1d.toFixed(1) + '%</span></span>';
+            + s.name + ' <span style="color:'+sCol+';">' + icon + Math.abs(c).toFixed(1) + '%</span></span>';
         }).join('');
     }
   }).catch(function(){});
@@ -26066,7 +26650,7 @@ setTimeout(function() {
   (function(){
     var etNow=new Date(new Date().toLocaleString('en-US',{timeZone:'America/New_York'}));
     var isWknd=etNow.getDay()===0||etNow.getDay()===6;
-    ['tac-convergence','regime-desc'].forEach(function(id){
+    ['tac-convergence'].forEach(function(id){
       var el=document.getElementById(id);
       if(el&&el.textContent.trim().match(/^Loading/)){
         el.textContent=isWknd?'Weekend — updates at market open':'Connecting to scanner...';
@@ -27731,21 +28315,8 @@ function wbcLoadPipeline() {
 async function wbcLoadAlerts() {
   var el = document.getElementById('wbc-alerts-body');
   if (!el) return;
-  try {
-    var r = await fetch('/api/alert-rules');
-    var d = await r.json();
-    var rules = d.rules || d || [];
-    if (!rules.length) { el.innerHTML = '<div style="color:var(--muted);padding:16px;">No active alerts.</div>'; return; }
-    el.innerHTML = rules.slice(0,20).map(function(a) {
-      return '<div style="display:flex;align-items:center;gap:10px;padding:8px 0;border-bottom:1px solid var(--border);font-size:12px;">'
-        + '<div style="font-weight:700;color:var(--accent);min-width:60px;">'+(a.symbol||a.ticker||'—')+'</div>'
-        + '<div style="color:var(--text);flex:1;">'+(a.condition||a.alert_type||a.rule||'—')+'</div>'
-        + '<div style="color:var(--muted);font-size:11px;">'+(a.created_at||a.triggered_at||'').slice(0,10)+'</div>'
-        + '</div>';
-    }).join('');
-  } catch(e) {
-    el.innerHTML = '<div style="color:var(--muted);padding:16px;">No alert data available.</div>';
-  }
+  // /api/alert-rules handler removed — show empty state directly
+  el.innerHTML = '<div style="color:var(--muted);padding:16px;">No active alerts.</div>';
 }
 
 // ── Colorblind Mode ─────────────────────────────────────────────
@@ -31436,7 +32007,7 @@ setTimeout(function(){
       } else if (initial) {
         // No signals today yet — show placeholder instead of stale prior-day data
         const feed = document.getElementById('lsFeed');
-        if (feed) feed.innerHTML = '<div class="ls-empty"><div class="ls-empty-icon">📡</div>No scanner signals today yet — Chekov fires at market open.</div>';
+        if (feed) feed.innerHTML = '<div class="ls-empty"><div class="ls-empty-icon">🟡</div>No fleet BUY signals today.<div style="font-size:11px;color:var(--muted);margin-top:6px;line-height:1.6;">Chekov is muted (threshold 5.0) &middot; Navigator retired &middot; Tractor Beam runs tiebreaker-only.<br>This panel populates when a bridge-crew agent generates a BUY signal.</div></div>';
       }
       document.getElementById('lsPulse').classList.remove('paused');
     } catch(e) {
@@ -32184,7 +32755,7 @@ setTimeout(function(){
     }
 
     // --- Build scanner row HTML ---
-    function buildScanRow(sym, price, rvol, alertType, detectedAt, isIndex, gap) {
+    function buildScanRow(sym, price, rvol, alertType, detectedAt, isIndex, gap, hitsToday, daysActive) {
       var rvolClass = 'dim';
       var rvolText = rvol ? (parseFloat(rvol).toFixed(1) + 'x') : '—';
       if (rvol && parseFloat(rvol) >= 10) rvolClass = 'red';
@@ -32194,12 +32765,22 @@ setTimeout(function(){
       var rowClick = "sniffRowClick('" + sym + "'," + (price||0) + "," + (rvol||0)
                    + ",'" + (alertType || (isIndex ? 'index' : 'vol')) + "'," + (gap||0) + ")";
 
+      // Persistence annotation: "31× today · 8d active" — only for non-index rows with data
+      var persistHtml = '';
+      if (!isIndex && (hitsToday > 1 || daysActive > 1)) {
+        var parts = [];
+        if (hitsToday > 1) parts.push(hitsToday + '\xd7 today');
+        if (daysActive > 1) parts.push(daysActive + 'd active');
+        persistHtml = '<span class="sniff-persist">' + parts.join(' \xb7 ') + '</span>';
+      }
+
       return '<div class="sniff-row' + (isIndex ? ' sniff-index-row' : '') + '" data-symbol="' + sym + '" onclick="' + rowClick + '">'
         + '<span class="sniff-sym">' + sym + '</span>'
         + '<span class="sniff-price">$' + fmt(price) + '</span>'
         + '<span class="sniff-rvol ' + rvolClass + '">' + rvolText + '</span>'
         + '<span class="sniff-badge">' + (alertType || (isIndex ? 'index' : 'vol')) + '</span>'
         + '<span class="sniff-time">' + (isIndex ? '' : fmtTime(detectedAt)) + '</span>'
+        + persistHtml
         + '</div>';
     }
 
@@ -32234,7 +32815,8 @@ setTimeout(function(){
         var sym = h.symbol || h.ticker || h.sym || '';
         if (sym === 'SPY' || sym === 'QQQ') return; // skip if already in index rows
         html += buildScanRow(sym, h.price || h.last, h.rvol || h.relative_volume,
-          h.alert_type || h.type, h.detected_at || h.time, false, h.gap_pct || h.gap || 0);
+          h.alert_type || h.type, h.detected_at || h.time, false, h.gap_pct || h.gap || 0,
+          h.hits_today, h.days_active);
       });
 
       container.innerHTML = html;
@@ -32776,6 +33358,595 @@ setTimeout(function(){
     }
   };
 }());
+</script>
+
+<script>
+// === FLEET PULSE ===
+let _lastPulseStatus = null;
+
+async function pollFleetPulse() {
+  try {
+    const r = await fetch('/api/fleet/pulse');
+    const p = await r.json();
+    renderFleetPulse(p);
+    if (p.status === 'red' && _lastPulseStatus !== 'red') {
+      document.body.classList.add('pulse-red-flash');
+      setTimeout(() => document.body.classList.remove('pulse-red-flash'), 1500);
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain); gain.connect(ctx.destination);
+        osc.frequency.value = 440;
+        gain.gain.setValueAtTime(0.1, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.4);
+        osc.start(); osc.stop(ctx.currentTime + 0.4);
+      } catch(e) {}
+    }
+    _lastPulseStatus = p.status;
+    window.__lastPulse = p;
+  } catch (e) {
+    renderFleetPulse({ status: 'red', reasons: ['Pulse endpoint unreachable'] });
+  }
+}
+
+function renderFleetPulse(p) {
+  const dot = document.getElementById('pulse-dot');
+  const lbl = document.getElementById('pulse-label');
+  if (!dot || !lbl) return;
+  const s = p.status || 'red';
+  dot.className = 'pulse-dot ' + s;
+  lbl.className = 'pulse-label ' + s;
+  const map = { green: 'FLEET HEALTHY', yellow: 'FLEET WARN', red: 'FLEET DOWN', standby: 'STANDBY' };
+  lbl.textContent = map[s] || 'UNKNOWN';
+  const el = document.getElementById('fleet-pulse');
+  if (el) el.title = (p.reasons && p.reasons.length) ? p.reasons.join(' · ') : 'All checks passing';
+}
+
+function showPulseDetail() {
+  const p = window.__lastPulse;
+  if (!p) { alert('Pulse data not loaded yet.'); return; }
+  const lines = [
+    'FLEET PULSE — ' + p.status.toUpperCase(),
+    'ET: ' + p.et_now + ' · Market: ' + (p.market_open ? 'OPEN' : 'CLOSED'),
+    '',
+    'Reasons:',
+    ...(p.reasons.length ? p.reasons.map(r => '  • ' + r) : ['  (none — all clear)']),
+    '',
+    'Checks:',
+    ...Object.entries(p.checks).map(([k,v]) =>
+      '  ' + (v.ok ? '✓' : '✗') + ' ' + k + ': ' + JSON.stringify(v).slice(0,100)
+    ),
+  ];
+  alert(lines.join('\n'));
+}
+
+pollFleetPulse();
+setInterval(pollFleetPulse, 30000);
+// === END FLEET PULSE ===
+
+// === MISSED PICKS BANNER ===
+async function pollMissedPicks() {
+  try {
+    const [diff, extras] = await Promise.all([
+      fetch('/api/picks/diff').then(r => r.json()),
+      fetch('/api/watchlist/extras').then(r => r.json()).catch(() => ({symbols:[]}))
+    ]);
+    const missed = (diff && diff.buckets && diff.buckets.missed) ? diff.buckets.missed : [];
+    const extrasSet = new Set(extras.symbols || []);
+    const banner = document.getElementById('missed-picks-banner');
+    const body   = document.getElementById('mpb-body');
+    const count  = document.getElementById('mpb-count');
+    if (!banner || !body) return;
+
+    if (missed.length === 0) { banner.style.display = 'none'; return; }
+
+    banner.style.display = 'block';
+    count.textContent = missed.length;
+
+    body.innerHTML = missed.map(p => {
+      const alreadyAdded = extrasSet.has(p.ticker);
+      const entryFmt  = p.entry  ? 'entry $' + Number(p.entry).toFixed(2)  : '';
+      const stopFmt   = p.stop   ? 'stop $'  + Number(p.stop).toFixed(2)   : '';
+      const noteSafe  = (p.note || '').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+      const noteSafeAttr = (p.note || '').replace(/"/g,'&quot;');
+      return `<div class="mpb-pick">
+        <span class="sym">${p.ticker}</span>
+        <span class="entry">${entryFmt}</span>
+        <span class="stop">${stopFmt}</span>
+        <span class="note" title="${noteSafe}">${noteSafe}</span>
+        <button class="add-btn ${alreadyAdded ? 'added' : ''}"
+                data-ticker="${p.ticker}"
+                data-note="${noteSafeAttr}"
+                ${alreadyAdded ? 'disabled' : ''}>
+          ${alreadyAdded ? '&#10003; Added' : '+ Watchlist'}
+        </button>
+      </div>`;
+    }).join('');
+
+    body.querySelectorAll('.add-btn:not(.added)').forEach(btn => {
+      btn.addEventListener('click', async () => {
+        const ticker = btn.dataset.ticker;
+        const note   = btn.dataset.note;
+        btn.disabled = true; btn.textContent = '...';
+        try {
+          const r = await fetch('/api/watchlist/extras/add', {
+            method: 'POST',
+            headers: {'Content-Type': 'application/json'},
+            body: JSON.stringify({ticker, source: 'trade-ideas', note})
+          });
+          const j = await r.json();
+          if (j.ok) {
+            btn.classList.add('added');
+            btn.innerHTML = '&#10003; Added';
+          } else {
+            btn.disabled = false; btn.textContent = '+ Watchlist';
+          }
+        } catch { btn.disabled = false; btn.textContent = '+ Watchlist'; }
+      });
+    });
+  } catch(e) { console.warn('missed picks poll failed', e); }
+}
+pollMissedPicks();
+setInterval(pollMissedPicks, 90000);
+// === END MISSED PICKS BANNER ===
+
+// === OPTIONS ENGINE ===
+async function pollOptionsEngine() {
+  try {
+    const [summary, fleetPos, ghostPos] = await Promise.all([
+      fetch('/api/options/book-summary').then(r => r.json()),
+      fetch('/api/options/positions/db?book=fleet').then(r => r.json()),
+      fetch('/api/options/positions/db?book=ghost').then(r => r.json())
+    ]);
+    if (!summary || !summary.ok) return;
+
+    const fleet = (summary.books && summary.books.fleet) || {};
+    const ghost = (summary.books && summary.books.ghost) || {};
+
+    const dollarFmt = v => '$' + Number(v || 0).toLocaleString('en-US', {minimumFractionDigits:2, maximumFractionDigits:2});
+    const pnlFmt = v => {
+      const n = Number(v || 0);
+      const sign = n >= 0 ? '+' : '';
+      const color = n >= 0 ? '#0d7337' : '#cc3d33';
+      return '<span style="color:' + color + '">' + sign + n.toFixed(2) + '</span>';
+    };
+
+    const fc = document.getElementById('oe-fleet-cash');
+    const fp = document.getElementById('oe-fleet-pnl');
+    const gc = document.getElementById('oe-ghost-cash');
+    const gp = document.getElementById('oe-ghost-pnl');
+    if (fc) fc.textContent = dollarFmt(fleet.current_cash);
+    if (fp) fp.innerHTML = 'today: ' + pnlFmt(fleet.today_pnl) + ' &middot; realized: ' + pnlFmt(fleet.realized_pnl);
+    if (gc) gc.textContent = dollarFmt(ghost.current_cash);
+    if (gp) gp.innerHTML = 'today: ' + pnlFmt(ghost.today_pnl) + ' &middot; realized: ' + pnlFmt(ghost.realized_pnl);
+
+    const renderPositions = (posData, container) => {
+      if (!container) return;
+      const positions = (posData && posData.positions) ? posData.positions : [];
+      if (positions.length === 0) {
+        container.innerHTML = '<div class="oe-empty">No open positions</div>';
+        return;
+      }
+      container.innerHTML = positions.map(p => {
+        const credit = Number(p.entry_credit_debit || 0);
+        const color = credit >= 0 ? '#0d7337' : '#cc3d33';
+        const sign  = credit >= 0 ? '+' : '';
+        return '<div style="display:grid;grid-template-columns:60px 110px 70px 1fr;gap:8px;padding:4px 0;font-size:11px;border-bottom:1px solid rgba(255,255,255,0.04);">'
+          + '<span style="font-weight:700;">' + p.symbol + '</span>'
+          + '<span style="color:#8b919c;">' + p.structure + '</span>'
+          + '<span style="color:#8b919c;">' + (p.dte_at_entry != null ? p.dte_at_entry + 'd DTE' : '—') + '</span>'
+          + '<span style="color:' + color + ';">' + sign + credit.toFixed(2) + '</span>'
+          + '</div>';
+      }).join('');
+    };
+    renderPositions(fleetPos, document.getElementById('oe-fleet-positions'));
+    renderPositions(ghostPos, document.getElementById('oe-ghost-positions'));
+  } catch(e) { console.warn('options engine poll failed', e); }
+}
+pollOptionsEngine();
+setInterval(pollOptionsEngine, 30000);
+// === END OPTIONS ENGINE ===
+
+// === FLEET ACTIVITY FEED ===
+let _seenTradeIds = new Set();
+let _feedFirstLoad = true;
+
+async function pollFleetFeed() {
+  try {
+    const rows = await fetch('/api/trades?limit=15').then(r => r.json());
+    if (!Array.isArray(rows)) return;
+    renderFleetFeed(rows);
+  } catch (e) {
+    const meta = document.getElementById('fleet-feed-meta');
+    if (meta) meta.textContent = 'feed error';
+  }
+}
+
+function renderFleetFeed(rows) {
+  const host = document.getElementById('fleet-feed');
+  const meta = document.getElementById('fleet-feed-meta');
+  if (!host) return;
+
+  const top10 = rows.slice(0, 10);
+
+  if (top10.length === 0) {
+    host.innerHTML = '<div class="fleet-feed-empty">No fleet activity on record.</div>';
+    if (meta) meta.textContent = 'empty';
+    return;
+  }
+
+  // Track new trades — only flash after the first load
+  const newIds = [];
+  if (!_feedFirstLoad) {
+    for (const r of top10) {
+      if (r.id && !_seenTradeIds.has(r.id)) newIds.push(r.id);
+    }
+  }
+  top10.forEach(r => { if (r.id) _seenTradeIds.add(r.id); });
+
+  // entry_date is ET already ("2026-04-20 13:34:50")
+  const toTime = d => (d || '').slice(11, 16);
+  const toDate = d => (d || '').slice(0, 10);
+  const todayET = (() => {
+    const nowET = new Date(Date.now() - 4 * 3600 * 1000);
+    return nowET.toISOString().slice(0, 10);
+  })();
+
+  const html = top10.map(r => {
+    const isNew = newIds.includes(r.id);
+    const time = toTime(r.entry_date) || '—';
+    const dateStr = toDate(r.entry_date);
+    const timeDisplay = dateStr === todayET ? time : dateStr.slice(5) + ' ' + time;
+    const sideKey = (r.side || 'long').toLowerCase();
+    const actionLabel = r.status === 'closed' ? 'SELL' : (sideKey === 'short' ? 'SHORT' : 'BUY');
+    const actionClass = r.status === 'closed' ? 'feed-action-sell' : 'feed-action-' + sideKey;
+    const priceDisplay = r.exit_price
+      ? `$${(r.exit_price).toFixed(2)} exit`
+      : `$${(r.entry_price || 0).toFixed(2)}`;
+    const reason = (r.signal_reasoning || '').replace(/\s+/g, ' ').slice(0, 110);
+
+    return `<div class="feed-row${isNew ? ' feed-row-new' : ''}" title="${escapeHtml(r.signal_reasoning || '')}">
+      <span class="feed-time">${escapeHtml(timeDisplay)}</span>
+      <span class="feed-agent">${escapeHtml(r.model_source || r.player_id || '—')}</span>
+      <span class="${actionClass}">${actionLabel}</span>
+      <span class="feed-sym">${escapeHtml(r.symbol || '')}</span>
+      <span class="feed-price">${escapeHtml(priceDisplay)}</span>
+      <span class="feed-reason">${escapeHtml(reason)}</span>
+    </div>`;
+  }).join('');
+
+  host.innerHTML = html;
+
+  if (meta) {
+    const todayCount = rows.filter(r => toDate(r.entry_date) === todayET).length;
+    const lastAgo = lastTradeAgoLabel(top10[0]?.entry_date);
+    meta.textContent = `${todayCount} today · last ${lastAgo}`;
+  }
+
+  _feedFirstLoad = false;
+
+  // If new trades landed, re-poll fleet pulse immediately so RED can flip to HEALTHY
+  if (newIds.length > 0 && typeof pollFleetPulse === 'function') {
+    pollFleetPulse();
+  }
+}
+
+function lastTradeAgoLabel(dateStr) {
+  if (!dateStr) return '—';
+  const parsed = new Date(dateStr.replace(' ', 'T') + '-04:00');
+  const diffMin = Math.max(0, Math.round((Date.now() - parsed.getTime()) / 60000));
+  if (diffMin < 60) return diffMin + 'm ago';
+  if (diffMin < 1440) return Math.round(diffMin / 60) + 'h ago';
+  return Math.round(diffMin / 1440) + 'd ago';
+}
+
+function escapeHtml(s) {
+  return String(s)
+    .replace(/&/g, '&amp;')
+    .replace(/</g, '&lt;')
+    .replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;')
+    .replace(/'/g, '&#39;');
+}
+
+pollFleetFeed();
+setInterval(pollFleetFeed, 30000);
+// === END FLEET ACTIVITY FEED ===
+
+// === P11: POSITIONS AT RISK ===
+let _atRiskSource = 'real';
+
+(function() {
+  function _wireArsToggle() {
+    document.querySelectorAll('.ars-btn').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        document.querySelectorAll('.ars-btn').forEach(function(b) { b.classList.remove('active'); });
+        btn.classList.add('active');
+        _atRiskSource = btn.dataset.source;
+        var badge = document.getElementById('at-risk-badge');
+        if (badge) {
+          badge.className = 'source-badge ' + (_atRiskSource === 'all' ? 'mixed' : _atRiskSource);
+          badge.textContent = _atRiskSource.toUpperCase();
+        }
+        pollAtRisk();
+      });
+    });
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _wireArsToggle);
+  else _wireArsToggle();
+})();
+
+async function pollAtRisk() {
+  try {
+    const d = await fetch('/api/positions/at_risk?source=' + _atRiskSource).then(r => r.json());
+    const body = document.getElementById('at-risk-body');
+    const meta = document.getElementById('at-risk-meta');
+    if (!body) return;
+
+    if (!d.positions || d.positions.length === 0) {
+      body.innerHTML = '<div class="at-risk-empty">No open positions</div>';
+      if (meta) meta.textContent = '—';
+      return;
+    }
+
+    const flagged = d.positions.filter(p => p.flag !== 'ok');
+    const metaParts = [
+      d.bleeding_count > 0 ? `${d.bleeding_count} bleeding` : null,
+      d.watch_count    > 0 ? `${d.watch_count} watching`    : null,
+      d.unknown_count  > 0 ? `${d.unknown_count} P/L unknown` : null,
+    ].filter(Boolean);
+    if (meta) meta.textContent = metaParts.length ? metaParts.join(' · ') : `${d.positions.length} tracked · all ok`;
+
+    if (flagged.length === 0) {
+      body.innerHTML = '<div class="at-risk-empty">All positions healthy ✓</div>';
+      return;
+    }
+
+    body.innerHTML = flagged.map(p => {
+      if (p.flag === 'unknown') {
+        return `<div class="at-risk-row">
+          <span class="at-risk-sym">${p.symbol}</span>
+          <span class="at-risk-qty">${p.qty||0} sh</span>
+          <span class="at-risk-mv">@$${parseFloat(p.avg_cost||0).toFixed(2)}</span>
+          <span class="at-risk-pnl-watch">P/L —</span>
+          <span class="at-risk-pct-watch" style="color:#8b919c;font-size:10px">${p.account||'real'}</span>
+        </div>`;
+      }
+      const pct = p.unrealized_plpc || 0;
+      const pnl = p.unrealized_pl  || 0;
+      const mv  = p.market_value   || 0;
+      return `<div class="at-risk-row">
+        <span class="at-risk-sym">${p.symbol}</span>
+        <span class="at-risk-qty">${p.qty||0} sh</span>
+        <span class="at-risk-mv">$${parseFloat(mv).toFixed(0)}</span>
+        <span class="at-risk-pnl-${p.flag}">${pnl>=0?'+':''}$${parseFloat(pnl).toFixed(2)}</span>
+        <span class="at-risk-pct-${p.flag}">${pct>=0?'+':''}${parseFloat(pct).toFixed(2)}%</span>
+      </div>`;
+    }).join('');
+  } catch(e) { console.warn('at-risk poll failed', e); }
+}
+pollAtRisk();
+setInterval(pollAtRisk, 30000);
+// === END P11 ===
+
+// === P10: GROK VS FLEET DIFF ===
+async function pollGrokDiff() {
+  try {
+    const d = await fetch('/api/picks/diff').then(r => r.json());
+    const panel = document.getElementById('grok-diff-panel');
+    const body  = document.getElementById('grok-diff-body');
+    const meta  = document.getElementById('grok-diff-meta');
+    if (!panel) return;
+    if (!d.picks_count || d.picks_count === 0) { panel.style.display = 'none'; return; }
+    panel.style.display = 'block';
+    if (meta) meta.textContent = `${d.picks_count} picks · ${d.date}`;
+    const b = d.buckets || {};
+    const sections = [
+      ['recent',    '✓ We traded recently', b.recent    || []],
+      ['missed',    '⚠ Not on our radar',   b.missed    || []],
+      ['disagreed', '✗ We disagreed',       b.disagreed || []],
+    ];
+    const rendered = sections
+      .filter(([,,arr]) => arr.length > 0)
+      .map(([cls, label, arr]) =>
+        `<div class="grok-diff-bucket grok-diff-${cls}">
+          <div class="grok-diff-bucket-label">${label} (${arr.length})</div>
+          <div class="grok-diff-tickers">${arr.map(x => x.ticker + (x.our_action ? ` (${x.our_action})` : '')).join(' · ')}</div>
+        </div>`
+      ).join('');
+    if (body) body.innerHTML = rendered || '<div class="grok-diff-bucket-label" style="color:var(--muted)">no diff data</div>';
+  } catch(e) { console.warn('grok-diff poll failed', e); }
+}
+pollGrokDiff();
+setInterval(pollGrokDiff, 5 * 60 * 1000);
+// === END P10 ===
+
+// === P12: AGENT ACCURACY SCOREBOARD ===
+async function pollScoreboard() {
+  try {
+    const d = await fetch('/api/agents/scoreboard').then(r => r.json());
+    const body = document.getElementById('scoreboard-body');
+    const meta = document.getElementById('scoreboard-meta');
+    if (!body) return;
+    if (!d.scoreboard || !d.scoreboard.length) {
+      body.innerHTML = '<tr><td colspan="8" style="color:#5a6370;padding:8px 4px;">No closed trades yet</td></tr>';
+      return;
+    }
+    const fmt$ = n => (n >= 0 ? '+' : '') + '$' + Math.abs(n || 0).toFixed(0);
+    const fmtPct = n => (n >= 0 ? '+' : '') + (n || 0).toFixed(1) + '%';
+    const clr = n => n > 0 ? 'style="color:#0d7337"' : n < 0 ? 'style="color:#cc3d33"' : '';
+    body.innerHTML = d.scoreboard.map(a => `
+      <tr style="border-bottom:1px solid rgba(255,255,255,0.03)">
+        <td style="padding:5px 4px;color:#d9d9d9;font-weight:600">${a.agent || '—'}</td>
+        <td style="padding:5px 4px;text-align:right;color:#d9d9d9">${a.trade_count || 0}</td>
+        <td style="padding:5px 4px;text-align:right" ${clr((a.win_rate||0)-50)}>${(a.win_rate||0).toFixed(0)}%</td>
+        <td style="padding:5px 4px;text-align:right" ${clr(a.total_pnl)}>${fmt$(a.total_pnl)}</td>
+        <td style="padding:5px 4px;text-align:right" ${clr(a.avg_pct)}>${fmtPct(a.avg_pct)}</td>
+        <td style="padding:5px 4px;text-align:right;color:#d9d9d9">${a.profit_factor || '—'}</td>
+        <td style="padding:5px 4px;text-align:right;color:#0d7337">${fmt$(a.largest_win)}</td>
+        <td style="padding:5px 4px;text-align:right;color:#cc3d33">${fmt$(a.largest_loss)}</td>
+      </tr>`).join('');
+    if (meta) meta.textContent = `${d.scoreboard.length} agents · by P/L`;
+  } catch(e) { console.warn('scoreboard poll failed', e); }
+}
+pollScoreboard();
+setInterval(pollScoreboard, 5 * 60 * 1000);
+// === END P12 ===
+
+// === P13: AGENT × TICKER AFFINITY MATRIX ===
+async function pollAffinity() {
+  try {
+    const d = await fetch('/api/agents/affinity').then(r => r.json());
+    const body = document.getElementById('affinity-body');
+    if (!body) return;
+    const tickers = d.tickers || [];
+    const matrix  = d.matrix  || {};
+    const agents  = Object.keys(matrix);
+    if (!tickers.length || !agents.length) {
+      body.innerHTML = '<div style="color:#5a6370;font-style:italic;font-size:12px;">No closed trades data</div>';
+      return;
+    }
+    let html = '<table style="font-family:ui-monospace,monospace;font-size:11px;border-collapse:collapse"><thead><tr>'
+      + '<th style="padding:4px 8px;text-align:left;color:#8b919c;"></th>';
+    tickers.forEach(t => html += `<th style="padding:4px 6px;color:#d9d9d9;font-weight:700">${t}</th>`);
+    html += '</tr></thead><tbody>';
+    agents.forEach(a => {
+      html += `<tr><td style="padding:4px 8px;color:#d9d9d9;font-weight:600;white-space:nowrap">${a}</td>`;
+      tickers.forEach(t => {
+        const cell = (matrix[a] || {})[t];
+        if (!cell) {
+          html += '<td style="padding:4px 6px;color:#3a4050;text-align:center">—</td>';
+        } else {
+          const pnl = cell.total_pnl || 0;
+          const opacity = Math.min(0.6, Math.abs(pnl) / 500);
+          const bg = pnl > 0 ? `rgba(13,115,55,${opacity})` : pnl < 0 ? `rgba(204,61,51,${opacity})` : 'transparent';
+          const color = pnl >= 0 ? '#0d7337' : '#cc3d33';
+          html += `<td style="padding:4px 6px;background:${bg};color:${color};text-align:right;font-weight:600" `
+            + `title="${cell.trades} trades · ${cell.win_rate.toFixed(0)}% win">${(pnl>=0?'+':'')+pnl.toFixed(0)}</td>`;
+        }
+      });
+      html += '</tr>';
+    });
+    html += '</tbody></table>';
+    body.innerHTML = html;
+  } catch(e) { console.warn('affinity poll failed', e); }
+}
+pollAffinity();
+setInterval(pollAffinity, 10 * 60 * 1000);
+// === END P13 ===
+
+// === METALS EXPOSURE PANEL ===
+async function pollMetals() {
+  try {
+    const d = await fetch('/api/metals/exposure').then(r => r.json());
+    renderMetals(d);
+  } catch(e) {
+    const meta = document.getElementById('metals-meta');
+    if (meta) meta.textContent = 'error';
+    console.warn('metals poll failed:', e);
+  }
+}
+
+function renderMetals(d) {
+  const fmt$ = n => '$' + Number(n||0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+  const fmtPct = n => (n>=0?'+':'') + Number(n||0).toFixed(2) + '%';
+
+  const spot = d.spot || {};
+
+  const goldEl   = document.getElementById('metal-spot-gold');
+  const silverEl = document.getElementById('metal-spot-silver');
+  const gsrEl    = document.getElementById('metal-spot-gsr');
+  const sigEl    = document.getElementById('metal-spot-signal');
+
+  if (goldEl && spot.gold) {
+    goldEl.querySelector('.metal-spot-price').textContent = fmt$(spot.gold.price);
+    const chg = goldEl.querySelector('.metal-spot-chg');
+    chg.textContent  = fmtPct(spot.gold.change_pct);
+    chg.className    = 'metal-spot-chg ' + (spot.gold.change_pct >= 0 ? 'up' : 'down');
+  }
+  if (silverEl && spot.silver) {
+    silverEl.querySelector('.metal-spot-price').textContent = fmt$(spot.silver.price);
+    const chg = silverEl.querySelector('.metal-spot-chg');
+    chg.textContent  = fmtPct(spot.silver.change_pct);
+    chg.className    = 'metal-spot-chg ' + (spot.silver.change_pct >= 0 ? 'up' : 'down');
+  }
+  if (gsrEl) {
+    gsrEl.querySelector('.metal-spot-price').textContent = (spot.gsr || 0).toFixed(1);
+  }
+  if (sigEl) {
+    const sig     = d.signal || {};
+    const code    = sig.code || '—';
+    const priceEl = sigEl.querySelector('.metal-spot-price');
+    priceEl.textContent = code;
+    priceEl.className   = 'metal-spot-price signal-code ' + code;
+    const chgEl   = sigEl.querySelector('.metal-spot-chg');
+    chgEl.textContent   = (sig.reasons || []).slice(0, 1).join('') || 'neutral';
+  }
+
+  // Holdings columns
+  const holdingsEl = document.getElementById('metals-holdings');
+  if (holdingsEl) {
+    const phys  = d.physical  || {};
+    const paper = d.paper_etf || {};
+    const real  = d.real_etf  || {};
+
+    const paperRows = (paper.positions || []).length === 0
+      ? '<div class="metals-holding-row"><span style="color:#5a6370;font-style:italic">no paper metals</span></div>'
+      : (paper.positions || []).map(p =>
+          `<div class="metals-holding-row"><span>${p.symbol}</span><span class="val">${p.qty} sh · ${fmt$(p.value)}</span></div>`
+        ).join('');
+
+    const realSection = (real.positions || []).length > 0
+      ? '<div class="metals-holding-title" style="margin-top:6px">Real ETF</div>'
+        + (real.positions || []).map(p =>
+            `<div class="metals-holding-row"><span>${p.symbol} <span style="color:#8b919c;font-size:9px">(${p.account})</span></span><span class="val">${p.qty} sh</span></div>`
+          ).join('')
+      : '';
+
+    holdingsEl.innerHTML = `
+      <div class="metals-holding-col">
+        <div class="metals-holding-title">Physical</div>
+        <div class="metals-holding-row"><span>Gold</span><span class="val">${phys.gold_oz||0} oz · ${fmt$(phys.gold_value)}</span></div>
+        <div class="metals-holding-row"><span>Silver</span><span class="val">${phys.silver_oz||0} oz · ${fmt$(phys.silver_value)}</span></div>
+        <div class="metals-holding-row" style="border-top:1px solid rgba(255,255,255,0.06);margin-top:3px;padding-top:4px;"><span>Total</span><span class="val">${fmt$(phys.total_value)}</span></div>
+      </div>
+      <div class="metals-holding-col">
+        <div class="metals-holding-title">Paper ETF</div>
+        ${paperRows}
+        ${realSection}
+      </div>
+    `;
+  }
+
+  // Footer
+  const footerEl = document.getElementById('metals-footer');
+  if (footerEl) {
+    const tot = d.totals || {};
+    const pct = tot.pct_of_portfolio != null
+      ? tot.pct_of_portfolio.toFixed(1) + '% of portfolio'
+      : '—';
+    footerEl.innerHTML = `
+      <span>Total metals exposure: <strong style="color:#d9d9d9">${fmt$(tot.metals_value)}</strong> · ${pct}</span>
+      <span style="color:#5a6370">GSR avg ~65 · &gt;80 silver cheap · &lt;50 gold cheap</span>
+    `;
+  }
+
+  const meta = document.getElementById('metals-meta');
+  if (meta) meta.textContent = new Date().toLocaleTimeString([], {hour:'2-digit', minute:'2-digit'});
+}
+
+pollMetals();
+setInterval(pollMetals, 5 * 60 * 1000);
+// === END METALS ===
+
+// === BATTLE STATION 0DTE — global poller (delegates to inline loadBs0dte) ===
+function pollBS0DTE() {
+  if (typeof window.loadBs0dte === 'function') window.loadBs0dte();
+}
+pollBS0DTE();
+setInterval(pollBS0DTE, 60 * 1000);
+// === END BS0DTE ===
 </script>
 
 </body>

@@ -219,8 +219,8 @@ def _minutes_until_eod_close() -> float:
 def _alpaca_headers() -> dict:
     from dotenv import load_dotenv
     load_dotenv()
-    key = os.getenv("ALPACA_API_KEY", "")
-    secret = os.getenv("ALPACA_SECRET_KEY", "")
+    key = os.getenv("APCA_API_KEY_ID", "")
+    secret = os.getenv("APCA_API_SECRET_KEY", "")
     return {
         "APCA-API-KEY-ID": key,
         "APCA-API-SECRET-KEY": secret,

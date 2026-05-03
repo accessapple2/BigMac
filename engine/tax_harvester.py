@@ -53,7 +53,7 @@ MAX_HARVESTS_PER_DAY       = 3
 WASH_SALE_DAYS             = 30
 
 # Player used to execute harvest trades
-_HARVEST_PLAYER = "claude-sonnet"
+_HARVEST_PLAYER = "qwen3-8b-sonnet"
 
 # Correlated substitutes — kept intentionally minimal and non-contentious
 # These are standard ETF/large-cap pairs used in published TLH strategies.
@@ -314,9 +314,9 @@ def _get_substitute(ticker: str) -> Optional[str]:
 
 def _live_price(ticker: str, fallback: float = 0.0) -> float:
     try:
-        import yfinance as yf
-        info = yf.Ticker(ticker).fast_info
-        p = getattr(info, "last_price", None) or getattr(info, "regular_market_price", None)
+        from engine.market_data import get_stock_price
+        data = get_stock_price(ticker)
+        p = data.get("price")
         return float(p) if p else fallback
     except Exception:
         return fallback

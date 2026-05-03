@@ -14,17 +14,54 @@ import logging
 import subprocess
 import threading
 import time
+import os
 from datetime import datetime, timezone
 
 import requests
+from config import OLLAMA_URL, OLLIE_URL
 
 logger = logging.getLogger(__name__)
 
-OLLAMA_URL = "http://localhost:11434"
+_TIMEOUT_LOG = os.path.join(os.path.dirname(__file__), "..", "logs", "ollama_timeouts.jsonl")
+
+
+def _write_timeout_log(model_id: str, consecutive: int, action: str) -> None:
+    """Append one JSON line to logs/ollama_timeouts.jsonl. Never raises."""
+    try:
+        entry = json.dumps({
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "model_id": model_id,
+            "consecutive_timeouts": consecutive,
+            "action": action,  # "continue" or "recycle"
+        })
+        os.makedirs(os.path.dirname(_TIMEOUT_LOG), exist_ok=True)
+        with open(_TIMEOUT_LOG, "a") as f:
+            f.write(entry + "\n")
+    except Exception:
+        pass
+
 RECYCLE_AFTER_N_TIMEOUTS = 3       # consecutive timeouts before recycle attempt
 SKIP_AFTER_FAIL_MIN = 30           # skip model for N minutes if recycle also fails
 CIRCUIT_RESTART_WAIT_S = 15        # seconds to wait after `ollama serve` before re-warming
-PRIMARY_WARMUP_MODEL = "qwen3.5:9b"
+# 2026-04-20: qwen3:8b replaced — it loaded 8GB on bigmac localhost and caused swap storms.
+# qwen3:8b lives on Ollie GPU; warmup goes there, not bigmac.
+PRIMARY_WARMUP_MODEL = "qwen3:8b"
+
+# Models that live on Ollie GPU. All others fall back to bigmac localhost.
+_OLLIE_MODELS: frozenset[str] = frozenset({
+    "qwen3:8b", "qwen3:14b", "deepseek-r1:14b", "deepseek-r1:7b",
+    "0xroyce/plutus:latest", "0xroyce/plutus", "qwen2.5-coder:7b",
+    "gemma3:4b", "mistral:7b",  # 5.8: Picard + Pike migrated to Ollie GPU
+})
+
+
+def _model_url(model_id: str) -> str:
+    """Return the Ollama server URL for a given model_id.
+
+    Ollie GPU (192.168.1.166:11434) hosts the heavy war-room models + Picard/Pike.
+    Bigmac localhost is reserved for small resident models (phi3:mini).
+    """
+    return OLLIE_URL if model_id in _OLLIE_MODELS else OLLAMA_URL
 
 
 # ---------------------------------------------------------------------------
@@ -96,9 +133,9 @@ class OllamaWatchdog:
         with self._lock:
             count = self._consecutive_timeouts.get(model_id, 0) + 1
             self._consecutive_timeouts[model_id] = count
-        if count >= RECYCLE_AFTER_N_TIMEOUTS:
-            return "recycle"
-        return "continue"
+        action = "recycle" if count >= RECYCLE_AFTER_N_TIMEOUTS else "continue"
+        _write_timeout_log(model_id, count, action)
+        return action
 
     # ------------------------------------------------------------------
     # Model recycle
@@ -114,17 +151,18 @@ class OllamaWatchdog:
             "Ollama auto-recovery: recycling %s after %d consecutive timeouts",
             model_id, RECYCLE_AFTER_N_TIMEOUTS,
         )
+        _url = _model_url(model_id)  # Ollie GPU or bigmac localhost
         try:
-            # Step 1 — force unload
+            # Step 1 — force unload (against the server that actually holds the model)
             requests.post(
-                f"{OLLAMA_URL}/api/generate",
+                f"{_url}/api/generate",
                 json={"model": model_id, "keep_alive": 0},
                 timeout=10,
             )
             time.sleep(5)
             # Step 2 — reload with a probe
             r = requests.post(
-                f"{OLLAMA_URL}/api/generate",
+                f"{_url}/api/generate",
                 json={
                     "model": model_id,
                     "keep_alive": "5m",
@@ -181,9 +219,9 @@ class OllamaWatchdog:
                 stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL,
             )
             time.sleep(CIRCUIT_RESTART_WAIT_S)
-            # Re-warm primary model
+            # Re-warm primary model on Ollie GPU (qwen3:8b lives there, not bigmac)
             requests.post(
-                f"{OLLAMA_URL}/api/generate",
+                f"{OLLIE_URL}/api/generate",
                 json={
                     "model": PRIMARY_WARMUP_MODEL,
                     "keep_alive": "5m",
@@ -193,7 +231,7 @@ class OllamaWatchdog:
                 },
                 timeout=60,
             )
-            logger.info("Ollama circuit breaker: server restarted and %s warmed", PRIMARY_WARMUP_MODEL)
+            logger.info("Ollama circuit breaker: server restarted and %s warmed on Ollie", PRIMARY_WARMUP_MODEL)
         except Exception as e:
             logger.error("Ollama circuit breaker restart failed: %s", e)
 

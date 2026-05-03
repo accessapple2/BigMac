@@ -29,9 +29,10 @@ import requests
 # Config
 # ---------------------------------------------------------------------------
 
-OLLAMA_BASE = "http://localhost:11434"
+from config import OLLIE_URL as _OLLIE_URL
+OLLAMA_BASE = _OLLIE_URL  # 2026-04-20: localhost → Ollie GPU
 TRADER_DB = "data/trader.db"
-DEFAULT_MODEL = "qwen3.5:9b"
+DEFAULT_MODEL = "qwen3:8b"  # 2026-04-20: qwen3:8b → qwen3:8b
 DEFAULT_HORIZON = 30  # days
 
 SCENARIOS = ["bull", "base", "bear"]

@@ -224,7 +224,7 @@ export default function AIChatFeed({ compact = false, warRoom = false }) {
           <div className="empty-state">No war room takes yet. Post your first hot take above!</div>
         )}
         {msgs.map((msg, i) => {
-          const isSteve = msg.player_id === 'steve-webull'
+          const isSteve = msg.player_id === 'webull'
           const provider = isSteve ? 'human' : msg.provider
           const modeTag = msg.strategy_mode ? STRATEGY_MODES[msg.strategy_mode] : null
           const msgKey = msg.id || i

@@ -10,7 +10,7 @@ Syncs the live Alpaca paper account into TradeMinds DB on a tiered schedule:
 
 Each sync writes:
   - ai_players.cash              (live cash balance)
-  - positions table              (re-synced from Alpaca for steve-webull)
+  - positions table              (re-synced from Alpaca for webull)
   - portfolios.current_balance   (total portfolio value)
   - settings table               (last_alpaca_full_sync, *_value, *_cash)
 
@@ -132,23 +132,23 @@ def run_full_alpaca_sync(force: bool = False) -> dict:
 
         conn = _db()
         try:
-            # ── 1. Update ai_players cash (steve-webull) ────────────────────
+            # ── 1. Update ai_players cash (webull) ────────────────────
             conn.execute(
-                "UPDATE ai_players SET cash=? WHERE id='steve-webull'",
+                "UPDATE ai_players SET cash=? WHERE id='webull'",
                 (cash,),
             )
 
-            # ── 2. Re-sync positions table for steve-webull ─────────────────
+            # ── 2. Re-sync positions table for webull ─────────────────
             # Clear current open positions, preserve history (closed trades stay
             # in the trades table so W/L stats are unaffected).
             conn.execute(
-                "DELETE FROM positions WHERE player_id='steve-webull'",
+                "DELETE FROM positions WHERE player_id='webull'",
             )
             for p in positions:
                 conn.execute(
                     """INSERT INTO positions
                          (player_id, symbol, qty, avg_price, asset_type, opened_at)
-                       VALUES ('steve-webull', ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+                       VALUES ('webull', ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
                     (p["symbol"], p["qty"], p["avg_price"], p["asset_type"]),
                 )
 

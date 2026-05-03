@@ -1,0 +1,59 @@
+name: Grep Gate — Forbidden Pattern Check
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  grep-gate:
+    name: Scan for forbidden patterns
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Check — no qwen3.5 model references (replaced by qwen3:8b/14b)
+        run: |
+          # Exclude .bak files, REPAIR_LOG (has historical notes), and this workflow itself
+          if grep -r "qwen3\.5" \
+               --include="*.py" --include="*.json" --include="*.yaml" --include="*.yml" \
+               --exclude-dir=".git" \
+               . | grep -v "\.bak\." | grep -v "was qwen3\.5" | grep -v "grep-gate\.yml"; then
+            echo "❌ Found qwen3.5 reference in source files — replace with qwen3:8b or qwen3:14b"
+            exit 1
+          fi
+          echo "✅ No qwen3.5 references found"
+
+      - name: Check — no hardcoded Alpaca LIVE keys (paper only allowed)
+        run: |
+          # Reject PK (live) keys; PKTEST (paper) keys are allowed
+          if grep -r "APCA_API_KEY_ID\s*=\s*['\"]PK[^T]" \
+               --include="*.py" --include="*.env*" \
+               --exclude-dir=".git" .; then
+            echo "❌ Possible Alpaca LIVE key hardcoded — use paper (PKTEST) only"
+            exit 1
+          fi
+          echo "✅ No Alpaca live-key patterns found"
+
+      - name: Check — no rm -rf on data directories
+        run: |
+          if grep -rn "rm\s*-rf.*\(trader\.db\|arena\.db\|tractor\.db\|autonomous-trader\|ollietrades\)" \
+               --include="*.sh" --include="*.py" \
+               --exclude-dir=".git" .; then
+            echo "❌ Destructive rm -rf on protected data paths found"
+            exit 1
+          fi
+          echo "✅ No destructive rm -rf on data paths"
+
+      - name: Check — no DROP TABLE on sacred databases
+        run: |
+          if grep -rni "DROP\s\+TABLE\s\+\(IF\s\+EXISTS\s\+\)\?\(trades\|portfolio_positions\|arena\|signals\|rikers_log\|war_room\)" \
+               --include="*.py" --include="*.sql" \
+               --exclude-dir=".git" .; then
+            echo "❌ DROP TABLE on sacred table found — use schema migrations, not drops"
+            exit 1
+          fi
+          echo "✅ No DROP TABLE on sacred tables"

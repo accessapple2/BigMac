@@ -1,0 +1,199 @@
+/* ═══════════════════════════════════════════════════════════════════
+   MOBILE UX FIXES — OllieTrades
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* 1. Floating CIC button — image was 32px, needs 48px */
+#computerChatBtn img {
+    width: 48px !important;
+    height: 48px !important;
+    border-radius: 50%;
+}
+#computerChatBtn {
+    width: 60px !important;
+    padding: 6px 4px 4px !important;
+}
+
+/* 2. Close button — minimum 44px touch target on mobile */
+@media (max-width: 768px) {
+    #computer-chat-close {
+        min-width: 44px !important;
+        min-height: 44px !important;
+        font-size: 20px !important;
+    }
+
+    /* 3. Chat panel — full height on small screens */
+    #computerChatPanel {
+        bottom: 0 !important;
+        right: 0 !important;
+        left: 0 !important;
+        width: 100vw !important;
+        max-width: 100vw !important;
+        height: 100vh !important;
+        max-height: 100vh !important;
+        border-radius: 0 !important;
+    }
+
+    /* 4. Chat input — 16px prevents iOS auto-zoom */
+    #computer-chat-input,
+    #chatInput,
+    input[type="text"],
+    textarea {
+        font-size: 16px !important;
+    }
+
+    /* 5. All action buttons — 44px minimum (exclude tiny mob-col-btn) */
+    button:not(.mob-col-btn),
+    .btn,
+    [role="button"] {
+        min-height: 44px !important;
+    }
+
+    /* 6. Tables — horizontal scroll */
+    table {
+        display: block;
+        overflow-x: auto;
+        -webkit-overflow-scrolling: touch;
+    }
+}
+
+/* ═══════════════════════════════════════════════════════════════════
+   MOBILE COMPACT — Bridge dashboard compactness (max-width: 768px)
+   ═══════════════════════════════════════════════════════════════════ */
+
+@media (max-width: 768px) {
+
+    /* ── 1. FLEET SUMMARY — 4-column compact strip ─────────────── */
+    .stats-grid {
+        grid-template-columns: repeat(4, 1fr) !important;
+        gap: 4px !important;
+        margin-bottom: 8px !important;
+    }
+    .stat-card {
+        padding: 6px 6px !important;
+        border-radius: 6px !important;
+        border-left-width: 2px !important;
+    }
+    .stat-value {
+        font-size: 13px !important;
+        line-height: 1.2 !important;
+    }
+    .stat-label {
+        font-size: 8px !important;
+        letter-spacing: 0 !important;
+        margin-bottom: 1px !important;
+    }
+    .stat-sub { display: none !important; }
+
+    /* Model pills — hide on mobile to save vertical space */
+    #topModelPills { display: none !important; }
+
+    /* ── 2. COLLAPSIBLE CARD PATTERN ───────────────────────────── */
+    /* Collapse button — small, non-intrusive, separate from existing onclick */
+    .mob-col-btn {
+        display: inline-flex !important;
+        align-items: center !important;
+        justify-content: center !important;
+        width: 20px !important;
+        height: 20px !important;
+        min-height: 20px !important;    /* override the 44px rule above */
+        border-radius: 4px !important;
+        background: rgba(255, 255, 255, 0.07) !important;
+        border: 1px solid rgba(255, 255, 255, 0.12) !important;
+        color: #64748b !important;
+        font-size: 9px !important;
+        cursor: pointer !important;
+        flex-shrink: 0 !important;
+        margin-right: 7px !important;
+        padding: 0 !important;
+        line-height: 1 !important;
+        vertical-align: middle !important;
+        transition: background 0.15s !important;
+    }
+    .mob-col-btn:hover { background: rgba(255,255,255,0.13) !important; }
+
+    /* Hide all direct children of a collapsed card, except:
+       - first child (the header / toggle area)
+       - <style> and <script> blocks (never display:none these) */
+    .mob-collapse-target.mob-collapsed > *:not(:first-child):not(style):not(script) {
+        display: none !important;
+    }
+
+    /* ── 3. VERTICAL SPACING — cut in half ─────────────────────── */
+    .card { margin-bottom: 8px !important; }
+    .card-header { padding: 8px 12px !important; }
+    /* Main content area gaps */
+    .main { padding: 8px !important; padding-bottom: 80px !important; }
+
+    /* Section descriptions (the blue-bordered intros) */
+    #section-dashboard > div[style*="border-left:4px solid #2563eb"] {
+        padding: 6px 10px !important;
+        margin-bottom: 8px !important;
+        font-size: 12px !important;
+    }
+
+    /* ── 4. EARNINGS BANNER — compact single-line ──────────────── */
+    #earningsBanner {
+        padding: 7px 12px !important;
+        margin-bottom: 8px !important;
+        border-radius: 8px !important;
+    }
+    #earningsBanner > div {
+        gap: 8px !important;
+        align-items: center !important;
+    }
+    /* The emoji icon */
+    #earningsBanner > div > span:first-child {
+        font-size: 15px !important;
+    }
+    /* "Earnings Alert" label row */
+    #earningsBanner [style*="font-size:13px"][style*="font-weight:700"] {
+        font-size: 11px !important;
+        margin-bottom: 0 !important;
+    }
+    /* Earnings content text */
+    #earningsContent {
+        font-size: 11px !important;
+        line-height: 1.3 !important;
+    }
+    /* VIX alert — compact too */
+    #vixAlertBanner {
+        padding: 7px 12px !important;
+        margin-bottom: 8px !important;
+    }
+
+    /* ── 5. CIC + ARCHER BUTTONS — smaller, tucked to edge ──────── */
+    #computerChatBtn {
+        width: 40px !important;
+        right: 10px !important;
+        bottom: 92px !important;
+        padding: 4px 3px !important;
+    }
+    #computerChatBtn img {
+        width: 30px !important;
+        height: 30px !important;
+    }
+    #computerChatBtn .chat-btn-label { display: none !important; }
+
+    /* Archer float avatar */
+    #archer-float {
+        bottom: 150px !important;
+        right: 10px !important;
+    }
+    #archer-float-avatar {
+        width: 36px !important;
+        height: 36px !important;
+    }
+
+    /* ── 6. TACTICAL GRID — single column on mobile ────────────── */
+    #tac-grid {
+        grid-template-columns: 1fr !important;
+        gap: 8px !important;
+        padding: 10px !important;
+    }
+
+    /* ── 7. BRIDGE-HEATMAP / FEAR-GREED row ─────────────────────── */
+    #bridge-heatmap,
+    #bridge-fear-greed {
+        padding: 8px !important;
+    }
+}

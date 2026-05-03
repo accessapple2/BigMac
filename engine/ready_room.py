@@ -86,14 +86,12 @@ def _init_db() -> None:
 
 
 def _get_vix() -> float:
-    """Fetch latest VIX from yfinance. Returns 20.0 on failure."""
+    """Fetch latest VIX. Returns 20.0 on failure."""
     try:
-        import yfinance as yf
-        df = yf.download("^VIX", period="2d", progress=False, timeout=10)
-        if df is not None and not df.empty:
-            val = float(df["Close"].dropna().iloc[-1])
-            if val > 0:
-                return round(val, 2)
+        from engine.market_data import get_vix
+        val = get_vix()
+        if val and val > 0:
+            return round(val, 2)
     except Exception as e:
         console.log(f"[yellow]ReadyRoom: VIX fetch error: {e}")
     return 20.0

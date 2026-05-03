@@ -94,17 +94,17 @@ class GEXDataAdapter:
         except Exception:
             pass
 
-        # Try 3: yfinance fallback
+        # Try 3: yfinance fallback (options chain only)
         try:
             import yfinance
             self.yf = yfinance
             self.source = "yfinance"
-            print("  [DATA] Using yfinance fallback (unlimited, free)")
+            print("  [DATA] Using yfinance fallback for options chain (unlimited, free)")
             return
         except ImportError:
             pass
 
-        print("  [!] No data source available. Install yfinance: pip install yfinance")
+        print("  [!] No data source available.")
         self.source = None
 
     def fetch(self, ticker):
@@ -343,7 +343,7 @@ class GEXDataAdapter:
     # Source C: yfinance fallback
     # ---------------------------------------------------------
     def _fetch_from_yfinance(self, ticker):
-        """Fallback to yfinance if CBOE/scanner unavailable."""
+        """Fallback to yfinance if CBOE/scanner unavailable (options chain data)."""
         try:
             import yfinance as yf
         except ImportError:
@@ -351,16 +351,17 @@ class GEXDataAdapter:
             return None
 
         try:
-            t = yf.Ticker(ticker)
-            spot = None
-            try:
-                spot = t.fast_info["lastPrice"]
-            except Exception:
+            from engine.market_data import get_stock_price as _gsp
+            _price_data = _gsp(ticker) or {}
+            spot = float(_price_data.get("price") or 0) or None
+            if not spot:
+                t = yf.Ticker(ticker)
                 spot = t.info.get("regularMarketPrice") or t.info.get("previousClose")
 
             if not spot:
                 return None
 
+            t = yf.Ticker(ticker)
             expirations = t.options[:NUM_EXPIRATIONS]
             q = DIV_YIELDS.get(ticker, 0.01)
             today = datetime.now()

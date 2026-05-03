@@ -27,7 +27,7 @@ def scan_premarket_gaps() -> list:
     from engine.market_data import get_stock_price, get_alpaca_bars
 
     gaps = []
-    for symbol in config.WATCH_STOCKS:
+    for symbol in config.get_effective_watchlist():
         try:
             data = get_stock_price(symbol) or {}
             bars = get_alpaca_bars(symbol, days=2)
@@ -161,19 +161,18 @@ def _call_model(model: str, prompt: str) -> str:
             )
         elif model == "gemini":
             resp = requests.post(
-                f"{config.OLLAMA_URL}/api/generate",
-                json={"model": "qwen3:14b", "prompt": prompt, "stream": False},
+                f"{config.OLLIE_URL}/api/generate",
+                json={"model": "qwen3:8b", "prompt": prompt, "stream": False, "think": False},
                 timeout=90,
             )
             resp.raise_for_status()
             return resp.json().get("response", "")
 
         elif model == "grok":
-            # Routed to local qwen3.5:9b — eliminates xAI API cost
-            # RAM patch 2026-04-17: was deepseek-r1:14b (9.7GB); funneled to 9b warm model.
+            # Routed to Ollie GPU (qwen3:8b) — 2026-04-20: localhost qwen3:8b → Ollie (was causing swap storms)
             resp = requests.post(
-                config.OLLAMA_URL + "/api/generate",
-                json={"model": "qwen3.5:9b", "prompt": prompt, "stream": False},
+                config.OLLIE_URL + "/api/generate",
+                json={"model": "qwen3:8b", "prompt": prompt, "stream": False, "think": False},
                 timeout=90,
             )
             resp.raise_for_status()

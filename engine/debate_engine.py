@@ -25,15 +25,16 @@ import aiohttp
 # Config
 # ---------------------------------------------------------------------------
 
-OLLAMA_BASE = "http://localhost:11434"
+from config import OLLIE_URL as _OLLIE_URL
+OLLAMA_BASE = _OLLIE_URL  # 2026-04-20: localhost → Ollie GPU
 TRADER_DB = "data/trader.db"
 
 # Model assignments — tune these to what runs best on your M4
 MODELS = {
     "primary": "phi4:14b",            # Picard judge + Risk Triad — deep reasoning
-    "general": "qwen3.5:9b",           # bull/bear agents — balanced analysis
-    "light": "qwen3.5:9b",             # fast, lightweight
-    "scanner": "qwen3.5:9b",           # fastest, simple tasks
+    "general": "qwen3:8b",            # bull/bear agents — 2026-04-20: qwen3:8b → qwen3:8b on Ollie
+    "light": "qwen3:8b",              # fast, lightweight — 2026-04-20: qwen3:8b → qwen3:8b on Ollie
+    "scanner": "qwen3:8b",            # fastest, simple tasks — 2026-04-20: qwen3:8b → qwen3:8b on Ollie
 }
 
 # How many Ollama requests can run at once (tune for your RAM)
@@ -950,9 +951,9 @@ def _ta_run_inner(symbol: str, date_str: str) -> dict | None:
     config = {
         **DEFAULT_CONFIG,
         "llm_provider":            "ollama",
-        "deep_think_llm":          "qwen3.5:9b",
+        "deep_think_llm":          "qwen3:14b",   # 2026-04-20: qwen3:8b → qwen3:14b on Ollie GPU
         "quick_think_llm":         "mistral:7b",
-        "backend_url":             "http://localhost:11434/v1",
+        "backend_url":             f"{_OLLIE_URL}/v1",  # 2026-04-20: localhost → Ollie GPU
         "max_debate_rounds":       1,
         "max_risk_discuss_rounds": 1,
         "max_recur_limit":         50,

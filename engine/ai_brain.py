@@ -335,19 +335,21 @@ class Arena:
 
         # Build fallback providers for paused players — free local Ollama brain,
         # same player_id so trading history/personality/portfolio stay intact.
-        from engine.fallback import is_fallbacks_enabled, get_fallback_model, set_player_fallback_state
-        from config import OLLAMA_URL as _OLLAMA_URL
+        from engine.fallback import (is_fallbacks_enabled, get_fallback_model,
+                                     get_fallback_url, set_player_fallback_state)
+        from config import OLLAMA_URL as _OLLAMA_URL  # kept for non-fallback uses
         fallback_providers: dict = {}
         if is_fallbacks_enabled():
             for _fb_pid in list(paused_ids):
                 if _fb_pid in self.providers:
                     _fb_model = get_fallback_model(_fb_pid)
                     if _fb_model:
+                        _fb_url = get_fallback_url(_fb_pid)  # Ollie GPU or bigmac localhost
                         _fb_prov = _OllamaP(player_id=_fb_pid, model=_fb_model,
-                                            url=_OLLAMA_URL, timeout=180)
+                                            url=_fb_url, timeout=180)
                         fallback_providers[_fb_pid] = _fb_prov
                         set_player_fallback_state(_fb_pid, True)
-                        console.log(f"[yellow]FALLBACK: {_fb_pid} → {_fb_model} (free)")
+                        console.log(f"[yellow]FALLBACK: {_fb_pid} → {_fb_model} @ {_fb_url} (free)")
         # Clear fallback state for non-paused players
         for _pid in self.providers:
             if _pid not in paused_ids:
@@ -362,7 +364,7 @@ class Arena:
             if pid in paused_ids or _is_local(prov):
                 continue
             # Spock (grok-4) uses reduced 2x/day schedule + every-3rd-cycle gate
-            if pid == "grok-4":
+            if pid == "deepseek-7b-grok4":
                 if not spock_window_open or _spock_cycle_count % 3 != 0:
                     skipped_paid.append(pid)
                     continue
@@ -447,7 +449,7 @@ class Arena:
             # Opt 6 — Agent priority within model group (lower = runs first)
             _AGENT_PRIORITY = {
                 "dayblade-sulu":  0,   # S6.3 Iron Condor King — primary options trader
-                "grok-4":         1,   # Spock — pure data signal leader
+                "deepseek-7b-grok4":         1,   # Spock — pure data signal leader
                 "super-agent":    2,   # Anderson — crewai collective
                 "ollama-coder":   3,   # Data — code/technicals specialist
                 "mlx-qwen3":      4,   # Chekov — navigator
@@ -533,7 +535,8 @@ class Arena:
                 # Unload after all providers in this group are done
                 console.log(f"[cyan]TIER 1: unloading {model_id}...")
                 try:
-                    _requests.post("http://localhost:11434/api/generate",
+                    _unload_url = group[0][1].url  # use provider's actual URL (Ollie or bigmac), not hardcoded localhost
+                    _requests.post(_unload_url,
                                    json={"model": model_id, "keep_alive": 0}, timeout=10)
                 except Exception:
                     pass
@@ -660,7 +663,7 @@ class Arena:
                 save_equity_snapshot(pid, prices)
             # Also snapshot Steve's Webull portfolio (benchmark)
             try:
-                record_portfolio_snapshot("steve-webull", prices)
+                record_portfolio_snapshot("webull", prices)
             except Exception:
                 pass
             console.log("[dim]Equity curve snapshot saved[/dim]")

@@ -139,10 +139,10 @@ def _fetch_bars_for_symbols(symbols: list[str], lookback_days: int = LOOKBACK_DA
         logger.error("Alpaca import failed: %s", exc)
         return {}
 
-    api_key = os.environ.get("ALPACA_API_KEY", "")
-    secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
+    api_key = os.environ.get("APCA_API_KEY_ID", "")
+    secret_key = os.environ.get("APCA_API_SECRET_KEY", "")
     if not api_key or not secret_key:
-        logger.warning("ALPACA_API_KEY / ALPACA_SECRET_KEY not set")
+        logger.warning("APCA_API_KEY_ID / APCA_API_SECRET_KEY not set")
         return {}
 
     client = StockHistoricalDataClient(api_key, secret_key)

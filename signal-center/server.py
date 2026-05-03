@@ -407,6 +407,8 @@ def _push_to_sse(data: dict):
             _sse_subscribers.remove(q)
 
 
+_last_spoken: dict = {}
+
 def _speak_signal(text: str):
     """Voice alert via edge-tts AndrewNeural (macOS afplay)."""
     try:
@@ -519,9 +521,19 @@ def _outcome_tracker_loop():
                 else:
                     new_high = max(out["tracked_high"] or cur, cur)
                     new_low = min(out["tracked_low"] or cur, cur)
-                    hit_tp = 1 if (tp > 0 and new_high >= tp) else (out["would_hit_tp"] or 0)
-                    hit_sl = 1 if (sl > 0 and new_low <= sl) else (out["would_hit_sl"] or 0)
-                    theo_pnl = ((cur - entry) / entry * 100) if entry > 0 else 0
+                    prev_tp = out["would_hit_tp"] or 0
+                    prev_sl = out["would_hit_sl"] or 0
+                    hit_tp = 1 if (tp > 0 and new_high >= tp) else prev_tp
+                    hit_sl = 1 if (sl > 0 and new_low <= sl) else prev_sl
+                    # Freeze P&L at TP/SL price the moment the flag first flips
+                    if hit_tp and not prev_tp and entry > 0:
+                        theo_pnl = (tp - entry) / entry * 100
+                    elif hit_sl and not prev_sl and entry > 0:
+                        theo_pnl = (sl - entry) / entry * 100
+                    elif prev_tp or prev_sl:
+                        theo_pnl = out["theoretical_pnl"] or 0
+                    else:
+                        theo_pnl = ((cur - entry) / entry * 100) if entry > 0 else 0
                     sc_db.execute("""
                         UPDATE signal_outcomes
                         SET tracked_high=?, tracked_low=?, tracked_current=?,
@@ -530,6 +542,13 @@ def _outcome_tracker_loop():
                         WHERE signal_id=?
                     """, (new_high, new_low, cur, hit_tp, hit_sl,
                           round(theo_pnl, 2), now_str, sig["id"]))
+                    # Close out resolved signals so the polling loop skips them next cycle
+                    if (hit_tp and not prev_tp) or (hit_sl and not prev_sl):
+                        sc_db.execute(
+                            "UPDATE trade_signals SET status='RESOLVED' "
+                            "WHERE id=? AND status IN ('NEW','EXECUTED')",
+                            (sig["id"],)
+                        )
             sc_db.commit()
             sc_db.close()
         except Exception as e:
@@ -1012,7 +1031,7 @@ def _compute_trade_levels(symbol):
     l_risk     = r2(price - l_sl)
     l_tp1      = r2(price + l_risk * 0.75 * risk_mult)
     l_tp2      = r2(price + l_risk * 2.0 * risk_mult)
-    l_tp3      = r2(min(call_wall or price * 1.1, price + l_risk * 3.0 * risk_mult))
+    l_tp3      = r2(max(min(call_wall or price * 1.1, price + l_risk * 3.0 * risk_mult), l_tp2))
     l_rr       = round(l_risk * 2 * risk_mult / l_risk, 1) if l_risk > 0 else 0
 
     s_entry_lo = r2(price - atr * 0.10)
@@ -1021,7 +1040,7 @@ def _compute_trade_levels(symbol):
     s_risk     = r2(s_sl - price)
     s_tp1      = r2(price - s_risk * 0.75 * risk_mult)
     s_tp2      = r2(price - s_risk * 2.0 * risk_mult)
-    s_tp3      = r2(max(put_wall or price * 0.9, price - s_risk * 3.0 * risk_mult))
+    s_tp3      = r2(min(max(put_wall or price * 0.9, price - s_risk * 3.0 * risk_mult), s_tp2))
     s_rr       = round(s_risk * 2 * risk_mult / s_risk, 1) if s_risk > 0 else 0
 
     rec = ('LONG'  if 'BULL'   in regime_label else
@@ -1903,7 +1922,10 @@ def receive_signal():
                 f"Captain, {agent} recommends {action_word} {symbol} "
                 f"at {entry_price:.2f}, confidence {confidence} percent."
             )
-            threading.Thread(target=_speak_signal, args=(voice_text,), daemon=True).start()
+            now = _time.time()
+            if now - _last_spoken.get(symbol, 0) >= 30:
+                _last_spoken[symbol] = now
+                threading.Thread(target=_speak_signal, args=(voice_text,), daemon=True).start()
             threading.Thread(target=_macos_notify, args=(
                 f"Signal: {action} {symbol} — {confidence}%",
                 f"{agent}: {reasoning[:120]}"
@@ -1912,6 +1934,58 @@ def receive_signal():
                 f"🚨 [{sig_type}] {agent} → {action} {symbol} @ ${entry_price:.2f} | "
                 f"Conf: {confidence}% | {reasoning[:100]}"
             ,), daemon=True).start()
+
+        # ── Tractor Beam auto-execution ───────────────────────────────────────
+        if (agent == "tractor-beam"          # rule 1: tractor-beam only
+                and confidence >= 85          # rule 2: high confidence
+                and action == "BUY"           # rule 3: buys only
+                and entry_price > 0):
+            from zoneinfo import ZoneInfo
+            _et = datetime.now(ZoneInfo("America/New_York"))
+            _is_mkt = (                       # rule 4: market hours 9:30–16:00 ET weekdays
+                _et.weekday() < 5
+                and (9, 30) <= (_et.hour, _et.minute) < (16, 0)
+            )
+            if _is_mkt:
+                qty = int(500 / entry_price)  # rule 5: $500 max, floor via int()
+                if qty >= 1:                  # rule 6: skip if qty < 1
+                    _auto_status = "BRIDGE_ERROR"
+                    _alpaca_oid  = ""
+                    _fill        = 0.0
+                    try:
+                        _r = requests.post(   # rule 7: call Alpaca bridge
+                            BRIDGE + "/api/alpaca/buy",
+                            json={"symbol": symbol, "qty": qty},
+                            timeout=10,
+                        )
+                        _resp        = _r.json()
+                        _alpaca_oid  = _resp.get("order_id", "")
+                        _fill        = float(_resp.get("filled_avg_price") or entry_price)
+                        _auto_status = "FILLED" if _resp.get("success") else f"ERROR_{_r.status_code}"
+                    except Exception as _ae:
+                        _auto_status = f"BRIDGE_ERROR: {str(_ae)[:80]}"
+                    _db  = get_db()
+                    _now = datetime.now().isoformat()
+                    _db.execute(
+                        """
+                        INSERT INTO execution_log
+                          (signal_id, symbol, direction, qty, entry_price, fill_price,
+                           stop_loss, tp1, tp2, tp3, grade, prob, source,
+                           alpaca_order_id, status, executed_at)
+                        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                        """,
+                        (signal_id, symbol, "BUY", qty, entry_price, _fill,
+                         stop_loss, take_profit, 0.0, 0.0, "", confidence,
+                         "tractor-auto", _alpaca_oid, _auto_status, _now))
+                    _db.execute(              # rule 9: mark signal EXECUTED
+                        "UPDATE trade_signals SET status='EXECUTED', executed_at=? WHERE id=?",
+                        (_now, signal_id)
+                    )
+                    _db.commit()
+                    _db.close()
+                    _sc_log.getLogger("sc.signal").info(  # rule 10
+                        "[TRACTOR-AUTO] %s qty=%d status=%s", symbol, qty, _auto_status
+                    )
 
         return jsonify({"ok": True, "signal_id": signal_id})
     except Exception as e:

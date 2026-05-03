@@ -123,7 +123,9 @@ def run_autopilot(prices: dict):
                 if pos.get("asset_type") == "option":
                     continue
                 sym = pos["symbol"]
-                current_price = prices.get(sym, {}).get("price", pos["avg_price"])
+                current_price = prices.get(sym, {}).get("price", 0)
+                if current_price <= 0:
+                    continue  # no price data — skip RSI trim (was: phantom $0 P&L exits)
 
                 # Skip RSI trim if position value < $50 (don't create dust)
                 pos_value = pos["qty"] * current_price

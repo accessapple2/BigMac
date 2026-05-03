@@ -1,7 +1,7 @@
 from __future__ import annotations
 import requests
 from .base import AIProvider
-from engine.ollama_queue import get_queue
+from engine.ollama_queue import get_queue  # per-host registry (D1 dual-queue)
 
 
 class OllamaProvider(AIProvider):
@@ -17,7 +17,7 @@ class OllamaProvider(AIProvider):
         # Route through global FIFO queue — one Ollama inference at a time system-wide.
         # RAM patch 2026-04-17 (v2): keep_alive lowered 30s → 5s prevented stacking BUT
         # caused 120s-timeout storms: every agent fire was a full cold-load (8.6 GB from
-        # disk for qwen3.5:9b), and serial queue waits pushed later agents past 120s.
+        # disk for qwen3:8b), and serial queue waits pushed later agents past 120s.
         # Compromise: 45s keeps the model warm across back-to-back queue items (Neo +
         # War Room fire within ~30s of each other), short enough that a different-model
         # agent hitting ~30s+ later doesn't stack. Paired with timeout bumped 120s → 180s
@@ -29,12 +29,19 @@ class OllamaProvider(AIProvider):
             "keep_alive": "45s",
             "options": {"temperature": self._temperature},
         }
+        # 2026-04-27: qwen3 family streams chain-of-thought tokens before JSON,
+        # which blew the 180s timeout for qwen3-14b-pro (Dalio, 47% timeout rate)
+        # and qwen3-8b-flash (Worf, 22%). debate_engine.py was patched 04-26 but
+        # this provider path was missed. Disable thinking for qwen3 only —
+        # other model families ignore the flag harmlessly.
+        if self.model_id.startswith("qwen3"):
+            payload["think"] = False
 
         def _do_request() -> str:
             r = requests.post(self.url, json=payload, timeout=self.timeout)
             return r.json().get("response", "")
 
-        return get_queue().submit(_do_request, model_id=self.model_id)
+        return get_queue(self.url).submit(_do_request, model_id=self.model_id)
 
     def analyze_chain(self, symbol: str, price: float, change_pct: float,
                       high: float, low: float, portfolio_context: dict,

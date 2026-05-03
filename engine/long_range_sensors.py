@@ -35,6 +35,8 @@ WATCHLIST = [
     "NVDA", "META", "TSLA", "AAPL", "GOOGL", "AMZN", "ORCL", "AVGO",
     # Recent scanner hits
     "DLO", "EMXC", "CPNG", "AXP", "AAL", "BBIO", "ARRY", "ABR",
+    # Andy Lindloff newsletter swings added 2026-04-21 (PSIX, COIN, AMX new; PLTR already in DB watchlist)
+    "PLTR", "PSIX", "COIN", "AMX",
 ]
 
 VOLUME_MULTIPLIER_ALERT = 3.0
@@ -63,8 +65,8 @@ def _alpaca_headers() -> dict | None:
     """Return Alpaca auth headers from env, or None if keys missing."""
     from dotenv import load_dotenv
     load_dotenv()
-    key    = os.getenv("ALPACA_API_KEY", "")
-    secret = os.getenv("ALPACA_SECRET_KEY", "")
+    key    = os.getenv("APCA_API_KEY_ID", "")
+    secret = os.getenv("APCA_API_SECRET_KEY", "")
     if not key or not secret:
         return None
     return {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}

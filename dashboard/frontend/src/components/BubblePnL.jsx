@@ -16,7 +16,7 @@ const AGENT_COLORS = {
   'grok-4': '#f97316',
   'ollama-local': '#94a3b8',
   'ollama-kimi': '#06b6d4',
-  'steve-webull': '#fbbf24',
+  'webull': '#fbbf24',
   'options-sosnoff': '#f472b6',
   'energy-arnold': '#fb923c',
   'dalio-metals': '#facc15',
@@ -27,7 +27,7 @@ const FALLBACK = '#60a5fa'
 function getStarting(pid) {
   if (pid === 'super-agent') return 25000
   if (pid === 'dayblade-0dte') return 5000
-  if (pid === 'steve-webull') return 7049.68
+  if (pid === 'webull') return 7049.68
   return 10000
 }
 

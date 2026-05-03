@@ -43,7 +43,8 @@ import requests
 # Config
 # ---------------------------------------------------------------------------
 
-OLLAMA_BASE    = "http://localhost:11434"
+from config import OLLIE_URL as _OLLIE_URL  # 2026-04-30: localhost → Ollie (routingleak fix)
+OLLAMA_BASE    = _OLLIE_URL
 MODEL          = "qwen3:14b"
 
 # Two DB paths: main trader data + UOA (separate DB)

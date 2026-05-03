@@ -13,11 +13,17 @@ console = Console()
 
 # Hard limits
 MAX_SINGLE_CONTRACTS = 5
-MAX_SPREAD_CONTRACTS = 3
+MAX_SPREAD_CONTRACTS = 10  # Raised 2026-04-22 to support scaleout (4ct)
 MAX_CAPITAL_PER_TRADE = 500.0
 
-# Only these players get real Alpaca options execution
-OPTIONS_PLAYERS = {"dayblade-0dte", "dayblade-sulu"}
+# Only these players get real Alpaca options execution.
+# Add new strategy player_ids here when registering a new strategy.
+OPTIONS_PLAYERS = {
+    "dayblade-0dte",
+    "dayblade-sulu",
+    # Strategy Registry players — added 2026-04-22 for bull_spread_v1
+    "strategy:bull_spread_v1",
+}
 
 _client = None
 _client_init = False
@@ -31,8 +37,8 @@ def _get_client():
     try:
         from dotenv import load_dotenv
         load_dotenv()
-        key = os.getenv("ALPACA_API_KEY", "")
-        secret = os.getenv("ALPACA_SECRET_KEY", "")
+        key = os.getenv("APCA_API_KEY_ID", "")
+        secret = os.getenv("APCA_API_SECRET_KEY", "")
         if not key or not secret:
             console.log("[yellow]Alpaca options: No API keys — skipping real execution")
             return None

@@ -41,7 +41,7 @@ def _voter_url(player_id: str) -> str:  # noqa: ARG001
 # ── Bridge voters (Tier 3) — active fleet ───────────────────────────────────
 BRIDGE_VOTERS: list[dict] = [
     {"player_id": "neo-matrix",     "name": "Neo",               "model": "phi3:mini"},            # Ollie — 2026-04-24: routed to Ollie Box (was bigmac phi3:mini)
-    {"player_id": "deepseek-7b-grok4",         "name": "Spock",             "model": "qwen3:8b"},              # Ollie  — 2026-04-20: qwen3.5:9b → qwen3:8b
+    {"player_id": "deepseek-7b-grok4",         "name": "Spock",             "model": "qwen3:8b"},              # Ollie  — 2026-04-20: qwen3:8b → qwen3:8b
     {"player_id": "ollama-glm4",    "name": "Q",                 "model": "qwen3:8b"},              # Ollie
     {"player_id": "ollama-qwen3",   "name": "Dax",               "model": "qwen3:8b"},              # Ollie
     {"player_id": "super-agent",    "name": "Mr. Anderson",      "model": "qwen3:8b"},              # Ollie
@@ -147,7 +147,7 @@ def _ask_voter(voter: dict, briefing_text: str, session_type: str) -> dict:
     )
 
     # Try the model, fallback to mistral:7b (bigmac resident); last-resort qwen3:8b on Ollie
-    fallback = "mistral:7b" if model != "mistral:7b" else "qwen3:8b"  # 2026-04-20: was qwen3.5:9b
+    fallback = "mistral:7b" if model != "mistral:7b" else "qwen3:8b"  # 2026-04-20: was qwen3:8b
     for attempt_model in (model, fallback):
         try:
             resp = requests.post(
@@ -357,7 +357,7 @@ def _run_morning_vote_inner(force: bool = False) -> dict:
             "reason": result["reason"],
             "model": result["model"],
         })
-        time.sleep(5)  # stagger Ollama calls — prevents qwen3.5:9b timeout under load
+        time.sleep(5)  # stagger Ollama calls — prevents qwen3:8b timeout under load
 
     # Short transaction 2: batch-insert all results at once (fast, minimal lock)
     for _attempt in range(20):

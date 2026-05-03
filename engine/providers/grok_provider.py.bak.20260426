@@ -1,0 +1,26 @@
+from __future__ import annotations
+import requests
+from .base import AIProvider
+
+
+class GrokProvider(AIProvider):
+    """Formerly xAI Grok — routed to Ollie GPU (qwen3:8b, zero cost).
+
+    2026-04-20: localhost qwen3.5:9b → Ollie GPU qwen3:8b (was causing swap storms on bigmac).
+    """
+
+    def __init__(self, api_key: str = "", player_id: str = "qwen3-14b-grok3",
+                 model: str = "qwen3:8b", display_name: str = "Grok 3"):
+        super().__init__(player_id, display_name, model, rate_limit=30)
+        from config import OLLIE_URL as _ollie_url
+        self._ollama_url = _ollie_url  # 2026-04-20: OLLAMA_URL (localhost) → OLLIE_URL
+        self._ollama_model = model     # 2026-04-20: was hardcoded qwen3.5:9b, now honours caller's model
+
+    def call_model(self, prompt: str) -> str:
+        resp = requests.post(
+            self._ollama_url + "/api/generate",
+            json={"model": self._ollama_model, "prompt": prompt, "stream": False},
+            timeout=90,
+        )
+        resp.raise_for_status()
+        return resp.json().get("response", "")

@@ -236,60 +236,63 @@ def setup():
     # Seed AI players
     players = [
         ("ollama-local", "Lt. Cmdr. Geordi", "ollama", "qwen3:14b"),
-        ("ollama-gemma27b", "Qwen3.5 9B", "ollama", "qwen3.5:9b"),
-        ("ollama-deepseek", "DeepSeek R1 7B", "ollama", "deepseek-r1:7b"),
-        ("ollama-qwen3", "Lt. Cmdr. Scotty", "ollama", "qwen3.5:9b"),
-        ("ollama-kimi", "Kimi → Qwen3.5", "ollama", "qwen3.5:9b"),
+        ("ollama-gemma27b", "Lt. Cmdr. Worf", "ollama", "qwen3:8b"),
+        ("ollama-deepseek", "DeepSeek R1 7B", "ollama", "deepseek-r1:14b"),
+        ("ollama-qwen3", "Lt. Cmdr. Scotty", "ollama", "qwen3:8b"),
+        ("ollama-kimi", "Kimi (phi3:mini)", "ollama", "phi3:mini"),
         ("ollama-coder", "Lt. Cmdr. Data", "ollama", "qwen2.5-coder:7b"),
         ("ollama-llama", "Lt. Cmdr. Uhura", "ollama", "llama3.1:latest"),
-        ("claude-sonnet", "Codex Prime", "ollama", "qwen3.5:9b"),
+        ("claude-sonnet", "Codex Prime", "ollama", "qwen3:8b"),
         ("claude-haiku", "Codex Scout", "ollama", "qwen2.5-coder:7b"),
-        ("gpt-4o", "GPT-4o", "ollama", "qwen3.5:9b"),
+        ("gpt-4o", "GPT-4o", "ollama", "qwen3:8b"),
         ("gpt-o3", "GPT-o3", "ollama", "deepseek-r1:7b"),
         ("gemini-2.5-pro", "Qwen3 14B Pro", "ollama", "qwen3:14b"),
-        ("gemini-2.5-flash", "Lt. Cmdr. Worf", "ollama", "qwen3.5:9b"),
-        ("grok-3", "Grok 3", "ollama", "qwen3.5:9b"),
+        ("gemini-2.5-flash", "Lt. Cmdr. Worf", "ollama", "qwen3:8b"),
+        ("grok-3", "Grok 3", "ollama", "qwen3:14b"),
         ("grok-4", "Lt. Cmdr. Spock", "ollama", "deepseek-r1:7b"),
         ("dayblade-0dte", "DayBlade Options", "dayblade", "options-s2"),
-        ("steve-webull", "Captain Kirk", "webull", "human"),
+        ("webull", "Captain Kirk", "webull", "human"),
         ("cto-grok42", "CTO Grok 4.2", "ollama", "qwen2.5-coder:7b"),
-        ("ollama-glm4", "GLM4 → Qwen3.5", "ollama", "qwen3.5:9b"),
+        ("ollama-glm4", "Lt. Cmdr. GLM4", "ollama", "qwen3:8b"),
         ("ollama-plutus", "Dr. McCoy", "ollama", "0xroyce/plutus"),
-        ("options-sosnoff", "Counselor Troi", "ollama", "qwen3.5:9b"),
-        ("energy-arnold", "Cmdr. Trip Tucker", "ollama", "qwen3.5:9b"),
+        ("options-sosnoff", "Counselor Troi", "ollama", "qwen3:8b"),
+        ("energy-arnold", "Cmdr. Trip Tucker", "ollama", "qwen3:8b"),
         ("dayblade-sulu", "Lt. Sulu", "ollama", "qwen3:14b"),
         ("dalio-metals", "Cmdr. Dalio", "physical", "metals-tracker"),
-        ("mlx-qwen3", "Ensign Chekov", "ollama", "qwen3.5:9b"),
+        ("mlx-qwen3", "Ensign Chekov", "ollama", "phi3:mini"),
     ]
     for pid, name, provider, model in players:
-        cash = 3500.00 if pid == "dayblade-0dte" else (0.0 if pid == "steve-webull" else (0.0 if pid == "cto-grok42" else 7000.00))
+        cash = 3500.00 if pid == "dayblade-0dte" else (0.0 if pid == "webull" else (0.0 if pid == "cto-grok42" else 7000.00))
         c.execute(
             "INSERT OR IGNORE INTO ai_players (id, display_name, provider, model_id, cash) VALUES (?,?,?,?,?)",
             (pid, name, provider, model, cash)
         )
 
     # Migrate ALL paid/paused players to free local Ollama — every agent active
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b' WHERE id='claude-sonnet'")
+    # 2026-04-20: patched — no more qwen3:8b (8GB swap storm on bigmac M4 16GB)
+    # Routing: neo-matrix/capitol-trades/ollama-kimi → bigmac phi3:mini; all others → Ollie GPU
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='claude-sonnet'")           # was qwen3:8b
     c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen2.5-coder:7b' WHERE id='claude-haiku'")
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b' WHERE id='gpt-4o'")
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='deepseek-r1:7b' WHERE id='gpt-o3'")
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b' WHERE id='grok-3'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='gpt-4o'")                  # was qwen3:8b
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='gpt-o3'")                  # was deepseek-r1:7b
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:14b' WHERE id='grok-3'")                 # was qwen3:8b
     c.execute("UPDATE ai_players SET provider='ollama', model_id='deepseek-r1:7b' WHERE id='grok-4'")
     c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen2.5-coder:7b' WHERE id='cto-grok42'")
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='deepseek-r1:7b' WHERE id='ollama-deepseek'")
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b', display_name='Qwen3.5 9B' WHERE id='ollama-gemma27b'")
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b', display_name='GLM4 → Qwen3.5' WHERE id='ollama-glm4'")
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b', display_name='Kimi → Qwen3.5' WHERE id='ollama-kimi'")
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b' WHERE id='gemini-2.5-flash'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='deepseek-r1:14b' WHERE id='ollama-deepseek'")  # was deepseek-r1:7b
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b', display_name='Lt. Cmdr. Worf' WHERE id='ollama-gemma27b'")    # was qwen3:8b
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b', display_name='Lt. Cmdr. GLM4' WHERE id='ollama-glm4'")        # was qwen3:8b
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='phi3:mini', display_name='Kimi (phi3:mini)' WHERE id='ollama-kimi'")      # was qwen3:8b
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='gemini-2.5-flash'")        # was qwen3:8b
     c.execute("UPDATE ai_players SET display_name='Qwen3 14B Pro', provider='ollama', model_id='qwen3:14b' WHERE id='gemini-2.5-pro'")
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3.5:9b' WHERE id='options-sosnoff'")
-    c.execute("UPDATE ai_players SET model_id='qwen3.5:9b' WHERE id='ollama-qwen3'")
-    c.execute("UPDATE ai_players SET model_id='qwen3.5:9b' WHERE id='mlx-qwen3'")
-    c.execute("UPDATE ai_players SET model_id='qwen3.5:9b' WHERE id='energy-arnold'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='options-sosnoff'")         # was qwen3:8b
+    c.execute("UPDATE ai_players SET model_id='qwen3:8b' WHERE id='ollama-qwen3'")                               # was qwen3:8b
+    c.execute("UPDATE ai_players SET model_id='phi3:mini' WHERE id='mlx-qwen3'")                                 # 2026-04-20: qwen3:8b → phi3:mini
+    c.execute("UPDATE ai_players SET model_id='qwen3:8b' WHERE id='energy-arnold'")                              # was qwen3:8b
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='dalio-metals'")            # 2026-04-20: metals-tracker → qwen3:8b
     # Activate ALL agents (except permanently shelved Sniper Mode advisory crew)
     # ollie-auto is NOT shelved — he is Fleet Commander (is_paused=0, crew_role='commander')
-    _shelved = "('capitol-trades','dalio-metals','dayblade-0dte','dayblade-sulu','super-agent')"
-    c.execute(f"UPDATE ai_players SET is_active=1, is_paused=0 WHERE id != 'steve-webull' AND id NOT IN {_shelved}")
+    _shelved = "('dayblade-0dte','dayblade-sulu','super-agent')"
+    c.execute(f"UPDATE ai_players SET is_active=1, is_paused=0 WHERE id != 'webull' AND id NOT IN {_shelved}")
     # Shelved advisory agents: keep paused permanently
     c.execute(f"UPDATE ai_players SET is_active=1, is_paused=1, crew_role='advisory' WHERE id IN {_shelved}")
     # Ollie: Fleet Commander — active, not paused, special commander role
@@ -350,12 +353,12 @@ def setup():
         pass
     # Seed fallback_model values for known paid players
     _fallback_seed = [
-        ("grok-3", "qwen3.5:9b"), ("grok-4", "deepseek-r1:7b"),
-        ("cto-grok42", "qwen2.5-coder:7b"), ("gpt-4o", "qwen3.5:9b"),
-        ("gpt-o3", "deepseek-r1:7b"), ("claude-sonnet", "qwen3.5:9b"),
-        ("claude-haiku", "qwen2.5-coder:7b"), ("gemini-2.5-flash", "qwen3.5:9b"),
-        ("gemini-2.5-pro", "qwen3:14b"), ("options-sosnoff", "qwen3.5:9b"),
-        ("dalio-metals", "qwen3.5:9b"), ("super-agent", "deepseek-r1:7b"),
+        ("grok-3", "qwen3:14b"), ("grok-4", "deepseek-r1:7b"),
+        ("cto-grok42", "qwen2.5-coder:7b"), ("gpt-4o", "qwen3:8b"),
+        ("gpt-o3", "deepseek-r1:7b"), ("claude-sonnet", "qwen3:8b"),
+        ("claude-haiku", "qwen2.5-coder:7b"), ("gemini-2.5-flash", "qwen3:8b"),
+        ("gemini-2.5-pro", "qwen3:14b"), ("options-sosnoff", "qwen3:8b"),
+        ("dalio-metals", "qwen3:8b"), ("super-agent", "deepseek-r1:7b"),
         ("ollama-llama", "deepseek-r1:7b"),
     ]
     for _pid, _model in _fallback_seed:
@@ -372,7 +375,7 @@ def setup():
         c.execute("ALTER TABLE ai_players ADD COLUMN is_human INTEGER DEFAULT 0")
     except sqlite3.OperationalError:
         pass
-    c.execute("UPDATE ai_players SET is_human=1 WHERE id='steve-webull'")
+    c.execute("UPDATE ai_players SET is_human=1 WHERE id='webull'")
 
     # Backtest tables
     c.execute('''CREATE TABLE IF NOT EXISTS backtest_runs (

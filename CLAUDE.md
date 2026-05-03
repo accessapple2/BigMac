@@ -145,6 +145,91 @@ Physical holdings tracked as header widget above the quadrant grid. ETFs tracked
 - Plutus-3B upgrade for McCoy (commit 3721c33)
 - FinGPT news sentiment blended into alpha signals (commit 7ebabb6)
 
+## 2026-04-23 Drydock Part 2 — Major Overhaul
+
+24 fixes applied in one session. Gate held `_EXECUTION_ENABLED=False` throughout.
+Alpaca paper ~$79,716 equity. No live exposure.
+
+### Highlights
+- **5 rogue qwen3:14b callers routed to Ollie Box**: neo-matrix (config.py),
+  engine/premarket_scanner.py, engine/research_caller.py, crew/agents.py
+  (5 CrewAI roles → ChatOllama with OLLIE_URL), engine/chart_analyzer.py
+- **dashboard/app.py 3-path Gemini fallback → Ollie Box** (lines 4969/5025/5348):
+  google-provider players now fall back to OLLIE_URL, not OLLAMA_URL (bigmac)
+- **5 Elder Council + Swing Desk agents** (surak, janeway, kirk, pike, sarek):
+  `_OLLAMA_URL` fallback changed `localhost:11434` → `192.168.1.166:11434` (Ollie)
+- **2 zombie players deactivated** via `is_active=0` in ai_players table:
+  `ollama-llama` (deepseek-r1:14b, 9.7GB — was loading on bigmac) and
+  `grok-3` (qwen3:14b — retired per S6.3, not in AI_PLAYERS). Sacred trade/
+  signal/cost data (145 trades, 5025 signals, 2924 cost rows) fully preserved.
+- **Spock dedup TOCTOU race fixed**: `engine/crew_scanner.py::_save_spock_alert`
+  rewritten as atomic `INSERT ... WHERE NOT EXISTS`. Eliminates hourly duplicate
+  risk alerts when scanner plist and main.py fire simultaneously.
+- **Webull sync disabled** (account liquidated), webull positions zeroed
+- **Costs page `[object Object]` fixed**: `dashboard/static/index.html:10976`
+  now reads `fvp.free.total_pnl` / `fvp.paid.total_pnl` — renders correctly
+
+### RAM Result
+94% peak → 45% mid-session → 1.8GB active healthy after all fixes landed.
+Root cause: multiple sprint-era agent paths all defaulted to localhost:11434.
+
+### Architecture Note
+Each sprint added agent paths that defaulted to localhost:11434. Tonight was
+surgical mop-up. Permanent fix is a single config-level OLLAMA_URL default
+(pointing at Ollie) applied at process start — future sprint.
+
+### Open Items (next session)
+- `/api/wheel/status` intermittent 500 (`dashboard/app.py:7592`)
+- iv_history day 3 verification at 9:45 MST tomorrow
+- Chrome extension final cleanup (Profile 5 re-install check)
+- Alert ACK hygiene — 5 Neo consecutive-loss alerts still unacknowledged in DB
+- Ghost scorecard calibration via `/api/signals/scorecard` (`server.py:2104`)
+  before Tuesday gate-flip
+- Alpha threshold tuning decision for bull_spread_v1 first trade
+
+## Archive Convention
+- Retired agents: keep code in `engine/` (muted via threshold), DO NOT delete
+- If file must be moved, use `agents/_archive/` with date suffix
+- Document retirement reason + rehab path in this file, not just the commit message
+- This supports the "iterate to the next Top 4" feedback loop — no known-good code is lost
+
+## 2026-04-25 — Saturday Drydock — 14 fixes
+
+Gate held `_EXECUTION_ENABLED=False` throughout. Alpaca paper account untouched.
+
+### Category 1 — Kill switch architecture (3 fixes)
+- **is_halted gate in `buy()`** (`paper_trader.py:~542`): SQL check before every buy; returns None if halted
+- **is_halted gate in `sell()`** (`paper_trader.py:~1083`): same pattern
+- **Zombies halted in DB**: `ollama-llama` + `grok-3` → `is_halted=1`, `halt_reason` set
+- **Audit finding**: `is_active`, `is_paused`, and `crew_role` are all decorative in the execution path.
+  `is_halted` is now the **only working per-player kill switch**. Document this before any new agent is wired.
+
+### Category 2 — Autopilot $0 P&L bleed (2 fixes)
+- **Layer 1** (`autopilot.py:126`): skip RSI trim when `current_price=0`; was falling back to `avg_price` and creating phantom $0-P&L exits
+- **Layer 2** (`main.py:~1095`): widen `prices` dict from `WATCH_STOCKS` only → all symbols in open positions; off-watchlist holdings (CBRL, FDX, FMAO etc.) now get real prices before autopilot runs
+
+### Category 3 — Latent fallback bombs defused (2 fixes)
+- **`_try_db_fallback` option filter** (`market_data.py:~487`): added `AND asset_type='stock'` to both SQL queries; was returning option premiums ($42.48 MU call) as stock prices
+- **BUY_CALL fail-closed** (`paper_trader.py:~1364`): `buy_price` init changed from `price` (stock price!) to `None`; guard added — if no option data returns, skip trade instead of buying at stock price
+
+### Category 4 — Operational cleanup (7 fixes)
+- **Capitol Trades dedup** (`crew_scanner.py:~2569`): `_process_rules_player()` now checks existing position and `action LIKE 'BUY%'` DB guard before submitting; root cause of FMAO triple-entry (15:21/15:28/15:31 UTC Apr 24 — crew_scanner has no `_done_today`, fires every 2 min)
+- **NTFY topic renames** (4 files): `"Ollie-Alert-35"` → `"ollietrades-admin"` (`riker_synthesis.py`, `fleet_auditor.py`, `alert_channels.py`); `"Ollie-Alert-55"` → `"ollietrades-crew"` (`ntfy.py`)
+- **`"Riker Fleet Alert"` → `"Fleet Alert"`** (`riker_synthesis.py:197`)
+- **ntfy tags `"trademinds"` → `"ollietrades"`** (6 occurrences in `alert_channels.py`)
+- **BSM ceiling** (`options_selector.py`): `_bsm_call`/`_bsm_put` via `math.erf` (no scipy); rejects if market premium > 1.5× BSM fair value. MU 500C 27DTE: fair $12.45, Spock paid $42.48 (3.4×) — would block
+- **Earnings blackout** (`options_selector.py`): replaces dead logs-only block; blocks if earnings within 3d of today OR ±5d of expiry; fast-path through `data/earnings_cache.json` (1ms), yfinance fallback, fail-open on errors
+
+### RAM Result
+Bigmac Ollama clean throughout — nothing loaded at EOD. All heavy models on Ollie Box.
+
+### Open Items (carry forward)
+- `/api/wheel/status` intermittent 500 (`dashboard/app.py:7592`) — low priority
+- 5 Neo consecutive-loss alerts — already `acknowledged=1` in DB (pre-cleared)
+- iv_history Day 4: Mon Apr 28 @ 9:45 MST — verify 10/10 recorded
+- iv_history Day 5: Tue Apr 29 @ 9:45 MST — verify 10/10 recorded; gate-flip review after
+- Ghost scorecard calibration via `/api/signals/scorecard` before Tuesday gate-flip
+
 ## Archive Convention
 - Retired agents: keep code in `engine/` (muted via threshold), DO NOT delete
 - If file must be moved, use `agents/_archive/` with date suffix

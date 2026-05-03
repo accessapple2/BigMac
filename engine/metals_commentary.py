@@ -112,7 +112,7 @@ End with a clear BUY/HOLD/REDUCE recommendation and confidence level."""
         import requests
         resp = requests.post(
             f"{OLLAMA_URL}/api/generate",
-            json={"model": "qwen3:14b", "prompt": prompt, "stream": False},
+            json={"model": "qwen3:14b", "prompt": prompt, "stream": False, "think": False},
             timeout=120,
         )
         resp.raise_for_status()

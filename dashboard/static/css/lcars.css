@@ -1,0 +1,641 @@
+/* ═══════════════════════════════════════════════════════════════════
+   LCARS — Library Computer Access/Retrieval System
+   OllieTrades Bridge Dashboard
+   ═══════════════════════════════════════════════════════════════════ */
+
+/* ── 0. GOOGLE FONTS (Antonio + Share Tech Mono) ─────────────────── */
+@import url('https://fonts.googleapis.com/css2?family=Antonio:wght@400;500;600;700&family=Share+Tech+Mono&display=swap');
+
+/* ── 1. LCARS COLOR PALETTE ──────────────────────────────────────── */
+:root {
+  --lc-black:      #000000;
+  --lc-orange:     #FF9900;
+  --lc-orange2:    #FF7700;
+  --lc-lilac:      #CC99CC;
+  --lc-blue:       #9999FF;
+  --lc-tan:        #FFCC99;
+  --lc-red:        #CC3333;
+  --lc-green:      #33CC33;
+  --lc-teal:       #00CCCC;
+  --lc-yellow:     #FFFF66;
+  --lc-sidebar-w:  220px;
+  --lc-top-h:      56px;
+  --lc-elbow-h:    88px;
+  --lc-tab-h:      60px;
+  --lc-font-ui:    'Antonio', 'DM Sans', sans-serif;
+  --lc-font-data:  'Share Tech Mono', 'DM Mono', monospace;
+}
+
+/* ── 2. BASE OVERRIDES ───────────────────────────────────────────── */
+html, body {
+  background: var(--lc-black) !important;
+  color: var(--lc-orange) !important;
+  font-family: var(--lc-font-ui) !important;
+}
+
+/* ── 2b. LAYOUT GRID FIX ─────────────────────────────────────────── */
+/* The existing .layout is a 2-col grid (240px sidebar + 1fr main).
+   Because our sidebar is now position:fixed, it leaves the grid flow,
+   causing .main to collapse into the 240px first-column slot.
+   Fix: make .layout a simple block container so .main is free. */
+.layout {
+  display: block !important;
+}
+
+/* The existing .nav is position:sticky; top:0 (64px tall).
+   We override it to position:fixed + 56px. The elements that follow
+   nav in DOM (disclaimer-banner, .layout) need top-padding to clear it. */
+body > #disclaimer-banner {
+  position: relative;
+  top: 0;
+  margin-top: var(--lc-top-h) !important;
+}
+
+/* .layout sits after the disclaimer banner in DOM flow.
+   No extra margin needed — disclaimer-banner already pushes it down. */
+
+/* Force dark scrollbar on all elements */
+* {
+  scrollbar-color: var(--lc-orange) #111 !important;
+  scrollbar-width: thin !important;
+}
+
+/* ── 3. NAV → LCARS TOP BAR ─────────────────────────────────────── */
+.nav {
+  background: var(--lc-black) !important;
+  border-bottom: 3px solid var(--lc-orange) !important;
+  box-shadow: none !important;
+  padding: 0 16px 0 calc(var(--lc-sidebar-w) + 16px) !important;
+  height: var(--lc-top-h) !important;
+  min-height: var(--lc-top-h) !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  right: 0 !important;
+  z-index: 200 !important;
+}
+
+.nav-logo {
+  font-family: var(--lc-font-ui) !important;
+  font-size: 20px !important;
+  font-weight: 700 !important;
+  letter-spacing: 2px !important;
+  color: var(--lc-orange) !important;
+  text-transform: uppercase !important;
+}
+
+.nav-logo span { color: var(--lc-lilac) !important; }
+
+.nav-live .dot {
+  background: var(--lc-green) !important;
+  box-shadow: 0 0 6px var(--lc-green) !important;
+}
+
+#sysStatusBadge { color: var(--lc-green) !important; font-family: var(--lc-font-data) !important; font-size: 11px !important; }
+#marketClock { font-family: var(--lc-font-data) !important; color: var(--lc-tan) !important; font-size: 13px !important; }
+
+.nav-icon-btn {
+  background: rgba(255,153,0,0.1) !important;
+  border: 1px solid rgba(255,153,0,0.3) !important;
+  color: var(--lc-orange) !important;
+  font-family: var(--lc-font-ui) !important;
+  font-size: 11px !important;
+  letter-spacing: 0.5px !important;
+  border-radius: 3px !important;
+}
+.nav-icon-btn:hover { background: rgba(255,153,0,0.2) !important; }
+
+/* Ticker tape */
+.ticker-tape-wrap { border: 1px solid rgba(255,153,0,0.2) !important; background: rgba(255,153,0,0.04) !important; border-radius: 3px !important; }
+.ticker-track { color: var(--lc-tan) !important; font-family: var(--lc-font-data) !important; font-size: 12px !important; }
+
+/* Disclaimer banners */
+#disclaimer-banner {
+  background: rgba(255,153,0,0.05) !important;
+  border-bottom: 1px solid rgba(255,153,0,0.2) !important;
+  color: #664400 !important;
+  padding-left: calc(var(--lc-sidebar-w) + 16px) !important;
+  margin-top: var(--lc-top-h) !important;
+}
+#disclaimer-footer {
+  background: #060300 !important;
+  border-top: 1px solid rgba(255,153,0,0.15) !important;
+  color: #443300 !important;
+}
+
+/* ── 4. SIDEBAR → LCARS LEFT PANEL ──────────────────────────────── */
+.sidebar {
+  background: var(--lc-black) !important;
+  border-right: none !important;
+  width: var(--lc-sidebar-w) !important;
+  position: fixed !important;
+  top: 0 !important;
+  left: 0 !important;
+  bottom: 0 !important;
+  z-index: 250 !important;
+  overflow-y: auto !important;
+  overflow-x: hidden !important;
+  padding-top: var(--lc-elbow-h) !important; /* space for elbow */
+  padding-bottom: 20px !important;
+}
+
+/* ── 5. LCARS ELBOW (injected by lcars.js) ───────────────────────── */
+#lcars-elbow {
+  position: fixed;
+  top: 0;
+  left: 0;
+  width: var(--lc-sidebar-w);
+  height: var(--lc-elbow-h);
+  z-index: 300;
+  pointer-events: none;
+}
+
+#lcars-elbow svg {
+  width: 100%;
+  height: 100%;
+  display: block;
+}
+
+/* ── 6. SIDEBAR NAV ITEMS → LCARS PILLS ─────────────────────────── */
+.sidebar-section { padding: 0 0 8px 0 !important; }
+.sidebar-label {
+  font-family: var(--lc-font-ui) !important;
+  font-size: 10px !important;
+  font-weight: 700 !important;
+  letter-spacing: 2px !important;
+  color: var(--lc-lilac) !important;
+  text-transform: uppercase !important;
+  padding: 8px 12px 4px !important;
+}
+
+.sidebar-item {
+  display: flex !important;
+  align-items: center !important;
+  gap: 8px !important;
+  /* LCARS pill: flat left, rounded right */
+  margin: 3px 0 3px 0 !important;
+  padding: 8px 18px 8px 14px !important;
+  border-radius: 0 22px 22px 0 !important;
+  margin-right: 12px !important;
+  font-family: var(--lc-font-ui) !important;
+  font-size: 13px !important;
+  font-weight: 500 !important;
+  letter-spacing: 0.8px !important;
+  text-transform: uppercase !important;
+  color: var(--lc-lilac) !important;
+  background: rgba(204,153,204,0.08) !important;
+  border: none !important;
+  cursor: pointer !important;
+  transition: background 0.15s, color 0.15s !important;
+  white-space: nowrap !important;
+  overflow: hidden !important;
+  text-overflow: ellipsis !important;
+}
+
+.sidebar-item:hover {
+  background: rgba(255,153,0,0.15) !important;
+  color: var(--lc-orange) !important;
+}
+
+.sidebar-item.active {
+  background: var(--lc-orange) !important;
+  color: var(--lc-black) !important;
+  font-weight: 700 !important;
+}
+
+.sidebar-item .icon { font-size: 13px !important; flex-shrink: 0 !important; }
+
+/* Close button on mobile sidebar */
+#sbCloseBtn {
+  position: absolute !important;
+  top: 8px !important;
+  right: 8px !important;
+  background: rgba(255,153,0,0.1) !important;
+  border: 1px solid rgba(255,153,0,0.3) !important;
+  color: var(--lc-orange) !important;
+  border-radius: 4px !important;
+  width: 32px !important;
+  height: 32px !important;
+  font-size: 16px !important;
+  cursor: pointer !important;
+  z-index: 301 !important;
+  pointer-events: all !important;
+}
+
+/* Sidebar fleet mini-display */
+#sidebar-more-btn {
+  color: var(--lc-blue) !important;
+  background: rgba(153,153,255,0.08) !important;
+}
+#sidebar-more-list .sidebar-item { font-size: 12px !important; }
+
+/* Reserve section */
+.sidebar > div[style*="border-top"] {
+  border-top: 1px solid rgba(255,153,0,0.2) !important;
+}
+
+/* ── 7. MAIN CONTENT AREA ────────────────────────────────────────── */
+/* .nav is now fixed (out of flow). .layout is now display:block.
+   .sidebar is now fixed (out of flow). So .main is the only child of .layout
+   that remains in flow — it just needs a left margin equal to sidebar width. */
+.main {
+  margin-left: var(--lc-sidebar-w) !important;
+  margin-top: 0 !important;
+  padding: 16px 20px 80px !important;
+  background: var(--lc-black) !important;
+  min-height: calc(100vh - var(--lc-top-h) - 28px) !important;
+}
+
+/* ── 8. CARDS → LCARS PANELS ─────────────────────────────────────── */
+.card {
+  background: #050505 !important;
+  border: 1px solid rgba(255,153,0,0.2) !important;
+  border-top: 3px solid var(--lc-orange) !important;
+  border-radius: 0 0 6px 6px !important;
+  box-shadow: 0 0 20px rgba(255,153,0,0.04) !important;
+  margin-bottom: 16px !important;
+}
+
+.card-header {
+  background: rgba(255,153,0,0.06) !important;
+  border-bottom: 1px solid rgba(255,153,0,0.2) !important;
+  font-family: var(--lc-font-ui) !important;
+  font-weight: 700 !important;
+  font-size: 13px !important;
+  letter-spacing: 1.5px !important;
+  text-transform: uppercase !important;
+  color: var(--lc-orange) !important;
+  padding: 10px 16px !important;
+}
+
+/* ── 9. TYPOGRAPHY OVERRIDES ─────────────────────────────────────── */
+h1, h2, h3, h4, h5 {
+  font-family: var(--lc-font-ui) !important;
+  color: var(--lc-orange) !important;
+  letter-spacing: 1px !important;
+}
+
+/* Data values → mono */
+.stat-value,
+.port-val,
+[style*="font-family:var(--font-mono)"],
+[style*="font-family: var(--font-mono)"] {
+  font-family: var(--lc-font-data) !important;
+  color: var(--lc-tan) !important;
+}
+
+.stat-label {
+  font-family: var(--lc-font-ui) !important;
+  font-size: 9px !important;
+  letter-spacing: 1px !important;
+  text-transform: uppercase !important;
+  color: var(--lc-lilac) !important;
+}
+
+/* Positive/negative colors */
+.pos, [style*="color:#22c55e"], [style*="color: #22c55e"],
+[style*="color:#00e5aa"], [style*="color: #00e5aa"] {
+  color: var(--lc-green) !important;
+}
+.neg, [style*="color:#ef4444"], [style*="color: #ef4444"] {
+  color: var(--lc-red) !important;
+}
+
+/* Accent color overrides */
+[style*="color:var(--accent)"], [style*="color: var(--accent)"] {
+  color: var(--lc-orange) !important;
+}
+[style*="color:var(--muted)"], [style*="color: var(--muted)"] {
+  color: var(--lc-lilac) !important;
+}
+
+/* Links */
+a { color: var(--lc-blue) !important; }
+a:hover { color: var(--lc-orange) !important; }
+
+/* ── 10. BUTTONS ──────────────────────────────────────────────────── */
+.btn {
+  font-family: var(--lc-font-ui) !important;
+  letter-spacing: 0.8px !important;
+  text-transform: uppercase !important;
+  border-radius: 0 16px 16px 0 !important; /* LCARS pill shape */
+}
+
+.btn-primary, .btn-accent {
+  background: var(--lc-orange) !important;
+  color: var(--lc-black) !important;
+  border: none !important;
+}
+.btn-primary:hover { background: var(--lc-orange2) !important; }
+
+.btn-ghost, .btn-secondary {
+  background: rgba(153,153,255,0.1) !important;
+  color: var(--lc-blue) !important;
+  border: 1px solid rgba(153,153,255,0.3) !important;
+}
+.btn-ghost:hover { background: rgba(153,153,255,0.2) !important; }
+
+/* ── 11. INPUTS ───────────────────────────────────────────────────── */
+input[type="text"], input[type="number"], input[type="search"],
+select, textarea {
+  background: #0a0800 !important;
+  border: 1px solid rgba(255,153,0,0.3) !important;
+  color: var(--lc-orange) !important;
+  font-family: var(--lc-font-data) !important;
+  border-radius: 3px !important;
+}
+input::placeholder { color: rgba(255,153,0,0.35) !important; }
+select option { background: #0a0800 !important; color: var(--lc-orange) !important; }
+
+/* ── 12. TABLES (viewscreen content only — not sidebar/nav) ────────── */
+.main table { border-collapse: collapse !important; }
+.main th {
+  background: rgba(255,153,0,0.1) !important;
+  color: var(--lc-orange) !important;
+  font-family: var(--lc-font-ui) !important;
+  font-size: 14px !important;
+  letter-spacing: 1px !important;
+  text-transform: uppercase !important;
+  border-bottom: 1px solid rgba(255,153,0,0.3) !important;
+  padding: 10px 12px !important;
+}
+.main td {
+  border-bottom: 1px solid rgba(255,153,0,0.08) !important;
+  color: var(--lc-tan) !important;
+  font-family: var(--lc-font-data) !important;
+  font-size: 14px !important;
+  padding: 10px 12px !important;
+}
+.main tr:hover td { background: rgba(255,153,0,0.04) !important; }
+
+/* ── 13. STAT CARDS (fleet summary strip) ─────────────────────────── */
+.stat-card {
+  background: #080600 !important;
+  border: 1px solid rgba(255,153,0,0.15) !important;
+  border-left: 3px solid var(--lc-orange) !important;
+  border-radius: 0 4px 4px 0 !important;
+}
+
+/* ── 14. MOBILE OVERLAY ──────────────────────────────────────────── */
+#mobileOverlay.active {
+  background: rgba(0,0,0,0.85) !important;
+}
+
+/* ── 15. ARCHER / CIC FLOATING BUTTONS ───────────────────────────── */
+#computerChatBtn {
+  background: var(--lc-orange) !important;
+  border: none !important;
+  box-shadow: 0 0 16px rgba(255,153,0,0.4) !important;
+  border-radius: 50% !important;
+}
+#computerChatBtn img { filter: invert(1) !important; border-radius: 50% !important; }
+#computerChatBtn .chat-btn-label { color: var(--lc-black) !important; font-family: var(--lc-font-ui) !important; font-weight: 700 !important; letter-spacing: 0.5px !important; }
+
+/* ── 16. LEADERBOARD / AGENT CARDS ──────────────────────────────── */
+.port-header { color: var(--lc-orange) !important; font-family: var(--lc-font-ui) !important; letter-spacing: 0.5px !important; }
+.port-val { font-family: var(--lc-font-data) !important; }
+
+/* ── 16b. VIEWSCREEN BODY TEXT & PILL BUTTONS ───────────────────── */
+/* Paragraph / description text in content panels */
+.main p,
+.main div[style*="font-size:13px"],
+.main div[style*="font-size: 13px"],
+.main div[style*="font-size:12px"],
+.main div[style*="font-size: 12px"],
+.main span[style*="font-size:12px"],
+.main span[style*="font-size: 12px"] {
+  font-size: 13px !important;
+}
+
+/* Season pills, filter tabs, chart-pick buttons, and small action buttons
+   inside the viewscreen — bump to at least 13px */
+.main .btn,
+.main .chart-pick-btn,
+.main .filter-tab,
+.main [style*="font-size:12px"][style*="border-radius"],
+.main [style*="font-size:11px"][style*="border-radius"],
+.main select {
+  font-size: 13px !important;
+}
+
+/* ── 17. SECTIONS / PANELS ───────────────────────────────────────── */
+/* Section intro banners (blue-bordered) */
+div[style*="border-left:4px solid #2563eb"],
+div[style*="border-left: 4px solid #2563eb"] {
+  border-left-color: var(--lc-orange) !important;
+  background: rgba(255,153,0,0.04) !important;
+  color: var(--lc-tan) !important;
+}
+
+/* ── 18. CHAT PANEL (Archer / CIC) ──────────────────────────────── */
+#computerChatPanel {
+  background: #020100 !important;
+  border: 2px solid var(--lc-orange) !important;
+  border-radius: 8px 8px 0 0 !important;
+  box-shadow: 0 -4px 30px rgba(255,153,0,0.15) !important;
+}
+#computer-chat-close {
+  background: rgba(255,153,0,0.1) !important;
+  border: 1px solid rgba(255,153,0,0.3) !important;
+  color: var(--lc-orange) !important;
+}
+
+/* ── 19. GEX CARD / CHART BACKGROUNDS ────────────────────────────── */
+.recharts-wrapper, canvas { filter: brightness(0.95) !important; }
+
+/* ── 20. MOBILE BOTTOM TAB BAR ───────────────────────────────────── */
+#lcars-tab-bar {
+  display: none; /* shown on mobile via media query */
+  position: fixed;
+  bottom: 0;
+  left: 0;
+  right: 0;
+  height: var(--lc-tab-h);
+  background: #080600;
+  border-top: 3px solid var(--lc-orange);
+  z-index: 500;
+  flex-direction: row;
+  align-items: stretch;
+}
+
+.lcars-tab {
+  flex: 1;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 3px;
+  cursor: pointer;
+  border: none;
+  background: transparent;
+  color: var(--lc-lilac);
+  font-family: var(--lc-font-ui);
+  font-size: 8px;
+  font-weight: 700;
+  letter-spacing: 0.6px;
+  text-transform: uppercase;
+  padding: 0;
+  transition: color 0.15s, background 0.15s;
+  border-right: 1px solid rgba(255,153,0,0.15);
+  position: relative;
+}
+
+.lcars-tab:last-child { border-right: none; }
+
+.lcars-tab .tab-icon {
+  font-size: 18px;
+  line-height: 1;
+}
+
+.lcars-tab.active {
+  color: var(--lc-black);
+  background: var(--lc-orange);
+}
+
+.lcars-tab.active::before {
+  content: '';
+  position: absolute;
+  top: 0; left: 0; right: 0;
+  height: 3px;
+  background: var(--lc-orange2);
+}
+
+.lcars-tab:not(.active):hover {
+  color: var(--lc-orange);
+  background: rgba(255,153,0,0.1);
+}
+
+/* ── 21. LCARS SECTION LABEL BAR (top of viewscreen) ────────────── */
+#lcars-section-bar {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-bottom: 16px;
+  padding: 8px 0;
+  border-bottom: 1px solid rgba(255,153,0,0.2);
+}
+
+#lcars-section-title {
+  font-family: var(--lc-font-ui);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: 3px;
+  text-transform: uppercase;
+  color: var(--lc-orange);
+}
+
+#lcars-section-subtitle {
+  font-family: var(--lc-font-data);
+  font-size: 11px;
+  color: var(--lc-lilac);
+  letter-spacing: 0.5px;
+}
+
+/* ── 22. MOBILE RESPONSIVE ───────────────────────────────────────── */
+@media (max-width: 768px) {
+  .nav {
+    padding: 0 12px 0 60px !important;
+    height: 48px !important;
+    min-height: 48px !important;
+  }
+
+  #disclaimer-banner {
+    padding-left: 12px !important;
+    margin-top: 48px !important;
+  }
+
+  .sidebar {
+    left: -100vw !important;
+    width: 80vw !important;
+    max-width: 280px !important;
+    transition: left 0.25s ease !important;
+    z-index: 600 !important;
+  }
+
+  .sidebar.mobile-open {
+    left: 0 !important;
+    box-shadow: 4px 0 40px rgba(0,0,0,0.9) !important;
+  }
+
+  #lcars-elbow { display: none !important; }
+
+  .main {
+    margin-left: 0 !important;
+    margin-top: 0 !important;
+    padding: 12px 12px 80px !important; /* 80px bottom for tab bar */
+  }
+
+  #lcars-tab-bar {
+    display: flex !important;
+  }
+
+  #disclaimer-footer { bottom: var(--lc-tab-h) !important; }
+}
+
+/* ── 23. LCARS DECORATIVE SECTION COLORS ─────────────────────────── */
+/* Alternate section colors for LCARS strip effect */
+.lcars-strip-orange { background: var(--lc-orange); }
+.lcars-strip-lilac  { background: var(--lc-lilac);  }
+.lcars-strip-blue   { background: var(--lc-blue);   }
+.lcars-strip-tan    { background: var(--lc-tan);    }
+
+/* ── 24. MORNING BRIEF / READY ROOM ─────────────────────────────── */
+#morning-brief-card, #ready-room-section {
+  border-top-color: var(--lc-teal) !important;
+}
+
+/* ── 25. SCROLLBAR STYLING ───────────────────────────────────────── */
+::-webkit-scrollbar { width: 6px; height: 6px; }
+::-webkit-scrollbar-track { background: #050301; }
+::-webkit-scrollbar-thumb { background: rgba(255,153,0,0.4); border-radius: 3px; }
+::-webkit-scrollbar-thumb:hover { background: var(--lc-orange); }
+
+/* ── 26. MODAL / OVERLAY BACKGROUNDS ─────────────────────────────── */
+.wizard-overlay, [style*="position:fixed"][style*="background:rgba(0,0,0,0.7)"] {
+  background: rgba(0,0,0,0.9) !important;
+}
+.wizard-modal {
+  background: #050301 !important;
+  border: 2px solid var(--lc-orange) !important;
+  border-radius: 0 !important;
+}
+.wizard-head {
+  background: rgba(255,153,0,0.08) !important;
+  border-bottom: 1px solid rgba(255,153,0,0.2) !important;
+  font-family: var(--lc-font-ui) !important;
+  color: var(--lc-orange) !important;
+}
+
+/* ── 27. SURFACE / BACKGROUND TOKEN OVERRIDES ────────────────────── */
+[style*="background:#0f172a"], [style*="background: #0f172a"],
+[style*="background:#1e293b"], [style*="background: #1e293b"],
+[style*="background:#0a0e1a"], [style*="background: #0a0e1a"],
+[style*="background:#0a0f1a"], [style*="background: #0a0f1a"],
+[style*="background:#060a12"], [style*="background: #060a12"],
+[style*="background:#1a1a2e"], [style*="background: #1a1a2e"],
+[style*="background:#16213e"], [style*="background: #16213e"] {
+  background: #060400 !important;
+}
+
+/* ── 28. BADGE / PILL COLORS ─────────────────────────────────────── */
+[style*="background:rgba(0,229,170"], [style*="background: rgba(0,229,170"] {
+  background: rgba(255,153,0,0.15) !important;
+  color: var(--lc-orange) !important;
+}
+
+/* ── 29. EXISTING TOOLTIP → LCARS ORANGE THEME ───────────────────── */
+#tooltipPopup {
+  background: #030201 !important;
+  border-color: var(--lc-orange) !important;
+  color: var(--lc-tan) !important;
+  font-family: var(--lc-font-data) !important;
+  box-shadow: 0 0 20px rgba(255,153,0,0.2), 0 12px 40px rgba(0,0,0,0.8) !important;
+  border-radius: 0 8px 8px 8px !important;
+}
+
+/* ── 30. LCARS HOVER FX ──────────────────────────────────────────── */
+.card:hover {
+  border-color: rgba(255,153,0,0.4) !important;
+  box-shadow: 0 0 24px rgba(255,153,0,0.06) !important;
+  transition: border-color 0.2s, box-shadow 0.2s !important;
+}

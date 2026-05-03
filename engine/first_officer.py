@@ -68,15 +68,16 @@ def _get_mlx_client():
 
 
 # Ollama fallback models for Data briefing (tried in order)
-_OLLAMA_FALLBACK_MODELS = ["qwen3:14b", "qwen3.5:9b", "qwen3:4b"]
+_OLLAMA_FALLBACK_MODELS = ["qwen3:14b", "qwen3:8b", "qwen3:4b"]  # 2026-04-20: qwen3:8b removed (swap storm risk)
 
 
 def _call_ollama(system: str, user: str, max_tokens: int = 2000) -> str | None:
     """Try Ollama models in fallback order. Returns text or None on total failure."""
     try:
         from openai import OpenAI
-        from config import OLLAMA_URL
-        client = OpenAI(api_key="ollama", base_url=f"{OLLAMA_URL}/v1", timeout=120.0)
+        from config import OLLIE_URL as _FO_OLLIE_URL
+        _fo_url = os.getenv("ADVISORY_OLLAMA_URL", os.getenv("OLLAMA_BASE_URL", _FO_OLLIE_URL))
+        client = OpenAI(api_key="ollama", base_url=f"{_fo_url}/v1", timeout=120.0)
         for model in _OLLAMA_FALLBACK_MODELS:
             try:
                 resp = client.chat.completions.create(
@@ -104,9 +105,9 @@ def _get_captain_portfolio() -> str:
     try:
         conn = sqlite3.connect(DB, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
-        cash = conn.execute("SELECT cash FROM ai_players WHERE id='steve-webull'").fetchone()
+        cash = conn.execute("SELECT cash FROM ai_players WHERE id='webull'").fetchone()
         positions = conn.execute(
-            "SELECT symbol, qty, avg_price FROM positions WHERE player_id='steve-webull'"
+            "SELECT symbol, qty, avg_price FROM positions WHERE player_id='webull'"
         ).fetchall()
         conn.close()
 
@@ -166,7 +167,7 @@ def _get_market_context() -> str:
             ind = get_technical_indicators(sym)
             if ind:
                 indicators[sym] = ind
-        return build_scan_context(prices, indicators, "steve-webull")
+        return build_scan_context(prices, indicators, "webull")
     except Exception as e:
         return f"Market context unavailable: {e}"
 
@@ -191,7 +192,7 @@ def _get_investor_scoring_context() -> str:
         conn = sqlite3.connect(DB, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
         positions = conn.execute(
-            "SELECT symbol, qty, avg_price FROM positions WHERE player_id='steve-webull'"
+            "SELECT symbol, qty, avg_price FROM positions WHERE player_id='webull'"
         ).fetchall()
         conn.close()
         if positions:

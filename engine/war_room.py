@@ -5,6 +5,7 @@ discovery pick, and earnings stock. Each stock gets ONE debate round (all models
 No stock repeated within 5 rounds.
 """
 from __future__ import annotations
+import json
 import sqlite3
 import random
 import time
@@ -19,14 +20,14 @@ DB = "data/trader.db"
 
 # Map player_id → Starfleet crew name (for War Room immersion)
 CREW_NAMES = {
-    "grok-4": "Lt. Cmdr. Spock",
+    "deepseek-7b-grok4": "Lt. Cmdr. Spock",
     "ollama-local": "Lt. Cmdr. Geordi",
-    "gemini-2.5-flash": "Lt. Cmdr. Worf",
+    "qwen3-8b-flash": "Lt. Cmdr. Worf",
     "ollama-qwen3": "Lt. Cmdr. Scotty",
     "ollama-plutus": "Cmdr. Dr. McCoy",
     "energy-arnold": "Cmdr. Trip Tucker",
     "options-sosnoff": "Counselor Troi",
-    "steve-webull": "Captain Kirk",
+    "webull": "Captain Kirk",
     "q-entity": "Q",
     "dalio-metals": "Mr. Dalio",
     "navigator": "Ensign Chekov",
@@ -46,6 +47,42 @@ _current_round_symbol: str | None = None  # current debate topic
 _forced_topic: str | None = None  # Steve can force the next debate topic
 _active_strategy_mode: str | None = None  # Steve's active strategy mode for AI responses
 _post_timestamps: dict[str, float] = {}  # "player_id:symbol" → timestamp (dedup within 60s)
+
+# Agents excluded from War Room debates regardless of DB state.
+# Add IDs here to silence an agent without touching the ai_players table.
+_WAR_ROOM_SKIP: frozenset = frozenset({
+    # System / non-LLM — no generative output
+    "cto-grok42",           # coding dev bot
+    "enterprise-computer",  # metals tracker (system)
+    "red-alert",            # system alert bot
+    # Coding specialists — not stock debaters
+    "ollama-coder",         # Lt. Cmdr. Data — code tasks only
+    "qwen-coder-haiku",     # Lt. Malcolm Reed — code tasks only
+    # Sector/strategy specialists — too narrow for general equity debate
+    "dalio-metals",         # metals-only advisor
+    "energy-arnold",        # energy sector advisory
+    "options-sosnoff",      # options strategy specialist
+    # Meta-orchestrators
+    "super-agent",          # CrewAI orchestrator (not a debater)
+    # Mislabeled model duplicates (branded as one model, routed as qwen3:8b)
+    "ollama-gemma27b",      # labeled Gemma27b but routes qwen3:8b
+    "ollama-glm4",          # labeled GLM4 but routes qwen3:8b
+    # Alias duplicates pruned for speed (same model as a kept agent)
+    "qwen3-8b-4o",          # GPT-4o brand alias → qwen3:8b duplicate
+    "qwen3-8b-o3",          # GPT-o3 brand alias → qwen3:8b duplicate
+    "qwen3-14b-grok3",      # 3rd qwen3:14b alias (keep ollama-local + qwen3-14b-pro)
+    "mlx-qwen3",            # 2nd phi3:mini on bigmac (keep ollama-kimi)
+    # Ghost legacy players — in DB with provider='ollama' but not in Arena providers
+    # Their models either don't exist on any host or use wrong routing
+    "chekov",               # qwen2.5:7b — not loaded on bigmac or Ollie
+    "claude-haiku",         # legacy alias for qwen2.5-coder:7b (use ollama-coder slot instead)
+    "claude-sonnet",        # legacy alias for qwen3:8b, no Ollie URL wiring
+    "gpt-4o",               # legacy alias for qwen3:8b, no Ollie URL wiring
+    "gpt-o3",               # legacy alias for qwen3:8b, no Ollie URL wiring
+    "gemini-2.5-pro",       # legacy alias for qwen3:14b, no Ollie URL wiring
+    "gemini-2.5-flash",     # legacy alias for qwen3:8b, no Ollie URL wiring
+    "grok-4",               # legacy alias for deepseek-r1:7b, no Ollie URL wiring
+})
 
 
 def _conn():
@@ -67,6 +104,90 @@ def _db_write_retry(fn, max_attempts=5, delay=2):
                 time.sleep(delay)
                 continue
             raise
+
+
+# ── Debate session tracking helpers ─────────────────────────────────────────
+
+def _ensure_debate_table(conn) -> None:
+    """Create war_room_debates table if it doesn't exist (additive only)."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS war_room_debates (
+            debate_id        TEXT PRIMARY KEY,
+            symbol           TEXT NOT NULL,
+            trigger          TEXT NOT NULL,
+            started_at       TEXT NOT NULL,
+            expected_agents  TEXT NOT NULL DEFAULT '[]',
+            completed_agents TEXT NOT NULL DEFAULT '[]',
+            status           TEXT NOT NULL DEFAULT 'running',
+            finished_at      TEXT
+        )
+    """)
+
+
+def _start_debate(debate_id: str, symbol: str, trigger: str,
+                  expected_agents: list) -> None:
+    """Insert a new 'running' debate session record."""
+    def _write():
+        conn = _conn()
+        _ensure_debate_table(conn)
+        conn.execute(
+            """INSERT OR IGNORE INTO war_room_debates
+               (debate_id, symbol, trigger, started_at, expected_agents, completed_agents, status)
+               VALUES (?, ?, ?, datetime('now'), ?, '[]', 'running')""",
+            (debate_id, symbol, trigger, json.dumps(expected_agents)),
+        )
+        conn.commit()
+        conn.close()
+    try:
+        _db_write_retry(_write)
+    except Exception as e:
+        console.log(f"[dim]debate tracking start failed: {e}")
+
+
+def _mark_agent_done(debate_id: str, pid: str) -> None:
+    """Append pid to completed_agents for this debate."""
+    def _write():
+        conn = _conn()
+        row = conn.execute(
+            "SELECT completed_agents FROM war_room_debates WHERE debate_id=?",
+            (debate_id,)
+        ).fetchone()
+        if not row:
+            conn.close()
+            return
+        completed = json.loads(row[0] or "[]")
+        if pid not in completed:
+            completed.append(pid)
+        conn.execute(
+            "UPDATE war_room_debates SET completed_agents=? WHERE debate_id=?",
+            (json.dumps(completed), debate_id),
+        )
+        conn.commit()
+        conn.close()
+    try:
+        _db_write_retry(_write)
+    except Exception as e:
+        console.log(f"[dim]debate tracking mark_done failed: {e}")
+
+
+def _finish_debate(debate_id: str, expected: list, completed: list) -> None:
+    """Mark debate complete or timeout at end of round."""
+    status = "complete" if set(completed) >= set(expected) else "timeout"
+    def _write():
+        conn = _conn()
+        conn.execute(
+            "UPDATE war_room_debates SET status=?, finished_at=datetime('now') WHERE debate_id=?",
+            (status, debate_id),
+        )
+        conn.commit()
+        conn.close()
+    try:
+        _db_write_retry(_write)
+    except Exception as e:
+        console.log(f"[dim]debate tracking finish failed: {e}")
+
+
+# ────────────────────────────────────────────────────────────────────────────
 
 
 def _pick_symbol(prices: dict) -> tuple[str, str] | None:
@@ -198,10 +319,10 @@ def _get_recent_takes(symbol: str, limit: int = 10) -> list[dict]:
     # Enrich Steve's messages with portfolio context
     steve_return = None
     try:
-        steve_row = conn.execute("SELECT cash FROM ai_players WHERE id='steve-webull'").fetchone()
+        steve_row = conn.execute("SELECT cash FROM ai_players WHERE id='webull'").fetchone()
         if steve_row:
             from engine.paper_trader import get_portfolio_with_pnl
-            pnl = get_portfolio_with_pnl("steve-webull", {})
+            pnl = get_portfolio_with_pnl("webull", {})
             steve_return = pnl.get("return_pct", 0)
     except Exception:
         pass
@@ -211,7 +332,7 @@ def _get_recent_takes(symbol: str, limit: int = 10) -> list[dict]:
     results = []
     for r in rows:
         d = dict(r)
-        if d["player_id"] == "steve-webull":
+        if d["player_id"] == "webull":
             ret_str = f", {steve_return:+.1f}% real money" if steve_return is not None else ", real money"
             d["display_name"] = f"Captain Kirk (human{ret_str})"
         results.append(d)
@@ -436,7 +557,7 @@ def post_super_agent_pipeline_take(prices: dict | None = None) -> bool:
         positions = conn.execute(
             "SELECT p.symbol, p.qty, p.avg_price, p.asset_type, a.display_name "
             "FROM positions p JOIN ai_players a ON a.id = p.player_id "
-            "WHERE p.player_id != 'steve-webull' AND p.player_id != 'super-agent' "
+            "WHERE p.player_id != 'webull' AND p.player_id != 'super-agent' "
             "AND p.qty != 0 "
             "ORDER BY a.display_name"
         ).fetchall()
@@ -444,7 +565,7 @@ def post_super_agent_pipeline_take(prices: dict | None = None) -> bool:
         recent_trades = conn.execute(
             "SELECT t.player_id, a.display_name, t.symbol, t.action, t.price, t.realized_pnl "
             "FROM trades t JOIN ai_players a ON a.id = t.player_id "
-            "WHERE t.player_id != 'steve-webull' "
+            "WHERE t.player_id != 'webull' "
             "AND t.executed_at > datetime('now', '-2 hours') "
             "ORDER BY t.executed_at DESC LIMIT 10"
         ).fetchall()
@@ -455,7 +576,7 @@ def post_super_agent_pipeline_take(prices: dict | None = None) -> bool:
             "  COUNT(CASE WHEN realized_pnl < 0 THEN 1 END) as losses, "
             "  COALESCE(SUM(realized_pnl), 0) as total_pnl "
             "FROM trades "
-            "WHERE player_id != 'steve-webull' "
+            "WHERE player_id != 'webull' "
             "AND executed_at > datetime('now', '-24 hours')"
         ).fetchone()
 
@@ -560,7 +681,7 @@ def post_super_agent_vix_take(vix: float) -> bool:
         conn = _conn()
         positions = conn.execute(
             "SELECT COUNT(*) as cnt, COUNT(CASE WHEN asset_type='option' THEN 1 END) as opts "
-            "FROM positions WHERE player_id != 'steve-webull' AND player_id != 'super-agent' AND qty != 0"
+            "FROM positions WHERE player_id != 'webull' AND player_id != 'super-agent' AND qty != 0"
         ).fetchone()
         pos_count = positions["cnt"] if positions else 0
         opt_count = positions["opts"] if positions else 0
@@ -707,10 +828,11 @@ def run_war_room(providers: dict, prices: dict):
     # Get prior takes on this symbol for conversation context
     prior_takes = _get_recent_takes(symbol, limit=6)
 
-    # Filter to active, non-special models
+    # Filter to active, non-halted models
     conn = _conn()
-    paused_ids = {r["id"] for r in conn.execute("SELECT id FROM ai_players WHERE is_paused=1").fetchall()}
+    paused_ids  = {r["id"] for r in conn.execute("SELECT id FROM ai_players WHERE is_paused=1").fetchall()}
     inactive_ids = {r["id"] for r in conn.execute("SELECT id FROM ai_players WHERE is_active=0").fetchall()}
+    halted_ids  = {r["id"] for r in conn.execute("SELECT id FROM ai_players WHERE is_halted=1").fetchall()}
     conn.close()
 
     # Check who already posted about this symbol in the last hour (prevent spam)
@@ -725,11 +847,32 @@ def run_war_room(providers: dict, prices: dict):
     for r in rows:
         recent_posters.add(r["player_id"])
 
+    # ── Debate session tracking: compute expected roster AFTER all filter sets ready ─
+    _debate_trigger = "forced" if reason == "Steve's pick" else "auto"
+    _debate_expected: list = []
+    try:
+        from engine.providers.ollama_provider import OllamaProvider as _OLP_pre
+        for _pid, _prov in providers.items():
+            if _pid in _WAR_ROOM_SKIP or _pid in paused_ids or _pid in inactive_ids or _pid in halted_ids:
+                continue
+            _is_ol_pre = isinstance(_prov, _OLP_pre)
+            if not _is_ol_pre and not is_market:
+                continue
+            if _pid in recent_posters:
+                continue
+            _debate_expected.append(_pid)
+    except Exception as _dex:
+        console.log(f"[dim]debate expected-roster failed: {_dex}")
+    _debate_id = f"{symbol}_{int(time.time())}"
+    _debate_completed: list = []
+    _start_debate(_debate_id, symbol, _debate_trigger, _debate_expected)
+    # ─────────────────────────────────────────────────────────────────────────────────
+
     # Collect takes — each model gets exactly ONE response
     round_takes: list[dict] = []
 
     for pid, provider in providers.items():
-        if pid in ("dayblade-0dte", "cto-grok42") or pid in paused_ids or pid in inactive_ids:
+        if pid in _WAR_ROOM_SKIP or pid in paused_ids or pid in inactive_ids or pid in halted_ids:
             continue
 
         # Ollama-based providers debate 24/7; paid API models only during market hours
@@ -764,6 +907,8 @@ def run_war_room(providers: dict, prices: dict):
                 save_hot_take(pid, symbol, take)
                 _post_timestamps[_dedup_key] = time.time()
                 _round_responded.add(pid)
+                _debate_completed.append(pid)
+                _mark_agent_done(_debate_id, pid)
                 round_takes.append({
                     "player_id": pid,
                     "display_name": provider.display_name,
@@ -778,4 +923,5 @@ def run_war_room(providers: dict, prices: dict):
     global _active_strategy_mode
     _active_strategy_mode = None
 
+    _finish_debate(_debate_id, _debate_expected, _debate_completed)
     console.log(f"[magenta]War Room round complete: {len(round_takes)} responses on {symbol}")

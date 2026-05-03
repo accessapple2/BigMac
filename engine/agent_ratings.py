@@ -34,7 +34,7 @@ _SKIP_PLAYERS = {
     "dayblade-0dte",        # 0DTE options bot — separate scoring system
     "red-alert",            # system alert agent, not a trader
     "enterprise-computer",  # dilithium reserve, not a trader
-    "steve-webull",         # human benchmark, not an AI agent
+    "webull",         # human benchmark, not an AI agent
 }
 
 

@@ -56,12 +56,11 @@ def ensure_sma_table():
 
 
 def _fetch_history(symbol: str) -> list[float] | None:
-    """Fetch ~210 days of daily closes via yfinance. Returns list oldest→newest."""
+    """Fetch ~210 days of daily closes via Alpaca. Returns list oldest→newest."""
     try:
-        import yfinance as yf
-        tk = yf.Ticker(symbol)
-        hist = tk.history(period="1y", auto_adjust=True)
-        if hist.empty or len(hist) < 200:
+        from engine.market_data import get_alpaca_bars
+        hist = get_alpaca_bars(symbol, days=252)
+        if hist is None or hist.empty or len(hist) < 200:
             return None
         return list(hist["Close"])
     except Exception as e:

@@ -88,28 +88,24 @@ def detect_ma_cross_regime() -> dict:
             return dict(_cache["data"])
 
     try:
-        import yfinance as yf
-        import pandas as pd
+        from engine.market_data import get_alpaca_bars
 
-        # Fetch 60 trading days (~3 months) of daily data for SPY and QQQ
-        raw = yf.download(
-            "SPY QQQ",
-            period="90d",
-            interval="1d",
-            auto_adjust=True,
-            progress=False,
-        )
+        # Fetch ~90 calendar days of daily data for SPY and QQQ
+        raw = get_alpaca_bars(["SPY", "QQQ"], days=90)
+        if not isinstance(raw, dict):
+            raw = {"SPY": raw}
 
-        # yfinance multi-ticker returns MultiIndex columns
-        if isinstance(raw.columns, pd.MultiIndex):
-            spy_closes = raw["Close"]["SPY"].dropna().tolist()
-            spy_dates  = [str(d.date()) for d in raw["Close"]["SPY"].dropna().index]
-            qqq_closes = raw["Close"]["QQQ"].dropna().tolist()
-        else:
-            # Single ticker fallback
-            spy_closes = raw["Close"].dropna().tolist()
-            spy_dates  = [str(d.date()) for d in raw["Close"].dropna().index]
-            qqq_closes = []
+        spy_df = raw.get("SPY")
+        qqq_df = raw.get("QQQ")
+
+        if spy_df is None or spy_df.empty:
+            raise ValueError("No SPY data from Alpaca")
+
+        spy_df = spy_df.dropna(subset=["Close"])
+        spy_closes = spy_df["Close"].tolist()
+        spy_dates  = [str(d.date()) if hasattr(d, "date") else str(d)
+                      for d in spy_df.index]
+        qqq_closes = qqq_df["Close"].dropna().tolist() if qqq_df is not None and not qqq_df.empty else []
 
         if len(spy_closes) < 21:
             raise ValueError(f"Insufficient history: {len(spy_closes)} days")

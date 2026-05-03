@@ -18,10 +18,11 @@ import requests
 logger = logging.getLogger("wb_advisory_team")
 
 DB = "data/trader.db"
-OLLAMA_BASE_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+OLLAMA_BASE_URL = os.getenv("ADVISORY_OLLAMA_URL",
+                             os.getenv("OLLAMA_BASE_URL", "http://192.168.1.166:11434"))
 
 # Troi uses a lighter model — fast sentiment pass
-TROI_MODEL = os.getenv("TROI_MODEL", os.getenv("CREWAI_CODE_MODEL", "qwen2.5-coder:7b-instruct"))
+TROI_MODEL = os.getenv("TROI_MODEL", os.getenv("CREWAI_CODE_MODEL", "qwen2.5-coder:7b"))
 # Worf uses the larger model for deeper risk analysis
 WORF_MODEL = os.getenv("WORF_MODEL", os.getenv("CREWAI_MODEL", "qwen3:14b"))
 
@@ -121,7 +122,7 @@ def _get_positions() -> list[dict]:
             "SELECT p.symbol, p.qty, p.avg_price, "
             "  p.avg_price AS current_price "
             "FROM positions p "
-            "WHERE p.player_id='steve-webull' AND p.qty > 0 "
+            "WHERE p.player_id='webull' AND p.qty > 0 "
             "ORDER BY p.symbol",
         ).fetchall()
         conn.close()

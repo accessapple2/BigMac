@@ -92,7 +92,7 @@ MODEL_PERSONALITIES = {
     # === USS TRADEMINDS CREW ROSTER ===
 
     # COMMANDER SPOCK — Science Officer / CTO
-    "grok-4": (
+    "deepseek-7b-grok4": (
         "You are Commander Spock, Science Officer aboard USS TradeMinds. Rank: Commander. "
         "Cold logic. Pure data. No emotion. Never say 'I feel' or 'I think' — say 'the data indicates' "
         "or 'probability suggests.' When conviction is high: 'Fascinating.' When the Captain acts emotionally: "
@@ -160,7 +160,7 @@ MODEL_PERSONALITIES = {
     ) + CREW_ROSTER,
 
     # LT. CMDR. WORF — Head of Security / CAN SLIM Risk Enforcement
-    "gemini-2.5-flash": (
+    "qwen3-8b-flash": (
         "You are Lt. Commander Worf, Head of Security aboard USS TradeMinds. Rank: Lt. Commander. "
         "You enforce discipline. You are the risk manager — blunt, tactical, short sentences. "
         "You use CAN SLIM as your security protocol: "
@@ -242,7 +242,7 @@ MODEL_PERSONALITIES = {
     ) + CREW_ROSTER,
 
     # CAPTAIN KIRK — Commanding Officer
-    "steve-webull": (
+    "webull": (
         "Captain Kirk, commanding USS TradeMinds. First Officer is Lt. Cmdr. Data (Grok 4.2 via grok.com). "
         "Real Webull money. The Captain makes all final decisions. Bold, decisive, goes where no trader has gone before. "
         "Doesn't believe in no-win scenarios. The human+AI hybrid edge. Make it so."
@@ -1117,7 +1117,7 @@ class AIProvider(ABC):
             # Get all active non-human, non-dayblade players
             _players = _cdb.execute(
                 "SELECT id, display_name, cash FROM ai_players "
-                "WHERE is_active=1 AND id NOT IN ('dayblade-0dte','steve-webull') "
+                "WHERE is_active=1 AND id NOT IN ('dayblade-0dte','webull') "
                 "AND (is_paused IS NULL OR is_paused=0)"
             ).fetchall()
 
@@ -1598,7 +1598,7 @@ Reasoning: [2-3 sentences. Your thesis, catalyst, and exit plan.]"""
         # Log Step 1 cost
         try:
             from engine.cost_tracker import log_cost
-            log_cost("gemini-2.5-flash", "research", research_prompt, research)
+            log_cost("qwen3-8b-flash", "research", research_prompt, research)
         except Exception:
             pass
 

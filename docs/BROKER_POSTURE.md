@@ -36,4 +36,4 @@ To promote any broker to auto-trade:
 
 ## Memory Note
 
-`steve-webull` player_id in `positions` table is written by BOTH Webull broker sync AND Alpaca portfolio sync (last-writer-wins). Do not confuse positions in this table with Steve's actual real-money account. See `memory/project_steve_webull_alpaca.md`.
+`webull` player_id in `positions` table is written by BOTH Webull broker sync AND Alpaca portfolio sync (last-writer-wins). Do not confuse positions in this table with Steve's actual real-money account. See `memory/project_steve_webull_alpaca.md`.

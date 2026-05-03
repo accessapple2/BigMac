@@ -115,7 +115,7 @@ FREE_CALLS_DAILY_LIMIT = int(os.environ.get("FREE_CALLS_DAILY_LIMIT", "1000"))
 
 # AI Arena Players
 AI_PLAYERS = [
-    {"id": "ollama-local",    "name": "Pike/Kirk 14B",      "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU
+    {"id": "ollama-local",    "name": "Pike/Kirk 14B",      "provider": "ollama", "model": "qwen3:8b",         "url": OLLIE_URL},  # Ollie GPU
     {"id": "ollama-gemma27b", "name": "Qwen3 8B",           "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — was qwen3:14b
     {"id": "ollama-deepseek", "name": "Spock R1 14B",       "provider": "ollama", "model": "deepseek-r1:14b",   "url": OLLIE_URL},  # Ollie GPU
     {"id": "ollama-qwen3",    "name": "Scotty 8B",          "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU
@@ -130,7 +130,7 @@ AI_PLAYERS = [
     {"id": "qwen-coder-haiku",    "name": "Codex Scout",        "provider": "openai", "model": OPENAI_CODEX_MINI_MODEL},
     {"id": "qwen3-8b-4o",          "name": "GPT-4o",             "provider": "openai", "model": "qwen3-8b-4o"},
     {"id": "qwen3-8b-o3",          "name": "GPT-o3",             "provider": "openai", "model": "o3"},
-    {"id": "qwen3-14b-pro",  "name": "Dalio Macro 14B",    "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU — was gemini
+    {"id": "qwen3-14b-pro",  "name": "Dalio Macro 14B",    "provider": "ollama", "model": "qwen3:8b",         "url": OLLIE_URL},  # Ollie GPU — was gemini
     {"id": "qwen3-8b-flash","name": "Worf 8B",            "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — was gemini
     {"id": "qwen3-14b-grok3",          "name": "ex-Grok3 14B",       "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU — retired 2026-04-16
     {"id": "deepseek-7b-grok4",          "name": "ex-Grok4 8B",        "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — retired 2026-04-16

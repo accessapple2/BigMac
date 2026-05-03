@@ -50,17 +50,26 @@ def _safe_close(df, col="Close"):
 
 def _compute_fear_greed() -> dict:
     """Inner computation — runs in a thread with timeout protection."""
-    import yfinance as yf
+    # 2026-04-27: migrated VIX to get_vix() (direct Yahoo HTTP, 5min cache, separate rate bucket)
+    #              migrated sector ETF breadth to get_alpaca_bars() (Alpaca, no Yahoo rate limit)
+    from engine.market_data import get_alpaca_bars, get_vix
+    import pandas as pd
+    from strategies.polygon_client import fetch_daily_bars
 
     signals = {}
     score = 50.0
 
-    # 1. VIX
+    # Pre-fetch SPY bars once (252d covers RSI last-30, safe-haven last-30, momentum SMA-125)
+    _spy_bars: list[dict] = []
     try:
-        vix = yf.download("^VIX", period="5d", progress=False, timeout=10)
-        close = _safe_close(vix)
-        if close is not None and len(close) > 0:
-            vix_val = float(close.iloc[-1])
+        _spy_bars = fetch_daily_bars("SPY", days=252)
+    except Exception:
+        pass
+
+    # 1. VIX — migrated 2026-04-27 from yf.download to get_vix() (direct HTTP, cached, safer)
+    try:
+        vix_val = get_vix()
+        if vix_val and vix_val > 0:
             vix_score = max(0, min(100, 100 - (vix_val - 12) * 3))
             signals["vix"] = {
                 "value": round(vix_val, 1),
@@ -71,11 +80,11 @@ def _compute_fear_greed() -> dict:
     except Exception:
         pass
 
-    # 2. SPY RSI
+    # 2. SPY RSI — Polygon aggregates (reuses _spy_bars pre-fetched above)
     try:
-        spy = yf.download("SPY", period="30d", progress=False, timeout=10)
-        close = _safe_close(spy)
-        if close is not None and len(close) >= 15:
+        spy30 = _spy_bars[-30:] if len(_spy_bars) >= 30 else _spy_bars
+        if len(spy30) >= 15:
+            close = pd.Series([b["close"] for b in spy30])
             delta = close.diff()
             gain = delta.where(delta > 0, 0).rolling(14).mean()
             loss = (-delta.where(delta < 0, 0)).rolling(14).mean()
@@ -90,10 +99,11 @@ def _compute_fear_greed() -> dict:
     except Exception:
         pass
 
-    # 3. Sector breadth
+    # 3. Sector breadth — migrated 2026-04-27 from yf.download to get_alpaca_bars()
+    #    Returns dict[symbol -> DataFrame] instead of multi-index DataFrame.
     try:
         etfs = ["XLK", "XLV", "XLF", "XLE", "XLY", "XLP", "XLI", "XLB", "XLU", "XLRE", "XLC"]
-        data = yf.download(etfs, period="5d", progress=False, group_by="ticker", timeout=10)
+        data = get_alpaca_bars(etfs, timeframe="1Day", days=5)
         up_count = 0
         for etf in etfs:
             try:
@@ -118,15 +128,13 @@ def _compute_fear_greed() -> dict:
     except Exception:
         pass
 
-    # 4. Safe haven demand (Gold vs SPY 30d)
+    # 4. Safe haven demand (Gold vs SPY 30d) — Polygon aggregates
     try:
-        gld = yf.download("GLD", period="30d", progress=False, timeout=10)
-        spy30 = yf.download("SPY", period="30d", progress=False, timeout=10)
-        gld_close = _safe_close(gld)
-        spy_close = _safe_close(spy30)
-        if gld_close is not None and spy_close is not None and len(gld_close) > 1 and len(spy_close) > 1:
-            gold_ret = (float(gld_close.iloc[-1]) / float(gld_close.iloc[0]) - 1) * 100
-            spy_ret = (float(spy_close.iloc[-1]) / float(spy_close.iloc[0]) - 1) * 100
+        gld_bars = fetch_daily_bars("GLD", days=30)
+        spy_bars_30 = _spy_bars[-30:] if len(_spy_bars) >= 2 else []
+        if len(gld_bars) > 1 and len(spy_bars_30) > 1:
+            gold_ret = (float(gld_bars[-1]["close"]) / float(gld_bars[0]["close"]) - 1) * 100
+            spy_ret = (float(spy_bars_30[-1]["close"]) / float(spy_bars_30[0]["close"]) - 1) * 100
             haven = gold_ret - spy_ret
             haven_score = max(0, min(100, 50 - haven * 5))
             signals["safe_haven"] = {
@@ -138,11 +146,10 @@ def _compute_fear_greed() -> dict:
     except Exception:
         pass
 
-    # 5. Momentum (SPY vs 125-day SMA)
+    # 5. Momentum (SPY vs 125-day SMA) — Polygon aggregates (reuses _spy_bars pre-fetched above)
     try:
-        spy_yr = yf.download("SPY", period="1y", progress=False, timeout=10)
-        close = _safe_close(spy_yr)
-        if close is not None and len(close) >= 126:
+        if len(_spy_bars) >= 126:
+            close = pd.Series([b["close"] for b in _spy_bars])
             current = float(close.iloc[-1])
             sma125 = float(close.rolling(125).mean().iloc[-1])
             momentum = ((current - sma125) / sma125) * 100

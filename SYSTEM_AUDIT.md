@@ -359,7 +359,7 @@ Workspace: `~/autonomous-trader`
     - warning-only players are excluded from enforcement:
       - `neo-matrix`
       - `enterprise-computer`
-      - `steve-webull`
+      - `webull`
       - `super-agent`
 - Smarter portfolio construction weights:
   - [engine/paper_trader.py](~/autonomous-trader/engine/paper_trader.py)
@@ -414,10 +414,10 @@ Workspace: `~/autonomous-trader`
     - `GET /api/arena/player/neo-matrix` still shows `arena_governed=false`, `is_independent=true`, `can_pause=false`
     - `POST /api/model-control/pause/neo-matrix` still returns the read-only rejection
     - `GET /api/arena/player/enterprise-computer` preserves mirrored metals values and only adds warning overlays
-    - `GET /api/arena/player/steve-webull` preserves mirrored Webull values and only adds warning overlays
+    - `GET /api/arena/player/webull` preserves mirrored Webull values and only adds warning overlays
     - mocked buy checks confirm protected exclusions remain prospective-warning only for:
       - `neo-matrix`
-      - `steve-webull`
+      - `webull`
       - `enterprise-computer`
       - `super-agent`
 

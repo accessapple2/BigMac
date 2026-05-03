@@ -306,6 +306,21 @@ def main() -> None:
 
     import_csv(csv_path)
 
+    # Auto-sync to real_holdings.json (Kirk Advisory data source)
+    try:
+        import subprocess
+        result = subprocess.run(
+            [sys.executable, str(REPO_ROOT / "scripts" / "sync_schwab_to_real_holdings.py")],
+            capture_output=True, text=True, timeout=15
+        )
+        if result.returncode == 0:
+            print()
+            print(result.stdout.strip())
+        else:
+            print(f"  [warn] sync_schwab_to_real_holdings failed: {result.stderr.strip()}")
+    except Exception as e:
+        print(f"  [warn] sync hook error: {e}")
+
 
 if __name__ == "__main__":
     main()

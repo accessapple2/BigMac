@@ -119,7 +119,7 @@ A full-fleet repair run was executed with the KILL_SWITCH armed and launchd unlo
 |------|----------------|
 | 5.2 — ALPACA_* vs APCA_* consolidation | 73 refs, env var naming conventions, needs Admiral decision on canonical var name |
 | Morningbriefing script path (plist) | Script at ~/ollietrades/ is older version; autonomous-trader engine version is 2.5x larger; migration needs explicit review |
-| Webull advisory team migration | `wb_advisory_team.py` reads `steve-webull` positions; needs Alpaca position reader |
+| Webull advisory team migration | `wb_advisory_team.py` reads `webull` positions; needs Alpaca position reader |
 | Polygon.io Options Starter activation | Approved-in-principle; requires billing activation + API key wiring for Neo + McCoy/Dax |
 
 ---

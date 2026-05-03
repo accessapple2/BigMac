@@ -1,0 +1,152 @@
+/* ── Backtest Analytics Panels ───────────────────────────────────────────── */
+
+.bt-panel {
+  background: var(--surface);
+  border: 1.5px solid var(--border);
+  border-radius: var(--radius);
+  padding: 18px;
+  margin-bottom: 20px;
+}
+
+.bt-panel-hdr {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 14px;
+}
+
+.bt-panel-title {
+  font-size: 14px;
+  font-weight: 800;
+  letter-spacing: 1px;
+  text-transform: uppercase;
+  color: var(--accent);
+}
+
+.bt-panel-controls {
+  display: flex;
+  gap: 6px;
+}
+
+.bt-panel-controls button {
+  background: var(--surface2);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  color: var(--text);
+  cursor: pointer;
+  font-size: 12px;
+  padding: 3px 10px;
+}
+
+.bt-panel-controls button:hover {
+  background: var(--accent);
+  color: #fff;
+  border-color: var(--accent);
+}
+
+/* table */
+.bt-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 12px;
+}
+
+.bt-table th {
+  text-align: left;
+  padding: 6px 8px;
+  border-bottom: 1px solid var(--border);
+  color: var(--muted);
+  font-size: 11px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.8px;
+}
+
+.bt-table td {
+  padding: 5px 8px;
+  border-bottom: 1px solid var(--border);
+  font-variant-numeric: tabular-nums;
+}
+
+.bt-grade-a { color: var(--green); font-weight: 800; }
+.bt-grade-b { color: var(--accent); }
+.bt-grade-f { color: var(--red); }
+
+.bt-pos { color: var(--green); }
+.bt-neg { color: var(--red); }
+
+/* summary strip */
+.bt-summary {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 16px;
+  font-size: 13px;
+  padding: 8px 0 12px;
+  border-bottom: 1px solid var(--border);
+  margin-bottom: 10px;
+}
+
+/* trade log rows */
+.bt-trade-list {
+  max-height: 280px;
+  overflow-y: auto;
+}
+
+.bt-trade-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 5px 0;
+  font-size: 12px;
+  border-bottom: 1px solid var(--border);
+}
+
+.bt-sym   { font-weight: 700; min-width: 52px; }
+.bt-act   { color: var(--muted); min-width: 38px; font-size: 11px; }
+.bt-px    { min-width: 120px; color: var(--muted); font-size: 11px; }
+.bt-strat { color: var(--muted); font-size: 11px; }
+.bt-agent { color: var(--muted); font-size: 10px; margin-left: auto; }
+
+/* regime grid */
+.bt-regime-grid {
+  display: grid;
+  grid-template-columns: repeat(auto-fill, minmax(130px, 1fr));
+  gap: 10px;
+  margin-bottom: 14px;
+}
+
+.bt-regime-card {
+  background: var(--surface2);
+  border-radius: 8px;
+  padding: 10px 12px;
+  text-align: center;
+}
+
+.bt-regime-hdr {
+  font-size: 13px;
+  font-weight: 700;
+  margin-bottom: 6px;
+}
+
+.bt-regime-stat {
+  font-size: 11px;
+  color: var(--muted);
+  line-height: 1.6;
+}
+
+.bt-section-sub {
+  font-size: 12px;
+  margin-top: 10px;
+  color: var(--muted);
+}
+
+.bt-section-sub ul {
+  margin: 4px 0 0 16px;
+  padding: 0;
+}
+
+.bt-section-sub li { margin-bottom: 3px; }
+
+/* state helpers */
+.bt-loading, .bt-empty { padding: 24px; text-align: center; color: var(--muted); font-size: 13px; }
+.bt-error  { padding: 12px; color: var(--red); font-size: 13px; }

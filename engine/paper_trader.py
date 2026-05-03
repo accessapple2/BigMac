@@ -162,6 +162,12 @@ def register_sell_callback(callback):
     _on_sell_callback = callback
 
 
+# === SHORT EQUITY FEATURE FLAG ===
+# Set to True to enable short-sell execution for agents with short_enabled=1 in ai_players.
+# Wiring added 2026-04-21. Flip to True only after reviewing Counselor Troi's
+# ghost-trade performance. To enable: set SHORT_ENABLED = True below.
+SHORT_ENABLED = False  # Admiral: flip this to True when ready
+
 # === ALPACA PAPER TRADING BRIDGE ===
 # Forwards DB trades to Alpaca paper account for real execution.
 # Only stocks, only AI models, never human portfolios.
@@ -536,6 +542,14 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
         return None
+    # === HALT GATE ===
+    _halt = _conn().execute(
+        "SELECT is_halted, halt_reason FROM ai_players WHERE id=?", (player_id,)
+    ).fetchone()
+    if _halt and _halt[0]:
+        console.log(f"[red]HALTED: {player_id} — {_halt[1] or 'no reason given'}")
+        _last_rejection[player_id] = f"Halted: {_halt[1] or 'no reason given'}"
+        return None
     route = _resolve_execution_portfolio(player_id)
     if route["route_mode"] == "tracking":
         return _log_signal_only(player_id, "BUY", symbol, route, reasoning, confidence)
@@ -661,7 +675,7 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
 
         # 5. V3: Quality gate (stock must pass 3/5 fundamental checks)
         # Exempt: capitol-trades follows Congress members, not AI analysis
-        _QUALITY_GATE_EXEMPT = {"capitol-trades", "navigator", "steve-webull"}
+        _QUALITY_GATE_EXEMPT = {"capitol-trades", "navigator", "webull"}
         if asset_type == "stock" and player_id not in _QUALITY_GATE_EXEMPT:
             try:
                 from engine.quality_gate import passes_quality_gate
@@ -682,7 +696,7 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
 
         # 6. Warp 9: Scanner validation — prefer scanner picks over AI guesses
         # Exempt: capitol-trades uses Congress trade data, not AI universe scanner
-        _SCANNER_EXEMPT = {"capitol-trades", "steve-webull"}
+        _SCANNER_EXEMPT = {"capitol-trades", "webull"}
         if asset_type == "stock" and player_id not in _SCANNER_EXEMPT:
             try:
                 from engine.strategies import get_todays_signals
@@ -770,7 +784,7 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
 
     # READY ROOM ADVISORY (Counselor Troi): Gate on market condition before execution
     _adv_mult = 1.0  # default: full size
-    _ADVISOR_EXEMPT = {"capitol-trades", "steve-webull", "dalio-metals"}
+    _ADVISOR_EXEMPT = {"capitol-trades", "webull", "dalio-metals"}
     # T'Pol and McCoy operate on their own mandate/VIX gates — Troi STAND_DOWN
     # (CHOP regime) should not block them. CAUTION sizing still applies.
     _TROI_STAND_DOWN_EXEMPT = {"dayblade-0dte", "ollama-plutus"}
@@ -1072,6 +1086,14 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
         return None
+    # === HALT GATE ===
+    _halt = _conn().execute(
+        "SELECT is_halted, halt_reason FROM ai_players WHERE id=?", (player_id,)
+    ).fetchone()
+    if _halt and _halt[0]:
+        console.log(f"[red]HALTED: {player_id} — {_halt[1] or 'no reason given'}")
+        _last_rejection[player_id] = f"Halted: {_halt[1] or 'no reason given'}"
+        return None
     route = _resolve_execution_portfolio(player_id)
     if route["route_mode"] == "tracking":
         return _log_signal_only(player_id, "SELL", symbol, route, reasoning, confidence)
@@ -1339,7 +1361,7 @@ def execute_signal(player_id: str, signal: dict, price: float) -> dict | None:
         # Try to get proper expiry and strike from options chain
         expiry_date = None
         strike_price = None
-        buy_price = price  # fallback: use underlying price
+        buy_price = None
         target_dte = signal.get("dte", 0)
         try:
             from engine.options_selector import select_option
@@ -1354,6 +1376,9 @@ def execute_signal(player_id: str, signal: dict, price: float) -> dict | None:
                     buy_price = opt["premium"]
         except Exception as e:
             console.log(f"[yellow]Options selector fallback for {symbol}: {e}")
+        if expiry_date is None or buy_price is None:
+            console.log(f"[red]{player_id}: select_option returned no data for {symbol} {action} — skipping (no stock-price fallback)")
+            return None
         result = buy(player_id, symbol, buy_price, asset_type="option", option_type=option_type,
                      reasoning=reasoning, confidence=confidence,
                      strike_price=strike_price, expiry_date=expiry_date, sources=sources, timeframe=timeframe)
@@ -1427,7 +1452,7 @@ def record_portfolio_snapshot(player_id: str, prices: dict):
     conn.close()
 
 
-_STARTING_CASH = {"dayblade-0dte": 3500.0, "steve-webull": 7021.81, "super-agent": 100000.0}
+_STARTING_CASH = {"dayblade-0dte": 3500.0, "webull": 7021.81, "super-agent": 100000.0}
 _DEFAULT_STARTING_CASH = 7000.0
 
 # Steve's Webull synced value (overrides Yahoo price calculation)
@@ -1439,7 +1464,7 @@ def _target_weight_adjustment(player_id: str, symbol: str, portfolio: dict, allo
                               price: float, confidence: float = 0.0) -> tuple[float, list[str]]:
     """Soft sizing adjustment only for prospective Arena stock buys."""
     reasons = []
-    if player_id in {"neo-matrix", "enterprise-computer", "steve-webull", "super-agent"}:
+    if player_id in {"neo-matrix", "enterprise-computer", "webull", "super-agent"}:
         return alloc_pct, reasons
 
     try:
@@ -1501,7 +1526,7 @@ def _target_weight_adjustment(player_id: str, symbol: str, portfolio: dict, allo
     return max(0.02, alloc_pct), reasons
 
 
-_ALLOCATION_POLICY_EXEMPT = {"super-agent", "neo-matrix", "enterprise-computer", "steve-webull"}
+_ALLOCATION_POLICY_EXEMPT = {"super-agent", "neo-matrix", "enterprise-computer", "webull"}
 
 
 def get_capital_allocation_policy(player_id: str) -> dict:
@@ -1666,7 +1691,7 @@ def get_webull_synced() -> dict | None:
 def get_portfolio_with_pnl(player_id: str, prices: dict) -> dict:
     """Get portfolio with unrealized P&L calculated from live prices.
 
-    For steve-webull: uses manually synced value if available (more accurate
+    For webull: uses manually synced value if available (more accurate
     than Yahoo prices which lag Webull real-time data).
     """
     from engine.market_data import get_stock_price
@@ -1722,7 +1747,7 @@ def get_portfolio_with_pnl(player_id: str, prices: dict) -> dict:
     total_value = portfolio["cash"] + total_positions_value
 
     # For Steve: override with manually synced value if available
-    if player_id == "steve-webull":
+    if player_id == "webull":
         synced = get_webull_synced()
         if synced:
             total_value = synced["total_value"]
@@ -2007,7 +2032,7 @@ _SHORT_GHOST_PHRASES = [
     "outside this specified sector", "no position",
 ]
 
-_LONG_ONLY_PLAYERS = {"dayblade-sulu", "grok-4", "options-sosnoff"}
+_LONG_ONLY_PLAYERS = {"dayblade-sulu", "deepseek-7b-grok4", "options-sosnoff"}
 
 
 def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
@@ -2020,7 +2045,13 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
 
     Authorized players only (short_enabled=1). Max 15% of account per short.
     Requires defined stop above entry in reasoning.
+
+    Gated by SHORT_ENABLED module flag. Flip to True when Counselor Troi's
+    ghost-trade performance justifies live short execution.
     """
+    if not SHORT_ENABLED:
+        console.log(f"[yellow]{player_id}: SHORT {symbol} blocked — SHORT_ENABLED=False (set True in paper_trader.py to unlock)")
+        return None
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot short")
         return None
@@ -2092,7 +2123,7 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
 
     # READY ROOM ADVISORY (Counselor Troi): Gate on market condition before short execution
     _short_adv_mult = 1.0
-    _SHORT_ADVISOR_EXEMPT = {"capitol-trades", "steve-webull", "dalio-metals"}
+    _SHORT_ADVISOR_EXEMPT = {"capitol-trades", "webull", "dalio-metals"}
     if player_id not in _SHORT_ADVISOR_EXEMPT:
         try:
             from engine.ready_room_advisor import should_i_trade as _short_advisory
@@ -2157,6 +2188,24 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
     conn.close()
     console.log(f"[bold red]{player_id}: SHORT {qty} {symbol} @ ${price:.2f} (margin ${margin:.0f})")
     _first_trade_notification(player_id, symbol, "SHORT", price)
+
+    # Forward to Alpaca paper account (SELL order opens short when no long position held)
+    _exec_type = "simulated"
+    if route["route_mode"] == "trading":
+        try:
+            _alp = _get_alpaca()
+            if _alp:
+                _ap_res = _alp.short_sell(symbol, qty, agent_id=player_id)
+                if _ap_res and not _ap_res.get("error"):
+                    _order_id = _ap_res.get("order_id", "")
+                    _exec_type = "alpaca_paper"
+                    _update_trade_alpaca_fields(player_id, symbol, _order_id, _exec_type)
+                    console.log(f"[cyan]Alpaca SHORT {qty} {symbol} → order {_order_id}")
+                else:
+                    console.log(f"[yellow]Alpaca short forward failed: {(_ap_res or {}).get('error')}")
+        except Exception as _ae:
+            console.log(f"[yellow]Alpaca short forward error ({player_id} {symbol}): {_ae}")
+
     return {
         "action": "SHORT",
         "symbol": symbol,

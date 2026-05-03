@@ -295,11 +295,10 @@ def get_short_candidates(vix: float = 20.0, bridge_consensus: float = 0.0) -> li
         return []
 
     try:
-        import yfinance as yf
+        from engine.market_data import get_alpaca_bars
         for ticker in CANDIDATES:
             try:
-                t = yf.Ticker(ticker)
-                hist = t.history(period="60d", interval="1d")
+                hist = get_alpaca_bars(ticker, days=60)
                 if hist.empty or len(hist) < 50:
                     continue
 
@@ -545,25 +544,32 @@ def run_scan() -> dict:
         logger.warning("market_data error: %s", e)
 
     try:
-        from engine.gex_scanner import get_gex_data
-        gex_d = get_gex_data("SPY") or {}
-        raw_gex = gex_d.get("total_gex_b", 0) or 0
-        # total_gex_b may be in billions already or raw dollars
-        gex_b = raw_gex if abs(raw_gex) < 1000 else raw_gex / 1e9
-        put_wall = gex_d.get("put_wall", 0) or 0
-        call_wall = gex_d.get("call_wall", 0) or 0
-        gamma_flip = gex_d.get("gamma_flip", 0) or 0
+        from engine.gex_scanner import get_gex
+        gex_d = get_gex("SPY") or {}
+        # total_gex is returned in raw dollars; convert to billions
+        total_gex = gex_d.get("total_gex", 0) or 0
+        gex_b = total_gex / 1e9 if abs(total_gex) >= 1000 else total_gex
+        # Walls live in magnets array (type=put_wall or call_wall)
+        magnets = gex_d.get("magnets", [])
+        put_walls = sorted([m["strike"] for m in magnets if m.get("type") == "put_wall"], reverse=True)
+        call_walls = sorted([m["strike"] for m in magnets if m.get("type") == "call_wall"])
+        put_wall = put_walls[0] if put_walls else 0
+        call_wall = call_walls[0] if call_walls else 0
+        # Gamma flip = midpoint between primary walls (matches dashboard pattern)
+        gamma_flip = round((put_wall + call_wall) / 2, 2) if (put_wall and call_wall) else 0
     except Exception as e:
-        logger.debug("gex_data error: %s", e)
+        logger.warning("gex_data error: %s", e)
 
     try:
         from engine.market_data import get_technical_indicators
-        tech = get_technical_indicators("SPY", "5m") or {}
+        # Note: function signature changed to single arg (no timeframe).
+        # Returns daily indicators; vwap is not provided so we fall back to spy_price.
+        tech = get_technical_indicators("SPY") or {}
         rsi_5m = tech.get("rsi", 50) or 50
-        vwap = tech.get("vwap", spy_price) or spy_price
+        vwap = spy_price  # vwap not in current technical_indicators output
         vol_ratio = tech.get("volume_ratio", 1.0) or 1.0
     except Exception as e:
-        logger.debug("technical_indicators error: %s", e)
+        logger.warning("technical_indicators error: %s", e)
 
     try:
         from engine.sentiment_scanner import get_fear_greed
@@ -588,8 +594,8 @@ def run_scan() -> dict:
     # Gap fill call — fetch prev close for gap detection
     prev_close = 0.0
     try:
-        import yfinance as yf
-        hist = yf.Ticker("SPY").history(period="2d", interval="1d")
+        from engine.market_data import get_alpaca_bars
+        hist = get_alpaca_bars("SPY", days=2)
         if len(hist) >= 2:
             prev_close = float(hist["Close"].iloc[-2])
     except Exception:

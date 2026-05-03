@@ -1,5 +1,6 @@
-"""Market data — Yahoo direct HTTP only (no yfinance)."""
+"""Market data — Alpaca primary, Yahoo fallback (no yfinance)."""
 from __future__ import annotations
+import os
 import ccxt
 import pandas as pd
 import numpy as np
@@ -14,12 +15,12 @@ console = Console()
 
 # Rate-limit cooldown for Yahoo direct
 _yahoo_limited_until = 0
-_COOLDOWN_SECONDS = 120  # 2 minutes
+_COOLDOWN_SECONDS = 60   # back off 60s on 429
 _cooldown_logged = False
 
-# Price cache (symbol -> {data, ts})
+# Price cache (symbol -> {data, ts}) — shared across all agents
 _price_cache = {}
-_PRICE_CACHE_TTL = 300  # 5 minutes — matches scan interval, prevents redundant Yahoo calls
+_PRICE_CACHE_TTL = 60    # 60s: multiple agents share one pull per symbol
 
 DB_PATH = "data/trader.db"
 
@@ -162,8 +163,105 @@ def _cache_price(symbol, data):
 
 
 _last_yahoo_call = 0
-_YAHOO_MIN_GAP = 0.3  # seconds between Yahoo calls to avoid rate limiting
+_YAHOO_MIN_GAP = 1.0  # max 1 request/second to Yahoo Finance
 _yahoo_lock = threading.Lock()
+
+# ── Alpaca market data — direct HTTP (primary price source, no SDK dependency) ─
+_alpaca_headers: dict | None = None
+
+
+def _get_alpaca_headers() -> dict | None:
+    """Return Alpaca API auth headers, loading keys from .env once."""
+    global _alpaca_headers
+    if _alpaca_headers is not None:
+        return _alpaca_headers or None
+    try:
+        from dotenv import load_dotenv
+        load_dotenv()
+        key = os.getenv("APCA_API_KEY_ID", "")
+        secret = os.getenv("APCA_API_SECRET_KEY", "")
+        if key and secret:
+            _alpaca_headers = {
+                "APCA-API-KEY-ID": key,
+                "APCA-API-SECRET-KEY": secret,
+            }
+        else:
+            _alpaca_headers = {}   # empty dict = tried, no keys
+    except Exception:
+        _alpaca_headers = {}
+    return _alpaca_headers or None
+
+
+_ALPACA_BASE = "https://data.alpaca.markets/v2/stocks"
+
+
+def _alpaca_quote_to_price(symbol: str, q: dict) -> dict:
+    """Normalise an Alpaca quote dict into our standard price structure."""
+    ask = float(q.get("ap") or q.get("ask_price") or 0)
+    bid = float(q.get("bp") or q.get("bid_price") or 0)
+    price = round((ask + bid) / 2, 2) if ask and bid else (ask or bid)
+    return {
+        "symbol": symbol,
+        "price": price,
+        "change_pct": 0.0,
+        "high": price,
+        "low": price,
+        "volume": int(q.get("as") or q.get("ask_size") or 0),
+        "timestamp": datetime.now().isoformat(),
+        "source": "alpaca",
+    }
+
+
+def _get_alpaca_price(symbol: str) -> dict | None:
+    """GET /v2/stocks/{symbol}/quotes/latest — single symbol, ~5 ms, no rate limit."""
+    hdrs = _get_alpaca_headers()
+    if not hdrs:
+        return None
+    try:
+        r = requests.get(
+            f"{_ALPACA_BASE}/{symbol}/quotes/latest",
+            headers=hdrs,
+            timeout=5,
+        )
+        if not r.ok:
+            return None
+        q = r.json().get("quote", {})
+        if not q:
+            return None
+        data = _alpaca_quote_to_price(symbol, q)
+        if not data["price"]:
+            return None
+        return data
+    except Exception:
+        return None
+
+
+def _get_alpaca_bulk_prices(symbols: list) -> dict:
+    """GET /v2/stocks/quotes/latest?symbols=... — all symbols in one call."""
+    hdrs = _get_alpaca_headers()
+    if not hdrs:
+        return {}
+    try:
+        r = requests.get(
+            f"{_ALPACA_BASE}/quotes/latest",
+            headers=hdrs,
+            params={"symbols": ",".join(symbols), "feed": "iex"},
+            timeout=10,
+        )
+        if not r.ok:
+            return {}
+        quotes = r.json().get("quotes", {})
+        results = {}
+        for sym, q in quotes.items():
+            if not q:
+                continue
+            data = _alpaca_quote_to_price(sym, q)
+            if data["price"]:
+                results[sym] = data
+                _cache_price(sym, data)
+        return results
+    except Exception:
+        return {}
 
 
 def _yahoo_chart(symbol, interval="1m", range_="1d"):
@@ -205,14 +303,38 @@ def _yahoo_chart(symbol, interval="1m", range_="1d"):
 
 
 def get_bulk_prices(symbols: list, timeout: int = 5) -> dict:
-    """Fetch ALL symbols in ONE Yahoo Finance batch request — much faster than individual calls.
-    Uses extended-hours prices (postMarketPrice / preMarketPrice) when available so the
-    leaderboard and FLEET bar stay current during AH/PM sessions.
-    Falls back to get_all_prices() on any error. Returns {symbol: price_data}."""
+    """Fetch ALL symbols in one request.
+    Priority: cache → Alpaca bulk → Yahoo batch → individual fallback.
+    Uses extended-hours prices (postMarketPrice / preMarketPrice) when available."""
     if not symbols:
         return {}
+
+    # 1. Return any symbols already cached
+    results = {}
+    missing = []
+    for sym in symbols:
+        cached = _get_cached_price(sym)
+        if cached:
+            results[sym] = cached
+        else:
+            missing.append(sym)
+    if not missing:
+        return results
+
+    # 2. Try Alpaca bulk (primary — no rate limit issues)
+    alpaca_results = _get_alpaca_bulk_prices(missing)
+    results.update(alpaca_results)
+    missing = [s for s in missing if s not in alpaca_results]
+    if not missing:
+        return results
+
+    # 3. Yahoo batch for any Alpaca misses (respect rate limit)
+    if _is_yahoo_limited():
+        # Yahoo limited — fall back to individual (tries Finnhub/AV/DB)
+        results.update(get_all_prices(missing))
+        return results
     try:
-        sym_str = ",".join(symbols)
+        sym_str = ",".join(missing)
         url = (
             "https://query1.finance.yahoo.com/v7/finance/quote"
             f"?symbols={sym_str}"
@@ -222,19 +344,25 @@ def get_bulk_prices(symbols: list, timeout: int = 5) -> dict:
             "postMarketPrice,postMarketChangePercent,"
             "preMarketPrice,preMarketChangePercent"
         )
-        session, crumb = _get_yahoo_session()
-        if session and crumb:
-            url += f"&crumb={crumb}"
-            r = session.get(url, headers=_get_yahoo_headers(), timeout=timeout)
-        else:
-            r = requests.get(url, headers=_get_yahoo_headers(), timeout=timeout)
+        with _yahoo_lock:
+            elapsed = time.time() - _last_yahoo_call
+            if elapsed < _YAHOO_MIN_GAP:
+                time.sleep(_YAHOO_MIN_GAP - elapsed)
+            session, crumb = _get_yahoo_session()
+            if session and crumb:
+                url += f"&crumb={crumb}"
+                r = session.get(url, headers=_get_yahoo_headers(), timeout=timeout)
+            else:
+                r = requests.get(url, headers=_get_yahoo_headers(), timeout=timeout)
+        if r.status_code == 429:
+            _set_yahoo_limited()
+            raise ValueError("429 rate limited")
         if r.status_code != 200:
             raise ValueError(f"HTTP {r.status_code}")
         body = r.json()
         quotes = body.get("quoteResponse", {}).get("result", [])
         if not quotes:
             raise ValueError("empty result")
-        results = {}
         for q in quotes:
             sym = q.get("symbol")
             regular_price = float(q.get("regularMarketPrice") or 0)
@@ -270,8 +398,8 @@ def get_bulk_prices(symbols: list, timeout: int = 5) -> dict:
                 _cache_price(sym, data)
         return results
     except Exception:
-        # Fallback to individual calls
-        return get_all_prices(symbols)
+        results.update(get_all_prices(missing))
+        return results
 
 
 def get_all_prices(symbols: list) -> dict:
@@ -292,12 +420,18 @@ def get_all_prices(symbols: list) -> dict:
 
 
 def get_stock_price(symbol):
-    """Fetch stock price: Yahoo → Finnhub → Alpha Vantage → DB cache."""
+    """Fetch stock price: cache → Alpaca → Yahoo → Finnhub → Alpha Vantage → DB."""
     cached = _get_cached_price(symbol)
     if cached:
         return cached
 
-    # Source 1: Yahoo direct HTTP
+    # Source 1: Alpaca market data (primary — generous rate limits, no 429 risk)
+    alpaca_data = _get_alpaca_price(symbol)
+    if alpaca_data:
+        _cache_price(symbol, alpaca_data)
+        return alpaca_data
+
+    # Source 2: Yahoo direct HTTP (fallback)
     chart = _yahoo_chart(symbol, interval="1m", range_="1d")
     if chart:
         meta = chart.get("meta", {})
@@ -318,7 +452,7 @@ def get_stock_price(symbol):
             _cache_price(symbol, data)
             return data
 
-    # Source 2: Finnhub fallback
+    # Source 3: Finnhub fallback
     try:
         from engine.finnhub_data import get_quote as fh_quote
         fh = fh_quote(symbol)
@@ -328,7 +462,7 @@ def get_stock_price(symbol):
     except Exception:
         pass
 
-    # Source 3: Alpha Vantage fallback
+    # Source 4: Alpha Vantage fallback
     try:
         from engine.alphavantage_data import get_quote as av_quote
         av = av_quote(symbol)
@@ -338,7 +472,7 @@ def get_stock_price(symbol):
     except Exception:
         pass
 
-    # Source 4: DB fallback (last known price)
+    # Source 5: DB fallback (last known price)
     data = _try_db_fallback(symbol)
     if data:
         _cache_price(symbol, data)
@@ -353,7 +487,7 @@ def _try_db_fallback(symbol):
         conn = sqlite3.connect(DB_PATH, check_same_thread=False)
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT price, executed_at FROM trades WHERE symbol=? ORDER BY executed_at DESC LIMIT 1",
+            "SELECT price, executed_at FROM trades WHERE symbol=? AND asset_type='stock' ORDER BY executed_at DESC LIMIT 1",
             (symbol,)
         ).fetchone()
         if row:
@@ -369,7 +503,7 @@ def _try_db_fallback(symbol):
                 "source": "db_cache",
             }
         row = conn.execute(
-            "SELECT avg_price FROM positions WHERE symbol=? LIMIT 1", (symbol,)
+            "SELECT avg_price FROM positions WHERE symbol=? AND asset_type='stock' LIMIT 1", (symbol,)
         ).fetchone()
         conn.close()
         if row:
@@ -499,6 +633,154 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
     except Exception as e:
         console.log(f"[red]Intraday error for {symbol}: {e}")
         return []
+
+
+def get_polygon_bars(
+    symbols,
+    timeframe: str = "1Day",
+    days: int = 300,
+    max_workers: int = 10,
+) -> "pd.DataFrame | dict":
+    """Fetch OHLCV bars from Polygon — drop-in replacement for get_alpaca_bars().
+
+    Polygon Starter ($29/mo) has unlimited API calls and 5+ years of history,
+    so this avoids the Alpaca free-tier limits (50-symbol batch, 155-day cap).
+    Default days=300 calendar yields ~210 trading days — enough for SMA200.
+
+    Single symbol  → pandas DataFrame with DatetimeIndex and columns
+                     Open, High, Low, Close, Volume  (matches Alpaca layout).
+    List of symbols → dict {symbol: DataFrame}.
+    Returns empty DataFrame / {} on failure so callers degrade gracefully.
+
+    Note: timeframe parameter accepted for API compatibility but only "1Day"
+    is currently wired through (uses fetch_daily_bars under the hood).
+    """
+    from concurrent.futures import ThreadPoolExecutor, as_completed
+    from strategies.polygon_client import fetch_daily_bars
+    from strategies.polygon_config import is_polygon_configured
+
+    if not is_polygon_configured():
+        return pd.DataFrame() if isinstance(symbols, str) else {}
+
+    single = isinstance(symbols, str)
+    sym_list = [symbols] if single else list(symbols)
+
+    def _fetch_one(sym):
+        try:
+            bars = fetch_daily_bars(sym, days=days)
+            if not bars:
+                return sym, None
+            df = pd.DataFrame(bars)
+            df["date"] = pd.to_datetime(df["date"])
+            df = df.set_index("date")
+            df = df.rename(columns={
+                "open":   "Open",
+                "high":   "High",
+                "low":    "Low",
+                "close":  "Close",
+                "volume": "Volume",
+            })
+            return sym, df
+        except Exception:
+            return sym, None
+
+    result: dict = {}
+    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+        futures = [pool.submit(_fetch_one, s) for s in sym_list]
+        for fut in as_completed(futures):
+            sym, df = fut.result()
+            if df is not None and not df.empty:
+                result[sym] = df
+
+    if single:
+        return result.get(symbols, pd.DataFrame())
+    return result
+
+
+def get_alpaca_bars(
+    symbols,
+    timeframe: str = "1Day",
+    days: int = 30,
+) -> "pd.DataFrame | dict":
+    """Fetch OHLCV bars from Alpaca — drop-in replacement for yf.download().
+
+    Single symbol  → pandas DataFrame with DatetimeIndex and columns
+                     Open, High, Low, Close, Volume  (matches yfinance layout).
+    List of symbols → dict {symbol: DataFrame}.
+    Returns empty DataFrame / {} on failure so callers degrade gracefully.
+    """
+    hdrs = _get_alpaca_headers()
+    if not hdrs:
+        return pd.DataFrame() if isinstance(symbols, str) else {}
+    single = isinstance(symbols, str)
+    sym_list = [symbols] if single else list(symbols)
+    start = (datetime.utcnow() - pd.Timedelta(days=days + 5)).strftime("%Y-%m-%d")
+    try:
+        r = requests.get(
+            f"{_ALPACA_BASE}/bars",
+            headers=hdrs,
+            params={
+                "symbols":   ",".join(sym_list),
+                "timeframe": timeframe,
+                "start":     start,
+                "limit":     len(sym_list) * (days + 5),
+                "feed":      "iex",
+                "sort":      "asc",
+            },
+            timeout=15,
+        )
+        if not r.ok:
+            console.log(f"[yellow]get_alpaca_bars HTTP {r.status_code} for {sym_list[:3]}")
+            return pd.DataFrame() if single else {}
+        bars_by_sym = r.json().get("bars", {})
+        result: dict = {}
+        for sym in sym_list:
+            rows = bars_by_sym.get(sym, [])
+            if not rows:
+                result[sym] = pd.DataFrame()
+                continue
+            df = pd.DataFrame(rows)
+            df["t"] = pd.to_datetime(df["t"])
+            df = df.set_index("t").rename(columns={
+                "o": "Open", "h": "High", "l": "Low",
+                "c": "Close", "v": "Volume",
+            })
+            df.index.name = "Date"
+            keep = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
+            result[sym] = df[keep].tail(days)
+        return result[sym_list[0]] if single else result
+    except Exception as e:
+        console.log(f"[yellow]get_alpaca_bars error: {e}")
+        return pd.DataFrame() if single else {}
+
+
+# VIX cache — avoid hammering Yahoo for index data
+_vix_cache: dict = {}
+_VIX_CACHE_TTL = 300  # 5 min — VIX doesn't need 60s freshness
+
+
+def get_vix() -> float:
+    """Return current VIX level using Yahoo direct HTTP (index, not stock — separate bucket).
+    Cached 5 min. Returns 20.0 as a safe default on failure."""
+    now = time.time()
+    if _vix_cache.get("ts") and now - _vix_cache["ts"] < _VIX_CACHE_TTL:
+        return _vix_cache["value"]
+    try:
+        r = requests.get(
+            "https://query1.finance.yahoo.com/v8/finance/chart/%5EVIX",
+            params={"interval": "1d", "range": "2d"},
+            headers=_get_yahoo_headers(),
+            timeout=8,
+        )
+        if r.ok:
+            meta = r.json()["chart"]["result"][0]["meta"]
+            val = float(meta.get("regularMarketPrice") or meta.get("chartPreviousClose") or 20.0)
+            _vix_cache["value"] = round(val, 2)
+            _vix_cache["ts"] = now
+            return _vix_cache["value"]
+    except Exception:
+        pass
+    return _vix_cache.get("value", 20.0)
 
 
 def get_crypto_price(symbol, exchange_id="kraken"):

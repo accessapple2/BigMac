@@ -277,11 +277,11 @@ def delete_agent(agent_id: int) -> dict:
 # ── Condition evaluation ──────────────────────────────────────────────────────
 
 def _get_ticker_snapshot(ticker: str) -> dict:
-    """Fetch price, RSI-14, volume ratio for one ticker via yfinance."""
+    """Fetch price, RSI-14, volume ratio for one ticker via Alpaca."""
     try:
-        import yfinance as yf
-        hist = yf.Ticker(ticker).history(period="30d", interval="1d")
-        if hist.empty:
+        from engine.market_data import get_alpaca_bars
+        hist = get_alpaca_bars(ticker, days=30)
+        if hist is None or hist.empty:
             return {}
         closes = hist["Close"]
         price  = float(closes.iloc[-1])

@@ -218,7 +218,7 @@ export default function Leaderboard({ data, onSelect, season, hidePaused = false
   const getStarting = (player) =>
   player.player_id === 'super-agent' ? 25000
   : player.player_id === 'dayblade-0dte' ? (season === 1 ? 2000 : 5000)
-  : player.player_id === 'steve-webull' ? 7049.68
+  : player.player_id === 'webull' ? 7049.68
   : 7000
 
   const handleSort = (col) => {

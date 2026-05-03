@@ -80,10 +80,10 @@ def _init_tables():
 def _alpaca_headers() -> dict:
     from dotenv import load_dotenv
     load_dotenv()
-    key = os.getenv("ALPACA_API_KEY", "")
-    secret = os.getenv("ALPACA_SECRET_KEY", "")
+    key = os.getenv("APCA_API_KEY_ID", "")
+    secret = os.getenv("APCA_API_SECRET_KEY", "")
     if not key or not secret:
-        raise RuntimeError("ALPACA_API_KEY / ALPACA_SECRET_KEY not set in .env")
+        raise RuntimeError("APCA_API_KEY_ID / APCA_API_SECRET_KEY not set in .env")
     return {
         "APCA-API-KEY-ID": key,
         "APCA-API-SECRET-KEY": secret,

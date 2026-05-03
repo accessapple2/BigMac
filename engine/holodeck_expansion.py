@@ -232,7 +232,7 @@ def portfolio_simulation(season=5):
     positions = pd.read_sql("""
         SELECT player_id, symbol, qty, avg_price
         FROM positions
-        WHERE player_id != 'steve-webull'
+        WHERE player_id != 'webull'
     """, conn)
 
     if positions.empty:

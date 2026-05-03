@@ -15,7 +15,7 @@ const MODEL_COLORS = {
   'ollama-qwen3': '#737373',
   'ollama-gemma27b': '#6b7280',
   'dayblade-0dte': '#f59e0b',
-  'steve-webull': '#fbbf24',
+  'webull': '#fbbf24',
 }
 
 const PROVIDER_ABBREV = {

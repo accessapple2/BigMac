@@ -1,0 +1,51 @@
+#!/bin/bash
+# Watches ~/Downloads/ for new Schwab CSVs, auto-imports + syncs + notifies
+set -euo pipefail
+
+WATCH_DIR="$HOME/Downloads"
+PROCESSED_DIR="$HOME/autonomous-trader/data/schwab_csv_archive"
+LOG="$HOME/autonomous-trader/logs/schwab_watcher.log"
+VENV="$HOME/autonomous-trader/venv/bin/python3"
+NTFY_TOPIC="ollietrades-admin"
+
+mkdir -p "$PROCESSED_DIR"
+mkdir -p "$(dirname "$LOG")"
+
+cd "$HOME/autonomous-trader"
+
+# Find Schwab CSVs in Downloads (case-insensitive, handles "Scwab" misspelling)
+shopt -s nullglob nocaseglob
+for CSV in "$WATCH_DIR"/Scwab*Positions*.csv "$WATCH_DIR"/Schwab*Positions*.csv "$WATCH_DIR"/schwab_*.csv; do
+    [ -f "$CSV" ] || continue
+    
+    BASENAME=$(basename "$CSV")
+    TS=$(date +%Y%m%d_%H%M%S)
+    
+    echo "=== $(date -Iseconds) processing: $BASENAME ===" >> "$LOG"
+    
+    # Import
+    if "$VENV" scripts/import_schwab_csv.py "$CSV" >> "$LOG" 2>&1; then
+        # Sync
+        if "$VENV" scripts/sync_schwab_to_real_holdings.py >> "$LOG" 2>&1; then
+            # Move to archive (don't delete — keep audit trail)
+            mv "$CSV" "$PROCESSED_DIR/${TS}_${BASENAME}"
+            
+            # Get summary for notification
+            SNAPSHOT=$(sqlite3 "$HOME/autonomous-trader/data/trader.db" \
+                "SELECT max(snapshot_id) FROM schwab_holdings;")
+            POS_COUNT=$(sqlite3 "$HOME/autonomous-trader/data/trader.db" \
+                "SELECT count(*) FROM schwab_holdings WHERE snapshot_id='$SNAPSHOT' AND is_summary_row=0;")
+            
+            curl -s -d "Schwab CSV imported: $POS_COUNT positions, snapshot $SNAPSHOT" \
+                "https://ntfy.sh/$NTFY_TOPIC" >> "$LOG" 2>&1
+            
+            echo "=== $(date -Iseconds) SUCCESS: $BASENAME archived ===" >> "$LOG"
+        else
+            echo "=== $(date -Iseconds) SYNC FAILED: $BASENAME left in place ===" >> "$LOG"
+            curl -s -d "Schwab CSV sync FAILED: $BASENAME" "https://ntfy.sh/$NTFY_TOPIC"
+        fi
+    else
+        echo "=== $(date -Iseconds) IMPORT FAILED: $BASENAME left in place ===" >> "$LOG"
+        curl -s -d "Schwab CSV import FAILED: $BASENAME" "https://ntfy.sh/$NTFY_TOPIC"
+    fi
+done

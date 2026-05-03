@@ -126,6 +126,53 @@ def fetch_ticker_snapshots(tickers: list[str]) -> dict[str, dict]:
     return result
 
 
+def fetch_market_snapshot() -> list[dict]:
+    """Fetch full US stock market snapshot in ONE API call.
+
+    Returns list of dicts with keys: ticker, price, prev_close, change,
+    volume, high, low, open, vwap.
+    Most calls return ~12,000+ tickers in 2-3 seconds. Designed for
+    liquidity pre-filtering before fetching full historical bars.
+
+    Uses /v2/snapshot/locale/us/markets/stocks/tickers (no tickers param).
+    """
+    data = _get("/v2/snapshot/locale/us/markets/stocks/tickers", {})
+    if not data:
+        return []
+
+    out = []
+    for item in data.get("tickers", []):
+        ticker = item.get("ticker", "")
+        if not ticker:
+            continue
+        day = item.get("day") or {}
+        prev = item.get("prevDay") or {}
+        close = day.get("c")
+        prev_close = prev.get("c")
+        if close is None:
+            # Some tickers report only prevDay (low volume / halted)
+            continue
+        try:
+            close_f = float(close)
+            prev_f = float(prev_close) if prev_close is not None else close_f
+            volume = float(day.get("v") or 0)
+        except (TypeError, ValueError):
+            continue
+
+        out.append({
+            "ticker":     ticker,
+            "price":      close_f,
+            "prev_close": prev_f,
+            "change":     ((close_f - prev_f) / prev_f * 100) if prev_f else 0.0,
+            "volume":     volume,
+            "high":       float(day.get("h") or close_f),
+            "low":        float(day.get("l") or close_f),
+            "open":       float(day.get("o") or close_f),
+            "vwap":       float(day.get("vw") or close_f),
+        })
+    return out
+
+
 def fetch_spot_price(ticker: str) -> Optional[float]:
     """
     Get recent spot price for underlying.

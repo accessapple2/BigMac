@@ -11,7 +11,7 @@ DB_PATH = os.environ.get("TRADEMINDS_DB", os.path.expanduser("~/autonomous-trade
 DEFAULT_STARTING_CASH = 7000.0
 SPECIAL_STARTING_CASH = {
     "dayblade-0dte": 3500.0,
-    "steve-webull": 7021.81,
+    "webull": 7021.81,
     "super-agent": 100000.0,
 }
 

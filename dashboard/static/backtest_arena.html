@@ -402,6 +402,45 @@
     <div id="best-combo-bar" class="best-combo-bar" style="display:none"></div>
   </div>
 
+  <!-- ── Strategy Breakdown Panel ─────────────────────────────────────────── -->
+  <div class="bt-panel" style="margin-top:28px;">
+    <div class="bt-panel-hdr">
+      <span class="bt-panel-title">Strategy Breakdown</span>
+      <div class="bt-panel-controls">
+        <button onclick="loadStrategyBreakdown(7)">7d</button>
+        <button onclick="loadStrategyBreakdown(30)">30d</button>
+        <button onclick="loadStrategyBreakdown(90)">90d</button>
+      </div>
+    </div>
+    <div id="bt-strategy-content"><div class="bt-loading">Loading…</div></div>
+  </div>
+
+  <!-- ── Trade Log Panel ───────────────────────────────────────────────────── -->
+  <div class="bt-panel">
+    <div class="bt-panel-hdr">
+      <span class="bt-panel-title">Trade Log</span>
+      <div class="bt-panel-controls">
+        <button onclick="loadTradeLog(3,20)">3d</button>
+        <button onclick="loadTradeLog(7,30)">7d</button>
+        <button onclick="loadTradeLog(30,50)">30d</button>
+      </div>
+    </div>
+    <div id="bt-tradelog-content"><div class="bt-loading">Loading…</div></div>
+  </div>
+
+  <!-- ── Regime Analysis Panel ────────────────────────────────────────────── -->
+  <div class="bt-panel">
+    <div class="bt-panel-hdr">
+      <span class="bt-panel-title">Regime Analysis</span>
+      <div class="bt-panel-controls">
+        <button onclick="loadRegimeAnalysis(30)">30d</button>
+        <button onclick="loadRegimeAnalysis(90)">90d</button>
+        <button onclick="loadRegimeAnalysis(180)">180d</button>
+      </div>
+    </div>
+    <div id="bt-regime-content"><div class="bt-loading">Loading…</div></div>
+  </div>
+
   <div id="footer">
     <a href="/">← Back to Bridge</a> &nbsp;·&nbsp;
     <a href="/leaderboard">Agent Leaderboard</a> &nbsp;·&nbsp;
@@ -689,12 +728,17 @@ window.loadHistory = function() {
       var bar = document.getElementById('best-bar');
       if (best && Object.keys(best).length) {
         bar.style.display = 'flex';
+        // best.* is {value, agent, date} from endpoint — use .value
+        var bRet = best.return && best.return.value;
+        var bSh  = best.sharpe && best.sharpe.value;
+        var bWR  = best.win_rate && best.win_rate.value;
+        var bTr  = best.trades && best.trades.value;
         bar.innerHTML =
           '<span style="font-size:12px;color:var(--muted);font-weight:700;margin-right:4px;">🏆 BEST EVER:</span>' +
-          (best.return != null  ? '<div class="best-pill">Return <span>+'+(best.return*100).toFixed(2)+'%</span></div>' : '') +
-          (best.sharpe != null  ? '<div class="best-pill">Sharpe <span>'+best.sharpe.toFixed(2)+'</span></div>' : '') +
-          (best.win_rate != null? '<div class="best-pill">WR <span>'+(best.win_rate*100).toFixed(1)+'%</span></div>' : '') +
-          (best.trades != null  ? '<div class="best-pill">Trades <span>'+best.trades+'</span></div>' : '');
+          (bRet != null ? '<div class="best-pill">Return <span>'+(bRet >= 0 ? '+' : '')+bRet.toFixed(2)+'%</span></div>' : '') +
+          (bSh  != null ? '<div class="best-pill">Sharpe <span>'+bSh.toFixed(2)+'</span></div>' : '') +
+          (bWR  != null ? '<div class="best-pill">WR <span>'+bWR.toFixed(1)+'%</span></div>' : '') +
+          (bTr  != null ? '<div class="best-pill">Trades <span>'+bTr+'</span></div>' : '');
       }
       renderHistTable();
     })
@@ -740,7 +784,7 @@ function renderHistTable() {
   var col = _histSort.col, dir = _histSort.dir;
   rows.sort(function(a, b) {
     var av, bv;
-    if (col === 'return') { av = a.return || 0; bv = b.return || 0; }
+    if (col === 'return') { av = a.return_pct || a.return || 0; bv = b.return_pct || b.return || 0; }
     else if (col === 'sharpe') { av = a.sharpe || 0; bv = b.sharpe || 0; }
     else if (col === 'win_rate') { av = a.win_rate || 0; bv = b.win_rate || 0; }
     else if (col === 'trades') { av = a.trades || 0; bv = b.trades || 0; }
@@ -769,10 +813,10 @@ function renderHistTable() {
   };
 
   var html = rows.map(function(r) {
-    var ret = r.return != null ? r.return * 100 : null;
+    var ret = r.return_pct != null ? r.return_pct : (r.return != null ? r.return * 100 : null);
     var retStr = ret != null ? (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%' : '—';
     var retCls = ret != null ? (ret > 0 ? 'ret-pos' : (ret < 0 ? 'ret-neg' : '')) : '';
-    var wr  = r.win_rate != null ? (r.win_rate * 100).toFixed(1) + '%' : '—';
+    var wr  = r.win_rate != null ? r.win_rate.toFixed(1) + '%' : '—';
     var sh  = r.sharpe != null ? r.sharpe.toFixed(2) : '—';
     var shCls = r.sharpe > 1 ? 'style="color:var(--green);font-weight:700"' : (r.sharpe < 0 ? 'style="color:var(--red)"' : '');
     var dateStr = (r.date || '').slice(0, 10);
@@ -780,7 +824,7 @@ function renderHistTable() {
       .replace('plutus', 'McCoy').replace('qwen3', 'Dax').replace('coder', 'Data')
       .replace('neo-matrix', 'Neo');
     return '<tr>' +
-      '<td style="font-family:monospace;font-size:11px;color:var(--muted)">'+esc(r.run_name||'—')+'</td>' +
+      '<td style="font-family:monospace;font-size:11px;color:var(--muted)">'+esc(r.run_name||r.run_id||'—')+'</td>' +
       '<td>'+versionBadge(r.version_tag)+'</td>' +
       '<td>'+esc(agentDisplay||'—')+'</td>' +
       '<td style="color:var(--muted)">'+esc(r.days != null ? r.days+'d' : '—')+'</td>' +
@@ -874,7 +918,7 @@ function renderMatrix(d) {
   matrix.forEach(function(row) {
     html += '<tr><td class="agent-cell">'+esc(row.agent_display||row.agent)+'</td>';
     strategies.forEach(function(strat) {
-      var v = row.sharpe[strat];
+      var v = (row.combos || row.sharpe || {})[strat];
       var style = sharpeCellColor(v);
       html += '<td style="'+style+'">'+(v != null ? v.toFixed(2) : '—')+'</td>';
     });
@@ -908,5 +952,7 @@ init();
 
 })();
 </script>
+<link rel="stylesheet" href="/static/css/backtest_panels.css">
+<script src="/static/js/backtest_panels.js"></script>
 </body>
 </html>

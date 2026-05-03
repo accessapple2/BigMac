@@ -53,8 +53,8 @@ def _fetch_spy_bars(days: int = BACKTEST_DAYS) -> list[dict]:
         from alpaca.data.timeframe import TimeFrame
 
         client = StockHistoricalDataClient(
-            os.environ.get("ALPACA_API_KEY", ""),
-            os.environ.get("ALPACA_SECRET_KEY", ""),
+            os.environ.get("APCA_API_KEY_ID", ""),
+            os.environ.get("APCA_API_SECRET_KEY", ""),
         )
         req = StockBarsRequest(
             symbol_or_symbols=["SPY"],

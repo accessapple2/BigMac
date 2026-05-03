@@ -25,6 +25,18 @@ ALPHA_DB   = "data/alpha_signals.db"
 OLLIE_ID   = "ollie-auto"
 THRESHOLD  = 2.0   # minimum Ollie Score to approve (lowered from 3.0 — was blocking winners)
 
+# Per-agent threshold overrides.
+# qwen3 agents set to 1.5 to unlock shadow trades identified in backtest (+20.88%).
+# Global THRESHOLD was already lowered from 3.0→2.0; these agents need a lower floor.
+AGENT_THRESHOLDS: dict[str, float] = {
+    "ollama-qwen3":  1.5,
+    "mlx-qwen3":     1.5,
+    "neo-matrix":    1.75,  # avg score 1.75 over 7d — at threshold, not below quality bar
+    "dayblade-0dte": 2.5,   # XO coaching: 5.3% WR, raised from default 2.0
+    "ollama-local":  2.5,   # XO coaching: -$12K, R:R 0.00, raised from default 2.0
+    "dayblade-sulu": 2.3,   # XO coaching: META losses, slight raise
+}
+
 # Score weights (must sum to 1.0)
 W_GRADE    = 0.25   # Signal Center grade
 W_ALPHA    = 0.25   # Composite alpha
@@ -239,12 +251,14 @@ def approve_or_reject(
         3
     )
 
-    approved = ollie_score >= THRESHOLD
+    threshold = AGENT_THRESHOLDS.get(player_id, THRESHOLD)
+    approved = ollie_score >= threshold
 
     # Build base reason string
     grade_label = "A+" if comp_score >= 1.5 else "A" if comp_score >= 1.0 else "B" if comp_score >= 0.5 else "C" if comp_score >= 0 else "D"
+    thresh_tag = f"(agent={threshold})" if threshold != THRESHOLD else ""
     reason = (
-        f"OllieScore={ollie_score:.2f}/5 ({'GO' if approved else 'NO-GO'}) | "
+        f"OllieScore={ollie_score:.2f}/5{thresh_tag} ({'GO' if approved else 'NO-GO'}) | "
         f"Grade={grade_label}({grade_pts:.1f}) "
         f"Alpha={comp_score:+.2f}({alpha_pts:.1f}) "
         f"AgentWR={agent_wr_pts:.1f} "
@@ -344,11 +358,12 @@ def get_ollie_stats(days: int = 30) -> dict[str, Any]:
         filter_wr = wins_wr / total_wr * 100.0 if total_wr > 0 else 0.0
 
         return {
-            "approved":   approved,
-            "rejected":   rejected,
-            "total":      approved + rejected,
-            "filter_wr":  round(filter_wr, 1),
-            "threshold":  THRESHOLD,
+            "approved":        approved,
+            "rejected":        rejected,
+            "total":           approved + rejected,
+            "filter_wr":       round(filter_wr, 1),
+            "threshold":       THRESHOLD,
+            "agent_thresholds": AGENT_THRESHOLDS,
         }
     except Exception as e:
         return {"approved": 0, "rejected": 0, "total": 0, "filter_wr": 0.0, "error": str(e)}

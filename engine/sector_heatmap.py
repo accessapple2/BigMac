@@ -69,8 +69,8 @@ def _fetch_sector_changes_direct() -> dict[str, float]:
     Fallback: fetch sector ETFs directly from Alpaca if breadth_scanner fails.
     """
     client = StockHistoricalDataClient(
-        os.environ.get("ALPACA_API_KEY", ""),
-        os.environ.get("ALPACA_SECRET_KEY", ""),
+        os.environ.get("APCA_API_KEY_ID", ""),
+        os.environ.get("APCA_API_SECRET_KEY", ""),
     )
     start = datetime.now(timezone.utc) - timedelta(days=5)
     req = StockBarsRequest(

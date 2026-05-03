@@ -33,8 +33,8 @@ _lock = threading.Lock()
 # ---------------------------------------------------------------------------
 
 def _headers() -> dict:
-    key = os.getenv("ALPACA_API_KEY") or os.getenv("ALPACA_KEY", "")
-    secret = os.getenv("ALPACA_SECRET_KEY") or os.getenv("ALPACA_API_SECRET", "")
+    key    = os.getenv("APCA_API_KEY_ID") or os.getenv("ALPACA_API_KEY_ID") or os.getenv("ALPACA_KEY", "")
+    secret = os.getenv("APCA_API_SECRET_KEY") or os.getenv("ALPACA_API_SECRET_KEY") or os.getenv("ALPACA_API_SECRET", "")
     return {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
 
 

@@ -94,7 +94,7 @@ def save_season_summary(season: int):
         # Determine starting cash for return calculation
         if pid == "dayblade-0dte":
             starting = DAYBLADE_CASH
-        elif pid == "steve-webull":
+        elif pid == "webull":
             starting = 7021.81
         else:
             starting = DEFAULT_CASH
@@ -136,7 +136,7 @@ def rotate_season() -> int:
 
     # Reset AI player cash — NOT human players, NOT Steve
     conn.execute(
-        "UPDATE ai_players SET cash=?, season=? WHERE id != 'steve-webull' AND id != 'dayblade-0dte' AND id != ?",
+        "UPDATE ai_players SET cash=?, season=? WHERE id != 'webull' AND id != 'dayblade-0dte' AND id != ?",
         (DEFAULT_CASH, new_season, NEO_PLAYER_ID)
     )
     conn.execute(
@@ -145,19 +145,19 @@ def rotate_season() -> int:
     )
     # Steve keeps his portfolio but gets season tag updated
     conn.execute(
-        "UPDATE ai_players SET season=? WHERE id='steve-webull'",
+        "UPDATE ai_players SET season=? WHERE id='webull'",
         (new_season,)
     )
 
     # Unhalt all AI players for the new season
     conn.execute(
-        "UPDATE ai_players SET is_halted=0, halt_reason=NULL WHERE id != 'steve-webull' AND id != ?",
+        "UPDATE ai_players SET is_halted=0, halt_reason=NULL WHERE id != 'webull' AND id != ?",
         (NEO_PLAYER_ID,)
     )
 
     # Close all AI positions (not Steve's)
     conn.execute(
-        "DELETE FROM positions WHERE player_id != 'steve-webull' AND player_id != ?",
+        "DELETE FROM positions WHERE player_id != 'webull' AND player_id != ?",
         (NEO_PLAYER_ID,)
     )
 
@@ -168,7 +168,7 @@ def rotate_season() -> int:
     try:
         from engine.war_room import save_hot_take
         save_hot_take(
-            "steve-webull", "SEASON",
+            "webull", "SEASON",
             f"⭐ ADMIRAL PICARD: Season {new_season} has begun. "
             f"Final standings for Season {current} are locked. "
             f"All crew reset to starting positions. "
@@ -246,19 +246,19 @@ def start_season(season_num: int):
 
     # Reset AI player cash
     conn.execute(
-        "UPDATE ai_players SET cash=?, season=? WHERE id != 'steve-webull' AND id != 'dayblade-0dte' AND id != ?",
+        "UPDATE ai_players SET cash=?, season=? WHERE id != 'webull' AND id != 'dayblade-0dte' AND id != ?",
         (DEFAULT_CASH, season_num, NEO_PLAYER_ID)
     )
     conn.execute(
         "UPDATE ai_players SET cash=?, season=? WHERE id='dayblade-0dte'",
         (DAYBLADE_CASH, season_num)
     )
-    conn.execute("UPDATE ai_players SET season=? WHERE id='steve-webull'", (season_num,))
+    conn.execute("UPDATE ai_players SET season=? WHERE id='webull'", (season_num,))
     conn.execute(
-        "UPDATE ai_players SET is_halted=0, halt_reason=NULL WHERE id != 'steve-webull' AND id != ?",
+        "UPDATE ai_players SET is_halted=0, halt_reason=NULL WHERE id != 'webull' AND id != ?",
         (NEO_PLAYER_ID,),
     )
-    conn.execute("DELETE FROM positions WHERE player_id != 'steve-webull' AND player_id != ?", (NEO_PLAYER_ID,))
+    conn.execute("DELETE FROM positions WHERE player_id != 'webull' AND player_id != ?", (NEO_PLAYER_ID,))
 
     conn.commit()
     conn.close()
@@ -267,7 +267,7 @@ def start_season(season_num: int):
     try:
         from engine.war_room import save_hot_take
         save_hot_take(
-            "steve-webull", "SEASON",
+            "webull", "SEASON",
             f"⭐ ADMIRAL PICARD: Season {season_num} has begun. "
             f"All crew reset to starting positions. "
             f"Captain Kirk's portfolio carries forward as the human benchmark. "

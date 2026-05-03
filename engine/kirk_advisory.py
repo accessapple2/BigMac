@@ -14,7 +14,7 @@ from rich.console import Console
 console = Console()
 logger = logging.getLogger("kirk_advisory")
 
-PLAYER_ID = "steve-webull"
+PLAYER_ID = "webull"
 STOP_LOSS_PCT = -8.0      # Hard stop at -8%
 TRIM_WARNING_PCT = -6.0   # Warn when approaching stop
 WINNER_HOLD_PCT = 5.0     # Don't sell winners above this
@@ -28,15 +28,15 @@ def _get_db():
 
 
 def _get_trade_history_summary():
-    """Return win rate and avg hold days from steve-webull's 127 imported trades."""
+    """Return win rate and avg hold days from webull's 127 imported trades."""
     try:
         db = _get_db()
         rows = db.execute(
             "SELECT t.symbol, t.price AS sell_price, t.qty, t.executed_at, "
-            "(SELECT b.price FROM trades b WHERE b.player_id='steve-webull' "
+            "(SELECT b.price FROM trades b WHERE b.player_id='webull' "
             "AND b.action='BUY' AND b.symbol=t.symbol AND b.executed_at<=t.executed_at "
             "ORDER BY b.executed_at DESC LIMIT 1) AS buy_price "
-            "FROM trades t WHERE t.player_id='steve-webull' AND t.action='SELL'"
+            "FROM trades t WHERE t.player_id='webull' AND t.action='SELL'"
         ).fetchall()
         db.close()
         total = len(rows)

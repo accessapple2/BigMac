@@ -17,7 +17,9 @@ from rich.console import Console
 
 console = Console()
 DB = "data/trader.db"
-OLLAMA_URL = os.getenv("OLLAMA_BASE_URL", "http://localhost:11434")
+from config import OLLIE_URL as _OLLIE_URL
+OLLAMA_URL = os.getenv("ADVISORY_OLLAMA_URL",
+             os.getenv("OLLAMA_BASE_URL", _OLLIE_URL))
 MODEL = os.getenv("CREWAI_MODEL", "qwen3:14b")
 CODE_MODEL = os.getenv("CREWAI_CODE_MODEL", "qwen3-coder:7b")
 

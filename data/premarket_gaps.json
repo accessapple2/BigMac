@@ -1,98 +1,90 @@
 [
   {
-    "symbol": "TQQQ",
-    "prev_close": 44.15,
-    "premarket_price": 47.72,
-    "gap_pct": 8.09,
-    "direction": "gap_up",
-    "scanned_at": "2026-04-08T15:43:16.745513"
-  },
-  {
-    "symbol": "META",
-    "prev_close": 575.05,
-    "premarket_price": 616.06,
-    "gap_pct": 7.13,
-    "direction": "gap_up",
-    "scanned_at": "2026-04-08T15:43:18.512553"
-  },
-  {
     "symbol": "MU",
-    "prev_close": 377.58,
-    "premarket_price": 403.78,
-    "gap_pct": 6.94,
-    "direction": "gap_up",
-    "scanned_at": "2026-04-08T15:43:19.568724"
-  },
-  {
-    "symbol": "PLTR",
-    "prev_close": 150.07,
-    "premarket_price": 141.17,
-    "gap_pct": -5.93,
+    "prev_close": 517.44,
+    "premarket_price": 102.89,
+    "gap_pct": -80.12,
     "direction": "gap_down",
-    "scanned_at": "2026-04-08T15:43:20.712746"
+    "scanned_at": "2026-05-01T20:34:35.670886"
   },
   {
-    "symbol": "AVGO",
-    "prev_close": 333.97,
-    "premarket_price": 348.74,
-    "gap_pct": 4.42,
+    "symbol": "ORCL",
+    "prev_close": 161.37,
+    "premarket_price": 173.05,
+    "gap_pct": 7.24,
     "direction": "gap_up",
-    "scanned_at": "2026-04-08T15:43:20.448218"
+    "scanned_at": "2026-05-01T20:34:36.487323"
   },
   {
-    "symbol": "DELL",
-    "prev_close": 177.69,
-    "premarket_price": 185.5,
-    "gap_pct": 4.4,
+    "symbol": "AAPL",
+    "prev_close": 271.14,
+    "premarket_price": 284.63,
+    "gap_pct": 4.97,
     "direction": "gap_up",
-    "scanned_at": "2026-04-08T15:43:20.984865"
+    "scanned_at": "2026-05-01T20:34:31.192534"
   },
   {
-    "symbol": "AMD",
-    "prev_close": 221.53,
-    "premarket_price": 230.2,
-    "gap_pct": 3.91,
-    "direction": "gap_up",
-    "scanned_at": "2026-04-08T15:43:18.256328"
+    "symbol": "NUKZ",
+    "prev_close": 73.17,
+    "premarket_price": 70.16,
+    "gap_pct": -4.11,
+    "direction": "gap_down",
+    "scanned_at": "2026-05-01T20:34:41.848540"
   },
   {
-    "symbol": "GOOGL",
-    "prev_close": 305.46,
-    "premarket_price": 317.2,
-    "gap_pct": 3.84,
-    "direction": "gap_up",
-    "scanned_at": "2026-04-08T15:43:19.041059"
+    "symbol": "NVDA",
+    "prev_close": 199.54,
+    "premarket_price": 193.57,
+    "gap_pct": -2.99,
+    "direction": "gap_down",
+    "scanned_at": "2026-05-01T20:34:29.662465"
   },
   {
-    "symbol": "AMZN",
-    "prev_close": 213.77,
-    "premarket_price": 220.75,
-    "gap_pct": 3.27,
-    "direction": "gap_up",
-    "scanned_at": "2026-04-08T15:43:19.304526"
+    "symbol": "TSLA",
+    "prev_close": 381.62,
+    "premarket_price": 371.04,
+    "gap_pct": -2.77,
+    "direction": "gap_down",
+    "scanned_at": "2026-05-01T20:34:30.434374"
   },
   {
     "symbol": "NOW",
-    "prev_close": 100.55,
-    "premarket_price": 97.7,
-    "gap_pct": -2.84,
+    "prev_close": 88.31,
+    "premarket_price": 86.0,
+    "gap_pct": -2.61,
     "direction": "gap_down",
-    "scanned_at": "2026-04-08T15:43:20.100918"
+    "scanned_at": "2026-05-01T20:34:37.282851"
   },
   {
-    "symbol": "QQQ",
-    "prev_close": 588.59,
-    "premarket_price": 604.68,
-    "gap_pct": 2.73,
-    "direction": "gap_up",
-    "scanned_at": "2026-04-08T15:43:16.315374"
+    "symbol": "INTC",
+    "prev_close": 94.47,
+    "premarket_price": 92.1,
+    "gap_pct": -2.51,
+    "direction": "gap_down",
+    "scanned_at": "2026-05-01T20:34:41.095103"
   },
   {
-    "symbol": "SPY",
-    "prev_close": 659.22,
-    "premarket_price": 675.05,
-    "gap_pct": 2.4,
+    "symbol": "TQQQ",
+    "prev_close": 63.49,
+    "premarket_price": 64.97,
+    "gap_pct": 2.33,
     "direction": "gap_up",
-    "scanned_at": "2026-04-08T15:43:15.934330"
+    "scanned_at": "2026-05-01T20:34:28.903191"
+  },
+  {
+    "symbol": "AMZN",
+    "prev_close": 265.04,
+    "premarket_price": 271.01,
+    "gap_pct": 2.25,
+    "direction": "gap_up",
+    "scanned_at": "2026-05-01T20:34:34.919603"
+  },
+  {
+    "symbol": "PLTR",
+    "prev_close": 139.04,
+    "premarket_price": 136.13,
+    "gap_pct": -2.09,
+    "direction": "gap_down",
+    "scanned_at": "2026-05-01T20:34:38.856601"
   }
 ]

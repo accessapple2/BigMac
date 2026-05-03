@@ -145,9 +145,9 @@ Syntax check: PASS
 
 **Findings:**
 1. **Trader halted** for extended period → no 9:30 AM / 1:30 PM ET slots fire
-2. **Data source wound down**: `_get_positions()` reads `positions WHERE player_id='steve-webull'`. Webull being wound down per CLAUDE.md → likely returning 0 positions → every scan returns `{"skipped": True, "reason": "no_positions"}`
+2. **Data source wound down**: `_get_positions()` reads `positions WHERE player_id='webull'`. Webull being wound down per CLAUDE.md → likely returning 0 positions → every scan returns `{"skipped": True, "reason": "no_positions"}`
 
-**Full fix needed (out of scope for this repair):** Migrate wb_advisory_team to read from Alpaca paper positions instead of steve-webull Webull rows. Deferred to separate task.
+**Full fix needed (out of scope for this repair):** Migrate wb_advisory_team to read from Alpaca paper positions instead of webull Webull rows. Deferred to separate task.
 
 ---
 
@@ -538,7 +538,7 @@ Both `kirk_grok_advisor.py` and `wb_advisory_team.py` defaulted to `OLLIE_URL` b
 
 **Activation:** Next restart (deferred — current PID 25687 has old in-memory module state).
 
-**Correctness note on wb_advisory_team:** `_get_positions()` reads `positions WHERE player_id='steve-webull'`. This table contains Alpaca paper agent positions, NOT Steve's actual Webull brokerage data. Steve's real Webull portfolio syncs separately via `webull_client.py` / `com.trademinds.webull-sync` plist into the same table via full-replace. The advisory team reads whichever version is current in DB — both are valid inputs but the source may shift based on last sync timing.
+**Correctness note on wb_advisory_team:** `_get_positions()` reads `positions WHERE player_id='webull'`. This table contains Alpaca paper agent positions, NOT Steve's actual Webull brokerage data. Steve's real Webull portfolio syncs separately via `webull_client.py` / `com.trademinds.webull-sync` plist into the same table via full-replace. The advisory team reads whichever version is current in DB — both are valid inputs but the source may shift based on last sync timing.
 
 **Files:** `engine/kirk_grok_advisor.py`, `engine/wb_advisory_team.py`, `.env`
 **Backups:** `.env.bak.2026-04-20-q2-mop5`, `kirk_grok_advisor.py.bak.2026-04-20-q2-mop5`, `wb_advisory_team.py.bak.2026-04-20-q2-mop5`

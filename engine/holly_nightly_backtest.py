@@ -121,7 +121,7 @@ def _s(v):
         f = float(v.iloc[0]) if hasattr(v, "iloc") else float(v) if v is not None else 0.0
     except (TypeError, ValueError):
         return 0.0
-    return 0.0 if (np.isnan(f) or np.isinf(f)) else f
+    return 0.0 if (np.isnan(f) or np.isinf(f)) else f  # ← THIS IS THE BUG LINE!
 
 
 def _stat(stats, key, decimals=2):

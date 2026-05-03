@@ -15,7 +15,10 @@ from typing import Callable, Any
 logger = logging.getLogger(__name__)
 
 # Per-request timeout (seconds). Exceeded requests are skipped, not retried.
-REQUEST_TIMEOUT = 120
+# 2026-04-20: raised 120 → 300 — war_room has 17 agents all queuing simultaneously;
+# Ollie cold-loads a 14b model in ~20s, so agent #10 in queue could wait 200s+ before
+# its slot opens. 300s gives the full queue room to breathe without indefinite blocks.
+REQUEST_TIMEOUT = 300
 
 # How long to retain response-time samples for avg calculation.
 _MAX_SAMPLES = 50
@@ -154,10 +157,41 @@ class OllamaQueue:
                 logger.error("OllamaQueue worker error: %s", e)
 
 
-# Module-level singleton — imported everywhere
-_queue = OllamaQueue()
+# ── Per-host queue registry ──────────────────────────────────────────────────
+# Each distinct Ollama host (bigmac localhost vs Ollie GPU) gets its own
+# independent FIFO queue and worker thread. A slow qwen3:14b job on Ollie
+# no longer blocks phi3:mini jobs on bigmac.
+#
+# Added 2026-04-20 (D1 dual-queue refactor). ~19 LOC total across two files.
+
+from urllib.parse import urlparse
+
+_queues: dict[str, "OllamaQueue"] = {}
+_queues_lock = threading.Lock()
 
 
-def get_queue() -> OllamaQueue:
-    """Return the global OllamaQueue singleton."""
-    return _queue
+def _host_key(url: str) -> str:
+    """Normalise a full Ollama URL to a stable host:port key."""
+    p = urlparse(url or "")
+    return f"{p.scheme}://{p.netloc}" if p.netloc else "default"
+
+
+def get_queue(url: str = "") -> OllamaQueue:
+    """Return (or lazily create) the per-host OllamaQueue for *url*.
+
+    Each unique host gets its own worker thread.  Callers that omit *url*
+    get the "default" singleton (backwards-compatible with any code that
+    was not updated to pass a URL).
+    """
+    key = _host_key(url)
+    with _queues_lock:
+        if key not in _queues:
+            _queues[key] = OllamaQueue()
+        return _queues[key]
+
+
+def get_all_queues_status() -> dict[str, dict]:
+    """Aggregate status of every registered host queue — for dashboard."""
+    with _queues_lock:
+        keys = list(_queues.keys())
+    return {key: _queues[key].status() for key in keys}

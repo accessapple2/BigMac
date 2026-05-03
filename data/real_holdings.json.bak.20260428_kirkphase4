@@ -1,0 +1,124 @@
+{
+  "last_updated": "2026-04-21",
+  "note": "Manually maintained. Update when real positions change. Never commit to git.",
+  "accounts": {
+    "schwab": {
+      "label": "Schwab",
+      "role": "primary",
+      "is_active": true,
+      "cash_balance": 20576.0,
+      "account_id": "...015",
+      "account_name": "Schwab New BS (Brokerage)",
+      "positions": [
+        {
+          "symbol": "PLTR",
+          "qty": 7,
+          "avg_cost": 147.35,
+          "notes": "cost basis $1,031.42"
+        },
+        {
+          "symbol": "AMD",
+          "qty": 4,
+          "avg_cost": 282.09,
+          "notes": "cost basis $1,128.36, +0.70% open"
+        },
+        {
+          "symbol": "AMZN",
+          "qty": 4,
+          "avg_cost": 254.99,
+          "notes": "cost basis $1,019.95, -1.36% open"
+        },
+        {
+          "symbol": "AVGO",
+          "qty": 3,
+          "avg_cost": 401.32,
+          "notes": "cost basis $1,203.59, +0.27% open"
+        },
+        {
+          "symbol": "ORCL",
+          "qty": 3,
+          "avg_cost": 182.6,
+          "notes": "cost basis $547.80, +0.76% open"
+        }
+      ],
+      "notes": "Primary brokerage. 5 equity positions totaling $4,929.58 MV. Total account value $25,505.70. Synced from Schwab screenshot 2026-04-21."
+    },
+    "webull": {
+      "label": "Webull",
+      "role": "monitor",
+      "is_active": true,
+      "cash_balance": 4911.7,
+      "account_id": "CVU599Y4",
+      "positions": [
+        {
+          "symbol": "AMD",
+          "qty": 1,
+          "avg_cost": 201.7,
+          "notes": "+40.92% open"
+        },
+        {
+          "symbol": "NET",
+          "qty": 2,
+          "avg_cost": 164.5,
+          "notes": "+26.63% open"
+        },
+        {
+          "symbol": "MSFT",
+          "qty": 2,
+          "avg_cost": 368.08,
+          "notes": "+16.02% open"
+        },
+        {
+          "symbol": "MDB",
+          "qty": 2,
+          "avg_cost": 233.0,
+          "notes": "+13.59% open"
+        },
+        {
+          "symbol": "PANW",
+          "qty": 2,
+          "avg_cost": 160.0,
+          "notes": "+9.64% open"
+        },
+        {
+          "symbol": "NUKZ",
+          "qty": 7,
+          "avg_cost": 67.14,
+          "notes": "nuclear ETF, +6.14% open"
+        },
+        {
+          "symbol": "PLTR",
+          "qty": 2,
+          "avg_cost": 146.12,
+          "notes": "+0.62% open"
+        }
+      ],
+      "notes": "Synced from Webull screenshot 2026-04-21. Net Account Value $8,139.77 (cash $4,911.70 + positions $3,228.07)"
+    },
+    "ibkr": {
+      "label": "IBKR",
+      "role": "monitor",
+      "is_active": false,
+      "cash_balance": 0,
+      "positions": []
+    },
+    "tradestation": {
+      "label": "TradeStation",
+      "role": "monitor",
+      "is_active": true,
+      "cash_balance": 1353.43,
+      "account_id": "12001782",
+      "positions": [],
+      "notes": "100% cash. Account open 2026-04-21. Signed up for free TradeView charts. Considering metals ETF (GLD/SLV) when fleet signals WATCH-to-BUY."
+    },
+    "schwab_roth_ira": {
+      "label": "Schwab - Bonnie Roth IRA",
+      "role": "tracked",
+      "is_active": false,
+      "cash_balance": 0.78,
+      "account_id": "...254",
+      "positions": [],
+      "notes": "Essentially empty ($0.78 cash). Tracked but inactive."
+    }
+  }
+}

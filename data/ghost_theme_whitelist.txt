@@ -1,0 +1,59 @@
+# Ghost Theme Whitelist - Hybrid 2.0 universe
+# AI Infrastructure + Nuclear/Power for AI energy demand
+# One ticker per line. Lines starting with # are comments.
+# Edit anytime - ghost_advisor reads this file fresh on every run.
+
+# === Currently held (genesis) ===
+AMD
+AMZN
+ANET
+AVGO
+BWXT
+CCJ
+CEG
+CRDO
+CRWD
+DELL
+MU
+PLTR
+VRT
+
+# === AI compute / chips ===
+NVDA
+TSM
+SMCI
+NBIS
+MRVL
+INTC
+
+# === Hyperscalers / AI software platforms ===
+MSFT
+GOOGL
+META
+ORCL
+
+# === Networking / data center / power gear ===
+CSCO
+ETN
+EMR
+GEV
+JCI
+
+# === Cybersecurity ===
+PANW
+ZS
+NET
+S
+FTNT
+
+# === Nuclear / uranium / power for AI ===
+VST
+TLN
+SMR
+OKLO
+NRG
+
+# === Semi equipment ===
+AMAT
+KLAC
+LRCX

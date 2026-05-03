@@ -254,11 +254,11 @@ def backfill_market_history(days: int = 365, symbols: Optional[list] = None) -> 
     Skips symbols+dates already in the table.  Safe to call repeatedly.
     Returns {symbols_processed, bars_inserted, bars_skipped, errors}
     """
-    api_key = os.environ.get("ALPACA_API_KEY", "")
-    secret_key = os.environ.get("ALPACA_SECRET_KEY", "")
+    api_key = os.environ.get("APCA_API_KEY_ID", "")
+    secret_key = os.environ.get("APCA_API_SECRET_KEY", "")
     if not api_key or not secret_key:
         return {"symbols_processed": 0, "bars_inserted": 0, "bars_skipped": 0,
-                "errors": ["ALPACA_API_KEY or ALPACA_SECRET_KEY not set"]}
+                "errors": ["APCA_API_KEY_ID or APCA_API_SECRET_KEY not set"]}
 
     target_symbols = symbols or _SNAPSHOT_SYMBOLS
     start_date = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")

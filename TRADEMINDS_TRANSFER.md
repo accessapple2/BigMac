@@ -211,7 +211,7 @@ cd ~/autonomous-trader
 | `ollama-plutus` | Dr. McCoy | $7,000.00 | ollama | 6-vital-sign quant doctor |
 | `ollama-qwen3` | Lt. Cmdr. Scotty | $7,000.00 | ollama | Event-driven, catalyst only |
 | `options-sosnoff` | Counselor Troi | $5,182.74 | google | Options premium seller, empathic |
-| `steve-webull` | Captain Kirk | $265.36 | webull | **HUMAN BENCHMARK — SACRED, never auto-trade** |
+| `webull` | Captain Kirk | $265.36 | webull | **HUMAN BENCHMARK — SACRED, never auto-trade** |
 | `super-agent` | Mr. Anderson | $25,000.00 | crewai | CrewAI collective; starting capital $25,000 |
 
 **Total:** 26 players (14 AI + 1 human + 11 specialized/system)
@@ -220,7 +220,7 @@ cd ~/autonomous-trader
 - All standard AI players: **$7,000** (Season 4+)
 - `dayblade-0dte`: **$3,500** (lower risk profile)
 - `super-agent` (Mr. Anderson): **$25,000** (CrewAI separate budget)
-- `steve-webull` (Captain Kirk): **$0** (tracks real Webull positions, not paper cash)
+- `webull` (Captain Kirk): **$0** (tracks real Webull positions, not paper cash)
 - Historical (Season 1-3): $10,000 per player
 
 ---
@@ -831,7 +831,7 @@ Uses apscheduler CronTrigger:
 
 ### 1. Steve-Webull / Captain Kirk is SACRED
 ```
-player_id = 'steve-webull'
+player_id = 'webull'
 display_name = 'Captain Kirk'
 ```
 This is the human benchmark tracking a real Webull account. It must NEVER be auto-traded. Three-layer guard:
@@ -839,7 +839,7 @@ This is the human benchmark tracking a real Webull account. It must NEVER be aut
 - `engine/autopilot.py`: explicit exclusion
 - `engine/ai_brain.py`: explicit exclusion
 
-If you add any new automated trading logic, add a check: `if player_id == 'steve-webull': return`
+If you add any new automated trading logic, add a check: `if player_id == 'webull': return`
 
 ### 2. NEVER DELETE/DROP/TRUNCATE Data in trader.db or arena.db
 Historical trade data, signals, portfolio history — all sacred. This is the entire basis for learning and season comparisons. You can add rows, update specific fields, archive. You can NEVER mass-delete.

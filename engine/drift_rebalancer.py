@@ -39,7 +39,7 @@ DEFAULT_MODE      = "ALERT"
 # Sub-portfolio → player_id patterns (mirrors sub_portfolio.py)
 _STRATEGY_PLAYERS: dict[str, list[str]] = {
     "Bridge Vote Picks": [
-        "claude-sonnet", "gemini-2.5-pro", "gpt-4o", "gpt-o3", "grok-3",
+        "qwen3-8b-sonnet", "qwen3-14b-pro", "qwen3-8b-4o", "qwen3-8b-o3", "qwen3-14b-grok3",
         "captain-sisko", "seven-of-nine", "captain-janeway", "lt-tuvok",
         "ensign-hoshi", "bridge",
     ],
@@ -156,13 +156,11 @@ def _positions_for_strategy(strategy_name: str) -> list[dict]:
 
 
 def _live_price(ticker: str) -> float:
-    """Fetch live price via yfinance. Falls back to 0."""
+    """Fetch live price via Alpaca. Falls back to 0."""
     try:
-        import yfinance as yf
-        t = yf.Ticker(ticker)
-        info = t.fast_info
-        p = getattr(info, "last_price", None) or getattr(info, "regular_market_price", None)
-        return float(p) if p else 0.0
+        from engine.market_data import get_stock_price
+        data = get_stock_price(ticker)
+        return float(data.get("price") or 0)
     except Exception:
         return 0.0
 
@@ -172,13 +170,11 @@ def _enrich_with_prices(positions: list[dict]) -> list[dict]:
     symbols = list({p["symbol"] for p in positions})
     prices: dict[str, float] = {}
     try:
-        import yfinance as yf
-        tickers = yf.Tickers(" ".join(symbols))
+        from engine.market_data import get_stock_price
         for sym in symbols:
             try:
-                info = tickers.tickers[sym].fast_info
-                p = getattr(info, "last_price", None) or getattr(info, "regular_market_price", None)
-                prices[sym] = float(p) if p else 0.0
+                data = get_stock_price(sym)
+                prices[sym] = float(data.get("price") or 0)
             except Exception:
                 prices[sym] = 0.0
     except Exception:

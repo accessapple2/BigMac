@@ -14,7 +14,7 @@ const PLAYER_COLORS = {
   'grok-3': '#ef4444',
   'grok-4': '#f97316',
   'ollama-kimi': '#06b6d4',
-  'steve-webull': '#fbbf24',
+  'webull': '#fbbf24',
   'options-sosnoff': '#f472b6',
   'energy-arnold': '#fb923c',
   'navigator': '#a3e635',
@@ -119,7 +119,7 @@ export default function ComparisonChart({ season }) {
               <span style={{
                 width: 8, height: 8, borderRadius: '50%',
                 background: hidden ? '#475569' : color, flexShrink: 0,
-                ...(pid === 'steve-webull' ? { borderRadius: 2 } : {}),
+                ...(pid === 'webull' ? { borderRadius: 2 } : {}),
               }} />
               {name}
             </button>
@@ -149,8 +149,8 @@ export default function ComparisonChart({ season }) {
                 type="monotone"
                 dataKey={pid}
                 stroke={playerColor(pid, i)}
-                strokeWidth={pid === 'steve-webull' ? 3 : 2}
-                strokeDasharray={pid === 'steve-webull' ? '8 4' : undefined}
+                strokeWidth={pid === 'webull' ? 3 : 2}
+                strokeDasharray={pid === 'webull' ? '8 4' : undefined}
                 dot={false}
                 connectNulls
                 activeDot={{ r: 4 }}

@@ -1,0 +1,172 @@
+{
+  "last_updated": "2026-04-28",
+  "note": "Manually maintained. Update when real positions change. Never commit to git.",
+  "accounts": {
+    "schwab": {
+      "label": "Schwab",
+      "role": "primary",
+      "is_active": true,
+      "cash_balance": 9460.71,
+      "account_id": "...015",
+      "account_name": "Scwab New BS (Brokerage)",
+      "positions": [
+        {
+          "symbol": "VRT",
+          "qty": 6.0,
+          "avg_cost": 311.3267,
+          "notes": "market_value=$1804.44, gain=$-63.52 (-3.40%) [from snapshot 2026-04-28T12:30:00]"
+        },
+        {
+          "symbol": "ANET",
+          "qty": 11.0,
+          "avg_cost": 170.5818,
+          "notes": "market_value=$1799.64, gain=$-76.76 (-4.09%) [from snapshot 2026-04-28T12:30:00]"
+        },
+        {
+          "symbol": "DELL",
+          "qty": 7.0,
+          "avg_cost": 216.8357,
+          "notes": "market_value=$1429.16, gain=$-88.69 (-5.84%) [from snapshot 2026-04-28T12:30:00]"
+        },
+        {
+          "symbol": "CRWD",
+          "qty": 3.0,
+          "avg_cost": 463.96,
+          "notes": "market_value=$1362.33, gain=$-29.55 (-2.12%) [from snapshot 2026-04-28T12:30:00]"
+        },
+        {
+          "symbol": "CRDO",
+          "qty": 8.0,
+          "avg_cost": 170.49,
+          "notes": "market_value=$1330.64, gain=$-33.28 (-2.44%) [from snapshot 2026-04-28T12:30:00]"
+        },
+        {
+          "symbol": "BWXT",
+          "qty": 6.0,
+          "avg_cost": 218.37,
+          "notes": "market_value=$1284.08, gain=$-26.14 (-2.00%) [from snapshot 2026-04-28T12:30:00]"
+        },
+        {
+          "symbol": "CEG",
+          "qty": 4.0,
+          "avg_cost": 308.0,
+          "notes": "market_value=$1226.50, gain=$-5.50 (-0.45%) [from snapshot 2026-04-28T12:30:00]"
+        },
+        {
+          "symbol": "CCJ",
+          "qty": 10.0,
+          "avg_cost": 118.0,
+          "notes": "market_value=$1158.30, gain=$-21.70 (-1.84%) [from snapshot 2026-04-28T12:30:00]"
+        },
+        {
+          "symbol": "AMZN",
+          "qty": 4.0,
+          "avg_cost": 254.9875,
+          "notes": "market_value=$1040.94, gain=$+20.99 (+2.06%) [from snapshot 2026-04-28T12:30:00]"
+        },
+        {
+          "symbol": "PLTR",
+          "qty": 7.0,
+          "avg_cost": 147.3457,
+          "notes": "market_value=$990.71, gain=$-40.71 (-3.95%) [from snapshot 2026-04-28T12:30:00]"
+        },
+        {
+          "symbol": "MU",
+          "qty": 2.0,
+          "avg_cost": 500.0,
+          "notes": "market_value=$988.51, gain=$-11.49 (-1.15%) [from snapshot 2026-04-28T12:30:00]"
+        },
+        {
+          "symbol": "AVGO",
+          "qty": 2.0,
+          "avg_cost": 401.195,
+          "notes": "market_value=$793.57, gain=$-8.82 (-1.10%) [from snapshot 2026-04-28T12:30:00]"
+        },
+        {
+          "symbol": "AMD",
+          "qty": 2.0,
+          "avg_cost": 282.09,
+          "notes": "market_value=$641.83, gain=$+77.65 (+13.76%) [from snapshot 2026-04-28T12:30:00]"
+        }
+      ],
+      "notes": "Auto-synced from schwab_holdings snapshot 2026-04-28T12:30:00. 13 equity positions. Snapshot time: 12:30 PM ET, 2026/04/28."
+    },
+    "webull": {
+      "label": "Webull",
+      "role": "monitor",
+      "is_active": false,
+      "cash_balance": 4911.7,
+      "account_id": "CVU599Y4",
+      "positions": [
+        {
+          "symbol": "AMD",
+          "qty": 1,
+          "avg_cost": 201.7,
+          "notes": "+40.92% open"
+        },
+        {
+          "symbol": "NET",
+          "qty": 2,
+          "avg_cost": 164.5,
+          "notes": "+26.63% open"
+        },
+        {
+          "symbol": "MSFT",
+          "qty": 2,
+          "avg_cost": 368.08,
+          "notes": "+16.02% open"
+        },
+        {
+          "symbol": "MDB",
+          "qty": 2,
+          "avg_cost": 233.0,
+          "notes": "+13.59% open"
+        },
+        {
+          "symbol": "PANW",
+          "qty": 2,
+          "avg_cost": 160.0,
+          "notes": "+9.64% open"
+        },
+        {
+          "symbol": "NUKZ",
+          "qty": 7,
+          "avg_cost": 67.14,
+          "notes": "nuclear ETF, +6.14% open"
+        },
+        {
+          "symbol": "PLTR",
+          "qty": 2,
+          "avg_cost": 146.12,
+          "notes": "+0.62% open"
+        }
+      ],
+      "notes": "[LIQUIDATED 2026-04-23, migrated to Schwab] Synced from Webull screenshot 2026-04-21. Net Account Value $8,139.77 (cash $4,911.70 + positions $3,228.07)"
+    },
+    "ibkr": {
+      "label": "IBKR",
+      "role": "monitor",
+      "is_active": false,
+      "cash_balance": 0,
+      "positions": []
+    },
+    "tradestation": {
+      "label": "TradeStation",
+      "role": "monitor",
+      "is_active": true,
+      "cash_balance": 1353.43,
+      "account_id": "12001782",
+      "positions": [],
+      "notes": "100% cash. Account open 2026-04-21. Signed up for free TradeView charts. Considering metals ETF (GLD/SLV) when fleet signals WATCH-to-BUY."
+    },
+    "schwab_roth_ira": {
+      "label": "Schwab - Bonnie Roth IRA",
+      "role": "tracked",
+      "is_active": false,
+      "cash_balance": 0.78,
+      "account_id": "...254",
+      "positions": [],
+      "notes": "Essentially empty ($0.78 cash). Tracked but inactive."
+    }
+  }
+}

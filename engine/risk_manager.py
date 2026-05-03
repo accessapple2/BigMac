@@ -18,8 +18,8 @@ class RiskManager:
     MAX_TRADES_PER_DAY = {
         "default": 3,            # Most models: max 3 trades per day
         "ollama-local": 2,       # Geordi: max 2 (was unlimited, made 2795)
-        "gemini-2.5-flash": 2,   # Worf: max 2 (made 481)
-        "grok-4": 8,             # Spock: 100% WR, 15 trades proven
+        "qwen3-8b-flash": 2,   # Worf: max 2 (made 481)
+        "deepseek-7b-grok4": 8,             # Spock: 100% WR, 15 trades proven
         "ollama-qwen3": 3,       # Dax: 1 bad trade, cautious
         "ollama-plutus": 3,      # McCoy: no closed trades yet S6
         "ollama-coder": 3,       # Data: no closed trades yet S6
@@ -47,7 +47,7 @@ class RiskManager:
     PER_SYMBOL_MAX_PCT = 0.18
     BEAR_PER_SYMBOL_MAX_PCT = 0.15
     SECTOR_WARNING_THRESHOLD = 0.85
-    WARNING_ONLY_PLAYERS = {"neo-matrix", "enterprise-computer", "steve-webull", "super-agent"}
+    WARNING_ONLY_PLAYERS = {"neo-matrix", "enterprise-computer", "webull", "super-agent"}
 
     # Models with their own stop-loss rules — excluded from the fleet trailing stop.
     # These models keep their existing per-model stops instead.
@@ -66,9 +66,9 @@ class RiskManager:
     # Per-model position limits — all set to 8 (user override for 16GB Mac Mini)
     MAX_POSITIONS_PER_MODEL = {
         "default": 8,
-        "grok-4": 8,             # Spock (paused — kept for reference)
+        "deepseek-7b-grok4": 8,             # Spock (paused — kept for reference)
         "ollama-local": 8,       # Geordi (paused — kept for reference)
-        "gemini-2.5-flash": 8,   # Worf
+        "qwen3-8b-flash": 8,   # Worf
         "ollama-qwen3": 8,       # Scotty (paused)
         "ollama-plutus": 8,      # Bones (inactive)
         "energy-arnold": 8,      # Trip Tucker
@@ -79,8 +79,8 @@ class RiskManager:
     # Minimum holding periods (days) — stop day-trading, swing/position trade
     MIN_HOLD_DAYS = {
         "default": 5,            # Hold at least 5 trading days
-        "grok-4": 7,             # Spock: 7 days (like Rallies Grok 4)
-        "gemini-2.5-flash": 5,   # Worf: 5 days (CAN SLIM holds)
+        "deepseek-7b-grok4": 7,             # Spock: 7 days (like Rallies Grok 4)
+        "qwen3-8b-flash": 5,   # Worf: 5 days (CAN SLIM holds)
         "ollama-local": 5,       # Geordi: 5 days
         "ollama-qwen3": 10,      # Scotty: 10 days for catalysts to play out
         "ollama-plutus": 7,      # Bones: 7 days for quant signals
@@ -133,7 +133,7 @@ class RiskManager:
             "min_cash_pct": 0.30,          # 30% cash at all times
             "max_losing_positions": 3,     # 3+ losers → go to cash
         },
-        "grok-4": {  # Spock — -17.07% with 513 trades (Rallies Grok 4: +8.1% with ~5)
+        "deepseek-7b-grok4": {  # Spock — -17.07% with 513 trades (Rallies Grok 4: +8.1% with ~5)
             "max_daily_trades": 3,         # Hard limit
             "min_thesis_length": 50,       # Stricter thesis (was 20 chars)
             "thesis_must_cite_data": True,  # Must reference specific indicators
@@ -143,7 +143,7 @@ class RiskManager:
             "min_cash_pct": 0.30,          # 30% cash at all times (Rallies keeps 40%)
             "revenge_trade_cooldown_hrs": 24,  # Wait 24h after a loss
         },
-        "gemini-2.5-flash": {  # Worf — Head of Security, disciplined risk enforcer
+        "qwen3-8b-flash": {  # Worf — Head of Security, disciplined risk enforcer
             "max_daily_trades": 2,         # Hard limit
             "block_buys_vix30": True,      # VIX > 30 → reject ALL buys (WATCHLIST mode)
             "block_buys_spy_below_200": True,  # SPY < 200MA → CAN SLIM requires uptrend
@@ -309,7 +309,7 @@ class RiskManager:
             conn = sqlite3.connect(DB, check_same_thread=False, timeout=10)
             # Worf inverse arsenal picks
             row = conn.execute(
-                "SELECT symbol FROM signals WHERE player_id IN ('gemini-2.5-flash','dalio-metals') "
+                "SELECT symbol FROM signals WHERE player_id IN ('qwen3-8b-flash','dalio-metals') "
                 "AND symbol=? AND signal='BUY' AND created_at > datetime('now','-7 days')",
                 (symbol.upper(),)
             ).fetchone()

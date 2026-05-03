@@ -19,7 +19,7 @@ BASE_DIR      = os.path.expanduser("~/autonomous-trader")
 PLIST         = os.path.expanduser("~/Library/LaunchAgents/com.trademinds.trader.plist")
 TUNNEL_PLIST  = os.path.expanduser("~/Library/LaunchAgents/com.trademinds.tunnel.plist")
 DASHBOARD_URL = "http://127.0.0.1:8080"
-NTFY_ADMIN_TOPIC = os.environ.get("NTFY_ADMIN_TOPIC", "Ollie-Alert-35")  # iPhone push topic
+NTFY_ADMIN_TOPIC = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")  # iPhone push topic
 OLLAMA_URL    = "http://127.0.0.1:11434"
 OLLIE_URL     = "http://192.168.1.166:11434"   # 2026-04-20: Ollie GPU (RTX 5060, primary inference)
 TUNNEL_URL    = "https://bridge.accessapple.com"
@@ -28,7 +28,7 @@ AUTO_DB_PATH  = os.path.join(BASE_DIR, "autonomous_trader.db")
 BACKUP_DIR    = os.path.join(BASE_DIR, "backups")
 SCANNER_LOG   = os.path.join(BASE_DIR, "logs", "scanner.err")
 HEALTH_LOG    = os.path.join(BASE_DIR, "logs", "healthcheck.log")
-LOG_STALE_MIN = 15   # logs/trader.err freshness threshold (minutes)
+LOG_STALE_MIN = 45   # logs/trader.err freshness threshold (minutes); raised from 15 on 2026-04-26 — 15m fired during Ollama queue backlog even when scanner was healthy
 RESTART_WAIT  = 12   # seconds to wait after launchctl load before verifying
 DB_BACKUP_KEEP = 7   # number of daily backups to retain
 _START_TIME   = time.time()
@@ -116,6 +116,10 @@ def check_db() -> tuple[bool, str]:
 
 
 def check_log_freshness() -> tuple[bool, float]:
+    # Only meaningful during market hours — scanner legitimately goes quiet overnight/weekends.
+    # 2026-04-26: market-hours guard added to prevent false alerts during off-hours.
+    if not _is_market_hours():
+        return True, 0.0
     try:
         age_min = (time.time() - os.path.getmtime(SCANNER_LOG)) / 60
         return age_min < LOG_STALE_MIN, round(age_min, 1)
@@ -724,14 +728,13 @@ def main() -> None:
     # -----------------------------------------------------------------------
     log("Server is up — running secondary checks...")
 
-    # 3. OLLAMA STALLED
+    # 3. OLLAMA STALLED — alert only (no restart); OllamaQueue handles backpressure now.
+    # 2026-04-26: removed auto_restart() — restarting main.py during queue saturation made it worse.
     ollama_stalled, stall_info = check_ollama_stalled()
     log(f"  Ollama pipeline   : {'✗ STALLED — ' + stall_info if ollama_stalled else '✓ ' + stall_info}")
     if ollama_stalled:
-        auto_restart(f"Ollama stalled: {stall_info}", also_restart_ollama=True)
-        log("Health check complete (post-ollama-stall-restart)")
-        log("=" * 60)
-        return
+        log(f"WARNING: Ollama stalled — {stall_info} (alert only, watchdog.py owns restarts)")
+        notify("⚠️ Dr. Crusher", f"Ollama stalled: {stall_info}", priority="high")
 
     # 4. WEBSOCKET DEAD
     ws_dead, ws_info = check_websocket_dead()
@@ -751,16 +754,13 @@ def main() -> None:
         log("=" * 60)
         return
 
-    # 6. DAYBLADE DARK
+    # 6. DAYBLADE DARK — alert only (no restart); DayBlade may legitimately idle if no setups.
+    # 2026-04-26: removed auto_restart() — restarting main.py disrupted active agents unnecessarily.
     db_dark, db_dark_info = check_dayblade_dark()
     log(f"  DayBlade activity : {'✗ DARK — ' + db_dark_info if db_dark else '✓ active'}")
     if db_dark:
-        log(f"WARNING: DayBlade dark — {db_dark_info}")
+        log(f"WARNING: DayBlade dark — {db_dark_info} (alert only, no restart)")
         notify("⚠️ Dr. Crusher", f"DayBlade dark: {db_dark_info}")
-        auto_restart(f"DayBlade dark: {db_dark_info}")
-        log("Health check complete (post-dayblade-restart)")
-        log("=" * 60)
-        return
 
     # -----------------------------------------------------------------------
     # Fix 2: DB backup (once per day, non-fatal)

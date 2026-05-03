@@ -264,9 +264,10 @@ def check_outcomes() -> int:
             if age_hours < 1:
                 continue  # too new to score
             try:
-                import yfinance as yf
-                hist = yf.Ticker(symbol).history(period="5d")
-                if hist.empty:
+                # 2026-04-27: migrated yfinance -> Alpaca via get_alpaca_bars()
+                from engine.market_data import get_alpaca_bars
+                hist = get_alpaca_bars(symbol, timeframe="1Day", days=5)
+                if hist is None or hist.empty:
                     continue
                 current  = float(hist["Close"].iloc[-1])
                 high_5d  = float(hist["High"].max())

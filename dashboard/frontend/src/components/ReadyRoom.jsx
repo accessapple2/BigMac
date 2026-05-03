@@ -179,7 +179,7 @@ export default function ReadyRoom() {
               ADMIRAL PICARD
             </div>
             <div style={{ fontSize: 11, color: '#64748b', letterSpacing: 1 }}>
-              FLEET COMMANDER · READY ROOM · USS TRADEMINDS
+              FLEET COMMANDER · READY ROOM · USS OLLIETRADES
             </div>
           </div>
         </div>

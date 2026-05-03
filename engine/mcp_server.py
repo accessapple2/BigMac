@@ -141,7 +141,7 @@ TOOLS: list[dict] = [
                     "type": "string",
                     "description": (
                         "LLM model ID (e.g. 'ollama/llama3', 'claude-sonnet-4-6', "
-                        "'gemini-2.5-flash')."
+                        "'qwen3-8b-flash')."
                     ),
                 },
                 "strategy": {

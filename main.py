@@ -23,6 +23,12 @@ from rich.panel import Panel
 from dotenv import load_dotenv
 load_dotenv(override=True)
 
+# Hoist Ollie Box URL to module scope so all scheduled jobs and initialize_dayblade()
+# can reference it directly. Previously only imported inside initialize_arena() (local
+# scope), causing NameError in the first scan cycle of every restart. P8 fix 2026-04-21.
+OLLIE_URL = os.getenv("OLLIE_URL", "http://192.168.1.166:11434")
+OLLAMA_URL = os.getenv("OLLAMA_URL", "http://127.0.0.1:11434")
+
 # Monkey-patch sqlite3.connect to always use a 30s busy timeout.
 # This prevents "database is locked" errors when 13+ AI models write concurrently.
 _original_sqlite3_connect = sqlite3.connect
@@ -63,52 +69,52 @@ def initialize_arena():
     from config import (
         OPENAI_API_KEY, OPENAI_CODEX_MODEL, OPENAI_CODEX_MINI_MODEL,
         GEMINI_API_KEY, GROK_API_KEY, GROQ_API_KEY,
-        OLLAMA_MODEL, OLLAMA_URL, MLX_URL, MLX_MODEL
+        OLLAMA_MODEL, OLLAMA_URL, OLLIE_URL, MLX_URL, MLX_MODEL
     )
     from engine.ai_brain import Arena
     from engine.risk_manager import RiskManager
     from engine.providers.ollama_provider import OllamaProvider
 
     providers = [
-        OllamaProvider(model=OLLAMA_MODEL, url=OLLAMA_URL),
-        OllamaProvider(player_id="ollama-gemma27b", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180),
-        OllamaProvider(player_id="ollama-deepseek", model="deepseek-r1:7b", url=OLLAMA_URL, timeout=180),  # RAM patch 2026-04-17: 14b (9.7GB) → 7b (4.7GB), Spock per CLAUDE.md
-        OllamaProvider(player_id="ollama-qwen3", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180),
-        OllamaProvider(player_id="ollama-kimi", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180),
-        OllamaProvider(player_id="ollama-glm4", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180),
-        OllamaProvider(player_id="ollama-plutus", model="0xroyce/plutus:latest", url=OLLAMA_URL, timeout=300),
+        OllamaProvider(model="qwen3:14b", url=OLLIE_URL),
+        OllamaProvider(player_id="ollama-gemma27b", model="qwen3:8b", url=OLLIE_URL, timeout=180),
+        OllamaProvider(player_id="ollama-deepseek", model="deepseek-r1:14b", url=OLLIE_URL, timeout=180),  # RAM patch 2026-04-17: 14b (9.7GB) → 7b (4.7GB), Spock per CLAUDE.md
+        OllamaProvider(player_id="ollama-qwen3", model="qwen3:8b", url=OLLIE_URL, timeout=180),
+        OllamaProvider(player_id="ollama-kimi", model="phi3:mini", url=OLLAMA_URL, timeout=180),
+        OllamaProvider(player_id="ollama-glm4", model="qwen3:8b", url=OLLIE_URL, timeout=180),
+        OllamaProvider(player_id="ollama-plutus", model="0xroyce/plutus:latest", url=OLLIE_URL, timeout=300),
         # Lt. Sulu — DayBlade 2.0 (intraday day trader, free local compute)
-        OllamaProvider(player_id="dayblade-sulu", model="qwen3.5:9b", url=OLLAMA_URL, timeout=90),
+        OllamaProvider(player_id="dayblade-sulu", model="phi3:mini", url=OLLAMA_URL, timeout=90),
     ]
 
-    # Ensign Chekov — routed through Ollama qwen3.5:9b (was qwen3:8b)
+    # Ensign Chekov — routed through Ollama phi3:mini (was qwen3:8b)
     providers.append(OllamaProvider(
-        player_id="mlx-qwen3", model="qwen3.5:9b", url=OLLAMA_URL, timeout=180,
+        player_id="mlx-qwen3", model="phi3:mini", url=OLLAMA_URL, timeout=180,
     ))
-    console.log("[green]Chekov (mlx-qwen3) → Ollama qwen3.5:9b")
+    console.log("[green]Chekov (mlx-qwen3) → Ollama phi3:mini")
 
     # gpt-4o / gpt-o3 — routed to free local Ollama (no OpenAI spend)
-    providers.append(OllamaProvider("gpt-4o", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
-    providers.append(OllamaProvider("gpt-o3", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))  # RAM patch 2026-04-17: retired o3 → 9b (funnel to existing warm model)
+    providers.append(OllamaProvider("qwen3-8b-4o", "qwen3:8b", url=OLLIE_URL, timeout=180))
+    providers.append(OllamaProvider("qwen3-8b-o3", "qwen3:8b", url=OLLIE_URL, timeout=180))  # RAM patch 2026-04-17: retired o3 → 9b (funnel to existing warm model)
 
     # Gemini players — local Ollama
-    providers.append(OllamaProvider("gemini-2.5-pro", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
-    providers.append(OllamaProvider("gemini-2.5-flash", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
-    providers.append(OllamaProvider("options-sosnoff", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
-    providers.append(OllamaProvider("energy-arnold", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
+    providers.append(OllamaProvider("qwen3-14b-pro", "qwen3:14b", url=OLLIE_URL, timeout=180))
+    providers.append(OllamaProvider("qwen3-8b-flash", "qwen3:8b", url=OLLIE_URL, timeout=180))
+    providers.append(OllamaProvider("options-sosnoff", "qwen3:8b", url=OLLIE_URL, timeout=180))
+    providers.append(OllamaProvider("energy-arnold", "qwen3:8b", url=OLLIE_URL, timeout=180))
     # Lt. Cmdr. Data — coding specialist
-    providers.append(OllamaProvider("ollama-coder", "qwen2.5-coder:7b", url=OLLAMA_URL, timeout=180))
+    providers.append(OllamaProvider("ollama-coder", "qwen2.5-coder:7b", url=OLLIE_URL, timeout=180))
     # Mr. Anderson — CrewAI collective / The One
-    providers.append(OllamaProvider("super-agent", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
+    providers.append(OllamaProvider("super-agent", "qwen3:8b", url=OLLIE_URL, timeout=180))
     # Mr. Dalio — metals specialist
-    providers.append(OllamaProvider("dalio-metals", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
+    providers.append(OllamaProvider("dalio-metals", "qwen3:8b", url=OLLIE_URL, timeout=180))
     # Codex players → free local Ollama
-    providers.append(OllamaProvider("claude-sonnet", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
-    providers.append(OllamaProvider("claude-haiku", "qwen2.5-coder:7b", url=OLLAMA_URL, timeout=180))
+    providers.append(OllamaProvider("qwen3-8b-sonnet", "qwen3:8b", url=OLLIE_URL, timeout=180))
+    providers.append(OllamaProvider("qwen-coder-haiku", "qwen2.5-coder:7b", url=OLLIE_URL, timeout=180))
     # Grok players → free local Ollama
-    providers.append(OllamaProvider("grok-3", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))
-    providers.append(OllamaProvider("grok-4", "qwen3.5:9b", url=OLLAMA_URL, timeout=180))  # RAM patch 2026-04-17: retired grok-4 → 9b (Kirk+Pike replaced Grok on 2026-04-16)
-    providers.append(OllamaProvider("cto-grok42", "qwen2.5-coder:7b", url=OLLAMA_URL, timeout=180))
+    providers.append(OllamaProvider("qwen3-14b-grok3", "qwen3:14b", url=OLLIE_URL, timeout=180))
+    providers.append(OllamaProvider("deepseek-7b-grok4", "qwen3:8b", url=OLLIE_URL, timeout=180))  # RAM patch 2026-04-17: retired grok-4 → 9b (Kirk+Pike replaced Grok on 2026-04-16)
+    providers.append(OllamaProvider("cto-grok42", "qwen2.5-coder:7b", url=OLLIE_URL, timeout=180))
 
     if GROQ_API_KEY:
         from engine.providers.groq_provider import GroqProvider
@@ -125,7 +131,7 @@ def initialize_dayblade():
     from engine.dayblade import DayBladeScanner, ensure_player
 
     ensure_player()
-    provider = OllamaProvider(player_id="dayblade-0dte", model="0xroyce/plutus", url=OLLAMA_URL, timeout=300)
+    provider = OllamaProvider(player_id="dayblade-0dte", model="0xroyce/plutus", url=OLLIE_URL, timeout=300)
     return DayBladeScanner(provider)
 
 
@@ -206,35 +212,35 @@ def should_run_task(task_name: str, throttle_mins: int = 30) -> bool:
 
 # Tier 1 — Bridge Crew: core decision-makers, every 30 min during market hours
 _SCAN_TIER1: frozenset = frozenset({
-    "dayblade-sulu",     # Sulu    S6.3 primary options trader (qwen3.5:9b) — PRIORITY 1
+    "dayblade-sulu",     # Sulu    S6.3 primary options trader (phi3:mini) — PRIORITY 1
     "super-agent",       # Anderson      (crewai)
-    "grok-4",            # Spock         (deepseek-r1:7b)
+    "deepseek-7b-grok4",            # Spock         (deepseek-r1:7b)
     "ollama-coder",      # Data          (qwen2.5-coder:7b)
-    "mlx-qwen3",         # Chekov        (qwen3.5:9b)
+    "mlx-qwen3",         # Chekov        (phi3:mini)
 })
 
 # Tier 2 — Department Heads: secondary signals, every 2 hours
 _SCAN_TIER2: frozenset = frozenset({
-    "options-sosnoff",   # Troi          (qwen3.5:9b)
-    "energy-arnold",     # Trip Tucker   (qwen3.5:9b)
+    "options-sosnoff",   # Troi          (phi3:mini)
+    "energy-arnold",     # Trip Tucker   (phi3:mini)
     "ollama-plutus",     # McCoy         (mistral:7b)
     "ollama-local",      # Geordi        (gemma3:4b)
     "ollama-llama",      # Uhura         (llama3.1:latest)
-    "gemini-2.5-flash",  # Worf          (qwen3.5:9b)
-    "ollama-qwen3",      # Scotty        (qwen3.5:9b)
+    "qwen3-8b-flash",  # Worf          (phi3:mini)
+    "ollama-qwen3",      # Scotty        (phi3:mini)
 })
 
 # Tier 3 — Cadets: market open + close only (learning, not real-time)
 _SCAN_TIER3: frozenset = frozenset({
-    "gpt-4o",            # (qwen3.5:9b)
-    "claude-sonnet",     # (qwen3.5:9b)
-    "grok-3",            # (qwen3.5:9b)
-    "ollama-gemma27b",   # (qwen3.5:9b)
-    "ollama-glm4",       # (qwen3.5:9b)
-    "ollama-kimi",       # (qwen3.5:9b)
-    "gpt-o3",            # (deepseek-r1:7b)
+    "qwen3-8b-4o",            # (phi3:mini)
+    "qwen3-8b-sonnet",     # (phi3:mini)
+    "qwen3-14b-grok3",            # (phi3:mini)
+    "ollama-gemma27b",   # (phi3:mini)
+    "ollama-glm4",       # (phi3:mini)
+    "ollama-kimi",       # (phi3:mini)
+    "qwen3-8b-o3",            # (deepseek-r1:7b)
     "ollama-deepseek",   # (deepseek-r1:7b)
-    "claude-haiku",      # (qwen2.5-coder:7b)
+    "qwen-coder-haiku",      # (qwen2.5-coder:7b)
     "cto-grok42",        # (qwen2.5-coder:7b)
 })
 
@@ -328,6 +334,9 @@ def _get_scan_interval():
 def run_scanner():
     global arena, _news_counter, _last_scan_time, _tier_last_scan
     import time as _time
+    from engine.fleet_halt import check_or_bail
+    if check_or_bail("run_scanner"):
+        return
 
     # Prevent scan stacking — skip if previous scan still running
     if not _scan_lock.acquire(blocking=False):
@@ -1038,6 +1047,7 @@ def run_alpaca_gex_refresh():
 
 
 _last_war_room_time = 0
+_war_room_running = threading.Event()  # guard: prevents two-thread overlap (2026-04-26)
 
 def run_war_room():
     """War Room: all AIs give hot takes. Free models 24/7, paid models market hours only."""
@@ -1051,19 +1061,26 @@ def run_war_room():
     if not session:
         return  # Fully closed (weekends, overnight)
 
-    # Throttle: 10 min during active market (Ollama bandwidth), 5 min pre/post-market
+    # Throttle: 3 min during active market, 5 min pre/post-market
     now = _time.time()
     if session == "market" or session == "power_hour":
-        if now - _last_war_room_time < 600:
+        if now - _last_war_room_time < 180:
             return
     elif session in ("pre_market", "post_market"):
         if now - _last_war_room_time < 300:
             return
     _last_war_room_time = now
 
+    # Guard: if previous cycle's daemon is still working through agents, skip this tick.
+    # _war_room_running is set at thread-start and cleared in finally — crash-safe.
+    if _war_room_running.is_set():
+        console.log("[yellow]⚠️ War Room: previous cycle still running — SKIPPING this tick (guard fired)")
+        return
+
     console.log("[magenta]War Room: launching cycle...")
 
     def _war_room_thread():
+        _war_room_running.set()   # mark busy before any work starts
         try:
             from engine.market_data import get_stock_price
             from engine.war_room import run_war_room as _run_wr
@@ -1079,6 +1096,8 @@ def run_war_room():
                 console.log("[yellow]War Room: no prices available, skipping")
         except Exception as e:
             console.log(f"[red]War Room error: {e}")
+        finally:
+            _war_room_running.clear()   # always clears — crash cannot latch the guard
 
     threading.Thread(target=_war_room_thread, daemon=True).start()
 
@@ -1090,7 +1109,19 @@ def run_autopilot():
         from engine.market_data import get_stock_price
         from config import WATCH_STOCKS
         prices = {}
-        for sym in WATCH_STOCKS:
+        # Build symbol universe: watchlist + all currently open positions
+        syms_to_fetch = set(WATCH_STOCKS)
+        try:
+            import sqlite3 as _sq
+            _pc = _sq.connect("data/trader.db", timeout=5)
+            _rows = _pc.execute(
+                "SELECT DISTINCT symbol FROM positions WHERE qty > 0"
+            ).fetchall()
+            _pc.close()
+            syms_to_fetch.update(r[0] for r in _rows)
+        except Exception as _pe:
+            console.log(f"[yellow]Autopilot: position symbol fetch error: {_pe}")
+        for sym in syms_to_fetch:
             data = get_stock_price(sym)
             if "error" not in data:
                 prices[sym] = data
@@ -2540,7 +2571,7 @@ if __name__ == "__main__":
     schedule.every(5).minutes.do(run_earnings_day_scan)               # Earnings Day: every 5 min market hours
     schedule.every().day.at("06:45").do(run_opening_range)            # Battle Station: opening range 6:45 AM AZ
     schedule.every(2).minutes.do(run_battle_station_monitor)  # Battle Station: 60s options position monitor
-    schedule.every(10).minutes.do(run_war_room)             # War Room: every 3 min during market hours (trash talk mode)
+    schedule.every(3).minutes.do(run_war_room)              # War Room: 3 min market hours, 5 min pre/post-market
     schedule.every(30).minutes.do(run_autopilot)           # Autopilot: every 30 min
     schedule.every(10).minutes.do(run_whisper)             # Whisper Network: every 10 min
     schedule.every(15).minutes.do(run_strength_scan)        # Strength Scanner: every 5 min
@@ -2554,6 +2585,137 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_grok_advisor)           # Advisory Team (Grok/Ollie+Troi+Worf): fires at 9:30 AM and 1:30 PM ET
     schedule.every(5).minutes.do(run_portfolio_monitor)       # Ship's Computer: Captain's Portfolio monitor (stop breaches, big moves, new advice)
     schedule.every(5).minutes.do(run_oi_morning_snapshot)    # OI Tracker: baseline snapshot at market open (9:30 ET)
+
+    def run_bull_spread_signals():
+        from engine.risk_manager import RiskManager
+        if not RiskManager.is_market_hours():
+            return
+        try:
+            import strategies.bull_spread_v1  # noqa: F401 — auto-registers BullSpreadV1 on first call
+            from strategies.registry import registry
+            from strategies.signal_store import persist
+            from strategies.executor import execute_signal
+            from strategies.base import MarketContext
+            from datetime import datetime, timezone
+            # Reuse cached regime from run_ma_regime_update (fires every 15 min)
+            regime = _last_ma_regime or "BULL"
+            ctx = MarketContext(
+                as_of=datetime.now(timezone.utc),
+                regime=regime,
+                vix=0.0,        # not used by BullSpreadV1.evaluate()
+                spy_price=0.0,  # not used by BullSpreadV1.evaluate()
+            )
+            signals = registry().evaluate_all(ctx)
+            if not signals:
+                console.log("[dim]bull_spread_v1: no signals this tick")
+                return
+            for sig in signals:
+                sid = persist(sig)
+                result = execute_signal(sig, signal_id=sid)
+                console.log(
+                    f"[cyan]bull_spread_v1: {sig.ticker} {sig.exit_tag} → {result.status}"
+                )
+        except Exception as _bse:
+            console.log(f"[yellow]bull_spread_v1 signals skip: {_bse}")
+    schedule.every(15).minutes.do(run_bull_spread_signals)  # Bull Spread v1: entry signals, 15 min
+
+    def run_bull_spread_exits():
+        from engine.risk_manager import RiskManager
+        if not RiskManager.is_market_hours():
+            return
+        try:
+            from strategies.exit_manager import run_cycle
+            summary = run_cycle("bull_spread_v1")
+            if summary.get("total", 0):
+                console.log(f"[cyan]bull_spread_v1 exits: {summary}")
+        except Exception as _bee:
+            console.log(f"[yellow]bull_spread_v1 exits skip: {_bee}")
+    schedule.every(5).minutes.do(run_bull_spread_exits)     # Bull Spread v1: exit evaluation, 5 min
+
+    def run_bear_put_spread_signals():
+        from engine.risk_manager import RiskManager
+        if not RiskManager.is_market_hours():
+            return
+        try:
+            import strategies.bear_put_spread_v1  # noqa: F401 — auto-registers BearPutSpreadV1
+            from strategies.registry import registry
+            from strategies.signal_store import persist
+            from strategies.executor import execute_signal
+            from strategies.base import MarketContext
+            from datetime import datetime, timezone
+            regime = _last_ma_regime or "BEAR"
+            ctx = MarketContext(
+                as_of=datetime.now(timezone.utc),
+                regime=regime,
+                vix=0.0,
+                spy_price=0.0,
+            )
+            all_sigs = [s for s in registry().evaluate_all(ctx)
+                        if s.strategy_id == "bear_put_spread_v1"]
+            if not all_sigs:
+                console.log("[dim]bear_put_spread_v1: no signals this tick")
+                return
+            for sig in all_sigs:
+                sid = persist(sig)
+                result = execute_signal(sig, signal_id=sid)
+                console.log(
+                    f"[cyan]bear_put_spread_v1: {sig.ticker} tier={sig.payload.get('tier','?')} "
+                    f"→ {result.status}"
+                )
+        except Exception as _bpse:
+            console.log(f"[yellow]bear_put_spread_v1 signals skip: {_bpse}")
+    schedule.every(15).minutes.do(run_bear_put_spread_signals)  # Bear Spread v1: entry signals, 15 min
+
+    def run_bear_put_spread_exits():
+        from engine.risk_manager import RiskManager
+        if not RiskManager.is_market_hours():
+            return
+        try:
+            from strategies.exit_manager import run_cycle
+            summary = run_cycle("bear_put_spread_v1")
+            if summary.get("total", 0):
+                console.log(f"[cyan]bear_put_spread_v1 exits: {summary}")
+        except Exception as _bpee:
+            console.log(f"[yellow]bear_put_spread_v1 exits skip: {_bpee}")
+    schedule.every(5).minutes.do(run_bear_put_spread_exits)     # Bear Spread v1: exit evaluation, 5 min
+
+    def run_bull_call_spread_signals():
+        from engine.risk_manager import RiskManager
+        if not RiskManager.is_market_hours():
+            return
+        try:
+            import strategies.bull_call_spread_v1  # noqa: F401 — auto-registers BullCallSpreadV1
+            from strategies.registry import registry
+            from strategies.executor import execute_signal
+            from engine.market_data import get_regime
+            ctx = {"regime": get_regime()}
+            all_sigs = [s for s in registry().evaluate_all(ctx)
+                        if s.strategy_id == "bull_call_spread_v1"]
+            if not all_sigs:
+                console.log("[dim]bull_call_spread_v1: no signals this tick")
+                return
+            for sig in all_sigs:
+                result = execute_signal(sig)
+                console.log(
+                    f"[cyan]bull_call_spread_v1: {sig.ticker} tier={sig.payload.get('tier','?')} "
+                    f"→ {result.status}"
+                )
+        except Exception as _bcse:
+            console.log(f"[yellow]bull_call_spread_v1 signals skip: {_bcse}")
+    schedule.every(15).minutes.do(run_bull_call_spread_signals)  # Bull Call Spread v1: entry signals, 15 min
+
+    def run_bull_call_spread_exits():
+        from engine.risk_manager import RiskManager
+        if not RiskManager.is_market_hours():
+            return
+        try:
+            from strategies.exit_manager import run_cycle
+            summary = run_cycle("bull_call_spread_v1")
+            if summary.get("total", 0):
+                console.log(f"[cyan]bull_call_spread_v1 exits: {summary}")
+        except Exception as _bcee:
+            console.log(f"[yellow]bull_call_spread_v1 exits skip: {_bcee}")
+    schedule.every(5).minutes.do(run_bull_call_spread_exits)     # Bull Call Spread v1: exit evaluation, 5 min
 
     # Auto-Screener: runs presets every 15 min, posts new finds to port 9000
     def run_auto_screener():
@@ -2913,17 +3075,19 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(_run_var_calculation)      # VaR snapshot every 15 min (fires only at 4:05-4:15 PM ET)
 
     # Webull Portfolio Auto-Sync: every 5 min during extended + regular hours
-    def run_webull_sync():
-        """Auto-sync Steve's Webull portfolio positions to DB."""
-        if not is_extended_or_market_hours():
-            return
-        try:
-            from engine.webull_client import sync_positions_to_db
-            sync_positions_to_db()
-        except Exception as e:
-            console.log(f"[red]Webull auto-sync error: {e}")
-
-    schedule.every(15).minutes.do(run_webull_sync)
+    # 2026-04-23: Webull account liquidated, migrated to Schwab.
+    # Sync disabled to stop phantom "Captain's Portfolio" alerts.
+    # Re-enable when steve-schwab sync is wired. (XO)
+    # def run_webull_sync():
+    #     """Auto-sync Steve's Webull portfolio positions to DB."""
+    #     if not is_extended_or_market_hours():
+    #         return
+    #     try:
+    #         from engine.webull_client import sync_positions_to_db
+    #         sync_positions_to_db()
+    #     except Exception as e:
+    #         console.log(f"[red]Webull auto-sync error: {e}")
+    # schedule.every(15).minutes.do(run_webull_sync)
 
     # Alpaca Portfolio Sync — tiered schedule (2min market / 10min pre-post / 60min after / 6hr weekend)
     def run_alpaca_portfolio_sync():
@@ -3021,11 +3185,7 @@ if __name__ == "__main__":
         if now.weekday() != 6 or now.hour != 22 or now.minute > 30:
             return
         try:
-            from engine.picard_strategy import get_latest_briefing, generate_picard_briefing
-            latest = get_latest_briefing()
-            # Don't regenerate if briefing is less than 6 hours old
-            if latest.get("briefing") and latest.get("generated_at"):
-                return
+            from engine.picard_strategy import generate_picard_briefing
             generate_picard_briefing()
         except Exception as e:
             console.log(f"[red]Picard briefing error: {e}")
@@ -3302,6 +3462,73 @@ if __name__ == "__main__":
 
     schedule.every(30).minutes.do(run_aladdin_brief)   # Aladdin: checks every 30 min, runs every 4 hours
 
+    # Post-Earnings Drift: short-side specialist, 1-48hr post-earnings window
+    # Bypasses firmwide earnings blackout BY DESIGN. Paper-only while gated.
+    # Halt-respect via agent_state.is_halted (paper_trader.py:550 pattern).
+    _ped_state = {"last_run": 0.0}
+    def run_post_earnings_drift():
+        now_ts = time.time()
+        if now_ts - _ped_state["last_run"] < 900:  # 15-min minimum
+            return
+        _ped_state["last_run"] = now_ts
+        try:
+            from agents.post_earnings_drift import _agent as ped_agent
+            if ped_agent.is_halted():
+                console.log("[yellow]post_earnings_drift HALTED - skip")
+                return
+            # Build market_data dict from earnings universe
+            from engine.earnings_calendar import fetch_earnings
+            from engine.market_data import _yahoo_chart
+            from datetime import datetime, timedelta
+            # Watchlist: tickers with earnings in last 48 hours
+            try:
+                with open("data/watchlist.txt") as _wl:
+                    universe = [s.strip().upper() for s in _wl if s.strip()]
+            except Exception:
+                universe = ["SPY","QQQ","NVDA","AAPL","MSFT","GOOGL","META","AMZN","TSLA"]
+            now_dt = datetime.now()
+            cutoff_lo = now_dt - timedelta(hours=48)
+            cutoff_hi = now_dt - timedelta(hours=1)
+            md = {}
+            recent_earnings = fetch_earnings(universe) or []
+            for rec in recent_earnings:
+                try:
+                    sym = rec.get("symbol")
+                    edate = rec.get("date")
+                    if not sym or not edate:
+                        continue
+                    edt = datetime.fromisoformat(str(edate)[:10])
+                    if not (cutoff_lo <= edt <= cutoff_hi):
+                        continue
+                    raw = _yahoo_chart(sym, interval="1h", range_="5d")
+                    if not raw:
+                        continue
+                    bars = []
+                    if hasattr(raw, "iterrows"):
+                        for _, r in raw.iterrows():
+                            bars.append((float(r.get("Open", 0)), float(r.get("High", 0)),
+                                         float(r.get("Low", 0)),  float(r.get("Close", 0)),
+                                         float(r.get("Volume", 0))))
+                    md[sym] = {"bars": bars, "earnings_dt": edt, "regime": "AUTO"}
+                except Exception:
+                    continue
+            sigs = ped_agent.scan(md)
+            if sigs:
+                console.log(
+                    f"[bold red]Post-Earnings Drift: {len(sigs)} SHORT signals "
+                    f"(paper_only={sigs[0]['meta']['paper_only']})"
+                )
+                for s in sigs:
+                    console.log(
+                        f"  - {s['symbol']:6s} entry={s['entry_price']} "
+                        f"stop={s['stop_price']} target={s['target_price']} "
+                        f"conf={s['confidence']}"
+                    )
+        except Exception as e:
+            console.log(f"[red]Post-Earnings Drift error: {e}")
+
+    schedule.every(15).minutes.do(run_post_earnings_drift)  # PED: 15-min cadence
+
     # ── Elder Council (S6.3, 2026-04-16): Sarek / Janeway / Surak ────────────
     # Patient long-horizon agents. Scheduler fires daily at 05:30-05:45 AZ, but
     # each handler gates itself by calendar date so DCAs only run on their cadence.
@@ -3401,7 +3628,7 @@ if __name__ == "__main__":
         if _az.weekday() >= 5:
             return
         import requests as _rq
-        for _mdl in ("qwen3.5:9b", "gemma3:4b"):
+        for _mdl in ("phi3:mini", "gemma3:4b"):
             try:
                 _rq.post(
                     "http://127.0.0.1:11434/api/generate",
@@ -3604,6 +3831,17 @@ if __name__ == "__main__":
 
     schedule.every(1).hours.do(run_rallies_scraper_job)    # Rallies.ai: hourly market hours
 
+    # ── ai4trade.ai nightly import ──
+    def run_ai4trade():
+        try:
+            from dotenv import load_dotenv; load_dotenv()
+            from engine.importers.ai4trade_importer import run_import as _run
+            r = _run()
+            print(f"[ai4trade] {r}")
+        except Exception as e:
+            print(f"[ai4trade] error: {e}")
+    schedule.every().day.at("20:30").do(run_ai4trade)
+
     # ── Season 6 Opening Bell — April 10, 2026 9:30 AM ET (6:30 AM AZ) ────────
     _s6_bell_state = [False]  # mutable container to avoid nonlocal
 
@@ -3699,7 +3937,7 @@ if __name__ == "__main__":
     console.log("[STARTUP] Tax Harvester: daily scan at 3:30–4:00 PM ET")
     console.log("[STARTUP] Drift Rebalancer: check every 30 min during market hours")
     console.log("[STARTUP] VaR Calculator: daily snapshot at 4:05–4:15 PM ET")
-    console.log("[STARTUP] Ollama: warming gemma3:4b + mistral:7b only (≤6 GB; qwen3.5:9b cold-loads on demand — RAM patch 2026-04-17)")
+    console.log("[STARTUP] Ollama: gemma3:4b (Picard) + mistral:7b (Pike) → Ollie GPU; phi3:mini cold-loads on demand — 5.8 Ollie migration")
 
     # ── Season 6.3 Fleet Cache ─────────────────────────────────────────────
     try:
@@ -3728,27 +3966,33 @@ if __name__ == "__main__":
     # Pre-load all required Ollama models — auto-pull if missing, then warm each
     # Models over 6 GB are skipped at startup to prevent RAM starvation.
     # deepseek-r1:14b (9 GB) removed — 15-min warm blocks scanner startup.
+    # 5.8: gemma3:4b (Picard) + mistral:7b (Pike) moved to Ollie GPU.
     def _warmup_ollama():
         import requests as _req, subprocess as _sp
         _MAX_STARTUP_GB = 6.0
+        _OLLIE_WARMUP = {"gemma3:4b", "mistral:7b"}  # 5.8: now on Ollie GPU
         # (model, think, size_gb)
         _REQUIRED_MODELS = [
-            ("gemma3:4b",      False, 3.3),   # fast scanner — small, always warm
-            # RAM patch 2026-04-17: qwen3.5:9b actual loaded size is 8.6 GB (not 5.5 GB metadata).
+            ("gemma3:4b",      False, 3.3),   # Picard — on Ollie (5.8)
+            # RAM patch 2026-04-17: phi3:mini actual loaded size is 8.6 GB (not 5.5 GB metadata).
             # Bumped to 7.0 so it EXCEEDS the 6.0 GB MAX_STARTUP threshold → cold-loads on first
             # real query instead of inflating baseline. Pairs with keep_alive=5s in OllamaProvider.
-            ("qwen3.5:9b",     False, 7.0),   # DayBlade Sulu + Chekov + main arena — cold-load on demand
-            ("mistral:7b",     False, 4.1),   # McCoy (ollama-plutus) — Mistral 7B scanner
+            ("phi3:mini",     False, 7.0),   # DayBlade Sulu + Chekov + main arena — cold-load on demand
+            ("mistral:7b",     False, 4.1),   # Pike swing backup — on Ollie (5.8)
             ("0xroyce/plutus", False, 8.0),   # T'Pol (dayblade-0dte) — >6 GB, skip startup
         ]
-        # Check which models are installed
-        try:
-            _tags = _req.get("http://127.0.0.1:11434/api/tags", timeout=10).json()
-            _installed = {m["name"].split(":")[0] for m in _tags.get("models", [])}
-            _installed |= {m["name"] for m in _tags.get("models", [])}
-        except Exception:
-            _installed = set()
-            console.log("[yellow][STARTUP] Ollama: API unreachable — skipping model warmup")
+        # Check which models are installed on bigmac + Ollie
+        _installed: set[str] = set()
+        _ollie_url = os.getenv("OLLIE_URL", "http://192.168.1.166:11434")
+        for _check_url in ("http://127.0.0.1:11434/api/tags", f"{_ollie_url}/api/tags"):
+            try:
+                _tags = _req.get(_check_url, timeout=10).json()
+                _installed |= {m["name"].split(":")[0] for m in _tags.get("models", [])}
+                _installed |= {m["name"] for m in _tags.get("models", [])}
+            except Exception:
+                pass
+        if not _installed:
+            console.log("[yellow][STARTUP] Ollama: API unreachable on both bigmac + Ollie — skipping model warmup")
             return
 
         for _model, _think, _size_gb in _REQUIRED_MODELS:
@@ -3756,6 +4000,7 @@ if __name__ == "__main__":
                 console.log(f"[yellow][STARTUP] Ollama: {_model} skipped ({_size_gb} GB > {_MAX_STARTUP_GB} GB limit)")
                 continue
             _base = _model.split(":")[0]
+            _warm_url = f"{_ollie_url}/api/generate" if _model in _OLLIE_WARMUP else "http://127.0.0.1:11434/api/generate"
             # Auto-pull if not installed (non-blocking background pull)
             if _base not in _installed and _model not in _installed:
                 console.log(f"[yellow][STARTUP] Ollama: {_model} not found — pulling...")
@@ -3779,12 +4024,8 @@ if __name__ == "__main__":
                 }
                 if not _think:
                     _payload["think"] = False
-                _req.post(
-                    "http://127.0.0.1:11434/api/generate",
-                    json=_payload,
-                    timeout=120,
-                )
-                console.log(f"[green][STARTUP] Ollama: {_model} warm ✓")
+                _req.post(_warm_url, json=_payload, timeout=120)
+                console.log(f"[green][STARTUP] Ollama: {_model} warm ✓ ({'Ollie' if _model in _OLLIE_WARMUP else 'bigmac'})")
             except Exception as _e:
                 console.log(f"[yellow][STARTUP] Ollama: {_model} warmup skipped: {_e}")
 

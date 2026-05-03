@@ -30,7 +30,6 @@ from xml.etree import ElementTree as ET
 import numpy as np
 import pandas as pd
 import requests
-import yfinance as yf
 from bs4 import BeautifulSoup
 
 # ── Universe & paths ───────────────────────────────────────────────────────────
@@ -681,18 +680,15 @@ def run_put_call(as_of: date | None = None) -> float:
     total_pc   = None
 
     def _yf_series(ticker: str, period: str = "30d") -> pd.Series | None:
-        """Download single ticker close series."""
+        """Download single ticker close series via Alpaca."""
         try:
-            df = yf.download(ticker, period=period, interval="1d",
-                             progress=False, auto_adjust=True)
-            if df.empty:
+            # Parse days from period string like "5d", "30d"
+            _days = int(period.rstrip("d")) if period.endswith("d") else 30
+            from engine.market_data import get_alpaca_bars
+            df = get_alpaca_bars(ticker, days=_days)
+            if df is None or df.empty:
                 return None
-            if isinstance(df.columns, pd.MultiIndex):
-                lvl0 = df.columns.get_level_values(0)
-                col = "Close" if "Close" in lvl0 else "Adj Close"
-                series = df.xs(col, axis=1, level=0).iloc[:, 0].dropna()
-            else:
-                series = (df["Close"] if "Close" in df.columns else df["Adj Close"]).dropna()
+            series = df["Close"].dropna()
             return series if not series.empty else None
         except Exception as e:
             logger.debug(f"yf_series {ticker}: {e}")
@@ -809,11 +805,10 @@ def run_yield_curve(as_of: date | None = None) -> float:
             logger.debug(f"FRED {series}: {e}")
         time.sleep(0.3)
 
-    # Fallback: yfinance TNX/FVX proxies
+    # Fallback: default 10Y treasury rate (Alpaca doesn't have treasury index data)
     if rate_10y is None:
         try:
-            t = yf.Ticker("^TNX")
-            rate_10y = float(t.fast_info.get("last_price", 0)) / 10
+            rate_10y = 4.5
         except Exception:
             pass
 
@@ -994,9 +989,10 @@ def run_earnings_signals(as_of: date | None = None) -> dict[str, float]:
     scores: dict[str, float] = {}
     conn = _conn()
 
+    import yfinance as _yf_earnings  # earnings calendar has no Alpaca equivalent
     for sym in ALPHA_UNIVERSE:
         try:
-            tk = yf.Ticker(sym)
+            tk = _yf_earnings.Ticker(sym)
 
             # Next earnings date
             next_earnings = None
@@ -1210,26 +1206,27 @@ def run_vix_structure(as_of: date | None = None) -> float:
 
     vix_spot = vix_3m = None
 
-    def _yf_last(ticker: str) -> float | None:
-        """Download single ticker, return latest close."""
+    def _vix_last(sym: str) -> float | None:
+        """Fetch latest VIX index close via Yahoo Finance HTTP API."""
         try:
-            df = yf.download(ticker, period="5d", interval="1d",
-                             progress=False, auto_adjust=True)
-            if df.empty:
-                return None
-            # Handle multi-level columns (yfinance ≥0.2.x)
-            if isinstance(df.columns, pd.MultiIndex):
-                close_col = df.xs("Close", axis=1, level=0) if "Close" in df.columns.get_level_values(0) else df.xs("Adj Close", axis=1, level=0)
-                series = close_col.iloc[:, 0].dropna()
-            else:
-                series = (df["Close"] if "Close" in df.columns else df["Adj Close"]).dropna()
-            return float(series.iloc[-1]) if not series.empty else None
+            import requests as _req
+            url = f"https://query1.finance.yahoo.com/v8/finance/chart/%5E{sym.lstrip('^')}"
+            resp = _req.get(
+                url,
+                params={"interval": "1d", "range": "5d"},
+                headers={"User-Agent": "Mozilla/5.0"},
+                timeout=8,
+            )
+            resp.raise_for_status()
+            meta = resp.json().get("chart", {}).get("result", [{}])[0].get("meta", {})
+            price = meta.get("regularMarketPrice")
+            return float(price) if price is not None else None
         except Exception as e:
-            logger.debug(f"yf_last {ticker}: {e}")
+            logger.debug(f"vix_last {sym}: {e}")
             return None
 
-    vix_spot = _yf_last("^VIX")
-    vix_3m   = _yf_last("^VIX3M")
+    vix_spot = _vix_last("^VIX")
+    vix_3m   = _vix_last("^VIX3M")
 
     if not vix_spot or not vix_3m:
         logger.warning("VIX structure: insufficient data")

@@ -672,9 +672,9 @@ export default function App() {
     const p = leaderboard.find(x => x.player_id === highlightedPill)
     if (!p) return null
     const displayCapital = p.current_equity ?? p.total_value ?? p.cash ?? getDisplayCapital(p)
-const starting = p.starting_capital ?? (p.player_id === 'super-agent' ? 25000 : (p.player_id === 'dayblade-0dte' ? 5000 : (p.player_id === 'steve-webull' ? 7049.68 : 7000)))
+const starting = p.starting_capital ?? (p.player_id === 'super-agent' ? 25000 : (p.player_id === 'dayblade-0dte' ? 5000 : (p.player_id === 'webull' ? 7049.68 : 7000)))
 const pnl = displayCapital - starting
-const color = p.player_id === 'steve-webull' ? '#fbbf24' : (displayCapital < starting ? '#ef4444' : '#22c55e')
+const color = p.player_id === 'webull' ? '#fbbf24' : (displayCapital < starting ? '#ef4444' : '#22c55e')
     const totalPnl = displayCapital - starting
     const unrealizedPnl = safeNumber(p.unrealized_pnl, 0)
     const winRate = safeNumber(p.win_rate, 0)
@@ -703,7 +703,7 @@ const color = p.player_id === 'steve-webull' ? '#fbbf24' : (displayCapital < sta
   const topModels = useMemo(() => {
     if (!leaderboard || leaderboard.length === 0) return []
     return [...leaderboard]
-      .filter(p => p.player_id !== 'steve-webull' && !p.is_paused)
+      .filter(p => p.player_id !== 'webull' && !p.is_paused)
       .sort((a, b) => getDisplayCapital(b) - getDisplayCapital(a))
       .slice(0, 5)
   }, [leaderboard])
@@ -711,7 +711,7 @@ const color = p.player_id === 'steve-webull' ? '#fbbf24' : (displayCapital < sta
   // Steve's portfolio (always shown as benchmark)
   const steveData = useMemo(() => {
     if (!leaderboard) return null
-    return leaderboard.find(p => p.player_id === 'steve-webull') || null
+    return leaderboard.find(p => p.player_id === 'webull') || null
   }, [leaderboard])
 
   return (
@@ -824,14 +824,14 @@ const starting =
     ? 25000
     : p.player_id === 'dayblade-0dte'
       ? 5000
-      : p.player_id === 'steve-webull'
+      : p.player_id === 'webull'
         ? 7049.68
         : 7000)
 
 const pnl = displayCapital - starting
 
 const color =
-  p.player_id === 'steve-webull'
+  p.player_id === 'webull'
     ? '#fbbf24'
     : displayCapital < starting
       ? '#ef4444'
@@ -841,7 +841,7 @@ const displayName = getPortfolioDisplayName(p)
                     return (
                       <div key={p.player_id} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 10, padding: '1px 0' }}>
                         <span style={{ color, overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap', maxWidth: 90 }}>
-                          {p.player_id === 'steve-webull' ? '\u{1F464} Steve' : displayName.split(' ')[0]}
+                          {p.player_id === 'webull' ? '\u{1F464} Steve' : displayName.split(' ')[0]}
                         </span>
                         <span style={{ fontFamily: 'JetBrains Mono, monospace', color: pnl >= 0 ? '#22c55e' : '#ef4444' }}>
                           {formatMoney(displayCapital)}
@@ -953,9 +953,9 @@ const displayName = getPortfolioDisplayName(p)
                 {steveData && (() => {
                   const stevePnl = getDisplayCapital(steveData) - 7049.68
                   const stevePos = stevePnl >= 0
-                  const isHL = highlightedPill === 'steve-webull'
+                  const isHL = highlightedPill === 'webull'
                   return (
-                    <div className="model-pill" onClick={() => { setHighlightedPill('steve-webull'); setPosPanel(false) }}
+                    <div className="model-pill" onClick={() => { setHighlightedPill('webull'); setPosPanel(false) }}
                       style={{ borderColor: '#fbbf24', background: isHL ? 'rgba(251,191,36,0.18)' : 'rgba(251,191,36,0.08)',
                                outline: isHL ? '2px solid #fbbf24' : 'none', outlineOffset: 2 }}>
                       <span style={{ fontSize: 13 }}>{'\u{1F464}'}</span>

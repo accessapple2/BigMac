@@ -80,7 +80,7 @@ def _get_fleet_daily_pnl(days: int) -> list[dict]:
             FROM trades
             WHERE action = 'SELL'
               AND realized_pnl IS NOT NULL
-              AND player_id != 'steve-webull'
+              AND player_id != 'webull'
               AND executed_at >= ?
             GROUP BY date(executed_at)
             ORDER BY trade_date
@@ -97,7 +97,7 @@ def _get_fleet_starting_capital() -> float:
         conn = sqlite3.connect("data/trader.db", timeout=10)
         row = conn.execute("""
             SELECT SUM(cash) FROM portfolios
-            WHERE player_id != 'steve-webull'
+            WHERE player_id != 'webull'
         """).fetchone()
         conn.close()
         return float(row[0] or 100000.0)

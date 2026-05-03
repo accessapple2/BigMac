@@ -232,7 +232,7 @@ def _get_live_alpha(symbol: str) -> float:
 _MAX_POSITION_PCT           = 5   # max % of agent equity per position
 
 # Default scan model — used when an agent has no specific model in CREW_MANIFEST.
-# 2026-04-20: qwen3.5:9b caused swap storms on bigmac (8GB, no longer installed).
+# 2026-04-20: qwen3:8b caused swap storms on bigmac (8GB, no longer installed).
 # phi3:mini is bigmac's lightest resident model; _ensure_warm() uses this for keep-alive pings.
 SCAN_MODEL = "phi3:mini"
 
@@ -806,9 +806,15 @@ def _query_ollama(player_id: str, model: str, system_prompt: str,
             _unload_ollama_model(_current_ollama_model, base_url)
         _current_ollama_model = model
 
-    # ── (3) Actual inference call ────────────────────────────────────────────
-    try:
-        resp = requests.post(
+    # ── (3) Actual inference call — routed through OllamaQueue (2026-04-26) ─
+    # Previously: direct requests.post(timeout=90) bypassed the queue and
+    # raced against war_room/journal calls on G1, causing 90s client timeouts.
+    # Now: closure submitted via get_queue() — serialised through the same
+    # 300s queue that OllamaProvider (war_room/journal) uses.
+    from engine.ollama_queue import get_queue
+
+    def _do_request():
+        r = requests.post(
             f"{base_url}/api/generate",
             json={
                 "model":      model,
@@ -822,15 +828,17 @@ def _query_ollama(player_id: str, model: str, system_prompt: str,
                     "temperature": 0.3,
                 },
             },
-            timeout=timeout,
+            timeout=60,          # per-request HTTP bound; queue wait is separate
         )
-        resp.raise_for_status()
-        data = resp.json()
-        response = data.get("response", "").strip()
+        r.raise_for_status()
+        return r.json().get("response", "").strip()
+
+    try:
+        response = get_queue(base_url).submit(_do_request, model_id=model)
         _last_ollama_query = time.time()
         logger.info(f"Ollama RAW response for {player_id}: {response[:200]!r}")
-        return response
-    except requests.Timeout:
+        return response or ""
+    except TimeoutError:
         logger.warning(f"Ollama timeout for {player_id} ({model})")
         return ""
     except Exception as e:
@@ -2565,6 +2573,34 @@ def _scan_rules_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, A
         _log_decision(player_id, display_name, "PASS", symbol, 0,
                       reason_np, market_ctx, "NO_PRICE", False)
         return {"player_id": player_id, "action": "PASS", "reason": reason_np}
+
+    # Capitol Trades: dedup — skip if already holding or already bought today (BUY or BUY_CALL etc.)
+    if player_id == "capitol-trades" and action and action.startswith("BUY") and symbol:
+        from engine.paper_trader import get_portfolio as _get_cap_port
+        _cap_held = {p["symbol"] for p in _get_cap_port("capitol-trades").get("positions", [])}
+        if symbol in _cap_held:
+            _log_decision(player_id, display_name, "PASS", symbol, 0,
+                          f"Capitol dedup: {symbol} already in portfolio",
+                          market_ctx, "DEDUP_HELD", False)
+            return {"player_id": player_id, "action": "PASS",
+                    "reason": f"Capitol dedup: {symbol} already in portfolio"}
+        import sqlite3 as _cap_sq; import os as _cap_os; from datetime import date as _cap_date
+        _cap_db = _cap_os.environ.get("TRADEMINDS_DB", _cap_os.path.expanduser("~/autonomous-trader/data/trader.db"))
+        try:
+            _cap_c = _cap_sq.connect(_cap_db, timeout=5)
+            _cap_row = _cap_c.execute(
+                "SELECT 1 FROM trades WHERE player_id=? AND symbol=? AND action LIKE 'BUY%' AND date(executed_at)=?",
+                ("capitol-trades", symbol, str(_cap_date.today()))
+            ).fetchone()
+            _cap_c.close()
+            if _cap_row:
+                _log_decision(player_id, display_name, "PASS", symbol, 0,
+                              f"Capitol dedup: {symbol} already bought today (action LIKE BUY%)",
+                              market_ctx, "DEDUP_TODAY", False)
+                return {"player_id": player_id, "action": "PASS",
+                        "reason": f"Capitol dedup: {symbol} already bought today (action LIKE BUY%)"}
+        except Exception:
+            pass  # fail open — paper_trader will reject a duplicate anyway
 
     # Submit trade
     conf_normalized = confidence / 100.0
