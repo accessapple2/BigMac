@@ -4079,7 +4079,9 @@ if __name__ == "__main__":
             try:
                 schedule.run_pending()
             except Exception as _job_exc:
-                console.log(f"[red]Scheduler job error (continuing): {_job_exc}")
+                import traceback as _tb
+                _trace = _tb.format_exc().strip().splitlines()[-3:]
+                console.log(f"[red]Scheduler job error (continuing): {_job_exc} | trace: {' | '.join(_trace)}")
             time.sleep(1)
     except KeyboardInterrupt:
         try:
