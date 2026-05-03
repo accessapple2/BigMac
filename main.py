@@ -126,7 +126,7 @@ def initialize_arena():
 
 
 def initialize_dayblade():
-    from config import OLLAMA_MODEL, OLLAMA_URL
+    from config import OLLAMA_MODEL, OLLAMA_URL, OLLIE_URL
     from engine.providers.ollama_provider import OllamaProvider
     from engine.dayblade import DayBladeScanner, ensure_player
 
