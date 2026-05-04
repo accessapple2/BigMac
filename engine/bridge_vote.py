@@ -598,6 +598,7 @@ def run_bridge_vote_job() -> None:
 
     # Only on weekdays
     if now_et.weekday() >= 5:
+        logger.info(f"[BRIDGE_VOTE] Skipping — weekend (weekday={now_et.weekday()}, ET={now_et.strftime('%a %H:%M')})")
         return
 
     # Fire window: 9:00–9:10 AM ET
