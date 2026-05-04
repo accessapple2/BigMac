@@ -132,3 +132,28 @@ backups/decommissioned-*/
 
 # Pre-unpause operation snapshots
 *_pre_unpause_*.txt
+
+# ── HM-G additions (2026-05-04) — fat-file prevention ─────────────────────────
+# Audit lesson: 1.32 GB of DB backup snapshots landed in commit 463c402 and
+# blocked origin push for a week. Never again.
+
+# Database backup snapshots in backups/ — catches trader.db.pre_*, .pre-*, etc.
+backups/*.db.*
+
+# DB working sidecars beside backup snapshots
+backups/*-shm
+backups/*-wal
+
+# Stub DB at repo root (distinct from data/trader.db)
+/trader.db
+
+# Deprecated / archive markers (e.g., arena.db.deprecated_20260503_182837)
+*.deprecated_*
+
+# FUSE archive directories
+.fuse_archive_*/
+
+# Editor crash/merge backups (narrow — does NOT match the existing
+# dashboard/app.py.bak.* sprint-backup convention which is intentionally tracked)
+*.orig
+*.swp
