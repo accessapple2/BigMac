@@ -236,6 +236,47 @@ Bigmac Ollama clean throughout — nothing loaded at EOD. All heavy models on Ol
 - Document retirement reason + rehab path in this file, not just the commit message
 - This supports the "iterate to the next Top 4" feedback loop — no known-good code is lost
 
+## 2026-05-03 — Fleet Reality Reconciliation
+
+Read-only audit of every fleet member against running code, DB state, scheduler entries, and signal volumes. No agents halted or modified. Source: `/tmp/scotty_session_2026-05-03/fleet_reality_2026-05-03.md`.
+
+### State Flag Semantics (audit extension to 2026-04-25 finding)
+- `is_halted` is a **trade-execution gate ONLY** (`paper_trader.py:547, 1091`). **It does NOT gate signal emission.** Halted players still emit signals (compute waste): verified ollama-llama emitted 947 signals between its halt date 2026-04-25 and 2026-05-02. To fully retire a player, also remove its scheduler entry OR add an `is_halted` check in the signal-emission path.
+- `is_active`, `is_paused`, `crew_role` confirmed still decorative.
+
+### DayBlade reality (override "Out of Scope" note above)
+- `dayblade-0dte` (T'Pol/plutus): `is_halted=0`, `is_active=1` — scheduler ACTIVE (`main.py:2554` every 5 min). **No signals since 2026-04-07** (26 days idle as of audit). Empirical pause, not formal halt. Has explicit weekend-standby gate — Option A restart logs show `[STARTUP] DayBlade: standby (weekend)` on Sun May 3 20:07 MST.
+- `dayblade-sulu`: `is_halted=1` since 2026-03-31 (R:R 0.10 dormancy).
+- Monday market-hours verification protocol queued at `/tmp/scotty_session_2026-05-03/dayblade_monday_exit_verification.md`.
+
+### Battle Station — dormant via missing inputs
+- `main.py` schedulers ACTIVE: `run_battle_station_monitor` every 2 min (`main.py:2573`), `run_morning_briefing` daily 06:00 (`main.py:2564`), `run_opening_range` daily 06:45 (`main.py:2572`).
+- launchd feeders that supplied data are **absent** (`launchctl list | grep battle` → 0 entries; no `com.trademinds.battle*` plists). Feeders never re-added after Phase 2 cleanup.
+- Net effect: code-level battle-station calls execute, downstream-data they expect is empty.
+
+### signal_scorecard — silent writer (16-col schema, 0 rows)
+- Schema present in `trader.db`. Empty since creation.
+- Writer never wired (April 7 Alpha Engine plan unfinished). No active code contains `INSERT INTO signal_scorecard`.
+- Blocks ghost scorecard calibration (B5 in carry-forward TODOs) and gate-flip review.
+
+### mlx-qwen3 — fully active
+- `is_active=1`, `is_halted=0`. 965 signals over last 30d, MAX 2026-05-02. Confirmed in fleet, not zombie.
+- Note: `ai_players.model_id` for mlx-qwen3 row shows `phi3:mini`, but `config.py:128` defines provider=mlx with model `mlx-community/Qwen3-8B-4bit`. Drift is non-blocking (runtime reads config, not DB) — cosmetic cleanup queued.
+
+### energy-arnold — high-volume noise generator
+- Model: `qwen3:8b` via Ollama. `is_active=1, is_halted=0`. **9,632 total signals**.
+- Confidence distribution is bimodal: AVG 0.258, **6,643 at conf=0.0 (69%), 1,209 at conf=1.0 (13%)** — mostly noise + occasional over-confident outputs.
+- bridge_voter wiring: 216 votes total in `bridge_votes` table, MAX `created_at` = 2026-05-01 13:01:23 — wired but stopped collecting 2 days ago. Investigation needed.
+- IMPROVE decision pending parser investigation (per fleet reality doc) — not retired this round.
+
+## Pending TODOs (additions from 2026-05-03 reconciliation)
+- Backtest 8 orphaned options strategies in `engine/options_agents.py` (zero `main.py` refs) — wire/retire decision blocks Sunday Deep Dive Phase 4.
+- Wire `signal_scorecard` writer OR remove from Alpha Engine plan — currently blocks B5.
+- Investigate why `bridge_votes` collection stalled 2026-05-01 13:01.
+- Add signal-emission gate (in addition to execution gate) for fully-retired players: ollama-llama, grok-3, possibly dayblade-0dte.
+- Reconcile DB `ai_players.model_id` ↔ `config.py` model drift (~25 rows; cosmetic; one migration script).
+- Retire legacy convergence scanner (`engine/strategies.py` scan_strategies path). Convergence-write path silently dead since 2026-04-07 — see `/tmp/scotty_session_2026-05-03/legacy_scanner_triage.md`. Coordinate with retiring 8 readers in `/tmp/scotty_session_2026-05-03/oq3_strategy_signals_readers.md`.
+
 ## Workflow
 - Propose edits and ask for approval before applying
 - For multi-file changes, show the plan first, then apply incrementally
