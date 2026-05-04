@@ -60,9 +60,11 @@ def reset():
     conn.commit()
 
     # --- Verify ---
+    # HM-A: migrated from is_halted; halt_mode is single source of truth
     print("\n--- Verification ---")
-    for row in c.execute("SELECT id, display_name, cash, season, is_halted FROM ai_players ORDER BY id").fetchall():
-        print(f"  {row[0]:20s} | ${row[2]:>10.2f} | Season {row[3]} | Halted: {row[4]}")
+    for row in c.execute("SELECT id, display_name, cash, season, COALESCE(halt_mode, 'active') AS halt_mode FROM ai_players ORDER BY id").fetchall():
+        halted = (row[4] or "active") != "active"
+        print(f"  {row[0]:20s} | ${row[2]:>10.2f} | Season {row[3]} | Halted: {halted}")
     print(f"  Open positions: {c.execute('SELECT COUNT(*) FROM positions').fetchone()[0]}")
     print(f"  Season 1 trades preserved: {c.execute('SELECT COUNT(*) FROM trades WHERE season=1').fetchone()[0]}")
     print(f"  Season 1 signals preserved: {c.execute('SELECT COUNT(*) FROM signals WHERE season=1').fetchone()[0]}")

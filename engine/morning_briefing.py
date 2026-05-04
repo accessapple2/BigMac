@@ -58,8 +58,11 @@ def _get_portfolio_summary() -> str:
     """Fleet portfolio summary — equity, P&L, cash, top positions."""
     try:
         conn = _conn()
+        # HM-A: migrated from is_halted; halt_mode is single source of truth
         players = conn.execute(
-            "SELECT id, display_name, cash, is_human, is_halted, is_paused "
+            "SELECT id, display_name, cash, is_human, "
+            "       COALESCE(halt_mode, 'active') AS halt_mode, "
+            "       is_paused "
             "FROM ai_players WHERE is_active=1"
         ).fetchall()
         fleet_value = 0.0

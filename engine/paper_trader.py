@@ -543,12 +543,13 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
         return None
     # === HALT GATE === (halt_mode-aware; blocks new positions in exit_only OR full)
+    # HM-A: dropped unused is_halted column from SELECT; halt_mode is single source of truth
     _halt = _conn().execute(
-        "SELECT is_halted, halt_reason, halt_mode FROM ai_players WHERE id=?", (player_id,)
+        "SELECT halt_reason, halt_mode FROM ai_players WHERE id=?", (player_id,)
     ).fetchone()
-    if _halt and (_halt[2] != "active"):
-        console.log(f"[red]HALTED: {player_id} ({_halt[2]}) — {_halt[1] or 'no reason given'}")
-        _last_rejection[player_id] = f"Halted ({_halt[2]}): {_halt[1] or 'no reason given'}"
+    if _halt and (_halt[1] != "active"):
+        console.log(f"[red]HALTED: {player_id} ({_halt[1]}) — {_halt[0] or 'no reason given'}")
+        _last_rejection[player_id] = f"Halted ({_halt[1]}): {_halt[0] or 'no reason given'}"
         return None
     route = _resolve_execution_portfolio(player_id)
     if route["route_mode"] == "tracking":
@@ -1087,12 +1088,13 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
         return None
     # === HALT GATE === (halt_mode-aware; exit_only PERMITS sells, only 'full' blocks)
+    # HM-A: dropped unused is_halted column from SELECT; halt_mode is single source of truth
     _halt = _conn().execute(
-        "SELECT is_halted, halt_reason, halt_mode FROM ai_players WHERE id=?", (player_id,)
+        "SELECT halt_reason, halt_mode FROM ai_players WHERE id=?", (player_id,)
     ).fetchone()
-    if _halt and _halt[2] == "full":
-        console.log(f"[red]HALTED (full): {player_id} — {_halt[1] or 'no reason given'}")
-        _last_rejection[player_id] = f"Halted (full): {_halt[1] or 'no reason given'}"
+    if _halt and _halt[1] == "full":
+        console.log(f"[red]HALTED (full): {player_id} — {_halt[0] or 'no reason given'}")
+        _last_rejection[player_id] = f"Halted (full): {_halt[0] or 'no reason given'}"
         return None
     route = _resolve_execution_portfolio(player_id)
     if route["route_mode"] == "tracking":

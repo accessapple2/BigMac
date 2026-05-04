@@ -1908,8 +1908,12 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
     if season <= 0 and not all_seasons:
         season = current_season
 
+    # HM-A: migrated from is_halted; halt_mode is single source of truth
     players = conn.execute("""
-        SELECT p.id, p.display_name, p.provider, p.model_id, p.cash, p.is_active, p.is_halted, COALESCE(p.halt_reason, '') as halt_reason, COALESCE(p.is_paused, 0) as is_paused
+        SELECT p.id, p.display_name, p.provider, p.model_id, p.cash, p.is_active,
+               COALESCE(p.halt_mode, 'active') AS halt_mode,
+               COALESCE(p.halt_reason, '') as halt_reason,
+               COALESCE(p.is_paused, 0) as is_paused
         FROM ai_players p WHERE p.is_active = 1 AND p.id NOT LIKE '%cto%' AND p.id != 'red-alert'
         ORDER BY p.id
     """).fetchall()
@@ -2146,7 +2150,8 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
                 "realized_gains": pf_info.get("realized_gains", 0),
                 "realized_losses": pf_info.get("realized_losses", 0),
                 "is_active": bool(p["is_active"]),
-                "is_halted": bool(p["is_halted"]),
+                # HM-A: derive is_halted from halt_mode (single source of truth)
+                "is_halted": (p["halt_mode"] or "active") != "active",
             "halt_reason": p["halt_reason"],
                 "is_paused": bool(p["is_paused"]),
                 "has_shadow_options": p["id"] in shadow_options_players,
@@ -2213,6 +2218,7 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
                 "realized_gains": profit_factor_data.get(pid, {}).get("realized_gains", 0),
                 "realized_losses": profit_factor_data.get(pid, {}).get("realized_losses", 0),
                 "is_active": bool(p["is_active"]),
+                # HM-A: hardcoded default for non-AI rows (e.g. webull aggregate); not a real player halt state
                 "is_halted": False,
                 "is_paused": False,
                 "has_shadow_options": p["id"] in shadow_options_players,
@@ -2343,7 +2349,8 @@ def player_detail(player_id: str):
             "total_unrealized_pnl":   total_unrealized,
             "total_positions_value":  positions_value,
             "is_active":  bool(player["is_active"]),
-            "is_halted":  bool(player["is_halted"]),
+            # HM-A: derive is_halted from halt_mode (single source of truth)
+            "is_halted":  (player["halt_mode"] or "active") != "active",
             "positions":  [_pos_dict(p) for p in sa_positions],
             "stats": {
                 "total_trades":   sa_total_count["cnt"] if sa_total_count else 0,
@@ -2468,7 +2475,8 @@ def player_detail(player_id: str):
         "total_unrealized_pnl": pnl_data["total_unrealized_pnl"],
         "total_positions_value": pnl_data["total_positions_value"],
         "is_active": bool(player["is_active"]),
-        "is_halted": bool(player["is_halted"]),
+        # HM-A: derive is_halted from halt_mode (single source of truth)
+        "is_halted": (player["halt_mode"] or "active") != "active",
         "positions": pnl_data["positions"],
         "stats": {
             "total_trades": stats["total_trades"] if stats else 0,
@@ -5119,9 +5127,10 @@ def war_room_post(data: dict = None):
 
             # Build Ollama providers for all active, non-paused players
             conn2 = _conn()
+            # HM-A: migrated from is_halted=0 → halt_mode='active' (single source of truth)
             players = conn2.execute(
                 "SELECT id, provider, model_id, display_name FROM ai_players "
-                "WHERE is_active=1 AND is_paused=0 AND is_halted=0"
+                "WHERE is_active=1 AND is_paused=0 AND COALESCE(halt_mode, 'active')='active'"
             ).fetchall()
             conn2.close()
 
@@ -5181,9 +5190,10 @@ def trigger_war_room():
         try:
             # Get providers from DB
             conn = _conn()
+            # HM-A: migrated from is_halted=0 → halt_mode='active' (single source of truth)
             players = conn.execute(
                 "SELECT id, provider, model_id, display_name FROM ai_players "
-                "WHERE is_active=1 AND is_halted=0"
+                "WHERE is_active=1 AND COALESCE(halt_mode, 'active')='active'"
             ).fetchall()
             conn.close()
 
@@ -7841,8 +7851,10 @@ MODEL_COST_MAP = {
 def model_control():
     """Get model control panel data: pause state, costs, call counts."""
     conn = _conn()
+    # HM-A: migrated from is_halted; halt_mode is single source of truth
     players = conn.execute("""
-        SELECT id, display_name, provider, model_id, is_active, is_halted,
+        SELECT id, display_name, provider, model_id, is_active,
+               COALESCE(halt_mode, 'active') AS halt_mode,
                COALESCE(is_paused, 0) as is_paused,
                COALESCE(is_fallback, 0) as is_fallback,
                COALESCE(fallback_model, '') as fallback_model,
@@ -7882,7 +7894,8 @@ def model_control():
             "is_paused": bool(p["is_paused"]),
             "is_fallback": is_fb,
             "fallback_model": p["fallback_model"],
-            "is_halted": bool(p["is_halted"]),
+            # HM-A: derive is_halted from halt_mode (single source of truth)
+            "is_halted": (p["halt_mode"] or "active") != "active",
             "halt_reason": p["halt_reason"],
             "cost_per_scan": cost_per_scan,
             "api_calls_today": st["api_calls"],

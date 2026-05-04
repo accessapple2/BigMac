@@ -832,7 +832,8 @@ def run_war_room(providers: dict, prices: dict):
     conn = _conn()
     paused_ids  = {r["id"] for r in conn.execute("SELECT id FROM ai_players WHERE is_paused=1").fetchall()}
     inactive_ids = {r["id"] for r in conn.execute("SELECT id FROM ai_players WHERE is_active=0").fetchall()}
-    halted_ids  = {r["id"] for r in conn.execute("SELECT id FROM ai_players WHERE is_halted=1").fetchall()}
+    # HM-A: migrated from is_halted=1 → halt_mode != 'active' (single source of truth)
+    halted_ids  = {r["id"] for r in conn.execute("SELECT id FROM ai_players WHERE COALESCE(halt_mode, 'active') != 'active'").fetchall()}
     conn.close()
 
     # Check who already posted about this symbol in the last hour (prevent spam)
