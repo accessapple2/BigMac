@@ -2690,6 +2690,7 @@ if __name__ == "__main__":
         try:
             import strategies.bull_call_spread_v1  # noqa: F401 — auto-registers BullCallSpreadV1
             from strategies.registry import registry
+            from strategies.signal_store import persist
             from strategies.executor import execute_signal
             # engine.market_data.get_regime does not exist — ImportError every tick since May 1.
             # Use same normalization as other spread schedulers + proper MarketContext.
@@ -2704,7 +2705,8 @@ if __name__ == "__main__":
                 console.log("[dim]bull_call_spread_v1: no signals this tick")
                 return
             for sig in all_sigs:
-                result = execute_signal(sig)
+                sid = persist(sig)
+                result = execute_signal(sig, signal_id=sid)
                 console.log(
                     f"[cyan]bull_call_spread_v1: {sig.ticker} tier={sig.payload.get('tier','?')} "
                     f"→ {result.status}"

@@ -257,8 +257,9 @@ def _get_pc_ratio(ticker: str) -> float:
 
 def _check_tier2_short_signal(ticker: str) -> bool:
     """
-    True if any of: post_earnings_drift PED SHORT, manual dashboard SHORT,
-    or agent SHORT vote in strategy_signals within the last 4h.
+    True if any AI-player SHORT/bear vote landed for this ticker in the last
+    4 hours. Reads the signals table (replaces legacy strategy_signals source
+    which has been empty since 2026-04-15 — see Round 2 NEW-2 investigation).
     """
     if is_mock_mode():
         return True
@@ -266,10 +267,10 @@ def _check_tier2_short_signal(ticker: str) -> bool:
         conn = sqlite3.connect(str(_DB_PATH), timeout=3)
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT id FROM strategy_signals "
-            "WHERE ticker=? "
-            "AND (LOWER(signal_type) LIKE '%short%' OR LOWER(signal_type) LIKE '%bear%' "
-            "     OR LOWER(notes) LIKE '%short%' OR LOWER(notes) LIKE '%bear%') "
+            "SELECT id FROM signals "
+            "WHERE symbol=? "
+            "AND (UPPER(signal) LIKE '%SHORT%' OR UPPER(signal) LIKE '%PUT%' "
+            "     OR UPPER(signal) LIKE '%BEAR%' OR UPPER(signal) LIKE '%SELL%') "
             "AND created_at >= datetime('now', '-4 hours') "
             "LIMIT 1",
             (ticker,),

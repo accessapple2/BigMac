@@ -238,8 +238,9 @@ def _get_pc_ratio(ticker: str) -> float:
 
 def _check_tier2_buy_signal(ticker: str) -> bool:
     """
-    True if any of: Kirk advisory BUY, manual dashboard BUY, or any agent
-    BUY vote in strategy_signals within the last 4h.
+    True if any AI-player BUY/BUY_CALL/bull vote landed for this ticker in
+    the last 4 hours. Reads the signals table (replaces legacy strategy_signals
+    source which has been empty since 2026-04-15 — see Round 2 NEW-2 investigation).
     """
     if is_mock_mode():
         return True
@@ -247,10 +248,10 @@ def _check_tier2_buy_signal(ticker: str) -> bool:
         conn = sqlite3.connect(str(_DB_PATH), timeout=3)
         conn.row_factory = sqlite3.Row
         row = conn.execute(
-            "SELECT id FROM strategy_signals "
-            "WHERE ticker=? "
-            "AND (LOWER(signal_type) LIKE '%buy%' OR LOWER(signal_type) LIKE '%bull%' "
-            "     OR LOWER(notes) LIKE '%buy%'     OR LOWER(notes) LIKE '%bull%') "
+            "SELECT id FROM signals "
+            "WHERE symbol=? "
+            "AND (UPPER(signal) LIKE '%BUY%' OR UPPER(signal) LIKE '%CALL%' "
+            "     OR UPPER(signal) LIKE '%BULL%') "
             "AND created_at >= datetime('now', '-4 hours') "
             "LIMIT 1",
             (ticker,),
