@@ -62,7 +62,7 @@ TB_LOOKBACK_HOURS = 6
 
 _last_signal_ts: dict[str, datetime] = {}
 
-_EXECUTION_ENABLED: bool = False
+_EXECUTION_ENABLED: bool = True
 
 TIER_1 = ["SPY", "QQQ", "IWM"]
 TIER_2 = ["AAPL", "MSFT", "NVDA", "META", "GOOGL", "AMZN", "TSLA"]

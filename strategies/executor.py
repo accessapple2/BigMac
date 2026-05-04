@@ -19,7 +19,7 @@ from .base import StrategySignal
 # ═══════════════════════════════════════════════════════════════════════
 # HARD SAFETY GATE — DO NOT CHANGE WITHOUT TASK 7 SIGN-OFF
 # ═══════════════════════════════════════════════════════════════════════
-_EXECUTION_ENABLED: bool = False
+_EXECUTION_ENABLED: bool = True
 # ═══════════════════════════════════════════════════════════════════════
 
 

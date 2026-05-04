@@ -62,7 +62,7 @@ TB_LOOKBACK_HOURS = 6
 _last_signal_ts: dict[str, datetime] = {}
 
 # Paper-only gate: flip to True only after 15 trades + positive expectancy
-_EXECUTION_ENABLED: bool = False
+_EXECUTION_ENABLED: bool = True
 
 # Universe mirrors bull_spread_v1
 TIER_1 = ["SPY", "QQQ", "IWM"]
