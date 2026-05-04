@@ -352,7 +352,6 @@ def close_all_options(player_id: str | None = None) -> dict:
         return {"skipped": True, "reason": "Alpaca not connected"}
 
     try:
-        from alpaca.trading.requests import GetAllPositionsRequest
         positions = client.get_all_positions()
         options_positions = [
             p for p in positions
