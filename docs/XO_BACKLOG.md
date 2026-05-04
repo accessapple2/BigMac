@@ -8,6 +8,24 @@ Items moved by category based on observed reality, not historical claim.
 
 ---
 
+## 🚨 TOP PRIORITY — PUSH BLOCKED (daylight session only)
+
+**Status as of 2026-05-03 22:15 MST**: local `main` is 22 commits ahead of `origin/main`; `git push origin main` rejected by GitHub pre-receive hook. Five files >100 MB tracked in commit `463c402` ("Saturday Night Drydock checkpoint") trigger `GH001: Large files detected`:
+
+- `signal-center/signals.db.bak.20260502` (604 MB)
+- `backups/trader.db.pre_learning_20260430_173525` (207 MB)
+- `backups/trader.db.pre_schwab_sync_20260430_170106` (207 MB)
+- `data/trader.db.bak.2026-04-20-q2-schwab` (153 MB)
+- `data/trader.db.bak.2026-04-20-1200-pre-dbfix` (153 MB)
+
+**Plan**: (1) archive the 5 files out-of-tree per SACRED-DATA convention (e.g. `~/autonomous-trader-backups/`); (2) `git filter-repo` rewrite to strip them from history; (3) force-push `main`. **Daylight session only.** Verify backups are intact before strip; verify SHA divergence is acceptable; verify any consumer that referenced those paths still resolves.
+
+**Rejected alternative**: cherry-pick `fb2546b` + `4e5a776` onto a side branch from `origin/main`. Defers cure, accumulates divergence — local `main` would still be unpushable, and every future fix would need the same workaround.
+
+**Operational status**: Fix #1 (`fb2546b`) and the audit-#2 telemetry note (`4e5a776`) are live on bigmac. Trader service running on the new gates. Origin not knowing is a collaboration gap, not an operational one.
+
+---
+
 ## VERIFIED CLOSED (commit + reality both confirmed)
 
 | ID  | Closed | Commit | Reality verification |
