@@ -2551,13 +2551,13 @@ if __name__ == "__main__":
 
     # Scanner ticks every 30s; run_scanner enforces dynamic cooldown internally
     schedule.every(2).minutes.do(run_scanner)
-    schedule.every(5).minutes.do(run_dayblade)  # DayBlade 0DTE: T'Pol on plutus, every 2min
+    schedule.every(5).minutes.do(run_dayblade)  # DayBlade 0DTE: T'Pol on plutus, every 5 min
     schedule.every(15).minutes.do(run_ma_regime_update)  # 8/21 MA Cross Regime: every 15 min
-    schedule.every(15).minutes.do(run_vix_check)          # VIX: every 5 min
+    schedule.every(15).minutes.do(run_vix_check)          # VIX: every 15 min
     schedule.every(1).hours.do(run_earnings_check)       # Earnings: hourly
-    schedule.every(30).minutes.do(run_daily_summary)      # Daily summary: checks every 5 min, sends once at close
-    schedule.every(30).minutes.do(run_daily_rating_update) # Agent ratings: checks every 5 min, fires once at 4:30 PM ET
-    schedule.every(30).minutes.do(run_journal)             # AI journal: checks every 5 min, writes once at close
+    schedule.every(30).minutes.do(run_daily_summary)      # Daily summary: checks every 30 min, sends once at close
+    schedule.every(30).minutes.do(run_daily_rating_update) # Agent ratings: checks every 30 min, fires once at 4:30 PM ET
+    schedule.every(30).minutes.do(run_journal)             # AI journal: checks every 30 min, writes once at close
     schedule.every(15).minutes.do(run_gex_refresh)        # GEX (CBOE): every 15 min during market hours
     schedule.every(30).minutes.do(run_alpaca_gex_refresh)  # GEX (Alpaca): 4x/day at 9:00/9:35/12:00/15:00 ET
     schedule.every(15).minutes.do(run_gex_overlay_update) # GEX Overlay DB: every 15 min (king node, flip, walls)
@@ -2570,18 +2570,18 @@ if __name__ == "__main__":
     schedule.every().day.at("06:00").do(run_earnings_universe_inject) # Earnings Inject: 6:00 AM AZ (5-min window)
     schedule.every(5).minutes.do(run_earnings_day_scan)               # Earnings Day: every 5 min market hours
     schedule.every().day.at("06:45").do(run_opening_range)            # Battle Station: opening range 6:45 AM AZ
-    schedule.every(2).minutes.do(run_battle_station_monitor)  # Battle Station: 60s options position monitor
+    schedule.every(2).minutes.do(run_battle_station_monitor)  # Battle Station: 2-min options position monitor
     schedule.every(3).minutes.do(run_war_room)              # War Room: 3 min market hours, 5 min pre/post-market
     schedule.every(30).minutes.do(run_autopilot)           # Autopilot: every 30 min
     schedule.every(10).minutes.do(run_whisper)             # Whisper Network: every 10 min
-    schedule.every(15).minutes.do(run_strength_scan)        # Strength Scanner: every 5 min
+    schedule.every(15).minutes.do(run_strength_scan)        # Strength Scanner: every 15 min
     schedule.every(1).hours.do(run_strategy_race)           # Strategy Race: hourly update
-    schedule.every(30).minutes.do(run_weekly_picks)          # Weekly Picks: checks every 5 min, sends Sunday 6PM ET
-    schedule.every(15).minutes.do(run_cross_asset_check)    # Cross-Asset: every 5 min
+    schedule.every(30).minutes.do(run_weekly_picks)          # Weekly Picks: checks every 30 min, sends Sunday 6PM ET
+    schedule.every(15).minutes.do(run_cross_asset_check)    # Cross-Asset: every 15 min
     schedule.every(15).minutes.do(run_flow_lean)            # Flow Lean: every 15 min (options premium directional bias)
     schedule.every(15).minutes.do(run_ai_saas_disruption)   # AI SaaS Disruption: IGV + 13 SaaS names, 4 triggers, posts to 9000
-    schedule.every(30).minutes.do(run_cto_advisory)          # CTO Advisory: checks every 5 min, fires 4x daily (pre_market, post_open, pre_close, post_close)
-    schedule.every(30).minutes.do(run_ready_room)             # Ready Room: checks every 5 min, fires 4x daily (8:00/9:15/12:00/3:30 ET)
+    schedule.every(30).minutes.do(run_cto_advisory)          # CTO Advisory: checks every 30 min, fires 4x daily (pre_market, post_open, pre_close, post_close)
+    schedule.every(30).minutes.do(run_ready_room)             # Ready Room: checks every 30 min, fires 4x daily (8:00/9:15/12:00/3:30 ET)
     schedule.every(30).minutes.do(run_grok_advisor)           # Advisory Team (Grok/Ollie+Troi+Worf): fires at 9:30 AM and 1:30 PM ET
     schedule.every(5).minutes.do(run_portfolio_monitor)       # Ship's Computer: Captain's Portfolio monitor (stop breaches, big moves, new advice)
     schedule.every(5).minutes.do(run_oi_morning_snapshot)    # OI Tracker: baseline snapshot at market open (9:30 ET)
