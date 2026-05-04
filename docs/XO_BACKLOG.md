@@ -8,6 +8,63 @@ Items moved by category based on observed reality, not historical claim.
 
 ---
 
+## ⚠️ POST-GATE-FLIP MONDAY MORNING WATCH (2026-05-05 06:30 MST)
+
+Gate flipped 2026-05-04 08:30 MST (commit `df7320c`). Service restarted PID 13734.
+First live autonomous trades fire at NYSE open Monday 06:30 MST / 09:30 ET.
+
+**Tier-2 execution gating:** Both `bull_call_spread_v1` and `bear_put_spread_v1`
+filter `WHERE agent_name='tractor-beam'` on signal-center reads. **Tractor-beam
+is the agent whose performance matters.** Pre-flip 30-day baseline: 268 signals,
+34.3% hit_tp, PF 2.02, avg_pnl +1.74%.
+
+### Pre-open (06:00 MST):
+- [ ] Service running, PID stable (was 13734 at flip; may have rolled overnight)
+- [ ] No overnight Errno 48 in trader.log (baseline = 6)
+- [ ] Calibration query produces reasonable numbers (`signals.db::trade_signals` joined to `signal_outcomes`, agent_name='tractor-beam', last 24h)
+- [ ] Halted players still 4 (ollama-llama, grok-3, dayblade-sulu, gemini-2.5-pro)
+- [ ] All 3 gate sites still `_EXECUTION_ENABLED: bool = True`
+
+### First-trade observation (06:30 - 10:30 MST):
+- [ ] First fleet signal of the day fires cleanly
+- [ ] First trade placed via Alpaca paper successfully
+- [ ] Trade appears in `paper_trades` and `trades` tables
+- [ ] Dashboard `/api/agents/scoreboard` reflects the new trade
+
+### Kill-switch criteria — REVERT or HALT if ANY of:
+1. **Tractor-beam delivering >5% loss on any single trade** → REVERT (SL discipline failure on the agent that drives execution)
+2. **Aggregate paper P&L drawdown >5% from $99,931 starting balance in any 24h period** → HALT for review
+3. **Tractor-beam placing >15 trades in first 4 hours** → HALT that signal source (suppress tractor-beam writes to `signals.db::trade_signals`)
+4. **2+ service crashes in first 4 hours** → REVERT
+5. **ANY real-broker (Schwab/Webull/IBKR) API call attempt** → REVERT IMMEDIATELY
+
+### Recovery procedure (REVERT path):
+```bash
+cd ~/autonomous-trader
+git reset --hard gate-flip-revert
+git push --force-with-lease origin main
+launchctl kickstart -k gui/$(id -u)/com.trademinds.trader
+```
+
+- Pre-flip main HEAD: `753f01a70f2a145a1f2cd70a41143d8188f0ae3d`
+- Pre-flip backup: `backups/trader.db.pre-gate-flip-20260504_082909`
+- Recovery doc: `/tmp/gate-flip-recovery.md`
+- Local-only branch `gate-flip-revert` retained at least 1 week of clean operation
+
+### HALT-tractor-beam procedure (kill-switch #3, less drastic than full revert):
+The tractor-beam poster is external to this repo (posts via HTTP to signal-center port 9000). To halt it without reverting the gate:
+```bash
+# Option 1: Mark all tractor-beam NEW signals as DISMISSED (one-shot scrub)
+sqlite3 signal-center/signals.db "
+  UPDATE trade_signals
+     SET status='DISMISSED', dismissed_at=datetime('now')
+   WHERE agent_name='tractor-beam' AND status='NEW';
+"
+# Then identify and stop the upstream poster (separate investigation needed).
+```
+
+---
+
 ## ✅ HM-G COMPLETE — origin push unblocked (2026-05-04 07:25 MST)
 
 5 fat files (1.32 GB total) removed from history via `git filter-repo` on a mirror clone, force-pushed to origin. Origin now at `50ef95c` (rewritten HM-C ship). Push 1 (rewrite): `50ef95c`. Push 2 (gitignore prevention): `f7181f0`. All 25 ahead-commits cleared.
