@@ -38,9 +38,11 @@ _archer_killed_for_trading: bool = False  # True if we killed Archer during mark
 
 # --- Logging ---
 def log(msg: str) -> None:
+    # launchd plist routes stdout → logs/healthcheck.log, so explicit f.write
+    # is the single channel. Dropping print() eliminates 2× line duplication
+    # (per XO_AUDIT_2026-05-03 Honorable Mention #1).
     ts = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     line = f"[{ts}] {msg}"
-    print(line, flush=True)
     try:
         with open(HEALTH_LOG, "a") as f:
             f.write(line + "\n")

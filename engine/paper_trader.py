@@ -542,13 +542,13 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
         return None
-    # === HALT GATE ===
+    # === HALT GATE === (halt_mode-aware; blocks new positions in exit_only OR full)
     _halt = _conn().execute(
-        "SELECT is_halted, halt_reason FROM ai_players WHERE id=?", (player_id,)
+        "SELECT is_halted, halt_reason, halt_mode FROM ai_players WHERE id=?", (player_id,)
     ).fetchone()
-    if _halt and _halt[0]:
-        console.log(f"[red]HALTED: {player_id} — {_halt[1] or 'no reason given'}")
-        _last_rejection[player_id] = f"Halted: {_halt[1] or 'no reason given'}"
+    if _halt and (_halt[2] != "active"):
+        console.log(f"[red]HALTED: {player_id} ({_halt[2]}) — {_halt[1] or 'no reason given'}")
+        _last_rejection[player_id] = f"Halted ({_halt[2]}): {_halt[1] or 'no reason given'}"
         return None
     route = _resolve_execution_portfolio(player_id)
     if route["route_mode"] == "tracking":
@@ -1086,13 +1086,13 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
         return None
-    # === HALT GATE ===
+    # === HALT GATE === (halt_mode-aware; exit_only PERMITS sells, only 'full' blocks)
     _halt = _conn().execute(
-        "SELECT is_halted, halt_reason FROM ai_players WHERE id=?", (player_id,)
+        "SELECT is_halted, halt_reason, halt_mode FROM ai_players WHERE id=?", (player_id,)
     ).fetchone()
-    if _halt and _halt[0]:
-        console.log(f"[red]HALTED: {player_id} — {_halt[1] or 'no reason given'}")
-        _last_rejection[player_id] = f"Halted: {_halt[1] or 'no reason given'}"
+    if _halt and _halt[2] == "full":
+        console.log(f"[red]HALTED (full): {player_id} — {_halt[1] or 'no reason given'}")
+        _last_rejection[player_id] = f"Halted (full): {_halt[1] or 'no reason given'}"
         return None
     route = _resolve_execution_portfolio(player_id)
     if route["route_mode"] == "tracking":
@@ -1865,6 +1865,13 @@ def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
     _default_status = "SKIPPED" if signal == "HOLD" else "PENDING"
     try:
         conn = _conn()
+        # === HALT GATE === Suppress signals from halted players (any non-active mode).
+        # Per XO_AUDIT_2026-05-03 #1: ollama-llama leaked 947 post-halt rows here.
+        from engine.halt_gate import can_emit_signal
+        if not can_emit_signal(conn, player_id):
+            conn.close()
+            console.log(f"[yellow][HALT-GATE] Suppressed signal from {player_id} (not active)")
+            return -1
         cur = conn.execute(
             "INSERT INTO signals (player_id, symbol, signal, confidence, reasoning, "
             "asset_type, option_type, season, sources, timeframe, execution_status) "

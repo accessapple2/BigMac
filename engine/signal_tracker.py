@@ -30,6 +30,14 @@ def record_signal(player_id: str, display_name: str, symbol: str,
 
     conn = _conn()
 
+    # === HALT GATE === Suppress watchlist_signals writes from halted players.
+    # Per XO_AUDIT_2026-05-03 #1: ollama-llama leaked 62 post-halt rows here.
+    from engine.halt_gate import can_emit_signal
+    if not can_emit_signal(conn, player_id):
+        conn.close()
+        console.log(f"[yellow][HALT-GATE] Suppressed watchlist_signal from {player_id} (not active)")
+        return None
+
     # Check for existing active signal from same model+symbol
     existing = conn.execute(
         "SELECT id FROM watchlist_signals WHERE player_id=? AND symbol=? AND status='active'",

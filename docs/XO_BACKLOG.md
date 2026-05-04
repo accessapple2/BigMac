@@ -23,6 +23,9 @@ Items moved by category based on observed reality, not historical claim.
 | Task 3B | 2026-05-02 | `803c2db` | `uoa/scraper.py:16` docstring path corrected |
 | Task 3C | 2026-05-02 | `803c2db` | `premarket-scan.sh:46` defunct `launchctl start com.trademinds.crew` commented out |
 | Item 5 | 2026-05-03 | `58c43f0` | ~60 lines dead crew-server polling removed from `premarket-scan.sh` |
+| **AUDIT-#1** | 2026-05-03 | *pending commit* | **`halt_mode` enum added to `ai_players` (active/exit_only/full); `halt_gate` helper at `engine/halt_gate.py`; gates wired in `paper_trader.save_signal` (line 1870), `paper_trader.buy()` (line 547), `paper_trader.sell()` (line 1091; semantic: `exit_only` permits sells), `signal_tracker.record_signal` (line 35). Backfilled 1,156 leaked rows (`signals` 1,143 + `watchlist_signals` 13). Live gate-fire confirmed via direct exercise test.** |
+| **AUDIT-HM#1** | 2026-05-03 | *pending commit* | **`healthcheck.py:43` `print(line)` removed; launchd plist already routes stdout → `logs/healthcheck.log`, eliminating 2× duplication. Truncated `logs/healthcheck.log` for clean post-fix verification window (next cron tick Mon 06:00 MST).** |
+| **AUDIT-Open-Q#1** | 2026-05-03 | *pending commit* | **`ollama-llama` trapped positions flatted internally (NVDA 0.3748 sh @ $198.39, MSFT 0.175 sh @ $399.08; total realized -$7.16); `execution_type='manual_internal_mark'` for audit trail. No Alpaca round-trip per Admiral resolution Option B.** |
 
 ---
 
@@ -174,6 +177,20 @@ All acceptance criteria unchecked — sprint never started.
 | Ghost scorecard calibration | `GET /api/signals/scorecard` (`server.py:2104`) | Before gate-flip |
 | Alpha threshold for `bull_spread_v1` first trade | Confirm threshold in strategy config | Before first trade |
 | Chrome extension Profile 5 re-install | Manual check | Next session |
+| **Healthcheck dedup verification** | `wc -l logs/healthcheck.log` after Mon 06:00 cron tick — should be ~½ pre-fix line rate | Mon 2026-05-04 06:30 MST |
+
+---
+
+## FOLLOW-UPS FROM AUDIT-#1 (halt_mode introduction)
+
+| ID | Task | Priority | Notes |
+|----|------|----------|-------|
+| HM-A | Migrate the ~22 `is_halted` read-sites to `halt_mode != 'active'` | MEDIUM | Files: `dashboard/app.py` (9 sites), `morning_briefing.py:60`, `war_room.py:835`, `season_manager.py:154,258`, `matrix_bridge.py:114`, `main.py:3478,3487`. Excludes the drawdown-halt system in `ai_brain.py:813,814,844` and `risk_manager.py:864` — that's `agent_state.is_halted`, a separate concept |
+| HM-B | After HM-A: drop `is_halted` column OR add a single-source-of-truth trigger that keeps `halt_mode` and `is_halted` in sync | LOW | Triggers add hidden behaviour; preference is to drop `is_halted` once read sites are clean |
+| HM-C | Update read-path consumers of `signals` / `watchlist_signals` to filter `halted_emit = 0` for scoring queries | MEDIUM | Required for AUDIT-#6 (`signal_scorecard` writer). Targets: `dashboard/app.py:3126,3134,6297,15360` (leaderboard joins), `crew/agents.py:484` (BUY aggregation), `engine/ai_brain.py:104,563` (context queries). Display panels can keep showing all rows |
+| HM-D | `watchlist_signals` had 49 pre-halt + 13 post-halt rows for ollama-llama. Decide if pre-halt rows from now-retired players should ever feed scorecard math | LOW | Currently `halted_emit=0` for all pre-halt rows; that's correct per the flag's strict definition |
+| HM-E | Investigate `ai_journal` half-life on halted players — `dayblade-sulu` has zero `signals` since 2026-04-07 but writes journal entries through 2026-05-01. Some daily routine fires regardless of halt state. Decide whether halted players should run the daily routine at all | LOW | Diary entries are diagnostically useful; this is more about wasted compute than data integrity |
+| HM-F | Add `halted_at` UPDATE to whatever code path sets `is_halted=1` going forward (so future halts populate the timestamp automatically) | MEDIUM | Currently `is_halted=1` is set by hand or by `season_manager.py`; neither updates `halted_at`. Auto-trigger deferred per Admiral preference, but the application code should set it |
 
 ---
 
