@@ -15,8 +15,14 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+import sys
 from datetime import datetime
 from pathlib import Path
+
+_REPO_ROOT = Path(__file__).parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+from engine.halt_gate import HALTED_EMIT_FILTER
 
 # edgartools requires an identity string (EDGAR fair-use policy)
 try:
@@ -289,11 +295,13 @@ def run():
     log.info(f"13F import: {len(holdings)} holdings across {len(HEDGE_FUNDS)} funds")
 
     # Insider trades — use recent signal universe as ticker list
+    # HM-C: filter halted-player emissions from scorecard/calibration math
     conn = sqlite3.connect(DB_PATH)
     try:
-        tickers = [r[0] for r in conn.execute("""
+        tickers = [r[0] for r in conn.execute(f"""
             SELECT DISTINCT symbol FROM signals
             WHERE created_at > datetime('now', '-7 days')
+              AND {HALTED_EMIT_FILTER}
             LIMIT 30
         """).fetchall()]
     except Exception:

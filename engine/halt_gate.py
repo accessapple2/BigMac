@@ -48,3 +48,26 @@ def can_open_position(conn: sqlite3.Connection, player_id: str) -> bool:
 def can_close_position(conn: sqlite3.Connection, player_id: str) -> bool:
     """exit_only and active can close. full cannot."""
     return halt_mode(conn, player_id) in ("active", "exit_only")
+
+
+# ─── Read-path filter for scoring/calibration consumers (HM-C) ───────────────
+# Per XO_AUDIT_2026-05-03 #1 follow-up HM-C: 1,156 rows in `signals` /
+# `watchlist_signals` were backfilled with halted_emit=1 by fix #1. This
+# constant is the single source of truth for the read-side filter so that a
+# future migration (e.g. when `is_halted`/`halted_emit` is replaced by a
+# `halt_mode` join) only has to change one line.
+#
+# Use ONLY in scoring/calibration/leaderboard read paths — not in raw
+# signal-feed display panels, diagnostic counts, or per-player forensic views.
+HALTED_EMIT_FILTER = "halted_emit = 0"
+
+
+def with_halted_filter(where_clause: str = "") -> str:
+    """Compose a WHERE clause that includes the halted_emit filter.
+
+    Example:
+        sql = f"SELECT ... FROM signals WHERE {with_halted_filter('player_id = ?')}"
+    """
+    if where_clause.strip():
+        return f"({where_clause}) AND {HALTED_EMIT_FILTER}"
+    return HALTED_EMIT_FILTER

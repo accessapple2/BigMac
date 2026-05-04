@@ -42,6 +42,7 @@ import io as _io
 import base64 as _base64
 import qrcode as _qrcode
 from shared.matrix_bridge import annotate_player_payload, ensure_matrix_shared_records, is_independent_player
+from engine.halt_gate import HALTED_EMIT_FILTER
 
 
 def _sanitize_floats(obj):
@@ -3894,9 +3895,11 @@ def confidence_matrix():
         pid = p["id"]
         stances = {}
         for sym in WATCH_STOCKS:
+            # HM-C: filter halted-player emissions from scorecard/calibration math
             row = conn.execute(
-                "SELECT signal, confidence, reasoning, created_at FROM signals "
-                "WHERE player_id=? AND symbol=? ORDER BY created_at DESC LIMIT 1",
+                f"SELECT signal, confidence, reasoning, created_at FROM signals "
+                f"WHERE player_id=? AND symbol=? AND {HALTED_EMIT_FILTER} "
+                f"ORDER BY created_at DESC LIMIT 1",
                 (pid, sym)
             ).fetchone()
             if row:
@@ -12888,9 +12891,11 @@ def uhura_signal():
                 pid = p["id"]
                 stances = {}
                 for sym in WATCH_STOCKS:
+                    # HM-C: filter halted-player emissions from scorecard/calibration math
                     row = conn.execute(
-                        "SELECT signal FROM signals WHERE player_id=? AND symbol=? "
-                        "ORDER BY created_at DESC LIMIT 1", (pid, sym)
+                        f"SELECT signal FROM signals WHERE player_id=? AND symbol=? "
+                        f"AND {HALTED_EMIT_FILTER} "
+                        f"ORDER BY created_at DESC LIMIT 1", (pid, sym)
                     ).fetchone()
                     if row:
                         sig = row["signal"]
@@ -15355,11 +15360,14 @@ def analyze_ticker(ticker: str):
     conn = _conn()
 
     # Recent signals for this ticker (last 48h, all players)
+    # HM-C: filter halted-player emissions from scorecard/calibration math
+    # (Holly chat ticker context — feeds an LLM prompt; halted player views must not steer it)
     raw_signals = conn.execute(
-        "SELECT s.player_id, p.display_name, s.signal, s.confidence, s.reasoning, s.created_at "
-        "FROM signals s JOIN ai_players p ON s.player_id = p.id "
-        "WHERE s.symbol = ? AND s.created_at >= datetime('now', '-48 hours') "
-        "ORDER BY s.created_at DESC LIMIT 20",
+        f"SELECT s.player_id, p.display_name, s.signal, s.confidence, s.reasoning, s.created_at "
+        f"FROM signals s JOIN ai_players p ON s.player_id = p.id "
+        f"WHERE s.symbol = ? AND s.created_at >= datetime('now', '-48 hours') "
+        f"AND s.{HALTED_EMIT_FILTER} "
+        f"ORDER BY s.created_at DESC LIMIT 20",
         (sym,),
     ).fetchall()
 
@@ -15966,10 +15974,17 @@ def v1_signals(request: Request, ticker: str = "", limit: int = 50):
         return _v1_resp({"error": "Rate limit exceeded"}, 429)
     try:
         conn = _conn()
-        q = "SELECT * FROM signals ORDER BY created_at DESC LIMIT ?"
+        # HM-C: filter halted-player emissions from scorecard/calibration math
+        # Behavior change visible to /v1/signals consumers: halted-player rows
+        # (1,143 backfilled by audit #1) are now excluded. Aligns external API
+        # with internal scoring correctness.
+        q = f"SELECT * FROM signals WHERE {HALTED_EMIT_FILTER} ORDER BY created_at DESC LIMIT ?"
         params: list = [min(limit, 200)]
         if ticker:
-            q = "SELECT * FROM signals WHERE symbol=? ORDER BY created_at DESC LIMIT ?"
+            q = (
+                f"SELECT * FROM signals WHERE symbol=? AND {HALTED_EMIT_FILTER} "
+                f"ORDER BY created_at DESC LIMIT ?"
+            )
             params = [ticker.upper(), min(limit, 200)]
         rows = conn.execute(q, params).fetchall()
         conn.close()

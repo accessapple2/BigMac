@@ -5,6 +5,7 @@ from datetime import datetime, timedelta
 from rich.console import Console
 
 import config
+from engine.halt_gate import HALTED_EMIT_FILTER
 
 console = Console()
 DB = "data/trader.db"
@@ -100,12 +101,14 @@ def get_signals_with_odds(limit: int = 20) -> list:
     try:
         conn = sqlite3.connect(DB, check_same_thread=False)
         conn.row_factory = sqlite3.Row
+        # HM-C: filter halted-player emissions from scorecard/calibration math
         rows = conn.execute(
-            """
+            f"""
             SELECT s.player_id, s.symbol, s.signal, s.confidence, s.reasoning, s.created_at,
                    p.display_name
             FROM signals s
             JOIN ai_players p ON p.id = s.player_id
+            WHERE s.{HALTED_EMIT_FILTER}
             ORDER BY s.created_at DESC LIMIT ?
         """,
             (limit,),

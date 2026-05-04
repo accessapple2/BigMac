@@ -13,6 +13,8 @@ import logging
 from datetime import datetime, timedelta
 from typing import Any
 
+from engine.halt_gate import HALTED_EMIT_FILTER
+
 logger = logging.getLogger(__name__)
 
 DB_PATH = "data/trader.db"
@@ -85,12 +87,14 @@ def update_trust_scores() -> None:
         _ensure_tables(db)
 
         # Get signal outcomes from last 30 days
+        # HM-C: filter halted-player emissions from scorecard/calibration math
         try:
-            rows = db.execute("""
+            rows = db.execute(f"""
                 SELECT s.signal_type, s.outcome_pct, s.regime
                 FROM signals s
                 WHERE s.outcome_pct IS NOT NULL
                   AND s.created_at >= datetime('now', '-30 days')
+                  AND s.{HALTED_EMIT_FILTER}
             """).fetchall()
         except Exception:
             rows = []

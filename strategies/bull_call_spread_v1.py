@@ -30,6 +30,8 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+from engine.halt_gate import HALTED_EMIT_FILTER
+
 from .base import Strategy, MarketContext, StrategySignal
 from .iv_rank import get_iv_rank
 from .chain_lookup import get_spread_quote
@@ -247,13 +249,16 @@ def _check_tier2_buy_signal(ticker: str) -> bool:
     try:
         conn = sqlite3.connect(str(_DB_PATH), timeout=3)
         conn.row_factory = sqlite3.Row
+        # HM-C: filter halted-player emissions from scorecard/calibration math
+        # (decisional: halted player BUYs must NOT trigger tier-2 spread entry)
         row = conn.execute(
-            "SELECT id FROM signals "
-            "WHERE symbol=? "
-            "AND (UPPER(signal) LIKE '%BUY%' OR UPPER(signal) LIKE '%CALL%' "
-            "     OR UPPER(signal) LIKE '%BULL%') "
-            "AND created_at >= datetime('now', '-4 hours') "
-            "LIMIT 1",
+            f"SELECT id FROM signals "
+            f"WHERE symbol=? "
+            f"AND (UPPER(signal) LIKE '%BUY%' OR UPPER(signal) LIKE '%CALL%' "
+            f"     OR UPPER(signal) LIKE '%BULL%') "
+            f"AND created_at >= datetime('now', '-4 hours') "
+            f"AND {HALTED_EMIT_FILTER} "
+            f"LIMIT 1",
             (ticker,),
         ).fetchone()
         conn.close()

@@ -9,6 +9,8 @@ import sqlite3
 from datetime import datetime
 from rich.console import Console
 
+from engine.halt_gate import HALTED_EMIT_FILTER
+
 console = Console()
 DB = "data/trader.db"
 
@@ -199,11 +201,13 @@ def _get_data_stance(tickers: list[str]) -> tuple[str, dict]:
     # Fallback: pull mlx-qwen3 signals from DB
     try:
         conn = _conn()
+        # HM-C: filter halted-player emissions from scorecard/calibration math
         rows = conn.execute(
-            "SELECT symbol, signal, confidence, reasoning FROM signals "
-            "WHERE player_id='mlx-qwen3' "
-            "AND created_at >= datetime('now', '-24 hours') "
-            "ORDER BY created_at DESC"
+            f"SELECT symbol, signal, confidence, reasoning FROM signals "
+            f"WHERE player_id='mlx-qwen3' "
+            f"AND created_at >= datetime('now', '-24 hours') "
+            f"AND {HALTED_EMIT_FILTER} "
+            f"ORDER BY created_at DESC"
         ).fetchall()
         conn.close()
         if rows:
@@ -259,11 +263,16 @@ def _get_uhura_stance(tickers: list[str]) -> tuple[str, dict]:
                 return outlook, stances
 
         # Fallback: pull signals from DB
+        # HM-C: filter halted-player emissions from scorecard/calibration math
+        # NOTE: ollama-llama (Uhura) is currently halted, so this fallback will
+        # return empty until Uhura is reactivated. Bridge consensus will return
+        # NEUTRAL where it used to surface Uhura's stance — that is correct.
         sig_rows = conn.execute(
-            "SELECT symbol, signal, confidence, reasoning FROM signals "
-            "WHERE player_id='ollama-llama' "
-            "AND created_at >= datetime('now', '-24 hours') "
-            "ORDER BY created_at DESC"
+            f"SELECT symbol, signal, confidence, reasoning FROM signals "
+            f"WHERE player_id='ollama-llama' "
+            f"AND created_at >= datetime('now', '-24 hours') "
+            f"AND {HALTED_EMIT_FILTER} "
+            f"ORDER BY created_at DESC"
         ).fetchall()
         conn.close()
         if sig_rows:
@@ -320,10 +329,12 @@ def _get_crew_stances(tickers: list[str]) -> dict:
             crew[pid][t] = stance
 
     # Also pull from latest signals (last 24h) for models that may not have War Room posts
+    # HM-C: filter halted-player emissions from scorecard/calibration math
     signal_rows = conn.execute(
-        "SELECT player_id, symbol, signal, confidence, reasoning FROM signals "
-        "WHERE created_at >= datetime('now', '-24 hours') "
-        "ORDER BY created_at DESC"
+        f"SELECT player_id, symbol, signal, confidence, reasoning FROM signals "
+        f"WHERE created_at >= datetime('now', '-24 hours') "
+        f"AND {HALTED_EMIT_FILTER} "
+        f"ORDER BY created_at DESC"
     ).fetchall()
 
     seen_signals = set()

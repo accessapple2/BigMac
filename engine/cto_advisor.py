@@ -17,6 +17,7 @@ from datetime import datetime
 from rich.console import Console
 
 from config import OLLIE_URL as _OLLIE_URL
+from engine.halt_gate import HALTED_EMIT_FILTER
 
 console = Console()
 DB = "data/trader.db"
@@ -114,12 +115,14 @@ def _get_grok_client():
 def _gather_signals() -> str:
     """Get all signals from the last 24 hours across all models."""
     conn = _conn()
+    # HM-C: filter halted-player emissions from scorecard/calibration math
     signals = conn.execute(
-        "SELECT s.player_id, p.display_name, s.symbol, s.signal, s.confidence, "
-        "s.reasoning, s.created_at "
-        "FROM signals s JOIN ai_players p ON s.player_id = p.id "
-        "WHERE s.created_at >= datetime('now', '-24 hours') "
-        "ORDER BY s.created_at DESC LIMIT 50"
+        f"SELECT s.player_id, p.display_name, s.symbol, s.signal, s.confidence, "
+        f"s.reasoning, s.created_at "
+        f"FROM signals s JOIN ai_players p ON s.player_id = p.id "
+        f"WHERE s.created_at >= datetime('now', '-24 hours') "
+        f"AND s.{HALTED_EMIT_FILTER} "
+        f"ORDER BY s.created_at DESC LIMIT 50"
     ).fetchall()
     conn.close()
 

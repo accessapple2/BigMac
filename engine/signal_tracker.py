@@ -4,6 +4,8 @@ import sqlite3
 from datetime import datetime
 from rich.console import Console
 
+from engine.halt_gate import HALTED_EMIT_FILTER
+
 console = Console()
 DB = "data/trader.db"
 
@@ -38,18 +40,22 @@ def record_signal(player_id: str, display_name: str, symbol: str,
         console.log(f"[yellow][HALT-GATE] Suppressed watchlist_signal from {player_id} (not active)")
         return None
 
-    # Check for existing active signal from same model+symbol
+    # HM-C: filter halted-player emissions from scorecard/calibration math
+    # (lookup side: ignore halted players' stale active rows so they neither
+    #  block a re-entry nor mark a new signal as falsely "confirmed")
     existing = conn.execute(
-        "SELECT id FROM watchlist_signals WHERE player_id=? AND symbol=? AND status='active'",
+        f"SELECT id FROM watchlist_signals WHERE player_id=? AND symbol=? "
+        f"AND status='active' AND {HALTED_EMIT_FILTER}",
         (player_id, symbol)
     ).fetchone()
     if existing:
         conn.close()
         return None
 
-    # Check if another model already has an active signal → CONFIRMED
+    # HM-C: filter halted-player emissions from scorecard/calibration math
     other = conn.execute(
-        "SELECT player_id FROM watchlist_signals WHERE symbol=? AND status='active' AND player_id!=?",
+        f"SELECT player_id FROM watchlist_signals WHERE symbol=? AND status='active' "
+        f"AND player_id!=? AND {HALTED_EMIT_FILTER}",
         (symbol, player_id)
     ).fetchone()
     confirmed = other is not None
@@ -192,13 +198,14 @@ def get_all_signals(limit: int = 100) -> list:
 def get_consensus_signals() -> list:
     """Get symbols with multiple active model signals (consensus)."""
     conn = _conn()
-    rows = conn.execute("""
+    # HM-C: filter halted-player emissions from scorecard/calibration math
+    rows = conn.execute(f"""
         SELECT symbol, COUNT(DISTINCT player_id) as model_count,
                GROUP_CONCAT(DISTINCT display_name) as models,
                AVG(confidence) as avg_confidence,
                MIN(entry_price) as earliest_entry,
                MAX(entry_price) as latest_entry
-        FROM watchlist_signals WHERE status='active'
+        FROM watchlist_signals WHERE status='active' AND {HALTED_EMIT_FILTER}
         GROUP BY symbol HAVING model_count >= 2
         ORDER BY model_count DESC, avg_confidence DESC
     """).fetchall()
@@ -265,12 +272,13 @@ def flag_reentry(player_id: str, display_name: str, symbol: str,
     Returns re-entry context if found, None otherwise.
     """
     conn = _conn()
-    # Find watching signals for this symbol from ANY model (within 14 days)
+    # HM-C: filter halted-player emissions from scorecard/calibration math
     watching = conn.execute(
-        "SELECT player_id, display_name, symbol, entry_price, exit_price, resolved_at "
-        "FROM watchlist_signals WHERE symbol=? AND status='watching' "
-        "AND resolved_at >= datetime('now', '-14 days') "
-        "ORDER BY resolved_at DESC LIMIT 1",
+        f"SELECT player_id, display_name, symbol, entry_price, exit_price, resolved_at "
+        f"FROM watchlist_signals WHERE symbol=? AND status='watching' "
+        f"AND resolved_at >= datetime('now', '-14 days') "
+        f"AND {HALTED_EMIT_FILTER} "
+        f"ORDER BY resolved_at DESC LIMIT 1",
         (symbol,)
     ).fetchone()
     conn.close()
@@ -315,12 +323,13 @@ def get_reentry_opportunities() -> list:
 def get_reentry_prompt_section(player_id: str, symbol: str) -> str:
     """Build prompt section for AI if this stock was previously held and exited."""
     conn = _conn()
-    # Check if this model (or any model) recently exited this symbol
+    # HM-C: filter halted-player emissions from scorecard/calibration math
     watching = conn.execute(
-        "SELECT player_id, display_name, entry_price, exit_price, resolved_at "
-        "FROM watchlist_signals WHERE symbol=? AND status='watching' "
-        "AND resolved_at >= datetime('now', '-14 days') "
-        "ORDER BY resolved_at DESC LIMIT 1",
+        f"SELECT player_id, display_name, entry_price, exit_price, resolved_at "
+        f"FROM watchlist_signals WHERE symbol=? AND status='watching' "
+        f"AND resolved_at >= datetime('now', '-14 days') "
+        f"AND {HALTED_EMIT_FILTER} "
+        f"ORDER BY resolved_at DESC LIMIT 1",
         (symbol,)
     ).fetchone()
     conn.close()
@@ -343,7 +352,8 @@ def get_reentry_leaderboard() -> list:
     conn = _conn()
     # A successful re-entry: model had a watching signal, then issued a new BUY
     # that later hit target
-    rows = conn.execute("""
+    # HM-C: filter halted-player emissions from scorecard/calibration math
+    rows = conn.execute(f"""
         SELECT r.player_id, r.display_name,
                COUNT(*) as total_reentries,
                SUM(CASE WHEN r.status='hit_target' THEN 1 ELSE 0 END) as hits,
@@ -354,12 +364,15 @@ def get_reentry_leaderboard() -> list:
         WHERE r.symbol IN (
             SELECT DISTINCT symbol FROM watchlist_signals
             WHERE status='watching' AND resolved_at >= datetime('now', '-30 days')
+              AND {HALTED_EMIT_FILTER}
         )
         AND r.signal_date > (
             SELECT MAX(w2.resolved_at) FROM watchlist_signals w2
             WHERE w2.symbol = r.symbol AND w2.status='watching'
+              AND w2.{HALTED_EMIT_FILTER}
         )
         AND r.status IN ('active', 'hit_target', 'expired')
+        AND r.{HALTED_EMIT_FILTER}
         GROUP BY r.player_id
         ORDER BY hits DESC
     """).fetchall()
@@ -385,7 +398,8 @@ def get_reentry_leaderboard() -> list:
 def get_model_leaderboard() -> list:
     """Best Signals leaderboard — which model has highest hit rate."""
     conn = _conn()
-    rows = conn.execute("""
+    # HM-C: filter halted-player emissions from scorecard/calibration math
+    rows = conn.execute(f"""
         SELECT player_id, display_name,
                COUNT(*) as total_signals,
                SUM(CASE WHEN status='hit_target' THEN 1 ELSE 0 END) as hits,
@@ -394,6 +408,7 @@ def get_model_leaderboard() -> list:
                AVG(CASE WHEN status!='active' THEN pnl_pct ELSE NULL END) as avg_pnl,
                AVG(confidence) as avg_confidence
         FROM watchlist_signals
+        WHERE {HALTED_EMIT_FILTER}
         GROUP BY player_id
         ORDER BY hits DESC, avg_pnl DESC
     """).fetchall()

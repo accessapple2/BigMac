@@ -13,6 +13,7 @@ from engine.news_fetcher import get_news_for_symbol
 from engine.risk_manager import RiskManager
 from engine.ai_chat import generate_chat_message, save_chat_message
 from engine.telegram_alerts import alert_trade, alert_stop_loss
+from engine.halt_gate import HALTED_EMIT_FILTER
 
 console = Console()
 
@@ -559,11 +560,14 @@ class Arena:
                 import sqlite3 as _sq
                 _sc = _sq.connect("data/trader.db", check_same_thread=False, timeout=10)
                 _sc.row_factory = _sq.Row
+                # HM-C: filter halted-player emissions from scorecard/calibration math
+                # (TIER-1 escalation gate — halted players must not trigger tier-2 cloud cascade)
                 recent = _sc.execute(
-                    "SELECT signal, confidence FROM signals "
-                    "WHERE created_at > datetime('now', '-10 minutes') "
-                    "AND signal IN ('BUY', 'SELL') "
-                    "AND confidence >= ? LIMIT 1",
+                    f"SELECT signal, confidence FROM signals "
+                    f"WHERE created_at > datetime('now', '-10 minutes') "
+                    f"AND signal IN ('BUY', 'SELL') "
+                    f"AND {HALTED_EMIT_FILTER} "
+                    f"AND confidence >= ? LIMIT 1",
                     (TIER2_SIGNAL_THRESHOLD,)
                 ).fetchone()
                 _sc.close()

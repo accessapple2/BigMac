@@ -4,6 +4,8 @@ import sqlite3
 from datetime import datetime
 from rich.console import Console
 
+from engine.halt_gate import HALTED_EMIT_FILTER
+
 console = Console()
 DB = "data/trader.db"
 
@@ -28,11 +30,13 @@ def detect_pair_opportunities() -> list:
 
     conn = _conn()
     # Get latest signals per player per symbol (last 10 min)
-    signals = conn.execute("""
+    # HM-C: filter halted-player emissions from scorecard/calibration math
+    signals = conn.execute(f"""
         SELECT s.player_id, p.display_name, s.symbol, s.signal, s.confidence, s.created_at
         FROM signals s JOIN ai_players p ON s.player_id = p.id
         WHERE s.created_at >= datetime('now', '-10 minutes')
         AND s.player_id != 'dayblade-0dte'
+        AND s.{HALTED_EMIT_FILTER}
         ORDER BY s.created_at DESC
     """).fetchall()
     conn.close()

@@ -4,6 +4,8 @@ import sqlite3
 from datetime import datetime
 from rich.console import Console
 
+from engine.halt_gate import HALTED_EMIT_FILTER
+
 console = Console()
 DB = "data/trader.db"
 
@@ -297,9 +299,11 @@ def run_autopilot(prices: dict):
             lowest = None
             lowest_conf = 2.0
             for pos in portfolio["positions"]:
+                # HM-C: filter halted-player emissions from scorecard/calibration math
                 row = conn2.execute(
-                    "SELECT confidence FROM signals WHERE player_id=? AND symbol=? "
-                    "ORDER BY created_at DESC LIMIT 1",
+                    f"SELECT confidence FROM signals WHERE player_id=? AND symbol=? "
+                    f"AND {HALTED_EMIT_FILTER} "
+                    f"ORDER BY created_at DESC LIMIT 1",
                     (pid, pos["symbol"])
                 ).fetchone()
                 conf = row["confidence"] if row and row["confidence"] else 0.5

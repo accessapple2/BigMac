@@ -3953,15 +3953,17 @@ def ollie_auto_check(ctx: dict | None = None) -> list[dict]:
         sc_map   = {p["symbol"]: p for p in sc_picks}
 
         # ── Fleet consensus picks (3+ agents) ─────────────────────────────
+        # HM-C: filter halted-player emissions from scorecard/calibration math
+        from engine.halt_gate import HALTED_EMIT_FILTER
         c = _conn()
-        fleet_rows = c.execute("""
+        fleet_rows = c.execute(f"""
             SELECT symbol,
                    COUNT(DISTINCT player_id) AS fleet_count,
                    AVG(confidence)           AS avg_conf,
                    AVG(entry_price)          AS avg_entry,
                    GROUP_CONCAT(DISTINCT player_id) AS agents
             FROM watchlist_signals
-            WHERE status = 'active'
+            WHERE status = 'active' AND {HALTED_EMIT_FILTER}
             GROUP BY symbol
             HAVING fleet_count >= 3
             ORDER BY fleet_count DESC, avg_conf DESC

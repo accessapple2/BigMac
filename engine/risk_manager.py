@@ -3,6 +3,8 @@ from datetime import datetime, time as dtime
 import os
 import sqlite3
 
+from engine.halt_gate import HALTED_EMIT_FILTER
+
 DB = os.environ.get(
     "TRADEMINDS_DB",
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
@@ -308,9 +310,11 @@ class RiskManager:
         try:
             conn = sqlite3.connect(DB, check_same_thread=False, timeout=10)
             # Worf inverse arsenal picks
+            # HM-C: filter halted-player emissions from scorecard/calibration math
             row = conn.execute(
-                "SELECT symbol FROM signals WHERE player_id IN ('qwen3-8b-flash','dalio-metals') "
-                "AND symbol=? AND signal='BUY' AND created_at > datetime('now','-7 days')",
+                f"SELECT symbol FROM signals WHERE player_id IN ('qwen3-8b-flash','dalio-metals') "
+                f"AND symbol=? AND signal='BUY' AND created_at > datetime('now','-7 days') "
+                f"AND {HALTED_EMIT_FILTER}",
                 (symbol.upper(),)
             ).fetchone()
             conn.close()

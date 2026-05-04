@@ -8,6 +8,7 @@ from __future__ import annotations
 import sqlite3
 from datetime import datetime, timedelta
 from engine.market_data import _yahoo_chart
+from engine.halt_gate import HALTED_EMIT_FILTER
 from rich.console import Console
 
 console = Console()
@@ -602,17 +603,21 @@ def backtest_player(player_id: str, days: int = 30,
         effective_days = days
 
     # Get all BUY signals in the period
-    query = """
+    # HM-C: filter halted-player emissions from scorecard/calibration math
+    query = f"""
         SELECT symbol, signal, confidence, created_at
         FROM signals WHERE player_id=? AND signal IN ('BUY', 'BUY_CALL', 'BUY_PUT')
-        AND created_at >= ? ORDER BY created_at ASC
+        AND created_at >= ? AND {HALTED_EMIT_FILTER}
+        ORDER BY created_at ASC
     """
     params = [player_id, cutoff]
     if start_date and end_date:
-        query = """
+        # HM-C: filter halted-player emissions from scorecard/calibration math
+        query = f"""
             SELECT symbol, signal, confidence, created_at
             FROM signals WHERE player_id=? AND signal IN ('BUY', 'BUY_CALL', 'BUY_PUT')
-            AND created_at >= ? AND created_at <= ? ORDER BY created_at ASC
+            AND created_at >= ? AND created_at <= ? AND {HALTED_EMIT_FILTER}
+            ORDER BY created_at ASC
         """
         params.append(end_date + "T23:59:59")
 

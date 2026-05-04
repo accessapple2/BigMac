@@ -13,6 +13,7 @@ from datetime import datetime, timedelta
 import config as _config
 from crewai import Agent
 from crewai.tools import tool
+from engine.halt_gate import HALTED_EMIT_FILTER
 from langchain_community.chat_models import ChatOllama
 from shared.finviz_scanner import scan_finviz
 from uoa.crew_tools import uoa_alerts_tool, uoa_flow_tool, uoa_put_call_scan_tool
@@ -67,11 +68,14 @@ def query_news_sources(topic: str) -> str:
                              "data": [dict(r) for r in rows]})
 
         # 2. signals — recent AI buy/sell signals for matching symbols
+        # HM-C: filter halted-player emissions from scorecard/calibration math
         rows = conn.execute(
-            "SELECT player_id, symbol, signal, confidence, reasoning, asset_type, "
-            "option_type, created_at FROM signals "
-            "WHERE (symbol LIKE ? OR reasoning LIKE ?) AND created_at > datetime('now', '-3 days') "
-            "ORDER BY created_at DESC LIMIT 15",
+            f"SELECT player_id, symbol, signal, confidence, reasoning, asset_type, "
+            f"option_type, created_at FROM signals "
+            f"WHERE (symbol LIKE ? OR reasoning LIKE ?) "
+            f"AND created_at > datetime('now', '-3 days') "
+            f"AND {HALTED_EMIT_FILTER} "
+            f"ORDER BY created_at DESC LIMIT 15",
             (f"%{topic.upper()}%", f"%{topic}%"),
         ).fetchall()
         if rows:
@@ -479,11 +483,13 @@ def get_live_discoveries(_: str = "") -> str:
             })
 
         # 3. AI Signals — recent BUY signals from the war room
+        # HM-C: filter halted-player emissions from scorecard/calibration math
         rows = conn.execute(
-            "SELECT player_id, symbol, signal, confidence, reasoning, asset_type, created_at "
-            "FROM signals WHERE signal = 'BUY' "
-            "AND created_at > datetime('now', '-24 hours') "
-            "ORDER BY confidence DESC, created_at DESC LIMIT 20"
+            f"SELECT player_id, symbol, signal, confidence, reasoning, asset_type, created_at "
+            f"FROM signals WHERE signal = 'BUY' "
+            f"AND created_at > datetime('now', '-24 hours') "
+            f"AND {HALTED_EMIT_FILTER} "
+            f"ORDER BY confidence DESC, created_at DESC LIMIT 20"
         ).fetchall()
         if rows:
             sections.append({

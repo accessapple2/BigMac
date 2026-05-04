@@ -12,6 +12,8 @@ import requests
 from datetime import datetime
 from rich.console import Console
 
+from engine.halt_gate import HALTED_EMIT_FILTER
+
 console = Console()
 
 _cache = {"recommendation": None, "ts": 0}
@@ -102,11 +104,16 @@ def _do_riker_synthesis() -> str | None:
             "ORDER BY created_at DESC LIMIT 5"
         ).fetchall()
         if not uhura_posts:
+            # HM-C: filter halted-player emissions from scorecard/calibration math
+            # NOTE: ollama-llama (Uhura) is currently halted; this fallback now
+            # returns empty until Uhura is reactivated. Riker XO will skip the
+            # "UHURA'S SENTIMENT" section instead of surfacing ghost output.
             uhura_signals = conn.execute(
-                "SELECT symbol, signal, reasoning FROM signals "
-                "WHERE player_id='ollama-llama' "
-                "AND created_at >= datetime('now', '-24 hours') "
-                "ORDER BY created_at DESC LIMIT 5"
+                f"SELECT symbol, signal, reasoning FROM signals "
+                f"WHERE player_id='ollama-llama' "
+                f"AND created_at >= datetime('now', '-24 hours') "
+                f"AND {HALTED_EMIT_FILTER} "
+                f"ORDER BY created_at DESC LIMIT 5"
             ).fetchall()
             if uhura_signals:
                 lines = [f"  {r['symbol']}: {r['signal']} — {(r['reasoning'] or '')[:100]}" for r in uhura_signals]

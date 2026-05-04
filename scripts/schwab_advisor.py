@@ -21,6 +21,10 @@ REPO_ROOT   = Path(os.environ.get("BIGMAC_REPO", "/Users/bigmac/autonomous-trade
 DB_PATH     = REPO_ROOT / "data" / "trader.db"
 SIGNALS_DB  = REPO_ROOT / "signal-center" / "signals.db"
 
+if str(REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(REPO_ROOT))
+from engine.halt_gate import HALTED_EMIT_FILTER
+
 SECTOR_MAP: dict[str, str] = {
     "AMD":  "Semiconductors",
     "AMZN": "E-commerce/Cloud",
@@ -63,6 +67,8 @@ def _load_signals(symbols: list[str]) -> list[dict]:
     results: list[dict] = []
 
     # Source 1: trader.db → signals (player_id, symbol, signal, confidence, created_at)
+    # HM-C: filter halted-player emissions from scorecard/calibration math
+    # (real-broker advisor — halted players must not influence Schwab advisory)
     try:
         conn = sqlite3.connect(str(DB_PATH))
         rows = conn.execute(
@@ -72,6 +78,7 @@ def _load_signals(symbols: list[str]) -> list[dict]:
             FROM signals
             WHERE symbol IN ({placeholders})
               AND created_at >= ?
+              AND {HALTED_EMIT_FILTER}
             ORDER BY created_at DESC
             LIMIT 50
             """,

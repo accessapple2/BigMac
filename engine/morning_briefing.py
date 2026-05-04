@@ -22,6 +22,8 @@ import datetime
 import time as _time
 import logging
 
+from engine.halt_gate import HALTED_EMIT_FILTER
+
 logger = logging.getLogger(__name__)
 
 # ── DB helpers ─────────────────────────────────────────────────────────────────
@@ -178,10 +180,12 @@ def _get_watchlist_picks() -> str:
                 consensus = f"MIXED (B{buy_ct}/S{sell_ct}/H{hold_ct})"
 
         # Top watchlist signals
+        # HM-C: filter halted-player emissions from scorecard/calibration math
         sigs = conn.execute(
-            "SELECT symbol, signal, confidence, reasoning "
-            "FROM signals WHERE date(created_at) >= date('now', '-1 day') "
-            "ORDER BY confidence DESC LIMIT 5"
+            f"SELECT symbol, signal, confidence, reasoning "
+            f"FROM signals WHERE date(created_at) >= date('now', '-1 day') "
+            f"AND {HALTED_EMIT_FILTER} "
+            f"ORDER BY confidence DESC LIMIT 5"
         ).fetchall()
 
         lines = [f"Bridge Consensus: {consensus}"]

@@ -59,6 +59,8 @@ import urllib.request
 from typing import Any
 import logging
 
+from engine.halt_gate import HALTED_EMIT_FILTER
+
 logger = logging.getLogger(__name__)
 
 # ── Cache ─────────────────────────────────────────────────────────────────────
@@ -398,10 +400,12 @@ def _get_fleet_data(symbol: str) -> dict:
             wins = sum(1 for r in hist if (r[0] or 0) > 0)
             out["backtest_winrate"] = round(wins / len(hist) * 100)
         # Active signal
+        # HM-C: filter halted-player emissions from scorecard/calibration math
         try:
-            sig = db.execute("""
+            sig = db.execute(f"""
                 SELECT id FROM signals WHERE symbol=?
                   AND created_at >= datetime('now','-2 hours')
+                  AND {HALTED_EMIT_FILTER}
                 LIMIT 1
             """, (symbol,)).fetchone()
             out["has_active_signal"] = sig is not None
