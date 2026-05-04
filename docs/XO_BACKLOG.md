@@ -95,7 +95,7 @@ Original archive preserved at `~/autonomous-trader-archive/2026-05-04-pre-hmg-re
 ### Production noise / latent
 | ID | File | Severity | Status |
 |----|------|----------|--------|
-| B5 | `signal-center/server.py:~2104` | MEDIUM | Ghost scorecard calibration not run — scoring uncalibrated. Blocked on AI-1 (signal_scorecard writer) |
+| B5 ✅ RESOLVED 2026-05-04 | `signal-center/server.py:2121` | — | **Audit #6X investigation cleared this.** Scorecard system at `signals.db::trade_signals + signal_outcomes` is healthy (1,147 signals, 100% outcome coverage, daemon writing every 15 min). Endpoint `/api/signals/scorecard` returns HTTP 200 in ~19ms. **NOT blocked on AI-1** — that was a different table in `data/trader.db` audit #6A flagged as separate work. Per Admiral verdict 2026-05-04: gate-flip ready at SQL-level review. Frontend calibration column = follow-up sprint, not blocker. See `docs/AUDIT_6X_INVESTIGATION_2026-05-04.md`. |
 | B12 | `main.py:481/484` | MEDIUM | `check_vix_spike` ImportError — no commit yet, B12 status check on Monday per `b12_proposed_fix.md` |
 | B13 | `main.py:3608` | LOW | Rallies scraper ImportError — 1 occurrence; deferred |
 | B16 | `healthcheck.py:25,474` | MEDIUM (downgraded from CRITICAL) | `TUNNEL_URL` hardcoded to orphan `bridge.accessapple.com`. Real bridge `bridge.ollietrades.com` healthy. Part of accessapple rebrand sprint |
@@ -196,7 +196,7 @@ All acceptance criteria unchecked — sprint never started.
 
 | Item | Check | When |
 |------|-------|------|
-| Ghost scorecard calibration | `GET /api/signals/scorecard` (`server.py:2104`) | Before gate-flip |
+| ~~Ghost scorecard calibration~~ ✅ CLEARED 2026-05-04 | Audit #6X verified endpoint healthy; 1,147 signals, 100% outcome coverage. Per Admiral verdict, SQL-level review sufficient — frontend column is follow-up sprint, not blocker. | (resolved) |
 | Alpha threshold for `bull_spread_v1` first trade | Confirm threshold in strategy config | Before first trade |
 | Chrome extension Profile 5 re-install | Manual check | Next session |
 

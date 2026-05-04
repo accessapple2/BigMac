@@ -312,3 +312,27 @@ Python  53068  bigmac  TCP 127.0.0.1:9000 (LISTEN)
 - `CLAUDE.md` (Pending TODOs) — Polygon.io activation that would tighten outcome-tracker price feed
 
 — Lt. Cmdr. M. Scott, 2026-05-04 09:30 MST
+
+---
+
+## Admiral Verdicts — 2026-05-04
+
+Resolutions on the three open questions above.
+
+### Q1 — Frontend calibration column required for gate-flip?
+**Verdict: NO.** SQL-level data verification is sufficient for technical gate-flip readiness. Calibration data exists in `signals.db` (1,147 signals, 100% outcome coverage); Admiral can query directly. Frontend column = quality-of-life improvement, separate sprint, **NOT blocking gate-flip**.
+
+### Q2 — Update `UX_SPRINT_2026-04-28.md` `ghost_predictions` reference?
+**Verdict: MARK SUPERSEDED, do not rewrite.** UX_SPRINT was a planning doc; rewriting it loses the historical record of intent. Added a one-line header note pointing readers to this audit doc for current state.
+
+### Q3 — Which scorecard belongs in the leaderboard?
+**Verdict: BOTH, P&L primary / forecast-accuracy secondary.** The two metrics measure different things and both are useful:
+- `/api/agents/scoreboard` (`data/trader.db`, realized Alpaca-paper P&L) → **primary** sort column
+- `/api/signals/scorecard` (`signals.db`, TP/SL forecast accuracy) → **secondary** column
+
+P&L is primary because it's what gate-flip eventually enables. Forecast accuracy is secondary because it explains *why* an agent's P&L looks the way it does. Implementation deferred — not blocking gate-flip per Q1.
+
+### Gate-flip readiness — final verdict
+**✅ READY for SQL-level review.** Admiral can run gate-flip when satisfied with data review. Frontend calibration column + side-by-side scorecard panel = follow-up sprint, not blocker.
+
+— Admiral, 2026-05-04 (verdicts logged by Scotty 09:45 MST)
