@@ -15,6 +15,36 @@ OllieTrades is an autonomous AI paper trading system running on bigmac (Mac Mini
 - Always archive or rename instead of deleting
 - Ask before any destructive filesystem operation
 
+## Manual halt SQL pattern
+
+When halting a player via direct SQL (no programmatic halt path exists today),
+always include `halted_at` and update **both** `halt_mode` and `is_halted`:
+
+```sql
+UPDATE ai_players
+   SET halt_mode  = 'exit_only',
+       is_halted  = 1,
+       halted_at  = CURRENT_TIMESTAMP,
+       halt_reason = '[YYYY-MM-DD] [reason]'
+ WHERE id = 'X';
+```
+
+**Why both `is_halted` and `halt_mode`:** HM-A migrated production read paths
+to `halt_mode != 'active'` as the single source of truth. The `is_halted` column
+is preserved for the drawdown-halt system in `ai_brain.py` and `risk_manager.py`
+(which reads from a different table — `agent_state`, not `ai_players` — but the
+column-name parity prevents accidental drift). Both fields update together
+until HM-B drops `is_halted` from `ai_players`.
+
+**Why `halted_at` is mandatory:** there is no schema default and no trigger.
+Forgetting it leaves the timestamp NULL, which audit #6A flagged when the four
+April halts had their dates buried in `halt_reason` text. HM-F (2026-05-04)
+investigated whether to enforce this via a helper or trigger; finding was that
+no programmatic halt paths exist, so the runbook is the right place.
+
+To unhalt: same UPDATE pattern, `halt_mode='active'`, `is_halted=0`, leave
+`halted_at` and `halt_reason` as historical record (do not clear).
+
 ## Dashboard Rules
 - Dashboard is served from `dashboard/static/index.html` on port 8080
 - ALL dashboard edits target that single file — do not create new HTML files unless explicitly asked
