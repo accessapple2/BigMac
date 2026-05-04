@@ -8,6 +8,22 @@ Items moved by category based on observed reality, not historical claim.
 
 ---
 
+## Schwab Workflow
+
+**Drop directory:** `/Users/bigmac/Downloads/` (relocated 2026-05-04 from `/Users/Shared/schwab_inbox/`).
+
+**How it works:** Browser saves `Scwab*Positions*.csv` to `~/Downloads/`. The launchd watcher `com.ollietrades.schwab-watcher` polls every 60 seconds, finds the file via glob `Scwab*Positions*.csv` / `Schwab*Positions*.csv` / `schwab_*.csv` (case-insensitive), invokes `scripts/import_schwab_csv.py`, syncs via `scripts/sync_schwab_to_real_holdings.py`, archives the CSV to `data/schwab_csv_archive/`, and fires an NTFY notification to topic `ollietrades-admin`.
+
+**Imports log:**
+- 2026-05-04 09:35 MST — fresh snapshot 2026-05-04T12:15:00 imported, 24 rows. Resolved 4-day stale-data display issue (DELL day-change was showing -3.59% from 2026-04-30 snapshot; now correctly -0.77% from today's snapshot).
+- 2026-04-30 09:21 MST — snapshot 2026-04-30T11:30:00, 16 rows
+- 2026-04-28 09:39 MST — snapshot 2026-04-28T12:30:00, 14 rows
+- 2026-04-24 09:54 MST — snapshot 2026-04-24T12:48:00, 8 rows
+
+**Cadence note:** Imports are still manual-trigger (Admiral exports Schwab Positions CSV; browser saves to `~/Downloads/`; watcher does the rest). No NTFY reminder added — revisit if drift recurs in 3 weeks.
+
+---
+
 ## ⚠️ POST-GATE-FLIP MONDAY MORNING WATCH (2026-05-05 06:30 MST)
 
 Gate flipped 2026-05-04 08:30 MST (commit `df7320c`). Service restarted PID 13734.

@@ -1,8 +1,10 @@
 #!/bin/bash
-# Watches ~/Downloads/ for new Schwab CSVs, auto-imports + syncs + notifies
+# Watches /Users/bigmac/Downloads/ for new Schwab CSVs, auto-imports + syncs + notifies.
+# Relocated 2026-05-04 from /Users/Shared/schwab_inbox/ — meet downloads where the
+# browser puts them. Absolute path used because launchd does not expand ~.
 set -euo pipefail
 
-WATCH_DIR="/Users/Shared/schwab_inbox"
+WATCH_DIR="/Users/bigmac/Downloads"
 PROCESSED_DIR="$HOME/autonomous-trader/data/schwab_csv_archive"
 LOG="$HOME/autonomous-trader/logs/schwab_watcher.log"
 VENV="$HOME/autonomous-trader/venv/bin/python3"
