@@ -1,5 +1,7 @@
 # MONDAY SPRINT — 2026-04-27
 
+> **Note:** `.bak.*` paths referenced below were archived 2026-05-04 to `archive/sprint-backups/2026-04/` (HM-H). Path strings in this document are historical references; the files themselves are flattened (slashes → double underscores) at that location. See `archive/sprint-backups/2026-04/README.md` for the restore procedure.
+
 **Session**: S6.3 Monday Sprint
 **Gate**: `_EXECUTION_ENABLED=False` held throughout
 **Duration**: Full day sprint (continuation of Sunday Power Close-Out)

@@ -1,5 +1,7 @@
 # Sunday Drydock Final Report — 2026-04-26
 
+> **Note:** `.bak.*` paths referenced below were archived 2026-05-04 to `archive/sprint-backups/2026-04/` (HM-H). Path strings in this document are historical references; the files themselves are flattened (slashes → double underscores) at that location. See `archive/sprint-backups/2026-04/README.md` for the restore procedure.
+
 ## Session Overview
 
 Two-phase session: full architectural audit (read-only) followed by
