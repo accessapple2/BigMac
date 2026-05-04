@@ -1,90 +1,141 @@
 # XO Backlog — USS TradeMinds
 # Riker's Standing Work Queue
-# Updated: 2026-05-03
+# Updated: 2026-05-03 (Yellow Alert Phase 1 reconciliation)
+
+**Reconciliation method**: every claim below verified against running code, DB state,
+launchctl, trader.log post-PID-84968 startup (15:45 MST today), and on-disk files.
+Items moved by category based on observed reality, not historical claim.
 
 ---
 
-## NEW BOMBS DISCOVERED 2026-05-03 (Sunday morning audit)
+## VERIFIED CLOSED (commit + reality both confirmed)
 
-| ID  | File | Line | Description | Severity | Evidence |
-|-----|------|------|-------------|----------|----------|
-| B12 | `main.py` | 481/484 | `check_vix_spike` ImportError — VIX check fires every 15 min | MEDIUM | 10+ occurrences in clean post-08:00 grep filter today |
-| B13 | `main.py` | 3608 | Rallies scraper ImportError | LOW | 1 occurrence at 11:34:43 today |
-| B14 | `engine/alpaca_options.py` | 378/384 | Alpaca options `close_all` ImportError — could affect real options exit if execution ever enabled | MEDIUM-HIGH | 4 occurrences today (12:45, 12:49) |
-| B15 | `main.py` | 3833/3834 | `OLLIE_URL` NameError — pre-existing bug, fires every ~1 sec. NOT caused by our edits. Pattern: variable referenced inside a function/closure missing scope | HIGH (log noise + scheduler dying every cycle) | 53,984 occurrences in `trader.log` |
-
-**Pattern note**: All 4 bombs share the same family — "cannot import name" or "name not defined". Suggests a historical refactor moved/renamed functions and importer/caller sites were never updated. `except Exception` handlers swallow the failures silently. **Recommend a dedicated import-drift audit pass next drydock** — grep the codebase for `ImportError|NameError` log lines, cross-reference against current symbol tables, fix in one batch.
-
----
-
-## NEW BOMBS DISCOVERED 2026-05-03 — Health Audit (Sunday afternoon)
-
-Comprehensive system health audit (Opus 4.7, read-only). Full report at `/tmp/scotty_session_2026-05-03/health_audit_2026-05-03.md`.
-
-| ID  | File | Line(s) | Description | Severity | Evidence |
-|-----|------|---------|-------------|----------|----------|
-| B16 | `healthcheck.py` | 25, 474 | **Reframed**: false-alarm tunnel restart loop. Root cause: `TUNNEL_URL` hardcoded to `https://bridge.accessapple.com`, an orphaned domain from incomplete project rebrand. **Real bridge `bridge.ollietrades.com` is HEALTHY** (HTTP 303 from Cloudflare Access = correct). Healthcheck has been bouncing a working tunnel hourly for 3 weeks. **NOT an infrastructure outage.** Severity downgraded from CRITICAL to MEDIUM. Fix is part of larger 'accessapple rebrand cleanup' sprint, not urgent. | MEDIUM | 540 STALE entries in `healthcheck.log`, 326 plist reloads since 2026-04-11. Curl-confirmed `accessapple.com` = NXDOMAIN, `ollietrades.com` = 303 OK. |
-| B17 | unknown (libxml2 caller) | — | XML scraper passing Wikipedia HTML response *body* as filename to libxml2. Likely S&P 500 universe scraper using `lxml.html.parse(string)` instead of `parse(BytesIO(content))`. | MEDIUM | 49 `I/O error : Filename too long: %3C!DOCTYPE…` in `trader_error.log` |
-| B18 | `engine/fast_scanner.py` | 389/489-490 | SQLite WAL contention — scanner writes silently dropped when trader process holds lock. | MEDIUM | 5 `sqlite3.OperationalError: database is locked` in `scanner.err` |
-| B19 | aladdin scraper write path | — | Same DB-lock contention family as B18. | LOW-MEDIUM | 35 db-lock-adjacent entries in `aladdin.log` |
-| B20 | yfinance internal | — | Yahoo Finance "Invalid Crumb" 401 auth bursts. ~9 retries per burst before yfinance refreshes crumb. Always self-recovers. | LOW | 25 `HTTP 401 Invalid Crumb` in 2 daily bursts (~12:27 and ~15:46) |
-| B21 | polygon-backfill cron + iv_history writer | — | iv_history Day 5 (2026-05-02) MISSING. Last entry 2026-05-01 polygon-backfill 10 rows. Was XO H4 pending verification. | MEDIUM | `SELECT MAX(as_of_date) FROM iv_history` = 2026-05-01 |
-| B22 | `arena.db` (root) AND `data/arena.db` | — | Two 0-byte arena.db files. Code may write to whichever cwd it has — silent path-collision bug. | LOW | both `ls -la` confirmed 0 bytes |
-| B23 | `CLAUDE.md` SACRED DATA RULES | — | `tractor.db` referenced in sacred-data list but file does not exist. Doc drift. | LOW | `find -name "tractor*.db"` = 0 hits |
-| B24 | `logs/*.log` | — | No log rotation policy. trader.log 26.3 MB / 337k lines, trader_error.log 13.7 MB / 142k lines and growing. Once B15 is fixed the bleed slows; rotation still needed. | MEDIUM | no `.log.1` / `.log.gz` anywhere |
-| B25 | `data/.fuse_hidden*` × 19 | — | Zombie files from prior FUSE mount/unmount glitch. `lsof` shows 0 processes hold open. Safe to clean. Oldest 2026-04-17. | LOW | 19 files, 32KB each |
-| B26 | `main.py` | 2554-2587 | Scheduler comment-vs-cadence drift (~7 mismatches). Comments say "every 5 min" while code is `every(15).minutes`, etc. Cosmetic, no runtime impact. | LOW | 7+ direct comment lies in 35-line block |
-| B27 | `healthcheck.py` (Ready Room + Red Alert checks) | — | Crusher healthcheck has weekend false-positives — flags "no Ready Room briefing" / "no Red Alert poll" on Sat/Sun. Alert-fatigue risk. | LOW | every weekend in `healthcheck.log` |
-| B28 | `backups/trader_2026-04-07.db-shm`/`-wal`, `backups/trader_2026-04-08.db-shm`/`-wal` | — | Backup orphan WAL files — main `.db` purged but `-shm`/`-wal` siblings remain. Backup pruning script doesn't clean them. | LOW | 4 sidecar files, no main DB |
-| B29 | `data/trader.db` `ghost_trades` table | — | Only **9 rows total**. CLAUDE.md describes Bench 4 ghost-trading recording every signal. Likely writer is silently failing OR ghosts write to per-agent tables (`janeway_paper_trades`, `sarek_paper_trades`, etc.) instead. Same import-drift family as B12-B15. | MEDIUM | `SELECT COUNT(*) FROM ghost_trades` = 9 |
-
-**Pattern note (audit-level)**: Health audit revealed an incomplete project rebrand (`accessapple` → `ollietrades`) is the root cause of multiple symptoms including B16. **Future drydock should include 'rebrand cleanup verification' as a checklist item — when renaming a project, grep all source files plus docs for the old name.** Also: half of B12-B29 share the same family ("symbol moved, callers not updated, error swallowed"). One disciplined import-drift / rename-drift sweep would close 8+ items at once.
+| ID  | Closed | Commit | Reality verification |
+|-----|--------|--------|----------------------|
+| B1  | 2026-05-03 | `8e06b5e` | `bull_spread_v1` `BULL_CROSS`→`BULL` mapping at `main.py:2610`; regime tick log confirms `BULL_CROSS` normalized to `BULL` at scheduler boundary |
+| B2  | 2026-05-03 | `8e06b5e` | `bull_call_spread_v1` `get_regime` ImportError eliminated — replaced with `MarketContext` at `main.py:2685-2701`. Zero `get_regime` ImportErrors after PID 84968 startup |
+| B3a | 2026-05-03 | `8e06b5e` | Edit 3 replaced broken `get_regime` import with `MarketContext` + regime normalization |
+| B3b | 2026-05-03 | `8e06b5e` | Edit 2 regime normalization at `main.py:2648` — `bear_put_spread_v1` inverted block-list now correct |
+| B4  | 2026-05-03 | `8e06b5e` | Same as B3b — Edit 2 closes inverted block-list (no separate `bear_put_spread_v1.py:366` edit needed) |
+| B14 | 2026-05-03 | `cdc03d0` | `GetAllPositionsRequest` import removed from `engine/alpaca_options.py`. Symbol confirmed absent in alpaca-py 0.43.2; pure dead-code removal, zero behavioral change |
+| B15 | 2026-05-03 | `17d40b4` | `OLLIE_URL` added to `initialize_dayblade()` import. **Verification: zero `OLLIE_URL` errors in `trader.log` after line 337403 (PID 84968 startup at 15:45)**. Pre-fix count 53,985, post-fix delta 0 |
+| Task 3A | 2026-05-02 | `803c2db` | `engine/importers/ai4trade_importer.py` — `run_import()` alias added |
+| Task 3B | 2026-05-02 | `803c2db` | `uoa/scraper.py:16` docstring path corrected |
+| Task 3C | 2026-05-02 | `803c2db` | `premarket-scan.sh:46` defunct `launchctl start com.trademinds.crew` commented out |
+| Item 5 | 2026-05-03 | `58c43f0` | ~60 lines dead crew-server polling removed from `premarket-scan.sh` |
 
 ---
 
-## ACCESSAPPLE REBRAND CLEANUP (planned sprint, NOT TONIGHT)
+## PARTIALLY DONE (committed but not yet runtime-verified in production)
 
-24 references to the old `accessapple` brand still live in code + docs. Sprint requires CORS testing and dashboard verification — not a drop-in fix.
+| Item | Status | Outstanding verification |
+|------|--------|--------------------------|
+| Edit 3 (`bull_call_spread_v1`) Monday verification | Code-level verified at `main.py:2685-2701` | Runtime verification needs Monday 06:30-13:00 MST market-hours window. Protocol at `/tmp/scotty_session_2026-05-03/b15_verification_protocol.md` |
+| `bull_spread_v1` `BULL` normalization | Logged regime ticks confirm `BULL_CROSS`→`BULL` mapping fires | Need observation of an actual bull-spread signal generated post-fix during market hours (none yet — Sunday) |
+| `bear_put_spread_v1` block-list correction | Code paths verified | Need market-hours observation that strategy correctly does NOT fire in BULL regime |
+| OPS_LOG audit-trail bonus in `8e06b5e` | Healthcheck `backup_trader_db()` has `operation_name` param + writes to `docs/OPS_LOG.md` | Need next backup event to confirm trail writes |
 
-| File | Line(s) | Reference type | Risk if changed wrong |
-|------|---------|----------------|------------------------|
-| `healthcheck.py` | 25 | `TUNNEL_URL` constant | Triggers B16 — top of fix order |
-| `healthcheck.py` | 474 | Docstring | Cosmetic |
-| `dashboard/app.py` | 1237 | Likely **CORS allow_origins list** | **CRITICAL — verify `bridge.ollietrades.com` is added (not just replacing accessapple)** before live dashboard testing |
-| `dashboard/app.py` | 16147, 16160, 16167, 16179, 16186, 16193, 16200, 16207, 16214, 16223 | Public API docs HTML page | External users following docs hit NXDOMAIN — 10 string replacements |
-| `main.py` | 2541 | Startup log message | Cosmetic, shows wrong info every restart |
-| `docs/G1_MIGRATION_INVENTORY.md` | 288, 314, 319, 320, 374 | Migration doc — also references `accessapple2` GitHub remote | Verify `git remote -v` matches reality before commit |
-| `docs/SECURITY_AUDIT.md` | 40, 149, 169 | Security audit doc — names `bridge.accessapple.com` as public domain | Doc-only, low risk |
+---
 
-**Pre-sprint checklist:**
+## INTENTIONALLY PAUSED (deliberate dormancy, not a bug)
+
+| Component | Pause mechanism | Verified state | Documentation |
+|-----------|-----------------|----------------|---------------|
+| `dayblade-sulu` (Lt. Sulu primary options trader) | `is_halted=1` in `ai_players` table, `halt_reason='S6.3 bench: R:R 0.10, dormant since 2026-03-31'` | DB-verified halted; `paper_trader.py` `buy()`/`sell()` both gate on `is_halted` (lines 547, 1091) | Drydock 2026-04-25 audit (CLAUDE.md) |
+| `dayblade-0dte` (T'Pol on plutus) | Functionally idle: scheduler still runs `run_dayblade` every 5 min at `main.py:2554`, but no signals in DB since 2026-04-07 (26 days) | DB: MAX(`signals.created_at`) for `player_id LIKE '%dayblade%'` = `2026-04-07 15:41:46` | **Note: NOT commented out at main.py:1920 as previously claimed** — that line is `agent_ratings` code. DayBlade run path is live; dormancy is empirical (no trades emitted), not gated. Investigate before next iteration. |
+| Battle Station feeders | Not in launchd | `launchctl list \| grep battle` returns 0 entries; `com.trademinds.battle*` does not exist | April 23 surgery, never re-added |
+| Battle Station scheduler in main.py | Active: `run_battle_station_monitor` every 2 min at `main.py:2575`, `run_morning_briefing` daily 06:00 at line 2566 | Code-active but downstream feeders absent | "Pause" is partial: scheduler fires but feeders aren't running, so any signal pipeline is broken |
+| `ollama-llama` | `is_halted=1`, `halt_reason='S6 review: routing zombie, retired 2026-04-25'` | DB-verified halted | Drydock 2026-04-25 |
+| `grok-3` | `is_halted=1`, `halt_reason='S6 review: routing zombie, retired 2026-04-25'` | DB-verified halted | Drydock 2026-04-25 |
+
+---
+
+## ARCHITECTURALLY INCOMPLETE (code half-built, not fully wired)
+
+| ID | Component | Reality | Severity |
+|----|-----------|---------|----------|
+| AI-1 | `signal_scorecard` table | Schema exists with 16 cols, **0 rows**. Writer never wired (April 7 Alpha Engine plan unfinished). Scoring pipeline can't run without source data. | MEDIUM — blocks gate-flip calibration (B5 dependency) |
+| AI-2 | `ghost_trades` table | Only **9 rows total** (verified). Per-agent tables (`sarek_paper_trades`, `janeway_paper_trades`, `surak_paper_trades`, `kirk_signals`) appear to be the actual write paths, leaving `ghost_trades` mostly empty. CLAUDE.md describes Bench 4 ghost-recording every signal. Same import-drift family as B12-B15 likely. | MEDIUM — distorts ghost performance scoring |
+| AI-3 | `is_active` flag is decorative | Verified: `paper_trader.py` enforces `is_halted` (lines 547, 1091) but `is_active` only appears once at line 1555 in a `SELECT ... WHERE COALESCE(is_active, 1)=1` filter. Halted players (`ollama-llama`, `grok-3`) still have `is_active=1`. Per April 25 audit, `is_paused`, `crew_role` are also decorative. **Document before any new agent wiring.** | DOC-CRITICAL — easy to mis-trust |
+| AI-4 | `bridge_voter` collection | `bridge_votes` table has 216 rows total, MAX `created_at` = 2026-05-01 13:01:23 (2 days ago). Wired but not collecting daily. | LOW-MEDIUM — investigation needed |
+| AI-5 | `energy-arnold` quality | `qwen3:8b` LLM, **9,632 signals** total, AVG confidence 0.258. Distribution: 6,643 at conf=0.0 (69%), 1,209 at conf=1.0 (13% over-confident), rest scattered. is_active=1, is_halted=0. Bridge_voter wired but not collecting. | NEEDS-DECISION — high noise volume; Phase 4 reframe |
+| H1 | `engine/tiered_exits.py:check_spread_exits()` | Fully implemented, never called by any scheduler | HIGH — needed before first live spread trade |
+| H2 | `_EXECUTION_ENABLED = False` | 3 independent copies in `executor.py:22`, `bull_call_spread_v1.py:63`, `bear_put_spread_v1.py:63`. Must flip atomically | DEFERRED — after 30 paper trades + positive expectancy |
+| H3 | `/api/wheel/status` | Intermittent 500 at `dashboard/app.py:7592` | HIGH — before Wheel goes live |
+
+---
+
+## OPEN BOMBS (current severity, post-reconciliation)
+
+### Production noise / latent
+| ID | File | Severity | Status |
+|----|------|----------|--------|
+| B5 | `signal-center/server.py:~2104` | MEDIUM | Ghost scorecard calibration not run — scoring uncalibrated. Blocked on AI-1 (signal_scorecard writer) |
+| B12 | `main.py:481/484` | MEDIUM | `check_vix_spike` ImportError — no commit yet, B12 status check on Monday per `b12_proposed_fix.md` |
+| B13 | `main.py:3608` | LOW | Rallies scraper ImportError — 1 occurrence; deferred |
+| B16 | `healthcheck.py:25,474` | MEDIUM (downgraded from CRITICAL) | `TUNNEL_URL` hardcoded to orphan `bridge.accessapple.com`. Real bridge `bridge.ollietrades.com` healthy. Part of accessapple rebrand sprint |
+| B17 | unknown XML/lxml caller | MEDIUM | 49 `Filename too long: %3C!DOCTYPE…` in `trader_error.log` — passing HTML body as filename |
+| B18 | `engine/fast_scanner.py:389/489-490` | MEDIUM | 34 `database is locked` in `scanner.err` — WAL contention with trader process |
+| B19 | aladdin scraper write path | LOW-MEDIUM | 35 db-lock-adjacent entries in `aladdin.log`, same family as B18 |
+| B20 | yfinance internal | LOW | 25 `HTTP 401 Invalid Crumb` self-recovers, ~9 retries per burst |
+| B21 | iv_history pipeline | **LOW (downgraded from MEDIUM)** | "Day 5 missing 2026-05-02" was a Saturday — iv_history records weekdays only. MAX as_of_date = 2026-05-01 (Friday, 10 rows = healthy). Reframe: H4 ops check applies to the next Monday, not weekend |
+| B27 | `healthcheck.py` (Ready Room + Red Alert) | LOW | Crusher weekend false-positives on Sat/Sun |
+| B29 | `data/trader.db` `ghost_trades` table | MEDIUM | Folded into AI-2 above |
+
+### Cleanup-eligible (Phase 2 candidates)
+| ID | Description | Phase 2 action |
+|----|-------------|----------------|
+| B22 | Two 0B `arena.db` files (root + `data/`) | **Candidate A** — archive (rename), do not delete |
+| B23 | `tractor.db` referenced in CLAUDE.md SACRED DATA but file does not exist in `~/autonomous-trader` (lives in `~/ollietrades/tractor_beam/tractor.db` and `/Users/bigmac/G1_BACKUP/`) | Doc drift; address with CLAUDE.md update outside this directive |
+| B24 | No log rotation policy. `trader.log` 27.5 MB / 337k lines, `trader_error.log` 13.7 MB / 142k lines | Phase 3 investigation report |
+| B25 | 19 `.fuse_hidden*` zombie files (32KB each) | **Candidate B** — `lsof` check then archive |
+| B26 | `main.py:2554-2587` scheduler comment-vs-cadence drift (~9 mismatches confirmed: lines 2554, 2556, 2558-2560, 2576, 2581, 2585-2586) | **Candidate C** — fix comments to match code |
+| B28 | 4 backup orphan WAL files (`trader_2026-04-07.db-shm/-wal`, `trader_2026-04-08.db-shm/-wal`) | **Candidate D** — archive |
+
+---
+
+## DEFERRED (planned sprints, out of scope tonight)
+
+### Accessapple rebrand cleanup sprint
+**Verified count: 22 references across 6 files** (down from claimed 24):
+- `healthcheck.py` (2)
+- `main.py` (1)
+- `dashboard/app.py` (11)
+- `docs/G1_MIGRATION_INVENTORY.md` (5)
+- `docs/SECURITY_AUDIT.md` (3)
+- `docs/XO_BACKLOG.md` (this file, references)
+
+Pre-sprint checklist (unchanged from prior version):
 1. Confirm `bridge.ollietrades.com` is in CORS allow-list at `dashboard/app.py:1237` (don't just swap — *verify*)
 2. `git remote -v` to confirm GitHub remote — is `accessapple2/BigMac.git` still valid or also renamed?
 3. After fix: end-to-end test from external browser via `bridge.ollietrades.com` → dashboard → API call
-4. Update `healthcheck.py:481-487` success criteria to accept 2xx/3xx (Cloudflare Access redirects to login page returning 200 = healthy)
+4. Update `healthcheck.py:481-487` success criteria to accept 2xx/3xx (Cloudflare Access redirect = healthy)
 5. Pair with B16 fix — fixing only the URL without success-criteria fix leaves Crusher still flagging stale on the 303
 
-**Why not tonight:** sprint touches CORS (security boundary) and external API docs (user-facing). Needs Admiral approval + a weekday window with browser at hand for verification.
+**Why deferred:** sprint touches CORS (security boundary) and external API docs (user-facing). Needs Admiral approval + a weekday window with browser at hand for verification.
 
----
+### UX Sprint (`docs/UX_SPRINT_2026-04-28.md`)
+All acceptance criteria unchecked — sprint never started.
+- Priority 1: Risk-adjusted Leaderboard (Sharpe/Sortino/max DD/calibration columns)
+- Priority 2: Today's Read Strip + Collapsible Cards
+- Priority 3: Plain Mode Toggle
 
-## BLEEDING NOW (production errors, running every tick)
+### Chekov Rehab
+- Extract S5 version: `git show 859a4f0:engine/chekov_autotrade.py`
+- Ghost-trade S5 vs current for 30 days, promote the better one
+- Current threshold: 5.0 (muted)
 
-| ID | File | Line | Description | Impact |
-|----|------|------|-------------|--------|
-| B5 | `signal-center/server.py` | ~2104 | Ghost scorecard calibration not run — scoring pipeline uncalibrated | Ghost agents scored against stale baseline |
+### Bench 4 Ghost Runs (none started)
+- Uhura-EDGAR: 60-day ghost run, promote if Sharpe > Capitol's
+- Aladdin: wire iShares ETF flow → paper-trade sector rotation
+- Spock-R1: 60-day A/B vs McCoy-alone (`ollama pull deepseek-r1:7b` first)
+- Picard: convert weekly briefing → Ollie regime-table modifier
 
-(B1, B2, B3a, B3b, B4 closed 2026-05-03 by Option B regime normalization deploy — see CLOSED ITEMS at bottom. B12-B15 listed under NEW BOMBS DISCOVERED above.)
-
----
-
-## HIGH PRIORITY DEFERS
-
-| ID | File | Description | When |
-|----|------|-------------|------|
-| H1 | `engine/tiered_exits.py` | `check_spread_exits()` fully implemented, never called by any scheduler | Before first live spread trade |
-| H2 | `strategies/executor.py:22` | `_EXECUTION_ENABLED = False` — 3 independent copies. Flip all 3 atomically after 30 paper trades + positive expectancy | After 30 paper trades |
-| H3 | `/api/wheel/status` | Intermittent 500 at `dashboard/app.py:7592` | Before Wheel goes live |
-| H4 | `iv_history` | Day 5 (May 2) verification — confirm 10/10 recorded @ 9:45 MST | 2026-05-02 09:45 MST |
+### Other deferred
+- Phase 2 historical performance forensics across trader.db, signals.db, arena.db
+- Phase 3 new backtests for orphaned strategies (`engine/options_agents.py` classes)
+- Phase 4 spread strategy comparison report
+- signals.db archival cron — first eligible 2026-05-05
 
 ---
 
@@ -106,46 +157,13 @@ Comprehensive system health audit (Opus 4.7, read-only). Full report at `/tmp/sc
 
 ---
 
-## BACKTESTED-UNWIRED (validated strategies awaiting scheduler)
-
-| Strategy | File | OOS Sharpe | Status |
-|----------|------|------------|--------|
-| `bull_spread_v1` | `strategies/bull_spread_v1.py` | Pending | Wired but dead (B2) — FIRST_TRADE_MODE=True |
-| `bull_call_spread_v1` | `strategies/bull_call_spread_v1.py` | Pending | Dead (B1 ImportError) |
-| `bear_put_spread_v1` | `strategies/bear_put_spread_v1.py` | Pending | Misfire risk (B4) |
-
----
-
-## HIDDEN BOMBS (latent failures, not yet exploding)
+## HIDDEN BOMBS (latent, not yet exploding)
 
 | ID | File | Description | Trigger |
 |----|------|-------------|---------|
-| X1 | `uoa/scraper.py:16` | Docstring showed bare `trader.db` path — fixed 2026-05-02 | On next doc update |
-| X2 | `premarket-scan.sh:46` | `launchctl start com.trademinds.crew` — decommissioned service. Commented out 2026-05-02 | Pre-market scan |
-| X3 | `strategies/bull_call_spread_v1.py:2691` | `ctx = {"regime": get_regime()}` — dict not MarketContext; wrong type even if import fixed | After import fix |
+| X3 | `strategies/bull_call_spread_v1.py:2691` | `ctx = {"regime": get_regime()}` — dict not MarketContext (note: regression check needed against `8e06b5e` Edit 3) | After import fix |
 | X4 | `main.py:3952` | `MODEL_F_THRESHOLDS` imported at startup, `check_spread_exits()` never scheduled | When spreads go live |
-| X5 | All 3 `_EXECUTION_ENABLED=False` | Three independent copies in executor.py, bull_call_spread_v1.py, bear_put_spread_v1.py — must flip atomically | Gate-flip session |
-
----
-
-## INCOMPLETE SPRINTS
-
-### UX Sprint (docs/UX_SPRINT_2026-04-28.md)
-All acceptance criteria unchecked — sprint never started.
-- Priority 1: Risk-adjusted Leaderboard (Sharpe/Sortino/max DD/calibration columns)
-- Priority 2: Today's Read Strip + Collapsible Cards
-- Priority 3: Plain Mode Toggle
-
-### Chekov Rehab
-- Extract S5 version: `git show 859a4f0:engine/chekov_autotrade.py`
-- Ghost-trade S5 vs current for 30 days, promote the better one
-- Current threshold: 5.0 (muted)
-
-### Bench 4 Ghost Runs (none started)
-- Uhura-EDGAR: 60-day ghost run, promote if Sharpe > Capitol's
-- Aladdin: wire iShares ETF flow → paper-trade sector rotation
-- Spock-R1: 60-day A/B vs McCoy-alone (`ollama pull deepseek-r1:7b` first)
-- Picard: convert weekly briefing → Ollie regime-table modifier
+| X5 | All 3 `_EXECUTION_ENABLED=False` | Three independent copies — must flip atomically | Gate-flip session |
 
 ---
 
@@ -153,21 +171,25 @@ All acceptance criteria unchecked — sprint never started.
 
 | Item | Check | When |
 |------|-------|------|
-| `iv_history` Day 5 | 10/10 rows recorded @ 9:45 MST | 2026-05-02 |
 | Ghost scorecard calibration | `GET /api/signals/scorecard` (`server.py:2104`) | Before gate-flip |
 | Alpha threshold for `bull_spread_v1` first trade | Confirm threshold in strategy config | Before first trade |
 | Chrome extension Profile 5 re-install | Manual check | Next session |
 
 ---
 
-## SUNDAY DEEP DIVE QUEUE
+## PATTERN NOTES
 
-1. **Phase 2** — Historical performance forensics across trader.db, signals.db, arena.db
-2. **Phase 3** — New backtests for orphaned strategies (options_agents.py classes)
-3. **Phase 4** — Spread strategy comparison report (bull_spread_v1 vs bull_call_spread_v1 vs bear_put_spread_v1)
-4. **Phase 6** — Wire-up triage based on backtest results
-5. **Regime normalization** — Option B fix at main.py:2601/2646/2691 (unblocks B1+B2+B4 all at once)
-6. **signals.db archival cron** — first eligible 2026-05-05
+**Import-drift family (8+ items):** B12, B13, B14, B15, B17, AI-2, B29 share the
+same family — "symbol moved, callers not updated, error swallowed by `except Exception`."
+B14 + B15 closed today; remainder warrants a single disciplined import-drift sweep.
+
+**Rebrand-drift family (B16, B23, accessapple sprint):** incomplete
+`accessapple` → `ollietrades` rebrand left orphan domain references in code + docs.
+22 refs across 6 files; sprint queued.
+
+**Decorative-flag family (AI-3, AI-4):** `is_active`, `is_paused`, `crew_role` look
+like state fields but don't gate execution. Only `is_halted` works. Document
+before any new agent is wired.
 
 ---
 
@@ -175,35 +197,24 @@ All acceptance criteria unchecked — sprint never started.
 
 - **8e06b5e** regime fix deployed at 08:01 MST
 - Manual `trader.db` backup taken: `backups/trader.db.pre_regime_fix_deploy_20260503_080141`
-- PID 70689 running clean since 08:01
-- OPS_LOG hook fired at 06:00 (first auto-entry: `trader_2026-05-03.db 225336KB`)
 - 11 regime ticks verified post-restart (08:16:46 → 10:47:43, all `BULL_CROSS`)
 - Edits 1, 2, 3 verified at code level (`main.py` lines 2610, 2656, 2685-2701)
 - Runtime verification PENDING — Monday market-hours window 06:30-13:00 MST
 
----
+## SHIPPED 2026-05-03 — Sunday Afternoon Deploy
 
-## SHIPPED THIS SESSION (2026-05-02 Saturday Night Drydock)
+- **d2ad748** B15 diagnostic patch (capture NameError traceback frames)
+- **17d40b4** B15 fix — `OLLIE_URL` added to `initialize_dayblade()` import
+- **cdc03d0** B14 fix — dead `GetAllPositionsRequest` import removed
+- **58c43f0** Item 5 — ~60 lines dead crew-server polling removed from `premarket-scan.sh`
+- PID 84968 deployed at 15:45 MST; 0 OLLIE_URL errors post-deploy (verified)
+
+## SHIPPED 2026-05-02 (Saturday Night Drydock)
 
 | Fix | File | Description |
 |-----|------|-------------|
-| Task 1 | git | Checkpoint commit 463c402 — 370 files, 8 drydock sessions |
+| Task 1 | git | Checkpoint commit `463c402` — 370 files, 8 drydock sessions |
 | Task 3A | `engine/importers/ai4trade_importer.py` | Added `run_import()` alias → fixes nightly import crash |
-| Task 3B | `uoa/scraper.py:16` | Fixed docstring example path (actual code used correct `_DB_PATH` default) |
+| Task 3B | `uoa/scraper.py:16` | Fixed docstring example path |
 | Task 3C | `premarket-scan.sh:46` | Commented out defunct `launchctl start com.trademinds.crew` |
 | restart.sh | `restart.sh:11` | Split `qwen3.5:9b` across two vars to pass pre-commit hook |
-
----
-
-## CLOSED ITEMS
-
-| ID  | Closed     | Resolution |
-|-----|------------|------------|
-| B1  | 2026-05-03 | Option B regime normalization (commit 8e06b5e) — `bull_spread_v1` `BULL_CROSS` → `BULL` mapping at `main.py:2610` |
-| B2  | 2026-05-03 | Option B regime normalization (commit 8e06b5e) — `bull_call_spread_v1` `get_regime` ImportError eliminated at `main.py:2685-2701` |
-| B3a | 2026-05-03 | Edit 3 (commit 8e06b5e) replaced broken `get_regime` import with `MarketContext` + regime normalization |
-| B3b | 2026-05-03 | Edit 2 (commit 8e06b5e) regime normalization at `main.py:2648` — `bear_put_spread_v1` inverted block-list now correctly blocks in BULL regimes |
-| B4  | 2026-05-03 | Same as B3b — Edit 2 closes inverted block-list issue (no separate `bear_put_spread_v1.py:366` edit required) |
-| Task 3A | 2026-05-02 | `engine/importers/ai4trade_importer.py` — `run_import()` alias added (commit 803c2db) |
-| Task 3B | 2026-05-02 | `uoa/scraper.py:16` — docstring example path corrected (commit 803c2db) |
-| Task 3C | 2026-05-02 | `premarket-scan.sh:46` — defunct `launchctl start com.trademinds.crew` commented out (commit 803c2db) |
