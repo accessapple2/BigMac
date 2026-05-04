@@ -397,7 +397,8 @@ def run_strategies(ticker: str, df, spy_df=None) -> list:
                     "stop_price": stop,
                     "target_price": target,
                 })
-        except Exception:
+        except Exception as e:
+            console.log(f"[strat-debug] {name}({ticker}): {type(e).__name__}: {e}")
             continue
 
     return triggered

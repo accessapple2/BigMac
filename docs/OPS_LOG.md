@@ -32,3 +32,23 @@ Rollback if needed:
 
 Refs: /tmp/scotty_session_2026-05-03/OPTION_A_DEPLOY_DIRECTIVE.md
 Refs: /tmp/scotty_session_2026-05-03/tier2_landmine_fix_proposal.md (Section I, Admiral verdicts)
+
+## 2026-05-03 ~21:00 MST — Convergence scanner diagnostic deploy (TEMPORARY)
+
+Per Round 5 / Admiral request — adding 1-line debug log to engine/strategies.py:401 to expose what exception class is silently consuming all 17 strategy check failures in run_strategies().
+
+Reference: /tmp/scotty_session_2026-05-03/legacy_scanner_triage.md (H4 hypothesis)
+Reference: /tmp/scotty_session_2026-05-03/YELLOW_ALERT_5_DIRECTIVE.md
+
+Pre-deploy state:
+- PID 83100, uptime 51m, B15 holding (0 OLLIE_URL errors)
+- Backup: backups/trader.db.pre_scanner_diagnostic_20260503_205914 (220.5 MB)
+- All 3 _EXECUTION_ENABLED gates False (executor.py:22, bull_call:63, bear_put:63)
+
+Patch: 2 insertions / 1 deletion in engine/strategies.py — `except Exception:` → `except Exception as e:` plus one console.log line. py_compile verified clean.
+
+Diagnostic patch is TEMPORARY — will be reverted in Phase 5 of YELLOW_ALERT_5 after capturing one scan run's exceptions. Scanner schedule: every 30 min via run_strategy_scan (main.py:2954).
+
+Rollback if needed:
+- git revert HEAD (auto-revert if py_compile fails or B15 breaks post-restart)
+- launchctl kickstart -k gui/$(id -u)/com.trademinds.trader
