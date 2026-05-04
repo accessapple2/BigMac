@@ -78,11 +78,9 @@ Patient investors. Not voters on the short-term Active 4 signals. Scored on 6-mo
 | Janeway | 10 year | Innovation S-curves + moat leaders; quarterly review          | phi3:mini        |
 | Surak   | 20 year | Secular themes (energy, AI, demographics); annual rebalance   | gemma3:4b        |
 
-### Swing Desk (3–10 day holds, Starfleet portfolio advisory)
-| Name    | Role                                                         | Model       |
-|---------|--------------------------------------------------------------|-------------|
-| Kirk    | Holly Swing Advisor — primary swing calls, ghost-traded first | qwen3:8b    |
-| Pike    | Swing backup / second-opinion veto on Kirk's ambiguous setups | mistral:7b  |
+### Swing Desk — RETIRED 2026-05-04
+Scaffolded but never wired. `agents/kirk.py` + `agents/pike.py` archived to `archive/retired/2026-05-04-kirk-swing-desk/`. Per audit #6A Problem B (`docs/AUDIT_6_INVESTIGATION_2026-05-04.md`): manual swing-trading workflow no longer applies since the fleet shifted to autonomous Alpaca-paper-only. The active "Kirk" (`engine/kirk_advisory.py` + `engine/kirk_grok_advisor.py`, daily Webull-style advisor writing to `kirk_advisory_log`) is unrelated and remains live.
+
 
 ### Metals Command (4-quadrant: Projections · News · Reports · Recommendations)
 Physical holdings tracked as header widget above the quadrant grid. ETFs tracked: GLD, SLV, COPX, GDX, SIL, PPLT, PALL, REMX, URA. Spot: GC=F, SI=F, HG=F, PL=F, PA=F.
@@ -126,7 +124,6 @@ Physical holdings tracked as header widget above the quadrant grid. ETFs tracked
 ## Pending TODOs
 - **Polygon.io Options Starter ($29/mo)** — APPROVED IN PRINCIPLE (2026-04-16), not yet activated. When activated: powers Neo (real-time GEX/chain) + McCoy/Dax (precise greeks for CSP entries). First paid exception under Free Models First doctrine.
 - Build Elder Council agents (Sarek 5yr, Janeway 10yr, Surak 20yr) — stub strategy modules + DCA paper-trade logic
-- Build Swing Desk agents (Kirk = qwen3:8b, Pike backup = mistral:7b) — ghost-trade swing setups for 30 days before promoting
 - Build Metals Command quadrant agents (Scotty news, O'Brien recommendations); upgrade `section-metals` to 4-quadrant grid with spot + ETF tracking
 - Rename dashboard `section-webull` label → "Starfleet" (keep internal id to avoid 50+ ref breakage)
 - Ghost-trading experiments for Bench 4:

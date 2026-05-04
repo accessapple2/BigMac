@@ -338,3 +338,13 @@ SELECT COUNT(*) FROM rikers_log;                         → 2495
 - `CLAUDE.md:128-129` — Pending TODO for Swing Desk build
 
 — Lt. Cmdr. M. Scott, 2026-05-04 08:30 MST
+
+---
+
+## Resolutions — 2026-05-04
+
+- **Problem B (Kirk Swing Desk):** **RETIRED.** Code archived to `archive/retired/2026-05-04-kirk-swing-desk/`. CLAUDE.md updated: Swing Desk section replaced with one-line retirement note; Pending TODO removed. XO_BACKLOG.md: `## Retired Components` section added. DB tables (`kirk_signals`, `kirk_swing_trades`, `pike_votes`) preserved as empty schemas per SACRED-DATA. Working Kirk (`engine/kirk_advisory.py`, `engine/kirk_grok_advisor.py`) untouched — `kirk_advisory_log` continues daily writes. Decision rationale: manual swing-trading workflow no longer applies since the fleet shifted to autonomous Alpaca-paper-only. See retirement commit (post-09:00 MST 2026-05-04).
+- **Problem C (Janeway / Surak / ghost):** **NO ACTION** — confirmed working as designed. Janeway/Surak are calendar-fired long-horizon agents (next fires 2026-07-01 and 2027-01-01 respectively); their `paper_trades` tables being empty is the correct state, not a regression. Ghost trader is sparse-but-active.
+- **Problem A (signal_scorecard writer):** **DEFERRED.** Pending Audit #6X verdict on whether the *real* gate-flip dependency at `signal-center/server.py:2121` is healthy. If #6X finds the signal-center scorecard is the working calibration source for gate-flip, `signal_scorecard` (this audit's #6) likely retires under Option 3.
+
+— Lt. Cmdr. M. Scott, 2026-05-04 09:00 MST

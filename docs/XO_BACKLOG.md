@@ -18,6 +18,18 @@ Original archive preserved at `~/autonomous-trader-archive/2026-05-04-pre-hmg-re
 
 ---
 
+## Retired Components
+
+### Kirk Swing Desk — retired 2026-05-04
+- Scaffolded but never wired (`agents/kirk.py::propose_swing()`, `agents/pike.py::second_opinion()`).
+- Audit #6A investigation determined: drift between CLAUDE.md (claimed active in fleet roster) and code (zero callers, zero scheduler entries). Per `docs/AUDIT_6_INVESTIGATION_2026-05-04.md` Problem B.
+- Decision: **RETIRE** rather than build the 6-8 hr feature. Manual swing-trading workflow no longer applies — fleet shifted to autonomous Alpaca-paper-only.
+- Daily Kirk advisor (`engine/kirk_advisory.py`, `engine/kirk_grok_advisor.py`) is preserved and active. `kirk_advisory_log` continues to receive daily writes (272 rows, last write 2026-05-01).
+- Code archived at `archive/retired/2026-05-04-kirk-swing-desk/` with restoration instructions in README.
+- DB tables `kirk_signals` (0), `kirk_swing_trades` (0), `pike_votes` (0) preserved as empty schemas per SACRED-DATA discipline; can be dropped in a future schema-cleanup migration if approved.
+
+---
+
 ## VERIFIED CLOSED (commit + reality both confirmed)
 
 | ID  | Closed | Commit | Reality verification |
