@@ -195,7 +195,6 @@ All acceptance criteria unchecked — sprint never started.
 | Ghost scorecard calibration | `GET /api/signals/scorecard` (`server.py:2104`) | Before gate-flip |
 | Alpha threshold for `bull_spread_v1` first trade | Confirm threshold in strategy config | Before first trade |
 | Chrome extension Profile 5 re-install | Manual check | Next session |
-| **Healthcheck dedup verification** | `wc -l logs/healthcheck.log` after Mon 06:00 cron tick. Pre-fix: 348 KB / 497 dup-pairs over `2026-04-11 → 2026-05-03` (`= 22 days`); cron fires hourly 6AM-1PM MST + 6AM, so ~8 ticks/weekday. Compare to pre-fix tick line-count (~32 lines/tick). Post-fix expectation: **~16 lines/tick**. If line rate is roughly halved, mark ✅. If not halved, the audit's HM#1 reading inverted the duplication direction and the fix needs revisiting. | Mon 2026-05-04 06:30 MST |
 
 ---
 
