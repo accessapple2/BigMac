@@ -437,6 +437,34 @@ Today's audits found a recurring architectural anti-pattern across multiple subs
 - **Recommended:** (1) fix CLAUDE.md describe transient drawdown mechanism correctly (~5 min), (2) optional PED `is_halted()` cleanup (replace with `enabled` toggle, ~10 min). Both deferred.
 - Full report: `docs/HM-S_AGENT_STATE_GHOST_2026-05-04.md`.
 
+### HM-AB — bull_spread_v1 missing same-strategy self-skip check (2026-05-05)
+
+**Status:** Open — strategy halted at commit `[this commit SHA]` pending fix.
+**Priority:** High (was actively stacking positions; 18 open SPY bull_put_spreads accumulated <1 day post-gate-flip before halt).
+**Surfaced by:** Admiral observation 2026-05-05 11:39 MST.
+
+`strategies/bull_spread_v1.py` lacks a same-strategy self-skip check — the reciprocal of `strategies/bull_call_spread_v1.py:280-287` which queries `options_trades` for any open `bull_spread_v1` row on the same ticker and skips if found. Without the reciprocal, bull_spread_v1 is free to fire repeatedly on the same ticker (SPY) every signal tick (every 15 min per `main.py:2622` schedule), accumulating 18 open positions in <1 day.
+
+**Halt applied 2026-05-05 11:39 MST (this commit):**
+- `strategies/bull_spread_v1.py` `_EXECUTION_ENABLED = False` (module-level constant)
+- `evaluate()` early-return checks the constant
+- Auto-register call changed to `enabled=False`
+- Belt-and-braces: either gate alone halts signal emission; both together provide redundant safety
+- Stale-bytecode: PID 61083 has pre-halt bytecode in memory; halt takes effect on next service restart (planned ~13:00 MST per Admiral)
+- Tag: `# HALT-2026-05-05:` markers in code
+
+**Existing 18 positions ride** per Admiral directive — they're real Alpaca paper positions, max-loss-capped, same-expiration. `exit_manager` handles them on its scheduled cadence (TP / SL / expiration). **DO NOT close programmatically** during the halt window — closing while the underlying bug still exists risks stacking another bug on top.
+
+**Fix shape (HM-AB session):**
+1. Add `_already_open(ticker)` helper to `strategies/bull_spread_v1.py` mirroring `bull_call_spread_v1.py:275-290` — query `options_trades` for `WHERE strategy_id='bull_spread_v1' AND symbol=? AND exec_status='open'`.
+2. Call it at the top of the per-ticker loop in `evaluate()`; skip ticker if already-open.
+3. Once verified, flip both `_EXECUTION_ENABLED = True` and `enabled=True` to unhalt.
+
+**Verification approach:**
+- Pre-fix smoke: confirm a synthetic open row blocks signal emission for that ticker.
+- Pre-unhalt: backlog audit of existing open positions; if any have already hit TP/SL/expiration, unhalt is safer because the strategy will see fewer "already open" hits naturally.
+- Post-unhalt monitor: 1 hour soak with `tail -f logs/trader.log | grep bull_spread_v1` to confirm the strategy fires once per qualifying ticker per cycle, not stacking.
+
 ---
 
 ## Lessons

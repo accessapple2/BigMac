@@ -41,6 +41,22 @@ EXIT_B_TAG = "bullspread-scaleout"
 EXIT_B_CONTRACTS = 4
 
 # ═══════════════════════════════════════════════════════════════════════
+# HALT-2026-05-05: position-stacking halt (pre-HM-AB)
+# Strategy accumulated 18 open SPY bull_put_spreads + 4 ghost-failed rows
+# in <1 day post-gate-flip because it lacks a same-strategy self-skip
+# check (the reciprocal of bull_call_spread_v1.py:280-287's dedup against
+# bull_spread_v1). HM-AB backlog item tracks the proper fix; this halt
+# prevents further stacking until the self-skip lands.
+#
+# The 18 existing positions ride per Admiral directive — they're real
+# Alpaca paper positions, max-loss-capped, same-expiration. exit_manager
+# handles them on its scheduled cadence (TP / SL / expiration).
+#
+# To unhalt after HM-AB ships: flip _EXECUTION_ENABLED → True AND change
+# `enabled=False` → `enabled=True` at the auto-register call below.
+_EXECUTION_ENABLED: bool = False
+
+# ═══════════════════════════════════════════════════════════════════════
 # FIRST TRADE MODE — controlled rollout controls
 # Flip FIRST_TRADE_MODE = False only AFTER several successful trades.
 # Admiral decision 2026-04-22: keep tight controls for initial cycles.
@@ -148,6 +164,12 @@ class BullSpreadV1(Strategy):
     )
 
     def evaluate(self, ctx: MarketContext) -> list[StrategySignal]:
+        # HALT-2026-05-05: belt-and-braces gate — defense-in-depth alongside
+        # the registry-level enabled=False below. Either path alone halts
+        # signal emission; both together provide redundant safety.
+        if not _EXECUTION_ENABLED:
+            return []
+
         # Only trade in BULL regime per spec
         if ctx.regime != "BULL":
             return []
@@ -279,6 +301,8 @@ class BullSpreadV1(Strategy):
 # the import still succeeds; scheduler can retry on next tick.
 try:
     from .registry import registry as _registry
-    _registry().register(BullSpreadV1(enabled=True))
+    # HALT-2026-05-05: registry-level halt (was enabled=True). Pairs with
+    # _EXECUTION_ENABLED above. To unhalt after HM-AB ships, flip both to True.
+    _registry().register(BullSpreadV1(enabled=False))
 except Exception as _reg_err:
     print(f"[bull_spread_v1] auto-registration skipped: {_reg_err}")
