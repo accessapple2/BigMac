@@ -12,11 +12,17 @@ Spec locked 2026-04-22:
 Task 5: emits real StrategySignal objects. No execution (Task 6).
 """
 from __future__ import annotations
+import sqlite3                              # HM-AB: for _already_open self-skip check
+from pathlib import Path                    # HM-AB: for _DB_PATH constant
 from .base import Strategy, MarketContext, StrategySignal
 from .iv_rank import get_iv_rank
 from .setup_classifier import classify, dte_for_setup
 from .chain_lookup import get_spread_quote, select_width
 from .mock_data import is_mock_mode, mock_spot_price, SpreadQuote
+
+# HM-AB (2026-05-05): DB path for self-symbol-skip dedup. Mirrors
+# strategies/bull_call_spread_v1.py:71 convention.
+_DB_PATH = Path(__file__).resolve().parent.parent / "data" / "trader.db"
 
 
 def _get_spot(ticker: str):
@@ -31,6 +37,36 @@ def _get_spot(ticker: str):
         return None
 
 
+# HM-AB (2026-05-05): self-symbol-skip dedup. Reciprocal of
+# strategies/bull_call_spread_v1.py:_bull_spread_v1_has_position
+# (lines 271-291). Closes the gap that allowed 19 SPY bull_put_spreads
+# to stack onto themselves (rows 14-32 in options_trades) before the
+# halt at commit 44c80c2. Module-level function mirroring sibling's
+# style (own connection, bare except, print log).
+def _already_open(ticker: str) -> bool:
+    """True if bull_spread_v1 has an open position on this ticker.
+
+    Prevents stacking bull_spread_v1 entries on the same symbol — the
+    reciprocal check that bull_call_spread_v1 already has against
+    bull_spread_v1 (one-way → now both-ways).
+    """
+    if is_mock_mode():
+        return False
+    try:
+        conn = sqlite3.connect(str(_DB_PATH), timeout=3)
+        row = conn.execute(
+            "SELECT id FROM options_trades "
+            "WHERE strategy_id='bull_spread_v1' AND symbol=? AND exec_status='open' "
+            "LIMIT 1",
+            (ticker,),
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except Exception as e:
+        print(f"[bull_spread_v1] self-symbol-skip check error for {ticker}: {e}")
+        return False
+
+
 TIER_1 = ["SPY", "QQQ", "IWM"]
 TIER_2 = ["AAPL", "MSFT", "NVDA", "META", "GOOGL", "AMZN", "TSLA"]
 
@@ -41,20 +77,22 @@ EXIT_B_TAG = "bullspread-scaleout"
 EXIT_B_CONTRACTS = 4
 
 # ═══════════════════════════════════════════════════════════════════════
-# HALT-2026-05-05: position-stacking halt (pre-HM-AB)
-# Strategy accumulated 18 open SPY bull_put_spreads + 4 ghost-failed rows
-# in <1 day post-gate-flip because it lacks a same-strategy self-skip
-# check (the reciprocal of bull_call_spread_v1.py:280-287's dedup against
-# bull_spread_v1). HM-AB backlog item tracks the proper fix; this halt
-# prevents further stacking until the self-skip lands.
+# HALT-2026-05-05 → HM-AB-unhalted-2026-05-05
+# Strategy accumulated 19 open SPY bull_put_spreads + 4 ghost-failed rows
+# in <1 day post-gate-flip because it lacked a same-strategy self-skip
+# check (reciprocal of bull_call_spread_v1.py:280-287's dedup against
+# bull_spread_v1). Halted at commit 44c80c2 to stop further stacking.
 #
-# The 18 existing positions ride per Admiral directive — they're real
+# The 19 existing positions ride per Admiral directive — they're real
 # Alpaca paper positions, max-loss-capped, same-expiration. exit_manager
-# handles them on its scheduled cadence (TP / SL / expiration).
+# handles them via HM-AC-Option-B's MLEG close path (commit 19c6746)
+# on TP / SL / expiration cadence.
 #
-# To unhalt after HM-AB ships: flip _EXECUTION_ENABLED → True AND change
-# `enabled=False` → `enabled=True` at the auto-register call below.
-_EXECUTION_ENABLED: bool = False
+# HM-AB (2026-05-05): self-symbol-skip helper added (_already_open above)
+# closes the stacking gap. Both halt gates now flipped to True; the
+# strategy resumes firing — but cannot stack on its own open positions
+# (smoke-verified: _already_open('SPY')=True blocks SPY re-entry).
+_EXECUTION_ENABLED: bool = True   # HM-AB-unhalted-2026-05-05: was False (44c80c2 halt)
 
 # ═══════════════════════════════════════════════════════════════════════
 # FIRST TRADE MODE — controlled rollout controls
@@ -183,6 +221,14 @@ class BullSpreadV1(Strategy):
             universe = TIER_1 + TIER_2
 
         for ticker in universe:
+            # HM-AB (2026-05-05): self-symbol-skip — don't stack on existing
+            # bull_spread_v1 positions. Mirrors sibling pattern at
+            # strategies/bull_call_spread_v1.py:382-384. Placed at top of
+            # loop body so we skip BEFORE expensive IV-rank fetch.
+            if _already_open(ticker):
+                print(f"[bull_spread_v1] {ticker}: bull_spread_v1 open — skip")
+                continue
+
             # 1. IV rank determines the structure
             iv_result = get_iv_rank(ticker, record=True)
             if iv_result is None:
@@ -301,8 +347,11 @@ class BullSpreadV1(Strategy):
 # the import still succeeds; scheduler can retry on next tick.
 try:
     from .registry import registry as _registry
-    # HALT-2026-05-05: registry-level halt (was enabled=True). Pairs with
-    # _EXECUTION_ENABLED above. To unhalt after HM-AB ships, flip both to True.
-    _registry().register(BullSpreadV1(enabled=False))
+    # HM-AB-unhalted-2026-05-05: was enabled=False under HALT-2026-05-05 halt
+    # (commit 44c80c2). Self-symbol-skip helper (_already_open above, HM-AB)
+    # now closes the stacking gap that triggered the halt. Both gates True
+    # again; strategy resumes firing on non-SPY symbols (SPY blocked while
+    # 19 existing positions remain open).
+    _registry().register(BullSpreadV1(enabled=True))
 except Exception as _reg_err:
     print(f"[bull_spread_v1] auto-registration skipped: {_reg_err}")
