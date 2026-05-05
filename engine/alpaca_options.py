@@ -46,7 +46,8 @@ def _get_client():
         _client = TradingClient(key, secret, paper=True)
         console.log("[green]Alpaca options executor ready (paper)")
     except Exception as e:
-        console.log(f"[red]Alpaca options init error: {e}")
+        # HM-AA-broad: type+repr enrichment per HM-U posture.
+        console.log(f"[red]Alpaca options init error: {type(e).__name__}: {e!r}")
     return _client
 
 
@@ -102,7 +103,8 @@ def get_atm_contract(symbol: str, option_type: str, target_dte: int = 0) -> str 
             console.log(f"[dim]Alpaca options: Selected {best.symbol} strike={best.strike_price} exp={best.expiration_date}")
             return best.symbol
     except Exception as e:
-        console.log(f"[yellow]Alpaca options get_atm_contract error: {e}")
+        # HM-AA-broad: type+repr enrichment per HM-U posture.
+        console.log(f"[yellow]Alpaca options get_atm_contract error: {type(e).__name__}: {e!r}")
     return None
 
 
@@ -154,7 +156,8 @@ def get_spread_contracts(
         if buy_contract and sell_contract and buy_contract.symbol != sell_contract.symbol:
             return buy_contract.symbol, sell_contract.symbol
     except Exception as e:
-        console.log(f"[yellow]Alpaca options get_spread_contracts error: {e}")
+        # HM-AA-broad: type+repr enrichment per HM-U posture.
+        console.log(f"[yellow]Alpaca options get_spread_contracts error: {type(e).__name__}: {e!r}")
     return None, None
 
 
@@ -213,8 +216,57 @@ def get_iron_condor_contracts(
             if cs_strike < cb_strike and ps_strike > pb_strike:
                 return call_buy.symbol, call_sell.symbol, put_buy.symbol, put_sell.symbol
     except Exception as e:
-        console.log(f"[yellow]Alpaca options get_iron_condor_contracts error: {e}")
+        # HM-AA-broad: type+repr enrichment per HM-U posture.
+        console.log(f"[yellow]Alpaca options get_iron_condor_contracts error: {type(e).__name__}: {e!r}")
     return None, None, None, None
+
+
+# HM-AC-Option-A (2026-05-05): pre-flight buying-power check helpers.
+# Defense-in-depth pairing with HM-AC-Option-B (commit 19c6746) — Option B
+# fixes the architecture asymmetry (MLEG opens vs single-leg closes); Option A
+# stops the noise generically by short-circuiting submits before Alpaca rejects
+# them with insufficient buying power. Fail-open: any error reading buying_power
+# returns ok=True so the existing exception handler still catches real rejects.
+# Investigation: docs/HM-AC_BUYING_POWER_INVESTIGATION_2026-05-05.md.
+def _occ_strike(occ_symbol: str) -> float:
+    """Extract strike price from an OCC symbol (last 8 chars × 0.001).
+
+    OCC format: 'SPY260515P00718000' → strike = 00718000 / 1000 = 718.0
+    Returns 0.0 on parse failure (caller should treat as 'unknown').
+    """
+    try:
+        return int(occ_symbol[-8:]) / 1000.0
+    except Exception:
+        return 0.0
+
+
+def _preflight_buying_power(client, required_bp: float, label: str = "") -> dict:
+    """Pre-flight buying-power check. Returns ok=True or skipped=True dict.
+
+    Required ≤ 0.95 × available_bp (95% of available; leaves 5% headroom).
+    Fail-open on any error reading the account — the real submit's exception
+    handler still catches actual broker rejects via HM-AA-enriched logging.
+
+    HM-AC-Option-A: defense-in-depth. Stops noise at the call site rather than
+    letting every submit hit Alpaca, get rejected, and emit an APIError.
+    """
+    try:
+        account = client.get_account()
+        available = float(getattr(account, "options_buying_power", None)
+                          or account.buying_power)
+        if required_bp > 0.95 * available:
+            return {
+                "skipped": True,
+                "reason": (
+                    f"pre-flight ({label}): ${required_bp:,.0f} required > "
+                    f"${0.95 * available:,.0f} (95% of ${available:,.0f} available)"
+                ),
+            }
+        return {"ok": True}
+    except Exception as e:
+        # Fail-open — don't block on pre-flight error. Real submit will catch it.
+        console.log(f"[yellow]pre-flight BP check error ({label}): {type(e).__name__}: {e!r}")
+        return {"ok": True}
 
 
 def submit_single_option(
@@ -239,6 +291,18 @@ def submit_single_option(
     if qty <= 0:
         return {"error": "qty must be >= 1"}
 
+    # HM-AC-Option-A: pre-flight BP check. SELL of a put/call without held
+    # position becomes a cash-secured short → strike × 100 × qty collateral.
+    # BUY pays premium × 100 × qty (unknown without quote; conservative cap
+    # at qty × $5000 = ~$50/contract worst case). Worst case wins.
+    if side == "sell":
+        required_bp = _occ_strike(contract_symbol) * 100 * qty
+    else:
+        required_bp = qty * 5000.0
+    pf = _preflight_buying_power(client, required_bp, label=f"single-{side}")
+    if pf.get("skipped"):
+        return pf
+
     try:
         from alpaca.trading.requests import MarketOrderRequest
         from alpaca.trading.enums import OrderSide, TimeInForce
@@ -249,6 +313,17 @@ def submit_single_option(
             time_in_force=TimeInForce.DAY,
         ))
         console.log(f"[bold cyan]Alpaca OPTIONS {side.upper()} {qty}x {contract_symbol} — {player_id} order={order.id}")
+        # HM-V: success-side NTFY (first occurrence per type per day).
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=f"Alpaca fill: single {side.upper()} {qty}x {contract_symbol} ({player_id}) order={order.id}",
+                level=AlertLevel.INFO,
+                alert_type=f"hm-v-single-{side}",
+                rate_limit_secs=86400,
+            )
+        except Exception:
+            pass
         return {"success": True, "order_id": str(order.id), "symbol": contract_symbol, "qty": qty}
     except Exception as e:
         # HM-AA: enrich error log with exception type + repr (was just str(e),
@@ -287,6 +362,16 @@ def submit_vertical_spread(
     if qty <= 0:
         return {"error": "qty must be >= 1"}
 
+    # HM-AC-Option-A: pre-flight BP check. Vertical spread max-loss =
+    # |strike_buy - strike_sell| × 100 × qty (defined-risk). Conservative
+    # because Alpaca's actual margin requirement is usually slightly less
+    # for credit spreads (max_loss − credit). Better to over-estimate.
+    width_dollars = abs(_occ_strike(buy_symbol) - _occ_strike(sell_symbol)) * 100
+    required_bp = width_dollars * qty
+    pf = _preflight_buying_power(client, required_bp, label=f"spread-open-{strategy}")
+    if pf.get("skipped"):
+        return pf
+
     try:
         from alpaca.trading.requests import MarketOrderRequest, OptionLegRequest
         from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, PositionIntent
@@ -306,6 +391,17 @@ def submit_vertical_spread(
             ],
         ))
         console.log(f"[bold cyan]Alpaca {strategy} {qty}x — {player_id} order={order.id}")
+        # HM-V: success-side NTFY for spread open (first per strategy per day).
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=f"Alpaca spread open: {strategy} {qty}x ({player_id}) order={order.id}",
+                level=AlertLevel.INFO,
+                alert_type=f"hm-v-spread-open-{strategy}",
+                rate_limit_secs=86400,
+            )
+        except Exception:
+            pass
         return {"success": True, "order_id": str(order.id), "strategy": strategy, "qty": qty}
     except Exception as e:
         # HM-AA-extension: enrich error log + return dict per HM-U posture (CLAUDE.md).
@@ -386,6 +482,20 @@ def close_vertical_spread(
             ],
         ))
         console.log(f"[bold cyan]Alpaca CLOSE {strategy} {qty}x — {player_id} order={order.id}")
+        # HM-V: success-side NTFY for spread close (first per strategy per day).
+        # Verifies HM-AC Option B's MLEG close path (commit 19c6746) when first
+        # exit_manager close hits — closes the verification gap from Phase 5 of
+        # that commit's session.
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=f"Alpaca spread CLOSE: {strategy} {qty}x ({player_id}) order={order.id}",
+                level=AlertLevel.INFO,
+                alert_type=f"hm-v-spread-close-{strategy}",
+                rate_limit_secs=86400,
+            )
+        except Exception:
+            pass
         return {"success": True, "order_id": str(order.id), "strategy": strategy, "qty": qty}
     except Exception as e:
         # HM-AA / HM-U: enriched error log + NTFY (architecture-class broker-submit path).
@@ -419,6 +529,16 @@ def submit_iron_condor(
     if qty <= 0:
         return {"error": "qty must be >= 1"}
 
+    # HM-AC-Option-A: pre-flight BP check. Iron condor max-loss =
+    # max(call_wing_width, put_wing_width) × 100 × qty (only one wing can
+    # max out — defined-risk on both sides).
+    call_width = abs(_occ_strike(call_buy) - _occ_strike(call_sell)) * 100
+    put_width = abs(_occ_strike(put_buy) - _occ_strike(put_sell)) * 100
+    required_bp = max(call_width, put_width) * qty
+    pf = _preflight_buying_power(client, required_bp, label="iron-condor")
+    if pf.get("skipped"):
+        return pf
+
     try:
         from alpaca.trading.requests import MarketOrderRequest, OptionLegRequest
         from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, PositionIntent
@@ -434,6 +554,17 @@ def submit_iron_condor(
             ],
         ))
         console.log(f"[bold cyan]Alpaca IRON_CONDOR {qty}x {call_buy[:3]} — {player_id} order={order.id}")
+        # HM-V: success-side NTFY for iron condor open (first per day).
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=f"Alpaca iron condor: {qty}x {call_buy[:3]} ({player_id}) order={order.id}",
+                level=AlertLevel.INFO,
+                alert_type="hm-v-ic-open",
+                rate_limit_secs=86400,
+            )
+        except Exception:
+            pass
         return {"success": True, "order_id": str(order.id), "strategy": "IRON_CONDOR", "qty": qty}
     except Exception as e:
         # HM-U: enrich + NTFY first occurrence per error class per day (architecture-class broker-submit).
@@ -505,6 +636,18 @@ def close_all_options(player_id: str | None = None) -> dict:
 
         who = player_id or "EOD sweep"
         console.log(f"[bold yellow]Alpaca options EOD: {closed} position(s) closed ({who})")
+        # HM-V: success-side NTFY for EOD-sweep aggregate (one per day if anything closed).
+        if closed > 0:
+            try:
+                from engine.alert_channels import send_alert, AlertLevel
+                send_alert(
+                    message=f"Alpaca EOD sweep: {closed} option position(s) closed ({who})",
+                    level=AlertLevel.INFO,
+                    alert_type="hm-v-eod-sweep",
+                    rate_limit_secs=86400,
+                )
+            except Exception:
+                pass
         return {"success": True, "closed": closed}
     except Exception as e:
         # HM-U: NTFY first occurrence per error class per day (close_all aggregate failure).
