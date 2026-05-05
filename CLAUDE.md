@@ -427,6 +427,40 @@ Read-only audit of every fleet member against running code, DB state, scheduler 
 - Reconcile DB `ai_players.model_id` ↔ `config.py` model drift (~25 rows; cosmetic; one migration script).
 - Retire legacy convergence scanner (`engine/strategies.py` scan_strategies path). Convergence-write path silently dead since 2026-04-07 — see `/tmp/scotty_session_2026-05-03/legacy_scanner_triage.md`. Coordinate with retiring 8 readers in `/tmp/scotty_session_2026-05-03/oq3_strategy_signals_readers.md`.
 
+<!-- Day-2-lessons: 2026-05-05 -->
+## Lessons (2026-05-05 Day 2)
+
+### Logging sink split — `trader.log` vs `trader_error.log`
+
+OllieTrades logs to two files with different sinks:
+
+| File | Sink | What goes here |
+|---|---|---|
+| `logs/trader.log` | Rich `console.log(...)` calls | Per-cycle agent output, strategy ticks, market data, formatted user-facing log lines |
+| `logs/trader_error.log` | Python `logger.info / .warning / .error` calls | Structured Python logging — **including `engine.alert_channels` NTFY dispatch logs** |
+
+**Implication for investigations:** when checking whether a NTFY actually fired, search `trader_error.log` for entries like:
+- `[LRS] Alert dispatched [warning/{alert_type}]: {message}`
+- `[LRS] ntfy sent [200]: ?? TradeMinds {Level}`
+
+Searching only `trader.log` will miss NTFY firings entirely — the system POSTs at HTTP 200 and produces them correctly; they just land in the other file.
+
+This was learned the hard way during the 2026-05-05 reconciliation drift investigation (commit `ec81add`) when the investigation initially classified Thread D ("HM-V NTFY didn't fire") as a real bug before discovering 5 NTFY events were happily landing in `trader_error.log` at HTTP 200.
+
+### Alert rate-limit semantics — in-memory only
+
+`engine.alert_channels._rate_state` is an in-memory dict scoped to the running process. It is **NOT** persisted to the `settings` table.
+
+**Consequence:** the `rate_limit_secs=86400` parameter that HM-U callers pass means "first occurrence per error class **per process lifetime**", not "first occurrence per error class per 24h wall-clock." Service restarts reset the dedup state.
+
+On heavy-restart days, each unique `alert_type` can fire up to N times where N = restart count. 2026-05-05 (Day 2 of gate-flip soak) had 4 restarts, so HM-U's submit-error alert classes fired up to 4× instead of the intended 1×.
+
+For daily-cadence canary alerts (e.g., Item 5 reconciliation drift detection — fires once per day at 13:30), this is fine: the canary fires once and the in-memory state holds within that window.
+
+For HM-U error-class alerts on heavy-restart days, the policy is diluted but not broken. Each restart produces at most one fresh fire per alert_type. Acceptable today; not yet load-bearing.
+
+**Future option (not yet shipped):** persist `_rate_state` to the `settings` table to make rate-limiting survive restarts. Documented here so the actual semantics are clear.
+
 ## Workflow
 - Propose edits and ask for approval before applying
 - For multi-file changes, show the plan first, then apply incrementally

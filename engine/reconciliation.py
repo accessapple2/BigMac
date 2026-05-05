@@ -41,6 +41,25 @@ ROUTED_PLAYERS = frozenset({
     "alpaca-mirror",
 })
 
+# HM-I-β-Item5-thread-A (2026-05-05): tracking-mode routed players hold
+# positions by design that never forward to Alpaca. Including them in
+# routed-drift detection produces false-positive findings.
+#
+# Concrete case from 2026-05-05 reconciliation: dalio-metals holds ONDS short
+# (-76 shares) per its tracking-only metals-thesis paper book. Its route
+# resolves to portfolio='Enterprise Computer' route_mode='tracking'
+# (paper_trader._resolve_execution_portfolio); positions log-only via
+# _log_signal_only and never hit Alpaca. Including dalio-metals in
+# routed-drift surfaced ONDS as a false drift finding (see
+# docs/RECONCILIATION_DRIFT_INVESTIGATION_2026-05-05.md Thread A).
+#
+# Maintenance note: when new tracking-mode players are added (e.g., a future
+# Schwab tracker), append their player_id here. Pattern mirrors webull
+# exclusion in compute_unrouted_drift.
+TRACKING_ONLY_ROUTED_PLAYERS = frozenset({
+    "dalio-metals",
+})
+
 OUTPUT_DIR = Path("data/reconciliation")
 DB_PATH = Path("data/trader.db")
 
@@ -124,11 +143,19 @@ def compute_routed_drift(internal: dict, alpaca: dict) -> dict:
     """
     # Build the routed-internal symbol → qty map (stocks only, summed across
     # routed players — alpaca-mirror is by-design 1:1 with Alpaca, but the
-    # other 4 routed players each maintain their own subset)
+    # other 4 routed players each maintain their own subset).
+    #
+    # HM-I-β-Item5-thread-A (2026-05-05): exclude tracking-mode players from
+    # the routed-internal aggregation. Their positions are by-design log-only
+    # and never forward to Alpaca; including them produces false-positive
+    # drift findings (see TRACKING_ONLY_ROUTED_PLAYERS docstring above and
+    # docs/RECONCILIATION_DRIFT_INVESTIGATION_2026-05-05.md Thread A).
     routed_internal: dict[str, float] = {}
     for player_id, positions in internal.items():
         if player_id not in ROUTED_PLAYERS:
             continue
+        if player_id in TRACKING_ONLY_ROUTED_PLAYERS:
+            continue  # HM-I-β-Item5-thread-A: tracking-mode = log-only by design
         for p in positions:
             if p.get("asset_type") != "stock":
                 continue
