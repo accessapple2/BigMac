@@ -1,11 +1,25 @@
-"""Kirk Advisory — actionable recommendations for Captain Kirk's Webull positions.
-Cross-references positions with GEX, F&G, VIX, fleet intelligence, trade history, and backtest results.
-Generates TRIM/HOLD/ADD signals with reasoning.
+"""Kirk Advisory — actionable recommendations on Captain Kirk's real Schwab holdings.
+
+Kirk-Schwab-realign-2026-05-05 (Admiral Option A): primary data source is
+data/real_holdings.json (Schwab snapshot, ~23 positions, ~$22k notional,
+~$2.2k cash). Mission: in-system automated 30-min advisor on real money,
+distinct from Grok (Admiral's external manual copy-paste advisor flow on
+the same Schwab account). Same account, different methodologies and cadences.
+
+Replaces alpaca-mirror paper read (HM-I-β Item 3, 2026-05-05 commit 5186408),
+which itself replaced the pre-split webull double-role read. The webull
+trade-history footer (Steve's 127 imported Webull trades) remains as a
+context anchor only — not a position source.
+
+Cross-references positions with GEX, F&G, VIX, fleet intelligence, trade
+history, and backtest results. Generates TRIM/HOLD/ADD signals with reasoning.
 """
+import json
 import logging
 import os
 import sqlite3 as _sq
 from datetime import datetime
+from pathlib import Path
 import pytz
 from engine.market_data import get_stock_price
 from engine.fear_greed import get_fear_greed_index
@@ -14,14 +28,12 @@ from rich.console import Console
 console = Console()
 logger = logging.getLogger("kirk_advisory")
 
-# HM-I-β-Item3 (2026-05-05): Kirk re-targets from 'webull' to 'alpaca-mirror'.
-# Kirk has been advising on Alpaca paper data for ~6 weeks under the wrong label
-# (webull was acting as both human and Alpaca-mirror destination). After the
-# webull dual-role split, alpaca-mirror is the broker-book truth source.
-# The historical kirk_advisory_log rows stay (they were always advising on
-# Alpaca-mirrored data, just labeled webull). Trade history stats below still
-# read from 'webull' (Steve's 127 imported Webull trades — context anchor).
+# Kirk-Schwab-realign-2026-05-05: PLAYER_ID retained for cash DB-fallback
+# and kirk_advisory_log writes. Position reads now bypass it via
+# _load_real_holdings(). Historical advisory_log rows reflect the
+# alpaca-mirror era and stay as historical record.
 PLAYER_ID = "alpaca-mirror"
+REAL_HOLDINGS_PATH = Path("data/real_holdings.json")
 STOP_LOSS_PCT = -8.0      # Hard stop at -8%
 TRIM_WARNING_PCT = -6.0   # Warn when approaching stop
 WINNER_HOLD_PCT = 5.0     # Don't sell winners above this
@@ -32,6 +44,88 @@ def _get_db():
     db = _sq.connect("data/trader.db", timeout=10)
     db.row_factory = _sq.Row
     return db
+
+
+# Kirk-Schwab-realign-2026-05-05: shared real-holdings reader; consumed by
+# kirk_grok_advisor as well via `from engine.kirk_advisory import _load_real_holdings`.
+def _load_real_holdings() -> dict:
+    """Load Schwab real holdings from data/real_holdings.json.
+
+    Returns a dict shaped to match Kirk's downstream consumers:
+
+        {
+            "positions": [
+                {"symbol": str, "qty": float, "avg_price": float,
+                 "current_price": 0.0, "day_change_pct": float|None,
+                 "notes": str},
+                ...
+            ],
+            "cash": float,
+            "snapshot_at": str | None,   # ISO date from real_holdings.json
+            "source": "schwab/real_holdings.json",
+        }
+
+    `current_price` is left at 0.0 — downstream consumers refresh it via
+    engine.market_data.get_stock_price (matches the existing fallback in
+    generate_kirk_advisory's per-position loop).
+
+    On missing file or parse error, returns empty positions and 0 cash with
+    an `error` key set, leaving downstream code paths intact.
+    """
+    if not REAL_HOLDINGS_PATH.exists():
+        return {
+            "positions": [],
+            "cash": 0.0,
+            "snapshot_at": None,
+            "source": "schwab/real_holdings.json",
+            "error": "real_holdings.json missing",
+        }
+    try:
+        with REAL_HOLDINGS_PATH.open() as fh:
+            raw = json.load(fh)
+    except Exception as e:
+        logger.error(
+            "real_holdings.json load failed: %s: %r", type(e).__name__, e
+        )
+        return {
+            "positions": [],
+            "cash": 0.0,
+            "snapshot_at": None,
+            "source": "schwab/real_holdings.json",
+            "error": f"{type(e).__name__}: {e!r}",
+        }
+
+    schwab = (raw.get("accounts") or {}).get("schwab") or {}
+    raw_positions = schwab.get("positions") or []
+    cash = float(schwab.get("cash_balance") or 0.0)
+
+    positions = []
+    for p in raw_positions:
+        symbol = (p.get("symbol") or "").strip().upper()
+        if not symbol:
+            continue
+        try:
+            qty = float(p.get("qty") or 0.0)
+            avg_price = float(p.get("avg_cost") or 0.0)
+        except (TypeError, ValueError):
+            continue
+        if qty <= 0 or avg_price <= 0:
+            continue
+        positions.append({
+            "symbol": symbol,
+            "qty": qty,
+            "avg_price": avg_price,
+            "current_price": 0.0,
+            "day_change_pct": p.get("day_change_pct"),
+            "notes": p.get("notes", ""),
+        })
+
+    return {
+        "positions": positions,
+        "cash": cash,
+        "snapshot_at": raw.get("last_updated"),
+        "source": "schwab/real_holdings.json",
+    }
 
 
 def _get_trade_history_summary():
@@ -111,10 +205,14 @@ def _get_rebalance_recs(symbols: list) -> dict:
 
 
 def _get_live_cash(fallback: float = 0.0) -> float:
-    """Return Kirk's account value. Priority:
-    1. KIRK_PORTFOLIO_CASH env var (manual override)
-    2. settings.webull_synced_value (auto-updated by Webull sync)
-    3. ai_players.cash (DB fallback)
+    """Return Kirk's account cash. Priority:
+    1. KIRK_PORTFOLIO_CASH env var (operator override)
+    2. fallback (Schwab cash from real_holdings.json, passed by caller)
+
+    Kirk-Schwab-realign-2026-05-05: pre-realign priority included
+    settings.webull_synced_value (now dormant — Webull liquidated 2026-04-17)
+    and ai_players.cash for alpaca-mirror (paper, not Schwab). Both removed
+    so the env-override → Schwab-snapshot path is unambiguous.
     """
     env_cash = os.environ.get("KIRK_PORTFOLIO_CASH", "").strip()
     if env_cash and env_cash != "0":
@@ -122,26 +220,6 @@ def _get_live_cash(fallback: float = 0.0) -> float:
             return float(env_cash)
         except ValueError:
             pass
-    try:
-        db = _get_db()
-        # Prefer the synced Webull total value (most accurate, updated on sync)
-        synced_row = db.execute(
-            "SELECT value FROM settings WHERE key='webull_synced_value'"
-        ).fetchone()
-        if synced_row and synced_row["value"]:
-            val = float(synced_row["value"])
-            if val > 0:
-                db.close()
-                return val
-        # Fall back to ai_players.cash
-        row = db.execute(
-            "SELECT cash FROM ai_players WHERE id=?", (PLAYER_ID,)
-        ).fetchone()
-        db.close()
-        if row and row["cash"] is not None and 0 < float(row["cash"]) < 500_000:
-            return float(row["cash"])
-    except Exception as e:
-        logger.warning("Webull cash lookup failed, using fallback: %s", e)
     return fallback
 
 
@@ -175,17 +253,15 @@ def _get_live_webull_portfolio():
 
 
 def generate_kirk_advisory():
-    """Generate actionable recommendations for Kirk's Webull positions."""
+    """Generate actionable recommendations on Kirk's real Schwab holdings."""
     try:
-        from engine.paper_trader import get_portfolio
-        # Try live Webull cache first; fall back to paper_trader DB
-        live = _get_live_webull_portfolio()
-        if live and live.get("positions"):
-            portfolio = live
-        else:
-            portfolio = get_portfolio(PLAYER_ID)
-        positions = portfolio.get("positions", [])
-        cash = _get_live_cash(fallback=portfolio.get("cash", 0))
+        # Kirk-Schwab-realign-2026-05-05: real_holdings.json is the truth source
+        # post-Admiral Option A decision (was alpaca-mirror paper). Schwab cash
+        # comes from the snapshot directly; KIRK_PORTFOLIO_CASH env override
+        # still wins via _get_live_cash for operator-driven adjustments.
+        holdings = _load_real_holdings()
+        positions = holdings.get("positions", [])
+        cash = _get_live_cash(fallback=holdings.get("cash") or 0)
 
         # Portfolio value from env var (manually updated from real Webull account)
         env_value = os.environ.get("KIRK_PORTFOLIO_VALUE", "").strip()

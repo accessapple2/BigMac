@@ -306,7 +306,9 @@ def main() -> None:
 
     import_csv(csv_path)
 
-    # Auto-sync to real_holdings.json (Kirk Advisory data source)
+    # Kirk-Schwab-realign-2026-05-05: claim now accurate (was stale before
+    # Admiral Option A realign — Kirk was reading alpaca-mirror paper).
+    # Auto-sync to real_holdings.json (Kirk Advisory data source).
     try:
         import subprocess
         result = subprocess.run(

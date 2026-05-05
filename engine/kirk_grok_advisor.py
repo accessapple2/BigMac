@@ -1,9 +1,18 @@
-"""Kirk Grok Advisor — uses xAI Grok to analyze Kirk's Webull positions
-for long swing trade recommendations.
+"""Kirk Grok Advisor — LLM-mode swing trade analysis on real Schwab holdings.
 
-Runs twice per market day (9:30 AM and 1:30 PM ET).
+Kirk-Schwab-realign-2026-05-05 (Admiral Option A): reads Schwab real
+holdings from data/real_holdings.json via
+``engine.kirk_advisory._load_real_holdings``. Replaces the prior alpaca-mirror
+paper read (HM-I-β Item 3, 2026-05-05).
+
+xAI Grok API path remains in-file but is dead code — `use_ollama=True` is
+forced unconditionally per Free-Models-First (commit a1b1fef, 2026-04-17).
+The active path is local Ollama (qwen3:8b on the Ollie box). The cost-cap
+machinery is preserved verbatim against the day Grok is reauthorized.
+
+Runs twice per market day (09:30 and 13:30 ET) via main.py schedule.
 Stores results in portfolio_advice table (8-hour TTL per scan).
-Daily cost cap: $0.50 (configurable via GROK_ADVISOR_DAILY_CAP env var).
+Daily cost cap: $0.50 (effective cost is $0 while use_ollama=True).
 """
 from __future__ import annotations
 
@@ -156,31 +165,43 @@ def _log_cost(input_tok: int, output_tok: int) -> float:
 
 
 def _get_positions() -> list[dict]:
-    """Return Kirk's current Webull positions from DB."""
+    """Return Kirk's current real Schwab holdings, enriched with live prices.
+
+    Kirk-Schwab-realign-2026-05-05: reads data/real_holdings.json via
+    engine.kirk_advisory._load_real_holdings (was: SQL read of
+    positions WHERE player_id='alpaca-mirror'). Live current_price is
+    fetched per symbol so the LLM prompt receives real P&L context.
+    """
     try:
-        conn = _conn()
-        # HM-I-β-Item3 (2026-05-05): re-targets to alpaca-mirror (broker book)
-        # post-split. webull retains its historical role as Steve's human-Webull
-        # benchmark; alpaca-mirror is the live broker-mirror destination.
-        rows = conn.execute(
-            "SELECT p.symbol, p.qty, p.avg_price, "
-            "  p.avg_price AS current_price "
-            "FROM positions p "
-            "WHERE p.player_id='alpaca-mirror' AND p.qty > 0 "
-            "ORDER BY p.symbol",
-        ).fetchall()
-        conn.close()
-        result = []
-        for r in rows:
-            row = dict(r)
-            avg = row.get("avg_price") or 0
-            cur = row.get("current_price") or avg
-            row["pnl_pct"] = round((cur - avg) / avg * 100, 2) if avg else 0
-            result.append(row)
-        return result
+        from engine.kirk_advisory import _load_real_holdings
+        from engine.market_data import get_stock_price
     except Exception as e:
-        logger.warning("Failed to fetch positions: %s", e)
+        logger.warning(
+            "Real-holdings reader import failed: %s: %r", type(e).__name__, e
+        )
         return []
+
+    holdings = _load_real_holdings()
+    raw_positions = holdings.get("positions") or []
+    result = []
+    for p in raw_positions:
+        row = dict(p)
+        avg = float(row.get("avg_price") or 0.0)
+        cur = 0.0
+        try:
+            price_data = get_stock_price(row["symbol"])
+            cur = float((price_data or {}).get("price") or 0.0)
+        except Exception as e:
+            logger.debug(
+                "Live price fetch failed for %s: %s: %r",
+                row.get("symbol"), type(e).__name__, e,
+            )
+        row["current_price"] = cur if cur > 0 else avg
+        row["pnl_pct"] = (
+            round((row["current_price"] - avg) / avg * 100, 2) if avg else 0
+        )
+        result.append(row)
+    return result
 
 
 # ── Grok API ────────────────────────────────────────────────────────────────
@@ -326,8 +347,10 @@ def run_grok_advisory() -> dict:
             f"current ${p.get('current_price', 0):.2f}, "
             f"P&L {p.get('pnl_pct', 0):+.1f}%"
         )
+    # Kirk-Schwab-realign-2026-05-05: header reflects real Schwab account
+    # (~23 positions, ~$22k notional + ~$2.2k cash per real_holdings.json).
     prompt = (
-        "Kirk's Webull swing portfolio (~$6,500 account):\n"
+        "Kirk's real Schwab swing portfolio (~$22k notional + ~$2.2k cash):\n"
         + "\n".join(lines)
         + "\n\nProvide swing trade advice for each position."
     )
