@@ -358,11 +358,26 @@ before any new agent is wired.
 ### HM-T-fleet — Silent-Inertness Audit (Tuesday 2026-05-05)
 - Extended HM-T's PED-class question fleet-wide. 49 ai_players + 130 schedule registrations classified.
 - **7 PED-class inert agents identified:** anderson-bcs, mccoy-bps, quark-ic, covered-call (orphaned in `engine/options_agents.py`, file imported by nothing); qwen3-14b-pro (lab/backtest scaffold, never dispatched); red-alert (channel-mismatch — writes to non-existent `red_alert_log`); dayblade-0dte (was active until 2026-04-07, 28 days idle — watch list).
-- **Halted-but-emitting confirmed:** ollama-llama leaked 947 post-halt signals + 2 post-halt trades (HM-A signal-emission gate gap; trades-leak is a NEW finding).
+- **Halted-but-emitting confirmed:** ollama-llama leaked 947 post-halt signals (HM-A signal-emission gate gap). Earlier "2 post-halt trades NEW finding" claim was a query-window error; corrected in commit ee481fa — actual 7 post-halt trades, all clean exits, Verdict A (no trade-gate bug).
 - **Orphan in signals not in roster:** `debate-pipeline` (1 row, 2026-03-31, vestigial).
 - **Recommendations:** (1) one bundled retirement commit for the 4 options_agents.py orphans (mirrors PED pattern); (2) dispatch-loop investigation for qwen3-14b-pro; (3) clarify red-alert role; (4) signal-emission gate work (already in CLAUDE.md TODOs).
 - 4 open Admiral questions: paid-model halting policy, options_agents retirement scope, dayblade-0dte timeline, mlx-qwen3/ollama-coder dispatch suppression.
 - Full report: `docs/HM-T-fleet_SILENT_INERTNESS_AUDIT_2026-05-05.md`. No code/schema changes — investigation deliverable only.
+
+### HM-I — Bridge Scope Investigation (Tuesday 2026-05-05)
+
+**Status:** Open — awaiting Admiral decision
+**Priority:** Medium (architectural; running soak is stable, skip noise is harmless)
+**Investigation date:** 2026-05-05 morning (Scotty)
+
+Inventoried the internal-book ↔ Alpaca-paper bridge. 3 books, 2 flows, 4-player routing table.
+
+- **Active code-level finding (NOT applied):** `engine/paper_trader.py:1300` (partial-SELL path) calls `_forward_to_alpaca` **without** the `route_mode == "trading"` gate that BUY (line 1015) and full-SELL (line 1167) both have. Source of today's 181 phantom-position skip log entries from legacy fleet players (deepseek-7b-grok4, ollama-qwen3, ollama-plutus, qwen3-8b-flash). Skips are harmless (SHORT-GUARD prevents drift) but noisy. Fix is one-line gate matching line 1167 (Option ε in the doc).
+- **Type 1 divergence count:** 39 internal positions across 9 players that Alpaca paper doesn't know about. Includes shorts (gemini-2.5-flash IREN/ONDS) and futures (enterprise-computer GC=F, SI=F) that Alpaca paper can't accept anyway.
+- **Type 2/3:** none / none-real (webull mirror is the bridge sync target).
+- **5 architectural options** presented neutrally (α/β/γ/δ/ε) with effort, risk, pros, cons, reversibility, open questions.
+- **No recommendation.** Admiral picks the path. Implementation lands as a separate session prompt with the chosen option pre-baked.
+- Full report: `docs/HM-I_BRIDGE_SCOPE_INVESTIGATION_2026-05-05.md`.
 
 ### HM-U — Silent-Failure Pattern Discussion (DISCUSSION ITEM, NOT A FIX)
 
