@@ -1,6 +1,9 @@
 # HM-T-fleet — Silent-Inertness Audit
 *2026-05-05, Scotty investigation, no fixes applied*
 
+<!-- HM-T-fleet-correction-2: 2026-05-05 afternoon status update -->
+> **Status update (2026-05-05 afternoon):** all 8 player_ids in `engine/options_agents.py` are now `halt_mode='full'`. Production halt: commit 06b5ce7 (anderson-bcs / mccoy-bps / quark-ic / covered-call). Ghost halt: commit bc51ade (ghost-kirk-bc / ghost-kirk-0dte-bc / ghost-long-call / ghost-naked-put, after Option-4 investigation 81b3c33 disproved the ⚪ "by-design" classification). File `engine/options_agents.py` remains in codebase per sacred-data rule. Dashboard preview endpoint `/api/options/scan-preview` continues to render the (all-halted) agents. Two inaccuracies in the body of this doc are corrected inline below — see `<!-- HM-T-fleet-correction-2: -->` markers.
+
 ## Question
 PED (`post_earnings_drift`) was found silently inert in HM-T (2026-05-04, retired in commit 0ead8d4): scheduled but produced zero signals because its qualifying-ticker condition was structurally unreachable. **How many other agents are PED-class?**
 
@@ -24,6 +27,13 @@ This audit prioritizes (1) because that's what HM-T did for PED. (2) is partiall
 ## Classification table
 
 Legend: 🟢 Active · 🟡 Sparse · 🟠 Inert (PED-class) · 🔴 Halted · ⚫ Orphaned · ⚪ By-design (gate / tracker / human)
+
+<!-- HM-T-fleet-correction-2: 2026-05-05 afternoon, post-Option-4 -->
+> **CORRECTION (2026-05-05 afternoon).** Two claims in this table were disproved by today's later sessions:
+>
+> **(1) "file imported by nothing"** (anderson-bcs row, and equivalents on covered-call / mccoy-bps / quark-ic) — disproved during HM-T-fleet retirement bundle pre-flight (commit 06b5ce7 Phase 1). Reality: `dashboard/app.py:17731` imports `run_scan_cycle` from `engine.options_agents`. The dashboard endpoint `/api/options/scan-preview` consumes the file. The retirement bundle was therefore halt-only (Option 1) rather than file-archive — file stays in codebase per sacred-data rule, dashboard preserved, halt prevents activity.
+>
+> **(2) ⚪ "By-design" ghost classification** (ghost-kirk-bc, ghost-kirk-0dte-bc, ghost-long-call, ghost-naked-put rows) — was speculative; the original audit inferred from the `ghost-*` naming prefix without behavioral verification. Today's Option 4 investigation (commit 81b3c33, footnote fa5b0df) tested the classification: all 4 ghosts have zero lifetime signals, zero lifetime trades, zero options_trades rows — behaviorally identical to the 4 production agents already retirement-flagged. Admiral subsequently halted all 4 via Option B (commit bc51ade) for symmetry. The ⚪ By-design rows for `enterprise-computer`, `ollie-auto`, `webull` remain correct (those are genuine system / gate / human roles).
 
 | Player | Class | Lifetime sigs | Lifetime trades | sigs 7d | trades 7d | Most recent | Notes |
 |---|---|---:|---:|---:|---:|---|---|
@@ -99,6 +109,8 @@ Legend: 🟢 Active · 🟡 Sparse · 🟠 Inert (PED-class) · 🔴 Halted · �
 ### `anderson-bcs`, `mccoy-bps`, `quark-ic`, `covered-call`
 - **Code path:** `engine/options_agents.py` defines 9 `OptionsAgent` subclasses with `scan(regime, vix, convergence_signals)` methods (lines 99, 140, 229, 322, 405, 507, 592, 661, 731) and a `run_scan_cycle` orchestrator at line 799.
 - **Why inert:** **Nothing imports `options_agents`.** Confirmed by `grep -rn "from engine.options_agents\|from engine import options_agents\|options_agents\." engine/ main.py` returning 0 hits.
+  <!-- HM-T-fleet-correction-2: 2026-05-05 afternoon, post-Option-4 -->
+  > **CORRECTION (2026-05-05 afternoon):** the "Nothing imports options_agents" claim was wrong — the original grep above missed the dashboard tree. `dashboard/app.py:17731` imports `run_scan_cycle` from `engine.options_agents` for the `/api/options/scan-preview` endpoint. Disproved during HM-T-fleet retirement bundle pre-flight (commit 06b5ce7 Phase 1). Behavioral consequence: the file is preview-only (no scheduler, no execution path) — agents reachable only via operator-triggered dashboard preview. Retirement was therefore halt-only (Option 1) rather than file-archive: ai_players rows transitioned to `halt_mode='full'`, file stays per sacred-data rule, dashboard preview preserved.
 - **Connection to fleet reality:** Already flagged in CLAUDE.md "Pending TODOs (additions from 2026-05-03 reconciliation)" — *"Backtest 8 orphaned options strategies in `engine/options_agents.py` (zero `main.py` refs) — wire/retire decision blocks Sunday Deep Dive Phase 4."*
 - **Recommendation:** **Retirement candidate.** Same archive pattern as PED — move `engine/options_agents.py` to `archive/retired/2026-05-05-options-agents/` and document in CLAUDE.md retirement section. The ai_players rows can stay (per sacred-data rule) but should get `halt_mode=exit_only` and `halt_reason='HM-T-fleet 2026-05-05 — options_agents.py file orphaned, zero callers'`. **Effort:** 30 min (mirrors yesterday's PED retirement commit).
 
@@ -171,7 +183,7 @@ No orphans in `trades`. No roster rows missing from any expected join table.
 
 ### Cosmetic / no-action
 8. **enterprise-computer** — by-design (system role for metals + war room display). Document in CLAUDE.md or the Schema doc to prevent re-flagging.
-9. **ghost-* (4 agents)** — by-design (ghost-trading trackers). Already understood.
+9. **ghost-* (4 agents)** — by-design (ghost-trading trackers). Already understood. <!-- HM-T-fleet-correction-2 --> **Superseded:** Option-4 investigation (commit 81b3c33) disproved this line — the 4 ghosts were behaviorally identical to the 4 production agents, not genuinely "by-design." Halted via Option B (commit bc51ade).
 10. **debate-pipeline orphan** — single 2026-03-31 row, vestigial. Optionally back-create the player row OR delete the orphan signal. Lowest priority.
 11. **Paid-model wind-down (claude-*, gemini-2.5-*, gpt-*, grok-4)** — these have never been formally halted but are operationally dead per Free Models First doctrine. Should they be `halt_mode=exit_only` for cleanliness? Operational question for the Admiral.
 
