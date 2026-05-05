@@ -385,7 +385,8 @@ Inventoried the internal-book ↔ Alpaca-paper bridge. 3 books, 2 flows, 4-playe
 
 ### Option 4 — Ghost Agents Investigation (Tuesday 2026-05-05)
 
-**Status:** Open — awaiting Admiral A/B/C/D decision (no recommendation made).
+**Status:** **CLOSED 2026-05-05 08:57 MST** — Admiral chose **Option B halt-only retirement**. 4 ghost agents transitioned `halt_mode='active' → 'full'` via DB UPDATE. File `engine/options_agents.py` untouched (sacred-data); `/api/options/scan-preview` endpoint continues serving 8 halted agents (4 production halted morning 06b5ce7 + 4 ghosts halted now). halt_gate API confirms all 4 ghosts return False on can_emit/open/close; active players (ollama-plutus, ollie-auto, super-agent) unaffected. Operationally a no-op (zero lifetime activity); DB now reflects behavioral reality. Pre-halt backup at `backups/trader.db.pre-ghost-retire-20260505_085718`.
+**Original Status:** Open — awaiting Admiral A/B/C/D decision (no recommendation made).
 **Priority:** Low (no current behavioral impact; either choice is reversible).
 **Investigation date:** 2026-05-05 morning (Scotty)
 
