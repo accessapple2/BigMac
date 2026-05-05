@@ -3473,72 +3473,10 @@ if __name__ == "__main__":
 
     schedule.every(30).minutes.do(run_aladdin_brief)   # Aladdin: checks every 30 min, runs every 4 hours
 
-    # Post-Earnings Drift: short-side specialist, 1-48hr post-earnings window
-    # Bypasses firmwide earnings blackout BY DESIGN. Paper-only while gated.
-    # Halt-respect via agent_state.is_halted (paper_trader.py:550 pattern).
-    _ped_state = {"last_run": 0.0}
-    def run_post_earnings_drift():
-        now_ts = time.time()
-        if now_ts - _ped_state["last_run"] < 900:  # 15-min minimum
-            return
-        _ped_state["last_run"] = now_ts
-        try:
-            from agents.post_earnings_drift import _agent as ped_agent
-            if ped_agent.is_halted():
-                console.log("[yellow]post_earnings_drift HALTED - skip")
-                return
-            # Build market_data dict from earnings universe
-            from engine.earnings_calendar import fetch_earnings
-            from engine.market_data import _yahoo_chart
-            from datetime import datetime, timedelta
-            # Watchlist: tickers with earnings in last 48 hours
-            try:
-                with open("data/watchlist.txt") as _wl:
-                    universe = [s.strip().upper() for s in _wl if s.strip()]
-            except Exception:
-                universe = ["SPY","QQQ","NVDA","AAPL","MSFT","GOOGL","META","AMZN","TSLA"]
-            now_dt = datetime.now()
-            cutoff_lo = now_dt - timedelta(hours=48)
-            cutoff_hi = now_dt - timedelta(hours=1)
-            md = {}
-            recent_earnings = fetch_earnings(universe) or []
-            for rec in recent_earnings:
-                try:
-                    sym = rec.get("symbol")
-                    edate = rec.get("date")
-                    if not sym or not edate:
-                        continue
-                    edt = datetime.fromisoformat(str(edate)[:10])
-                    if not (cutoff_lo <= edt <= cutoff_hi):
-                        continue
-                    raw = _yahoo_chart(sym, interval="1h", range_="5d")
-                    if not raw:
-                        continue
-                    bars = []
-                    if hasattr(raw, "iterrows"):
-                        for _, r in raw.iterrows():
-                            bars.append((float(r.get("Open", 0)), float(r.get("High", 0)),
-                                         float(r.get("Low", 0)),  float(r.get("Close", 0)),
-                                         float(r.get("Volume", 0))))
-                    md[sym] = {"bars": bars, "earnings_dt": edt, "regime": "AUTO"}
-                except Exception:
-                    continue
-            sigs = ped_agent.scan(md)
-            if sigs:
-                console.log(
-                    f"[bold red]Post-Earnings Drift: {len(sigs)} SHORT signals "
-                    f"(paper_only={sigs[0]['meta']['paper_only']})"
-                )
-                for s in sigs:
-                    console.log(
-                        f"  - {s['symbol']:6s} entry={s['entry_price']} "
-                        f"stop={s['stop_price']} target={s['target_price']} "
-                        f"conf={s['confidence']}"
-                    )
-        except Exception as e:
-            console.log(f"[red]Post-Earnings Drift error: {e}")
-
-    schedule.every(15).minutes.do(run_post_earnings_drift)  # PED: 15-min cadence
+    # HM-T-retire 2026-05-04: post_earnings_drift retired (Verdict B silently inert).
+    # Module archived to archive/retired/2026-05-04-post-earnings-drift/.
+    # See docs/HM-T_PED_OPERATIONAL_PROBE_2026-05-04.md for forensic record.
+    # Side effect: closes HM-S-code (phantom agent_state reference removed from active paths).
 
     # ── Elder Council (S6.3, 2026-04-16): Sarek / Janeway / Surak ────────────
     # Patient long-horizon agents. Scheduler fires daily at 05:30-05:45 AZ, but
