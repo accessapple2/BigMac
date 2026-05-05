@@ -154,9 +154,10 @@ def _source_signal_scorecard(symbol: str) -> dict[str, Any] | None:
         from engine.signal_scorecard import get_scorecard
         signals = get_scorecard(limit=200)
         # Filter for this symbol with resolved outcomes
+        # brain_context-fix: signal_scorecard schema uses 'ticker' not 'symbol'
         sym_signals = [
             s for s in signals
-            if s.get("symbol") == symbol and s.get("outcome_pct") is not None
+            if s.get("ticker") == symbol and s.get("outcome_pct") is not None
         ]
         if len(sym_signals) < 2:
             return None
