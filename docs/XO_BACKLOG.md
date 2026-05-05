@@ -366,17 +366,21 @@ before any new agent is wired.
 
 ### HM-I — Bridge Scope Investigation (Tuesday 2026-05-05)
 
-**Status:** Open — awaiting Admiral decision
-**Priority:** Medium (architectural; running soak is stable, skip noise is harmless)
+**Status:** Admiral picked **Option β** (firm separation) 2026-05-05. Items 1+4 shipped same day; items 2/3/5 deferred.
+**Priority:** Medium (architectural; running soak is stable)
 **Investigation date:** 2026-05-05 morning (Scotty)
 
 Inventoried the internal-book ↔ Alpaca-paper bridge. 3 books, 2 flows, 4-player routing table.
 
-- **Active code-level finding (NOT applied):** `engine/paper_trader.py:1300` (partial-SELL path) calls `_forward_to_alpaca` **without** the `route_mode == "trading"` gate that BUY (line 1015) and full-SELL (line 1167) both have. Source of today's 181 phantom-position skip log entries from legacy fleet players (deepseek-7b-grok4, ollama-qwen3, ollama-plutus, qwen3-8b-flash). Skips are harmless (SHORT-GUARD prevents drift) but noisy. Fix is one-line gate matching line 1167 (Option ε in the doc).
-- **Type 1 divergence count:** 39 internal positions across 9 players that Alpaca paper doesn't know about. Includes shorts (gemini-2.5-flash IREN/ONDS) and futures (enterprise-computer GC=F, SI=F) that Alpaca paper can't accept anyway.
-- **Type 2/3:** none / none-real (webull mirror is the bridge sync target).
-- **5 architectural options** presented neutrally (α/β/γ/δ/ε) with effort, risk, pros, cons, reversibility, open questions.
-- **No recommendation.** Admiral picks the path. Implementation lands as a separate session prompt with the chosen option pre-baked.
+- **Active code-level finding:** `engine/paper_trader.py:1300` (partial-SELL path) called `_forward_to_alpaca` **without** the `route_mode == "trading"` gate that BUY (line 1015) and full-SELL (line 1167) both have. Source of ~181/day phantom-position skip log entries from legacy fleet players. **APPLIED 2026-05-05 commit `d06c33c`** (HM-I Option ε): added matching gate; all three forward paths now identical. Stale bytecode at PID 35155 means current process still emits skips until next restart.
+- **Two-book policy formalized:** `CLAUDE.md` § "Architecture: Two-Book Bridge Policy" added 2026-05-05 commit `086a123`. Internal AI fleet book and Alpaca paper book are two separate ledgers by design. Routed players (super-agent, ollie-auto, neo-matrix, dalio-metals) + spread strategies forward to Alpaca; legacy fleet stays internal-only.
+- **Phantom-reference fix:** `portfolios.id=5` renamed from "Dalio Metals" → "Enterprise Computer" 2026-05-05 to match `_EXECUTION_PORTFOLIO_BY_PLAYER` mapping. Resolution went from broken (fall-through paper) to correct (id=5, route_mode=tracking, log-only). Behavior change: dalio-metals no longer accumulates new internal-book trades — matches Option β log-only intent. Existing 37 trades + 2 positions preserved (FK on id, not name). DB-only change; no code/doc updates needed (refs were already correct).
+- **Type 1 divergence count at investigation time:** 39 internal positions across 9 players that Alpaca paper doesn't have. Includes shorts (gemini-2.5-flash IREN/ONDS) and futures (enterprise-computer GC=F, SI=F) Alpaca paper can't accept. Stable post-β (legacy fleet stays internal by design).
+- **5 options presented α/β/γ/δ/ε.** Admiral picked β. Item ε (decision-orthogonal) also applied.
+- **β followups deferred to future sessions:**
+  - Item 2: Dashboard naming pass (Arena Paper vs Alpaca Paper visual distinction).
+  - Item 3: Webull dual-role split (`webull` human + `alpaca-mirror`).
+  - Item 5: Reconciliation report (replaces ε canary, daily NTFY on drift thresholds).
 - Full report: `docs/HM-I_BRIDGE_SCOPE_INVESTIGATION_2026-05-05.md`.
 
 ### HM-U — Silent-Failure Pattern Discussion (DISCUSSION ITEM, NOT A FIX)
