@@ -383,6 +383,21 @@ Inventoried the internal-book ↔ Alpaca-paper bridge. 3 books, 2 flows, 4-playe
   - Item 5: Reconciliation report (replaces ε canary, daily NTFY on drift thresholds).
 - Full report: `docs/HM-I_BRIDGE_SCOPE_INVESTIGATION_2026-05-05.md`.
 
+### Option 4 — Ghost Agents Investigation (Tuesday 2026-05-05)
+
+**Status:** Open — awaiting Admiral A/B/C/D decision (no recommendation made).
+**Priority:** Low (no current behavioral impact; either choice is reversible).
+**Investigation date:** 2026-05-05 morning (Scotty)
+
+Tested HM-T-fleet's ⚪ "by-design" classification of the 4 ghost agents (ghost-kirk-bc, ghost-kirk-0dte-bc, ghost-long-call, ghost-naked-put).
+
+- **Verdict:** classification was **directionally correct**. All 4 ghosts are 🟡 half-wired — real classes with real scan logic, partitioned into a separate `options_books.ghost` research book ($2,500 starting capital) with drawdown gate, designed as A/B research framework. Not orphans.
+- **But:** they share their dispatch path with the 4 production options agents we halted this morning (commit 06b5ce7). Both groups are preview-only — no scheduler entry, no execution step, only consumer is `dashboard/app.py:17731 /api/options/scan-preview`. The "separate confirm step" the run_scan_cycle docstring references doesn't exist in code.
+- **4 options presented:** A leave alone (no action), B halt all 4 ghosts to mirror morning halt symmetrically, C activate (build the missing scheduler+confirm path), D retire entire options-engine subsystem.
+- **Open Admiral questions:** was ghost activation always planned? should production+ghost halt status be symmetric? is the "separate confirm step" real or aspirational?
+- Full report: `docs/OPTION-4_GHOST_AGENTS_INVESTIGATION_2026-05-05.md`.
+- **Side observation:** morning halt of 4 production options agents (anderson-bcs/etc.) was effectively cosmetic — those agents had no path to fire either. Halt is still correct (marks them not-production), but didn't change behavior.
+
 ### HM-U — Silent-Failure Pattern Discussion (DISCUSSION ITEM, NOT A FIX)
 
 **Status:** Open
