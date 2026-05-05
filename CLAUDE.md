@@ -85,6 +85,51 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
 - Always run ALL agents in backtests, never a subset
 - Never cite in-sample (IS) numbers without the matching OOS figure
 
+<!-- HM-I-β: two-book bridge policy formalized 2026-05-05 per Admiral decision -->
+## Architecture: Two-Book Bridge Policy (Option β, established 2026-05-05)
+
+**OllieTrades operates two separate books, by design.** Source: HM-I investigation (`docs/HM-I_BRIDGE_SCOPE_INVESTIGATION_2026-05-05.md`); Admiral decision 2026-05-05.
+
+### The two books
+1. **Internal AI fleet book** — `positions` table for all `player_id != 'webull'`. Research / calibration. The legacy fleet (ollama-plutus, qwen3-8b-flash, deepseek-7b-grok4, ollama-qwen3, energy-arnold, capitol-trades, gemini-2.5-flash, etc.) writes here. **Never forwards to Alpaca.**
+2. **Alpaca paper book** — Alpaca's live broker state, mirrored locally as the `webull` player's positions. Real-on-broker activity for routed players + spread strategies.
+
+### What routes to Alpaca
+- The **routed players** in `engine/paper_trader.py::_EXECUTION_PORTFOLIO_BY_PLAYER`:
+  - `super-agent` → Alpaca Paper (portfolio id=1)
+  - `ollie-auto` → Alpaca Paper (portfolio id=1)
+  - `neo-matrix` → Neo Matrix (portfolio id=7)
+  - `dalio-metals` → Enterprise Computer (portfolio id=5, physical-metals tracker, `route_mode=tracking`, log-only)
+- The **spread strategies** (post-gate-flip 2026-05-04, `_EXECUTION_ENABLED=True`):
+  - `bull_call_spread_v1`, `bear_put_spread_v1`, `executor` — these route via `engine/alpaca_options.py::execute_options_signal`, a **third forward path** that bypasses the player-keyed routing table entirely.
+
+### What stays internal
+Every other player. The 9+ active legacy-fleet agents emit signals and trades into the `positions` table only. Their entries never reach Alpaca paper.
+
+### How forwarding gates work
+`engine/paper_trader.py::_forward_to_alpaca` (line 216) is gated on `route["route_mode"] == "trading"` at all three call sites:
+- BUY (line 1015) — gated
+- full-SELL (line 1167) — gated
+- partial-SELL (line 1300) — gated as of 2026-05-05 commit `d06c33c` (HM-I Option ε)
+
+Players whose mapped portfolio resolves to `route_mode=paper` (default) or `route_mode=tracking` (Enterprise Computer) never forward to the broker.
+
+### Why two books, not one
+- Spread strategies and routed players need real broker state for honest execution paths.
+- Legacy fleet is research / calibration (per CLAUDE.md OOS validation: McCoy +11.1 Sharpe, etc.) — separating their book from the broker preserves test isolation.
+- Shorts and futures (GC=F, SI=F) live in the internal book naturally; Alpaca paper can't accept futures.
+- Legacy fleet halt/retirement decisions don't pollute the broker state.
+
+### Naming discipline
+- "Arena Paper" = the default unmapped routing destination (no DB row; `route_mode=paper`). Most legacy-fleet agents land here.
+- "Alpaca Paper" = `portfolios.id=1`, the actual broker connection.
+- These are **different things despite similar names**. Future dashboard work will make this visually distinct (HM-I-β followup, deferred).
+
+### Open followups (HM-I-β, deferred to future sessions)
+- **Item 2:** Dashboard naming pass — visually distinguish "Arena Paper" panels from "Alpaca Paper" panels.
+- **Item 3:** Split `webull` player's dual role (human Webull benchmark + Alpaca mirror) into two distinct player_ids (`webull` + `alpaca-mirror`).
+- **Item 5:** Daily reconciliation report — replaces the ε canary, surfaces internal-vs-Alpaca drift via NTFY when thresholds exceeded.
+
 ## Fleet Roster (S6.3, post-OOS-validation)
 
 ### Active 4 — Voters (live paper trading)
