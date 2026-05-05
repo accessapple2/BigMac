@@ -355,6 +355,36 @@ before any new agent is wired.
 - **Recommended: Option γ (formally retire).** Move to `archive/retired/`, remove schedule, document. Side benefit: closes HM-S-code by removing the phantom `agent_state` reference from active code paths. Option β (repair wiring with proper watchlist) is also viable if Captain sees PED research value.
 - Full report: `docs/HM-T_PED_OPERATIONAL_PROBE_2026-05-04.md`.
 
+### HM-U — Silent-Failure Pattern Discussion (DISCUSSION ITEM, NOT A FIX)
+
+**Status:** Open
+**Priority:** Medium (architectural conversation, not a code change)
+**Surfaced by:** HM-O / HM-S / HM-T / HM-E investigations on 2026-05-04, plus the stale-bytecode discovery during PED retirement verification
+
+Today's audits found a recurring architectural anti-pattern across multiple subsystems:
+
+| Subsystem | Silent-failure shape |
+|---|---|
+| HM-O (Ollie Box outage) | Connection-error reasoning text + `confidence=0.0` HOLD signals → treated as valid rows in `signals` table |
+| HM-S (`agent_state` ghost) | `try/except Exception: return False` swallows missing-table error → drawdown-halt always says "not halted" |
+| HM-T (PED inert) | Missing `data/watchlist.txt` → silently falls back to narrow universe → never qualifies → silently no-ops |
+| HM-E (halted journals) | No halt-mode check on routines → continues running for halted players → wasted LLM calls |
+| Stale-bytecode (PED-verification discovery) | `try/except: console.log(error)` at 4 call sites swallowed `no such column: is_halted` for 70 min before discovery |
+
+**Common shape:** bare `except` / silent fallback / no-op success path / caught-and-logged-but-not-alerted. The codebase trades loud failure for quiet incorrectness in many spots, and the discipline of "don't crash the trader" has expanded to cover bugs that should be loud.
+
+**Question for discussion (not for autonomous decision):**
+
+1. Should bare `except Exception` blocks log the swallowed exception with stack trace by default (vs current pattern of `console.log(f"...: {e}")` losing the traceback)?
+2. Should silent-fallback paths NTFY-alert when they fire (e.g., "PED couldn't load `data/watchlist.txt`, using fallback universe")?
+3. Is there a project-wide error-handling philosophy worth writing down in CLAUDE.md (e.g., "data-layer SQL errors must NTFY-alert; LLM-API errors may be swallowed; config-fallback paths must log once-per-process")?
+4. Are there other "wired-but-inert" agents we should fleet-audit (HM-T-fleet candidate)?
+5. Should schema-change verification include a service restart in the verification phase, given the stale-bytecode trap from today (see Lessons section)?
+
+**Recommended action:** Schedule a discussion-only session (Admiral + XO, no Scotty) to set posture. Then a follow-up sprint, if any, would write the explicit fix prompt.
+
+**Not in scope here:** automatic refactor of all bare-except blocks. That's a code-philosophy decision, not a Scotty task.
+
 ### HM-S — agent_state table ghost (Verdict C: dead but harmless + docs drift)
 - **`agent_state` does not exist in any of 13 .db files in the repo.** Confirmed via direct schema queries on every DB.
 - **Only 1 reader** in production code: `agents/post_earnings_drift.py:56` — wrapped in bare `except Exception: return False`, so the missing table silently produces "not halted".
