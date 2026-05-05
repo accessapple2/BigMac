@@ -283,11 +283,11 @@ def submit_vertical_spread(
             legs=[
                 OptionLegRequest(
                     symbol=buy_symbol, ratio_qty=1,
-                    side=OrderSide.BUY, position_intent=PositionIntent.BTO,
+                    side=OrderSide.BUY, position_intent=PositionIntent.BUY_TO_OPEN,  # HM-Z: was BTO (AttributeError; alpaca-py uses full names)
                 ),
                 OptionLegRequest(
                     symbol=sell_symbol, ratio_qty=1,
-                    side=OrderSide.SELL, position_intent=PositionIntent.STO,
+                    side=OrderSide.SELL, position_intent=PositionIntent.SELL_TO_OPEN,  # HM-Z: was STO
                 ),
             ],
         ))
@@ -322,10 +322,10 @@ def submit_iron_condor(
             time_in_force=TimeInForce.DAY,
             order_class=OrderClass.MLEG,
             legs=[
-                OptionLegRequest(symbol=call_buy,  ratio_qty=1, side=OrderSide.BUY,  position_intent=PositionIntent.BTO),
-                OptionLegRequest(symbol=call_sell, ratio_qty=1, side=OrderSide.SELL, position_intent=PositionIntent.STO),
-                OptionLegRequest(symbol=put_buy,   ratio_qty=1, side=OrderSide.BUY,  position_intent=PositionIntent.BTO),
-                OptionLegRequest(symbol=put_sell,  ratio_qty=1, side=OrderSide.SELL, position_intent=PositionIntent.STO),
+                OptionLegRequest(symbol=call_buy,  ratio_qty=1, side=OrderSide.BUY,  position_intent=PositionIntent.BUY_TO_OPEN),   # HM-Z: was BTO
+                OptionLegRequest(symbol=call_sell, ratio_qty=1, side=OrderSide.SELL, position_intent=PositionIntent.SELL_TO_OPEN),  # HM-Z: was STO
+                OptionLegRequest(symbol=put_buy,   ratio_qty=1, side=OrderSide.BUY,  position_intent=PositionIntent.BUY_TO_OPEN),   # HM-Z: was BTO
+                OptionLegRequest(symbol=put_sell,  ratio_qty=1, side=OrderSide.SELL, position_intent=PositionIntent.SELL_TO_OPEN),  # HM-Z: was STO
             ],
         ))
         console.log(f"[bold cyan]Alpaca IRON_CONDOR {qty}x {call_buy[:3]} — {player_id} order={order.id}")
