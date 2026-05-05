@@ -1471,7 +1471,9 @@ def _target_weight_adjustment(player_id: str, symbol: str, portfolio: dict, allo
                               price: float, confidence: float = 0.0) -> tuple[float, list[str]]:
     """Soft sizing adjustment only for prospective Arena stock buys."""
     reasons = []
-    if player_id in {"neo-matrix", "enterprise-computer", "webull", "super-agent"}:
+    # HM-I-β-Item3 (2026-05-05): added alpaca-mirror — broker-sync target,
+    # not subject to per-player allocation logic.
+    if player_id in {"neo-matrix", "enterprise-computer", "webull", "alpaca-mirror", "super-agent"}:
         return alloc_pct, reasons
 
     try:
@@ -1533,7 +1535,9 @@ def _target_weight_adjustment(player_id: str, symbol: str, portfolio: dict, allo
     return max(0.02, alloc_pct), reasons
 
 
-_ALLOCATION_POLICY_EXEMPT = {"super-agent", "neo-matrix", "enterprise-computer", "webull"}
+# HM-I-β-Item3 (2026-05-05): added alpaca-mirror — broker-sync mirror,
+# allocation managed externally (by Alpaca paper account state).
+_ALLOCATION_POLICY_EXEMPT = {"super-agent", "neo-matrix", "enterprise-computer", "webull", "alpaca-mirror"}
 
 
 def get_capital_allocation_policy(player_id: str) -> dict:

@@ -132,23 +132,26 @@ def run_full_alpaca_sync(force: bool = False) -> dict:
 
         conn = _db()
         try:
-            # ── 1. Update ai_players cash (webull) ────────────────────
+            # HM-I-β-Item3 (2026-05-05): writes to 'alpaca-mirror' (broker-mirror
+            # player), no longer 'webull' (which retains its role as Steve's
+            # human-Webull-benchmark). Split per CLAUDE.md two-book policy.
+            # ── 1. Update ai_players cash (alpaca-mirror) ────────────────────
             conn.execute(
-                "UPDATE ai_players SET cash=? WHERE id='webull'",
+                "UPDATE ai_players SET cash=? WHERE id='alpaca-mirror'",
                 (cash,),
             )
 
-            # ── 2. Re-sync positions table for webull ─────────────────
+            # ── 2. Re-sync positions table for alpaca-mirror ─────────────────
             # Clear current open positions, preserve history (closed trades stay
             # in the trades table so W/L stats are unaffected).
             conn.execute(
-                "DELETE FROM positions WHERE player_id='webull'",
+                "DELETE FROM positions WHERE player_id='alpaca-mirror'",
             )
             for p in positions:
                 conn.execute(
                     """INSERT INTO positions
                          (player_id, symbol, qty, avg_price, asset_type, opened_at)
-                       VALUES ('webull', ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
+                       VALUES ('alpaca-mirror', ?, ?, ?, ?, CURRENT_TIMESTAMP)""",
                     (p["symbol"], p["qty"], p["avg_price"], p["asset_type"]),
                 )
 

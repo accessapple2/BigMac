@@ -103,14 +103,17 @@ def _get_context() -> str:
     except Exception:
         pass
 
-    # 3. Captain's portfolio
+    # 3. Captain's portfolio (now sourced from broker book)
+    # HM-I-β-Item3 (2026-05-05): re-targets from 'webull' to 'alpaca-mirror' —
+    # Q has been showing alpaca-mirrored data under the 'Captain's portfolio'
+    # label for ~6 weeks. Corrects the data source to match reality.
     try:
         conn = sqlite3.connect(DB, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
         positions = conn.execute(
-            "SELECT symbol, qty, avg_price FROM positions WHERE player_id='webull'"
+            "SELECT symbol, qty, avg_price FROM positions WHERE player_id='alpaca-mirror'"
         ).fetchall()
-        cash = conn.execute("SELECT cash FROM ai_players WHERE id='webull'").fetchone()
+        cash = conn.execute("SELECT cash FROM ai_players WHERE id='alpaca-mirror'").fetchone()
         conn.close()
 
         pos_lines = []

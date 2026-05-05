@@ -77,12 +77,14 @@ def _get_fleet_daily_pnl(days: int) -> list[dict]:
                          ELSE realized_pnl
                     END
                 )) AS daily_pnl
-            FROM trades
-            WHERE action = 'SELL'
-              AND realized_pnl IS NOT NULL
-              AND player_id != 'webull'
-              AND executed_at >= ?
-            GROUP BY date(executed_at)
+            FROM trades t JOIN ai_players a ON a.id = t.player_id
+            WHERE t.action = 'SELL'
+              AND t.realized_pnl IS NOT NULL
+              AND a.is_human = 0
+              -- HM-I-β-Item3 (2026-05-05): rewrite "exclude human" intent
+              -- as is_human=0; was hardcoded != 'webull'.
+              AND t.executed_at >= ?
+            GROUP BY date(t.executed_at)
             ORDER BY trade_date
         """, (since,)).fetchall()
         conn.close()

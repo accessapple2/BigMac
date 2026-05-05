@@ -316,13 +316,16 @@ def _get_recent_takes(symbol: str, limit: int = 10) -> list[dict]:
         (symbol, limit)
     ).fetchall()
 
-    # Enrich Steve's messages with portfolio context
+    # HM-I-β-Item3 (2026-05-05): enrichment context now reads from alpaca-mirror
+    # (broker book) — was reading alpaca-mirrored data labeled 'webull' for ~6
+    # weeks. Display-tag branch (player_id=='webull') still keys on webull
+    # because operator-chat hot_takes still post under that player_id.
     steve_return = None
     try:
-        steve_row = conn.execute("SELECT cash FROM ai_players WHERE id='webull'").fetchone()
+        steve_row = conn.execute("SELECT cash FROM ai_players WHERE id='alpaca-mirror'").fetchone()
         if steve_row:
             from engine.paper_trader import get_portfolio_with_pnl
-            pnl = get_portfolio_with_pnl("webull", {})
+            pnl = get_portfolio_with_pnl("alpaca-mirror", {})
             steve_return = pnl.get("return_pct", 0)
     except Exception:
         pass
@@ -333,8 +336,8 @@ def _get_recent_takes(symbol: str, limit: int = 10) -> list[dict]:
     for r in rows:
         d = dict(r)
         if d["player_id"] == "webull":
-            ret_str = f", {steve_return:+.1f}% real money" if steve_return is not None else ", real money"
-            d["display_name"] = f"Captain Kirk (human{ret_str})"
+            ret_str = f", {steve_return:+.1f}% paper" if steve_return is not None else ", paper"
+            d["display_name"] = f"Captain Kirk (broker{ret_str})"
         results.append(d)
     return results
 
@@ -554,10 +557,14 @@ def post_super_agent_pipeline_take(prices: dict | None = None) -> bool:
         conn = _conn()
 
         # Gather crew data
+        # HM-I-β-Item3 (2026-05-05): rewrite "exclude human" intent as
+        # is_human=0 filter. Excludes webull (human) AND any future humans;
+        # alpaca-mirror (is_human=0) is included in fleet stats by design
+        # (broker mirror is part of the broker reality view).
         positions = conn.execute(
             "SELECT p.symbol, p.qty, p.avg_price, p.asset_type, a.display_name "
             "FROM positions p JOIN ai_players a ON a.id = p.player_id "
-            "WHERE p.player_id != 'webull' AND p.player_id != 'super-agent' "
+            "WHERE a.is_human = 0 AND p.player_id != 'super-agent' "
             "AND p.qty != 0 "
             "ORDER BY a.display_name"
         ).fetchall()
@@ -565,19 +572,19 @@ def post_super_agent_pipeline_take(prices: dict | None = None) -> bool:
         recent_trades = conn.execute(
             "SELECT t.player_id, a.display_name, t.symbol, t.action, t.price, t.realized_pnl "
             "FROM trades t JOIN ai_players a ON a.id = t.player_id "
-            "WHERE t.player_id != 'webull' "
+            "WHERE a.is_human = 0 "
             "AND t.executed_at > datetime('now', '-2 hours') "
             "ORDER BY t.executed_at DESC LIMIT 10"
         ).fetchall()
 
         stats = conn.execute(
             "SELECT "
-            "  COUNT(CASE WHEN realized_pnl > 0 THEN 1 END) as wins, "
-            "  COUNT(CASE WHEN realized_pnl < 0 THEN 1 END) as losses, "
-            "  COALESCE(SUM(realized_pnl), 0) as total_pnl "
-            "FROM trades "
-            "WHERE player_id != 'webull' "
-            "AND executed_at > datetime('now', '-24 hours')"
+            "  COUNT(CASE WHEN t.realized_pnl > 0 THEN 1 END) as wins, "
+            "  COUNT(CASE WHEN t.realized_pnl < 0 THEN 1 END) as losses, "
+            "  COALESCE(SUM(t.realized_pnl), 0) as total_pnl "
+            "FROM trades t JOIN ai_players a ON a.id = t.player_id "
+            "WHERE a.is_human = 0 "
+            "AND t.executed_at > datetime('now', '-24 hours')"
         ).fetchone()
 
         conn.close()
@@ -679,9 +686,11 @@ def post_super_agent_vix_take(vix: float) -> bool:
     """Post a VIX spike risk assessment when VIX > 25."""
     try:
         conn = _conn()
+        # HM-I-β-Item3 (2026-05-05): "exclude human" rewritten as is_human=0.
         positions = conn.execute(
-            "SELECT COUNT(*) as cnt, COUNT(CASE WHEN asset_type='option' THEN 1 END) as opts "
-            "FROM positions WHERE player_id != 'webull' AND player_id != 'super-agent' AND qty != 0"
+            "SELECT COUNT(*) as cnt, COUNT(CASE WHEN p.asset_type='option' THEN 1 END) as opts "
+            "FROM positions p JOIN ai_players a ON a.id = p.player_id "
+            "WHERE a.is_human = 0 AND p.player_id != 'super-agent' AND p.qty != 0"
         ).fetchone()
         pos_count = positions["cnt"] if positions else 0
         opt_count = positions["opts"] if positions else 0

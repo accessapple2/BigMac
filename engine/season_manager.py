@@ -134,31 +134,33 @@ def rotate_season() -> int:
         (f"season_{new_season}_start", datetime.now().isoformat())
     )
 
-    # Reset AI player cash — NOT human players, NOT Steve
+    # Reset AI player cash — NOT human players, NOT Steve, NOT broker mirror
+    # HM-I-β-Item3 (2026-05-05): exclude alpaca-mirror — its cash is sync'd
+    # from Alpaca every 5 min by alpaca_portfolio_sync, not season-managed.
     conn.execute(
-        "UPDATE ai_players SET cash=?, season=? WHERE id != 'webull' AND id != 'dayblade-0dte' AND id != ?",
+        "UPDATE ai_players SET cash=?, season=? WHERE id NOT IN ('webull','alpaca-mirror','dayblade-0dte') AND id != ?",
         (DEFAULT_CASH, new_season, NEO_PLAYER_ID)
     )
     conn.execute(
         "UPDATE ai_players SET cash=?, season=? WHERE id='dayblade-0dte'",
         (DAYBLADE_CASH, new_season)
     )
-    # Steve keeps his portfolio but gets season tag updated
+    # Steve and the broker mirror keep their portfolios but get season tag updated
     conn.execute(
-        "UPDATE ai_players SET season=? WHERE id='webull'",
+        "UPDATE ai_players SET season=? WHERE id IN ('webull','alpaca-mirror')",
         (new_season,)
     )
 
     # Unhalt all AI players for the new season
     # HM-B-pre: migrated is_halted=0 → halt_mode='active' (drop halt_reason + halted_at on season reset)
     conn.execute(
-        "UPDATE ai_players SET halt_mode='active', halt_reason=NULL, halted_at=NULL WHERE id != 'webull' AND id != ?",
+        "UPDATE ai_players SET halt_mode='active', halt_reason=NULL, halted_at=NULL WHERE id NOT IN ('webull','alpaca-mirror') AND id != ?",
         (NEO_PLAYER_ID,)
     )
 
-    # Close all AI positions (not Steve's)
+    # Close all AI positions (not Steve's, not broker mirror's — alpaca_sync rebuilds it)
     conn.execute(
-        "DELETE FROM positions WHERE player_id != 'webull' AND player_id != ?",
+        "DELETE FROM positions WHERE player_id NOT IN ('webull','alpaca-mirror') AND player_id != ?",
         (NEO_PLAYER_ID,)
     )
 
@@ -246,21 +248,22 @@ def start_season(season_num: int):
     )
 
     # Reset AI player cash
+    # HM-I-β-Item3 (2026-05-05): exclude alpaca-mirror (broker-sync target).
     conn.execute(
-        "UPDATE ai_players SET cash=?, season=? WHERE id != 'webull' AND id != 'dayblade-0dte' AND id != ?",
+        "UPDATE ai_players SET cash=?, season=? WHERE id NOT IN ('webull','alpaca-mirror','dayblade-0dte') AND id != ?",
         (DEFAULT_CASH, season_num, NEO_PLAYER_ID)
     )
     conn.execute(
         "UPDATE ai_players SET cash=?, season=? WHERE id='dayblade-0dte'",
         (DAYBLADE_CASH, season_num)
     )
-    conn.execute("UPDATE ai_players SET season=? WHERE id='webull'", (season_num,))
+    conn.execute("UPDATE ai_players SET season=? WHERE id IN ('webull','alpaca-mirror')", (season_num,))
     # HM-B-pre: migrated is_halted=0 → halt_mode='active' (drop halt_reason + halted_at on season reset)
     conn.execute(
-        "UPDATE ai_players SET halt_mode='active', halt_reason=NULL, halted_at=NULL WHERE id != 'webull' AND id != ?",
+        "UPDATE ai_players SET halt_mode='active', halt_reason=NULL, halted_at=NULL WHERE id NOT IN ('webull','alpaca-mirror') AND id != ?",
         (NEO_PLAYER_ID,),
     )
-    conn.execute("DELETE FROM positions WHERE player_id != 'webull' AND player_id != ?", (NEO_PLAYER_ID,))
+    conn.execute("DELETE FROM positions WHERE player_id NOT IN ('webull','alpaca-mirror') AND player_id != ?", (NEO_PLAYER_ID,))
 
     conn.commit()
     conn.close()

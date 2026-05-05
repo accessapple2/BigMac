@@ -49,7 +49,9 @@ class RiskManager:
     PER_SYMBOL_MAX_PCT = 0.18
     BEAR_PER_SYMBOL_MAX_PCT = 0.15
     SECTOR_WARNING_THRESHOLD = 0.85
-    WARNING_ONLY_PLAYERS = {"neo-matrix", "enterprise-computer", "webull", "super-agent"}
+    # HM-I-β-Item3 (2026-05-05): added alpaca-mirror — broker mirror, drawdown
+    # not meaningful (passive sync target).
+    WARNING_ONLY_PLAYERS = {"neo-matrix", "enterprise-computer", "webull", "alpaca-mirror", "super-agent"}
 
     # Models with their own stop-loss rules — excluded from the fleet trailing stop.
     # These models keep their existing per-model stops instead.

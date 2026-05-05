@@ -168,26 +168,33 @@ def _gather_recent_trades() -> str:
 
 
 def _gather_steves_portfolio() -> str:
-    """Get Steve's real Webull positions from DB."""
+    """Get the broker-book positions from DB (Alpaca paper mirror).
+
+    HM-I-β-Item3 (2026-05-05): re-targets from 'webull' to 'alpaca-mirror'.
+    Function name retained for backwards compatibility, but the data source
+    is now the Alpaca-paper broker mirror, not the (wound-down) Webull
+    account. CTO advisor has been reading alpaca-mirrored data for ~6 weeks
+    under the prior 'webull' label; this corrects the label to match reality.
+    """
     conn = _conn()
 
     # Get positions
     positions = conn.execute(
         "SELECT symbol, qty, avg_price, asset_type, option_type, "
         "strike_price, expiry_date "
-        "FROM positions WHERE player_id='webull'"
+        "FROM positions WHERE player_id='alpaca-mirror'"
     ).fetchall()
 
     # Get cash
     cash_row = conn.execute(
-        "SELECT cash FROM ai_players WHERE id='webull'"
+        "SELECT cash FROM ai_players WHERE id='alpaca-mirror'"
     ).fetchone()
     conn.close()
 
     cash = cash_row["cash"] if cash_row else 0
 
     if not positions:
-        return f"Steve's Webull: Cash ${cash:,.2f}. No open positions."
+        return f"Broker book (Alpaca paper): Cash ${cash:,.2f}. No open positions."
 
     # Get live prices for P&L
     from engine.market_data import get_stock_price

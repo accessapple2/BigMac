@@ -229,10 +229,11 @@ def portfolio_simulation(season=5):
     """Simulate entire arena as a portfolio — find concentration risk and correlation."""
     conn = _conn()
 
+    # HM-I-β-Item3 (2026-05-05): rewrite "exclude human" as is_human=0 filter.
     positions = pd.read_sql("""
-        SELECT player_id, symbol, qty, avg_price
-        FROM positions
-        WHERE player_id != 'webull'
+        SELECT p.player_id, p.symbol, p.qty, p.avg_price
+        FROM positions p JOIN ai_players a ON a.id = p.player_id
+        WHERE a.is_human = 0
     """, conn)
 
     if positions.empty:

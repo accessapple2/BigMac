@@ -2110,9 +2110,12 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
             day_change = pnl_history.get("last", total_value) - pnl_history.get("first", total_value)
             day_change -= _recent_funding_total(conn, p["id"], season=current_season, all_seasons=all_seasons)
 
-            # For webull / dalio-metals: calculate day P&L from position-level price movement,
-            # not portfolio_history snapshots (which break on sync when positions are removed)
-            if p["id"] in ("webull", "dalio-metals"):
+            # For alpaca-mirror / webull / dalio-metals: calculate day P&L from
+            # position-level price movement, not portfolio_history snapshots
+            # (which break on sync when positions are removed).
+            # HM-I-β-Item3 (2026-05-05): added alpaca-mirror — it's the new
+            # alpaca-sync target post-split, same sync-disruption pattern.
+            if p["id"] in ("alpaca-mirror", "webull", "dalio-metals"):
                 try:
                     day_change = sum(
                         pos.get("market_value", 0) * pos.get("day_change_pct", 0) / 100
@@ -2131,8 +2134,11 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
                 "name": p["display_name"],
                 "provider": p["provider"],
                 "model": p["model_id"],
+                # HM-I-β-Item3 (2026-05-05): alpaca-mirror inherits the
+                # 'cash field shows total_value' display from webull, since
+                # it's now the alpaca-sync target.
                 "cash": (0.0 if p["id"] == "enterprise-computer"
-                         else total_value if p["id"] == "webull"
+                         else total_value if p["id"] in ("alpaca-mirror", "webull")
                          else round(p["cash"], 2)),
                 "positions_value": positions_value,
                 "total_value": total_value,
@@ -5476,10 +5482,11 @@ def war_room_portfolio_review():
             from engine.war_room import save_hot_take
 
             # Get Captain's portfolio
+            # HM-I-β-Item3 (2026-05-05): broker-book read re-targets to alpaca-mirror.
             prices = {}
             conn = _conn()
             steve_pos = conn.execute(
-                "SELECT symbol, qty, avg_price FROM positions WHERE player_id='webull'"
+                "SELECT symbol, qty, avg_price FROM positions WHERE player_id='alpaca-mirror'"
             ).fetchall()
             conn.close()
             pos_str = ", ".join(f"{r['symbol']}({r['qty']}@${r['avg_price']:.2f})" for r in steve_pos)
@@ -13657,8 +13664,9 @@ def congress_overlap():
     try:
         conn = sqlite3.connect(DB, check_same_thread=False, timeout=10)
         conn.row_factory = sqlite3.Row
+        # HM-I-β-Item3 (2026-05-05): broker-book read re-targets to alpaca-mirror.
         positions = conn.execute(
-            "SELECT DISTINCT symbol FROM positions WHERE player_id='webull'"
+            "SELECT DISTINCT symbol FROM positions WHERE player_id='alpaca-mirror'"
         ).fetchall()
         conn.close()
         tickers = list(set([r["symbol"] for r in positions] + WATCH_STOCKS))
@@ -14008,17 +14016,19 @@ def _build_computer_context() -> str:
         else:
             lines.append("Bridge Vote: Not yet taken today")
 
-        # Captain Kirk positions
+        # Captain Kirk positions (broker book — Alpaca paper mirror)
+        # HM-I-β-Item3 (2026-05-05): re-targets to alpaca-mirror; was reading
+        # alpaca-mirrored data labeled 'webull' for ~6 weeks.
         kirk_pos = conn.execute("""
             SELECT symbol, qty, avg_price FROM positions
-            WHERE player_id='webull' AND qty>0
+            WHERE player_id='alpaca-mirror' AND qty>0
         """).fetchall()
         if kirk_pos:
             pos_strs = [f"{p['symbol']} x{p['qty']:.1f}@${p['avg_price']:.2f}" for p in kirk_pos]
             lines.append(f"Captain Kirk Positions: {', '.join(pos_strs)}")
         else:
             lines.append("Captain Kirk Positions: None")
-        kirk_cash = next((pl["cash"] for pl in players if pl["id"] == "webull"), None)
+        kirk_cash = next((pl["cash"] for pl in players if pl["id"] == "alpaca-mirror"), None)
         if kirk_cash is not None:
             lines.append(f"Captain Kirk Cash: ${kirk_cash:,.0f}")
 
@@ -16021,8 +16031,10 @@ def v1_portfolio(request: Request):
         from shared.alpaca_portfolio_sync import get_last_sync_status
         sync = get_last_sync_status()
         conn = _conn()
+        # HM-I-β-Item3 (2026-05-05): broker-book read re-targets to alpaca-mirror
+        # (this endpoint specifically exposes the Alpaca-paper sync state).
         positions = conn.execute(
-            "SELECT symbol, qty, avg_price, asset_type FROM positions WHERE player_id='webull'"
+            "SELECT symbol, qty, avg_price, asset_type FROM positions WHERE player_id='alpaca-mirror'"
         ).fetchall()
         conn.close()
         return _v1_resp({

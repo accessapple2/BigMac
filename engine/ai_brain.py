@@ -665,9 +665,11 @@ class Arena:
         if self._equity_counter % 30 == 1:
             for pid in self.providers:
                 save_equity_snapshot(pid, prices)
-            # Also snapshot Steve's Webull portfolio (benchmark)
+            # HM-I-β-Item3 (2026-05-05): snapshot the broker book (Alpaca paper
+            # mirror) for benchmark/equity-curve tracking. Was snapshotting
+            # webull (alpaca-mirrored data labeled wrongly) for ~6 weeks.
             try:
-                record_portfolio_snapshot("webull", prices)
+                record_portfolio_snapshot("alpaca-mirror", prices)
             except Exception:
                 pass
             console.log("[dim]Equity curve snapshot saved[/dim]")

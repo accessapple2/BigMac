@@ -9,12 +9,12 @@ Uses Ollama (qwen3:8b) to synthesize findings into a ranked action list.
 Results saved to portfolio_optimizations table in trader.db.
 
 Usage (CLI):
-    python -m engine.portfolio_optimizer webull
+    python -m engine.portfolio_optimizer alpaca-mirror
     python -m engine.portfolio_optimizer claude-sonnet --top 5
 
 Usage (import):
     from engine.portfolio_optimizer import run_optimizer
-    result = run_optimizer("webull")
+    result = run_optimizer("alpaca-mirror")  # broker book (post HM-I-β-Item3)
 """
 
 from __future__ import annotations

@@ -12,14 +12,14 @@ Stages:
   5. Rebalancer      — size trades, optionally execute on Alpaca
 
 Usage (CLI):
-    python -m engine.pipeline webull
-    python -m engine.pipeline webull --tickers 5
-    python -m engine.pipeline webull --tickers 10 --execute
-    python -m engine.pipeline webull --tickers AAPL,MSFT,NVDA
+    python -m engine.pipeline alpaca-mirror
+    python -m engine.pipeline alpaca-mirror --tickers 5
+    python -m engine.pipeline alpaca-mirror --tickers 10 --execute
+    python -m engine.pipeline alpaca-mirror --tickers AAPL,MSFT,NVDA
 
 Usage (import):
     from engine.pipeline import run_pipeline
-    result = run_pipeline("webull", top_n=10)
+    result = run_pipeline("alpaca-mirror", top_n=10)
 """
 
 from __future__ import annotations
@@ -38,7 +38,8 @@ from typing import Any
 # ---------------------------------------------------------------------------
 
 TRADER_DB = "data/trader.db"
-DEFAULT_PLAYER = "webull"
+# HM-I-β-Item3 (2026-05-05): default to alpaca-mirror (broker book) post-split.
+DEFAULT_PLAYER = "alpaca-mirror"
 DEFAULT_TOP_N = 10
 
 logging.basicConfig(
@@ -315,7 +316,7 @@ def run_pipeline(
     Run full pipeline end-to-end.
 
     Args:
-        player_id:        Portfolio owner (e.g. "webull")
+        player_id:        Portfolio owner (e.g. "alpaca-mirror" for broker book)
         top_n:            Max tickers to process from scanner
         execute:          If True, send approved trades to Alpaca (blocked for human players)
         tickers_override: If provided, skip scanner and use these tickers

@@ -159,11 +159,14 @@ def _get_positions() -> list[dict]:
     """Return Kirk's current Webull positions from DB."""
     try:
         conn = _conn()
+        # HM-I-β-Item3 (2026-05-05): re-targets to alpaca-mirror (broker book)
+        # post-split. webull retains its historical role as Steve's human-Webull
+        # benchmark; alpaca-mirror is the live broker-mirror destination.
         rows = conn.execute(
             "SELECT p.symbol, p.qty, p.avg_price, "
             "  p.avg_price AS current_price "
             "FROM positions p "
-            "WHERE p.player_id='webull' AND p.qty > 0 "
+            "WHERE p.player_id='alpaca-mirror' AND p.qty > 0 "
             "ORDER BY p.symbol",
         ).fetchall()
         conn.close()

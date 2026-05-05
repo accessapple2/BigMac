@@ -101,18 +101,23 @@ def _call_ollama(system: str, user: str, max_tokens: int = 2000) -> str | None:
 
 
 def _get_captain_portfolio() -> str:
-    """Get Captain Kirk's current Webull portfolio as text."""
+    """Get the broker-book portfolio (Alpaca paper mirror) as text.
+
+    HM-I-β-Item3 (2026-05-05): re-targets from 'webull' to 'alpaca-mirror'.
+    First Officer was reading alpaca-mirrored data labeled as "Captain's
+    Webull" for ~6 weeks. Corrects label to match data source.
+    """
     try:
         conn = sqlite3.connect(DB, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
-        cash = conn.execute("SELECT cash FROM ai_players WHERE id='webull'").fetchone()
+        cash = conn.execute("SELECT cash FROM ai_players WHERE id='alpaca-mirror'").fetchone()
         positions = conn.execute(
-            "SELECT symbol, qty, avg_price FROM positions WHERE player_id='webull'"
+            "SELECT symbol, qty, avg_price FROM positions WHERE player_id='alpaca-mirror'"
         ).fetchall()
         conn.close()
 
         cash_val = cash["cash"] if cash else 0
-        lines = [f"CAPTAIN'S PORTFOLIO (Real Webull Money):"]
+        lines = [f"BROKER BOOK (Alpaca paper):"]
         lines.append(f"Cash: ${cash_val:.2f}")
         total_cost = 0
         for p in positions:
@@ -167,7 +172,9 @@ def _get_market_context() -> str:
             ind = get_technical_indicators(sym)
             if ind:
                 indicators[sym] = ind
-        return build_scan_context(prices, indicators, "webull")
+        # HM-I-β-Item3 (2026-05-05): build_scan_context uses player_id as the
+        # portfolio context anchor; re-target to alpaca-mirror (broker book).
+        return build_scan_context(prices, indicators, "alpaca-mirror")
     except Exception as e:
         return f"Market context unavailable: {e}"
 
@@ -191,8 +198,9 @@ def _get_investor_scoring_context() -> str:
     try:
         conn = sqlite3.connect(DB, check_same_thread=False, timeout=30)
         conn.row_factory = sqlite3.Row
+        # HM-I-β-Item3 (2026-05-05): re-targets to alpaca-mirror (broker book).
         positions = conn.execute(
-            "SELECT symbol, qty, avg_price FROM positions WHERE player_id='webull'"
+            "SELECT symbol, qty, avg_price FROM positions WHERE player_id='alpaca-mirror'"
         ).fetchall()
         conn.close()
         if positions:

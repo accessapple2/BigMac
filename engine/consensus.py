@@ -402,13 +402,14 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
 
     Returns structured data for the dashboard API.
     """
-    # Get Steve's portfolio tickers if not provided — always union with WATCH_STOCKS
+    # Get broker-book portfolio tickers if not provided — always union with WATCH_STOCKS
+    # HM-I-β-Item3 (2026-05-05): re-targets to alpaca-mirror (broker book).
     if not tickers:
         position_symbols: set[str] = set()
         try:
             conn = _conn()
             positions = conn.execute(
-                "SELECT DISTINCT symbol FROM positions WHERE player_id='webull'"
+                "SELECT DISTINCT symbol FROM positions WHERE player_id='alpaca-mirror'"
             ).fetchall()
             conn.close()
             position_symbols = {r["symbol"] for r in positions}

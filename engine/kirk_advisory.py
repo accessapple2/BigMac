@@ -14,7 +14,14 @@ from rich.console import Console
 console = Console()
 logger = logging.getLogger("kirk_advisory")
 
-PLAYER_ID = "webull"
+# HM-I-β-Item3 (2026-05-05): Kirk re-targets from 'webull' to 'alpaca-mirror'.
+# Kirk has been advising on Alpaca paper data for ~6 weeks under the wrong label
+# (webull was acting as both human and Alpaca-mirror destination). After the
+# webull dual-role split, alpaca-mirror is the broker-book truth source.
+# The historical kirk_advisory_log rows stay (they were always advising on
+# Alpaca-mirrored data, just labeled webull). Trade history stats below still
+# read from 'webull' (Steve's 127 imported Webull trades — context anchor).
+PLAYER_ID = "alpaca-mirror"
 STOP_LOSS_PCT = -8.0      # Hard stop at -8%
 TRIM_WARNING_PCT = -6.0   # Warn when approaching stop
 WINNER_HOLD_PCT = 5.0     # Don't sell winners above this
