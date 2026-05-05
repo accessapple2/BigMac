@@ -1253,6 +1253,15 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
         return None
+    # HM-I-Option-ε-prime (2026-05-05): tracking-mode early-return mirrors sell()
+    # at line 1124. Tracking-route players (Schwab portfolio, Enterprise Computer
+    # physical metals) log-only via _log_signal_only instead of executing partial
+    # sells against the internal positions table. Was missing from sell_partial
+    # despite being present in buy() (line 579) and sell() (line 1124). Same
+    # class of inconsistency as Option ε's partial-SELL forward gate (commit d06c33c).
+    route = _resolve_execution_portfolio(player_id)
+    if route["route_mode"] == "tracking":
+        return _log_signal_only(player_id, "SELL", symbol, route, reasoning, confidence)
     pos = get_position(player_id, symbol, asset_type, option_type)
     if pos and not _check_min_hold(player_id, symbol, pos, reasoning):
         return None
