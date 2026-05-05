@@ -14,6 +14,7 @@ def setup():
     conn.execute("PRAGMA journal_mode=WAL")
     c = conn.cursor()
 
+    # HM-B-pre: dropped is_halted column (halt_mode is single source of truth; added by later migration)
     c.execute('''CREATE TABLE IF NOT EXISTS ai_players (
         id TEXT PRIMARY KEY,
         display_name TEXT NOT NULL,
@@ -21,7 +22,6 @@ def setup():
         model_id TEXT NOT NULL,
         cash REAL DEFAULT 10000.00,
         is_active INTEGER DEFAULT 1,
-        is_halted INTEGER DEFAULT 0,
         halt_reason TEXT,
         can_trade_live INTEGER DEFAULT 0,
         created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP

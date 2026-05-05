@@ -46,8 +46,9 @@ def reset():
     print(f"  Cleared {pos_count} open positions")
 
     # --- Step 4: Reset cash and set season=2 ---
-    c.execute("UPDATE ai_players SET cash = 10000.00, season = 2, is_halted = 0, halt_reason = NULL WHERE id != 'dayblade-0dte'")
-    c.execute("UPDATE ai_players SET cash = 5000.00, season = 2, is_halted = 0, halt_reason = NULL WHERE id = 'dayblade-0dte'")
+    # HM-B-pre: migrated is_halted=0 → halt_mode='active' (drop halt_reason + halted_at on season reset)
+    c.execute("UPDATE ai_players SET cash = 10000.00, season = 2, halt_mode = 'active', halt_reason = NULL, halted_at = NULL WHERE id != 'dayblade-0dte'")
+    c.execute("UPDATE ai_players SET cash = 5000.00, season = 2, halt_mode = 'active', halt_reason = NULL, halted_at = NULL WHERE id = 'dayblade-0dte'")
     print("  Reset all player cash: $10,000 (DayBlade: $5,000)")
     print("  Set all players to Season 2")
     print("  Cleared all halt flags")

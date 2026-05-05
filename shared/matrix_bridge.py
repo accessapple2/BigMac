@@ -109,10 +109,11 @@ def ensure_matrix_shared_records() -> dict:
             neo_cash = float(player["cash"] or NEO_STARTING_CASH)
         else:
             neo_cash = NEO_STARTING_CASH
+            # HM-B-pre: dropped is_halted column from INSERT (halt_mode default 'active' covers the unhalted state)
             conn.execute(
                 "INSERT INTO ai_players "
-                "(id, display_name, provider, model_id, cash, is_active, is_halted, is_human, season) "
-                "VALUES (?, ?, ?, ?, ?, 1, 0, 0, ?)",
+                "(id, display_name, provider, model_id, cash, is_active, is_human, season) "
+                "VALUES (?, ?, ?, ?, ?, 1, 0, ?)",
                 (NEO_PLAYER_ID, NEO_DISPLAY_NAME, NEO_PROVIDER, NEO_MODEL_ID, neo_cash, current_season),
             )
 

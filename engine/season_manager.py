@@ -150,8 +150,9 @@ def rotate_season() -> int:
     )
 
     # Unhalt all AI players for the new season
+    # HM-B-pre: migrated is_halted=0 → halt_mode='active' (drop halt_reason + halted_at on season reset)
     conn.execute(
-        "UPDATE ai_players SET is_halted=0, halt_reason=NULL WHERE id != 'webull' AND id != ?",
+        "UPDATE ai_players SET halt_mode='active', halt_reason=NULL, halted_at=NULL WHERE id != 'webull' AND id != ?",
         (NEO_PLAYER_ID,)
     )
 
@@ -254,8 +255,9 @@ def start_season(season_num: int):
         (DAYBLADE_CASH, season_num)
     )
     conn.execute("UPDATE ai_players SET season=? WHERE id='webull'", (season_num,))
+    # HM-B-pre: migrated is_halted=0 → halt_mode='active' (drop halt_reason + halted_at on season reset)
     conn.execute(
-        "UPDATE ai_players SET is_halted=0, halt_reason=NULL WHERE id != 'webull' AND id != ?",
+        "UPDATE ai_players SET halt_mode='active', halt_reason=NULL, halted_at=NULL WHERE id != 'webull' AND id != ?",
         (NEO_PLAYER_ID,),
     )
     conn.execute("DELETE FROM positions WHERE player_id != 'webull' AND player_id != ?", (NEO_PLAYER_ID,))
