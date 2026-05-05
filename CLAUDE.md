@@ -20,21 +20,35 @@ OllieTrades is an autonomous AI paper trading system running on bigmac (Mac Mini
 When halting a player via direct SQL (no programmatic halt path exists today),
 always include `halted_at` and update **both** `halt_mode` and `is_halted`:
 
+<!-- HM-S-docs 2026-05-04: SQL pattern updated to drop is_halted column (removed by HM-B); drawdown-halt section rewritten after HM-S investigation found agent_state table never existed -->
+
 ```sql
 UPDATE ai_players
    SET halt_mode  = 'exit_only',
-       is_halted  = 1,
        halted_at  = CURRENT_TIMESTAMP,
        halt_reason = '[YYYY-MM-DD] [reason]'
  WHERE id = 'X';
 ```
 
-**Why both `is_halted` and `halt_mode`:** HM-A migrated production read paths
-to `halt_mode != 'active'` as the single source of truth. The `is_halted` column
-is preserved for the drawdown-halt system in `ai_brain.py` and `risk_manager.py`
-(which reads from a different table — `agent_state`, not `ai_players` — but the
-column-name parity prevents accidental drift). Both fields update together
-until HM-B drops `is_halted` from `ai_players`.
+**Single source of truth: `halt_mode`.** HM-A migrated all production read paths
+from `is_halted` to `halt_mode != 'active'`, and HM-B (2026-05-04, commit `9256890`)
+dropped the `is_halted` column from `ai_players` entirely. Valid `halt_mode` values:
+`active`, `exit_only`, `full` (CHECK constraint enforced).
+
+**Drawdown-halt mechanism (do NOT confuse with manual halt above):**
+The 20% drawdown auto-halt lives in `engine/risk_manager.py::check_drawdown()`. It
+reads `portfolio_history` and computes `(peak - current) / peak >= max_drawdown_pct`
+(default 0.20) every cycle, called from `engine/ai_brain.py:817`. The halt is
+**transient** — recomputed each cycle, no flag table. To "unhalt" a drawdown-halted
+agent, the only natural path is recovery to a new peak; manual injection of a
+higher peak row in `portfolio_history` would also work but is not a designed
+escape hatch.
+
+There is **no `agent_state` table** in any DB. A vestigial reference in
+`agents/post_earnings_drift.py::is_halted()` queries the phantom table but is
+wrapped in `try/except → False`, so it's functionally inert. PED's actual
+protection is `self.gated = True` (paper-only). HM-S investigation 2026-05-04
+documented this; cleanup queued as HM-S-code (low priority — see XO_BACKLOG).
 
 **Why `halted_at` is mandatory:** there is no schema default and no trigger.
 Forgetting it leaves the timestamp NULL, which audit #6A flagged when the four
@@ -42,8 +56,8 @@ April halts had their dates buried in `halt_reason` text. HM-F (2026-05-04)
 investigated whether to enforce this via a helper or trigger; finding was that
 no programmatic halt paths exist, so the runbook is the right place.
 
-To unhalt: same UPDATE pattern, `halt_mode='active'`, `is_halted=0`, leave
-`halted_at` and `halt_reason` as historical record (do not clear).
+To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
+`halt_reason` as historical record (do not clear).
 
 ## Dashboard Rules
 - Dashboard is served from `dashboard/static/index.html` on port 8080
