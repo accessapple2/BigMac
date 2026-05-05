@@ -297,8 +297,12 @@ def submit_vertical_spread(
         console.log(f"[bold cyan]Alpaca {strategy} {qty}x — {player_id} order={order.id}")
         return {"success": True, "order_id": str(order.id), "strategy": strategy, "qty": qty}
     except Exception as e:
-        console.log(f"[yellow]Alpaca options submit_spread error: {e}")
-        return {"error": str(e)}
+        # HM-AA-extension: enrich error log + return dict per HM-U posture (CLAUDE.md).
+        # This is the original BTO incident site (logged as alpaca_options.py:297
+        # pre-HM-Z; line drifted to ~300 after the inline # HM-Z: comments landed).
+        # Same Shape B as line 254 (HM-AA narrow-strict, commit a9d0649).
+        console.log(f"[yellow]Alpaca options submit_spread error: {type(e).__name__}: {e!r}")
+        return {"error": str(e), "error_type": type(e).__name__, "error_repr": repr(e)}
 
 
 def submit_iron_condor(

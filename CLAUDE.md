@@ -130,6 +130,70 @@ Players whose mapped portfolio resolves to `route_mode=paper` (default) or `rout
 - **Item 3:** Split `webull` player's dual role (human Webull benchmark + Alpaca mirror) into two distinct player_ids (`webull` + `alpaca-mirror`).
 - **Item 5:** Daily reconciliation report — replaces the ε canary, surfaces internal-vs-Alpaca drift via NTFY when thresholds exceeded.
 
+<!-- HM-U: -->
+## Error Handling Posture (established 2026-05-05)
+
+**OllieTrades exception-handling posture, established after HM-Z (commit 306dcf6) and HM-AA (commit a9d0649) surfaced two silent-failure cases in 12 hours.** Source: HM-U discussion (commit c12db55); Admiral decision 2026-05-05.
+
+### Background — what HM-Z and HM-AA exposed
+
+**HM-Z BTO bug** ran latent for weeks, then surfaced ~24 hours after gate-flip and produced 4 ghost rows in `options_trades` before discovery. Root cause: `engine/alpaca_options.py` used `PositionIntent.BTO` instead of `PositionIntent.BUY_TO_OPEN`. The `AttributeError("BTO")` was caught by a bare `except Exception`, logged as `"submit_spread error: BTO"` (single-token, deceptively API-looking), and the caller treated the failed submit as a successful position open.
+
+**HM-AA empty-body errors** at `alpaca_options.py:254` produced log lines like `"submit_single error: "` — empty after the colon. Some exception with no `.args` raised. Caught by bare `except`. Logged as nothing. Discovery required Admiral diagnostic.
+
+Both share three properties:
+1. Bare `except Exception as e` catching code-bugs and ops-errors uniformly
+2. `f"...error: {e}"` logging assuming `str(e)` is informative — it often isn't
+3. No NTFY alerting; failures piled up silently in the log file
+
+### Posture
+
+**1. Bare `except Exception` is acceptable when the handling correctly accommodates unknown failures.**
+
+Bare `except Exception` is *not* the bug. The BTO bug was a bug because the handling (return error dict; caller misread it) was wrong, not because the bare except existed. Some places legitimately want broad catch — per-agent cycles where one agent's crash shouldn't take down the fleet, for example.
+
+When you write `except Exception as e:`, ask: "if `e` is a programming error (AttributeError, ImportError, NameError) instead of an operational error (APIError, ConnectionError), does my handler do the right thing?" If the handler treats those identically and that's wrong, narrow the except.
+
+**2. Error logs capture type + repr, not just str.**
+
+```python
+# Avoid (information density too low — was the BTO and empty-body shape):
+except Exception as e:
+    console.log(f"foo error: {e}")
+
+# Prefer:
+except Exception as e:
+    console.log(f"foo error: {type(e).__name__}: {e!r}")
+```
+
+`{type(e).__name__}` surfaces the exception class. `{e!r}` is `repr(e)` which usually includes the str representation but with class context preserved. Together they make every error log self-explanatory without requiring a debug session.
+
+**3. NTFY on first occurrence per error class per day for architecture-class paths.**
+
+Architecture-class paths require NTFY:
+- Every broker-submit code path (`submit_*` functions in `alpaca_options.py`, future similar in webull/IBKR adapters)
+- `halt_mode` writes (anything that transitions an `ai_players` row's halt state)
+- Position-of-record writes (anything that mutates `positions`, `options_trades`, or sync destinations)
+
+Threshold: first occurrence of an error class within a 24h window NTFYs. Subsequent occurrences of the same class within the window suppress (avoid alert fatigue). New class within the window = new NTFY. Window resets at midnight local.
+
+Non-architecture paths (legacy fleet signal cycles, Polygon timeouts, Ollama timeouts, weather-style transient noise) do NOT NTFY. They log only.
+
+**4. Going-forward, not retroactive.**
+
+The codebase has hundreds of `except Exception as e:` blocks. A retroactive audit is not in scope. **The posture applies to:**
+- Every new code change that touches exception handling
+- Every code path that produces an error during normal operation that we discover and need to investigate
+
+Old code stays as-is until something naturally touches it. The posture propagates through the codebase as natural maintenance occurs.
+
+### Cross-references
+
+- HM-Z fix: commit 306dcf6 (BTO/STO → BUY_TO_OPEN/SELL_TO_OPEN, six sites in alpaca_options.py)
+- HM-AA narrow-strict: commit a9d0649 (line 254 enrichment for submit_single)
+- HM-AA-extension (this commit): line 297 enrichment for submit_spread, applying posture principle 2 to the original BTO incident site
+- 6 parallel error-log sites in alpaca_options.py (lines 49/105/157/216/334/377/383) deferred to a future HM-AA-broad session if pattern proves itself useful
+
 ## Fleet Roster (S6.3, post-OOS-validation)
 
 ### Active 4 — Voters (live paper trading)
