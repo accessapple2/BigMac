@@ -483,14 +483,26 @@ def get_position(player_id: str, symbol: str, asset_type: str = "stock",
 
 
 def _is_human_player(player_id: str) -> bool:
-    """Check if player is a human benchmark (must never be auto-traded)."""
+    """Check if player must be skipped by auto-trade paths.
+
+    HM-Y (2026-05-05): name preserved for backwards-compat with existing call
+    sites (542, 1087, 1229, 1348, 1548, 2009, 2073). Semantics now extended:
+    returns True for humans AND passive broker mirrors (alpaca-mirror, etc.).
+    Delegates to engine.halt_gate.is_auto_tradeable for single source of truth.
+
+    Belt-and-braces "steve"/"webull" string fallback retained — handles edge
+    cases where ai_players row is missing or DB is briefly unavailable.
+    """
     if "steve" in player_id.lower() or "webull" in player_id.lower():
         return True
     try:
+        # HM-Y: gate via halt_gate helper — composes humans + passive mirrors.
+        from engine.halt_gate import is_auto_tradeable
         conn = _conn()
-        row = conn.execute("SELECT is_human FROM ai_players WHERE id=?", (player_id,)).fetchone()
-        conn.close()
-        return bool(row and row[0])
+        try:
+            return not is_auto_tradeable(player_id, conn)
+        finally:
+            conn.close()
     except Exception:
         return False
 

@@ -70,12 +70,20 @@ def run_autopilot(prices: dict):
         # GUARD: Never trade human portfolios (Steve's Webull benchmark)
         if "steve" in pid.lower() or "webull" in pid.lower():
             continue
-        # Also check is_human flag in DB
+        # HM-Y (2026-05-05): use is_auto_tradeable helper — composes humans
+        # AND passive broker mirrors (alpaca-mirror, etc.). Was a bare
+        # is_human DB read; replaced to gate alpaca-mirror at the source
+        # rather than relying on the 24h min-hold downstream guard
+        # (autopilot profit-take attempted SELL on alpaca-mirror's WMB at
+        # 08:07:04 post-Item3-restart; min-hold caught it, but HM-Y catches
+        # it earlier).
+        from engine.halt_gate import is_auto_tradeable
         conn2 = _conn()
-        is_human = conn2.execute("SELECT is_human FROM ai_players WHERE id=?", (pid,)).fetchone()
-        conn2.close()
-        if is_human and is_human["is_human"]:
-            continue
+        try:
+            if not is_auto_tradeable(pid, conn2):
+                continue
+        finally:
+            conn2.close()
 
         portfolio = get_portfolio(pid)
         positions = portfolio["positions"]

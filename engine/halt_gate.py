@@ -50,6 +50,49 @@ def can_close_position(conn: sqlite3.Connection, player_id: str) -> bool:
     return halt_mode(conn, player_id) in ("active", "exit_only")
 
 
+# ─── Auto-trade eligibility (HM-Y) ──────────────────────────────────────────
+# HM-Y (2026-05-05): players excluded from automated trading. Includes humans
+# (is_human=1) AND passive broker mirrors (declared below). Mirrors are
+# semantically distinct from humans — they're read-only reflections of
+# external broker state — but operationally identical: any locally-initiated
+# trade would diverge from broker truth. Introduced alongside webull dual-role
+# split (commit 5186408) where alpaca-mirror became a passive sync target
+# whose positions an autopilot scaleout immediately tried to mutate.
+_PASSIVE_MIRROR_PLAYER_IDS = frozenset({
+    "alpaca-mirror",
+    # Future: schwab-mirror, ibkr-mirror, etc. when broker mirrors land.
+})
+
+
+def is_auto_tradeable(player_id: str, conn: sqlite3.Connection | None = None) -> bool:
+    """Return True if this player_id is eligible for automated trading.
+
+    Excludes:
+    - Passive broker mirrors (declared in _PASSIVE_MIRROR_PLAYER_IDS)
+    - Human players (is_human=1) — Steve's actual broker accounts
+    - Unknown player_ids (defensive — never auto-trade something we don't know)
+
+    Pass conn for hot paths (avoids reconnect cost). Omit conn and the helper
+    will manage its own connection against data/trader.db.
+    """
+    if player_id in _PASSIVE_MIRROR_PLAYER_IDS:
+        return False
+    owns_conn = conn is None
+    if owns_conn:
+        conn = sqlite3.connect("data/trader.db", timeout=10)
+    try:
+        row = conn.execute(
+            "SELECT is_human FROM ai_players WHERE id = ?", (player_id,)
+        ).fetchone()
+    finally:
+        if owns_conn:
+            conn.close()
+    if row is None:
+        return False
+    is_human_value = row[0] if not hasattr(row, "keys") else row["is_human"]
+    return not bool(is_human_value)
+
+
 # ─── Read-path filter for scoring/calibration consumers (HM-C) ───────────────
 # Per XO_AUDIT_2026-05-03 #1 follow-up HM-C: 1,156 rows in `signals` /
 # `watchlist_signals` were backfilled with halted_emit=1 by fix #1. This

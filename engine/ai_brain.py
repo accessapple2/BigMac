@@ -778,14 +778,19 @@ class Arena:
         if "steve" in player_id.lower() or "webull" in player_id.lower():
             console.log(f"[dim]{player_id} is HUMAN — skipping scan[/dim]")
             return
+        # HM-Y (2026-05-05): use is_auto_tradeable helper — composes humans
+        # AND passive broker mirrors (alpaca-mirror, etc.). Was a bare is_human
+        # DB read; extended to also block scan cycles for passive mirrors.
         import sqlite3 as _sq
         try:
+            from engine.halt_gate import is_auto_tradeable
             _hc = _sq.connect("data/trader.db", check_same_thread=False)
-            _hr = _hc.execute("SELECT is_human FROM ai_players WHERE id=?", (player_id,)).fetchone()
-            _hc.close()
-            if _hr and _hr[0]:
-                console.log(f"[dim]{player_id} is HUMAN — skipping scan[/dim]")
-                return
+            try:
+                if not is_auto_tradeable(player_id, _hc):
+                    console.log(f"[dim]{player_id} is human/mirror — skipping scan[/dim]")
+                    return
+            finally:
+                _hc.close()
         except Exception:
             pass
 
