@@ -122,11 +122,18 @@ def _db_notification(title: str, body: str, severity: str) -> None:
 
 # ── Rate limiter ───────────────────────────────────────────────────────────────
 
-def _rate_ok(alert_type: str) -> bool:
-    """True if we haven't sent this alert_type in the last RATE_LIMIT_SECS."""
+def _rate_ok(alert_type: str, rate_limit_secs: int = RATE_LIMIT_SECS) -> bool:
+    """True if we haven't sent this alert_type in the last rate_limit_secs.
+
+    HM-U (2026-05-05): rate_limit_secs parameterized. Default preserves the
+    module-level RATE_LIMIT_SECS=300 (5 min) for the 12 existing callers.
+    HM-U architecture-path callers pass rate_limit_secs=86400 (24h) per
+    'first occurrence per error class per day' policy (CLAUDE.md § Error
+    Handling Posture).
+    """
     with _state_lock:
         last = _rate_state.get(alert_type, 0)
-        if _time.time() - last < RATE_LIMIT_SECS:
+        if _time.time() - last < rate_limit_secs:
             return False
         _rate_state[alert_type] = _time.time()
         return True
@@ -193,18 +200,23 @@ def send_alert(
     title: str = "",
     bypass_rate_limit: bool = False,
     audience: str = "admin",   # "admin" | "crew" | "all"
+    rate_limit_secs: int = RATE_LIMIT_SECS,  # HM-U: per-call override; default 300s, HM-U callers pass 86400 (24h)
 ) -> dict:
     """
     Send alert to appropriate channels based on level.
 
     Returns dict with channel results: {ntfy, email, browser}.
+
+    HM-U (2026-05-05): rate_limit_secs parameter added. Default preserves
+    5-min behavior for existing callers; HM-U architecture-path callers pass
+    86400 (per CLAUDE.md § Error Handling Posture, principle 3).
     """
     _load_state()
     if not _alerts_enabled:
         return {"skipped": "alerts disabled"}
 
-    if not bypass_rate_limit and not _rate_ok(alert_type):
-        return {"skipped": f"rate_limited (cooldown {RATE_LIMIT_SECS}s per type)"}
+    if not bypass_rate_limit and not _rate_ok(alert_type, rate_limit_secs):
+        return {"skipped": f"rate_limited (cooldown {rate_limit_secs}s per type)"}
 
     if not title:
         prefix = {"info": "ℹ️", "warning": "⚠️", "red_alert": "🚨"}.get(level, "📢")
@@ -326,26 +338,45 @@ def handle_cic_command(command: str) -> str | None:
 
 # ── Convenience shortcuts ──────────────────────────────────────────────────────
 
-def alert_info(message: str, alert_type: str = "info") -> None:
-    """Fire-and-forget INFO alert in a background thread."""
+def alert_info(message: str, alert_type: str = "info",
+               rate_limit_secs: int = RATE_LIMIT_SECS) -> None:
+    """Fire-and-forget INFO alert in a background thread.
+
+    HM-U: rate_limit_secs forwarded to send_alert; default preserves 5-min.
+    """
     threading.Thread(
-        target=send_alert, args=(message, AlertLevel.INFO, alert_type), daemon=True
+        target=send_alert,
+        kwargs={"message": message, "level": AlertLevel.INFO,
+                "alert_type": alert_type, "rate_limit_secs": rate_limit_secs},
+        daemon=True,
     ).start()
 
 
-def alert_warning(message: str, alert_type: str = "warning") -> None:
-    """Fire-and-forget WARNING alert in a background thread."""
+def alert_warning(message: str, alert_type: str = "warning",
+                  rate_limit_secs: int = RATE_LIMIT_SECS) -> None:
+    """Fire-and-forget WARNING alert in a background thread.
+
+    HM-U: rate_limit_secs forwarded to send_alert; default preserves 5-min.
+    """
     threading.Thread(
-        target=send_alert, args=(message, AlertLevel.WARNING, alert_type), daemon=True
+        target=send_alert,
+        kwargs={"message": message, "level": AlertLevel.WARNING,
+                "alert_type": alert_type, "rate_limit_secs": rate_limit_secs},
+        daemon=True,
     ).start()
 
 
-def alert_red(message: str, alert_type: str = "red_alert", title: str = "🚨 RED ALERT") -> None:
-    """Fire-and-forget RED ALERT in a background thread."""
+def alert_red(message: str, alert_type: str = "red_alert", title: str = "🚨 RED ALERT",
+              rate_limit_secs: int = RATE_LIMIT_SECS) -> None:
+    """Fire-and-forget RED ALERT in a background thread.
+
+    HM-U: rate_limit_secs forwarded to send_alert; default preserves 5-min.
+    """
     threading.Thread(
         target=send_alert,
         kwargs={"message": message, "level": AlertLevel.RED_ALERT,
-                "alert_type": alert_type, "title": title},
+                "alert_type": alert_type, "title": title,
+                "rate_limit_secs": rate_limit_secs},
         daemon=True,
     ).start()
 

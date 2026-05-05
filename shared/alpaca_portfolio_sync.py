@@ -220,8 +220,21 @@ def run_full_alpaca_sync(force: bool = False) -> dict:
         return result
 
     except Exception as exc:
-        logger.warning("Alpaca full sync error: %s", exc)
-        return {"ok": False, "error": str(exc), "skipped": False}
+        # HM-U: NTFY first occurrence per error class per day (architecture-class
+        # broker-mirror sync failure — Item 3 alpaca-mirror is the broker truth source).
+        logger.warning("Alpaca full sync error: %s: %r", type(exc).__name__, exc)
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=f"alpaca_portfolio_sync {type(exc).__name__}: {exc!r}",
+                level=AlertLevel.WARNING,
+                alert_type=f"hm-u-alpaca_sync-{type(exc).__name__}",
+                rate_limit_secs=86400,
+            )
+        except Exception:
+            pass
+        return {"ok": False, "error": str(exc), "skipped": False,
+                "error_type": type(exc).__name__, "error_repr": repr(exc)}
 
 
 def get_last_sync_status() -> dict:

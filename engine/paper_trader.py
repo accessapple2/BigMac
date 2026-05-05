@@ -284,7 +284,19 @@ def _forward_to_alpaca(action: str, player_id: str, symbol: str, qty: float,
             else:
                 console.log(f"[bold cyan]Alpaca {action} {frac_qty} {symbol} — order {result.get('order_id', 'ok')} ({player_id})")
         except Exception as e:
-            console.log(f"[yellow]Alpaca forward error: {e}")
+            # HM-U: NTFY first occurrence per error class per day (architecture-class
+            # forward-to-Alpaca catch-all in _forward_to_alpaca).
+            console.log(f"[yellow]Alpaca forward error: {type(e).__name__}: {e!r}")
+            try:
+                from engine.alert_channels import send_alert, AlertLevel
+                send_alert(
+                    message=f"_forward_to_alpaca {action} {symbol} ({player_id}) {type(e).__name__}: {e!r}",
+                    level=AlertLevel.WARNING,
+                    alert_type=f"hm-u-forward_to_alpaca-{type(e).__name__}",
+                    rate_limit_secs=86400,
+                )
+            except Exception:
+                pass
 
 
 def estimate_option_price(option_type: str, strike_price: float | None,
@@ -1410,7 +1422,18 @@ def execute_signal(player_id: str, signal: dict, price: float) -> dict | None:
                 _exec_type = "alpaca_paper" if _order_id else "simulated"
                 _update_trade_alpaca_fields(player_id, symbol, _order_id, _exec_type)
         except Exception as _ae:
-            console.log(f"[yellow]Alpaca options forward error ({player_id} {symbol}): {_ae}")
+            # HM-U: NTFY first occurrence per error class per day (options BUY forward).
+            console.log(f"[yellow]Alpaca options forward error ({player_id} {symbol}): {type(_ae).__name__}: {_ae!r}")
+            try:
+                from engine.alert_channels import send_alert, AlertLevel
+                send_alert(
+                    message=f"options BUY forward ({player_id} {symbol}) {type(_ae).__name__}: {_ae!r}",
+                    level=AlertLevel.WARNING,
+                    alert_type=f"hm-u-options_forward_buy-{type(_ae).__name__}",
+                    rate_limit_secs=86400,
+                )
+            except Exception:
+                pass
         return result
 
     elif action in ("BULL_CALL_SPREAD", "BEAR_PUT_SPREAD", "IRON_CONDOR"):
@@ -1428,7 +1451,18 @@ def execute_signal(player_id: str, signal: dict, price: float) -> dict | None:
                 _exec_type = "alpaca_paper" if _order_id else "simulated"
                 _update_trade_alpaca_fields(player_id, symbol, _order_id, _exec_type)
         except Exception as _ae:
-            console.log(f"[yellow]Alpaca {action} forward error ({player_id} {symbol}): {_ae}")
+            # HM-U: NTFY first occurrence per error class per day (multi-leg spread/IC forward).
+            console.log(f"[yellow]Alpaca {action} forward error ({player_id} {symbol}): {type(_ae).__name__}: {_ae!r}")
+            try:
+                from engine.alert_channels import send_alert, AlertLevel
+                send_alert(
+                    message=f"{action} forward ({player_id} {symbol}) {type(_ae).__name__}: {_ae!r}",
+                    level=AlertLevel.WARNING,
+                    alert_type=f"hm-u-multileg_forward-{action}-{type(_ae).__name__}",
+                    rate_limit_secs=86400,
+                )
+            except Exception:
+                pass
         return result
 
     return None
@@ -2234,7 +2268,18 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
                 else:
                     console.log(f"[yellow]Alpaca short forward failed: {(_ap_res or {}).get('error')}")
         except Exception as _ae:
-            console.log(f"[yellow]Alpaca short forward error ({player_id} {symbol}): {_ae}")
+            # HM-U: NTFY first occurrence per error class per day (short forward).
+            console.log(f"[yellow]Alpaca short forward error ({player_id} {symbol}): {type(_ae).__name__}: {_ae!r}")
+            try:
+                from engine.alert_channels import send_alert, AlertLevel
+                send_alert(
+                    message=f"short forward ({player_id} {symbol}) {type(_ae).__name__}: {_ae!r}",
+                    level=AlertLevel.WARNING,
+                    alert_type=f"hm-u-short_forward-{type(_ae).__name__}",
+                    rate_limit_secs=86400,
+                )
+            except Exception:
+                pass
 
     return {
         "action": "SHORT",

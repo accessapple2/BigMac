@@ -255,6 +255,17 @@ def submit_single_option(
         # often empty — see 08:56:21/23 logs 2026-05-05 with empty bodies).
         # type+repr surfaces the actual exception class in one log line.
         console.log(f"[yellow]Alpaca options submit_single error: {type(e).__name__}: {e!r}")
+        # HM-U: NTFY first occurrence per error class per day (architecture-class broker-submit path).
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=f"submit_single_option {type(e).__name__}: {e!r}",
+                level=AlertLevel.WARNING,
+                alert_type=f"hm-u-submit_single-{type(e).__name__}",
+                rate_limit_secs=86400,
+            )
+        except Exception:
+            pass
         return {"error": str(e), "error_type": type(e).__name__, "error_repr": repr(e)}
 
 
@@ -302,6 +313,17 @@ def submit_vertical_spread(
         # pre-HM-Z; line drifted to ~300 after the inline # HM-Z: comments landed).
         # Same Shape B as line 254 (HM-AA narrow-strict, commit a9d0649).
         console.log(f"[yellow]Alpaca options submit_spread error: {type(e).__name__}: {e!r}")
+        # HM-U: NTFY first occurrence per error class per day (architecture-class broker-submit path).
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=f"submit_vertical_spread {type(e).__name__}: {e!r}",
+                level=AlertLevel.WARNING,
+                alert_type=f"hm-u-submit_spread-{type(e).__name__}",
+                rate_limit_secs=86400,
+            )
+        except Exception:
+            pass
         return {"error": str(e), "error_type": type(e).__name__, "error_repr": repr(e)}
 
 
@@ -338,8 +360,19 @@ def submit_iron_condor(
         console.log(f"[bold cyan]Alpaca IRON_CONDOR {qty}x {call_buy[:3]} — {player_id} order={order.id}")
         return {"success": True, "order_id": str(order.id), "strategy": "IRON_CONDOR", "qty": qty}
     except Exception as e:
-        console.log(f"[yellow]Alpaca options submit_iron_condor error: {e}")
-        return {"error": str(e)}
+        # HM-U: enrich + NTFY first occurrence per error class per day (architecture-class broker-submit).
+        console.log(f"[yellow]Alpaca options submit_iron_condor error: {type(e).__name__}: {e!r}")
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=f"submit_iron_condor {type(e).__name__}: {e!r}",
+                level=AlertLevel.WARNING,
+                alert_type=f"hm-u-submit_iron_condor-{type(e).__name__}",
+                rate_limit_secs=86400,
+            )
+        except Exception:
+            pass
+        return {"error": str(e), "error_type": type(e).__name__, "error_repr": repr(e)}
 
 
 def close_options_position(player_id: str, contract_symbol: str, qty: int) -> dict:
@@ -381,14 +414,36 @@ def close_all_options(player_id: str | None = None) -> dict:
                 console.log(f"[yellow]Alpaca options EOD close: {pos.symbol} x{int(qty)}")
                 closed += 1
             except Exception as e:
-                console.log(f"[yellow]Alpaca options close {pos.symbol} error: {e}")
+                # HM-U: NTFY first occurrence per error class per day (per-position close failure).
+                console.log(f"[yellow]Alpaca options close {pos.symbol} error: {type(e).__name__}: {e!r}")
+                try:
+                    from engine.alert_channels import send_alert, AlertLevel
+                    send_alert(
+                        message=f"close_options_position {pos.symbol} {type(e).__name__}: {e!r}",
+                        level=AlertLevel.WARNING,
+                        alert_type=f"hm-u-close_position-{type(e).__name__}",
+                        rate_limit_secs=86400,
+                    )
+                except Exception:
+                    pass
 
         who = player_id or "EOD sweep"
         console.log(f"[bold yellow]Alpaca options EOD: {closed} position(s) closed ({who})")
         return {"success": True, "closed": closed}
     except Exception as e:
-        console.log(f"[red]Alpaca options close_all error: {e}")
-        return {"error": str(e)}
+        # HM-U: NTFY first occurrence per error class per day (close_all aggregate failure).
+        console.log(f"[red]Alpaca options close_all error: {type(e).__name__}: {e!r}")
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=f"close_all_options {type(e).__name__}: {e!r}",
+                level=AlertLevel.RED_ALERT,
+                alert_type=f"hm-u-close_all-{type(e).__name__}",
+                rate_limit_secs=86400,
+            )
+        except Exception:
+            pass
+        return {"error": str(e), "error_type": type(e).__name__, "error_repr": repr(e)}
 
 
 def execute_options_signal(
