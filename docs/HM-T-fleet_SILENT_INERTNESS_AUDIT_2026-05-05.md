@@ -59,7 +59,8 @@ Legend: 🟢 Active · 🟡 Sparse · 🟠 Inert (PED-class) · 🔴 Halted · �
 | ollama-gemma27b     | 🟡 Sparse| 216   | 0   | 25   | 0  | 2026-04-29 (sig)     | weekly cadence, no trades |
 | ollama-glm4         | 🟡 Sparse| 25    | 0   | 25   | 0  | 2026-04-29           | weekly cadence, no trades |
 | ollama-kimi         | 🟡 Sparse| 230   | 44  | 25   | 0  | 2026-04-29 (sig)     | weekly cadence |
-| ollama-llama        | 🔴 Halted (LEAKING) | 3,617 | 53 | 663 | 2 | 2026-05-01 19:37 (sig) | halt_mode=exit_only since 2026-04-25; **947 post-halt sigs** + 2 post-halt trades — HM-A signal-emission gate gap |
+<!-- HM-T-fleet-correction: 2026-05-05 06:45 MST — '2 post-halt trades' was wrong (7-day window query conflated with lifetime); actual lifetime post-halt SELL count is 7, all clean exits (Verdict A). See "ollama-llama post-halt trades — VERDICT A" section below. -->
+| ollama-llama        | 🔴 Halted (signal-leak only) | 3,617 | 53 | 663 | 2 | 2026-05-01 19:37 (sig) | halt_mode=exit_only since 2026-04-25; **947 post-halt sigs** (signal-emission gate gap). 7 post-halt trades — all clean exits, Verdict A (see correction note below) |
 | ollama-local        | 🟡 Sparse| 6,890 | 150 | 25   | 0  | 2026-05-01 (sig)     | high lifetime emit, recent activity dropped to weekly |
 | ollama-plutus       | 🟢 Active| 1,010 | 53  | 700  | 40 | 2026-05-05 05:50     | McCoy plutus-3B path |
 | ollama-qwen3        | 🟢 Active| 2,790 | 76  | 800  | 44 | 2026-05-05 04:48     | top emitter |
@@ -119,14 +120,31 @@ Legend: 🟢 Active · 🟡 Sparse · 🟠 Inert (PED-class) · 🔴 Halted · �
 
 Per HM-A finding: `is_halted` (now `halt_mode != 'active'`) is a trade-execution gate ONLY, NOT a signal-emission gate. The 4 formally-halted players:
 
-| Player | Halt date | Pre-halt sigs | Post-halt sigs | Status |
-|---|---|---:|---:|---|
-| ollama-llama | 2026-04-25 | 2,670 | **947** | 🚨 **LEAKING** — also leaked 2 post-halt trades, despite halt_mode=exit_only |
-| dayblade-sulu | 2026-03-31 | 2,468 | 196 | Was leaking; stopped 2026-04-07 (no signals since) |
-| gemini-2.5-pro | 2026-04-30 | 2,012 | 0 | ✅ Clean — paid-model already idle pre-halt |
-| grok-3 | 2026-04-25 | 2,453 | 0 | ✅ Clean — already idle pre-halt |
+| Player | Halt date | Pre-halt sigs | Post-halt sigs | Post-halt trades | Status |
+|---|---|---:|---:|---:|---|
+| ollama-llama | 2026-04-25 | 2,670 | **947** | 7 (all clean exits — Verdict A) | 🚨 **Signal leak only** — `halt_mode=exit_only` correctly blocks new entries; signal-emission gap is the architectural concern |
+| dayblade-sulu | 2026-03-31 | 2,468 | 196 | 0 | Was signal-leaking; stopped 2026-04-07 |
+| gemini-2.5-pro | 2026-04-30 | 2,012 | 0 | 0 | ✅ Clean — paid-model already idle pre-halt |
+| grok-3 | 2026-04-25 | 2,453 | 0 | 0 | ✅ Clean — already idle pre-halt |
 
-The 947 ollama-llama post-halt signals already have a fix queued in CLAUDE.md ("Add signal-emission gate ... for fully-retired players: ollama-llama, grok-3, possibly dayblade-0dte"). The 2 post-halt trades are **a new finding here** — `halt_mode=exit_only` is supposed to prevent new entries; if those 2 trades are entries (BUY), the gate has a hole. If they're exits (SELL/sell-to-close), they're permitted. Verification pending.
+The 947 ollama-llama post-halt signals already have a fix queued in CLAUDE.md ("Add signal-emission gate ... for fully-retired players: ollama-llama, grok-3, possibly dayblade-0dte").
+
+<!-- HM-T-fleet-correction: 2026-05-05 06:45 MST — original audit (commit 836fd09) reported "2 post-halt trades" as a NEW finding suggesting a possible gate hole. That count was wrong (7-day-window query conflated with lifetime). Follow-up probe corrected to 7 trades, all SELLs of pre-halt positions. Verdict A — exit_only gate enforcing correctly. -->
+
+### ollama-llama post-halt trades — VERDICT A (no bug)
+
+Follow-up probe on 2026-05-05 06:45 MST classified the 7 post-halt trades. All SELLs of pre-halt positions. Position math verified clean:
+
+| Symbol | Pre-halt bought | Pre-halt sold | Net held at halt | Post-halt sold |
+|---|---:|---:|---:|---:|
+| MSFT | 1.4001 | 0 | **1.4001** | 1.4001 (0.7 + 0.35 + 0.1751 + 0.175) |
+| NVDA | 61.8709 | 58.8724 | **2.9985** | 2.9985 (2.2489 + 0.3748 + 0.3748) |
+
+The 7 post-halt SELL chunks: 4 × MSFT + 3 × NVDA, executed across 9 days from 2026-04-27 01:20 MST to 2026-05-03 21:58 MST. Final SELL closed both positions to flat.
+
+**Conclusion:** `halt_mode='exit_only'` is enforcing entries-blocked / exits-allowed correctly at the trade-execution gate (`engine/paper_trader.py:547,1091`). The 947 post-halt SIGNALS remain the real architectural concern (signal-emission gate gap, documented in CLAUDE.md TODOs). Trade gate: working as designed.
+
+The original "2 post-halt trades" claim in commit 836fd09 was a query-window error — `trades_7d` count read as lifetime. Corrected here.
 
 ## Orphans
 
@@ -144,7 +162,7 @@ No orphans in `trades`. No roster rows missing from any expected join table.
 ### Repair candidates (investigation needed before action)
 2. **qwen3-14b-pro** — should be voting; investigate dispatch loop. 60-min diagnostic session.
 3. **red-alert** — clarify role (display-only) OR wire signal write path. 15-90 min depending on choice.
-4. **ollama-llama signal-emission gate** — already in CLAUDE.md TODOs; HM-T-fleet confirms urgency (947 leaked sigs in 6 days post-halt + 2 leaked trades). Should pair with broader HM-A signal-emission gate work.
+4. **ollama-llama signal-emission gate** — already in CLAUDE.md TODOs; HM-T-fleet confirms urgency (947 leaked sigs in 6 days post-halt). The trade gate is **clean** (7 post-halt trades verified as exits per Verdict A); only the signal-emission path needs a halt-aware gate. <!-- HM-T-fleet-correction: removed incorrect "+2 leaked trades" claim -->
 
 ### Watch list (re-check in 1-2 weeks)
 5. **dayblade-0dte** — 28 days idle; halt formally if still silent at 40 days.
