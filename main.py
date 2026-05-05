@@ -2565,6 +2565,13 @@ if __name__ == "__main__":
     schedule.every().day.at("06:00").do(run_archer_morning_briefing)  # Phase 3.6: Archer briefing 6:00 AM AZ
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
+    # HM-I-β-Item5: daily reconciliation canary (replaces ε noise canary, commit d06c33c).
+    # Compares internal book vs Alpaca paper at market close, writes JSON, NTFYs on drift.
+    try:
+        from engine.reconciliation import run_reconciliation
+        schedule.every().day.at("13:30").do(run_reconciliation)       # 13:30 AZ = 4:30 PM ET, 30 min post NYSE close
+    except Exception as _re:
+        console.log(f"[yellow]reconciliation schedule registration skipped: {type(_re).__name__}: {_re!r}")
     schedule.every(30).minutes.do(run_ah_scanner)                     # AH Earnings Scanner: 4–7 PM AZ (30 min)
     schedule.every(15).minutes.do(run_premarket_scanner)              # Pre-Market Scanner: 6–9:25 AM AZ (15 min)
     schedule.every().day.at("06:00").do(run_earnings_universe_inject) # Earnings Inject: 6:00 AM AZ (5-min window)

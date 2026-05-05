@@ -171,3 +171,6 @@ data/schwab_csv_archive/
 # Top-level XO_BACKLOG snapshots (use git history; live file is source of truth).
 docs/*.bak
 docs/*.bak.*
+
+# HM-I-β-Item5: daily reconciliation reports — generated daily, not source-controlled
+data/reconciliation/
