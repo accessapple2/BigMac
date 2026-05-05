@@ -251,8 +251,11 @@ def submit_single_option(
         console.log(f"[bold cyan]Alpaca OPTIONS {side.upper()} {qty}x {contract_symbol} — {player_id} order={order.id}")
         return {"success": True, "order_id": str(order.id), "symbol": contract_symbol, "qty": qty}
     except Exception as e:
-        console.log(f"[yellow]Alpaca options submit_single error: {e}")
-        return {"error": str(e)}
+        # HM-AA: enrich error log with exception type + repr (was just str(e),
+        # often empty — see 08:56:21/23 logs 2026-05-05 with empty bodies).
+        # type+repr surfaces the actual exception class in one log line.
+        console.log(f"[yellow]Alpaca options submit_single error: {type(e).__name__}: {e!r}")
+        return {"error": str(e), "error_type": type(e).__name__, "error_repr": repr(e)}
 
 
 def submit_vertical_spread(
