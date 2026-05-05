@@ -20,6 +20,12 @@ def generate_journal_entry(provider: AIProvider, player_id: str, prices: dict) -
     conn = _conn()
     conn.row_factory = sqlite3.Row
 
+    # HM-E-fix: skip halted players (any non-active mode) to avoid wasted LLM calls
+    from engine.halt_gate import halt_mode as _halt_mode
+    if _halt_mode(conn, player_id) != "active":
+        conn.close()
+        return None
+
     today = datetime.now().strftime("%Y-%m-%d")
 
     # Get today's trades
