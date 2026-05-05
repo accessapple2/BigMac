@@ -1297,7 +1297,12 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
     console.log(f"[green]{player_id}: SELL {qty} {symbol} @ ${price:.2f} (partial) PnL: ${pnl:.2f}")
 
     # Forward to Alpaca paper trading (non-blocking)
-    _forward_to_alpaca("SELL", player_id, symbol, qty, asset_type, price=price)
+    # HM-I-Option-ε (2026-05-05): gate identically to BUY (line ~1015) and full-SELL
+    # (line ~1167). sell_partial() does not resolve route at function top like sell()/buy()
+    # do — resolve here so the gate has data to check.
+    route = _resolve_execution_portfolio(player_id)
+    if route["route_mode"] == "trading":
+        _forward_to_alpaca("SELL", player_id, symbol, qty, asset_type, price=price)
 
     # Borg lore on loss (partial sell, only if full close)
     if pnl < 0 and remaining <= 0:
