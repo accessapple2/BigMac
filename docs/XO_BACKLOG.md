@@ -345,6 +345,16 @@ before any new agent is wired.
 - Optional HM-E-fix (~5 min, low risk, deferred): add 3-line halt-mode check at the LLM-cost source in `generate_journal_entry()`.
 - Full report: `docs/HM-E_HALTED_ROUTINES_VERDICT_2026-05-04.md`.
 
+### HM-T — PED operational probe (Verdict B: silently inert, structurally unreachable promotion)
+- PED is properly imported (main.py:3486) and scheduled every 15 min (main.py:3541) inside `if __name__ == "__main__":` block — the scheduler IS firing.
+- **Lifetime activity: zero.** No row in `ai_players`, zero `signals` written, zero `trades`, zero log lines across all log files. Sitrep history (794 lines, 2026-05-01 onward) shows `PED signals: 0` every cycle.
+- **Root cause:** `data/watchlist.txt` (PED's universe source at main.py:3496) does not exist. Falls back to 9 hardcoded ETF/mega-cap symbols. None have earnings in the 1-48hr post-earnings window today; effective trigger frequency is single-digit hours/year, single-digit signals/year after gap+vwap filters.
+- **Gate-promotion criterion (30 trades + positive expectancy) is structurally unreachable.**
+- Compute waste: negligible (rule-based, no LLM, ~0.1s/day total CPU).
+- No other code reads `data/watchlist.txt` — the missing file is PED-specific. Was either deliberately abandoned or never wired.
+- **Recommended: Option γ (formally retire).** Move to `archive/retired/`, remove schedule, document. Side benefit: closes HM-S-code by removing the phantom `agent_state` reference from active code paths. Option β (repair wiring with proper watchlist) is also viable if Captain sees PED research value.
+- Full report: `docs/HM-T_PED_OPERATIONAL_PROBE_2026-05-04.md`.
+
 ### HM-S — agent_state table ghost (Verdict C: dead but harmless + docs drift)
 - **`agent_state` does not exist in any of 13 .db files in the repo.** Confirmed via direct schema queries on every DB.
 - **Only 1 reader** in production code: `agents/post_earnings_drift.py:56` — wrapped in bare `except Exception: return False`, so the missing table silently produces "not halted".
