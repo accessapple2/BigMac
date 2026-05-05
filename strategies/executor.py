@@ -168,17 +168,70 @@ def close_position(intent) -> CloseResult:
     return _close_live(intent)
 
 
+# HM-AC-Option-B (2026-05-05): per-leg fallback helper. Used for 1-leg single
+# positions and >2-leg structures (iron condors). 2-leg vertical spreads use
+# the atomic MLEG close path (close_vertical_spread) instead.
+def _close_legs_individually(
+    legs, symbol, player_id, contracts_to_close,
+    close_options_position, submit_single_option,
+) -> list[dict]:
+    """Iterate legs and call single-leg close primitives per leg.
+
+    Long leg (entry action='buy')  → close_options_position (sell-to-close).
+    Short leg (entry action='sell') → submit_single_option(side='buy') (BTC).
+
+    Pre-HM-AC-Option-B this was the only close path; now it's a fallback for
+    structures the new atomic MLEG close doesn't cover (1-leg, 4-leg ICs).
+    """
+    out: list[dict] = []
+    for leg in legs:
+        occ = _occ_symbol(symbol, leg)
+        entry_action = leg.get("action", "buy")
+        try:
+            if entry_action == "buy":
+                # Long leg: sell to close
+                r = close_options_position(
+                    player_id=player_id,
+                    contract_symbol=occ,
+                    qty=contracts_to_close,
+                )
+            else:
+                # Short leg: buy to close
+                r = submit_single_option(
+                    player_id=player_id,
+                    contract_symbol=occ,
+                    qty=contracts_to_close,
+                    side="buy",
+                )
+            out.append({"leg": occ, "result": r})
+        except Exception as e:
+            out.append({"leg": occ, "error": f"{type(e).__name__}: {e}"})
+    return out
+
+
 def _close_live(intent) -> CloseResult:
     """
     Actual close execution. Only reachable when _EXECUTION_ENABLED is True.
 
-    Closes each leg of the spread individually via alpaca_options:
-      - Entry "buy"  leg → sell to close  (close_options_position, side="sell")
-      - Entry "sell" leg → buy to close   (submit_single_option,   side="buy")
+    Dispatches by leg count:
+      - 2-leg vertical spread (BTO+STO) → close_vertical_spread (MLEG, atomic).
+        HM-AC-Option-B (2026-05-05): per-leg single-leg close path was rejected
+        by Alpaca with 'insufficient buying power for cash-secured put' because
+        Alpaca interpreted single-leg SELL on a put-leg of an open MLEG spread
+        as opening a fresh SHORT-PUT. The MLEG close uses SELL_TO_CLOSE +
+        BUY_TO_CLOSE intents so Alpaca recognizes it as a true close.
+      - 1-leg single position → close_options_position (long) or
+        submit_single_option(side='buy') (short). Existing path preserved.
+      - >2 legs (e.g. iron condor) → fallback to per-leg loop with a warning;
+        proper MLEG close for 4-leg ICs is HM-AC-extension scope.
+
     Then increments contracts_closed_so_far in DB.
     """
     try:
-        from engine.alpaca_options import close_options_position, submit_single_option
+        from engine.alpaca_options import (
+            close_options_position, submit_single_option,
+            close_vertical_spread,  # HM-AC-Option-B
+        )
     except ImportError as e:
         return CloseResult(
             position_id=intent.position_id, contracts_closed=0,
@@ -221,30 +274,45 @@ def _close_live(intent) -> CloseResult:
             status="error", closed_at=datetime.now(timezone.utc),
         )
 
-    # Close each leg with the correct buy/sell direction
     close_results = []
-    for leg in legs:
-        occ = _occ_symbol(symbol, leg)
-        entry_action = leg.get("action", "buy")
-        try:
-            if entry_action == "buy":
-                # Long leg: sell to close
-                r = close_options_position(
+
+    # HM-AC-Option-B (2026-05-05): 2-leg vertical spread → atomic MLEG close.
+    if len(legs) == 2:
+        long_leg = next((l for l in legs if l.get("action") == "buy"), None)
+        short_leg = next((l for l in legs if l.get("action") == "sell"), None)
+        if long_leg and short_leg:
+            long_occ = _occ_symbol(symbol, long_leg)
+            short_occ = _occ_symbol(symbol, short_leg)
+            try:
+                r = close_vertical_spread(
                     player_id=player_id,
-                    contract_symbol=occ,
+                    long_symbol=long_occ,
+                    short_symbol=short_occ,
                     qty=intent.contracts_to_close,
+                    strategy=strategy_id,
                 )
-            else:
-                # Short leg: buy to close
-                r = submit_single_option(
-                    player_id=player_id,
-                    contract_symbol=occ,
-                    qty=intent.contracts_to_close,
-                    side="buy",
-                )
-            close_results.append({"leg": occ, "result": r})
-        except Exception as e:
-            close_results.append({"leg": occ, "error": f"{type(e).__name__}: {e}"})
+                close_results.append({"leg": f"{long_occ}+{short_occ}", "result": r})
+            except Exception as e:
+                close_results.append({"leg": f"{long_occ}+{short_occ}",
+                                      "error": f"{type(e).__name__}: {e}"})
+        else:
+            # Malformed 2-leg (both buy or both sell) — fall through to per-leg.
+            print(f"[executor] {intent.position_id}: 2 legs but missing buy/sell pair; "
+                  f"falling back to per-leg close (HM-AC-Option-B-fallback)")
+            close_results = _close_legs_individually(
+                legs, symbol, player_id, intent.contracts_to_close,
+                close_options_position, submit_single_option,
+            )
+    else:
+        # HM-AC-Option-B: per-leg loop preserved for 1-leg (single position) and
+        # >2-leg (iron condor — known-broken via single-leg, see HM-AC-extension TODO).
+        if len(legs) > 2:
+            print(f"[executor] {intent.position_id}: {len(legs)}-leg structure — "
+                  f"using per-leg close (HM-AC-extension TODO for atomic MLEG close)")
+        close_results = _close_legs_individually(
+            legs, symbol, player_id, intent.contracts_to_close,
+            close_options_position, submit_single_option,
+        )
 
     errors = [r for r in close_results if "error" in r]
     if errors:

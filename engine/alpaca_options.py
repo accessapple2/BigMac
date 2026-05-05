@@ -327,6 +327,82 @@ def submit_vertical_spread(
         return {"error": str(e), "error_type": type(e).__name__, "error_repr": repr(e)}
 
 
+# HM-AC-Option-B (2026-05-05): close-side mirror of submit_vertical_spread.
+# Closes a defined-risk vertical spread atomically as a single MLEG order
+# instead of two single-leg submits. Single-leg closes fail because Alpaca
+# interprets a SELL on a put-leg of an open MLEG spread as opening a fresh
+# SHORT-PUT (cash-secured put), requiring strike × 100 × qty collateral
+# rather than the much smaller defined-risk margin Alpaca already holds.
+# Investigation: docs/HM-AC_BUYING_POWER_INVESTIGATION_2026-05-05.md.
+def close_vertical_spread(
+    player_id: str, long_symbol: str, short_symbol: str, qty: int, strategy: str
+) -> dict:
+    """Close a defined-risk vertical spread as a multi-leg order.
+
+    Mirror of submit_vertical_spread for closes. Atomic — both legs in one
+    MLEG order so Alpaca recognizes it as closing the existing spread, not
+    opening a new naked-short.
+
+    Bull call spread close: long_symbol = lower-strike call (BTO entry → STC),
+                            short_symbol = higher-strike call (STO entry → BTC).
+    Bull put spread close:  long_symbol = lower-strike put (BTO entry → STC),
+                            short_symbol = higher-strike put (STO entry → BTC).
+    Bear put spread close:  long_symbol = higher-strike put (BTO entry → STC),
+                            short_symbol = lower-strike put (STO entry → BTC).
+
+    HM-AC-Option-B (2026-05-05): closes spreads via MLEG order_class with
+    SELL_TO_CLOSE on the long leg and BUY_TO_CLOSE on the short leg. Replaces
+    the per-leg single-leg close path that Alpaca rejected with insufficient
+    cash-secured-put collateral.
+    """
+    if player_id not in OPTIONS_PLAYERS:
+        return {"skipped": True, "reason": f"{player_id} not in options players list"}
+    client = _get_client()
+    if not client:
+        return {"skipped": True, "reason": "Alpaca not connected"}
+
+    qty = min(int(qty), MAX_SPREAD_CONTRACTS)
+    if qty <= 0:
+        return {"error": "qty must be >= 1"}
+
+    try:
+        from alpaca.trading.requests import MarketOrderRequest, OptionLegRequest
+        from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, PositionIntent
+        order = client.submit_order(MarketOrderRequest(
+            qty=qty,
+            time_in_force=TimeInForce.DAY,
+            order_class=OrderClass.MLEG,
+            legs=[
+                # HM-AC-Option-B: SELL_TO_CLOSE the long leg (was BTO at open).
+                OptionLegRequest(
+                    symbol=long_symbol, ratio_qty=1,
+                    side=OrderSide.SELL, position_intent=PositionIntent.SELL_TO_CLOSE,
+                ),
+                # HM-AC-Option-B: BUY_TO_CLOSE the short leg (was STO at open).
+                OptionLegRequest(
+                    symbol=short_symbol, ratio_qty=1,
+                    side=OrderSide.BUY, position_intent=PositionIntent.BUY_TO_CLOSE,
+                ),
+            ],
+        ))
+        console.log(f"[bold cyan]Alpaca CLOSE {strategy} {qty}x — {player_id} order={order.id}")
+        return {"success": True, "order_id": str(order.id), "strategy": strategy, "qty": qty}
+    except Exception as e:
+        # HM-AA / HM-U: enriched error log + NTFY (architecture-class broker-submit path).
+        console.log(f"[yellow]Alpaca options close_vertical_spread error: {type(e).__name__}: {e!r}")
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=f"close_vertical_spread {strategy} ({player_id}) {type(e).__name__}: {e!r}",
+                level=AlertLevel.WARNING,
+                alert_type=f"hm-u-close_vertical_spread-{type(e).__name__}",
+                rate_limit_secs=86400,
+            )
+        except Exception:
+            pass
+        return {"error": str(e), "error_type": type(e).__name__, "error_repr": repr(e)}
+
+
 def submit_iron_condor(
     player_id: str,
     call_buy: str, call_sell: str, put_buy: str, put_sell: str,
