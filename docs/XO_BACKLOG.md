@@ -355,6 +355,15 @@ before any new agent is wired.
 - **Recommended: Option γ (formally retire).** Move to `archive/retired/`, remove schedule, document. Side benefit: closes HM-S-code by removing the phantom `agent_state` reference from active code paths. Option β (repair wiring with proper watchlist) is also viable if Captain sees PED research value.
 - Full report: `docs/HM-T_PED_OPERATIONAL_PROBE_2026-05-04.md`.
 
+### HM-T-fleet — Silent-Inertness Audit (Tuesday 2026-05-05)
+- Extended HM-T's PED-class question fleet-wide. 49 ai_players + 130 schedule registrations classified.
+- **7 PED-class inert agents identified:** anderson-bcs, mccoy-bps, quark-ic, covered-call (orphaned in `engine/options_agents.py`, file imported by nothing); qwen3-14b-pro (lab/backtest scaffold, never dispatched); red-alert (channel-mismatch — writes to non-existent `red_alert_log`); dayblade-0dte (was active until 2026-04-07, 28 days idle — watch list).
+- **Halted-but-emitting confirmed:** ollama-llama leaked 947 post-halt signals + 2 post-halt trades (HM-A signal-emission gate gap; trades-leak is a NEW finding).
+- **Orphan in signals not in roster:** `debate-pipeline` (1 row, 2026-03-31, vestigial).
+- **Recommendations:** (1) one bundled retirement commit for the 4 options_agents.py orphans (mirrors PED pattern); (2) dispatch-loop investigation for qwen3-14b-pro; (3) clarify red-alert role; (4) signal-emission gate work (already in CLAUDE.md TODOs).
+- 4 open Admiral questions: paid-model halting policy, options_agents retirement scope, dayblade-0dte timeline, mlx-qwen3/ollama-coder dispatch suppression.
+- Full report: `docs/HM-T-fleet_SILENT_INERTNESS_AUDIT_2026-05-05.md`. No code/schema changes — investigation deliverable only.
+
 ### HM-U — Silent-Failure Pattern Discussion (DISCUSSION ITEM, NOT A FIX)
 
 **Status:** Open
