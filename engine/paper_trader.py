@@ -2038,6 +2038,33 @@ def get_kelly_fraction(player_id: str) -> float:
 # Auto option exits: 50% TP · 2x SL · 21 DTE time stop
 # ─────────────────────────────────────────────────────────────────────────────
 
+# C2-stale-expiry-guard: helper used by check_option_exits to skip already-expired contracts.
+def _is_option_expiry_passed(expiry_date) -> bool:
+    """Return True if expiry_date is strictly before today.
+
+    Why: deep-ITM expired contracts (e.g. dalio-metals GOOGL CALL exp 2026-05-01,
+    strike 275, stock $384) yield intrinsic > 1.5× entry premium, which trips
+    AUTO-TP every cycle. expire_options() is the canonical cleanup path; AUTO-TP
+    must not race it. For tracking-only routes (dalio-metals) the row never
+    deletes, so AUTO-TP would otherwise loop forever.
+
+    Falsy / unparseable values return False (fail-open — let downstream handle).
+    """
+    if not expiry_date:
+        return False
+    try:
+        from datetime import datetime, date as _date
+        if isinstance(expiry_date, _date) and not isinstance(expiry_date, datetime):
+            exp = expiry_date
+        elif isinstance(expiry_date, datetime):
+            exp = expiry_date.date()
+        else:
+            exp = datetime.strptime(str(expiry_date)[:10], "%Y-%m-%d").date()
+        return exp < _date.today()
+    except (ValueError, TypeError):
+        return False
+
+
 def check_option_exits(prices: dict = None) -> dict:
     """Check all open option positions and auto-exit on TP/SL/time-stop rules.
 
@@ -2062,6 +2089,13 @@ def check_option_exits(prices: dict = None) -> dict:
     for row in opt_positions:
         pid, sym, qty, avg_price, ot, strike, expiry = row
         if _is_human_player(pid) or avg_price <= 0:
+            continue
+
+        # C2-stale-expiry-guard: skip AUTO-TP / AUTO-SL / TIME-STOP for options past
+        # expiration. expire_options() owns the post-expiry path; this prevents
+        # futile re-firing on rows that tracking-only routes never delete.
+        if _is_option_expiry_passed(expiry):
+            console.log(f"[dim]AUTO-TP skip {sym}: option expired {expiry}")
             continue
 
         # Estimate current option value
