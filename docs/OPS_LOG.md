@@ -32,3 +32,5 @@ Rollback if needed:
 
 Refs: /tmp/scotty_session_2026-05-03/OPTION_A_DEPLOY_DIRECTIVE.md
 Refs: /tmp/scotty_session_2026-05-03/tier2_landmine_fix_proposal.md (Section I, Admiral verdicts)
+- 2026-05-05T06:00:05 | daily_backup | backup=trader_2026-05-05.db | 234968KB
+- 2026-05-06T06:00:02 | daily_backup | backup=trader_2026-05-06.db | 242832KB
