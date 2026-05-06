@@ -81,6 +81,48 @@ def _required_interval() -> int:
     return _INTERVAL.get(session, _INTERVAL["after"])
 
 
+# alpaca-sync-asset-type-fix (2026-05-05): map Alpaca SDK's AssetClass enum
+# to the codebase's asset_type vocabulary. Pre-fix this module hardcoded
+# 'stock' for every position, which mislabeled options legs (e.g., the
+# SPY 719 PUT during today's bull_put_spread fills) and forced downstream
+# consumers (Kirk realign, Item 6 reconciliation, dashboard filters) to
+# either work around the mislabel or read alternate sources.
+def _alpaca_asset_class_to_type(asset_class) -> str:
+    """Map Alpaca SDK's AssetClass enum to the codebase's asset_type vocabulary.
+
+    Alpaca AssetClass values seen in the wild:
+      - us_equity  → 'stock'
+      - us_option  → 'option'
+      - crypto / us_crypto → 'crypto'
+
+    Codebase vocabulary (per `positions` table inventory 2026-05-05):
+      stock, option, metal, spread, bond, crypto. Of these, only the first
+      three are produced by Alpaca's get_all_positions; metal/spread/bond
+      are set elsewhere (dashboard manual annotation, strategy writes).
+
+    Falls back to 'stock' for None or unknown asset classes (preserves
+    legacy behavior). Unknown values get a HM-AA-style enriched log
+    so a future surprise surfaces in trader_error.log instead of silently
+    propagating mislabels.
+    """
+    if asset_class is None:
+        return 'stock'
+    # AssetClass enum has .value ('us_equity'); plain str passes through unchanged.
+    raw = getattr(asset_class, 'value', None) or str(asset_class)
+    value = raw.lower()
+    if 'option' in value:
+        return 'option'
+    if 'crypto' in value:
+        return 'crypto'
+    if 'equity' in value or 'stock' in value:
+        return 'stock'
+    logger.warning(
+        "alpaca-sync: unknown asset_class %s: %r — defaulting to 'stock'",
+        type(asset_class).__name__, asset_class,
+    )
+    return 'stock'
+
+
 def run_full_alpaca_sync(force: bool = False) -> dict:
     """
     Pull Alpaca account + positions and persist to DB.
@@ -122,7 +164,9 @@ def run_full_alpaca_sync(force: bool = False) -> dict:
                 "current_price": round(float(p.current_price or 0), 4),
                 "market_value":  round(float(p.market_value or 0), 2),
                 "unrealized_pl": round(float(p.unrealized_pl or 0), 2),
-                "asset_type":    "stock",
+                # alpaca-sync-asset-type-fix: read actual asset_class instead of
+                # hardcoded 'stock' (was mislabeling option legs as stocks).
+                "asset_type":    _alpaca_asset_class_to_type(p.asset_class),
             }
             for p in raw_positions
         ]
