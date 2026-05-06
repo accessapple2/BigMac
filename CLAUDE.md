@@ -461,6 +461,16 @@ For HM-U error-class alerts on heavy-restart days, the policy is diluted but not
 
 **Future option (not yet shipped):** persist `_rate_state` to the `settings` table to make rate-limiting survive restarts. Documented here so the actual semantics are clear.
 
+## Feature Flags
+
+Feature flags live in `config.py` as module-level constants. Engine modules import lazily inside the gated function (`from config import FLAG_NAME`). Flipping a flag requires a service restart: `launchctl kickstart -k gui/$(id -u)/com.trademinds.trader`.
+
+### Active flags
+
+| Flag | Default | Purpose | Reversal |
+|------|---------|---------|----------|
+| `SPREAD_CANNIBALIZATION_GUARD_ENABLED` | `True` | HM-AF-α 2026-05-06. Halts P1 (Battle Station 2-min monitor `engine/battle_station.py::monitor_active_options`), P2 (12:45 MST EOD sweep `engine/alpaca_options.py::close_all_options`), and P3 (`engine/dayblade.py` post-trade `close_all_options` belt-and-braces) until HM-AF-β (Layer 1 spread-leg awareness) ships. Prevents cannibalization of `bull_put_spread`/`bull_call_spread` legs by single-leg closes. | Set `False` in `config.py` + restart |
+
 ## Workflow
 - Propose edits and ask for approval before applying
 - For multi-file changes, show the plan first, then apply incrementally

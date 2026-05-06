@@ -686,6 +686,11 @@ def monitor_active_options() -> None:
 
     Called every 60 seconds during market hours from main.py scheduler.
     """
+    # HM-AF-α 2026-05-06
+    from config import SPREAD_CANNIBALIZATION_GUARD_ENABLED
+    if SPREAD_CANNIBALIZATION_GUARD_ENABLED:
+        logger.info("[HM-AF-α] monitor_active_options blocked: spread cannibalization guard active")
+        return
     try:
         from engine.risk_manager import RiskManager
         mh = RiskManager.is_market_hours()

@@ -6,6 +6,13 @@ load_dotenv(override=True)
 PAPER_TRADING = True
 TRADING_MODE = os.environ.get("TRADING_MODE", "paper")  # "paper" or "live"
 
+# HM-AF-α 2026-05-06: spread cannibalization guard.
+# Halts P1 (Battle Station 2-min monitor), P2 (12:45 MST EOD sweep), and
+# P3 (dayblade.py post-trade close_all_options) until HM-AF-β (Layer 1
+# spread-leg awareness) ships. See docs/XO_BACKLOG.md HM-AF.
+# Reversal: set False and restart.
+SPREAD_CANNIBALIZATION_GUARD_ENABLED = True
+
 # Tickers confirmed delisted/halted — excluded from all scan universes
 DELISTED_BLACKLIST: set[str] = {
     "XCEM", "EAOA", "YFYA", "BULZ", "TDWDR", "TWLVR", "UCFIW", "VSTA",

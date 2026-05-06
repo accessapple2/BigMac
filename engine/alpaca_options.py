@@ -594,6 +594,11 @@ def close_all_options(player_id: str | None = None) -> dict:
     If player_id is provided, filters log message but still closes everything
     (Alpaca doesn't track per-player — we close all to be safe).
     """
+    # HM-AF-α 2026-05-06
+    from config import SPREAD_CANNIBALIZATION_GUARD_ENABLED
+    if SPREAD_CANNIBALIZATION_GUARD_ENABLED:
+        console.log(f"[yellow][HM-AF-α] close_all_options blocked: spread cannibalization guard active (caller={player_id!r})")
+        return {"skipped": True, "reason": "HM-AF-α spread cannibalization guard"}
     client = _get_client()
     if not client:
         return {"skipped": True, "reason": "Alpaca not connected"}

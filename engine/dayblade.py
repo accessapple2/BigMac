@@ -498,8 +498,13 @@ def sell_position(symbol: str, price: float, option_type: str,
 
     # Forward close to Alpaca paper account
     try:
-        from engine.alpaca_options import close_all_options
-        close_all_options(DAYBLADE_PLAYER)
+        # HM-AF-α 2026-05-06: belt-and-braces (close_all_options also guards)
+        from config import SPREAD_CANNIBALIZATION_GUARD_ENABLED
+        if SPREAD_CANNIBALIZATION_GUARD_ENABLED:
+            console.log("[yellow][HM-AF-α] dayblade close_all_options skipped: spread cannibalization guard active")
+        else:
+            from engine.alpaca_options import close_all_options
+            close_all_options(DAYBLADE_PLAYER)
     except Exception as _ae:
         console.log(f"[yellow]DayBlade Alpaca close error: {_ae}")
 
