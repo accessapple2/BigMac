@@ -536,6 +536,60 @@ The actual contaminated code paths are THREE, all sharing the same root cause (n
 
 ---
 
+---
+
+## SHIPPED 2026-05-06 11:53 MST — HM-AF-β + HM-AF-γ (commit `ca50d45`)
+
+**HM-AF-β (Layer 1: spread-leg awareness):** New `engine/options_utils.py` (+143 new lines) with `parse_occ_symbol()` + `is_spread_leg(symbol)` + `has_open_spread_legs()`. 30s TTL in-memory cache to handle P1's 2-min loop performance. Match logic: parses OCC symbol → matches against `options_trades.legs_json` structured fields (underlying, expiration, option_type, strike) for rows WHERE `status='open' AND exec_status='open'`. Wired into all three contaminated paths:
+- **P1** — `engine/battle_station.py::monitor_active_options` filters position list before the close-evaluation loop (+30/-3).
+- **P2** — `engine/alpaca_options.py::close_all_options` per-position skip in EOD sweep (+17/-2).
+- **P3** — `engine/dayblade.py` post-trade defense-in-depth observability log (+7).
+Fail-closed: any leg-filter exception skips the close (conservative).
+
+**HM-AF-γ (Layer 2: wrong-side-of-book correction):** `battle_station._get_alpaca_options_positions` now preserves qty sign via new `qty_signed` field (`qty` stays `abs()` for backcompat). `_auto_close` branches: `qty_signed < 0` (short) → `submit_single_option(side='buy')` for buy-to-close; `qty_signed > 0` (long) → `close_options_position` for sell-to-close. Fixes the bug where shorts were being treated as longs in close logic.
+
+**HM-AF-α global guard remains ON** (`SPREAD_CANNIBALIZATION_GUARD_ENABLED=True` unchanged). β/γ are STAGED-AND-READY but DORMANT in production — every options close is intercepted by α before reaching β/γ. Lifting α requires a SEPARATE Phase 4 decision after 24h soak (review window opens 2026-05-07 ~11:53 MST).
+
+**CLAUDE.md updated** with β/γ status row in the Feature Flags section, plus a note: "Lifting requires a separate Phase 4 decision; do not auto-lift" (+1/-1).
+
+**Verification post-restart (PID 6633 → 7954, started 2026-05-06 11:53:52 MST):** All 7 deliverables green.
+- New bytecode loaded ✅
+- HM-AF-α outer guard still firing post-restart ✅ (11:53:59 first fire)
+- `is_spread_leg` reachable via direct invocation ✅
+- HM-AF-β code dormant under α (zero `[HM-AF-β]` log lines, exactly as designed) ✅
+- CLAUDE.md updated with β/γ note + lift procedure ✅
+- Zero `Alpaca OPTIONS SELL` post-restart ✅
+- Zero `Alpaca options EOD close` post-restart ✅
+
+**Unit test results (re-run against post-edit modules in venv Python):**
+- `parse_occ_symbol("SPY260515P00732000")` → `{'underlying': 'SPY', 'expiration': '2026-05-15', 'option_type': 'put', 'strike': 732.0}` ✅
+- `is_spread_leg("SPY260515P00732000")` → True ✅ (orphan from open spread id=27)
+- `is_spread_leg("SPY260515P00727000")` → True ✅ (the cannibalized long leg, still in legs_json)
+- `is_spread_leg("AAPL")` → False ✅
+- `is_spread_leg("MSFT250517C00500000")` → False ✅
+- `has_open_spread_legs()` → True ✅
+
+The Test 5 result (`is_spread_leg("SPY260515P00727000") → True`) is the critical one — proves the helper correctly checks `options_trades.legs_json` (internal book) and not Alpaca positions. The 727P leg has been closed at Alpaca for hours but remains in the legs_json of the open spread row, and the helper finds it. Architecture is sound.
+
+**Open items remaining (post-ship):**
+1. **24h soak window** (opens 2026-05-07 ~11:53 MST) — monitor for unexpected `[HM-AF-β]` lines or any anomalies before deciding to lift α.
+2. **Today's 12:45 MST EOD sweep** — gated by HM-AF-α; verify post-12:46 with `grep "HM-AF-α.*close_all_options" logs/trader.log`.
+3. **HM-AF-δ** — remove hardcoded `player_id="dayblade-0dte"` in `battle_station.py:668` (lower priority).
+4. **Orphan SPY260515P00732000 short** (qty=-1, expires 2026-05-15) — recommend let expire.
+
+**Reversal:**
+
+    git revert ca50d45
+    launchctl kickstart -k gui/$(id -u)/com.trademinds.trader
+
+(reverts both layers; α stays ON in either case)
+
+To lift α (separate Phase 4 decision after 24h soak):
+
+    # Edit config.py: SPREAD_CANNIBALIZATION_GUARD_ENABLED = False
+    launchctl kickstart -k gui/$(id -u)/com.trademinds.trader
+
+
 ## SHIPPED 2026-05-03 — Sunday Morning Deploy
 
 - **8e06b5e** regime fix deployed at 08:01 MST
