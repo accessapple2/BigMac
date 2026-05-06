@@ -469,7 +469,7 @@ Feature flags live in `config.py` as module-level constants. Engine modules impo
 
 | Flag | Default | Purpose | Reversal |
 |------|---------|---------|----------|
-| `SPREAD_CANNIBALIZATION_GUARD_ENABLED` | `True` | HM-AF-α 2026-05-06. Halts P1 (Battle Station 2-min monitor `engine/battle_station.py::monitor_active_options`), P2 (12:45 MST EOD sweep `engine/alpaca_options.py::close_all_options`), and P3 (`engine/dayblade.py` post-trade `close_all_options` belt-and-braces) until HM-AF-β (Layer 1 spread-leg awareness) ships. Prevents cannibalization of `bull_put_spread`/`bull_call_spread` legs by single-leg closes. | Set `False` in `config.py` + restart |
+| `SPREAD_CANNIBALIZATION_GUARD_ENABLED` | `True` | HM-AF-α 2026-05-06 (emergency halt). Halts P1 (`engine/battle_station.py::monitor_active_options`), P2 (`engine/alpaca_options.py::close_all_options`), and P3 (`engine/dayblade.py` post-trade close, belt-and-braces). HM-AF-β 2026-05-06 added inner-layer `engine/options_utils.is_spread_leg(symbol)` filter at all three sites; HM-AF-γ 2026-05-06 added wrong-side-of-book correction (sign-aware close in `_auto_close` via `qty_signed`). Once HM-AF-β has soaked **24h in production**, the flag CAN be set to `False` to re-enable legitimate options closes — leg-aware skip provides the protection. **Lifting requires a separate Phase 4 decision; do not auto-lift.** | Set `False` in `config.py` + restart |
 
 ## Workflow
 - Propose edits and ask for approval before applying

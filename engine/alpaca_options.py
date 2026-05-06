@@ -618,7 +618,22 @@ def close_all_options(player_id: str | None = None) -> dict:
             return {"success": True, "closed": 0}
 
         closed = 0
+        skipped_legs = 0
         for pos in options_positions:
+            # HM-AF-β 2026-05-06: skip legs of currently-open spread trades.
+            # Fail-closed: any leg-filter error skips this position rather
+            # than allowing a potential cannibalizing close through.
+            try:
+                from engine.options_utils import is_spread_leg
+                if is_spread_leg(pos.symbol):
+                    console.log(f"[cyan][HM-AF-β] EOD sweep skipping spread leg: {pos.symbol}")
+                    skipped_legs += 1
+                    continue
+            except Exception as e:
+                console.log(f"[red][HM-AF-β] leg filter error on {pos.symbol} (failing closed): {type(e).__name__}: {e!r}")
+                skipped_legs += 1
+                continue
+
             try:
                 from alpaca.trading.requests import ClosePositionRequest
                 qty = abs(float(pos.qty))
@@ -640,7 +655,7 @@ def close_all_options(player_id: str | None = None) -> dict:
                     pass
 
         who = player_id or "EOD sweep"
-        console.log(f"[bold yellow]Alpaca options EOD: {closed} position(s) closed ({who})")
+        console.log(f"[bold yellow]Alpaca options EOD: {closed} position(s) closed, {skipped_legs} spread leg(s) skipped ({who})")
         # HM-V: success-side NTFY for EOD-sweep aggregate (one per day if anything closed).
         if closed > 0:
             try:
@@ -653,7 +668,7 @@ def close_all_options(player_id: str | None = None) -> dict:
                 )
             except Exception:
                 pass
-        return {"success": True, "closed": closed}
+        return {"success": True, "closed": closed, "skipped_legs": skipped_legs}
     except Exception as e:
         # HM-U: NTFY first occurrence per error class per day (close_all aggregate failure).
         console.log(f"[red]Alpaca options close_all error: {type(e).__name__}: {e!r}")

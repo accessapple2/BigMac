@@ -503,6 +503,13 @@ def sell_position(symbol: str, price: float, option_type: str,
         if SPREAD_CANNIBALIZATION_GUARD_ENABLED:
             console.log("[yellow][HM-AF-α] dayblade close_all_options skipped: spread cannibalization guard active")
         else:
+            # HM-AF-β 2026-05-06: defense-in-depth observability — P2 will filter spread legs
+            try:
+                from engine.options_utils import has_open_spread_legs
+                if has_open_spread_legs():
+                    console.log("[cyan][HM-AF-β] dayblade close_all_options proceeding — open spread legs present, P2 will filter")
+            except Exception:
+                pass
             from engine.alpaca_options import close_all_options
             close_all_options(DAYBLADE_PLAYER)
     except Exception as _ae:

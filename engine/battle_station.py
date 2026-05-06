@@ -317,6 +317,7 @@ def _get_alpaca_options_positions() -> list[dict]:
                     "option_type": parsed["option_type"],
                     "expiry_date": parsed["expiry_date"],
                     "qty": abs(float(pos.qty)),
+                    "qty_signed": float(pos.qty),  # HM-AF-γ 2026-05-06: preserve sign for close-direction logic
                     "current_price": current_price,
                     "avg_entry_price": entry_price,
                     "unrealized_pl": float(pos.unrealized_pl or 0),
@@ -663,10 +664,16 @@ def _auto_close(pos: dict, reason: str):
     pnl_pct = pos.get("unrealized_plpc", 0) * 100
 
     try:
-        from engine.alpaca_options import close_options_position
-        qty = int(max(1, pos.get("qty", 1)))
-        close_options_position("dayblade-0dte", option_sym, qty)
-        logger.warning(f"Battle Station auto-close: {option_sym} ({reason})")
+        # HM-AF-γ 2026-05-06: sign-aware close (sell long, buy-to-close short)
+        from engine.alpaca_options import close_options_position, submit_single_option
+        qty_signed = float(pos.get("qty_signed", pos.get("qty", 1)))
+        qty = int(max(1, abs(qty_signed)))
+        if qty_signed < 0:
+            submit_single_option("dayblade-0dte", option_sym, qty, side="buy")
+            logger.warning(f"Battle Station auto-close (BTC short {qty}x): {option_sym} ({reason})")
+        else:
+            close_options_position("dayblade-0dte", option_sym, qty)
+            logger.warning(f"Battle Station auto-close (STC long {qty}x): {option_sym} ({reason})")
     except Exception as e:
         logger.warning(f"Auto-close failed for {option_sym}: {e}")
 
@@ -704,6 +711,25 @@ def monitor_active_options() -> None:
     # LIGHTWEIGHT: exit immediately if no options positions
     positions = _get_alpaca_options_positions()
     if not positions:
+        return
+
+    # HM-AF-β 2026-05-06: skip legs of currently-open spread trades.
+    # Fail-closed: any error in the leg filter skips the cycle entirely
+    # rather than risk cannibalizing a spread.
+    try:
+        from engine.options_utils import is_spread_leg
+        kept = []
+        for pos in positions:
+            sym = pos.get("option_symbol", "")
+            if sym and is_spread_leg(sym):
+                logger.info(f"[HM-AF-β] skipping spread leg: {sym}")
+                continue
+            kept.append(pos)
+        positions = kept
+        if not positions:
+            return
+    except Exception as e:
+        logger.warning(f"[HM-AF-β] leg filter error (failing closed — skip cycle): {type(e).__name__}: {e!r}")
         return
 
     logger.info(f"Battle Station: monitoring {len(positions)} active option(s)")
