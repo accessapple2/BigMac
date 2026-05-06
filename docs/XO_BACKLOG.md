@@ -573,7 +573,7 @@ The Test 5 result (`is_spread_leg("SPY260515P00727000") → True`) is the critic
 
 **Open items remaining (post-ship):**
 1. **24h soak window** (opens 2026-05-07 ~11:53 MST) — monitor for unexpected `[HM-AF-β]` lines or any anomalies before deciding to lift α.
-2. **Today's 12:45 MST EOD sweep** — gated by HM-AF-α; verify post-12:46 with `grep "HM-AF-α.*close_all_options" logs/trader.log`.
+2. ~~**Today's 12:45 MST EOD sweep** — gated by HM-AF-α; verify post-12:46 with `grep "HM-AF-α.*close_all_options" logs/trader.log`.~~ ✅ **VERIFIED 2026-05-06 12:49:23 MST** — guard fired at `alpaca_options.py:600` blocking the sweep; zero actual EOD closes post-restart. P2 path now proven working in production alongside P1.
 3. **HM-AF-δ** — remove hardcoded `player_id="dayblade-0dte"` in `battle_station.py:668` (lower priority).
 4. **Orphan SPY260515P00732000 short** (qty=-1, expires 2026-05-15) — recommend let expire.
 
