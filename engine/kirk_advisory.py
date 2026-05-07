@@ -275,7 +275,9 @@ def generate_kirk_advisory():
                 pass
 
         fg = get_fear_greed_index()
-        fg_score = fg.get("score", 50) if fg else 50
+        fg_score = fg.get("score") if fg else None
+        # Kirk None-fix 2026-05-06: fg.get("score") can return literal None even when key exists
+        fg_score = 50 if fg_score is None else fg_score
         vix = 20.0
         try:
             from engine.vix_monitor import get_vix_term_structure
