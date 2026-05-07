@@ -419,6 +419,27 @@ def get_all_prices(symbols: list) -> dict:
     return results
 
 
+def _is_valid_quote(quote):
+    """Reject empty/default Alpaca responses (volume=0 + change=0 + flat range).
+
+    Some symbols (low-liquidity, non-IEX-covered) return a stub dict with
+    price set but volume=0 and high==low==price. These should fall through
+    to other sources rather than being treated as valid quotes.
+
+    HM-AH 2026-05-06: surfaced when CRDO returned price=169.65 (real $196.09)
+    with volume=0 + change_pct=0 + high==low, triggering false Kirk -8% stop alert.
+    """
+    if not quote or "price" not in quote:
+        return False
+    if quote.get("price", 0) <= 0:
+        return False
+    if (quote.get("volume", 0) == 0
+        and quote.get("change_pct", 0) == 0
+        and quote.get("high") == quote.get("low") == quote.get("price")):
+        return False
+    return True
+
+
 def get_stock_price(symbol):
     """Fetch stock price: cache → Alpaca → Yahoo → Finnhub → Alpha Vantage → DB."""
     cached = _get_cached_price(symbol)
@@ -427,7 +448,7 @@ def get_stock_price(symbol):
 
     # Source 1: Alpaca market data (primary — generous rate limits, no 429 risk)
     alpaca_data = _get_alpaca_price(symbol)
-    if alpaca_data:
+    if alpaca_data and _is_valid_quote(alpaca_data):  # HM-AH 2026-05-06: stub-quote rejection
         _cache_price(symbol, alpaca_data)
         return alpaca_data
 
