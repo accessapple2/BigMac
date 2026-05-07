@@ -10,8 +10,11 @@ TRADING_MODE = os.environ.get("TRADING_MODE", "paper")  # "paper" or "live"
 # Halts P1 (Battle Station 2-min monitor), P2 (12:45 MST EOD sweep), and
 # P3 (dayblade.py post-trade close_all_options) until HM-AF-β (Layer 1
 # spread-leg awareness) ships. See docs/XO_BACKLOG.md HM-AF.
-# Reversal: set False and restart.
-SPREAD_CANNIBALIZATION_GUARD_ENABLED = True
+# Reversal: set True and restart.
+# HM-AF α-lift 2026-05-07: 24h soak passed (289+ α fires overnight, 0 errors,
+# 0 β shadow fires); β/γ now the active cannibalization defense layer.
+# HM-AF-δ player_id resolver (commit 2fea086) activates with real data.
+SPREAD_CANNIBALIZATION_GUARD_ENABLED = False
 
 # Tickers confirmed delisted/halted — excluded from all scan universes
 DELISTED_BLACKLIST: set[str] = {
