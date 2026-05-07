@@ -51,3 +51,10 @@ for CSV in "$WATCH_DIR"/Scwab*Positions*.csv "$WATCH_DIR"/Schwab*Positions*.csv 
         curl -s -d "Schwab CSV import FAILED: $BASENAME" "https://ntfy.sh/$NTFY_TOPIC"
     fi
 done
+
+# HM-AT 2026-05-07: prevent launchd fast-exit throttle that put this
+# watcher dormant 2026-05-06 and 2026-05-07. macOS launchd marks jobs
+# that exit in <~10s repeatedly as "exited too fast, not respawning."
+# Sleeping 11s here keeps total runtime above the threshold; CSV import
+# work has already completed by this point.
+sleep 11
