@@ -255,6 +255,11 @@ def _get_live_webull_portfolio():
 def generate_kirk_advisory():
     """Generate actionable recommendations on Kirk's real Schwab holdings."""
     try:
+        # HM-AJ-β 2026-05-06: success-side observability — entry log
+        logger.info(
+            "[Kirk] advisory run started at %s",
+            datetime.now(pytz.timezone("US/Arizona")).isoformat(timespec="seconds"),
+        )
         # Kirk-Schwab-realign-2026-05-05: real_holdings.json is the truth source
         # post-Admiral Option A decision (was alpaca-mirror paper). Schwab cash
         # comes from the snapshot directly; KIRK_PORTFOLIO_CASH env override
@@ -438,6 +443,57 @@ def generate_kirk_advisory():
         else:
             cash_action = "WAIT"
             cash_reasoning = f"F&G {fg_score} = neutral/greed. No rush to deploy cash."
+
+        # HM-AJ-γ 2026-05-06: stale alert auto-dismiss
+        # real_holdings.json is the source of truth. Mark any undismissed
+        # kirk_advisory_log row whose ticker is NOT currently held as
+        # auto-dismissed. Preserves acted_on=0 (was never acted on).
+        try:
+            held_tickers = {(p.get("symbol") or "").upper() for p in positions if p.get("symbol")}
+            db = _get_db()
+            try:
+                db.execute("ALTER TABLE kirk_advisory_log ADD COLUMN dismissed_reason TEXT")
+                db.commit()
+            except Exception:
+                pass  # column already exists — idempotent
+            stale_rows = db.execute(
+                "SELECT id, ticker FROM kirk_advisory_log WHERE dismissed_at IS NULL"
+            ).fetchall()
+            stale_ids = [r["id"] for r in stale_rows
+                         if (r["ticker"] or "").upper() not in held_tickers]
+            stale_tickers = sorted({(r["ticker"] or "").upper() for r in stale_rows
+                                     if (r["ticker"] or "").upper() not in held_tickers})
+            if stale_ids:
+                db.executemany(
+                    "UPDATE kirk_advisory_log "
+                    "SET dismissed_at=CURRENT_TIMESTAMP, "
+                    "    dismissed_reason='auto-dismissed: ticker no longer held' "
+                    "WHERE id=?",
+                    [(i,) for i in stale_ids],
+                )
+                db.commit()
+                logger.info(
+                    "[Kirk] auto-dismissed %d stale alerts for tickers no longer held: %s",
+                    len(stale_ids), stale_tickers,
+                )
+            db.close()
+        except Exception as e:
+            logger.warning("[Kirk] auto-dismiss skipped: %s: %r", type(e).__name__, e)
+
+        # HM-AJ-β 2026-05-06: success-side observability — completion log
+        n_pos = len(recommendations)
+        n_critical = sum(1 for r in recommendations if r.get("urgency") == "critical")
+        n_high     = sum(1 for r in recommendations if r.get("urgency") == "high")
+        n_medium   = sum(1 for r in recommendations if r.get("urgency") == "medium")
+        n_low      = sum(1 for r in recommendations if r.get("urgency") == "low")
+        cash_source_label = ("KIRK_PORTFOLIO_CASH env"
+                             if os.environ.get("KIRK_PORTFOLIO_CASH", "").strip() not in ("", "0")
+                             else "Manual update needed")
+        logger.info(
+            "[Kirk] advisory complete: %d positions, %d critical, %d high, %d medium, %d low; "
+            "cash=$%.2f, source=%s",
+            n_pos, n_critical, n_high, n_medium, n_low, cash, cash_source_label,
+        )
 
         return {
             "positions": recommendations,

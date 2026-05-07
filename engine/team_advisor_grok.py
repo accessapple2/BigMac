@@ -275,7 +275,29 @@ def _parse_advice(raw: str) -> list[dict]:
         lines = text.splitlines()
         # Drop first line (``` or ```json) and last line (```)
         text = "\n".join(lines[1:-1]).strip()
-    return json.loads(text)
+    try:
+        return json.loads(text)
+    except json.JSONDecodeError as e:
+        # HM-AJ-α 2026-05-06: JSON salvage on truncated/malformed LLM output.
+        # qwen3:8b occasionally emits malformed JSON arrays (missing comma
+        # between objects, half-cut last object). Recover all complete dicts
+        # before the error position rather than losing the entire scan.
+        salvage_end = text.rfind("}", 0, e.pos)
+        if salvage_end > 0:
+            try:
+                candidate = text[: salvage_end + 1]
+                if candidate.lstrip().startswith("[") and not candidate.rstrip().endswith("]"):
+                    candidate += "]"
+                result = json.loads(candidate)
+                logger.warning(
+                    "[HM-AJ-α] _parse_advice salvage: parse_error at char %d, "
+                    "salvaged %d/%d chars from last complete object",
+                    e.pos, salvage_end + 1, len(text),
+                )
+                return result
+            except json.JSONDecodeError:
+                pass  # salvage also failed — fall through to original raise
+        raise  # caller's existing try/except handles the error-dict path
 
 
 def _save_advice(
