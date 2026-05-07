@@ -928,8 +928,8 @@ UPDATE ai_players SET halt_mode='active', halted_at=NULL, halt_reason=NULL
 ### HM-AK-β — Scan loops should filter by halt_mode, not is_active (2026-05-07)
 
 **Type:** Architectural debt
-**Priority:** P3 — post-soak; not urgent (per-trade halt gates downstream block actual execution, just iteration is wider than needed)
-**Status:** Proposed
+**Priority:** P3 — escalated and shipped same-day
+**Status:** **SHIPPED 2026-05-07** (commit `77de5be`) — Option A applied to the 3 known iteration sites (`main.py:1991`, `engine/risk_radar.py:168`, `engine/autopilot.py:63`). Iteration count drops ~49 → ~25 per cycle. Dashboard follow-up + dayblade-exclusion cleanup queued as HM-AK-β.2 + HM-AK-γ below.
 **Origin:** HM-AK diagnosis 2026-05-07. Surfaced as a separate ticket because scope is too large for a same-day ship.
 
 #### Problem
@@ -964,8 +964,85 @@ Per CLAUDE.md (2026-04-25 audit + HM-A migration): "halt_mode is now the only wo
 
 #### Related
 - HM-AK — parent (shipped 2026-05-07)
+- HM-AK-β.2 — extend to dashboard sites (below)
+- HM-AK-γ — drop redundant dayblade-0dte exclusion (below)
 - 2026-04-25 audit notes — `is_active`, `is_paused`, `crew_role` are decorative; `halt_mode` is the kill switch
 - HM-A — migrated production read paths from `is_halted` to `halt_mode`; iteration sites not migrated
+
+---
+
+### HM-AK-β.2 — Extend halt_mode filter to 3 dashboard iteration sites (2026-05-07)
+
+**Type:** Architectural cleanup (HM-AK-β follow-up)
+**Priority:** P4 — LOW (iteration efficiency only, not safety-critical)
+**Status:** Proposed
+**Origin:** HM-AK-β commit `77de5be` deferred 3 dashboard sites pending per-site read confirmation.
+
+#### Problem
+Three sites in `dashboard/app.py` use the identical scan-loop SQL pattern that HM-AK-β just patched in `main.py`/`engine/`, but were deferred because their use case (trade-iteration vs roster-display) wasn't confirmed at ship time:
+
+- `dashboard/app.py:3904` — `SELECT id, display_name FROM ai_players WHERE is_active=1 AND id != 'dayblade-0dte'`
+- `dashboard/app.py:4619` — same SQL
+- `dashboard/app.py:12908` — same SQL
+
+The `id != 'dayblade-0dte'` exclusion is the tell — it's the same pattern the scheduler scan loops use, suggesting these are also trade-iteration paths, not pure roster-display. But that needs to be **verified site-by-site** before applying the filter (display sites must show all halted agents).
+
+#### Shape
+Per site:
+1. Read the surrounding function context
+2. Classify as iteration (apply filter) or display (leave alone)
+3. For iteration sites: add `AND halt_mode='active'` to the WHERE clause + tag `# HM-AK-β.2 2026-05-07`
+
+#### Effort
+~15-20 min Scotty (3 file reads + 0-3 edits depending on classification + commit + restart + verify).
+
+#### Acceptance criteria
+- [ ] Each of the 3 sites classified (iteration vs display) with rationale in commit message
+- [ ] Iteration sites get `halt_mode='active'` filter
+- [ ] Display sites left as-is, with comment explaining why
+- [ ] Service restart + smoke verify
+
+#### Related
+- HM-AK-β — shipped 3-site fix (commit `77de5be`)
+- HM-AK-γ — dayblade-exclusion cleanup (would touch the same sites; sequence HM-AK-β.2 first)
+- `dashboard/app.py:5139, 5202` — already use `COALESCE(halt_mode,'active')='active'` (positive precedent in the same file)
+
+---
+
+### HM-AK-γ — Drop redundant `id != 'dayblade-0dte'` exclusion (2026-05-07)
+
+**Type:** Cleanup (HM-AK-β follow-up)
+**Priority:** P4 — LOW (no functional change)
+**Status:** Proposed
+**Origin:** HM-AK-β commit `77de5be` left the `id != 'dayblade-0dte'` clause in place for back-compat.
+
+#### Problem
+Post-HM-AK (commit `2b89651`) and HM-AF (earlier 2026-05-06), `dayblade-0dte` is `halt_mode='full'`. Once HM-AK-β added `halt_mode='active'` to the iteration filter, the explicit `id != 'dayblade-0dte'` exclusion became **redundant** — the halt_mode filter already excludes it.
+
+Affected sites (all currently carry both clauses post-HM-AK-β):
+- `main.py:1992`
+- `engine/risk_radar.py:169`
+- `engine/autopilot.py:64`
+- `dashboard/app.py:3904, 4619, 12908` (after HM-AK-β.2 ships, if classified as iteration)
+
+#### Shape
+Drop the `AND id != 'dayblade-0dte'` clause from each site post-HM-AK-β.2. Tag `# HM-AK-γ 2026-05-07: removed redundant dayblade exclusion`.
+
+**Constraint:** sequence HM-AK-β.2 BEFORE HM-AK-γ. If HM-AK-γ ships first and a future operator un-halts dayblade-0dte (e.g., to reactivate a 0DTE strategy), the iteration filter would no longer exclude it. The two-clause defense protects against that footgun until HM-AK-γ explicitly removes it as deliberate cleanup.
+
+#### Effort
+~5 min Scotty (after HM-AK-β.2 lands; then a single multi-site edit + commit + restart).
+
+#### Acceptance criteria
+- [ ] HM-AK-β.2 shipped first
+- [ ] Redundant exclusion dropped at all confirmed iteration sites
+- [ ] Service restart + smoke verify
+- [ ] Re-confirm dayblade-0dte halt_mode='full' is the only protection (no rollback to active without explicit ticket)
+
+#### Related
+- HM-AK-β — shipped halt_mode filter (commit `77de5be`)
+- HM-AK-β.2 — dashboard extension (sequence first)
+- HM-AF — dayblade-0dte halt_mode='full' (the reason the exclusion is now redundant)
 
 ---
 
