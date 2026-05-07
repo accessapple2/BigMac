@@ -669,30 +669,67 @@ This is a **deferred marker**, not an active ticket. Promote to a real ticket on
 
 **Type:** Hygiene / observability
 **Priority:** P4 — low, not safety-critical
-**Status:** Proposed
-**Origin:** 2026-05-07, surfaced during HM-AQ investigation
+**Status:** **AUDITED + DOCUMENTED 2026-05-07** — see `docs/EARNINGS.md`. Classified DEPRECATED. Cleanup queued as HM-AR-β below.
+**Origin:** 2026-05-07, surfaced during HM-AQ investigation.
 
-#### Summary
-The `earnings_universe` SQLite table is empty (0 rows). Scheduled writer `run_earnings_universe_inject` (`main.py:679`) runs daily at 06:00 AZ. Either the writer is failing silently, the table is ephemeral by design, or today simply had no earnings to inject.
+#### Audit findings (2026-05-07)
 
-#### Not-a-safety-issue note
-The options-blackout decision path does **not** read from `earnings_universe`. It uses `engine/stock_fundamentals.py` (yfinance Ticker.calendar) + `data/earnings_cache.json` fast path via `_next_earnings_date()` at `engine/options_selector.py:19, 252`. Drydock blackout work is intact. This ticket is purely hygiene for the `_earnings_today_tickers` consumer path.
+The original ticket framed `earnings_universe` as a single system. Audit revealed **three independent earnings code paths** that share nothing but the word "earnings":
 
-#### Current state
-- Writer: `main.py:679 run_earnings_universe_inject()`, scheduled 06:00 AZ daily
-- Module variable populated: `_earnings_today_tickers` (`main.py:746`)
-- Table state: 0 rows, 0 schema activity observed
-- `post_earnings_drift.py` already retired (`archive/retired/2026-05-04-post-earnings-drift/`)
+1. **Options blackout (LIVE, safety-critical)** — `engine/options_selector.py::_next_earnings_date` reads `data/earnings_cache.json` + yfinance fallback. Independent of any SQLite table. **This is what actually protects options trades.**
+2. **`main.py:679 run_earnings_universe_inject()` (LIVE)** — runs daily 06:00 AZ, but writes to **`scan_universe`** (via `engine.deep_scan.inject_earnings_tickers`), NOT `earnings_universe`. **Function name is a naming-drift lie.**
+3. **`engine/earnings_injector.py` + `earnings_universe` table (DEAD ORPHAN)** — writer at line 78, reader at line 96, but **NO external caller**. The `__main__` block is the only entry point. Docstring says "Runs at 6:00 AM AZ" but no launchd/cron entry exists. Has been empty since creation.
 
-#### Action items
-- [ ] 06:05 AZ next trading day: check `earnings_universe` row count immediately after job window
-- [ ] If populated → document lifecycle in code comment (write-and-clear-after-consume = expected)
-- [ ] If still empty → check job logs for `run_earnings_universe_inject` errors
-- [ ] If writer is dead → fix or formally retire the path; remove the table if no consumer remains
+**Classification: DEPRECATED.** Path 3 is dead code. Path 1 (the safety-critical one) is intact. Path 2 needs a rename to stop confusing investigators.
+
+**No safety regression.** Options blackout enforcement is unaffected.
+
+**Full path map:** `docs/EARNINGS.md`.
+
+#### Acceptance criteria (status post-audit)
+- [x] Audit + classification — `docs/EARNINGS.md`
+- [x] SCHEMA.md row updated to point at audit
+- [x] Cleanup ticket spawned — HM-AR-β below
+
+---
+
+### HM-AR-β — Retire `engine/earnings_injector.py` orphan + rename `run_earnings_universe_inject` (2026-05-07)
+
+**Type:** Cleanup (HM-AR follow-up)
+**Priority:** P4 — LOW (cosmetic; no functional change; eliminates naming-drift confusion)
+**Status:** Proposed — recommended path: **(a) formal retirement**.
+**Origin:** HM-AR audit 2026-05-07.
+
+#### Recommended path: (a) formal retirement
+
+Dead code is technical debt. The "run_earnings_universe_inject" naming-drift confusion alone justifies cleanup. Archive-not-delete honors the sacred-data rule. Effort small.
+
+**Steps:**
+1. Move `engine/earnings_injector.py` → `archive/retired/2026-05-07-earnings-injector/earnings_injector.py`. Per archive convention.
+2. Leave the `earnings_universe` SQLite table in place (empty; no data to lose; sacred-data rule). Keep schema as forensic record. SCHEMA.md already documents it as deprecated.
+3. **Rename `main.py:679 run_earnings_universe_inject()` → `run_earnings_scan_inject()`** to fix the naming-drift lie that confused HM-AR's initial framing. Update the schedule binding at `main.py:2585` accordingly.
+4. Single commit + service restart.
+
+#### Alternatives (not recommended)
+
+- **(b) Wire the orphan to a scheduler** — theater without a consumer. `get_active_earnings_universe()` has no caller; populating the table doesn't help anything. Would need to also identify and ship a real consumer, doubling scope. Skip.
+- **(c) Status quo** — kicks the can. Empty table + dormant script + lying function name continues to confuse future investigators. The HM-AR audit just spent time untangling exactly this. Don't pay that cost twice.
+
+#### Effort
+~15 min Scotty: file move + 2 small edits in `main.py` (function rename + schedule binding) + commit + service restart for the rename to take effect.
 
 #### Acceptance criteria
-- [ ] One of: writer fixed / lifecycle documented / path retired with table dropped
-- [ ] No silent-failure ingest paths remain in the daily 06:00 schedule
+- [ ] `engine/earnings_injector.py` archived to `archive/retired/2026-05-07-earnings-injector/`
+- [ ] `main.py:679` function renamed to `run_earnings_scan_inject`
+- [ ] `main.py:2585` schedule binding updated to call the new name
+- [ ] `docs/EARNINGS.md` updated to reflect the retirement (path 2 rename + path 3 archive location)
+- [ ] No new tracebacks post-restart
+- [ ] OPS_LOG entry recording the archive + rename
+
+#### Related
+- HM-AR — audit (parent)
+- `docs/EARNINGS.md` — three-path map
+- `docs/SCHEMA.md` — earnings_universe deprecation note
 
 ---
 

@@ -138,3 +138,22 @@ UPDATE ai_players SET halt_mode='active', halted_at=NULL, halt_reason=NULL
 **Canonical reference:** `docs/UNIVERSE.md` (created in this commit).
 
 **No code changes in this entry.** Doc-only Captain decision logging.
+
+## 2026-05-07 — HM-AR audit: earnings_universe DEPRECATED + path map docs
+
+Diagnosis surfaced that the original HM-AR ticket framed three independent earnings paths as a single system. The audit untangles them:
+
+1. **Options blackout (LIVE, safety-critical)** — `engine/options_selector.py::_next_earnings_date` → `data/earnings_cache.json` + yfinance fallback. Independent of any SQLite table.
+2. **`main.py:679 run_earnings_universe_inject()` (LIVE)** — daily 06:00 AZ scheduler. Despite the function name, writes to `scan_universe`, NOT `earnings_universe`. Naming-drift artifact.
+3. **`engine/earnings_injector.py` + `earnings_universe` table (DEAD ORPHAN)** — writer + reader exist, but no external caller; docstring claims a 06:00 AZ schedule that was never wired. Table empty since creation.
+
+**Classification:** DEPRECATED. No safety regression — path 1 (the safety-critical one) is intact and independent.
+
+**Documented:**
+- `docs/EARNINGS.md` (new) — three-path map, full audit findings
+- `docs/SCHEMA.md` — `earnings_universe` row updated to point at audit
+- `docs/XO_BACKLOG.md` — HM-AR marked AUDITED+DOCUMENTED, HM-AR-β cleanup ticket queued
+
+**Recommended cleanup (HM-AR-β, ~15 min Scotty):** archive `engine/earnings_injector.py` → `archive/retired/2026-05-07-earnings-injector/`; rename `run_earnings_universe_inject` → `run_earnings_scan_inject` in `main.py` to fix the naming-drift lie. Leave the empty `earnings_universe` table in place (sacred-data rule).
+
+**No code changes in this entry.** Doc-only audit.

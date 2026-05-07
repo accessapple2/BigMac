@@ -1445,7 +1445,7 @@ These tables form the ghost-trading subsystem (paper-trade overlay distinct from
 - `trust_scores` (0) — empty.
 - `holly_deepdives` (10, latest 2026-04-21) — Holly intraday deep-dives.
 - `earnings_impact` (0) — empty (earnings event impact scaffolding).
-- `earnings_universe` (0) — empty (earnings universe scaffolding).
+- `earnings_universe` (0) — DEPRECATED orphan per HM-AR audit 2026-05-07. Writer (`engine/earnings_injector.py:78`) and reader (`get_active_earnings_universe()`) exist but are uncalled by any other module; no launchd/cron entry runs the script. Options-blackout enforcement uses an independent path (`engine/options_selector.py::_next_earnings_date` → `data/earnings_cache.json` + yfinance). The misnamed `main.py:679 run_earnings_universe_inject()` writes to `scan_universe`, not this table. Full audit: `docs/EARNINGS.md`. Retirement queued as HM-AR-β.
 
 ---
 
