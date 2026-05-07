@@ -655,6 +655,41 @@ def _generate_signal(
     return "HOLD", "Position on track — no action required."
 
 
+def _lookup_agent_for_option(option_symbol: str) -> str | None:
+    """Best-effort: which agent opened this option position?
+
+    Parses the OCC symbol → (underlying, expiry, strike, type) and matches
+    against the most recent OPEN single-leg row in options_trades. Returns
+    agent_id or None if unattributable. Spread legs are filtered earlier by
+    HM-AF-β's is_spread_leg() guard, so this targets singles only.
+    """
+    parsed = _parse_occ_symbol(option_symbol)
+    if not parsed or not parsed.get("expiry_date"):
+        return None
+    try:
+        expiry_iso = parsed["expiry_date"].isoformat()
+        with sqlite3.connect(TRADER_DB, timeout=30) as conn:
+            rows = conn.execute(
+                """SELECT agent_id, legs_json FROM options_trades
+                   WHERE status = 'open' AND structure = 'single'
+                     AND symbol = ? AND expiration = ?
+                   ORDER BY id DESC""",
+                (parsed["underlying"], expiry_iso),
+            ).fetchall()
+        for agent_id, legs_json in rows:
+            try:
+                legs = json.loads(legs_json or "[]")
+            except Exception:
+                continue
+            for leg in legs:
+                if (str(leg.get("option_type", "")).lower() == parsed["option_type"]
+                        and float(leg.get("strike", 0)) == float(parsed["strike"])):
+                    return agent_id
+        return None
+    except Exception:
+        return None
+
+
 def _auto_close(pos: dict, reason: str):
     """Close a position and post RED ALERT to War Room."""
     option_sym = pos.get("option_symbol", "")
@@ -663,19 +698,33 @@ def _auto_close(pos: dict, reason: str):
     entry_price = pos.get("avg_entry_price", 0)
     pnl_pct = pos.get("unrealized_plpc", 0) * 100
 
+    # HM-AF-δ 2026-05-07: removed hardcoded dayblade-0dte player_id.
+    # Resolve from options_trades; fall back to dayblade-0dte only when
+    # unattributable (OPTIONS_PLAYERS + ai_players member, so broker call
+    # and War Room render both still work).
+    resolved = _lookup_agent_for_option(option_sym)
+    agent_id = resolved or "dayblade-0dte"
+    attribution = "resolved" if resolved else "fallback"
+
     try:
         # HM-AF-γ 2026-05-06: sign-aware close (sell long, buy-to-close short)
         from engine.alpaca_options import close_options_position, submit_single_option
         qty_signed = float(pos.get("qty_signed", pos.get("qty", 1)))
         qty = int(max(1, abs(qty_signed)))
         if qty_signed < 0:
-            submit_single_option("dayblade-0dte", option_sym, qty, side="buy")
-            logger.warning(f"Battle Station auto-close (BTC short {qty}x): {option_sym} ({reason})")
+            submit_single_option(agent_id, option_sym, qty, side="buy")
+            logger.warning(
+                f"Battle Station auto-close (BTC short {qty}x) "
+                f"[agent={agent_id} attribution={attribution}]: {option_sym} ({reason})"
+            )
         else:
-            close_options_position("dayblade-0dte", option_sym, qty)
-            logger.warning(f"Battle Station auto-close (STC long {qty}x): {option_sym} ({reason})")
+            close_options_position(agent_id, option_sym, qty)
+            logger.warning(
+                f"Battle Station auto-close (STC long {qty}x) "
+                f"[agent={agent_id} attribution={attribution}]: {option_sym} ({reason})"
+            )
     except Exception as e:
-        logger.warning(f"Auto-close failed for {option_sym}: {e}")
+        logger.warning(f"Auto-close failed for {option_sym}: {type(e).__name__}: {e!r}")
 
     try:
         from engine.war_room import save_hot_take
@@ -683,9 +732,9 @@ def _auto_close(pos: dict, reason: str):
             f"🔴 BATTLE STATION: Closing {underlying} {option_sym[-10:]} — {reason} "
             f"Closed at ${current_price:.2f} (entry ${entry_price:.2f}, {pnl_pct:+.0f}%)."
         )
-        save_hot_take("dayblade-0dte", underlying, msg)
+        save_hot_take(agent_id, underlying, msg)
     except Exception as e:
-        logger.warning(f"War Room red alert post failed: {e}")
+        logger.warning(f"War Room red alert post failed: {type(e).__name__}: {e!r}")
 
 
 def monitor_active_options() -> None:
@@ -799,10 +848,12 @@ def monitor_active_options() -> None:
             if time.time() - last_post > TIGHTEN_POST_COOLDOWN:
                 try:
                     from engine.war_room import save_hot_take
+                    # HM-AF-δ 2026-05-07: removed hardcoded dayblade-0dte player_id.
+                    tighten_agent = _lookup_agent_for_option(option_sym) or "dayblade-0dte"
                     msg = (
                         f"⚠️ BATTLE STATION: {underlying} {option_sym[-10:]} — {reason}"
                     )
-                    save_hot_take("dayblade-0dte", underlying, msg)
+                    save_hot_take(tighten_agent, underlying, msg)
                     _last_tighten_ts[option_sym] = time.time()
                 except Exception:
                     pass
