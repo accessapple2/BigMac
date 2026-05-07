@@ -1113,6 +1113,66 @@ Drop the `AND id != 'dayblade-0dte'` clause from each site post-HM-AK-β.2. Tag 
 
 ---
 
+### HM-AW — Signal Center auth + network exposure review (2026-05-07)
+
+**Type:** Hygiene / network exposure
+**Priority:** P3 — LOW (current localhost bind protects what auth would now handle)
+**Status:** Proposed
+**Origin:** 2026-05-07 14:55 MST Captain note post-HM-AQ-β ship close-out. Letter `HM-AT` was originally proposed but already used today (Schwab watcher TCC fix); rebadged as `HM-AW` to avoid collision (AV = HM-AV ALPACA→APCA simplification).
+**Sequence:** Hold until HM-AQ-β stabilizes (24h soak after the 1,223-symbol universe lands in production, est. 2026-05-08 evening).
+
+#### Background
+Port 9000 (`signal-center` web UI) is currently bound to `127.0.0.1` from a legacy pre-2FA security posture. Browser access from non-bigmac devices requires SSH tunnel today. Captain wants to reopen 9000 to the network now that:
+- 2FA TOTP enforcement is in place
+- Multi-user auth (Captain, Bonnie observer mode, Dad charts permissions) is established
+- The original justification for localhost-only (no auth layer) no longer applies
+
+**Two distinct authentication paths to keep clear:**
+- **Browser access** (humans) — 2FA TOTP + role-based access control via signal-center server
+- **Automation access** (Scotty/scripts) — SSH keys + bigmac user account at the OS layer; does NOT go through Signal Center auth
+
+These are NOT the same thing; CLAUDE.md should document them separately to prevent future-XO from conflating them.
+
+#### Sub-questions for Phase 1 investigation (before any binding change)
+1. **Network exposure path**:
+   - (a) LAN-only via `0.0.0.0` (any 192.168.1.x device with auth) — simplest
+   - (b) Cloudflare tunnel like `bridge.ollietrades.com:8080`, e.g. `signals.ollietrades.com` — broader
+   - (c) Both — LAN + Cloudflare for full access redundancy
+2. **2FA TOTP enforcement audit**: confirm 2FA is required on ALL sensitive routes (not just login page). Spot-check `/api/admin/*`, `/api/trades`, `/api/signals/post`, etc.
+3. **RBAC verification**: confirm Bonnie observer mode (read-only) and Dad charts permissions (charts-only) still work post-network-exposure.
+4. **Automation auth path documentation**: add a section to CLAUDE.md or `docs/AUTH.md` (new) clarifying the SSH-keys-vs-2FA distinction.
+
+#### Investigation pre-flight (read-only, before any code change)
+- `signal-center/server.py`: identify host argument and binding logic
+- launchctl plist for `com.trademinds.signal-center`: verify no override of bind address
+- Spot-check 2FA enforcement on a representative non-login route via `curl` without TOTP cookie
+- Spot-check RBAC by simulating Bonnie/Dad auth tokens
+
+#### Shape (after Phase 1 sub-questions resolved)
+- One-line binding change in `signal-center/server.py` (or env var)
+- launchctl restart of `com.trademinds.signal-center`
+- Optional: Cloudflare tunnel config addition (separate ticket if pursued)
+
+#### Effort
+~30 min Scotty (Phase 1 investigation + binding change + restart + verify) once Captain greenlight.
+
+#### Risk
+LOW. Auth posture handles what bind-localhost was protecting. Reversal is a single-line revert + restart.
+
+#### Acceptance criteria
+- [ ] Phase 1 sub-questions answered + documented
+- [ ] Binding change shipped (LAN-only or LAN+Cloudflare per Captain choice)
+- [ ] All Signal Center routes confirmed under 2FA TOTP enforcement
+- [ ] Bonnie observer + Dad charts RBAC verified working on new exposure path
+- [ ] CLAUDE.md / docs/AUTH.md updated with SSH-keys-vs-2FA distinction
+
+#### Related
+- CLAUDE.md "Project Context" / "Broker Accounts" sections — does NOT currently mention port 9000 or Signal Center bind state. Captain note 2026-05-07 may have been mental-model rather than persisted memory.
+- HM-AT — Schwab watcher TCC fix (already SHIPPED today; namespace collision avoided by using HM-AW here)
+- HM-AT-β — Schwab watcher inbox migration (SHIPPED today, commit `5b87d69`)
+
+---
+
 ## Lessons
 
 **2026-05-04 — Stale-bytecode trap from in-flight schema changes:** HM-B's `DROP COLUMN ai_players.is_halted` (commit `9256890`) created a stale-bytecode mismatch in the running trader process (PID 13734). The service was started at 08:32 MST — before HM-A's source migration shipped that morning — so the in-memory bytecode still had pre-HM-A SQL referencing the now-dropped column. Errors began at 17:36, but were caught by `try/except` blocks at the call sites and surfaced only as quiet `console.log` warnings: 15 occurrences across `War Room`, `ai_brain.py:286/295/533`, and three agents (ollama-coder, mlx-qwen3, energy-arnold) before discovery via log scan during PED retirement verification ~70 minutes later. Source code post-HM-A was clean; the issue was entirely in the long-running process's compiled module cache. **Future schema-change sessions should include a service restart in the verification phase OR a longer (30+ min) post-change soak window before declaring the change stable**, specifically to flush any pre-migration in-memory residue. This is also a HM-U datapoint: the silent-failure pattern (caught exceptions, swallowed errors) hid the issue from cursory checks — only a focused log scan surfaced it.
