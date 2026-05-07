@@ -11,7 +11,7 @@
 |---|---|---|---|---|
 | `paper` (default) | Engine path: `engine/kirk_advisory.py::generate_kirk_advisory()` | `data/real_holdings.json` via `_load_real_holdings()` | Full rule engine + `kirk_advisory_log` SQL writes + alert dedup + auto-dismiss for sold positions | All `is_active` accounts merged |
 | `real` | Inline path: `dashboard/app.py:13422-13486` | `data/real_holdings.json` via `_read_real_positions_sync()` | Inline `TRIM/WATCH/HOLD` from regex-parsed `notes` (`pnl_pct%`); enriched dict with `action`, `message`, `pnl_pct`, `current_price` | Same 11 active-account positions but different field shape |
-| `all` | **Both paths called** then concatenated | **Same file read twice** | Engine path runs, then `paper_result["positions"] = paper_positions + real_positions` | **Duplicates** — see HM-AU-β |
+| `all` | Engine path called for envelope + side-effects; `real_positions` used for the `positions` field | `data/real_holdings.json` (read once, via the real path) | Engine runs (`kirk_advisory_log` writes, auto-dismiss); `paper_result["positions"] = real_positions` | Unique positions, no duplicates (post-HM-AU-β fix, commit `e6e9080` 2026-05-07) |
 | (other) | Error fallback at line 13501 | n/a | n/a | `{"error": "unknown source: ..."}` |
 
 ## Source-vs-data naming contradiction
@@ -68,9 +68,9 @@ Reported: same `?source=paper` endpoint returned **23 positions at 06:50 MST** t
 
 Cause: between the two queries, `import_schwab_csv.py` + `sync_schwab_to_real_holdings.py` ran (per HM-AT-β backlog drain at ~09:14 MST), rewriting `data/real_holdings.json` from a stale Apr 30 snapshot (with 23 positions) to the current 2026-05-07 snapshot (11 positions). Both queries hit the engine path, both queries read `real_holdings.json` — the file content changed underneath them. **Not a routing inconsistency**; the snapshot itself shifted.
 
-## Bugs flagged
+## Bugs flagged (history)
 
-- **HM-AU-β** (this audit): `?source=all` returns duplicate positions. See `docs/XO_BACKLOG.md`.
+- **HM-AU-β** (surfaced by this audit, **fixed 2026-05-07 commit `e6e9080`**): `?source=all` previously returned duplicate positions because both the engine path and the inline real path read `data/real_holdings.json` post-Option A; the union concatenation produced each position twice. Fix: dropped `paper_positions` from the union; engine path still runs for its envelope (market_context, cash_recommendation) and side-effects (`kirk_advisory_log` writes, auto-dismiss for sold positions); `paper_result["positions"]` now contains `real_positions` only. Verified post-fix: 11 positions / 11 unique / dup count 0.
 
 ## Cross-references
 
