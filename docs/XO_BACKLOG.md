@@ -538,6 +538,34 @@ The actual contaminated code paths are THREE, all sharing the same root cause (n
 
 ---
 
+---
+
+## SHIPPED 2026-05-06 18:00 MST — Kirk None-fix (commit `d2be8bb`)
+
+**Root cause:** `engine/kirk_advisory.py:277` had a default-value bug:
+
+    fg_score = fg.get("score", 50) if fg else 50
+
+The `50` default only kicks in if `fg` is None OR the `score` key is missing. But Fear & Greed API can return `{"score": null}`, which makes `.get()` return None explicitly — bypassing the default. That None then flowed to line 357 (`if vix > 30 and fg_score < 35:`), throwing `TypeError: '<' not supported between instances of 'NoneType' and 'int'`.
+
+**Fix:** Added explicit None-check:
+
+    fg_score = fg.get("score") if fg else None
+    fg_score = 50 if fg_score is None else fg_score
+
+**Verified post-restart (PID 71272):** `generate_kirk_advisory()` returns clean dict with positions, cash=$2220.77 (matches Schwab snapshot), market_context, recommendations. No error key.
+
+**Discovered along the way:**
+- Kirk Advisory and "Advisory Team" (`engine/wb_advisory_team.run_team_scan`) are TWO separate systems with overlapping branding. The "Kirk Grok Swing Advisor" comment in main.py is misleading — that scheduler entry calls Advisory Team, not Kirk Advisory.
+- Advisory Team has been working all along (10:40 MST today: 23 positions, 6 recommendations via qwen3:8b on Ollie Box). Kirk Advisory was the broken one.
+- This was the root cause of the "Kirk silent" observability gap noted in HM-AF AMENDMENT — Kirk wasn't silent, it was crashing on every fire and only emitting the error log line.
+
+**Open follow-ups:**
+1. **Refresh `data/real_holdings.json`** — last updated 2026-05-04. Kirk now works but advises on stale positions until a fresh Schwab export is loaded.
+2. **Add observability log lines** (original HM-AF Item #7-style) — Kirk currently logs only on error. Add success-side logging so we can verify daily fires.
+3. **Investigate Advisory Team scope** — what's it advising on (23 positions ≠ Schwab ≠ Webull ≠ Alpaca counts), and is its output surfaced anywhere?
+
+
 ## SHIPPED 2026-05-06 11:53 MST — HM-AF-β + HM-AF-γ (commit `ca50d45`)
 
 **HM-AF-β (Layer 1: spread-leg awareness):** New `engine/options_utils.py` (+143 new lines) with `parse_occ_symbol()` + `is_spread_leg(symbol)` + `has_open_spread_legs()`. 30s TTL in-memory cache to handle P1's 2-min loop performance. Match logic: parses OCC symbol → matches against `options_trades.legs_json` structured fields (underlying, expiration, option_type, strike) for rows WHERE `status='open' AND exec_status='open'`. Wired into all three contaminated paths:
