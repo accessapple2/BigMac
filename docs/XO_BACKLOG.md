@@ -1154,13 +1154,13 @@ Drop the `AND id != 'dayblade-0dte'` clause from each site post-HM-AK-β.2. Tag 
 
 ---
 
-### HM-AW — Signal Center auth + network exposure review (2026-05-07)
+### HM-AW — Signal Center auth + network exposure review (HALTED 2026-05-07)
 
 **Type:** Hygiene / network exposure
-**Priority:** P3 — LOW (current localhost bind protects what auth would now handle)
-**Status:** Proposed
+**Priority:** P3 — BLOCKED on HM-AW.3 (2FA enforcement) before LAN bind can ship
+**Status:** **HALTED 2026-05-07** at Phase C — HARD STOP #10 fired. LAN bind shipped on local commit `0d3e5dc` (NOT pushed); Captain manual LAN verification surfaced that 2FA TOTP was advertised in code but NEVER WIRED — step-1 password match at `signal-center/server.py:658-665` sets `session["authenticated"]=True` directly without ever setting `totp_pending`, making step-2 (lines 624-652) dead code. Commit `0d3e5dc` was reset (`git reset --hard HEAD~1`); service restarted; bind verified back to `127.0.0.1:9000`. See `docs/HM-AW_PHASE_A_DIAGNOSE.md` Phase C section for the full diagnosis, rollback steps, and audit miss explanation. **Sequencing:** HM-AW.3 (2FA enforcement) MUST ship and verify before HM-AW (binding) can be re-attempted. HM-AW.2 (multi-user RBAC port) is a separate follow-on if Captain wants Bonnie/Dad on 9000.
 **Origin:** 2026-05-07 14:55 MST Captain note post-HM-AQ-β ship close-out. Letter `HM-AT` was originally proposed but already used today (Schwab watcher TCC fix); rebadged as `HM-AW` to avoid collision (AV = HM-AV ALPACA→APCA simplification).
-**Sequence:** Hold until HM-AQ-β stabilizes (24h soak after the 1,223-symbol universe lands in production, est. 2026-05-08 evening).
+**Sequence:** Hold until HM-AW.3 ships AND HM-AQ-β stabilizes (24h soak after the 1,223-symbol universe lands in production, est. 2026-05-08 evening).
 
 #### Background
 Port 9000 (`signal-center` web UI) is currently bound to `127.0.0.1` from a legacy pre-2FA security posture. Browser access from non-bigmac devices requires SSH tunnel today. Captain wants to reopen 9000 to the network now that:
@@ -1201,16 +1201,89 @@ These are NOT the same thing; CLAUDE.md should document them separately to preve
 LOW. Auth posture handles what bind-localhost was protecting. Reversal is a single-line revert + restart.
 
 #### Acceptance criteria
-- [ ] Phase 1 sub-questions answered + documented
-- [ ] Binding change shipped (LAN-only or LAN+Cloudflare per Captain choice)
-- [ ] All Signal Center routes confirmed under 2FA TOTP enforcement
-- [ ] Bonnie observer + Dad charts RBAC verified working on new exposure path
-- [ ] CLAUDE.md / docs/AUTH.md updated with SSH-keys-vs-2FA distinction
+- [x] Phase 1 sub-questions answered + documented (`docs/HM-AW_PHASE_A_DIAGNOSE.md`)
+- [HALTED] Binding change shipped — was shipped on local commit `0d3e5dc`, then reset after HARD STOP #10
+- [BLOCKED] All Signal Center routes confirmed under 2FA TOTP enforcement — **2FA never wired; tracked as HM-AW.3**
+- [BLOCKED] Bonnie observer + Dad charts RBAC verified working — **RBAC never ported to port 9000; tracked as HM-AW.2**
+- [ ] CLAUDE.md / docs/AUTH.md updated with SSH-keys-vs-2FA distinction (deferred until HM-AW re-attempt)
 
 #### Related
-- CLAUDE.md "Project Context" / "Broker Accounts" sections — does NOT currently mention port 9000 or Signal Center bind state. Captain note 2026-05-07 may have been mental-model rather than persisted memory.
-- HM-AT — Schwab watcher TCC fix (already SHIPPED today; namespace collision avoided by using HM-AW here)
-- HM-AT-β — Schwab watcher inbox migration (SHIPPED today, commit `5b87d69`)
+- `docs/HM-AW_PHASE_A_DIAGNOSE.md` — full Phase A + C diagnose, rollback record, lessons
+- HM-AW.2 (this file) — multi-user RBAC port (sequenced after HM-AW)
+- HM-AW.3 (this file) — 2FA TOTP enforcement (prerequisite for HM-AW)
+- HM-AT — Schwab watcher TCC fix (SHIPPED 2026-05-07; namespace collision avoided by using HM-AW here)
+- HM-AT-β — Schwab watcher inbox migration (SHIPPED 2026-05-07, commit `5b87d69`)
+
+---
+
+### HM-AW.3 — Signal Center 2FA TOTP enforcement (2026-05-07)
+
+**Type:** Auth / security gap
+**Priority:** P2 — MUST ship before HM-AW (LAN bind) can re-attempt
+**Status:** Proposed (filed 2026-05-07 from HARD STOP #10)
+**Origin:** Captain manual Phase C verification of HM-AW (2026-05-07) discovered Sniff could log into 9000 from LAN with username + password only — no TOTP prompt. Investigation in `docs/HM-AW_PHASE_A_DIAGNOSE.md` F4 + Phase C section showed step-1 success branch sets `session["authenticated"] = True` directly; step-2 TOTP path is dead code.
+
+#### Background
+The TOTP infrastructure exists in `signal-center/server.py`:
+- `_SC_TOTP_SECRET` env var (line 40), populated via `.env` inline loader (lines 21-29)
+- `_sc_totp = pyotp.TOTP(_SC_TOTP_SECRET)` (line 41)
+- TOTP HTML page (line 120) renders the 6-digit form
+- Step-2 verification at lines 624-652 uses `_sc_totp.verify(code, valid_window=1)` against `session["totp_pending"]`
+
+But step-1 success at lines 658-665 sets `session["authenticated"] = True` and redirects to `/` without ever setting `session["totp_pending"]`. The "2FA disabled — authenticate directly" comment is the smoking gun.
+
+#### Shape
+1. Edit step-1 success branch (lines 658-665) to:
+   - If `_sc_totp` is configured (i.e. `TOTP_SECRET` is set): set `session["totp_pending"] = True`, set `session["totp_pending_user"] = username`, redirect to `/login?step=2` (do NOT set `authenticated`).
+   - If `_sc_totp` is None: keep current direct-authenticate behaviour (degraded mode for environments without `TOTP_SECRET`).
+2. Verify the existing step-2 path (lines 624-652) handles the `totp_pending` session key correctly when set from step-1 (it already does — it pops `totp_pending` and `totp_pending_user` and sets `authenticated` after `_sc_totp.verify` succeeds).
+3. Smoke-test (localhost): POST username+password → expect 302 to `/login?step=2`; GET `/login?step=2` → expect TOTP page HTML.
+4. Verify with the Sniff TOTP authenticator app from `.env` `TOTP_SECRET=4X6RT3GCI2CW5IJSZ76PO5QPIPPZRNDY`.
+5. Captain manual verification from LAN device after HM-AW re-ship.
+
+#### Effort
+~20 min Scotty (small edit + restart + curl smoke + manual TOTP verification).
+
+#### Risk
+LOW for code change. Reversal is one-line revert. Risk of breaking login if `TOTP_SECRET` is invalid or pyotp version mismatch — mitigate by keeping the `if _sc_totp is None:` degraded branch so the service is never unloggable-into.
+
+#### Acceptance criteria
+- [ ] Step-1 success branch routes to step-2 when `_sc_totp is not None`
+- [ ] curl smoke shows 302 → `/login?step=2` after correct password POST
+- [ ] Captain manual TOTP verification from authenticator app succeeds
+- [ ] HM-AW LAN bind change can be re-shipped after this lands
+
+#### Related
+- `docs/HM-AW_PHASE_A_DIAGNOSE.md` F4 — exact lines + diagnosis
+- HM-AW (this file) — blocked on this ticket
+
+---
+
+### HM-AW.2 — Signal Center multi-user RBAC port (2026-05-07)
+
+**Type:** Auth / RBAC
+**Priority:** P3 — sequenced AFTER HM-AW (LAN bind, after HM-AW.3 2FA lands). Only required if Captain wants Bonnie/Dad on port 9000.
+**Status:** Proposed (filed 2026-05-07 alongside HM-AW.3)
+**Origin:** Phase A of HM-AW (2026-05-07) discovered that the multi-user RBAC config in `.env` (`DASHBOARD_USERS=Sniff:admin:..., Bonnie:observer:..., Dad:charts:...`) is consumed by `dashboard/app.py:557 _parse_users()` (port 8080) ONLY. `signal-center/server.py` (port 9000) reads only the singular `DASHBOARD_USER` / `DASHBOARD_PASS` env vars and accepts a single user. Captain elected to ship HM-AW with single-user posture (Sniff only on 9000); HM-AW.2 captures the optional follow-on if Bonnie/Dad need 9000 access too.
+
+#### Shape
+Port `_parse_users()` from `dashboard/app.py:557` into `signal-center/server.py`. Replace the singular `_SC_USER` / `_SC_PASS` check at line 658 with a registry lookup keyed on the submitted username. Preserve role attribution (admin / observer / charts). Wire role into `session["role"]` and add per-route role gating where Bonnie or Dad permissions differ from Sniff.
+
+#### Effort
+~30–60 min Scotty (port the function, swap the check, decide which signal-center routes admit observer/charts roles, smoke-test from each user's credentials).
+
+#### Risk
+LOW for the port itself; MEDIUM if signal-center routes need new role gates that don't exist in `dashboard/app.py` for analogous reasons. Reversal is straightforward (git revert).
+
+#### Acceptance criteria
+- [ ] `_parse_users()` ported and wired into `_auth_gate` / login flow
+- [ ] Sniff, Bonnie, Dad all log in successfully with their own credentials
+- [ ] Per-route role gating decisions documented (Bonnie read-only — what does that mean for `/api/signals/<id>/execute`? Dad charts-only — what does that mean for non-charts routes?)
+
+#### Related
+- HM-AW (this file) — single-user posture shipped under that ticket
+- `dashboard/app.py:557 _parse_users()` — source of truth to port
+- `.env` `DASHBOARD_USERS=Sniff:admin:ollietrades-admin,Bonnie:observer:ollietrades-crew,Dad:charts:none`
 
 ---
 
