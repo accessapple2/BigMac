@@ -110,3 +110,31 @@ UPDATE ai_players SET halt_mode='active', halted_at=NULL, halt_reason=NULL
 **Architectural note (deferred):** the active scan loops at `main.py:1991`, `engine/risk_radar.py:168`, `engine/autopilot.py:63` use `WHERE is_active=1` and do **not** filter by `halt_mode`. Per-trade halt gates downstream block actual execution, but the iteration loops still touch all halted rows. HM-AK does not address this — sized for HM-AK-β if/when prioritized.
 
 **No service restart required** — halt_mode is read fresh per CLAUDE.md ("halt_mode is now the only working per-player kill switch", read by `engine/halt_gate.py` per request).
+
+## 2026-05-07 — HM-AQ Captain decision: broaden WATCH_STOCKS to market-cap+volume universe
+
+**Decision (Captain):** WATCH_STOCKS expands from 20 manually-curated mega-cap tickers to ~500-800 dynamically-refreshed tickers matching:
+- Market cap ≥ $5B
+- Daily $ volume (20-day avg) ≥ $50M
+- Refresh cadence: weekly (Sunday pre-Monday-open)
+- Refresh source: **Polygon screener API** (Polygon Options Starter $29/mo activation under HM-AQ-β; first paid exception under Free-Models-First doctrine, approved-in-principle 2026-04-16)
+
+**Risks acknowledged by Captain:** dashboard noise, scan-loop slowdown across 12+ iteration sites (per HM-AU audit), more spread attempts on lower-liquidity options *only if* HM-AQ-γ ships.
+
+**Catches:** all 6 missed movers from 2026-05-07 morning (DDOG +30.87%, FTNT +22.92%, MDB +14.19%, ZTS −21.37%, ARM −8.18%, TPR −8.14%) would have been in coverage under the new criteria.
+
+**Scope split:**
+- WATCH_STOCKS broadens (this decision).
+- Spread-strategy universes (`TIER_1+TIER_2` in `bull_spread_v1.py` / `bull_call_spread_v1.py` / `bear_put_spread_v1.py`) stay at 10 tickers. Spread quality > coverage on illiquid options. Expansion deferred as **HM-AQ-γ** (marker, not active queue).
+
+**Implementation queued as HM-AQ-β** (4-8 h Scotty):
+- `engine/universe_refresh.py` (Polygon screener integration)
+- launchd weekly refresh (`com.ollietrades.universe-refresh`)
+- Storage migration (`config.py:WATCH_STOCKS` → DB table or refreshed file)
+- Polygon Options Starter $29/mo activation (first paid exception under Free-Models-First)
+- Audit/retest of 12+ dashboard iteration sites for rate-limit + latency impact
+- Soak window before promoting to live
+
+**Canonical reference:** `docs/UNIVERSE.md` (created in this commit).
+
+**No code changes in this entry.** Doc-only Captain decision logging.

@@ -540,8 +540,27 @@ The actual contaminated code paths are THREE, all sharing the same root cause (n
 
 **Type:** Strategic scope decision (not a bug)
 **Priority:** P3 — non-blocking, no execution risk
-**Status:** Proposed
+**Status:** **DECIDED 2026-05-07** — Captain approves broadening WATCH_STOCKS per criteria below. Implementation queued as HM-AQ-β. Spread-universe expansion deferred as HM-AQ-γ (out of scope, separate Captain decision).
 **Origin:** 2026-05-07, "missed mover" investigation (DDOG +30.87%, FTNT +22.92%, MDB +14.19%, ZTS −21.37%, ARM −8.18%, TPR −8.14%)
+
+#### Captain's decision (2026-05-07)
+
+**WATCH_STOCKS expands** from 20 manually-curated mega-caps to a dynamically-refreshed universe matching:
+
+| Criterion | Threshold |
+|---|---|
+| Market cap | ≥ $5B |
+| Daily $ volume (20-day avg) | ≥ $50M |
+| Refresh cadence | Weekly (Sunday pre-Monday-open) |
+| Refresh source | Polygon screener API (Polygon Options Starter $29/mo activation under HM-AQ-β) |
+
+**Expected size:** ~500-800 tickers.
+
+**Risks acknowledged:** dashboard noise, scan-loop slowdown across 12+ iteration sites, more spread attempts (only relevant if HM-AQ-γ ships — for now, spread universes stay at 10 tickers).
+
+**Catches:** all 6 missed movers from 2026-05-07 morning would have been in coverage under these criteria.
+
+**Full criteria & roadmap:** `docs/UNIVERSE.md` (canonical reference; created in this commit).
 
 #### Summary
 The fleet's active iteration sources are locked to ~20 mega-cap names. Tickers outside that set are structurally invisible to every active scanner, dashboard surface, and spread engine — not filtered out by gates, simply never iterated.
@@ -555,24 +574,94 @@ The fleet's active iteration sources are locked to ~20 mega-cap names. Tickers o
 
 Of the 6 candidates that triggered this investigation: 5 in `scan_universe` (catalog only), 0 in any active iteration source. ZTS not even catalogued.
 
-#### Decision needed (CO)
-Whether to broaden active coverage, and if so, the inclusion criteria. Candidates:
-- Market cap floor (e.g., ≥$10B)
-- Daily $ volume floor (e.g., ≥$500M)
-- Options liquidity floor (for spread eligibility — bid/ask spread, OI)
-- Earnings-event filter (in/out of blackout window)
-- Manual curation vs. dynamic refresh
-
-#### Acceptance criteria
-- [ ] Coverage criteria documented in `CLAUDE.md` or `docs/UNIVERSE.md`
-- [ ] CO decision logged (broaden / hold / hybrid)
-- [ ] If broadening: implementation ticket spawned with explicit ticker list or refresh logic
-- [ ] If holding: rationale documented so the 20-name limit is deliberate, not accidental
+#### Acceptance criteria (status post-decision 2026-05-07)
+- [x] Coverage criteria documented — `docs/UNIVERSE.md`
+- [x] CO decision logged — broaden, this commit + OPS_LOG 2026-05-07
+- [x] Implementation ticket spawned — HM-AQ-β below
+- [x] Spread-universe scope decision deferred — HM-AQ-γ marker below
 
 #### Related
-- `bull_call_spread_v1.py` TIER_1/TIER_2 definitions
+- `docs/UNIVERSE.md` — canonical universe doc
+- HM-AQ-β — implementation ticket (Polygon screener + weekly refresh + storage migration)
+- HM-AQ-γ — spread-universe expansion (deferred marker, not in active queue)
+- `bull_call_spread_v1.py` TIER_1/TIER_2 definitions (out of scope; see HM-AQ-γ)
 - HM-AP (closed no-op) — `bull_call_spread_v1` silence verdict
 - HM-AR — `earnings_universe` observability (sibling finding from same investigation)
+
+---
+
+### HM-AQ-β — Implement dynamic WATCH_STOCKS refresh (2026-05-07)
+
+**Type:** Implementation (active queue)
+**Priority:** P3 — post-soak; spawn from HM-AQ Captain decision
+**Status:** Proposed
+**Origin:** HM-AQ decision 2026-05-07 (`docs/UNIVERSE.md`).
+
+#### Scope
+
+Replace the static `config.py:WATCH_STOCKS = [...20 tickers]` constant with a dynamically-refreshed universe of ~500-800 tickers matching the HM-AQ inclusion criteria (market cap ≥ $5B, daily $ volume ≥ $50M).
+
+**Sub-decisions logged:**
+- **Screener:** Polygon (not Alpaca). Rationale: Polygon Options Starter $29/mo is approved-in-principle (CLAUDE.md 2026-04-16) and offers a richer screener than Alpaca's. Activation cost ($29/mo) is part of HM-AQ-β implementation. First paid exception under Free-Models-First doctrine.
+- **Spread universes (`TIER_1+TIER_2`):** NOT in scope. Tracked separately as HM-AQ-γ.
+
+#### Components
+1. **`engine/universe_refresh.py`** (new) — Polygon screener API client, cap/volume filter, output writer.
+2. **Storage migration** — replace `config.py:WATCH_STOCKS` constant with one of:
+   - DB table `universe_active(symbol, last_refreshed_at, market_cap, avg_daily_dollar_volume, included_reason)` — preferred; queryable
+   - File `data/watch_stocks.json` — simpler; no schema migration
+   - Decision: TBD during implementation; either preserves the import-as-list pattern via a getter helper.
+3. **launchd plist** `com.ollietrades.universe-refresh` — fires Sunday 14:00 MST (post-close, pre-Monday-open). Per HM-AT-β lesson, watch dirs/paths owned by `~/autonomous-trader/` to avoid TCC issues.
+4. **Polygon Options Starter activation** — first paid exception activated under Free-Models-First. Document the activation in OPS_LOG.
+5. **Iteration-site audit** — 12+ sites in `dashboard/app.py` walk `WATCH_STOCKS` (per HM-AU). Each site must be retested for:
+   - Rate-limit impact (Alpaca/Polygon API call fan-out at 25-40× rows)
+   - Latency impact (single-threaded `schedule.run_pending()` blocking — relevant to HM-AS cadence tail)
+   - Render performance (frontend table sizes 25-40×)
+6. **Soak window** — ship to a non-prod-blocking surface first (e.g. dashboard read-only view) before flipping all callers.
+
+#### Effort
+~4-8 h Scotty (range reflects whether iteration-site audit surfaces rate-limit issues that require batching).
+
+#### Acceptance criteria
+- [ ] `universe_refresh.py` produces 500-800 tickers matching criteria
+- [ ] Weekly refresh fires reliably via launchd
+- [ ] All iteration sites retested; no rate-limit failures, no latency regression > 2× pre-ship
+- [ ] OPS_LOG entry for Polygon Options Starter activation
+- [ ] HM-AS-β cadence drift warning continues to fire normally (i.e. broadening doesn't dramatically push the tail)
+
+#### Related
+- HM-AQ — Captain decision (parent)
+- HM-AQ-γ — spread-universe expansion (deferred)
+- `docs/UNIVERSE.md` — criteria + rationale
+- HM-AS-β — cadence drift warning (will detect any regression)
+- HM-AU — Kirk advisory source routing audit (12+ iteration sites)
+
+---
+
+### HM-AQ-γ — Spread-strategy universe expansion (deferred marker, 2026-05-07)
+
+**Type:** Future Captain decision (NOT in active queue)
+**Priority:** Deferred
+**Status:** Marker only — kept so future-self knows the deferral was deliberate.
+**Origin:** HM-AQ scope clarification 2026-05-07.
+
+#### Why deferred
+Spread strategies (`bull_spread_v1`, `bull_call_spread_v1`, `bear_put_spread_v1`) operate on options chains where **fill quality, bid-ask spread, and open interest dominate edge**. The 10-ticker `TIER_1+TIER_2` universe is curated for liquidity that supports defined-risk debit/credit spreads.
+
+Expanding to mid-caps or thinly-traded names would introduce:
+- Wider bid-ask spreads on options legs (eats edge)
+- Lower OI / volume → fill risk on multi-leg orders
+- Per-name option liquidity varies dramatically; coverage breadth doesn't translate to fill quality
+
+**Captain principle (2026-05-07):** spread quality > spread coverage. Expanding spread universes requires its own analysis on per-name option-chain liquidity (avg daily option volume, OI floor, bid-ask spread floor) — separate Captain decision when surfaced.
+
+#### When to revisit
+- A specific mid/large-cap name with proven option liquidity becomes a high-conviction setup that current spread strategies miss
+- A new options-liquidity-screener ships that can produce a vetted spread universe automatically
+- Spread strategies' performance plateaus in a way that suggests universe-size limitation (currently they're tractor-beam-gate-limited per HM-AP, not universe-limited)
+
+#### NOT a backlog item
+This is a **deferred marker**, not an active ticket. Promote to a real ticket only when the trigger conditions above are met.
 
 ---
 
