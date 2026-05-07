@@ -3899,9 +3899,10 @@ def confidence_matrix():
     from config import WATCH_STOCKS
 
     conn = _conn()
-    # Get all active players (exclude dayblade)
+    # HM-AK-β.2 2026-05-07: halt_mode filter (halted players produce empty stances
+    # via HM-C inner filter anyway; dayblade-0dte covered by halt_mode='full')
     players = conn.execute(
-        "SELECT id, display_name FROM ai_players WHERE is_active=1 AND id != 'dayblade-0dte'"
+        "SELECT id, display_name FROM ai_players WHERE is_active=1 AND halt_mode='active'"
     ).fetchall()
 
     result = {}
@@ -4614,7 +4615,10 @@ def arena_analytics():
 
     conn = _conn()
 
-    # Get all players
+    # HM-AK-β.2 2026-05-07: NO halt_mode filter — analytics endpoint must include
+    # halted/retired agents in performance reports (UX requirement; users review
+    # historical performance of retired agents). Sibling iteration sites at
+    # dashboard/app.py:3904 and :12908 do filter; this site deliberately does not.
     players = conn.execute(
         "SELECT id, display_name FROM ai_players WHERE is_active=1 AND id != 'dayblade-0dte'"
     ).fetchall()
@@ -12904,8 +12908,10 @@ def uhura_signal():
         arena_raw = {}
         try:
             conn = _conn()
+            # HM-AK-β.2 2026-05-07: halt_mode filter (halted players produce empty
+            # stances via HM-C inner filter anyway; dayblade-0dte covered by halt_mode='full')
             players = conn.execute(
-                "SELECT id, display_name FROM ai_players WHERE is_active=1 AND id != 'dayblade-0dte'"
+                "SELECT id, display_name FROM ai_players WHERE is_active=1 AND halt_mode='active'"
             ).fetchall()
             for p in players:
                 pid = p["id"]
