@@ -697,7 +697,7 @@ The original ticket framed `earnings_universe` as a single system. Audit reveale
 
 **Type:** Cleanup (HM-AR follow-up)
 **Priority:** P4 — LOW (cosmetic; no functional change; eliminates naming-drift confusion)
-**Status:** Proposed — recommended path: **(a) formal retirement**.
+**Status:** **SHIPPED 2026-05-07** — see commit and OPS_LOG. Path (a) formal retirement applied: orphan archived to `archive/earnings_injector.py.retired-20260507`; `main.py:679 run_earnings_universe_inject` renamed to `run_earnings_scan_inject` (4 sites: definition, error log, comment, schedule binding).
 **Origin:** HM-AR audit 2026-05-07.
 
 #### Recommended path: (a) formal retirement

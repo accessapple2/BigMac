@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+# RETIRED 2026-05-07 per HM-AR-β.
+# Original location: engine/earnings_injector.py
+# Reason: 0 callers across all of main.py + engine/ + dashboard/ + scripts/.
+#         The "Runs at 6:00 AM AZ" claim in the docstring below was aspirational —
+#         no launchd/cron entry was ever wired. earnings_universe table classification:
+#         DEPRECATED orphan. Options-blackout enforcement uses an independent path
+#         (engine/options_selector.py::_next_earnings_date) and is unaffected.
+# See docs/EARNINGS.md for the full audit (HM-AR, 2026-05-07).
 """
 Earnings Day Injector
 Auto-adds today's earnings reporters to earnings_universe table

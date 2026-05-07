@@ -178,3 +178,18 @@ secret = os.getenv("APCA_API_SECRET_KEY", "")
 **Post-HM-AV state (2026-05-07):** ALPACA_* fully migrated; APCA_* is canonical (71 active sites). Confirmed via grep audit. Future audits should grep `APCA_(API_KEY_ID|API_SECRET_KEY)` only.
 
 **Service restart required.** Reversal: git revert + restart.
+
+## 2026-05-07 — HM-AR-β: earnings_injector.py archived + run_earnings_universe_inject renamed
+
+Path (a) "formal retirement" applied per Captain decision logged in HM-AR-β ticket. HM-AR audit (commit `136a62c`, `docs/EARNINGS.md`) classified the path as DEPRECATED orphan: zero callers across the codebase, no launchd/cron entry ever wired, table empty since creation, options-blackout uses an independent path.
+
+**Actions:**
+1. Archived `engine/earnings_injector.py` → `archive/earnings_injector.py.retired-20260507`. Sacred-data: `mv`, never `rm`. Header comment added documenting retirement context.
+2. Renamed `main.py:679 run_earnings_universe_inject()` → `run_earnings_scan_inject()` to fix the naming-drift lie. The function writes to `scan_universe` (via `engine.deep_scan.inject_earnings_tickers`), not the orphan `earnings_universe` table — the old name confused multiple investigations. 4 rename sites in `main.py` updated: definition (679→684 post-comment-add), error log line, adjacent comment, schedule binding.
+3. `earnings_universe` SQLite table left in place (empty, sacred-data rule).
+4. `docs/EARNINGS.md` path map updated: section 2 now references the new function name; section 3 marked RETIRED with archive path.
+5. `docs/XO_BACKLOG.md` HM-AR-β marked SHIPPED.
+
+**No functional change.** Pure code hygiene — eliminates the naming-drift confusion that wasted investigator time during HM-AR.
+
+**Service restart required** to load new bytecode (function name changed in scheduler binding). Reversal: `git revert <sha> && launchctl kickstart -k gui/$(id -u)/com.trademinds.trader && mv archive/earnings_injector.py.retired-20260507 engine/earnings_injector.py`.

@@ -674,9 +674,14 @@ def run_intel_report_evening():
         console.log(f"[red]Intel Report PM error: {e}")
 
 
-# ── Earnings Universe Injection ───────────────────────────────────────────────
+# ── Earnings → scan_universe Injection ────────────────────────────────────────
+# HM-AR-β 2026-05-07: renamed from run_earnings_universe_inject. The old name was
+# a naming-drift artifact — function injects into scan_universe (via
+# engine.deep_scan.inject_earnings_tickers), NOT the earnings_universe SQLite
+# table. The earnings_universe orphan was retired in the same commit; see
+# docs/EARNINGS.md and archive/earnings_injector.py.retired-20260507.
 
-def run_earnings_universe_inject():
+def run_earnings_scan_inject():
     """6:00 AM AZ — detect today's earnings reporters and inject into scan_universe.
 
     Sweeps _AH_PM_UNIVERSE + morning_briefing._EARN_UNIVERSE via yfinance calendar.
@@ -737,13 +742,13 @@ def run_earnings_universe_inject():
             console.log("[dim][EarningsInject] No earnings reporters found for today")
 
     except Exception as e:
-        console.log(f"[red]run_earnings_universe_inject error: {e}")
+        console.log(f"[red]run_earnings_scan_inject error: {e}")
 
 
 def run_earnings_day_scan():
     """Every 5 min market hours — rescan earnings-day tickers at high frequency.
 
-    Only runs if _earnings_today_tickers is non-empty (populated by run_earnings_universe_inject).
+    Only runs if _earnings_today_tickers is non-empty (populated by run_earnings_scan_inject).
     Results are stored with earnings_today=1 so the dashboard can surface them separately.
     """
     if not _earnings_today_tickers:
@@ -2599,7 +2604,7 @@ if __name__ == "__main__":
         console.log(f"[yellow]reconciliation schedule registration skipped: {type(_re).__name__}: {_re!r}")
     schedule.every(30).minutes.do(run_ah_scanner)                     # AH Earnings Scanner: 4–7 PM AZ (30 min)
     schedule.every(15).minutes.do(run_premarket_scanner)              # Pre-Market Scanner: 6–9:25 AM AZ (15 min)
-    schedule.every().day.at("06:00").do(run_earnings_universe_inject) # Earnings Inject: 6:00 AM AZ (5-min window)
+    schedule.every().day.at("06:00").do(run_earnings_scan_inject)     # Earnings → scan_universe inject: 6:00 AM AZ (HM-AR-β rename 2026-05-07)
     schedule.every(5).minutes.do(run_earnings_day_scan)               # Earnings Day: every 5 min market hours
     schedule.every().day.at("06:45").do(run_opening_range)            # Battle Station: opening range 6:45 AM AZ
     schedule.every(2).minutes.do(run_battle_station_monitor)  # Battle Station: 2-min options position monitor

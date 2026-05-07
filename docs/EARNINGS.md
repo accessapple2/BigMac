@@ -18,34 +18,32 @@ OllieTrades has **three distinct code paths** that touch earnings data. They are
 
 **This is the path that actually protects options trades from earnings risk.** Per CLAUDE.md 2026-04-25 drydock notes: "Earnings blackout (options_selector.py): replaces dead logs-only block; blocks if earnings within 3d of today OR ±5d of expiry; fast-path through `data/earnings_cache.json` (1ms), yfinance fallback, fail-open on errors."
 
-### 2. `run_earnings_universe_inject` (main.py:679) — LIVE, DIFFERENT TABLE
+### 2. `run_earnings_scan_inject` (main.py:684) — LIVE (renamed by HM-AR-β 2026-05-07)
 
 | Aspect | Detail |
 |---|---|
-| Entry point | `main.py:679 def run_earnings_universe_inject()` |
-| Schedule | Every weekday at 06:00–06:30 AZ via `schedule.every().day.at("06:00").do(...)` (`main.py:2585`) |
+| Entry point | `main.py:684 def run_earnings_scan_inject()` (was `run_earnings_universe_inject` pre-HM-AR-β) |
+| Schedule | Every weekday at 06:00–06:30 AZ via `schedule.every().day.at("06:00").do(...)` |
 | Data source | yfinance Ticker.calendar over `_AH_PM_UNIVERSE + morning_briefing._EARN_UNIVERSE` |
 | Writes to | **`scan_universe` table** via `engine.deep_scan.inject_earnings_tickers` |
 | Module variable | `_earnings_today_tickers` populated for `run_earnings_day_scan()` consumer |
-| State | **LIVE.** Naming is misleading — function name says "earnings_universe" but it writes to **`scan_universe`**. Naming drift artifact. |
+| State | **LIVE.** Renamed in HM-AR-β to fix the prior naming-drift artifact (old name said "earnings_universe" but the function writes to `scan_universe`). |
 
-**The function name is a lie.** Despite "earnings_universe" in the function name, this code does NOT touch the `earnings_universe` SQLite table. It targets `scan_universe`, the wide-net catalog. A future cleanup (HM-AR-β cleanup, or a separate rename ticket) should rename this function to `run_earnings_scan_inject()` to match what it actually does.
-
-### 3. `engine/earnings_injector.py` + `earnings_universe` table — DEAD ORPHAN
+### 3. `engine/earnings_injector.py` + `earnings_universe` table — RETIRED 2026-05-07 (HM-AR-β)
 
 | Aspect | Detail |
 |---|---|
-| Module | `engine/earnings_injector.py` |
-| Schema | `earnings_universe (id, ticker, added_date, created_at)` with `UNIQUE(ticker, added_date)` |
-| Writer | `engine/earnings_injector.py:78` `INSERT OR IGNORE INTO earnings_universe ...` |
-| Reader | `engine/earnings_injector.py:96` `get_active_earnings_universe()` |
-| Upstream source | `earnings_impact` table (per `get_todays_earnings()` line 53) |
-| Schedule | Docstring says "Runs at 6:00 AM AZ" — **but no launchd/cron entry exists.** Aspirational. |
-| External callers | **NONE.** No `from engine.earnings_injector import` or `import earnings_injector` anywhere in `main.py`, `engine/`, `dashboard/`, or `scripts/`. The script can only run via its `__main__` block (manually). |
-| Table state | **0 rows.** Has been since creation. |
-| State | **DEAD.** Orphan path. |
+| Module | ~~`engine/earnings_injector.py`~~ → **`archive/earnings_injector.py.retired-20260507`** (HM-AR-β 2026-05-07) |
+| Schema | `earnings_universe (id, ticker, added_date, created_at)` with `UNIQUE(ticker, added_date)` — table **left in place** per sacred-data rule (empty, no data to lose, forensic record) |
+| Writer | (was at `engine/earnings_injector.py:78`) — archived |
+| Reader | (was at `engine/earnings_injector.py:96`) — archived |
+| Upstream source | `earnings_impact` table (per archived `get_todays_earnings()`) |
+| Schedule | Docstring claimed "Runs at 6:00 AM AZ" — never wired. |
+| External callers | NONE — confirmed pre-archive grep across all source dirs. |
+| Table state | 0 rows. Has been since creation. |
+| State | **RETIRED.** See archive file for original code. |
 
-This is the table HM-AQ surfaced as "empty" during 2026-05-07 morning. Empty because nothing populates it — the writer is unwired and the reader has no consumer either.
+Rationale: HM-AQ (2026-05-07 morning) surfaced the empty table during the "missed mover" investigation; HM-AR audited and classified DEPRECATED; HM-AR-β formalized retirement.
 
 ## Why this matters
 
