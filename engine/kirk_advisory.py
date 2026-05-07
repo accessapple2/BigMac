@@ -268,6 +268,34 @@ def generate_kirk_advisory():
         positions = holdings.get("positions", [])
         cash = _get_live_cash(fallback=holdings.get("cash") or 0)
 
+        # HM-AM Phase 2 (2026-05-07): augment Kirk's view with cross-source
+        # total_portfolio context. Executive action logic still operates on
+        # Schwab positions (preserves per-ticker action engine + alert
+        # semantics + team_advisor_grok's _load_real_holdings coupling); the
+        # new envelope exposes total_value, cash by account, and per-source
+        # position counts so consumers can reason about the unified surface.
+        # Defensive: failure here logs a warning but does NOT break Kirk.
+        total_portfolio_summary = None
+        try:
+            from engine.total_portfolio import get_portfolio_summary
+            total_portfolio_summary = get_portfolio_summary()
+            logger.info(
+                "[Kirk] total_portfolio: $%.2f total ($%.2f cash, %d positions, sources=%s)",
+                total_portfolio_summary["total_value"],
+                total_portfolio_summary["total_cash"],
+                total_portfolio_summary["position_count"],
+                total_portfolio_summary["sources_loaded"],
+            )
+            if total_portfolio_summary.get("sources_failed"):
+                logger.warning(
+                    "[Kirk] total_portfolio sources_failed: %s",
+                    total_portfolio_summary["sources_failed"],
+                )
+        except Exception as e:
+            logger.warning(
+                "[Kirk] total_portfolio load failed: %s: %r", type(e).__name__, e
+            )
+
         # Portfolio value from env var (manually updated from real Webull account)
         env_value = os.environ.get("KIRK_PORTFOLIO_VALUE", "").strip()
         portfolio_value = None
@@ -510,6 +538,9 @@ def generate_kirk_advisory():
             },
             "trade_history": trade_history,
             "rebalance_conflicts": list(rebalance_trims.keys()),
+            # HM-AM Phase 2 (2026-05-07): unified portfolio summary envelope.
+            # None on load failure (logged above as warning).
+            "total_portfolio": total_portfolio_summary,
             "generated_at": datetime.now(pytz.timezone("US/Arizona")).isoformat(),
         }
 
