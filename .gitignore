@@ -168,6 +168,10 @@ data/premarket_gaps.json
 # Schwab CSV import archive — local-only audit trail, not source of truth.
 data/schwab_csv_archive/
 
+# Schwab inbox — transient personal CSVs dropped by Admiral, never commit (HM-AT-β 2026-05-07).
+inbox/*
+!inbox/.gitkeep
+
 # Top-level XO_BACKLOG snapshots (use git history; live file is source of truth).
 docs/*.bak
 docs/*.bak.*

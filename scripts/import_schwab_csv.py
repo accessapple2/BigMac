@@ -3,7 +3,7 @@
 
 Usage:
     python3 scripts/import_schwab_csv.py /path/to/file.csv
-    python3 scripts/import_schwab_csv.py --latest   # most recent Schwab CSV in ~/Downloads
+    python3 scripts/import_schwab_csv.py --latest   # most recent Schwab CSV in ~/autonomous-trader/inbox
 """
 from __future__ import annotations
 
@@ -17,7 +17,8 @@ from pathlib import Path
 
 REPO_ROOT = Path(os.environ.get("BIGMAC_REPO", "/Users/bigmac/autonomous-trader"))
 DB_PATH   = REPO_ROOT / "data" / "trader.db"
-DOWNLOADS = Path.home() / "Downloads"
+# HM-AT-β 2026-05-07: migrated off ~/Downloads/ for TCC (see docs/OPS_LOG.md)
+INBOX     = REPO_ROOT / "inbox"
 
 # ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -278,13 +279,13 @@ def import_csv(csv_path: Path) -> None:
 
 def _find_latest() -> Path:
     candidates = sorted(
-        DOWNLOADS.glob("Sc*Positions*.csv"),
+        INBOX.glob("Sc*Positions*.csv"),
         key=lambda p: p.stat().st_mtime,
         reverse=True,
     )
     if not candidates:
         raise FileNotFoundError(
-            f"No Schwab Positions CSV found in {DOWNLOADS}  (pattern: Sc*Positions*.csv)"
+            f"No Schwab Positions CSV found in {INBOX}  (pattern: Sc*Positions*.csv)"
         )
     return candidates[0]
 

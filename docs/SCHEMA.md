@@ -374,7 +374,7 @@
 - **Writers:** `scripts/import_schwab_csv.py:60` (uses `INSERT OR IGNORE INTO`)
 - **Readers:** `scripts/import_schwab_csv.py:248,258`, `scripts/schwab_advisor.py:42,53`, `scripts/sync_schwab_to_real_holdings.py:29`
 - **Purpose:** Schwab account snapshot history. Each Schwab CSV import (positions export) creates a new `snapshot_id`; rows persist forever for time-series gain/loss reconstruction. `is_summary_row=1` flags Schwab's account-total/cash rollup rows. Most-recent snapshot = dashboard truth.
-- **Notes:** Refreshed via `scripts/schwab_csv_watcher.sh` watching `~/Downloads/`. Multi-snapshot table — never UPDATE'd in place. `sync_schwab_to_real_holdings.py` propagates the latest snapshot into `data/real_holdings.json`. Monitor-only per CLAUDE.md broker rule.
+- **Notes:** Refreshed via `scripts/schwab_csv_watcher.sh` watching `~/autonomous-trader/inbox/` (migrated from `~/Downloads/` 2026-05-07 per HM-AT-β — TCC blocked launchd from Downloads). Multi-snapshot table — never UPDATE'd in place. `sync_schwab_to_real_holdings.py` propagates the latest snapshot into `data/real_holdings.json`. Monitor-only per CLAUDE.md broker rule.
 
 ### Tier 2/3 (Real Broker)
 - `webull_watchlist` (2) — pre-wind-down Webull watchlist; vestigial after Webull liquidation.

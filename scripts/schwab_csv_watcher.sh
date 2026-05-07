@@ -1,10 +1,13 @@
 #!/bin/bash
-# Watches /Users/bigmac/Downloads/ for new Schwab CSVs, auto-imports + syncs + notifies.
-# Relocated 2026-05-04 from /Users/Shared/schwab_inbox/ — meet downloads where the
-# browser puts them. Absolute path used because launchd does not expand ~.
+# Watches ~/autonomous-trader/inbox/ for new Schwab CSVs, auto-imports + syncs + notifies.
+# HM-AT-β 2026-05-07: migrated off ~/Downloads/ — macOS TCC denies launchd audit session
+# access to user's Downloads dir, causing silent dormancy. Project-owned inbox/ has no
+# TCC restriction. See docs/OPS_LOG.md 2026-05-07 for diagnosis. Predecessor locations:
+#   2026-05-04 → ~/Downloads/ (TCC-blocked from launchd)
+#   pre-2026-05-04 → /Users/Shared/schwab_inbox/
 set -euo pipefail
 
-WATCH_DIR="/Users/bigmac/Downloads"
+WATCH_DIR="$HOME/autonomous-trader/inbox"
 PROCESSED_DIR="$HOME/autonomous-trader/data/schwab_csv_archive"
 LOG="$HOME/autonomous-trader/logs/schwab_watcher.log"
 VENV="$HOME/autonomous-trader/venv/bin/python3"
@@ -15,7 +18,7 @@ mkdir -p "$(dirname "$LOG")"
 
 cd "$HOME/autonomous-trader"
 
-# Find Schwab CSVs in Downloads (case-insensitive, handles "Scwab" misspelling)
+# Find Schwab CSVs in inbox (case-insensitive, handles "Scwab" misspelling)
 shopt -s nullglob nocaseglob
 for CSV in "$WATCH_DIR"/Scwab*Positions*.csv "$WATCH_DIR"/Schwab*Positions*.csv "$WATCH_DIR"/schwab_*.csv; do
     [ -f "$CSV" ] || continue

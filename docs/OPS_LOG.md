@@ -60,3 +60,26 @@ The Schwab CSV watcher (`com.ollietrades.schwab-watcher`) appeared dormant 2026-
 **Defense-in-depth note**: `e8b7f9e` (`sleep 11`) is retained — harmless overhead and protects against the throttle theory if it ever becomes a compounding factor.
 
 **Backlog**: HM-AT-β tracks migration of watcher to `~/autonomous-trader/inbox/` to eliminate TCC dependency entirely (post-soak).
+
+## 2026-05-07 — HM-AT-β shipped: watcher migrated off ~/Downloads/ to ~/autonomous-trader/inbox/
+
+Ship reason: GUI fix path for HM-AT (Full Disk Access grant) is unavailable — bigmac is a headless Mac Mini M4 with SSH-only access. HM-AT-β escalated from post-soak to immediate.
+
+Changes:
+- `scripts/schwab_csv_watcher.sh` — `WATCH_DIR` moved from `/Users/bigmac/Downloads` to `$HOME/autonomous-trader/inbox`
+- `scripts/import_schwab_csv.py` — `DOWNLOADS` constant renamed to `INBOX`, repointed to `REPO_ROOT/inbox`; `--latest` glob and error message follow
+- `docs/SCHEMA.md` — `schwab_holdings` table notes updated to reflect new watch dir
+- `docs/XO_BACKLOG.md` — Schwab Workflow section updated with new path + scp command; HM-AT-β marked **SHIPPED**
+- `.gitignore` — `inbox/*` ignored, `inbox/.gitkeep` tracked
+- New empty dir: `~/autonomous-trader/inbox/.gitkeep`
+
+**NEW WORKFLOW for Admiral** (PowerShell on Bonnie laptop, replaces browser-save-to-Downloads):
+```
+scp "C:\Users\Bonnie\Downloads\Sc*Position*.csv" bigmac@192.168.1.248:~/autonomous-trader/inbox/
+```
+
+The launchd watcher polls `inbox/` every 60s (StartInterval=60) and processes on the next tick. Verification: log entries land in `logs/schwab_watcher.log`; CSV moves to `data/schwab_csv_archive/`; NTFY fires to topic `ollietrades-admin`.
+
+**Defense-in-depth retained**: `e8b7f9e` (`sleep 11`) stays — harmless overhead.
+
+**Recovery**: `git revert <this-commit-sha>` + `launchctl bootout gui/$(id -u)/com.ollietrades.schwab-watcher && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ollietrades.schwab-watcher.plist`.

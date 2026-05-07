@@ -10,17 +10,23 @@ Items moved by category based on observed reality, not historical claim.
 
 ## Schwab Workflow
 
-**Drop directory:** `/Users/bigmac/Downloads/` (relocated 2026-05-04 from `/Users/Shared/schwab_inbox/`).
+**Drop directory:** `/Users/bigmac/autonomous-trader/inbox/` (relocated 2026-05-07 from `/Users/bigmac/Downloads/` per HM-AT-β; previous: 2026-05-04 → `~/Downloads/`; pre-2026-05-04 → `/Users/Shared/schwab_inbox/`).
 
-**How it works:** Browser saves `Scwab*Positions*.csv` to `~/Downloads/`. The launchd watcher `com.ollietrades.schwab-watcher` polls every 60 seconds, finds the file via glob `Scwab*Positions*.csv` / `Schwab*Positions*.csv` / `schwab_*.csv` (case-insensitive), invokes `scripts/import_schwab_csv.py`, syncs via `scripts/sync_schwab_to_real_holdings.py`, archives the CSV to `data/schwab_csv_archive/`, and fires an NTFY notification to topic `ollietrades-admin`.
+**How it works:** Admiral scps `Sc*Position*.csv` from Bonnie laptop into `~/autonomous-trader/inbox/`. The launchd watcher `com.ollietrades.schwab-watcher` polls every 60 seconds, finds the file via glob `Scwab*Positions*.csv` / `Schwab*Positions*.csv` / `schwab_*.csv` (case-insensitive), invokes `scripts/import_schwab_csv.py`, syncs via `scripts/sync_schwab_to_real_holdings.py`, archives the CSV to `data/schwab_csv_archive/`, and fires an NTFY notification to topic `ollietrades-admin`.
+
+**Admiral's scp command** (PowerShell on Bonnie laptop):
+```
+scp "C:\Users\Bonnie\Downloads\Sc*Position*.csv" bigmac@192.168.1.248:~/autonomous-trader/inbox/
+```
 
 **Imports log:**
+- 2026-05-07 09:14 MST — backlog drain (6 CSVs Apr 30 → May 7) imported during HM-AT diagnosis; archive count 2 → 13.
 - 2026-05-04 09:35 MST — fresh snapshot 2026-05-04T12:15:00 imported, 24 rows. Resolved 4-day stale-data display issue (DELL day-change was showing -3.59% from 2026-04-30 snapshot; now correctly -0.77% from today's snapshot).
 - 2026-04-30 09:21 MST — snapshot 2026-04-30T11:30:00, 16 rows
 - 2026-04-28 09:39 MST — snapshot 2026-04-28T12:30:00, 14 rows
 - 2026-04-24 09:54 MST — snapshot 2026-04-24T12:48:00, 8 rows
 
-**Cadence note:** Imports are still manual-trigger (Admiral exports Schwab Positions CSV; browser saves to `~/Downloads/`; watcher does the rest). No NTFY reminder added — revisit if drift recurs in 3 weeks.
+**Cadence note:** Imports are still manual-trigger (Admiral scps Schwab Positions CSV from Bonnie laptop into `~/autonomous-trader/inbox/`; watcher does the rest). No NTFY reminder added — revisit if drift recurs in 3 weeks.
 
 ---
 
@@ -651,9 +657,9 @@ def run_battle_station_monitor():
 ### HM-AT-β — Schwab watcher: migrate watch dir off ~/Downloads to eliminate TCC dependency (2026-05-07)
 
 **Type:** Workflow / robustness
-**Priority:** P3 — post-soak
-**Status:** Proposed
-**Origin:** HM-AT diagnosis 2026-05-07. Parent HM-AT closed via manual Full Disk Access GUI grant + `sleep 11` defense-in-depth (commit `e8b7f9e`).
+**Priority:** P3 → P1 (escalated 2026-05-07: GUI fix path unavailable on headless Mini)
+**Status:** **SHIPPED 2026-05-07** — see commit and OPS_LOG 2026-05-07.
+**Origin:** HM-AT diagnosis 2026-05-07. Parent HM-AT closed via Full Disk Access GUI grant intent + `sleep 11` defense-in-depth (commit `e8b7f9e`); GUI grant proved infeasible on the headless Mini, so HM-AT-β became the actual fix.
 
 #### Problem
 Watch dir is currently `/Users/bigmac/Downloads/` (set 2026-05-04 to "meet downloads where the browser puts them"). macOS TCC restricts `~/Downloads/` access — the launchd audit session does not inherit Full Disk Access from Terminal/SSH, causing silent dormancy. HM-AT was resolved by manually granting `/bin/bash` Full Disk Access in System Settings. That grant is fragile: any TCC reset (macOS update, system reset, manual revoke) re-introduces the silent failure.
