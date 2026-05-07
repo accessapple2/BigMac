@@ -37,3 +37,26 @@ Refs: /tmp/scotty_session_2026-05-03/tier2_landmine_fix_proposal.md (Section I, 
 - 2026-05-07T06:00:06 | daily_backup | backup=trader_2026-05-07.db | 251812KB
 - 2026-05-07: HM-AO closed as already-shipped — bug fixed in 86bb32b (Apr 24). Same-class bug pivoted to HM-AO-β (scripts/ollie_backtest_*.py).
 - 2026-05-07 09:30: HM-AS diagnosed. battle_station_monitor cadence median 2:01 (on target); p95 5:07; tail driven by single-threaded schedule.run_pending() blocking on slow jobs. Architectural, not bug. 80% fire-rate recovery preserves α-lift evidence integrity. HM-AS-β (10-min observability log when interval >180s) queued for post-soak.
+
+## 2026-05-07 10:00 — HM-AT TCC diagnosis + manual GUI fix path
+
+The Schwab CSV watcher (`com.ollietrades.schwab-watcher`) appeared dormant 2026-05-06 and 2026-05-07. Initial theory was launchd fast-exit throttle: commit `e8b7f9e` (fix: HM-AT prevent launchd throttle in schwab_csv_watcher) added defensive `sleep 11` to script end.
+
+**Revised diagnosis 2026-05-07**: `launchctl print gui/$(id -u)/com.ollietrades.schwab-watcher` confirmed `runs = 7`, `last exit code = 0` — the agent IS launching every 60s as designed. The real cause is **macOS TCC denying the launchd audit session access to `~/Downloads/`**. Manual runs (SSH/Terminal) inherit the Full Disk Access grant from the host app; launchd's audit session does not. The `nullglob` setting in `scripts/schwab_csv_watcher.sh` swallows the empty-glob expansion silently — every cycle exits clean with exit 0 and no log trace of the failure. Manual SSH-launched runs successfully processed all 6 backlogged CSVs (Apr 30 → May 7 06:16) during diagnosis, archive count 2 → 13.
+
+**Manual fix path** (Admiral, GUI step):
+
+1. Open System Settings → Privacy & Security → Full Disk Access.
+2. Toggle ON for `/bin/bash` (use `+` to add if not listed; navigate to `/bin/bash`).
+3. Reload the agent:
+   ```
+   launchctl bootout gui/$(id -u)/com.ollietrades.schwab-watcher
+   launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ollietrades.schwab-watcher.plist
+   ```
+4. Verify within 90s by dropping a Schwab CSV in `~/Downloads/` and confirming it lands in `data/schwab_csv_archive/` and an entry appears in `logs/schwab_watcher.log`.
+
+**Recovery on macOS update or TCC reset**: same GUI step. Document any TCC reset events here for pattern visibility.
+
+**Defense-in-depth note**: `e8b7f9e` (`sleep 11`) is retained — harmless overhead and protects against the throttle theory if it ever becomes a compounding factor.
+
+**Backlog**: HM-AT-β tracks migration of watcher to `~/autonomous-trader/inbox/` to eliminate TCC dependency entirely (post-soak).

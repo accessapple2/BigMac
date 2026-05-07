@@ -648,6 +648,45 @@ def run_battle_station_monitor():
 
 ---
 
+### HM-AT-β — Schwab watcher: migrate watch dir off ~/Downloads to eliminate TCC dependency (2026-05-07)
+
+**Type:** Workflow / robustness
+**Priority:** P3 — post-soak
+**Status:** Proposed
+**Origin:** HM-AT diagnosis 2026-05-07. Parent HM-AT closed via manual Full Disk Access GUI grant + `sleep 11` defense-in-depth (commit `e8b7f9e`).
+
+#### Problem
+Watch dir is currently `/Users/bigmac/Downloads/` (set 2026-05-04 to "meet downloads where the browser puts them"). macOS TCC restricts `~/Downloads/` access — the launchd audit session does not inherit Full Disk Access from Terminal/SSH, causing silent dormancy. HM-AT was resolved by manually granting `/bin/bash` Full Disk Access in System Settings. That grant is fragile: any TCC reset (macOS update, system reset, manual revoke) re-introduces the silent failure.
+
+#### Shape
+Migrate the watch dir from `~/Downloads/` to `~/autonomous-trader/inbox/`. The autonomous-trader directory is project-owned and not subject to TCC's user-data restrictions, so launchd-spawned agents can read it without any GUI grant.
+
+Changes:
+- Edit `scripts/schwab_csv_watcher.sh`: `WATCH_DIR="/Users/bigmac/autonomous-trader/inbox"` (was `/Users/bigmac/Downloads`).
+- Create `~/autonomous-trader/inbox/` directory; add to `.gitignore` since the inbox holds transient CSVs.
+- Update CLAUDE.md "Schwab Workflow" section to reflect new drop directory.
+- Workflow change for Admiral: browser save target switches from Downloads to inbox/ (Chrome's "Ask where to save" or per-save dir change), OR add a one-liner cron / Hazel rule to move `~/Downloads/Sc[hw]ab*Positions*.csv` to inbox/.
+
+#### Effort
+~30 min Scotty (script edit + dir create + CLAUDE.md update + verify) + Admiral browser-config or Hazel rule.
+
+#### Acceptance criteria
+- [ ] `WATCH_DIR` constant moved off `~/Downloads/`
+- [ ] launchd-driven watcher processes a test CSV without any TCC grant on `/bin/bash`
+- [ ] Admiral workflow documented (browser save dir change OR Hazel rule)
+- [ ] CLAUDE.md "Schwab Workflow" updated
+- [ ] Bootout/bootstrap cycle in OPS_LOG showing TCC-free operation
+
+#### Escalation path
+If browser-save-dir change is unworkable, alternative: Hazel rule on `~/Downloads/` to move matching CSVs to `~/autonomous-trader/inbox/`. Hazel runs in user session and inherits TCC, so it can read Downloads even when launchd cannot.
+
+#### Related
+- HM-AT — closed via Full Disk Access GUI grant + `e8b7f9e` defense-in-depth
+- OPS_LOG 2026-05-07 10:00 — TCC diagnosis + recovery path
+- CLAUDE.md "Schwab Workflow" section — current drop dir documented
+
+---
+
 ## Lessons
 
 **2026-05-04 — Stale-bytecode trap from in-flight schema changes:** HM-B's `DROP COLUMN ai_players.is_halted` (commit `9256890`) created a stale-bytecode mismatch in the running trader process (PID 13734). The service was started at 08:32 MST — before HM-A's source migration shipped that morning — so the in-memory bytecode still had pre-HM-A SQL referencing the now-dropped column. Errors began at 17:36, but were caught by `try/except` blocks at the call sites and surfaced only as quiet `console.log` warnings: 15 occurrences across `War Room`, `ai_brain.py:286/295/533`, and three agents (ollama-coder, mlx-qwen3, energy-arnold) before discovery via log scan during PED retirement verification ~70 minutes later. Source code post-HM-A was clean; the issue was entirely in the long-running process's compiled module cache. **Future schema-change sessions should include a service restart in the verification phase OR a longer (30+ min) post-change soak window before declaring the change stable**, specifically to flush any pre-migration in-memory residue. This is also a HM-U datapoint: the silent-failure pattern (caught exceptions, swallowed errors) hid the issue from cursory checks — only a focused log scan surfaced it.
