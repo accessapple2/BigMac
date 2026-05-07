@@ -157,3 +157,24 @@ Diagnosis surfaced that the original HM-AR ticket framed three independent earni
 **Recommended cleanup (HM-AR-β, ~15 min Scotty):** archive `engine/earnings_injector.py` → `archive/retired/2026-05-07-earnings-injector/`; rename `run_earnings_universe_inject` → `run_earnings_scan_inject` in `main.py` to fix the naming-drift lie. Leave the empty `earnings_universe` table in place (sacred-data rule).
 
 **No code changes in this entry.** Doc-only audit.
+
+## 2026-05-07 — HM-AV: ALPACA_*→APCA_* consolidation
+
+**Context:** Memory said ~34 ALPACA_* sites; grep audit found **6**, all fallback chains in dead code. `.env` has only `APCA_*` keys (no `ALPACA_*` entries), so the `or os.getenv("ALPACA_*")` branches were reading unset env vars and falling through every call. The "back-compat preservation" intent baked into those fallbacks was already moot.
+
+**Files (3 sites in 2 files):**
+- `engine/premium_tracker.py:36-37` — `_headers()`, full fallback chain
+- `dashboard/app.py:17099-17100` — healthcheck `CHECK 1: Alpaca creds present`, fallback chain (no third branch)
+- `dashboard/app.py:17564-17565` — `_alpaca_options_headers()`, full fallback chain
+
+**Action:** simplified each to canonical pattern matching the other 71 APCA_*-only sites:
+```python
+key    = os.getenv("APCA_API_KEY_ID", "")
+secret = os.getenv("APCA_API_SECRET_KEY", "")
+```
+
+**Runtime behavior unchanged** — the simplified code reads the same env var that the prior fallback chain was reading first. The dead branches are gone.
+
+**Post-HM-AV state (2026-05-07):** ALPACA_* fully migrated; APCA_* is canonical (71 active sites). Confirmed via grep audit. Future audits should grep `APCA_(API_KEY_ID|API_SECRET_KEY)` only.
+
+**Service restart required.** Reversal: git revert + restart.

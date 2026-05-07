@@ -17096,8 +17096,9 @@ async def fleet_pulse():
     # CHECK 1: Alpaca creds present
     try:
         import os as _os
-        api_key = _os.getenv("APCA_API_KEY_ID") or _os.getenv("ALPACA_API_KEY_ID")
-        api_sec = _os.getenv("APCA_API_SECRET_KEY") or _os.getenv("ALPACA_API_SECRET_KEY")
+        # HM-AV 2026-05-07: ALPACA_*→APCA_* simplification (.env has only APCA_*)
+        api_key = _os.getenv("APCA_API_KEY_ID", "")
+        api_sec = _os.getenv("APCA_API_SECRET_KEY", "")
         checks["alpaca"] = {"ok": bool(api_key and api_sec), "detail": "creds present" if (api_key and api_sec) else "creds missing"}
     except Exception as e:
         checks["alpaca"] = {"ok": False, "detail": f"err: {str(e)[:60]}"}
@@ -17561,8 +17562,9 @@ async def agent_affinity():
 
 def _alpaca_options_headers() -> dict:
     import os as _os
-    key = _os.getenv("APCA_API_KEY_ID") or _os.getenv("ALPACA_API_KEY_ID") or _os.getenv("ALPACA_KEY", "")
-    secret = _os.getenv("APCA_API_SECRET_KEY") or _os.getenv("ALPACA_API_SECRET_KEY") or _os.getenv("ALPACA_API_SECRET", "")
+    # HM-AV 2026-05-07: ALPACA_*→APCA_* simplification (.env has only APCA_*)
+    key = _os.getenv("APCA_API_KEY_ID", "")
+    secret = _os.getenv("APCA_API_SECRET_KEY", "")
     return {"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret}
 
 
