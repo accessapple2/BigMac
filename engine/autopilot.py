@@ -61,7 +61,8 @@ def run_autopilot(prices: dict):
     conn = _conn()
     players = conn.execute(
         # HM-AK-β 2026-05-07: halt_mode filter — skip halted_full and exit_only rows
-        "SELECT id, display_name FROM ai_players WHERE is_active=1 AND halt_mode='active' AND id != 'dayblade-0dte'"
+        # HM-AK-γ 2026-05-07: drop redundant dayblade-0dte exclusion (halt_mode='full' covers it)
+        "SELECT id, display_name FROM ai_players WHERE is_active=1 AND halt_mode='active'"
     ).fetchall()
     conn.close()
 
