@@ -530,6 +530,77 @@ The actual contaminated code paths are THREE, all sharing the same root cause (n
 
 ---
 
+### HM-AQ — Active Watchlist Coverage Decision (2026-05-07)
+
+**Type:** Strategic scope decision (not a bug)
+**Priority:** P3 — non-blocking, no execution risk
+**Status:** Proposed
+**Origin:** 2026-05-07, "missed mover" investigation (DDOG +30.87%, FTNT +22.92%, MDB +14.19%, ZTS −21.37%, ARM −8.18%, TPR −8.14%)
+
+#### Summary
+The fleet's active iteration sources are locked to ~20 mega-cap names. Tickers outside that set are structurally invisible to every active scanner, dashboard surface, and spread engine — not filtered out by gates, simply never iterated.
+
+#### Current state
+| Source | Members | Used by |
+|---|---|---|
+| `config.py:24 WATCH_STOCKS` | 20 tickers (SPY, QQQ, TQQQ, NVDA, TSLA, AAPL, AMD, META, MSFT, GOOGL, AMZN, MU, ORCL, NOW, AVGO, PLTR, DELL, XLE, INTC, NUKZ) | dashboard (12+ iterations), `scripts/import_stooq.py` |
+| Per-strategy `TIER_1+TIER_2` | 10 tickers (SPY, QQQ, IWM + 7 large-caps) | `bull_spread_v1`, `bull_call_spread_v1`, `bear_put_spread_v1` |
+| `scan_universe` (DB) | 2,741 catalog rows | passive metadata only — no live readers |
+
+Of the 6 candidates that triggered this investigation: 5 in `scan_universe` (catalog only), 0 in any active iteration source. ZTS not even catalogued.
+
+#### Decision needed (CO)
+Whether to broaden active coverage, and if so, the inclusion criteria. Candidates:
+- Market cap floor (e.g., ≥$10B)
+- Daily $ volume floor (e.g., ≥$500M)
+- Options liquidity floor (for spread eligibility — bid/ask spread, OI)
+- Earnings-event filter (in/out of blackout window)
+- Manual curation vs. dynamic refresh
+
+#### Acceptance criteria
+- [ ] Coverage criteria documented in `CLAUDE.md` or `docs/UNIVERSE.md`
+- [ ] CO decision logged (broaden / hold / hybrid)
+- [ ] If broadening: implementation ticket spawned with explicit ticker list or refresh logic
+- [ ] If holding: rationale documented so the 20-name limit is deliberate, not accidental
+
+#### Related
+- `bull_call_spread_v1.py` TIER_1/TIER_2 definitions
+- HM-AP (closed no-op) — `bull_call_spread_v1` silence verdict
+- HM-AR — `earnings_universe` observability (sibling finding from same investigation)
+
+---
+
+### HM-AR — earnings_universe Inject Observability (2026-05-07)
+
+**Type:** Hygiene / observability
+**Priority:** P4 — low, not safety-critical
+**Status:** Proposed
+**Origin:** 2026-05-07, surfaced during HM-AQ investigation
+
+#### Summary
+The `earnings_universe` SQLite table is empty (0 rows). Scheduled writer `run_earnings_universe_inject` (`main.py:679`) runs daily at 06:00 AZ. Either the writer is failing silently, the table is ephemeral by design, or today simply had no earnings to inject.
+
+#### Not-a-safety-issue note
+The options-blackout decision path does **not** read from `earnings_universe`. It uses `engine/stock_fundamentals.py` (yfinance Ticker.calendar) + `data/earnings_cache.json` fast path via `_next_earnings_date()` at `engine/options_selector.py:19, 252`. Drydock blackout work is intact. This ticket is purely hygiene for the `_earnings_today_tickers` consumer path.
+
+#### Current state
+- Writer: `main.py:679 run_earnings_universe_inject()`, scheduled 06:00 AZ daily
+- Module variable populated: `_earnings_today_tickers` (`main.py:746`)
+- Table state: 0 rows, 0 schema activity observed
+- `post_earnings_drift.py` already retired (`archive/retired/2026-05-04-post-earnings-drift/`)
+
+#### Action items
+- [ ] 06:05 AZ next trading day: check `earnings_universe` row count immediately after job window
+- [ ] If populated → document lifecycle in code comment (write-and-clear-after-consume = expected)
+- [ ] If still empty → check job logs for `run_earnings_universe_inject` errors
+- [ ] If writer is dead → fix or formally retire the path; remove the table if no consumer remains
+
+#### Acceptance criteria
+- [ ] One of: writer fixed / lifecycle documented / path retired with table dropped
+- [ ] No silent-failure ingest paths remain in the daily 06:00 schedule
+
+---
+
 ## Lessons
 
 **2026-05-04 — Stale-bytecode trap from in-flight schema changes:** HM-B's `DROP COLUMN ai_players.is_halted` (commit `9256890`) created a stale-bytecode mismatch in the running trader process (PID 13734). The service was started at 08:32 MST — before HM-A's source migration shipped that morning — so the in-memory bytecode still had pre-HM-A SQL referencing the now-dropped column. Errors began at 17:36, but were caught by `try/except` blocks at the call sites and surfaced only as quiet `console.log` warnings: 15 occurrences across `War Room`, `ai_brain.py:286/295/533`, and three agents (ollama-coder, mlx-qwen3, energy-arnold) before discovery via log scan during PED retirement verification ~70 minutes later. Source code post-HM-A was clean; the issue was entirely in the long-running process's compiled module cache. **Future schema-change sessions should include a service restart in the verification phase OR a longer (30+ min) post-change soak window before declaring the change stable**, specifically to flush any pre-migration in-memory residue. This is also a HM-U datapoint: the silent-failure pattern (caught exceptions, swallowed errors) hid the issue from cursory checks — only a focused log scan surfaced it.
