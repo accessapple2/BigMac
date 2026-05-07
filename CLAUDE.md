@@ -64,6 +64,11 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
 - ALL dashboard edits target that single file — do not create new HTML files unless explicitly asked
 - `main.py` is the entry point; it imports `from dashboard.app import app` and runs uvicorn on 8080
 
+## Network Bindings
+- **Trader dashboard (port 8080)**: bound network-wide; reachable on LAN + via Cloudflare tunnel `bridge.ollietrades.com`.
+- **Signal Center (port 9000)**: currently bound to `127.0.0.1` from pre-2FA legacy posture. HM-AW (`docs/XO_BACKLOG.md`) tracks reopening to network now that 2FA TOTP + multi-user auth (Captain, Bonnie observer, Dad charts) are in place. SSH tunnel required today for non-bigmac browser access.
+- **Two distinct auth layers** (do not conflate): browser users → 2FA TOTP + RBAC at the Signal Center server layer; automation/scripts → SSH keys + bigmac OS account. Both are valid; they protect different surfaces.
+
 ## RAM Discipline (16GB shared across Ollama, Docker, Tractor Beam, OllieTrades)
 - Prefer `qwen3.5:9b` over larger models
 - `qwen3:30b` is rejected — too slow for this box
