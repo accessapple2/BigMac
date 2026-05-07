@@ -13488,12 +13488,15 @@ def get_kirk_advisory(source: str = "paper"):
     if source == "all":
         from engine.kirk_advisory import generate_kirk_advisory
         paper_result = generate_kirk_advisory()
-        paper_positions = paper_result.get("positions", []) or []
-        for p in paper_positions:
-            p["origin"] = "paper"
+        # HM-AU-β 2026-05-07: dedupe — both paper and real paths read
+        # data/real_holdings.json post-Option A (commit e41ddb2 2026-05-05).
+        # Keep paper_result for its envelope (market_context,
+        # cash_recommendation, generated_at) and engine side-effects
+        # (kirk_advisory_log writes, auto-dismiss for sold positions);
+        # replace positions with real_positions only to avoid duplication.
         paper_result["source"] = "all"
         paper_result["source_label"] = "Combined Paper + Real"
-        paper_result["positions"] = paper_positions + real_positions
+        paper_result["positions"] = real_positions
         paper_result["real_cash_available"] = real_cash
         return paper_result
 
