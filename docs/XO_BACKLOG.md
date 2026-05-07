@@ -540,6 +540,51 @@ The actual contaminated code paths are THREE, all sharing the same root cause (n
 
 ---
 
+## SHIPPED 2026-05-06 19:40 MST — HM-AI Grok→Team rename (commit `b09d7a5`)
+
+**Background:** "Grok" was legacy branding from the xAI Grok-4 era. The model has been qwen3:8b on Ollie Box since the 2026-04-17 RAM patch. HM-AG-β rewrote the scheduler docstring at `main.py:1718` to say "Advisory Team scheduler"; HM-AI continues that rename through the function, file, and variable layer so the code matches the docstring.
+
+**Conceptual model (post-rename):**
+
+    Team        = parent orchestrator   (run_team_advisor → run_team_scan)
+    Grok-sub    = LLM-thesis sub-advisor (run_grok_subadvisor)         ← was run_grok_advisory
+    Troi-sub    = sentiment sub-advisor  (run_troi_scan)
+    Worf-sub    = tactical-risk sub-advisor (run_worf_scan)
+
+The "grok" name now identifies the **sub-advisor role** (LLM-thesis sub-agent), not the model.
+
+**Renames:**
+- `engine/kirk_grok_advisor.py` → `engine/team_advisor_grok.py` (`git mv`, 95% similarity preserved)
+- `run_grok_advisory()` → `run_grok_subadvisor()`
+- `main.py def run_grok_advisor()` → `def run_team_advisor()`
+- `main.py _grok_advisor_slots_done_today` → `_team_advisor_slots_done_today` (global flag)
+- `engine/wb_advisory_team.py`: 1 import + 1 call + 1 docstring line
+- `dashboard/app.py`: 1 import + 1 comment
+- `engine/kirk_advisory.py`: 1 comment line
+- Logger name in renamed file: `kirk_grok_advisor` → `team_advisor_grok`
+
+**Preserved (intentionally not changed):**
+- `portfolio_advice.advisor='grok'` DB rows — represents the sub-advisor role; preserves history
+- Dashboard `🛸 Advisory Team` card with Grok/Worf tabs
+- `[HM-AG-α]` log strings — "Grok" is the sub-advisor name, not the model
+- `archive/retired/2026-05-04-kirk-swing-desk/` README and all `docs/*` historical references
+
+**Verification matrix (all 9 GREEN, post-restart PID 75149):**
+1. `git mv` rename history-preserving (95% similarity)
+2. Zero orphan code refs to `kirk_grok_advisor` / `run_grok_advisory` (only self-documenting rename notes inside new file's docstring)
+3. `import engine.team_advisor_grok` works; `from engine.team_advisor_grok import run_grok_subadvisor, get_scan_meta` resolves
+4. Old `engine.kirk_grok_advisor` import path raises `ImportError`
+5. Logger name updated to `team_advisor_grok`
+6. Dashboard `/api/wb-team/advice` returns HTTP 200 with shape `{advisors:[grok,troi,worf], meta:{...}}`
+7. Startup log line `"Advisory Team armed (Grok+Troi+Worf — fires 9:30 AM…)"` confirmed at `main.py:3879`
+8. Manual `POST /api/wb-team/scan` returns `team_scan: true`; Troi + Worf each wrote 3 `portfolio_advice` rows under their advisor keys
+9. `[HM-AG-α]` filter logs continue to fire under the renamed function
+
+**Side observation (not a rename problem):** The post-rename trigger had Grok-sub return `parse_error: Expecting ',' delimiter: line 1 column 1514 (char 1513)` — qwen3:8b emitted malformed JSON on this run. The function ran end-to-end through the renamed path and hit the existing error-handling branch correctly. Pre-existing brittleness in `_parse_advice`'s strict `json.loads`. **Flagged as future HM-AJ candidate:** harden `_parse_advice` to recover from truncated/malformed LLM JSON (try-except `json.JSONDecodeError` with a salvage attempt that slices at the last complete `}` before the error position). Earlier 18:36 trigger saved 22/23 cleanly with 1 hallucination caught — proves filter + parse work when LLM behaves.
+
+**Reversal:** `git revert b09d7a5` + `launchctl kickstart -k gui/$(id -u)/com.trademinds.trader`. No DB state to roll back.
+
+
 ## SHIPPED 2026-05-06 18:00 MST — Kirk None-fix (commit `d2be8bb`)
 
 **Root cause:** `engine/kirk_advisory.py:277` had a default-value bug:
