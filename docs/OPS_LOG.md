@@ -226,3 +226,32 @@ Path (a) "formal retirement" applied per Captain decision logged in HM-AR-β tic
 - Captain caught the math error in my pre-commit estimate; actual fix is the bulk-endpoint pattern, not threshold tightening.
 
 **Rollback:** `git revert` last 5 commits + drop ALTER COLUMNs (SQLite pre-3.35: schema rebuild required) + `launchctl bootout gui/$(id -u)/com.ollietrades.universe-refresh` + service restart. Or simpler: revert commit 5 only (consumers still work via fallback path in `engine.universe`).
+
+## 2026-05-07 — HM-AM Phase 1 SHIPPED: Total Portfolio Unification (data layer)
+
+Captain mental-model 2026-05-06 ("metals are an extension of the total portfolio") materialized as a read-only data layer. Schwab + Dilithium Reserve + Alpaca paper now reachable through one API.
+
+**Module:** `engine/total_portfolio.py` (new). Public API: `get_total_portfolio()` returns unified `TotalPortfolio` with positions + cash + totals + per-source resilience flags. `get_portfolio_summary()` for lightweight callers. 30s TTL cache (matches `engine/universe.py` precedent).
+
+**First smoke** (`venv/bin/python3 engine/total_portfolio.py`):
+```
+total_value:    $138,371.20
+total_cash:     $104,308.93
+total_invested: $34,062.27
+positions:      22 (11 Schwab + 2 metals + 9 Alpaca paper)
+sources_loaded: ["schwab", "metals", "alpaca_paper"]
+sources_failed: []
+```
+
+**Per-source resilience verified.** First smoke initially failed Alpaca with `AlpacaBridge.account()` — bridge method is `status()` not `account()`. Fixed; the failure surfaced cleanly via `sources_failed` rather than crashing the whole module.
+
+**Phases 2-4 deferred** to fresh sessions per Captain scope:
+- Phase 2: Kirk advisory integration (switch `_load_real_holdings()` → `get_total_portfolio()`)
+- Phase 3: Advisory Team prompt context expansion
+- Phase 4: `dalio-metals` strategy realign
+
+**No consumer integration in Phase 1.** Kirk/Advisory Team/dalio-metals untouched. No service restart required (new module not yet imported by `main.py`).
+
+**Files:** `engine/total_portfolio.py` (new) + `docs/TOTAL_PORTFOLIO.md` (new) + `docs/XO_BACKLOG.md` HM-AM section + `docs/SCHEMA.md` metals_ledger cross-ref.
+
+**Reversal:** `git revert <commit-sha>` — module deletion. Sacred-data: read-only module, no DB writes.

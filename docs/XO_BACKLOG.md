@@ -1214,6 +1214,55 @@ LOW. Auth posture handles what bind-localhost was protecting. Reversal is a sing
 
 ---
 
+### HM-AM — Total Portfolio Unification (Phase 1 SHIPPED 2026-05-07)
+
+**Type:** Cross-source data layer (multi-phase epic)
+**Priority:** P3 — Phase 1 done, Phases 2-4 deferred to fresh sessions
+**Status:** **Phase 1 SHIPPED 2026-05-07** — `engine/total_portfolio.py` data layer + `docs/TOTAL_PORTFOLIO.md`. Phases 2-4 (Kirk integration, Advisory Team, dalio-metals realign) pending.
+**Origin:** Captain mental-model 2026-05-06: "metals are an extension of the total portfolio." Schwab + Dilithium Reserve + Alpaca paper currently siloed across `data/real_holdings.json`, `metals_ledger` table, and `AlpacaBridge`. Kirk + Advisory Team see Schwab only. Goal: unified read-only API.
+
+#### Phase 1 outcome
+
+`engine/total_portfolio.py` provides:
+- `get_total_portfolio() -> TotalPortfolio` — full unified view (positions + cash + totals + sources_loaded/failed)
+- `get_portfolio_summary() -> dict` — lightweight summary
+- 30s TTL cache (matches `engine/universe.py` precedent)
+- Per-source resilience: each source loaded independently; failures recorded in `sources_failed` rather than raising
+
+First smoke (2026-05-07): **22 positions, $138,371.20 total value**, all 3 sources loaded clean. See `docs/TOTAL_PORTFOLIO.md`.
+
+#### Phase 2 (deferred) — Kirk advisory integration
+
+Switch `engine/kirk_advisory.py::generate_kirk_advisory()` from `_load_real_holdings()` to `engine.total_portfolio.get_total_portfolio()`. Kirk sees Alpaca paper + metals alongside Schwab. Effort: ~1 h Scotty (one function migration + verify all four `?source=` paths in HM-AU still work + advisory consumers handle the larger surface).
+
+#### Phase 3 (deferred) — Advisory Team integration
+
+Advisory Team prompts include the unified portfolio context. Currently the Team sees Schwab indirectly via Kirk. Effort: ~30 min Scotty (prompt template update + verify Picard/etc. consumers).
+
+#### Phase 4 (deferred) — `dalio-metals` strategy realign
+
+`dalio-metals` currently has its own metals view. Consolidate to read from `total_portfolio` so the player_id's metals match physical reality + Captain's actions. Effort: TBD, depends on dalio-metals current implementation surface.
+
+#### Acceptance (Phase 1 only)
+
+- [x] `engine/total_portfolio.py` ships read-only data layer
+- [x] Standalone smoke succeeds (`venv/bin/python3 engine/total_portfolio.py`)
+- [x] Per-source resilience verified (sources_failed pattern works)
+- [x] 30s TTL cache + `force_refresh` flag
+- [x] `docs/TOTAL_PORTFOLIO.md` documents module, data shape, deferred phases
+- [x] No consumer integration; Kirk/Advisory/dalio-metals untouched
+
+#### Cross-references
+
+- `docs/TOTAL_PORTFOLIO.md` — full module reference
+- `engine/alpaca_bridge.py::AlpacaBridge.status() / .positions()` — Alpaca source
+- `data/real_holdings.json` — Schwab/TradeStation source (HM-AT-β pipeline)
+- `metals_ledger` table — physical metals (`docs/SCHEMA.md`)
+- HM-AT-β — Schwab CSV pipeline that feeds the real_holdings.json source
+- HM-AU — Kirk advisory source routing audit (relevant when Phase 2 integration starts)
+
+---
+
 ## Lessons
 
 **2026-05-04 — Stale-bytecode trap from in-flight schema changes:** HM-B's `DROP COLUMN ai_players.is_halted` (commit `9256890`) created a stale-bytecode mismatch in the running trader process (PID 13734). The service was started at 08:32 MST — before HM-A's source migration shipped that morning — so the in-memory bytecode still had pre-HM-A SQL referencing the now-dropped column. Errors began at 17:36, but were caught by `try/except` blocks at the call sites and surfaced only as quiet `console.log` warnings: 15 occurrences across `War Room`, `ai_brain.py:286/295/533`, and three agents (ollama-coder, mlx-qwen3, energy-arnold) before discovery via log scan during PED retirement verification ~70 minutes later. Source code post-HM-A was clean; the issue was entirely in the long-running process's compiled module cache. **Future schema-change sessions should include a service restart in the verification phase OR a longer (30+ min) post-change soak window before declaring the change stable**, specifically to flush any pre-migration in-memory residue. This is also a HM-U datapoint: the silent-failure pattern (caught exceptions, swallowed errors) hid the issue from cursory checks — only a focused log scan surfaced it.

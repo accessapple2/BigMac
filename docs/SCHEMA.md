@@ -1372,7 +1372,7 @@
 - `ollie_decisions` (54) — Ollie quality-gate decisions.
 - `ollie_performance` (30, latest 2026-05-04 13:46) — Ollie performance log.
 - `ollie_super_trades` (26, latest 2026-04-30) — high-conviction "super trade" log.
-- `metals_ledger` (6) — metals/commodities position ledger.
+- `metals_ledger` (7) — metals/commodities purchase ledger (per-purchase row, aggregated by metal at read time). Unified portfolio view via `engine/total_portfolio.py::_load_metals` — see `docs/TOTAL_PORTFOLIO.md` (HM-AM Phase 1 SHIPPED 2026-05-07).
 - `daily_lessons` (18, latest 2026-05-01) — distilled daily lessons (write-back from EOD reviews).
 - `season_history` (10) — season metadata (S1-S6.3+).
 - `season_config` (1, latest 2026-04-10) — current season configuration row.
