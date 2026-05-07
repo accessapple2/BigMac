@@ -697,8 +697,17 @@ If browser-save-dir change is unworkable, alternative: Hazel rule on `~/Download
 
 **Type:** Observability / documentation
 **Priority:** P3 — low
-**Status:** Proposed
+**Status:** **AUDITED + DOCUMENTED 2026-05-07** — see `docs/KIRK_SOURCES.md`. One bug surfaced and queued as HM-AU-β.
 **Origin:** 2026-05-07 morning Kirk paper-source check surfaced ambiguity in `/api/kirk/advisory?source=...` semantics.
+
+#### Audit findings (2026-05-07)
+1. **`?source=paper`** = engine path (`generate_kirk_advisory()`), reads `data/real_holdings.json`. **The name is post-Option A back-compat — actual data is Schwab/TradeStation, not Alpaca paper.** Per commit `e41ddb2` (2026-05-05), the engine was retargeted to `real_holdings.json`; the source name stayed for callers' back-compat.
+2. **`?source=real`** = inline path at `dashboard/app.py:13422`, reads same `data/real_holdings.json` via `_read_real_positions_sync()`. Different output shape (regex-parsed action labels), bypasses rule engine + `kirk_advisory_log` writes.
+3. **`?source=all`** = **bug** (HM-AU-β below). Both paper and real handlers read the same JSON file → returned positions are duplicated.
+4. **Default source** = `"paper"` (function signature). Three of five front-end callers use the default; two use `_kirkSource` (typically `'real'`).
+5. **Morning 23 → 11 position shift** explained: snapshot rewrite during HM-AT-β backlog drain at 09:14 MST; not a routing inconsistency.
+
+Full behavior table: `docs/KIRK_SOURCES.md`.
 
 #### Problem
 Same endpoint (`/api/kirk/advisory`) returned different data depending on time of day, after a Schwab CSV import flipped intermediate state:
@@ -733,6 +742,63 @@ Per HM-AJ-documented gotcha: `?source=real` **bypasses** `generate_kirk_advisory
 #### Related
 - HM-AJ — Kirk parse hardening + observability + alert hygiene (commit `796acbf`)
 - 2026-05-07 morning observation: same endpoint returned 23 → 11 positions across the day
+- `docs/KIRK_SOURCES.md` — full behavior table, snapshot data flow, naming-vs-data contradiction explained
+
+---
+
+### HM-AU-β — `?source=all` returns duplicate positions (2026-05-07)
+
+**Type:** Bug
+**Priority:** P3 — no front-end caller currently uses `?source=all` (per HM-AU audit grep), so user-visible impact is zero today; latent risk if a future caller adopts it.
+**Status:** Proposed
+**Origin:** HM-AU audit 2026-05-07. Bug surfaced when reading `dashboard/app.py:13488-13501` in light of post-Option A data routing (`paper` re-targeted to `real_holdings.json` in commit `e41ddb2`).
+
+#### Bug
+The `?source=all` branch concatenates `paper_positions + real_positions`:
+
+```python
+if source == "all":
+    from engine.kirk_advisory import generate_kirk_advisory
+    paper_result = generate_kirk_advisory()      # reads data/real_holdings.json
+    paper_positions = paper_result.get("positions", []) or []
+    for p in paper_positions:
+        p["origin"] = "paper"
+    paper_result["source"] = "all"
+    paper_result["source_label"] = "Combined Paper + Real"
+    paper_result["positions"] = paper_positions + real_positions  # ← BOTH come from real_holdings.json
+    paper_result["real_cash_available"] = real_cash
+    return paper_result
+```
+
+`paper_positions` (from `generate_kirk_advisory()` → `_load_real_holdings()`) and `real_positions` (from `_read_real_positions_sync()`) **both read `data/real_holdings.json`**. The concatenation produces each position twice, with one copy labeled `origin="paper"` and the other `origin="real"`. Pre-Option A this was correct (paper actually meant Alpaca paper book, real meant Schwab); post-Option A both sides resolve to the same file.
+
+#### Reproduction
+```bash
+curl -s 'http://localhost:8080/api/kirk/advisory?source=all' \
+  | python3 -c 'import sys,json; d=json.load(sys.stdin); print(len(d.get("positions",[])))'
+```
+Expected (post-fix): 11. Actual today: 22.
+
+#### Fix shape options
+
+| Option | Effort | Behavior |
+|---|---|---|
+| (A) Drop `paper_positions` from the union; rename to "engine-output for `real`" | ~10 min | `?source=all` returns engine-path advisory + cash, no duplication |
+| (B) De-dup by `symbol` after concat | ~10 min | Keeps both paths' enriched data; latest write wins per symbol |
+| (C) Restore `paper` to truly mean Alpaca paper book; revert Option A retargeting in `e41ddb2` | ~30 min | Largest scope — undoes the 2026-05-05 Admiral decision, breaks current callers; not recommended |
+| (D) Deprecate `?source=all` entirely; return 410 Gone | ~5 min | Cleanest if no caller needs union semantics today |
+
+**Recommendation: (A)** — given no front-end caller uses `?source=all` (per audit grep at `docs/KIRK_SOURCES.md`), the union semantics are unused. Returning the engine path's output keeps the action labels + market context + alert dedup intact and stops the duplication.
+
+#### Acceptance criteria
+- [ ] `?source=all` returns N unique positions (N = active accounts in `real_holdings.json`)
+- [ ] No duplicate `symbol` values in the response
+- [ ] `docs/KIRK_SOURCES.md` updated with post-fix behavior
+
+#### Related
+- HM-AU — audit + behavior table
+- `e41ddb2` — Option A retargeting that created the latent bug
+- `docs/KIRK_SOURCES.md`
 
 ---
 
