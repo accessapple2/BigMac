@@ -1227,6 +1227,30 @@ class AIProvider(ABC):
         personality = MODEL_PERSONALITIES.get(self.player_id, "")
         personality_block = f"\nYOUR TRADING IDENTITY:\n{personality}\nTrade according to your identity. Your personality should shape which stocks you buy and why.\n" if personality else ""
 
+        # HM-AM Phase 4 (2026-05-07): inject total_portfolio context for dalio-metals
+        # so All Weather reasoning sees the full Schwab + metals + Alpaca paper book,
+        # not just metals. Defensive: failure logs and the prompt builds without preamble.
+        if self.player_id == "dalio-metals":
+            try:
+                from engine.total_portfolio import get_portfolio_summary
+                _tp = get_portfolio_summary()
+                personality_block += (
+                    "\n\nTOTAL PORTFOLIO CONTEXT (cross-source view — your strategic vantage):\n"
+                    f"  Total value:    ${_tp.get('total_value', 0):,.2f}\n"
+                    f"  Total cash:     ${_tp.get('total_cash', 0):,.2f}\n"
+                    f"  Total invested: ${_tp.get('total_invested', 0):,.2f}\n"
+                    f"  Positions:      {_tp.get('position_count', 0)} across "
+                    f"{len(_tp.get('sources_loaded') or [])} sources: "
+                    f"{', '.join(_tp.get('sources_loaded') or [])}\n"
+                    "Use this for All Weather rebalance reasoning — metals are part of a larger sleeve.\n"
+                )
+                if _tp.get("sources_failed"):
+                    personality_block += f"  WARN sources_failed: {_tp['sources_failed']}\n"
+            except Exception as _e:
+                console.log(
+                    f"[yellow][dalio] total_portfolio preamble skipped: {type(_e).__name__}: {_e!r}"
+                )
+
         # V3: Trade selection + pyramid + sector focus
         personality_block += (
             "\n\nTRADE SELECTION CRITERIA (V3 — fewer picks, bigger bets):\n"
@@ -1607,6 +1631,30 @@ Reasoning: [2-3 sentences. Your thesis, catalyst, and exit plan.]"""
         # === STEP 2: Thesis (model's own API) ===
         personality = MODEL_PERSONALITIES.get(self.player_id, "")
         personality_block = f"\nYOUR TRADING IDENTITY:\n{personality}\n" if personality else ""
+
+        # HM-AM Phase 4 (2026-05-07): inject total_portfolio context for dalio-metals
+        # at Step 2 thesis as well, so the research→thesis→execute chain has the same
+        # cross-source vantage as the single-shot path above.
+        if self.player_id == "dalio-metals":
+            try:
+                from engine.total_portfolio import get_portfolio_summary
+                _tp = get_portfolio_summary()
+                personality_block += (
+                    "\n\nTOTAL PORTFOLIO CONTEXT (cross-source view — your strategic vantage):\n"
+                    f"  Total value:    ${_tp.get('total_value', 0):,.2f}\n"
+                    f"  Total cash:     ${_tp.get('total_cash', 0):,.2f}\n"
+                    f"  Total invested: ${_tp.get('total_invested', 0):,.2f}\n"
+                    f"  Positions:      {_tp.get('position_count', 0)} across "
+                    f"{len(_tp.get('sources_loaded') or [])} sources: "
+                    f"{', '.join(_tp.get('sources_loaded') or [])}\n"
+                    "Use this for All Weather rebalance reasoning — metals are part of a larger sleeve.\n"
+                )
+                if _tp.get("sources_failed"):
+                    personality_block += f"  WARN sources_failed: {_tp['sources_failed']}\n"
+            except Exception as _e:
+                console.log(
+                    f"[yellow][dalio] total_portfolio preamble skipped: {type(_e).__name__}: {_e!r}"
+                )
 
         # Get trade memory and competitive block from the last build_prompt call
         # (they were computed during build_research_prompt via build_prompt)
