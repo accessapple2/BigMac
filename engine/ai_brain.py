@@ -934,7 +934,7 @@ class Arena:
                 _scan_prices = prices  # Fallback if nothing qualifies
             console.log(f"[cyan]Sulu DayBlade: focused scan on {len(_scan_prices)} stocks: {', '.join(sorted(_scan_prices.keys()))}")
 
-        # Mr. Dalio: All Weather scan — include DALIO_SYMBOLS (TLT, IEF, GLD, GSG) plus WATCH_STOCKS
+        # Mr. Dalio: All Weather scan — include DALIO_SYMBOLS (TLT, IEF, GLD, GSG) plus get_active_universe()
         if player_id == "dalio-metals":
             try:
                 from config import DALIO_SYMBOLS as _DALIO_SYMS

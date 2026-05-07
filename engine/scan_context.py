@@ -250,7 +250,7 @@ def _build_watchlist_block(prices: dict, indicators: dict, player_id: str) -> st
     earnings_map = {}
     try:
         from engine.earnings_calendar import get_earnings_warnings
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         warnings = get_earnings_warnings(list(prices.keys()))
         for e in warnings:
             earnings_map[e["symbol"]] = e.get("days_until", "?")

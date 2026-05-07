@@ -402,7 +402,7 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
 
     Returns structured data for the dashboard API.
     """
-    # Get broker-book portfolio tickers if not provided — always union with WATCH_STOCKS
+    # Get broker-book portfolio tickers if not provided — always union with get_active_universe()
     # HM-I-β-Item3 (2026-05-05): re-targets to alpaca-mirror (broker book).
     if not tickers:
         position_symbols: set[str] = set()
@@ -417,8 +417,8 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
             pass
 
         try:
-            from config import WATCH_STOCKS
-            tickers = list(position_symbols | set(WATCH_STOCKS))
+            from engine.universe import get_active_universe
+            tickers = list(position_symbols | set(get_active_universe()))
         except Exception:
             tickers = list(position_symbols) if position_symbols else []
 

@@ -251,8 +251,8 @@ def evaluate_breakout(symbol: str, data: dict = None) -> dict | None:
 def scan_strategies(symbols: list = None) -> list:
     """Scan all symbols for all strategy fits, return sorted by score."""
     if symbols is None:
-        from config import WATCH_STOCKS
-        symbols = WATCH_STOCKS
+        from engine.universe import get_active_universe
+        symbols = get_active_universe()
 
     results = []
     for sym in symbols:

@@ -165,8 +165,8 @@ def _get_market_context() -> str:
     try:
         from engine.scan_context import build_scan_context
         from engine.market_data import get_all_prices, get_technical_indicators
-        from config import WATCH_STOCKS
-        prices = get_all_prices(WATCH_STOCKS)
+        from engine.universe import get_active_universe
+        prices = get_all_prices(get_active_universe())
         indicators = {}
         for sym in prices:
             ind = get_technical_indicators(sym)

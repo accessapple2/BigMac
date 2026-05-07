@@ -873,8 +873,8 @@ def match_current_patterns(prices: Optional[dict] = None, indicators: Optional[d
         if prices is None:
             try:
                 from engine.market_data import get_all_prices
-                from config import WATCH_STOCKS
-                prices = get_all_prices(WATCH_STOCKS)
+                from engine.universe import get_active_universe
+                prices = get_all_prices(get_active_universe())
             except Exception:
                 prices = {}
 

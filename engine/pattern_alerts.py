@@ -84,8 +84,8 @@ def get_pattern_alert_tiles(symbols: list = None) -> list:
 
     from engine.chart_patterns import detect_all_patterns
     if symbols is None:
-        from config import WATCH_STOCKS
-        symbols = WATCH_STOCKS
+        from engine.universe import get_active_universe
+        symbols = get_active_universe()
 
     raw_patterns = detect_all_patterns(symbols)
     tiles = []

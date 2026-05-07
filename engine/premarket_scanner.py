@@ -17,7 +17,7 @@ DAYBLADE_TICKERS = ["SPY", "QQQ", "NVDA", "TSLA", "AAPL"]
 
 
 def scan_premarket_gaps() -> list:
-    """Scan WATCH_STOCKS for pre-market gaps vs previous close.
+    """Scan get_active_universe() for pre-market gaps vs previous close.
 
     Uses yfinance to get the previous close and current pre/post market price.
     Filters for |gap| > 2%.
@@ -468,10 +468,38 @@ def get_sector_heatmap() -> list:
 # Finviz-based pre-market watchlist scanner
 # ---------------------------------------------------------------------------
 
-FIXED_WATCHLIST: list[str] = [
-    "SPY", "QQQ", "TQQQ", "NVDA", "TSLA", "AAPL",
-    "META", "AMZN", "MSFT", "AMD", "GOOGL",
-]
+# HM-AQ-β 2026-05-07: FIXED_WATCHLIST converged to dynamic universe.
+# Was a hardcoded 11-name list; now derived from engine.universe at call time.
+# Kept as a *function* (not a constant) so each call sees the freshly-cached
+# active universe rather than a stale snapshot from import time. Falls back to
+# the legacy 11-name list if the universe accessor errors (defensive).
+def _fixed_watchlist() -> list[str]:
+    try:
+        from engine.universe import get_active_universe
+        return get_active_universe()
+    except Exception:
+        return ["SPY", "QQQ", "TQQQ", "NVDA", "TSLA", "AAPL",
+                "META", "AMZN", "MSFT", "AMD", "GOOGL"]
+
+
+# Back-compat alias: existing callers reference FIXED_WATCHLIST as a name; expose
+# it as a property-like callable wrapper that returns the current list each time.
+class _DynamicWatchlist:
+    def __iter__(self):
+        return iter(_fixed_watchlist())
+    def __len__(self):
+        return len(_fixed_watchlist())
+    def __getitem__(self, i):
+        return _fixed_watchlist()[i]
+    def __contains__(self, x):
+        return x in _fixed_watchlist()
+    def __list__(self):
+        return list(_fixed_watchlist())
+    def __repr__(self):
+        return repr(_fixed_watchlist())
+
+
+FIXED_WATCHLIST = _DynamicWatchlist()
 
 DAILY_WATCHLIST_FILE = Path("data/daily_watchlist.json")
 _PREMARKET_DB = Path("data/trader.db")

@@ -257,8 +257,8 @@ def _pick_symbol(prices: dict) -> tuple[str, str] | None:
         elif cat == "earnings":
             try:
                 from engine.earnings_calendar import get_earnings_warnings
-                from config import WATCH_STOCKS
-                upcoming = get_earnings_warnings(WATCH_STOCKS)
+                from engine.universe import get_active_universe
+                upcoming = get_earnings_warnings(get_active_universe())
                 if upcoming:
                     for e in upcoming:
                         if e["symbol"] not in _recent_symbols and e["symbol"] in prices:

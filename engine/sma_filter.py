@@ -166,8 +166,8 @@ def save_sma_signal(status: dict) -> None:
 def scan_all_sma_signals(symbols: list[str] | None = None) -> dict[str, dict]:
     """Scan all symbols, save signals, return status dict keyed by symbol."""
     if symbols is None:
-        from config import WATCH_STOCKS
-        symbols = WATCH_STOCKS
+        from engine.universe import get_active_universe
+        symbols = get_active_universe()
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
     results: dict[str, dict] = {}

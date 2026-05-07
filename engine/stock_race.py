@@ -14,7 +14,7 @@ def get_stock_race() -> list:
     """
     from engine.market_data import get_all_prices
 
-    prices = get_all_prices(config.WATCH_STOCKS)
+    prices = get_all_prices(config.get_active_universe())
 
     results = []
     for sym, data in prices.items():

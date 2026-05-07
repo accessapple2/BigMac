@@ -236,8 +236,8 @@ def detect_breakout(symbol: str) -> dict | None:
 def scan_all_breakouts(symbols: list = None) -> list:
     """Scan all watchlist symbols for volatility breakouts."""
     if symbols is None:
-        from config import WATCH_STOCKS
-        symbols = WATCH_STOCKS
+        from engine.universe import get_active_universe
+        symbols = get_active_universe()
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
 

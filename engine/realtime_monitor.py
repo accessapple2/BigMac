@@ -109,8 +109,8 @@ def get_latest_ticks(symbol: str, since_ts: float = 0.0) -> list:
 
 def _get_watchlist() -> list[str]:
     """Get watchlist + active discovery symbols."""
-    from config import WATCH_STOCKS
-    symbols = list(WATCH_STOCKS)
+    from engine.universe import get_active_universe
+    symbols = list(get_active_universe())
     try:
         from engine.discovery_scanner import get_cached_discoveries
         discoveries = get_cached_discoveries()

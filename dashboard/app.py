@@ -1863,7 +1863,7 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
     import time as _lt, json as _lj
     from engine.paper_trader import get_portfolio_with_pnl
     from engine.market_data import get_bulk_prices
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     _lb_key = f"leaderboard_{season}_{'all' if show_all else 'active'}"
     _lb_entry = _endpoint_cache.get(_lb_key)
@@ -2049,7 +2049,7 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
         try:
             # Include Webull Portfolio non-watchlist positions so get_portfolio_with_pnl doesn't serial-fetch them
             _extra = ["UNH", "VRT", "CPER", "XLE", "ORCL", "AMZN", "MU", "NVDA", "AVGO", "PLTR"]
-            _all_syms = list(WATCH_STOCKS) + [s for s in _extra if s not in WATCH_STOCKS]
+            _all_syms = list(get_active_universe()) + [s for s in _extra if s not in get_active_universe()]
             prices = get_bulk_prices(_all_syms, timeout=5) or {}
         except Exception:
             prices = {}
@@ -2979,7 +2979,7 @@ def recent_trades(limit: int = 30, season: int = 0, timeframe: str = "", player_
     if open_symbols:
         try:
             from engine.market_data import get_all_prices
-            # Only fetch prices for symbols in the result set (not all WATCH_STOCKS)
+            # Only fetch prices for symbols in the result set (not all get_active_universe())
             all_prices = get_all_prices(list(open_symbols))
             for sym in open_symbols:
                 if sym in all_prices:
@@ -3811,8 +3811,8 @@ def ticker_tape():
 def market_prices():
     """Get current prices for watchlist stocks (parallel fetch)."""
     from engine.market_data import get_all_prices
-    from config import WATCH_STOCKS
-    return get_all_prices(WATCH_STOCKS)
+    from engine.universe import get_active_universe
+    return get_all_prices(get_active_universe())
 
 
 @app.get("/api/market/candles/{symbol}")
@@ -3846,7 +3846,7 @@ def market_heatmap():
     """Get watchlist heat map data: price, change%, position weight per model."""
     from concurrent.futures import ThreadPoolExecutor, as_completed, TimeoutError as FuturesTimeout
     from engine.market_data import get_stock_price
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     conn = _conn()
     # Get all active positions grouped by symbol
@@ -3860,24 +3860,36 @@ def market_heatmap():
     pos_weight = {row["symbol"]: row["cost_basis"] for row in positions}
     total_invested = sum(pos_weight.values()) or 1.0
 
-    # Parallel price fetch — was sequential (20 symbols × ~300ms each = 6s+); now 4s total cap
+    # Parallel price fetch — was sequential (20 symbols × ~300ms each = 6s+); now 4s total cap.
+    # HM-AQ-β 2026-05-07: chunked batching for the dynamic universe (~500-800 symbols).
+    # Chunks of 50 symbols with 100ms inter-chunk gap to avoid bursting through
+    # provider rate limits. Timeout=4s remains; partial results acceptable for
+    # this dashboard widget.
+    import time as _time
+    _CHUNK = 50
+    _PAUSE = 0.1
     cell_data: dict = {}
+    universe_syms = get_active_universe()  # post-bulk-sed becomes get_active_universe()
     try:
         with ThreadPoolExecutor(max_workers=6) as pool:
-            futures = {pool.submit(get_stock_price, sym): sym for sym in WATCH_STOCKS}
-            for f in as_completed(futures, timeout=4):
-                sym = futures[f]
-                try:
-                    data = f.result(timeout=1)
-                    if "error" not in data:
-                        cell_data[sym] = data
-                except Exception:
-                    pass
+            for _i in range(0, len(universe_syms), _CHUNK):
+                _chunk = universe_syms[_i:_i + _CHUNK]
+                futures = {pool.submit(get_stock_price, sym): sym for sym in _chunk}
+                for f in as_completed(futures, timeout=4):
+                    sym = futures[f]
+                    try:
+                        data = f.result(timeout=1)
+                        if "error" not in data:
+                            cell_data[sym] = data
+                    except Exception:
+                        pass
+                if _i + _CHUNK < len(universe_syms):
+                    _time.sleep(_PAUSE)
     except FuturesTimeout:
         pass  # return partial results
 
     result = []
-    for sym in WATCH_STOCKS:
+    for sym in get_active_universe():
         if sym not in cell_data:
             continue
         data = cell_data[sym]
@@ -3896,7 +3908,7 @@ def market_heatmap():
 @timed_cache(120)
 def confidence_matrix():
     """AI confidence panel: each model's latest stance on each watchlist stock."""
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     conn = _conn()
     # HM-AK-β.2 2026-05-07: halt_mode filter (halted players produce empty stances
@@ -3909,7 +3921,7 @@ def confidence_matrix():
     for p in players:
         pid = p["id"]
         stances = {}
-        for sym in WATCH_STOCKS:
+        for sym in get_active_universe():
             # HM-C: filter halted-player emissions from scorecard/calibration math
             row = conn.execute(
                 f"SELECT signal, confidence, reasoning, created_at FROM signals "
@@ -4447,8 +4459,8 @@ def cto_generate(briefing_type: str = "pre_market"):
 
 def _get_earnings_symbols():
     """Build comprehensive earnings watch list: watchlist + holdings + mega caps."""
-    from config import WATCH_STOCKS
-    symbols = set(WATCH_STOCKS)
+    from engine.universe import get_active_universe
+    symbols = set(get_active_universe())
     try:
         conn = _conn()
         positions = conn.execute("SELECT DISTINCT symbol FROM positions WHERE qty > 0").fetchall()
@@ -4482,9 +4494,9 @@ def _get_earnings_symbols():
 @app.get("/api/market/earnings")
 def earnings_upcoming():
     """Get watchlist + holdings + mega cap stocks with earnings in next 7 days, with source tagging."""
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
     from engine.earnings_calendar import get_earnings_warnings
-    watch_set = set(WATCH_STOCKS)
+    watch_set = set(get_active_universe())
     holding_set = set()
     try:
         conn = _conn()
@@ -4578,10 +4590,10 @@ def market_sectors():
     """Sector rotation tracker: performance by sector group."""
     from engine.market_data import get_stock_price
     from engine.sector_tracker import get_sector_rotation, get_sector_exposure
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     prices = {}
-    for sym in WATCH_STOCKS:
+    for sym in get_active_universe():
         data = get_stock_price(sym)
         if "error" not in data:
             prices[sym] = data
@@ -4805,9 +4817,9 @@ def export_trades(season: int = 0):
 @app.get("/api/market/sentiment")
 def market_sentiment():
     """Get sentiment scores for all watchlist stocks."""
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
     from engine.sentiment import get_watchlist_sentiment
-    return get_watchlist_sentiment(WATCH_STOCKS)
+    return get_watchlist_sentiment(get_active_universe())
 
 
 @app.get("/api/market/sentiment/{symbol}")
@@ -4827,8 +4839,8 @@ def options_flow():
     ).fetchall()
     conn.close()
     if not symbols:
-        from config import WATCH_STOCKS
-        syms = WATCH_STOCKS[:5]  # Limit to top 5 to avoid slow yfinance calls
+        from engine.universe import get_active_universe
+        syms = get_active_universe()[:5]  # Limit to top 5 to avoid slow yfinance calls
     else:
         syms = [s["symbol"] for s in symbols]
 
@@ -5127,7 +5139,7 @@ def war_room_post(data: dict = None):
         try:
             from engine.war_room import run_war_room as _run_wr, set_forced_topic, set_strategy_mode
             from engine.market_data import get_stock_price
-            from config import WATCH_STOCKS
+            from engine.universe import get_active_universe
             import os
 
             # Set forced topic BEFORE building providers so the cycle debates Kirk's symbol
@@ -5168,7 +5180,7 @@ def war_room_post(data: dict = None):
                     pass
 
             prices = {}
-            for sym in WATCH_STOCKS:
+            for sym in get_active_universe():
                 data = get_stock_price(sym)
                 if "error" not in data:
                     prices[sym] = data
@@ -5194,7 +5206,7 @@ def trigger_war_room():
     import threading
     from engine.war_room import run_war_room as _run_wr, get_most_volatile
     from engine.market_data import get_stock_price
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     def _run():
         try:
@@ -5234,7 +5246,7 @@ def trigger_war_room():
                     pass
 
             prices = {}
-            for sym in WATCH_STOCKS:
+            for sym in get_active_universe():
                 data = get_stock_price(sym)
                 if "error" not in data:
                     prices[sym] = data
@@ -5310,8 +5322,8 @@ def war_room_command(data: dict = None):
     # Parse the input for tickers (1-5 uppercase letters)
     mentioned_tickers = re.findall(r'\b([A-Z]{1,5})\b', raw_input)
     # Filter to known watchlist stocks
-    from config import WATCH_STOCKS
-    valid_tickers = [t for t in mentioned_tickers if t in WATCH_STOCKS]
+    from engine.universe import get_active_universe
+    valid_tickers = [t for t in mentioned_tickers if t in get_active_universe()]
 
     # Determine the primary ticker
     if ticker:
@@ -5345,7 +5357,7 @@ def war_room_command(data: dict = None):
             from engine.market_data import get_stock_price
             providers = _build_war_room_providers()
             prices = {}
-            for sym in ([primary] + valid_tickers + list(WATCH_STOCKS)):
+            for sym in ([primary] + valid_tickers + list(get_active_universe())):
                 if sym not in prices:
                     d = get_stock_price(sym)
                     if "error" not in d:
@@ -5764,9 +5776,9 @@ def gaps_scan_now():
     import threading as _threading
     def _bg():
         try:
-            from config import WATCH_STOCKS
+            from engine.universe import get_active_universe
             from engine.gap_scanner import scan_all_gaps
-            scan_all_gaps(WATCH_STOCKS)
+            scan_all_gaps(get_active_universe())
         except Exception as e:
             console.log(f"[red]Gap manual scan error: {e}")
     _threading.Thread(target=_bg, daemon=True).start()
@@ -5810,9 +5822,9 @@ def theta_scan_now():
     import threading as _threading
     def _bg():
         try:
-            from config import WATCH_STOCKS
+            from engine.universe import get_active_universe
             from engine.theta_scanner import scan_all_theta
-            scan_all_theta(WATCH_STOCKS)
+            scan_all_theta(get_active_universe())
         except Exception as e:
             console.log(f"[red]Theta manual scan error: {e}")
     _threading.Thread(target=_bg, daemon=True).start()
@@ -5828,9 +5840,9 @@ _ensure_sma_table()
 @app.get("/api/sma/status")
 def sma_status():
     """Current 200 SMA status for all watchlist stocks (cached 15 min)."""
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
     try:
-        data = get_cached_sma_status(WATCH_STOCKS)
+        data = get_cached_sma_status(get_active_universe())
         stocks = sorted(data.values(), key=lambda x: abs(x.get("distance_pct", 999)))
         return {"stocks": stocks, "count": len(stocks)}
     except Exception as e:
@@ -6098,7 +6110,7 @@ def risk_radar(player_id: str = None):
     import time as _time
     from engine.risk_radar import get_risk_radar, get_all_risk_radars
     from engine.market_data import get_stock_price
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     # Cache all-players result for 5 minutes — check BEFORE fetching prices
     now = _time.time()
@@ -6111,7 +6123,7 @@ def risk_radar(player_id: str = None):
         prices = _risk_radar_cache["prices"]
     else:
         prices = {}
-        for sym in WATCH_STOCKS:
+        for sym in get_active_universe():
             data = get_stock_price(sym)
             if "error" not in data:
                 prices[sym] = data
@@ -6481,10 +6493,10 @@ def pair_pnl():
     """Get combined P&L for active pair trades."""
     from engine.pair_trades import get_pair_pnl
     from engine.market_data import get_stock_price
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     prices = {}
-    for sym in WATCH_STOCKS:
+    for sym in get_active_universe():
         data = get_stock_price(sym)
         if "error" not in data:
             prices[sym] = data
@@ -6518,10 +6530,10 @@ def kill_switch():
     """EMERGENCY: Close ALL positions across ALL models."""
     from engine.kill_switch import kill_all_positions
     from engine.market_data import get_stock_price
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     prices = {}
-    for sym in WATCH_STOCKS:
+    for sym in get_active_universe():
         data = get_stock_price(sym)
         if "error" not in data:
             prices[sym] = data
@@ -6595,8 +6607,8 @@ def put_call_skew_symbol(symbol: str):
 def high_iv():
     """Get high IV opportunities across watchlist."""
     from engine.high_iv_scanner import scan_high_iv_opportunities
-    from config import WATCH_STOCKS
-    return scan_high_iv_opportunities(WATCH_STOCKS)
+    from engine.universe import get_active_universe
+    return scan_high_iv_opportunities(get_active_universe())
 
 
 # --- Cross-Asset Monitor ---
@@ -6624,8 +6636,8 @@ def trendlines(symbol: str):
 def all_trendlines():
     """Get S/R levels for all watchlist stocks."""
     from engine.trendlines import get_all_levels
-    from config import WATCH_STOCKS
-    return get_all_levels(WATCH_STOCKS)
+    from engine.universe import get_active_universe
+    return get_all_levels(get_active_universe())
 
 
 # --- Fibonacci Levels ---
@@ -6681,8 +6693,8 @@ def chart_patterns_symbol(symbol: str):
 def chart_patterns_all():
     """Get detected chart patterns for all watchlist stocks."""
     from engine.chart_patterns import detect_all_patterns
-    from config import WATCH_STOCKS
-    return detect_all_patterns(WATCH_STOCKS)
+    from engine.universe import get_active_universe
+    return detect_all_patterns(get_active_universe())
 
 
 # --- Raindrop Charts ---
@@ -6703,13 +6715,13 @@ def raindrop(symbol: str):
 def strength_index():
     """Get relative strength rankings for all watchlist stocks."""
     from engine.strength_scanner import scan_relative_strength, get_strength_rankings
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
     rankings = get_strength_rankings()
     if not rankings:
         from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
         try:
             with ThreadPoolExecutor(max_workers=1) as ex:
-                rankings = ex.submit(scan_relative_strength, WATCH_STOCKS).result(timeout=20)
+                rankings = ex.submit(scan_relative_strength, get_active_universe()).result(timeout=20)
         except (FuturesTimeout, Exception):
             rankings = []
     return rankings
@@ -6722,10 +6734,10 @@ def risk_levels():
     """Get smart risk levels (entry/stop/targets) for all open positions."""
     from engine.smart_levels import get_risk_levels
     from engine.market_data import get_stock_price
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     prices = {}
-    for sym in WATCH_STOCKS:
+    for sym in get_active_universe():
         data = get_stock_price(sym)
         if "error" not in data:
             prices[sym] = data
@@ -6769,10 +6781,10 @@ def weekly_picks():
 def stock_race():
     """Get real-time stock race data for animated bar chart."""
     from engine.market_data import get_stock_price
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     result = []
-    for sym in WATCH_STOCKS:
+    for sym in get_active_universe():
         data = get_stock_price(sym)
         if "error" not in data:
             result.append({
@@ -6790,10 +6802,10 @@ def trend_forecast():
     """Get trend predictions for all watchlist stocks."""
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
     from engine.trend_predictor import predict_all_trends
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
     try:
         with ThreadPoolExecutor(max_workers=1) as ex:
-            return ex.submit(predict_all_trends, WATCH_STOCKS).result(timeout=20)
+            return ex.submit(predict_all_trends, get_active_universe()).result(timeout=20)
     except (FuturesTimeout, Exception):
         return []
 
@@ -6840,8 +6852,8 @@ def active_deals():
     from engine.market_data import get_stock_price
     prices = {}
     try:
-        from config import WATCH_STOCKS
-        for sym in WATCH_STOCKS:
+        from engine.universe import get_active_universe
+        for sym in get_active_universe():
             data = get_stock_price(sym)
             if "error" not in data:
                 prices[sym] = data
@@ -6920,9 +6932,9 @@ def insider_activity(symbol: str):
 def insider_all():
     """Get insider trading summaries for all watchlist stocks."""
     from engine.openbb_data import get_insider_summary
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
     results = []
-    for sym in WATCH_STOCKS:
+    for sym in get_active_universe():
         summary = get_insider_summary(sym)
         if summary:
             results.append(summary)
@@ -6961,7 +6973,7 @@ def get_capital():
     from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
     from engine.paper_trader import get_portfolio_with_pnl
     from engine.market_data import get_all_prices
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     conn = _conn()
     players = conn.execute("SELECT id, display_name, cash FROM ai_players WHERE is_active=1").fetchall()
@@ -6970,7 +6982,7 @@ def get_capital():
     # get_all_prices blocks 6+ seconds on cache miss — hard cap at 3s, fall back to stale
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
-            prices = pool.submit(get_all_prices, WATCH_STOCKS).result(timeout=3)
+            prices = pool.submit(get_all_prices, get_active_universe()).result(timeout=3)
     except (FuturesTimeout, Exception):
         prices = {}
 
@@ -7817,12 +7829,12 @@ def wheel_force_scan():
 def force_scan(player_id: str):
     """Force a specific model to scan the watchlist immediately."""
     try:
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         import main as _main
         arena = getattr(_main, "arena", None)
         if arena is None:
             return {"status": "error", "error": "Arena not initialized"}
-        results = arena.scan_player(player_id, WATCH_STOCKS[:5])
+        results = arena.scan_player(player_id, get_active_universe()[:5])
         return {"status": "ok", "results": str(results)[:500]}
     except Exception as e:
         return {"status": "error", "error": str(e)}
@@ -8189,13 +8201,13 @@ def force_scan():
 
     def _do_scan():
         try:
-            from config import WATCH_STOCKS
+            from engine.universe import get_active_universe
 
             arena = _main.arena
             if arena is None:
                 arena = _main.initialize_arena()
                 _main.arena = arena
-            arena.run_scan(WATCH_STOCKS, force=True)
+            arena.run_scan(get_active_universe(), force=True)
         except Exception as e:
             print(f"Force scan error: {e}")
         finally:
@@ -12894,11 +12906,11 @@ def uhura_signal():
         from engine.congress_tracker import get_congressional_trades
         from engine.dynamic_alerts import get_active_alerts
         from engine.regime_detector import detect_regime
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
 
         # Gather all raw data (each has its own cache; safe to call in sequence)
         gex_raw = detect_gamma_environment()
-        iv_raw = scan_high_iv_opportunities(WATCH_STOCKS)
+        iv_raw = scan_high_iv_opportunities(get_active_universe())
         skew_raw = get_all_skew(["SPY", "QQQ"])
         congress_raw = get_congressional_trades()
         alerts_raw = get_active_alerts(60)
@@ -12916,7 +12928,7 @@ def uhura_signal():
             for p in players:
                 pid = p["id"]
                 stances = {}
-                for sym in WATCH_STOCKS:
+                for sym in get_active_universe():
                     # HM-C: filter halted-player emissions from scorecard/calibration math
                     row = conn.execute(
                         f"SELECT signal FROM signals WHERE player_id=? AND symbol=? "
@@ -12955,7 +12967,7 @@ def uhura_signal():
             high_iv=high_iv,
             congress_trades=congress,
             arena=arena,
-            watchlist=WATCH_STOCKS,
+            watchlist=get_active_universe(),
         )
         return signal.to_dict()
     except Exception as e:
@@ -13669,7 +13681,7 @@ def congress_trades():
 def congress_overlap():
     """Our portfolio/watchlist tickers vs congressional trades."""
     from engine.congress_tracker import get_congress_overlap
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
     try:
         conn = sqlite3.connect(DB, check_same_thread=False, timeout=10)
         conn.row_factory = sqlite3.Row
@@ -13678,10 +13690,10 @@ def congress_overlap():
             "SELECT DISTINCT symbol FROM positions WHERE player_id='alpaca-mirror'"
         ).fetchall()
         conn.close()
-        tickers = list(set([r["symbol"] for r in positions] + WATCH_STOCKS))
+        tickers = list(set([r["symbol"] for r in positions] + get_active_universe()))
     except Exception:
-        from config import WATCH_STOCKS
-        tickers = WATCH_STOCKS
+        from engine.universe import get_active_universe
+        tickers = get_active_universe()
     return {"overlaps": get_congress_overlap(tickers)}
 
 

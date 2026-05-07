@@ -1,4 +1,4 @@
-"""Stock Screener — filter WATCH_STOCKS by fundamentals with caching."""
+"""Stock Screener — filter get_active_universe() by fundamentals with caching."""
 from __future__ import annotations
 import json
 import time
@@ -23,7 +23,7 @@ def screen_stocks(
     has_insider_buying: bool = None,
     earnings_within_days: int = None,
 ) -> list:
-    """Screen WATCH_STOCKS by fundamental criteria. All parameters are optional.
+    """Screen get_active_universe() by fundamental criteria. All parameters are optional.
 
     Args:
         min_pe: Minimum trailing P/E ratio.
@@ -139,7 +139,7 @@ def screen_stocks(
 
 
 def refresh_fundamentals() -> dict:
-    """Force refresh fundamentals for all WATCH_STOCKS via yfinance.
+    """Force refresh fundamentals for all get_active_universe() via yfinance.
 
     Returns dict keyed by symbol with info and insider data.
     """
@@ -149,7 +149,7 @@ def refresh_fundamentals() -> dict:
         return {"error": "yfinance not installed"}
 
     fundamentals = {}
-    for symbol in config.WATCH_STOCKS:
+    for symbol in config.get_active_universe():
         try:
             ticker = yf.Ticker(symbol)
             info = ticker.info or {}

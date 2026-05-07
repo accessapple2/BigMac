@@ -74,7 +74,7 @@ def _scan_all() -> list:
     """Fetch data for all watchlist stocks in parallel."""
     results = []
     with ThreadPoolExecutor(max_workers=8) as ex:
-        futs = {ex.submit(_get_stock_data, sym): sym for sym in config.WATCH_STOCKS}
+        futs = {ex.submit(_get_stock_data, sym): sym for sym in config.get_active_universe()}
         for f in as_completed(futs):
             try:
                 data = f.result()

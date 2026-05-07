@@ -221,8 +221,8 @@ def save_impulse_alert(alert: dict) -> None:
 def scan_all_impulses(symbols: list[str] | None = None) -> list[dict]:
     """Scan all symbols for impulse signals. Returns list of active alerts."""
     if symbols is None:
-        from config import WATCH_STOCKS
-        symbols = WATCH_STOCKS
+        from engine.universe import get_active_universe
+        symbols = get_active_universe()
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
     alerts = []

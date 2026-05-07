@@ -187,8 +187,8 @@ def scan_discoveries() -> list:
         if time.time() - _cache["ts"] < _CACHE_TTL and _cache["data"]:
             return _cache["data"]
 
-    from config import WATCH_STOCKS
-    watchlist_set = set(WATCH_STOCKS)
+    from engine.universe import get_active_universe
+    watchlist_set = set(get_active_universe())
 
     # Get candidate tickers
     candidates = get_most_active_tickers(100)

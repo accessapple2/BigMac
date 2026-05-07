@@ -967,23 +967,23 @@ def auto_optimize_all(progress_cb=None) -> dict:
     5. Auto-deploys if best beats current by >10%
     6. Saves report to data/strategy_lab/
     """
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     timestamp = datetime.now().strftime("%Y-%m-%d_%H%M")
     end_date = datetime.now().strftime("%Y-%m-%d")
     start_date = (datetime.now() - timedelta(days=730)).strftime("%Y-%m-%d")
     current_params = _get_current_config_params()
 
-    console.log(f"[cyan]Strategy Lab: Starting auto-optimize — {len(WATCH_STOCKS)} stocks × {len(STRATEGIES)} strategies")
+    console.log(f"[cyan]Strategy Lab: Starting auto-optimize — {len(get_active_universe())} stocks × {len(STRATEGIES)} strategies")
 
     all_results = []
-    total_work = len(STRATEGIES) * len(WATCH_STOCKS)
+    total_work = len(STRATEGIES) * len(get_active_universe())
     done = 0
 
     for strat_name, strat_def in STRATEGIES.items():
         strategy_results = []
 
-        for sym in WATCH_STOCKS:
+        for sym in get_active_universe():
             done += 1
             if progress_cb:
                 progress_cb(int(done / total_work * 95),
@@ -1080,7 +1080,7 @@ def auto_optimize_all(progress_cb=None) -> dict:
         "timestamp": timestamp,
         "start_date": start_date,
         "end_date": end_date,
-        "stocks_tested": len(WATCH_STOCKS),
+        "stocks_tested": len(get_active_universe()),
         "strategies_tested": len(STRATEGIES),
         "current_config": current_params,
         "results": all_results,

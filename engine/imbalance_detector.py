@@ -241,8 +241,8 @@ def scan_imbalances(symbol: str) -> list[dict]:
 def scan_all_imbalances(symbols: list[str] | None = None) -> dict[str, list[dict]]:
     """Scan all watchlist symbols. Returns {symbol: [zones]}."""
     if symbols is None:
-        from config import WATCH_STOCKS
-        symbols = WATCH_STOCKS
+        from engine.universe import get_active_universe
+        symbols = get_active_universe()
 
     from concurrent.futures import ThreadPoolExecutor, as_completed
     results: dict[str, list[dict]] = {}

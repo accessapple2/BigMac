@@ -81,7 +81,7 @@ def get_insider_trades(symbol: str) -> list:
 
 
 def scan_insider_alerts() -> list:
-    """Scan all WATCH_STOCKS for significant insider buying in the last 30 days.
+    """Scan all get_active_universe() for significant insider buying in the last 30 days.
 
     Flags purchases > $500,000 as notable alerts.
     Parallelized: 4 workers, 10s total budget, 2s per-symbol cap.

@@ -29,8 +29,8 @@ def get_upcoming_earnings(tickers: list = None, days_ahead: int = 14) -> list:
             scan = get_latest_universe_scan()
             tickers = [s["ticker"] for s in scan.get("results", [])[:50]]
         except Exception:
-            from config import WATCH_STOCKS
-            tickers = WATCH_STOCKS
+            from engine.universe import get_active_universe
+            tickers = get_active_universe()
 
     upcoming = []
     for ticker in tickers:
@@ -90,8 +90,8 @@ def get_post_earnings_drift(tickers: list = None, days_back: int = 7) -> list:
             scan = get_latest_universe_scan()
             tickers = [s["ticker"] for s in scan.get("results", [])[:100]]
         except Exception:
-            from config import WATCH_STOCKS
-            tickers = WATCH_STOCKS
+            from engine.universe import get_active_universe
+            tickers = get_active_universe()
 
     drifters = []
     for ticker in tickers:

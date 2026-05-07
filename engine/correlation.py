@@ -322,5 +322,5 @@ def get_position_correlation_profile(positions: list[dict], proposed_symbol: str
 
 def get_watchlist_correlation() -> dict:
     """Get correlation matrix for all watchlist stocks."""
-    from config import WATCH_STOCKS
-    return get_correlation_matrix(WATCH_STOCKS, period=60, threshold=0.7)
+    from engine.universe import get_active_universe
+    return get_correlation_matrix(get_active_universe(), period=60, threshold=0.7)

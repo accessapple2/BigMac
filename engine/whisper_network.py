@@ -24,9 +24,9 @@ def get_trending_tickers() -> list:
             return [{k: v for k, v in t.items() if k != "_ts"} for t in _trending_cache]
 
     try:
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         extra_tickers = ["SOFI", "RIVN", "NIO", "COIN", "MARA", "HOOD", "SNAP", "UBER", "XYZ", "ROKU"]
-        all_tickers = list(set(WATCH_STOCKS + extra_tickers))
+        all_tickers = list(set(get_active_universe() + extra_tickers))
 
         trending = []
         for sym in all_tickers:
@@ -72,9 +72,9 @@ def get_trending_tickers() -> list:
 
 def check_watchlist_trending() -> list:
     """Check if any watchlist stocks are trending. Returns matching tickers."""
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
     trending = get_trending_tickers()
-    watchlist_set = set(WATCH_STOCKS)
+    watchlist_set = set(get_active_universe())
     return [t for t in trending if t["symbol"] in watchlist_set]
 
 

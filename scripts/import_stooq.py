@@ -210,8 +210,8 @@ def show_stats(conn: sqlite3.Connection):
 
     # Show watchlist coverage
     try:
-        from config import WATCH_STOCKS
-        for sym in WATCH_STOCKS[:5]:
+        from engine.universe import get_active_universe
+        for sym in get_active_universe()[:5]:
             r = conn.execute(
                 "SELECT COUNT(*), MIN(date), MAX(date) FROM historical_prices WHERE symbol=?",
                 (sym,),

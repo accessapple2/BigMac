@@ -103,7 +103,7 @@ def get_earnings_calendar(from_date: str = None, to_date: str = None) -> list:
         return []
 
     # Filter to watchlist stocks
-    watchlist = set(s.upper() for s in config.WATCH_STOCKS)
+    watchlist = set(s.upper() for s in config.get_active_universe())
     results = []
     for e in data["earningsCalendar"]:
         sym = e.get("symbol", "")

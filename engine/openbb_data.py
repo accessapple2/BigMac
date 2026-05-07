@@ -129,8 +129,8 @@ def get_fundamentals(symbol: str) -> dict | None:
 def get_all_fundamentals(symbols: list = None) -> list:
     """Get fundamentals for all watchlist symbols."""
     if symbols is None:
-        from config import WATCH_STOCKS
-        symbols = WATCH_STOCKS
+        from engine.universe import get_active_universe
+        symbols = get_active_universe()
 
     results = []
     for sym in symbols:

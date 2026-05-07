@@ -22,7 +22,8 @@ from typing import Optional
 import pandas as pd
 from rich.console import Console
 
-from config import WATCH_STOCKS, STARTING_CASH, POSITION_SIZE_PCT, MAX_POSITIONS
+from config import STARTING_CASH, POSITION_SIZE_PCT, MAX_POSITIONS
+from engine.universe import get_active_universe  # HM-AQ-β 2026-05-07
 
 console = Console()
 
@@ -145,7 +146,7 @@ def _yahoo_chart_historical(symbol: str, date_str: str) -> list:
 def download_day_data(date_str: str, symbols: list = None) -> dict:
     """Download and cache all intraday data for a trading day.
     Returns {symbol: [candles]}."""
-    symbols = symbols or WATCH_STOCKS
+    symbols = symbols or get_active_universe()
     os.makedirs(CACHE_DIR, exist_ok=True)
     cache_file = os.path.join(CACHE_DIR, f"{date_str}.json")
 
@@ -399,7 +400,7 @@ def run_single_day_backtest(
         progress_callback(5, "Downloading market data...")
     day_data = download_day_data(date_str)
 
-    if not any(day_data.get(s) for s in WATCH_STOCKS):
+    if not any(day_data.get(s) for s in get_active_universe()):
         raise ValueError(f"No market data available for {date_str}. Was it a trading day?")
 
     # Step 2: Initialize providers
@@ -456,12 +457,12 @@ def _simulate_model(
     portfolio = BacktestPortfolio()
 
     # Track candles seen per symbol
-    candles_seen: dict[str, list] = {s: [] for s in WATCH_STOCKS}
+    candles_seen: dict[str, list] = {s: [] for s in get_active_universe()}
 
     for step, timestamp in enumerate(timeline):
         # Update candles seen for each symbol
         current_prices = {}
-        for sym in WATCH_STOCKS:
+        for sym in get_active_universe():
             for c in day_data.get(sym, []):
                 if c["time"] == timestamp and c not in candles_seen[sym]:
                     candles_seen[sym].append(c)
@@ -475,7 +476,7 @@ def _simulate_model(
             continue
 
         # Analyze each symbol
-        for sym in WATCH_STOCKS:
+        for sym in get_active_universe():
             seen = candles_seen[sym]
             if len(seen) < 3:
                 continue
@@ -514,7 +515,7 @@ def _simulate_model(
 
     # End of day: close all remaining positions
     final_prices = {}
-    for sym in WATCH_STOCKS:
+    for sym in get_active_universe():
         if candles_seen[sym]:
             final_prices[sym] = candles_seen[sym][-1]["close"]
     portfolio.close_all(final_prices, timeline[-1] if timeline else date_str)

@@ -23,14 +23,37 @@ DELISTED_BLACKLIST: set[str] = {
     "EURKR", "FVNNR", "ASPCR", "ESHAR", "NOEMR",
 }
 
-# Watchlist (stocks only)
-WATCH_STOCKS =["SPY", "QQQ", "TQQQ", "NVDA", "TSLA", "AAPL", "AMD", "META", "MSFT", "GOOGL", "AMZN", "MU", "ORCL", "NOW", "AVGO", "PLTR", "DELL", "XLE", "INTC", "NUKZ"]
-# Extended tickers (re-enable when RAM permits): XOM, COIN, MSTR, SOFI, RIVN, NIO, HIMS, IWM
+# HM-AQ-β 2026-05-07: WATCH_STOCKS constant removed. Dynamic universe is
+# the source of truth, populated weekly by engine/universe_refresh.py and
+# read via engine/universe.py::get_active_universe(). See docs/UNIVERSE.md.
+# Direct callers should `from engine.universe import get_active_universe`.
+# Legacy callers using config.get_effective_watchlist() continue to work
+# (it now delegates to engine.universe with extras-overlay preserved).
 
 
 def get_effective_watchlist() -> list:
-    """WATCH_STOCKS + any manually-added extras from data/watchlist_extras.json."""
-    base = list(WATCH_STOCKS)
+    """Dynamic universe (engine.universe.get_active_universe) + extras overlay.
+
+    HM-AQ-β 2026-05-07: was `list(WATCH_STOCKS) + extras`; now
+    `get_active_universe() + extras`. The extras overlay from
+    data/watchlist_extras.json is preserved for manual ad-hoc additions
+    that aren't yet in the screener-derived universe.
+
+    Defensive fallback: if engine.universe import fails, return a hardcoded
+    20-name mega-cap list so callers stay operational. Refresher itself
+    NTFYs on its own failures (HM-U posture).
+    """
+    try:
+        from engine.universe import get_active_universe
+        base = get_active_universe()
+    except Exception:
+        # Defensive fallback — same 20-name list that engine.universe
+        # uses internally as _FALLBACK_UNIVERSE. Kept here in case the
+        # engine.universe import itself fails (e.g., during a partial
+        # deploy where the module isn't yet on PYTHONPATH).
+        base = ["SPY", "QQQ", "TQQQ", "NVDA", "TSLA", "AAPL", "AMD", "META",
+                "MSFT", "GOOGL", "AMZN", "MU", "ORCL", "NOW", "AVGO", "PLTR",
+                "DELL", "XLE", "INTC", "NUKZ"]
     try:
         import json as _j
         with open("data/watchlist_extras.json") as _f:

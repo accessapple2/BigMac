@@ -4,7 +4,7 @@ Ollie Super Trader — 30-Day Backtest
 March 1 – April 8, 2026
 
 Methodology:
-- Universe: WATCH_STOCKS from config (17 symbols, excl. SPY/QQQ/TQQQ used as regime indicators)
+- Universe: get_active_universe() from config (17 symbols, excl. SPY/QQQ/TQQQ used as regime indicators)
 - Each trading day: score each symbol using technicals (RSI, volume, momentum)
 - Grade B+ gate (score × 20 ≥ 60 → scaled_score ≥ 60)
 - Regime gate: skip CRISIS/BEAR days (simulate using SPY vs 8/21 MA)

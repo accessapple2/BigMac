@@ -521,8 +521,8 @@ def _save_theta_opportunity(opp: dict):
 def scan_all_theta(symbols: list[str] | None = None) -> list[dict]:
     """Scan all watchlist symbols for theta opportunities. Returns sorted list."""
     if symbols is None:
-        from config import WATCH_STOCKS
-        symbols = WATCH_STOCKS
+        from engine.universe import get_active_universe
+        symbols = get_active_universe()
 
     with _cache_lock:
         cached = _cache.get("all")

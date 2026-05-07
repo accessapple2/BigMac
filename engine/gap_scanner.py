@@ -250,8 +250,8 @@ def _save_gap(gap: dict):
 def scan_all_gaps(symbols: list[str] | None = None) -> list[dict]:
     """Scan all watchlist symbols for today's gaps. Returns sorted list."""
     if symbols is None:
-        from config import WATCH_STOCKS
-        symbols = WATCH_STOCKS
+        from engine.universe import get_active_universe
+        symbols = get_active_universe()
 
     results = []
     for sym in symbols:
@@ -282,8 +282,8 @@ def scan_all_gaps(symbols: list[str] | None = None) -> list[dict]:
 def update_gap_fills(symbols: list[str] | None = None):
     """Check open gaps from today and mark as filled/partial when price returns."""
     if symbols is None:
-        from config import WATCH_STOCKS
-        symbols = WATCH_STOCKS
+        from engine.universe import get_active_universe
+        symbols = get_active_universe()
 
     today = date.today().isoformat()
     conn = _conn()

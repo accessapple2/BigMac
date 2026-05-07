@@ -731,8 +731,8 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
                 _conv_tickers = [s["ticker"] for s in (_conv or [])]
                 _univ_tickers = [s["ticker"] for s in (_univ or {}).get("results", [])[:50]]
                 # Also allow existing watchlist stocks
-                from config import WATCH_STOCKS
-                _watchlist = set(WATCH_STOCKS)
+                from engine.universe import get_active_universe
+                _watchlist = set(get_active_universe())
 
                 if symbol in _conv_tickers:
                     pass  # Best: convergence signal — full green light

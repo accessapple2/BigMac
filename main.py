@@ -357,14 +357,14 @@ def run_scanner():
 
     if arena is None:
         arena = initialize_arena()
-    from config import WATCH_STOCKS
+    from engine.universe import get_active_universe
 
     # Fetch news BEFORE each scan so the AI has fresh headlines
     _news_counter += 1
     if _news_counter % 5 == 1:  # Every 5 cycles
         try:
             from engine.news_fetcher import fetch_news
-            fetch_news(WATCH_STOCKS, max_per_symbol=5)
+            fetch_news(get_active_universe(), max_per_symbol=5)
             console.log("[cyan]News updated")
         except Exception as e:
             console.log(f"[red]News error: {e}")
@@ -397,7 +397,7 @@ def run_scanner():
 
     tier_label = " + ".join(tier_labels)
     _captured_arena    = arena
-    _captured_stocks   = list(WATCH_STOCKS)
+    _captured_stocks   = list(get_active_universe())
     _captured_players  = frozenset(active_players)
     _captured_counter  = _news_counter
     console.log(f"[cyan]Market scan triggered [{tier_label}] — {len(active_players)} agents (interval={interval}s)")
@@ -493,7 +493,7 @@ def run_vix_check():
 def run_earnings_check():
     """Check earnings calendar once per hour."""
     try:
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         from engine.earnings_calendar import get_earnings_warnings
         from engine.telegram_alerts import alert_earnings_upcoming
 
@@ -503,7 +503,7 @@ def run_earnings_check():
             "PFE","ABBV","XOM","CVX","COP","WMT","HD","TGT","DIS","CMCSA",
             "BA","CAT","GE","RTX","COIN","SQ","HOOD",
         ]
-        upcoming = get_earnings_warnings(list(set(WATCH_STOCKS) | set(_EARNINGS_MEGA)))
+        upcoming = get_earnings_warnings(list(set(get_active_universe()) | set(_EARNINGS_MEGA)))
         if upcoming:
             symbols = [e["symbol"] for e in upcoming]
             console.log(f"[yellow]Earnings next 7 days: {', '.join(symbols)}")
@@ -543,10 +543,10 @@ def run_journal():
     try:
         from engine.ai_journal import generate_journal_entry, save_journal_entry
         from engine.market_data import get_stock_price
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
 
         prices = {}
-        for sym in WATCH_STOCKS:
+        for sym in get_active_universe():
             data = get_stock_price(sym)
             if "error" not in data:
                 prices[sym] = data
@@ -915,8 +915,8 @@ def run_ah_scanner():
 
     console.log("[cyan]AH Scanner: checking post-market movers...")
     try:
-        from config import WATCH_STOCKS
-        universe = list(set(list(WATCH_STOCKS) + _AH_PM_UNIVERSE))
+        from engine.universe import get_active_universe
+        universe = list(set(list(get_active_universe()) + _AH_PM_UNIVERSE))
     except Exception:
         universe = _AH_PM_UNIVERSE
 
@@ -967,8 +967,8 @@ def run_premarket_scanner():
 
     console.log("[cyan]Pre-Market Scanner: checking pre-market movers...")
     try:
-        from config import WATCH_STOCKS
-        universe = list(set(list(WATCH_STOCKS) + _AH_PM_UNIVERSE))
+        from engine.universe import get_active_universe
+        universe = list(set(list(get_active_universe()) + _AH_PM_UNIVERSE))
     except Exception:
         universe = _AH_PM_UNIVERSE
 
@@ -1104,9 +1104,9 @@ def run_war_room():
         try:
             from engine.market_data import get_stock_price
             from engine.war_room import run_war_room as _run_wr
-            from config import WATCH_STOCKS
+            from engine.universe import get_active_universe
             prices = {}
-            for sym in WATCH_STOCKS:
+            for sym in get_active_universe():
                 data = get_stock_price(sym)
                 if "error" not in data:
                     prices[sym] = data
@@ -1127,10 +1127,10 @@ def run_autopilot():
     try:
         from engine.autopilot import run_autopilot as _run_ap
         from engine.market_data import get_stock_price
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         prices = {}
         # Build symbol universe: watchlist + all currently open positions
-        syms_to_fetch = set(WATCH_STOCKS)
+        syms_to_fetch = set(get_active_universe())
         try:
             import sqlite3 as _sq
             _pc = _sq.connect("data/trader.db", timeout=5)
@@ -1167,8 +1167,8 @@ def run_strength_scan():
         return
     try:
         from engine.strength_scanner import scan_relative_strength
-        from config import WATCH_STOCKS
-        rankings = scan_relative_strength(WATCH_STOCKS)
+        from engine.universe import get_active_universe
+        rankings = scan_relative_strength(get_active_universe())
         if rankings:
             top = rankings[0]
             bottom = rankings[-1]
@@ -1189,8 +1189,8 @@ def run_trend_forecast():
         return
     try:
         from engine.trend_predictor import predict_all_trends
-        from config import WATCH_STOCKS
-        results = predict_all_trends(WATCH_STOCKS)
+        from engine.universe import get_active_universe
+        results = predict_all_trends(get_active_universe())
         if results:
             top = results[0]
             console.log(f"[dim]Trend: top {top['symbol']} {top['direction']} ({top['confidence']:.0f}%)")
@@ -1315,9 +1315,9 @@ def run_impulse_check():
     if not RiskManager.is_market_hours():
         return
     try:
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         from engine.impulse_detector import scan_all_impulses
-        alerts = scan_all_impulses(WATCH_STOCKS)
+        alerts = scan_all_impulses(get_active_universe())
         if alerts:
             top = alerts[0]
             icon = "▲" if top["direction"] == "bullish" else "▼"
@@ -1361,9 +1361,9 @@ def run_gap_scan():
 
     _gap_scan_done_today = True
     try:
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         from engine.gap_scanner import scan_all_gaps
-        gaps = scan_all_gaps(WATCH_STOCKS)
+        gaps = scan_all_gaps(get_active_universe())
         if gaps:
             top = gaps[0]
             icon = "▲" if top["gap_direction"] == "up" else "▼"
@@ -1390,9 +1390,9 @@ def run_gap_fill_check():
         return
     _gap_fill_last_run = now
     try:
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         from engine.gap_scanner import update_gap_fills
-        update_gap_fills(WATCH_STOCKS)
+        update_gap_fills(get_active_universe())
     except Exception as e:
         console.log(f"[yellow]Gap fill check error: {e}")
 
@@ -1408,9 +1408,9 @@ def run_theta_scan():
         return
     _theta_last_run = now
     try:
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         from engine.theta_scanner import scan_all_theta
-        results = scan_all_theta(WATCH_STOCKS)
+        results = scan_all_theta(get_active_universe())
         if results:
             top = results[0]
             console.log(
@@ -1435,9 +1435,9 @@ def run_imbalance_scan():
         return
     _imbalance_last_run = now
     try:
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         from engine.imbalance_detector import scan_all_imbalances
-        results = scan_all_imbalances(WATCH_STOCKS)
+        results = scan_all_imbalances(get_active_universe())
         total = sum(len(z) for z in results.values())
         console.log(f"[cyan]Imbalance scan complete: {total} zone(s) across {len(results)} symbol(s)")
     except Exception as e:
@@ -1455,9 +1455,9 @@ def run_sma_scan():
         return
     _sma_last_run = now
     try:
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         from engine.sma_filter import scan_all_sma_signals
-        results = scan_all_sma_signals(WATCH_STOCKS)
+        results = scan_all_sma_signals(get_active_universe())
         signals = [v for v in results.values() if v.get("signal_type")]
         testing = [v for v in results.values() if v.get("is_testing") and not v.get("signal_type")]
         console.log(f"[cyan]200 SMA: {len(results)} stocks scanned, "
@@ -1511,11 +1511,11 @@ def run_weekly_picks():
 
     try:
         from engine.weekly_picks import run_weekly_picks as _run_wp
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         # Use first available provider
         pid = list(arena.providers.keys())[0]
         provider = arena.providers[pid]
-        _run_wp(provider, WATCH_STOCKS)
+        _run_wp(provider, get_active_universe())
         _weekly_picks_sent = True
     except Exception as e:
         console.log(f"[red]Weekly picks error: {e}")
@@ -1980,12 +1980,12 @@ def run_daily_summary():
     try:
         from engine.paper_trader import get_portfolio_with_pnl
         from engine.market_data import get_stock_price
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         from engine.telegram_alerts import send_daily_summary
         import sqlite3
 
         prices = {}
-        for sym in WATCH_STOCKS:
+        for sym in get_active_universe():
             data = get_stock_price(sym)
             if "error" not in data:
                 prices[sym] = data
@@ -2110,8 +2110,8 @@ def run_premarket_gaps():
         scan = get_latest_universe_scan()
         tickers = [s["ticker"] for s in scan.get("results", [])[:50]] if scan else []
         if not tickers:
-            from config import WATCH_STOCKS
-            tickers = WATCH_STOCKS
+            from engine.universe import get_active_universe
+            tickers = get_active_universe()
 
         gaps = []
         for sym in tickers:
@@ -3036,8 +3036,8 @@ if __name__ == "__main__":
         try:
             from engine.agent_builder import check_user_agents
             from engine.market_data import get_stock_price
-            from config import WATCH_STOCKS
-            ctx = {"prices": {s: get_stock_price(s) for s in WATCH_STOCKS[:5]}}
+            from engine.universe import get_active_universe
+            ctx = {"prices": {s: get_stock_price(s) for s in get_active_universe()[:5]}}
             fired = check_user_agents(ctx)
             if fired:
                 console.log(f"[cyan][STARTUP] Agent Watchdog: {fired} agent(s) triggered")
@@ -3943,10 +3943,10 @@ if __name__ == "__main__":
 
     # Warm up price cache in background so dashboard loads fast
     def _warmup():
-        from config import WATCH_STOCKS
+        from engine.universe import get_active_universe
         from engine.market_data import get_all_prices
         console.log("[cyan]Warming up price cache (16 stocks)...")
-        prices = get_all_prices(WATCH_STOCKS)
+        prices = get_all_prices(get_active_universe())
         console.log(f"[green]Price cache warm: {len(prices)}/16 stocks loaded")
     threading.Thread(target=_warmup, daemon=True).start()
 

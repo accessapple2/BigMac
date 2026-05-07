@@ -128,7 +128,9 @@ def analyze_all_positions(model: str = "codex") -> list:
 
     if not symbols:
         # Fallback to watchlist subset
-        symbols = config.WATCH_STOCKS[:5]
+        # HM-AQ-β 2026-05-07: was config.WATCH_STOCKS[:5]; now first 5 of dynamic universe
+        from engine.universe import get_active_universe
+        symbols = get_active_universe()[:5]
 
     results = []
     for sym in symbols:
