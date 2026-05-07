@@ -370,7 +370,41 @@ def run_grok_subadvisor() -> dict:
         logger.info("Grok advisor: no Kirk positions — skipping")
         return {"skipped": True, "reason": "no_positions"}
 
-    # Build user prompt
+    # HM-AM Phase 3 (2026-05-07): inject total_portfolio context preamble
+    # into the advisory prompt. Per-Schwab-position advice loop preserved
+    # (LLM still gets per-row data); the unified-view preamble gives Grok
+    # awareness of metals + Alpaca paper book for sizing/concentration
+    # context. Defensive: total_portfolio failure logs a warning, prompt
+    # builds without the preamble.
+    portfolio_preamble = ""
+    try:
+        from engine.total_portfolio import get_portfolio_summary
+        tp = get_portfolio_summary()
+        portfolio_preamble = (
+            "## Total Portfolio Context (cross-source view)\n"
+            f"  Total value:    ${tp.get('total_value', 0):,.2f}\n"
+            f"  Total cash:     ${tp.get('total_cash', 0):,.2f}\n"
+            f"  Total invested: ${tp.get('total_invested', 0):,.2f}\n"
+            f"  Positions:      {tp.get('position_count', 0)} across "
+            f"{len(tp.get('sources_loaded') or [])} sources: "
+            f"{', '.join(tp.get('sources_loaded') or [])}\n"
+        )
+        if tp.get("sources_failed"):
+            portfolio_preamble += (
+                f"  WARN sources_failed: {tp['sources_failed']}\n"
+            )
+        portfolio_preamble += "\n"
+        logger.info(
+            "[TeamAdvisor] total_portfolio injected: $%.0f total, %d positions",
+            tp.get("total_value", 0), tp.get("position_count", 0),
+        )
+    except Exception as e:
+        logger.warning(
+            "[TeamAdvisor] total_portfolio preamble skipped: %s: %r",
+            type(e).__name__, e,
+        )
+
+    # Build user prompt — per-Schwab-position breakdown (the executive surface)
     lines = []
     for p in positions:
         lines.append(
@@ -379,12 +413,14 @@ def run_grok_subadvisor() -> dict:
             f"current ${p.get('current_price', 0):.2f}, "
             f"P&L {p.get('pnl_pct', 0):+.1f}%"
         )
-    # Kirk-Schwab-realign-2026-05-05: header reflects real Schwab account
-    # (~23 positions, ~$22k notional + ~$2.2k cash per real_holdings.json).
+    # HM-AM Phase 3 2026-05-07: stale "~$22k notional + ~$2.2k cash" hardcode
+    # replaced by dynamic Total Portfolio Context preamble above.
     prompt = (
-        "Kirk's real Schwab swing portfolio (~$22k notional + ~$2.2k cash):\n"
+        portfolio_preamble
+        + "## Kirk's Schwab swing portfolio (advisory surface — recommend actions on these specifically)\n"
         + "\n".join(lines)
-        + "\n\nProvide swing trade advice for each position."
+        + "\n\nProvide swing trade advice for each Schwab position. "
+        + "Use the Total Portfolio Context above for sizing/concentration awareness."
     )
 
     # Free-Models-First patch 2026-04-17: Grok was retired on 2026-04-16 (CLAUDE.md).
