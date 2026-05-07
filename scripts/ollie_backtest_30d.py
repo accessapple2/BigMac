@@ -22,6 +22,7 @@ import json
 import sys
 import os
 from datetime import datetime, timedelta, date
+from pathlib import Path  # HM-AO-β 2026-05-07
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -45,7 +46,8 @@ TP1_MULT    = 0.75    # tp1  = price + risk * TP1_MULT
 TP2_MULT    = 2.0
 GRADE_B_MIN = 60      # scaled score threshold
 TRADE_SIZE  = 500.0   # $ per trade (paper)
-DB_PATH = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trader.db")
+# HM-AO-β 2026-05-07: trader.db path fix (was creating 40KB stub at repo root)
+DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
 
 # ── Helpers ──────────────────────────────────────────────────────────────────
 def rsi(closes, period=14):

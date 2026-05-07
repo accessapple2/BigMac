@@ -16,6 +16,7 @@ Usage:
 """
 import sqlite3, json, sys, os, textwrap
 from datetime import datetime, timedelta, date
+from pathlib import Path  # HM-AO-β 2026-05-07
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 
@@ -39,7 +40,8 @@ TP2_MULT    = 2.0
 GRADE_B_MIN = 60
 TRADE_SIZE  = 500.0   # $ per trade
 TRAIL_PCT   = 0.015   # 1.5% trail after TP1
-DB_PATH     = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "trader.db")
+# HM-AO-β 2026-05-07: trader.db path fix (was creating 40KB stub at repo root)
+DB_PATH     = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
 BATCH_ID    = f"60d_{datetime.now().strftime('%Y%m%d_%H%M')}"
 
 US_HOLIDAYS_2026 = {
