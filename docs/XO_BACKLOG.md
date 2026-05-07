@@ -802,6 +802,84 @@ Expected (post-fix): 11. Actual today: 22.
 
 ---
 
+### HM-AK — Fleet roster cleanup (2026-05-07)
+
+**Type:** DB hygiene
+**Priority:** P3 → shipped same-day
+**Status:** **SHIPPED 2026-05-07** — see `migrations/HM-AK_dormant_cleanup_2026-05-07.sql` and OPS_LOG 2026-05-07.
+**Origin:** 2026-05-06 evening fleet roster check + 2026-05-07 morning HM-AK diagnosis. Surfaced 12 dormant zombies among 50 ai_players rows.
+
+#### Outcome
+12 dormant agents halted via UPDATE: 11 to `halt_mode='full'`, 1 (gemini-2.5-flash, 2 open positions) to `halt_mode='exit_only'`. Halt-mode census shifted from 37/9/4 (active/full/exit_only) to **25/20/5**.
+
+**Halted (paid-API zombies, 6):**
+- `claude-haiku`, `claude-sonnet`, `gpt-4o`, `gpt-o3`, `grok-4` → `halt_mode='full'`
+- `gemini-2.5-flash` → `halt_mode='exit_only'` (had 2 open positions)
+
+**Halted (dormant Ollama, 6):**
+- `qwen-coder-haiku`, `qwen3-14b-grok3`, `qwen3-8b-4o`, `qwen3-8b-o3`, `ollama-glm4`, `ollama-gemma27b` → `halt_mode='full'`
+
+**Side effect:** all three duplicate display name conflicts resolved (`Lt. Cmdr. Worf` × 3 → 1, `Lt. Cmdr. Spock` × 2 → 1, `Qwen3 14B Pro` × 2 → 1). The zombies leave active iteration, leaving only the canonical agent in each name slot.
+
+**No service restart required** — halt_mode is read fresh per request via `engine/halt_gate.py`.
+
+**Rollback:**
+```sql
+UPDATE ai_players SET halt_mode='active', halted_at=NULL, halt_reason=NULL
+ WHERE halt_reason LIKE 'HM-AK 2026-05-07%';
+```
+
+#### Related
+- `migrations/HM-AK_dormant_cleanup_2026-05-07.sql` — checked-in SQL artifact
+- OPS_LOG 2026-05-07 — full diagnosis + outcome
+- HM-AK-β below — architectural follow-up (scan loops still ignore halt_mode)
+
+---
+
+### HM-AK-β — Scan loops should filter by halt_mode, not is_active (2026-05-07)
+
+**Type:** Architectural debt
+**Priority:** P3 — post-soak; not urgent (per-trade halt gates downstream block actual execution, just iteration is wider than needed)
+**Status:** Proposed
+**Origin:** HM-AK diagnosis 2026-05-07. Surfaced as a separate ticket because scope is too large for a same-day ship.
+
+#### Problem
+Multiple scan/iteration sites use `WHERE is_active=1` instead of `halt_mode='active'`:
+- `main.py:1991` — `SELECT id, display_name FROM ai_players WHERE is_active=1 AND id != 'dayblade-0dte'`
+- `engine/risk_radar.py:168` — same pattern
+- `engine/autopilot.py:63` — same pattern
+- `engine/cost_tracker.py:387` — `WHERE is_active=1`
+- `engine/q_entity.py:224` — `WHERE is_active=1`
+- `engine/providers/base.py:1119` — `WHERE is_active=1`
+- ... and ~10 other sites (full inventory in HM-AK diagnosis logs)
+
+After HM-AK, 25 rows are `halt_mode='active'` and 25 are halted (full or exit_only). But all 49 with `is_active=1` (only `webull` is `is_active=0`) still pass the iteration filter. Per-trade halt gates downstream block actual execution, so this is **not a safety issue** — it's just compute waste from iterating ~25 halted rows per cycle.
+
+Per CLAUDE.md (2026-04-25 audit + HM-A migration): "halt_mode is now the only working per-player kill switch". The iteration sites haven't caught up.
+
+#### Shape
+
+**Option A (small, safe):** Replace `WHERE is_active=1` with `WHERE halt_mode='active'` at each iteration site. Touch ~17 SQL strings, one PR. ~1-2 h Scotty (read each site, verify call-site semantics, retest). Per-site analysis required because some callers may want to see halted agents (e.g. `cost_tracker` reporting historical costs).
+
+**Option B (bigger, cleaner):** Introduce a single helper `engine/db_helpers.py::active_player_ids()` that returns agent IDs where `halt_mode='active'`, and migrate all iteration sites to call it. ~3 h Scotty. Future migrations only need to update the helper.
+
+**Option C (defer):** No code change — accept that iteration is wider than execution. Compute waste is small (a few SELECTs per cycle).
+
+#### Recommendation
+**Option A or B post-soak.** Both are safe but neither is urgent. The execution-gate path is already correct via `halt_gate.py` per-trade checks; this is just iteration efficiency.
+
+#### Acceptance criteria (if shipped)
+- [ ] All `WHERE is_active=1` iteration sites replaced (or migrated to helper)
+- [ ] Per-site verification that semantics are preserved (cost_tracker reports may want historical view)
+- [ ] No regression in scan/trade/signal volume
+
+#### Related
+- HM-AK — parent (shipped 2026-05-07)
+- 2026-04-25 audit notes — `is_active`, `is_paused`, `crew_role` are decorative; `halt_mode` is the kill switch
+- HM-A — migrated production read paths from `is_halted` to `halt_mode`; iteration sites not migrated
+
+---
+
 ## Lessons
 
 **2026-05-04 — Stale-bytecode trap from in-flight schema changes:** HM-B's `DROP COLUMN ai_players.is_halted` (commit `9256890`) created a stale-bytecode mismatch in the running trader process (PID 13734). The service was started at 08:32 MST — before HM-A's source migration shipped that morning — so the in-memory bytecode still had pre-HM-A SQL referencing the now-dropped column. Errors began at 17:36, but were caught by `try/except` blocks at the call sites and surfaced only as quiet `console.log` warnings: 15 occurrences across `War Room`, `ai_brain.py:286/295/533`, and three agents (ollama-coder, mlx-qwen3, energy-arnold) before discovery via log scan during PED retirement verification ~70 minutes later. Source code post-HM-A was clean; the issue was entirely in the long-running process's compiled module cache. **Future schema-change sessions should include a service restart in the verification phase OR a longer (30+ min) post-change soak window before declaring the change stable**, specifically to flush any pre-migration in-memory residue. This is also a HM-U datapoint: the silent-failure pattern (caught exceptions, swallowed errors) hid the issue from cursory checks — only a focused log scan surfaced it.

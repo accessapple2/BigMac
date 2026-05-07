@@ -83,3 +83,30 @@ The launchd watcher polls `inbox/` every 60s (StartInterval=60) and processes on
 **Defense-in-depth retained**: `e8b7f9e` (`sleep 11`) stays — harmless overhead.
 
 **Recovery**: `git revert <this-commit-sha>` + `launchctl bootout gui/$(id -u)/com.ollietrades.schwab-watcher && launchctl bootstrap gui/$(id -u) ~/Library/LaunchAgents/com.ollietrades.schwab-watcher.plist`.
+
+## 2026-05-07 — HM-AK fleet roster cleanup (12 dormant agents halted)
+
+Diagnosis revealed 12 ai_players rows with `halt_mode='active' AND is_active=1` but **zero trades, signals (or fixed-pool 25-sig bootstrap), zero war_room posts** in the last 7 days. Two cohorts:
+
+- **Paid-API zombies (6)** — should have been benched under Free-Models-First (CLAUDE.md 2026-04-13): `claude-haiku`, `claude-sonnet`, `gpt-4o`, `gpt-o3`, `grok-4`, `gemini-2.5-flash`. None of them showed any api_costs entries, signals, trades, or war_room activity over 7 days.
+- **Dormant Ollama (6)** — scaffolded but never promoted, all show exactly 25 fixed-pool sigs and zero trades/posts: `qwen-coder-haiku`, `qwen3-14b-grok3`, `qwen3-8b-4o`, `qwen3-8b-o3`, `ollama-glm4`, `ollama-gemma27b`.
+
+Side benefit: halting these 12 eliminates **all three duplicate display name conflicts** (`Lt. Cmdr. Worf` × 3, `Lt. Cmdr. Spock` × 2, `Qwen3 14B Pro` × 2) — the active iteration now contains only the canonical agent for each name.
+
+**Action:** halt_mode UPDATE per CLAUDE.md halt SQL pattern.
+- 11 with no open positions → `halt_mode='full'`
+- `gemini-2.5-flash` had 2 open positions → `halt_mode='exit_only'` (allows close-out)
+
+**Halt-mode breakdown:** before 37/9/4 (active/full/exit_only) → after **25/20/5** (12 moved). Total ai_players rows unchanged at 50.
+
+**SQL artifact:** `migrations/HM-AK_dormant_cleanup_2026-05-07.sql` (committed for reproducibility + rollback).
+
+**Rollback:**
+```sql
+UPDATE ai_players SET halt_mode='active', halted_at=NULL, halt_reason=NULL
+ WHERE halt_reason LIKE 'HM-AK 2026-05-07%';
+```
+
+**Architectural note (deferred):** the active scan loops at `main.py:1991`, `engine/risk_radar.py:168`, `engine/autopilot.py:63` use `WHERE is_active=1` and do **not** filter by `halt_mode`. Per-trade halt gates downstream block actual execution, but the iteration loops still touch all halted rows. HM-AK does not address this — sized for HM-AK-β if/when prioritized.
+
+**No service restart required** — halt_mode is read fresh per CLAUDE.md ("halt_mode is now the only working per-player kill switch", read by `engine/halt_gate.py` per request).
