@@ -1712,9 +1712,9 @@ def run_cto_advisory():
             break  # Only fire one per cycle
 
 
-_grok_advisor_slots_done_today: set = set()
+_team_advisor_slots_done_today: set = set()
 
-def run_grok_advisor():
+def run_team_advisor():
     """Advisory Team scheduler: fires at 9:30 AM and 1:30 PM ET on weekdays.
 
     Calls engine.wb_advisory_team.run_team_scan() which orchestrates three
@@ -1724,7 +1724,7 @@ def run_grok_advisor():
     NOT to be confused with engine.kirk_advisory.generate_kirk_advisory() which
     is a separate rule-based advisor on the same Schwab portfolio.
     """
-    global _grok_advisor_slots_done_today
+    global _team_advisor_slots_done_today
     from datetime import datetime
     import pytz
 
@@ -1736,7 +1736,7 @@ def run_grok_advisor():
 
     # Reset flags at midnight
     if now.hour < 1:
-        _grok_advisor_slots_done_today = set()
+        _team_advisor_slots_done_today = set()
         return
 
     # Weekdays only
@@ -1748,7 +1748,7 @@ def run_grok_advisor():
     # Slot "mid"   = 1:30 PM ET  (midday check)
     slots = [("open", 9, 30), ("mid", 13, 30)]
     for slot_id, target_h, target_m in slots:
-        if slot_id in _grok_advisor_slots_done_today:
+        if slot_id in _team_advisor_slots_done_today:
             continue
         now_mins = now.hour * 60 + now.minute
         target_mins = target_h * 60 + target_m
@@ -1772,7 +1772,7 @@ def run_grok_advisor():
             except Exception as e:
                 console.log(f"[red]Advisory Team [{slot_id}] error: {e}")
             finally:
-                _grok_advisor_slots_done_today.add(slot_id)
+                _team_advisor_slots_done_today.add(slot_id)
             break  # One slot per poll cycle
 
 
@@ -2597,7 +2597,7 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(run_ai_saas_disruption)   # AI SaaS Disruption: IGV + 13 SaaS names, 4 triggers, posts to 9000
     schedule.every(30).minutes.do(run_cto_advisory)          # CTO Advisory: checks every 30 min, fires 4x daily (pre_market, post_open, pre_close, post_close)
     schedule.every(30).minutes.do(run_ready_room)             # Ready Room: checks every 30 min, fires 4x daily (8:00/9:15/12:00/3:30 ET)
-    schedule.every(30).minutes.do(run_grok_advisor)           # Advisory Team (Grok/Ollie+Troi+Worf): fires at 9:30 AM and 1:30 PM ET
+    schedule.every(30).minutes.do(run_team_advisor)           # Advisory Team (Grok/Ollie+Troi+Worf): fires at 9:30 AM and 1:30 PM ET
     schedule.every(5).minutes.do(run_portfolio_monitor)       # Ship's Computer: Captain's Portfolio monitor (stop breaches, big moves, new advice)
     schedule.every(5).minutes.do(run_oi_morning_snapshot)    # OI Tracker: baseline snapshot at market open (9:30 ET)
 

@@ -13592,14 +13592,14 @@ def dismiss_kirk_advisory(log_id: int):
 
 
 # /api/grok-advisor/* (4 routes) removed 2026-04-21 — Grok retired per CLAUDE.md.
-# engine/kirk_grok_advisor.py preserved per sacred-data rule.
+# engine/team_advisor_grok.py preserved per sacred-data rule.
 
 
 @app.get("/api/wb-team/advice")
 def get_wb_team_advice():
     """Latest advice from all three advisors: Grok/Ollie, Troi, Worf."""
     from engine.wb_advisory_team import get_team_advice
-    from engine.kirk_grok_advisor import get_scan_meta
+    from engine.team_advisor_grok import get_scan_meta
     return {"advisors": get_team_advice(), "meta": get_scan_meta()}
 
 

@@ -1,4 +1,11 @@
-"""Kirk Grok Advisor — LLM-mode swing trade analysis on real Schwab holdings.
+"""Team Advisor — Grok sub-advisor (LLM swing-trade analysis on real Schwab holdings).
+
+HM-AI 2026-05-06: renamed from kirk_grok_advisor.py / run_grok_advisory() to
+team_advisor_grok.py / run_grok_subadvisor() to match the parent
+wb_advisory_team.run_team_scan() orchestrator. The "grok" name refers to the
+SUB-ADVISOR ROLE (the LLM-thesis sub-agent), not the model — actual model is
+qwen3:8b on Ollie Box (xAI Grok API path is dead code per Free-Models-First).
+DB rows continue to land with advisor='grok' to preserve history.
 
 Kirk-Schwab-realign-2026-05-05 (Admiral Option A): reads Schwab real
 holdings from data/real_holdings.json via
@@ -26,7 +33,7 @@ from datetime import datetime, timedelta
 import pytz
 import requests
 
-logger = logging.getLogger("kirk_grok_advisor")
+logger = logging.getLogger("team_advisor_grok")
 
 DB = "data/trader.db"
 PLAYER_ID = "kirk-grok-advisor"
@@ -323,8 +330,11 @@ def _save_advice(
 # ── Public API ──────────────────────────────────────────────────────────────
 
 
-def run_grok_advisory() -> dict:
-    """Scan Kirk's positions and store Grok swing recommendations.
+def run_grok_subadvisor() -> dict:
+    """Scan Kirk's positions and store Grok-sub-advisor swing recommendations.
+
+    HM-AI 2026-05-06: renamed from run_grok_advisory(). Called by
+    engine.wb_advisory_team.run_team_scan() as the LLM sub-advisor.
 
     Returns a summary dict (or {"skipped": True, "reason": ...} if gated).
     """

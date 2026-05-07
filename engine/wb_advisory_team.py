@@ -1,7 +1,7 @@
 """Webull Advisory Team — Troi (sentiment) + Worf (risk) advisors for Kirk's portfolio.
 
 Both run on local Ollama (free). Orchestrated by run_team_scan() which calls
-kirk_grok_advisor.run_grok_advisory() (Grok/Ollie) then Troi then Worf, combining
+team_advisor_grok.run_grok_subadvisor() (Grok/Ollie) then Troi then Worf, combining
 all three into a unified portfolio_advice row per symbol with advisor='troi'/'worf'.
 """
 from __future__ import annotations
@@ -368,14 +368,14 @@ def run_team_scan() -> dict:
     #   - Worf (qwen3:8b) reads alpaca-mirror paper positions
     # Independent of engine.kirk_advisory (rule-based, also reads Schwab).
     # Cross-ref: docs/diagnoses/advisory_team_scope_2026-05-06.md.
-    from engine.kirk_grok_advisor import run_grok_advisory
+    from engine.team_advisor_grok import run_grok_subadvisor
 
     positions = _get_positions()
     if not positions:
         return {"skipped": True, "reason": "no_positions"}
 
     results = {}
-    results["grok"] = run_grok_advisory()
+    results["grok"] = run_grok_subadvisor()
     results["troi"] = run_troi_scan(positions)
     results["worf"] = run_worf_scan(positions)
 

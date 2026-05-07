@@ -47,7 +47,7 @@ def _get_db():
 
 
 # Kirk-Schwab-realign-2026-05-05: shared real-holdings reader; consumed by
-# kirk_grok_advisor as well via `from engine.kirk_advisory import _load_real_holdings`.
+# team_advisor_grok as well via `from engine.kirk_advisory import _load_real_holdings`.
 def _load_real_holdings() -> dict:
     """Load Schwab real holdings from data/real_holdings.json.
 
