@@ -397,6 +397,33 @@ def run_grok_advisory() -> dict:
         logger.error("Advisory parse error: %s | raw: %.200s", e, raw)
         return {"error": f"parse_error: {e}", "raw_preview": raw[:400]}
 
+    # HM-AG-α 2026-05-06: hallucination filter
+    # qwen3:8b has been observed inventing tickers not present in the input
+    # portfolio (2026-05-06: returned VRTX vs real VRT, plus TSLA/NVDA which
+    # weren't held). Drop any LLM-returned symbol that isn't in the holdings
+    # we sent. Cross-ref: docs/diagnoses/advisory_team_scope_2026-05-06.md.
+    valid_tickers = {
+        (p.get("symbol") or "").upper().strip()
+        for p in positions
+        if p.get("symbol")
+    }
+    n_total = len(items)
+    filtered: list[dict] = []
+    for item in items:
+        ticker = (item.get("symbol") or "").upper().strip()
+        if ticker and ticker in valid_tickers:
+            filtered.append(item)
+        else:
+            logger.warning(
+                "[HM-AG-α] Grok hallucination dropped: %r not in input holdings (%d valid tickers)",
+                ticker, len(valid_tickers),
+            )
+    logger.info(
+        "[HM-AG-α] Grok recommendations: %d/%d kept after hallucination filter",
+        len(filtered), n_total,
+    )
+    items = filtered
+
     _save_advice(items, raw, model_used=model_used, response_time_ms=response_time_ms)
     logger.info("Advisory saved: %d recommendations via %s", len(items), model_used)
 

@@ -361,6 +361,13 @@ def run_team_scan() -> dict:
 
     Returns combined summary.
     """
+    # HM-AG-β 2026-05-06: This function orchestrates THREE sub-advisors writing
+    # to one portfolio_advice table:
+    #   - Grok-via-Ollie (qwen3:8b) reads Schwab via data/real_holdings.json
+    #   - Troi (qwen2.5-coder:7b) reads alpaca-mirror paper positions
+    #   - Worf (qwen3:8b) reads alpaca-mirror paper positions
+    # Independent of engine.kirk_advisory (rule-based, also reads Schwab).
+    # Cross-ref: docs/diagnoses/advisory_team_scope_2026-05-06.md.
     from engine.kirk_grok_advisor import run_grok_advisory
 
     positions = _get_positions()

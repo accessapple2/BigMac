@@ -1715,7 +1715,15 @@ def run_cto_advisory():
 _grok_advisor_slots_done_today: set = set()
 
 def run_grok_advisor():
-    """Kirk Grok Swing Advisor: fires at 9:30 AM and 1:30 PM ET on weekdays."""
+    """Advisory Team scheduler: fires at 9:30 AM and 1:30 PM ET on weekdays.
+
+    Calls engine.wb_advisory_team.run_team_scan() which orchestrates three
+    sub-advisors (Grok-via-Ollie on Schwab, Troi + Worf on alpaca-mirror paper).
+    Output saved to portfolio_advice table; surfaced via /api/wb-team/advice.
+
+    NOT to be confused with engine.kirk_advisory.generate_kirk_advisory() which
+    is a separate rule-based advisor on the same Schwab portfolio.
+    """
     global _grok_advisor_slots_done_today
     from datetime import datetime
     import pytz
@@ -3868,6 +3876,7 @@ if __name__ == "__main__":
     console.log("[cyan]Pre-market Gaps armed (1 AM MST / 4 AM ET, Chekov posts gaps >2%)")
     console.log("[cyan]Pre-market scanning: 10:30 PM MST every 5m → 1 AM MST every 2m → 6:30 AM market open")
     console.log("[cyan]Dalio Metals commentary armed (7 AM MST daily, Ollama Gemma3 4B)")
+    console.log("[cyan]Advisory Team armed (Grok+Troi+Worf — fires 9:30 AM, 1:30 PM ET; portfolio_advice table; 8h TTL)")
     console.log("[cyan]Commander Riker XO armed (10 min crew synthesis during market hours)")
     console.log("[cyan]Admiral Picard armed (Sunday 10 PM MST weekly strategy thesis)")
     console.log("[cyan]Admiral Archer armed (Sunday 10:30 PM MST frontier scanner)")
