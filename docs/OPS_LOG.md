@@ -36,3 +36,4 @@ Refs: /tmp/scotty_session_2026-05-03/tier2_landmine_fix_proposal.md (Section I, 
 - 2026-05-06T06:00:02 | daily_backup | backup=trader_2026-05-06.db | 242832KB
 - 2026-05-07T06:00:06 | daily_backup | backup=trader_2026-05-07.db | 251812KB
 - 2026-05-07: HM-AO closed as already-shipped — bug fixed in 86bb32b (Apr 24). Same-class bug pivoted to HM-AO-β (scripts/ollie_backtest_*.py).
+- 2026-05-07 09:30: HM-AS diagnosed. battle_station_monitor cadence median 2:01 (on target); p95 5:07; tail driven by single-threaded schedule.run_pending() blocking on slow jobs. Architectural, not bug. 80% fire-rate recovery preserves α-lift evidence integrity. HM-AS-β (10-min observability log when interval >180s) queued for post-soak.

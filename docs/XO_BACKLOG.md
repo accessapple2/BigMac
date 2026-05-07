@@ -601,6 +601,53 @@ The options-blackout decision path does **not** read from `earnings_universe`. I
 
 ---
 
+### HM-AS-β — battle_station_monitor cadence-tail observability (2026-05-07)
+
+**Type:** Observability
+**Priority:** P3 — post-soak
+**Status:** Proposed
+**Origin:** HM-AS diagnosis 2026-05-07. Parent HM-AS closed as "diagnosed, deferred."
+
+#### Diagnostic summary (HM-AS, see OPS_LOG 2026-05-07 09:30)
+`run_battle_station_monitor` cadence median 2:01 (on target vs the `every(2).minutes` schedule binding at `main.py:2588`); p75 3:09; p95 5:07; max 11:00. Distribution: 69% on cadence, 17% in the 4-6 min tail, ~3% at 6+ min. Cause is architectural — `main.py:4036` runs a single-threaded `schedule.run_pending()` loop, and slow synchronous jobs (LLM calls, scans, backtests) periodically block subsequent ticks. Function itself (`main.py:1002`) is fast (flag check + early return when α guard active). Fire-count integrity for α-lift evidence preserved (80% recovery rate, 289 fires/12h matches histogram mean).
+
+#### Shape
+Add `logger.warning` when `run_battle_station_monitor` inter-fire interval exceeds 180s (3 min). Single-function add at `main.py:1002` (or wherever the monitor entry/exit points are). Tracks tail occurrences in production logs without changing scheduler architecture.
+
+Sketch:
+```python
+_last_battle_station_run = 0.0
+def run_battle_station_monitor():
+    global _last_battle_station_run
+    import time as _t
+    now = _t.time()
+    if _last_battle_station_run > 0 and (now - _last_battle_station_run) > 180:
+        logger.warning(f"[HM-AS-β] battle_station cadence drift: {now - _last_battle_station_run:.0f}s since last fire (target 120s)")
+    if now - _last_battle_station_run < 55:
+        return
+    _last_battle_station_run = now
+    # ... existing body
+```
+
+#### Effort
+~10 min Scotty. Single commit. No service restart required (function reload via natural restart cadence).
+
+#### Acceptance criteria
+- [ ] Warning fires in `trader_error.log` when next-tick gap >180s
+- [ ] Historical pattern can be analyzed via `grep "[HM-AS-β]" logs/trader_error.log`
+- [ ] No false positives on first-fire-after-startup (initial `_last_battle_station_run = 0.0` skipped)
+
+#### Escalation path (if tail proves operationally relevant)
+- Option (b) from HM-AS analysis: dedicated thread for battle_station — 15-30 min, isolated.
+- Option (a): move all slow jobs to threaded execution — 30-60 min, touches every monitor.
+
+#### Related
+- HM-AS — diagnosed, deferred (2026-05-07 09:30)
+- HM-AF-α — α-lift evidence integrity preserved by 80% fire-rate recovery
+- `main.py:4036` — single-threaded scheduler architecture
+
+---
+
 ## Lessons
 
 **2026-05-04 — Stale-bytecode trap from in-flight schema changes:** HM-B's `DROP COLUMN ai_players.is_halted` (commit `9256890`) created a stale-bytecode mismatch in the running trader process (PID 13734). The service was started at 08:32 MST — before HM-A's source migration shipped that morning — so the in-memory bytecode still had pre-HM-A SQL referencing the now-dropped column. Errors began at 17:36, but were caught by `try/except` blocks at the call sites and surfaced only as quiet `console.log` warnings: 15 occurrences across `War Room`, `ai_brain.py:286/295/533`, and three agents (ollama-coder, mlx-qwen3, energy-arnold) before discovery via log scan during PED retirement verification ~70 minutes later. Source code post-HM-A was clean; the issue was entirely in the long-running process's compiled module cache. **Future schema-change sessions should include a service restart in the verification phase OR a longer (30+ min) post-change soak window before declaring the change stable**, specifically to flush any pre-migration in-memory residue. This is also a HM-U datapoint: the silent-failure pattern (caught exceptions, swallowed errors) hid the issue from cursory checks — only a focused log scan surfaced it.
