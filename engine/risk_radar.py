@@ -165,7 +165,8 @@ def get_all_risk_radars(prices: dict) -> dict:
     """Get risk radar for all active players."""
     conn = _conn()
     players = conn.execute(
-        "SELECT id FROM ai_players WHERE is_active=1 AND id != 'dayblade-0dte'"
+        # HM-AK-β 2026-05-07: halt_mode filter — skip halted_full and exit_only rows
+        "SELECT id FROM ai_players WHERE is_active=1 AND halt_mode='active' AND id != 'dayblade-0dte'"
     ).fetchall()
     conn.close()
 

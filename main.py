@@ -1988,7 +1988,8 @@ def run_daily_summary():
         conn = sqlite3.connect("data/trader.db", check_same_thread=False)
         conn.row_factory = sqlite3.Row
         players = conn.execute(
-            "SELECT id, display_name FROM ai_players WHERE is_active=1 AND id != 'dayblade-0dte'"
+            # HM-AK-β 2026-05-07: halt_mode filter — skip halted_full and exit_only rows
+            "SELECT id, display_name FROM ai_players WHERE is_active=1 AND halt_mode='active' AND id != 'dayblade-0dte'"
         ).fetchall()
 
         today = __import__("datetime").datetime.now().strftime("%Y-%m-%d")
