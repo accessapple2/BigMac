@@ -638,33 +638,74 @@ Replace the static `config.py:WATCH_STOCKS = [...20 tickers]` constant with a dy
 
 ---
 
-### HM-AQ-β.2 — ADRC inclusion (2026-05-07)
+### HM-AQ-β.2 — Curated-tier ADR inclusion + `is_adrc` flag (2026-05-07, refined)
 
 **Type:** Universe scope expansion (HM-AQ-β follow-up)
-**Priority:** P4 — LOW (some liquid ADRCs missed but core universe is solid)
-**Status:** Proposed
-**Origin:** HM-AQ-β v3 dry-run 2026-05-07 surfaced 79 type-skipped tickers, mostly ADRCs (BP, NIO, GGB, VIST, LEGN, ...). Many have liquid options chains.
+**Priority:** P3 — LOW (some liquid ADRs missed; curated tier is high-signal, not noise)
+**Status:** Proposed (scope refined 2026-05-07)
+**Origin:** HM-AQ-β v3 dry-run 2026-05-07 surfaced 79 type-skipped tickers, mostly ADRCs (BP, NIO, GGB, VIST, LEGN, ...). Many of the largest (TSM, ASML, BABA, SHOP, SE, NVO, NVS, AZN) have liquid options.
+**Sequence:** After HM-AQ-β 24h soak (est. 2026-05-08 evening).
 
-#### Question
-Should ADRC (American Depositary Receipt — Common) tickers be included in WATCH_STOCKS dynamic universe? Currently treated like preferred/fund types and skipped. ADRCs are how foreign companies list on US exchanges (BP, Toyota, Sony, Alibaba, NIO, Shopify, etc.) — most have liquid options.
+#### Captain's refined call (2026-05-07)
+**Curated-tier inclusion, NOT blanket type=ADRC.** ADRCs are heterogeneous — TSM at $1T+ down to micro-cap reverse mergers. Blanket inclusion would add too much noise. Solution: apply the existing market_cap + dollar_volume filters to ADRCs (same thresholds as US CS); the filter naturally selects only the high-quality liquid tier.
 
-#### Shape (if Captain approves)
-- `engine/universe_refresh.py`: extend type-allowed list from `{"CS"}` to `{"CS", "ADRC"}` in the stock branch
-- ADRCs use the same cap+volume filter as CS (foreign companies have market_cap reported in Polygon; verify on a small sample first)
-- `engine/universe.py`: extend SQL filter `(ticker_type IN ('CS', 'ADRC') AND ...)` 
-- Re-run wet refresh; expect +20-40 ADRCs to enter universe
+Reasoning:
+- Major-cap ADRs (TSM, ASML, BABA, SHOP, SE, NVO, NVS, AZN, etc.) are high-quality liquid names that AI agents can trade like US stocks.
+- Smaller ADRs add currency complexity, regional risks, lower liquidity — without comparable quality benefit.
+- Existing $5B cap + $100M dollar-volume filters do the right curation if applied to type=ADRC the same way as type=CS.
+
+#### Refined scope
+
+**1. Apply existing cap + volume filters to ADRCs:**
+- market_cap ≥ $5B (same as US CS)
+- dollar_volume ≥ $100M (same threshold)
+- Filter naturally selects the high-quality tier
+- Predicted addition: ~30-50 names (TSM, ASML, BABA, SHOP, SE, NVO, NVS, AZN, BHP, RIO, TM, SONY, ...)
+
+**2. Add `is_adrc INTEGER DEFAULT 0` column to `scan_universe`:**
+- Lets per-strategy code opt-in or opt-out of ADRs
+- Spread strategies might want US-listed CS only (currency-aware concern; settlement timing on holidays differs)
+- Currency-aware strategies could leverage the flag for FX-hedge logic
+- Schema migration: `migrations/HM-AQ-β.2_universe_is_adrc_2026-05-XX.sql`
+
+**3. Update `engine/universe_refresh.py`:**
+- Step 2: include `type=ADRC` in the cap+volume filter pass (not skip)
+- Set `is_adrc=1` on the row when type=ADRC
+- Existing CS rows: `is_adrc=0` (default)
+- Other types (ETV, ETN, BSKT, FUND, PFD, ...): still skipped as before
+- Keep the audit log line `etf_included` style — add `adrc_included <SYM> cap=$X.XB dollar_volume=$Y.YM`
+
+**4. Update `engine/universe.py`:**
+- `get_active_universe()` continues to return ALL passing symbols (CS + ETF + ADRC) — drop-in for current consumers
+- New helper: `get_us_only_universe()` returns rows with `is_adrc=0` AND `ticker_type='CS'` (for spread strategies, currency-sensitive consumers)
+- `get_universe_with_metadata()` includes `is_adrc` in the returned dict
+- `universe_health()` adds `adrc_passing` count split
+
+**5. Document in `docs/UNIVERSE.md`:**
+- New section: "ADR tier inclusion rationale" — explain why ADRCs ARE included but with a flag
+- New section: "Per-strategy opt-out pattern" — explains the `is_adrc` flag and the `get_us_only_universe()` helper
+- This sets a precedent for future flag columns: `is_etf` (already implicit via ticker_type), `is_leveraged`, etc.
 
 #### Effort
-~10 min Scotty: 1 line in refresher branch + 1 line in universe SQL + dry-run + Captain spot-check.
+~30 min Scotty:
+- 5 min: schema migration (`ALTER TABLE scan_universe ADD COLUMN is_adrc INTEGER DEFAULT 0`)
+- 10 min: refresher patch + `_write_universe` insert clause
+- 10 min: `engine/universe.py` helper + SQL filter updates
+- 5 min: docs/UNIVERSE.md + dry-run + Captain spot-check
 
 #### Acceptance criteria
-- [ ] ADRCs with cap≥$5B and dollar_volume≥$100M included in scan_universe
-- [ ] options_eligible flag works correctly for ADRCs (Polygon options API returns chains for them)
-- [ ] Captain spot-check on liquid names (BP, NIO, etc.) confirms inclusion
+- [ ] `scan_universe.is_adrc` column added; ADRC rows correctly flagged
+- [ ] Refresher includes ADRCs passing $5B/$100M filters; predicted +30-50 names
+- [ ] `engine.universe.get_active_universe()` includes ADRCs (drop-in for existing consumers)
+- [ ] `engine.universe.get_us_only_universe()` excludes ADRCs (new helper for spread strategies)
+- [ ] Captain spot-check confirms presence of TSM, ASML, BABA, SHOP, SE, NVO and absence of micro-cap ADRs
+- [ ] `docs/UNIVERSE.md` updated with ADR rationale + flag pattern
 
 #### Related
-- HM-AQ-β — parent (shipped 2026-05-07)
+- HM-AQ-β — parent (shipped 2026-05-07, commits `5eb479c` → `e333f63`)
 - 79 ADRC/other-type symbols logged via `type_skipped` audit line during v3 dry-run
+- Future flag columns (deferred marker): `is_leveraged`, `is_inverse`, etc. — same pattern this ticket establishes
+- Spread strategies (`bull_spread_v1`, `bull_call_spread_v1`, `bear_put_spread_v1`) are likely consumers of `get_us_only_universe()` once HM-AQ-γ deferred ETF-spread question is revisited
 
 ---
 
