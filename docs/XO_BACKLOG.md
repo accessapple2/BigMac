@@ -1214,11 +1214,11 @@ LOW. Auth posture handles what bind-localhost was protecting. Reversal is a sing
 
 ---
 
-### HM-AM — Total Portfolio Unification (Phase 1 SHIPPED 2026-05-07)
+### HM-AM — Total Portfolio Unification (ALL PHASES SHIPPED 2026-05-07)
 
 **Type:** Cross-source data layer (multi-phase epic)
-**Priority:** P3 — Phase 1 done, Phases 2-4 deferred to fresh sessions
-**Status:** **Phase 1 SHIPPED 2026-05-07** — `engine/total_portfolio.py` data layer + `docs/TOTAL_PORTFOLIO.md`. Phases 2-4 (Kirk integration, Advisory Team, dalio-metals realign) pending.
+**Priority:** P3 — closed; all four phases shipped 2026-05-07 (autonomous mode)
+**Status:** **ALL PHASES SHIPPED 2026-05-07.** Phase 1 (`4f0bcff`) data layer · Phase 2 (`d338605`) Kirk envelope · Phase 3 (`d6c9647`) Advisory Team prompt · Phase 4 (`52d7298`) dalio-metals prompts. Captain intent ("metals are an extension of the total portfolio") closed end-to-end.
 **Origin:** Captain mental-model 2026-05-06: "metals are an extension of the total portfolio." Schwab + Dilithium Reserve + Alpaca paper currently siloed across `data/real_holdings.json`, `metals_ledger` table, and `AlpacaBridge`. Kirk + Advisory Team see Schwab only. Goal: unified read-only API.
 
 #### Phase 1 outcome
@@ -1231,26 +1231,29 @@ LOW. Auth posture handles what bind-localhost was protecting. Reversal is a sing
 
 First smoke (2026-05-07): **22 positions, $138,371.20 total value**, all 3 sources loaded clean. See `docs/TOTAL_PORTFOLIO.md`.
 
-#### Phase 2 (deferred) — Kirk advisory integration
+#### Phase 2 (SHIPPED `d338605`) — Kirk advisory integration
 
-Switch `engine/kirk_advisory.py::generate_kirk_advisory()` from `_load_real_holdings()` to `engine.total_portfolio.get_total_portfolio()`. Kirk sees Alpaca paper + metals alongside Schwab. Effort: ~1 h Scotty (one function migration + verify all four `?source=` paths in HM-AU still work + advisory consumers handle the larger surface).
+`engine/kirk_advisory.py::generate_kirk_advisory()` now augments its return envelope with a `total_portfolio` key from `get_portfolio_summary()`. Per-Schwab-position executive action logic preserved (alert semantics + team_advisor_grok coupling intact). Defensive try/except: failure logs a warning and the envelope omits the key.
 
-#### Phase 3 (deferred) — Advisory Team integration
+#### Phase 3 (SHIPPED `d6c9647`) — Advisory Team integration
 
-Advisory Team prompts include the unified portfolio context. Currently the Team sees Schwab indirectly via Kirk. Effort: ~30 min Scotty (prompt template update + verify Picard/etc. consumers).
+`engine/team_advisor_grok.py::run_grok_subadvisor()` now injects a "## Total Portfolio Context" preamble into Grok's user prompt with cross-source totals (value/cash/invested + position count + sources_loaded). Stale `"~$22k notional + ~$2.2k cash"` hardcode removed. Per-Schwab-position breakdown loop (executive surface) preserved.
 
-#### Phase 4 (deferred) — `dalio-metals` strategy realign
+#### Phase 4 (SHIPPED `52d7298`) — `dalio-metals` strategy realign
 
-`dalio-metals` currently has its own metals view. Consolidate to read from `total_portfolio` so the player_id's metals match physical reality + Captain's actions. Effort: TBD, depends on dalio-metals current implementation surface.
+Two `if self.player_id == "dalio-metals":` injection sites in `engine/providers/base.py` (single-shot prompt path + 3-step research/thesis/execute Step 2 thesis). Each appends a TOTAL PORTFOLIO CONTEXT block to `personality_block` so Mr. Dalio's All Weather reasoning sees Schwab + metals + Alpaca paper, not just metals. Other personas untouched.
 
-#### Acceptance (Phase 1 only)
+#### Acceptance
 
-- [x] `engine/total_portfolio.py` ships read-only data layer
+- [x] `engine/total_portfolio.py` ships read-only data layer (Phase 1)
 - [x] Standalone smoke succeeds (`venv/bin/python3 engine/total_portfolio.py`)
 - [x] Per-source resilience verified (sources_failed pattern works)
 - [x] 30s TTL cache + `force_refresh` flag
 - [x] `docs/TOTAL_PORTFOLIO.md` documents module, data shape, deferred phases
-- [x] No consumer integration; Kirk/Advisory/dalio-metals untouched
+- [x] Kirk advisory envelope includes `total_portfolio` (Phase 2)
+- [x] Advisory Team prompt includes Total Portfolio Context preamble (Phase 3)
+- [x] `dalio-metals` prompts include Total Portfolio Context preamble at both sites (Phase 4)
+- [x] All consumers defensive (try/except, prompt builds without preamble on failure)
 
 #### Cross-references
 
