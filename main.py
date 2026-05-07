@@ -542,14 +542,11 @@ def run_journal():
 
     try:
         from engine.ai_journal import generate_journal_entry, save_journal_entry
-        from engine.market_data import get_stock_price
+        # HM-AQ-β v3 2026-05-07: bulk endpoint (~25× faster than per-symbol loop).
+        from engine.market_data import get_bulk_prices
         from engine.universe import get_active_universe
 
-        prices = {}
-        for sym in get_active_universe():
-            data = get_stock_price(sym)
-            if "error" not in data:
-                prices[sym] = data
+        prices = get_bulk_prices(get_active_universe())
 
         wrote_any = False
         for pid, provider in arena.providers.items():
@@ -1102,14 +1099,11 @@ def run_war_room():
     def _war_room_thread():
         _war_room_running.set()   # mark busy before any work starts
         try:
-            from engine.market_data import get_stock_price
+            # HM-AQ-β v3 2026-05-07: bulk endpoint (~25× faster than per-symbol loop).
+            from engine.market_data import get_bulk_prices
             from engine.war_room import run_war_room as _run_wr
             from engine.universe import get_active_universe
-            prices = {}
-            for sym in get_active_universe():
-                data = get_stock_price(sym)
-                if "error" not in data:
-                    prices[sym] = data
+            prices = get_bulk_prices(get_active_universe())
             if prices:
                 _run_wr(arena.providers, prices)
             else:
@@ -1984,11 +1978,9 @@ def run_daily_summary():
         from engine.telegram_alerts import send_daily_summary
         import sqlite3
 
-        prices = {}
-        for sym in get_active_universe():
-            data = get_stock_price(sym)
-            if "error" not in data:
-                prices[sym] = data
+        # HM-AQ-β v3 2026-05-07: bulk endpoint (~25× faster than per-symbol loop).
+        from engine.market_data import get_bulk_prices
+        prices = get_bulk_prices(get_active_universe())
 
         conn = sqlite3.connect("data/trader.db", check_same_thread=False)
         conn.row_factory = sqlite3.Row

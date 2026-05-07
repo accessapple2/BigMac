@@ -43,6 +43,14 @@ from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Optional
 
+# HM-AQ-β 2026-05-07: ensure project root is on sys.path when run standalone
+# (`python3 engine/universe_refresh.py`). Without this, `from config import ...`
+# fails because Python's auto-added path is the script's directory (engine/),
+# not the repo root.
+_REPO_ROOT = Path(__file__).resolve().parent.parent
+if str(_REPO_ROOT) not in sys.path:
+    sys.path.insert(0, str(_REPO_ROOT))
+
 logging.basicConfig(
     level=logging.INFO,
     format="%(asctime)s [UNIVERSE-REFRESH] %(levelname)s %(message)s",
@@ -50,16 +58,30 @@ logging.basicConfig(
 )
 log = logging.getLogger(__name__)
 
-_REPO_ROOT = Path(__file__).resolve().parent.parent
 _DB_PATH = _REPO_ROOT / "data" / "trader.db"
 
 # Filter thresholds (mirror engine/universe.py — keep in sync).
 MIN_MARKET_CAP = 5_000_000_000.0
-MIN_DOLLAR_VOLUME = 50_000_000.0
+# HM-AQ-β v3 2026-05-07: $50M → $100M floor (Captain decision after v2 dry-run
+# produced 1,554 finalists, exceeding the dashboard latency budget). $100M
+# still catches the "missed movers" (DDOG/FTNT/MDB all >$100M); drops thin
+# mid-caps that add noise without value. Predicted final: 600-900.
+MIN_DOLLAR_VOLUME = 100_000_000.0
+# Captain refinement 2026-05-07 during dry-run: ETF inclusion.
+# ETFs lack a market_cap analog from Polygon (they have AUM, not cap), so
+# the cap filter would exclude every ETF — losing TQQQ, IWM, XLE, etc.
+# ETFs included when dollar_volume passes the same threshold as stocks.
+# ETNs (debt notes, different risk profile) are skipped at refresh time.
+ETF_DOLLAR_VOLUME_THRESHOLD = MIN_DOLLAR_VOLUME  # parity with stocks ($100M v3)
+INCLUDE_ETFS = True
+INCLUDE_ETNS = False
 
 # Sanity bounds: refusing to write a wildly different universe.
+# Captain bump 2026-05-07 v3: MAX_FINAL_COUNT raised to 2500 to accommodate
+# broader stock+ETF universe (post-ETF-inclusion the natural band is 1400-1700,
+# headroom for growth).
 MIN_FINAL_COUNT = 100
-MAX_FINAL_COUNT = 1500
+MAX_FINAL_COUNT = 2500
 
 # Polygon throttle: Stocks Starter + Options Starter both 5 cps.
 # We share the budget; 5 cps total is conservative.
@@ -79,13 +101,18 @@ def _polygon_key() -> str:
 
 
 def _ntfy(message: str, priority: str = "default") -> None:
-    """Send NTFY alert to ollietrades-admin (HM-AQ-β failure posture)."""
+    """Send NTFY alert to ollietrades-admin (HM-AQ-β failure posture).
+
+    Title uses ASCII-only "HM-AQ-beta" because HTTP headers must be latin-1
+    encodable; the β character would raise UnicodeEncodeError. Body is
+    UTF-8 so β survives there if used.
+    """
     try:
         import requests
         requests.post(
             "https://ntfy.sh/ollietrades-admin",
             data=message.encode("utf-8"),
-            headers={"Title": "HM-AQ-β refresh", "Priority": priority},
+            headers={"Title": "HM-AQ-beta refresh", "Priority": priority},
             timeout=10,
         )
     except Exception as e:
@@ -136,23 +163,28 @@ def _filter_by_dollar_volume(rows: list[dict], min_dv: float) -> list[dict]:
 
 # ─── Step 2: per-symbol market_cap ───────────────────────────────────────────
 
-def _fetch_market_cap_polygon(api_key: str, ticker: str) -> Optional[float]:
-    """One call to /v3/reference/tickers/{TICKER}; returns market_cap or None."""
+def _fetch_ticker_details_polygon(api_key: str, ticker: str) -> tuple[Optional[float], Optional[str]]:
+    """One call to /v3/reference/tickers/{TICKER}; returns (market_cap, type).
+
+    Returns (None, None) on any failure. `type` is Polygon's classification:
+    'CS' (common stock), 'ETF', 'ETN', 'ADRC', 'PFD' (preferred), etc.
+    """
     import requests
     url = f"https://api.polygon.io/v3/reference/tickers/{ticker}"
     try:
         r = requests.get(url, params={"apiKey": api_key}, timeout=10)
         if r.status_code != 200:
-            return None
+            return None, None
         result = r.json().get("results") or {}
         mc = result.get("market_cap")
-        return float(mc) if mc else None
+        tt = result.get("type")
+        return (float(mc) if mc else None, tt)
     except Exception:
-        return None
+        return None, None
 
 
 def _fetch_market_cap_yfinance(ticker: str) -> Optional[float]:
-    """Fallback path 1 — yfinance bulk Ticker.info['marketCap']."""
+    """Fallback path 1 — yfinance bulk Ticker.info['marketCap']. Stocks only."""
     try:
         import yfinance as yf
         info = yf.Ticker(ticker).info or {}
@@ -160,17 +192,6 @@ def _fetch_market_cap_yfinance(ticker: str) -> Optional[float]:
         return float(mc) if mc else None
     except Exception:
         return None
-
-
-def _resolve_market_cap(api_key: str, ticker: str) -> tuple[Optional[float], str]:
-    """Return (market_cap, source). source ∈ {'polygon', 'yfinance', 'failed'}."""
-    mc = _fetch_market_cap_polygon(api_key, ticker)
-    if mc is not None:
-        return mc, "polygon"
-    mc = _fetch_market_cap_yfinance(ticker)
-    if mc is not None:
-        return mc, "yfinance"
-    return None, "failed"
 
 
 # ─── Step 3: options eligibility ─────────────────────────────────────────────
@@ -221,19 +242,21 @@ def _write_universe(rows: list[dict]) -> int:
                 """
                 INSERT INTO scan_universe
                     (symbol, name, exchange, sector, avg_volume, avg_price,
-                     last_updated, market_cap, options_eligible)
-                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
+                     last_updated, market_cap, options_eligible, ticker_type)
+                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
                 ON CONFLICT(symbol) DO UPDATE SET
                     avg_volume       = excluded.avg_volume,
                     avg_price        = excluded.avg_price,
                     last_updated     = excluded.last_updated,
                     market_cap       = excluded.market_cap,
-                    options_eligible = excluded.options_eligible
+                    options_eligible = excluded.options_eligible,
+                    ticker_type      = excluded.ticker_type
                 """,
                 (
                     r["symbol"], r.get("name") or r["symbol"], r.get("exchange") or "",
                     r.get("sector") or "", r["avg_volume"], r["avg_price"],
                     now_iso, r["market_cap"], 1 if r["options_eligible"] else 0,
+                    r.get("ticker_type") or "CS",
                 ),
             )
             n += 1
@@ -264,6 +287,9 @@ def run_refresh(dry_run: bool = False) -> dict:
         "step2_polygon_ok": 0,
         "step2_yfinance_fallback": 0,
         "step2_skipped": 0,
+        "step2_etn_skipped": 0,
+        "step2_etf_included": 0,
+        "step2_other_type_skipped": 0,
         "step2_passing_cap": 0,
         "step3_options_eligible": 0,
         "final": 0,
@@ -283,8 +309,13 @@ def run_refresh(dry_run: bool = False) -> dict:
         _ntfy(f"HM-AQ-β refresh: step 1 produced 0 candidates for {day}", priority="high")
         return {**summary, "status": "failed", "reason": "step1_empty"}
 
-    # Step 2 — per-symbol market_cap (rate-limited)
-    log.info("Step 2: fetching market_cap for %d candidates (throttled at %d cps) ...",
+    # Step 2 — per-symbol ticker details (rate-limited)
+    # Captain refinement 2026-05-07: branch on ticker_type:
+    #   CS  → require market_cap >= $5B (with yfinance fallback)
+    #   ETF → include if dollar_volume >= $50M (already passed Step 1)
+    #   ETN → skip
+    #   other (ADRC, PFD, etc.) → skip for now
+    log.info("Step 2: fetching ticker details for %d candidates (throttled at %d cps) ...",
              len(candidates), _POLYGON_CPS)
     finalists = []
     for i, c in enumerate(candidates):
@@ -293,26 +324,65 @@ def run_refresh(dry_run: bool = False) -> dict:
             summary["step2_skipped"] += 1
             continue
         throttle.wait()
-        mc, source = _resolve_market_cap(api_key, sym)
-        if source == "polygon":
-            summary["step2_polygon_ok"] += 1
-        elif source == "yfinance":
-            summary["step2_yfinance_fallback"] += 1
-            log.info("  fallback yfinance for %s -> market_cap=%s", sym, mc)
-        else:
-            summary["step2_skipped"] += 1
-            log.info("  skipped %s (no market_cap from polygon or yfinance)", sym)
+        mc, ttype = _fetch_ticker_details_polygon(api_key, sym)
+
+        # ETN branch — Captain decision 2026-05-07: skip ETNs entirely
+        if ttype == "ETN":
+            summary["step2_etn_skipped"] += 1
+            log.info("  type_skipped %s type=ETN", sym)
             continue
-        if mc is None or mc < MIN_MARKET_CAP:
+
+        # ETF branch — Captain decision 2026-05-07: include on dollar_volume only
+        if ttype == "ETF" and INCLUDE_ETFS:
+            c["market_cap"] = None  # ETFs have no cap analog
+            c["options_eligible"] = False
+            c["ticker_type"] = "ETF"
+            finalists.append(c)
+            summary["step2_etf_included"] += 1
+            log.info("  etf_included %s dollar_volume=$%.1fM",
+                     sym, c["dollar_volume"] / 1e6)
+            if (i + 1) % 100 == 0:
+                log.info("  step 2 progress: %d/%d processed, %d finalists",
+                         i + 1, len(candidates), len(finalists))
+            continue
+
+        # Stock (CS) branch + fallback chain. Other types (ETV, PFD, ADRC,
+        # FUND, SP, OS, etc.) are explicitly skipped — Captain v3 2026-05-07.
+        if ttype not in ("CS", None):
+            summary["step2_other_type_skipped"] += 1
+            log.info("  type_skipped %s type=%s", sym, ttype)
+            continue
+
+        if mc is not None:
+            summary["step2_polygon_ok"] += 1
+        else:
+            mc = _fetch_market_cap_yfinance(sym)
+            if mc is not None:
+                summary["step2_yfinance_fallback"] += 1
+                log.info("  fallback yfinance for %s -> market_cap=$%.1fB",
+                         sym, mc / 1e9)
+            else:
+                summary["step2_skipped"] += 1
+                log.info("  no_cap_skipped %s (polygon=None, yfinance=None)", sym)
+                continue
+
+        if mc < MIN_MARKET_CAP:
+            log.info("  stock_capfail %s cap=$%.2fB threshold=$%.1fB",
+                     sym, mc / 1e9, MIN_MARKET_CAP / 1e9)
             continue
         c["market_cap"] = mc
         c["options_eligible"] = False
+        c["ticker_type"] = ttype or "CS"
         finalists.append(c)
         if (i + 1) % 100 == 0:
-            log.info("  step 2 progress: %d/%d candidates processed, %d finalists",
+            log.info("  step 2 progress: %d/%d processed, %d finalists",
                      i + 1, len(candidates), len(finalists))
     summary["step2_passing_cap"] = len(finalists)
-    log.info("Step 2: %d symbols pass market_cap >= $%.1fB", len(finalists), MIN_MARKET_CAP / 1e9)
+    log.info("Step 2: %d total finalists (CS pass cap, ETF pass volume) | "
+             "ETF=%d, ETN_skipped=%d, other_type_skipped=%d, fallback=%d, skipped=%d",
+             len(finalists), summary["step2_etf_included"], summary["step2_etn_skipped"],
+             summary["step2_other_type_skipped"], summary["step2_yfinance_fallback"],
+             summary["step2_skipped"])
 
     # Sanity bounds before Step 3 (catches mass failures early)
     if not (MIN_FINAL_COUNT <= len(finalists) <= MAX_FINAL_COUNT):
@@ -342,9 +412,12 @@ def run_refresh(dry_run: bool = False) -> dict:
     if dry_run:
         log.info("DRY RUN — would have written %d rows. Sample:", len(finalists))
         for c in finalists[:5]:
-            log.info("  %s | cap=$%.1fB | $vol=$%.0fM | opt=%s",
-                     c["symbol"], c["market_cap"] / 1e9, c["dollar_volume"] / 1e6,
-                     c["options_eligible"])
+            # HM-AQ-β v3 fix: ETFs have market_cap=None; format defensively.
+            cap_str = (f"${c['market_cap']/1e9:.1f}B"
+                       if c.get("market_cap") is not None else "ETF (no cap)")
+            log.info("  %s [%s] | cap=%s | $vol=$%.0fM | opt=%s",
+                     c["symbol"], c.get("ticker_type", "?"), cap_str,
+                     c["dollar_volume"] / 1e6, c["options_eligible"])
     else:
         n_written = _write_universe(finalists)
         summary["written"] = n_written

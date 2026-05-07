@@ -193,3 +193,36 @@ Path (a) "formal retirement" applied per Captain decision logged in HM-AR-β tic
 **No functional change.** Pure code hygiene — eliminates the naming-drift confusion that wasted investigator time during HM-AR.
 
 **Service restart required** to load new bytecode (function name changed in scheduler binding). Reversal: `git revert <sha> && launchctl kickstart -k gui/$(id -u)/com.trademinds.trader && mv archive/earnings_injector.py.retired-20260507 engine/earnings_injector.py`.
+
+## 2026-05-07 — HM-AQ-β SHIPPED: dynamic WATCH_STOCKS universe (~1,223 names)
+
+5 commits cover the Captain's decision (HM-AQ, 2026-05-07): replace the static 20-name `config.WATCH_STOCKS` constant with a Polygon-driven dynamic universe of stocks + ETFs matching market_cap ≥ $5B + dollar_volume ≥ $100M, refreshed weekly via launchd.
+
+**Commit chain:**
+1. `5eb479c` migration(HM-AQ-β): scan_universe ALTER TABLE — `market_cap` + `options_eligible` columns
+2. `dd43bab` feat(HM-AQ-β): `engine/universe.py` accessor (returns 20-name fallback pre-refresh)
+3. `12ad22d` feat(HM-AQ-β): `engine/universe_refresh.py` 3-step Polygon pipeline
+4. `404f0a2` refactor(HM-AQ-β): 38 files migrated to `engine.universe`; `config.WATCH_STOCKS` deleted; `FIXED_WATCHLIST` converged
+5. (this commit) feat(HM-AQ-β v3): bug-fix bundle + plist + perf fix + wet refresh
+
+**v3 bundle in commit 5:**
+- `migrations/HM-AQ-β_universe_ticker_type_2026-05-07.sql` — adds `ticker_type TEXT DEFAULT 'CS'` (v2 dry-run revealed Polygon doesn't return market_cap for ETFs; needed type-aware branching)
+- `engine/universe_refresh.py` — sys.path fix, NTFY ASCII title, ETF/ETN/ETV branches, per-symbol audit logging, $100M floor, MAX_FINAL_COUNT=2500, sample-print None-cap fix
+- `engine/universe.py` — type-aware filter SQL, $100M threshold, ETF/ETN constants
+- `dashboard/app.py` + `main.py` — **bulk-endpoint perf fix at 9 sites** (replaces per-symbol fan-out with `get_bulk_prices(get_active_universe())` — ~25× faster on 1,223 symbols)
+- `~/Library/LaunchAgents/com.ollietrades.universe-refresh.plist` (new) — Sunday 14:00 MST
+- `docs/UNIVERSE.md`, `docs/XO_BACKLOG.md` (HM-AQ-β SHIPPED + HM-AQ-β.2 ADRC ticket added)
+
+**v1→v2→v3 dry-run iteration:**
+- v1 ($50M, no ETF branch) — TQQQ/IWM/XLE all dropped, killed
+- v2 ($50M, ETF branch + ETV skip) — 1,554 finalists tripped 1500 sanity bound (intended diagnostic)
+- v3 ($100M, MAX_FINAL_COUNT=2500) — 1,223 finalists in band, sample crash on ETF None-cap (cosmetic, fixed)
+
+**Wet refresh result** (post-commit): see GATE 4 verification block below this entry once executed.
+
+**Performance impact (dashboard latency):**
+- Before HM-AQ-β v3: per-symbol fan-out via ThreadPoolExecutor(max_workers=6) → ~47s for 1,223 symbols
+- After v3: single `get_bulk_prices()` Alpaca call → ~1-2s
+- Captain caught the math error in my pre-commit estimate; actual fix is the bulk-endpoint pattern, not threshold tightening.
+
+**Rollback:** `git revert` last 5 commits + drop ALTER COLUMNs (SQLite pre-3.35: schema rebuild required) + `launchctl bootout gui/$(id -u)/com.ollietrades.universe-refresh` + service restart. Or simpler: revert commit 5 only (consumers still work via fallback path in `engine.universe`).

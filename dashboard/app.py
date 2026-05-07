@@ -3860,33 +3860,15 @@ def market_heatmap():
     pos_weight = {row["symbol"]: row["cost_basis"] for row in positions}
     total_invested = sum(pos_weight.values()) or 1.0
 
-    # Parallel price fetch — was sequential (20 symbols × ~300ms each = 6s+); now 4s total cap.
-    # HM-AQ-β 2026-05-07: chunked batching for the dynamic universe (~500-800 symbols).
-    # Chunks of 50 symbols with 100ms inter-chunk gap to avoid bursting through
-    # provider rate limits. Timeout=4s remains; partial results acceptable for
-    # this dashboard widget.
-    import time as _time
-    _CHUNK = 50
-    _PAUSE = 0.1
-    cell_data: dict = {}
-    universe_syms = get_active_universe()  # post-bulk-sed becomes get_active_universe()
-    try:
-        with ThreadPoolExecutor(max_workers=6) as pool:
-            for _i in range(0, len(universe_syms), _CHUNK):
-                _chunk = universe_syms[_i:_i + _CHUNK]
-                futures = {pool.submit(get_stock_price, sym): sym for sym in _chunk}
-                for f in as_completed(futures, timeout=4):
-                    sym = futures[f]
-                    try:
-                        data = f.result(timeout=1)
-                        if "error" not in data:
-                            cell_data[sym] = data
-                    except Exception:
-                        pass
-                if _i + _CHUNK < len(universe_syms):
-                    _time.sleep(_PAUSE)
-    except FuturesTimeout:
-        pass  # return partial results
+    # HM-AQ-β v3 2026-05-07: bulk endpoint replaces per-symbol fan-out.
+    # Was: ThreadPoolExecutor(max_workers=6) over chunks of 50 calling
+    # get_stock_price per symbol. At 1,223 symbols that took ~47s
+    # (max_workers=6 serializes 50-symbol chunks at ceil(50/6)=9 workers ×
+    # 200ms = 1.8s/chunk × 25 chunks). Now: single get_bulk_prices() call
+    # hits Alpaca's bulk endpoint /v2/stocks/quotes/latest?symbols=A,B,C,...
+    # — returns all symbols in one HTTP request (~1-2s for 1,223). ~25× faster.
+    from engine.market_data import get_bulk_prices
+    cell_data = get_bulk_prices(get_active_universe())
 
     result = []
     for sym in get_active_universe():
@@ -4588,15 +4570,12 @@ def tactical_allocation(view: str = "fleet", model: str = "", include_all: int =
 @app.get("/api/market/sectors")
 def market_sectors():
     """Sector rotation tracker: performance by sector group."""
-    from engine.market_data import get_stock_price
+    # HM-AQ-β v3 2026-05-07: bulk endpoint (~25× faster than per-symbol loop).
+    from engine.market_data import get_bulk_prices
     from engine.sector_tracker import get_sector_rotation, get_sector_exposure
     from engine.universe import get_active_universe
 
-    prices = {}
-    for sym in get_active_universe():
-        data = get_stock_price(sym)
-        if "error" not in data:
-            prices[sym] = data
+    prices = get_bulk_prices(get_active_universe())
 
     return {
         "rotation": get_sector_rotation(prices),
@@ -5179,11 +5158,9 @@ def war_room_post(data: dict = None):
                 except Exception:
                     pass
 
-            prices = {}
-            for sym in get_active_universe():
-                data = get_stock_price(sym)
-                if "error" not in data:
-                    prices[sym] = data
+            # HM-AQ-β v3 2026-05-07: bulk endpoint (~25× faster).
+            from engine.market_data import get_bulk_prices as _gbp
+            prices = _gbp(get_active_universe())
             # Also fetch the posted symbol if not in watchlist
             if symbol not in prices:
                 data = get_stock_price(symbol)
@@ -5245,11 +5222,9 @@ def trigger_war_room():
                 except Exception:
                     pass
 
-            prices = {}
-            for sym in get_active_universe():
-                data = get_stock_price(sym)
-                if "error" not in data:
-                    prices[sym] = data
+            # HM-AQ-β v3 2026-05-07: bulk endpoint (~25× faster).
+            from engine.market_data import get_bulk_prices as _gbp
+            prices = _gbp(get_active_universe())
 
             if prices and providers:
                 _run_wr(providers, prices)
@@ -6122,11 +6097,9 @@ def risk_radar(player_id: str = None):
     if _risk_radar_cache["prices"] and (now - _risk_radar_cache["prices_ts"]) < 60:
         prices = _risk_radar_cache["prices"]
     else:
-        prices = {}
-        for sym in get_active_universe():
-            data = get_stock_price(sym)
-            if "error" not in data:
-                prices[sym] = data
+        # HM-AQ-β v3 2026-05-07: bulk endpoint (~25× faster).
+        from engine.market_data import get_bulk_prices as _gbp
+        prices = _gbp(get_active_universe())
         _risk_radar_cache["prices"] = prices
         _risk_radar_cache["prices_ts"] = now
 
@@ -6495,11 +6468,9 @@ def pair_pnl():
     from engine.market_data import get_stock_price
     from engine.universe import get_active_universe
 
-    prices = {}
-    for sym in get_active_universe():
-        data = get_stock_price(sym)
-        if "error" not in data:
-            prices[sym] = data
+    # HM-AQ-β v3 2026-05-07: bulk endpoint (~25× faster).
+    from engine.market_data import get_bulk_prices as _gbp
+    prices = _gbp(get_active_universe())
 
     return get_pair_pnl(prices)
 

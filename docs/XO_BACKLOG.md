@@ -593,8 +593,8 @@ Of the 6 candidates that triggered this investigation: 5 in `scan_universe` (cat
 ### HM-AQ-β — Implement dynamic WATCH_STOCKS refresh (2026-05-07)
 
 **Type:** Implementation (active queue)
-**Priority:** P3 — post-soak; spawn from HM-AQ Captain decision
-**Status:** Proposed
+**Priority:** P3 → escalated and shipped same-day
+**Status:** **SHIPPED 2026-05-07** — 5 commits (`5eb479c` schema → `dd43bab` accessor → `12ad22d` refresher → `404f0a2` consumer migration → commit 5 = bug-fix bundle + plist + wet refresh + perf fix). Universe at $100M floor: ~1,223 names (927 CS + 296 ETF). Bulk-endpoint perf fix at 9 fan-out sites makes 1,223-symbol snapshots ~1-2s instead of ~47s. Full narrative: `docs/UNIVERSE.md`.
 **Origin:** HM-AQ decision 2026-05-07 (`docs/UNIVERSE.md`).
 
 #### Scope
@@ -635,6 +635,36 @@ Replace the static `config.py:WATCH_STOCKS = [...20 tickers]` constant with a dy
 - `docs/UNIVERSE.md` — criteria + rationale
 - HM-AS-β — cadence drift warning (will detect any regression)
 - HM-AU — Kirk advisory source routing audit (12+ iteration sites)
+
+---
+
+### HM-AQ-β.2 — ADRC inclusion (2026-05-07)
+
+**Type:** Universe scope expansion (HM-AQ-β follow-up)
+**Priority:** P4 — LOW (some liquid ADRCs missed but core universe is solid)
+**Status:** Proposed
+**Origin:** HM-AQ-β v3 dry-run 2026-05-07 surfaced 79 type-skipped tickers, mostly ADRCs (BP, NIO, GGB, VIST, LEGN, ...). Many have liquid options chains.
+
+#### Question
+Should ADRC (American Depositary Receipt — Common) tickers be included in WATCH_STOCKS dynamic universe? Currently treated like preferred/fund types and skipped. ADRCs are how foreign companies list on US exchanges (BP, Toyota, Sony, Alibaba, NIO, Shopify, etc.) — most have liquid options.
+
+#### Shape (if Captain approves)
+- `engine/universe_refresh.py`: extend type-allowed list from `{"CS"}` to `{"CS", "ADRC"}` in the stock branch
+- ADRCs use the same cap+volume filter as CS (foreign companies have market_cap reported in Polygon; verify on a small sample first)
+- `engine/universe.py`: extend SQL filter `(ticker_type IN ('CS', 'ADRC') AND ...)` 
+- Re-run wet refresh; expect +20-40 ADRCs to enter universe
+
+#### Effort
+~10 min Scotty: 1 line in refresher branch + 1 line in universe SQL + dry-run + Captain spot-check.
+
+#### Acceptance criteria
+- [ ] ADRCs with cap≥$5B and dollar_volume≥$100M included in scan_universe
+- [ ] options_eligible flag works correctly for ADRCs (Polygon options API returns chains for them)
+- [ ] Captain spot-check on liquid names (BP, NIO, etc.) confirms inclusion
+
+#### Related
+- HM-AQ-β — parent (shipped 2026-05-07)
+- 79 ADRC/other-type symbols logged via `type_skipped` audit line during v3 dry-run
 
 ---
 
