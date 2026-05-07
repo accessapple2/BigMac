@@ -693,6 +693,49 @@ If browser-save-dir change is unworkable, alternative: Hazel rule on `~/Download
 
 ---
 
+### HM-AU — Kirk advisory source routing audit (2026-05-07)
+
+**Type:** Observability / documentation
+**Priority:** P3 — low
+**Status:** Proposed
+**Origin:** 2026-05-07 morning Kirk paper-source check surfaced ambiguity in `/api/kirk/advisory?source=...` semantics.
+
+#### Problem
+Same endpoint (`/api/kirk/advisory`) returned different data depending on time of day, after a Schwab CSV import flipped intermediate state:
+- 06:50 MST: `?source=paper` → 23 positions (Alpaca paper book)
+- 10:50 MST: `?source=paper` → 11 positions (Schwab `real_holdings.json` after morning import)
+
+Per HM-AJ-documented gotcha: `?source=real` **bypasses** `generate_kirk_advisory()` entirely and uses inline action-logic at `dashboard/app.py:13420`. Other `?source=` values' behavior is not documented — unclear which paths invoke the rule engine vs. inline logic, and what data file/table each one reads.
+
+#### Open questions
+1. What `?source=` values does the endpoint accept?
+2. For each value: does it call `generate_kirk_advisory()` or use inline logic?
+3. For each value: what is the underlying data source (Alpaca API, `real_holdings.json`, `paper_holdings.json`, schwab_holdings table, positions table)?
+4. Which value does the dashboard front-end use by default? Does that match operator intent?
+5. Is the source-name vs. data-source mapping intentional or accidental drift?
+
+#### Shape
+1. Read `dashboard/app.py:13420` (inline `?source=real` path) and `generate_kirk_advisory()` to enumerate accepted source values + branching logic.
+2. Read each source's underlying data accessor.
+3. Cross-reference dashboard front-end calls (search `kirk/advisory?source=` in HTML/JS).
+4. Produce a behavior table mapping source value → code path → data source → typical row count.
+5. Document in `CLAUDE.md` or `docs/SCHEMA.md` under a new "Kirk Advisory Routing" section.
+6. If any source name contradicts its data source (e.g., `?source=paper` returning Schwab data), flag for follow-up rename or re-routing — but don't rename in this audit; document and surface to Admiral.
+
+#### Effort
+~30 min Scotty (read 4-6 code locations + 1 doc write).
+
+#### Acceptance criteria
+- [ ] Behavior table in `CLAUDE.md` or `docs/SCHEMA.md`: `?source=` value → code path → data source → expected row count
+- [ ] HM-AJ gotcha note cross-linked
+- [ ] Any naming/routing contradictions flagged with proposed renames (no actual renames in this audit)
+
+#### Related
+- HM-AJ — Kirk parse hardening + observability + alert hygiene (commit `796acbf`)
+- 2026-05-07 morning observation: same endpoint returned 23 → 11 positions across the day
+
+---
+
 ## Lessons
 
 **2026-05-04 — Stale-bytecode trap from in-flight schema changes:** HM-B's `DROP COLUMN ai_players.is_halted` (commit `9256890`) created a stale-bytecode mismatch in the running trader process (PID 13734). The service was started at 08:32 MST — before HM-A's source migration shipped that morning — so the in-memory bytecode still had pre-HM-A SQL referencing the now-dropped column. Errors began at 17:36, but were caught by `try/except` blocks at the call sites and surfaced only as quiet `console.log` warnings: 15 occurrences across `War Room`, `ai_brain.py:286/295/533`, and three agents (ollama-coder, mlx-qwen3, energy-arnold) before discovery via log scan during PED retirement verification ~70 minutes later. Source code post-HM-A was clean; the issue was entirely in the long-running process's compiled module cache. **Future schema-change sessions should include a service restart in the verification phase OR a longer (30+ min) post-change soak window before declaring the change stable**, specifically to flush any pre-migration in-memory residue. This is also a HM-U datapoint: the silent-failure pattern (caught exceptions, swallowed errors) hid the issue from cursory checks — only a focused log scan surfaced it.
