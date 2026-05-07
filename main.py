@@ -997,15 +997,30 @@ def run_opening_range():
 
 
 _last_battle_station_run = 0.0
+# HM-AS-β 2026-05-07: cadence drift observability
+_battle_station_last_fire_ts = 0.0
 
 
 def run_battle_station_monitor():
     """60-second options position monitor (early-exit if no positions)."""
-    global _last_battle_station_run
+    # HM-AS-β 2026-05-07: cadence drift observability — log if scheduler
+    # tick interval exceeds 180s (target: 120s every 2 min). Tail driven
+    # by single-threaded schedule.run_pending() blocking on slow jobs.
+    global _last_battle_station_run, _battle_station_last_fire_ts
     import time as _t
-    if _t.time() - _last_battle_station_run < 55:  # deduplicate on 30s tick
+    _now_ts = _t.time()
+    if _battle_station_last_fire_ts > 0:
+        _interval = _now_ts - _battle_station_last_fire_ts
+        if _interval > 180:
+            logger.warning(
+                "[HM-AS-β] battle_station_monitor cadence drift: "
+                "%.1fs since last fire (target: 120s)", _interval
+            )
+    _battle_station_last_fire_ts = _now_ts
+
+    if _now_ts - _last_battle_station_run < 55:  # deduplicate on 30s tick
         return
-    _last_battle_station_run = _t.time()
+    _last_battle_station_run = _now_ts
     try:
         from engine.risk_manager import RiskManager
         if not RiskManager.is_market_hours():
