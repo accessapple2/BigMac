@@ -159,3 +159,63 @@ When 30d-window VIX > 25 (high-vol regime), require **Sharpe ≥ 4.0** to valida
 3. **Proving Ground v2 — own-launchd-job or rolled into existing scorecard runner?** If own-job, suggest 30-min cadence, writes to a new `proving_ground_v2` table to avoid breaking existing reads.
 
 **Halt condition:** await Admiral go on KILL vs HARD-EXTEND before any execution.
+
+---
+
+## 7. Closeout Log — 2026-05-08 (appended Scotty 3.3)
+
+The 5 ollie-auto Sniper positions (WFC, LNG, AMGN, GS, JPM) were
+liquidated at **14:12:18-19 UTC (07:12:18-19 AZ)**, ahead of the
+Saturday halt window.
+
+### Path
+
+**Closeout path was manual Alpaca dashboard liquidation, not
+script-driven.** `client_order_ids` on the 5 fills are random UUIDs
+rather than the `sniper-closeout-{SYM}-20260508` tags that
+`scripts/friday_open_close.sh --execute` would have stamped. The
+fingerprint matches `client.close_position(symbol)` (Alpaca auto-
+generates UUIDs when no `client_order_id` is supplied) — five hits
+to the close-position API, plausibly via the dashboard surface or a
+one-shot manual call. The orchestrator script ran in dry-run three
+times (06:11 / 06:13 / 06:19 AZ logs) but was never armed with
+`--execute MARKET-OPEN`.
+
+### Result
+
+5/5 filled within a 1-second batch.
+
+| Symbol | Qty  | Entry    | Fill     | Realized |
+|---|---:|---:|---:|---:|
+| AMGN   | 0.37 | $330.46  | $330.51  | **+$0.02** |
+| GS     | 0.13 | $929.37  | $934.164 | **+$0.62** |
+| JPM    | 0.41 | $308.39  | $306.152 | **−$0.92** |
+| LNG    | 0.98 | $246.78  | $243.824 | **−$2.90** |
+| WFC    | 2.99 | $79.16   | $77.94   | **−$3.65** |
+
+**Total realized: −$6.82 on $853 cost basis (−0.80%).** Sizing-artifact
+territory, exactly as Sections 1-2 predicted: avg notional $73 ≪
+fleet median, so per-trade slippage dominates any positional edge.
+Confirms the v1 closure verdict — Sniper Mode v1's metrics were a
+sizing artifact, not alpha.
+
+### Saturday KILL impact
+
+Pre-flight 4 of `scripts/saturday_kill.sh` previously printed an
+`ollie-auto: open positions=5` warning (Phase 3 + Phase 4 dry-runs).
+That warning is now silenced — `ollie-auto` carries 0 open positions
+on Alpaca paper. Halt SQL can fire cleanly Saturday afternoon with
+no in-flight close obligations.
+
+### Followups (not done by this note)
+
+- The discrepancy between dry-run-only invocations and the actual
+  manual closeout path is not a bug; it just means
+  `scripts/friday_open_close.sh` will not produce a fill log under
+  `logs/friday_open_close_*.log` for this closeout. Forensics on the
+  closeout decision live in Alpaca's order history (UUIDs preserved
+  in the `=== SELL ORDERS TODAY ===` audit output 2026-05-08 14:13
+  UTC).
+- `scripts/friday_open_close.sh` is preserved for any future
+  pre-halt closeout window — same shape, same dry-run default, same
+  block-wait-to-13:30-UTC semantic.
