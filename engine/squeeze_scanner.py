@@ -8,11 +8,26 @@ Squeeze Score (1–10) based on:
   - RSI                        (<70 required — not already overbought)
 
 Auto-posts War Room alert from Chekov (mlx-qwen3) when score > 8.
+
+HM-AO-β (2026-05-08) — Ghost Watcher persistence:
+  - run_scan() now invokes _persist_results() which writes each result
+    with score >= 5 (composite >= 50) into the squeeze_watch table.
+  - Writes are scoped to surface candidates to the Admiral via dashboard
+    + ntfy. NO signals-table writes. NO trade-execution paths.
+  - Tier mapping (composite_score = scanner score * 10):
+      WATCH    50-74  (scores 5-7)
+      ALERT    75-89  (score 8)
+      PRIORITY 90-100 (scores 9-10)
+  - 24h dedupe: same-symbol re-scan only inserts if it upgrades the tier
+    (or no row exists in the last 24h).
 """
 from __future__ import annotations
+import os
+import sqlite3
 import time
 import threading
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
+from pathlib import Path
 from rich.console import Console
 
 console = Console()
@@ -21,6 +36,23 @@ _scan_lock = threading.Lock()
 _last_result: dict | None = None
 _last_scan_ts: float = 0.0
 _CACHE_TTL: int = 300  # 5 min cache
+
+# HM-AO-β: canonical trader DB (mirrors engine/fast_scanner.py path fix)
+_DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
+_MIN_PERSIST_SCORE = 5      # scanner score (1-10); rows below this are ignored
+_DEDUPE_HOURS = 24          # re-insert only if same-symbol row in last 24h is lower-tier
+
+
+def _tier_for_composite(composite: float) -> str:
+    if composite >= 90:
+        return "PRIORITY"
+    if composite >= 75:
+        return "ALERT"
+    return "WATCH"
+
+
+def _tier_rank(tier: str) -> int:
+    return {"WATCH": 1, "ALERT": 2, "PRIORITY": 3}.get(tier, 0)
 
 
 def _fetch_finviz_candidates() -> list[dict]:
@@ -228,10 +260,18 @@ def run_scan(force: bool = False) -> dict:
         # Auto-post War Room for score > 8
         _post_war_room_alerts(results)
 
+        # HM-AO-β Ghost Watcher persistence — never raises.
+        persist_summary: dict = {}
+        try:
+            persist_summary = _persist_results(results)
+        except Exception as e:
+            console.log(f"[yellow]squeeze_watch persist top-level error: {type(e).__name__}: {e!r}")
+
         _last_result = {
             "results": results,
             "scanned_at": datetime.now().isoformat(),
             "candidate_count": len(candidates),
+            "watch_persist": persist_summary,
         }
         _last_scan_ts = time.time()
 
@@ -258,3 +298,207 @@ def _post_war_room_alerts(results: list[dict]) -> None:
                     console.log(f"[bold magenta]Chekov → War Room: {ticker} squeeze alert posted")
     except Exception as e:
         console.log(f"[yellow]Squeeze War Room post error: {e}")
+
+
+# ─── HM-AO-β Ghost Watcher persistence ────────────────────────────────────
+
+
+def _conn(db_path: str = _DB_PATH) -> sqlite3.Connection:
+    c = sqlite3.connect(db_path, timeout=10)
+    c.execute("PRAGMA journal_mode=WAL")
+    c.row_factory = sqlite3.Row
+    return c
+
+
+def _is_quiet_hours_et() -> bool:
+    """22:00-06:00 ET = 02:00-10:00 UTC (during DST). Defer ntfy in that window."""
+    hour_utc = datetime.now(timezone.utc).hour
+    return 2 <= hour_utc < 10
+
+
+def _persist_results(results: list[dict], db_path: str = _DB_PATH) -> dict:
+    """Write each result with score >= _MIN_PERSIST_SCORE into squeeze_watch.
+
+    Returns a summary dict {inserted, deferred, skipped_dedup, ntfy_fired}.
+    Wraps every DB call in try/except — never raises into caller. Failures
+    are logged to trader.log via console.
+
+    Dedupe rule: if the same symbol already has a non-dismissed row in the
+    last _DEDUPE_HOURS, only insert if the new tier is strictly higher.
+    """
+    summary = {"inserted": 0, "deferred": 0, "skipped_dedup": 0, "ntfy_fired": 0}
+    if not results:
+        return summary
+
+    quiet = _is_quiet_hours_et()
+    cutoff_ts = (datetime.now(timezone.utc) - timedelta(hours=_DEDUPE_HOURS)).isoformat()
+    scan_ts = datetime.now(timezone.utc).isoformat()
+    inserted_ids: list[int] = []
+
+    try:
+        conn = _conn(db_path)
+        for r in results:
+            score = int(r.get("score", 0) or 0)
+            if score < _MIN_PERSIST_SCORE:
+                continue
+            ticker = r.get("ticker") or ""
+            if not ticker:
+                continue
+
+            composite = float(score) * 10.0
+            tier = _tier_for_composite(composite)
+
+            # Dedupe — most recent row in last _DEDUPE_HOURS for same symbol
+            row = conn.execute(
+                """SELECT id, threshold_tier FROM squeeze_watch
+                   WHERE symbol = ? AND scan_ts >= ? AND dismissed = 0
+                   ORDER BY scan_ts DESC LIMIT 1""",
+                (ticker, cutoff_ts),
+            ).fetchone()
+            if row is not None and _tier_rank(row["threshold_tier"]) >= _tier_rank(tier):
+                summary["skipped_dedup"] += 1
+                continue
+
+            breakout = 1.0 if r.get("above_10d_high") else 0.0
+            notes = (
+                f"raw_score={score}; days_to_cover={r.get('days_to_cover')}; "
+                f"day_change_pct={r.get('day_change_pct')}; "
+                f"high_10d_break={'yes' if r.get('above_10d_high') else 'no'}"
+            )
+            ntfy_deferred = 1 if (tier == "PRIORITY" and quiet) else 0
+
+            try:
+                cur = conn.execute(
+                    """INSERT INTO squeeze_watch
+                       (symbol, scan_ts, short_pct, float_m, vol_ratio, rsi,
+                        breakout_score, composite_score, threshold_tier,
+                        price_at_scan, notes, ntfy_sent, ntfy_deferred)
+                       VALUES (?,?,?,?,?,?,?,?,?,?,?,0,?)""",
+                    (
+                        ticker, scan_ts,
+                        float(r.get("short_interest_pct", 0) or 0),
+                        float(r.get("float_m", 0) or 0),
+                        float(r.get("vol_ratio", 0) or 0),
+                        float(r.get("rsi", 0) or 0),
+                        breakout, composite, tier,
+                        float(r.get("price", 0) or 0),
+                        notes, ntfy_deferred,
+                    ),
+                )
+                inserted_ids.append(int(cur.lastrowid))
+                summary["inserted"] += 1
+                if ntfy_deferred:
+                    summary["deferred"] += 1
+            except Exception as e:
+                console.log(f"[yellow]squeeze_watch insert error for {ticker}: {type(e).__name__}: {e!r}")
+
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        console.log(f"[yellow]squeeze_watch persist error: {type(e).__name__}: {e!r}")
+        return summary
+
+    # ntfy surfacer for PRIORITY rows that aren't deferred
+    if not quiet:
+        try:
+            summary["ntfy_fired"] = _ntfy_priority_candidates(db_path)
+        except Exception as e:
+            console.log(f"[yellow]squeeze_watch ntfy error: {type(e).__name__}: {e!r}")
+
+    if summary["inserted"] or summary["skipped_dedup"]:
+        console.log(
+            f"[cyan]squeeze_watch: inserted={summary['inserted']} "
+            f"skipped_dedup={summary['skipped_dedup']} "
+            f"deferred={summary['deferred']} ntfy_fired={summary['ntfy_fired']}"
+        )
+    return summary
+
+
+def _ntfy_priority_candidates(db_path: str = _DB_PATH, max_individual: int = 5) -> int:
+    """ntfy ollietrades-admin for PRIORITY rows that haven't been notified.
+
+    Throttle: at most `max_individual` per scan run. If more than that,
+    a single rollup ntfy fires instead. Never raises.
+    """
+    import urllib.request
+
+    fired = 0
+    try:
+        conn = _conn(db_path)
+        rows = conn.execute(
+            """SELECT id, symbol, composite_score, short_pct, float_m, vol_ratio,
+                      rsi, price_at_scan
+               FROM squeeze_watch
+               WHERE threshold_tier = 'PRIORITY'
+                 AND ntfy_sent = 0
+                 AND ntfy_deferred = 0
+                 AND dismissed = 0
+               ORDER BY scan_ts DESC""",
+        ).fetchall()
+    except Exception as e:
+        console.log(f"[yellow]squeeze_watch ntfy query error: {type(e).__name__}: {e!r}")
+        return 0
+
+    if not rows:
+        try:
+            conn.close()
+        except Exception:
+            pass
+        return 0
+
+    pending = list(rows)
+    topic = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")
+
+    def _post(title: str, body: str) -> bool:
+        safe_title = title.encode("ascii", "replace").decode("ascii")
+        try:
+            req = urllib.request.Request(
+                f"https://ntfy.sh/{topic}",
+                data=body.encode("utf-8"),
+                method="POST",
+            )
+            req.add_header("Title", safe_title)
+            req.add_header("Priority", "default")
+            urllib.request.urlopen(req, timeout=8).read()
+            return True
+        except Exception as ex:
+            console.log(f"[yellow]squeeze_watch ntfy POST error: {type(ex).__name__}: {ex!r}")
+            return False
+
+    if len(pending) > max_individual:
+        # Rollup ntfy — single notification for all PRIORITY-tier hits
+        symbols = ", ".join(r["symbol"] for r in pending[:10])
+        body = (
+            f"{len(pending)} PRIORITY squeeze candidates — "
+            f"top: {symbols}. See dashboard /api/squeeze/recent for details."
+        )
+        if _post("Squeeze rollup PRIORITY", body):
+            fired = len(pending)
+            try:
+                conn.executemany(
+                    "UPDATE squeeze_watch SET ntfy_sent=1 WHERE id=?",
+                    [(int(r["id"]),) for r in pending],
+                )
+                conn.commit()
+            except Exception as e:
+                console.log(f"[yellow]squeeze_watch ntfy_sent update error: {type(e).__name__}: {e!r}")
+    else:
+        for r in pending:
+            body = (
+                f"composite={r['composite_score']:.0f}  short={r['short_pct']:.1f}%  "
+                f"float={r['float_m']:.1f}M  vol={r['vol_ratio']:.1f}x  "
+                f"rsi={r['rsi']:.1f}  px=${r['price_at_scan']:.2f}"
+            )
+            if _post(f"Squeeze PRIORITY {r['symbol']}", body):
+                try:
+                    conn.execute("UPDATE squeeze_watch SET ntfy_sent=1 WHERE id=?", (int(r["id"]),))
+                    conn.commit()
+                    fired += 1
+                except Exception as e:
+                    console.log(f"[yellow]squeeze_watch ntfy_sent update error: {type(e).__name__}: {e!r}")
+
+    try:
+        conn.close()
+    except Exception:
+        pass
+    return fired
