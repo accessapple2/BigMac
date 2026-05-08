@@ -158,3 +158,89 @@ Same writer-investigation gate. Likely most are TRULY DEAD pending grep confirma
 3. **`ollie_backtest_30d`** has 3 writers but 0 rows in `data/trader.db` — the rows from this morning landed in the bare `./trader.db` stub now archived (Top-10 #2 SHIPPED commit `2a9a817`). Should the next backtest run land 153+ rows correctly, or is the table itself intentionally drained per cycle? Need a test backtest run to confirm before any DROP.
 
 **Halt condition:** **NO `DROP TABLE` performed by this document or this session.** Audit only.
+
+---
+
+## 6. Writer-Grep Finalization 2026-05-08
+
+> Append-only update to the audit. The original Section 2 buckets are
+> unchanged; this section is the finalization of the 24 UNCERTAIN tables
+> from Section 2.4. Pure documentation — no `DROP TABLE` performed.
+
+### Method
+
+For each UNCERTAIN table, ran:
+
+```bash
+grep -rn -E "INSERT INTO <tbl>|UPDATE <tbl>|REPLACE INTO <tbl>|INSERT OR (REPLACE|IGNORE) INTO <tbl>" \
+  --include="*.py" . | grep -v ".venv" | grep -v __pycache__ | grep -v "tests/test_" | grep -v "venv/lib"
+```
+
+For tables with ≥1 writer hit, traced the writer module's import surface
+back to `main.py` / `dashboard/app.py` to determine whether the writer
+sits in an active runtime path or in an orphaned/halted module.
+
+### Reclassified buckets
+
+#### TRULY DEAD — promote to Section 2.1 (6 tables, 0 writers anywhere)
+
+| Table | Writer hits | Verdict |
+|---|---:|---|
+| `gemini_failover` | 0 | TRULY DEAD |
+| `news_impact` | 0 | TRULY DEAD |
+| `short_watchlist` | 0 | TRULY DEAD |
+| `strategy_optimization` | 0 | TRULY DEAD |
+| `strategy_scores` | 0 | TRULY DEAD |
+| `trade_explanations` | 0 | TRULY DEAD |
+
+#### WIRED-NEVER-FIRED — promote to Section 2.2 (1 table)
+
+| Table | Writer | Notes |
+|---|---|---|
+| `orcl_gex_alerts` | `engine/orcl_gex_alerts.py:123` | Engine module has **0 imports** from any active code (already in Kill List Section F item 4). Writer exists but module is unreachable — table never receives a write. |
+
+#### ACTIVE — remove from audit (16 tables)
+
+These tables have writers on live runtime paths. They are not dead;
+the original "0 rows" signal indicates the writer simply hasn't fired
+yet (cold feature, gated path, or new schema). Removing from the
+audit — they need either a backfill or a feature-readiness review,
+not a DROP.
+
+| Table | Writer module | Active-path proof |
+|---|---|---|
+| `cash_manager_settings` | `engine/cash_manager.py:98` | `main.py:3045 from engine.cash_manager import run_sweep` |
+| `generated_indexes` | `engine/generated_assets.py:244,341,407` | `dashboard/app.py:14894+` (3 routes) |
+| `gex_strikes` | `engine/gex_engine.py:698` | `engine/gex_overlay.py:348` ← `main.py:2585` (every 15 min) |
+| `indicator_benchmarks` | `engine/indicator_bench.py:133` | `main.py:2944 from engine.indicator_bench import run_indicator_bench` |
+| `kill_switch_log` | `engine/kill_switch.py:102` | `dashboard/app.py:6502 import kill_all_positions` |
+| `manual_trades` | `dashboard/phase4_routes.py:199,281` | `dashboard/app.py:103 from dashboard.phase4_routes import router as phase4_router` |
+| `model_watchlist` | `dashboard/app.py:15259` (direct INSERT) | self-evident: writer is the live FastAPI app |
+| `rebalance_log` | `engine/drift_rebalancer.py:352` | `main.py:3080 from engine.drift_rebalancer import drift_report` |
+| `rebalance_targets` | `engine/drift_rebalancer.py:99` | (same as above) |
+| `session_grades` | `engine/dayblade_scanner.py:486` | `dashboard/app.py:3576 import run_scan` (note: dayblade idle 26d per fleet reality, but scheduler+module are wired) |
+| `tax_harvester_settings` | `engine/tax_harvester.py:195` | `main.py:3063 from engine.tax_harvester import scan_opportunities` |
+| `tax_harvests` | `engine/tax_harvester.py:556` | (same) |
+| `theta_opportunities` | `engine/theta_scanner.py:493` | `main.py:1406 from engine.theta_scanner import scan_all_theta` |
+| `trust_scores` | `engine/adaptive_strategy.py:118` | `main.py:2811 from engine.adaptive_strategy import update_trust_scores` |
+| `user_agents` | `engine/agent_builder.py:212+` (5 sites) | `main.py:3029 from engine.agent_builder import check_user_agents` |
+| `wash_sale_log` | `engine/tax_harvester.py:251` | (same as `tax_harvester_settings`) |
+
+### Final UNCERTAIN tally (post-finalization)
+
+- **TRULY DEAD bucket**: original 8 candidates + 6 newly-classified = **14 tables ready for the Batch 1 DROP migration** (still pending Admiral go + backup verification).
+- **WIRED-NEVER-FIRED bucket**: original 4 + 1 newly-classified (`orcl_gex_alerts`) = 5 tables. All require investigation, not DROP.
+- **ACTIVE-but-empty bucket** (new): 16 tables removed from audit. These need feature-readiness reviews per their owning module — out of scope for DROP planning.
+
+### What still belongs in the original UNCERTAIN row
+
+After this pass the UNCERTAIN bucket is empty. The audit's open questions
+(Section 5) remain — `crew_*` rename-vs-drop, TRULY-DEAD-first ordering,
+and `ollie_backtest_30d` reset semantics — none of which were resolved
+here.
+
+### Halt condition
+
+**No `DROP TABLE` performed.** No SQL executed. Pure documentation update
+appended to an existing audit doc. The DROP migration is still gated on
+the Admiral go + backup verification described in Section 4.
