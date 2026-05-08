@@ -1,0 +1,43 @@
+# Model Watcher — finance-focused model monitoring
+# Edit to add/remove candidates. Watcher reads on every run.
+
+installed_local:
+  bigmac:
+    - phi3:mini
+    - gemma3:4b
+    - mistral:7b
+  ollie_box:
+    - qwen3:8b
+    - qwen3:14b
+    - deepseek-r1:14b
+    - plutus
+    - picard
+    - pike
+
+ollama_finance_watchlist:
+  - plutus
+  - finma
+  - fingpt
+  - llama-finance
+  - finance-llm
+
+huggingface_searches:
+  - { query: "finance",     limit: 20 }
+  - { query: "trading",     limit: 20 }
+  - { query: "stock",       limit: 10 }
+  - { query: "FinMA",       limit: 10 }
+  - { query: "FinGPT",      limit: 10 }
+  - { query: "Plutus",      limit: 10 }
+  - { query: "TradingAgents", limit: 10 }
+
+github_repos:
+  - AI4Finance-Foundation/FinGPT
+  - AI4Finance-Foundation/FinRL
+  - AI4Finance-Foundation/FinMem-LLM-StockTrading
+  - TauricResearch/TradingAgents
+  - hkust-nlp/PIXIU
+
+ntfy_topic: ollietrades-admin
+report_dir: docs/model_watch
+log_path: data/model_watch_log.jsonl
+recency_days: 7
