@@ -217,8 +217,27 @@ Old code stays as-is until something naturally touches it. The posture propagate
 | Spock   | Premium second opinion on McCoy's ambiguous high-VIX CSPs    | deepseek-r1:7b (local) |
 | Picard  | Weekly strategic thesis → modifies Ollie's regime table      | Gemma3 4B (local)      |
 
+### Sniper Squad — Active Scouts (signal generation, route via Ollie gate)
+**Added 2026-05-08 to align with `dashboard/app.py:1431+1439` toggle reality** (Phase 3 toggle infra map). These are the active scouts firing signals into the Sniper Mode trial; both are in `PROTECTED_AGENTS` (roster-locked) and emit signals daily. Sniper Mode is a 30-day proving-ground role of `ollie-auto`, not a separate sub-mode flag — see `docs/MODEL_TOGGLE_INFRASTRUCTURE_MAP.md` §6.
+
+| Player ID            | Star Trek role | Strategy / Type                                | Model                | Recent volume |
+|----------------------|----------------|------------------------------------------------|----------------------|---------------|
+| `deepseek-7b-grok4`  | Spock          | RSI-bounce scout for Sniper Mode trial         | deepseek-r1:7b (local)| ~178 sigs/day |
+| `qwen3-8b-flash`     | Worf           | Sniper Mode scout (was Gemini Flash, repointed Apr 16) | qwen3:8b (local)| ~25 sigs/day |
+
+### Backtest Pool — Deliberate OFF (cost-doctrine, KEEP wired)
+**Added 2026-05-08 to align with toggle reality.** These 5 paid LLM agents are intentionally `halt_mode='full'` so they do NOT burn API charges — but they remain wired (`fallback_model` populated) so the Admiral can A/B test LLM lineages later or revive any single one without code changes. **They are NOT zombies. Do NOT retire or remove from `ai_players`.**
+
+| Player ID       | Provider | Fallback model     | Why off                            |
+|-----------------|----------|--------------------|------------------------------------|
+| `grok-4`        | xAI      | `deepseek-r1:7b`   | xAI charges; deepseek covers slot  |
+| `claude-haiku`  | Anthropic| `qwen2.5-coder:7b` | API cost                           |
+| `claude-sonnet` | Anthropic| `qwen3:8b`         | API cost                           |
+| `gpt-4o`        | OpenAI   | `qwen3:8b`         | API cost                           |
+| `gpt-o3`        | OpenAI   | `deepseek-r1:7b`   | API cost                           |
+
 ### Gates & Coordination (non-voters)
-- Ollie (`ollie-auto`) — quality gate, OllieScore ≥ 2.0 to approve
+- Ollie (`ollie-auto`) — quality gate, OllieScore ≥ 2.0 to approve. **Also the Sniper Mode role-holder** — Sniper Mode IS the trial wrapper around ollie-auto's gate (NOT a separate flag, NOT a sub-mode toggle). Saturday 2026-05-09 KILL is `halt_mode='full'` on this row.
 - Tractor Beam (`tractor-beam`) — tiebreaker only, not a full voter
 - Riker (`riker-xo`) — XO synthesis/alerts, fires every 10 min
 
@@ -226,6 +245,29 @@ Old code stays as-is until something naturally touches it. The posture propagate
 - Chekov — momentum agent, threshold raised to 5.0 per spec. REHAB PATH: `git show 859a4f0:engine/chekov_autotrade.py` extracts S5 version; ghost-trade S5 vs current for 30 days, promote the better one.
 - Navigator — convergence aggregator, archive candidate once Chekov decision lands
 - Worf (Gemini Flash), Seven (Gemini Pro) — no defined edge, cost burn. Archive.
+- **dayblade-sulu** — TOGGLE-OFF (deliberate) since 2026-03-31 (R:R 0.10 dormancy). Confirmed by Phase 3 toggle infra audit: `halted_at='2026-03-31'`, `halt_mode='exit_only'`, `is_paused=1`, **zero trades in last 30 days** — halt holding cleanly. Not a zombie, not a halt-gap. Code preserved.
+
+### Zombie Candidates — Future Cleanup (NOT scheduled, no DROP)
+**Added 2026-05-08 from Phase 3 toggle infra map §4.** These 14 rows are at `halt_mode='full'` with retirement reasons that have no cost-doctrine angle (i.e. they are NOT in the Backtest Pool above). Per sacred-data rule: rows stay forever, code preserved, no DROP. Listed here so future audits don't re-discover them.
+
+| Player ID              | Reason class                                  |
+|------------------------|-----------------------------------------------|
+| `anderson-bcs`         | HM-T-fleet bundle 2026-05-05 (Option 1 halt-only)|
+| `covered-call`         | HM-T-fleet bundle 2026-05-05                  |
+| `mccoy-bps`            | HM-T-fleet bundle 2026-05-05                  |
+| `quark-ic`             | HM-T-fleet bundle 2026-05-05                  |
+| `ghost-kirk-0dte-bc`   | Option-4 ghost bundle 2026-05-05              |
+| `ghost-kirk-bc`        | Option-4 ghost bundle 2026-05-05              |
+| `ghost-long-call`      | Option-4 ghost bundle 2026-05-05              |
+| `ghost-naked-put`      | Option-4 ghost bundle 2026-05-05              |
+| `ollama-gemma27b`      | HM-AK 2026-05-07 dormant cleanup (no activity 7d) |
+| `ollama-glm4`          | HM-AK 2026-05-07 dormant cleanup              |
+| `qwen-coder-haiku`     | HM-AK 2026-05-07 dormant cleanup              |
+| `qwen3-14b-grok3`      | HM-AK 2026-05-07 dormant cleanup              |
+| `qwen3-8b-4o`          | HM-AK 2026-05-07 dormant cleanup              |
+| `qwen3-8b-o3`          | HM-AK 2026-05-07 dormant cleanup              |
+
+`dayblade-0dte` is `halt_mode='full'` from the 2026-05-06 spread cannibalization operational halt — separate decision per HM-AF flag-lift review, not in the zombie set.
 
 ### Elder Council — Long-Horizon Agents (monthly/quarterly/annual cadence)
 Patient investors. Not voters on the short-term Active 4 signals. Scored on 6-month rolling basis, not daily.
