@@ -1,0 +1,21 @@
+--- a/dashboard/app.py
++++ b/dashboard/app.py
+@@ -14,7 +14,8 @@
+ from dotenv import load_dotenv
+ load_dotenv(override=True)
+ 
+-from fastapi import FastAPI, Request, Form, HTTPException, Body
++from fastapi import FastAPI, Request, Form, HTTPException, Body, Depends
++from dashboard.auth import verify_admin_token
+ from pydantic import BaseModel
+ from fastapi.middleware.cors import CORSMiddleware
+ from fastapi.staticfiles import StaticFiles
+@@ -6497,7 +6498,7 @@
+ # --- Kill Switch ---
+ 
+ @app.post("/api/kill-switch")
+-def kill_switch():
++def kill_switch(_: str = Depends(verify_admin_token)):
+     """EMERGENCY: Close ALL positions across ALL models."""
+     from engine.kill_switch import kill_all_positions
+     from engine.market_data import get_stock_price

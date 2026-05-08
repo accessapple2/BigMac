@@ -1,0 +1,21 @@
+--- a/dashboard/app.py
++++ b/dashboard/app.py
+@@ -14,7 +14,8 @@
+ from dotenv import load_dotenv
+ load_dotenv(override=True)
+ 
+-from fastapi import FastAPI, Request, Form, HTTPException, Body
++from fastapi import FastAPI, Request, Form, HTTPException, Body, Depends
++from dashboard.auth import verify_admin_token
+ from pydantic import BaseModel
+ from fastapi.middleware.cors import CORSMiddleware
+ from fastapi.staticfiles import StaticFiles
+@@ -8137,7 +8138,7 @@
+ 
+ 
+ @app.post("/api/admin/clean-stale-snapshots")
+-def clean_stale_snapshots():
++def clean_stale_snapshots(_: str = Depends(verify_admin_token)):
+     conn = _conn()
+     season_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+     season = int(season_row[0]) if season_row else 3

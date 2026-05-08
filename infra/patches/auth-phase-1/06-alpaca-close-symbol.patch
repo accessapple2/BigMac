@@ -1,0 +1,21 @@
+--- a/dashboard/app.py
++++ b/dashboard/app.py
+@@ -14,7 +14,8 @@
+ from dotenv import load_dotenv
+ load_dotenv(override=True)
+ 
+-from fastapi import FastAPI, Request, Form, HTTPException, Body
++from fastapi import FastAPI, Request, Form, HTTPException, Body, Depends
++from dashboard.auth import verify_admin_token
+ from pydantic import BaseModel
+ from fastapi.middleware.cors import CORSMiddleware
+ from fastapi.staticfiles import StaticFiles
+@@ -8715,7 +8716,7 @@
+ 
+ 
+ @app.post("/api/alpaca/close/{symbol}")
+-def alpaca_close(symbol: str):
++def alpaca_close(symbol: str, _: str = Depends(verify_admin_token)):
+     return alpaca.close_position(symbol.upper())
+ 
+ 

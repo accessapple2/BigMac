@@ -1,0 +1,21 @@
+--- a/dashboard/app.py
++++ b/dashboard/app.py
+@@ -14,7 +14,8 @@
+ from dotenv import load_dotenv
+ load_dotenv(override=True)
+ 
+-from fastapi import FastAPI, Request, Form, HTTPException, Body
++from fastapi import FastAPI, Request, Form, HTTPException, Body, Depends
++from dashboard.auth import verify_admin_token
+ from pydantic import BaseModel
+ from fastapi.middleware.cors import CORSMiddleware
+ from fastapi.staticfiles import StaticFiles
+@@ -8677,7 +8678,7 @@
+ 
+ 
+ @app.post("/api/alpaca/buy")
+-def alpaca_buy(data: dict):
++def alpaca_buy(data: dict, _: str = Depends(verify_admin_token)):
+     symbol = data.get("symbol", "")
+     qty = int(data.get("qty", 0))
+     if not symbol or qty <= 0:
