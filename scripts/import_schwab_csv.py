@@ -8,17 +8,45 @@ Usage:
 from __future__ import annotations
 
 import csv
+import logging
 import os
 import re
+import shutil
 import sqlite3
 import sys
+import urllib.error
+import urllib.request
 from datetime import datetime
+from decimal import InvalidOperation
 from pathlib import Path
 
 REPO_ROOT = Path(os.environ.get("BIGMAC_REPO", "/Users/bigmac/autonomous-trader"))
 DB_PATH   = REPO_ROOT / "data" / "trader.db"
 # HM-AT-β 2026-05-07: migrated off ~/Downloads/ for TCC (see docs/OPS_LOG.md)
 INBOX     = REPO_ROOT / "inbox"
+# HM-AY-α #3 (Scotty 2.4 sprint, 2026-05-07): malformed-CSV quarantine + delta guard
+QUARANTINE = INBOX / "quarantine"
+NTFY_TOPIC = "ollietrades-admin"
+NTFY_URL   = f"https://ntfy.sh/{NTFY_TOPIC}"
+
+# Required headers — without these the CSV cannot be meaningfully imported.
+# Per HM-AY-α #3 audit: presence enforced upfront so we fail loudly with the
+# missing column name, not silently with empty rows.
+REQUIRED_COLUMNS = (
+    "Symbol",
+    "Mkt Val (Market Value)",
+)
+
+# Delta thresholds for sanity check (HM-AY-α #3).
+# Reject (quarantine + ntfy) if new row count is < (1/RATIO_LO) × prior or > RATIO_HI × prior.
+DELTA_RATIO_LO = 2.0   # new < prior/2.0 → suspect (e.g. ≥50% rows missing)
+DELTA_RATIO_HI = 5.0   # new > prior*5.0 → suspect (e.g. junk rows added)
+
+logger = logging.getLogger("schwab_import")
+
+
+class SchwabCSVError(Exception):
+    """Raised when a Schwab CSV is structurally unparseable."""
 
 # ─── Schema ───────────────────────────────────────────────────────────────────
 
@@ -200,24 +228,137 @@ def _build_row(raw: dict, snapshot_id: str, snapshot_ts: str,
 # ─── CSV parser ───────────────────────────────────────────────────────────────
 
 def parse_csv(csv_path: Path) -> tuple[str, str, str, str, list[dict]]:
-    """Returns (account_label, account_last4, snapshot_ts, snapshot_id, rows)."""
+    """Returns (account_label, account_last4, snapshot_ts, snapshot_id, rows).
+
+    HM-AY-α #3 hardened: empty-file guard, column-presence validation,
+    per-row try/except so one malformed row does not crash the whole import.
+    """
     text  = csv_path.read_text(encoding="utf-8-sig")
     lines = text.splitlines()
 
+    if len(lines) < 3:
+        raise SchwabCSVError(
+            f"CSV has only {len(lines)} line(s); need at least 3 "
+            f"(title row, blank, headers, data)"
+        )
+
     title = lines[0].strip().strip('"')
+    if not title:
+        raise SchwabCSVError("CSV title row (line 1) is empty")
     account_label, account_last4, snapshot_ts, snapshot_id = _parse_title(title)
 
     # Lines[2:] skips blank row 2; csv.DictReader handles quoted headers
     reader     = csv.DictReader(lines[2:])
     csv_source = csv_path.name
 
-    rows = []
-    for raw in reader:
-        row = _build_row(raw, snapshot_id, snapshot_ts,
-                         account_label, account_last4, csv_source)
+    # Column-presence validation against header row
+    header_row = reader.fieldnames or []
+    missing = [c for c in REQUIRED_COLUMNS if c not in header_row]
+    if missing:
+        raise SchwabCSVError(
+            f"CSV missing required column(s): {missing}. "
+            f"Got headers: {header_row[:8]}{'...' if len(header_row) > 8 else ''}"
+        )
+
+    rows: list[dict] = []
+    bad_rows = 0
+    for row_idx, raw in enumerate(reader, start=3):  # row index = file line number
+        try:
+            row = _build_row(raw, snapshot_id, snapshot_ts,
+                             account_label, account_last4, csv_source)
+        except (ValueError, KeyError, InvalidOperation, AttributeError) as e:
+            bad_rows += 1
+            sym = (raw or {}).get("Symbol", "<?>")
+            logger.warning(
+                "[skip] row %d (Symbol=%r) parse failed: %s: %s",
+                row_idx, sym, type(e).__name__, e,
+            )
+            continue
         if row is not None:
             rows.append(row)
+
+    if bad_rows:
+        logger.info("parse_csv: %d malformed row(s) skipped", bad_rows)
+
     return account_label, account_last4, snapshot_ts, snapshot_id, rows
+
+# ─── HM-AY-α #3: ntfy + delta-check + quarantine helpers ──────────────────────
+
+def _ntfy(message: str, priority: str = "default") -> None:
+    """Best-effort POST to ntfy.sh/ollietrades-admin. Never raises."""
+    try:
+        req = urllib.request.Request(
+            NTFY_URL,
+            data=message.encode("utf-8"),
+            headers={"Priority": priority},
+        )
+        with urllib.request.urlopen(req, timeout=5) as resp:
+            resp.read()
+    except (urllib.error.URLError, OSError) as e:
+        logger.debug("ntfy post failed (non-fatal): %s", e)
+
+
+def _ensure_meta_table(conn: sqlite3.Connection) -> None:
+    conn.executescript("""
+        CREATE TABLE IF NOT EXISTS schwab_holdings_meta (
+            key                TEXT PRIMARY KEY,
+            value              TEXT,
+            updated_at         TEXT NOT NULL DEFAULT (datetime('now'))
+        );
+    """)
+    conn.commit()
+
+
+def _get_meta_int(conn: sqlite3.Connection, key: str) -> int | None:
+    row = conn.execute(
+        "SELECT value FROM schwab_holdings_meta WHERE key = ?", (key,)
+    ).fetchone()
+    if row is None:
+        return None
+    try:
+        return int(row[0])
+    except (TypeError, ValueError):
+        return None
+
+
+def _set_meta(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT INTO schwab_holdings_meta (key, value, updated_at) "
+        "VALUES (?, ?, datetime('now')) "
+        "ON CONFLICT(key) DO UPDATE SET value=excluded.value, "
+        "updated_at=excluded.updated_at",
+        (key, value),
+    )
+    conn.commit()
+
+
+def _check_delta(prior_count: int | None, new_count: int) -> tuple[bool, str]:
+    """Returns (is_sane, reason). is_sane=False means quarantine + ntfy."""
+    if prior_count is None or prior_count == 0:
+        return True, "no prior baseline"
+    if new_count < prior_count / DELTA_RATIO_LO:
+        return False, (
+            f"row count {new_count} < {prior_count}/{DELTA_RATIO_LO:g} "
+            f"(suspected truncated CSV)"
+        )
+    if new_count > prior_count * DELTA_RATIO_HI:
+        return False, (
+            f"row count {new_count} > {prior_count}*{DELTA_RATIO_HI:g} "
+            f"(suspected junk rows)"
+        )
+    return True, f"delta {new_count - prior_count:+d} from prior {prior_count}"
+
+
+def _quarantine(csv_path: Path, reason: str) -> Path:
+    QUARANTINE.mkdir(parents=True, exist_ok=True)
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    dest = QUARANTINE / f"{ts}_{csv_path.name}"
+    shutil.move(str(csv_path), str(dest))
+    (dest.parent / f"{dest.name}.reason.txt").write_text(
+        f"{datetime.now().isoformat()}\n{reason}\n", encoding="utf-8"
+    )
+    return dest
+
 
 # ─── Import ───────────────────────────────────────────────────────────────────
 
@@ -232,7 +373,20 @@ def import_csv(csv_path: Path) -> None:
     conn = sqlite3.connect(str(DB_PATH))
     try:
         conn.executescript(CREATE_SQL)
+        _ensure_meta_table(conn)
         conn.commit()
+
+        # HM-AY-α #3 delta-check vs last successful import
+        prior = _get_meta_int(conn, "last_import_row_count")
+        sane, delta_reason = _check_delta(prior, len(rows))
+        if not sane:
+            quarantined = _quarantine(csv_path, f"delta-check failed: {delta_reason}")
+            msg = f"❌ Schwab CSV quarantined: {csv_path.name} — {delta_reason}. Moved to {quarantined}"
+            print(f"  [QUARANTINE] {msg}")
+            _ntfy(msg, priority="high")
+            raise SchwabCSVError(msg)
+        else:
+            print(f"  Delta-check : OK ({delta_reason})")
 
         inserted = skipped = 0
         for row in rows:
@@ -242,8 +396,16 @@ def import_csv(csv_path: Path) -> None:
             else:
                 skipped += 1
         conn.commit()
+        _set_meta(conn, "last_import_row_count", str(len(rows)))
+        _set_meta(conn, "last_import_snapshot_id", snapshot_id)
+        _set_meta(conn, "last_import_csv_name", csv_path.name)
 
         print(f"  Inserted : {inserted}  |  Already existed (ignored): {skipped}")
+        delta_str = f" Δ {len(rows) - (prior or len(rows)):+d}" if prior is not None else ""
+        _ntfy(
+            f"📊 Schwab CSV imported: {len(rows)} rows{delta_str} "
+            f"({inserted} new, {skipped} dup) snapshot={snapshot_id}"
+        )
 
         total_rows = conn.execute(
             "SELECT COUNT(*) FROM schwab_holdings WHERE snapshot_id = ?",
@@ -302,10 +464,24 @@ def main() -> None:
         csv_path = Path(sys.argv[1])
 
     if not csv_path.exists():
-        print(f"ERROR: file not found: {csv_path}", file=sys.stderr)
+        msg = f"file not found: {csv_path}"
+        print(f"ERROR: {msg}", file=sys.stderr)
+        _ntfy(f"❌ Schwab CSV import failed: {msg}", priority="high")
         sys.exit(1)
 
-    import_csv(csv_path)
+    try:
+        import_csv(csv_path)
+    except SchwabCSVError as e:
+        print(f"ERROR: {e}", file=sys.stderr)
+        _ntfy(f"❌ Schwab CSV import failed: {csv_path.name}: {e}", priority="high")
+        sys.exit(2)
+    except Exception as e:
+        # Last-resort guard: any unexpected exception still notifies before re-raise.
+        _ntfy(
+            f"❌ Schwab CSV import crashed: {csv_path.name}: {type(e).__name__}: {e!r}",
+            priority="high",
+        )
+        raise
 
     # Kirk-Schwab-realign-2026-05-05: claim now accurate (was stale before
     # Admiral Option A realign — Kirk was reading alpaca-mirror paper).
