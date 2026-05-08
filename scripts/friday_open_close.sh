@@ -13,9 +13,16 @@
 #   - Position set drifted from expected 5
 #   - Confirmation token != "CLOSE"
 #
-# Block-waits until 7:30:00 MST epoch, then submits 5 MKT SELL orders
-# with client_order_id sniper-closeout-<SYMBOL>-20260508. After 90s,
-# pulls fill status and ntfys ollietrades-admin.
+# Block-waits until NYSE open (9:30 ET = 13:30 UTC during US DST), then
+# submits 5 MKT SELL orders with client_order_id
+# sniper-closeout-<SYMBOL>-20260508. After 90s, pulls fill status and
+# ntfys ollietrades-admin.
+#
+# IMPORTANT (Scotty 3.1 fix): Arizona does NOT observe DST. AZ is UTC-7
+# year-round. NYSE open in May (EDT) is 13:30 UTC = 06:30 AZ — NOT
+# 07:30 AZ. The original v1 anchored to a literal "07:30:00 MST" string
+# which would have fired one hour LATE. v2 anchors to 13:30 UTC, which
+# is unambiguous and DST-safe.
 #
 
 set -u
@@ -27,7 +34,11 @@ NTFY_TOPIC="ollietrades-admin"
 TS_RUN=$(date +%Y%m%dT%H%M%S)
 LOG_FILE="${LOG_DIR}/friday_open_close_${TS_RUN}.log"
 TODAY="2026-05-08"
-TARGET_EPOCH=$(date -j -f "%Y-%m-%d %H:%M:%S" "${TODAY} 07:30:00" "+%s" 2>/dev/null)
+# Scotty 3.1 fix: anchor to 13:30 UTC (= 9:30 ET in DST = 6:30 AZ year-round).
+# AZ is UTC-7 with no DST, so a literal "07:30 AZ" string was 1 hour late.
+# 13:30 UTC is unambiguous and DST-safe.
+TARGET_UTC_DATE="$(date -u +%Y-%m-%d)"
+TARGET_EPOCH=$(TZ=UTC date -j -f "%Y-%m-%d %H:%M:%S" "${TARGET_UTC_DATE} 13:30:00" "+%s" 2>/dev/null)
 
 # Expected position set (symbol qty)
 EXPECTED_LIST="WFC:2.99 LNG:0.98 AMGN:0.37 GS:0.13 JPM:0.41"
@@ -66,9 +77,10 @@ Usage: bash scripts/friday_open_close.sh [--dry-run | --execute MARKET-OPEN]
 
   --dry-run                 (default) verify positions match, print order
                             plan, do nothing
-  --execute MARKET-OPEN     after CLOSE prompt, block until 07:30:00 MST
-                            then submit 5 MKT SELL orders, poll fills,
-                            ntfy summary
+  --execute MARKET-OPEN     after CLOSE prompt, block until 13:30 UTC
+                            (= 9:30 ET = 6:30 AZ year-round; AZ has no
+                            DST), then submit 5 MKT SELL orders, poll
+                            fills, ntfy summary
 
 Refuses to run on any date other than 2026-05-08 (Fri).
 EOF
@@ -213,7 +225,7 @@ fi
 
 # --- Order construction preview ---
 log ""
-log "──────── Order Plan (5 MKT SELL orders @ 7:30:00 MST) ────────"
+log "──────── Order Plan (5 MKT SELL orders @ 13:30 UTC = 9:30 ET = 6:30 AZ) ────────"
 for kv in ${EXPECTED_LIST}; do
     sym="${kv%:*}"
     qty="${kv#*:}"
@@ -225,7 +237,7 @@ log "─────────────────────────
 if [ "${MODE}" = "dry-run" ]; then
     log ""
     log "Mode is dry-run — NO orders submitted."
-    log "Run with --execute MARKET-OPEN on Friday before 07:30 MST to perform."
+    log "Run with --execute MARKET-OPEN on Friday before 13:30 UTC (6:30 AZ) to perform."
     log "================================================================"
     exit 0
 fi
@@ -233,7 +245,7 @@ fi
 # --- Interactive CLOSE confirmation ---
 echo ""
 echo "═══════════════════════════════════════════════════════════════════"
-echo "About to close 5 ollie-auto Sniper positions at 07:30:00 MST."
+echo "About to close 5 ollie-auto Sniper positions at NYSE open (13:30 UTC = 6:30 AZ)."
 echo "Type  CLOSE  (capitals, no quotes) to proceed, anything else to abort:"
 echo "═══════════════════════════════════════════════════════════════════"
 read -r CONFIRM
@@ -243,17 +255,19 @@ if [ "${CONFIRM}" != "CLOSE" ]; then
 fi
 log "Confirmation received: CLOSE"
 
-# --- Block-wait until 07:30:00 MST ---
+# --- Block-wait until 13:30 UTC (NYSE open during DST = 6:30 AZ) ---
 NOW_EPOCH="$(date +%s)"
 WAIT_SEC=$(( TARGET_EPOCH - NOW_EPOCH ))
-log "Block-wait: target ${TODAY} 07:30:00 MST (epoch ${TARGET_EPOCH})"
+log "Block-wait: target ${TARGET_UTC_DATE} 13:30:00 UTC (epoch ${TARGET_EPOCH})"
+log "  current UTC: $(date -u '+%Y-%m-%d %H:%M:%S')"
+log "  current AZ:  $(date '+%Y-%m-%d %H:%M:%S %Z')"
 log "  now epoch=${NOW_EPOCH}  wait=${WAIT_SEC}s"
 
 if [ "${WAIT_SEC}" -gt 0 ]; then
     log "Sleeping ${WAIT_SEC}s..."
     sleep "${WAIT_SEC}"
 elif [ "${WAIT_SEC}" -lt -300 ]; then
-    die "Already 5+ min past 07:30:00 MST — aborting; run individual close orders manually instead"
+    die "Already 5+ min past 13:30 UTC (NYSE open) — aborting; run individual close orders manually instead"
 else
     log "Already past target by $((-WAIT_SEC))s — proceeding"
 fi
