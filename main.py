@@ -1391,6 +1391,72 @@ def run_gap_fill_check():
         console.log(f"[yellow]Gap fill check error: {e}")
 
 
+# HM-AO-β 2026-05-08: Squeeze Watcher (Ghost pattern, default-OFF via env flag)
+_squeeze_watcher_last_run = 0.0
+_squeeze_watcher_last_fire_ts = 0.0
+_squeeze_watcher_disabled_logged = False
+
+
+def run_squeeze_watcher():
+    """Run engine.squeeze_scanner.run_scan() on a 30-min cadence and persist
+    candidates to squeeze_watch table. Default-OFF via env flag — set
+    SQUEEZE_WATCHER_ENABLED=True in .env to activate.
+
+    HM-AO-β Ghost Watcher pattern — surfaces candidates only; does NOT
+    write to signals table and does NOT route to paper_trader. Promotion
+    to voter is a future epic gated on >=30d of evidence.
+    """
+    global _squeeze_watcher_last_run, _squeeze_watcher_last_fire_ts, _squeeze_watcher_disabled_logged
+    import os as _os
+    import time as _t
+
+    if _os.environ.get("SQUEEZE_WATCHER_ENABLED", "").lower() not in ("1", "true", "yes", "on"):
+        if not _squeeze_watcher_disabled_logged:
+            console.log("[dim]Squeeze Watcher: SQUEEZE_WATCHER_ENABLED not set — skipping (HM-AO-β default-off)")
+            _squeeze_watcher_disabled_logged = True
+        return
+
+    _now_ts = _t.time()
+    # HM-AS-β cadence drift observability — target 1800s (30 min)
+    if _squeeze_watcher_last_fire_ts > 0:
+        _interval = _now_ts - _squeeze_watcher_last_fire_ts
+        if _interval > 2400:  # 40-min ceiling before drift alarm
+            logger.warning(
+                "[HM-AS-β] squeeze_watcher cadence drift: "
+                "%.1fs since last fire (target: 1800s)", _interval
+            )
+    _squeeze_watcher_last_fire_ts = _now_ts
+
+    # Hard dedupe — at most one fire per 25 min even if scheduler ticks faster
+    if _now_ts - _squeeze_watcher_last_run < 1500:
+        return
+    _squeeze_watcher_last_run = _now_ts
+
+    try:
+        from engine.risk_manager import RiskManager
+        if not RiskManager.is_market_hours():
+            return
+    except Exception:
+        # If risk manager unavailable, default to skip (don't crash main loop)
+        return
+
+    try:
+        # Lazy import — keeps load-time clean even if engine.squeeze_scanner
+        # import fails for any reason. main.py never sees the import error.
+        from engine.squeeze_scanner import run_scan as _squeeze_run_scan
+        result = _squeeze_run_scan(force=True)
+        n = len(result.get("results") or [])
+        ws = result.get("watch_persist") or {}
+        console.log(
+            f"[cyan]Squeeze Watcher: {n} candidates "
+            f"(inserted={ws.get('inserted', 0)} "
+            f"deferred={ws.get('deferred', 0)} "
+            f"ntfy={ws.get('ntfy_fired', 0)})"
+        )
+    except Exception as e:
+        console.log(f"[yellow]Squeeze Watcher error: {type(e).__name__}: {e!r}")
+
+
 _theta_last_run = 0.0
 
 def run_theta_scan():
@@ -2959,6 +3025,7 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_theta_scan)              # Theta Scanner: checks every 30 min, runs every 4 hours
     schedule.every(15).minutes.do(run_gap_scan)                 # Gap Scanner: checks every 5 min, fires once at market open
     schedule.every(15).minutes.do(run_gap_fill_check)           # Gap Fill Tracker: every 5 min during market hours
+    schedule.every(30).minutes.do(run_squeeze_watcher)          # HM-AO-β Squeeze Watcher: 30-min, default-OFF via SQUEEZE_WATCHER_ENABLED
     # Capitol Trades Fund — Congress copycat scan (daily at market open, 9:35 AM ET)
     from engine.capitol_fund import run_capitol_scan as _raw_capitol_scan
     def run_capitol_scan():
