@@ -47,9 +47,15 @@ from config import OLLIE_URL as _OLLIE_URL  # 2026-04-30: localhost → Ollie (r
 OLLAMA_BASE    = _OLLIE_URL
 MODEL          = "qwen3:14b"
 
-# Two DB paths: main trader data + UOA (separate DB)
-DATA_DB  = "data/trader.db"
-UOA_DB   = "trader.db"           # UOA alerts live in the root-level DB
+# Single canonical DB. HM-AY-α #2 (Scotty 2.4 sprint, 2026-05-07): UOA tables
+# (uoa_alerts, uoa_flow, uoa_daily_summary, uoa_scan_log) migrated to
+# data/trader.db long ago, but UOA_DB still resolved to a bare relative path
+# "trader.db" → repo-root cwd → an empty 0-byte stub. Result: silent
+# uoa_alerts SELECT exception, caught at debug, returns "" — UOA enrichment
+# never reached fast_scanner prompts. Both paths now point at the canonical DB.
+_DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
+DATA_DB  = _DB_PATH
+UOA_DB   = _DB_PATH
 
 OLLAMA_OPTIONS = {
     "temperature":   0.3,
