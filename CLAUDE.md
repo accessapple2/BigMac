@@ -60,7 +60,12 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
 `halt_reason` as historical record (do not clear).
 
 ## Dashboard Rules
-- Dashboard is served from `dashboard/static/index.html` on port 8080
+- Dashboard is served from `dashboard/static/index.html` on port 8080.
+  Verified empirically 2026-05-08 (`docs/DASHBOARD_DOCTRINE_2026-05-08.md`):
+  FastAPI `/` route at `dashboard/app.py:9464-9467` returns
+  `FileResponse(_static_dir + "/index.html")` and the only `StaticFiles`
+  mount is `dashboard/static/`. The Vite tree at `dashboard/frontend/`
+  is unwired experimental code — its `dist/` is never mounted.
 - ALL dashboard edits target that single file — do not create new HTML files unless explicitly asked
 - `main.py` is the entry point; it imports `from dashboard.app import app` and runs uvicorn on 8080
 
