@@ -1396,6 +1396,29 @@ _squeeze_watcher_last_run = 0.0
 _squeeze_watcher_last_fire_ts = 0.0
 _squeeze_watcher_disabled_logged = False
 
+# HM-AS-β.2 Option A pilot (2026-05-08): fire-and-forget thread wrapper
+# for the squeeze watcher only — prevents the 34-second Finviz/yfinance
+# scan from blocking the single-threaded `schedule.run_pending()` queue.
+# Background: scheduler diagnostic at docs/HM-AS-B_SCHEDULER_DIAGNOSTIC.md
+# documented 137-min backlog spikes; squeeze watcher's first fire was
+# queued for 37+ min after restart on 2026-05-08. Pilot scope: this one
+# job only. Broader rollout is HM-AS-β.3 after 1-2 weeks of soak.
+_squeeze_bg_lock = threading.Lock()  # prevents overlap if a prior 30-min run is still in flight
+
+
+def _bg_squeeze_watcher():
+    """Daemon-thread wrapper around run_squeeze_watcher() — never blocks
+    the scheduler. If a prior invocation is still running, skip this tick."""
+    if not _squeeze_bg_lock.acquire(blocking=False):
+        console.log("[dim]Squeeze Watcher bg: prior tick still running — skip")
+        return
+    def _runner():
+        try:
+            run_squeeze_watcher()
+        finally:
+            _squeeze_bg_lock.release()
+    threading.Thread(target=_runner, daemon=True, name="sched_squeeze_watcher").start()
+
 
 def run_squeeze_watcher():
     """Run engine.squeeze_scanner.run_scan() on a 30-min cadence and persist
@@ -3025,7 +3048,7 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_theta_scan)              # Theta Scanner: checks every 30 min, runs every 4 hours
     schedule.every(15).minutes.do(run_gap_scan)                 # Gap Scanner: checks every 5 min, fires once at market open
     schedule.every(15).minutes.do(run_gap_fill_check)           # Gap Fill Tracker: every 5 min during market hours
-    schedule.every(30).minutes.do(run_squeeze_watcher)          # HM-AO-β Squeeze Watcher: 30-min, default-OFF via SQUEEZE_WATCHER_ENABLED
+    schedule.every(30).minutes.do(_bg_squeeze_watcher)          # HM-AO-β Squeeze Watcher (HM-AS-β.2 thread-wrapper): 30-min, default-OFF via SQUEEZE_WATCHER_ENABLED
     # Capitol Trades Fund — Congress copycat scan (daily at market open, 9:35 AM ET)
     from engine.capitol_fund import run_capitol_scan as _raw_capitol_scan
     def run_capitol_scan():
