@@ -17771,3 +17771,129 @@ async def options_scan_preview():
         "production": production_result,
         "ghost": ghost_result,
     }
+
+
+# ─── HM-AO-β Squeeze Watcher routes (Phase 5) ─────────────────────────────
+
+
+@app.get("/api/squeeze/recent")
+def get_squeeze_recent(days: int = 7, tier: str = "all"):
+    """Recent squeeze_watch candidates for the dashboard panel.
+
+    Returns rows ordered by tier desc (PRIORITY → ALERT → WATCH), then
+    scan_ts desc. Filters out dismissed rows. Read-only — no mutations.
+    """
+    days = max(1, min(int(days or 7), 90))
+    valid_tiers = {"all", "WATCH", "ALERT", "PRIORITY"}
+    if tier not in valid_tiers:
+        tier = "all"
+
+    cutoff = (
+        __import__("datetime").datetime.utcnow()
+        - __import__("datetime").timedelta(days=days)
+    ).isoformat()
+
+    sql = (
+        "SELECT id, symbol, scan_ts, short_pct, float_m, vol_ratio, rsi, "
+        "       breakout_score, composite_score, threshold_tier, "
+        "       price_at_scan, notes, ntfy_sent, ntfy_deferred, "
+        "       (CAST((julianday('now') - julianday(scan_ts)) * 24 AS REAL)) AS age_hours "
+        "FROM squeeze_watch "
+        "WHERE dismissed = 0 AND scan_ts >= ? "
+    )
+    params: list = [cutoff]
+    if tier != "all":
+        sql += "AND threshold_tier = ? "
+        params.append(tier)
+    sql += (
+        "ORDER BY CASE threshold_tier "
+        "  WHEN 'PRIORITY' THEN 3 "
+        "  WHEN 'ALERT'    THEN 2 "
+        "  WHEN 'WATCH'    THEN 1 "
+        "  ELSE 0 END DESC, "
+        "scan_ts DESC LIMIT 200"
+    )
+
+    conn = _conn()
+    try:
+        rows = conn.execute(sql, params).fetchall()
+        return {
+            "ok": True,
+            "days": days,
+            "tier": tier,
+            "count": len(rows),
+            "items": [dict(r) for r in rows],
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        conn.close()
+
+
+@app.post("/api/squeeze/dismiss")
+def dismiss_squeeze_candidate(data: dict = Body(...)):
+    """Admiral marks a squeeze_watch row as dismissed.
+
+    Body: {id: int, reason: str}
+
+    AUTH: this is a TIER B mutating route per
+    docs/AUTH_PHASE_1_ROUTE_TIERS.md §3.A. The Phase 0 helper at
+    dashboard/auth.py is shipped (commit 53b9113) but the secrets
+    aren't generated yet — wiring is gated on Admiral's runbook
+    (docs/AUTH_SETUP.md). Stub left below for fast Phase 1
+    enablement when secrets land.
+    """
+    # TODO Phase 1: enable after Admiral secret-gen per docs/AUTH_SETUP.md
+    # _: str = Depends(verify_admin_token)
+    try:
+        rid = int(data.get("id"))
+    except (TypeError, ValueError):
+        raise HTTPException(status_code=400, detail="id is required (int)")
+    reason = str(data.get("reason", "")).strip()[:200]
+
+    conn = _conn()
+    try:
+        cur = conn.execute(
+            "UPDATE squeeze_watch SET dismissed=1, dismissed_at=datetime('now'), "
+            "dismissed_reason=? WHERE id=? AND dismissed=0",
+            (reason, rid),
+        )
+        conn.commit()
+        if cur.rowcount == 0:
+            return {"ok": False, "error": "row not found or already dismissed", "id": rid}
+        return {"ok": True, "id": rid, "reason": reason}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        conn.close()
+
+
+@app.get("/api/squeeze/summary")
+def get_squeeze_summary(days: int = 7):
+    """Tier counts for the dashboard headline, last N days."""
+    days = max(1, min(int(days or 7), 90))
+    cutoff = (
+        __import__("datetime").datetime.utcnow()
+        - __import__("datetime").timedelta(days=days)
+    ).isoformat()
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT threshold_tier, COUNT(*) AS n FROM squeeze_watch "
+            "WHERE dismissed=0 AND scan_ts >= ? "
+            "GROUP BY threshold_tier",
+            (cutoff,),
+        ).fetchall()
+        counts = {r["threshold_tier"]: r["n"] for r in rows}
+        return {
+            "ok": True,
+            "days": days,
+            "PRIORITY": counts.get("PRIORITY", 0),
+            "ALERT":    counts.get("ALERT", 0),
+            "WATCH":    counts.get("WATCH", 0),
+            "total":    sum(counts.values()),
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        conn.close()

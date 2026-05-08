@@ -79,6 +79,12 @@ if blast radius is one tick lower than Tier A.
 | 4 | POST | `/api/settings/pause-all` | 7946 | Older direct setter (same column) | YES (legacy) |
 | 5 | POST | `/api/model-control/record-call/{player_id}` | 8119 | Per-call accounting | YES (called by automation) |
 
+### 3.A.1 HM-AO-β Squeeze Watcher mutations (added 2026-05-08, 1 route)
+
+| # | Method | Route | Line | Effect | Notes |
+|---|---|---|---|---|---|
+| — | POST | `/api/squeeze/dismiss` | ~17786 | UPDATE squeeze_watch SET dismissed=1 | Admiral dismisses surfaced candidate. Phase 0 helper-stub already in route body (`# TODO Phase 1: enable after Admiral secret-gen`); flip the `Depends` line on top of the existing TODO. Read-side `/api/squeeze/recent` and `/api/squeeze/summary` are NOT mutating — leave open. |
+
 ### 3.B Agent state + fleet roster (6 routes)
 
 | # | Method | Route | Line | Effect |
