@@ -192,3 +192,102 @@ def test_tier_helpers():
     assert ss._tier_for_composite(90) == "PRIORITY"
     assert ss._tier_for_composite(100) == "PRIORITY"
     assert ss._tier_rank("PRIORITY") > ss._tier_rank("ALERT") > ss._tier_rank("WATCH")
+
+
+# ─── Task 4 — ntfy surfacer tests ────────────────────────────────────────
+
+
+def test_ntfy_skipped_in_quiet_hours(db_path):
+    """During quiet hours, _persist_results must NOT call _ntfy_priority_candidates."""
+    with mock.patch.object(ss, "_is_quiet_hours_et", return_value=True), \
+         mock.patch.object(ss, "_ntfy_priority_candidates") as mock_ntfy:
+        ss._persist_results([_row(10, "QHR")], db_path=db_path)
+    mock_ntfy.assert_not_called()
+
+
+def test_ntfy_called_outside_quiet_hours(db_path):
+    """Outside quiet hours, _persist_results invokes _ntfy_priority_candidates."""
+    with mock.patch.object(ss, "_is_quiet_hours_et", return_value=False), \
+         mock.patch.object(ss, "_ntfy_priority_candidates", return_value=1) as mock_ntfy:
+        ss._persist_results([_row(10, "DAY")], db_path=db_path)
+    mock_ntfy.assert_called_once()
+
+
+def test_ntfy_individual_under_throttle(db_path):
+    """≤ 5 PRIORITY rows → individual ntfys, all rows marked ntfy_sent=1."""
+    # Seed 3 PRIORITY rows
+    with mock.patch.object(ss, "_is_quiet_hours_et", return_value=True):
+        ss._persist_results(
+            [_row(10, f"P{i}") for i in range(3)],
+            db_path=db_path,
+        )
+    # All seeded rows currently ntfy_deferred=1 (because we mocked quiet hours
+    # during seed); reset them so the ntfy fn sees them as eligible
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE squeeze_watch SET ntfy_deferred=0")
+    conn.commit()
+    conn.close()
+
+    with mock.patch("urllib.request.urlopen") as mock_urlopen:
+        mock_urlopen.return_value.__enter__ = lambda s: s
+        mock_urlopen.return_value.__exit__ = lambda *a: False
+        mock_urlopen.return_value.read = lambda: b""
+        fired = ss._ntfy_priority_candidates(db_path=db_path, max_individual=5)
+    assert fired == 3
+    assert mock_urlopen.call_count == 3
+    rows = _select_all(db_path)
+    assert all(r["ntfy_sent"] == 1 for r in rows)
+
+
+def test_ntfy_rollup_over_throttle(db_path):
+    """> 5 PRIORITY rows → single rollup ntfy, all rows marked ntfy_sent=1."""
+    with mock.patch.object(ss, "_is_quiet_hours_et", return_value=True):
+        ss._persist_results(
+            [_row(10, f"R{i}") for i in range(7)],
+            db_path=db_path,
+        )
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE squeeze_watch SET ntfy_deferred=0")
+    conn.commit()
+    conn.close()
+
+    with mock.patch("urllib.request.urlopen") as mock_urlopen:
+        mock_urlopen.return_value.__enter__ = lambda s: s
+        mock_urlopen.return_value.__exit__ = lambda *a: False
+        mock_urlopen.return_value.read = lambda: b""
+        fired = ss._ntfy_priority_candidates(db_path=db_path, max_individual=5)
+    # All 7 marked ntfy_sent on the single rollup post
+    assert mock_urlopen.call_count == 1
+    assert fired == 7
+    rows = _select_all(db_path)
+    assert all(r["ntfy_sent"] == 1 for r in rows)
+
+
+def test_ntfy_skips_already_sent(db_path):
+    """ntfy_sent=1 rows are excluded from re-notification."""
+    with mock.patch.object(ss, "_is_quiet_hours_et", return_value=True):
+        ss._persist_results([_row(10, "ONCE")], db_path=db_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE squeeze_watch SET ntfy_deferred=0, ntfy_sent=1")
+    conn.commit()
+    conn.close()
+
+    with mock.patch("urllib.request.urlopen") as mock_urlopen:
+        fired = ss._ntfy_priority_candidates(db_path=db_path)
+    assert fired == 0
+    mock_urlopen.assert_not_called()
+
+
+def test_ntfy_skips_dismissed(db_path):
+    """Dismissed rows must not trigger ntfy."""
+    with mock.patch.object(ss, "_is_quiet_hours_et", return_value=True):
+        ss._persist_results([_row(10, "GONE")], db_path=db_path)
+    conn = sqlite3.connect(db_path)
+    conn.execute("UPDATE squeeze_watch SET ntfy_deferred=0, dismissed=1, dismissed_at=datetime('now')")
+    conn.commit()
+    conn.close()
+
+    with mock.patch("urllib.request.urlopen") as mock_urlopen:
+        fired = ss._ntfy_priority_candidates(db_path=db_path)
+    assert fired == 0
+    mock_urlopen.assert_not_called()
