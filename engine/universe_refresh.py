@@ -83,6 +83,21 @@ INCLUDE_ETNS = False
 MIN_FINAL_COUNT = 100
 MAX_FINAL_COUNT = 2500
 
+# HM-AO-α 2026-05-08: physical-trust ETFs that Polygon's reference API
+# misclassifies as ticker_type='CS'. They have no market_cap analog
+# (trusts report AUM, not market cap), so the CS-branch filter would
+# reject them. Force-coerce to 'ETF' so the ETF branch (dollar-volume
+# only) accepts them. The 5 named below are the Phase 4 audit's
+# Grok-diff finding (docs/SCOTTY_INFRA_AUDIT.md follow-up); see
+# docs/HM-AO-A_TRUST_ETF_FIX.md for the investigation log.
+TRUST_ETF_OVERRIDES: frozenset[str] = frozenset({
+    "GLD",   # SPDR Gold Trust
+    "GLDM",  # SPDR Gold MiniShares Trust
+    "IAU",   # iShares Gold Trust
+    "SIVR",  # abrdn Physical Silver Shares
+    "SLV",   # iShares Silver Trust
+})
+
 # Polygon throttle: Stocks Starter + Options Starter both 5 cps.
 # We share the budget; 5 cps total is conservative.
 _POLYGON_CPS = 5
@@ -325,6 +340,13 @@ def run_refresh(dry_run: bool = False) -> dict:
             continue
         throttle.wait()
         mc, ttype = _fetch_ticker_details_polygon(api_key, sym)
+
+        # HM-AO-α 2026-05-08: physical-trust ETF override. Polygon classifies
+        # GLD/GLDM/IAU/SIVR/SLV as CS despite their being trust ETFs.
+        # Coerce ttype to ETF so they reach the ETF branch (dollar-volume only).
+        if sym in TRUST_ETF_OVERRIDES and ttype != "ETF":
+            log.info("  trust_etf_override %s polygon_type=%s -> ETF", sym, ttype)
+            ttype = "ETF"
 
         # ETN branch — Captain decision 2026-05-07: skip ETNs entirely
         if ttype == "ETN":
