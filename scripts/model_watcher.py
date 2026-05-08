@@ -62,16 +62,36 @@ def get_ollama_local_models(host):
 
 
 def get_ollama_registry_digest(model_name):
-    """Try to fetch the current upstream digest from Ollama library."""
+    """
+    Fetch the current upstream digest for `<model>:<tag>` from the Ollama
+    registry via a HEAD request.
+
+    HM-AY-β fix (2026-05-08): the original probe read `Docker-Content-Digest`
+    (the OCI-standard header), but Ollama's registry actually serves the
+    digest on a non-standard header `ollama-content-digest` with no
+    `sha256:` prefix. Reading the wrong header silently returned None for
+    every installed model, leaving Layer 1 always "(unknown)". Verified
+    against qwen3:8b, qwen3:14b, deepseek-r1:14b, mistral:7b, gemma3:4b,
+    phi3:mini — all six return correct 12-char digests matching their
+    locally-installed digests on a fully-current host.
+    """
     base = model_name.split(":")[0]
     tag = model_name.split(":")[1] if ":" in model_name else "latest"
     url = f"https://registry.ollama.ai/v2/library/{base}/manifests/{tag}"
-    headers = {"Accept": "application/vnd.docker.distribution.manifest.v2+json"}
+    headers = {
+        "Accept": "application/vnd.docker.distribution.manifest.v2+json",
+        "User-Agent": USER_AGENT,
+    }
     try:
-        req = urllib.request.Request(url, headers={"User-Agent": USER_AGENT, **headers})
+        req = urllib.request.Request(url, headers=headers, method="HEAD")
         with urllib.request.urlopen(req, timeout=HTTP_TIMEOUT) as r:
-            digest = r.headers.get("Docker-Content-Digest", "")
-            return digest.replace("sha256:", "")[:12] if digest else None
+            digest = r.headers.get("ollama-content-digest") or r.headers.get(
+                "Docker-Content-Digest", ""
+            )
+            if not digest:
+                return None
+            digest = digest.strip().replace("sha256:", "")
+            return digest[:12] if digest else None
     except Exception:
         return None
 
