@@ -2179,6 +2179,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="sidebar-item" onclick="showSection('alert-history')"><span class="icon">🔔</span> Alerts</div>
   <div class="sidebar-item" onclick="showSection('live-scanner');lsAutoLoad()"><span class="icon">📡</span> Live Scanner</div>
   <div class="sidebar-item" onclick="showSection('ghost-scorecard');fetchGhostScorecard()"><span class="icon">👻</span> Ghost Scorecard</div>
+  <div class="sidebar-item" onclick="showSection('squeeze');fetchSqueezeRecent()"><span class="icon">🎯</span> Squeeze</div>
   <div class="sidebar-item" onclick="showSection('leaderboard')"><span class="icon">🏆</span> Leaderboard</div>
   <div class="sidebar-item" onclick="showSection('agent-deepdive');ddAutoLoad()"><span class="icon">🔬</span> Agent Deep Dive</div>
   <div class="sidebar-item" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
@@ -9640,6 +9641,44 @@ async function fetchSignalTracker() {
 
 </div>
 
+<!-- HM-AO-β-2 SQUEEZE WATCHER SECTION (Scotty 3.4) -->
+<div id="section-squeeze" style="display:none;">
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">🎯 Squeeze Candidates — Ghost Watcher</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <select id="squeezeDays" onchange="fetchSqueezeRecent()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;">
+          <option value="1">1 day</option>
+          <option value="3">3 days</option>
+          <option value="7" selected>7 days</option>
+          <option value="14">14 days</option>
+          <option value="30">30 days</option>
+        </select>
+        <select id="squeezeTier" onchange="fetchSqueezeRecent()" style="padding:6px 10px;border-radius:6px;border:1px solid var(--border);background:var(--surface);color:var(--text);font-size:12px;">
+          <option value="all" selected>All tiers</option>
+          <option value="PRIORITY">PRIORITY only</option>
+          <option value="ALERT">ALERT only</option>
+          <option value="WATCH">WATCH only</option>
+        </select>
+        <button class="btn btn-ghost" onclick="fetchSqueezeRecent()" style="font-size:13px;">⟳ Refresh</button>
+      </div>
+    </div>
+    <div style="padding:6px 16px 10px;font-size:12px;color:var(--muted);">
+      HM-AO-β Ghost Watcher. Scanner runs every 30 min during market hours. PRIORITY (composite ≥ 90) hits also ntfy <code>ollietrades-admin</code>. Watcher does NOT auto-trade — Admiral reviews each candidate.
+    </div>
+
+    <!-- Summary header -->
+    <div id="squeezeSummary" style="padding:0 16px 12px;font-size:13px;">
+      <div style="color:var(--muted);">Loading summary…</div>
+    </div>
+
+    <!-- Card grid -->
+    <div id="squeezeCards" style="padding:0 16px 16px;display:grid;grid-template-columns:repeat(auto-fill,minmax(320px,1fr));gap:12px;">
+      <div style="grid-column:1/-1;color:var(--muted);text-align:center;padding:20px;">Loading candidates…</div>
+    </div>
+  </div>
+</div>
+
 <!-- TIME MACHINE SECTION -->
 <div id="section-backtest" style="display:none;">
   <div class="card">
@@ -14100,6 +14139,7 @@ var _sectionFetchMap = {
   'pattern-alerts': 'fetchPatternAlerts',
   'ghost-trades': 'fetchGhostTrades',
   'ghost-scorecard': 'fetchGhostScorecard',
+  'squeeze': 'fetchSqueezeRecent',
   'backtest': 'populateBacktestSelect',
   'trend-forecast': 'fetchTrendForecast',
   'active-deals': 'fetchActiveDeals',
@@ -21789,6 +21829,181 @@ async function fetchGhostTrades() {
 }
 // [LazyInit] fetchGhostTrades();
 // [LazyInit] setInterval(fetchGhostTrades, 300000);
+</script>
+
+<script>
+// === HM-AO-β-2 SQUEEZE PANEL (Scotty 3.4) ===
+// Reads /api/squeeze/{recent,summary,dismiss}. Watcher runs server-side
+// every 30 min; this panel auto-refreshes on a 60s cadence via the
+// existing _sectionFetchMap / registerSectionInit infra (so refresh
+// pauses when section is not active or tab is hidden).
+var _squeezeData = [];
+var _squeezeSummary = null;
+
+function _squeezeRelTime(iso) {
+  if (!iso) return '-';
+  var t = Date.parse(iso);
+  if (isNaN(t)) return iso;
+  var sec = Math.max(0, Math.floor((Date.now() - t) / 1000));
+  if (sec < 60)    return sec + 's ago';
+  if (sec < 3600)  return Math.floor(sec/60) + 'm ago';
+  if (sec < 86400) return Math.floor(sec/3600) + 'h ago';
+  return Math.floor(sec/86400) + 'd ago';
+}
+
+function _squeezeTierStyle(tier) {
+  // Colors keyed off existing CSS vars (no inline hex per house style).
+  if (tier === 'PRIORITY') return {bg:'rgba(234,88,12,0.16)',  bd:'var(--red)',     col:'var(--red)',     icon:'🔴'};
+  if (tier === 'ALERT')    return {bg:'rgba(245,158,11,0.16)', bd:'var(--accent3)', col:'var(--accent3)', icon:'🟡'};
+  return                          {bg:'rgba(37,99,235,0.16)',  bd:'var(--accent)',  col:'var(--accent)',  icon:'🟢'};
+}
+
+function _esc(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+}
+
+async function fetchSqueezeRecent() {
+  var days = (document.getElementById('squeezeDays') || {}).value || 7;
+  var tier = (document.getElementById('squeezeTier') || {}).value || 'all';
+  try {
+    var [rRes, sRes] = await Promise.all([
+      fetch('/api/squeeze/recent?days=' + encodeURIComponent(days) + '&tier=' + encodeURIComponent(tier)),
+      fetch('/api/squeeze/summary?days=' + encodeURIComponent(days)),
+    ]);
+    var rJson = await rRes.json();
+    var sJson = await sRes.json();
+    _squeezeData    = (rJson && rJson.ok) ? (rJson.items || []) : [];
+    _squeezeSummary = (sJson && sJson.ok) ? sJson : null;
+    renderSqueezeSummary();
+    renderSqueezeCards();
+  } catch(e) {
+    var el = document.getElementById('squeezeCards');
+    if (el) el.innerHTML = '<div style="grid-column:1/-1;color:var(--red);text-align:center;padding:20px;">Failed to load: ' + _esc(e.message) + '</div>';
+  }
+}
+
+function renderSqueezeSummary() {
+  var el = document.getElementById('squeezeSummary');
+  if (!el) return;
+  var s = _squeezeSummary;
+  if (!s) { el.innerHTML = '<div style="color:var(--muted);">Summary unavailable.</div>'; return; }
+  var latest = (_squeezeData[0] && _squeezeData[0].scan_ts) ? _squeezeRelTime(_squeezeData[0].scan_ts) : '—';
+  el.innerHTML =
+    '<div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;">' +
+      '<div><span style="color:var(--muted);font-size:11px;">TOTAL</span> <span style="font-weight:700;font-size:16px;">' + s.total + '</span></div>' +
+      '<div><span style="color:var(--red);font-size:11px;">PRIORITY</span> <span style="font-weight:700;color:var(--red);">' + s.PRIORITY + '</span></div>' +
+      '<div><span style="color:var(--accent3);font-size:11px;">ALERT</span> <span style="font-weight:700;color:var(--accent3);">' + s.ALERT + '</span></div>' +
+      '<div><span style="color:var(--accent);font-size:11px;">WATCH</span> <span style="font-weight:700;color:var(--accent);">' + s.WATCH + '</span></div>' +
+      '<div style="margin-left:auto;color:var(--muted);font-size:12px;">last surface: ' + _esc(latest) + ' · window: ' + s.days + 'd</div>' +
+    '</div>';
+}
+
+function renderSqueezeCards() {
+  var el = document.getElementById('squeezeCards');
+  if (!el) return;
+  if (!_squeezeData.length) {
+    el.innerHTML = '<div style="grid-column:1/-1;color:var(--muted);text-align:center;padding:20px;">No active squeeze candidates. Watcher runs every 30 min during market hours.</div>';
+    return;
+  }
+  var html = '';
+  for (var i = 0; i < _squeezeData.length; i++) {
+    var r = _squeezeData[i];
+    var st = _squeezeTierStyle(r.threshold_tier);
+    var composite = (r.composite_score != null) ? Math.round(r.composite_score) : '?';
+    var sym = _esc(r.symbol);
+    var sp  = (r.short_pct != null)  ? r.short_pct.toFixed(1) + '%' : '—';
+    var fm  = (r.float_m != null)    ? r.float_m.toFixed(1) + 'M'   : '—';
+    var vr  = (r.vol_ratio != null)  ? r.vol_ratio.toFixed(1) + 'x' : '—';
+    var rsi = (r.rsi != null)        ? r.rsi.toFixed(1)             : '—';
+    var brk = (r.breakout_score != null) ? Math.round(r.breakout_score * 100) : '—';
+    var px  = (r.price_at_scan != null) ? '$' + r.price_at_scan.toFixed(2) : '—';
+    var rel = _squeezeRelTime(r.scan_ts);
+    var notes = r.notes ? '<div style="font-size:11px;color:var(--muted);margin-top:6px;font-family:var(--font-mono,monospace);">' + _esc(r.notes) + '</div>' : '';
+    var ntfy_badge = r.ntfy_sent ? '<span style="font-size:10px;color:var(--green);margin-left:4px;" title="ntfy fired">📨</span>' : '';
+    var deferred_badge = r.ntfy_deferred ? '<span style="font-size:10px;color:var(--muted);margin-left:4px;" title="ntfy deferred (quiet hours)">🌙</span>' : '';
+
+    html +=
+      '<div id="sqz-card-' + r.id + '" style="border:1px solid ' + st.bd + ';background:' + st.bg + ';border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;transition:opacity .25s ease;">' +
+        '<div style="display:flex;align-items:baseline;justify-content:space-between;">' +
+          '<div><span style="font-size:18px;font-weight:700;letter-spacing:.5px;">' + sym + '</span> <span style="font-size:11px;color:var(--muted);margin-left:6px;">' + _esc(rel) + '</span> ' + ntfy_badge + deferred_badge + '</div>' +
+          '<div style="font-size:14px;font-weight:700;color:' + st.col + ';">' + st.icon + ' ' + composite + ' · ' + _esc(r.threshold_tier) + '</div>' +
+        '</div>' +
+        '<div style="font-size:12px;color:var(--text);font-family:var(--font-mono,monospace);letter-spacing:.3px;">' +
+          'SI ' + sp + ' · Float ' + fm + ' · Vol ' + vr + ' · RSI ' + rsi + ' · Brk ' + brk + ' · ' + px +
+        '</div>' +
+        notes +
+        '<div id="sqz-dismiss-' + r.id + '" style="display:flex;justify-content:flex-end;margin-top:6px;">' +
+          '<button onclick="_squeezeDismissPrompt(' + r.id + ')" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;">Dismiss</button>' +
+        '</div>' +
+      '</div>';
+  }
+  el.innerHTML = html;
+}
+
+function _squeezeDismissPrompt(id) {
+  var holder = document.getElementById('sqz-dismiss-' + id);
+  if (!holder) return;
+  holder.innerHTML =
+    '<input id="sqz-reason-' + id + '" type="text" placeholder="reason (e.g. fundamental change)" style="flex:1;font-size:11px;padding:4px 8px;border:1px solid var(--border);background:var(--surface);color:var(--text);border-radius:6px;margin-right:6px;" />' +
+    '<button onclick="_squeezeDismissConfirm(' + id + ')" style="font-size:11px;padding:4px 10px;border:1px solid var(--red);background:transparent;color:var(--red);border-radius:6px;cursor:pointer;margin-right:4px;">Confirm</button>' +
+    '<button onclick="_squeezeDismissCancel(' + id + ')" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;">Cancel</button>';
+  var inp = document.getElementById('sqz-reason-' + id);
+  if (inp) inp.focus();
+}
+
+function _squeezeDismissCancel(id) {
+  var holder = document.getElementById('sqz-dismiss-' + id);
+  if (!holder) return;
+  holder.innerHTML = '<button onclick="_squeezeDismissPrompt(' + id + ')" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;">Dismiss</button>';
+}
+
+async function _squeezeDismissConfirm(id) {
+  var inp = document.getElementById('sqz-reason-' + id);
+  var reason = (inp && inp.value || '').trim();
+  var card = document.getElementById('sqz-card-' + id);
+  try {
+    // TODO: add admin token header after Phase 1 secret-gen
+    // (POST /api/squeeze/dismiss is TIER B per AUTH_PHASE_1_ROUTE_TIERS.md §3.A.1;
+    //  Depends(verify_admin_token) is currently stubbed out in the route body.)
+    var r = await fetch('/api/squeeze/dismiss', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({id: id, reason: reason}),
+    });
+    var j = await r.json();
+    if (j && j.ok) {
+      if (card) {
+        card.style.opacity = '0';
+        setTimeout(function() { if (card.parentNode) card.parentNode.removeChild(card); }, 280);
+      }
+      // Pull fresh summary so counts update
+      try {
+        var sRes = await fetch('/api/squeeze/summary?days=' + encodeURIComponent((document.getElementById('squeezeDays')||{}).value || 7));
+        var sJson = await sRes.json();
+        if (sJson && sJson.ok) { _squeezeSummary = sJson; renderSqueezeSummary(); }
+      } catch(_e) {}
+    } else {
+      var holder = document.getElementById('sqz-dismiss-' + id);
+      if (holder) holder.innerHTML = '<span style="font-size:11px;color:var(--red);">Dismiss failed: ' + _esc((j && j.error) || 'unknown error') + '</span>';
+    }
+  } catch(e) {
+    var holder = document.getElementById('sqz-dismiss-' + id);
+    if (holder) holder.innerHTML = '<span style="font-size:11px;color:var(--red);">Dismiss error: ' + _esc(e.message) + '</span>';
+  }
+}
+
+// Register with the section-aware refresh infra: 60s cadence, only
+// fires when the section is visible AND the tab is focused.
+if (typeof registerSectionInit === 'function') {
+  registerSectionInit(
+    'squeeze',
+    fetchSqueezeRecent,
+    [{fn: fetchSqueezeRecent, ms: 60000}]
+  );
+} else if (typeof _sectionInitQueue !== 'undefined') {
+  _sectionInitQueue.push({name: 'squeeze', initFn: fetchSqueezeRecent, intervalFns: [{fn: fetchSqueezeRecent, ms: 60000}]});
+}
 </script>
 
 <script>
