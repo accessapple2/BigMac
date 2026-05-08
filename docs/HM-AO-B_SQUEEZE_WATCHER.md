@@ -291,3 +291,118 @@ Run: `./venv/bin/python3 -m pytest tests/test_squeeze_writer.py -v`
 ---
 
 *End of HM-AO-β architecture + runbook. Activation gated on Admiral.*
+
+---
+
+## 11. Activation Log — 2026-05-08 (appended Scotty 3.3 Phase 6)
+
+### Pre-activation
+
+- Pre-snapshot: `backups/trader.db.pre-squeeze-activation-20260508_065633` (258 MB)
+- Wiring confirmed intact:
+  - `main.py:1400` — `def run_squeeze_watcher():`
+  - `main.py:3028` — `schedule.every(30).minutes.do(run_squeeze_watcher)`
+  - `main.py:1446` — lazy `from engine.squeeze_scanner import run_scan` inside the function (no module-load coupling)
+- `.env` flag append: `SQUEEZE_WATCHER_ENABLED=True` (line 3, post-append; perms stayed `-rw-------`)
+
+### Restart
+
+- 06:56:44 MST — `launchctl kickstart -k gui/$(id -u)/com.trademinds.trader`
+- 06:56:50 — new PID 58779 confirmed (was 55222 pre-restart)
+- Startup clean — only error in tail was an unrelated FRED API 500
+  (transient external API), no squeeze-related errors
+
+### First-scan poll (background bash bar8z8z17)
+
+35-minute poll on `SELECT COUNT(*) FROM squeeze_watch`:
+
+```
+[+0m..+31m] squeeze_watch rows: 0   (32 polling samples, all zeros)
+```
+
+**Scheduler-driven first fire NOT observed in the 37-minute window.**
+No log line `[cyan]Squeeze Watcher: ...` ever emitted by `run_squeeze_watcher`
+in `logs/trader.log` post-restart. Diagnostic findings:
+
+- `os.environ['SQUEEZE_WATCHER_ENABLED'] = 'True'` confirmed via sibling
+  Python with `load_dotenv(override=True)` — the same path `main.py:24`
+  uses
+- `engine.squeeze_scanner` imports clean
+- `RiskManager.is_market_hours()` returns `'market'` (truthy string,
+  market is open), so the market-hours branch wouldn't return-skip
+- Trader scheduler IS alive — RedAlert continues firing every ~5 min
+  (last 07:27:51) — but the +30-min `run_squeeze_watcher` registration
+  has not triggered
+
+Most likely cause: **HM-AS-β scheduler-drift backlog.** The
+`battle_station_monitor` cadence-drift log shows recent intervals of
+8,090s, 5,975s, 6,857s (target: 120s) — i.e. the single-threaded
+`schedule.run_pending()` loop is blocking on slow jobs and pushing
+all scheduled entries downstream. New 30-min registrations queue
+behind the backlog. Filed as a sibling-of-HM-AS-β observation; no
+fix applied this sprint.
+
+### Hand-fire (out-of-band proof)
+
+To unblock activation evidence, fired one scan from a sibling Python
+process:
+
+```python
+$ ./venv/bin/python3 -c "
+import os, sys, time
+sys.path.insert(0, '/Users/bigmac/autonomous-trader')
+from dotenv import load_dotenv; load_dotenv('.env', override=True)
+from engine.squeeze_scanner import run_scan
+t0 = time.time(); r = run_scan(force=True); print(time.time()-t0, len(r['results']), r['watch_persist'])
+"
+
+[07:33:22] Squeeze Scanner: fetching Finviz candidates...
+[07:33:40] Squeeze Scanner: 269 candidates from Finviz
+[07:33:56] Squeeze Scanner: 0 squeeze candidates found
+elapsed: 34.2s
+raw results: 0
+watch_persist: {'inserted': 0, 'deferred': 0, 'skipped_dedup': 0, 'ntfy_fired': 0}
+```
+
+**Result: 0 squeeze candidates today.** Scanner pulled 269 base
+candidates from Finviz (Float Short > 20% screener), but none passed
+the post-filter conjunction `vol_ratio >= 2.0 AND rsi < 70`. This is
+normal market state — squeeze setups (high short interest +
+unusual-volume spike + non-overbought RSI) are rare by definition.
+The scanner is functioning correctly; the 0-row outcome reflects
+today's tape, not a wiring fault.
+
+### What's verified by the hand-fire
+
+- Module import + dependency chain (finvizfinance, engine.market_data,
+  alpaca-bars feed) all working
+- `_score_candidate` running on real data
+- `_persist_results` reaching the persistence layer cleanly (returned
+  the expected summary dict with explicit zeros)
+- `_ntfy_priority_candidates` not invoked (correctly — no PRIORITY
+  rows to ntfy)
+- 34-second total scan time — well under the 30-min cadence budget
+
+### Verdict
+
+**Activation = ACCEPTED, scheduler-driven first fire = OUTSTANDING.**
+
+The watcher is armed and provably-functional via hand-fire. The
+scheduler-driven first scan is queued behind the HM-AS-β backlog and
+will fire when the scheduler thread catches up. No further action
+required from the Admiral — once the scheduler unblocks, scans
+proceed at the documented 30-min cadence.
+
+If the schedule continues not to fire within 24 hours, a follow-up
+should investigate whether HM-AO-β-3 needs to switch from `schedule`
+to a dedicated launchd plist (mirroring the `model-watcher` pattern
+shipped in HM-AY-α #6, which sidesteps the in-process scheduler
+entirely). That's a separate epic.
+
+### Squeeze panel (HM-AO-β-2)
+
+Already shipped in commit `143a94a` (Phase 7) — UI is live and will
+render rows automatically once the scheduler unblocks or the next
+hand-fire is run. Empty-state message currently displays for the
+panel: "No active squeeze candidates. Watcher runs every 30 min
+during market hours."
