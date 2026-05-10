@@ -468,13 +468,12 @@ Read-only audit of every fleet member against running code, DB state, scheduler 
 ### energy-arnold — high-volume noise generator
 - Model: `qwen3:8b` via Ollama. `is_active=1, is_halted=0`. **9,632 total signals**.
 - Confidence distribution is bimodal: AVG 0.258, **6,643 at conf=0.0 (69%), 1,209 at conf=1.0 (13%)** — mostly noise + occasional over-confident outputs.
-- bridge_voter wiring: 216 votes total in `bridge_votes` table, MAX `created_at` = 2026-05-01 13:01:23 — wired but stopped collecting 2 days ago. Investigation needed.
+- bridge_voter wiring: 248 votes total in `bridge_votes` table, MAX `created_at` = 2026-05-08 13:08:41 — collection resumed since 2026-05-03 audit. Bimodal-confidence parser investigation remains open (see `data/scotty_proposals/energy_arnold_fix_proposal.md`).
 - IMPROVE decision pending parser investigation (per fleet reality doc) — not retired this round.
 
 ## Pending TODOs (additions from 2026-05-03 reconciliation)
 - Backtest 8 orphaned options strategies in `engine/options_agents.py` (zero `main.py` refs) — wire/retire decision blocks Sunday Deep Dive Phase 4.
-- Wire `signal_scorecard` writer OR remove from Alpha Engine plan — currently blocks B5.
-- Investigate why `bridge_votes` collection stalled 2026-05-01 13:01.
+- Wire `signal_scorecard` writer OR remove from Alpha Engine plan — currently blocks B5 (signal_scorecard still 0 rows as of 2026-05-10).
 - Add signal-emission gate (in addition to execution gate) for fully-retired players: ollama-llama, grok-3, possibly dayblade-0dte.
 - Reconcile DB `ai_players.model_id` ↔ `config.py` model drift (~25 rows; cosmetic; one migration script).
 - Retire legacy convergence scanner (`engine/strategies.py` scan_strategies path). Convergence-write path silently dead since 2026-04-07 — see `/tmp/scotty_session_2026-05-03/legacy_scanner_triage.md`. Coordinate with retiring 8 readers in `/tmp/scotty_session_2026-05-03/oq3_strategy_signals_readers.md`.
