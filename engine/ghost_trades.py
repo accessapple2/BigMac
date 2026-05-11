@@ -1,7 +1,40 @@
-"""Ghost Trades — track HOLD decisions with >60% confidence as phantom trades."""
+"""Ghost Trades — track HOLD decisions with >60% confidence as phantom trades.
+
+HM-AZ (2026-05-11) — Query rewrite to align with the empirically canonical
+schema in data/trader.db.ghost_trades. Prior version queried columns
+(player_id, created_at, outcome_price, outcome_pnl_pct) that exist in NEITHER
+candidate schema, producing 16+ stack traces in trader_error.log and silently
+breaking the dashboard's ghost-stats panel.
+
+Canonical schema (data/trader.db.ghost_trades, active writer scripts/ghost_advisor.py):
+    id, ts, symbol, side, qty, price, fill_price, venue, advisor, signal_id,
+    status, rationale
+
+Outward dict-key compatibility preserved via SQL aliases so dashboard/app.py
+and engine/scan_context.py consumers don't need code changes:
+    ts        AS created_at
+    advisor   AS player_id
+    price     AS entry_price
+    rationale AS reasoning
+
+The lean schema in data/ghost_trades.db (writer: engine/ghost_trader.py, last
+fire 2026-04-28) is no longer queried here. That file was renamed to
+data/ghost_trades.db.legacy_lean_2026-05-11 as part of HM-AZ.2.
+
+Out-of-scope for HM-AZ (deferred to a future ticket):
+    - Outcome tracking: trader.db has no exit_price / pnl_pct columns. The
+      get_ghost_stats() summary returns zeros for would_have_won/lost/avg_pnl.
+      update_ghost_outcomes() becomes a logged no-op.
+    - JOIN to ai_players uses LEFT JOIN since the advisor column contains
+      strategy labels ('ollie_super_trades', 'trailing_stop', etc.) that
+      don't always match ai_players.id. COALESCE picks display_name when
+      present, falls back to advisor string.
+"""
 from __future__ import annotations
+
 import sqlite3
 from datetime import datetime
+
 from rich.console import Console
 
 console = Console()
@@ -17,100 +50,109 @@ def _conn():
 
 def log_ghost_trade(player_id: str, symbol: str, confidence: float,
                     reasoning: str, price: float):
-    """Log a ghost trade — a HOLD decision that had >60% confidence."""
+    """Log a ghost trade — a HOLD decision that had >60% confidence.
+
+    Inserts a row into trader.db.ghost_trades using the canonical column
+    layout. The confidence value (which has no dedicated column) is
+    embedded into the rationale string so it isn't lost.
+    """
     if confidence < 0.60:
         return
     conn = _conn()
     conn.execute(
-        "INSERT INTO ghost_trades (player_id, symbol, confidence, reasoning, entry_price) "
-        "VALUES (?, ?, ?, ?, ?)",
-        (player_id, symbol, confidence, reasoning, price)
+        "INSERT INTO ghost_trades "
+        "(ts, symbol, side, qty, price, fill_price, venue, advisor, status, rationale) "
+        "VALUES (?, ?, 'BUY', 0, ?, ?, 'virtual', ?, 'ghost', ?)",
+        (
+            datetime.utcnow().isoformat() + "+00:00",
+            symbol,
+            price,
+            price,
+            player_id,
+            f"conf={confidence:.2f}: {reasoning}",
+        ),
     )
     conn.commit()
     conn.close()
 
 
+_OUTCOME_NOOP_WARNED = False
+
+
 def update_ghost_outcomes(prices: dict):
-    """Update ghost trades with current prices to see what we missed.
+    """No-op stub.
 
-    Called periodically to track how ghost trades would have performed.
+    HM-AZ note: trader.db.ghost_trades has no exit_price / pnl_pct columns,
+    so outcomes can't be tracked under the current schema. A future ticket
+    can add an outcome-enrichment path (separate table or schema migration).
+    This stub keeps callers happy and logs a warning once per process so
+    the silence is visible.
     """
-    conn = _conn()
-    # Get all open ghost trades (no outcome yet)
-    ghosts = conn.execute(
-        "SELECT id, symbol, entry_price FROM ghost_trades WHERE outcome_price IS NULL"
-    ).fetchall()
-
-    for g in ghosts:
-        sym = g["symbol"]
-        if sym in prices:
-            current = prices[sym].get("price", 0)
-            if current > 0:
-                pnl_pct = ((current / g["entry_price"]) - 1) * 100
-                conn.execute(
-                    "UPDATE ghost_trades SET outcome_price=?, outcome_pnl_pct=?, updated_at=CURRENT_TIMESTAMP "
-                    "WHERE id=?",
-                    (current, round(pnl_pct, 2), g["id"])
-                )
-
-    conn.commit()
-    conn.close()
+    global _OUTCOME_NOOP_WARNED
+    if not _OUTCOME_NOOP_WARNED:
+        console.log(
+            "[yellow]update_ghost_outcomes: no-op under trader.db schema "
+            "(HM-AZ 2026-05-11) — outcome tracking deferred"
+        )
+        _OUTCOME_NOOP_WARNED = True
 
 
 def get_ghost_trades(player_id: str = None, limit: int = 50) -> list:
-    """Get ghost trades, optionally filtered by player."""
+    """Get ghost trades, optionally filtered by player.
+
+    Returns list of dicts. Each dict has the same outward keys the old
+    schema-mismatched query implied (player_id, created_at, entry_price,
+    reasoning, display_name) via SQL aliases — no consumer-side changes
+    needed in dashboard/app.py or engine/scan_context.py.
+    """
     conn = _conn()
+    base_select = (
+        "SELECT "
+        "  g.id, g.symbol, g.side, g.qty, "
+        "  g.ts AS created_at, "
+        "  g.advisor AS player_id, "
+        "  g.price AS entry_price, "
+        "  g.fill_price, g.venue, g.status, g.signal_id, "
+        "  g.rationale AS reasoning, "
+        "  COALESCE(p.display_name, g.advisor) AS display_name "
+        "FROM ghost_trades g "
+        "LEFT JOIN ai_players p ON g.advisor = p.id "
+    )
     if player_id:
         rows = conn.execute(
-            "SELECT g.*, p.display_name FROM ghost_trades g "
-            "JOIN ai_players p ON g.player_id = p.id "
-            "WHERE g.player_id=? ORDER BY g.created_at DESC LIMIT ?",
-            (player_id, limit)
+            base_select + "WHERE g.advisor = ? ORDER BY g.ts DESC LIMIT ?",
+            (player_id, limit),
         ).fetchall()
     else:
         rows = conn.execute(
-            "SELECT g.*, p.display_name FROM ghost_trades g "
-            "JOIN ai_players p ON g.player_id = p.id "
-            "ORDER BY g.created_at DESC LIMIT ?",
-            (limit,)
+            base_select + "ORDER BY g.ts DESC LIMIT ?",
+            (limit,),
         ).fetchall()
     conn.close()
     return [dict(r) for r in rows]
 
 
 def get_ghost_stats() -> dict:
-    """Get aggregate ghost trade statistics — missed opportunities."""
+    """Get aggregate ghost trade statistics.
+
+    HM-AZ note: trader.db.ghost_trades has no outcome columns
+    (exit_price / pnl_pct / outcome_price). Outcome-derived stats
+    (would_have_won, avg_pnl_pct, best/worst, top_missed) return zeros
+    or empty lists. total_ghosts counts all rows, which is still useful
+    for visibility. Outcome enrichment is a future ticket.
+    """
     conn = _conn()
-
-    # Total ghosts with outcomes
-    stats = conn.execute("""
-        SELECT
-            COUNT(*) as total,
-            SUM(CASE WHEN outcome_pnl_pct > 0 THEN 1 ELSE 0 END) as would_have_won,
-            SUM(CASE WHEN outcome_pnl_pct <= 0 THEN 1 ELSE 0 END) as would_have_lost,
-            AVG(outcome_pnl_pct) as avg_pnl_pct,
-            MAX(outcome_pnl_pct) as best_ghost,
-            MIN(outcome_pnl_pct) as worst_ghost
-        FROM ghost_trades WHERE outcome_price IS NOT NULL
-    """).fetchone()
-
-    # Top missed opportunities
-    top_missed = conn.execute("""
-        SELECT g.player_id, p.display_name, g.symbol, g.confidence,
-               g.entry_price, g.outcome_price, g.outcome_pnl_pct, g.created_at
-        FROM ghost_trades g JOIN ai_players p ON g.player_id = p.id
-        WHERE g.outcome_pnl_pct > 0
-        ORDER BY g.outcome_pnl_pct DESC LIMIT 5
-    """).fetchall()
-
+    total_row = conn.execute(
+        "SELECT COUNT(*) AS total FROM ghost_trades"
+    ).fetchone()
     conn.close()
 
     return {
-        "total_ghosts": stats["total"] if stats else 0,
-        "would_have_won": stats["would_have_won"] if stats else 0,
-        "would_have_lost": stats["would_have_lost"] if stats else 0,
-        "avg_pnl_pct": round(stats["avg_pnl_pct"], 2) if stats and stats["avg_pnl_pct"] else 0,
-        "best_ghost_pct": round(stats["best_ghost"], 2) if stats and stats["best_ghost"] else 0,
-        "worst_ghost_pct": round(stats["worst_ghost"], 2) if stats and stats["worst_ghost"] else 0,
-        "top_missed": [dict(r) for r in top_missed],
+        "total_ghosts": int(total_row["total"]) if total_row else 0,
+        "would_have_won": 0,
+        "would_have_lost": 0,
+        "avg_pnl_pct": 0,
+        "best_ghost_pct": 0,
+        "worst_ghost_pct": 0,
+        "top_missed": [],
     }
