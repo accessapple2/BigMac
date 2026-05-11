@@ -12793,6 +12793,7 @@ async function renderPortfolios() {
 <!-- MOBILE BOTTOM NAV -->
 <nav class="mobile-nav" id="mobileNav">
   <button class="mobile-nav-item active" onclick="mobileNav('dashboard',this)"><span class="m-icon">🖥️</span>Bridge</button>
+  <button class="mobile-nav-item" onclick="mobileNav('race',this);if(typeof raceStart==='function')raceStart()"><span class="m-icon">🏁</span>Race</button>
   <button class="mobile-nav-item" onclick="mobileNav('leaderboard',this)"><span class="m-icon">🏆</span>Board</button>
   <button class="mobile-nav-item" onclick="mobileNav('ai-portfolios',this);setTimeout(renderPortfolios,100)"><span class="m-icon">🤖</span>Models</button>
   <button class="mobile-nav-item" onclick="mobileNav('trades',this)"><span class="m-icon">📋</span>Trades</button>
@@ -34163,6 +34164,167 @@ pollBS0DTE();
 setInterval(pollBS0DTE, 60 * 1000);
 // === END BS0DTE ===
 </script>
+
+
+<!-- === Phase 2: Race tile (Dashboard Remodel v1) === -->
+<style>
+.race-section {
+  --race-bg:      #000;
+  --race-fg:      #f5f5f5;
+  --race-dim:     #aaa;
+  --race-orange:  #ff9c00;
+  --race-blue:    #99ccff;
+  --race-up:      #00cc66;
+  --race-down:    #ff4444;
+  background: var(--race-bg);
+  color: var(--race-fg);
+  border-radius: 18px 18px 0 0;
+  padding: 14px 18px;
+  margin: 12px auto;
+  max-width: 960px;
+  font-family: "Antonio", "Helvetica Neue", system-ui, sans-serif;
+}
+.race-header { display:flex; justify-content:space-between; align-items:baseline;
+  border-bottom: 2px solid var(--race-orange); padding-bottom: 10px; margin-bottom: 10px; }
+.race-title  { font-size: 20px; font-weight: 700; letter-spacing: 0.05em; color: var(--race-orange); }
+.race-meta   { font-size: 13px; color: var(--race-dim); margin-bottom: 8px; }
+.race-status { font-size: 14px; color: var(--race-blue); font-weight: 600; letter-spacing: 0.04em; }
+.race-list { list-style:none; margin:0; padding:0; }
+.race-row  { display:grid; grid-template-columns: 48px 1fr 110px 100px 110px;
+  gap: 14px; align-items:center; padding: 10px 8px; min-height: 48px;
+  border-bottom: 1px solid #222; font-size: 15px; cursor: pointer;
+  transition: background 120ms ease; }
+.race-row:hover { background: #111; }
+.race-rank   { color: var(--race-orange); font-weight: 700; font-variant-numeric: tabular-nums; }
+.race-ticker { font-weight: 600; letter-spacing: 0.03em; }
+.race-pct    { font-weight: 600; text-align: right; font-variant-numeric: tabular-nums; }
+.race-pct.up   { color: var(--race-up); }
+.race-pct.down { color: var(--race-down); }
+.race-price  { color: var(--race-dim); text-align: right; font-variant-numeric: tabular-nums; }
+.race-vol    { color: var(--race-dim); text-align: right; font-size: 13px; font-variant-numeric: tabular-nums; }
+.race-row.flash-up   { background: rgba(0, 204, 102, 0.18); }
+.race-row.flash-down { background: rgba(255, 68, 68, 0.18); }
+.race-empty  { color: var(--race-dim); text-align: center; padding: 40px 16px; font-size: 16px; }
+.race-error  { color: var(--race-down); text-align: center; padding: 30px 16px; font-size: 15px; }
+@media (max-width: 640px) {
+  .race-title  { font-size: 22px; }
+  .race-status { font-size: 16px; }
+  .race-row {
+    grid-template-columns: 40px 1fr 90px 90px;
+    gap: 8px; padding: 14px 8px; font-size: 17px; min-height: 56px;
+  }
+  .race-vol { display: none; }
+}
+</style>
+
+<div id="section-race" style="display:none;">
+  <div class="race-section">
+    <div class="race-header">
+      <span class="race-title">RACE — TOP GAINERS</span>
+      <span class="race-status" id="raceStatus">—</span>
+    </div>
+    <div class="race-meta" id="raceMeta">Initializing Race feed…</div>
+    <ul class="race-list" id="raceList"></ul>
+  </div>
+</div>
+
+<script>
+// === Phase 2: Race tile poller ===
+(function() {
+  var POLL_MS = 30000;
+  var LIMIT = 20;
+  var timer = null;
+  var prevPctByTicker = {};
+
+  function fmtPct(p) { return (p >= 0 ? "+" : "") + p.toFixed(2) + "%"; }
+  function fmtPrice(p) { return (p >= 1000) ? ("$" + p.toFixed(0)) : ("$" + p.toFixed(2)); }
+  function fmtVol(v) {
+    if (v >= 1e9) return (v / 1e9).toFixed(1) + "B";
+    if (v >= 1e6) return (v / 1e6).toFixed(1) + "M";
+    if (v >= 1e3) return (v / 1e3).toFixed(0) + "K";
+    return String(v);
+  }
+
+  function render(data) {
+    var list = document.getElementById('raceList');
+    var meta = document.getElementById('raceMeta');
+    var statusEl = document.getElementById('raceStatus');
+    if (!list || !meta || !statusEl) return;
+    if (!data || !data.rows || data.rows.length === 0) {
+      list.innerHTML = '';
+      meta.innerHTML = '<div class="race-empty">No race data available right now.</div>';
+      statusEl.textContent = '—';
+      return;
+    }
+    statusEl.textContent = data.rows[0].market_status || '—';
+    var ts = data.ts ? data.ts.replace('T', ' ').replace('Z', '') : '';
+    meta.textContent = 'Last update: ' + ts + '  ·  ' + data.rows.length + ' of ' + data.limit;
+    var html = '';
+    var flashes = [];
+    data.rows.forEach(function(r) {
+      var prev = prevPctByTicker[r.ticker];
+      var flashCls = '';
+      if (typeof prev === 'number' && prev !== r.pct_change_since_open) {
+        flashCls = r.pct_change_since_open > prev ? 'flash-up' : 'flash-down';
+        flashes.push(r.ticker);
+      }
+      prevPctByTicker[r.ticker] = r.pct_change_since_open;
+      var dir = r.pct_change_since_open >= 0 ? 'up' : 'down';
+      html += '<li class="race-row ' + flashCls + '" data-ticker="' + r.ticker + '" '
+            + 'onclick="raceOnRowClick(\'' + r.ticker + '\')" tabindex="0">';
+      html += '<span class="race-rank">#' + r.rank + '</span>';
+      html += '<span class="race-ticker">' + r.ticker + '</span>';
+      html += '<span class="race-pct ' + dir + '">' + fmtPct(r.pct_change_since_open) + '</span>';
+      html += '<span class="race-price">' + fmtPrice(r.last_price) + '</span>';
+      html += '<span class="race-vol">' + fmtVol(r.volume) + '</span>';
+      html += '</li>';
+    });
+    list.innerHTML = html;
+    if (flashes.length) {
+      setTimeout(function() {
+        flashes.forEach(function(t) {
+          var row = list.querySelector('[data-ticker="' + t + '"]');
+          if (row) { row.classList.remove('flash-up'); row.classList.remove('flash-down'); }
+        });
+      }, 200);
+    }
+  }
+
+  async function fetchOnce() {
+    try {
+      var r = await fetch('/api/momentum/race?limit=' + LIMIT);
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      var data = await r.json();
+      render(data);
+    } catch (e) {
+      var meta = document.getElementById('raceMeta');
+      if (meta) meta.innerHTML = '<div class="race-error">Race feed error: ' + String(e) + '</div>';
+    }
+  }
+
+  // Click handler — Phase 4 will wire this to the detail panel
+  window.raceOnRowClick = function(ticker) {
+    if (typeof openTickerDetail === 'function') {
+      openTickerDetail(ticker);
+    } else if (typeof openTVChart === 'function') {
+      openTVChart(ticker);
+    }
+    // else: no-op until Phase 4
+  };
+
+  // Start/stop polling — invoked when Race tab is activated
+  window.raceStart = function() {
+    if (timer) return;
+    fetchOnce();
+    timer = setInterval(fetchOnce, POLL_MS);
+  };
+  window.raceStop = function() {
+    if (timer) { clearInterval(timer); timer = null; }
+  };
+})();
+// === end Phase 2: Race tile poller ===
+</script>
+<!-- === end Phase 2: Race tile === -->
 
 </body>
 </html>
