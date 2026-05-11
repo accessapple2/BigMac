@@ -17952,3 +17952,22 @@ def momentum_race(limit: int = 20) -> dict:
         "rows": compute_race(limit=limit),
     }
 # === end Phase 2: Race tile endpoint ===
+
+
+# === Phase 4: Detail panel endpoint (Dashboard Remodel v1) ===
+# Per-click ticker detail consumed by the openTickerDetail() modal in
+# dashboard/static/index.html. engine.momentum.detail.compute_detail carries
+# its own 30s cache so rapid reopens / double-clicks are absorbed.
+import re as _re
+from engine.momentum.detail import compute_detail
+
+_TICKER_RE = _re.compile(r"^[A-Z0-9.\-]{1,10}$")
+
+
+@app.get("/api/momentum/detail/{ticker}")
+def momentum_detail(ticker: str) -> dict:
+    t = (ticker or "").upper().strip()
+    if not t or not _TICKER_RE.match(t):
+        return {"error": "invalid ticker", "ticker": ticker}
+    return compute_detail(t)
+# === end Phase 4: Detail panel endpoint ===
