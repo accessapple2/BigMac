@@ -2161,6 +2161,41 @@ def run_chekov_stoploss():
         console.log(f"[yellow]Chekov SL/TP check error: {e}")
 
 
+# === HM-AW: Chekov intraday convergence buyer ===
+def run_chekov_intraday_convergence():
+    """Chekov intraday convergence buyer — runs during market hours.
+
+    Fixes 5+ week silent gap discovered 2026-05-11: the original convergence
+    buyer was gated to 22:00 AZ (1 AM ET), when intraday convergence patterns
+    have decayed and scan_strategies returns 0. This job runs the same buyer
+    during US regular market hours, so the 1+ signals scan_strategies finds
+    every morning actually trigger trades. (HM-AW)
+    """
+    from datetime import datetime as _dt
+    import pytz
+    az = pytz.timezone("US/Arizona")
+    now = _dt.now(az)
+    # Market hours: 6:30 AM – 1:00 PM AZ (= 9:30 AM – 4:00 PM ET).
+    # Coarse-gate at the hour level; lets us run 06:00-06:29 too (catches opening setup window).
+    if not (6 <= now.hour < 13):
+        return
+    # Skip weekends
+    if now.weekday() >= 5:
+        return
+    try:
+        from engine.strategies import scan_strategies
+        from engine.chekov_autotrade import execute_convergence_trades
+        signals = scan_strategies()
+        if signals:
+            execute_convergence_trades(signals)
+            console.log(
+                f"[green]🧭 Chekov intraday: processed {len(signals)} convergence signals"
+            )
+    except Exception as e:
+        console.log(f"[yellow]Chekov intraday convergence error: {e}")
+# === end HM-AW ===
+
+
 _premarket_gaps_done = False
 
 def run_premarket_gaps():
