@@ -264,6 +264,71 @@ def _get_alpaca_bulk_prices(symbols: list) -> dict:
         return {}
 
 
+# === Phase 2: Race tile snapshots ===
+def _get_alpaca_bulk_snapshots(symbols: list) -> dict:
+    """GET /v2/stocks/snapshots?symbols=... — open + last + volume per symbol in one call.
+
+    Returns {symbol: {symbol, last_price, open_price, high, low, volume,
+    prev_close, ts}}. Skips rows missing either latestTrade.p or dailyBar.o.
+    Empty dict on auth/HTTP/JSON failure. No chunking — Alpaca supports
+    thousands per request and the Race universe is <1000 names.
+    """
+    hdrs = _get_alpaca_headers()
+    if not hdrs:
+        return {}
+    try:
+        r = requests.get(
+            f"{_ALPACA_BASE}/snapshots",
+            headers=hdrs,
+            params={"symbols": ",".join(symbols), "feed": "iex"},
+            timeout=15,
+        )
+        if not r.ok:
+            return {}
+        body = r.json()
+        # Multi-symbol snapshots are FLAT (verified 2026-05-10 live probe).
+        # Defensive: tolerate a future wrapped shape too.
+        snaps = body.get("snapshots", body)
+        results = {}
+        for sym, snap in snaps.items():
+            if not isinstance(snap, dict):
+                continue
+            db = snap.get("dailyBar") or {}
+            lt = snap.get("latestTrade") or {}
+            pdb = snap.get("prevDailyBar") or {}
+            last_price = lt.get("p")
+            open_price = db.get("o")
+            if last_price is None or open_price is None:
+                continue
+            results[sym] = {
+                "symbol": sym,
+                "last_price": float(last_price),
+                "open_price": float(open_price),
+                "high": float(db.get("h") or 0.0),
+                "low": float(db.get("l") or 0.0),
+                "volume": int(db.get("v") or 0),
+                "prev_close": (float(pdb.get("c")) if pdb.get("c") is not None else None),
+                "ts": lt.get("t") or db.get("t"),
+            }
+        return results
+    except Exception:
+        return {}
+
+
+def get_bulk_snapshots(symbols: list) -> dict:
+    """Public batched snapshot fetch for Race / Scanner tiles.
+
+    Today delegates to Alpaca only. Yahoo has no equivalent single-call
+    'open + last + volume' endpoint, so no fallback is wired. Future
+    enhancement could derive `open_price` from a Yahoo chart endpoint
+    if Alpaca is down.
+    """
+    if not symbols:
+        return {}
+    return _get_alpaca_bulk_snapshots(symbols)
+# === end Phase 2: Race tile snapshots ===
+
+
 def _yahoo_chart(symbol, interval="1m", range_="1d"):
     """Fetch chart data from Yahoo Finance direct HTTP endpoint."""
     global _last_yahoo_call
