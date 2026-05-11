@@ -17932,3 +17932,23 @@ def momentum_recent_signals(since_minutes: int = 60, limit: int = 100) -> dict:
         "signals": rows,
     }
 # === end HM-AN Phase 1 ===
+
+
+# === Phase 2: Race tile endpoint (Dashboard Remodel v1) ===
+# Top gainers since open. Reads engine.momentum.race.compute_race which
+# in turn calls engine.universe.get_active_universe + the Phase 2.2.5
+# market_data.get_bulk_snapshots primitive. One batched Alpaca call per
+# request; safe under the 30s polling cadence the Race UI uses.
+from engine.momentum.race import compute_race
+
+
+@app.get("/api/momentum/race")
+def momentum_race(limit: int = 20) -> dict:
+    # Safety cap: Race UI displays at most 100 rows.
+    limit = max(1, min(limit, 100))
+    return {
+        "ts": datetime.utcnow().isoformat() + "Z",
+        "limit": limit,
+        "rows": compute_race(limit=limit),
+    }
+# === end Phase 2: Race tile endpoint ===
