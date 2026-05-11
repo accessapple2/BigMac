@@ -34422,6 +34422,124 @@ setInterval(pollBS0DTE, 60 * 1000);
 <!-- === end Phase 6 CSS === -->
 
 
+<script>
+// === Phase 6 JS: Pre-market gap scanner poller ===
+(function () {
+  var POLL_MS = 60000;
+  var STALE_AFTER_MS = 120000;
+  var premarketLastUpdate = null;
+  var premarketTimer = null;
+  var heartbeatTimer = null;
+
+  var WINDOW_LABELS = {
+    PRE:    "🟢 LIVE",
+    OPEN:   "🟡 Market open — preview",
+    AFTER:  "🌙 After-hours",
+    CLOSED: "○ Market closed"
+  };
+
+  function fmtVol(v) {
+    if (v >= 1e9) return (v / 1e9).toFixed(1) + "B";
+    if (v >= 1e6) return (v / 1e6).toFixed(1) + "M";
+    if (v >= 1e3) return (v / 1e3).toFixed(0) + "K";
+    return String(v || 0);
+  }
+  function fmtPct(p) { return (p >= 0 ? "+" : "") + p.toFixed(2) + "%"; }
+  function fmtPrice(p) { return (p >= 1000) ? ("$" + p.toFixed(0)) : ("$" + p.toFixed(2)); }
+
+  function escapeHTML(s) {
+    return String(s).replace(/[&<>"']/g, function (c) {
+      return { "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" }[c];
+    });
+  }
+
+  function renderPremarket(payload) {
+    var list = document.getElementById("premarket-list");
+    var winEl = document.getElementById("premarket-window");
+    if (!list) return;
+
+    var ws = (payload && payload.window_state) || "CLOSED";
+    if (winEl) winEl.textContent = WINDOW_LABELS[ws] || ws;
+
+    if (payload && payload.error) {
+      list.innerHTML = '<li class="premarket-error">Pre-market feed error: ' + escapeHTML(payload.error) + '</li>';
+      return;
+    }
+
+    var hits = (payload && payload.hits) || [];
+    if (!hits.length) {
+      var msg;
+      if (ws === "PRE")        msg = "No gap candidates yet — waiting for volume confirmation";
+      else if (ws === "OPEN")  msg = "Pre-market window closed — check Race for live session";
+      else if (ws === "AFTER") msg = "After-hours — pre-market window opens at 4:00 AM ET";
+      else                     msg = "Pre-market window opens at 4:00 AM ET";
+      list.innerHTML = '<li class="premarket-empty">' + msg + '</li>';
+      return;
+    }
+
+    var html = "";
+    hits.forEach(function (hit) {
+      var gapCls = hit.direction === "UP" ? "up" : "down";
+      var flags = (hit.flags || []).map(function (f) {
+        return '<span class="flag flag-' + escapeHTML(f.toLowerCase()) + '">' + escapeHTML(f) + '</span>';
+      }).join("");
+      html += '<li class="premarket-row" data-ticker="' + escapeHTML(hit.ticker) + '" onclick="openTickerDetail(\'' + escapeHTML(hit.ticker) + '\')">';
+      html +=   '<span class="premarket-rank">#' + hit.rank + '</span>';
+      html +=   '<span class="premarket-ticker">' + escapeHTML(hit.ticker) + '</span>';
+      html +=   '<span class="premarket-gap ' + gapCls + '">' + fmtPct(hit.gap_pct) + '</span>';
+      html +=   '<span class="premarket-price">' + fmtPrice(hit.premarket_price) + '</span>';
+      html +=   '<span class="premarket-vol">' + fmtVol(hit.premarket_volume) + '</span>';
+      html +=   '<span class="premarket-flags">' + flags + '</span>';
+      html += '</li>';
+    });
+    list.innerHTML = html;
+  }
+
+  async function fetchPremarket() {
+    try {
+      var r = await fetch("/api/momentum/premarket?limit=20");
+      if (!r.ok) throw new Error("HTTP " + r.status);
+      var data = await r.json();
+      renderPremarket(data);
+      premarketLastUpdate = Date.now();
+    } catch (e) {
+      var list = document.getElementById("premarket-list");
+      if (list) list.innerHTML = '<li class="premarket-error">Pre-market error: ' + escapeHTML(String(e.message || e)) + '</li>';
+    }
+  }
+
+  function updatePremarketHeartbeat() {
+    var el = document.getElementById("premarket-heartbeat");
+    if (!el) return;
+    var stale = premarketLastUpdate === null || (Date.now() - premarketLastUpdate) > STALE_AFTER_MS;
+    el.classList.toggle("stale", stale);
+    el.classList.toggle("live", !stale);
+  }
+
+  // Start/stop wired to the Race tab nav.
+  window.premarketStart = function () {
+    if (premarketTimer) return;
+    fetchPremarket();
+    premarketTimer = setInterval(fetchPremarket, POLL_MS);
+    heartbeatTimer = setInterval(updatePremarketHeartbeat, 5000);
+  };
+  window.premarketStop = function () {
+    if (premarketTimer) { clearInterval(premarketTimer); premarketTimer = null; }
+    if (heartbeatTimer) { clearInterval(heartbeatTimer); heartbeatTimer = null; }
+  };
+
+  // Auto-start on DOM ready — Race tab visibility is gated by showSection,
+  // but the tile is harmless when hidden and the fetch is cheap.
+  if (document.readyState === "loading") {
+    document.addEventListener("DOMContentLoaded", window.premarketStart);
+  } else {
+    window.premarketStart();
+  }
+})();
+// === end Phase 6 JS ===
+</script>
+
+
 <!-- === Phase 4: Detail enrichment (Dashboard Remodel v1) === -->
 <style>
 /* Phase 4: appended into #posDetailBody by _momentumDetailEnrich() */
