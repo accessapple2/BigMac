@@ -1,24 +1,24 @@
 # Model Watch Report — 2026-05-08
 
-_Generated: 2026-05-08T03:24:58.982533+00:00_
+_Generated: 2026-05-08T03:44:37.807580+00:00_
 
 ## Summary
 
 - Installed models with upstream changes: **0**
-- Hugging Face fresh releases (last 7d): **35**
+- Hugging Face fresh releases (last 7d): **34**
 - GitHub releases since last check: **0**
 
 ## Installed Models
 
 ### bigmac
-- `phi3:mini` — local `4f2222927938` / upstream `(unknown)` — current
-- `gemma3:4b` — local `a2af6cc3eb7f` / upstream `(unknown)` — current
-- `mistral:7b` — local `6577803aa9a0` / upstream `(unknown)` — current
+- `phi3:mini` — local `4f2222927938` / upstream `4f2222927938` — current
+- `gemma3:4b` — local `a2af6cc3eb7f` / upstream `a2af6cc3eb7f` — current
+- `mistral:7b` — local `6577803aa9a0` / upstream `6577803aa9a0` — current
 
 ### ollie_box
-- `qwen3:8b` — local `500a1f067a9f` / upstream `(unknown)` — current
-- `qwen3:14b` — local `bdbd181c33f2` / upstream `(unknown)` — current
-- `deepseek-r1:14b` — local `c333b7232bdb` / upstream `(unknown)` — current
+- `qwen3:8b` — local `500a1f067a9f` / upstream `500a1f067a9f` — current
+- `qwen3:14b` — local `bdbd181c33f2` / upstream `bdbd181c33f2` — current
+- `deepseek-r1:14b` — local `c333b7232bdb` / upstream `c333b7232bdb` — current
 - `plutus` — local `(not installed)` / upstream `(unknown)` — current
 - `picard` — local `(not installed)` / upstream `(unknown)` — current
 - `pike` — local `(not installed)` / upstream `(unknown)` — current
@@ -50,11 +50,10 @@ _Generated: 2026-05-08T03:24:58.982533+00:00_
 - [Trade-Intelix/nse-swing-trading-lightgbm](https://huggingface.co/Trade-Intelix/nse-swing-trading-lightgbm) — 2026-05-07T13:16:57.000Z — downloads 0 — tags: ml-intern, region:us
 - [DidulaThavishaPro/dtt-trading](https://huggingface.co/DidulaThavishaPro/dtt-trading) — 2026-05-02T15:52:31.000Z — downloads 0 — tags: region:us
 - [automationkasey/trading-quant-merged-q8](https://huggingface.co/automationkasey/trading-quant-merged-q8) — 2026-05-01T23:43:01.000Z — downloads 129 — tags: gguf, endpoints_compatible, region:us, conversational
-- [automationkasey/trading-quant-merged-qwen](https://huggingface.co/automationkasey/trading-quant-merged-qwen) — 2026-05-01T03:37:56.000Z — downloads 15 — tags: safetensors, qwen2, region:us
 
 ### Query: `stock`
+- [sundaycoil/stock-portfolio](https://huggingface.co/sundaycoil/stock-portfolio) — 2026-05-08T03:43:28.000Z — downloads 0 — tags: region:us
 - [haelsisy/stock-signal](https://huggingface.co/haelsisy/stock-signal) — 2026-05-08T02:40:07.000Z — downloads 0 — tags: onnx, finance, stock-signals, bilstm-transformer, multi-horizon, en, region:us
-- [sundaycoil/stock-portfolio](https://huggingface.co/sundaycoil/stock-portfolio) — 2026-05-08T02:31:32.000Z — downloads 0 — tags: region:us
 - [Shakuji/stock-predictor-model](https://huggingface.co/Shakuji/stock-predictor-model) — 2026-05-07T12:24:04.000Z — downloads 0 — tags: region:us
 - [mohan170802/stock-price-predictor-xgboost](https://huggingface.co/mohan170802/stock-price-predictor-xgboost) — 2026-05-07T11:38:25.000Z — downloads 0 — tags: region:us
 - [HyperFigs/stockoutPrediction](https://huggingface.co/HyperFigs/stockoutPrediction) — 2026-05-07T03:00:37.000Z — downloads 0 — tags: region:us

@@ -255,3 +255,7 @@ sources_failed: []
 **Files:** `engine/total_portfolio.py` (new) + `docs/TOTAL_PORTFOLIO.md` (new) + `docs/XO_BACKLOG.md` HM-AM section + `docs/SCHEMA.md` metals_ledger cross-ref.
 
 **Reversal:** `git revert <commit-sha>` — module deletion. Sacred-data: read-only module, no DB writes.
+- 2026-05-08T06:00:04 | daily_backup | backup=trader_2026-05-08.db | 263584KB
+- 2026-05-09T06:00:06 | daily_backup | backup=trader_2026-05-09.db | 266724KB
+- 2026-05-10T06:00:04 | daily_backup | backup=trader_2026-05-10.db | 268920KB
+- 2026-05-11T06:00:06 | daily_backup | backup=trader_2026-05-11.db | 273908KB
