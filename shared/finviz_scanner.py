@@ -355,14 +355,13 @@ def finviz_quality_screen() -> list[str]:
     try:
         from finvizfinance.screener.overview import Overview
         s = Overview()
+        # === HM-AY: Loosened 2026-05-11 — growth names get through ===
         s.set_filter(filters_dict={
-            "Gross Margin":     "High (>50%)",
-            "LT Debt/Equity":   "Under 0.4",
-            "Operating Margin": "High (>25%)",
-            "Return on Equity": "Over +15%",
+            "LT Debt/Equity":   "Under 0.7",
             "Country":          "USA",
         })
-        df = s.screener_view(limit=300)
+        # === end HM-AY ===
+        df = s.screener_view(limit=3000)
         tickers: list[str] = []
         if df is not None and len(df) > 0 and "Ticker" in df.columns:
             tickers = [str(t) for t in df["Ticker"].tolist() if t]

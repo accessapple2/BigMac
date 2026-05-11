@@ -104,7 +104,7 @@ def _check_quality(ticker: str) -> tuple[bool, str]:
         if not result:
             return False, (
                 f"fails Dalio/Buffett quality filter "
-                f"(requires: gross margin >50%, LT debt/eq <0.4, op margin >25%, ROE >15%)"
+                f"(requires: LT debt/eq <0.7 only (HM-AY.2))"
             )
         return True, "✅ passes quality screen"
     except Exception as e:
