@@ -23,7 +23,7 @@ console = Console()
 
 CHEKOV_ID = "navigator"
 CHEKOV_CASH = 7000.0
-MAX_POSITIONS = 5
+MAX_POSITIONS = 10
 MAX_ALLOC_PCT = 0.05   # 5% of capital per swing stock trade
 MAX_ALLOC_SPREAD = 0.03  # 3% for options spreads
 DB = os.environ.get(
