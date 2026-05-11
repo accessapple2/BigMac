@@ -1,6 +1,6 @@
 """Strategy Engine — 20 technical strategies scored against universe candidates.
 
-Multi-strategy convergence: only recommend when 3+ strategies agree.
+Multi-strategy convergence: only recommend when 2+ strategies agree.
 All strategies use free Yahoo Finance data (yfinance).
 """
 from __future__ import annotations
@@ -423,7 +423,7 @@ def _get_strategy_weight(name: str, stats: dict) -> float:
 
 
 def score_convergence(ticker: str, triggered: list) -> dict | None:
-    """Starfleet convergence scoring: 3+ strategies normally; 1+ during power hour / after hours.
+    """Starfleet convergence scoring: 2+ strategies normally; 1+ during power hour / after hours.
 
     Strategy weights from trade history:
       >70% win rate (>=5 trades) → 1.5x weight
@@ -547,7 +547,7 @@ def get_scan_universe(max_total: int = 700) -> list[str]:
 def scan_strategies(tickers: list = None, save: bool = True) -> list:
     """Run all strategies against top universe candidates.
 
-    Returns list of convergence signals (stocks where 3+ strategies agree).
+    Returns list of convergence signals (stocks where 2+ strategies agree).
     Uses combined volume scanner + core watchlist universe when no tickers given.
     """
     from engine.market_data import get_alpaca_bars
@@ -619,7 +619,7 @@ def scan_strategies(tickers: list = None, save: bool = True) -> list:
     from datetime import datetime as _dt2
     _mins2 = _dt2.now(_pytz.timezone("US/Arizona"))
     _mins2 = _mins2.hour * 60 + _mins2.minute
-    _threshold_label = "1+ strategy (power hour/AH)" if _mins2 >= 750 else "3+ strategies"
+    _threshold_label = "1+ strategy (power hour/AH)" if _mins2 >= 750 else "2+ strategies"
     console.log(f"[green]🧭 Strategy scan complete: {len(signals)} convergence signals "
                 f"({_threshold_label} agree)")
 
@@ -862,7 +862,7 @@ def get_todays_signals() -> list:
     """Get today's convergence signals from DB, plus TB direct bypass signals.
 
     Two paths merge here:
-      1. Convergence: real_strat_count >= 3 (or 2 + TB tiebreaker at 85%)
+      1. Convergence: real_strat_count >= 2 (or 1 + TB tiebreaker at 85%)
       2. TB-Direct: TB confidence >= TB_DIRECT_THRESHOLD in liquid universe
          — these skip convergence entirely and go straight to Ollie
     """
@@ -926,7 +926,7 @@ def build_strategy_prompt_section() -> str:
 
     if signals:
         lines.append(
-            "🎯 HIGH-CONVICTION CONVERGENCE SIGNALS (3+ strategies agree):\n"
+            "🎯 HIGH-CONVICTION CONVERGENCE SIGNALS (2+ strategies agree):\n"
             "These are your PRIMARY trade candidates. The strategy engine\n"
             "backtested +5.17% with 55.8% win rate using these signals.\n"
             "PRIORITIZE these over your own stock picks.\n"
@@ -944,7 +944,7 @@ def build_strategy_prompt_section() -> str:
     else:
         lines.append(
             "⚠️ No convergence signals today — the scanner found no setups\n"
-            "where 3+ strategies agree. When the scanner finds nothing,\n"
+            "where 2+ strategies agree. When the scanner finds nothing,\n"
             "the best trade is no trade. STAY IN CASH or hold existing positions.\n"
         )
 
