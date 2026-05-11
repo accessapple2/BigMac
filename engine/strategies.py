@@ -444,7 +444,7 @@ def score_convergence(ticker: str, triggered: list) -> dict | None:
     _now = _dt.now(_az)
     _mins = _now.hour * 60 + _now.minute
     # 750 = 12:30 PM MST (power hour start / 3:30 PM ET)
-    min_strategies = 1 if _mins >= 750 else 3
+    min_strategies = 1 if _mins >= 750 else 2  # === HM-AX: lowered from 3 → 2 (2026-05-11) ===
 
     if len(bullish) < min_strategies:
         return None
@@ -881,8 +881,8 @@ def get_todays_signals() -> list:
             "  GROUP_CONCAT(DISTINCT strategy_name) as strategies "
             "FROM strategy_signals WHERE scan_date = ? AND signal_type = 'BUY' "
             "GROUP BY ticker "
-            "HAVING real_strat_count >= 3 "
-            "   OR (real_strat_count = 2 AND tb_conf >= 85) "
+            "HAVING real_strat_count >= 2 "  # === HM-AX: lowered from 3 → 2 (2026-05-11) ===
+            "   OR (real_strat_count = 1 AND tb_conf >= 85) "  # === HM-AX: tiebreaker lowered 2 → 1 ===
             "ORDER BY real_strat_count DESC",
             (today,),
         ).fetchall()
