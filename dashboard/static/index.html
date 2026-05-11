@@ -34326,5 +34326,349 @@ setInterval(pollBS0DTE, 60 * 1000);
 </script>
 <!-- === end Phase 2: Race tile === -->
 
+
+<!-- === Phase 4: Detail enrichment (Dashboard Remodel v1) === -->
+<style>
+/* Phase 4: appended into #posDetailBody by _momentumDetailEnrich() */
+.md-section {
+  margin-top: 14px;
+  padding: 12px;
+  background: var(--surface, #0a0a0a);
+  border: 1px solid var(--border, #1a1a1a);
+  border-radius: 8px;
+}
+.md-section-title {
+  font-family: var(--font-head, "Antonio", sans-serif);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--muted, #aaa);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  margin-bottom: 8px;
+}
+.md-grade {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 4px 12px; border-radius: 6px;
+  font-weight: 700; letter-spacing: 0.04em;
+}
+.md-grade.A   { background: rgba(0,204,102,0.18); color: #00cc66; }
+.md-grade.B   { background: rgba(99,204,255,0.18); color: #99ccff; }
+.md-grade.C   { background: rgba(255,156,0,0.18); color: #ff9c00; }
+.md-grade.D, .md-grade.F { background: rgba(255,68,68,0.18); color: #ff4444; }
+.md-grade .score { font-size: 18px; font-weight: 800; font-variant-numeric: tabular-nums; }
+.md-grade .letter { font-size: 14px; }
+
+.md-funds-grid {
+  display: grid;
+  grid-template-columns: repeat(3, 1fr);
+  gap: 8px;
+  margin-top: 8px;
+  font-size: 13px;
+}
+.md-funds-grid .cell { background: rgba(255,255,255,0.02); padding: 6px 8px; border-radius: 4px; }
+.md-funds-grid .label { color: var(--muted, #aaa); font-size: 11px; text-transform: uppercase; letter-spacing: 0.04em; }
+.md-funds-grid .value { color: var(--text, #f5f5f5); font-weight: 600; font-variant-numeric: tabular-nums; }
+
+.md-earnings {
+  margin-top: 8px; padding-top: 8px;
+  border-top: 1px solid var(--border, #1a1a1a);
+  font-size: 13px; color: var(--muted, #aaa);
+}
+.md-earnings b { color: var(--text, #f5f5f5); }
+.md-earnings .days { color: #ff9c00; font-weight: 700; }
+
+.md-rec { margin-top: 6px; font-size: 12px; color: var(--muted, #aaa); }
+.md-rec .verdict { font-weight: 700; text-transform: uppercase; padding: 2px 6px; border-radius: 3px; letter-spacing: 0.04em; }
+.md-rec .verdict.buy, .md-rec .verdict.strong_buy { background: rgba(0,204,102,0.18); color: #00cc66; }
+.md-rec .verdict.hold { background: rgba(255,156,0,0.18); color: #ff9c00; }
+.md-rec .verdict.sell, .md-rec .verdict.strong_sell { background: rgba(255,68,68,0.18); color: #ff4444; }
+
+.md-signals { font-size: 13px; }
+.md-signals .empty { color: var(--muted, #aaa); padding: 12px; text-align: center; }
+.md-signal-row {
+  display: grid;
+  grid-template-columns: 1fr 60px 50px 64px;
+  gap: 8px; align-items: center;
+  padding: 7px 4px; border-bottom: 1px solid var(--border, #1a1a1a);
+}
+.md-signal-row:last-child { border-bottom: none; }
+.md-signal-row .player { font-weight: 600; color: var(--text, #f5f5f5); overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+.md-signal-row .side { text-align: center; font-weight: 700; font-size: 12px; }
+.md-signal-row .side.buy, .md-signal-row .side.buy_call { color: #00cc66; }
+.md-signal-row .side.sell, .md-signal-row .side.buy_put, .md-signal-row .side.short { color: #ff4444; }
+.md-signal-row .side.hold { color: #ff9c00; }
+.md-signal-row .conf { color: #99ccff; text-align: right; font-variant-numeric: tabular-nums; }
+.md-signal-row .ago  { color: var(--muted, #aaa); font-size: 11px; text-align: right; }
+
+.md-sparkrow {
+  display: flex; gap: 10px;
+  margin-top: 6px;
+}
+.md-sparkbox {
+  flex: 1; min-width: 0;
+  background: rgba(0,0,0,0.3);
+  border-radius: 4px;
+  padding: 6px 8px;
+}
+.md-sparkbox .label {
+  font-size: 11px; color: var(--muted, #aaa);
+  letter-spacing: 0.05em; text-transform: uppercase;
+  margin-bottom: 4px;
+}
+.md-sparkbox svg { width: 100%; height: 60px; display: block; }
+
+@media (max-width: 640px) {
+  .md-funds-grid { grid-template-columns: repeat(2, 1fr); }
+  .md-section-title { font-size: 14px; }
+  .md-signal-row { font-size: 15px; padding: 10px 4px; grid-template-columns: 1fr 56px 48px 56px; }
+  .md-sparkbox svg { height: 80px; }
+}
+</style>
+
+<script>
+// === Phase 4: Detail enrichment — wraps openTickerDetail without modifying it ===
+(function() {
+  if (window._mdPhase4Loaded) return;
+  window._mdPhase4Loaded = true;
+
+  function fmtNum(n, opts) {
+    opts = opts || {};
+    if (n === null || n === undefined || isNaN(n)) return '—';
+    var v = Number(n);
+    if (opts.pct) return v.toFixed(opts.dp != null ? opts.dp : 2) + '%';
+    if (opts.money) {
+      var sign = v < 0 ? '-' : '';
+      v = Math.abs(v);
+      if (v >= 1e12) return sign + '$' + (v/1e12).toFixed(2) + 'T';
+      if (v >= 1e9)  return sign + '$' + (v/1e9 ).toFixed(2) + 'B';
+      if (v >= 1e6)  return sign + '$' + (v/1e6 ).toFixed(1) + 'M';
+      return sign + '$' + v.toFixed(2);
+    }
+    return v.toFixed(opts.dp != null ? opts.dp : 2);
+  }
+
+  function fmtAgo(iso) {
+    if (!iso) return '—';
+    var ts = new Date(iso);
+    if (isNaN(ts)) return '—';
+    var sec = Math.max(0, (Date.now() - ts.getTime()) / 1000);
+    if (sec < 60)   return Math.floor(sec) + 's';
+    if (sec < 3600) return Math.floor(sec/60) + 'm';
+    if (sec < 86400) return Math.floor(sec/3600) + 'h';
+    return Math.floor(sec/86400) + 'd';
+  }
+
+  function sparklineSVG(bars) {
+    if (!bars || bars.length < 2) return '<div style="color:var(--muted,#aaa);font-size:11px;padding:8px;text-align:center;">No data</div>';
+    var closes = bars.map(function(b){return b.close;});
+    var min = Math.min.apply(null, closes), max = Math.max.apply(null, closes);
+    var range = max - min || 1;
+    var W = 200, H = 60;
+    var pts = closes.map(function(c, i) {
+      var x = (i / (closes.length - 1)) * W;
+      var y = H - ((c - min) / range) * H;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    }).join(' ');
+    var lastUp = closes[closes.length - 1] >= closes[0];
+    var color = lastUp ? '#00cc66' : '#ff4444';
+    var last = closes[closes.length - 1];
+    var first = closes[0];
+    var pct = first ? ((last - first) / first * 100) : 0;
+    return '<svg viewBox="0 0 ' + W + ' ' + H + '" preserveAspectRatio="none">'
+         + '<polyline fill="none" stroke="' + color + '" stroke-width="2" points="' + pts + '"/>'
+         + '</svg>'
+         + '<div style="font-size:11px;color:' + color + ';font-weight:600;text-align:right;margin-top:2px;font-variant-numeric:tabular-nums;">'
+         + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '% · $' + last.toFixed(2)
+         + '</div>';
+  }
+
+  function renderFundamentals(f) {
+    if (!f || Object.keys(f).length === 0) {
+      return '<div class="md-section"><div class="md-section-title">Fundamentals</div>'
+           + '<div style="color:var(--muted,#aaa);font-size:13px;">No fundamentals on file.</div></div>';
+    }
+    var grade = (f.grade || '?').toString().toUpperCase()[0];
+    var score = f.smart_score != null ? f.smart_score : '—';
+    var html = '<div class="md-section"><div class="md-section-title">Fundamentals</div>';
+    html += '<div style="display:flex;align-items:center;justify-content:space-between;gap:10px;flex-wrap:wrap;">';
+    html += '<span class="md-grade ' + grade + '"><span class="score">' + score + '</span><span class="letter">Grade ' + (f.grade || '—') + '</span></span>';
+    if (f.sector) {
+      html += '<span style="font-size:12px;color:var(--muted,#aaa);">' + f.sector
+           + (f.industry ? ' · ' + f.industry : '') + '</span>';
+    }
+    html += '</div>';
+    html += '<div class="md-funds-grid">';
+    var cells = [
+      ['P/E (TTM)',  f.pe_trailing,  {dp:2}],
+      ['P/E (Fwd)',  f.pe_forward,   {dp:2}],
+      ['PEG',        f.peg_ratio,    {dp:2}],
+      ['ROE',        f.roe,          {pct:true, dp:1}],
+      ['Rev Growth', f.revenue_growth, {pct:true, dp:1}],
+      ['EPS Growth', f.earnings_growth, {pct:true, dp:1}],
+      ['Mkt Cap',    f.market_cap,   {money:true}],
+      ['Profit Mrg', f.profit_margin, {pct:true, dp:1}],
+      ['Beta',       f.beta,         {dp:2}],
+    ];
+    cells.forEach(function(c) {
+      html += '<div class="cell"><div class="label">' + c[0] + '</div>'
+            + '<div class="value">' + fmtNum(c[1], c[2]) + '</div></div>';
+    });
+    html += '</div>';
+    if (f.target_mean) {
+      var cp = f.current_price || 0;
+      var upside = cp ? ((f.target_mean - cp) / cp * 100) : f.analyst_upside;
+      var upColor = upside >= 0 ? '#00cc66' : '#ff4444';
+      html += '<div class="md-rec">Target <b style="color:var(--text,#f5f5f5);">$' + Number(f.target_mean).toFixed(2) + '</b>'
+            + ' (<span style="color:' + upColor + ';font-weight:700;">' + (upside >= 0 ? '+' : '') + Number(upside).toFixed(1) + '%</span>)'
+            + ' from ' + (f.num_analysts || 0) + ' analysts'
+            + ' · <span class="verdict ' + (f.recommendation || '').toLowerCase() + '">' + (f.recommendation || '—') + '</span>'
+            + '</div>';
+    }
+    if (f.next_earnings) {
+      var days = f.days_to_earnings != null ? f.days_to_earnings : '—';
+      html += '<div class="md-earnings">Next earnings <b>' + f.next_earnings + '</b>'
+            + ' <span class="days">(' + days + ' days)</span></div>';
+    }
+    html += '</div>';
+    return html;
+  }
+
+  function renderSignals(signals) {
+    var html = '<div class="md-section md-signals"><div class="md-section-title">Fleet Signals · 24h</div>';
+    if (!signals || signals.length === 0) {
+      html += '<div class="empty">No fleet signals on this ticker in the last 24h.</div></div>';
+      return html;
+    }
+    signals.forEach(function(s) {
+      var side = (s.signal || '').toLowerCase();
+      var confPct = s.confidence != null
+        ? (Number(s.confidence) <= 1 ? (s.confidence * 100).toFixed(0) : Number(s.confidence).toFixed(0)) + '%'
+        : '—';
+      html += '<div class="md-signal-row" title="' + (s.reasoning || '').replace(/"/g,'&quot;') + '">'
+           +  '<span class="player">' + (s.player_id || '—') + '</span>'
+           +  '<span class="side ' + side + '">' + (s.signal || '—') + '</span>'
+           +  '<span class="conf">' + confPct + '</span>'
+           +  '<span class="ago">' + fmtAgo(s.ts) + '</span>'
+           +  '</div>';
+    });
+    html += '</div>';
+    return html;
+  }
+
+  function renderSparklines(bars) {
+    bars = bars || {};
+    return '<div class="md-section"><div class="md-section-title">Multi-Timeframe (Alpaca)</div>'
+         + '<div class="md-sparkrow">'
+         +   '<div class="md-sparkbox"><div class="label">5-Min · 3d</div>' + sparklineSVG(bars["5m"]) + '</div>'
+         +   '<div class="md-sparkbox"><div class="label">1-Hour · 14d</div>' + sparklineSVG(bars["1h"]) + '</div>'
+         + '</div></div>';
+  }
+
+  // Public: append/replace momentum sections inside the open #posDetailModal.
+  window._momentumDetailEnrich = function(symbol) {
+    var body = document.getElementById('posDetailBody');
+    if (!body) return;
+    // Remove any prior enrichment from a previous open.
+    var prior = document.getElementById('momentum-detail-extra');
+    if (prior) prior.remove();
+    var container = document.createElement('div');
+    container.id = 'momentum-detail-extra';
+    container.innerHTML = '<div class="md-section"><div class="md-section-title">Momentum Detail</div>'
+                       + '<div style="color:var(--muted,#aaa);font-size:13px;">Loading…</div></div>';
+    body.appendChild(container);
+    fetch('/api/momentum/detail/' + encodeURIComponent(symbol))
+      .then(function(r) { if (!r.ok) throw new Error('HTTP ' + r.status); return r.json(); })
+      .then(function(d) {
+        if (d.error) {
+          container.innerHTML = '<div class="md-section"><div class="md-section-title">Momentum Detail</div>'
+                              + '<div style="color:#ff4444;font-size:13px;">Error: ' + d.error + '</div></div>';
+          return;
+        }
+        container.innerHTML = renderFundamentals(d.fundamentals)
+                            + renderSparklines(d.bars)
+                            + renderSignals(d.signals);
+      })
+      .catch(function(e) {
+        container.innerHTML = '<div class="md-section"><div class="md-section-title">Momentum Detail</div>'
+                            + '<div style="color:#ff4444;font-size:13px;">Error loading detail: ' + e + '</div></div>';
+      });
+  };
+
+  // URL state: ?detail=TICKER survives reload and is updated on open/close.
+  function _urlSetDetail(symbol) {
+    try {
+      var u = new URL(window.location.href);
+      if (symbol) u.searchParams.set('detail', symbol);
+      else u.searchParams.delete('detail');
+      window.history.replaceState({}, '', u.toString());
+    } catch (e) {}
+  }
+
+  // Wrap openTickerDetail to enrich + sync URL after it runs.
+  var __origOpen = window.openTickerDetail;
+  if (typeof __origOpen === 'function') {
+    window.openTickerDetail = function(symbol) {
+      __origOpen.apply(this, arguments);
+      var clean = (symbol || '').toString().replace(/[^A-Za-z0-9.\-]/g, '').toUpperCase();
+      if (!clean) return;
+      _urlSetDetail(clean);
+      try { window._momentumDetailEnrich(clean); } catch (e) {}
+    };
+  }
+
+  // Wrap closePosDetail to clear the URL param.
+  var __origClose = window.closePosDetail;
+  if (typeof __origClose === 'function') {
+    window.closePosDetail = function() {
+      _urlSetDetail(null);
+      var extra = document.getElementById('momentum-detail-extra');
+      if (extra) extra.remove();
+      return __origClose.apply(this, arguments);
+    };
+  }
+
+  // Esc closes the modal (additive: doesn't break any existing close path).
+  window.addEventListener('keydown', function(e) {
+    if (e.key !== 'Escape') return;
+    var modal = document.getElementById('posDetailModal');
+    if (modal && modal.classList.contains('open')) {
+      if (typeof window.closePosDetail === 'function') window.closePosDetail();
+    }
+  });
+
+  // popstate handler: back/forward navigation reflects detail state.
+  window.addEventListener('popstate', function() {
+    var params = new URLSearchParams(window.location.search);
+    var t = params.get('detail');
+    var modal = document.getElementById('posDetailModal');
+    var isOpen = modal && modal.classList.contains('open');
+    if (t && !isOpen && typeof window.openTickerDetail === 'function') {
+      window.openTickerDetail(t);
+    } else if (!t && isOpen && typeof window.closePosDetail === 'function') {
+      window.closePosDetail();
+    }
+  });
+
+  // On initial load: if ?detail=TICKER is present, open it.
+  function _initFromUrl() {
+    try {
+      var params = new URLSearchParams(window.location.search);
+      var t = params.get('detail');
+      if (t && typeof window.openTickerDetail === 'function') {
+        window.openTickerDetail(t);
+      }
+    } catch (e) {}
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _initFromUrl);
+  } else {
+    // Defer one tick so other scripts have a chance to finish bootstrapping.
+    setTimeout(_initFromUrl, 100);
+  }
+})();
+// === end Phase 4: Detail enrichment ===
+</script>
+<!-- === end Phase 4: Detail enrichment === -->
+
 </body>
 </html>
