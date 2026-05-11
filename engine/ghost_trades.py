@@ -113,20 +113,28 @@ def get_ghost_trades(player_id: str = None, limit: int = 50) -> list:
     schema-mismatched query implied (player_id, created_at, entry_price,
     reasoning, display_name) via SQL aliases — no consumer-side changes
     needed in dashboard/app.py or engine/scan_context.py.
+
+    HM-BB.4 (2026-05-11): surface new outcome columns. ``entry_price`` now
+    COALESCEs the real ``g.entry_price`` (populated for rows written after
+    HM-BB.3) with the legacy ``g.price`` alias so the 16 pre-migration rows
+    keep their entry-price-shaped value; new rows use the explicit column.
     """
     conn = _conn()
+    # === HM-BB.4 ===
     base_select = (
         "SELECT "
         "  g.id, g.symbol, g.side, g.qty, "
         "  g.ts AS created_at, "
         "  g.advisor AS player_id, "
-        "  g.price AS entry_price, "
+        "  COALESCE(g.entry_price, g.price) AS entry_price, "
         "  g.fill_price, g.venue, g.status, g.signal_id, "
         "  g.rationale AS reasoning, "
+        "  g.confidence, g.exit_price, g.pnl_pct, "
         "  COALESCE(p.display_name, g.advisor) AS display_name "
         "FROM ghost_trades g "
         "LEFT JOIN ai_players p ON g.advisor = p.id "
     )
+    # === /HM-BB.4 ===
     if player_id:
         rows = conn.execute(
             base_select + "WHERE g.advisor = ? ORDER BY g.ts DESC LIMIT ?",
@@ -144,24 +152,49 @@ def get_ghost_trades(player_id: str = None, limit: int = 50) -> list:
 def get_ghost_stats() -> dict:
     """Get aggregate ghost trade statistics.
 
-    HM-AZ note: trader.db.ghost_trades has no outcome columns
-    (exit_price / pnl_pct / outcome_price). Outcome-derived stats
-    (would_have_won, avg_pnl_pct, best/worst, top_missed) return zeros
-    or empty lists. total_ghosts counts all rows, which is still useful
-    for visibility. Outcome enrichment is a future ticket.
+    HM-BB.4 (2026-05-11): pnl_pct is now populated on SELL rows (see
+    scripts/ghost_advisor.py::execute_sell). Outcome aggregates filter on
+    ``pnl_pct IS NOT NULL`` so they capture only closed positions and remain
+    correct as the 16 pre-migration rows (which have NULL pnl_pct) stay in
+    the table. ``total_ghosts`` keeps the all-rows count for visibility.
     """
     conn = _conn()
+    # === HM-BB.4 ===
     total_row = conn.execute(
         "SELECT COUNT(*) AS total FROM ghost_trades"
     ).fetchone()
+
+    agg_row = conn.execute(
+        "SELECT "
+        "  SUM(CASE WHEN pnl_pct > 0 THEN 1 ELSE 0 END) AS wins, "
+        "  SUM(CASE WHEN pnl_pct < 0 THEN 1 ELSE 0 END) AS losses, "
+        "  AVG(pnl_pct) AS avg_pnl, "
+        "  MAX(pnl_pct) AS best, "
+        "  MIN(pnl_pct) AS worst "
+        "FROM ghost_trades WHERE pnl_pct IS NOT NULL"
+    ).fetchone()
+
+    top_rows = conn.execute(
+        "SELECT symbol, advisor, pnl_pct "
+        "FROM ghost_trades "
+        "WHERE pnl_pct IS NOT NULL AND pnl_pct > 0 "
+        "ORDER BY pnl_pct DESC LIMIT 5"
+    ).fetchall()
     conn.close()
+
+    def _f(x):
+        return float(x) if x is not None else 0.0
 
     return {
         "total_ghosts": int(total_row["total"]) if total_row else 0,
-        "would_have_won": 0,
-        "would_have_lost": 0,
-        "avg_pnl_pct": 0,
-        "best_ghost_pct": 0,
-        "worst_ghost_pct": 0,
-        "top_missed": [],
+        "would_have_won": int(agg_row["wins"] or 0) if agg_row else 0,
+        "would_have_lost": int(agg_row["losses"] or 0) if agg_row else 0,
+        "avg_pnl_pct": _f(agg_row["avg_pnl"]) if agg_row else 0.0,
+        "best_ghost_pct": _f(agg_row["best"]) if agg_row else 0.0,
+        "worst_ghost_pct": _f(agg_row["worst"]) if agg_row else 0.0,
+        "top_missed": [
+            {"symbol": r["symbol"], "advisor": r["advisor"], "pnl_pct": _f(r["pnl_pct"])}
+            for r in top_rows
+        ],
     }
+    # === /HM-BB.4 ===
