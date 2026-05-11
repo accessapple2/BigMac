@@ -1,12 +1,28 @@
+# === HM-BC.2 ===
 """
-Ghost Trader — Prediction Scoring System
+Ghost Scoring — Signal-Center Prediction Scoring Pipeline
 
-Tracks all signals from signal-center and scores them against actual price
-movement.  Leverages signal_outcomes (already maintained by signal-center) for
-signals that have been resolved, and fetches live prices for still-open ones.
+Tracks all BUY signals (confidence >= 70) from signal-center and scores them
+against actual price movement. Leverages signal_outcomes (already maintained
+by signal-center) for resolved signals, and fetches live Alpaca bars for
+still-open ones.
 
-DB: data/ghost_trades.db
+Source table: signal-center/signals.db::trade_signals
+Storage DB:   data/ghost_trades.db (own DB, distinct from trader.db)
+UI panel:     dashboard/static/index.html section-ghost-scorecard
+
+This module was renamed from ``engine/ghost_trader.py`` in HM-BC.2
+(2026-05-11) to kill the one-letter visual collision with
+``engine/ghost_trades.py``, which serves an unrelated concern:
+
+    engine/ghost_scoring.py   ← signal-center agent win-rate scorecard (this file)
+    engine/ghost_trades.py    ← trader.db decision-log + missed-opportunity stats
+
+Both modules use a table named ``ghost_trades`` but in different DBs with
+different schemas. See CLAUDE.md "Ghost Tracking Architecture" for the
+two-system breakdown.
 """
+# === /HM-BC.2 ===
 from __future__ import annotations
 
 import re
@@ -17,7 +33,9 @@ from pathlib import Path
 import logging
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s [GHOST] %(message)s")
-log = logging.getLogger("ghost_trader")
+# === HM-BC.2 === logger name follows file rename (was "ghost_trader")
+log = logging.getLogger("ghost_scoring")
+# === /HM-BC.2 ===
 
 ROOT       = Path(__file__).resolve().parent.parent
 DB_PATH    = ROOT / "data" / "ghost_trades.db"

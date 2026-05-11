@@ -1,5 +1,21 @@
 """Ghost Trades — track HOLD decisions with >60% confidence as phantom trades.
 
+NOT to be confused with ``engine/ghost_scoring.py`` (formerly
+``engine/ghost_trader.py``, renamed in HM-BC.2 2026-05-11). The two modules
+read from different DBs and serve unrelated concerns:
+
+    engine/ghost_trades.py    ← THIS FILE: trader.db.ghost_trades writer/reader.
+                                 Logs HOLD decisions + missed-opportunity stats
+                                 for the OllieTrades fleet. UI: /api/ghost-trades*.
+    engine/ghost_scoring.py   ← signal-center signal-scoring pipeline. Scores
+                                 BUY signals (conf>=70) from trade_signals
+                                 against Alpaca-bar TP/SL outcomes.
+                                 UI: /api/ghost/* (section-ghost-scorecard).
+
+Both modules happen to use a SQL table named ``ghost_trades`` but in
+different DBs with different schemas. See CLAUDE.md "Ghost Tracking
+Architecture" for the two-system breakdown.
+
 HM-AZ (2026-05-11) — Query rewrite to align with the empirically canonical
 schema in data/trader.db.ghost_trades. Prior version queried columns
 (player_id, created_at, outcome_price, outcome_pnl_pct) that exist in NEITHER

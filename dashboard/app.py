@@ -16974,7 +16974,9 @@ def gateway_agent_status():
 def ghost_scorecard(days: int = 30):
     """Ghost Trader agent win-rate scorecard."""
     try:
-        from engine.ghost_trader import get_scorecard, init_db
+        # === HM-BC.2 === import renamed engine/ghost_trader.py → engine/ghost_scoring.py
+        from engine.ghost_scoring import get_scorecard, init_db
+        # === /HM-BC.2 ===
         init_db()
         return {"success": True, "scorecard": get_scorecard(days), "days": days}
     except Exception as e:
@@ -16986,7 +16988,9 @@ def ghost_scorecard(days: int = 30):
 def ghost_trades_endpoint(limit: int = 20, agent: str = None, status: str = None):
     """Recent ghost trades with outcome data."""
     try:
-        from engine.ghost_trader import get_recent_trades, init_db
+        # === HM-BC.2 ===
+        from engine.ghost_scoring import get_recent_trades, init_db
+        # === /HM-BC.2 ===
         init_db()
         return {"success": True, "trades": get_recent_trades(limit, agent, status)}
     except Exception as e:
@@ -16997,7 +17001,9 @@ def ghost_trades_endpoint(limit: int = 20, agent: str = None, status: str = None
 def ghost_refresh():
     """Manually trigger ghost trader capture + scoring cycle."""
     try:
-        from engine.ghost_trader import capture_new_signals, check_outcomes, init_db
+        # === HM-BC.2 ===
+        from engine.ghost_scoring import capture_new_signals, check_outcomes, init_db
+        # === /HM-BC.2 ===
         init_db()
         captured = capture_new_signals()
         scored   = check_outcomes()
