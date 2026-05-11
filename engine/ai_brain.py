@@ -22,6 +22,43 @@ console = Console()
 _premarket_gap_cache: dict = {"ts": 0.0, "gaps": []}
 _PREMARKET_GAP_TTL = 300  # seconds
 
+# === HM-BD.1 γ migration ===
+# Pre-market gaps now sourced from /api/momentum/premarket (batched Alpaca
+# snapshots, ~0.6s) instead of /api/premarket-gaps (serial 668-symbol yfinance
+# scan, ≥6 min cold path that overran the prior 5s/10s caller timeouts).
+def _fetch_premarket_gaps(timeout: float = 5.0) -> list:
+    """Fetch pre-market gaps via /api/momentum/premarket (fast batched path).
+
+    Returns legacy-shaped list of dicts:
+      {symbol, gap_pct, prev_close, premarket_price, odte_candidate}.
+    Returns [] on failure (logged) or when no hits.
+    """
+    import requests as _req_helper
+    try:
+        _resp = _req_helper.get(
+            "http://127.0.0.1:8080/api/momentum/premarket",
+            params={"force": "true", "limit": 100},
+            timeout=timeout,
+        )
+        _hits = _resp.json().get("hits", []) or []
+    except Exception as _e:
+        console.log(
+            f"[yellow]premarket gaps fetch failed: {type(_e).__name__}: {_e!r}"
+        )
+        return []
+    return [
+        {
+            "symbol": h["ticker"],
+            "gap_pct": h.get("gap_pct", 0.0),
+            "prev_close": h.get("prev_close", 0.0),
+            "premarket_price": h.get("premarket_price", 0.0),
+            "odte_candidate": False,
+        }
+        for h in _hits
+        if h.get("ticker")
+    ]
+# === end HM-BD.1 γ migration ===
+
 # === SCAN SCHEDULING ===
 # Paid models (API cost) scan 3x/day. Gemma3 4B scans 5x/day (strategic deep scans).
 # Qwen3 8B and Plutus 9B scan continuously every 120-180s (free, always running).
@@ -892,11 +929,10 @@ class Arena:
         # Inject pre-market gap data — shared cache (5 min TTL) avoids N HTTP calls/cycle
         try:
             import time as _gc_time
-            import requests as _req
             _now_gc = _gc_time.time()
             if _now_gc - _premarket_gap_cache["ts"] >= _PREMARKET_GAP_TTL:
-                _gap_resp = _req.get("http://127.0.0.1:8080/api/premarket-gaps", timeout=10).json()
-                _premarket_gap_cache["gaps"] = _gap_resp.get("gaps", [])
+                # HM-BD.1 γ: was /api/premarket-gaps timeout=10 → ≥6min cold-path HTTP-000
+                _premarket_gap_cache["gaps"] = _fetch_premarket_gaps(timeout=5.0)
                 _premarket_gap_cache["ts"] = _now_gc
             _gaps = _premarket_gap_cache["gaps"]
             if _gaps:
@@ -923,9 +959,12 @@ class Arena:
             # Add gap stocks from scan context
             _gap_syms = set()
             try:
-                import requests as _req2
-                _gr = _req2.get("http://127.0.0.1:8080/api/premarket-gaps", timeout=5).json()
-                _gap_syms = {g["symbol"] for g in _gr.get("gaps", []) if abs(g.get("gap_pct", 0)) > 2}
+                # HM-BD.1 γ: was /api/premarket-gaps timeout=5 → cold-path HTTP-000
+                _gap_syms = {
+                    g["symbol"]
+                    for g in _fetch_premarket_gaps(timeout=3.0)
+                    if abs(g.get("gap_pct", 0)) > 2
+                }
             except Exception:
                 pass
             _focus = _DAY_BLADE_FOCUS | _movers | _gap_syms
