@@ -17897,3 +17897,38 @@ def get_squeeze_summary(days: int = 7):
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
     finally:
         conn.close()
+
+
+# === HM-AN Phase 1: momentum bridge endpoints (Dashboard Remodel v1 foundation) ===
+# Wires Signal Center (:9000) liveness + recent-signals read into the dashboard
+# under a stable /api/momentum/* surface. Race + Scanner tiles will build on this.
+from engine.momentum.bridge import check_signal_center_health, fetch_recent_signals
+
+
+@app.get("/api/momentum/heartbeat")
+def momentum_heartbeat() -> dict:
+    health = check_signal_center_health()
+    return {
+        "bridge_alive": True,
+        "signal_center": {
+            "reachable": health.signal_center_reachable,
+            "endpoint": health.signal_center_endpoint,
+            "last_check_ts": health.last_check_ts,
+            "error": health.error,
+        },
+        "phase": "HM-AN.1",
+    }
+
+
+@app.get("/api/momentum/recent_signals")
+def momentum_recent_signals(since_minutes: int = 60, limit: int = 100) -> dict:
+    # Safety: cap inputs to prevent runaway queries.
+    since_minutes = max(1, min(since_minutes, 1440))   # 1 min – 24 hr
+    limit = max(1, min(limit, 500))
+    rows = fetch_recent_signals(since_minutes=since_minutes, limit=limit)
+    return {
+        "count": len(rows),
+        "since_minutes": since_minutes,
+        "signals": rows,
+    }
+# === end HM-AN Phase 1 ===
