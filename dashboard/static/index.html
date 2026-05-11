@@ -2171,6 +2171,8 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="sidebar-item" onclick="showSection('charts')"><span class="icon">📈</span> Charts</div>
   <div class="sidebar-item" onclick="showSection('livechart')"><span class="icon">⚡</span> Live Chart</div>
   <div class="sidebar-item" id="nav-sniff-scan" onclick="showSection('sniff-scan')"><span class="icon">📡</span> Sniff Scan</div>
+  <!-- === Phase 4-static.3 (bundled with Phase 6 Q5): desktop Race nav entry === -->
+  <div class="sidebar-item" id="nav-race" onclick="showSection('race');if(typeof raceStart==='function')raceStart()"><span class="icon">🏁</span> Race</div>
   <a class="sidebar-item" href="/backtest" style="text-decoration:none;color:inherit;"><span class="icon">🧪</span> Backtest</a>
   <div class="sidebar-item" onclick="showSection('institutional-intel')"><span class="icon">🏛️</span> Inst. Intel</div>
 <div class="sidebar-item" onclick="showSection('screener-pro')"><span class="icon">🔍</span> Screener Pro</div>
@@ -34226,6 +34228,21 @@ setInterval(pollBS0DTE, 60 * 1000);
     <div class="race-meta" id="raceMeta">Initializing Race feed…</div>
     <ul class="race-list" id="raceList"></ul>
   </div>
+
+  <!-- === Phase 6: Pre-market gap scanner UI === -->
+  <div class="premarket-tile" id="premarket-tile">
+    <header class="premarket-header">
+      <span class="premarket-title">🌅 PRE-MARKET — Gap ≥ 3% · Vol ≥ 50K</span>
+      <span class="premarket-meta">
+        <span class="premarket-window" id="premarket-window">—</span>
+        <span class="heartbeat-dot stale" id="premarket-heartbeat" title="Pre-market feed status"></span>
+      </span>
+    </header>
+    <ul class="premarket-list" id="premarket-list">
+      <li class="premarket-empty">Waiting for pre-market window (4:00 AM – 9:30 AM ET)</li>
+    </ul>
+  </div>
+  <!-- === end Phase 6 UI === -->
 </div>
 
 <script>
@@ -34325,6 +34342,84 @@ setInterval(pollBS0DTE, 60 * 1000);
 // === end Phase 2: Race tile poller ===
 </script>
 <!-- === end Phase 2: Race tile === -->
+
+
+<!-- === Phase 6: Pre-market gap scanner CSS === -->
+<style>
+/* Pre-market tile — sibling of .race-section inside #section-race */
+.premarket-tile {
+  --pm-bg:     #000;
+  --pm-fg:     #f5f5f5;
+  --pm-dim:    #aaa;
+  --pm-accent: #ffcc99;  /* LCARS yellow — distinguishes from Race orange */
+  --pm-blue:   #99ccff;
+  --pm-up:     #00cc66;
+  --pm-down:   #ff4444;
+  background: var(--pm-bg);
+  color: var(--pm-fg);
+  border-radius: 18px 18px 0 0;
+  padding: 14px 18px;
+  margin: 16px auto;
+  max-width: 960px;
+  border-left: 4px solid var(--pm-accent);
+  font-family: "Antonio", "Helvetica Neue", system-ui, sans-serif;
+}
+.premarket-header {
+  display: flex; justify-content: space-between; align-items: baseline;
+  border-bottom: 2px solid var(--pm-accent); padding-bottom: 10px; margin-bottom: 10px;
+  gap: 12px; flex-wrap: wrap;
+}
+.premarket-title { font-size: 18px; font-weight: 700; letter-spacing: 0.04em; color: var(--pm-accent); }
+.premarket-meta { display: inline-flex; align-items: center; gap: 10px; font-size: 13px; color: var(--pm-dim); }
+.premarket-window { font-size: 13px; color: var(--pm-blue); letter-spacing: 0.03em; }
+
+.premarket-list { list-style: none; margin: 0; padding: 0; }
+.premarket-empty { padding: 22px 8px; color: var(--pm-dim); text-align: center; font-size: 15px; }
+
+.premarket-row {
+  display: grid;
+  grid-template-columns: 40px 1fr 95px 90px 95px 1fr;
+  gap: 12px; align-items: center;
+  padding: 10px 8px; min-height: 48px;
+  border-bottom: 1px solid #222;
+  font-size: 15px; cursor: pointer;
+  transition: background 120ms ease;
+}
+.premarket-row:hover { background: #111; }
+.premarket-rank   { color: var(--pm-accent); font-weight: 700; font-variant-numeric: tabular-nums; }
+.premarket-ticker { font-weight: 700; letter-spacing: 0.03em; }
+.premarket-gap    { font-weight: 700; text-align: right; font-variant-numeric: tabular-nums; }
+.premarket-gap.up   { color: var(--pm-up); }
+.premarket-gap.down { color: var(--pm-down); }
+.premarket-price  { color: var(--pm-blue); text-align: right; font-variant-numeric: tabular-nums; }
+.premarket-vol    { color: var(--pm-dim); text-align: right; font-variant-numeric: tabular-nums; font-size: 13px; }
+.premarket-flags  { display: flex; gap: 4px; flex-wrap: wrap; }
+
+.premarket-error { padding: 22px 8px; color: var(--pm-down); text-align: center; font-size: 14px; }
+
+/* Self-contained heartbeat dot (Phase 5 helpers never shipped — Q7) */
+.heartbeat-dot {
+  display: inline-block; width: 9px; height: 9px; border-radius: 50%;
+  background: #666; box-shadow: 0 0 0 0 rgba(102,102,102,0.6);
+  transition: background 200ms ease, box-shadow 200ms ease;
+}
+.heartbeat-dot.live  { background: var(--pm-up, #00cc66); animation: heartbeat-pulse 2s ease-in-out infinite; }
+.heartbeat-dot.stale { background: #555; opacity: 0.7; }
+@keyframes heartbeat-pulse {
+  0%, 100% { box-shadow: 0 0 0 0 rgba(0,204,102,0.6); }
+  50%      { box-shadow: 0 0 0 6px rgba(0,204,102,0); }
+}
+
+@media (max-width: 640px) {
+  .premarket-title { font-size: 17px; }
+  .premarket-row {
+    grid-template-columns: 32px 1fr 80px 85px 1fr;
+    gap: 6px; padding: 14px 6px; font-size: 16px; min-height: 52px;
+  }
+  .premarket-price { display: none; }
+}
+</style>
+<!-- === end Phase 6 CSS === -->
 
 
 <!-- === Phase 4: Detail enrichment (Dashboard Remodel v1) === -->
