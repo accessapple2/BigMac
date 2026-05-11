@@ -53,16 +53,22 @@ def log_ghost_trade(player_id: str, symbol: str, confidence: float,
     """Log a ghost trade — a HOLD decision that had >60% confidence.
 
     Inserts a row into trader.db.ghost_trades using the canonical column
-    layout. The confidence value (which has no dedicated column) is
-    embedded into the rationale string so it isn't lost.
+    layout.
+
+    HM-BB.3 (2026-05-11): populate the new ``entry_price`` and ``confidence``
+    columns directly. The legacy ``conf=…`` rationale prefix is retained for
+    one release cycle (Q4) so the 16 pre-migration rows remain readable in
+    the same shape as new rows during the transition.
     """
     if confidence < 0.60:
         return
     conn = _conn()
+    # === HM-BB.3 ===
     conn.execute(
         "INSERT INTO ghost_trades "
-        "(ts, symbol, side, qty, price, fill_price, venue, advisor, status, rationale) "
-        "VALUES (?, ?, 'BUY', 0, ?, ?, 'virtual', ?, 'ghost', ?)",
+        "(ts, symbol, side, qty, price, fill_price, venue, advisor, status, rationale, "
+        " entry_price, confidence, exit_price, pnl_pct) "
+        "VALUES (?, ?, 'BUY', 0, ?, ?, 'virtual', ?, 'ghost', ?, ?, ?, NULL, NULL)",
         (
             datetime.utcnow().isoformat() + "+00:00",
             symbol,
@@ -70,8 +76,11 @@ def log_ghost_trade(player_id: str, symbol: str, confidence: float,
             price,
             player_id,
             f"conf={confidence:.2f}: {reasoning}",
+            price,
+            float(confidence),
         ),
     )
+    # === /HM-BB.3 ===
     conn.commit()
     conn.close()
 

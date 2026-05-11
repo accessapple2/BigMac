@@ -196,17 +196,26 @@ def ensure_columns(cur, tiers):
         print(f"[migration] backfilled hwm/trail_pct on {len(null_rows)} positions")
 
 # ---------------- trade execution ----------------
-def execute_buy(sym, qty, price, advisor, signal_id, rationale, tiers, cur, dry):
+# === HM-BB.3 ===
+# Wire new ghost_trades columns: entry_price/confidence on BUY,
+# entry_price/exit_price/pnl_pct on SELL (matched against ghost_portfolio.avg_cost).
+# confidence is threaded from signal-readers; only read_super_trades populates it
+# today (Q5 — others stay NULL by design, documented in commit message).
+def execute_buy(sym, qty, price, advisor, signal_id, rationale, tiers, cur, dry,
+                confidence=None):
     notional = qty * price
     if dry:
         print(f"  [DRY] BUY  {qty} {sym} @ {price:.2f} = ${notional:,.2f}  ({advisor})")
         return
     cur.execute(
         "INSERT INTO ghost_trades (ts, symbol, side, qty, price, fill_price, venue, "
-        "advisor, signal_id, status, rationale) "
-        "VALUES (?, ?, 'BUY', ?, ?, ?, 'virtual', ?, ?, 'filled', ?)",
-        (now_iso(), sym, qty, price, price, advisor, str(signal_id), rationale[:500])
+        "advisor, signal_id, status, rationale, "
+        "entry_price, confidence, exit_price, pnl_pct) "
+        "VALUES (?, ?, 'BUY', ?, ?, ?, 'virtual', ?, ?, 'filled', ?, ?, ?, NULL, NULL)",
+        (now_iso(), sym, qty, price, price, advisor, str(signal_id),
+         rationale[:500], price, confidence)
     )
+# === /HM-BB.3 ===
     existing = cur.execute(
         "SELECT qty, avg_cost FROM ghost_portfolio WHERE symbol=?", (sym,)
     ).fetchone()
@@ -241,12 +250,17 @@ def execute_buy(sym, qty, price, advisor, signal_id, rationale, tiers, cur, dry)
     )
 
 def execute_sell(sym, qty_to_sell, price, advisor, signal_id, rationale, cur, dry, partial=False):
+    # === HM-BB.3 ===
+    # Pull avg_cost as well as qty so the SELL row can carry entry_price + pnl_pct
+    # against the open BUY (Q3 Option α — SELL-row population, partial-safe).
     pos = cur.execute(
-        "SELECT qty FROM ghost_portfolio WHERE symbol=?", (sym,)
+        "SELECT qty, avg_cost FROM ghost_portfolio WHERE symbol=?", (sym,)
     ).fetchone()
     if not pos:
         return
     cur_qty = pos[0]
+    avg_cost = pos[1]
+    # === /HM-BB.3 ===
     qty_to_sell = min(qty_to_sell, cur_qty)
     if qty_to_sell <= 0:
         return
@@ -255,12 +269,17 @@ def execute_sell(sym, qty_to_sell, price, advisor, signal_id, rationale, cur, dr
     if dry:
         print(f"  [DRY] {action} {qty_to_sell} {sym} @ {price:.2f} = ${notional:,.2f}  ({advisor})")
         return
+    # === HM-BB.3 ===
+    pnl_pct = ((price - avg_cost) / avg_cost * 100) if avg_cost else None
     cur.execute(
         "INSERT INTO ghost_trades (ts, symbol, side, qty, price, fill_price, venue, "
-        "advisor, signal_id, status, rationale) "
-        "VALUES (?, ?, 'SELL', ?, ?, ?, 'virtual', ?, ?, 'filled', ?)",
-        (now_iso(), sym, qty_to_sell, price, price, advisor, str(signal_id), rationale[:500])
+        "advisor, signal_id, status, rationale, "
+        "entry_price, confidence, exit_price, pnl_pct) "
+        "VALUES (?, ?, 'SELL', ?, ?, ?, 'virtual', ?, ?, 'filled', ?, ?, NULL, ?, ?)",
+        (now_iso(), sym, qty_to_sell, price, price, advisor, str(signal_id),
+         rationale[:500], avg_cost, price, pnl_pct)
     )
+    # === /HM-BB.3 ===
     new_qty = cur_qty - qty_to_sell
     if new_qty > 0:
         cur.execute(
@@ -340,6 +359,9 @@ def read_super_trades(cur, last_id):
             "rationale": f"super-trader grade {grade} score {score} prob {prob} "
                          f"regime {regime} src {src}",
             "bypass_whitelist": True,
+            # === HM-BB.3 === success_prob is the only direct confidence source
+            "confidence": float(prob) if prob is not None else None,
+            # === /HM-BB.3 ===
         })
     return decisions, max_id
 
@@ -492,7 +514,10 @@ def apply_decision(d, cur, whitelist, tiers, dry, verbose):
             vlog(f"  [skip] BUY {sym} cash {cash:.2f} - {notional:.2f} < floor "
                  f"{CASH_FLOOR}  ({advisor}#{sigid})", verbose)
             return
-        execute_buy(sym, qty, price, advisor, sigid, rationale, tiers, cur, dry)
+        # === HM-BB.3 === thread confidence (None for readers that don't supply it)
+        execute_buy(sym, qty, price, advisor, sigid, rationale, tiers, cur, dry,
+                    confidence=d.get("confidence"))
+        # === /HM-BB.3 ===
 
 # ---------------- equity recalc ----------------
 def recalc_equity(cur):
