@@ -816,8 +816,54 @@ def get_alpaca_bars(
             timeout=15,
         )
         if not r.ok:
-            console.log(f"[yellow]get_alpaca_bars HTTP {r.status_code} for {sym_list[:3]}")
-            return pd.DataFrame() if single else {}
+            # === HM-AX: batch failed — fall back to per-symbol calls (2026-05-11) ===
+            # Root cause (2026-05-11 AM): one halted ticker (e.g., CTRA) in the
+            # batch returned null data and Alpaca 400'd the entire batch, silently
+            # dropping good tickers from the scan window. Per-symbol fallback
+            # keeps the good ones flowing.
+            if single:
+                console.log(f"[yellow]get_alpaca_bars HTTP {r.status_code} for {sym_list[0]}")
+                return pd.DataFrame()
+            console.log(
+                f"[yellow]get_alpaca_bars batch HTTP {r.status_code} for "
+                f"{len(sym_list)} syms — falling back per-symbol"
+            )
+            result: dict = {}
+            for sym in sym_list:
+                try:
+                    rr = requests.get(
+                        f"{_ALPACA_BASE}/{sym}/bars",
+                        headers=hdrs,
+                        params={
+                            "timeframe": timeframe,
+                            "start":     start,
+                            "limit":     days + 5,
+                            "feed":      "iex",
+                            "sort":      "asc",
+                        },
+                        timeout=10,
+                    )
+                    if not rr.ok:
+                        result[sym] = pd.DataFrame()
+                        continue
+                    rows = rr.json().get("bars") or []
+                    if not rows:
+                        result[sym] = pd.DataFrame()
+                        continue
+                    df = pd.DataFrame(rows)
+                    df["t"] = pd.to_datetime(df["t"])
+                    df = df.set_index("t").rename(columns={
+                        "o": "Open", "h": "High", "l": "Low",
+                        "c": "Close", "v": "Volume",
+                    })
+                    df.index.name = "Date"
+                    keep = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
+                    result[sym] = df[keep].tail(days)
+                except Exception as e:
+                    console.log(f"[yellow]per-symbol fallback failed for {sym}: {e}")
+                    result[sym] = pd.DataFrame()
+            return result
+            # === end HM-AX ===
         bars_by_sym = r.json().get("bars", {})
         result: dict = {}
         for sym in sym_list:
