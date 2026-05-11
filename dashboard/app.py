@@ -17971,3 +17971,17 @@ def momentum_detail(ticker: str) -> dict:
         return {"error": "invalid ticker", "ticker": ticker}
     return compute_detail(t)
 # === end Phase 4: Detail panel endpoint ===
+
+
+# === Phase 6: Pre-market gap scanner endpoint (Dashboard Remodel v2.1) ===
+# Parallel to legacy /api/premarket-gaps (which serves engine.ai_brain via
+# engine/premarket_scanner.py). This endpoint is the UI consumer for the
+# Race tab's third tile — batched Alpaca snapshots over the full active
+# universe, 60s UI polling. Filter: |gap_pct| >= 3% AND vol >= 50K.
+from engine.momentum.premarket import compute_premarket
+
+
+@app.get("/api/momentum/premarket")
+def momentum_premarket(limit: int = 30, force: bool = False) -> dict:
+    return compute_premarket(limit=limit, force=force)
+# === end Phase 6: Pre-market gap scanner endpoint ===
