@@ -12,7 +12,7 @@
 |---|---|---|---|
 | M2.1 | HM-BL.E Option C (delete + harden) | **SHIPPED + validated** | `f101a7f` |
 | M2.2 | HM-BD.F-audit Tier-1 (4-site loud-fail) | **SHIPPED** | `132ee7f` |
-| M2.3 | HM-BJ.E2 lightweight-charts preview | **SHIPPED** (browser test deferred) | `bfcf637` |
+| M2.3 | HM-BJ.E2 lightweight-charts preview | **REVERTED 2026-05-12 08:56** — broke HM-BJ tooltip stack | `bfcf637` → reverted by `8966e76` |
 
 3 commits on `origin/main` ahead of pre-MONSTER2 `7ae7586`:
 ```
@@ -129,7 +129,37 @@ HM-BD.F-audit Tier-1 yellow:   0 entries (no failures in soak window — expecte
 
 ## Open items for Captain (none required, all informational)
 
-1. **Browser test for HM-BJ.E2** — see M2.3 section above
+1. ~~Browser test for HM-BJ.E2~~ — **REVERTED**, see post-mortem below
 2. **Old backup cleanup** (someday) — `data/trader.db.pre-hm-ble-20260512_0826` (272.6 MB) can be archived/deleted once Captain confirms the change held over a multi-day window
 3. **HM-BD.H** (still deferred from MONSTER 1) — the scanned_at format puzzle still wants a dedicated cache-trace epic
 4. **HM-BD.F-audit Tier-2** (still optional from MONSTER 1) — L1038 + L1062 if/when Captain wants them; pattern is verbatim from Tier-1
+
+---
+
+## Post-mortem: HM-BJ.E2 revert (2026-05-12 08:56)
+
+**Symptom (Captain-reported):** After M2.3 hit production, hovering any ticker chip hung in "loading" state on multiple panels (Fleet Activity, Kirk, Pre-market Gaps). Network tab showed **zero** `/api/market/candles/*` requests firing on hover. DevTools console showed 2 JS errors. The entire HM-BJ tooltip stack was broken — not just the new chart preview but the original sparkline path and HM-BJ.E5 too.
+
+**Root cause hypothesis (not yet confirmed — needs the actual console-error text):**
+A runtime exception in the M2.3 region threw early in the HM-BJ.1 IIFE, before `document.addEventListener('mouseover', ...)` and friends bound. Result: chips never received their hover handlers → `startHover()` never ran → no candles fetch → no tooltip. The error was likely:
+
+- a LightweightCharts v4.1.0 API mismatch (`createChart` config schema differs from what I assumed), OR
+- a property-access on `LightweightCharts.CrosshairMode.Normal` / similar at top-of-IIFE before the lib was confirmed loaded, OR
+- a synchronous throw inside `buildLwc` reachable during the `var lwcInstance = null` block somehow
+
+`node --check` confirmed the syntax was valid, which is exactly the wrong assurance — it doesn't catch runtime API surface mismatches.
+
+**What I should have done differently (durable lesson):**
+
+> **Frontend changes that touch live behavior must be browser-tested against the dev server BEFORE the commit lands on `main`, not after.** `node --check` proves only that the parser is happy; it does not exercise the DOM, the library, or any of the runtime paths that actually need to work. For library integrations specifically: actually `await page.goto(...)` and visually confirm.
+
+Saved to `feedback_frontend_browser_test_before_ship.md` so future sessions inherit this constraint.
+
+**Re-attempt plan (HM-BJ.E2-v2, separate epic):**
+1. Stand up a Playwright session with credentials pre-authorized (or run headed against an already-logged-in browser profile)
+2. Apply the chart code on a feature branch, NOT on `main`
+3. Drive the hover, capture the DOM under `#ticker-scorecard`, confirm `<canvas>` is present
+4. ALSO confirm the original sparkline path still works (i.e. the IIFE didn't break)
+5. Only then merge to `main`
+
+**Status:** PARKED. The revert restores the pre-M2.3 working state. No further action needed on HM-BJ.E2 until Captain re-opens the epic.
