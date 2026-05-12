@@ -1,5 +1,6 @@
 from __future__ import annotations
 import random
+import requests  # HM-BD.F: module-level so except clauses can reference requests.RequestException
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.console import Console
 from engine.providers.base import AIProvider, TradeDecision
@@ -944,8 +945,11 @@ class Arena:
                 gap_context += "Use this data to inform your thesis. Large gaps often signal catalysts.\n"
                 gap_context += "=== END GAPS ===\n"
                 scan_ctx += gap_context
-        except Exception:
-            pass
+        # === HM-BD.F: loud-fail observability (was silent `except Exception: pass`) ===
+        except (requests.RequestException, TimeoutError, ConnectionError, KeyError, ValueError) as e:
+            console.log(f"[yellow]gap-context inject failed: {type(e).__name__}: {e!r}")
+        except Exception as e:
+            console.log(f"[red]gap-context inject UNEXPECTED: {type(e).__name__}: {e!r}")
 
         # Inject scan context into the provider for prompt building
         provider._scan_context = scan_ctx
@@ -965,8 +969,11 @@ class Arena:
                     for g in _fetch_premarket_gaps(timeout=3.0)
                     if abs(g.get("gap_pct", 0)) > 2
                 }
-            except Exception:
-                pass
+            # === HM-BD.F: loud-fail observability (was silent `except Exception: pass`) ===
+            except (requests.RequestException, TimeoutError, ConnectionError, KeyError, ValueError) as e:
+                console.log(f"[yellow]Sulu DayBlade gap_syms fetch failed: {type(e).__name__}: {e!r}")
+            except Exception as e:
+                console.log(f"[red]Sulu DayBlade gap_syms UNEXPECTED: {type(e).__name__}: {e!r}")
             _focus = _DAY_BLADE_FOCUS | _movers | _gap_syms
             _scan_prices = {s: d for s, d in prices.items() if s in _focus}
             if len(_scan_prices) < 3:
