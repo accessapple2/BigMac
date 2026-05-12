@@ -1675,15 +1675,6 @@ function agentName(player_id, fallback) {
 #ticker-scorecard .tsc-spark { margin-top: 6px; }
 #ticker-scorecard .tsc-spark svg { display: block; width: 100%; height: 36px; }
 #ticker-scorecard .tsc-loading { opacity: 0.6; font-style: italic; }
-/* === HM-BJ.E2: lightweight-charts inline preview === */
-#ticker-scorecard .tsc-lwc {
-  margin-top: 6px;
-  width: 100%;
-  height: 80px;
-  background: transparent;
-  pointer-events: none; /* parent tooltip is non-interactive */
-}
-/* === /HM-BJ.E2 === */
 #ticker-focus-bar {
   position: fixed;
   top: 10px;
@@ -1813,49 +1804,6 @@ function agentName(player_id, fallback) {
 
   // --- Scorecard tooltip -----------------------------------------
   var tip = null;
-  // === HM-BJ.E2: lightweight-charts instance + cleanup ============
-  var lwcInstance = null;
-  function destroyLwc() {
-    if (lwcInstance) {
-      try { lwcInstance.remove(); } catch (_e) {}
-      lwcInstance = null;
-    }
-  }
-  function buildLwc(closes) {
-    if (typeof LightweightCharts === 'undefined') return false;
-    var container = tip && tip.querySelector('.tsc-lwc');
-    if (!container || closes.length < 2) return false;
-    destroyLwc();
-    var up = closes[closes.length - 1] >= closes[0];
-    var stroke = up ? '#4ade80' : '#f87171';
-    try {
-      lwcInstance = LightweightCharts.createChart(container, {
-        width: container.clientWidth,
-        height: 80,
-        layout: { background: { type: 'solid', color: 'transparent' }, textColor: '#7a838e' },
-        grid: { vertLines: { visible: false }, horzLines: { visible: false } },
-        timeScale: { visible: false, borderVisible: false },
-        rightPriceScale: { visible: false, borderVisible: false },
-        leftPriceScale: { visible: false, borderVisible: false },
-        crosshair: { vertLine: { visible: false }, horzLine: { visible: false } },
-        handleScroll: false,
-        handleScale: false
-      });
-      var series = lwcInstance.addLineSeries({ color: stroke, lineWidth: 2, priceLineVisible: false, lastValueVisible: false });
-      var now = Math.floor(Date.now() / 1000);
-      var spacing = 60; // 1-min spacing, synthesized
-      var data = closes.map(function(c, i) {
-        return { time: now - (closes.length - 1 - i) * spacing, value: c };
-      });
-      series.setData(data);
-      lwcInstance.timeScale().fitContent();
-      return true;
-    } catch (_e) {
-      destroyLwc();
-      return false;
-    }
-  }
-  // === /HM-BJ.E2 ===
   function getTip() {
     if (tip) return tip;
     tip = document.createElement('div');
@@ -1926,31 +1874,11 @@ function agentName(player_id, fallback) {
       (headline
         ? '<div class="tsc-row" style="display:block;margin-top:6px;color:#cdd3dc;font-size:11px;">📰 ' + esc(headline) + '</div>'
         : '') +
-      // === HM-BJ.E2: prefer lightweight-charts container; sparkline is fallback ===
-      (typeof LightweightCharts !== 'undefined' && closes.length >= 2
-        ? '<div class="tsc-lwc"></div>'
-        : '<div class="tsc-spark">' + sparklineSVG(closes) + '</div>') +
-      // === /HM-BJ.E2 ===
+      '<div class="tsc-spark">' + sparklineSVG(closes) + '</div>' +
       '<div class="tsc-row" style="margin-top:6px;color:#7a838e;font-size:10px;"><span>click: focus · shift-click: TradingView</span></div>';
     t.innerHTML = html;
-    // === HM-BJ.E2: build chart after innerHTML; falls back to sparkline on failure ===
-    if (typeof LightweightCharts !== 'undefined' && closes.length >= 2) {
-      if (!buildLwc(closes)) {
-        // LWC failed to instantiate — swap in the SVG sparkline as a safety net
-        var slot = t.querySelector('.tsc-lwc');
-        if (slot) {
-          slot.outerHTML = '<div class="tsc-spark">' + sparklineSVG(closes) + '</div>';
-        }
-      }
-    }
-    // === /HM-BJ.E2 ===
   }
-  function hideTip() {
-    // === HM-BJ.E2: tear down chart before hiding ===
-    destroyLwc();
-    // === /HM-BJ.E2 ===
-    if (tip) tip.classList.remove('show');
-  }
+  function hideTip() { if (tip) tip.classList.remove('show'); }
 
   function fetchScorecard(sym) {
     return Promise.all([
