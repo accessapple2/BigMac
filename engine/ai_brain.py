@@ -236,6 +236,73 @@ class Arena:
         from engine.paper_trader import register_sell_callback
         register_sell_callback(self._grade_trade)
 
+        # === HM-EQ ===
+        # Background daemon — snapshot equity every 5 min, decoupled from
+        # the scan cadence. The old inline block fired only after the
+        # 668-symbol scan loop (~31 min) completed, so frequent process
+        # restarts reset _equity_counter before any cycle reached the
+        # fire point. portfolio_history dried up at 2026-05-07.
+        import threading as _hmeq_th
+        self._equity_thread = _hmeq_th.Thread(
+            target=self._hmeq_equity_snapshot_loop,
+            daemon=True,
+            name="hm-eq-snapshot",
+        )
+        self._equity_thread.start()
+        console.log(
+            f"[cyan][HM-EQ] equity snapshot daemon started "
+            f"(interval=300s, players={len(self.providers) + 1})[/cyan]"
+        )
+        # === /HM-EQ ===
+
+    # === HM-EQ ===
+    def _hmeq_equity_snapshot_loop(self):
+        """5-min loop: fetch prices once, snapshot every player + alpaca-mirror."""
+        import time as _hmeq_t
+        # First fire 30s after start (let the trader finish booting / let
+        # market_data warm up), then every 300s.
+        _hmeq_t.sleep(30)
+        while True:
+            try:
+                self._hmeq_do_snapshots()
+            except Exception as e:
+                console.log(f"[red][HM-EQ] loop crash: {type(e).__name__}: {e!r}[/red]")
+            _hmeq_t.sleep(300)
+
+    def _hmeq_do_snapshots(self):
+        """One snapshot pass — runs in the daemon thread context."""
+        from engine.market_data import get_all_prices
+        players = list(self.providers.keys()) + ["alpaca-mirror"]
+        # Union of all open-position symbols across all players
+        symbols = set()
+        for pid in players:
+            try:
+                p = get_portfolio(pid)
+                for pos in p.get("positions", []):
+                    sym = pos.get("symbol")
+                    if sym:
+                        symbols.add(sym)
+            except Exception:
+                pass
+        prices = get_all_prices(list(symbols)) if symbols else {}
+        fired = 0
+        failed = 0
+        for pid in players:
+            try:
+                save_equity_snapshot(pid, prices)
+                record_portfolio_snapshot(pid, prices)
+                fired += 1
+            except Exception as e:
+                failed += 1
+                console.log(
+                    f"[yellow][HM-EQ] {pid} snapshot failed: "
+                    f"{type(e).__name__}: {e!r}[/yellow]"
+                )
+        console.log(
+            f"[cyan][HM-EQ] snapshot pass: {fired} fired, {failed} failed[/cyan]"
+        )
+    # === /HM-EQ ===
+
     def _grade_trade(self, player_id: str, symbol: str, entry_price: float,
                      exit_price: float, pnl: float, reasoning: str):
         """Callback: have the AI grade its own closed trade."""
@@ -700,21 +767,14 @@ class Arena:
                             pos["symbol"], pos["unrealized_pnl_pct"], pos["unrealized_pnl"],
                         )
 
-        # 6. Save equity curve snapshot every 30 cycles (~30 min at 60s interval)
+        # === HM-EQ ===
+        # Equity snapshots moved to the Arena daemon thread (see __init__).
+        # The old inline block fired only after the 668-symbol scan loop
+        # finished (~31 min), so frequent restarts meant portfolio_history
+        # dried up. The counter is kept for telemetry continuity but no
+        # longer gates a write.
         self._equity_counter += 1
-        if self._equity_counter % 30 == 1:
-            for pid in self.providers:
-                save_equity_snapshot(pid, prices)
-            # HM-I-β-Item3 (2026-05-05): snapshot the broker book (Alpaca paper
-            # mirror) for benchmark/equity-curve tracking. Was snapshotting
-            # webull (alpaca-mirrored data labeled wrongly) for ~6 weeks.
-            try:
-                record_portfolio_snapshot("alpaca-mirror", prices)
-            # === HM-BD.F-audit Tier-1 ===
-            except (sqlite3.Error, KeyError, ValueError) as e:
-                console.log(f"[yellow]alpaca-mirror snapshot failed: {type(e).__name__}: {e!r}[/yellow]")
-            # === /HM-BD.F-audit Tier-1 ===
-            console.log("[dim]Equity curve snapshot saved[/dim]")
+        # === /HM-EQ ===
 
         # 6b. Daily journal — write once per day, triggered from scan cycle
         try:
@@ -1428,5 +1488,11 @@ class Arena:
                         decision.reasoning,
                     )
 
-        # Record portfolio snapshot
-        record_portfolio_snapshot(player_id, prices)
+        # === HM-EQ ===
+        # Per-player snapshot moved to Arena daemon thread (see __init__).
+        # Was firing here at end of each player scan, which only completed
+        # after the 668-symbol loop (~31 min); restart-resets meant
+        # portfolio_history dried up. Daemon now snapshots all players
+        # every 5 min independent of scan progress.
+        # record_portfolio_snapshot(player_id, prices)  # superseded by HM-EQ
+        # === /HM-EQ ===
