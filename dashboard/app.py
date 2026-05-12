@@ -3905,11 +3905,11 @@ def symbol_scorecard(symbol: str):
             console.log(f"[yellow]scorecard news {sym}: {type(e).__name__}: {e!r}[/yellow]")
             return None
 
-    def _await(future, label, timeout_s=8):
+    def _await(future, label, timeout_s):
         # Wrap .result() so a slow sub-fetch nulls just THAT field
         # instead of raising TimeoutError out of the whole endpoint.
-        # Was the QQQ HTTP-500 bug on first ship: news scraping >10s
-        # blew up the dict construction.
+        # Per-sub-fetch timeouts are tuned to the upstream's expected
+        # cost: candles+sentiment cheap, news scrape expensive.
         from concurrent.futures import TimeoutError as _FT
         try:
             return future.result(timeout=timeout_s)
@@ -3921,14 +3921,20 @@ def symbol_scorecard(symbol: str):
             console.log(f"[yellow]scorecard {label} {sym}: {type(e).__name__}: {e!r}[/yellow]")
             return None
 
+    # Per-sub-fetch budgets keep cold path under ~3s wall while keeping
+    # the warm path (cache hit) effectively free. News is the bottleneck —
+    # it scrapes 5 RSS sources cold. On its first cold hit per symbol it
+    # frequently exceeds 3s; null-then-render is the right UX trade vs
+    # a 7-8s tooltip hang. Subsequent hovers within @timed_cache(60)
+    # serve the full cached response in ~135ms.
     with ThreadPoolExecutor(max_workers=3) as ex:
         f_candles = ex.submit(_safe_candles)
         f_sentiment = ex.submit(_safe_sentiment)
         f_news = ex.submit(_safe_news)
         return {
-            "candles": _await(f_candles, "candles"),
-            "sentiment": _await(f_sentiment, "sentiment"),
-            "news": _await(f_news, "news"),
+            "candles":   _await(f_candles,   "candles",   timeout_s=5),
+            "sentiment": _await(f_sentiment, "sentiment", timeout_s=3),
+            "news":      _await(f_news,      "news",      timeout_s=3),
         }
 # === /HM-BJ.E4 ===
 
