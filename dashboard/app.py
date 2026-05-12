@@ -3895,14 +3895,30 @@ def symbol_scorecard(symbol: str):
             console.log(f"[yellow]scorecard news {sym}: {type(e).__name__}: {e!r}[/yellow]")
             return None
 
+    def _await(future, label, timeout_s=8):
+        # Wrap .result() so a slow sub-fetch nulls just THAT field
+        # instead of raising TimeoutError out of the whole endpoint.
+        # Was the QQQ HTTP-500 bug on first ship: news scraping >10s
+        # blew up the dict construction.
+        from concurrent.futures import TimeoutError as _FT
+        try:
+            return future.result(timeout=timeout_s)
+        except _FT:
+            console.log(f"[yellow]scorecard {label} {sym}: timeout after {timeout_s}s — returning null[/yellow]")
+            future.cancel()
+            return None
+        except Exception as e:
+            console.log(f"[yellow]scorecard {label} {sym}: {type(e).__name__}: {e!r}[/yellow]")
+            return None
+
     with ThreadPoolExecutor(max_workers=3) as ex:
         f_candles = ex.submit(_safe_candles)
         f_sentiment = ex.submit(_safe_sentiment)
         f_news = ex.submit(_safe_news)
         return {
-            "candles": f_candles.result(timeout=10),
-            "sentiment": f_sentiment.result(timeout=10),
-            "news": f_news.result(timeout=10),
+            "candles": _await(f_candles, "candles"),
+            "sentiment": _await(f_sentiment, "sentiment"),
+            "news": _await(f_news, "news"),
         }
 # === /HM-BJ.E4 ===
 
