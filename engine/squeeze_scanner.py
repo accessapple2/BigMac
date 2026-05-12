@@ -100,7 +100,12 @@ def _fetch_polygon_si(ticker: str) -> dict | None:
         cached = _polygon_si_cache.get(sym)
         if cached and now - cached[0] < _POLYGON_SI_CACHE_TTL:
             return cached[1]
-        url = f"https://api.polygon.io/stocks/v1/short-interest?ticker={sym}&limit=1&apiKey={key}"
+        # sort=settlement_date.desc is required — Polygon's default returns
+        # oldest report first (verified: bare limit=1 returns 2017-12-29).
+        url = (
+            "https://api.polygon.io/stocks/v1/short-interest"
+            f"?ticker={sym}&limit=1&sort=settlement_date.desc&apiKey={key}"
+        )
         r = requests.get(url, timeout=8)
         if r.status_code != 200:
             _polygon_si_cache[sym] = (now, None)
