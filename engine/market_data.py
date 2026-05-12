@@ -689,7 +689,77 @@ def get_technical_indicators(symbol: str) -> dict:
 
 
 def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") -> list:
-    """Fetch OHLCV candles via Yahoo direct with configurable range."""
+    """Fetch OHLCV candles. HM-CA: Alpaca-first, Yahoo as fallback.
+
+    Yahoo direct-HTTP path is globally throttled via _yahoo_lock and gets
+    rate-limited hard on cold symbols (8-30s per call observed). Alpaca's
+    paper-data API is free, parallelizable, and typically <300ms cold.
+    Falls through to Yahoo if Alpaca creds missing or call fails.
+    """
+    # === HM-CA ===
+    try:
+        from alpaca.data import StockHistoricalDataClient
+        from alpaca.data.requests import StockBarsRequest
+        from alpaca.data.timeframe import TimeFrame, TimeFrameUnit
+        from datetime import datetime as _dt, timedelta as _td
+        import os as _os
+
+        _key = _os.environ.get("APCA_API_KEY_ID", "")
+        _secret = _os.environ.get("APCA_API_SECRET_KEY", "")
+        if not (_key and _secret):
+            raise RuntimeError("Alpaca credentials unavailable")
+
+        # Parse interval string → Alpaca TimeFrame
+        _tf_map = {
+            "1m":  TimeFrame.Minute,
+            "5m":  TimeFrame(5,  TimeFrameUnit.Minute),
+            "15m": TimeFrame(15, TimeFrameUnit.Minute),
+            "30m": TimeFrame(30, TimeFrameUnit.Minute),
+            "1h":  TimeFrame.Hour,
+            "1d":  TimeFrame.Day,
+        }
+        _tf = _tf_map.get(interval)
+        if _tf is None:
+            raise ValueError(f"unsupported interval {interval!r}")
+
+        # Parse range string → days window (x2 for weekend/holiday padding)
+        _days_map = {"1d": 1, "5d": 5, "1mo": 30, "3mo": 90, "6mo": 180, "1y": 365}
+        _days = _days_map.get(range_, 5)
+        _end = _dt.now()
+        _start = _end - _td(days=_days * 2)
+
+        _client = StockHistoricalDataClient(_key, _secret)
+        _req = StockBarsRequest(
+            symbol_or_symbols=[symbol.upper()],
+            timeframe=_tf,
+            start=_start,
+            end=_end,
+            feed="iex",
+        )
+        _resp = _client.get_stock_bars(_req)
+        _raw = _resp.data.get(symbol.upper(), [])
+        if not _raw:
+            raise RuntimeError("no bars returned")
+
+        candles = []
+        for _bar in _raw:
+            _ts = _bar.timestamp
+            _iso = _ts.isoformat() if hasattr(_ts, "isoformat") else str(_ts)
+            candles.append({
+                "time":   _iso,
+                "open":   round(float(_bar.open), 2),
+                "high":   round(float(_bar.high), 2),
+                "low":    round(float(_bar.low), 2),
+                "close":  round(float(_bar.close), 2),
+                "volume": int(_bar.volume or 0),
+            })
+        return candles
+    except Exception as _e:
+        # Fall through to Yahoo. Log once per failure class via [yellow]
+        # so persistent Alpaca breakage surfaces but we still serve data.
+        console.log(f"[yellow]HM-CA Alpaca candles fallback to Yahoo for {symbol}: {type(_e).__name__}: {_e!r}[/yellow]")
+    # === /HM-CA ===
+
     chart = _yahoo_chart(symbol, interval=interval, range_=range_)
     if not chart:
         return []
