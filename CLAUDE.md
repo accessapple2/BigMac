@@ -83,13 +83,19 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
 ## Free Models First (cost doctrine, set 2026-04-16)
 - All agents default to FREE models — local Ollama or no-CC-required cloud free tiers
 - Paid models are FORBIDDEN unless the Admiral approves the spend, per agent
-- Approved paid exceptions: **(none actively running; Polygon.io Options Starter $29/mo is approved-in-principle but not activated as of 2026-04-16 — see Pending TODOs)**
+- Approved paid exceptions: **Polygon Stocks Starter + Options Starter ($29 + $29/mo) ACTIVE as of 2026-05-12.** Primary data source for candles (HM-CB) + options (HM-CA chain). Alpaca + yfinance are fallbacks.
 - When proposing a model swap, show: model name, RAM cost, why it's orthogonal to existing fleet, and any free-tier rate limits
 - Rule of thumb: if two agents would run the same family (e.g. two LLaMA-derivatives), pick a different lineage (Qwen, DeepSeek-R1, Phi-4, Gemma) for real orthogonality
 
 ## Git & Deployment
-- Pause before `git push` — Steve runs those manually (VPN must be off)
+- Scotty handles `git push` + `launchctl kickstart -k gui/$(id -u)/com.trademinds.trader` + verify inline. No Captain handoff (workflow updated 2026-05-11).
 - Commit messages should reference the season (currently S6) and agent name when relevant
+
+## Frontend Ship Rule (added 2026-05-12, HM-BJ.E4 lesson)
+Non-trivial frontend JS changes require a **manual browser hover/click smoke test** before declaring shipped. `node --check` and `py_compile` catch syntax errors but NOT runtime IIFE/closure throws or DOM-binding regressions. Re-attempts after a revert MUST include browser-test as a required closure phase, not optional.
+
+## Daemon Lifecycle Rule (added 2026-05-12, HM-EQ lesson)
+Background daemons must bind to **process lifecycle** (module-level startup + explicit invocation in `main.py`), NEVER lazy-instantiated module state coupled to a scan-cycle or agent-spawn path. Standalone import-tests can pass while live production never fires — verify the live execution path with a log heartbeat before declaring shipped. HM-EQ daemon went 128h silent because the Arena-coupled spawn never fired; commit `54881bb` moved it to module-level.
 
 ## Backtest Rule
 - Always run ALL agents in backtests, never a subset
@@ -366,7 +372,7 @@ Physical holdings tracked as header widget above the quadrant grid. ETFs tracked
 - CSP dominates: OOS Sharpe +6.05 across BULL and CAUTIOUS regimes
 
 ## Pending TODOs
-- **Polygon.io Options Starter ($29/mo)** — APPROVED IN PRINCIPLE (2026-04-16), not yet activated. When activated: powers Neo (real-time GEX/chain) + McCoy/Dax (precise greeks for CSP entries). First paid exception under Free Models First doctrine.
+- ~~**Polygon.io Options Starter ($29/mo)** — APPROVED IN PRINCIPLE~~ — **ACTIVATED 2026-05-12.** Polygon Stocks Starter (HM-CB) + Options Starter (HM-CA) both live. Primary candles + options-chain source. First paid exception under Free Models First doctrine, executed.
 - Build Elder Council agents (Sarek 5yr, Janeway 10yr, Surak 20yr) — stub strategy modules + DCA paper-trade logic
 - Build Metals Command quadrant agents (Scotty news, O'Brien recommendations); upgrade `section-metals` to 4-quadrant grid with spot + ETF tracking
 - Rename dashboard `section-webull` label → "Starfleet" (keep internal id to avoid 50+ ref breakage)
