@@ -595,8 +595,9 @@ def execute_paper_trade(trade_json: str) -> str:
     try:
         import sys
         sys.path.insert(0, os.path.expanduser("~/autonomous-trader"))
-        from engine.alpaca_bridge import AlpacaBridge
-        bridge = AlpacaBridge()
+        # === HM-BK-residual ===
+        from engine.alpaca_bridge import alpaca as bridge
+        # === /HM-BK-residual ===
         acct = bridge.status()
         if not acct.get("connected"):
             return json.dumps({"error": "Alpaca Paper not connected. Check APCA_API_KEY_ID / APCA_API_SECRET_KEY."})
@@ -760,8 +761,9 @@ def sync_positions_from_alpaca() -> dict:
 
     # ── 1. Alpaca Paper stocks (portfolio_id=1) ─────────────────────────────
     try:
-        from engine.alpaca_bridge import AlpacaBridge
-        bridge = AlpacaBridge()
+        # === HM-BK-residual ===
+        from engine.alpaca_bridge import alpaca as bridge
+        # === /HM-BK-residual ===
         if bridge.client:
             alpaca_positions = bridge.client.get_all_positions()
             live = {p.symbol.upper(): {

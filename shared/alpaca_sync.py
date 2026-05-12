@@ -27,9 +27,9 @@ def sync_positions_from_alpaca() -> dict:
     results = {"alpaca_synced": 0, "metals_synced": 0}
 
     try:
-        from engine.alpaca_bridge import AlpacaBridge
-
-        bridge = AlpacaBridge()
+        # === HM-BK-residual ===
+        from engine.alpaca_bridge import alpaca as bridge
+        # === /HM-BK-residual ===
         if bridge.client:
             alpaca_positions = bridge.client.get_all_positions()
             live = {

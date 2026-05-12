@@ -143,8 +143,9 @@ def run_full_alpaca_sync(force: bool = False) -> dict:
         return {**_last_sync_result, "skipped": True}
 
     try:
-        from engine.alpaca_bridge import AlpacaBridge
-        bridge = AlpacaBridge()
+        # === HM-BK-residual ===
+        from engine.alpaca_bridge import alpaca as bridge
+        # === /HM-BK-residual ===
         if not bridge.client:
             return {"ok": False, "error": "Alpaca client unavailable", "skipped": False}
 

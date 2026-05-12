@@ -249,8 +249,11 @@ def _auto_deploy_high_conviction(dollar_amount: int = 2000):
     sys.path.insert(0, os.path.expanduser("~/autonomous-trader"))
 
     try:
-        from engine.alpaca_bridge import AlpacaBridge
-        bridge = AlpacaBridge()
+        # === HM-BK-residual ===
+        # Reuse the module-level singleton — was instantiating a fresh
+        # AlpacaBridge() per crew auto-deploy cycle. HM-BK pattern.
+        from engine.alpaca_bridge import alpaca as bridge
+        # === /HM-BK-residual ===
         if not bridge.client:
             print("[crew auto-deploy] Alpaca not connected, skipping")
             return

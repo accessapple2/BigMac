@@ -266,8 +266,9 @@ def sync_closed_positions() -> dict:
     try:
         import sys
         sys.path.insert(0, os.path.expanduser("~/autonomous-trader"))
-        from engine.alpaca_bridge import AlpacaBridge
-        bridge = AlpacaBridge()
+        # === HM-BK-residual ===
+        from engine.alpaca_bridge import alpaca as bridge
+        # === /HM-BK-residual ===
         if bridge.client:
             live_tickers = {p.symbol.upper() for p in bridge.client.get_all_positions()}
     except Exception as e:
