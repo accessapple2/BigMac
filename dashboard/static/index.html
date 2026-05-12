@@ -1627,6 +1627,429 @@ function agentName(player_id, fallback) {
 }
 </script>
 
+<!-- ============================================================== -->
+<!-- === HM-BJ: Ticker linkification + hover scorecard ============= -->
+<!-- ============================================================== -->
+<style>
+/* === HM-BJ chip + tooltip === */
+.ticker-chip {
+  cursor: pointer;
+  text-decoration: underline dotted rgba(120,200,255,0.4);
+  text-underline-offset: 2px;
+  outline: none;
+  transition: color 120ms, background 120ms;
+  padding: 0 2px;
+  border-radius: 3px;
+}
+.ticker-chip:hover,
+.ticker-chip:focus-visible {
+  color: #4aa8ff;
+  background: rgba(74,168,255,0.10);
+  text-decoration: underline solid #4aa8ff;
+}
+.ticker-chip.is-focused {
+  color: #ffcf4a;
+  background: rgba(255,207,74,0.14);
+  text-decoration: underline solid #ffcf4a;
+}
+#ticker-scorecard {
+  position: fixed;
+  z-index: 9999;
+  min-width: 240px;
+  max-width: 320px;
+  background: rgba(20,24,32,0.97);
+  color: #e5e9ef;
+  border: 1px solid rgba(120,200,255,0.4);
+  border-radius: 6px;
+  padding: 10px 12px;
+  font-size: 12px;
+  line-height: 1.45;
+  box-shadow: 0 4px 24px rgba(0,0,0,0.4);
+  pointer-events: none;
+  opacity: 0;
+  transition: opacity 80ms;
+}
+#ticker-scorecard.show { opacity: 1; }
+#ticker-scorecard .tsc-sym { font-weight: 700; font-size: 14px; color: #4aa8ff; }
+#ticker-scorecard .tsc-row { display: flex; justify-content: space-between; margin-top: 4px; }
+#ticker-scorecard .tsc-spark { margin-top: 6px; }
+#ticker-scorecard .tsc-spark svg { display: block; width: 100%; height: 36px; }
+#ticker-scorecard .tsc-loading { opacity: 0.6; font-style: italic; }
+#ticker-focus-bar {
+  position: fixed;
+  top: 10px;
+  left: 50%;
+  transform: translateX(-50%);
+  z-index: 9998;
+  background: rgba(255,207,74,0.14);
+  border: 1px solid rgba(255,207,74,0.5);
+  color: #ffcf4a;
+  padding: 4px 10px;
+  border-radius: 6px;
+  font-size: 12px;
+  display: none;
+}
+#ticker-focus-bar.active { display: inline-flex; align-items: center; gap: 8px; }
+#ticker-focus-bar button {
+  background: transparent; border: 0; color: inherit;
+  cursor: pointer; font-size: 14px; padding: 0 2px;
+}
+</style>
+
+<script>
+// === HM-BJ.1: TickerChip infrastructure ===========================
+// Exports: window.tickerHTML(sym, panel) / window.renderTicker(sym, panel)
+// Event delegation handles click (focus) / shift-click (TradingView) /
+// keyboard / hover (300ms scorecard). 60s in-memory fetch cache.
+// ===================================================================
+(function(){
+  'use strict';
+  var SYM_VALID = /^[A-Z0-9.\-]{1,10}$/;
+
+  function safeSym(sym) {
+    sym = String(sym || '').trim().toUpperCase();
+    return SYM_VALID.test(sym) ? sym : null;
+  }
+  function esc(s) {
+    return String(s)
+      .replace(/&/g,'&amp;').replace(/</g,'&lt;')
+      .replace(/>/g,'&gt;').replace(/"/g,'&quot;');
+  }
+
+  window.tickerHTML = function(sym, panelHint) {
+    var s = safeSym(sym);
+    if (!s) return esc(sym);
+    var p = esc(panelHint || '');
+    return '<span class="ticker-chip" data-symbol="' + s +
+           '" data-panel="' + p +
+           '" tabindex="0" role="button" aria-label="Focus on ' + s + '">' +
+           s + '</span>';
+  };
+  window.renderTicker = function(sym, panelHint) {
+    var s = safeSym(sym);
+    var el = document.createElement('span');
+    if (!s) { el.textContent = sym; return el; }
+    el.className = 'ticker-chip';
+    el.dataset.symbol = s;
+    if (panelHint) el.dataset.panel = panelHint;
+    el.tabIndex = 0;
+    el.setAttribute('role', 'button');
+    el.setAttribute('aria-label', 'Focus on ' + s);
+    el.textContent = s;
+    return el;
+  };
+
+  // --- 60s response cache ----------------------------------------
+  var cache = new Map();
+  var CACHE_TTL_MS = 60 * 1000;
+  function cachedFetch(url) {
+    var now = Date.now();
+    var hit = cache.get(url);
+    if (hit && (now - hit.ts) < CACHE_TTL_MS) return Promise.resolve(hit.data);
+    return fetch(url, { headers: { 'Accept': 'application/json' } })
+      .then(function(r) { return r.ok ? r.json() : null; })
+      .then(function(data) { cache.set(url, { ts: now, data: data }); return data; })
+      .catch(function() { return null; });
+  }
+
+  // --- Inline SVG sparkline from candle closes -------------------
+  function sparklineSVG(closes, w, h) {
+    if (!closes || closes.length < 2) return '';
+    w = w || 280; h = h || 36;
+    var mn = Math.min.apply(null, closes);
+    var mx = Math.max.apply(null, closes);
+    var range = mx - mn || 1;
+    var step = w / (closes.length - 1);
+    var pts = closes.map(function(c, i) {
+      return (i * step).toFixed(1) + ',' + (h - ((c - mn) / range) * h).toFixed(1);
+    }).join(' ');
+    var up = closes[closes.length - 1] >= closes[0];
+    var stroke = up ? '#4ade80' : '#f87171';
+    return '<svg viewBox="0 0 ' + w + ' ' + h + '" preserveAspectRatio="none">' +
+           '<polyline fill="none" stroke="' + stroke + '" stroke-width="1.5" points="' + pts + '"/>' +
+           '</svg>';
+  }
+
+  // --- Scorecard tooltip -----------------------------------------
+  var tip = null;
+  function getTip() {
+    if (tip) return tip;
+    tip = document.createElement('div');
+    tip.id = 'ticker-scorecard';
+    document.body.appendChild(tip);
+    return tip;
+  }
+  function positionTip(evt) {
+    var t = getTip();
+    var x = evt.clientX + 14;
+    var y = evt.clientY + 14;
+    var rect = t.getBoundingClientRect();
+    if (x + rect.width  > window.innerWidth  - 8) x = evt.clientX - rect.width  - 14;
+    if (y + rect.height > window.innerHeight - 8) y = evt.clientY - rect.height - 14;
+    t.style.left = Math.max(8, x) + 'px';
+    t.style.top  = Math.max(8, y) + 'px';
+  }
+  function fmtPct(v) {
+    if (v == null || isNaN(v)) return '–';
+    return (v > 0 ? '+' : '') + Number(v).toFixed(2) + '%';
+  }
+  function showTipLoading(sym, evt) {
+    var t = getTip();
+    t.innerHTML = '<div class="tsc-sym">' + sym + '</div>' +
+                  '<div class="tsc-loading">loading…</div>';
+    positionTip(evt);
+    t.classList.add('show');
+  }
+  function renderTip(sym, payload) {
+    var t = getTip();
+    var sent = payload.sentiment || {};
+    var candles = payload.candles || {};
+    var news = payload.news || {};
+    var arr = candles.candles || candles.data || candles.history || candles;
+    var closes = [];
+    if (Array.isArray(arr)) {
+      for (var i = 0; i < arr.length; i++) {
+        var c = arr[i];
+        var v = c && (c.close != null ? c.close : (c.c != null ? c.c : null));
+        if (typeof v === 'number') closes.push(v);
+      }
+    }
+    var lastClose = closes.length ? closes[closes.length - 1] : null;
+    var firstClose = closes.length ? closes[0] : null;
+    var dayChange = (lastClose != null && firstClose != null && firstClose !== 0)
+      ? ((lastClose - firstClose) / firstClose) * 100
+      : null;
+    var bulls = (sent.bullish_count != null ? sent.bullish_count : (sent.bulls != null ? sent.bulls : (sent.bullish != null ? sent.bullish : null)));
+    var bears = (sent.bearish_count != null ? sent.bearish_count : (sent.bears != null ? sent.bears : (sent.bearish != null ? sent.bearish : null)));
+    var consensus = sent.consensus || sent.signal || null;
+    var headline = '';
+    var nlist = news.articles || news.news || news.items || (Array.isArray(news) ? news : null);
+    if (Array.isArray(nlist) && nlist.length) {
+      headline = nlist[0].title || nlist[0].headline || '';
+      if (headline.length > 80) headline = headline.slice(0, 78) + '…';
+    }
+    var dayColor = (dayChange == null ? '#888' : (dayChange >= 0 ? '#4ade80' : '#f87171'));
+    var html =
+      '<div class="tsc-sym">' + sym +
+        (lastClose != null ? '  <span style="color:#cdd3dc;font-weight:400;">$' + lastClose.toFixed(2) + '</span>' : '') +
+      '</div>' +
+      '<div class="tsc-row"><span>30-tick</span><span style="color:' + dayColor + '">' + fmtPct(dayChange) + '</span></div>' +
+      ((bulls != null || bears != null)
+        ? '<div class="tsc-row"><span>Fleet</span><span>🟢 ' + (bulls != null ? bulls : '–') +
+          ' / 🔴 ' + (bears != null ? bears : '–') +
+          (consensus ? '  · ' + esc(String(consensus)) : '') + '</span></div>'
+        : '') +
+      (headline
+        ? '<div class="tsc-row" style="display:block;margin-top:6px;color:#cdd3dc;font-size:11px;">📰 ' + esc(headline) + '</div>'
+        : '') +
+      '<div class="tsc-spark">' + sparklineSVG(closes) + '</div>' +
+      '<div class="tsc-row" style="margin-top:6px;color:#7a838e;font-size:10px;"><span>click: focus · shift-click: TradingView</span></div>';
+    t.innerHTML = html;
+  }
+  function hideTip() { if (tip) tip.classList.remove('show'); }
+
+  function fetchScorecard(sym) {
+    return Promise.all([
+      cachedFetch('/api/market/candles/' + encodeURIComponent(sym) + '?limit=30'),
+      cachedFetch('/api/market/sentiment/' + encodeURIComponent(sym)),
+      cachedFetch('/api/news/' + encodeURIComponent(sym)),
+    ]).then(function(arr) {
+      return { candles: arr[0] || {}, sentiment: arr[1] || {}, news: arr[2] || {} };
+    });
+  }
+
+  // --- Hover (300ms delay) ---------------------------------------
+  var hoverTimer = null, hoverSym = null;
+  function startHover(sym, evt) {
+    clearTimeout(hoverTimer);
+    hoverSym = sym;
+    hoverTimer = setTimeout(function() {
+      if (hoverSym !== sym) return;
+      showTipLoading(sym, evt);
+      fetchScorecard(sym).then(function(payload) {
+        if (hoverSym !== sym) return;
+        renderTip(sym, payload);
+        positionTip(evt);
+      });
+    }, 300);
+  }
+  function endHover() {
+    clearTimeout(hoverTimer);
+    hoverSym = null;
+    hideTip();
+  }
+
+  // --- Event delegation ------------------------------------------
+  document.addEventListener('click', function(e) {
+    var chip = e.target && e.target.closest && e.target.closest('.ticker-chip');
+    if (!chip) return;
+    var sym = chip.getAttribute('data-symbol');
+    if (!sym) return;
+    if (e.shiftKey) {
+      e.preventDefault();
+      window.open('https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(sym), '_blank', 'noopener');
+      return;
+    }
+    e.preventDefault();
+    document.dispatchEvent(new CustomEvent('ticker:focus', {
+      detail: { symbol: sym, sourcePanel: chip.getAttribute('data-panel') || '' }
+    }));
+  }, true);
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key !== 'Enter' && e.key !== ' ') return;
+    var chip = e.target && e.target.closest && e.target.closest('.ticker-chip');
+    if (!chip) return;
+    e.preventDefault();
+    chip.click();
+  });
+
+  document.addEventListener('mouseover', function(e) {
+    var chip = e.target && e.target.closest && e.target.closest('.ticker-chip');
+    if (!chip) return;
+    var sym = chip.getAttribute('data-symbol');
+    if (sym) startHover(sym, e);
+  }, true);
+
+  document.addEventListener('mousemove', function(e) {
+    if (!tip || !tip.classList.contains('show')) return;
+    var chip = e.target && e.target.closest && e.target.closest('.ticker-chip');
+    if (chip) positionTip(e);
+  });
+
+  document.addEventListener('mouseout', function(e) {
+    var chip = e.target && e.target.closest && e.target.closest('.ticker-chip');
+    if (!chip) return;
+    var to = e.relatedTarget;
+    if (to && chip.contains(to)) return;
+    endHover();
+  }, true);
+
+  document.addEventListener('scroll', endHover, true);
+})();
+
+// === HM-BJ.2: Focus controller ====================================
+// Listens for 'ticker:focus' CustomEvent, sets URL hash, displays
+// the focus indicator bar, and highlights all chips for that symbol.
+// ===================================================================
+(function(){
+  'use strict';
+
+  function getBar() {
+    var bar = document.getElementById('ticker-focus-bar');
+    if (bar) return bar;
+    bar = document.createElement('div');
+    bar.id = 'ticker-focus-bar';
+    bar.innerHTML = '<span>Focused on <b id="ticker-focus-sym"></b></span>' +
+                    '<button type="button" aria-label="Clear focus">✕</button>';
+    document.body.appendChild(bar);
+    bar.querySelector('button').addEventListener('click', function() {
+      window.tickerFocusClear();
+    });
+    return bar;
+  }
+
+  function highlightChips(sym) {
+    var prev = document.querySelectorAll('.ticker-chip.is-focused');
+    for (var i = 0; i < prev.length; i++) prev[i].classList.remove('is-focused');
+    if (!sym) return;
+    var sel = '.ticker-chip[data-symbol="' + sym.replace(/"/g, '\\"') + '"]';
+    var matches = document.querySelectorAll(sel);
+    for (var j = 0; j < matches.length; j++) matches[j].classList.add('is-focused');
+  }
+
+  window.tickerFocusSet = function(sym) {
+    sym = String(sym || '').trim().toUpperCase();
+    if (!sym) return;
+    var bar = getBar();
+    bar.querySelector('#ticker-focus-sym').textContent = sym;
+    bar.classList.add('active');
+    if (history && history.replaceState) {
+      history.replaceState(null, '', '#focus=' + encodeURIComponent(sym));
+    }
+    highlightChips(sym);
+  };
+  window.tickerFocusClear = function() {
+    var bar = getBar();
+    bar.classList.remove('active');
+    if (history && history.replaceState) {
+      history.replaceState(null, '', window.location.pathname + window.location.search);
+    }
+    highlightChips(null);
+  };
+
+  document.addEventListener('ticker:focus', function(e) {
+    if (!e || !e.detail || !e.detail.symbol) return;
+    window.tickerFocusSet(e.detail.symbol);
+  });
+
+  // Restore from URL hash on load
+  document.addEventListener('DOMContentLoaded', function() {
+    var m = (window.location.hash || '').match(/focus=([A-Z0-9.\-]{1,10})/i);
+    if (m) window.tickerFocusSet(m[1].toUpperCase());
+  });
+})();
+
+// === HM-BJ.3: Auto-upgrade existing ticker spans ===================
+// Many panels already render tickers as <span class="sym"> /
+// .ls-sym / .at-risk-sym / .wbi-ticker / etc. A MutationObserver
+// watches for these and adds the .ticker-chip class + attributes
+// without touching the original render code. Safety: SYM_VALID regex
+// rejects any text that doesn't look like a ticker symbol.
+// ===================================================================
+(function(){
+  'use strict';
+
+  var TICKER_CLASSES = [
+    'sym', 'ls-sym', 'at-risk-sym', 'feed-sym', 'heat-sym', 'hm-sym',
+    'nf-sym', 'sent-sym', 'sniff-sym', 'td-sym', 'ticker-sym', 'wbc-wl-sym',
+    'wbi-ticker', 'alr-ticker', 'ii-ticker', 'opt-ticker',
+    'premarket-ticker', 'race-ticker', 'rtc-ticker'
+  ];
+  var SELECTOR = TICKER_CLASSES
+      .map(function(c) { return '.' + c + ':not(.ticker-chip)'; })
+      .join(',');
+  var SYM_VALID = /^[A-Z0-9.\-]{1,10}$/;
+
+  function upgradeOne(el) {
+    var raw = (el.getAttribute('data-symbol') ||
+               el.getAttribute('data-ticker') ||
+               el.textContent || '').trim().toUpperCase();
+    if (!SYM_VALID.test(raw)) return;
+    el.classList.add('ticker-chip');
+    el.setAttribute('data-symbol', raw);
+    if (!el.hasAttribute('tabindex'))   el.setAttribute('tabindex', '0');
+    if (!el.hasAttribute('role'))       el.setAttribute('role', 'button');
+    if (!el.hasAttribute('aria-label')) el.setAttribute('aria-label', 'Focus on ' + raw);
+  }
+
+  function upgradeAll(root) {
+    var nodes = (root || document).querySelectorAll(SELECTOR);
+    for (var i = 0; i < nodes.length; i++) upgradeOne(nodes[i]);
+  }
+
+  var queued = false;
+  function schedule() {
+    if (queued) return;
+    queued = true;
+    requestAnimationFrame(function() { queued = false; upgradeAll(); });
+  }
+
+  var observer = new MutationObserver(schedule);
+  function start() {
+    upgradeAll();
+    observer.observe(document.body, { childList: true, subtree: true });
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', start);
+  } else {
+    start();
+  }
+  window.upgradeTickerChips = upgradeAll;
+})();
+// === end HM-BJ ====================================================
+</script>
+
 <script>
 // Shared fetch cache — deduplicate API calls within a TTL window
 // Usage: _cachedFetch('/api/regime', 60000) → Promise<json>
