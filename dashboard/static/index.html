@@ -2159,6 +2159,33 @@ function agentName(player_id, fallback) {
 })();
 // === /HM-BJ.E1 ===
 
+// === HM-BJ.E3: Arrow-key navigation between focused ticker chips ===
+// While a .ticker-chip has focus, Left/Up moves to the previous chip
+// and Right/Down moves to the next chip in DOM order, wrapping at the
+// boundaries. Preserves existing Tab and Enter/Space behavior from
+// HM-BJ.1 — those listeners do not handle arrow keys.
+// ===================================================================
+(function() {
+  'use strict';
+
+  var ARROWS = { ArrowLeft: -1, ArrowUp: -1, ArrowRight: 1, ArrowDown: 1 };
+
+  document.addEventListener('keydown', function(e) {
+    var step = ARROWS[e.key];
+    if (step === undefined) return;
+    var active = document.activeElement;
+    if (!active || !active.classList || !active.classList.contains('ticker-chip')) return;
+    var chips = Array.prototype.slice.call(document.querySelectorAll('.ticker-chip'));
+    if (chips.length < 2) return;
+    var idx = chips.indexOf(active);
+    if (idx === -1) return;
+    e.preventDefault();
+    var nextIdx = (idx + step + chips.length) % chips.length;
+    chips[nextIdx].focus();
+  });
+})();
+// === /HM-BJ.E3 ===
+
 // === end HM-BJ ====================================================
 </script>
 
