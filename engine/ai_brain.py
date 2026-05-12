@@ -577,8 +577,10 @@ class Arena:
                     _unload_url = group[0][1].url  # use provider's actual URL (Ollie or bigmac), not hardcoded localhost
                     _requests.post(_unload_url,
                                    json={"model": model_id, "keep_alive": 0}, timeout=10)
-                except Exception:
-                    pass
+                # === HM-BD.F-audit Tier-1 ===
+                except (_requests.RequestException, TimeoutError, ConnectionError) as e:
+                    console.log(f"[yellow]Ollama unload {model_id}: {type(e).__name__}: {e!r}[/yellow]")
+                # === /HM-BD.F-audit Tier-1 ===
                 _time.sleep(10)  # Stagger between model groups — gives Ollama time to fully unload and free VRAM before next group loads
 
             # --- Scan health report + circuit breaker (runs once per full Ollama cycle) ---
@@ -708,8 +710,10 @@ class Arena:
             # webull (alpaca-mirrored data labeled wrongly) for ~6 weeks.
             try:
                 record_portfolio_snapshot("alpaca-mirror", prices)
-            except Exception:
-                pass
+            # === HM-BD.F-audit Tier-1 ===
+            except (sqlite3.Error, KeyError, ValueError) as e:
+                console.log(f"[yellow]alpaca-mirror snapshot failed: {type(e).__name__}: {e!r}[/yellow]")
+            # === /HM-BD.F-audit Tier-1 ===
             console.log("[dim]Equity curve snapshot saved[/dim]")
 
         # 6b. Daily journal — write once per day, triggered from scan cycle
@@ -1026,8 +1030,10 @@ class Arena:
                         player_id, provider.display_name, symbol,
                         data["price"], decision.confidence, decision.reasoning
                     )
-                except Exception:
-                    pass
+                # === HM-BD.F-audit Tier-1 ===
+                except (sqlite3.Error, KeyError, ValueError) as e:
+                    console.log(f"[yellow]record_signal {player_id} {symbol}: {type(e).__name__}: {e!r}[/yellow]")
+                # === /HM-BD.F-audit Tier-1 ===
 
             # Ghost trade: log high-confidence HOLDs as missed opportunities
             if decision.action == "HOLD" and decision.confidence >= 0.60:
@@ -1403,8 +1409,10 @@ class Arena:
                                         "http://localhost:9000/api/signal",
                                         json=payload, timeout=3,
                                     )
-                                except Exception:
-                                    pass
+                                # === HM-BD.F-audit Tier-1 ===
+                                except (_req.RequestException, TimeoutError, ConnectionError) as e:
+                                    console.log(f"[yellow]signal-center post failed: {type(e).__name__}: {e!r}[/yellow]")
+                                # === /HM-BD.F-audit Tier-1 ===
                             _sc_th.Thread(target=_post_sc, daemon=True).start()
                         except Exception:
                             pass
