@@ -3339,6 +3339,9 @@ def _run_scan_cycle_body(
     tier_filter: str | None = None,
     verbose:     bool       = True,
 ) -> dict[str, Any]:
+    # === HM-CD-instr === cycle wall start
+    _hm_cd_cycle_t0 = time.perf_counter()
+    # === /HM-CD-instr ===
     _init_once()
     _ensure_warm()
 
@@ -3420,10 +3423,18 @@ def _run_scan_cycle_body(
 
     # ── Always-on non-Ollama agents ───────────────────────────────────────────
     for player_id in ACTIVE_SCANNERS:
+        # === HM-CD-instr === per-agent wall time
+        _hm_cd_agent_t0 = time.perf_counter()
+        _hm_cd_result: dict[str, Any] = {}
         try:
-            _tally(_scan_single_agent(player_id, ctx))
+            _hm_cd_result = _scan_single_agent(player_id, ctx)
+            _tally(_hm_cd_result)
         except Exception as e:
             logger.error(f"run_scan_cycle error for {player_id}: {e}")
+        _hm_cd_wall = time.perf_counter() - _hm_cd_agent_t0
+        _hm_cd_syms = _hm_cd_result.get("candidates_seen", "?") if isinstance(_hm_cd_result, dict) else "?"
+        logger.info(f"[cyan][HM-CD-instr] agent={player_id} wall={_hm_cd_wall:.2f}s symbols={_hm_cd_syms}[/cyan]")
+        # === /HM-CD-instr ===
         time.sleep(0.5)
 
     # ── Alpha Squad pair rotation (≤2 Ollama models loaded at once) ───────────
@@ -3432,10 +3443,18 @@ def _run_scan_cycle_body(
     for player_id in alpha_pair:
         if _is_agent_paused(player_id):
             continue
+        # === HM-CD-instr === per-agent wall time (alpha squad)
+        _hm_cd_agent_t0 = time.perf_counter()
+        _hm_cd_result = {}
         try:
-            _tally(_scan_single_agent(player_id, ctx))
+            _hm_cd_result = _scan_single_agent(player_id, ctx)
+            _tally(_hm_cd_result)
         except Exception as e:
             logger.error(f"run_scan_cycle alpha error for {player_id}: {e}")
+        _hm_cd_wall = time.perf_counter() - _hm_cd_agent_t0
+        _hm_cd_syms = _hm_cd_result.get("candidates_seen", "?") if isinstance(_hm_cd_result, dict) else "?"
+        logger.info(f"[cyan][HM-CD-instr] agent={player_id} wall={_hm_cd_wall:.2f}s symbols={_hm_cd_syms}[/cyan]")
+        # === /HM-CD-instr ===
         time.sleep(1.0)  # gap between pair agents to avoid Ollama swap
 
     summary = {
@@ -3500,6 +3519,10 @@ def _run_scan_cycle_body(
     except Exception as _tp_err:
         logger.warning(f"[OllieAuto] tiered TP check error: {_tp_err}")
 
+    # === HM-CD-instr === cycle wall end
+    _hm_cd_cycle_wall = time.perf_counter() - _hm_cd_cycle_t0
+    logger.info(f"[cyan][HM-CD-instr] cycle wall={_hm_cd_cycle_wall:.2f}s agents={total}[/cyan]")
+    # === /HM-CD-instr ===
     return summary
 
 
