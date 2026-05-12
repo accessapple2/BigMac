@@ -11,6 +11,7 @@ Services watched:
 Alerts:  macOS notification + ntfy.sh push (iPhone)
 Restart: launchctl kickstart (Bridge, Signal Center, Tunnel) / brew (Ollama)
 """
+from __future__ import annotations  # HM-BH hotfix: defer annotation evaluation (venv is Py3.9, no PEP 604 unions)
 import subprocess
 import time
 import urllib.request
