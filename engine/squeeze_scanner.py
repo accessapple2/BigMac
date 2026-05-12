@@ -71,6 +71,65 @@ def _fetch_finviz_candidates() -> list[dict]:
         return []
 
 
+# === HM-DASH.2 === Polygon /stocks/v1/short-interest is now primary SI source.
+# Finviz still does the screener pass (Polygon lacks a "screen high-SI tickers"
+# single-call endpoint), but Polygon's raw_short_interest + native days_to_cover
+# override Finviz's "Short Float"/"Short Ratio" values when present. Finviz
+# numbers are kept on Polygon error/empty → "fallback only" per Captain spec.
+
+_polygon_si_cache: dict[str, tuple[float, dict | None]] = {}
+_POLYGON_SI_CACHE_TTL = 86400  # 24h — Polygon SI reports settle bi-monthly
+
+
+def _fetch_polygon_si(ticker: str) -> dict | None:
+    """Latest short-interest report from Polygon. None on error/empty.
+
+    Returns: {raw_short_interest, days_to_cover, settlement_date, avg_daily_volume}
+    Cached 24h per ticker — Polygon SI updates twice a month, not real-time.
+    """
+    try:
+        import os
+        import requests
+        from dotenv import load_dotenv
+        load_dotenv("/Users/bigmac/autonomous-trader/.env")
+        key = os.getenv("POLYGON_API_KEY") or os.getenv("POLYGON_STOCKS_API_KEY")
+        if not key:
+            return None
+        now = time.time()
+        sym = ticker.upper()
+        cached = _polygon_si_cache.get(sym)
+        if cached and now - cached[0] < _POLYGON_SI_CACHE_TTL:
+            return cached[1]
+        url = f"https://api.polygon.io/stocks/v1/short-interest?ticker={sym}&limit=1&apiKey={key}"
+        r = requests.get(url, timeout=8)
+        if r.status_code != 200:
+            _polygon_si_cache[sym] = (now, None)
+            return None
+        data = r.json()
+        results = data.get("results") or []
+        if not results:
+            _polygon_si_cache[sym] = (now, None)
+            return None
+        latest = results[0]
+        out = {
+            "raw_short_interest": float(latest.get("short_interest") or 0),
+            "days_to_cover":      float(latest.get("days_to_cover") or 0),
+            "settlement_date":    latest.get("settlement_date") or "",
+            "avg_daily_volume":   float(latest.get("avg_daily_volume") or 0),
+        }
+        _polygon_si_cache[sym] = (now, out)
+        return out
+    except Exception as e:
+        console.log(f"[yellow]Squeeze: Polygon SI fetch error for {ticker}: {e}")
+        # Cache the None too so we don't retry hot
+        try:
+            _polygon_si_cache[ticker.upper()] = (time.time(), None)
+        except Exception:
+            pass
+        return None
+# === /HM-DASH.2 ===
+
+
 def _get_yfinance_data(ticker: str) -> dict | None:
     """Fetch RSI, volume ratio, 10d high — migrated 2026-04-27 yfinance -> Alpaca."""
     try:
@@ -224,6 +283,24 @@ def run_scan(force: bool = False) -> dict:
             if yf_data is None:
                 continue
 
+            # === HM-DASH.2 === enrich with Polygon canonical SI + DTC
+            polygon_si = _fetch_polygon_si(ticker)
+            dtc = _parse_float_val(row.get("Short Ratio"))
+            si_source = "finviz"
+            settlement_date = ""
+            if polygon_si:
+                # SI% = polygon raw_short_interest / (finviz float_m * 1M) * 100
+                raw_si = polygon_si.get("raw_short_interest") or 0
+                if float_m and raw_si:
+                    short_pct = round(raw_si / (float_m * 1_000_000) * 100, 1)
+                    # Mutate row so _score_candidate uses Polygon-derived SI%
+                    row["Short Float"] = short_pct
+                if polygon_si.get("days_to_cover"):
+                    dtc = float(polygon_si["days_to_cover"])
+                settlement_date = polygon_si.get("settlement_date") or ""
+                si_source = "polygon"
+            # === /HM-DASH.2 ===
+
             vol_ratio = yf_data.get("vol_ratio", 1.0)
             rsi = yf_data.get("rsi", 50.0)
 
@@ -245,13 +322,17 @@ def run_scan(force: bool = False) -> dict:
                 "ticker": ticker,
                 "short_interest_pct": round(short_pct, 1),
                 "float_m": round(float_m, 2),
-                "days_to_cover": _parse_float_val(row.get("Short Ratio")),
+                "days_to_cover": dtc,
                 "vol_ratio": vol_ratio,
                 "price": yf_data["price"],
                 "day_change_pct": round(change_pct, 2),
                 "rsi": rsi,
                 "above_10d_high": yf_data["above_10d_high"],
                 "score": score,
+                # === HM-DASH.2 === observability fields (not persisted to DB)
+                "si_source": si_source,
+                "si_settlement_date": settlement_date,
+                # === /HM-DASH.2 ===
             })
 
         # Sort by score desc
@@ -363,7 +444,11 @@ def _persist_results(results: list[dict], db_path: str = _DB_PATH) -> dict:
             notes = (
                 f"raw_score={score}; days_to_cover={r.get('days_to_cover')}; "
                 f"day_change_pct={r.get('day_change_pct')}; "
-                f"high_10d_break={'yes' if r.get('above_10d_high') else 'no'}"
+                f"high_10d_break={'yes' if r.get('above_10d_high') else 'no'}; "
+                # === HM-DASH.2 === SI provenance for traceability
+                f"si_source={r.get('si_source', 'finviz')}; "
+                f"si_settle={r.get('si_settlement_date', '')}"
+                # === /HM-DASH.2 ===
             )
             ntfy_deferred = 1 if (tier == "PRIORITY" and quiet) else 0
 
