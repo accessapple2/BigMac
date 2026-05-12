@@ -87,6 +87,14 @@ def _execute_scan():
     held_symbols = {p["symbol"] for p in portfolio["positions"]}
     position_count = len(portfolio["positions"])
 
+    # === HM-BL.E ===
+    # Pre-filter known-delisted tickers (in-process cache, zero network cost).
+    # Capitol/STOCK Act filings include trades from BEFORE delisting (e.g. ATH
+    # delisted Jan 2022 still surfaces via get_top_congress_buys). Without this
+    # filter capitol-trades opens fresh positions on dead tickers.
+    from engine.yf_safe import is_delisted
+    # === /HM-BL.E ===
+
     top_buys = get_top_congress_buys(30)
     candidates = [
         t for t in top_buys
@@ -94,6 +102,7 @@ def _execute_scan():
         and t["ticker"] not in held_symbols
         and not _already_bought_today(t["ticker"])  # dedup: skip if already bought today (restart-safe)
         and t.get("ticker")
+        and not is_delisted(t["ticker"])  # HM-BL.E: cheap cache check
     ]
 
     if not candidates:
@@ -121,6 +130,18 @@ def _execute_scan():
         price = price_data.get("price", 0) if price_data else 0
         if price <= 0:
             continue
+
+        # === HM-BL.E ===
+        # Live listing-status probe before buy. The price>0 check above can
+        # pass for delisted symbols when get_stock_price falls back to stale
+        # cached data (the path that opened ATH at $83.33 on 2026-05-07).
+        # yf_history_safe memoizes empty responses so subsequent scans
+        # short-circuit at the is_delisted() filter above.
+        from engine.yf_safe import yf_history_safe
+        if yf_history_safe(ticker, period="1d").empty:
+            console.log(f"[yellow]Capitol Trades: {ticker} skipped — no live yfinance data (delisted?)")
+            continue
+        # === /HM-BL.E ===
 
         qty = int(position_budget / price)
         if qty <= 0:
