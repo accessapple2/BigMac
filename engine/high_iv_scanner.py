@@ -5,6 +5,13 @@ import time
 from engine.market_data import _is_yf_limited, _set_yf_limited
 import pandas as pd
 import numpy as np
+# === HM-BLD ===
+# Module-level yfinance import — restores the Ticker handle needed at line 26
+# for .options + .option_chain calls. Was missing since file inception; the
+# bare `except Exception` in _get_iv_rank swallowed the NameError silently.
+# HM-BL-broad swap of line 32's .history() exposed the residual.
+import yfinance as yf
+# === /HM-BLD ===
 from rich.console import Console
 
 console = Console()
