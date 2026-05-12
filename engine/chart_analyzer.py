@@ -27,9 +27,10 @@ def analyze_chart(symbol: str, model: str) -> dict:
         recommendation, confidence, and metadata.
     """
     try:
-        import yfinance as yf
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="60d", interval="1d")
+        # === HM-BL-broad ===
+        from engine.yf_safe import yf_history_safe
+        hist = yf_history_safe(symbol, period="60d", interval="1d")
+        # === /HM-BL-broad ===
         if hist.empty or len(hist) < 30:
             return {"error": f"Insufficient data for {symbol} (got {len(hist)} bars)"}
 

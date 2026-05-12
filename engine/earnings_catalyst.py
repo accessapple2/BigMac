@@ -82,7 +82,9 @@ def get_upcoming_earnings(tickers: list = None, days_ahead: int = 14) -> list:
 
 def get_post_earnings_drift(tickers: list = None, days_back: int = 7) -> list:
     """Find stocks that recently beat earnings and are still drifting up."""
-    import yfinance as yf
+    # === HM-BL-broad ===
+    from engine.yf_safe import yf_history_safe
+    # === /HM-BL-broad ===
 
     if not tickers:
         try:
@@ -96,9 +98,10 @@ def get_post_earnings_drift(tickers: list = None, days_back: int = 7) -> list:
     drifters = []
     for ticker in tickers:
         try:
-            stock = yf.Ticker(ticker)
             # Check recent price action for post-earnings gap
-            hist = stock.history(period="10d")
+            # === HM-BL-broad ===
+            hist = yf_history_safe(ticker, period="10d")
+            # === /HM-BL-broad ===
             if len(hist) < 5:
                 continue
 

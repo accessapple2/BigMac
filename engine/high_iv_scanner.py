@@ -29,7 +29,10 @@ def _get_iv_rank(symbol: str) -> dict | None:
             return None
 
         # Get spot price
-        hist = ticker.history(period="1d")
+        # === HM-BL-broad ===
+        from engine.yf_safe import yf_history_safe
+        hist = yf_history_safe(symbol, period="1d")
+        # === /HM-BL-broad ===
         if hist.empty:
             return None
         spot = float(hist["Close"].iloc[-1])

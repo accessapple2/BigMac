@@ -2218,7 +2218,9 @@ def run_premarket_gaps():
 
     _premarket_gaps_done = True
     try:
-        import yfinance as yf
+        # === HM-BL-broad ===
+        from engine.yf_safe import yf_history_safe
+        # === /HM-BL-broad ===
         from engine.war_room import save_hot_take
         from engine.universe_scanner import get_latest_universe_scan
 
@@ -2232,8 +2234,9 @@ def run_premarket_gaps():
         gaps = []
         for sym in tickers:
             try:
-                stock = yf.Ticker(sym)
-                hist = stock.history(period="2d", prepost=True)
+                # === HM-BL-broad ===
+                hist = yf_history_safe(sym, period="2d", prepost=True)
+                # === /HM-BL-broad ===
                 if len(hist) < 2:
                     continue
                 prev_close = float(hist["Close"].iloc[-2])

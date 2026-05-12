@@ -32,8 +32,10 @@ def _analyze_timeframe(symbol: str, period: str, interval: str) -> dict:
     if _is_yf_limited():
         return {"signal": "neutral", "score": 0, "details": "Rate limited"}
     try:
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period=period, interval=interval)
+        # === HM-BL-broad ===
+        from engine.yf_safe import yf_history_safe
+        hist = yf_history_safe(symbol, period=period, interval=interval)
+        # === /HM-BL-broad ===
         if hist.empty or len(hist) < 10:
             return {"signal": "neutral", "score": 0, "details": "Insufficient data"}
 

@@ -30,8 +30,10 @@ def _fetch_asset(ticker_symbol: str) -> dict | None:
     if _is_yf_limited():
         return None
     try:
-        ticker = yf.Ticker(ticker_symbol)
-        hist = ticker.history(period="5d", interval="1d")
+        # === HM-BL-broad ===
+        from engine.yf_safe import yf_history_safe
+        hist = yf_history_safe(ticker_symbol, period="5d", interval="1d")
+        # === /HM-BL-broad ===
         if hist.empty:
             return None
 

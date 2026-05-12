@@ -44,8 +44,10 @@ def update_strategy_race():
     if _is_yf_limited():
         return
     try:
-        spy = yf.Ticker("SPY")
-        spy_hist = spy.history(period="5d", interval="1d")
+        # === HM-BL-broad ===
+        from engine.yf_safe import yf_history_safe
+        spy_hist = yf_history_safe("SPY", period="5d", interval="1d")
+        # === /HM-BL-broad ===
         if spy_hist.empty:
             return
         spy_price = float(spy_hist["Close"].iloc[-1])

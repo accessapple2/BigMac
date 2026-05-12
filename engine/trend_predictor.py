@@ -27,8 +27,10 @@ def predict_trend(symbol: str) -> dict | None:
     if _is_yf_limited():
         return None
     try:
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="3mo", interval="1d")
+        # === HM-BL-broad ===
+        from engine.yf_safe import yf_history_safe
+        hist = yf_history_safe(symbol, period="3mo", interval="1d")
+        # === /HM-BL-broad ===
         if hist.empty or len(hist) < 30:
             return None
 

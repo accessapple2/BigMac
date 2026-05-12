@@ -73,9 +73,10 @@ def _row_to_dict(row) -> dict:
 def _get_spot_price(symbol: str) -> float | None:
     """Current last price for ATM calculations."""
     try:
-        import yfinance as yf
-        t = yf.Ticker(symbol)
-        hist = t.history(period="1d", interval="1m")
+        # === HM-BL-broad ===
+        from engine.yf_safe import yf_history_safe
+        hist = yf_history_safe(symbol, period="1d", interval="1m")
+        # === /HM-BL-broad ===
         if hist.empty:
             return None
         return float(hist["Close"].iloc[-1])

@@ -27,8 +27,10 @@ def _get_data(symbol: str) -> dict | None:
     if _is_yf_limited():
         return None
     try:
-        ticker = yf.Ticker(symbol)
-        hist = ticker.history(period="2mo", interval="1d")
+        # === HM-BL-broad ===
+        from engine.yf_safe import yf_history_safe
+        hist = yf_history_safe(symbol, period="2mo", interval="1d")
+        # === /HM-BL-broad ===
         if hist.empty or len(hist) < 21:
             return None
 

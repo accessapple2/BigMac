@@ -97,7 +97,10 @@ def _calc_iv_rank(symbol: str) -> dict | None:
         if not expirations:
             return None
 
-        hist = ticker.history(period="2d")
+        # === HM-BL-broad ===
+        from engine.yf_safe import yf_history_safe
+        hist = yf_history_safe(symbol, period="2d")
+        # === /HM-BL-broad ===
         if hist.empty:
             return None
         spot = float(hist["Close"].iloc[-1])
@@ -118,7 +121,9 @@ def _calc_iv_rank(symbol: str) -> dict | None:
         current_iv_pct = round(current_iv * 100, 1)
 
         # 52-week realized vol for IV rank proxy
-        yearly = ticker.history(period="1y", interval="1d")
+        # === HM-BL-broad ===
+        yearly = yf_history_safe(symbol, period="1y", interval="1d")
+        # === /HM-BL-broad ===
         if yearly.empty or len(yearly) < 50:
             return None
 

@@ -39,13 +39,16 @@ FRONTIER_TICKERS = [
 
 def scan_frontier() -> list:
     """Scan frontier tickers for unusual momentum/volume and contrarian setups."""
-    import yfinance as yf
+    # === HM-BL-broad ===
+    from engine.yf_safe import yf_history_safe
+    # === /HM-BL-broad ===
 
     picks = []
     for ticker in FRONTIER_TICKERS:
         try:
-            stock = yf.Ticker(ticker)
-            hist = stock.history(period="5d")
+            # === HM-BL-broad ===
+            hist = yf_history_safe(ticker, period="5d")
+            # === /HM-BL-broad ===
             if hist.empty or len(hist) < 2:
                 continue
 
@@ -74,7 +77,9 @@ def scan_frontier() -> list:
                 signals.append("Volume spike")
 
             # Get 30-day trend
-            hist30 = stock.history(period="1mo")
+            # === HM-BL-broad ===
+            hist30 = yf_history_safe(ticker, period="1mo")
+            # === /HM-BL-broad ===
             if len(hist30) >= 10:
                 month_ret = ((float(hist30["Close"].iloc[-1]) / float(hist30["Close"].iloc[0])) - 1) * 100
                 if month_ret > 10:

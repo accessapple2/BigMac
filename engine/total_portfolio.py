@@ -151,24 +151,22 @@ def _load_metals() -> dict:
 
     # Spot prices via yfinance (best-effort; fall back to NULL market_value).
     spot_prices: dict[str, Optional[float]] = {}
-    try:
-        import yfinance as yf
-        for metal, _, _ in rows:
-            sym = _METAL_YAHOO_SYMBOL.get(metal.lower())
-            if sym is None:
-                spot_prices[metal] = None
-                continue
-            try:
-                hist = yf.Ticker(sym).history(period="2d")
-                if not hist.empty:
-                    spot_prices[metal] = float(hist["Close"].iloc[-1])
-                else:
-                    spot_prices[metal] = None
-            except Exception:
-                spot_prices[metal] = None
-    except ImportError:
-        for metal, _, _ in rows:
+    # === HM-BL-broad ===
+    from engine.yf_safe import yf_history_safe
+    for metal, _, _ in rows:
+        sym = _METAL_YAHOO_SYMBOL.get(metal.lower())
+        if sym is None:
             spot_prices[metal] = None
+            continue
+        try:
+            hist = yf_history_safe(sym, period="2d")
+            if not hist.empty:
+                spot_prices[metal] = float(hist["Close"].iloc[-1])
+            else:
+                spot_prices[metal] = None
+        except Exception:
+            spot_prices[metal] = None
+    # === /HM-BL-broad ===
 
     positions: list[Position] = []
     for metal, total_oz, total_cost in rows:

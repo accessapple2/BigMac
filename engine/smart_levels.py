@@ -70,8 +70,10 @@ def get_risk_levels(prices: dict = None) -> list:
                 swing_lows[sym] = None
             else:
                 try:
-                    ticker = yf.Ticker(sym)
-                    hist = ticker.history(period="15d", interval="1d")
+                    # === HM-BL-broad ===
+                    from engine.yf_safe import yf_history_safe
+                    hist = yf_history_safe(sym, period="15d", interval="1d")
+                    # === /HM-BL-broad ===
                     if len(hist) >= 10:
                         swing_lows[sym] = round(float(hist["Low"].tail(10).min()), 2)
                     elif not hist.empty:
