@@ -378,17 +378,22 @@ _endpoint_cache: dict = {}
 
 
 def timed_cache(seconds: int):
-    """Cache endpoint response for N seconds. Preserves function signature for FastAPI."""
+    """Cache endpoint response for N seconds. Preserves function signature for FastAPI.
+
+    HM-BD.G: cache entry's timestamp is the function's COMPLETION time, not call-start.
+    Earlier bug: when func() ran longer than `seconds`, the entry was already
+    "expired" the moment it was written → cache never warmed for slow endpoints.
+    """
     def decorator(func):
         @_functools.wraps(func)
         def wrapper(*args, **kwargs):
             key = f"{func.__name__}:{args}:{kwargs}"
-            now = _time.time()
             entry = _endpoint_cache.get(key)
-            if entry and (now - entry["time"]) < seconds:
+            if entry and (_time.time() - entry["time"]) < seconds:
                 return entry["data"]
             result = func(*args, **kwargs)
-            _endpoint_cache[key] = {"time": now, "data": result}
+            # === HM-BD.G: timestamp at completion, so slow funcs still get full TTL ===
+            _endpoint_cache[key] = {"time": _time.time(), "data": result}
             return result
         # Preserve the original signature so FastAPI can inspect query params
         wrapper.__signature__ = _inspect.signature(func)
