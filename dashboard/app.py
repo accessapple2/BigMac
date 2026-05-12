@@ -3846,6 +3846,67 @@ def market_candles(symbol: str, interval: str = "5m", range: str = "1d"):
     return {"candles": candles, "markers": markers}
 
 
+# === HM-BJ.E4 ===
+# Server-side scorecard aggregator — eliminates the 3-second cold-path
+# lag on ticker chip hover. Replaces the frontend's 3 parallel client
+# fetches (candles + sentiment + news) with one round-trip whose
+# parallelization happens inside the dashboard process via
+# ThreadPoolExecutor (max_workers=3). Per-sub-fetch typed-catch
+# isolates one failure from poisoning the whole response — the field
+# becomes null and the other two still render.
+#
+# Cache: @timed_cache(60) means repeated hovers on the same chip within
+# a 1-min window short-circuit at <10ms. HM-BD.G's completion-time
+# semantics ensure slow cold paths still warm the cache correctly.
+#
+# Frontend swap happens separately in HM-BJ.E4-frontend (deferred,
+# browser-test gated per memory feedback_frontend_browser_test_before_ship).
+@app.get("/api/symbol/{symbol}/scorecard")
+@timed_cache(60)
+def symbol_scorecard(symbol: str):
+    """HM-BJ.E4: aggregator for ticker hover tooltip.
+
+    Returns {candles, sentiment, news} — each key matches the
+    response of its underlying per-symbol endpoint, or null on
+    per-sub-fetch failure.
+    """
+    from concurrent.futures import ThreadPoolExecutor
+
+    sym = symbol.upper()
+
+    def _safe_candles():
+        try:
+            return market_candles(sym)
+        except Exception as e:
+            console.log(f"[yellow]scorecard candles {sym}: {type(e).__name__}: {e!r}[/yellow]")
+            return None
+
+    def _safe_sentiment():
+        try:
+            return symbol_sentiment(sym)
+        except Exception as e:
+            console.log(f"[yellow]scorecard sentiment {sym}: {type(e).__name__}: {e!r}[/yellow]")
+            return None
+
+    def _safe_news():
+        try:
+            return symbol_news(sym, limit=5)
+        except Exception as e:
+            console.log(f"[yellow]scorecard news {sym}: {type(e).__name__}: {e!r}[/yellow]")
+            return None
+
+    with ThreadPoolExecutor(max_workers=3) as ex:
+        f_candles = ex.submit(_safe_candles)
+        f_sentiment = ex.submit(_safe_sentiment)
+        f_news = ex.submit(_safe_news)
+        return {
+            "candles": f_candles.result(timeout=10),
+            "sentiment": f_sentiment.result(timeout=10),
+            "news": f_news.result(timeout=10),
+        }
+# === /HM-BJ.E4 ===
+
+
 @app.get("/api/market/heatmap")
 def market_heatmap():
     """Get watchlist heat map data: price, change%, position weight per model."""
