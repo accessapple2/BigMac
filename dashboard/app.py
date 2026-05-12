@@ -3860,10 +3860,17 @@ def market_candles(symbol: str, interval: str = "5m", range: str = "1d"):
 # Server-side scorecard aggregator — eliminates the 3-second cold-path
 # lag on ticker chip hover. Replaces the frontend's 3 parallel client
 # fetches (candles + sentiment + news) with one round-trip whose
-# parallelization happens inside the dashboard process via
-# ThreadPoolExecutor (max_workers=3). Per-sub-fetch typed-catch
-# isolates one failure from poisoning the whole response — the field
-# becomes null and the other two still render.
+# parallelization happens inside the dashboard process.
+#
+# IMPORTANT: uses a MODULE-LEVEL ThreadPoolExecutor, not a `with` block.
+# ThreadPoolExecutor.__exit__ calls shutdown(wait=True) which blocks
+# until all submitted tasks finish — defeating the per-sub-fetch
+# timeout (cancelled-but-still-running tasks complete naturally before
+# the context manager releases). Caught on 5938e17 smoke: SPY took 26s
+# wall despite a 5s candles timeout. The shared executor lets cancelled
+# tasks keep running silently in worker threads without blocking the
+# response. Worker pool sized at 8 to handle concurrent scorecard
+# requests + cancelled-task drainage.
 #
 # Cache: @timed_cache(60) means repeated hovers on the same chip within
 # a 1-min window short-circuit at <10ms. HM-BD.G's completion-time
@@ -3871,6 +3878,9 @@ def market_candles(symbol: str, interval: str = "5m", range: str = "1d"):
 #
 # Frontend swap happens separately in HM-BJ.E4-frontend (deferred,
 # browser-test gated per memory feedback_frontend_browser_test_before_ship).
+from concurrent.futures import ThreadPoolExecutor as _ScorecardExecutor
+_SCORECARD_POOL = _ScorecardExecutor(max_workers=8, thread_name_prefix="scorecard")
+
 @app.get("/api/symbol/{symbol}/scorecard")
 @timed_cache(60)
 def symbol_scorecard(symbol: str):
@@ -3880,8 +3890,6 @@ def symbol_scorecard(symbol: str):
     response of its underlying per-symbol endpoint, or null on
     per-sub-fetch failure.
     """
-    from concurrent.futures import ThreadPoolExecutor
-
     sym = symbol.upper()
 
     def _safe_candles():
@@ -3922,20 +3930,17 @@ def symbol_scorecard(symbol: str):
             return None
 
     # Per-sub-fetch budgets keep cold path under ~3s wall while keeping
-    # the warm path (cache hit) effectively free. News is the bottleneck —
-    # it scrapes 5 RSS sources cold. On its first cold hit per symbol it
-    # frequently exceeds 3s; null-then-render is the right UX trade vs
-    # a 7-8s tooltip hang. Subsequent hovers within @timed_cache(60)
-    # serve the full cached response in ~135ms.
-    with ThreadPoolExecutor(max_workers=3) as ex:
-        f_candles = ex.submit(_safe_candles)
-        f_sentiment = ex.submit(_safe_sentiment)
-        f_news = ex.submit(_safe_news)
-        return {
-            "candles":   _await(f_candles,   "candles",   timeout_s=5),
-            "sentiment": _await(f_sentiment, "sentiment", timeout_s=3),
-            "news":      _await(f_news,      "news",      timeout_s=3),
-        }
+    # the warm path (cache hit) effectively free. Submitted to the
+    # module-level shared executor — NO `with` block — so cancelled
+    # tasks drain in the background instead of blocking response.
+    f_candles = _SCORECARD_POOL.submit(_safe_candles)
+    f_sentiment = _SCORECARD_POOL.submit(_safe_sentiment)
+    f_news = _SCORECARD_POOL.submit(_safe_news)
+    return {
+        "candles":   _await(f_candles,   "candles",   timeout_s=3),
+        "sentiment": _await(f_sentiment, "sentiment", timeout_s=3),
+        "news":      _await(f_news,      "news",      timeout_s=3),
+    }
 # === /HM-BJ.E4 ===
 
 
