@@ -190,11 +190,15 @@ def _load_metals() -> dict:
 def _load_alpaca_paper() -> dict:
     """Load Alpaca paper account positions + cash.
 
-    Uses the existing AlpacaBridge instance pattern (engine/alpaca_bridge.py).
     Returns {positions, cash_by_account: {"alpaca_paper": <cash>}}.
     """
-    from engine.alpaca_bridge import AlpacaBridge  # local import — bridge can be slow to construct
-    bridge = AlpacaBridge()
+    # === HM-BK ===
+    # Reuse the module-level singleton from engine.alpaca_bridge (constructed
+    # once at import time). The previous code imported the class and ran
+    # AlpacaBridge() per call, which re-emitted "Alpaca Paper Trading bridge
+    # initialized" every Kirk advisory cycle (~2 min). HM-BKBL.0 discovery.
+    from engine.alpaca_bridge import alpaca as bridge
+    # === /HM-BK ===
     # AlpacaBridge.status() returns {'connected': bool, 'cash': float, ...}
     # (the method is named status(), not account() — wraps client.get_account())
     acc = bridge.status()
