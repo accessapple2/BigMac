@@ -46,7 +46,7 @@ TOKEN_RATES = {
     "qwen-coder-haiku":      (0.00, 0.00),  # Lt. Malcolm Reed → ollama/qwen2.5-coder:7b
     "qwen3-8b-sonnet":     (0.00, 0.00),  # Captain Sisko    → ollama/qwen3:8b
     "qwen3-8b-flash":  (0.00, 0.00),  # Lt. Cmdr. Worf   → ollama/qwen3:8b
-    "qwen3-14b-pro":    (0.00, 0.00),  # Seven of Nine    → ollama/qwen3:14b
+    "qwen3-14b-pro":    (0.00, 0.00),  # Seven of Nine    → ollama/qwen3:8b  (HM-BE: aligned with runtime; downgraded 2026-04-20)
     "options-sosnoff":   (0.00, 0.00),  # Counselor Troi   → ollama/qwen3:8b
     "qwen3-8b-4o":            (0.00, 0.00),  # Captain Janeway  → ollama/qwen3:8b
     "qwen3-8b-o3":            (0.00, 0.00),  # Lt. Tuvok        → ollama/deepseek-r1:7b
