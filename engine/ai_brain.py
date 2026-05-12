@@ -1125,8 +1125,10 @@ class Arena:
                     from engine.ghost_trades import log_ghost_trade
                     log_ghost_trade(player_id, symbol, decision.confidence,
                                     decision.reasoning, data["price"])
-                except Exception:
-                    pass
+                # === HM-BD.F-audit Tier-2 ===
+                except (sqlite3.Error, KeyError, ValueError) as e:
+                    console.log(f"[yellow]log_ghost_trade {player_id} {symbol}: {type(e).__name__}: {e!r}[/yellow]")
+                # === /HM-BD.F-audit Tier-2 ===
 
             # GHOST-TO-REAL PROMOTION: if 0.85+ confidence HOLD reaffirmed 3+ times, promote to BUY
             if decision.action == "HOLD" and decision.confidence >= 0.85:
@@ -1149,8 +1151,10 @@ class Arena:
                             reasoning=f"Ghost promotion: {_ghost_count}x reaffirmed at 85%+ confidence. {decision.reasoning}",
                             symbol=symbol
                         )
-                except Exception:
-                    pass
+                # === HM-BD.F-audit Tier-2 ===
+                except (sqlite3.Error, KeyError, ValueError, TypeError) as e:
+                    console.log(f"[yellow]ghost-promotion {player_id} {symbol}: {type(e).__name__}: {e!r}[/yellow]")
+                # === /HM-BD.F-audit Tier-2 ===
 
             # THESIS ENFORCEMENT: reject trades without a real thesis
             # Per-model stricter checks (Spock: 50+ chars, must cite data)
