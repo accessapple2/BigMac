@@ -41,7 +41,7 @@ NOTIFY_COOLDOWN = 300   # seconds before re-alerting the same service
 CPU_WARN_PCT    = 90    # alert threshold
 MEM_WARN_PCT    = 85    # alert threshold
 MEM_CRIT_PCT    = 95    # kill non-essential processes to free RAM
-SWAP_CRIT_PCT   = 40    # HM-BF: also shed load if swap%≥40 (macOS pages before mem% rises)
+MEM_PRESSURE_FREE_CRIT = 10  # HM-BH: macOS memory_pressure free% — true thrash signal (replaces HM-BF SWAP_CRIT_PCT)
 
 BRIDGE_URL        = "http://127.0.0.1:8080/api/status"
 SIGNAL_CENTER_URL = "http://127.0.0.1:9000/"
@@ -304,6 +304,26 @@ def check_cloudflare() -> None:
         alert("🔴 Cloudflare Still Down", "Manual fix needed for tunnel", "cf_fail")
 
 
+# === HM-BH: macOS memory_pressure helper ===
+# psutil.swap_memory().percent stays high on healthy macOS (compressed-memory
+# is a feature). memory_pressure's "System-wide memory free percentage" is
+# the OS-native thrash signal — same metric scripts/vitals.sh:29 already uses.
+def _macos_memory_free_pct() -> int | None:
+    """Return macOS 'System-wide memory free percentage' as int 0-100, or None on failure."""
+    try:
+        out = subprocess.run(
+            ["memory_pressure"], capture_output=True, text=True, timeout=3
+        ).stdout
+        for line in out.splitlines():
+            if "System-wide" in line:
+                tok = line.rstrip().rstrip("%").rsplit(" ", 1)[-1]
+                return int(tok)
+    except Exception:
+        return None
+    return None
+# === end HM-BH ===
+
+
 def check_resources() -> None:
     """Monitor CPU and memory. Alert and shed load if critical."""
     if not _PSUTIL:
@@ -314,6 +334,8 @@ def check_resources() -> None:
         swap = psutil.swap_memory()
         mem_pct   = mem.percent
         mem_avail = round(mem.available / 1e9, 1)
+        free_pct  = _macos_memory_free_pct()  # HM-BH: macOS-native pressure metric, int or None
+        free_disp = f"{free_pct}%" if free_pct is not None else "?"
 
         # Verbose log every cycle so we have a history trail
         try:
@@ -326,20 +348,22 @@ def check_resources() -> None:
 
         log.info(
             f"CPU {cpu:.0f}%  RAM {mem_pct:.0f}% ({mem_avail}GB free)  "
-            f"Swap {swap.percent:.0f}%  Ollama: {ollama_loaded}"
+            f"Swap {swap.percent:.0f}%  Free {free_disp}  Ollama: {ollama_loaded}"
         )
 
         if cpu > CPU_WARN_PCT:
             log.warning(f"HIGH CPU: {cpu:.0f}% — Ollama inference likely running")
 
-        # === HM-BF: swap-aware critical trigger ===
-        # macOS pages aggressively to swap before mem.percent rises. Trigger
-        # shed-load if EITHER RAM ≥ MEM_CRIT_PCT or swap ≥ SWAP_CRIT_PCT
-        # (~6.4GB swapped on a 16GB box = substantial thrash).
-        if mem_pct >= MEM_CRIT_PCT or swap.percent >= SWAP_CRIT_PCT:
+        # === HM-BH: pressure-aware critical trigger (replaces HM-BF swap trigger) ===
+        # macOS uses swap aggressively as compressed memory — swap.percent stays
+        # high on healthy systems (89% baseline observed). memory_pressure's
+        # free% is the OS-native thrash signal: fire critical if free% ≤
+        # MEM_PRESSURE_FREE_CRIT or psutil mem.percent ≥ MEM_CRIT_PCT.
+        pressure_crit = free_pct is not None and free_pct <= MEM_PRESSURE_FREE_CRIT
+        if mem_pct >= MEM_CRIT_PCT or pressure_crit:
             alert(
                 "Critical Memory",
-                f"RAM {mem_pct:.0f}% / Swap {swap.percent:.0f}% — {mem_avail}GB free. Shedding load.",
+                f"RAM {mem_pct:.0f}% / Free {free_disp} / Swap {swap.percent:.0f}% — {mem_avail}GB avail. Shedding load.",
                 "mem_crit",
             )
             # Kill VTuber (heaviest non-essential process) to free RAM
