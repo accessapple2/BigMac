@@ -225,6 +225,97 @@ def _check_cost_budget() -> bool:
         return True  # If check fails, allow scanning
 
 
+# === HM-EQ ===
+# Module-level equity snapshot daemon. Runs INDEPENDENT of Arena lifecycle.
+# Original design tied this to Arena.__init__, but the single-threaded
+# scheduler queue at trader startup means Arena gets instantiated minutes
+# (or longer) after process boot — way past when we want first snapshot.
+# Module-level start makes the daemon fire 30s post-import regardless of
+# scan-loop state, scheduler backlog, or whether Arena has been built yet.
+#
+# Player list: queried from ai_players DB table (active rows only) on each
+# pass, NOT from any in-memory Arena.providers. Plus 'alpaca-mirror' which
+# isn't typically in ai_players' active set the same way.
+_hmeq_started = False
+_hmeq_lock = None
+
+def _hmeq_do_snapshots():
+    """One snapshot pass."""
+    import sqlite3 as _sq
+    from engine.market_data import get_all_prices
+    # Pull active player IDs from DB. Avoid coupling to Arena state.
+    try:
+        _c = _sq.connect("data/trader.db", check_same_thread=False, timeout=10)
+        _c.row_factory = _sq.Row
+        rows = _c.execute(
+            "SELECT id FROM ai_players "
+            "WHERE is_active=1 AND id != 'webull' AND id != 'steve-webull'"
+        ).fetchall()
+        _c.close()
+        players = [r["id"] for r in rows]
+    except Exception as e:
+        console.log(f"[yellow][HM-EQ] ai_players query failed: {type(e).__name__}: {e!r}[/yellow]")
+        players = []
+    if "alpaca-mirror" not in players:
+        players.append("alpaca-mirror")
+    # Union of all open-position symbols across all players
+    symbols = set()
+    for pid in players:
+        try:
+            p = get_portfolio(pid)
+            for pos in p.get("positions", []):
+                sym = pos.get("symbol")
+                if sym:
+                    symbols.add(sym)
+        except Exception:
+            pass
+    prices = get_all_prices(list(symbols)) if symbols else {}
+    fired = 0
+    failed = 0
+    for pid in players:
+        try:
+            save_equity_snapshot(pid, prices)
+            record_portfolio_snapshot(pid, prices)
+            fired += 1
+        except Exception as e:
+            failed += 1
+            console.log(
+                f"[yellow][HM-EQ] {pid} snapshot failed: "
+                f"{type(e).__name__}: {e!r}[/yellow]"
+            )
+    console.log(
+        f"[cyan][HM-EQ] snapshot pass: {fired} fired across {len(players)} players, {failed} failed[/cyan]"
+    )
+
+
+def _hmeq_loop():
+    """5-min loop. First fire 30s after start (let market_data warm up)."""
+    import time as _hmeq_t
+    _hmeq_t.sleep(30)
+    while True:
+        try:
+            _hmeq_do_snapshots()
+        except Exception as e:
+            console.log(f"[red][HM-EQ] loop crash: {type(e).__name__}: {e!r}[/red]")
+        _hmeq_t.sleep(300)
+
+
+def start_equity_snapshot_daemon():
+    """Idempotent — safe to call multiple times. Spawns the daemon thread."""
+    global _hmeq_started, _hmeq_lock
+    import threading as _hmeq_th
+    if _hmeq_lock is None:
+        _hmeq_lock = _hmeq_th.Lock()
+    with _hmeq_lock:
+        if _hmeq_started:
+            return
+        _hmeq_started = True
+    t = _hmeq_th.Thread(target=_hmeq_loop, daemon=True, name="hm-eq-snapshot")
+    t.start()
+    console.log("[cyan][HM-EQ] equity snapshot daemon started (interval=300s, module-level)[/cyan]")
+# === /HM-EQ ===
+
+
 class Arena:
     def __init__(self, providers: list, risk_manager: RiskManager = None):
         self.providers: dict[str, AIProvider] = {p.player_id: p for p in providers}
@@ -235,73 +326,6 @@ class Arena:
         # Register post-sell callback for AI trade grading
         from engine.paper_trader import register_sell_callback
         register_sell_callback(self._grade_trade)
-
-        # === HM-EQ ===
-        # Background daemon — snapshot equity every 5 min, decoupled from
-        # the scan cadence. The old inline block fired only after the
-        # 668-symbol scan loop (~31 min) completed, so frequent process
-        # restarts reset _equity_counter before any cycle reached the
-        # fire point. portfolio_history dried up at 2026-05-07.
-        import threading as _hmeq_th
-        self._equity_thread = _hmeq_th.Thread(
-            target=self._hmeq_equity_snapshot_loop,
-            daemon=True,
-            name="hm-eq-snapshot",
-        )
-        self._equity_thread.start()
-        console.log(
-            f"[cyan][HM-EQ] equity snapshot daemon started "
-            f"(interval=300s, players={len(self.providers) + 1})[/cyan]"
-        )
-        # === /HM-EQ ===
-
-    # === HM-EQ ===
-    def _hmeq_equity_snapshot_loop(self):
-        """5-min loop: fetch prices once, snapshot every player + alpaca-mirror."""
-        import time as _hmeq_t
-        # First fire 30s after start (let the trader finish booting / let
-        # market_data warm up), then every 300s.
-        _hmeq_t.sleep(30)
-        while True:
-            try:
-                self._hmeq_do_snapshots()
-            except Exception as e:
-                console.log(f"[red][HM-EQ] loop crash: {type(e).__name__}: {e!r}[/red]")
-            _hmeq_t.sleep(300)
-
-    def _hmeq_do_snapshots(self):
-        """One snapshot pass — runs in the daemon thread context."""
-        from engine.market_data import get_all_prices
-        players = list(self.providers.keys()) + ["alpaca-mirror"]
-        # Union of all open-position symbols across all players
-        symbols = set()
-        for pid in players:
-            try:
-                p = get_portfolio(pid)
-                for pos in p.get("positions", []):
-                    sym = pos.get("symbol")
-                    if sym:
-                        symbols.add(sym)
-            except Exception:
-                pass
-        prices = get_all_prices(list(symbols)) if symbols else {}
-        fired = 0
-        failed = 0
-        for pid in players:
-            try:
-                save_equity_snapshot(pid, prices)
-                record_portfolio_snapshot(pid, prices)
-                fired += 1
-            except Exception as e:
-                failed += 1
-                console.log(
-                    f"[yellow][HM-EQ] {pid} snapshot failed: "
-                    f"{type(e).__name__}: {e!r}[/yellow]"
-                )
-        console.log(
-            f"[cyan][HM-EQ] snapshot pass: {fired} fired, {failed} failed[/cyan]"
-        )
-    # === /HM-EQ ===
 
     def _grade_trade(self, player_id: str, symbol: str, entry_price: float,
                      exit_price: float, pnl: float, reasoning: str):

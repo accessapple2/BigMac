@@ -2698,6 +2698,19 @@ if __name__ == "__main__":
         border_style="green"
     ))
 
+    # === HM-EQ ===
+    # Spawn the equity snapshot daemon at trader-boot time, independent of
+    # Arena lifecycle. The single-threaded `schedule.run_pending()` queue
+    # can defer Arena's first run_scanner() call by tens of minutes when
+    # startup work piles up, so an Arena-coupled daemon doesn't fire until
+    # then. Module-level spawn fires within 30s of trader boot.
+    try:
+        from engine.ai_brain import start_equity_snapshot_daemon
+        start_equity_snapshot_daemon()
+    except Exception as _hmeq_e:
+        console.log(f"[red][HM-EQ] daemon startup failed: {type(_hmeq_e).__name__}: {_hmeq_e!r}[/red]")
+    # === /HM-EQ ===
+
     # Scanner ticks every 30s; run_scanner enforces dynamic cooldown internally
     schedule.every(2).minutes.do(run_scanner)
     schedule.every(5).minutes.do(run_dayblade)  # DayBlade 0DTE: T'Pol on plutus, every 5 min
