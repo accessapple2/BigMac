@@ -91,6 +91,10 @@ def get_current_weights() -> dict[str, float]:
         return dict(DEFAULT_WEIGHTS)
 
 
+# === HM-BR === intraday_snapshots uses snap_date, not trade_date. Canonical
+# column per red_alert.py:48 (CREATE TABLE) + INSERT path. Alias to trade_date
+# in the SELECT so _get_last_snapshot_per_day / _compute_accuracies (which
+# key dicts on snap["trade_date"]) remain unchanged.
 def _fetch_intraday_snapshots(days: int = 30) -> list[dict]:
     """Read recent intraday_snapshots from autonomous_trader.db."""
     try:
@@ -99,12 +103,12 @@ def _fetch_intraday_snapshots(days: int = 30) -> list[dict]:
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         rows = conn.execute(
             """
-            SELECT trade_date, condition, condition_score, session_type,
+            SELECT snap_date AS trade_date, condition, condition_score, session_type,
                    trend_score, vix_regime, skew_score, buy_volume, sell_volume,
                    spot_price
             FROM intraday_snapshots
-            WHERE trade_date >= ?
-            ORDER BY trade_date ASC, created_at DESC
+            WHERE snap_date >= ?
+            ORDER BY snap_date ASC, created_at DESC
             """,
             (cutoff,),
         ).fetchall()
@@ -113,6 +117,7 @@ def _fetch_intraday_snapshots(days: int = 30) -> list[dict]:
     except Exception as e:
         logger.error("_fetch_intraday_snapshots failed: %s", e)
         return []
+# === /HM-BR ===
 
 
 # === HM-BO === forecast_scorecards has no direction_correct column;
