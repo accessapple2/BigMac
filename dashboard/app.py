@@ -18094,3 +18094,51 @@ from engine.momentum.premarket import compute_premarket
 def momentum_premarket(limit: int = 30, force: bool = False) -> dict:
     return compute_premarket(limit=limit, force=force)
 # === end Phase 6: Pre-market gap scanner endpoint ===
+
+
+# === HM-DASH.3 === squeeze_watch candidates endpoint
+# Backs the deferred HM-AO-β-2 frontend panel. Dashboard Doctrine
+# 2026-05-08 confirmed dashboard/static/index.html is the canonical
+# surface, so this endpoint returns the full squeeze_watch payload
+# for vanilla-JS consumption (no JSX/Vite dependency).
+@app.get("/api/squeeze/candidates")
+@timed_cache(60)
+def squeeze_candidates(limit: int = 20, tier: str = "") -> dict:
+    """Recent non-dismissed squeeze_watch rows, ordered by composite_score DESC.
+
+    Optional `tier` filter: WATCH | ALERT | PRIORITY (case-insensitive).
+    Caps `limit` at 100 to bound payload size.
+    """
+    limit = max(1, min(int(limit or 20), 100))
+    tier_norm = (tier or "").upper().strip()
+    where = ["dismissed = 0"]
+    params: list = []
+    if tier_norm in ("WATCH", "ALERT", "PRIORITY"):
+        where.append("threshold_tier = ?")
+        params.append(tier_norm)
+    sql = (
+        "SELECT symbol, scan_ts, short_pct, float_m, vol_ratio, rsi, "
+        "       breakout_score, composite_score, threshold_tier, "
+        "       price_at_scan, notes, ntfy_sent, ntfy_deferred, created_at "
+        "FROM squeeze_watch "
+        "WHERE " + " AND ".join(where) + " "
+        "ORDER BY composite_score DESC, scan_ts DESC "
+        "LIMIT ?"
+    )
+    params.append(limit)
+    rows: list[dict] = []
+    try:
+        conn = sqlite3.connect("data/trader.db", check_same_thread=False, timeout=10)
+        conn.row_factory = sqlite3.Row
+        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+        conn.close()
+    except Exception as e:
+        console.log(f"[yellow]squeeze_candidates DB error: {type(e).__name__}: {e!r}")
+    return {
+        "ts": datetime.utcnow().isoformat() + "Z",
+        "limit": limit,
+        "tier_filter": tier_norm or None,
+        "count": len(rows),
+        "rows": rows,
+    }
+# === /HM-DASH.3 ===
