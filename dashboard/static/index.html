@@ -4587,7 +4587,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       var html = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">';
       items.slice(0,5).forEach(function(e) {
         var flag = e.in_portfolio ? ' 🚨' : '';
-        html += '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(234,179,8,0.12);color:#fcd34d;font-weight:600;">'+e.ticker+' '+e.date.slice(5)+(e.trend_30d==='up'?' ▲':'')+(e.trend_30d==='down'?' ▼':'')+flag+'</span>';
+        html += '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(234,179,8,0.12);color:#fcd34d;font-weight:600;"><span class="ticker-sym">'+e.ticker+'</span> '+e.date.slice(5)+(e.trend_30d==='up'?' ▲':'')+(e.trend_30d==='down'?' ▼':'')+flag+'</span>';
       });
       html += '</div>';
       return html;
@@ -20632,7 +20632,7 @@ async function fetchEarnings() {
                 : days === 1 ? '<span style="color:#ff9800;font-weight:bold">TOMORROW</span>'
                 : '<span style="color:#aaa">' + days + ' days</span>';
       var eps = e.eps_estimate ? ' (Est: $' + e.eps_estimate + ')' : '';
-      return '<b style="color:#fff">' + e.symbol + '</b> — ' + e.date + ' ' + label + eps;
+      return '<b class="ticker-sym" style="color:#fff">' + e.symbol + '</b> — ' + e.date + ' ' + label + eps;
     });
     content.innerHTML = lines.join(' &nbsp;&bull;&nbsp; ');
   } catch(e) {}
@@ -25062,7 +25062,7 @@ async function fetchEarningsHub() {
       var urgency = e.days_until <= 1 ? 'var(--red)' : e.days_until <= 3 ? 'var(--accent3)' : 'var(--accent)';
       html += '<div style="background:var(--surface2);border-radius:10px;padding:16px;border-top:3px solid ' + urgency + ';">';
       html += '<div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:8px;">';
-      html += '<div style="font-family:var(--font-mono);font-weight:700;font-size:16px;">' + e.symbol + '</div>';
+      html += '<div class="ticker-sym" style="font-family:var(--font-mono);font-weight:700;font-size:16px;">' + e.symbol + '</div>';
       html += '<div style="font-size:20px;font-weight:700;color:' + urgency + ';">' + e.days_until + 'd</div>';
       html += '</div>';
       html += '<div style="font-size:12px;color:var(--muted);margin-bottom:4px;">' + e.date + ' ' + (e.timing||'') + '</div>';
