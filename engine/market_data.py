@@ -689,13 +689,78 @@ def get_technical_indicators(symbol: str) -> dict:
 
 
 def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") -> list:
-    """Fetch OHLCV candles. HM-CA: Alpaca-first, Yahoo as fallback.
+    """Fetch OHLCV candles. HM-CB: Polygon-first → Alpaca → Yahoo cascade.
 
-    Yahoo direct-HTTP path is globally throttled via _yahoo_lock and gets
-    rate-limited hard on cold symbols (8-30s per call observed). Alpaca's
-    paper-data API is free, parallelizable, and typically <300ms cold.
-    Falls through to Yahoo if Alpaca creds missing or call fails.
+    Polygon Stocks Starter (paid, $29/mo) gives consistent sub-500ms cold-
+    symbol latency. Alpaca free-tier is inconsistent on cold bars (some
+    symbols 6+ seconds, some 429 too-many-requests). Yahoo direct HTTP
+    is the historic slow path. The fallback cascade lets us survive any
+    single upstream's transient failure without changing the output
+    schema seen by callers.
     """
+    # === HM-CB ===
+    # Polygon primary — paid tier, no rate-limit surprises, consistent
+    # ~400ms per call. Returns 5-min bars in {c,h,l,o,t,v} shape. We
+    # adapt to the existing {time,open,high,low,close,volume} schema.
+    try:
+        import os as _os_p, requests as _req_p
+        from datetime import datetime as _dt_p, timedelta as _td_p
+        _key_p = _os_p.environ.get("POLYGON_API_KEY", "")
+        if not _key_p:
+            raise RuntimeError("POLYGON_API_KEY unavailable")
+
+        # Map interval to Polygon's {multiplier, timespan} pair.
+        _itv_map = {
+            "1m":  (1,  "minute"),
+            "5m":  (5,  "minute"),
+            "15m": (15, "minute"),
+            "30m": (30, "minute"),
+            "1h":  (1,  "hour"),
+            "1d":  (1,  "day"),
+        }
+        _itv = _itv_map.get(interval)
+        if _itv is None:
+            raise ValueError(f"unsupported interval {interval!r}")
+        _mult, _span = _itv
+
+        # Map range to days window with 2x padding for weekends/holidays.
+        _days_map_p = {"1d": 1, "5d": 5, "1mo": 30, "3mo": 90, "6mo": 180, "1y": 365}
+        _days_p = _days_map_p.get(range_, 5)
+        _end_p = _dt_p.utcnow().strftime("%Y-%m-%d")
+        _start_p = (_dt_p.utcnow() - _td_p(days=_days_p * 2)).strftime("%Y-%m-%d")
+
+        _url = (
+            f"https://api.polygon.io/v2/aggs/ticker/{symbol.upper()}"
+            f"/range/{_mult}/{_span}/{_start_p}/{_end_p}"
+            f"?apiKey={_key_p}&limit=500"
+        )
+        _r = _req_p.get(_url, timeout=5)
+        if _r.status_code != 200:
+            raise RuntimeError(f"Polygon HTTP {_r.status_code}")
+        _data_p = _r.json()
+        _rows = _data_p.get("results", []) or []
+        if not _rows:
+            raise RuntimeError("Polygon returned 0 bars")
+
+        candles = []
+        for _row in _rows:
+            _ts_ms = _row.get("t")
+            if _ts_ms is None:
+                continue
+            _iso = datetime.utcfromtimestamp(_ts_ms / 1000).isoformat() + "Z"
+            candles.append({
+                "time":   _iso,
+                "open":   round(float(_row.get("o", 0)), 2),
+                "high":   round(float(_row.get("h", 0)), 2),
+                "low":    round(float(_row.get("l", 0)), 2),
+                "close":  round(float(_row.get("c", 0)), 2),
+                "volume": int(_row.get("v", 0) or 0),
+            })
+        return candles
+    except Exception as _e_p:
+        console.log(f"[yellow]HM-CB Polygon candles fallback to Alpaca for {symbol}: {type(_e_p).__name__}: {_e_p!r}[/yellow]")
+    # === /HM-CB ===
+
     # === HM-CA ===
     try:
         from alpaca.data import StockHistoricalDataClient
