@@ -344,7 +344,9 @@ def check_resources() -> None:
             )
             # Kill VTuber (heaviest non-essential process) to free RAM
             killed = subprocess.run(
-                ["pkill", "-f", "run_server.py"], capture_output=True
+                # === HM-BI: narrow pkill to Python invocations of run_server.py
+                # (was "run_server.py" — matched any shell/editor with the string in argv)
+                ["pkill", "-f", r"python.*run_server\.py"], capture_output=True
             ).returncode == 0
             if killed:
                 log.warning("Killed VTuber (run_server.py) to free memory")
