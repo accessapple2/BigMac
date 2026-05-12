@@ -51,13 +51,33 @@ def _sc():
     return c
 
 
+# === HM-BC.E ===
 def _ghost():
-    """Open ghost trades DB."""
+    """Open ghost trades DB.
+
+    Refuses to auto-create the file (HM-BC.E hardening). If DB_PATH is
+    missing, logs an actionable error and raises FileNotFoundError so the
+    caller sees a loud failure instead of silently writing to a fresh,
+    empty DB — the exact failure mode HM-BC.1 caught after the canonical
+    file was renamed and `sqlite3.connect()` quietly created a stub.
+    """
+    if not DB_PATH.exists():
+        log.error(
+            "ghost_scoring: canonical DB missing at %s — refusing to auto-create. "
+            "Check that data/ghost_trades.db was not renamed or moved. "
+            "See CLAUDE.md 'Ghost Tracking Architecture' for the two-system layout.",
+            DB_PATH,
+        )
+        raise FileNotFoundError(
+            f"ghost_scoring canonical DB missing at {DB_PATH}. "
+            f"HM-BC.E refuses silent auto-create."
+        )
     c = sqlite3.connect(str(DB_PATH), timeout=15)
     c.row_factory = sqlite3.Row
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=15000")
     return c
+# === /HM-BC.E ===
 
 
 def _extract_pattern(reasoning: str | None) -> str:
