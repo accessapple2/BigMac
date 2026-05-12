@@ -1694,6 +1694,38 @@ function agentName(player_id, fallback) {
   background: transparent; border: 0; color: inherit;
   cursor: pointer; font-size: 14px; padding: 0 2px;
 }
+/* === HM-BJ.E1: ticker-chip right-click context menu === */
+.ticker-context-menu {
+  position: fixed;
+  z-index: 10000;
+  min-width: 180px;
+  background: rgba(20,24,32,0.98);
+  color: #e5e9ef;
+  border: 1px solid rgba(120,200,255,0.4);
+  border-radius: 6px;
+  padding: 4px 0;
+  font-size: 13px;
+  box-shadow: 0 6px 28px rgba(0,0,0,0.55);
+}
+.ticker-context-menu button {
+  display: block;
+  width: 100%;
+  text-align: left;
+  background: transparent;
+  border: 0;
+  color: inherit;
+  cursor: pointer;
+  padding: 6px 12px;
+  font-size: 13px;
+  font-family: inherit;
+}
+.ticker-context-menu button:hover,
+.ticker-context-menu button:focus-visible {
+  background: rgba(74,168,255,0.16);
+  color: #4aa8ff;
+  outline: none;
+}
+/* === /HM-BJ.E1 === */
 </style>
 
 <script>
@@ -2047,6 +2079,86 @@ function agentName(player_id, fallback) {
   }
   window.upgradeTickerChips = upgradeAll;
 })();
+
+// === HM-BJ.E1: Right-click context menu on ticker chips ==========
+// Five quick-jump links per chip: TradingView, Yahoo Finance, Webull,
+// Schwab, and X/Twitter cashtag search. Dismiss on outside-click or
+// Esc. Uses event delegation matching the rest of HM-BJ.
+// ===================================================================
+(function() {
+  'use strict';
+
+  var menu = null;
+
+  var ITEMS = [
+    { emoji: '📊', label: 'TradingView',   url: function(s){ return 'https://www.tradingview.com/chart/?symbol=' + encodeURIComponent(s); } },
+    { emoji: '💹', label: 'Yahoo Finance', url: function(s){ return 'https://finance.yahoo.com/quote/' + encodeURIComponent(s); } },
+    { emoji: '🦅', label: 'Webull',        url: function(s){ return 'https://www.webull.com/quote/' + encodeURIComponent(s); } },
+    { emoji: '🏦', label: 'Schwab',        url: function(s){ return 'https://www.schwab.com/research/stocks/quotes/summary/' + encodeURIComponent(s); } },
+    { emoji: '🐦', label: 'X / Twitter',   url: function(s){ return 'https://twitter.com/search?q=%24' + encodeURIComponent(s); } }
+  ];
+
+  function closeMenu() {
+    if (menu) { menu.remove(); menu = null; }
+  }
+
+  function buildMenu(sym) {
+    closeMenu();
+    var m = document.createElement('div');
+    m.className = 'ticker-context-menu';
+    m.setAttribute('role', 'menu');
+    m.setAttribute('data-symbol', sym);
+    ITEMS.forEach(function(it) {
+      var btn = document.createElement('button');
+      btn.type = 'button';
+      btn.setAttribute('role', 'menuitem');
+      btn.textContent = it.emoji + '  ' + it.label;
+      btn.addEventListener('click', function() {
+        window.open(it.url(sym), '_blank', 'noopener');
+        closeMenu();
+      });
+      m.appendChild(btn);
+    });
+    document.body.appendChild(m);
+    return m;
+  }
+
+  function positionMenu(m, x, y) {
+    // Place near cursor; clamp so menu stays in viewport.
+    var rect = m.getBoundingClientRect();
+    var maxX = window.innerWidth - rect.width - 8;
+    var maxY = window.innerHeight - rect.height - 8;
+    m.style.left = Math.max(0, Math.min(x, maxX)) + 'px';
+    m.style.top  = Math.max(0, Math.min(y, maxY)) + 'px';
+  }
+
+  document.addEventListener('contextmenu', function(e) {
+    var chip = e.target && e.target.closest && e.target.closest('.ticker-chip');
+    if (!chip) return;
+    var sym = chip.getAttribute('data-symbol');
+    if (!sym) return;
+    e.preventDefault();
+    var m = buildMenu(sym);
+    positionMenu(m, e.clientX, e.clientY);
+  }, true);
+
+  document.addEventListener('click', function(e) {
+    if (!menu) return;
+    if (menu.contains(e.target)) return;
+    closeMenu();
+  }, true);
+
+  document.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape' && menu) {
+      e.preventDefault();
+      closeMenu();
+    }
+  });
+
+  document.addEventListener('scroll', closeMenu, true);
+})();
+// === /HM-BJ.E1 ===
+
 // === end HM-BJ ====================================================
 </script>
 
