@@ -53,7 +53,14 @@ def _get_iv_rank(symbol: str) -> dict | None:
 
         # Estimate IV rank from historical volatility as proxy
         # Use 1-year daily data to estimate realized vol range
-        yearly = ticker.history(period="1y", interval="1d")
+        # === HM-BL ===
+        # Memoized yfinance call — delisted symbols (e.g. ATH legacy row)
+        # short-circuit to empty DataFrame after first failure instead of
+        # emitting paired (period=1y, period=5d) yfinance warnings every
+        # crew_scanner tick. See engine/yf_safe.py.
+        from engine.yf_safe import yf_history_safe
+        yearly = yf_history_safe(symbol, period="1y", interval="1d")
+        # === /HM-BL ===
         if yearly.empty or len(yearly) < 30:
             return None
 
