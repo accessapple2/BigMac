@@ -178,3 +178,27 @@ docs/*.bak.*
 
 # HM-I-β-Item5: daily reconciliation reports — generated daily, not source-controlled
 data/reconciliation/
+
+# ── HM-CLEAN additions (2026-05-12) — working-tree sweep ────────────────────
+# HM-G covered backups/, but data/ DB snapshots (.pre-*, .legacy_*) were never
+# caught. ~1.06 GB of trader.db pre-op backups currently untracked in data/.
+# Mirror the HM-G pattern for the data/ tree.
+
+# Sacred-DB pre-op + legacy snapshots in data/
+data/*.db.pre-*
+data/*.db.legacy_*
+data/*.db-shm.pre-*
+data/*.db-wal.pre-*
+data/*.db.legacy_*-shm
+data/*.db.legacy_*-wal
+
+# Rotating logs
+data/model_watch_log.jsonl
+
+# Transient stub + report directories (regenerated/local-only)
+archive/stubs/
+reports/
+
+# Pre-op file-level snapshots in source/backup dirs
+shared/*.pre-*
+backups/main.py.pre-*
