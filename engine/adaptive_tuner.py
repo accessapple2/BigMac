@@ -115,6 +115,9 @@ def _fetch_intraday_snapshots(days: int = 30) -> list[dict]:
         return []
 
 
+# === HM-BO === forecast_scorecards has no direction_correct column;
+# _compute_accuracies only consumes session_correct from scorecards, and
+# DEFAULT_WEIGHTS has no 'direction' signal. Column dropped from SELECT.
 def _fetch_scorecards(days: int = 30) -> list[dict]:
     """Read forecast_scorecards from trader.db."""
     try:
@@ -123,7 +126,7 @@ def _fetch_scorecards(days: int = 30) -> list[dict]:
         cutoff = (datetime.now() - timedelta(days=days)).strftime("%Y-%m-%d")
         rows = conn.execute(
             """
-            SELECT trade_date, session_correct, direction_correct, overall_grade
+            SELECT trade_date, session_correct, overall_grade
             FROM forecast_scorecards
             WHERE trade_date >= ?
             ORDER BY trade_date ASC
@@ -135,6 +138,7 @@ def _fetch_scorecards(days: int = 30) -> list[dict]:
     except Exception as e:
         logger.error("_fetch_scorecards failed: %s", e)
         return []
+# === /HM-BO ===
 
 
 def _get_last_snapshot_per_day(snapshots: list[dict]) -> dict[str, dict]:
