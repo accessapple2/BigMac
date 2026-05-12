@@ -16,56 +16,65 @@ DATA_FILE = Path("data/premarket_gaps.json")
 DAYBLADE_TICKERS = ["SPY", "QQQ", "NVDA", "TSLA", "AAPL"]
 
 
+# === HM-BD.E: scan_premarket_gaps rewrite over batched snapshots ===
+# Previously: serial loop over 668-symbol universe, two yfinance+Alpaca
+# fetches per symbol = ~1336 sequential network calls, observed 6+ min
+# cold path. Now: one batched Alpaca multi-symbol-snapshot call via
+# get_bulk_snapshots(), same primitive /api/momentum/premarket already
+# uses successfully at ~0.6s. Output shape, filter (|gap|>=2%), sort
+# order, and _save_gaps() side effect all preserved so downstream
+# callers (analyze_gaps_with_ai, get_dayblade_gap_candidates) and the
+# dashboard frontend see no behavior change other than latency.
 def scan_premarket_gaps() -> list:
     """Scan get_active_universe() for pre-market gaps vs previous close.
 
-    Uses yfinance to get the previous close and current pre/post market price.
-    Filters for |gap| > 2%.
+    One batched Alpaca snapshots call. Filters |gap_pct| >= 2%, sorts by
+    absolute gap size, saves to data/premarket_gaps.json for downstream
+    consumers (analyze_gaps_with_ai, get_dayblade_gap_candidates).
 
-    Returns list of dicts with symbol, prev_close, premarket_price, gap_pct, direction.
+    Returns list of dicts with symbol, prev_close, premarket_price,
+    gap_pct, direction, scanned_at.
     """
-    from engine.market_data import get_stock_price, get_alpaca_bars
+    from engine.market_data import get_bulk_snapshots
+    from engine.universe import get_active_universe
+
+    universe = get_active_universe()
+    if not universe:
+        console.log("[yellow]Premarket scan: get_active_universe() returned empty")
+        _save_gaps([])
+        return []
+
+    snapshots = get_bulk_snapshots(universe)
+    if not snapshots:
+        console.log("[red]Premarket scan: get_bulk_snapshots returned empty")
+        _save_gaps([])
+        return []
 
     gaps = []
-    for symbol in config.get_effective_watchlist():
-        try:
-            data = get_stock_price(symbol) or {}
-            bars = get_alpaca_bars(symbol, days=2)
+    scanned_at = datetime.now().isoformat()
+    for symbol, snap in snapshots.items():
+        prev_close = snap.get("prev_close")
+        premarket_price = snap.get("last_price")
+        if not prev_close or not premarket_price or prev_close <= 0:
+            continue
 
-            premarket_price = data.get("price")
-            prev_close = None
-            if bars is not None and len(bars) >= 2:
-                prev_close = float(bars["Close"].iloc[-2])
-            elif bars is not None and len(bars) >= 1:
-                prev_close = float(bars["Close"].iloc[-1])
+        gap_pct = round(((premarket_price - prev_close) / prev_close) * 100, 2)
+        if abs(gap_pct) < 2.0:
+            continue
 
-            if not prev_close or not premarket_price or prev_close <= 0:
-                continue
+        gaps.append({
+            "symbol": symbol,
+            "prev_close": round(prev_close, 2),
+            "premarket_price": round(premarket_price, 2),
+            "gap_pct": gap_pct,
+            "direction": "gap_up" if gap_pct > 0 else "gap_down",
+            "scanned_at": scanned_at,
+        })
 
-            gap_pct = round(((premarket_price - prev_close) / prev_close) * 100, 2)
-
-            if abs(gap_pct) < 2.0:
-                continue
-
-            direction = "gap_up" if gap_pct > 0 else "gap_down"
-            gaps.append({
-                "symbol": symbol,
-                "prev_close": round(prev_close, 2),
-                "premarket_price": round(premarket_price, 2),
-                "gap_pct": gap_pct,
-                "direction": direction,
-                "scanned_at": datetime.now().isoformat(),
-            })
-
-        except Exception as e:
-            console.log(f"[red]Premarket scan error for {symbol}: {e}")
-
-    # Sort by absolute gap size
     gaps.sort(key=lambda x: abs(x["gap_pct"]), reverse=True)
-
-    # Save to disk
     _save_gaps(gaps)
     return gaps
+# === end HM-BD.E ===
 
 
 def analyze_gaps_with_ai() -> list:
