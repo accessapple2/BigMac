@@ -13,6 +13,16 @@ logger = _logging.getLogger("app")
 import math
 from dotenv import load_dotenv
 load_dotenv(override=True)
+# === HM-BJ.E4 ===
+# `console` is referenced at multiple spots in this file (lines 3881/3888/3895/
+# 3907/3911 in HM-BJ.E4 + pre-existing latent 5840/5886) without ever being
+# imported. Adds the standard rich.Console here at module level so all those
+# call sites resolve. The pre-existing 5840/5886 lines have been latent
+# (NameError-then-swallowed) since whenever they were written; this incidentally
+# fixes them too.
+from rich.console import Console
+console = Console()
+# === /HM-BJ.E4 ===
 
 from fastapi import FastAPI, Request, Form, HTTPException, Body
 from pydantic import BaseModel
