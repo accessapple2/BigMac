@@ -41,6 +41,7 @@ NOTIFY_COOLDOWN = 300   # seconds before re-alerting the same service
 CPU_WARN_PCT    = 90    # alert threshold
 MEM_WARN_PCT    = 85    # alert threshold
 MEM_CRIT_PCT    = 95    # kill non-essential processes to free RAM
+SWAP_CRIT_PCT   = 40    # HM-BF: also shed load if swap%≥40 (macOS pages before mem% rises)
 
 BRIDGE_URL        = "http://127.0.0.1:8080/api/status"
 SIGNAL_CENTER_URL = "http://127.0.0.1:9000/"
@@ -331,10 +332,14 @@ def check_resources() -> None:
         if cpu > CPU_WARN_PCT:
             log.warning(f"HIGH CPU: {cpu:.0f}% — Ollama inference likely running")
 
-        if mem_pct >= MEM_CRIT_PCT:
+        # === HM-BF: swap-aware critical trigger ===
+        # macOS pages aggressively to swap before mem.percent rises. Trigger
+        # shed-load if EITHER RAM ≥ MEM_CRIT_PCT or swap ≥ SWAP_CRIT_PCT
+        # (~6.4GB swapped on a 16GB box = substantial thrash).
+        if mem_pct >= MEM_CRIT_PCT or swap.percent >= SWAP_CRIT_PCT:
             alert(
                 "Critical Memory",
-                f"RAM {mem_pct:.0f}% — only {mem_avail}GB free. Shedding load.",
+                f"RAM {mem_pct:.0f}% / Swap {swap.percent:.0f}% — {mem_avail}GB free. Shedding load.",
                 "mem_crit",
             )
             # Kill VTuber (heaviest non-essential process) to free RAM
