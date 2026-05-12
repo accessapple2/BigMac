@@ -1880,15 +1880,26 @@ function agentName(player_id, fallback) {
   }
   function hideTip() { if (tip) tip.classList.remove('show'); }
 
+  // === HM-BJ.E4 frontend ===
+  // Single round-trip to /api/symbol/SYM/scorecard — server-side
+  // aggregator (HM-BJ.E4 backend) returns {candles, sentiment, news}
+  // in one payload. Polygon-backed (HM-CB) so cold path is ~0.5s
+  // per sub-fetch instead of 8-30s. @timed_cache(60) on the
+  // backend makes repeat hovers within a minute serve in ~135ms.
+  // Per-sub-fetch failures are nulled server-side; the empty-dict
+  // defaults below keep renderTip's downstream readers happy.
   function fetchScorecard(sym) {
-    return Promise.all([
-      cachedFetch('/api/market/candles/' + encodeURIComponent(sym) + '?limit=30'),
-      cachedFetch('/api/market/sentiment/' + encodeURIComponent(sym)),
-      cachedFetch('/api/news/' + encodeURIComponent(sym)),
-    ]).then(function(arr) {
-      return { candles: arr[0] || {}, sentiment: arr[1] || {}, news: arr[2] || {} };
-    });
+    return cachedFetch('/api/symbol/' + encodeURIComponent(sym) + '/scorecard')
+      .then(function(d) {
+        if (!d) return { candles: {}, sentiment: {}, news: {} };
+        return {
+          candles:   d.candles   || {},
+          sentiment: d.sentiment || {},
+          news:      d.news      || {}
+        };
+      });
   }
+  // === /HM-BJ.E4 frontend ===
 
   // --- Hover (300ms delay) ---------------------------------------
   var hoverTimer = null, hoverSym = null;
