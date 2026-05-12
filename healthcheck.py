@@ -117,6 +117,30 @@ def check_db() -> tuple[bool, str]:
         return False, str(e)
 
 
+# === HM-BL.E2 ===
+def check_zero_qty_positions() -> tuple[int, str]:
+    """Canary for stale zero/null-qty rows in positions (sell-tombstones not deleted).
+
+    Silent when count == 0 — main() only emits NTFY when > 0, so no daily zero-row
+    pings. Returns (stale_count, sample_info) where sample_info lists up to 5 rows.
+    """
+    try:
+        con = sqlite3.connect(DB_PATH, timeout=5)
+        rows = con.execute(
+            "SELECT player_id, symbol, qty FROM positions "
+            "WHERE qty = 0 OR qty IS NULL LIMIT 10"
+        ).fetchall()
+        con.close()
+        if not rows:
+            return 0, "ok"
+        sample = ", ".join(f"{r[0]}:{r[1]}={r[2]}" for r in rows[:5])
+        suffix = " (+more, truncated at 10)" if len(rows) >= 10 else ""
+        return len(rows), f"{sample}{suffix}"
+    except Exception as e:
+        return 0, f"check error: {e}"
+# === /HM-BL.E2 ===
+
+
 def check_log_freshness() -> tuple[bool, float]:
     # Only meaningful during market hours — scanner legitimately goes quiet overnight/weekends.
     # 2026-04-26: market-hours guard added to prevent false alerts during off-hours.
@@ -822,6 +846,19 @@ def main() -> None:
         post_war_room(f"✓ Archer restarted after market close: {restart_info}")
     elif _archer_killed_for_trading:
         log(f"  Archer restart    : – {restart_info}")
+
+    # === HM-BL.E2 === canary: stale zero/null-qty rows in positions
+    zq_count, zq_info = check_zero_qty_positions()
+    if zq_count > 0:
+        log(f"  Zero-qty canary   : ⚠️ {zq_count} stale row(s) — {zq_info}")
+        notify(
+            "⚠️ HM-BL.E2 stale positions",
+            f"{zq_count} zero/null-qty row(s) in positions:\n{zq_info}",
+            priority="high",
+        )
+    else:
+        log(f"  Zero-qty canary   : ✓ {zq_info}")
+    # === /HM-BL.E2 ===
 
     # -----------------------------------------------------------------------
     # No restart needed — collect non-fatal warnings
