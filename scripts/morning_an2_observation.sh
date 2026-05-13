@@ -9,7 +9,7 @@
 set -uo pipefail
 cd ~/autonomous-trader || exit 1
 
-LOG=~/autonomous-trader/logs/trader.log
+LOG=~/autonomous-trader/logs/trader_error.log
 DB=~/autonomous-trader/data/trader.db
 TODAY=$(date +%Y-%m-%d)
 
