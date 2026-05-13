@@ -340,16 +340,16 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196426.189771,
-    "price": 399.89
+    "timestamp": 1778632836.375594,
+    "price": 387.38
   },
   "NVDA:all": {
     "symbol": "NVDA",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196426.19971,
-    "price": 212.48
+    "timestamp": 1778632836.386838,
+    "price": 220.78
   },
   "AAPL:all": {
     "symbol": "AAPL",
@@ -372,16 +372,16 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196416.715212,
-    "price": 4701.5
+    "timestamp": 1778632824.298713,
+    "price": 4729.8
   },
   "SI=F:all": {
     "symbol": "SI=F",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196426.185659,
-    "price": 79.3
+    "timestamp": 1778632836.369874,
+    "price": 88.26
   },
   "TQQQ:all": {
     "symbol": "TQQQ",
@@ -436,8 +436,8 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196426.195136,
-    "price": 136.9
+    "timestamp": 1778632836.381349,
+    "price": 136.87
   },
   "IBP:all": {
     "symbol": "IBP",
@@ -468,24 +468,24 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196426.196754,
-    "price": 89.07
+    "timestamp": 1778632836.383256,
+    "price": 89.25
   },
   "MSFT:all": {
     "symbol": "MSFT",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196426.20363,
-    "price": 420.01
+    "timestamp": 1778632836.390785,
+    "price": 413.83
   },
   "KMI:all": {
     "symbol": "KMI",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196426.2175722,
-    "price": 31.49
+    "timestamp": 1778632836.750168,
+    "price": 32.11
   },
   "QQQ:all": {
     "symbol": "QQQ",
@@ -500,8 +500,8 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196426.218595,
-    "price": 72.91
+    "timestamp": 1778632836.757728,
+    "price": 70.44
   },
   "INTC:all": {
     "symbol": "INTC",
@@ -748,8 +748,8 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196426.198246,
-    "price": 614.62
+    "timestamp": 1778632836.384809,
+    "price": 603.0
   },
   "NET:all": {
     "symbol": "NET",
@@ -812,16 +812,16 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196426.193027,
-    "price": 27.3
+    "timestamp": 1778632836.379211,
+    "price": 26.86
   },
   "AVGO:all": {
     "symbol": "AVGO",
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196426.20526,
-    "price": 413.16
+    "timestamp": 1778632836.392601,
+    "price": 414.73
   },
   "SPY:all": {
     "symbol": "SPY",
@@ -844,8 +844,8 @@
     "model": "all",
     "bull_case": "",
     "bear_case": "",
-    "timestamp": 1778196426.20226,
-    "price": 319.36
+    "timestamp": 1778632836.389075,
+    "price": 314.31
   },
   "ATH:all": {
     "symbol": "ATH",
@@ -894,5 +894,109 @@
     "bear_case": "",
     "timestamp": 1778196426.216533,
     "price": 76.14
+  },
+  "MKL:all": {
+    "symbol": "MKL",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.394198,
+    "price": 1840.95
+  },
+  "MNST:all": {
+    "symbol": "MNST",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.395643,
+    "price": 85.52
+  },
+  "COHR:all": {
+    "symbol": "COHR",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.3969831,
+    "price": 373.72
+  },
+  "RKLB:all": {
+    "symbol": "RKLB",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.398171,
+    "price": 119.17
+  },
+  "SPGI:all": {
+    "symbol": "SPGI",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.399393,
+    "price": 405.74
+  },
+  "LITE:all": {
+    "symbol": "LITE",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.400599,
+    "price": 983.78
+  },
+  "MRAM:all": {
+    "symbol": "MRAM",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.401803,
+    "price": 44.03
+  },
+  "MA:all": {
+    "symbol": "MA",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.403032,
+    "price": 473.79
+  },
+  "LLY:all": {
+    "symbol": "LLY",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.4047759,
+    "price": 938.6
+  },
+  "XOM:all": {
+    "symbol": "XOM",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.405872,
+    "price": 143.45
+  },
+  "WMT:all": {
+    "symbol": "WMT",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.4069629,
+    "price": 130.56
+  },
+  "MRVL:all": {
+    "symbol": "MRVL",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.4080791,
+    "price": 162.24
+  },
+  "UNH:all": {
+    "symbol": "UNH",
+    "model": "all",
+    "bull_case": "",
+    "bear_case": "",
+    "timestamp": 1778632836.754024,
+    "price": 371.19
   }
 }
