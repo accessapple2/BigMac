@@ -2092,14 +2092,14 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
         entry = float(s.get("entry_price") or 0)
         agent = s.get("agent_name") or "unknown"
         if not sym or action not in ("BUY", "LONG"):
-            logger.info(f"[HM-AN2] sig#{sig_id} {sym or '?'} {action} skip (non-buy)")
+            console.log(f"[HM-AN2] sig#{sig_id} {sym or '?'} {action} skip (non-buy)")
             continue
         logger.info(
             f"[HM-AN2] sig#{sig_id} CANDIDATE: {sym} {action} conf={conf} "
             f"entry=${entry:.2f} agent={agent}"
         )
         if entry <= 0:
-            logger.info(f"[HM-AN2] sig#{sig_id} {sym} skip (no entry_price)")
+            console.log(f"[HM-AN2] sig#{sig_id} {sym} skip (no entry_price)")
             continue
         reasoning = (
             f"[HM-AN2.C] Signal Center sig#{sig_id} via {agent}: "
@@ -2114,7 +2114,7 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
                 confidence=conf / 100.0,
             )
             if result:
-                logger.info(f"[HM-AN2] sig#{sig_id} {sym} EXECUTED → {result}")
+                console.log(f"[HM-AN2] sig#{sig_id} {sym} EXECUTED → {result}")
             else:
                 logger.info(
                     f"[HM-AN2] sig#{sig_id} {sym} BLOCKED — see paper_trader "
@@ -2875,7 +2875,7 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
         try:
             _hm_an2_consume_signal_center(market_ctx)
         except Exception as _hm_an2_err:
-            logger.warning(f"[HM-AN2] neo-matrix consume error: {_hm_an2_err!r}")
+            console.log(f"[yellow][HM-AN2] neo-matrix consume error: {_hm_an2_err!r}")
         # === /HM-AN2.C ===
 
         # ── NEO: aggressive rebuilt system prompt ──────────────────────────────
@@ -3533,7 +3533,7 @@ def _run_scan_cycle_body(
             logger.error(f"run_scan_cycle error for {player_id}: {e}")
         _hm_cd_wall = time.perf_counter() - _hm_cd_agent_t0
         _hm_cd_syms = _hm_cd_result.get("candidates_seen", "?") if isinstance(_hm_cd_result, dict) else "?"
-        logger.info(f"[cyan][HM-CD-instr] agent={player_id} wall={_hm_cd_wall:.2f}s symbols={_hm_cd_syms}[/cyan]")
+        console.log(f"[cyan][HM-CD-instr] agent={player_id} wall={_hm_cd_wall:.2f}s symbols={_hm_cd_syms}[/cyan]")
         # === /HM-CD-instr ===
         time.sleep(0.5)
 
@@ -3553,7 +3553,7 @@ def _run_scan_cycle_body(
             logger.error(f"run_scan_cycle alpha error for {player_id}: {e}")
         _hm_cd_wall = time.perf_counter() - _hm_cd_agent_t0
         _hm_cd_syms = _hm_cd_result.get("candidates_seen", "?") if isinstance(_hm_cd_result, dict) else "?"
-        logger.info(f"[cyan][HM-CD-instr] agent={player_id} wall={_hm_cd_wall:.2f}s symbols={_hm_cd_syms}[/cyan]")
+        console.log(f"[cyan][HM-CD-instr] agent={player_id} wall={_hm_cd_wall:.2f}s symbols={_hm_cd_syms}[/cyan]")
         # === /HM-CD-instr ===
         time.sleep(1.0)  # gap between pair agents to avoid Ollama swap
 
@@ -3621,7 +3621,7 @@ def _run_scan_cycle_body(
 
     # === HM-CD-instr === cycle wall end
     _hm_cd_cycle_wall = time.perf_counter() - _hm_cd_cycle_t0
-    logger.info(f"[cyan][HM-CD-instr] cycle wall={_hm_cd_cycle_wall:.2f}s agents={total}[/cyan]")
+    console.log(f"[cyan][HM-CD-instr] cycle wall={_hm_cd_cycle_wall:.2f}s agents={total}[/cyan]")
     # === /HM-CD-instr ===
     return summary
 
