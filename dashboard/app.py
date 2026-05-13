@@ -18097,48 +18097,102 @@ def momentum_premarket(limit: int = 30, force: bool = False) -> dict:
 
 
 # === HM-DASH.3 === squeeze_watch candidates endpoint
-# Backs the deferred HM-AO-β-2 frontend panel. Dashboard Doctrine
-# 2026-05-08 confirmed dashboard/static/index.html is the canonical
-# surface, so this endpoint returns the full squeeze_watch payload
-# for vanilla-JS consumption (no JSX/Vite dependency).
+# === HM-DASH.4 === extended to UNION squeeze_candidates (lower-tier 3-4) +
+# squeeze_watch (>=5), with min_score param. squeeze_watch table is queried
+# byte-identically to HM-DASH.3; only the merge wrapper is new.
+# Backs the deferred HM-AO-β-2 frontend panel. Dashboard Doctrine 2026-05-08
+# confirmed dashboard/static/index.html is the canonical surface — vanilla JS.
+import re as _hmdash4_re
+_HMDASH4_DTC_RE = _hmdash4_re.compile(r"days_to_cover=([\d.]+)")
+# squeeze_watch persist threshold mirror (single source of truth lives in
+# engine/squeeze_scanner.py:_MIN_PERSIST_SCORE; kept here to avoid an import
+# cycle into the scanner module from the dashboard request path).
+_MIN_PERSIST_SCORE_FLOOR = 5
+
+
 @app.get("/api/squeeze/candidates")
 @timed_cache(60)
-def squeeze_candidates(limit: int = 20, tier: str = "") -> dict:
-    """Recent non-dismissed squeeze_watch rows, ordered by composite_score DESC.
+def squeeze_candidates(limit: int = 20, tier: str = "", min_score: int = 3) -> dict:
+    """Recent non-dismissed squeeze rows from BOTH squeeze_watch + squeeze_candidates.
 
-    Optional `tier` filter: WATCH | ALERT | PRIORITY (case-insensitive).
-    Caps `limit` at 100 to bound payload size.
+    Params:
+      - limit (1-100, default 20): payload cap
+      - tier (WATCH|ALERT|PRIORITY, optional): legacy threshold_tier filter
+        applied only to squeeze_watch rows (squeeze_candidates skipped when set)
+      - min_score (1-10, default 3): scanner raw-score floor. score*10 = composite.
+        min_score >= 5 effectively restricts to squeeze_watch only.
+
+    Each row carries:
+      - tier: 'watch' (from squeeze_watch, score>=5) or 'candidate' (3-4)
+      - days_to_cover: REAL for candidate rows; parsed from notes for watch rows
     """
     limit = max(1, min(int(limit or 20), 100))
     tier_norm = (tier or "").upper().strip()
-    where = ["dismissed = 0"]
-    params: list = []
-    if tier_norm in ("WATCH", "ALERT", "PRIORITY"):
-        where.append("threshold_tier = ?")
-        params.append(tier_norm)
-    sql = (
-        "SELECT symbol, scan_ts, short_pct, float_m, vol_ratio, rsi, "
-        "       breakout_score, composite_score, threshold_tier, "
-        "       price_at_scan, notes, ntfy_sent, ntfy_deferred, created_at "
-        "FROM squeeze_watch "
-        "WHERE " + " AND ".join(where) + " "
-        "ORDER BY composite_score DESC, scan_ts DESC "
-        "LIMIT ?"
-    )
-    params.append(limit)
+    min_score_norm = max(1, min(int(min_score or 3), 10))
+    min_composite = float(min_score_norm) * 10.0
     rows: list[dict] = []
+
     try:
         conn = sqlite3.connect("data/trader.db", check_same_thread=False, timeout=10)
         conn.row_factory = sqlite3.Row
-        rows = [dict(r) for r in conn.execute(sql, params).fetchall()]
+
+        # squeeze_watch (high-confidence, score>=5). Existing fields + tier='watch'.
+        watch_where = ["dismissed = 0", "composite_score >= ?"]
+        watch_params: list = [min_composite]
+        if tier_norm in ("WATCH", "ALERT", "PRIORITY"):
+            watch_where.append("threshold_tier = ?")
+            watch_params.append(tier_norm)
+        watch_sql = (
+            "SELECT symbol, scan_ts, short_pct, float_m, vol_ratio, rsi, "
+            "       breakout_score, composite_score, threshold_tier, "
+            "       price_at_scan, notes, ntfy_sent, ntfy_deferred, created_at "
+            "FROM squeeze_watch WHERE " + " AND ".join(watch_where) + " "
+            "ORDER BY composite_score DESC, scan_ts DESC LIMIT ?"
+        )
+        watch_params.append(limit)
+        for r in conn.execute(watch_sql, watch_params).fetchall():
+            d = dict(r)
+            d["tier"] = "watch"
+            m = _HMDASH4_DTC_RE.search(d.get("notes") or "")
+            d["days_to_cover"] = float(m.group(1)) if m else None
+            rows.append(d)
+
+        # squeeze_candidates (lower-tier 3-4). Skip if caller filtered by
+        # legacy threshold_tier — those tiers only exist in squeeze_watch.
+        if not tier_norm and min_score_norm < _MIN_PERSIST_SCORE_FLOOR:
+            cand_sql = (
+                "SELECT symbol, scan_ts, short_pct, float_m, vol_ratio, rsi, "
+                "       breakout_score, composite_score, threshold_tier, "
+                "       price_at_scan, days_to_cover, notes, created_at, "
+                "       0 AS ntfy_sent, 0 AS ntfy_deferred "
+                "FROM squeeze_candidates "
+                "WHERE dismissed = 0 AND composite_score >= ? AND composite_score < ? "
+                "ORDER BY composite_score DESC, days_to_cover DESC, scan_ts DESC LIMIT ?"
+            )
+            cand_upper = float(_MIN_PERSIST_SCORE_FLOOR) * 10.0
+            for r in conn.execute(cand_sql, (min_composite, cand_upper, limit)).fetchall():
+                d = dict(r)
+                d["tier"] = "candidate"
+                rows.append(d)
         conn.close()
     except Exception as e:
         console.log(f"[yellow]squeeze_candidates DB error: {type(e).__name__}: {e!r}")
+
+    # Merge sort: composite_score DESC, then days_to_cover DESC (None last)
+    rows.sort(
+        key=lambda r: (
+            -(r.get("composite_score") or 0.0),
+            -(r.get("days_to_cover") or 0.0),
+        )
+    )
+    rows = rows[:limit]
     return {
         "ts": datetime.utcnow().isoformat() + "Z",
         "limit": limit,
         "tier_filter": tier_norm or None,
+        "min_score": min_score_norm,
         "count": len(rows),
         "rows": rows,
     }
+# === /HM-DASH.4 ===
 # === /HM-DASH.3 ===

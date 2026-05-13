@@ -39,8 +39,14 @@ _CACHE_TTL: int = 300  # 5 min cache
 
 # HM-AO-β: canonical trader DB (mirrors engine/fast_scanner.py path fix)
 _DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
-_MIN_PERSIST_SCORE = 5      # scanner score (1-10); rows below this are ignored
+_MIN_PERSIST_SCORE = 5      # scanner score (1-10); high-confidence floor for squeeze_watch
 _DEDUPE_HOURS = 24          # re-insert only if same-symbol row in last 24h is lower-tier
+# === HM-DASH.4 === lower-confidence (3-4) rows route to squeeze_candidates instead.
+# squeeze_watch semantics UNCHANGED — same _MIN_PERSIST_SCORE=5 floor, same dedup,
+# same INSERT. Only the previously-discarded 3-4 range now persists to a sibling
+# table for dashboard surfacing. Frontend filters via /api/squeeze/candidates?min_score.
+_MIN_CANDIDATE_SCORE = 3
+# === /HM-DASH.4 ===
 
 
 def _tier_for_composite(composite: float) -> str:
@@ -421,11 +427,32 @@ def _persist_results(results: list[dict], db_path: str = _DB_PATH) -> dict:
     scan_ts = datetime.now(timezone.utc).isoformat()
     inserted_ids: list[int] = []
 
+    # === HM-DASH.4 === counter for candidates-table inserts (added to summary)
+    summary["candidates_inserted"] = 0
+    summary["candidates_skipped_dedup"] = 0
+    # === /HM-DASH.4 ===
     try:
         conn = _conn(db_path)
+        # === HM-DASH.4 === ensure sibling table exists (idempotent; defensive against
+        # fresh DBs or migration drift; mirrors engine/fast_scanner.py boot pattern)
+        try:
+            conn.execute(
+                "CREATE TABLE IF NOT EXISTS squeeze_candidates ("
+                " id INTEGER PRIMARY KEY AUTOINCREMENT,"
+                " symbol TEXT NOT NULL, scan_ts TEXT NOT NULL,"
+                " short_pct REAL, float_m REAL, vol_ratio REAL, rsi REAL,"
+                " breakout_score REAL, composite_score REAL NOT NULL,"
+                " threshold_tier TEXT, price_at_scan REAL,"
+                " days_to_cover REAL, notes TEXT,"
+                " dismissed INTEGER DEFAULT 0, dismissed_at TEXT, dismissed_reason TEXT,"
+                " created_at TEXT DEFAULT CURRENT_TIMESTAMP)"
+            )
+        except Exception as _ce:
+            console.log(f"[yellow]squeeze_candidates ensure-table: {_ce!r}")
+        # === /HM-DASH.4 ===
         for r in results:
             score = int(r.get("score", 0) or 0)
-            if score < _MIN_PERSIST_SCORE:
+            if score < _MIN_CANDIDATE_SCORE:
                 continue
             ticker = r.get("ticker") or ""
             if not ticker:
@@ -433,6 +460,15 @@ def _persist_results(results: list[dict], db_path: str = _DB_PATH) -> dict:
 
             composite = float(score) * 10.0
             tier = _tier_for_composite(composite)
+
+            # === HM-DASH.4 === route lower-confidence (3-4) → squeeze_candidates
+            if score < _MIN_PERSIST_SCORE:
+                _hmdash4_persist_candidate(
+                    conn, r, ticker, scan_ts, cutoff_ts,
+                    score, composite, tier, summary,
+                )
+                continue
+            # === /HM-DASH.4 === (>=5 path below is byte-identical to pre-HM-DASH.4)
 
             # Dedupe — most recent row in last _DEDUPE_HOURS for same symbol
             row = conn.execute(
@@ -501,7 +537,73 @@ def _persist_results(results: list[dict], db_path: str = _DB_PATH) -> dict:
             f"skipped_dedup={summary['skipped_dedup']} "
             f"deferred={summary['deferred']} ntfy_fired={summary['ntfy_fired']}"
         )
+    # === HM-DASH.4 === candidate-tier log line (only when something happened)
+    if summary.get("candidates_inserted") or summary.get("candidates_skipped_dedup"):
+        console.log(
+            f"[cyan]squeeze_candidates: inserted={summary['candidates_inserted']} "
+            f"skipped_dedup={summary['candidates_skipped_dedup']}"
+        )
+    # === /HM-DASH.4 ===
     return summary
+
+
+# === HM-DASH.4 === lower-tier persistence helper
+def _hmdash4_persist_candidate(
+    conn: sqlite3.Connection,
+    r: dict,
+    ticker: str,
+    scan_ts: str,
+    cutoff_ts: str,
+    score: int,
+    composite: float,
+    tier: str,
+    summary: dict,
+) -> None:
+    """INSERT into squeeze_candidates for raw_score 3-4. 24h dedup per symbol.
+
+    Mutates `summary` in place (candidates_inserted / candidates_skipped_dedup).
+    Wrapped in try/except — never raises. Mirrors squeeze_watch fault tolerance.
+    """
+    try:
+        existing = conn.execute(
+            "SELECT id FROM squeeze_candidates "
+            "WHERE symbol = ? AND scan_ts >= ? AND dismissed = 0 "
+            "ORDER BY scan_ts DESC LIMIT 1",
+            (ticker, cutoff_ts),
+        ).fetchone()
+        if existing is not None:
+            summary["candidates_skipped_dedup"] = summary.get("candidates_skipped_dedup", 0) + 1
+            return
+        breakout = 1.0 if r.get("above_10d_high") else 0.0
+        dtc = float(r.get("days_to_cover", 0) or 0)
+        notes = (
+            f"raw_score={score}; days_to_cover={r.get('days_to_cover')}; "
+            f"day_change_pct={r.get('day_change_pct')}; "
+            f"high_10d_break={'yes' if r.get('above_10d_high') else 'no'}; "
+            f"si_source={r.get('si_source', 'finviz')}; "
+            f"si_settle={r.get('si_settlement_date', '')}"
+        )
+        conn.execute(
+            "INSERT INTO squeeze_candidates "
+            "(symbol, scan_ts, short_pct, float_m, vol_ratio, rsi, "
+            " breakout_score, composite_score, threshold_tier, "
+            " price_at_scan, days_to_cover, notes) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                ticker, scan_ts,
+                float(r.get("short_interest_pct", 0) or 0),
+                float(r.get("float_m", 0) or 0),
+                float(r.get("vol_ratio", 0) or 0),
+                float(r.get("rsi", 0) or 0),
+                breakout, composite, tier,
+                float(r.get("price", 0) or 0),
+                dtc, notes,
+            ),
+        )
+        summary["candidates_inserted"] = summary.get("candidates_inserted", 0) + 1
+    except Exception as e:
+        console.log(f"[yellow]squeeze_candidates insert error for {ticker}: {type(e).__name__}: {e!r}")
+# === /HM-DASH.4 ===
 
 
 def _ntfy_priority_candidates(db_path: str = _DB_PATH, max_individual: int = 5) -> int:
