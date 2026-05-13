@@ -328,6 +328,25 @@ _CRIT_RAM_THRESHOLD_BYTES = 300 * 1024 ** 2  # 300 MB — force-unload all model
 _current_ollama_model: str | None = None
 _ollama_model_lock = threading.Lock()
 
+# === HM-CD-migrate === per-model keep_alive (2026-05-13)
+# Frequent models stay resident; rare models unload fast.
+# Rationale: qwen3:8b serves 7 agents, qwen2.5-coder:7b serves 2.
+# Original universal "30s" forced reload on every call (~200s wall).
+# Ollie Box 32GB VRAM can hold 2-3 7B-class models simultaneously.
+_HM_CD_KEEP_ALIVE = {
+    "qwen3:8b":            "30m",  # 7 agents — hot path
+    "qwen2.5-coder:7b":    "30m",  # 2 agents (ollama-coder, data-tng)
+    "qwen2.5:7b":          "10m",  # alpha squad rotation
+    "deepseek-r1:14b":     "10m",  # alpha squad rotation
+    "phi3:mini":           "10m",  # 2 agents, small/cheap
+    "gemma3:4b":           "10m",  # resident metals/general
+    # default for any other model: "30s" (preserves original behavior)
+}
+def _hm_cd_keep_alive(model: str) -> str:
+    return _HM_CD_KEEP_ALIVE.get(model, "30s")
+# === /HM-CD-migrate ===
+
+
 
 def _free_ram_bytes() -> int:
     """Return available RAM in bytes (macOS-aware).
@@ -822,7 +841,7 @@ def _query_ollama(player_id: str, model: str, system_prompt: str,
                 "prompt":     user_prompt,
                 "stream":     False,
                 "think":      False,
-                "keep_alive": "30s",
+                "keep_alive": _hm_cd_keep_alive(model),  # === HM-CD-migrate === per-model TTL
                 "options": {
                     "num_predict": 120 if player_id == "neo-matrix" else 80,
                     "temperature": 0.3,
