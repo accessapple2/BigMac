@@ -88,3 +88,37 @@ mkdir -p ~/autonomous-trader/logs
 echo "$SUMMARY" >> ~/autonomous-trader/logs/daily_watch.log
 echo "---" >> ~/autonomous-trader/logs/daily_watch.log
 echo "[daily_watch] dispatched at $(date '+%Y-%m-%d %H:%M:%S')"
+
+# === HM-CLUSTER-PNL === per-cluster P&L (Vol Breakout 4-sym clusters as 1 bet)
+CLUSTER_PNL=$(sqlite3 "$DB" "
+WITH entries AS (
+  SELECT
+    executed_at,
+    symbol,
+    reasoning,
+    price,
+    qty,
+    -- bucket entries by 5-minute windows
+    strftime('%Y-%m-%d %H:%M', datetime((strftime('%s', executed_at) / 300) * 300, 'unixepoch')) AS bucket_5m,
+    CASE
+      WHEN reasoning LIKE '%VOLATILITY_BREAKOUT%' THEN 'VolBreakout'
+      WHEN reasoning LIKE '%CONVERGENCE%'         THEN 'Convergence'
+      WHEN reasoning LIKE '%TRIPLE ALIGNED%'      THEN 'TripleAligned'
+      ELSE NULL
+    END AS cluster_type
+  FROM trades
+  WHERE action='BUY'
+    AND date(executed_at, 'localtime') = date('now', 'localtime')
+)
+SELECT
+  cluster_type || ' ' || bucket_5m AS cluster,
+  COUNT(*)                          AS n_entries,
+  GROUP_CONCAT(symbol, ',')         AS symbols
+FROM entries
+WHERE cluster_type IS NOT NULL
+GROUP BY cluster_type, bucket_5m
+HAVING n_entries >= 2
+ORDER BY bucket_5m DESC;
+" 2>/dev/null)
+# === /HM-CLUSTER-PNL ===
+
