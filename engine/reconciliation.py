@@ -47,7 +47,14 @@ ROUTED_PLAYERS = frozenset({
     "neo-matrix",
     "dalio-metals",
     "alpaca-mirror",
-})
+}
+
+# === HM-BM === Players whose internal book IS the Alpaca book by design.
+# Excluding them from routed-drift detection prevents circular comparison
+# inflating false "drift". See L186 comment: alpaca-mirror is 1:1 with Alpaca.
+_BY_DESIGN_MIRROR_PLAYERS = {"alpaca-mirror"}
+# === /HM-BM ===
+)
 
 # HM-I-β-Item5-thread-A (2026-05-05): tracking-mode routed players hold
 # positions by design that never forward to Alpaca. Including them in
@@ -193,6 +200,10 @@ def compute_routed_drift(internal: dict, alpaca: dict) -> dict:
     # docs/RECONCILIATION_DRIFT_INVESTIGATION_2026-05-05.md Thread A).
     routed_internal: dict[str, float] = {}
     for player_id, positions in internal.items():
+        # === HM-BM === skip by-design mirrors (circular self-comparison)
+        if player_id in _BY_DESIGN_MIRROR_PLAYERS:
+            continue
+        # === /HM-BM ===
         if player_id not in ROUTED_PLAYERS:
             continue
         if player_id in TRACKING_ONLY_ROUTED_PLAYERS:
