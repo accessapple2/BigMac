@@ -1,0 +1,64 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.ollietrades.morning-cd-instr</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/Users/bigmac/autonomous-trader/scripts/morning_cd_instr.sh</string>
+  </array>
+  <key>StartCalendarInterval</key>
+  <array>
+    <dict>
+      <key>Weekday</key>
+      <integer>1</integer>
+      <key>Hour</key>
+      <integer>10</integer>
+      <key>Minute</key>
+      <integer>15</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key>
+      <integer>2</integer>
+      <key>Hour</key>
+      <integer>10</integer>
+      <key>Minute</key>
+      <integer>15</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key>
+      <integer>3</integer>
+      <key>Hour</key>
+      <integer>10</integer>
+      <key>Minute</key>
+      <integer>15</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key>
+      <integer>4</integer>
+      <key>Hour</key>
+      <integer>10</integer>
+      <key>Minute</key>
+      <integer>15</integer>
+    </dict>
+    <dict>
+      <key>Weekday</key>
+      <integer>5</integer>
+      <key>Hour</key>
+      <integer>10</integer>
+      <key>Minute</key>
+      <integer>15</integer>
+    </dict>
+  </array>
+  <key>StandardOutPath</key>
+  <string>/Users/bigmac/autonomous-trader/logs/morning_cd_instr_stdout.log</string>
+  <key>StandardErrorPath</key>
+  <string>/Users/bigmac/autonomous-trader/logs/morning_cd_instr_stderr.log</string>
+  <key>WorkingDirectory</key>
+  <string>/Users/bigmac/autonomous-trader</string>
+  <key>RunAtLoad</key>
+  <false/>
+</dict>
+</plist>
