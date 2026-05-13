@@ -1,130 +1,103 @@
 # HM-CE — Cloudflare Tunnel for Signal Center :9000
 
 **Date:** 2026-05-12
-**Status:** ⚠️ HALT — Captain action required (manual DNS step in Cloudflare dashboard)
-**What landed:** tunnel ingress config + daemon reload; tunnel is ready and waiting for the right DNS record.
-**What did NOT land:** `signal.ollietrades.com` CNAME (cloudflared cert is wrong-scoped — see below).
+**Status:** ⚠️ HALT — Captain action required (Zero Trust dashboard, NOT DNS zone)
+**Updated:** 2026-05-12 17:23 MST — root cause revised after observing daemon logs
 
-## Pre-flight findings
+## Decisive finding
 
-- **Tunnel:** name `trademinds`, UUID `dee0002c-c451-4919-8b16-d649ad19d029`. Active connectors to LAX/PHX edge POPs.
-- **cloudflared binary:** `/opt/homebrew/bin/cloudflared` (symlink to Cellar 2026.3.0). Not in default PATH, so explicit absolute path used throughout.
-- **Active service:** `com.cloudflare.cloudflared` plist at `~/Library/LaunchAgents/`. The `homebrew.mxcl.cloudflared` plist exists but is misconfigured (ProgramArguments lacks `tunnel run <UUID>`) and crash-loops harmlessly — leave it alone.
-- **Existing ingress (pre-HM-CE):** single route `bridge.ollietrades.com → http://localhost:8080`.
-- **Port 9000:** bound by pid 18380 — Signal Center is alive locally.
-
-## What I changed (applied on bigmac, NOT in repo)
-
-### `~/.cloudflared/config.yml`
-
-Backup: `~/.cloudflared/config.yml.pre-HM-CE.YYYYMMDD_HHMM`
-
-```diff
- tunnel: dee0002c-c451-4919-8b16-d649ad19d029
- credentials-file: /Users/bigmac/.cloudflared/dee0002c-c451-4919-8b16-d649ad19d029.json
-
- ingress:
-   - hostname: bridge.ollietrades.com
-     service: http://localhost:8080
-     originRequest:
-       noTLSVerify: true
-+  # === HM-CE: Signal Center external access ===
-+  - hostname: signal.ollietrades.com
-+    service: http://localhost:9000
-+  # === /HM-CE ===
-   - service: http_status:404
-```
-
-Validation: `cloudflared tunnel ingress validate` → `OK`.
-
-### Daemon reloaded
-
-`launchctl kickstart -k gui/$UID/com.cloudflare.cloudflared` — pid 863 → pid 42816. Two new connectors registered (3767f99... + 8b716be0...). `bridge.ollietrades.com` still responding HTTP 303 post-reload (regression smoke green).
-
-## The blocker
-
-`cloudflared tunnel route dns dee0002c-... signal.ollietrades.com` succeeded but created the WRONG record. Log:
+The `trademinds` tunnel is **remote-managed via Cloudflare Zero Trust**. The local `~/.cloudflared/config.yml` is **ignored by the daemon**. Definitive log evidence after each daemon restart:
 
 ```
-INF Added CNAME signal.ollietrades.com.accessapple.com which will route to this tunnel
+2026-05-13T00:19:33Z INF Updated to new configuration config="{
+  \"ingress\":[
+    {\"hostname\":\"bridge.ollietrades.com\",
+     \"originRequest\":{\"noTLSVerify\":true},
+     \"service\":\"http://localhost:8080\"},
+    {\"originRequest\":{},\"service\":\"http_status:404\"}
+  ],
+  \"warp-routing\":{\"enabled\":false}}" version=8
 ```
 
-Verified via dig:
-```
-$ dig signal.ollietrades.com.accessapple.com +short
-172.67.149.30
-104.21.39.220
-```
+That config is pulled from Cloudflare's control plane — `bridge.ollietrades.com` lives in the Zero Trust dashboard's Public Hostname tab, NOT in the local file. The existing `bridge` route was set up there at some point; my local config.yml edit for `signal` was a no-op.
 
-This is `signal.ollietrades.com.accessapple.com` as a **literal FQDN** in the `accessapple.com` zone — not the intended `signal.ollietrades.com` in the `ollietrades.com` zone.
+## What I tried (and reverted)
 
-**Root cause:** `~/.cloudflared/cert.pem` was issued against the `accessapple.com` zone. cloudflared interpreted the requested hostname as a subdomain under the only zone the cert grants — so `signal.ollietrades.com` became `signal.ollietrades.com.accessapple.com`.
+### 1. Local `~/.cloudflared/config.yml` edit
+- Added `signal.ollietrades.com → http://localhost:9000` ingress entry.
+- `cloudflared tunnel ingress validate` → OK
+- `cloudflared tunnel ingress rule https://signal.ollietrades.com/` → matched the new rule
+- BUT: daemon logs show remote config has only `bridge` → my edit never reached the edge.
+- **Reverted to pre-HM-CE state** (backup file used: `~/.cloudflared/config.yml.pre-HM-CE.*`).
 
-The existing `bridge.ollietrades.com` route works because its CNAME was created through a different path (presumably manually in the Cloudflare dashboard for the `ollietrades.com` zone, since this cert can't reach that zone).
+### 2. `cloudflared tunnel route dns dee0002c-... signal.ollietrades.com`
+- Cert is scoped to `accessapple.com` zone, so cloudflared created the literal name `signal.ollietrades.com.accessapple.com` (verified via dig).
+- This is bogus and should be cleaned up.
 
-## Captain action required (2 manual steps in Cloudflare dashboard)
+### 3. `launchctl kickstart -k gui/$UID/com.cloudflare.cloudflared`
+- Daemon reloaded twice; pid 863 → 42826 → 43185.
+- Bridge regression-smoke green throughout (HTTP 303).
+- But the reload pulled the same remote config without `signal`.
 
-### Step 1 — Add the correct CNAME in `ollietrades.com` zone
+## Captain action — the actual fix
 
-In Cloudflare dashboard → `ollietrades.com` zone → DNS records:
+### Step 1 — Zero Trust dashboard: add public hostname
 
-| Field | Value |
-|---|---|
-| Type | `CNAME` |
-| Name | `signal` |
-| Target | `dee0002c-c451-4919-8b16-d649ad19d029.cfargotunnel.com` |
-| Proxy status | Proxied (orange cloud) |
-| TTL | Auto |
+1. Open [Cloudflare Zero Trust](https://one.dash.cloudflare.com) → **Networks** → **Tunnels**
+2. Click the **`trademinds`** tunnel
+3. Switch to the **Public Hostname** tab
+4. Click **Add a public hostname**
+5. Fill in:
+   - **Subdomain:** `signal`
+   - **Domain:** `ollietrades.com` (select from dropdown)
+   - **Path:** (blank)
+   - **Type:** `HTTP`
+   - **URL:** `localhost:9000`
+6. **Save hostname**
 
-### Step 2 — Delete the bogus CNAME in `accessapple.com` zone
+Cloudflare will:
+- Auto-create the DNS CNAME (no manual DNS step needed — it'll either create or replace whatever's there)
+- Push the updated config to the running cloudflared daemon over the existing control-plane connection
+- **No daemon restart required** — config update is live in seconds
+
+### Step 2 — Cleanup: delete the bogus `accessapple.com` CNAME
 
 In Cloudflare dashboard → `accessapple.com` zone → DNS records:
-
 - Find: `signal.ollietrades.com.accessapple.com` (CNAME)
-- Action: Delete
+- Action: **Delete**
 
-cloudflared has no CLI command to delete DNS routes (only IP routes), so this is dashboard-only.
+This was created by my earlier `cloudflared tunnel route dns` mis-fire. It's harmless but should be cleaned up.
 
-## What happens after Step 1
+### Step 3 — Optional: clean up any manually-added `signal` CNAME in `ollietrades.com` zone
 
-The tunnel ingress is already wired. As soon as `signal.ollietrades.com` resolves to the tunnel:
-- Cloudflare anycast IPs return for `dig signal.ollietrades.com`
-- HTTPS hits the tunnel, which routes by hostname to `http://localhost:9000`
-- Signal Center login page appears (HTTP 200 / 302 / 401 depending on auth state)
+If you manually added `signal → dee0002c-...cfargotunnel.com` in the `ollietrades.com` zone before reading this report — that record is fine and Cloudflare will reuse it. No action needed; Zero Trust would have auto-created the same thing in Step 1.
 
-## External smoke checklist (Captain)
-
-After both manual DNS steps land (give Cloudflare ~60s to propagate):
+## Smoke after Step 1
 
 ```bash
 dig signal.ollietrades.com +short
-# Expect: 2 Cloudflare anycast IPs (similar to bridge.ollietrades.com)
+# Expect: 2 CF anycast IPs identical to bridge
 
 curl -I https://signal.ollietrades.com/
-# Expect: HTTP 200/302/401 (NOT 000 like today)
+# Expect: HTTP 200/302/401 (NOT 404)
 ```
 
-From an external network (phone on cellular, etc.), open https://signal.ollietrades.com → Signal Center login renders.
+From an external network → `https://signal.ollietrades.com` → Signal Center login renders.
 
-## Rollback steps (if needed)
+## Watch items
 
-If Captain wants to revert HM-CE entirely:
+- Local `~/.cloudflared/config.yml` exists and is parseable, but **is ignored**. Future operators should know to use the Zero Trust dashboard for ingress changes.
+- The `homebrew.mxcl.cloudflared` plist at `~/Library/LaunchAgents/` is misconfigured (lacks `tunnel run <UUID>` in ProgramArguments). Harmless — crash-loops without consuming resources. The active service is `com.cloudflare.cloudflared` (pid 43185 at time of writing).
 
-```bash
-# Restore prior config.yml on bigmac
-cp ~/.cloudflared/config.yml.pre-HM-CE.* ~/.cloudflared/config.yml
-launchctl kickstart -k gui/$(id -u)/com.cloudflare.cloudflared
-# bridge.ollietrades.com remains live; signal route removed from ingress.
-```
+## State left clean
 
-DNS cleanup (still required even on rollback):
-- Delete `signal.ollietrades.com.accessapple.com` from `accessapple.com` zone (Step 2 above).
-- Don't add the `ollietrades.com` CNAME if not needed.
-
-## Why I went past CE.0 without a HALT
-
-Directive's HALT conditions were: (a) tunnel config not found, (b) DNS API access unclear, (c) subdomain conflict. CE.0 showed (a) config IS found, (b) appeared OK (cert.pem exists, `tunnel route dns` is the standard auto-route command), (c) no conflict — `signal.ollietrades.com` was unused. The cert-zone-scope mismatch surfaced only AFTER the `tunnel route dns` call returned an unusual-looking log line. In hindsight, an extra check (`grep zone ~/.cloudflared/cert.pem` or `cloudflared access` listing) would have caught this pre-action. Logged as a watch item for similar future ops.
+- `~/.cloudflared/config.yml` reverted to pre-HM-CE state (single `bridge` rule + catch-all 404).
+- Backup of attempted edit preserved at `~/.cloudflared/config.yml.pre-HM-CE.YYYYMMDD_HHMM` for audit.
+- Bridge regression-smoke green: `https://bridge.ollietrades.com/` → HTTP 303 (login redirect).
+- Daemon pid 43185 stable, 4 active connectors (LAX + PHX edge POPs).
 
 ## Anchors
 
-`# === HM-CE ===` / `# === /HM-CE ===` in `~/.cloudflared/config.yml` (system path, not tracked in repo).
+No persistent anchors landed (config.yml reverted). The HM-CE concept is fully captured in:
+- `HM-CE.md` (directive, in repo)
+- `data/scotty_hm_ce_report.md` (this report, in repo)
