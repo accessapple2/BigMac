@@ -593,3 +593,23 @@ Feature flags live in `config.py` as module-level constants. Engine modules impo
 
 **Diagnostics-first reinforcement**: Today's morning ship arc proved this discipline twice in production. Both HM-CD-migrate and HM-BP would have shipped wrong fixes without the discovery phase. RULE: never modify production code paths before reading current behavior via grep + sqlite + log inspection.
 
+## Lessons Banked 2026-05-13 (evening — HM-CONSOLE-INIT)
+
+**`logger.* → console.log` flips need module-level `Console()` init verified before commit.** This morning's automated sweep (HM-LOG-CHANNEL `8d7a607`, HM-WATCHDOG `5d6ce29`, HM-WATCHDOG-2 `10eb1e7`) flipped `logger.info/warning` calls to `console.log` in `crew_scanner.py` and `battle_station.py` without verifying these modules imported `Rich Console`. They didn't. Every flipped call raised `NameError: name 'console' is not defined` at runtime.
+
+**The bug ran silently for ~12 hours** because `run_scan_cycle` wraps the body in `try/except` that logs `"Scan cycle crashed (will retry next cycle): name 'console' is not defined"` and moves on. Cycles "succeeded" from the scheduler's view but never finished emitting their HM-CD-instr lines. Combined with the same-day Ollie Box GPU outage, the fleet was running 2× degraded all day.
+
+**Discovery path:** the bug only surfaced when the trader was restarted (commit `6bfa53f` deployed; restart fired). Fresh process loaded clean bytecode and immediately threw the NameError again on the first cycle. Without that restart it would have stayed invisible — the existing PID had been throwing the error every cycle but the masked errors didn't NTFY.
+
+**Doctrine going forward:**
+
+1. **`logger.*` → `console.log` flips are not safe defaults.** Before flipping, verify the target module has `from rich.console import Console` and `console = Console()` at module scope. Ship `ruff`/`pyflakes` as part of the sweep, OR runtime-smoke each touched module with `python -c "import engine.X; engine.X.console.log('test')"` before commit.
+
+2. **`py_compile` is not enough.** It catches syntax errors but NOT undefined-name errors. Runtime smoke required for any cross-module symbol change. (Same lesson as Frontend Ship Rule 2026-05-12, applied to backend.)
+
+3. **`try/except Exception` swallowing programming errors is the silent-failure pattern.** Per HM-Z/HM-AA doctrine in CLAUDE.md (2026-05-05): bare except is OK if the handler accommodates unknown failures. For `run_scan_cycle`, the handler logs "will retry next cycle" — that's fine for ops errors (timeout, API failure), but a `NameError` is a code bug that should at least NTFY. Consider distinguishing programming-error subclasses (`AttributeError`, `NameError`, `ImportError`) from operational errors and NTFY-ing the first class.
+
+4. **Restart-then-verify is mandatory after any logger/console flip.** The "trader restart deferred until natural maintenance window" pattern (used today for HM-LOG-CHANNEL, HM-WATCHDOG, HM-WATCHDOG-2) creates a window where the buggy bytecode runs invisibly. Smoke-restart in a verify window, OR push the restart synchronously with the commit.
+
+**Fix shipped:** commit `ef1c02c` added the canonical Console init block (`from rich.console import Console` + `console = Console()`) to both files. Trader restarted on the fix. HM-CD-instr cycle walls collapsed from 220-408s (CPU + crashes) to 80s (GPU + clean), per-agent walls from 60-207s to 2-3s.
+
