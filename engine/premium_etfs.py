@@ -127,6 +127,7 @@ def get_all_etf_data() -> dict:
             return _cache["data"]
 
     import yfinance as yf
+    from engine.yf_download_safe import yf_download_safe  # === HM-BL-broader ===
 
     # Collect all unique tickers
     all_tickers = set()
@@ -135,7 +136,7 @@ def get_all_etf_data() -> dict:
     all_tickers.add("SPY")  # benchmark
 
     try:
-        data = yf.download(list(all_tickers), period="30d", progress=False, group_by="ticker")
+        data = yf_download_safe(list(all_tickers), period="30d", progress=False, group_by="ticker")
     except Exception as e:
         console.log(f"[red]Premium ETF download error: {e}")
         return {"error": str(e)}

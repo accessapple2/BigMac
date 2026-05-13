@@ -32,12 +32,13 @@ def get_inverse_etf_data() -> list:
             return _cache["data"]
 
     import yfinance as yf
+    from engine.yf_download_safe import yf_download_safe  # === HM-BL-broader ===
 
     tickers = list(INVERSE_ETFS.keys())
     results = []
 
     try:
-        data = yf.download(tickers, period="5d", progress=False, group_by="ticker")
+        data = yf_download_safe(tickers, period="5d", progress=False, group_by="ticker")
 
         for ticker, info in INVERSE_ETFS.items():
             try:
@@ -129,7 +130,7 @@ def backtest_inverse_etfs(days: int = 180, start_capital: float = 7000) -> dict:
 
     tickers = ["SPY", "^VIX", "SH", "SDS", "SQQQ", "SDOW", "TZA"]
     try:
-        data = yf.download(tickers, start=start_date, end=end_date,
+        data = yf_download_safe(tickers, start=start_date, end=end_date,
                            progress=False, group_by="ticker")
     except Exception as e:
         return {"error": str(e)}
