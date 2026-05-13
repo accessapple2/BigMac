@@ -101,3 +101,26 @@ From an external network → `https://signal.ollietrades.com` → Signal Center 
 No persistent anchors landed (config.yml reverted). The HM-CE concept is fully captured in:
 - `HM-CE.md` (directive, in repo)
 - `data/scotty_hm_ce_report.md` (this report, in repo)
+
+---
+
+## Closure 2026-05-12 — HM-CE shipped
+
+Captain added the public hostname via Cloudflare Zero Trust dashboard. Daemon pulled the new config live (version 8 → 9):
+
+```
+config="{\"ingress\":[
+  {\"hostname\":\"bridge.ollietrades.com\",\"service\":\"http://localhost:8080\",...},
+  {\"hostname\":\"signal.ollietrades.com\",\"service\":\"http://localhost:9000\",...},
+  {\"service\":\"http_status:404\"}
+]}" version=9
+```
+
+External smoke:
+- `https://signal.ollietrades.com` → HTTP 302 (Signal Center auth redirect — expected) ✅
+- `https://bridge.ollietrades.com` → HTTP 303 (unaffected) ✅
+- `dig signal.ollietrades.com` → 172.67.208.56, 104.21.45.31 (CF anycast, identical to bridge) ✅
+
+No daemon restart was required — Cloudflare pushed the config update over the existing control-plane connection in seconds, exactly as expected for a remote-managed tunnel.
+
+Captain may still want to clean up the bogus `signal.ollietrades.com.accessapple.com` CNAME in the `accessapple.com` zone (residue from the earlier route-dns mis-fire). Not blocking; it just orphans a stale record.
