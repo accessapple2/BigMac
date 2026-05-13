@@ -745,7 +745,7 @@ def monitor_active_options() -> None:
     # HM-AF-α 2026-05-06
     from config import SPREAD_CANNIBALIZATION_GUARD_ENABLED
     if SPREAD_CANNIBALIZATION_GUARD_ENABLED:
-        logger.info("[HM-AF-α] monitor_active_options blocked: spread cannibalization guard active")
+        console.log("[HM-AF-α] monitor_active_options blocked: spread cannibalization guard active")
         return
     try:
         from engine.risk_manager import RiskManager
@@ -771,14 +771,14 @@ def monitor_active_options() -> None:
         for pos in positions:
             sym = pos.get("option_symbol", "")
             if sym and is_spread_leg(sym):
-                logger.info(f"[HM-AF-β] skipping spread leg: {sym}")
+                console.log(f"[HM-AF-β] skipping spread leg: {sym}")
                 continue
             kept.append(pos)
         positions = kept
         if not positions:
             return
     except Exception as e:
-        logger.warning(f"[HM-AF-β] leg filter error (failing closed — skip cycle): {type(e).__name__}: {e!r}")
+        console.log(f"[yellow][HM-AF-β] leg filter error (failing closed — skip cycle): {type(e).__name__}: {e!r}")
         return
 
     logger.info(f"Battle Station: monitoring {len(positions)} active option(s)")
