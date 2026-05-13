@@ -2039,6 +2039,95 @@ def _update_neo_trailing_stops() -> int:
     return exited
 
 
+# === HM-AN2.C === neo-matrix Signal Center consumption
+# Per-process dedup: signals already evaluated this trader-lifetime are
+# skipped. Restart re-shows everything still status='NEW' in Signal Center.
+_HM_AN2_SEEN_IDS: set[int] = set()
+# Conviction floor mirrors engine/ghost_scoring.py which also filters
+# confidence >= 70 from Signal Center for tracking.
+_HM_AN2_MIN_CONFIDENCE = 70
+
+
+def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
+    """neo-matrix consumes Signal Center active BUY signals via paper_trader.buy.
+
+    Reuses the existing bridge module (engine/momentum/bridge.py) to fetch.
+    All gates fire inside paper_trader.buy:
+      - HALT GATE (halt_mode != 'active' rejects new positions)
+      - Ghost-promotion blocker (HOLD-in-reasoning rejector)
+      - HM-AF cannibalization
+      - BSM ceiling
+      - Conviction guardrails
+      - Earnings blackout, kill switch, fleet exposure, allocation policy
+
+    With neo-matrix.halt_mode='exit_only', every BUY here is observation-only:
+    paper_trader logs '[red]HALTED: neo-matrix (exit_only) — <reason>' and
+    returns None. The [HM-AN2] prefix on this function's own log lines makes
+    grep-by-prefix easy: `grep HM-AN2 logs/trader.log`.
+    """
+    from engine.momentum.bridge import fetch_signal_center_active_signals
+    from engine.paper_trader import buy
+
+    sigs = fetch_signal_center_active_signals(
+        min_confidence=_HM_AN2_MIN_CONFIDENCE,
+        limit=20,
+    )
+    if not sigs:
+        return
+
+    fresh = [s for s in sigs if int(s.get("id", 0)) not in _HM_AN2_SEEN_IDS]
+    if not fresh:
+        return
+
+    logger.info(
+        f"[HM-AN2] neo-matrix: {len(fresh)} fresh Signal Center signal(s) "
+        f"to evaluate (confidence >= {_HM_AN2_MIN_CONFIDENCE})"
+    )
+    for s in fresh:
+        sig_id = int(s.get("id", 0))
+        _HM_AN2_SEEN_IDS.add(sig_id)
+        sym = (s.get("symbol") or "").upper()
+        action = (s.get("action") or "").upper()
+        conf = int(s.get("confidence") or 0)
+        entry = float(s.get("entry_price") or 0)
+        agent = s.get("agent_name") or "unknown"
+        if not sym or action not in ("BUY", "LONG"):
+            logger.info(f"[HM-AN2] sig#{sig_id} {sym or '?'} {action} skip (non-buy)")
+            continue
+        logger.info(
+            f"[HM-AN2] sig#{sig_id} CANDIDATE: {sym} {action} conf={conf} "
+            f"entry=${entry:.2f} agent={agent}"
+        )
+        if entry <= 0:
+            logger.info(f"[HM-AN2] sig#{sig_id} {sym} skip (no entry_price)")
+            continue
+        reasoning = (
+            f"[HM-AN2.C] Signal Center sig#{sig_id} via {agent}: "
+            f"{(s.get('reasoning') or '')[:200]}"
+        )
+        try:
+            result = buy(
+                player_id="neo-matrix",
+                symbol=sym,
+                price=entry,
+                reasoning=reasoning,
+                confidence=conf / 100.0,
+            )
+            if result:
+                logger.info(f"[HM-AN2] sig#{sig_id} {sym} EXECUTED → {result}")
+            else:
+                logger.info(
+                    f"[HM-AN2] sig#{sig_id} {sym} BLOCKED — see paper_trader "
+                    "log lines for gate reason (HALT/HM-AF/BSM/conviction/etc.)"
+                )
+        except Exception as e:
+            logger.warning(
+                f"[HM-AN2] sig#{sig_id} {sym} exception: "
+                f"{type(e).__name__}: {e}"
+            )
+# === /HM-AN2.C ===
+
+
 def _check_hard_stops() -> int:
     """
     Immediately sell any stock position down -8% or more.
@@ -2778,6 +2867,17 @@ def _scan_single_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, 
     vol_flag      = " ⚠ HIGH VOLUME DAY" if spy_vol_ratio >= 1.5 else ""
 
     if player_id == "neo-matrix":
+        # === HM-AN2.C === Signal Center signal consumption path.
+        # Fires every neo-matrix scan (ACTIVE_SCANNERS = ["neo-matrix"] runs
+        # each cycle). Halt_mode='exit_only' will block executions at the
+        # paper_trader.buy HALT GATE so this is observation-only until
+        # Captain SQL-flips halt_mode after acceptable behavior is confirmed.
+        try:
+            _hm_an2_consume_signal_center(market_ctx)
+        except Exception as _hm_an2_err:
+            logger.warning(f"[HM-AN2] neo-matrix consume error: {_hm_an2_err!r}")
+        # === /HM-AN2.C ===
+
         # ── NEO: aggressive rebuilt system prompt ──────────────────────────────
         system_prompt = (
             "You are Neo — The One. You see the Matrix. You find trades others miss. "
