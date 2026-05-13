@@ -613,3 +613,12 @@ Feature flags live in `config.py` as module-level constants. Engine modules impo
 
 **Fix shipped:** commit `ef1c02c` added the canonical Console init block (`from rich.console import Console` + `console = Console()`) to both files. Trader restarted on the fix. HM-CD-instr cycle walls collapsed from 220-408s (CPU + crashes) to 80s (GPU + clean), per-agent walls from 60-207s to 2-3s.
 
+## Account State Banked 2026-05-13
+
+**HM-WEBULL-LIQUIDATED**: webull real-money account has been liquidated. Historical
+trades remain in `trades` table as record. Account state in `ai_players` set to
+halt_mode='full' with descriptive halt_reason. Positions table zeroed out for webull
+(no open positions remain). Any future query/script that iterates real-money accounts
+must exclude webull or check halt_mode='active'. Previous memory note "Webull ~$6.6K
+= monitor only" is superseded by this liquidation.
+

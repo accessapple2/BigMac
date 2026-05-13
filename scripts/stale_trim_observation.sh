@@ -17,6 +17,8 @@ SELECT
   ' WOULD trim 50% (observation only)'
 FROM trades t1
 WHERE t1.action='BUY'
+  -- Exclude real-money tracking accounts + liquidated webull (HM-WEBULL-LIQUIDATED 2026-05-13)
+  AND t1.player_id NOT IN ('webull','alpaca-mirror','dalio-metals','ibkr-real','kirk-real','schwab','schwab-real')
   AND julianday('now') - julianday(t1.executed_at) > 10
   AND NOT EXISTS (
     -- Position must still be open (no later SELL that fully exited)
