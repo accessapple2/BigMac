@@ -3902,7 +3902,7 @@ if __name__ == "__main__":
             from engine.proving_ground import run_daily_scorecard
             result = run_daily_scorecard()
             console.log(
-                f"[bold cyan]📊 Proving Ground Day {result['trial_day']}/30 | "
+                f"[bold cyan]📊 Proving Ground rolling 30d window, Day {result['trial_day']} | "
                 f"Trades: {result['total_trades']} | WR: {result['win_rate']:.1f}% | "
                 f"Sharpe: {result['sharpe']:.3f} | Go: {result['go_count']}/6"
             )
