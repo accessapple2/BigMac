@@ -9,27 +9,22 @@ LOG=~/autonomous-trader/logs/trader_error.log
 TODAY=$(date '+%Y-%m-%d')
 
 sqlite3 "$DB" "
+-- HM-STALE-TRIM-OBS-V2 (2026-05-13) — positions table is source of truth
+-- (V1 used trades arithmetic which produced false-positives on partial exits)
 SELECT
-  '[HM-STALE-TRIM-OBS] ' || player_id || ' ' || symbol ||
-  ' held=' || CAST(julianday('now') - julianday(executed_at) AS INT) || 'd' ||
-  ' entry=$' || ROUND(price, 2) ||
-  ' qty=' || ROUND(qty, 3) ||
+  '[HM-STALE-TRIM-OBS] ' || p.player_id || ' ' || p.symbol ||
+  ' held=' || CAST(julianday('now') - julianday(MAX(t.executed_at)) AS INT) || 'd' ||
+  ' entry=\$' || ROUND(MAX(CASE WHEN t.action='BUY' THEN t.price ELSE NULL END), 2) ||
+  ' qty=' || ROUND(p.qty, 3) ||
   ' WOULD trim 50% (observation only)'
-FROM trades t1
-WHERE t1.action='BUY'
-  -- Exclude real-money tracking accounts + liquidated webull (HM-WEBULL-LIQUIDATED 2026-05-13)
-  AND t1.player_id NOT IN ('webull','alpaca-mirror','dalio-metals','ibkr-real','kirk-real','schwab','schwab-real')
-  AND julianday('now') - julianday(t1.executed_at) > 10
-  AND NOT EXISTS (
-    -- Position must still be open (no later SELL that fully exited)
-    SELECT 1 FROM trades t2
-    WHERE t2.player_id = t1.player_id
-      AND t2.symbol = t1.symbol
-      AND t2.action = 'SELL'
-      AND t2.executed_at > t1.executed_at
-      AND ABS(t2.qty - t1.qty) < 0.001  -- close to full exit (tolerate rounding)
-  )
-ORDER BY t1.executed_at ASC
+FROM positions p
+JOIN trades t ON t.player_id = p.player_id AND t.symbol = p.symbol AND t.action = 'BUY'
+WHERE p.qty > 0
+  AND p.player_id NOT IN ('webull','alpaca-mirror','dalio-metals','ibkr-real','kirk-real','schwab','schwab-real')
+  AND p.player_id IN (SELECT id FROM ai_players WHERE halt_mode='active')
+GROUP BY p.player_id, p.symbol
+HAVING CAST(julianday('now') - julianday(MAX(t.executed_at)) AS INT) > 10
+ORDER BY MAX(t.executed_at) ASC
 LIMIT 20;
 " 2>/dev/null | while read LINE; do
   echo "$(date '+%H:%M:%S') [LRS] $LINE" >> "$LOG"

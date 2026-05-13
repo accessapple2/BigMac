@@ -622,3 +622,9 @@ halt_mode='full' with descriptive halt_reason. Positions table zeroed out for we
 must exclude webull or check halt_mode='active'. Previous memory note "Webull ~$6.6K
 = monitor only" is superseded by this liquidation.
 
+## Banked 2026-05-13 (late afternoon)
+
+**HM-STALE-TRIM-OBS-V2 query fix**: V1 used trades-table arithmetic (BUY without matching exact-qty SELL = stale) which produced false-positives on partial scale-outs. V2 anchors on positions table (source of truth) joined to trades for first-BUY context. Also filters to halt_mode='active' players only, excluding halted zombies. Lesson: **positions table is canonical for "is position open"; trades arithmetic is not equivalent.**
+
+**ollama-local halted**: Stale signal emitter pattern. halt_mode was 'active' but no trades in 53 days; signals continued but all gate-rejected. Set to exit_only pending audit of which gate (mandate/confidence/sizing) is the rejection source. File HM-FLEET-REJECTION-AUDIT for next session if other emitters show same pattern.
+
