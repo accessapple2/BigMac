@@ -29,6 +29,14 @@ MIN_DAYS_FOR_MATCHING = 10
 
 
 def _init_db() -> None:
+    # === HM-BCE-broad === refuse silent auto-create of canonical trader.db
+    from pathlib import Path as _Path
+    if not _Path(_TRADEMINDS_DB).exists():
+        raise FileNotFoundError(
+            f"pattern_matcher: canonical DB missing at {_TRADEMINDS_DB} — "
+            "HM-BCE-broad refuses silent auto-create."
+        )
+    # === /HM-BCE-broad ===
     conn = sqlite3.connect(_TRADEMINDS_DB, timeout=30)
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")

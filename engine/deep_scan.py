@@ -132,6 +132,14 @@ _SP500_FALLBACK: list[str] = [
 
 
 def _conn() -> sqlite3.Connection:
+    # === HM-BCE-broad === refuse silent auto-create of canonical trader.db
+    from pathlib import Path as _Path
+    if not _Path(DB_PATH).exists():
+        raise FileNotFoundError(
+            f"deep_scan: canonical DB missing at {DB_PATH} — "
+            "HM-BCE-broad refuses silent auto-create."
+        )
+    # === /HM-BCE-broad ===
     c = sqlite3.connect(DB_PATH, check_same_thread=False, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=30000")

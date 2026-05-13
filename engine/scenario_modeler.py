@@ -49,6 +49,16 @@ logger = logging.getLogger("scenario_modeler")
 # ---------------------------------------------------------------------------
 
 def _conn() -> sqlite3.Connection:
+    # === HM-BCE-broad === refuse silent auto-create of canonical trader.db
+    # Pattern mirrors engine/ghost_scoring.py:_ghost (HM-BC.E hardening).
+    from pathlib import Path as _Path
+    if not _Path(TRADER_DB).exists():
+        raise FileNotFoundError(
+            f"scenario_modeler: canonical DB missing at {TRADER_DB} — "
+            "HM-BCE-broad refuses silent auto-create. Verify data/trader.db "
+            "was not renamed or moved."
+        )
+    # === /HM-BCE-broad ===
     c = sqlite3.connect(TRADER_DB, check_same_thread=False, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
     c.row_factory = sqlite3.Row
