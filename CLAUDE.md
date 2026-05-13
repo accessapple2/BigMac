@@ -583,3 +583,13 @@ Feature flags live in `config.py` as module-level constants. Engine modules impo
 
 **Diagnostics first**: HM-CD-migrate ALMOST became a Polygon data migration based on stale assumptions. Real cause (model swap) emerged only when ollama-coder logs were read in context. HM-CD-instr instrumentation (logger.info → trader_error.log) was the savior — without it, blind Polygon migration would have shipped 0 perf improvement. Reinforces XO rule: diagnostics first, theorize second.
 
+## Lessons Banked 2026-05-13 (afternoon)
+
+**HM-WATCHDOG sweep complete**: All HM-* anchored instrumentation across the codebase now uses `console.log()` consistently. Files normalized: engine/crew_scanner.py (7 sites, HM-LOG-CHANNEL commit 8d7a607), main.py (1 site, HM-WATCHDOG commit 5d6ce29), engine/battle_station.py (3 HM-AF sites, HM-WATCHDOG-2). When adding new HM-* observability lines, default to `console.log()` not `logger.info()`.
+
+**HM-AN2 BLOCKED enhancement**: BLOCKED log line now pulls `paper_trader._last_rejection.get(player_id)` inline so morning_an2_observation cron output is self-contained — no need to cross-reference paper_trader log lines.
+
+**HM-BP-FOLLOW-UP parked**: 5+ gemini-2.5-pro trades from 2026-03-12 have entry_price corruption (entry ~$10, exit ~$210 for mega-caps). Reject filter handles compute; data cleanup deferred pending root-cause investigation. See data/scotty_hm_bp_followup_*.md.
+
+**Diagnostics-first reinforcement**: Today's morning ship arc proved this discipline twice in production. Both HM-CD-migrate and HM-BP would have shipped wrong fixes without the discovery phase. RULE: never modify production code paths before reading current behavior via grep + sqlite + log inspection.
+
