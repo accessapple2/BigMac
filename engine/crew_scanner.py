@@ -30,6 +30,10 @@ from typing import Any
 
 import requests
 
+from rich.console import Console
+
+console = Console()
+
 try:
     import psutil as _psutil
     _PSUTIL_OK = True

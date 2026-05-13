@@ -28,6 +28,10 @@ from typing import Optional
 import requests
 from scipy.stats import norm
 
+from rich.console import Console
+
+console = Console()
+
 TRADER_DB = "data/trader.db"
 ALPACA_DATA_BASE = "https://data.alpaca.markets"
 RISK_FREE_RATE = 0.05
