@@ -2098,7 +2098,7 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
     if not fresh:
         return
 
-    logger.info(
+    console.log(
         f"[HM-AN2] neo-matrix: {len(fresh)} fresh Signal Center signal(s) "
         f"to evaluate (confidence >= {_HM_AN2_MIN_CONFIDENCE})"
     )
@@ -2113,7 +2113,7 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
         if not sym or action not in ("BUY", "LONG"):
             console.log(f"[HM-AN2] sig#{sig_id} {sym or '?'} {action} skip (non-buy)")
             continue
-        logger.info(
+        console.log(
             f"[HM-AN2] sig#{sig_id} CANDIDATE: {sym} {action} conf={conf} "
             f"entry=${entry:.2f} agent={agent}"
         )
@@ -2135,14 +2135,18 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
             if result:
                 console.log(f"[HM-AN2] sig#{sig_id} {sym} EXECUTED → {result}")
             else:
-                logger.info(
-                    f"[HM-AN2] sig#{sig_id} {sym} BLOCKED — see paper_trader "
-                    "log lines for gate reason (HALT/HM-AF/BSM/conviction/etc.)"
-                )
+                # === HM-AN2-BLOCKED-INLINE === pull gate reason from paper_trader._last_rejection
+                try:
+                    from engine.paper_trader import _last_rejection as _hm_an2_rej
+                    _gate_reason = _hm_an2_rej.get("neo-matrix", "no detail captured")
+                except Exception:
+                    _gate_reason = "import failed"
+                console.log(f"[HM-AN2] sig#{sig_id} {sym} BLOCKED — {_gate_reason}")
+                # === /HM-AN2-BLOCKED-INLINE ===
         except Exception as e:
-            logger.warning(
-                f"[HM-AN2] sig#{sig_id} {sym} exception: "
-                f"{type(e).__name__}: {e}"
+            console.log(
+                f"[yellow][HM-AN2] sig#{sig_id} {sym} exception: "
+                f"{type(e).__name__}: {e!r}[/yellow]"
             )
 # === /HM-AN2.C ===
 

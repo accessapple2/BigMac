@@ -29,7 +29,7 @@ class RiskManager:
         "energy-arnold": 2,      # Trip Tucker: energy only, max 2
         "options-sosnoff": 3,    # Counselor Troi: wheel strategy, max 3 (one per position)
         "navigator": 8,          # Chekov: positive P&L, scanner role
-        "neo-matrix": 5,         # Neo: 1 trade only, prove first
+        "neo-matrix": 5,         # Neo: 5 trades/day cap, paper-only validation
         "ollie-auto": 15,        # Ollie Super Trader: signal-driven, up to 15/day
     }
 
