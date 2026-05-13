@@ -267,8 +267,9 @@ def _hmeq_do_snapshots():
                 sym = pos.get("symbol")
                 if sym:
                     symbols.add(sym)
-        except Exception:
-            pass
+        # === HM-BD.F-audit broader === fleet-positions symbol collect
+        except Exception as e:
+            console.log(f"[yellow]fleet-positions collect: {type(e).__name__}: {e!r}")
     prices = get_all_prices(list(symbols)) if symbols else {}
     fired = 0
     failed = 0
@@ -363,8 +364,9 @@ class Arena:
             if pause_all and pause_all[0] == '1':
                 console.log("[yellow]All scanning PAUSED via Model Control Panel. Skipping scan.")
                 return
-        except Exception:
-            pass
+        # === HM-BD.F-audit broader === pause_all guard
+        except Exception as e:
+            console.log(f"[yellow]pause_all check: {type(e).__name__}: {e!r}")
 
         # Increment Spock's cycle counter (every 3rd cycle he actually scans)
         global _spock_cycle_count
@@ -378,8 +380,9 @@ class Arena:
             if discovery_syms:
                 symbols = list(symbols) + discovery_syms[:5]  # Top 5 discoveries
                 console.log(f"[magenta]Discovery adds: {', '.join(discovery_syms[:5])}")
-        except Exception:
-            pass
+        # === HM-BD.F-audit broader === discovery-symbols enrichment
+        except Exception as e:
+            console.log(f"[yellow]discovery enrich: {type(e).__name__}: {e!r}")
 
         # 1. Fetch all prices in parallel (shared across AIs)
         from engine.market_data import get_all_prices
@@ -606,8 +609,9 @@ class Arena:
             try:
                 from engine.brain_context import invalidate_cache as _bc_invalidate
                 _bc_invalidate()
-            except Exception:
-                pass
+            # === HM-BD.F-audit broader === brain_context cache flush
+            except Exception as e:
+                console.log(f"[yellow]brain_context flush: {type(e).__name__}: {e!r}")
 
             # Run each model group: load once → scan all providers → unload once
             from engine.ollama_watchdog import get_watchdog as _get_watchdog
@@ -627,8 +631,9 @@ class Arena:
                     if _prow and _prow[0] == '1':
                         console.log(f"[yellow]⏸ Model load skipped — pause_all=1 (backtest in progress)")
                         continue
-                except Exception:
-                    pass  # If check fails, proceed normally
+                # === HM-BD.F-audit broader === pre-model-load pause check
+                except Exception as e:
+                    console.log(f"[yellow]pause_all pre-load: {type(e).__name__}: {e!r}")
 
                 if _wd.is_skipped(model_id):
                     console.log(f"[yellow]WATCHDOG: {model_id} in skip window — bypassing this cycle")
@@ -703,8 +708,9 @@ class Arena:
                 ).fetchone()
                 _sc.close()
                 tier1_has_signal = recent is not None
-            except Exception:
-                pass
+            # === HM-BD.F-audit broader === tier1 recent-signal lookup
+            except Exception as e:
+                console.log(f"[yellow]tier1 signal lookup: {type(e).__name__}: {e!r}")
 
             if tier1_has_signal:
                 console.log(f"[bold green]TIER 1 SIGNAL DETECTED — escalating to cloud models")
@@ -831,8 +837,9 @@ class Arena:
             pairs = detect_pair_opportunities()
             for pair in pairs:
                 console.log(f"[cyan]PAIR TRADE: {pair['long_symbol']}(long) / {pair['short_symbol']}(short) [{pair['sector']}] by {pair['display_name']}")
-        except Exception:
-            pass
+        # === HM-BD.F-audit broader === pair-trades detect
+        except Exception as e:
+            console.log(f"[yellow]pair_trades detect: {type(e).__name__}: {e!r}")
 
         # 9a. Dynamic alerts (trendline breaks, RSI extremes, volume spikes, MACD crosses)
         try:
@@ -858,8 +865,9 @@ class Arena:
         try:
             from engine.ghost_trades import update_ghost_outcomes
             update_ghost_outcomes(prices)
-        except Exception:
-            pass
+        # === HM-BD.F-audit broader === ghost outcomes update
+        except Exception as e:
+            console.log(f"[yellow]ghost_outcomes update: {type(e).__name__}: {e!r}")
 
         # 9. Generate AI chat (pick 1-2 random AIs per cycle to chat)
         chat_count = min(2, len(self.providers))
