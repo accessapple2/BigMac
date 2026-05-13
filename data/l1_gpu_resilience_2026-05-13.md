@@ -25,3 +25,10 @@ degraded fleet performance until discovered. Pin eliminates this failure mode.
 ## Effort
 
 3 lines of bash, 30 seconds. High value, near-zero risk.
+
+## RESOLUTION 2026-05-13 (post-overnight)
+
+L1 manually completed via Captain SSH session. Three packages confirmed
+on hold via `sudo apt-mark hold` on Ollie Box. Verified with
+`apt-mark showhold`. Failure mode permanently eliminated unless explicitly
+unheld for a future kernel upgrade.
