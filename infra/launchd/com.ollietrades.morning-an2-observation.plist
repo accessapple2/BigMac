@@ -11,53 +11,16 @@
   </array>
   <key>StartCalendarInterval</key>
   <array>
-    <dict>
-      <key>Weekday</key>
-      <integer>1</integer>
-      <key>Hour</key>
-      <integer>11</integer>
-      <key>Minute</key>
-      <integer>0</integer>
-    </dict>
-    <dict>
-      <key>Weekday</key>
-      <integer>2</integer>
-      <key>Hour</key>
-      <integer>11</integer>
-      <key>Minute</key>
-      <integer>0</integer>
-    </dict>
-    <dict>
-      <key>Weekday</key>
-      <integer>3</integer>
-      <key>Hour</key>
-      <integer>11</integer>
-      <key>Minute</key>
-      <integer>0</integer>
-    </dict>
-    <dict>
-      <key>Weekday</key>
-      <integer>4</integer>
-      <key>Hour</key>
-      <integer>11</integer>
-      <key>Minute</key>
-      <integer>0</integer>
-    </dict>
-    <dict>
-      <key>Weekday</key>
-      <integer>5</integer>
-      <key>Hour</key>
-      <integer>11</integer>
-      <key>Minute</key>
-      <integer>0</integer>
-    </dict>
+    <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>1</integer></dict>
+    <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>2</integer></dict>
+    <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>3</integer></dict>
+    <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>4</integer></dict>
+    <dict><key>Hour</key><integer>11</integer><key>Minute</key><integer>0</integer><key>Weekday</key><integer>5</integer></dict>
   </array>
   <key>StandardOutPath</key>
-  <string>/Users/bigmac/autonomous-trader/logs/morning_an2_obs_stdout.log</string>
+  <string>/Users/bigmac/autonomous-trader/logs/morning_an2_observation_stdout.log</string>
   <key>StandardErrorPath</key>
-  <string>/Users/bigmac/autonomous-trader/logs/morning_an2_obs_stderr.log</string>
-  <key>WorkingDirectory</key>
-  <string>/Users/bigmac/autonomous-trader</string>
+  <string>/Users/bigmac/autonomous-trader/logs/morning_an2_observation_stderr.log</string>
   <key>RunAtLoad</key>
   <false/>
 </dict>
