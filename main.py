@@ -331,7 +331,6 @@ def _get_scan_interval():
     return SCAN_INTERVAL_OVERNIGHT  # 1800s
 
 
-@_hm_bq_instr("run_scanner")
 def run_scanner():
     global arena, _news_counter, _last_scan_time, _tier_last_scan
     import time as _time
@@ -422,7 +421,6 @@ def run_scanner():
     threading.Thread(target=_arena_scan_thread, daemon=True, name="arena_scanner").start()
 
 
-@_hm_bq_instr("run_dayblade")
 def run_dayblade():
     global dayblade
     if dayblade is None:
@@ -436,7 +434,6 @@ def run_dayblade():
 
 _last_ma_regime: str = ""
 
-@_hm_bq_instr("run_ma_regime_update")
 def run_ma_regime_update():
     """Refresh 8/21 MA cross regime every 15 minutes, log any regime change."""
     global _last_ma_regime
@@ -469,7 +466,6 @@ def run_ma_regime_update():
         console.log(f"[yellow]MA regime update error: {e}")
 
 
-@_hm_bq_instr("run_vix_check")
 def run_vix_check():
     """Check VIX every 5 minutes, alert on spike > 5%."""
     global _vix_alerted_today
@@ -494,7 +490,6 @@ def run_vix_check():
         console.log(f"[red]VIX check error: {e}")
 
 
-@_hm_bq_instr("run_earnings_check")
 def run_earnings_check():
     """Check earnings calendar once per hour."""
     try:
@@ -522,7 +517,6 @@ def run_earnings_check():
 
 _journal_written_today = False
 
-@_hm_bq_instr("run_journal")
 def run_journal():
     """Write daily journal entries — runs during market hours and post_market.
     Each AI gets one entry per day (duplicate check in generate_journal_entry).
@@ -572,7 +566,6 @@ def run_journal():
         console.log(f"[red]Journal error: {e}")
 
 
-@_hm_bq_instr("run_gex_refresh")
 def run_gex_refresh():
     """Refresh GEX cache every 15 minutes during market hours."""
     try:
@@ -594,7 +587,6 @@ def run_gex_refresh():
 # GEX Overlay + Battle Station scheduler runners
 # ---------------------------------------------------------------------------
 
-@_hm_bq_instr("run_gex_overlay_update")
 def run_gex_overlay_update():
     """Update GEX Overlay DB levels every 15 min during any market session."""
     try:
@@ -604,7 +596,6 @@ def run_gex_overlay_update():
         console.log(f"[red]GEX Overlay update error: {e}")
 
 
-@_hm_bq_instr("run_morning_briefing")
 def run_morning_briefing():
     """Generate morning levels at 6:25 AM MST (pre-market)."""
     import datetime as _dt
@@ -623,7 +614,6 @@ def run_morning_briefing():
         console.log(f"[red]Morning briefing error: {e}")
 
 
-@_hm_bq_instr("run_archer_morning_briefing")
 def run_archer_morning_briefing():
     """Phase 3.6 — Comprehensive Archer briefing at 6:00 AM AZ (9:00 AM ET)."""
     import datetime as _dt
@@ -643,7 +633,6 @@ def run_archer_morning_briefing():
         console.log(f"[red]Archer briefing error: {e}")
 
 
-@_hm_bq_instr("run_intel_report_morning")
 def run_intel_report_morning():
     """6:00 AM AZ — daily intel report + ntfy push to ollietrades-admin."""
     import datetime as _dt
@@ -663,7 +652,6 @@ def run_intel_report_morning():
         console.log(f"[red]Intel Report AM error: {e}")
 
 
-@_hm_bq_instr("run_intel_report_evening")
 def run_intel_report_evening():
     """8:00 PM AZ — evening intel prep (no ntfy, just refresh JSON)."""
     import datetime as _dt
@@ -690,7 +678,6 @@ def run_intel_report_evening():
 # table. The earnings_universe orphan was retired in the same commit; see
 # docs/EARNINGS.md and archive/earnings_injector.py.retired-20260507.
 
-@_hm_bq_instr("run_earnings_scan_inject")
 def run_earnings_scan_inject():
     """6:00 AM AZ — detect today's earnings reporters and inject into scan_universe.
 
@@ -755,7 +742,6 @@ def run_earnings_scan_inject():
         console.log(f"[red]run_earnings_scan_inject error: {e}")
 
 
-@_hm_bq_instr("run_earnings_day_scan")
 def run_earnings_day_scan():
     """Every 5 min market hours — rescan earnings-day tickers at high frequency.
 
@@ -907,7 +893,6 @@ def _update_brief_json(key: str, data) -> None:
         console.log(f"[red]_update_brief_json({key}) error: {e}")
 
 
-@_hm_bq_instr("run_ah_scanner")
 def run_ah_scanner():
     """AH Earnings Scanner — runs every 30 min from 4 PM to 7 PM AZ (7–10 PM ET).
     Flags stocks moving > 3% after hours, ntfy push if > 5%.
@@ -962,7 +947,6 @@ def run_ah_scanner():
         console.log("[dim]AH Scanner: no movers > 3%")
 
 
-@_hm_bq_instr("run_premarket_scanner")
 def run_premarket_scanner():
     """Pre-Market Scanner — runs every 15 min from 6 AM to 9:25 AM AZ (9 AM – 12:25 PM ET).
     Flags pre-market gaps > 2%, writes 'premarket_movers' to morning_brief.json.
@@ -996,7 +980,6 @@ def run_premarket_scanner():
         console.log("[dim]Pre-Market Scanner: no movers > 2%")
 
 
-@_hm_bq_instr("run_opening_range")
 def run_opening_range():
     """Set opening range at 6:45 AM MST (after first 15 min of trading)."""
     import datetime as _dt
@@ -1079,7 +1062,6 @@ def run_battle_station_monitor():
 _ALPACA_GEX_WINDOWS_MST = [(6, 0), (6, 35), (9, 0), (12, 0)]
 _last_alpaca_gex_window: dict = {}
 
-@_hm_bq_instr("run_alpaca_gex_refresh")
 def run_alpaca_gex_refresh():
     """Refresh Alpaca GEX at 4 key ET times. Runs on 5-min polling; deduplicates per window."""
     import datetime as _dt
@@ -1108,7 +1090,6 @@ def run_alpaca_gex_refresh():
 _last_war_room_time = 0
 _war_room_running = threading.Event()  # guard: prevents two-thread overlap (2026-04-26)
 
-@_hm_bq_instr("run_war_room")
 def run_war_room():
     """War Room: all AIs give hot takes. Free models 24/7, paid models market hours only."""
     global arena, _last_war_room_time
@@ -1159,7 +1140,6 @@ def run_war_room():
     threading.Thread(target=_war_room_thread, daemon=True).start()
 
 
-@_hm_bq_instr("run_autopilot")
 def run_autopilot():
     """Autopilot: auto-rebalance overweight positions and maintain cash floor."""
     try:
@@ -1189,7 +1169,6 @@ def run_autopilot():
         console.log(f"[red]Autopilot error: {e}")
 
 
-@_hm_bq_instr("run_whisper")
 def run_whisper():
     """Whisper Network: check for trending watchlist stocks."""
     try:
@@ -1199,7 +1178,6 @@ def run_whisper():
         console.log(f"[red]Whisper error: {e}")
 
 
-@_hm_bq_instr("run_strength_scan")
 def run_strength_scan():
     """Relative Strength Scanner: rank watchlist stocks vs SPY."""
     from engine.risk_manager import RiskManager
@@ -1220,7 +1198,6 @@ def run_strength_scan():
         console.log(f"[red]Strength scan error: {e}")
 
 
-@_hm_bq_instr("run_trend_forecast")
 def run_trend_forecast():
     """Trend Forecast: predict trends for all watchlist stocks."""
     if not should_run_task("run_trend_forecast", throttle_mins=60):
@@ -1239,7 +1216,6 @@ def run_trend_forecast():
         console.log(f"[red]Trend forecast error: {e}")
 
 
-@_hm_bq_instr("run_strategy_presets")
 def run_strategy_presets():
     """Strategy Presets: evaluate strategy fits for watchlist."""
     if not should_run_task("run_strategy_presets", throttle_mins=60):
@@ -1256,7 +1232,6 @@ def run_strategy_presets():
         console.log(f"[red]Strategy presets error: {e}")
 
 
-@_hm_bq_instr("run_discovery_scan")
 def run_discovery_scan():
     """Discovery Scanner — RETIRED. Replaced by Volume Radar (run_volume_market_scan).
     Kept as archive reference. Scheduler call below is commented out.
@@ -1268,7 +1243,6 @@ def run_discovery_scan():
 # Volume Radar — Full Market Scanner (replaces Discovery Scanner)
 # ---------------------------------------------------------------------------
 
-@_hm_bq_instr("run_volume_universe_refresh")
 def run_volume_universe_refresh():
     """Weekly: refresh the full ~10,000-stock universe from Alpaca (Sunday 10 PM MST)."""
     from datetime import datetime as _dt
@@ -1287,7 +1261,6 @@ def run_volume_universe_refresh():
         console.log(f"[red]Universe refresh error: {e}")
 
 
-@_hm_bq_instr("run_volume_baselines")
 def run_volume_baselines():
     """Nightly: update 20-day average volume baselines from Alpaca bars (weeknights 11 PM MST)."""
     from datetime import datetime as _dt
@@ -1306,7 +1279,6 @@ def run_volume_baselines():
         console.log(f"[red]Volume baselines error: {e}")
 
 
-@_hm_bq_instr("run_volume_market_scan")
 def run_volume_market_scan():
     """Every 15 min during market hours: full market volume scan (replaces discovery_scanner)."""
     from engine.risk_manager import RiskManager
@@ -1343,7 +1315,6 @@ def run_volume_market_scan():
         console.log(f"[red]Volume market scan error: {e}")
 
 
-@_hm_bq_instr("run_volume_red_alert")
 def run_volume_red_alert():
     """Every 2 min during market hours: check today's hot stocks for extreme spikes."""
     from engine.risk_manager import RiskManager
@@ -1356,7 +1327,6 @@ def run_volume_red_alert():
         console.log(f"[red]Volume red alert error: {e}")
 
 
-@_hm_bq_instr("run_impulse_check")
 def run_impulse_check():
     """Hourly Impulse Detector: check watchlist for volume/price/breakout impulses."""
     from engine.risk_manager import RiskManager
@@ -1385,7 +1355,6 @@ _gap_fill_last_run = 0.0
 _holly_nightly_done = False
 
 
-@_hm_bq_instr("run_gap_scan")
 def run_gap_scan():
     """Morning Gap Scanner: runs once per day at market open (7:30-8:30 AM AZ / 9:30-10:30 AM ET)."""
     global _gap_scan_done_today
@@ -1427,7 +1396,6 @@ def run_gap_scan():
         console.log(f"[red]Gap scan error: {e}")
 
 
-@_hm_bq_instr("run_gap_fill_check")
 def run_gap_fill_check():
     """Track gap fills throughout the trading day (every 5 min during market hours)."""
     global _gap_fill_last_run
@@ -1540,7 +1508,6 @@ def run_squeeze_watcher():
 
 _theta_last_run = 0.0
 
-@_hm_bq_instr("run_theta_scan")
 def run_theta_scan():
     """Theta Collection Scanner: find premium-selling opportunities. Runs every 4 hours."""
     global _theta_last_run
@@ -1568,7 +1535,6 @@ def run_theta_scan():
 
 _imbalance_last_run = 0.0
 
-@_hm_bq_instr("run_imbalance_scan")
 def run_imbalance_scan():
     """Supply/Demand Imbalance Zone Scanner: detect FVG zones across daily+hourly candles."""
     global _imbalance_last_run
@@ -1589,7 +1555,6 @@ def run_imbalance_scan():
 
 _sma_last_run = 0.0
 
-@_hm_bq_instr("run_sma_scan")
 def run_sma_scan():
     """200 SMA Filter: scan watchlist for Bounce/Breakdown/Reclaim signals. Runs every 4 hours."""
     global _sma_last_run
@@ -1610,7 +1575,6 @@ def run_sma_scan():
         console.log(f"[red]SMA scan error: {e}")
 
 
-@_hm_bq_instr("run_strategy_race")
 def run_strategy_race():
     """Strategy Race: update AI vs SPY comparison (daily)."""
     if not should_run_task("run_strategy_race", throttle_mins=120):
@@ -1629,7 +1593,6 @@ def run_strategy_race():
 
 _weekly_picks_sent = False
 
-@_hm_bq_instr("run_weekly_picks")
 def run_weekly_picks():
     """Weekly Picks: Sunday 6 PM ET — top 5 conviction picks."""
     global arena, _weekly_picks_sent
@@ -1667,7 +1630,6 @@ def run_weekly_picks():
         console.log(f"[red]Weekly picks error: {e}")
 
 
-@_hm_bq_instr("run_cross_asset_check")
 def run_cross_asset_check():
     """Cross-Asset Monitor: check VIX spikes, macro signals."""
     from engine.risk_manager import RiskManager
@@ -1688,7 +1650,6 @@ def run_cross_asset_check():
         console.log(f"[red]Cross-asset error: {e}")
 
 
-@_hm_bq_instr("run_skew_check")
 def run_skew_check():
     """Put/Call Skew Monitor: check for extreme fear."""
     from engine.risk_manager import RiskManager
@@ -1701,7 +1662,6 @@ def run_skew_check():
         console.log(f"[red]Skew check error: {e}")
 
 
-@_hm_bq_instr("run_flow_lean")
 def run_flow_lean():
     """Market Flow Lean: aggregate options premium directional bias every 15 min."""
     from engine.risk_manager import RiskManager
@@ -1714,7 +1674,6 @@ def run_flow_lean():
         console.log(f"[red]Flow lean error: {e}")
 
 
-@_hm_bq_instr("run_ai_saas_disruption")
 def run_ai_saas_disruption():
     """AI SaaS Disruption Scanner: monitors IGV + 13 SaaS names for disruption signals."""
     from engine.risk_manager import RiskManager
@@ -1747,7 +1706,6 @@ _READY_ROOM_SCHEDULE = [
 ]
 
 
-@_hm_bq_instr("run_ready_room")
 def run_ready_room():
     """Ready Room briefing at 4 scheduled ET times on weekdays."""
     global _ready_room_slots_done_today
@@ -1794,7 +1752,6 @@ def run_ready_room():
 _oi_snapshot_done_today = False
 
 
-@_hm_bq_instr("run_oi_morning_snapshot")
 def run_oi_morning_snapshot():
     """Take SPY OI baseline at market open (6:30 AM AZ / 9:30 AM ET)."""
     global _oi_snapshot_done_today
@@ -1840,7 +1797,6 @@ _CTO_SCHEDULE = [
 ]
 
 
-@_hm_bq_instr("run_cto_advisory")
 def run_cto_advisory():
     """CTO Advisory: 4x daily briefings at scheduled Arizona times."""
     global _cto_slots_done_today
@@ -1887,7 +1843,6 @@ def run_cto_advisory():
 
 _team_advisor_slots_done_today: set = set()
 
-@_hm_bq_instr("run_team_advisor")
 def run_team_advisor():
     """Advisory Team scheduler: fires at 9:30 AM and 1:30 PM ET on weekdays.
 
@@ -1950,7 +1905,6 @@ def run_team_advisor():
             break  # One slot per poll cycle
 
 
-@_hm_bq_instr("run_portfolio_monitor")
 def run_portfolio_monitor():
     """Ship's Computer: check Captain's Portfolio every 5 min during market hours."""
     from datetime import datetime
@@ -1976,7 +1930,6 @@ def run_portfolio_monitor():
 
 _elimination_done_this_week = False
 
-@_hm_bq_instr("run_weekly_elimination")
 def run_weekly_elimination():
     """Friday elimination: pause models below -15% return at market close."""
     global _elimination_done_this_week
@@ -2022,7 +1975,6 @@ def run_weekly_elimination():
         console.log(f"[red]Weekly elimination error: {e}")
 
 
-@_hm_bq_instr("run_fundamental_scan")
 def run_fundamental_scan():
     """Fundamental Score Scanner: refresh fundamental data periodically."""
     from engine.risk_manager import RiskManager
@@ -2040,7 +1992,6 @@ def run_fundamental_scan():
 
 _budget_alerted_today = False
 
-@_hm_bq_instr("run_cost_monitor")
 def run_cost_monitor():
     """Check daily API budget and auto-pause expensive losers."""
     global _budget_alerted_today
@@ -2090,7 +2041,6 @@ def run_cost_monitor():
 _ratings_fired_today: set[str] = set()
 
 
-@_hm_bq_instr("run_daily_rating_update")
 def run_daily_rating_update():
     """Run fleet report card at 4:30 PM ET (after market close). Fires once per day."""
     import zoneinfo
@@ -2129,7 +2079,6 @@ def run_daily_rating_update():
         console.log(f"[red][RATINGS] Error: {e}")
 
 
-@_hm_bq_instr("run_daily_summary")
 def run_daily_summary():
     """Send daily summary at market close via Telegram."""
     from engine.risk_manager import RiskManager
@@ -2179,7 +2128,6 @@ def run_daily_summary():
         console.log(f"[red]Daily summary error: {e}")
 
 
-@_hm_bq_instr("run_universe_scan")
 def run_universe_scan():
     """Nightly universe scan — Ensign Chekov sweeps 500+ stocks.
     Runs at 9 PM MST / 12 AM ET (weeknights + Sunday). Takes 2-3 minutes."""
@@ -2201,7 +2149,6 @@ def run_universe_scan():
         console.log(f"[red]Universe scan error: {e}")
 
 
-@_hm_bq_instr("run_strategy_scan")
 def run_strategy_scan():
     """Nightly strategy scan — run 15 strategies against top 50 universe stocks.
     Runs at 10 PM MST / 1 AM ET (weeknights + Sunday). Takes 1-2 minutes."""
@@ -2231,7 +2178,6 @@ def run_strategy_scan():
         console.log(f"[red]Strategy scan error: {e}")
 
 
-@_hm_bq_instr("run_chekov_stoploss")
 def run_chekov_stoploss():
     """Check Chekov's positions against stop-loss/take-profit prices."""
     try:
@@ -2242,7 +2188,6 @@ def run_chekov_stoploss():
 
 
 # === HM-AW: Chekov intraday convergence buyer ===
-@_hm_bq_instr("run_chekov_intraday_convergence")
 def run_chekov_intraday_convergence():
     """Chekov intraday convergence buyer — runs during market hours.
 
@@ -2279,7 +2224,6 @@ def run_chekov_intraday_convergence():
 
 _premarket_gaps_done = False
 
-@_hm_bq_instr("run_premarket_gaps")
 def run_premarket_gaps():
     """Pre-market gap scanner — Chekov posts gaps > 2% to War Room.
     Runs at 1 AM MST (4 AM ET) weekdays."""
@@ -2350,7 +2294,6 @@ def run_premarket_gaps():
 _finviz_scan_done = False
 
 
-@_hm_bq_instr("run_finviz_premarket_scan")
 def run_finviz_premarket_scan():
     """Finviz pre-market watchlist builder — runs at 6:15 AZ (9:15 ET) weekdays."""
     global _finviz_scan_done
@@ -2407,7 +2350,6 @@ def run_finviz_premarket_scan():
         console.log(f"[yellow]Finviz pre-market scan error: {e}")
 
 
-@_hm_bq_instr("run_metals_commentary")
 def run_metals_commentary():
     """Dalio's daily metals report — 7 AM MST weekdays."""
     from datetime import datetime as _dt
@@ -2446,7 +2388,6 @@ def run_dashboard():
 
 _sulu_closed_today = False
 
-@_hm_bq_instr("run_sulu_autoclose")
 def run_sulu_autoclose():
     """Lt. Sulu DayBlade EOD auto-close: sell ALL positions at 3:45 PM ET (12:45 PM MST)."""
     global _sulu_closed_today
@@ -2518,7 +2459,6 @@ _crew_scanner_slots_done_today: set = set()
 _CREW_SCANNER_T1_INTERVAL = 2 * 60    # 2 min between Alpha interval scans (4 agents ~40s each)
 
 
-@_hm_bq_instr("run_crew_scanner_job")
 def run_crew_scanner_job() -> None:
     """
     Crew Scanner: feed live market signals to every mandated agent.
@@ -2638,7 +2578,6 @@ def run_crew_scanner_job() -> None:
 
 _bs0dte_lock = threading.Lock()
 
-@_hm_bq_instr("run_battle_station_0dte_job")
 def run_battle_station_0dte_job() -> None:
     """Rules-based 0DTE battle station — fires every 2 min during 9:45 AM - 2:30 PM ET."""
     import pytz
