@@ -2130,7 +2130,7 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
             # (which break on sync when positions are removed).
             # HM-I-β-Item3 (2026-05-05): added alpaca-mirror — it's the new
             # alpaca-sync target post-split, same sync-disruption pattern.
-            if p["id"] in ("alpaca-mirror", "webull", "dalio-metals"):
+            if p["id"] in ("alpaca-mirror", "dalio-metals"):
                 try:
                     day_change = sum(
                         pos.get("market_value", 0) * pos.get("day_change_pct", 0) / 100
