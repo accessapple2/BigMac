@@ -196,7 +196,12 @@ def _compute_metrics(trades: list[dict]) -> dict[str, Any]:
             pct = float(t["realized_pnl"])
         else:
             pct = 0.0
-        pnl_pcts.append(max(-100.0, min(100.0, pct)))
+        # === HM-BP === reject fat-finger pct (likely entry_price corruption);
+        # cleaner than clamp which compounded to wipe equity in drawdown calc
+        if abs(pct) > 50.0:
+            continue
+        pnl_pcts.append(pct)
+        # === /HM-BP ===
 
     total = len(pnl_pcts)
     wins  = sum(1 for p in pnl_pcts if p > 0)
