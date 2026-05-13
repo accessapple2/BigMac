@@ -97,6 +97,9 @@ Non-trivial frontend JS changes require a **manual browser hover/click smoke tes
 ## Daemon Lifecycle Rule (added 2026-05-12, HM-EQ lesson)
 Background daemons must bind to **process lifecycle** (module-level startup + explicit invocation in `main.py`), NEVER lazy-instantiated module state coupled to a scan-cycle or agent-spawn path. Standalone import-tests can pass while live production never fires — verify the live execution path with a log heartbeat before declaring shipped. HM-EQ daemon went 128h silent because the Arena-coupled spawn never fired; commit `54881bb` moved it to module-level.
 
+## HM-AM Scope (added 2026-05-12, HM-CLOSE-GAP W1.1)
+Total Portfolio = **real-world net worth only** (Schwab + Webull + IBKR + physical metals). EXCLUDES Alpaca paper trading book — that's a separate research/strategy-validation surface and must not co-mingle with real-world capital reporting. The two-book bridge policy (see below) governs how the books communicate without mixing.
+
 ## Backtest Rule
 - Always run ALL agents in backtests, never a subset
 - Never cite in-sample (IS) numbers without the matching OOS figure
