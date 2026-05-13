@@ -8,7 +8,7 @@ cd ~/autonomous-trader || exit 1
 
 TODAY=$(date +%Y-%m-%d)
 DB=~/autonomous-trader/data/trader.db
-LOG=~/autonomous-trader/logs/trader.log
+LOG=~/autonomous-trader/logs/trader_error.log
 ERR=~/autonomous-trader/logs/trader_error.log
 
 # === Check 1: HM-EQ daemon — equity snapshot count last 24h ===
