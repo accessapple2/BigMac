@@ -221,8 +221,10 @@ def _check_cost_budget() -> bool:
         if today_cost >= DAILY_COST_WARNING:
             console.log(f"[yellow]COST WARNING: ${today_cost:.2f} / ${DAILY_API_BUDGET:.2f}")
         return True
-    except Exception:
-        return True  # If check fails, allow scanning
+    # === HM-BD.F-audit broader === cost-budget check; fallback allow-scanning
+    except Exception as e:
+        console.log(f"[dim]cost-budget check: {type(e).__name__}: {e!r} — allowing scan")
+        return True
 
 
 # === HM-EQ ===
@@ -1285,7 +1287,9 @@ class Arena:
                         try:
                             from config import DALIO_BOND_SYMBOLS as _DBONDS
                             asset_type = "bond" if symbol in _DBONDS else "stock"
-                        except Exception:
+                        # === HM-BD.F-audit broader === dalio bond-classify; fallback stock
+                        except Exception as e:
+                            console.log(f"[dim]dalio bond-classify: {type(e).__name__}: {e!r} — defaulting stock")
                             asset_type = "stock"
                     else:
                         asset_type = "stock"
@@ -1403,7 +1407,9 @@ class Arena:
                         try:
                             from config import DALIO_SYMBOLS as _DS
                             _dalio_symbols = set(_DS)
-                        except Exception:
+                        # === HM-BD.F-audit broader === DALIO_SYMBOLS import; fallback hardcoded
+                        except Exception as e:
+                            console.log(f"[dim]DALIO_SYMBOLS import: {type(e).__name__}: {e!r} — using hardcoded fallback")
                             _dalio_symbols = {"TLT", "IEF", "GLD", "GSG"}
                         # VIX regime: scale position sizes, never hard-block (Option C)
                         # Formula: max(0.25, 1.0 - (vix - 25) / 20)
@@ -1431,8 +1437,9 @@ class Arena:
                                 # Caution: 75% sizing
                                 alloc_pct *= 0.75
                                 console.log(f"[yellow]{player_id}: VIX={_vix_price:.1f} — caution, 75% sizing on {symbol}")
-                    except Exception:
-                        pass
+                    # === HM-BD.F-audit broader === VIX sizing modifier
+                    except Exception as e:
+                        console.log(f"[yellow]VIX sizing: {type(e).__name__}: {e!r}")
 
                     qty = round((portfolio["cash"] * alloc_pct) / data["price"], 4)
                     allowed, reason = self.risk.check_buy(
@@ -1518,8 +1525,9 @@ class Arena:
                                     console.log(f"[yellow]signal-center post failed: {type(e).__name__}: {e!r}[/yellow]")
                                 # === /HM-BD.F-audit Tier-1 ===
                             _sc_th.Thread(target=_post_sc, daemon=True).start()
-                        except Exception:
-                            pass
+                        # === HM-BD.F-audit broader === signal-center thread spawn
+                        except Exception as e:
+                            console.log(f"[yellow]signal-center thread spawn: {type(e).__name__}: {e!r}")
 
                 elif decision.action not in ("HOLD", "SELL"):
                     _rej = _last_rejection.get(player_id, "Execution failed")
