@@ -998,11 +998,35 @@ def run_opening_range():
         console.log(f"[red]Opening range update error: {e}")
 
 
+
+# === HM-BQ-instr === per-handler wall-time decorator (Phase 1)
+# Logs wall time for scheduler handlers to identify which is contributing
+# to the cadence drift documented in HM-AS-β. Logs only when wall>1.0s
+# to keep signal-to-noise high. Output routes via logger.info to
+# trader_error.log (alongside the [HM-AS-β] cadence-drift warnings).
+import functools as _hm_bq_functools
+import time as _hm_bq_time
+def _hm_bq_instr(name):
+    def _deco(fn):
+        @_hm_bq_functools.wraps(fn)
+        def _wrapper(*args, **kwargs):
+            _t0 = _hm_bq_time.perf_counter()
+            try:
+                return fn(*args, **kwargs)
+            finally:
+                _wall = _hm_bq_time.perf_counter() - _t0
+                if _wall > 1.0:
+                    logger.info(f'[HM-BQ-instr] {name} wall={_wall:.3f}s')
+        return _wrapper
+    return _deco
+# === /HM-BQ-instr ===
+
 _last_battle_station_run = 0.0
 # HM-AS-β 2026-05-07: cadence drift observability
 _battle_station_last_fire_ts = 0.0
 
 
+@_hm_bq_instr("battle_station_monitor")
 def run_battle_station_monitor():
     """60-second options position monitor (early-exit if no positions)."""
     # HM-AS-β 2026-05-07: cadence drift observability — log if scheduler
@@ -1406,6 +1430,7 @@ _squeeze_watcher_disabled_logged = False
 _squeeze_bg_lock = threading.Lock()  # prevents overlap if a prior 30-min run is still in flight
 
 
+@_hm_bq_instr("_bg_squeeze_watcher")
 def _bg_squeeze_watcher():
     """Daemon-thread wrapper around run_squeeze_watcher() — never blocks
     the scheduler. If a prior invocation is still running, skip this tick."""
@@ -1420,6 +1445,7 @@ def _bg_squeeze_watcher():
     threading.Thread(target=_runner, daemon=True, name="sched_squeeze_watcher").start()
 
 
+@_hm_bq_instr("run_squeeze_watcher")
 def run_squeeze_watcher():
     """Run engine.squeeze_scanner.run_scan() on a 30-min cadence and persist
     candidates to squeeze_watch table. Default-OFF via env flag — set
