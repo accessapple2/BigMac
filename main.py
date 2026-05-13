@@ -1016,7 +1016,7 @@ def _hm_bq_instr(name):
             finally:
                 _wall = _hm_bq_time.perf_counter() - _t0
                 if _wall > 1.0:
-                    logger.info(f'[HM-BQ-instr] {name} wall={_wall:.3f}s')
+                    console.log(f'[HM-BQ-instr] {name} wall={_wall:.3f}s')
         return _wrapper
     return _deco
 # === /HM-BQ-instr ===
