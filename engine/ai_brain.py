@@ -898,8 +898,9 @@ class Arena:
                 _vix_val = _get_vix()
                 if _vix_val and _vix_val > 25:
                     _sa_vix(_vix_val)
-            except Exception:
-                pass
+            # === HM-BD.F-audit broader === Super Agent VIX nudge
+            except Exception as e:
+                console.log(f"[yellow]SA vix nudge: {type(e).__name__}: {e!r}")
         except Exception as _sa_e:
             console.log(f"[red]Super Agent War Room error: {_sa_e}")
 
@@ -925,8 +926,9 @@ class Arena:
                     return
             finally:
                 _hc.close()
-        except Exception:
-            pass
+        # === HM-BD.F-audit broader === human/mirror guard
+        except Exception as e:
+            console.log(f"[yellow]human-player guard: {type(e).__name__}: {e!r}")
 
         # Check if player is paused
         import sqlite3
@@ -937,8 +939,9 @@ class Arena:
             if paused and paused[0]:
                 console.log(f"[dim]{player_id} PAUSED — skipping scan[/dim]")
                 return
-        except Exception:
-            pass
+        # === HM-BD.F-audit broader === player paused check
+        except Exception as e:
+            console.log(f"[yellow]paused-player check: {type(e).__name__}: {e!r}")
 
         # RAM safety check for local Ollama models
         if player_id.startswith("ollama-"):
@@ -951,8 +954,9 @@ class Arena:
                         f"[bold yellow]\u26a0\ufe0f RAM LOW ({avail_mb:.0f}MB free) — skipping {player_id} this cycle"
                     )
                     return
-            except Exception:
-                pass
+            # === HM-BD.F-audit broader === RAM safety check
+            except Exception as e:
+                console.log(f"[yellow]RAM-safety check: {type(e).__name__}: {e!r}")
 
         # Check if player is halted
         is_halted, drawdown = self.risk.check_drawdown(player_id)
@@ -1020,8 +1024,9 @@ class Arena:
             memory_block = get_memory_block_for_player(player_id)
             if memory_block:
                 scan_ctx += memory_block
-        except Exception:
-            pass
+        # === HM-BD.F-audit broader === trade-memory inject
+        except Exception as e:
+            console.log(f"[yellow]trade-memory inject: {type(e).__name__}: {e!r}")
 
         # Inject pre-market gap data — shared cache (5 min TTL) avoids N HTTP calls/cycle
         try:
@@ -1345,15 +1350,17 @@ class Arena:
                                 # BUY aligns with BULL lean
                                 if decision.action == "BUY" and _fl["lean"] == "BULL" and _fl["conviction"] >= 30:
                                     _flow_confirms = True
-                        except Exception:
-                            pass
+                        # === HM-BD.F-audit broader === flow-lean confirm
+                        except Exception as e:
+                            console.log(f"[yellow]flow-lean confirm: {type(e).__name__}: {e!r}")
                         try:
                             from engine.earnings_calendar import get_earnings_warnings
                             _ew = get_earnings_warnings([symbol])
                             if _ew:
                                 _has_catalyst = any(e["days_until"] <= 3 for e in _ew)
-                        except Exception:
-                            pass
+                        # === HM-BD.F-audit broader === earnings catalyst check
+                        except Exception as e:
+                            console.log(f"[yellow]earnings catalyst: {type(e).__name__}: {e!r}")
                         # Also count major news as a catalyst
                         if not _has_catalyst:
                             try:
@@ -1367,8 +1374,9 @@ class Arena:
                                 _ndb.close()
                                 if _recent_news and _recent_news[0] >= 3:
                                     _has_catalyst = True
-                            except Exception:
-                                pass
+                            # === HM-BD.F-audit broader === news catalyst check
+                            except Exception as e:
+                                console.log(f"[yellow]news catalyst: {type(e).__name__}: {e!r}")
 
                         if _flow_confirms and _has_catalyst:
                             alloc_pct = 0.40
