@@ -573,3 +573,13 @@ Feature flags live in `config.py` as module-level constants. Engine modules impo
 ## Workflow
 - Propose edits and ask for approval before applying
 - For multi-file changes, show the plan first, then apply incrementally
+
+
+## Lessons Banked 2026-05-13
+
+**logger.info vs console.log**: Rich Console writes to `logs/trader.log`; stdlib `logger.info()` writes to `logs/trader_error.log`. The two sinks are SEPARATE despite "trader_error" misleading-name. Any new HM-* instrumentation must use `console.log()` for trader.log routing, or scripts grepping for the data must explicitly target trader_error.log. Surfaced when HM-CD-instr + HM-AN2 lines were invisible (cron scripts grepped wrong file). Fixed by HM-LOG-CHANNEL commit 8d7a607.
+
+**HM-CD-migrate doctrine — Ollama keep_alive**: Universal `keep_alive: "30s"` (legacy 16GB constraint) forces full model reload on every call — ollama-coder measured 207s wall, 90%+ in model swap. Fixed by per-model `_HM_CD_KEEP_ALIVE` lookup: high-frequency models (qwen3:8b=7 agents, qwen2.5-coder:7b=2 agents) get 30m residency; alpha-squad rotation gets 10m; rare models keep 30s default. Ollie Box 32GB has headroom for 2-3 concurrent 7B-class models. Commit 999984a.
+
+**Diagnostics first**: HM-CD-migrate ALMOST became a Polygon data migration based on stale assumptions. Real cause (model swap) emerged only when ollama-coder logs were read in context. HM-CD-instr instrumentation (logger.info → trader_error.log) was the savior — without it, blind Polygon migration would have shipped 0 perf improvement. Reinforces XO rule: diagnostics first, theorize second.
+
