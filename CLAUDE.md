@@ -628,3 +628,38 @@ must exclude webull or check halt_mode='active'. Previous memory note "Webull ~$
 
 **ollama-local halted**: Stale signal emitter pattern. halt_mode was 'active' but no trades in 53 days; signals continued but all gate-rejected. Set to exit_only pending audit of which gate (mandate/confidence/sizing) is the rejection source. File HM-FLEET-REJECTION-AUDIT for next session if other emitters show same pattern.
 
+
+
+## HM-AN2.3 FIRED 2026-05-13 evening (Captain go: "the show must go on Maestro!")
+
+**neo-matrix flipped to halt_mode='active'.** First autonomous AI agent on
+the fleet authorized to deploy capital on live (paper) trades.
+
+**Posture:**
+- Auto-traded only (paper money on Alpaca)
+- 5 trades/day cap (MAX_TRADES_PER_DAY)
+- ALLOCATION_POLICY_EXEMPT (no fixed sizing constraint)
+- WARNING_ONLY_PLAYERS (some risk warnings don't block)
+- HM-AN2-BLOCKED-INLINE active (gate reasons logged inline)
+- Starting equity: ~$7,173.69 cash, zero positions, 100% cash
+- Trader uptime at fire: 41:52+, running clean main.py (post-decorator-move)
+
+**Pre-state archived** in hm_an23_revert_log table with fired_at timestamp.
+
+**Revert command:**
+```sql
+UPDATE ai_players SET halt_mode='exit_only',
+                      halt_reason='Reverted HM-AN2.3 ' || datetime('now','localtime')
+WHERE id='neo-matrix';
+```
+
+**First fire window:** next regular scan cycle that produces an HM-AN2 candidate.
+Market closed at fire-time; first real test is tomorrow's open (06:30 AZ).
+
+**22 days of observation-only preceded this:** halt_mode='exit_only' since
+2026-05-11, ~60 HM-AN2 candidates observed safely-blocked, all gate-reason
+patterns documented via HM-AN2-BLOCKED-INLINE.
+
+**Caveat banked:** if battle_station_monitor cadence drift (913s vs 120s
+target, observed at 16:52) is symptomatic of broader scheduler issues,
+neo-matrix's HM-AN2.C consume path could be affected. Monitor.
