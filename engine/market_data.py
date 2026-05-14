@@ -223,16 +223,6 @@ def _get_alpaca_price(symbol: str) -> dict | None:
             headers=hdrs,
             timeout=5,
         )
-        # === HM-POLY-HEADERS === rate-limit observability (console.log sink → trader.log)
-        try:
-            _rl_rem = r.headers.get("X-RateLimit-Remaining", "?")
-            _rl_rst = r.headers.get("X-RateLimit-Reset", "?")
-            if r.status_code != 200 or str(_rl_rem) in ("0","1","2","3"):
-                console.log(f"[HM-POLY-HEADERS] status={r.status_code} remaining={_rl_rem} reset={_rl_rst}")
-        except Exception:
-            pass
-        # === /HM-POLY-HEADERS ===
-
         if not r.ok:
             return None
         q = r.json().get("quote", {})
