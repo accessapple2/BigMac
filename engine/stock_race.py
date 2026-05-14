@@ -4,6 +4,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from rich.console import Console
 
 import config
+from engine.universe import get_active_universe
 
 console = Console()
 
@@ -14,7 +15,7 @@ def get_stock_race() -> list:
     """
     from engine.market_data import get_all_prices
 
-    prices = get_all_prices(config.get_active_universe())
+    prices = get_all_prices(get_active_universe())
 
     results = []
     for sym, data in prices.items():

@@ -8,6 +8,7 @@ from datetime import datetime, timedelta
 from rich.console import Console
 
 import config
+from engine.universe import get_active_universe
 
 console = Console()
 
@@ -103,7 +104,7 @@ def get_earnings_calendar(from_date: str = None, to_date: str = None) -> list:
         return []
 
     # Filter to watchlist stocks
-    watchlist = set(s.upper() for s in config.get_active_universe())
+    watchlist = set(s.upper() for s in get_active_universe())
     results = []
     for e in data["earningsCalendar"]:
         sym = e.get("symbol", "")
