@@ -64,3 +64,22 @@ SELECT id FROM ai_players WHERE halt_mode = 'active';
 1. Review players with high MANDATE BLOCKED counts — consider mandate adjustment
 2. Review players with high Conviction-floor counts — calibration question
 3. Flip stale-active emitters to exit_only (same as ollama-local 2026-05-13)
+
+
+## CAPTAIN DECISION 2026-05-13 — Accept
+
+**Decision:** Accept current gate-rejection profile. No mandate/conviction tuning.
+
+**Rationale:** Per-agent rejection counts are high, but fleet P&L is positive
+(today: +$123.58 at 84% WR). The Quality Gate and Conviction Floor are doing
+real work filtering noise. ollie-auto's 4192 rejections/7d is the COST of
+finding the 14 winning fills, not a defect.
+
+**Optimization opportunity (future, low priority):** Filter at scan-time
+instead of post-generation. If we knew which setups always fail Quality Gate,
+we could skip generating those candidates. Save compute, same P&L.
+
+**Trigger to revisit:**
+- Fleet P&L turns negative
+- Quality Gate rejection rate >90% sustained
+- Specific agent emerges as net-negative contributor
