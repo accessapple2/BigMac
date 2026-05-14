@@ -663,3 +663,22 @@ patterns documented via HM-AN2-BLOCKED-INLINE.
 **Caveat banked:** if battle_station_monitor cadence drift (913s vs 120s
 target, observed at 16:52) is symptomatic of broader scheduler issues,
 neo-matrix's HM-AN2.C consume path could be affected. Monitor.
+
+
+## HM-BK Phase 1 LOADED 2026-05-13 evening
+
+**Movers poller plist loaded.** com.ollietrades.movers-poller running on
+5-minute cadence, self-gates to market hours (09:30–16:00 ET Mon-Fri).
+
+**Off-hours behavior:** invocations exit cheaply (no Polygon calls, no
+DB writes). First real fire window: tomorrow's open 06:30 AZ.
+
+**Phase 2 deferred (Captain-attended):**
+- signal_center wiring as tier='mover'
+- Dashboard /movers route (memory rule #27 — needs browser smoke)
+- mcap + optionable enrichment via /v3/reference/tickers (nightly cadence)
+
+**To unload (single command):**
+```bash
+launchctl unload ~/Library/LaunchAgents/com.ollietrades.movers-poller.plist
+```
