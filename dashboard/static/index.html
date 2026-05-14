@@ -35462,16 +35462,67 @@ setInterval(pollBS0DTE, 60 * 1000);
 
 <!-- ==================== HM-DASH-MOVERS — MOVERS WATCHLIST ==================== -->
 <div id="section-movers" style="display:none;">
-  <div class="card-title">📊 Movers</div>
-  <div id="moversContent" style="padding:12px 0; color:#8b949e; font-style:italic;">
-    Stage 1A: container only · data wiring lands in Stage 2 (/api/movers endpoint)
-  </div>
+  <div class="card-title">📊 Movers <span id="moversMeta" style="font-size:12px;color:var(--muted);font-weight:400;margin-left:8px;"></span></div>
+  <div id="moversTableContent" style="padding:12px 0;color:var(--muted);">Fetching movers…</div>
 </div>
 <script>
 async function fetchMovers() {
-  // Stage 1A stub — no-op until /api/movers exists in Stage 2
-  // Logs presence for verification only.
-  console.log('[HM-DASH] fetchMovers stub called (Stage 1A — no data yet)');
+  var el = document.getElementById('moversTableContent');
+  var metaEl = document.getElementById('moversMeta');
+  if (!el) return;
+  try {
+    var r = await fetch('/api/movers');
+    var d = await r.json();
+    if (d.error) {
+      el.innerHTML = '<div style="color:var(--muted);padding:12px;">Error: ' + d.error + '</div>';
+      if (metaEl) metaEl.textContent = '';
+      return;
+    }
+    var rows = d.movers || [];
+    var meta = d.meta || {};
+    if (metaEl) {
+      metaEl.textContent = (meta.total || 0) + ' rows · ' +
+                           (meta.with_metadata || 0) + ' enriched · ' +
+                           (meta.metadata_pending || 0) + ' pending';
+    }
+    if (!rows.length) {
+      el.innerHTML = '<div style="color:var(--muted);padding:12px;">No movers yet — HM-BK poller fires next market open.</div>';
+      return;
+    }
+    var html = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;font-family:var(--font-mono);">';
+    html += '<thead><tr style="border-bottom:1px solid var(--border);">';
+    ['Symbol','% Chg','Price','Vol','MCap','Optionable','Type'].forEach(function(h) {
+      html += '<th style="text-align:left;padding:6px 8px;color:var(--muted);font-weight:600;">' + h + '</th>';
+    });
+    html += '</tr></thead><tbody>';
+    rows.forEach(function(m) {
+      var pct = (typeof m.pct_change === 'number') ? m.pct_change : 0;
+      var pctCol = pct >= 0 ? '#22c55e' : '#ef4444';
+      var pctTxt = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+      var price = (typeof m.last_price === 'number') ? ('$' + m.last_price.toFixed(2)) : '—';
+      var mcapPending = (m.market_cap === null || m.market_cap === undefined);
+      var mcapTxt = mcapPending
+        ? '<span style="color:var(--muted);font-style:italic;">metadata pending</span>'
+        : (m.market_cap / 1e9).toFixed(2) + 'B';
+      var optTxt = mcapPending
+        ? '—'
+        : (m.optionable === 1 ? 'yes' : (m.optionable === 0 ? 'no' : '—'));
+      var typeTxt = mcapPending ? '—' : (m.ticker_type || '—');
+      html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.05);">';
+      html += '<td style="padding:6px 8px;color:var(--text);font-weight:700;">' + (m.symbol || '') + '</td>';
+      html += '<td style="padding:6px 8px;color:' + pctCol + ';font-weight:700;">' + pctTxt + '</td>';
+      html += '<td style="padding:6px 8px;color:var(--text);">' + price + '</td>';
+      html += '<td style="padding:6px 8px;color:var(--muted);">' + _fmtVol(m.volume) + '</td>';
+      html += '<td style="padding:6px 8px;color:var(--text);">' + mcapTxt + '</td>';
+      html += '<td style="padding:6px 8px;color:var(--muted);">' + optTxt + '</td>';
+      html += '<td style="padding:6px 8px;color:var(--muted);">' + typeTxt + '</td>';
+      html += '</tr>';
+    });
+    html += '</tbody></table></div>';
+    el.innerHTML = html;
+  } catch(e) {
+    el.innerHTML = '<div style="color:var(--muted);padding:12px;">Could not load movers data.</div>';
+  }
 }
 </script>
 <!-- ==================== /HM-DASH-MOVERS ==================== -->

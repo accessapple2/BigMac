@@ -1388,6 +1388,53 @@ def _backtest_conn():
     return c
 
 
+# ===== HM-DASH-MOVERS Stage 2 — /api/movers ==========================
+@app.get("/api/movers")
+def api_movers():
+    """Return mover_watchlist rows joined to ticker_metadata.
+
+    Sorted by absolute pct_change desc, capped at 50. Mirrors /api/bridge/votes
+    response shape: {items, meta, fetched_at}. Rows where ticker_metadata is
+    not yet enriched return market_cap=None / optionable=None / ticker_type=None;
+    the dashboard renders these as 'metadata pending'.
+    """
+    from datetime import datetime, timezone
+    try:
+        c = _conn()
+        rows = c.execute(
+            """
+            SELECT mw.symbol,
+                   mw.pct_change,
+                   mw.volume,
+                   mw.direction,
+                   mw.last_price,
+                   tm.market_cap,
+                   tm.optionable,
+                   tm.ticker_type,
+                   mw.refreshed_at
+              FROM mover_watchlist mw
+              LEFT JOIN ticker_metadata tm ON tm.symbol = mw.symbol
+             ORDER BY ABS(COALESCE(mw.pct_change, 0)) DESC
+             LIMIT 50
+            """
+        ).fetchall()
+        c.close()
+        movers = [dict(r) for r in rows]
+        with_meta = sum(1 for m in movers if m.get("market_cap") is not None)
+        return {
+            "movers": movers,
+            "meta": {
+                "total": len(movers),
+                "with_metadata": with_meta,
+                "metadata_pending": len(movers) - with_meta,
+            },
+            "fetched_at": datetime.now(timezone.utc).isoformat(),
+        }
+    except Exception as exc:
+        return {"error": str(exc), "movers": [], "meta": {"total": 0}}
+# ===== /HM-DASH-MOVERS Stage 2 =======================================
+
+
 # --- Notification System ---
 
 def _init_notifications_table():
