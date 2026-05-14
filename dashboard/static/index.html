@@ -2746,6 +2746,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="sidebar-item" id="nav-sniff-scan" onclick="showSection('sniff-scan')"><span class="icon">📡</span> Sniff Scan</div>
   <!-- === Phase 4-static.3 (bundled with Phase 6 Q5): desktop Race nav entry === -->
   <div class="sidebar-item" id="nav-race" onclick="showSection('race');if(typeof raceStart==='function')raceStart()"><span class="icon">🏁</span> Race</div>
+  <div class="sidebar-item" id="nav-movers" onclick="showSection('movers')"><span class="icon">📊</span> Movers</div>
   <a class="sidebar-item" href="/backtest" style="text-decoration:none;color:inherit;"><span class="icon">🧪</span> Backtest</a>
   <div class="sidebar-item" onclick="showSection('institutional-intel')"><span class="icon">🏛️</span> Inst. Intel</div>
 <div class="sidebar-item" onclick="showSection('screener-pro')"><span class="icon">🔍</span> Screener Pro</div>
@@ -13369,6 +13370,7 @@ async function renderPortfolios() {
 <nav class="mobile-nav" id="mobileNav">
   <button class="mobile-nav-item active" onclick="mobileNav('dashboard',this)"><span class="m-icon">🖥️</span>Bridge</button>
   <button class="mobile-nav-item" onclick="mobileNav('race',this);if(typeof raceStart==='function')raceStart()"><span class="m-icon">🏁</span>Race</button>
+  <button class="mobile-nav-item" onclick="mobileNav('movers',this)"><span class="m-icon">📊</span>Movers</button>
   <button class="mobile-nav-item" onclick="mobileNav('leaderboard',this)"><span class="m-icon">🏆</span>Board</button>
   <button class="mobile-nav-item" onclick="mobileNav('ai-portfolios',this);setTimeout(renderPortfolios,100)"><span class="m-icon">🤖</span>Models</button>
   <button class="mobile-nav-item" onclick="mobileNav('trades',this)"><span class="m-icon">📋</span>Trades</button>
@@ -14664,6 +14666,7 @@ var _sectionFetchMap = {
   'feed': 'fetchArenaFeed',
   'journal': 'fetchJournal',
   'stock-race': 'fetchStockRace',
+  'movers': 'fetchMovers',
   'premarket': 'fetchPremarketGaps',
   'screener': 'renderScannerTable',
   'insiders': 'fetchInsiderAlerts',
@@ -35456,5 +35459,21 @@ setInterval(pollBS0DTE, 60 * 1000);
 </script>
 <!-- === end Phase 4: Detail enrichment === -->
 
+
+<!-- ==================== HM-DASH-MOVERS — MOVERS WATCHLIST ==================== -->
+<div id="section-movers" style="display:none;">
+  <div class="card-title">📊 Movers</div>
+  <div id="moversContent" style="padding:12px 0; color:#8b949e; font-style:italic;">
+    Stage 1A: container only · data wiring lands in Stage 2 (/api/movers endpoint)
+  </div>
+</div>
+<script>
+async function fetchMovers() {
+  // Stage 1A stub — no-op until /api/movers exists in Stage 2
+  // Logs presence for verification only.
+  console.log('[HM-DASH] fetchMovers stub called (Stage 1A — no data yet)');
+}
+</script>
+<!-- ==================== /HM-DASH-MOVERS ==================== -->
 </body>
 </html>
