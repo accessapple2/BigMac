@@ -117,3 +117,19 @@ May 13 16:40:33 ollie ollama[2409]: time=2026-05-13T16:40:33.772-07:00 level=INF
 ## Captain action
 
 Recommend Option A (accept rotation). Skip B (Q4_0 quantization), C (consolidate), D (hardware upgrade).
+
+
+## CAPTAIN DECISION 2026-05-13 — Option A (Accept Rotation)
+
+**Decision:** Accept current rotation cost. No code or hardware changes.
+
+**Rationale:** 211 swaps/24h is high frequency, but post-GPU walls are consistently
+<10s. RTX 5060 + fast NVMe makes model loads cheap. The "8GB VRAM constraint"
+is real architecturally but not painful in practice.
+
+**Trigger to revisit:**
+- Fleet adds 5th hot Ollama model (current is 4)
+- Empirical wall time exceeds 20s consistently
+- Hardware upgrade becomes attractive for other reasons
+
+**Out-of-scope:** Options B (Q4_0), C (consolidate), D (RTX 5070 upgrade) all deferred.
