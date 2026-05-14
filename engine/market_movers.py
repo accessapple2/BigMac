@@ -6,6 +6,7 @@ from datetime import datetime
 from rich.console import Console
 
 import config
+from engine.universe import get_active_universe
 
 console = Console()
 
@@ -55,14 +56,14 @@ def get_market_movers() -> dict:
     Falls back to disk cache if Yahoo is unavailable."""
     from engine.market_data import get_bulk_prices
 
-    prices = get_bulk_prices(list(config.get_active_universe()), timeout=5)
+    prices = get_bulk_prices(list(get_active_universe()), timeout=5)
 
     # If bulk failed, fall back to disk cache
     if not prices:
         if _movers_disk_cache.get("gainers"):
             return {k: v for k, v in _movers_disk_cache.items() if k != "_ts"}
         from engine.market_data import get_all_prices
-        prices = get_all_prices(config.get_active_universe())
+        prices = get_all_prices(get_active_universe())
 
     stocks = []
     for sym, data in prices.items():

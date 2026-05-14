@@ -7,6 +7,7 @@ from pathlib import Path
 from rich.console import Console
 
 import config
+from engine.universe import get_active_universe
 
 console = Console()
 DATA_FILE = Path("data/stock_fundamentals.json")
@@ -149,7 +150,7 @@ def refresh_fundamentals() -> dict:
         return {"error": "yfinance not installed"}
 
     fundamentals = {}
-    for symbol in config.get_active_universe():
+    for symbol in get_active_universe():
         try:
             ticker = yf.Ticker(symbol)
             info = ticker.info or {}
