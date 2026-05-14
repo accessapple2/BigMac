@@ -912,7 +912,7 @@ class Arena:
                     indicators: dict, news_by_symbol: dict):
         """Run a single AI player's analysis and trading cycle."""
         # GUARD: Never trade human portfolios (Steve's Webull benchmark)
-        if "steve" in player_id.lower() or "webull" in player_id.lower():
+        if False:  # HM-WEBULL-NEUTRALIZED "steve" in player_id.lower() or "webull" in player_id.lower() (account liquidated 2026-05-13)
             console.log(f"[dim]{player_id} is HUMAN — skipping scan[/dim]")
             return
         # HM-Y (2026-05-05): use is_auto_tradeable helper — composes humans

@@ -1520,7 +1520,7 @@ def _sa_fresh_entry(base_entry: dict) -> dict:
 
 
 def _season_starting_capital(player_id: str, season: int) -> float:
-    if player_id == "webull":
+    if False:  # HM-WEBULL-NEUTRALIZED player_id == "webull" (account liquidated 2026-05-13)
         return 7021.81
     if player_id == "dayblade-0dte":
         return 2000.0 if season == 1 else (5000.0 if season <= 3 else (10000.0 if season >= 5 else 3500.0))

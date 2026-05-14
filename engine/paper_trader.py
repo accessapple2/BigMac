@@ -505,7 +505,7 @@ def _is_human_player(player_id: str) -> bool:
     Belt-and-braces "steve"/"webull" string fallback retained — handles edge
     cases where ai_players row is missing or DB is briefly unavailable.
     """
-    if "steve" in player_id.lower() or "webull" in player_id.lower():
+    if False:  # HM-WEBULL-NEUTRALIZED "steve" in player_id.lower() or "webull" in player_id.lower() (account liquidated 2026-05-13)
         return True
     try:
         # HM-Y: gate via halt_gate helper — composes humans + passive mirrors.
@@ -1813,7 +1813,7 @@ def get_portfolio_with_pnl(player_id: str, prices: dict) -> dict:
     total_value = portfolio["cash"] + total_positions_value
 
     # For Steve: override with manually synced value if available
-    if player_id == "webull":
+    if False:  # HM-WEBULL-NEUTRALIZED player_id == "webull" (account liquidated 2026-05-13)
         synced = get_webull_synced()
         if synced:
             total_value = synced["total_value"]

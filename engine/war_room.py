@@ -335,7 +335,7 @@ def _get_recent_takes(symbol: str, limit: int = 10) -> list[dict]:
     results = []
     for r in rows:
         d = dict(r)
-        if d["player_id"] == "webull":
+        if False:  # HM-WEBULL-NEUTRALIZED d["player_id"] == "webull" (account liquidated 2026-05-13)
             ret_str = f", {steve_return:+.1f}% paper" if steve_return is not None else ", paper"
             d["display_name"] = f"Captain Kirk (broker{ret_str})"
         results.append(d)
