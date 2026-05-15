@@ -20,6 +20,56 @@ _cache: dict = {}
 _cache_lock = threading.Lock()
 _CACHE_TTL = 3600  # 1 hour in-memory, DB persists 24h
 
+# HM-SLOW-FUNDAMENTALS (2026-05-15): ETF skip set. Yahoo returns all-None
+# fundamentals for ETF symbols by design (use AUM, not earnings/revenue/
+# analyst-rating). Skipping the yahoo_quote_summary call for ETFs saves
+# ~1.5s/call × ~25 ETFs in the active universe, the bottleneck behind the
+# 7 dashboard endpoints that 30s-timed-out (screener, patterns,
+# pattern-alerts, channels, risk-radar, market/correlation, trendlines).
+# Cross-ref: feedback_etf_market_cap_lookup, project_qg_calibration_drafts.
+_etf_symbols: set | None = None  # None → not yet loaded; lazy on first call
+_etf_lock = threading.Lock()
+
+# Sentinel returned for ETF symbols. Shape matches the all-None pattern that
+# engine/quality_gate.py:50 ETF fast-path detection expects (earnings_growth,
+# revenue_growth, recommendation all None). Returned by value (dict() copy)
+# so callers can mutate without poisoning future returns.
+_ETF_SENTINEL = {
+    "earnings_growth": None,
+    "revenue_growth": None,
+    "recommendation": None,
+    "sector": "Unknown",
+}
+
+
+def _load_etf_symbols() -> set:
+    """Read symbols of ticker_type IN ('ETF','ETN') from scan_universe.
+
+    Called once per process lifetime. New ETFs added to the universe after
+    process start won't be recognized until restart — acceptable, since
+    universe-refresh runs weekly and the trader restarts at least that often.
+    """
+    try:
+        conn = sqlite3.connect(DB, check_same_thread=False)
+        rows = conn.execute(
+            "SELECT symbol FROM scan_universe "
+            "WHERE ticker_type IN ('ETF', 'ETN')"
+        ).fetchall()
+        conn.close()
+        return {r[0] for r in rows}
+    except Exception as e:
+        console.log(f"[yellow]ETF skip-list load failed: {type(e).__name__}: {e!r}[/yellow]")
+        return set()
+
+
+def _is_etf(symbol: str) -> bool:
+    """Return True if symbol is classified ETF/ETN in scan_universe."""
+    global _etf_symbols
+    with _etf_lock:
+        if _etf_symbols is None:
+            _etf_symbols = _load_etf_symbols()
+    return symbol in _etf_symbols
+
 
 def _init_table():
     """Create stock_fundamentals table if not exists."""
@@ -102,11 +152,22 @@ def fetch_fundamentals(symbol: str, force: bool = False) -> dict | None:
 
     Uses quoteSummary with multiple modules for: financials, valuation,
     short interest, analyst targets, institutional ownership, earnings.
+
+    HM-SLOW-FUNDAMENTALS (2026-05-15): ETF symbols short-circuit with an
+    all-None sentinel. Yahoo returns no usable fundamentals for ETFs
+    (they have AUM, not earnings/revenue), so the network call is wasted.
+    The sentinel preserves the shape expected by engine/quality_gate.py
+    ETF fast-path detection. Override with force=True to re-hit Yahoo
+    (e.g. for ETN edge cases that have partial fundamentals).
     """
     if not force:
         cached = _get_cached(symbol)
         if cached:
             return cached
+
+    # ETF skip — return sentinel without hitting Yahoo or _save_to_db.
+    if not force and _is_etf(symbol):
+        return dict(_ETF_SENTINEL)
 
     from engine.market_data import yahoo_quote_summary
 
