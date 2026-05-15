@@ -1110,6 +1110,40 @@ def run_alpaca_gex_refresh():
 _last_war_room_time = 0
 _war_room_running = threading.Event()  # guard: prevents two-thread overlap (2026-04-26)
 
+# HM-WAR-ROOM-LATENCY Layer 1 (2026-05-15): cycle-duration log + stall NTFY threshold.
+# Stalls above this wall-clock fire one [WR-STALL] WARNING NTFY per error class per
+# process lifetime (see CLAUDE.md "Alert rate-limit semantics — in-memory only"). The
+# 10-min value matches the diagnostic signature documented in
+# data/scotty_hm_war_room_latency_scope_2026-05-15.md.
+_WR_STALL_THRESHOLD_S = 600
+
+
+def _emit_wr_duration(wall_seconds: float) -> None:
+    """HM-WAR-ROOM-LATENCY Layer 1: log cycle wall-clock and NTFY if over threshold.
+
+    Called from the finally-block of _war_room_thread. Must not raise — the
+    caller is a daemon thread whose finally also clears _war_room_running;
+    propagating here would skip the clear and latch the guard forever.
+    """
+    console.log(f"[WR-DUR] cycle wall={wall_seconds:.1f}s")
+    if wall_seconds > _WR_STALL_THRESHOLD_S:
+        try:
+            from engine.alert_channels import AlertLevel, send_alert
+            send_alert(
+                message=(
+                    f"[WR-STALL] War Room cycle wall={wall_seconds / 60:.1f}min "
+                    f"exceeded threshold ({_WR_STALL_THRESHOLD_S / 60:.0f}min). "
+                    f"Scheduler will skip ticks until cycle releases."
+                ),
+                level=AlertLevel.WARNING,
+                alert_type="war_room_slow_cycle",
+            )
+        except Exception as e:
+            console.log(
+                f"[red][WR-STALL] NTFY dispatch failed: {type(e).__name__}: {e!r}"
+            )
+
+
 @_hm_bq_instr("run_war_room")
 def run_war_room():
     """War Room: all AIs give hot takes. Free models 24/7, paid models market hours only."""
@@ -1143,6 +1177,7 @@ def run_war_room():
 
     def _war_room_thread():
         _war_room_running.set()   # mark busy before any work starts
+        _wr_t0 = _time.perf_counter()  # HM-WAR-ROOM-LATENCY Layer 1
         try:
             # HM-AQ-β v3 2026-05-07: bulk endpoint (~25× faster than per-symbol loop).
             from engine.market_data import get_bulk_prices
@@ -1156,6 +1191,9 @@ def run_war_room():
         except Exception as e:
             console.log(f"[red]War Room error: {e}")
         finally:
+            # HM-WAR-ROOM-LATENCY Layer 1: emit cycle wall + NTFY if stall>threshold.
+            # Helper absorbs its own errors; never raises here.
+            _emit_wr_duration(_time.perf_counter() - _wr_t0)
             _war_room_running.clear()   # always clears — crash cannot latch the guard
 
     threading.Thread(target=_war_room_thread, daemon=True).start()
