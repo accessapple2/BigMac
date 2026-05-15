@@ -2800,6 +2800,35 @@ if __name__ == "__main__":
         console.log(f"[red][HM-EQ] daemon startup failed: {type(_hmeq_e).__name__}: {_hmeq_e!r}[/red]")
     # === /HM-EQ ===
 
+    # === HM-WAR-ROOM-INIT-FIX 2026-05-15 ===
+    # Eagerly initialize Arena at startup so arena-coupled scheduled jobs
+    # (run_war_room, run_journal, etc.) can fire on the first scheduler tick.
+    # Previously, arena was lazy-initialized inside run_scanner (main.py:384),
+    # which sat behind every other registered job in the single-threaded
+    # schedule.run_pending() queue. A long-running job (e.g. run_fundamental_scan
+    # fanning out to Yahoo for ~50+ symbols, rate-limited) would block run_scanner
+    # from ever firing, leaving arena=None and causing run_war_room to silently
+    # early-return for the entire post-restart window.
+    # Verified post-restart 2026-05-15 14:25:49 AZ: arena stayed None for 50+ min;
+    # War Room produced zero "launching cycle" log lines; HM-EQ daemon (which
+    # bypasses arena lifecycle) kept firing normally — proving the issue is
+    # scoped to arena-coupled scheduled jobs.
+    # Per CLAUDE.md HM-Z/HM-AA error-handling posture: bare except is OK when
+    # the handler accommodates unknown failures; we log type + repr and fall
+    # through to the lazy-init path in run_scanner if eager init throws, so
+    # the fix is strictly additive.
+    if arena is None:
+        try:
+            arena = initialize_arena()
+            console.log("[green][STARTUP] Arena initialized eagerly (HM-WAR-ROOM-INIT-FIX)")
+        except Exception as _arena_e:
+            console.log(
+                f"[red][STARTUP] Arena eager init failed: "
+                f"{type(_arena_e).__name__}: {_arena_e!r} — "
+                f"falling back to lazy init in run_scanner[/red]"
+            )
+    # === /HM-WAR-ROOM-INIT-FIX ===
+
     # Scanner ticks every 30s; run_scanner enforces dynamic cooldown internally
     schedule.every(2).minutes.do(run_scanner)
     schedule.every(5).minutes.do(run_dayblade)  # DayBlade 0DTE: T'Pol on plutus, every 5 min
