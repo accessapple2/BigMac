@@ -1420,7 +1420,7 @@ def api_movers():
         ).fetchall()
         c.close()
         movers = [dict(r) for r in rows]
-        with_meta = sum(1 for m in movers if m.get("market_cap") is not None)
+        with_meta = sum(1 for m in movers if m.get("ticker_type") is not None)
         return {
             "movers": movers,
             "meta": {
