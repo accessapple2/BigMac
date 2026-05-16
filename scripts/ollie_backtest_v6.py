@@ -105,22 +105,35 @@ def _load_bakeoff_agents() -> None:
             "SELECT id, display_name FROM ai_players WHERE id LIKE 'navigator_bm_%'"
         ).fetchall()
         nav_cfg = AGENTS["navigator"]
+        nav_url = _PLAYER_BASE_URLS.get("navigator", _OLLIE_URL)
         for aid, display in rows:
             AGENTS[aid] = {**nav_cfg, "display": display or aid}
+            _PLAYER_BASE_URLS[aid] = nav_url  # HM-BM Phase 3a fix: route clones to Ollie
     except Exception:
         pass
-_load_bakeoff_agents()
+# NOTE: invocation moved below the _PLAYER_BASE_URLS / _OLLIE_URL definitions
+# (HM-BM Phase 3a routing fix 2026-05-16). Previously invoked here, but the
+# URL map didn't exist yet → silent NameError → clones missing from map.
 
 # Ollama model assignments — imported from backtest_baseline (AGENT_MODELS)
 # McCoy's defensive universe: only active when VIX >= 22
 MCCOY_UNIVERSE: list[str] = ["GLD", "TLT", "XLU", "SH", "PSQ", "GDX"]
 
 _LOCALHOST = "http://localhost:11434"
+# HM-BM Phase 3a routing fix (2026-05-16): import OLLIE_URL so bakeoff clones
+# (not present in config.AI_PLAYERS) route to Ollie GPU instead of bigmac
+# localhost. Previously the _PLAYER_BASE_URLS.get(clone_id, _LOCALHOST) fallback
+# at line 302 hit bigmac, which has no ministral-3:3b, producing 4h of garbage
+# 404+HOLD(5/10) fallback responses. _load_bakeoff_agents() now seeds clone URLs.
 try:
-    from config import AI_PLAYERS as _AI_PLAYERS
+    from config import AI_PLAYERS as _AI_PLAYERS, OLLIE_URL as _OLLIE_URL
     _PLAYER_BASE_URLS: dict = {p["id"]: p.get("url", _LOCALHOST) for p in _AI_PLAYERS}
 except Exception:
+    _OLLIE_URL = "http://192.168.1.166:11434"  # hardcoded fallback if config import fails
     _PLAYER_BASE_URLS: dict = {}
+
+# Seed bakeoff clones into AGENTS + _PLAYER_BASE_URLS after both are defined.
+_load_bakeoff_agents()
 # Models that support think:false suppression
 THINK_MODELS    = {"qwen3:8b", "qwen3:14b", "qwen3:30b", "deepseek-r1:14b"}
 
