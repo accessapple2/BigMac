@@ -124,6 +124,10 @@ except Exception:
 # Models that support think:false suppression
 THINK_MODELS    = {"qwen3:8b", "qwen3:14b", "qwen3:30b", "deepseek-r1:14b"}
 
+# HM-BM Phase 3 redesign: module-level Ollama timeout, CLI-overridable via --timeout.
+# Tier A default = 90s; Tier B raises to 180s for CPU-offload tolerance.
+_OLLAMA_TIMEOUT_S: int = 90
+
 # Shared cache: (agent_id, sym, date_str) → (signal, confidence)
 _ollama_cache: dict[tuple, tuple] = {}
 
@@ -360,7 +364,7 @@ def ask_ollama(agent_id: str, sym: str, snap: dict,
         agent_id, sym, snap["date"], {"close": snap["price"]},
         regime, vix, fg, snap["rsi"], snap["sma20"], snap["sma50"],
     )
-    raw = _call_model(model_id, prompt, agent_id=agent_id)
+    raw = _call_model(model_id, prompt, agent_id=agent_id, timeout=_OLLAMA_TIMEOUT_S)
     signal, conf = _parse_signal(raw)
 
     print(f"      [OLLAMA] {agent_display}/{model_id} {sym} {snap['date']}: "
@@ -1246,11 +1250,25 @@ def verify_save(run_ids: list[int]) -> None:
 def main() -> None:
     parser = argparse.ArgumentParser()
     parser.add_argument("--days", type=int, default=5)
+    parser.add_argument("--timeout", type=int, default=90,
+                        help="Per-call Ollama timeout in seconds (HM-BM Phase 3: 90 Tier A, 180 Tier B)")
+    parser.add_argument("--agents", type=str, default="",
+                        help="Comma-separated agent IDs to include; default = all in AGENTS dict")
     args = parser.parse_args()
+
+    # Apply CLI overrides to module-level state
+    global _OLLAMA_TIMEOUT_S
+    _OLLAMA_TIMEOUT_S = args.timeout
+    if args.agents:
+        keep = {a.strip() for a in args.agents.split(",") if a.strip()}
+        for aid in list(AGENTS.keys()):
+            if aid not in keep:
+                del AGENTS[aid]
 
     print("=" * 78)
     print("OllieTrades Backtest v6 — Season 6 Full Comparison  [Tier 2: Baseline Standard]")
     print(f"Versions: BASELINE × V2_ALPHA × V3_CONC  |  Agents: {', '.join(AGENTS)}")
+    print(f"Ollama timeout: {_OLLAMA_TIMEOUT_S}s   |  Agents filter: {args.agents or '(none)'}")
     print(f"Days: {args.days}   Capital: ${STARTING_CAPITAL:,.0f}/agent   "
           f"SL: {STOP_LOSS_A*100:.0f}%/V2:{STOP_LOSS_B*100:.0f}%   Slip: {SLIPPAGE*100:.1f}%")
     print("=" * 78)
