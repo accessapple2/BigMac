@@ -325,9 +325,15 @@ def _call_model(model_id: str, prompt: str, agent_id: str = "", timeout: int = 9
                     "options": {"temperature": 0.1, "num_predict": 80, "num_ctx": 512},
                 }, timeout=timeout)
             else:
+                # HM-BM Phase 3b bug fix 2026-05-16: add think:False here too.
+                # /api/chat path already has it; /api/generate path was missing it.
+                # Reasoning-capable models (gemma4, qwen3.6) emit unclosed <think>...
+                # blocks that consume the 80-token num_predict budget; _strip_think
+                # then leaves empty string; _parse_signal returns parser-default
+                # (HOLD, 5). Single-line addition restores think suppression.
                 resp = _requests.post(_base + "/api/generate", json={
                     "model": model_id,
-                    "prompt": prompt, "stream": False,
+                    "prompt": prompt, "stream": False, "think": False,
                     "options": {"temperature": 0.1, "num_predict": 80, "num_ctx": 512},
                 }, timeout=timeout)
             resp.raise_for_status()
