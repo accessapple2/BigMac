@@ -2149,7 +2149,7 @@ def run_daily_rating_update():
     try:
         from engine.agent_ratings import fleet_report_card, lineup_advisor
         from setup_db import setup as _setup_db
-        _setup_db()   # ensure agent_ratings table exists
+        _setup_db()   # schema + INSERTs default agents + UNCONDITIONAL canonical model_id enforcement for 18 agents (see setup_db.py:setup() docstring) — runs every startup
         report  = fleet_report_card()
         advice  = lineup_advisor()
         console.log("[bold cyan][RATINGS] Daily fleet report card:[/bold cyan]")
@@ -2731,7 +2731,10 @@ if __name__ == "__main__":
     # unreachable from nested closures in some Python import orderings.
     logger = _logging.getLogger(__name__)
 
-    # Ensure DB exists
+    # Bootstrap DB: schema + INSERTs default agents + UNCONDITIONAL canonical
+    # model_id enforcement for 18 agents (see setup_db.setup() docstring).
+    # NOTE: runtime UPDATEs to ai_players.model_id for the 18 enforced IDs are
+    # silently reverted by this call. HM-BN 2026-05-15 root cause (commit 7eed0ca).
     from setup_db import setup
     setup()
 

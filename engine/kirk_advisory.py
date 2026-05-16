@@ -252,6 +252,53 @@ def _get_live_webull_portfolio():
     return None
 
 
+# HM-BN 2026-05-15: dormant frontier-review wire.
+# KIRK_FRONTIER_REVIEW defaults to false; entire path is inert until flipped.
+# Even when flipped, _is_real_money_signal returns False until per-signal
+# pipeline lands, so this stays log-only and never blocks. Admiral declined
+# Ollama Cloud Pro on 2026-05-15; wire preserved as zero-cost optionality.
+KIRK_FRONTIER_REVIEW = os.getenv("KIRK_FRONTIER_REVIEW", "false").lower() == "true"
+KIRK_FRONTIER_MODELS = [m.strip() for m in os.getenv("KIRK_FRONTIER_MODELS", "").split(",") if m.strip()]
+
+
+def _is_real_money_signal(signal) -> bool:
+    """HM-BN stub — always False while frontier review is dormant. Flip to
+    inspect signal['account']=='schwab' (or equivalent) when the per-signal
+    pipeline is wired and KIRK_FRONTIER_REVIEW=true."""
+    return False
+
+
+def _build_frontier_prompt(signal, advisory) -> str:
+    """HM-BN stub — prompt sent to frontier cloud models. Replace when wired."""
+    return f"Cross-check this advisory: {advisory}\nSignal: {signal}"
+
+
+def _log_frontier_response(signal_id, model: str, resp) -> None:
+    """HM-BN stub — writes frontier response to ghost_options_watch.frontier_review_json."""
+    logger.info("[Kirk] frontier review [%s] for signal %s logged", model, signal_id)
+
+
+def _frontier_cross_check(signal, advisory) -> None:
+    """HM-BN dormant: LOG ONLY — never blocks. Inactive unless KIRK_FRONTIER_REVIEW=true."""
+    if not KIRK_FRONTIER_REVIEW:
+        return
+    if not _is_real_money_signal(signal):
+        return
+    for model in KIRK_FRONTIER_MODELS:
+        try:
+            # ollama_client is intentionally not imported here; lookup is deferred
+            # until the flag flips. NameError caught below — informative log, no crash.
+            resp = ollama_client.chat(  # noqa: F821
+                model=model,
+                messages=[{"role": "user", "content": _build_frontier_prompt(signal, advisory)}],
+                options={"timeout": 30},
+            )
+            sig_id = signal.get("id") if isinstance(signal, dict) else None
+            _log_frontier_response(sig_id, model, resp)
+        except Exception as e:
+            logger.warning("frontier review %s failed: %s: %r", model, type(e).__name__, e)
+
+
 def generate_kirk_advisory():
     """Generate actionable recommendations on Kirk's real Schwab holdings."""
     try:
@@ -523,7 +570,7 @@ def generate_kirk_advisory():
             n_pos, n_critical, n_high, n_medium, n_low, cash, cash_source_label,
         )
 
-        return {
+        advisory_result = {
             "positions": recommendations,
             "cash": round(cash, 2),
             "cash_source": "KIRK_PORTFOLIO_CASH env" if os.environ.get("KIRK_PORTFOLIO_CASH", "").strip() not in ("", "0") else "Manual update needed",
@@ -543,6 +590,10 @@ def generate_kirk_advisory():
             "total_portfolio": total_portfolio_summary,
             "generated_at": datetime.now(pytz.timezone("US/Arizona")).isoformat(),
         }
+        # HM-BN 2026-05-15: dormant frontier cross-check (LOG ONLY,
+        # gated on KIRK_FRONTIER_REVIEW=false). No-op until flag flips.
+        _frontier_cross_check(signal=None, advisory=advisory_result)
+        return advisory_result
 
     except Exception as e:
         logger.error(f"Kirk advisory error: {e}")

@@ -9,6 +9,24 @@ OPENAI_CODEX_MODEL = os.environ.get("OPENAI_CODEX_MODEL", "gpt-5.2-codex")
 OPENAI_CODEX_MINI_MODEL = os.environ.get("OPENAI_CODEX_MINI_MODEL", OPENAI_CODEX_MODEL)
 
 def setup():
+    """Idempotent DB bootstrap + canonical agent enforcement. Runs every main.py startup.
+
+    Side effects (in order):
+    1. Creates/migrates schema: ai_players, agent_ratings, fallback_model + is_fallback
+       columns, and related tables. CREATE TABLE IF NOT EXISTS / ALTER TABLE ADD COLUMN
+       guarded with try/except so re-runs are safe.
+    2. INSERT OR IGNORE seeds 18 ai_players rows from the hardcoded list at lines 245-264.
+       Existing rows are untouched.
+    3. **UNCONDITIONALLY** UPDATEs model_id/provider/display_name for 18 agents at
+       lines 274-291. This is the canonical-model enforcement step — any runtime
+       edit to ai_players.model_id for these IDs will be silently reverted on next
+       startup. (HM-BN 2026-05-15 regression root cause; fixed by commit 7eed0ca.)
+    4. Seeds fallback_model column for agents missing one (lines 350+) — guarded by
+       `WHERE fallback_model IS NULL OR fallback_model=''`, so safe to re-run.
+    5. Resets is_active/is_paused per the shelved-crew list at the end of the function.
+
+    Invoked from main.py:2151 (boot) and main.py:2735 (daily ratings refresh).
+    """
     os.makedirs("data", exist_ok=True)
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
@@ -271,6 +289,12 @@ def setup():
     # Migrate ALL paid/paused players to free local Ollama — every agent active
     # 2026-04-20: patched — no more qwen3:8b (8GB swap storm on bigmac M4 16GB)
     # Routing: neo-matrix/capitol-trades/ollama-kimi → bigmac phi3:mini; all others → Ollie GPU
+    #
+    # HM-CN postmortem (eval ~2026-06-15): consider adding
+    # `AND (model_id IS NULL OR model_id='')` to each UPDATE below (per the
+    # fallback.py:128 pattern) so runtime model_id changes survive restarts.
+    # Trade-off: canonical config changes would then require a row reset.
+    # Source: HM-BN 2026-05-15 silent-revert incident (commit 7eed0ca).
     c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='claude-sonnet'")           # was qwen3:8b
     c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen2.5-coder:7b' WHERE id='claude-haiku'")
     c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='gpt-4o'")                  # was qwen3:8b
