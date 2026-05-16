@@ -8,6 +8,7 @@
 import json
 import os
 import re
+import sqlite3
 import time
 from datetime import datetime, timedelta
 from pathlib import Path
@@ -359,13 +360,27 @@ def build_agent_prompt(agent_id: str, ticker: str, date_str: str,
     )
 
 
+def _resolve_model(agent_id: str) -> str:
+    """HM-BM 2026-05-16: ai_players.model_id primary; AGENT_MODELS fallback."""
+    try:
+        _db = Path(__file__).parent.parent / "data" / "trader.db"
+        row = sqlite3.connect(_db, timeout=5).execute(
+            "SELECT model_id FROM ai_players WHERE id=?", (agent_id,)
+        ).fetchone()
+        if row and row[0]:
+            return row[0]
+    except Exception:
+        pass
+    return AGENT_MODELS.get(agent_id, "qwen3:8b")
+
+
 def query_ollama(agent_id: str, context_prompt: str,
                  timeout: int = 90) -> tuple[str, int, str]:
     """Real Ollama query. Returns (signal, confidence, reason).
     Falls back to ('HOLD', 5, reason) on timeout/error."""
     if not _HAS_REQUESTS:
         return "HOLD", 5, "requests unavailable"
-    model = AGENT_MODELS.get(agent_id, "qwen3:8b")
+    model = _resolve_model(agent_id)
     try:
         resp = _requests.post(OLLAMA_URL, json={
             "model": model,

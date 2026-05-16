@@ -50,7 +50,7 @@ from backtest_baseline import (
     get_daily_regime, get_position_size_multiplier, should_agent_trade_today,
     build_agent_prompt, build_results_summary,
     AGENT_MODELS, AGENT_STRATEGIES, AGENT_INSTRUMENTS,
-    _closest_prior,
+    _closest_prior, _resolve_model,
 )
 
 # ---------------------------------------------------------------------------
@@ -336,7 +336,7 @@ def ask_ollama(agent_id: str, sym: str, snap: dict,
     if cache_key in _ollama_cache:
         return _ollama_cache[cache_key]
 
-    model_id = AGENT_MODELS.get(agent_id, "qwen3:8b")
+    model_id = _resolve_model(agent_id)  # HM-BM 2026-05-16: DB-primary
     agent_display = AGENTS[agent_id]["display"]
     prompt = build_agent_prompt(
         agent_id, sym, snap["date"], {"close": snap["price"]},
