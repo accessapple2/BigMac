@@ -305,7 +305,7 @@ def setup():
     c.execute("UPDATE ai_players SET provider='ollama', model_id='deepseek-r1:14b' WHERE id='ollama-deepseek'")  # was deepseek-r1:7b
     c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b', display_name='Lt. Cmdr. Worf' WHERE id='ollama-gemma27b'")    # was qwen3:8b
     c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b', display_name='Lt. Cmdr. GLM4' WHERE id='ollama-glm4'")        # was qwen3:8b
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='phi3:mini', display_name='Kimi (phi3:mini)' WHERE id='ollama-kimi'")      # was qwen3:8b
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='ministral-3:3b', display_name='Kimi (ministral-3:3b)' WHERE id='ollama-kimi'")      # was qwen3:8b
     c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='gemini-2.5-flash'")        # was qwen3:8b
     c.execute("UPDATE ai_players SET display_name='Qwen3 14B Pro', provider='ollama', model_id='qwen3:14b' WHERE id='gemini-2.5-pro'")
     c.execute("UPDATE ai_players SET provider='ollama', model_id='gemma4:31b' WHERE id='options-sosnoff'")         # was qwen3:8b
