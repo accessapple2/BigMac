@@ -93,6 +93,24 @@ AGENTS: dict[str, dict] = {
     "neo-matrix":    {"display": "Neo",    "rsi_buy": 42, "rsi_sell": 60, "conservative": False},
 }
 
+
+# HM-BM 2026-05-16: dynamically add bakeoff clones at module load. Each clone
+# inherits navigator's config (rsi thresholds, conservative flag, universe).
+# Only the model_id varies — resolved at query_ollama time via _resolve_model.
+# Pre-existing 5 AGENTS unchanged; this only adds 'navigator_bm_*' rows if present.
+def _load_bakeoff_agents() -> None:
+    try:
+        _db = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "trader.db")
+        rows = sqlite3.connect(_db, timeout=5).execute(
+            "SELECT id, display_name FROM ai_players WHERE id LIKE 'navigator_bm_%'"
+        ).fetchall()
+        nav_cfg = AGENTS["navigator"]
+        for aid, display in rows:
+            AGENTS[aid] = {**nav_cfg, "display": display or aid}
+    except Exception:
+        pass
+_load_bakeoff_agents()
+
 # Ollama model assignments — imported from backtest_baseline (AGENT_MODELS)
 # McCoy's defensive universe: only active when VIX >= 22
 MCCOY_UNIVERSE: list[str] = ["GLD", "TLT", "XLU", "SH", "PSQ", "GDX"]
