@@ -275,7 +275,7 @@ The two modules export non-overlapping functions, read different DBs, and serve 
 
 | Player ID            | Star Trek role | Strategy / Type                                | Model                | Recent volume |
 |----------------------|----------------|------------------------------------------------|----------------------|---------------|
-| `deepseek-7b-grok4`  | Spock          | RSI-bounce scout for Sniper Mode trial         | deepseek-r1:7b (local)| ~178 sigs/day |
+| `deepseek-7b-grok4`  | Spock          | RSI-bounce scout for Sniper Mode trial         | qwen3:8b (local) [2026-05-17: corrected from documented deepseek-r1:7b which was never installed on Ollie; HM-CN side-by-side caught long-running drift — main.py was already qwen3:8b. Spock specialty bakeoff banked for HM-BN.2 wave to decide real canonical.] | ~178 sigs/day |
 | `qwen3-8b-flash`     | Worf           | Sniper Mode scout (was Gemini Flash, repointed Apr 16) | qwen3:8b (local)| ~25 sigs/day |
 
 ### Backtest Pool — Deliberate OFF (cost-doctrine, KEEP wired)
