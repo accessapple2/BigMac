@@ -952,7 +952,7 @@ def _ta_run_inner(symbol: str, date_str: str) -> dict | None:
         **DEFAULT_CONFIG,
         "llm_provider":            "ollama",
         "deep_think_llm":          "qwen3:14b",   # 2026-04-20: qwen3:8b → qwen3:14b on Ollie GPU
-        "quick_think_llm":         "mistral:7b",
+        "quick_think_llm":         "ministral-3:3b",  # HM-CN.tail 2026-05-17: was mistral:7b (never installed on Ollie → 404 → deep_think fallback). ministral-3:3b is HM-BN.1 canonical; debate engine will now actually use quick_think.
         "backend_url":             f"{_OLLIE_URL}/v1",  # 2026-04-20: localhost → Ollie GPU
         "max_debate_rounds":       1,
         "max_risk_discuss_rounds": 1,

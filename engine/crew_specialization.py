@@ -610,7 +610,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "CTO Grok 4.2",
         "role": "CTO Advisor",
         "strategy": "Strategic technology sector advisor. No mandate restrictions.",
-        "model": "qwen3:14b",
+        "model": "devstral-small-2",  # HM-CN.tail 2026-05-17: was qwen3:14b; DB ai_players.model_id authoritative is devstral-small-2. Used as crew_scanner fallback only.
         "max_positions": 3,
         "size_factor": 1.0,
         "bridge_voter": False,

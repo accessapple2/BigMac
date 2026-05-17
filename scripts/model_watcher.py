@@ -71,7 +71,7 @@ def get_ollama_registry_digest(model_name):
     digest on a non-standard header `ollama-content-digest` with no
     `sha256:` prefix. Reading the wrong header silently returned None for
     every installed model, leaving Layer 1 always "(unknown)". Verified
-    against qwen3:8b, qwen3:14b, deepseek-r1:14b, mistral:7b, gemma3:4b,
+    against qwen3:8b, qwen3:14b, deepseek-r1:14b, ministral-3:3b, gemma3:4b,
     phi3:mini — all six return correct 12-char digests matching their
     locally-installed digests on a fully-current host.
     """
