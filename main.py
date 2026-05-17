@@ -97,48 +97,26 @@ def initialize_arena():
     )
     from engine.ai_brain import Arena
     from engine.risk_manager import RiskManager
-    from engine.providers.ollama_provider import OllamaProvider
+    from engine.providers.ollama_provider import OllamaProvider  # noqa: F401 (lazy-imported inside agent_routing)
+    from engine.agent_routing import build_all_providers
 
-    providers = [
-        OllamaProvider(model="qwen3:14b", url=OLLIE_URL),
-        OllamaProvider(player_id="ollama-gemma27b", model="ministral-3:3b", url=OLLIE_URL, timeout=180),
-        OllamaProvider(player_id="ollama-deepseek", model="deepseek-r1:14b", url=OLLIE_URL, timeout=180),  # RAM patch 2026-04-17: 14b (9.7GB) → 7b (4.7GB), Spock per CLAUDE.md
-        OllamaProvider(player_id="ollama-qwen3", model="ministral-3:3b", url=OLLIE_URL, timeout=180),
-        OllamaProvider(player_id="ollama-kimi", model="ministral-3:3b", url=OLLAMA_URL, timeout=180),
-        OllamaProvider(player_id="ollama-glm4", model="ministral-3:3b", url=OLLIE_URL, timeout=180),
-        OllamaProvider(player_id="ollama-plutus", model="ministral-3:3b", url=OLLIE_URL, timeout=300),
-        # Lt. Sulu — DayBlade 2.0 (intraday day trader, free local compute)
-        OllamaProvider(player_id="dayblade-sulu", model="phi3:mini", url=OLLAMA_URL, timeout=90),
-    ]
-
-    # Ensign Chekov — routed through Ollama ministral-3:3b (was phi3:mini; HM-BN.1 canonical 2026-05-17)
-    providers.append(OllamaProvider(
-        player_id="mlx-qwen3", model="ministral-3:3b", url=OLLAMA_URL, timeout=180,
-    ))
-    console.log("[green]Chekov (mlx-qwen3) → Ollama ministral-3:3b")
-
-    # gpt-4o / gpt-o3 — routed to free local Ollama (no OpenAI spend)
-    providers.append(OllamaProvider("qwen3-8b-4o", "qwen3:8b", url=OLLIE_URL, timeout=180))
-    providers.append(OllamaProvider("qwen3-8b-o3", "qwen3:8b", url=OLLIE_URL, timeout=180))  # RAM patch 2026-04-17: retired o3 → 9b (funnel to existing warm model)
-
-    # Gemini players — local Ollama
-    providers.append(OllamaProvider("qwen3-14b-pro", "qwen3:8b", url=OLLIE_URL, timeout=180))
-    providers.append(OllamaProvider("qwen3-8b-flash", "qwen3:8b", url=OLLIE_URL, timeout=180))
-    providers.append(OllamaProvider("options-sosnoff", "qwen3:8b", url=OLLIE_URL, timeout=180))
-    providers.append(OllamaProvider("energy-arnold", "ministral-3:3b", url=OLLIE_URL, timeout=180))
-    # Lt. Cmdr. Data — coding specialist
-    providers.append(OllamaProvider("ollama-coder", "devstral-small-2", url=OLLIE_URL, timeout=180))
-    # Mr. Anderson — CrewAI collective / The One
-    providers.append(OllamaProvider("super-agent", "qwen3:8b", url=OLLIE_URL, timeout=180))
-    # Mr. Dalio — metals specialist
-    providers.append(OllamaProvider("dalio-metals", "ministral-3:3b", url=OLLIE_URL, timeout=180))
-    # Codex players → free local Ollama
-    providers.append(OllamaProvider("qwen3-8b-sonnet", "qwen3:8b", url=OLLIE_URL, timeout=180))
-    providers.append(OllamaProvider("qwen-coder-haiku", "qwen2.5-coder:7b", url=OLLIE_URL, timeout=180))
-    # Grok players → free local Ollama
-    providers.append(OllamaProvider("qwen3-14b-grok3", "qwen3:14b", url=OLLIE_URL, timeout=180))
-    providers.append(OllamaProvider("deepseek-7b-grok4", "qwen3:8b", url=OLLIE_URL, timeout=180))  # RAM patch 2026-04-17: retired grok-4 → 9b (Kirk+Pike replaced Grok on 2026-04-16)
-    providers.append(OllamaProvider("cto-grok42", "qwen2.5-coder:7b", url=OLLIE_URL, timeout=180))
+    # HM-CN Phase 2 (Option B) 2026-05-17: providers built from ai_players DB
+    # (single source of truth). config.AI_PLAYERS supplies static metadata
+    # (url, timeout, local_redirect flag for Free-Models-First). halt_mode='full'
+    # agents are skipped. skip_ids excludes agents handled by non-Ollama
+    # provider classes below (GroqProvider for ollama-llama).
+    #
+    # The silent-bypass class is now structurally impossible: changing
+    # ai_players.model_id + restart updates production routing. main.py no
+    # longer hardcodes per-agent model assignments. setup_db.py:289-322
+    # still enforces canonical model_ids on startup (HM-BN doctrine); change
+    # those lines in lockstep with any future runtime UPDATE.
+    providers = build_all_providers(
+        default_url=OLLIE_URL,
+        default_timeout=180,
+        skip_ids={"ollama-llama"},  # handled by GroqProvider when GROQ_API_KEY set
+    )
+    console.log(f"[green]HM-CN Phase 2 routing: {len(providers)} providers built from ai_players DB")
 
     if GROQ_API_KEY:
         from engine.providers.groq_provider import GroqProvider

@@ -308,7 +308,11 @@ def setup():
     c.execute("UPDATE ai_players SET provider='ollama', model_id='ministral-3:3b', display_name='Kimi (ministral-3:3b)' WHERE id='ollama-kimi'")      # was qwen3:8b
     c.execute("UPDATE ai_players SET provider='ollama', model_id='ministral-3:3b' WHERE id='gemini-2.5-flash'")        # was qwen3:8b
     c.execute("UPDATE ai_players SET display_name='Qwen3 14B Pro', provider='ollama', model_id='qwen3:14b' WHERE id='gemini-2.5-pro'")
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='gemma4:31b' WHERE id='options-sosnoff'")         # was qwen3:8b
+    # HM-CN Phase 2 2026-05-17: truth-up to qwen3:8b. HM-BN had set gemma4:31b
+    # as a variance from the Phase 4 proposal (gemma4:26b) but never live-tested
+    # in production (main.py:127 was always qwen3:8b — silent bypass). HM-BN.2
+    # specialty bakeoff (priority #1) will revalidate the right options model.
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='options-sosnoff'")            # 2026-05-17 truth-up
     c.execute("UPDATE ai_players SET model_id='ministral-3:3b' WHERE id='ollama-qwen3'")                               # was qwen3:8b
     c.execute("UPDATE ai_players SET model_id='ministral-3:3b' WHERE id='mlx-qwen3'")                                 # 2026-04-20: qwen3:8b → phi3:mini
     c.execute("UPDATE ai_players SET model_id='ministral-3:3b' WHERE id='energy-arnold'")                              # was qwen3:8b

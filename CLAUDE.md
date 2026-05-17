@@ -87,6 +87,9 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
 - When proposing a model swap, show: model name, RAM cost, why it's orthogonal to existing fleet, and any free-tier rate limits
 - Rule of thumb: if two agents would run the same family (e.g. two LLaMA-derivatives), pick a different lineage (Qwen, DeepSeek-R1, Phi-4, Gemma) for real orthogonality
 
+### local_redirect flag (HM-CN Phase 2, 2026-05-17)
+Some `config.AI_PLAYERS` entries declare `"provider": "openai"` for legacy/branding reasons (Codex Prime, Codex Scout, GPT-4o, GPT-o3) but should never actually hit paid APIs per this doctrine. The `"local_redirect": True` flag on those entries instructs `engine/agent_routing.py::build_all_providers()` to construct an `OllamaProvider` against `ai_players.model_id` despite the declared provider. This routes inference to local Ollie Box (Free) while preserving the agent's identity. Adding new paid-API agents that must be locally redirected: declare `provider="openai"` (or whatever) in config + set `local_redirect=True` + ensure `ai_players.model_id` points to a free local Ollama model.
+
 ## Git & Deployment
 - Scotty handles `git push` + `launchctl kickstart -k gui/$(id -u)/com.trademinds.trader` + verify inline. No Captain handoff (workflow updated 2026-05-11).
 - Commit messages should reference the season (currently S6) and agent name when relevant
@@ -267,7 +270,7 @@ The two modules export non-overlapping functions, read different DBs, and serve 
 |---------|--------------------------------------------------------------|------------------------|
 | Uhura   | SEC EDGAR 13F + Form 4 institutional veto                    | llama3.1               |
 | Aladdin | BlackRock iShares ETF flow + BII macro signals               | Rule-based (no LLM)    |
-| Spock   | Premium second opinion on McCoy's ambiguous high-VIX CSPs    | deepseek-r1:7b (local) |
+| Spock   | Premium second opinion on McCoy's ambiguous high-VIX CSPs    | qwen3:8b (local) [was deepseek-r1:7b in original plan; HM-CN 2026-05-17 truth-up — deepseek-r1:7b never installed on Ollie] |
 | Picard  | Weekly strategic thesis → modifies Ollie's regime table      | Gemma3 4B (local)      |
 
 ### Sniper Squad — Active Scouts (signal generation, route via Ollie gate)
@@ -343,7 +346,7 @@ Physical holdings tracked as header widget above the quadrant grid. ETFs tracked
 | Dalio (existing)| Projections    | Macro thesis (rule-based, no LLM)                |
 | Scotty          | News           | Kitco/LBMA/Reuters + FinGPT sentiment (gemma3:4b) |
 | (rule-based)    | Reports        | USGS + ETF flows + 13F miner changes             |
-| O'Brien         | Recommendations| Synthesizes quadrants → buy/hold/trim (deepseek-r1:7b, shared with Spock) |
+| O'Brien         | Recommendations| Synthesizes quadrants → buy/hold/trim (deepseek-r1:7b nominal; Spock truth-upped to qwen3:8b per HM-CN 2026-05-17 — O'Brien also unbuilt; revisit at HM-BN.2 specialty) |
 
 ### Gates & Coordination (non-voters)
 - Ollie (`ollie-auto`) — quality gate, OllieScore ≥ 2.0 to approve
@@ -364,7 +367,7 @@ Physical holdings tracked as header widget above the quadrant grid. ETFs tracked
 
 ## Duplicate Role Policy
 - **Healthy duplication** (keep): McCoy+Dax both run CSP but on different VIX regimes. Capitol+Aladdin+Uhura-EDGAR all "smart money" but orthogonal data sources (retail Congress / institutional ETF / 13F). Verify McCoy-Dax trade overlap stays <60% quarterly.
-- **Bad duplication** (consolidate): Momentum cluster (Neo/Chekov/Navigator) — Neo owns it now. Cloud-LLM cluster (Spock/Worf/Seven) — consolidated to Spock only, then Spock moved local on 2026-04-16 (deepseek-r1:7b) per Free Models First.
+- **Bad duplication** (consolidate): Momentum cluster (Neo/Chekov/Navigator) — Neo owns it now. Cloud-LLM cluster (Spock/Worf/Seven) — consolidated to Spock only, then Spock moved local on 2026-04-16 per Free Models First. (Original plan: `deepseek-r1:7b`. Actually never installed on Ollie; main.py routed to `qwen3:8b` from day one. HM-CN 2026-05-17 truth-up aligned DB + docs to `qwen3:8b`; specialty bakeoff banked.)
 
 ## Season 6.3 Config (current)
 - Tractor Beam = tiebreaker (not full voter)
@@ -382,7 +385,7 @@ Physical holdings tracked as header widget above the quadrant grid. ETFs tracked
 - Ghost-trading experiments for Bench 4:
   - Uhura-EDGAR: 60-day ghost run, promote to Active if Sharpe > Capitol's
   - Aladdin: wire iShares ETF flow → paper-trade sector rotation signals
-  - Spock-R1: `ollama pull deepseek-r1:7b`; fire only on McCoy's ambiguous high-VIX CSPs; 60-day A/B vs McCoy-alone. R1's reasoning traces are orthogonal to Plutus's finance-corpus priors
+  - Spock-R1: **SUPERSEDED by HM-CN 2026-05-17.** Original plan: `ollama pull deepseek-r1:7b` and fire only on McCoy's ambiguous high-VIX CSPs. Pull never happened; Spock has been on `qwen3:8b` in production all along (HM-CN side-by-side caught the long-running drift). New plan: Spock specialty bakeoff in HM-BN.2 wave will revalidate the right model — could be deepseek-r1:7b (pull + ghost-trade), deepseek-r1:14b (already installed), phi4:14b, or hold qwen3:8b.
   - Picard: convert weekly briefing from advisory-only into Ollie regime-table modifier
 - Chekov rehab: extract S5 version, ghost-trade S5 vs current for 30 days
 - Candidate C (2022 bear) OOS backtest — running now
