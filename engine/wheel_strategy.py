@@ -15,6 +15,10 @@ import logging
 from datetime import datetime, timedelta
 import pytz
 from engine.paper_trader import buy, sell, get_portfolio
+# HM-W1F4 2026-05-17: canonical options-trade helper for sell-put accounting.
+# Replaces paper_trader.buy(asset_type="option") which was unconditional BUY
+# accounting (debit cash + long qty) — wrong for sell-to-open semantics.
+from engine.options_exec import open_options_trade, close_options_trade
 from engine.market_data import get_stock_price
 from engine.fear_greed import get_fear_greed_index
 from rich.console import Console
@@ -141,25 +145,36 @@ def run_wheel_scan():
                 f"Troi senses extreme anxiety in the market — the premium is rich with fear."
             )
 
-            result = buy(
-                player_id=PLAYER_ID,
+            # HM-W1F4 2026-05-17: route through options_exec.open_options_trade(structure="csp")
+            # instead of paper_trader.buy(). buy() was unconditional BUY accounting (debit cash +
+            # long qty) which silently miscoded every wheel sell-put. options_exec is the canonical
+            # paper-options helper used by bull_put_spread_v1 — handles credit/debit cleanly,
+            # writes options_trades with entry_credit_debit > 0 for short premium, credits
+            # options_books.fleet.current_cash. Decouples from ai_players.cash per Admiral
+            # approval (matches bull_put_spread_v1 convention).
+            # Bridge Voter gate at paper_trader.py:621 is now bypassed because we no longer
+            # call buy() for the sell-put entry path.
+            contracts = max(1, int(shares / 100))  # 100 underlying shares per options contract
+            trade_id = open_options_trade(
+                book_tag="fleet",
+                agent_id=PLAYER_ID,
+                structure="csp",
                 symbol=ticker,
-                price=estimated_premium,
-                qty=float(shares),
-                reasoning=reasoning,
-                confidence=0.80,
-                asset_type="option",
-                option_type="put",
-                strike_price=put_strike,
-                expiry_date=expiry,
-                sources="wheel-strategy,troi",
-                timeframe="SWING",
+                expiration=expiry,
+                legs=[
+                    {"side": "short", "type": "put", "strike": put_strike,
+                     "qty": contracts, "entry_price": estimated_premium},
+                ],
+                regime=None,  # TODO: pull from get_latest_briefing() if needed
+                vix=vix,
+                notes=reasoning[:500],
             )
-            if result:
+            if trade_id:
                 wheel_puts.append({"symbol": ticker})
                 console.log(
-                    f"[bold green]🎡 Wheel: Sold {shares}x {ticker} ${put_strike}P "
-                    f"@ ${estimated_premium:.2f} | {premium_return:.1f}% return | exp {expiry}"
+                    f"[bold green]🎡 Wheel: Sold {contracts}x {ticker} ${put_strike}P "
+                    f"@ ${estimated_premium:.2f} (contracts × 100 shares = {contracts*100}) | "
+                    f"{premium_return:.1f}% return | exp {expiry} | trade_id={trade_id}"
                 )
 
         _done_today = True
