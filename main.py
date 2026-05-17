@@ -101,12 +101,12 @@ def initialize_arena():
 
     providers = [
         OllamaProvider(model="qwen3:14b", url=OLLIE_URL),
-        OllamaProvider(player_id="ollama-gemma27b", model="qwen3:8b", url=OLLIE_URL, timeout=180),
+        OllamaProvider(player_id="ollama-gemma27b", model="ministral-3:3b", url=OLLIE_URL, timeout=180),
         OllamaProvider(player_id="ollama-deepseek", model="deepseek-r1:14b", url=OLLIE_URL, timeout=180),  # RAM patch 2026-04-17: 14b (9.7GB) → 7b (4.7GB), Spock per CLAUDE.md
-        OllamaProvider(player_id="ollama-qwen3", model="qwen3:8b", url=OLLIE_URL, timeout=180),
+        OllamaProvider(player_id="ollama-qwen3", model="ministral-3:3b", url=OLLIE_URL, timeout=180),
         OllamaProvider(player_id="ollama-kimi", model="phi3:mini", url=OLLAMA_URL, timeout=180),
-        OllamaProvider(player_id="ollama-glm4", model="qwen3:8b", url=OLLIE_URL, timeout=180),
-        OllamaProvider(player_id="ollama-plutus", model="0xroyce/plutus:latest", url=OLLIE_URL, timeout=300),
+        OllamaProvider(player_id="ollama-glm4", model="ministral-3:3b", url=OLLIE_URL, timeout=180),
+        OllamaProvider(player_id="ollama-plutus", model="ministral-3:3b", url=OLLIE_URL, timeout=300),
         # Lt. Sulu — DayBlade 2.0 (intraday day trader, free local compute)
         OllamaProvider(player_id="dayblade-sulu", model="phi3:mini", url=OLLAMA_URL, timeout=90),
     ]
@@ -125,13 +125,13 @@ def initialize_arena():
     providers.append(OllamaProvider("qwen3-14b-pro", "qwen3:14b", url=OLLIE_URL, timeout=180))
     providers.append(OllamaProvider("qwen3-8b-flash", "qwen3:8b", url=OLLIE_URL, timeout=180))
     providers.append(OllamaProvider("options-sosnoff", "qwen3:8b", url=OLLIE_URL, timeout=180))
-    providers.append(OllamaProvider("energy-arnold", "qwen3:8b", url=OLLIE_URL, timeout=180))
+    providers.append(OllamaProvider("energy-arnold", "ministral-3:3b", url=OLLIE_URL, timeout=180))
     # Lt. Cmdr. Data — coding specialist
     providers.append(OllamaProvider("ollama-coder", "qwen2.5-coder:7b", url=OLLIE_URL, timeout=180))
     # Mr. Anderson — CrewAI collective / The One
     providers.append(OllamaProvider("super-agent", "qwen3:8b", url=OLLIE_URL, timeout=180))
     # Mr. Dalio — metals specialist
-    providers.append(OllamaProvider("dalio-metals", "qwen3:8b", url=OLLIE_URL, timeout=180))
+    providers.append(OllamaProvider("dalio-metals", "ministral-3:3b", url=OLLIE_URL, timeout=180))
     # Codex players → free local Ollama
     providers.append(OllamaProvider("qwen3-8b-sonnet", "qwen3:8b", url=OLLIE_URL, timeout=180))
     providers.append(OllamaProvider("qwen-coder-haiku", "qwen2.5-coder:7b", url=OLLIE_URL, timeout=180))
