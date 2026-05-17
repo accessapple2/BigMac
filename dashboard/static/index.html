@@ -33837,6 +33837,25 @@ setTimeout(function(){
         }
       };
 
+      // HM-DASH-V2-P1 2026-05-17: debates SSE channel harness (no UI yet — Phase 3 wires the viewer).
+      // Lazy-init: connection is only opened when Captain sets the flag in DevTools.
+      // Production users see ZERO behavior change.
+      // Captain opt-in: `window._DASH_V2_DEBATES_HARNESS = true; location.reload();`
+      try {
+        if (window._DASH_V2_DEBATES_HARNESS && !window._sniffSSE_debates) {
+          var esDeb = new EventSource('/api/stream/debates');
+          window._sniffSSE_debates = esDeb;
+          esDeb.onmessage = function(e) {
+            console.log('[SSE-debates]', e.data);
+          };
+          esDeb.onerror = function() {
+            console.log('[SSE-debates] connection error — EventSource will auto-reconnect');
+          };
+        }
+      } catch (_phase1HarnessErr) {
+        console.log('[SSE-debates] init failed:', _phase1HarnessErr);
+      }
+
       es.onopen = function() {
         console.log('[SniffSSE] connected — readyState', es.readyState);
         // SSE live — clear fallback polling if it was running
