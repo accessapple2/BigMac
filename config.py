@@ -158,7 +158,7 @@ AI_PLAYERS = [
     {"id": "neo-matrix",      "name": "Neo Matrix",          "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # 2026-04-23: rerouted to Ollie Box, freed bigmac RAM (Ollie Box has 32GB RAM, handles qwen3:14b)
     {"id": "ollama-llama",    "name": "Llama 3.1 8B",       "provider": "ollama", "model": "llama3.1:latest"},                      # bigmac localhost fallback
     {"id": "ollama-kimi",     "name": "Kimi K2.5",          "provider": "ollama", "model": "kimi-k2.5:cloud"},                      # cloud — unchanged
-    {"id": "mlx-qwen3",       "name": "Qwen3 8B MLX",       "provider": "mlx",    "model": "mlx-community/Qwen3-8B-4bit"},
+    {"id": "mlx-qwen3",       "name": "Qwen3 8B MLX",       "provider": "ollama", "model": "ministral-3:3b",            "url": OLLIE_URL},  # HM-BN.1 2026-05-17: was provider=mlx/Qwen3-8B-4bit; aligned to ai_players canonical ministral-3:3b on Ollie
     {"id": "qwen3-8b-sonnet",   "name": "Codex Prime",        "provider": "openai", "model": OPENAI_CODEX_MODEL},
     {"id": "qwen-coder-haiku",    "name": "Codex Scout",        "provider": "openai", "model": OPENAI_CODEX_MINI_MODEL},
     {"id": "qwen3-8b-4o",          "name": "GPT-4o",             "provider": "openai", "model": "qwen3-8b-4o"},

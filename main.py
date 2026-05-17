@@ -111,11 +111,11 @@ def initialize_arena():
         OllamaProvider(player_id="dayblade-sulu", model="phi3:mini", url=OLLAMA_URL, timeout=90),
     ]
 
-    # Ensign Chekov — routed through Ollama phi3:mini (was qwen3:8b)
+    # Ensign Chekov — routed through Ollama ministral-3:3b (was phi3:mini; HM-BN.1 canonical 2026-05-17)
     providers.append(OllamaProvider(
-        player_id="mlx-qwen3", model="phi3:mini", url=OLLAMA_URL, timeout=180,
+        player_id="mlx-qwen3", model="ministral-3:3b", url=OLLAMA_URL, timeout=180,
     ))
-    console.log("[green]Chekov (mlx-qwen3) → Ollama phi3:mini")
+    console.log("[green]Chekov (mlx-qwen3) → Ollama ministral-3:3b")
 
     # gpt-4o / gpt-o3 — routed to free local Ollama (no OpenAI spend)
     providers.append(OllamaProvider("qwen3-8b-4o", "qwen3:8b", url=OLLIE_URL, timeout=180))
