@@ -22,9 +22,9 @@ from engine.halt_gate import HALTED_EMIT_FILTER
 console = Console()
 DB = "data/trader.db"
 
-# Ollama CTO config — mistral:7b for rich strategic briefings
+# Ollama CTO config — devstral-small-2 (HM-BN aligned to ai_players.model_id)
 CTO_PLAYER_ID = "cto-grok42"
-CTO_MODEL = "mistral:7b"
+CTO_MODEL = "devstral-small-2"
 CTO_MAX_TOKENS = 2000  # kept for compatibility, Ollama uses num_predict
 _ollie = os.environ.get("OLLAMA_URL", _OLLIE_URL)  # Ollie Box GPU (was localhost)
 
