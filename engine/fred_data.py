@@ -3,6 +3,11 @@ FRED (Federal Reserve Economic Data) integration.
 Fetches macro indicators and computes regime signals.
 Requires FRED_API_KEY environment variable.
 """
+# HM-AO 2026-05-17: orphan revival surfaced latent Py3.9 incompatibility — the
+# existing `float | None` annotations (e.g. L35) only parse under 3.10+. This
+# pragma makes ALL annotations lazy strings (PEP 563), so 3.9 + 3.10+ both work.
+# Doesn't change runtime semantics. Required because trader runs CPython 3.9.
+from __future__ import annotations
 
 import os
 import requests
@@ -219,3 +224,260 @@ def get_macro_regime_signal(indicators: dict | None = None) -> dict:
         "details": details,
         "timestamp": datetime.utcnow().isoformat(),
     }
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HM-AO 2026-05-17: CARTS retail nowcast (FRED release_id=494)
+# APPENDED — does NOT modify any existing function above.
+# Sacred: INSERT OR REPLACE only. NO DROP, NO TRUNCATE, NO DELETE.
+# ─────────────────────────────────────────────────────────────────────────────
+
+import sqlite3
+from datetime import date as _date
+
+CARTS_RELEASE_ID = 494
+_FRED_RELEASE_SERIES_URL = "https://api.stlouisfed.org/fred/release/series"
+_TRADER_DB = os.path.expanduser("~/autonomous-trader/data/trader.db")
+_CARTS_NTFY_TOPIC = "ollietrades-admin"
+
+
+def get_carts_series_catalog() -> list[dict]:
+    """
+    Discover all current CARTS series from FRED release_id=494.
+    Self-healing — auto-picks-up new series when Chicago Fed adds them.
+    Returns list of dicts (FRED's 'seriess' shape). [] on any failure, never raises.
+    """
+    api_key = os.environ.get("FRED_API_KEY")
+    if not api_key:
+        logger.warning("FRED_API_KEY not set — CARTS catalog skipped")
+        return []
+    params = {
+        "release_id": CARTS_RELEASE_ID,
+        "api_key":    api_key,
+        "file_type":  "json",
+    }
+    try:
+        resp = requests.get(_FRED_RELEASE_SERIES_URL, params=params, timeout=10)
+        resp.raise_for_status()
+        return resp.json().get("seriess", [])  # FRED's actual key is 'seriess'
+    except Exception as e:
+        logger.warning(f"FRED CARTS catalog fetch failed: {e}")
+        return []
+
+
+def fetch_carts_observations(series_id: str, limit: int = 260) -> list[dict]:
+    """Up to ~5 years of weekly CARTS observations for one series.
+    Reuses _fetch_series helper above. [] on any failure."""
+    api_key = os.environ.get("FRED_API_KEY")
+    if not api_key:
+        return []
+    return _fetch_series(api_key, series_id, limit=limit)
+
+
+def _pick_primary_nowcast_series(catalog: list[dict]) -> dict | None:
+    """
+    Pick the catalog series whose title contains 'projection' AND 'sales'
+    AND 'month' (case-insensitive). Fall back to catalog[0] if no match.
+    Returns None only if catalog is empty.
+    """
+    if not catalog:
+        return None
+    for s in catalog:
+        title = (s.get("title") or "").lower()
+        if "projection" in title and "sales" in title and "month" in title:
+            return s
+    return catalog[0]
+
+
+def get_carts_nowcast() -> dict:
+    """
+    Latest CARTS retail sales nowcast for downstream consumers.
+
+    Returns:
+        {
+            nowcast_pct_mom: float | None,
+            prev_pct_mom:    float | None,
+            direction:       "RISING" | "FALLING" | "FLAT",
+            last_obs_date:   "YYYY-MM-DD",
+            series_id:       str,
+            series_title:    str,
+            stale_days:      int  (-1 if undeterminable)
+        }
+    {} on any failure, never raises.
+    """
+    try:
+        catalog = get_carts_series_catalog()
+        primary = _pick_primary_nowcast_series(catalog)
+        if not primary:
+            return {}
+        series_id = primary.get("id", "")
+        series_title = primary.get("title", "")
+        obs = fetch_carts_observations(series_id, limit=2)
+        if not obs:
+            return {}
+        current  = _parse_value(obs[0]) if len(obs) > 0 else None
+        previous = _parse_value(obs[1]) if len(obs) > 1 else None
+        last_obs_date = obs[0].get("date") if obs else None
+        direction = _compute_trend(current, previous)
+        stale_days = -1
+        if last_obs_date:
+            try:
+                d = _date.fromisoformat(last_obs_date)
+                stale_days = (_date.today() - d).days
+            except Exception:
+                stale_days = -1
+        return {
+            "nowcast_pct_mom": current,
+            "prev_pct_mom":    previous,
+            "direction":       direction,
+            "last_obs_date":   last_obs_date,
+            "series_id":       series_id,
+            "series_title":    series_title,
+            "stale_days":      stale_days,
+        }
+    except Exception as e:
+        logger.warning(f"get_carts_nowcast failed: {e}")
+        return {}
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# Persistence — fred_carts table (HM-AO Phase 2)
+# ─────────────────────────────────────────────────────────────────────────────
+
+def _carts_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(_TRADER_DB, timeout=10)
+    conn.execute("PRAGMA journal_mode=WAL")
+    return conn
+
+
+def _ensure_carts_schema(conn: sqlite3.Connection) -> None:
+    """Idempotent — CREATE IF NOT EXISTS only. Never touches existing tables."""
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS fred_carts (
+            series_id   TEXT NOT NULL,
+            obs_date    TEXT NOT NULL,
+            value       REAL,
+            fetched_at  TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+            PRIMARY KEY (series_id, obs_date)
+        )
+    """)
+    conn.execute("CREATE INDEX IF NOT EXISTS idx_fred_carts_date ON fred_carts(obs_date)")
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS fred_carts_meta (
+            key   TEXT PRIMARY KEY,
+            value TEXT
+        )
+    """)
+    conn.commit()
+
+
+def _carts_meta_get(conn: sqlite3.Connection, key: str) -> str | None:
+    row = conn.execute("SELECT value FROM fred_carts_meta WHERE key=?", (key,)).fetchone()
+    return row[0] if row else None
+
+
+def _carts_meta_set(conn: sqlite3.Connection, key: str, value: str) -> None:
+    conn.execute(
+        "INSERT OR REPLACE INTO fred_carts_meta(key, value) VALUES (?, ?)",
+        (key, value),
+    )
+    conn.commit()
+
+
+def _ntfy_carts_release(series_title: str, nowcast: float | None, prev: float | None) -> None:
+    """Fire ntfy on NEW obs_date — fail-soft, never raises into the persist loop.
+    HTTP headers must be ASCII/latin-1; emoji in Title bombs requests' default
+    encoding. Use ntfy's Tags-to-emoji substitution instead — `bar_chart` → 📊.
+    """
+    try:
+        nc = f"{nowcast:+.2f}" if nowcast is not None else "n/a"
+        pv = f"{prev:+.2f}"   if prev   is not None else "n/a"
+        body = (
+            f"{series_title}: {nc}% m/m (prev {pv}%). "
+            f"Census retail sales release likely tomorrow."
+        )
+        requests.post(
+            f"https://ntfy.sh/{_CARTS_NTFY_TOPIC}",
+            data=body.encode("utf-8"),
+            headers={
+                "Title":    "CARTS nowcast updated",   # ASCII-only: emoji via Tags
+                "Priority": "default",
+                "Tags":     "bar_chart,carts,fred,nowcast",  # bar_chart renders 📊
+            },
+            timeout=5,
+        )
+    except Exception as e:
+        logger.warning(f"CARTS ntfy failed: {e}")
+
+
+def persist_carts_all() -> dict:
+    """
+    Fetch all CARTS series from catalog, persist observations to fred_carts.
+    Uses INSERT OR REPLACE on PK (series_id, obs_date) — fully idempotent.
+    Fires ntfy iff the primary nowcast series has a NEW MAX(obs_date) vs prior.
+
+    Returns:
+        {series_count: int, rows_written: int, errors: list[str]}
+
+    SACRED: no DROP, no TRUNCATE, no DELETE.
+    """
+    out = {"series_count": 0, "rows_written": 0, "errors": []}
+    api_key = os.environ.get("FRED_API_KEY")
+    if not api_key:
+        out["errors"].append("FRED_API_KEY missing")
+        return out
+
+    catalog = get_carts_series_catalog()
+    out["series_count"] = len(catalog)
+    if not catalog:
+        out["errors"].append("CARTS catalog empty")
+        return out
+
+    primary = _pick_primary_nowcast_series(catalog)
+    primary_id    = (primary or {}).get("id", "")
+    primary_title = (primary or {}).get("title", "")
+
+    conn = _carts_conn()
+    try:
+        _ensure_carts_schema(conn)
+
+        for s in catalog:
+            sid = s.get("id")
+            if not sid:
+                continue
+            try:
+                obs = _fetch_series(api_key, sid, limit=260)
+                for o in obs:
+                    obs_date = o.get("date")
+                    if not obs_date:
+                        continue
+                    conn.execute(
+                        "INSERT OR REPLACE INTO fred_carts "
+                        "(series_id, obs_date, value, fetched_at) "
+                        "VALUES (?, ?, ?, CURRENT_TIMESTAMP)",
+                        (sid, obs_date, _parse_value(o)),
+                    )
+                    out["rows_written"] += 1
+                conn.commit()
+            except Exception as e:
+                out["errors"].append(f"{sid}: {e}")
+
+        # ntfy iff primary's MAX(obs_date) advanced vs prior run
+        if primary_id:
+            row = conn.execute(
+                "SELECT MAX(obs_date) FROM fred_carts WHERE series_id=?",
+                (primary_id,),
+            ).fetchone()
+            current_max = row[0] if row else None
+            prior_max   = _carts_meta_get(conn, "last_seen_primary")
+            if current_max and current_max != prior_max:
+                # Pull current + prev values for the body
+                obs2 = _fetch_series(api_key, primary_id, limit=2)
+                nc = _parse_value(obs2[0]) if len(obs2) > 0 else None
+                pv = _parse_value(obs2[1]) if len(obs2) > 1 else None
+                _ntfy_carts_release(primary_title, nc, pv)
+                _carts_meta_set(conn, "last_seen_primary", current_max)
+    finally:
+        conn.close()
+
+    return out

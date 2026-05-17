@@ -757,6 +757,35 @@ def run_earnings_scan_inject():
         console.log(f"[red]run_earnings_scan_inject error: {e}")
 
 
+def run_carts_persist():
+    """HM-AO 2026-05-17 — daily 06:00 AZ CARTS retail nowcast persistence.
+
+    Calls engine.fred_data.persist_carts_all(). Fail-soft: errors logged,
+    never raised — CARTS is observability data, not a trading gate.
+    ntfy fires only on NEW MAX(obs_date) per the persist helper.
+    Morpheus consumer deferred to HM-AN per HM-AO scope.
+    """
+    import datetime as _dt
+    import pytz
+    az = pytz.timezone("US/Arizona")
+    now = _dt.datetime.now(az)
+    # Daily 06:00 AZ — single fire window
+    if now.hour != 6 or now.minute > 30:
+        return
+    try:
+        from engine.fred_data import persist_carts_all
+        result = persist_carts_all()
+        console.log(
+            f"[cyan][CARTS] persist: {result.get('series_count', 0)} series, "
+            f"{result.get('rows_written', 0)} rows, "
+            f"errors={len(result.get('errors', []))}"
+        )
+        if result.get("errors"):
+            console.log(f"[yellow][CARTS] errors: {result['errors'][:3]}")
+    except Exception as e:
+        console.log(f"[red][CARTS] run_carts_persist error: {e}")
+
+
 @_hm_bq_instr("run_earnings_day_scan")
 def run_earnings_day_scan():
     """Every 5 min market hours — rescan earnings-day tickers at high frequency.
@@ -2874,6 +2903,7 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_ah_scanner)                     # AH Earnings Scanner: 4–7 PM AZ (30 min)
     schedule.every(15).minutes.do(run_premarket_scanner)              # Pre-Market Scanner: 6–9:25 AM AZ (15 min)
     schedule.every().day.at("06:00").do(run_earnings_scan_inject)     # Earnings → scan_universe inject: 6:00 AM AZ (HM-AR-β rename 2026-05-07)
+    schedule.every().day.at("06:00").do(run_carts_persist)            # CARTS retail nowcast persistence: 6:00 AM AZ (HM-AO 2026-05-17)
     schedule.every(5).minutes.do(run_earnings_day_scan)               # Earnings Day: every 5 min market hours
     schedule.every().day.at("06:45").do(run_opening_range)            # Battle Station: opening range 6:45 AM AZ
     schedule.every(2).minutes.do(run_battle_station_monitor)  # Battle Station: 2-min options position monitor
