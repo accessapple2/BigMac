@@ -97,12 +97,15 @@ AGENTS: dict[str, dict] = {
 # HM-BM 2026-05-16: dynamically add bakeoff clones at module load. Each clone
 # inherits navigator's config (rsi thresholds, conservative flag, universe).
 # Only the model_id varies — resolved at query_ollama time via _resolve_model.
-# Pre-existing 5 AGENTS unchanged; this only adds 'navigator_bm_*' rows if present.
+# Pre-existing 5 AGENTS unchanged; this only adds bakeoff-prefixed rows if present.
+# Recognized prefixes: navigator_bm_* (HM-BM), navigator_bn1_* (HM-BN.1), navigator_b%_*
+# would cover future bakeoffs but kept explicit to avoid surprise inclusion.
 def _load_bakeoff_agents() -> None:
     try:
         _db = os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), "data", "trader.db")
         rows = sqlite3.connect(_db, timeout=5).execute(
-            "SELECT id, display_name FROM ai_players WHERE id LIKE 'navigator_bm_%'"
+            "SELECT id, display_name FROM ai_players "
+            "WHERE id LIKE 'navigator_bm_%' OR id LIKE 'navigator_bn1_%'"
         ).fetchall()
         nav_cfg = AGENTS["navigator"]
         nav_url = _PLAYER_BASE_URLS.get("navigator", _OLLIE_URL)
