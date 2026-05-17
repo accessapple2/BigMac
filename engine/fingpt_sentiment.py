@@ -39,7 +39,8 @@ def _score_headline(symbol: str, headline: str) -> dict | None:
         f'Reply with ONLY a JSON: {{"sentiment":"BULLISH" or "BEARISH" or "NEUTRAL",'
         f'"strength":1-10,"reasoning":"one sentence"}}\n\nHeadline: {headline}'
     )
-    for model in ["mistral:7b", "0xroyce/plutus:latest"]:
+    # 2026-05-17 Wave 1 Fix #2: mistral:7b removed — never installed on Ollie; ministral-3:3b primary (HM-BN.1 winner, McCoy's current model_id), plutus fallback (still installed, finance-specialized)
+    for model in ["ministral-3:3b", "0xroyce/plutus:latest"]:
         try:
             r = requests.post(
                 f"{_OLLAMA}/api/generate",

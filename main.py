@@ -4228,7 +4228,7 @@ if __name__ == "__main__":
     def _warmup_ollama():
         import requests as _req, subprocess as _sp
         _MAX_STARTUP_GB = 6.0
-        _OLLIE_WARMUP = {"gemma3:4b", "mistral:7b"}  # 5.8: now on Ollie GPU
+        _OLLIE_WARMUP = {"gemma3:4b"}  # 2026-05-17 Wave 1 Fix #3: mistral:7b removed — Pike migration to Ollie never completed
         # (model, think, size_gb)
         _REQUIRED_MODELS = [
             ("gemma3:4b",      False, 3.3),   # Picard — on Ollie (5.8)
@@ -4236,7 +4236,7 @@ if __name__ == "__main__":
             # Bumped to 7.0 so it EXCEEDS the 6.0 GB MAX_STARTUP threshold → cold-loads on first
             # real query instead of inflating baseline. Pairs with keep_alive=5s in OllamaProvider.
             ("phi3:mini",     False, 7.0),   # DayBlade Sulu + Chekov + main arena — cold-load on demand
-            ("mistral:7b",     False, 4.1),   # Pike swing backup — on Ollie (5.8)
+            # 2026-05-17 Wave 1 Fix #3: mistral:7b entry removed — Pike migration to Ollie never completed; model lives on bigmac, not pre-loaded
             ("0xroyce/plutus", False, 8.0),   # T'Pol (dayblade-0dte) — >6 GB, skip startup
         ]
         # Check which models are installed on bigmac + Ollie
@@ -4282,7 +4282,8 @@ if __name__ == "__main__":
                 }
                 if not _think:
                     _payload["think"] = False
-                _req.post(_warm_url, json=_payload, timeout=120)
+                _resp = _req.post(_warm_url, json=_payload, timeout=120)
+                _resp.raise_for_status()  # 2026-05-17 Wave 1 Fix #3: catch HTTP 404 so missing-model errors stop silently logging as "warm ✓"
                 console.log(f"[green][STARTUP] Ollama: {_model} warm ✓ ({'Ollie' if _model in _OLLIE_WARMUP else 'bigmac'})")
             except Exception as _e:
                 console.log(f"[yellow][STARTUP] Ollama: {_model} warmup skipped: {_e}")

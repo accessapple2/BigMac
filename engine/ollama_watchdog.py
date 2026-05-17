@@ -51,7 +51,7 @@ PRIMARY_WARMUP_MODEL = "qwen3:8b"
 _OLLIE_MODELS: frozenset[str] = frozenset({
     "qwen3:8b", "qwen3:14b", "deepseek-r1:14b", "deepseek-r1:7b",
     "0xroyce/plutus:latest", "0xroyce/plutus", "qwen2.5-coder:7b",
-    "gemma3:4b", "mistral:7b",  # 5.8: Picard + Pike migrated to Ollie GPU
+    "gemma3:4b",  # 2026-05-17 Wave 1 Fix #3: mistral:7b removed — Pike migration to Ollie never completed; model lives on bigmac
 })
 
 
