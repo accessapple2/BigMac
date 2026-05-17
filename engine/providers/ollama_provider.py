@@ -1,7 +1,16 @@
 from __future__ import annotations
+import logging
+import time
 import requests
 from .base import AIProvider
 from engine.ollama_queue import get_queue  # per-host registry (D1 dual-queue)
+
+# HM-CN 2026-05-17: latency telemetry for ministral-3:3b post-HM-BN.1 + future bakeoffs.
+# Routes to trader_error.log via stdlib logger (per HM-LOG-CHANNEL doctrine).
+# Parser format: "ollama_call model=<m> agent=<a> wall=<s>s"
+# Explicit INFO level — root logger defaults to WARNING in this codebase.
+_latency_logger = logging.getLogger("ollama_provider")
+_latency_logger.setLevel(logging.INFO)
 
 
 class OllamaProvider(AIProvider):
@@ -41,7 +50,11 @@ class OllamaProvider(AIProvider):
             r = requests.post(self.url, json=payload, timeout=self.timeout)
             return r.json().get("response", "")
 
-        return get_queue(self.url).submit(_do_request, model_id=self.model_id)
+        # HM-CN 2026-05-17: time the queue submit (queue wait + Ollama inference).
+        t0 = time.time()
+        result = get_queue(self.url).submit(_do_request, model_id=self.model_id)
+        _latency_logger.info("ollama_call model=%s agent=%s wall=%.2fs", self.model_id, self.player_id, time.time() - t0)
+        return result
 
     def analyze_chain(self, symbol: str, price: float, change_pct: float,
                       high: float, low: float, portfolio_context: dict,
