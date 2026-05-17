@@ -1,7 +1,9 @@
 """
 USS TradeMinds — FinGPT-Inspired Sentiment Scorer (engine/fingpt_sentiment.py)
 
-Classifies recent headlines from market_news table using mistral:7b via Ollama.
+Classifies recent headlines from market_news table using ministral-3:3b via Ollama
+(Wave 1 Fix #2: was mistral:7b — never installed on Ollie; fallback chain now
+ministral-3:3b → 0xroyce/plutus:latest).
 Aggregates per-symbol: BULLISH/BEARISH/NEUTRAL with strength 1-10.
 15-minute cache per symbol. Returns None gracefully if Ollama is busy.
 """
@@ -32,7 +34,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def _score_headline(symbol: str, headline: str) -> dict | None:
-    """Ask mistral:7b to classify one headline. Returns dict or None on failure."""
+    """Ask ministral-3:3b (with plutus fallback) to classify one headline. Returns dict or None on failure."""
     import requests
     prompt = (
         f"Rate this headline's impact on {symbol} stock price. "

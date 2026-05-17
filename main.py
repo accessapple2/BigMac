@@ -217,7 +217,7 @@ _SCAN_TIER1: frozenset = frozenset({
     "dayblade-sulu",     # Sulu    S6.3 primary options trader (phi3:mini) — PRIORITY 1
     "super-agent",       # Anderson      (crewai)
     "deepseek-7b-grok4",            # Spock         (deepseek-r1:7b)
-    "ollama-coder",      # Data          (qwen2.5-coder:7b)
+    "ollama-coder",      # Data          (model resolved at runtime via agent_routing)
     "mlx-qwen3",         # Chekov        (phi3:mini)
 })
 
@@ -225,7 +225,7 @@ _SCAN_TIER1: frozenset = frozenset({
 _SCAN_TIER2: frozenset = frozenset({
     "options-sosnoff",   # Troi          (phi3:mini)
     "energy-arnold",     # Trip Tucker   (phi3:mini)
-    "ollama-plutus",     # McCoy         (mistral:7b)
+    "ollama-plutus",     # McCoy         (ministral-3:3b — HM-BN.1 canonical; was mistral:7b)
     "ollama-local",      # Geordi        (gemma3:4b)
     "ollama-llama",      # Uhura         (llama3.1:latest)
     "qwen3-8b-flash",  # Worf          (phi3:mini)
@@ -2792,7 +2792,7 @@ if __name__ == "__main__":
     _startup_log.info("=" * 60)
     _startup_log.info(f"Active Scanners: {ACTIVE_SCANNERS}")
     _startup_log.info(f"Rules Scanners: {RULES_SCANNERS}")
-    _startup_log.info(f"Scan Model: T'Pol=0xroyce/plutus (0DTE) | McCoy=mistral:7b (triage)")
+    _startup_log.info(f"Scan Model: T'Pol=0xroyce/plutus (0DTE) | McCoy=ministral-3:3b (triage)")
     _startup_log.info(f"API Key: {'SET' if _anthropic_key else 'MISSING'}")
     _startup_log.info(f"Ollama: {'WARM' if _ollama_warm else 'COLD'}")
     _startup_log.info(f"Bridge: bridge.accessapple.com")
@@ -4195,7 +4195,7 @@ if __name__ == "__main__":
     console.log("[STARTUP] Tax Harvester: daily scan at 3:30–4:00 PM ET")
     console.log("[STARTUP] Drift Rebalancer: check every 30 min during market hours")
     console.log("[STARTUP] VaR Calculator: daily snapshot at 4:05–4:15 PM ET")
-    console.log("[STARTUP] Ollama: gemma3:4b (Picard) + mistral:7b (Pike) → Ollie GPU; phi3:mini cold-loads on demand — 5.8 Ollie migration")
+    console.log("[STARTUP] Ollama: gemma3:4b (Picard) → Ollie GPU; phi3:mini cold-loads on demand — 5.8 Ollie migration (mistral:7b never migrated; decommissioned)")
 
     # ── Season 6.3 Fleet Cache ─────────────────────────────────────────────
     try:
@@ -4224,7 +4224,7 @@ if __name__ == "__main__":
     # Pre-load all required Ollama models — auto-pull if missing, then warm each
     # Models over 6 GB are skipped at startup to prevent RAM starvation.
     # deepseek-r1:14b (9 GB) removed — 15-min warm blocks scanner startup.
-    # 5.8: gemma3:4b (Picard) + mistral:7b (Pike) moved to Ollie GPU.
+    # 5.8: gemma3:4b (Picard) moved to Ollie GPU (mistral:7b never migrated; decommissioned).
     def _warmup_ollama():
         import requests as _req, subprocess as _sp
         _MAX_STARTUP_GB = 6.0

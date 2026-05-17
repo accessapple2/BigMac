@@ -278,7 +278,7 @@ The two modules export non-overlapping functions, read different DBs, and serve 
 
 | Player ID            | Star Trek role | Strategy / Type                                | Model                | Recent volume |
 |----------------------|----------------|------------------------------------------------|----------------------|---------------|
-| `deepseek-7b-grok4`  | Spock          | RSI-bounce scout for Sniper Mode trial         | qwen3:8b (local) [2026-05-17: corrected from documented deepseek-r1:7b which was never installed on Ollie; HM-CN side-by-side caught long-running drift — main.py was already qwen3:8b. Spock specialty bakeoff banked for HM-BN.2 wave to decide real canonical.] | ~178 sigs/day |
+| `deepseek-7b-grok4`  | Spock          | Role #1: RSI-bounce scout (DETERMINISTIC — no LLM) for Sniper Mode trial | qwen3:8b (local) [2026-05-17: model is for Spock's LLM-side roles (#2 second-opinion, debate, etc.); Role #1 RSI-bounce is pure rule-based and does NOT call the LLM. Corrected from documented deepseek-r1:7b which was never installed on Ollie; HM-CN side-by-side caught long-running drift — main.py was already qwen3:8b. Spock specialty bakeoff banked for HM-BN.2 wave to decide real canonical.] | 10–15 sigs/day (real production volume per audit; supersedes earlier aspirational "~178/day" claim) |
 | `qwen3-8b-flash`     | Worf           | Sniper Mode scout (was Gemini Flash, repointed Apr 16) | qwen3:8b (local)| ~25 sigs/day |
 
 ### Backtest Pool — Deliberate OFF (cost-doctrine, KEEP wired)

@@ -312,7 +312,7 @@ def _source_layered_memory(player_id: str) -> dict[str, Any] | None:
 
 
 def _source_news_sentiment(symbol: str) -> dict[str, Any] | None:
-    """FinGPT-style news sentiment for this symbol (mistral:7b, 15-min cache)."""
+    """FinGPT-style news sentiment for this symbol (ministral-3:3b → plutus fallback, 15-min cache)."""
     try:
         from engine.fingpt_sentiment import get_sentiment
         return get_sentiment(symbol)

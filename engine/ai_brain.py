@@ -64,7 +64,7 @@ def _fetch_premarket_gaps(timeout: float = 5.0) -> list:
 # Paid models (API cost) scan 3x/day. Gemma3 4B scans 5x/day (strategic deep scans).
 # Qwen3 8B and Plutus 9B scan continuously every 120-180s (free, always running).
 # grok-4 removed — Spock now runs on ollama/deepseek-r1:7b (free). No API cost.
-PAID_MODEL_IDS = {"cto-grok42"}
+PAID_MODEL_IDS: set[str] = set()  # HM-CN.tail 2026-05-17: cto-grok42 routed locally; gate unreachable, kept empty for shape compatibility
 STRATEGIC_SCAN_MODEL_IDS = {"ollama-local"}  # Gemma3 4B: fewer but deeper scans
 
 # Models that run independently — not gated by tier1_has_signal (they have their own signal sources)
@@ -490,7 +490,7 @@ class Arena:
             if _pid not in paused_ids:
                 set_player_fallback_state(_pid, False)
 
-        paid_window_open = _is_paid_scan_window()
+        # HM-CN.tail 2026-05-17: paid_window_open removed — PAID_MODEL_IDS now empty, gate dead.
         spock_window_open = _is_spock_scan_window()
         strategic_window_open = _is_strategic_scan_window()
         api_providers = []
@@ -503,9 +503,7 @@ class Arena:
                 if not spock_window_open or _spock_cycle_count % 3 != 0:
                     skipped_paid.append(pid)
                     continue
-            elif pid in PAID_MODEL_IDS and not paid_window_open:
-                skipped_paid.append(pid)
-                continue
+            # HM-CN.tail 2026-05-17: PAID_MODEL_IDS gate removed (set is empty post-cto-grok42 local-route).
             api_providers.append((pid, prov))
 
         ollama_providers = []
@@ -578,7 +576,7 @@ class Arena:
                 "gemma3:4b":        3,
                 "qwen2.5-coder:7b": 4,
                 "0xroyce/plutus":   5,
-                "mistral:7b":       6,  # McCoy / Plutus
+                # HM-CN.tail 2026-05-17: mistral:7b key removed — no agent uses it as model_id per DB.
                 "mistral-small":    7,
             }
             # Opt 6 — Agent priority within model group (lower = runs first)
