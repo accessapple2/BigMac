@@ -42,7 +42,11 @@ _SERVER_START: float = _time_module.time()  # epoch — used by /api/health for 
 import queue as _queue
 import asyncio as _asyncio
 
-_sse_clients: list       = []   # list[asyncio.Queue]  — one per connected browser tab
+# HM-DASH-V2-P1 2026-05-17: multi-channel SSE refactor (Phase 1)
+# Multi-channel SSE: dict[channel_name → list[asyncio.Queue]]
+# Channels in use as of Phase 1: "scanner" (existing), "debates" (stub, populated in Phase 2)
+# IMPORTANT: every read/write to _sse_clients_by_channel MUST hold _sse_clients_lock.
+_sse_clients_by_channel: dict[str, list] = {"scanner": [], "debates": []}
 _sse_clients_lock        = threading.Lock()
 _sse_event_loop          = None  # captured at startup; needed to push from bg threads
 _last_broadcast_alerts: set = set()   # dedup key: "SYMBOL_detected_at"
@@ -295,43 +299,61 @@ async def _sse_startup():
         logger.warning(f"[SSE] Could not register scanner callback: {_e}")
 
 
-def broadcast_scanner_alert(alert: dict):
-    """Thread-safe: push a scanner alert to all connected SSE clients.
-    Called from background scanner threads via _scan_callbacks.
+def _broadcast_to_channel(channel: str, msg: str) -> None:
+    """Thread-safe push to all SSE clients on a named channel.
+
+    Caller is responsible for json.dumps(payload) before calling.
+    Silently no-ops if channel has no subscribers or no running event loop.
+    HM-DASH-V2-P1 2026-05-17: generalized from scanner-only broadcast.
     """
-    global _sse_event_loop, _last_broadcast_alerts
-    if not _sse_clients:
+    global _sse_event_loop
+    clients = _sse_clients_by_channel.get(channel)
+    if not clients:
+        return
+    loop = _sse_event_loop
+    if not (loop and loop.is_running()):
         return
     try:
-        msg = json.dumps({"type": "scanner_alert", "alert": alert})
-        dedup_key = f"{alert.get('symbol')}_{alert.get('detected_at', '')}"
-        _last_broadcast_alerts.add(dedup_key)
-        # Cap set size to avoid unbounded growth
-        if len(_last_broadcast_alerts) > 500:
-            _last_broadcast_alerts.clear()
-        loop = _sse_event_loop
-        if loop and loop.is_running():
-            with _sse_clients_lock:
-                dead = []
-                for q in list(_sse_clients):
-                    try:
-                        loop.call_soon_threadsafe(q.put_nowait, msg)
-                    except Exception:
-                        dead.append(q)
-                for q in dead:
-                    if q in _sse_clients:
-                        _sse_clients.remove(q)
+        with _sse_clients_lock:
+            dead = []
+            for q in list(clients):
+                try:
+                    loop.call_soon_threadsafe(q.put_nowait, msg)
+                except Exception:
+                    dead.append(q)
+            for q in dead:
+                if q in clients:
+                    clients.remove(q)
     except Exception as _e:
-        logger.debug(f"[SSE] broadcast error: {_e}")
+        logger.debug(f"[SSE] channel={channel} broadcast error: {_e}")
+
+
+def broadcast_scanner_alert(alert: dict):
+    """Thread-safe: push a scanner alert to all SSE 'scanner' channel clients.
+    Called from background scanner threads via _scan_callbacks.
+    HM-DASH-V2-P1 2026-05-17: now a thin wrapper over _broadcast_to_channel.
+    """
+    global _last_broadcast_alerts
+    if not _sse_clients_by_channel.get("scanner"):
+        return
+    msg = json.dumps({"type": "scanner_alert", "alert": alert})
+    dedup_key = f"{alert.get('symbol')}_{alert.get('detected_at', '')}"
+    _last_broadcast_alerts.add(dedup_key)
+    # Cap set size to avoid unbounded growth
+    if len(_last_broadcast_alerts) > 500:
+        _last_broadcast_alerts.clear()
+    _broadcast_to_channel("scanner", msg)
 
 
 @app.get("/api/stream/scanner")
 async def stream_scanner():
-    """SSE endpoint — push scanner alerts to browser in real time."""
+    """SSE endpoint — push scanner alerts to browser in real time.
+    HM-DASH-V2-P1 2026-05-17: now uses _sse_clients_by_channel["scanner"].
+    Contract preserved (frames identical to pre-refactor)."""
     from fastapi.responses import StreamingResponse as _SR
     q: _asyncio.Queue = _asyncio.Queue(maxsize=100)
     with _sse_clients_lock:
-        _sse_clients.append(q)
+        _sse_clients_by_channel["scanner"].append(q)
 
     async def generate():
         try:
@@ -344,8 +366,48 @@ async def stream_scanner():
                     yield 'data: {"type":"ping"}\n\n'
         finally:
             with _sse_clients_lock:
-                if q in _sse_clients:
-                    _sse_clients.remove(q)
+                clients = _sse_clients_by_channel.get("scanner", [])
+                if q in clients:
+                    clients.remove(q)
+
+    return _SR(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control":    "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection":       "keep-alive",
+        },
+    )
+
+
+@app.get("/api/stream/debates")
+async def stream_debates():
+    """SSE endpoint — push debate milestone events to browser.
+
+    Phase 1: stub — accepts connections, emits ping keepalives only.
+    Phase 2: producer hook in engine/debate_engine.py populates the channel.
+    HM-DASH-V2-P1 2026-05-17.
+    """
+    from fastapi.responses import StreamingResponse as _SR
+    q: _asyncio.Queue = _asyncio.Queue(maxsize=100)
+    with _sse_clients_lock:
+        _sse_clients_by_channel["debates"].append(q)
+
+    async def generate():
+        try:
+            yield 'data: {"type":"ping","channel":"debates"}\n\n'
+            while True:
+                try:
+                    msg = await _asyncio.wait_for(q.get(), timeout=25)
+                    yield f"data: {msg}\n\n"
+                except _asyncio.TimeoutError:
+                    yield 'data: {"type":"ping","channel":"debates"}\n\n'
+        finally:
+            with _sse_clients_lock:
+                clients = _sse_clients_by_channel.get("debates", [])
+                if q in clients:
+                    clients.remove(q)
 
     return _SR(
         generate(),
@@ -371,7 +433,29 @@ def debug_broadcast_test(data: dict):
         "detected_at":     data.get("detected_at", _time_module.strftime("%Y-%m-%dT%H:%M:%SZ")),
     }
     broadcast_scanner_alert(alert)
-    return {"ok": True, "clients": len(_sse_clients), "alert": alert}
+    # HM-DASH-V2-P1: was len(_sse_clients); refactored to channel-keyed dict.
+    return {"ok": True, "clients": len(_sse_clients_by_channel.get("scanner", [])), "alert": alert}
+
+
+@app.post("/api/debug/broadcast-test-debates")
+def debug_broadcast_test_debates(data: dict):
+    """Dev-only: manually push a fake debate event to all SSE 'debates' clients.
+    HM-DASH-V2-P1 2026-05-17.
+    """
+    event = {
+        "type":      "debate_event",
+        "stage":     data.get("stage", "test"),
+        "ticker":    data.get("ticker", "TEST"),
+        "elapsed_s": data.get("elapsed_s", 0),
+        "payload":   data.get("payload", {}),
+    }
+    _broadcast_to_channel("debates", json.dumps(event))
+    return {
+        "ok":        True,
+        "channel":   "debates",
+        "clients":   len(_sse_clients_by_channel.get("debates", [])),
+        "broadcast": event,
+    }
 
 # ── END SSE ───────────────────────────────────────────────────────────────
 
