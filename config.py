@@ -159,10 +159,14 @@ AI_PLAYERS = [
     {"id": "ollama-llama",    "name": "Llama 3.1 8B",       "provider": "ollama", "model": "llama3.1:latest"},                      # bigmac localhost fallback
     {"id": "ollama-kimi",     "name": "Kimi K2.5",          "provider": "ollama", "model": "kimi-k2.5:cloud"},                      # cloud — unchanged
     {"id": "mlx-qwen3",       "name": "Qwen3 8B MLX",       "provider": "ollama", "model": "ministral-3:3b",            "url": OLLIE_URL},  # HM-BN.1 2026-05-17: was provider=mlx/Qwen3-8B-4bit; aligned to ai_players canonical ministral-3:3b on Ollie
-    {"id": "qwen3-8b-sonnet",   "name": "Codex Prime",        "provider": "openai", "model": OPENAI_CODEX_MODEL},
-    {"id": "qwen-coder-haiku",    "name": "Codex Scout",        "provider": "openai", "model": OPENAI_CODEX_MINI_MODEL},
-    {"id": "qwen3-8b-4o",          "name": "GPT-4o",             "provider": "openai", "model": "qwen3-8b-4o"},
-    {"id": "qwen3-8b-o3",          "name": "GPT-o3",             "provider": "openai", "model": "o3"},
+    # HM-CN Phase 2 2026-05-17: local_redirect=True honors Free-Models-First
+    # doctrine — these provider="openai" declarations route to local Ollama
+    # using ai_players.model_id (which has been set to a free local model).
+    # Without this flag, agent_routing.py would skip them.
+    {"id": "qwen3-8b-sonnet",   "name": "Codex Prime",        "provider": "openai", "model": OPENAI_CODEX_MODEL,      "local_redirect": True},
+    {"id": "qwen-coder-haiku",    "name": "Codex Scout",        "provider": "openai", "model": OPENAI_CODEX_MINI_MODEL, "local_redirect": True},
+    {"id": "qwen3-8b-4o",          "name": "GPT-4o",             "provider": "openai", "model": "qwen3-8b-4o",         "local_redirect": True},
+    {"id": "qwen3-8b-o3",          "name": "GPT-o3",             "provider": "openai", "model": "o3",                   "local_redirect": True},
     {"id": "qwen3-14b-pro",  "name": "Dalio Macro 8B",     "provider": "ollama", "model": "qwen3:8b",         "url": OLLIE_URL},  # HM-BE: name aligned with model (was "14B"; downgraded to 8B on 2026-04-20 swap-storm cleanup)
     {"id": "qwen3-8b-flash","name": "Worf 8B",            "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — was gemini
     {"id": "qwen3-14b-grok3",          "name": "ex-Grok3 14B",       "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # Ollie GPU — retired 2026-04-16
