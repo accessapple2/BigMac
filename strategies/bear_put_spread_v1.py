@@ -77,8 +77,22 @@ _SC_DB_PATH  = _ROOT / "signal-center" / "signals.db"
 # ── Data helpers ───────────────────────────────────────────────────────────────
 
 def _get_spot(ticker: str) -> Optional[float]:
+    """HM-AP 2026-05-17: Polygon primary (mirrors bull_spread_v1 pattern),
+    Alpaca fallback (retains original alpaca_chain_client path).
+    SACRED: Polygon failures fall back to Alpaca silently; WARN logs on switch.
+    """
     if is_mock_mode():
         return mock_spot_price(ticker)
+    # Polygon primary
+    try:
+        from .polygon_client import fetch_spot_price
+        spot = fetch_spot_price(ticker)
+        if spot is not None:
+            return spot
+        print(f"[bear_spread_v1] WARN: Polygon spot=None for {ticker}, falling back to Alpaca")
+    except Exception as e:
+        print(f"[bear_spread_v1] WARN: Polygon spot exception for {ticker}: {e}, falling back to Alpaca")
+    # Alpaca fallback (silent — original behavior preserved)
     try:
         from .alpaca_chain_client import _fetch_spot
         return _fetch_spot(ticker)
