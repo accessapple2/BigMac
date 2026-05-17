@@ -146,8 +146,9 @@ def _ask_voter(voter: dict, briefing_text: str, session_type: str) -> dict:
         f"Cast your vote as {name}. Use the VOTE:/CONFIDENCE:/REASON: format only."
     )
 
-    # Try the model, fallback to mistral:7b (bigmac resident); last-resort qwen3:8b on Ollie
-    fallback = "mistral:7b" if model != "mistral:7b" else "qwen3:8b"  # 2026-04-20: was qwen3:8b
+    # Try the model, fallback to qwen3:8b (Ollie-installed); phi3:mini for qwen3:8b primaries to preserve diversity
+    # 2026-05-17 Wave 1 Fix #2: was mistral:7b — never installed on Ollie, fallback was silently 404ing
+    fallback = "qwen3:8b" if model != "qwen3:8b" else "phi3:mini"
     for attempt_model in (model, fallback):
         try:
             resp = requests.post(
