@@ -127,7 +127,7 @@ def initialize_arena():
     providers.append(OllamaProvider("options-sosnoff", "qwen3:8b", url=OLLIE_URL, timeout=180))
     providers.append(OllamaProvider("energy-arnold", "ministral-3:3b", url=OLLIE_URL, timeout=180))
     # Lt. Cmdr. Data — coding specialist
-    providers.append(OllamaProvider("ollama-coder", "qwen2.5-coder:7b", url=OLLIE_URL, timeout=180))
+    providers.append(OllamaProvider("ollama-coder", "devstral-small-2", url=OLLIE_URL, timeout=180))
     # Mr. Anderson — CrewAI collective / The One
     providers.append(OllamaProvider("super-agent", "qwen3:8b", url=OLLIE_URL, timeout=180))
     # Mr. Dalio — metals specialist
