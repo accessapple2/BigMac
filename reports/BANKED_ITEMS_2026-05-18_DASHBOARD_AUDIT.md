@@ -1,5 +1,46 @@
 # Banked Items — Chrome Dashboard Audit 2026-05-18
 
+## Shipped 2026-05-18 Round 2.1 — follow-up to Round 2 smoke misses
+
+Chrome smoke of Round 2 (dfb5381) caught two render-path misses. Same
+class of bug both times: I patched one renderer for each symptom but
+each symptom had a second renderer reading the same upstream data with
+the same wrong assumption. Re-patches:
+
+- **D1 (Bridge Sectors) — second renderer fixed.** Round 2 caught the
+  small `g-sectors-inner` glance-row text panel; the visual heatmap
+  grid below it is driven by a separate `loadBridgeHeatmap()` function
+  at `dashboard/static/index.html:5089` which still read `s.name` /
+  `s.pct_change` / `s.ticker`. Cells rendered "undefined ▲ 0.00%" and
+  `showSectorDetail` opened "undefined (XLV) — Top 10 Holdings".
+  Rewired to `s.sector` / `s.change_pct` / `s.etf` with the legacy
+  field names kept as fallbacks. Sector tip dict + holdings popup
+  follow through correctly now.
+- **D5 (Backtest BEST EVER WR 10000%) — wrong file fixed last round.**
+  My Round 2 cap targeted `fetchStrategyLab` in `index.html`; the
+  🏆 BEST EVER banner Captain saw lives in
+  `dashboard/static/backtest_arena.html` (the separate `/backtest`
+  page), reading `d.best.win_rate.value` from `/api/backtest/history`.
+  API currently returns `best.win_rate.value=10000` (Bollinger),
+  `best.return.value=12366` (RSI), `best.sharpe.value=43.02` (Chekov)
+  — all corrupted sweep rows. Added `_capWR` / `_capSh` / `_capRet`
+  helpers to backtest_arena.html and applied them to both the BEST
+  EVER bar AND the per-row history table cells (so a Bollinger row
+  sorted to the top doesn't also render 10000.0%). Out-of-bound
+  values render with ⚠️ and muted opacity.
+
+Lesson banked for future audits: when a symptom names a specific
+panel, grep for ALL renderers that hit the same data, not just the
+first one. The "Sector Watch standalone is fine, only Bridge is
+broken" framing in the audit prompt was a hint there were two
+renderers; I should have also asked "what about the visual heatmap
+grid on the same Bridge tab?"
+
+Browser smoke owed: revisit Bridge tab sector heatmap grid (cells
+should show sector name + ETF ticker + signed %), `/backtest` page
+🏆 BEST EVER bar (should show ⚠️-flagged values until corrupted DB
+rows are cleaned up).
+
 ## Shipped 2026-05-18 Round 2 — HM-DASHBOARD-CHROME-AUDIT-FIXES-ROUND-2
 
 5 quick wins per Chrome audit second pass (~14:50 ET). Big news first:
