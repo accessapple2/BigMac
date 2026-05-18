@@ -4344,6 +4344,17 @@ def first_officer_briefing(force: int = 0):
 
     HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: force= now NO-OP per G36 PRESERVE
     doctrine. To trigger fresh regenerate, POST /api/first-officer/force-briefing.
+
+    HM-FORCE-CACHE-LAYER-BYPASS 2026-05-17 (Option A doc): TWO cache layers
+    exist here — (1) outer @timed_cache(300) decorator + (2) inner
+    get_briefing() server-side 30-min cache. force= on GET historically only
+    bypassed the inner; the outer @timed_cache served stale for up to 5 min.
+    This is now moot per HM-FORCE-PARAM-GET-MIGRATE: force= is NO-OP, both
+    caches serve cached payload until natural TTL. POST /force-briefing
+    bypasses BOTH (background fire repopulates inner; outer expires by TTL).
+    For per-call bypass of outer @timed_cache from POST handler, banked as
+    HM-FORCE-CACHE-LAYER-OUTER-BYPASS (LOW) — only needed if POST → GET
+    round-trip latency becomes a UX issue.
     """
     if force:
         try:
