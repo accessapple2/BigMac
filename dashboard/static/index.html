@@ -3110,9 +3110,16 @@ async function fetchReadyRoomBriefing() {
       // Staleness badge
       var staleEl = document.getElementById('rrStaleness');
       if (staleEl) {
-        var ageMin = Math.round((Date.now() - createdAt.getTime()) / 60000);
+        // D5: created_at can be in the future (clock skew or test-fixture
+        // backfill — saw "-420M AGO" on 2026-05-18). For future timestamps,
+        // render the scheduled clock time instead of a negative "ago" delta.
+        var deltaMs = Date.now() - createdAt.getTime();
+        var ageMin = Math.round(deltaMs / 60000);
         staleEl.style.display = 'inline-block';
-        if (ageMin < 15) {
+        if (ageMin < 0) {
+          staleEl.style.color = '#818cf8';
+          staleEl.textContent = 'updates at ' + createdAt.toLocaleTimeString(undefined, {hour:'numeric',minute:'2-digit'});
+        } else if (ageMin < 15) {
           staleEl.style.color = '#22c55e';
           staleEl.textContent = ageMin + 'm ago';
         } else if (ageMin < 60) {
@@ -3122,7 +3129,8 @@ async function fetchReadyRoomBriefing() {
           staleEl.style.color = '#ef4444';
           staleEl.textContent = Math.floor(ageMin/60) + 'h ' + (ageMin%60) + 'm ago · STALE';
         }
-        // Auto-refresh if briefing is older than 1 hour (any time)
+        // Auto-refresh if briefing is older than 1 hour (any time) — skip
+        // on future timestamps since "stale" is a past-side concept.
         if (ageMin > 60 && !window._rrAutoRefreshed) {
           window._rrAutoRefreshed = true;
           runReadyRoomBriefing();
@@ -4750,7 +4758,10 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       if (!buys.length) return '';
       var html = '<div style="margin-top:6px;font-size:12px;">';
       buys.slice(0,3).forEach(function(c) {
-        html += '<div style="color:#a78bfa;">🏛 '+c.politician+' BOUGHT <strong>'+c.ticker+'</strong> '+c.amount+'</div>';
+        // D4: c.amount can be undefined when game-plan composer drops it;
+        // fall back to amount_range or em-dash so we don't render "undefined".
+        var _amt = (c.amount || c.amount_range || '—');
+        html += '<div style="color:#a78bfa;">🏛 '+(c.politician||'?')+' BOUGHT <strong>'+(c.ticker||'?')+'</strong> '+_amt+'</div>';
       });
       html += '</div>';
       return html;
@@ -12597,8 +12608,11 @@ async function fetchCongressTrades() {
       h+='<td style="padding:8px;text-align:center;">'+partyBadge+'</td>';
       h+='<td style="padding:8px;font-weight:700;font-family:var(--font-mono);">'+overlapIcon+'<span class="ticker-click" onclick="openTickerDetail(\''+t.ticker+'\')">'+t.ticker+'</span></td>';
       h+='<td style="padding:8px;color:'+actionColor+';font-weight:600;">'+actionIcon+'</td>';
-      h+='<td style="padding:8px;color:var(--muted);">'+t.amount_range+'</td>';
-      h+='<td style="padding:8px;color:var(--muted);">'+(t.transaction_date||t.filing_date)+'</td>';
+      // D4: Quiver feed sometimes omits amount_range, leaving the cell as
+      // literal "undefined". Guard with a — fallback. Also try .amount as
+      // alternate field name from Capitol Trades shape.
+      h+='<td style="padding:8px;color:var(--muted);">'+(t.amount_range||t.amount||'—')+'</td>';
+      h+='<td style="padding:8px;color:var(--muted);">'+(t.transaction_date||t.filing_date||'—')+'</td>';
       h+='<td style="padding:8px;text-align:center;">'+srcBadge+'</td></tr>';
     }
     h+='</tbody></table></div>';
@@ -12958,14 +12972,28 @@ async function engageHolodeck() {
     statusEl.style.color = '#2563eb';
     // Summary stats
     var best = data.best;
+    // D2: backtest "Best Ever" stats can come back impossibly out-of-range
+    // (WR 10000%, Sharpe 43.02, Return 12366% observed 2026-05-18 — corrupted
+    // sweep rows). Cap to plausible bounds and flag with ⚠️ so the corruption
+    // is visible without exposing nonsense numbers. Bounds: WR ≤ 100, Sharpe
+    // |x| ≤ 10, Return |x| ≤ 1000%, Max DD ≥ -100.
+    var _capWR = function(v){ var n=Number(v); if(!isFinite(n)) return {txt:'⚠️ N/A',bad:true}; if(n>100) return {txt:'⚠️ '+n.toFixed(0)+'% (capped)',bad:true}; return {txt:n.toFixed(1)+'%',bad:false}; };
+    var _capSh = function(v){ var n=Number(v); if(!isFinite(n)) return {txt:'⚠️ N/A',bad:true}; if(Math.abs(n)>10) return {txt:'⚠️ '+n.toFixed(2)+' (capped)',bad:true}; return {txt:n.toFixed(2),bad:false}; };
+    var _capRet = function(v){ var n=Number(v); if(!isFinite(n)) return {txt:'⚠️ N/A',bad:true}; if(Math.abs(n)>1000) return {txt:'⚠️ '+n.toFixed(0)+'% (capped)',bad:true}; return {txt:(n>=0?'+':'')+n.toFixed(1)+'%',bad:false}; };
+    var _capDD = function(v){ var n=Number(v); if(!isFinite(n)) return {txt:'⚠️ N/A',bad:true}; if(n<-100) return {txt:'⚠️ '+n.toFixed(0)+'% (capped)',bad:true}; return {txt:n.toFixed(1)+'%',bad:false}; };
+    var _wr  = _capWR(best.win_rate);
+    var _sh  = _capSh(best.sharpe);
+    var _ret = _capRet(best.total_return);
+    var _dd  = _capDD(best.max_drawdown);
+    var _badCol = function(bad, good){ return bad ? 'var(--muted)' : good; };
     document.getElementById('holodeck-summary').style.display = 'block';
     document.getElementById('holodeck-stats').innerHTML =
       '<div class="stat-card"><div class="stat-label">Combos Tested</div><div class="stat-value">' + data.combos_tested + '</div></div>' +
-      '<div class="stat-card"><div class="stat-label">Best Return</div><div class="stat-value" style="color:' + (best.total_return >= 0 ? '#2563eb' : '#ea580c') + '">' + (best.total_return>=0?'+':'') + best.total_return + '%</div></div>' +
-      '<div class="stat-card"><div class="stat-label">Best Win Rate</div><div class="stat-value">' + best.win_rate + '%</div></div>' +
-      '<div class="stat-card"><div class="stat-label">Best Sharpe</div><div class="stat-value">' + best.sharpe + '</div></div>' +
-      '<div class="stat-card"><div class="stat-label">Max Drawdown</div><div class="stat-value" style="color:#ea580c">' + best.max_drawdown + '%</div></div>' +
-      '<div class="stat-card"><div class="stat-label">Final Value</div><div class="stat-value">$' + best.final_value.toLocaleString() + '</div></div>';
+      '<div class="stat-card"><div class="stat-label">Best Return</div><div class="stat-value" style="color:' + _badCol(_ret.bad, (Number(best.total_return) >= 0 ? '#2563eb' : '#ea580c')) + '">' + _ret.txt + '</div></div>' +
+      '<div class="stat-card"><div class="stat-label">Best Win Rate</div><div class="stat-value" style="color:' + _badCol(_wr.bad, 'var(--text)') + '">' + _wr.txt + '</div></div>' +
+      '<div class="stat-card"><div class="stat-label">Best Sharpe</div><div class="stat-value" style="color:' + _badCol(_sh.bad, 'var(--text)') + '">' + _sh.txt + '</div></div>' +
+      '<div class="stat-card"><div class="stat-label">Max Drawdown</div><div class="stat-value" style="color:' + _badCol(_dd.bad, '#ea580c') + '">' + _dd.txt + '</div></div>' +
+      '<div class="stat-card"><div class="stat-label">Final Value</div><div class="stat-value">$' + (isFinite(Number(best.final_value)) ? Number(best.final_value).toLocaleString() : '—') + '</div></div>';
     // Top 10 table
     var top = data.top_10 || [];
     if (top.length > 0) {
@@ -27285,8 +27313,15 @@ function loadGlanceData() {
         + '</div>'
         + (d.positions && d.positions.length > 0 ? '<div style="margin-top:8px;">'
           + d.positions.slice(0,6).map(function(p) {
+            // D3: /api/wheel/status emits expiry_date (and strike_price /
+            // option_type), not the .expiry / .type / .strike this renderer
+            // assumed. Fall through both names so the panel survives any
+            // schema flip.
+            var _type = (p.option_type || p.type || 'PUT').toString().toUpperCase();
+            var _strike = (p.strike_price != null ? p.strike_price : p.strike);
+            var _exp = (p.expiry_date || p.expiry || '—');
             return '<div style="font-size:12px;font-family:var(--font-mono);padding:2px 0;color:var(--muted);">'
-              + (p.type||'PUT')+' '+p.symbol+' '+p.strike+' exp '+(p.expiry||'—')+'</div>';
+              + _type+' '+p.symbol+' '+(_strike!=null?_strike:'—')+' exp '+_exp+'</div>';
           }).join('') + '</div>' : '')
         + '<div style="margin-top:8px;font-size:12px;color:var(--muted);">Target: 5% per 30-day cycle. Trigger: VIX > 18.</div>';
     }
@@ -35520,8 +35555,13 @@ async function fetchMovers() {
     html += '</tr></thead><tbody>';
     rows.forEach(function(m) {
       var pct = (typeof m.pct_change === 'number') ? m.pct_change : 0;
-      var pctCol = pct >= 0 ? '#22c55e' : '#ef4444';
-      var pctTxt = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+      // D1: backend movers_scanner divides by base_price; a 0/near-zero base
+      // produced VIDA +294,999,900% on 2026-05-18. Cap magnitude at 1000% as
+      // a sanity gate — anything beyond is a divide-by-zero artifact and is
+      // rendered as ⚠️ N/A rather than a misleading unbounded number.
+      var pctSane = isFinite(pct) && Math.abs(pct) <= 1000;
+      var pctCol = !pctSane ? 'var(--muted)' : (pct >= 0 ? '#22c55e' : '#ef4444');
+      var pctTxt = !pctSane ? '⚠️ N/A' : ((pct >= 0 ? '+' : '') + pct.toFixed(2) + '%');
       var price = (typeof m.last_price === 'number') ? ('$' + m.last_price.toFixed(2)) : '—';
       var mcapPending = (m.market_cap === null || m.market_cap === undefined);
       var mcapTxt = mcapPending
