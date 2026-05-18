@@ -106,6 +106,27 @@ except Exception:
 from uoa.routes import router as uoa_router
 app.include_router(uoa_router, prefix="/api/uoa", tags=["UOA"])
 
+# HM-WHEEL-STATUS-ROUTE-SHADOW 2026-05-17: register static /api/wheel/status
+# BEFORE include_router below, so it wins over trade_cards_router's
+# @router.get("/api/wheel/{ticker}") capture (engine/trade_cards_api.py:824).
+# FastAPI matches routes in registration order; static-before-dynamic is the
+# idiomatic fix. The full handler body lives at @app.get("/api/wheel/status")
+# in the wheel/options section (~L8011) but the decorator+def must register
+# here. Lazy import of get_wheel_status keeps top-of-file deps clean.
+@app.get("/api/wheel/status")
+def wheel_status():
+    """Counselor Troi's Wheel Strategy — current status and open positions.
+    HM-W1F5 2026-05-17 G10 fix preserved; HM-WHEEL-STATUS-ROUTE-SHADOW
+    2026-05-17 moved decorator above include_router to escape the
+    /api/wheel/{ticker} shadow.
+    """
+    try:
+        from engine.wheel_strategy import get_wheel_status
+        return get_wheel_status()
+    except Exception as e:
+        return {"puts_open": 0, "stocks_held": 0, "total_premium_collected": 0, "error": str(e)}
+
+
 # Trade Cards — Command Center API
 from engine.trade_cards_api import router as trade_cards_router
 app.include_router(trade_cards_router, tags=["Trade Cards"])
@@ -8007,14 +8028,11 @@ def player_close(player_id: str, body: dict):
     return result
 
 
-@app.get("/api/wheel/status")
-def wheel_status():
-    """Counselor Troi's Wheel Strategy — current status and open positions."""
-    try:
-        from engine.wheel_strategy import get_wheel_status
-        return get_wheel_status()
-    except Exception as e:
-        return {"puts_open": 0, "stocks_held": 0, "total_premium_collected": 0, "error": str(e)}
+# HM-WHEEL-STATUS-ROUTE-SHADOW 2026-05-17: original /api/wheel/status decorator
+# moved to L~110 (before include_router) to escape the /api/wheel/{ticker}
+# shadow from engine/trade_cards_api.py:824. POST endpoints (force-scan,
+# force-assignments, force-expire, force-exits) stay here — POST routes
+# are not shadowed (trade_cards_api registers GET-only patterns).
 
 
 @app.post("/api/wheel/force-scan")
