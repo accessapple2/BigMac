@@ -130,10 +130,20 @@ def ready_room_skew(symbol: str = "SPY", force: bool = False):
 
 @router.get("/gamma-map")
 def ready_room_gamma_map(symbol: str = "SPY", force: bool = False):
-    """Multi-timeframe GEX map: 0DTE / weekly / monthly + confluence zones."""
+    """Multi-timeframe GEX map: 0DTE / weekly / monthly + confluence zones.
+
+    HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: force= now NO-OP per G36 PRESERVE.
+    POST /api/ready-room/force-gamma-map?symbol=<X> to trigger fresh fetch.
+    """
+    if force:
+        from rich.console import Console as _Console
+        _Console().log(
+            "[yellow]/api/ready-room/gamma-map?force=true is a no-op since HM-FORCE-PARAM-GET-MIGRATE — "
+            "POST /api/ready-room/force-gamma-map to trigger background fetch"
+        )
     try:
         from engine.gamma_map import get_gamma_map
-        return get_gamma_map(symbol=symbol, force=force)
+        return get_gamma_map(symbol=symbol, force=False)
     except Exception as e:
         return {"error": str(e)}
 
@@ -349,12 +359,54 @@ def ready_room_correlations():
         return {"error": str(e)}
 
 
+@router.post("/force-gamma-map")
+def ready_room_force_gamma_map(symbol: str = "SPY"):
+    """HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: triggers fresh gamma-map fetch."""
+    import threading
+    from rich.console import Console as _Console
+    def _runner():
+        try:
+            from engine.gamma_map import get_gamma_map
+            get_gamma_map(symbol=symbol, force=True)
+            _Console().log(f"[cyan]force-gamma-map: {symbol} fetched")
+        except Exception as _e:
+            _Console().log(f"[red]force-gamma-map error: {type(_e).__name__}: {_e!r}")
+    threading.Thread(target=_runner, daemon=True, name=f"force_gamma_map_{symbol}").start()
+    return {"status": "ok", "message": f"Gamma-map {symbol} refresh triggered (background)"}
+
+
+@router.post("/force-news-pulse")
+def ready_room_force_news_pulse():
+    """HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: triggers fresh Finnhub news-pulse fetch."""
+    import threading
+    from rich.console import Console as _Console
+    def _runner():
+        try:
+            from engine.news_pulse import fetch_news_pulse
+            fetch_news_pulse(force=True)
+            _Console().log("[cyan]force-news-pulse: Finnhub fetched")
+        except Exception as _e:
+            _Console().log(f"[red]force-news-pulse error: {type(_e).__name__}: {_e!r}")
+    threading.Thread(target=_runner, daemon=True, name="force_news_pulse").start()
+    return {"status": "ok", "message": "News-pulse refresh triggered (background)"}
+
+
 @router.get("/news-pulse")
 def ready_room_news_pulse(force: bool = False):
-    """Lt. Uhura's News Intercept — Finnhub sentiment scan, mood score, convergence."""
+    """Lt. Uhura's News Intercept — Finnhub sentiment scan, mood score, convergence.
+
+    HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: force= now NO-OP per G36 PRESERVE.
+    POST /api/ready-room/force-news-pulse to trigger background Finnhub fetch.
+    """
+    if force:
+        from rich.console import Console as _Console
+        _Console().log(
+            "[yellow]/api/ready-room/news-pulse?force=true is a no-op since HM-FORCE-PARAM-GET-MIGRATE — "
+            "POST /api/ready-room/force-news-pulse to trigger background fetch"
+        )
     try:
         from engine.news_pulse import fetch_news_pulse
-        return fetch_news_pulse(force=force)
+        return fetch_news_pulse(force=False)
     except Exception as e:
         return {"error": str(e)}
 
