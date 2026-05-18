@@ -2301,11 +2301,26 @@ def quant_signals():
             pct = adv / (adv + dec)
             if pct > 0.6: mom_score += 10; mom_why.append(f"Breadth positive {pct:.0%} advancing")
             elif pct < 0.4: mom_score -= 10; mom_why.append(f"Breadth negative {pct:.0%} advancing")
-    if vix:
-        vix_val = vix.get('vix') or vix.get('value') or 0
-        if isinstance(vix_val, (int, float)):
+    if vix and isinstance(vix, dict):
+        # HM-QUANT-VIX-CATEGORIZER-LIVE-READ (Round 5): /api/market/vix
+        # returns {"current": {"vix": 17.82, ...}, "history": {...}}; the
+        # legacy `vix.get('vix') or vix.get('value') or 0` line never
+        # traversed into "current" and silently fell back to 0, producing
+        # the literal "VIX 0.0 low (risk-on)" string while the header was
+        # reading the real value via the same endpoint. Walk the nested
+        # shape and only categorize when a positive numeric reading exists.
+        _cur = vix.get('current') if isinstance(vix.get('current'), dict) else {}
+        vix_val = (_cur.get('vix') if isinstance(_cur.get('vix'), (int, float)) else None)
+        if vix_val is None:
+            vix_val = vix.get('vix') if isinstance(vix.get('vix'), (int, float)) else None
+        if vix_val is None:
+            vix_val = vix.get('value') if isinstance(vix.get('value'), (int, float)) else None
+        if isinstance(vix_val, (int, float)) and vix_val > 0:
             if vix_val < 15: mom_score += 10; mom_why.append(f"VIX {vix_val:.1f} low (risk-on)")
             elif vix_val > 25: mom_score -= 15; mom_why.append(f"VIX {vix_val:.1f} elevated (risk-off)")
+            else: mom_why.append(f"VIX {vix_val:.1f} moderate")
+        else:
+            mom_why.append("VIX unavailable")
     signals['momentum'] = {
         'score': min(100, max(0, mom_score)),
         'grade': score_to_grade(mom_score),
