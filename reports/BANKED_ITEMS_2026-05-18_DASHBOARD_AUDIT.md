@@ -1,5 +1,45 @@
 # Banked Items — Chrome Dashboard Audit 2026-05-18
 
+## Shipped 2026-05-18 Round 2 — HM-DASHBOARD-CHROME-AUDIT-FIXES-ROUND-2
+
+5 quick wins per Chrome audit second pass (~14:50 ET). Big news first:
+Wheel exp dates VERIFIED FIXED (2026-06-16 / 06-17 rendering clean) —
+earlier "undefined" report caught DOM mid-fetch. UI-only, single bundled
+commit, backend untouched.
+
+- **D1 Bridge SECTORS — undefined labels** — heatmap renderer was reading
+  `s.name` / `s.pct_change`; `/api/sectors/heatmap` returns `s.sector` /
+  `s.change_pct` with top-level `spy_change_pct`. Renamed fields, added
+  em-dash fallback for empty leader/laggard sets, sorted by change_pct
+  before slicing leaders/laggards.
+- **D2 Bridge CONGRESS dates — undefined** — mini-panel was reading
+  `t.member` / `t.amount`; `/api/congress/trades` returns `politician` /
+  `amount_range` / `transaction_date`. Realigned to API schema (matches
+  Round 1's Recent Trades full-table pattern) and added the transaction
+  date column the audit asked for.
+- **D3 Bridge VIX — "N/A"** — repointed from `/api/economy` (no vix
+  field) to `/api/market/vix` (returns `current.vix` + regime), the same
+  source the header VIX cell and Live Chart already use. Inner expand
+  also surfaces regime/state badge.
+- **D4 Screener Pro init error** — `registerSectionInit('screener-pro',
+  'sector-watch', 'sector-watch', function(){…})` was passing the string
+  `'sector-watch'` as `initFn`, triggering "TypeError: initFn is not a
+  function" inside the LazyInit flush and silently dropping the Scan
+  button wiring. Restored to `registerSectionInit('screener-pro',
+  function() { screenerPro.run(); })`.
+- **D5 Backtest BEST EVER WR 10000.0%** — Strategy Lab ("Backtest &
+  Optimize" card) `fetchStrategyLab` was doing `s.win_rate * 100` while
+  the API returns the value already in percent form, inflating 100 →
+  10000. Added local `_capWRPct` helper that auto-detects decimal-vs-pct
+  by magnitude (≤1 → ×100, else as-is), caps at 100, and flags with ⚠️
+  in muted color when out of bounds. Holodeck sweep summary already had
+  the cap pattern from Round 1; this surface needed its own copy.
+
+Browser smoke owed per Frontend Ship Rule at 127.0.0.1:8080:
+Bridge tab (Sectors row + Congress row expanded + VIX cell), Screener
+Pro (Scan button fires), Backtest page (Strategy Lab cards render
+plausible WR or ⚠️-flagged).
+
 ## Shipped 2026-05-18 — HM-DASHBOARD-CHROME-AUDIT-FIXES (commit 2c34069)
 
 5 UI integrity fixes from the Chrome audit, shipped inline rather than
@@ -35,11 +75,12 @@ Already banked. Affects 5 Signal Center panels.
 - Audit-first: find what feed Charts uses vs what other panels use
 - ~$56/share discrepancy = ~8% — affects trading decisions
 
-### HM-BRIDGE-SECTOR-HEATMAP-WIRE (NEW)
-- Bridge tab Sector Heatmap: all 12 sectors "undefined ▲0.0%"
-- Sector Watch (separate tab) shows live data correctly
-- Heatmap widget reading wrong source or unwired
-- ~30 min audit + ~15 min fix
+### ~~HM-BRIDGE-SECTOR-HEATMAP-WIRE~~ — SHIPPED Round 2 D1
+- Bridge tab Sector Heatmap: was rendering "undefined ▲0.0%" × 12
+- Root cause: field-name drift (`s.name`/`s.pct_change` → `s.sector`/
+  `s.change_pct`). Sector Watch standalone reads the same endpoint
+  with the right keys, which is why it kept working.
+- Fixed in Round 2 — see Shipped section above.
 
 ## Medium
 
