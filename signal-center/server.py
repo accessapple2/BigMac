@@ -818,12 +818,36 @@ _SIGNALS_ENDPOINTS = {
     'risk_radar':         '/api/risk-radar',
     'market_movers':      '/api/market-movers',
     'fast_scan':          '/api/fast-scan',
-    'ema_pullback':       '/api/ema-pullback',
+    # HM-SIGNAL-CENTER-DEAD-ENDPOINTS: 'ema_pullback' route lives on Signal
+    # Center itself (this server, port 9000), not the trader. Map removed
+    # from BRIDGE fetch; handled inline in _fetch_all_signals via direct
+    # read of _ema_pullback_cache (no HTTP self-loop).
     'gex_overlay':        '/api/gex-overlay/levels?symbol=SPY',
     'flow_lean':          '/api/market/options-flow',
     'critical_alerts':    '/api/volume-radar',
-    'red_alert_score':    '/api/red-alert/status',
+    # HM-SIGNAL-CENTER-DEAD-ENDPOINTS: 'red_alert_score' /api/red-alert/status
+    # route does not exist on either side. engine/volume_scanner.py has a
+    # red_alert_check() function but it is never wired to a route. Removed
+    # from fetch list; banked for proper revival (see banked items doc).
     'holly_winners':      '/api/holly/winners',
+}
+
+# HM-SIGNAL-CENTER-DEAD-ENDPOINTS: per-endpoint timeout override. Several
+# trader endpoints take 10–25s upstream (heavy yfinance/Polygon fanout) and
+# consistently time out under the default 5s budget. Bumping their per-key
+# budget unblocks them without slowing the fast endpoints. Cycle wall stays
+# bounded because ThreadPoolExecutor runs them in parallel with max_workers=12.
+# Cold-start traces (post trader restart, 2026-05-18):
+#   /api/dayblade/status ~19s
+#   /api/metals/signals  ~13s
+#   /api/risk-radar      >30s (slowest — full per-player risk recompute)
+# 35s gives headroom over the slowest observed. If a future endpoint regresses
+# past this, add an override here OR bank as HM-TRADER-SLOW-ENDPOINTS for a
+# proper performance pass on the underlying handlers.
+_SIGNALS_TIMEOUTS = {
+    'dayblade':           25,
+    'metals':             40,  # solo: 0.01s; under SC concurrent load: 25–35s
+    'risk_radar':         35,  # genuine perf issue >60s solo; banked for repair
 }
 
 
@@ -840,7 +864,7 @@ def _fetch_all_signals(prev_data=None):
     results: dict = {}
     fresh_keys: set = set()
     with ThreadPoolExecutor(max_workers=12) as pool:
-        futures = {pool.submit(_bridge_get, ep): key
+        futures = {pool.submit(_bridge_get, ep, _SIGNALS_TIMEOUTS.get(key, 5)): key
                    for key, ep in _SIGNALS_ENDPOINTS.items()}
         for fut in as_completed(futures):
             key = futures[fut]
@@ -865,6 +889,24 @@ def _fetch_all_signals(prev_data=None):
                     results[key] = last
                 # else: leave key absent. Frontend should treat missing as
                 # cache-miss (degrade gracefully) rather than render "None".
+
+    # HM-SIGNAL-CENTER-DEAD-ENDPOINTS: ema_pullback's route lives on this same
+    # Signal Center process (port 9000), not on the trader (port 8080), so
+    # _bridge_get always 404'd. Inject the local cache directly — no HTTP
+    # self-loop. If the cache hasn't been warmed yet, fall through to the
+    # prev_data/last-good path consistent with the other endpoints.
+    try:
+        with _ema_pullback_lock:
+            _ema_data = _ema_pullback_cache.get("data")
+        if _ema_data is not None:
+            results['ema_pullback'] = _ema_data
+            fresh_keys.add('ema_pullback')
+        else:
+            _last_ema = prev_data.get('ema_pullback')
+            if _last_ema is not None:
+                results['ema_pullback'] = _last_ema
+    except Exception:
+        pass
 
     # Persist to history — only fresh fetches (no last-good replays).
     try:
