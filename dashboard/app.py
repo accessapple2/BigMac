@@ -13749,21 +13749,47 @@ def metals_exposure():
     silver_chg  = float((spot_data.get("SILVER")  or {}).get("change_pct", 0) or 0)
     gsr         = float(spot_data.get("GSR") or (gold_spot / silver_spot if silver_spot else 0))
 
-    # Physical holdings
+    # Physical holdings — HM-DASHBOARD-CHROME-AUDIT-FIXES-ROUND-3 Item 3:
+    # `data/metals.json` was a manually-maintained snapshot last updated
+    # 2026-04-21 (silver 35 oz). The authoritative source is the
+    # `metals_ledger` SQL table (currently 6 silver purchases summing to
+    # 65 oz + 1 oz gold) — same source `/api/dilithium/portfolio` reads,
+    # which is why the Bridge header ($9.6K from dilithium) and Bridge
+    # metals-panel detail ($7.3K from this stale JSON) drifted by ~$2.3K.
+    # Repoint to metals_ledger; keep metals.json as cold fallback if the
+    # table is empty (edge case for fresh installs).
     physical_positions = []
-    phys_path = "data/metals.json"
-    if _mo.path.exists(phys_path):
-        with open(phys_path) as f:
-            phys_data = _mj.load(f)
-        for p in phys_data.get("physical", []):
-            metal = (p.get("metal") or "").lower()
-            oz    = float(p.get("oz", 0) or 0)
+    try:
+        conn = _conn()
+        ledger_rows = conn.execute(
+            "SELECT metal, SUM(qty_oz) as oz FROM metals_ledger GROUP BY metal"
+        ).fetchall()
+        conn.close()
+        for r in ledger_rows:
+            metal = (r["metal"] or "").lower()
+            oz    = float(r["oz"] or 0)
             spot  = gold_spot if metal == "gold" else silver_spot if metal == "silver" else 0
             physical_positions.append({
                 "metal": metal, "oz": oz,
                 "spot": spot, "value": round(oz * spot, 2),
-                "form": p.get("form"), "notes": p.get("notes", ""),
+                "form": None,
+                "notes": f"{oz:g} oz (ledger)",
             })
+    except Exception:
+        # Fallback to legacy snapshot file only if ledger query fails.
+        phys_path = "data/metals.json"
+        if _mo.path.exists(phys_path):
+            with open(phys_path) as f:
+                phys_data = _mj.load(f)
+            for p in phys_data.get("physical", []):
+                metal = (p.get("metal") or "").lower()
+                oz    = float(p.get("oz", 0) or 0)
+                spot  = gold_spot if metal == "gold" else silver_spot if metal == "silver" else 0
+                physical_positions.append({
+                    "metal": metal, "oz": oz,
+                    "spot": spot, "value": round(oz * spot, 2),
+                    "form": p.get("form"), "notes": p.get("notes", ""),
+                })
 
     # ETF positions from Alpaca paper — direct call
     paper_etf_positions = []

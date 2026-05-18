@@ -1,5 +1,161 @@
 # Banked Items — Chrome Dashboard Audit 2026-05-18
 
+## Shipped 2026-05-18 Round 3 — high-value bank sweep
+
+5 items from the banked list, audit-first per item per guardrail.
+
+### Item 1 — HM-SIGNAL-CENTER-PROXY-NULL-CACHE — SHIPPED
+
+`signal-center/server.py::_fetch_all_signals` was writing `None` into the
+SWR cache whenever a per-endpoint fetch failed (either via `except` OR via
+`_bridge_get` returning `None` for non-200 / redirect-no-session — the
+banked description only captured the `except` path, the actual code also
+silently null-cached non-200s). 6 cache keys observed NULL pre-fix on a
+live `/api/signals/all` probe: `bull_bear`, `dayblade`, `ema_pullback`,
+`metals`, `red_alert_score`, `risk_radar`.
+
+Fix: pass the prior cache snapshot into each refresh cycle as
+`prev_data`. On any failed fetch (exception OR None return), prefer
+`prev_data.get(key)` over writing None. If no last-good exists, omit
+the key entirely (frontend treats absence as cache-miss → degrade
+gracefully, NOT render `null`). History INSERTs are gated on a
+`fresh_keys` set so last-good fallbacks don't duplicate rows.
+
+Type-annotation gotcha banked: Python 3.9 doesn't support PEP 604 union
+syntax (`dict | None`). Crash-looped on first restart. Re-shipped with
+plain `prev_data=None`. **Lesson:** Signal Center runs on system Python
+3.9 (`/Library/Developer/CommandLineTools/.../Python.framework/3.9/`),
+NOT the trader venv. Future patches there: `Optional[X]` or string
+annotations, never `X | None`.
+
+Post-fix verification on live `/api/signals/all`:
+- NULL keys: 6 → 0 (poisoning bug fixed)
+- MISSING keys: `['dayblade', 'ema_pullback', 'metals', 'red_alert_score']`
+  — these 4 endpoints fail upstream every cycle. Fresh process had no
+  last-good to fall back on. Two are HTTP 404 from the trader
+  (`/api/ema-pullback`, `/api/red-alert/status` — dead endpoint configs);
+  two return 200 to anon curl but None to `_bridge_get` (session/auth
+  issue). Banked separately as **HM-SIGNAL-CENTER-DEAD-ENDPOINTS**
+  (see below).
+
+Service restarted via `launchctl kickstart -k gui/$(id -u)/com.trademinds.signal-center`.
+
+### Item 2 — Bridge CONSENSUS panel SPLIT — BANKED (case a)
+
+Audit-first per guardrail; case (a) confirmed (producers idle), so
+banked as **HM-UHURA-DATA-SIGNAL-PRODUCERS-IDLE** (below) instead of
+fixed inline.
+
+Live `/api/consensus` probe: 515 tickers in universe; only 12 have any
+officer stance (all spock-only). 0 tickers covered by Data or Uhura.
+Root cause: Spock briefing names ~12 tickers max (`engine/consensus.py::
+_get_spock_stance` parses tickers mentioned in CTO briefing text); Data
+First-Officer `_briefing_cache` empty + mlx-qwen3 24h-fallback returns
+zero rows; Uhura ollama-llama war_room posts empty for 24h. Not a
+frontend bug — frontend correctly shows `comparison: no_data` and lacks
+direction.
+
+### Item 3 — Bridge METALS $2,311 gap — SHIPPED
+
+Audit found the underlying data inconsistency:
+- Bridge header `g-metals-text` reads `/api/metals/portfolio` →
+  reads from `engine.metals_tracker.get_dilithium_portfolio()` →
+  sources from `metals_ledger` SQL table (truth: 65 oz silver,
+  6 purchases summing correctly, 1 oz gold).
+- Bridge `metals-panel` detail (the `renderMetals` block at
+  `index.html:34747`) reads `/api/metals/exposure` → sourced from
+  `data/metals.json` (stale: silver 35 oz, `last_updated: 2026-04-21`,
+  missing the 2026-05-04 20 oz purchase and earlier ledger deltas).
+
+User's audit prompt assumption "detail is correct" was backwards.
+Detail panel was the stale one.
+
+Fix: `metals_exposure()` in `dashboard/app.py:13726` now sources
+physical holdings from `metals_ledger` (single source of truth). Falls
+back to `data/metals.json` only if the SQL query fails (edge case for
+fresh installs). Both Bridge surfaces will now show the same silver oz
+count and dollar value after trader restart.
+
+**Trader restart owed** for this fix to take effect (`~/autonomous-trader/restart.sh`).
+
+### Item 4 — Tomorrow's Game Plan unavailable — defensive UI fix shipped
+
+Audit-first per guardrail; case (b) confirmed (cron timing).
+
+- `/api/morning-brief` returns yesterday's brief (2026-05-17, has
+  headline + BULL_CROSS regime) — used by auto-load on page visit.
+  Works.
+- `/api/morning-brief/run` returns today's brief — currently
+  `{game_plan: {}, unavailable: true, message: "Daily Intel
+  unavailable — POST /api/morning-brief/force-run to generate"}`.
+  Today's brief hasn't generated yet (cron schedule: 6 AM & 8 PM AZ).
+  Returns 200 with empty `game_plan`, which is what triggered the
+  user-visible "Intel report unavailable" — the frontend `.catch()`
+  block AND a follow-on render with empty `gp.headline` both surface
+  bad UI states.
+
+Two small frontend defensive fixes inside `loadGamePlan`:
+1. When `gp.headline` is missing AND the server provided a `message`
+   field (the new "unavailable" shape), surface the server's message
+   instead of the generic "No intel report yet" text.
+2. Both the empty-state path AND the `.catch()` block now hide the
+   regime badge — so a stale BULL_CROSS tag from a prior successful
+   load doesn't sit next to an "unavailable" body.
+3. `.catch()` message now reads "Intel report unavailable — retry
+   shortly" to signal it's a transient state, not a hard failure.
+
+No backend fix this round — generator-not-run-today is cron-cadence,
+not a bug.
+
+### Item 5 — Wheel count mismatch 9 vs 6 — SHIPPED
+
+`/api/wheel/status` returns `puts_open: 9` and `positions` array of
+length 9 (verified live). The Bridge Wheel renderer at
+`index.html:27366` had a hardcoded `.slice(0, 6)` that truncated the
+list rendered in the expand panel — header count was right, list was
+short.
+
+Fix: bumped slice to `.slice(0, 20)` so all 9 currently-open puts
+render (and any future growth up to 20 contracts also renders). Header
+count and list now agree.
+
+---
+
+## Round 3 follow-ups banked
+
+### HM-SIGNAL-CENTER-DEAD-ENDPOINTS (NEW)
+Four `_SIGNALS_ENDPOINTS` entries fail every fetch cycle on a fresh
+process, leaving their keys missing from the cache instead of NULL
+post-fix. Need separate cleanup:
+- `/api/ema-pullback` → HTTP 404 on the trader; either fix the path
+  or remove the key from `_SIGNALS_ENDPOINTS` (the EMA pullback
+  scanner section in the dashboard reads from a different endpoint).
+- `/api/red-alert/status` → HTTP 404; same — verify the actual red
+  alert endpoint and update the config, or retire the key.
+- `/api/dayblade/status` → returns 200 to anon curl but None via
+  `_bridge_get` session — likely auth/session issue (the endpoint
+  may require admin scope). Either widen the session permission or
+  use a publicly-readable endpoint.
+- `/api/metals/signals` → same as dayblade (200 vs None via session).
+- Effort: ~30 min to audit + fix configs. Low-risk after.
+
+### HM-UHURA-DATA-SIGNAL-PRODUCERS-IDLE (NEW, multi-component epic)
+Bridge Consensus shows ⚠️ SPLIT for 503/515 tickers because the
+producer side is empty:
+- **Data (First Officer)**: `engine.first_officer._briefing_cache`
+  is empty; mlx-qwen3 fallback returns 0 rows (filtered by
+  `HALTED_EMIT_FILTER`). Either revive the briefing producer or
+  unblock the mlx-qwen3 stream.
+- **Uhura (ollama-llama)**: war_room posts empty for last 24h.
+  ollama-llama is in the documented zombie set (`halt_mode='full'`,
+  HM-AK 2026-05-07 cleanup) — the consensus aggregator queries a
+  retired producer. Either swap to a live producer or remove Uhura
+  from the consensus panel.
+- **Spock**: only 12 tickers covered (Spock briefing names a
+  curated subset). Decision needed: is this by-design (Spock opines
+  on top names only) or should the briefing scan a wider universe?
+- This is producer/infra, not frontend. Bank for a dedicated session.
+
 ## Shipped 2026-05-18 Round 2.1 — follow-up to Round 2 smoke misses
 
 Chrome smoke of Round 2 (dfb5381) caught two render-path misses. Same
