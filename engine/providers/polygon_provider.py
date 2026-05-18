@@ -278,6 +278,86 @@ class PolygonData:
             "timestamp": datetime.now().isoformat(),
         }
 
+    # --- HM-POLYGON-OPTIONS-CHAIN-QUOTE-HELPER 2026-05-18 ---
+
+    def get_option_quote(self, occ_symbol: str, ttl: int = 30) -> dict | None:
+        """Single-contract premium snapshot for TP/SL/decay-based exit logic.
+
+        Args:
+          occ_symbol: OCC-format option ticker with Polygon 'O:' prefix,
+                      e.g. "O:TQQQ260616P00066300" for TQQQ 2026-06-16 put strike 66.3.
+          ttl: cache TTL seconds. Default 30 — premium changes fast; wheel's
+               hourly cadence sits well above the cache window.
+
+        Returns dict with keys {bid, ask, mid, last_trade, iv, delta, gamma,
+        theta, vega, ts, source, occ_symbol, expiration, strike, type}
+        or None on error / empty payload.
+
+        Cache: reuses _get() per-instance TTL cache — cache_key includes the
+        occ_symbol so concurrent callers share fetched data.
+
+        Prereq consumer: HM-CHECK-OPTION-EXITS-SHORT-PREMIUM-RULES
+        (50% premium-decay TP for wheel CSPs). No production callers in the
+        commit that introduces this helper.
+        """
+        if not occ_symbol or not occ_symbol.startswith("O:"):
+            return None
+        # OCC tail = YYMMDD(6) + C/P(1) + strike8(8) = 15 chars.
+        # Underlying = chars between "O:" prefix and the 15-char tail.
+        try:
+            tail_len = 15
+            underlying = occ_symbol[2:-tail_len]
+            if not underlying:
+                return None
+        except Exception:
+            return None
+
+        path = f"/v3/snapshot/options/{underlying}/{occ_symbol}"
+        raw = self._get(path, cache_key=f"opt_quote_{occ_symbol}", ttl=ttl)
+        if not raw or not raw.get("results"):
+            return None
+
+        r = raw["results"]
+        last_quote = r.get("last_quote") or {}
+        last_trade = r.get("last_trade") or {}
+        greeks = r.get("greeks") or {}
+        details = r.get("details") or {}
+
+        bid = float(last_quote.get("bid") or 0)
+        ask = float(last_quote.get("ask") or 0)
+        if bid and ask:
+            mid = (bid + ask) / 2
+        else:
+            mid = bid or ask or float(last_trade.get("price") or 0)
+
+        return {
+            "bid":         bid,
+            "ask":         ask,
+            "mid":         mid,
+            "last_trade":  float(last_trade.get("price") or 0),
+            "iv":          float(r.get("implied_volatility") or 0),
+            "delta":       float(greeks.get("delta") or 0),
+            "gamma":       float(greeks.get("gamma") or 0),
+            "theta":       float(greeks.get("theta") or 0),
+            "vega":        float(greeks.get("vega") or 0),
+            "ts":          last_quote.get("sip_timestamp") or last_trade.get("sip_timestamp"),
+            "source":      "polygon",
+            "occ_symbol":  occ_symbol,
+            "expiration":  details.get("expiration_date"),
+            "strike":      float(details.get("strike_price") or 0),
+            "type":        details.get("contract_type"),
+        }
+
+    def get_option_quotes_bulk(self, occ_symbols: list, ttl: int = 30) -> dict:
+        """Bulk wrapper — calls get_option_quote per symbol, returns
+        {occ_symbol: quote_dict | None}. Cache hits avoid re-fetch.
+
+        Future optimization (G70.b banked): full-chain endpoint for >5
+        simultaneous symbols. Wheel's 3-CSPs-hourly cadence doesn't justify
+        it today.
+        """
+        return {occ: self.get_option_quote(occ, ttl=ttl) for occ in occ_symbols if occ}
+
     # --- Corporate Actions ---
 
     def get_dividends(self, symbol: str, limit: int = 10) -> list:
