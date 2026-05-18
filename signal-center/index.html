@@ -656,7 +656,18 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   }
 
   function _renderIntelligence(d) {
-    const items = Array.isArray(d.intelligence) ? d.intelligence : [];
+    const raw = Array.isArray(d.intelligence) ? d.intelligence : [];
+    // F2 dedupe: backend can emit byte-identical entries from repeated scans
+    // (saw 2× CONGRESS "Capitol Trades scan completed" 4 min apart 2026-05-18).
+    // Key on feed_type + raw data string so SCREENER per-symbol rows stay
+    // distinct while literal repeats collapse. Mirrors Red Alert pattern.
+    const seen = new Set();
+    const items = raw.filter(it => {
+      const k = (it.feed_type || '') + '|' + (typeof it.data === 'string' ? it.data : JSON.stringify(it.data || ''));
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
     return _list(items, it => {
       let title = it.feed_type || 'feed';
       let body = '';
