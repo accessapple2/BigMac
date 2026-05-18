@@ -5096,15 +5096,24 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       }
       var h = '';
       for (var s of d.sectors) {
-        var c = s.pct_change != null ? s.pct_change : (s.change_1d || 0);
-        var ticker = s.ticker || s.etf || '';
+        // Round 2.1 D1: /api/sectors/heatmap returns sector/change_pct/etf;
+        // legacy renderer here read name/pct_change/ticker so cells showed
+        // "undefined ▲ 0.00%". The Round 2 glance-row patch caught the
+        // small text panel but missed this larger visual heatmap grid.
+        // Keep both shapes as fallback in case sector-watch hits the same
+        // function with a different upstream.
+        var c = (s.change_pct != null) ? s.change_pct
+              : (s.pct_change != null) ? s.pct_change
+              : (s.change_1d || 0);
+        var ticker = s.etf || s.ticker || '';
+        var name = s.sector || s.name || '—';
         var bg = c > 2 ? 'rgba(37,99,235,0.3)' : c > 0 ? 'rgba(37,99,235,0.12)' : c > -2 ? 'rgba(234,88,12,0.12)' : 'rgba(234,88,12,0.3)';
         var tc = c >= 0 ? 'var(--green)' : 'var(--red)';
         var arrow = c >= 0 ? '▲' : '▼';
-        var stip = _SECTOR_TIPS[s.name] || (s.name+' sector ETF. Click to see top holdings.');
-        h += '<div class="" data-tip="'+stip+'" onclick="showSectorDetail(\''+s.name+'\',\''+ticker+'\')" style="padding:8px 4px;border-radius:4px;background:'+bg+';cursor:pointer;text-align:center;min-height:50px;display:flex;flex-direction:column;justify-content:center;">';
+        var stip = _SECTOR_TIPS[name] || (name+' sector ETF. Click to see top holdings.');
+        h += '<div class="" data-tip="'+stip+'" onclick="showSectorDetail(\''+name+'\',\''+ticker+'\')" style="padding:8px 4px;border-radius:4px;background:'+bg+';cursor:pointer;text-align:center;min-height:50px;display:flex;flex-direction:column;justify-content:center;">';
         h += '<div style="font-size:11px;color:var(--muted);font-weight:600;">'+ticker+'</div>';
-        h += '<div style="font-size:12px;color:var(--text);margin-bottom:2px;">'+s.name+'</div>';
+        h += '<div style="font-size:12px;color:var(--text);margin-bottom:2px;">'+name+'</div>';
         h += '<div style="font-size:15px;font-weight:800;color:'+tc+';font-family:var(--font-mono);">'+arrow+' '+Math.abs(c).toFixed(2)+'%</div>';
         h += '</div>';
       }
