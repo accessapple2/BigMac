@@ -39,16 +39,97 @@ def _voter_url(player_id: str) -> str:  # noqa: ARG001
 
 
 # ── Bridge voters (Tier 3) — active fleet ───────────────────────────────────
+#
+# T.1 2026-05-17: `model` field is now a FALLBACK for pseudo-id voters only.
+# Live model resolution at vote-time pulls from ai_players.model_id via
+# _resolve_vote_model() below. Drift catalog (T.2 2026-05-17) caught 3 HIGH
+# drifts here post HM-BN.1: Dax (ollama-qwen3), navigator, McCoy (ollama-plutus).
+# Resolution order: halt='full' skip → canonical lookup → pseudo fallback → use.
+#
+# The hardcoded `model` for neo-matrix + capitol-trades is a BOUNDED EXCEPTION
+# per T.2 §7.2 (bounded-exception design choice): those agents are rule-based /
+# data-feed (pseudo model_ids in ai_players — "8000 / Independent",
+# "congress-copycat") but the bridge LLM-vote layer still needs a real Ollama
+# model to call. Pseudo detected via colon-absence heuristic — every real
+# Ollama tag is `name:tag` shape.
 BRIDGE_VOTERS: list[dict] = [
-    {"player_id": "neo-matrix",     "name": "Neo",               "model": "phi3:mini"},            # Ollie — 2026-04-24: routed to Ollie Box (was bigmac phi3:mini)
-    {"player_id": "deepseek-7b-grok4",         "name": "Spock",             "model": "qwen3:8b"},              # Ollie  — 2026-04-20: qwen3:8b → qwen3:8b
-    {"player_id": "ollama-glm4",    "name": "Q",                 "model": "qwen3:8b"},              # Ollie
-    {"player_id": "ollama-qwen3",   "name": "Dax",               "model": "qwen3:8b"},              # Ollie
-    {"player_id": "super-agent",    "name": "Mr. Anderson",      "model": "qwen3:8b"},              # Ollie
-    {"player_id": "navigator",      "name": "Ensign Chekov",     "model": "qwen3:8b"},              # Ollie
-    {"player_id": "capitol-trades", "name": "Capitol Trades",    "model": "phi3:mini"},             # Ollie — 2026-04-24: routed to Ollie Box (was bigmac phi3:mini)
-    {"player_id": "ollama-plutus",  "name": "Dr. McCoy",         "model": "0xroyce/plutus:latest"}, # Ollie
+    {"player_id": "neo-matrix",     "name": "Neo",               "model": "phi3:mini"},            # PSEUDO id fallback (rule-based)
+    {"player_id": "deepseek-7b-grok4",         "name": "Spock",             "model": "qwen3:8b"},              # canonical fallback (DB matches)
+    {"player_id": "ollama-glm4",    "name": "Q",                 "model": "qwen3:8b"},              # canonical fallback (halt=full → skip)
+    {"player_id": "ollama-qwen3",   "name": "Dax",               "model": "qwen3:8b"},              # canonical resolves to ministral-3:3b
+    {"player_id": "super-agent",    "name": "Mr. Anderson",      "model": "qwen3:8b"},              # canonical fallback (halt=full → skip)
+    {"player_id": "navigator",      "name": "Ensign Chekov",     "model": "qwen3:8b"},              # canonical resolves to gemma4:26b
+    {"player_id": "capitol-trades", "name": "Capitol Trades",    "model": "phi3:mini"},             # PSEUDO id fallback (data-feed)
+    {"player_id": "ollama-plutus",  "name": "Dr. McCoy",         "model": "0xroyce/plutus:latest"}, # canonical resolves to ministral-3:3b
 ]
+
+
+# T.1 2026-05-17: bounded-exception helper. Real Ollama model_ids all use the
+# `name:tag` shape (phi3:mini, qwen3:8b, ministral-3:3b, 0xroyce/plutus:latest).
+# Pseudo model_ids ("8000 / Independent", "congress-copycat", "crewai/crew")
+# describe non-LLM agents and lack ':'. Future-proof against new pseudo
+# patterns of the same shape — heuristic instead of explicit allowlist.
+def _is_pseudo_model_id(model_id: str) -> bool:
+    """Pseudo model_ids mark non-LLM agents (rule-based, data-feed) and lack
+    the Ollama tag-separator ':'. For bridge vote, these voters use the
+    BRIDGE_VOTERS hardcoded `model` field per design (T.2 §7.2 — bounded
+    exception to canonical lookup rule)."""
+    return ":" not in (model_id or "")
+
+
+def _resolve_vote_model(voter: dict) -> tuple[str | None, str | None]:
+    """Resolve the LLM model a bridge voter should use at vote-time.
+
+    Returns (resolved_model, skip_reason). If skip_reason is not None, this
+    voter should be SKIPPED for this vote round. T.1 doctrine — never silent-
+    fallback to a hardcoded model for genuine canonical-lookup failures.
+
+    Resolution order (T.1 spec, Captain-approved 2026-05-17):
+      1. halt='full' → skip + INFO ("halt_full")
+      2. _resolve_model_id(player_id, fallback="") — canonical
+      3. empty → skip + WARN ("db_miss")
+      4. pseudo (no ':') → BRIDGE_VOTERS hardcoded model, INFO ("pseudo_id")
+      5. real model_id → use canonical
+    """
+    pid = voter.get("player_id", "")
+    hardcoded = voter.get("model", "")
+    try:
+        from engine.agent_routing import _resolve_model_id, _get_halt_mode
+    except Exception as e:
+        # Defensive: if agent_routing missing, we can't honor canonical contract.
+        # Skip + WARN per "no silent fallback" rule.
+        logger.warning(
+            "T.1 bridge_vote: agent_routing import failed for %s — skipping voter: %s",
+            pid, e,
+        )
+        return (None, "import_fail")
+
+    # 1. halt='full' skip
+    halt_mode = _get_halt_mode(pid)
+    if halt_mode == "full":
+        logger.info("T.1 bridge_vote: %s halt=full — skipping voter", pid)
+        return (None, "halt_full")
+
+    # 2-3. canonical lookup
+    canonical = _resolve_model_id(pid, fallback="")
+    if not canonical:
+        logger.warning(
+            "T.1 bridge_vote: %s canonical model_id missing/NULL — skipping voter (NO silent fallback)",
+            pid,
+        )
+        return (None, "db_miss")
+
+    # 4. pseudo → BRIDGE_VOTERS hardcoded fallback (bounded exception per T.2 §7.2)
+    if _is_pseudo_model_id(canonical):
+        logger.info(
+            "T.1 bridge_vote: %s pseudo model_id=%r — using hardcoded vote-layer model %r per design (T.2 §7.2)",
+            pid, canonical, hardcoded,
+        )
+        return (hardcoded, None)
+
+    # 5. real canonical
+    return (canonical, None)
+
 
 # Module-level lock: prevents concurrent vote sessions (e.g. two scheduler ticks)
 _VOTE_LOCK = threading.Lock()
@@ -339,20 +420,34 @@ def _run_morning_vote_inner(force: bool = False) -> dict:
                     raise
 
     # Poll all voters outside any DB transaction (Ollama calls can take minutes)
+    # T.1 2026-05-17: each voter's model is now resolved from ai_players.model_id
+    # at vote-time via _resolve_vote_model(). halt='full' agents skip cleanly
+    # (closes silent-waste path where ollama-glm4 has been firing votes despite
+    # halt since 2026-05-07). Pseudo model_ids fall back to BRIDGE_VOTERS
+    # hardcoded `model` per T.2 §7.2 bounded exception.
     raw_results: list[tuple] = []
     votes: list[dict] = []
     for voter in BRIDGE_VOTERS:
-        logger.info("bridge_vote: asking %s (%s)...", voter["name"], voter["model"])
-        result = _ask_voter(voter, briefing_text, session_type)
+        resolved_model, skip_reason = _resolve_vote_model(voter)
+        if skip_reason is not None:
+            # halt_full / db_miss / import_fail — already logged inside resolver
+            continue
+        # Build a per-call shallow-copy with the resolved model — does NOT
+        # mutate the module-level BRIDGE_VOTERS list.
+        resolved_voter = {**voter, "model": resolved_model}
+        logger.info(
+            "bridge_vote: asking %s (%s)...", resolved_voter["name"], resolved_voter["model"]
+        )
+        result = _ask_voter(resolved_voter, briefing_text, session_type)
         raw_results.append((
             today, session_slot,
-            voter["player_id"], voter["name"],
+            resolved_voter["player_id"], resolved_voter["name"],
             result["vote"], result["confidence"],
             result["reason"], result["model"],
         ))
         votes.append({
-            "player_id": voter["player_id"],
-            "name": voter["name"],
+            "player_id": resolved_voter["player_id"],
+            "name": resolved_voter["name"],
             "vote": result["vote"],
             "confidence": result["confidence"],
             "reason": result["reason"],
