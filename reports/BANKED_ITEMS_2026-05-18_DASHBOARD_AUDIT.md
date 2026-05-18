@@ -116,6 +116,32 @@ Already banked. Affects 5 Signal Center panels.
 - Audit-first: find what feed Charts uses vs what other panels use
 - ~$56/share discrepancy = ~8% — affects trading decisions
 
+### HM-BACKTEST-DB-WR-DATA-CORRUPTION (NEW — surfaced Round 2.1 D5)
+- `/api/backtest/history` returns BEST EVER rows that are not just
+  display-glitches but actual data corruption in the source table:
+    - `best.win_rate.value=10000.0` → agent **Bollinger** (db-8),
+      date 2026-04-10
+    - `best.return.value=12366.0` → agent **RSI**, date 2026-04-10
+    - `best.sharpe.value=43.017` → agent **Chekov**, date 2026-05-15
+- Pattern: same 2026-04-10 date on the RSI+Bollinger rows suggests a
+  bad sweep run that day; Chekov sharpe blip is a different date so
+  may be a separate corruption event.
+- Round 2.1 frontend caps these to ⚠️-flagged so they don't render
+  as raw 10000.0%, but the underlying rows are still in the DB and
+  will keep surfacing as the "best ever" pick on any sort.
+- Cleanup approach (when banked work surfaces):
+  1. Find the backing table (likely `backtest_history` or similar)
+     and query for `win_rate > 100 OR ABS(sharpe) > 10 OR
+     ABS(return_pct) > 1000`.
+  2. Confirm with Captain whether the corrupted rows should be
+     deleted, marked with a `data_quality_flag`, or excluded from
+     the `best` aggregation at the API layer.
+  3. Per sacred-data rule: don't `DELETE`; either archive to
+     `backtest_history_quarantine` or add a flag column and filter
+     in the BEST EVER SQL.
+- Effort: ~30 min SQL audit + decision; ~15 min API fix.
+- Until shipped, frontend ⚠️ flags are the user-facing protection.
+
 ### ~~HM-BRIDGE-SECTOR-HEATMAP-WIRE~~ — SHIPPED Round 2 D1
 - Bridge tab Sector Heatmap: was rendering "undefined ▲0.0%" × 12
 - Root cause: field-name drift (`s.name`/`s.pct_change` → `s.sector`/
