@@ -123,7 +123,7 @@ _SC_TOTP_PAGE = """\
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1,maximum-scale=1">
-<title>OllieTrades Signal Center — 2FA Verification</title>
+<title>MORPHEUS — Welcome to the Matrix</title>
 <style>
 *{{margin:0;padding:0;box-sizing:border-box}}
 body{{background:#0a0e1a;color:#e0e6f0;font-family:'Courier New',monospace;
@@ -152,18 +152,18 @@ button:hover{{background:linear-gradient(135deg,#3b82f6,#2563eb)}}
 </head>
 <body>
 <div class="box">
-  <div class="badge">🔐</div>
-  <h1>2FA VERIFICATION</h1>
-  <div class="sub">AUTHENTICATOR REQUIRED</div>
+  <div class="badge">⌧</div>
+  <h1>WELCOME TO THE MATRIX</h1>
+  <div class="sub">ADMIRAL — AUTHENTICATE</div>
   {error}
-  <div class="hint">Enter the 6-digit code from your authenticator app for <strong>OllieTrades</strong></div>
+  <div class="hint">Enter the 6-digit code from your authenticator app.<br>Morpheus is waiting.</div>
   <form method="POST" action="/login?step=2">
     <label>6-DIGIT CODE</label>
     <input type="text" name="totp_code" maxlength="6" pattern="[0-9]{{6}}" inputmode="numeric" autocomplete="one-time-code" autofocus required>
-    <button type="submit">VERIFY ▶</button>
+    <button type="submit">ENTER ▶</button>
   </form>
   <div style="margin-top:14px;"><a href="/login" style="font-size:11px;color:#334155;text-decoration:none;">← Back to login</a></div>
-  <div class="foot">OllieTrades Signal Center • Port 9000</div>
+  <div class="foot">MORPHEUS — Operator, Signal Center • Port 9000</div>
 </div>
 </body>
 </html>"""
@@ -933,6 +933,221 @@ def import_data():
         return jsonify({"imported": len(data)})
     except Exception as e:
         return jsonify({"error": str(e)}), 500
+
+# ═══════════════════════════════════════════════════════════════════════════
+# HM-MORPHEUS Phase 1 (2026-05-17) — /api/morpheus/awareness
+# Consolidated awareness payload for the Matrix tab (Ship 2 wires the UI).
+# Sources: HM-AM portfolio + Kirk alerts + Advisory consensus + intelligence_feed
+#          + trade_signals + predictions + today's git commits.
+# 30s in-process cache mirrors engine/total_portfolio.py doctrine.
+# Per-source resilience: each loader's failure logged + listed in sources_failed.
+# daily_snapshot table activated — first-call-of-day insert is idempotent.
+# execution_log schema accessible but NO WRITES this phase (Phase 3 Agency, Ship 2).
+# ═══════════════════════════════════════════════════════════════════════════
+
+_morpheus_log = _sc_log.getLogger("sc.morpheus")
+_MORPHEUS_CACHE: dict = {"data": None, "ts": 0.0, "etag": None}
+_MORPHEUS_CACHE_TTL = 30  # seconds — mirrors HM-AM 30s TTL
+
+
+def _morpheus_load_portfolio():
+    """HM-AM total_portfolio source — Schwab + metals + Alpaca paper unified."""
+    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    if parent not in sys.path:
+        sys.path.insert(0, parent)
+    from engine.total_portfolio import get_portfolio_summary
+    return get_portfolio_summary()
+
+
+def _morpheus_trader_db_path() -> str:
+    return os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'trader.db')
+
+
+def _morpheus_load_kirk_alerts():
+    """Last 24h non-dismissed kirk_advisory_log entries from trader.db."""
+    conn = sqlite3.connect(_morpheus_trader_db_path(), timeout=5)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT ticker, action, message, alert_type, fear_greed_score, vix_level, acted_on, created_at "
+            "FROM kirk_advisory_log "
+            "WHERE dismissed_at IS NULL "
+            "AND datetime(created_at) >= datetime('now', '-24 hours') "
+            "ORDER BY created_at DESC LIMIT 10"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _morpheus_load_advisory():
+    """Latest portfolio_advice rows from trader.db (Advisory Team consensus surface)."""
+    conn = sqlite3.connect(_morpheus_trader_db_path(), timeout=5)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT symbol, advisor, action, confidence, reasoning, support_level, resistance_level, stop_loss "
+            "FROM portfolio_advice ORDER BY id DESC LIMIT 10"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _morpheus_load_intelligence():
+    """Recent intelligence_feed (last 10 of last 24h) from signals.db."""
+    db = get_db()
+    try:
+        rows = db.execute(
+            "SELECT feed_type, data, created_at FROM intelligence_feed "
+            "WHERE datetime(created_at) >= datetime('now', '-24 hours') "
+            "ORDER BY created_at DESC LIMIT 10"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        db.close()
+
+
+def _morpheus_load_signals():
+    """Recent trade_signals from signals.db."""
+    db = get_db()
+    try:
+        rows = db.execute(
+            "SELECT type, symbol, action, entry_price, stop_loss, take_profit, confidence, agent_name "
+            "FROM trade_signals ORDER BY id DESC LIMIT 10"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        db.close()
+
+
+def _morpheus_load_predictions():
+    """Top 5 predictions by snap_date + master_score from signals.db."""
+    db = get_db()
+    try:
+        rows = db.execute(
+            "SELECT snap_date, symbol, price_at, master_score, regime, recommendation, tp1, tp2 "
+            "FROM predictions ORDER BY snap_date DESC, master_score DESC LIMIT 5"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        db.close()
+
+
+def _morpheus_load_commits():
+    """Today's git commits (UTC midnight)."""
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    cp = subprocess.run(
+        ["git", "log", "--since=00:00:00", "--oneline"],
+        capture_output=True, text=True, timeout=3, cwd=repo,
+    )
+    commits = []
+    for ln in cp.stdout.strip().splitlines():
+        if " " in ln:
+            sha, msg = ln.split(maxsplit=1)
+            commits.append({"sha": sha, "msg": msg[:120]})
+    return commits
+
+
+def _morpheus_daily_snapshot_capture(payload: dict) -> bool:
+    """Idempotent first-call-of-day insert into daily_snapshot. Returns True if inserted."""
+    db = get_db()
+    try:
+        today = datetime.utcnow().strftime("%Y-%m-%d")
+        existing = db.execute(
+            "SELECT id FROM daily_snapshot WHERE date = ? LIMIT 1", (today,)
+        ).fetchone()
+        if existing:
+            return False
+        master_score = None
+        try:
+            preds = payload.get("predictions") or []
+            if preds and preds[0].get("master_score") is not None:
+                master_score = int(preds[0]["master_score"])
+        except Exception:
+            pass
+        db.execute(
+            "INSERT INTO daily_snapshot (date, master_score, master_grade, signal_data, crew_data) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                today, master_score, None,
+                json.dumps(payload.get("signals") or []),
+                json.dumps(payload.get("portfolio") or {}),
+            ),
+        )
+        db.commit()
+        return True
+    except Exception as e:
+        _morpheus_log.warning("[Morpheus] daily_snapshot insert failed: %s: %r", type(e).__name__, e)
+        return False
+    finally:
+        db.close()
+
+
+@app.route('/api/morpheus/awareness')
+def morpheus_awareness():
+    """HM-MORPHEUS Phase 1 — consolidated awareness for the Matrix tab.
+
+    30s in-process cache. Per-source resilience (failures listed in sources_failed,
+    never raises). First call of UTC-day captures daily_snapshot row idempotently.
+    """
+    global _MORPHEUS_CACHE
+    now_ts = _time.time()
+
+    # Cache hit
+    if _MORPHEUS_CACHE["data"] and (now_ts - _MORPHEUS_CACHE["ts"]) < _MORPHEUS_CACHE_TTL:
+        resp = jsonify(_MORPHEUS_CACHE["data"])
+        if _MORPHEUS_CACHE["etag"]:
+            resp.headers["ETag"] = _MORPHEUS_CACHE["etag"]
+        resp.headers["X-Morpheus-Cache"] = "hit"
+        return resp
+
+    awareness: dict = {
+        "ts": datetime.utcnow().isoformat() + "Z",
+        "sources_loaded": [],
+        "sources_failed": [],
+    }
+
+    loaders = [
+        ("portfolio",    _morpheus_load_portfolio),
+        ("kirk_alerts",  _morpheus_load_kirk_alerts),
+        ("advisory",     _morpheus_load_advisory),
+        ("intelligence", _morpheus_load_intelligence),
+        ("signals",      _morpheus_load_signals),
+        ("predictions",  _morpheus_load_predictions),
+        ("commits",      _morpheus_load_commits),
+    ]
+
+    for name, fn in loaders:
+        try:
+            awareness[name] = fn()
+            awareness["sources_loaded"].append(name)
+        except Exception as e:
+            _morpheus_log.warning(
+                "[Morpheus] source '%s' failed: %s: %r", name, type(e).__name__, e
+            )
+            awareness["sources_failed"].append(
+                {"source": name, "error": f"{type(e).__name__}: {e!r}"}
+            )
+
+    # Daily-snapshot capture (idempotent first-of-day)
+    try:
+        awareness["daily_snapshot_inserted_this_call"] = _morpheus_daily_snapshot_capture(awareness)
+    except Exception:
+        awareness["daily_snapshot_inserted_this_call"] = False
+
+    # Cache the payload + compute ETag
+    import hashlib as _hashlib
+    etag = _hashlib.md5(
+        json.dumps(awareness, default=str, sort_keys=True).encode()
+    ).hexdigest()[:16]
+    _MORPHEUS_CACHE = {"data": awareness, "ts": now_ts, "etag": etag}
+
+    resp = jsonify(awareness)
+    resp.headers["ETag"] = etag
+    resp.headers["X-Morpheus-Cache"] = "miss"
+    return resp
+
 
 @app.route('/api/stats')
 def stats():
