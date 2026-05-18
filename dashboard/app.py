@@ -4331,9 +4331,21 @@ def flow_lean():
 @app.get("/api/first-officer/briefing")
 @timed_cache(300)
 def first_officer_briefing(force: int = 0):
-    """Get Mr. Data's full Bridge briefing. Cached 30 min server-side + 5 min endpoint cache."""
+    """Get Mr. Data's full Bridge briefing. Cached 30 min server-side + 5 min endpoint cache.
+
+    HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: force= now NO-OP per G36 PRESERVE
+    doctrine. To trigger fresh regenerate, POST /api/first-officer/force-briefing.
+    """
+    if force:
+        try:
+            console.log(
+                "[yellow]/api/first-officer/briefing?force=1 is a no-op since HM-FORCE-PARAM-GET-MIGRATE — "
+                "POST /api/first-officer/force-briefing to trigger fresh LLM regenerate"
+            )
+        except Exception:
+            pass
     from engine.first_officer import get_briefing
-    return get_briefing(force=bool(force))
+    return get_briefing(force=False)
 
 
 @app.post("/api/first-officer/ask")
@@ -8116,6 +8128,104 @@ def wheel_force_exits():
 
         threading.Thread(target=_runner, daemon=True, name="wheel_force_exits").start()
         return {"status": "ok", "message": "Exits check triggered (background)"}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
+
+
+# ═══════════════════════════════════════════════════════════════════════════
+# HM-FORCE-PARAM-GET-MIGRATE 2026-05-17 — 5 paired POST /force-* endpoints
+# Mirrors HM-SQUEEZE-ROOT-FIX + wheel/force-* doctrine. fire-and-forget
+# background thread; immediate HTTP 200 with "triggered" message.
+# ═══════════════════════════════════════════════════════════════════════════
+
+@app.post("/api/first-officer/force-briefing")
+def first_officer_force_briefing():
+    """HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: triggers fresh first-officer briefing regenerate."""
+    try:
+        import threading
+        from engine.first_officer import get_briefing as _gb
+        def _runner():
+            try:
+                _gb(force=True)
+                console.log("[cyan]force-briefing: first-officer regenerated")
+            except Exception as _e:
+                console.log(f"[red]force-briefing error: {type(_e).__name__}: {_e!r}")
+        threading.Thread(target=_runner, daemon=True, name="first_officer_force_briefing").start()
+        return {"status": "ok", "message": "First-officer briefing regenerate triggered (background)"}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
+
+
+@app.post("/api/macro/force-dashboard")
+def macro_force_dashboard():
+    """HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: triggers fresh macro dashboard fetch."""
+    try:
+        import threading
+        def _runner():
+            try:
+                global _macro_cache
+                _macro_cache = {"data": None, "ts": 0}  # invalidate
+                data = _fetch_macro_data()
+                if data.get("ok"):
+                    _macro_cache = {"data": data, "ts": _macro_time.time()}
+                console.log("[cyan]force-dashboard: macro fetched")
+            except Exception as _e:
+                console.log(f"[red]force-dashboard error: {type(_e).__name__}: {_e!r}")
+        threading.Thread(target=_runner, daemon=True, name="macro_force_dashboard").start()
+        return {"status": "ok", "message": "Macro dashboard refresh triggered (background)"}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
+
+
+@app.post("/api/morning-brief/force-run")
+def morning_brief_force_run():
+    """HM-FORCE-PARAM-GET-MIGRATE 2026-05-17 (G38): triggers fresh morning brief LLM regenerate."""
+    try:
+        import threading
+        from engine.morning_briefing import generate_daily_intel_report
+        def _runner():
+            try:
+                generate_daily_intel_report(force=True, push_ntfy=False)
+                console.log("[cyan]force-run: morning brief regenerated")
+            except Exception as _e:
+                console.log(f"[red]force-run error: {type(_e).__name__}: {_e!r}")
+        threading.Thread(target=_runner, daemon=True, name="morning_brief_force_run").start()
+        return {"status": "ok", "message": "Morning brief regenerate triggered (background)"}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
+
+
+@app.post("/api/briefing/force-today")
+def briefing_force_today():
+    """HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: triggers fresh today briefing (text + audio)."""
+    try:
+        import threading
+        from engine.morning_briefing import generate_morning_briefing
+        def _runner():
+            try:
+                generate_morning_briefing(force=True)
+                console.log("[cyan]force-today: briefing regenerated")
+            except Exception as _e:
+                console.log(f"[red]force-today error: {type(_e).__name__}: {_e!r}")
+        threading.Thread(target=_runner, daemon=True, name="briefing_force_today").start()
+        return {"status": "ok", "message": "Today briefing regenerate triggered (background)"}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
+
+
+@app.post("/api/momentum/force-premarket")
+def momentum_force_premarket(limit: int = 30):
+    """HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: triggers fresh premarket scan."""
+    try:
+        import threading
+        def _runner():
+            try:
+                compute_premarket(limit=limit, force=True)
+                console.log(f"[cyan]force-premarket: scan triggered (limit={limit})")
+            except Exception as _e:
+                console.log(f"[red]force-premarket error: {type(_e).__name__}: {_e!r}")
+        threading.Thread(target=_runner, daemon=True, name="momentum_force_premarket").start()
+        return {"status": "ok", "message": "Premarket scan triggered (background)"}
     except Exception as e:
         return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
 
@@ -12203,10 +12313,23 @@ def _fetch_macro_data() -> dict:
 
 @app.get("/api/macro/dashboard")
 def macro_dashboard(force: bool = False):
-    """Multi-asset macro dashboard: prices, correlations, regime."""
+    """Multi-asset macro dashboard: prices, correlations, regime.
+
+    HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: force= now NO-OP per G36 PRESERVE.
+    Always returns cached payload if available; falls back to fetch only on
+    cold cache. POST /api/macro/force-dashboard to trigger background refresh.
+    """
+    if force:
+        try:
+            console.log(
+                "[yellow]/api/macro/dashboard?force=true is a no-op since HM-FORCE-PARAM-GET-MIGRATE — "
+                "POST /api/macro/force-dashboard to trigger background refresh"
+            )
+        except Exception:
+            pass
     global _macro_cache
     now = _macro_time.time()
-    if not force and _macro_cache["data"] and (now - _macro_cache["ts"]) < _MACRO_TTL:
+    if _macro_cache["data"] and (now - _macro_cache["ts"]) < _MACRO_TTL:
         return JSONResponse(_macro_cache["data"])
     data = _fetch_macro_data()
     if data.get("ok"):
@@ -16743,11 +16866,26 @@ async def morning_brief_latest():
 
 
 @app.get("/api/morning-brief/run")
-async def morning_brief_run(force: bool = True):
-    """Trigger a fresh daily intel report generation (no ntfy push)."""
+async def morning_brief_run(force: bool = False):
+    """Get latest daily intel report (or last cached).
+
+    HM-FORCE-PARAM-GET-MIGRATE 2026-05-17 (G38 FLIP): default force=True →
+    force=False to close the foot-gun. With force=False default, this endpoint
+    returns the EXISTING (cached) report without firing the LLM regenerate
+    pipeline. To trigger fresh regenerate, POST /api/morning-brief/force-run.
+    force= NO-OP per G36 PRESERVE.
+    """
+    if force:
+        try:
+            console.log(
+                "[yellow]/api/morning-brief/run?force=true is a no-op since HM-FORCE-PARAM-GET-MIGRATE — "
+                "POST /api/morning-brief/force-run to trigger background LLM regenerate"
+            )
+        except Exception:
+            pass
     try:
         from engine.morning_briefing import generate_daily_intel_report
-        result = generate_daily_intel_report(force=force, push_ntfy=False)
+        result = generate_daily_intel_report(force=False, push_ntfy=False)
         return JSONResponse({
             "ok":           True,
             "generated_at": result.get("generated_at"),
@@ -16765,12 +16903,22 @@ async def morning_brief_run(force: bool = True):
 async def briefing_today(force: bool = False):
     """
     Today's comprehensive morning briefing — text + audio URL.
-    Cached per calendar day; force=true regenerates.
-    Public (localhost) / authenticated externally.
+    Cached per calendar day. Public (localhost) / authenticated externally.
+
+    HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: force= now NO-OP per G36 PRESERVE.
+    To regenerate text + audio, POST /api/briefing/force-today.
     """
+    if force:
+        try:
+            console.log(
+                "[yellow]/api/briefing/today?force=true is a no-op since HM-FORCE-PARAM-GET-MIGRATE — "
+                "POST /api/briefing/force-today to trigger background regenerate"
+            )
+        except Exception:
+            pass
     try:
         from engine.morning_briefing import generate_morning_briefing
-        result = generate_morning_briefing(force=force)
+        result = generate_morning_briefing(force=False)
         return JSONResponse({
             "ok":           True,
             "text":         result.get("text", ""),
@@ -18414,7 +18562,17 @@ from engine.momentum.premarket import compute_premarket
 
 @app.get("/api/momentum/premarket")
 def momentum_premarket(limit: int = 30, force: bool = False) -> dict:
-    return compute_premarket(limit=limit, force=force)
+    """HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: force= now NO-OP per G36 PRESERVE.
+    To trigger fresh fetch, POST /api/momentum/force-premarket."""
+    if force:
+        try:
+            console.log(
+                "[yellow]/api/momentum/premarket?force=true is a no-op since HM-FORCE-PARAM-GET-MIGRATE — "
+                "POST /api/momentum/force-premarket to trigger background fetch"
+            )
+        except Exception:
+            pass
+    return compute_premarket(limit=limit, force=False)
 # === end Phase 6: Pre-market gap scanner endpoint ===
 
 

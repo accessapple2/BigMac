@@ -21543,7 +21543,9 @@ async function fetchFirstOfficerBriefing(force) {
   var tsEl = document.getElementById('foTimestamp');
   el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:30px;">Data is analyzing The Bridge...</div>';
   try {
-    var url = '/api/first-officer/briefing' + (force ? '?force=1' : '');
+    // HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: force= on GET is no-op. Trigger via POST then re-GET.
+    if (force) { try { await fetch('/api/first-officer/force-briefing', {method:'POST'}); } catch(e){} }
+    var url = '/api/first-officer/briefing';
     var r = await fetch(url);
     var d = await r.json();
     if (d.error) {
@@ -31015,7 +31017,9 @@ function escHtml(s) {
 var _macroLoaded = false;
 
 function loadMacroDashboard(force) {
-  var url = '/api/macro/dashboard' + (force ? '?force=true' : '');
+  // HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: force= on GET is no-op. Trigger via POST then re-GET.
+  if (force) { try { fetch('/api/macro/force-dashboard', {method:'POST'}); } catch(e){} }
+  var url = '/api/macro/dashboard';
   fetch(url)
     .then(function(r) { return r.json(); })
     .then(function(d) {
