@@ -827,24 +827,51 @@ _SIGNALS_ENDPOINTS = {
 }
 
 
-def _fetch_all_signals() -> dict:
-    """Fetch all bridge endpoints in parallel and persist to history."""
+def _fetch_all_signals(prev_data=None):
+    """Fetch all bridge endpoints in parallel and persist to history.
+
+    HM-SIGNAL-CENTER-PROXY-NULL-CACHE (Round 3): on per-endpoint exception,
+    prefer prev_data's last-good value over writing None into results so the
+    SWR cache doesn't poison itself with transient upstream blips. History
+    INSERTs only run for fresh fetches this cycle (tracked via fresh_keys)
+    so last-good fallbacks don't duplicate rows.
+    """
+    prev_data = prev_data or {}
     results: dict = {}
+    fresh_keys: set = set()
     with ThreadPoolExecutor(max_workers=12) as pool:
         futures = {pool.submit(_bridge_get, ep): key
                    for key, ep in _SIGNALS_ENDPOINTS.items()}
         for fut in as_completed(futures):
             key = futures[fut]
+            fetched = None
             try:
-                results[key] = fut.result()
+                fetched = fut.result()
             except Exception:
-                results[key] = None
+                fetched = None
+            # _bridge_get returns None for BOTH exception and non-200 — the
+            # original bug wasn't just `except: results[key] = None`, it was
+            # also `results[key] = None` whenever _bridge_get returned None
+            # (404, 5xx, redirect-without-session). Treat both paths
+            # identically: prefer last-good, else omit key.
+            if fetched is not None:
+                results[key] = fetched
+                fresh_keys.add(key)
+            else:
+                last = prev_data.get(key)
+                if last is not None:
+                    # Fall back to last-known-good. Key stays present in
+                    # results so downstream panels keep rendering.
+                    results[key] = last
+                # else: leave key absent. Frontend should treat missing as
+                # cache-miss (degrade gracefully) rather than render "None".
 
-    # Persist to history (only non-None results)
+    # Persist to history — only fresh fetches (no last-good replays).
     try:
         db  = get_db()
         now = datetime.now().isoformat()
-        for key, data in results.items():
+        for key in fresh_keys:
+            data = results.get(key)
             if data is not None:
                 db.execute(
                     "INSERT INTO signal_history (timestamp, signal_name, value, raw_data, source) "
@@ -862,7 +889,9 @@ def _fetch_all_signals() -> dict:
 def _bg_refresh_signals():
     """Background thread: fetch fresh signals and update cache."""
     try:
-        data = _fetch_all_signals()
+        with _signals_lock:
+            prev = dict(_signals_cache.get("data") or {})
+        data = _fetch_all_signals(prev_data=prev)
         with _signals_lock:
             _signals_cache["data"] = data
             _signals_cache["ts"]   = _time.time()
@@ -895,8 +924,12 @@ def all_signals():
             threading.Thread(target=_bg_refresh_signals, daemon=True).start()
         return jsonify(cached_data)
 
-    # Cache empty or too stale — block once to build it
-    data = _fetch_all_signals()
+    # Cache empty or too stale — block once to build it. Pass any prior data
+    # as last-good (even if past SWR_MAX) so per-endpoint blips during this
+    # rebuild don't ship None to a client that has nothing else to fall back on.
+    with _signals_lock:
+        prev = dict(_signals_cache.get("data") or {})
+    data = _fetch_all_signals(prev_data=prev)
     with _signals_lock:
         _signals_cache["data"] = data
         _signals_cache["ts"]   = _time.time()

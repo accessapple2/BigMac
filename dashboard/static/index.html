@@ -4801,8 +4801,17 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         var gp = d.game_plan || {};
         var body = document.getElementById('gp-body');
         if (!body) return;
+        // Round 3 Item 4: /api/morning-brief/run returns
+        // {game_plan: {}, unavailable: true, message: "..."} when today's
+        // brief hasn't been generated yet. Surface the server's message
+        // (not the catch-block's "Intel report unavailable") and clear
+        // the regime badge so a stale tag (e.g. BULL_CROSS from yesterday)
+        // doesn't sit next to a "no data" body.
+        var _badge = document.getElementById('gp-regime-badge');
         if (!gp.headline) {
-          body.innerHTML = '<div style="color:var(--muted);font-size:13px;">No intel report yet — runs at 6 AM & 8 PM AZ</div>';
+          if (_badge) _badge.style.display = 'none';
+          var _msg = d.message || 'No intel report yet — runs at 6 AM & 8 PM AZ';
+          body.innerHTML = '<div style="color:var(--muted);font-size:13px;">'+_msg+'</div>';
           return;
         }
         var color = _gpToneColor(gp.tone);
@@ -4834,8 +4843,13 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         var card = document.getElementById('game-plan-card');
         if (card) card.style.borderLeftColor = color;
       }).catch(function() {
+        // Round 3 Item 4: don't leave a stale regime badge (e.g. BULL_CROSS
+        // from a prior successful load) sitting next to an "unavailable"
+        // body — clear both so the card state is internally consistent.
         var body = document.getElementById('gp-body');
-        if (body) body.innerHTML = '<div style="color:var(--muted);font-size:13px;">Intel report unavailable</div>';
+        var _badge = document.getElementById('gp-regime-badge');
+        if (_badge) _badge.style.display = 'none';
+        if (body) body.innerHTML = '<div style="color:var(--muted);font-size:13px;">Intel report unavailable — retry shortly</div>';
       });
     };
 
@@ -27349,7 +27363,11 @@ function loadGlanceData() {
         + (premium > 0 ? '<span>Premium: <b style="color:#22c55e;">$'+premium.toFixed(0)+'</b></span>' : '')
         + '</div>'
         + (d.positions && d.positions.length > 0 ? '<div style="margin-top:8px;">'
-          + d.positions.slice(0,6).map(function(p) {
+          // Round 3 Item 5: previous .slice(0,6) hid 3 of 9 active puts —
+          // header "Puts Open: 9" matched API but only 6 rows rendered.
+          // Render all positions so the count and the list agree. Use
+          // .slice(0,20) as a sanity guard for any future volume spike.
+          + d.positions.slice(0,20).map(function(p) {
             // D3: /api/wheel/status emits expiry_date (and strike_price /
             // option_type), not the .expiry / .type / .strike this renderer
             // assumed. Fall through both names so the panel survives any
