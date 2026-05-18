@@ -1,5 +1,28 @@
 # Banked Items — Chrome Dashboard Audit 2026-05-18
 
+## Shipped 2026-05-18 — HM-DASHBOARD-CHROME-AUDIT-FIXES (commit 2c34069)
+
+5 UI integrity fixes from the Chrome audit, shipped inline rather than
+banked. Dashboard browser smoke still owed.
+
+- **D1 MOVERS unbounded %** — fetchMovers sanity-caps |pct| ≤ 1000;
+  renders "⚠️ N/A" for divide-by-zero artifacts (VIDA +294,999,900%).
+- **D2 Backtest BEST EVER caps** — holodeck sweep summary now caps
+  WR ≤ 100, |Sharpe| ≤ 10, |Return| ≤ 1000%, MaxDD ≥ -100; out-of-bound
+  values render ⚠️-flagged in muted color.
+- **D3 Wheel exp dates** — Bridge Counselor Troi render falls through
+  expiry_date/strike_price/option_type (the actual /api/wheel/status
+  schema) and legacy expiry/strike/type names.
+- **D4 Congress undefined amount** — Recent Trades table + Bridge
+  embed both guard t.amount_range / c.amount with em-dash fallback.
+- **D5 Ready Room negative-delta timestamp** — future-dated briefings
+  now render "updates at HH:MM" instead of "-420m ago"; auto-refresh
+  trigger skipped for future timestamps.
+
+NOTE: `HM-STARFLEET-MARKET-MOVERS-ZERO-PERCENT` below is a DIFFERENT
+movers panel (Starfleet showing 0.00% — not the unbounded % fixed in
+D1) and remains banked.
+
 ## High-value (single ship fixes multiple symptoms)
 
 ### HM-SIGNAL-CENTER-PROXY-NULL-CACHE
