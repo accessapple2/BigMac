@@ -8030,6 +8030,23 @@ def wheel_force_scan():
         return {"status": "error", "error": str(e)}
 
 
+@app.post("/api/wheel/force-assignments")
+def wheel_force_assignments():
+    """Force Troi's wheel assignment check immediately (bypasses hourly schedule).
+
+    HM-W1F5 2026-05-17: enables Captain-driven verification of the canonical
+    close path (engine.options_exec.close_options_trade) without waiting for
+    the hourly schedule. OTM-only per Admiral disposition Option C; ITM
+    positions NTFY + skip per check_wheel_assignments body.
+    """
+    try:
+        from engine.wheel_strategy import check_wheel_assignments
+        check_wheel_assignments()
+        return {"status": "ok", "message": "Wheel assignment check executed"}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
+
+
 @app.post("/api/arena/force-scan/{player_id}")
 def force_scan(player_id: str):
     """Force a specific model to scan the watchlist immediately."""
