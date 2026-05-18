@@ -11172,15 +11172,20 @@ def chart_data(symbol: str = "SPY", timeframe: str = "1Day", bars: int = 200):
         _feed = "sip" if _intraday else "iex"
         _days_back = _TF_LOOKBACK.get(_atf, 365)
         _start = (_dtt.utcnow() - _td(days=_days_back)).strftime("%Y-%m-%dT00:00:00Z")
+        # HM-CHARTS-STALE-DATA-SOURCE (Round 5): Alpaca defaults to sort=asc
+        # which means limit=200 returns the FIRST 200 bars from `start`, NOT
+        # the most recent 200 — causing 1Day charts with 365d lookback to cap
+        # out ~75 days behind today. Pass sort=desc and reverse client-side
+        # so the chart always sees the latest `bars` candles.
         _params = {"timeframe": _atf, "limit": bars, "feed": _feed,
-                   "adjustment": "raw", "start": _start}
+                   "adjustment": "raw", "start": _start, "sort": "desc"}
         _r = _req.get(
             f"https://data.alpaca.markets/v2/stocks/{symbol.upper()}/bars",
             headers={"APCA-API-KEY-ID": _key, "APCA-API-SECRET-KEY": _sec},
             params=_params, timeout=10
         )
         _r.raise_for_status()
-        _raw_bars = _r.json().get("bars") or []
+        _raw_bars = list(reversed(_r.json().get("bars") or []))
         from datetime import datetime, timezone
         candles = []
         for b in _raw_bars:
