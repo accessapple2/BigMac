@@ -2246,7 +2246,9 @@ def check_option_exits(prices: dict = None) -> dict:
     """
     closed_legacy = _check_option_exits_legacy(prices)
     closed_canonical = _check_option_exits_canonical_long_only(prices)
-    closed = closed_legacy + closed_canonical
+    # HM-CHECK-OPTION-EXITS-SHORT-PREMIUM-RULES 2026-05-18 — wheel CSP path.
+    closed_short = _check_option_exits_canonical_short_premium(prices)
+    closed = closed_legacy + closed_canonical + closed_short
     return {"auto_exited": len(closed), "closed": closed}
 
 
@@ -2403,6 +2405,182 @@ def _check_option_exits_canonical_long_only(prices: dict = None) -> list[dict]:
             "symbol": symbol, "reason": reason[:60], "exit_reason": exit_tag,
             "pnl": pnl, "path": "canonical",
         })
+    return closed
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HM-CHECK-OPTION-EXITS-SHORT-PREMIUM-RULES 2026-05-18 — wheel CSP TP/SL/TIME-STOP.
+# Inverted rules vs long path. Initial scope = csp only (bull_put_spread /
+# bear_call_spread / iron_condor have own exit_manager).
+# Premium source order: Polygon get_option_quote → BSM-style estimate_option_price
+# fallback (paper-strike CSPs have no real Polygon chain entry — banked
+# HM-WHEEL-STRIKE-SNAP-TO-REAL).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CANONICAL_SHORT_PREMIUM_STRUCTURES = ("csp",)
+
+
+def _occ_from_csp(symbol: str, expiration: str, strike: float) -> str | None:
+    """Build OCC ticker for a wheel CSP short put.
+    Format: O:<UNDERLYING><YYMMDD>P<strike-mil-padded-8>.
+    Returns None on bad input."""
+    try:
+        ymd = datetime.strptime(expiration[:10], "%Y-%m-%d").strftime("%y%m%d")
+        strike_mil = int(round(float(strike) * 1000))
+        if strike_mil <= 0 or not symbol:
+            return None
+        return f"O:{symbol.upper()}{ymd}P{strike_mil:08d}"
+    except Exception:
+        return None
+
+
+def _csp_current_premium(symbol: str, expiration: str, strike: float,
+                         entry_premium: float, stock_price: float | None) -> float | None:
+    """Resolve current premium for a CSP short put.
+
+    Tries Polygon mid quote first. Falls back to estimate_option_price (BSM-
+    style) when Polygon returns None. Returns None when neither source
+    yields a positive number.
+    """
+    occ = _occ_from_csp(symbol, expiration, strike)
+    if occ:
+        try:
+            from engine.providers.polygon_provider import PolygonData
+            pd = PolygonData()
+            if pd.is_active():
+                q = pd.get_option_quote(occ)
+                if q and (q.get("mid") or 0) > 0:
+                    return float(q["mid"])
+        except Exception:
+            pass
+
+    # Fallback: BSM-style estimate based on stock + entry premium + time
+    if stock_price and stock_price > 0:
+        try:
+            est = estimate_option_price("put", strike, stock_price, entry_premium, expiration[:10])
+            if est and est > 0:
+                return float(est)
+        except Exception:
+            pass
+
+    return None
+
+
+def _check_option_exits_canonical_short_premium(prices: dict = None) -> list[dict]:
+    """HM-CHECK-OPTION-EXITS-SHORT-PREMIUM-RULES 2026-05-18 — wheel CSP TP/SL.
+
+    Rules (INVERTED vs long path):
+      - TP:        current_premium <= entry_premium * 0.50 → close (50% decay captured)
+      - SL:        current_premium >= entry_premium * 2.00 → defensive close
+      - TIME-STOP: 0 < dte <= 21                            → roll-or-close
+    """
+    import json
+    from datetime import date as _date
+    from engine.options_exec import close_options_trade
+
+    today = _date.today()
+    placeholders = ",".join("?" for _ in _CANONICAL_SHORT_PREMIUM_STRUCTURES)
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            f"SELECT id, agent_id, structure, symbol, expiration, legs_json, "
+            f"       entry_credit_debit "
+            f"FROM options_trades WHERE status='open' AND structure IN ({placeholders})",
+            _CANONICAL_SHORT_PREMIUM_STRUCTURES,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    closed: list[dict] = []
+    for row in rows:
+        trade_id, agent_id, structure, symbol, expiration, legs_json, ent_cd = row
+        try:
+            legs = json.loads(legs_json)
+        except (json.JSONDecodeError, TypeError):
+            console.log(f"[red]check_option_exits short-premium: bad legs_json trade {trade_id}")
+            continue
+
+        # Skip if at/past expiry — expire_options owns post-expiry path.
+        try:
+            exp_d = datetime.strptime(expiration[:10], "%Y-%m-%d").date()
+            if exp_d <= today:
+                continue
+            dte = (exp_d - today).days
+        except (ValueError, TypeError):
+            continue
+
+        short_puts = [l for l in legs if l.get("side") == "short" and l.get("type") == "put"]
+        if not short_puts:
+            continue
+        leg = short_puts[0]
+        entry_premium = float(leg.get("entry_price", 0) or 0)
+        strike = float(leg.get("strike", 0) or 0)
+        qty = int(leg.get("qty", 0) or 0)
+        if entry_premium <= 0 or strike <= 0 or qty <= 0:
+            continue
+
+        stock_price = None
+        if prices and symbol in prices:
+            stock_price = float((prices.get(symbol) or {}).get("price", 0) or 0)
+            if stock_price <= 0:
+                stock_price = None
+
+        current_premium = _csp_current_premium(
+            symbol, expiration, strike, entry_premium, stock_price,
+        )
+        if current_premium is None:
+            # No reliable premium today — skip (don't false-fire TP/SL on a
+            # zero/missing quote).
+            continue
+
+        reason = None
+        exit_tag = None
+        if current_premium <= entry_premium * 0.50:
+            reason = (
+                f"AUTO-TP: 50%+ premium decay on {symbol} csp "
+                f"(${entry_premium:.2f}→${current_premium:.2f})"
+            )
+            exit_tag = "tp_premium_decay_50pct"
+        elif current_premium >= entry_premium * 2.0:
+            reason = (
+                f"AUTO-SL: premium 2x expanded on {symbol} csp "
+                f"(${entry_premium:.2f}→${current_premium:.2f})"
+            )
+            exit_tag = "sl_premium_expansion_2x"
+        elif 0 < dte <= 21:
+            reason = f"TIME-STOP: {symbol} csp at {dte} DTE (Sosnoff 21-DTE roll)"
+            exit_tag = "time_stop_21dte"
+
+        if reason is None:
+            continue
+
+        # SHORT CSP close = buy-to-close at current premium. Sign convention
+        # of close_options_trade: close_cost = exit_price × qty × 100;
+        # pnl = entry_credit_debit - close_cost. For buy-to-close (debit),
+        # close_cost is positive → exit_price = +current_premium.
+        exit_legs = [dict(leg, exit_price=float(current_premium))]
+        try:
+            pnl = close_options_trade(trade_id, exit_legs, exit_reason=exit_tag)
+        except Exception as e:
+            console.log(f"[red]check_option_exits short-premium: close failed trade {trade_id}: {type(e).__name__}: {e!r}")
+            continue
+        if pnl is None:
+            console.log(
+                f"[red]check_option_exits short-premium: close_options_trade None "
+                f"trade {trade_id} ({symbol})"
+            )
+            continue
+
+        console.log(
+            f"[cyan]OPTION EXIT (short-premium): {agent_id} {symbol} csp — "
+            f"{reason[:80]} pnl=${pnl:.2f}"
+        )
+        closed.append({
+            "trade_id": trade_id, "agent_id": agent_id, "structure": structure,
+            "symbol": symbol, "reason": reason[:80], "exit_reason": exit_tag,
+            "pnl": pnl, "path": "canonical_short_premium",
+        })
+
     return closed
 
 
