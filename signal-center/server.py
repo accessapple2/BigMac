@@ -1,5 +1,15 @@
 """
 TradeMinds Signal Command Center — Port 9000
+
+HM-SC-CURL-PROXY-INSPECTOR-QUIRK (2026-05-17): When validating Morpheus
+endpoints during development, use `venv/bin/python3 -c "import requests; ..."`
+rather than `curl`. The local `curl` is piped through an RTK proxy inspector
+that pretty-prints responses as JSON-schema-style summaries (e.g.
+'puts_open: int, total_premium_collected: float'), masking the actual raw
+response shape. Python requests bypasses the proxy and shows true JSON.
+Quirk surfaced during HM-WHEEL-STATUS-ROUTE-SHADOW (commit ac2cff1) +
+HM-MORPHEUS Ship 1 verification (commit 39bded7).
+
 The ultimate signal aggregator. Every indicator. Every grade.
 """
 from flask import Flask, send_file, jsonify, request, send_from_directory, Response, stream_with_context, session, redirect, url_for, make_response
