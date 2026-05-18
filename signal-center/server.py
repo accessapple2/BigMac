@@ -51,6 +51,44 @@ _SC_TOTP_SECRET = os.environ.get("TOTP_SECRET", "")
 _sc_totp = _sc_pyotp.TOTP(_SC_TOTP_SECRET) if _SC_TOTP_SECRET else None
 _LOCALHOST = {"127.0.0.1", "::1", "localhost"}
 
+
+# ── HM-MORPHEUS-PHASE4-PERSONA-AUTH 2026-05-18 — multi-user role registry ─────
+# G60.a + G61.a + G62.a baseline: parse DASHBOARD_USERS env (shared with trader
+# per dashboard/app.py:676 _parse_users), per-user passwords via
+# DASHBOARD_PASS_<Username>, shared TOTP_SECRET. Empty env → falls back to
+# single _SC_USER/_SC_PASS as admin (Ship 2 backward-compat).
+def _sc_parse_users() -> dict:
+    """Parse DASHBOARD_USERS into {username_lower: {username, role, password, ntfy}}."""
+    users: dict = {}
+    raw = os.environ.get("DASHBOARD_USERS", "")
+    if raw:
+        for part in raw.split(","):
+            chunks = [c.strip() for c in part.strip().split(":")]
+            if len(chunks) >= 2:
+                uname = chunks[0]
+                role = chunks[1].lower()
+                ntfy = chunks[2] if len(chunks) >= 3 else ""
+                pw = os.environ.get(f"DASHBOARD_PASS_{uname}", "")
+                users[uname.lower()] = {
+                    "username": uname, "role": role,
+                    "password": pw, "ntfy": ntfy,
+                }
+    # Legacy single-user fallback
+    if _SC_USER and _SC_USER.lower() not in users:
+        users[_SC_USER.lower()] = {
+            "username": _SC_USER, "role": "admin",
+            "password": _SC_PASS or "", "ntfy": "",
+        }
+    return users
+
+
+_SC_USERS: dict = _sc_parse_users()
+
+
+def _sc_lookup_user(submitted_username: str) -> dict:
+    """Case-insensitive lookup; returns user dict or empty dict."""
+    return _SC_USERS.get((submitted_username or "").strip().lower(), {})
+
 # ── Security logger ───────────────────────────────────────────────────────────
 _logs_dir = os.path.join(_sc_dir, "..", "logs")
 os.makedirs(_logs_dir, exist_ok=True)
@@ -647,8 +685,16 @@ def sc_login():
             session.permanent = True
             session["authenticated"] = True
             session["username"] = pending_user
+            # HM-MORPHEUS-PHASE4-PERSONA-AUTH 2026-05-18: stamp role from registry.
+            # Backward-compat default 'admin' covers empty DASHBOARD_USERS case.
+            session["role"] = (
+                _sc_lookup_user(pending_user).get("role") or "admin"
+            )
             _sc_failures.pop(ip, None)
-            _sec_log.warning("SC_LOGIN_2FA_OK ip=%s user=%s", ip, pending_user)
+            _sec_log.warning(
+                "SC_LOGIN_2FA_OK ip=%s user=%s role=%s",
+                ip, pending_user, session["role"],
+            )
             return redirect("/")
         # Invalid code
         failure["count"] = failure.get("count", 0) + 1
@@ -665,13 +711,22 @@ def sc_login():
     username = (request.form.get("username") or "").strip()
     password = (request.form.get("password") or "").strip()
 
-    if username == _SC_USER and password == _SC_PASS:
+    # HM-MORPHEUS-PHASE4-PERSONA-AUTH 2026-05-18: multi-user lookup via
+    # _SC_USERS registry. Backward-compat preserved — empty DASHBOARD_USERS
+    # falls back to {_SC_USER: admin} via _sc_parse_users() legacy branch.
+    user_entry = _sc_lookup_user(username)
+    if (user_entry and password and user_entry.get("password")
+            and password == user_entry["password"]):
         # 2FA disabled — authenticate directly
         session.permanent = True
         session["authenticated"] = True
-        session["username"] = username
+        session["username"] = user_entry["username"]
+        session["role"] = user_entry.get("role") or "admin"
         _sc_failures.pop(ip, None)
-        _sec_log.warning("SC_LOGIN_OK ip=%s user=%s", ip, username)
+        _sec_log.warning(
+            "SC_LOGIN_OK ip=%s user=%s role=%s",
+            ip, user_entry["username"], session["role"],
+        )
         return redirect("/")
 
     # Failed login
@@ -1170,14 +1225,16 @@ def morpheus_awareness():
 def _morpheus_admin_required():
     """Q1 admin-only gate. Returns (authorized, username|error).
 
-    Current Signal Center auth is single-tier TOTP (session['authenticated']).
-    Until HM-MORPHEUS-PHASE4-PERSONA-AUTH ships multi-tier roles, ALL
-    authenticated users are treated as admin. The Q1 disposition is honored
-    structurally (gate exists, gates auth surface) — role-distinction comes
-    in Ship 3 with the persona-auth audit.
+    HM-MORPHEUS-PHASE4-PERSONA-AUTH 2026-05-18: role check active.
+    Pre-Phase-4 = any authenticated user; post-Phase-4 = role='admin' only.
+    Backward-compat: session lacking 'role' (pre-Phase-4 cookie still live)
+    is treated as role-missing → 'admin_role_required' response. Captain
+    re-logins to refresh session with role stamp.
     """
     if not session.get("authenticated"):
         return False, "auth_required"
+    if session.get("role") != "admin":
+        return False, "admin_role_required"
     return True, session.get("username", "anonymous")
 
 
