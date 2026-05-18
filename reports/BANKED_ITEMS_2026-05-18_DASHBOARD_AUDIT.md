@@ -1,5 +1,64 @@
 # Banked Items — Chrome Dashboard Audit 2026-05-18
 
+## Shipped 2026-05-18 Round 4.1 — Matrix tab header/footer diagnosis
+
+Captain post-Round-4 smoke caught two issues. Findings:
+
+### Awareness 7/7 is CORRECT — NOT a bug
+- `/api/morpheus/awareness` returns 7 `sources_loaded` by design:
+  `portfolio, kirk_alerts, advisory, intelligence, signals, predictions,
+  commits`. That's the Matrix tab awareness denominator — max=7.
+- Round 4's commit message claimed "9/9" was the expected target. That
+  was wrong. The 35-key `/api/signals/all` proxy fix (Items 1+4 of
+  Round 3+4) is a different surface from the Matrix awareness counter.
+  My misleading commit-message expectation, not a real bug.
+- Resolution: 7/7 IS the success state for awareness. Captain can
+  treat that line as green.
+
+### Blank header / blank footer — pre-existing, possibly cache-stale
+- `signal-center/index.html` was last modified in commit `6443fe6`
+  (HM-MORPHEUS-MATRIX-UI-FIXES-FOLLOWUP — prior session). None of
+  Round 1–4 (commits `dfb5381`, `11b3db8`, `5e5648c`, `21e7462`,
+  `42c7456`) touched it. The blank header/footer pre-existed Round 1.
+- Audit of `buildDashboard()` (writes header `h-regime` / `h-vix` /
+  `h-score` / `h-time` at lines 1581–1584) and `loadStats()` (writes
+  footer `db-records` / `db-signals` / `db-since` at lines 2371–2374):
+  - All 18 input keys `buildDashboard` consumes from `/api/signals/all`
+    return sensible types (dict/list, no nulls) per live probe.
+  - `/api/stats` returns valid JSON with `total_records`, `unique_signals`,
+    `oldest_record` — footer should populate.
+  - Score functions handle nulls gracefully.
+- **Root cause likely browser cache.** Flask `send_file('index.html')`
+  at `signal-center/server.py:760` returned NO Cache-Control header.
+  Browser heuristic caching can serve a stale JS bundle for hours.
+- Fixed inline: `/` route now wraps `send_file` in `make_response` and
+  sets `Cache-Control: no-cache`. Conditional 304s still work via
+  ETag/mtime, but every page load re-fetches the latest HTML/JS.
+
+### Captain action items (post-ship)
+1. **Hard refresh** the Matrix tab (Cmd+Shift+R / Ctrl+Shift+R) once.
+   With the new `no-cache` header, subsequent loads will always pull
+   fresh code without needing the explicit refresh.
+2. If hard refresh does NOT fix the blank header/footer, browser
+   console errors will pinpoint the throw — bank under HM-MATRIX-HEADER-FOOTER-BLANK-DEEPER
+   below with the console output.
+
+## HM-MATRIX-HEADER-FOOTER-BLANK-DEEPER (NEW, conditional)
+Only file this if hard refresh doesn't restore the header/footer:
+- Open Chrome DevTools → Console tab → reload page → screenshot any
+  red errors.
+- Likely throw site (between `buildDashboard` line 1530 freshness IIFE
+  and line 1581 header write):
+  - Master circle render (line 1514–1526) — uses `gl(master)`,
+    `gclass(master)` helpers; verify they exist for `master=NaN`.
+  - Master-stats innerHTML (line 1543–1547) — references `fleet.ret`,
+    `optsFlow.val`; verify those score-functions return objects with
+    those fields against current `/api/signals/all` shape.
+  - Weight-rows innerHTML (line 1568–1578) — should be safe.
+- Alternative: if header is blank but master circle DOES render,
+  the throw is between lines 1543 and 1581 (master-stats / weight-rows).
+- Effort: ~15 min once console error captured.
+
 ## Shipped 2026-05-18 Round 4 — HM-SIGNAL-CENTER-DEAD-ENDPOINTS
 
 Closes the 4 remaining Signal Center keys that Round 3's null-cache fix

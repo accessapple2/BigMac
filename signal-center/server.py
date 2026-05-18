@@ -758,7 +758,17 @@ def sc_robots():
 # ── Routes ──────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
-    return send_file('index.html')
+    # HM-MATRIX-HEADER-FOOTER-BLANK 2026-05-18: send_file was returning the
+    # served index.html with no Cache-Control header, so browsers fell back
+    # to heuristic caching and could serve stale JS (Matrix-tab header and
+    # footer reported blank by Captain post commit 42c7456 even though the
+    # disk file was healthy — most likely a stale buildDashboard executing
+    # before its score functions were updated upstream). no-cache makes
+    # every page load re-fetch the latest HTML/JS. send_file already revs
+    # ETag based on mtime, so this doesn't disable conditional 304s.
+    resp = make_response(send_file('index.html'))
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
 
 
 @app.route('/api/me')
