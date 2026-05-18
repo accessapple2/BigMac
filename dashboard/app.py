@@ -8213,6 +8213,25 @@ def briefing_force_today():
         return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
 
 
+@app.post("/api/screener/force-refresh-quality")
+def screener_force_refresh_quality():
+    """HM-REFRESH-PARAM-GET-MIGRATE 2026-05-17: triggers cache invalidation + fresh Finviz fetch."""
+    try:
+        import threading
+        from shared.finviz_scanner import finviz_quality_screen, _quality_cache
+        def _runner():
+            try:
+                _quality_cache["updated"] = 0.0
+                finviz_quality_screen()
+                console.log("[cyan]force-refresh-quality: Finviz screener fetched")
+            except Exception as _e:
+                console.log(f"[red]force-refresh-quality error: {type(_e).__name__}: {_e!r}")
+        threading.Thread(target=_runner, daemon=True, name="screener_force_refresh_quality").start()
+        return {"status": "ok", "message": "Quality screener refresh triggered (background)"}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
+
+
 @app.post("/api/momentum/force-premarket")
 def momentum_force_premarket(limit: int = 30):
     """HM-FORCE-PARAM-GET-MIGRATE 2026-05-17: triggers fresh premarket scan."""
@@ -11621,12 +11640,22 @@ def quality_screener(refresh: bool = False):
     """Dalio/Buffett quality screen — tickers with high margins, low debt, high ROE.
 
     Filters: Gross Margin >50%, LT Debt/Equity <0.4, Operating Margin >25%, ROE >15%.
-    Cached 4 hours. Pass ?refresh=true to force a reload.
+    Cached 4 hours.
+
+    HM-REFRESH-PARAM-GET-MIGRATE 2026-05-17: refresh= now NO-OP per HM-FORCE-
+    PARAM-GET-MIGRATE sibling doctrine. POST /api/screener/force-refresh-quality
+    to trigger background cache invalidation + reload.
     """
+    if refresh:
+        try:
+            console.log(
+                "[yellow]/api/screener/quality?refresh=true is a no-op since HM-REFRESH-PARAM-GET-MIGRATE — "
+                "POST /api/screener/force-refresh-quality to trigger background reload"
+            )
+        except Exception:
+            pass
     from shared.finviz_scanner import finviz_quality_screen, _quality_cache
     import time
-    if refresh:
-        _quality_cache["updated"] = 0.0  # invalidate cache
     tickers = finviz_quality_screen()
     return {
         "preset": "Quality Filter — Dalio/Buffett",
