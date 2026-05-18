@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
-<title>Signal Command Center — USS TradeMinds</title>
+<title>MORPHEUS — Operator, Signal Center</title>
 <style>
 /* ── THEME VARIABLES ──────────────────────────────────── */
 :root {
@@ -478,7 +478,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <!-- HEADER -->
 <div class="header">
   <div class="header-left">
-    <h1>TRADE<span>MINDS</span></h1>
+    <!-- HM-MORPHEUS Phase 0 (2026-05-17): identity rename. Sparse authoritative voice. -->
+    <h1>MORPHEUS<span style="font-weight:400;letter-spacing:2px;opacity:0.7;"> — Operator</span></h1>
     <span class="badge-live">LIVE</span>
   </div>
   <div class="header-right">
@@ -499,8 +500,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <div id="sc-toast-container" style="position:fixed;top:80px;right:20px;z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;"></div>
 
 <!-- NAV TABS -->
+<!-- HM-MORPHEUS Phase 0 (2026-05-17): tab-matrix prepended as default per G31-A.
+     All 10 existing tabs preserved with content + URLs unchanged. -->
 <div class="nav-tabs">
-  <div class="nav-tab active" onclick="showTab('signals')">⚡ Signals</div>
+  <div class="nav-tab active" onclick="showTab('matrix')">⌧ Matrix</div>
+  <div class="nav-tab" onclick="showTab('signals')">⚡ Signals</div>
   <div class="nav-tab" onclick="showTab('crew')">⚔ Crew</div>
   <div class="nav-tab" onclick="showTab('stocks')">📊 Top 25 Stocks</div>
   <div class="nav-tab" onclick="showTab('options')">🎯 Options Flow</div>
@@ -512,8 +516,21 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="nav-tab" onclick="showTab('history')">📜 History</div>
 </div>
 
+<!-- ═══════════════ MATRIX TAB ═══════════════ -->
+<!-- HM-MORPHEUS Phase 0 (2026-05-17): default landing shell. 6-section grid
+     ships in Ship 2 (HM-MORPHEUS Phase 2+3). This phase = shell + endpoint only. -->
+<div id="tab-matrix" class="section active">
+  <div style="padding:48px 24px;text-align:center;color:var(--muted);font-family:'Courier New',monospace;letter-spacing:3px;">
+    <div style="font-size:13px;margin-bottom:20px;opacity:0.6;">// MORPHEUS — OPERATOR //</div>
+    <div style="font-size:18px;color:var(--text);margin-bottom:14px;letter-spacing:2px;">Reading the Matrix.</div>
+    <div style="font-size:11px;opacity:0.5;">Awareness endpoint live at /api/morpheus/awareness.</div>
+    <div style="font-size:11px;opacity:0.5;margin-top:6px;">Six-section grid lands in Ship 2.</div>
+    <div style="font-size:10px;opacity:0.3;margin-top:32px;">awakening_state: phase_0_complete</div>
+  </div>
+</div>
+
 <!-- ═══════════════ SIGNALS TAB ═══════════════ -->
-<div id="tab-signals" class="section active">
+<div id="tab-signals" class="section">
 
   <!-- MASTER GRADE -->
   <div class="master-wrap" id="master-wrap">
