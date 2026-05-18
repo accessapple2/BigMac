@@ -517,17 +517,238 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 </div>
 
 <!-- ═══════════════ MATRIX TAB ═══════════════ -->
-<!-- HM-MORPHEUS Phase 0 (2026-05-17): default landing shell. 6-section grid
-     ships in Ship 2 (HM-MORPHEUS Phase 2+3). This phase = shell + endpoint only. -->
+<!-- HM-MORPHEUS Ship 2 Phase 2 (2026-05-18): 6-section Matrix grid.
+     Hydrates from /api/morpheus/awareness. 30s poll cadence. -->
+<style>
+  #tab-matrix .matrix-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(340px, 1fr));
+    gap:14px;
+    padding:14px 8px;
+  }
+  #tab-matrix .matrix-section{
+    background:var(--surface, var(--bg2));
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:14px 16px;
+    min-height:140px;
+    display:flex; flex-direction:column;
+    box-shadow:0 1px 2px rgba(0,0,0,0.15);
+  }
+  #tab-matrix .matrix-section h2{
+    font-size:13px; font-weight:800; letter-spacing:1.2px;
+    text-transform:uppercase; color:var(--text);
+    margin:0 0 10px; padding-bottom:8px;
+    border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  #tab-matrix .matrix-section h2 .ms-fresh{
+    font-size:9px; font-weight:500; color:var(--muted); letter-spacing:.5px;
+  }
+  #tab-matrix .matrix-section .ms-body{
+    flex:1; font-size:12px; color:var(--text); line-height:1.5;
+    overflow-y:auto; max-height:260px;
+  }
+  #tab-matrix .ms-row{
+    display:flex; justify-content:space-between; gap:10px;
+    padding:5px 0; border-bottom:1px dashed var(--border);
+  }
+  #tab-matrix .ms-row:last-child{border-bottom:none}
+  #tab-matrix .ms-key{color:var(--muted); font-size:11px}
+  #tab-matrix .ms-val{color:var(--text); font-weight:600; text-align:right; min-width:40%}
+  #tab-matrix .ms-list-item{
+    padding:6px 0; border-bottom:1px dashed var(--border); font-size:11px;
+  }
+  #tab-matrix .ms-list-item:last-child{border-bottom:none}
+  #tab-matrix .ms-empty{color:var(--muted); font-size:11px; font-style:italic}
+  #tab-matrix .ms-error{color:#ef4444; font-size:11px}
+  #tab-matrix .matrix-header{
+    padding:10px 12px 6px; display:flex; justify-content:space-between;
+    align-items:baseline; font-size:11px; color:var(--muted);
+    letter-spacing:1px;
+  }
+  #tab-matrix .matrix-header .mh-loaded{color:var(--accent)}
+</style>
 <div id="tab-matrix" class="section active">
-  <div style="padding:48px 24px;text-align:center;color:var(--muted);font-family:'Courier New',monospace;letter-spacing:3px;">
-    <div style="font-size:13px;margin-bottom:20px;opacity:0.6;">// MORPHEUS — OPERATOR //</div>
-    <div style="font-size:18px;color:var(--text);margin-bottom:14px;letter-spacing:2px;">Reading the Matrix.</div>
-    <div style="font-size:11px;opacity:0.5;">Awareness endpoint live at /api/morpheus/awareness.</div>
-    <div style="font-size:11px;opacity:0.5;margin-top:6px;">Six-section grid lands in Ship 2.</div>
-    <div style="font-size:10px;opacity:0.3;margin-top:32px;">awakening_state: phase_0_complete</div>
+  <div class="matrix-header">
+    <div>// MORPHEUS — OPERATOR //</div>
+    <div id="matrix-status">awareness: <span class="mh-loaded" id="matrix-status-text">loading</span> · last: <span id="matrix-last-fetch">—</span></div>
+  </div>
+  <div class="matrix-grid">
+    <div class="matrix-section" id="matrix-red-alert">
+      <h2><span>🟥 Red Alert</span><span class="ms-fresh" id="ra-fresh"></span></h2>
+      <div class="ms-body" id="red-alert-content"><div class="ms-empty">loading…</div></div>
+    </div>
+    <div class="matrix-section" id="matrix-the-matrix">
+      <h2><span>🔮 The Matrix</span><span class="ms-fresh" id="tm-fresh"></span></h2>
+      <div class="ms-body" id="the-matrix-content"><div class="ms-empty">loading…</div></div>
+    </div>
+    <div class="matrix-section" id="matrix-intelligence">
+      <h2><span>🧠 Intelligence</span><span class="ms-fresh" id="in-fresh"></span></h2>
+      <div class="ms-body" id="intelligence-content"><div class="ms-empty">loading…</div></div>
+    </div>
+    <div class="matrix-section" id="matrix-oracle">
+      <h2><span>🔭 Oracle</span><span class="ms-fresh" id="or-fresh"></span></h2>
+      <div class="ms-body" id="oracle-content"><div class="ms-empty">loading…</div></div>
+    </div>
+    <div class="matrix-section" id="matrix-fleet-status">
+      <h2><span>⚓ Fleet Status</span><span class="ms-fresh" id="fs-fresh"></span></h2>
+      <div class="ms-body" id="fleet-status-content"><div class="ms-empty">loading…</div></div>
+    </div>
+    <div class="matrix-section" id="matrix-ships-log">
+      <h2><span>📜 Ship's Log</span><span class="ms-fresh" id="sl-fresh"></span></h2>
+      <div class="ms-body" id="ships-log-content"><div class="ms-empty">loading…</div></div>
+    </div>
   </div>
 </div>
+<script>
+// HM-MORPHEUS Ship 2 Phase 2 (2026-05-18) — Matrix tab hydration.
+// IIFE so locals don't leak into the global namespace.
+(function() {
+  const POLL_MS = 30000;
+  const _esc = s => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  function _kv(rows) {
+    if (!rows || !rows.length) return '<div class="ms-empty">—</div>';
+    return rows.map(r =>
+      `<div class="ms-row"><span class="ms-key">${_esc(r.k)}</span><span class="ms-val">${_esc(r.v)}</span></div>`
+    ).join('');
+  }
+
+  function _list(items, mapper) {
+    if (!items || !items.length) return '<div class="ms-empty">no entries</div>';
+    return items.slice(0, 8).map(it => `<div class="ms-list-item">${mapper(it)}</div>`).join('');
+  }
+
+  // /api/morpheus/awareness returns top-level arrays for signals/intelligence/
+  // commits/advisory/kirk_alerts/predictions, and a flat portfolio object.
+  // Confidence on signals is 0–100; on advisory it's 0–1.
+
+  function _renderRedAlert(d) {
+    const sigs = Array.isArray(d.signals) ? d.signals : [];
+    const high = sigs.filter(s => Number(s.confidence || 0) >= 85);
+    if (!high.length) return '<div class="ms-empty">no high-confidence alerts</div>';
+    return _list(high, s =>
+      `<b>${_esc(s.symbol)}</b> · ${_esc(s.action || s.type || '')} (conf ${Math.round(Number(s.confidence || 0))}%) — <span class="ms-key">${_esc(s.agent_name || '')}</span>`
+    );
+  }
+
+  function _renderMatrix(d) {
+    const p = d.portfolio || {};
+    const fmtUsd = v => v != null ? '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—';
+    const rows = [
+      { k: 'Total Value', v: fmtUsd(p.total_value) },
+      { k: 'Cash',        v: fmtUsd(p.total_cash) },
+      { k: 'Invested',    v: fmtUsd(p.total_invested) },
+      { k: 'Positions',   v: p.position_count != null ? p.position_count : '—' },
+    ];
+    return _kv(rows);
+  }
+
+  function _renderIntelligence(d) {
+    const items = Array.isArray(d.intelligence) ? d.intelligence : [];
+    return _list(items, it => {
+      let title = it.feed_type || 'feed';
+      let body = '';
+      if (typeof it.data === 'string') {
+        try {
+          const parsed = JSON.parse(it.data);
+          if (parsed && typeof parsed === 'object') {
+            title = parsed.title || title;
+            body = parsed.message || parsed.summary || '';
+          } else {
+            body = it.data;
+          }
+        } catch (_) {
+          body = it.data;
+        }
+      }
+      return `<b>${_esc(title)}</b><br><span class="ms-key">${_esc(body.slice(0, 160))}</span>`;
+    });
+  }
+
+  function _renderOracle(d) {
+    const preds = Array.isArray(d.predictions) ? d.predictions : [];
+    return _list(preds, p => {
+      const tps = [p.tp1, p.tp2].filter(x => x != null).map(x => '$' + Number(x).toFixed(2)).join(' / ');
+      return `<b>${_esc(p.symbol)}</b> · ${_esc(p.recommendation || '')} <span class="ms-key">[${_esc(p.regime || '')} · score ${_esc(p.master_score)}]</span>` +
+        (tps ? `<br><span class="ms-key">TP ${tps}</span>` : '');
+    });
+  }
+
+  function _renderFleetStatus(d) {
+    const ka = Array.isArray(d.kirk_alerts) ? d.kirk_alerts : [];
+    const adv = Array.isArray(d.advisory) ? d.advisory : [];
+    if (!ka.length && !adv.length) return '<div class="ms-empty">no fleet signals</div>';
+    const kaHtml = ka.slice(0, 3).map(a =>
+      `<div class="ms-list-item"><b>${_esc(a.ticker)}</b> · ${_esc(a.action || '')} <span class="ms-key">[${_esc(a.alert_type || '')}]</span><br><span class="ms-key">${_esc((a.message || '').slice(0, 140))}</span></div>`
+    ).join('');
+    const advHtml = adv.slice(0, 3).map(a =>
+      `<div class="ms-list-item"><b>${_esc(a.symbol)}</b> · ${_esc(a.action || '')} <span class="ms-key">${_esc(a.advisor || '')} (${Math.round(Number(a.confidence || 0) * 100)}%)</span><br><span class="ms-key">${_esc((a.reasoning || '').slice(0, 120))}</span></div>`
+    ).join('');
+    return kaHtml + advHtml;
+  }
+
+  function _renderShipsLog(d) {
+    const commits = Array.isArray(d.commits) ? d.commits : [];
+    return _list(commits, c =>
+      `<b>${_esc((c.sha || '').slice(0, 7))}</b> · ${_esc((c.msg || '').slice(0, 150))}`
+    );
+  }
+
+  function _renderSection(id, html) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  }
+
+  function _renderError(id, msg) {
+    _renderSection(id, `<div class="ms-error">error: ${_esc(msg)}</div>`);
+  }
+
+  async function loadMatrix() {
+    const statusEl = document.getElementById('matrix-status-text');
+    const fetchEl  = document.getElementById('matrix-last-fetch');
+    try {
+      const r = await fetch('/api/morpheus/awareness', { credentials: 'same-origin' });
+      if (!r.ok) {
+        if (statusEl) statusEl.textContent = `HTTP ${r.status}`;
+        return;
+      }
+      const d = await r.json();
+      const failed = new Set((d.sources_failed || []).map(s => s.source));
+      if (statusEl) {
+        statusEl.textContent = (d.sources_loaded || []).length + '/' +
+          ((d.sources_loaded || []).length + (d.sources_failed || []).length) + ' sources';
+      }
+      if (fetchEl) fetchEl.textContent = new Date().toLocaleTimeString();
+
+      _renderSection('red-alert-content',
+        failed.has('signals') ? '<div class="ms-error">signals source failed</div>' : _renderRedAlert(d));
+      _renderSection('the-matrix-content',
+        failed.has('portfolio') ? '<div class="ms-error">portfolio source failed</div>' : _renderMatrix(d));
+      _renderSection('intelligence-content',
+        failed.has('intelligence') ? '<div class="ms-error">intelligence source failed</div>' : _renderIntelligence(d));
+      _renderSection('oracle-content',
+        failed.has('predictions') ? '<div class="ms-error">predictions source failed</div>' : _renderOracle(d));
+      _renderSection('fleet-status-content',
+        (failed.has('kirk_alerts') && failed.has('advisory'))
+          ? '<div class="ms-error">fleet sources failed</div>'
+          : _renderFleetStatus(d));
+      _renderSection('ships-log-content',
+        failed.has('commits') ? '<div class="ms-error">commits source failed</div>' : _renderShipsLog(d));
+    } catch (err) {
+      if (statusEl) statusEl.textContent = 'fetch error';
+      _renderError('red-alert-content', err.message || String(err));
+    }
+  }
+
+  // First load + poll
+  document.addEventListener('DOMContentLoaded', loadMatrix);
+  if (document.readyState !== 'loading') loadMatrix();
+  setInterval(loadMatrix, POLL_MS);
+})();
+</script>
 
 <!-- ═══════════════ SIGNALS TAB ═══════════════ -->
 <div id="tab-signals" class="section">
