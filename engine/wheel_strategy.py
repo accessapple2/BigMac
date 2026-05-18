@@ -199,6 +199,17 @@ def check_wheel_assignments():
     HM-WHEEL-ASSIGNMENT-LEDGER epic per Admiral disposition Option C
     (G5). ITM-at-expiry positions trigger NTFY + skip; Admiral closes
     manually until cash-source decision lands.
+
+    HM-WHEEL-CHECK-ASSIGNMENTS-DOCUMENT-DUAL-COVERAGE 2026-05-17:
+    Dual-coverage with engine/paper_trader.py::_expire_canonical
+    (HM-EXPIRE-OPTIONS-CANONICAL, commit d5abf99). _expire_canonical
+    fires every ~120s with caller-passed prices dict; THIS hourly
+    function fetches its own spot via get_stock_price() and is the
+    defensive fallback for the prices=None corner case in the admin
+    POST /api/wheel/force-expire path. Race tolerable per Fix #6 G18 —
+    close_options_trade returns None on already-closed row. DO NOT
+    DEPRECATE without first shipping HM-EXPIRE-OPTIONS-PRICES-NONE-
+    HARDENING (banked LOW-MEDIUM 2026-05-17 audit bundle).
     """
     import json
     import sqlite3

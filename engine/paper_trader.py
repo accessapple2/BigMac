@@ -1894,7 +1894,22 @@ def expire_options(prices: dict = None) -> dict:
 
 
 def _expire_canonical(prices: dict = None) -> list[dict]:
-    """HM-EXPIRE-OPTIONS-CANONICAL canonical path — iterate options_trades."""
+    """HM-EXPIRE-OPTIONS-CANONICAL canonical path — iterate options_trades.
+
+    HM-WHEEL-CHECK-ASSIGNMENTS-DOCUMENT-DUAL-COVERAGE 2026-05-17:
+    Dual-coverage with engine/wheel_strategy.py::check_wheel_assignments
+    (HM-W1F5, commit 418c092). This helper fires every ~120s from
+    ai_brain.run_scan with caller-passed prices dict. When prices is
+    None (e.g., admin POST /api/wheel/force-expire path), the CSP-ITM
+    branch below at the `if structure == 'csp'` check is SILENTLY SKIPPED
+    (the `if short_puts and prices and symbol in prices` guard), and
+    the function falls through to OTM-close-at-$0 for any past-expiry
+    CSP — INCORRECT for an actually-ITM put. check_wheel_assignments
+    is the hourly defensive fallback that fetches its own spot price
+    via get_stock_price() and correctly detects ITM in this case.
+    Until HM-EXPIRE-OPTIONS-PRICES-NONE-HARDENING ships, both functions
+    are needed.
+    """
     import json
     from datetime import date as _date
     from engine.options_exec import close_options_trade
