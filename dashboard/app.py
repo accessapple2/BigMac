@@ -4364,8 +4364,11 @@ def first_officer_briefing(force: int = 0):
             )
         except Exception:
             pass
+    # HM-FIRST-OFFICER-MORNING-BRIEF-LLM-COLD-CACHE 2026-05-18: disk_only=True
+    # — never spin MLX/Ollama from GET. Cold-cache returns graceful
+    # unavailable; POST /force-briefing remains the regenerate path.
     from engine.first_officer import get_briefing
-    return get_briefing(force=False)
+    return get_briefing(force=False, disk_only=True)
 
 
 @app.post("/api/first-officer/ask")
@@ -16976,14 +16979,19 @@ async def morning_brief_run(force: bool = False):
         except Exception:
             pass
     try:
+        # HM-FIRST-OFFICER-MORNING-BRIEF-LLM-COLD-CACHE 2026-05-18: disk_only=True
+        # — never run sub-getter pipeline from GET. Falls back to disk JSON →
+        # graceful unavailable.
         from engine.morning_briefing import generate_daily_intel_report
-        result = generate_daily_intel_report(force=False, push_ntfy=False)
+        result = generate_daily_intel_report(force=False, push_ntfy=False, disk_only=True)
         return JSONResponse({
             "ok":           True,
             "generated_at": result.get("generated_at"),
             "date":         result.get("date"),
             "game_plan":    result.get("game_plan", {}),
-            "message":      "Intel report generated successfully",
+            "unavailable":  result.get("unavailable", False),
+            "disk_only":    result.get("disk_only", False),
+            "message":      result.get("label") or "Intel report served from disk cache",
         })
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
