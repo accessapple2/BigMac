@@ -1861,6 +1861,15 @@ def _normalized_leaderboard_metrics(total_value, day_change, starting_capital):
 
 @app.get("/api/arena/leaderboard")
 def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, show_all: bool = False):
+    # HM-LEADERBOARD-INTERNAL-PARAM-PROTECTION 2026-05-17:
+    # `_force` underscore prefix is Python-convention "internal-only kwarg" —
+    # callers should NOT pass ?_force=true via URL. The URL-facing
+    # cache-bypass contract is ?nocache=true (handled below). If you find
+    # yourself wanting a URL-visible force trigger, ship a paired POST
+    # /api/arena/force-leaderboard endpoint per HM-FORCE-PARAM-GET-MIGRATE
+    # doctrine (commit 4a8ab50) instead of removing the underscore here.
+    # Keeping the underscore prevents accidental URL exposure of the
+    # internal-recompute path.
     if nocache:
         _force = True
         _endpoint_cache.pop(f"leaderboard_{season}", None)
