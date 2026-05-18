@@ -1935,8 +1935,11 @@ def _expire_canonical(prices: dict = None) -> list[dict]:
             console.log(f"[red]expire_options canonical: bad legs_json trade {trade_id} — skipping")
             continue
 
-        # CSP ITM-at-expiry check — defer to HM-WHEEL-ASSIGNMENT-LEDGER
-        # (Fix #5 Option C: no ai_players cash mutation in this epic)
+        # HM-WHEEL-ASSIGNMENT-LEDGER 2026-05-18: CSP ITM-at-expiry now records
+        # an assignment via engine.wheel_assignment_ledger.assign_csp instead
+        # of NTFY+skip. G20=C decoupling preserved (no ai_players.cash debit).
+        # Failure falls back to the original NTFY+skip behavior so a broken
+        # ledger never silently swallows an ITM event.
         if structure == "csp":
             short_puts = [l for l in legs if l.get("side") == "short" and l.get("type") == "put"]
             if short_puts and prices and symbol in prices:
@@ -1944,25 +1947,69 @@ def _expire_canonical(prices: dict = None) -> list[dict]:
                 spot = float((prices.get(symbol) or {}).get("price", 0) or 0)
                 if strike > 0 and spot > 0 and spot < strike:
                     intrinsic = round(strike - spot, 2)
+                    try:
+                        from engine.wheel_assignment_ledger import assign_csp
+                        result = assign_csp(trade_id, spot, assignment_date=today_str)
+                    except Exception as _e:
+                        result = {"status": "exception", "reason": f"{type(_e).__name__}: {_e!r}"}
+
+                    if result.get("status") == "assigned":
+                        console.log(
+                            f"[green]🎡 expire_options: {symbol} CSP ASSIGNED ITM — "
+                            f"strike ${strike}, spot ${spot:.2f}, intrinsic ${intrinsic:.2f}, "
+                            f"trade_id={trade_id} → assignment_id={result.get('assignment_id')}, "
+                            f"shares={result.get('shares')}, capital=${result.get('capital'):.0f}, "
+                            f"pnl=${result.get('pnl'):.2f}"
+                        )
+                        try:
+                            from engine.alert_channels import send_alert, AlertLevel
+                            send_alert(
+                                message=(
+                                    f"Wheel CSP assigned: {symbol} {result.get('shares')} shares @ "
+                                    f"${strike} (spot ${spot:.2f}), trade_id={trade_id}, "
+                                    f"assignment_id={result.get('assignment_id')}"
+                                ),
+                                level=AlertLevel.INFO,
+                                alert_type=f"hm-csp-assigned-{symbol}",
+                                rate_limit_secs=86400,
+                            )
+                        except Exception:
+                            pass
+                        closed.append({
+                            "trade_id": trade_id, "agent_id": agent_id,
+                            "structure": structure, "symbol": symbol,
+                            "expiration": expiration, "pnl": result.get("pnl"),
+                            "exit_reason": "expired_itm_assigned",
+                            "path": "canonical",
+                            "assignment_id": result.get("assignment_id"),
+                        })
+                        continue
+
+                    # Fallback: assign_csp returned noop/partial/exception. Surface
+                    # via WARNING alert so Captain can close manually. Do NOT close
+                    # the row here — preserve original NTFY+skip semantics.
                     console.log(
-                        f"[red]🎡 expire_options: {symbol} CSP ITM at expiry — strike ${strike}, "
-                        f"spot ${spot:.2f}, intrinsic ${intrinsic:.2f}, trade_id={trade_id} — "
-                        f"MANUAL ADMIRAL CLOSE (HM-WHEEL-ASSIGNMENT-LEDGER pending)"
+                        f"[red]🎡 expire_options: {symbol} CSP ITM but assign_csp "
+                        f"{result.get('status')} ({result.get('reason')}) — "
+                        f"strike ${strike}, spot ${spot:.2f}, trade_id={trade_id} — "
+                        f"MANUAL ADMIRAL CLOSE"
                     )
                     try:
                         from engine.alert_channels import send_alert, AlertLevel
                         send_alert(
                             message=(
-                                f"Wheel CSP ITM at expiry: {symbol} strike ${strike}, "
-                                f"spot ${spot:.2f}, trade_id={trade_id} — manual close needed"
+                                f"Wheel CSP ITM but assign_csp {result.get('status')}: "
+                                f"{symbol} strike ${strike}, spot ${spot:.2f}, "
+                                f"trade_id={trade_id} ({result.get('reason')}) — "
+                                f"manual close needed"
                             ),
                             level=AlertLevel.WARNING,
-                            alert_type=f"hm-expire-csp-itm-{symbol}",
+                            alert_type=f"hm-csp-assign-failed-{symbol}",
                             rate_limit_secs=86400,
                         )
                     except Exception:
                         pass
-                    continue  # skip — Admiral handles
+                    continue  # skip — Admiral handles fallback
 
         # OTM (or non-CSP structure) at expiry → close at $0 intrinsic.
         # exit_price=0.0 works for both short and long sides — neither party pays/receives.

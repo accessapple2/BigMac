@@ -8152,6 +8152,49 @@ def wheel_force_exits():
         return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
 
 
+@app.post("/api/wheel/force-assign")
+def wheel_force_assign(body: dict = None):
+    """HM-WHEEL-ASSIGNMENT-LEDGER 2026-05-18: Admiral-driven CSP assignment.
+
+    Body: {"trade_id": int, "spot_at_expiry": float | null}
+    If spot_at_expiry is null, the endpoint fetches via get_stock_price
+    using the trade's symbol.
+
+    Synchronous (not background) — assign_csp is a single ledger event
+    and the caller needs the result to confirm assignment_id + pnl.
+    Idempotent — re-fire on the same trade_id returns the noop sentinel.
+    """
+    try:
+        if not body or "trade_id" not in body:
+            return {"status": "error", "error": "trade_id required in body"}
+        trade_id = int(body["trade_id"])
+        spot = body.get("spot_at_expiry")
+        if spot is None:
+            import sqlite3
+            from engine.market_data import get_stock_price
+            c = sqlite3.connect("data/trader.db")
+            try:
+                row = c.execute(
+                    "SELECT symbol FROM options_trades WHERE id=?", (trade_id,),
+                ).fetchone()
+            finally:
+                c.close()
+            if not row:
+                return {"status": "error",
+                        "error": f"trade_id {trade_id} not found in options_trades"}
+            pd = get_stock_price(row[0])
+            spot = pd.get("price", 0) if pd else 0
+            if not spot:
+                return {"status": "error",
+                        "error": f"could not resolve spot for {row[0]}; "
+                                 f"pass spot_at_expiry explicitly"}
+        from engine.wheel_assignment_ledger import assign_csp
+        result = assign_csp(trade_id, float(spot))
+        return {"status": "ok", "result": result}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
+
+
 # ═══════════════════════════════════════════════════════════════════════════
 # HM-FORCE-PARAM-GET-MIGRATE 2026-05-17 — 5 paired POST /force-* endpoints
 # Mirrors HM-SQUEEZE-ROOT-FIX + wheel/force-* doctrine. fire-and-forget
