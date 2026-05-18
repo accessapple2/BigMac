@@ -95,11 +95,15 @@ def _load_open_spread_legs() -> frozenset[tuple[str, str, str, float]]:
             if not isinstance(leg, dict):
                 continue
             try:
-                option_type = str(leg["option_type"]).lower()
+                # HM-BULL-SPREAD-V1-SCHEMA-CANONICALIZE 2026-05-17 G52-strict:
+                # canonical schema uses 'type' not 'option_type'. Legacy rows
+                # migrated to canonical via DB UPDATE in same commit.
+                option_type = str(leg["type"]).lower()
                 strike = float(leg["strike"])
             except (KeyError, TypeError, ValueError):
                 continue
-            leg_exp = str(leg.get("expiration") or expiration or "")
+            # G52-strict: canonical drops per-leg expiration; parent column carries it.
+            leg_exp = str(expiration or "")
             if not leg_exp:
                 continue
             legs.add((str(symbol).upper(), leg_exp, option_type, strike))

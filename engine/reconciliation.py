@@ -370,19 +370,27 @@ def get_internal_options_positions() -> dict:
             legs = []
         if not legs:
             continue
+        # HM-BULL-SPREAD-V1-SCHEMA-CANONICALIZE 2026-05-17 G52-strict:
+        # canonical schema uses 'type' not 'option_type', 'side' not 'action'.
+        # Per-leg 'expiration' dropped — parent column carries it.
+        # Per-leg 'qty' present in canonical; falls back to contracts column
+        # for transitional safety (DB UPDATE same commit migrates all legacy).
         qty_per_leg = int(contracts or 1)
         for leg in legs:
             occ = _build_occ_symbol(
                 underlying=underlying,
-                expiration=leg.get("expiration") or expiration,
-                option_type=leg.get("option_type") or "",
+                expiration=expiration,
+                option_type=leg.get("type") or "",
                 strike=leg.get("strike") or 0,
             )
             if not occ:
                 continue
-            action = str(leg.get("action") or "").lower()
-            side = "long" if action.startswith("b") else "short"
-            signed_qty = qty_per_leg if side == "long" else -qty_per_leg
+            side = str(leg.get("side") or "").lower()
+            if side not in ("long", "short"):
+                continue
+            # Prefer per-leg qty (canonical); fall back to parent contracts
+            leg_qty = int(leg.get("qty") or qty_per_leg)
+            signed_qty = leg_qty if side == "long" else -leg_qty
             out.setdefault(agent_id, []).append({
                 "occ_symbol": occ,
                 "qty":        signed_qty,

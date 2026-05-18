@@ -145,9 +145,11 @@ def mark_to_market(pos: OpenPosition) -> MarkToMarket:
     from .mock_data import is_mock_mode
 
     # Reconstruct max_profit / max_loss from entry legs
+    # HM-BULL-SPREAD-V1-SCHEMA-CANONICALIZE 2026-05-17 G52-strict:
+    # canonical schema uses 'side' (long/short) not 'action' (buy/sell).
     legs = json.loads(pos.legs_json)
-    long_leg = next((l for l in legs if l["action"] == "buy"), None)
-    short_leg = next((l for l in legs if l["action"] == "sell"), None)
+    long_leg = next((l for l in legs if l.get("side") == "long"), None)
+    short_leg = next((l for l in legs if l.get("side") == "short"), None)
     if not (long_leg and short_leg):
         return MarkToMarket(
             position_id=pos.id, current_value=0.0, unrealized_pnl=0.0,
