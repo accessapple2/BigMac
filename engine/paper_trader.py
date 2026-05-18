@@ -1871,11 +1871,114 @@ def save_equity_snapshot(player_id: str, prices: dict):
 def expire_options(prices: dict = None) -> dict:
     """Auto-close all options positions whose expiry_date has passed.
 
-    Called once per scanner cycle. For each expired position:
-    - If the stock price is available, calculates intrinsic value (ITM → positive, OTM → $0).
-    - Closes the position via sell() and records realized P&L.
+    HM-EXPIRE-OPTIONS-CANONICAL 2026-05-17: dual-table scan.
+      • Canonical path → options_trades + close_options_trade (Fix #4
+        opens, all structures: csp, bull_put_spread, bull_call_spread,
+        long_call, long_put, ...).
+      • Legacy path → positions-table long options (navigator,
+        alpaca-mirror, dalio-metals — 7 rows as of audit 2026-05-17).
+    CSP ITM-at-expiry NTFY+skip per HM-WHEEL-ASSIGNMENT-LEDGER deferral
+    (Fix #5 Option C).
 
-    Returns a summary dict: {"expired": N, "closed": [...]}
+    Returns {"expired": N, "closed": [...]} combined across both paths.
+    """
+    closed_canonical = _expire_canonical(prices)
+    closed_legacy = _expire_legacy(prices)
+    closed = closed_canonical + closed_legacy
+    if closed:
+        console.log(
+            f"[yellow]expire_options: closed {len(closed)} "
+            f"({len(closed_canonical)} canonical + {len(closed_legacy)} legacy)"
+        )
+    return {"expired": len(closed), "closed": closed}
+
+
+def _expire_canonical(prices: dict = None) -> list[dict]:
+    """HM-EXPIRE-OPTIONS-CANONICAL canonical path — iterate options_trades."""
+    import json
+    from datetime import date as _date
+    from engine.options_exec import close_options_trade
+
+    today_str = _date.today().strftime("%Y-%m-%d")
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, agent_id, structure, symbol, expiration, legs_json, entry_credit_debit "
+            "FROM options_trades "
+            "WHERE status='open' AND substr(expiration,1,10) <= ?",
+            (today_str,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    closed: list[dict] = []
+    for row in rows:
+        trade_id, agent_id, structure, symbol, expiration, legs_json, _ent_cd = row
+        try:
+            legs = json.loads(legs_json)
+        except (json.JSONDecodeError, TypeError):
+            console.log(f"[red]expire_options canonical: bad legs_json trade {trade_id} — skipping")
+            continue
+
+        # CSP ITM-at-expiry check — defer to HM-WHEEL-ASSIGNMENT-LEDGER
+        # (Fix #5 Option C: no ai_players cash mutation in this epic)
+        if structure == "csp":
+            short_puts = [l for l in legs if l.get("side") == "short" and l.get("type") == "put"]
+            if short_puts and prices and symbol in prices:
+                strike = float(short_puts[0].get("strike", 0) or 0)
+                spot = float((prices.get(symbol) or {}).get("price", 0) or 0)
+                if strike > 0 and spot > 0 and spot < strike:
+                    intrinsic = round(strike - spot, 2)
+                    console.log(
+                        f"[red]🎡 expire_options: {symbol} CSP ITM at expiry — strike ${strike}, "
+                        f"spot ${spot:.2f}, intrinsic ${intrinsic:.2f}, trade_id={trade_id} — "
+                        f"MANUAL ADMIRAL CLOSE (HM-WHEEL-ASSIGNMENT-LEDGER pending)"
+                    )
+                    try:
+                        from engine.alert_channels import send_alert, AlertLevel
+                        send_alert(
+                            message=(
+                                f"Wheel CSP ITM at expiry: {symbol} strike ${strike}, "
+                                f"spot ${spot:.2f}, trade_id={trade_id} — manual close needed"
+                            ),
+                            level=AlertLevel.WARNING,
+                            alert_type=f"hm-expire-csp-itm-{symbol}",
+                            rate_limit_secs=86400,
+                        )
+                    except Exception:
+                        pass
+                    continue  # skip — Admiral handles
+
+        # OTM (or non-CSP structure) at expiry → close at $0 intrinsic.
+        # exit_price=0.0 works for both short and long sides — neither party pays/receives.
+        exit_legs = [dict(leg, exit_price=0.0) for leg in legs]
+        try:
+            pnl = close_options_trade(trade_id, exit_legs, exit_reason="expired_otm")
+        except Exception as e:
+            console.log(f"[red]expire_options canonical: close failed trade {trade_id} ({symbol}): {type(e).__name__}: {e!r}")
+            continue
+        if pnl is None:
+            console.log(
+                f"[red]expire_options canonical: close_options_trade returned None for "
+                f"trade_id={trade_id} ({symbol}) — already closed or row missing"
+            )
+            continue
+        console.log(
+            f"[yellow]expire_options canonical: {symbol} {structure} trade_id={trade_id} "
+            f"expired_otm pnl=${pnl:.2f}"
+        )
+        closed.append({
+            "trade_id": trade_id, "agent_id": agent_id, "structure": structure,
+            "symbol": symbol, "expiration": expiration, "pnl": pnl,
+            "exit_reason": "expired_otm", "path": "canonical",
+        })
+    return closed
+
+
+def _expire_legacy(prices: dict = None) -> list[dict]:
+    """HM-EXPIRE-OPTIONS-CANONICAL legacy path — positions-table long options
+    (navigator, alpaca-mirror, dalio-metals). Body preserved verbatim from
+    pre-HM-EXPIRE expire_options to keep the 7 legacy rows working unchanged.
     """
     from datetime import date
     today_str = date.today().strftime("%Y-%m-%d")
@@ -1911,16 +2014,14 @@ def expire_options(prices: dict = None) -> dict:
             "player_id": pid, "symbol": sym, "option_type": ot,
             "expiry_date": exp, "close_price": close_price,
             "pnl": round((close_price - avg_price) * qty, 2) if avg_price > 0 else 0,
+            "path": "legacy",
         })
         console.log(
-            f"[yellow]OPTION EXPIRED: {pid} {sym} {(ot or '').upper()} "
+            f"[yellow]OPTION EXPIRED (legacy): {pid} {sym} {(ot or '').upper()} "
             f"exp={exp} → {outcome}"
         )
 
-    if closed:
-        console.log(f"[yellow]expire_options: closed {len(closed)} expired position(s)")
-
-    return {"expired": len(closed), "closed": closed}
+    return closed
 
 
 def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
@@ -2068,13 +2169,28 @@ def _is_option_expiry_passed(expiry_date) -> bool:
 def check_option_exits(prices: dict = None) -> dict:
     """Check all open option positions and auto-exit on TP/SL/time-stop rules.
 
-    Rules (long options only):
+    Rules (LONG options only):
     • Take-profit: exit when current value >= 1.5× entry premium (50% gain).
     • Stop-loss:   exit when current value <= 0.5× entry premium (50% loss).
     • Time stop:   exit spreads with DTE ≤ 21 (theta decay accelerates here).
 
+    HM-EXPIRE-OPTIONS-CANONICAL 2026-05-17: dual-table scan, long-only on
+    the canonical path. Short-premium structures (csp, bull_put_spread,
+    bear_call_spread) skipped from the canonical scan because LONG TP/SL
+    rules INVERT for short premium (banked as
+    HM-CHECK-OPTION-EXITS-SHORT-PREMIUM-RULES).
+
     Called once per scanner cycle from ai_brain.run_scan().
     """
+    closed_legacy = _check_option_exits_legacy(prices)
+    closed_canonical = _check_option_exits_canonical_long_only(prices)
+    closed = closed_legacy + closed_canonical
+    return {"auto_exited": len(closed), "closed": closed}
+
+
+def _check_option_exits_legacy(prices: dict = None) -> list[dict]:
+    """HM-EXPIRE-OPTIONS-CANONICAL legacy path — positions-table options.
+    Body preserved verbatim from pre-HM-EXPIRE check_option_exits."""
     from datetime import date as _date
     today = _date.today()
 
@@ -2124,10 +2240,108 @@ def check_option_exits(prices: dict = None) -> dict:
                          reasoning=reason, confidence=1.0)
             if result:
                 closed.append({"player_id": pid, "symbol": sym, "option_type": ot,
-                               "reason": reason[:60]})
-                console.log(f"[cyan]OPTION EXIT: {pid} {sym} {(ot or '').upper()} — {reason[:60]}")
+                               "reason": reason[:60], "path": "legacy"})
+                console.log(f"[cyan]OPTION EXIT (legacy): {pid} {sym} {(ot or '').upper()} — {reason[:60]}")
 
-    return {"auto_exited": len(closed), "closed": closed}
+    return closed
+
+
+_CANONICAL_LONG_STRUCTURES = ("long_call", "long_put")
+
+
+def _check_option_exits_canonical_long_only(prices: dict = None) -> list[dict]:
+    """HM-EXPIRE-OPTIONS-CANONICAL canonical path — options_trades, LONG ONLY.
+
+    Structure filter is the G14 short-premium guard: csp/bull_put_spread/
+    bear_call_spread skipped because LONG TP/SL rules invert for short premium
+    (banked as HM-CHECK-OPTION-EXITS-SHORT-PREMIUM-RULES).
+    """
+    import json
+    from datetime import date as _date
+    from engine.options_exec import close_options_trade
+
+    today = _date.today()
+    placeholders = ",".join("?" for _ in _CANONICAL_LONG_STRUCTURES)
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            f"SELECT id, agent_id, structure, symbol, expiration, legs_json, entry_credit_debit "
+            f"FROM options_trades WHERE status='open' AND structure IN ({placeholders})",
+            _CANONICAL_LONG_STRUCTURES,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    closed: list[dict] = []
+    for row in rows:
+        trade_id, agent_id, structure, symbol, expiration, legs_json, ent_cd = row
+        try:
+            legs = json.loads(legs_json)
+        except (json.JSONDecodeError, TypeError):
+            console.log(f"[red]check_option_exits canonical: bad legs_json trade {trade_id} — skipping")
+            continue
+
+        # Skip if expired — expire_options owns post-expiry
+        try:
+            exp_d = datetime.strptime(expiration[:10], "%Y-%m-%d").date()
+            if exp_d <= today:
+                continue
+            dte = (exp_d - today).days
+        except (ValueError, TypeError):
+            continue
+
+        long_legs = [l for l in legs if l.get("side") == "long"]
+        if not long_legs:
+            continue
+        leg = long_legs[0]
+        entry_premium = float(leg.get("entry_price", 0) or 0)
+        strike = float(leg.get("strike", 0) or 0)
+        opt_type = leg.get("type")
+        qty = int(leg.get("qty", 0) or 0)
+        if entry_premium <= 0 or strike <= 0 or qty <= 0:
+            continue
+
+        # Current option value via existing helper
+        current_price = entry_premium
+        if prices and symbol in prices:
+            stock_price = float((prices.get(symbol) or {}).get("price", 0) or 0)
+            if stock_price > 0:
+                current_price = estimate_option_price(opt_type, strike, stock_price, entry_premium, expiration[:10])
+
+        reason = None
+        if current_price >= entry_premium * 1.5:
+            reason = f"AUTO-TP: +50% on {symbol} {opt_type} (${entry_premium:.2f}→${current_price:.2f})"
+            exit_tag = "tp_hit"
+        elif current_price <= entry_premium * 0.50:
+            reason = f"AUTO-SL: -50% on {symbol} {opt_type} (${entry_premium:.2f}→${current_price:.2f})"
+            exit_tag = "sl_hit"
+        elif 0 < dte <= 21:
+            reason = f"TIME-STOP: {symbol} {opt_type} at {dte} DTE"
+            exit_tag = "time_stop"
+
+        if reason is None:
+            continue
+
+        # LONG-option close = sell-to-close. close_options_trade's sign convention:
+        # close_cost = exit_price × qty × 100; pnl = entry_credit_debit - close_cost.
+        # For sell-to-close at $X (credit), close_cost must be NEGATIVE → exit_price = -X.
+        # Verified by synthetic test I14 (scripts/hm_expire_options_synthetic.py).
+        exit_legs = [dict(leg, exit_price=-current_price)]
+        try:
+            pnl = close_options_trade(trade_id, exit_legs, exit_reason=exit_tag)
+        except Exception as e:
+            console.log(f"[red]check_option_exits canonical: close failed trade {trade_id}: {type(e).__name__}: {e!r}")
+            continue
+        if pnl is None:
+            console.log(f"[red]check_option_exits canonical: close_options_trade None trade {trade_id} ({symbol})")
+            continue
+        console.log(f"[cyan]OPTION EXIT (canonical): {agent_id} {symbol} {opt_type} — {reason[:60]} pnl=${pnl:.2f}")
+        closed.append({
+            "trade_id": trade_id, "agent_id": agent_id, "structure": structure,
+            "symbol": symbol, "reason": reason[:60], "exit_reason": exit_tag,
+            "pnl": pnl, "path": "canonical",
+        })
+    return closed
 
 
 # ─────────────────────────────────────────────────────────────────────────────

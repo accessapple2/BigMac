@@ -8047,6 +8047,61 @@ def wheel_force_assignments():
         return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
 
 
+@app.post("/api/wheel/force-expire")
+def wheel_force_expire():
+    """Force expire_options check (bypasses ~120s scan cycle).
+
+    HM-EXPIRE-OPTIONS-CANONICAL 2026-05-17: dual-table scan — closes
+    at-or-past-expiry rows from options_trades canonical (Fix #4 +
+    bull_spread_v1) AND positions-table legacy (long-option holders).
+    CSP ITM-at-expiry NTFY+skips per HM-WHEEL-ASSIGNMENT-LEDGER deferral.
+    Fires fire-and-forget in a background thread; caller polls status via
+    sqlite or /api/wheel/status for visibility.
+    """
+    try:
+        import threading
+        from engine.paper_trader import expire_options
+
+        def _runner():
+            try:
+                r = expire_options(None)
+                console.log(f"[yellow]force-expire: closed {r.get('expired', 0)} position(s)")
+            except Exception as _e:
+                console.log(f"[red]force-expire background error: {type(_e).__name__}: {_e!r}")
+
+        threading.Thread(target=_runner, daemon=True, name="wheel_force_expire").start()
+        return {"status": "ok", "message": "Expire check triggered (background)"}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
+
+
+@app.post("/api/wheel/force-exits")
+def wheel_force_exits():
+    """Force check_option_exits TP/SL/TIME-STOP check (bypasses ~120s scan cycle).
+
+    HM-EXPIRE-OPTIONS-CANONICAL 2026-05-17: dual-table scan with long-only
+    filter on the canonical path. Short-premium structures (csp,
+    bull_put_spread, bear_call_spread) skipped — LONG TP/SL rules invert
+    for short premium (banked as HM-CHECK-OPTION-EXITS-SHORT-PREMIUM-RULES).
+    Fires fire-and-forget in a background thread.
+    """
+    try:
+        import threading
+        from engine.paper_trader import check_option_exits
+
+        def _runner():
+            try:
+                r = check_option_exits(None)
+                console.log(f"[cyan]force-exits: closed {r.get('auto_exited', 0)} position(s)")
+            except Exception as _e:
+                console.log(f"[red]force-exits background error: {type(_e).__name__}: {_e!r}")
+
+        threading.Thread(target=_runner, daemon=True, name="wheel_force_exits").start()
+        return {"status": "ok", "message": "Exits check triggered (background)"}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
+
+
 @app.post("/api/arena/force-scan/{player_id}")
 def force_scan(player_id: str):
     """Force a specific model to scan the watchlist immediately."""
