@@ -30,11 +30,14 @@ DB_PATH = Path(__file__).parent.parent / "data" / "trader.db"
 
 
 def list_open_positions():
+    """HM-BULL-SPREAD-V1-SCHEMA-CANONICALIZE 2026-05-17: SELECT now includes
+    expiration column (parent-level) since canonical legs_json schema drops
+    per-leg expiration. close_one_leg / occ_symbol require parent_expiration."""
     conn = sqlite3.connect(str(DB_PATH))
     try:
         cur = conn.execute("""
             SELECT id, symbol, structure, contracts, legs_json,
-                   contracts_closed_so_far, entry_date, exit_tag
+                   contracts_closed_so_far, entry_date, exit_tag, expiration
             FROM options_trades
             WHERE strategy_id = 'bull_spread_v1'
               AND exec_status = 'open'
@@ -44,34 +47,43 @@ def list_open_positions():
         conn.close()
 
 
-def occ_symbol(underlying: str, leg: dict) -> str:
-    """Match the format used in strategies/executor.py::_occ_symbol"""
+def occ_symbol(underlying: str, leg: dict, parent_expiration: str) -> str:
+    """Match the format used in strategies/executor.py::_occ_symbol
+
+    HM-BULL-SPREAD-V1-SCHEMA-CANONICALIZE 2026-05-17 G52-strict:
+    canonical schema uses 'type' not 'option_type'. Per-leg 'expiration'
+    dropped — caller must pass parent_expiration from options_trades.expiration.
+    """
     from datetime import date
-    exp = date.fromisoformat(leg["expiration"])
+    exp = date.fromisoformat(parent_expiration[:10])
     yy = exp.strftime("%y")
     mm = exp.strftime("%m")
     dd = exp.strftime("%d")
-    cp = "C" if leg["option_type"] == "call" else "P"
+    cp = "C" if leg["type"] == "call" else "P"
     strike_int = int(round(leg["strike"] * 1000))
     return f"{underlying}{yy}{mm}{dd}{cp}{strike_int:08d}"
 
 
-def close_one_leg(underlying: str, leg: dict, qty: int, player_id: str):
-    """Close a single leg with correct BTC/STC direction."""
+def close_one_leg(underlying: str, leg: dict, qty: int, player_id: str, parent_expiration: str):
+    """Close a single leg with correct BTC/STC direction.
+
+    HM-BULL-SPREAD-V1-SCHEMA-CANONICALIZE 2026-05-17 G52-strict:
+    canonical schema uses 'side' (long/short) not 'action' (buy/sell).
+    """
     try:
         from engine.alpaca_options import close_options_position, submit_single_option
     except ImportError as e:
         return {"error": f"import failed: {e}"}
 
-    occ = occ_symbol(underlying, leg)
+    occ = occ_symbol(underlying, leg, parent_expiration)
     try:
-        if leg["action"] == "buy":
+        if leg["side"] == "long":
             # We own this leg — SELL to close
             return close_options_position(
                 player_id=player_id, contract_symbol=occ, qty=qty,
             )
         else:
-            # We sold this leg — BUY to close
+            # We sold this leg (side=short) — BUY to close
             return submit_single_option(
                 player_id=player_id, contract_symbol=occ, qty=qty, side="buy",
             )
@@ -111,7 +123,7 @@ def main():
     print(f"Found {len(positions)} open bull_spread_v1 positions:")
     print("-" * 70)
     for p in positions:
-        pid, sym, struct, ct, legs_json, closed_so_far, entry, tag = p
+        pid, sym, struct, ct, legs_json, closed_so_far, entry, tag, expiration = p
         remaining = ct - (closed_so_far or 0)
         print(f"  id={pid} {sym} {struct} {remaining}/{ct} open "
               f"entry={entry} tag={tag}")
@@ -130,7 +142,7 @@ def main():
     player_id = "strategy:bull_spread_v1"
     all_ok = True
     for p in positions:
-        pid, sym, struct, ct, legs_json, closed_so_far, entry, tag = p
+        pid, sym, struct, ct, legs_json, closed_so_far, entry, tag, expiration = p
         remaining = ct - (closed_so_far or 0)
         try:
             legs = json.loads(legs_json)
@@ -141,7 +153,7 @@ def main():
 
         leg_results = []
         for leg in legs:
-            r = close_one_leg(sym, leg, remaining, player_id)
+            r = close_one_leg(sym, leg, remaining, player_id, expiration)
             leg_results.append({"leg": leg, "result": r})
 
         errors = [lr for lr in leg_results if isinstance(lr["result"], dict) and lr["result"].get("error")]

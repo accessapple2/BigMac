@@ -398,21 +398,29 @@ def _record_options_trade(signal: StrategySignal, order_id: Optional[str],
         payload = signal.payload
         structure = payload.get("structure", "unknown")
 
-        # Build legs_json — schema stores both legs here
+        # HM-BULL-SPREAD-V1-SCHEMA-CANONICALIZE 2026-05-17 G50.a/G51-A/G52-strict:
+        # writer emits canonical {side, type, strike, qty, entry_price} schema
+        # (was legacy {action, option_type, strike, expiration, premium}).
+        # Readers — engine/options_utils.py, engine/reconciliation.py,
+        # strategies/exit_manager.py, scripts/kill_bull_spread.py — patched
+        # to canonical-only in same commit. 25 legacy rows migrated via DB
+        # UPDATE same commit (id=28 active + 20 closed + 4 failed). Per Admiral
+        # G50.a (inline) + G51-A (full scope) + G52-strict (no read adapter).
+        contracts_int = int(payload.get("contracts") or 1)
         legs_json = _json.dumps([
             {
-                "action": payload["long_leg"]["action"],
-                "option_type": payload["long_leg"]["option_type"],
-                "strike": payload["long_leg"]["strike"],
-                "expiration": payload["long_leg"]["expiration"],
-                "premium": payload["long_leg"]["premium"],
+                "side":        "long" if payload["long_leg"]["action"] == "buy" else "short",
+                "type":        payload["long_leg"]["option_type"],
+                "strike":      payload["long_leg"]["strike"],
+                "qty":         contracts_int,
+                "entry_price": payload["long_leg"]["premium"],
             },
             {
-                "action": payload["short_leg"]["action"],
-                "option_type": payload["short_leg"]["option_type"],
-                "strike": payload["short_leg"]["strike"],
-                "expiration": payload["short_leg"]["expiration"],
-                "premium": payload["short_leg"]["premium"],
+                "side":        "long" if payload["short_leg"]["action"] == "buy" else "short",
+                "type":        payload["short_leg"]["option_type"],
+                "strike":      payload["short_leg"]["strike"],
+                "qty":         contracts_int,
+                "entry_price": payload["short_leg"]["premium"],
             },
         ])
 
