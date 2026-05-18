@@ -318,6 +318,13 @@ async def _sse_startup():
         logger.info("[SSE] broadcast_scanner_alert registered with volume_scanner")
     except Exception as _e:
         logger.warning(f"[SSE] Could not register scanner callback: {_e}")
+    # HM-DASH-V2-P2a 2026-05-18: register broadcast into debate_engine
+    try:
+        from engine.debate_engine import _debate_callbacks
+        _debate_callbacks.append(broadcast_debate_event)
+        logger.info("[SSE] broadcast_debate_event registered with debate_engine")
+    except Exception as _e:
+        logger.warning(f"[SSE] Could not register debate callback: {_e}")
 
 
 def _broadcast_to_channel(channel: str, msg: str) -> None:
@@ -364,6 +371,20 @@ def broadcast_scanner_alert(alert: dict):
     if len(_last_broadcast_alerts) > 500:
         _last_broadcast_alerts.clear()
     _broadcast_to_channel("scanner", msg)
+
+
+def broadcast_debate_event(frame: dict):
+    """Thread-safe: push a debate milestone frame to all SSE 'debates' clients.
+    Called from engine.debate_engine._fire_debate_event in the asyncio event
+    loop of the debate task. HM-DASH-V2-P2a 2026-05-18."""
+    if not _sse_clients_by_channel.get("debates"):
+        return
+    try:
+        msg = json.dumps(frame, default=str)
+    except Exception as _e:
+        logger.debug(f"[SSE] debate frame serialize error: {_e}")
+        return
+    _broadcast_to_channel("debates", msg)
 
 
 @app.get("/api/stream/scanner")

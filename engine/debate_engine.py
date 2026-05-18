@@ -16,7 +16,8 @@ import asyncio
 import json
 import logging
 import sqlite3
-from datetime import datetime
+import uuid as _uuid
+from datetime import datetime, timezone
 from typing import Any
 
 import aiohttp
@@ -28,6 +29,42 @@ import aiohttp
 from config import OLLIE_URL as _OLLIE_URL
 OLLAMA_BASE = _OLLIE_URL  # 2026-04-20: localhost → Ollie GPU
 TRADER_DB = "data/trader.db"
+
+
+# ---------------------------------------------------------------------------
+# HM-DASH-V2-P2a — SSE broadcast hook (2026-05-18)
+# dashboard/app.py registers broadcast_debate_event() into _debate_callbacks
+# at startup. No circular import — this module never imports app.py.
+# ---------------------------------------------------------------------------
+_debate_callbacks: list = []
+
+
+def _fire_debate_event(frame: dict) -> None:
+    """Thread-safe fan-out helper. Per-callback try/except so a buggy consumer
+    cannot crash the producer (per HM-CONSOLE-INIT 2026-05-13 lesson — bare
+    except that swallows programming errors is OK here because the producer
+    must never raise into the debate path)."""
+    for _cb in _debate_callbacks:
+        try:
+            _cb(frame)
+        except Exception:
+            pass
+
+
+def _build_envelope(event: str, round_id: str, ticker: str,
+                    start_ts: datetime, debate_id=None, payload=None) -> dict:
+    """Construct the common SSE envelope per §2.1 of v2 P2 directive."""
+    now = datetime.now(timezone.utc)
+    return {
+        "channel":   "debates",
+        "event":     event,
+        "round_id":  round_id,
+        "debate_id": debate_id,
+        "ticker":    ticker,
+        "ts":        now.isoformat(),
+        "elapsed_s": round((now - start_ts).total_seconds(), 3),
+        "payload":   payload or {},
+    }
 
 # Model assignments — tune these to what runs best on your M4
 MODELS = {
@@ -793,6 +830,11 @@ async def run_full_debate(
     if stock_data is None:
         stock_data = {}
 
+    # HM-DASH-V2-P2a 2026-05-18: round_id + start_ts for SSE envelope.
+    round_id = str(_uuid.uuid4())
+    start_ts_utc = datetime.now(timezone.utc)
+    debate_stage = "init"
+
     init_db()
     semaphore = asyncio.Semaphore(MAX_CONCURRENT)
 
@@ -814,71 +856,193 @@ async def run_full_debate(
     logger.info(f"Starting full debate for {ticker} with 12 agents...")
     start_time = datetime.now()
 
-    async with aiohttp.ClientSession() as session:
-        # Step 1: Run bull and bear squads in parallel
-        logger.info("Launching Bull Squad (6 agents)...")
-        logger.info("Launching Bear Squad (6 agents)...")
-        bull_results, bear_results = await asyncio.gather(
-            run_squad(session, semaphore, BULL_AGENTS, ticker, stock_data),
-            run_squad(session, semaphore, BEAR_AGENTS, ticker, stock_data),
-        )
+    # HM-DASH-V2-P2a SITE 1 — debate_start
+    _fire_debate_event(_build_envelope(
+        event="debate_start", round_id=round_id, ticker=ticker,
+        start_ts=start_ts_utc,
+        payload={
+            "regime": stock_data.get("regime"),
+            "stock_data": {
+                "price":      stock_data.get("price"),
+                "rsi":        stock_data.get("rsi"),
+                "change_pct": stock_data.get("change_pct"),
+            },
+            "roster": {
+                "bull_agents":    len(BULL_AGENTS),
+                "bear_agents":    len(BEAR_AGENTS),
+                "expert_witness": "plutus",
+                "judge":          "picard",
+                "risk_triad":     ["spock", "crusher", "scotty"],
+            },
+        },
+    ))
 
-        logger.info(
-            f"Squads complete: {len(bull_results)} bull, "
-            f"{len(bear_results)} bear verdicts"
-        )
+    try:
+        async with aiohttp.ClientSession() as session:
+            # Step 1: Run bull and bear squads in parallel
+            debate_stage = "squads"
+            logger.info("Launching Bull Squad (6 agents)...")
+            logger.info("Launching Bear Squad (6 agents)...")
+            bull_results, bear_results = await asyncio.gather(
+                run_squad(session, semaphore, BULL_AGENTS, ticker, stock_data),
+                run_squad(session, semaphore, BEAR_AGENTS, ticker, stock_data),
+            )
 
-        # Step 2: Expert Witness — Plutus weighs in before Picard
-        logger.info("Expert Witness — Plutus is reviewing the cases...")
-        plutus_analysis = await run_plutus_witness(
-            session, semaphore, ticker, bull_results, bear_results, stock_data
-        )
-        if plutus_analysis:
-            logger.info(f"Plutus verdict received ({len(plutus_analysis)} chars)")
-        else:
-            logger.warning("Plutus unavailable — Picard will proceed without expert witness")
+            logger.info(
+                f"Squads complete: {len(bull_results)} bull, "
+                f"{len(bear_results)} bear verdicts"
+            )
 
-        # Step 3: Picard synthesizes (with Plutus context if available)
-        logger.info("Captain Picard is deliberating...")
-        picard_result = await run_picard(
-            session, semaphore, ticker, bull_results, bear_results,
+            # HM-DASH-V2-P2a SITE 2 — assessment frames per bull/bear agent.
+            # Emitted post-gather (run_squad's signature stays unchanged this
+            # ship). Per-agent frames preserve viewer's ability to group by
+            # side/lens; "live feel" is preserved within ~the squad-gather wall.
+            for side, results in (("bull", bull_results), ("bear", bear_results)):
+                for r in (results or []):
+                    if not isinstance(r, dict):
+                        continue
+                    thesis = (r.get("thesis") or "")[:200]
+                    _fire_debate_event(_build_envelope(
+                        event="assessment", round_id=round_id, ticker=ticker,
+                        start_ts=start_ts_utc,
+                        payload={
+                            "side":           side,
+                            "agent_name":     r.get("agent"),
+                            "lens":           r.get("lens"),
+                            "model":          r.get("model"),
+                            "conviction":     r.get("conviction"),
+                            "thesis_preview": thesis,
+                            "key_data_point": r.get("key_data_point"),
+                            "verdict":        None,
+                        },
+                    ))
+
+            # Step 2: Expert Witness — Plutus weighs in before Picard
+            debate_stage = "plutus"
+            logger.info("Expert Witness — Plutus is reviewing the cases...")
+            plutus_analysis = await run_plutus_witness(
+                session, semaphore, ticker, bull_results, bear_results, stock_data
+            )
+            if plutus_analysis:
+                logger.info(f"Plutus verdict received ({len(plutus_analysis)} chars)")
+                # HM-DASH-V2-P2a SITE 3 — assessment (witness)
+                _fire_debate_event(_build_envelope(
+                    event="assessment", round_id=round_id, ticker=ticker,
+                    start_ts=start_ts_utc,
+                    payload={
+                        "side":           "witness",
+                        "agent_name":     "plutus",
+                        "lens":           "expert",
+                        "model":          MODELS.get("primary"),
+                        "conviction":     None,
+                        "thesis_preview": plutus_analysis[:200],
+                        "key_data_point": None,
+                        "verdict":        None,
+                    },
+                ))
+            else:
+                logger.warning("Plutus unavailable — Picard will proceed without expert witness")
+
+            # Step 3: Picard synthesizes (with Plutus context if available)
+            debate_stage = "picard"
+            logger.info("Captain Picard is deliberating...")
+            picard_result = await run_picard(
+                session, semaphore, ticker, bull_results, bear_results,
+                plutus_analysis=plutus_analysis,
+            )
+            logger.info(
+                f"Picard verdict: {picard_result['decision']} "
+                f"(conviction: {picard_result['conviction']}/10)"
+            )
+            # HM-DASH-V2-P2a SITE 4 — synthesis
+            _fire_debate_event(_build_envelope(
+                event="synthesis", round_id=round_id, ticker=ticker,
+                start_ts=start_ts_utc,
+                payload={
+                    "decision":       picard_result.get("decision"),
+                    "conviction":     picard_result.get("conviction"),
+                    "synthesis_text": (picard_result.get("synthesis") or "")[:2000],
+                    "had_plutus":     bool(plutus_analysis),
+                },
+            ))
+
+            # Step 4: Risk Triad reviews
+            debate_stage = "risk_triad"
+            logger.info("Risk Triad reviewing...")
+            risk_result = await run_risk_triad(
+                session, semaphore, ticker, picard_result
+            )
+            logger.info(
+                f"Risk Triad: {risk_result['risk_rating']} — "
+                f"{risk_result['override']}"
+            )
+            # HM-DASH-V2-P2a SITE 5 — risk_review
+            _fire_debate_event(_build_envelope(
+                event="risk_review", round_id=round_id, ticker=ticker,
+                start_ts=start_ts_utc,
+                payload={
+                    "risk_rating":         risk_result.get("risk_rating"),
+                    "override":            risk_result.get("override"),
+                    "adjusted_conviction": risk_result.get("adjusted_conviction"),
+                    "spock":               (risk_result.get("spock") or "")[:1000],
+                    "crusher":             (risk_result.get("crusher") or "")[:1000],
+                    "scotty":              (risk_result.get("scotty") or "")[:1000],
+                },
+            ))
+
+        # Step 5: Save everything
+        debate_stage = "save_debate"
+        debate_id = save_debate(
+            ticker, bull_results, bear_results,
+            picard_result, risk_result, stock_data,
             plutus_analysis=plutus_analysis,
         )
-        logger.info(
-            f"Picard verdict: {picard_result['decision']} "
-            f"(conviction: {picard_result['conviction']}/10)"
-        )
 
-        # Step 4: Risk Triad reviews
-        logger.info("Risk Triad reviewing...")
-        risk_result = await run_risk_triad(
-            session, semaphore, ticker, picard_result
-        )
-        logger.info(
-            f"Risk Triad: {risk_result['risk_rating']} — "
-            f"{risk_result['override']}"
-        )
+        elapsed = (datetime.now() - start_time).total_seconds()
+        logger.info(f"Debate #{debate_id} complete in {elapsed:.1f}s")
 
-    # Step 5: Save everything
-    debate_id = save_debate(
-        ticker, bull_results, bear_results,
-        picard_result, risk_result, stock_data,
-        plutus_analysis=plutus_analysis,
-    )
+        # Compute averages for debate_end frame
+        bull_avg = (sum(r.get("conviction") or 0 for r in (bull_results or []))
+                    / max(len(bull_results or []), 1))
+        bear_avg = (sum(r.get("conviction") or 0 for r in (bear_results or []))
+                    / max(len(bear_results or []), 1))
+        # HM-DASH-V2-P2a SITE 6 — debate_end (first frame with non-null debate_id)
+        _fire_debate_event(_build_envelope(
+            event="debate_end", round_id=round_id, ticker=ticker,
+            start_ts=start_ts_utc, debate_id=debate_id,
+            payload={
+                "decision":            picard_result.get("decision"),
+                "adjusted_conviction": risk_result.get("adjusted_conviction"),
+                "agent_count":         len(bull_results or []) + len(bear_results or []),
+                "bull_avg_conviction": round(bull_avg, 2),
+                "bear_avg_conviction": round(bear_avg, 2),
+                "elapsed_seconds":     round(elapsed, 1),
+                "saved_ok":            debate_id is not None,
+            },
+        ))
 
-    elapsed = (datetime.now() - start_time).total_seconds()
-    logger.info(f"Debate #{debate_id} complete in {elapsed:.1f}s")
-
-    return {
-        "debate_id": debate_id,
-        "ticker": ticker,
-        "picard": picard_result,
-        "risk_triad": risk_result,
-        "bull_verdicts": bull_results,
-        "bear_verdicts": bear_results,
-        "plutus_analysis": plutus_analysis,
-        "elapsed_seconds": round(elapsed, 1),
-    }
+        return {
+            "debate_id": debate_id,
+            "ticker": ticker,
+            "picard": picard_result,
+            "risk_triad": risk_result,
+            "bull_verdicts": bull_results,
+            "bear_verdicts": bear_results,
+            "plutus_analysis": plutus_analysis,
+            "elapsed_seconds": round(elapsed, 1),
+        }
+    except Exception as exc:
+        # HM-DASH-V2-P2a SITE 7 — debate_error
+        _fire_debate_event(_build_envelope(
+            event="debate_error", round_id=round_id, ticker=ticker,
+            start_ts=start_ts_utc,
+            payload={
+                "error_type":    type(exc).__name__,
+                "error_message": str(exc)[:200],
+                "stage":         debate_stage,
+            },
+        ))
+        raise
 
 
 async def run_batch_debate(
