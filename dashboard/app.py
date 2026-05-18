@@ -14031,13 +14031,114 @@ def daily_briefing_alerts():
 
 
 @app.get("/api/squeeze")
+@timed_cache(60)
 def squeeze_scan(force: bool = False):
-    """Short squeeze scanner — high short interest, small float, volume breakout."""
+    """Short squeeze scanner — DB-read mirror of squeeze_watch + squeeze_candidates.
+
+    HM-SQUEEZE-ROOT-FIX 2026-05-17: was synchronous-scan-on-GET (drift class
+    #13 — wrong-architecture sibling of Fix #5's structural-orphan). Live
+    scan capability moved to POST /api/squeeze/force-scan (mirrors
+    /api/wheel/force-scan + /api/wheel/force-assignments doctrine shipped
+    today as 312ff48 + 418c092). Pre-fix: 15+ second hang on cold cache,
+    cold ~25 of every 30 min during market hours + always on weekends.
+    Post-fix: DB read matches /api/squeeze/candidates shape (~24ms).
+
+    Backward-compat: returns the original top-level keys
+    (results / scanned_at / candidate_count / watch_persist) populated
+    from DB rows. force=True is accepted as a no-op with deprecation log;
+    callers wanting a fresh scan must POST /api/squeeze/force-scan.
+    """
+    if force:
+        try:
+            console.log(
+                "[yellow]/api/squeeze?force=true is a no-op since HM-SQUEEZE-ROOT-FIX — "
+                "POST /api/squeeze/force-scan to trigger a fresh scan"
+            )
+        except Exception:
+            pass
+
+    results: list[dict] = []
+    scanned_at: str | None = None
     try:
-        from engine.squeeze_scanner import run_scan
-        return run_scan(force=force)
+        conn = sqlite3.connect("data/trader.db", check_same_thread=False, timeout=10)
+        conn.row_factory = sqlite3.Row
+        watch_rows = conn.execute(
+            "SELECT symbol, scan_ts, short_pct, float_m, vol_ratio, rsi, "
+            "       breakout_score, composite_score, threshold_tier, "
+            "       price_at_scan, notes "
+            "FROM squeeze_watch WHERE dismissed = 0 "
+            "ORDER BY composite_score DESC, scan_ts DESC LIMIT 100"
+        ).fetchall()
+        cand_rows = conn.execute(
+            "SELECT symbol, scan_ts, short_pct, float_m, vol_ratio, rsi, "
+            "       breakout_score, composite_score, threshold_tier, "
+            "       price_at_scan, days_to_cover, notes "
+            "FROM squeeze_candidates WHERE dismissed = 0 "
+            "ORDER BY composite_score DESC, scan_ts DESC LIMIT 100"
+        ).fetchall()
+        conn.close()
+
+        for r in list(watch_rows) + list(cand_rows):
+            d = dict(r)
+            m = _HMDASH4_DTC_RE.search(d.get("notes") or "") if "days_to_cover" not in d else None
+            dtc = d.get("days_to_cover") if "days_to_cover" in d else (float(m.group(1)) if m else None)
+            results.append({
+                "ticker": d.get("symbol"),
+                "short_interest_pct": d.get("short_pct"),
+                "float_m": d.get("float_m"),
+                "days_to_cover": dtc,
+                "vol_ratio": d.get("vol_ratio"),
+                "price": d.get("price_at_scan"),
+                "day_change_pct": None,
+                "rsi": d.get("rsi"),
+                "above_10d_high": None,
+                "score": d.get("composite_score"),
+                "threshold_tier": d.get("threshold_tier"),
+                "scan_ts": d.get("scan_ts"),
+                "si_source": "db",
+                "si_settlement_date": None,
+            })
+            ts = d.get("scan_ts")
+            if ts and (scanned_at is None or ts > scanned_at):
+                scanned_at = ts
+        results.sort(key=lambda r: -(r.get("score") or 0))
     except Exception as e:
-        return {"results": [], "error": str(e), "scanned_at": None}
+        return {"results": [], "error": f"{type(e).__name__}: {e!r}",
+                "scanned_at": None, "candidate_count": 0, "watch_persist": {}}
+
+    return {
+        "results": results,
+        "scanned_at": scanned_at,
+        "candidate_count": len(results),
+        "watch_persist": {},
+        "source": "db_read",
+    }
+
+
+@app.post("/api/squeeze/force-scan")
+def squeeze_force_scan():
+    """Trigger a fresh squeeze scan in a background thread.
+
+    HM-SQUEEZE-ROOT-FIX 2026-05-17: preserves the live-scan capability that
+    was previously the (hanging) default on GET /api/squeeze. Mirrors the
+    /api/wheel/force-scan + /api/wheel/force-assignments fire-and-forget
+    pattern. Caller polls GET /api/squeeze or /api/squeeze/candidates for
+    results — the scheduler-populated DB rows refresh as the scan completes.
+    """
+    try:
+        import threading
+        from engine.squeeze_scanner import run_scan as _squeeze_run_scan
+
+        def _runner():
+            try:
+                _squeeze_run_scan(force=True)
+            except Exception as _e:
+                console.log(f"[yellow]squeeze force-scan background error: {type(_e).__name__}: {_e!r}")
+
+        threading.Thread(target=_runner, daemon=True, name="squeeze_force_scan").start()
+        return {"status": "ok", "message": "Squeeze scan triggered (background)"}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
 
 
 # ── Compatibility aliases for 13 historically-dead endpoints ──────────────────
