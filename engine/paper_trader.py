@@ -1940,11 +1940,44 @@ def _expire_canonical(prices: dict = None) -> list[dict]:
         # of NTFY+skip. G20=C decoupling preserved (no ai_players.cash debit).
         # Failure falls back to the original NTFY+skip behavior so a broken
         # ledger never silently swallows an ITM event.
+        # HM-EXPIRE-OPTIONS-PRICES-NONE-HARDENING 2026-05-18: when prices dict
+        # is None (admin force-expire path) OR missing the symbol, fall back
+        # to engine.market_data.get_stock_price for the ITM probe. Closes
+        # the silent OTM-close-as-$0 bug for the admin path. NTFY WARNING on
+        # dual-source failure.
         if structure == "csp":
             short_puts = [l for l in legs if l.get("side") == "short" and l.get("type") == "put"]
-            if short_puts and prices and symbol in prices:
+            if short_puts:
                 strike = float(short_puts[0].get("strike", 0) or 0)
-                spot = float((prices.get(symbol) or {}).get("price", 0) or 0)
+                spot = 0.0
+                if prices and symbol in prices:
+                    spot = float((prices.get(symbol) or {}).get("price", 0) or 0)
+                if (not spot) and strike > 0 and symbol:
+                    try:
+                        from engine.market_data import get_stock_price
+                        _pd = get_stock_price(symbol)
+                        spot = float((_pd or {}).get("price", 0) or 0)
+                    except Exception:
+                        spot = 0.0
+                if (not spot) and strike > 0:
+                    # Dual-source failure — surface so Captain can intervene
+                    # before silent OTM-close happens.
+                    try:
+                        from engine.alert_channels import send_alert, AlertLevel
+                        send_alert(
+                            message=(
+                                f"expire_options: spot resolution FAILED for "
+                                f"{symbol} (trade_id={trade_id}) — both prices "
+                                f"dict + get_stock_price returned no value. "
+                                f"CSP ITM check skipped; OTM-close fallback "
+                                f"will fire if past expiry."
+                            ),
+                            level=AlertLevel.WARNING,
+                            alert_type=f"hm-expire-csp-spot-failed-{symbol}",
+                            rate_limit_secs=86400,
+                        )
+                    except Exception:
+                        pass
                 if strike > 0 and spot > 0 and spot < strike:
                     intrinsic = round(strike - spot, 2)
                     try:
