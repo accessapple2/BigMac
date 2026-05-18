@@ -1149,6 +1149,156 @@ def morpheus_awareness():
     return resp
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# HM-MORPHEUS Ship 2 Phase 3 BACKEND-ONLY (2026-05-17) — Agency action endpoints
+# 4 POST endpoints + execution_log writer. Admin-only auth gate per Q1.
+# UI buttons land in HM-MORPHEUS Ship 2 Phase 2 (fresh dedicated turn per
+# CLAUDE.md Frontend Ship Rule — manual browser smoke test required).
+# Per Admiral Yellow Alert 2026-05-17 + Q1 disposition.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _morpheus_admin_required():
+    """Q1 admin-only gate. Returns (authorized, username|error).
+
+    Current Signal Center auth is single-tier TOTP (session['authenticated']).
+    Until HM-MORPHEUS-PHASE4-PERSONA-AUTH ships multi-tier roles, ALL
+    authenticated users are treated as admin. The Q1 disposition is honored
+    structurally (gate exists, gates auth surface) — role-distinction comes
+    in Ship 3 with the persona-auth audit.
+    """
+    if not session.get("authenticated"):
+        return False, "auth_required"
+    return True, session.get("username", "anonymous")
+
+
+def _morpheus_log_action(action, by, result, notes=None):
+    """Append execution_log row. Returns rowid or None on failure."""
+    import json as _json
+    try:
+        db = get_db()
+        cur = db.execute(
+            "INSERT INTO execution_log (symbol, direction, source, status, notes) "
+            "VALUES (?, ?, ?, ?, ?)",
+            (
+                action,  # symbol col reused for action name
+                "ACTION",  # direction col reused for action class
+                "morpheus",
+                result,
+                _json.dumps({"by": by, "action": action, **(notes or {})}),
+            ),
+        )
+        rowid = cur.lastrowid
+        db.commit()
+        db.close()
+        return rowid
+    except Exception as e:
+        _morpheus_log.warning("[Morpheus] execution_log write failed: %s: %r", type(e).__name__, e)
+        return None
+
+
+@app.route('/api/morpheus/action/refresh-schwab', methods=['POST'])
+def morpheus_action_refresh_schwab():
+    """HM-MORPHEUS Ship 2 Phase 3: trigger Schwab CSV import refresh.
+    Admin-only. Writes execution_log row on success/failure.
+    Fires fire-and-forget in background thread; immediate 200 + status.
+    """
+    authorized, who = _morpheus_admin_required()
+    if not authorized:
+        return jsonify({"error": "admin_required"}), 403
+    import threading
+    def _runner():
+        try:
+            # Schwab CSV import path; subprocess to keep import isolation.
+            parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            cp = subprocess.run(
+                ["venv/bin/python3", "-c", "from engine.schwab_csv_import import import_schwab_csv; import_schwab_csv()"],
+                capture_output=True, text=True, timeout=60, cwd=parent,
+            )
+            result = "EXECUTED" if cp.returncode == 0 else "FAILED"
+            _morpheus_log_action("refresh-schwab", who, result, {"rc": cp.returncode, "stderr_tail": cp.stderr[-200:] if cp.stderr else ""})
+        except Exception as _e:
+            _morpheus_log_action("refresh-schwab", who, "FAILED", {"error": f"{type(_e).__name__}: {_e!r}"})
+    threading.Thread(target=_runner, daemon=True, name="morpheus_refresh_schwab").start()
+    _morpheus_log_action("refresh-schwab", who, "TRIGGERED", None)
+    return jsonify({"status": "ok", "message": "Schwab refresh triggered (background)", "triggered_by": who})
+
+
+@app.route('/api/morpheus/action/fire-kirk', methods=['POST'])
+def morpheus_action_fire_kirk():
+    """HM-MORPHEUS Ship 2 Phase 3: trigger Kirk advisory scan.
+    Admin-only. POSTs to trader :8080 Kirk advisory endpoint.
+    """
+    authorized, who = _morpheus_admin_required()
+    if not authorized:
+        return jsonify({"error": "admin_required"}), 403
+    import threading
+    def _runner():
+        try:
+            r = requests.post("http://127.0.0.1:8080/api/kirk/advisory", timeout=30)
+            result = "EXECUTED" if r.status_code == 200 else "FAILED"
+            _morpheus_log_action("fire-kirk", who, result, {"http": r.status_code})
+        except Exception as _e:
+            _morpheus_log_action("fire-kirk", who, "FAILED", {"error": f"{type(_e).__name__}: {_e!r}"})
+    threading.Thread(target=_runner, daemon=True, name="morpheus_fire_kirk").start()
+    _morpheus_log_action("fire-kirk", who, "TRIGGERED", None)
+    return jsonify({"status": "ok", "message": "Kirk advisory triggered (background)", "triggered_by": who})
+
+
+@app.route('/api/morpheus/action/run-advisory-team', methods=['POST'])
+def morpheus_action_run_advisory_team():
+    """HM-MORPHEUS Ship 2 Phase 3: trigger Advisory Team (Grok subadvisor) scan.
+    Admin-only.
+    """
+    authorized, who = _morpheus_admin_required()
+    if not authorized:
+        return jsonify({"error": "admin_required"}), 403
+    import threading
+    def _runner():
+        try:
+            r = requests.post("http://127.0.0.1:8080/api/wb-team/scan", timeout=60)
+            result = "EXECUTED" if r.status_code == 200 else "FAILED"
+            _morpheus_log_action("run-advisory-team", who, result, {"http": r.status_code})
+        except Exception as _e:
+            _morpheus_log_action("run-advisory-team", who, "FAILED", {"error": f"{type(_e).__name__}: {_e!r}"})
+    threading.Thread(target=_runner, daemon=True, name="morpheus_run_advisory_team").start()
+    _morpheus_log_action("run-advisory-team", who, "TRIGGERED", None)
+    return jsonify({"status": "ok", "message": "Advisory Team triggered (background)", "triggered_by": who})
+
+
+@app.route('/api/morpheus/action/mark-acted-on', methods=['POST'])
+def morpheus_action_mark_acted_on():
+    """HM-MORPHEUS Ship 2 Phase 3: mark Kirk alert as acted_on.
+    Admin-only. Idempotent — re-fire on same alert_id is safe no-op.
+    Body: {"alert_id": <int>}
+    """
+    authorized, who = _morpheus_admin_required()
+    if not authorized:
+        return jsonify({"error": "admin_required"}), 403
+    body = request.get_json(force=True, silent=True) or {}
+    alert_id = body.get("alert_id")
+    if not isinstance(alert_id, int):
+        return jsonify({"error": "alert_id (int) required in body"}), 400
+
+    _TRADER_DB = _morpheus_trader_db_path()
+    try:
+        conn = sqlite3.connect(_TRADER_DB, timeout=5)
+        cur = conn.execute(
+            "UPDATE kirk_advisory_log SET acted_on=1, acted_at=datetime('now') "
+            "WHERE id=? AND acted_on=0",
+            (alert_id,),
+        )
+        changed = cur.rowcount
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        _morpheus_log_action("mark-acted-on", who, "FAILED", {"alert_id": alert_id, "error": f"{type(e).__name__}: {e!r}"})
+        return jsonify({"status": "error", "error": f"{type(e).__name__}: {e!r}"}), 500
+
+    result = "EXECUTED" if changed == 1 else "NOOP"  # NOOP if already acted_on (idempotent)
+    _morpheus_log_action("mark-acted-on", who, result, {"alert_id": alert_id, "changed": changed})
+    return jsonify({"status": "ok", "alert_id": alert_id, "changed": changed, "result": result, "triggered_by": who})
+
+
 @app.route('/api/stats')
 def stats():
     db = get_db()
