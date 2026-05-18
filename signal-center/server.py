@@ -835,10 +835,13 @@ _SIGNALS_ENDPOINTS = {
     'gex_overlay':        '/api/gex-overlay/levels?symbol=SPY',
     'flow_lean':          '/api/market/options-flow',
     'critical_alerts':    '/api/volume-radar',
-    # HM-SIGNAL-CENTER-DEAD-ENDPOINTS: 'red_alert_score' /api/red-alert/status
-    # route does not exist on either side. engine/volume_scanner.py has a
-    # red_alert_check() function but it is never wired to a route. Removed
-    # from fetch list; banked for proper revival (see banked items doc).
+    # HM-RED-ALERT-ROUTE-WIRE (Round 5): trader-side /api/red-alert/status
+    # now exists as a READ-ONLY view of today's volume_alerts.alert_type=
+    # 'red_alert' rows (scanner stays on its own 2-min cadence; this never
+    # invokes red_alert_check()). Re-adding to the BRIDGE fetch list so the
+    # downstream Bridge consumers can see the count + top symbols via the
+    # /api/signals/all proxy.
+    'red_alert_score':    '/api/red-alert/status',
     'holly_winners':      '/api/holly/winners',
 }
 

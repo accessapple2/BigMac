@@ -5880,6 +5880,36 @@ def volume_radar(limit: int = 20):
         return {"error": str(e), "alerts": [], "count": 0}
 
 
+# ── Red Alert (read-only view of today's red_alert volume_alerts rows) ──────
+
+
+@app.get("/api/red-alert/status")
+def red_alert_status(limit: int = 10):
+    """HM-RED-ALERT-ROUTE-WIRE (Round 5): READ-ONLY surface for today's
+    red-alert volume rows. The scanner side
+    (engine/volume_scanner.py::red_alert_check) writes alert_type='red_alert'
+    rows to volume_alerts on a 2-min market-hours cadence; this route never
+    invokes the scanner (which has Alpaca API + War Room side effects).
+
+    Signal Center _SIGNALS_ENDPOINTS['red_alert_score'] maps here so the
+    /api/signals/all proxy can carry the count + top symbols downstream
+    without each consumer having to read the DB directly.
+    """
+    try:
+        from engine.volume_scanner import get_todays_volume_alerts
+        alerts = get_todays_volume_alerts(limit=200)
+        red = [a for a in alerts if a.get("alert_type") == "red_alert"]
+        red.sort(key=lambda a: a.get("relative_volume") or 0, reverse=True)
+        top = red[:max(0, int(limit))]
+        return {
+            "count": len(red),
+            "top": top,
+            "symbols": [a["symbol"] for a in red],
+        }
+    except Exception as e:
+        return {"error": str(e), "count": 0, "top": [], "symbols": []}
+
+
 # ── GEX Overlay ──────────────────────────────────────────────────────────────
 
 
