@@ -5226,7 +5226,16 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     fetch('/api/ratings')
       .then(function(r){ return r.json(); })
       .then(function(data) {
-        if (!Array.isArray(data)) return;
+        // HM-FLEET-REPORT-CARD-LOADING-STUCK (Round 5): /api/ratings wraps
+        // its body in try/except and returns {error: "..."} on any backend
+        // failure. The legacy "silent return" left tbody stuck on Loading...
+        // forever. Surface the error so the panel never hangs invisibly.
+        if (!Array.isArray(data)) {
+          var tbErr = document.getElementById('fleet-report-tbody');
+          var msg = (data && data.error) ? String(data.error) : 'unexpected response';
+          if (tbErr) tbErr.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--red);text-align:center;">Ratings unavailable: ' + msg.replace(/[<>&]/g,'') + '</td></tr>';
+          return;
+        }
 
         // Advice bar
         fetch('/api/ratings/advice')
@@ -5284,7 +5293,11 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         var upd = document.getElementById('fleet-report-updated');
         if (upd) upd.textContent = 'Updated ' + new Date().toLocaleTimeString();
       })
-      .catch(function(e) { console.warn('Fleet report card error:', e); });
+      .catch(function(e) {
+        console.warn('Fleet report card error:', e);
+        var tbErr = document.getElementById('fleet-report-tbody');
+        if (tbErr) tbErr.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--red);text-align:center;">Ratings fetch failed — <span style="cursor:pointer;text-decoration:underline;" onclick="loadFleetReportCard()">retry</span></td></tr>';
+      });
   }
 
   loadFleetReportCard();
