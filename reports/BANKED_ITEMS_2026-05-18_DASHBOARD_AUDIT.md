@@ -1,5 +1,90 @@
 # Banked Items — Chrome Dashboard Audit 2026-05-18
 
+## Shipped 2026-05-18 Round 4 — HM-SIGNAL-CENTER-DEAD-ENDPOINTS
+
+Closes the 4 remaining Signal Center keys that Round 3's null-cache fix
+exposed as upstream-failing (rather than null-poisoned). Audit-first per
+guardrail; each of the 4 had a distinct root cause:
+
+| Endpoint | Root cause | Fix |
+|---|---|---|
+| `/api/ema-pullback` | Route is on SC itself (port 9000), not trader (port 8080); proxy was 404'ing | Inject from local `_ema_pullback_cache` (no HTTP self-loop) |
+| `/api/red-alert/status` | Route never registered anywhere; only `red_alert_check()` function in `engine/volume_scanner.py:320` | Removed from `_SIGNALS_ENDPOINTS`; banked as HM-RED-ALERT-ROUTE-WIRE |
+| `/api/dayblade/status` | 200 in 11–19s — exceeds default 5s `_bridge_get` timeout | Per-endpoint timeout override 25s |
+| `/api/metals/signals` | 200 in 13s solo, 25–35s under SC concurrent load | Per-endpoint timeout override 40s |
+| (also) `/api/risk-radar` | >60s even solo — genuine perf issue | 35s timeout (catches warm cycles); banked as HM-TRADER-RISK-RADAR-SLOW |
+
+Patch summary:
+- `_SIGNALS_TIMEOUTS` dict added, threaded into `_bridge_get` call from
+  `_fetch_all_signals`. Default still 5s for the fast majority.
+- `ema_pullback` key removed from `_SIGNALS_ENDPOINTS`; injection from
+  local cache added at end of `_fetch_all_signals`. Fallback to
+  `prev_data` for symmetry with the null-cache path. Cache warms on
+  first external `/api/ema-pullback` hit (frontend Matrix tab visit
+  triggers this automatically; SC startup does NOT pre-warm — a
+  Captain-restart will show ema_pullback as MISSING for the first
+  cycle until something hits the route externally).
+- `red_alert_score` key removed entirely.
+
+Verification (post second SWR cycle, warm trader):
+
+```
+$ rtk proxy curl http://127.0.0.1:9000/api/signals/all | …
+NULL: []
+MISSING: []
+served: 35/35
+```
+
+Cold-start behavior:
+- First cycle after SC restart blocks ~35s on the slowest timeout
+  (risk_radar at 35s, parallelism bounded by max_workers=12).
+- Frontend `/api/signals/all` returns block-built response on first
+  hit, then SWR-cached for 60s, refreshed in background.
+- `ema_pullback` will show MISSING (not NULL) until the route is hit
+  at least once externally — acceptable since the frontend hits the
+  Matrix tab on load.
+
+## Round 4 follow-ups banked
+
+### HM-RED-ALERT-ROUTE-WIRE (NEW)
+- `engine/volume_scanner.py::red_alert_check()` exists but has no HTTP
+  route. Signal Center's two `_SIGNALS_ENDPOINTS` references to
+  `/api/red-alert/status` always 404'd because nothing serves it.
+- Two options when the work surfaces:
+  1. Build a `/api/red-alert/status` route in `dashboard/app.py` that
+     calls `red_alert_check()` and returns its result as JSON.
+  2. Retire the `red_alert_check()` function as dead code (verify no
+     other consumers first).
+- Effort: ~20 min route-build OR ~10 min dead-code retire.
+
+### HM-TRADER-RISK-RADAR-SLOW (NEW — production perf issue)
+- `/api/risk-radar` on the trader consistently takes >60s even when
+  isolated (no concurrent load). 35s timeout in SC catches warm
+  cycles but not all.
+- Likely culprit: per-player risk recompute that iterates every
+  active player's positions and refetches prices. Sniff probable
+  N+1 query or unbatched yfinance/Polygon fanout.
+- Captain-visible impact: Bridge `risk_radar` panel can briefly
+  show MISSING during cold-start cascade.
+- Investigation banked: profile `dashboard/app.py::risk_radar` (or
+  wherever the route lives), check for batching opportunities, add
+  per-player result caching with a short TTL.
+- Effort: ~1–2 hour audit + ~1 hour optimization.
+
+### HM-TRADER-COLD-START-CASCADE (NEW)
+- Pattern observed during Round 4 verification: when SC restarts and
+  fires its first concurrent fanout (12 parallel `_bridge_get` calls)
+  against the trader, otherwise-fast endpoints like `/api/regime`
+  (0.01s solo) timed out during the cold cascade. Steady-state is
+  fine but the first 35–60s after SC restart shows transient gaps.
+- Mitigations to consider:
+  1. Reduce SC `max_workers` from 12 to 6 to lighten concurrent
+     trader pressure.
+  2. Stagger the first cycle's fetches over ~10s instead of
+     simultaneous fanout.
+  3. Add a startup warmup that hits each endpoint sequentially.
+- Low priority — only affects the ~30s post-restart window.
+
 ## Shipped 2026-05-18 Round 3 — high-value bank sweep
 
 5 items from the banked list, audit-first per item per guardrail.
