@@ -202,3 +202,13 @@ reports/
 # Pre-op file-level snapshots in source/backup dirs
 shared/*.pre-*
 backups/main.py.pre-*
+
+# ── HM-CN.tail additions (2026-05-17) — convention now self-enforcing ────────
+# Scotty session artifacts — gitignored per project convention
+# (formerly enforced by hand-staging; HM-CN.tail 2026-05-17 locked in
+#  after today's 9th drift catch: data/scotty_journal_*.md was "gitignored
+#  per project convention" but wasn't actually.)
+data/scotty_journal_*.md
+data/scotty_*.md
+directives/*.md
+# reports/*.md already covered by reports/ directory ignore above (line 200).

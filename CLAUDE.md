@@ -70,7 +70,7 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
 - `main.py` is the entry point; it imports `from dashboard.app import app` and runs uvicorn on 8080
 
 ## Network Bindings
-- **Trader dashboard (port 8080)**: bound network-wide; reachable on LAN + via Cloudflare tunnel `bridge.ollietrades.com`.
+- **Trader dashboard (port 8080)**: uvicorn binds `127.0.0.1` (loopback only); LAN clients reach via Cloudflare tunnel at `bridge.ollietrades.com`. Network-wide bind requires separate auth review at `dashboard/app.py:1086-1088`. (HM-CN.tail 2026-05-17 truth-up: prior wording claimed "bound network-wide; reachable on LAN" — `main.py:2484` actually pins to `127.0.0.1`.)
 - **Signal Center (port 9000)**: currently bound to `127.0.0.1` from pre-2FA legacy posture. HM-AW (`docs/XO_BACKLOG.md`) tracks reopening to network now that 2FA TOTP + multi-user auth (Captain, Bonnie observer, Dad charts) are in place. SSH tunnel required today for non-bigmac browser access.
 - **Two distinct auth layers** (do not conflate): browser users → 2FA TOTP + RBAC at the Signal Center server layer; automation/scripts → SSH keys + bigmac OS account. Both are valid; they protect different surfaces.
 
@@ -685,3 +685,60 @@ DB writes). First real fire window: tomorrow's open 06:30 AZ.
 ```bash
 launchctl unload ~/Library/LaunchAgents/com.ollietrades.movers-poller.plist
 ```
+
+
+## Drift Catalog 2026-05-17
+
+Audit-first session caught 10 distinct drift classes across config/code/docs/git
+in a single day. Captured here for future-Scotty so the doc can be trusted
+without re-verifying each session. Each entry: one-line summary + reference.
+
+1. **Model assignment silent bypasses** — HM-BN.1 main.py per-call overrides
+   shadow `ai_players.model_id` for ~3 routed players; DB truth ≠ runtime truth.
+   Ref: `data/scotty_hm_bn1_followup_*.md`, `main.py` agent_routing call sites.
+2. **Hidden bypasses from `config.AI_PLAYERS`-scope-limited side-by-side** —
+   the HM-CN side-by-side audit only walked `config.AI_PLAYERS`; main.py and
+   crew_scanner overrides outside that scope went undetected for months.
+   Ref: HM-CN side-by-side report (`data/scotty_hm_cn_sidebyside_*.md`).
+3. **Role-vs-reality gaps** — Spock documented as LLM second-opinion (qwen3:8b)
+   but Sniper Role #1 is rule-based RSI-bounce (no LLM call); Troi options
+   wheel blocked by Bridge gate despite "options/sentiment empath" role.
+   Ref: Fleet Roster section above (Sniper Squad note).
+4. **Dead-code gates** — `PAID_MODEL_IDS` guard unreachable for cto-grok42
+   path; the model swap never traversed the gate that would have blocked it.
+   Ref: HM-CN.2 audit notes.
+5. **Fleet-config-vs-reality** — 5.8 Ollie migration assumed mistral:7b
+   moved to Ollie Box; in reality the model stayed on bigmac, never migrated.
+   Pin assumed migration completed → routing decisions based on false state.
+6. **Docs-vs-bind reality** — CLAUDE.md "Network Bindings" claimed port 8080
+   "bound network-wide; reachable on LAN" but `main.py:2484` pins uvicorn
+   to `127.0.0.1` (loopback). LAN reachability is via Cloudflare tunnel only.
+   Fixed this commit (D1 above).
+7. **debate_engine.py is NOT CrewAI** — premise rewrite: any doc/comment
+   describing `engine/debate_engine.py` as CrewAI-orchestrated is wrong.
+   Reality: plain `asyncio` + `aiohttp` + Ollama HTTP. No CrewAI dependency.
+8. **war_room_debates vs debate_history_v2 table confusion** —
+   `/api/war-room/debate-history` serves `war_room_debates` table (Captain
+   Ask-Arena lifecycle, ~1,447 rows). The 12-agent structured debates live
+   in `debate_history_v2` (~272 rows) and are served by the **new**
+   `/api/war-room/debates/recent` endpoint (Phase 2 directive draft).
+9. **Journal "gitignored per convention" — wasn't** — `data/scotty_journal_*.md`
+   was treated as gitignored-by-convention but `.gitignore` had no matching
+   pattern; files showed as `??` untracked every session, hand-stage skip was
+   the only enforcement. Fixed this commit (Phase 2 above; pattern verified
+   via `git check-ignore`).
+10. **Dormant-code-becomes-production-via-Path-1** —
+    `options_exec.open_options_trade` had zero callers (dormant) until Fix #4
+    wired it into a path that runs on every signal cycle. A function with no
+    prior call traffic is now production-load-bearing without the test/audit
+    history a tenured path would have.
+    Ref: HM-AP Fix #4 ship notes.
+
+### Backup discipline reminder
+
+Every `.bak*` file is dated (`<file>.bak_<purpose>_YYYYMMDD_HHMMSS`) and
+preserved **24h minimum** before any cleanup — per `feedback_db_archive_not_delete`
+doctrine. This commit produced `CLAUDE.md.bak_doctrine_*` and
+`.gitignore.bak_doctrine_*`; both are auto-ignored by the existing `*.bak_*`
+pattern and will be reviewed for delete no earlier than 2026-05-18.
+
