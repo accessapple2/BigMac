@@ -14,10 +14,12 @@ The Wheel:
 import logging
 from datetime import datetime, timedelta
 import pytz
-from engine.paper_trader import buy, sell, get_portfolio
+from engine.paper_trader import get_portfolio
 # HM-W1F4 2026-05-17: canonical options-trade helper for sell-put accounting.
 # Replaces paper_trader.buy(asset_type="option") which was unconditional BUY
 # accounting (debit cash + long qty) — wrong for sell-to-open semantics.
+# HM-W1F5 2026-05-17: close_options_trade now actively used in
+# check_wheel_assignments (was zero-callers per audit G4 before this commit).
 from engine.options_exec import open_options_trade, close_options_trade
 from engine.market_data import get_stock_price
 from engine.fear_greed import get_fear_greed_index
@@ -185,84 +187,169 @@ def run_wheel_scan():
 
 
 def check_wheel_assignments():
-    """Check if sold puts are ITM/expired and handle assignment → covered call phase."""
-    try:
-        portfolio = get_portfolio(PLAYER_ID)
-        positions = portfolio.get("positions", [])
+    """Check open wheel CSPs at expiry — close OTM as expired_worthless.
 
-        for pos in positions:
-            if pos.get("asset_type") != "option" or pos.get("option_type") != "put":
+    HM-W1F5 2026-05-17: rewritten to iterate options_trades (canonical
+    source-of-truth post-HM-W1F4) instead of the positions table.
+    Wheel CSPs opened via options_exec.open_options_trade never write
+    to positions; the old check_wheel_assignments was a structural
+    no-op for all post-W1F4 wheel positions.
+
+    Scope: OTM-at-expiry close only. ITM/assigned branch deferred to
+    HM-WHEEL-ASSIGNMENT-LEDGER epic per Admiral disposition Option C
+    (G5). ITM-at-expiry positions trigger NTFY + skip; Admiral closes
+    manually until cash-source decision lands.
+    """
+    import json
+    import sqlite3
+
+    try:
+        conn = sqlite3.connect("data/trader.db")
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, symbol, expiration, legs_json, entry_credit_debit "
+            "FROM options_trades "
+            "WHERE agent_id = ? AND status = 'open' AND structure = 'csp'",
+            (PLAYER_ID,),
+        ).fetchall()
+        conn.close()
+
+        if not rows:
+            return
+
+        today = datetime.now().date()
+        for row in rows:
+            trade_id = row["id"]
+            symbol = row["symbol"]
+            try:
+                exp_date = datetime.strptime(row["expiration"][:10], "%Y-%m-%d").date()
+            except (ValueError, TypeError):
+                console.log(f"[red]Wheel: bad expiration on trade {trade_id} ({row['expiration']}) — skipping")
                 continue
 
-            symbol = pos["symbol"]
-            strike = pos.get("strike_price") or 0
-            expiry = pos.get("expiry_date", "")
-            if not strike or not expiry:
+            if today < exp_date:
+                continue  # not yet at expiry
+
+            # At-or-past-expiry: compute intrinsic value of the short put
+            try:
+                legs = json.loads(row["legs_json"])
+            except (json.JSONDecodeError, TypeError):
+                console.log(f"[red]Wheel: bad legs_json on trade {trade_id} — skipping")
+                continue
+            short_puts = [l for l in legs if l.get("side") == "short" and l.get("type") == "put"]
+            if not short_puts:
+                console.log(f"[red]Wheel: trade {trade_id} has no short put leg — skipping")
+                continue
+            put_leg = short_puts[0]
+            strike = float(put_leg.get("strike", 0))
+            qty = int(put_leg.get("qty", 0))
+            if strike <= 0 or qty <= 0:
                 continue
 
             price_data = get_stock_price(symbol)
             current_price = price_data.get("price", 0)
             if current_price <= 0:
+                console.log(f"[red]Wheel: no price for {symbol} on trade {trade_id} — skipping")
                 continue
 
-            try:
-                exp_date = datetime.strptime(expiry[:10], "%Y-%m-%d")
-            except ValueError:
-                continue
+            intrinsic = max(0.0, round(strike - current_price, 2))
 
-            if datetime.now() >= exp_date and current_price < strike:
-                # ASSIGNED — stock assigned at strike price, transition to covered call phase
+            if intrinsic > 0:
+                # ITM at expiry — Fix #5 scope is OTM-only per G5 Option C disposition.
+                # NTFY Admiral and skip; manual close required until
+                # HM-WHEEL-ASSIGNMENT-LEDGER ships.
                 console.log(
-                    f"[yellow]🎡 Wheel: {symbol} put ASSIGNED at ${strike} "
-                    f"(stock at ${current_price:.2f}, diff ${strike - current_price:.2f})"
+                    f"[red]🎡 Wheel: {symbol} put ITM at expiry — strike ${strike}, "
+                    f"spot ${current_price:.2f}, intrinsic ${intrinsic:.2f}. "
+                    f"trade_id={trade_id} — MANUAL ADMIRAL CLOSE REQUIRED "
+                    f"(Fix #5 OTM-only scope)."
                 )
-                # Remove the put position
-                sell(
-                    player_id=PLAYER_ID,
-                    symbol=symbol,
-                    price=pos["avg_price"],
-                    asset_type="option",
-                    reasoning=(
-                        f"Wheel: Put expired ITM at ${strike}, assigned. "
-                        f"Stock at ${current_price:.2f}. Transitioning to covered call phase."
-                    ),
-                    sources="wheel-assignment",
+                try:
+                    from engine.alert_channels import send_alert, AlertLevel
+                    send_alert(
+                        message=(f"Wheel ITM at expiry: {symbol} strike ${strike}, "
+                                 f"spot ${current_price:.2f}, trade_id={trade_id} — "
+                                 f"manual close needed"),
+                        level=AlertLevel.WARNING,
+                        alert_type=f"hm-w1f5-wheel-itm-expiry-{symbol}",
+                        rate_limit_secs=86400,
+                    )
+                except Exception:
+                    pass
+                continue
+
+            # OTM at expiry — close at $0 intrinsic via canonical helper
+            pnl = close_options_trade(
+                trade_id=trade_id,
+                exit_legs=[{
+                    "side": "short", "type": "put",
+                    "strike": strike, "qty": qty,
+                    "exit_price": 0.0,
+                }],
+                exit_reason="expired_otm",
+            )
+            if pnl is not None:
+                console.log(
+                    f"[bold green]🎡 Wheel: {symbol} put expired OTM — closed trade_id={trade_id} "
+                    f"strike ${strike}, spot ${current_price:.2f}, pnl=${pnl:.2f}"
                 )
-                # Buy the stock at strike (assignment price = effective discount)
-                buy(
-                    player_id=PLAYER_ID,
-                    symbol=symbol,
-                    price=strike,
-                    qty=pos["qty"],
-                    reasoning=(
-                        f"Wheel: Assigned on ${strike} put (stock ${current_price:.2f}, "
-                        f"${strike - current_price:.2f} above market = built-in cushion from premium). "
-                        f"Phase 2: Now selling covered calls to generate further income."
-                    ),
-                    confidence=0.85,
-                    asset_type="stock",
-                    sources="wheel-assignment",
-                    timeframe="SWING",
+            else:
+                console.log(
+                    f"[red]Wheel: close_options_trade returned None for trade_id={trade_id} "
+                    f"({symbol}) — may already be closed or row missing"
                 )
 
     except Exception as e:
-        logger.error(f"Wheel assignment check error: {e}")
-        console.log(f"[red]Wheel assignment error: {e}")
+        logger.error(f"Wheel assignment check error: {type(e).__name__}: {e!r}")
+        console.log(f"[red]Wheel assignment error: {type(e).__name__}: {e!r}")
 
 
 def get_wheel_status() -> dict:
-    """Return wheel status summary for dashboard display."""
+    """Return wheel status summary for dashboard display.
+
+    HM-W1F5 2026-05-17: read options_trades (canonical post-HM-W1F4) instead
+    of the positions table. Previous implementation reported 0 wheel positions
+    despite live opens in options_trades. Stock-side post-assignment count
+    stays at 0 until HM-WHEEL-ASSIGNMENT-LEDGER ships per Admiral disposition.
+    """
+    import json
+    import sqlite3
     try:
-        portfolio = get_portfolio(PLAYER_ID)
-        positions = portfolio.get("positions", [])
-        puts = [p for p in positions if p.get("asset_type") == "option" and p.get("option_type") == "put"]
-        stocks = [p for p in positions if p.get("asset_type") == "stock" and p["symbol"] in WHEEL_TICKERS]
-        total_premium = sum(p["qty"] * p.get("avg_price", 0) for p in puts)
+        conn = sqlite3.connect("data/trader.db")
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            "SELECT id, symbol, legs_json, entry_credit_debit, expiration "
+            "FROM options_trades WHERE agent_id = ? AND status = 'open' AND structure = 'csp'",
+            (PLAYER_ID,),
+        ).fetchall()
+        conn.close()
+
+        positions = []
+        total_premium = 0.0
+        for r in rows:
+            total_premium += float(r["entry_credit_debit"] or 0.0)
+            try:
+                legs = json.loads(r["legs_json"])
+                put_leg = next((l for l in legs if l.get("side") == "short" and l.get("type") == "put"), None)
+            except (json.JSONDecodeError, TypeError):
+                put_leg = None
+            positions.append({
+                "trade_id": r["id"],
+                "symbol": r["symbol"],
+                "asset_type": "option",
+                "option_type": "put",
+                "strike_price": put_leg.get("strike") if put_leg else None,
+                "qty": put_leg.get("qty") if put_leg else None,
+                "avg_price": put_leg.get("entry_price") if put_leg else None,
+                "entry_credit": float(r["entry_credit_debit"]),
+                "expiry_date": r["expiration"],
+            })
+
         return {
-            "puts_open": len(puts),
-            "stocks_held": len(stocks),
+            "puts_open": len(positions),
+            "stocks_held": 0,
             "total_premium_collected": round(total_premium, 2),
-            "positions": puts + stocks,
+            "positions": positions,
         }
     except Exception:
         return {"puts_open": 0, "stocks_held": 0, "total_premium_collected": 0, "positions": []}
