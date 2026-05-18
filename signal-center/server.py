@@ -1149,6 +1149,55 @@ def _morpheus_daily_snapshot_capture(payload: dict) -> bool:
         db.close()
 
 
+# HM-MORPHEUS Ship 3 (2026-05-18) — persona-context endpoint for Item 12
+# (Frontend Matrix UI). Returns the authenticated user's role + tab-visibility
+# whitelist + action-enabled flag. Item 12's UI consumes this to render the
+# correct 10-tab subset per persona without baking role logic into the JS.
+# All 3 personas (admin/observer/charts) can hit this endpoint.
+
+_MORPHEUS_PERSONA_TABS: dict = {
+    "admin":    None,           # None = unrestricted, render all 10 tabs
+    "observer": None,           # observer is read-only but sees same surface
+    "charts":   ["oracle", "matrix"],  # Dad's restricted view per audit §4.4
+}
+
+
+@app.route('/api/morpheus/persona-context')
+def morpheus_persona_context():
+    """HM-MORPHEUS Ship 3 2026-05-18 — persona-aware UI context.
+
+    Returns:
+      {
+        "username": str,
+        "role": str ("admin" | "observer" | "charts" | None),
+        "tabs_whitelist": list[str] | null   (null = all tabs allowed),
+        "actions_enabled": bool              (true only for admin role),
+        "ntfy_topic": str
+      }
+
+    Auth required. Role missing → role: null + tabs_whitelist:
+    null (backward-compat: pre-Phase-4 sessions still functional;
+    Captain re-login refreshes role stamp).
+    """
+    if not session.get("authenticated"):
+        return jsonify({"error": "auth_required"}), 401
+
+    role = session.get("role")
+    username = session.get("username", "")
+    entry = _sc_lookup_user(username)
+
+    # tabs_whitelist: None means "no restriction" (all 10 tabs visible).
+    tabs_whitelist = _MORPHEUS_PERSONA_TABS.get(role) if role else None
+
+    return jsonify({
+        "username":        username,
+        "role":            role,
+        "tabs_whitelist":  tabs_whitelist,
+        "actions_enabled": role == "admin",
+        "ntfy_topic":      entry.get("ntfy", ""),
+    })
+
+
 @app.route('/api/morpheus/awareness')
 def morpheus_awareness():
     """HM-MORPHEUS Phase 1 — consolidated awareness for the Matrix tab.
