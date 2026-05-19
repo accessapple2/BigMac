@@ -7294,15 +7294,31 @@ def get_capital():
     players = conn.execute("SELECT id, display_name, cash FROM ai_players WHERE is_active=1").fetchall()
     conn.close()
 
-    # get_all_prices blocks 6+ seconds on cache miss — hard cap at 3s, fall back to stale
+    # get_all_prices blocks 6+ seconds on cache miss — hard cap at 3s, fall back to stale.
+    # HM-CAPITAL-HANG-EMERGENCY 2026-05-19: on timeout, the prior `prices = {}` path
+    # cascaded into per-position serial yfinance fallback inside get_portfolio_with_pnl
+    # (69 players × ~80 positions = 187s hangs). Now: prefer the last-known-good cache,
+    # only fall through to empty prices if no cache exists yet (very first call after boot).
     try:
         with ThreadPoolExecutor(max_workers=1) as pool:
             prices = pool.submit(get_all_prices, get_active_universe()).result(timeout=3)
     except (FuturesTimeout, Exception):
+        _stale = _endpoint_stale_cache.get("capital")
+        if _stale and _stale.get("data"):
+            _stale_data = dict(_stale["data"])
+            _stale_data["_meta"] = {
+                "stale": True,
+                "stale_age_s": round(_t.time() - _stale["ts"], 1),
+                "reason": "get_all_prices timeout",
+            }
+            return _stale_data
         prices = {}
 
-    result = {}
-    for p in players:
+    # HM-CAPITAL-HANG-EMERGENCY 2026-05-19: parallelize per-player loop. Each
+    # get_portfolio_with_pnl call is independent and IO-bound (positions table SELECT
+    # + optional per-position network fallback, already 3s-capped per Part 1). 10 workers
+    # caps fanout at ~10× the slowest player (vs. 69× serially).
+    def _player_capital(p):
         pid = p["id"]
         starting = 3500.0 if pid == "dayblade-0dte" else (7021.81 if pid == "webull" else 7000.0)
         try:
@@ -7310,12 +7326,17 @@ def get_capital():
             total = pnl_data["total_value"]
         except Exception:
             total = p["cash"]
-        result[p["display_name"]] = {
+        return p["display_name"], {
             "cash": p["cash"],
             "total_value": round(total, 2),
             "starting": starting,
             "pnl": round(total - starting, 2),
         }
+
+    result = {}
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        for name, entry in pool.map(_player_capital, players):
+            result[name] = entry
     _endpoint_stale_cache["capital"] = {"data": result, "ts": _t.time()}
     return result
 
