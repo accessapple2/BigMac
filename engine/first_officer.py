@@ -222,7 +222,7 @@ def _get_investor_scoring_context() -> str:
     return "\n".join(lines) if lines else "Investor scoring unavailable."
 
 
-def get_briefing(force: bool = False) -> dict:
+def get_briefing(force: bool = False, disk_only: bool = False) -> dict:
     """Get Data's full briefing. Cached for 30 minutes.
 
     Model priority:
@@ -230,12 +230,32 @@ def get_briefing(force: bool = False) -> dict:
       2. Ollama qwen3:14b / qwen3:8b / qwen3:4b (fallback)
       3. Stale cache (if available, never older than 24h)
       4. Graceful unavailable response (never surfaces raw error to UI)
+
+    HM-FIRST-OFFICER-MORNING-BRIEF-LLM-COLD-CACHE 2026-05-18: when
+    disk_only=True (default for GET callers), the function short-
+    circuits to in-memory cache → stale-cache → graceful unavailable.
+    NEVER spins MLX or Ollama. Use POST /api/first-officer/force-briefing
+    for the regenerate path.
     """
     global _briefing_cache, _briefing_time
 
     now = time.time()
     if not force and _briefing_cache and (now - _briefing_time) < _BRIEFING_TTL:
         return _briefing_cache
+
+    if disk_only:
+        # HM-FIRST-OFFICER-MORNING-BRIEF-LLM-COLD-CACHE: read-only path.
+        if _briefing_cache and _briefing_cache.get("briefing"):
+            stale_mins = int((now - _briefing_time) / 60)
+            return {**_briefing_cache, "cached": True,
+                    "stale_minutes": stale_mins, "disk_only": True}
+        return {
+            "briefing": ("Briefing unavailable — no cached briefing in memory. "
+                         "POST /api/first-officer/force-briefing to generate."),
+            "timestamp": datetime.now().isoformat(),
+            "cached": False, "unavailable": True, "disk_only": True,
+            "source_model": None, "portfolio_summary": "",
+        }
 
     # Assemble context (shared across MLX and Ollama paths)
     portfolio = _get_captain_portfolio()

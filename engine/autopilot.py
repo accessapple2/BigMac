@@ -21,6 +21,66 @@ def _conn():
     return c
 
 
+def _collect_all_positions(pid: str) -> list:
+    """HM-AUTOPILOT-OPTION-CLOSE 2026-05-18: dual-table position view.
+
+    Returns positions[] from BOTH the legacy positions table AND the
+    canonical options_trades table for this player_id. Each entry
+    carries a 'source_table' discriminator for downstream dispatch
+    (sell() vs close_options_trade()).
+
+    Today, only the cash-restore site (L329 caller) uses this helper —
+    audit verdict was "PROTECTIVE TODAY" because cash/total ≈ 1.0 for
+    options-sosnoff and the trigger never fires. Migration is doctrinal
+    cleanup per Fix #5 G8 inventory + bull_spread_v1 canonical ship
+    (commit 161253d) which armed re-eval trigger #3.
+    """
+    import json as _json
+    from engine.paper_trader import get_portfolio
+
+    portfolio = get_portfolio(pid)
+    legacy = list(portfolio.get("positions") or [])
+    for p in legacy:
+        p["source_table"] = "positions"
+
+    canonical: list = []
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT id, structure, symbol, expiration, legs_json, "
+            "       entry_credit_debit, contracts "
+            "FROM options_trades WHERE agent_id=? AND status='open'",
+            (pid,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    for r in rows:
+        try:
+            legs = _json.loads(r["legs_json"])
+        except (TypeError, _json.JSONDecodeError):
+            continue
+        # First leg drives the conviction-lookup symbol + representative
+        # asset_type. Multi-leg structures (bull_put_spread etc.) still
+        # surface as one row keyed off the underlying.
+        canonical.append({
+            "source_table": "options_trades",
+            "trade_id":     r["id"],
+            "structure":    r["structure"],
+            "symbol":       r["symbol"],
+            "asset_type":   "option",
+            "expiration":   r["expiration"],
+            "contracts":    r["contracts"],
+            "legs":         legs,
+            "entry_credit_debit": r["entry_credit_debit"],
+            # autopilot's cash-restore uses qty × price to estimate value;
+            # for canonical rows use the entry credit as a proxy.
+            "qty":          1,
+            "avg_price":    abs(float(r["entry_credit_debit"] or 0)) / 100.0,
+        })
+    return legacy + canonical
+
+
 def is_autopilot_enabled() -> bool:
     """Check if autopilot is enabled (stored in DB settings)."""
     conn = _conn()
@@ -297,18 +357,24 @@ def run_autopilot(prices: dict):
                         )
 
         # 2. If cash < 15%, sell lowest-conviction position
-        portfolio = get_portfolio(pid)  # Refresh after trims
+        # HM-AUTOPILOT-OPTION-CLOSE 2026-05-18: dual-table scan via
+        # _collect_all_positions — was positions-table-only (blind to the
+        # 4 canonical options_trades open rows). source_table key on each
+        # entry routes the close path: 'positions' → paper_trader.sell(),
+        # 'options_trades' → engine.options_exec.close_options_trade().
+        portfolio = get_portfolio(pid)  # Refresh after trims (cash side)
         cash = portfolio["cash"]
+        all_positions = _collect_all_positions(pid)
         total_value = cash + sum(
-            p["qty"] * prices.get(p["symbol"], {}).get("price", p["avg_price"])
-            for p in portfolio["positions"]
+            (p.get("qty") or 0) * prices.get(p.get("symbol"), {}).get("price", p.get("avg_price") or 0)
+            for p in all_positions
         )
-        if total_value > 0 and cash / total_value < MIN_CASH_PCT and portfolio["positions"]:
+        if total_value > 0 and cash / total_value < MIN_CASH_PCT and all_positions:
             # Find lowest-conviction position (most recent signal with lowest confidence)
             conn2 = _conn()
             lowest = None
             lowest_conf = 2.0
-            for pos in portfolio["positions"]:
+            for pos in all_positions:
                 # HM-C: filter halted-player emissions from scorecard/calibration math
                 row = conn2.execute(
                     f"SELECT confidence FROM signals WHERE player_id=? AND symbol=? "
@@ -323,16 +389,40 @@ def run_autopilot(prices: dict):
             conn2.close()
 
             if lowest:
-                from engine.paper_trader import sell
                 sym = lowest["symbol"]
-                current_price = prices.get(sym, {}).get("price", lowest["avg_price"])
-                result = sell(
-                    pid, sym, current_price,
-                    asset_type=lowest.get("asset_type", "stock"),
-                    reasoning=f"Autopilot: cash below {MIN_CASH_PCT:.0%}, selling lowest conviction ({lowest_conf:.0%})",
-                    option_type=lowest.get("option_type"),
-                )
-                if result:
-                    console.log(
-                        f"[yellow]AUTOPILOT: Sold {pid} {sym} (lowest conviction) to restore cash reserve"
+                current_price = prices.get(sym, {}).get("price", lowest.get("avg_price") or 0)
+                if lowest.get("source_table") == "options_trades":
+                    # Canonical close path — exit at current intrinsic for
+                    # the put side (CSP) or zero-cost for OTM at the moment.
+                    # Conservative: close at current_price as exit_price per
+                    # leg (this is the spot-price proxy; for true premium
+                    # exit, future commits should use the polygon helper
+                    # HM-POLYGON-OPTIONS-CHAIN-QUOTE-HELPER mid quote).
+                    from engine.options_exec import close_options_trade
+                    legs = lowest.get("legs") or []
+                    exit_legs = [
+                        dict(leg, exit_price=float(current_price or 0))
+                        for leg in legs
+                    ]
+                    pnl = close_options_trade(
+                        lowest["trade_id"], exit_legs,
+                        exit_reason=f"autopilot_cash_restore_conv_{lowest_conf:.2f}",
                     )
+                    if pnl is not None:
+                        console.log(
+                            f"[yellow]AUTOPILOT: Closed {pid} {sym} canonical "
+                            f"trade_id={lowest['trade_id']} structure={lowest.get('structure')} "
+                            f"pnl=${pnl:.2f} (cash-restore conv={lowest_conf:.0%})"
+                        )
+                else:
+                    from engine.paper_trader import sell
+                    result = sell(
+                        pid, sym, current_price,
+                        asset_type=lowest.get("asset_type", "stock"),
+                        reasoning=f"Autopilot: cash below {MIN_CASH_PCT:.0%}, selling lowest conviction ({lowest_conf:.0%})",
+                        option_type=lowest.get("option_type"),
+                    )
+                    if result:
+                        console.log(
+                            f"[yellow]AUTOPILOT: Sold {pid} {sym} (lowest conviction) to restore cash reserve"
+                        )

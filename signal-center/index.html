@@ -517,17 +517,270 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 </div>
 
 <!-- ═══════════════ MATRIX TAB ═══════════════ -->
-<!-- HM-MORPHEUS Phase 0 (2026-05-17): default landing shell. 6-section grid
-     ships in Ship 2 (HM-MORPHEUS Phase 2+3). This phase = shell + endpoint only. -->
+<!-- HM-MORPHEUS Ship 2 Phase 2 (2026-05-18): 6-section Matrix grid.
+     Hydrates from /api/morpheus/awareness. 30s poll cadence. -->
+<style>
+  #tab-matrix .matrix-grid{
+    display:grid;
+    grid-template-columns:repeat(auto-fit, minmax(340px, 1fr));
+    gap:14px;
+    padding:14px 8px;
+  }
+  #tab-matrix .matrix-section{
+    background:var(--surface, var(--bg2));
+    border:1px solid var(--border);
+    border-radius:10px;
+    padding:14px 16px;
+    min-height:140px;
+    display:flex; flex-direction:column;
+    box-shadow:0 1px 2px rgba(0,0,0,0.15);
+  }
+  #tab-matrix .matrix-section h2{
+    font-size:13px; font-weight:800; letter-spacing:1.2px;
+    text-transform:uppercase; color:var(--text);
+    margin:0 0 10px; padding-bottom:8px;
+    border-bottom:1px solid var(--border);
+    display:flex; align-items:center; justify-content:space-between;
+  }
+  #tab-matrix .matrix-section h2 .ms-fresh{
+    font-size:9px; font-weight:500; color:var(--muted); letter-spacing:.5px;
+  }
+  #tab-matrix .matrix-section .ms-body{
+    flex:1; font-size:12px; color:var(--text); line-height:1.5;
+    overflow-y:auto; max-height:260px;
+  }
+  #tab-matrix .ms-row{
+    display:flex; justify-content:space-between; gap:10px;
+    padding:5px 0; border-bottom:1px dashed var(--border);
+  }
+  #tab-matrix .ms-row:last-child{border-bottom:none}
+  #tab-matrix .ms-key{color:var(--muted); font-size:11px}
+  #tab-matrix .ms-val{color:var(--text); font-weight:600; text-align:right; min-width:40%}
+  #tab-matrix .ms-list-item{
+    padding:6px 0; border-bottom:1px dashed var(--border); font-size:11px;
+  }
+  #tab-matrix .ms-list-item:last-child{border-bottom:none}
+  #tab-matrix .ms-empty{color:var(--muted); font-size:11px; font-style:italic}
+  #tab-matrix .ms-error{color:#ef4444; font-size:11px}
+  #tab-matrix .matrix-header{
+    padding:10px 12px 6px; display:flex; justify-content:space-between;
+    align-items:baseline; font-size:11px; color:var(--muted);
+    letter-spacing:1px;
+  }
+  #tab-matrix .matrix-header .mh-loaded{color:var(--accent)}
+</style>
 <div id="tab-matrix" class="section active">
-  <div style="padding:48px 24px;text-align:center;color:var(--muted);font-family:'Courier New',monospace;letter-spacing:3px;">
-    <div style="font-size:13px;margin-bottom:20px;opacity:0.6;">// MORPHEUS — OPERATOR //</div>
-    <div style="font-size:18px;color:var(--text);margin-bottom:14px;letter-spacing:2px;">Reading the Matrix.</div>
-    <div style="font-size:11px;opacity:0.5;">Awareness endpoint live at /api/morpheus/awareness.</div>
-    <div style="font-size:11px;opacity:0.5;margin-top:6px;">Six-section grid lands in Ship 2.</div>
-    <div style="font-size:10px;opacity:0.3;margin-top:32px;">awakening_state: phase_0_complete</div>
+  <div class="matrix-header">
+    <div>// MORPHEUS — OPERATOR //</div>
+    <div id="matrix-status">awareness: <span class="mh-loaded" id="matrix-status-text">loading</span> · last: <span id="matrix-last-fetch">—</span></div>
+  </div>
+  <div class="matrix-grid">
+    <div class="matrix-section" id="matrix-red-alert">
+      <h2><span>🟥 Red Alert</span><span class="ms-fresh" id="ra-fresh"></span></h2>
+      <div class="ms-body" id="red-alert-content"><div class="ms-empty">loading…</div></div>
+    </div>
+    <div class="matrix-section" id="matrix-the-matrix">
+      <h2><span>🔮 The Matrix</span><span class="ms-fresh" id="tm-fresh"></span></h2>
+      <div class="ms-body" id="the-matrix-content"><div class="ms-empty">loading…</div></div>
+    </div>
+    <div class="matrix-section" id="matrix-intelligence">
+      <h2><span>🧠 Intelligence</span><span class="ms-fresh" id="in-fresh"></span></h2>
+      <div class="ms-body" id="intelligence-content"><div class="ms-empty">loading…</div></div>
+    </div>
+    <div class="matrix-section" id="matrix-oracle">
+      <h2><span>🔭 Oracle</span><span class="ms-fresh" id="or-fresh"></span></h2>
+      <div class="ms-body" id="oracle-content"><div class="ms-empty">loading…</div></div>
+    </div>
+    <div class="matrix-section" id="matrix-fleet-status">
+      <h2><span>⚓ Fleet Status</span><span class="ms-fresh" id="fs-fresh"></span></h2>
+      <div class="ms-body" id="fleet-status-content"><div class="ms-empty">loading…</div></div>
+    </div>
+    <div class="matrix-section" id="matrix-ships-log">
+      <h2><span>📜 Ship's Log</span><span class="ms-fresh" id="sl-fresh"></span></h2>
+      <div class="ms-body" id="ships-log-content"><div class="ms-empty">loading…</div></div>
+    </div>
   </div>
 </div>
+<script>
+// HM-MORPHEUS Ship 2 Phase 2 (2026-05-18) — Matrix tab hydration.
+// IIFE so locals don't leak into the global namespace.
+(function() {
+  const POLL_MS = 30000;
+  const _esc = s => String(s == null ? '' : s)
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+
+  function _kv(rows) {
+    if (!rows || !rows.length) return '<div class="ms-empty">—</div>';
+    return rows.map(r =>
+      `<div class="ms-row"><span class="ms-key">${_esc(r.k)}</span><span class="ms-val">${_esc(r.v)}</span></div>`
+    ).join('');
+  }
+
+  function _list(items, mapper) {
+    if (!items || !items.length) return '<div class="ms-empty">no entries</div>';
+    return items.slice(0, 8).map(it => `<div class="ms-list-item">${mapper(it)}</div>`).join('');
+  }
+
+  // /api/morpheus/awareness returns top-level arrays for signals/intelligence/
+  // commits/advisory/kirk_alerts/predictions, and a flat portfolio object.
+  // Confidence on signals is 0–100; on advisory it's 0–1.
+
+  function _renderRedAlert(d) {
+    const sigs = Array.isArray(d.signals) ? d.signals : [];
+    const high = sigs.filter(s => Number(s.confidence || 0) >= 85);
+    // Bug 2 dedupe: signal scanners can emit the same symbol+action from
+    // multiple agents in one cycle (saw NUKZ SELL twice 2026-05-18). Keep first.
+    const seen = new Set();
+    const unique = high.filter(s => {
+      const k = (s.symbol || '') + '|' + (s.action || s.type || '');
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    if (!unique.length) return '<div class="ms-empty">no high-confidence alerts</div>';
+    return _list(unique, s =>
+      `<b>${_esc(s.symbol)}</b> · ${_esc(s.action || s.type || '')} (conf ${Math.round(Number(s.confidence || 0))}%) — <span class="ms-key">${_esc(s.agent_name || '')}</span>`
+    );
+  }
+
+  function _renderMatrix(d) {
+    const p = d.portfolio || {};
+    const fmtUsd = v => v != null ? '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—';
+    const rows = [
+      { k: 'Total Value', v: fmtUsd(p.total_value) },
+      { k: 'Cash',        v: fmtUsd(p.total_cash) },
+      { k: 'Invested',    v: fmtUsd(p.total_invested) },
+      { k: 'Positions',   v: p.position_count != null ? p.position_count : '—' },
+    ];
+    return _kv(rows);
+  }
+
+  function _renderIntelligence(d) {
+    const raw = Array.isArray(d.intelligence) ? d.intelligence : [];
+    // F2 dedupe: backend can emit byte-identical entries from repeated scans
+    // (saw 2× CONGRESS "Capitol Trades scan completed" 4 min apart 2026-05-18).
+    // Key on feed_type + raw data string so SCREENER per-symbol rows stay
+    // distinct while literal repeats collapse. Mirrors Red Alert pattern.
+    const seen = new Set();
+    const items = raw.filter(it => {
+      const k = (it.feed_type || '') + '|' + (typeof it.data === 'string' ? it.data : JSON.stringify(it.data || ''));
+      if (seen.has(k)) return false;
+      seen.add(k);
+      return true;
+    });
+    return _list(items, it => {
+      let title = it.feed_type || 'feed';
+      let body = '';
+      if (typeof it.data === 'string') {
+        try {
+          const parsed = JSON.parse(it.data);
+          if (parsed && typeof parsed === 'object') {
+            title = parsed.title || title;
+            body = parsed.message || parsed.summary || '';
+            // Bug 6 fallback: some feed_types (SCREENER, etc.) emit symbol+score
+            // shapes with no title/message. Synthesize a one-line body so the
+            // panel doesn't render an empty subtitle.
+            if (!body) {
+              const parts = [];
+              if (parsed.symbol) parts.push(_esc(parsed.symbol));
+              if (parsed.preset) parts.push('preset ' + _esc(parsed.preset));
+              if (parsed.score != null) parts.push('score ' + _esc(parsed.score));
+              if (parsed.change != null) parts.push((Number(parsed.change) >= 0 ? '+' : '') + Number(parsed.change).toFixed(2) + '%');
+              if (parsed.rsi != null) parts.push('rsi ' + _esc(parsed.rsi));
+              if (parts.length) body = parts.join(' · ');
+            }
+          } else {
+            body = it.data;
+          }
+        } catch (_) {
+          body = it.data;
+        }
+      }
+      return `<b>${_esc(title)}</b><br><span class="ms-key">${_esc(body.slice(0, 160))}</span>`;
+    });
+  }
+
+  function _renderOracle(d) {
+    const preds = Array.isArray(d.predictions) ? d.predictions : [];
+    return _list(preds, p => {
+      const tps = [p.tp1, p.tp2].filter(x => x != null).map(x => '$' + Number(x).toFixed(2)).join(' / ');
+      return `<b>${_esc(p.symbol)}</b> · ${_esc(p.recommendation || '')} <span class="ms-key">[${_esc(p.regime || '')} · score ${_esc(p.master_score)}]</span>` +
+        (tps ? `<br><span class="ms-key">TP ${tps}</span>` : '');
+    });
+  }
+
+  function _renderFleetStatus(d) {
+    const ka = Array.isArray(d.kirk_alerts) ? d.kirk_alerts : [];
+    const adv = Array.isArray(d.advisory) ? d.advisory : [];
+    if (!ka.length && !adv.length) return '<div class="ms-empty">no fleet signals</div>';
+    const kaHtml = ka.slice(0, 3).map(a =>
+      `<div class="ms-list-item"><b>${_esc(a.ticker)}</b> · ${_esc(a.action || '')} <span class="ms-key">[${_esc(a.alert_type || '')}]</span><br><span class="ms-key">${_esc((a.message || '').slice(0, 140))}</span></div>`
+    ).join('');
+    const advHtml = adv.slice(0, 3).map(a =>
+      `<div class="ms-list-item"><b>${_esc(a.symbol)}</b> · ${_esc(a.action || '')} <span class="ms-key">${_esc(a.advisor || '')} (${Math.round(Number(a.confidence || 0) * 100)}%)</span><br><span class="ms-key">${_esc((a.reasoning || '').slice(0, 120))}</span></div>`
+    ).join('');
+    return kaHtml + advHtml;
+  }
+
+  function _renderShipsLog(d) {
+    const commits = Array.isArray(d.commits) ? d.commits : [];
+    return _list(commits, c =>
+      `<b>${_esc((c.sha || '').slice(0, 7))}</b> · ${_esc((c.msg || '').slice(0, 150))}`
+    );
+  }
+
+  function _renderSection(id, html) {
+    const el = document.getElementById(id);
+    if (el) el.innerHTML = html;
+  }
+
+  function _renderError(id, msg) {
+    _renderSection(id, `<div class="ms-error">error: ${_esc(msg)}</div>`);
+  }
+
+  async function loadMatrix() {
+    const statusEl = document.getElementById('matrix-status-text');
+    const fetchEl  = document.getElementById('matrix-last-fetch');
+    try {
+      const r = await fetch('/api/morpheus/awareness', { credentials: 'same-origin' });
+      if (!r.ok) {
+        if (statusEl) statusEl.textContent = `HTTP ${r.status}`;
+        return;
+      }
+      const d = await r.json();
+      const failed = new Set((d.sources_failed || []).map(s => s.source));
+      if (statusEl) {
+        statusEl.textContent = (d.sources_loaded || []).length + '/' +
+          ((d.sources_loaded || []).length + (d.sources_failed || []).length) + ' sources';
+      }
+      if (fetchEl) fetchEl.textContent = new Date().toLocaleTimeString();
+
+      _renderSection('red-alert-content',
+        failed.has('signals') ? '<div class="ms-error">signals source failed</div>' : _renderRedAlert(d));
+      _renderSection('the-matrix-content',
+        failed.has('portfolio') ? '<div class="ms-error">portfolio source failed</div>' : _renderMatrix(d));
+      _renderSection('intelligence-content',
+        failed.has('intelligence') ? '<div class="ms-error">intelligence source failed</div>' : _renderIntelligence(d));
+      _renderSection('oracle-content',
+        failed.has('predictions') ? '<div class="ms-error">predictions source failed</div>' : _renderOracle(d));
+      _renderSection('fleet-status-content',
+        (failed.has('kirk_alerts') && failed.has('advisory'))
+          ? '<div class="ms-error">fleet sources failed</div>'
+          : _renderFleetStatus(d));
+      _renderSection('ships-log-content',
+        failed.has('commits') ? '<div class="ms-error">commits source failed</div>' : _renderShipsLog(d));
+    } catch (err) {
+      if (statusEl) statusEl.textContent = 'fetch error';
+      _renderError('red-alert-content', err.message || String(err));
+    }
+  }
+
+  // First load + poll
+  document.addEventListener('DOMContentLoaded', loadMatrix);
+  if (document.readyState !== 'loading') loadMatrix();
+  setInterval(loadMatrix, POLL_MS);
+})();
+</script>
 
 <!-- ═══════════════ SIGNALS TAB ═══════════════ -->
 <div id="tab-signals" class="section">
@@ -992,7 +1245,10 @@ function scoreGex(d){
 }
 function scoreFearGreed(d){
   if(!d) return{score:50,val:'--',desc:'No F&G data'};
-  var fg=parseFloat(d.fear_greed||d.value||d.current||50);
+  // Bug 4 truth-up: /api/signals/all returns {label, score, signals:{...}}.
+  // Old key chain (.fear_greed||.value||.current) never matched .score, so
+  // the live 79 was masked by the 50 default. .score now leads the chain.
+  var fg=parseFloat(d.score||d.fear_greed||d.value||d.current||50);
   if(fg>75) return{score:76,val:fg.toFixed(0),desc:'Extreme Greed — consider trimming'};
   if(fg>55) return{score:66,val:fg.toFixed(0),desc:'Greed — momentum favoring bulls'};
   if(fg>45) return{score:55,val:fg.toFixed(0),desc:'Neutral market sentiment'};
@@ -1371,9 +1627,20 @@ function buildDashboard(data){
   var vrExpand='<div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Top Volume Spikes</div>'+(_vrAlerts.length?_vrAlerts.slice(0,5).map(function(a){var rv=parseFloat(a.relative_volume||0);var col=rv>=50?'#ef4444':rv>=10?'#f59e0b':'#10b981';var sym=a.symbol||'?';return '<div class="sc-row sc-row-ticker" onclick="openPopup(\''+sym+'\',\'Volume Radar\')"><span class="sc-lbl ticker-link">'+sym+'</span><span class="sc-val" style="color:'+col+'">'+rv.toFixed(0)+'x</span><span style="color:var(--muted);font-size:9px;margin-left:auto">'+(a.alert_type||'spike').replace(/_/g,' ')+'</span></div>';}).join(''):'<div style="color:var(--muted)">No volume alerts today</div>');
 
   // Convergence expand
+  // Bug 1: /api/signals/all returns convergence.signals[] as objects shaped
+  // {ticker, confidence, strategies_triggered, strategy_names:[...], entry, target, stop}.
+  // Old code rendered (s.name||s) which fell through to "[object Object] AGREE".
+  // Render ticker + strategies_triggered count, with names as a tooltip.
   var _cvd=data.convergence||{};
   var _cvStrats=_cvd.strategies||_cvd.signals||[];
-  var convExpand='<div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Strategy Agreement</div>'+(_cvStrats.length?_cvStrats.map(function(s){return '<div class="sc-row"><span class="sc-lbl">'+(s.name||s)+'</span><span class="sc-val" style="color:#10b981">AGREE</span></div>';}).join(''):'<div class="sc-row"><span class="sc-lbl">Score</span><span class="sc-val">'+(_cvd.score||_cvd.convergence_score||0)+'</span></div><div class="sc-row"><span class="sc-lbl">Strategies</span><span class="sc-val">'+(_cvd.count||0)+' agreeing</span></div><div class="sc-row"><span class="sc-lbl">Auto-trigger</span><span class="sc-val" style="color:'+(_cvd.count>=3?'#10b981':'#ef4444')+'">'+(_cvd.count>=3?'YES — 3+ agree':'No — need 3+')+'</span></div>');
+  var convExpand='<div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Strategy Agreement</div>'+(_cvStrats.length?_cvStrats.slice(0,8).map(function(s){
+    if(typeof s==='string') return '<div class="sc-row"><span class="sc-lbl">'+s+'</span><span class="sc-val" style="color:#10b981">AGREE</span></div>';
+    var tk=s.ticker||s.symbol||s.name||'?';
+    var cnt=s.strategies_triggered||(Array.isArray(s.strategy_names)?s.strategy_names.length:0);
+    var names=Array.isArray(s.strategy_names)?s.strategy_names.join(', '):'';
+    var conf=s.confidence!=null?Math.round(parseFloat(s.confidence)*100)+'%':'';
+    return '<div class="sc-row" title="'+names.replace(/"/g,'&quot;')+'"><span class="sc-lbl">'+tk+(conf?' <span style="color:var(--muted);font-size:10px">'+conf+'</span>':'')+'</span><span class="sc-val" style="color:#10b981">'+cnt+' AGREE</span></div>';
+  }).join(''):'<div class="sc-row"><span class="sc-lbl">Score</span><span class="sc-val">'+(_cvd.score||_cvd.convergence_score||0)+'</span></div><div class="sc-row"><span class="sc-lbl">Strategies</span><span class="sc-val">'+(_cvd.count||0)+' agreeing</span></div><div class="sc-row"><span class="sc-lbl">Auto-trigger</span><span class="sc-val" style="color:'+(_cvd.count>=3?'#10b981':'#ef4444')+'">'+(_cvd.count>=3?'YES — 3+ agree':'No — need 3+')+'</span></div>');
 
   // Fleet P&L expand
   var _sortedA=agents.slice().sort(function(a,b){return (b.return_pct||0)-(a.return_pct||0);});
@@ -1543,13 +1810,26 @@ function buildCrew(agents){
     var wr=parseFloat(a.win_rate||0);
     var trades=parseInt(a.trades||0);
     var pnl=parseFloat(a.total_pnl||0);
+    // Bug 5: halted players legitimately carry season-cumulative P&L with
+    // trades=0 in the current period. Without a halt badge the combo reads
+    // as "mathematically impossible" (e.g. Lt. Sulu -$451 / 0 trades since
+    // 2026-03-31 R:R-0.10 dormancy). Render the halt state visibly and dim
+    // the card so the cumulative value is read as historical, not stale.
+    var halted=!!a.is_halted;
+    var haltReason=(a.halt_reason||'').toString();
     var agentScore=Math.round(Math.min(100,Math.max(0,wr*0.45+Math.min(Math.max(ret*8,0),30)+Math.min(trades*3,25))));
     var color=gc(agentScore);
-    return '<div class="crew-card">'+
+    var cardStyle=halted?' style="opacity:.55;filter:grayscale(.4)"':'';
+    var haltBadge=halted
+      ? '<div style="font-size:9px;font-weight:700;letter-spacing:1px;color:#f59e0b;background:#f59e0b22;padding:2px 6px;border-radius:6px;margin-top:4px;display:inline-block" title="'+haltReason.replace(/"/g,'&quot;')+'">⏸ HALTED</div>'
+      : '';
+    var pnlLabel=halted?'season P&amp;L':'P&amp;L';
+    return '<div class="crew-card"'+cardStyle+'>'+
       '<div class="crew-grade-ring" style="background:'+color+'">'+gl(agentScore)+'</div>'+
       '<div class="crew-name">'+(a.name||a.player_id||'Agent')+'</div>'+
+      haltBadge+
       '<div class="crew-return '+pcls(ret)+'">'+pct(ret)+'</div>'+
-      '<div class="crew-stats">WR '+wr.toFixed(0)+'% &bull; '+trades+' trades<br><span class="'+pcls(pnl)+'">'+fmt$(pnl)+'</span> P&amp;L</div>'+
+      '<div class="crew-stats">WR '+wr.toFixed(0)+'% &bull; '+trades+' trades<br><span class="'+pcls(pnl)+'">'+fmt$(pnl)+'</span> '+pnlLabel+'</div>'+
       '<div class="crew-bar"><div class="crew-bar-fill" style="width:'+Math.min(wr,100)+'%;background:'+color+'"></div></div>'+
     '</div>';
   }).join('');
@@ -1833,10 +2113,16 @@ function renderHunter(){
 // ══════════════════════════════════════════════
 function lookupTrade(sym){
   var symbol = (sym || document.getElementById('trade-sym').value || '').toUpperCase().trim();
-  if(!symbol) return;
+  var el = document.getElementById('trade-result');
+  // Bug 7: empty input used to silently no-op. Surface an inline error.
+  if(!symbol){
+    if(el) el.innerHTML = '<div class="trade-empty"><h3>⚠️ Please enter a ticker</h3><p>Type a symbol or click one of the quick buttons.</p></div>';
+    var input=document.getElementById('trade-sym');
+    if(input) input.focus();
+    return;
+  }
   if(sym) document.getElementById('trade-sym').value = symbol;
 
-  var el = document.getElementById('trade-result');
   el.innerHTML = '<div class="trade-loading loading-pulse">Fetching levels for '+symbol+'...</div>';
 
   fetch('/api/trade-levels/'+symbol)
@@ -1993,7 +2279,7 @@ function histDot(name, raw){
   try{
     if(name==='regime'){ var l=((d&&d.label)||'').toUpperCase(); return l.includes('BULL')?'#10b981':l.includes('BEAR')||l.includes('CRISIS')?'#ef4444':'#f59e0b'; }
     if(name==='vix'){ var v=parseFloat((d&&(d.value||d.vix))||raw||0); return v<20?'#10b981':v<25?'#f59e0b':'#ef4444'; }
-    if(name==='fear_greed'){ var f=parseFloat((d&&(d.fear_greed||d.value))||50); return f>=60?'#ef4444':f<=40?'#10b981':'#94a3b8'; }
+    if(name==='fear_greed'){ var f=parseFloat((d&&(d.score||d.fear_greed||d.value))||50); return f>=60?'#ef4444':f<=40?'#10b981':'#94a3b8'; }
     if(name==='bull_bear'){ var anals=(d&&d.analyses)||[]; var bpct=anals.length?anals.filter(function(a){return (a.bull_case||'').length>5;}).length/anals.length:0.5; return bpct>0.55?'#10b981':bpct<0.45?'#ef4444':'#94a3b8'; }
     if(name==='gex'){ var g=parseFloat((d&&(d.net_gex||d.gex))||0); return g>0?'#10b981':g<0?'#f59e0b':'#94a3b8'; }
     if(name==='smart_money'){ return (Array.isArray(d)&&d.length)?'#10b981':'#94a3b8'; }
@@ -2009,7 +2295,7 @@ function histSummary(name, raw){
     if(name==='regime'){ var l=(d.label||d.regime||d||'').toString(); return l+(d.desc?' — '+d.desc:''); }
     if(name==='vix'){ var v=parseFloat(d.value||d.vix||d||0); var lbl=v<15?'CALM':v<20?'NORMAL':v<25?'ELEVATED':v<30?'HIGH':'PANIC'; return 'VIX '+(isNaN(v)?d:v.toFixed(1))+' — '+lbl+', '+(v<15?'full size OK':v<20?'standard sizing':v<25?'reduce size 25%':v<30?'reduce 50%':'cash mode'); }
     if(name==='gex'){ var gb=parseFloat((d.net_gex||d.gex)||0)/1e9; return 'GEX '+(gb>0?'+':'')+gb.toFixed(2)+'B — '+(gb>0?'Positive gamma, dampened moves':'Negative gamma, amplified moves'); }
-    if(name==='fear_greed'){ var fg=parseFloat(d.fear_greed||d.value||d||0); var fl=fg>=75?'Extreme Greed':fg>=55?'Greed':fg>=45?'Neutral':fg>=25?'Fear':'Extreme Fear'; return 'Fear & Greed '+fg.toFixed(0)+' — '+fl; }
+    if(name==='fear_greed'){ var fg=parseFloat(d.score||d.fear_greed||d.value||0); if(isNaN(fg)) return 'Fear & Greed — no data'; var fl=fg>=75?'Extreme Greed':fg>=55?'Greed':fg>=45?'Neutral':fg>=25?'Fear':'Extreme Fear'; return 'Fear & Greed '+fg.toFixed(0)+' — '+fl; }
     if(name==='breadth'){ var pct=parseFloat(d.breadth_pct||d.pct_above_200||0); var sa=d.sectors_above_20sma||'?'; var st=d.sectors_total||11; return sa+'/'+st+' sectors above 20SMA ('+pct.toFixed(0)+'% above 200MA)'; }
     if(name==='smart_money'){ if(Array.isArray(d)&&d.length){ var syms=d.slice(0,3).map(function(x){return typeof x==='string'?x:(x.symbol||x.ticker||'?');}).join(', '); return d.length+' consensus: '+syms+(d.length>3?' +more':''); } return 'No consensus'; }
     if(name==='volume_radar'){ var al=(d.alerts||[]); if(!al.length) return 'No alerts'; var top=al[0]; return al.length+' alerts — top: '+(top.symbol||'?')+' '+parseFloat(top.relative_volume||0).toFixed(2)+'x'; }
@@ -2540,6 +2826,18 @@ function loadAccHistory(){
     .then(function(rows){
       var tbody = document.getElementById('pred-acc-body');
       if(!tbody) return;
+      // Bug 8: /api/predictions/history occasionally backfills duplicate rows
+      // for the same period_date (saw two 2026-04-05 / 0% rows on 2026-05-18).
+      // De-dupe client-side by period_date (keep first occurrence). The
+      // 100%→54% jump across multi-week gaps is real backfill cadence, not
+      // a bug — left as-is. Backend dedup is the proper fix; flagged.
+      var seen={};
+      rows=(Array.isArray(rows)?rows:[]).filter(function(r){
+        var k=r.period_date||'';
+        if(seen[k]) return false;
+        seen[k]=true;
+        return true;
+      });
       if(!rows.length){ tbody.innerHTML = '<tr><td colspan="6" class="empty-state">No history yet.</td></tr>'; return; }
       tbody.innerHTML = rows.slice(0,14).map(function(r){
         var col = r.accuracy_pct>=60?'var(--green)':r.accuracy_pct>=40?'var(--yellow)':'var(--red)';
