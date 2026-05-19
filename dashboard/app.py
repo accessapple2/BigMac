@@ -540,6 +540,17 @@ def timed_cache(seconds: int):
 _swr_cache: dict = {}
 _swr_locks: dict = {}
 _endpoint_stale_cache: dict = {}   # {key: {"data": ..., "ts": float}} — stale fallback for timeout-wrapped endpoints
+
+# HM-CAPITAL-HANG-EMERGENCY 2026-05-19: module-level shared executor for bounded
+# timeout-wrapped endpoint work. A per-call `with ThreadPoolExecutor(...) as pool:`
+# calls shutdown(wait=True) in __exit__ which blocks until the in-flight future
+# completes — shadowing the .result(timeout=N) raise. A persistent executor lets
+# the caller abandon a slow future and move on (worker thread continues in
+# background, result discarded).
+import atexit as _atexit_app
+from concurrent.futures import ThreadPoolExecutor as _TPE_APP
+_ENDPOINT_TIMEOUT_POOL = _TPE_APP(max_workers=4, thread_name_prefix='endpoint_timeout_pool')
+_atexit_app.register(lambda: _ENDPOINT_TIMEOUT_POOL.shutdown(wait=False))
 _insider_cache: dict = {"data": None, "ts": 0}
 _INSIDER_CACHE_TTL: int = 600      # 10 min — insider filings change rarely
 
@@ -7299,9 +7310,10 @@ def get_capital():
     # cascaded into per-position serial yfinance fallback inside get_portfolio_with_pnl
     # (69 players × ~80 positions = 187s hangs). Now: prefer the last-known-good cache,
     # only fall through to empty prices if no cache exists yet (very first call after boot).
+    # Uses the module-level _ENDPOINT_TIMEOUT_POOL because a per-call `with TPE(...) as pool`
+    # block's __exit__ shutdown(wait=True) shadows the 3s timeout.
     try:
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            prices = pool.submit(get_all_prices, get_active_universe()).result(timeout=3)
+        prices = _ENDPOINT_TIMEOUT_POOL.submit(get_all_prices, get_active_universe()).result(timeout=3)
     except (FuturesTimeout, Exception):
         _stale = _endpoint_stale_cache.get("capital")
         if _stale and _stale.get("data"):
