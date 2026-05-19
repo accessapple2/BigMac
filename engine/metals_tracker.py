@@ -57,16 +57,23 @@ def get_spot_prices(fresh: bool = False) -> dict:
     Args:
         fresh: If True, bypass the price cache to get live data (use for API calls).
     """
+    # HM-METALS-CACHE-FRESH-TRUE-PERF 2026-05-19: parallelize 4-symbol fanout.
+    # Cold-cache cost was ~24s serial; each yfinance/Polygon call blocks on
+    # network and releases the GIL, so a 4-wide thread pool cuts cold path to
+    # the slowest single call (~6s). _price_cache writes hit distinct keys
+    # per symbol so the dict is contention-free under CPython.
+    from concurrent.futures import ThreadPoolExecutor
     from engine.market_data import get_stock_price, _price_cache
     if fresh:
         for symbol in METAL_SYMBOLS.values():
             _price_cache.pop(symbol, None)
-    prices = {}
-    for metal, symbol in METAL_SYMBOLS.items():
+
+    def _one(item):
+        metal, symbol = item
         try:
             data = get_stock_price(symbol)
             if data and "price" in data:
-                prices[metal] = {
+                return metal, {
                     "price": data["price"],
                     "change_pct": data.get("change_pct", 0),
                     "high": data.get("high", data["price"]),
@@ -74,6 +81,13 @@ def get_spot_prices(fresh: bool = False) -> dict:
                 }
         except Exception:
             pass
+        return metal, None
+
+    prices = {}
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        for metal, entry in ex.map(_one, METAL_SYMBOLS.items()):
+            if entry is not None:
+                prices[metal] = entry
     # Gold/Silver ratio
     if "GOLD" in prices and "SILVER" in prices and prices["SILVER"]["price"] > 0:
         prices["GSR"] = round(prices["GOLD"]["price"] / prices["SILVER"]["price"], 1)
