@@ -4159,7 +4159,8 @@ async function fetchRikerRecommendation() {
     var el = document.getElementById('rikerRecommendation');
     var ts = document.getElementById('rikerTimestamp');
     if (d.recommendation) {
-      el.textContent = d.recommendation;
+      // C1 HM-RIKER-LLM-TOKENIZER-ARTIFACT: strip <unusedNNNN> tokenizer leakage from LLM output
+      el.textContent = String(d.recommendation).replace(/<unused\d+>\s*/g, '');
       el.style.color = 'var(--text)';
       if (ts && d.generated_at) {
         var genDate = new Date(d.generated_at);
@@ -5409,6 +5410,12 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       h+='<th style="text-align:left;padding:6px;">Ticker</th><th style="text-align:left;padding:6px;">Name</th>';
       h+='<th class="" data-tip="Leverage multiplier. -1x moves opposite to index 1:1. -2x doubles the inverse. -3x triples it — but with severe volatility decay risk over time." style="padding:6px;cursor:help;">Lev</th><th style="padding:6px;">Price</th>';
       h+='<th style="padding:6px;">Day</th><th style="padding:6px;">5-Day</th><th class="" data-tip="Volatility decay risk. Leveraged ETFs lose value from daily rebalancing math. LOW = safer for multi-day holds. HIGH/EXTREME = intraday or days only." style="padding:6px;cursor:help;">Decay</th></tr></thead><tbody>';
+      // C2 HM-WORF-ARSENAL-ETF-LIST-EMPTY: empty-state row when arsenal payload has no etfs
+      if (!d.etfs || !d.etfs.length) {
+        h+='<tr><td colspan="7" style="padding:14px;text-align:center;color:var(--muted);font-style:italic;">No defensive ETFs in payload. Awaiting Worf scan.</td></tr></tbody></table>';
+        tbl.innerHTML=h;
+        return;
+      }
       var _ETF_TIPS={'SH':'SH = ProShares Short S&P500 (-1x). Safest inverse ETF — simple 1:1 short of the S&P 500. Lowest decay risk. Suitable for multi-week defensive holds.','SDS':'SDS = ProShares UltraShort S&P500 (-2x). Doubles the inverse of S&P. Moderate decay. Good for 1-2 week holds during confirmed downtrends.','SQQQ':'SQQQ = ProShares UltraPro Short QQQ (-3x). Triples the inverse of Nasdaq. Explosive upside in crashes but severe decay in sideways/bouncing markets. Days only.','SDOW':'SDOW = ProShares UltraPro Short Dow30 (-3x). Triples the inverse of the Dow. Same extreme decay warning as SQQQ. High-risk tactical instrument.','TZA':'TZA = Direxion Small Cap Bear 3x. Triples the inverse of Russell 2000 small caps. Small caps lead recoveries — exit fast when market stabilizes.','VXX':'VXX = iPath S&P 500 VIX Short-Term Futures. NOT an index inverse — tracks VIX futures with EXTREME negative roll yield decay. Hours to days only, never hold overnight repeatedly.'};
       for (var e of (d.etfs||[])) {
         var dc=e.change_1d>=0?'var(--green)':'var(--red)';
@@ -5685,6 +5692,10 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         <span id="bsStatusBadge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:#6b728022;color:#6b7280;">OFFLINE</span>
         <span id="bsLastUpdate" style="font-size:12px;color:var(--muted);font-family:var(--font-mono);">--</span>
       </div>
+    </div>
+    <!-- C6 HM-BATTLE-STATION-HALT-STATUS-BANNER: surface intentional halt so "--" everywhere reads as expected, not broken UI. -->
+    <div style="margin:0 14px 10px;padding:8px 12px;background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;font-size:12px;color:var(--text);">
+      ⏸ <b>T'Pol halted</b> (spread cannibalization 2026-05-06) — Battle Station idle. See <span style="color:var(--accent);">Models</span> tab to re-enable.
     </div>
 
     <!-- Morning Levels row -->
@@ -15524,8 +15535,12 @@ async function fetchStats() {
     document.getElementById('totalPnl').textContent = (tp >= 0 ? '▲ +$' : '▼ -$') + Math.abs(tp).toFixed(2);
     document.getElementById('totalPnl').className = 'stat-value ' + (tp >= 0 ? 'green' : 'red');
     document.getElementById('closedTrades').textContent = (d.closed_trades||0) + ' closed trades';
-    document.getElementById('winRate').textContent = (d.win_rate||0).toFixed(1) + '%';
-    document.getElementById('winLoss').textContent = (d.wins||0) + 'W / ' + (d.losses||0) + 'L';
+    // C5 HM-FLEET-WIN-RATE-CONTRADICTION: API returns winners/losers, not wins/losses — read both, fall back gracefully.
+    // If both come back zero, displaying a non-zero win_rate is contradictory — show "—" instead.
+    var _w = (d.wins != null ? d.wins : (d.winners != null ? d.winners : 0));
+    var _l = (d.losses != null ? d.losses : (d.losers != null ? d.losers : 0));
+    document.getElementById('winRate').textContent = (_w === 0 && _l === 0) ? '—' : (d.win_rate||0).toFixed(1) + '%';
+    document.getElementById('winLoss').textContent = _w + 'W / ' + _l + 'L';
     document.getElementById('profitFactor').textContent = (d.profit_factor||0).toFixed(2);
     document.getElementById('avgPnl').textContent = 'Avg: $' + (d.avg_win||0).toFixed(0) + ' / -$' + Math.abs(d.avg_loss||0).toFixed(0);
   } catch(e) {}
@@ -22570,9 +22585,27 @@ function renderSqueezeCards() {
     el.innerHTML = '<div style="grid-column:1/-1;color:var(--muted);text-align:center;padding:20px;">No active squeeze candidates. Watcher runs every 30 min during market hours.</div>';
     return;
   }
+  // C4 HM-SQUEEZE-DUPLICATE-BENF: dedupe by ticker+scan-date (keep highest composite per ticker per day).
+  // Same pattern as Round 1 Red Alert dedupe.
+  var _seenSqz = {};
+  var _dedupedSqz = [];
+  for (var _i = 0; _i < _squeezeData.length; _i++) {
+    var _r = _squeezeData[_i];
+    var _date = (_r.scan_ts || '').slice(0, 10); // YYYY-MM-DD prefix; covers both 'YYYY-MM-DD HH:MM' and ISO formats
+    var _key = (_r.symbol || '') + '|' + _date;
+    var _prev = _seenSqz[_key];
+    if (_prev == null || ((_r.composite_score || 0) > (_dedupedSqz[_prev].composite_score || 0))) {
+      if (_prev == null) {
+        _seenSqz[_key] = _dedupedSqz.length;
+        _dedupedSqz.push(_r);
+      } else {
+        _dedupedSqz[_prev] = _r;
+      }
+    }
+  }
   var html = '';
-  for (var i = 0; i < _squeezeData.length; i++) {
-    var r = _squeezeData[i];
+  for (var i = 0; i < _dedupedSqz.length; i++) {
+    var r = _dedupedSqz[i];
     var st = _squeezeTierStyle(r.threshold_tier);
     var composite = (r.composite_score != null) ? Math.round(r.composite_score) : '?';
     var sym = _esc(r.symbol);
@@ -27163,17 +27196,22 @@ function loadGlanceData() {
     el.style.color = '#ea580c';
     // Worf expand: ETF list
     var wInner = document.getElementById('g-worf-inner');
-    if (wInner && d.etfs && d.etfs.length > 0) {
-      var wRows = d.etfs.map(function(e) {
-        var wCol = (e.change_1d||0) >= 0 ? '#22c55e' : '#ef4444';
-        return '<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;font-family:var(--font-mono);">'
-          + '<b>'+e.ticker+'</b>'
-          + ' <span style="color:var(--muted);flex:1;">'+e.name+'</span>'
-          + ' <span style="color:var(--text);">$'+e.price+'</span>'
-          + ' <span style="color:'+wCol+';">'+(e.change_1d>=0?'▲+':'▼')+e.change_1d+'%</span>'
-          + '</div>';
-      });
-      wInner.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">'+d.regime+' — Defensive Arsenal</div>' + wRows.join('');
+    if (wInner) {
+      if (d.etfs && d.etfs.length > 0) {
+        var wRows = d.etfs.map(function(e) {
+          var wCol = (e.change_1d||0) >= 0 ? '#22c55e' : '#ef4444';
+          return '<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;font-family:var(--font-mono);">'
+            + '<b>'+e.ticker+'</b>'
+            + ' <span style="color:var(--muted);flex:1;">'+e.name+'</span>'
+            + ' <span style="color:var(--text);">$'+e.price+'</span>'
+            + ' <span style="color:'+wCol+';">'+(e.change_1d>=0?'▲+':'▼')+e.change_1d+'%</span>'
+            + '</div>';
+        });
+        wInner.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">'+d.regime+' — Defensive Arsenal</div>' + wRows.join('');
+      } else {
+        // C2 HM-WORF-ARSENAL-ETF-LIST-EMPTY: clear stale rows when payload empty (don't leave previous data)
+        wInner.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:6px 0;font-style:italic;">'+d.regime+' — no defensive ETFs in payload</div>';
+      }
     }
   }).catch(function(){});
 
@@ -32271,16 +32309,22 @@ var liveChart = (function() {
   return { connect: connect, disconnect: disconnect, draw: draw, setTf: setTf, toggleOverlay: toggleOverlay, setDateRange: setDateRange, toggleLightMode: toggleLightMode, setPriceLines: setPriceLines, clearPriceLines: clearPriceLines, getLastPrice: getLastPrice };
 })();
 
-// MutationObserver: log stack trace when #section-livechart is hidden unexpectedly
+// C7 HM-LIVECHART-OBSERVER-LEAK: log stack trace when #section-livechart is first hidden,
+// then tear the observer down. Previously the warning fired on every section switch — once
+// the diagnostic data is captured (or the section is hidden during normal navigation), the
+// observer's job is done; further hides are noise.
 (function() {
   var el = document.getElementById('section-livechart');
   if (!el) return;
   var obs = new MutationObserver(function(mutations) {
-    mutations.forEach(function(m) {
+    for (var i = 0; i < mutations.length; i++) {
+      var m = mutations[i];
       if (m.attributeName === 'style' && el.style.display === 'none') {
         console.warn('[LiveChart] section hidden! Stack:', new Error().stack);
+        obs.disconnect();
+        return;
       }
-    });
+    }
   });
   obs.observe(el, { attributes: true, attributeFilter: ['style'] });
 })();
@@ -33719,13 +33763,20 @@ setTimeout(function(){
       var html = buildScanRow('SPY', null, null, 'index', null, true)
                + buildScanRow('QQQ', null, null, 'index', null, true);
 
+      // C3 HM-SNIFF-SCAN-EMPTY-PANEL-NO-MESSAGE: track non-index hits to surface empty-state
+      var nonIndexHits = 0;
       hits.forEach(function(h) {
         var sym = h.symbol || h.ticker || h.sym || '';
         if (sym === 'SPY' || sym === 'QQQ') return; // skip if already in index rows
+        nonIndexHits++;
         html += buildScanRow(sym, h.price || h.last, h.rvol || h.relative_volume,
           h.alert_type || h.type, h.detected_at || h.time, false, h.gap_pct || h.gap || 0,
           h.hits_today, h.days_active);
       });
+
+      if (nonIndexHits === 0) {
+        html += '<div style="padding:14px 10px;color:var(--muted);font-size:12px;font-style:italic;text-align:center;">No scanner hits this cycle.</div>';
+      }
 
       container.innerHTML = html;
 
