@@ -4486,7 +4486,10 @@ def metals_commentary():
 def metals_prices():
     """Get live spot prices for gold, silver, platinum, palladium."""
     from engine.metals_tracker import get_spot_prices
-    return get_spot_prices(fresh=True)
+    # HM-METALS-CACHE-FRESH-TRUE-PERF 2026-05-19: fresh=True popped the 60s
+    # _PRICE_CACHE_TTL on every Bridge load, paying 4× serial yfinance fanout
+    # (~24s cold). 60s staleness is fine for a UI panel; metals don't tick that fast.
+    return get_spot_prices(fresh=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -13772,9 +13775,10 @@ def metals_exposure():
     METALS_TICKERS = {"GLD","IAU","SGOL","GLDM","BAR","SLV","SIVR","PSLV","PPLT","PALL"}
 
     # Spot prices — direct call
+    # HM-METALS-CACHE-FRESH-TRUE-PERF 2026-05-19: see metals_prices() for rationale.
     spot_data = {}
     try:
-        spot_data = _get_spots(fresh=True) or {}
+        spot_data = _get_spots(fresh=False) or {}
     except Exception:
         pass
 
