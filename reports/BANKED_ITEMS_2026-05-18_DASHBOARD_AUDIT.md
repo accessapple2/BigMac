@@ -1,5 +1,35 @@
 # Banked Items — Chrome Dashboard Audit 2026-05-18
 
+## Shipped Bridge Remodel Chapter 0 — 2026-05-19 (HM-BRIDGE-REMODEL-CHAPTER-0)
+
+Single bundled commit (`c809d67`) shipping the 3-item Stop-the-Bleeding Chapter 0
+of the bridge remodel. Quality-only, no new features. Followed Brief #2 audit
+triage delivered in HM-BRIDGE-REMODEL-CHAPTER-0-AUDIT.
+
+| Item | Change | Verified |
+|------|--------|----------|
+| HM-CHART-LIB-DEDUPE | Dropped `lightweight-charts@4.1.0` (line 2454). 4.2.2 loads later and was already globally overwriting it — all callers were running 4.2.2. API surface audited (`createChart`, `addCandlestickSeries`, `addLineSeries`, `addHistogramSeries`, `CrosshairMode.Normal`) — fully compatible. Saves ~250KB duplicate parse/execute per page load. | Served `/static/index.html` has only one `<script src="...lightweight-charts@4.2.2/...">` tag; the 4.1.0 reference now lives only in a dedupe comment. |
+| HM-METALS-PORTFOLIO-CACHE-WARM Tier A | Added `_SPOT_CACHE` (300s TTL) around `get_spot_prices()` in `engine/metals_tracker.py`. Mirrors `_VIX_CACHE_TTL=300` pattern. Captain's open-close-open Dilithium navigation now pays cold cost once per 5 min instead of every 60s. | `/api/metals/portfolio` cold 11.5s → warm **35ms** (was 18.6s pre-Chapter-0 before TTL expiry). 530× speedup on warm path. |
+| HM-METALS-PORTFOLIO-CACHE-WARM Tier B | Parallelized `/api/metals/etf-flows` 9-ticker yfinance fanout via module-level `_ETF_FLOWS_POOL` (NOT inline `with` block — per c0e9234 shadow-bug lesson). | `/api/metals/etf-flows` 1.0s → **0.27s** (~4× speedup). |
+| HM-TRADES-RECENT-CONSOLIDATE | Added `window.getTradesRecent({player_id, limit, season})` shared store at top of `dashboard/static/index.html`. Per-query cache (Map keyed by JSON-stringified opts) with 30s TTL + in-flight coalescing. Global queries normalize `fetchLimit = max(limit, 50)` so `limit=5/20/30` callers share one fetch. Per-player queries keep their own cache key to preserve backend filter semantics (sparse-trader players like capitol-trades who haven't traded in months are still surfaced — a global limit=N fetch would lose them). Replaced 6 callers (lines 12595, 16172, 16585, 16955, 18504, 26021) with helper. | `node --check` clean across 156 script blocks. `/api/trades/recent` backend unchanged, still returns array shape. |
+
+### Frontend Ship Rule — Captain owes browser smoke
+
+- Charts tab + Big Charts tab + Live Chart tab + Sniff Scan (chart dedupe verification — Sniff Scan dynamically loads Chart.js 4.4.1 separately, unaffected)
+- Bridge sidebar agent expand (toggleSidebarAgent — caller 4)
+- Arena leaderboard row expand (caller 2)
+- Congress tab → Capitol Trades portfolio (caller 1)
+- Bridge trade feed (caller 3)
+- Bridge ship-computer alerts panel (caller 6)
+- Toast notifications on new trades (caller 5 — fires every 30s)
+
+### Not included in Chapter 0 (deferred / accepted)
+
+- Chart.js 3.9.1 → 4.4.1 migration → separate epic `HM-CHART-JS-MIGRATION-V4`
+- React/Vue/Svelte → Chapter 2
+- WebSocket/SSE → Chapter 4
+- Command palette → Chapter 1
+
 ## Shipped Round 7 Cosmetic Sweep — 2026-05-19 (HM-FRONTEND-COSMETIC-SWEEP)
 
 Single bundled commit (`5f7a25d`) shipping 7 UI polish fixes. Frontend only — no
