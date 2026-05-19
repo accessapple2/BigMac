@@ -1,5 +1,53 @@
 # Banked Items — Chrome Dashboard Audit 2026-05-18
 
+## Auto-Closed Round 6 — 2026-05-19 (HM-AUTO-CLOSE-SWEEP)
+
+Verify-or-close pass on 11 banked items from HM-AUTO-CLOSE-SWEEP draft.
+Mode: AUDIT-ONLY. Findings:
+
+**7 closed / 4 still banked / 1 new finding banked**.
+
+| # | Item | Disposition | Evidence |
+|---|------|-------------|----------|
+| 1 | HM-METALS-GSR-DATA-WIRE | **CLOSED** | `/api/metals/exposure` returns `gsr=58.6` (real number, not `--`). Auto-closed by commit `21e7462` Round 3 metals_ledger work. |
+| 2 | HM-WHEEL-PUT-COUNT-MISMATCH | **CLOSED** | Already SHIPPED by commit `21e7462` Round 3 Item 5 slice bump (see Item 5 entry below). |
+| 3 | HM-METALS-HEADER-DETAIL-DISCREPANCY | **CLOSED** | `/api/metals/portfolio` total_value=$9,627.45 ≡ `/api/metals/exposure` metals_value=$9,627.45 — exact match. Auto-closed by Round 3 Item 3 metals_ledger repoint. |
+| 4 | HM-CONSENSUS-PANEL-SPLIT | **CLOSED (subset of parent)** | Already confirmed case (a) — see Item 2 entry below. Parent ticket `HM-UHURA-DATA-SIGNAL-PRODUCERS-IDLE` tracks the upstream producer fix; this surface symptom resolves when the parent ships. |
+| 8 | HM-RACE-FEED-INITIALIZING-STUCK | **CLOSED** | Captain's page dump 2026-05-18 PM showed "Race Top Gainers table 20 of 20 rows" rendering. Producer alive. |
+| 9 | HM-SQUEEZE-CRON-NOT-RUNNING | **CLOSED** | `com.ollietrades.squeeze-scan` plist loaded, `StartInterval=900s` (15 min), `OnDemand=true`, `LastExitStatus=0`. `squeeze_watch` table has a fresh row at `2026-05-18T21:47:44Z` (today). Cron alive and firing. |
+| 11 | HM-DOM-STRUCTUREFIX-WARNINGS | **CLOSED (WONTFIX-COSMETIC)** | 88 warnings, JS auto-corrects, no functional impact. Bank entry already said "Defer indefinitely"; promoting to WONTFIX-COSMETIC. |
+
+### Still banked (4)
+
+| # | Item | Why kept |
+|---|------|----------|
+| 5 | HM-INSIDER-FEED-INIT-STUCK | `/api/insider/feed` returns `{"symbol":"FEED","buys":0,"sells":0,"transactions":[]}` — endpoint is treating the literal string `feed` as a ticker symbol path-arg. Different bug than "init stuck", but symptom remains. **New finding banked → HM-INSIDER-FEED-PATH-CONFLATION** (see below). |
+| 6 | HM-FEAR-GREED-WIDGET-STANDALONE-UNDEFINED | `/api/fear-greed/standalone` → 404. Bridge embed works (F&G 80 in Sentiment Engine per page dump), but standalone widget endpoint missing. |
+| 7 | HM-LIVE-CHART-VOL-ZERO-STALE-STREAM | `/api/livechart/MSFT` → 404. Cannot verify VOL field on a non-existent endpoint. Either path changed (re-grep frontend) or endpoint was removed in cleanup. Re-investigate. |
+| 10 | HM-GEX-OVERLAY-STALE-TIMESTAMP | No fresh evidence to flip. Captain's page dump showed "GEX Overlay 07:03:12" still stale. |
+
+### New finding banked
+
+### HM-INSIDER-FEED-PATH-CONFLATION
+- `/api/insider/feed` returns shape `{"symbol":"FEED",...}` — the FastAPI route is treating `feed` as a `/api/insider/{symbol}` path-arg rather than its own endpoint.
+- Need to read `dashboard/app.py` insider routes and either (a) register `/api/insider/feed` explicitly before the parameterized route, or (b) confirm whether `feed` was supposed to be a literal route at all.
+- Low severity; surfaced during HM-AUTO-CLOSE-SWEEP item 5 verification.
+
+### S6 stats endpoint discovery (PART 3 of HM-METALS-CACHE-FRESH-TRUE-PERF directive)
+
+Bridge footer `Total P&L / Fleet Win Rate / closed_trades / profit_factor` reads from `/api/performance?season=N&fleet_only=true` (see `fetchStats()` in `dashboard/static/index.html` around line 15520). Currently returning:
+
+```
+season=6, total_trades=393, closed_trades=393, win_rate=74.3, total_pnl=4009.91,
+profit_factor=3.51, avg_win=19.2, avg_loss=-33.97
+```
+
+These match the killed HM-POST-RESTART-REGRESSIONS draft's "before" baseline exactly. The "After 3x restart: $0.00 / 0 closed / WR 0.0%" symptom was transient UI state (silent `try/catch` in `fetchStats()` swallowing one bad fetch during the restart window) — self-healed, no backend bug.
+
+Killed draft now at `drafts/HM-POST-RESTART-REGRESSIONS.md.killed-2026-05-19`.
+
+---
+
 ## Shipped 2026-05-18 Round 4.1 — Matrix tab header/footer diagnosis
 
 Captain post-Round-4 smoke caught two issues. Findings:
@@ -184,7 +232,7 @@ Post-fix verification on live `/api/signals/all`:
 
 Service restarted via `launchctl kickstart -k gui/$(id -u)/com.trademinds.signal-center`.
 
-### Item 2 — Bridge CONSENSUS panel SPLIT — BANKED (case a)
+### Item 2 — Bridge CONSENSUS panel SPLIT — CLOSED Round 6 (subset of HM-UHURA-DATA-SIGNAL-PRODUCERS-IDLE)
 
 Audit-first per guardrail; case (a) confirmed (producers idle), so
 banked as **HM-UHURA-DATA-SIGNAL-PRODUCERS-IDLE** (below) instead of
@@ -499,11 +547,11 @@ Already banked. Affects 5 Signal Center panels.
 
 ## Low-priority polish
 
-### HM-DOM-STRUCTUREFIX-WARNINGS
+### HM-DOM-STRUCTUREFIX-WARNINGS — CLOSED Round 6 (WONTFIX-COSMETIC)
 - 88 console warnings on load: sections rendered outside .main
 - JS auto-corrects, no functional impact
-- Template-level fix preferred
-- Defer indefinitely
+- Template-level fix preferred but not load-bearing
+- Closed as WONTFIX-COSMETIC per HM-AUTO-CLOSE-SWEEP 2026-05-19
 
 ### HM-METALS-COMMENTARY-ABORT-ERROR
 - AbortError on metals commentary fetch
