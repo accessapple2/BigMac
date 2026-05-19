@@ -2451,7 +2451,84 @@ window._cachedFetch = function(url, ttlMs) {
   // After all scripts run, _buildFnSectionMap sets _pageLoading=false
 })();
 </script>
-<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+<!-- HM-CHART-LIB-DEDUPE 2026-05-19: dropped duplicate lightweight-charts@4.1.0 here.
+     4.2.2 loads later (~line 14569) and globally overwrites LightweightCharts, so all
+     callers were running 4.2.2 anyway. Audited API surface (createChart, addCandlestickSeries,
+     addLineSeries, addHistogramSeries, CrosshairMode.Normal) — fully compatible with 4.2.2. -->
+
+<script>
+// HM-TRADES-RECENT-CONSOLIDATE 2026-05-19 (Chapter 0): shared store for /api/trades/recent.
+// Six site-specific callers existed prior to Chapter 0 with different (player_id, limit, season)
+// params. Per-query cache (Map keyed by JSON.stringify({player_id, limit, season})) preserves
+// backend filter semantics (a player who hasn't traded in months still surfaces when the
+// caller asks for their player_id explicitly — a global limit=N fetch would lose them).
+// In-flight coalescing ensures concurrent callers with identical params hit the network once.
+// For unfiltered global queries (no player_id), normalize fetchLimit to max(limit, 50) so
+// callers asking for limit=5/20/30 share one backend hit and slice client-side.
+(function(){
+  'use strict';
+  var _tradesRecentStore = {
+    cache: new Map(),       // queryKey -> {data, ts}
+    inflight: new Map(),    // queryKey -> Promise
+    TTL_MS: 30000,
+  };
+  function _slice(data, limit) {
+    if (!Array.isArray(data)) return data;
+    return limit ? data.slice(0, limit) : data;
+  }
+  window.getTradesRecent = function(opts) {
+    opts = opts || {};
+    var player_id = opts.player_id || null;
+    var limit = opts.limit || 50;
+    var season = (opts.season != null) ? opts.season : null;
+
+    var fetchLimit = limit;
+    var cacheKey;
+    if (!player_id) {
+      // Global unfiltered: share one fetch among limit=5/20/30 callers
+      fetchLimit = Math.max(limit, 50);
+      cacheKey = JSON.stringify({global: true, season: season});
+    } else {
+      // Per-player: per-query cache, preserves backend filter semantics
+      cacheKey = JSON.stringify({player_id: player_id, limit: limit, season: season});
+    }
+
+    var now = Date.now();
+    var cached = _tradesRecentStore.cache.get(cacheKey);
+    if (cached && (now - cached.ts) < _tradesRecentStore.TTL_MS) {
+      return Promise.resolve(_slice(cached.data, limit));
+    }
+
+    var pending = _tradesRecentStore.inflight.get(cacheKey);
+    if (pending) {
+      return pending.then(function(d){ return _slice(d, limit); });
+    }
+
+    var params = new URLSearchParams();
+    if (player_id) params.set('player_id', player_id);
+    params.set('limit', fetchLimit);
+    if (season != null) params.set('season', season);
+    var url = '/api/trades/recent?' + params.toString();
+
+    var p = fetch(url, {cache: 'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        // Backend returns array; some legacy paths return {trades: [...]} — normalize
+        var arr = Array.isArray(d) ? d : (Array.isArray(d && d.trades) ? d.trades : []);
+        _tradesRecentStore.cache.set(cacheKey, {data: arr, ts: Date.now()});
+        _tradesRecentStore.inflight.delete(cacheKey);
+        return arr;
+      })
+      .catch(function(e){
+        _tradesRecentStore.inflight.delete(cacheKey);
+        throw e;
+      });
+
+    _tradesRecentStore.inflight.set(cacheKey, p);
+    return p.then(function(d){ return _slice(d, limit); });
+  };
+})();
+</script>
 
 <!-- hide-kirk removed — Kirk/Webull portfolio visible -->
 <style id="hide-kirk">
@@ -12592,9 +12669,8 @@ async function fetchCapitolPortfolio() {
   if (!el) return;
   el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">Loading Capitol Trades portfolio...</div>';
   try {
-    var r = await fetch('/api/trades/recent?player_id=capitol-trades&limit=50');
-    var d = await r.json();
-    var trades = Array.isArray(d) ? d : (d.trades || d.recent || []);
+    // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was: fetch('/api/trades/recent?player_id=capitol-trades&limit=50')
+    var trades = await getTradesRecent({player_id: 'capitol-trades', limit: 50});
     if (!trades.length) {
       el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">No Capitol Trades positions yet.<br><span style="font-size:12px;">Congress copycat trades will appear here when the agent executes.</span></div>';
       return;
@@ -16169,8 +16245,8 @@ function toggleLbExpand(rowEl, playerId, expandId) {
       expandEl.innerHTML = html;
 
       // Async: load recent trades and fill placeholder
-      fetch('/api/trades/recent?player_id=' + encodeURIComponent(playerId) + '&limit=5&season=' + currentSeason)
-        .then(function(r2) { return r2.json(); })
+      // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was direct fetch with same params
+      getTradesRecent({player_id: playerId, limit: 5, season: currentSeason})
         .then(function(rtData) {
           var rtEl = expandEl.querySelector('.lb-recent-trades-placeholder');
           if (!rtEl) return;
@@ -16581,12 +16657,17 @@ async function fetchArenaFeed() {
 
     // Always pass an explicit season — use resolved season if available, else ask API to auto-detect
     var season = (currentSeason === -1) ? -1 : (currentSeason > 0 ? currentSeason : 0);
-    var seasonParam = season === -1 ? '' : '&season=' + season;
-    var r = await fetch('/api/trades/recent?limit=30' + seasonParam, {cache: 'no-store'});
-    if (!r.ok) { console.error('Trade Feed: HTTP', r.status); return; }
-    var raw = await r.json();
-    // Guard: API may return {ok, trades:[]} from duplicate route — normalise to array
-    var trades = Array.isArray(raw) ? raw : (Array.isArray(raw.trades) ? raw.trades : []);
+    // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was: fetch('/api/trades/recent?limit=30...')
+    // season=-1 sentinel maps to no season param (let API auto-detect)
+    var trades;
+    try {
+      trades = await getTradesRecent({limit: 30, season: (season === -1 ? null : season)});
+    } catch (e) {
+      console.error('Trade Feed: fetch failed', e);
+      return;
+    }
+    // Defensive: helper already normalizes shape, but keep guard
+    if (!Array.isArray(trades)) trades = [];
     // Sort newest-first in case of any server-side ordering quirk
     trades.sort(function(a,b){ return (b.executed_at||'').localeCompare(a.executed_at||''); });
 
@@ -16952,10 +17033,10 @@ function toggleSidebarAgent(pid, rowEl) {
         return;
       }
       // No open positions — fall back to recent trade history
-      return fetch('/api/trades/recent?player_id=' + encodeURIComponent(pid) + '&limit=8&season=5')
-        .then(function(r) { return r.json(); })
-        .then(function(tData) {
-          var trades = Array.isArray(tData) ? tData : (tData.trades || tData.recent || []);
+      // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was direct fetch with same params
+      return getTradesRecent({player_id: pid, limit: 8, season: 5})
+        .then(function(trades) {
+          if (!Array.isArray(trades)) trades = [];
           if (!trades.length) {
             expEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:6px 0;font-size:11px;">All cash — no trades this season</div>';
             expEl.dataset.loaded = pid;
@@ -18501,8 +18582,9 @@ function showToast(msg, type) {
 
 async function checkNewTrades() {
   try {
-    var r = await fetch('/api/trades/recent?limit=5');
-    var trades = await r.json();
+    // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was: fetch('/api/trades/recent?limit=5')
+    // Helper normalizes shape and slices to limit=5 from the shared global cache
+    var trades = await getTradesRecent({limit: 5});
     if (!Array.isArray(trades)) return;
     var today = new Date(Date.now() - 7*60*60*1000).toISOString().substring(0,10); // AZ time (UTC-7)
     var todayTrades = trades.filter(function(t){ return (t.executed_at||'').indexOf(today) >= 0; });
@@ -26018,7 +26100,8 @@ async function fetchKirkDetail() {
     ]);
 
     var trades = [];
-    try { trades = await fetch('/api/trades/recent?limit=20').then(function(r){return r.json();}); } catch(e){}
+    // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was: fetch('/api/trades/recent?limit=20')
+    try { trades = await getTradesRecent({limit: 20}); } catch(e){}
     var alerts = [];
     try { alerts = await fetch('/api/realtime/alerts').then(function(r){return r.json();}); } catch(e){}
 

@@ -4512,6 +4512,17 @@ def metals_prices():
 # ─────────────────────────────────────────────────────────────────────────────
 
 _METALS_ETF_TICKERS = ["GLD", "SLV", "COPX", "GDX", "SIL", "PPLT", "PALL", "REMX", "URA"]
+
+# HM-METALS-PORTFOLIO-CACHE-WARM (Chapter 0 Tier B) 2026-05-19: module-level
+# pool for parallelizing the 9-ticker yfinance fanout. Uses module-level lifetime
+# per the c0e9234 shadow-bug lesson — a per-call `with ThreadPoolExecutor(...) as pool`
+# block's __exit__ shutdown(wait=True) shadows any inner .result(timeout=N), and
+# even without an outer timeout, recreating the pool on every request adds
+# millisecond-class thread-creation overhead. Persistent pool is safer + faster.
+import atexit as _atexit_etf
+from concurrent.futures import ThreadPoolExecutor as _TPE_ETF
+_ETF_FLOWS_POOL = _TPE_ETF(max_workers=9, thread_name_prefix='metals_etf_flows_pool')
+_atexit_etf.register(lambda: _ETF_FLOWS_POOL.shutdown(wait=False))
 _METALS_NEWS_KEYWORDS = (
     "gold", "silver", "copper", "platinum", "palladium",
     "uranium", "metals", "bullion", "miner", "mining", "comex", "lbma",
@@ -4528,31 +4539,38 @@ def metals_etf_flows():
     if available; returns graceful placeholder otherwise. Dashboard expects:
         {"flows": [{"ticker": "GLD", "flow_5d": float, "pct_5d": float}, ...]}
     """
+    # HM-METALS-PORTFOLIO-CACHE-WARM (Chapter 0 Tier B) 2026-05-19: parallelize the
+    # 9-ticker yfinance fanout via module-level _ETF_FLOWS_POOL. Cold serial path
+    # was ~1s; with 9-wide parallelism, drops to slowest single call (~0.15s).
     flows = []
     try:
         import yfinance as yf  # type: ignore
-        for t in _METALS_ETF_TICKERS:
+
+        def _one(t: str):
             try:
                 hist = yf.Ticker(t).history(period="6d")
                 if hist is None or len(hist) < 2:
-                    continue
+                    return None
                 closes = hist["Close"].dropna().tolist()
                 vols = hist["Volume"].dropna().tolist()
                 if len(closes) < 2 or len(vols) < 2:
-                    continue
+                    return None
                 pct = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] else 0.0
-                # Flow proxy: 5-day avg $ volume in millions × sign(pct_change)
                 avg_dollar_vol = (sum(closes[-5:]) / max(len(closes[-5:]), 1)) \
                                  * (sum(vols[-5:]) / max(len(vols[-5:]), 1))
                 flow_5d_m = round((avg_dollar_vol / 1_000_000) * (1 if pct >= 0 else -1), 2)
-                flows.append({
+                return {
                     "ticker": t,
                     "flow_5d": flow_5d_m,
                     "pct_5d": round(pct, 2),
                     "last_close": round(closes[-1], 2),
-                })
+                }
             except Exception:
-                continue
+                return None
+
+        for entry in _ETF_FLOWS_POOL.map(_one, _METALS_ETF_TICKERS):
+            if entry is not None:
+                flows.append(entry)
     except Exception:
         pass
 
