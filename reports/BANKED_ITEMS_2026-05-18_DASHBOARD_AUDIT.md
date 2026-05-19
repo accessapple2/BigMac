@@ -1,5 +1,24 @@
 # Banked Items — Chrome Dashboard Audit 2026-05-18
 
+## Shipped Round 7 Cosmetic Sweep — 2026-05-19 (HM-FRONTEND-COSMETIC-SWEEP)
+
+Single bundled commit (`5f7a25d`) shipping 7 UI polish fixes. Frontend only — no
+backend, DB, or producer changes. Second-renderer pattern applied per Round 2
+lesson: Worf inverse-ETFs had two render sites (line 5398 main card + line 27153
+glance row), both patched. `node --check` on the full 156-block JS surface
+passed clean. Captain owes browser smoke at 127.0.0.1:8080 per Frontend Ship
+Rule (HM-BJ.E4 lesson 2026-05-12).
+
+| # | Item | Fix |
+|---|------|-----|
+| C1 | HM-RIKER-LLM-TOKENIZER-ARTIFACT | `fetchRikerRecommendation` strips `<unused\d+>` regex from `d.recommendation` before assignment. |
+| C2 | HM-WORF-ARSENAL-ETF-LIST-EMPTY | Both renderers (main card + glance row) now emit explicit empty-state markup when `d.etfs` is missing/empty. Prevents stale-data persistence on regime flips. |
+| C3 | HM-SNIFF-SCAN-EMPTY-PANEL-NO-MESSAGE | `renderScanList` tracks non-index hits and appends "No scanner hits this cycle" message when only SPY/QQQ rows remain. |
+| C4 | HM-SQUEEZE-DUPLICATE-BENF | `renderSqueezeCards` dedupes `_squeezeData` by `symbol + scan_ts[0:10]` (date prefix), keeping highest composite per ticker per day. |
+| C5 | HM-FLEET-WIN-RATE-CONTRADICTION | `fetchStats` reads `d.winners`/`d.losers` as fallbacks for the `wins`/`losses` keys the API actually returns. If both are zero, win-rate displays `—` instead of a contradictory non-zero %. |
+| C6 | HM-BATTLE-STATION-HALT-STATUS-BANNER | Static banner inside `#battle-station-card`: `⏸ T'Pol halted (spread cannibalization 2026-05-06) — Battle Station idle.` Reads as expected-state, not broken UI. |
+| C7 | HM-LIVECHART-OBSERVER-LEAK | `MutationObserver` now calls `obs.disconnect()` after first hide event. Diagnostic captured once, no per-section-switch spam. |
+
 ## Auto-Closed Round 6 — 2026-05-19 (HM-AUTO-CLOSE-SWEEP)
 
 Verify-or-close pass on 11 banked items from HM-AUTO-CLOSE-SWEEP draft.
