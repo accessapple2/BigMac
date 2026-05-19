@@ -57,6 +57,21 @@ def _call_ai(prompt: str, model: str = "codex") -> str:
                 timeout=30,
             )
             return r.json().get("response", "")
+        else:
+            # HM-BULL-BEAR-CONSENSUS-WIRE (Round 5): any other model name
+            # (e.g. "troi", which Signal Center BRIDGE has been fetching via
+            # /api/bull-bear/all?model=troi since the Bridge wire-up) used to
+            # fall through all branches and silently return "". The empty
+            # response then got cached for 1h per entry, producing the
+            # "0 bull / 0 bear of 28" Bridge symptom. Route any unmapped
+            # model to Ollie qwen3:8b under Free Models First — same path
+            # used by the "gemini" alias post-2026-04-20.
+            r = requests.post(
+                f"{config.OLLIE_URL}/api/generate",
+                json={"model": "qwen3:8b", "prompt": prompt, "stream": False, "think": False},
+                timeout=30,
+            )
+            return r.json().get("response", "")
     except Exception as e:
         console.log(f"[red]Bull/Bear AI error ({model}): {e}")
     return ""
@@ -69,7 +84,12 @@ def analyze_bull_bear(symbol: str, model: str = "codex") -> dict:
     cache_key = f"{symbol}:{model}"
     if cache_key in _cache:
         entry = _cache[cache_key]
-        if _time.time() - entry.get("timestamp", 0) < _CACHE_TTL:
+        # HM-BULL-BEAR-CONSENSUS-WIRE (Round 5): historical empty entries
+        # would otherwise live their full 1h TTL after the routing fix
+        # lands. Reject any cached entry that has no content so the next
+        # request actually re-fetches with the now-routed _call_ai.
+        _has_content = bool(entry.get("bull_case") or entry.get("bear_case"))
+        if _has_content and (_time.time() - entry.get("timestamp", 0) < _CACHE_TTL):
             return entry
 
     # Get current price context
@@ -110,8 +130,13 @@ No other text."""
         "price": price_data.get("price") if "error" not in price_data else None,
     }
 
-    _cache[cache_key] = result
-    _save_cache()
+    # HM-BULL-BEAR-CONSENSUS-WIRE (Round 5): don't cache empty results.
+    # Stuck empties were the 1h-TTL trap that produced the "0 bull / 0 bear"
+    # symptom — any upstream blip got pinned for an hour. Only cache when
+    # we have actual content; otherwise let the next request retry.
+    if bull or bear:
+        _cache[cache_key] = result
+        _save_cache()
     return result
 
 

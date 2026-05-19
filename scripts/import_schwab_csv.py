@@ -236,6 +236,12 @@ def parse_csv(csv_path: Path) -> tuple[str, str, str, str, list[dict]]:
     text  = csv_path.read_text(encoding="utf-8-sig")
     lines = text.splitlines()
 
+    # HM-AT-ε 2026-05-18: explicit empty-CSV guard before lines[0] indexing.
+    # The downstream `len(lines) < 3` check already trips on empty input but
+    # produces a less clear error; this surfaces the empty case distinctly.
+    if not lines:
+        raise SchwabCSVError(f"Empty CSV: {csv_path.name}")
+
     if len(lines) < 3:
         raise SchwabCSVError(
             f"CSV has only {len(lines)} line(s); need at least 3 "

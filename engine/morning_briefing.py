@@ -1090,18 +1090,44 @@ def _build_and_push_ntfy(report: dict) -> None:
 
 # ── Main entry point ───────────────────────────────────────────────────────
 
-def generate_daily_intel_report(force: bool = False, push_ntfy: bool = False) -> dict:
+def generate_daily_intel_report(force: bool = False, push_ntfy: bool = False,
+                                disk_only: bool = False) -> dict:
     """
     Generate the full daily intelligence report (6 sections).
     Saves to data/morning_brief.json.
     push_ntfy=True fires the admin ntfy notification (6 AM run only).
     Cached per calendar day; force=True regenerates.
-    Returns the full report dict.
+
+    HM-FIRST-OFFICER-MORNING-BRIEF-LLM-COLD-CACHE 2026-05-18: when
+    disk_only=True (default for GET callers), short-circuits to in-memory
+    cache → disk JSON at _INTEL_JSON_PATH → graceful unavailable. NEVER
+    runs the sub-getter pipeline. Use POST /api/morning-brief/force-run
+    for the regenerate path.
     """
     with _intel_lock:
         today = _today_str()
         if not force and _intel_cache.get("date") == today and _intel_cache.get("generated_at"):
             return dict(_intel_cache)
+
+        if disk_only:
+            # HM-FIRST-OFFICER-MORNING-BRIEF-LLM-COLD-CACHE: read-only path.
+            try:
+                if os.path.exists(_INTEL_JSON_PATH):
+                    with open(_INTEL_JSON_PATH) as fh:
+                        prev = json.load(fh)
+                    if prev.get("date") == today:
+                        _intel_cache.update(prev)
+                        return prev
+            except Exception:
+                pass
+            return {
+                "date": today, "generated_at": None,
+                "label": "Daily Intel unavailable — POST /api/morning-brief/force-run to generate",
+                "earnings": {}, "sector_rotation": {}, "congress_radar": {},
+                "technical_setups": {}, "game_plan": {},
+                "portfolio_review": {}, "ah_movers": [],
+                "unavailable": True, "disk_only": True,
+            }
 
         import pytz
         az      = pytz.timezone("US/Arizona")

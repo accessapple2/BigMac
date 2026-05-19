@@ -111,7 +111,7 @@ def edit_plist(path: Path, want_workdir, want_fdlimits, want_stderr):
 # Computed once at run start; same dir for all plists in this run.
 TS = datetime.now().strftime("%Y%m%d_%H%M%S")
 BACKUP_DIR = Path(f"/tmp/plist_backup_{TS}")
-if MODE in ("apply", "revert"):
+if MODE in ("apply", "apply-high", "revert"):
     BACKUP_DIR.mkdir(exist_ok=True)
 
 def _bak_path(path: Path) -> Path:

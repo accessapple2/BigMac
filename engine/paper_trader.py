@@ -1754,6 +1754,19 @@ def get_webull_synced() -> dict | None:
     return None
 
 
+# HM-CAPITAL-HANG-EMERGENCY 2026-05-19: module-level shared executor for
+# bounded per-position price fallbacks. Long-lived so the .result(timeout=3)
+# timeout actually bounds wall time — `with ThreadPoolExecutor(...) as pool`
+# calls shutdown(wait=True) in __exit__, which blocks until the in-flight
+# future completes even after .result() raised TimeoutError. A persistent
+# executor lets us submit-and-discard on timeout: the worker thread finishes
+# its yfinance call in the background while the caller has already moved on.
+import atexit as _atexit
+from concurrent.futures import ThreadPoolExecutor as _TPE_TYPE
+_PRICE_FALLBACK_POOL = _TPE_TYPE(max_workers=8, thread_name_prefix='paper_trader_price_fallback')
+_atexit.register(lambda: _PRICE_FALLBACK_POOL.shutdown(wait=False))
+
+
 def get_portfolio_with_pnl(player_id: str, prices: dict) -> dict:
     """Get portfolio with unrealized P&L calculated from live prices.
 
@@ -1779,8 +1792,13 @@ def get_portfolio_with_pnl(player_id: str, prices: dict) -> dict:
             # Metal positions use Yahoo futures symbols, not stock tickers
             _METAL_YAHOO = {"GOLD": "GC=F", "SILVER": "SI=F", "PLATINUM": "PL=F", "PALLADIUM": "PA=F"}
             fetch_symbol = _METAL_YAHOO.get(symbol, symbol)
+            # HM-CAPITAL-HANG-EMERGENCY 2026-05-19: cap per-position network fallback at 3s.
+            # Submit to the module-level _PRICE_FALLBACK_POOL (not a per-call executor — that
+            # leaks back into __exit__/shutdown(wait=True) blocking on the in-flight future).
+            # On timeout, abandon the future; the worker keeps running and may even populate
+            # _price_cache as a side benefit, but the caller falls through to avg_price now.
             try:
-                price_data = get_stock_price(fetch_symbol)
+                price_data = _PRICE_FALLBACK_POOL.submit(get_stock_price, fetch_symbol).result(timeout=3) or {}
             except Exception:
                 price_data = {}
         if pos.get("asset_type") == "option":
@@ -1935,34 +1953,114 @@ def _expire_canonical(prices: dict = None) -> list[dict]:
             console.log(f"[red]expire_options canonical: bad legs_json trade {trade_id} — skipping")
             continue
 
-        # CSP ITM-at-expiry check — defer to HM-WHEEL-ASSIGNMENT-LEDGER
-        # (Fix #5 Option C: no ai_players cash mutation in this epic)
+        # HM-WHEEL-ASSIGNMENT-LEDGER 2026-05-18: CSP ITM-at-expiry now records
+        # an assignment via engine.wheel_assignment_ledger.assign_csp instead
+        # of NTFY+skip. G20=C decoupling preserved (no ai_players.cash debit).
+        # Failure falls back to the original NTFY+skip behavior so a broken
+        # ledger never silently swallows an ITM event.
+        # HM-EXPIRE-OPTIONS-PRICES-NONE-HARDENING 2026-05-18: when prices dict
+        # is None (admin force-expire path) OR missing the symbol, fall back
+        # to engine.market_data.get_stock_price for the ITM probe. Closes
+        # the silent OTM-close-as-$0 bug for the admin path. NTFY WARNING on
+        # dual-source failure.
         if structure == "csp":
             short_puts = [l for l in legs if l.get("side") == "short" and l.get("type") == "put"]
-            if short_puts and prices and symbol in prices:
+            if short_puts:
                 strike = float(short_puts[0].get("strike", 0) or 0)
-                spot = float((prices.get(symbol) or {}).get("price", 0) or 0)
+                spot = 0.0
+                if prices and symbol in prices:
+                    spot = float((prices.get(symbol) or {}).get("price", 0) or 0)
+                if (not spot) and strike > 0 and symbol:
+                    try:
+                        from engine.market_data import get_stock_price
+                        _pd = get_stock_price(symbol)
+                        spot = float((_pd or {}).get("price", 0) or 0)
+                    except Exception:
+                        spot = 0.0
+                if (not spot) and strike > 0:
+                    # Dual-source failure — surface so Captain can intervene
+                    # before silent OTM-close happens.
+                    try:
+                        from engine.alert_channels import send_alert, AlertLevel
+                        send_alert(
+                            message=(
+                                f"expire_options: spot resolution FAILED for "
+                                f"{symbol} (trade_id={trade_id}) — both prices "
+                                f"dict + get_stock_price returned no value. "
+                                f"CSP ITM check skipped; OTM-close fallback "
+                                f"will fire if past expiry."
+                            ),
+                            level=AlertLevel.WARNING,
+                            alert_type=f"hm-expire-csp-spot-failed-{symbol}",
+                            rate_limit_secs=86400,
+                        )
+                    except Exception:
+                        pass
                 if strike > 0 and spot > 0 and spot < strike:
                     intrinsic = round(strike - spot, 2)
+                    try:
+                        from engine.wheel_assignment_ledger import assign_csp
+                        result = assign_csp(trade_id, spot, assignment_date=today_str)
+                    except Exception as _e:
+                        result = {"status": "exception", "reason": f"{type(_e).__name__}: {_e!r}"}
+
+                    if result.get("status") == "assigned":
+                        console.log(
+                            f"[green]🎡 expire_options: {symbol} CSP ASSIGNED ITM — "
+                            f"strike ${strike}, spot ${spot:.2f}, intrinsic ${intrinsic:.2f}, "
+                            f"trade_id={trade_id} → assignment_id={result.get('assignment_id')}, "
+                            f"shares={result.get('shares')}, capital=${result.get('capital'):.0f}, "
+                            f"pnl=${result.get('pnl'):.2f}"
+                        )
+                        try:
+                            from engine.alert_channels import send_alert, AlertLevel
+                            send_alert(
+                                message=(
+                                    f"Wheel CSP assigned: {symbol} {result.get('shares')} shares @ "
+                                    f"${strike} (spot ${spot:.2f}), trade_id={trade_id}, "
+                                    f"assignment_id={result.get('assignment_id')}"
+                                ),
+                                level=AlertLevel.INFO,
+                                alert_type=f"hm-csp-assigned-{symbol}",
+                                rate_limit_secs=86400,
+                            )
+                        except Exception:
+                            pass
+                        closed.append({
+                            "trade_id": trade_id, "agent_id": agent_id,
+                            "structure": structure, "symbol": symbol,
+                            "expiration": expiration, "pnl": result.get("pnl"),
+                            "exit_reason": "expired_itm_assigned",
+                            "path": "canonical",
+                            "assignment_id": result.get("assignment_id"),
+                        })
+                        continue
+
+                    # Fallback: assign_csp returned noop/partial/exception. Surface
+                    # via WARNING alert so Captain can close manually. Do NOT close
+                    # the row here — preserve original NTFY+skip semantics.
                     console.log(
-                        f"[red]🎡 expire_options: {symbol} CSP ITM at expiry — strike ${strike}, "
-                        f"spot ${spot:.2f}, intrinsic ${intrinsic:.2f}, trade_id={trade_id} — "
-                        f"MANUAL ADMIRAL CLOSE (HM-WHEEL-ASSIGNMENT-LEDGER pending)"
+                        f"[red]🎡 expire_options: {symbol} CSP ITM but assign_csp "
+                        f"{result.get('status')} ({result.get('reason')}) — "
+                        f"strike ${strike}, spot ${spot:.2f}, trade_id={trade_id} — "
+                        f"MANUAL ADMIRAL CLOSE"
                     )
                     try:
                         from engine.alert_channels import send_alert, AlertLevel
                         send_alert(
                             message=(
-                                f"Wheel CSP ITM at expiry: {symbol} strike ${strike}, "
-                                f"spot ${spot:.2f}, trade_id={trade_id} — manual close needed"
+                                f"Wheel CSP ITM but assign_csp {result.get('status')}: "
+                                f"{symbol} strike ${strike}, spot ${spot:.2f}, "
+                                f"trade_id={trade_id} ({result.get('reason')}) — "
+                                f"manual close needed"
                             ),
                             level=AlertLevel.WARNING,
-                            alert_type=f"hm-expire-csp-itm-{symbol}",
+                            alert_type=f"hm-csp-assign-failed-{symbol}",
                             rate_limit_secs=86400,
                         )
                     except Exception:
                         pass
-                    continue  # skip — Admiral handles
+                    continue  # skip — Admiral handles fallback
 
         # OTM (or non-CSP structure) at expiry → close at $0 intrinsic.
         # exit_price=0.0 works for both short and long sides — neither party pays/receives.
@@ -2199,7 +2297,9 @@ def check_option_exits(prices: dict = None) -> dict:
     """
     closed_legacy = _check_option_exits_legacy(prices)
     closed_canonical = _check_option_exits_canonical_long_only(prices)
-    closed = closed_legacy + closed_canonical
+    # HM-CHECK-OPTION-EXITS-SHORT-PREMIUM-RULES 2026-05-18 — wheel CSP path.
+    closed_short = _check_option_exits_canonical_short_premium(prices)
+    closed = closed_legacy + closed_canonical + closed_short
     return {"auto_exited": len(closed), "closed": closed}
 
 
@@ -2356,6 +2456,182 @@ def _check_option_exits_canonical_long_only(prices: dict = None) -> list[dict]:
             "symbol": symbol, "reason": reason[:60], "exit_reason": exit_tag,
             "pnl": pnl, "path": "canonical",
         })
+    return closed
+
+
+# ─────────────────────────────────────────────────────────────────────────────
+# HM-CHECK-OPTION-EXITS-SHORT-PREMIUM-RULES 2026-05-18 — wheel CSP TP/SL/TIME-STOP.
+# Inverted rules vs long path. Initial scope = csp only (bull_put_spread /
+# bear_call_spread / iron_condor have own exit_manager).
+# Premium source order: Polygon get_option_quote → BSM-style estimate_option_price
+# fallback (paper-strike CSPs have no real Polygon chain entry — banked
+# HM-WHEEL-STRIKE-SNAP-TO-REAL).
+# ─────────────────────────────────────────────────────────────────────────────
+
+_CANONICAL_SHORT_PREMIUM_STRUCTURES = ("csp",)
+
+
+def _occ_from_csp(symbol: str, expiration: str, strike: float) -> str | None:
+    """Build OCC ticker for a wheel CSP short put.
+    Format: O:<UNDERLYING><YYMMDD>P<strike-mil-padded-8>.
+    Returns None on bad input."""
+    try:
+        ymd = datetime.strptime(expiration[:10], "%Y-%m-%d").strftime("%y%m%d")
+        strike_mil = int(round(float(strike) * 1000))
+        if strike_mil <= 0 or not symbol:
+            return None
+        return f"O:{symbol.upper()}{ymd}P{strike_mil:08d}"
+    except Exception:
+        return None
+
+
+def _csp_current_premium(symbol: str, expiration: str, strike: float,
+                         entry_premium: float, stock_price: float | None) -> float | None:
+    """Resolve current premium for a CSP short put.
+
+    Tries Polygon mid quote first. Falls back to estimate_option_price (BSM-
+    style) when Polygon returns None. Returns None when neither source
+    yields a positive number.
+    """
+    occ = _occ_from_csp(symbol, expiration, strike)
+    if occ:
+        try:
+            from engine.providers.polygon_provider import PolygonData
+            pd = PolygonData()
+            if pd.is_active():
+                q = pd.get_option_quote(occ)
+                if q and (q.get("mid") or 0) > 0:
+                    return float(q["mid"])
+        except Exception:
+            pass
+
+    # Fallback: BSM-style estimate based on stock + entry premium + time
+    if stock_price and stock_price > 0:
+        try:
+            est = estimate_option_price("put", strike, stock_price, entry_premium, expiration[:10])
+            if est and est > 0:
+                return float(est)
+        except Exception:
+            pass
+
+    return None
+
+
+def _check_option_exits_canonical_short_premium(prices: dict = None) -> list[dict]:
+    """HM-CHECK-OPTION-EXITS-SHORT-PREMIUM-RULES 2026-05-18 — wheel CSP TP/SL.
+
+    Rules (INVERTED vs long path):
+      - TP:        current_premium <= entry_premium * 0.50 → close (50% decay captured)
+      - SL:        current_premium >= entry_premium * 2.00 → defensive close
+      - TIME-STOP: 0 < dte <= 21                            → roll-or-close
+    """
+    import json
+    from datetime import date as _date
+    from engine.options_exec import close_options_trade
+
+    today = _date.today()
+    placeholders = ",".join("?" for _ in _CANONICAL_SHORT_PREMIUM_STRUCTURES)
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            f"SELECT id, agent_id, structure, symbol, expiration, legs_json, "
+            f"       entry_credit_debit "
+            f"FROM options_trades WHERE status='open' AND structure IN ({placeholders})",
+            _CANONICAL_SHORT_PREMIUM_STRUCTURES,
+        ).fetchall()
+    finally:
+        conn.close()
+
+    closed: list[dict] = []
+    for row in rows:
+        trade_id, agent_id, structure, symbol, expiration, legs_json, ent_cd = row
+        try:
+            legs = json.loads(legs_json)
+        except (json.JSONDecodeError, TypeError):
+            console.log(f"[red]check_option_exits short-premium: bad legs_json trade {trade_id}")
+            continue
+
+        # Skip if at/past expiry — expire_options owns post-expiry path.
+        try:
+            exp_d = datetime.strptime(expiration[:10], "%Y-%m-%d").date()
+            if exp_d <= today:
+                continue
+            dte = (exp_d - today).days
+        except (ValueError, TypeError):
+            continue
+
+        short_puts = [l for l in legs if l.get("side") == "short" and l.get("type") == "put"]
+        if not short_puts:
+            continue
+        leg = short_puts[0]
+        entry_premium = float(leg.get("entry_price", 0) or 0)
+        strike = float(leg.get("strike", 0) or 0)
+        qty = int(leg.get("qty", 0) or 0)
+        if entry_premium <= 0 or strike <= 0 or qty <= 0:
+            continue
+
+        stock_price = None
+        if prices and symbol in prices:
+            stock_price = float((prices.get(symbol) or {}).get("price", 0) or 0)
+            if stock_price <= 0:
+                stock_price = None
+
+        current_premium = _csp_current_premium(
+            symbol, expiration, strike, entry_premium, stock_price,
+        )
+        if current_premium is None:
+            # No reliable premium today — skip (don't false-fire TP/SL on a
+            # zero/missing quote).
+            continue
+
+        reason = None
+        exit_tag = None
+        if current_premium <= entry_premium * 0.50:
+            reason = (
+                f"AUTO-TP: 50%+ premium decay on {symbol} csp "
+                f"(${entry_premium:.2f}→${current_premium:.2f})"
+            )
+            exit_tag = "tp_premium_decay_50pct"
+        elif current_premium >= entry_premium * 2.0:
+            reason = (
+                f"AUTO-SL: premium 2x expanded on {symbol} csp "
+                f"(${entry_premium:.2f}→${current_premium:.2f})"
+            )
+            exit_tag = "sl_premium_expansion_2x"
+        elif 0 < dte <= 21:
+            reason = f"TIME-STOP: {symbol} csp at {dte} DTE (Sosnoff 21-DTE roll)"
+            exit_tag = "time_stop_21dte"
+
+        if reason is None:
+            continue
+
+        # SHORT CSP close = buy-to-close at current premium. Sign convention
+        # of close_options_trade: close_cost = exit_price × qty × 100;
+        # pnl = entry_credit_debit - close_cost. For buy-to-close (debit),
+        # close_cost is positive → exit_price = +current_premium.
+        exit_legs = [dict(leg, exit_price=float(current_premium))]
+        try:
+            pnl = close_options_trade(trade_id, exit_legs, exit_reason=exit_tag)
+        except Exception as e:
+            console.log(f"[red]check_option_exits short-premium: close failed trade {trade_id}: {type(e).__name__}: {e!r}")
+            continue
+        if pnl is None:
+            console.log(
+                f"[red]check_option_exits short-premium: close_options_trade None "
+                f"trade {trade_id} ({symbol})"
+            )
+            continue
+
+        console.log(
+            f"[cyan]OPTION EXIT (short-premium): {agent_id} {symbol} csp — "
+            f"{reason[:80]} pnl=${pnl:.2f}"
+        )
+        closed.append({
+            "trade_id": trade_id, "agent_id": agent_id, "structure": structure,
+            "symbol": symbol, "reason": reason[:80], "exit_reason": exit_tag,
+            "pnl": pnl, "path": "canonical_short_premium",
+        })
+
     return closed
 
 

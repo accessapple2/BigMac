@@ -318,6 +318,13 @@ async def _sse_startup():
         logger.info("[SSE] broadcast_scanner_alert registered with volume_scanner")
     except Exception as _e:
         logger.warning(f"[SSE] Could not register scanner callback: {_e}")
+    # HM-DASH-V2-P2a 2026-05-18: register broadcast into debate_engine
+    try:
+        from engine.debate_engine import _debate_callbacks
+        _debate_callbacks.append(broadcast_debate_event)
+        logger.info("[SSE] broadcast_debate_event registered with debate_engine")
+    except Exception as _e:
+        logger.warning(f"[SSE] Could not register debate callback: {_e}")
 
 
 def _broadcast_to_channel(channel: str, msg: str) -> None:
@@ -364,6 +371,20 @@ def broadcast_scanner_alert(alert: dict):
     if len(_last_broadcast_alerts) > 500:
         _last_broadcast_alerts.clear()
     _broadcast_to_channel("scanner", msg)
+
+
+def broadcast_debate_event(frame: dict):
+    """Thread-safe: push a debate milestone frame to all SSE 'debates' clients.
+    Called from engine.debate_engine._fire_debate_event in the asyncio event
+    loop of the debate task. HM-DASH-V2-P2a 2026-05-18."""
+    if not _sse_clients_by_channel.get("debates"):
+        return
+    try:
+        msg = json.dumps(frame, default=str)
+    except Exception as _e:
+        logger.debug(f"[SSE] debate frame serialize error: {_e}")
+        return
+    _broadcast_to_channel("debates", msg)
 
 
 @app.get("/api/stream/scanner")
@@ -519,6 +540,17 @@ def timed_cache(seconds: int):
 _swr_cache: dict = {}
 _swr_locks: dict = {}
 _endpoint_stale_cache: dict = {}   # {key: {"data": ..., "ts": float}} — stale fallback for timeout-wrapped endpoints
+
+# HM-CAPITAL-HANG-EMERGENCY 2026-05-19: module-level shared executor for bounded
+# timeout-wrapped endpoint work. A per-call `with ThreadPoolExecutor(...) as pool:`
+# calls shutdown(wait=True) in __exit__ which blocks until the in-flight future
+# completes — shadowing the .result(timeout=N) raise. A persistent executor lets
+# the caller abandon a slow future and move on (worker thread continues in
+# background, result discarded).
+import atexit as _atexit_app
+from concurrent.futures import ThreadPoolExecutor as _TPE_APP
+_ENDPOINT_TIMEOUT_POOL = _TPE_APP(max_workers=4, thread_name_prefix='endpoint_timeout_pool')
+_atexit_app.register(lambda: _ENDPOINT_TIMEOUT_POOL.shutdown(wait=False))
 _insider_cache: dict = {"data": None, "ts": 0}
 _INSIDER_CACHE_TTL: int = 600      # 10 min — insider filings change rarely
 
@@ -4364,8 +4396,11 @@ def first_officer_briefing(force: int = 0):
             )
         except Exception:
             pass
+    # HM-FIRST-OFFICER-MORNING-BRIEF-LLM-COLD-CACHE 2026-05-18: disk_only=True
+    # — never spin MLX/Ollama from GET. Cold-cache returns graceful
+    # unavailable; POST /force-briefing remains the regenerate path.
     from engine.first_officer import get_briefing
-    return get_briefing(force=False)
+    return get_briefing(force=False, disk_only=True)
 
 
 @app.post("/api/first-officer/ask")
@@ -4462,7 +4497,10 @@ def metals_commentary():
 def metals_prices():
     """Get live spot prices for gold, silver, platinum, palladium."""
     from engine.metals_tracker import get_spot_prices
-    return get_spot_prices(fresh=True)
+    # HM-METALS-CACHE-FRESH-TRUE-PERF 2026-05-19: fresh=True popped the 60s
+    # _PRICE_CACHE_TTL on every Bridge load, paying 4× serial yfinance fanout
+    # (~24s cold). 60s staleness is fine for a UI panel; metals don't tick that fast.
+    return get_spot_prices(fresh=False)
 
 
 # ─────────────────────────────────────────────────────────────────────────────
@@ -4474,6 +4512,17 @@ def metals_prices():
 # ─────────────────────────────────────────────────────────────────────────────
 
 _METALS_ETF_TICKERS = ["GLD", "SLV", "COPX", "GDX", "SIL", "PPLT", "PALL", "REMX", "URA"]
+
+# HM-METALS-PORTFOLIO-CACHE-WARM (Chapter 0 Tier B) 2026-05-19: module-level
+# pool for parallelizing the 9-ticker yfinance fanout. Uses module-level lifetime
+# per the c0e9234 shadow-bug lesson — a per-call `with ThreadPoolExecutor(...) as pool`
+# block's __exit__ shutdown(wait=True) shadows any inner .result(timeout=N), and
+# even without an outer timeout, recreating the pool on every request adds
+# millisecond-class thread-creation overhead. Persistent pool is safer + faster.
+import atexit as _atexit_etf
+from concurrent.futures import ThreadPoolExecutor as _TPE_ETF
+_ETF_FLOWS_POOL = _TPE_ETF(max_workers=9, thread_name_prefix='metals_etf_flows_pool')
+_atexit_etf.register(lambda: _ETF_FLOWS_POOL.shutdown(wait=False))
 _METALS_NEWS_KEYWORDS = (
     "gold", "silver", "copper", "platinum", "palladium",
     "uranium", "metals", "bullion", "miner", "mining", "comex", "lbma",
@@ -4490,31 +4539,38 @@ def metals_etf_flows():
     if available; returns graceful placeholder otherwise. Dashboard expects:
         {"flows": [{"ticker": "GLD", "flow_5d": float, "pct_5d": float}, ...]}
     """
+    # HM-METALS-PORTFOLIO-CACHE-WARM (Chapter 0 Tier B) 2026-05-19: parallelize the
+    # 9-ticker yfinance fanout via module-level _ETF_FLOWS_POOL. Cold serial path
+    # was ~1s; with 9-wide parallelism, drops to slowest single call (~0.15s).
     flows = []
     try:
         import yfinance as yf  # type: ignore
-        for t in _METALS_ETF_TICKERS:
+
+        def _one(t: str):
             try:
                 hist = yf.Ticker(t).history(period="6d")
                 if hist is None or len(hist) < 2:
-                    continue
+                    return None
                 closes = hist["Close"].dropna().tolist()
                 vols = hist["Volume"].dropna().tolist()
                 if len(closes) < 2 or len(vols) < 2:
-                    continue
+                    return None
                 pct = ((closes[-1] - closes[0]) / closes[0]) * 100 if closes[0] else 0.0
-                # Flow proxy: 5-day avg $ volume in millions × sign(pct_change)
                 avg_dollar_vol = (sum(closes[-5:]) / max(len(closes[-5:]), 1)) \
                                  * (sum(vols[-5:]) / max(len(vols[-5:]), 1))
                 flow_5d_m = round((avg_dollar_vol / 1_000_000) * (1 if pct >= 0 else -1), 2)
-                flows.append({
+                return {
                     "ticker": t,
                     "flow_5d": flow_5d_m,
                     "pct_5d": round(pct, 2),
                     "last_close": round(closes[-1], 2),
-                })
+                }
             except Exception:
-                continue
+                return None
+
+        for entry in _ETF_FLOWS_POOL.map(_one, _METALS_ETF_TICKERS):
+            if entry is not None:
+                flows.append(entry)
     except Exception:
         pass
 
@@ -5854,6 +5910,36 @@ def volume_radar(limit: int = 20):
         return _cached_response(f"volume_radar:{limit}", 300, _fetch)
     except Exception as e:
         return {"error": str(e), "alerts": [], "count": 0}
+
+
+# ── Red Alert (read-only view of today's red_alert volume_alerts rows) ──────
+
+
+@app.get("/api/red-alert/status")
+def red_alert_status(limit: int = 10):
+    """HM-RED-ALERT-ROUTE-WIRE (Round 5): READ-ONLY surface for today's
+    red-alert volume rows. The scanner side
+    (engine/volume_scanner.py::red_alert_check) writes alert_type='red_alert'
+    rows to volume_alerts on a 2-min market-hours cadence; this route never
+    invokes the scanner (which has Alpaca API + War Room side effects).
+
+    Signal Center _SIGNALS_ENDPOINTS['red_alert_score'] maps here so the
+    /api/signals/all proxy can carry the count + top symbols downstream
+    without each consumer having to read the DB directly.
+    """
+    try:
+        from engine.volume_scanner import get_todays_volume_alerts
+        alerts = get_todays_volume_alerts(limit=200)
+        red = [a for a in alerts if a.get("alert_type") == "red_alert"]
+        red.sort(key=lambda a: a.get("relative_volume") or 0, reverse=True)
+        top = red[:max(0, int(limit))]
+        return {
+            "count": len(red),
+            "top": top,
+            "symbols": [a["symbol"] for a in red],
+        }
+    except Exception as e:
+        return {"error": str(e), "count": 0, "top": [], "symbols": []}
 
 
 # ── GEX Overlay ──────────────────────────────────────────────────────────────
@@ -7237,15 +7323,32 @@ def get_capital():
     players = conn.execute("SELECT id, display_name, cash FROM ai_players WHERE is_active=1").fetchall()
     conn.close()
 
-    # get_all_prices blocks 6+ seconds on cache miss — hard cap at 3s, fall back to stale
+    # get_all_prices blocks 6+ seconds on cache miss — hard cap at 3s, fall back to stale.
+    # HM-CAPITAL-HANG-EMERGENCY 2026-05-19: on timeout, the prior `prices = {}` path
+    # cascaded into per-position serial yfinance fallback inside get_portfolio_with_pnl
+    # (69 players × ~80 positions = 187s hangs). Now: prefer the last-known-good cache,
+    # only fall through to empty prices if no cache exists yet (very first call after boot).
+    # Uses the module-level _ENDPOINT_TIMEOUT_POOL because a per-call `with TPE(...) as pool`
+    # block's __exit__ shutdown(wait=True) shadows the 3s timeout.
     try:
-        with ThreadPoolExecutor(max_workers=1) as pool:
-            prices = pool.submit(get_all_prices, get_active_universe()).result(timeout=3)
+        prices = _ENDPOINT_TIMEOUT_POOL.submit(get_all_prices, get_active_universe()).result(timeout=3)
     except (FuturesTimeout, Exception):
+        _stale = _endpoint_stale_cache.get("capital")
+        if _stale and _stale.get("data"):
+            _stale_data = dict(_stale["data"])
+            _stale_data["_meta"] = {
+                "stale": True,
+                "stale_age_s": round(_t.time() - _stale["ts"], 1),
+                "reason": "get_all_prices timeout",
+            }
+            return _stale_data
         prices = {}
 
-    result = {}
-    for p in players:
+    # HM-CAPITAL-HANG-EMERGENCY 2026-05-19: parallelize per-player loop. Each
+    # get_portfolio_with_pnl call is independent and IO-bound (positions table SELECT
+    # + optional per-position network fallback, already 3s-capped per Part 1). 10 workers
+    # caps fanout at ~10× the slowest player (vs. 69× serially).
+    def _player_capital(p):
         pid = p["id"]
         starting = 3500.0 if pid == "dayblade-0dte" else (7021.81 if pid == "webull" else 7000.0)
         try:
@@ -7253,12 +7356,17 @@ def get_capital():
             total = pnl_data["total_value"]
         except Exception:
             total = p["cash"]
-        result[p["display_name"]] = {
+        return p["display_name"], {
             "cash": p["cash"],
             "total_value": round(total, 2),
             "starting": starting,
             "pnl": round(total - starting, 2),
         }
+
+    result = {}
+    with ThreadPoolExecutor(max_workers=10) as pool:
+        for name, entry in pool.map(_player_capital, players):
+            result[name] = entry
     _endpoint_stale_cache["capital"] = {"data": result, "ts": _t.time()}
     return result
 
@@ -8148,6 +8256,49 @@ def wheel_force_exits():
 
         threading.Thread(target=_runner, daemon=True, name="wheel_force_exits").start()
         return {"status": "ok", "message": "Exits check triggered (background)"}
+    except Exception as e:
+        return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
+
+
+@app.post("/api/wheel/force-assign")
+def wheel_force_assign(body: dict = None):
+    """HM-WHEEL-ASSIGNMENT-LEDGER 2026-05-18: Admiral-driven CSP assignment.
+
+    Body: {"trade_id": int, "spot_at_expiry": float | null}
+    If spot_at_expiry is null, the endpoint fetches via get_stock_price
+    using the trade's symbol.
+
+    Synchronous (not background) — assign_csp is a single ledger event
+    and the caller needs the result to confirm assignment_id + pnl.
+    Idempotent — re-fire on the same trade_id returns the noop sentinel.
+    """
+    try:
+        if not body or "trade_id" not in body:
+            return {"status": "error", "error": "trade_id required in body"}
+        trade_id = int(body["trade_id"])
+        spot = body.get("spot_at_expiry")
+        if spot is None:
+            import sqlite3
+            from engine.market_data import get_stock_price
+            c = sqlite3.connect("data/trader.db")
+            try:
+                row = c.execute(
+                    "SELECT symbol FROM options_trades WHERE id=?", (trade_id,),
+                ).fetchone()
+            finally:
+                c.close()
+            if not row:
+                return {"status": "error",
+                        "error": f"trade_id {trade_id} not found in options_trades"}
+            pd = get_stock_price(row[0])
+            spot = pd.get("price", 0) if pd else 0
+            if not spot:
+                return {"status": "error",
+                        "error": f"could not resolve spot for {row[0]}; "
+                                 f"pass spot_at_expiry explicitly"}
+        from engine.wheel_assignment_ledger import assign_csp
+        result = assign_csp(trade_id, float(spot))
+        return {"status": "ok", "result": result}
     except Exception as e:
         return {"status": "error", "error": f"{type(e).__name__}: {e!r}"}
 
@@ -11105,15 +11256,20 @@ def chart_data(symbol: str = "SPY", timeframe: str = "1Day", bars: int = 200):
         _feed = "sip" if _intraday else "iex"
         _days_back = _TF_LOOKBACK.get(_atf, 365)
         _start = (_dtt.utcnow() - _td(days=_days_back)).strftime("%Y-%m-%dT00:00:00Z")
+        # HM-CHARTS-STALE-DATA-SOURCE (Round 5): Alpaca defaults to sort=asc
+        # which means limit=200 returns the FIRST 200 bars from `start`, NOT
+        # the most recent 200 — causing 1Day charts with 365d lookback to cap
+        # out ~75 days behind today. Pass sort=desc and reverse client-side
+        # so the chart always sees the latest `bars` candles.
         _params = {"timeframe": _atf, "limit": bars, "feed": _feed,
-                   "adjustment": "raw", "start": _start}
+                   "adjustment": "raw", "start": _start, "sort": "desc"}
         _r = _req.get(
             f"https://data.alpaca.markets/v2/stocks/{symbol.upper()}/bars",
             headers={"APCA-API-KEY-ID": _key, "APCA-API-SECRET-KEY": _sec},
             params=_params, timeout=10
         )
         _r.raise_for_status()
-        _raw_bars = _r.json().get("bars") or []
+        _raw_bars = list(reversed(_r.json().get("bars") or []))
         from datetime import datetime, timezone
         candles = []
         for b in _raw_bars:
@@ -13670,9 +13826,10 @@ def metals_exposure():
     METALS_TICKERS = {"GLD","IAU","SGOL","GLDM","BAR","SLV","SIVR","PSLV","PPLT","PALL"}
 
     # Spot prices — direct call
+    # HM-METALS-CACHE-FRESH-TRUE-PERF 2026-05-19: see metals_prices() for rationale.
     spot_data = {}
     try:
-        spot_data = _get_spots(fresh=True) or {}
+        spot_data = _get_spots(fresh=False) or {}
     except Exception:
         pass
 
@@ -13682,21 +13839,47 @@ def metals_exposure():
     silver_chg  = float((spot_data.get("SILVER")  or {}).get("change_pct", 0) or 0)
     gsr         = float(spot_data.get("GSR") or (gold_spot / silver_spot if silver_spot else 0))
 
-    # Physical holdings
+    # Physical holdings — HM-DASHBOARD-CHROME-AUDIT-FIXES-ROUND-3 Item 3:
+    # `data/metals.json` was a manually-maintained snapshot last updated
+    # 2026-04-21 (silver 35 oz). The authoritative source is the
+    # `metals_ledger` SQL table (currently 6 silver purchases summing to
+    # 65 oz + 1 oz gold) — same source `/api/dilithium/portfolio` reads,
+    # which is why the Bridge header ($9.6K from dilithium) and Bridge
+    # metals-panel detail ($7.3K from this stale JSON) drifted by ~$2.3K.
+    # Repoint to metals_ledger; keep metals.json as cold fallback if the
+    # table is empty (edge case for fresh installs).
     physical_positions = []
-    phys_path = "data/metals.json"
-    if _mo.path.exists(phys_path):
-        with open(phys_path) as f:
-            phys_data = _mj.load(f)
-        for p in phys_data.get("physical", []):
-            metal = (p.get("metal") or "").lower()
-            oz    = float(p.get("oz", 0) or 0)
+    try:
+        conn = _conn()
+        ledger_rows = conn.execute(
+            "SELECT metal, SUM(qty_oz) as oz FROM metals_ledger GROUP BY metal"
+        ).fetchall()
+        conn.close()
+        for r in ledger_rows:
+            metal = (r["metal"] or "").lower()
+            oz    = float(r["oz"] or 0)
             spot  = gold_spot if metal == "gold" else silver_spot if metal == "silver" else 0
             physical_positions.append({
                 "metal": metal, "oz": oz,
                 "spot": spot, "value": round(oz * spot, 2),
-                "form": p.get("form"), "notes": p.get("notes", ""),
+                "form": None,
+                "notes": f"{oz:g} oz (ledger)",
             })
+    except Exception:
+        # Fallback to legacy snapshot file only if ledger query fails.
+        phys_path = "data/metals.json"
+        if _mo.path.exists(phys_path):
+            with open(phys_path) as f:
+                phys_data = _mj.load(f)
+            for p in phys_data.get("physical", []):
+                metal = (p.get("metal") or "").lower()
+                oz    = float(p.get("oz", 0) or 0)
+                spot  = gold_spot if metal == "gold" else silver_spot if metal == "silver" else 0
+                physical_positions.append({
+                    "metal": metal, "oz": oz,
+                    "spot": spot, "value": round(oz * spot, 2),
+                    "form": p.get("form"), "notes": p.get("notes", ""),
+                })
 
     # ETF positions from Alpaca paper — direct call
     paper_etf_positions = []
@@ -16933,14 +17116,19 @@ async def morning_brief_run(force: bool = False):
         except Exception:
             pass
     try:
+        # HM-FIRST-OFFICER-MORNING-BRIEF-LLM-COLD-CACHE 2026-05-18: disk_only=True
+        # — never run sub-getter pipeline from GET. Falls back to disk JSON →
+        # graceful unavailable.
         from engine.morning_briefing import generate_daily_intel_report
-        result = generate_daily_intel_report(force=False, push_ntfy=False)
+        result = generate_daily_intel_report(force=False, push_ntfy=False, disk_only=True)
         return JSONResponse({
             "ok":           True,
             "generated_at": result.get("generated_at"),
             "date":         result.get("date"),
             "game_plan":    result.get("game_plan", {}),
-            "message":      "Intel report generated successfully",
+            "unavailable":  result.get("unavailable", False),
+            "disk_only":    result.get("disk_only", False),
+            "message":      result.get("label") or "Intel report served from disk cache",
         })
     except Exception as e:
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)

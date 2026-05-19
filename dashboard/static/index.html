@@ -2451,7 +2451,84 @@ window._cachedFetch = function(url, ttlMs) {
   // After all scripts run, _buildFnSectionMap sets _pageLoading=false
 })();
 </script>
-<script src="https://unpkg.com/lightweight-charts@4.1.0/dist/lightweight-charts.standalone.production.js"></script>
+<!-- HM-CHART-LIB-DEDUPE 2026-05-19: dropped duplicate lightweight-charts@4.1.0 here.
+     4.2.2 loads later (~line 14569) and globally overwrites LightweightCharts, so all
+     callers were running 4.2.2 anyway. Audited API surface (createChart, addCandlestickSeries,
+     addLineSeries, addHistogramSeries, CrosshairMode.Normal) — fully compatible with 4.2.2. -->
+
+<script>
+// HM-TRADES-RECENT-CONSOLIDATE 2026-05-19 (Chapter 0): shared store for /api/trades/recent.
+// Six site-specific callers existed prior to Chapter 0 with different (player_id, limit, season)
+// params. Per-query cache (Map keyed by JSON.stringify({player_id, limit, season})) preserves
+// backend filter semantics (a player who hasn't traded in months still surfaces when the
+// caller asks for their player_id explicitly — a global limit=N fetch would lose them).
+// In-flight coalescing ensures concurrent callers with identical params hit the network once.
+// For unfiltered global queries (no player_id), normalize fetchLimit to max(limit, 50) so
+// callers asking for limit=5/20/30 share one backend hit and slice client-side.
+(function(){
+  'use strict';
+  var _tradesRecentStore = {
+    cache: new Map(),       // queryKey -> {data, ts}
+    inflight: new Map(),    // queryKey -> Promise
+    TTL_MS: 30000,
+  };
+  function _slice(data, limit) {
+    if (!Array.isArray(data)) return data;
+    return limit ? data.slice(0, limit) : data;
+  }
+  window.getTradesRecent = function(opts) {
+    opts = opts || {};
+    var player_id = opts.player_id || null;
+    var limit = opts.limit || 50;
+    var season = (opts.season != null) ? opts.season : null;
+
+    var fetchLimit = limit;
+    var cacheKey;
+    if (!player_id) {
+      // Global unfiltered: share one fetch among limit=5/20/30 callers
+      fetchLimit = Math.max(limit, 50);
+      cacheKey = JSON.stringify({global: true, season: season});
+    } else {
+      // Per-player: per-query cache, preserves backend filter semantics
+      cacheKey = JSON.stringify({player_id: player_id, limit: limit, season: season});
+    }
+
+    var now = Date.now();
+    var cached = _tradesRecentStore.cache.get(cacheKey);
+    if (cached && (now - cached.ts) < _tradesRecentStore.TTL_MS) {
+      return Promise.resolve(_slice(cached.data, limit));
+    }
+
+    var pending = _tradesRecentStore.inflight.get(cacheKey);
+    if (pending) {
+      return pending.then(function(d){ return _slice(d, limit); });
+    }
+
+    var params = new URLSearchParams();
+    if (player_id) params.set('player_id', player_id);
+    params.set('limit', fetchLimit);
+    if (season != null) params.set('season', season);
+    var url = '/api/trades/recent?' + params.toString();
+
+    var p = fetch(url, {cache: 'no-store'})
+      .then(function(r){ return r.json(); })
+      .then(function(d){
+        // Backend returns array; some legacy paths return {trades: [...]} — normalize
+        var arr = Array.isArray(d) ? d : (Array.isArray(d && d.trades) ? d.trades : []);
+        _tradesRecentStore.cache.set(cacheKey, {data: arr, ts: Date.now()});
+        _tradesRecentStore.inflight.delete(cacheKey);
+        return arr;
+      })
+      .catch(function(e){
+        _tradesRecentStore.inflight.delete(cacheKey);
+        throw e;
+      });
+
+    _tradesRecentStore.inflight.set(cacheKey, p);
+    return p.then(function(d){ return _slice(d, limit); });
+  };
+})();
+</script>
 
 <!-- hide-kirk removed — Kirk/Webull portfolio visible -->
 <style id="hide-kirk">
@@ -3110,9 +3187,16 @@ async function fetchReadyRoomBriefing() {
       // Staleness badge
       var staleEl = document.getElementById('rrStaleness');
       if (staleEl) {
-        var ageMin = Math.round((Date.now() - createdAt.getTime()) / 60000);
+        // D5: created_at can be in the future (clock skew or test-fixture
+        // backfill — saw "-420M AGO" on 2026-05-18). For future timestamps,
+        // render the scheduled clock time instead of a negative "ago" delta.
+        var deltaMs = Date.now() - createdAt.getTime();
+        var ageMin = Math.round(deltaMs / 60000);
         staleEl.style.display = 'inline-block';
-        if (ageMin < 15) {
+        if (ageMin < 0) {
+          staleEl.style.color = '#818cf8';
+          staleEl.textContent = 'updates at ' + createdAt.toLocaleTimeString(undefined, {hour:'numeric',minute:'2-digit'});
+        } else if (ageMin < 15) {
           staleEl.style.color = '#22c55e';
           staleEl.textContent = ageMin + 'm ago';
         } else if (ageMin < 60) {
@@ -3122,7 +3206,8 @@ async function fetchReadyRoomBriefing() {
           staleEl.style.color = '#ef4444';
           staleEl.textContent = Math.floor(ageMin/60) + 'h ' + (ageMin%60) + 'm ago · STALE';
         }
-        // Auto-refresh if briefing is older than 1 hour (any time)
+        // Auto-refresh if briefing is older than 1 hour (any time) — skip
+        // on future timestamps since "stale" is a past-side concept.
         if (ageMin > 60 && !window._rrAutoRefreshed) {
           window._rrAutoRefreshed = true;
           runReadyRoomBriefing();
@@ -4151,7 +4236,8 @@ async function fetchRikerRecommendation() {
     var el = document.getElementById('rikerRecommendation');
     var ts = document.getElementById('rikerTimestamp');
     if (d.recommendation) {
-      el.textContent = d.recommendation;
+      // C1 HM-RIKER-LLM-TOKENIZER-ARTIFACT: strip <unusedNNNN> tokenizer leakage from LLM output
+      el.textContent = String(d.recommendation).replace(/<unused\d+>\s*/g, '');
       el.style.color = 'var(--text)';
       if (ts && d.generated_at) {
         var genDate = new Date(d.generated_at);
@@ -4750,7 +4836,10 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       if (!buys.length) return '';
       var html = '<div style="margin-top:6px;font-size:12px;">';
       buys.slice(0,3).forEach(function(c) {
-        html += '<div style="color:#a78bfa;">🏛 '+c.politician+' BOUGHT <strong>'+c.ticker+'</strong> '+c.amount+'</div>';
+        // D4: c.amount can be undefined when game-plan composer drops it;
+        // fall back to amount_range or em-dash so we don't render "undefined".
+        var _amt = (c.amount || c.amount_range || '—');
+        html += '<div style="color:#a78bfa;">🏛 '+(c.politician||'?')+' BOUGHT <strong>'+(c.ticker||'?')+'</strong> '+_amt+'</div>';
       });
       html += '</div>';
       return html;
@@ -4790,8 +4879,17 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         var gp = d.game_plan || {};
         var body = document.getElementById('gp-body');
         if (!body) return;
+        // Round 3 Item 4: /api/morning-brief/run returns
+        // {game_plan: {}, unavailable: true, message: "..."} when today's
+        // brief hasn't been generated yet. Surface the server's message
+        // (not the catch-block's "Intel report unavailable") and clear
+        // the regime badge so a stale tag (e.g. BULL_CROSS from yesterday)
+        // doesn't sit next to a "no data" body.
+        var _badge = document.getElementById('gp-regime-badge');
         if (!gp.headline) {
-          body.innerHTML = '<div style="color:var(--muted);font-size:13px;">No intel report yet — runs at 6 AM & 8 PM AZ</div>';
+          if (_badge) _badge.style.display = 'none';
+          var _msg = d.message || 'No intel report yet — runs at 6 AM & 8 PM AZ';
+          body.innerHTML = '<div style="color:var(--muted);font-size:13px;">'+_msg+'</div>';
           return;
         }
         var color = _gpToneColor(gp.tone);
@@ -4823,8 +4921,13 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         var card = document.getElementById('game-plan-card');
         if (card) card.style.borderLeftColor = color;
       }).catch(function() {
+        // Round 3 Item 4: don't leave a stale regime badge (e.g. BULL_CROSS
+        // from a prior successful load) sitting next to an "unavailable"
+        // body — clear both so the card state is internally consistent.
         var body = document.getElementById('gp-body');
-        if (body) body.innerHTML = '<div style="color:var(--muted);font-size:13px;">Intel report unavailable</div>';
+        var _badge = document.getElementById('gp-regime-badge');
+        if (_badge) _badge.style.display = 'none';
+        if (body) body.innerHTML = '<div style="color:var(--muted);font-size:13px;">Intel report unavailable — retry shortly</div>';
       });
     };
 
@@ -5085,15 +5188,24 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       }
       var h = '';
       for (var s of d.sectors) {
-        var c = s.pct_change != null ? s.pct_change : (s.change_1d || 0);
-        var ticker = s.ticker || s.etf || '';
+        // Round 2.1 D1: /api/sectors/heatmap returns sector/change_pct/etf;
+        // legacy renderer here read name/pct_change/ticker so cells showed
+        // "undefined ▲ 0.00%". The Round 2 glance-row patch caught the
+        // small text panel but missed this larger visual heatmap grid.
+        // Keep both shapes as fallback in case sector-watch hits the same
+        // function with a different upstream.
+        var c = (s.change_pct != null) ? s.change_pct
+              : (s.pct_change != null) ? s.pct_change
+              : (s.change_1d || 0);
+        var ticker = s.etf || s.ticker || '';
+        var name = s.sector || s.name || '—';
         var bg = c > 2 ? 'rgba(37,99,235,0.3)' : c > 0 ? 'rgba(37,99,235,0.12)' : c > -2 ? 'rgba(234,88,12,0.12)' : 'rgba(234,88,12,0.3)';
         var tc = c >= 0 ? 'var(--green)' : 'var(--red)';
         var arrow = c >= 0 ? '▲' : '▼';
-        var stip = _SECTOR_TIPS[s.name] || (s.name+' sector ETF. Click to see top holdings.');
-        h += '<div class="" data-tip="'+stip+'" onclick="showSectorDetail(\''+s.name+'\',\''+ticker+'\')" style="padding:8px 4px;border-radius:4px;background:'+bg+';cursor:pointer;text-align:center;min-height:50px;display:flex;flex-direction:column;justify-content:center;">';
+        var stip = _SECTOR_TIPS[name] || (name+' sector ETF. Click to see top holdings.');
+        h += '<div class="" data-tip="'+stip+'" onclick="showSectorDetail(\''+name+'\',\''+ticker+'\')" style="padding:8px 4px;border-radius:4px;background:'+bg+';cursor:pointer;text-align:center;min-height:50px;display:flex;flex-direction:column;justify-content:center;">';
         h += '<div style="font-size:11px;color:var(--muted);font-weight:600;">'+ticker+'</div>';
-        h += '<div style="font-size:12px;color:var(--text);margin-bottom:2px;">'+s.name+'</div>';
+        h += '<div style="font-size:12px;color:var(--text);margin-bottom:2px;">'+name+'</div>';
         h += '<div style="font-size:15px;font-weight:800;color:'+tc+';font-family:var(--font-mono);">'+arrow+' '+Math.abs(c).toFixed(2)+'%</div>';
         h += '</div>';
       }
@@ -5192,7 +5304,16 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     fetch('/api/ratings')
       .then(function(r){ return r.json(); })
       .then(function(data) {
-        if (!Array.isArray(data)) return;
+        // HM-FLEET-REPORT-CARD-LOADING-STUCK (Round 5): /api/ratings wraps
+        // its body in try/except and returns {error: "..."} on any backend
+        // failure. The legacy "silent return" left tbody stuck on Loading...
+        // forever. Surface the error so the panel never hangs invisibly.
+        if (!Array.isArray(data)) {
+          var tbErr = document.getElementById('fleet-report-tbody');
+          var msg = (data && data.error) ? String(data.error) : 'unexpected response';
+          if (tbErr) tbErr.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--red);text-align:center;">Ratings unavailable: ' + msg.replace(/[<>&]/g,'') + '</td></tr>';
+          return;
+        }
 
         // Advice bar
         fetch('/api/ratings/advice')
@@ -5250,7 +5371,11 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         var upd = document.getElementById('fleet-report-updated');
         if (upd) upd.textContent = 'Updated ' + new Date().toLocaleTimeString();
       })
-      .catch(function(e) { console.warn('Fleet report card error:', e); });
+      .catch(function(e) {
+        console.warn('Fleet report card error:', e);
+        var tbErr = document.getElementById('fleet-report-tbody');
+        if (tbErr) tbErr.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--red);text-align:center;">Ratings fetch failed — <span style="cursor:pointer;text-decoration:underline;" onclick="loadFleetReportCard()">retry</span></td></tr>';
+      });
   }
 
   loadFleetReportCard();
@@ -5362,6 +5487,12 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       h+='<th style="text-align:left;padding:6px;">Ticker</th><th style="text-align:left;padding:6px;">Name</th>';
       h+='<th class="" data-tip="Leverage multiplier. -1x moves opposite to index 1:1. -2x doubles the inverse. -3x triples it — but with severe volatility decay risk over time." style="padding:6px;cursor:help;">Lev</th><th style="padding:6px;">Price</th>';
       h+='<th style="padding:6px;">Day</th><th style="padding:6px;">5-Day</th><th class="" data-tip="Volatility decay risk. Leveraged ETFs lose value from daily rebalancing math. LOW = safer for multi-day holds. HIGH/EXTREME = intraday or days only." style="padding:6px;cursor:help;">Decay</th></tr></thead><tbody>';
+      // C2 HM-WORF-ARSENAL-ETF-LIST-EMPTY: empty-state row when arsenal payload has no etfs
+      if (!d.etfs || !d.etfs.length) {
+        h+='<tr><td colspan="7" style="padding:14px;text-align:center;color:var(--muted);font-style:italic;">No defensive ETFs in payload. Awaiting Worf scan.</td></tr></tbody></table>';
+        tbl.innerHTML=h;
+        return;
+      }
       var _ETF_TIPS={'SH':'SH = ProShares Short S&P500 (-1x). Safest inverse ETF — simple 1:1 short of the S&P 500. Lowest decay risk. Suitable for multi-week defensive holds.','SDS':'SDS = ProShares UltraShort S&P500 (-2x). Doubles the inverse of S&P. Moderate decay. Good for 1-2 week holds during confirmed downtrends.','SQQQ':'SQQQ = ProShares UltraPro Short QQQ (-3x). Triples the inverse of Nasdaq. Explosive upside in crashes but severe decay in sideways/bouncing markets. Days only.','SDOW':'SDOW = ProShares UltraPro Short Dow30 (-3x). Triples the inverse of the Dow. Same extreme decay warning as SQQQ. High-risk tactical instrument.','TZA':'TZA = Direxion Small Cap Bear 3x. Triples the inverse of Russell 2000 small caps. Small caps lead recoveries — exit fast when market stabilizes.','VXX':'VXX = iPath S&P 500 VIX Short-Term Futures. NOT an index inverse — tracks VIX futures with EXTREME negative roll yield decay. Hours to days only, never hold overnight repeatedly.'};
       for (var e of (d.etfs||[])) {
         var dc=e.change_1d>=0?'var(--green)':'var(--red)';
@@ -5638,6 +5769,10 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         <span id="bsStatusBadge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:#6b728022;color:#6b7280;">OFFLINE</span>
         <span id="bsLastUpdate" style="font-size:12px;color:var(--muted);font-family:var(--font-mono);">--</span>
       </div>
+    </div>
+    <!-- C6 HM-BATTLE-STATION-HALT-STATUS-BANNER: surface intentional halt so "--" everywhere reads as expected, not broken UI. -->
+    <div style="margin:0 14px 10px;padding:8px 12px;background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;font-size:12px;color:var(--text);">
+      ⏸ <b>T'Pol halted</b> (spread cannibalization 2026-05-06) — Battle Station idle. See <span style="color:var(--accent);">Models</span> tab to re-enable.
     </div>
 
     <!-- Morning Levels row -->
@@ -8337,10 +8472,12 @@ var screenerPro = (function() {
   return { run: run, sort: sort, setView: setView, preset: preset, expand: expand };
 })();
 // Auto-run screener on first section visit
+// Round 2 D4: signature is registerSectionInit(sectionName, initFn, intervalFns).
+// Prior call passed 'sector-watch' string as initFn, which made the LazyInit
+// flush throw "TypeError: initFn is not a function" and silently dropped the
+// Scan button wiring. Restoring the intended call form.
 if (typeof registerSectionInit === 'function') {
-  registerSectionInit('screener-pro',
-  'sector-watch',
-  'sector-watch', function() { screenerPro.run(); });
+  registerSectionInit('screener-pro', function() { screenerPro.run(); });
 }
 </script>
 
@@ -11296,12 +11433,29 @@ async function fetchStrategyLab() {
     var el = document.getElementById('stratLabStrategies');
     var strats = d.strategies || d || [];
     if (!strats.length) { el.innerHTML='<div style="color:var(--muted);text-align:center;">No strategies configured yet.</div>'; return; }
+    // Round 2 D5: Strategy Lab "Best Ever" community row was rendering
+    // 10000.0% WR. Root cause: s.win_rate already arrives in percent form
+    // (e.g. 100 means 100%) for some strategy rows; the legacy "*100" assumed
+    // decimal form and inflated the value 100×. Detect both forms by
+    // magnitude: values <=1 are decimal-fraction; values >1 are already pct.
+    // Cap to 100 and flag with ⚠️ if implausible.
+    var _capWRPct = function(v) {
+      var n = Number(v);
+      if (!isFinite(n)) return {txt: '⚠️ N/A', bad: true};
+      var pct = (n <= 1) ? n * 100 : n;
+      if (pct > 100 || pct < 0) return {txt: '⚠️ ' + pct.toFixed(0) + '% (capped)', bad: true};
+      return {txt: pct.toFixed(0) + '%', bad: false};
+    };
     var h = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(250px,1fr));gap:10px;">';
     for (var s of strats) {
       h += '<div style="padding:12px;background:var(--surface);border-radius:8px;border:1px solid var(--border);">';
       h += '<div style="font-weight:700;font-size:13px;margin-bottom:4px;">'+s.name+'</div>';
       h += '<div style="font-size:13px;color:var(--muted);">'+(s.description||'')+'</div>';
-      if (s.win_rate) h += '<div style="font-size:13px;margin-top:4px;">Win: '+(s.win_rate*100).toFixed(0)+'% | PF: '+(s.profit_factor||0).toFixed(2)+'</div>';
+      if (s.win_rate != null) {
+        var _wr = _capWRPct(s.win_rate);
+        var _wrCol = _wr.bad ? 'var(--muted)' : 'var(--text)';
+        h += '<div style="font-size:13px;margin-top:4px;">Win: <span style="color:'+_wrCol+';">'+_wr.txt+'</span> | PF: '+(s.profit_factor||0).toFixed(2)+'</div>';
+      }
       h += '</div>';
     }
     h += '</div>';
@@ -12515,9 +12669,8 @@ async function fetchCapitolPortfolio() {
   if (!el) return;
   el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">Loading Capitol Trades portfolio...</div>';
   try {
-    var r = await fetch('/api/trades/recent?player_id=capitol-trades&limit=50');
-    var d = await r.json();
-    var trades = Array.isArray(d) ? d : (d.trades || d.recent || []);
+    // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was: fetch('/api/trades/recent?player_id=capitol-trades&limit=50')
+    var trades = await getTradesRecent({player_id: 'capitol-trades', limit: 50});
     if (!trades.length) {
       el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:20px;">No Capitol Trades positions yet.<br><span style="font-size:12px;">Congress copycat trades will appear here when the agent executes.</span></div>';
       return;
@@ -12597,8 +12750,11 @@ async function fetchCongressTrades() {
       h+='<td style="padding:8px;text-align:center;">'+partyBadge+'</td>';
       h+='<td style="padding:8px;font-weight:700;font-family:var(--font-mono);">'+overlapIcon+'<span class="ticker-click" onclick="openTickerDetail(\''+t.ticker+'\')">'+t.ticker+'</span></td>';
       h+='<td style="padding:8px;color:'+actionColor+';font-weight:600;">'+actionIcon+'</td>';
-      h+='<td style="padding:8px;color:var(--muted);">'+t.amount_range+'</td>';
-      h+='<td style="padding:8px;color:var(--muted);">'+(t.transaction_date||t.filing_date)+'</td>';
+      // D4: Quiver feed sometimes omits amount_range, leaving the cell as
+      // literal "undefined". Guard with a — fallback. Also try .amount as
+      // alternate field name from Capitol Trades shape.
+      h+='<td style="padding:8px;color:var(--muted);">'+(t.amount_range||t.amount||'—')+'</td>';
+      h+='<td style="padding:8px;color:var(--muted);">'+(t.transaction_date||t.filing_date||'—')+'</td>';
       h+='<td style="padding:8px;text-align:center;">'+srcBadge+'</td></tr>';
     }
     h+='</tbody></table></div>';
@@ -12958,14 +13114,28 @@ async function engageHolodeck() {
     statusEl.style.color = '#2563eb';
     // Summary stats
     var best = data.best;
+    // D2: backtest "Best Ever" stats can come back impossibly out-of-range
+    // (WR 10000%, Sharpe 43.02, Return 12366% observed 2026-05-18 — corrupted
+    // sweep rows). Cap to plausible bounds and flag with ⚠️ so the corruption
+    // is visible without exposing nonsense numbers. Bounds: WR ≤ 100, Sharpe
+    // |x| ≤ 10, Return |x| ≤ 1000%, Max DD ≥ -100.
+    var _capWR = function(v){ var n=Number(v); if(!isFinite(n)) return {txt:'⚠️ N/A',bad:true}; if(n>100) return {txt:'⚠️ '+n.toFixed(0)+'% (capped)',bad:true}; return {txt:n.toFixed(1)+'%',bad:false}; };
+    var _capSh = function(v){ var n=Number(v); if(!isFinite(n)) return {txt:'⚠️ N/A',bad:true}; if(Math.abs(n)>10) return {txt:'⚠️ '+n.toFixed(2)+' (capped)',bad:true}; return {txt:n.toFixed(2),bad:false}; };
+    var _capRet = function(v){ var n=Number(v); if(!isFinite(n)) return {txt:'⚠️ N/A',bad:true}; if(Math.abs(n)>1000) return {txt:'⚠️ '+n.toFixed(0)+'% (capped)',bad:true}; return {txt:(n>=0?'+':'')+n.toFixed(1)+'%',bad:false}; };
+    var _capDD = function(v){ var n=Number(v); if(!isFinite(n)) return {txt:'⚠️ N/A',bad:true}; if(n<-100) return {txt:'⚠️ '+n.toFixed(0)+'% (capped)',bad:true}; return {txt:n.toFixed(1)+'%',bad:false}; };
+    var _wr  = _capWR(best.win_rate);
+    var _sh  = _capSh(best.sharpe);
+    var _ret = _capRet(best.total_return);
+    var _dd  = _capDD(best.max_drawdown);
+    var _badCol = function(bad, good){ return bad ? 'var(--muted)' : good; };
     document.getElementById('holodeck-summary').style.display = 'block';
     document.getElementById('holodeck-stats').innerHTML =
       '<div class="stat-card"><div class="stat-label">Combos Tested</div><div class="stat-value">' + data.combos_tested + '</div></div>' +
-      '<div class="stat-card"><div class="stat-label">Best Return</div><div class="stat-value" style="color:' + (best.total_return >= 0 ? '#2563eb' : '#ea580c') + '">' + (best.total_return>=0?'+':'') + best.total_return + '%</div></div>' +
-      '<div class="stat-card"><div class="stat-label">Best Win Rate</div><div class="stat-value">' + best.win_rate + '%</div></div>' +
-      '<div class="stat-card"><div class="stat-label">Best Sharpe</div><div class="stat-value">' + best.sharpe + '</div></div>' +
-      '<div class="stat-card"><div class="stat-label">Max Drawdown</div><div class="stat-value" style="color:#ea580c">' + best.max_drawdown + '%</div></div>' +
-      '<div class="stat-card"><div class="stat-label">Final Value</div><div class="stat-value">$' + best.final_value.toLocaleString() + '</div></div>';
+      '<div class="stat-card"><div class="stat-label">Best Return</div><div class="stat-value" style="color:' + _badCol(_ret.bad, (Number(best.total_return) >= 0 ? '#2563eb' : '#ea580c')) + '">' + _ret.txt + '</div></div>' +
+      '<div class="stat-card"><div class="stat-label">Best Win Rate</div><div class="stat-value" style="color:' + _badCol(_wr.bad, 'var(--text)') + '">' + _wr.txt + '</div></div>' +
+      '<div class="stat-card"><div class="stat-label">Best Sharpe</div><div class="stat-value" style="color:' + _badCol(_sh.bad, 'var(--text)') + '">' + _sh.txt + '</div></div>' +
+      '<div class="stat-card"><div class="stat-label">Max Drawdown</div><div class="stat-value" style="color:' + _badCol(_dd.bad, '#ea580c') + '">' + _dd.txt + '</div></div>' +
+      '<div class="stat-card"><div class="stat-label">Final Value</div><div class="stat-value">$' + (isFinite(Number(best.final_value)) ? Number(best.final_value).toLocaleString() : '—') + '</div></div>';
     // Top 10 table
     var top = data.top_10 || [];
     if (top.length > 0) {
@@ -15441,8 +15611,12 @@ async function fetchStats() {
     document.getElementById('totalPnl').textContent = (tp >= 0 ? '▲ +$' : '▼ -$') + Math.abs(tp).toFixed(2);
     document.getElementById('totalPnl').className = 'stat-value ' + (tp >= 0 ? 'green' : 'red');
     document.getElementById('closedTrades').textContent = (d.closed_trades||0) + ' closed trades';
-    document.getElementById('winRate').textContent = (d.win_rate||0).toFixed(1) + '%';
-    document.getElementById('winLoss').textContent = (d.wins||0) + 'W / ' + (d.losses||0) + 'L';
+    // C5 HM-FLEET-WIN-RATE-CONTRADICTION: API returns winners/losers, not wins/losses — read both, fall back gracefully.
+    // If both come back zero, displaying a non-zero win_rate is contradictory — show "—" instead.
+    var _w = (d.wins != null ? d.wins : (d.winners != null ? d.winners : 0));
+    var _l = (d.losses != null ? d.losses : (d.losers != null ? d.losers : 0));
+    document.getElementById('winRate').textContent = (_w === 0 && _l === 0) ? '—' : (d.win_rate||0).toFixed(1) + '%';
+    document.getElementById('winLoss').textContent = _w + 'W / ' + _l + 'L';
     document.getElementById('profitFactor').textContent = (d.profit_factor||0).toFixed(2);
     document.getElementById('avgPnl').textContent = 'Avg: $' + (d.avg_win||0).toFixed(0) + ' / -$' + Math.abs(d.avg_loss||0).toFixed(0);
   } catch(e) {}
@@ -16071,8 +16245,8 @@ function toggleLbExpand(rowEl, playerId, expandId) {
       expandEl.innerHTML = html;
 
       // Async: load recent trades and fill placeholder
-      fetch('/api/trades/recent?player_id=' + encodeURIComponent(playerId) + '&limit=5&season=' + currentSeason)
-        .then(function(r2) { return r2.json(); })
+      // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was direct fetch with same params
+      getTradesRecent({player_id: playerId, limit: 5, season: currentSeason})
         .then(function(rtData) {
           var rtEl = expandEl.querySelector('.lb-recent-trades-placeholder');
           if (!rtEl) return;
@@ -16483,12 +16657,17 @@ async function fetchArenaFeed() {
 
     // Always pass an explicit season — use resolved season if available, else ask API to auto-detect
     var season = (currentSeason === -1) ? -1 : (currentSeason > 0 ? currentSeason : 0);
-    var seasonParam = season === -1 ? '' : '&season=' + season;
-    var r = await fetch('/api/trades/recent?limit=30' + seasonParam, {cache: 'no-store'});
-    if (!r.ok) { console.error('Trade Feed: HTTP', r.status); return; }
-    var raw = await r.json();
-    // Guard: API may return {ok, trades:[]} from duplicate route — normalise to array
-    var trades = Array.isArray(raw) ? raw : (Array.isArray(raw.trades) ? raw.trades : []);
+    // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was: fetch('/api/trades/recent?limit=30...')
+    // season=-1 sentinel maps to no season param (let API auto-detect)
+    var trades;
+    try {
+      trades = await getTradesRecent({limit: 30, season: (season === -1 ? null : season)});
+    } catch (e) {
+      console.error('Trade Feed: fetch failed', e);
+      return;
+    }
+    // Defensive: helper already normalizes shape, but keep guard
+    if (!Array.isArray(trades)) trades = [];
     // Sort newest-first in case of any server-side ordering quirk
     trades.sort(function(a,b){ return (b.executed_at||'').localeCompare(a.executed_at||''); });
 
@@ -16854,10 +17033,10 @@ function toggleSidebarAgent(pid, rowEl) {
         return;
       }
       // No open positions — fall back to recent trade history
-      return fetch('/api/trades/recent?player_id=' + encodeURIComponent(pid) + '&limit=8&season=5')
-        .then(function(r) { return r.json(); })
-        .then(function(tData) {
-          var trades = Array.isArray(tData) ? tData : (tData.trades || tData.recent || []);
+      // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was direct fetch with same params
+      return getTradesRecent({player_id: pid, limit: 8, season: 5})
+        .then(function(trades) {
+          if (!Array.isArray(trades)) trades = [];
           if (!trades.length) {
             expEl.innerHTML = '<div style="color:var(--muted);text-align:center;padding:6px 0;font-size:11px;">All cash — no trades this season</div>';
             expEl.dataset.loaded = pid;
@@ -18403,8 +18582,9 @@ function showToast(msg, type) {
 
 async function checkNewTrades() {
   try {
-    var r = await fetch('/api/trades/recent?limit=5');
-    var trades = await r.json();
+    // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was: fetch('/api/trades/recent?limit=5')
+    // Helper normalizes shape and slices to limit=5 from the shared global cache
+    var trades = await getTradesRecent({limit: 5});
     if (!Array.isArray(trades)) return;
     var today = new Date(Date.now() - 7*60*60*1000).toISOString().substring(0,10); // AZ time (UTC-7)
     var todayTrades = trades.filter(function(t){ return (t.executed_at||'').indexOf(today) >= 0; });
@@ -22487,9 +22667,27 @@ function renderSqueezeCards() {
     el.innerHTML = '<div style="grid-column:1/-1;color:var(--muted);text-align:center;padding:20px;">No active squeeze candidates. Watcher runs every 30 min during market hours.</div>';
     return;
   }
+  // C4 HM-SQUEEZE-DUPLICATE-BENF: dedupe by ticker+scan-date (keep highest composite per ticker per day).
+  // Same pattern as Round 1 Red Alert dedupe.
+  var _seenSqz = {};
+  var _dedupedSqz = [];
+  for (var _i = 0; _i < _squeezeData.length; _i++) {
+    var _r = _squeezeData[_i];
+    var _date = (_r.scan_ts || '').slice(0, 10); // YYYY-MM-DD prefix; covers both 'YYYY-MM-DD HH:MM' and ISO formats
+    var _key = (_r.symbol || '') + '|' + _date;
+    var _prev = _seenSqz[_key];
+    if (_prev == null || ((_r.composite_score || 0) > (_dedupedSqz[_prev].composite_score || 0))) {
+      if (_prev == null) {
+        _seenSqz[_key] = _dedupedSqz.length;
+        _dedupedSqz.push(_r);
+      } else {
+        _dedupedSqz[_prev] = _r;
+      }
+    }
+  }
   var html = '';
-  for (var i = 0; i < _squeezeData.length; i++) {
-    var r = _squeezeData[i];
+  for (var i = 0; i < _dedupedSqz.length; i++) {
+    var r = _dedupedSqz[i];
     var st = _squeezeTierStyle(r.threshold_tier);
     var composite = (r.composite_score != null) ? Math.round(r.composite_score) : '?';
     var sym = _esc(r.symbol);
@@ -25902,7 +26100,8 @@ async function fetchKirkDetail() {
     ]);
 
     var trades = [];
-    try { trades = await fetch('/api/trades/recent?limit=20').then(function(r){return r.json();}); } catch(e){}
+    // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was: fetch('/api/trades/recent?limit=20')
+    try { trades = await getTradesRecent({limit: 20}); } catch(e){}
     var alerts = [];
     try { alerts = await fetch('/api/realtime/alerts').then(function(r){return r.json();}); } catch(e){}
 
@@ -26965,11 +27164,18 @@ function loadGlanceData() {
         var isBuy = (t.transaction||'').toLowerCase().includes('purchase') || (t.transaction||'').toLowerCase() === 'buy';
         var col = isBuy ? '#22c55e' : '#ef4444';
         var icon = isBuy ? '▲' : '▼';
+        // Round 2 D2: API returns politician/amount_range/transaction_date;
+        // mini-panel previously read member/amount and rendered "undefined".
+        // Match the shape used by the full Recent Trades table.
+        var who = t.politician || t.member || '—';
+        var amt = t.amount_range || t.amount || '—';
+        var dt = t.transaction_date || t.filing_date || '—';
         return '<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;font-family:var(--font-mono);">'
           + '<span style="color:'+col+';font-weight:700;">'+icon+'</span>'
           + '<span class="ticker-click" onclick="openTickerDetail(\''+t.ticker+'\')"><b>'+t.ticker+'</b></span>'
-          + ' <span style="color:var(--muted);flex:1;">'+t.member+'</span>'
-          + ' <span style="color:var(--muted);">'+(t.amount||'')+'</span>'
+          + ' <span style="color:var(--muted);flex:1;">'+who+'</span>'
+          + ' <span style="color:var(--muted);">'+amt+'</span>'
+          + ' <span style="color:var(--muted);font-size:11px;">'+dt+'</span>'
           + '</div>';
       });
       cInner.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">Recent Congressional Trades</div>' + cRows.join('');
@@ -27073,17 +27279,22 @@ function loadGlanceData() {
     el.style.color = '#ea580c';
     // Worf expand: ETF list
     var wInner = document.getElementById('g-worf-inner');
-    if (wInner && d.etfs && d.etfs.length > 0) {
-      var wRows = d.etfs.map(function(e) {
-        var wCol = (e.change_1d||0) >= 0 ? '#22c55e' : '#ef4444';
-        return '<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;font-family:var(--font-mono);">'
-          + '<b>'+e.ticker+'</b>'
-          + ' <span style="color:var(--muted);flex:1;">'+e.name+'</span>'
-          + ' <span style="color:var(--text);">$'+e.price+'</span>'
-          + ' <span style="color:'+wCol+';">'+(e.change_1d>=0?'▲+':'▼')+e.change_1d+'%</span>'
-          + '</div>';
-      });
-      wInner.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">'+d.regime+' — Defensive Arsenal</div>' + wRows.join('');
+    if (wInner) {
+      if (d.etfs && d.etfs.length > 0) {
+        var wRows = d.etfs.map(function(e) {
+          var wCol = (e.change_1d||0) >= 0 ? '#22c55e' : '#ef4444';
+          return '<div style="display:flex;gap:6px;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;font-family:var(--font-mono);">'
+            + '<b>'+e.ticker+'</b>'
+            + ' <span style="color:var(--muted);flex:1;">'+e.name+'</span>'
+            + ' <span style="color:var(--text);">$'+e.price+'</span>'
+            + ' <span style="color:'+wCol+';">'+(e.change_1d>=0?'▲+':'▼')+e.change_1d+'%</span>'
+            + '</div>';
+        });
+        wInner.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">'+d.regime+' — Defensive Arsenal</div>' + wRows.join('');
+      } else {
+        // C2 HM-WORF-ARSENAL-ETF-LIST-EMPTY: clear stale rows when payload empty (don't leave previous data)
+        wInner.innerHTML = '<div style="font-size:11px;color:var(--muted);padding:6px 0;font-style:italic;">'+d.regime+' — no defensive ETFs in payload</div>';
+      }
     }
   }).catch(function(){});
 
@@ -27170,20 +27381,22 @@ function loadGlanceData() {
   _cachedFetch('/api/sectors/heatmap', 30000).then(function(d) {
     var el = document.getElementById('g-sectors-text');
     if (!el || !d.sectors) return;
-    var leaders = d.sectors.filter(function(s){return s.pct_change > 0;}).slice(0,2).map(function(s){return s.name;});
-    var laggards = d.sectors.filter(function(s){return s.pct_change < 0;}).slice(-2).map(function(s){return s.name;});
-    var aboveSpy = d.sectors.filter(function(s){return s.pct_change > (d.spy_change_pct||0);}).length;
-    el.textContent = aboveSpy + '/' + d.sectors.length + ' beating SPY | ▲ ' + leaders.join(', ') + ' | ▼ ' + laggards.join(', ');
+    var spyCh = d.spy_change_pct || 0;
+    var sortedDesc = d.sectors.slice().sort(function(a,b){return (b.change_pct||0)-(a.change_pct||0);});
+    var leaders = sortedDesc.filter(function(s){return (s.change_pct||0) > 0;}).slice(0,2).map(function(s){return s.sector;});
+    var laggards = sortedDesc.filter(function(s){return (s.change_pct||0) < 0;}).slice(-2).map(function(s){return s.sector;});
+    var aboveSpy = d.sectors.filter(function(s){return (s.change_pct||0) > spyCh;}).length;
+    el.textContent = aboveSpy + '/' + d.sectors.length + ' beating SPY | ▲ ' + (leaders.join(', ')||'—') + ' | ▼ ' + (laggards.join(', ')||'—');
     // Expand
     var exp = document.getElementById('g-sectors-inner');
     if (exp) {
       exp.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">All Sectors vs SPY</div>'
         + d.sectors.map(function(s) {
-          var c = s.pct_change || 0;
+          var c = s.change_pct || 0;
           var sCol = c >= 0 ? '#22c55e' : '#ef4444';
           var icon = c >= 0 ? '▲' : '▼';
           return '<span style="display:inline-block;margin:2px 6px;font-size:13px;font-family:var(--font-mono);">'
-            + s.name + ' <span style="color:'+sCol+';">' + icon + Math.abs(c).toFixed(1) + '%</span></span>';
+            + (s.sector || '—') + ' <span style="color:'+sCol+';">' + icon + Math.abs(c).toFixed(1) + '%</span></span>';
         }).join('');
     }
   }).catch(function(){});
@@ -27284,9 +27497,20 @@ function loadGlanceData() {
         + (premium > 0 ? '<span>Premium: <b style="color:#22c55e;">$'+premium.toFixed(0)+'</b></span>' : '')
         + '</div>'
         + (d.positions && d.positions.length > 0 ? '<div style="margin-top:8px;">'
-          + d.positions.slice(0,6).map(function(p) {
+          // Round 3 Item 5: previous .slice(0,6) hid 3 of 9 active puts —
+          // header "Puts Open: 9" matched API but only 6 rows rendered.
+          // Render all positions so the count and the list agree. Use
+          // .slice(0,20) as a sanity guard for any future volume spike.
+          + d.positions.slice(0,20).map(function(p) {
+            // D3: /api/wheel/status emits expiry_date (and strike_price /
+            // option_type), not the .expiry / .type / .strike this renderer
+            // assumed. Fall through both names so the panel survives any
+            // schema flip.
+            var _type = (p.option_type || p.type || 'PUT').toString().toUpperCase();
+            var _strike = (p.strike_price != null ? p.strike_price : p.strike);
+            var _exp = (p.expiry_date || p.expiry || '—');
             return '<div style="font-size:12px;font-family:var(--font-mono);padding:2px 0;color:var(--muted);">'
-              + (p.type||'PUT')+' '+p.symbol+' '+p.strike+' exp '+(p.expiry||'—')+'</div>';
+              + _type+' '+p.symbol+' '+(_strike!=null?_strike:'—')+' exp '+_exp+'</div>';
           }).join('') + '</div>' : '')
         + '<div style="margin-top:8px;font-size:12px;color:var(--muted);">Target: 5% per 30-day cycle. Trigger: VIX > 18.</div>';
     }
@@ -27296,11 +27520,15 @@ function loadGlanceData() {
   });
 
   // VIX glance row
-  fetch('/api/economy').then(function(r){return r.json();}).then(function(d) {
+  // Round 2 D3: /api/economy has no `vix` field. Repointed to /api/market/vix,
+  // the same source the header VIX cell and Live Chart use. Response shape is
+  // { current: { vix, vix9d, vix3m, regime, signal }, history: {...} }.
+  fetch('/api/market/vix').then(function(r){return r.json();}).then(function(d) {
     var vEl = document.getElementById('g-vix-text');
     if (!vEl) return;
-    var vix = d.vix ? (d.vix.value !== undefined ? d.vix.value : d.vix) : null;
-    if (!vix) { vEl.textContent = 'N/A'; return; }
+    var cur = (d && d.current) || {};
+    var vix = (cur.vix != null) ? cur.vix : null;
+    if (vix == null) { vEl.textContent = 'N/A'; return; }
     var v = parseFloat(vix);
     var vLabel = v >= 40 ? '🔴 PANIC' : v >= 30 ? '🟠 FEAR' : v >= 20 ? '🟡 ELEVATED' : v >= 15 ? '⚪ NORMAL' : '🟢 CALM';
     var vCol = v >= 30 ? '#ef4444' : v >= 20 ? '#f59e0b' : '#22c55e';
@@ -27322,7 +27550,10 @@ function loadGlanceData() {
           + (isCur ? '<span style="margin-left:auto;font-size:10px;background:'+z[2]+'22;color:'+z[2]+';padding:1px 5px;border-radius:3px;">YOU ARE HERE</span>' : '')
           + '</div>';
       });
-      var trend = d.vix && d.vix.trend ? '<div style="font-size:12px;color:var(--muted);margin-top:6px;">Trend: '+d.vix.trend+'</div>' : '';
+      var trendBits = [];
+      if (cur.regime) trendBits.push(cur.regime);
+      if (cur.state) trendBits.push(cur.state);
+      var trend = trendBits.length ? '<div style="font-size:12px;color:var(--muted);margin-top:6px;">'+trendBits.join(' · ')+'</div>' : '';
       vInner.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">VIX Regime Map</div>'
         + zRows.join('') + trend;
     }
@@ -32161,16 +32392,22 @@ var liveChart = (function() {
   return { connect: connect, disconnect: disconnect, draw: draw, setTf: setTf, toggleOverlay: toggleOverlay, setDateRange: setDateRange, toggleLightMode: toggleLightMode, setPriceLines: setPriceLines, clearPriceLines: clearPriceLines, getLastPrice: getLastPrice };
 })();
 
-// MutationObserver: log stack trace when #section-livechart is hidden unexpectedly
+// C7 HM-LIVECHART-OBSERVER-LEAK: log stack trace when #section-livechart is first hidden,
+// then tear the observer down. Previously the warning fired on every section switch — once
+// the diagnostic data is captured (or the section is hidden during normal navigation), the
+// observer's job is done; further hides are noise.
 (function() {
   var el = document.getElementById('section-livechart');
   if (!el) return;
   var obs = new MutationObserver(function(mutations) {
-    mutations.forEach(function(m) {
+    for (var i = 0; i < mutations.length; i++) {
+      var m = mutations[i];
       if (m.attributeName === 'style' && el.style.display === 'none') {
         console.warn('[LiveChart] section hidden! Stack:', new Error().stack);
+        obs.disconnect();
+        return;
       }
-    });
+    }
   });
   obs.observe(el, { attributes: true, attributeFilter: ['style'] });
 })();
@@ -33609,13 +33846,20 @@ setTimeout(function(){
       var html = buildScanRow('SPY', null, null, 'index', null, true)
                + buildScanRow('QQQ', null, null, 'index', null, true);
 
+      // C3 HM-SNIFF-SCAN-EMPTY-PANEL-NO-MESSAGE: track non-index hits to surface empty-state
+      var nonIndexHits = 0;
       hits.forEach(function(h) {
         var sym = h.symbol || h.ticker || h.sym || '';
         if (sym === 'SPY' || sym === 'QQQ') return; // skip if already in index rows
+        nonIndexHits++;
         html += buildScanRow(sym, h.price || h.last, h.rvol || h.relative_volume,
           h.alert_type || h.type, h.detected_at || h.time, false, h.gap_pct || h.gap || 0,
           h.hits_today, h.days_active);
       });
+
+      if (nonIndexHits === 0) {
+        html += '<div style="padding:14px 10px;color:var(--muted);font-size:12px;font-style:italic;text-align:center;">No scanner hits this cycle.</div>';
+      }
 
       container.innerHTML = html;
 
@@ -35520,8 +35764,13 @@ async function fetchMovers() {
     html += '</tr></thead><tbody>';
     rows.forEach(function(m) {
       var pct = (typeof m.pct_change === 'number') ? m.pct_change : 0;
-      var pctCol = pct >= 0 ? '#22c55e' : '#ef4444';
-      var pctTxt = (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%';
+      // D1: backend movers_scanner divides by base_price; a 0/near-zero base
+      // produced VIDA +294,999,900% on 2026-05-18. Cap magnitude at 1000% as
+      // a sanity gate — anything beyond is a divide-by-zero artifact and is
+      // rendered as ⚠️ N/A rather than a misleading unbounded number.
+      var pctSane = isFinite(pct) && Math.abs(pct) <= 1000;
+      var pctCol = !pctSane ? 'var(--muted)' : (pct >= 0 ? '#22c55e' : '#ef4444');
+      var pctTxt = !pctSane ? '⚠️ N/A' : ((pct >= 0 ? '+' : '') + pct.toFixed(2) + '%');
       var price = (typeof m.last_price === 'number') ? ('$' + m.last_price.toFixed(2)) : '—';
       var mcapPending = (m.market_cap === null || m.market_cap === undefined);
       var mcapTxt = mcapPending

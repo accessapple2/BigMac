@@ -713,6 +713,31 @@ function esc(s) {
   return String(s).replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;').replace(/"/g,'&quot;');
 }
 
+// Round 2.1 D5: /api/backtest/history surfaces corrupted sweep rows where
+// win_rate=10000, return=12366%, sharpe=43.02 — these flowed straight into
+// the 🏆 BEST EVER bar and could surface in the row table if the user sorts
+// by win_rate. Apply the same cap-and-flag pattern Round 1 added to the
+// holodeck summary in index.html. Bounds: WR 0..100, |Sharpe| ≤ 10,
+// |Return| ≤ 1000%.
+function _capWR(v) {
+  var n = Number(v);
+  if (!isFinite(n)) return {txt: '⚠️ N/A', bad: true};
+  if (n > 100 || n < 0) return {txt: '⚠️ ' + n.toFixed(0) + '% (capped)', bad: true};
+  return {txt: n.toFixed(1) + '%', bad: false};
+}
+function _capSh(v) {
+  var n = Number(v);
+  if (!isFinite(n)) return {txt: '⚠️ N/A', bad: true};
+  if (Math.abs(n) > 10) return {txt: '⚠️ ' + n.toFixed(2) + ' (capped)', bad: true};
+  return {txt: n.toFixed(2), bad: false};
+}
+function _capRet(v) {
+  var n = Number(v);
+  if (!isFinite(n)) return {txt: '⚠️ N/A', bad: true};
+  if (Math.abs(n) > 1000) return {txt: '⚠️ ' + n.toFixed(0) + '% (capped)', bad: true};
+  return {txt: (n >= 0 ? '+' : '') + n.toFixed(2) + '%', bad: false};
+}
+
 // ── History ───────────────────────────────────────────────────────────────
 var _histRows = [];
 var _histSort = {col: 'date', dir: 'desc'};
@@ -733,12 +758,16 @@ window.loadHistory = function() {
         var bSh  = best.sharpe && best.sharpe.value;
         var bWR  = best.win_rate && best.win_rate.value;
         var bTr  = best.trades && best.trades.value;
+        var _r = bRet != null ? _capRet(bRet) : null;
+        var _s = bSh  != null ? _capSh(bSh)   : null;
+        var _w = bWR  != null ? _capWR(bWR)   : null;
+        var _pillStyle = function(b){ return b ? ' style="opacity:0.65;"' : ''; };
         bar.innerHTML =
           '<span style="font-size:12px;color:var(--muted);font-weight:700;margin-right:4px;">🏆 BEST EVER:</span>' +
-          (bRet != null ? '<div class="best-pill">Return <span>'+(bRet >= 0 ? '+' : '')+bRet.toFixed(2)+'%</span></div>' : '') +
-          (bSh  != null ? '<div class="best-pill">Sharpe <span>'+bSh.toFixed(2)+'</span></div>' : '') +
-          (bWR  != null ? '<div class="best-pill">WR <span>'+bWR.toFixed(1)+'%</span></div>' : '') +
-          (bTr  != null ? '<div class="best-pill">Trades <span>'+bTr+'</span></div>' : '');
+          (_r ? '<div class="best-pill"'+_pillStyle(_r.bad)+'>Return <span>'+_r.txt+'</span></div>' : '') +
+          (_s ? '<div class="best-pill"'+_pillStyle(_s.bad)+'>Sharpe <span>'+_s.txt+'</span></div>' : '') +
+          (_w ? '<div class="best-pill"'+_pillStyle(_w.bad)+'>WR <span>'+_w.txt+'</span></div>' : '') +
+          (bTr != null ? '<div class="best-pill">Trades <span>'+bTr+'</span></div>' : '');
       }
       renderHistTable();
     })
@@ -813,12 +842,19 @@ function renderHistTable() {
   };
 
   var html = rows.map(function(r) {
+    // Round 2.1 D5: apply the same caps as the BEST EVER bar so a corrupted
+    // Bollinger row (wr=10000) sorted to the top doesn't break the table.
     var ret = r.return_pct != null ? r.return_pct : (r.return != null ? r.return * 100 : null);
-    var retStr = ret != null ? (ret >= 0 ? '+' : '') + ret.toFixed(2) + '%' : '—';
-    var retCls = ret != null ? (ret > 0 ? 'ret-pos' : (ret < 0 ? 'ret-neg' : '')) : '';
-    var wr  = r.win_rate != null ? r.win_rate.toFixed(1) + '%' : '—';
-    var sh  = r.sharpe != null ? r.sharpe.toFixed(2) : '—';
-    var shCls = r.sharpe > 1 ? 'style="color:var(--green);font-weight:700"' : (r.sharpe < 0 ? 'style="color:var(--red)"' : '');
+    var retObj = ret != null ? _capRet(ret) : null;
+    var retStr = retObj ? retObj.txt : '—';
+    var retCls = ret != null && !retObj.bad ? (ret > 0 ? 'ret-pos' : (ret < 0 ? 'ret-neg' : '')) : '';
+    var wrObj = r.win_rate != null ? _capWR(r.win_rate) : null;
+    var wr  = wrObj ? wrObj.txt : '—';
+    var shObj = r.sharpe != null ? _capSh(r.sharpe) : null;
+    var sh  = shObj ? shObj.txt : '—';
+    var shCls = (shObj && !shObj.bad && r.sharpe > 1) ? 'style="color:var(--green);font-weight:700"'
+              : (shObj && !shObj.bad && r.sharpe < 0) ? 'style="color:var(--red)"'
+              : '';
     var dateStr = (r.date || '').slice(0, 10);
     var agentDisplay = (r.agent || '').replace('ollama-', '').replace('navigator', 'Chekov')
       .replace('plutus', 'McCoy').replace('qwen3', 'Dax').replace('coder', 'Data')

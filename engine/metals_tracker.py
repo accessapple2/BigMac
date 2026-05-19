@@ -51,22 +51,46 @@ def _conn():
     return c
 
 
+# HM-METALS-PORTFOLIO-CACHE-WARM (Chapter 0 Tier A) 2026-05-19:
+# 300s module-level cache around the parallel fanout. Nothing else polls metals
+# faster than every 5 min (Bridge updateDilithium @ 300s), so the prior 60s
+# _price_cache TTL kept lapsing between page loads and every Dilithium-tab open
+# paid the full cold fanout (~6-18s). Mirrors the _VIX_CACHE_TTL=300 pattern in
+# engine/market_data.py. Spot prices don't move fast enough for 5-min staleness
+# to matter for UI (gold ~$0.50/min on a volatile day).
+_SPOT_CACHE: dict = {}  # {"data": dict, "ts": float}
+_SPOT_CACHE_TTL: int = 300
+
+
 def get_spot_prices(fresh: bool = False) -> dict:
     """Fetch live spot prices for gold, silver, platinum.
 
     Args:
-        fresh: If True, bypass the price cache to get live data (use for API calls).
+        fresh: If True, bypass BOTH the 300s _SPOT_CACHE and the per-symbol
+            _price_cache (use for forced refresh; UI should not pass this).
     """
+    import time as _t
+    # Cache hit shortcut: respect the 300s TTL unless caller explicitly requested fresh
+    if not fresh and _SPOT_CACHE.get("data") and (_t.time() - _SPOT_CACHE.get("ts", 0)) < _SPOT_CACHE_TTL:
+        return dict(_SPOT_CACHE["data"])  # shallow copy so callers can't mutate the cache
+
+    # HM-METALS-CACHE-FRESH-TRUE-PERF 2026-05-19: parallelize 4-symbol fanout.
+    # Cold-cache cost was ~24s serial; each yfinance/Polygon call blocks on
+    # network and releases the GIL, so a 4-wide thread pool cuts cold path to
+    # the slowest single call (~6s). _price_cache writes hit distinct keys
+    # per symbol so the dict is contention-free under CPython.
+    from concurrent.futures import ThreadPoolExecutor
     from engine.market_data import get_stock_price, _price_cache
     if fresh:
         for symbol in METAL_SYMBOLS.values():
             _price_cache.pop(symbol, None)
-    prices = {}
-    for metal, symbol in METAL_SYMBOLS.items():
+
+    def _one(item):
+        metal, symbol = item
         try:
             data = get_stock_price(symbol)
             if data and "price" in data:
-                prices[metal] = {
+                return metal, {
                     "price": data["price"],
                     "change_pct": data.get("change_pct", 0),
                     "high": data.get("high", data["price"]),
@@ -74,9 +98,20 @@ def get_spot_prices(fresh: bool = False) -> dict:
                 }
         except Exception:
             pass
+        return metal, None
+
+    prices = {}
+    with ThreadPoolExecutor(max_workers=4) as ex:
+        for metal, entry in ex.map(_one, METAL_SYMBOLS.items()):
+            if entry is not None:
+                prices[metal] = entry
     # Gold/Silver ratio
     if "GOLD" in prices and "SILVER" in prices and prices["SILVER"]["price"] > 0:
         prices["GSR"] = round(prices["GOLD"]["price"] / prices["SILVER"]["price"], 1)
+
+    # Populate the 300s cache so the next 300s of callers skip the fanout entirely
+    _SPOT_CACHE["data"] = dict(prices)
+    _SPOT_CACHE["ts"] = _t.time()
     return prices
 
 

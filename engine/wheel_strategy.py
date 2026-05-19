@@ -266,23 +266,60 @@ def check_wheel_assignments():
             intrinsic = max(0.0, round(strike - current_price, 2))
 
             if intrinsic > 0:
-                # ITM at expiry — Fix #5 scope is OTM-only per G5 Option C disposition.
-                # NTFY Admiral and skip; manual close required until
-                # HM-WHEEL-ASSIGNMENT-LEDGER ships.
+                # HM-WHEEL-ASSIGNMENT-LEDGER 2026-05-18: ITM at expiry now records
+                # via engine.wheel_assignment_ledger.assign_csp (G20=C). Hourly
+                # fallback path — when _expire_canonical missed the ITM branch
+                # (e.g. force-expire prices=None path), this defensive layer
+                # catches it via own get_stock_price fetch. Exception falls back
+                # to original NTFY+manual-close behavior.
+                try:
+                    from engine.wheel_assignment_ledger import assign_csp
+                    result = assign_csp(trade_id, current_price)
+                except Exception as _e:
+                    result = {"status": "exception", "reason": f"{type(_e).__name__}: {_e!r}"}
+
+                if result.get("status") == "assigned":
+                    console.log(
+                        f"[green]🎡 Wheel: {symbol} CSP ASSIGNED ITM (hourly path) — "
+                        f"strike ${strike}, spot ${current_price:.2f}, "
+                        f"intrinsic ${intrinsic:.2f}, trade_id={trade_id} → "
+                        f"assignment_id={result.get('assignment_id')}, "
+                        f"shares={result.get('shares')}, "
+                        f"capital=${result.get('capital'):.0f}, "
+                        f"pnl=${result.get('pnl'):.2f}"
+                    )
+                    try:
+                        from engine.alert_channels import send_alert, AlertLevel
+                        send_alert(
+                            message=(f"Wheel CSP assigned (hourly): {symbol} "
+                                     f"{result.get('shares')} shares @ ${strike} "
+                                     f"(spot ${current_price:.2f}), "
+                                     f"trade_id={trade_id}, "
+                                     f"assignment_id={result.get('assignment_id')}"),
+                            level=AlertLevel.INFO,
+                            alert_type=f"hm-csp-assigned-{symbol}",
+                            rate_limit_secs=86400,
+                        )
+                    except Exception:
+                        pass
+                    continue
+
+                # noop or exception → fall back to manual-close NTFY (no row close)
                 console.log(
-                    f"[red]🎡 Wheel: {symbol} put ITM at expiry — strike ${strike}, "
-                    f"spot ${current_price:.2f}, intrinsic ${intrinsic:.2f}. "
-                    f"trade_id={trade_id} — MANUAL ADMIRAL CLOSE REQUIRED "
-                    f"(Fix #5 OTM-only scope)."
+                    f"[red]🎡 Wheel: {symbol} CSP ITM but assign_csp "
+                    f"{result.get('status')} ({result.get('reason')}) — "
+                    f"strike ${strike}, spot ${current_price:.2f}, "
+                    f"trade_id={trade_id} — MANUAL ADMIRAL CLOSE"
                 )
                 try:
                     from engine.alert_channels import send_alert, AlertLevel
                     send_alert(
-                        message=(f"Wheel ITM at expiry: {symbol} strike ${strike}, "
-                                 f"spot ${current_price:.2f}, trade_id={trade_id} — "
-                                 f"manual close needed"),
+                        message=(f"Wheel CSP ITM but assign_csp "
+                                 f"{result.get('status')}: {symbol} strike ${strike}, "
+                                 f"spot ${current_price:.2f}, trade_id={trade_id} "
+                                 f"({result.get('reason')}) — manual close needed"),
                         level=AlertLevel.WARNING,
-                        alert_type=f"hm-w1f5-wheel-itm-expiry-{symbol}",
+                        alert_type=f"hm-csp-assign-failed-{symbol}",
                         rate_limit_secs=86400,
                     )
                 except Exception:
@@ -319,9 +356,10 @@ def get_wheel_status() -> dict:
     """Return wheel status summary for dashboard display.
 
     HM-W1F5 2026-05-17: read options_trades (canonical post-HM-W1F4) instead
-    of the positions table. Previous implementation reported 0 wheel positions
-    despite live opens in options_trades. Stock-side post-assignment count
-    stays at 0 until HM-WHEEL-ASSIGNMENT-LEDGER ships per Admiral disposition.
+    of the positions table.
+    HM-WHEEL-ASSIGNMENT-LEDGER 2026-05-18: enriched with assignments[] array
+    + stocks_held count from paper_assignment_liability (G20=C: shares from
+    CSP assignment, no ai_players.cash debit, no positions-table row).
     """
     import json
     import sqlite3
@@ -356,11 +394,23 @@ def get_wheel_status() -> dict:
                 "expiry_date": r["expiration"],
             })
 
+        # HM-WHEEL-ASSIGNMENT-LEDGER: read paper_assignment_liability for the
+        # shares-side phase. stocks_held = sum(qty_shares) across all open
+        # assignments for this agent.
+        try:
+            from engine.wheel_assignment_ledger import get_open_assignments
+            assignments = get_open_assignments(agent_id=PLAYER_ID)
+        except Exception:
+            assignments = []
+        stocks_held = sum(int(a.get("qty_shares") or 0) for a in assignments)
+
         return {
             "puts_open": len(positions),
-            "stocks_held": 0,
+            "stocks_held": stocks_held,
             "total_premium_collected": round(total_premium, 2),
             "positions": positions,
+            "assignments": assignments,
         }
     except Exception:
-        return {"puts_open": 0, "stocks_held": 0, "total_premium_collected": 0, "positions": []}
+        return {"puts_open": 0, "stocks_held": 0, "total_premium_collected": 0,
+                "positions": [], "assignments": []}

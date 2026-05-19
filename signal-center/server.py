@@ -51,6 +51,44 @@ _SC_TOTP_SECRET = os.environ.get("TOTP_SECRET", "")
 _sc_totp = _sc_pyotp.TOTP(_SC_TOTP_SECRET) if _SC_TOTP_SECRET else None
 _LOCALHOST = {"127.0.0.1", "::1", "localhost"}
 
+
+# ── HM-MORPHEUS-PHASE4-PERSONA-AUTH 2026-05-18 — multi-user role registry ─────
+# G60.a + G61.a + G62.a baseline: parse DASHBOARD_USERS env (shared with trader
+# per dashboard/app.py:676 _parse_users), per-user passwords via
+# DASHBOARD_PASS_<Username>, shared TOTP_SECRET. Empty env → falls back to
+# single _SC_USER/_SC_PASS as admin (Ship 2 backward-compat).
+def _sc_parse_users() -> dict:
+    """Parse DASHBOARD_USERS into {username_lower: {username, role, password, ntfy}}."""
+    users: dict = {}
+    raw = os.environ.get("DASHBOARD_USERS", "")
+    if raw:
+        for part in raw.split(","):
+            chunks = [c.strip() for c in part.strip().split(":")]
+            if len(chunks) >= 2:
+                uname = chunks[0]
+                role = chunks[1].lower()
+                ntfy = chunks[2] if len(chunks) >= 3 else ""
+                pw = os.environ.get(f"DASHBOARD_PASS_{uname}", "")
+                users[uname.lower()] = {
+                    "username": uname, "role": role,
+                    "password": pw, "ntfy": ntfy,
+                }
+    # Legacy single-user fallback
+    if _SC_USER and _SC_USER.lower() not in users:
+        users[_SC_USER.lower()] = {
+            "username": _SC_USER, "role": "admin",
+            "password": _SC_PASS or "", "ntfy": "",
+        }
+    return users
+
+
+_SC_USERS: dict = _sc_parse_users()
+
+
+def _sc_lookup_user(submitted_username: str) -> dict:
+    """Case-insensitive lookup; returns user dict or empty dict."""
+    return _SC_USERS.get((submitted_username or "").strip().lower(), {})
+
 # ── Security logger ───────────────────────────────────────────────────────────
 _logs_dir = os.path.join(_sc_dir, "..", "logs")
 os.makedirs(_logs_dir, exist_ok=True)
@@ -647,8 +685,16 @@ def sc_login():
             session.permanent = True
             session["authenticated"] = True
             session["username"] = pending_user
+            # HM-MORPHEUS-PHASE4-PERSONA-AUTH 2026-05-18: stamp role from registry.
+            # Backward-compat default 'admin' covers empty DASHBOARD_USERS case.
+            session["role"] = (
+                _sc_lookup_user(pending_user).get("role") or "admin"
+            )
             _sc_failures.pop(ip, None)
-            _sec_log.warning("SC_LOGIN_2FA_OK ip=%s user=%s", ip, pending_user)
+            _sec_log.warning(
+                "SC_LOGIN_2FA_OK ip=%s user=%s role=%s",
+                ip, pending_user, session["role"],
+            )
             return redirect("/")
         # Invalid code
         failure["count"] = failure.get("count", 0) + 1
@@ -665,13 +711,22 @@ def sc_login():
     username = (request.form.get("username") or "").strip()
     password = (request.form.get("password") or "").strip()
 
-    if username == _SC_USER and password == _SC_PASS:
+    # HM-MORPHEUS-PHASE4-PERSONA-AUTH 2026-05-18: multi-user lookup via
+    # _SC_USERS registry. Backward-compat preserved — empty DASHBOARD_USERS
+    # falls back to {_SC_USER: admin} via _sc_parse_users() legacy branch.
+    user_entry = _sc_lookup_user(username)
+    if (user_entry and password and user_entry.get("password")
+            and password == user_entry["password"]):
         # 2FA disabled — authenticate directly
         session.permanent = True
         session["authenticated"] = True
-        session["username"] = username
+        session["username"] = user_entry["username"]
+        session["role"] = user_entry.get("role") or "admin"
         _sc_failures.pop(ip, None)
-        _sec_log.warning("SC_LOGIN_OK ip=%s user=%s", ip, username)
+        _sec_log.warning(
+            "SC_LOGIN_OK ip=%s user=%s role=%s",
+            ip, user_entry["username"], session["role"],
+        )
         return redirect("/")
 
     # Failed login
@@ -703,7 +758,17 @@ def sc_robots():
 # ── Routes ──────────────────────────────────────────────────────────────────
 @app.route('/')
 def index():
-    return send_file('index.html')
+    # HM-MATRIX-HEADER-FOOTER-BLANK 2026-05-18: send_file was returning the
+    # served index.html with no Cache-Control header, so browsers fell back
+    # to heuristic caching and could serve stale JS (Matrix-tab header and
+    # footer reported blank by Captain post commit 42c7456 even though the
+    # disk file was healthy — most likely a stale buildDashboard executing
+    # before its score functions were updated upstream). no-cache makes
+    # every page load re-fetch the latest HTML/JS. send_file already revs
+    # ETag based on mtime, so this doesn't disable conditional 304s.
+    resp = make_response(send_file('index.html'))
+    resp.headers['Cache-Control'] = 'no-cache'
+    return resp
 
 
 @app.route('/api/me')
@@ -763,33 +828,105 @@ _SIGNALS_ENDPOINTS = {
     'risk_radar':         '/api/risk-radar',
     'market_movers':      '/api/market-movers',
     'fast_scan':          '/api/fast-scan',
-    'ema_pullback':       '/api/ema-pullback',
+    # HM-SIGNAL-CENTER-DEAD-ENDPOINTS: 'ema_pullback' route lives on Signal
+    # Center itself (this server, port 9000), not the trader. Map removed
+    # from BRIDGE fetch; handled inline in _fetch_all_signals via direct
+    # read of _ema_pullback_cache (no HTTP self-loop).
     'gex_overlay':        '/api/gex-overlay/levels?symbol=SPY',
     'flow_lean':          '/api/market/options-flow',
     'critical_alerts':    '/api/volume-radar',
+    # HM-RED-ALERT-ROUTE-WIRE (Round 5): trader-side /api/red-alert/status
+    # now exists as a READ-ONLY view of today's volume_alerts.alert_type=
+    # 'red_alert' rows (scanner stays on its own 2-min cadence; this never
+    # invokes red_alert_check()). Re-adding to the BRIDGE fetch list so the
+    # downstream Bridge consumers can see the count + top symbols via the
+    # /api/signals/all proxy.
     'red_alert_score':    '/api/red-alert/status',
     'holly_winners':      '/api/holly/winners',
 }
 
+# HM-SIGNAL-CENTER-DEAD-ENDPOINTS: per-endpoint timeout override. Several
+# trader endpoints take 10–25s upstream (heavy yfinance/Polygon fanout) and
+# consistently time out under the default 5s budget. Bumping their per-key
+# budget unblocks them without slowing the fast endpoints. Cycle wall stays
+# bounded because ThreadPoolExecutor runs them in parallel with max_workers=12.
+# Cold-start traces (post trader restart, 2026-05-18):
+#   /api/dayblade/status ~19s
+#   /api/metals/signals  ~13s
+#   /api/risk-radar      >30s (slowest — full per-player risk recompute)
+# 35s gives headroom over the slowest observed. If a future endpoint regresses
+# past this, add an override here OR bank as HM-TRADER-SLOW-ENDPOINTS for a
+# proper performance pass on the underlying handlers.
+_SIGNALS_TIMEOUTS = {
+    'dayblade':           25,
+    'metals':             40,  # solo: 0.01s; under SC concurrent load: 25–35s
+    'risk_radar':         35,  # genuine perf issue >60s solo; banked for repair
+}
 
-def _fetch_all_signals() -> dict:
-    """Fetch all bridge endpoints in parallel and persist to history."""
+
+def _fetch_all_signals(prev_data=None):
+    """Fetch all bridge endpoints in parallel and persist to history.
+
+    HM-SIGNAL-CENTER-PROXY-NULL-CACHE (Round 3): on per-endpoint exception,
+    prefer prev_data's last-good value over writing None into results so the
+    SWR cache doesn't poison itself with transient upstream blips. History
+    INSERTs only run for fresh fetches this cycle (tracked via fresh_keys)
+    so last-good fallbacks don't duplicate rows.
+    """
+    prev_data = prev_data or {}
     results: dict = {}
+    fresh_keys: set = set()
     with ThreadPoolExecutor(max_workers=12) as pool:
-        futures = {pool.submit(_bridge_get, ep): key
+        futures = {pool.submit(_bridge_get, ep, _SIGNALS_TIMEOUTS.get(key, 5)): key
                    for key, ep in _SIGNALS_ENDPOINTS.items()}
         for fut in as_completed(futures):
             key = futures[fut]
+            fetched = None
             try:
-                results[key] = fut.result()
+                fetched = fut.result()
             except Exception:
-                results[key] = None
+                fetched = None
+            # _bridge_get returns None for BOTH exception and non-200 — the
+            # original bug wasn't just `except: results[key] = None`, it was
+            # also `results[key] = None` whenever _bridge_get returned None
+            # (404, 5xx, redirect-without-session). Treat both paths
+            # identically: prefer last-good, else omit key.
+            if fetched is not None:
+                results[key] = fetched
+                fresh_keys.add(key)
+            else:
+                last = prev_data.get(key)
+                if last is not None:
+                    # Fall back to last-known-good. Key stays present in
+                    # results so downstream panels keep rendering.
+                    results[key] = last
+                # else: leave key absent. Frontend should treat missing as
+                # cache-miss (degrade gracefully) rather than render "None".
 
-    # Persist to history (only non-None results)
+    # HM-SIGNAL-CENTER-DEAD-ENDPOINTS: ema_pullback's route lives on this same
+    # Signal Center process (port 9000), not on the trader (port 8080), so
+    # _bridge_get always 404'd. Inject the local cache directly — no HTTP
+    # self-loop. If the cache hasn't been warmed yet, fall through to the
+    # prev_data/last-good path consistent with the other endpoints.
+    try:
+        with _ema_pullback_lock:
+            _ema_data = _ema_pullback_cache.get("data")
+        if _ema_data is not None:
+            results['ema_pullback'] = _ema_data
+            fresh_keys.add('ema_pullback')
+        else:
+            _last_ema = prev_data.get('ema_pullback')
+            if _last_ema is not None:
+                results['ema_pullback'] = _last_ema
+    except Exception:
+        pass
+
+    # Persist to history — only fresh fetches (no last-good replays).
     try:
         db  = get_db()
         now = datetime.now().isoformat()
-        for key, data in results.items():
+        for key in fresh_keys:
+            data = results.get(key)
             if data is not None:
                 db.execute(
                     "INSERT INTO signal_history (timestamp, signal_name, value, raw_data, source) "
@@ -807,7 +944,9 @@ def _fetch_all_signals() -> dict:
 def _bg_refresh_signals():
     """Background thread: fetch fresh signals and update cache."""
     try:
-        data = _fetch_all_signals()
+        with _signals_lock:
+            prev = dict(_signals_cache.get("data") or {})
+        data = _fetch_all_signals(prev_data=prev)
         with _signals_lock:
             _signals_cache["data"] = data
             _signals_cache["ts"]   = _time.time()
@@ -840,8 +979,12 @@ def all_signals():
             threading.Thread(target=_bg_refresh_signals, daemon=True).start()
         return jsonify(cached_data)
 
-    # Cache empty or too stale — block once to build it
-    data = _fetch_all_signals()
+    # Cache empty or too stale — block once to build it. Pass any prior data
+    # as last-good (even if past SWR_MAX) so per-endpoint blips during this
+    # rebuild don't ship None to a client that has nothing else to fall back on.
+    with _signals_lock:
+        prev = dict(_signals_cache.get("data") or {})
+    data = _fetch_all_signals(prev_data=prev)
     with _signals_lock:
         _signals_cache["data"] = data
         _signals_cache["ts"]   = _time.time()
@@ -1094,6 +1237,55 @@ def _morpheus_daily_snapshot_capture(payload: dict) -> bool:
         db.close()
 
 
+# HM-MORPHEUS Ship 3 (2026-05-18) — persona-context endpoint for Item 12
+# (Frontend Matrix UI). Returns the authenticated user's role + tab-visibility
+# whitelist + action-enabled flag. Item 12's UI consumes this to render the
+# correct 10-tab subset per persona without baking role logic into the JS.
+# All 3 personas (admin/observer/charts) can hit this endpoint.
+
+_MORPHEUS_PERSONA_TABS: dict = {
+    "admin":    None,           # None = unrestricted, render all 10 tabs
+    "observer": None,           # observer is read-only but sees same surface
+    "charts":   ["oracle", "matrix"],  # Dad's restricted view per audit §4.4
+}
+
+
+@app.route('/api/morpheus/persona-context')
+def morpheus_persona_context():
+    """HM-MORPHEUS Ship 3 2026-05-18 — persona-aware UI context.
+
+    Returns:
+      {
+        "username": str,
+        "role": str ("admin" | "observer" | "charts" | None),
+        "tabs_whitelist": list[str] | null   (null = all tabs allowed),
+        "actions_enabled": bool              (true only for admin role),
+        "ntfy_topic": str
+      }
+
+    Auth required. Role missing → role: null + tabs_whitelist:
+    null (backward-compat: pre-Phase-4 sessions still functional;
+    Captain re-login refreshes role stamp).
+    """
+    if not session.get("authenticated"):
+        return jsonify({"error": "auth_required"}), 401
+
+    role = session.get("role")
+    username = session.get("username", "")
+    entry = _sc_lookup_user(username)
+
+    # tabs_whitelist: None means "no restriction" (all 10 tabs visible).
+    tabs_whitelist = _MORPHEUS_PERSONA_TABS.get(role) if role else None
+
+    return jsonify({
+        "username":        username,
+        "role":            role,
+        "tabs_whitelist":  tabs_whitelist,
+        "actions_enabled": role == "admin",
+        "ntfy_topic":      entry.get("ntfy", ""),
+    })
+
+
 @app.route('/api/morpheus/awareness')
 def morpheus_awareness():
     """HM-MORPHEUS Phase 1 — consolidated awareness for the Matrix tab.
@@ -1170,14 +1362,16 @@ def morpheus_awareness():
 def _morpheus_admin_required():
     """Q1 admin-only gate. Returns (authorized, username|error).
 
-    Current Signal Center auth is single-tier TOTP (session['authenticated']).
-    Until HM-MORPHEUS-PHASE4-PERSONA-AUTH ships multi-tier roles, ALL
-    authenticated users are treated as admin. The Q1 disposition is honored
-    structurally (gate exists, gates auth surface) — role-distinction comes
-    in Ship 3 with the persona-auth audit.
+    HM-MORPHEUS-PHASE4-PERSONA-AUTH 2026-05-18: role check active.
+    Pre-Phase-4 = any authenticated user; post-Phase-4 = role='admin' only.
+    Backward-compat: session lacking 'role' (pre-Phase-4 cookie still live)
+    is treated as role-missing → 'admin_role_required' response. Captain
+    re-logins to refresh session with role stamp.
     """
     if not session.get("authenticated"):
         return False, "auth_required"
+    if session.get("role") != "admin":
+        return False, "admin_role_required"
     return True, session.get("username", "anonymous")
 
 
@@ -2107,11 +2301,26 @@ def quant_signals():
             pct = adv / (adv + dec)
             if pct > 0.6: mom_score += 10; mom_why.append(f"Breadth positive {pct:.0%} advancing")
             elif pct < 0.4: mom_score -= 10; mom_why.append(f"Breadth negative {pct:.0%} advancing")
-    if vix:
-        vix_val = vix.get('vix') or vix.get('value') or 0
-        if isinstance(vix_val, (int, float)):
+    if vix and isinstance(vix, dict):
+        # HM-QUANT-VIX-CATEGORIZER-LIVE-READ (Round 5): /api/market/vix
+        # returns {"current": {"vix": 17.82, ...}, "history": {...}}; the
+        # legacy `vix.get('vix') or vix.get('value') or 0` line never
+        # traversed into "current" and silently fell back to 0, producing
+        # the literal "VIX 0.0 low (risk-on)" string while the header was
+        # reading the real value via the same endpoint. Walk the nested
+        # shape and only categorize when a positive numeric reading exists.
+        _cur = vix.get('current') if isinstance(vix.get('current'), dict) else {}
+        vix_val = (_cur.get('vix') if isinstance(_cur.get('vix'), (int, float)) else None)
+        if vix_val is None:
+            vix_val = vix.get('vix') if isinstance(vix.get('vix'), (int, float)) else None
+        if vix_val is None:
+            vix_val = vix.get('value') if isinstance(vix.get('value'), (int, float)) else None
+        if isinstance(vix_val, (int, float)) and vix_val > 0:
             if vix_val < 15: mom_score += 10; mom_why.append(f"VIX {vix_val:.1f} low (risk-on)")
             elif vix_val > 25: mom_score -= 15; mom_why.append(f"VIX {vix_val:.1f} elevated (risk-off)")
+            else: mom_why.append(f"VIX {vix_val:.1f} moderate")
+        else:
+            mom_why.append("VIX unavailable")
     signals['momentum'] = {
         'score': min(100, max(0, mom_score)),
         'grade': score_to_grade(mom_score),
