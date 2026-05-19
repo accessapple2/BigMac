@@ -1754,6 +1754,19 @@ def get_webull_synced() -> dict | None:
     return None
 
 
+# HM-CAPITAL-HANG-EMERGENCY 2026-05-19: module-level shared executor for
+# bounded per-position price fallbacks. Long-lived so the .result(timeout=3)
+# timeout actually bounds wall time — `with ThreadPoolExecutor(...) as pool`
+# calls shutdown(wait=True) in __exit__, which blocks until the in-flight
+# future completes even after .result() raised TimeoutError. A persistent
+# executor lets us submit-and-discard on timeout: the worker thread finishes
+# its yfinance call in the background while the caller has already moved on.
+import atexit as _atexit
+from concurrent.futures import ThreadPoolExecutor as _TPE_TYPE
+_PRICE_FALLBACK_POOL = _TPE_TYPE(max_workers=8, thread_name_prefix='paper_trader_price_fallback')
+_atexit.register(lambda: _PRICE_FALLBACK_POOL.shutdown(wait=False))
+
+
 def get_portfolio_with_pnl(player_id: str, prices: dict) -> dict:
     """Get portfolio with unrealized P&L calculated from live prices.
 
@@ -1779,8 +1792,13 @@ def get_portfolio_with_pnl(player_id: str, prices: dict) -> dict:
             # Metal positions use Yahoo futures symbols, not stock tickers
             _METAL_YAHOO = {"GOLD": "GC=F", "SILVER": "SI=F", "PLATINUM": "PL=F", "PALLADIUM": "PA=F"}
             fetch_symbol = _METAL_YAHOO.get(symbol, symbol)
+            # HM-CAPITAL-HANG-EMERGENCY 2026-05-19: cap per-position network fallback at 3s.
+            # Submit to the module-level _PRICE_FALLBACK_POOL (not a per-call executor — that
+            # leaks back into __exit__/shutdown(wait=True) blocking on the in-flight future).
+            # On timeout, abandon the future; the worker keeps running and may even populate
+            # _price_cache as a side benefit, but the caller falls through to avg_price now.
             try:
-                price_data = get_stock_price(fetch_symbol)
+                price_data = _PRICE_FALLBACK_POOL.submit(get_stock_price, fetch_symbol).result(timeout=3) or {}
             except Exception:
                 price_data = {}
         if pos.get("asset_type") == "option":
