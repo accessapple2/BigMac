@@ -8825,6 +8825,7 @@ var emaScanner = (function() {
       <button class="btn btn-ghost" onclick="fetchSectors()" style="font-size:13px;">Refresh</button>
     </div>
     <div id="sectorBars" style="margin-bottom:20px;"></div>
+    <div id="sectors-updated" style="font-size:12px;color:var(--muted);text-align:right;">—</div>
   </div>
   <div class="card">
     <div class="card-header"><div class="card-title">Portfolio Sector Exposure</div></div>
@@ -8857,6 +8858,7 @@ var emaScanner = (function() {
       <button class="btn btn-ghost" onclick="fetchSentiment()" style="font-size:13px;">Refresh</button>
     </div>
     <div id="sentimentGrid" style="display:grid;grid-template-columns:repeat(auto-fill,minmax(180px,1fr));gap:12px;"></div>
+    <div id="sentiment-updated" style="font-size:12px;color:var(--muted);text-align:right;margin-top:10px;">—</div>
   </div>
   <div class="card" id="insiderAlerts" style="display:none;">
     <div class="card-header"><div class="card-title">Insider Activity Alerts</div></div>
@@ -20484,6 +20486,8 @@ async function fetchSectors() {
   try {
     var r = await fetch('/api/market/sectors');
     var data = await r.json();
+    var updEl = document.getElementById('sectors-updated');
+    if (updEl) updEl.textContent = 'Last updated: ' + new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/Phoenix'}) + ' AZ';
 
     // Rotation bars
     var barsDiv = document.getElementById('sectorBars');
@@ -20690,6 +20694,8 @@ async function fetchSentiment() {
     var grid = document.getElementById('sentimentGrid');
     var insiderCard = document.getElementById('insiderAlerts');
     var insiderList = document.getElementById('insiderList');
+    var updEl = document.getElementById('sentiment-updated');
+    if (updEl) updEl.textContent = 'Last updated: ' + new Date().toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/Phoenix'}) + ' AZ';
 
     if (!data || data.length === 0) {
       grid.innerHTML = '<div style="color:var(--muted);grid-column:1/-1;text-align:center;padding:20px;">No sentiment data yet</div>';
@@ -31306,7 +31312,7 @@ function renderMacroDashboard(d) {
     badge.textContent = d.regime || '—';
   }
   var upd = document.getElementById('macro-updated');
-  if (upd) upd.textContent = 'Updated ' + (d.fetched_at || '—');
+  if (upd) upd.textContent = d.fetched_at ? 'Last updated: ' + d.fetched_at + ' AZ' : 'Last updated: —';
 
   // Asset tiles
   var prices = d.prices || {};
