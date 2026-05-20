@@ -7573,6 +7573,33 @@ def get_performance(model: str = None, season: int = None, fleet_only: bool = Fa
     }
 
 
+@app.get("/api/fleet/active")
+def fleet_active():
+    """HM-FLEET-CORE-DB-DRIVEN — return the DB-truth active fleet roster.
+
+    Single source for the Bridge "ACTIVE FLEET" widget. Filter mirrors the
+    /api/arena/leaderboard exclusion list (no cto* shadow players, no
+    red-alert system flag) but reads halt_mode directly so the widget no
+    longer drifts from ai_players. See HM-FLEET-IDS-SET-DB-DRIVEN and
+    HM-LEADERBOARD-FLEET-ACTIVE-DB-DRIVEN follow-up tickets for the
+    parallel hardcoded surfaces this endpoint does NOT yet feed.
+    """
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT id AS player_id, display_name, halt_mode "
+            "FROM ai_players "
+            "WHERE halt_mode = 'active' "
+            "  AND id NOT LIKE '%cto%' "
+            "  AND id != 'red-alert' "
+            "ORDER BY id"
+        ).fetchall()
+    finally:
+        conn.close()
+    players = [dict(r) for r in rows]
+    return {"players": players, "count": len(players)}
+
+
 @app.get("/api/fleet/positions")
 def fleet_positions():
     """Return open positions + cash for all active fleet agents (batch, no live prices needed)."""
