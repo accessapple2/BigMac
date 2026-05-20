@@ -12427,7 +12427,7 @@ function loadDbChain() {
     if (!body) return;
     var contracts = (d.puts || []).concat(d.calls || []);
     if (!contracts.length) {
-      body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:16px;">No chain data (market closed or API unavailable)</td></tr>';
+      body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#f59e0b;padding:16px;">📅 No chain data (market closed or API unavailable)</td></tr>';
       return;
     }
     body.innerHTML = contracts.map(function(c) {
@@ -18650,7 +18650,7 @@ async function updateOilPrice() {
 // updateOilPrice() deferred to INIT stagger (Tier 2, 500ms)
 setInterval(updateOilPrice, 120000);
 </script>
-<script>function updateMarketStatus(){var n=new Date();var e=new Date(n.toLocaleString("en-US",{timeZone:"America/New_York"}));var h=e.getHours(),m=e.getMinutes(),d=e.getDay();var t=h*60+m;var s=document.getElementById("marketStatus");if(!s)return;if(d>=1&&d<=5&&t>=570&&t<960){s.textContent="Market Open";s.style.color="var(--green)";}else{s.textContent="Market Closed";s.style.color="var(--red)";}}updateMarketStatus();setInterval(updateMarketStatus,60000); // was 30s</script>
+<script>function updateMarketStatus(){var n=new Date();var e=new Date(n.toLocaleString("en-US",{timeZone:"America/New_York"}));var h=e.getHours(),m=e.getMinutes(),d=e.getDay();var t=h*60+m;var s=document.getElementById("marketStatus");if(!s)return;if(d>=1&&d<=5&&t>=570&&t<960){s.textContent="Market Open";s.style.color="var(--green)";}else{s.textContent="📅 Market Closed";s.style.color="#f59e0b";}}updateMarketStatus();setInterval(updateMarketStatus,60000); // was 30s</script>
 
 <script>
 // === NEWS TICKER FEED ===
