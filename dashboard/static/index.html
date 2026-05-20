@@ -15963,17 +15963,22 @@ function toggleLbShowAll() {
 var _FLEET_CORE = new Set();
 
 async function _initFleetCore() {
+  console.log('[FLEET-DEBUG-1] init called');
   try {
+    console.log('[FLEET-DEBUG-2] about to fetch /api/fleet/active');
     var r = await fetch('/api/fleet/active');
+    console.log('[FLEET-DEBUG-3] fetch resolved, status:', r.status, 'ok:', r.ok);
     if (!r.ok) throw new Error('HTTP ' + r.status);
     var data = await r.json();
+    console.log('[FLEET-DEBUG-4] data parsed, players length:',
+                (data && data.players) ? data.players.length : 'MISSING');
     _FLEET_CORE = new Set((data.players || []).map(function(p) { return p.player_id; }));
     console.log('Fleet core loaded:', _FLEET_CORE.size, 'active');
     // Repaint the fleet bar now that the set is populated, in case
     // updateFleetBar() ran (and bailed quietly) before this fetch resolved.
     try { if (typeof updateFleetBar === 'function') updateFleetBar(); } catch(e) {}
   } catch (e) {
-    console.warn('Fleet core init failed, defaulting to empty:', e);
+    console.warn('[FLEET-DEBUG-CATCH] Fleet core init failed:', e);
   }
 }
 _initFleetCore();
