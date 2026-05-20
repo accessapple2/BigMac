@@ -1191,5 +1191,34 @@ if __name__ == "__main__":
         format="%(asctime)s [MORNING] %(message)s",
         datefmt="%H:%M:%S",
     )
-    result = generate_morning_briefing()
-    print(f"[morning_briefing] done — {result.get('date', 'no date')}  audio={result.get('audio_url')}")
+
+    # HM-DAILY-INTEL-REPORT-SCHEDULER: single launchd job runs BOTH outputs.
+    # Audio briefing → CIC chat + MP3.  Daily intel report → morning_brief.json
+    # (the Game Plan card's data source). Each wrapped in its own try/except
+    # so a failure in one doesn't break the other.
+
+    # Audio briefing
+    try:
+        audio_result = generate_morning_briefing(force=True)
+        print(
+            f"[morning_briefing] done — {audio_result.get('date', 'no date')}  "
+            f"audio={audio_result.get('audio_url')}"
+        )
+    except Exception as audio_exc:
+        print(
+            f"[morning_briefing] audio FAILED — {type(audio_exc).__name__}: {audio_exc!r}",
+            file=sys.stderr,
+        )
+
+    # Daily intel report → morning_brief.json (HM-DAILY-INTEL-REPORT-SCHEDULER)
+    try:
+        intel_result = generate_daily_intel_report(force=True, push_ntfy=False)
+        print(
+            f"[morning_briefing] daily intel report — {intel_result.get('date', 'no date')}  "
+            f"json refreshed"
+        )
+    except Exception as intel_exc:
+        print(
+            f"[morning_briefing] intel report FAILED — {type(intel_exc).__name__}: {intel_exc!r}",
+            file=sys.stderr,
+        )
