@@ -742,3 +742,139 @@ doctrine. This commit produced `CLAUDE.md.bak_doctrine_*` and
 `.gitignore.bak_doctrine_*`; both are auto-ignored by the existing `*.bak_*`
 pattern and will be reviewed for delete no earlier than 2026-05-18.
 
+## 2026-05-19 → 2026-05-20 — Frontend polish + DB schema + plist cleanup window
+
+**Cadence:** 2 days, 18 PRs merged, 1 schema change, 2 DB triggers added, 1 plist
+fixed, 1 in-place script edit, 1 ops hygiene action (Cloudflared zombie cleanup).
+Drafted as a unit because MSI Ollie migration arrives 2026-05-20; this is the
+ground-truth list of what the new machine inherits.
+
+### DB state changes (verify post-MSI-migration)
+
+```sql
+-- Triggers shipped 2026-05-19 (HM-HALTED-AT-BACKFILL+ENFORCE, PR #15).
+-- Both expected present:
+SELECT name FROM sqlite_master WHERE type='trigger' AND name LIKE 'trg_ai_players_halted_at%';
+--   trg_ai_players_halted_at_on_insert
+--   trg_ai_players_halted_at_on_update
+
+-- Column shipped 2026-05-20 (HM-MOVERS-TICKER-TYPE-SCHEMA+BACKFILL):
+SELECT name, type FROM pragma_table_info('mover_watchlist') WHERE name='ticker_type';
+--   ticker_type | TEXT
+-- 43/434 rows backfilled from scan_universe (CS=37, ETF=6). 391 NULL by design
+-- (warrants/OTC/fringe IPOs not in scan_universe).
+
+-- 3 NULL halted_at rows recovered yesterday (HM-HALTED-AT-BACKFILL).
+-- Zero NULL halted_at on non-active rows expected:
+SELECT COUNT(*) FROM ai_players WHERE halt_mode != 'active' AND halted_at IS NULL;
+-- Expected: 0
+```
+
+### Plist state changes (carry to MSI as part of ~/Library/LaunchAgents/)
+
+- **`com.ollietrades.morningbriefing.plist`** — FIXED 2026-05-20 09:10 AZ
+  (HM-MORNINGBRIEFING-PLIST-V2). Removed duplicate `/opt/homebrew/bin/python3`
+  from ProgramArguments (was causing `SyntaxError: Non-UTF-8 code starting
+  with '\xcf'` since 2026-05-04). Added `PYTHONPATH=/Users/bigmac/autonomous-trader`
+  to EnvironmentVariables. Backup at `.bak_HM-MORNINGBRIEFING-PLIST-V2_20260520_091009`.
+- **Cloudflared cleanup 2026-05-20 ~10:40 AZ**: unloaded `com.cloudflare.cloudflared`
+  (auto-respawned zombie PID 973 via KeepAlive=true) + `homebrew.mxcl.cloudflared`
+  (dead launchctl entry with exit status 1). Single canonical
+  `com.trademinds.tunnel` plist remains. Both unloaded plists preserved on disk
+  for rollback (re-load via `launchctl load <path>`).
+
+### Engine code carrying NEW behavior (git-tracked, MSI inherits via `git pull`)
+
+- **`engine/morning_briefing.py` `__main__` block** — extended 2026-05-20 to run
+  BOTH `generate_morning_briefing(force=True)` (audio MP3 + CIC post) AND
+  `generate_daily_intel_report(force=True, push_ntfy=False)` (writes
+  `data/morning_brief.json`, the Game Plan card's data source). Each call wrapped
+  in its own try/except. Single launchd job, two outputs. (HM-DAILY-INTEL-REPORT-SCHEDULER,
+  PR #31.)
+- **`dashboard/app.py:1638-1700ish`** — new endpoint `/api/fleet/active` returns
+  DB-driven `halt_mode='active'` player list (HM-FLEET-CORE-DB-DRIVEN PR #16).
+  Consumer `dashboard/static/index.html` populates `_FLEET_CORE` Set from this
+  on page load via `_initFleetCore()`. Surface 2 follow-up (Set #2 at index.html
+  L26245 → `_FLEET_CORE` reuse) shipped today as PR #30. Surface 3+4 (server-side
+  `FLEET_ACTIVE` + `_FLEET_CORE_IDS` Python constants in `app.py`) STILL OPEN —
+  see `data/scotty_msi_migration_runbook_2026-05-20.md` Section A.1.
+- **`engine/morning_briefing.py:1144` analogue** — `_emit_wr_duration` (PR #12
+  yesterday) emits `[WR-DUR] cycle wall=Ns` in `logs/trader.log` (Layer 1 ship).
+  Stall NTFY rate-limited per-process-lifetime (see lesson banked at
+  `feedback_xo_log_pattern_match_drift` family).
+
+### In-place edits NOT in git (must explicit-copy to MSI)
+
+- **`~/ollietrades/etf_regime_trader.py`** — datefmt changed from `%H:%M:%S` to
+  `%Y-%m-%d %H:%M:%S` at line 26 (HM-ETF-LOGFMT, 2026-05-20 09:23 AZ). The
+  `~/ollietrades/` directory is NOT a git repo. Backup at
+  `etf_regime_trader.py.bak_HM-ETF-LOGFMT_20260520_092339`. Carry the EDITED
+  file to MSI, not the backup.
+
+### Fleet count reality check (changed since 2026-05-19)
+
+Live DB truth today: **21 active** (`SELECT COUNT(*) FROM ai_players WHERE halt_mode='active'`),
+6 `exit_only`, 43 `full`. Prior memos sometimes quoted "19 active" as the
+Season 5/6 expected count — the extra 2 are season-1 carryovers
+(`alpaca-mirror`, `mlx-qwen3`, `red-alert`) that have `halt_mode='active'`
+intentionally. Not a defect; surface if downstream consumers expect 19.
+
+### Frontend ships (all in git, all in `dashboard/static/index.html` or `dashboard/static/js/lcars.js`)
+
+PRs #14 through #31, summarized:
+
+| Theme | PR(s) | Visible change |
+|---|---|---|
+| Log date prefix | #14 | `[YYYY-MM-DD HH:MM:SS]` prefix on every trader.log line |
+| Fleet membership DB-driven | #16, #17, #18, #30 | `_FLEET_CORE` + `_FLEET_IDS_SET` consume `/api/fleet/active` |
+| Halt-mode trigger enforcement | #15 | INSERT/UPDATE triggers auto-fill halted_at |
+| Stale badge family | #19, #27 | Game Plan, Riker XO, Bridge Vote `⚠ Stale (Nh)` badges at >24h |
+| LCARS aesthetic | #23, #29 | Stardate + real date; 13 new SECTION_LABELS (100% Layer-2 coverage) |
+| Last-updated footers | #21 | Sentiment / Macro / Sectors footer "Last updated: H:MM AZ" |
+| Market-closed unification | #20 | `📅 Market Closed` amber unified across 3 surfaces |
+| Sidebar tooltips | #22 | 6 ambiguous nav items get `title=` hover hints |
+| Earnings countdown | #24 | "[SYM] earnings in: Hh Mm (label)" banner |
+| VIX cache | #25 | localStorage-cached last-known value when market closed |
+| Favicon | #26 | `/static/icon-192.png` (was 404→/login) |
+| Console noise | #28 | Meta tag deprecation fix + LiveChart warn→debug |
+| Morning intel two-output | #31 | morning_brief.json refreshes daily alongside audio briefing |
+| DB schema + backfill | (no PR# yet) | `mover_watchlist.ticker_type` column |
+
+### Lessons banked 2026-05-20
+
+Five new feedback memos in `/Users/bigmac/.claude/projects/-Users-bigmac/memory/`:
+
+1. **`feedback_xo_log_pattern_match_drift`** — read source for diagnosis, not log
+   appearance. ETF Regime "5s replay loop" was actually one-per-day with
+   HH:MM:SS-only datefmt.
+2. **`feedback_morning_audit_plist_label_drift`** — launchctl exit-status entries
+   are NOT process owners. Cross-match PIDs from `ps aux` against `launchctl
+   list` PID column to identify true owners.
+3. **`feedback_xo_broker_reconciliation_drift`** — verify ALL three books
+   (real-money / Alpaca paper / fleet) before declaring exposure resolved.
+   NVDA "closed on Webull" hid two errors: Webull was liquidated 5/13 (nothing
+   to close) AND Alpaca paper still held 12.34 sh ghost.
+4. **`captain_actions_log_2026-05-20`** (not a feedback memo, a project log) —
+   NVDA real-money zero, paper-book ghost closed via `/api/alpaca/close/NVDA`.
+5. **(Plus today's project tickets)** — `project_hm_layer_2a_design`,
+   `project_hm_lcars_coverage_audit`, `project_hm_wr_stall_alarm_rate_limit`,
+   `project_hm_decision_support_observability_audit`,
+   `project_hm_daily_intel_report_scheduler`,
+   `project_hm_movers_ticker_type_schema` (RESOLVED).
+
+### Still open after today's wave (queued for post-migration / next session)
+
+- **L2 — `dashboard/app.py:1638` `FLEET_ACTIVE` + `app.py:7511` `_FLEET_CORE_IDS`**
+  server-side mirrors. Bundled with Layer 2a v1 ship per Captain's wave plan.
+- **Layer 2a v1** — log-only `[WR-BUDGET-EXCEEDED]` instrumentation, design banked
+  at `project_hm_layer_2a_design`. ~2h scope. Ship post-close 2026-05-20.
+- **HM-OLLIE-AUTO-MAY-REGRESSION-AUDIT** — WR April 86.8% → May 60.0%. Not run yet.
+- **HM-DECISION-SUPPORT-OBSERVABILITY-AUDIT** — multi-hour audit, post-migration.
+- **LCARS Layer-3** — themed content for top-5 panels, 12-16h, post-migration.
+
+### Migration runbook
+
+`data/scotty_msi_migration_runbook_2026-05-20.md` is the ground-truth carry-over
+list for MSI Ollie cutover. Sections A-G + F-Supplement (Cloudflared migration
+detail). Pre-cutover checklist at Section F.
+
