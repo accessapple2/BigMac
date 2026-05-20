@@ -4,8 +4,15 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OllieTrades — The Bridge</title>
+  <!-- HM-CONSOLE-NOISE-CLEANUP note: Cloudflare Insights (cf-beacon /
+       cloudflareinsights.com) is injected by Cloudflare's edge proxy
+       and may emit a CORS-blocked fetch in the browser console. This
+       is external (not from this dashboard); browser security blocks
+       the cross-origin beacon and the dashboard's own bridge.ollietrades.com
+       traffic is unaffected. Safe to ignore. -->
   <link rel="manifest" href="/static/manifest.json">
   <meta name="apple-mobile-web-app-capable" content="yes">
+  <meta name="mobile-web-app-capable" content="yes">
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="OllieTrades">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
@@ -32532,7 +32539,10 @@ var liveChart = (function() {
     for (var i = 0; i < mutations.length; i++) {
       var m = mutations[i];
       if (m.attributeName === 'style' && el.style.display === 'none') {
-        console.warn('[LiveChart] section hidden! Stack:', new Error().stack);
+        // HM-CONSOLE-NOISE-CLEANUP: downgraded warn → debug. Diagnostic value
+        // preserved for verbose-console sessions; default console no longer
+        // surfaces this on every normal navigation-away from LiveChart.
+        console.debug('[LiveChart] section hidden! Stack:', new Error().stack);
         obs.disconnect();
         return;
       }
