@@ -4245,7 +4245,15 @@ async function fetchRikerRecommendation() {
         var genDate = new Date(d.generated_at);
         var minsAgo = Math.round((Date.now() - genDate.getTime()) / 60000);
         var agoStr = minsAgo < 1 ? 'just now' : minsAgo + ' min ago';
-        ts.textContent = (d.fresh ? '🟢 ' : '🟡 ') + genDate.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' (' + agoStr + ')';
+        // HM-STALE-BADGE-EXTENSIONS: surface > 24h staleness when market is open.
+        // Skips badge over weekends since Riker doesn't refresh outside market hours.
+        var _rAgeHours = (Date.now() - genDate.getTime()) / 3600000;
+        var _rEt = new Date(new Date().toLocaleString('en-US', {timeZone:'America/New_York'}));
+        var _rMarketOpen = _rEt.getDay() >= 1 && _rEt.getDay() <= 5 && _rEt.getHours() >= 4 && _rEt.getHours() < 20;
+        var _rStaleBadge = (_rAgeHours > 24 && _rMarketOpen)
+          ? '<span class="badge" style="background:rgba(234,179,8,.15);color:#eab308;border:1px solid rgba(234,179,8,.3);font-size:11px;font-weight:700;margin-right:6px;vertical-align:middle;">⚠ Stale (' + Math.floor(_rAgeHours) + 'h)</span>'
+          : '';
+        ts.innerHTML = _rStaleBadge + (d.fresh ? '🟢 ' : '🟡 ') + genDate.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) + ' (' + agoStr + ')';
       }
     }
     // Also load consensus
@@ -25952,7 +25960,17 @@ function renderBridgeVote(d) {
     }
     rowsEl.innerHTML = html;
   }
-  if (footEl && d.session_date) footEl.textContent = 'Vote session: ' + d.session_date + (d.session_time ? ' ' + d.session_time : '');
+  if (footEl && d.session_date) {
+    // HM-STALE-BADGE-EXTENSIONS: surface > 24h staleness on vote session.
+    // Bridge Vote session is the most decision-relevant timestamp here — if it
+    // hasn't refreshed in over a day, the displayed consensus may be stale.
+    var _bvTs = d.created_at || (d.session_date + (d.session_time ? ' ' + d.session_time : ' 00:00'));
+    var _bvAgeHours = (Date.now() - new Date(_bvTs).getTime()) / 3600000;
+    var _bvStaleBadge = (isFinite(_bvAgeHours) && _bvAgeHours > 24)
+      ? '<span class="badge" style="background:rgba(234,179,8,.15);color:#eab308;border:1px solid rgba(234,179,8,.3);font-size:11px;font-weight:700;margin-right:6px;vertical-align:middle;">⚠ Stale (' + Math.floor(_bvAgeHours) + 'h)</span>'
+      : '';
+    footEl.innerHTML = _bvStaleBadge + 'Vote session: ' + _esc(d.session_date) + (d.session_time ? ' ' + _esc(d.session_time) : '');
+  }
 }
 
 function toggleTroiBridge() {
