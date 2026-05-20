@@ -7043,20 +7043,57 @@ def cross_asset():
 
 @app.get("/api/trendlines/{symbol}")
 def trendlines(symbol: str):
-    """Get auto-detected support and resistance levels."""
+    """Get auto-detected support and resistance levels.
+
+    HM-CAPITAL-HANG-PATTERN-PORT (2026-05-20 Wave 5): per-symbol cache key
+    "trendlines:{SYMBOL}". detect_support_resistance does heavy per-symbol
+    bar fetch + computation; cold first-request can hang. Bounded at 15s
+    via _ENDPOINT_TIMEOUT_POOL with per-symbol stale-fallback. Consumer
+    (index.html:23943 fetchTrendlines) reads d.error / d.support_details
+    so stale-served unwraps the envelope to preserve dict shape.
+    """
     from engine.trendlines import detect_support_resistance
-    result = detect_support_resistance(symbol.upper())
-    if not result:
-        return {"error": f"No trendline data for {symbol.upper()}"}
-    return result
+    from concurrent.futures import TimeoutError as FuturesTimeout
+    import time as _t
+    sym = symbol.upper()
+    cache_key = f"trendlines:{sym}"
+    try:
+        result = _ENDPOINT_TIMEOUT_POOL.submit(
+            detect_support_resistance, sym
+        ).result(timeout=15)
+        if not result:
+            return {"error": f"No trendline data for {sym}"}
+        _endpoint_stale_cache[cache_key] = {"data": result, "ts": _t.time()}
+        return result
+    except (FuturesTimeout, Exception):
+        _stale = _endpoint_stale_cache.get(cache_key)
+        if _stale and isinstance(_stale.get("data"), dict):
+            return _stale["data"]
+        return {"error": f"No trendline data for {sym}"}
 
 
 @app.get("/api/trendlines")
 def all_trendlines():
-    """Get S/R levels for all watchlist stocks."""
+    """Get S/R levels for all watchlist stocks.
+
+    HM-CAPITAL-HANG-PATTERN-PORT (2026-05-20, Wave 5): get_all_levels does
+    serial per-symbol fanout over the ~3000-symbol universe; cold-cache
+    request hangs >90s per the 2026-05-20 PM curl audit. Bounded at 25s
+    via _ENDPOINT_TIMEOUT_POOL with stale-fallback per the canonical
+    /api/capital pattern at line ~7406.
+    """
     from engine.trendlines import get_all_levels
     from engine.universe import get_active_universe
-    return get_all_levels(get_active_universe())
+    from concurrent.futures import TimeoutError as FuturesTimeout
+    import time as _t
+    try:
+        result = _ENDPOINT_TIMEOUT_POOL.submit(
+            get_all_levels, get_active_universe()
+        ).result(timeout=25)
+        _endpoint_stale_cache["trendlines"] = {"data": result, "ts": _t.time()}
+        return result
+    except (FuturesTimeout, Exception):
+        return _endpoint_stale_cache.get("trendlines", {"data": [], "stale": True})
 
 
 # --- Fibonacci Levels ---
@@ -7110,10 +7147,32 @@ def chart_patterns_symbol(symbol: str):
 
 @app.get("/api/patterns")
 def chart_patterns_all():
-    """Get detected chart patterns for all watchlist stocks."""
+    """Get detected chart patterns for all watchlist stocks.
+
+    HM-CAPITAL-HANG-PATTERN-PORT (2026-05-20 Wave 5): detect_all_patterns
+    does serial per-symbol fanout over the ~3000-symbol universe; cold-cache
+    request hangs >90s per the 2026-05-20 PM curl audit. Bounded at 25s
+    via _ENDPOINT_TIMEOUT_POOL with stale-fallback per the canonical
+    /api/capital pattern at line ~7406.
+    """
     from engine.chart_patterns import detect_all_patterns
     from engine.universe import get_active_universe
-    return detect_all_patterns(get_active_universe())
+    from concurrent.futures import TimeoutError as FuturesTimeout
+    import time as _t
+    try:
+        result = _ENDPOINT_TIMEOUT_POOL.submit(
+            detect_all_patterns, get_active_universe()
+        ).result(timeout=25)
+        _endpoint_stale_cache["patterns"] = {"data": result, "ts": _t.time()}
+        return result
+    except (FuturesTimeout, Exception):
+        # Consumer expects ARRAY (reads d.length / d[i]); unwrap envelope to
+        # keep stale-served shape-compatible. Drop "stale: True" envelope on
+        # no-cache too — return [] directly so consumer renders "no patterns".
+        _stale = _endpoint_stale_cache.get("patterns")
+        if _stale and isinstance(_stale.get("data"), list):
+            return _stale["data"]
+        return []
 
 
 # --- Raindrop Charts ---
@@ -7239,9 +7298,29 @@ def trend_forecast_symbol(symbol: str):
 
 @app.get("/api/pattern-alerts")
 def pattern_alerts():
-    """Get enriched pattern alert tiles with breakout/target/stop/win-rate."""
+    """Get enriched pattern alert tiles with breakout/target/stop/win-rate.
+
+    HM-CAPITAL-HANG-PATTERN-PORT (2026-05-20 Wave 5): get_pattern_alert_tiles
+    enriches breakout/target/stop/win-rate per pattern via per-symbol fanout;
+    cold-cache request hangs >90s per the 2026-05-20 PM curl audit. Bounded
+    at 25s via _ENDPOINT_TIMEOUT_POOL with stale-fallback per the canonical
+    /api/capital pattern at line ~7406.
+    """
     from engine.pattern_alerts import get_pattern_alert_tiles
-    return get_pattern_alert_tiles()
+    from concurrent.futures import TimeoutError as FuturesTimeout
+    import time as _t
+    try:
+        result = _ENDPOINT_TIMEOUT_POOL.submit(
+            get_pattern_alert_tiles
+        ).result(timeout=25)
+        _endpoint_stale_cache["pattern_alerts"] = {"data": result, "ts": _t.time()}
+        return result
+    except (FuturesTimeout, Exception):
+        # Consumer expects ARRAY (reads d.length / d.forEach); unwrap envelope.
+        _stale = _endpoint_stale_cache.get("pattern_alerts")
+        if _stale and isinstance(_stale.get("data"), list):
+            return _stale["data"]
+        return []
 
 
 @app.get("/api/strategy-presets")
@@ -12738,29 +12817,73 @@ def signals_with_risk(limit: int = 20):
 
 @app.get("/api/channels")
 def all_channels():
-    """Get all channel scan results with timeout protection."""
-    from concurrent.futures import ThreadPoolExecutor, TimeoutError as FuturesTimeout
+    """Get all channel scan results.
+
+    HM-CAPITAL-HANG-PATTERN-PORT (2026-05-20 Wave 5): the prior `with
+    ThreadPoolExecutor(...) as ex` block's __exit__ shutdown(wait=True)
+    shadowed the 15s per-future timeout — meaning the endpoint hung up to
+    the slowest channel's natural completion time even when individual
+    .result(timeout=15) raised. This is the EXACT anti-pattern the
+    canonical /api/capital comment at line ~7406 documents. Migrated to
+    module-level _ENDPOINT_TIMEOUT_POOL with outer 25s endpoint cap +
+    per-channel 15s retained.
+    """
     from engine.channel_scanner import scan_channel
+    from concurrent.futures import TimeoutError as FuturesTimeout
+    import time as _t
 
     channels = ["gap-and-go", "momentum-breakout", "reversal-bounce", "short-squeeze",
                 "earnings-runner", "volatility-breakout"]
-    results = {}
-    with ThreadPoolExecutor(max_workers=4) as ex:
-        futures = {ex.submit(scan_channel, ch): ch for ch in channels}
+
+    def _scan_all_channels():
+        # Module-level pool — no `with` __exit__ blocking. 6 channels share
+        # the same pool, ~3 run concurrently (outer task holds 1 worker).
+        # Per-channel 15s timeout still bounds individual channels; outer 25s
+        # caps total wall.
+        results = {}
+        futures = {_ENDPOINT_TIMEOUT_POOL.submit(scan_channel, ch): ch for ch in channels}
         for f in futures:
             ch = futures[f]
             try:
                 results[ch] = f.result(timeout=15)
             except (FuturesTimeout, Exception):
                 results[ch] = []
-    return results
+        return results
+
+    try:
+        result = _ENDPOINT_TIMEOUT_POOL.submit(_scan_all_channels).result(timeout=25)
+        _endpoint_stale_cache["channels"] = {"data": result, "ts": _t.time()}
+        return result
+    except (FuturesTimeout, Exception):
+        return _endpoint_stale_cache.get("channels", {"data": [], "stale": True})
 
 
 @app.get("/api/channels/{channel}")
 def channel_scan(channel: str):
-    """Run a specific channel scan."""
+    """Run a specific channel scan.
+
+    HM-CAPITAL-HANG-PATTERN-PORT (2026-05-20 Wave 5): per-channel cache key
+    "channels:{CH}". Single scan_channel call can hang on cold cache.
+    Bounded at 15s via _ENDPOINT_TIMEOUT_POOL with per-channel stale-fallback.
+    Consumer (index.html:25487 fetchChannel) reads d.results || [] so
+    stale-served unwraps to preserve {channel, results} dict shape.
+    """
     from engine.channel_scanner import scan_channel
-    return {"channel": channel, "results": scan_channel(channel)}
+    from concurrent.futures import TimeoutError as FuturesTimeout
+    import time as _t
+    cache_key = f"channels:{channel}"
+    try:
+        results = _ENDPOINT_TIMEOUT_POOL.submit(
+            scan_channel, channel
+        ).result(timeout=15)
+        response = {"channel": channel, "results": results}
+        _endpoint_stale_cache[cache_key] = {"data": response, "ts": _t.time()}
+        return response
+    except (FuturesTimeout, Exception):
+        _stale = _endpoint_stale_cache.get(cache_key)
+        if _stale and isinstance(_stale.get("data"), dict):
+            return _stale["data"]
+        return {"channel": channel, "results": []}
 
 
 # --- Volatility Breakout Scanner ---
