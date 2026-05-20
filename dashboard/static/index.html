@@ -26241,8 +26241,11 @@ async function fetchKirkDetail() {
     var alerts = [];
     try { alerts = await fetch('/api/realtime/alerts').then(function(r){return r.json();}); } catch(e){}
 
-    // Active fleet IDs — matches _FLEET_CORE on leaderboard
-    var _FLEET_IDS_SET = new Set(['neo-matrix','ollama-coder','ollama-llama','ollama-plutus','ollama-qwen3','qwen3-8b-flash','dayblade-0dte']);
+    // HM-FLEET-IDS-SET-DB-DRIVEN (Surface 2 follow-up): hardcoded _FLEET_IDS_SET
+    // removed. Consumer below now reuses the DB-driven _FLEET_CORE populated by
+    // _initFleetCore() at module load (line ~16025). Same race trade-off as
+    // Surface 1: if _FLEET_CORE hasn't finished its fetch yet on cold page load,
+    // the trade filter returns empty until next render cycle.
 
     var html = '';
     var today = new Date(Date.now() - 7*60*60*1000).toISOString().slice(0,10); // AZ time (UTC-7)
@@ -26374,7 +26377,7 @@ async function fetchKirkDetail() {
     html += '<div style="padding:14px 16px;">';
     html += '<div style="font-size:13px;color:var(--muted);margin-bottom:10px;">Trades from your 6 active scanners today. Consider these as candidates for Webull:</div>';
 
-    var todayTrades = trades.filter(function(t){return (t.executed_at||'').indexOf(today)>=0 && _FLEET_IDS_SET.has(t.player_id);});
+    var todayTrades = trades.filter(function(t){return (t.executed_at||'').indexOf(today)>=0 && _FLEET_CORE.has(t.player_id);});
     if (todayTrades.length > 0) {
       for (var t of todayTrades.slice(0,15)) {
         var tColor = t.action === 'BUY' ? '#2563eb' : t.action === 'SHORT' ? '#ea580c' : '#f59e0b';
