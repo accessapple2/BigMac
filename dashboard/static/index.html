@@ -15686,7 +15686,7 @@ function updateFleetBar() {
   var prevMetals = (document.getElementById('fleetIncludeMetals') || {}).checked || false;
   var prevKirk   = (document.getElementById('fleetIncludeKirk')   || {}).checked || false;
 
-  // Active fleet — only _FLEET_CORE (8 agents), plus optional add-ons
+  // Active fleet — _FLEET_CORE (populated from /api/fleet/active), plus optional add-ons
   var players = window.arenaData.filter(function(p) {
     if (_FLEET_CORE.has(p.player_id)) return true;
     if (p.player_id === 'enterprise-computer' && prevMetals) return true;
@@ -15953,10 +15953,30 @@ function toggleLbShowAll() {
   if (btn) btn.textContent = isHidden ? '\u25BC Active Only' : '\u25BA Show All';
 }
 
-/// Fleet Totals: Season 6.3 "Iron Condor King" — deployed 2026-04-10.
-// PRIMARY: Sulu (iron_condor, Model F exits) + McCoy (income). SCOUTS: Spock, Data, Dax, Chekov, Capitol.
-// Kirk/Metals shown as optional add-ons via checkboxes.
-var _FLEET_CORE = new Set(['ollie-auto','deepseek-7b-grok4','ollama-coder','ollama-qwen3','navigator','capitol-trades','dayblade-sulu','ollama-plutus']);
+// HM-FLEET-CORE-DB-DRIVEN 2026-05-19: populated from /api/fleet/active on
+// page load (was a hardcoded 8-player Set that drifted from DB truth —
+// included dayblade-sulu after it halted 2026-03-31, excluded neo-matrix
+// + alpaca-mirror + ~11 other halt_mode='active' agents). On fetch
+// failure we fall back to an EMPTY Set (better than wrong fleet per
+// spec) and surface the failure via console.warn. Kirk/Metals checkboxes
+// continue to add their respective IDs on top via _getFleetTeam.
+var _FLEET_CORE = new Set();
+
+async function _initFleetCore() {
+  try {
+    var r = await fetch('/api/fleet/active');
+    if (!r.ok) throw new Error('HTTP ' + r.status);
+    var data = await r.json();
+    _FLEET_CORE = new Set((data.players || []).map(function(p) { return p.player_id; }));
+    console.log('Fleet core loaded:', _FLEET_CORE.size, 'active');
+    // Repaint the fleet bar now that the set is populated, in case
+    // updateFleetBar() ran (and bailed quietly) before this fetch resolved.
+    try { if (typeof updateFleetBar === 'function') updateFleetBar(); } catch(e) {}
+  } catch (e) {
+    console.warn('Fleet core init failed, defaulting to empty:', e);
+  }
+}
+_initFleetCore();
 
 function _getFleetTeam(players) {
   var ids = new Set(_FLEET_CORE);
