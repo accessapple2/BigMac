@@ -9,6 +9,7 @@
   <meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
   <meta name="apple-mobile-web-app-title" content="OllieTrades">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
+  <link rel="icon" type="image/png" href="/static/icon-192.png">
   <meta name="theme-color" content="#1a1a2e">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&family=Antonio:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
@@ -33322,7 +33323,7 @@ setTimeout(function(){
     if (!('Notification' in window) || Notification.permission !== 'granted') return;
     const n = new Notification(`🎯 TRACTOR BEAM: ${sig.symbol}`, {
       body: `${sig.pattern} — ${sig.confidence}% confidence`,
-      icon: '/favicon.ico',
+      icon: '/static/icon-192.png',
       tag:  `ls-${sig.id}`,
     });
     n.onclick = () => { window.focus(); n.close(); };
