@@ -4555,11 +4555,31 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           gapEl.style.display='none';
         }
       }
-      // VIX
+      // VIX — HM-VIX-LAST-KNOWN: cache last good value in localStorage so
+      // market-closed renders fall back to it instead of "—".
       const vixEl=document.getElementById('tac-vix');
       if(vixEl){
-        const v=rd.vix; if(v){vixEl.textContent=parseFloat(v).toFixed(1);vixEl.style.color=v>25?'#ea580c':v>20?'#eab308':'#2563eb';}
-        else{vixEl.textContent='—';vixEl.style.color='';}
+        const v=rd.vix;
+        if(v){
+          const vNum=parseFloat(v);
+          vixEl.textContent=vNum.toFixed(1);
+          vixEl.style.color=v>25?'#ea580c':v>20?'#eab308':'#2563eb';
+          vixEl.style.opacity='';
+          try{localStorage.setItem('_lastKnownVix',String(vNum));}catch(e){}
+        } else {
+          let cached=null;
+          try{cached=localStorage.getItem('_lastKnownVix');}catch(e){}
+          if(cached){
+            const cNum=parseFloat(cached);
+            vixEl.textContent=cNum.toFixed(1)+' (closed)';
+            vixEl.style.color=cNum>25?'#ea580c':cNum>20?'#eab308':'#2563eb';
+            vixEl.style.opacity='0.7';
+          } else {
+            vixEl.textContent='—';
+            vixEl.style.color='';
+            vixEl.style.opacity='';
+          }
+        }
       }
       // SPY
       const spyEl=document.getElementById('tac-spy');
@@ -4587,6 +4607,19 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     } catch(e) {
       const badge=document.getElementById('regime-badge');
       if(badge){badge.textContent='OFFLINE';badge.style.background='#555';}
+      // VIX fallback to last-known when fetch itself fails (HM-VIX-LAST-KNOWN)
+      const vixEl2=document.getElementById('tac-vix');
+      if(vixEl2 && (vixEl2.textContent==='—' || vixEl2.textContent==='')){
+        try{
+          const cached=localStorage.getItem('_lastKnownVix');
+          if(cached){
+            const cNum=parseFloat(cached);
+            vixEl2.textContent=cNum.toFixed(1)+' (closed)';
+            vixEl2.style.color=cNum>25?'#ea580c':cNum>20?'#eab308':'#2563eb';
+            vixEl2.style.opacity='0.7';
+          }
+        }catch(e2){}
+      }
     }
     // Next scan
     try {
