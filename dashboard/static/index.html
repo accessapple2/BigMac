@@ -2818,25 +2818,25 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="sidebar-item" onclick="showSection('ollie')"><span class="icon">💻</span> Ollie</div>
   <div class="sidebar-item" onclick="showSection('webull')"><span class="icon">🛸</span> Starfleet</div>
   <div class="sidebar-item" onclick="showSection('feed')"><span class="icon">👥</span> Crew Activity</div>
-  <div class="sidebar-item" onclick="showSection('dayblade')"><span class="icon">⚔️</span> Battle Station</div>
+  <div class="sidebar-item" title="0DTE tactical trading station" onclick="showSection('dayblade')"><span class="icon">⚔️</span> Battle Station</div>
   <div class="sidebar-item" onclick="showSection('charts')"><span class="icon">📈</span> Charts</div>
   <div class="sidebar-item" onclick="showSection('livechart')"><span class="icon">⚡</span> Live Chart</div>
-  <div class="sidebar-item" id="nav-sniff-scan" onclick="showSection('sniff-scan')"><span class="icon">📡</span> Sniff Scan</div>
+  <div class="sidebar-item" id="nav-sniff-scan" title="Ollie's whole-market opportunity scanner" onclick="showSection('sniff-scan')"><span class="icon">📡</span> Sniff Scan</div>
   <!-- === Phase 4-static.3 (bundled with Phase 6 Q5): desktop Race nav entry === -->
   <div class="sidebar-item" id="nav-race" onclick="showSection('race');if(typeof raceStart==='function')raceStart()"><span class="icon">🏁</span> Race</div>
   <div class="sidebar-item" id="nav-movers" onclick="showSection('movers')"><span class="icon">📊</span> Movers</div>
   <a class="sidebar-item" href="/backtest" style="text-decoration:none;color:inherit;"><span class="icon">🧪</span> Backtest</a>
-  <div class="sidebar-item" onclick="showSection('institutional-intel')"><span class="icon">🏛️</span> Inst. Intel</div>
+  <div class="sidebar-item" title="Institutional Intelligence — smart money tracking" onclick="showSection('institutional-intel')"><span class="icon">🏛️</span> Inst. Intel</div>
 <div class="sidebar-item" onclick="showSection('screener-pro')"><span class="icon">🔍</span> Screener Pro</div>
 <div class="sidebar-item" onclick="showSection('sector-watch')"><span class="icon">📡</span> Sector Watch</div>
 <div class="sidebar-item" onclick="showSection('big-charts')"><span class="icon">📱</span> Big Charts</div>
   <div class="sidebar-item" onclick="showSection('alert-history')"><span class="icon">🔔</span> Alerts</div>
   <div class="sidebar-item" onclick="showSection('live-scanner');lsAutoLoad()"><span class="icon">📡</span> Live Scanner</div>
-  <div class="sidebar-item" onclick="showSection('ghost-scorecard');fetchGhostScorecard()"><span class="icon">👻</span> Ghost Scorecard</div>
+  <div class="sidebar-item" title="Ghost Trader research-only book performance" onclick="showSection('ghost-scorecard');fetchGhostScorecard()"><span class="icon">👻</span> Ghost Scorecard</div>
   <div class="sidebar-item" onclick="showSection('squeeze');fetchSqueezeRecent()"><span class="icon">🎯</span> Squeeze</div>
   <div class="sidebar-item" onclick="showSection('leaderboard')"><span class="icon">🏆</span> Leaderboard</div>
-  <div class="sidebar-item" onclick="showSection('agent-deepdive');ddAutoLoad()"><span class="icon">🔬</span> Agent Deep Dive</div>
-  <div class="sidebar-item" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
+  <div class="sidebar-item" title="Individual AI agent performance analysis" onclick="showSection('agent-deepdive');ddAutoLoad()"><span class="icon">🔬</span> Agent Deep Dive</div>
+  <div class="sidebar-item" title="Real physical gold &amp; silver holdings ledger" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
   <div class="sidebar-item" onclick="showSection('congress')"><span class="icon">🏛️</span> Congress</div>
 
   <!-- TIER 2 — More dropdown -->
