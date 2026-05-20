@@ -107,7 +107,8 @@
     var dayOfYear = Math.floor(diff / oneDay);
     var frac = Math.floor((now.getHours() * 60 + now.getMinutes()) / 14.4);
     var sd = (2600 + (now.getFullYear() - 2000) * 5 + Math.floor(dayOfYear / 73)) + '.' + (frac < 10 ? '0' : '') + frac;
-    el.textContent = 'STARDATE ' + sd;
+    var realDate = now.toLocaleDateString('en-US', { weekday: 'short', month: 'short', day: 'numeric', year: 'numeric', timeZone: 'America/Phoenix' });
+    el.textContent = 'STARDATE ' + sd + ' · ' + realDate;
   }
 
   /* ── MOBILE BOTTOM TAB BAR ───────────────────────────── */
