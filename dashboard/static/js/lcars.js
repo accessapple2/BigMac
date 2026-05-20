@@ -48,6 +48,19 @@
     'trades':        { title: 'TRADE LOG',         sub: 'EXECUTION HISTORY' },
     'chat':          { title: 'CHAT',              sub: 'AI INTERFACE' },
     'chart':         { title: 'CHART',             sub: 'PRICE ANALYSIS' },
+    'alpaca':            { title: 'ALPACA PAPER',        sub: 'LIVE BROKER MIRROR & PAPER BOOK' },
+    'economy':           { title: 'ECONOMIC INDICATORS', sub: 'FED, CPI, YIELDS, SENTIMENT' },
+    'first-officer':     { title: 'FIRST OFFICER',       sub: 'RIKER\'S STRATEGIC SYNTHESIS' },
+    'home':              { title: 'MAIN BRIDGE',         sub: 'TACTICAL OVERVIEW & REGIME READ' },
+    'institutional-intel':{ title: 'INSTITUTIONAL INTEL', sub: 'SMART MONEY FLOW TRACKING' },
+    'kirk-detail':       { title: 'KIRK ADVISORY',       sub: 'CAPTAIN\'S ACTION PLAN DETAIL' },
+    'movers':            { title: 'MOVERS LOG',          sub: 'BIG MOVERS ACROSS THE MARKET' },
+    'race':              { title: 'STOCK RACE',          sub: 'TOP PERFORMERS LEADERBOARD' },
+    'rikers-log':        { title: 'RIKER\'S LOG',        sub: 'XO OPERATIONS & DECISIONS' },
+    'screener':          { title: 'QUANT SCREENER',      sub: 'CUSTOM STOCK FILTER' },
+    'sector-heatmap':    { title: 'SECTOR HEATMAP',      sub: 'MONEY FLOW VISUALIZATION' },
+    'sniff-scan':        { title: 'SNIFF SCAN',          sub: 'OLLIE\'S MARKET-WIDE SCANNER' },
+    'squeeze':           { title: 'SHORT SQUEEZE',       sub: 'HIGH-SHORT-INTEREST WATCH' },
   };
 
   /* ── ELBOW INJECTION ─────────────────────────────────── */
