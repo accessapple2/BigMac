@@ -19,6 +19,15 @@ from datetime import datetime as _dt
 from rich.console import Console
 from rich.panel import Panel
 
+# HM-LOG-DATE-PREFIX: monkey-patch rich.console.Console.__init__ to inject
+# log_time_format="[%Y-%m-%d %H:%M:%S]" so every console.log() line in
+# trader.log carries an ISO date prefix (was time-only [HH:MM:SS]). Must
+# import BEFORE the module-level `console = Console()` below and BEFORE
+# any engine.* imports so their own `console = Console()` calls also pick
+# up the patched __init__ at module-load time. See engine/_rich_patch.py
+# for trade-offs and rollback instructions.
+import engine._rich_patch  # noqa: F401  (intentional import for side effect)
+
 # Load .env before anything else
 from dotenv import load_dotenv
 load_dotenv(override=True)
