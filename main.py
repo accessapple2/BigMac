@@ -1133,6 +1133,16 @@ _war_room_running = threading.Event()  # guard: prevents two-thread overlap (202
 # data/scotty_hm_war_room_latency_scope_2026-05-15.md.
 _WR_STALL_THRESHOLD_S = 600
 
+# HM-WAR-ROOM-LATENCY Layer 2a v1 (2026-05-20): cycle-wall budget threshold.
+# Instrumentation-only — emits [WR-BUDGET-EXCEEDED] when wall > budget but
+# does NOT abort the cycle. One trading session of telemetry informs the
+# decision to flip to actual deadline-check abort (v2 ship, deferred per
+# project_hm_layer_2a_design.md). Distinct from [WR-STALL] (which fires at
+# 600s with NTFY rate-limited per-process-lifetime); this is a higher
+# threshold for the budget-abort discussion, log-only by design + lands in
+# logs/trader.log alongside [WR-DUR] for joint grep'ability.
+_WR_CYCLE_BUDGET_S = int(os.getenv("WAR_ROOM_CYCLE_BUDGET_S", "925"))
+
 
 def _emit_wr_duration(wall_seconds: float) -> None:
     """HM-WAR-ROOM-LATENCY Layer 1: log cycle wall-clock and NTFY if over threshold.
@@ -1158,6 +1168,36 @@ def _emit_wr_duration(wall_seconds: float) -> None:
             console.log(
                 f"[red][WR-STALL] NTFY dispatch failed: {type(e).__name__}: {e!r}"
             )
+
+
+def _emit_wr_budget_exceeded(wall_seconds: float) -> None:
+    """HM-WAR-ROOM-LATENCY Layer 2a v1: log-only budget-exceeded marker.
+
+    Same crash-safe contract as ``_emit_wr_duration`` — must not raise; daemon
+    thread's finally clears ``_war_room_running`` and a propagated exception
+    here would latch the guard.
+
+    Distinct from ``[WR-STALL]`` (600s, NTFY, rate-limited):
+    - Higher threshold (925s default; ``WAR_ROOM_CYCLE_BUDGET_S`` env-var
+      override; restart-to-retune for v1).
+    - Log-only — does NOT call ``engine.alert_channels.send_alert``. v1
+      ships as observability data for the v2 deadline-cap decision.
+    - Emits to ``console.log`` (→ ``logs/trader.log``) so the line lands
+      next to ``[WR-DUR]`` for joint grep'ability; NOT ``logger.warning``
+      which would split-channel to ``logs/trader_error.log`` per CLAUDE.md
+      "logger.info vs console.log" lesson.
+
+    See ``project_hm_layer_2a_design.md`` for the full design + v2 path.
+    """
+    if wall_seconds > _WR_CYCLE_BUDGET_S:
+        try:
+            over_by = wall_seconds - _WR_CYCLE_BUDGET_S
+            console.log(
+                f"[WR-BUDGET-EXCEEDED] cycle wall={wall_seconds:.1f}s "
+                f"budget={_WR_CYCLE_BUDGET_S}s over_by={over_by:.1f}s"
+            )
+        except Exception:
+            pass  # truly crash-safe: a nested console.log fallback can also fail
 
 
 @_hm_bq_instr("run_war_room")
@@ -1208,8 +1248,12 @@ def run_war_room():
             console.log(f"[red]War Room error: {e}")
         finally:
             # HM-WAR-ROOM-LATENCY Layer 1: emit cycle wall + NTFY if stall>threshold.
-            # Helper absorbs its own errors; never raises here.
-            _emit_wr_duration(_time.perf_counter() - _wr_t0)
+            # HM-WAR-ROOM-LATENCY Layer 2a v1 (2026-05-20): also emit
+            # [WR-BUDGET-EXCEEDED] when wall > _WR_CYCLE_BUDGET_S (log-only).
+            # Both helpers absorb their own errors; never raise here.
+            _wr_wall = _time.perf_counter() - _wr_t0
+            _emit_wr_duration(_wr_wall)
+            _emit_wr_budget_exceeded(_wr_wall)
             _war_room_running.clear()   # always clears — crash cannot latch the guard
 
     threading.Thread(target=_war_room_thread, daemon=True).start()

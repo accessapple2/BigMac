@@ -1633,21 +1633,44 @@ PROTECTED_AGENTS = {
     "webull", "dalio-metals", "enterprise-computer",
 }
 
-# Sniper Mode — 6 active Alpha Squad agents + Neo (advisory/shelved agents hidden)
-# Season 6: Sniper Mode — 6 active Alpha Squad agents + Neo + Ollie (Fleet Commander)
-FLEET_ACTIVE = [
-    # SEASON 6.3 "IRON CONDOR KING" — 180-day backtest: +572% realistic, +587% Model F exits
-    # PRIMARY: Sulu (iron_condor, Model F tiered exits) + McCoy (income backup)
-    # SCOUTS: Spock, Data, Dax, Chekov, Capitol — signal generation
-    "dayblade-sulu",    # PRIMARY — Spread King (iron_condor/bear_call/bull_put)
-    "ollama-plutus",    # PRIMARY — Income (bull_put_spread/covered_call/csp)
-    "ollie-auto",       # Fleet Commander (gate)
-    "deepseek-7b-grok4",           # Scout — Spock (RSI signals)
-    "navigator",        # Scout — Chekov (EMA pullback)
-    "capitol-trades",   # Scout — Congress signals
-    "ollama-coder",     # Scout — Data (Quant signals)
-    "ollama-qwen3",     # Scout — Dax (Swing signals)
-]
+# HM-LEADERBOARD-FLEET-ACTIVE-DB-DRIVEN — L2 ship 2026-05-20 (Wave 4 bundle):
+# FLEET_ACTIVE + _FLEET_CORE_IDS (line ~7511) were hardcoded Python constants
+# that drifted from `ai_players.halt_mode` DB truth. See
+# project_hm_leaderboard_fleet_active_db_driven.md for the prior memo.
+# Both now load from the same DB query at module import time.
+# Restart-to-retune; future v2 admin endpoint deferred per
+# project_hm_layer_2a_design.md v3 ship.
+#
+# Filter: halt_mode IN ('active', 'exit_only') — operational fleet
+# (excludes halt_mode='full' agents like super-agent, ollama-glm4 that the
+# old hardcoded _FLEET_CORE_IDS included for historical-perf reasons).
+def _load_fleet_active_ids() -> set:
+    """Return ai_players.id set for halt_mode IN ('active','exit_only').
+
+    Called once at module import time. Failure returns empty set; consumers
+    do membership checks (`in`) which gracefully filter to nothing on empty.
+    """
+    try:
+        import sqlite3 as _sq
+        _db_path = os.path.expanduser("~/autonomous-trader/data/trader.db")
+        _conn_local = _sq.connect(_db_path)
+        try:
+            rows = _conn_local.execute(
+                "SELECT id FROM ai_players "
+                "WHERE COALESCE(halt_mode, 'active') IN ('active', 'exit_only')"
+            ).fetchall()
+            return {row[0] for row in rows}
+        finally:
+            _conn_local.close()
+    except Exception as e:
+        import logging as _lg
+        _lg.getLogger(__name__).warning(
+            f"L2 fleet-active DB load failed: {type(e).__name__}: {e!r}"
+        )
+        return set()
+
+
+FLEET_ACTIVE = _load_fleet_active_ids()
 
 _LEADERBOARD_CACHE_FILE = os.path.join(_proj_root, "data", "leaderboard_cache.json")
 _leaderboard_disk_cache: dict = {"data": None, "ts": 0}
@@ -7508,7 +7531,13 @@ def get_all_trades(
     return trades
 
 
-_FLEET_CORE_IDS = frozenset(['neo-matrix', 'deepseek-7b-grok4', 'ollama-glm4', 'ollama-qwen3', 'super-agent', 'navigator', 'capitol-trades', 'ollama-plutus', 'energy-arnold'])
+# HM-LEADERBOARD-FLEET-ACTIVE-DB-DRIVEN — L2 ship 2026-05-20.
+# Was hardcoded frozenset with 9 IDs including halt_mode='full' agents
+# (super-agent, ollama-glm4) that polluted historical-perf aggregation.
+# Now uses the same DB-truth filter as FLEET_ACTIVE — see helper at line ~1638.
+# Restart-to-retune; identical filter to FLEET_ACTIVE for v1 (can diverge later
+# if perf-aggregation semantics call for historical-halted inclusion).
+_FLEET_CORE_IDS = frozenset(_load_fleet_active_ids())
 
 @app.get("/api/performance")
 def get_performance(model: str = None, season: int = None, fleet_only: bool = False):
