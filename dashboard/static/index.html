@@ -4898,9 +4898,18 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         if (badge) { badge.textContent = gp.regime || ''; badge.style.background = color; badge.style.display = gp.regime ? '' : 'none'; }
         var upd = document.getElementById('gp-updated');
         if (upd && d.generated_at) upd.textContent = 'Updated ' + new Date(d.generated_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/Phoenix'}) + ' AZ';
+        // HM-FRONTEND-STALE-BADGE: surface > 24h staleness instead of silently
+        // rendering yesterday's brief as if it were today's. Threshold is hardcoded
+        // for v1; a follow-up ticket can wire a per-panel knob if other cards adopt
+        // this. Out of scope: fixing the morning-brief plist itself
+        // (HM-MORNINGBRIEFING-PLIST-V2, deferred).
+        var _gpAgeHours = d.generated_at ? (Date.now() - new Date(d.generated_at).getTime()) / 3600000 : NaN;
+        var _gpStaleBadge = (isFinite(_gpAgeHours) && _gpAgeHours > 24)
+          ? '<span class="badge" style="background:rgba(234,179,8,.15);color:#eab308;border:1px solid rgba(234,179,8,.3);font-size:11px;font-weight:700;margin-right:6px;vertical-align:middle;">⚠ Stale (' + Math.floor(_gpAgeHours) + 'h)</span>'
+          : '';
         var html = '';
-        // Headline
-        html += '<div style="font-size:16px;font-weight:700;color:'+color+';margin-bottom:6px;">'+gp.headline+'</div>';
+        // Headline (prefixed with stale-badge when data is > 24h old)
+        html += '<div style="font-size:16px;font-weight:700;color:'+color+';margin-bottom:6px;">'+_gpStaleBadge+gp.headline+'</div>';
         // Plan
         html += '<div style="font-size:13px;color:var(--text);line-height:1.5;margin-bottom:4px;">'+gp.plan+'</div>';
         // Focus
