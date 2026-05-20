@@ -2387,7 +2387,8 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/news','/api/smart-money','/api/market/movers','/api/market-movers','/api/price/',
     '/api/regime','/api/navigator/','/api/sectors/heatmap','/api/fear-greed',
     '/api/metals/','/api/earnings/','/api/inverse-etfs','/api/premium-etfs',
-    '/api/congress/','/api/volume-radar','/api/universe/status'];
+    '/api/congress/','/api/volume-radar','/api/universe/status',
+    '/api/fleet/active'];  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
 
   function _isDashboardUrl(url) {
     for (var i = 0; i < _dashboardUrls.length; i++) {
