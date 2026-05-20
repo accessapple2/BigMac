@@ -1355,6 +1355,58 @@ class ScanThrottleMiddleware(BaseHTTPMiddleware):
 app.add_middleware(ScanThrottleMiddleware)
 
 
+# --- Endpoint Latency Observability Middleware ---
+# HM-ENDPOINT-LATENCY-OBS (2026-05-20): emit [ENDPOINT-DUR] log line for each
+# /api/* request to logs/trader.log. Mirrors HM-WAR-ROOM-LATENCY Layer 1
+# (_emit_wr_duration → console.log) pattern so per-endpoint wall-clock data
+# lands in the same sink as [WR-DUR] for joint grep'ability.
+#
+# NOT a fix for the 4 hung endpoints (trendlines/patterns/pattern-alerts/
+# channels) — those need HM-CAPITAL-HANG-EMERGENCY-style timeout wrapping
+# applied to their fanout paths. This middleware builds the missing
+# observability that proves WHICH endpoints are slow over time and surfaces
+# future regressions before they require a manual curl-timing audit.
+#
+# Format: [ENDPOINT-DUR] METHOD /path wall=N.NNs status=CODE
+# Threshold: set ENDPOINT_DUR_MIN_S env var to filter (default 0 = log all).
+# Crash-safe: any exception in the logging path is swallowed so a logging
+# failure can never break the request handler.
+_ENDPOINT_DUR_MIN_S = float(os.getenv("ENDPOINT_DUR_MIN_S", "0"))
+
+
+class EndpointLatencyMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request: Request, call_next):
+        if not request.url.path.startswith("/api/"):
+            return await call_next(request)
+        import time as _time
+        _t0 = _time.perf_counter()
+        try:
+            response = await call_next(request)
+            wall = _time.perf_counter() - _t0
+            if wall >= _ENDPOINT_DUR_MIN_S:
+                try:
+                    console.log(
+                        f"[ENDPOINT-DUR] {request.method} {request.url.path} "
+                        f"wall={wall:.2f}s status={response.status_code}"
+                    )
+                except Exception:
+                    pass  # crash-safe — never let logging break the request
+            return response
+        except Exception:
+            wall = _time.perf_counter() - _t0
+            try:
+                console.log(
+                    f"[ENDPOINT-DUR] {request.method} {request.url.path} "
+                    f"wall={wall:.2f}s status=EXC"
+                )
+            except Exception:
+                pass
+            raise
+
+
+app.add_middleware(EndpointLatencyMiddleware)
+
+
 @app.get("/robots.txt")
 def robots_txt():
     return HTMLResponse("User-agent: *\nDisallow: /\n", media_type="text/plain")
