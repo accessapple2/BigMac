@@ -27,6 +27,14 @@ MAX_POSITIONS = 10
 MAX_ALLOC_PCT = 0.05   # 5% of capital per swing stock trade
 MAX_ALLOC_SPREAD = 0.03  # 3% for options spreads
 _CD_DAYS = 5  # Per-symbol SL cooldown window (days)
+
+# HM-CHEKOV-CONF-CALIBRATION (2026-05-21): replace upstream-floored 0.82
+# confidence (engine/strategies.py:484) with a count-based tiered formula.
+# Upstream floor caused false Grade-A confidence on 2-strat convergence —
+# every convergence trade looked equally strong regardless of strat_count.
+_CONF_TIERS = {2: 0.65, 3: 0.72, 4: 0.78}  # Grade-B band
+_CONF_GRADE_A = 0.85                        # 5+ strategies bypass Grade-B gate
+_CONF_SHORT_PENALTY = 0.05                  # SHORT trades are higher risk
 DB = os.environ.get(
     "TRADEMINDS_DB",
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
@@ -83,6 +91,24 @@ def _log_to_war_room(symbol: str, message: str):
         save_hot_take(CHEKOV_ID, symbol, message)
     except Exception as e:
         console.log(f"[yellow]Chekov War Room log failed: {e}")
+
+
+def _convergence_confidence(raw_count: int, strat_count: float) -> float:
+    """Tiered confidence by raw strategy convergence count.
+
+    Tiers (raw_count → conf): 2→0.65, 3→0.72, 4→0.78, 5+→0.85.
+    SHORT trades (weighted strat_count < 4, per timeframe_tag logic at
+    execute_convergence_trades) subtract 0.05 — higher risk.
+
+    Floor: 0.60 (no degenerate cases below 2-strat tier minus SHORT penalty).
+    """
+    if raw_count >= 5:
+        base = _CONF_GRADE_A
+    else:
+        base = _CONF_TIERS.get(max(int(raw_count), 2), _CONF_TIERS[2])
+    if strat_count < 4:
+        base -= _CONF_SHORT_PENALTY
+    return round(max(base, 0.60), 2)
 
 
 def _recent_sl_loss(ticker: str) -> tuple[bool, str, float]:
@@ -411,7 +437,9 @@ def execute_convergence_trades(signals: list = None):
         ticker = sig["ticker"]
         strat_count = sig["strategies_triggered"]     # weighted score (float)
         raw_count = sig.get("raw_strategy_count", int(strat_count))
-        confidence = sig.get("confidence", min(strat_count / 5.0, 1.0))
+        # HM-CHEKOV-CONF-CALIBRATION: override upstream sig["confidence"]
+        # (engine/strategies.py:484 floored at 0.82) with count-based tiers.
+        confidence = _convergence_confidence(raw_count, strat_count)
         entry = sig["entry"]
         stop = sig["stop"]
         target = sig["target"]
