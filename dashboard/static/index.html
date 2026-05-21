@@ -28470,10 +28470,10 @@ setTimeout(pollNotifications, 3000); // First poll after 3s
 [data-theme="light"] #computer-chat-messages .cc-msg.computer { color: #0f172a; }
 </style>
 
-<!-- PARKED 2026-04-16 per Admiral: parked CIC widget + panel to reduce RAM/CPU overclocking during market hours. To un-park, remove the "data-parked" attribute and the inline style="display:none" blocks. -->
+<!-- 2026-04-16 PARK partially LIFTED 2026-05-21 (HM-CIC-PANEL-UNPARK): #computerChatPanel un-parked to restore Archer floater → CIC chat flow. #computerChatBtn (inline CIC entry button) remains parked — separate UX decision. CSS L28331 still keeps panel hidden by default (display:none); .open class flips to flex when openCIC fires. -->
 <button id="computerChatBtn" data-parked="1" style="display:none !important;" onclick="toggleComputerChat()" title="CIC — Combat Information Center"><img src="/static/archer-portrait.png?v=4" style="width:32px;height:32px;border-radius:50%;object-fit:cover;border:2px solid #d4a030;display:block;"><span class="chat-btn-label">CIC</span></button>
 
-<div id="computerChatPanel" data-parked="1" style="display:none !important;">
+<div id="computerChatPanel">
   <!-- Archer Profile Bar with SVG Avatar -->
   <div id="archer-profile-bar" style="display:flex;align-items:center;gap:10px;padding:8px 12px;border-bottom:1px solid rgba(0,200,255,0.15);background:rgba(0,5,20,0.5);">
     <div id="archer-avatar-container" style="position:relative;width:64px;height:64px;border-radius:50%;overflow:hidden;border:2px solid #d4a030;box-shadow:0 0 10px rgba(212,160,48,0.3);flex-shrink:0;transition:box-shadow 0.3s ease,border-color 0.3s ease;">
