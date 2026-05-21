@@ -1021,6 +1021,184 @@ def get_alpaca_bars(
         return pd.DataFrame() if single else {}
 
 
+# === HM-SLOW-FUNDAMENTALS Phase 1 — bulk daily OHLCV fetcher ===
+# Verified live 2026-05-21: 3,026-symbol scan_universe completes in 8.64s
+# parallel (8 workers, chunk=100). Avoids the 10,000-row response cap at
+# chunk=100 × ~63 bars = ~6,300 rows. feed=iex is mandatory on paper tier;
+# without it Alpaca returns HTTP 200 with body {"message":"subscription
+# does not permit querying recent SIP data"} — silent-failure trap.
+_BULK_BARS_CHUNK_SIZE = 100
+_BULK_BARS_PARALLELISM = 8
+_BULK_BARS_TIMEOUT_S = 10
+_BULK_BARS_FEED = "iex"
+_BULK_BARS_CACHE_TTL = 1800  # 30 min — matches HM-SLOW-FUNDAMENTALS scope memo
+_bulk_bars_cache: dict = {}  # {(symbol, range_str): {"data": pd.DataFrame, "ts": float}}
+_bulk_bars_cache_lock = threading.Lock()
+
+# Range-string → calendar days back (with +5d slop for weekends/holidays so we
+# always get at least the requested trading-day count after Alpaca filters).
+_BULK_BARS_RANGE_MAP = {
+    "1mo": 35,
+    "3mo": 95,
+    "6mo": 185,
+    "1y": 370,
+}
+
+
+def _alpaca_bulk_bars_chunk(
+    symbols_chunk: list,
+    start_date_iso: str,
+    end_date_iso: str,
+) -> dict:
+    """One Alpaca multi-symbol bars call for up to ~_BULK_BARS_CHUNK_SIZE symbols.
+
+    Returns {symbol: pd.DataFrame[Open, High, Low, Close, Volume]} indexed by
+    DatetimeIndex named "Date". Empty DataFrame for symbols with no rows.
+    Returns {} on auth/HTTP/JSON failure so the caller backfills empties.
+
+    Defensive: handles the silent-failure pattern where Alpaca returns
+    HTTP 200 with body {"message": "..."} when the feed/subscription
+    doesn't match the request (no "bars" key present).
+    """
+    hdrs = _get_alpaca_headers()
+    if not hdrs:
+        return {}
+    try:
+        r = requests.get(
+            f"{_ALPACA_BASE}/bars",
+            headers=hdrs,
+            params={
+                "symbols":   ",".join(symbols_chunk),
+                "timeframe": "1Day",
+                "start":     start_date_iso,
+                "end":       end_date_iso,
+                "limit":     10000,
+                "feed":      _BULK_BARS_FEED,
+                "sort":      "asc",
+            },
+            timeout=_BULK_BARS_TIMEOUT_S,
+        )
+        if not r.ok:
+            console.log(
+                f"[yellow]_alpaca_bulk_bars_chunk HTTP {r.status_code} "
+                f"for {len(symbols_chunk)} syms"
+            )
+            return {}
+        j = r.json()
+        if "bars" not in j:
+            # Silent-failure trap: HTTP 200 + subscription/feed error body.
+            msg = j.get("message", "no-bars-key")
+            console.log(
+                f"[yellow]_alpaca_bulk_bars_chunk message-only response: {msg}"
+            )
+            return {}
+        bars_by_sym = j.get("bars") or {}
+        result: dict = {}
+        for sym in symbols_chunk:
+            rows = bars_by_sym.get(sym) or []
+            if not rows:
+                result[sym] = pd.DataFrame()
+                continue
+            df = pd.DataFrame(rows)
+            df["t"] = pd.to_datetime(df["t"])
+            df = df.set_index("t").rename(columns={
+                "o": "Open", "h": "High", "l": "Low",
+                "c": "Close", "v": "Volume",
+            })
+            df.index.name = "Date"
+            keep = [c for c in ("Open", "High", "Low", "Close", "Volume") if c in df.columns]
+            result[sym] = df[keep]
+        return result
+    except Exception as e:
+        console.log(
+            f"[yellow]_alpaca_bulk_bars_chunk error "
+            f"({type(e).__name__}: {e!r}) — {len(symbols_chunk)} syms"
+        )
+        return {}
+
+
+def get_bulk_daily_ohlcv(
+    symbols: list,
+    range_str: str = "3mo",
+) -> dict:
+    """Fetch daily OHLCV bars for many symbols via Alpaca's bulk-bars endpoint.
+
+    Chunks the request into ``_BULK_BARS_CHUNK_SIZE``-symbol groups and fans
+    out via a ``_BULK_BARS_PARALLELISM``-worker ThreadPoolExecutor. Caches
+    each symbol individually for ``_BULK_BARS_CACHE_TTL`` seconds (30 min).
+    Cache key is (symbol, range_str) so different ranges don't collide.
+
+    Returns ``{symbol: pd.DataFrame}`` where each DataFrame has columns
+    ``Open, High, Low, Close, Volume`` indexed by a DatetimeIndex named
+    "Date". Symbols with no data get an empty DataFrame (matches the
+    contract used by engine.trendlines._fetch_daily_ohlcv and friends).
+
+    Verified 2026-05-21: full 3,026-symbol scan_universe completes in
+    ~8.6s parallel (HM-SLOW-FUNDAMENTALS Phase 1 baseline).
+    """
+    if not symbols:
+        return {}
+    if range_str not in _BULK_BARS_RANGE_MAP:
+        console.log(
+            f"[yellow]get_bulk_daily_ohlcv unknown range_str={range_str!r} — "
+            f"falling back to 3mo. Known: {list(_BULK_BARS_RANGE_MAP)}"
+        )
+        range_str = "3mo"
+
+    now = time.time()
+    result: dict = {}
+    misses: list = []
+    with _bulk_bars_cache_lock:
+        for sym in symbols:
+            entry = _bulk_bars_cache.get((sym, range_str))
+            if entry and (now - entry["ts"]) < _BULK_BARS_CACHE_TTL:
+                result[sym] = entry["data"]
+            else:
+                misses.append(sym)
+    if not misses:
+        return result
+
+    end_dt = datetime.utcnow()
+    days_back = _BULK_BARS_RANGE_MAP[range_str]
+    start_iso = (end_dt - pd.Timedelta(days=days_back)).strftime("%Y-%m-%d")
+    end_iso = end_dt.strftime("%Y-%m-%d")
+
+    chunks = [
+        misses[i:i + _BULK_BARS_CHUNK_SIZE]
+        for i in range(0, len(misses), _BULK_BARS_CHUNK_SIZE)
+    ]
+
+    import concurrent.futures
+    with concurrent.futures.ThreadPoolExecutor(
+        max_workers=_BULK_BARS_PARALLELISM
+    ) as ex:
+        futures = [
+            ex.submit(_alpaca_bulk_bars_chunk, chunk, start_iso, end_iso)
+            for chunk in chunks
+        ]
+        for fut in concurrent.futures.as_completed(futures):
+            try:
+                chunk_result = fut.result(timeout=_BULK_BARS_TIMEOUT_S + 5)
+                result.update(chunk_result)
+            except Exception as e:
+                console.log(
+                    f"[yellow]get_bulk_daily_ohlcv chunk failed "
+                    f"({type(e).__name__}: {e!r})"
+                )
+
+    with _bulk_bars_cache_lock:
+        for sym, df in result.items():
+            if not df.empty:
+                _bulk_bars_cache[(sym, range_str)] = {"data": df, "ts": now}
+
+    for sym in symbols:
+        if sym not in result:
+            result[sym] = pd.DataFrame()
+
+    return result
+# === /HM-SLOW-FUNDAMENTALS Phase 1 ===
+
+
 # VIX cache — avoid hammering Yahoo for index data
 _vix_cache: dict = {}
 _VIX_CACHE_TTL = 300  # 5 min — VIX doesn't need 60s freshness
