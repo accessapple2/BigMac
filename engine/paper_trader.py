@@ -1205,6 +1205,29 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     conn.close()
     console.log(f"[green]{player_id}: {trade_action} {qty} {symbol} @ ${price:.2f} PnL: ${pnl:.2f}")
 
+    # === HM-POST-EXIT-TRACKER 2026-05-20 ===
+    # On every successful SELL (stock asset only), seed a post_exit_watch row.
+    # A daily scanner (engine.post_exit_tracker.run_daily_scan) will check
+    # whether the symbol continued >5% above the exit price post-close and
+    # flag the row, emitting [POST-EXIT-FLAG] to logs/trader.log.
+    # Crash-safe: any failure here cannot break the SELL completion. Stock-only
+    # (options have different lifecycle semantics; not in v1 scope).
+    if asset_type == "stock":
+        try:
+            from engine.post_exit_tracker import register_exit
+            register_exit(
+                player_id=player_id,
+                symbol=symbol,
+                exit_price=price,
+                exit_pnl=pnl,
+            )
+        except Exception as _pex_err:
+            console.log(
+                f"[yellow][HM-POST-EXIT-TRACKER] register failed for "
+                f"{player_id} {symbol}: {type(_pex_err).__name__}: {_pex_err!r}"
+            )
+    # === /HM-POST-EXIT-TRACKER ===
+
     # Forward to Alpaca paper trading (non-blocking)
     if route["route_mode"] == "trading":
         _forward_to_alpaca("SELL", player_id, symbol, qty, asset_type, price=price)
