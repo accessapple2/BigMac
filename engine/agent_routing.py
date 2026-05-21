@@ -105,7 +105,7 @@ def _build_config_overrides(config_overrides: Optional[dict] = None) -> dict:
 def build_provider(player_entry: dict,
                    db_path: Path = _DB_DEFAULT,
                    default_url: Optional[str] = None,
-                   default_timeout: int = 180):
+                   default_timeout: int = 85):  # HM-WR-CANCEL-ON-TIMEOUT: under WR's 90s
     """Construct an OllamaProvider from a synthetic player entry.
 
     Entry shape (built either from a config.AI_PLAYERS row or a DB row):
@@ -150,7 +150,7 @@ def build_provider(player_entry: dict,
 def build_all_providers(ai_players_list: Optional[Iterable[dict]] = None,
                         db_path: Path = _DB_DEFAULT,
                         default_url: Optional[str] = None,
-                        default_timeout: int = 180,
+                        default_timeout: int = 85,  # HM-WR-CANCEL-ON-TIMEOUT: under WR's 90s
                         config_overrides: Optional[dict] = None,
                         skip_ids: Optional[set] = None) -> List:
     """Build providers for all active agents.
