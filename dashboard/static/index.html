@@ -32847,9 +32847,21 @@ setTimeout(function(){
     <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
       <div style="display:flex;align-items:center;gap:8px;">
         <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Agent</span>
+        <!--
+          HM-NAVIGATOR-DEEPDIVE-RETIRE 2026-05-21: Navigator option removed.
+          Dual-identity note for future devs: Chekov's player_id is stored as
+          'navigator' in the DB (see index.html:21338 mapping table where
+          'navigator' → legend:'Ensign Chekov', rank:'CHEKOV'). The Live Scanner
+          + section-navigator main panel render that data correctly. The Deep
+          Dive entry was redundant and Sonnet's 2026-05-21 audit caught it
+          rendering 40 trades with all stats blank (W RATE/AVG WIN/AVG LOSS/PF
+          etc. as '—') because Chekov is a retired agent per CLAUDE.md Fleet
+          Roster and stats aren't computed for retired surfaces. The 'chekov'
+          option below remains as a placeholder but returns 0 trades (no
+          player_id='chekov' row in DB; the canonical key is 'navigator').
+        -->
         <select id="dd-agent-select" onchange="ddLoadAgent()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font);font-size:13px;padding:5px 10px;border-radius:6px;outline:none;cursor:pointer;min-width:160px;">
           <option value="">— select agent —</option>
-          <option value="navigator">Navigator</option>
           <option value="chekov">Chekov</option>
           <option value="ollama-qwen3">Qwen3</option>
           <option value="ollama-llama">Llama</option>
@@ -32948,7 +32960,9 @@ setTimeout(function(){
     if (!window._ddLoaded) {
       window._ddLoaded = true;
       var sel = document.getElementById('dd-agent-select');
-      if (sel && !sel.value) sel.value = 'navigator';
+      // HM-NAVIGATOR-DEEPDIVE-RETIRE: default flipped from 'navigator' (retired)
+      // to 'ollie-auto' (Ollie Gate, canonical active agent).
+      if (sel && !sel.value) sel.value = 'ollie-auto';
       ddLoadAgent();
     }
   };
