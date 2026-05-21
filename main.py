@@ -1204,22 +1204,40 @@ def _emit_wr_budget_exceeded(wall_seconds: float) -> None:
 def run_war_room():
     """War Room: all AIs give hot takes. Free models 24/7, paid models market hours only."""
     global arena, _last_war_room_time
+    # === HM-WR-CYCLE-DEBUG-PROBE 2026-05-20 ===
+    # Temporary instrumentation to diagnose post-restart cycle dormancy. Logs every
+    # entry + which early-return path fires. REMOVE once root cause is identified.
+    try:
+        from engine.risk_manager import RiskManager as _RM_dbg
+        _sess_dbg = _RM_dbg.is_market_hours()
+    except Exception as _e:
+        _sess_dbg = f"ERR:{type(_e).__name__}"
+    _age = time.time() - _last_war_room_time
+    console.log(
+        f"[WR-DEBUG] entry arena={arena is not None} session={_sess_dbg!r} "
+        f"throttle_age={_age:.0f}s guard={_war_room_running.is_set()}"
+    )
+    # === /HM-WR-CYCLE-DEBUG-PROBE ===
     if arena is None:
+        console.log("[WR-DEBUG] early-return: arena is None")
         return
     from engine.risk_manager import RiskManager
     import time as _time
 
     session = RiskManager.is_market_hours()
     if not session:
+        console.log(f"[WR-DEBUG] early-return: session falsy ({session!r})")
         return  # Fully closed (weekends, overnight)
 
     # Throttle: 3 min during active market, 5 min pre/post-market
     now = _time.time()
     if session == "market" or session == "power_hour":
         if now - _last_war_room_time < 180:
+            console.log(f"[WR-DEBUG] early-return: market throttle ({now - _last_war_room_time:.0f}s < 180s)")
             return
     elif session in ("pre_market", "post_market"):
         if now - _last_war_room_time < 300:
+            console.log(f"[WR-DEBUG] early-return: pre/post throttle ({now - _last_war_room_time:.0f}s < 300s)")
             return
     _last_war_room_time = now
 
