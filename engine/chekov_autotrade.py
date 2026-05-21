@@ -35,6 +35,12 @@ _CD_DAYS = 5  # Per-symbol SL cooldown window (days)
 _CONF_TIERS = {2: 0.65, 3: 0.72, 4: 0.78}  # Grade-B band
 _CONF_GRADE_A = 0.85                        # 5+ strategies bypass Grade-B gate
 _CONF_SHORT_PENALTY = 0.05                  # SHORT trades are higher risk
+
+# HM-CHEKOV-REENTRY-GUARD (2026-05-21): Rails 7 + 8 — broader re-entry
+# protection than the SL cooldown. Rail 7 is a DB-level belt-and-braces
+# overlap with existing Rail 2 (kept explicit per spec); Rail 8 is a new
+# declining-trend filter using daily candles.
+_REENTRY_LOOKBACK = 3  # consecutive daily closes that must all be below anchor
 DB = os.environ.get(
     "TRADEMINDS_DB",
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
@@ -91,6 +97,60 @@ def _log_to_war_room(symbol: str, message: str):
         save_hot_take(CHEKOV_ID, symbol, message)
     except Exception as e:
         console.log(f"[yellow]Chekov War Room log failed: {e}")
+
+
+def _has_open_position_db(player_id: str, symbol: str) -> bool:
+    """DB-level safety net: does player hold qty > 0 in this symbol?
+
+    Overlaps with Rail 2's `held_symbols` check (which reads via the
+    paper_trader portfolio helper). This DB-direct query is the belt-and-
+    braces edge case for when the portfolio cache is stale relative to a
+    just-written position row. Fail-safe: any DB error returns False so
+    the trade is allowed rather than blocked (matches _recent_sl_loss
+    posture).
+    """
+    try:
+        conn = _conn()
+        row = conn.execute(
+            "SELECT qty FROM positions "
+            "WHERE player_id=? AND symbol=? AND qty > 0 LIMIT 1",
+            (player_id, symbol),
+        ).fetchone()
+        conn.close()
+        return row is not None
+    except Exception as e:
+        console.log(
+            f"[yellow]🧭 Chekov reentry-DB query failed for {symbol} "
+            f"({type(e).__name__}: {e!r}) — allowing trade"
+        )
+        return False
+
+
+def _declining_trend(symbol: str, anchor_price: float,
+                     lookback: int = _REENTRY_LOOKBACK) -> tuple[bool, list]:
+    """Are the last `lookback` daily closes all strictly below anchor_price?
+
+    Pulls daily candles via engine.market_data.get_intraday_candles
+    (Polygon→Alpaca→Yahoo cascade). Returns (is_declining, closes_list).
+    Fail-safe: any error or insufficient data returns (False, []) so the
+    trade is allowed rather than blocked.
+    """
+    try:
+        from engine.market_data import get_intraday_candles
+        bars = get_intraday_candles(symbol, interval="1d", range_="5d")
+        if not bars or len(bars) < lookback:
+            return False, []
+        recent_closes = [b.get("close", 0) for b in bars[-lookback:]]
+        if any(c <= 0 for c in recent_closes):
+            return False, recent_closes
+        is_decl = all(c < anchor_price for c in recent_closes)
+        return is_decl, recent_closes
+    except Exception as e:
+        console.log(
+            f"[yellow]🧭 Chekov declining-trend check failed for {symbol} "
+            f"({type(e).__name__}: {e!r}) — allowing trade"
+        )
+        return False, []
 
 
 def _convergence_confidence(raw_count: int, strat_count: float) -> float:
@@ -496,6 +556,35 @@ def execute_convergence_trades(signals: list = None):
             console.log(
                 f"[yellow]🧭 Chekov SKIP {ticker}: SL cooldown ({_CD_DAYS}d) "
                 f"— last loss {cd_date} ${cd_pnl:.2f}"
+            )
+            continue
+
+        # --- SAFETY RAIL 7: DB-level open-position re-entry block ---
+        # Belt-and-braces with Rail 2 (which reads via portfolio helper);
+        # catches edge case where positions row is written but the helper
+        # cache is stale. Fail-safe: DB error allows the trade.
+        if _has_open_position_db(CHEKOV_ID, ticker):
+            console.log(
+                f"[yellow][CHEKOV-REENTRY-BLOCK] player={CHEKOV_ID} "
+                f"symbol={ticker} reason=open_position_db"
+            )
+            continue
+
+        # --- SAFETY RAIL 8: Declining-trend filter ---
+        # If the last _REENTRY_LOOKBACK daily closes are ALL below the signal's
+        # entry price, the trend is fading — skip new BUY (recomputes each
+        # cycle, naturally satisfying the "24h" intent without persistence).
+        # Anchor is signal entry price (not "open position avg_price" — past
+        # Rail 7, no open position exists for CHEKOV_ID). Fail-safe: missing
+        # candle data allows the trade.
+        is_decl, recent_closes = _declining_trend(ticker, entry)
+        if is_decl:
+            closes_str = ", ".join(f"${c:.2f}" for c in recent_closes)
+            console.log(
+                f"[yellow][CHEKOV-REENTRY-BLOCK] player={CHEKOV_ID} "
+                f"symbol={ticker} reason=declining_trend "
+                f"(last {_REENTRY_LOOKBACK} closes [{closes_str}] all < "
+                f"entry ${entry:.2f})"
             )
             continue
 
