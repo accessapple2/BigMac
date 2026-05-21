@@ -4216,6 +4216,21 @@ if __name__ == "__main__":
 
     _stagger_schedule_jobs()
 
+    # === HM-WR-CYCLE-RCA-PHASE2 2026-05-20 ===
+    # Diagnostic dump of all registered jobs + their next_run values post-stagger.
+    # Spec: project_hm_wr_cycle_rca.md Phase 2.
+    try:
+        console.log(f"[WR-DEBUG-INIT] schedule.jobs registered: {len(schedule.jobs)}")
+        for j in schedule.jobs:
+            fn_name = getattr(j.job_func, '__name__', repr(j.job_func))
+            console.log(
+                f"[WR-DEBUG-INIT]   job={fn_name} interval={j.interval}{j.unit} "
+                f"next_run={j.next_run} last_run={j.last_run}"
+            )
+    except Exception as _wr_dbg_e:
+        console.log(f"[red][WR-DEBUG-INIT] dump failed: {type(_wr_dbg_e).__name__}: {_wr_dbg_e!r}")
+    # === /HM-WR-CYCLE-RCA-PHASE2 ===
+
     dash_thread = threading.Thread(target=run_dashboard, daemon=True)
     dash_thread.start()
     _dashboard_started.wait(timeout=5)
@@ -4407,12 +4422,39 @@ if __name__ == "__main__":
     except Exception as e:
         console.log(f"[yellow]Realtime Monitor failed to start: {e}")
 
+    # === HM-WR-CYCLE-RCA-PHASE2 2026-05-20 ===
+    # 60-second heartbeat in the schedule loop — confirms run_pending() is being
+    # called and surfaces run_war_room's live next_run state for diagnosis.
+    _wr_hb_last = time.time()
+    # === /HM-WR-CYCLE-RCA-PHASE2 ===
     try:
         while True:
             try:
                 schedule.run_pending()
             except Exception as _job_exc:
                 console.log(f"[red]Scheduler job error (continuing): {_job_exc}")
+            # === HM-WR-CYCLE-RCA-PHASE2 2026-05-20 ===
+            _wr_hb_now = time.time()
+            if _wr_hb_now - _wr_hb_last > 60:
+                try:
+                    _wr_jobs = [j for j in schedule.jobs
+                                if 'war_room' in getattr(j.job_func, '__name__', '')]
+                    if _wr_jobs:
+                        _j = _wr_jobs[0]
+                        _due = _j.should_run if hasattr(_j, 'should_run') else 'n/a'
+                        console.log(
+                            f"[WR-DEBUG-HB] loop alive jobs={len(schedule.jobs)} "
+                            f"run_war_room next_run={_j.next_run} due_now={_due}"
+                        )
+                    else:
+                        console.log(
+                            f"[WR-DEBUG-HB] loop alive jobs={len(schedule.jobs)} "
+                            f"run_war_room NOT in schedule.jobs"
+                        )
+                except Exception as _hb_e:
+                    console.log(f"[red][WR-DEBUG-HB] error: {type(_hb_e).__name__}: {_hb_e!r}")
+                _wr_hb_last = _wr_hb_now
+            # === /HM-WR-CYCLE-RCA-PHASE2 ===
             time.sleep(1)
     except KeyboardInterrupt:
         try:
