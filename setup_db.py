@@ -460,6 +460,31 @@ def setup():
     except sqlite3.OperationalError:
         pass  # Column already exists
 
+    # HM-DECISION-AUDIT-V1 2026-05-20: unified decision-event log.
+    # One row per: signal_emit / gate_reject / trade_fire. Captures market
+    # snapshot at decision time (regime + spy_change + vix) plus FK references
+    # to signals.id and trades.id. Resolves the multi-table-join pain
+    # documented in project_hm_decision_support_observability_audit Audit B.
+    # See engine.paper_trader._write_decision_audit for the writer.
+    c.execute('''CREATE TABLE IF NOT EXISTS decision_audit (
+        id INTEGER PRIMARY KEY,
+        event_type TEXT NOT NULL,
+        player_id TEXT,
+        symbol TEXT,
+        signal_id INTEGER,
+        trade_id INTEGER,
+        regime TEXT,
+        spy_change REAL,
+        vix REAL,
+        confidence REAL,
+        gate_verdict TEXT,
+        reasoning_snippet TEXT,
+        created_at TEXT DEFAULT (datetime('now'))
+    )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_decision_audit_player_ts ON decision_audit(player_id, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_decision_audit_symbol_ts ON decision_audit(symbol, created_at)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_decision_audit_event ON decision_audit(event_type, created_at)")
+
     # Add sources column to signals and trades (data source traceability)
     for table in ["signals", "trades"]:
         try:
