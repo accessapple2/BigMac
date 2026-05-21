@@ -4282,6 +4282,40 @@ def ollie_auto_check(ctx: dict | None = None) -> list[dict]:
                     continue
             # === /HM-GRADE-B-REGIME-GATE ===
 
+            # === HM-GRADE-B-SPY-INTRADAY-GATE 2026-05-20 ===
+            # Layer 2 of the Grade B protection stack. The regime gate above
+            # only fires on full regime flips (BEAR_CROSS / CAUTIOUS_BEAR).
+            # The May 2026 stop-loss cascades (2026-05-18 + 2026-05-19) happened
+            # on BULL_CROSS days with tiny intraday SPY moves (−0.19% and −0.14%).
+            # The regime gate alone would not have caught those days.
+            # This intraday gate blocks Grade B entries when SPY is down >0.1%
+            # at decision time, breaking the cascade pattern on small red days
+            # within a bullish regime.
+            # Fail-safe: any SPY-fetch failure → default OPEN, allow the trade.
+            # Stack order: regime BLOCKS first (if bearish), SPY intraday
+            # BLOCKS second (if green-regime but red intraday).
+            if grade == "B":
+                _spy_chg = None
+                try:
+                    from engine.market_data import get_stock_price as _gsp_spy
+                    _spy_data = _gsp_spy("SPY") or {}
+                    if "error" not in _spy_data:
+                        _spy_chg = float(_spy_data.get("change_pct") or 0.0)
+                except Exception as _spy_err:
+                    logger.warning(
+                        f"[OllieAuto] HM-GRADE-B-SPY-INTRADAY-GATE fetch failed "
+                        f"({type(_spy_err).__name__}: {_spy_err!r}) — "
+                        f"defaulting OPEN, allowing Grade B trade for {symbol}"
+                    )
+                    _spy_chg = None
+                if _spy_chg is not None and _spy_chg < -0.1:
+                    logger.info(
+                        f"[OllieAuto] {symbol} BLOCKED — Grade B with SPY intraday "
+                        f"down [GRADE-B-SPY-GATE] spy_chg={_spy_chg:.3f}%"
+                    )
+                    continue
+            # === /HM-GRADE-B-SPY-INTRADAY-GATE ===
+
             # ── Trade levels from bulk pre-fetch (fallback to individual) ───
             levels   = bulk_levels.get(symbol) or _fetch_trade_levels_9000(symbol)
             long_lvl = (levels or {}).get("long", {})
