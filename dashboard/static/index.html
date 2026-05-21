@@ -28102,8 +28102,9 @@ if (_tutorMode) {
 #archer-float.thinking #archer-float-status { background:#3b82f6;animation:floatBlink 1s infinite; }
 #archer-float-badge { position:absolute;top:-4px;left:-4px;min-width:16px;height:16px;border-radius:8px;background:#ef4444;color:#fff;font-size:9px;font-weight:700;display:none;align-items:center;justify-content:center;padding:0 3px;box-shadow:0 1px 4px rgba(0,0,0,0.4); }
 #archer-float.hidden { transform:scale(0);opacity:0;pointer-events:none; }
-#archer-bring-back { display:none;padding:6px 10px;cursor:pointer;font-size:11px;color:var(--muted);opacity:0.7;border-radius:6px;transition:opacity 0.15s; }
+#archer-bring-back { display:none;position:fixed;bottom:20px;right:20px;z-index:9998;padding:6px 10px;cursor:pointer;font-size:11px;color:var(--muted);opacity:0.7;border-radius:6px;background:rgba(15,23,42,0.95);border:1px solid rgba(212,160,48,0.3);box-shadow:0 2px 8px rgba(0,0,0,0.4);transition:opacity 0.15s; user-select:none; }
 #archer-bring-back:hover { opacity:1; }
+@media (max-width:480px) { #archer-bring-back { bottom:12px;right:12px; } }
 @keyframes floatPulse { 0%,100% { transform:scale(1.0); } 50% { transform:scale(1.04); } }
 @keyframes floatBlink { 0%,100% { opacity:1; } 50% { opacity:0.3; } }
 @media (max-width:480px) { #archer-float { bottom:12px;right:12px; } #archer-float-avatar { width:46px;height:46px; } }
@@ -28138,8 +28139,9 @@ function openCIC() {
   if (msgs) msgs.scrollTop = 0;
   if (typeof setArcherBadge === 'function') setArcherBadge(0);
   // Hide the small floater while the full CIC panel is open — prevents
-  // the two-Archer overlap. Restored when panel closes (see toggleComputerChat).
-  if (typeof hideArcherFloat === 'function') hideArcherFloat();
+  // the two-Archer overlap. Transient (no localStorage write) so a tab close
+  // while CIC is open doesn't leave the floater persistently dismissed.
+  if (typeof _archerFloatTransientHide === 'function') _archerFloatTransientHide();
 }
 
 function _notifDestination(notif) {
@@ -28645,7 +28647,8 @@ function toggleComputerChat() {
     if (msgs3)  msgs3.style.display  = '';
     if (inpRow) inpRow.style.display = '';
     // Restore the small Archer floater now that the full panel is closed
-    if (typeof showArcherFloat === 'function') showArcherFloat();
+    // (transient — honors user's persistent dismiss if set)
+    if (typeof _archerFloatTransientShow === 'function') _archerFloatTransientShow();
   }
 }
 
@@ -31170,7 +31173,18 @@ function _interceptTaxCommand(msg) {
     '</div>' +
     '<div id="archer-float-status"></div>';
   document.body.appendChild(el);
-  if (localStorage.getItem('archerFloatHidden') === 'true') el.classList.add('hidden');
+
+  var bb = document.createElement('div');
+  bb.id = 'archer-bring-back';
+  bb.title = 'Bring Archer back';
+  bb.textContent = '⚓ Bring Archer back';
+  bb.onclick = function() { showArcherFloat(); };
+  document.body.appendChild(bb);
+
+  if (localStorage.getItem('archerFloatHidden') === 'true') {
+    el.classList.add('hidden');
+    bb.style.display = 'block';
+  }
 })();
 
 function hideArcherFloat() {
@@ -31186,6 +31200,15 @@ function showArcherFloat() {
   localStorage.setItem('archerFloatHidden', 'false');
   var bb = document.getElementById('archer-bring-back');
   if (bb) bb.style.display = 'none';
+}
+function _archerFloatTransientHide() {
+  var f = document.getElementById('archer-float');
+  if (f) f.classList.add('hidden');
+}
+function _archerFloatTransientShow() {
+  if (localStorage.getItem('archerFloatHidden') === 'true') return;
+  var f = document.getElementById('archer-float');
+  if (f) f.classList.remove('hidden');
 }
 function setArcherFloatState(state) {
   var f = document.getElementById('archer-float');
