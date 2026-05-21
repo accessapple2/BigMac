@@ -1104,12 +1104,46 @@ _MORPHEUS_CACHE_TTL = 30  # seconds — mirrors HM-AM 30s TTL
 
 
 def _morpheus_load_portfolio():
-    """HM-AM total_portfolio source — Schwab + metals + Alpaca paper unified."""
-    parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-    if parent not in sys.path:
-        sys.path.insert(0, parent)
-    from engine.total_portfolio import get_portfolio_summary
-    return get_portfolio_summary()
+    """HM-AM doctrine portfolio source — Schwab + metals only.
+
+    HM-MORPHEUS-AM-COMPLIANCE 2026-05-20: rewires to PR #44's /api/portfolio/real
+    endpoint (real-world capital only, EXCLUDES Alpaca paper per CLAUDE.md HM-AM
+    Scope). Per Captain directive 2026-05-20: also exclude Webull (winding down,
+    HM-WEBULL-LIQUIDATED 2026-05-13) + IBKR ($0, unfunded). Net liquid is
+    Schwab cash + Schwab positions + metals MV only.
+
+    Fallback: if trader endpoint unreachable, use the prior engine.total_portfolio
+    helper (which mixes Alpaca paper — flagged via _doctrine_violation field so
+    consumers can detect the fallback path).
+    """
+    try:
+        import urllib.request as _ur
+        with _ur.urlopen("http://127.0.0.1:8080/api/portfolio/real", timeout=5) as resp:
+            d = json.loads(resp.read())
+        schwab_total = float((d.get("schwab") or {}).get("total") or 0.0)
+        gold = (d.get("metals") or {}).get("gold") or {}
+        silver = (d.get("metals") or {}).get("silver") or {}
+        gold_mv = gold.get("current_value")
+        silver_mv = silver.get("current_value")
+        metals_mv = (gold_mv or 0.0) + (silver_mv or 0.0)
+        return {
+            "schwab": d.get("schwab"),
+            "metals": {"gold": gold, "silver": silver, "total_mv": round(metals_mv, 2)},
+            "net_worth_liquid": round(schwab_total + metals_mv, 2),
+            "_source": "HM-MORPHEUS-AM-COMPLIANCE via /api/portfolio/real",
+            "_excludes": ["alpaca_paper", "webull", "ibkr"],
+        }
+    except Exception as _portfolio_err:
+        parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+        if parent not in sys.path:
+            sys.path.insert(0, parent)
+        from engine.total_portfolio import get_portfolio_summary
+        data = get_portfolio_summary()
+        data["_doctrine_violation"] = (
+            f"Fell back to engine.total_portfolio (includes Alpaca paper) — "
+            f"/api/portfolio/real unreachable: {type(_portfolio_err).__name__}"
+        )
+        return data
 
 
 def _morpheus_trader_db_path() -> str:
