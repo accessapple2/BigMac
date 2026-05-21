@@ -2393,7 +2393,7 @@ window._cachedFetch = function(url, ttlMs) {
   var _dashboardUrls = ['/api/status','/api/arena/leaderboard','/api/trades','/api/chat',
     '/api/system/ram','/api/cto/','/api/costs/','/api/market/prices','/api/webull',
     '/api/market/vix','/api/market/earnings','/api/signals','/api/market/flow',
-    '/api/news','/api/smart-money','/api/market/movers','/api/market-movers','/api/price/',
+    '/api/news','/api/smart-money','/api/market/movers','/api/market-movers','/api/movers','/api/price/',
     '/api/regime','/api/navigator/','/api/sectors/heatmap','/api/fear-greed',
     '/api/metals/','/api/earnings/','/api/inverse-etfs','/api/premium-etfs',
     '/api/congress/','/api/volume-radar','/api/universe/status',
@@ -25627,11 +25627,28 @@ async function fetchMarketMovers() {
     var el = document.getElementById('moversContent');
     var timeEl = document.getElementById('moversTime');
     if (!el) return;
-    var r = await fetch('/api/market-movers');
-    var d = await r.json();
-    var gainers = (d.gainers || []).slice(0, 5);
-    var losers  = (d.losers  || []).slice(0, 5);
-    var active  = (d.most_active || []).slice(0, 5);
+    // HM-STARFLEET-MOVERS-FIX 2026-05-21: repointed from /api/market-movers
+    // (fixture data, change_pct=0 in both gainers + losers) to /api/movers
+    // (live). The two endpoints have different schemas — adapt here so the
+    // downstream renderer keeps reading {symbol, change_pct, price, volume}.
+    var r = await fetch('/api/movers');
+    var raw = await r.json();
+    var allMovers = (raw && raw.movers) || [];
+    function _adapt(m) {
+      return { symbol: m.symbol, change_pct: m.pct_change,
+               price: m.last_price, volume: m.volume };
+    }
+    var gainers = allMovers
+      .filter(function(m){ return m.direction === 'gainer'; })
+      .map(_adapt).slice(0, 5);
+    var losers = allMovers
+      .filter(function(m){ return m.direction === 'loser'; })
+      .map(_adapt).slice(0, 5);
+    // /api/movers has no separate most-active list — derive from top volume
+    // across all movers (gainers + losers).
+    var active = allMovers.slice()
+      .sort(function(a,b){ return (b.volume || 0) - (a.volume || 0); })
+      .map(_adapt).slice(0, 5);
     if (gainers.length === 0 && losers.length === 0) {
       el.innerHTML = '<div style="text-align:center;color:var(--muted);padding:16px 0;">Market data loading...</div>';
       return;
