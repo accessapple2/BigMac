@@ -230,17 +230,28 @@ def _fetch_daily_ohlcv(symbol: str, range_: str = "3mo") -> pd.DataFrame | None:
         return None
 
 
-def detect_patterns(symbol: str) -> list:
-    """Detect all chart patterns for a symbol."""
+def detect_patterns(symbol: str, bars: dict | None = None) -> list:
+    """Detect all chart patterns for a symbol.
+
+    HM-SLOW-FUNDAMENTALS Phase 2 (2026-05-21): when `bars` is provided (the
+    pre-fetched `get_bulk_daily_ohlcv` result), short-circuit the per-symbol
+    Yahoo `_fetch_daily_ohlcv` and read `bars[symbol]` instead. Legacy callers
+    that omit `bars` keep the original Yahoo path.
+    """
     cache_key = f"pat_{symbol}"
     with _cache_lock:
         if cache_key in _cache and time.time() - _cache[cache_key]["ts"] < _CACHE_TTL:
             return _cache[cache_key]["data"]
 
     try:
-        hist = _fetch_daily_ohlcv(symbol, "3mo")
-        if hist is None:
-            return []
+        if bars is not None:
+            hist = bars.get(symbol)
+            if hist is None or len(hist) < 20:
+                return []
+        else:
+            hist = _fetch_daily_ohlcv(symbol, "3mo")
+            if hist is None:
+                return []
 
         close = hist["Close"]
         high = hist["High"]
@@ -286,11 +297,15 @@ def detect_patterns(symbol: str) -> list:
         return []
 
 
-def detect_all_patterns(symbols: list) -> list:
-    """Detect patterns for all watchlist symbols."""
+def detect_all_patterns(symbols: list, bars: dict | None = None) -> list:
+    """Detect patterns for all watchlist symbols.
+
+    HM-SLOW-FUNDAMENTALS Phase 2 (2026-05-21): `bars` threads through so a
+    single pre-fetched bulk OHLCV dict replaces per-symbol Yahoo fanout.
+    """
     all_patterns = []
     for sym in symbols:
-        patterns = detect_patterns(sym)
+        patterns = detect_patterns(sym, bars=bars)
         all_patterns.extend(patterns)
     return all_patterns
 
