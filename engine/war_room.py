@@ -48,6 +48,23 @@ _forced_topic: str | None = None  # Steve can force the next debate topic
 _active_strategy_mode: str | None = None  # Steve's active strategy mode for AI responses
 _post_timestamps: dict[str, float] = {}  # "player_id:symbol" → timestamp (dedup within 60s)
 
+# === HM-WR-VRAM-THRASHING 2026-05-20 — module-level provider pool ===
+# Persistent ThreadPoolExecutor for timed provider calls inside run_war_room.
+# Module-level (not `with TPE() as ex:`) per [[feedback-capital-silent-fallback-promise]]:
+# `with TPE() as ex` __exit__ calls shutdown(wait=True) which SHADOWS any inner
+# .result(timeout=N), making the outer timeout meaningless. Module-level pool
+# lets us submit + .result(timeout=90) cleanly; futures that time out continue
+# in background (discarded) but the WR loop moves on.
+# max_workers sized for: parallel cloud submission (8 cloud providers possible)
+# + 1 outer Ollama submit at a time. Daemon-thread-named for ps debugging.
+from concurrent.futures import ThreadPoolExecutor as _WR_TPE
+from concurrent.futures import TimeoutError as _WR_FuturesTimeout
+import atexit as _wr_atexit
+_WR_PROVIDER_POOL = _WR_TPE(max_workers=10, thread_name_prefix="wr_provider_pool")
+_wr_atexit.register(lambda: _WR_PROVIDER_POOL.shutdown(wait=False))
+_WR_PROVIDER_TIMEOUT_S = 90  # per-provider hard cap
+# === /HM-WR-VRAM-THRASHING ===
+
 # Agents excluded from War Room debates regardless of DB state.
 # Add IDs here to silence an agent without touching the ai_players table.
 _WAR_ROOM_SKIP: frozenset = frozenset({
@@ -881,80 +898,161 @@ def run_war_room(providers: dict, prices: dict):
     # Collect takes — each model gets exactly ONE response
     round_takes: list[dict] = []
 
+    # === HM-WR-VRAM-THRASHING 2026-05-20 — provider phase refactor ===
+    # Bundle of 4 fixes per project_hm_wr_provider_latency:
+    #   Fix 1: 90s hard timeout per provider call (was unbounded)
+    #   Fix 2: cloud providers run in PARALLEL (no GPU contention)
+    #   Fix 3: Ollama providers sorted by model_id so same-model agents run
+    #          consecutively, minimizing VRAM swap count
+    #   Fix 4: Ollama keep_alive 45s → 10m (engine/providers/ollama_provider.py)
+    # Expected cycle wall: 19m 35s → 3-5min on Ollie Box return.
+
+    # --- Phase A: Eligibility filter (preserves all existing skip gates) ---
+    try:
+        from engine.providers.ollama_provider import OllamaProvider as _OLP
+    except Exception:
+        _OLP = None  # type: ignore
+
+    _eligible: list[tuple[str, object]] = []
     for pid, provider in providers.items():
         if pid in _WAR_ROOM_SKIP or pid in paused_ids or pid in inactive_ids or pid in halted_ids:
             continue
-
-        # Ollama-based providers debate 24/7; paid API models only during market hours
-        try:
-            from engine.providers.ollama_provider import OllamaProvider as _OLP
-            _is_ollama = isinstance(provider, _OLP)
-        except Exception:
-            _is_ollama = False
-        if not _is_ollama and not is_market:
-            continue
-
-        # Skip if already responded this round
+        _is_ollama_pre = (_OLP is not None) and isinstance(provider, _OLP)
+        if not _is_ollama_pre and not is_market:
+            continue  # paid API models only during market hours
         if pid in _round_responded:
             continue
-
-        # Skip if already posted about this symbol in the last hour
         if pid in recent_posters:
             console.log(f"[dim]  {pid}: already posted about {symbol} recently, skipping")
             continue
-
-        # Dedup: skip if this player posted about this ticker within 60s (prevents race between callers)
-        _dedup_key = f"{pid}:{symbol}"
-        _now = time.time()
-        if _dedup_key in _post_timestamps and (_now - _post_timestamps[_dedup_key]) < 60:
-            console.log(f"[dim]  {pid}: dedup — posted about {symbol} {_now - _post_timestamps[_dedup_key]:.0f}s ago, skipping")
+        _dedup_key_pre = f"{pid}:{symbol}"
+        _now_pre = time.time()
+        if _dedup_key_pre in _post_timestamps and (_now_pre - _post_timestamps[_dedup_key_pre]) < 60:
+            console.log(f"[dim]  {pid}: dedup — posted about {symbol} {_now_pre - _post_timestamps[_dedup_key_pre]:.0f}s ago, skipping")
             continue
+        _eligible.append((pid, provider))
 
-        # === HM-WR-PROVIDER-TIMING 2026-05-20 ===
-        # Per-provider wall-clock instrumentation. Wraps generate_hot_take
-        # (which performs the actual provider.call_model() LLM call inside)
-        # to capture each provider's contribution to the WR cycle wall.
-        # Lands alongside [WR-DUR] in logs/trader.log via console.log per
-        # CLAUDE.md "logger.info vs console.log" sink rule.
-        # Crash-safe: timing collection cannot break provider execution. The
-        # try/except around generate_hot_take is preserved; the perf_counter
-        # bookends are in their own nested try so a clock-read failure
-        # (extraordinarily unlikely) doesn't propagate.
-        _wr_prov_t0 = None
+    # --- Phase B: Split into cloud + Ollama ---
+    _cloud: list[tuple[str, object]] = []
+    _ollama: list[tuple[str, object]] = []
+    for pid, provider in _eligible:
+        if (_OLP is not None) and isinstance(provider, _OLP):
+            _ollama.append((pid, provider))
+        else:
+            _cloud.append((pid, provider))
+
+    # Fix 3: sort Ollama by model_id so consecutive providers share weights
+    _ollama.sort(key=lambda kv: getattr(kv[1], "model_id", "") or "")
+
+    def _run_one_provider(prov_obj, prov_pid, prov_label):
+        """Common per-provider runner: 90s timeout + [WR-PROVIDER-DUR] log +
+        result handling. Returns the take string (or None on failure/timeout).
+        Reads round_takes via closure for context; mutates _post_timestamps,
+        _round_responded, _debate_completed, round_takes on success.
+        """
+        _t0 = None
         try:
-            _wr_prov_t0 = time.perf_counter()
+            _t0 = time.perf_counter()
         except Exception:
-            _wr_prov_t0 = None
-        # === /HM-WR-PROVIDER-TIMING ===
+            pass
+        _ctx = round_takes + prior_takes  # debate context — accumulates as each call returns
+        _fut = _WR_PROVIDER_POOL.submit(
+            generate_hot_take, prov_obj, prov_pid, symbol, price_data, _ctx or None
+        )
+        _take = None
         try:
-            context_takes = round_takes + prior_takes
-            take = generate_hot_take(provider, pid, symbol, price_data, context_takes or None)
-            if take:
-                save_hot_take(pid, symbol, take)
-                _post_timestamps[_dedup_key] = time.time()
-                _round_responded.add(pid)
-                _debate_completed.append(pid)
-                _mark_agent_done(_debate_id, pid)
-                round_takes.append({
-                    "player_id": pid,
-                    "display_name": provider.display_name,
-                    "symbol": symbol,
-                    "take": take,
-                })
-                console.log(f"[magenta]  {pid}: {take[:120]}")
-        except Exception as e:
-            console.log(f"[red]War room {pid} error: {e}")
-        # === HM-WR-PROVIDER-TIMING 2026-05-20 ===
-        # Emit per-provider wall regardless of success or exception — both
-        # paths are interesting (a slow timeout is just as informative as a
-        # slow successful response). Crash-safe via inner try/except.
-        if _wr_prov_t0 is not None:
+            _take = _fut.result(timeout=_WR_PROVIDER_TIMEOUT_S)
+        except _WR_FuturesTimeout:
+            console.log(
+                f"[yellow][WR-PROVIDER-TIMEOUT] provider={prov_pid} "
+                f"({prov_label}, {_WR_PROVIDER_TIMEOUT_S}s) — moving on"
+            )
+        except Exception as _e:
+            console.log(f"[red]War room {prov_pid} error: {_e}")
+        # Emit timing regardless of outcome
+        if _t0 is not None:
             try:
-                _wr_prov_wall = time.perf_counter() - _wr_prov_t0
-                console.log(f"[WR-PROVIDER-DUR] provider={pid} wall={_wr_prov_wall:.3f}s")
+                _wall = time.perf_counter() - _t0
+                console.log(f"[WR-PROVIDER-DUR] provider={prov_pid} wall={_wall:.3f}s")
             except Exception:
-                pass  # nested console.log fallback can also fail; never propagate
-        # === /HM-WR-PROVIDER-TIMING ===
+                pass
+        return _take
+
+    # --- Phase C: Cloud providers — parallel ---
+    if _cloud:
+        console.log(f"[cyan][WR-CLOUD-PARALLEL] count={len(_cloud)}")
+        _cloud_futures = {
+            _WR_PROVIDER_POOL.submit(
+                generate_hot_take, _prov, _pid, symbol, price_data, prior_takes or None
+            ): (_pid, _prov)
+            for _pid, _prov in _cloud
+        }
+        for _fut, (_pid, _prov) in _cloud_futures.items():
+            _t0 = time.perf_counter()
+            _take = None
+            try:
+                _take = _fut.result(timeout=_WR_PROVIDER_TIMEOUT_S)
+            except _WR_FuturesTimeout:
+                console.log(
+                    f"[yellow][WR-PROVIDER-TIMEOUT] provider={_pid} "
+                    f"(cloud, {_WR_PROVIDER_TIMEOUT_S}s) — moving on"
+                )
+            except Exception as _e:
+                console.log(f"[red]War room {_pid} error: {_e}")
+            try:
+                console.log(f"[WR-PROVIDER-DUR] provider={_pid} wall={time.perf_counter() - _t0:.3f}s")
+            except Exception:
+                pass
+            if _take:
+                save_hot_take(_pid, symbol, _take)
+                _post_timestamps[f"{_pid}:{symbol}"] = time.time()
+                _round_responded.add(_pid)
+                _debate_completed.append(_pid)
+                _mark_agent_done(_debate_id, _pid)
+                round_takes.append({
+                    "player_id": _pid,
+                    "display_name": getattr(_prov, "display_name", _pid),
+                    "symbol": symbol,
+                    "take": _take,
+                })
+                console.log(f"[magenta]  {_pid}: {_take[:120]}")
+
+    # --- Phase D: Ollama providers — sequential, model-batched ---
+    _last_batch_model: str | None = None
+    _batch_count = 0
+    for _pid, _prov in _ollama:
+        _model_id = getattr(_prov, "model_id", None)
+        # Batch boundary: when model changes, log the previous batch + reset
+        if _model_id != _last_batch_model:
+            if _last_batch_model is not None and _batch_count > 0:
+                console.log(
+                    f"[cyan][WR-OLLAMA-BATCH] model={_last_batch_model} "
+                    f"count={_batch_count}"
+                )
+            _last_batch_model = _model_id
+            _batch_count = 0
+        _batch_count += 1
+        _take = _run_one_provider(_prov, _pid, "ollama")
+        if _take:
+            save_hot_take(_pid, symbol, _take)
+            _post_timestamps[f"{_pid}:{symbol}"] = time.time()
+            _round_responded.add(_pid)
+            _debate_completed.append(_pid)
+            _mark_agent_done(_debate_id, _pid)
+            round_takes.append({
+                "player_id": _pid,
+                "display_name": getattr(_prov, "display_name", _pid),
+                "symbol": symbol,
+                "take": _take,
+            })
+            console.log(f"[magenta]  {_pid}: {_take[:120]}")
+    # Flush final batch
+    if _last_batch_model is not None and _batch_count > 0:
+        console.log(
+            f"[cyan][WR-OLLAMA-BATCH] model={_last_batch_model} "
+            f"count={_batch_count}"
+        )
+    # === /HM-WR-VRAM-THRASHING ===
 
     # Clear strategy mode after round completes (consumed)
     global _active_strategy_mode
