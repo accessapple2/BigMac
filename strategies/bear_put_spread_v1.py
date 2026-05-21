@@ -205,6 +205,10 @@ def _get_tb_active(ticker: str) -> bool:
         return True  # always active in mock mode for test coverage
     if not _SC_DB_PATH.exists():
         return False
+    # HM-BEAR-PUT-SPREAD-FD-FIX 2026-05-20: try/finally ensures conn.close()
+    # fires on exception paths too. Prior pattern only closed on success →
+    # accumulated FD leak (Errno 24 EMFILE) under repeated query failures.
+    conn = None
     try:
         conn = sqlite3.connect(str(_SC_DB_PATH), timeout=3)
         row = conn.execute(
@@ -214,11 +218,16 @@ def _get_tb_active(ticker: str) -> bool:
             "ORDER BY confidence DESC LIMIT 1",
             (ticker, TB_CONF_THRESHOLD, f"-{TB_LOOKBACK_HOURS} hours"),
         ).fetchone()
-        conn.close()
         return row is not None
     except Exception as e:
         print(f"[bear_spread_v1] TB check error for {ticker}: {e}")
         return False
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _get_pc_ratio(ticker: str) -> float:
@@ -230,6 +239,8 @@ def _get_pc_ratio(ticker: str) -> float:
         return 1.2  # bearish mock
 
     # Primary: options_flow_history (per-ticker avg, last 24h)
+    # HM-BEAR-PUT-SPREAD-FD-FIX 2026-05-20: try/finally for sqlite close.
+    conn = None
     try:
         conn = sqlite3.connect(str(_DB_PATH), timeout=3)
         conn.row_factory = sqlite3.Row
@@ -238,26 +249,35 @@ def _get_pc_ratio(ticker: str) -> float:
             "WHERE created_at >= datetime('now', '-24 hours') "
             "ORDER BY created_at DESC LIMIT 1",
         ).fetchone()
-        conn.close()
         if row and row["put_call_ratio"] is not None:
             return float(row["put_call_ratio"])
     except Exception as e:
         print(f"[bear_spread_v1] PCR DB error: {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     # Secondary: CBOE free CSV
+    # HM-BEAR-PUT-SPREAD-FD-FIX 2026-05-20: `with requests.get(...) as resp`
+    # ensures the underlying urllib3 connection is released even on the
+    # parsing-failure paths below. Prior code never called resp.close(),
+    # which over thousands of cycles can leak socket FDs.
     try:
         import requests
-        resp = requests.get(
+        with requests.get(
             "https://cdn.cboe.com/data/us/options/market_statistics/daily_pcr.csv",
             timeout=6,
             headers={"User-Agent": "Mozilla/5.0"},
-        )
-        if resp.status_code == 200:
-            lines = [l for l in resp.text.strip().splitlines() if l.strip()]
-            if len(lines) >= 2:
-                val = float(lines[-1].split(",")[1].strip())
-                if 0.1 <= val <= 5.0:
-                    return val
+        ) as resp:
+            if resp.status_code == 200:
+                lines = [l for l in resp.text.strip().splitlines() if l.strip()]
+                if len(lines) >= 2:
+                    val = float(lines[-1].split(",")[1].strip())
+                    if 0.1 <= val <= 5.0:
+                        return val
     except Exception:
         pass
 
@@ -279,6 +299,8 @@ def _check_tier2_short_signal(ticker: str) -> bool:
     """
     if is_mock_mode():
         return True
+    # HM-BEAR-PUT-SPREAD-FD-FIX 2026-05-20: try/finally for sqlite close.
+    conn = None
     try:
         conn = sqlite3.connect(str(_DB_PATH), timeout=3)
         conn.row_factory = sqlite3.Row
@@ -294,11 +316,16 @@ def _check_tier2_short_signal(ticker: str) -> bool:
             f"LIMIT 1",
             (ticker,),
         ).fetchone()
-        conn.close()
         return row is not None
     except Exception as e:
         print(f"[bear_spread_v1] tier2 signal check error for {ticker}: {e}")
         return False
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def _is_dedup_blocked(ticker: str) -> bool:
