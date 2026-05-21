@@ -580,7 +580,16 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       <div class="ms-body" id="red-alert-content"><div class="ms-empty">loading…</div></div>
     </div>
     <div class="matrix-section" id="matrix-the-matrix">
-      <h2><span>🔮 The Matrix</span><span class="ms-fresh" id="tm-fresh"></span></h2>
+      <h2>
+        <span>🔮 The Matrix</span>
+        <span style="display:flex;align-items:center;gap:8px;">
+          <button id="matrix-portfolio-toggle" onclick="toggleMatrixPortfolioDetails()"
+            style="background:none;border:1px solid var(--border);color:var(--muted);
+                   border-radius:4px;cursor:pointer;font-size:10px;padding:2px 8px;"
+            title="Show/hide Schwab + metals breakdown">▼ details</button>
+          <span class="ms-fresh" id="tm-fresh"></span>
+        </span>
+      </h2>
       <div class="ms-body" id="the-matrix-content"><div class="ms-empty">loading…</div></div>
     </div>
     <div class="matrix-section" id="matrix-intelligence">
@@ -643,16 +652,104 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     );
   }
 
+  // HM-MORPHEUS-AM-PANEL-SPLIT 2026-05-20: render the HM-AM-compliant portfolio
+  // shape from PR #52 (Schwab + metals only, real-world net worth). Falls back
+  // to the legacy total_portfolio shape if PR #52 wasn't yet active (detected by
+  // presence of `total_value` field).
+  // Collapsible: the headline always shows net liquid worth + source badge.
+  // Detail rows (Schwab + metals breakdown) toggle via the "▼ details" button.
   function _renderMatrix(d) {
     const p = d.portfolio || {};
-    const fmtUsd = v => v != null ? '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—';
+    const fmtUsd = v => v != null ? '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—';
+    const fmtInt = v => v != null ? '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—';
+
+    // Detect HM-AM shape (PR #52) vs legacy total_portfolio shape
+    if (p.net_worth_liquid != null || p.schwab || p.metals || p._source) {
+      // HM-AM-compliant rendering
+      const headlineRows = [
+        { k: 'Net Liquid Worth', v: fmtUsd(p.net_worth_liquid) },
+      ];
+      const sourceBadge = p._source
+        ? `<div class="ms-key" style="font-size:9px;margin-top:6px;letter-spacing:.4px;">SRC: ${_esc(p._source)}</div>`
+        : '';
+      const excludesBadge = Array.isArray(p._excludes) && p._excludes.length
+        ? `<div class="ms-key" style="font-size:9px;letter-spacing:.4px;">excludes: ${p._excludes.map(_esc).join(', ')}</div>`
+        : '';
+      const doctrineWarn = p._doctrine_violation
+        ? `<div class="ms-error" style="margin-top:6px;">⚠ ${_esc(p._doctrine_violation)}</div>`
+        : '';
+
+      // Detail rows (toggled visible via #matrix-portfolio-details)
+      const sw = p.schwab || {};
+      const mt = p.metals || {};
+      const gold = mt.gold || {};
+      const silver = mt.silver || {};
+      const detailRows = [];
+      if (sw && !sw.error) {
+        detailRows.push({ k: '🏦 Schwab cash', v: fmtUsd(sw.cash_balance) });
+        if (sw.positions_value != null) detailRows.push({ k: '🏦 Schwab positions', v: fmtUsd(sw.positions_value) });
+        detailRows.push({ k: '🏦 Schwab total', v: fmtUsd(sw.total) });
+      } else if (sw && sw.error) {
+        detailRows.push({ k: '🏦 Schwab', v: `error: ${_esc(sw.error)}` });
+      }
+      if (gold.current_value != null) {
+        const unreal = gold.unrealized != null
+          ? (gold.unrealized >= 0 ? ` (+$${gold.unrealized.toFixed(2)})` : ` (-$${Math.abs(gold.unrealized).toFixed(2)})`)
+          : '';
+        detailRows.push({ k: `🥇 Gold ${gold.oz}oz`, v: fmtUsd(gold.current_value) + unreal });
+      }
+      if (silver.current_value != null) {
+        const unreal = silver.unrealized != null
+          ? (silver.unrealized >= 0 ? ` (+$${silver.unrealized.toFixed(2)})` : ` (-$${Math.abs(silver.unrealized).toFixed(2)})`)
+          : '';
+        detailRows.push({ k: `🥈 Silver ${silver.oz}oz`, v: fmtUsd(silver.current_value) + unreal });
+      }
+      if (mt.total_mv != null) {
+        detailRows.push({ k: '⚗️ Metals total', v: fmtUsd(mt.total_mv) });
+      }
+
+      const detailsHtml = detailRows.length
+        ? `<div id="matrix-portfolio-details" style="display:none;border-top:1px dashed var(--border);margin-top:8px;padding-top:8px;">${_kv(detailRows)}</div>`
+        : '';
+      return _kv(headlineRows) + sourceBadge + excludesBadge + doctrineWarn + detailsHtml;
+    }
+
+    // Legacy shape fallback (pre-PR #52 awareness payload)
     const rows = [
-      { k: 'Total Value', v: fmtUsd(p.total_value) },
-      { k: 'Cash',        v: fmtUsd(p.total_cash) },
-      { k: 'Invested',    v: fmtUsd(p.total_invested) },
+      { k: 'Total Value', v: fmtInt(p.total_value) },
+      { k: 'Cash',        v: fmtInt(p.total_cash) },
+      { k: 'Invested',    v: fmtInt(p.total_invested) },
       { k: 'Positions',   v: p.position_count != null ? p.position_count : '—' },
     ];
     return _kv(rows);
+  }
+
+  // HM-MORPHEUS-AM-PANEL-SPLIT 2026-05-20: toggle the Schwab+metals detail rows.
+  // Button label + state managed inline; survives _renderMatrix re-renders by
+  // re-applying the saved state on every payload refresh.
+  window._matrixPortfolioExpanded = false;
+  function toggleMatrixPortfolioDetails() {
+    var el = document.getElementById('matrix-portfolio-details');
+    var btn = document.getElementById('matrix-portfolio-toggle');
+    if (!el) return;
+    var shown = (el.style.display !== 'none');
+    var nextShown = !shown;
+    el.style.display = nextShown ? '' : 'none';
+    if (btn) btn.textContent = nextShown ? '▲ hide' : '▼ details';
+    window._matrixPortfolioExpanded = nextShown;
+  }
+  // Restore expand state across re-renders (called on each awareness poll)
+  function _restoreMatrixPortfolioState() {
+    var el = document.getElementById('matrix-portfolio-details');
+    var btn = document.getElementById('matrix-portfolio-toggle');
+    if (!el) return;
+    if (window._matrixPortfolioExpanded) {
+      el.style.display = '';
+      if (btn) btn.textContent = '▲ hide';
+    } else {
+      el.style.display = 'none';
+      if (btn) btn.textContent = '▼ details';
+    }
   }
 
   function _renderIntelligence(d) {
@@ -759,6 +856,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
         failed.has('signals') ? '<div class="ms-error">signals source failed</div>' : _renderRedAlert(d));
       _renderSection('the-matrix-content',
         failed.has('portfolio') ? '<div class="ms-error">portfolio source failed</div>' : _renderMatrix(d));
+      // HM-MORPHEUS-AM-PANEL-SPLIT 2026-05-20: restore collapse/expand state after each re-render
+      _restoreMatrixPortfolioState();
       _renderSection('intelligence-content',
         failed.has('intelligence') ? '<div class="ms-error">intelligence source failed</div>' : _renderIntelligence(d));
       _renderSection('oracle-content',
