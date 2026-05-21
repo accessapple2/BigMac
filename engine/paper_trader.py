@@ -226,29 +226,35 @@ def _forward_to_alpaca(action: str, player_id: str, symbol: str, qty: float,
     so internal per-player ledger can drift from Alpaca aggregate. Before
     forwarding a SELL, check Alpaca's current qty — if flat or short, skip
     the forward entirely so we never accidentally open or worsen a short.
+
+    HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: returns the Alpaca result dict
+    (containing filled_avg_price + order_id) so the caller can persist the
+    actual broker fill into trades.entry_price / trades.exit_price. Returns
+    None when no Alpaca attempt was made (not stock / no bridge / qty too
+    small / short-guard tripped / options path).
     """
     if asset_type == "stock":
         bridge = _get_alpaca()
         if not bridge:
-            return
+            return None
         frac_qty = round(qty, 2)
         if frac_qty < 0.01:
-            return
+            return None
         # SHORT-GUARD: before SELL, verify Alpaca actually holds enough to sell.
         if action == "SELL":
             alpaca_qty = _alpaca_position_qty(bridge, symbol)
             if alpaca_qty is None:
                 console.log(f"[yellow]Alpaca SELL {symbol} skipped: could not verify Alpaca position (drift protection)")
-                return
+                return None
             if alpaca_qty <= 0:
                 console.log(f"[yellow]Alpaca SELL {symbol} skipped: Alpaca qty={alpaca_qty} (would create/worsen short — internal ledger drift, player={player_id})")
-                return
+                return None
             if alpaca_qty < frac_qty:
                 old = frac_qty
                 frac_qty = round(alpaca_qty, 2)
                 console.log(f"[yellow]Alpaca SELL {symbol} capped: {old} → {frac_qty} (Alpaca holds {alpaca_qty}, player={player_id})")
                 if frac_qty < 0.01:
-                    return
+                    return None
         # Extended-hours flag: all agents trade pre/post market via Alpaca
         use_ext = False
         try:
@@ -264,13 +270,13 @@ def _forward_to_alpaca(action: str, player_id: str, symbol: str, qty: float,
                 result = bridge.sell(symbol, frac_qty,
                                      extended_hours=use_ext, limit_price=price)
             else:
-                return
+                return None
             if result.get("error"):
                 # Fractional rejected — retry with whole shares
                 whole_qty = int(qty)
                 if whole_qty <= 0:
                     console.log(f"[yellow]Alpaca {action} {symbol} failed (frac+whole): {result['error']}")
-                    return
+                    return result
                 if action == "BUY":
                     result = bridge.buy(symbol, whole_qty,
                                         extended_hours=use_ext, limit_price=price)
@@ -283,6 +289,9 @@ def _forward_to_alpaca(action: str, player_id: str, symbol: str, qty: float,
                     console.log(f"[bold cyan]Alpaca {action} {whole_qty} {symbol} (whole fallback) — order {result.get('order_id', 'ok')} ({player_id})")
             else:
                 console.log(f"[bold cyan]Alpaca {action} {frac_qty} {symbol} — order {result.get('order_id', 'ok')} ({player_id})")
+            # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: surface the Alpaca
+            # result (incl. filled_avg_price from bridge poll) to the caller.
+            return result
         except Exception as e:
             # HM-U: NTFY first occurrence per error class per day (architecture-class
             # forward-to-Alpaca catch-all in _forward_to_alpaca).
@@ -297,6 +306,7 @@ def _forward_to_alpaca(action: str, player_id: str, symbol: str, qty: float,
                 )
             except Exception:
                 pass
+            return None
 
 
 def estimate_option_price(option_type: str, strike_price: float | None,
@@ -1106,8 +1116,11 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     _first_trade_notification(player_id, symbol, "BUY", price)
 
     # Forward to Alpaca paper trading (non-blocking)
+    # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: persist actual broker fill into
+    # the just-inserted trade row (was leaving trader-internal price in place).
     if route["route_mode"] == "trading":
-        _forward_to_alpaca("BUY", player_id, symbol, qty, asset_type, price=price)
+        _alpaca_result = _forward_to_alpaca("BUY", player_id, symbol, qty, asset_type, price=price)
+        _persist_alpaca_fill(_trade_id, "BUY", qty, _alpaca_result, player_id, symbol)
 
     return {
         "action": "BUY",
@@ -1247,12 +1260,15 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             (player_id, symbol, option_type)
         )
 
-    conn.execute(
+    # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: capture lastrowid so the Alpaca
+    # fill writeback below can target this specific trade row.
+    _sell_cur = conn.execute(
         "INSERT INTO trades(player_id, symbol, action, qty, price, asset_type, option_type, "
         "reasoning, confidence, entry_price, exit_price, realized_pnl, season) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (player_id, symbol, trade_action, qty, price, asset_type, option_type, reasoning, confidence,
          pos["avg_price"], price, pnl, _current_season())
     )
+    _sell_trade_id = _sell_cur.lastrowid
     conn.commit()
     conn.close()
     console.log(f"[green]{player_id}: {trade_action} {qty} {symbol} @ ${price:.2f} PnL: ${pnl:.2f}")
@@ -1281,8 +1297,11 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     # === /HM-POST-EXIT-TRACKER ===
 
     # Forward to Alpaca paper trading (non-blocking)
+    # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: persist actual broker fill +
+    # recompute realized_pnl from (fill - entry_price) * qty.
     if route["route_mode"] == "trading":
-        _forward_to_alpaca("SELL", player_id, symbol, qty, asset_type, price=price)
+        _alpaca_result = _forward_to_alpaca("SELL", player_id, symbol, qty, asset_type, price=price)
+        _persist_alpaca_fill(_sell_trade_id, "SELL", qty, _alpaca_result, player_id, symbol)
 
     # Borg lore: post loss notifications to War Room
     if pnl < 0:
@@ -1413,12 +1432,15 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
                 (remaining, player_id, symbol, option_type)
             )
 
-    conn.execute(
+    # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: capture lastrowid so the Alpaca
+    # fill writeback below can target this specific partial-SELL trade row.
+    _partial_cur = conn.execute(
         "INSERT INTO trades(player_id, symbol, action, qty, price, asset_type, option_type, "
         "reasoning, confidence, entry_price, exit_price, realized_pnl, season) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (player_id, symbol, "SELL", qty, price, asset_type, option_type, reasoning, confidence,
          pos["avg_price"], price, pnl, _current_season())
     )
+    _partial_trade_id = _partial_cur.lastrowid
     conn.commit()
     conn.close()
     console.log(f"[green]{player_id}: SELL {qty} {symbol} @ ${price:.2f} (partial) PnL: ${pnl:.2f}")
@@ -1427,9 +1449,12 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
     # HM-I-Option-ε (2026-05-05): gate identically to BUY (line ~1015) and full-SELL
     # (line ~1167). sell_partial() does not resolve route at function top like sell()/buy()
     # do — resolve here so the gate has data to check.
+    # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: persist actual broker fill +
+    # recompute realized_pnl from (fill - entry_price) * qty.
     route = _resolve_execution_portfolio(player_id)
     if route["route_mode"] == "trading":
-        _forward_to_alpaca("SELL", player_id, symbol, qty, asset_type, price=price)
+        _alpaca_result = _forward_to_alpaca("SELL", player_id, symbol, qty, asset_type, price=price)
+        _persist_alpaca_fill(_partial_trade_id, "SELL", qty, _alpaca_result, player_id, symbol)
 
     # Borg lore on loss (partial sell, only if full close)
     if pnl < 0 and remaining <= 0:
@@ -1578,20 +1603,107 @@ def execute_signal(player_id: str, signal: dict, price: float, signal_id: int | 
     return None
 
 
-def _update_trade_alpaca_fields(player_id: str, symbol: str, order_id: str, exec_type: str) -> None:
-    """Update most recent trade record for player+symbol with Alpaca order metadata."""
+def _update_trade_alpaca_fields(player_id: str, symbol: str, order_id: str, exec_type: str,
+                                 action_filter: tuple = ('BUY', 'BUY_CALL', 'BUY_PUT')) -> None:
+    """Update most recent trade record for player+symbol with Alpaca order metadata.
+
+    HM-TRADES-ALPACA-PROVENANCE 2026-05-21: action_filter widened so SELL paths
+    can also stamp alpaca_order_id + execution_type. Existing options-spread
+    caller keeps the BUY-only default.
+    """
     try:
+        placeholders = ",".join("?" for _ in action_filter)
         conn = _conn()
         conn.execute(
-            """UPDATE trades SET alpaca_order_id=?, alpaca_status='submitted', execution_type=?
-               WHERE player_id=? AND symbol=? AND action IN ('BUY','BUY_CALL','BUY_PUT')
+            f"""UPDATE trades SET alpaca_order_id=?, alpaca_status='submitted', execution_type=?
+               WHERE player_id=? AND symbol=? AND action IN ({placeholders})
                ORDER BY executed_at DESC LIMIT 1""",
-            (order_id or None, exec_type, player_id, symbol),
+            (order_id or None, exec_type, player_id, symbol, *action_filter),
         )
         conn.commit()
         conn.close()
     except Exception:
         pass
+
+
+def _persist_alpaca_fill(trade_id: int, action: str, qty: float,
+                         result, player_id: str, symbol: str) -> None:
+    """HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: persist Alpaca fill into the
+    just-inserted trades row.
+
+    - On a real fill: UPDATE trades.entry_price (BUY) or trades.exit_price +
+      realized_pnl (SELL), plus alpaca_order_id + execution_type='alpaca_paper'.
+    - On submit-without-fill (poll timeout, partial, rejected): UPDATE only
+      alpaca_order_id + execution_type if order_id present; log [TRADE-FILL-WARN]
+      so the row's price stays the trader's internal target (audit traceability).
+    - On no Alpaca attempt or hard error: do nothing (row keeps internal price).
+
+    Never raises. Trade execution must not depend on this writeback succeeding.
+    """
+    if not trade_id or not result or not isinstance(result, dict):
+        return
+    if result.get("error"):
+        console.log(
+            f"[yellow][TRADE-FILL-WARN] {player_id} {action} {symbol} "
+            f"trade_id={trade_id}: alpaca error: {result.get('error')!r}"
+        )
+        return
+    order_id = result.get("order_id")
+    fill_price = result.get("filled_avg_price")
+    try:
+        conn = _conn()
+        if fill_price is not None and float(fill_price) > 0:
+            fp = float(fill_price)
+            if action == "BUY":
+                conn.execute(
+                    "UPDATE trades SET entry_price=?, alpaca_order_id=?, "
+                    "alpaca_status='filled', execution_type='alpaca_paper' WHERE id=?",
+                    (fp, order_id or None, trade_id),
+                )
+            elif action == "SELL":
+                row = conn.execute(
+                    "SELECT entry_price, qty FROM trades WHERE id=?",
+                    (trade_id,),
+                ).fetchone()
+                entry_px = float(row[0]) if row and row[0] is not None else None
+                row_qty = float(row[1]) if row and row[1] is not None else float(qty)
+                if entry_px is not None:
+                    new_pnl = (fp - entry_px) * row_qty
+                    conn.execute(
+                        "UPDATE trades SET exit_price=?, realized_pnl=?, "
+                        "alpaca_order_id=?, alpaca_status='filled', "
+                        "execution_type='alpaca_paper' WHERE id=?",
+                        (fp, new_pnl, order_id or None, trade_id),
+                    )
+                else:
+                    conn.execute(
+                        "UPDATE trades SET exit_price=?, alpaca_order_id=?, "
+                        "alpaca_status='filled', execution_type='alpaca_paper' WHERE id=?",
+                        (fp, order_id or None, trade_id),
+                    )
+            conn.commit()
+        else:
+            # Submit succeeded but no fill price (poll timeout / extended-hours
+            # limit not yet filled / partial without filled_avg_price). Stamp
+            # provenance but leave the internal price in place per fail-safe spec.
+            if order_id:
+                conn.execute(
+                    "UPDATE trades SET alpaca_order_id=?, alpaca_status=?, "
+                    "execution_type='alpaca_paper' WHERE id=?",
+                    (order_id, result.get("status") or "submitted", trade_id),
+                )
+                conn.commit()
+            console.log(
+                f"[yellow][TRADE-FILL-WARN] {player_id} {action} {symbol} "
+                f"trade_id={trade_id} order_id={order_id} status={result.get('status')!r} "
+                f"— no filled_avg_price; keeping internal price"
+            )
+        conn.close()
+    except Exception as e:
+        console.log(
+            f"[yellow][TRADE-FILL-WARN] {player_id} {action} {symbol} "
+            f"trade_id={trade_id}: persist error: {type(e).__name__}: {e!r}"
+        )
 
 
 def record_portfolio_snapshot(player_id: str, prices: dict):
