@@ -26,6 +26,7 @@ CHEKOV_CASH = 7000.0
 MAX_POSITIONS = 10
 MAX_ALLOC_PCT = 0.05   # 5% of capital per swing stock trade
 MAX_ALLOC_SPREAD = 0.03  # 3% for options spreads
+_CD_DAYS = 5  # Per-symbol SL cooldown window (days)
 DB = os.environ.get(
     "TRADEMINDS_DB",
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
@@ -82,6 +83,35 @@ def _log_to_war_room(symbol: str, message: str):
         save_hot_take(CHEKOV_ID, symbol, message)
     except Exception as e:
         console.log(f"[yellow]Chekov War Room log failed: {e}")
+
+
+def _recent_sl_loss(ticker: str) -> tuple[bool, str, float]:
+    """Per-symbol SL cooldown: did Chekov/Navigator take a realized loss on this
+    ticker within _CD_DAYS? Fail-safe: on DB error returns (False, "", 0.0)
+    so the trade is allowed through rather than blocked.
+
+    Returns (hit, last_date_str, last_pnl).
+    """
+    try:
+        conn = _conn()
+        row = conn.execute(
+            "SELECT executed_at, realized_pnl FROM trades "
+            "WHERE player_id=? AND symbol=? AND realized_pnl < 0 "
+            f"AND executed_at > datetime('now','-{int(_CD_DAYS)} days') "
+            "ORDER BY executed_at DESC LIMIT 1",
+            (CHEKOV_ID, ticker),
+        ).fetchone()
+        conn.close()
+        if row:
+            date_str = str(row["executed_at"])[:10]
+            return True, date_str, float(row["realized_pnl"])
+        return False, "", 0.0
+    except Exception as e:
+        console.log(
+            f"[yellow]🧭 Chekov SL-cooldown DB query failed for {ticker} "
+            f"({type(e).__name__}: {e!r}) — allowing trade"
+        )
+        return False, "", 0.0
 
 
 def _check_quality(ticker: str) -> tuple[bool, str]:
@@ -428,6 +458,17 @@ def execute_convergence_trades(signals: list = None):
                 f"We dinnae buy low-quality businesses regardless of technical signals."
             ))
             console.log(f"[yellow]🧭 Chekov SKIP {ticker}: quality gate — {quality_reason}")
+            continue
+
+        # --- SAFETY RAIL 6: Per-symbol SL cooldown ---
+        # Skip ticker if Chekov/Navigator took a realized loss on it within
+        # the last _CD_DAYS days. Fail-safe: DB query failure allows the trade.
+        cd_hit, cd_date, cd_pnl = _recent_sl_loss(ticker)
+        if cd_hit:
+            console.log(
+                f"[yellow]🧭 Chekov SKIP {ticker}: SL cooldown ({_CD_DAYS}d) "
+                f"— last loss {cd_date} ${cd_pnl:.2f}"
+            )
             continue
 
         # ── ROUTE: 5+ strategies + VIX < 25 → bull call spread ──────────────
