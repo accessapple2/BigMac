@@ -24,18 +24,19 @@ class OllamaProvider(AIProvider):
 
     def call_model(self, prompt: str) -> str:
         # Route through global FIFO queue — one Ollama inference at a time system-wide.
-        # RAM patch 2026-04-17 (v2): keep_alive lowered 30s → 5s prevented stacking BUT
-        # caused 120s-timeout storms: every agent fire was a full cold-load (8.6 GB from
-        # disk for qwen3:8b), and serial queue waits pushed later agents past 120s.
-        # Compromise: 45s keeps the model warm across back-to-back queue items (Neo +
-        # War Room fire within ~30s of each other), short enough that a different-model
-        # agent hitting ~30s+ later doesn't stack. Paired with timeout bumped 120s → 180s
-        # so the rare genuine cold-load still completes instead of erroring out.
+        # HM-WR-VRAM-THRASHING 2026-05-20 (Fix 4): keep_alive raised 45s → 10m.
+        # Per project_hm_wr_provider_latency: WR cycle wall 19m 35s with 8 LLM
+        # providers 91-202s each due to VRAM model-swap thrashing on RTX 5060 8GB.
+        # Combined with Fix 3 (model batching), 10m residency means same-model
+        # agents within a WR cycle reuse loaded weights instead of re-loading on
+        # each call. The earlier 45s compromise was tuned for 16GB Mac Mini RAM
+        # contention; canonical Ollie Box (Linux + RTX 5060) does not have the
+        # same stacking concern so the longer keep_alive is safe.
         payload = {
             "model": self.model_id,
             "prompt": prompt,
             "stream": False,
-            "keep_alive": "45s",
+            "keep_alive": "10m",
             "options": {"temperature": self._temperature},
         }
         # 2026-04-27: qwen3 family streams chain-of-thought tokens before JSON,
