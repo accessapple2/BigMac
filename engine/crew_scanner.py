@@ -2002,9 +2002,81 @@ _SCALED_EXIT_TIERS: dict[str, list[tuple[float, float, str]]] = {
 # Cache: {f"{player_id}|{symbol}|{tier}": date_str} — prevents re-firing same tier same day
 _tiers_triggered: dict[str, str] = {}
 
+# === HM-NEO-TRAIL-PERSIST 2026-05-20 ===
+# Path for JSON sidecar that persists _neo_trail_highs across trader restarts.
+# Project root = parent of engine/, then /data/ joins the canonical autonomous-trader/data/ dir.
+_NEO_TRAIL_HIGHS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data",
+    "neo_trail_highs.json",
+)
+
+
+def _load_neo_trail_highs() -> dict[str, float]:
+    """Load persisted Neo trail-high watermarks from JSON sidecar.
+
+    Fail-safe — returns empty dict on any error (missing file, corrupt JSON,
+    permission issue). Prior in-memory-only behavior at module init was an
+    empty dict; this preserves that contract while adding restart-survivability.
+    """
+    try:
+        with open(_NEO_TRAIL_HIGHS_PATH, "r") as _f:
+            _raw = json.load(_f)
+        if not isinstance(_raw, dict):
+            return {}
+        # Coerce values to float and skip any non-numeric entries
+        out: dict[str, float] = {}
+        for k, v in _raw.items():
+            try:
+                out[str(k)] = float(v)
+            except (TypeError, ValueError):
+                continue
+        return out
+    except FileNotFoundError:
+        return {}
+    except Exception:
+        # Corrupt JSON or any other read error → start fresh, don't crash module init.
+        return {}
+
+
+def _save_neo_trail_highs(state: dict[str, float]) -> None:
+    """Atomically persist _neo_trail_highs to JSON sidecar.
+
+    Atomic write (temp file in same dir + os.replace) prevents 0-byte corruption
+    if process dies mid-write. Crash-safe — swallows all errors so a write
+    failure cannot break the calling trailing-stop logic. Mirrors the pattern in
+    engine/premarket_scanner.py:_save_sector_disk_cache.
+    """
+    try:
+        import tempfile
+        serialized = json.dumps(state)
+        cache_dir = os.path.dirname(os.path.abspath(_NEO_TRAIL_HIGHS_PATH))
+        os.makedirs(cache_dir, exist_ok=True)
+        fd, tmp_path = tempfile.mkstemp(dir=cache_dir, suffix=".tmp")
+        try:
+            with os.fdopen(fd, "w") as _f:
+                _f.write(serialized)
+            os.replace(tmp_path, _NEO_TRAIL_HIGHS_PATH)
+        except Exception:
+            try:
+                os.unlink(tmp_path)
+            except Exception:
+                pass
+            raise
+    except Exception:
+        # Write failure must NEVER break the trailing-stop call chain;
+        # next successful write will catch up.
+        pass
+
+
 # Neo trailing stop: highest price seen after T1 scale exit fires
 # {symbol: high_watermark} — resets when the position is fully closed
-_neo_trail_highs: dict[str, float] = {}
+# HM-NEO-TRAIL-PERSIST 2026-05-20: now loaded from JSON sidecar at module init
+# so the runner's trail-high context survives trader restarts (previously the
+# in-memory dict was wiped on every restart, causing the runner's 5% trail to
+# reset to the current price instead of trailing from the actual peak).
+_neo_trail_highs: dict[str, float] = _load_neo_trail_highs()
+# === /HM-NEO-TRAIL-PERSIST ===
 
 
 def _update_neo_trailing_stops() -> int:
@@ -2037,6 +2109,7 @@ def _update_neo_trailing_stops() -> int:
             # Update high watermark
             new_high = max(_neo_trail_highs.get(symbol, current), current)
             _neo_trail_highs[symbol] = new_high
+            _save_neo_trail_highs(_neo_trail_highs)  # HM-NEO-TRAIL-PERSIST
             # Trail floor: 5% below high, never below cost basis
             trail_floor = max(avg_cost, new_high * 0.95)
             if current <= trail_floor:
@@ -2053,6 +2126,7 @@ def _update_neo_trailing_stops() -> int:
                 if result:
                     exited += 1
                     _neo_trail_highs.pop(symbol, None)
+                    _save_neo_trail_highs(_neo_trail_highs)  # HM-NEO-TRAIL-PERSIST
                     logger.info(
                         f"🏃 NEO TRAIL: sold {symbol} @ ${current:.2f} "
                         f"(high ${new_high:.2f} → trail ${trail_floor:.2f})"
