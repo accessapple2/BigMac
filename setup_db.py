@@ -485,6 +485,27 @@ def setup():
     c.execute("CREATE INDEX IF NOT EXISTS idx_decision_audit_symbol_ts ON decision_audit(symbol, created_at)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_decision_audit_event ON decision_audit(event_type, created_at)")
 
+    # HM-POST-EXIT-TRACKER 2026-05-20: flag exits that proved premature.
+    # Seeded on every SELL via engine.paper_trader.sell hook; daily scan in
+    # engine.post_exit_tracker.run_daily_scan checks current price vs exit.
+    # If current > exit × (1 + threshold/100): flagged=1, [POST-EXIT-FLAG] log.
+    c.execute('''CREATE TABLE IF NOT EXISTS post_exit_watch (
+        id INTEGER PRIMARY KEY,
+        player_id TEXT,
+        symbol TEXT,
+        exit_price REAL,
+        exit_date TEXT,
+        exit_pnl REAL,
+        peak_price_after REAL,
+        peak_date_after TEXT,
+        missed_gain REAL,
+        threshold_pct REAL DEFAULT 5.0,
+        flagged INTEGER DEFAULT 0,
+        created_at TEXT DEFAULT (datetime('now'))
+    )''')
+    c.execute("CREATE INDEX IF NOT EXISTS idx_post_exit_watch_unflagged ON post_exit_watch(flagged, symbol)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_post_exit_watch_player ON post_exit_watch(player_id, exit_date)")
+
     # Add sources column to signals and trades (data source traceability)
     for table in ["signals", "trades"]:
         try:

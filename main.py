@@ -3003,6 +3003,30 @@ if __name__ == "__main__":
     schedule.every().day.at("06:00").do(run_archer_morning_briefing)  # Phase 3.6: Archer briefing 6:00 AM AZ
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
+
+    # === HM-POST-EXIT-TRACKER 2026-05-20 ===
+    # Daily scan of post_exit_watch rows: flag any exit where the symbol
+    # subsequently traded >5% above the exit price. Runs at 06:30 AZ
+    # (after morning briefing at 06:00) so the day's price discovery has
+    # had time to populate. Crash-safe: scanner swallows all per-row errors.
+    @_hm_bq_instr("run_post_exit_scan")
+    def run_post_exit_scan():
+        try:
+            from engine.post_exit_tracker import run_daily_scan as _pex_scan
+            _out = _pex_scan()
+            console.log(
+                f"[cyan][HM-POST-EXIT-TRACKER] daily scan: "
+                f"checked={_out.get('checked')} flagged={_out.get('newly_flagged')} "
+                f"aged_out={_out.get('aged_out')} errors={_out.get('errors')}"
+            )
+        except Exception as _pex_top:
+            console.log(
+                f"[red][HM-POST-EXIT-TRACKER] daily scan top-level error: "
+                f"{type(_pex_top).__name__}: {_pex_top!r}"
+            )
+    schedule.every().day.at("06:30").do(run_post_exit_scan)
+    # === /HM-POST-EXIT-TRACKER ===
+
     # HM-I-β-Item5: daily reconciliation canary (replaces ε noise canary, commit d06c33c).
     # Compares internal book vs Alpaca paper at market close, writes JSON, NTFYs on drift.
     try:
