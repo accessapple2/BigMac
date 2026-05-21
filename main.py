@@ -2948,6 +2948,45 @@ if __name__ == "__main__":
             )
     # === /HM-WAR-ROOM-INIT-FIX ===
 
+    # === HM-WR-DAEMON-THREAD 2026-05-20 ===
+    # Spawn run_war_room on its own daemon thread, bypassing the single-threaded
+    # schedule.run_pending() queue. Phase 1+2 RCA (project_hm_wr_cycle_rca.md)
+    # established that one hanging scheduled job blocks ALL others; run_war_room
+    # was registered correctly with sensible next_run, but never dispatched
+    # because something ahead in the queue hung. Mirrors the HM-EQ daemon
+    # pattern: independent threading.Thread(daemon=True) with own sleep loop.
+    # run_war_room's internal is_market_hours()/throttle/guard gates still apply,
+    # so this is purely a dispatch substitution — no behavior change to the
+    # cycle logic itself.
+    def _war_room_scheduler_thread():
+        """Daemon scheduler for run_war_room — independent of schedule library."""
+        import time as _wr_dt
+        while True:
+            try:
+                from engine.risk_manager import RiskManager
+                if RiskManager.is_market_hours():
+                    run_war_room()
+            except Exception as _wr_err:
+                console.log(
+                    f"[red][HM-WR-DAEMON] tick error: "
+                    f"{type(_wr_err).__name__}: {_wr_err!r}[/red]"
+                )
+            _wr_dt.sleep(300)
+
+    try:
+        threading.Thread(
+            target=_war_room_scheduler_thread,
+            daemon=True,
+            name="war_room_scheduler",
+        ).start()
+        console.log("[green][HM-WR-DAEMON] War Room scheduler thread started (300s cadence)")
+    except Exception as _wrd_e:
+        console.log(
+            f"[red][HM-WR-DAEMON] thread startup failed: "
+            f"{type(_wrd_e).__name__}: {_wrd_e!r}[/red]"
+        )
+    # === /HM-WR-DAEMON-THREAD ===
+
     # Scanner ticks every 30s; run_scanner enforces dynamic cooldown internally
     schedule.every(2).minutes.do(run_scanner)
     schedule.every(5).minutes.do(run_dayblade)  # DayBlade 0DTE: T'Pol on plutus, every 5 min
@@ -2978,7 +3017,9 @@ if __name__ == "__main__":
     schedule.every(5).minutes.do(run_earnings_day_scan)               # Earnings Day: every 5 min market hours
     schedule.every().day.at("06:45").do(run_opening_range)            # Battle Station: opening range 6:45 AM AZ
     schedule.every(2).minutes.do(run_battle_station_monitor)  # Battle Station: 2-min options position monitor
-    schedule.every(3).minutes.do(run_war_room)              # War Room: 3 min market hours, 5 min pre/post-market
+    # HM-WR-DAEMON-THREAD 2026-05-20: run_war_room moved to its own daemon
+    # thread (see _war_room_scheduler_thread above) to bypass single-threaded
+    # schedule.run_pending() queue blocking. Cadence preserved at 300s.
     schedule.every(30).minutes.do(run_autopilot)           # Autopilot: every 30 min
     schedule.every(10).minutes.do(run_whisper)             # Whisper Network: every 10 min
     schedule.every(15).minutes.do(run_strength_scan)        # Strength Scanner: every 15 min
