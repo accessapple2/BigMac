@@ -28091,8 +28091,8 @@ if (_tutorMode) {
 @keyframes notifPulse { 0%, 100% { opacity: 1; } 50% { opacity: 0.75; } }
 /* ── Floating Archer ─────────────────────────────────────────────────── */
 #archer-float { position:fixed;bottom:20px;right:20px;z-index:9999;display:flex;flex-direction:column;align-items:center;gap:4px;transition:all 0.3s ease; }
-#archer-float-close { position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:rgba(15,23,42,0.95);border:1px solid rgba(255,255,255,0.2);color:#64748b;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:10000;opacity:0;transition:opacity 0.2s;padding:0;line-height:1; }
-#archer-float:hover #archer-float-close { opacity:1; }
+#archer-float-close { position:absolute;top:-6px;right:-6px;width:18px;height:18px;border-radius:50%;background:rgba(15,23,42,0.95);border:1px solid rgba(255,255,255,0.2);color:#64748b;font-size:9px;cursor:pointer;display:flex;align-items:center;justify-content:center;z-index:10000;opacity:0;pointer-events:none;transition:opacity 0.2s;padding:0;line-height:1; }
+#archer-float:hover #archer-float-close { opacity:1;pointer-events:auto; }
 #archer-float-avatar { width:52px;height:52px;border-radius:50%;overflow:hidden;border:2px solid #d4a030;box-shadow:0 2px 12px rgba(0,0,0,0.4),0 0 10px rgba(212,160,48,0.2);cursor:pointer;position:relative;transition:all 0.3s ease; }
 #archer-float-avatar:hover { transform:scale(1.08);box-shadow:0 2px 16px rgba(0,0,0,0.5),0 0 15px rgba(212,160,48,0.35); }
 #archer-float-status { width:8px;height:8px;border-radius:50%;background:#22c55e;box-shadow:0 0 6px rgba(34,197,94,0.5);transition:all 0.4s; }
@@ -28134,7 +28134,16 @@ function pollNotifications() {
 
 function openCIC() {
   var panel = document.getElementById('computerChatPanel');
-  if (panel && !panel.classList.contains('open')) toggleComputerChat();
+  if (panel && !panel.classList.contains('open')) {
+    // Sync the flag to the DOM truth before toggling. ship_computer.js's
+    // openBriefing path sets _computerChatOpen=true and adds .open, but
+    // some downstream cleanup can remove .open without resetting the flag,
+    // leaving us with flag=true / class=absent. Without this resync, the
+    // toggle below would flip true→false and enter the close branch on a
+    // panel that was never visibly open — silent failure.
+    _computerChatOpen = false;
+    toggleComputerChat();
+  }
   var msgs = document.getElementById('computer-chat-messages');
   if (msgs) msgs.scrollTop = 0;
   if (typeof setArcherBadge === 'function') setArcherBadge(0);
