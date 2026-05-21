@@ -4241,6 +4241,47 @@ def ollie_auto_check(ctx: dict | None = None) -> list[dict]:
             else:
                 continue
 
+            # === HM-GRADE-B-REGIME-GATE 2026-05-20 ===
+            # Skip Grade B entries when today's regime is bearish. Per
+            # project_hm_ollie_auto_regression: Grade B SELLs on SPY-down days
+            # had 40.7% WR with −$145 PnL (≈ entire May loss). Same binary
+            # classifier confidence (~65%) unchanged since April; tiny SPY moves
+            # triggered stop-loss cascades. Block Grade B entries on bearish
+            # regime days to break the cascade pattern.
+            # DB regime taxonomy (DISTINCT regime FROM regime_history):
+            #   BULL_CROSS, CAUTIOUS_BULL, CAUTIOUS_BEAR, BEAR_CROSS.
+            # Bearish set = {BEAR_CROSS, CAUTIOUS_BEAR}.
+            # Fail-safe: any DB error → default OPEN, allow the trade — so a
+            # transient lookup issue doesn't silently halt the agent.
+            if grade == "B":
+                _today_regime = None
+                try:
+                    _c_gate = _conn()
+                    try:
+                        _row = _c_gate.execute(
+                            "SELECT regime FROM regime_history "
+                            "WHERE date = date('now', 'localtime') "
+                            "ORDER BY id DESC LIMIT 1"
+                        ).fetchone()
+                        if _row is not None:
+                            _today_regime = _row[0] if not hasattr(_row, "keys") else _row["regime"]
+                    finally:
+                        _c_gate.close()
+                except Exception as _gate_err:
+                    logger.warning(
+                        f"[OllieAuto] HM-GRADE-B-REGIME-GATE lookup failed "
+                        f"({type(_gate_err).__name__}: {_gate_err!r}) — "
+                        f"defaulting OPEN, allowing Grade B trade for {symbol}"
+                    )
+                    _today_regime = None
+                if _today_regime in ("BEAR_CROSS", "CAUTIOUS_BEAR"):
+                    logger.info(
+                        f"[OllieAuto] {symbol} BLOCKED — Grade B in bearish regime "
+                        f"({_today_regime})"
+                    )
+                    continue
+            # === /HM-GRADE-B-REGIME-GATE ===
+
             # ── Trade levels from bulk pre-fetch (fallback to individual) ───
             levels   = bulk_levels.get(symbol) or _fetch_trade_levels_9000(symbol)
             long_lvl = (levels or {}).get("long", {})
