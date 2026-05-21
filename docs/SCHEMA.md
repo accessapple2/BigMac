@@ -211,11 +211,13 @@
       alpaca_status TEXT,
       execution_type TEXT DEFAULT 'simulated',
       spread_data TEXT,
-      strategy_id TEXT
+      strategy_id TEXT,
+      signal_id INTEGER REFERENCES signals(id)  -- HM-SIGNAL-TRADE-FK 2026-05-20
   );
   CREATE INDEX idx_trades_player_ts ON trades(player_id, executed_at);
   CREATE INDEX idx_trades_alpaca ON trades(alpaca_order_id);
   ```
+- **`signal_id` (HM-SIGNAL-TRADE-FK 2026-05-20):** rowid of the originating row in `signals` (returned by `engine.paper_trader.save_signal()`). Threaded through `execute_signal(...)` → `buy(..., signal_id=...)`. NULL for mechanical exits (Autopilot trims, scale-outs, stop-loss), spread strategies that bypass execute_signal, and any path where the originating signal context isn't in scope. SQLite doesn't enforce the FK constraint; the column is a documented linkage for queries like `JOIN signals ON trades.signal_id = signals.id`.
 - **Writers:** `engine/paper_trader.py:1003,1156`, `shared/matrix_bridge.py:196`, `scripts/import_webull_csv.py:62`, `scripts/close_player_positions.py:98`
 - **Readers:** `healthcheck.py:149`, `main.py:1976`, `crew/routes.py:336`, `run_comprehensive_backtest.py:87`, `reset_season2.py:69`
 - **Purpose:** Internal-book trade log — every BUY/SELL the AI fleet executes (paper or live-routed) lands here. PnL realized on SELL via `realized_pnl`/`corrected_pnl`. `execution_type` distinguishes `simulated` from broker-routed orders. `alpaca_order_id` populated when routed to Alpaca.
