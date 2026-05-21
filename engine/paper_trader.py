@@ -1027,7 +1027,7 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             (player_id, symbol, qty, price, "option", option_type, strike_price, expiry_date)
         )
 
-    conn.execute(
+    _trade_cur = conn.execute(
         # HM-SIGNAL-TRADE-FK 2026-05-20: trades.signal_id captures originating
         # signals.id (rowid) for traceability. NULL if signal_id not in scope
         # (mechanical exits + paths that bypass execute_signal).
@@ -1037,9 +1037,20 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         (player_id, symbol, "BUY", qty, price, asset_type, option_type,
          strike_price, expiry_date, reasoning, confidence, _current_season(), sources, timeframe, signal_id)
     )
+    _trade_id = _trade_cur.lastrowid  # HM-DECISION-AUDIT-V1 2026-05-20
     conn.commit()
     conn.close()
     console.log(f"[green]{player_id}: BUY {qty} {symbol} @ ${price:.2f}")
+    # HM-DECISION-AUDIT-V1 2026-05-20: trade_fire hook
+    _write_decision_audit(
+        event_type="trade_fire",
+        player_id=player_id,
+        symbol=symbol,
+        signal_id=signal_id,
+        trade_id=_trade_id,
+        confidence=confidence,
+        reasoning_snippet=reasoning,
+    )
     _first_trade_notification(player_id, symbol, "BUY", price)
 
     # Forward to Alpaca paper trading (non-blocking)
@@ -2152,6 +2163,106 @@ def _expire_legacy(prices: dict = None) -> list[dict]:
     return closed
 
 
+# === HM-DECISION-AUDIT-V1 2026-05-20 ===
+# Unified decision-event log. One row per: signal_emit / gate_reject /
+# trade_fire. Captures market snapshot (regime + spy_change + vix) plus FK
+# refs to signals.id and trades.id. See setup_db.py for schema +
+# project_hm_decision_support_observability_audit Audit B for design.
+#
+# Fail-safe: this writer NEVER raises. A failed audit must not break the
+# calling signal/trade flow. Per-snapshot lookups are independently
+# try/except'd so a slow VIX fetch can't gate a signal emit.
+
+def _capture_decision_snapshot() -> dict:
+    """Best-effort market-state snapshot for decision_audit rows.
+
+    Returns dict with regime / spy_change / vix; any field that fails
+    individual capture is None. Crash-safe — never raises.
+    """
+    snap: dict = {"regime": None, "spy_change": None, "vix": None}
+    # 1. Today's regime
+    try:
+        _rc = _conn()
+        try:
+            _row = _rc.execute(
+                "SELECT regime FROM regime_history WHERE date = date('now', 'localtime') "
+                "ORDER BY id DESC LIMIT 1"
+            ).fetchone()
+            if _row is not None:
+                snap["regime"] = _row[0]
+        finally:
+            _rc.close()
+    except Exception:
+        pass
+    # 2. SPY intraday change
+    try:
+        from engine.market_data import get_stock_price as _gsp_da
+        _spy = _gsp_da("SPY") or {}
+        if "error" not in _spy:
+            _chg = _spy.get("change_pct")
+            if isinstance(_chg, (int, float)):
+                snap["spy_change"] = float(_chg)
+    except Exception:
+        pass
+    # 3. VIX (uses the 30-min cached helper below — sub-ms warm)
+    try:
+        _v = _get_vix_cached()
+        if isinstance(_v, (int, float)):
+            snap["vix"] = float(_v)
+    except Exception:
+        pass
+    return snap
+
+
+def _write_decision_audit(
+    event_type: str,
+    player_id: str | None = None,
+    symbol: str | None = None,
+    signal_id: int | None = None,
+    trade_id: int | None = None,
+    confidence: float | None = None,
+    gate_verdict: str | None = None,
+    reasoning_snippet: str | None = None,
+) -> None:
+    """Write a single decision_audit row. Crash-safe — never raises.
+
+    event_type ∈ {'signal_emit', 'gate_reject', 'trade_fire'}. Other fields
+    are event-dependent: gate_reject usually has gate_verdict; trade_fire
+    has trade_id; signal_emit has signal_id + reasoning_snippet.
+    """
+    try:
+        snap = _capture_decision_snapshot()
+        _snippet = (reasoning_snippet or "")[:300] if reasoning_snippet else None
+        _ac = _conn()
+        try:
+            _ac.execute(
+                "INSERT INTO decision_audit "
+                "(event_type, player_id, symbol, signal_id, trade_id, "
+                " regime, spy_change, vix, confidence, gate_verdict, reasoning_snippet) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    event_type,
+                    player_id,
+                    symbol,
+                    signal_id if (signal_id is not None and signal_id >= 0) else None,
+                    trade_id if (trade_id is not None and trade_id >= 0) else None,
+                    snap.get("regime"),
+                    snap.get("spy_change"),
+                    snap.get("vix"),
+                    confidence,
+                    (gate_verdict or "")[:300] if gate_verdict else None,
+                    _snippet,
+                ),
+            )
+            _ac.commit()
+        finally:
+            _ac.close()
+    except Exception:
+        # Audit must never break the calling flow. Suppress all errors.
+        pass
+# === /HM-DECISION-AUDIT-V1 ===
+
+
 def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
                 reasoning: str, asset_type: str = "stock", option_type: str = None,
                 sources: str = "", timeframe: str = "SWING") -> int:
@@ -2177,6 +2288,15 @@ def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
         signal_id = cur.lastrowid
         conn.commit()
         conn.close()
+        # HM-DECISION-AUDIT-V1 2026-05-20: signal_emit hook
+        _write_decision_audit(
+            event_type="signal_emit",
+            player_id=player_id,
+            symbol=symbol,
+            signal_id=signal_id,
+            confidence=confidence,
+            reasoning_snippet=reasoning,
+        )
         return signal_id
     except Exception as e:
         console.log(f"[red]DB error: {e}")
@@ -2194,7 +2314,34 @@ def update_signal_status(signal_id: int, status: str, reason: str = None):
             (status, reason[:300] if reason else None, signal_id)
         )
         conn.commit()
-        conn.close()
+        # HM-DECISION-AUDIT-V1 2026-05-20: gate_reject hook (only on REJECTED)
+        if status == "REJECTED":
+            _row_for_audit = None
+            try:
+                _row_for_audit = conn.execute(
+                    "SELECT player_id, symbol, confidence FROM signals WHERE rowid=?",
+                    (signal_id,),
+                ).fetchone()
+            except Exception:
+                pass
+            conn.close()
+            if _row_for_audit is not None:
+                _write_decision_audit(
+                    event_type="gate_reject",
+                    player_id=_row_for_audit[0],
+                    symbol=_row_for_audit[1],
+                    signal_id=signal_id,
+                    confidence=_row_for_audit[2],
+                    gate_verdict=reason,
+                )
+            else:
+                _write_decision_audit(
+                    event_type="gate_reject",
+                    signal_id=signal_id,
+                    gate_verdict=reason,
+                )
+        else:
+            conn.close()
     except Exception:
         pass
 
