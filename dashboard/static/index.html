@@ -2398,7 +2398,19 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/metals/','/api/earnings/','/api/inverse-etfs','/api/premium-etfs',
     '/api/congress/','/api/volume-radar','/api/universe/status',
     '/api/fleet/active',  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
-    '/api/portfolio/real'];  // HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — Schwab+metals real-world view (PR #44 endpoint)
+    '/api/portfolio/real',  // HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — Schwab+metals real-world view (PR #44 endpoint)
+    // HM-BATTLE-STATION-BIND-FIX 2026-05-21: GEX Overlay + Battle Station cards
+    // fire their fetches from IIFEs during initial page parse while _pageLoading
+    // is still true. Without these allowlist entries, the page-load stub at
+    // L2415 returns {} → fmtP renders "--" placeholders and the Morning Levels
+    // gate falls into "Not yet generated". setInterval refreshes eventually
+    // populate real data (15min for GEX, 60s for Battle Station), but first
+    // user view shows the empty state. These prefix-match entries pass the
+    // first fetch through to the network.
+    '/api/gex-overlay/',
+    '/api/battle-station/',
+    '/api/battle-station-0dte/',
+    '/api/morning-brief'];
 
   function _isDashboardUrl(url) {
     for (var i = 0; i < _dashboardUrls.length; i++) {
