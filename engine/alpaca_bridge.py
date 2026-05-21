@@ -65,6 +65,40 @@ class AlpacaBridge:
             console.log(f"[yellow]latest_prices error: {e}")
             return {}
 
+    def _poll_fill(self, order_id: str, timeout_s: float = 3.0,
+                   poll_interval_s: float = 0.15):
+        """HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: poll an order to fill.
+
+        Bridge.buy/sell submit and return immediately with status='new' — no
+        filled_avg_price. To capture the actual broker fill (so trades.entry_price
+        / trades.exit_price reflect reality not the trader's internal target),
+        poll get_order_by_id until status is filled / partially_filled / a
+        terminal-non-fill (canceled, rejected, expired). Returns
+        (filled_avg_price, filled_qty, final_status). On timeout returns
+        (None, None, last_status_seen).
+
+        Live-market fills typically complete in <500ms; 3s timeout covers
+        extended-hours/illiquid edges. Never raises.
+        """
+        import time
+        deadline = time.time() + max(0.5, float(timeout_s))
+        last_status = 'unknown'
+        while time.time() < deadline:
+            try:
+                o = self.client.get_order_by_id(order_id)
+                last_status = o.status.value if hasattr(o.status, 'value') else str(o.status)
+                if last_status in ('filled', 'partially_filled'):
+                    if o.filled_avg_price is not None:
+                        return (float(o.filled_avg_price),
+                                float(o.filled_qty) if o.filled_qty is not None else 0.0,
+                                last_status)
+                if last_status in ('canceled', 'cancelled', 'rejected', 'expired'):
+                    return (None, None, last_status)
+            except Exception:
+                pass
+            time.sleep(poll_interval_s)
+        return (None, None, last_status)
+
     def orders(self, status='all'):
         if not self.client:
             return []
@@ -107,7 +141,15 @@ class AlpacaBridge:
                     time_in_force=TimeInForce.DAY,
                 ))
                 console.log(f"[green]Alpaca BUY {qty} {symbol} — order {o.id}")
-            return {'success': True, 'order_id': str(o.id), 'symbol': o.symbol, 'status': o.status.value}
+            # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: poll for fill so callers
+            # can persist filled_avg_price into trades.entry_price (not the
+            # submit-time internal target). Fail-safe: returns None on timeout.
+            fill_price, fill_qty, final_status = self._poll_fill(str(o.id))
+            return {
+                'success': True, 'order_id': str(o.id), 'symbol': o.symbol,
+                'status': final_status, 'filled_avg_price': fill_price,
+                'filled_qty': fill_qty,
+            }
         except Exception as e:
             return {'error': str(e)}
 
@@ -137,7 +179,13 @@ class AlpacaBridge:
                     time_in_force=TimeInForce.DAY,
                 ))
                 console.log(f"[red]Alpaca SELL {qty} {symbol} — order {o.id}")
-            return {'success': True, 'order_id': str(o.id), 'symbol': o.symbol, 'status': o.status.value}
+            # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: see buy() above.
+            fill_price, fill_qty, final_status = self._poll_fill(str(o.id))
+            return {
+                'success': True, 'order_id': str(o.id), 'symbol': o.symbol,
+                'status': final_status, 'filled_avg_price': fill_price,
+                'filled_qty': fill_qty,
+            }
         except Exception as e:
             return {'error': str(e)}
 
