@@ -41,6 +41,15 @@ ROOT       = Path(__file__).resolve().parent.parent
 DB_PATH    = ROOT / "data" / "ghost_trades.db"
 SIGNAL_DB  = ROOT / "signal-center" / "signals.db"
 
+# HM-GHOST-SCORECARD-FIX 2026-05-21: when a trade expires (72h elapsed without
+# hitting target or stop), classify by realized P&L sign instead of always
+# bucketing as EXPIRED. Signal-center frequently provides ±15-20% targets that
+# never trigger in 72h windows even when the trade has clear directional
+# accuracy (e.g. +8% gain in 72h is a directional WIN even if target was +20%).
+# The deadband filters out near-flat trades that genuinely shouldn't count as
+# wins or losses. Strict target/stop hits still take priority above this path.
+EXPIRED_PNL_DEADBAND = 1.0  # percent
+
 
 # ── helpers ───────────────────────────────────────────────────────────────────
 
@@ -289,11 +298,18 @@ def check_outcomes() -> int:
                 hit_stop   = 1
                 pnl_pct    = ((stop - entry) / entry) * 100
             elif age_hours >= 72:
-                status     = "EXPIRED"
+                # HM-GHOST-SCORECARD-FIX: derive status from realized P&L sign
+                # rather than always bucketing as EXPIRED (see module docstring).
                 exit_price = current
                 hit_target = 0
                 hit_stop   = 0
                 pnl_pct    = o["theoretical_pnl"] or ((current - entry) / entry) * 100
+                if pnl_pct >= EXPIRED_PNL_DEADBAND:
+                    status = "WIN"
+                elif pnl_pct <= -EXPIRED_PNL_DEADBAND:
+                    status = "LOSS"
+                else:
+                    status = "EXPIRED"
             else:
                 continue  # still open
 
@@ -324,8 +340,15 @@ def check_outcomes() -> int:
                 status = "LOSS";   exit_price = stop;   hit_target = 0; hit_stop = 1
                 pnl_pct = ((stop - entry) / entry) * 100
             elif age_hours >= 72:
-                status = "EXPIRED"; exit_price = current; hit_target = 0; hit_stop = 0
+                # HM-GHOST-SCORECARD-FIX: derive status from realized P&L sign.
+                exit_price = current; hit_target = 0; hit_stop = 0
                 pnl_pct = ((current - entry) / entry) * 100
+                if pnl_pct >= EXPIRED_PNL_DEADBAND:
+                    status = "WIN"
+                elif pnl_pct <= -EXPIRED_PNL_DEADBAND:
+                    status = "LOSS"
+                else:
+                    status = "EXPIRED"
             else:
                 continue
 
@@ -347,6 +370,68 @@ def check_outcomes() -> int:
     if scored:
         log.info("Scored %d trades", scored)
     return scored
+
+
+# ── backfill ──────────────────────────────────────────────────────────────────
+
+def reclassify_expired_trades() -> dict:
+    """Reclassify existing status='EXPIRED' rows by realized P&L sign.
+
+    HM-GHOST-SCORECARD-FIX one-shot migration: rows persisted before the
+    deadband-based classifier landed are all bucketed as EXPIRED even when
+    they have meaningful directional P&L. This walks the existing data and
+    promotes those rows to WIN/LOSS per the same EXPIRED_PNL_DEADBAND rule
+    new rows use.
+
+    Idempotent: re-running has no effect since promoted rows are no longer
+    EXPIRED. hit_target/hit_stop remain 0 (no target/stop level was actually
+    hit) — those flags retain their strict semantics.
+
+    Returns counts: {"scanned": n, "to_win": n, "to_loss": n, "kept_expired": n}.
+    """
+    conn = _ghost()
+    rows = conn.execute(
+        "SELECT id, pnl_pct FROM ghost_trades WHERE status = 'EXPIRED'"
+    ).fetchall()
+
+    to_win:  list[int] = []
+    to_loss: list[int] = []
+    kept:    list[int] = []
+    for r in rows:
+        pnl = r["pnl_pct"]
+        if pnl is None:
+            kept.append(r["id"]); continue
+        if pnl >= EXPIRED_PNL_DEADBAND:
+            to_win.append(r["id"])
+        elif pnl <= -EXPIRED_PNL_DEADBAND:
+            to_loss.append(r["id"])
+        else:
+            kept.append(r["id"])
+
+    if to_win:
+        conn.executemany(
+            "UPDATE ghost_trades SET status='WIN' WHERE id=?",
+            [(i,) for i in to_win],
+        )
+    if to_loss:
+        conn.executemany(
+            "UPDATE ghost_trades SET status='LOSS' WHERE id=?",
+            [(i,) for i in to_loss],
+        )
+    conn.commit()
+    conn.close()
+
+    result = {
+        "scanned":       len(rows),
+        "to_win":        len(to_win),
+        "to_loss":       len(to_loss),
+        "kept_expired":  len(kept),
+    }
+    log.info(
+        "reclassify_expired: scanned=%d → WIN=%d LOSS=%d kept=%d",
+        result["scanned"], result["to_win"], result["to_loss"], result["kept_expired"],
+    )
+    return result
 
 
 # ── scorecard ─────────────────────────────────────────────────────────────────
@@ -476,6 +561,15 @@ if __name__ == "__main__":
     cmd = sys.argv[1] if len(sys.argv) > 1 else "run"
     if cmd == "daemon":
         run_daemon(interval_minutes=30)
+    elif cmd == "reclassify":
+        # HM-GHOST-SCORECARD-FIX: one-shot backfill of pre-fix EXPIRED rows.
+        init_db()
+        r = reclassify_expired_trades()
+        print(
+            f"Reclassified: scanned={r['scanned']} → "
+            f"WIN={r['to_win']} LOSS={r['to_loss']} kept_expired={r['kept_expired']}"
+        )
+        print_scorecard()
     else:
         init_db()
         n = capture_new_signals()
