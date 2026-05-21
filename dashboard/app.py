@@ -7411,6 +7411,143 @@ def fundamentals_scores():
     } for r in results]
 
 
+# === HM-AM-PORTFOLIO-UNIFICATION 2026-05-20 ===
+# Real-world net worth view. EXCLUDES Alpaca paper entirely per CLAUDE.md
+# HM-AM scope: "Total Portfolio = real-world net worth only (Schwab + Webull +
+# IBKR + physical metals). EXCLUDES Alpaca paper trading book — that's a
+# separate research/strategy-validation surface and must not co-mingle with
+# real-world capital reporting."
+#
+# Sources (current snapshot):
+#   - Schwab          → data/real_holdings.json (existing manual pipeline)
+#   - Webull          → static $6,600 monitor-only estimate (XLE/AMD/INTC/MSFT/MU/TQQQ/NET/NUKZ)
+#                       account being wound down; no per-position pricing on file
+#   - IBKR            → $0 (account open, untraded)
+#   - Physical metals → 1 oz gold @ $5,249.99 avg cost, 65 oz silver @ $77.67 avg cost
+#                       + live spot prices via engine.metals_tracker
+#   - RV              → 2014 Thor Four Winds 22E, VIN 1FDWE3FS3DDB18978, purchased $24,000
+#                       NON-LIQUID — included as asset note only, not in net_worth_liquid
+@app.get("/api/portfolio/real")
+def portfolio_real():
+    """Real-world net worth — Schwab + Webull + IBKR + physical metals + RV note.
+
+    EXCLUDES Alpaca paper book per HM-AM doctrine. Returns a structured view
+    suitable for dashboard rendering and Captain-facing net-worth reads.
+
+    Fail-safe semantics:
+      - Missing real_holdings.json → schwab section returns {error:..., total:0}
+      - Metals spot fetch failure  → metals.gold/silver.current_value=null,
+        market_value omitted from liquid total
+      - Any unexpected failure     → individual source error captured; other
+        sources still render
+    """
+    import json
+    from pathlib import Path
+
+    result: dict = {
+        "schwab": {},
+        "webull": {
+            "total_est": 6600.0,
+            "holdings": ["XLE", "AMD", "INTC", "MSFT", "MU", "TQQQ", "NET", "NUKZ"],
+            "note": "Monitor-only; account being wound down (HM-WEBULL-LIQUIDATED 2026-05-13). "
+                    "Static $6,600 estimate — no per-position pricing on file.",
+        },
+        "ibkr": {"total": 0.0, "note": "Account open, no positions."},
+        "metals": {"gold": {}, "silver": {}},
+        "net_worth_liquid": 0.0,
+        "notes": [
+            "RV 2014 Thor Four Winds 22E (VIN 1FDWE3FS3DDB18978), purchased $24,000 — "
+            "non-liquid asset, excluded from net_worth_liquid total.",
+        ],
+        "_source": "HM-AM-PORTFOLIO-UNIFICATION /api/portfolio/real",
+    }
+
+    liquid_total = 0.0
+
+    # ── 1. Schwab ──────────────────────────────────────────────────────────
+    try:
+        rh_path = Path(__file__).resolve().parent.parent / "data" / "real_holdings.json"
+        with open(rh_path, "r") as _f:
+            rh = json.load(_f)
+        schwab_acct = (rh.get("accounts") or {}).get("schwab") or {}
+        positions = schwab_acct.get("positions") or []
+        cash = float(schwab_acct.get("cash_balance") or 0.0)
+        # Sum any position market values (positions list is empty today but
+        # forward-compatible with future per-position rows).
+        pos_value = 0.0
+        for p in positions:
+            mv = p.get("market_value") or p.get("value") or 0
+            try:
+                pos_value += float(mv or 0)
+            except (TypeError, ValueError):
+                continue
+        schwab_total = cash + pos_value
+        result["schwab"] = {
+            "cash_balance": round(cash, 2),
+            "positions_value": round(pos_value, 2),
+            "positions": positions,
+            "total": round(schwab_total, 2),
+            "last_updated": rh.get("last_updated"),
+            "notes": schwab_acct.get("notes"),
+        }
+        liquid_total += schwab_total
+    except FileNotFoundError:
+        result["schwab"] = {"error": "data/real_holdings.json not found", "total": 0.0}
+    except Exception as _schwab_err:
+        result["schwab"] = {
+            "error": f"{type(_schwab_err).__name__}: {_schwab_err!r}",
+            "total": 0.0,
+        }
+
+    # ── 2. Webull (static monitor) ─────────────────────────────────────────
+    liquid_total += result["webull"]["total_est"]
+
+    # ── 3. IBKR (static zero) ──────────────────────────────────────────────
+    liquid_total += result["ibkr"]["total"]
+
+    # ── 4. Physical metals (live spot × held oz) ───────────────────────────
+    gold_oz = 1.0
+    gold_avg_cost = 5249.99
+    silver_oz = 65.0
+    silver_avg_cost = 77.67
+    try:
+        from engine.metals_tracker import get_spot_prices
+        spot = get_spot_prices(fresh=False) or {}
+        gold_spot = (spot.get("gold") or {}).get("price")
+        silver_spot = (spot.get("silver") or {}).get("price")
+    except Exception:
+        gold_spot = None
+        silver_spot = None
+    gold_mv = round(gold_spot * gold_oz, 2) if isinstance(gold_spot, (int, float)) else None
+    silver_mv = round(silver_spot * silver_oz, 2) if isinstance(silver_spot, (int, float)) else None
+    result["metals"]["gold"] = {
+        "oz": gold_oz,
+        "avg_cost": gold_avg_cost,
+        "spot_price": gold_spot,
+        "current_value": gold_mv,
+        "cost_basis": round(gold_oz * gold_avg_cost, 2),
+        "unrealized": (round(gold_mv - gold_oz * gold_avg_cost, 2)
+                       if gold_mv is not None else None),
+    }
+    result["metals"]["silver"] = {
+        "oz": silver_oz,
+        "avg_cost": silver_avg_cost,
+        "spot_price": silver_spot,
+        "current_value": silver_mv,
+        "cost_basis": round(silver_oz * silver_avg_cost, 2),
+        "unrealized": (round(silver_mv - silver_oz * silver_avg_cost, 2)
+                       if silver_mv is not None else None),
+    }
+    if gold_mv is not None:
+        liquid_total += gold_mv
+    if silver_mv is not None:
+        liquid_total += silver_mv
+
+    result["net_worth_liquid"] = round(liquid_total, 2)
+    return result
+# === /HM-AM-PORTFOLIO-UNIFICATION ===
+
+
 @app.get("/api/portfolio-health/{player_id}")
 def portfolio_health(player_id: str):
     """Get portfolio health check for an AI player."""
