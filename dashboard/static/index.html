@@ -2397,7 +2397,8 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/regime','/api/navigator/','/api/sectors/heatmap','/api/fear-greed',
     '/api/metals/','/api/earnings/','/api/inverse-etfs','/api/premium-etfs',
     '/api/congress/','/api/volume-radar','/api/universe/status',
-    '/api/fleet/active'];  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
+    '/api/fleet/active',  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
+    '/api/portfolio/real'];  // HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — Schwab+metals real-world view (PR #44 endpoint)
 
   function _isDashboardUrl(url) {
     for (var i = 0; i < _dashboardUrls.length; i++) {
@@ -2846,6 +2847,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="sidebar-item" onclick="showSection('leaderboard')"><span class="icon">🏆</span> Leaderboard</div>
   <div class="sidebar-item" title="Individual AI agent performance analysis" onclick="showSection('agent-deepdive');ddAutoLoad()"><span class="icon">🔬</span> Agent Deep Dive</div>
   <div class="sidebar-item" title="Real physical gold &amp; silver holdings ledger" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
+  <div class="sidebar-item" title="Real-world net worth: Schwab + metals (excludes Alpaca paper, Webull, IBKR)" onclick="showSection('real-portfolio')"><span class="icon">💰</span> Real Portfolio</div>
   <div class="sidebar-item" onclick="showSection('congress')"><span class="icon">🏛️</span> Congress</div>
 
   <!-- TIER 2 — More dropdown -->
@@ -35941,5 +35943,144 @@ async function fetchMovers() {
 }
 </script>
 <!-- ==================== /HM-DASH-MOVERS ==================== -->
+
+<!-- ==================== HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 ==================== -->
+<!-- Real-world net worth panel — Schwab + metals only (excludes Alpaca paper,
+     Webull winding down, IBKR unfunded). Consumes PR #44 /api/portfolio/real. -->
+<div id="section-real-portfolio" style="display:none;">
+  <div style="border-left:4px solid #38bdf8;background:rgba(56,189,248,0.04);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
+    <div style="font-size:11px;font-weight:700;color:#38bdf8;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">💰 Real Portfolio — Liquid Net Worth</div>
+    <div style="font-size:13px;color:#94a3b8;">Schwab + physical metals. Excludes Alpaca paper (research book), Webull (winding down), IBKR (unfunded). Per HM-AM doctrine.</div>
+  </div>
+
+  <!-- Headline net worth -->
+  <div class="card" style="margin-bottom:16px;border-left:4px solid #38bdf8;">
+    <div class="card-header">
+      <div class="card-title">💵 Net Liquid Worth</div>
+      <button class="btn btn-ghost" onclick="fetchRealPortfolio()" style="font-size:13px;">Refresh</button>
+    </div>
+    <div id="realPortfolioHeadline" style="padding:16px;font-size:28px;font-weight:700;text-align:center;color:#38bdf8;">
+      Loading…
+    </div>
+    <div id="realPortfolioMeta" style="padding:0 16px 12px;font-size:11px;color:var(--muted);text-align:center;"></div>
+  </div>
+
+  <!-- Schwab + metals breakdown -->
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div class="card">
+      <div class="card-header"><div class="card-title">🏦 Schwab</div></div>
+      <div id="realPortfolioSchwab" style="padding:14px;font-size:13px;">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">⚗️ Physical Metals</div></div>
+      <div id="realPortfolioMetals" style="padding:14px;font-size:13px;">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Notes / asset addenda -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header"><div class="card-title">📝 Asset Notes</div></div>
+    <div id="realPortfolioNotes" style="padding:14px;font-size:12px;color:var(--muted);">
+      Loading…
+    </div>
+  </div>
+</div>
+
+<script>
+// HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — fetch + render PR #44 endpoint.
+async function fetchRealPortfolio() {
+  var headline = document.getElementById('realPortfolioHeadline');
+  var meta = document.getElementById('realPortfolioMeta');
+  var schwab = document.getElementById('realPortfolioSchwab');
+  var metals = document.getElementById('realPortfolioMetals');
+  var notes = document.getElementById('realPortfolioNotes');
+  try {
+    var r = await fetch('/api/portfolio/real');
+    var d = await r.json();
+    if (!d || d.detail === 'Not Found' || d.error) {
+      headline.textContent = '—';
+      meta.textContent = (d && d.error) ? d.error : 'Endpoint unavailable — restart trader to activate PR #44.';
+      return;
+    }
+    // Headline
+    var nwl = (typeof d.net_worth_liquid === 'number') ? d.net_worth_liquid : 0;
+    headline.textContent = '$' + nwl.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+    var src = d._source || '/api/portfolio/real';
+    meta.textContent = src + ' • updated ' + new Date().toLocaleTimeString();
+
+    // Schwab section
+    var sw = d.schwab || {};
+    if (sw.error) {
+      schwab.innerHTML = '<div style="color:#f87171;">Schwab error: ' + sw.error + '</div>';
+    } else {
+      var rows = '';
+      rows += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">';
+      rows += '<span style="color:var(--muted);">Cash balance</span>';
+      rows += '<span style="font-weight:600;">$' + (sw.cash_balance || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>';
+      rows += '</div>';
+      rows += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">';
+      rows += '<span style="color:var(--muted);">Positions value</span>';
+      rows += '<span style="font-weight:600;">$' + (sw.positions_value || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>';
+      rows += '</div>';
+      rows += '<div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:700;font-size:14px;">';
+      rows += '<span>Total</span>';
+      rows += '<span style="color:#38bdf8;">$' + (sw.total || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>';
+      rows += '</div>';
+      if (sw.last_updated) {
+        rows += '<div style="font-size:10px;color:var(--muted);text-align:right;padding-top:4px;">snapshot ' + sw.last_updated + '</div>';
+      }
+      if (Array.isArray(sw.positions) && sw.positions.length > 0) {
+        rows += '<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;font-size:11px;color:var(--muted);">' + sw.positions.length + ' position(s) on file</div>';
+      }
+      schwab.innerHTML = rows;
+    }
+
+    // Metals section
+    var mt = d.metals || {};
+    var gold = mt.gold || {};
+    var silver = mt.silver || {};
+    function _metalRow(label, m) {
+      var cur = (m.current_value !== null && m.current_value !== undefined) ? '$' + m.current_value.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
+      var spot = (m.spot_price !== null && m.spot_price !== undefined) ? '$' + m.spot_price.toLocaleString() : '—';
+      var unreal = m.unrealized;
+      var unrealStr = (unreal !== null && unreal !== undefined)
+        ? (unreal >= 0 ? '<span style="color:#34d399;">+$' + unreal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>'
+                       : '<span style="color:#f87171;">-$' + Math.abs(unreal).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>')
+        : '—';
+      var html = '<div style="border-bottom:1px solid var(--border);padding:8px 0;">';
+      html += '<div style="display:flex;justify-content:space-between;align-items:baseline;">';
+      html += '<span style="font-weight:600;">' + label + '</span>';
+      html += '<span style="font-weight:600;color:#38bdf8;">' + cur + '</span>';
+      html += '</div>';
+      html += '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);padding-top:3px;">';
+      html += '<span>' + (m.oz || 0) + ' oz @ avg $' + (m.avg_cost || 0).toLocaleString() + '</span>';
+      html += '<span>spot ' + spot + ' • ' + unrealStr + '</span>';
+      html += '</div></div>';
+      return html;
+    }
+    var mhtml = _metalRow('🥇 Gold', gold) + _metalRow('🥈 Silver', silver);
+    metals.innerHTML = mhtml;
+
+    // Notes / asset addenda (RV, etc.)
+    if (Array.isArray(d.notes) && d.notes.length > 0) {
+      notes.innerHTML = d.notes.map(function(n) {
+        return '<div style="padding:4px 0;">• ' + n + '</div>';
+      }).join('');
+    } else {
+      notes.innerHTML = '<div style="color:var(--muted);">No asset notes.</div>';
+    }
+  } catch (e) {
+    headline.textContent = '—';
+    meta.textContent = 'Fetch error: ' + (e && e.message ? e.message : e);
+  }
+}
+registerSectionInit('real-portfolio', fetchRealPortfolio, [{fn: fetchRealPortfolio, ms: 300000}]);  // 5-min auto-refresh
+</script>
+<!-- ==================== /HM-REAL-PORTFOLIO-DASHBOARD ==================== -->
+
 </body>
 </html>
