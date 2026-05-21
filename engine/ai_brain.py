@@ -1461,7 +1461,8 @@ class Arena:
                         "timeframe": decision.timeframe,
                         "asset_type": locals().get("asset_type", "stock"),
                     },
-                    data["price"]
+                    data["price"],
+                    signal_id=signal_id,  # HM-SIGNAL-TRADE-FK 2026-05-20
                 )
                 if result:
                     _signal_status = result.get("execution_status", "EXECUTED")
