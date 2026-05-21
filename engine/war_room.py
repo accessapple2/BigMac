@@ -910,6 +910,22 @@ def run_war_room(providers: dict, prices: dict):
             console.log(f"[dim]  {pid}: dedup — posted about {symbol} {_now - _post_timestamps[_dedup_key]:.0f}s ago, skipping")
             continue
 
+        # === HM-WR-PROVIDER-TIMING 2026-05-20 ===
+        # Per-provider wall-clock instrumentation. Wraps generate_hot_take
+        # (which performs the actual provider.call_model() LLM call inside)
+        # to capture each provider's contribution to the WR cycle wall.
+        # Lands alongside [WR-DUR] in logs/trader.log via console.log per
+        # CLAUDE.md "logger.info vs console.log" sink rule.
+        # Crash-safe: timing collection cannot break provider execution. The
+        # try/except around generate_hot_take is preserved; the perf_counter
+        # bookends are in their own nested try so a clock-read failure
+        # (extraordinarily unlikely) doesn't propagate.
+        _wr_prov_t0 = None
+        try:
+            _wr_prov_t0 = time.perf_counter()
+        except Exception:
+            _wr_prov_t0 = None
+        # === /HM-WR-PROVIDER-TIMING ===
         try:
             context_takes = round_takes + prior_takes
             take = generate_hot_take(provider, pid, symbol, price_data, context_takes or None)
@@ -928,6 +944,17 @@ def run_war_room(providers: dict, prices: dict):
                 console.log(f"[magenta]  {pid}: {take[:120]}")
         except Exception as e:
             console.log(f"[red]War room {pid} error: {e}")
+        # === HM-WR-PROVIDER-TIMING 2026-05-20 ===
+        # Emit per-provider wall regardless of success or exception — both
+        # paths are interesting (a slow timeout is just as informative as a
+        # slow successful response). Crash-safe via inner try/except.
+        if _wr_prov_t0 is not None:
+            try:
+                _wr_prov_wall = time.perf_counter() - _wr_prov_t0
+                console.log(f"[WR-PROVIDER-DUR] provider={pid} wall={_wr_prov_wall:.3f}s")
+            except Exception:
+                pass  # nested console.log fallback can also fail; never propagate
+        # === /HM-WR-PROVIDER-TIMING ===
 
     # Clear strategy mode after round completes (consumed)
     global _active_strategy_mode
