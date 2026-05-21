@@ -1101,6 +1101,50 @@ class Arena:
             sym_indicators = indicators.get(symbol, {})
             sym_news = news_by_symbol.get(symbol, [])
 
+            # === HM-DEEPSEEK-CONCENTRATION-CAP 2026-05-20 ===
+            # Per project_hm_deepseek_triage_2026-05-20: deepseek-7b-grok4 emitted
+            # 100+ near-identical MU BUY signals during 2026-04-24 → 2026-05-19 while
+            # MU collapsed $471→$12→$529→$102. Gate REJECTED most but the same
+            # thesis kept firing every cycle — wasted compute + risk of slipping
+            # through on a gate edge case.
+            # Cap: if deepseek has ≥20 REJECTED signals on this symbol in the last
+            # 30 days, skip LLM invocation entirely for this symbol on this cycle.
+            # Fail-safe: any DB error → allow (default-open), so a transient DB
+            # issue doesn't silently halt the agent.
+            if player_id == "deepseek-7b-grok4":
+                _ds_cap_skip = False
+                try:
+                    import sqlite3 as _ds_sq
+                    _ds_c = _ds_sq.connect("data/trader.db", check_same_thread=False, timeout=10)
+                    try:
+                        _ds_row = _ds_c.execute(
+                            "SELECT COUNT(*) FROM signals "
+                            "WHERE player_id='deepseek-7b-grok4' "
+                            "AND symbol=? "
+                            "AND created_at > datetime('now','-30 days') "
+                            "AND execution_status='REJECTED'",
+                            (symbol,)
+                        ).fetchone()
+                        _ds_rejects = int(_ds_row[0]) if _ds_row else 0
+                    finally:
+                        _ds_c.close()
+                    if _ds_rejects >= 20:
+                        console.log(
+                            f"[yellow][DEEPSEEK-CAP] symbol={symbol} "
+                            f"rejections={_ds_rejects} — skipping LLM"
+                        )
+                        _ds_cap_skip = True
+                except Exception as _ds_cap_err:
+                    console.log(
+                        f"[yellow][DEEPSEEK-CAP] lookup failed "
+                        f"({type(_ds_cap_err).__name__}: {_ds_cap_err!r}) — "
+                        f"allowing {symbol}"
+                    )
+                    _ds_cap_skip = False
+                if _ds_cap_skip:
+                    continue
+            # === /HM-DEEPSEEK-CONCENTRATION-CAP ===
+
             decision = provider.analyze_chain(
                 symbol=symbol,
                 price=data["price"],
