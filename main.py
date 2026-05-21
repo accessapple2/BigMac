@@ -1131,7 +1131,19 @@ _war_room_running = threading.Event()  # guard: prevents two-thread overlap (202
 # process lifetime (see CLAUDE.md "Alert rate-limit semantics — in-memory only"). The
 # 10-min value matches the diagnostic signature documented in
 # data/scotty_hm_war_room_latency_scope_2026-05-15.md.
-_WR_STALL_THRESHOLD_S = 600
+# HM-WR-STALL-ALARM-RATE-LIMIT 2026-05-20: raised from 600 → 750 (12.5 min) to
+# reduce false-alarm volume. First [WR-PROVIDER-DUR] cycle observed wall=1175s
+# with all 8 LLM providers in 91-202s range (see project_hm_wr_provider_latency).
+# 750s gives breathing room above the typical post-restart cycle while still
+# catching genuine multi-cycle stalls.
+_WR_STALL_THRESHOLD_S = 750
+
+# HM-WR-STALL-ALARM-RATE-LIMIT 2026-05-20: per-hour NTFY rate limit replaces
+# engine.alert_channels per-process-lifetime dedup. The prior dedup let one
+# alert through per process; with frequent restarts during dev that produced
+# either every-cycle noise OR multi-cycle silence. Per-hour gate gives both
+# bounded notification volume AND restart-survival of the limit window.
+_wr_stall_last_ntfy: float = 0.0
 
 # HM-WAR-ROOM-LATENCY Layer 2a v1 (2026-05-20): cycle-wall budget threshold.
 # Instrumentation-only — emits [WR-BUDGET-EXCEEDED] when wall > budget but
@@ -1153,20 +1165,34 @@ def _emit_wr_duration(wall_seconds: float) -> None:
     """
     console.log(f"[WR-DUR] cycle wall={wall_seconds:.1f}s")
     if wall_seconds > _WR_STALL_THRESHOLD_S:
-        try:
-            from engine.alert_channels import AlertLevel, send_alert
-            send_alert(
-                message=(
-                    f"[WR-STALL] War Room cycle wall={wall_seconds / 60:.1f}min "
-                    f"exceeded threshold ({_WR_STALL_THRESHOLD_S / 60:.0f}min). "
-                    f"Scheduler will skip ticks until cycle releases."
-                ),
-                level=AlertLevel.WARNING,
-                alert_type="war_room_slow_cycle",
-            )
-        except Exception as e:
+        # HM-WR-STALL-ALARM-RATE-LIMIT 2026-05-20: per-hour rate limit on the
+        # NTFY (not the log line — log always fires for full observability).
+        # 3600s = 1h gate. Prevents every-cycle alert spam when the system is
+        # in sustained-slow mode (e.g., VRAM thrashing causing 1100s+ cycles).
+        global _wr_stall_last_ntfy
+        _now = time.time()
+        if _now - _wr_stall_last_ntfy > 3600:
+            try:
+                from engine.alert_channels import AlertLevel, send_alert
+                send_alert(
+                    message=(
+                        f"[WR-STALL] War Room cycle wall={wall_seconds / 60:.1f}min "
+                        f"exceeded threshold ({_WR_STALL_THRESHOLD_S / 60:.0f}min). "
+                        f"Scheduler will skip ticks until cycle releases."
+                    ),
+                    level=AlertLevel.WARNING,
+                    alert_type="war_room_slow_cycle",
+                )
+                _wr_stall_last_ntfy = _now
+            except Exception as e:
+                console.log(
+                    f"[red][WR-STALL] NTFY dispatch failed: {type(e).__name__}: {e!r}"
+                )
+        else:
+            _suppressed_min = (3600 - (_now - _wr_stall_last_ntfy)) / 60.0
             console.log(
-                f"[red][WR-STALL] NTFY dispatch failed: {type(e).__name__}: {e!r}"
+                f"[WR-STALL-SUPPRESSED] cycle wall={wall_seconds / 60:.1f}min "
+                f"(rate-limited; next NTFY in {_suppressed_min:.0f}min)"
             )
 
 
