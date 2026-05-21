@@ -73,6 +73,7 @@ def setup():
         expiry_date TEXT,
         reasoning TEXT,
         confidence REAL,
+        signal_id INTEGER REFERENCES signals(id),  -- HM-SIGNAL-TRADE-FK 2026-05-20; NULL for non-signal-driven trades
         executed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
     )''')
 
@@ -448,6 +449,16 @@ def setup():
             c.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
         except sqlite3.OperationalError:
             pass  # Column already exists
+
+    # HM-SIGNAL-TRADE-FK 2026-05-20: link trade row to originating signal row.
+    # SQLite doesn't enforce FK by default but the linkage is captured here:
+    # trades.signal_id → signals.id (rowid). NULL for mechanical exits (Autopilot
+    # trims, scale-outs, stop-loss) and any path where the originating signal
+    # context is not in scope. See engine/paper_trader.buy() for the populate path.
+    try:
+        c.execute("ALTER TABLE trades ADD COLUMN signal_id INTEGER DEFAULT NULL")
+    except sqlite3.OperationalError:
+        pass  # Column already exists
 
     # Add sources column to signals and trades (data source traceability)
     for table in ["signals", "trades"]:

@@ -561,7 +561,11 @@ def _detect_ghost_option(player_id: str, symbol: str, price: float,
 def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         qty: float = None, reasoning: str = "", confidence: float = 0.0,
         option_type: str = None, strike_price: float = None, expiry_date: str = None,
-        sources: str = "", timeframe: str = "SWING", sizing_multiplier: float = 1.0) -> dict | None:
+        sources: str = "", timeframe: str = "SWING", sizing_multiplier: float = 1.0,
+        signal_id: int | None = None) -> dict | None:
+    # HM-SIGNAL-TRADE-FK 2026-05-20: signal_id is the rowid of the originating
+    # row in `signals` returned by save_signal(). Optional — callers without
+    # the signal_id in scope pass None, and the trade row stores NULL.
     # GUARD: Never auto-trade human portfolios
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
@@ -1024,10 +1028,14 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         )
 
     conn.execute(
+        # HM-SIGNAL-TRADE-FK 2026-05-20: trades.signal_id captures originating
+        # signals.id (rowid) for traceability. NULL if signal_id not in scope
+        # (mechanical exits + paths that bypass execute_signal).
         "INSERT INTO trades(player_id, symbol, action, qty, price, asset_type, option_type, "
-        "strike_price, expiry_date, reasoning, confidence, season, sources, timeframe) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "strike_price, expiry_date, reasoning, confidence, season, sources, timeframe, signal_id) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (player_id, symbol, "BUY", qty, price, asset_type, option_type,
-         strike_price, expiry_date, reasoning, confidence, _current_season(), sources, timeframe)
+         strike_price, expiry_date, reasoning, confidence, _current_season(), sources, timeframe, signal_id)
     )
     conn.commit()
     conn.close()
@@ -1376,7 +1384,11 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
     return {"action": "SELL", "symbol": symbol, "qty": qty, "pnl": pnl, "player_id": player_id}
 
 
-def execute_signal(player_id: str, signal: dict, price: float) -> dict | None:
+def execute_signal(player_id: str, signal: dict, price: float, signal_id: int | None = None) -> dict | None:
+    # HM-SIGNAL-TRADE-FK 2026-05-20: signal_id is the originating signals.id
+    # rowid (returned from save_signal). Threaded through to buy() so the
+    # resulting trade row captures the FK. Optional — callers that haven't
+    # done save_signal yet pass None.
     # GUARD: Never auto-trade human portfolios
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
@@ -1390,7 +1402,9 @@ def execute_signal(player_id: str, signal: dict, price: float) -> dict | None:
 
     if action == "BUY":
         _asset_type = signal.get("asset_type", "stock")
-        return buy(player_id, symbol, price, asset_type=_asset_type, reasoning=reasoning, confidence=confidence, sources=sources, timeframe=timeframe)
+        return buy(player_id, symbol, price, asset_type=_asset_type, reasoning=reasoning,
+                   confidence=confidence, sources=sources, timeframe=timeframe,
+                   signal_id=signal_id)
     elif action == "SELL":
         return sell(player_id, symbol, price, reasoning=reasoning, confidence=confidence)
     elif action == "SHORT":
@@ -1421,7 +1435,8 @@ def execute_signal(player_id: str, signal: dict, price: float) -> dict | None:
             return None
         result = buy(player_id, symbol, buy_price, asset_type="option", option_type=option_type,
                      reasoning=reasoning, confidence=confidence,
-                     strike_price=strike_price, expiry_date=expiry_date, sources=sources, timeframe=timeframe)
+                     strike_price=strike_price, expiry_date=expiry_date, sources=sources, timeframe=timeframe,
+                     signal_id=signal_id)
         # Forward to Alpaca for options-enabled players; record order ID
         try:
             from engine.alpaca_options import execute_options_signal
