@@ -237,31 +237,42 @@ def _get_alpaca_price(symbol: str) -> dict | None:
 
 
 def _get_alpaca_bulk_prices(symbols: list) -> dict:
-    """GET /v2/stocks/quotes/latest?symbols=... — all symbols in one call."""
-    hdrs = _get_alpaca_headers()
-    if not hdrs:
+    """Bulk price+change+volume via /v2/stocks/snapshots — all symbols in one call.
+
+    HM-BULK-PRICES-FIXTURE-FIX 2026-05-21: the pre-fix implementation hit
+    /v2/stocks/quotes/latest and parsed via _alpaca_quote_to_price, which only
+    has bid/ask in the quote payload. That gave change_pct=0.0 (hardcoded — no
+    prev_close in a quote) and volume=ask_size (typically tiny, e.g. SPY=40).
+    Heatmap + market-movers consumers got fixture-shaped data for all 508
+    symbols. Snapshots endpoint returns last + dailyBar (high/low/volume) +
+    prevDailyBar.close — same auth, same feed, real values.
+
+    See: project_hm_bulk_prices_fixture_bug.
+    """
+    snaps = _get_alpaca_bulk_snapshots(symbols)
+    if not snaps:
         return {}
-    try:
-        r = requests.get(
-            f"{_ALPACA_BASE}/quotes/latest",
-            headers=hdrs,
-            params={"symbols": ",".join(symbols), "feed": "iex"},
-            timeout=10,
-        )
-        if not r.ok:
-            return {}
-        quotes = r.json().get("quotes", {})
-        results = {}
-        for sym, q in quotes.items():
-            if not q:
-                continue
-            data = _alpaca_quote_to_price(sym, q)
-            if data["price"]:
-                results[sym] = data
-                _cache_price(sym, data)
-        return results
-    except Exception:
-        return {}
+    results: dict = {}
+    now_iso = datetime.now().isoformat()
+    for sym, snap in snaps.items():
+        last = snap.get("last_price")
+        prev = snap.get("prev_close")
+        if not last:
+            continue
+        chg = round((last - prev) / prev * 100, 2) if prev else 0.0
+        data = {
+            "symbol": sym,
+            "price": round(float(last), 2),
+            "change_pct": chg,
+            "high": round(float(snap.get("high") or last), 2),
+            "low": round(float(snap.get("low") or last), 2),
+            "volume": int(snap.get("volume") or 0),
+            "timestamp": now_iso,
+            "source": "alpaca_snapshot",
+        }
+        results[sym] = data
+        _cache_price(sym, data)
+    return results
 
 
 # === Phase 2: Race tile snapshots ===
