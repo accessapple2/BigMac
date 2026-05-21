@@ -1065,12 +1065,22 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     conn = _conn()
     conn.execute("UPDATE ai_players SET cash=? WHERE id=?", (round(cash - cost, 2), player_id))
 
+    # HM-POSITIONS-AVG-PRICE-WRITEBACK 2026-05-21: capture the pre-write
+    # (ex_qty, ex_avg_price) so the post-Alpaca-fill correction below can
+    # recompute avg_price from broker truth instead of the trader-internal
+    # `price`. Initialize defaults to handle the options branch / non-stock.
+    _pos_ex_qty_before = 0.0
+    _pos_ex_avg_before = 0.0
+    _pos_was_new = True
     if asset_type == "stock":
         ex = conn.execute(
             "SELECT qty, avg_price FROM positions WHERE player_id=? AND symbol=? AND asset_type='stock'",
             (player_id, symbol)
         ).fetchone()
         if ex:
+            _pos_ex_qty_before = float(ex[0])
+            _pos_ex_avg_before = float(ex[1])
+            _pos_was_new = False
             nq = ex[0] + qty
             na = round(((ex[0] * ex[1]) + cost) / nq, 4)
             conn.execute(
@@ -1118,9 +1128,18 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     # Forward to Alpaca paper trading (non-blocking)
     # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: persist actual broker fill into
     # the just-inserted trade row (was leaving trader-internal price in place).
+    # HM-POSITIONS-AVG-PRICE-WRITEBACK 2026-05-21: also recompute positions.avg_price
+    # from the broker fill so subsequent SELL closes use broker truth as the
+    # realized_pnl entry basis (stock-only; options + SHORT out of scope).
     if route["route_mode"] == "trading":
         _alpaca_result = _forward_to_alpaca("BUY", player_id, symbol, qty, asset_type, price=price)
         _persist_alpaca_fill(_trade_id, "BUY", qty, _alpaca_result, player_id, symbol)
+        if asset_type == "stock":
+            _persist_alpaca_fill_position(
+                player_id, symbol, qty,
+                _pos_ex_qty_before, _pos_ex_avg_before, _pos_was_new,
+                _alpaca_result,
+            )
 
     return {
         "action": "BUY",
@@ -1703,6 +1722,66 @@ def _persist_alpaca_fill(trade_id: int, action: str, qty: float,
         console.log(
             f"[yellow][TRADE-FILL-WARN] {player_id} {action} {symbol} "
             f"trade_id={trade_id}: persist error: {type(e).__name__}: {e!r}"
+        )
+
+
+def _persist_alpaca_fill_position(player_id: str, symbol: str, qty: float,
+                                   ex_qty_before: float, ex_avg_before: float,
+                                   was_new: bool, result) -> None:
+    """HM-POSITIONS-AVG-PRICE-WRITEBACK 2026-05-21: recompute positions.avg_price
+    from the Alpaca fill so subsequent SELL closes use broker truth as the
+    realized_pnl entry basis.
+
+    Companion to _persist_alpaca_fill which corrects the trades row. The trades
+    fix alone left SELL.realized_pnl polluted because the SELL path reads
+    pos["avg_price"] (from the positions table) into trades.entry_price, and
+    that column was still seeded from the internal `price` (see buy() above
+    around line 1077-1090 — UPDATE/INSERT into positions writes the trader's
+    pre-submit target, not the broker fill).
+
+    Pricing rules:
+      - New position (was_new=True): avg_price = fill
+      - Additive: avg_price = (ex_qty * ex_avg + qty * fill) / (ex_qty + qty)
+        Note ex_avg may itself carry historical pollution from pre-fix BUYs
+        on this symbol; we accept that — it bleeds out as those legs close.
+        Future positions opened post-fix will be clean.
+
+    Stock-only by design (caller already gates on asset_type=='stock'). Never
+    raises — positions correctness must not block the trade flow.
+    """
+    if not result or not isinstance(result, dict) or result.get("error"):
+        return
+    fill_price = result.get("filled_avg_price")
+    if fill_price is None:
+        console.log(
+            f"[yellow][POSITION-FILL-WARN] {player_id} BUY {symbol}: "
+            f"no filled_avg_price; keeping internal avg_price"
+        )
+        return
+    try:
+        fp = float(fill_price)
+        if fp <= 0:
+            return
+        q = float(qty)
+        if was_new:
+            new_avg = round(fp, 4)
+        else:
+            new_qty = ex_qty_before + q
+            if new_qty <= 0:
+                return
+            new_avg = round(((ex_qty_before * ex_avg_before) + (q * fp)) / new_qty, 4)
+        conn = _conn()
+        conn.execute(
+            "UPDATE positions SET avg_price=? "
+            "WHERE player_id=? AND symbol=? AND asset_type='stock'",
+            (new_avg, player_id, symbol),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        console.log(
+            f"[yellow][POSITION-FILL-WARN] {player_id} BUY {symbol}: "
+            f"persist error: {type(e).__name__}: {e!r}"
         )
 
 
