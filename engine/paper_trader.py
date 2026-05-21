@@ -583,6 +583,58 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     if route["route_mode"] == "tracking":
         return _log_signal_only(player_id, "BUY", symbol, route, reasoning, confidence)
 
+    # === HM-GRADE-B-FLEET-GATE 2026-05-20 ===
+    # Generalize the Grade B regime + SPY-intraday gates (PR #43 + #47, originally
+    # ollie-auto-only) to the entire fleet. Grade B's analog in non-ollie-auto
+    # agents is the "marginal conviction" band: confidence in [0.60, 0.75).
+    # When confidence is in that band AND today's regime is bearish OR SPY is
+    # down >0.1% intraday, block the BUY. Grade A (conf ≥ 0.75) and very low
+    # conviction (conf < 0.60, which won't typically trade anyway) bypass.
+    # Stocks only (options have separate gates upstream).
+    # Backtest validation: scripts/grade_b_regime_backtest.py showed the same
+    # gate pattern saves $295.20 across 48 May Grade B trades for ollie-auto.
+    # Fleet-wide application extends the protection to deepseek/navigator/etc.
+    # Fail-safe: any lookup failure → ALLOW the trade.
+    if asset_type == "stock" and confidence is not None and 0.60 <= float(confidence) < 0.75:
+        _fleet_block_reason = None
+        # Layer 1: bearish regime
+        try:
+            _gbc = _conn()
+            try:
+                _gbrow = _gbc.execute(
+                    "SELECT regime FROM regime_history "
+                    "WHERE date = date('now','localtime') "
+                    "ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                _gbregime = _gbrow[0] if _gbrow else None
+            finally:
+                _gbc.close()
+            if _gbregime in ("BEAR_CROSS", "CAUTIOUS_BEAR"):
+                _fleet_block_reason = f"regime={_gbregime}"
+        except Exception:
+            _gbregime = None  # fail-safe: open
+        # Layer 2: SPY intraday (only run if regime didn't already block)
+        if _fleet_block_reason is None:
+            try:
+                from engine.market_data import get_stock_price as _gbgsp
+                _gbspy = _gbgsp("SPY") or {}
+                if "error" not in _gbspy:
+                    _gbspy_chg = _gbspy.get("change_pct")
+                    if isinstance(_gbspy_chg, (int, float)) and _gbspy_chg < -0.1:
+                        _fleet_block_reason = f"SPY={_gbspy_chg:+.3f}%"
+            except Exception:
+                pass  # fail-safe: open
+        if _fleet_block_reason:
+            console.log(
+                f"[yellow][GRADE-B-FLEET-GATE] player={player_id} symbol={symbol} "
+                f"conf={confidence:.2f} reason={_fleet_block_reason} — BLOCKED"
+            )
+            _last_rejection[player_id] = (
+                f"GRADE-B-FLEET-GATE: {_fleet_block_reason}"
+            )
+            return None
+    # === /HM-GRADE-B-FLEET-GATE ===
+
     # === GHOST PROMOTION BLOCKER ===
     # Catch models whose reasoning says "hold/no trade" but action leaked as BUY.
     _GHOST_PHRASES = [
