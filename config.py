@@ -16,6 +16,13 @@ TRADING_MODE = os.environ.get("TRADING_MODE", "paper")  # "paper" or "live"
 # HM-AF-δ player_id resolver (commit 2fea086) activates with real data.
 SPREAD_CANNIBALIZATION_GUARD_ENABLED = False
 
+# HM-TRADE-DESK 2026-05-22: manual Captain trade desk on Alpaca paper.
+# When True, orders submitted with agent_id='trade-desk' bypass check_trade
+# gates (daily trade limit, MAX_POSITION_VALUE, kill switch, Uhura veto).
+# Set False to subject the desk to the same rails as routed players.
+# Reversal: flip + restart.
+TRADE_DESK_BYPASS_GATES = True
+
 # Tickers confirmed delisted/halted — excluded from all scan universes
 DELISTED_BLACKLIST: set[str] = {
     "XCEM", "EAOA", "YFYA", "BULZ", "TDWDR", "TWLVR", "UCFIW", "VSTA",

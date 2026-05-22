@@ -24,9 +24,23 @@ def check_trade(agent_id: str, symbol: str, action: str, qty: float, price: floa
     Returns {'allowed': True} or {'allowed': False, 'reason': '...'}
     """
     # 0. File-based fleet halt (created 2026-04-20, Phase C3)
+    # Fleet halt is the universal kill switch — applies even to the manual
+    # trade desk so Captain can't accidentally trade through a halt.
     from engine.fleet_halt import is_active as _fleet_halted
     if _fleet_halted():
         return {"allowed": False, "reason": "KILL_SWITCH file active — fleet halted"}
+    # HM-TRADE-DESK 2026-05-22: manual desk bypass (config-gated).
+    # Captain-driven orders skip per-agent kill switch, daily trade limit,
+    # MAX_POSITION_VALUE cap, and Uhura institutional veto. Fleet kill switch
+    # above still applies. Flip TRADE_DESK_BYPASS_GATES=False to subject the
+    # desk to the same rails as routed players.
+    if agent_id == "trade-desk":
+        try:
+            from config import TRADE_DESK_BYPASS_GATES
+            if TRADE_DESK_BYPASS_GATES:
+                return {"allowed": True}
+        except Exception:
+            pass
 
     conn = sqlite3.connect(DB_PATH)
     conn.execute("PRAGMA journal_mode=WAL")
