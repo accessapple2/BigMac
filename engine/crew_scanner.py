@@ -2180,6 +2180,20 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
         f"[HM-AN2] neo-matrix: {len(fresh)} fresh Signal Center signal(s) "
         f"to evaluate (confidence >= {_HM_AN2_MIN_CONFIDENCE})"
     )
+
+    # HM-WR-CYCLE-RCA Phase 2 (2026-05-21): per-cycle gate-block counter.
+    # Today's audit shows 100% of neo-matrix candidates rejected downstream of
+    # the WR cycle (the per-symbol [HM-AN2] sig#N BLOCKED — <reason> lines
+    # accumulate to 20+ per cycle). This summary collapses the noise to one
+    # line per cycle keyed by reason, making the dominant block source
+    # immediately observable. Counters are scoped to THIS consume call.
+    from collections import Counter as _AN2_Counter
+    _an2_block_reasons: _AN2_Counter = _AN2_Counter()
+    _an2_skipped_non_buy = 0
+    _an2_skipped_no_entry = 0
+    _an2_executed = 0
+    _an2_exceptions = 0
+
     for s in fresh:
         sig_id = int(s.get("id", 0))
         _HM_AN2_SEEN_IDS.add(sig_id)
@@ -2190,6 +2204,7 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
         agent = s.get("agent_name") or "unknown"
         if not sym or action not in ("BUY", "LONG"):
             console.log(f"[HM-AN2] sig#{sig_id} {sym or '?'} {action} skip (non-buy)")
+            _an2_skipped_non_buy += 1
             continue
         console.log(
             f"[HM-AN2] sig#{sig_id} CANDIDATE: {sym} {action} conf={conf} "
@@ -2197,6 +2212,7 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
         )
         if entry <= 0:
             console.log(f"[HM-AN2] sig#{sig_id} {sym} skip (no entry_price)")
+            _an2_skipped_no_entry += 1
             continue
         reasoning = (
             f"[HM-AN2.C] Signal Center sig#{sig_id} via {agent}: "
@@ -2212,6 +2228,7 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
             )
             if result:
                 console.log(f"[HM-AN2] sig#{sig_id} {sym} EXECUTED → {result}")
+                _an2_executed += 1
             else:
                 # === HM-AN2-BLOCKED-INLINE === pull gate reason from paper_trader._last_rejection
                 try:
@@ -2220,12 +2237,35 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
                 except Exception:
                     _gate_reason = "import failed"
                 console.log(f"[HM-AN2] sig#{sig_id} {sym} BLOCKED — {_gate_reason}")
+                # HM-WR-CYCLE-RCA Phase 2: normalize reason to a short bucket
+                # key for the counter — preserves the leading reason token
+                # (e.g. "Not in universe", "Swing trade blocked") while
+                # discarding per-symbol detail. Truncate at first colon/em-dash
+                # to merge "Not in universe: AAL" + "Not in universe: GOOGL".
+                _bucket_key = (_gate_reason or "unspecified").split(":")[0].split("—")[0].strip() or "unspecified"
+                _an2_block_reasons[_bucket_key] += 1
                 # === /HM-AN2-BLOCKED-INLINE ===
         except Exception as e:
             console.log(
                 f"[yellow][HM-AN2] sig#{sig_id} {sym} exception: "
                 f"{type(e).__name__}: {e!r}[/yellow]"
             )
+            _an2_exceptions += 1
+
+    # HM-WR-CYCLE-RCA Phase 2 (2026-05-21): per-cycle summary line.
+    # One [HM-AN2-BLOCKS] line per consume call, sortable by grep, shows the
+    # dominant block reason at a glance. Empty reasons dict means everything
+    # executed (or all skipped pre-buy).
+    _an2_blocked_total = sum(_an2_block_reasons.values())
+    _an2_top = ", ".join(
+        f"{r}={c}" for r, c in _an2_block_reasons.most_common()
+    ) or "(none)"
+    console.log(
+        f"[HM-AN2-BLOCKS] candidates={len(fresh)} executed={_an2_executed} "
+        f"blocked={_an2_blocked_total} skipped_non_buy={_an2_skipped_non_buy} "
+        f"skipped_no_entry={_an2_skipped_no_entry} exceptions={_an2_exceptions} "
+        f"reasons={{{_an2_top}}}"
+    )
 # === /HM-AN2.C ===
 
 
