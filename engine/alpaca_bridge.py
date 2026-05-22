@@ -229,5 +229,18 @@ class AlpacaBridge:
         except Exception as e:
             return {'error': str(e)}
 
+    def cancel(self, order_id: str):
+        """Cancel an open Alpaca order by id. HM-TRADE-DESK 2026-05-22."""
+        if not self.client:
+            return {'error': 'Not connected'}
+        if not order_id:
+            return {'error': 'order_id required'}
+        try:
+            self.client.cancel_order_by_id(order_id)
+            console.log(f"[yellow]Alpaca CANCEL order {order_id}")
+            return {'success': True, 'order_id': order_id, 'status': 'canceled'}
+        except Exception as e:
+            return {'error': f"{type(e).__name__}: {e!r}"}
+
 
 alpaca = AlpacaBridge()

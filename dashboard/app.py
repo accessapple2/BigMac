@@ -9699,6 +9699,13 @@ def alpaca_close_all():
     return alpaca.close_all()
 
 
+# HM-TRADE-DESK 2026-05-22: cancel open order by id (used by trade desk
+# Quick Cancel button on pending limit/stop rows).
+@app.post("/api/alpaca/cancel/{order_id}")
+def alpaca_cancel(order_id: str):
+    return alpaca.cancel(order_id)
+
+
 @app.get("/api/alpaca/sync-status")
 def alpaca_sync_status():
     """Return last Alpaca portfolio sync metadata (timestamp, value, cash, positions)."""
