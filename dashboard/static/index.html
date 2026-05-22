@@ -28730,25 +28730,33 @@ setTimeout(pollNotifications, 3000); // First poll after 3s
 }
 #computerChatPanel.open { display: flex; }
 #computer-chat-header {
-  padding: 12px 16px; background: #1e3a8a;
-  display: flex; align-items: center; gap: 10px;
+  padding: 12px 48px 12px 16px; /* HM-CIC-X-FIX 2026-05-22: reserve right gutter for absolute-positioned close button */
+  background: #1e3a8a;
+  display: flex; align-items: center; gap: 10px; flex-wrap: wrap;
   border-bottom: 1px solid rgba(255,255,255,0.1);
+  position: relative; /* anchor for #computer-chat-close */
 }
 #computer-chat-header span { font-size: 13px; font-weight: 700; color: #fff; letter-spacing: 0.04em; text-transform: uppercase; }
+/* HM-CIC-X-FIX 2026-05-22: absolute-position the close button in the
+   header's top-right gutter so it's always visible regardless of how many
+   other controls live in the header. Previously margin-left:auto pushed it
+   off-screen when the header's 15+ flex children overflowed the 420px panel. */
 #computer-chat-close {
-  margin-left: auto;
+  position: absolute;
+  top: 8px;
+  right: 8px;
   background: rgba(255,0,0,0.1);
   border: 1px solid rgba(255,0,0,0.3);
   color: #ff4444;
   cursor: pointer;
-  font-size: 24px;
+  font-size: 20px;
   font-weight: bold;
   line-height: 1;
-  min-width: 36px; min-height: 36px;
+  width: 32px; height: 32px;
   display: flex; align-items: center; justify-content: center;
   border-radius: 6px;
   padding: 0;
-  flex-shrink: 0;
+  z-index: 1;
 }
 #computer-chat-close:hover { background: rgba(255,0,0,0.2); border-color: rgba(255,0,0,0.6); }
 #computer-chat-messages {
@@ -29263,8 +29271,14 @@ document.addEventListener('DOMContentLoaded', function() {
     .then(function(d) {
       var problems = [];
 
-      // Ollama offline — null means never succeeded this session
-      if (!d.last_ollama_success) {
+      // HM-OLLAMA-DETECTION-FIX 2026-05-22: trust authoritative ollama_reachable
+      // (live ping with 30s cache) over the queue-age-based last_ollama_success,
+      // which falsely reports offline when the queue has zero processed requests
+      // (fresh boot / low-traffic windows). Fallback to legacy check if the
+      // new field isn't present (back-compat with old bytecode).
+      if (typeof d.ollama_reachable === 'boolean') {
+        if (!d.ollama_reachable) problems.push('Ollama is offline.');
+      } else if (!d.last_ollama_success) {
         problems.push('Ollama is offline.');
       } else {
         var ollamaAgeMin = (Date.now() - new Date(d.last_ollama_success).getTime()) / 60000;
