@@ -745,11 +745,21 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             _last_rejection[player_id] = f"Below confidence threshold ({confidence:.0%} < {_min_conv:.0%})"
             return None
 
-        # 3. V2: Conviction-scaled stop-loss — wider stops for high conviction
+        # 3. V2: Conviction-scaled stop-loss + target — wider stops for high conviction.
+        # HM-AN2-TARGET-INJECTION 2026-05-22: symmetric target auto-injection so
+        # the swing-gate's has_target check (line ~968) passes alongside has_stop.
+        # Before this fix, AN2-consumed Signal Center signals (Spock/Chekov/etc.
+        # routed through neo-matrix) lost the swing-gate because upstream
+        # reasoning text rarely included "target" text — auto-injection covered
+        # stop only, producing a 100% block rate on neo-matrix AN2 swing trades.
+        # Target default = 2× stop (2:1 RR floor). Text-only injection — actual
+        # exit behavior still driven by downstream tier-exit logic.
+        _model_sl = _rm.get_model_guardrail(player_id, "stop_loss_pct")
+        _sl_pct = _model_sl if _model_sl else _rm.get_stop_loss_pct(confidence)
         if "stop" not in reasoning.lower() and "sl" not in reasoning.lower():
-            _model_sl = _rm.get_model_guardrail(player_id, "stop_loss_pct")
-            _sl_pct = _model_sl if _model_sl else _rm.get_stop_loss_pct(confidence)
             reasoning = f"{reasoning} [AUTO-STOP: -{_sl_pct:.0%} from entry]"
+        if "target" not in reasoning.lower():
+            reasoning = f"{reasoning} [AUTO-TARGET: +{_sl_pct * 2:.0%} from entry]"
 
         # 4. V3: Per-model position limit (fewer picks, bigger bets)
         _portfolio = get_portfolio(player_id)
