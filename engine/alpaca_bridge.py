@@ -115,32 +115,95 @@ class AlpacaBridge:
         except Exception as e:
             return [{'error': str(e)}]
 
-    def buy(self, symbol, qty, agent_id: str = "unknown", extended_hours: bool = False, limit_price: float = 0.0):
+    def _build_order_request(self, *, symbol: str, side, qty: float,
+                             order_type: str, limit_price: float,
+                             stop_price: float, extended_hours: bool,
+                             notional: float = 0.0):
+        """HM-TRADE-DESK 2026-05-22: dispatch on order_type ∈
+        {market, limit, stop, stop_limit}. Returns the appropriate
+        alpaca-py request object. Extended-hours forces a limit-with-premium
+        on otherwise-Market orders (Alpaca requirement).
+
+        notional (dollar amount) is Alpaca-restricted to MarketOrderRequest
+        on fractionable equities. Pass notional>0 with order_type='market'
+        and qty=0; the helper builds MarketOrderRequest(notional=...).
+        Limit/Stop orders REQUIRE qty (raises ValueError if notional set).
+        """
+        from alpaca.trading.enums import TimeInForce
+        from alpaca.trading.requests import (
+            MarketOrderRequest, LimitOrderRequest, StopOrderRequest,
+            StopLimitOrderRequest,
+        )
+        ot = (order_type or "market").lower()
+        if notional and notional > 0 and ot != "market":
+            raise ValueError(
+                f"notional sizing is Market-only per Alpaca SDK; got order_type={ot!r}"
+            )
+        # Extended-hours override: if caller didn't explicitly pick limit/stop
+        # and we're in extended-hours with a price, coerce to limit-with-premium
+        # to satisfy Alpaca's extended-hours requirement.
+        if extended_hours and ot == "market" and limit_price > 0:
+            premium = 1.005 if side.value == "buy" else 0.995
+            lp = round(limit_price * premium, 2)
+            return LimitOrderRequest(
+                symbol=symbol, qty=qty, side=side,
+                time_in_force=TimeInForce.DAY, limit_price=lp,
+                extended_hours=True,
+            )
+        if ot == "limit":
+            return LimitOrderRequest(
+                symbol=symbol, qty=qty, side=side,
+                time_in_force=TimeInForce.DAY,
+                limit_price=round(float(limit_price), 2),
+                extended_hours=extended_hours,
+            )
+        if ot == "stop":
+            return StopOrderRequest(
+                symbol=symbol, qty=qty, side=side,
+                time_in_force=TimeInForce.DAY,
+                stop_price=round(float(stop_price), 2),
+            )
+        if ot == "stop_limit":
+            return StopLimitOrderRequest(
+                symbol=symbol, qty=qty, side=side,
+                time_in_force=TimeInForce.DAY,
+                stop_price=round(float(stop_price), 2),
+                limit_price=round(float(limit_price), 2),
+            )
+        # Default: market — qty OR notional (not both)
+        if notional and notional > 0:
+            return MarketOrderRequest(
+                symbol=symbol, notional=round(float(notional), 2),
+                side=side, time_in_force=TimeInForce.DAY,
+            )
+        return MarketOrderRequest(
+            symbol=symbol, qty=qty, side=side,
+            time_in_force=TimeInForce.DAY,
+        )
+
+    def buy(self, symbol, qty, agent_id: str = "unknown", extended_hours: bool = False,
+            limit_price: float = 0.0, order_type: str = "market", stop_price: float = 0.0,
+            notional: float = 0.0):
         if not self.client:
             return {'error': 'Not connected'}
         try:
-            result = check_trade(agent_id, symbol, "BUY", float(qty), float(limit_price or 0))
+            # check_trade uses qty*price; when notional drives sizing, qty is 0
+            # and we pass notional as the dollar value instead.
+            _check_qty = float(qty) if (not notional or notional <= 0) else 0.0
+            _check_price = float(limit_price or 0) if _check_qty > 0 else float(notional or 0)
+            result = check_trade(agent_id, symbol, "BUY", _check_qty, _check_price)
             if not result["allowed"]:
                 return {"error": f"Gateway blocked: {result['reason']}"}
-            from alpaca.trading.enums import OrderSide, TimeInForce
-            if extended_hours and limit_price > 0:
-                # Alpaca requires limit orders for extended-hours trading.
-                # Use a 0.5% premium above current price to favour a fill.
-                from alpaca.trading.requests import LimitOrderRequest
-                lp = round(limit_price * 1.005, 2)
-                o = self.client.submit_order(LimitOrderRequest(
-                    symbol=symbol, qty=float(qty), side=OrderSide.BUY,
-                    time_in_force=TimeInForce.DAY, limit_price=lp,
-                    extended_hours=True,
-                ))
-                console.log(f"[green]Alpaca BUY {qty} {symbol} EXTENDED limit=${lp:.2f} — order {o.id}")
-            else:
-                from alpaca.trading.requests import MarketOrderRequest
-                o = self.client.submit_order(MarketOrderRequest(
-                    symbol=symbol, qty=float(qty), side=OrderSide.BUY,
-                    time_in_force=TimeInForce.DAY,
-                ))
-                console.log(f"[green]Alpaca BUY {qty} {symbol} — order {o.id}")
+            from alpaca.trading.enums import OrderSide
+            req = self._build_order_request(
+                symbol=symbol, side=OrderSide.BUY, qty=float(qty),
+                order_type=order_type, limit_price=float(limit_price or 0),
+                stop_price=float(stop_price or 0), extended_hours=extended_hours,
+                notional=float(notional or 0),
+            )
+            o = self.client.submit_order(req)
+            _size_log = f"${notional:.2f}" if notional and notional > 0 else f"{qty}"
+            console.log(f"[green]Alpaca BUY {_size_log} {symbol} type={order_type} — order {o.id}")
             # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: poll for fill so callers
             # can persist filled_avg_price into trades.entry_price (not the
             # submit-time internal target). Fail-safe: returns None on timeout.
@@ -153,32 +216,27 @@ class AlpacaBridge:
         except Exception as e:
             return {'error': str(e)}
 
-    def sell(self, symbol, qty, agent_id: str = "unknown", extended_hours: bool = False, limit_price: float = 0.0):
+    def sell(self, symbol, qty, agent_id: str = "unknown", extended_hours: bool = False,
+             limit_price: float = 0.0, order_type: str = "market", stop_price: float = 0.0,
+             notional: float = 0.0):
         if not self.client:
             return {'error': 'Not connected'}
         try:
-            result = check_trade(agent_id, symbol, "SELL", float(qty), float(limit_price or 0))
+            _check_qty = float(qty) if (not notional or notional <= 0) else 0.0
+            _check_price = float(limit_price or 0) if _check_qty > 0 else float(notional or 0)
+            result = check_trade(agent_id, symbol, "SELL", _check_qty, _check_price)
             if not result["allowed"]:
                 return {"error": f"Gateway blocked: {result['reason']}"}
-            from alpaca.trading.enums import OrderSide, TimeInForce
-            if extended_hours and limit_price > 0:
-                # Alpaca requires limit orders for extended-hours trading.
-                # Use a 0.5% discount below current price to favour a fill.
-                from alpaca.trading.requests import LimitOrderRequest
-                lp = round(limit_price * 0.995, 2)
-                o = self.client.submit_order(LimitOrderRequest(
-                    symbol=symbol, qty=float(qty), side=OrderSide.SELL,
-                    time_in_force=TimeInForce.DAY, limit_price=lp,
-                    extended_hours=True,
-                ))
-                console.log(f"[red]Alpaca SELL {qty} {symbol} EXTENDED limit=${lp:.2f} — order {o.id}")
-            else:
-                from alpaca.trading.requests import MarketOrderRequest
-                o = self.client.submit_order(MarketOrderRequest(
-                    symbol=symbol, qty=float(qty), side=OrderSide.SELL,
-                    time_in_force=TimeInForce.DAY,
-                ))
-                console.log(f"[red]Alpaca SELL {qty} {symbol} — order {o.id}")
+            from alpaca.trading.enums import OrderSide
+            req = self._build_order_request(
+                symbol=symbol, side=OrderSide.SELL, qty=float(qty),
+                order_type=order_type, limit_price=float(limit_price or 0),
+                stop_price=float(stop_price or 0), extended_hours=extended_hours,
+                notional=float(notional or 0),
+            )
+            o = self.client.submit_order(req)
+            _size_log = f"${notional:.2f}" if notional and notional > 0 else f"{qty}"
+            console.log(f"[red]Alpaca SELL {_size_log} {symbol} type={order_type} — order {o.id}")
             # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: see buy() above.
             fill_price, fill_qty, final_status = self._poll_fill(str(o.id))
             return {
@@ -228,6 +286,19 @@ class AlpacaBridge:
             return {'success': True, 'message': 'All positions closed'}
         except Exception as e:
             return {'error': str(e)}
+
+    def cancel(self, order_id: str):
+        """Cancel an open Alpaca order by id. HM-TRADE-DESK 2026-05-22."""
+        if not self.client:
+            return {'error': 'Not connected'}
+        if not order_id:
+            return {'error': 'order_id required'}
+        try:
+            self.client.cancel_order_by_id(order_id)
+            console.log(f"[yellow]Alpaca CANCEL order {order_id}")
+            return {'success': True, 'order_id': order_id, 'status': 'canceled'}
+        except Exception as e:
+            return {'error': f"{type(e).__name__}: {e!r}"}
 
 
 alpaca = AlpacaBridge()
