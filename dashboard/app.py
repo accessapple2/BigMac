@@ -9710,7 +9710,12 @@ def alpaca_buy(data: dict):
     try:
         from engine.risk_manager import RiskManager
         use_ext = RiskManager.is_extended_trading_hours()
-        if use_ext and limit_price <= 0 and order_type == "market":
+        # Legacy fleet behavior: auto-coerce Market → Limit-with-quote during
+        # extended hours (Alpaca requirement). The trade desk's Market choice
+        # is explicit Captain intent, so skip the coercion — let Alpaca accept
+        # or reject Market based on actual market state.
+        if (use_ext and limit_price <= 0 and order_type == "market"
+                and agent_id != "trade-desk"):
             from engine.market_data import get_stock_price
             limit_price = float(get_stock_price(symbol.upper()).get("price", 0) or 0)
     except Exception:
@@ -9746,7 +9751,10 @@ def alpaca_sell(data: dict):
     try:
         from engine.risk_manager import RiskManager
         use_ext = RiskManager.is_extended_trading_hours()
-        if use_ext and limit_price <= 0 and order_type == "market":
+        # See alpaca_buy() for rationale — desk path bypasses Market→Limit
+        # coercion so Captain's explicit Market choice is respected.
+        if (use_ext and limit_price <= 0 and order_type == "market"
+                and agent_id != "trade-desk"):
             from engine.market_data import get_stock_price
             limit_price = float(get_stock_price(symbol.upper()).get("price", 0) or 0)
     except Exception:
