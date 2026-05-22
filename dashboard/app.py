@@ -2963,6 +2963,33 @@ def health_manifest():
             return {"error": f"Fleet Auditor unavailable: {e}", "generated_at": datetime.utcnow().isoformat()}
 
 
+# HM-OLLAMA-DETECTION-FIX 2026-05-22: cached live-ping of Ollie Box.
+# last_ollama_success-via-queue is unreliable when queue.total_requests=0
+# (e.g. fresh boot, low-traffic windows) — Archer falsely reports "Ollama
+# is offline" even when Ollie Box is healthy. Authoritative liveness check
+# is a direct HTTP call to OLLIE_URL with a short timeout.
+_OLLAMA_PING_CACHE = {"ts": 0.0, "reachable": False}
+_OLLAMA_PING_TTL_S = 30.0
+
+def _check_ollama_reachable() -> bool:
+    """Cached live-ping of Ollie Box. 30s TTL — protects against hammering
+    on bursty Archer/dashboard health checks."""
+    import time as _t_ping
+    now = _t_ping.time()
+    if (now - _OLLAMA_PING_CACHE["ts"]) < _OLLAMA_PING_TTL_S:
+        return _OLLAMA_PING_CACHE["reachable"]
+    try:
+        import urllib.request as _ur
+        from config import OLLIE_URL as _ou
+        req = _ur.Request(f"{_ou}/api/tags", method="GET")
+        with _ur.urlopen(req, timeout=2.0) as resp:
+            _OLLAMA_PING_CACHE["reachable"] = (200 <= resp.status < 300)
+    except Exception:
+        _OLLAMA_PING_CACHE["reachable"] = False
+    _OLLAMA_PING_CACHE["ts"] = now
+    return _OLLAMA_PING_CACHE["reachable"]
+
+
 @app.get("/api/health")
 def health_detail():
     """Dr. Crusher extended health — Ollama, WebSocket, scheduler, DayBlade, uptime."""
@@ -2971,7 +2998,7 @@ def health_detail():
     base_dir = os.path.expanduser("~/autonomous-trader")
     scanner_log = os.path.join(base_dir, "scanner.log")
 
-    # --- Ollama last success ---
+    # --- Ollama last success (queue-age-based; nullable when queue idle) ---
     last_ollama_success: str | None = None
     try:
         from engine.ollama_queue import get_queue as _gq
@@ -2983,6 +3010,9 @@ def health_detail():
             last_ollama_success = _ts.strftime("%Y-%m-%dT%H:%M:%SZ")
     except Exception:
         pass
+
+    # --- Ollama reachable (authoritative — direct ping with 30s cache) ---
+    ollama_reachable = _check_ollama_reachable()
 
     # --- Scan health from watchdog ---
     scan_health: dict = {}
@@ -3050,6 +3080,7 @@ def health_detail():
     return {
         "server_up": True,
         "last_ollama_success": last_ollama_success,
+        "ollama_reachable": ollama_reachable,
         "websocket_status": websocket_status,
         "scheduler_errors": scheduler_errors,
         "dayblade_last_scan": dayblade_last_scan,
