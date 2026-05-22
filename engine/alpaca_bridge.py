@@ -117,17 +117,28 @@ class AlpacaBridge:
 
     def _build_order_request(self, *, symbol: str, side, qty: float,
                              order_type: str, limit_price: float,
-                             stop_price: float, extended_hours: bool):
+                             stop_price: float, extended_hours: bool,
+                             notional: float = 0.0):
         """HM-TRADE-DESK 2026-05-22: dispatch on order_type ∈
         {market, limit, stop, stop_limit}. Returns the appropriate
         alpaca-py request object. Extended-hours forces a limit-with-premium
-        on otherwise-Market orders (Alpaca requirement)."""
+        on otherwise-Market orders (Alpaca requirement).
+
+        notional (dollar amount) is Alpaca-restricted to MarketOrderRequest
+        on fractionable equities. Pass notional>0 with order_type='market'
+        and qty=0; the helper builds MarketOrderRequest(notional=...).
+        Limit/Stop orders REQUIRE qty (raises ValueError if notional set).
+        """
         from alpaca.trading.enums import TimeInForce
         from alpaca.trading.requests import (
             MarketOrderRequest, LimitOrderRequest, StopOrderRequest,
             StopLimitOrderRequest,
         )
         ot = (order_type or "market").lower()
+        if notional and notional > 0 and ot != "market":
+            raise ValueError(
+                f"notional sizing is Market-only per Alpaca SDK; got order_type={ot!r}"
+            )
         # Extended-hours override: if caller didn't explicitly pick limit/stop
         # and we're in extended-hours with a price, coerce to limit-with-premium
         # to satisfy Alpaca's extended-hours requirement.
@@ -159,18 +170,28 @@ class AlpacaBridge:
                 stop_price=round(float(stop_price), 2),
                 limit_price=round(float(limit_price), 2),
             )
-        # Default: market
+        # Default: market — qty OR notional (not both)
+        if notional and notional > 0:
+            return MarketOrderRequest(
+                symbol=symbol, notional=round(float(notional), 2),
+                side=side, time_in_force=TimeInForce.DAY,
+            )
         return MarketOrderRequest(
             symbol=symbol, qty=qty, side=side,
             time_in_force=TimeInForce.DAY,
         )
 
     def buy(self, symbol, qty, agent_id: str = "unknown", extended_hours: bool = False,
-            limit_price: float = 0.0, order_type: str = "market", stop_price: float = 0.0):
+            limit_price: float = 0.0, order_type: str = "market", stop_price: float = 0.0,
+            notional: float = 0.0):
         if not self.client:
             return {'error': 'Not connected'}
         try:
-            result = check_trade(agent_id, symbol, "BUY", float(qty), float(limit_price or 0))
+            # check_trade uses qty*price; when notional drives sizing, qty is 0
+            # and we pass notional as the dollar value instead.
+            _check_qty = float(qty) if (not notional or notional <= 0) else 0.0
+            _check_price = float(limit_price or 0) if _check_qty > 0 else float(notional or 0)
+            result = check_trade(agent_id, symbol, "BUY", _check_qty, _check_price)
             if not result["allowed"]:
                 return {"error": f"Gateway blocked: {result['reason']}"}
             from alpaca.trading.enums import OrderSide
@@ -178,9 +199,11 @@ class AlpacaBridge:
                 symbol=symbol, side=OrderSide.BUY, qty=float(qty),
                 order_type=order_type, limit_price=float(limit_price or 0),
                 stop_price=float(stop_price or 0), extended_hours=extended_hours,
+                notional=float(notional or 0),
             )
             o = self.client.submit_order(req)
-            console.log(f"[green]Alpaca BUY {qty} {symbol} type={order_type} — order {o.id}")
+            _size_log = f"${notional:.2f}" if notional and notional > 0 else f"{qty}"
+            console.log(f"[green]Alpaca BUY {_size_log} {symbol} type={order_type} — order {o.id}")
             # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: poll for fill so callers
             # can persist filled_avg_price into trades.entry_price (not the
             # submit-time internal target). Fail-safe: returns None on timeout.
@@ -194,11 +217,14 @@ class AlpacaBridge:
             return {'error': str(e)}
 
     def sell(self, symbol, qty, agent_id: str = "unknown", extended_hours: bool = False,
-             limit_price: float = 0.0, order_type: str = "market", stop_price: float = 0.0):
+             limit_price: float = 0.0, order_type: str = "market", stop_price: float = 0.0,
+             notional: float = 0.0):
         if not self.client:
             return {'error': 'Not connected'}
         try:
-            result = check_trade(agent_id, symbol, "SELL", float(qty), float(limit_price or 0))
+            _check_qty = float(qty) if (not notional or notional <= 0) else 0.0
+            _check_price = float(limit_price or 0) if _check_qty > 0 else float(notional or 0)
+            result = check_trade(agent_id, symbol, "SELL", _check_qty, _check_price)
             if not result["allowed"]:
                 return {"error": f"Gateway blocked: {result['reason']}"}
             from alpaca.trading.enums import OrderSide
@@ -206,9 +232,11 @@ class AlpacaBridge:
                 symbol=symbol, side=OrderSide.SELL, qty=float(qty),
                 order_type=order_type, limit_price=float(limit_price or 0),
                 stop_price=float(stop_price or 0), extended_hours=extended_hours,
+                notional=float(notional or 0),
             )
             o = self.client.submit_order(req)
-            console.log(f"[red]Alpaca SELL {qty} {symbol} type={order_type} — order {o.id}")
+            _size_log = f"${notional:.2f}" if notional and notional > 0 else f"{qty}"
+            console.log(f"[red]Alpaca SELL {_size_log} {symbol} type={order_type} — order {o.id}")
             # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: see buy() above.
             fill_price, fill_qty, final_status = self._poll_fill(str(o.id))
             return {
