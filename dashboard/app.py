@@ -9651,42 +9651,118 @@ def alpaca_orders(status: str = "all"):
     return {"orders": alpaca.orders(status)}
 
 
+def _mirror_trade_desk_fill(*, side: str, symbol: str, qty: float, price: float,
+                            order_id: str, status: str) -> None:
+    """HM-TRADE-DESK 2026-05-22 provenance writeback. Mirror a filled manual
+    desk order into the trades table with execution_type='alpaca' and the
+    Alpaca order id so attribution/analytics see Captain trades correctly.
+
+    V1 limitation: only fires when fill_price is non-None (synchronous fill).
+    Pending limit/stop orders that fill later are visible via /api/alpaca/orders
+    but won't appear in trades until a reconcile-loop ticket ships.
+
+    Crash-safe — never raises (provenance must not block the API response).
+    """
+    if price is None or qty is None or float(qty) <= 0:
+        return
+    try:
+        import sqlite3 as _td_sq
+        _td_c = _td_sq.connect("data/trader.db", check_same_thread=False, timeout=10)
+        try:
+            _td_c.execute(
+                "INSERT INTO trades "
+                "(player_id, symbol, action, qty, price, entry_price, exit_price, "
+                " execution_type, alpaca_order_id, alpaca_status, reasoning, "
+                " season, timeframe, asset_type) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (
+                    "trade-desk", symbol.upper(), side.upper(),
+                    float(qty), float(price),
+                    float(price) if side.upper() == "BUY" else None,
+                    float(price) if side.upper() == "SELL" else None,
+                    "alpaca", order_id, status,
+                    "Manual trade desk order",
+                    6, "SWING", "stock",
+                ),
+            )
+            _td_c.commit()
+        finally:
+            _td_c.close()
+    except Exception:
+        # Provenance writeback must never break the response. Suppress.
+        pass
+
+
 @app.post("/api/alpaca/buy")
 def alpaca_buy(data: dict):
     symbol = data.get("symbol", "")
-    qty = int(data.get("qty", 0))
-    if not symbol or qty <= 0:
-        return {"error": "symbol and qty required"}
+    qty = float(data.get("qty", 0) or 0)
+    notional = float(data.get("notional", 0) or 0)
+    if not symbol:
+        return {"error": "symbol required"}
+    if qty <= 0 and notional <= 0:
+        return {"error": "qty or notional required"}
+    agent_id = (data.get("agent_id") or "unknown").strip().lower()
+    order_type = (data.get("order_type") or "market").lower()
+    limit_price = float(data.get("limit_price", 0) or 0)
+    stop_price = float(data.get("stop_price", 0) or 0)
     use_ext = False
-    limit_price = float(data.get("limit_price", 0))
     try:
         from engine.risk_manager import RiskManager
         use_ext = RiskManager.is_extended_trading_hours()
-        if use_ext and limit_price <= 0:
+        if use_ext and limit_price <= 0 and order_type == "market":
             from engine.market_data import get_stock_price
             limit_price = float(get_stock_price(symbol.upper()).get("price", 0) or 0)
     except Exception:
         pass
-    return alpaca.buy(symbol.upper(), qty, extended_hours=use_ext, limit_price=limit_price)
+    result = alpaca.buy(
+        symbol.upper(), qty, agent_id=agent_id, extended_hours=use_ext,
+        limit_price=limit_price, order_type=order_type, stop_price=stop_price,
+        notional=notional,
+    )
+    if agent_id == "trade-desk" and result.get("success"):
+        _mirror_trade_desk_fill(
+            side="BUY", symbol=symbol, qty=result.get("filled_qty") or qty,
+            price=result.get("filled_avg_price"),
+            order_id=result.get("order_id", ""), status=result.get("status", ""),
+        )
+    return result
 
 
 @app.post("/api/alpaca/sell")
 def alpaca_sell(data: dict):
     symbol = data.get("symbol", "")
-    qty = int(data.get("qty", 0))
-    if not symbol or qty <= 0:
-        return {"error": "symbol and qty required"}
+    qty = float(data.get("qty", 0) or 0)
+    notional = float(data.get("notional", 0) or 0)
+    if not symbol:
+        return {"error": "symbol required"}
+    if qty <= 0 and notional <= 0:
+        return {"error": "qty or notional required"}
+    agent_id = (data.get("agent_id") or "unknown").strip().lower()
+    order_type = (data.get("order_type") or "market").lower()
+    limit_price = float(data.get("limit_price", 0) or 0)
+    stop_price = float(data.get("stop_price", 0) or 0)
     use_ext = False
-    limit_price = float(data.get("limit_price", 0))
     try:
         from engine.risk_manager import RiskManager
         use_ext = RiskManager.is_extended_trading_hours()
-        if use_ext and limit_price <= 0:
+        if use_ext and limit_price <= 0 and order_type == "market":
             from engine.market_data import get_stock_price
             limit_price = float(get_stock_price(symbol.upper()).get("price", 0) or 0)
     except Exception:
         pass
-    return alpaca.sell(symbol.upper(), qty, extended_hours=use_ext, limit_price=limit_price)
+    result = alpaca.sell(
+        symbol.upper(), qty, agent_id=agent_id, extended_hours=use_ext,
+        limit_price=limit_price, order_type=order_type, stop_price=stop_price,
+        notional=notional,
+    )
+    if agent_id == "trade-desk" and result.get("success"):
+        _mirror_trade_desk_fill(
+            side="SELL", symbol=symbol, qty=result.get("filled_qty") or qty,
+            price=result.get("filled_avg_price"),
+            order_id=result.get("order_id", ""), status=result.get("status", ""),
+        )
+    return result
 
 
 @app.post("/api/alpaca/close/{symbol}")
