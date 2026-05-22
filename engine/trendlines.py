@@ -90,17 +90,28 @@ def _fetch_daily_ohlcv(symbol: str, range_: str = "3mo") -> pd.DataFrame | None:
         return None
 
 
-def detect_support_resistance(symbol: str) -> dict | None:
-    """Detect top 3 support and top 3 resistance levels for a symbol."""
+def detect_support_resistance(symbol: str, bars: dict | None = None) -> dict | None:
+    """Detect top 3 support and top 3 resistance levels for a symbol.
+
+    HM-SLOW-FUNDAMENTALS Phase 2 (2026-05-21): when `bars` is provided (the
+    pre-fetched `get_bulk_daily_ohlcv` result), short-circuit the per-symbol
+    Yahoo `_fetch_daily_ohlcv` and read `bars[symbol]` instead. Legacy callers
+    that omit `bars` keep the original Yahoo path.
+    """
     cache_key = f"sr_{symbol}"
     with _cache_lock:
         if cache_key in _cache and time.time() - _cache[cache_key]["ts"] < _CACHE_TTL:
             return _cache[cache_key]["data"]
 
     try:
-        hist = _fetch_daily_ohlcv(symbol, "3mo")
-        if hist is None:
-            return None
+        if bars is not None:
+            hist = bars.get(symbol)
+            if hist is None or len(hist) < 15:
+                return None
+        else:
+            hist = _fetch_daily_ohlcv(symbol, "3mo")
+            if hist is None:
+                return None
 
         highs = hist["High"]
         lows = hist["Low"]
@@ -160,11 +171,16 @@ def detect_support_resistance(symbol: str) -> dict | None:
         return None
 
 
-def get_all_levels(symbols: list) -> dict:
-    """Get S/R levels for all watchlist symbols."""
+def get_all_levels(symbols: list, bars: dict | None = None) -> dict:
+    """Get S/R levels for all watchlist symbols.
+
+    HM-SLOW-FUNDAMENTALS Phase 2 (2026-05-21): `bars` threads through to
+    detect_support_resistance so a single pre-fetched bulk OHLCV dict
+    replaces per-symbol Yahoo fanout (~300s → ~0s).
+    """
     result = {}
     for sym in symbols:
-        data = detect_support_resistance(sym)
+        data = detect_support_resistance(sym, bars=bars)
         if data:
             result[sym] = data
     return result

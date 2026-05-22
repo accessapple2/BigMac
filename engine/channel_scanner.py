@@ -9,32 +9,58 @@ from engine.universe import get_active_universe
 console = Console()
 
 
-def _get_stock_data(symbol: str) -> dict | None:
-    """Get comprehensive stock data for scanning."""
+def _get_stock_data(symbol: str, bars: dict | None = None) -> dict | None:
+    """Get comprehensive stock data for scanning.
+
+    HM-SLOW-FUNDAMENTALS Phase 2 (2026-05-21): when `bars` (a pre-fetched
+    `get_bulk_daily_ohlcv` dict) is provided, read `bars[symbol]` instead of
+    making a per-symbol Yahoo `_yahoo_chart` call. The DataFrame columns are
+    Open / High / Low / Close / Volume per the Phase 1 schema.
+    """
     from engine.market_data import get_stock_price, _yahoo_chart
 
     price_data = get_stock_price(symbol)
     if "error" in price_data:
         return None
 
-    # Get daily chart for technicals
-    chart = _yahoo_chart(symbol, interval="1d", range_="3mo")
-    if not chart:
-        return {
-            **price_data,
-            "rsi": None,
-            "high_52w": None,
-            "low_52w": None,
-            "avg_volume": None,
-            "rel_volume": None,
-        }
+    closes: list = []
+    volumes: list = []
+    highs: list = []
+    lows: list = []
 
-    indicators = chart.get("indicators", {})
-    quotes = indicators.get("quote", [{}])[0]
-    closes = [c for c in (quotes.get("close") or []) if c is not None]
-    volumes = [v for v in (quotes.get("volume") or []) if v is not None]
-    highs = [h for h in (quotes.get("high") or []) if h is not None]
-    lows = [low for low in (quotes.get("low") or []) if low is not None]
+    if bars is not None:
+        df = bars.get(symbol)
+        if df is None or df.empty:
+            return {
+                **price_data,
+                "rsi": None,
+                "high_52w": None,
+                "low_52w": None,
+                "avg_volume": None,
+                "rel_volume": None,
+            }
+        closes = [float(c) for c in df["Close"].dropna().tolist()]
+        volumes = [float(v) for v in df["Volume"].dropna().tolist()]
+        highs = [float(h) for h in df["High"].dropna().tolist()]
+        lows = [float(low) for low in df["Low"].dropna().tolist()]
+    else:
+        # Legacy Yahoo path — kept for callers that don't supply bars.
+        chart = _yahoo_chart(symbol, interval="1d", range_="3mo")
+        if not chart:
+            return {
+                **price_data,
+                "rsi": None,
+                "high_52w": None,
+                "low_52w": None,
+                "avg_volume": None,
+                "rel_volume": None,
+            }
+        indicators = chart.get("indicators", {})
+        quotes = indicators.get("quote", [{}])[0]
+        closes = [c for c in (quotes.get("close") or []) if c is not None]
+        volumes = [v for v in (quotes.get("volume") or []) if v is not None]
+        highs = [h for h in (quotes.get("high") or []) if h is not None]
+        lows = [low for low in (quotes.get("low") or []) if low is not None]
 
     # RSI(14)
     rsi = None
@@ -71,11 +97,16 @@ def _get_stock_data(symbol: str) -> dict | None:
     }
 
 
-def _scan_all() -> list:
-    """Fetch data for all watchlist stocks in parallel."""
+def _scan_all(bars: dict | None = None) -> list:
+    """Fetch data for all watchlist stocks in parallel.
+
+    HM-SLOW-FUNDAMENTALS Phase 2: when `bars` is provided, each per-symbol
+    `_get_stock_data` call reads its OHLCV slice from `bars[symbol]` instead
+    of fanning out to Yahoo.
+    """
     results = []
     with ThreadPoolExecutor(max_workers=8) as ex:
-        futs = {ex.submit(_get_stock_data, sym): sym for sym in get_active_universe()}
+        futs = {ex.submit(_get_stock_data, sym, bars): sym for sym in get_active_universe()}
         for f in as_completed(futs):
             try:
                 data = f.result()
@@ -86,9 +117,9 @@ def _scan_all() -> list:
     return results
 
 
-def scan_gap_and_go() -> list:
+def scan_gap_and_go(bars: dict | None = None) -> list:
     """Stocks gapping >3% on high volume."""
-    data = _scan_all()
+    data = _scan_all(bars=bars)
     return sorted(
         [
             s
@@ -100,9 +131,9 @@ def scan_gap_and_go() -> list:
     )
 
 
-def scan_momentum_breakout() -> list:
+def scan_momentum_breakout(bars: dict | None = None) -> list:
     """New highs on 2x+ relative volume."""
-    data = _scan_all()
+    data = _scan_all(bars=bars)
     results = []
     for s in data:
         if (
@@ -114,9 +145,9 @@ def scan_momentum_breakout() -> list:
     return sorted(results, key=lambda x: x.get("rel_volume", 0), reverse=True)
 
 
-def scan_reversal_bounce() -> list:
+def scan_reversal_bounce(bars: dict | None = None) -> list:
     """RSI <30 bouncing off support."""
-    data = _scan_all()
+    data = _scan_all(bars=bars)
     results = []
     for s in data:
         if s.get("rsi") and s["rsi"] < 30 and s.get("change_pct", 0) > 0:
@@ -124,13 +155,13 @@ def scan_reversal_bounce() -> list:
     return sorted(results, key=lambda x: x.get("rsi", 100))
 
 
-def scan_short_squeeze() -> list:
+def scan_short_squeeze(bars: dict | None = None) -> list:
     """Short float >15%, price rising. Uses cached fundamentals if available."""
     from pathlib import Path
     import json
     import time
 
-    data = _scan_all()
+    data = _scan_all(bars=bars)
     fund_file = Path("data/stock_fundamentals.json")
     fundamentals = {}
     if fund_file.exists():
@@ -155,7 +186,7 @@ def scan_short_squeeze() -> list:
     return sorted(results, key=lambda x: x.get("short_float", 0), reverse=True)
 
 
-def scan_earnings_runner() -> list:
+def scan_earnings_runner(bars: dict | None = None) -> list:
     """Stocks with earnings within 3 days and price rising."""
     try:
         from engine.finnhub_data import get_earnings_calendar
@@ -172,7 +203,7 @@ def scan_earnings_runner() -> list:
     if not earning_syms:
         return []
 
-    data = _scan_all()
+    data = _scan_all(bars=bars)
     return [
         s
         for s in data
@@ -180,8 +211,13 @@ def scan_earnings_runner() -> list:
     ]
 
 
-def scan_volatility_breakout() -> list:
-    """Opening Range breakouts confirmed by ATR + volume."""
+def scan_volatility_breakout(bars: dict | None = None) -> list:
+    """Opening Range breakouts confirmed by ATR + volume.
+
+    `bars` is accepted for interface uniformity with the other scan_*
+    helpers; the underlying volatility_breakout module reads its own
+    intraday data and does not consume daily bars today.
+    """
     try:
         from engine.volatility_breakout import scan_all_breakouts
         return scan_all_breakouts()
@@ -189,8 +225,11 @@ def scan_volatility_breakout() -> list:
         return []
 
 
-def scan_discovery() -> list:
-    """New opportunities outside the watchlist."""
+def scan_discovery(bars: dict | None = None) -> list:
+    """New opportunities outside the watchlist.
+
+    `bars` accepted for interface uniformity (see scan_volatility_breakout).
+    """
     try:
         from engine.discovery_scanner import get_cached_discoveries
         return get_cached_discoveries()
@@ -198,8 +237,13 @@ def scan_discovery() -> list:
         return []
 
 
-def scan_channel(channel: str) -> list:
-    """Run a named channel scan."""
+def scan_channel(channel: str, bars: dict | None = None) -> list:
+    """Run a named channel scan.
+
+    HM-SLOW-FUNDAMENTALS Phase 2 (2026-05-21): `bars` threads through to the
+    underlying scan_* helpers so a single pre-fetched bulk OHLCV dict is
+    shared across all channels in one /api/channels invocation.
+    """
     channels = {
         "gap-and-go": scan_gap_and_go,
         "momentum-breakout": scan_momentum_breakout,
@@ -212,17 +256,17 @@ def scan_channel(channel: str) -> list:
     fn = channels.get(channel)
     if not fn:
         return []
-    return fn()
+    return fn(bars=bars)
 
 
-def get_all_channels() -> dict:
+def get_all_channels(bars: dict | None = None) -> dict:
     """Run all channels and return results."""
     return {
-        "gap-and-go": scan_gap_and_go(),
-        "momentum-breakout": scan_momentum_breakout(),
-        "reversal-bounce": scan_reversal_bounce(),
-        "short-squeeze": scan_short_squeeze(),
-        "earnings-runner": scan_earnings_runner(),
-        "volatility-breakout": scan_volatility_breakout(),
-        "discovery": scan_discovery(),
+        "gap-and-go": scan_gap_and_go(bars=bars),
+        "momentum-breakout": scan_momentum_breakout(bars=bars),
+        "reversal-bounce": scan_reversal_bounce(bars=bars),
+        "short-squeeze": scan_short_squeeze(bars=bars),
+        "earnings-runner": scan_earnings_runner(bars=bars),
+        "volatility-breakout": scan_volatility_breakout(bars=bars),
+        "discovery": scan_discovery(bars=bars),
     }
