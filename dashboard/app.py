@@ -7081,15 +7081,25 @@ def all_trendlines():
     request hangs >90s per the 2026-05-20 PM curl audit. Bounded at 25s
     via _ENDPOINT_TIMEOUT_POOL with stale-fallback per the canonical
     /api/capital pattern at line ~7406.
+
+    HM-SLOW-FUNDAMENTALS Phase 2 (2026-05-21): one `get_bulk_daily_ohlcv`
+    call replaces per-symbol Yahoo fanout (~300s rate-limit floor → ~10s
+    Alpaca bulk-bars + 30-min cache). Bars are passed through to
+    get_all_levels which routes to detect_support_resistance.
     """
     from engine.trendlines import get_all_levels
+    from engine.market_data import get_bulk_daily_ohlcv
     from engine.universe import get_active_universe
     from concurrent.futures import TimeoutError as FuturesTimeout
     import time as _t
+
+    def _do() -> dict:
+        universe = get_active_universe()
+        bars = get_bulk_daily_ohlcv(universe, "3mo")
+        return get_all_levels(universe, bars=bars)
+
     try:
-        result = _ENDPOINT_TIMEOUT_POOL.submit(
-            get_all_levels, get_active_universe()
-        ).result(timeout=25)
+        result = _ENDPOINT_TIMEOUT_POOL.submit(_do).result(timeout=25)
         _endpoint_stale_cache["trendlines"] = {"data": result, "ts": _t.time()}
         return result
     except (FuturesTimeout, Exception):
@@ -7154,15 +7164,23 @@ def chart_patterns_all():
     request hangs >90s per the 2026-05-20 PM curl audit. Bounded at 25s
     via _ENDPOINT_TIMEOUT_POOL with stale-fallback per the canonical
     /api/capital pattern at line ~7406.
+
+    HM-SLOW-FUNDAMENTALS Phase 2 (2026-05-21): bulk OHLCV passed through
+    to detect_all_patterns replaces per-symbol Yahoo fanout.
     """
     from engine.chart_patterns import detect_all_patterns
+    from engine.market_data import get_bulk_daily_ohlcv
     from engine.universe import get_active_universe
     from concurrent.futures import TimeoutError as FuturesTimeout
     import time as _t
+
+    def _do() -> list:
+        universe = get_active_universe()
+        bars = get_bulk_daily_ohlcv(universe, "3mo")
+        return detect_all_patterns(universe, bars=bars)
+
     try:
-        result = _ENDPOINT_TIMEOUT_POOL.submit(
-            detect_all_patterns, get_active_universe()
-        ).result(timeout=25)
+        result = _ENDPOINT_TIMEOUT_POOL.submit(_do).result(timeout=25)
         _endpoint_stale_cache["patterns"] = {"data": result, "ts": _t.time()}
         return result
     except (FuturesTimeout, Exception):
@@ -7305,14 +7323,23 @@ def pattern_alerts():
     cold-cache request hangs >90s per the 2026-05-20 PM curl audit. Bounded
     at 25s via _ENDPOINT_TIMEOUT_POOL with stale-fallback per the canonical
     /api/capital pattern at line ~7406.
+
+    HM-SLOW-FUNDAMENTALS Phase 2 (2026-05-21): bulk OHLCV computed once and
+    threaded through to get_pattern_alert_tiles → detect_all_patterns.
     """
     from engine.pattern_alerts import get_pattern_alert_tiles
+    from engine.market_data import get_bulk_daily_ohlcv
+    from engine.universe import get_active_universe
     from concurrent.futures import TimeoutError as FuturesTimeout
     import time as _t
+
+    def _do() -> list:
+        universe = get_active_universe()
+        bars = get_bulk_daily_ohlcv(universe, "3mo")
+        return get_pattern_alert_tiles(symbols=universe, bars=bars)
+
     try:
-        result = _ENDPOINT_TIMEOUT_POOL.submit(
-            get_pattern_alert_tiles
-        ).result(timeout=25)
+        result = _ENDPOINT_TIMEOUT_POOL.submit(_do).result(timeout=25)
         _endpoint_stale_cache["pattern_alerts"] = {"data": result, "ts": _t.time()}
         return result
     except (FuturesTimeout, Exception):
@@ -12964,8 +12991,16 @@ def all_channels():
     canonical /api/capital comment at line ~7406 documents. Migrated to
     module-level _ENDPOINT_TIMEOUT_POOL with outer 25s endpoint cap +
     per-channel 15s retained.
+
+    HM-SLOW-FUNDAMENTALS Phase 2 (2026-05-21): bulk OHLCV computed ONCE
+    and shared across all six channels. Previously each channel called
+    `_scan_all()` which re-fanned out to Yahoo per symbol — 6× the work.
+    Now `get_bulk_daily_ohlcv` runs once (~10s cold, <0.001s warm) and
+    threads through to every per-channel scan.
     """
     from engine.channel_scanner import scan_channel
+    from engine.market_data import get_bulk_daily_ohlcv
+    from engine.universe import get_active_universe
     from concurrent.futures import TimeoutError as FuturesTimeout
     import time as _t
 
@@ -12977,8 +13012,9 @@ def all_channels():
         # the same pool, ~3 run concurrently (outer task holds 1 worker).
         # Per-channel 15s timeout still bounds individual channels; outer 25s
         # caps total wall.
+        bars = get_bulk_daily_ohlcv(get_active_universe(), "3mo")
         results = {}
-        futures = {_ENDPOINT_TIMEOUT_POOL.submit(scan_channel, ch): ch for ch in channels}
+        futures = {_ENDPOINT_TIMEOUT_POOL.submit(scan_channel, ch, bars): ch for ch in channels}
         for f in futures:
             ch = futures[f]
             try:

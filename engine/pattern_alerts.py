@@ -75,8 +75,13 @@ def _calc_breakout_stop(pattern: dict) -> dict:
             "stop_loss": round(current * 0.97, 2), "trigger": "pattern completion"}
 
 
-def get_pattern_alert_tiles(symbols: list = None) -> list:
-    """Get enriched pattern alert tiles for all detected patterns."""
+def get_pattern_alert_tiles(symbols: list = None, bars: dict | None = None) -> list:
+    """Get enriched pattern alert tiles for all detected patterns.
+
+    HM-SLOW-FUNDAMENTALS Phase 2 (2026-05-21): `bars` threads through to
+    detect_all_patterns so a single pre-fetched bulk OHLCV dict replaces
+    per-symbol Yahoo fanout.
+    """
     cache_key = "pattern_tiles"
     with _cache_lock:
         if cache_key in _cache and time.time() - _cache[cache_key]["ts"] < _CACHE_TTL:
@@ -87,7 +92,7 @@ def get_pattern_alert_tiles(symbols: list = None) -> list:
         from engine.universe import get_active_universe
         symbols = get_active_universe()
 
-    raw_patterns = detect_all_patterns(symbols)
+    raw_patterns = detect_all_patterns(symbols, bars=bars)
     tiles = []
 
     for p in raw_patterns:
