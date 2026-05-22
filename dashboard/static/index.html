@@ -2839,6 +2839,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="sidebar-item" onclick="showSection('ready-room')"><span class="icon">📋</span> Ready Room</div>
   <div class="sidebar-item" onclick="showSection('ollie')"><span class="icon">💻</span> Ollie</div>
   <div class="sidebar-item" onclick="showSection('webull')"><span class="icon">🛸</span> Starfleet</div>
+  <div class="sidebar-item" id="nav-trade-desk" title="Manual trade desk (Captain) — Alpaca paper" onclick="showSection('trade-desk')"><span class="icon">📋</span> Trade Desk</div>
   <div class="sidebar-item" onclick="showSection('feed')"><span class="icon">👥</span> Crew Activity</div>
   <div class="sidebar-item" title="0DTE tactical trading station" onclick="showSection('dayblade')"><span class="icon">⚔️</span> Battle Station</div>
   <div class="sidebar-item" onclick="showSection('charts')"><span class="icon">📈</span> Charts</div>
@@ -6492,6 +6493,364 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     <div id="leaderboard">Loading...</div>
   </div>
 </div>
+
+<!-- HM-TRADE-DESK 2026-05-22: Manual Captain trade desk on Alpaca paper -->
+<div id="section-trade-desk" style="display:none;">
+  <div style="border-left:4px solid #d4a030;background:rgba(212,160,48,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
+    <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Manual Trading — Captain Override</div>
+    <div style="font-size:13px;color:#94a3b8;">Direct order entry on Alpaca paper. Orders bypass fleet gates (daily limit, position cap, Uhura veto) but honor the universal kill switch. Tagged <code>player_id='trade-desk'</code> for clean attribution.</div>
+  </div>
+
+  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📋 Order Form</div></div>
+      <div style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px;">
+        <div style="display:grid;grid-template-columns:90px 1fr;gap:8px;align-items:center;">
+          <label for="td-symbol" style="font-size:12px;color:var(--muted);">Symbol</label>
+          <input id="td-symbol" type="text" placeholder="e.g. AAPL" maxlength="8" style="text-transform:uppercase;padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+
+          <label for="td-side" style="font-size:12px;color:var(--muted);">Side</label>
+          <select id="td-side" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;">
+            <option value="buy">BUY</option>
+            <option value="sell">SELL</option>
+          </select>
+
+          <label for="td-order-type" style="font-size:12px;color:var(--muted);">Type</label>
+          <select id="td-order-type" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;" onchange="tdOnOrderTypeChange()">
+            <option value="market">Market</option>
+            <option value="limit">Limit</option>
+            <option value="stop">Stop</option>
+            <option value="stop_limit">Stop Limit</option>
+          </select>
+
+          <label for="td-limit-price" id="td-limit-label" style="font-size:12px;color:var(--muted);opacity:0.5;">Limit $</label>
+          <input id="td-limit-price" type="number" step="0.01" min="0" disabled placeholder="—" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+
+          <label for="td-stop-price" id="td-stop-label" style="font-size:12px;color:var(--muted);opacity:0.5;">Stop $</label>
+          <input id="td-stop-price" type="number" step="0.01" min="0" disabled placeholder="—" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+
+          <label for="td-qty" style="font-size:12px;color:var(--muted);">Qty (sh)</label>
+          <input id="td-qty" type="number" step="0.0001" min="0" placeholder="0" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+
+          <div style="font-size:10px;color:var(--muted);text-align:center;grid-column:1/3;">— or —</div>
+
+          <label for="td-notional" style="font-size:12px;color:var(--muted);">Dollar $</label>
+          <input id="td-notional" type="number" step="1" min="0" placeholder="0" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+        </div>
+
+        <button id="td-submit" onclick="tdSubmitOrder()" style="margin-top:8px;padding:10px;background:linear-gradient(135deg,#d4a030,#b8860b);color:#0f172a;border:none;border-radius:4px;font-weight:700;cursor:pointer;font-size:13px;letter-spacing:0.5px;">Submit Order</button>
+        <div id="td-status" style="min-height:18px;font-size:12px;font-family:monospace;"></div>
+      </div>
+    </div>
+
+    <div class="card">
+      <div class="card-header"><div class="card-title">📈 Live Quote</div></div>
+      <div id="td-quote-display" style="padding:16px;font-family:monospace;color:var(--muted);font-size:13px;">Enter a symbol to fetch quote.</div>
+    </div>
+  </div>
+
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header"><div class="card-title">⏳ Pending Orders <span id="td-pending-count" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div></div>
+    <div style="padding:0 16px 12px;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="border-bottom:1px solid rgba(212,160,48,0.2);color:var(--muted);text-align:left;">
+          <th style="padding:6px 4px;">Symbol</th>
+          <th style="padding:6px 4px;">Side</th>
+          <th style="padding:6px 4px;">Type</th>
+          <th style="padding:6px 4px;text-align:right;">Qty</th>
+          <th style="padding:6px 4px;text-align:right;">Limit</th>
+          <th style="padding:6px 4px;text-align:right;">Stop</th>
+          <th style="padding:6px 4px;text-align:center;">Cancel</th>
+        </tr></thead>
+        <tbody id="td-pending-tbody"><tr><td colspan="7" style="padding:8px 4px;color:var(--muted);text-align:center;">—</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <div class="card">
+    <div class="card-header"><div class="card-title">✓ Recent Fills <span id="td-fills-count" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div></div>
+    <div style="padding:0 16px 12px;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="border-bottom:1px solid rgba(212,160,48,0.2);color:var(--muted);text-align:left;">
+          <th style="padding:6px 4px;">Time</th>
+          <th style="padding:6px 4px;">Symbol</th>
+          <th style="padding:6px 4px;">Side</th>
+          <th style="padding:6px 4px;text-align:right;">Qty</th>
+          <th style="padding:6px 4px;text-align:right;">Fill $</th>
+          <th style="padding:6px 4px;">Status</th>
+        </tr></thead>
+        <tbody id="td-fills-tbody"><tr><td colspan="6" style="padding:8px 4px;color:var(--muted);text-align:center;">—</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+/* HM-TRADE-DESK 2026-05-22 — Manual Captain trade desk on Alpaca paper.
+   Backend: /api/alpaca/buy, /sell, /cancel/{id}, /orders.
+   All form submissions pass agent_id='trade-desk' to trigger gate bypass
+   in engine/trade_gateway.py + provenance writeback in dashboard/app.py. */
+
+var _tdSubmitInFlight = false;
+var _tdQuoteTimer = null;
+var _tdLastQuotePrice = null;
+
+function tdOnOrderTypeChange() {
+  var ot = (document.getElementById('td-order-type').value || 'market');
+  var limitInput = document.getElementById('td-limit-price');
+  var stopInput = document.getElementById('td-stop-price');
+  var limitLabel = document.getElementById('td-limit-label');
+  var stopLabel = document.getElementById('td-stop-label');
+  var limitOn = (ot === 'limit' || ot === 'stop_limit');
+  var stopOn = (ot === 'stop' || ot === 'stop_limit');
+  limitInput.disabled = !limitOn;
+  stopInput.disabled = !stopOn;
+  limitLabel.style.opacity = limitOn ? '1' : '0.5';
+  stopLabel.style.opacity = stopOn ? '1' : '0.5';
+  if (!limitOn) limitInput.value = '';
+  if (!stopOn) stopInput.value = '';
+  // Notional only valid on market — disable if not market.
+  var notional = document.getElementById('td-notional');
+  if (ot !== 'market') {
+    notional.disabled = true;
+    notional.value = '';
+    notional.placeholder = 'market-only';
+  } else {
+    notional.disabled = false;
+    notional.placeholder = '0';
+  }
+}
+
+function tdLoadQuote() {
+  var sym = (document.getElementById('td-symbol').value || '').toUpperCase().trim();
+  var box = document.getElementById('td-quote-display');
+  if (!sym) {
+    box.innerHTML = 'Enter a symbol to fetch quote.';
+    _tdLastQuotePrice = null;
+    return;
+  }
+  box.innerHTML = 'Loading ' + sym + '…';
+  fetch('/api/stock-quote?ticker=' + encodeURIComponent(sym))
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (!d || d.error) {
+        box.innerHTML = '<span style="color:#ef4444;">No quote: ' + ((d && d.error) || 'unknown') + '</span>';
+        _tdLastQuotePrice = null;
+        return;
+      }
+      var price = d.price || 0;
+      var chg = d.change || 0;
+      var chgPct = d.change_pct || 0;
+      var clr = chg >= 0 ? '#10b981' : '#ef4444';
+      var sign = chg >= 0 ? '+' : '';
+      _tdLastQuotePrice = price;
+      box.innerHTML =
+        '<div style="font-size:18px;font-weight:700;color:#e5e7eb;">' + sym + '  $' + price.toFixed(2) + '</div>' +
+        '<div style="color:' + clr + ';margin-top:4px;">' + sign + chg.toFixed(2) + ' (' + sign + chgPct.toFixed(2) + '%)</div>' +
+        '<div style="color:var(--muted);margin-top:8px;font-size:11px;">Updated ' + new Date().toLocaleTimeString() + '</div>';
+    })
+    .catch(function(e) {
+      box.innerHTML = '<span style="color:#ef4444;">Quote fetch failed: ' + e + '</span>';
+    });
+}
+
+function tdValidate() {
+  var sym = (document.getElementById('td-symbol').value || '').trim();
+  var ot = document.getElementById('td-order-type').value;
+  var qty = parseFloat(document.getElementById('td-qty').value || '0');
+  var notional = parseFloat(document.getElementById('td-notional').value || '0');
+  var lp = parseFloat(document.getElementById('td-limit-price').value || '0');
+  var sp = parseFloat(document.getElementById('td-stop-price').value || '0');
+  if (!sym) return 'Symbol required.';
+  if (qty <= 0 && notional <= 0) return 'Enter Qty or Dollar amount.';
+  if (qty > 0 && notional > 0) return 'Use Qty OR Dollar, not both.';
+  if (notional > 0 && ot !== 'market') return 'Dollar sizing is Market-only.';
+  if ((ot === 'limit' || ot === 'stop_limit') && lp <= 0) return 'Limit price required.';
+  if ((ot === 'stop' || ot === 'stop_limit') && sp <= 0) return 'Stop price required.';
+  return null;
+}
+
+function tdSubmitOrder() {
+  if (_tdSubmitInFlight) return;
+  var err = tdValidate();
+  var status = document.getElementById('td-status');
+  if (err) {
+    status.innerHTML = '<span style="color:#ef4444;">⚠ ' + err + '</span>';
+    return;
+  }
+  var sym = (document.getElementById('td-symbol').value || '').toUpperCase().trim();
+  var side = document.getElementById('td-side').value;
+  var ot = document.getElementById('td-order-type').value;
+  var qty = parseFloat(document.getElementById('td-qty').value || '0');
+  var notional = parseFloat(document.getElementById('td-notional').value || '0');
+  var lp = parseFloat(document.getElementById('td-limit-price').value || '0');
+  var sp = parseFloat(document.getElementById('td-stop-price').value || '0');
+  // Confirm threshold per scoping: $1,000.
+  var estValue = notional > 0 ? notional :
+                 (qty * (lp > 0 ? lp : (_tdLastQuotePrice || 0)));
+  if (estValue >= 1000) {
+    var sizeStr = notional > 0 ? ('$' + notional.toFixed(2)) : (qty + ' sh');
+    if (!confirm('Submit ' + side.toUpperCase() + ' ' + sizeStr + ' of ' + sym + ' (~$' + estValue.toFixed(2) + ')?')) {
+      status.innerHTML = '<span style="color:var(--muted);">Cancelled.</span>';
+      return;
+    }
+  }
+  _tdSubmitInFlight = true;
+  var btn = document.getElementById('td-submit');
+  btn.disabled = true;
+  btn.style.opacity = '0.6';
+  status.innerHTML = '<span style="color:var(--muted);">Submitting…</span>';
+  var endpoint = side === 'buy' ? '/api/alpaca/buy' : '/api/alpaca/sell';
+  var body = {
+    symbol: sym, agent_id: 'trade-desk', order_type: ot,
+    qty: qty || 0, notional: notional || 0,
+    limit_price: lp || 0, stop_price: sp || 0,
+  };
+  fetch(endpoint, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body),
+  })
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) {
+        status.innerHTML = '<span style="color:#ef4444;">✗ ' + d.error + '</span>';
+      } else {
+        var fillStr = d.filled_avg_price ?
+          ('@ $' + parseFloat(d.filled_avg_price).toFixed(2)) :
+          '(pending)';
+        status.innerHTML = '<span style="color:#10b981;">✓ ' + (d.status || 'submitted') +
+          ' #' + (d.order_id || '?').substring(0, 8) + ' ' + fillStr + '</span>';
+        // Clear sizing inputs only; leave symbol/side/type sticky for next entry.
+        document.getElementById('td-qty').value = '';
+        document.getElementById('td-notional').value = '';
+        // Refresh tables immediately so the user sees the new state.
+        tdLoadPending();
+        tdLoadFills();
+      }
+    })
+    .catch(function(e) {
+      status.innerHTML = '<span style="color:#ef4444;">✗ ' + e + '</span>';
+    })
+    .finally(function() {
+      _tdSubmitInFlight = false;
+      btn.disabled = false;
+      btn.style.opacity = '1';
+    });
+}
+
+function tdLoadPending() {
+  fetch('/api/alpaca/orders?status=open')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var orders = (d && d.orders) || [];
+      var tbody = document.getElementById('td-pending-tbody');
+      var count = document.getElementById('td-pending-count');
+      if (!tbody) return;
+      count.textContent = orders.length ? '(' + orders.length + ')' : '';
+      if (!orders.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="padding:8px 4px;color:var(--muted);text-align:center;">No pending orders</td></tr>';
+        return;
+      }
+      tbody.innerHTML = orders.map(function(o) {
+        var lp = o.limit_price ? '$' + parseFloat(o.limit_price).toFixed(2) : '—';
+        var sp = o.stop_price ? '$' + parseFloat(o.stop_price).toFixed(2) : '—';
+        return '<tr style="border-bottom:1px solid rgba(212,160,48,0.1);">' +
+          '<td style="padding:6px 4px;font-family:monospace;">' + (o.symbol || '—') + '</td>' +
+          '<td style="padding:6px 4px;color:' + (o.side === 'sell' ? '#ef4444' : '#10b981') + ';">' + (o.side || '').toUpperCase() + '</td>' +
+          '<td style="padding:6px 4px;font-family:monospace;color:var(--muted);">' + (o.type || '—') + '</td>' +
+          '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + (o.qty || '—') + '</td>' +
+          '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + lp + '</td>' +
+          '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + sp + '</td>' +
+          '<td style="padding:6px 4px;text-align:center;"><button onclick="tdCancel(\'' + o.id + '\')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#ef4444;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">✕</button></td>' +
+          '</tr>';
+      }).join('');
+    })
+    .catch(function() {
+      var tbody = document.getElementById('td-pending-tbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="padding:8px 4px;color:#ef4444;text-align:center;">Load failed</td></tr>';
+    });
+}
+
+function tdLoadFills() {
+  fetch('/api/alpaca/orders?status=closed')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var orders = ((d && d.orders) || []).slice(0, 10);
+      var tbody = document.getElementById('td-fills-tbody');
+      var count = document.getElementById('td-fills-count');
+      if (!tbody) return;
+      count.textContent = orders.length ? '(' + orders.length + ' of last 10)' : '';
+      if (!orders.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="padding:8px 4px;color:var(--muted);text-align:center;">No recent fills</td></tr>';
+        return;
+      }
+      tbody.innerHTML = orders.map(function(o) {
+        var ts = o.submitted_at ? new Date(o.submitted_at).toLocaleTimeString() : '—';
+        var fill = o.filled_avg_price ? '$' + parseFloat(o.filled_avg_price).toFixed(2) : '—';
+        return '<tr style="border-bottom:1px solid rgba(212,160,48,0.1);">' +
+          '<td style="padding:6px 4px;font-family:monospace;color:var(--muted);">' + ts + '</td>' +
+          '<td style="padding:6px 4px;font-family:monospace;">' + (o.symbol || '—') + '</td>' +
+          '<td style="padding:6px 4px;color:' + (o.side === 'sell' ? '#ef4444' : '#10b981') + ';">' + (o.side || '').toUpperCase() + '</td>' +
+          '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + (o.qty || '—') + '</td>' +
+          '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + fill + '</td>' +
+          '<td style="padding:6px 4px;font-family:monospace;color:var(--muted);">' + (o.status || '—') + '</td>' +
+          '</tr>';
+      }).join('');
+    })
+    .catch(function() {
+      var tbody = document.getElementById('td-fills-tbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="padding:8px 4px;color:#ef4444;text-align:center;">Load failed</td></tr>';
+    });
+}
+
+function tdCancel(orderId) {
+  if (!orderId) return;
+  if (!confirm('Cancel order ' + orderId.substring(0, 8) + '?')) return;
+  fetch('/api/alpaca/cancel/' + encodeURIComponent(orderId), {method: 'POST'})
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      if (d.error) {
+        var status = document.getElementById('td-status');
+        if (status) status.innerHTML = '<span style="color:#ef4444;">Cancel failed: ' + d.error + '</span>';
+      }
+      tdLoadPending();
+    });
+}
+
+function tdInit() {
+  // Symbol input: debounced quote fetch on input/blur.
+  var sym = document.getElementById('td-symbol');
+  if (sym) {
+    sym.addEventListener('blur', function() {
+      if (_tdQuoteTimer) clearTimeout(_tdQuoteTimer);
+      _tdQuoteTimer = setTimeout(tdLoadQuote, 100);
+    });
+    // Enter-key on symbol triggers quote; never submits the form.
+    sym.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); tdLoadQuote(); }
+    });
+  }
+  // Block accidental Enter-submit on every form input.
+  ['td-qty', 'td-notional', 'td-limit-price', 'td-stop-price'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') e.preventDefault();
+    });
+  });
+  // Initial load of tables.
+  tdLoadPending();
+  tdLoadFills();
+}
+
+if (typeof registerSectionInit === 'function') {
+  registerSectionInit('trade-desk', tdInit, [
+    {fn: tdLoadPending, ms: 7000},
+    {fn: tdLoadFills, ms: 15000},
+  ]);
+}
+</script>
+<!-- /HM-TRADE-DESK -->
 
 <!-- FEED SECTION -->
 <div id="section-feed" style="display:none;">
