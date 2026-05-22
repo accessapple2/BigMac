@@ -2489,12 +2489,20 @@ def _write_decision_audit(
     confidence: float | None = None,
     gate_verdict: str | None = None,
     reasoning_snippet: str | None = None,
+    raw_confidence: float | None = None,
+    meta_confidence: float | None = None,
+    confidence_modifier: float | None = None,
 ) -> None:
     """Write a single decision_audit row. Crash-safe — never raises.
 
     event_type ∈ {'signal_emit', 'gate_reject', 'trade_fire'}. Other fields
     are event-dependent: gate_reject usually has gate_verdict; trade_fire
     has trade_id; signal_emit has signal_id + reasoning_snippet.
+
+    HM-DECISION-AUDIT-V1.1 2026-05-22: gate_reject rows additionally populate
+    raw_confidence (LLM emit), meta_confidence (post-learning_engine downgrade),
+    and confidence_modifier (model_adjustments.confidence_modifier) so the
+    24-point downgrade math (e.g. deepseek 0.85 × 0.72 = 0.61) is queryable.
     """
     try:
         snap = _capture_decision_snapshot()
@@ -2504,8 +2512,9 @@ def _write_decision_audit(
             _ac.execute(
                 "INSERT INTO decision_audit "
                 "(event_type, player_id, symbol, signal_id, trade_id, "
-                " regime, spy_change, vix, confidence, gate_verdict, reasoning_snippet) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+                " regime, spy_change, vix, confidence, gate_verdict, reasoning_snippet, "
+                " raw_confidence, meta_confidence, confidence_modifier) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     event_type,
                     player_id,
@@ -2518,6 +2527,9 @@ def _write_decision_audit(
                     confidence,
                     (gate_verdict or "")[:300] if gate_verdict else None,
                     _snippet,
+                    raw_confidence,
+                    meta_confidence,
+                    confidence_modifier,
                 ),
             )
             _ac.commit()
@@ -2581,6 +2593,8 @@ def update_signal_status(signal_id: int, status: str, reason: str = None):
         )
         conn.commit()
         # HM-DECISION-AUDIT-V1 2026-05-20: gate_reject hook (only on REJECTED)
+        # HM-DECISION-AUDIT-V1.1 2026-05-22: capture raw/meta/modifier on
+        # LOW_CONVICTION rejects so the gate-downgrade math is queryable.
         if status == "REJECTED":
             _row_for_audit = None
             try:
@@ -2591,20 +2605,57 @@ def update_signal_status(signal_id: int, status: str, reason: str = None):
             except Exception:
                 pass
             conn.close()
+            _raw = _row_for_audit[2] if _row_for_audit is not None else None
+            _meta = None
+            _modifier = None
+            # Parse meta_confidence from "LOW_CONVICTION: NN% below MM% minimum"
+            if reason and "LOW_CONVICTION" in reason:
+                import re as _re_da
+                _m = _re_da.search(r"LOW_CONVICTION:\s*(\d+(?:\.\d+)?)%", reason)
+                if _m is not None:
+                    try:
+                        _meta = float(_m.group(1)) / 100.0
+                    except (TypeError, ValueError):
+                        _meta = None
+                if _row_for_audit is not None:
+                    _pid = _row_for_audit[0]
+                    try:
+                        _mc = _conn()
+                        try:
+                            _mrow = _mc.execute(
+                                "SELECT new_value FROM model_adjustments "
+                                "WHERE player_id=? AND adjustment_type='confidence_modifier' "
+                                "AND effective_date <= date('now') "
+                                "ORDER BY created_at DESC LIMIT 1",
+                                (_pid,),
+                            ).fetchone()
+                            if _mrow is not None:
+                                try:
+                                    _modifier = float(_mrow[0])
+                                except (TypeError, ValueError):
+                                    _modifier = None
+                        finally:
+                            _mc.close()
+                    except Exception:
+                        pass
             if _row_for_audit is not None:
                 _write_decision_audit(
                     event_type="gate_reject",
                     player_id=_row_for_audit[0],
                     symbol=_row_for_audit[1],
                     signal_id=signal_id,
-                    confidence=_row_for_audit[2],
+                    confidence=_raw,
                     gate_verdict=reason,
+                    raw_confidence=_raw,
+                    meta_confidence=_meta,
+                    confidence_modifier=_modifier,
                 )
             else:
                 _write_decision_audit(
                     event_type="gate_reject",
                     signal_id=signal_id,
                     gate_verdict=reason,
+                    meta_confidence=_meta,
                 )
         else:
             conn.close()
