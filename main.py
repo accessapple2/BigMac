@@ -2985,13 +2985,45 @@ if __name__ == "__main__":
     # so this is purely a dispatch substitution — no behavior change to the
     # cycle logic itself.
     def _war_room_scheduler_thread():
-        """Daemon scheduler for run_war_room — independent of schedule library."""
+        """Daemon scheduler for run_war_room — independent of schedule library.
+
+        HM-WR-CYCLE-RCA Phase 2 (2026-05-21): the dispatch mystery from
+        2026-05-20 was resolved by HM-WR-DAEMON-THREAD (this very block) which
+        bypasses `schedule.run_pending()`. Phase 2 now adds liveness
+        instrumentation to detect daemon-thread death between cycles — without
+        it, a silent thread crash would only surface as "no [WR-DUR] for
+        >10 min" which is hard to distinguish from a long-running cycle.
+
+        Heartbeat layout (cadence preserved at 300s sleep between cycles):
+          [WR-DAEMON-HB] tick=N starting   — at the top of each iteration
+          [WR-DAEMON-HB] tick=N done wall=Xs gated_market_closed=bool
+                                            — after run_war_room returns or skips
+        On exception path the existing [HM-WR-DAEMON] tick error log stands.
+        """
         import time as _wr_dt
+        _tick = 0
         while True:
+            _tick += 1
+            _t0 = _wr_dt.time()
             try:
                 from engine.risk_manager import RiskManager
-                if RiskManager.is_market_hours():
+                _in_market = RiskManager.is_market_hours()
+                console.log(
+                    f"[cyan][WR-DAEMON-HB] tick={_tick} starting "
+                    f"(market_hours={_in_market})"
+                )
+                if _in_market:
                     run_war_room()
+                    _wall = _wr_dt.time() - _t0
+                    console.log(
+                        f"[cyan][WR-DAEMON-HB] tick={_tick} done "
+                        f"wall={_wall:.1f}s (cycle ran)"
+                    )
+                else:
+                    console.log(
+                        f"[cyan][WR-DAEMON-HB] tick={_tick} done "
+                        f"wall={_wr_dt.time() - _t0:.1f}s (market closed — skipped)"
+                    )
             except Exception as _wr_err:
                 console.log(
                     f"[red][HM-WR-DAEMON] tick error: "
