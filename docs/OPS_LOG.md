@@ -260,3 +260,27 @@ sources_failed: []
 - 2026-05-10T06:00:04 | daily_backup | backup=trader_2026-05-10.db | 268920KB
 - 2026-05-11T06:00:06 | daily_backup | backup=trader_2026-05-11.db | 273908KB
 - 2026-05-12T06:00:07 | daily_backup | backup=trader_2026-05-12.db | 278860KB
+- 2026-05-22T06:00:06 | daily_backup | backup=trader_2026-05-22.db | 373792KB
+
+## 2026-05-22 — HM-ARCHER-FLOAT-RESTORE recovery snippet (browsers with stale localStorage)
+
+Pre-PR-#61 (merged 2026-05-21) the Archer floater's ✕ dismiss wrote `archerFloatHidden=true` to localStorage with no UI to reverse it. The fix is live on main, but any browser that dismissed before yesterday's merge still has the stale key and sees an empty floater area.
+
+**One-shot recovery — paste into browser DevTools console at http://127.0.0.1:8080:**
+```js
+localStorage.removeItem('archerFloatHidden'); showArcherFloat();
+```
+
+Clears the persistent flag and force-shows the floater. The new `#archer-bring-back` pill (line 31215 IIFE) handles all future dismiss/restore cycles natively, so this paste is a one-time per-browser unstick.
+
+## 2026-05-22 — HM-DECISION-AUDIT-V1.1 SHIPPED: gate downgrade math captured
+
+`engine/paper_trader.py` + decision_audit schema gain `raw_confidence` / `meta_confidence` / `confidence_modifier` columns. Hook B parses meta% from `LOW_CONVICTION:` rejection reasons and joins `model_adjustments` for the per-player modifier.
+
+The 24-point delta (deepseek-7b-grok4 raw 0.85 × modifier 0.72 = meta 0.61) is now queryable in one table. 17 prior gate_reject rows backfilled. Root: `engine/learning_engine.py:71` — NOT the risk gate.
+
+**Files:** `engine/paper_trader.py` (commit 727573d) + 3-col ALTER on `decision_audit`.
+
+**Reversal:** `git revert 727573d` + drop new cols (or leave NULL — back-compat preserved). Restart: `launchctl kickstart -k gui/$(id -u)/com.trademinds.trader`.
+
+**Backup:** `data/trader.db.bak_HM-DECISION-AUDIT-V1-1_20260522_062104` (365MB).
