@@ -2410,7 +2410,14 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/gex-overlay/',
     '/api/battle-station/',
     '/api/battle-station-0dte/',
-    '/api/morning-brief'];
+    '/api/morning-brief',
+    // HM-FLEET-REPORT-CARD-ALLOWLIST 2026-05-23: Fleet Report Card
+    // fires loadFleetReportCard() on initial page load (L5550). Without
+    // these entries the page-load stub at L2427 returns `{}` and the
+    // panel renders "Ratings unavailable: expected array, got object"
+    // because the stub object has no .error key. Same root cause class
+    // documented for /api/gex-overlay/ etc. above.
+    '/api/ratings'];
 
   function _isDashboardUrl(url) {
     for (var i = 0; i < _dashboardUrls.length; i++) {
@@ -5440,16 +5447,46 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
   }
 
   function loadFleetReportCard() {
+    // HM-FLEET-REPORT-CARD-AUTH-DIAGNOSIS 2026-05-23: split the error
+    // surfacing across HTTP-status + body-shape so an auth wall (401
+    // from the tunnel layer) doesn't masquerade as "unexpected response."
+    // Three classes now:
+    //   * HTTP 401 → "🔒 Sign in to load ratings" + /login link
+    //   * Other non-2xx → "Backend error (HTTP X) — body: ..."
+    //   * 2xx but non-array → "Backend returned <typeof>; expected array"
     fetch('/api/ratings')
-      .then(function(r){ return r.json(); })
+      .then(function(r){
+        if (r.status === 401) {
+          var tb401 = document.getElementById('fleet-report-tbody');
+          if (tb401) tb401.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--muted);text-align:center;">🔒 Sign in to load fleet ratings — <a href="/login" style="color:var(--accent);">go to login</a></td></tr>';
+          return null;  // swallow — don't try to parse body
+        }
+        if (!r.ok) {
+          var tb5xx = document.getElementById('fleet-report-tbody');
+          if (tb5xx) tb5xx.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--red);text-align:center;">Backend error (HTTP ' + r.status + ') — <span style="cursor:pointer;text-decoration:underline;" onclick="loadFleetReportCard()">retry</span></td></tr>';
+          return null;
+        }
+        return r.json();
+      })
       .then(function(data) {
+        if (data === null) return;  // already handled by status branch above
         // HM-FLEET-REPORT-CARD-LOADING-STUCK (Round 5): /api/ratings wraps
         // its body in try/except and returns {error: "..."} on any backend
         // failure. The legacy "silent return" left tbody stuck on Loading...
         // forever. Surface the error so the panel never hangs invisibly.
         if (!Array.isArray(data)) {
           var tbErr = document.getElementById('fleet-report-tbody');
-          var msg = (data && data.error) ? String(data.error) : 'unexpected response';
+          // HM-FLEET-REPORT-CARD-AUTH-DIAGNOSIS 2026-05-23: tighten the
+          // fallback so 'unexpected response' carries diagnostic detail
+          // (was: bare string, no shape hint).
+          var msg;
+          if (data && data.error) {
+            msg = String(data.error);
+          } else if (data === undefined) {
+            msg = 'empty response (parse failed)';
+          } else {
+            msg = 'expected array, got ' + (typeof data) + ' — try refresh, then check /api/ratings directly';
+          }
           if (tbErr) tbErr.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--red);text-align:center;">Ratings unavailable: ' + msg.replace(/[<>&]/g,'') + '</td></tr>';
           return;
         }
