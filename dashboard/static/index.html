@@ -4956,11 +4956,24 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         // doesn't sit next to a "no data" body.
         var _badge = document.getElementById('gp-regime-badge');
         if (!gp.headline) {
+          // HM-GAMEPLAN-LASTKNOWN 2026-05-22: prefer last-known cached
+          // brief over a bare "no data" message — matches _lastKnownVix
+          // pattern. Only show server "no intel yet" message when we have
+          // truly nothing cached.
+          var _lk = null;
+          try { _lk = JSON.parse(localStorage.getItem('hm_lastKnownGamePlan') || 'null'); } catch(e) {}
+          if (_lk && _lk.payload && (_lk.payload.game_plan || {}).headline) {
+            _renderGamePlan(_lk.payload, body, /*stale=*/true, _lk.ts);
+            return;
+          }
           if (_badge) _badge.style.display = 'none';
           var _msg = d.message || 'No intel report yet — runs at 6 AM & 8 PM AZ';
           body.innerHTML = '<div style="color:var(--muted);font-size:13px;">'+_msg+'</div>';
           return;
         }
+        // HM-GAMEPLAN-LASTKNOWN 2026-05-22: cache the successful payload
+        // so the catch-block + empty-response paths can fall back to it.
+        try { localStorage.setItem('hm_lastKnownGamePlan', JSON.stringify({ts: Date.now(), payload: d})); } catch(e) {}
         var color = _gpToneColor(gp.tone);
         var badge = document.getElementById('gp-regime-badge');
         if (badge) { badge.textContent = gp.regime || ''; badge.style.background = color; badge.style.display = gp.regime ? '' : 'none'; }
@@ -4999,15 +5012,60 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         var card = document.getElementById('game-plan-card');
         if (card) card.style.borderLeftColor = color;
       }).catch(function() {
-        // Round 3 Item 4: don't leave a stale regime badge (e.g. BULL_CROSS
-        // from a prior successful load) sitting next to an "unavailable"
-        // body — clear both so the card state is internally consistent.
+        // HM-GAMEPLAN-LASTKNOWN 2026-05-22: never show "unavailable" if we
+        // have a cached payload. Render the last-known with a stale-as-of
+        // banner. Only fall through to muted-text when there's truly
+        // nothing cached (first-load failure).
         var body = document.getElementById('gp-body');
         var _badge = document.getElementById('gp-regime-badge');
+        var _lk = null;
+        try { _lk = JSON.parse(localStorage.getItem('hm_lastKnownGamePlan') || 'null'); } catch(e) {}
+        if (_lk && _lk.payload && (_lk.payload.game_plan || {}).headline && body) {
+          _renderGamePlan(_lk.payload, body, /*stale=*/true, _lk.ts);
+          return;
+        }
         if (_badge) _badge.style.display = 'none';
-        if (body) body.innerHTML = '<div style="color:var(--muted);font-size:13px;">Intel report unavailable — retry shortly</div>';
+        if (body) body.innerHTML = '<div style="color:var(--muted);font-size:13px;">No intel cached yet — first load failed, retry in a moment.</div>';
       });
     };
+
+    // HM-GAMEPLAN-LASTKNOWN 2026-05-22 — shared render path so both the
+    // primary load and the catch-block fallback emit the same DOM. `stale`
+    // adds an "as of HH:MM AZ" banner; ts is the cache write epoch.
+    function _renderGamePlan(d, body, stale, ts) {
+      var gp = d.game_plan || {};
+      var color = _gpToneColor(gp.tone);
+      var _badge = document.getElementById('gp-regime-badge');
+      if (_badge) { _badge.textContent = gp.regime || ''; _badge.style.background = color; _badge.style.display = gp.regime ? '' : 'none'; }
+      var upd = document.getElementById('gp-updated');
+      if (upd && d.generated_at) upd.textContent = 'Updated ' + new Date(d.generated_at).toLocaleTimeString('en-US',{hour:'numeric',minute:'2-digit',timeZone:'America/Phoenix'}) + ' AZ';
+      var _gpAgeHours = d.generated_at ? (Date.now() - new Date(d.generated_at).getTime()) / 3600000 : NaN;
+      var _gpStaleBadge = (isFinite(_gpAgeHours) && _gpAgeHours > 24)
+        ? '<span class="badge" style="background:rgba(234,179,8,.15);color:#eab308;border:1px solid rgba(234,179,8,.3);font-size:11px;font-weight:700;margin-right:6px;vertical-align:middle;">⚠ Stale (' + Math.floor(_gpAgeHours) + 'h)</span>'
+        : '';
+      var html = '';
+      // HM-GAMEPLAN-LASTKNOWN: fallback banner when serving cached payload
+      if (stale && ts) {
+        var asOf = new Date(ts).toLocaleString('en-US',{hour:'numeric',minute:'2-digit',month:'short',day:'numeric',timeZone:'America/Phoenix'});
+        html += '<div style="background:rgba(245,158,11,0.12);border:1px solid rgba(245,158,11,0.35);color:#f59e0b;border-radius:6px;padding:6px 10px;font-size:11px;margin-bottom:8px;">📡 Last-known intel — as of ' + asOf + ' AZ. Live fetch failed; retrying.</div>';
+      }
+      html += '<div style="font-size:16px;font-weight:700;color:'+color+';margin-bottom:6px;">'+_gpStaleBadge+gp.headline+'</div>';
+      html += '<div style="font-size:13px;color:var(--text);line-height:1.5;margin-bottom:4px;">'+(gp.plan || '')+'</div>';
+      html += '<div style="font-size:12px;color:var(--muted);margin-bottom:8px;">Focus: <strong style="color:var(--text);">'+(gp.focus || '')+'</strong></div>';
+      html += '<div style="display:flex;gap:16px;font-size:12px;color:var(--muted);border-top:1px solid var(--border);padding-top:8px;margin-bottom:8px;">';
+      if (gp.vix) html += '<span>VIX <strong style="color:'+(gp.vix>25?'#ea580c':gp.vix>20?'#eab308':'#2563eb')+'">'+gp.vix+'</strong></span>';
+      if (gp.fg_score !== null && gp.fg_score !== undefined) html += '<span>F&amp;G <strong style="color:'+(gp.fg_score<30?'#ea580c':gp.fg_score>70?'#fbbf24':'#2563eb')+'">'+gp.fg_score+'</strong></span>';
+      if (gp.size_modifier) html += '<span>Size <strong style="color:var(--text);">'+gp.size_modifier+'x</strong></span>';
+      html += '</div>';
+      html += _gpSectorRows(d.sector_rotation);
+      html += _gpEarningsRows(d.earnings);
+      html += _gpCongressFlags(d.congress_radar);
+      html += _gpSetups(d.technical_setups);
+      html += _gpPortfolio(d.portfolio_review);
+      body.innerHTML = html;
+      var card = document.getElementById('game-plan-card');
+      if (card) card.style.borderLeftColor = color;
+    }
 
     // Auto-load when dashboard section becomes visible
     document.addEventListener('section-shown', function(e) {
@@ -5077,7 +5135,10 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     <h2 class="panel-title">
       ⚙️ Options Engine
       <span class="source-badge paper">PAPER</span>
-      <span class="oe-subtitle" id="oe-subtitle">infrastructure ready · agents queued</span>
+      <!-- HM-OPTIONS-ENGINE-RECONCILE 2026-05-22: honest state per Admiral
+           directive. Agent slots labeled with real lifecycle status, not
+           stale "not built" placeholders. -->
+      <span class="oe-subtitle" id="oe-subtitle">Wheel ACTIVE · IC Squadron in shadow · spread agents queued</span>
     </h2>
     <div class="oe-body">
       <!-- Production Book -->
@@ -5088,10 +5149,10 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           <span class="oe-book-pnl" id="oe-fleet-pnl">—</span>
         </div>
         <div class="oe-book-sub">
-          <span class="oe-agent-slot">Quark Iron Condor <em>not built</em></span>
-          <span class="oe-agent-slot">McCoy Bull Put <em>not built</em></span>
-          <span class="oe-agent-slot">Anderson Bear Call <em>not built</em></span>
-          <span class="oe-agent-slot">Covered Call <em>not built</em></span>
+          <span class="oe-agent-slot">IC Squadron <em>queued — shadow pending</em></span>
+          <span class="oe-agent-slot">Wheel CSPs <em style="color:#10b981;">ACTIVE — Troi/McCoy</em></span>
+          <span class="oe-agent-slot">McCoy Bull Put <em>queued</em></span>
+          <span class="oe-agent-slot">Anderson Bear Call <em>queued</em></span>
         </div>
         <div class="oe-positions" id="oe-fleet-positions">
           <div class="oe-empty">No open positions</div>
@@ -28653,14 +28714,30 @@ function loadGlanceData() {
     if (!el) return;
     var puts = d.puts_open || 0;
     var stocks = d.stocks_held || 0;
-    var premium = d.total_premium_collected || 0;
+    // HM-WHEEL-PREMIUM-3NUMBER-FIX 2026-05-22: Captain directive — premium
+    // received at SALE is NOT realized P&L. Surface all three weights so
+    // collected premium doesn't hide an open-book loss. Captain spec:
+    //   collected = received-at-sale
+    //   realized  = locked-at-close-or-expiry (api: realized_pnl)
+    //   unrealized = current open-book mark (api: unrealized_pnl)
+    var collected = d.total_premium_collected || d.premium_collected || 0;
+    var realized = d.realized_pnl || 0;
+    var unrealized = d.unrealized_pnl || 0;
     var active = puts > 0 || stocks > 0;
     var col = active ? '#2563eb' : 'var(--muted)';
     var statusTxt = active ? '🟢 ACTIVE' : '⚪ STANDBY';
     var detail = puts + ' put' + (puts !== 1 ? 's' : '');
     if (stocks > 0) detail += ' · ' + stocks + ' covered';
-    if (premium > 0) detail += ' · $' + premium.toFixed(0) + ' premium';
-    el.innerHTML = '<span style="color:' + col + ';font-weight:600;">' + statusTxt + '</span> | ' + detail;
+    // Three-number compact summary in the glance row.
+    var threeNum = '';
+    if (collected || realized || unrealized) {
+      var ucol = unrealized > 0 ? '#10b981' : (unrealized < 0 ? '#ef4444' : 'var(--muted)');
+      var rcol = realized > 0 ? '#10b981' : (realized < 0 ? '#ef4444' : 'var(--muted)');
+      threeNum = ' · <span style="color:#94a3b8;">collected $' + Math.round(collected) + '</span>' +
+        ' · <span style="color:' + rcol + ';">realized ' + (realized>=0?'+':'') + '$' + realized.toFixed(2) + '</span>' +
+        ' · <span style="color:' + ucol + ';">unrealized ' + (unrealized>=0?'+':'') + '$' + unrealized.toFixed(2) + '</span>';
+    }
+    el.innerHTML = '<span style="color:' + col + ';font-weight:600;">' + statusTxt + '</span> | ' + detail + threeNum;
     // Wheel expand
     var whInner = document.getElementById('g-wheel-inner');
     if (whInner) {

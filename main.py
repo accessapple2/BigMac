@@ -3062,6 +3062,31 @@ if __name__ == "__main__":
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
 
+    # === HM-PRIME-DIRECTIVE-MONITOR v1 — 2026-05-22 ===
+    # Polls USTR / Commerce / Federal Register RSS feeds for tariff +
+    # trade-policy events every 30 min during market hours. On match,
+    # emits to events bus event_type='macro' source='prime_directive'.
+    # IC Risk Officer + future regime auto-tuner consume from the bus.
+    # Spec: ~/.claude/projects/.../project_hm_overnight_cook_2026-05-22.md
+    def _run_prime_directive_safe():
+        from engine.risk_manager import RiskManager
+        try:
+            if not RiskManager.is_market_hours():
+                return None
+        except Exception:
+            pass
+        try:
+            from engine.prime_directive_monitor import scan_prime_directive
+            return scan_prime_directive()
+        except Exception as _e:
+            console.log(
+                f"[red][PRIME-DIRECTIVE] scheduler-side crash: "
+                f"{type(_e).__name__}: {_e!r}"
+            )
+            return None
+    schedule.every(30).minutes.do(_run_prime_directive_safe)  # HM-PRIME-DIRECTIVE v1
+    # === /HM-PRIME-DIRECTIVE-MONITOR ===
+
     # === HM-IC-SQUADRON Pillar 5 — Nightly Strategy Lab sweep ===
     # 2026-05-22 — orchestrator on top of engine/strategy_lab.py. Fires at
     # 20:00 AZ alongside the evening intel report so morning_brief.json
@@ -3714,11 +3739,41 @@ if __name__ == "__main__":
 
     schedule.every(15).minutes.do(run_uoa_premarket)         # UOA pre-market: 6 AM MST weekdays
 
-    # Riker XO: synthesize after each CTO briefing cycle (every 10 min during market hours)
+    # Riker XO: synthesize after each CTO briefing cycle.
+    # HM-RIKER-AH-SYNTHESIS 2026-05-22: Riker is advisory, not execution —
+    # the market_hours gate was blocking post-close debriefs + Sunday
+    # pre-briefs. Reframed gate: allow synthesis during market hours OR
+    # in two specific after-hours windows that the Captain reads:
+    #   * Market close + 30 min (daily debrief, 13:00-13:30 AZ)
+    #   * Sunday 8 PM AZ (weekly pre-brief, 20:00-20:30 AZ)
+    # Manual trigger paths bypass this gate entirely (call
+    # generate_riker_synthesis() directly).
+    def _riker_should_run_now() -> bool:
+        from engine.risk_manager import RiskManager
+        try:
+            if RiskManager.is_market_hours():
+                return True
+        except Exception:
+            pass
+        # After-hours debrief windows (local AZ time).
+        try:
+            from datetime import datetime as _dt
+            now = _dt.now()
+            wd = now.weekday()  # Mon=0 .. Sun=6
+            hm = now.hour * 60 + now.minute
+            # Daily debrief: 13:00-13:30 AZ (just after NYSE close 16:00 ET / 13:00 AZ MST)
+            if wd < 5 and 13 * 60 <= hm < 13 * 60 + 30:
+                return True
+            # Weekly pre-brief: Sunday 20:00-20:30 AZ
+            if wd == 6 and 20 * 60 <= hm < 20 * 60 + 30:
+                return True
+        except Exception:
+            return False
+        return False
+
     def run_riker_synthesis():
         """Commander Riker: synthesize crew input into recommendation."""
-        from engine.risk_manager import RiskManager
-        if not RiskManager.is_market_hours():
+        if not _riker_should_run_now():
             return
         try:
             from engine.riker_xo import get_latest_recommendation, generate_riker_synthesis
@@ -3730,7 +3785,7 @@ if __name__ == "__main__":
         except Exception as e:
             console.log(f"[red]Riker synthesis error: {e}")
 
-    schedule.every(10).minutes.do(run_riker_synthesis)       # Riker XO: every 10 min during market hours
+    schedule.every(10).minutes.do(run_riker_synthesis)       # Riker XO: every 10 min during market hours + AH debrief windows
 
     # Admiral Picard: weekly strategy briefing (Sunday 10 PM MST)
     def run_picard_briefing():
