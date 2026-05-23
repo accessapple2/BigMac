@@ -7955,9 +7955,24 @@ def fleet_active():
     return {"players": players, "count": len(players)}
 
 
+# HM-FLEET-POSITIONS-LATENCY 2026-05-22: endpoint walks 7.5–19.5s on cold
+# get_all_prices() per-symbol cache; full-response cache here at 30min TTL
+# absorbs the repeat-polling cost. Positions + cash mutate only on trades,
+# prices stale-by-30min is acceptable for the fleet roll-up panel (live
+# per-position view is at /api/alpaca/positions).
+_fleet_positions_cache: dict = {"data": None, "ts": 0.0}
+_FLEET_POSITIONS_CACHE_TTL = 1800  # 30 min
+
+
 @app.get("/api/fleet/positions")
 def fleet_positions():
     """Return open positions + cash for all active fleet agents (batch, no live prices needed)."""
+    import time as _time
+    now = _time.time()
+    if (_fleet_positions_cache["data"]
+            and (now - _fleet_positions_cache["ts"]) < _FLEET_POSITIONS_CACHE_TTL):
+        return {**_fleet_positions_cache["data"], "cached": True}
+
     from engine.market_data import get_all_prices
     conn = _conn()
     fleet_ids = list(_FLEET_CORE_IDS)
@@ -8026,11 +8041,14 @@ def fleet_positions():
     fleet_cash = sum(cash_map.get(pid, 0.0) for pid in fleet_ids)
     fleet_pos_count = sum(len(a["positions"]) for a in agents_list)
 
-    return {
+    result = {
         "fleet_cash": round(fleet_cash, 2),
         "fleet_positions_count": fleet_pos_count,
         "agents": agents_list,
     }
+    _fleet_positions_cache["data"] = result
+    _fleet_positions_cache["ts"] = now
+    return {**result, "cached": False}
 
 
 _unrealized_cache: dict = {"data": None, "ts": 0.0}
