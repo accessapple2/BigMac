@@ -382,9 +382,34 @@ def execute_covered_calls():
 
     Places a short call at 1× ATR above entry price with nearest monthly expiry.
     Only acts if no call is already open against that position.
+
+    HM-COVERED-CALL-RECORDING 2026-05-23 — previous version routed via
+    paper_trader.buy() which recorded the write as action=BUY qty=+x.
+    A covered call is a SELL-TO-OPEN of a short call contract — correct
+    semantics: trades.action='SELL', trades.qty<0, positions.qty<0
+    (short), cash CREDITED by premium received. This rewrite does a
+    direct, idempotent DB write with the right signs. Bypasses pt_buy's
+    gate stack because covered-call writing on a long equity position
+    is an income strategy, not a new directional intent.
     """
-    from engine.paper_trader import buy as pt_buy, get_portfolio
+    from engine.paper_trader import (
+        _is_human_player, get_portfolio, _last_rejection,
+    )
     from datetime import date, timedelta
+
+    # Halt-mode gate (keep the same protection paper_trader.buy provides).
+    _halt = _conn().execute(
+        "SELECT halt_reason, halt_mode FROM ai_players WHERE id=?",
+        (CHEKOV_ID,),
+    ).fetchone()
+    if _halt and (_halt[1] != "active"):
+        console.log(
+            f"[red]HALTED: {CHEKOV_ID} ({_halt[1]}) — "
+            f"{_halt[0] or 'no reason given'} — skipping covered-call cycle"
+        )
+        return
+    if _is_human_player(CHEKOV_ID):
+        return
 
     portfolio = get_portfolio(CHEKOV_ID)
     positions = [p for p in portfolio["positions"]
@@ -399,11 +424,14 @@ def execute_covered_calls():
         if avg_price <= 0:
             continue
 
-        # Check no existing call already open on this symbol
+        # Skip if a covered call is already open against this position.
+        # HM-COVERED-CALL-RECORDING 2026-05-23: the correct guard is for
+        # SHORT calls (qty < 0). Old code looked for qty > 0 (long calls)
+        # which was inconsistent with the new short-call recording.
         conn = _conn()
         existing_call = conn.execute(
             "SELECT 1 FROM positions WHERE player_id=? AND symbol=? "
-            "AND asset_type='option' AND option_type='call' AND qty > 0",
+            "AND asset_type='option' AND option_type='call' AND qty < 0",
             (CHEKOV_ID, symbol),
         ).fetchone()
         conn.close()
@@ -429,26 +457,84 @@ def execute_covered_calls():
             f"Selling call @ ${premium:.2f}. [STOP: ${avg_price * 0.93:.2f}] [TARGET: ${strike:.2f}] "
             f"Income generation on existing {symbol} position."
         )
-        # We record covered calls as a small credit purchase at negative cost
-        # (represented as a short call — qty=1 contract at the premium received)
-        result = pt_buy(
-            CHEKOV_ID, symbol, premium,
-            asset_type="option", option_type="call",
-            qty=1.0,
-            expiry_date=expiry,
-            strike_price=strike,
-            reasoning=reasoning,
-            confidence=0.75,
-            sources="covered-call",
-            timeframe="SWING",
-        )
+
+        # Direct DB write — SELL TO OPEN a short call contract.
+        # qty stored as negative (short). Premium credits cash. We use
+        # sizing_qty=1.0 contract — paper_trader's sizing layer is
+        # specific to long entries and not appropriate here.
+        sizing_qty = 1.0
+        signed_qty = -abs(sizing_qty)
+        credit = round(abs(signed_qty) * premium, 2)
+
+        conn = _conn()
+        try:
+            row = conn.execute(
+                "SELECT cash FROM ai_players WHERE id=?", (CHEKOV_ID,)
+            ).fetchone()
+            if not row:
+                console.log(
+                    f"[red]🧭 Chekov COVERED-CALL skip: player row missing"
+                )
+                conn.close()
+                continue
+            new_cash = round(float(row[0]) + credit, 2)
+            conn.execute(
+                "UPDATE ai_players SET cash=? WHERE id=?",
+                (new_cash, CHEKOV_ID),
+            )
+            conn.execute(
+                "INSERT INTO positions(player_id, symbol, qty, avg_price, "
+                " asset_type, option_type, strike_price, expiry_date) "
+                "VALUES(?,?,?,?,?,?,?,?)",
+                (CHEKOV_ID, symbol, signed_qty, premium, "option",
+                 "call", strike, expiry),
+            )
+            conn.execute(
+                "INSERT INTO trades(player_id, symbol, action, qty, price, "
+                " asset_type, option_type, strike_price, expiry_date, "
+                " reasoning, confidence, season, sources, timeframe, "
+                " entry_price) "
+                "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (CHEKOV_ID, symbol, "SELL", signed_qty, premium, "option",
+                 "call", strike, expiry, reasoning, 0.75,
+                 _current_season_safe(), "covered-call", "SWING", premium),
+            )
+            conn.commit()
+            result = True
+        except Exception as e:
+            _last_rejection[CHEKOV_ID] = (
+                f"covered-call write: {type(e).__name__}: {e!r}"
+            )
+            console.log(
+                f"[red]🧭 Chekov COVERED-CALL write crash: "
+                f"{type(e).__name__}: {e!r}"
+            )
+            conn.rollback()
+            result = False
+        finally:
+            conn.close()
+
         if result:
             _log_to_war_room(symbol, (
                 f"Keptin, selling a covered call on our {symbol} position! "
                 f"Strike ${strike:.2f} (entry + 1×ATR), expiry {expiry}, premium ${premium:.2f}. "
                 f"Generating income while holding course. Most efficient!"
             ))
-            console.log(f"[cyan]🧭 Chekov COVERED CALL: {symbol} ${strike:.0f}C exp {expiry} @ ${premium:.2f}")
+            console.log(
+                f"[cyan]🧭 Chekov COVERED CALL (short): {symbol} "
+                f"${strike:.0f}C exp {expiry} @ ${premium:.2f} "
+                f"(qty={signed_qty}, credit=${credit:.2f})"
+            )
+
+
+def _current_season_safe() -> int:
+    """Best-effort wrapper around paper_trader._current_season; falls back
+    to 6 (current season) if the lookup raises."""
+    try:
+        from engine.paper_trader import _current_season
+        return _current_season()
+    except Exception:
+        return 6
 
 
 def check_stop_loss_take_profit():
