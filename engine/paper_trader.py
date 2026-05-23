@@ -1182,6 +1182,24 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
                 f"win_rate={_allocation_policy['win_rate']:.1f}% "
                 f"trades={_allocation_policy['trade_count']})"
             )
+        # HM-MASTER-PLAN W5-C Blend E enforcement (2026-05-23). For stock
+        # BUYs only — the long_equity bucket is the dominant case and the
+        # one most likely to push the portfolio off target. Other buckets
+        # (csp / bull_put_spread / ic / etc.) are mapped in a follow-up
+        # wave once the strategy_id → bucket vocabulary is finalized.
+        if asset_type == "stock":
+            _cap_alloc, _cap_reason = _apply_regime_long_equity_cap(
+                player_id=player_id, portfolio=portfolio, cash=cash,
+                alloc_pct=alloc_pct,
+            )
+            if _cap_reason:
+                console.log(f"[cyan][REGIME-ALLOC] {player_id} {symbol}: {_cap_reason}")
+                alloc_pct = _cap_alloc
+                if alloc_pct <= 0:
+                    _last_rejection[player_id] = (
+                        f"Regime long_equity cap reached: {_cap_reason}"
+                    )
+                    return None
         qty = round((cash * alloc_pct) / price, 4)
     # Apply sizing multiplier: prefer caller-provided (scan path already ran Troi),
     # otherwise use the internal Ready Room advisory multiplier.  Never double-apply.
@@ -2171,6 +2189,108 @@ def _target_weight_adjustment(player_id: str, symbol: str, portfolio: dict, allo
 # HM-I-β-Item3 (2026-05-05): added alpaca-mirror — broker-sync mirror,
 # allocation managed externally (by Alpaca paper account state).
 _ALLOCATION_POLICY_EXEMPT = {"super-agent", "neo-matrix", "enterprise-computer", "alpaca-mirror"}
+
+
+# HM-MASTER-PLAN W5-C Blend E enforcement (2026-05-23) — long_equity cap.
+# Reads regime_allocations.long_equity_pct and long_equity_max_pct for the
+# current regime. If the player's already-deployed long_equity would push
+# past target after adding alloc_pct * portfolio_value, scale alloc_pct
+# down so total long_equity stays at or under target. Hard ceiling at
+# long_equity_max_pct.
+def _apply_regime_long_equity_cap(
+    *,
+    player_id: str,
+    portfolio: dict,
+    cash: float,
+    alloc_pct: float,
+) -> tuple[float, str | None]:
+    """Return (capped_alloc_pct, log_reason_or_None).
+
+    Fail-safe: any error returns (alloc_pct, None) — alloc unchanged.
+    No mutation on rows that don't carry W5-C columns
+    (long_equity_pct NULL → no opinion → no cap applied).
+    """
+    if alloc_pct <= 0:
+        return alloc_pct, None
+    if player_id in _ALLOCATION_POLICY_EXEMPT or _is_human_player(player_id):
+        return alloc_pct, None
+    try:
+        from engine.regime_router import (
+            get_current_regime, get_regime_allocation,
+        )
+        regime = get_current_regime()
+        if not regime:
+            return alloc_pct, None
+        ra = get_regime_allocation(regime)
+        if not ra:
+            return alloc_pct, None
+        target_pct = ra.get("long_equity_pct")
+        ceiling_pct = ra.get("long_equity_max_pct")
+        if target_pct is None and ceiling_pct is None:
+            return alloc_pct, None  # regime has no Blend E opinion
+        # Compute current long-equity deployed value.
+        deployed_stock_value = 0.0
+        for p in portfolio.get("positions", []):
+            if (p.get("asset_type") == "stock") and (float(p.get("qty") or 0) > 0):
+                deployed_stock_value += float(p.get("qty") or 0) * float(
+                    p.get("avg_price") or 0
+                )
+        portfolio_value = float(cash or 0) + sum(
+            float(p.get("qty") or 0) * float(p.get("avg_price") or 0)
+            for p in portfolio.get("positions", [])
+        )
+        if portfolio_value <= 0:
+            return alloc_pct, None
+        current_le_pct = deployed_stock_value / portfolio_value
+        # Determine the binding cap: hard ceiling wins over target if lower.
+        bind_pct = None
+        bind_label = None
+        if target_pct is not None:
+            bind_pct = float(target_pct)
+            bind_label = "target"
+        if ceiling_pct is not None and (
+            bind_pct is None or float(ceiling_pct) < bind_pct
+        ):
+            bind_pct = float(ceiling_pct)
+            bind_label = "ceiling"
+        if bind_pct is None or bind_pct <= 0:
+            return alloc_pct, None  # bucket explicitly excluded (=0) leaves
+            # alloc untouched — only scale if cap is positive but lower than
+            # current+intended; future enhancement could block instead.
+        # Headroom in pct-of-portfolio terms.
+        headroom_pct = bind_pct - current_le_pct
+        if headroom_pct <= 0:
+            # Already over cap — scale alloc to a token min so the trade
+            # doesn't bloat the bucket further. Floor at 0 so we don't add.
+            return 0.0, (
+                f"long_equity over {bind_label} "
+                f"({current_le_pct:.1%} >= {bind_pct:.1%} {regime}) — "
+                f"blocked add"
+            )
+        # alloc_pct is fraction of CASH (per existing sizing math), not
+        # of portfolio_value. Translate to portfolio-value fraction:
+        # add_pct_of_pv = alloc_pct * cash / portfolio_value
+        if portfolio_value <= 0:
+            return alloc_pct, None
+        intended_add_pct_of_pv = alloc_pct * (float(cash or 0) / portfolio_value)
+        if intended_add_pct_of_pv <= headroom_pct:
+            return alloc_pct, None  # within cap
+        # Scale intended add down to headroom.
+        capped_add_pct_of_pv = headroom_pct
+        capped_alloc_pct = capped_add_pct_of_pv * portfolio_value / max(
+            float(cash or 0), 1.0
+        )
+        return capped_alloc_pct, (
+            f"long_equity {bind_label} {bind_pct:.1%} "
+            f"(curr {current_le_pct:.1%}, regime {regime}): "
+            f"alloc_pct {alloc_pct:.2%}→{capped_alloc_pct:.2%}"
+        )
+    except Exception as e:
+        console.log(
+            f"[yellow][REGIME-ALLOC-WARN] {player_id} {type(e).__name__}: "
+            f"{e!r} — leaving alloc unchanged"
+        )
+        return alloc_pct, None
 
 
 def get_capital_allocation_policy(player_id: str) -> dict:

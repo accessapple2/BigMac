@@ -337,7 +337,13 @@ def log_regime_reject(
 def get_regime_allocation(regime: str | None) -> dict | None:
     """Look up the regime_allocations row for a given regime. None if missing.
 
-    Convenience for Pillar 2 Risk Officer (caps on long_equity_max_pct, etc.).
+    HM-MASTER-PLAN W5-C / Blend E (2026-05-23): returns the full W5-C
+    bucket set — long_equity, ic, csp, bull_put_spread, bear_call_spread,
+    momentum, long_call, mean_reversion, hedge, cash — plus
+    long_equity_max_pct cap and the source label.
+
+    Used by paper_trader._apply_regime_long_equity_cap (Blend E
+    enforcement) and by Risk Officer probes.
     """
     if not regime:
         return None
@@ -346,8 +352,11 @@ def get_regime_allocation(regime: str | None) -> dict | None:
         try:
             conn.row_factory = sqlite3.Row
             row = conn.execute(
-                "SELECT regime, long_equity_pct, ic_pct, bear_call_spread_pct, "
-                "       hedge_pct, cash_pct, long_equity_max_pct, updated_at "
+                "SELECT regime, long_equity_pct, ic_pct, csp_pct, "
+                "       bull_put_spread_pct, bear_call_spread_pct, "
+                "       momentum_pct, long_call_pct, mean_reversion_pct, "
+                "       hedge_pct, cash_pct, long_equity_max_pct, "
+                "       source, updated_at "
                 "  FROM regime_allocations WHERE regime = ?",
                 (regime,),
             ).fetchone()
