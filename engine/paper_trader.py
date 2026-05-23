@@ -1302,13 +1302,22 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         # opt-in (caller passes strategy_id kwarg). NULL for default fleet
         # path; populated for single-leg strategies that want to be queryable
         # alongside the multi-leg options_trades.strategy_id surface.
+        # HM-MU-PRICE-WRITEBACK 2026-05-23: stamp entry_price = price at INSERT
+        # for ALL routes (Alpaca + simulated). Previously simulated BUYs left
+        # entry_price=NULL and only Alpaca-routed trades got their entry_price
+        # filled via _persist_alpaca_fill writeback (line ~1893). That left
+        # 88/88 simulated BUYs with NULL entry_price in the last 14d audit.
+        # For Alpaca trades, _persist_alpaca_fill below STILL overwrites
+        # entry_price with the actual filled_avg_price — that path is
+        # unchanged. This INSERT just seeds a sane non-null default so PnL
+        # math + cockpit queries don't choke on NULL entries.
         "INSERT INTO trades(player_id, symbol, action, qty, price, asset_type, option_type, "
         "strike_price, expiry_date, reasoning, confidence, season, sources, timeframe, signal_id, "
-        "prompt_version, strategy_id) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "prompt_version, strategy_id, entry_price) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (player_id, symbol, "BUY", qty, price, asset_type, option_type,
          strike_price, expiry_date, reasoning, confidence, _current_season(), sources, timeframe, signal_id,
-         _pv, strategy_id)
+         _pv, strategy_id, price)
     )
     _trade_id = _trade_cur.lastrowid  # HM-DECISION-AUDIT-V1 2026-05-20
     conn.commit()
@@ -1486,6 +1495,28 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             (player_id, symbol, option_type)
         )
 
+    # HM-MU-PRICE-WRITEBACK 2026-05-23: sanity guard on exit price. The
+    # historical MU phantom (+$1907 PnL with exit=$533 on a stock with $80-110
+    # range) happened because the caller's `price` arg was a stale/wrong mark
+    # at SELL time. Log a [TRADE-PRICE-SANITY-WARN] when exit moves more than
+    # 3× the entry basis (stock only; options have legitimate 5-10× swings).
+    # This is observability-only — does NOT block the SELL. Future analytics
+    # can filter the marker rows.
+    if asset_type == "stock" and pos.get("avg_price"):
+        try:
+            _entry_basis = float(pos["avg_price"])
+            _exit_mark = float(price)
+            if (_entry_basis > 0 and _exit_mark > 0
+                    and (_exit_mark / _entry_basis > 3.0
+                         or _exit_mark / _entry_basis < 0.33)):
+                console.log(
+                    f"[yellow][TRADE-PRICE-SANITY-WARN] {player_id} {symbol} "
+                    f"SELL: entry_basis=${_entry_basis:.2f} → exit=${_exit_mark:.2f} "
+                    f"ratio={_exit_mark/_entry_basis:.2f}x — likely stale/wrong "
+                    f"price arg upstream; PnL may be phantom"
+                )
+        except Exception:
+            pass
     # HM-TRADES-PRICE-WRITEBACK-FIX 2026-05-21: capture lastrowid so the Alpaca
     # fill writeback below can target this specific trade row.
     _sell_cur = conn.execute(
