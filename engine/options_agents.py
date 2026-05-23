@@ -128,7 +128,12 @@ class QuarkIronCondor(OptionsAgent):
     max_loss_per_trade = 400.0
     daily_loss_limit   = 800.0
 
-    allowed_regimes  = {"CHOP", "BULL", "BEAR"}
+    # HM-MASTER-PLAN W5-B 2026-05-23: add BULL_CROSS so the agent is regime-
+    # eligible in the production REGIME_STRATEGY_MATRIX taxonomy (CHOP is a
+    # legacy label not in the matrix; kept for backward compat with older
+    # callers). Final regime gate now flows through check_regime_fit + the
+    # ic_enabled flag rather than this set alone.
+    allowed_regimes  = {"CHOP", "BULL", "BEAR", "BULL_CROSS"}
     require_vix_under = 25.0
 
     universe      = ["SPY", "QQQ"]

@@ -277,6 +277,18 @@ def check_regime_fit(
             False,
             f"{norm} not approved in {current_regime} (avoid-list)",
         )
+    # HM-MASTER-PLAN W5-B 2026-05-23: enforce the `ic_enabled` profile flag.
+    # Previously descriptive metadata only; W5-B surfaced the gap. Now blocks
+    # IC strategy submissions when the active regime sets ic_enabled=False
+    # (BULL_CROSS, BEAR_CROSS today). Applies to "iron_condor" and
+    # "iron_condor_broad_index"; the latter also stays avoid-list gated
+    # above for back-compat with the explicit avoid entry in some profiles.
+    if (norm in ("iron_condor", "iron_condor_broad_index")
+            and not profile.get("ic_enabled", True)):
+        return (
+            False,
+            f"{norm} blocked in {current_regime} (ic_enabled=False)",
+        )
     return (True, f"{norm} approved in {current_regime}")
 
 
