@@ -782,6 +782,19 @@ def setup():
     if "timeframe" not in _existing_cols:
         c.execute("ALTER TABLE ai_players ADD COLUMN timeframe TEXT DEFAULT 'swing'")
 
+    # === HM-PROMPT-VERSIONING (POC Day 2b) 2026-05-22 =====================
+    # signals + trades each carry prompt_version so the learning loop
+    # (Day 3a post-mortem + Ghost Scorecard) can compare WR/expectancy
+    # across prompt revisions. Bump manually per-agent at the call site:
+    # 'player_id_v1' → 'player_id_v2' when the prompt template changes.
+    _sig_cols = {row[1] for row in c.execute("PRAGMA table_info(signals)")}
+    if "prompt_version" not in _sig_cols:
+        c.execute("ALTER TABLE signals ADD COLUMN prompt_version TEXT")
+    _trd_cols = {row[1] for row in c.execute("PRAGMA table_info(trades)")}
+    if "prompt_version" not in _trd_cols:
+        c.execute("ALTER TABLE trades ADD COLUMN prompt_version TEXT")
+    # === /HM-PROMPT-VERSIONING ==========================================
+
     # Tag known agents into their actual engine. Defaults to 'swing' for new rows.
     # 0dte agents — sub-minute / minute scalpers.
     c.execute(

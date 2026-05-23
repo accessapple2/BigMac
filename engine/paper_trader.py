@@ -1218,15 +1218,31 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             (player_id, symbol, qty, price, "option", option_type, strike_price, expiry_date)
         )
 
+    # HM-PROMPT-VERSIONING (POC Day 2b) 2026-05-22: look up signals.prompt_version
+    # by signal_id so the trade row inherits the agent's prompt revision tag.
+    # Fail-safe: any lookup error → write NULL prompt_version on the trade.
+    _pv = None
+    if signal_id is not None and signal_id >= 0:
+        try:
+            _pvrow = conn.execute(
+                "SELECT prompt_version FROM signals WHERE rowid=?",
+                (int(signal_id),),
+            ).fetchone()
+            if _pvrow:
+                _pv = _pvrow[0]
+        except Exception:
+            pass
     _trade_cur = conn.execute(
         # HM-SIGNAL-TRADE-FK 2026-05-20: trades.signal_id captures originating
         # signals.id (rowid) for traceability. NULL if signal_id not in scope
         # (mechanical exits + paths that bypass execute_signal).
         "INSERT INTO trades(player_id, symbol, action, qty, price, asset_type, option_type, "
-        "strike_price, expiry_date, reasoning, confidence, season, sources, timeframe, signal_id) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "strike_price, expiry_date, reasoning, confidence, season, sources, timeframe, signal_id, "
+        "prompt_version) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (player_id, symbol, "BUY", qty, price, asset_type, option_type,
-         strike_price, expiry_date, reasoning, confidence, _current_season(), sources, timeframe, signal_id)
+         strike_price, expiry_date, reasoning, confidence, _current_season(), sources, timeframe, signal_id,
+         _pv)
     )
     _trade_id = _trade_cur.lastrowid  # HM-DECISION-AUDIT-V1 2026-05-20
     conn.commit()
@@ -2712,10 +2728,21 @@ def _write_decision_audit(
 
 def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
                 reasoning: str, asset_type: str = "stock", option_type: str = None,
-                sources: str = "", timeframe: str = "SWING") -> int:
-    """Save signal and return its rowid for status tracking. Returns -1 on error."""
+                sources: str = "", timeframe: str = "SWING",
+                prompt_version: str | None = None) -> int:
+    """Save signal and return its rowid for status tracking. Returns -1 on error.
+
+    HM-PROMPT-VERSIONING (POC Day 2b) 2026-05-22: prompt_version is optional;
+    callers that don't specify it fall back to `f"{player_id}_v1"` as the
+    default tag. Bump the tag at the call site when the agent's prompt
+    template changes (e.g. v1 → v2), so the learning loop can compare
+    WR/expectancy across prompt revisions.
+    """
     # HOLD signals are informational — mark as SKIPPED immediately
     _default_status = "SKIPPED" if signal == "HOLD" else "PENDING"
+    # Default prompt_version tag — caller can override.
+    if prompt_version is None:
+        prompt_version = f"{player_id}_v1"
     try:
         conn = _conn()
         # === HALT GATE === Suppress signals from halted players (any non-active mode).
@@ -2727,10 +2754,12 @@ def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
             return -1
         cur = conn.execute(
             "INSERT INTO signals (player_id, symbol, signal, confidence, reasoning, "
-            "asset_type, option_type, season, sources, timeframe, execution_status) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            "asset_type, option_type, season, sources, timeframe, execution_status, "
+            "prompt_version) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?)",
             (player_id, symbol, signal, confidence, reasoning,
-             asset_type, option_type, _current_season(), sources, timeframe, _default_status)
+             asset_type, option_type, _current_season(), sources, timeframe,
+             _default_status, prompt_version)
         )
         signal_id = cur.lastrowid
         conn.commit()
