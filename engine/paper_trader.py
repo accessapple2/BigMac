@@ -854,6 +854,31 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         # Don't block on import errors — mandate check is advisory
         pass
 
+    # === HM-DEEPSEEK-CONC-CAP 2026-05-23 ===
+    # Per-strategy concentration cap, deepseek-7b-grok4 only. Reads
+    # agent_strategy_pauses + tripwires on >20 trades/30d with negative
+    # cum PnL. Helper at top of file (_check_deepseek_conc_cap). Inert
+    # at deploy time because deepseek's signal path emits strategy_id=
+    # NULL — fires the moment that gap closes.
+    if player_id == "deepseek-7b-grok4" and strategy_id:
+        try:
+            _conc_allowed, _conc_reason = _check_deepseek_conc_cap(strategy_id)
+            if not _conc_allowed:
+                console.log(
+                    f"[red][HM-DEEPSEEK-CONC-CAP] {player_id} {symbol} "
+                    f"strategy={strategy_id}: {_conc_reason}"
+                )
+                _last_rejection[player_id] = (
+                    f"Strategy conc-cap [{strategy_id}]: {_conc_reason}"
+                )
+                return None
+        except Exception as _conc_e:
+            console.log(
+                f"[yellow][HM-DEEPSEEK-CONC-CAP] fail-open "
+                f"{type(_conc_e).__name__}: {_conc_e!r}"
+            )
+    # === /HM-DEEPSEEK-CONC-CAP ===
+
     # === UNIVERSAL GUARDRAIL GATE (Strategy Lab S4 fixes) ===
     # These checks run BEFORE any trade execution, cannot be overridden.
     try:
@@ -2189,6 +2214,70 @@ def _target_weight_adjustment(player_id: str, symbol: str, portfolio: dict, allo
 # HM-I-β-Item3 (2026-05-05): added alpaca-mirror — broker-sync mirror,
 # allocation managed externally (by Alpaca paper account state).
 _ALLOCATION_POLICY_EXEMPT = {"super-agent", "neo-matrix", "enterprise-computer", "alpaca-mirror"}
+
+
+# HM-DEEPSEEK-CONC-CAP 2026-05-23 — per-strategy concentration cap for
+# deepseek-7b-grok4. If the agent has >20 closed trades in any single
+# strategy_id over the last 30d with negative cumulative PnL, INSERT a
+# 7-day pause row in agent_strategy_pauses and block subsequent trades
+# for that strategy until paused_until expires. Forward-looking — at
+# deploy time, deepseek's trades carry strategy_id=NULL across the
+# board (118 closed trades / 30d, all NULL) so the tripwire is inert
+# until strategy_id stamping lands on the agent's signal path.
+def _check_deepseek_conc_cap(strategy_id: str) -> tuple[bool, str | None]:
+    """Return (allowed, reason). Caller is buy() — block when False.
+
+    Two-path logic:
+      1. Active pause: existing agent_strategy_pauses row with
+         paused_until > now → BLOCK with the recorded reason.
+      2. Tripwire: count + sum closed deepseek-7b-grok4 trades for
+         this strategy in last 30d. If n>20 AND cum_pnl<0, INSERT a
+         7-day pause row and BLOCK.
+
+    Fail-safe: caller wraps in try/except per HM-Z/HM-AA posture; any
+    error here returns (True, None) so the gate fails open.
+    """
+    if not strategy_id:
+        return (True, None)
+    player_id = "deepseek-7b-grok4"
+    conn = _conn()
+    try:
+        # Path 1 — active pause check.
+        row = conn.execute(
+            "SELECT paused_until, reason FROM agent_strategy_pauses "
+            " WHERE player_id=? AND strategy_id=? "
+            "   AND paused_until > datetime('now')",
+            (player_id, strategy_id),
+        ).fetchone()
+        if row:
+            return (False, f"already paused until {row[0]} (orig: {row[1]})")
+        # Path 2 — tripwire check.
+        agg = conn.execute(
+            "SELECT COUNT(*), COALESCE(SUM(realized_pnl), 0) "
+            "  FROM trades "
+            " WHERE player_id=? AND strategy_id=? "
+            "   AND executed_at >= date('now','-30 days') "
+            "   AND action IN ('SELL','COVER') "
+            "   AND realized_pnl IS NOT NULL",
+            (player_id, strategy_id),
+        ).fetchone()
+        n_trades = int(agg[0] or 0)
+        cum_pnl = float(agg[1] or 0)
+        if n_trades > 20 and cum_pnl < 0:
+            reason = (
+                f"tripwire: {n_trades} trades / 30d, cum PnL ${cum_pnl:.2f}"
+            )
+            conn.execute(
+                "INSERT OR REPLACE INTO agent_strategy_pauses "
+                "(player_id, strategy_id, paused_until, reason, created_at) "
+                "VALUES (?, ?, datetime('now','+7 days'), ?, datetime('now'))",
+                (player_id, strategy_id, reason),
+            )
+            conn.commit()
+            return (False, f"7-day pause initiated — {reason}")
+        return (True, None)
+    finally:
+        conn.close()
 
 
 # HM-MASTER-PLAN W5-C Blend E enforcement (2026-05-23) — long_equity cap.
