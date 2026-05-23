@@ -1156,11 +1156,16 @@ class Arena:
                 news=sym_news,
             )
 
-            # Save signal — capture rowid for status tracking
+            # Save signal — capture rowid for status tracking.
+            # HM-PROMPT-VERSIONING 2026-05-22: tag the signal with the
+            # agent's current prompt revision so the learning loop can
+            # compare WR/expectancy across prompt edits. Bump v1→v2 here
+            # when the ai_brain prompt template changes.
             signal_id = save_signal(
                 player_id, symbol, decision.action, decision.confidence,
                 decision.reasoning, option_type=decision.option_type,
                 sources=decision.sources, timeframe=decision.timeframe,
+                prompt_version=f"{player_id}_v1",
             )
 
             # Track high-confidence BUY signals for multi-day monitoring
