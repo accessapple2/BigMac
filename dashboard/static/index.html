@@ -7074,7 +7074,7 @@ if (typeof registerSectionInit === 'function') {
   </div>
 
   <!-- Row 3: last decisions full-width -->
-  <div class="card">
+  <div class="card" style="margin-bottom:16px;">
     <div class="card-header"><div class="card-title">🧠 Last 20 Decisions <span id="cp-decisions-note" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div></div>
     <div style="padding:0 16px 12px;">
       <table style="width:100%;border-collapse:collapse;font-size:11px;">
@@ -7091,6 +7091,29 @@ if (typeof registerSectionInit === 'function') {
       </table>
     </div>
   </div>
+
+  <!-- HM-COCKPIT-SIGNAL-LOG 2026-05-22: never lose a message again.
+       Captain's directive: surface dismissed alerts so missed signals
+       remain auditable. Reads /api/cockpit/signal-log (decision_audit
+       event_type='signal_emit'). Independent of the UI toast lifecycle. -->
+  <details class="card" open>
+    <summary class="card-header" style="cursor:pointer;list-style:none;">
+      <div class="card-title">📜 Signal Log <span id="cp-signal-log-count" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div>
+    </summary>
+    <div style="padding:0 16px 12px;">
+      <div style="font-size:11px;color:var(--muted);margin-bottom:6px;">Every signal that fired — including ones already dismissed. Reads from <code>decision_audit</code>, not the toast UI.</div>
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead><tr style="border-bottom:1px solid rgba(212,160,48,0.2);color:var(--muted);text-align:left;">
+          <th style="padding:6px 4px;">When</th>
+          <th style="padding:6px 4px;">Agent</th>
+          <th style="padding:6px 4px;">Symbol</th>
+          <th style="padding:6px 4px;text-align:right;">Conf</th>
+          <th style="padding:6px 4px;">Reasoning</th>
+        </tr></thead>
+        <tbody id="cp-signal-log-tbody"><tr><td colspan="5" style="padding:8px 4px;color:var(--muted);text-align:center;">Fetching…</td></tr></tbody>
+      </table>
+    </div>
+  </details>
 </div>
 
 <script>
@@ -7305,6 +7328,39 @@ function cpLoad() {
     .catch(function(e) {
       var rf = document.getElementById('cockpit-last-refresh');
       if (rf) rf.innerHTML = '<span style="color:#ef4444;">load failed: ' + e + '</span>';
+    });
+  // HM-COCKPIT-SIGNAL-LOG 2026-05-22: parallel fetch for the persistent
+  // signal log. Independent of the snapshot — failure here doesn't blank
+  // the rest of the cockpit.
+  fetch('/api/cockpit/signal-log?limit=50')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var rows = (d && d.signals) || [];
+      var tbody = document.getElementById('cp-signal-log-tbody');
+      var count = document.getElementById('cp-signal-log-count');
+      if (count) count.textContent = rows.length ? '(' + rows.length + ' shown)' : '(none)';
+      if (!tbody) return;
+      if (!rows.length) {
+        tbody.innerHTML = '<tr><td colspan="5" style="padding:8px 4px;color:var(--muted);text-align:center;">No signals in decision_audit yet</td></tr>';
+        return;
+      }
+      tbody.innerHTML = rows.map(function(r) {
+        var conf = (r.confidence != null) ? parseFloat(r.confidence).toFixed(2) : '—';
+        var reason = (r.reason || '').replace(/[<>&"]/g, function(c){
+          return ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'})[c];
+        });
+        return '<tr style="border-bottom:1px solid rgba(212,160,48,0.06);">' +
+          '<td style="padding:5px 4px;font-family:monospace;color:var(--muted);">' + _cpFmtTimeShort(r.created_at) + '</td>' +
+          '<td style="padding:5px 4px;font-family:monospace;">' + (r.player_id || '—') + '</td>' +
+          '<td style="padding:5px 4px;font-family:monospace;color:#e5e7eb;">' + (r.symbol || '—') + '</td>' +
+          '<td style="padding:5px 4px;text-align:right;font-family:monospace;color:var(--muted);">' + conf + '</td>' +
+          '<td style="padding:5px 4px;color:var(--muted);font-size:10px;">' + reason + '</td>' +
+          '</tr>';
+      }).join('');
+    })
+    .catch(function() {
+      var tbody = document.getElementById('cp-signal-log-tbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:8px 4px;color:#ef4444;text-align:center;">Signal log fetch failed</td></tr>';
     });
 }
 
@@ -27704,6 +27760,9 @@ if('Notification' in window && Notification.permission==='granted')PushNotifier.
 
 var AlertSystem={
   enabled:true,soundEnabled:true,lastConvCount:0,lastRegime:null,
+  // HM-CHEKOV-ALERT-ACK-FIX 2026-05-22: persistent convergence toasts.
+  // Track active convergence toasts so we never lose one to auto-dismiss.
+  _activeConvToasts:{},
   playSound:function(type){
     if(!this.soundEnabled)return;
     try{
@@ -27715,11 +27774,115 @@ var AlertSystem={
       else if(type==='facepalm')StarfleetSounds.facepalm();
     }catch(e){}
   },
-  showToast:function(msg,cls){
+  // HM-CHEKOV-ALERT-ACK-FIX 2026-05-22: toasts with `payload` are persistent
+  // (no auto-dismiss), click-to-open-detail, and only removed on explicit
+  // Acknowledge. Backwards-compatible for non-payload toasts (regime, etc.) —
+  // those keep their 5s auto-dismiss behavior.
+  showToast:function(msg,cls,payload){
     var t=document.createElement('div');t.className='alert-toast '+cls;t.innerHTML=msg;
     document.body.appendChild(t);
     requestAnimationFrame(function(){t.style.opacity='1';t.style.transform='translateY(0)';});
-    setTimeout(function(){t.style.opacity='0';setTimeout(function(){t.remove();},300);},5000);
+    if(payload){
+      // Persistent — no setTimeout dismiss. Stack downward if multiple.
+      var n=Object.keys(this._activeConvToasts).length;
+      t.style.top=(20+n*60)+'px';
+      t.style.cursor='pointer';
+      t.title='Click for detail · explicit Acknowledge required';
+      var self=this;
+      var key=(payload.ticker||payload.symbol||'?')+'-'+Date.now();
+      this._activeConvToasts[key]=t;
+      t.addEventListener('click',function(ev){
+        ev.stopPropagation();
+        self._showConvergenceDetail(payload, key);
+      });
+    } else {
+      setTimeout(function(){t.style.opacity='0';setTimeout(function(){t.remove();},300);},5000);
+    }
+  },
+  // HM-CHEKOV-ALERT-ACK-FIX 2026-05-22: dedicated detail modal for
+  // convergence signals. Captain spec — symbol, strategies, confidence,
+  // regime fit, suggested action, Send to Holodeck, Acknowledge buttons.
+  _showConvergenceDetail:function(payload, toastKey){
+    var existing=document.getElementById('hm-conv-detail-modal');
+    if(existing) existing.remove();
+    var sym=payload.ticker||payload.symbol||'?';
+    var stratList=payload.strategies||payload.strategies_list||[];
+    var stratCount=payload.strategies_triggered||stratList.length||0;
+    var conf=payload.confidence||payload.score||0;
+    var regime=payload.regime||payload.current_regime||window._lastKnownRegime||'—';
+    // Derive suggested action: 4+ strategies = strong BUY, 3 = BUY, <3 = WAIT.
+    // Confidence-aware: any signal with conf<0.6 → IC candidate (range-bound).
+    var action='WAIT';
+    if(conf>=0.75 && stratCount>=4) action='STRONG BUY';
+    else if(conf>=0.60 && stratCount>=3) action='BUY';
+    else if(conf>0 && conf<0.60) action='IC CANDIDATE';
+    var stratHtml = stratList.length
+      ? stratList.map(function(s){return '<li style="margin:2px 0;color:#e5e7eb;">'+s+'</li>';}).join('')
+      : '<li style="color:var(--muted);">('+stratCount+' strategies — list not provided by /api/navigator/convergence)</li>';
+    var actionColor=(action==='STRONG BUY'||action==='BUY')?'#10b981':(action==='IC CANDIDATE'?'#06b6d4':'#f59e0b');
+    var modal=document.createElement('div');
+    modal.id='hm-conv-detail-modal';
+    modal.style.cssText='position:fixed;inset:0;background:rgba(0,0,0,0.7);z-index:10001;display:flex;align-items:center;justify-content:center;padding:20px;';
+    modal.innerHTML=''+
+      '<div style="background:#0f172a;border:2px solid #f59e0b;border-radius:10px;max-width:560px;width:100%;padding:24px;font-family:system-ui,sans-serif;color:#e5e7eb;box-shadow:0 8px 48px rgba(245,158,11,0.4);">'+
+        '<div style="display:flex;justify-content:space-between;align-items:start;margin-bottom:16px;">'+
+          '<div>'+
+            '<div style="font-size:11px;color:#f59e0b;text-transform:uppercase;letter-spacing:0.8px;font-weight:700;">🧭 Chekov Convergence Detail</div>'+
+            '<div style="font-size:24px;font-weight:800;font-family:monospace;margin-top:4px;">'+sym+'</div>'+
+          '</div>'+
+          '<div style="text-align:right;">'+
+            '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;">Suggested Action</div>'+
+            '<div style="font-size:18px;font-weight:800;color:'+actionColor+';">'+action+'</div>'+
+          '</div>'+
+        '</div>'+
+        '<div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-bottom:16px;">'+
+          '<div style="background:rgba(15,23,42,0.6);padding:10px;border-radius:6px;">'+
+            '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Confidence</div>'+
+            '<div style="font-size:18px;font-weight:700;font-family:monospace;">'+(conf?conf.toFixed?conf.toFixed(2):conf:'—')+'</div>'+
+          '</div>'+
+          '<div style="background:rgba(15,23,42,0.6);padding:10px;border-radius:6px;">'+
+            '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Regime Fit</div>'+
+            '<div style="font-size:18px;font-weight:700;font-family:monospace;">'+regime+'</div>'+
+          '</div>'+
+        '</div>'+
+        '<div style="background:rgba(15,23,42,0.6);padding:12px;border-radius:6px;margin-bottom:18px;">'+
+          '<div style="font-size:11px;color:var(--muted);text-transform:uppercase;margin-bottom:6px;">'+stratCount+' Strategies Converged</div>'+
+          '<ul style="margin:0;padding-left:20px;font-size:13px;font-family:monospace;">'+stratHtml+'</ul>'+
+        '</div>'+
+        '<div style="display:flex;gap:10px;justify-content:flex-end;">'+
+          '<button id="hm-conv-modal-holodeck" style="padding:8px 16px;background:rgba(6,182,212,0.15);border:1px solid #06b6d4;color:#06b6d4;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;">🧪 Send to Holodeck</button>'+
+          '<button id="hm-conv-modal-ack" style="padding:8px 16px;background:linear-gradient(135deg,#10b981,#059669);border:none;color:#0f172a;border-radius:6px;font-weight:700;cursor:pointer;font-size:13px;">✓ Acknowledge</button>'+
+        '</div>'+
+      '</div>';
+    document.body.appendChild(modal);
+    var self=this;
+    document.getElementById('hm-conv-modal-holodeck').addEventListener('click',function(){
+      try{ window._hmHolodeckPendingSymbol=sym; }catch(e){}
+      try{ if(typeof showSection==='function') showSection('holodeck'); }catch(e){}
+      // Holodeck navigation closes modal but leaves toast for explicit Ack
+      modal.remove();
+    });
+    document.getElementById('hm-conv-modal-ack').addEventListener('click',function(){
+      modal.remove();
+      // Explicit Acknowledge — also dismiss the toast.
+      var toast=self._activeConvToasts[toastKey];
+      if(toast){
+        toast.style.opacity='0';
+        setTimeout(function(){
+          toast.remove();
+          delete self._activeConvToasts[toastKey];
+          self._restackConvToasts();
+        },300);
+      }
+    });
+  },
+  _restackConvToasts:function(){
+    var i=0;
+    var keys=Object.keys(this._activeConvToasts);
+    for(var k=0;k<keys.length;k++){
+      var t=this._activeConvToasts[keys[k]];
+      if(t){ t.style.top=(20+i*60)+'px'; i++; }
+    }
   },
   check:function(){
     var self=this;
@@ -27727,7 +27890,13 @@ var AlertSystem={
       var sigs=d.signals||d||[];
       if(sigs.length>self.lastConvCount&&self.lastConvCount>0){
         self.playSound('convergence');
-        self.showToast('🧭 CHEKOV: Convergence on '+sigs[0].ticker+'! '+sigs[0].strategies_triggered+' strategies','convergence');
+        // HM-CHEKOV-ALERT-ACK-FIX 2026-05-22: pass full signal payload as
+        // third arg so the toast becomes persistent + click-to-modal.
+        self.showToast(
+          '🧭 CHEKOV: Convergence on '+sigs[0].ticker+'! '+sigs[0].strategies_triggered+' strategies <span style="opacity:0.7;font-size:11px;">(click for detail)</span>',
+          'convergence',
+          sigs[0]
+        );
         PushNotifier.send('🧭 CHEKOV — Convergence Signal!',sigs[0].ticker+' — '+sigs[0].strategies_triggered+' strategies agree','conv-'+sigs[0].ticker);
       }
       self.lastConvCount=sigs.length;
