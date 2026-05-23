@@ -2841,54 +2841,68 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
 <aside class="sidebar">
   <button id="sbCloseBtn" onclick="toggleMobileSidebar()" aria-label="Close menu">✕</button>
 
-  <!-- TIER 1 — Always visible -->
+  <!-- TIER 1 — Always visible (10 items per W5-Sidebar Consolidation 2026-05-23) -->
   <div class="sidebar-item active" onclick="showSection('dashboard')"><span class="icon">🖥️</span> Bridge</div>
   <!-- HM-COCKPIT 2026-05-22: Command Bridge mission control. -->
   <div class="sidebar-item" id="nav-cockpit" title="Command Bridge — system mission control (events bus, dispatcher mix, last decisions, kill switch)" onclick="showSection('cockpit')"><span class="icon">🎛️</span> Cockpit</div>
-  <div class="sidebar-item" onclick="showSection('ready-room')"><span class="icon">📋</span> Ready Room</div>
-  <div class="sidebar-item" onclick="showSection('ollie')"><span class="icon">💻</span> Ollie</div>
-  <div class="sidebar-item" onclick="showSection('webull')"><span class="icon">🛸</span> Starfleet</div>
   <div class="sidebar-item" id="nav-trade-desk" title="Manual trade desk (Captain) — Alpaca paper" onclick="showSection('trade-desk')"><span class="icon">📋</span> Trade Desk</div>
-  <div class="sidebar-item" onclick="showSection('feed')"><span class="icon">👥</span> Crew Activity</div>
+  <div class="sidebar-item" onclick="showSection('ollie')"><span class="icon">💻</span> Ollie</div>
   <div class="sidebar-item" title="0DTE tactical trading station" onclick="showSection('dayblade')"><span class="icon">⚔️</span> Battle Station</div>
   <div class="sidebar-item" onclick="showSection('charts')"><span class="icon">📈</span> Charts</div>
-  <div class="sidebar-item" onclick="showSection('livechart')"><span class="icon">⚡</span> Live Chart</div>
-  <div class="sidebar-item" id="nav-sniff-scan" title="Ollie's whole-market opportunity scanner" onclick="showSection('sniff-scan')"><span class="icon">📡</span> Sniff Scan</div>
-  <!-- === Phase 4-static.3 (bundled with Phase 6 Q5): desktop Race nav entry === -->
-  <div class="sidebar-item" id="nav-race" onclick="showSection('race');if(typeof raceStart==='function')raceStart()"><span class="icon">🏁</span> Race</div>
-  <div class="sidebar-item" id="nav-movers" onclick="showSection('movers')"><span class="icon">📊</span> Movers</div>
-  <a class="sidebar-item" href="/backtest" style="text-decoration:none;color:inherit;"><span class="icon">🧪</span> Backtest</a>
-  <div class="sidebar-item" title="Institutional Intelligence — smart money tracking" onclick="showSection('institutional-intel')"><span class="icon">🏛️</span> Inst. Intel</div>
-<div class="sidebar-item" onclick="showSection('screener-pro')"><span class="icon">🔍</span> Screener Pro</div>
-<div class="sidebar-item" onclick="showSection('sector-watch')"><span class="icon">📡</span> Sector Watch</div>
-<div class="sidebar-item" onclick="showSection('big-charts')"><span class="icon">📱</span> Big Charts</div>
-  <div class="sidebar-item" onclick="showSection('alert-history')"><span class="icon">🔔</span> Alerts</div>
-  <div class="sidebar-item" onclick="showSection('live-scanner');lsAutoLoad()"><span class="icon">📡</span> Live Scanner</div>
-  <div class="sidebar-item" title="Ghost Trader research-only book performance" onclick="showSection('ghost-scorecard');fetchGhostScorecard()"><span class="icon">👻</span> Ghost Scorecard</div>
-  <div class="sidebar-item" onclick="showSection('squeeze');fetchSqueezeRecent()"><span class="icon">🎯</span> Squeeze</div>
   <div class="sidebar-item" onclick="showSection('leaderboard')"><span class="icon">🏆</span> Leaderboard</div>
-  <div class="sidebar-item" title="Individual AI agent performance analysis" onclick="showSection('agent-deepdive');ddAutoLoad()"><span class="icon">🔬</span> Agent Deep Dive</div>
-  <div class="sidebar-item" title="Real physical gold &amp; silver holdings ledger" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
-  <div class="sidebar-item" title="Real-world net worth: Schwab + metals (excludes Alpaca paper, Webull, IBKR)" onclick="showSection('real-portfolio')"><span class="icon">💰</span> Real Portfolio</div>
-  <div class="sidebar-item" onclick="showSection('congress')"><span class="icon">🏛️</span> Congress</div>
+  <div class="sidebar-item" title="Real-world net worth: Schwab + Webull + IBKR + physical metals (excludes Alpaca paper)" onclick="showSection('real-portfolio')"><span class="icon">💰</span> Real Portfolio</div>
+  <div class="sidebar-item" title="Ghost Trader research-only book performance" onclick="showSection('ghost-scorecard');fetchGhostScorecard()"><span class="icon">👻</span> Ghost Scorecard</div>
+  <div class="sidebar-item" onclick="showSection('model-control'); loadModelControl()"><span class="icon">⚙️</span> Models</div>
 
-  <!-- TIER 2 — More dropdown -->
+  <!-- TIER 2 — More dropdown, grouped by function (W5-Sidebar Consolidation 2026-05-23) -->
   <div style="margin:4px 8px 0;">
     <div id="sidebar-more-btn" class="sidebar-item" onclick="toggleSidebarMore()" style="font-weight:700;color:var(--muted);justify-content:space-between;">
       <span><span class="icon">⋯</span> More</span>
       <span id="sidebar-more-arrow" style="font-size:11px;">▸</span>
     </div>
     <div id="sidebar-more-list" style="display:none;padding-left:4px;">
-      <div class="sidebar-item" onclick="showSection('model-control'); loadModelControl()"><span class="icon">⚙️</span> Models</div>
-      <div class="sidebar-item" onclick="showSection('fear-greed')"><span class="icon">😱</span> Fear &amp; Greed</div>
+
+      <!-- Trading / Execution -->
+      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:8px 12px 4px;">Trading / Execution</div>
+      <div class="sidebar-item" onclick="showSection('webull')"><span class="icon">🛸</span> Starfleet</div>
+      <div class="sidebar-item" id="nav-race" onclick="showSection('race');if(typeof raceStart==='function')raceStart()"><span class="icon">🏁</span> Race</div>
+      <div class="sidebar-item" onclick="showSection('squeeze');fetchSqueezeRecent()"><span class="icon">🎯</span> Squeeze</div>
+
+      <!-- Monitoring / Scanning -->
+      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:8px 12px 4px;">Monitoring / Scanning</div>
+      <div class="sidebar-item" onclick="showSection('livechart')"><span class="icon">⚡</span> Live Chart</div>
+      <div class="sidebar-item" id="nav-sniff-scan" title="Ollie's whole-market opportunity scanner" onclick="showSection('sniff-scan')"><span class="icon">📡</span> Sniff Scan</div>
+      <div class="sidebar-item" onclick="showSection('live-scanner');lsAutoLoad()"><span class="icon">📡</span> Live Scanner</div>
+      <div class="sidebar-item" id="nav-movers" onclick="showSection('movers')"><span class="icon">📊</span> Movers</div>
+      <div class="sidebar-item" onclick="showSection('screener-pro')"><span class="icon">🔍</span> Screener Pro</div>
+      <div class="sidebar-item" onclick="showSection('sector-watch')"><span class="icon">📡</span> Sector Watch</div>
       <div class="sidebar-item" onclick="showSection('heatmap')"><span class="icon">🗺️</span> Sectors</div>
-      <div class="sidebar-item" onclick="showSection('macro');loadMacroDashboard(false)"><span class="icon">🌍</span> Macro</div>
-      <div class="sidebar-item" onclick="showSection('news')"><span class="icon">📰</span> News</div>
-      <div class="sidebar-item" onclick="showSection('costs')"><span class="icon">💰</span> Costs</div>
-      <div class="sidebar-item" onclick="showSection('navigator')"><span class="icon">🔭</span> Navigator</div>
-      <div class="sidebar-item admin-only" onclick="showSection('war-room')"><span class="icon">⚔️</span> War Room</div>
+      <div class="sidebar-item" onclick="showSection('big-charts')"><span class="icon">📱</span> Big Charts</div>
+      <div class="sidebar-item" onclick="showSection('alert-history')"><span class="icon">🔔</span> Alerts</div>
+
+      <!-- Research / Intel -->
+      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:8px 12px 4px;">Research / Intel</div>
+      <div class="sidebar-item" onclick="showSection('ready-room')"><span class="icon">📋</span> Ready Room</div>
+      <div class="sidebar-item" onclick="showSection('feed')"><span class="icon">👥</span> Crew Activity</div>
+      <div class="sidebar-item" title="Institutional Intelligence — smart money tracking" onclick="showSection('institutional-intel')"><span class="icon">🏛️</span> Inst. Intel</div>
       <div class="sidebar-item" onclick="showSection('congress')"><span class="icon">🏛️</span> Congress</div>
+      <div class="sidebar-item" onclick="showSection('news')"><span class="icon">📰</span> News</div>
+      <div class="sidebar-item" onclick="showSection('macro');loadMacroDashboard(false)"><span class="icon">🌍</span> Macro</div>
+      <div class="sidebar-item" onclick="showSection('fear-greed')"><span class="icon">😱</span> Fear &amp; Greed</div>
+      <div class="sidebar-item" onclick="showSection('navigator')"><span class="icon">🔭</span> Navigator</div>
+
+      <!-- Performance / Analysis -->
+      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:8px 12px 4px;">Performance / Analysis</div>
+      <div class="sidebar-item" title="Individual AI agent performance analysis" onclick="showSection('agent-deepdive');ddAutoLoad()"><span class="icon">🔬</span> Agent Deep Dive</div>
+      <div class="sidebar-item" title="Real physical gold &amp; silver holdings ledger" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
+      <div class="sidebar-item" onclick="showSection('costs')"><span class="icon">💰</span> Costs</div>
+      <a class="sidebar-item" href="/backtest" style="text-decoration:none;color:inherit;"><span class="icon">🧪</span> Backtest</a>
       <div class="sidebar-item" onclick="showSection('holodeck')"><span class="icon">🧪</span> Holodeck</div>
+
+      <!-- Admin (role-gated — admin-only class hides for role-observer via L329 CSS;
+           HM-ADMIN-ONLY-CSS-DEFAULT-DENY in XO_BACKLOG tracks the role-enumeration gap) -->
+      <div class="admin-only" style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:8px 12px 4px;">Admin</div>
+      <div class="sidebar-item admin-only" onclick="showSection('war-room')"><span class="icon">⚔️</span> War Room</div>
     </div>
   </div>
 
@@ -2915,12 +2929,6 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
     </div>
     <div id="fleetValueLine" style="display:none;font-size:12px;font-family:var(--font-mono);padding:2px 0 6px;letter-spacing:0.3px;"></div>
     <div id="sidebarCapital" style="font-size:13px;"></div>
-  </div>
-  <div style="padding:12px 16px 16px;border-top:1px solid var(--border);margin-top:auto;">
-    <a href="/charts" target="_blank" style="display:flex;align-items:center;gap:8px;font-size:12px;color:var(--muted);text-decoration:none;padding:6px 0;transition:color 0.15s;" onmouseover="this.style.color='var(--text)'" onmouseout="this.style.color='var(--muted)'">
-      <span style="font-size:14px;">📱</span>
-      <span>Big Charts</span>
-    </a>
   </div>
 </aside>
 

@@ -242,6 +242,94 @@ All acceptance criteria unchecked — sprint never started.
 - Phase 4 spread strategy comparison report
 - signals.db archival cron — first eligible 2026-05-05
 
+### HM-GAMEPLAN-EARNINGS-NULL-FIX (banked 2026-05-23, surfaced via sidebar smoke)
+
+**Symptom:** `Uncaught (in promise) TypeError: Cannot read properties of
+null (reading 'slice') at _gpEarningsRows`
+
+**Location:** `dashboard/static/index.html:4911` inside
+`function _gpEarningsRows(earnings)`. Pre-existing bug, NOT introduced
+by the W5-Sidebar Consolidation — surfaced during smoke because the
+checklist asked the Captain to verify a clean DevTools console.
+
+**Cause:** the function guards `!earnings || !earnings.length` at
+line 4905 and filters items with truthy `e.ticker` at 4906, but
+never guards `e.date === null`. Any earnings record with a ticker
+populated but a null date triggers the throw at:
+
+```js
+html += '...'+e.ticker+'</span> '+e.date.slice(5)+...
+//                                  ^^^^^^^^^^^^^^^ throws
+```
+
+Upstream cause is likely Polygon / yfinance returning a record with
+a ticker but no confirmed earnings date for a freshly-listed or
+recently-IPO'd symbol — happens intermittently, hence why the bug
+was latent rather than constant.
+
+**Fix shape (when picked up):**
+```js
+var datePart = (e.date && typeof e.date === 'string') ? ' '+e.date.slice(5) : '';
+html += '...'+e.ticker+'</span>'+datePart+...;
+```
+
+Defensive null + type check on `e.date`, fall back to empty string
+so the ticker chip still renders without the date suffix.
+
+**Sibling check:** `_gpCongressFlags` at line 4917 has similar
+shape — guards `c.amount || c.amount_range || '—'` defensively
+(D4 comment shows the same Pattern was caught earlier there).
+Same null-guard discipline needs to land in `_gpEarningsRows` and
+likely a few other `_gp*` formatters that consume backend-shape
+records.
+
+**Why deferred:** non-blocking — Game Plan card still renders other
+sections; the earnings sub-row throws silently and falls through.
+Fix is a one-liner but worth pairing with a broader `_gp*` audit
+to catch sibling null-guard misses in one sweep.
+
+**Finding:** the `.admin-only` CSS gate in `dashboard/static/index.html:329`
+is one line and gates ONLY for `role=observer`:
+
+```css
+body.role-observer .admin-only { display: none !important; }
+```
+
+`role=admin` → gate doesn't fire → admin elements visible ✓
+`role=observer` → gate fires → hidden ✓
+**`role=charts` (or any future non-admin/non-observer role) → gate doesn't fire → admin elements visible** ✗
+
+The system already has at least 3 roles per the auth middleware
+(admin / observer / charts). Default-allow is the wrong posture for
+admin-only — should be default-deny.
+
+**Affected elements** (verified via grep of `.admin-only` in index.html):
+- Sidebar nav: War Room (1 item + 1 group header — added during W5
+  Sidebar Consolidation 2026-05-23)
+- Model Control: 3 buttons (Pause All / Fallbacks / Force Scan)
+- Ollie Fleet: ⚡ Send to Fleet button
+- Trade Desk (or related panel): ⚡ Send to Fleet button
+- Trade Desk Alpaca buttons: BUY / SELL / CLOSE ALL (3 buttons)
+- Backtest panel: Run Backtest / Run Inverse Backtest (2 buttons)
+- Whole-section gates: `section-strategy-lab` and `section-kill-switch`
+  (both have `class="admin-only"` on the section div)
+
+**Fix shape (when picked up):**
+```css
+/* Replace L329 with default-deny */
+body:not(.role-admin) .admin-only { display: none !important; }
+```
+
+Or explicit per-role list if `.admin-only` needs to be visible to
+some intermediate role. Verify no regression for the admin role
+(should see everything as before).
+
+**Why deferred:** simple one-line fix in isolation, but a security
+boundary edit — wants a Captain-attended verification across all 3
+roles (admin, observer, charts) before shipping. Pair with role
+documentation in CLAUDE.md so future Claude sessions understand
+the full role surface.
+
 ---
 
 ## ARCHITECTURAL ORPHANS (code exists, zero wiring to main.py)
