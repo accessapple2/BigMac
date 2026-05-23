@@ -206,9 +206,17 @@ def get_quote(symbol: str) -> dict | None:
 
 # --- FRED Economic Data ---
 
-def _fred_get(series_id: str, limit: int = 1) -> list:
-    """Fetch latest observation(s) from FRED API."""
-    cache_key = f"fred:{series_id}:{limit}"
+def _fred_get(series_id: str, limit: int = 1, units: str | None = None) -> list:
+    """Fetch latest observation(s) from FRED API.
+
+    HM-CPI-YOY-FIX 2026-05-22: accept optional `units` param so callers can
+    ask FRED for pre-computed transforms (e.g. units='pc1' = percent change
+    vs 1 year prior). Without this, CPIAUCSL returned the raw index level
+    (e.g. 332.41) and dashboards rendered it as "CPI 332.41" instead of
+    the intended YoY%. Cache key includes units so transformed + raw can
+    coexist in the cache.
+    """
+    cache_key = f"fred:{series_id}:{limit}:{units or 'raw'}"
     if cache_key in _fred_cache:
         entry = _fred_cache[cache_key]
         if time.time() - entry["ts"] < _FRED_CACHE_TTL:
@@ -218,13 +226,16 @@ def _fred_get(series_id: str, limit: int = 1) -> list:
     if not fred_key or fred_key == "DEMO":
         return []
     try:
-        r = requests.get(_FRED_BASE, params={
+        _params = {
             "series_id": series_id,
             "api_key": fred_key,
             "file_type": "json",
             "sort_order": "desc",
             "limit": limit,
-        }, timeout=10)
+        }
+        if units:
+            _params["units"] = units
+        r = requests.get(_FRED_BASE, params=_params, timeout=10)
         if r.status_code != 200:
             return []
         data = r.json().get("observations", [])
@@ -240,7 +251,9 @@ def get_macro_data() -> dict:
     Returns CPI, Fed Funds Rate, Unemployment, 10Y Treasury, GDP growth.
     """
     indicators = {
-        "cpi_yoy": {"series": "CPIAUCSL", "label": "CPI YoY"},
+        # HM-CPI-YOY-FIX 2026-05-22: request units=pc1 (% change vs 1yr prior)
+        # so we get YoY% (~3.1) instead of raw index level (~332.41).
+        "cpi_yoy": {"series": "CPIAUCSL", "label": "CPI YoY", "units": "pc1"},
         "fed_rate": {"series": "FEDFUNDS", "label": "Fed Funds Rate"},
         "unemployment": {"series": "UNRATE", "label": "Unemployment Rate"},
         "treasury_10y": {"series": "DGS10", "label": "10Y Treasury"},
@@ -254,7 +267,7 @@ def get_macro_data() -> dict:
 
     result = {}
     for key, info in indicators.items():
-        obs = _fred_get(info["series"], limit=2)
+        obs = _fred_get(info["series"], limit=2, units=info.get("units"))
         if obs:
             latest = obs[0]
             val = latest.get("value", ".")
