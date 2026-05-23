@@ -1085,10 +1085,13 @@ class DayBladeScanner:
                 response = self.provider.call_model(prompt)
                 decision = parse_dayblade_decision(response, sym)
 
-                # Save signal
+                # Save signal — HM-PROMPT-VERSIONING 2026-05-22.
+                # DayBlade (T'Pol) prompt revision tag; bump v1→v2 when
+                # the 0dte options decision template changes.
                 from engine.paper_trader import save_signal
                 save_signal(DAYBLADE_PLAYER, sym, decision.action, decision.confidence,
-                            decision.reasoning, asset_type="option", option_type=decision.option_type)
+                            decision.reasoning, asset_type="option", option_type=decision.option_type,
+                            prompt_version=f"{DAYBLADE_PLAYER}_v1")
 
                 if decision.action == "HOLD":
                     continue
