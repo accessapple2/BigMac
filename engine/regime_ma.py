@@ -248,11 +248,31 @@ def build_ma_cross_prompt_section() -> str:
 
 
 def _save_to_db(r: dict):
-    """Persist regime reading to regime_history table."""
+    """Persist regime reading to regime_history table.
+
+    HM-FINMEM 2026-05-23 — also fire the on_regime_change writer when the
+    new regime differs from yesterday's recorded value. Writes a MID_TERM
+    memory entry to all 4 pilot agents (McCoy / Worf / Grok / Ollie).
+    Defensive — any memory write failure logs only, never breaks the
+    canonical regime_history persist.
+    """
     import sqlite3
     today = datetime.now().strftime("%Y-%m-%d")
+    new_regime = r["regime"]
+    prev_regime = None
     try:
         conn = sqlite3.connect("data/trader.db")
+        # HM-FINMEM: capture previous regime BEFORE we overwrite today's row
+        # via INSERT OR REPLACE. If today's row already exists (we ran earlier
+        # today), use yesterday's. Otherwise just the most recent.
+        prev_row = conn.execute(
+            "SELECT regime FROM regime_history "
+            " WHERE date < ? "
+            " ORDER BY date DESC LIMIT 1",
+            (today,),
+        ).fetchone()
+        if prev_row:
+            prev_regime = prev_row[0]
         conn.execute(
             """INSERT OR REPLACE INTO regime_history
                (date, spy_close, ma_8, ma_21, qqq_close, qqq_ma_8, qqq_ma_21,
@@ -266,7 +286,7 @@ def _save_to_db(r: dict):
                 r.get("qqq_close"),
                 r.get("qqq_ma8"),
                 r.get("qqq_ma21"),
-                r["regime"],
+                new_regime,
                 r.get("cross_date"),
                 r.get("cross_days_ago"),
                 r.get("size_modifier"),
@@ -276,3 +296,15 @@ def _save_to_db(r: dict):
         conn.close()
     except Exception:
         pass
+    # HM-FINMEM regime-change fanout — outside the persist try/except so
+    # we only fire when the persist succeeded. Defensive try/except here
+    # too: any memory writer failure must not break regime tracking.
+    if prev_regime is not None and prev_regime != new_regime:
+        try:
+            from engine.finmem_writers import on_regime_change
+            on_regime_change(
+                prev_regime=prev_regime, new_regime=new_regime,
+                vix=r.get("vix"), spy_price=r.get("spy_close"),
+            )
+        except Exception:
+            pass

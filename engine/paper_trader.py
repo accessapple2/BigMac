@@ -1620,6 +1620,27 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         reasoning=reasoning, trade_id=_sell_trade_id,
     )
 
+    # === HM-FINMEM 2026-05-23 ===
+    # On every SELL close, write a SHORT_TERM memory entry to agent_memory
+    # for the 4 pilot agents (McCoy / Worf / Grok / Ollie). The writer is
+    # internally fail-safe (non-pilots = no-op; any DB error = silent log),
+    # but wrap defensively here too so a memory write can never break the
+    # SELL lifecycle. Cache for the agent is auto-invalidated on write so
+    # the next finmem read picks up the fresh entry.
+    try:
+        from engine.finmem_writers import on_sell_close
+        on_sell_close(
+            player_id=player_id, symbol=symbol,
+            entry_price=(pos.get("avg_price") if isinstance(pos, dict) else None),
+            exit_price=price, realized_pnl=pnl, reasoning=reasoning,
+        )
+    except Exception as _fm_e:
+        console.log(
+            f"[yellow][HM-FINMEM-WRITER] sell hook fail-open "
+            f"{type(_fm_e).__name__}: {_fm_e!r}"
+        )
+    # === /HM-FINMEM ===
+
     # === HM-POST-EXIT-TRACKER 2026-05-20 ===
     # On every successful SELL (stock asset only), seed a post_exit_watch row.
     # A daily scanner (engine.post_exit_tracker.run_daily_scan) will check
