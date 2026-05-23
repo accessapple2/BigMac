@@ -202,6 +202,23 @@ def _finish_debate(debate_id: str, expected: list, completed: list) -> None:
         _db_write_retry(_write)
     except Exception as e:
         console.log(f"[dim]debate tracking finish failed: {e}")
+    # HM-EVENTS-BUS-FOUNDATION 2026-05-22: emit debate event to canonical bus.
+    # Fail-safe — bus errors never affect debate lifecycle.
+    try:
+        from engine.events_bus import emit_event
+        emit_event(
+            source="war_room", event_type="debate", symbol=None,
+            payload={
+                "debate_id": debate_id, "status": status,
+                "expected": list(expected), "completed": list(completed),
+                "n_expected": len(expected), "n_completed": len(completed),
+            },
+        )
+    except Exception as _ebus_e:
+        console.log(
+            f"[yellow][EVENTS-BUS-WARN] war_room._finish_debate hook "
+            f"debate={debate_id}: {type(_ebus_e).__name__}: {_ebus_e!r}"
+        )
 
 
 # ────────────────────────────────────────────────────────────────────────────

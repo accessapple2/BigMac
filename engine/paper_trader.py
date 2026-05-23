@@ -593,6 +593,73 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     if route["route_mode"] == "tracking":
         return _log_signal_only(player_id, "BUY", symbol, route, reasoning, confidence)
 
+    # === HM-EVENTS-BUS-FOUNDATION stale-signal gate 2026-05-22 ===
+    # Gate order at this insertion point (post-conflict resolution):
+    #   1. Stale-signal gate     (this block)        — latency budget
+    #   2. Regime-router gate    (HM-REGIME-ROUTER)  — strategy/regime fit
+    #   3. Grade B fleet gate    (HM-GRADE-B-FLEET-GATE, below) — quality band
+    # Stale runs first so we don't waste regime/quality work on a signal
+    # that already aged past its budget.
+    #
+    # Per-timeframe latency budget: 0dte=2s, swing=30s, position=300s. We use
+    # the v1 signals.created_at (canonical emit timestamp) for the age check;
+    # signals_v2 carries the same budget via stale_after for non-buy readers.
+    # If signal_id passed and (now - created_at) > budget → reject with
+    # [STALE-SIGNAL] + decision_audit gate_reject. Fail-safe: any error
+    # → allow the trade (HM-Z/HM-AA error posture).
+    if signal_id is not None and signal_id >= 0:
+        try:
+            from engine.events_bus import _STALE_BUDGET_S
+            _tf_key = (timeframe or "swing").lower()
+            _budget_s = _STALE_BUDGET_S.get(_tf_key)
+            if _budget_s is not None:
+                _scn = _conn()
+                _srow = _scn.execute(
+                    "SELECT created_at FROM signals WHERE rowid=?",
+                    (int(signal_id),),
+                ).fetchone()
+                _scn.close()
+                if _srow and _srow[0]:
+                    from datetime import datetime as _dt
+                    # SQLite default CURRENT_TIMESTAMP is UTC 'YYYY-MM-DD HH:MM:SS'
+                    _emit_dt = _dt.strptime(
+                        str(_srow[0])[:19], "%Y-%m-%d %H:%M:%S"
+                    )
+                    _age_s = (_dt.utcnow() - _emit_dt).total_seconds()
+                    if _age_s > _budget_s:
+                        console.log(
+                            f"[yellow][STALE-SIGNAL] symbol={symbol} "
+                            f"player={player_id} timeframe={_tf_key} "
+                            f"age={_age_s:.1f}s budget={_budget_s}s — BLOCKED"
+                        )
+                        _last_rejection[player_id] = (
+                            f"STALE-SIGNAL: age={_age_s:.1f}s > "
+                            f"budget={_budget_s}s ({_tf_key})"
+                        )
+                        try:
+                            _ac = _conn()
+                            _ac.execute(
+                                "INSERT INTO decision_audit "
+                                "(event_type, player_id, symbol, signal_id, "
+                                " gate_verdict, reasoning_snippet) "
+                                "VALUES (?,?,?,?,?,?)",
+                                ("gate_reject", player_id, symbol,
+                                 signal_id, "stale_signal",
+                                 f"[stale_signal] age={_age_s:.1f}s "
+                                 f"budget={_budget_s}s timeframe={_tf_key}"),
+                            )
+                            _ac.commit()
+                            _ac.close()
+                        except Exception:
+                            pass  # audit never blocks
+                        return None
+        except Exception as _stale_e:
+            console.log(
+                f"[red][STALE-SIGNAL] gate fail-open: "
+                f"{type(_stale_e).__name__}: {_stale_e!r}"
+            )
+    # === /HM-EVENTS-BUS-FOUNDATION stale-signal gate ===
+
     # === HM-REGIME-ROUTER 2026-05-22 ===
     # Strategy-regime fit gate. Fires upstream of HM-GRADE-B-FLEET-GATE so a
     # regime mismatch rejects at the coarse strategy-fit layer before the
@@ -1175,6 +1242,12 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         confidence=confidence,
         reasoning_snippet=reasoning,
     )
+    # HM-EVENTS-BUS-FOUNDATION 2026-05-22: events + signals_v2 fire hook
+    _emit_trade_to_bus(
+        player_id=player_id, symbol=symbol, action="BUY",
+        qty=qty, price=price, asset_type=asset_type,
+        signal_id=signal_id, trade_id=_trade_id, reasoning=reasoning,
+    )
     _first_trade_notification(player_id, symbol, "BUY", price)
 
     # Forward to Alpaca paper trading (non-blocking)
@@ -1343,6 +1416,12 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     conn.commit()
     conn.close()
     console.log(f"[green]{player_id}: {trade_action} {qty} {symbol} @ ${price:.2f} PnL: ${pnl:.2f}")
+    # HM-EVENTS-BUS-FOUNDATION 2026-05-22: SELL trade-fire event
+    _emit_trade_to_bus(
+        player_id=player_id, symbol=symbol, action=trade_action,
+        qty=qty, price=price, asset_type=asset_type,
+        signal_id=None, trade_id=_sell_trade_id, reasoning=reasoning,
+    )
 
     # === HM-POST-EXIT-TRACKER 2026-05-20 ===
     # On every successful SELL (stock asset only), seed a post_exit_watch row.
@@ -1515,6 +1594,12 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
     conn.commit()
     conn.close()
     console.log(f"[green]{player_id}: SELL {qty} {symbol} @ ${price:.2f} (partial) PnL: ${pnl:.2f}")
+    # HM-EVENTS-BUS-FOUNDATION 2026-05-22: partial-SELL trade-fire event
+    _emit_trade_to_bus(
+        player_id=player_id, symbol=symbol, action="SELL",
+        qty=qty, price=price, asset_type=asset_type,
+        signal_id=None, trade_id=_partial_trade_id, reasoning=reasoning,
+    )
 
     # Forward to Alpaca paper trading (non-blocking)
     # HM-I-Option-ε (2026-05-05): gate identically to BUY (line ~1015) and full-SELL
@@ -2532,6 +2617,38 @@ def _capture_decision_snapshot() -> dict:
     return snap
 
 
+def _emit_trade_to_bus(*, player_id: str, symbol: str, action: str,
+                       qty: float, price: float, asset_type: str,
+                       signal_id: int | None, trade_id: int | None,
+                       reasoning: str | None = None) -> None:
+    """HM-EVENTS-BUS-FOUNDATION 2026-05-22 — push a trade-fire event onto the
+    canonical bus + flip the originating signals_v2 row to status='executed'.
+
+    Fail-safe: any error logs [EVENTS-BUS-WARN] and returns. A bus write
+    MUST NEVER block a trade. Mirrors the safety posture of
+    _write_decision_audit() above.
+    """
+    try:
+        from engine.events_bus import emit_event, mark_signal_executed
+        emit_event(
+            source=player_id, event_type="trade", symbol=symbol,
+            payload={
+                "action": action, "qty": qty, "price": price,
+                "asset_type": asset_type, "signal_id": signal_id,
+                "trade_id": trade_id,
+                "reasoning_snippet": (reasoning or "")[:300],
+            },
+        )
+        if signal_id is not None and signal_id >= 0:
+            mark_signal_executed(signal_id=signal_id, trade_id=trade_id)
+    except Exception as _e:
+        console.log(
+            f"[yellow][EVENTS-BUS-WARN] trade-fire hook "
+            f"player={player_id} sym={symbol} action={action}: "
+            f"{type(_e).__name__}: {_e!r}"
+        )
+
+
 def _write_decision_audit(
     event_type: str,
     player_id: str | None = None,
@@ -2627,6 +2744,45 @@ def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
             confidence=confidence,
             reasoning_snippet=reasoning,
         )
+        # HM-EVENTS-BUS-FOUNDATION 2026-05-22: drop a row in the canonical
+        # events bus + a normalized signals_v2 row. Fail-safe — bus errors
+        # never block the calling path.
+        try:
+            from engine.events_bus import emit_event, emit_signal_v2
+            _tf_norm = (timeframe or "SWING").lower()
+            _ebus_payload = {
+                "signal_id_v1": signal_id,
+                "action": signal,
+                "asset_type": asset_type,
+                "option_type": option_type,
+                "sources": sources,
+                "reasoning_snippet": (reasoning or "")[:300],
+            }
+            _event_id = emit_event(
+                source=player_id, event_type="signal", symbol=symbol,
+                payload=_ebus_payload,
+            )
+            # Direction: BUY → LONG, SELL → SHORT, HOLD → NEUTRAL.
+            _dir_map = {"BUY": "LONG", "SELL": "SHORT", "HOLD": "NEUTRAL"}
+            _direction = _dir_map.get((signal or "").upper(), signal)
+            _strategy_tag = (
+                "long_call" if asset_type == "option" and option_type == "call"
+                else "long_put" if asset_type == "option" and option_type == "put"
+                else "long_equity"
+            )
+            emit_signal_v2(
+                source=player_id, signal_type="momentum", symbol=symbol,
+                direction=_direction, confidence=confidence,
+                timeframe=_tf_norm, strategy_tag=_strategy_tag,
+                event_id=_event_id,
+                metadata={"reasoning_excerpt": (reasoning or "")[:200]},
+            )
+        except Exception as _ebus_e:
+            console.log(
+                f"[yellow][EVENTS-BUS-WARN] save_signal hook "
+                f"player={player_id} sym={symbol}: "
+                f"{type(_ebus_e).__name__}: {_ebus_e!r}"
+            )
         return signal_id
     except Exception as e:
         console.log(f"[red]DB error: {e}")
@@ -3321,15 +3477,22 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
         "INSERT INTO positions(player_id, symbol, qty, avg_price, asset_type) VALUES(?,?,?,?,?)",
         (player_id, symbol, -qty, price, "stock")  # negative qty = short
     )
-    conn.execute(
+    _short_cur = conn.execute(
         "INSERT INTO trades(player_id, symbol, action, qty, price, asset_type, "
         "reasoning, confidence, season, sources, timeframe) VALUES(?,?,?,?,?,?,?,?,?,?,?)",
         (player_id, symbol, "SHORT", qty, price, "stock",
          reasoning, confidence, _current_season(), sources, timeframe)
     )
+    _short_trade_id = _short_cur.lastrowid
     conn.commit()
     conn.close()
     console.log(f"[bold red]{player_id}: SHORT {qty} {symbol} @ ${price:.2f} (margin ${margin:.0f})")
+    # HM-EVENTS-BUS-FOUNDATION 2026-05-22: SHORT trade-fire event
+    _emit_trade_to_bus(
+        player_id=player_id, symbol=symbol, action="SHORT",
+        qty=qty, price=price, asset_type="stock",
+        signal_id=None, trade_id=_short_trade_id, reasoning=reasoning,
+    )
     _first_trade_notification(player_id, symbol, "SHORT", price)
 
     # Forward to Alpaca paper account (SELL order opens short when no long position held)
