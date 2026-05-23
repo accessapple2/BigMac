@@ -335,7 +335,17 @@ ship-in-3h. Push upgrade is pure perf, no functional change.
 - `engine/realtime_monitor.py` — expose internal event queue to FastAPI
 - `dashboard/static/index.html` — swap `_ltPoll` for EventSource (~40 LOC)
 
-### HM-ADMIN-ONLY-CSS-DEFAULT-DENY (banked 2026-05-23, EOD sidebar consolidation)
+### HM-ADMIN-ONLY-CSS-DEFAULT-DENY ✅ RESOLVED (shipped 2026-05-23 same day banked)
+
+Fix landed via `feat(security): HM-ADMIN-ONLY-CSS-DEFAULT-DENY
+default-deny gate` — see commit log. Changed line 329 from
+`body.role-observer .admin-only { display: none !important; }` to
+`body:not(.role-admin) .admin-only { display: none !important; }`.
+Pre-auth load also benefits from the fail-safe (no role class yet
+= treated as non-admin = hidden) at the cost of a brief flash on
+slow networks when fetchMe() resolves the admin role.
+
+(Original banking preserved below for the audit trail.)
 
 **Finding:** the `.admin-only` CSS gate in `dashboard/static/index.html:329`
 is one line and gates ONLY for `role=observer`:

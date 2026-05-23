@@ -325,8 +325,21 @@ body { font-size: 14px; }
 [data-cb="true"] .borg-message { border-color:#ea580c;color:#ea580c;box-shadow:0 0 10px rgba(234,88,12,0.2); }
 * { box-sizing: border-box; margin: 0; padding: 0; }
 body { background: var(--bg); color: var(--text); font-family: var(--font-body); min-height: 100vh; -webkit-font-smoothing: antialiased; overflow-x: hidden; }
-/* Role-based access control — admin-only elements hidden for observers */
-body.role-observer .admin-only { display: none !important; }
+/* Role-based access control — admin-only elements default-deny.
+   HM-ADMIN-ONLY-CSS-DEFAULT-DENY 2026-05-23: was `body.role-observer`
+   only — observer was hidden, but role=charts (or any future role
+   added after observer/charts) saw admin buttons + sections. Now any
+   document without the `.role-admin` body class hides admin-only
+   elements. Body gets `.role-<role>` class via fetchMe() at L34212+
+   on every page load. Affects ~10 admin-only buttons + War Room nav
+   item + section-strategy-lab + section-kill-switch.
+
+   Pre-auth load: document.body has no role-* class yet → admin-only
+   hidden (correct fail-safe — never show admin surfaces before role
+   is confirmed). fetchMe() applies role-admin → admin-only re-shown
+   on next style recalc. Brief flash possible on slow networks; acceptable
+   tradeoff vs the prior leak. */
+body:not(.role-admin) .admin-only { display: none !important; }
 
 /* Top Nav */
 .nav { display: grid; grid-template-columns: auto 1fr auto; align-items: center; padding: 0 24px; height: 64px; border-bottom: 1px solid var(--border); background: var(--nav-bg); position: sticky; top: 0; z-index: 100; gap: 20px; }
@@ -2851,7 +2864,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="sidebar-item" title="Holly Live Trading — live candle chart with fleet trade markers, entry-zone alerts, active-agent attribution" onclick="showSection('live-trading')"><span class="icon">⚡</span> Live Trading</div>
   <div class="sidebar-item" onclick="showSection('charts')"><span class="icon">📈</span> Charts</div>
   <div class="sidebar-item" onclick="showSection('leaderboard')"><span class="icon">🏆</span> Leaderboard</div>
-  <div class="sidebar-item" title="Real-world net worth: Schwab + Webull + IBKR + physical metals (excludes Alpaca paper)" onclick="showSection('real-portfolio')"><span class="icon">💰</span> Real Portfolio</div>
+  <div class="sidebar-item admin-only" title="Real-world net worth: Schwab + Webull + IBKR + physical metals (excludes Alpaca paper). Admin-only — contains liquid net-worth detail." onclick="showSection('real-portfolio')"><span class="icon">💰</span> Real Portfolio</div>
   <div class="sidebar-item" title="Ghost Trader research-only book performance" onclick="showSection('ghost-scorecard');fetchGhostScorecard()"><span class="icon">👻</span> Ghost Scorecard</div>
   <div class="sidebar-item" onclick="showSection('model-control'); loadModelControl()"><span class="icon">⚙️</span> Models</div>
 
@@ -37565,7 +37578,13 @@ async function fetchMovers() {
      read_total_portfolio() shape under .unified (W5-D backend ship 2026-05-23).
      Renders 4 account cards + by_symbol positions table + asset notes.
      Mobile-friendly via auto-fit minmax grid (180px floor). -->
-<div id="section-real-portfolio" style="display:none;">
+<!-- admin-only class on the section div is belt-and-braces — the sidebar nav
+     item also has admin-only so non-admin roles never see the link, but the
+     class here prevents content render if anything programmatically calls
+     showSection('real-portfolio') for a non-admin session. Per
+     HM-ADMIN-ONLY-CSS-DEFAULT-DENY 2026-05-23 the default-deny CSS gate
+     hides this for any role ≠ admin. -->
+<div id="section-real-portfolio" class="admin-only" style="display:none;">
   <div style="border-left:4px solid #38bdf8;background:rgba(56,189,248,0.04);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
     <div style="font-size:11px;font-weight:700;color:#38bdf8;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">💰 Real Portfolio — Unified Net Worth</div>
     <div style="font-size:13px;color:#94a3b8;">Schwab + Webull + IBKR + physical metals. <b>Excludes Alpaca paper</b> (separate research book) per HM-AM doctrine.</div>
