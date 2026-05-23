@@ -9683,7 +9683,9 @@ def alpaca_orders(status: str = "all"):
 
 
 def _mirror_trade_desk_fill(*, side: str, symbol: str, qty: float, price: float,
-                            order_id: str, status: str) -> None:
+                            order_id: str, status: str,
+                            stop_loss_order_id: str | None = None,
+                            take_profit_order_id: str | None = None) -> None:
     """HM-TRADE-DESK 2026-05-22 provenance writeback. Mirror a filled manual
     desk order into the trades table with execution_type='alpaca' and the
     Alpaca order id so attribution/analytics see Captain trades correctly.
@@ -9691,6 +9693,9 @@ def _mirror_trade_desk_fill(*, side: str, symbol: str, qty: float, price: float,
     V1 limitation: only fires when fill_price is non-None (synchronous fill).
     Pending limit/stop orders that fill later are visible via /api/alpaca/orders
     but won't appear in trades until a reconcile-loop ticket ships.
+
+    HM-TRADE-DESK-AUTOPILOT 2026-05-22: stop_loss_order_id /
+    take_profit_order_id link the protective GTC orders attached at fill.
 
     Crash-safe — never raises (provenance must not block the API response).
     """
@@ -9704,8 +9709,9 @@ def _mirror_trade_desk_fill(*, side: str, symbol: str, qty: float, price: float,
                 "INSERT INTO trades "
                 "(player_id, symbol, action, qty, price, entry_price, exit_price, "
                 " execution_type, alpaca_order_id, alpaca_status, reasoning, "
-                " season, timeframe, asset_type) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                " season, timeframe, asset_type, "
+                " stop_loss_order_id, take_profit_order_id) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     "trade-desk", symbol.upper(), side.upper(),
                     float(qty), float(price),
@@ -9714,6 +9720,7 @@ def _mirror_trade_desk_fill(*, side: str, symbol: str, qty: float, price: float,
                     "alpaca", order_id, status,
                     "Manual trade desk order",
                     6, "SWING", "stock",
+                    stop_loss_order_id, take_profit_order_id,
                 ),
             )
             _td_c.commit()
@@ -9722,6 +9729,39 @@ def _mirror_trade_desk_fill(*, side: str, symbol: str, qty: float, price: float,
     except Exception:
         # Provenance writeback must never break the response. Suppress.
         pass
+
+
+def _attach_trade_desk_autopilot(*, entry_side: str, symbol: str, qty: float,
+                                 fill_price: float, sl_pct: float,
+                                 tp_pct: float) -> dict:
+    """HM-TRADE-DESK-AUTOPILOT 2026-05-22 — submit two separate GTC
+    protective orders on a just-filled Trade Desk market entry. MVP scope:
+    market-only, trade-desk-only, sign-aware for shorts.
+
+    Skipped silently when sl_pct and tp_pct are both <= 0 (= Captain
+    explicitly opted out by clearing both fields). Crash-safe.
+    """
+    out: dict = {
+        'stop_order_id': None, 'target_order_id': None,
+        'stop_price': None, 'target_price': None, 'errors': [],
+    }
+    if (sl_pct or 0) <= 0 and (tp_pct or 0) <= 0:
+        return out
+    if fill_price is None or float(fill_price or 0) <= 0:
+        out['errors'].append(
+            f"skipped — no fill_price (status pending): "
+            f"{symbol} qty={qty}"
+        )
+        return out
+    try:
+        return alpaca.submit_protective_orders(
+            symbol=symbol.upper(), entry_side=entry_side,
+            qty=float(qty), fill_price=float(fill_price),
+            sl_pct=float(sl_pct or 0), tp_pct=float(tp_pct or 0),
+        )
+    except Exception as e:
+        out['errors'].append(f"helper: {type(e).__name__}: {e!r}")
+        return out
 
 
 @app.post("/api/alpaca/buy")
@@ -9737,6 +9777,11 @@ def alpaca_buy(data: dict):
     order_type = (data.get("order_type") or "market").lower()
     limit_price = float(data.get("limit_price", 0) or 0)
     stop_price = float(data.get("stop_price", 0) or 0)
+    # HM-TRADE-DESK-AUTOPILOT 2026-05-22: optional Captain-supplied
+    # protective-order percentages. Honored only for agent_id='trade-desk' +
+    # order_type='market' (MVP scope). 0/None = leg disabled.
+    sl_pct = float(data.get("stop_loss_pct", 0) or 0)
+    tp_pct = float(data.get("take_profit_pct", 0) or 0)
     use_ext = False
     try:
         from engine.risk_manager import RiskManager
@@ -9757,11 +9802,27 @@ def alpaca_buy(data: dict):
         notional=notional,
     )
     if agent_id == "trade-desk" and result.get("success"):
+        autopilot_out: dict = {
+            'stop_order_id': None, 'target_order_id': None,
+            'stop_price': None, 'target_price': None, 'errors': [],
+        }
+        # MVP: market-only autopilot. Limit/stop entries don't fill
+        # synchronously here and need the Phase 2 reconcile loop.
+        if order_type == "market" and (sl_pct > 0 or tp_pct > 0):
+            autopilot_out = _attach_trade_desk_autopilot(
+                entry_side="BUY", symbol=symbol,
+                qty=result.get("filled_qty") or qty,
+                fill_price=result.get("filled_avg_price"),
+                sl_pct=sl_pct, tp_pct=tp_pct,
+            )
         _mirror_trade_desk_fill(
             side="BUY", symbol=symbol, qty=result.get("filled_qty") or qty,
             price=result.get("filled_avg_price"),
             order_id=result.get("order_id", ""), status=result.get("status", ""),
+            stop_loss_order_id=autopilot_out.get('stop_order_id'),
+            take_profit_order_id=autopilot_out.get('target_order_id'),
         )
+        result['autopilot'] = autopilot_out
     return result
 
 
@@ -9778,6 +9839,10 @@ def alpaca_sell(data: dict):
     order_type = (data.get("order_type") or "market").lower()
     limit_price = float(data.get("limit_price", 0) or 0)
     stop_price = float(data.get("stop_price", 0) or 0)
+    # HM-TRADE-DESK-AUTOPILOT 2026-05-22: see alpaca_buy() docstring.
+    # For SELL entries (shorts), sign-aware math inverts both legs.
+    sl_pct = float(data.get("stop_loss_pct", 0) or 0)
+    tp_pct = float(data.get("take_profit_pct", 0) or 0)
     use_ext = False
     try:
         from engine.risk_manager import RiskManager
@@ -9796,12 +9861,57 @@ def alpaca_sell(data: dict):
         notional=notional,
     )
     if agent_id == "trade-desk" and result.get("success"):
+        autopilot_out: dict = {
+            'stop_order_id': None, 'target_order_id': None,
+            'stop_price': None, 'target_price': None, 'errors': [],
+        }
+        if order_type == "market" and (sl_pct > 0 or tp_pct > 0):
+            autopilot_out = _attach_trade_desk_autopilot(
+                entry_side="SELL", symbol=symbol,
+                qty=result.get("filled_qty") or qty,
+                fill_price=result.get("filled_avg_price"),
+                sl_pct=sl_pct, tp_pct=tp_pct,
+            )
         _mirror_trade_desk_fill(
             side="SELL", symbol=symbol, qty=result.get("filled_qty") or qty,
             price=result.get("filled_avg_price"),
             order_id=result.get("order_id", ""), status=result.get("status", ""),
+            stop_loss_order_id=autopilot_out.get('stop_order_id'),
+            take_profit_order_id=autopilot_out.get('target_order_id'),
         )
+        result['autopilot'] = autopilot_out
     return result
+
+
+@app.get("/api/trade-desk/protective-ids")
+def trade_desk_protective_ids():
+    """HM-TRADE-DESK-AUTOPILOT 2026-05-22 — return the Alpaca order IDs that
+    were attached by the Trade Desk autopilot, split by leg. The UI joins
+    this against /api/alpaca/orders to badge stop/target rows in the pending
+    table. Player-scoped to 'trade-desk' so fleet stops are not surfaced.
+    """
+    out: dict = {"stop_ids": [], "target_ids": []}
+    try:
+        import sqlite3 as _td_sq
+        _td_c = _td_sq.connect("data/trader.db", check_same_thread=False, timeout=10)
+        try:
+            cur = _td_c.execute(
+                "SELECT stop_loss_order_id, take_profit_order_id "
+                "FROM trades "
+                "WHERE player_id='trade-desk' "
+                "  AND (stop_loss_order_id IS NOT NULL "
+                "       OR take_profit_order_id IS NOT NULL)"
+            )
+            for stop_id, target_id in cur.fetchall():
+                if stop_id:
+                    out["stop_ids"].append(str(stop_id))
+                if target_id:
+                    out["target_ids"].append(str(target_id))
+        finally:
+            _td_c.close()
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e!r}"
+    return out
 
 
 @app.post("/api/alpaca/close/{symbol}")

@@ -6538,6 +6538,22 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           <input id="td-notional" type="number" step="1" min="0" placeholder="0" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
         </div>
 
+        <!-- HM-TRADE-DESK-AUTOPILOT 2026-05-22: protective-order percentages.
+             Defaults 8% stop / 15% target. Market-only — disabled when order
+             type is limit/stop/stop_limit (Phase 1 MVP). Set to 0 to skip
+             either leg. -->
+        <div id="td-autopilot-block" style="border-top:1px solid rgba(212,160,48,0.15);padding-top:10px;margin-top:2px;">
+          <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">🛡 Autopilot Protective Orders <span id="td-autopilot-note" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">(market-only, GTC)</span></div>
+          <div style="display:grid;grid-template-columns:90px 1fr;gap:8px;align-items:center;">
+            <label for="td-sl-pct" style="font-size:12px;color:var(--muted);">Stop %</label>
+            <input id="td-sl-pct" type="number" step="0.1" min="0" max="50" value="8" oninput="tdRecomputeProtectivePreview()" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+
+            <label for="td-tp-pct" style="font-size:12px;color:var(--muted);">Target %</label>
+            <input id="td-tp-pct" type="number" step="0.1" min="0" max="500" value="15" oninput="tdRecomputeProtectivePreview()" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+          </div>
+          <div id="td-protective-preview" style="margin-top:6px;font-size:11px;font-family:monospace;color:var(--muted);min-height:14px;">Enter symbol + qty to preview protective prices.</div>
+        </div>
+
         <button id="td-submit" onclick="tdSubmitOrder()" style="margin-top:8px;padding:10px;background:linear-gradient(135deg,#d4a030,#b8860b);color:#0f172a;border:none;border-radius:4px;font-weight:700;cursor:pointer;font-size:13px;letter-spacing:0.5px;">Submit Order</button>
         <div id="td-status" style="min-height:18px;font-size:12px;font-family:monospace;"></div>
       </div>
@@ -6619,6 +6635,61 @@ function tdOnOrderTypeChange() {
     notional.disabled = false;
     notional.placeholder = '0';
   }
+  // HM-TRADE-DESK-AUTOPILOT 2026-05-22: Phase 1 MVP is market-only.
+  // Disable + grey the autopilot block on limit/stop/stop_limit entries.
+  var apBlock = document.getElementById('td-autopilot-block');
+  var apNote = document.getElementById('td-autopilot-note');
+  var slInput = document.getElementById('td-sl-pct');
+  var tpInput = document.getElementById('td-tp-pct');
+  var apOn = (ot === 'market');
+  if (apBlock) apBlock.style.opacity = apOn ? '1' : '0.45';
+  if (slInput) slInput.disabled = !apOn;
+  if (tpInput) tpInput.disabled = !apOn;
+  if (apNote) {
+    apNote.textContent = apOn
+      ? '(market-only, GTC)'
+      : '(disabled — market entry required)';
+  }
+  tdRecomputeProtectivePreview();
+}
+
+// HM-TRADE-DESK-AUTOPILOT 2026-05-22: live preview of stop/target prices.
+// Sign-aware: LONG (BUY) = fill*(1-SL/100) and fill*(1+TP/100);
+// SHORT (SELL) inverts both legs (buy-to-cover stop above, target below).
+function tdRecomputeProtectivePreview() {
+  var box = document.getElementById('td-protective-preview');
+  if (!box) return;
+  var ot = (document.getElementById('td-order-type').value || 'market');
+  if (ot !== 'market') {
+    box.innerHTML = '<span style="color:var(--muted);">Autopilot disabled — switch to Market.</span>';
+    return;
+  }
+  var side = document.getElementById('td-side').value;
+  var sl = parseFloat(document.getElementById('td-sl-pct').value || '0');
+  var tp = parseFloat(document.getElementById('td-tp-pct').value || '0');
+  var ref = _tdLastQuotePrice || 0;
+  if (!ref || ref <= 0) {
+    box.innerHTML = '<span style="color:var(--muted);">Enter symbol (Tab to fetch quote) to preview prices.</span>';
+    return;
+  }
+  if (sl <= 0 && tp <= 0) {
+    box.innerHTML = '<span style="color:#f59e0b;">⚠ Both legs disabled — no protective orders will attach.</span>';
+    return;
+  }
+  var isLong = (side === 'buy');
+  var stopP = isLong ? ref * (1 - sl / 100) : ref * (1 + sl / 100);
+  var targetP = isLong ? ref * (1 + tp / 100) : ref * (1 - tp / 100);
+  var slStr = sl > 0
+    ? ('🛡 stop ' + (isLong ? 'SELL' : 'BUY') + ' @ $' + stopP.toFixed(2) + ' (' + (isLong ? '−' : '+') + sl.toFixed(1) + '%)')
+    : '🛡 stop disabled';
+  var tpStr = tp > 0
+    ? ('🎯 target ' + (isLong ? 'SELL' : 'BUY') + ' @ $' + targetP.toFixed(2) + ' (' + (isLong ? '+' : '−') + tp.toFixed(1) + '%)')
+    : '🎯 target disabled';
+  box.innerHTML =
+    '<span style="color:#94a3b8;">Ref $' + ref.toFixed(2) + ' · </span>' +
+    '<span style="color:#ef4444;">' + slStr + '</span>' +
+    '<span style="color:#94a3b8;"> · </span>' +
+    '<span style="color:#10b981;">' + tpStr + '</span>';
 }
 
 function tdLoadQuote() {
@@ -6648,6 +6719,7 @@ function tdLoadQuote() {
         '<div style="font-size:18px;font-weight:700;color:#e5e7eb;">' + sym + '  $' + price.toFixed(2) + '</div>' +
         '<div style="color:' + clr + ';margin-top:4px;">' + sign + chg.toFixed(2) + ' (' + sign + chgPct.toFixed(2) + '%)</div>' +
         '<div style="color:var(--muted);margin-top:8px;font-size:11px;">Updated ' + new Date().toLocaleTimeString() + '</div>';
+      tdRecomputeProtectivePreview();
     })
     .catch(function(e) {
       box.innerHTML = '<span style="color:#ef4444;">Quote fetch failed: ' + e + '</span>';
@@ -6701,10 +6773,16 @@ function tdSubmitOrder() {
   btn.style.opacity = '0.6';
   status.innerHTML = '<span style="color:var(--muted);">Submitting…</span>';
   var endpoint = side === 'buy' ? '/api/alpaca/buy' : '/api/alpaca/sell';
+  // HM-TRADE-DESK-AUTOPILOT 2026-05-22: backend honors these only on
+  // agent_id='trade-desk' + order_type='market'. Sign-aware math + GTC
+  // protective-order submission live in dashboard/app.py + alpaca_bridge.py.
+  var slPct = ot === 'market' ? parseFloat(document.getElementById('td-sl-pct').value || '0') : 0;
+  var tpPct = ot === 'market' ? parseFloat(document.getElementById('td-tp-pct').value || '0') : 0;
   var body = {
     symbol: sym, agent_id: 'trade-desk', order_type: ot,
     qty: qty || 0, notional: notional || 0,
     limit_price: lp || 0, stop_price: sp || 0,
+    stop_loss_pct: slPct, take_profit_pct: tpPct,
   };
   fetch(endpoint, {
     method: 'POST',
@@ -6719,8 +6797,28 @@ function tdSubmitOrder() {
         var fillStr = d.filled_avg_price ?
           ('@ $' + parseFloat(d.filled_avg_price).toFixed(2)) :
           '(pending)';
+        var apStr = '';
+        // HM-TRADE-DESK-AUTOPILOT 2026-05-22: surface protective-order
+        // attachment result inline so the Captain sees the GTC stop/target
+        // IDs without needing to refresh the pending table.
+        if (d.autopilot) {
+          var ap = d.autopilot;
+          var apBits = [];
+          if (ap.stop_order_id) {
+            apBits.push('🛡 $' + parseFloat(ap.stop_price || 0).toFixed(2));
+          }
+          if (ap.target_order_id) {
+            apBits.push('🎯 $' + parseFloat(ap.target_price || 0).toFixed(2));
+          }
+          if (apBits.length) {
+            apStr = ' · <span style="color:#94a3b8;">autopilot: ' + apBits.join(' / ') + '</span>';
+          }
+          if (ap.errors && ap.errors.length) {
+            apStr += ' · <span style="color:#f59e0b;">⚠ ' + ap.errors.join('; ') + '</span>';
+          }
+        }
         status.innerHTML = '<span style="color:#10b981;">✓ ' + (d.status || 'submitted') +
-          ' #' + (d.order_id || '?').substring(0, 8) + ' ' + fillStr + '</span>';
+          ' #' + (d.order_id || '?').substring(0, 8) + ' ' + fillStr + '</span>' + apStr;
         // Clear sizing inputs only; leave symbol/side/type sticky for next entry.
         document.getElementById('td-qty').value = '';
         document.getElementById('td-notional').value = '';
@@ -6740,9 +6838,18 @@ function tdSubmitOrder() {
 }
 
 function tdLoadPending() {
-  fetch('/api/alpaca/orders?status=open')
-    .then(function(r) { return r.json(); })
-    .then(function(d) {
+  // HM-TRADE-DESK-AUTOPILOT 2026-05-22: fetch protective-id map in parallel
+  // so stop/target rows tied to Trade Desk fills are badged 🛡 / 🎯.
+  Promise.all([
+    fetch('/api/alpaca/orders?status=open').then(function(r) { return r.json(); }),
+    fetch('/api/trade-desk/protective-ids').then(function(r) { return r.json(); })
+      .catch(function() { return {stop_ids: [], target_ids: []}; }),
+  ])
+    .then(function(both) {
+      var d = both[0]; var prot = both[1] || {};
+      var stopSet = {}; var targetSet = {};
+      (prot.stop_ids || []).forEach(function(id) { stopSet[id] = true; });
+      (prot.target_ids || []).forEach(function(id) { targetSet[id] = true; });
       var orders = (d && d.orders) || [];
       var tbody = document.getElementById('td-pending-tbody');
       var count = document.getElementById('td-pending-count');
@@ -6755,10 +6862,16 @@ function tdLoadPending() {
       tbody.innerHTML = orders.map(function(o) {
         var lp = o.limit_price ? '$' + parseFloat(o.limit_price).toFixed(2) : '—';
         var sp = o.stop_price ? '$' + parseFloat(o.stop_price).toFixed(2) : '—';
+        var badge = '';
+        if (stopSet[o.id]) {
+          badge = ' <span title="Trade Desk autopilot stop-loss" style="color:#ef4444;font-size:10px;">🛡 SL</span>';
+        } else if (targetSet[o.id]) {
+          badge = ' <span title="Trade Desk autopilot take-profit" style="color:#10b981;font-size:10px;">🎯 TP</span>';
+        }
         return '<tr style="border-bottom:1px solid rgba(212,160,48,0.1);">' +
           '<td style="padding:6px 4px;font-family:monospace;">' + (o.symbol || '—') + '</td>' +
           '<td style="padding:6px 4px;color:' + (o.side === 'sell' ? '#ef4444' : '#10b981') + ';">' + (o.side || '').toUpperCase() + '</td>' +
-          '<td style="padding:6px 4px;font-family:monospace;color:var(--muted);">' + (o.type || '—') + '</td>' +
+          '<td style="padding:6px 4px;font-family:monospace;color:var(--muted);">' + (o.type || '—') + badge + '</td>' +
           '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + (o.qty || '—') + '</td>' +
           '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + lp + '</td>' +
           '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + sp + '</td>' +
@@ -6832,15 +6945,21 @@ function tdInit() {
     });
   }
   // Block accidental Enter-submit on every form input.
-  ['td-qty', 'td-notional', 'td-limit-price', 'td-stop-price'].forEach(function(id) {
+  ['td-qty', 'td-notional', 'td-limit-price', 'td-stop-price', 'td-sl-pct', 'td-tp-pct'].forEach(function(id) {
     var el = document.getElementById(id);
     if (el) el.addEventListener('keydown', function(e) {
       if (e.key === 'Enter') e.preventDefault();
     });
   });
+  // HM-TRADE-DESK-AUTOPILOT 2026-05-22: side change recomputes the sign-aware
+  // protective preview without re-fetching the quote.
+  var sideEl = document.getElementById('td-side');
+  if (sideEl) sideEl.addEventListener('change', tdRecomputeProtectivePreview);
   // Initial load of tables.
   tdLoadPending();
   tdLoadFills();
+  // Render the autopilot preview placeholder.
+  tdRecomputeProtectivePreview();
 }
 
 if (typeof registerSectionInit === 'function') {
