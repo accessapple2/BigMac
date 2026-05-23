@@ -7896,13 +7896,28 @@ def portfolio_real():
         schwab_acct = (rh.get("accounts") or {}).get("schwab") or {}
         positions = schwab_acct.get("positions") or []
         cash = float(schwab_acct.get("cash_balance") or 0.0)
-        # Sum any position market values (positions list is empty today but
-        # forward-compatible with future per-position rows).
+        # Sum per-position market values. real_holdings.json embeds
+        # market_value as TEXT inside `notes` ("market_value=$959.82,
+        # gain=$+38.82 (+4.21%) [from snapshot ...]") because the Schwab
+        # CSV importer at scripts/import_schwab_csv.py composes it that
+        # way. Reuse engine/total_portfolio._parse_market_value so this
+        # legacy aggregation matches the .unified shape produced by
+        # _load_schwab() / read_total_portfolio().
+        # Pre-fix bug (HM-PORTFOLIO-LEGACY-POS-PARSE 2026-05-23): the old
+        # `mv = p.get("market_value") or p.get("value") or 0` always
+        # returned 0 because real_holdings.json positions don't carry
+        # those fields at top level — the value lives in `notes` text.
+        # Symptom: Schwab dashboard card showed positions_value=$0 even
+        # with INTU $959.82 on file.
+        from engine.total_portfolio import _parse_market_value as _pmv_helper
         pos_value = 0.0
         for p in positions:
-            mv = p.get("market_value") or p.get("value") or 0
+            mv = p.get("market_value") or p.get("value")
+            if mv is None:
+                mv = _pmv_helper(p.get("notes") or "")
             try:
-                pos_value += float(mv or 0)
+                if mv is not None:
+                    pos_value += float(mv)
             except (TypeError, ValueError):
                 continue
         schwab_total = cash + pos_value
