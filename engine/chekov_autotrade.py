@@ -41,6 +41,17 @@ _CONF_SHORT_PENALTY = 0.05                  # SHORT trades are higher risk
 # overlap with existing Rail 2 (kept explicit per spec); Rail 8 is a new
 # declining-trend filter using daily candles.
 _REENTRY_LOOKBACK = 3  # consecutive daily closes that must all be below anchor
+
+# HM-MASTER-PLAN W2-B (2026-05-23) — bull_call_spread regime gate.
+# Master plan finding: backtest showed 13% win rate for bull_call_spread
+# during bear/tariff regime. Captain-spec gate tightens entry to:
+#   regime == "BULL_CROSS"  AND  vix < 18  AND  SPY > sma_200
+# All three conditions must hold; any fail blocks the spread route at
+# the chekov signal-emit site (upstream of paper_trader.buy gate).
+_BCS_GATE_VIX_MAX     = 18.0
+_BCS_GATE_REGIME      = "BULL_CROSS"
+_BCS_GATE_CACHE_TTL_S = 300  # 5 minutes — mirrors regime_ma cache cadence
+_bcs_gate_cache: dict = {"ts": 0.0, "regime": None, "spy_above_200ma": None}
 DB = os.environ.get(
     "TRADEMINDS_DB",
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
@@ -264,6 +275,54 @@ def _get_atr(symbol: str, period: int = 14) -> float:
         return float(tr.rolling(period).mean().iloc[-1])
     except Exception:
         return 0.0
+
+
+def _bcs_regime_gate(vix: float) -> tuple[bool, str]:
+    """HM-MASTER-PLAN W2-B regime gate for bull_call_spread.
+
+    Captain spec: only fire bull_call_spread when ALL three hold:
+      1. current regime == BULL_CROSS  (engine.regime_router)
+      2. VIX < 18
+      3. SPY close > SMA-200          (engine.market_data)
+
+    Returns (allowed, reason). Reason is human-readable, includes the
+    failing field's value so log lines are self-diagnosing.
+
+    Fail-safe: any helper exception → reject (False). The gate is a
+    safety filter; falling open would defeat its purpose during
+    transient data outages.
+
+    Cache: 5-minute TTL on (regime, spy_above_200ma) tuple. VIX is
+    already cached upstream by _get_vix; we re-fetch each call to pick
+    up intraday changes.
+    """
+    import time as _t
+    # VIX check is cheapest; do it first
+    if not (0 < vix < _BCS_GATE_VIX_MAX):
+        return False, f"vix={vix:.2f} outside (0, {_BCS_GATE_VIX_MAX})"
+
+    now = _t.time()
+    if (now - _bcs_gate_cache["ts"]) >= _BCS_GATE_CACHE_TTL_S:
+        try:
+            from engine.regime_router import get_current_regime
+            from engine.market_data import get_technical_indicators
+            _bcs_gate_cache["regime"] = get_current_regime()
+            spy_ind = get_technical_indicators("SPY") or {}
+            _bcs_gate_cache["spy_above_200ma"] = spy_ind.get("above_sma200")
+            _bcs_gate_cache["ts"] = now
+        except Exception as e:
+            return False, f"gate probe failed: {type(e).__name__}: {e!r}"
+
+    regime = _bcs_gate_cache["regime"]
+    spy_above_200 = _bcs_gate_cache["spy_above_200ma"]
+
+    if regime != _BCS_GATE_REGIME:
+        return False, f"regime={regime!r} != {_BCS_GATE_REGIME}"
+    if spy_above_200 is None:
+        return False, "spy sma_200 unavailable"
+    if not spy_above_200:
+        return False, "SPY below SMA-200"
+    return True, f"BULL_CROSS + vix={vix:.2f}<{_BCS_GATE_VIX_MAX} + SPY>SMA200"
 
 
 def _execute_bull_call_spread(ticker: str, price: float, stop: float,
@@ -588,8 +647,23 @@ def execute_convergence_trades(signals: list = None):
             )
             continue
 
-        # ── ROUTE: 5+ strategies + VIX < 25 → bull call spread ──────────────
-        if strat_count >= 5 and 0 < vix < 25:
+        # ── ROUTE: 5+ strategies + W2-B regime gate → bull call spread ──────
+        # HM-MASTER-PLAN W2-B 2026-05-23: legacy gate was (strat_count>=5,
+        # 0<vix<25). Tightened to Captain-spec regime gate (BULL_CROSS +
+        # vix<18 + SPY>SMA-200) after backtest showed 13% WR for
+        # bull_call_spread in bear/tariff regime.
+        if strat_count >= 5:
+            gate_ok, gate_reason = _bcs_regime_gate(vix)
+            if not gate_ok:
+                console.log(
+                    f"[yellow][BULL-CALL-REGIME-GATE] symbol={ticker} "
+                    f"strat_count={strat_count} BLOCKED reason={gate_reason}"
+                )
+                continue
+            console.log(
+                f"[green][BULL-CALL-REGIME-GATE] symbol={ticker} "
+                f"strat_count={strat_count} ALLOWED ({gate_reason})"
+            )
             spread_ok = _execute_bull_call_spread(
                 ticker, price, stop, target, strat_count, cash
             )
