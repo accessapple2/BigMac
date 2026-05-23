@@ -1211,11 +1211,16 @@ if __name__ == "__main__":
         )
 
     # Daily intel report → morning_brief.json (HM-DAILY-INTEL-REPORT-SCHEDULER)
+    # HM-MASTER-PLAN W5-A 2026-05-23: push_ntfy=True enables the Morpheus daily
+    # intel push to ollietrades-admin topic. Previously gated off out of
+    # "double-NTFY" caution, but generate_morning_briefing only writes the
+    # MP3 + posts to CIC — it does NOT fire ntfy. Captain spec: Morpheus
+    # daily briefing auto-push at 6 AM AZ (single morning push, intel-side).
     try:
-        intel_result = generate_daily_intel_report(force=True, push_ntfy=False)
+        intel_result = generate_daily_intel_report(force=True, push_ntfy=True)
         print(
             f"[morning_briefing] daily intel report — {intel_result.get('date', 'no date')}  "
-            f"json refreshed"
+            f"json refreshed (ntfy pushed)"
         )
     except Exception as intel_exc:
         print(
