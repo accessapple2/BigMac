@@ -3011,6 +3011,38 @@ def _check_ollama_reachable() -> bool:
     return _OLLAMA_PING_CACHE["reachable"]
 
 
+@app.get("/api/cockpit/signal-log")
+def cockpit_signal_log(limit: int = 50):
+    """HM-COCKPIT-SIGNAL-LOG 2026-05-22 — last N signal_emit rows for the
+    Cockpit "Signal Log" panel. Captain spec: "never lose a message again."
+
+    Surfaces signals that fired, including ones dismissed in the UI. Reads
+    from decision_audit event_type='signal_emit' (single source of truth
+    for what actually fired, regardless of UI toast lifecycle).
+    """
+    limit = max(1, min(int(limit or 50), 200))
+    out: list = []
+    try:
+        c = _conn()
+        c.row_factory = sqlite3.Row
+        try:
+            rows = c.execute(
+                "SELECT id, player_id, symbol, confidence, "
+                "       SUBSTR(reasoning_snippet, 1, 160) AS reason, "
+                "       created_at "
+                "  FROM decision_audit "
+                " WHERE event_type='signal_emit' "
+                " ORDER BY id DESC LIMIT ?",
+                (limit,),
+            ).fetchall()
+            out = [dict(r) for r in rows]
+        finally:
+            c.close()
+    except Exception as exc:
+        return {"signals": [], "error": f"{type(exc).__name__}: {exc!r}"}
+    return {"signals": out, "count": len(out)}
+
+
 @app.get("/api/cockpit/snapshot")
 def cockpit_snapshot():
     """HM-COCKPIT 2026-05-22 — Command Bridge aggregator.
