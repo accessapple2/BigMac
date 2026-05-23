@@ -1,21 +1,39 @@
-"""HM-AM Phase 1 (2026-05-07): Total Portfolio reader.
+"""HM-AM Phase 1 (2026-05-07) → HM-NEXT-WAVE Phase 5 (2026-05-23) Total
+Portfolio reader.
 
-Aggregates Schwab + Dilithium Reserve (metals) + Alpaca paper into a unified
-view. Read-only data layer — Phase 1 ships ONLY this module + standalone
-smoke. No consumer integration (Kirk, Advisory Team, dalio-metals
-realign) — those are Phase 2/3/4 deferred to fresh sessions.
+Aggregates real-money accounts (Schwab + TradeStation + Webull-historical
++ IBKR + Dilithium Reserve metals) into a unified view.
 
-Per-source resilience: each source loader catches its own exceptions and
-records failures in `sources_failed`. A single broken source doesn't
-silently degrade the unified view; callers can inspect `sources_failed`
-and decide.
+EXCLUDES Alpaca paper per CLAUDE.md HM-AM doctrine (added 2026-05-12,
+HM-CLOSE-GAP W1.1): "Total Portfolio = real-world net worth only.
+EXCLUDES Alpaca paper trading book — that's a separate research /
+strategy-validation surface and must not co-mingle with real-world
+capital reporting." The previous May-12 ship of this module included
+Alpaca paper as a source; Phase 5 corrects that.
+
+PUBLIC API
+==========
+read_total_portfolio() → Captain-spec shape:
+    {ts, accounts, total_real_value, by_account, by_symbol,
+     metals_pct, errors, note}
+
+get_total_portfolio() → legacy shape (kept for backward compat with
+existing kirk_advisory + team_advisor_grok + providers callers):
+    {positions, cash_by_account, total_value, total_cash,
+     total_invested, last_updated, sources_loaded, sources_failed}
+
+get_portfolio_summary() → lightweight summary (legacy).
+
+build_portfolio_summary_text() → compact text block for LLM advisor
+prompts. Used by Kirk + Advisory Team to surface real-money context.
+
+Per-source resilience: each source loader catches its own exceptions
+and records failures. A single broken source doesn't silently degrade
+the unified view; callers can inspect.
 
 Cache: 30-second TTL, process-local (matches engine/universe.py pattern).
 
-Usage:
-    from engine.total_portfolio import get_total_portfolio, get_portfolio_summary
-    tp = get_total_portfolio()
-    print(tp["total_value"], len(tp["positions"]))
+NTFY ollietrades-admin on sync errors via _ntfy_admin (best-effort).
 
 Standalone smoke:
     venv/bin/python3 engine/total_portfolio.py
@@ -185,43 +203,41 @@ def _load_metals() -> dict:
     return {"positions": positions, "cash_by_account": {"metals": 0.0}}
 
 
-def _load_alpaca_paper() -> dict:
-    """Load Alpaca paper account positions + cash.
-
-    Returns {positions, cash_by_account: {"alpaca_paper": <cash>}}.
+def _load_webull() -> dict:
+    """Webull was liquidated 2026-05-13. Always returns empty positions
+    + $0 cash so downstream consumers don't have to special-case it.
+    Historical trades remain in the trades table for audit.
     """
-    # === HM-BK ===
-    # Reuse the module-level singleton from engine.alpaca_bridge (constructed
-    # once at import time). The previous code imported the class and ran
-    # AlpacaBridge() per call, which re-emitted "Alpaca Paper Trading bridge
-    # initialized" every Kirk advisory cycle (~2 min). HM-BKBL.0 discovery.
-    from engine.alpaca_bridge import alpaca as bridge
-    # === /HM-BK ===
-    # AlpacaBridge.status() returns {'connected': bool, 'cash': float, ...}
-    # (the method is named status(), not account() — wraps client.get_account())
-    acc = bridge.status()
-    if not acc.get("connected"):
-        raise RuntimeError(f"Alpaca not connected: {acc.get('reason') or 'unknown'}")
-    cash = float(acc.get("cash") or 0)
-    raw_positions = bridge.positions() or []
-    positions: list[Position] = []
-    for p in raw_positions:
-        if "error" in p:
-            # Bridge returned a single-element error sentinel; skip but bubble
-            raise RuntimeError(f"Alpaca positions error: {p['error']}")
-        sym = (p.get("symbol") or "").upper()
-        # Detect option vs equity by symbol shape (OCC options ≥15 chars).
-        asset_type = "option" if len(sym) >= 15 else "equity"
-        positions.append({
-            "symbol": sym,
-            "account": "alpaca_paper",
-            "qty": float(p.get("qty") or 0),
-            "avg_cost": float(p["avg_entry"]) if p.get("avg_entry") else None,
-            "market_value": float(p["market_value"]) if p.get("market_value") else None,
-            "asset_type": asset_type,
-            "notes": f"unrealized_pl={p.get('unrealized_pl', 0):+.2f} ({p.get('unrealized_plpc', 0):+.2f}%)",
-        })
-    return {"positions": positions, "cash_by_account": {"alpaca_paper": cash}}
+    return {
+        "positions": [],
+        "cash_by_account": {"webull": 0.0},
+        "notes": (
+            "Liquidated 2026-05-13 (HM-WEBULL-LIQUIDATED). "
+            "Historical positions in trades table only."
+        ),
+    }
+
+
+def _load_ibkr() -> dict:
+    """IBKR placeholder — $0 until a sync path is wired."""
+    return {
+        "positions": [],
+        "cash_by_account": {"ibkr": 0.0},
+        "notes": "Placeholder — no sync path wired yet.",
+    }
+
+
+def _ntfy_admin(title: str, message: str, priority: str = "default") -> None:
+    """Best-effort NTFY to ollietrades-admin. Never raises."""
+    try:
+        from engine.alert_channels import _send_ntfy
+        _send_ntfy(
+            title=title, message=message, priority=priority,
+            tags="ollietrades,total-portfolio",
+            topic="ollietrades-admin",
+        )
+    except Exception:
+        pass
 
 
 # ─── Public API ─────────────────────────────────────────────────────────────
@@ -268,14 +284,28 @@ def get_total_portfolio(force_refresh: bool = False) -> TotalPortfolio:
     except Exception as e:
         result["sources_failed"].append(f"metals: {type(e).__name__}: {e}")
 
-    # Source 3: Alpaca paper
+    # Source 3: Webull (HM-WEBULL-LIQUIDATED 2026-05-13 — placeholder)
     try:
-        a = _load_alpaca_paper()
-        result["positions"].extend(a["positions"])
-        result["cash_by_account"].update(a["cash_by_account"])
-        result["sources_loaded"].append("alpaca_paper")
+        w = _load_webull()
+        result["positions"].extend(w["positions"])
+        result["cash_by_account"].update(w["cash_by_account"])
+        result["sources_loaded"].append("webull")
     except Exception as e:
-        result["sources_failed"].append(f"alpaca_paper: {type(e).__name__}: {e}")
+        result["sources_failed"].append(f"webull: {type(e).__name__}: {e}")
+
+    # Source 4: IBKR (placeholder, no sync path)
+    try:
+        i = _load_ibkr()
+        result["positions"].extend(i["positions"])
+        result["cash_by_account"].update(i["cash_by_account"])
+        result["sources_loaded"].append("ibkr")
+    except Exception as e:
+        result["sources_failed"].append(f"ibkr: {type(e).__name__}: {e}")
+
+    # HM-AM PHASE 5 2026-05-23: Alpaca paper is EXCLUDED from total portfolio.
+    # Paper book is a separate research surface per CLAUDE.md Two-Book
+    # Bridge Policy + HM-AM Scope doctrine. The earlier (2026-05-12)
+    # _load_alpaca_paper source has been removed; do NOT re-add it.
 
     # Totals
     result["total_invested"] = sum(
@@ -307,9 +337,165 @@ def get_portfolio_summary() -> dict:
     }
 
 
+def read_total_portfolio(force_refresh: bool = False) -> dict:
+    """HM-NEXT-WAVE Phase 5 — Captain-spec'd shape:
+        {ts, accounts, total_real_value, by_account, by_symbol,
+         metals_pct, errors, note}
+
+    Wraps get_total_portfolio() and reshapes for downstream LLM advisor
+    consumption. EXCLUDES Alpaca paper per HM-AM doctrine (already
+    enforced at the source-loader layer).
+
+    Crash-safe — NTFYs ollietrades-admin on any sync errors found in
+    sources_failed.
+    """
+    tp = get_total_portfolio(force_refresh=force_refresh)
+    cash_by_account = tp.get("cash_by_account") or {}
+    positions = tp.get("positions") or []
+
+    # Re-bucket positions by account
+    by_account_positions: dict[str, list] = {}
+    for p in positions:
+        by_account_positions.setdefault(p.get("account") or "unknown", []).append(p)
+
+    # Build per-account view
+    accounts: dict = {}
+    account_labels = {
+        "schwab": "Schwab",
+        "tradestation": "TradeStation",
+        "webull": "Webull (liquidated)",
+        "ibkr": "IBKR",
+        "metals": "Dilithium Reserve (Metals)",
+    }
+    for acct_key in ("schwab", "tradestation", "webull", "ibkr", "metals"):
+        acct_positions = by_account_positions.get(acct_key) or []
+        cash = float(cash_by_account.get(acct_key, 0.0))
+        positions_value = sum(
+            float(p.get("market_value") or 0) for p in acct_positions
+        )
+        accounts[acct_key] = {
+            "label": account_labels.get(acct_key, acct_key.title()),
+            "cash": round(cash, 2),
+            "positions": acct_positions,
+            "positions_value": round(positions_value, 2),
+            "total_value": round(cash + positions_value, 2),
+        }
+
+    total_real_value = round(
+        sum(a["total_value"] for a in accounts.values()), 2
+    )
+
+    by_account = [
+        {
+            "name": k, "label": v["label"], "value": v["total_value"],
+            "pct_of_total": (
+                round(v["total_value"] / total_real_value * 100, 2)
+                if total_real_value > 0 else 0.0
+            ),
+        }
+        for k, v in accounts.items()
+    ]
+    by_account.sort(key=lambda x: x["value"], reverse=True)
+
+    # by_symbol aggregation across accounts
+    by_symbol: dict[str, dict] = {}
+    for p in positions:
+        sym = (p.get("symbol") or "").upper()
+        if not sym:
+            continue
+        by_symbol.setdefault(sym, {
+            "symbol": sym, "qty": 0.0,
+            "market_value": 0.0, "accounts": [],
+        })
+        by_symbol[sym]["qty"] += float(p.get("qty") or 0)
+        by_symbol[sym]["market_value"] += float(
+            p.get("market_value") or 0
+        )
+        acct = p.get("account")
+        if acct and acct not in by_symbol[sym]["accounts"]:
+            by_symbol[sym]["accounts"].append(acct)
+
+    metals_value = accounts.get("metals", {}).get("total_value", 0)
+    metals_pct = (
+        round(metals_value / total_real_value * 100, 2)
+        if total_real_value > 0 else 0.0
+    )
+
+    errors = list(tp.get("sources_failed") or [])
+    if errors:
+        _ntfy_admin(
+            title="⚠ Total Portfolio sync errors",
+            message=f"{len(errors)} source error(s): " + "; ".join(errors[:3]),
+        )
+
+    return {
+        "ts": tp.get("last_updated"),
+        "accounts": accounts,
+        "total_real_value": total_real_value,
+        "by_account": by_account,
+        "by_symbol": by_symbol,
+        "metals_pct": metals_pct,
+        "errors": errors,
+        "note": (
+            "EXCLUDES Alpaca paper per CLAUDE.md HM-AM doctrine — "
+            "paper is a separate research surface."
+        ),
+    }
+
+
+def build_portfolio_summary_text(portfolio: dict | None = None,
+                                 max_chars: int = 800) -> str:
+    """Compact text block for inclusion in LLM advisor prompts. Used by
+    Kirk advisory + Advisory Team (Grok / Troi / Worf) so they see
+    real-money context, not just Alpaca paper book.
+
+    Pass `portfolio` from a fresh read_total_portfolio() to skip the
+    inner refresh; otherwise the function self-loads.
+    """
+    if portfolio is None:
+        try:
+            portfolio = read_total_portfolio()
+        except Exception as e:
+            return f"[Total Portfolio: unavailable ({type(e).__name__})]"
+    if not portfolio:
+        return "[Total Portfolio: unavailable]"
+    lines = []
+    lines.append(
+        f"REAL-MONEY PORTFOLIO (excludes Alpaca paper): "
+        f"${portfolio['total_real_value']:,.0f} "
+        f"({portfolio['metals_pct']}% metals)"
+    )
+    for b in portfolio.get("by_account") or []:
+        if b["value"] <= 0:
+            continue
+        lines.append(
+            f"  {b['label']}: ${b['value']:,.0f} ({b['pct_of_total']}%)"
+        )
+    top_syms = sorted(
+        (portfolio.get("by_symbol") or {}).values(),
+        key=lambda s: s["market_value"], reverse=True,
+    )[:5]
+    surfaceable = [s for s in top_syms if s["market_value"] > 0]
+    if surfaceable:
+        lines.append("Top positions by value:")
+        for s in surfaceable:
+            lines.append(
+                f"  {s['symbol']}: {s['qty']:.2f} @ "
+                f"${s['market_value']:,.0f} ({','.join(s['accounts'])})"
+            )
+    if portfolio.get("errors"):
+        lines.append(f"[{len(portfolio['errors'])} sync error(s)]")
+    text = "\n".join(lines)
+    if len(text) > max_chars:
+        text = text[: max_chars - 3] + "..."
+    return text
+
+
 __all__ = [
     "get_total_portfolio",
     "get_portfolio_summary",
+    "read_total_portfolio",
+    "build_portfolio_summary_text",
     "Position",
     "TotalPortfolio",
     "CACHE_TTL_SEC",

@@ -322,25 +322,42 @@ def generate_kirk_advisory():
         # new envelope exposes total_value, cash by account, and per-source
         # position counts so consumers can reason about the unified surface.
         # Defensive: failure here logs a warning but does NOT break Kirk.
+        #
+        # HM-NEXT-WAVE Phase 5 (2026-05-23): also load read_total_portfolio()
+        # for the Captain-spec'd shape (accounts/by_symbol/metals_pct) and
+        # build the prompt summary text. After Phase 5 the summary
+        # correctly EXCLUDES Alpaca paper per HM-AM doctrine.
         total_portfolio_summary = None
+        total_real_portfolio = None
+        total_portfolio_summary_text = None
         try:
-            from engine.total_portfolio import get_portfolio_summary
-            total_portfolio_summary = get_portfolio_summary()
-            logger.info(
-                "[Kirk] total_portfolio: $%.2f total ($%.2f cash, %d positions, sources=%s)",
-                total_portfolio_summary["total_value"],
-                total_portfolio_summary["total_cash"],
-                total_portfolio_summary["position_count"],
-                total_portfolio_summary["sources_loaded"],
+            from engine.total_portfolio import (
+                get_portfolio_summary, read_total_portfolio,
+                build_portfolio_summary_text,
             )
-            if total_portfolio_summary.get("sources_failed"):
+            total_portfolio_summary = get_portfolio_summary()
+            total_real_portfolio = read_total_portfolio()
+            total_portfolio_summary_text = build_portfolio_summary_text(
+                total_real_portfolio, max_chars=800,
+            )
+            logger.info(
+                "[Kirk] total_portfolio: $%.2f real-money "
+                "($%.2f cash, %d positions, sources=%s, metals_pct=%.1f%%)",
+                total_real_portfolio.get("total_real_value", 0),
+                total_portfolio_summary.get("total_cash", 0),
+                total_portfolio_summary.get("position_count", 0),
+                total_portfolio_summary.get("sources_loaded", []),
+                total_real_portfolio.get("metals_pct", 0),
+            )
+            if total_real_portfolio.get("errors"):
                 logger.warning(
-                    "[Kirk] total_portfolio sources_failed: %s",
-                    total_portfolio_summary["sources_failed"],
+                    "[Kirk] total_portfolio errors: %s",
+                    total_real_portfolio["errors"][:3],
                 )
         except Exception as e:
             logger.warning(
-                "[Kirk] total_portfolio load failed: %s: %r", type(e).__name__, e
+                "[Kirk] total_portfolio load failed: %s: %r",
+                type(e).__name__, e,
             )
 
         # Portfolio value from env var (manually updated from real Webull account)

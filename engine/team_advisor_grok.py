@@ -370,34 +370,31 @@ def run_grok_subadvisor() -> dict:
         logger.info("Grok advisor: no Kirk positions — skipping")
         return {"skipped": True, "reason": "no_positions"}
 
-    # HM-AM Phase 3 (2026-05-07): inject total_portfolio context preamble
-    # into the advisory prompt. Per-Schwab-position advice loop preserved
-    # (LLM still gets per-row data); the unified-view preamble gives Grok
-    # awareness of metals + Alpaca paper book for sizing/concentration
-    # context. Defensive: total_portfolio failure logs a warning, prompt
-    # builds without the preamble.
+    # HM-AM Phase 3 (2026-05-07) → HM-NEXT-WAVE Phase 5 (2026-05-23):
+    # inject the Captain-spec'd Total Portfolio summary into the advisory
+    # prompt. After Phase 5, the summary now correctly EXCLUDES Alpaca
+    # paper (real-money only) per CLAUDE.md HM-AM doctrine — Grok sees
+    # Schwab + TradeStation + metals, NOT the paper book. Per-Schwab-
+    # position advice loop preserved below for per-row data.
     portfolio_preamble = ""
     try:
-        from engine.total_portfolio import get_portfolio_summary
-        tp = get_portfolio_summary()
+        from engine.total_portfolio import (
+            read_total_portfolio, build_portfolio_summary_text,
+        )
+        _tp = read_total_portfolio()
         portfolio_preamble = (
-            "## Total Portfolio Context (cross-source view)\n"
-            f"  Total value:    ${tp.get('total_value', 0):,.2f}\n"
-            f"  Total cash:     ${tp.get('total_cash', 0):,.2f}\n"
-            f"  Total invested: ${tp.get('total_invested', 0):,.2f}\n"
-            f"  Positions:      {tp.get('position_count', 0)} across "
-            f"{len(tp.get('sources_loaded') or [])} sources: "
-            f"{', '.join(tp.get('sources_loaded') or [])}\n"
+            "## Total Real-Money Portfolio Context (excludes Alpaca paper)\n"
+            + build_portfolio_summary_text(_tp, max_chars=800)
+            + "\n\n"
         )
-        if tp.get("sources_failed"):
-            portfolio_preamble += (
-                f"  WARN sources_failed: {tp['sources_failed']}\n"
-            )
-        portfolio_preamble += "\n"
         logger.info(
-            "[TeamAdvisor] total_portfolio injected: $%.0f total, %d positions",
-            tp.get("total_value", 0), tp.get("position_count", 0),
+            "[TeamAdvisor] total_portfolio injected: $%.0f real, %.1f%% metals",
+            _tp.get("total_real_value", 0), _tp.get("metals_pct", 0),
         )
+        if _tp.get("errors"):
+            logger.warning(
+                "[TeamAdvisor] total_portfolio errors: %s", _tp["errors"][:3],
+            )
     except Exception as e:
         logger.warning(
             "[TeamAdvisor] total_portfolio preamble skipped: %s: %r",
