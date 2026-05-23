@@ -576,6 +576,36 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     # HM-SIGNAL-TRADE-FK 2026-05-20: signal_id is the rowid of the originating
     # row in `signals` returned by save_signal(). Optional — callers without
     # the signal_id in scope pass None, and the trade row stores NULL.
+    #
+    # HM-EVENTS-BUS-DIRECT-BUY-HOOK 2026-05-22: emit a signals_v2 row at the
+    # ENTRANCE of buy() so direct-call agents (ollie-auto, neo-matrix,
+    # capitol-trades, navigator) — which fire trades without going through
+    # save_signal — still populate the events bus. Without this hook,
+    # ~70% of fleet trade intent was invisible to the cockpit + Ghost
+    # Scorecard. Fires before any gate so even rejected intent shows up
+    # as "pending" (transitions to 'executed' on successful fill via
+    # _emit_trade_to_bus, or stays pending if blocked).
+    # Fail-safe: any error → continue without bus emit.
+    try:
+        from engine.events_bus import emit_signal_v2
+        _direct_strategy = (
+            'long_equity' if asset_type == 'stock'
+            else (('long_' + option_type.lower())
+                  if (asset_type == 'option' and option_type) else 'unknown')
+        )
+        emit_signal_v2(
+            source=player_id, signal_type='direct_buy_intent', symbol=symbol,
+            direction='LONG', confidence=confidence or 0.0,
+            timeframe=(timeframe or 'swing').lower(),
+            strategy_tag=_direct_strategy,
+            metadata={'direct_call': True, 'caller': player_id, 'asset_type': asset_type},
+        )
+    except Exception as _ebd_e:
+        console.log(
+            f"[yellow][EVENTS-BUS-WARN] direct buy hook "
+            f"player={player_id} sym={symbol}: "
+            f"{type(_ebd_e).__name__}: {_ebd_e!r}"
+        )
     # GUARD: Never auto-trade human portfolios
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
