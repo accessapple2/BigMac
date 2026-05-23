@@ -122,6 +122,8 @@ what's broken.
 **Fallback in production:** `@reboot` cron entry calling a wrapper
 script that detaches via `nohup … &!`. Used by:
 - `scripts/trader_reboot_start.sh` (com.trademinds.trader, commit `44ec7e3`)
+- `scripts/signal_center_reboot_start.sh` (signal-center Flask app,
+  commit `169e714`)
 
 Drawback: no KeepAlive respawn on crash. Acceptable for stable
 long-running services (the trader has been stable for weeks at a
@@ -133,6 +135,28 @@ A LaunchDaemon under `/Library/LaunchDaemons/` would be the
 apple-canonical fix (system domain, runs at boot independent of
 GUI), but requires sudo + Full Disk Access on the Terminal app.
 Deferred until those prerequisites land.
+
+### Scheduler-owned jobs — keep parallel launchd plists archived
+
+When a job is registered in the in-process `schedule` library inside
+`main.py` (Riker XO at `main.py:3841`, the daemons at module scope,
+etc.), a parallel `~/Library/LaunchAgents/com.ollietrades.*-cron.plist`
+that hits the same endpoint is a **double-fire footgun**. The in-
+process scheduler tick is the authoritative path; the launchd cron
+only causes contention (duplicate signal-center hits, duplicate
+NTFY, duplicate DB writes).
+
+Archived 2026-05-23 (this session): `com.ollietrades.riker-cron.plist`
+moved to `~/Library/LaunchAgents/_archive/` with `.archived_<ts>`
+suffix. Verified pre-archive that `schedule.every(10).minutes.do(
+run_riker_synthesis)` is registered in the live trader and fires
+on the canonical 10-min cycle. The cron plist was a vestige from
+before the scheduler bring-up.
+
+**Audit pattern when in doubt:** for any `~/Library/LaunchAgents/com.
+ollietrades.*-cron.plist`, grep `main.py` for the equivalent
+`schedule.every(...).do(<job>)` registration. If both exist, archive
+the plist — `main.py` wins.
 
 ## HM-AM Scope (added 2026-05-12, HM-CLOSE-GAP W1.1)
 Total Portfolio = **real-world net worth only** (Schwab + Webull + IBKR + physical metals). EXCLUDES Alpaca paper trading book — that's a separate research/strategy-validation surface and must not co-mingle with real-world capital reporting. The two-book bridge policy (see below) governs how the books communicate without mixing.
