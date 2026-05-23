@@ -1038,7 +1038,14 @@ def _build_and_push_ntfy(report: dict) -> None:
         today    = report.get("date", "")
         gp       = report.get("game_plan", {}) or {}
         sectors  = report.get("sector_rotation", {}) or {}
-        earnings = [e for e in report.get("earnings", []) if isinstance(e, dict) and "ticker" in e]
+        # HM-MASTER-PLAN W5-A 2026-05-23 follow-up: require a non-null date
+        # so the L1070 slice `e['date'][5:]` doesn't NoneType-crash. Some
+        # earnings rows have date=None (e.g., AAPL with no scheduled report
+        # date in this morning's 2026-05-23 brief).
+        earnings = [
+            e for e in report.get("earnings", [])
+            if isinstance(e, dict) and "ticker" in e and isinstance(e.get("date"), str)
+        ]
         congress = [c for c in report.get("congress_radar", []) if isinstance(c, dict) and c.get("is_buy")]
         setups   = [s for s in report.get("technical_setups", []) if isinstance(s, dict) and "symbol" in s]
 
