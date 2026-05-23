@@ -5135,7 +5135,10 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     <h2 class="panel-title">
       ⚙️ Options Engine
       <span class="source-badge paper">PAPER</span>
-      <span class="oe-subtitle" id="oe-subtitle">infrastructure ready · agents queued</span>
+      <!-- HM-OPTIONS-ENGINE-RECONCILE 2026-05-22: honest state per Admiral
+           directive. Agent slots labeled with real lifecycle status, not
+           stale "not built" placeholders. -->
+      <span class="oe-subtitle" id="oe-subtitle">Wheel ACTIVE · IC Squadron in shadow · spread agents queued</span>
     </h2>
     <div class="oe-body">
       <!-- Production Book -->
@@ -5146,10 +5149,10 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           <span class="oe-book-pnl" id="oe-fleet-pnl">—</span>
         </div>
         <div class="oe-book-sub">
-          <span class="oe-agent-slot">Quark Iron Condor <em>not built</em></span>
-          <span class="oe-agent-slot">McCoy Bull Put <em>not built</em></span>
-          <span class="oe-agent-slot">Anderson Bear Call <em>not built</em></span>
-          <span class="oe-agent-slot">Covered Call <em>not built</em></span>
+          <span class="oe-agent-slot">IC Squadron <em>queued — shadow pending</em></span>
+          <span class="oe-agent-slot">Wheel CSPs <em style="color:#10b981;">ACTIVE — Troi/McCoy</em></span>
+          <span class="oe-agent-slot">McCoy Bull Put <em>queued</em></span>
+          <span class="oe-agent-slot">Anderson Bear Call <em>queued</em></span>
         </div>
         <div class="oe-positions" id="oe-fleet-positions">
           <div class="oe-empty">No open positions</div>
@@ -28711,14 +28714,30 @@ function loadGlanceData() {
     if (!el) return;
     var puts = d.puts_open || 0;
     var stocks = d.stocks_held || 0;
-    var premium = d.total_premium_collected || 0;
+    // HM-WHEEL-PREMIUM-3NUMBER-FIX 2026-05-22: Captain directive — premium
+    // received at SALE is NOT realized P&L. Surface all three weights so
+    // collected premium doesn't hide an open-book loss. Captain spec:
+    //   collected = received-at-sale
+    //   realized  = locked-at-close-or-expiry (api: realized_pnl)
+    //   unrealized = current open-book mark (api: unrealized_pnl)
+    var collected = d.total_premium_collected || d.premium_collected || 0;
+    var realized = d.realized_pnl || 0;
+    var unrealized = d.unrealized_pnl || 0;
     var active = puts > 0 || stocks > 0;
     var col = active ? '#2563eb' : 'var(--muted)';
     var statusTxt = active ? '🟢 ACTIVE' : '⚪ STANDBY';
     var detail = puts + ' put' + (puts !== 1 ? 's' : '');
     if (stocks > 0) detail += ' · ' + stocks + ' covered';
-    if (premium > 0) detail += ' · $' + premium.toFixed(0) + ' premium';
-    el.innerHTML = '<span style="color:' + col + ';font-weight:600;">' + statusTxt + '</span> | ' + detail;
+    // Three-number compact summary in the glance row.
+    var threeNum = '';
+    if (collected || realized || unrealized) {
+      var ucol = unrealized > 0 ? '#10b981' : (unrealized < 0 ? '#ef4444' : 'var(--muted)');
+      var rcol = realized > 0 ? '#10b981' : (realized < 0 ? '#ef4444' : 'var(--muted)');
+      threeNum = ' · <span style="color:#94a3b8;">collected $' + Math.round(collected) + '</span>' +
+        ' · <span style="color:' + rcol + ';">realized ' + (realized>=0?'+':'') + '$' + realized.toFixed(2) + '</span>' +
+        ' · <span style="color:' + ucol + ';">unrealized ' + (unrealized>=0?'+':'') + '$' + unrealized.toFixed(2) + '</span>';
+    }
+    el.innerHTML = '<span style="color:' + col + ';font-weight:600;">' + statusTxt + '</span> | ' + detail + threeNum;
     // Wheel expand
     var whInner = document.getElementById('g-wheel-inner');
     if (whInner) {
