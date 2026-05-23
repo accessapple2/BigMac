@@ -124,12 +124,14 @@ script that detaches via `nohup … &!`. Used by:
 - `scripts/trader_reboot_start.sh` (com.trademinds.trader, commit `44ec7e3`)
 - `scripts/signal_center_reboot_start.sh` (signal-center Flask app,
   commit `169e714`)
+- `scripts/cloudflared_reboot_start.sh` (cloudflared tunnel for
+  bridge.ollietrades.com, commit pending — 2026-05-23 EOD)
 
 Drawback: no KeepAlive respawn on crash. Acceptable for stable
 long-running services (the trader has been stable for weeks at a
-time). For tunnel/services where the same gui/-domain blocker hit,
-same pattern applies (cloudflared currently started manually via
-`nohup` post-reboot; @reboot wrapper not yet shipped).
+time). cloudflared has its own multi-edge connection retry logic
+so transient connection drops self-heal; only a full process crash
+would require manual intervention.
 
 A LaunchDaemon under `/Library/LaunchDaemons/` would be the
 apple-canonical fix (system domain, runs at boot independent of
