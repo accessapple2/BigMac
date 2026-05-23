@@ -594,15 +594,19 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         return _log_signal_only(player_id, "BUY", symbol, route, reasoning, confidence)
 
     # === HM-EVENTS-BUS-FOUNDATION stale-signal gate 2026-05-22 ===
+    # Gate order at this insertion point (post-conflict resolution):
+    #   1. Stale-signal gate     (this block)        — latency budget
+    #   2. Regime-router gate    (HM-REGIME-ROUTER)  — strategy/regime fit
+    #   3. Grade B fleet gate    (HM-GRADE-B-FLEET-GATE, below) — quality band
+    # Stale runs first so we don't waste regime/quality work on a signal
+    # that already aged past its budget.
+    #
     # Per-timeframe latency budget: 0dte=2s, swing=30s, position=300s. We use
     # the v1 signals.created_at (canonical emit timestamp) for the age check;
     # signals_v2 carries the same budget via stale_after for non-buy readers.
     # If signal_id passed and (now - created_at) > budget → reject with
     # [STALE-SIGNAL] + decision_audit gate_reject. Fail-safe: any error
     # → allow the trade (HM-Z/HM-AA error posture).
-    # Inserts upstream of HM-GRADE-B-FLEET-GATE (and the HM-REGIME-ROUTER
-    # gate when that branch merges) — no point doing further gate work if
-    # the underlying signal has aged out of its latency budget.
     if signal_id is not None and signal_id >= 0:
         try:
             from engine.events_bus import _STALE_BUDGET_S
@@ -655,6 +659,48 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
                 f"{type(_stale_e).__name__}: {_stale_e!r}"
             )
     # === /HM-EVENTS-BUS-FOUNDATION stale-signal gate ===
+
+    # === HM-REGIME-ROUTER 2026-05-22 ===
+    # Strategy-regime fit gate. Fires upstream of HM-GRADE-B-FLEET-GATE so a
+    # regime mismatch rejects at the coarse strategy-fit layer before the
+    # fine-grained quality-band gate runs. Fail-safe: unknown regime →
+    # allow trade + log [REGIME-ROUTER-UNKNOWN] (HM-Z/HM-AA error posture).
+    # Spec: project_hm_ic_squadron_approved.md Pillar 1.
+    try:
+        from engine.regime_router import (
+            check_regime_fit, get_current_regime, log_regime_reject,
+        )
+        _rr_regime = get_current_regime()
+        # Strategy label for the matrix lookup. Equity → long_equity;
+        # options carry option_type (call/put) → long_call / long_put.
+        # Strategy-specific callers (BullSpreadV1 etc.) flow through
+        # different paths and don't hit paper_trader.buy() directly.
+        if asset_type == "stock":
+            _rr_strategy = "long_equity"
+        elif asset_type == "option" and option_type:
+            _rr_strategy = "long_" + option_type.lower()
+        else:
+            _rr_strategy = asset_type or "long_equity"
+        _rr_allowed, _rr_reason = check_regime_fit(_rr_strategy, _rr_regime)
+        if not _rr_allowed:
+            console.log(
+                f"[yellow][REGIME-ROUTER] player={player_id} symbol={symbol} "
+                f"strategy={_rr_strategy} regime={_rr_regime} — "
+                f"BLOCKED: {_rr_reason}"
+            )
+            log_regime_reject(
+                player_id=player_id, symbol=symbol, strategy=_rr_strategy,
+                regime=_rr_regime, reason=_rr_reason, confidence=confidence,
+            )
+            _last_rejection[player_id] = f"REGIME-ROUTER: {_rr_reason}"
+            return None
+    except Exception as _rr_e:
+        # Fail-safe: any router error → allow trade, log loudly.
+        console.log(
+            f"[red][REGIME-ROUTER] fail-open: "
+            f"{type(_rr_e).__name__}: {_rr_e!r}"
+        )
+    # === /HM-REGIME-ROUTER ===
 
     # === HM-GRADE-B-FLEET-GATE 2026-05-20 ===
     # Generalize the Grade B regime + SPY-intraday gates (PR #43 + #47, originally
