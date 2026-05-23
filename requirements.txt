@@ -14,4 +14,5 @@ itsdangerous>=2.2.0
 python-multipart>=0.0.9
 black>=24.4.2
 flake8>=7.1.1
+psutil>=7.2.2  # /api/system/ram + RAM widget on Models page (2026-05-23 — engine/ai_brain + engine/crew_scanner import)
 
