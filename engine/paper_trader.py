@@ -572,7 +572,13 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         qty: float = None, reasoning: str = "", confidence: float = 0.0,
         option_type: str = None, strike_price: float = None, expiry_date: str = None,
         sources: str = "", timeframe: str = "SWING", sizing_multiplier: float = 1.0,
-        signal_id: int | None = None) -> dict | None:
+        signal_id: int | None = None,
+        strategy_id: str | None = None) -> dict | None:
+    """HM-SPREAD-STRATEGY-ID-WRITESITE 2026-05-23: strategy_id is opt-in
+    kwarg so single-leg strategies (long_call, csp legs that don't go
+    through the multi-leg alpaca_options path) can stamp trades.strategy_id.
+    Multi-leg spreads continue to land in options_trades.strategy_id —
+    already correctly populated (25 bull_spread_v1 rows verified)."""
     # HM-SIGNAL-TRADE-FK 2026-05-20: signal_id is the rowid of the originating
     # row in `signals` returned by save_signal(). Optional — callers without
     # the signal_id in scope pass None, and the trade row stores NULL.
@@ -1264,15 +1270,18 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             pass
     _trade_cur = conn.execute(
         # HM-SIGNAL-TRADE-FK 2026-05-20: trades.signal_id captures originating
-        # signals.id (rowid) for traceability. NULL if signal_id not in scope
-        # (mechanical exits + paths that bypass execute_signal).
+        # signals.id (rowid) for traceability. NULL if signal_id not in scope.
+        # HM-SPREAD-STRATEGY-ID-WRITESITE 2026-05-23: trades.strategy_id is
+        # opt-in (caller passes strategy_id kwarg). NULL for default fleet
+        # path; populated for single-leg strategies that want to be queryable
+        # alongside the multi-leg options_trades.strategy_id surface.
         "INSERT INTO trades(player_id, symbol, action, qty, price, asset_type, option_type, "
         "strike_price, expiry_date, reasoning, confidence, season, sources, timeframe, signal_id, "
-        "prompt_version) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "prompt_version, strategy_id) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (player_id, symbol, "BUY", qty, price, asset_type, option_type,
          strike_price, expiry_date, reasoning, confidence, _current_season(), sources, timeframe, signal_id,
-         _pv)
+         _pv, strategy_id)
     )
     _trade_id = _trade_cur.lastrowid  # HM-DECISION-AUDIT-V1 2026-05-20
     conn.commit()
