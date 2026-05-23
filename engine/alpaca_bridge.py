@@ -118,7 +118,8 @@ class AlpacaBridge:
     def _build_order_request(self, *, symbol: str, side, qty: float,
                              order_type: str, limit_price: float,
                              stop_price: float, extended_hours: bool,
-                             notional: float = 0.0):
+                             notional: float = 0.0,
+                             time_in_force: str = "DAY"):
         """HM-TRADE-DESK 2026-05-22: dispatch on order_type ∈
         {market, limit, stop, stop_limit}. Returns the appropriate
         alpaca-py request object. Extended-hours forces a limit-with-premium
@@ -128,12 +129,21 @@ class AlpacaBridge:
         on fractionable equities. Pass notional>0 with order_type='market'
         and qty=0; the helper builds MarketOrderRequest(notional=...).
         Limit/Stop orders REQUIRE qty (raises ValueError if notional set).
+
+        HM-TRADE-DESK-AUTOPILOT 2026-05-22: time_in_force ∈ {"DAY","GTC","IOC","FOK"}
+        — defaults to DAY to preserve legacy fleet behavior. The autopilot
+        helper passes "GTC" so attached stop/target orders survive the close.
         """
         from alpaca.trading.enums import TimeInForce
         from alpaca.trading.requests import (
             MarketOrderRequest, LimitOrderRequest, StopOrderRequest,
             StopLimitOrderRequest,
         )
+        _tif_map = {
+            "day": TimeInForce.DAY, "gtc": TimeInForce.GTC,
+            "ioc": TimeInForce.IOC, "fok": TimeInForce.FOK,
+        }
+        tif = _tif_map.get((time_in_force or "DAY").lower(), TimeInForce.DAY)
         ot = (order_type or "market").lower()
         if notional and notional > 0 and ot != "market":
             raise ValueError(
@@ -147,26 +157,26 @@ class AlpacaBridge:
             lp = round(limit_price * premium, 2)
             return LimitOrderRequest(
                 symbol=symbol, qty=qty, side=side,
-                time_in_force=TimeInForce.DAY, limit_price=lp,
+                time_in_force=tif, limit_price=lp,
                 extended_hours=True,
             )
         if ot == "limit":
             return LimitOrderRequest(
                 symbol=symbol, qty=qty, side=side,
-                time_in_force=TimeInForce.DAY,
+                time_in_force=tif,
                 limit_price=round(float(limit_price), 2),
                 extended_hours=extended_hours,
             )
         if ot == "stop":
             return StopOrderRequest(
                 symbol=symbol, qty=qty, side=side,
-                time_in_force=TimeInForce.DAY,
+                time_in_force=tif,
                 stop_price=round(float(stop_price), 2),
             )
         if ot == "stop_limit":
             return StopLimitOrderRequest(
                 symbol=symbol, qty=qty, side=side,
-                time_in_force=TimeInForce.DAY,
+                time_in_force=tif,
                 stop_price=round(float(stop_price), 2),
                 limit_price=round(float(limit_price), 2),
             )
@@ -174,16 +184,16 @@ class AlpacaBridge:
         if notional and notional > 0:
             return MarketOrderRequest(
                 symbol=symbol, notional=round(float(notional), 2),
-                side=side, time_in_force=TimeInForce.DAY,
+                side=side, time_in_force=tif,
             )
         return MarketOrderRequest(
             symbol=symbol, qty=qty, side=side,
-            time_in_force=TimeInForce.DAY,
+            time_in_force=tif,
         )
 
     def buy(self, symbol, qty, agent_id: str = "unknown", extended_hours: bool = False,
             limit_price: float = 0.0, order_type: str = "market", stop_price: float = 0.0,
-            notional: float = 0.0):
+            notional: float = 0.0, time_in_force: str = "DAY"):
         if not self.client:
             return {'error': 'Not connected'}
         try:
@@ -199,7 +209,7 @@ class AlpacaBridge:
                 symbol=symbol, side=OrderSide.BUY, qty=float(qty),
                 order_type=order_type, limit_price=float(limit_price or 0),
                 stop_price=float(stop_price or 0), extended_hours=extended_hours,
-                notional=float(notional or 0),
+                notional=float(notional or 0), time_in_force=time_in_force,
             )
             o = self.client.submit_order(req)
             _size_log = f"${notional:.2f}" if notional and notional > 0 else f"{qty}"
@@ -218,7 +228,7 @@ class AlpacaBridge:
 
     def sell(self, symbol, qty, agent_id: str = "unknown", extended_hours: bool = False,
              limit_price: float = 0.0, order_type: str = "market", stop_price: float = 0.0,
-             notional: float = 0.0):
+             notional: float = 0.0, time_in_force: str = "DAY"):
         if not self.client:
             return {'error': 'Not connected'}
         try:
@@ -232,7 +242,7 @@ class AlpacaBridge:
                 symbol=symbol, side=OrderSide.SELL, qty=float(qty),
                 order_type=order_type, limit_price=float(limit_price or 0),
                 stop_price=float(stop_price or 0), extended_hours=extended_hours,
-                notional=float(notional or 0),
+                notional=float(notional or 0), time_in_force=time_in_force,
             )
             o = self.client.submit_order(req)
             _size_log = f"${notional:.2f}" if notional and notional > 0 else f"{qty}"
@@ -286,6 +296,99 @@ class AlpacaBridge:
             return {'success': True, 'message': 'All positions closed'}
         except Exception as e:
             return {'error': str(e)}
+
+    def submit_protective_orders(self, *, symbol: str, entry_side: str,
+                                 qty: float, fill_price: float,
+                                 sl_pct: float, tp_pct: float) -> dict:
+        """HM-TRADE-DESK-AUTOPILOT 2026-05-22 — attach two separate GTC
+        protective orders (stop-loss + take-profit) to a just-filled
+        Trade Desk position.
+
+        entry_side: 'BUY' (long) or 'SELL' (short). Protective orders
+        trade the OPPOSITE side: long → sell-stop + sell-limit;
+        short → buy-stop + buy-limit (to cover).
+
+        sl_pct / tp_pct are positive percentages (e.g. 8.0 for 8%).
+        Sign-aware: long stop = fill*(1 - sl/100); long target =
+        fill*(1 + tp/100); short inverts both. Pass 0 to skip a leg.
+
+        Bypasses check_trade — these are risk-management orders on an
+        already-passed primary fill, not new trade intent.
+
+        Returns {'stop_order_id', 'target_order_id', 'stop_price',
+        'target_price', 'errors': list[str]}. Never raises; broker
+        rejections are captured in errors for caller logging.
+        """
+        out: dict = {
+            'stop_order_id': None, 'target_order_id': None,
+            'stop_price': None, 'target_price': None, 'errors': [],
+        }
+        if not self.client:
+            out['errors'].append('Not connected')
+            return out
+        qty_f = float(qty or 0)
+        fill_f = float(fill_price or 0)
+        if qty_f <= 0 or fill_f <= 0:
+            out['errors'].append(
+                f"invalid qty={qty_f} or fill_price={fill_f}"
+            )
+            return out
+
+        is_long = (entry_side or '').upper() == 'BUY'
+        from alpaca.trading.enums import OrderSide, TimeInForce
+        from alpaca.trading.requests import (
+            StopOrderRequest, LimitOrderRequest,
+        )
+        exit_side = OrderSide.SELL if is_long else OrderSide.BUY
+
+        sl = float(sl_pct or 0)
+        tp = float(tp_pct or 0)
+        if is_long:
+            stop_price = round(fill_f * (1.0 - sl / 100.0), 2)
+            target_price = round(fill_f * (1.0 + tp / 100.0), 2)
+        else:
+            stop_price = round(fill_f * (1.0 + sl / 100.0), 2)
+            target_price = round(fill_f * (1.0 - tp / 100.0), 2)
+        out['stop_price'] = stop_price if sl > 0 else None
+        out['target_price'] = target_price if tp > 0 else None
+
+        # Stop-loss leg.
+        if sl > 0 and stop_price > 0:
+            try:
+                req = StopOrderRequest(
+                    symbol=symbol, qty=qty_f, side=exit_side,
+                    time_in_force=TimeInForce.GTC, stop_price=stop_price,
+                )
+                o = self.client.submit_order(req)
+                out['stop_order_id'] = str(o.id)
+                console.log(
+                    f"[yellow]Alpaca AUTOPILOT stop {qty_f} {symbol} "
+                    f"@ ${stop_price} GTC — order {o.id}"
+                )
+            except Exception as e:
+                msg = f"stop: {type(e).__name__}: {e!r}"
+                out['errors'].append(msg)
+                console.log(f"[red]AUTOPILOT {msg}")
+
+        # Take-profit leg.
+        if tp > 0 and target_price > 0:
+            try:
+                req = LimitOrderRequest(
+                    symbol=symbol, qty=qty_f, side=exit_side,
+                    time_in_force=TimeInForce.GTC, limit_price=target_price,
+                )
+                o = self.client.submit_order(req)
+                out['target_order_id'] = str(o.id)
+                console.log(
+                    f"[cyan]Alpaca AUTOPILOT target {qty_f} {symbol} "
+                    f"@ ${target_price} GTC — order {o.id}"
+                )
+            except Exception as e:
+                msg = f"target: {type(e).__name__}: {e!r}"
+                out['errors'].append(msg)
+                console.log(f"[red]AUTOPILOT {msg}")
+
+        return out
 
     def cancel(self, order_id: str):
         """Cancel an open Alpaca order by id. HM-TRADE-DESK 2026-05-22."""
