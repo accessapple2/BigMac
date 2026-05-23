@@ -74,11 +74,21 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
 - **Signal Center (port 9000)**: currently bound to `127.0.0.1` from pre-2FA legacy posture. HM-AW (`docs/XO_BACKLOG.md`) tracks reopening to network now that 2FA TOTP + multi-user auth (Captain, Bonnie observer, Dad charts) are in place. SSH tunnel required today for non-bigmac browser access.
 - **Two distinct auth layers** (do not conflate): browser users → 2FA TOTP + RBAC at the Signal Center server layer; automation/scripts → SSH keys + bigmac OS account. Both are valid; they protect different surfaces.
 
-## RAM Discipline (16GB shared across Ollama, Docker, Tractor Beam, OllieTrades)
-- Prefer `qwen3.5:9b` over larger models
-- `qwen3:30b` is rejected — too slow for this box
-- Avoid loading full datasets into memory; stream or chunk
-- `0xroyce/plutus` is the finance-trained model used for Jim Simons' quant role
+## RAM Discipline (post-MSI-migration 2026-05-20)
+- **bigmac (Mac Mini M4, 16GB RAM)** — runs the FastAPI trader, dashboard,
+  schedulers, signal center. Ollama is NO LONGER co-located here.
+- **Ollie Max (`olliemax.home.local`, 192.168.1.168, RTX 5060 8GB VRAM)** —
+  sole Ollama host. Realistic budget: ONE 7B-class model fully resident,
+  possibly a second with partial offload (per HM-CD-MIGRATE-GPU-RECOVERY
+  lesson banked 2026-05-13).
+- **Preferred local workhorse:** `qwen3:8b` (7 active agents share it
+  per HM-CD `_HM_CD_KEEP_ALIVE` lookup). Previous doctrine recommended
+  `qwen3.5:9b` — model was never installed on either Ollie box, so the
+  line was aspirational. Corrected to reflect actual inventory.
+- `qwen3:30b` rejected — too slow for RTX 5060.
+- Avoid loading full datasets into memory; stream or chunk.
+- `0xroyce/plutus` is the finance-trained model used for McCoy (CSP /
+  Plutus-3B) — present on Ollie Max as `0xroyce/plutus:latest`.
 
 ## Free Models First (cost doctrine, set 2026-04-16)
 - All agents default to FREE models — local Ollama or no-CC-required cloud free tiers
@@ -99,6 +109,30 @@ Non-trivial frontend JS changes require a **manual browser hover/click smoke tes
 
 ## Daemon Lifecycle Rule (added 2026-05-12, HM-EQ lesson)
 Background daemons must bind to **process lifecycle** (module-level startup + explicit invocation in `main.py`), NEVER lazy-instantiated module state coupled to a scan-cycle or agent-spawn path. Standalone import-tests can pass while live production never fires — verify the live execution path with a log heartbeat before declaring shipped. HM-EQ daemon went 128h silent because the Arena-coupled spawn never fired; commit `54881bb` moved it to module-level.
+
+## LaunchAgent Reboot Lifecycle (added 2026-05-23, this-session lesson)
+
+On this macOS box, `launchctl bootstrap gui/$UID <plist>` fails with
+"Domain does not support specified action" when run over SSH — and
+RunAtLoad does not fire at boot without a logged-in Aqua session.
+Verified for both `com.trademinds.trader` and `com.trademinds.tunnel`
+on 2026-05-23. The plists are correct; the boot-time activation is
+what's broken.
+
+**Fallback in production:** `@reboot` cron entry calling a wrapper
+script that detaches via `nohup … &!`. Used by:
+- `scripts/trader_reboot_start.sh` (com.trademinds.trader, commit `44ec7e3`)
+
+Drawback: no KeepAlive respawn on crash. Acceptable for stable
+long-running services (the trader has been stable for weeks at a
+time). For tunnel/services where the same gui/-domain blocker hit,
+same pattern applies (cloudflared currently started manually via
+`nohup` post-reboot; @reboot wrapper not yet shipped).
+
+A LaunchDaemon under `/Library/LaunchDaemons/` would be the
+apple-canonical fix (system domain, runs at boot independent of
+GUI), but requires sudo + Full Disk Access on the Terminal app.
+Deferred until those prerequisites land.
 
 ## HM-AM Scope (added 2026-05-12, HM-CLOSE-GAP W1.1)
 Total Portfolio = **real-world net worth only** (Schwab + Webull + IBKR + physical metals). EXCLUDES Alpaca paper trading book — that's a separate research/strategy-validation surface and must not co-mingle with real-world capital reporting. The two-book bridge policy (see below) governs how the books communicate without mixing.
@@ -746,8 +780,11 @@ pattern and will be reviewed for delete no earlier than 2026-05-18.
 
 **Cadence:** 2 days, 18 PRs merged, 1 schema change, 2 DB triggers added, 1 plist
 fixed, 1 in-place script edit, 1 ops hygiene action (Cloudflared zombie cleanup).
-Drafted as a unit because MSI Ollie migration arrives 2026-05-20; this is the
-ground-truth list of what the new machine inherits.
+Drafted as a unit because MSI Ollie migration completed 2026-05-20; this is the
+ground-truth list of what the new machine inherited. (Post-migration verification:
+Ollie Max live at 192.168.1.168:11434 with qwen3:8b, qwen3:14b, qwen2.5-coder:7b,
+deepseek-r1:14b, gemma3:4b, ministral-3:3b, 0xroyce/plutus:latest installed —
+verified 2026-05-23 health audit.)
 
 ### DB state changes (verify post-MSI-migration)
 
