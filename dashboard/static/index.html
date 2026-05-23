@@ -2848,6 +2848,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="sidebar-item" id="nav-trade-desk" title="Manual trade desk (Captain) — Alpaca paper" onclick="showSection('trade-desk')"><span class="icon">📋</span> Trade Desk</div>
   <div class="sidebar-item" onclick="showSection('ollie')"><span class="icon">💻</span> Ollie</div>
   <div class="sidebar-item" title="0DTE tactical trading station" onclick="showSection('dayblade')"><span class="icon">⚔️</span> Battle Station</div>
+  <div class="sidebar-item" title="Holly Live Trading — live candle chart with fleet trade markers, entry-zone alerts, active-agent attribution" onclick="showSection('live-trading')"><span class="icon">⚡</span> Live Trading</div>
   <div class="sidebar-item" onclick="showSection('charts')"><span class="icon">📈</span> Charts</div>
   <div class="sidebar-item" onclick="showSection('leaderboard')"><span class="icon">🏆</span> Leaderboard</div>
   <div class="sidebar-item" title="Real-world net worth: Schwab + Webull + IBKR + physical metals (excludes Alpaca paper)" onclick="showSection('real-portfolio')"><span class="icon">💰</span> Real Portfolio</div>
@@ -37798,6 +37799,554 @@ async function fetchRealPortfolio() {
 registerSectionInit('real-portfolio', fetchRealPortfolio, [{fn: fetchRealPortfolio, ms: 300000}]);  // 5-min auto-refresh
 </script>
 <!-- ==================== /W5-D Real Portfolio ==================== -->
+
+
+<!-- ==================== W5-E Holly Live Trading 2026-05-23 ====================
+     Trade-Ideas-Holly-style live trading surface. Single-symbol canvas
+     candlestick chart, fleet agent trade markers painted on (green ▲ BUY,
+     red ▼ SELL, orange × stop-loss, dotted path between paired BUY→SELL),
+     entry-zone alert when current price within 1% of an open signal's
+     STOP/TARGET, active-agent attribution strip.
+
+     Data: polled REST (5s for /api/chart/bars, 10s for /api/trades/recent)
+     per Captain decision during scoping. WS push deferred — see
+     HM-LIVE-TRADING-WS-PUSH ticket in docs/XO_BACKLOG.md. -->
+<div id="section-live-trading" style="display:none;">
+  <div style="border-left:4px solid #f59e0b;background:rgba(245,158,11,0.05);padding:10px 16px;margin-bottom:12px;border-radius:0 6px 6px 0;">
+    <div style="font-size:11px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">⚡ Live Trading — Holly Mode</div>
+    <div style="font-size:13px;color:#94a3b8;">Live candle chart with fleet agent trade markers painted on. <span style="color:#22c55e;">▲ entry</span> · <span style="color:#ef4444;">▼ exit</span> · <span style="color:#f97316;">× stop-loss</span> · ⋯ entry→exit path. Polls every 5s (candles) / 10s (trades).</div>
+  </div>
+
+  <!-- Symbol selector + quick-buttons + timeframe -->
+  <div class="card" style="margin-bottom:12px;">
+    <div style="padding:12px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+      <label for="lt-symbol-input" style="font-size:12px;color:var(--muted);font-weight:600;">Symbol:</label>
+      <input id="lt-symbol-input" type="text" maxlength="8" value="SPY" style="text-transform:uppercase;padding:6px 10px;width:90px;background:rgba(15,23,42,0.6);border:1px solid rgba(245,158,11,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;font-weight:700;" />
+      <button onclick="ltLoadSymbol()" style="padding:6px 12px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);color:#f59e0b;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;">Load</button>
+      <span id="lt-quick-buttons" style="display:flex;flex-wrap:wrap;gap:4px;flex:1;"></span>
+      <span style="color:var(--border);">|</span>
+      <label style="font-size:12px;color:var(--muted);font-weight:600;">Timeframe:</label>
+      <span id="lt-timeframe-pills" style="display:flex;gap:4px;">
+        <button data-tf="1m"  onclick="ltSetTimeframe('1m')"  style="padding:5px 10px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);color:#f59e0b;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;">1m</button>
+        <button data-tf="5m"  onclick="ltSetTimeframe('5m')"  style="padding:5px 10px;background:rgba(15,23,42,0.6);border:1px solid var(--border);color:var(--muted);border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;">5m</button>
+        <button data-tf="15m" onclick="ltSetTimeframe('15m')" style="padding:5px 10px;background:rgba(15,23,42,0.6);border:1px solid var(--border);color:var(--muted);border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;">15m</button>
+      </span>
+      <span id="lt-last-tick" style="font-size:11px;color:var(--muted);font-family:monospace;margin-left:auto;"></span>
+    </div>
+  </div>
+
+  <!-- Active-agent attribution strip -->
+  <div id="lt-active-agent" style="display:none;padding:8px 14px;margin-bottom:8px;background:rgba(56,189,248,0.08);border-left:3px solid #38bdf8;border-radius:0 4px 4px 0;font-size:13px;"></div>
+
+  <!-- Entry-zone alert banner (visible only when active) -->
+  <div id="lt-entry-zone-alert" style="display:none;padding:10px 14px;margin-bottom:8px;background:rgba(239,68,68,0.1);border-left:3px solid #ef4444;border-radius:0 4px 4px 0;font-size:13px;color:#fca5a5;font-weight:600;"></div>
+
+  <!-- Canvas chart -->
+  <div class="card" style="margin-bottom:12px;">
+    <div class="card-header"><div class="card-title"><span id="lt-chart-title" style="font-family:monospace;">SPY · 1m</span></div></div>
+    <div style="padding:8px 16px 16px;">
+      <div style="position:relative;width:100%;">
+        <canvas id="lt-chart-canvas" width="1000" height="420" style="width:100%;height:420px;display:block;background:rgba(15,23,42,0.4);border:1px solid var(--border);border-radius:4px;"></canvas>
+        <div id="lt-chart-status" style="position:absolute;top:8px;left:12px;font-size:11px;color:var(--muted);font-family:monospace;pointer-events:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent fleet activity for this symbol -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header"><div class="card-title">📋 Recent Fleet Activity on <span id="lt-activity-symbol" style="font-family:monospace;">SPY</span> <span id="lt-activity-count" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div></div>
+    <div style="padding:0 16px 12px;max-height:240px;overflow-y:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="border-bottom:1px solid var(--border);color:var(--muted);text-align:left;">
+          <th style="padding:6px 4px;">Time</th>
+          <th style="padding:6px 4px;">Agent</th>
+          <th style="padding:6px 4px;">Action</th>
+          <th style="padding:6px 4px;text-align:right;">Qty</th>
+          <th style="padding:6px 4px;text-align:right;">Price</th>
+          <th style="padding:6px 4px;text-align:right;">P&amp;L</th>
+        </tr></thead>
+        <tbody id="lt-activity-tbody">
+          <tr><td colspan="6" style="padding:12px;color:var(--muted);text-align:center;">No fleet activity loaded yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+/* W5-E Holly Live Trading 2026-05-23 — Captain greenlit polled-REST path:
+   - /api/chart/bars       — 5s poll for OHLC candles
+   - /api/trades/recent    — 10s poll for fleet trade markers
+   - /api/live-trading/top-symbols — once-per-section-open for quick-buttons
+   localStorage key 'ollietrades.livetrading.state' persists symbol + timeframe.
+   WS push deferred to HM-LIVE-TRADING-WS-PUSH per scope decision. */
+
+var _LT_LS_KEY     = 'ollietrades.livetrading.state';
+var _LT_POLL_BARS_MS    = 5000;
+var _LT_POLL_TRADES_MS  = 10000;
+var _LT_POLL_SYMBOLS_MS = 600000;  // 10 min — top-symbols changes slowly
+var _LT_state = {
+  symbol: 'SPY', timeframe: '1m',
+  candles: [], trades: [], topSymbols: [],
+  barsTimer: null, tradesTimer: null,
+};
+
+function _ltSaveState() {
+  try {
+    localStorage.setItem(_LT_LS_KEY, JSON.stringify({
+      symbol: _LT_state.symbol, timeframe: _LT_state.timeframe, v: 1,
+    }));
+  } catch (e) { /* localStorage disabled — silent */ }
+}
+
+function _ltLoadState() {
+  try {
+    var raw = localStorage.getItem(_LT_LS_KEY);
+    if (!raw) return;
+    var d = JSON.parse(raw);
+    if (d && typeof d.symbol === 'string' && d.symbol.length <= 8) {
+      _LT_state.symbol = d.symbol.toUpperCase();
+    }
+    if (d && ['1m','5m','15m'].indexOf(d.timeframe) !== -1) {
+      _LT_state.timeframe = d.timeframe;
+    }
+  } catch (e) { /* corrupt — leave defaults */ }
+}
+
+function _ltFmtUSD(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return '$' + Number(n).toFixed(2);
+}
+
+function _ltFmtTime(tsSec) {
+  var d = new Date(tsSec * 1000);
+  return d.toLocaleTimeString([], {hour: '2-digit', minute:'2-digit', second:'2-digit'});
+}
+
+function ltSetTimeframe(tf) {
+  if (['1m','5m','15m'].indexOf(tf) === -1) return;
+  _LT_state.timeframe = tf;
+  // Update pill active state
+  var pills = document.querySelectorAll('#lt-timeframe-pills button');
+  pills.forEach(function(b) {
+    var on = b.getAttribute('data-tf') === tf;
+    b.style.background = on ? 'rgba(245,158,11,0.15)' : 'rgba(15,23,42,0.6)';
+    b.style.borderColor = on ? 'rgba(245,158,11,0.4)' : 'var(--border)';
+    b.style.color = on ? '#f59e0b' : 'var(--muted)';
+  });
+  document.getElementById('lt-chart-title').textContent =
+    _LT_state.symbol + ' · ' + _LT_state.timeframe;
+  _ltSaveState();
+  _ltFetchBars();
+}
+
+function ltLoadSymbol() {
+  var input = document.getElementById('lt-symbol-input');
+  var sym = (input.value || '').toUpperCase().trim();
+  if (!sym || sym.length > 8) return;
+  _LT_state.symbol = sym;
+  input.value = sym;
+  document.getElementById('lt-chart-title').textContent = sym + ' · ' + _LT_state.timeframe;
+  document.getElementById('lt-activity-symbol').textContent = sym;
+  _ltSaveState();
+  _ltFetchBars();
+  _ltFetchTrades();
+}
+
+function _ltFetchTopSymbols() {
+  fetch('/api/live-trading/top-symbols?limit=8')
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(d) {
+      if (!d || !Array.isArray(d.symbols)) return;
+      _LT_state.topSymbols = d.symbols;
+      _ltRenderQuickButtons();
+    })
+    .catch(function() { /* silent — quick buttons just won't render */ });
+}
+
+function _ltRenderQuickButtons() {
+  var box = document.getElementById('lt-quick-buttons');
+  if (!box) return;
+  if (!_LT_state.topSymbols.length) {
+    box.innerHTML = '<span style="font-size:11px;color:var(--muted);font-style:italic;">No fleet activity in last 7d</span>';
+    return;
+  }
+  box.innerHTML = _LT_state.topSymbols.map(function(s) {
+    var isActive = (s === _LT_state.symbol);
+    var bg = isActive ? 'rgba(245,158,11,0.2)' : 'rgba(15,23,42,0.5)';
+    var bc = isActive ? 'rgba(245,158,11,0.5)' : 'var(--border)';
+    var fc = isActive ? '#f59e0b' : 'var(--muted)';
+    return '<button onclick="document.getElementById(\'lt-symbol-input\').value=\''+s+'\';ltLoadSymbol()" style="padding:4px 9px;background:'+bg+';border:1px solid '+bc+';color:'+fc+';border-radius:3px;cursor:pointer;font-size:11px;font-family:monospace;font-weight:600;">'+s+'</button>';
+  }).join('');
+}
+
+function _ltFetchBars() {
+  var sym = _LT_state.symbol;
+  var tf  = _LT_state.timeframe;
+  var status = document.getElementById('lt-chart-status');
+  fetch('/api/chart/bars?symbol=' + encodeURIComponent(sym) + '&timeframe=' + tf + '&limit=80')
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(d) {
+      if (!d) { if (status) status.textContent = 'no data'; return; }
+      if (d.error) { if (status) status.textContent = 'err: ' + d.error; return; }
+      // /api/chart/bars emits t as ISO string ("2026-05-22T12:00:00Z");
+      // normalize to epoch seconds so the rest of the renderer works
+      // with consistent numeric timestamps.
+      var raw = d.candles || [];
+      _LT_state.candles = raw.map(function(c) {
+        var ts = c.t;
+        if (typeof ts === 'string') ts = Math.floor(Date.parse(ts) / 1000);
+        return {t: ts, o: c.o, h: c.h, l: c.l, c: c.c, v: c.v};
+      }).filter(function(c) { return c.t && !isNaN(c.t); });
+      if (status) status.textContent = _LT_state.candles.length + ' bars · ' + tf;
+      // Update last-tick stamp
+      var last = _LT_state.candles[_LT_state.candles.length - 1];
+      if (last && last.t) {
+        document.getElementById('lt-last-tick').textContent = '⏵ ' + _ltFmtTime(last.t) + ' · close ' + _ltFmtUSD(last.c);
+      }
+      _ltDraw();
+    })
+    .catch(function(e) {
+      if (status) status.textContent = 'fetch err: ' + e;
+    });
+}
+
+function _ltFetchTrades() {
+  fetch('/api/trades/recent?limit=80')
+    .then(function(r) { return r.ok ? r.json() : null; })
+    .then(function(d) {
+      if (!d) return;
+      var rows = Array.isArray(d) ? d : (d.trades || []);
+      // Filter to current symbol only (case-insensitive)
+      var sym = _LT_state.symbol;
+      _LT_state.trades = rows.filter(function(t) {
+        return t && t.symbol && t.symbol.toUpperCase() === sym;
+      });
+      _ltRenderActivity();
+      _ltComputeActiveAgent();
+      _ltComputeEntryZone();
+      _ltDraw();  // redraw with new markers
+    })
+    .catch(function() { /* silent — markers just won't render */ });
+}
+
+function _ltRenderActivity() {
+  var tbody = document.getElementById('lt-activity-tbody');
+  var count = document.getElementById('lt-activity-count');
+  if (!tbody) return;
+  var trades = _LT_state.trades.slice(0, 30);
+  if (count) count.textContent = trades.length ? '(' + trades.length + ')' : '';
+  if (!trades.length) {
+    tbody.innerHTML = '<tr><td colspan="6" style="padding:12px;color:var(--muted);text-align:center;">No fleet activity on ' + _LT_state.symbol + ' in recent window.</td></tr>';
+    return;
+  }
+  tbody.innerHTML = trades.map(function(t) {
+    var ts = t.executed_at ? new Date(t.executed_at.replace(' ', 'T') + 'Z').toLocaleTimeString() : '—';
+    var agent = t.display_name || t.player_id || '—';
+    var actColor = (t.action === 'BUY') ? '#22c55e' : (t.action === 'SELL' ? '#ef4444' : 'var(--muted)');
+    var pnl = (t.realized_pnl !== null && t.realized_pnl !== undefined) ? t.realized_pnl : null;
+    var pnlStr = pnl === null ? '—' :
+      (pnl >= 0 ? '<span style="color:#22c55e;">+' + _ltFmtUSD(pnl) + '</span>'
+                : '<span style="color:#ef4444;">-' + _ltFmtUSD(Math.abs(pnl)) + '</span>');
+    return '<tr style="border-bottom:1px solid var(--border);">' +
+      '<td style="padding:5px 4px;font-family:monospace;color:var(--muted);">' + ts + '</td>' +
+      '<td style="padding:5px 4px;font-size:11px;">' + agent + '</td>' +
+      '<td style="padding:5px 4px;color:' + actColor + ';font-weight:600;">' + (t.action || '—') + '</td>' +
+      '<td style="padding:5px 4px;text-align:right;font-family:monospace;">' + (t.qty || '—') + '</td>' +
+      '<td style="padding:5px 4px;text-align:right;font-family:monospace;">' + _ltFmtUSD(t.price) + '</td>' +
+      '<td style="padding:5px 4px;text-align:right;font-family:monospace;">' + pnlStr + '</td>' +
+      '</tr>';
+  }).join('');
+}
+
+function _ltComputeActiveAgent() {
+  var box = document.getElementById('lt-active-agent');
+  if (!box) return;
+  var latest = _LT_state.trades[0];
+  if (!latest) { box.style.display = 'none'; return; }
+  var agent = latest.display_name || latest.player_id || 'unknown';
+  var act = latest.action || '—';
+  var price = _ltFmtUSD(latest.price);
+  // Most recent candle close for delta calc
+  var lastBar = _LT_state.candles[_LT_state.candles.length - 1];
+  var delta = '';
+  if (lastBar && lastBar.c && latest.price) {
+    var pct = ((lastBar.c - latest.price) / latest.price) * 100;
+    var sign = pct >= 0 ? '+' : '';
+    delta = ' (' + sign + pct.toFixed(2) + '% vs spot)';
+  }
+  box.innerHTML = '🎯 <b>Active agent:</b> ' + agent + ' · last <span style="color:' + (act==='BUY'?'#22c55e':'#ef4444') + ';font-weight:600;">' + act + '</span> at ' + price + delta;
+  box.style.display = 'block';
+}
+
+function _ltComputeEntryZone() {
+  var alertBox = document.getElementById('lt-entry-zone-alert');
+  if (!alertBox) return;
+  var lastBar = _LT_state.candles[_LT_state.candles.length - 1];
+  if (!lastBar || !lastBar.c) { alertBox.style.display = 'none'; return; }
+  var price = lastBar.c;
+  // Find open signals (BUYs with no matching SELL in current visible window),
+  // parse [STOP: $X] and [TP1: $Y] / [TP: $Y] / [TARGET: $Y] from reasoning,
+  // alert when within 1% of either level.
+  var openBuys = _LT_state.trades.filter(function(t) {
+    return t.action === 'BUY' && t.reasoning;
+  });
+  // Heuristic: BUY is "open" if no SELL from same player on same symbol
+  // appears AFTER it in the trades list. trades array is sorted desc by ts,
+  // so a BUY is open if no SELL precedes it in array order for same player.
+  var alerts = [];
+  openBuys.forEach(function(buy) {
+    var idx = _LT_state.trades.indexOf(buy);
+    var hasExit = _LT_state.trades.slice(0, idx).some(function(t) {
+      return t.action === 'SELL' && t.player_id === buy.player_id;
+    });
+    if (hasExit) return;
+    var stopM = /\[STOP:\s*\$?([\d.]+)\]/i.exec(buy.reasoning);
+    var tpM   = /\[(?:TP1?|TARGET):\s*\$?([\d.]+)\]/i.exec(buy.reasoning);
+    var agent = buy.display_name || buy.player_id || 'unknown';
+    if (stopM) {
+      var sl = parseFloat(stopM[1]);
+      if (sl > 0 && Math.abs((price - sl) / sl) <= 0.01) {
+        alerts.push('⚠ Within 1% of <b>' + agent + '</b> STOP ' + _ltFmtUSD(sl) + ' (current ' + _ltFmtUSD(price) + ')');
+      }
+    }
+    if (tpM) {
+      var tp = parseFloat(tpM[1]);
+      if (tp > 0 && Math.abs((price - tp) / tp) <= 0.01) {
+        alerts.push('🎯 Within 1% of <b>' + agent + '</b> TARGET ' + _ltFmtUSD(tp) + ' (current ' + _ltFmtUSD(price) + ')');
+      }
+    }
+  });
+  if (alerts.length === 0) {
+    alertBox.style.display = 'none';
+  } else {
+    alertBox.innerHTML = alerts.join('<br>');
+    alertBox.style.display = 'block';
+  }
+}
+
+/* Canvas OHLC renderer. ~120 LOC of pure 2D drawing — no library deps. */
+function _ltDraw() {
+  var canvas = document.getElementById('lt-chart-canvas');
+  if (!canvas || !canvas.getContext) return;
+  var ctx = canvas.getContext('2d');
+  // Reset transform + clear
+  ctx.setTransform(1, 0, 0, 1, 0, 0);
+  // Hi-DPI: actual buffer is canvas.width × canvas.height (set in HTML),
+  // CSS scales to 100% width. Use buffer dimensions for math.
+  var W = canvas.width;
+  var H = canvas.height;
+  ctx.clearRect(0, 0, W, H);
+
+  var candles = _LT_state.candles;
+  if (!candles || candles.length === 0) {
+    ctx.fillStyle = '#64748b';
+    ctx.font = '14px monospace';
+    ctx.textAlign = 'center';
+    ctx.fillText('Loading ' + _LT_state.symbol + ' · ' + _LT_state.timeframe + ' …', W/2, H/2);
+    return;
+  }
+
+  // Margins (px in buffer space)
+  var ML = 60, MR = 16, MT = 12, MB = 28;
+  var PW = W - ML - MR;
+  var PH = H - MT - MB;
+
+  // Y range — min low / max high across candles (with 2% padding)
+  var lo = Infinity, hi = -Infinity;
+  for (var i = 0; i < candles.length; i++) {
+    if (candles[i].l < lo) lo = candles[i].l;
+    if (candles[i].h > hi) hi = candles[i].h;
+  }
+  // Include trade marker prices in range so they always fall in-view
+  _LT_state.trades.forEach(function(t) {
+    if (t.price && t.price > 0) {
+      if (t.price < lo) lo = t.price;
+      if (t.price > hi) hi = t.price;
+    }
+  });
+  if (!isFinite(lo) || !isFinite(hi) || lo === hi) {
+    lo = (candles[0] && candles[0].c) ? candles[0].c * 0.99 : 0;
+    hi = (candles[0] && candles[0].c) ? candles[0].c * 1.01 : 1;
+  }
+  var pad = (hi - lo) * 0.04;
+  lo -= pad; hi += pad;
+  var yScale = PH / (hi - lo);
+
+  function priceToY(p) { return MT + PH - (p - lo) * yScale; }
+  function idxToX(i)   { return ML + (i + 0.5) * (PW / candles.length); }
+
+  // Grid + price axis labels (5 horizontal lines)
+  ctx.strokeStyle = 'rgba(100,116,139,0.15)';
+  ctx.lineWidth = 1;
+  ctx.font = '11px monospace';
+  ctx.fillStyle = '#64748b';
+  ctx.textAlign = 'right';
+  for (var g = 0; g <= 4; g++) {
+    var py = MT + (PH * g / 4);
+    var price = hi - ((hi - lo) * g / 4);
+    ctx.beginPath();
+    ctx.moveTo(ML, py);
+    ctx.lineTo(W - MR, py);
+    ctx.stroke();
+    ctx.fillText('$' + price.toFixed(2), ML - 6, py + 4);
+  }
+
+  // X-axis time labels (3-5 labels evenly spaced)
+  ctx.textAlign = 'center';
+  var nLabels = Math.min(5, candles.length);
+  for (var x = 0; x < nLabels; x++) {
+    var ci = Math.floor((candles.length - 1) * (x / Math.max(1, nLabels - 1)));
+    var cx = idxToX(ci);
+    var bar = candles[ci];
+    ctx.fillText(_ltFmtTime(bar.t), cx, H - 10);
+  }
+
+  // Candles
+  var candleW = Math.max(2, (PW / candles.length) * 0.7);
+  for (var k = 0; k < candles.length; k++) {
+    var c = candles[k];
+    var cx2 = idxToX(k);
+    var yO = priceToY(c.o);
+    var yC = priceToY(c.c);
+    var yH = priceToY(c.h);
+    var yL = priceToY(c.l);
+    var up = c.c >= c.o;
+    ctx.strokeStyle = up ? '#22c55e' : '#ef4444';
+    ctx.fillStyle   = up ? 'rgba(34,197,94,0.85)' : 'rgba(239,68,68,0.85)';
+    // Wick
+    ctx.beginPath();
+    ctx.moveTo(cx2, yH);
+    ctx.lineTo(cx2, yL);
+    ctx.stroke();
+    // Body
+    var bodyTop = Math.min(yO, yC);
+    var bodyH = Math.max(1, Math.abs(yO - yC));
+    ctx.fillRect(cx2 - candleW/2, bodyTop, candleW, bodyH);
+  }
+
+  // Trade markers — map each trade timestamp to nearest candle by time,
+  // then plot at (candle_x, price_y). Pair BUYs with their next SELL on
+  // same player_id for dotted-path drawing.
+  var markers = [];
+  _LT_state.trades.forEach(function(t) {
+    if (!t.executed_at || !t.price) return;
+    var tsSec = Date.parse(t.executed_at.replace(' ', 'T') + 'Z') / 1000;
+    if (isNaN(tsSec)) return;
+    // Skip trades outside the candle window (older than first bar or
+    // newer than last bar)
+    if (tsSec < candles[0].t || tsSec > candles[candles.length-1].t + 3600) return;
+    // Find nearest candle by time
+    var bestIdx = 0, bestDt = Infinity;
+    for (var m = 0; m < candles.length; m++) {
+      var dt = Math.abs(candles[m].t - tsSec);
+      if (dt < bestDt) { bestDt = dt; bestIdx = m; }
+    }
+    var isStop = (t.action === 'SELL' && t.reasoning &&
+                  /stop[-_ ]?loss|STOP.*HIT/i.test(t.reasoning));
+    markers.push({
+      x: idxToX(bestIdx),
+      y: priceToY(t.price),
+      action: t.action,
+      isStop: isStop,
+      player_id: t.player_id,
+      ts: tsSec,
+    });
+  });
+
+  // Sort by ts so we can pair BUY→SELL
+  markers.sort(function(a, b) { return a.ts - b.ts; });
+
+  // Dotted path: for each BUY, find next SELL with same player_id
+  ctx.setLineDash([3, 4]);
+  ctx.strokeStyle = 'rgba(148,163,184,0.5)';
+  ctx.lineWidth = 1.5;
+  for (var p = 0; p < markers.length; p++) {
+    if (markers[p].action !== 'BUY') continue;
+    for (var q = p + 1; q < markers.length; q++) {
+      if (markers[q].action === 'SELL' && markers[q].player_id === markers[p].player_id) {
+        ctx.beginPath();
+        ctx.moveTo(markers[p].x, markers[p].y);
+        ctx.lineTo(markers[q].x, markers[q].y);
+        ctx.stroke();
+        break;
+      }
+    }
+  }
+  ctx.setLineDash([]);  // reset
+
+  // Draw markers ON TOP of paths
+  markers.forEach(function(m) {
+    ctx.beginPath();
+    if (m.action === 'BUY') {
+      // Green ▲
+      ctx.fillStyle = '#22c55e';
+      ctx.moveTo(m.x, m.y - 7);
+      ctx.lineTo(m.x - 6, m.y + 5);
+      ctx.lineTo(m.x + 6, m.y + 5);
+      ctx.closePath();
+      ctx.fill();
+    } else if (m.isStop) {
+      // Orange × (stop-loss exit)
+      ctx.strokeStyle = '#f97316';
+      ctx.lineWidth = 2.5;
+      ctx.moveTo(m.x - 6, m.y - 6);
+      ctx.lineTo(m.x + 6, m.y + 6);
+      ctx.moveTo(m.x + 6, m.y - 6);
+      ctx.lineTo(m.x - 6, m.y + 6);
+      ctx.stroke();
+    } else if (m.action === 'SELL') {
+      // Red ▼
+      ctx.fillStyle = '#ef4444';
+      ctx.moveTo(m.x, m.y + 7);
+      ctx.lineTo(m.x - 6, m.y - 5);
+      ctx.lineTo(m.x + 6, m.y - 5);
+      ctx.closePath();
+      ctx.fill();
+    }
+  });
+}
+
+function _ltStartPolling() {
+  _ltStopPolling();
+  _LT_state.barsTimer   = setInterval(_ltFetchBars, _LT_POLL_BARS_MS);
+  _LT_state.tradesTimer = setInterval(_ltFetchTrades, _LT_POLL_TRADES_MS);
+}
+
+function _ltStopPolling() {
+  if (_LT_state.barsTimer)   { clearInterval(_LT_state.barsTimer);   _LT_state.barsTimer = null; }
+  if (_LT_state.tradesTimer) { clearInterval(_LT_state.tradesTimer); _LT_state.tradesTimer = null; }
+}
+
+function ltInit() {
+  _ltLoadState();
+  // Restore UI state from localStorage
+  document.getElementById('lt-symbol-input').value = _LT_state.symbol;
+  document.getElementById('lt-activity-symbol').textContent = _LT_state.symbol;
+  document.getElementById('lt-chart-title').textContent = _LT_state.symbol + ' · ' + _LT_state.timeframe;
+  ltSetTimeframe(_LT_state.timeframe);  // re-styles pills
+  // Enter-key on symbol input loads
+  var sym = document.getElementById('lt-symbol-input');
+  if (sym) {
+    sym.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); ltLoadSymbol(); }
+    });
+  }
+  _ltFetchTopSymbols();
+  _ltFetchBars();
+  _ltFetchTrades();
+  _ltStartPolling();
+}
+
+if (typeof registerSectionInit === 'function') {
+  registerSectionInit('live-trading', ltInit, [
+    {fn: _ltFetchBars,        ms: _LT_POLL_BARS_MS},
+    {fn: _ltFetchTrades,      ms: _LT_POLL_TRADES_MS},
+    {fn: _ltFetchTopSymbols,  ms: _LT_POLL_SYMBOLS_MS},
+  ]);
+}
+</script>
+<!-- ==================== /W5-E Holly Live Trading ==================== -->
 
 </body>
 </html>

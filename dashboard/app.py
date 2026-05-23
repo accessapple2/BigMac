@@ -12743,6 +12743,45 @@ def chart_data_alias(symbol: str = "SPY", timeframe: str = "1Day", bars: int = 2
     return chart_data(symbol=symbol, timeframe=timeframe, bars=bars)
 
 
+# --- Holly Live Trading (W5-E) — top fleet-traded symbols last 7 days ---
+
+@app.get("/api/live-trading/top-symbols")
+def live_trading_top_symbols(limit: int = 8):
+    """Top-N most-traded fleet symbols over the last 7 days. Powers the
+    dynamic quick-button row on the Holly Live Trading view per Captain
+    spec — dynamic > static watchlist so the buttons reflect where the
+    fleet is actually concentrating.
+
+    Excludes Captain manual trades (`player_id='trade-desk'`) so the
+    quick-buttons reflect autonomous fleet activity, not Captain overrides.
+
+    Returns: {"symbols": ["SPY", "QQQ", ...], "window_days": 7,
+              "as_of": "ISO-ts"}.
+    """
+    out: dict = {"symbols": [], "window_days": 7,
+                 "as_of": datetime.now().isoformat()}
+    try:
+        c = _conn()
+        try:
+            rows = c.execute(
+                "SELECT symbol, COUNT(*) AS n "
+                "  FROM trades "
+                " WHERE executed_at > datetime('now','-7 days') "
+                "   AND symbol IS NOT NULL "
+                "   AND player_id != 'trade-desk' "
+                " GROUP BY symbol "
+                " ORDER BY n DESC, symbol ASC "
+                " LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+            out["symbols"] = [r[0] for r in rows if r[0]]
+        finally:
+            c.close()
+    except Exception as e:
+        out["error"] = f"{type(e).__name__}: {e!r}"
+    return out
+
+
 @app.get("/api/chart/bars")
 def chart_bars(symbol: str = "SPY", timeframe: str = "1m", limit: int = 80):
     """Real Alpaca bars for Sniff Scan candlestick chart.

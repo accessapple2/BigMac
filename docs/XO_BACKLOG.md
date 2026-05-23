@@ -294,6 +294,49 @@ sections; the earnings sub-row throws silently and falls through.
 Fix is a one-liner but worth pairing with a broader `_gp*` audit
 to catch sibling null-guard misses in one sweep.
 
+### HM-LIVE-TRADING-WS-PUSH (banked 2026-05-23, Holly Live Trading scope close)
+
+**Context:** the Holly Live Trading view shipped with **polled REST**
+data path (5s candle poll + 10s trade-event poll) per Captain decision
+during scoping. Push-based ticker stream deferred to this ticket.
+
+**Build:** new backend Server-Sent Events endpoint wrapping the
+existing `engine/realtime_monitor.py` Finnhub WebSocket (L228-234)
+into a browser-consumable stream. Frontend `EventSource` subscribes,
+gets `{symbol, price, ts}` events as they arrive. Same endpoint can
+multiplex Alpaca trade events from the existing event bus so the
+marker overlay also gets push delivery instead of poll.
+
+**Shape sketch:**
+```python
+@app.get("/api/live/stream")
+def live_stream(symbol: str = "SPY"):
+    """SSE — emits {type:'tick'|'trade', ...} for the symbol."""
+    def gen():
+        while True:
+            ev = next_event()  # blocking on Finnhub queue + trade bus
+            yield f"data: {json.dumps(ev)}\n\n"
+    return StreamingResponse(gen(), media_type="text/event-stream")
+```
+
+**Frontend wiring:** replace `_ltPoll` loop in index.html with:
+```js
+var es = new EventSource('/api/live/stream?symbol=' + currentSymbol);
+es.addEventListener('tick',  function(e) { _ltAppendTick(JSON.parse(e.data)); });
+es.addEventListener('trade', function(e) { _ltAppendTrade(JSON.parse(e.data)); });
+```
+
+**Why deferred:** polling shipped tonight is the correct trade-off for
+EOD scope — 10s marker freshness feels live enough; ship-tonight beats
+ship-in-3h. Push upgrade is pure perf, no functional change.
+
+**Affected files (est):**
+- `dashboard/app.py` — new ~80 LOC SSE endpoint + queue subscription
+- `engine/realtime_monitor.py` — expose internal event queue to FastAPI
+- `dashboard/static/index.html` — swap `_ltPoll` for EventSource (~40 LOC)
+
+### HM-ADMIN-ONLY-CSS-DEFAULT-DENY (banked 2026-05-23, EOD sidebar consolidation)
+
 **Finding:** the `.admin-only` CSS gate in `dashboard/static/index.html:329`
 is one line and gates ONLY for `role=observer`:
 
