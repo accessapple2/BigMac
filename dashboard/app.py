@@ -7952,8 +7952,22 @@ def portfolio_real():
     try:
         from engine.metals_tracker import get_spot_prices
         spot = get_spot_prices(fresh=False) or {}
-        gold_spot = (spot.get("gold") or {}).get("price")
-        silver_spot = (spot.get("silver") or {}).get("price")
+        # HM-METALS-SPOT-KEY-CASE 2026-05-23: engine.metals_tracker.get_spot_prices
+        # emits keys in UPPERCASE ({"GOLD": {...}, "SILVER": {...}, "PLATINUM":...,
+        # "PALLADIUM":..., "GSR": ...}). This consumer was reading them lowercase
+        # (.get("gold") / .get("silver")) and silently returned None forever —
+        # surfaced as "spot unavailable" / no gain-loss on the Real Portfolio tab
+        # gold/silver cards. Fix is purely the case mismatch; the underlying
+        # Polygon→yfinance fetch chain in engine.market_data.get_stock_price is
+        # already correct (Polygon is the primary, yfinance is the fallback —
+        # both verified returning live prices: GOLD $4523.20, SILVER $76.20).
+        # Belt-and-braces: try uppercase first (canonical), fall back to lowercase
+        # in case a future refactor of metals_tracker normalizes keys downward.
+        def _spot(k):
+            return ((spot.get(k.upper()) or {}).get("price")
+                    or (spot.get(k.lower()) or {}).get("price"))
+        gold_spot = _spot("gold")
+        silver_spot = _spot("silver")
     except Exception:
         gold_spot = None
         silver_spot = None
