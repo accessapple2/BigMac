@@ -10193,47 +10193,49 @@ def alpaca_buy(data: dict):
             limit_price = float(get_stock_price(symbol.upper()).get("price", 0) or 0)
     except Exception:
         pass
-    # HM-TRADE-DESK-AUTOPILOT-PHASE1: bracket eligibility check at the
-    # API layer — reject autopilot for fractional / notional with a clean
-    # error before any broker call. Phase 3 will add the
-    # attach-after-fill path for non-bracket-eligible orders via a
-    # separate engine/trade_desk_autopilot.py module.
+    # HM-TRADE-DESK-AUTOPILOT-PHASE1 + PHASE2 2026-05-23:
+    # PHASE1 (bracket) handles whole-share market/limit BUYs natively.
+    # PHASE2 (attach-after-fill) covers fractional + notional via the
+    # engine/trade_desk_autopilot module. Two structural rejects remain:
+    #   * STOP / STOP_LIMIT entry types — the entry itself IS protective
+    #   * Extended hours — Alpaca rule (XH is DAY-limit only, no children)
     _autopilot_requested = (
         agent_id == "trade-desk"
         and (_sl_enabled or _tp_enabled)
         and (_attach_sl_pct > 0 or _attach_tp_pct > 0)
     )
     if _autopilot_requested:
-        if notional and notional > 0:
-            return {"error": (
-                "AUTOPILOT_NOT_AVAILABLE: bracket orders require whole-share "
-                "qty (notional/dollar sizing not yet supported — coming in "
-                "Phase 2 fractional path). Disable autopilot or switch to "
-                "whole-share quantity."
-            )}
-        if float(qty) != float(int(qty)):
-            return {"error": (
-                f"AUTOPILOT_NOT_AVAILABLE: bracket orders require whole-share "
-                f"qty (got {qty} fractional). Disable autopilot or round qty "
-                f"to a whole number."
-            )}
         if order_type not in ("market", "limit"):
             return {"error": (
-                f"AUTOPILOT_NOT_AVAILABLE: bracket orders support market or "
+                f"AUTOPILOT_NOT_AVAILABLE: autopilot supports market or "
                 f"limit only (got {order_type!r}). Disable autopilot for "
                 f"stop/stop_limit entries."
             )}
         if use_ext:
             return {"error": (
-                "AUTOPILOT_NOT_AVAILABLE: bracket orders cannot be submitted "
-                "during extended hours (Alpaca rule — XH is DAY-limit only). "
+                "AUTOPILOT_NOT_AVAILABLE: autopilot cannot run during "
+                "extended hours (Alpaca rule — XH is DAY-limit only). "
                 "Disable autopilot or submit during regular hours."
             )}
-    # Pass bracket pcts to alpaca.buy() only when BOTH legs enabled +
-    # both pcts > 0. Single-leg-only is treated as autopilot-off for
-    # this phase; Phase 3 will support single-leg OTO orders.
-    _bracket_sl = _attach_sl_pct if (_sl_enabled and _tp_enabled and _attach_sl_pct > 0 and _attach_tp_pct > 0) else None
-    _bracket_tp = _attach_tp_pct if (_sl_enabled and _tp_enabled and _attach_sl_pct > 0 and _attach_tp_pct > 0) else None
+    # PHASE2 route detection: anything that disqualified for bracket but
+    # the Captain still asked for autopilot → attach-after-fill path.
+    _wants_attach_after_fill = (
+        _autopilot_requested
+        and ((notional and notional > 0)
+             or (qty > 0 and float(qty) != float(int(qty))))
+    )
+    # Pass bracket pcts to alpaca.buy() only when both legs enabled +
+    # whole-share + not fractional + not notional. Phase 2 attach-after-fill
+    # picks up the rest below.
+    _bracket_eligible_here = (
+        _sl_enabled and _tp_enabled
+        and _attach_sl_pct > 0 and _attach_tp_pct > 0
+        and not _wants_attach_after_fill
+        and qty > 0 and float(qty) == float(int(qty))
+        and not (notional and notional > 0)
+    )
+    _bracket_sl = _attach_sl_pct if _bracket_eligible_here else None
+    _bracket_tp = _attach_tp_pct if _bracket_eligible_here else None
     result = alpaca.buy(
         symbol.upper(), qty, agent_id=agent_id, extended_hours=use_ext,
         limit_price=limit_price, order_type=order_type, stop_price=stop_price,
@@ -10247,28 +10249,78 @@ def alpaca_buy(data: dict):
             'stop_price': result.get('stop_price'),
             'target_price': result.get('target_price'),
             'bracket': bool(result.get('bracket')),
+            'attach_after_fill': False,
             'errors': [],
         }
-        # Legacy fallback path: only the case where caller enabled exactly
-        # one leg (SL XOR TP). Bracket needs both; one-leg-only falls back
-        # to the post-fill _attach_trade_desk_autopilot helper (two-GTC
-        # pattern from May 22).
+        # PHASE2 (HM-NEXT-WAVE Phase 3) attach-after-fill route — fires for
+        # fractional + notional + single-leg cases. Filled_qty (not
+        # requested_qty) drives child sizing per Captain spec partial-fill
+        # safety guard.
+        _fill_price = result.get("filled_avg_price")
+        _fill_qty = result.get("filled_qty")
+        if _wants_attach_after_fill and not result.get('bracket'):
+            if _fill_price is None or float(_fill_price or 0) <= 0:
+                autopilot_out['errors'].append(
+                    "attach-after-fill needs filled_avg_price; parent "
+                    "not yet filled — daemon will not retroactively "
+                    "attach. Try again with whole-share for atomic bracket."
+                )
+            elif _fill_qty is None or float(_fill_qty or 0) <= 0:
+                autopilot_out['errors'].append(
+                    f"attach-after-fill needs filled_qty>0 (got {_fill_qty})"
+                )
+            else:
+                try:
+                    from engine.trade_desk_autopilot import (
+                        attach_children_after_fill,
+                    )
+                    _attach_out = attach_children_after_fill(
+                        parent_order_id=result.get("order_id", ""),
+                        side="BUY", symbol=symbol,
+                        filled_qty=float(_fill_qty),
+                        fill_price=float(_fill_price),
+                        sl_pct=(_attach_sl_pct if _sl_enabled else 0),
+                        tp_pct=(_attach_tp_pct if _tp_enabled else 0),
+                        agent_id=agent_id,
+                    )
+                    autopilot_out['stop_order_id'] = _attach_out.get(
+                        'stop_order_id'
+                    )
+                    autopilot_out['target_order_id'] = _attach_out.get(
+                        'target_order_id'
+                    )
+                    autopilot_out['stop_price'] = _attach_out.get('stop_price')
+                    autopilot_out['target_price'] = _attach_out.get(
+                        'target_price'
+                    )
+                    autopilot_out['attach_after_fill'] = True
+                    if _attach_out.get('errors'):
+                        autopilot_out['errors'].extend(_attach_out['errors'])
+                except Exception as _aae:
+                    autopilot_out['errors'].append(
+                        f"attach_children_after_fill crash: "
+                        f"{type(_aae).__name__}: {_aae!r}"
+                    )
+        # Single-leg-only fallback (SL XOR TP, whole-share): legacy two-GTC
+        # post-fill via _attach_trade_desk_autopilot. Kept for backward
+        # compat — bracket needs both legs.
         _one_leg_only = (
-            order_type == "market"
+            order_type in ("market", "limit")
             and not result.get('bracket')
+            and not autopilot_out['attach_after_fill']
             and ((_sl_enabled and _attach_sl_pct > 0) != (_tp_enabled and _attach_tp_pct > 0))
         )
         if _one_leg_only:
             autopilot_out = _attach_trade_desk_autopilot(
                 entry_side="BUY", symbol=symbol,
-                qty=result.get("filled_qty") or qty,
-                fill_price=result.get("filled_avg_price"),
+                qty=_fill_qty or qty,
+                fill_price=_fill_price,
                 sl_pct=(_attach_sl_pct if _sl_enabled else 0),
                 tp_pct=(_attach_tp_pct if _tp_enabled else 0),
             )
         _mirror_trade_desk_fill(
-            side="BUY", symbol=symbol, qty=result.get("filled_qty") or qty,
-            price=result.get("filled_avg_price"),
+            side="BUY", symbol=symbol, qty=_fill_qty or qty,
+            price=_fill_price,
             order_id=result.get("order_id", ""), status=result.get("status", ""),
             stop_loss_order_id=autopilot_out.get('stop_order_id'),
             take_profit_order_id=autopilot_out.get('target_order_id'),
@@ -10377,8 +10429,43 @@ def alpaca_close_all():
 
 # HM-TRADE-DESK 2026-05-22: cancel open order by id (used by trade desk
 # Quick Cancel button on pending limit/stop rows).
+# HM-TRADE-DESK-AUTOPILOT-PHASE2 2026-05-23: route through cancel_with_children
+# so a Captain-issued cancel on a parent BUY with attach-after-fill children
+# cancels the children FIRST per Captain spec, then the parent, and resolves
+# the autopilot_oco_watch row. Falls back to direct alpaca.cancel for any
+# order not in the oco_watch table (Phase 1 bracket children, legacy
+# protective orders).
 @app.post("/api/alpaca/cancel/{order_id}")
 def alpaca_cancel(order_id: str):
+    try:
+        c = _conn()
+        try:
+            is_oco_parent = c.execute(
+                "SELECT 1 FROM autopilot_oco_watch "
+                " WHERE parent_order_id=? AND status='active' LIMIT 1",
+                (order_id,),
+            ).fetchone()
+        finally:
+            c.close()
+    except Exception:
+        is_oco_parent = None
+    if is_oco_parent:
+        try:
+            from engine.trade_desk_autopilot import cancel_with_children
+            result = cancel_with_children(order_id)
+            return {
+                "success": True,
+                "cascade": True,
+                "parent": result.get("parent"),
+                "sl": result.get("sl"),
+                "tp": result.get("tp"),
+                "errors": result.get("errors", []),
+            }
+        except Exception as e:
+            return {
+                "success": False, "cascade_attempted": True,
+                "error": f"{type(e).__name__}: {e!r}",
+            }
     return alpaca.cancel(order_id)
 
 

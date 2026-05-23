@@ -2945,6 +2945,22 @@ if __name__ == "__main__":
         console.log(f"[red][HM-EQ] daemon startup failed: {type(_hmeq_e).__name__}: {_hmeq_e!r}[/red]")
     # === /HM-EQ ===
 
+    # === HM-TRADE-DESK-AUTOPILOT-PHASE2 (HM-NEXT-WAVE Phase 3) 2026-05-23 ===
+    # OCO reconciliation daemon for attach-after-fill children
+    # (fractional/notional Trade Desk autopilot path). Module-level spawn
+    # at boot per HM-EQ daemon lifecycle rule — NEVER lazy. 30s poll loop
+    # monitors autopilot_oco_watch active rows, cancels sibling on
+    # terminal-fill. NTFY ollietrades-admin on OCO trigger + daemon crash.
+    try:
+        from engine.trade_desk_autopilot import start_trade_desk_autopilot_daemon
+        start_trade_desk_autopilot_daemon()
+    except Exception as _tda_e:
+        console.log(
+            f"[red][TDA-PHASE2-DAEMON] startup failed: "
+            f"{type(_tda_e).__name__}: {_tda_e!r}"
+        )
+    # === /HM-TRADE-DESK-AUTOPILOT-PHASE2 ===
+
     # === HM-WAR-ROOM-INIT-FIX 2026-05-15 ===
     # Eagerly initialize Arena at startup so arena-coupled scheduled jobs
     # (run_war_room, run_journal, etc.) can fire on the first scheduler tick.

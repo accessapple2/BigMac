@@ -6715,8 +6715,12 @@ function tdOnOrderTypeChange() {
   tdRecomputeProtectivePreview();
 }
 
-// HM-TRADE-DESK-AUTOPILOT-PHASE1: central enable/disable logic for the
-// autopilot block. Reflects all four disable rules at once.
+// HM-TRADE-DESK-AUTOPILOT-PHASE1+PHASE2 2026-05-23: central enable/disable
+// logic for the autopilot block. Two hard disables remain after Phase 3:
+// SELL entries (autopilot is for opening longs) and STOP/STOP_LIMIT order
+// types (the entry itself is protective). Fractional + notional now route
+// through the attach-after-fill OCO daemon — the block stays enabled but
+// the note tells the user which mode will fire.
 function tdRecomputeAutopilotEnabled() {
   var ot = (document.getElementById('td-order-type').value || 'market');
   var side = document.getElementById('td-side').value;
@@ -6729,21 +6733,24 @@ function tdRecomputeAutopilotEnabled() {
   var slInput = document.getElementById('td-sl-pct');
   var tpInput = document.getElementById('td-tp-pct');
   var reset = document.getElementById('td-autopilot-reset');
-  // Reason resolution — most-specific first.
+  // Hard-disable reasons (unchanged) — most-specific first.
   var disabledReason = null;
   if (side !== 'buy') disabledReason = 'BUY entries only (SELL closes existing)';
   else if (ot === 'stop' || ot === 'stop_limit') disabledReason = 'STOP/STOP_LIMIT entries are protective themselves';
-  else if (notional > 0) disabledReason = 'whole-share only — Phase 3 will support dollar/notional';
-  else if (qty > 0 && qty !== Math.floor(qty)) disabledReason = 'whole-share only — fractional qty (Phase 3)';
   var enabled = !disabledReason;
   if (apBlock) apBlock.style.opacity = enabled ? '1' : '0.45';
   [slEn, tpEn, slInput, tpInput, reset].forEach(function(el) {
     if (el) el.disabled = !enabled;
   });
+  // Mode label — what path will fire if user submits now?
   if (apNote) {
-    apNote.textContent = enabled
-      ? '(bracket — whole-share, market/limit BUY)'
-      : '(disabled — ' + disabledReason + ')';
+    if (!enabled) {
+      apNote.textContent = '(disabled — ' + disabledReason + ')';
+    } else if (notional > 0 || (qty > 0 && qty !== Math.floor(qty))) {
+      apNote.textContent = '(attach-after-fill — OCO daemon)';
+    } else {
+      apNote.textContent = '(bracket — whole-share, market/limit BUY)';
+    }
   }
 }
 
@@ -6801,10 +6808,6 @@ function tdRecomputeProtectivePreview() {
   }
   var notional = parseFloat(document.getElementById('td-notional').value || '0');
   var qty = parseFloat(document.getElementById('td-qty').value || '0');
-  if (notional > 0 || (qty > 0 && qty !== Math.floor(qty))) {
-    box.innerHTML = '<span style="color:var(--muted);">Autopilot requires whole-share qty (Phase 3 adds fractional/notional).</span>';
-    return;
-  }
   var slEn = (document.getElementById('td-sl-enabled') || {}).checked;
   var tpEn = (document.getElementById('td-tp-enabled') || {}).checked;
   var sl = parseFloat(document.getElementById('td-sl-pct').value || '0');
@@ -6819,21 +6822,30 @@ function tdRecomputeProtectivePreview() {
     return;
   }
   if (!slEn && !tpEn) {
-    box.innerHTML = '<span style="color:#f59e0b;">⚠ Both legs unchecked — autopilot off, no bracket attached.</span>';
+    box.innerHTML = '<span style="color:#f59e0b;">⚠ Both legs unchecked — autopilot off.</span>';
     return;
   }
+  // HM-TRADE-DESK-AUTOPILOT-PHASE2 2026-05-23: three modes —
+  //   * BRACKET (Phase 1) — whole-share, both legs, market/limit
+  //   * ATTACH-AFTER-FILL (Phase 2) — fractional/notional via OCO daemon
+  //   * SINGLE-LEG (legacy) — only one leg checked; post-fill GTC attach
+  var isFractional = (qty > 0 && qty !== Math.floor(qty));
+  var isNotional = (notional > 0);
+  var isPhase2 = isFractional || isNotional;
   if (slEn !== tpEn) {
-    // Single leg → falls back to legacy post-fill GTC attach via _attach_trade_desk_autopilot
     var leg = slEn ? '🛡 stop only' : '🎯 target only';
-    box.innerHTML = '<span style="color:#06b6d4;">' + leg + ' — single-leg fallback (post-fill GTC, not bracket).</span>';
+    box.innerHTML = '<span style="color:#06b6d4;">' + leg + ' — single-leg post-fill GTC.</span>';
     return;
   }
-  // Both legs checked → BracketOrderRequest path
   var stopP = ref * (1 - sl / 100);
   var targetP = ref * (1 + tp / 100);
+  var modeLabel = isPhase2
+    ? '<span style="color:#06b6d4;font-weight:600;">🔄 ATTACH-AFTER-FILL</span>'
+    : '<span style="color:#10b981;font-weight:600;">⛓ BRACKET</span>';
+  var basisLabel = isPhase2 ? 'fill price' : 'basis';
   box.innerHTML =
-    '<span style="color:#10b981;font-weight:600;">⛓ BRACKET</span> · ' +
-    '<span style="color:#94a3b8;">basis $' + ref.toFixed(2) + ' · </span>' +
+    modeLabel + ' · ' +
+    '<span style="color:#94a3b8;">' + basisLabel + ' ≈$' + ref.toFixed(2) + ' · </span>' +
     '<span style="color:#ef4444;">🛡 stop @ $' + stopP.toFixed(2) + ' (−' + sl.toFixed(1) + '%)</span>' +
     '<span style="color:#94a3b8;"> · </span>' +
     '<span style="color:#10b981;">🎯 target @ $' + targetP.toFixed(2) + ' (+' + tp.toFixed(1) + '%)</span>';
@@ -6936,20 +6948,22 @@ function tdSubmitOrder() {
   //   attach_sl_pct / attach_tp_pct — per-leg percentage
   // Legacy keys (stop_loss_pct / take_profit_pct) also included for
   // backwards compat — backend prefers attach_* when present.
+  // HM-TRADE-DESK-AUTOPILOT-PHASE2 2026-05-23: autopilot is now eligible
+  // for BOTH bracket (whole-share market/limit) AND attach-after-fill
+  // (fractional/notional). Backend routes automatically. UI just signals
+  // intent — checkbox state + percentages.
   var slEn = (document.getElementById('td-sl-enabled') || {}).checked;
   var tpEn = (document.getElementById('td-tp-enabled') || {}).checked;
-  var bracketEligible = (side === 'buy'
-    && (ot === 'market' || ot === 'limit')
-    && notional <= 0
-    && qty > 0 && qty === Math.floor(qty));
-  var slPct = bracketEligible && slEn ? parseFloat(document.getElementById('td-sl-pct').value || '0') : 0;
-  var tpPct = bracketEligible && tpEn ? parseFloat(document.getElementById('td-tp-pct').value || '0') : 0;
+  var apEligible = (side === 'buy'
+    && (ot === 'market' || ot === 'limit'));
+  var slPct = apEligible && slEn ? parseFloat(document.getElementById('td-sl-pct').value || '0') : 0;
+  var tpPct = apEligible && tpEn ? parseFloat(document.getElementById('td-tp-pct').value || '0') : 0;
   var body = {
     symbol: sym, agent_id: 'trade-desk', order_type: ot,
     qty: qty || 0, notional: notional || 0,
     limit_price: lp || 0, stop_price: sp || 0,
-    // Phase 1 new keys
-    attach_sl_enabled: bracketEligible && slEn, attach_tp_enabled: bracketEligible && tpEn,
+    // Phase 1+2 keys
+    attach_sl_enabled: apEligible && slEn, attach_tp_enabled: apEligible && tpEn,
     attach_sl_pct: slPct, attach_tp_pct: tpPct,
     // Legacy keys for backwards compat
     stop_loss_pct: slPct, take_profit_pct: tpPct,
@@ -6982,9 +6996,10 @@ function tdSubmitOrder() {
             apBits.push('🎯 $' + parseFloat(ap.target_price || 0).toFixed(2));
           }
           if (apBits.length) {
-            var prefix = ap.bracket
-              ? '<span style="color:#10b981;font-weight:600;">⛓ BRACKET</span>'
-              : '<span style="color:#06b6d4;">autopilot</span>';
+            var prefix;
+            if (ap.bracket) prefix = '<span style="color:#10b981;font-weight:600;">⛓ BRACKET</span>';
+            else if (ap.attach_after_fill) prefix = '<span style="color:#06b6d4;font-weight:600;">🔄 ATTACHED</span>';
+            else prefix = '<span style="color:#06b6d4;">autopilot</span>';
             apStr = ' · ' + prefix + ' <span style="color:#94a3b8;">' + apBits.join(' / ') + '</span>';
           }
           if (ap.errors && ap.errors.length) {
