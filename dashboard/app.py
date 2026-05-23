@@ -1586,10 +1586,28 @@ def api_movers():
     response shape: {items, meta, fetched_at}. Rows where ticker_metadata is
     not yet enriched return market_cap=None / optionable=None / ticker_type=None;
     the dashboard renders these as 'metadata pending'.
+
+    HM-MOVERS-STALE-FIX 2026-05-22: filters out (a) rows where
+    refreshed_at is older than 24h (stale snapshot leakage), and
+    (b) rows where |pct_change| > 50% (split-artifact outliers like
+    BNY's +1261% pre-split row from 2026-05-21). Excluded count
+    is logged as `[MOVERS-STALE-FILTER] count=N` when > 0.
     """
     from datetime import datetime, timezone
     try:
         c = _conn()
+        # Cheap diagnostic count — how many rows did our WHERE clause exclude?
+        excluded_row = c.execute(
+            """
+            SELECT COUNT(*) AS n
+              FROM mover_watchlist
+             WHERE refreshed_at < datetime('now','-24 hours')
+                OR ABS(COALESCE(pct_change, 0)) > 50
+            """
+        ).fetchone()
+        excluded_n = int(excluded_row["n"]) if excluded_row else 0
+        if excluded_n > 0:
+            console.log(f"[MOVERS-STALE-FILTER] count={excluded_n}")
         rows = c.execute(
             """
             SELECT mw.symbol,
@@ -1603,6 +1621,8 @@ def api_movers():
                    mw.refreshed_at
               FROM mover_watchlist mw
               LEFT JOIN ticker_metadata tm ON tm.symbol = mw.symbol
+             WHERE mw.refreshed_at >= datetime('now','-24 hours')
+               AND ABS(COALESCE(mw.pct_change, 0)) <= 50
              ORDER BY ABS(COALESCE(mw.pct_change, 0)) DESC
              LIMIT 50
             """
@@ -1616,6 +1636,7 @@ def api_movers():
                 "total": len(movers),
                 "with_metadata": with_meta,
                 "metadata_pending": len(movers) - with_meta,
+                "excluded_stale_or_outlier": excluded_n,
             },
             "fetched_at": datetime.now(timezone.utc).isoformat(),
         }
