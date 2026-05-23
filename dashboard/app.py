@@ -10960,6 +10960,52 @@ def ratings_fleet():
         return {"error": str(e)}
 
 
+@app.get("/api/fleet-report-card")
+def fleet_report_card_alias():
+    """HM-FLEET-RC-ALIAS 2026-05-22 — Admiral-flagged 404 fix.
+
+    The HTML element id is "fleet-report-card" (dashboard/static/index.html:5030);
+    the production UI calls /api/ratings to populate it. External audit
+    probes (Chrome 4.7) hit /api/fleet-report-card directly using the id
+    as a URL guess and got 404. This alias returns the same payload as
+    /api/ratings + a 7-day trade activity layer so external consumers
+    see honest live data instead of 404.
+    """
+    out: dict = {"agents": [], "7d_summary": None}
+    try:
+        from engine.agent_ratings import fleet_report_card, get_rating_trend
+        report = fleet_report_card()
+        for r in report:
+            try:
+                r["trend"] = get_rating_trend(r["player_id"])
+            except Exception:
+                r["trend"] = None
+        out["agents"] = report
+    except Exception as e:
+        out["error"] = f"ratings: {type(e).__name__}: {e!r}"
+    # 7d trade-activity layer alongside the alltime ratings.
+    try:
+        c = _conn()
+        c.row_factory = sqlite3.Row
+        try:
+            rows = c.execute(
+                "SELECT COUNT(*) AS trades_7d, "
+                "       COUNT(DISTINCT player_id) AS active_players_7d, "
+                "       ROUND(SUM(COALESCE(realized_pnl, 0)), 2) AS pnl_7d, "
+                "       SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) AS wins_7d, "
+                "       SUM(CASE WHEN realized_pnl < 0 THEN 1 ELSE 0 END) AS losses_7d "
+                "  FROM trades "
+                " WHERE executed_at > datetime('now','-7 days')"
+            ).fetchone()
+            if rows:
+                out["7d_summary"] = dict(rows)
+        finally:
+            c.close()
+    except Exception as e:
+        out["7d_error"] = f"{type(e).__name__}: {e!r}"
+    return out
+
+
 # NOTE: /api/ratings/advice and /api/ratings/cold must be defined BEFORE
 # /api/ratings/{player_id} so FastAPI doesn't swallow them as path params.
 
