@@ -1320,6 +1320,49 @@ def morpheus_persona_context():
     })
 
 
+@app.route('/api/morpheus/operator-info')
+def morpheus_operator_info():
+    """HM-AN-MORPHEUS-REFRAME (HM-NEXT-WAVE Phase 7) 2026-05-23 — role
+    clarification endpoint. Distinguishes Morpheus (the operator of
+    port 9000 / the Matrix dashboard) from neo-matrix (a separate
+    fleet agent in the autonomous-trader DB, halt_mode='active',
+    provider='matrix').
+
+    Returns a tight role map the UI hero banner consumes so users know
+    which entity is which. Static payload — no DB call.
+    """
+    return jsonify({
+        "morpheus": {
+            "role": "Operator of port 9000 (the Matrix)",
+            "scope": "Signal-center awareness, daily_snapshot, "
+                     "execution_log, action endpoints",
+            "type": "service / dashboard persona",
+            "code_location": "signal-center/server.py + index.html tab-matrix",
+            "lifecycle": "Long-running Flask process, daemon-spawned "
+                         "by launchctl com.trademinds.signal-center",
+        },
+        "neo_matrix": {
+            "role": "Fleet trading agent",
+            "scope": "Paper trades against Alpaca via paper_trader.py",
+            "type": "ai_players row (id='neo-matrix', "
+                    "provider='matrix', halt_mode='active')",
+            "code_location": "engine/paper_trader.py routes; "
+                             "scanned by run_war_room + ai_brain",
+            "lifecycle": "Per-cycle stateless; signals through gateway",
+        },
+        "doctrine": (
+            "Morpheus is the OPERATOR (sees the Matrix). neo-matrix "
+            "is a CITIZEN of the Matrix (trades within it). They share "
+            "the 'matrix' word but operate on different layers."
+        ),
+        "tab_default": "tab-matrix",
+        "sections": [
+            "Red Alert", "The Matrix", "Intelligence",
+            "Oracle", "Fleet Status", "Ship's Log",
+        ],
+    })
+
+
 @app.route('/api/morpheus/awareness')
 def morpheus_awareness():
     """HM-MORPHEUS Phase 1 — consolidated awareness for the Matrix tab.
@@ -3695,8 +3738,63 @@ def spread_builder(symbol):
         return jsonify({'error': str(e), 'symbol': symbol}), 500
 
 
+def _morpheus_boot_snapshot_trigger() -> None:
+    """HM-AN-MORPHEUS-REFRAME (HM-NEXT-WAVE Phase 7) 2026-05-23 —
+    on-boot daily_snapshot trigger. The snapshot writer
+    (_morpheus_daily_snapshot_capture) is idempotent first-call-of-day,
+    but the original wiring only fired when something called
+    /api/morpheus/awareness. If no client hit that endpoint on a given
+    day, the snapshot for that day went missing (verified: 2026-05-20
+    through 2026-05-22 have no rows).
+
+    This boot-time hook builds the awareness payload on startup
+    (in-process, blocking) and feeds it to the snapshot writer so
+    every server lifetime captures at least today's row. Subsequent
+    awareness-endpoint hits remain idempotent (same-day no-op).
+
+    Fail-safe — any error logs + continues. Daemon-thread bound on
+    a brief 5s delay so Flask is fully up before we trigger.
+    """
+    import threading
+    def _worker():
+        try:
+            import time as _t
+            _t.sleep(5)
+            # Build awareness payload by calling the same internal
+            # accumulation logic as morpheus_awareness(). We invoke the
+            # endpoint directly via the test client to keep the path DRY.
+            with app.test_client() as _tc:
+                _resp = _tc.get('/api/morpheus/awareness')
+                if _resp.status_code == 200:
+                    try:
+                        _data = _resp.get_json() or {}
+                        _morpheus_log.info(
+                            "[Morpheus] boot snapshot trigger: "
+                            "inserted=%s",
+                            _data.get("daily_snapshot_inserted_this_call"),
+                        )
+                    except Exception:
+                        pass
+        except Exception as _e:
+            try:
+                _morpheus_log.warning(
+                    "[Morpheus] boot snapshot trigger failed: %s: %r",
+                    type(_e).__name__, _e,
+                )
+            except Exception:
+                pass
+    threading.Thread(
+        target=_worker, daemon=True,
+        name="morpheus_boot_snapshot",
+    ).start()
+
+
 if __name__ == '__main__':
     print(f"Signal Command Center → http://127.0.0.1:9000")
     print(f"Database : {DB_PATH}")
     print(f"Exports  : {EXPORTS_DIR}")
+    # HM-AN-MORPHEUS-REFRAME 2026-05-23: kick off the daily_snapshot
+    # boot trigger so today's row is captured even when no client hits
+    # /api/morpheus/awareness before midnight UTC.
+    _morpheus_boot_snapshot_trigger()
     app.run(host='127.0.0.1', port=9000, debug=False, threaded=True)
