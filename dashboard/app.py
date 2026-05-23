@@ -16314,9 +16314,40 @@ async def agents_create(req: Request):
 
 @app.get("/api/agents/list")
 def agents_list():
-    """Return all active (non-deleted) user agents."""
+    """Return user-built agents + the live AI fleet roster.
+
+    HM-AGENTS-LIST-FLEET-WIRE 2026-05-22 (POC sprint Day 1.1d): the original
+    list_agents() endpoint only returned user-built agents (typically empty
+    on this deployment). Captain spec for the cockpit/observability work
+    asks for the actual fleet roster from ai_players so the dashboard can
+    show who's halted, who's active, and on which model. We add `fleet`
+    alongside `agents` rather than repurpose, so existing /api/agents/{id}/*
+    routes that operate on user-built agents stay intact.
+    """
     from engine.agent_builder import list_agents
-    return {"agents": list_agents()}
+    fleet: list = []
+    try:
+        c = _conn()
+        rows = c.execute(
+            "SELECT id AS player_id, display_name, provider, model_id, "
+            "       fallback_model, halt_mode, halt_reason, halted_at, "
+            "       role, crew_role "
+            "  FROM ai_players "
+            " ORDER BY CASE halt_mode "
+            "            WHEN 'active' THEN 0 "
+            "            WHEN 'exit_only' THEN 1 "
+            "            ELSE 2 END, "
+            "          id"
+        ).fetchall()
+        c.close()
+        fleet = [dict(r) for r in rows]
+    except Exception as exc:
+        fleet = [{"error": f"{type(exc).__name__}: {exc!r}"}]
+    return {
+        "agents": list_agents(),
+        "fleet": fleet,
+        "fleet_count": len([f for f in fleet if not f.get("error")]),
+    }
 
 
 @app.post("/api/agents/{agent_id}/pause")
