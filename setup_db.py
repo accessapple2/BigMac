@@ -721,6 +721,82 @@ def setup():
         "ON agent_memory(player_id, memory_layer, created_at)"
     )
 
+    # === HM-EVENTS-BUS-FOUNDATION 2026-05-22 ============================
+    # Canonical events bus + signals_v2 + engine_allocation + timeframe tags.
+    # Spec: ~/.claude/projects/-Users-bigmac/memory/project_hm_events_bus_foundation.md
+    #
+    # events: single bus every data source writes to.
+    c.execute("""CREATE TABLE IF NOT EXISTS events (
+        id           INTEGER PRIMARY KEY,
+        ts           TEXT    NOT NULL DEFAULT (datetime('now')),
+        source       TEXT    NOT NULL,
+        event_type   TEXT    NOT NULL,
+        symbol       TEXT,
+        payload      TEXT,
+        processed    INTEGER DEFAULT 0,
+        session_date TEXT
+    )""")
+
+    # signals_v2: normalized signal layer reading from events.
+    c.execute("""CREATE TABLE IF NOT EXISTS signals_v2 (
+        id               INTEGER PRIMARY KEY,
+        ts               TEXT    NOT NULL DEFAULT (datetime('now')),
+        source           TEXT    NOT NULL,
+        signal_type      TEXT    NOT NULL,
+        symbol           TEXT    NOT NULL,
+        direction        TEXT,
+        confidence       REAL,
+        regime_fit       REAL,
+        timeframe        TEXT,
+        strategy_tag     TEXT,
+        event_id         INTEGER,
+        agent_debate_id  INTEGER,
+        prompt_version   TEXT,
+        metadata         TEXT,
+        status           TEXT    DEFAULT 'pending',
+        stale_after      TEXT,
+        trade_id         INTEGER,
+        created_at       TEXT    DEFAULT (datetime('now'))
+    )""")
+
+    # engine_allocation: capital + position caps per 0dte / swing / position engine.
+    c.execute("""CREATE TABLE IF NOT EXISTS engine_allocation (
+        engine             TEXT PRIMARY KEY,
+        capital_pct        REAL,
+        max_positions      INTEGER,
+        max_per_trade_pct  REAL,
+        updated_at         TEXT
+    )""")
+    # Seed defaults — only if rows missing (idempotent on re-runs).
+    c.execute(
+        "INSERT OR IGNORE INTO engine_allocation "
+        "(engine, capital_pct, max_positions, max_per_trade_pct, updated_at) "
+        "VALUES "
+        "('0dte',     0.05,  3, 0.02, datetime('now')),"
+        "('swing',    0.60, 15, 0.04, datetime('now')),"
+        "('position', 0.35, 12, 0.06, datetime('now'))"
+    )
+
+    # ALTER TABLE ai_players ADD COLUMN timeframe — guarded for re-run.
+    _existing_cols = {row[1] for row in c.execute("PRAGMA table_info(ai_players)")}
+    if "timeframe" not in _existing_cols:
+        c.execute("ALTER TABLE ai_players ADD COLUMN timeframe TEXT DEFAULT 'swing'")
+
+    # Tag known agents into their actual engine. Defaults to 'swing' for new rows.
+    # 0dte agents — sub-minute / minute scalpers.
+    c.execute(
+        "UPDATE ai_players SET timeframe='0dte' "
+        " WHERE id IN ('dayblade-sulu','dayblade-0dte') "
+        "   AND (timeframe IS NULL OR timeframe='swing')"
+    )
+    # Position-trade agents — Elder Council + physical metals tracker.
+    c.execute(
+        "UPDATE ai_players SET timeframe='position' "
+        " WHERE id IN ('sarek','janeway','surak','dalio-metals','enterprise-computer') "
+        "   AND (timeframe IS NULL OR timeframe='swing')"
+    )
+    # === /HM-EVENTS-BUS-FOUNDATION =====================================
+
     # Performance indexes — safe to re-run (IF NOT EXISTS)
     for _idx in [
         # Equity curve + comparison chart: scan by season, ordered by time
@@ -733,6 +809,17 @@ def setup():
         "CREATE INDEX IF NOT EXISTS idx_signals_status ON signals(execution_status)",
         # Trades history per player
         "CREATE INDEX IF NOT EXISTS idx_trades_player_ts ON trades(player_id, executed_at)",
+        # HM-EVENTS-BUS-FOUNDATION indexes
+        "CREATE INDEX IF NOT EXISTS idx_events_ts ON events(ts)",
+        "CREATE INDEX IF NOT EXISTS idx_events_symbol ON events(symbol)",
+        "CREATE INDEX IF NOT EXISTS idx_events_type ON events(event_type)",
+        "CREATE INDEX IF NOT EXISTS idx_events_processed ON events(processed)",
+        "CREATE INDEX IF NOT EXISTS idx_signals_v2_ts ON signals_v2(ts)",
+        "CREATE INDEX IF NOT EXISTS idx_signals_v2_symbol ON signals_v2(symbol)",
+        "CREATE INDEX IF NOT EXISTS idx_signals_v2_status ON signals_v2(status)",
+        "CREATE INDEX IF NOT EXISTS idx_signals_v2_timeframe ON signals_v2(timeframe)",
+        "CREATE INDEX IF NOT EXISTS idx_signals_v2_event ON signals_v2(event_id)",
+        "CREATE INDEX IF NOT EXISTS idx_signals_v2_stale ON signals_v2(stale_after)",
     ]:
         c.execute(_idx)
 
