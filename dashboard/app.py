@@ -7848,8 +7848,8 @@ def fundamentals_scores():
 #
 # Sources (current snapshot):
 #   - Schwab          → data/real_holdings.json (existing manual pipeline)
-#   - Webull          → static $6,600 monitor-only estimate (XLE/AMD/INTC/MSFT/MU/TQQQ/NET/NUKZ)
-#                       account being wound down; no per-position pricing on file
+#   - Webull          → $0 (liquidated 2026-05-13, HM-WEBULL-LIQUIDATED).
+#                       Historical trades preserved in trades table only.
 #   - IBKR            → $0 (account open, untraded)
 #   - Physical metals → 1 oz gold @ $5,249.99 avg cost, 65 oz silver @ $77.67 avg cost
 #                       + live spot prices via engine.metals_tracker
@@ -7873,10 +7873,11 @@ def portfolio_real():
     result: dict = {
         "schwab": {},
         "webull": {
-            "total_est": 6600.0,
-            "holdings": ["XLE", "AMD", "INTC", "MSFT", "MU", "TQQQ", "NET", "NUKZ"],
-            "note": "Monitor-only; account being wound down (HM-WEBULL-LIQUIDATED 2026-05-13). "
-                    "Static $6,600 estimate — no per-position pricing on file.",
+            "total_est": 0.0,
+            "holdings": [],
+            "note": "Liquidated 2026-05-13 (HM-WEBULL-LIQUIDATED). "
+                    "Historical trades remain in trades table for audit; "
+                    "no live positions on file.",
         },
         "ibkr": {"total": 0.0, "note": "Account open, no positions."},
         "metals": {"gold": {}, "silver": {}},
