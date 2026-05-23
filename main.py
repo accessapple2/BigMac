@@ -3062,6 +3062,43 @@ if __name__ == "__main__":
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
 
+    # === HM-IC-SQUADRON Pillar 2 — 6-agent stack (SHADOW MODE) ===
+    # Nightly Scout → Structurer → Risk Officer → Trigger chain at 21:00 AZ.
+    # Manager walks shadow positions every 30 min during market hours.
+    # ZERO live execution until capital_ladder Stage-0 promotion criteria
+    # (50 closes ≥70% WR ≥30 days sustained). Crash-safe scheduler wrappers
+    # so any Squadron error never affects other scheduled jobs.
+    def _run_ic_squadron_cycle_safe():
+        try:
+            from engine.ic_squadron import run_ic_squadron_cycle
+            return run_ic_squadron_cycle(max_proposals=5)
+        except Exception as _e:
+            console.log(
+                f"[red][IC-SQUADRON] nightly cycle crash: "
+                f"{type(_e).__name__}: {_e!r}"
+            )
+            return None
+    schedule.every().day.at("21:00").do(_run_ic_squadron_cycle_safe)  # nightly Scout
+
+    def _run_ic_manager_safe():
+        from engine.risk_manager import RiskManager
+        try:
+            if not RiskManager.is_market_hours():
+                return None
+        except Exception:
+            pass
+        try:
+            from engine.ic_squadron import run_manager
+            return run_manager()
+        except Exception as _e:
+            console.log(
+                f"[red][IC-MANAGER] cycle crash: "
+                f"{type(_e).__name__}: {_e!r}"
+            )
+            return None
+    schedule.every(30).minutes.do(_run_ic_manager_safe)  # Manager every 30min mkt hours
+    # === /HM-IC-SQUADRON Pillar 2 ===
+
     # === HM-PRIME-DIRECTIVE-MONITOR v1 — 2026-05-22 ===
     # Polls USTR / Commerce / Federal Register RSS feeds for tariff +
     # trade-policy events every 30 min during market hours. On match,
