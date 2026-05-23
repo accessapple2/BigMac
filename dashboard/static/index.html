@@ -37541,32 +37541,48 @@ async function fetchMovers() {
 </script>
 <!-- ==================== /HM-DASH-MOVERS ==================== -->
 
-<!-- ==================== HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 ==================== -->
-<!-- Real-world net worth panel — Schwab + metals only (excludes Alpaca paper,
-     Webull winding down, IBKR unfunded). Consumes PR #44 /api/portfolio/real. -->
+<!-- ==================== W5-D Real Portfolio (extends HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20) ====================
+     Real-world net worth panel. EXCLUDES Alpaca paper per CLAUDE.md HM-AM
+     doctrine. Reads /api/portfolio/real which now includes the
+     read_total_portfolio() shape under .unified (W5-D backend ship 2026-05-23).
+     Renders 4 account cards + by_symbol positions table + asset notes.
+     Mobile-friendly via auto-fit minmax grid (180px floor). -->
 <div id="section-real-portfolio" style="display:none;">
   <div style="border-left:4px solid #38bdf8;background:rgba(56,189,248,0.04);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
-    <div style="font-size:11px;font-weight:700;color:#38bdf8;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">💰 Real Portfolio — Liquid Net Worth</div>
-    <div style="font-size:13px;color:#94a3b8;">Schwab + physical metals. Excludes Alpaca paper (research book), Webull (winding down), IBKR (unfunded). Per HM-AM doctrine.</div>
+    <div style="font-size:11px;font-weight:700;color:#38bdf8;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">💰 Real Portfolio — Unified Net Worth</div>
+    <div style="font-size:13px;color:#94a3b8;">Schwab + Webull + IBKR + physical metals. <b>Excludes Alpaca paper</b> (separate research book) per HM-AM doctrine.</div>
   </div>
 
-  <!-- Headline net worth -->
+  <!-- Headline net worth + metals % -->
   <div class="card" style="margin-bottom:16px;border-left:4px solid #38bdf8;">
     <div class="card-header">
-      <div class="card-title">💵 Net Liquid Worth</div>
+      <div class="card-title">💵 Total Real-Money Value</div>
       <button class="btn btn-ghost" onclick="fetchRealPortfolio()" style="font-size:13px;">Refresh</button>
     </div>
-    <div id="realPortfolioHeadline" style="padding:16px;font-size:28px;font-weight:700;text-align:center;color:#38bdf8;">
+    <div id="realPortfolioHeadline" style="padding:16px;font-size:32px;font-weight:700;text-align:center;color:#38bdf8;">
       Loading…
     </div>
+    <div id="realPortfolioMetalsPct" style="padding:0 16px 8px;font-size:13px;color:var(--muted);text-align:center;"></div>
     <div id="realPortfolioMeta" style="padding:0 16px 12px;font-size:11px;color:var(--muted);text-align:center;"></div>
   </div>
 
-  <!-- Schwab + metals breakdown -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
+  <!-- Per-account breakdown: 4-card auto-fit grid (mobile: stacks; desktop: 2x2 or 4-col) -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:12px;margin-bottom:16px;">
     <div class="card">
       <div class="card-header"><div class="card-title">🏦 Schwab</div></div>
       <div id="realPortfolioSchwab" style="padding:14px;font-size:13px;">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🛸 Webull</div></div>
+      <div id="realPortfolioWebull" style="padding:14px;font-size:13px;">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">📊 IBKR</div></div>
+      <div id="realPortfolioIBKR" style="padding:14px;font-size:13px;">
         <div style="color:var(--muted);">Loading…</div>
       </div>
     </div>
@@ -37575,6 +37591,28 @@ async function fetchMovers() {
       <div id="realPortfolioMetals" style="padding:14px;font-size:13px;">
         <div style="color:var(--muted);">Loading…</div>
       </div>
+    </div>
+  </div>
+
+  <!-- Positions table sorted by market value -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header">
+      <div class="card-title">📋 Positions by Symbol <span id="realPortfolioPositionsCount" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div>
+    </div>
+    <div style="padding:0 16px 12px;overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:420px;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);color:var(--muted);text-align:left;">
+            <th style="padding:6px 4px;">Symbol</th>
+            <th style="padding:6px 4px;text-align:right;">Qty</th>
+            <th style="padding:6px 4px;text-align:right;">Market Value</th>
+            <th style="padding:6px 4px;">Accounts</th>
+          </tr>
+        </thead>
+        <tbody id="realPortfolioPositionsTbody">
+          <tr><td colspan="4" style="padding:12px;color:var(--muted);text-align:center;">Loading…</td></tr>
+        </tbody>
+      </table>
     </div>
   </div>
 
@@ -37588,79 +37626,160 @@ async function fetchMovers() {
 </div>
 
 <script>
-// HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — fetch + render PR #44 endpoint.
+// W5-D Real Portfolio (extends HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20).
+// Single fetch to /api/portfolio/real now returns both the legacy fields
+// (schwab/webull/ibkr/metals/net_worth_liquid/notes) AND a nested .unified
+// object with the read_total_portfolio() shape (total_real_value,
+// by_account, by_symbol, metals_pct). Renderer uses .unified when present
+// and falls back to legacy fields otherwise.
+function _w5dFmtUSD(n, opts) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  var o = opts || {};
+  var min = o.min === undefined ? 2 : o.min;
+  var max = o.max === undefined ? 2 : o.max;
+  return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits: min, maximumFractionDigits: max});
+}
+
 async function fetchRealPortfolio() {
   var headline = document.getElementById('realPortfolioHeadline');
+  var metalsPct = document.getElementById('realPortfolioMetalsPct');
   var meta = document.getElementById('realPortfolioMeta');
   var schwab = document.getElementById('realPortfolioSchwab');
+  var webull = document.getElementById('realPortfolioWebull');
+  var ibkr = document.getElementById('realPortfolioIBKR');
   var metals = document.getElementById('realPortfolioMetals');
   var notes = document.getElementById('realPortfolioNotes');
+  var posBody = document.getElementById('realPortfolioPositionsTbody');
+  var posCount = document.getElementById('realPortfolioPositionsCount');
   try {
     var r = await fetch('/api/portfolio/real');
-    var d = await r.json();
-    if (!d || d.detail === 'Not Found' || d.error) {
+    if (r.status === 401) {
       headline.textContent = '—';
-      meta.textContent = (d && d.error) ? d.error : 'Endpoint unavailable — restart trader to activate PR #44.';
+      meta.innerHTML = '🔒 Sign in to load portfolio — <a href="/login" style="color:var(--accent);">go to login</a>';
       return;
     }
-    // Headline
-    var nwl = (typeof d.net_worth_liquid === 'number') ? d.net_worth_liquid : 0;
-    headline.textContent = '$' + nwl.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
-    var src = d._source || '/api/portfolio/real';
-    meta.textContent = src + ' • updated ' + new Date().toLocaleTimeString();
+    if (!r.ok) {
+      headline.textContent = '—';
+      meta.textContent = 'Backend error (HTTP ' + r.status + ')';
+      return;
+    }
+    var d = await r.json();
+    if (!d || d.error || d.detail === 'Not Found') {
+      headline.textContent = '—';
+      meta.textContent = (d && d.error) ? d.error : 'Endpoint unavailable.';
+      return;
+    }
 
-    // Schwab section
+    // Prefer .unified (read_total_portfolio shape); fall back to legacy.
+    var u = d.unified || {};
+    var totalReal = (typeof u.total_real_value === 'number')
+      ? u.total_real_value
+      : (typeof d.net_worth_liquid === 'number' ? d.net_worth_liquid : 0);
+    headline.textContent = _w5dFmtUSD(totalReal);
+
+    // Metals % of portfolio (only if unified shape available)
+    if (typeof u.metals_pct === 'number') {
+      metalsPct.textContent = '⚗️ Metals: ' + u.metals_pct.toFixed(1) + '% of portfolio';
+    } else {
+      metalsPct.textContent = '';
+    }
+
+    var src = (d._source || '/api/portfolio/real') + (u.ts ? (' • snapshot ' + u.ts) : '');
+    meta.textContent = src + ' • refreshed ' + new Date().toLocaleTimeString();
+
+    // ── Schwab card (legacy shape — already rich) ─────────────────────
     var sw = d.schwab || {};
     if (sw.error) {
       schwab.innerHTML = '<div style="color:#f87171;">Schwab error: ' + sw.error + '</div>';
     } else {
       var rows = '';
       rows += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">';
-      rows += '<span style="color:var(--muted);">Cash balance</span>';
-      rows += '<span style="font-weight:600;">$' + (sw.cash_balance || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>';
-      rows += '</div>';
+      rows += '<span style="color:var(--muted);">Cash balance</span><span style="font-weight:600;">' + _w5dFmtUSD(sw.cash_balance) + '</span></div>';
       rows += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">';
-      rows += '<span style="color:var(--muted);">Positions value</span>';
-      rows += '<span style="font-weight:600;">$' + (sw.positions_value || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>';
-      rows += '</div>';
+      rows += '<span style="color:var(--muted);">Positions value</span><span style="font-weight:600;">' + _w5dFmtUSD(sw.positions_value) + '</span></div>';
       rows += '<div style="display:flex;justify-content:space-between;padding:8px 0;font-weight:700;font-size:14px;">';
-      rows += '<span>Total</span>';
-      rows += '<span style="color:#38bdf8;">$' + (sw.total || 0).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>';
-      rows += '</div>';
+      rows += '<span>Total</span><span style="color:#38bdf8;">' + _w5dFmtUSD(sw.total) + '</span></div>';
       if (sw.last_updated) {
         rows += '<div style="font-size:10px;color:var(--muted);text-align:right;padding-top:4px;">snapshot ' + sw.last_updated + '</div>';
       }
       if (Array.isArray(sw.positions) && sw.positions.length > 0) {
-        rows += '<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;font-size:11px;color:var(--muted);">' + sw.positions.length + ' position(s) on file</div>';
+        rows += '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px;font-size:11px;color:var(--muted);">' + sw.positions.length + ' position(s) on file</div>';
       }
       schwab.innerHTML = rows;
     }
 
-    // Metals section
+    // ── Webull card (legacy shape — static estimate; holdings list) ───
+    var wb = d.webull || {};
+    var wbRows = '';
+    wbRows += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">';
+    wbRows += '<span style="color:var(--muted);">Est. value</span><span style="font-weight:700;color:#38bdf8;">' + _w5dFmtUSD(wb.total_est) + '</span></div>';
+    if (Array.isArray(wb.holdings) && wb.holdings.length > 0) {
+      wbRows += '<div style="padding:6px 0;font-size:11px;"><span style="color:var(--muted);">Tickers:</span> ' + wb.holdings.join(', ') + '</div>';
+    }
+    if (wb.note) {
+      wbRows += '<div style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;font-size:10px;color:var(--muted);font-style:italic;">' + wb.note + '</div>';
+    }
+    webull.innerHTML = wbRows;
+
+    // ── IBKR card ─────────────────────────────────────────────────────
+    var ib = d.ibkr || {};
+    var ibRows = '';
+    ibRows += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">';
+    ibRows += '<span style="color:var(--muted);">Total</span><span style="font-weight:700;color:#38bdf8;">' + _w5dFmtUSD(ib.total) + '</span></div>';
+    if (ib.note) {
+      ibRows += '<div style="margin-top:6px;font-size:10px;color:var(--muted);font-style:italic;">' + ib.note + '</div>';
+    }
+    ibkr.innerHTML = ibRows;
+
+    // ── Metals card ───────────────────────────────────────────────────
     var mt = d.metals || {};
-    var gold = mt.gold || {};
-    var silver = mt.silver || {};
     function _metalRow(label, m) {
-      var cur = (m.current_value !== null && m.current_value !== undefined) ? '$' + m.current_value.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) : '—';
-      var spot = (m.spot_price !== null && m.spot_price !== undefined) ? '$' + m.spot_price.toLocaleString() : '—';
+      m = m || {};
+      var cur = (m.current_value !== null && m.current_value !== undefined) ? _w5dFmtUSD(m.current_value) : ('cost ' + _w5dFmtUSD(m.cost_basis || m.avg_cost));
+      var spot = (m.spot_price !== null && m.spot_price !== undefined) ? '$' + Number(m.spot_price).toLocaleString() : '—';
       var unreal = m.unrealized;
-      var unrealStr = (unreal !== null && unreal !== undefined)
-        ? (unreal >= 0 ? '<span style="color:#34d399;">+$' + unreal.toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>'
-                       : '<span style="color:#f87171;">-$' + Math.abs(unreal).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2}) + '</span>')
-        : '—';
+      var unrealStr;
+      if (unreal === null || unreal === undefined) {
+        unrealStr = '<span style="color:var(--muted);">spot unavailable</span>';
+      } else if (unreal >= 0) {
+        unrealStr = '<span style="color:#34d399;">+' + _w5dFmtUSD(unreal) + '</span>';
+      } else {
+        unrealStr = '<span style="color:#f87171;">-' + _w5dFmtUSD(Math.abs(unreal)) + '</span>';
+      }
       var html = '<div style="border-bottom:1px solid var(--border);padding:8px 0;">';
       html += '<div style="display:flex;justify-content:space-between;align-items:baseline;">';
-      html += '<span style="font-weight:600;">' + label + '</span>';
-      html += '<span style="font-weight:600;color:#38bdf8;">' + cur + '</span>';
-      html += '</div>';
+      html += '<span style="font-weight:600;">' + label + '</span><span style="font-weight:600;color:#38bdf8;">' + cur + '</span></div>';
       html += '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);padding-top:3px;">';
       html += '<span>' + (m.oz || 0) + ' oz @ avg $' + (m.avg_cost || 0).toLocaleString() + '</span>';
-      html += '<span>spot ' + spot + ' • ' + unrealStr + '</span>';
-      html += '</div></div>';
+      html += '<span>spot ' + spot + ' • ' + unrealStr + '</span></div></div>';
       return html;
     }
-    var mhtml = _metalRow('🥇 Gold', gold) + _metalRow('🥈 Silver', silver);
-    metals.innerHTML = mhtml;
+    metals.innerHTML = _metalRow('🥇 Gold', mt.gold) + _metalRow('🥈 Silver', mt.silver);
+
+    // ── Positions table (by_symbol from .unified, sorted by market value) ─
+    var bySymbol = (u.by_symbol && Array.isArray(u.by_symbol)) ? u.by_symbol.slice() : [];
+    // Defensive: filter out empty/zero rows; sort descending by market_value
+    bySymbol = bySymbol.filter(function(p) { return p && p.symbol; });
+    bySymbol.sort(function(a, b) {
+      return (Number(b.market_value) || 0) - (Number(a.market_value) || 0);
+    });
+    if (bySymbol.length === 0) {
+      posBody.innerHTML = '<tr><td colspan="4" style="padding:12px;color:var(--muted);text-align:center;">No positions surfaced via unified shape.</td></tr>';
+      posCount.textContent = '';
+    } else {
+      posCount.textContent = '(' + bySymbol.length + ')';
+      posBody.innerHTML = bySymbol.map(function(p) {
+        var qty = (typeof p.qty === 'number') ? p.qty : 0;
+        var mv = (typeof p.market_value === 'number') ? p.market_value : 0;
+        var accts = Array.isArray(p.accounts) ? p.accounts.join(', ') : '—';
+        return '<tr style="border-bottom:1px solid var(--border);">' +
+          '<td style="padding:6px 4px;font-family:var(--font-mono);font-weight:600;">' + (p.symbol || '—') + '</td>' +
+          '<td style="padding:6px 4px;text-align:right;font-family:var(--font-mono);">' + (qty ? qty.toLocaleString(undefined, {maximumFractionDigits:4}) : '—') + '</td>' +
+          '<td style="padding:6px 4px;text-align:right;font-family:var(--font-mono);">' + (mv ? _w5dFmtUSD(mv) : '—') + '</td>' +
+          '<td style="padding:6px 4px;font-size:11px;color:var(--muted);">' + accts + '</td>' +
+          '</tr>';
+      }).join('');
+    }
 
     // Notes / asset addenda (RV, etc.)
     if (Array.isArray(d.notes) && d.notes.length > 0) {
@@ -37677,7 +37796,7 @@ async function fetchRealPortfolio() {
 }
 registerSectionInit('real-portfolio', fetchRealPortfolio, [{fn: fetchRealPortfolio, ms: 300000}]);  // 5-min auto-refresh
 </script>
-<!-- ==================== /HM-REAL-PORTFOLIO-DASHBOARD ==================== -->
+<!-- ==================== /W5-D Real Portfolio ==================== -->
 
 </body>
 </html>

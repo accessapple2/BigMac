@@ -7972,6 +7972,31 @@ def portfolio_real():
         liquid_total += silver_mv
 
     result["net_worth_liquid"] = round(liquid_total, 2)
+    # W5-D 2026-05-23 — additively enrich the response with the richer
+    # read_total_portfolio() shape (by_symbol, by_account, metals_pct,
+    # total_real_value) so the W5-D dashboard tab can render the
+    # 4-account + positions-table view from a single fetch. Old shape
+    # (schwab/webull/ibkr/metals/net_worth_liquid/notes) is preserved
+    # for the HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 consumer. Failure
+    # in the enrichment leaves the legacy fields intact.
+    try:
+        from engine.total_portfolio import read_total_portfolio
+        rtp = read_total_portfolio()
+        # Surface as a nested object so the legacy top-level keys don't
+        # collide with any field-name overlap.
+        result["unified"] = {
+            "ts": rtp.get("ts"),
+            "total_real_value": rtp.get("total_real_value"),
+            "by_account": rtp.get("by_account"),
+            "by_symbol": list(rtp.get("by_symbol", {}).values()),
+            "metals_pct": rtp.get("metals_pct"),
+            "errors": rtp.get("errors"),
+            "note": rtp.get("note"),
+        }
+    except Exception as _w5d_e:
+        result["unified_error"] = (
+            f"{type(_w5d_e).__name__}: {_w5d_e!r}"
+        )
     return result
 # === /HM-AM-PORTFOLIO-UNIFICATION ===
 
