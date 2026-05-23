@@ -144,6 +144,19 @@ class AlpacaBridge:
             "ioc": TimeInForce.IOC, "fok": TimeInForce.FOK,
         }
         tif = _tif_map.get((time_in_force or "DAY").lower(), TimeInForce.DAY)
+        # HM-ALPACA-BRIDGE-LIMIT-FIX (HM-NEXT-WAVE Phase 1) 2026-05-23:
+        # Alpaca rule — extended-hours orders MUST be time_in_force=DAY
+        # and MUST be limit orders. The DAY enforcement is canonical here
+        # so a caller that passes time_in_force='gtc' on an extended-hours
+        # bracket leg doesn't get silently rejected by the broker. The
+        # market→limit coerce happens below (line ~155). Together these
+        # form the "you can submit during XH" contract.
+        if extended_hours and tif != TimeInForce.DAY:
+            console.log(
+                f"[yellow][ALPACA-BRIDGE] extended_hours=True forces "
+                f"tif=DAY (caller passed {time_in_force!r}). Alpaca requirement."
+            )
+            tif = TimeInForce.DAY
         ot = (order_type or "market").lower()
         if notional and notional > 0 and ot != "market":
             raise ValueError(
