@@ -2836,6 +2836,8 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
 
   <!-- TIER 1 — Always visible -->
   <div class="sidebar-item active" onclick="showSection('dashboard')"><span class="icon">🖥️</span> Bridge</div>
+  <!-- HM-COCKPIT 2026-05-22: Command Bridge mission control. -->
+  <div class="sidebar-item" id="nav-cockpit" title="Command Bridge — system mission control (events bus, dispatcher mix, last decisions, kill switch)" onclick="showSection('cockpit')"><span class="icon">🎛️</span> Cockpit</div>
   <div class="sidebar-item" onclick="showSection('ready-room')"><span class="icon">📋</span> Ready Room</div>
   <div class="sidebar-item" onclick="showSection('ollie')"><span class="icon">💻</span> Ollie</div>
   <div class="sidebar-item" onclick="showSection('webull')"><span class="icon">🛸</span> Starfleet</div>
@@ -6970,6 +6972,353 @@ if (typeof registerSectionInit === 'function') {
 }
 </script>
 <!-- /HM-TRADE-DESK -->
+
+<!-- HM-COCKPIT 2026-05-22: Command Bridge mission control. POC Day 4a.
+     Reads /api/cockpit/snapshot every 30s. Aggregates decision_audit +
+     events_bus + signals_v2 + regime + capital_ladder + engine_allocation +
+     fleet + Trade Desk activity into one screen. -->
+<div id="section-cockpit" data-no-market-gate="true" style="display:none;">
+  <div style="border-left:4px solid #06b6d4;background:rgba(6,182,212,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
+    <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Command Bridge — Mission Control</div>
+    <div style="font-size:13px;color:#94a3b8;">Live system status. Every panel reads from <code>/api/cockpit/snapshot</code>. Refreshes every 30s. <span id="cockpit-last-refresh" style="font-family:monospace;color:var(--muted);"></span></div>
+  </div>
+
+  <!-- Row 1: status tiles -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;">
+    <div class="card" id="cp-tile-regime">
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Regime</div></div>
+      <div style="padding:8px 12px 12px;font-family:monospace;">
+        <div id="cp-regime-name" style="font-size:18px;font-weight:700;color:#06b6d4;">—</div>
+        <div id="cp-regime-date" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
+      </div>
+    </div>
+    <div class="card" id="cp-tile-ladder">
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Capital Ladder</div></div>
+      <div style="padding:8px 12px 12px;font-family:monospace;">
+        <div id="cp-ladder-name" style="font-size:18px;font-weight:700;color:#10b981;">—</div>
+        <div id="cp-ladder-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
+      </div>
+    </div>
+    <div class="card" id="cp-tile-killswitch">
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Kill-Switch</div></div>
+      <div style="padding:8px 12px 12px;font-family:monospace;">
+        <div id="cp-ks-state" style="font-size:18px;font-weight:700;">—</div>
+        <div id="cp-ks-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
+      </div>
+    </div>
+    <div class="card" id="cp-tile-wr">
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">War Room Heartbeat</div></div>
+      <div style="padding:8px 12px 12px;font-family:monospace;">
+        <div id="cp-wr-age" style="font-size:18px;font-weight:700;">—</div>
+        <div id="cp-wr-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
+      </div>
+    </div>
+    <div class="card" id="cp-tile-fleet">
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Fleet</div></div>
+      <div style="padding:8px 12px 12px;font-family:monospace;">
+        <div id="cp-fleet-active" style="font-size:18px;font-weight:700;color:#10b981;">—</div>
+        <div id="cp-fleet-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
+      </div>
+    </div>
+    <div class="card" id="cp-tile-trade-desk">
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Trade Desk Today</div></div>
+      <div style="padding:8px 12px 12px;font-family:monospace;">
+        <div id="cp-td-trades" style="font-size:18px;font-weight:700;color:#d4a030;">—</div>
+        <div id="cp-td-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 2: dispatcher mix + engine allocation + bus health -->
+  <div style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:12px;margin-bottom:16px;">
+    <div class="card">
+      <div class="card-header"><div class="card-title">📡 Dispatcher Mix — last 24h</div></div>
+      <div style="padding:0 16px 12px;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr style="border-bottom:1px solid rgba(212,160,48,0.2);color:var(--muted);text-align:left;">
+            <th style="padding:6px 4px;">Dispatcher</th>
+            <th style="padding:6px 4px;text-align:right;">Trades</th>
+            <th style="padding:6px 4px;text-align:right;">W/L</th>
+            <th style="padding:6px 4px;text-align:right;">PnL $</th>
+          </tr></thead>
+          <tbody id="cp-dispatcher-tbody"><tr><td colspan="4" style="padding:8px 4px;color:var(--muted);text-align:center;">Fetching…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">⚙️ Engine Allocation</div></div>
+      <div style="padding:0 16px 12px;">
+        <table style="width:100%;border-collapse:collapse;font-size:12px;">
+          <thead><tr style="border-bottom:1px solid rgba(212,160,48,0.2);color:var(--muted);text-align:left;">
+            <th style="padding:6px 4px;">Engine</th>
+            <th style="padding:6px 4px;text-align:right;">Capital</th>
+            <th style="padding:6px 4px;text-align:right;">Pos</th>
+            <th style="padding:6px 4px;text-align:right;">Per</th>
+          </tr></thead>
+          <tbody id="cp-engine-tbody"><tr><td colspan="4" style="padding:8px 4px;color:var(--muted);text-align:center;">Fetching…</td></tr></tbody>
+        </table>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">🚌 Events Bus</div></div>
+      <div style="padding:8px 16px 12px;font-size:12px;font-family:monospace;">
+        <div style="display:grid;grid-template-columns:1fr auto;gap:4px;">
+          <span style="color:var(--muted);">Events / hr</span><span id="cp-bus-events">—</span>
+          <span style="color:var(--muted);">Signals pending</span><span id="cp-bus-pending">—</span>
+          <span style="color:var(--muted);">Signals executed</span><span id="cp-bus-executed">—</span>
+          <span style="color:var(--muted);">Signals expired</span><span id="cp-bus-expired">—</span>
+          <span style="color:var(--muted);">Stale rejects 24h</span><span id="cp-bus-stale">—</span>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Row 3: last decisions full-width -->
+  <div class="card">
+    <div class="card-header"><div class="card-title">🧠 Last 20 Decisions <span id="cp-decisions-note" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div></div>
+    <div style="padding:0 16px 12px;">
+      <table style="width:100%;border-collapse:collapse;font-size:11px;">
+        <thead><tr style="border-bottom:1px solid rgba(212,160,48,0.2);color:var(--muted);text-align:left;">
+          <th style="padding:6px 4px;">When</th>
+          <th style="padding:6px 4px;">Event</th>
+          <th style="padding:6px 4px;">Agent</th>
+          <th style="padding:6px 4px;">Symbol</th>
+          <th style="padding:6px 4px;">Verdict</th>
+          <th style="padding:6px 4px;">Conf</th>
+          <th style="padding:6px 4px;">Reasoning</th>
+        </tr></thead>
+        <tbody id="cp-decisions-tbody"><tr><td colspan="7" style="padding:8px 4px;color:var(--muted);text-align:center;">Fetching…</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+</div>
+
+<script>
+/* HM-COCKPIT 2026-05-22 — Command Bridge mission control.
+   Single fetch to /api/cockpit/snapshot, render every 30s. Crash-safe per
+   panel; one failing tile shouldn't blank the whole cockpit. */
+
+function _cpFmtAge(seconds) {
+  if (seconds === null || seconds === undefined) return '—';
+  var s = parseFloat(seconds);
+  if (!isFinite(s)) return '—';
+  if (s < 60) return s.toFixed(0) + 's ago';
+  if (s < 3600) return (s / 60).toFixed(0) + 'm ago';
+  if (s < 86400) return (s / 3600).toFixed(1) + 'h ago';
+  return (s / 86400).toFixed(1) + 'd ago';
+}
+
+function _cpFmtPnL(n) {
+  if (n === null || n === undefined) return '—';
+  var v = parseFloat(n);
+  if (!isFinite(v)) return '—';
+  var sign = v > 0 ? '+' : '';
+  var color = v > 0 ? '#10b981' : (v < 0 ? '#ef4444' : 'var(--muted)');
+  return '<span style="color:' + color + ';">' + sign + '$' + v.toFixed(2) + '</span>';
+}
+
+function _cpFmtTimeShort(iso) {
+  if (!iso) return '—';
+  try {
+    // SQLite default 'YYYY-MM-DD HH:MM:SS' (UTC). Show H:MM:SS local.
+    var s = String(iso).replace(' ', 'T');
+    if (!/Z$/.test(s) && !/[+-]\d\d:?\d\d$/.test(s)) s += 'Z';
+    var d = new Date(s);
+    if (isNaN(d.getTime())) return iso;
+    return d.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+  } catch(e) { return iso; }
+}
+
+function cpRender(snap) {
+  if (!snap) return;
+  // Refresh stamp
+  var rf = document.getElementById('cockpit-last-refresh');
+  if (rf) rf.textContent = 'updated ' + new Date().toLocaleTimeString();
+
+  // Regime
+  try {
+    var r = snap.regime || {};
+    var el = document.getElementById('cp-regime-name');
+    if (el) el.textContent = r.regime || '—';
+    var ed = document.getElementById('cp-regime-date');
+    if (ed) ed.textContent = r.date ? ('as of ' + r.date) : '—';
+  } catch(e) {}
+
+  // Capital ladder
+  try {
+    var cl = snap.capital_ladder || {};
+    var name = document.getElementById('cp-ladder-name');
+    if (name) name.textContent = cl.name ? ('Stage ' + cl.stage + ' · ' + cl.name) : '—';
+    var dt = document.getElementById('cp-ladder-detail');
+    if (dt) dt.textContent = cl.capital ? ('$' + cl.capital.toLocaleString() + ' · ' + (cl.gate_extra || '')) : '—';
+  } catch(e) {}
+
+  // Kill switch
+  try {
+    var ks = snap.kill_switch || {};
+    var ksEl = document.getElementById('cp-ks-state');
+    if (ksEl) {
+      ksEl.textContent = (ks.state || '—').toUpperCase();
+      ksEl.style.color = ks.state === 'armed' ? '#10b981' : '#ef4444';
+    }
+    var ksd = document.getElementById('cp-ks-detail');
+    if (ksd) ksd.textContent = (ks.engaged_24h || 0) + ' halted in 24h';
+  } catch(e) {}
+
+  // WR heartbeat
+  try {
+    var wr = snap.wr_heartbeat;
+    var age = document.getElementById('cp-wr-age');
+    var det = document.getElementById('cp-wr-detail');
+    if (wr) {
+      var ageStr = _cpFmtAge(wr.age_seconds);
+      if (age) {
+        age.textContent = ageStr;
+        // Stale alarm: >750s without a cycle (HM-WR-STALL threshold)
+        age.style.color = (wr.age_seconds && wr.age_seconds > 750) ? '#ef4444' : '#10b981';
+      }
+      if (det) det.textContent = 'cycle wall ' + (wr.last_cycle_wall_s || '?').toString().slice(0,6) + 's @ ' + (wr.last_cycle_ts || '—');
+    } else {
+      if (age) { age.textContent = '—'; age.style.color = 'var(--muted)'; }
+      if (det) det.textContent = 'no WR-DUR in recent log tail';
+    }
+  } catch(e) {}
+
+  // Fleet summary
+  try {
+    var fs = snap.fleet_summary || {};
+    var act = document.getElementById('cp-fleet-active');
+    if (act) act.textContent = (fs.active || 0) + ' / ' + (fs.total || 0);
+    var fd = document.getElementById('cp-fleet-detail');
+    if (fd) fd.textContent = (fs.exit_only || 0) + ' exit-only · ' + (fs.full || 0) + ' halted';
+  } catch(e) {}
+
+  // Trade Desk today
+  try {
+    var td = snap.trade_desk_today || {};
+    var t = document.getElementById('cp-td-trades');
+    if (t) t.textContent = (td.trades || 0) + ' trades';
+    var ap = snap.autopilot_active || {};
+    var td2 = document.getElementById('cp-td-detail');
+    if (td2) td2.innerHTML = _cpFmtPnL(td.pnl) + ' · ' + ((ap.protective_orders_7d || 0) + ' SL/TP 7d');
+  } catch(e) {}
+
+  // Dispatcher mix
+  try {
+    var dm = snap.dispatcher_mix_24h || [];
+    var tbody = document.getElementById('cp-dispatcher-tbody');
+    if (tbody) {
+      if (!dm.length) {
+        tbody.innerHTML = '<tr><td colspan="4" style="padding:8px 4px;color:var(--muted);text-align:center;">No trades in last 24h</td></tr>';
+      } else {
+        tbody.innerHTML = dm.map(function(d) {
+          return '<tr style="border-bottom:1px solid rgba(212,160,48,0.1);">' +
+            '<td style="padding:6px 4px;font-family:monospace;text-transform:uppercase;">' + (d.dispatcher || '—') + '</td>' +
+            '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + (d.trades || 0) + '</td>' +
+            '<td style="padding:6px 4px;text-align:right;font-family:monospace;color:var(--muted);">' + (d.wins || 0) + '/' + (d.losses || 0) + '</td>' +
+            '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + _cpFmtPnL(d.pnl) + '</td>' +
+            '</tr>';
+        }).join('');
+      }
+    }
+  } catch(e) {}
+
+  // Engine allocation
+  try {
+    var ea = snap.engine_allocation || [];
+    var tbody = document.getElementById('cp-engine-tbody');
+    if (tbody) {
+      if (!ea.length) {
+        tbody.innerHTML = '<tr><td colspan="4" style="padding:8px 4px;color:var(--muted);text-align:center;">—</td></tr>';
+      } else {
+        tbody.innerHTML = ea.map(function(e) {
+          return '<tr style="border-bottom:1px solid rgba(212,160,48,0.1);">' +
+            '<td style="padding:6px 4px;font-family:monospace;text-transform:uppercase;">' + (e.engine || '—') + '</td>' +
+            '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + ((e.capital_pct || 0) * 100).toFixed(0) + '%</td>' +
+            '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + (e.max_positions || '—') + '</td>' +
+            '<td style="padding:6px 4px;text-align:right;font-family:monospace;color:var(--muted);">' + ((e.max_per_trade_pct || 0) * 100).toFixed(0) + '%</td>' +
+            '</tr>';
+        }).join('');
+      }
+    }
+  } catch(e) {}
+
+  // Bus
+  try {
+    var b = snap.bus || {};
+    var pairs = [
+      ['cp-bus-events', b.events_last_hour],
+      ['cp-bus-pending', b.signals_pending],
+      ['cp-bus-executed', b.signals_executed],
+      ['cp-bus-expired', b.signals_expired],
+      ['cp-bus-stale', b.stale_rejections_24h],
+    ];
+    pairs.forEach(function(p) {
+      var el = document.getElementById(p[0]);
+      if (el) el.textContent = (p[1] == null) ? '—' : p[1];
+    });
+  } catch(e) {}
+
+  // Last 20 decisions
+  try {
+    var ld = snap.last_decisions || [];
+    var tbody = document.getElementById('cp-decisions-tbody');
+    var note = document.getElementById('cp-decisions-note');
+    if (note) note.textContent = ld.length ? '(' + ld.length + ' shown)' : '';
+    if (tbody) {
+      if (!ld.length) {
+        tbody.innerHTML = '<tr><td colspan="7" style="padding:8px 4px;color:var(--muted);text-align:center;">No decisions yet</td></tr>';
+      } else {
+        tbody.innerHTML = ld.map(function(d) {
+          var evClr = '#94a3b8';
+          if (d.event_type === 'trade_fire') evClr = '#10b981';
+          else if (d.event_type === 'gate_reject') evClr = '#ef4444';
+          else if (d.event_type === 'signal_emit') evClr = '#06b6d4';
+          else if (d.event_type === 'post_mortem') evClr = '#a855f7';
+          var verdict = d.gate_verdict || '';
+          var verdictHtml = verdict
+            ? '<span style="font-family:monospace;color:#f59e0b;">' + verdict + '</span>'
+            : '<span style="color:var(--muted);">—</span>';
+          var conf = (d.confidence != null) ? parseFloat(d.confidence).toFixed(2) : '—';
+          var reason = (d.reason || '').replace(/[<>&"]/g, function(c){
+            return ({'<':'&lt;','>':'&gt;','&':'&amp;','"':'&quot;'})[c];
+          });
+          return '<tr style="border-bottom:1px solid rgba(212,160,48,0.08);">' +
+            '<td style="padding:5px 4px;font-family:monospace;color:var(--muted);">' + _cpFmtTimeShort(d.created_at) + '</td>' +
+            '<td style="padding:5px 4px;font-family:monospace;color:' + evClr + ';">' + (d.event_type || '—') + '</td>' +
+            '<td style="padding:5px 4px;font-family:monospace;">' + (d.player_id || '—') + '</td>' +
+            '<td style="padding:5px 4px;font-family:monospace;color:#e5e7eb;">' + (d.symbol || '—') + '</td>' +
+            '<td style="padding:5px 4px;">' + verdictHtml + '</td>' +
+            '<td style="padding:5px 4px;text-align:right;font-family:monospace;color:var(--muted);">' + conf + '</td>' +
+            '<td style="padding:5px 4px;color:var(--muted);font-size:10px;">' + reason + '</td>' +
+            '</tr>';
+        }).join('');
+      }
+    }
+  } catch(e) {}
+}
+
+function cpLoad() {
+  fetch('/api/cockpit/snapshot')
+    .then(function(r) { return r.json(); })
+    .then(cpRender)
+    .catch(function(e) {
+      var rf = document.getElementById('cockpit-last-refresh');
+      if (rf) rf.innerHTML = '<span style="color:#ef4444;">load failed: ' + e + '</span>';
+    });
+}
+
+function cpInit() {
+  cpLoad();
+}
+
+if (typeof registerSectionInit === 'function') {
+  registerSectionInit('cockpit', cpInit, [
+    {fn: cpLoad, ms: 30000},
+  ]);
+}
+</script>
+<!-- /HM-COCKPIT -->
 
 <!-- FEED SECTION -->
 <div id="section-feed" style="display:none;">
