@@ -1509,11 +1509,29 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             if (_entry_basis > 0 and _exit_mark > 0
                     and (_exit_mark / _entry_basis > 3.0
                          or _exit_mark / _entry_basis < 0.33)):
+                # HM-STOCK-PRICE-PROVENANCE-AUDIT 2026-05-23: pull the live
+                # quote at SANITY-WARN time and surface its `source` field
+                # so the operator can see which data source produced the
+                # outlier price. Sources: alpaca | yahoo_direct | finnhub |
+                # alpha_vantage | db_cache | db_position. If source is
+                # db_cache or db_position, the price is from stale trade
+                # history — the original $533 MU phantom probably had a
+                # poisoned db_cache row that fed downstream callers.
+                _quote_source = "unknown"
+                _quote_price = None
+                try:
+                    from engine.market_data import get_stock_price as _gsp
+                    _q = _gsp(symbol) or {}
+                    _quote_source = _q.get("source", "no_source_key") or "no_source_key"
+                    _quote_price = _q.get("price")
+                except Exception as _qe:
+                    _quote_source = f"lookup_failed_{type(_qe).__name__}"
                 console.log(
                     f"[yellow][TRADE-PRICE-SANITY-WARN] {player_id} {symbol} "
                     f"SELL: entry_basis=${_entry_basis:.2f} → exit=${_exit_mark:.2f} "
-                    f"ratio={_exit_mark/_entry_basis:.2f}x — likely stale/wrong "
-                    f"price arg upstream; PnL may be phantom"
+                    f"ratio={_exit_mark/_entry_basis:.2f}x — caller price arg "
+                    f"may be stale. Live quote: ${_quote_price} "
+                    f"source={_quote_source}. PnL may be phantom."
                 )
         except Exception:
             pass
