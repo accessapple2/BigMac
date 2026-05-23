@@ -16,8 +16,21 @@ import re
 import sqlite3
 from typing import Any
 
-# Only Season 5 data is clean (pre-S5 had options mispriced as stocks)
-_CURRENT_SEASON = 5
+# HM-RATINGS-STALE-SEASON 2026-05-23: dynamic via paper_trader helper.
+# Was hardcoded `_CURRENT_SEASON = 5` and never bumped — caused
+# Fleet Report Card to show `Not enough clean trades` for every
+# Season 6 player since the season bump (all 92 of McCoy's trades
+# were filtered out, /api/ratings returned total_trades=0 for the
+# whole live fleet). Pre-S5 options-mispricing reason for the filter
+# remains valid; the constant just needs to track the running season.
+def _current_season_safe() -> int:
+    try:
+        from engine.paper_trader import _current_season
+        return _current_season()
+    except Exception:
+        return 6  # fallback to known current
+
+_CURRENT_SEASON = _current_season_safe()
 
 # Reject any single trade where |pnl| > 50% of a $7k account
 _MAX_SANE_PNL = 3_500.0
