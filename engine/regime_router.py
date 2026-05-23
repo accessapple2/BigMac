@@ -146,12 +146,88 @@ def _normalize_strategy(strategy: str | None) -> str:
 # ---------------------------------------------------------------------------
 
 
+# HM-EUPHORIC-CLASSIFIER 2026-05-22 — in-memory cache for the F&G + VIX + SPY-200MA
+# override probes so get_current_regime() doesn't go to the network every call.
+_EUPHORIC_CACHE: dict = {"ts": 0.0, "value": None}
+_EUPHORIC_TTL_S = 300  # 5 minutes
+
+
+def _is_euphoric_now() -> bool:
+    """Probe F&G > 80, VIX < 18, SPY > 200-day MA. ALL three must hold.
+
+    Cached 5 minutes to avoid repeating the network calls on every gate
+    evaluation. Fail-safe: any probe that errors or returns missing data
+    counts as a NO (we never falsely promote to EUPHORIC).
+    """
+    import time as _time
+    now = _time.time()
+    if (
+        _EUPHORIC_CACHE["value"] is not None
+        and now - _EUPHORIC_CACHE["ts"] < _EUPHORIC_TTL_S
+    ):
+        return bool(_EUPHORIC_CACHE["value"])
+
+    fg_ok = False
+    vix_ok = False
+    spy_ok = False
+    try:
+        # F&G — engine.fear_greed wraps the CNN F&G index.
+        from engine.fear_greed import compute_score
+        fg = compute_score() or {}
+        fg_val = fg.get("score") if isinstance(fg, dict) else None
+        if fg_val is not None and float(fg_val) > 80.0:
+            fg_ok = True
+    except Exception:
+        fg_ok = False
+    try:
+        from engine.market_data import get_stock_price
+        vix_data = get_stock_price("^VIX") or get_stock_price("VIX") or {}
+        vix_val = vix_data.get("price") if isinstance(vix_data, dict) else None
+        if vix_val is not None and float(vix_val) < 18.0:
+            vix_ok = True
+    except Exception:
+        vix_ok = False
+    try:
+        # SPY > 200MA — compare current price to the 200-day SMA. Avoid
+        # pulling a full historical series here; instead use a thin helper
+        # if available, else skip the criterion (fail-safe: NO override).
+        from engine.market_data import get_stock_price
+        spy = get_stock_price("SPY") or {}
+        spy_price = spy.get("price") if isinstance(spy, dict) else None
+        # Try a cheap 200MA via regime_ma cache if it exists.
+        try:
+            from engine.regime_ma import get_200ma_for as _g200
+            spy_200 = _g200("SPY") if callable(_g200) else None
+        except Exception:
+            spy_200 = None
+        if spy_price is not None and spy_200 is not None and float(spy_price) > float(spy_200):
+            spy_ok = True
+    except Exception:
+        spy_ok = False
+
+    result = fg_ok and vix_ok and spy_ok
+    _EUPHORIC_CACHE["value"] = result
+    _EUPHORIC_CACHE["ts"] = now
+    if result:
+        console.log(
+            f"[cyan][EUPHORIC-CLASSIFIER] criteria MET: F&G>80, VIX<18, SPY>200MA"
+        )
+    return result
+
+
 def get_current_regime() -> str | None:
     """Read the latest regime from regime_history. None if missing.
 
     Read-only on its own connection (no thread-safety risk). Fail-safe:
     any DB error returns None and the router treats this as unknown_regime.
+
+    HM-EUPHORIC-CLASSIFIER 2026-05-22: when the base regime is BULL or
+    BULL_CROSS AND F&G>80 + VIX<18 + SPY>200MA all hold, override to
+    EUPHORIC. This is the more-specific classification per the approved
+    matrix. Override only triggers on bullish base regimes — never
+    upgrades BEAR/CAUTIOUS_BEAR to EUPHORIC, which would be nonsensical.
     """
+    base: str | None = None
     try:
         conn = sqlite3.connect(str(_DB_PATH), timeout=10)
         try:
@@ -160,11 +236,21 @@ def get_current_regime() -> str | None:
                 "WHERE date = date('now','localtime') "
                 "ORDER BY id DESC LIMIT 1"
             ).fetchone()
-            return row[0] if row else None
+            base = row[0] if row else None
         finally:
             conn.close()
     except Exception:
         return None
+
+    # EUPHORIC override layer (HM-EUPHORIC-CLASSIFIER 2026-05-22).
+    if base in ("BULL", "BULL_CROSS", "BULL_LOW_VOL"):
+        try:
+            if _is_euphoric_now():
+                return "EUPHORIC"
+        except Exception:
+            # Fail-safe: any probe error → return base regime, do not promote.
+            pass
+    return base
 
 
 def check_regime_fit(
