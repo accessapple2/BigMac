@@ -3011,6 +3011,240 @@ def _check_ollama_reachable() -> bool:
     return _OLLAMA_PING_CACHE["reachable"]
 
 
+@app.get("/api/cockpit/snapshot")
+def cockpit_snapshot():
+    """HM-COCKPIT 2026-05-22 — Command Bridge aggregator.
+
+    Single endpoint that returns the full picture of what the system is
+    doing right now. Reads from decision_audit, events, signals_v2,
+    regime_history, capital_ladder, engine_allocation, ai_players, trades.
+
+    The cockpit UI polls this every 30s and renders panels off the
+    returned dict. Crash-safe — every sub-query has its own try/except so
+    a single failing source can't take down the panel.
+    """
+    out: dict = {
+        "ts": None, "regime": None, "capital_ladder": None,
+        "engine_allocation": [], "fleet_summary": None,
+        "wr_heartbeat": None, "kill_switch": None,
+        "dispatcher_mix_24h": [], "last_decisions": [],
+        "trade_desk_today": None, "autopilot_active": None,
+        "bus": None,
+    }
+    from datetime import datetime as _dt
+    out["ts"] = _dt.utcnow().isoformat() + "Z"
+    try:
+        c = _conn()
+        c.row_factory = sqlite3.Row
+        try:
+            # --- regime now ---
+            try:
+                r = c.execute(
+                    "SELECT regime, date FROM regime_history "
+                    " ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                if r:
+                    out["regime"] = {"regime": r["regime"], "date": r["date"]}
+            except Exception as _e:
+                out["regime"] = {"error": f"{type(_e).__name__}: {_e!r}"}
+
+            # --- capital ladder current stage ---
+            try:
+                r = c.execute(
+                    "SELECT stage, name, capital, gate_extra "
+                    "  FROM capital_ladder WHERE current_stage=1 LIMIT 1"
+                ).fetchone()
+                if r:
+                    out["capital_ladder"] = dict(r)
+            except Exception as _e:
+                out["capital_ladder"] = {"error": f"{type(_e).__name__}"}
+
+            # --- engine_allocation snapshot ---
+            try:
+                rows = c.execute(
+                    "SELECT engine, capital_pct, max_positions, "
+                    "       max_per_trade_pct "
+                    "  FROM engine_allocation ORDER BY engine"
+                ).fetchall()
+                out["engine_allocation"] = [dict(r) for r in rows]
+            except Exception:
+                pass
+
+            # --- fleet summary (active/halted/total) ---
+            try:
+                rows = c.execute(
+                    "SELECT halt_mode, COUNT(*) AS n "
+                    "  FROM ai_players GROUP BY halt_mode"
+                ).fetchall()
+                buckets = {r["halt_mode"]: int(r["n"]) for r in rows}
+                out["fleet_summary"] = {
+                    "active": buckets.get("active", 0),
+                    "exit_only": buckets.get("exit_only", 0),
+                    "full": buckets.get("full", 0),
+                    "total": sum(buckets.values()),
+                }
+            except Exception:
+                pass
+
+            # --- kill switch: any halt_mode='full' rows in last 24h ---
+            try:
+                r = c.execute(
+                    "SELECT COUNT(*) AS n FROM ai_players "
+                    " WHERE halt_mode='full' "
+                    "   AND halted_at >= datetime('now','-24 hours')"
+                ).fetchone()
+                recent_full = int(r["n"]) if r else 0
+                out["kill_switch"] = {
+                    "engaged_24h": recent_full,
+                    "state": "armed" if recent_full == 0 else "triggered",
+                }
+            except Exception:
+                pass
+
+            # --- dispatcher mix 24h (provider → trade count + P&L) ---
+            try:
+                rows = c.execute(
+                    "SELECT p.provider AS dispatcher, "
+                    "       COUNT(t.id) AS trades, "
+                    "       ROUND(SUM(COALESCE(t.realized_pnl,0)), 2) AS pnl, "
+                    "       SUM(CASE WHEN COALESCE(t.realized_pnl,0)>0 "
+                    "                THEN 1 ELSE 0 END) AS wins, "
+                    "       SUM(CASE WHEN COALESCE(t.realized_pnl,0)<0 "
+                    "                THEN 1 ELSE 0 END) AS losses "
+                    "  FROM trades t "
+                    "  JOIN ai_players p ON t.player_id = p.id "
+                    " WHERE t.executed_at >= datetime('now','-24 hours') "
+                    " GROUP BY p.provider "
+                    " ORDER BY trades DESC"
+                ).fetchall()
+                out["dispatcher_mix_24h"] = [dict(r) for r in rows]
+            except Exception:
+                pass
+
+            # --- last 20 decisions from decision_audit ---
+            try:
+                rows = c.execute(
+                    "SELECT event_type, player_id, symbol, "
+                    "       gate_verdict, confidence, regime, "
+                    "       SUBSTR(reasoning_snippet, 1, 120) AS reason, "
+                    "       created_at "
+                    "  FROM decision_audit "
+                    " ORDER BY id DESC LIMIT 20"
+                ).fetchall()
+                out["last_decisions"] = [dict(r) for r in rows]
+            except Exception:
+                pass
+
+            # --- Trade Desk activity today ---
+            try:
+                r = c.execute(
+                    "SELECT COUNT(*) AS trades, "
+                    "       ROUND(SUM(COALESCE(realized_pnl,0)), 2) AS pnl "
+                    "  FROM trades "
+                    " WHERE player_id='trade-desk' "
+                    "   AND DATE(executed_at) = DATE('now','localtime')"
+                ).fetchone()
+                if r:
+                    out["trade_desk_today"] = dict(r)
+            except Exception:
+                pass
+
+            # --- autopilot active count ---
+            try:
+                r = c.execute(
+                    "SELECT COUNT(*) AS n FROM trades "
+                    " WHERE player_id='trade-desk' "
+                    "   AND (stop_loss_order_id IS NOT NULL "
+                    "        OR take_profit_order_id IS NOT NULL) "
+                    "   AND DATE(executed_at) >= DATE('now','-7 days','localtime')"
+                ).fetchone()
+                out["autopilot_active"] = (
+                    {"protective_orders_7d": int(r["n"])} if r else None
+                )
+            except Exception:
+                pass
+
+            # --- bus health (inline summary instead of separate call) ---
+            try:
+                bus: dict = {}
+                row = c.execute(
+                    "SELECT COUNT(*) FROM events "
+                    " WHERE ts >= datetime('now','-1 hour')"
+                ).fetchone()
+                bus["events_last_hour"] = int(row[0]) if row else 0
+                for status_val, key in (
+                    ("pending", "signals_pending"),
+                    ("executed", "signals_executed"),
+                    ("expired", "signals_expired"),
+                ):
+                    row = c.execute(
+                        "SELECT COUNT(*) FROM signals_v2 WHERE status=?",
+                        (status_val,),
+                    ).fetchone()
+                    bus[key] = int(row[0]) if row else 0
+                row = c.execute(
+                    "SELECT COUNT(*) FROM decision_audit "
+                    " WHERE event_type='gate_reject' "
+                    "   AND gate_verdict='stale_signal' "
+                    "   AND created_at >= datetime('now','-24 hours')"
+                ).fetchone()
+                bus["stale_rejections_24h"] = int(row[0]) if row else 0
+                out["bus"] = bus
+            except Exception:
+                pass
+        finally:
+            c.close()
+    except Exception as exc:
+        out["error"] = f"{type(exc).__name__}: {exc!r}"
+
+    # --- WR heartbeat: last [WR-DUR] line in logs/trader.log ---
+    # Tail-only read so the cockpit can show "last cycle Ns ago" without
+    # plumbing through the daemon thread state. Crash-safe.
+    try:
+        import os as _os
+        import re as _re
+        log_path = _os.path.join(
+            _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__))),
+            "logs", "trader.log",
+        )
+        if _os.path.exists(log_path):
+            # Read last 256KB — large enough to reach back through
+            # WR-DAEMON-HB + ENDPOINT-DUR noise and still find a
+            # recent WR-DUR cycle marker.
+            size = _os.path.getsize(log_path)
+            with open(log_path, "rb") as f:
+                f.seek(max(0, size - 262144))
+                tail = f.read().decode("utf-8", errors="ignore")
+            m = list(_re.finditer(
+                r"\[(\d{4}-\d{2}-\d{2} \d{2}:\d{2}:\d{2})\].*?\[WR-DUR\]"
+                r" cycle wall=([\d.]+)s",
+                tail,
+            ))
+            if m:
+                last = m[-1]
+                ts_str, wall_s = last.group(1), last.group(2)
+                # Convert to age seconds — log timestamp is local AZ.
+                try:
+                    log_dt = _dt.strptime(ts_str, "%Y-%m-%d %H:%M:%S")
+                    # Cockpit treats it as local-naive for age math.
+                    age_s = (
+                        _dt.now() - log_dt
+                    ).total_seconds()
+                except Exception:
+                    age_s = None
+                out["wr_heartbeat"] = {
+                    "last_cycle_ts": ts_str,
+                    "last_cycle_wall_s": float(wall_s),
+                    "age_seconds": (
+                        round(age_s, 1) if age_s is not None else None
+                    ),
+                }
+    except Exception:
+        pass
+
+    return out
+
+
 @app.get("/api/events/health")
 def events_health():
     """HM-EVENTS-BUS-FOUNDATION 2026-05-22 — canonical events bus health.
