@@ -11389,7 +11389,11 @@ registerSectionInit('options-flow', fetchOptionsFlow, []);
 </script>
 
 <!-- FEAR & GREED SECTION -->
-<div id="section-fear-greed" style="display:none;">
+<!-- HM-FEAR-GREED-FIX 2026-05-22: data-no-market-gate opts this section out
+     of the global market-closed.js text-rewriter. CNN F&G + Market Breadth
+     publish continuously and have historical fallback; both were being
+     stomped by startsWith('loading') during after-hours. -->
+<div id="section-fear-greed" data-no-market-gate="true" style="display:none;">
   <div id="guide-container-fear-greed"></div>
   <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Sentiment Engine</div><div style="font-size:13px;color:#94a3b8;">CNN Fear &amp; Greed Index with 7 sub-indicators. Drives fleet-wide position sizing — Extreme Fear multiplies buys 1.25×, Extreme Greed cuts to 0.50× to avoid buying tops.</div></div>
   <div class="card" style="margin-bottom:16px;">
@@ -11399,14 +11403,17 @@ registerSectionInit('options-flow', fetchOptionsFlow, []);
     </div>
     <div style="padding:20px;text-align:center;">
       <div id="fgFullScore" style="font-size:64px;font-weight:800;font-family:var(--font-mono);color:var(--muted);">—</div>
-      <div id="fgFullLabel" style="font-size:18px;font-weight:700;margin-bottom:16px;">Loading...</div>
+      <!-- HM-FEAR-GREED-FIX 2026-05-22: non-"loading" initial value so the
+           market-closed text-rewriter never matches even if scope regresses. -->
+      <div id="fgFullLabel" style="font-size:18px;font-weight:700;margin-bottom:16px;">Fetching sentiment…</div>
     </div>
     <div id="fgFullSignals" style="padding:16px;"></div>
   </div>
   <div class="card">
     <div class="card-header"><div class="card-title">📊 Market Breadth</div></div>
     <div id="breadthContent" style="padding:16px;">
-      <div style="color:var(--muted);text-align:center;">Loading breadth...</div>
+      <!-- HM-FEAR-GREED-FIX 2026-05-22: see fgFullLabel above. -->
+      <div style="color:var(--muted);text-align:center;">Fetching breadth…</div>
     </div>
   </div>
 </div>

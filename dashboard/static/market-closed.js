@@ -13,9 +13,19 @@
   
   function updateLoadingElements() {
     if (isMarketOpen()) return;
-    
+
     document.querySelectorAll('*').forEach(el => {
       if (el.children.length === 0) {
+        // HM-FEAR-GREED-FIX 2026-05-22: scope skip — F&G and Market Breadth
+        // are always-on indicators (CNN F&G publishes continuously, breadth
+        // has historical fallback) and were collateral damage of the
+        // startsWith('loading') rewrite. Two opt-outs:
+        //   1. Inside #section-fear-greed (hardcoded for legacy compat)
+        //   2. Inside any element marked data-no-market-gate (future contract)
+        if (el.closest('#section-fear-greed')
+            || el.closest('[data-no-market-gate]')) {
+          return;
+        }
         const text = el.textContent.trim().toLowerCase();
         if (text === 'loading…' || text === 'loading...' || text === 'loading' || text.startsWith('loading')) {
           el.innerHTML = '<span style="color: #f59e0b;">📅 Market Closed</span>';
