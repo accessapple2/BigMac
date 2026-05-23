@@ -458,7 +458,8 @@ class AlpacaBridge:
 
     def submit_protective_orders(self, *, symbol: str, entry_side: str,
                                  qty: float, fill_price: float,
-                                 sl_pct: float, tp_pct: float) -> dict:
+                                 sl_pct: float, tp_pct: float,
+                                 sl_kind: str = 'fixed') -> dict:
         """HM-TRADE-DESK-AUTOPILOT 2026-05-22 — attach two separate GTC
         protective orders (stop-loss + take-profit) to a just-filled
         Trade Desk position.
@@ -471,16 +472,23 @@ class AlpacaBridge:
         Sign-aware: long stop = fill*(1 - sl/100); long target =
         fill*(1 + tp/100); short inverts both. Pass 0 to skip a leg.
 
+        HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23 — sl_kind selects
+        the SL leg type: 'fixed' (default, StopOrderRequest at a
+        derived absolute price) or 'trailing' (TrailingStopOrderRequest
+        with trail_percent = sl_pct, broker-side trailing).
+
         Bypasses check_trade — these are risk-management orders on an
         already-passed primary fill, not new trade intent.
 
         Returns {'stop_order_id', 'target_order_id', 'stop_price',
-        'target_price', 'errors': list[str]}. Never raises; broker
-        rejections are captured in errors for caller logging.
+        'target_price', 'sl_kind', 'errors': list[str]}. Never raises;
+        broker rejections are captured in errors for caller logging.
         """
         out: dict = {
             'stop_order_id': None, 'target_order_id': None,
-            'stop_price': None, 'target_price': None, 'errors': [],
+            'stop_price': None, 'target_price': None,
+            'sl_kind': (sl_kind or 'fixed').lower(),
+            'errors': [],
         }
         if not self.client:
             out['errors'].append('Not connected')
@@ -497,6 +505,7 @@ class AlpacaBridge:
         from alpaca.trading.enums import OrderSide, TimeInForce
         from alpaca.trading.requests import (
             StopOrderRequest, LimitOrderRequest,
+            TrailingStopOrderRequest,
         )
         exit_side = OrderSide.SELL if is_long else OrderSide.BUY
 
@@ -508,24 +517,37 @@ class AlpacaBridge:
         else:
             stop_price = round(fill_f * (1.0 + sl / 100.0), 2)
             target_price = round(fill_f * (1.0 - tp / 100.0), 2)
-        out['stop_price'] = stop_price if sl > 0 else None
+        out['stop_price'] = stop_price if (sl > 0 and out['sl_kind'] == 'fixed') else None
         out['target_price'] = target_price if tp > 0 else None
 
-        # Stop-loss leg.
-        if sl > 0 and stop_price > 0:
+        # Stop-loss leg — fixed or trailing.
+        if sl > 0:
             try:
-                req = StopOrderRequest(
-                    symbol=symbol, qty=qty_f, side=exit_side,
-                    time_in_force=TimeInForce.GTC, stop_price=stop_price,
-                )
-                o = self.client.submit_order(req)
-                out['stop_order_id'] = str(o.id)
-                console.log(
-                    f"[yellow]Alpaca AUTOPILOT stop {qty_f} {symbol} "
-                    f"@ ${stop_price} GTC — order {o.id}"
-                )
+                if out['sl_kind'] == 'trailing':
+                    req = TrailingStopOrderRequest(
+                        symbol=symbol, qty=qty_f, side=exit_side,
+                        time_in_force=TimeInForce.GTC,
+                        trail_percent=sl,
+                    )
+                    o = self.client.submit_order(req)
+                    out['stop_order_id'] = str(o.id)
+                    console.log(
+                        f"[yellow]Alpaca AUTOPILOT trailing-stop {qty_f} "
+                        f"{symbol} @ {sl:.2f}% GTC — order {o.id}"
+                    )
+                elif stop_price > 0:
+                    req = StopOrderRequest(
+                        symbol=symbol, qty=qty_f, side=exit_side,
+                        time_in_force=TimeInForce.GTC, stop_price=stop_price,
+                    )
+                    o = self.client.submit_order(req)
+                    out['stop_order_id'] = str(o.id)
+                    console.log(
+                        f"[yellow]Alpaca AUTOPILOT stop {qty_f} {symbol} "
+                        f"@ ${stop_price} GTC — order {o.id}"
+                    )
             except Exception as e:
-                msg = f"stop: {type(e).__name__}: {e!r}"
+                msg = f"stop ({out['sl_kind']}): {type(e).__name__}: {e!r}"
                 out['errors'].append(msg)
                 console.log(f"[red]AUTOPILOT {msg}")
 

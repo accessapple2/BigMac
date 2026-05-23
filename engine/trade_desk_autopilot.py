@@ -127,6 +127,7 @@ def attach_children_after_fill(
     fill_price: float,
     sl_pct: float,
     tp_pct: float,
+    sl_kind: str = "fixed",       # HM-TRADE-DESK-AUTOPILOT-PHASE3: 'fixed' | 'trailing'
     agent_id: str = "trade-desk",
     trade_id: int | None = None,
 ) -> dict:
@@ -183,6 +184,7 @@ def attach_children_after_fill(
             symbol=symbol, entry_side=side,
             qty=float(filled_qty), fill_price=float(fill_price),
             sl_pct=float(sl_pct or 0), tp_pct=float(tp_pct or 0),
+            sl_kind=(sl_kind or "fixed"),
         )
         out["stop_order_id"] = result.get("stop_order_id")
         out["target_order_id"] = result.get("target_order_id")
@@ -311,6 +313,189 @@ def cancel_with_children(parent_order_id: str) -> dict:
         )
 
     return out
+
+
+# ---------------------------------------------------------------------------
+# Replace protective orders — HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23
+# ---------------------------------------------------------------------------
+
+
+def replace_protective_orders(
+    parent_order_id: str,
+    *,
+    sl_pct: float,
+    tp_pct: float,
+    sl_enabled: bool = True,
+    tp_enabled: bool = True,
+    sl_kind: str = "fixed",
+) -> dict:
+    """HM-TRADE-DESK-AUTOPILOT-PHASE3 — cancel-and-resubmit cycle for
+    an existing OCO pair. Alpaca does not support inline-edit on stop
+    or limit orders, so to change a protective price the only path is:
+
+      1. Cancel current SL + TP children
+      2. Submit new children with the requested pcts
+      3. Update oco_watch row with new child IDs
+
+    There is a brief window between (1) and (2) where the position is
+    unprotected. Caller surfaces this in the UI.
+
+    Reconstructs symbol / side / fill_price / filled_qty from the parent
+    order on Alpaca — no schema dependency on oco_watch storing those.
+
+    Returns {parent_order_id, sl_order_id, tp_order_id, stop_price,
+    target_price, sl_kind, canceled[], errors[]}.
+    """
+    from engine.alpaca_bridge import alpaca
+
+    out: dict = {
+        "parent_order_id": parent_order_id,
+        "sl_order_id": None, "tp_order_id": None,
+        "stop_price": None, "target_price": None,
+        "sl_kind": (sl_kind or "fixed").lower(),
+        "canceled": [], "errors": [],
+    }
+    if not parent_order_id:
+        out["errors"].append("parent_order_id required")
+        return out
+    if not alpaca.client:
+        out["errors"].append("alpaca not connected")
+        return out
+
+    # Look up existing children + symbol from oco_watch
+    existing_sl_id = existing_tp_id = None
+    symbol = None
+    try:
+        conn = sqlite3.connect(str(_DB_PATH), timeout=10)
+        try:
+            row = conn.execute(
+                "SELECT sl_order_id, tp_order_id, symbol "
+                "  FROM autopilot_oco_watch WHERE parent_order_id=?",
+                (parent_order_id,),
+            ).fetchone()
+            if not row:
+                out["errors"].append(
+                    f"no oco_watch row for parent {parent_order_id}"
+                )
+                return out
+            existing_sl_id, existing_tp_id, symbol = row[0], row[1], row[2]
+        finally:
+            conn.close()
+    except Exception as e:
+        out["errors"].append(
+            f"oco_watch lookup: {type(e).__name__}: {e!r}"
+        )
+        return out
+
+    # Fetch parent order details from Alpaca to get side + fill price + qty.
+    try:
+        parent = alpaca.client.get_order_by_id(parent_order_id)
+    except Exception as e:
+        out["errors"].append(
+            f"alpaca get_order: {type(e).__name__}: {e!r}"
+        )
+        return out
+
+    try:
+        side = (parent.side.value if hasattr(parent.side, "value")
+                else str(parent.side)).upper()
+        filled_qty = float(parent.filled_qty or 0)
+        fill_price = float(parent.filled_avg_price or 0)
+    except Exception as e:
+        out["errors"].append(
+            f"parent order parse: {type(e).__name__}: {e!r}"
+        )
+        return out
+
+    if filled_qty <= 0 or fill_price <= 0:
+        out["errors"].append(
+            f"parent not filled (qty={filled_qty}, fill=${fill_price})"
+        )
+        return out
+
+    # Cancel existing children first.
+    for child_id, leg in ((existing_sl_id, "sl"), (existing_tp_id, "tp")):
+        if not child_id:
+            continue
+        try:
+            alpaca.cancel(child_id)
+            out["canceled"].append({"leg": leg, "order_id": child_id})
+        except Exception as e:
+            out["errors"].append(
+                f"{leg} cancel: {type(e).__name__}: {e!r}"
+            )
+
+    # Submit new children with the requested pcts (0 disables leg).
+    effective_sl_pct = float(sl_pct or 0) if sl_enabled else 0.0
+    effective_tp_pct = float(tp_pct or 0) if tp_enabled else 0.0
+    try:
+        result = alpaca.submit_protective_orders(
+            symbol=symbol, entry_side=side,
+            qty=filled_qty, fill_price=fill_price,
+            sl_pct=effective_sl_pct, tp_pct=effective_tp_pct,
+            sl_kind=out["sl_kind"],
+        )
+        out["sl_order_id"] = result.get("stop_order_id")
+        out["tp_order_id"] = result.get("target_order_id")
+        out["stop_price"] = result.get("stop_price")
+        out["target_price"] = result.get("target_price")
+        if result.get("errors"):
+            out["errors"].extend(result["errors"])
+    except Exception as e:
+        out["errors"].append(
+            f"resubmit crash: {type(e).__name__}: {e!r}"
+        )
+        return out
+
+    # Update oco_watch row with new child IDs and reset status to active
+    # (covers the case where the row was previously resolved).
+    try:
+        conn = sqlite3.connect(str(_DB_PATH), timeout=10)
+        try:
+            conn.execute(
+                "UPDATE autopilot_oco_watch "
+                "   SET sl_order_id=?, tp_order_id=?, "
+                "       status='active', resolved_at=NULL, "
+                "       resolution=NULL, "
+                "       attached_at=datetime('now') "
+                " WHERE parent_order_id=?",
+                (
+                    out["sl_order_id"], out["tp_order_id"],
+                    parent_order_id,
+                ),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        out["errors"].append(
+            f"oco_watch update: {type(e).__name__}: {e!r}"
+        )
+
+    return out
+
+
+def list_active_oco_pairs() -> list[dict]:
+    """HM-TRADE-DESK-AUTOPILOT-PHASE3 — return active OCO pairs for the
+    UI's protective-orders panel. Each dict: {parent_order_id, symbol,
+    sl_order_id, tp_order_id, agent_id, attached_at}.
+    """
+    try:
+        conn = sqlite3.connect(str(_DB_PATH), timeout=10)
+        try:
+            conn.row_factory = sqlite3.Row
+            rows = conn.execute(
+                "SELECT parent_order_id, sl_order_id, tp_order_id, "
+                "       symbol, agent_id, attached_at "
+                "  FROM autopilot_oco_watch "
+                " WHERE status='active' "
+                " ORDER BY attached_at DESC"
+            ).fetchall()
+            return [dict(r) for r in rows]
+        finally:
+            conn.close()
+    except Exception:
+        return []
 
 
 # ---------------------------------------------------------------------------

@@ -6612,14 +6612,18 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
             <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;">🛡 Autopilot Protective Orders <span id="td-autopilot-note" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">(bracket — whole-share, market/limit BUY)</span></div>
             <button type="button" id="td-autopilot-reset" onclick="tdResetAutopilotDefaults()" style="font-size:10px;padding:3px 8px;background:rgba(212,160,48,0.15);border:1px solid rgba(212,160,48,0.3);color:#d4a030;border-radius:3px;cursor:pointer;">Reset</button>
           </div>
-          <div style="display:grid;grid-template-columns:22px 90px 1fr;gap:6px;align-items:center;">
-            <input id="td-sl-enabled" type="checkbox" checked oninput="tdRecomputeProtectivePreview()" style="margin:0;" />
+          <div style="display:grid;grid-template-columns:22px 90px 90px 1fr;gap:6px;align-items:center;">
+            <input id="td-sl-enabled" type="checkbox" checked oninput="tdOnAutopilotInput()" style="margin:0;" />
             <label for="td-sl-pct" style="font-size:12px;color:var(--muted);">Stop %</label>
-            <input id="td-sl-pct" type="number" step="0.1" min="0.5" max="50" value="8" oninput="tdRecomputeProtectivePreview()" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+            <select id="td-sl-kind" onchange="tdOnAutopilotInput()" title="Fixed: stop at fill × (1 − %); Trailing: broker-side trail %" style="padding:5px 6px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;font-size:11px;">
+              <option value="fixed">Fixed</option>
+              <option value="trailing">Trailing</option>
+            </select>
+            <input id="td-sl-pct" type="number" step="0.1" min="0.5" max="50" value="8" oninput="tdOnAutopilotInput()" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
 
-            <input id="td-tp-enabled" type="checkbox" checked oninput="tdRecomputeProtectivePreview()" style="margin:0;" />
-            <label for="td-tp-pct" style="font-size:12px;color:var(--muted);">Target %</label>
-            <input id="td-tp-pct" type="number" step="0.1" min="0.5" max="200" value="15" oninput="tdRecomputeProtectivePreview()" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+            <input id="td-tp-enabled" type="checkbox" checked oninput="tdOnAutopilotInput()" style="margin:0;" />
+            <label for="td-tp-pct" style="font-size:12px;color:var(--muted);grid-column:2 / span 2;">Target %</label>
+            <input id="td-tp-pct" type="number" step="0.1" min="0.5" max="200" value="15" oninput="tdOnAutopilotInput()" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
           </div>
           <div id="td-protective-preview" style="margin-top:6px;font-size:11px;font-family:monospace;color:var(--muted);min-height:14px;">Enter symbol + qty to preview protective prices.</div>
         </div>
@@ -6649,6 +6653,34 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           <th style="padding:6px 4px;text-align:center;">Cancel</th>
         </tr></thead>
         <tbody id="td-pending-tbody"><tr><td colspan="7" style="padding:8px 4px;color:var(--muted);text-align:center;">—</td></tr></tbody>
+      </table>
+    </div>
+  </div>
+
+  <!-- HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23 — Active OCO pairs card.
+       Lists every autopilot_oco_watch row with status='active' so the
+       Captain can EDIT or CANCEL protective orders for a filled parent.
+       Alpaca does not support inline-edit on stop/limit orders, so the
+       "Edit" flow is cancel-and-resubmit. Brief unprotected window —
+       banner makes this explicit. -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header"><div class="card-title">🛡 Active Protective Orders (OCO Pairs) <span id="td-oco-count" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div></div>
+    <div style="padding:6px 16px 0;">
+      <div style="background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;padding:6px 10px;border-radius:0 4px 4px 0;font-size:11px;color:#f59e0b;margin-bottom:8px;">
+        ℹ Inline edit isn't supported by Alpaca. <b>Edit</b> cancels the current SL/TP children and submits new ones — there is a brief window where the position is unprotected.
+      </div>
+    </div>
+    <div style="padding:0 16px 12px;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="border-bottom:1px solid rgba(212,160,48,0.2);color:var(--muted);text-align:left;">
+          <th style="padding:6px 4px;">Symbol</th>
+          <th style="padding:6px 4px;">Parent</th>
+          <th style="padding:6px 4px;text-align:right;">New Stop %</th>
+          <th style="padding:6px 4px;text-align:right;">Stop Kind</th>
+          <th style="padding:6px 4px;text-align:right;">New Target %</th>
+          <th style="padding:6px 4px;text-align:center;">Actions</th>
+        </tr></thead>
+        <tbody id="td-oco-tbody"><tr><td colspan="6" style="padding:8px 4px;color:var(--muted);text-align:center;">—</td></tr></tbody>
       </table>
     </div>
   </div>
@@ -6730,6 +6762,7 @@ function tdRecomputeAutopilotEnabled() {
   var apNote = document.getElementById('td-autopilot-note');
   var slEn = document.getElementById('td-sl-enabled');
   var tpEn = document.getElementById('td-tp-enabled');
+  var slKind = document.getElementById('td-sl-kind');
   var slInput = document.getElementById('td-sl-pct');
   var tpInput = document.getElementById('td-tp-pct');
   var reset = document.getElementById('td-autopilot-reset');
@@ -6739,13 +6772,18 @@ function tdRecomputeAutopilotEnabled() {
   else if (ot === 'stop' || ot === 'stop_limit') disabledReason = 'STOP/STOP_LIMIT entries are protective themselves';
   var enabled = !disabledReason;
   if (apBlock) apBlock.style.opacity = enabled ? '1' : '0.45';
-  [slEn, tpEn, slInput, tpInput, reset].forEach(function(el) {
+  [slEn, tpEn, slKind, slInput, tpInput, reset].forEach(function(el) {
     if (el) el.disabled = !enabled;
   });
   // Mode label — what path will fire if user submits now?
+  // HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23: trailing SL forces
+  // attach-after-fill (bracket can't carry trail).
+  var isTrailing = (slKind && slKind.value === 'trailing' && slEn && slEn.checked);
   if (apNote) {
     if (!enabled) {
       apNote.textContent = '(disabled — ' + disabledReason + ')';
+    } else if (isTrailing) {
+      apNote.textContent = '(attach-after-fill — trailing SL, OCO daemon)';
     } else if (notional > 0 || (qty > 0 && qty !== Math.floor(qty))) {
       apNote.textContent = '(attach-after-fill — OCO daemon)';
     } else {
@@ -6754,17 +6792,70 @@ function tdRecomputeAutopilotEnabled() {
   }
 }
 
-// HM-TRADE-DESK-AUTOPILOT-PHASE1: defaults reset button handler.
+// HM-TRADE-DESK-AUTOPILOT-PHASE1 + PHASE3 2026-05-23: defaults reset.
+// Phase 3 clears the localStorage override so the next session also
+// starts from the canonical 8% / 15% / fixed defaults.
+var _TD_AUTOPILOT_LS_KEY = 'ollietrades.autopilot.defaults';
 function tdResetAutopilotDefaults() {
   var slEn = document.getElementById('td-sl-enabled');
   var tpEn = document.getElementById('td-tp-enabled');
+  var slK = document.getElementById('td-sl-kind');
   var slI = document.getElementById('td-sl-pct');
   var tpI = document.getElementById('td-tp-pct');
   if (slEn) slEn.checked = true;
   if (tpEn) tpEn.checked = true;
+  if (slK) slK.value = 'fixed';
   if (slI) slI.value = '8';
   if (tpI) tpI.value = '15';
+  try { localStorage.removeItem(_TD_AUTOPILOT_LS_KEY); } catch (e) {}
   tdRecomputeProtectivePreview();
+  tdRecomputeAutopilotEnabled();
+}
+
+// HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23 — persist Captain's preferred
+// defaults across page reloads. Saved on every autopilot input change.
+// Cleared by tdResetAutopilotDefaults.
+function tdSaveAutopilotDefaults() {
+  try {
+    var slEn = (document.getElementById('td-sl-enabled') || {}).checked;
+    var tpEn = (document.getElementById('td-tp-enabled') || {}).checked;
+    var slK = (document.getElementById('td-sl-kind') || {}).value || 'fixed';
+    var slP = parseFloat((document.getElementById('td-sl-pct') || {}).value || '0');
+    var tpP = parseFloat((document.getElementById('td-tp-pct') || {}).value || '0');
+    if (isNaN(slP) || slP <= 0) slP = 8;
+    if (isNaN(tpP) || tpP <= 0) tpP = 15;
+    var payload = {sl_enabled: !!slEn, tp_enabled: !!tpEn,
+                   sl_kind: slK, sl_pct: slP, tp_pct: tpP, v: 1};
+    localStorage.setItem(_TD_AUTOPILOT_LS_KEY, JSON.stringify(payload));
+  } catch (e) { /* localStorage may be disabled — silent fallback */ }
+}
+
+function tdLoadAutopilotDefaults() {
+  try {
+    var raw = localStorage.getItem(_TD_AUTOPILOT_LS_KEY);
+    if (!raw) return;
+    var d = JSON.parse(raw);
+    if (!d || typeof d !== 'object') return;
+    var slEn = document.getElementById('td-sl-enabled');
+    var tpEn = document.getElementById('td-tp-enabled');
+    var slK = document.getElementById('td-sl-kind');
+    var slI = document.getElementById('td-sl-pct');
+    var tpI = document.getElementById('td-tp-pct');
+    if (slEn && typeof d.sl_enabled === 'boolean') slEn.checked = d.sl_enabled;
+    if (tpEn && typeof d.tp_enabled === 'boolean') tpEn.checked = d.tp_enabled;
+    if (slK && (d.sl_kind === 'fixed' || d.sl_kind === 'trailing')) slK.value = d.sl_kind;
+    if (slI && typeof d.sl_pct === 'number' && d.sl_pct > 0) slI.value = String(d.sl_pct);
+    if (tpI && typeof d.tp_pct === 'number' && d.tp_pct > 0) tpI.value = String(d.tp_pct);
+  } catch (e) { /* corrupt payload — leave defaults */ }
+}
+
+// HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23 — unified input handler that
+// recomputes preview + enable-state AND persists to localStorage. Replaces
+// the inline `oninput="tdRecomputeProtectivePreview()"` calls.
+function tdOnAutopilotInput() {
+  tdRecomputeProtectivePreview();
+  tdRecomputeAutopilotEnabled();
+  tdSaveAutopilotDefaults();
 }
 
 // HM-TRADE-DESK-AUTOPILOT-PHASE1: validate sl ∈ [0.5,50], tp ∈ [0.5,200].
@@ -6826,15 +6917,22 @@ function tdRecomputeProtectivePreview() {
     return;
   }
   // HM-TRADE-DESK-AUTOPILOT-PHASE2 2026-05-23: three modes —
-  //   * BRACKET (Phase 1) — whole-share, both legs, market/limit
+  //   * BRACKET (Phase 1) — whole-share, both legs, market/limit, fixed SL only
   //   * ATTACH-AFTER-FILL (Phase 2) — fractional/notional via OCO daemon
   //   * SINGLE-LEG (legacy) — only one leg checked; post-fill GTC attach
+  // HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23: trailing SL forces attach-
+  // after-fill (Alpaca bracket can't carry trail). Render the stop leg
+  // differently (trail % rather than absolute price).
+  var slKind = (document.getElementById('td-sl-kind') || {}).value || 'fixed';
   var isFractional = (qty > 0 && qty !== Math.floor(qty));
   var isNotional = (notional > 0);
-  var isPhase2 = isFractional || isNotional;
+  var isTrailing = (slKind === 'trailing');
+  var isPhase2 = isFractional || isNotional || isTrailing;
   if (slEn !== tpEn) {
     var leg = slEn ? '🛡 stop only' : '🎯 target only';
-    box.innerHTML = '<span style="color:#06b6d4;">' + leg + ' — single-leg post-fill GTC.</span>';
+    var slLegLabel = (slEn && isTrailing) ? 'trailing-stop ' + sl.toFixed(1) + '%'
+                                          : leg;
+    box.innerHTML = '<span style="color:#06b6d4;">' + slLegLabel + ' — single-leg post-fill GTC.</span>';
     return;
   }
   var stopP = ref * (1 - sl / 100);
@@ -6843,10 +6941,13 @@ function tdRecomputeProtectivePreview() {
     ? '<span style="color:#06b6d4;font-weight:600;">🔄 ATTACH-AFTER-FILL</span>'
     : '<span style="color:#10b981;font-weight:600;">⛓ BRACKET</span>';
   var basisLabel = isPhase2 ? 'fill price' : 'basis';
+  var slCell = isTrailing
+    ? '<span style="color:#ef4444;">🛡 trailing-stop −' + sl.toFixed(1) + '% (broker-side)</span>'
+    : '<span style="color:#ef4444;">🛡 stop @ $' + stopP.toFixed(2) + ' (−' + sl.toFixed(1) + '%)</span>';
   box.innerHTML =
     modeLabel + ' · ' +
     '<span style="color:#94a3b8;">' + basisLabel + ' ≈$' + ref.toFixed(2) + ' · </span>' +
-    '<span style="color:#ef4444;">🛡 stop @ $' + stopP.toFixed(2) + ' (−' + sl.toFixed(1) + '%)</span>' +
+    slCell +
     '<span style="color:#94a3b8;"> · </span>' +
     '<span style="color:#10b981;">🎯 target @ $' + targetP.toFixed(2) + ' (+' + tp.toFixed(1) + '%)</span>';
 }
@@ -6954,6 +7055,7 @@ function tdSubmitOrder() {
   // intent — checkbox state + percentages.
   var slEn = (document.getElementById('td-sl-enabled') || {}).checked;
   var tpEn = (document.getElementById('td-tp-enabled') || {}).checked;
+  var slKind = (document.getElementById('td-sl-kind') || {}).value || 'fixed';
   var apEligible = (side === 'buy'
     && (ot === 'market' || ot === 'limit'));
   var slPct = apEligible && slEn ? parseFloat(document.getElementById('td-sl-pct').value || '0') : 0;
@@ -6965,6 +7067,8 @@ function tdSubmitOrder() {
     // Phase 1+2 keys
     attach_sl_enabled: apEligible && slEn, attach_tp_enabled: apEligible && tpEn,
     attach_sl_pct: slPct, attach_tp_pct: tpPct,
+    // Phase 3 key — trailing SL forces attach-after-fill server-side.
+    attach_sl_kind: slKind,
     // Legacy keys for backwards compat
     stop_loss_pct: slPct, take_profit_pct: tpPct,
   };
@@ -7106,17 +7210,157 @@ function tdLoadFills() {
     });
 }
 
+// HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23: cascade-aware cancel. Pre-
+// checks the active OCO pairs list and warns the user when cancelling a
+// parent that has live protective children (these auto-cancel via the
+// backend's cancel_with_children path). Status line surfaces the
+// cascade result with explicit child counts.
 function tdCancel(orderId) {
   if (!orderId) return;
-  if (!confirm('Cancel order ' + orderId.substring(0, 8) + '?')) return;
-  fetch('/api/alpaca/cancel/' + encodeURIComponent(orderId), {method: 'POST'})
+  // Look up whether this order is an OCO parent so we can warn before
+  // confirming. Falls back to plain confirm on lookup error.
+  fetch('/api/trade-desk/protective-ids')
+    .then(function(r) { return r.json(); })
+    .catch(function() { return {pairs: []}; })
+    .then(function(p) {
+      var pairs = (p && p.pairs) || [];
+      var match = null;
+      for (var i = 0; i < pairs.length; i++) {
+        if (pairs[i].parent_order_id === orderId) { match = pairs[i]; break; }
+      }
+      var prompt = 'Cancel order ' + orderId.substring(0, 8) + '?';
+      if (match) {
+        var legs = [];
+        if (match.sl_order_id) legs.push('SL');
+        if (match.tp_order_id) legs.push('TP');
+        prompt = 'Cancel parent ' + (match.symbol || orderId.substring(0,8))
+          + ' (' + orderId.substring(0, 8) + ')?\n\n'
+          + 'This will ALSO cancel its protective children: '
+          + legs.join(' + ') + '.';
+      }
+      if (!confirm(prompt)) return;
+      fetch('/api/alpaca/cancel/' + encodeURIComponent(orderId), {method: 'POST'})
+        .then(function(r) { return r.json(); })
+        .then(function(d) {
+          var status = document.getElementById('td-status');
+          if (!status) { tdLoadPending(); tdLoadOcoPairs(); return; }
+          if (d.error) {
+            status.innerHTML = '<span style="color:#ef4444;">Cancel failed: ' + d.error + '</span>';
+          } else if (d.cascade) {
+            var n = 0;
+            if (d.sl) n++;
+            if (d.tp) n++;
+            var errPart = (d.errors && d.errors.length)
+              ? ' <span style="color:#f59e0b;">⚠ ' + d.errors.join('; ') + '</span>'
+              : '';
+            status.innerHTML = '<span style="color:#10b981;">✓ Cancelled parent + ' + n + ' protective ' + (n === 1 ? 'child' : 'children') + '</span>' + errPart;
+          } else {
+            status.innerHTML = '<span style="color:#10b981;">✓ Cancelled ' + orderId.substring(0, 8) + '</span>';
+          }
+          tdLoadPending();
+          tdLoadOcoPairs();
+        })
+        .catch(function(e) {
+          var status = document.getElementById('td-status');
+          if (status) status.innerHTML = '<span style="color:#ef4444;">Cancel failed: ' + e + '</span>';
+        });
+    });
+}
+
+// HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23 — Active OCO pairs table.
+// Renders one row per autopilot_oco_watch row with status='active'.
+// Each row carries its own inline edit inputs (sl_pct, sl_kind, tp_pct);
+// Save → POST /api/trade-desk/autopilot/replace/{parent_order_id} which
+// cancels current children + resubmits with the new pcts. Cancel here
+// invokes the cascade-aware tdCancel on the parent.
+function tdLoadOcoPairs() {
+  fetch('/api/trade-desk/protective-ids')
+    .then(function(r) { return r.json(); })
+    .then(function(d) {
+      var pairs = (d && d.pairs) || [];
+      var tbody = document.getElementById('td-oco-tbody');
+      var count = document.getElementById('td-oco-count');
+      if (!tbody) return;
+      if (count) count.textContent = pairs.length ? '(' + pairs.length + ')' : '';
+      if (!pairs.length) {
+        tbody.innerHTML = '<tr><td colspan="6" style="padding:8px 4px;color:var(--muted);text-align:center;">No active OCO pairs</td></tr>';
+        return;
+      }
+      tbody.innerHTML = pairs.map(function(pr) {
+        var pid = pr.parent_order_id || '';
+        var short = pid.substring(0, 8);
+        var sym = pr.symbol || '—';
+        var attached = pr.attached_at ? new Date(pr.attached_at.replace(' ', 'T') + 'Z').toLocaleString() : '';
+        var idAttr = function(suffix) { return 'td-oco-' + pid + '-' + suffix; };
+        var hasSl = !!pr.sl_order_id;
+        var hasTp = !!pr.tp_order_id;
+        return '<tr style="border-bottom:1px solid rgba(212,160,48,0.1);" title="attached ' + attached + '">'
+          + '<td style="padding:6px 4px;font-family:monospace;">' + sym + '</td>'
+          + '<td style="padding:6px 4px;font-family:monospace;color:var(--muted);">' + short + (hasSl ? '' : ' <span title="no SL" style="color:#94a3b8;">·noSL</span>') + (hasTp ? '' : ' <span title="no TP" style="color:#94a3b8;">·noTP</span>') + '</td>'
+          + '<td style="padding:6px 4px;text-align:right;"><input id="' + idAttr('sl-pct') + '" type="number" step="0.1" min="0.5" max="50" value="8" style="width:64px;padding:3px 6px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:3px;font-family:monospace;text-align:right;" /></td>'
+          + '<td style="padding:6px 4px;text-align:right;"><select id="' + idAttr('sl-kind') + '" style="padding:3px 6px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:3px;font-family:monospace;font-size:11px;"><option value="fixed">Fixed</option><option value="trailing">Trailing</option></select></td>'
+          + '<td style="padding:6px 4px;text-align:right;"><input id="' + idAttr('tp-pct') + '" type="number" step="0.1" min="0.5" max="200" value="15" style="width:64px;padding:3px 6px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:3px;font-family:monospace;text-align:right;" /></td>'
+          + '<td style="padding:6px 4px;text-align:center;white-space:nowrap;">'
+          + '<button onclick="tdReplaceOcoPair(\'' + pid + '\')" title="Cancel current SL+TP and submit new ones (brief unprotected window)" style="background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.4);color:#06b6d4;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:4px;">✏ Edit</button>'
+          + '<button onclick="tdCancel(\'' + pid + '\')" title="Cancel parent + children (cascade)" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#ef4444;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">✕</button>'
+          + '</td></tr>';
+      }).join('');
+    })
+    .catch(function() {
+      var tbody = document.getElementById('td-oco-tbody');
+      if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="padding:8px 4px;color:#ef4444;text-align:center;">OCO load failed</td></tr>';
+    });
+}
+
+function tdReplaceOcoPair(parentOrderId) {
+  if (!parentOrderId) return;
+  var slPctEl = document.getElementById('td-oco-' + parentOrderId + '-sl-pct');
+  var tpPctEl = document.getElementById('td-oco-' + parentOrderId + '-tp-pct');
+  var slKindEl = document.getElementById('td-oco-' + parentOrderId + '-sl-kind');
+  if (!slPctEl || !tpPctEl || !slKindEl) return;
+  var slPct = parseFloat(slPctEl.value || '0');
+  var tpPct = parseFloat(tpPctEl.value || '0');
+  var slKind = slKindEl.value || 'fixed';
+  if (isNaN(slPct) || slPct < 0.5 || slPct > 50) {
+    alert('Stop % must be between 0.5 and 50 (got ' + slPct + ').');
+    return;
+  }
+  if (isNaN(tpPct) || tpPct < 0.5 || tpPct > 200) {
+    alert('Target % must be between 0.5 and 200 (got ' + tpPct + ').');
+    return;
+  }
+  var msg = 'Replace protective orders for ' + parentOrderId.substring(0, 8)
+    + '?\n\nThis cancels the current SL + TP and submits new ones — '
+    + 'brief window where the position is unprotected.\n\n'
+    + 'New: stop ' + slKind + ' ' + slPct.toFixed(1) + '% / target ' + tpPct.toFixed(1) + '%';
+  if (!confirm(msg)) return;
+  var status = document.getElementById('td-status');
+  if (status) status.innerHTML = '<span style="color:var(--muted);">Replacing protective orders…</span>';
+  fetch('/api/trade-desk/autopilot/replace/' + encodeURIComponent(parentOrderId), {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify({sl_pct: slPct, tp_pct: tpPct, sl_kind: slKind,
+                          sl_enabled: true, tp_enabled: true}),
+  })
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.error) {
-        var status = document.getElementById('td-status');
-        if (status) status.innerHTML = '<span style="color:#ef4444;">Cancel failed: ' + d.error + '</span>';
+        if (status) status.innerHTML = '<span style="color:#ef4444;">✗ Replace failed: ' + d.error + '</span>';
+        return;
       }
+      var canceled = (d.canceled && d.canceled.length) || 0;
+      var newBits = [];
+      if (d.sl_order_id) newBits.push('🛡 ' + (d.sl_kind === 'trailing' ? 'trail ' + slPct.toFixed(1) + '%' : '$' + parseFloat(d.stop_price || 0).toFixed(2)));
+      if (d.tp_order_id) newBits.push('🎯 $' + parseFloat(d.target_price || 0).toFixed(2));
+      var errPart = (d.errors && d.errors.length)
+        ? ' <span style="color:#f59e0b;">⚠ ' + d.errors.join('; ') + '</span>'
+        : '';
+      if (status) status.innerHTML = '<span style="color:#10b981;">✓ Replaced (cancelled ' + canceled + ', new: ' + (newBits.join(' / ') || '—') + ')</span>' + errPart;
+      tdLoadOcoPairs();
       tdLoadPending();
+    })
+    .catch(function(e) {
+      if (status) status.innerHTML = '<span style="color:#ef4444;">✗ Replace failed: ' + e + '</span>';
     });
 }
 
@@ -7157,11 +7401,16 @@ function tdInit() {
       tdRecomputeProtectivePreview();
     });
   });
+  // HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23: restore Captain's preferred
+  // SL/TP defaults from localStorage BEFORE the initial recompute so the
+  // preview reflects them immediately on panel open.
+  tdLoadAutopilotDefaults();
   // Initial enable/disable state.
   tdRecomputeAutopilotEnabled();
   // Initial load of tables.
   tdLoadPending();
   tdLoadFills();
+  tdLoadOcoPairs();
   // Render the autopilot preview placeholder.
   tdRecomputeProtectivePreview();
 }
@@ -7170,6 +7419,7 @@ if (typeof registerSectionInit === 'function') {
   registerSectionInit('trade-desk', tdInit, [
     {fn: tdLoadPending, ms: 7000},
     {fn: tdLoadFills, ms: 15000},
+    {fn: tdLoadOcoPairs, ms: 10000},
   ]);
 }
 </script>

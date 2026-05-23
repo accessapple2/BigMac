@@ -10179,6 +10179,15 @@ def alpaca_buy(data: dict):
     _tp_enabled = bool(data.get("attach_tp_enabled", tp_pct > 0))
     _attach_sl_pct = float(data.get("attach_sl_pct", sl_pct) or 0)
     _attach_tp_pct = float(data.get("attach_tp_pct", tp_pct) or 0)
+    # HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23: optional sl_kind selector.
+    # 'fixed' (default, identical to Phase 1+2 behavior) or 'trailing'
+    # (broker-side trailing stop via TrailingStopOrderRequest). Trailing
+    # is not supported in Alpaca BracketOrderRequest, so any trailing SL
+    # is forced through the attach-after-fill daemon path regardless of
+    # share count.
+    _attach_sl_kind = (data.get("attach_sl_kind") or "fixed").lower()
+    if _attach_sl_kind not in ("fixed", "trailing"):
+        _attach_sl_kind = "fixed"
     use_ext = False
     try:
         from engine.risk_manager import RiskManager
@@ -10219,10 +10228,13 @@ def alpaca_buy(data: dict):
             )}
     # PHASE2 route detection: anything that disqualified for bracket but
     # the Captain still asked for autopilot → attach-after-fill path.
+    # PHASE3 (HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23): trailing SL forces
+    # this path regardless of share count (bracket can't carry trail).
     _wants_attach_after_fill = (
         _autopilot_requested
         and ((notional and notional > 0)
-             or (qty > 0 and float(qty) != float(int(qty))))
+             or (qty > 0 and float(qty) != float(int(qty)))
+             or (_sl_enabled and _attach_sl_kind == "trailing"))
     )
     # Pass bracket pcts to alpaca.buy() only when both legs enabled +
     # whole-share + not fractional + not notional. Phase 2 attach-after-fill
@@ -10250,6 +10262,7 @@ def alpaca_buy(data: dict):
             'target_price': result.get('target_price'),
             'bracket': bool(result.get('bracket')),
             'attach_after_fill': False,
+            'sl_kind': _attach_sl_kind,
             'errors': [],
         }
         # PHASE2 (HM-NEXT-WAVE Phase 3) attach-after-fill route — fires for
@@ -10281,6 +10294,7 @@ def alpaca_buy(data: dict):
                         fill_price=float(_fill_price),
                         sl_pct=(_attach_sl_pct if _sl_enabled else 0),
                         tp_pct=(_attach_tp_pct if _tp_enabled else 0),
+                        sl_kind=_attach_sl_kind,
                         agent_id=agent_id,
                     )
                     autopilot_out['stop_order_id'] = _attach_out.get(
@@ -10392,8 +10406,13 @@ def trade_desk_protective_ids():
     were attached by the Trade Desk autopilot, split by leg. The UI joins
     this against /api/alpaca/orders to badge stop/target rows in the pending
     table. Player-scoped to 'trade-desk' so fleet stops are not surfaced.
+
+    HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23 — also include a `pairs[]`
+    array of active OCO pairs (parent + children, symbol, attached_at) so
+    the UI can render the "Active Protective Orders" panel with inline
+    replace + per-pair cancel.
     """
-    out: dict = {"stop_ids": [], "target_ids": []}
+    out: dict = {"stop_ids": [], "target_ids": [], "pairs": []}
     try:
         import sqlite3 as _td_sq
         _td_c = _td_sq.connect("data/trader.db", check_same_thread=False, timeout=10)
@@ -10414,7 +10433,54 @@ def trade_desk_protective_ids():
             _td_c.close()
     except Exception as e:
         out["error"] = f"{type(e).__name__}: {e!r}"
+    try:
+        from engine.trade_desk_autopilot import list_active_oco_pairs
+        out["pairs"] = list_active_oco_pairs()
+    except Exception as e:
+        out["pairs_error"] = f"{type(e).__name__}: {e!r}"
     return out
+
+
+@app.post("/api/trade-desk/autopilot/replace/{parent_order_id}")
+def trade_desk_autopilot_replace(parent_order_id: str, payload: dict):
+    """HM-TRADE-DESK-AUTOPILOT-PHASE3 2026-05-23 — replace the active SL +
+    TP children attached to a parent BUY with new prices.
+
+    Body: {sl_pct, tp_pct, sl_enabled (default true), tp_enabled (default
+    true), sl_kind ('fixed'|'trailing')}.
+
+    Returns the underlying replace_protective_orders() result. The UI
+    surfaces the cancel-and-resubmit gap as a banner. Brief unprotected
+    window between (1) cancel current children and (2) submit new ones.
+    """
+    body = payload or {}
+    try:
+        sl_pct = float(body.get("sl_pct") or 0)
+    except (TypeError, ValueError):
+        return {"error": "sl_pct must be numeric"}
+    try:
+        tp_pct = float(body.get("tp_pct") or 0)
+    except (TypeError, ValueError):
+        return {"error": "tp_pct must be numeric"}
+    sl_enabled = bool(body.get("sl_enabled", True))
+    tp_enabled = bool(body.get("tp_enabled", True))
+    sl_kind = str(body.get("sl_kind") or "fixed").lower()
+    if sl_kind not in ("fixed", "trailing"):
+        return {"error": f"sl_kind must be 'fixed' or 'trailing', got {sl_kind!r}"}
+    if sl_enabled and not (0.5 <= sl_pct <= 50):
+        return {"error": f"sl_pct must be in [0.5, 50] (got {sl_pct})"}
+    if tp_enabled and not (0.5 <= tp_pct <= 200):
+        return {"error": f"tp_pct must be in [0.5, 200] (got {tp_pct})"}
+    try:
+        from engine.trade_desk_autopilot import replace_protective_orders
+        return replace_protective_orders(
+            parent_order_id,
+            sl_pct=sl_pct, tp_pct=tp_pct,
+            sl_enabled=sl_enabled, tp_enabled=tp_enabled,
+            sl_kind=sl_kind,
+        )
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e!r}"}
 
 
 @app.post("/api/alpaca/close/{symbol}")
