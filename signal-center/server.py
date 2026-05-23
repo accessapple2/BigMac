@@ -1236,6 +1236,183 @@ def _morpheus_load_commits():
     return commits
 
 
+# ═══════════════════════════════════════════════════════════════════════════
+# HM-MASTER-PLAN W1-C (2026-05-23) — Matrix-tab content sources per Captain's
+# spec. Six new loaders that re-route the existing 6 sections to the
+# operationally-current data the Captain wants surfaced:
+#   Red Alert      → ntfy-class alerts (risk + ship-computer) last 24h
+#   The Matrix     → daily_snapshot latest row (master_score + signal count)
+#   Intelligence   → rikers_log latest synthesis entries
+#   Oracle         → kirk_advisory_log latest recommendations (broadened window)
+#   Fleet Status   → /api/cockpit/snapshot on trader port 8080
+#   Ship's Log     → execution_log last 20 (falls back to git commits if empty)
+# Old loaders preserved for backward-compat; new keys are additive.
+# ═══════════════════════════════════════════════════════════════════════════
+
+def _morpheus_load_red_alerts():
+    """W1-C Red Alert — NTFY-class alerts in last 24h.
+
+    No dedicated ntfy_log table exists; closest proxy is the union of
+    risk_alerts (Riker/fleet auditor) + ship_computer_alerts (high-conf
+    signal-side events). Both are NTFY-emitting surfaces per
+    engine/alert_channels.py routing.
+    """
+    conn = sqlite3.connect(_morpheus_trader_db_path(), timeout=5)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT 'risk' AS source, severity, agent_id AS subject, "
+            "       message, detail, created_at "
+            "  FROM risk_alerts "
+            " WHERE datetime(created_at) >= datetime('now','-24 hours') "
+            " UNION ALL "
+            "SELECT 'ship_computer' AS source, alert_type AS severity, "
+            "       symbol AS subject, message, detail, created_at "
+            "  FROM ship_computer_alerts "
+            " WHERE datetime(created_at) >= datetime('now','-24 hours') "
+            " ORDER BY created_at DESC LIMIT 20"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _morpheus_load_daily_snapshot():
+    """W1-C The Matrix — latest daily_snapshot row.
+
+    Returns a compact summary: date, master_score, signal_count,
+    plus the parsed first 3 signals for context. Avoids returning the
+    full multi-KB signal_data blob on every awareness poll.
+    """
+    db = get_db()
+    try:
+        row = db.execute(
+            "SELECT date, master_score, master_grade, signal_data, created_at "
+            "FROM daily_snapshot ORDER BY date DESC, id DESC LIMIT 1"
+        ).fetchone()
+        if not row:
+            return None
+        d = dict(row)
+        try:
+            sigs = json.loads(d.get("signal_data") or "[]")
+            d["signal_count"] = len(sigs)
+            d["top_signals"] = sigs[:3]
+        except Exception:
+            d["signal_count"] = 0
+            d["top_signals"] = []
+        d.pop("signal_data", None)
+        return d
+    finally:
+        db.close()
+
+
+def _morpheus_load_riker_synthesis():
+    """W1-C Intelligence — latest Riker XO synthesis entries.
+
+    rikers_log entry_type='synthesis' rows carry the every-10-min XO roll-up
+    of signals + trades + open positions + agent activity.
+    """
+    conn = sqlite3.connect(_morpheus_trader_db_path(), timeout=5)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT id, entry_type, source, title, content, ticker, action, "
+            "       conviction, created_at "
+            "FROM rikers_log "
+            "WHERE entry_type IN ('synthesis','manual','briefing') "
+            "ORDER BY id DESC LIMIT 8"
+        ).fetchall()
+        out = []
+        for r in rows:
+            d = dict(r)
+            # content is JSON for synthesis; pre-parse the summary subkey
+            try:
+                parsed = json.loads(d.get("content") or "{}")
+                if isinstance(parsed, dict) and parsed.get("summary"):
+                    d["summary"] = parsed["summary"]
+            except Exception:
+                pass
+            out.append(d)
+        return out
+    finally:
+        conn.close()
+
+
+def _morpheus_load_kirk_advisory_recent():
+    """W1-C Oracle — latest Kirk advisory recommendations.
+
+    Broader than _morpheus_load_kirk_alerts (24h + dismissed filter).
+    Oracle is the always-on advisory surface — show the latest
+    recommendations regardless of dismissed-by-Captain state. Captain
+    can re-read the rationale even after dismissing the prompt.
+    """
+    conn = sqlite3.connect(_morpheus_trader_db_path(), timeout=5)
+    conn.row_factory = sqlite3.Row
+    try:
+        rows = conn.execute(
+            "SELECT ticker, action, message, alert_type, fear_greed_score, "
+            "       vix_level, acted_on, dismissed_at, created_at "
+            "FROM kirk_advisory_log "
+            "ORDER BY id DESC LIMIT 8"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+def _morpheus_load_cockpit():
+    """W1-C Fleet Status — trader /api/cockpit/snapshot summary.
+
+    HTTP GET on trader port 8080. Returns compact summary: regime, fleet
+    counts, kill_switch state, dispatcher mix, autopilot status.
+    """
+    import urllib.request as _ur
+    with _ur.urlopen("http://127.0.0.1:8080/api/cockpit/snapshot", timeout=5) as resp:
+        d = json.loads(resp.read())
+    # Flatten regime: trader returns {"date": ..., "regime": "BULL_CROSS", ...}
+    # but the Matrix Fleet Status panel renders it as a single string field.
+    # Accept either shape (string or object) for forward-compat.
+    raw_regime = d.get("regime")
+    if isinstance(raw_regime, dict):
+        regime_str = raw_regime.get("regime") or raw_regime.get("name") or ""
+        regime_date = raw_regime.get("date")
+    else:
+        regime_str = raw_regime or ""
+        regime_date = None
+    return {
+        "ts":                 d.get("ts"),
+        "regime":             regime_str,
+        "regime_date":        regime_date,
+        "kill_switch":        d.get("kill_switch"),
+        "autopilot_active":   d.get("autopilot_active"),
+        "fleet_summary":      d.get("fleet_summary"),
+        "wr_heartbeat":       d.get("wr_heartbeat"),
+        "trade_desk_today":   d.get("trade_desk_today"),
+        "capital_ladder":     d.get("capital_ladder"),
+        "engine_allocation":  d.get("engine_allocation"),
+    }
+
+
+def _morpheus_load_execution_log():
+    """W1-C Ship's Log — execution_log last 20 entries.
+
+    execution_log is the canonical record of dispatcher actions taken
+    (tractor-auto path + future direct-execute paths). Empty until the
+    first such event fires post-Phase-7 ship; frontend falls back to
+    git commits when empty so the panel is never blank.
+    """
+    db = get_db()
+    try:
+        rows = db.execute(
+            "SELECT id, signal_id, symbol, direction, qty, entry_price, "
+            "       fill_price, grade, prob, source, status, executed_at "
+            "FROM execution_log ORDER BY id DESC LIMIT 20"
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        db.close()
+
+
 def _morpheus_daily_snapshot_capture(payload: dict) -> bool:
     """Idempotent first-call-of-day insert into daily_snapshot. Returns True if inserted."""
     db = get_db()
@@ -1388,13 +1565,23 @@ def morpheus_awareness():
     }
 
     loaders = [
-        ("portfolio",    _morpheus_load_portfolio),
-        ("kirk_alerts",  _morpheus_load_kirk_alerts),
-        ("advisory",     _morpheus_load_advisory),
-        ("intelligence", _morpheus_load_intelligence),
-        ("signals",      _morpheus_load_signals),
-        ("predictions",  _morpheus_load_predictions),
-        ("commits",      _morpheus_load_commits),
+        # Legacy sources — preserved for backward compat (daily_snapshot
+        # capture + any external consumers still on the v1 shape).
+        ("portfolio",            _morpheus_load_portfolio),
+        ("kirk_alerts",          _morpheus_load_kirk_alerts),
+        ("advisory",             _morpheus_load_advisory),
+        ("intelligence",         _morpheus_load_intelligence),
+        ("signals",              _morpheus_load_signals),
+        ("predictions",          _morpheus_load_predictions),
+        ("commits",              _morpheus_load_commits),
+        # HM-MASTER-PLAN W1-C 2026-05-23 — Captain-spec sources for the
+        # 6 Matrix tab sections.
+        ("red_alerts",           _morpheus_load_red_alerts),
+        ("daily_snapshot",       _morpheus_load_daily_snapshot),
+        ("riker_synthesis",      _morpheus_load_riker_synthesis),
+        ("kirk_advisory_recent", _morpheus_load_kirk_advisory_recent),
+        ("cockpit",              _morpheus_load_cockpit),
+        ("execution_log",        _morpheus_load_execution_log),
     ]
 
     for name, fn in loaders:

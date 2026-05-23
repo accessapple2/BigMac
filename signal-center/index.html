@@ -634,32 +634,75 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   // commits/advisory/kirk_alerts/predictions, and a flat portfolio object.
   // Confidence on signals is 0–100; on advisory it's 0–1.
 
+  // W1-C 2026-05-23: Red Alert now renders NTFY-class alerts (risk_alerts +
+  // ship_computer_alerts) from the new red_alerts payload key. Falls back to
+  // the legacy signals-based render when red_alerts is empty/unavailable.
   function _renderRedAlert(d) {
+    const alerts = Array.isArray(d.red_alerts) ? d.red_alerts : [];
+    if (alerts.length) {
+      // Dedupe identical message+subject pairs (multiple sources can emit same)
+      const seen = new Set();
+      const unique = alerts.filter(a => {
+        const k = (a.source || '') + '|' + (a.subject || '') + '|' + (a.message || '').slice(0, 60);
+        if (seen.has(k)) return false;
+        seen.add(k);
+        return true;
+      });
+      return _list(unique, a => {
+        const sev = (a.severity || '').toUpperCase();
+        const sevColor = sev.includes('CRIT') || sev === 'HIGH' ? '#ef4444' :
+                         sev.includes('WARN') || sev === 'MED' ? '#f59e0b' : 'var(--muted)';
+        return `<b>${_esc(a.subject || '—')}</b> <span style="color:${sevColor};font-size:10px">[${_esc(sev || a.source || '?')}]</span><br>` +
+               `<span class="ms-key">${_esc((a.message || '').slice(0, 140))}</span>`;
+      });
+    }
+    // Fallback to legacy high-conf signals (pre-W1-C shape)
     const sigs = Array.isArray(d.signals) ? d.signals : [];
     const high = sigs.filter(s => Number(s.confidence || 0) >= 85);
-    // Bug 2 dedupe: signal scanners can emit the same symbol+action from
-    // multiple agents in one cycle (saw NUKZ SELL twice 2026-05-18). Keep first.
-    const seen = new Set();
-    const unique = high.filter(s => {
-      const k = (s.symbol || '') + '|' + (s.action || s.type || '');
-      if (seen.has(k)) return false;
-      seen.add(k);
-      return true;
-    });
-    if (!unique.length) return '<div class="ms-empty">no high-confidence alerts</div>';
-    return _list(unique, s =>
+    if (!high.length) return '<div class="ms-empty">no alerts in last 24h</div>';
+    return _list(high, s =>
       `<b>${_esc(s.symbol)}</b> · ${_esc(s.action || s.type || '')} (conf ${Math.round(Number(s.confidence || 0))}%) — <span class="ms-key">${_esc(s.agent_name || '')}</span>`
     );
   }
 
-  // HM-MORPHEUS-AM-PANEL-SPLIT 2026-05-20: render the HM-AM-compliant portfolio
-  // shape from PR #52 (Schwab + metals only, real-world net worth). Falls back
-  // to the legacy total_portfolio shape if PR #52 wasn't yet active (detected by
-  // presence of `total_value` field).
-  // Collapsible: the headline always shows net liquid worth + source badge.
-  // Detail rows (Schwab + metals breakdown) toggle via the "▼ details" button.
+  // W1-C 2026-05-23: The Matrix now leads with daily_snapshot summary
+  // (master_score + top signals) per Captain spec. Portfolio details are
+  // preserved under the existing "▼ details" toggle for the HM-AM panel.
   function _renderMatrix(d) {
-    const p = d.portfolio || {};
+    const snap = d.daily_snapshot;
+    if (snap && snap.date) {
+      const score = snap.master_score;
+      const grade = snap.master_grade;
+      const sigCount = snap.signal_count != null ? snap.signal_count : 0;
+      const top = Array.isArray(snap.top_signals) ? snap.top_signals : [];
+      const scoreColor = score >= 80 ? '#22c55e' : score >= 60 ? '#f59e0b' : score >= 40 ? '#fb923c' : '#ef4444';
+      const headRows = [
+        { k: 'Date',         v: snap.date },
+        { k: 'Master Score', v: `<span style="color:${scoreColor};font-weight:700">${score != null ? score : '—'}</span>${grade ? ' (' + _esc(grade) + ')' : ''}` },
+        { k: 'Signals',      v: sigCount },
+      ];
+      // Top signal preview rows (render up to 3 from snap.top_signals)
+      const sigRows = top.map(s => {
+        const conf = s.confidence != null ? Math.round(Number(s.confidence)) + '%' : '';
+        return `<div class="ms-row"><span class="ms-key">${_esc(s.symbol || '')}</span>` +
+               `<span class="ms-val">${_esc(s.action || '')} · ${_esc(s.type || '')} ${conf}</span></div>`;
+      }).join('');
+      // Build headline KV (using raw HTML for the colored master_score)
+      const headHtml = headRows.map(r =>
+        `<div class="ms-row"><span class="ms-key">${_esc(r.k)}</span><span class="ms-val">${r.v}</span></div>`
+      ).join('');
+      // Portfolio details preserved under existing toggle button
+      const portfolioHtml = _renderMatrixPortfolioDetails(d.portfolio || {});
+      return headHtml + sigRows +
+        `<div id="matrix-portfolio-details" style="display:none;border-top:1px dashed var(--border);margin-top:8px;padding-top:8px;">${portfolioHtml}</div>`;
+    }
+    // Fallback to legacy portfolio-led render when daily_snapshot missing
+    return _renderMatrixPortfolioDetails(d.portfolio || {});
+  }
+
+  // Portfolio details rendering — separated out so The Matrix can keep
+  // the details toggle while the headline shows daily_snapshot (W1-C).
+  function _renderMatrixPortfolioDetails(p) {
     const fmtUsd = v => v != null ? '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 2 }) : '—';
     const fmtInt = v => v != null ? '$' + Number(v).toLocaleString(undefined, { maximumFractionDigits: 0 }) : '—';
 
@@ -708,9 +751,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
         detailRows.push({ k: '⚗️ Metals total', v: fmtUsd(mt.total_mv) });
       }
 
-      const detailsHtml = detailRows.length
-        ? `<div id="matrix-portfolio-details" style="display:none;border-top:1px dashed var(--border);margin-top:8px;padding-top:8px;">${_kv(detailRows)}</div>`
-        : '';
+      // W1-C 2026-05-23: _renderMatrix now wraps this content in the
+      // toggle-div when daily_snapshot leads. Return raw inner content;
+      // legacy fallback path (no daily_snapshot) renders this as the
+      // headline directly (always-visible).
+      const detailsHtml = detailRows.length ? _kv(detailRows) : '';
       return _kv(headlineRows) + sourceBadge + excludesBadge + doctrineWarn + detailsHtml;
     }
 
@@ -752,12 +797,28 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     }
   }
 
+  // W1-C 2026-05-23: Intelligence now renders Riker XO synthesis entries
+  // (rikers_log entry_type='synthesis') with the parsed summary block.
+  // Falls back to the legacy intelligence_feed when riker_synthesis empty.
   function _renderIntelligence(d) {
+    const syn = Array.isArray(d.riker_synthesis) ? d.riker_synthesis : [];
+    if (syn.length) {
+      return _list(syn, it => {
+        const sum = it.summary || {};
+        const ts = (it.created_at || '').slice(11, 16);
+        const stats = [];
+        if (sum.total_signals != null) stats.push(`${sum.total_signals} sigs`);
+        if (sum.high_conf_signals != null) stats.push(`${sum.high_conf_signals} HC`);
+        if (sum.trades_executed != null) stats.push(`${sum.trades_executed} trades`);
+        if (sum.open_positions != null) stats.push(`${sum.open_positions} pos`);
+        if (sum.fleet_agents != null) stats.push(`${sum.fleet_agents} agents`);
+        const title = it.title || `Synthesis ${ts}`;
+        const statsLine = stats.length ? stats.join(' · ') : (it.content || '').slice(0, 140);
+        return `<b>${_esc(title)}</b><br><span class="ms-key">${_esc(statsLine)}</span>`;
+      });
+    }
+    // Legacy intelligence_feed fallback
     const raw = Array.isArray(d.intelligence) ? d.intelligence : [];
-    // F2 dedupe: backend can emit byte-identical entries from repeated scans
-    // (saw 2× CONGRESS "Capitol Trades scan completed" 4 min apart 2026-05-18).
-    // Key on feed_type + raw data string so SCREENER per-symbol rows stay
-    // distinct while literal repeats collapse. Mirrors Red Alert pattern.
     const seen = new Set();
     const items = raw.filter(it => {
       const k = (it.feed_type || '') + '|' + (typeof it.data === 'string' ? it.data : JSON.stringify(it.data || ''));
@@ -765,6 +826,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       seen.add(k);
       return true;
     });
+    if (!items.length) return '<div class="ms-empty">no Riker synthesis yet</div>';
     return _list(items, it => {
       let title = it.feed_type || 'feed';
       let body = '';
@@ -774,31 +836,33 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
           if (parsed && typeof parsed === 'object') {
             title = parsed.title || title;
             body = parsed.message || parsed.summary || '';
-            // Bug 6 fallback: some feed_types (SCREENER, etc.) emit symbol+score
-            // shapes with no title/message. Synthesize a one-line body so the
-            // panel doesn't render an empty subtitle.
-            if (!body) {
-              const parts = [];
-              if (parsed.symbol) parts.push(_esc(parsed.symbol));
-              if (parsed.preset) parts.push('preset ' + _esc(parsed.preset));
-              if (parsed.score != null) parts.push('score ' + _esc(parsed.score));
-              if (parsed.change != null) parts.push((Number(parsed.change) >= 0 ? '+' : '') + Number(parsed.change).toFixed(2) + '%');
-              if (parsed.rsi != null) parts.push('rsi ' + _esc(parsed.rsi));
-              if (parts.length) body = parts.join(' · ');
-            }
           } else {
             body = it.data;
           }
-        } catch (_) {
-          body = it.data;
-        }
+        } catch (_) { body = it.data; }
       }
       return `<b>${_esc(title)}</b><br><span class="ms-key">${_esc(body.slice(0, 160))}</span>`;
     });
   }
 
+  // W1-C 2026-05-23: Oracle now renders Kirk advisory recommendations
+  // (kirk_advisory_log, broadened window). Falls back to legacy
+  // predictions when kirk_advisory_recent is empty.
   function _renderOracle(d) {
+    const ka = Array.isArray(d.kirk_advisory_recent) ? d.kirk_advisory_recent : [];
+    if (ka.length) {
+      return _list(ka, a => {
+        const at = (a.created_at || '').slice(0, 16);
+        const fg = a.fear_greed_score != null ? `FG ${a.fear_greed_score}` : '';
+        const vix = a.vix_level != null ? `VIX ${Number(a.vix_level).toFixed(1)}` : '';
+        const ctx = [fg, vix].filter(Boolean).join(' · ');
+        return `<b>${_esc(a.ticker)}</b> · ${_esc(a.action || '')} <span class="ms-key">[${_esc(a.alert_type || '')}${ctx ? ' · ' + ctx : ''}]</span><br>` +
+               `<span class="ms-key">${_esc((a.message || '').slice(0, 160))}${at ? ' · ' + at : ''}</span>`;
+      });
+    }
+    // Legacy predictions fallback
     const preds = Array.isArray(d.predictions) ? d.predictions : [];
+    if (!preds.length) return '<div class="ms-empty">no advisory recommendations</div>';
     return _list(preds, p => {
       const tps = [p.tp1, p.tp2].filter(x => x != null).map(x => '$' + Number(x).toFixed(2)).join(' / ');
       return `<b>${_esc(p.symbol)}</b> · ${_esc(p.recommendation || '')} <span class="ms-key">[${_esc(p.regime || '')} · score ${_esc(p.master_score)}]</span>` +
@@ -806,10 +870,41 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     });
   }
 
+  // W1-C 2026-05-23: Fleet Status renders /api/cockpit/snapshot summary
+  // (regime, fleet count, kill switch, autopilot, trade-desk today).
+  // Falls back to legacy kirk_alerts + advisory when cockpit unreachable.
   function _renderFleetStatus(d) {
+    const c = d.cockpit;
+    if (c && (c.regime || c.fleet_summary)) {
+      const fs = c.fleet_summary || {};
+      const td = c.trade_desk_today || {};
+      const ks = c.kill_switch || {};
+      const rows = [];
+      if (c.regime) rows.push({ k: 'Regime', v: _esc(c.regime) });
+      if (fs.active != null) {
+        const counts = `${fs.active} active${fs.exit_only != null ? ' · ' + fs.exit_only + ' exit' : ''}${fs.halted != null ? ' · ' + fs.halted + ' halt' : ''}`;
+        rows.push({ k: 'Fleet', v: counts });
+      }
+      if (ks.enabled != null) {
+        rows.push({ k: 'Kill Switch', v: ks.enabled ? '<span style="color:#ef4444">ARMED</span>' : '<span style="color:#22c55e">clear</span>' });
+      }
+      if (c.autopilot_active != null) {
+        rows.push({ k: 'Autopilot', v: c.autopilot_active ? '<span style="color:#22c55e">ON</span>' : 'off' });
+      }
+      if (td.fills != null) {
+        rows.push({ k: 'Desk Today', v: `${td.fills} fills${td.pnl != null ? ' · $' + Number(td.pnl).toFixed(2) : ''}` });
+      }
+      if (c.wr_heartbeat && c.wr_heartbeat.last_cycle_s != null) {
+        rows.push({ k: 'WR Cycle', v: `${c.wr_heartbeat.last_cycle_s}s` });
+      }
+      return rows.map(r =>
+        `<div class="ms-row"><span class="ms-key">${_esc(r.k)}</span><span class="ms-val">${r.v}</span></div>`
+      ).join('') || '<div class="ms-empty">cockpit empty</div>';
+    }
+    // Legacy fallback: kirk_alerts + advisory
     const ka = Array.isArray(d.kirk_alerts) ? d.kirk_alerts : [];
     const adv = Array.isArray(d.advisory) ? d.advisory : [];
-    if (!ka.length && !adv.length) return '<div class="ms-empty">no fleet signals</div>';
+    if (!ka.length && !adv.length) return '<div class="ms-empty">cockpit unreachable</div>';
     const kaHtml = ka.slice(0, 3).map(a =>
       `<div class="ms-list-item"><b>${_esc(a.ticker)}</b> · ${_esc(a.action || '')} <span class="ms-key">[${_esc(a.alert_type || '')}]</span><br><span class="ms-key">${_esc((a.message || '').slice(0, 140))}</span></div>`
     ).join('');
@@ -819,8 +914,24 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     return kaHtml + advHtml;
   }
 
+  // W1-C 2026-05-23: Ship's Log renders execution_log last 20 (actions
+  // taken). Empty until first tractor-auto execution writes a row; falls
+  // back to git commits so the panel is never blank.
   function _renderShipsLog(d) {
+    const log = Array.isArray(d.execution_log) ? d.execution_log : [];
+    if (log.length) {
+      return _list(log, e => {
+        const ts = (e.executed_at || '').slice(11, 16);
+        const fillStr = e.fill_price != null ? '$' + Number(e.fill_price).toFixed(2)
+                      : (e.entry_price != null ? '$' + Number(e.entry_price).toFixed(2) : '');
+        const grade = e.grade ? `[${_esc(e.grade)}]` : '';
+        return `<b>${_esc(e.symbol)}</b> · ${_esc(e.direction || '')} ${e.qty != null ? _esc(e.qty) : ''} ${fillStr} ` +
+               `<span class="ms-key">${grade} ${_esc(e.status || '')} · ${ts}</span>`;
+      });
+    }
+    // Fallback to git commits (panel never blank)
     const commits = Array.isArray(d.commits) ? d.commits : [];
+    if (!commits.length) return '<div class="ms-empty">no executions yet</div>';
     return _list(commits, c =>
       `<b>${_esc((c.sha || '').slice(0, 7))}</b> · ${_esc((c.msg || '').slice(0, 150))}`
     );
@@ -852,22 +963,28 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       }
       if (fetchEl) fetchEl.textContent = new Date().toLocaleTimeString();
 
+      // W1-C 2026-05-23: each section consumes its Captain-spec primary
+      // source with legacy fallback; only display 'source failed' when
+      // BOTH primary and fallback failed.
       _renderSection('red-alert-content',
-        failed.has('signals') ? '<div class="ms-error">signals source failed</div>' : _renderRedAlert(d));
+        (failed.has('red_alerts') && failed.has('signals'))
+          ? '<div class="ms-error">alert sources failed</div>' : _renderRedAlert(d));
       _renderSection('the-matrix-content',
-        failed.has('portfolio') ? '<div class="ms-error">portfolio source failed</div>' : _renderMatrix(d));
-      // HM-MORPHEUS-AM-PANEL-SPLIT 2026-05-20: restore collapse/expand state after each re-render
+        (failed.has('daily_snapshot') && failed.has('portfolio'))
+          ? '<div class="ms-error">matrix sources failed</div>' : _renderMatrix(d));
       _restoreMatrixPortfolioState();
       _renderSection('intelligence-content',
-        failed.has('intelligence') ? '<div class="ms-error">intelligence source failed</div>' : _renderIntelligence(d));
+        (failed.has('riker_synthesis') && failed.has('intelligence'))
+          ? '<div class="ms-error">intelligence sources failed</div>' : _renderIntelligence(d));
       _renderSection('oracle-content',
-        failed.has('predictions') ? '<div class="ms-error">predictions source failed</div>' : _renderOracle(d));
+        (failed.has('kirk_advisory_recent') && failed.has('predictions'))
+          ? '<div class="ms-error">advisory sources failed</div>' : _renderOracle(d));
       _renderSection('fleet-status-content',
-        (failed.has('kirk_alerts') && failed.has('advisory'))
-          ? '<div class="ms-error">fleet sources failed</div>'
-          : _renderFleetStatus(d));
+        (failed.has('cockpit') && failed.has('kirk_alerts') && failed.has('advisory'))
+          ? '<div class="ms-error">fleet sources failed</div>' : _renderFleetStatus(d));
       _renderSection('ships-log-content',
-        failed.has('commits') ? '<div class="ms-error">commits source failed</div>' : _renderShipsLog(d));
+        (failed.has('execution_log') && failed.has('commits'))
+          ? '<div class="ms-error">log sources failed</div>' : _renderShipsLog(d));
     } catch (err) {
       if (statusEl) statusEl.textContent = 'fetch error';
       _renderError('red-alert-content', err.message || String(err));
