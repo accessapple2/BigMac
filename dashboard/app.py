@@ -3011,6 +3011,89 @@ def _check_ollama_reachable() -> bool:
     return _OLLAMA_PING_CACHE["reachable"]
 
 
+@app.get("/api/events/health")
+def events_health():
+    """HM-EVENTS-BUS-FOUNDATION 2026-05-22 — canonical events bus health.
+
+    Surfaces:
+      events_last_hour, signals_pending/executed/expired,
+      stale_signal_rejections_24h, sources_active (last hour),
+      bus_lag_ms (avg time from events.ts → signals_v2.created_at when
+      linked via signals_v2.event_id).
+    Crash-safe — returns partial data on any sub-query failure.
+    """
+    out: dict = {
+        "events_last_hour": 0,
+        "signals_pending": 0,
+        "signals_executed": 0,
+        "signals_expired": 0,
+        "stale_signal_rejections_24h": 0,
+        "sources_active": [],
+        "bus_lag_ms": None,
+        "engine_allocation": [],
+    }
+    try:
+        c = _conn()
+        try:
+            row = c.execute(
+                "SELECT COUNT(*) FROM events "
+                " WHERE ts >= datetime('now','-1 hour')"
+            ).fetchone()
+            out["events_last_hour"] = int(row[0]) if row else 0
+
+            for status_val, key in (
+                ("pending", "signals_pending"),
+                ("executed", "signals_executed"),
+                ("expired", "signals_expired"),
+            ):
+                row = c.execute(
+                    "SELECT COUNT(*) FROM signals_v2 WHERE status=?",
+                    (status_val,),
+                ).fetchone()
+                out[key] = int(row[0]) if row else 0
+
+            row = c.execute(
+                "SELECT COUNT(*) FROM decision_audit "
+                " WHERE event_type='gate_reject' "
+                "   AND gate_verdict='stale_signal' "
+                "   AND created_at >= datetime('now','-24 hours')"
+            ).fetchone()
+            out["stale_signal_rejections_24h"] = int(row[0]) if row else 0
+
+            rows = c.execute(
+                "SELECT DISTINCT source FROM events "
+                " WHERE ts >= datetime('now','-1 hour')"
+            ).fetchall()
+            out["sources_active"] = [r[0] for r in rows if r and r[0]]
+
+            # Bus lag: avg ms between events.ts and signals_v2.created_at
+            # when signals_v2.event_id links a fresh event (last hour). Uses
+            # SQLite julianday for ms math.
+            row = c.execute(
+                "SELECT AVG((julianday(s.created_at) - julianday(e.ts)) "
+                "           * 86400000.0) "
+                "  FROM signals_v2 s "
+                "  JOIN events e ON e.id = s.event_id "
+                " WHERE e.ts >= datetime('now','-1 hour')"
+            ).fetchone()
+            if row and row[0] is not None:
+                out["bus_lag_ms"] = round(float(row[0]), 1)
+
+            # Engine allocation snapshot (Task 5).
+            c.row_factory = sqlite3.Row
+            alloc = c.execute(
+                "SELECT engine, capital_pct, max_positions, "
+                "       max_per_trade_pct, updated_at "
+                "  FROM engine_allocation ORDER BY engine"
+            ).fetchall()
+            out["engine_allocation"] = [dict(r) for r in alloc]
+        finally:
+            c.close()
+    except Exception as exc:
+        out["error"] = f"{type(exc).__name__}: {exc!r}"
+    return out
+
+
 @app.get("/api/health")
 def health_detail():
     """Dr. Crusher extended health — Ollama, WebSocket, scheduler, DayBlade, uptime."""
