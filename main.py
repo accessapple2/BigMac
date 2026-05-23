@@ -3062,6 +3062,24 @@ if __name__ == "__main__":
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
 
+    # === HM-IC-SQUADRON Pillar 5 — Nightly Strategy Lab sweep ===
+    # 2026-05-22 — orchestrator on top of engine/strategy_lab.py. Fires at
+    # 20:00 AZ alongside the evening intel report so morning_brief.json
+    # has top regime-strategy fits ready for the 06:00 AZ briefing.
+    # Spec: project_hm_ic_squadron_approved.md Pillar 5.
+    def _run_strategy_lab_sweep_safe():
+        from engine.strategy_lab_sweep import run_strategy_lab_sweep
+        try:
+            return run_strategy_lab_sweep()
+        except Exception as _e:
+            console.log(
+                f"[red][LAB-SWEEP] scheduler-side crash: "
+                f"{type(_e).__name__}: {_e!r}"
+            )
+            return None
+    schedule.every().day.at("20:00").do(_run_strategy_lab_sweep_safe)  # IC Pillar 5
+    # === /HM-IC-SQUADRON Pillar 5 ===
+
     # === HM-POST-EXIT-TRACKER 2026-05-20 ===
     # Daily scan of post_exit_watch rows: flag any exit where the symbol
     # subsequently traded >5% above the exit price. Runs at 06:30 AZ
