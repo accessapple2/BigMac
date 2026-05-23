@@ -138,13 +138,63 @@ def _persist_result(
     *, run_id: str, strategy: str, dominant_regime: str | None,
     window_days: int, symbol: str, result: dict,
 ) -> None:
-    """Insert one backtest result row. Crash-safe."""
+    """Insert one backtest result row. Crash-safe.
+
+    HM-LAB-SWEEP-PERSIST-FIX 2026-05-23: 2026-05-22 overnight cook ran 210
+    backtests but persisted 0 rows because the prior body did
+    `float(ec[-1].get("equity") if ec else stats.get("ending_cash") or starting_cash)`
+    which crashed when:
+      * ec contained dicts with None 'equity' values → float(None) → TypeError
+      * stats had None values for win_rate / sharpe / max_drawdown_pct →
+        float(None) again
+    The outer try/except swallowed each crash, so 100% of rows were lost.
+
+    Two-part fix:
+      1. Skip-and-log when stats is empty or equity_curve missing entirely
+         (Captain spec — no point persisting a backtest that produced nothing).
+      2. Coerce all float() casts through a None-tolerant helper so a single
+         None field doesn't nuke the whole row.
+    """
     try:
         stats = result.get("stats") or {}
         trades = result.get("trades") or []
-        ec = result.get("equity_curve") or []
-        starting_cash = float(stats.get("starting_cash") or 10000.0)
-        ending_cash = float(ec[-1].get("equity") if ec else stats.get("ending_cash") or starting_cash)
+        ec = result.get("equity_curve")
+        # Captain-spec'd skip guard — fail loudly via log, not silently
+        # via swallowed exception. Don't write half-baked rows to the
+        # results table.
+        if ec is None or not stats:
+            console.log(
+                f"[yellow][LAB-SWEEP-SKIP] strategy={strategy} sym={symbol} "
+                f"window={window_days}d reason=missing_equity_or_stats"
+            )
+            return
+        if not isinstance(ec, list):
+            ec = []
+
+        # None-tolerant float coercion so any single missing field falls
+        # back to 0.0 instead of crashing the whole INSERT.
+        def _f(v, default: float = 0.0) -> float:
+            try:
+                if v is None:
+                    return float(default)
+                return float(v)
+            except (TypeError, ValueError):
+                return float(default)
+
+        starting_cash = _f(stats.get("starting_cash"), 10000.0)
+
+        # Extract last equity-curve value defensively.
+        _ec_last = None
+        if ec:
+            try:
+                _ec_last = ec[-1].get("equity") if isinstance(ec[-1], dict) else None
+            except Exception:
+                _ec_last = None
+        ending_cash = _f(
+            _ec_last if _ec_last is not None else stats.get("ending_cash"),
+            starting_cash,
+        )
+
         conn = sqlite3.connect(str(_DB_PATH), timeout=10)
         try:
             conn.execute(
@@ -155,12 +205,12 @@ def _persist_result(
                 "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
                 (
                     run_id, strategy, dominant_regime, window_days, symbol,
-                    float(stats.get("win_rate") or 0.0),
-                    _expectancy_from_trades(trades),
-                    float(stats.get("sharpe_ratio") or stats.get("sharpe") or 0.0),
-                    float(stats.get("max_drawdown_pct") or stats.get("max_dd_pct") or 0.0),
-                    int(stats.get("total_trades") or len(trades)),
-                    float(stats.get("total_pnl") or (ending_cash - starting_cash)),
+                    _f(stats.get("win_rate"), 0.0),
+                    _f(_expectancy_from_trades(trades), 0.0),
+                    _f(stats.get("sharpe_ratio") or stats.get("sharpe"), 0.0),
+                    _f(stats.get("max_drawdown_pct") or stats.get("max_dd_pct"), 0.0),
+                    int(_f(stats.get("total_trades"), float(len(trades)))),
+                    _f(stats.get("total_pnl"), ending_cash - starting_cash),
                     starting_cash, ending_cash,
                     "HM-IC-SQUADRON-PILLAR-5",
                 ),
