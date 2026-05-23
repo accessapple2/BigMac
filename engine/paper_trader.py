@@ -1452,6 +1452,15 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         qty=qty, price=price, asset_type=asset_type,
         signal_id=None, trade_id=_sell_trade_id, reasoning=reasoning,
     )
+    # HM-AUTO-POST-MORTEM (POC Day 3a) 2026-05-22: fire-and-forget
+    # classifier on every full SELL. Local qwen3:8b, $0, 15s timeout,
+    # writes decision_audit event_type='post_mortem' with 5-tag taxonomy.
+    _fire_post_mortem_async(
+        player_id=player_id, symbol=symbol, side=trade_action,
+        entry=pos.get("avg_price") if isinstance(pos, dict) else None,
+        exit_price=price, pnl=pnl, asset_type=asset_type,
+        reasoning=reasoning, trade_id=_sell_trade_id,
+    )
 
     # === HM-POST-EXIT-TRACKER 2026-05-20 ===
     # On every successful SELL (stock asset only), seed a post_exit_watch row.
@@ -1629,6 +1638,15 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
         player_id=player_id, symbol=symbol, action="SELL",
         qty=qty, price=price, asset_type=asset_type,
         signal_id=None, trade_id=_partial_trade_id, reasoning=reasoning,
+    )
+    # HM-AUTO-POST-MORTEM 2026-05-22: partial closes also get classified.
+    # Realized PnL captured on the partial leg; intent is to learn from
+    # *why* the partial was triggered (target, trailing stop, panic).
+    _fire_post_mortem_async(
+        player_id=player_id, symbol=symbol, side="SELL_PARTIAL",
+        entry=pos.get("avg_price") if isinstance(pos, dict) else None,
+        exit_price=price, pnl=pnl, asset_type=asset_type,
+        reasoning=reasoning, trade_id=_partial_trade_id,
     )
 
     # Forward to Alpaca paper trading (non-blocking)
@@ -2645,6 +2663,147 @@ def _capture_decision_snapshot() -> dict:
     except Exception:
         pass
     return snap
+
+
+def _fire_post_mortem_async(*, player_id: str, symbol: str, side: str,
+                            entry: float | None, exit_price: float,
+                            pnl: float, asset_type: str,
+                            reasoning: str | None = None,
+                            trade_id: int | None = None) -> None:
+    """HM-AUTO-POST-MORTEM (POC Day 3a) 2026-05-22 — fire-and-forget
+    classifier on every close.
+
+    Calls local qwen3:8b via OLLIE_URL within 30s of close to classify
+    the outcome and write a one-sentence post-mortem to decision_audit.
+
+    Taxonomy:
+      WIN_AS_EXPECTED       — thesis held, gains realized
+      WIN_BY_ACCIDENT       — gains realized but thesis didn't hold
+                              (regime move, lucky catalyst, etc.)
+      LOSS_AS_EXPECTED      — stop fired cleanly, thesis still valid
+      LOSS_FROM_THESIS_BREAK— thesis broke (earnings miss, etc.)
+      LOSS_FROM_REGIME_CHANGE — macro/regime shifted under the trade
+
+    Cost: $0 (local qwen3:8b on Ollie Box per CLAUDE.md Free Models
+    First doctrine). Timeout: 15s. Fail-safe: any error logs [PM-TIMEOUT]
+    or [PM-ERROR] and continues — the SELL fill is never affected.
+    """
+    import threading
+
+    def _worker() -> None:
+        try:
+            import os
+            import requests
+            from datetime import datetime as _dt
+            ollie_url = os.getenv("OLLIE_URL", "http://192.168.1.166:11434")
+            # Pull current regime so the classifier has macro context.
+            _regime = "UNKNOWN"
+            try:
+                _rcn = _conn()
+                _rr = _rcn.execute(
+                    "SELECT regime FROM regime_history "
+                    "WHERE date = date('now','localtime') "
+                    "ORDER BY id DESC LIMIT 1"
+                ).fetchone()
+                if _rr:
+                    _regime = _rr[0]
+                _rcn.close()
+            except Exception:
+                pass
+            # Build the prompt — short, structured, under 200 tokens out.
+            _reason_snip = (reasoning or "")[:120].replace("\n", " ")
+            _entry_str = f"{entry:.2f}" if entry is not None else "n/a"
+            prompt = (
+                f"Trade closed: {symbol} {side} entry={_entry_str} "
+                f"exit={exit_price:.2f} pnl={pnl:.2f} "
+                f"regime={_regime} reasoning_snippet=\"{_reason_snip}\"\n"
+                f"Classify outcome with ONE tag from: "
+                f"WIN_AS_EXPECTED | WIN_BY_ACCIDENT | LOSS_AS_EXPECTED | "
+                f"LOSS_FROM_THESIS_BREAK | LOSS_FROM_REGIME_CHANGE.\n"
+                f"Then write ONE sentence explaining why.\n"
+                f"Format: TAG: explanation"
+            )
+            try:
+                r = requests.post(
+                    f"{ollie_url}/api/generate",
+                    json={
+                        "model": "qwen3:8b",
+                        "prompt": prompt,
+                        "stream": False,
+                        "think": False,
+                        "options": {"num_predict": 120, "temperature": 0.3},
+                    },
+                    timeout=15,
+                )
+                if r.status_code != 200:
+                    console.log(
+                        f"[yellow][PM-ERROR] sym={symbol} player={player_id} "
+                        f"HTTP {r.status_code}"
+                    )
+                    return
+                text = (r.json() or {}).get("response", "").strip()
+            except requests.exceptions.Timeout:
+                console.log(
+                    f"[yellow][PM-TIMEOUT] symbol={symbol} player={player_id}"
+                )
+                return
+            except Exception as _e:
+                console.log(
+                    f"[yellow][PM-ERROR] sym={symbol} player={player_id}: "
+                    f"{type(_e).__name__}: {_e!r}"
+                )
+                return
+            if not text:
+                return
+            # Extract leading TAG (first ALL-CAPS_UNDERSCORED token).
+            _tag = "UNCLASSIFIED"
+            for _candidate in (
+                "WIN_AS_EXPECTED", "WIN_BY_ACCIDENT",
+                "LOSS_AS_EXPECTED", "LOSS_FROM_THESIS_BREAK",
+                "LOSS_FROM_REGIME_CHANGE",
+            ):
+                if _candidate in text.upper():
+                    _tag = _candidate
+                    break
+            # Persist to decision_audit. Crash-safe — bus failures never
+            # block; we already returned the trade fill to the caller.
+            try:
+                conn = _conn()
+                conn.execute(
+                    "INSERT INTO decision_audit "
+                    "(event_type, player_id, symbol, trade_id, regime, "
+                    " gate_verdict, reasoning_snippet) "
+                    "VALUES (?,?,?,?,?,?,?)",
+                    ("post_mortem", player_id, symbol, trade_id, _regime,
+                     _tag, text[:600]),
+                )
+                conn.commit()
+                conn.close()
+                console.log(
+                    f"[cyan][POST-MORTEM] {symbol} {side} pnl=${pnl:+.2f} "
+                    f"tag={_tag}"
+                )
+            except Exception as _pe:
+                console.log(
+                    f"[yellow][PM-AUDIT-WARN] persist sym={symbol}: "
+                    f"{type(_pe).__name__}: {_pe!r}"
+                )
+        except Exception as _outer:
+            console.log(
+                f"[red][PM-WORKER-CRASH] sym={symbol}: "
+                f"{type(_outer).__name__}: {_outer!r}"
+            )
+
+    try:
+        threading.Thread(
+            target=_worker, daemon=True,
+            name=f"post_mortem_{symbol}",
+        ).start()
+    except Exception as _te:
+        console.log(
+            f"[red][PM-SPAWN-FAIL] sym={symbol}: "
+            f"{type(_te).__name__}: {_te!r}"
+        )
 
 
 def _emit_trade_to_bus(*, player_id: str, symbol: str, action: str,
