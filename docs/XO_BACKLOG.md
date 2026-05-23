@@ -242,7 +242,13 @@ All acceptance criteria unchecked — sprint never started.
 - Phase 4 spread strategy comparison report
 - signals.db archival cron — first eligible 2026-05-05
 
-### HM-GAMEPLAN-EARNINGS-NULL-FIX (banked 2026-05-23, surfaced via sidebar smoke)
+### HM-GAMEPLAN-EARNINGS-NULL-FIX ✅ RESOLVED (shipped 2026-05-23 same day banked)
+
+Fix landed via `fix(dashboard): null guard in _gpEarningsRows earnings
+renderer` — see commit log. Filter now requires both `e.ticker` AND a
+string `e.date`; belt-and-braces fallback on the .slice() call as well.
+
+(Original banking preserved below for the audit trail.)
 
 **Symptom:** `Uncaught (in promise) TypeError: Cannot read properties of
 null (reading 'slice') at _gpEarningsRows`

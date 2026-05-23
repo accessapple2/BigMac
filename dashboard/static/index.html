@@ -4903,12 +4903,21 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
 
     function _gpEarningsRows(earnings) {
       if (!earnings || !earnings.length) return '';
-      var items = earnings.filter(function(e){return e.ticker;});
+      // HM-GAMEPLAN-EARNINGS-NULL 2026-05-23: filter requires both ticker
+      // AND a string date — was: `return e.ticker`. Pre-fix, any row with
+      // a ticker but null date threw at e.date.slice(5) below.
+      var items = earnings.filter(function(e){
+        return e && e.ticker && e.date && typeof e.date === 'string';
+      });
       if (!items.length) return '';
       var html = '<div style="display:flex;flex-wrap:wrap;gap:4px;margin-top:4px;">';
       items.slice(0,5).forEach(function(e) {
         var flag = e.in_portfolio ? ' 🚨' : '';
-        html += '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(234,179,8,0.12);color:#fcd34d;font-weight:600;"><span class="ticker-sym">'+e.ticker+'</span> '+e.date.slice(5)+(e.trend_30d==='up'?' ▲':'')+(e.trend_30d==='down'?' ▼':'')+flag+'</span>';
+        // e.date.slice(5) safe now — filter above guarantees string.
+        // Keep optional-chaining-style defensive .slice fallback as a
+        // belt-and-braces in case the filter regresses in a future edit.
+        var dateStr = (typeof e.date === 'string') ? e.date.slice(5) : '';
+        html += '<span style="font-size:11px;padding:2px 8px;border-radius:4px;background:rgba(234,179,8,0.12);color:#fcd34d;font-weight:600;"><span class="ticker-sym">'+e.ticker+'</span> '+dateStr+(e.trend_30d==='up'?' ▲':'')+(e.trend_30d==='down'?' ▼':'')+flag+'</span>';
       });
       html += '</div>';
       return html;
