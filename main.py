@@ -3062,6 +3062,31 @@ if __name__ == "__main__":
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
 
+    # === HM-PRIME-DIRECTIVE-MONITOR v1 — 2026-05-22 ===
+    # Polls USTR / Commerce / Federal Register RSS feeds for tariff +
+    # trade-policy events every 30 min during market hours. On match,
+    # emits to events bus event_type='macro' source='prime_directive'.
+    # IC Risk Officer + future regime auto-tuner consume from the bus.
+    # Spec: ~/.claude/projects/.../project_hm_overnight_cook_2026-05-22.md
+    def _run_prime_directive_safe():
+        from engine.risk_manager import RiskManager
+        try:
+            if not RiskManager.is_market_hours():
+                return None
+        except Exception:
+            pass
+        try:
+            from engine.prime_directive_monitor import scan_prime_directive
+            return scan_prime_directive()
+        except Exception as _e:
+            console.log(
+                f"[red][PRIME-DIRECTIVE] scheduler-side crash: "
+                f"{type(_e).__name__}: {_e!r}"
+            )
+            return None
+    schedule.every(30).minutes.do(_run_prime_directive_safe)  # HM-PRIME-DIRECTIVE v1
+    # === /HM-PRIME-DIRECTIVE-MONITOR ===
+
     # === HM-IC-SQUADRON Pillar 5 — Nightly Strategy Lab sweep ===
     # 2026-05-22 — orchestrator on top of engine/strategy_lab.py. Fires at
     # 20:00 AZ alongside the evening intel report so morning_brief.json
