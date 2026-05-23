@@ -146,6 +146,13 @@ class RiskManager:
             "bear_market_cash_pct": 0.50,  # BEAR regime → 50% cash minimum
             "min_cash_pct": 0.30,          # 30% cash at all times (Rallies keeps 40%)
             "revenge_trade_cooldown_hrs": 24,  # Wait 24h after a loss
+            # HM-DEEPSEEK-STOP-CAP 2026-05-23: hard dollar ceiling on per-trade
+            # max loss. Diagnostic showed worst trade −$671 (MU 2026-04-30)
+            # producing −$478 net despite 96W/20L over 7d. $150 cap limits the
+            # tail-loss tax to ~3 worst events before weekly WR recovery math
+            # outpaces. Enforced at trade-entry: if qty*price*sl_pct > cap,
+            # sl_pct is dynamically tightened to fit.
+            "max_loss_dollar": 150.0,
         },
         "qwen3-8b-flash": {  # Worf — Head of Security, disciplined risk enforcer
             "max_daily_trades": 2,         # Hard limit

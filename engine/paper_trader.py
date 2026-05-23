@@ -901,6 +901,33 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         # exit behavior still driven by downstream tier-exit logic.
         _model_sl = _rm.get_model_guardrail(player_id, "stop_loss_pct")
         _sl_pct = _model_sl if _model_sl else _rm.get_stop_loss_pct(confidence)
+        # === HM-DEEPSEEK-STOP-CAP 2026-05-23 ===
+        # Hard dollar ceiling on per-trade max loss for agents that declare
+        # `max_loss_dollar` in MODEL_GUARDRAILS. Tightens _sl_pct so the
+        # implied (qty × price × sl_pct) loss can't exceed the cap.
+        # Targets deepseek-7b-grok4 first (worst trade −$671 → cap $150).
+        # Generic: any agent that adds max_loss_dollar inherits the same
+        # protection. Fail-safe: skip if any required arg is None/zero.
+        _max_loss_dollar = _rm.get_model_guardrail(player_id, "max_loss_dollar")
+        if _max_loss_dollar and _sl_pct and qty and price:
+            try:
+                _implied_loss = float(qty) * float(price) * float(_sl_pct)
+                _cap = float(_max_loss_dollar)
+                if _implied_loss > _cap:
+                    _orig_sl = _sl_pct
+                    _sl_pct = _cap / (float(qty) * float(price))
+                    console.log(
+                        f"[yellow][HM-DEEPSEEK-STOP-CAP] {player_id} {symbol} "
+                        f"qty={qty} price=${price:.2f}: implied max loss "
+                        f"${_implied_loss:.2f} > cap ${_cap:.2f} — "
+                        f"tightening stop {_orig_sl:.2%} → {_sl_pct:.2%}"
+                    )
+            except Exception as _slc_e:
+                console.log(
+                    f"[red][HM-DEEPSEEK-STOP-CAP] fail-open: "
+                    f"{type(_slc_e).__name__}: {_slc_e!r}"
+                )
+        # === /HM-DEEPSEEK-STOP-CAP ===
         if "stop" not in reasoning.lower() and "sl" not in reasoning.lower():
             reasoning = f"{reasoning} [AUTO-STOP: -{_sl_pct:.0%} from entry]"
         if "target" not in reasoning.lower():
