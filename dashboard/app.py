@@ -7853,11 +7853,9 @@ def fundamentals_scores():
 #   - IBKR            → $0 (account open, untraded)
 #   - Physical metals → 1 oz gold @ $5,249.99 avg cost, 65 oz silver @ $77.67 avg cost
 #                       + live spot prices via engine.metals_tracker
-#   - RV              → 2014 Thor Four Winds 22E, VIN 1FDWE3FS3DDB18978, purchased $24,000
-#                       NON-LIQUID — included as asset note only, not in net_worth_liquid
 @app.get("/api/portfolio/real")
 def portfolio_real():
-    """Real-world net worth — Schwab + Webull + IBKR + physical metals + RV note.
+    """Real-world net worth — Schwab + Webull + IBKR + physical metals.
 
     EXCLUDES Alpaca paper book per HM-AM doctrine. Returns a structured view
     suitable for dashboard rendering and Captain-facing net-worth reads.
@@ -7883,10 +7881,7 @@ def portfolio_real():
         "ibkr": {"total": 0.0, "note": "Account open, no positions."},
         "metals": {"gold": {}, "silver": {}},
         "net_worth_liquid": 0.0,
-        "notes": [
-            "RV 2014 Thor Four Winds 22E (VIN 1FDWE3FS3DDB18978), purchased $24,000 — "
-            "non-liquid asset, excluded from net_worth_liquid total.",
-        ],
+        "notes": [],
         "_source": "HM-AM-PORTFOLIO-UNIFICATION /api/portfolio/real",
     }
 
