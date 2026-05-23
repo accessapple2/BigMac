@@ -10170,6 +10170,15 @@ def alpaca_buy(data: dict):
     # order_type='market' (MVP scope). 0/None = leg disabled.
     sl_pct = float(data.get("stop_loss_pct", 0) or 0)
     tp_pct = float(data.get("take_profit_pct", 0) or 0)
+    # HM-TRADE-DESK-AUTOPILOT-PHASE1 (HM-NEXT-WAVE Phase 2) 2026-05-23:
+    # Independent SL/TP checkbox toggles per leg. Body keys
+    # `attach_sl_enabled` / `attach_tp_enabled` (bool) + `attach_sl_pct` /
+    # `attach_tp_pct` (float). Backwards-compat: if body uses legacy
+    # `stop_loss_pct` / `take_profit_pct`, treat as enabled when > 0.
+    _sl_enabled = bool(data.get("attach_sl_enabled", sl_pct > 0))
+    _tp_enabled = bool(data.get("attach_tp_enabled", tp_pct > 0))
+    _attach_sl_pct = float(data.get("attach_sl_pct", sl_pct) or 0)
+    _attach_tp_pct = float(data.get("attach_tp_pct", tp_pct) or 0)
     use_ext = False
     try:
         from engine.risk_manager import RiskManager
@@ -10184,24 +10193,78 @@ def alpaca_buy(data: dict):
             limit_price = float(get_stock_price(symbol.upper()).get("price", 0) or 0)
     except Exception:
         pass
+    # HM-TRADE-DESK-AUTOPILOT-PHASE1: bracket eligibility check at the
+    # API layer — reject autopilot for fractional / notional with a clean
+    # error before any broker call. Phase 3 will add the
+    # attach-after-fill path for non-bracket-eligible orders via a
+    # separate engine/trade_desk_autopilot.py module.
+    _autopilot_requested = (
+        agent_id == "trade-desk"
+        and (_sl_enabled or _tp_enabled)
+        and (_attach_sl_pct > 0 or _attach_tp_pct > 0)
+    )
+    if _autopilot_requested:
+        if notional and notional > 0:
+            return {"error": (
+                "AUTOPILOT_NOT_AVAILABLE: bracket orders require whole-share "
+                "qty (notional/dollar sizing not yet supported — coming in "
+                "Phase 2 fractional path). Disable autopilot or switch to "
+                "whole-share quantity."
+            )}
+        if float(qty) != float(int(qty)):
+            return {"error": (
+                f"AUTOPILOT_NOT_AVAILABLE: bracket orders require whole-share "
+                f"qty (got {qty} fractional). Disable autopilot or round qty "
+                f"to a whole number."
+            )}
+        if order_type not in ("market", "limit"):
+            return {"error": (
+                f"AUTOPILOT_NOT_AVAILABLE: bracket orders support market or "
+                f"limit only (got {order_type!r}). Disable autopilot for "
+                f"stop/stop_limit entries."
+            )}
+        if use_ext:
+            return {"error": (
+                "AUTOPILOT_NOT_AVAILABLE: bracket orders cannot be submitted "
+                "during extended hours (Alpaca rule — XH is DAY-limit only). "
+                "Disable autopilot or submit during regular hours."
+            )}
+    # Pass bracket pcts to alpaca.buy() only when BOTH legs enabled +
+    # both pcts > 0. Single-leg-only is treated as autopilot-off for
+    # this phase; Phase 3 will support single-leg OTO orders.
+    _bracket_sl = _attach_sl_pct if (_sl_enabled and _tp_enabled and _attach_sl_pct > 0 and _attach_tp_pct > 0) else None
+    _bracket_tp = _attach_tp_pct if (_sl_enabled and _tp_enabled and _attach_sl_pct > 0 and _attach_tp_pct > 0) else None
     result = alpaca.buy(
         symbol.upper(), qty, agent_id=agent_id, extended_hours=use_ext,
         limit_price=limit_price, order_type=order_type, stop_price=stop_price,
         notional=notional,
+        attach_sl_pct=_bracket_sl, attach_tp_pct=_bracket_tp,
     )
     if agent_id == "trade-desk" and result.get("success"):
         autopilot_out: dict = {
-            'stop_order_id': None, 'target_order_id': None,
-            'stop_price': None, 'target_price': None, 'errors': [],
+            'stop_order_id': result.get('stop_order_id'),
+            'target_order_id': result.get('target_order_id'),
+            'stop_price': result.get('stop_price'),
+            'target_price': result.get('target_price'),
+            'bracket': bool(result.get('bracket')),
+            'errors': [],
         }
-        # MVP: market-only autopilot. Limit/stop entries don't fill
-        # synchronously here and need the Phase 2 reconcile loop.
-        if order_type == "market" and (sl_pct > 0 or tp_pct > 0):
+        # Legacy fallback path: only the case where caller enabled exactly
+        # one leg (SL XOR TP). Bracket needs both; one-leg-only falls back
+        # to the post-fill _attach_trade_desk_autopilot helper (two-GTC
+        # pattern from May 22).
+        _one_leg_only = (
+            order_type == "market"
+            and not result.get('bracket')
+            and ((_sl_enabled and _attach_sl_pct > 0) != (_tp_enabled and _attach_tp_pct > 0))
+        )
+        if _one_leg_only:
             autopilot_out = _attach_trade_desk_autopilot(
                 entry_side="BUY", symbol=symbol,
                 qty=result.get("filled_qty") or qty,
                 fill_price=result.get("filled_avg_price"),
-                sl_pct=sl_pct, tp_pct=tp_pct,
+                sl_pct=(_attach_sl_pct if _sl_enabled else 0),
+                tp_pct=(_attach_tp_pct if _tp_enabled else 0),
             )
         _mirror_trade_desk_fill(
             side="BUY", symbol=symbol, qty=result.get("filled_qty") or qty,

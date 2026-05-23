@@ -6601,18 +6601,25 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           <input id="td-notional" type="number" step="1" min="0" placeholder="0" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
         </div>
 
-        <!-- HM-TRADE-DESK-AUTOPILOT 2026-05-22: protective-order percentages.
-             Defaults 8% stop / 15% target. Market-only — disabled when order
-             type is limit/stop/stop_limit (Phase 1 MVP). Set to 0 to skip
-             either leg. -->
+        <!-- HM-TRADE-DESK-AUTOPILOT-PHASE1 2026-05-23 (HM-NEXT-WAVE Phase 2):
+             Bracket-order autopilot for whole-share BUYs. Checkboxes default
+             ON for each leg; both required for native Alpaca BracketOrderRequest.
+             Validation: sl 0.5-50, tp 0.5-200. Reset button restores defaults.
+             Auto-disables for SELL entries, STOP/STOP_LIMIT order types,
+             fractional/notional qty, and extended hours. -->
         <div id="td-autopilot-block" style="border-top:1px solid rgba(212,160,48,0.15);padding-top:10px;margin-top:2px;">
-          <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:6px;">🛡 Autopilot Protective Orders <span id="td-autopilot-note" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">(market-only, GTC)</span></div>
-          <div style="display:grid;grid-template-columns:90px 1fr;gap:8px;align-items:center;">
+          <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:6px;">
+            <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;">🛡 Autopilot Protective Orders <span id="td-autopilot-note" style="color:var(--muted);font-weight:400;text-transform:none;letter-spacing:0;">(bracket — whole-share, market/limit BUY)</span></div>
+            <button type="button" id="td-autopilot-reset" onclick="tdResetAutopilotDefaults()" style="font-size:10px;padding:3px 8px;background:rgba(212,160,48,0.15);border:1px solid rgba(212,160,48,0.3);color:#d4a030;border-radius:3px;cursor:pointer;">Reset</button>
+          </div>
+          <div style="display:grid;grid-template-columns:22px 90px 1fr;gap:6px;align-items:center;">
+            <input id="td-sl-enabled" type="checkbox" checked oninput="tdRecomputeProtectivePreview()" style="margin:0;" />
             <label for="td-sl-pct" style="font-size:12px;color:var(--muted);">Stop %</label>
-            <input id="td-sl-pct" type="number" step="0.1" min="0" max="50" value="8" oninput="tdRecomputeProtectivePreview()" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+            <input id="td-sl-pct" type="number" step="0.1" min="0.5" max="50" value="8" oninput="tdRecomputeProtectivePreview()" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
 
+            <input id="td-tp-enabled" type="checkbox" checked oninput="tdRecomputeProtectivePreview()" style="margin:0;" />
             <label for="td-tp-pct" style="font-size:12px;color:var(--muted);">Target %</label>
-            <input id="td-tp-pct" type="number" step="0.1" min="0" max="500" value="15" oninput="tdRecomputeProtectivePreview()" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+            <input id="td-tp-pct" type="number" step="0.1" min="0.5" max="200" value="15" oninput="tdRecomputeProtectivePreview()" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
           </div>
           <div id="td-protective-preview" style="margin-top:6px;font-size:11px;font-family:monospace;color:var(--muted);min-height:14px;">Enter symbol + qty to preview protective prices.</div>
         </div>
@@ -6698,61 +6705,138 @@ function tdOnOrderTypeChange() {
     notional.disabled = false;
     notional.placeholder = '0';
   }
-  // HM-TRADE-DESK-AUTOPILOT 2026-05-22: Phase 1 MVP is market-only.
-  // Disable + grey the autopilot block on limit/stop/stop_limit entries.
-  var apBlock = document.getElementById('td-autopilot-block');
-  var apNote = document.getElementById('td-autopilot-note');
-  var slInput = document.getElementById('td-sl-pct');
-  var tpInput = document.getElementById('td-tp-pct');
-  var apOn = (ot === 'market');
-  if (apBlock) apBlock.style.opacity = apOn ? '1' : '0.45';
-  if (slInput) slInput.disabled = !apOn;
-  if (tpInput) tpInput.disabled = !apOn;
-  if (apNote) {
-    apNote.textContent = apOn
-      ? '(market-only, GTC)'
-      : '(disabled — market entry required)';
-  }
+  // HM-TRADE-DESK-AUTOPILOT-PHASE1 2026-05-23: bracket autopilot only
+  // available for whole-share market/limit BUYs. Auto-grey when:
+  //   * side = SELL (autopilot protects long entries; SELL is exit)
+  //   * order_type = stop / stop_limit (the entry itself IS protective)
+  //   * notional > 0 (Alpaca fractional/dollar-sized = no bracket)
+  //   * qty fractional
+  tdRecomputeAutopilotEnabled();
   tdRecomputeProtectivePreview();
 }
 
-// HM-TRADE-DESK-AUTOPILOT 2026-05-22: live preview of stop/target prices.
-// Sign-aware: LONG (BUY) = fill*(1-SL/100) and fill*(1+TP/100);
-// SHORT (SELL) inverts both legs (buy-to-cover stop above, target below).
+// HM-TRADE-DESK-AUTOPILOT-PHASE1: central enable/disable logic for the
+// autopilot block. Reflects all four disable rules at once.
+function tdRecomputeAutopilotEnabled() {
+  var ot = (document.getElementById('td-order-type').value || 'market');
+  var side = document.getElementById('td-side').value;
+  var qty = parseFloat(document.getElementById('td-qty').value || '0');
+  var notional = parseFloat(document.getElementById('td-notional').value || '0');
+  var apBlock = document.getElementById('td-autopilot-block');
+  var apNote = document.getElementById('td-autopilot-note');
+  var slEn = document.getElementById('td-sl-enabled');
+  var tpEn = document.getElementById('td-tp-enabled');
+  var slInput = document.getElementById('td-sl-pct');
+  var tpInput = document.getElementById('td-tp-pct');
+  var reset = document.getElementById('td-autopilot-reset');
+  // Reason resolution — most-specific first.
+  var disabledReason = null;
+  if (side !== 'buy') disabledReason = 'BUY entries only (SELL closes existing)';
+  else if (ot === 'stop' || ot === 'stop_limit') disabledReason = 'STOP/STOP_LIMIT entries are protective themselves';
+  else if (notional > 0) disabledReason = 'whole-share only — Phase 3 will support dollar/notional';
+  else if (qty > 0 && qty !== Math.floor(qty)) disabledReason = 'whole-share only — fractional qty (Phase 3)';
+  var enabled = !disabledReason;
+  if (apBlock) apBlock.style.opacity = enabled ? '1' : '0.45';
+  [slEn, tpEn, slInput, tpInput, reset].forEach(function(el) {
+    if (el) el.disabled = !enabled;
+  });
+  if (apNote) {
+    apNote.textContent = enabled
+      ? '(bracket — whole-share, market/limit BUY)'
+      : '(disabled — ' + disabledReason + ')';
+  }
+}
+
+// HM-TRADE-DESK-AUTOPILOT-PHASE1: defaults reset button handler.
+function tdResetAutopilotDefaults() {
+  var slEn = document.getElementById('td-sl-enabled');
+  var tpEn = document.getElementById('td-tp-enabled');
+  var slI = document.getElementById('td-sl-pct');
+  var tpI = document.getElementById('td-tp-pct');
+  if (slEn) slEn.checked = true;
+  if (tpEn) tpEn.checked = true;
+  if (slI) slI.value = '8';
+  if (tpI) tpI.value = '15';
+  tdRecomputeProtectivePreview();
+}
+
+// HM-TRADE-DESK-AUTOPILOT-PHASE1: validate sl ∈ [0.5,50], tp ∈ [0.5,200].
+// Returns null if OK, or an error string the submit handler surfaces.
+function tdValidateAutopilot() {
+  var slEn = (document.getElementById('td-sl-enabled') || {}).checked;
+  var tpEn = (document.getElementById('td-tp-enabled') || {}).checked;
+  if (!slEn && !tpEn) return null;  // both off = autopilot disabled, no validation
+  if (slEn) {
+    var sl = parseFloat(document.getElementById('td-sl-pct').value || '0');
+    if (isNaN(sl) || sl < 0.5 || sl > 50) {
+      return 'Stop % must be between 0.5 and 50 (got ' + sl + ')';
+    }
+  }
+  if (tpEn) {
+    var tp = parseFloat(document.getElementById('td-tp-pct').value || '0');
+    if (isNaN(tp) || tp < 0.5 || tp > 200) {
+      return 'Target % must be between 0.5 and 200 (got ' + tp + ')';
+    }
+  }
+  return null;
+}
+
+// HM-TRADE-DESK-AUTOPILOT 2026-05-22 → PHASE1 2026-05-23: live preview of
+// bracket child prices. Sign-aware LONG (BUY) only (autopilot disabled for
+// SELL entries per Phase 1 disable rules). Honors per-leg checkbox state.
 function tdRecomputeProtectivePreview() {
   var box = document.getElementById('td-protective-preview');
   if (!box) return;
   var ot = (document.getElementById('td-order-type').value || 'market');
-  if (ot !== 'market') {
-    box.innerHTML = '<span style="color:var(--muted);">Autopilot disabled — switch to Market.</span>';
+  var side = document.getElementById('td-side').value;
+  // Disable rules — mirror tdRecomputeAutopilotEnabled. Short-circuit the
+  // preview if any of them apply.
+  if (side !== 'buy') {
+    box.innerHTML = '<span style="color:var(--muted);">Autopilot disabled — BUY entries only.</span>';
     return;
   }
-  var side = document.getElementById('td-side').value;
+  if (ot === 'stop' || ot === 'stop_limit') {
+    box.innerHTML = '<span style="color:var(--muted);">Autopilot disabled — STOP entries are protective themselves.</span>';
+    return;
+  }
+  var notional = parseFloat(document.getElementById('td-notional').value || '0');
+  var qty = parseFloat(document.getElementById('td-qty').value || '0');
+  if (notional > 0 || (qty > 0 && qty !== Math.floor(qty))) {
+    box.innerHTML = '<span style="color:var(--muted);">Autopilot requires whole-share qty (Phase 3 adds fractional/notional).</span>';
+    return;
+  }
+  var slEn = (document.getElementById('td-sl-enabled') || {}).checked;
+  var tpEn = (document.getElementById('td-tp-enabled') || {}).checked;
   var sl = parseFloat(document.getElementById('td-sl-pct').value || '0');
   var tp = parseFloat(document.getElementById('td-tp-pct').value || '0');
   var ref = _tdLastQuotePrice || 0;
+  if (ot === 'limit') {
+    var lp = parseFloat(document.getElementById('td-limit-price').value || '0');
+    if (lp > 0) ref = lp;
+  }
   if (!ref || ref <= 0) {
-    box.innerHTML = '<span style="color:var(--muted);">Enter symbol (Tab to fetch quote) to preview prices.</span>';
+    box.innerHTML = '<span style="color:var(--muted);">Enter symbol (Tab to fetch quote) or limit price to preview.</span>';
     return;
   }
-  if (sl <= 0 && tp <= 0) {
-    box.innerHTML = '<span style="color:#f59e0b;">⚠ Both legs disabled — no protective orders will attach.</span>';
+  if (!slEn && !tpEn) {
+    box.innerHTML = '<span style="color:#f59e0b;">⚠ Both legs unchecked — autopilot off, no bracket attached.</span>';
     return;
   }
-  var isLong = (side === 'buy');
-  var stopP = isLong ? ref * (1 - sl / 100) : ref * (1 + sl / 100);
-  var targetP = isLong ? ref * (1 + tp / 100) : ref * (1 - tp / 100);
-  var slStr = sl > 0
-    ? ('🛡 stop ' + (isLong ? 'SELL' : 'BUY') + ' @ $' + stopP.toFixed(2) + ' (' + (isLong ? '−' : '+') + sl.toFixed(1) + '%)')
-    : '🛡 stop disabled';
-  var tpStr = tp > 0
-    ? ('🎯 target ' + (isLong ? 'SELL' : 'BUY') + ' @ $' + targetP.toFixed(2) + ' (' + (isLong ? '+' : '−') + tp.toFixed(1) + '%)')
-    : '🎯 target disabled';
+  if (slEn !== tpEn) {
+    // Single leg → falls back to legacy post-fill GTC attach via _attach_trade_desk_autopilot
+    var leg = slEn ? '🛡 stop only' : '🎯 target only';
+    box.innerHTML = '<span style="color:#06b6d4;">' + leg + ' — single-leg fallback (post-fill GTC, not bracket).</span>';
+    return;
+  }
+  // Both legs checked → BracketOrderRequest path
+  var stopP = ref * (1 - sl / 100);
+  var targetP = ref * (1 + tp / 100);
   box.innerHTML =
-    '<span style="color:#94a3b8;">Ref $' + ref.toFixed(2) + ' · </span>' +
-    '<span style="color:#ef4444;">' + slStr + '</span>' +
+    '<span style="color:#10b981;font-weight:600;">⛓ BRACKET</span> · ' +
+    '<span style="color:#94a3b8;">basis $' + ref.toFixed(2) + ' · </span>' +
+    '<span style="color:#ef4444;">🛡 stop @ $' + stopP.toFixed(2) + ' (−' + sl.toFixed(1) + '%)</span>' +
     '<span style="color:#94a3b8;"> · </span>' +
-    '<span style="color:#10b981;">' + tpStr + '</span>';
+    '<span style="color:#10b981;">🎯 target @ $' + targetP.toFixed(2) + ' (+' + tp.toFixed(1) + '%)</span>';
 }
 
 function tdLoadQuote() {
@@ -6813,6 +6897,14 @@ function tdSubmitOrder() {
     status.innerHTML = '<span style="color:#ef4444;">⚠ ' + err + '</span>';
     return;
   }
+  // HM-TRADE-DESK-AUTOPILOT-PHASE1 2026-05-23: autopilot pct validation
+  // (sl 0.5-50, tp 0.5-200) before submit so user gets the error
+  // upfront instead of the backend bouncing the request.
+  var apErr = tdValidateAutopilot();
+  if (apErr) {
+    status.innerHTML = '<span style="color:#ef4444;">⚠ ' + apErr + '</span>';
+    return;
+  }
   var sym = (document.getElementById('td-symbol').value || '').toUpperCase().trim();
   var side = document.getElementById('td-side').value;
   var ot = document.getElementById('td-order-type').value;
@@ -6836,15 +6928,30 @@ function tdSubmitOrder() {
   btn.style.opacity = '0.6';
   status.innerHTML = '<span style="color:var(--muted);">Submitting…</span>';
   var endpoint = side === 'buy' ? '/api/alpaca/buy' : '/api/alpaca/sell';
-  // HM-TRADE-DESK-AUTOPILOT 2026-05-22: backend honors these only on
-  // agent_id='trade-desk' + order_type='market'. Sign-aware math + GTC
-  // protective-order submission live in dashboard/app.py + alpaca_bridge.py.
-  var slPct = ot === 'market' ? parseFloat(document.getElementById('td-sl-pct').value || '0') : 0;
-  var tpPct = ot === 'market' ? parseFloat(document.getElementById('td-tp-pct').value || '0') : 0;
+  // HM-TRADE-DESK-AUTOPILOT-PHASE1 2026-05-23: bracket autopilot only
+  // for BUY entries on market/limit, whole-share. Backend handles the
+  // BracketOrderRequest path when both pcts > 0 + qty whole-share +
+  // not extended hours. Single-leg = post-fill GTC fallback. Body keys:
+  //   attach_sl_enabled / attach_tp_enabled — per-leg checkbox state
+  //   attach_sl_pct / attach_tp_pct — per-leg percentage
+  // Legacy keys (stop_loss_pct / take_profit_pct) also included for
+  // backwards compat — backend prefers attach_* when present.
+  var slEn = (document.getElementById('td-sl-enabled') || {}).checked;
+  var tpEn = (document.getElementById('td-tp-enabled') || {}).checked;
+  var bracketEligible = (side === 'buy'
+    && (ot === 'market' || ot === 'limit')
+    && notional <= 0
+    && qty > 0 && qty === Math.floor(qty));
+  var slPct = bracketEligible && slEn ? parseFloat(document.getElementById('td-sl-pct').value || '0') : 0;
+  var tpPct = bracketEligible && tpEn ? parseFloat(document.getElementById('td-tp-pct').value || '0') : 0;
   var body = {
     symbol: sym, agent_id: 'trade-desk', order_type: ot,
     qty: qty || 0, notional: notional || 0,
     limit_price: lp || 0, stop_price: sp || 0,
+    // Phase 1 new keys
+    attach_sl_enabled: bracketEligible && slEn, attach_tp_enabled: bracketEligible && tpEn,
+    attach_sl_pct: slPct, attach_tp_pct: tpPct,
+    // Legacy keys for backwards compat
     stop_loss_pct: slPct, take_profit_pct: tpPct,
   };
   fetch(endpoint, {
@@ -6861,9 +6968,10 @@ function tdSubmitOrder() {
           ('@ $' + parseFloat(d.filled_avg_price).toFixed(2)) :
           '(pending)';
         var apStr = '';
-        // HM-TRADE-DESK-AUTOPILOT 2026-05-22: surface protective-order
-        // attachment result inline so the Captain sees the GTC stop/target
-        // IDs without needing to refresh the pending table.
+        // HM-TRADE-DESK-AUTOPILOT 2026-05-22 → PHASE1 2026-05-23:
+        // Surface bracket vs single-leg-fallback distinctly so user knows
+        // which path actually fired. Bracket = one Alpaca submission with
+        // SL+TP as children. Single-leg fallback = post-fill GTC attach.
         if (d.autopilot) {
           var ap = d.autopilot;
           var apBits = [];
@@ -6874,7 +6982,10 @@ function tdSubmitOrder() {
             apBits.push('🎯 $' + parseFloat(ap.target_price || 0).toFixed(2));
           }
           if (apBits.length) {
-            apStr = ' · <span style="color:#94a3b8;">autopilot: ' + apBits.join(' / ') + '</span>';
+            var prefix = ap.bracket
+              ? '<span style="color:#10b981;font-weight:600;">⛓ BRACKET</span>'
+              : '<span style="color:#06b6d4;">autopilot</span>';
+            apStr = ' · ' + prefix + ' <span style="color:#94a3b8;">' + apBits.join(' / ') + '</span>';
           }
           if (ap.errors && ap.errors.length) {
             apStr += ' · <span style="color:#f59e0b;">⚠ ' + ap.errors.join('; ') + '</span>';
@@ -7014,10 +7125,25 @@ function tdInit() {
       if (e.key === 'Enter') e.preventDefault();
     });
   });
-  // HM-TRADE-DESK-AUTOPILOT 2026-05-22: side change recomputes the sign-aware
-  // protective preview without re-fetching the quote.
+  // HM-TRADE-DESK-AUTOPILOT 2026-05-22 → PHASE1 2026-05-23: all four
+  // disable-rule inputs (side, qty, notional, order_type) trigger a
+  // recompute. order_type already triggers via the existing onchange
+  // attribute → tdOnOrderTypeChange → tdRecomputeAutopilotEnabled +
+  // preview. Wire the remaining three here.
   var sideEl = document.getElementById('td-side');
-  if (sideEl) sideEl.addEventListener('change', tdRecomputeProtectivePreview);
+  if (sideEl) sideEl.addEventListener('change', function() {
+    tdRecomputeAutopilotEnabled();
+    tdRecomputeProtectivePreview();
+  });
+  ['td-qty', 'td-notional'].forEach(function(id) {
+    var el = document.getElementById(id);
+    if (el) el.addEventListener('input', function() {
+      tdRecomputeAutopilotEnabled();
+      tdRecomputeProtectivePreview();
+    });
+  });
+  // Initial enable/disable state.
+  tdRecomputeAutopilotEnabled();
   // Initial load of tables.
   tdLoadPending();
   tdLoadFills();

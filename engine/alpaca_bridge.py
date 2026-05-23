@@ -1,4 +1,5 @@
 """Alpaca Paper Trading Bridge — connects to Alpaca's paper trading API."""
+from __future__ import annotations
 import os
 from rich.console import Console
 from engine.trade_gateway import check_trade
@@ -204,9 +205,81 @@ class AlpacaBridge:
             time_in_force=tif,
         )
 
+    def _build_bracket_buy_request(self, *, symbol: str, qty: float,
+                                   order_type: str, limit_price: float,
+                                   basis_price: float, sl_pct: float,
+                                   tp_pct: float, time_in_force: str = "DAY"):
+        """HM-TRADE-DESK-AUTOPILOT-PHASE1 2026-05-23 — Alpaca native bracket.
+
+        Build a parent BUY (market or limit) with attached take-profit limit
+        + stop-loss stop legs in ONE atomic submission. Alpaca handles OCO
+        between the two children (one fills → other cancels).
+
+        basis_price drives child strike math:
+          * for market: pass current quote (estimate; child legs are GTC
+            and can be revised post-fill if needed)
+          * for limit: pass the limit_price itself
+        Children:
+          take_profit = basis × (1 + tp_pct/100)
+          stop_loss   = basis × (1 - sl_pct/100)
+
+        Whole-share only (Alpaca rejects fractional brackets). Day-tif on
+        the parent so it doesn't sit overnight; children inherit GTC from
+        the bracket structure per Alpaca SDK convention.
+        """
+        from alpaca.trading.enums import OrderSide, OrderClass, TimeInForce
+        from alpaca.trading.requests import (
+            MarketOrderRequest, LimitOrderRequest,
+            TakeProfitRequest, StopLossRequest,
+        )
+        if basis_price is None or float(basis_price) <= 0:
+            raise ValueError(
+                "bracket buy requires positive basis_price for child math"
+            )
+        bp = float(basis_price)
+        tp_limit = round(bp * (1.0 + float(tp_pct) / 100.0), 2)
+        sl_stop = round(bp * (1.0 - float(sl_pct) / 100.0), 2)
+        tif_map = {
+            "day": TimeInForce.DAY, "gtc": TimeInForce.GTC,
+            "ioc": TimeInForce.IOC, "fok": TimeInForce.FOK,
+        }
+        tif = tif_map.get((time_in_force or "DAY").lower(), TimeInForce.DAY)
+        take_profit = TakeProfitRequest(limit_price=tp_limit)
+        stop_loss = StopLossRequest(stop_price=sl_stop)
+        common_kwargs = dict(
+            symbol=symbol, qty=float(qty), side=OrderSide.BUY,
+            time_in_force=tif, order_class=OrderClass.BRACKET,
+            take_profit=take_profit, stop_loss=stop_loss,
+        )
+        if (order_type or "market").lower() == "limit":
+            return LimitOrderRequest(
+                limit_price=round(float(limit_price), 2), **common_kwargs,
+            ), tp_limit, sl_stop
+        return MarketOrderRequest(**common_kwargs), tp_limit, sl_stop
+
     def buy(self, symbol, qty, agent_id: str = "unknown", extended_hours: bool = False,
             limit_price: float = 0.0, order_type: str = "market", stop_price: float = 0.0,
-            notional: float = 0.0, time_in_force: str = "DAY"):
+            notional: float = 0.0, time_in_force: str = "DAY",
+            attach_sl_pct: float | None = None,
+            attach_tp_pct: float | None = None,
+            bracket_basis_price: float | None = None):
+        """HM-TRADE-DESK-AUTOPILOT-PHASE1 2026-05-23: when attach_sl_pct AND
+        attach_tp_pct are both > 0 AND qty is whole-share AND
+        extended_hours=False AND order_type is market or limit, submits a
+        native Alpaca BracketOrderRequest with take-profit limit +
+        stop-loss stop child legs. Returns
+        {'stop_order_id', 'target_order_id', 'bracket': True} alongside
+        the usual parent fields.
+
+        For fractional / notional / extended-hours / non-buy intent paths,
+        autopilot is REJECTED at the dashboard layer — the bracket path
+        here only runs when the caller has verified bracket eligibility.
+
+        bracket_basis_price (optional): explicit basis for child strike
+        math. Defaults to limit_price (limit order) or current bid via
+        get_stock_price() (market order). Caller can pass the live quote
+        explicitly to skip the lookup.
+        """
         if not self.client:
             return {'error': 'Not connected'}
         try:
@@ -218,6 +291,79 @@ class AlpacaBridge:
             if not result["allowed"]:
                 return {"error": f"Gateway blocked: {result['reason']}"}
             from alpaca.trading.enums import OrderSide
+            # HM-TRADE-DESK-AUTOPILOT-PHASE1 2026-05-23: bracket path detection.
+            # Conditions per spec:
+            #   * attach_sl_pct AND attach_tp_pct both > 0
+            #   * qty whole-share (no fractional, no notional)
+            #   * not extended_hours (XH only supports DAY limit, no bracket)
+            #   * order_type market or limit (not stop/stop_limit)
+            _bracket_eligible = (
+                attach_sl_pct is not None and attach_tp_pct is not None
+                and float(attach_sl_pct) > 0 and float(attach_tp_pct) > 0
+                and float(qty) > 0 and float(qty) == float(int(qty))
+                and (not notional or notional <= 0)
+                and not extended_hours
+                and (order_type or "market").lower() in ("market", "limit")
+            )
+            if _bracket_eligible:
+                # Resolve basis_price for child math.
+                basis = bracket_basis_price
+                if basis is None or float(basis) <= 0:
+                    if (order_type or "market").lower() == "limit" and limit_price:
+                        basis = float(limit_price)
+                    else:
+                        try:
+                            from engine.market_data import get_stock_price
+                            q = get_stock_price(symbol) or {}
+                            basis = float(q.get("price") or 0)
+                        except Exception:
+                            basis = 0.0
+                if not basis or basis <= 0:
+                    return {
+                        "error": (
+                            "bracket buy requires basis_price (limit_price "
+                            "or live quote); could not resolve for "
+                            f"{symbol}"
+                        )
+                    }
+                bracket_req, tp_limit, sl_stop = self._build_bracket_buy_request(
+                    symbol=symbol, qty=float(qty),
+                    order_type=order_type, limit_price=float(limit_price or 0),
+                    basis_price=float(basis),
+                    sl_pct=float(attach_sl_pct), tp_pct=float(attach_tp_pct),
+                    time_in_force=time_in_force,
+                )
+                o = self.client.submit_order(bracket_req)
+                console.log(
+                    f"[green]Alpaca BUY {qty} {symbol} BRACKET type={order_type} "
+                    f"sl=${sl_stop} tp=${tp_limit} — parent {o.id}"
+                )
+                fill_price, fill_qty, final_status = self._poll_fill(str(o.id))
+                # Resolve child order_ids — Alpaca returns the bracket
+                # children in `legs` on the parent order object.
+                stop_id = None
+                target_id = None
+                try:
+                    legs = getattr(o, 'legs', None) or []
+                    for leg in legs:
+                        leg_type = getattr(leg, 'type', None)
+                        leg_type_val = getattr(leg_type, 'value', None) or str(leg_type or '').lower()
+                        if 'stop' in leg_type_val.lower():
+                            stop_id = str(leg.id)
+                        elif 'limit' in leg_type_val.lower():
+                            target_id = str(leg.id)
+                except Exception:
+                    pass
+                return {
+                    'success': True, 'order_id': str(o.id), 'symbol': o.symbol,
+                    'status': final_status, 'filled_avg_price': fill_price,
+                    'filled_qty': fill_qty,
+                    'bracket': True,
+                    'stop_order_id': stop_id, 'target_order_id': target_id,
+                    'stop_price': sl_stop, 'target_price': tp_limit,
+                }
+            # Non-bracket path (existing behavior — market/limit without autopilot,
+            # or autopilot that didn't qualify for bracket).
             req = self._build_order_request(
                 symbol=symbol, side=OrderSide.BUY, qty=float(qty),
                 order_type=order_type, limit_price=float(limit_price or 0),
