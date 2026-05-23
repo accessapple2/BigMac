@@ -5142,12 +5142,14 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
               <th style="padding:5px 4px;text-align:center;">W/L</th>
               <th style="padding:5px 4px;text-align:center;">Win%</th>
               <th style="padding:5px 4px;text-align:right;">P&amp;L</th>
+              <th style="padding:5px 4px;text-align:center;" title="Trailing 90d annualized Sharpe (canonical formula)">Sharpe</th>
+              <th style="padding:5px 4px;text-align:center;" title="Kelly cap tier — 1.5× at Sharpe>5, 2.0× at Sharpe>10">Kelly</th>
               <th style="padding:5px 4px;text-align:center;">Streak</th>
               <th style="padding:5px 4px;text-align:center;">Trend</th>
             </tr>
           </thead>
           <tbody id="fleet-report-tbody">
-            <tr><td colspan="8" style="padding:12px;color:var(--muted);text-align:center;">Loading...</td></tr>
+            <tr><td colspan="10" style="padding:12px;color:var(--muted);text-align:center;">Loading...</td></tr>
           </tbody>
         </table>
       </div>
@@ -5489,12 +5491,12 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       .then(function(r){
         if (r.status === 401) {
           var tb401 = document.getElementById('fleet-report-tbody');
-          if (tb401) tb401.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--muted);text-align:center;">🔒 Sign in to load fleet ratings — <a href="/login" style="color:var(--accent);">go to login</a></td></tr>';
+          if (tb401) tb401.innerHTML = '<tr><td colspan="10" style="padding:12px;color:var(--muted);text-align:center;">🔒 Sign in to load fleet ratings — <a href="/login" style="color:var(--accent);">go to login</a></td></tr>';
           return null;  // swallow — don't try to parse body
         }
         if (!r.ok) {
           var tb5xx = document.getElementById('fleet-report-tbody');
-          if (tb5xx) tb5xx.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--red);text-align:center;">Backend error (HTTP ' + r.status + ') — <span style="cursor:pointer;text-decoration:underline;" onclick="loadFleetReportCard()">retry</span></td></tr>';
+          if (tb5xx) tb5xx.innerHTML = '<tr><td colspan="10" style="padding:12px;color:var(--red);text-align:center;">Backend error (HTTP ' + r.status + ') — <span style="cursor:pointer;text-decoration:underline;" onclick="loadFleetReportCard()">retry</span></td></tr>';
           return null;
         }
         return r.json();
@@ -5518,7 +5520,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           } else {
             msg = 'expected array, got ' + (typeof data) + ' — try refresh, then check /api/ratings directly';
           }
-          if (tbErr) tbErr.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--red);text-align:center;">Ratings unavailable: ' + msg.replace(/[<>&]/g,'') + '</td></tr>';
+          if (tbErr) tbErr.innerHTML = '<tr><td colspan="10" style="padding:12px;color:var(--red);text-align:center;">Ratings unavailable: ' + msg.replace(/[<>&]/g,'') + '</td></tr>';
           return;
         }
 
@@ -5560,6 +5562,21 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
             : '<span style="color:#ef4444;">L' + r.consecutive_losses + '</span>';
           var pnlColor = r.total_pnl >= 0 ? '#22c55e' : '#ef4444';
           var pnlStr = (r.total_pnl >= 0 ? '+' : '') + '$' + r.total_pnl.toFixed(0);
+          // HM-KELLY-TIER-MULTIPLIER 2026-05-23: render trailing 90d Sharpe
+          // + Kelly tier badge. Source: /api/ratings now returns sharpe_90d
+          // + kelly_tier per row (engine helpers in paper_trader.py).
+          var sharpe = (typeof r.sharpe_90d === 'number') ? r.sharpe_90d : 0;
+          var sharpeColor = sharpe > 10 ? '#22c55e' : sharpe > 5 ? '#06b6d4' : sharpe > 0 ? '#94a3b8' : '#64748b';
+          var sharpeStr = '<span style="color:' + sharpeColor + ';font-weight:600;">' + sharpe.toFixed(2) + '</span>';
+          var kellyTier = r.kelly_tier || 'default';
+          var kellyBadge;
+          if (kellyTier === 'tier_2') {
+            kellyBadge = '<span title="Sharpe>10 → 2.0× cap (options 4% / stocks 20% / shorts 30%)" style="font-size:10px;padding:2px 6px;border-radius:3px;background:rgba(34,197,94,0.18);color:#22c55e;border:1px solid rgba(34,197,94,0.4);font-weight:700;">2.0×</span>';
+          } else if (kellyTier === 'tier_1') {
+            kellyBadge = '<span title="Sharpe>5 → 1.5× cap (options 3% / stocks 15% / shorts 22.5%)" style="font-size:10px;padding:2px 6px;border-radius:3px;background:rgba(6,182,212,0.18);color:#06b6d4;border:1px solid rgba(6,182,212,0.4);font-weight:700;">1.5×</span>';
+          } else {
+            kellyBadge = '<span style="font-size:10px;color:var(--muted);font-family:var(--font-mono);">1.0×</span>';
+          }
           rows += '<tr style="border-bottom:1px solid var(--border);">' +
             '<td style="padding:6px 8px;font-weight:600;">' + (r.display_name || r.player_id) + '</td>' +
             '<td style="padding:6px 4px;text-align:center;">' +
@@ -5569,11 +5586,13 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
             '<td style="padding:6px 4px;text-align:center;font-family:var(--font-mono);">' + r.wins + '/' + r.losses + '</td>' +
             '<td style="padding:6px 4px;text-align:center;font-family:var(--font-mono);">' + r.win_rate + '%</td>' +
             '<td style="padding:6px 4px;text-align:right;font-family:var(--font-mono);color:' + pnlColor + ';">' + pnlStr + '</td>' +
+            '<td style="padding:6px 4px;text-align:center;font-family:var(--font-mono);">' + sharpeStr + '</td>' +
+            '<td style="padding:6px 4px;text-align:center;">' + kellyBadge + '</td>' +
             '<td style="padding:6px 4px;text-align:center;">' + streak + '</td>' +
             '<td style="padding:6px 4px;text-align:center;">' + trendArrow(r.trend || '→') + '</td>' +
             '</tr>';
         });
-        tbody.innerHTML = rows || '<tr><td colspan="8" style="padding:12px;color:var(--muted);text-align:center;">No rated agents yet</td></tr>';
+        tbody.innerHTML = rows || '<tr><td colspan="10" style="padding:12px;color:var(--muted);text-align:center;">No rated agents yet</td></tr>';
 
         var upd = document.getElementById('fleet-report-updated');
         if (upd) upd.textContent = 'Updated ' + new Date().toLocaleTimeString();
@@ -5581,7 +5600,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       .catch(function(e) {
         console.warn('Fleet report card error:', e);
         var tbErr = document.getElementById('fleet-report-tbody');
-        if (tbErr) tbErr.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--red);text-align:center;">Ratings fetch failed — <span style="cursor:pointer;text-decoration:underline;" onclick="loadFleetReportCard()">retry</span></td></tr>';
+        if (tbErr) tbErr.innerHTML = '<tr><td colspan="10" style="padding:12px;color:var(--red);text-align:center;">Ratings fetch failed — <span style="cursor:pointer;text-decoration:underline;" onclick="loadFleetReportCard()">retry</span></td></tr>';
       });
   }
 

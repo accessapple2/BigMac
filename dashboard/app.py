@@ -11215,12 +11215,30 @@ async def extras_run_all():
 
 @app.get("/api/ratings")
 def ratings_fleet():
-    """All active agents with their alltime A–E rating, sorted by score."""
+    """All active agents with their alltime A–E rating, sorted by score.
+
+    HM-KELLY-TIER-MULTIPLIER 2026-05-23 — each row also carries:
+      * sharpe_90d: trailing 90d annualized Sharpe (canonical formula)
+      * kelly_tier: 'tier_2' (Sharpe>10, 2.0× cap), 'tier_1' (Sharpe>5,
+                    1.5× cap), or 'default' (1.0×)
+    The Fleet Report Card renders a "Kelly N.N×" badge per row using
+    these fields so the Captain can see which agents qualified for
+    higher position sizing without diving into trader logs.
+    """
     try:
         from engine.agent_ratings import fleet_report_card, get_rating_trend
+        from engine.paper_trader import (
+            _compute_trailing_sharpe, get_kelly_tier_label,
+        )
         report = fleet_report_card()
         for r in report:
             r["trend"] = get_rating_trend(r["player_id"])
+            try:
+                r["sharpe_90d"] = _compute_trailing_sharpe(r["player_id"], days=90)
+                r["kelly_tier"] = get_kelly_tier_label(r["player_id"])
+            except Exception:
+                r["sharpe_90d"] = 0.0
+                r["kelly_tier"] = "default"
         return report
     except Exception as e:
         return {"error": str(e)}

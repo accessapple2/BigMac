@@ -1185,12 +1185,26 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             alloc_pct = 0.25
         elif asset_type == "option":
             # Options: Kelly-based sizing, max 2% per single option (5% for spreads)
+            # HM-KELLY-TIER-MULTIPLIER 2026-05-23: tier-scale cap for
+            # high-Sharpe agents — Sharpe>10 → 2x, Sharpe>5 → 1.5x cap.
             kelly_pct = get_kelly_fraction(player_id)
-            alloc_pct = min(kelly_pct, 0.02)  # max 2% per single option
+            _km = get_kelly_cap_multiplier(player_id)
+            alloc_pct = min(kelly_pct, 0.02 * _km)
+            if _km > 1.0:
+                console.log(
+                    f"[cyan][KELLY-TIER] {player_id} options cap "
+                    f"2.0%→{0.02 * _km:.1%} (Sharpe-tier {_km:.1f}×)"
+                )
         else:
-            # Stocks: half-Kelly, capped at 10%
+            # Stocks: half-Kelly, capped at 10% (tier-scaled).
             kelly_pct = get_kelly_fraction(player_id)
-            alloc_pct = min(kelly_pct, 0.10)
+            _km = get_kelly_cap_multiplier(player_id)
+            alloc_pct = min(kelly_pct, 0.10 * _km)
+            if _km > 1.0:
+                console.log(
+                    f"[cyan][KELLY-TIER] {player_id} stock cap "
+                    f"10.0%→{0.10 * _km:.1%} (Sharpe-tier {_km:.1f}×)"
+                )
             alloc_pct, _alloc_reasons = _target_weight_adjustment(
                 player_id, symbol, portfolio, alloc_pct, price, confidence
             )
@@ -3447,6 +3461,95 @@ def get_kelly_fraction(player_id: str) -> float:
         return 0.10
 
 
+# HM-KELLY-TIER-MULTIPLIER 2026-05-23 — Captain tier rules:
+#   Sharpe > 10 → 2.0x cap multiplier  (Tier 2)
+#   Sharpe >  5 → 1.5x cap multiplier  (Tier 1)
+#   else        → 1.0x (default behavior, no change vs pre-2026-05-23)
+#
+# Sharpe source: direct trailing 90-day per-trade realized_pnl,
+# computed with the same compute_sharpe() formula used in
+# run_comprehensive_backtest.py for comparability against the
+# published OOS-Sharpe baselines.
+#
+# Cache: per-process dict keyed by player_id with 5-minute TTL so
+# Sharpe isn't recomputed on every buy() call. Cleared on process
+# restart — see CLAUDE.md "Alert rate-limit semantics — in-memory only"
+# for the same in-memory pattern doctrine.
+import time as _time_module
+_KELLY_SHARPE_CACHE: dict[str, tuple[float, float]] = {}
+_KELLY_SHARPE_TTL_S = 300  # 5 min
+
+def _compute_trailing_sharpe(player_id: str, days: int = 90) -> float:
+    """Annualized Sharpe over last N days, per compute_sharpe() formula
+    (per-trade PnL, sqrt(N) annualization, 4.5% risk-free).
+
+    Returns 0.0 if < 2 trades in window or stdev=0. Fail-safe: any
+    error returns 0.0 (which maps to no tier multiplier — safe default).
+    """
+    cache_key = f"{player_id}:{days}"
+    cached = _KELLY_SHARPE_CACHE.get(cache_key)
+    now = _time_module.time()
+    if cached and (now - cached[1]) < _KELLY_SHARPE_TTL_S:
+        return cached[0]
+    try:
+        conn = _conn()
+        rows = conn.execute(
+            "SELECT realized_pnl FROM trades "
+            " WHERE player_id=? AND action IN ('SELL','COVER') "
+            "   AND realized_pnl IS NOT NULL "
+            "   AND executed_at >= date('now', ?) "
+            " ORDER BY executed_at",
+            (player_id, f'-{int(days)} days')
+        ).fetchall()
+        conn.close()
+        pnls = [float(r[0]) for r in rows]
+        if len(pnls) < 2:
+            sharpe = 0.0
+        else:
+            import statistics as _stat
+            import math as _math
+            s = _stat.stdev(pnls)
+            if s == 0:
+                sharpe = 0.0
+            else:
+                daily_rf = 0.045 / 252
+                sharpe = round(
+                    (_stat.mean(pnls) - daily_rf) / s * _math.sqrt(len(pnls)),
+                    2,
+                )
+    except Exception:
+        sharpe = 0.0
+    _KELLY_SHARPE_CACHE[cache_key] = (sharpe, now)
+    return sharpe
+
+
+def get_kelly_cap_multiplier(player_id: str) -> float:
+    """Return Kelly cap multiplier based on trailing 90d Sharpe.
+
+    Tier 2 (Sharpe > 10): 2.0× — verified high-edge agents get
+        their per-trade sizing caps doubled.
+    Tier 1 (Sharpe >  5): 1.5× — moderate-edge agents get +50%.
+    Default            : 1.0× — unchanged from pre-HM-KELLY-TIER ship.
+    """
+    s = _compute_trailing_sharpe(player_id, days=90)
+    if s > 10:
+        return 2.0
+    if s > 5:
+        return 1.5
+    return 1.0
+
+
+def get_kelly_tier_label(player_id: str) -> str:
+    """Return 'tier_2', 'tier_1', or 'default' — used by /api/ratings
+    to surface a per-agent Kelly tier badge on the Fleet Report Card."""
+    s = _compute_trailing_sharpe(player_id, days=90)
+    if s > 10:
+        return "tier_2"
+    if s > 5:
+        return "tier_1"
+    return "default"
+
+
 # ─────────────────────────────────────────────────────────────────────────────
 # Auto option exits: 50% TP · 2x SL · 21 DTE time stop
 # ─────────────────────────────────────────────────────────────────────────────
@@ -3923,9 +4026,15 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
     except Exception:
         pass
 
-    # Size: Kelly-based, max 15%
+    # Size: Kelly-based, max 15% (tier-scaled per HM-KELLY-TIER-MULTIPLIER 2026-05-23).
     kelly_pct = get_kelly_fraction(player_id)
-    max_short_pct = min(kelly_pct, 0.15)
+    _km = get_kelly_cap_multiplier(player_id)
+    max_short_pct = min(kelly_pct, 0.15 * _km)
+    if _km > 1.0:
+        console.log(
+            f"[cyan][KELLY-TIER] {player_id} short cap "
+            f"15.0%→{0.15 * _km:.1%} (Sharpe-tier {_km:.1f}×)"
+        )
     if qty is None:
         qty = round((cash * max_short_pct) / price, 4)
     else:
