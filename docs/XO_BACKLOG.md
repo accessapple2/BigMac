@@ -245,6 +245,51 @@ drop into `~/autonomous-trader/docs/design/` before continuing.
    for animatable custom property, OR (c) swap to SVG arc/stroke-dashoffset for
    guaranteed cross-browser. Priority: LOW (cosmetic).
 
+### HM-OAI-SIGNAL-REPLAY-POLISH — three deferred items from Step 4b
+
+**Banked 2026-05-24 after Step 4b ship (commit `3fc9a83`).** Signal
+Replay is functional with real per-card live wire; these three items
+were intentionally deferred from the 4b scope:
+
+1. **True BUY-date lookup for the signal-candle pivot.** Currently the
+   "Ollie Signal · {date}" label uses `executed_at` from the SELL row
+   (the close date), not the original BUY date. `_oaiPickPivotIdx`
+   centers the candle window on the close, so the signal candle is
+   effectively the close candle. To show the actual BUY entry pivot:
+   - **Path A:** Join `trades` to itself (most-recent prior BUY for
+     same symbol + player_id + asset_type) — add a SQL CTE in
+     `dashboard/app.py::recent_trades`. ~10 LOC.
+   - **Path B:** New endpoint `/api/trades/round-trips?limit=N` that
+     returns matched BUY/SELL pairs with both timestamps. Cleaner
+     separation, ~30 LOC.
+   - **Path C:** Frontend two-fetch: when a SELL is picked, fire a
+     second `/api/trades/recent?symbol=X&player_id=Y&before=Z&action=BUY`
+     filtered call. Heavier per-pick latency.
+
+   **Recommend Path A** — minimal backend touch.
+
+2. **Short round-trip support.** Current dropdown filter is `action
+   LIKE 'SELL%'`. Short trades open with `action='SHORT_SELL'` (or
+   `SELL_TO_OPEN` for options) and close with `BUY_TO_COVER`. None
+   present in current 200-trade window. When they appear, the "Buy
+   Signal" stamp would mis-label them (short entry should show "Sell
+   Signal"). Fix: detect direction from the matched OPEN row's action
+   (after #1 lands), flip stamp + color logic.
+
+3. **Filter UI for the dropdowns.** Today the dropdowns show all 106
+   replayable trades; the Captain scrolls to find a specific signal.
+   Add filter pills above the dropdowns:
+   - Date range (today / 7d / 30d / 90d / all)
+   - Player filter (ollie-auto / navigator / neo-matrix / all)
+   - Outcome filter (winners / losers / all)
+   - Min |pnl_pct| slider
+   Lightweight client-side filter that re-populates the dropdown lists.
+   ~2-3h frontend.
+
+**Priority:** LOW. Signal Replay arc is production-ready; these are
+ergonomic upgrades. Pick up alongside other HM-OAI-POLISH cluster
+work or after Step 5 Backtest Lab ships.
+
 ### HM-SIGNALS-RECENT-ACTED-ON-FIELD — `/api/signals/recent` payload omits the `acted_on` column
 
 **Surfaced 2026-05-24 during Step 4a Signal Replay build.**
