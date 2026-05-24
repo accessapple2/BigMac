@@ -9548,14 +9548,473 @@ document.addEventListener('keydown', function(e) {
 <!-- SCREENER PRO SECTION -->
 </div>
 
-<!-- HM-OLLIE-AI-WORKSPACE 2026-05-23: Step 1 — section shell only.
-     Sub-views (Workspace / Symbol Focus / Signal Replay) ship in later steps. -->
-<div id="section-ollie-ai" style="display:none;">
-  <div style="padding:16px;color:var(--muted);">
-    <h2 style="margin:0 0 12px 0;color:var(--text);">🧠 Ollie AI Workspace</h2>
-    <p style="font-size:13px;">Shell loaded. Sub-views (Workspace · Symbol Focus · Signal Replay) ship in subsequent steps per HM-OLLIE-AI-WORKSPACE.</p>
+<!-- HM-OLLIE-AI-WORKSPACE 2026-05-23 Step 2 (v4.3): Concept 5 — Workspace sub-view.
+     North-star spec: docs/design/USS-Trademinds-Dashboard-Redesigns-v4.3-FINAL.html L310-374.
+     Layout: Idea Surfing badge + 6-tab sub-view bar + 8-cell Channel Bar +
+     Row1 (SPDR Sectors + Halts/Resumes) + Row2 (Volatile Race + Large Cap Race) +
+     Row3 (Movers histogram + Top List Config).
+     Other 5 sub-views (Symbol Focus / Signal Replay / Backtest Lab / Wave Scope /
+     Machine) are placeholder panes for Steps 3-7. -->
+<div id="section-ollie-ai" style="display:none;background:#05080d;min-height:calc(100vh - 120px);position:relative;overflow-y:auto;color:#e5e7eb;">
+
+  <!-- Page Head: title + Idea Surfing badge -->
+  <div class="oai-page-head">
+    <div>
+      <div class="oai-pt">CONCEPT 5 · OLLIE WORKSPACE · WORKSPACE</div>
+      <div class="oai-ps">Trade Ideas / Idea Surfing pattern · Channel Bar · Sector Status · Races</div>
+    </div>
+    <div class="oai-surf" id="oai-surf-badge">
+      <div class="oai-surf-ring"><span id="oai-surf-countdown">5s</span></div>
+      <div>
+        <div class="oai-surf-lbl">NOW SURFING</div>
+        <div class="oai-surf-cur" id="oai-surf-current">—</div>
+      </div>
+      <div class="oai-surf-next">
+        <b>NEXT</b><span id="oai-surf-next-list">—</span>
+      </div>
+    </div>
   </div>
+
+  <!-- Sub-view tab bar (6 tabs) -->
+  <div class="oai-st" id="oai-subview-tabs">
+    <div class="oai-sti on" data-view="workspace">WORKSPACE</div>
+    <div class="oai-sti" data-view="symbol-focus">SYMBOL FOCUS</div>
+    <div class="oai-sti" data-view="signal-replay">SIGNAL REPLAY</div>
+    <div class="oai-sti" data-view="backtest-lab">BACKTEST LAB</div>
+    <div class="oai-sti" data-view="wave-scope">OLLIE WAVE SCOPE</div>
+    <div class="oai-sti" data-view="ollie-machine">OLLIE MACHINE</div>
+  </div>
+
+  <!-- ───────────── WORKSPACE SUB-VIEW ───────────── -->
+  <div class="oai-view" id="oai-view-workspace">
+
+    <!-- Channel Bar (8 cells) -->
+    <div class="oai-ch-bar" id="oai-channel-bar">
+      <div class="oai-ch on" data-channel="sector-status"><b>Sector Status</b></div>
+      <div class="oai-ch" data-channel="change-from-0"><b>Change From 0</b></div>
+      <div class="oai-ch" data-channel="trade-mentor"><b>Trade Mentor</b></div>
+      <div class="oai-ch" data-channel="long"><b>Long</b></div>
+      <div class="oai-ch" data-channel="short"><b>Short</b></div>
+      <div class="oai-ch" data-channel="explosive-winners"><b>Explosive Winners</b></div>
+      <div class="oai-ch" data-channel="the-most-2x"><b>The Most 2x</b></div>
+      <div class="oai-ch" data-channel="rumble-rippers"><b>Rumble Rippers</b></div>
+    </div>
+
+    <!-- Row 1: SPDR Sectors + Halts/Resumes -->
+    <div class="oai-2col">
+      <div class="oai-sec">
+        <div class="oai-sec-h">SPDR SECTORS · LIVE</div>
+        <div class="oai-sec-grid" id="oai-sectors-grid">
+          <div class="oai-tile-empty">Loading sectors…</div>
+        </div>
+      </div>
+      <div class="oai-sec">
+        <div class="oai-sec-h">HALTS &amp; RESUMES · SHARED <span class="oai-sec-meta">Fixture · live wire pending</span></div>
+        <div id="oai-halts-feed"></div>
+      </div>
+    </div>
+
+    <!-- Row 2: Dual Races -->
+    <div class="oai-2col">
+      <div class="oai-race-box">
+        <div class="oai-race-h">
+          <span class="oai-race-t">VOLATILE RACE · GAINERS FROM OPEN</span>
+          <span class="oai-race-tm" id="oai-race-vol-timer">00:00:00 · 4 MIN RACE</span>
+        </div>
+        <div id="oai-race-volatile"></div>
+      </div>
+      <div class="oai-race-box">
+        <div class="oai-race-h">
+          <span class="oai-race-t">LARGE CAP RACE · GAINERS FROM CLOSE</span>
+          <span class="oai-race-tm" id="oai-race-lc-timer">00:00:00 · 4 MIN RACE</span>
+        </div>
+        <div id="oai-race-largecap"></div>
+      </div>
+    </div>
+
+    <!-- Row 3: Movers histogram + Top List Config -->
+    <div class="oai-2col" style="margin-top:10px;">
+      <div class="oai-sec">
+        <div class="oai-sec-h">MOVERS · UPSIDE VS DOWNSIDE</div>
+        <div class="oai-hist" id="oai-movers-hist"></div>
+        <div class="oai-hist-labels" id="oai-movers-hist-labels">—</div>
+      </div>
+      <div class="oai-sec">
+        <div class="oai-sec-h">TOP LIST CONFIG · ACTIVE FILTERS</div>
+        <div class="oai-kv"><span>Earnings Date</span><b>any</b></div>
+        <div class="oai-kv"><span>Price</span><b>$5 – $100</b></div>
+        <div class="oai-kv"><span>Volume Today</span><b>400K – ∞</b></div>
+        <div class="oai-kv"><span>Float</span><b>0 – ∞</b></div>
+        <div class="oai-kv"><span>Short Float %</span><b>0 – ∞</b></div>
+        <div class="oai-kv"><span>Position in Range</span><b>0 – 100</b></div>
+        <div class="oai-kv"><span>Change from Close</span><b>3% – ∞</b></div>
+        <div class="oai-kv"><span>Consecutive Days</span><b>0+</b></div>
+        <div class="oai-kv"><span>Relative Volume</span><b>1.0+</b></div>
+      </div>
+    </div>
+
+  </div>
+
+  <!-- ───────────── OTHER SUB-VIEWS (placeholders) ───────────── -->
+  <div class="oai-view" id="oai-view-symbol-focus" style="display:none;">
+    <div class="oai-placeholder"><h3>🎯 Symbol Focus</h3><p>OPAD-style single-symbol cockpit · Trade Ticket · AI projected levels. Ships in Step 3.</p></div>
+  </div>
+  <div class="oai-view" id="oai-view-signal-replay" style="display:none;">
+    <div class="oai-placeholder"><h3>🎬 Signal Replay</h3><p>Side-by-side Ollie Signal replay · entry/exit annotations · post-signal trajectory. Ships in Step 4.</p></div>
+  </div>
+  <div class="oai-view" id="oai-view-backtest-lab" style="display:none;">
+    <div class="oai-placeholder"><h3>📊 Backtest Lab</h3><p>Event-based backtest · profit factor · win rate · daily heatmap · filter optimizer. Ships in Step 5.</p></div>
+  </div>
+  <div class="oai-view" id="oai-view-wave-scope" style="display:none;">
+    <div class="oai-placeholder"><h3>🌊 Ollie Wave Scope</h3><p>Adaptive EMA bands · Biggest Gainers/Losers ribbons · momentum treemap. Ships under <b>HM-OLLIE-WAVE</b>.</p></div>
+  </div>
+  <div class="oai-view" id="oai-view-ollie-machine" style="display:none;">
+    <div class="oai-placeholder"><h3>🤖 Ollie Machine</h3><p>2nd-gen automated momentum · top-3 picks · Sim/Live toggle · auto-entry optimization. Ships in Step 7.</p></div>
+  </div>
+
 </div>
+
+<style>
+/* ───────── HM-OLLIE-AI-WORKSPACE Step 2 (v4.3) — scoped styles ─────────
+   All selectors namespaced under #section-ollie-ai so they don't leak.
+   Faithful port of uss-* spec classes from docs/design/v4.3-FINAL.html L1-182. */
+
+#section-ollie-ai { font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif; padding:14px 18px 32px; }
+#section-ollie-ai *,#section-ollie-ai *::before,#section-ollie-ai *::after { box-sizing:border-box; }
+
+/* Page Head */
+#section-ollie-ai .oai-page-head { padding:14px 18px; background:#0a0e14; border:1px solid #1f2937; border-radius:8px; display:flex; justify-content:space-between; align-items:center; margin-bottom:12px; flex-wrap:wrap; gap:12px; }
+#section-ollie-ai .oai-pt { color:#fbbf24; font-weight:800; font-size:15px; letter-spacing:1px; }
+#section-ollie-ai .oai-ps { color:#9ca3af; font-size:12px; margin-top:2px; }
+
+/* Idea Surfing badge */
+#section-ollie-ai .oai-surf { display:flex; align-items:center; gap:8px; background:#1c1408; border:1px solid #fbbf24; border-radius:20px; padding:4px 10px; }
+#section-ollie-ai .oai-surf-ring { width:22px; height:22px; border-radius:50%; background:conic-gradient(#fbbf24 var(--surf-deg, 360deg), #1f2937 0deg); display:flex; align-items:center; justify-content:center; transition:background .25s linear; }
+#section-ollie-ai .oai-surf-ring span { width:16px; height:16px; border-radius:50%; background:#0a0e14; color:#fbbf24; font-size:9px; font-weight:800; display:flex; align-items:center; justify-content:center; }
+#section-ollie-ai .oai-surf-lbl { font-size:9px; color:#9ca3af; letter-spacing:1px; font-weight:700; }
+#section-ollie-ai .oai-surf-cur { font-size:13px; color:#fbbf24; font-weight:800; }
+#section-ollie-ai .oai-surf-next { font-size:9px; color:#9ca3af; }
+#section-ollie-ai .oai-surf-next b { color:#cbd5e1; margin-right:6px; }
+#section-ollie-ai .oai-surf-next span { margin:0 4px; }
+
+/* Sub-view tab bar */
+#section-ollie-ai .oai-st { display:flex; gap:4px; margin-bottom:10px; flex-wrap:wrap; }
+#section-ollie-ai .oai-sti { padding:6px 12px; background:#0a0e14; border:1px solid #1f2937; border-radius:4px; color:#9ca3af; font-size:10px; font-weight:700; letter-spacing:1px; cursor:pointer; user-select:none; }
+#section-ollie-ai .oai-sti:hover { border-color:#fbbf24; color:#cbd5e1; }
+#section-ollie-ai .oai-sti.on { background:#1f2937; color:#fbbf24; border-color:#fbbf24; }
+
+/* Channel Bar */
+#section-ollie-ai .oai-ch-bar { background:#0a0e14; border:1px solid #1f2937; border-radius:6px; padding:10px; margin-bottom:10px; display:grid; grid-template-columns:repeat(8,1fr); gap:6px; }
+@media (max-width: 1100px) { #section-ollie-ai .oai-ch-bar { grid-template-columns:repeat(4,1fr); } }
+#section-ollie-ai .oai-ch { background:#111827; border:1px solid #1f2937; border-radius:4px; padding:8px; text-align:center; font-size:10px; color:#cbd5e1; cursor:pointer; user-select:none; }
+#section-ollie-ai .oai-ch:hover { border-color:#fbbf24; }
+#section-ollie-ai .oai-ch.on { border-color:#fbbf24; color:#fbbf24; background:#1c1408; }
+#section-ollie-ai .oai-ch b { display:block; font-size:11px; font-weight:700; }
+
+/* 2-col layout */
+#section-ollie-ai .oai-2col { display:grid; grid-template-columns:1fr 1fr; gap:10px; margin-bottom:10px; }
+@media (max-width: 1100px) { #section-ollie-ai .oai-2col { grid-template-columns:1fr; } }
+
+/* Section card */
+#section-ollie-ai .oai-sec { background:#0a0e14; border:1px solid #1f2937; border-radius:6px; padding:10px; }
+#section-ollie-ai .oai-sec-h { color:#fbbf24; font-size:10px; font-weight:700; letter-spacing:1px; padding-bottom:6px; border-bottom:1px solid #1f2937; margin-bottom:8px; display:flex; justify-content:space-between; align-items:center; }
+#section-ollie-ai .oai-sec-meta { color:#9ca3af; font-size:9px; font-weight:400; letter-spacing:.3px; text-transform:none; }
+
+/* SPDR Sector tiles */
+#section-ollie-ai .oai-sec-grid { display:grid; grid-template-columns:repeat(4,1fr); gap:4px; }
+#section-ollie-ai .oai-tile { background:#0d1117; border:1px solid #1f2937; border-radius:3px; padding:4px 6px; font-size:10px; cursor:pointer; }
+#section-ollie-ai .oai-tile:hover { filter:brightness(1.2); }
+#section-ollie-ai .oai-tile.up { background:#0a2e1a; border-color:#22c55e; }
+#section-ollie-ai .oai-tile.dn { background:#2e1010; border-color:#ef4444; }
+#section-ollie-ai .oai-tile b { color:#e5e7eb; font-weight:700; }
+#section-ollie-ai .oai-tile span { color:#9ca3af; display:block; font-size:9px; }
+#section-ollie-ai .oai-tile-empty { color:#9ca3af; font-size:11px; padding:8px; grid-column:1/-1; }
+
+/* Halts/Resumes feed */
+#section-ollie-ai .oai-sig { padding:5px 6px; font-size:11px; color:#cbd5e1; border-bottom:1px solid #111827; }
+#section-ollie-ai .oai-sig:last-child { border-bottom:none; }
+#section-ollie-ai .oai-sig b { color:#fbbf24; }
+#section-ollie-ai .oai-sig .halted { color:#ef4444; font-weight:700; }
+#section-ollie-ai .oai-sig .resumed { color:#22c55e; font-weight:700; }
+
+/* Races */
+#section-ollie-ai .oai-race-box { background:#0d1117; border:1px solid #1f2937; border-radius:6px; overflow:hidden; }
+#section-ollie-ai .oai-race-h { display:flex; justify-content:space-between; align-items:center; padding:8px 10px; border-bottom:1px solid #1f2937; background:#0a0e14; }
+#section-ollie-ai .oai-race-t { font-weight:700; color:#fbbf24; font-size:11px; letter-spacing:.5px; }
+#section-ollie-ai .oai-race-tm { color:#fbbf24; font-family:monospace; font-size:11px; }
+#section-ollie-ai .oai-race-row { position:relative; display:grid; grid-template-columns:60px 1fr 60px 70px 70px; align-items:center; gap:6px; padding:5px 36px 5px 10px; background:#0d1117; border-bottom:1px solid #1f2937; min-height:30px; overflow:hidden; cursor:pointer; }
+#section-ollie-ai .oai-race-row:last-child { border-bottom:none; }
+#section-ollie-ai .oai-race-row:hover { filter:brightness(1.15); }
+#section-ollie-ai .oai-race-row .rp { font-weight:700; color:#22c55e; font-size:11px; }
+#section-ollie-ai .oai-race-row .rt { font-weight:700; color:#e5e7eb; font-size:11px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+#section-ollie-ai .oai-race-row .rd { color:#9ca3af; font-size:10px; text-align:right; }
+#section-ollie-ai .oai-race-row .rv { color:#e5e7eb; font-weight:700; font-size:11px; text-align:right; }
+#section-ollie-ai .oai-race-row .rc { color:#22c55e; font-size:10px; text-align:right; }
+#section-ollie-ai .oai-race-row.dn .rp { color:#ef4444; }
+#section-ollie-ai .oai-race-row.dn .rc { color:#ef4444; }
+/* Checkered finish-line edge */
+#section-ollie-ai .oai-race-row::after { content:''; position:absolute; top:0; right:0; bottom:0; width:30px; background-image:linear-gradient(45deg,#000 25%,transparent 25%),linear-gradient(-45deg,#000 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#000 75%),linear-gradient(-45deg,transparent 75%,#000 75%); background-size:6px 6px; background-position:0 0,0 3px,3px -3px,-3px 0; background-color:#fff; opacity:.85; pointer-events:none; }
+#section-ollie-ai .oai-race-row.lead { background:linear-gradient(90deg, rgba(34,197,94,.18), rgba(34,197,94,.04) 70%, transparent); }
+#section-ollie-ai .oai-race-empty { color:#9ca3af; font-size:11px; padding:12px; }
+
+/* Movers histogram */
+#section-ollie-ai .oai-hist { display:flex; align-items:flex-end; gap:2px; height:80px; margin-top:6px; }
+#section-ollie-ai .oai-hist-bar { flex:1; background:#22c55e; border-radius:1px 1px 0 0; min-height:2px; cursor:pointer; transition:filter .12s; }
+#section-ollie-ai .oai-hist-bar.dn { background:#ef4444; }
+#section-ollie-ai .oai-hist-bar:hover { filter:brightness(1.3); }
+#section-ollie-ai .oai-hist-labels { color:#9ca3af; font-size:10px; margin-top:4px; white-space:nowrap; overflow:hidden; text-overflow:ellipsis; }
+
+/* Top List Config kv */
+#section-ollie-ai .oai-kv { display:flex; justify-content:space-between; padding:4px 0; border-bottom:1px solid #111827; font-size:11px; }
+#section-ollie-ai .oai-kv:last-child { border-bottom:none; }
+#section-ollie-ai .oai-kv span { color:#9ca3af; }
+#section-ollie-ai .oai-kv b { color:#e5e7eb; }
+
+/* Placeholders for other sub-views */
+#section-ollie-ai .oai-placeholder { padding:48px 16px; text-align:center; color:#9ca3af; background:#0a0e14; border:1px solid #1f2937; border-radius:8px; }
+#section-ollie-ai .oai-placeholder h3 { color:#fbbf24; margin:0 0 8px 0; font-size:18px; letter-spacing:.5px; }
+#section-ollie-ai .oai-placeholder p { font-size:12px; margin:0; }
+#section-ollie-ai .oai-placeholder b { color:#cbd5e1; }
+</style>
+
+<script>
+/* ───────── HM-OLLIE-AI-WORKSPACE Step 2 (v4.3) — Workspace channel JS ─────────
+   - Sub-view tab switching (6 tabs; only Workspace populates data this step)
+   - Channel Bar tab cosmetic switching (live data unchanged for now)
+   - Idea Surfing badge: 5s cycle through top movers, conic-gradient countdown
+   - Lazy init on section visibility (MutationObserver)
+   - Data: /api/stock-race (split by avg_price for volatile vs large-cap),
+     /api/sectors/heatmap, /api/movers. Halts fixture pending live wire. */
+(function(){
+  var _loaded = false;
+  var _surfTimer = null;
+  var _surfQueue = [];
+  var _surfIdx = 0;
+  var _surfTickMs = 0;
+  var _raceTimerStart = null;
+  var _raceClockInterval = null;
+
+  function fmtPct(p, withSign) {
+    if (p === null || p === undefined || isNaN(p)) return '—';
+    var n = Number(p);
+    var s = n.toFixed(2) + '%';
+    return (withSign && n >= 0 ? '+' : '') + s;
+  }
+  function fmtPrice(p) {
+    if (p === null || p === undefined || isNaN(p)) return '—';
+    return Number(p).toFixed(2);
+  }
+  function fmtClock(secs) {
+    var h = Math.floor(secs/3600);
+    var m = Math.floor((secs%3600)/60);
+    var s = Math.floor(secs%60);
+    return String(h).padStart(2,'0')+':'+String(m).padStart(2,'0')+':'+String(s).padStart(2,'0');
+  }
+
+  /* ───── Idea Surfing badge ───── */
+  function startSurfing(symbols) {
+    if (!symbols || !symbols.length) return;
+    _surfQueue = symbols.slice();
+    _surfIdx = 0;
+    if (_surfTimer) clearInterval(_surfTimer);
+    renderSurfNow();
+    _surfTickMs = Date.now();
+    _surfTimer = setInterval(tickSurf, 100);
+  }
+  function tickSurf() {
+    var elapsed = (Date.now() - _surfTickMs) / 1000;
+    var remaining = Math.max(0, 5 - elapsed);
+    var deg = Math.max(0, Math.min(360, (remaining / 5) * 360));
+    var ring = document.querySelector('#section-ollie-ai .oai-surf-ring');
+    if (ring) ring.style.setProperty('--surf-deg', deg + 'deg');
+    var cdEl = document.getElementById('oai-surf-countdown');
+    if (cdEl) cdEl.textContent = Math.ceil(remaining) + 's';
+    if (elapsed >= 5) {
+      _surfIdx = (_surfIdx + 1) % _surfQueue.length;
+      _surfTickMs = Date.now();
+      renderSurfNow();
+    }
+  }
+  function renderSurfNow() {
+    if (!_surfQueue.length) return;
+    var cur = _surfQueue[_surfIdx];
+    var nextN = 3;
+    var nextSyms = [];
+    for (var i = 1; i <= nextN; i++) nextSyms.push(_surfQueue[(_surfIdx + i) % _surfQueue.length]);
+    var curEl = document.getElementById('oai-surf-current');
+    if (curEl) curEl.textContent = cur;
+    var nextEl = document.getElementById('oai-surf-next-list');
+    if (nextEl) nextEl.innerHTML = nextSyms.map(function(s){ return '<span>'+s+'</span>'; }).join('·');
+  }
+
+  /* ───── SPDR Sectors ───── */
+  function renderSectors(sectors) {
+    var el = document.getElementById('oai-sectors-grid');
+    if (!el) return;
+    if (!sectors || !sectors.length) { el.innerHTML = '<div class="oai-tile-empty">No sector data</div>'; return; }
+    el.innerHTML = sectors.slice(0, 12).map(function(s) {
+      var pct = Number(s.change_pct || 0);
+      var cls = pct > 0.1 ? 'up' : (pct < -0.1 ? 'dn' : '');
+      var sym = s.symbol || s.etf || '?';
+      var px = fmtPrice(s.price || s.last_price);
+      return '<div class="oai-tile ' + cls + '" title="' + (s.name || sym) + '">'
+        + '<b>' + sym + '</b>'
+        + '<span>' + px + ' · ' + fmtPct(pct, true) + '</span>'
+        + '</div>';
+    }).join('');
+  }
+
+  /* ───── Halts/Resumes (fixture) ───── */
+  function renderHaltsFixture() {
+    var halts = [
+      { t:'10:18', sym:'PHOE', state:'RESUMED', reason:null,         price:29.39, vol:'1.15M sh' },
+      { t:'10:13', sym:'PHOE', state:'HALTED',  reason:'volatility', price:29.39, vol:null },
+      { t:'10:13', sym:'OLOX', state:'RESUMED', reason:null,         price:5.19,  vol:'51.8K sh' },
+      { t:'10:10', sym:'OLOX', state:'HALTED',  reason:'volatility', price:5.19,  vol:null },
+      { t:'10:05', sym:'PHOE', state:'RESUMED', reason:null,         price:33.60, vol:'1.08M sh' },
+      { t:'10:02', sym:'NEPH', state:'RESUMED', reason:null,         price:3.47,  vol:'22.8K sh' },
+      { t:'09:59', sym:'NEPH', state:'HALTED',  reason:'volatility', price:3.47,  vol:null }
+    ];
+    var el = document.getElementById('oai-halts-feed');
+    if (!el) return;
+    el.innerHTML = halts.map(function(h) {
+      var cls = h.state === 'HALTED' ? 'halted' : 'resumed';
+      var tail = (h.reason ? ' · ' + h.reason : '') + ' · ' + fmtPrice(h.price) + (h.vol ? ' · ' + h.vol : '');
+      return '<div class="oai-sig"><b>' + h.t + '</b> ' + h.sym + ' · <span class="' + cls + '">' + h.state + '</span>' + tail + '</div>';
+    }).join('');
+  }
+
+  /* ───── Races ───── */
+  function renderRace(elId, rows, dirCls) {
+    var el = document.getElementById(elId);
+    if (!el) return;
+    if (!rows || !rows.length) { el.innerHTML = '<div class="oai-race-empty">No race data</div>'; return; }
+    var top = rows.slice(0, 9);
+    var maxAbs = Math.max.apply(null, top.map(function(r){ return Math.abs(r.change_pct || 0); })) || 1;
+    el.innerHTML = top.map(function(r, i) {
+      var pct = Number(r.change_pct || 0);
+      // race "leg" progress: scaled to max abs pct in this race
+      var leg = (Math.abs(pct) / maxAbs * 5).toFixed(2);
+      var leadCls = i === 0 ? ' lead' : '';
+      var dollarMove = (Number(r.price || 0) * (pct/100));
+      return '<div class="oai-race-row ' + dirCls + leadCls + '" onclick="oaiFocusSymbol(\'' + r.symbol + '\')">'
+        + '<span class="rp">' + leg + '%</span>'
+        + '<span class="rt">' + r.symbol + '</span>'
+        + '<span class="rd">$' + dollarMove.toFixed(2) + '</span>'
+        + '<span class="rv">' + (Number(r.volume || 0) / 1e6).toFixed(2) + '</span>'
+        + '<span class="rc">' + fmtPct(pct, true) + '</span>'
+        + '</div>';
+    }).join('');
+  }
+
+  function startRaceClock() {
+    _raceTimerStart = Date.now();
+    if (_raceClockInterval) clearInterval(_raceClockInterval);
+    _raceClockInterval = setInterval(function() {
+      var elapsed = Math.floor((Date.now() - _raceTimerStart) / 1000);
+      var elV = document.getElementById('oai-race-vol-timer');
+      var elL = document.getElementById('oai-race-lc-timer');
+      if (elV) elV.textContent = fmtClock(elapsed) + ' · 4 MIN RACE';
+      if (elL) elL.textContent = fmtClock(elapsed + 85) + ' · 4 MIN RACE';
+    }, 1000);
+  }
+
+  /* ───── Movers histogram + Top List labels ───── */
+  function renderMoversHist(movers) {
+    var el = document.getElementById('oai-movers-hist');
+    var lbl = document.getElementById('oai-movers-hist-labels');
+    if (!el) return;
+    if (!movers || !movers.length) { el.innerHTML = ''; if (lbl) lbl.textContent = 'No movers'; return; }
+    var top = movers.slice(0, 20);
+    var maxAbs = Math.max.apply(null, top.map(function(m){ return Math.abs(m.pct_change || 0); })) || 1;
+    el.innerHTML = top.map(function(m) {
+      var pct = Number(m.pct_change || 0);
+      var height = Math.max(3, (Math.abs(pct) / maxAbs) * 100);
+      var cls = pct >= 0 ? '' : 'dn';
+      return '<div class="oai-hist-bar ' + cls + '" style="height:' + height + '%;" title="' + m.symbol + ' ' + fmtPct(pct, true) + '" onclick="oaiFocusSymbol(\'' + m.symbol + '\')"></div>';
+    }).join('');
+    if (lbl) lbl.textContent = top.slice(0, 6).map(function(m){ return m.symbol; }).join(' · ');
+  }
+
+  /* ───── Symbol focus stub ───── */
+  window.oaiFocusSymbol = function(sym) {
+    if (!sym) return;
+    var tabs = document.querySelectorAll('#oai-subview-tabs .oai-sti');
+    tabs.forEach(function(t){ t.classList.toggle('on', t.dataset.view === 'symbol-focus'); });
+    document.querySelectorAll('#section-ollie-ai .oai-view').forEach(function(v) {
+      v.style.display = v.id === 'oai-view-symbol-focus' ? '' : 'none';
+    });
+    var ph = document.querySelector('#oai-view-symbol-focus .oai-placeholder h3');
+    if (ph) ph.textContent = '🎯 Symbol Focus — ' + sym;
+  };
+
+  /* ───── Wiring ───── */
+  function wireSubviewTabs() {
+    document.querySelectorAll('#oai-subview-tabs .oai-sti').forEach(function(t) {
+      t.addEventListener('click', function() {
+        var view = t.dataset.view;
+        document.querySelectorAll('#oai-subview-tabs .oai-sti').forEach(function(o){ o.classList.toggle('on', o === t); });
+        document.querySelectorAll('#section-ollie-ai .oai-view').forEach(function(v) {
+          v.style.display = v.id === 'oai-view-' + view ? '' : 'none';
+        });
+      });
+    });
+  }
+  function wireChannelBar() {
+    document.querySelectorAll('#oai-channel-bar .oai-ch').forEach(function(c) {
+      c.addEventListener('click', function() {
+        document.querySelectorAll('#oai-channel-bar .oai-ch').forEach(function(o){ o.classList.toggle('on', o === c); });
+        /* Channel data hookup deferred; cosmetic switch only this step. */
+      });
+    });
+  }
+
+  function loadWorkspace() {
+    /* Races — /api/stock-race returns [{symbol, price, change_pct, volume}, ...]
+       Split: small-cap (price <= 10) -> volatile race; large-cap (price > 10) -> large cap race */
+    fetch('/api/stock-race').then(function(r){ return r.json(); }).then(function(rows) {
+      if (!Array.isArray(rows)) rows = [];
+      var sorted = rows.slice().sort(function(a,b){ return (b.change_pct||0) - (a.change_pct||0); });
+      var volatile = sorted.filter(function(r){ return Number(r.price||0) <= 10 && (r.change_pct||0) > 0; });
+      var largecap = sorted.filter(function(r){ return Number(r.price||0) > 10 && (r.change_pct||0) > 0; });
+      renderRace('oai-race-volatile', volatile, 'up');
+      renderRace('oai-race-largecap', largecap, 'up');
+      startRaceClock();
+    }).catch(function(){ renderRace('oai-race-volatile', [], 'up'); renderRace('oai-race-largecap', [], 'up'); });
+
+    /* Sectors */
+    fetch('/api/sectors/heatmap').then(function(r){ return r.json(); }).then(function(j) {
+      renderSectors((j && j.sectors) || []);
+    }).catch(function(){ renderSectors([]); });
+
+    /* Movers — histogram + idea-surfing queue */
+    fetch('/api/movers').then(function(r){ return r.json(); }).then(function(j) {
+      var movers = (j && j.movers) || [];
+      renderMoversHist(movers);
+      startSurfing(movers.slice(0, 12).map(function(m){ return m.symbol; }));
+    }).catch(function(){ renderMoversHist([]); });
+
+    /* Halts (fixture) */
+    renderHaltsFixture();
+
+    _loaded = true;
+  }
+
+  document.addEventListener('DOMContentLoaded', function() {
+    var sec = document.getElementById('section-ollie-ai');
+    if (!sec) return;
+    wireSubviewTabs();
+    wireChannelBar();
+    new MutationObserver(function(mutations) {
+      mutations.forEach(function(m) {
+        if (m.attributeName === 'style' && sec.style.display !== 'none') {
+          if (!_loaded) loadWorkspace();
+        }
+      });
+    }).observe(sec, { attributes:true, attributeFilter:['style'] });
+  });
+})();
+</script>
 
 <div id="section-sector-watch" style="display:none;overflow-y:auto;height:calc(100vh - 120px);">
   <div style="display:flex;align-items:center;justify-content:flex-end;padding:8px 16px;gap:10px;border-bottom:1px solid var(--border);">

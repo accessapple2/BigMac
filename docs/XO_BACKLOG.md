@@ -201,6 +201,33 @@ Original archive preserved at `~/autonomous-trader-archive/2026-05-04-pre-hmg-re
 
 ## DEFERRED (planned sprints, out of scope tonight)
 
+### HM-OLLIE-AI-WORKSPACE — Concept 5 Ollie AI Workspace
+
+**North star:** `USS-Trademinds-Dashboard-Redesigns-v4.3-FINAL.{html,pdf}` (supersedes v4.2).
+Lives on Admiral's Bonnie box at `C:\Users\Bonnie\Downloads\`; carry to bigmac via scp or
+drop into `~/autonomous-trader/docs/design/` before continuing.
+
+**Concept 5 has 6 sub-views** (was 3 in v4.2):
+
+| # | Sub-view          | Sprint                    | Status        |
+|--:|-------------------|---------------------------|---------------|
+| 1 | Workspace         | HM-OLLIE-AI-WORKSPACE Step 2 | IN PROGRESS — first pass shipped against v4.2 verbal spec, **needs revision against v4.3** (uncommitted on disk) |
+| 2 | Symbol Focus      | HM-OLLIE-AI-WORKSPACE Step 3 | Pending — OPAD-style cockpit + Trade Ticket / Flatten / ½ / Double / Reverse action bar |
+| 3 | Signal Replay     | HM-OLLIE-AI-WORKSPACE Step 4 | Pending — FDMT/HE side-by-side + Ollie Signal stamps |
+| 4 | Backtest Lab      | HM-OLLIE-AI-WORKSPACE Step 5 | Pending — equity curve + heatmap + filter optimizer |
+| 5 | Ollie Wave Scope  | **HM-OLLIE-WAVE**         | Pending — adaptive EMA bands + gainers/losers + treemap |
+| 6 | Ollie Machine     | HM-OLLIE-AI-WORKSPACE Step 7 | Pending — 2nd-gen automated momentum + Sim/Live toggle |
+
+**Shipped to date:**
+- Step 1 (commit `23d42be`, 2026-05-23) — sidebar 🧠 Ollie AI nav with purple NEW badge + empty `section-ollie-ai` shell.
+
+**Step 2 status (uncommitted):**
+- First pass at `dashboard/static/index.html` L9551–L9921 against v4.2 verbal spec
+  (Channel Bar + dual races + sector tiles + Top List filter + Halts feed + Movers ribbon).
+- Wired to `/api/stock-race`, `/api/sectors/heatmap`, `/api/movers`. Halts is fixture
+  pending live wire.
+- **Needs v4.3 review before commit** — layout/visual specifics not yet aligned.
+
 ### Accessapple rebrand cleanup sprint
 **Verified count: 22 references across 6 files** (down from claimed 24):
 - `healthcheck.py` (2)
