@@ -1014,6 +1014,40 @@ Q4: **Which agents opt in?**
 Captain-framed scope, 2026-05-24). Build is on HOLD until Admiral
 answers the 4 questions in a clean session.
 
+### HM-THEME-V4.5-DEPRECATIONS — remove legacy compat shims one release after V4.4
+
+**Banked 2026-05-24 per 47's note.** After HM-THEME-CB-CONSOLIDATE v4.4
+(Path C) bakes for one release and HM-INLINE-STYLE-SWEEP completes:
+
+1. **Remove `html[data-theme]` legacy mirror** — V4.4 routes everything
+   through `body[data-uss-theme]` (or whatever attribute 47's module
+   picks). The legacy `html[data-theme="light"]` selectors + the JS that
+   keeps `html.setAttribute('data-theme', ...)` in sync are compat-only.
+   Once V4.4 ships and no consumer (CSS, JS, third-party) reads
+   `html[data-theme]`, drop the mirror.
+2. **Remove `--green` / `--red` / `--accent` aliases** — V4.4 introduces
+   semantic names like `--up` / `--down` / `--brand` (47's diagnosis
+   per the HM-CB-PATH-A history). The migration IIFE in Block 4 will
+   set up alias bindings (`--green: var(--up)`) so legacy consumers keep
+   rendering. After HM-INLINE-STYLE-SWEEP migrates 575 inline `style=""`
+   color hardcodes to vars, audit which consumers still touch the
+   aliases. Drop the unused ones.
+3. **Remove `data-cb="true"` orthogonal attribute** — V4.4's single-axis
+   `data-uss-theme` enum supersedes the orthogonal `data-theme` ×
+   `data-cb` model. The Block 4 migration IIFE handles state migration;
+   the old attribute can stay one release as read-only fallback then
+   be dropped.
+
+**Trigger:** ship V4.4, soak ≥1 week (one full RTH week minimum), confirm
+no consumer is reading the legacy paths (grep + browser DevTools sweep),
+then ship the deprecation removal.
+
+**Note:** the exact attribute names / var names in this entry are
+placeholders inferred from 47's HM-CB-PATH-A diagnosis ("v4.4 light-cb
+selector model" + "v4.4 CSS variable names don't exist (--up, --down,
+--up-bg)"). XO should patch this entry with 47's literal naming once
+the V4.4 module lands.
+
 ### HM-INLINE-STYLE-SWEEP — replace 575 hardcoded inline style="" colors with CSS vars
 
 **Banked 2026-05-24 during HM-CB-PATH-A.** 47 diagnosed 575 inline `style=""`
