@@ -392,6 +392,17 @@ body { font-size: 14px; }
 /* RAM bar (#ramBar) bg is set by JS based on usage thresholds (green/amber/red).
    Container bar bg uses var(--surface2). Both already responsive. No override. */
 
+/* HM-OLLIE-AI-SECTION-ISOLATION 2026-05-23: defensive CSS belt — when
+   section-ollie-ai is visible (style attribute contains "display:block" or
+   "display: block"), force every OTHER section in main to display:none.
+   Backstops the prior bleed-through where Portfolio Value + Sector
+   Allocation panels from section-webull rendered above the Ollie AI
+   workspace despite showSection() clearing display on all sections. */
+.main:has(> #section-ollie-ai[style*="display: block"]) > [id^="section-"]:not(#section-ollie-ai),
+.main:has(> #section-ollie-ai[style*="display:block"]) > [id^="section-"]:not(#section-ollie-ai) {
+  display: none !important;
+}
+
 /* Component-scoped CSS variables that default to #000 in dark mode.
    .race-section (Race tile, Phase 2) and .premarket-tile (Phase 6) declare
    their own --race-bg / --pm-bg as #000 — flip those to white in light. */
@@ -9768,7 +9779,7 @@ document.addEventListener('keydown', function(e) {
      Row3 (Movers histogram + Top List Config).
      Other 5 sub-views (Symbol Focus / Signal Replay / Backtest Lab / Wave Scope /
      Machine) are placeholder panes for Steps 3-7. -->
-<div id="section-ollie-ai" style="display:none;background:#05080d;min-height:calc(100vh - 120px);position:relative;overflow-y:auto;color:#e5e7eb;">
+<div id="section-ollie-ai" style="display:none;background:var(--bg);min-height:calc(100vh - 120px);position:relative;overflow-y:auto;color:var(--text);isolation:isolate;z-index:5;">
 
   <!-- Page Head: title + Idea Surfing badge -->
   <div class="oai-page-head">
@@ -10242,6 +10253,16 @@ document.addEventListener('keydown', function(e) {
       mutations.forEach(function(m) {
         if (m.attributeName === 'style' && sec.style.display !== 'none') {
           if (!_loaded) loadWorkspace();
+          // HM-OLLIE-AI-SECTION-ISOLATION: defensive suspenders — re-hide every
+          // OTHER section-* in main to backstop the bleed-through. Catches the
+          // case where Portfolio Value + Sector Allocation panels from
+          // section-webull stayed rendered above section-ollie-ai despite
+          // showSection() clearing them. Also covers browsers without :has().
+          try {
+            document.querySelectorAll('[id^="section-"]').forEach(function(other) {
+              if (other.id !== 'section-ollie-ai') other.style.display = 'none';
+            });
+          } catch(e) {}
         }
       });
     }).observe(sec, { attributes:true, attributeFilter:['style'] });
