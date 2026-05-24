@@ -451,14 +451,25 @@ body[data-active-section="ollie-ai"] #section-webull {
 [data-theme="light"] #wb-sparkline path[stroke="#94a3b8"],
 [data-theme="light"] #wb-sparkline line[stroke="#94a3b8"] { stroke: #475569 !important; }
 
-/* Colorblind mode — blue/orange instead of green/red */
+/* Colorblind mode — teal/burnt-orange (v4.4 palette per HM-CB-PATH-A 2026-05-24).
+   Previous values used Tailwind blue-600 #2563eb + orange-600 #ea580c (palette
+   per HM-THEME-CB-CONSOLIDATE). v4.4 design spec calls for teal (#0d9488)
+   substituting for green; burnt-orange stays. Adding ▲▼ glyph swap on .pos/.neg
+   so shape redundancy clears the WCAG color-only barrier. */
 [data-cb="true"] {
-  --green: #2563eb;
-  --red: #ea580c;
+  --green: #0d9488;  /* teal-600 */
+  --red: #ea580c;    /* orange-600 (burnt orange — unchanged) */
 }
-[data-cb="true"] .badge-long { background: rgba(37,99,235,0.12); color: var(--green); }
-[data-cb="true"] .badge-short { background: rgba(234,88,12,0.12); color: var(--red); }
-[data-cb="true"] .dot { background: #2563eb; box-shadow: 0 0 8px #2563eb; }
+[data-cb="true"] .badge-long  { background: rgba(13,148,136,0.12); color: var(--green); }
+[data-cb="true"] .badge-short { background: rgba(234,88,12,0.12);  color: var(--red); }
+[data-cb="true"] .dot         { background: #0d9488; box-shadow: 0 0 8px #0d9488; }
+/* HM-CB-PATH-A 2026-05-24 — shape-redundancy glyph swap. .pos/.neg + the
+   watchlist change cell rely purely on color in default mode; CB mode prepends
+   ▲ / ▼ so the signal works without color discrimination. */
+[data-cb="true"] .pos::before,
+[data-cb="true"] .wbc-wl-chg.pos::before { content: "▲ "; }
+[data-cb="true"] .neg::before,
+[data-cb="true"] .wbc-wl-chg.neg::before { content: "▼ "; }
 
 /* === COLORBLIND-SAFE INDICATORS — never rely on color alone === */
 /* Action badges with shape+text indicators */
@@ -550,8 +561,10 @@ body[data-active-section="ollie-ai"] #section-webull {
 
 /* Bridge indicator tooltip popup */
 #bridge-tip-card {
+  /* HM-CB-PATH-A 2026-05-24 — was hardcoded #111827, now var-driven so
+     light theme can lift it without [data-theme="light"] override gymnastics. */
   position:fixed; z-index:9999; max-width:360px; min-width:260px;
-  background:#111827; border:1px solid rgba(99,102,241,.35); border-radius:12px;
+  background:var(--surface); border:1px solid rgba(99,102,241,.35); border-radius:12px;
   padding:14px 16px; box-shadow:0 8px 32px rgba(0,0,0,.7);
   pointer-events:none; opacity:0; transition:opacity .15s;
   font-family:var(--font-mono); font-size:12px;
@@ -1187,9 +1200,10 @@ body:not(.role-admin) .admin-only { display: none !important; }
 }
 .pos { color:var(--green); } .neg { color:var(--red); }
 /* Colorblind mode */
-/* HM-THEME-CB-CONSOLIDATE 2026-05-24: var-level CB swap migrated from
-   body.cb-mode (now removed) → [data-cb="true"]. Single canonical path. */
-[data-cb="true"] { --green: #3b82f6; --red: #f97316; }
+/* HM-THEME-CB-CONSOLIDATE 2026-05-24 → HM-CB-PATH-A 2026-05-24: the var-level
+   swap was previously hardcoded here with Tailwind 500-shade (#3b82f6/#f97316).
+   It now lives at the canonical [data-cb="true"] block near L455 with the
+   v4.4 teal/burnt-orange palette (#0d9488/#ea580c). Removed the dupe. */
 .wb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .wb-table th { font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); padding: 8px; border-bottom: 1px solid var(--border); text-align: right; }
 .wb-table th:first-child { text-align: left; }
@@ -2831,11 +2845,16 @@ window._cachedFetch = function(url, ttlMs) {
 #ctoBanner                 { display: none !important; }
 </style>
 <style id="readability-fixes">
-/* Troi advisory card — solid dark bg instead of gradient */
+/* HM-CB-PATH-A 2026-05-24 — Troi + Bridge Vote cards were hardcoded
+   #111827/#1e293b which !important blocked light-theme lift. Migrated to
+   var(--surface)/var(--border)/var(--text) so the theme switcher controls
+   both. The Troi inner-div gradient overrides below still use rgba — those
+   are intentional opacity layers, not theme colors. */
+/* Troi advisory card — solid surface instead of gradient */
 #troi-advisory-card {
-  background: #111827 !important;
-  border: 1px solid #1e293b !important;
-  color: #e2e8f0 !important;
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
+  color: var(--text) !important;
 }
 /* Troi inner divs with inline gradient backgrounds */
 #troi-advisory-card > div,
@@ -2877,12 +2896,12 @@ window._cachedFetch = function(url, ttlMs) {
 #troi-advisory-card [style*="color:#ef4444"] { color: #ef4444 !important; }
 /* Bridge Vote card — same treatment */
 #bridge-vote-card {
-  background: #111827 !important;
-  border: 1px solid #1e293b !important;
+  background: var(--surface) !important;
+  border: 1px solid var(--border) !important;
 }
 /* Catch any remaining dark inline gradients */
 [style*="linear-gradient"][style*="rgb(13, 10, 26)"] {
-  background: #111827 !important;
+  background: var(--surface) !important;
 }
 </style>
 <!-- mobile_fixes.css disabled — LCARS theme active -->

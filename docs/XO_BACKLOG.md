@@ -866,6 +866,40 @@ behavior needs careful testing across all 4 theme combinations
 (dark, light, dark-cb, light-cb if [[hm-theme-cb-consolidate]] ships first).
 Bundling with the v4.4 migration sprint avoids a one-off touchpoint.
 
+### HM-INLINE-STYLE-SWEEP — replace 575 hardcoded inline style="" colors with CSS vars
+
+**Banked 2026-05-24 during HM-CB-PATH-A.** 47 diagnosed 575 inline `style=""`
+attributes carrying hex colors throughout `dashboard/static/index.html`. Each
+is a theme-blind hardcode that the theme switcher can't lift. Mostly cluster
+in:
+- SVG inline backgrounds: `style="background:#0d1117"` on `.oai-chart-svg`,
+  `.oai-sr-svg-{left,right}`, `.oai-bl-equity-svg`, `.oai-ws-svg`, etc.
+- Card backgrounds: `style="background:var(--card-bg)"` or hex equivalents
+- Color literals on text spans
+Scope: too big for a single commit; needs a sweep script + per-pattern review.
+
+**Approach:** scripted `sed -i` against documented patterns (e.g.
+`background:#0d1117` → `background:var(--panel)`) followed by visual smoke
+across all 12 sections. ~3-4h with careful testing. Not in HM-CB-PATH-A scope.
+
+### HM-THEME-CB-V4.4-UNIFIED — full body[data-theme="light-cb"] migration
+
+**Banked 2026-05-24 during HM-CB-PATH-A.** Path A kept the legacy orthogonal
+model (data-theme=light/dark × data-cb=true/false). v4.4 design spec calls
+for a unified single-axis `data-theme` enum: `dark | light | dark-cb | light-cb`.
+
+Migration would require:
+1. Renaming `[data-cb="true"]` selectors → `[data-theme$="-cb"]` (or split
+   into `[data-theme="dark-cb"]` + `[data-theme="light-cb"]`)
+2. Updating `toggleColorblind()` and `applyThemeUI()` to write composite values
+3. Migrating existing localStorage `tm-theme` + `tm-cb` to a single `tm-theme`
+   with composite value
+4. Updating any consumer code that reads `data-cb` directly
+
+Risk: high CSS churn; needs explicit Captain decision on default + back-compat.
+Path A was the tactical fix to the visible regression. v4.4 unification is the
+strategic rewrite — deferred for a dedicated session.
+
 ### HM-THEME-CB-CONSOLIDATE — Unify dual colorblind systems + migrate to data-theme axis
 
 **Lands after v4.4 ships.** Two parallel colorblind systems exist in
