@@ -245,6 +245,41 @@ drop into `~/autonomous-trader/docs/design/` before continuing.
    for animatable custom property, OR (c) swap to SVG arc/stroke-dashoffset for
    guaranteed cross-browser. Priority: LOW (cosmetic).
 
+### HM-CHART-DATA-EARNINGS-DATES-POPULATE — `/api/chart-data.earnings_dates` declared empty, never filled
+
+**Backend bug surfaced during Step 3b.1 endpoint discovery 2026-05-23.**
+`dashboard/app.py:12531` initializes the chart-data response skeleton with
+`"earnings_dates": []` but no code path within `chart_data()` populates the
+field. Every caller gets an empty list regardless of symbol.
+
+**Impact:** Symbol Focus cockpit (Step 3b.1 / 3b.2) can only plot UPCOMING
+earnings via `/api/earnings/countdown?days=14` — past earnings markers
+across the 90-bar daily window (per v4.3 spec L417-418 "E" line at mid-
+history) require a separate endpoint or this field finally being filled.
+
+**Fix paths** (pick one):
+
+1. **Populate in chart_data()** — fetch `yfinance.Ticker(symbol).earnings_dates`
+   (a DataFrame indexed by datetime, columns include EPS estimate/actual),
+   filter to the candle window's date range, return as a list of
+   `{date: ISO, eps_estimate, eps_actual, surprise_pct}` dicts. ~15 LOC
+   inside the existing try/except envelope.
+
+2. **Separate endpoint** — add `GET /api/earnings/history/{symbol}?days=N`
+   that returns the same shape. Cleaner separation of concerns; frontend
+   makes one extra parallel call. ~25 LOC.
+
+3. **Pull from existing earnings cache** — `data/earnings_cache.json`
+   (per CLAUDE.md) is already loaded by `engine/earnings_hub.py` for the
+   countdown endpoint; extend the cache schema to retain historical events
+   and expose via either path 1 or 2.
+
+**Why deferred:** Step 3b.1 wired upcoming earnings only (good enough for
+v4.3 spec's typical day-of-earnings view). Past earnings markers are a
+nice-to-have for Symbol Focus historical context but not blocking the
+cockpit. Priority: LOW until a Captain workflow specifically needs past
+earnings on the chart.
+
 ### HM-SIDEBAR-VAR-MIGRATION — Migrate hardcoded `.sidebar` background to `var(--sidebar-bg)`
 
 **Part of the larger v4.4 migration.** The `.sidebar` selector at
