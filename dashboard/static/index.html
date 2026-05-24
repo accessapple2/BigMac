@@ -12441,12 +12441,299 @@ document.addEventListener('keydown', function(e) {
     }).observe(bl, { attributes:true, attributeFilter:['style'] });
   });
 
-  /* ───── Step 6a — Wave Scope stubs.
-     Symbol input + ribbon-click + treemap-click all route through
-     oaiWavePickSymbol. Step 6a logs to console + updates the chart
-     title only (kept on static MKFG demo SVG); Step 6b replaces with
-     a full fetch + EMA-pair compute + crossover-marker placement +
-     candle re-render. */
+  /* ───── Step 6b — Wave Scope live wire.
+     Movers → ribbons + treemap. Candles → EMA pair → regime fill +
+     crossover markers. Auto-pick top gainer on first view; ribbons +
+     treemap cells clickable to update center chart only. Empty movers
+     (off-hours / stale data) gracefully falls back to spec demo. */
+  var _oaiWaveInit = false;
+  var _oaiWaveCurrentSym = 'MKFG';  // tracks last picked symbol for header refreshes
+
+  function _oaiWaveEma(values, period) {
+    /* Standard EMA with SMA seed at index (period-1). Returns array
+       aligned with input; early indices are null. */
+    if (!values || values.length < period) return [];
+    var k = 2 / (period + 1);
+    var out = new Array(period - 1).fill(null);
+    var sma = 0;
+    for (var i = 0; i < period; i++) sma += Number(values[i]);
+    sma /= period;
+    out.push(sma);
+    for (var j = period; j < values.length; j++) {
+      out.push(Number(values[j]) * k + out[j - 1] * (1 - k));
+    }
+    return out;
+  }
+
+  function _oaiWaveCrossovers(fast, slow, cap) {
+    /* Returns up to `cap` MOST RECENT crossovers as
+       [{idx, type: 'B'|'S', priceY}]. Walks left→right tracking the
+       prior sign; emits when sign flips. */
+    var out = [];
+    if (!fast || !slow || fast.length !== slow.length) return out;
+    var prior = null;
+    for (var i = 0; i < fast.length; i++) {
+      if (fast[i] == null || slow[i] == null) continue;
+      var diff = fast[i] - slow[i];
+      var sign = diff > 0 ? 1 : (diff < 0 ? -1 : 0);
+      if (sign === 0) { prior = prior == null ? sign : prior; continue; }
+      if (prior != null && prior !== sign) {
+        out.push({ idx: i, type: sign > 0 ? 'B' : 'S', priceY: (fast[i] + slow[i]) / 2 });
+      }
+      prior = sign;
+    }
+    // Keep only the last `cap` crossovers to avoid clutter on choppy charts.
+    return out.slice(-Math.max(1, cap || 3));
+  }
+
+  function _oaiWaveRenderChart(symbol, candles, priceData) {
+    /* Full SVG rebuild: watermark, regime-fill polygons, two EMA stroke
+       lines, candles, crossover B/S circles. */
+    var svg = document.getElementById('oai-ws-svg');
+    var titleEl = document.getElementById('oai-ws-chart-title');
+    if (titleEl) titleEl.textContent = symbol + ' · OLLIE WAVE · 15m · ADAPTIVE EMA BANDS';
+    if (!svg) return;
+    if (!candles || candles.length < 22) {
+      svg.innerHTML = '<text x="360" y="160" fill="#6b7280" font-size="14" text-anchor="middle">' +
+                      (candles && candles.length ? 'Not enough candles for EMA(21) — need 22+ bars' : 'No candle data for ' + symbol) +
+                      '</text>';
+      return;
+    }
+
+    var W = 720, H = 320, PAD_L = 40, PAD_R = 40, PAD_T = 30, PAD_B = 30;
+    var plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
+    var n = candles.length;
+    var closes = candles.map(function(c){ return Number(c.close ?? c.c); });
+    var highs  = candles.map(function(c){ return Number(c.high  ?? c.h); });
+    var lows   = candles.map(function(c){ return Number(c.low   ?? c.l); });
+
+    var fast = _oaiWaveEma(closes, 9);
+    var slow = _oaiWaveEma(closes, 21);
+
+    // Y-scale: include candle range + both EMAs
+    var pMin = Math.min.apply(null, lows), pMax = Math.max.apply(null, highs);
+    fast.concat(slow).forEach(function(v){ if (v != null && isFinite(v)) { if (v < pMin) pMin = v; if (v > pMax) pMax = v; } });
+    var pRange = pMax - pMin || 1;
+    pMin -= pRange * 0.05; pMax += pRange * 0.05; pRange = pMax - pMin;
+    function yAt(p) { return PAD_T + (pMax - p) / pRange * plotH; }
+
+    var barW = plotW / n;
+    var bodyW = Math.max(1, barW * 0.55);
+    function xAt(i) { return PAD_L + i * barW + barW / 2; }
+
+    var parts = [];
+
+    // --- Watermark ---
+    parts.push('<text x="' + (W/2) + '" y="' + (H/2) + '" fill="#1f2937" font-size="56" font-weight="800" text-anchor="middle" opacity="0.4">' + symbol + ' · WAVE</text>');
+
+    // --- Regime-fill polygons (segmented at every crossover, colored by
+    //     which EMA is on top in that segment) ---
+    var segStart = null;
+    var segUp = null;  // true → fast > slow → green
+    for (var i = 0; i < n; i++) {
+      if (fast[i] == null || slow[i] == null) continue;
+      var up = fast[i] >= slow[i];
+      if (segStart == null) { segStart = i; segUp = up; continue; }
+      if (up !== segUp) {
+        // Close out the previous segment from segStart..i (inclusive at i for overlap)
+        var segEnd = i;
+        var path = 'M ' + xAt(segStart) + ',' + yAt(fast[segStart]);
+        for (var k = segStart + 1; k <= segEnd; k++) path += ' L ' + xAt(k) + ',' + yAt(fast[k]);
+        for (var k2 = segEnd; k2 >= segStart; k2--) path += ' L ' + xAt(k2) + ',' + yAt(slow[k2]);
+        path += ' Z';
+        parts.push('<path d="' + path + '" fill="' + (segUp ? '#22c55e' : '#ef4444') + '" opacity="0.18"/>');
+        segStart = i;
+        segUp = up;
+      }
+    }
+    // Final segment to the right edge
+    if (segStart != null) {
+      var segEnd2 = n - 1;
+      while (segEnd2 >= 0 && (fast[segEnd2] == null || slow[segEnd2] == null)) segEnd2--;
+      if (segEnd2 > segStart) {
+        var path2 = 'M ' + xAt(segStart) + ',' + yAt(fast[segStart]);
+        for (var k3 = segStart + 1; k3 <= segEnd2; k3++) path2 += ' L ' + xAt(k3) + ',' + yAt(fast[k3]);
+        for (var k4 = segEnd2; k4 >= segStart; k4--) path2 += ' L ' + xAt(k4) + ',' + yAt(slow[k4]);
+        path2 += ' Z';
+        parts.push('<path d="' + path2 + '" fill="' + (segUp ? '#22c55e' : '#ef4444') + '" opacity="0.18"/>');
+      }
+    }
+
+    // --- Two stroked gold EMA lines ---
+    function buildPath(arr) {
+      var d = '', started = false;
+      for (var i = 0; i < arr.length; i++) {
+        if (arr[i] == null) continue;
+        d += (started ? ' L ' : 'M ') + xAt(i).toFixed(1) + ',' + yAt(arr[i]).toFixed(1);
+        started = true;
+      }
+      return d;
+    }
+    parts.push('<path d="' + buildPath(fast) + '" fill="none" stroke="#fbbf24" stroke-width="1" opacity="0.6"/>');
+    parts.push('<path d="' + buildPath(slow) + '" fill="none" stroke="#fbbf24" stroke-width="1" opacity="0.6"/>');
+
+    // --- Candles ---
+    for (var ci = 0; ci < n; ci++) {
+      var c = candles[ci];
+      var o = Number(c.open ?? c.o), cl = Number(c.close ?? c.c);
+      var hi = Number(c.high ?? c.h), lo = Number(c.low ?? c.l);
+      var x = xAt(ci);
+      var color = cl >= o ? '#22c55e' : '#ef4444';
+      var yHi = yAt(hi), yLo = yAt(lo);
+      var yOpen = yAt(o), yClose = yAt(cl);
+      var bodyTop = Math.min(yOpen, yClose);
+      var bodyH = Math.max(1, Math.abs(yClose - yOpen));
+      parts.push('<line x1="' + x.toFixed(1) + '" y1="' + yHi.toFixed(1) + '" x2="' + x.toFixed(1) + '" y2="' + yLo.toFixed(1) + '" stroke="' + color + '" stroke-width="1"/>');
+      parts.push('<rect x="' + (x - bodyW/2).toFixed(1) + '" y="' + bodyTop.toFixed(1) + '" width="' + bodyW.toFixed(1) + '" height="' + bodyH.toFixed(1) + '" fill="' + color + '"/>');
+    }
+
+    // --- B/S crossover markers (cap 3 most recent) ---
+    var crosses = _oaiWaveCrossovers(fast, slow, 3);
+    crosses.forEach(function(c) {
+      var cx = xAt(c.idx), cy = yAt(c.priceY);
+      var color = c.type === 'B' ? '#16a34a' : '#dc2626';
+      parts.push('<circle cx="' + cx.toFixed(1) + '" cy="' + cy.toFixed(1) + '" r="9" fill="' + color + '"/>');
+      parts.push('<text x="' + cx.toFixed(1) + '" y="' + (cy + 4).toFixed(1) + '" fill="#fff" font-size="11" font-weight="800" text-anchor="middle">' + c.type + '</text>');
+    });
+
+    svg.innerHTML = parts.join('');
+
+    // Header price/change/relvol refresh from priceData + candle volumes
+    var pxEl = document.getElementById('oai-ws-price');
+    var chgEl = document.getElementById('oai-ws-change');
+    var rvEl = document.getElementById('oai-ws-relvol');
+    if (priceData && priceData.price != null) {
+      if (pxEl) pxEl.textContent = '$' + Number(priceData.price).toFixed(2);
+      if (chgEl && priceData.prev_close != null) {
+        var dollarChg = Number(priceData.price) - Number(priceData.prev_close);
+        var pctChg = Number(priceData.change_pct || 0);
+        var sign = dollarChg >= 0 ? '+' : '';
+        chgEl.textContent = sign + dollarChg.toFixed(2) + ' (' + sign + pctChg.toFixed(2) + '%)';
+        chgEl.classList.toggle('up', dollarChg >= 0);
+        chgEl.classList.toggle('dn', dollarChg <  0);
+      }
+    }
+    // Rel-Vol: today (last bar) vol / mean of prior 30 bar volumes
+    if (rvEl && candles.length >= 2) {
+      var lastVol = Number(candles[candles.length - 1].volume ?? candles[candles.length - 1].v ?? 0);
+      var prior = candles.slice(Math.max(0, candles.length - 31), candles.length - 1);
+      var vols = prior.map(function(c){ return Number(c.volume ?? c.v ?? 0); }).filter(function(v){ return v > 0; });
+      if (vols.length && lastVol > 0) {
+        var avg = vols.reduce(function(a,b){return a+b;}, 0) / vols.length;
+        if (avg > 0) rvEl.textContent = 'Rel Vol ' + (lastVol / avg).toFixed(2);
+      } else {
+        rvEl.textContent = 'Rel Vol —';
+      }
+    }
+  }
+
+  function _oaiWaveRenderRibbons(movers) {
+    /* Replace the gainer + loser ribbons with live data. Each row's
+       onclick stays a call to oaiWavePickSymbol. */
+    var gainers = movers.filter(function(m){ return Number(m.pct_change || 0) > 0; })
+                        .sort(function(a,b){ return Number(b.pct_change) - Number(a.pct_change); })
+                        .slice(0, 9);
+    var losers  = movers.filter(function(m){ return Number(m.pct_change || 0) < 0; })
+                        .sort(function(a,b){ return Number(a.pct_change) - Number(b.pct_change); })
+                        .slice(0, 8);
+    function rowHtml(m, cls) {
+      var px = Number(m.last_price || 0);
+      var pct = Number(m.pct_change || 0);
+      var sign = pct >= 0 ? '+' : '';
+      var pctCls = pct >= 0 ? 'pos' : 'neg';
+      return '<div class="oai-ribbon-i ' + cls + '" onclick="oaiWavePickSymbol(\'' + m.symbol + '\')">' +
+             '<b>' + m.symbol + '</b>' +
+             '<span class="p">$' + px.toFixed(2) + '</span>' +
+             '<span class="c ' + pctCls + '">' + sign + pct.toFixed(2) + '%</span>' +
+             '</div>';
+    }
+    var gEl = document.getElementById('oai-ws-gainers');
+    var lEl = document.getElementById('oai-ws-losers');
+    if (gEl) gEl.innerHTML = gainers.length ? gainers.map(function(m){ return rowHtml(m, 'up'); }).join('') : '<div class="oai-ribbon-i" style="opacity:0.5;">No gainers</div>';
+    if (lEl) lEl.innerHTML = losers.length  ? losers.map(function(m){ return rowHtml(m, 'dn'); }).join('')  : '<div class="oai-ribbon-i" style="opacity:0.5;">No losers</div>';
+    return gainers;
+  }
+
+  function _oaiWaveRenderTreemap(movers) {
+    /* Top 14 movers (by abs(pct) desc — covers both gainers and losers
+       for a momentum view) into the 4x4 grid. Rank 1 spans 2x2; rest
+       fill in spec-defined positions. Colored by rank bucket. */
+    var sorted = movers.slice()
+      .sort(function(a,b){ return Math.abs(Number(b.pct_change || 0)) - Math.abs(Number(a.pct_change || 0)); })
+      .slice(0, 14);
+    if (!sorted.length) return;
+
+    // Spec grid-area positions (rank → cell)
+    var POSITIONS = [
+      '1 / 1 / span 2 / span 2',  // rank 1 (2x2)
+      '1 / 3', '1 / 4',            // ranks 2-3
+      '2 / 3', '2 / 4',            // ranks 4-5
+      '3 / 1', '3 / 2', '3 / 3', '3 / 4',  // ranks 6-9
+      '4 / 1', '4 / 2', '4 / 3', '4 / 4',  // ranks 10-13
+    ];
+    // Bucket colors by rank
+    function rankColor(rank) {
+      if (rank === 0)  return { bg: '#16a34a', fg: '#fff' };  // deep green
+      if (rank <= 2)   return { bg: '#22c55e', fg: '#fff' };  // green
+      if (rank <= 6)   return { bg: '#86efac', fg: '#fff' };  // light green
+      if (rank <= 10)  return { bg: '#bbf7d0', fg: '#000' };  // mint
+      return            { bg: '#dcfce7', fg: '#000' };        // pale
+    }
+    var html = sorted.slice(0, POSITIONS.length).map(function(m, i) {
+      var c = rankColor(i);
+      var pct = Number(m.pct_change || 0);
+      var sign = pct >= 0 ? '+' : '';
+      return '<div class="oai-ws-tm" style="background:' + c.bg + ';grid-area:' + POSITIONS[i] + ';color:' + c.fg + ';" onclick="oaiWavePickSymbol(\'' + m.symbol + '\')">' +
+             '<b>' + m.symbol + '</b>' +
+             '<span>' + sign + pct.toFixed(2) + '%</span>' +
+             '</div>';
+    }).join('');
+    var tEl = document.getElementById('oai-ws-treemap');
+    if (tEl) tEl.innerHTML = html;
+  }
+
+  async function _oaiWaveLoadMovers() {
+    /* Auto-fired on first Wave Scope visibility. Fetches /api/movers
+       once. If non-empty: redraws ribbons + treemap + auto-picks top
+       gainer for the center chart. If empty: keeps spec demo. */
+    var metaEl = document.getElementById('oai-ws-meta');
+    try {
+      var r = await fetch('/api/movers');
+      if (!r || !r.ok) throw new Error('HTTP ' + (r && r.status));
+      var data = await r.json();
+      var movers = (data && data.movers) || [];
+      if (!movers.length) {
+        if (metaEl) metaEl.textContent = 'Movers stale (market closed or poller offline) — showing spec demo';
+        // Still try to live-render the center chart on the demo symbol
+        // so smoke gets at least one live signal.
+        _oaiWavePickAndRender('MKFG');
+        return;
+      }
+      if (metaEl) metaEl.textContent = movers.length + ' live movers · click row/cell to chart';
+      var gainers = _oaiWaveRenderRibbons(movers);
+      _oaiWaveRenderTreemap(movers);
+      // Auto-pick top gainer for the center chart
+      if (gainers && gainers.length) _oaiWavePickAndRender(gainers[0].symbol);
+    } catch(e) {
+      if (metaEl) metaEl.textContent = 'Movers unavailable — showing spec demo';
+      try { console.warn('[OAI-WAVE] load movers failed:', e); } catch(_) {}
+    }
+  }
+
+  function _oaiWavePickAndRender(sym) {
+    /* Internal — fetches candles + price in parallel, then renders. */
+    sym = String(sym || '').toUpperCase();
+    if (!sym) return;
+    _oaiWaveCurrentSym = sym;
+    var pCandles = fetch('/api/charts/ohlcv?symbol=' + sym + '&interval=15m&days=4').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var pPrice   = fetch('/api/price/' + sym).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    Promise.all([pCandles, pPrice]).then(function(res) {
+      var candles = Array.isArray(res[0]) ? res[0] : [];
+      var price = res[1] || {};
+      _oaiWaveRenderChart(sym, candles, price);
+    });
+  }
+
   window.oaiWavePickSymbol = function(sym) {
     // Called either from a ribbon/treemap click (with sym arg) or the
     // input Go button (sym=undefined → read from #oai-ws-sym-input).
@@ -12455,13 +12742,9 @@ document.addEventListener('keydown', function(e) {
       if (!inp) return;
       sym = (inp.value || '').trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 5);
       if (!sym) { inp.focus(); return; }
-      inp.value = sym;
+      inp.value = sym;  // keep visible per default
     }
-    sym = String(sym).toUpperCase();
-    // 6a behavior: only update the chart title — SVG stays on MKFG demo.
-    var t = document.getElementById('oai-ws-chart-title');
-    if (t) t.textContent = sym + ' · OLLIE WAVE · 15m · ADAPTIVE EMA BANDS';
-    try { console.log('[OAI-WAVE] pickSymbol:', sym, '(Step 6b wires live candles + EMA bands)'); } catch(e) {}
+    _oaiWavePickAndRender(sym);
   };
 
   // Enter key in the Wave Scope symbol input
@@ -12472,6 +12755,17 @@ document.addEventListener('keydown', function(e) {
         if (e.key === 'Enter') { e.preventDefault(); window.oaiWavePickSymbol(); }
       });
     }
+    // Lazy-init on first Wave Scope visibility
+    var ws = document.getElementById('oai-view-wave-scope');
+    if (!ws) return;
+    new MutationObserver(function(mutations) {
+      mutations.forEach(function(m) {
+        if (m.attributeName === 'style' && ws.style.display !== 'none' && !_oaiWaveInit) {
+          _oaiWaveInit = true;
+          _oaiWaveLoadMovers();
+        }
+      });
+    }).observe(ws, { attributes:true, attributeFilter:['style'] });
   });
 
   /* Admiral symbol input — types any ticker, Enter or Go button fires
