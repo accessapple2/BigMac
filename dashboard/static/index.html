@@ -30743,6 +30743,8 @@ async function fetchActiveDeals() {
       <div class="card-title">Fundamental Scores</div>
       <button class="btn btn-ghost" onclick="fetchFundamentals()" style="font-size:13px;">Refresh</button>
     </div>
+    <!-- HM-RS-RANK-VS-SPY 2026-05-24: SPY 12wk return badge -->
+    <div id="fundamentalsRsBadge" style="display:none;padding:6px 16px 8px;font-size:12px;color:var(--muted);"></div>
     <div id="fundamentalsContent">Loading...</div>
   </div>
 </div>
@@ -30750,10 +30752,41 @@ async function fetchActiveDeals() {
 async function fetchFundamentals() {
   var c = document.getElementById('fundamentalsContent');
   try {
-    var r = await fetch('/api/fundamentals');
-    var d = await r.json();
+    // HM-RS-RANK-VS-SPY 2026-05-24: parallel-fetch rs_rank + fundamentals
+    var [fRes, rsRes] = await Promise.all([
+      fetch('/api/fundamentals'),
+      fetch('/api/rs-rank?top=3500&min_rank=0').catch(function(){ return null; }),
+    ]);
+    var d = await fRes.json();
     if (!d || !d.length) { c.innerHTML = '<div style="color:var(--muted);">No fundamental data.</div>'; return; }
-    d.sort(function(a,b) { return (b.smart_score||0) - (a.smart_score||0); });
+
+    // Build rs_rank lookup keyed by symbol; render SPY badge
+    var rsBySym = {};
+    var spyBadge = document.getElementById('fundamentalsRsBadge');
+    try {
+      var rsJson = rsRes ? await rsRes.json() : null;
+      if (rsJson && rsJson.ok) {
+        (rsJson.items || []).forEach(function(r) { rsBySym[r.symbol] = r; });
+        if (spyBadge && rsJson.spy_return_pct != null) {
+          var sp = rsJson.spy_return_pct;
+          var spCol = sp >= 0 ? '#22c55e' : '#ef4444';
+          spyBadge.innerHTML = 'RS benchmark: SPY 12wk <span style="font-weight:700;color:' + spCol + ';">' + (sp >= 0 ? '+' : '') + sp.toFixed(2) + '%</span> · ' + (rsJson.count || 0) + ' symbols ranked';
+          spyBadge.style.display = '';
+        }
+      } else if (spyBadge) {
+        spyBadge.style.display = 'none';
+      }
+    } catch(e) { /* tolerate rs_rank fetch failure — fundamentals still render */ }
+
+    // Sort: smart_score primary (existing behavior), rs_rank tiebreaker
+    d.sort(function(a,b) {
+      var sd = (b.smart_score || 0) - (a.smart_score || 0);
+      if (sd !== 0) return sd;
+      var ar = (rsBySym[a.symbol] && rsBySym[a.symbol].rs_rank) || 0;
+      var br = (rsBySym[b.symbol] && rsBySym[b.symbol].rs_rank) || 0;
+      return br - ar;
+    });
+
     var html = '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(260px,1fr));gap:12px;">';
     d.forEach(function(f) {
       var gradeColors = {A:'#2563eb',B:'#3b82f6',C:'#f59e0b',D:'#f97316',F:'#ea580c'};
@@ -30777,6 +30810,14 @@ async function fetchFundamentals() {
       if (f.analyst_upside != null) {
         var uColor = f.analyst_upside > 0 ? '#2563eb' : '#ea580c';
         html += '<div style="display:flex;justify-content:space-between;"><span>Analyst Upside</span><span style="font-weight:600;color:' + uColor + ';">' + (f.analyst_upside > 0 ? '+' : '') + f.analyst_upside.toFixed(1) + '%</span></div>';
+      }
+      // HM-RS-RANK-VS-SPY: RS rank cell with tier color (≥70 green, 30–69 neutral, ≤29 red)
+      var rs = rsBySym[f.symbol];
+      if (rs && rs.rs_rank != null) {
+        var rk = rs.rs_rank;
+        var rsCol = rk >= 70 ? '#22c55e' : (rk <= 29 ? '#ef4444' : 'var(--muted)');
+        var rsRet = (rs.rs_return_pct != null) ? ((rs.rs_return_pct >= 0 ? '+' : '') + rs.rs_return_pct.toFixed(1) + '%') : '';
+        html += '<div style="display:flex;justify-content:space-between;"><span>RS Rank (12wk)</span><span style="font-weight:700;color:' + rsCol + ';">' + rk + ' <span style="color:var(--muted);font-weight:400;font-size:11px;">(' + rsRet + ')</span></span></div>';
       }
       html += '</div>';
       html += '</div>';

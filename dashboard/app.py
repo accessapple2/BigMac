@@ -7936,10 +7936,36 @@ def fundamentals():
 
 @app.get("/api/fundamentals/{symbol}")
 def fundamentals_symbol(symbol: str):
-    """Get enriched fundamentals for a specific symbol."""
+    """Get enriched fundamentals for a specific symbol.
+
+    HM-RS-RANK-VS-SPY 2026-05-24: augments the response with rs_rank /
+    rs_return_pct / rs_vs_spy_pct when the nightly RS-rank scan has run.
+    """
     from engine.stock_fundamentals import fetch_fundamentals
-    result = fetch_fundamentals(symbol.upper())
-    return result or {"error": f"No fundamental data for {symbol}"}
+    sym = symbol.upper()
+    result = fetch_fundamentals(sym)
+    if not result:
+        return {"error": f"No fundamental data for {symbol}"}
+    # Cheap LEFT JOIN — nullable fields when no rank yet
+    try:
+        conn = _conn()
+        try:
+            row = conn.execute(
+                "SELECT rs_rank, rs_return_pct, rs_vs_spy_pct, computed_at "
+                "FROM rs_rank WHERE symbol = ?",
+                (sym,),
+            ).fetchone()
+            if row is not None:
+                result["rs_rank"] = row["rs_rank"]
+                result["rs_return_pct"] = row["rs_return_pct"]
+                result["rs_vs_spy_pct"] = row["rs_vs_spy_pct"]
+                result["rs_computed_at"] = row["computed_at"]
+        finally:
+            conn.close()
+    except Exception as e:
+        # Don't break the fundamentals response on rs_rank lookup failure
+        console.log(f"[dim]rs_rank lookup for {sym}: {type(e).__name__}: {e!r}")
+    return result
 
 
 @app.get("/api/fundamentals/score/{symbol}")
@@ -20326,6 +20352,77 @@ def get_squeeze_summary(days: int = 7, kind: str = "short_interest"):
 # Wires Signal Center (:9000) liveness + recent-signals read into the dashboard
 # under a stable /api/momentum/* surface. Race + Scanner tiles will build on this.
 from engine.momentum.bridge import check_signal_center_health, fetch_recent_signals
+
+
+# HM-RS-RANK-VS-SPY 2026-05-24 — bulk and per-symbol relative-strength rank
+@app.get("/api/rs-rank")
+def get_rs_rank(top: int = 200, min_rank: int = 0):
+    """Universe-wide 12wk relative-strength rank vs SPY.
+
+    Sorted by rs_rank DESC (highest leaders first). Empty when the nightly
+    scan hasn't run yet — flip ``RS_RANK_ENABLED=True`` in .env to enable.
+    """
+    top = max(1, min(int(top or 200), 3500))
+    min_rank = max(0, min(int(min_rank or 0), 99))
+    conn = _conn()
+    try:
+        # Header (computed_at + universe-wide spy_return_pct snapshot) — pull
+        # the freshest row's computed_at as a proxy for the run timestamp.
+        meta_row = conn.execute(
+            "SELECT MAX(computed_at) AS computed_at FROM rs_rank"
+        ).fetchone()
+        computed_at = (meta_row and meta_row["computed_at"]) or None
+        rows = conn.execute(
+            "SELECT symbol, computed_at, rs_return_pct, rs_vs_spy_pct, "
+            "       rs_rank, bars_used "
+            "FROM rs_rank WHERE rs_rank >= ? "
+            "ORDER BY rs_rank DESC, symbol ASC LIMIT ?",
+            (min_rank, top),
+        ).fetchall()
+        # Derive SPY return from the strongest non-NaN row:
+        # rs_return = rs_vs_spy + spy_return → spy_return = rs_return - rs_vs_spy.
+        spy_return_pct = None
+        if rows:
+            r = rows[0]
+            try:
+                spy_return_pct = round(
+                    float(r["rs_return_pct"]) - float(r["rs_vs_spy_pct"]), 2
+                )
+            except Exception:
+                spy_return_pct = None
+        return {
+            "ok": True,
+            "computed_at": computed_at,
+            "spy_return_pct": spy_return_pct,
+            "count": len(rows),
+            "items": [dict(r) for r in rows],
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        conn.close()
+
+
+@app.get("/api/rs-rank/{symbol}")
+def get_rs_rank_symbol(symbol: str):
+    """Per-symbol RS rank lookup."""
+    symbol = (symbol or "").strip().upper()
+    if not symbol:
+        raise HTTPException(status_code=400, detail="symbol required")
+    conn = _conn()
+    try:
+        row = conn.execute(
+            "SELECT symbol, computed_at, rs_return_pct, rs_vs_spy_pct, "
+            "       rs_rank, bars_used FROM rs_rank WHERE symbol = ?",
+            (symbol,),
+        ).fetchone()
+        if row is None:
+            return {"ok": False, "error": "not_ranked", "symbol": symbol}
+        return {"ok": True, "item": dict(row)}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        conn.close()
 
 
 @app.get("/api/momentum/heartbeat")

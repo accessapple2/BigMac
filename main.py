@@ -1771,6 +1771,66 @@ def run_bbkc_squeeze_watcher():
         )
 
 
+# HM-RS-RANK-VS-SPY 2026-05-24 — nightly 12wk relative-strength rank scanner.
+# Default-OFF via RS_RANK_ENABLED env flag. Foundational for downstream
+# leader-composite scans (Minervini Trend Template etc.).
+_rs_rank_bg_lock = threading.Lock()
+_rs_rank_disabled_logged = False
+
+
+@_hm_bq_instr("_bg_rs_rank")
+def _bg_rs_rank():
+    """Daemon-thread wrapper around run_rs_rank_nightly()."""
+    if not _rs_rank_bg_lock.acquire(blocking=False):
+        console.log("[dim]RS-Rank bg: prior tick still running — skip")
+        return
+    def _runner():
+        try:
+            run_rs_rank_nightly()
+        finally:
+            _rs_rank_bg_lock.release()
+    threading.Thread(
+        target=_runner, daemon=True, name="sched_rs_rank"
+    ).start()
+
+
+@_hm_bq_instr("run_rs_rank_nightly")
+def run_rs_rank_nightly():
+    """Nightly RS-rank rebuild. Default-OFF via RS_RANK_ENABLED.
+
+    No market-hours gate — runs post-close (20:30 AZ); weekends fine
+    (Friday's close is the reference).
+    """
+    global _rs_rank_disabled_logged
+    import os as _os
+
+    if _os.environ.get("RS_RANK_ENABLED", "").lower() not in (
+        "1", "true", "yes", "on"
+    ):
+        if not _rs_rank_disabled_logged:
+            console.log(
+                "[dim]RS-Rank: RS_RANK_ENABLED not set — skipping "
+                "(HM-RS-RANK-VS-SPY default-off)"
+            )
+            _rs_rank_disabled_logged = True
+        return
+
+    try:
+        from engine.rs_rank import run_rs_rank as _rs_rank_run
+        result = _rs_rank_run(force=True)
+        top1 = (result.get("top10") or [{}])[0]
+        console.log(
+            f"[cyan]RS-Rank: scanned={result.get('scanned', 0)} "
+            f"persisted={result.get('persisted', 0)} "
+            f"spy_12wk={result.get('spy_return_pct', 0):.2f}% "
+            f"top1={top1.get('symbol', '—')}"
+        )
+    except Exception as e:
+        console.log(
+            f"[yellow]RS-Rank error: {type(e).__name__}: {e!r}"
+        )
+
+
 _theta_last_run = 0.0
 
 @_hm_bq_instr("run_theta_scan")
@@ -3647,6 +3707,7 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(run_gap_fill_check)           # Gap Fill Tracker: every 5 min during market hours
     schedule.every(30).minutes.do(_bg_squeeze_watcher)          # HM-AO-β Squeeze Watcher (HM-AS-β.2 thread-wrapper): 30-min, default-OFF via SQUEEZE_WATCHER_ENABLED
     schedule.every(30).minutes.do(_bg_bbkc_squeeze_watcher)     # HM-SQUEEZE-BBKC-COMPRESSION (2026-05-24): 30-min, default-OFF via BBKC_SQUEEZE_WATCHER_ENABLED
+    schedule.every().day.at("20:30").do(_bg_rs_rank)            # HM-RS-RANK-VS-SPY (2026-05-24): nightly post-close, default-OFF via RS_RANK_ENABLED
     # Capitol Trades Fund — Congress copycat scan (daily at market open, 9:35 AM ET)
     from engine.capitol_fund import run_capitol_scan as _raw_capitol_scan
     def run_capitol_scan():
