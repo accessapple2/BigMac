@@ -403,6 +403,19 @@ body { font-size: 14px; }
   display: none !important;
 }
 
+/* HM-OLLIE-AI-SECTION-ISOLATION-2 2026-05-23: direct-target the bleeding
+   elements by ID. showSection() now sets body[data-active-section] so
+   stylesheet can scope per-section without :has() support concerns.
+   Targets the specific Portfolio Value + Sector Allocation cards in
+   section-webull that kept rendering above section-ollie-ai despite
+   showSection() + :has() belt + JS suspenders. */
+body[data-active-section="ollie-ai"] #wbPortfolioSectorRow,
+body[data-active-section="ollie-ai"] #wbPortfolioValueCard,
+body[data-active-section="ollie-ai"] #wbSectorAllocationCard,
+body[data-active-section="ollie-ai"] #section-webull {
+  display: none !important;
+}
+
 /* Component-scoped CSS variables that default to #000 in dark mode.
    .race-section (Race tile, Phase 2) and .premarket-tile (Phase 6) declare
    their own --race-bg / --pm-bg as #000 — flip those to white in light. */
@@ -3078,8 +3091,16 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
 <aside class="sidebar">
   <button id="sbCloseBtn" onclick="toggleMobileSidebar()" aria-label="Close menu">✕</button>
 
+  <!-- HM-SIDEBAR-BRIDGE-PIN 2026-05-23: Bridge nav item pinned at the very
+       top of the sidebar via position:sticky so it never scrolls off when
+       the More dropdown is expanded. Background matches --sidebar-bg so
+       items below scroll under it cleanly; small divider separates it
+       from the rest of TIER 1. -->
+  <div id="sb-pin-bridge" style="position:sticky;top:0;z-index:1000;background:var(--sidebar-bg);padding-bottom:6px;border-bottom:1px solid var(--border);margin-bottom:6px;">
+    <div class="sidebar-item active" onclick="showSection('dashboard')"><span class="icon">🖥️</span> Bridge</div>
+  </div>
+
   <!-- TIER 1 — Always visible (10 items per W5-Sidebar Consolidation 2026-05-23) -->
-  <div class="sidebar-item active" onclick="showSection('dashboard')"><span class="icon">🖥️</span> Bridge</div>
   <!-- HM-COCKPIT 2026-05-22: Command Bridge mission control. -->
   <div class="sidebar-item" id="nav-cockpit" title="Command Bridge — system mission control (events bus, dispatcher mix, last decisions, kill switch)" onclick="showSection('cockpit')"><span class="icon">🎛️</span> Cockpit</div>
   <div class="sidebar-item" id="nav-trade-desk" title="Manual trade desk (Captain) — Alpaca paper" onclick="showSection('trade-desk')"><span class="icon">📋</span> Trade Desk</div>
@@ -6676,8 +6697,8 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
   </div>
 
   <!-- Portfolio Value + Sector Allocation row -->
-  <div style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
-    <div class="card">
+  <div id="wbPortfolioSectorRow" style="display:grid;grid-template-columns:1fr 1fr;gap:12px;margin-top:12px;">
+    <div class="card" id="wbPortfolioValueCard">
       <div class="card-header">
         <div class="card-title" style="font-size:13px;">📈 Portfolio Value</div>
         <div style="display:flex;gap:4px;" id="wb-period-btns">
@@ -6691,7 +6712,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         <div id="wb-sparkline-range" style="display:flex;justify-content:space-between;font-size:10px;color:var(--muted);margin-top:4px;"></div>
       </div>
     </div>
-    <div class="card">
+    <div class="card" id="wbSectorAllocationCard">
       <div class="card-header"><div class="card-title" style="font-size:13px;">🧩 Sector Allocation</div></div>
       <div id="wb-donut-wrap" style="padding:12px 16px;display:flex;gap:16px;align-items:center;flex-wrap:wrap;min-height:100px;"></div>
     </div>
@@ -9880,8 +9901,102 @@ document.addEventListener('keydown', function(e) {
   </div>
 
   <!-- ───────────── OTHER SUB-VIEWS (placeholders) ───────────── -->
+  <!-- ───── SYMBOL FOCUS (Step 3a — visual scaffold w/ OPAD demo data) ───── -->
   <div class="oai-view" id="oai-view-symbol-focus" style="display:none;">
-    <div class="oai-placeholder"><h3>🎯 Symbol Focus</h3><p>OPAD-style single-symbol cockpit · Trade Ticket · AI projected levels. Ships in Step 3.</p></div>
+    <div class="oai-sym">
+      <!-- Symbol header -->
+      <div class="oai-sym-hd">
+        <div class="oai-sym-lg" id="oai-sym-logo">OP</div>
+        <div>
+          <div class="oai-sym-tk" id="oai-sym-ticker">OPAD</div>
+          <div class="oai-sym-nm" id="oai-sym-name">Offerpad Solutions, Inc. Class A</div>
+        </div>
+        <div class="oai-sym-vol">
+          <div class="oai-sym-vol-lbl">Total Volume</div>
+          <div class="oai-sym-vol-v" id="oai-sym-vol">17.82M</div>
+        </div>
+        <div class="oai-sym-rv" id="oai-sym-rv">Rel Vol 9.18</div>
+      </div>
+
+      <!-- Price block -->
+      <div class="oai-sym-px" id="oai-sym-price">$5.29</div>
+      <div class="oai-sym-chg" id="oai-sym-change">-0.95 (-15.25%)</div>
+
+      <!-- Action bar — buttons render but no-op (broker wiring is Step 3c) -->
+      <div class="oai-sym-act">
+        <button class="oai-btn oai-btn--pri" onclick="oaiActionStub('trade-ticket')">Trade Ticket</button>
+        <button class="oai-btn" onclick="oaiActionStub('flatten')">Flatten</button>
+        <button class="oai-btn" onclick="oaiActionStub('half')">½</button>
+        <button class="oai-btn" onclick="oaiActionStub('double')">Double</button>
+        <button class="oai-btn" onclick="oaiActionStub('reverse')">Reverse</button>
+      </div>
+
+      <!-- Main chart (faithful SVG port from v4.3 spec — daily candles +
+           supply/demand zones + earnings line + AI-projected level) -->
+      <div class="oai-chart">
+        <svg viewBox="0 0 580 280" preserveAspectRatio="none" style="background:#0d1117;width:100%;height:280px;">
+          <text x="290" y="120" fill="#1f2937" font-size="48" font-weight="800" text-anchor="middle" opacity="0.5">OPAD · D</text>
+          <!-- gold supply zone (left) -->
+          <path d="M 30,80 Q 100,60 180,90 L 200,140 Q 100,110 30,130 Z" fill="#f59e0b" opacity="0.25"/>
+          <!-- blue demand zone (right) -->
+          <path d="M 380,180 Q 460,140 540,40 L 560,80 Q 460,170 380,210 Z" fill="#3b82f6" opacity="0.3"/>
+          <!-- earnings line + label -->
+          <line x1="220" y1="20" x2="220" y2="260" stroke="#fbbf24" stroke-width="2" opacity="0.7"/>
+          <text x="220" y="278" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">E</text>
+          <!-- candles (red/green per spec) -->
+          <line x1="30.5"  y1="217.5" x2="30.5"  y2="260"   stroke="#22c55e" stroke-width="1"/><rect x="26.5"  y="225"   width="8" height="30"   fill="#22c55e"/>
+          <line x1="61.1"  y1="200"   x2="61.1"  y2="235"   stroke="#22c55e" stroke-width="1"/><rect x="57.1"  y="210"   width="8" height="20"   fill="#22c55e"/>
+          <line x1="91.6"  y1="192.5" x2="91.6"  y2="217.5" stroke="#22c55e" stroke-width="1"/><rect x="87.6"  y="205"   width="8" height="5"    fill="#22c55e"/>
+          <line x1="122.1" y1="185"   x2="122.1" y2="212.5" stroke="#ef4444" stroke-width="1"/><rect x="118.1" y="205"   width="8" height="12.5" fill="#ef4444"/>
+          <line x1="152.6" y1="210"   x2="152.6" y2="250"   stroke="#ef4444" stroke-width="1"/><rect x="148.6" y="217.5" width="8" height="25"   fill="#ef4444"/>
+          <line x1="183.2" y1="235"   x2="183.2" y2="260"   stroke="#ef4444" stroke-width="1"/><rect x="179.2" y="242.5" width="8" height="12.5" fill="#ef4444"/>
+          <line x1="213.7" y1="225"   x2="213.7" y2="260"   stroke="#22c55e" stroke-width="1"/><rect x="209.7" y="230"   width="8" height="25"   fill="#22c55e"/>
+          <line x1="244.2" y1="217.5" x2="244.2" y2="255"   stroke="#ef4444" stroke-width="1"/><rect x="240.2" y="230"   width="8" height="20"   fill="#ef4444"/>
+          <line x1="274.7" y1="235"   x2="274.7" y2="260"   stroke="#22c55e" stroke-width="1"/><rect x="270.7" y="240"   width="8" height="10"   fill="#22c55e"/>
+          <line x1="305.3" y1="225"   x2="305.3" y2="245"   stroke="#22c55e" stroke-width="1"/><rect x="301.3" y="230"   width="8" height="10"   fill="#22c55e"/>
+          <line x1="335.8" y1="210"   x2="335.8" y2="235"   stroke="#22c55e" stroke-width="1"/><rect x="331.8" y="220"   width="8" height="10"   fill="#22c55e"/>
+          <line x1="366.3" y1="205"   x2="366.3" y2="225"   stroke="#22c55e" stroke-width="1"/><rect x="362.3" y="210"   width="8" height="10"   fill="#22c55e"/>
+          <line x1="396.8" y1="200"   x2="396.8" y2="215"   stroke="#22c55e" stroke-width="1"/><rect x="392.8" y="205"   width="8" height="5"    fill="#22c55e"/>
+          <line x1="427.4" y1="180"   x2="427.4" y2="210"   stroke="#22c55e" stroke-width="1"/><rect x="423.4" y="192.5" width="8" height="12.5" fill="#22c55e"/>
+          <line x1="457.9" y1="130"   x2="457.9" y2="200"   stroke="#22c55e" stroke-width="1"/><rect x="453.9" y="150"   width="8" height="42.5" fill="#22c55e"/>
+          <line x1="488.4" y1="117.5" x2="488.4" y2="160"   stroke="#22c55e" stroke-width="1"/><rect x="484.4" y="135"   width="8" height="15"   fill="#22c55e"/>
+          <line x1="518.9" y1="85"    x2="518.9" y2="142.5" stroke="#22c55e" stroke-width="1"/><rect x="514.9" y="117.5" width="8" height="17.5" fill="#22c55e"/>
+          <!-- BUY signal marker -->
+          <polygon points="280,210 285,200 290,210" fill="#3b82f6"/>
+          <text x="285" y="225" fill="#3b82f6" font-size="9" text-anchor="middle">BUY</text>
+          <!-- AI projected entry (dashed) -->
+          <line x1="30" y1="195" x2="560" y2="195" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3,3"/>
+          <rect x="540" y="188" width="36" height="14" fill="#3b82f6" rx="2"/>
+          <text x="558" y="198" fill="#fff" font-size="9" text-anchor="middle" font-weight="700">1.55 AI</text>
+          <!-- Current price tag -->
+          <rect x="540" y="58" width="36" height="14" fill="#22c55e" rx="2"/>
+          <text x="558" y="68" fill="#fff" font-size="9" text-anchor="middle" font-weight="700">5.29</text>
+          <!-- Y-axis ticks -->
+          <text x="20" y="65"  fill="#9ca3af" font-size="9" text-anchor="end">$6.00</text>
+          <text x="20" y="115" fill="#9ca3af" font-size="9" text-anchor="end">$4.00</text>
+          <text x="20" y="195" fill="#9ca3af" font-size="9" text-anchor="end">$2.00</text>
+        </svg>
+        <!-- Monthly inset chart (bottom-left overlay) -->
+        <div class="oai-inset">
+          <div class="oai-inset-pct">-95.96% in 3+ years</div>
+          <svg viewBox="0 0 110 60" style="margin-top:14px;width:100%;">
+            <path d="M 5,15 Q 20,18 35,40 Q 50,55 70,55 Q 90,55 105,50" fill="none" stroke="#ef4444" stroke-width="1.5"/>
+            <path d="M 5,15 Q 20,18 35,40 Q 50,55 70,55 Q 90,55 105,50 L 105,60 L 5,60 Z" fill="#ef4444" opacity="0.2"/>
+            <text x="55" y="32" fill="#1f2937" font-size="9" font-weight="700" text-anchor="middle">OPAD · M</text>
+          </svg>
+        </div>
+        <!-- Volume bars (30 bars, one orange standout) -->
+        <div class="oai-vol">
+          <div class="vb" style="height:20%;"></div><div class="vb" style="height:30%;"></div><div class="vb" style="height:37%;"></div><div class="vb" style="height:40%;"></div><div class="vb" style="height:38%;"></div><div class="vb" style="height:32%;"></div><div class="vb" style="height:23%;"></div><div class="vb" style="height:13%;"></div><div class="vb" style="height:5%;"></div><div class="vb" style="height:1%;"></div><div class="vb" style="height:1%;"></div><div class="vb" style="height:6%;"></div><div class="vb" style="height:14%;"></div><div class="vb" style="height:24%;"></div><div class="vb" style="height:33%;"></div><div class="vb vb--o" style="height:90%;"></div><div class="vb" style="height:40%;"></div><div class="vb" style="height:36%;"></div><div class="vb" style="height:28%;"></div><div class="vb" style="height:18%;"></div><div class="vb" style="height:9%;"></div><div class="vb" style="height:32%;"></div><div class="vb" style="height:30%;"></div><div class="vb" style="height:32%;"></div><div class="vb" style="height:39%;"></div><div class="vb" style="height:49%;"></div><div class="vb" style="height:58%;"></div><div class="vb" style="height:66%;"></div><div class="vb" style="height:70%;"></div><div class="vb" style="height:69%;"></div>
+        </div>
+      </div>
+
+      <!-- Step 3b/3c stub note -->
+      <div class="oai-sym-note">
+        Static OPAD demo · live quote + candles ship in Step 3b · action-bar
+        broker wiring + confirmation modal ship in Step 3c.
+      </div>
+    </div>
   </div>
   <div class="oai-view" id="oai-view-signal-replay" style="display:none;">
     <div class="oai-placeholder"><h3>🎬 Signal Replay</h3><p>Side-by-side Ollie Signal replay · entry/exit annotations · post-signal trajectory. Ships in Step 4.</p></div>
@@ -10019,6 +10134,33 @@ document.addEventListener('keydown', function(e) {
 #section-ollie-ai .oai-placeholder h3 { color:#fbbf24; margin:0 0 10px 0; font-size:18px; letter-spacing:.5px; }
 #section-ollie-ai .oai-placeholder p { font-size:13px; margin:0; line-height:1.5; }
 #section-ollie-ai .oai-placeholder b { color:#cbd5e1; }
+
+/* ───── Step 3a — Symbol Focus cockpit (v4.3 spec L375-439) ───── */
+#section-ollie-ai .oai-sym { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:14px; }
+#section-ollie-ai .oai-sym-hd { display:flex; align-items:center; gap:14px; padding-bottom:10px; border-bottom:1px solid var(--border); }
+#section-ollie-ai .oai-sym-lg { width:36px; height:36px; border-radius:5px; background:#f59e0b; color:#000; display:flex; align-items:center; justify-content:center; font-weight:800; font-size:14px; letter-spacing:.5px; }
+#section-ollie-ai .oai-sym-tk { font-size:20px; font-weight:800; color:#fbbf24; letter-spacing:.5px; font-family:var(--font-mono); }
+#section-ollie-ai .oai-sym-nm { font-size:12px; color:var(--text-dim); margin-top:2px; }
+#section-ollie-ai .oai-sym-vol { margin-left:auto; text-align:right; }
+#section-ollie-ai .oai-sym-vol-lbl { font-size:10px; color:var(--text-dim); letter-spacing:.4px; text-transform:uppercase; }
+#section-ollie-ai .oai-sym-vol-v { font-weight:700; color:#e5e7eb; font-family:var(--font-mono); font-size:14px; margin-top:2px; }
+#section-ollie-ai .oai-sym-rv { background:#1c1408; border:1px solid #fbbf24; padding:5px 10px; border-radius:4px; font-size:12px; color:#fbbf24; font-weight:700; font-family:var(--font-mono); }
+#section-ollie-ai .oai-sym-px { font-size:42px; font-weight:800; color:#e5e7eb; margin:14px 0 4px; font-family:var(--font-mono); letter-spacing:-1px; line-height:1; }
+#section-ollie-ai .oai-sym-chg { font-size:14px; color:#ef4444; font-weight:700; font-family:var(--font-mono); }
+#section-ollie-ai .oai-sym-chg.up { color:#22c55e; }
+#section-ollie-ai .oai-sym-act { display:flex; gap:6px; margin:14px 0 14px; flex-wrap:wrap; }
+#section-ollie-ai .oai-btn { background:var(--panel-2); color:#e5e7eb; border:1px solid var(--border); padding:7px 14px; border-radius:5px; font-size:12px; font-weight:700; letter-spacing:.3px; cursor:pointer; transition:filter .12s, border-color .12s; font-family:Inter,system-ui,sans-serif; }
+#section-ollie-ai .oai-btn:hover { filter:brightness(1.15); border-color:#fbbf24; }
+#section-ollie-ai .oai-btn--pri { background:#f59e0b; color:#000; border-color:#f59e0b; }
+#section-ollie-ai .oai-btn--pri:hover { background:#fbbf24; border-color:#fbbf24; }
+#section-ollie-ai .oai-chart { background:#0d1117; border:1px solid var(--border); border-radius:5px; padding:10px; position:relative; }
+#section-ollie-ai .oai-chart svg { display:block; }
+#section-ollie-ai .oai-inset { position:absolute; left:14px; bottom:60px; width:120px; height:80px; background:var(--panel); border:1px solid #fbbf24; border-radius:4px; padding:5px; }
+#section-ollie-ai .oai-inset-pct { position:absolute; top:3px; left:5px; background:#7f1d1d; color:#fff; padding:1px 5px; border-radius:2px; font-size:9px; font-weight:700; font-family:var(--font-mono); }
+#section-ollie-ai .oai-vol { display:flex; align-items:flex-end; gap:1px; height:44px; margin-top:8px; }
+#section-ollie-ai .oai-vol .vb { flex:1; background:#3b82f6; min-height:2px; }
+#section-ollie-ai .oai-vol .vb.vb--o { background:#f59e0b; }
+#section-ollie-ai .oai-sym-note { font-size:11px; color:var(--text-dim); margin-top:12px; padding:8px 10px; background:var(--panel-2); border-radius:4px; border-left:3px solid #fbbf24; line-height:1.5; }
 </style>
 
 <script>
@@ -10180,16 +10322,33 @@ document.addEventListener('keydown', function(e) {
     if (lbl) lbl.textContent = top.slice(0, 6).map(function(m){ return m.symbol; }).join(' · ');
   }
 
-  /* ───── Symbol focus stub ───── */
+  /* ───── Step 3a — Symbol focus selection + cockpit header update.
+     Live quote / candles / fundamentals wiring is Step 3b. Action-bar
+     broker submission is Step 3c. */
   window.oaiFocusSymbol = function(sym) {
     if (!sym) return;
+    sym = String(sym).toUpperCase();
     var tabs = document.querySelectorAll('#oai-subview-tabs .oai-sti');
     tabs.forEach(function(t){ t.classList.toggle('on', t.dataset.view === 'symbol-focus'); });
     document.querySelectorAll('#section-ollie-ai .oai-view').forEach(function(v) {
       v.style.display = v.id === 'oai-view-symbol-focus' ? '' : 'none';
     });
-    var ph = document.querySelector('#oai-view-symbol-focus .oai-placeholder h3');
-    if (ph) ph.textContent = '🎯 Symbol Focus — ' + sym;
+    // Header — derive 2-letter logo abbreviation, plumb ticker into the
+    // cockpit. Other fields (name, volume, rel-vol, price, change) stay on
+    // the OPAD demo data until Step 3b wires live quotes.
+    var logoEl = document.getElementById('oai-sym-logo');
+    if (logoEl) logoEl.textContent = sym.slice(0, 2);
+    var tkEl = document.getElementById('oai-sym-ticker');
+    if (tkEl) tkEl.textContent = sym;
+    var nmEl = document.getElementById('oai-sym-name');
+    if (nmEl) nmEl.textContent = 'Live name pending Step 3b';
+  };
+
+  /* Action bar stub — Trade Ticket / Flatten / ½ / Double / Reverse.
+     Step 3c will wire to broker endpoints with a confirmation modal. */
+  window.oaiActionStub = function(action) {
+    var sym = (document.getElementById('oai-sym-ticker') || {}).textContent || '?';
+    try { console.log('[OAI-ACTION-STUB] ' + action + ' on ' + sym + ' — broker wiring deferred to Step 3c'); } catch(e) {}
   };
 
   /* ───── Wiring ───── */
@@ -17225,6 +17384,10 @@ function showSection(name) {
     }
   });
   _currentSectionName = name;
+  // HM-OLLIE-AI-SECTION-ISOLATION 2: mirror active section onto body so CSS
+  // can hide specific bleeders by selector (the prior :has() + JS hide
+  // approach failed; this gives stylesheet a direct attribute to scope on).
+  try { document.body.dataset.activeSection = name; } catch(e) {}
 
   // Switch polling to new section (pauses old, starts new)
   if (window._switchSection) window._switchSection(name);
