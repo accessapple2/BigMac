@@ -22846,6 +22846,48 @@ function _renderJournal(data, hasMore) {
 </script>
 
 <script>
+// === HM-AUTH-STORM-FIX 2026-05-23: 401 detector + session-expired banner ===
+// Wraps window.fetch globally so any 401 response flips _tmAuth.isAuthenticated
+// to false, clears all registered alert pollers, and surfaces a reload banner.
+// Poll functions also short-circuit via _tmAuth.isAuthenticated guard so even
+// unregistered intervals stop hitting the backend after the first 401.
+(function(){
+  window._tmAuth = {
+    isAuthenticated: true,
+    pollers: new Set(),
+    registerPoller: function(id) { if (id) this.pollers.add(id); return id; },
+    onAuthLost: function() {
+      if (!this.isAuthenticated) return;  // idempotent — only fire once
+      this.isAuthenticated = false;
+      try { console.warn('[TM-AUTH] 401 detected — pausing alert pollers + showing session-expired banner'); } catch(e) {}
+      this.pollers.forEach(function(id) { try { clearInterval(id); } catch(e) {} });
+      this.pollers.clear();
+      this.showBanner();
+    },
+    showBanner: function() {
+      if (document.getElementById('tmAuthBanner')) return;
+      var b = document.createElement('div');
+      b.id = 'tmAuthBanner';
+      b.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:#dc2626;color:#fff;padding:12px 20px;font-family:Inter,system-ui,-apple-system,sans-serif;font-size:14px;font-weight:600;display:flex;justify-content:space-between;align-items:center;gap:12px;box-shadow:0 4px 12px rgba(0,0,0,0.35);';
+      b.innerHTML = '<span>⚠️ Session expired — alert pollers paused. Reload to re-authenticate.</span>' +
+                    '<button onclick="location.reload()" style="background:#fff;color:#dc2626;border:none;padding:6px 14px;border-radius:4px;font-weight:700;cursor:pointer;font-size:13px;">Reload</button>';
+      if (document.body) document.body.appendChild(b);
+      else document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(b); });
+    }
+  };
+  var _origFetch = window.fetch ? window.fetch.bind(window) : null;
+  if (_origFetch) {
+    window.fetch = function(input, init) {
+      return _origFetch(input, init).then(function(r) {
+        if (r && r.status === 401) window._tmAuth.onAuthLost();
+        return r;
+      });
+    };
+  }
+})();
+</script>
+
+<script>
 // === BROWSER SOUND NOTIFICATIONS ===
 var _lastTradeId = null;
 var _soundEnabled = true;
@@ -22877,9 +22919,13 @@ function playTradeBeep(type) {
 }
 
 async function pollTradeAlerts() {
+  // HM-AUTH-STORM-FIX: short-circuit on session loss + only beep on real 2xx
+  if (window._tmAuth && !window._tmAuth.isAuthenticated) return;
   try {
     var r = await fetch('/api/alerts/recent?limit=1');
+    if (!r || !r.ok) return;  // never beep on 401/5xx/network error
     var trades = await r.json();
+    if (!Array.isArray(trades)) return;  // backend hiccup safety
     if (trades.length > 0) {
       var latest = trades[0];
       var tradeKey = latest.executed_at + ':' + latest.symbol + ':' + latest.action;
@@ -22909,15 +22955,20 @@ document.addEventListener('click', function() {
 }, { once: true });
 
 pollTradeAlerts();
-setInterval(pollTradeAlerts, 30000); // was 10s
+// HM-AUTH-STORM-FIX: register poller so 401 handler can clearInterval it
+window._tmAuth.registerPoller(setInterval(pollTradeAlerts, 30000)); // was 10s
 </script>
 
 <script>
 // === VIX MONITOR ===
 async function fetchVIX() {
+  // HM-AUTH-STORM-FIX: short-circuit on session loss + only beep on real 2xx
+  if (window._tmAuth && !window._tmAuth.isAuthenticated) return;
   try {
     var r = await fetch('/api/market/vix');
+    if (!r || !r.ok) return;  // never beep on 401/5xx/network error
     var d = await r.json();
+    if (!d || typeof d !== 'object') return;
     var cur = d.current || {};
     var el = document.getElementById('vixPrice');
     if (el && cur.price) {
@@ -22941,7 +22992,8 @@ async function fetchVIX() {
 }
 
 // fetchVIX() deferred to INIT stagger (Tier 2, 500ms)
-setInterval(fetchVIX, 300000); // every 5 min
+// HM-AUTH-STORM-FIX: register poller so 401 handler can clearInterval it
+window._tmAuth.registerPoller(setInterval(fetchVIX, 300000)); // every 5 min
 </script>
 
 <script>
@@ -23248,12 +23300,29 @@ var _wrDebatePoller = null;
 var _wrDebateSymbol = null;
 function _wrFmtSecs(s) { var m=Math.floor(s/60),r=s%60; return m+':'+(r<10?'0':'')+r; }
 async function _wrFetchDebateStatus(symbol) {
+  // HM-AUTH-STORM-FIX: stop on session loss
+  if (window._tmAuth && !window._tmAuth.isAuthenticated) {
+    if (_wrDebatePoller) { clearInterval(_wrDebatePoller); _wrDebatePoller=null; }
+    return;
+  }
   try {
-    var url='/api/war-room/debate-status'+(symbol?'?symbol='+encodeURIComponent(symbol):'');
-    var d = await (await fetch(url)).json();
+    // HM-WR-DEBATE-DEFAULT-SYMBOL-FIX 2026-05-23: pass NO symbol so backend
+    // returns the LATEST debate from war_room_debates ORDER BY started_at
+    // DESC. Prior behaviour locked onto data[0].symbol of war-room messages
+    // (e.g. "GEN") which is the most-recent MESSAGE, not the most-recent
+    // DEBATE — leaving polling stuck on a stale ticker indefinitely.
+    var url = '/api/war-room/debate-status';
+    var r = await fetch(url);
+    if (!r || !r.ok) return;
+    var d = await r.json();
     var strip = document.getElementById('wrDebateProgress');
     if (!strip) return;
-    if (!d || d.status==='no_debate') { strip.style.display='none'; return; }
+    if (!d || d.status==='no_debate') {
+      strip.style.display='none';
+      // HM-AUTH-STORM-FIX: stop polling when there is nothing to poll
+      if (_wrDebatePoller) { clearInterval(_wrDebatePoller); _wrDebatePoller=null; }
+      return;
+    }
     strip.style.display='block';
     var pct=d.percent||0;
     document.getElementById('wrProgressPct').textContent=pct+'%';
@@ -23281,10 +23350,16 @@ async function _wrFetchDebateStatus(symbol) {
   } catch(e) {}
 }
 function _wrStartPolling(symbol) {
+  // HM-WR-DEBATE-DEFAULT-SYMBOL-FIX: symbol arg kept for backward-compat with
+  // callers (e.g. loadWarRoom) but no longer forwarded to the API. Backend
+  // resolves the latest debate from war_room_debates DESC. This also makes
+  // the in-progress UI symbol track what's actually being debated.
   if (_wrDebatePoller) clearInterval(_wrDebatePoller);
-  _wrDebateSymbol=symbol;
-  _wrFetchDebateStatus(symbol);
-  _wrDebatePoller=setInterval(function(){_wrFetchDebateStatus(_wrDebateSymbol);},5000);
+  _wrDebateSymbol = symbol || null;
+  _wrFetchDebateStatus();
+  _wrDebatePoller = setInterval(function(){ _wrFetchDebateStatus(); }, 5000);
+  // HM-AUTH-STORM-FIX: register so 401 handler can clearInterval it
+  if (window._tmAuth) window._tmAuth.registerPoller(_wrDebatePoller);
 }
 
 // ── War Room: Debate History Strip ─────────────────────────────────────────
