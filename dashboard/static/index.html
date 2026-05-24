@@ -11355,17 +11355,23 @@ document.addEventListener('keydown', function(e) {
   // Back-compat shim — Step 3a used oaiActionStub; bound to same path.
   window.oaiActionStub = window.oaiAction;
 
-  /* ───── Step 4a — Signal Replay wiring.
-     - Expose _oaiTradeTicket so Replay BUY/SELL buttons can call it
-       with their own card-local ticker (vs Symbol Focus's #oai-sym-ticker).
-     - Load /api/signals/recent into both dropdowns on first view.
-     - Selecting a signal updates the card header (logo/ticker/name/date)
-       but keeps the static FDMT/HE chart demo until Step 4b wires live
-       per-card candle rendering with pre/post coloring + annotations. */
+  /* ───── Step 4b — Signal Replay live wire.
+     - Data source pivoted from /api/signals/recent (47/50 REJECTED HOLDs,
+       no actionable BUY/SELL signals in window) to /api/trades/recent,
+       filtered to SELL rows with entry_price>0 + realized_pnl != null +
+       exit_price>0 (last clause filters HM-TRADES-PRICE-WRITEBACK-BUG
+       rows that report exit_price=0 + -100% pnl_pct).
+     - oaiReplayPick(side, value) now does parallel fetch (ohlcv +
+       fundamentals + monthly + price), renders real candles with
+       pre-signal gray / signal-pivot outcome-color / post-signal
+       outcome-color, draws AI dashed line at entry_price + Bezier
+       trajectory + Buy/Sell stamp + Profit ±X% badge.
+     - Auto-populate on first view-visibility: cards get the 2 most
+       recent replayable trades. */
   window.oaiTradeTicket = _oaiTradeTicket;
 
   var _oaiReplayLoaded = false;
-  var _oaiReplaySignals = [];  // cached list from /api/signals/recent
+  var _oaiReplayTrades = [];  // cached list from /api/trades/recent
 
   // Per-symbol deterministic logo color (hash 8 ways)
   var _OAI_REPLAY_PALETTE = ['#7c3aed','#dc2626','#0891b2','#15803d','#b45309','#be185d','#0e7490','#6d28d9'];
@@ -11384,74 +11390,380 @@ document.addEventListener('keydown', function(e) {
       return MO[d.getMonth()] + ' ' + d.getDate() + ' ' + d.getFullYear();
     } catch(e) { return iso; }
   }
+  function _oaiCandleDateISO(bar) {
+    // /api/charts/ohlcv returns Unix seconds in `time`; coerce to UTC date.
+    if (!bar || bar.time == null) return '';
+    try { return new Date(Number(bar.time) * 1000).toISOString().slice(0, 10); }
+    catch(e) { return ''; }
+  }
+  function _oaiPickPivotIdx(candles, closeDateISO) {
+    // Walk forward; return first candle whose date >= target. If none,
+    // return last index (target is after all candles).
+    if (!candles || !candles.length) return -1;
+    var target = (closeDateISO || '').slice(0, 10);
+    if (!target) return candles.length - 1;
+    for (var i = 0; i < candles.length; i++) {
+      if (_oaiCandleDateISO(candles[i]) >= target) return i;
+    }
+    return candles.length - 1;
+  }
 
-  async function _oaiReplayLoadSignals() {
-    if (_oaiReplayLoaded) return _oaiReplaySignals;
+  async function _oaiReplayLoadTrades() {
+    if (_oaiReplayLoaded) return _oaiReplayTrades;
     var metaEl = document.getElementById('oai-sr-meta');
     try {
-      var r = await fetch('/api/signals/recent?limit=50');
+      var r = await fetch('/api/trades/recent?limit=200');
       if (!r || !r.ok) throw new Error('HTTP ' + (r && r.status));
-      var data = await r.json();
-      // /api/signals/recent returns a bare list (data IS the list). Handle
-      // both shapes defensively.
-      var rows = Array.isArray(data) ? data : ((data && data.signals) || []);
-      // Broad scope: signals that weren't rejected. `acted_on` isn't in the
-      // response payload (HM-SIGNALS-RECENT-ACTED-ON-FIELD banked) so use
-      // execution_status as the proxy — anything that progressed beyond
-      // REJECTED counts as "acted upon" for replay purposes.
-      var filtered = rows.filter(function(s){
-        var st = String(s.execution_status || '').toUpperCase();
-        return st && st !== 'REJECTED';
+      var rows = await r.json();
+      if (!Array.isArray(rows)) rows = [];
+      // Replayable = closed long round-trip with valid price writeback.
+      // SELL row carries the BUY entry price + outcome.
+      var filtered = rows.filter(function(t) {
+        if ((t.action || '').toUpperCase().indexOf('SELL') !== 0) return false;
+        if (!(Number(t.entry_price) > 0)) return false;
+        if (!(Number(t.exit_price)  > 0)) return false;  // writeback filter
+        if (t.realized_pnl == null) return false;
+        return true;
       });
-      _oaiReplaySignals = filtered;
+      _oaiReplayTrades = filtered;
       _oaiReplayLoaded = true;
 
-      function _popOpts(selectId, defaultLabel) {
+      function _popOpts(selectId) {
         var sel = document.getElementById(selectId);
         if (!sel) return;
-        // Keep the demo option, append real signals
-        if (!filtered.length) {
-          if (metaEl) metaEl.textContent = 'No signals in window. Showing FDMT + HE demo from spec.';
-          return;
-        }
-        filtered.forEach(function(s) {
+        if (!filtered.length) return;
+        filtered.forEach(function(t, idx) {
           var opt = document.createElement('option');
-          opt.value = JSON.stringify({sym:s.symbol, ts:s.created_at, sig:s.signal, pid:s.player_id});
-          opt.textContent = (s.symbol || '?') + ' · ' + _oaiFmtSignalDate(s.created_at) +
-                            ' · ' + (s.signal || '?') + ' · ' + (s.player_id || '?');
+          opt.value = String(idx);  // index into _oaiReplayTrades
+          var pnl = Number(t.pnl_pct || 0);
+          var sign = pnl >= 0 ? '+' : '';
+          opt.textContent = (t.symbol || '?') + ' · ' + _oaiFmtSignalDate(t.executed_at) +
+                            ' · ' + sign + pnl.toFixed(2) + '% · ' + (t.player_id || '?');
           sel.appendChild(opt);
         });
       }
       _popOpts('oai-sr-pick-left');
       _popOpts('oai-sr-pick-right');
-      if (metaEl) metaEl.textContent = filtered.length + ' non-rejected signals loaded (broad scope, all agents)';
+      if (metaEl) {
+        if (!filtered.length) metaEl.textContent = 'No replayable trades in window. Showing FDMT + HE demo.';
+        else metaEl.textContent = filtered.length + ' replayable trades (broad scope, writeback filtered)';
+      }
+
+      // Auto-populate: 2 most recent replayable trades into LEFT + RIGHT.
+      if (filtered.length >= 1) {
+        document.getElementById('oai-sr-pick-left').value  = '0';
+        window.oaiReplayPick('left', '0');
+      }
+      if (filtered.length >= 2) {
+        document.getElementById('oai-sr-pick-right').value = '1';
+        window.oaiReplayPick('right', '1');
+      }
     } catch(e) {
-      if (metaEl) metaEl.textContent = 'Signal history unavailable — showing demo only';
+      if (metaEl) metaEl.textContent = 'Trade history unavailable — showing demo only';
       try { console.warn('[OAI-REPLAY] load failed:', e); } catch(_) {}
     }
-    return _oaiReplaySignals;
+    return _oaiReplayTrades;
   }
 
-  window.oaiReplayPick = function(side, value) {
-    if (!side || !value || value === '__demo__') return;
-    var parsed;
-    try { parsed = JSON.parse(value); } catch(e) { return; }
-    var sym = (parsed.sym || '').toUpperCase();
-    if (!sym) return;
+  function _oaiRenderReplaySvg(side, trade, candles) {
+    /* 460x240 viewBox. Layer order intentionally puts annotations ON TOP
+       of candles (different from Symbol Focus's z-order rule) because the
+       Replay chart is telling a story: signal -> trajectory -> outcome.
+       Layers:
+         1. Watermark
+         2. Pre-signal candles (gray)
+         3. Signal candle (bigger, outcome-colored)
+         4. Post-signal candles (outcome-colored)
+         5. AI dashed line + pill at entry_price
+         6. Trajectory Bezier curve + arrowhead marker
+         7. Signal stamp (Buy Signal / Sell Signal)
+         8. Profit badge with realized pnl_pct
+         9. Y-axis labels */
+    var svg = document.getElementById('oai-sr-svg-' + side);
+    if (!svg) return;
+    if (!candles || !candles.length) {
+      svg.innerHTML = '<text x="230" y="125" fill="#6b7280" font-size="14" text-anchor="middle">No candle data for ' + (trade.symbol || '?') + '</text>';
+      return;
+    }
+
+    var W = 460, H = 240, PAD_L = 28, PAD_R = 16, PAD_T = 30, PAD_B = 30;
+    var plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
+    var sym = (trade.symbol || '?').toUpperCase();
+    var entry = Number(trade.entry_price);
+    var exit  = Number(trade.exit_price);
+    var pnlPct = Number(trade.pnl_pct || 0);
+    var win = pnlPct >= 0;
+
+    // Pivot: which candle is the signal day
+    var pivot = _oaiPickPivotIdx(candles, trade.executed_at);
+    if (pivot < 0) pivot = Math.floor(candles.length / 2);
+
+    // Y-scale: include candle range + entry + exit prices
+    var lows  = candles.map(function(c){ return Number(c.low  ?? c.l); });
+    var highs = candles.map(function(c){ return Number(c.high ?? c.h); });
+    var pMin = Math.min.apply(null, lows);
+    var pMax = Math.max.apply(null, highs);
+    if (isFinite(entry) && entry > 0) { if (entry < pMin) pMin = entry; if (entry > pMax) pMax = entry; }
+    if (isFinite(exit)  && exit  > 0) { if (exit  < pMin) pMin = exit;  if (exit  > pMax) pMax = exit;  }
+    var pRange = pMax - pMin || 1;
+    pMin -= pRange * 0.05; pMax += pRange * 0.05; pRange = pMax - pMin;
+    function yAt(p) { return PAD_T + (pMax - p) / pRange * plotH; }
+
+    var n = candles.length;
+    var barW = plotW / n;
+    var bodyW = Math.max(1, barW * 0.55);
+    var bodyWSig = Math.max(2, barW * 0.85);  // signal candle gets a wider bar
+
+    var outcomeColor = win ? '#22c55e' : '#ef4444';
+    var outcomeDark  = win ? '#16a34a' : '#dc2626';
+    var arrowMarker  = 'url(#arr-' + (win ? 'g' : 'r') + '-' + side + ')';
+
+    var parts = [];
+    // --- Watermark ---
+    parts.push('<text x="' + (W/2) + '" y="' + (H/2 - 5) + '" fill="#1f2937" font-size="42" font-weight="800" text-anchor="middle" opacity="0.4">' + sym + ' · D</text>');
+
+    // --- Per-card scoped marker defs (keep the static defs that were
+    //     already in the HTML; redeclaring inside parts works too) ---
+    parts.push('<defs>' +
+      '<marker id="arr-r-' + side + '" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><polygon points="0,0 8,3 0,6" fill="#ef4444"/></marker>' +
+      '<marker id="arr-g-' + side + '" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><polygon points="0,0 8,3 0,6" fill="#22c55e"/></marker>' +
+    '</defs>');
+
+    // --- Candles (pre-signal gray, signal bigger + colored, post outcome) ---
+    candles.forEach(function(c, i) {
+      var o = Number(c.open ?? c.o), cl = Number(c.close ?? c.c);
+      var hi = Number(c.high ?? c.h), lo = Number(c.low ?? c.l);
+      var x = PAD_L + i * barW + barW / 2;
+      var yHi = yAt(hi), yLo = yAt(lo);
+      var yOpen = yAt(o), yClose = yAt(cl);
+      var bodyTop = Math.min(yOpen, yClose);
+      var bodyH = Math.max(1, Math.abs(yClose - yOpen));
+      var color, bw;
+      if (i < pivot)       { color = '#9ca3af'; bw = bodyW; }
+      else if (i === pivot){ color = outcomeColor; bw = bodyWSig; }
+      else                 { color = outcomeColor; bw = bodyW; }
+      parts.push('<line x1="' + x.toFixed(2) + '" y1="' + yHi.toFixed(2) + '" x2="' + x.toFixed(2) + '" y2="' + yLo.toFixed(2) + '" stroke="' + color + '" stroke-width="1"/>');
+      parts.push('<rect x="' + (x - bw/2).toFixed(2) + '" y="' + bodyTop.toFixed(2) + '" width="' + bw.toFixed(2) + '" height="' + bodyH.toFixed(2) + '" fill="' + color + '"/>');
+    });
+
+    // --- AI dashed line at entry_price ---
+    var plotRight = PAD_L + plotW;
+    if (isFinite(entry) && entry > 0) {
+      var yEntry = yAt(entry);
+      if (yEntry >= PAD_T && yEntry <= PAD_T + plotH) {
+        parts.push('<line x1="' + PAD_L + '" y1="' + yEntry.toFixed(2) + '" x2="' + plotRight + '" y2="' + yEntry.toFixed(2) + '" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3,3"/>');
+        parts.push('<rect x="' + (plotRight - 42) + '" y="' + (yEntry - 7).toFixed(2) + '" width="42" height="14" fill="#3b82f6" rx="2"/>');
+        parts.push('<text x="' + (plotRight - 21) + '" y="' + (yEntry + 3).toFixed(2) + '" fill="#fff" font-size="9" text-anchor="middle" font-weight="700" font-family="var(--font-mono)">' + entry.toFixed(2) + ' AI</text>');
+      }
+    }
+
+    // --- Trajectory Bezier from signal candle → exit price at last
+    //     post-signal candle x-position ---
+    var xSignal = PAD_L + pivot * barW + barW / 2;
+    var ySignal = yAt(entry > 0 ? entry : Number(candles[pivot].close));
+    var xEnd    = PAD_L + (n - 1) * barW + barW / 2;
+    var yEnd    = isFinite(exit) && exit > 0 ? yAt(exit) : ySignal;
+    // Control point: bow the curve away from the destination
+    var xMid    = xSignal + (xEnd - xSignal) * 0.55;
+    var yMid    = win ? Math.min(ySignal, yEnd) - 28 : Math.max(ySignal, yEnd) + 28;
+    parts.push('<path d="M ' + xSignal.toFixed(2) + ',' + ySignal.toFixed(2) +
+               ' Q ' + xMid.toFixed(2) + ',' + yMid.toFixed(2) +
+               ' ' + xEnd.toFixed(2) + ',' + yEnd.toFixed(2) +
+               '" fill="none" stroke="' + outcomeColor + '" stroke-width="2.5" marker-end="' + arrowMarker + '"/>');
+
+    // --- Signal stamp (Buy Signal green above for wins, Sell Signal red
+    //     below for losses since the entry was a BUY; placement chosen so
+    //     stamp doesn't overlap the trajectory) ---
+    var stampW = 80, stampH = 22;
+    var stampX = Math.max(PAD_L, Math.min(plotRight - stampW, xSignal - stampW / 2));
+    var stampY = win ? Math.min(ySignal, yMid) - stampH - 6 : Math.max(ySignal, yMid) + 6;
+    if (stampY < 2) stampY = 2;
+    if (stampY > H - stampH - 2) stampY = H - stampH - 2;
+    var stampFill = win ? '#16a34a' : '#dc2626';
+    var stampLabel = win ? 'Buy Signal' : 'Sell Signal';
+    parts.push('<rect x="' + stampX + '" y="' + stampY + '" width="' + stampW + '" height="' + stampH + '" fill="' + stampFill + '" rx="3"/>');
+    parts.push('<text x="' + (stampX + stampW / 2) + '" y="' + (stampY + 16) + '" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">' + stampLabel + '</text>');
+
+    // --- Profit badge at trajectory end ---
+    var badgeW = 90, badgeH = 24;
+    var badgeX = Math.max(PAD_L, Math.min(plotRight - badgeW, xEnd - badgeW + 4));
+    var badgeY = win ? Math.max(2, yEnd - badgeH - 6) : Math.min(H - badgeH - 2, yEnd + 6);
+    var badgeFill = win ? '#16a34a' : '#dc2626';
+    var pnlSign = pnlPct >= 0 ? '+' : '';
+    parts.push('<rect x="' + badgeX + '" y="' + badgeY + '" width="' + badgeW + '" height="' + badgeH + '" fill="' + badgeFill + '" rx="3"/>');
+    parts.push('<text x="' + (badgeX + badgeW / 2) + '" y="' + (badgeY + 17) + '" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" font-family="var(--font-mono)">Profit ' + pnlSign + pnlPct.toFixed(2) + '%</text>');
+
+    // --- Y-axis labels (min / mid / max) ---
+    var midPrice = (pMin + pMax) / 2;
+    parts.push('<text x="' + (PAD_L - 4) + '" y="' + (PAD_T + 5) + '" fill="#9ca3af" font-size="8" text-anchor="end" font-family="var(--font-mono)">' + pMax.toFixed(2) + '</text>');
+    parts.push('<text x="' + (PAD_L - 4) + '" y="' + (PAD_T + plotH/2 + 3) + '" fill="#9ca3af" font-size="8" text-anchor="end" font-family="var(--font-mono)">' + midPrice.toFixed(2) + '</text>');
+    parts.push('<text x="' + (PAD_L - 4) + '" y="' + (PAD_T + plotH - 3) + '" fill="#9ca3af" font-size="8" text-anchor="end" font-family="var(--font-mono)">' + pMin.toFixed(2) + '</text>');
+
+    svg.innerHTML = parts.join('');
+  }
+
+  function _oaiRenderReplayHeader(side, trade, fundamentals, price) {
+    /* Update the per-card header strip with real data on dropdown pick.
+       Refreshes logo color + ticker + name + Rel Vol + price block +
+       9-cell fundamentals grid + "Ollie Signal · {date} · {agent}" label. */
+    var sym = (trade.symbol || '').toUpperCase();
     var logoEl = document.getElementById('oai-sr-logo-' + side);
-    var tkEl   = document.getElementById('oai-sr-ticker-' + side);
-    var nmEl   = document.getElementById('oai-sr-name-' + side);
-    var dateEl = document.getElementById('oai-sr-date-' + side);
     if (logoEl) {
       logoEl.textContent = sym.slice(0, 2);
       logoEl.style.background = _oaiReplayLogoColor(sym);
     }
+    var tkEl = document.getElementById('oai-sr-ticker-' + side);
     if (tkEl) tkEl.textContent = sym;
-    if (nmEl) nmEl.textContent = 'Live name pending Step 4b';
-    if (dateEl) {
-      var signalWord = (parsed.sig || 'Signal').toString().toUpperCase().indexOf('SELL') >= 0 ? 'Sell Signal' : 'Buy Signal';
-      dateEl.textContent = 'Ollie Signal · ' + _oaiFmtSignalDate(parsed.ts) + ' · ' + (parsed.pid || '?');
+    var nmEl = document.getElementById('oai-sr-name-' + side);
+    if (nmEl) nmEl.textContent = (fundamentals && fundamentals.company_name) || sym;
+
+    // Header rel-vol: use today's relative volume (proxy — historical
+    // signal-day rel-vol would require point-in-time data we don't store)
+    var rvEl = document.getElementById('oai-sr-rv-' + side);
+    if (rvEl) rvEl.textContent = 'Rel Vol — · live';
+
+    var pxEl = document.getElementById('oai-sr-price-' + side);
+    var chgEl = document.getElementById('oai-sr-change-' + side);
+    if (price && pxEl && price.price != null) pxEl.textContent = Number(price.price).toFixed(2);
+    if (price && chgEl && price.prev_close != null) {
+      var dollarChg = Number(price.price) - Number(price.prev_close);
+      var pctChg = Number(price.change_pct || 0);
+      var sign = dollarChg >= 0 ? '+' : '';
+      chgEl.textContent = sign + dollarChg.toFixed(2) + ' (' + sign + pctChg.toFixed(2) + '%)';
+      chgEl.classList.toggle('up', dollarChg >= 0);
+      chgEl.classList.toggle('dn', dollarChg <  0);
     }
+
+    // 9-cell fundamentals grid — fill from fundamentals payload + trade row.
+    var f = fundamentals || {};
+    function fmtMoney(v) {
+      if (v == null) return '—';
+      var n = Number(v);
+      if (Math.abs(n) >= 1e9) return '$' + (n/1e9).toFixed(2) + 'B';
+      if (Math.abs(n) >= 1e6) return '$' + (n/1e6).toFixed(2) + 'M';
+      if (Math.abs(n) >= 1e3) return '$' + (n/1e3).toFixed(2) + 'K';
+      return '$' + n.toFixed(2);
+    }
+    function fmtN(v, suffix) {
+      if (v == null) return '—';
+      var n = Number(v);
+      if (Math.abs(n) >= 1e9) return (n/1e9).toFixed(2) + 'B' + (suffix || '');
+      if (Math.abs(n) >= 1e6) return (n/1e6).toFixed(2) + 'M' + (suffix || '');
+      if (Math.abs(n) >= 1e3) return (n/1e3).toFixed(2) + 'K' + (suffix || '');
+      return n.toFixed(2) + (suffix || '');
+    }
+    var fundGrid = document.getElementById('oai-sr-fund-' + side);
+    if (fundGrid) {
+      fundGrid.innerHTML =
+        '<div><span>Total Vol</span><b>' + fmtN(Number((price && price.volume) || 0)) + '</b></div>' +
+        '<div><span>Float</span><b>' + fmtN(f.float_shares) + '</b></div>' +
+        '<div><span>Short Float %</span><b>' + (f.short_pct_float != null ? Number(f.short_pct_float).toFixed(2) + '%' : '—') + '</b></div>' +
+        '<div><span>Days to Cover</span><b>' + (f.short_ratio != null ? Number(f.short_ratio).toFixed(2) : '—') + '</b></div>' +
+        '<div><span>Shares Out</span><b>' + fmtN(f.shares_outstanding) + '</b></div>' +
+        '<div><span>Earnings Date</span><b>' + (f.next_earnings || '—') + '</b></div>' +
+        '<div><span>EPS</span><b>' + (f.eps_trailing != null ? '$' + Number(f.eps_trailing).toFixed(2) : '—') + '</b></div>' +
+        '<div><span>Market Cap</span><b>' + fmtMoney(f.market_cap) + '</b></div>' +
+        '<div><span>Revenue</span><b>' + fmtMoney(f.total_revenue) + '</b></div>';
+    }
+
+    var dateEl = document.getElementById('oai-sr-date-' + side);
+    if (dateEl) {
+      dateEl.textContent = 'Ollie Signal · ' + _oaiFmtSignalDate(trade.executed_at) +
+                           ' · ' + (trade.player_id || '?') +
+                           ' · entry $' + Number(trade.entry_price).toFixed(2) +
+                           ' → exit $' + Number(trade.exit_price).toFixed(2);
+    }
+  }
+
+  function _oaiRenderReplayInset(side, trade, monthlyCandles) {
+    /* Replace the static inset SVG with a real long-term sparkline +
+       outcome-colored pct tag computed from earliest-to-latest close. */
+    var card = document.getElementById('oai-sr-card-' + side);
+    if (!card) return;
+    var inset = card.querySelector('.oai-inset');
+    if (!inset) return;
+    if (!monthlyCandles || monthlyCandles.length < 2) {
+      inset.innerHTML = '<div class="oai-inset-pct">— · monthly N/A</div>' +
+                        '<svg viewBox="0 0 110 60" style="margin-top:14px;width:100%;"><text x="55" y="32" fill="#1f2937" font-size="9" font-weight="700" text-anchor="middle">' + (trade.symbol || '?') + ' · M</text></svg>';
+      return;
+    }
+    // Aggregate every 21 daily bars → 1 monthly close (same pattern as Symbol Focus)
+    var monthly = [];
+    for (var i = 20; i < monthlyCandles.length; i += 21) {
+      monthly.push(Number(monthlyCandles[i].close ?? monthlyCandles[i].c));
+    }
+    var lastIdx = monthlyCandles.length - 1;
+    if (!monthly.length || monthly[monthly.length - 1] !== Number(monthlyCandles[lastIdx].close ?? monthlyCandles[lastIdx].c)) {
+      monthly.push(Number(monthlyCandles[lastIdx].close ?? monthlyCandles[lastIdx].c));
+    }
+    if (monthly.length < 2) return;
+    var pctChg = (monthly[monthly.length - 1] - monthly[0]) / monthly[0] * 100;
+    var years = (monthlyCandles.length / 252).toFixed(1).replace(/\.0$/, '');
+    var tagColor = pctChg >= 0 ? '#14532d' : '#7f1d1d';
+    var stroke = pctChg >= 0 ? '#22c55e' : '#ef4444';
+    var fill   = pctChg >= 0 ? 'rgba(34,197,94,0.18)' : 'rgba(239,68,68,0.18)';
+    var pctSign = pctChg >= 0 ? '+' : '';
+
+    var mMin = Math.min.apply(null, monthly), mMax = Math.max.apply(null, monthly);
+    var mRange = mMax - mMin || 1;
+    var W = 110, H = 60, PT = 8, PB = 4;
+    var plotH = H - PT - PB;
+    var coords = monthly.map(function(v, j) {
+      var x = (j / (monthly.length - 1)) * W;
+      var y = PT + (mMax - v) / mRange * plotH;
+      return [x.toFixed(2), y.toFixed(2)];
+    });
+    var pathD = coords.reduce(function(acc, p, j){ return acc + (j === 0 ? 'M ' : ' L ') + p[0] + ',' + p[1]; }, '');
+    var fillD = pathD + ' L ' + W + ',' + H + ' L 0,' + H + ' Z';
+
+    inset.innerHTML = '<div class="oai-inset-pct" style="background:' + tagColor + ';">' + pctSign + pctChg.toFixed(2) + '% · ' + years + 'y</div>' +
+                      '<svg viewBox="0 0 ' + W + ' ' + H + '" style="margin-top:14px;width:100%;">' +
+                        '<path d="' + fillD + '" fill="' + fill + '"/>' +
+                        '<path d="' + pathD + '" fill="none" stroke="' + stroke + '" stroke-width="1.5"/>' +
+                        '<text x="55" y="32" fill="#1f2937" font-size="9" font-weight="700" text-anchor="middle">' + (trade.symbol || '?') + ' · M</text>' +
+                      '</svg>';
+  }
+
+  function _oaiRenderReplayVolBars(side, candles) {
+    var card = document.getElementById('oai-sr-card-' + side);
+    if (!card) return;
+    var bars = card.querySelector('.oai-vol');
+    if (!bars || !candles || !candles.length) return;
+    var last = candles.slice(-25);
+    var vols = last.map(function(c){ return Number(c.volume ?? c.v ?? 0); });
+    var maxV = Math.max.apply(null, vols) || 1;
+    var maxIdx = vols.indexOf(maxV);
+    bars.innerHTML = vols.map(function(v, i) {
+      var h = Math.max(2, (v / maxV) * 100);
+      var cls = i === maxIdx ? 'vb vb--o' : 'vb';
+      return '<div class="' + cls + '" style="height:' + h.toFixed(1) + '%;"></div>';
+    }).join('');
+  }
+
+  window.oaiReplayPick = function(side, value) {
+    if (!side || value == null || value === '__demo__') return;
+    var idx = parseInt(value, 10);
+    if (isNaN(idx) || idx < 0 || idx >= _oaiReplayTrades.length) return;
+    var trade = _oaiReplayTrades[idx];
+    if (!trade || !trade.symbol) return;
+    var sym = trade.symbol;
+
+    // 4 parallel fetches per card (mirrors Step 3b.2 cadence)
+    var pOhlcv   = fetch('/api/charts/ohlcv?symbol=' + sym + '&interval=1d&days=120').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var pFund    = fetch('/api/fundamentals/' + sym).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var pMonthly = fetch('/api/chart-data?symbol=' + sym + '&timeframe=1Day&bars=750').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var pPrice   = fetch('/api/price/' + sym).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+
+    Promise.all([pOhlcv, pFund, pMonthly, pPrice]).then(function(res) {
+      var candles  = Array.isArray(res[0]) ? res[0] : (res[0] && res[0].candles) || [];
+      var fund     = res[1] || {};
+      var monthlyCandles = (res[2] && res[2].candles) || [];
+      var price    = res[3] || {};
+      _oaiRenderReplayHeader(side, trade, fund, price);
+      _oaiRenderReplaySvg(side, trade, candles);
+      _oaiRenderReplayInset(side, trade, monthlyCandles);
+      _oaiRenderReplayVolBars(side, candles);
+    });
   };
 
   window.oaiReplayAction = function(side, action) {
@@ -11463,16 +11775,14 @@ document.addEventListener('keydown', function(e) {
     if (typeof window.oaiTradeTicket === 'function') window.oaiTradeTicket(sym);
   };
 
-  // Lazy-load signals when Signal Replay sub-view first becomes visible.
-  // Hook into existing sub-view tab clicks via MutationObserver on the
-  // #oai-view-signal-replay container.
+  // Lazy-load on first visibility of Signal Replay sub-view.
   document.addEventListener('DOMContentLoaded', function() {
     var sr = document.getElementById('oai-view-signal-replay');
     if (!sr) return;
     new MutationObserver(function(mutations) {
       mutations.forEach(function(m) {
         if (m.attributeName === 'style' && sr.style.display !== 'none') {
-          _oaiReplayLoadSignals();
+          _oaiReplayLoadTrades();
         }
       });
     }).observe(sr, { attributes:true, attributeFilter:['style'] });
