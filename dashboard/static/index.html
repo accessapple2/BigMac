@@ -10385,8 +10385,163 @@ document.addEventListener('keydown', function(e) {
       sweep endpoint.
     </div>
   </div>
+  <!-- ───── WAVE SCOPE (Step 6a — visual scaffold per v4.3 spec L561-619) ───── -->
   <div class="oai-view" id="oai-view-wave-scope" style="display:none;">
-    <div class="oai-placeholder"><h3>🌊 Ollie Wave Scope</h3><p>Adaptive EMA bands · Biggest Gainers/Losers ribbons · momentum treemap. Ships under <b>HM-OLLIE-WAVE</b>.</p></div>
+
+    <!-- Symbol input strip (6b: also auto-picks top gainer + ribbon click) -->
+    <div class="oai-ws-controls">
+      <div class="oai-sym-input" style="margin-left:0;">
+        <input id="oai-ws-sym-input" type="text" placeholder="Symbol (e.g. MKFG)" maxlength="10" spellcheck="false" autocomplete="off" />
+        <button id="oai-ws-sym-go" type="button" onclick="oaiWavePickSymbol()">Wave</button>
+      </div>
+      <div class="oai-ws-meta" id="oai-ws-meta">Live wire ships in Step 6b — showing spec demo (MKFG)</div>
+    </div>
+
+    <!-- 3-col grid: Gainers | Wave Chart | Losers -->
+    <div class="oai-ws-grid">
+
+      <!-- LEFT — Biggest Gainers ribbon (9 rows) -->
+      <div class="oai-sec oai-ws-ribbon-card">
+        <div class="oai-sec-h">▲ BIGGEST GAINERS</div>
+        <div class="oai-ribbon" id="oai-ws-gainers">
+          <div class="oai-ribbon-i up" onclick="oaiWavePickSymbol('GSIW')"><b>GSIW</b><span class="p">$3.04</span><span class="c pos">+276.12%</span></div>
+          <div class="oai-ribbon-i up" onclick="oaiWavePickSymbol('BATL')"><b>BATL</b><span class="p">$3.96</span><span class="c pos">+114.52%</span></div>
+          <div class="oai-ribbon-i up" onclick="oaiWavePickSymbol('LFLY')"><b>LFLY</b><span class="p">$6.62</span><span class="c pos">+107.57%</span></div>
+          <div class="oai-ribbon-i up" onclick="oaiWavePickSymbol('AGBA')"><b>AGBA</b><span class="p">$8.14</span><span class="c pos">+65.40%</span></div>
+          <div class="oai-ribbon-i up" onclick="oaiWavePickSymbol('UJCY')"><b>UJCY</b><span class="p">$3.28</span><span class="c pos">+58.20%</span></div>
+          <div class="oai-ribbon-i up" onclick="oaiWavePickSymbol('WPN')"><b>WPN</b><span class="p">$8.78</span><span class="c pos">+49.10%</span></div>
+          <div class="oai-ribbon-i up" onclick="oaiWavePickSymbol('EWTX')"><b>EWTX</b><span class="p">$4.05</span><span class="c pos">+41.80%</span></div>
+          <div class="oai-ribbon-i up" onclick="oaiWavePickSymbol('LBRH')"><b>LBRH</b><span class="p">$3.17</span><span class="c pos">+33.50%</span></div>
+          <div class="oai-ribbon-i up" onclick="oaiWavePickSymbol('CABA')"><b>CABA</b><span class="p">$4.01</span><span class="c pos">+28.90%</span></div>
+        </div>
+      </div>
+
+      <!-- CENTER — Ollie Wave chart (MKFG demo) -->
+      <div class="oai-sec oai-ws-chart-card">
+        <div class="oai-sec-h" id="oai-ws-chart-title">MKFG · OLLIE WAVE · 15m · ADAPTIVE EMA BANDS</div>
+        <div class="oai-ws-price-row">
+          <div class="oai-ws-price" id="oai-ws-price">$2.09</div>
+          <div class="oai-ws-change up" id="oai-ws-change">+0.14 (+7.72%)</div>
+          <div class="oai-ws-relvol" id="oai-ws-relvol">Rel Vol 8.96</div>
+        </div>
+        <svg id="oai-ws-svg" viewBox="0 0 720 320" preserveAspectRatio="none" style="width:100%;height:280px;background:#0d1117;border-radius:4px;">
+          <text x="360" y="170" fill="#1f2937" font-size="56" font-weight="800" text-anchor="middle" opacity="0.4">MKFG · WAVE</text>
+          <!-- 3 regime-color band segments (red/green/red opacity 0.18) -->
+          <path d="M 40,180 L 53,186 L 66,190 L 79,191 L 92,190 L 105,188 L 118,187 L 131,188 L 145,192 L 158,197 L 171,203 L 184,207 L 197,208 L 210,207 L 223,205 L 223,249 L 210,251 L 197,252 L 184,251 L 171,247 L 158,241 L 145,236 L 131,232 L 118,231 L 105,232 L 92,234 L 79,235 L 66,234 L 53,230 L 40,224 Z" fill="#ef4444" opacity="0.18"/>
+          <path d="M 236,200 L 249,197 L 262,196 L 275,197 L 288,198 L 301,197 L 314,194 L 327,188 L 340,182 L 354,176 L 367,172 L 380,171 L 393,173 L 406,174 L 419,173 L 432,170 L 445,164 L 458,157 L 471,151 L 484,148 L 497,147 L 510,148 L 523,150 L 523,194 L 510,192 L 497,191 L 484,192 L 471,195 L 458,201 L 445,208 L 432,214 L 419,217 L 406,218 L 393,217 L 380,215 L 367,216 L 354,220 L 340,226 L 327,232 L 314,238 L 301,241 L 288,242 L 275,241 L 262,240 L 249,241 L 236,244 Z" fill="#22c55e" opacity="0.18"/>
+          <path d="M 536,153 L 549,155 L 562,153 L 576,151 L 589,150 L 602,151 L 615,156 L 628,162 L 641,168 L 654,172 L 667,172 L 680,171 L 680,215 L 667,216 L 654,216 L 641,212 L 628,206 L 615,200 L 602,195 L 589,194 L 576,195 L 562,197 L 549,199 L 536,197 Z" fill="#ef4444" opacity="0.18"/>
+          <!-- Upper EMA envelope (gold stroked) -->
+          <path d="M 40,180 L 53,186 L 66,190 L 79,191 L 92,190 L 105,188 L 118,187 L 131,188 L 145,192 L 158,197 L 171,203 L 184,207 L 197,208 L 210,207 L 223,205 L 236,200 L 249,197 L 262,196 L 275,197 L 288,198 L 301,197 L 314,194 L 327,188 L 340,182 L 354,176 L 367,172 L 380,171 L 393,173 L 406,174 L 419,173 L 432,170 L 445,164 L 458,157 L 471,151 L 484,148 L 497,147 L 510,148 L 523,150 L 536,153 L 549,155 L 562,153 L 576,151 L 589,150 L 602,151 L 615,156 L 628,162 L 641,168 L 654,172 L 667,172 L 680,171" fill="none" stroke="#fbbf24" stroke-width="1" opacity="0.6"/>
+          <!-- Lower EMA envelope (gold stroked) -->
+          <path d="M 40,224 L 53,230 L 66,234 L 79,235 L 92,234 L 105,232 L 118,231 L 131,232 L 145,236 L 158,241 L 171,247 L 184,251 L 197,252 L 210,251 L 223,249 L 236,244 L 249,241 L 262,240 L 275,241 L 288,242 L 301,241 L 314,238 L 327,232 L 340,226 L 354,220 L 367,216 L 380,215 L 393,217 L 406,218 L 419,217 L 432,214 L 445,208 L 458,201 L 471,195 L 484,192 L 497,191 L 510,192 L 523,194 L 536,197 L 549,199 L 562,197 L 576,195 L 589,194 L 602,195 L 615,200 L 628,206 L 641,212 L 654,216 L 667,216 L 680,215" fill="none" stroke="#fbbf24" stroke-width="1" opacity="0.6"/>
+          <!-- Candles (~50 bars; 6b regenerates from /api/charts/ohlcv?interval=15m) -->
+          <g id="oai-ws-candles">
+            <line x1="40" y1="192" x2="40" y2="212" stroke="#ef4444" stroke-width="1"/><rect x="36" y="196" width="8" height="12" fill="#ef4444"/>
+            <line x1="53" y1="198" x2="53" y2="218" stroke="#22c55e" stroke-width="1"/><rect x="49" y="202" width="8" height="12" fill="#22c55e"/>
+            <line x1="66" y1="202" x2="66" y2="222" stroke="#22c55e" stroke-width="1"/><rect x="62" y="206" width="8" height="12" fill="#22c55e"/>
+            <line x1="79" y1="203" x2="79" y2="223" stroke="#ef4444" stroke-width="1"/><rect x="75" y="207" width="8" height="12" fill="#ef4444"/>
+            <line x1="92" y1="202" x2="92" y2="222" stroke="#22c55e" stroke-width="1"/><rect x="88" y="206" width="8" height="12" fill="#22c55e"/>
+            <line x1="105" y1="200" x2="105" y2="220" stroke="#22c55e" stroke-width="1"/><rect x="101" y="204" width="8" height="12" fill="#22c55e"/>
+            <line x1="118" y1="199" x2="118" y2="219" stroke="#22c55e" stroke-width="1"/><rect x="114" y="203" width="8" height="12" fill="#22c55e"/>
+            <line x1="131" y1="200" x2="131" y2="220" stroke="#22c55e" stroke-width="1"/><rect x="127" y="204" width="8" height="12" fill="#22c55e"/>
+            <line x1="145" y1="204" x2="145" y2="224" stroke="#22c55e" stroke-width="1"/><rect x="141" y="208" width="8" height="12" fill="#22c55e"/>
+            <line x1="158" y1="209" x2="158" y2="229" stroke="#ef4444" stroke-width="1"/><rect x="154" y="213" width="8" height="12" fill="#ef4444"/>
+            <line x1="171" y1="215" x2="171" y2="235" stroke="#22c55e" stroke-width="1"/><rect x="167" y="219" width="8" height="12" fill="#22c55e"/>
+            <line x1="184" y1="219" x2="184" y2="239" stroke="#ef4444" stroke-width="1"/><rect x="180" y="223" width="8" height="12" fill="#ef4444"/>
+            <line x1="197" y1="220" x2="197" y2="240" stroke="#ef4444" stroke-width="1"/><rect x="193" y="224" width="8" height="12" fill="#ef4444"/>
+            <line x1="210" y1="219" x2="210" y2="239" stroke="#ef4444" stroke-width="1"/><rect x="206" y="223" width="8" height="12" fill="#ef4444"/>
+            <line x1="223" y1="217" x2="223" y2="237" stroke="#22c55e" stroke-width="1"/><rect x="219" y="221" width="8" height="12" fill="#22c55e"/>
+            <line x1="236" y1="212" x2="236" y2="232" stroke="#22c55e" stroke-width="1"/><rect x="232" y="216" width="8" height="12" fill="#22c55e"/>
+            <line x1="249" y1="209" x2="249" y2="229" stroke="#22c55e" stroke-width="1"/><rect x="245" y="213" width="8" height="12" fill="#22c55e"/>
+            <line x1="262" y1="208" x2="262" y2="228" stroke="#22c55e" stroke-width="1"/><rect x="258" y="212" width="8" height="12" fill="#22c55e"/>
+            <line x1="275" y1="209" x2="275" y2="229" stroke="#ef4444" stroke-width="1"/><rect x="271" y="213" width="8" height="12" fill="#ef4444"/>
+            <line x1="288" y1="210" x2="288" y2="230" stroke="#ef4444" stroke-width="1"/><rect x="284" y="214" width="8" height="12" fill="#ef4444"/>
+            <line x1="301" y1="209" x2="301" y2="229" stroke="#22c55e" stroke-width="1"/><rect x="297" y="213" width="8" height="12" fill="#22c55e"/>
+            <line x1="314" y1="206" x2="314" y2="226" stroke="#ef4444" stroke-width="1"/><rect x="310" y="210" width="8" height="12" fill="#ef4444"/>
+            <line x1="327" y1="200" x2="327" y2="220" stroke="#22c55e" stroke-width="1"/><rect x="323" y="204" width="8" height="12" fill="#22c55e"/>
+            <line x1="340" y1="194" x2="340" y2="214" stroke="#22c55e" stroke-width="1"/><rect x="336" y="198" width="8" height="12" fill="#22c55e"/>
+            <line x1="354" y1="188" x2="354" y2="208" stroke="#22c55e" stroke-width="1"/><rect x="350" y="192" width="8" height="12" fill="#22c55e"/>
+            <line x1="367" y1="184" x2="367" y2="204" stroke="#ef4444" stroke-width="1"/><rect x="363" y="188" width="8" height="12" fill="#ef4444"/>
+            <line x1="380" y1="183" x2="380" y2="203" stroke="#22c55e" stroke-width="1"/><rect x="376" y="187" width="8" height="12" fill="#22c55e"/>
+            <line x1="393" y1="185" x2="393" y2="205" stroke="#22c55e" stroke-width="1"/><rect x="389" y="189" width="8" height="12" fill="#22c55e"/>
+            <line x1="406" y1="186" x2="406" y2="206" stroke="#ef4444" stroke-width="1"/><rect x="402" y="190" width="8" height="12" fill="#ef4444"/>
+            <line x1="419" y1="185" x2="419" y2="205" stroke="#22c55e" stroke-width="1"/><rect x="415" y="189" width="8" height="12" fill="#22c55e"/>
+            <line x1="432" y1="182" x2="432" y2="202" stroke="#22c55e" stroke-width="1"/><rect x="428" y="186" width="8" height="12" fill="#22c55e"/>
+            <line x1="445" y1="176" x2="445" y2="196" stroke="#ef4444" stroke-width="1"/><rect x="441" y="180" width="8" height="12" fill="#ef4444"/>
+            <line x1="458" y1="169" x2="458" y2="189" stroke="#ef4444" stroke-width="1"/><rect x="454" y="173" width="8" height="12" fill="#ef4444"/>
+            <line x1="471" y1="163" x2="471" y2="183" stroke="#22c55e" stroke-width="1"/><rect x="467" y="167" width="8" height="12" fill="#22c55e"/>
+            <line x1="484" y1="160" x2="484" y2="180" stroke="#22c55e" stroke-width="1"/><rect x="480" y="164" width="8" height="12" fill="#22c55e"/>
+            <line x1="497" y1="159" x2="497" y2="179" stroke="#22c55e" stroke-width="1"/><rect x="493" y="163" width="8" height="12" fill="#22c55e"/>
+            <line x1="510" y1="160" x2="510" y2="180" stroke="#ef4444" stroke-width="1"/><rect x="506" y="164" width="8" height="12" fill="#ef4444"/>
+            <line x1="523" y1="162" x2="523" y2="182" stroke="#22c55e" stroke-width="1"/><rect x="519" y="166" width="8" height="12" fill="#22c55e"/>
+            <line x1="536" y1="165" x2="536" y2="185" stroke="#22c55e" stroke-width="1"/><rect x="532" y="169" width="8" height="12" fill="#22c55e"/>
+            <line x1="549" y1="167" x2="549" y2="187" stroke="#ef4444" stroke-width="1"/><rect x="545" y="171" width="8" height="12" fill="#ef4444"/>
+            <line x1="562" y1="165" x2="562" y2="185" stroke="#ef4444" stroke-width="1"/><rect x="558" y="169" width="8" height="12" fill="#ef4444"/>
+            <line x1="575" y1="163" x2="575" y2="183" stroke="#22c55e" stroke-width="1"/><rect x="571" y="167" width="8" height="12" fill="#22c55e"/>
+            <line x1="589" y1="162" x2="589" y2="182" stroke="#ef4444" stroke-width="1"/><rect x="585" y="166" width="8" height="12" fill="#ef4444"/>
+            <line x1="602" y1="163" x2="602" y2="183" stroke="#22c55e" stroke-width="1"/><rect x="598" y="167" width="8" height="12" fill="#22c55e"/>
+            <line x1="615" y1="168" x2="615" y2="188" stroke="#ef4444" stroke-width="1"/><rect x="611" y="172" width="8" height="12" fill="#ef4444"/>
+            <line x1="628" y1="174" x2="628" y2="194" stroke="#ef4444" stroke-width="1"/><rect x="624" y="178" width="8" height="12" fill="#ef4444"/>
+            <line x1="641" y1="180" x2="641" y2="200" stroke="#ef4444" stroke-width="1"/><rect x="637" y="184" width="8" height="12" fill="#ef4444"/>
+            <line x1="654" y1="184" x2="654" y2="204" stroke="#ef4444" stroke-width="1"/><rect x="650" y="188" width="8" height="12" fill="#ef4444"/>
+            <line x1="667" y1="184" x2="667" y2="204" stroke="#ef4444" stroke-width="1"/><rect x="663" y="188" width="8" height="12" fill="#ef4444"/>
+            <line x1="680" y1="183" x2="680" y2="203" stroke="#22c55e" stroke-width="1"/><rect x="676" y="187" width="8" height="12" fill="#22c55e"/>
+          </g>
+          <!-- B / S crossover markers -->
+          <circle cx="236" cy="252" r="9" fill="#16a34a"/><text x="236" y="256" fill="#fff" font-size="11" font-weight="800" text-anchor="middle">B</text>
+          <circle cx="536" cy="145" r="9" fill="#dc2626"/><text x="536" y="149" fill="#fff" font-size="11" font-weight="800" text-anchor="middle">S</text>
+        </svg>
+        <div class="oai-ws-legend">
+          <div class="oai-ws-legend-chip ws-buy">B = BUY CROSSOVER</div>
+          <div class="oai-ws-legend-chip ws-sell">S = SELL CROSSOVER</div>
+          <div class="oai-ws-legend-chip ws-band">BAND = AI-TUNED EMA ENVELOPE</div>
+        </div>
+      </div>
+
+      <!-- RIGHT — Biggest Losers ribbon (8 rows) -->
+      <div class="oai-sec oai-ws-ribbon-card">
+        <div class="oai-sec-h">▼ BIGGEST LOSERS</div>
+        <div class="oai-ribbon" id="oai-ws-losers">
+          <div class="oai-ribbon-i dn" onclick="oaiWavePickSymbol('SCHL')"><b>SCHL</b><span class="p">$4.95</span><span class="c neg">-44.30%</span></div>
+          <div class="oai-ribbon-i dn" onclick="oaiWavePickSymbol('GLXG')"><b>GLXG</b><span class="p">$1.86</span><span class="c neg">-38.10%</span></div>
+          <div class="oai-ribbon-i dn" onclick="oaiWavePickSymbol('SNES')"><b>SNES</b><span class="p">$10.78</span><span class="c neg">-31.80%</span></div>
+          <div class="oai-ribbon-i dn" onclick="oaiWavePickSymbol('VVOS')"><b>VVOS</b><span class="p">$1.19</span><span class="c neg">-27.40%</span></div>
+          <div class="oai-ribbon-i dn" onclick="oaiWavePickSymbol('NWFL')"><b>NWFL</b><span class="p">$10.53</span><span class="c neg">-21.60%</span></div>
+          <div class="oai-ribbon-i dn" onclick="oaiWavePickSymbol('BHLB')"><b>BHLB</b><span class="p">$1.59</span><span class="c neg">-18.20%</span></div>
+          <div class="oai-ribbon-i dn" onclick="oaiWavePickSymbol('PIK')"><b>PIK</b><span class="p">$2.67</span><span class="c neg">-15.70%</span></div>
+          <div class="oai-ribbon-i dn" onclick="oaiWavePickSymbol('SBSI')"><b>SBSI</b><span class="p">$4.36</span><span class="c neg">-12.40%</span></div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- BOTTOM — Momentum treemap (4x4 with top mover spanning 2x2) -->
+    <div class="oai-sec" style="margin-top:10px;">
+      <div class="oai-sec-h">MOMENTUM TREEMAP · TOP GAINERS · SIZED BY % MOVE</div>
+      <div class="oai-ws-treemap" id="oai-ws-treemap">
+        <div class="oai-ws-tm" style="background:#16a34a;grid-area:1 / 1 / span 2 / span 2;color:#fff;" onclick="oaiWavePickSymbol('YOUL')"><b>YOUL</b><span>22.45%</span></div>
+        <div class="oai-ws-tm" style="background:#22c55e;grid-area:1 / 3;color:#fff;" onclick="oaiWavePickSymbol('YSXT')"><b>YSXT</b><span>19.48%</span></div>
+        <div class="oai-ws-tm" style="background:#22c55e;grid-area:1 / 4;color:#fff;" onclick="oaiWavePickSymbol('HSCS')"><b>HSCS</b><span>14.97%</span></div>
+        <div class="oai-ws-tm" style="background:#86efac;grid-area:2 / 3;color:#fff;" onclick="oaiWavePickSymbol('SQNS')"><b>SQNS</b><span>8.30%</span></div>
+        <div class="oai-ws-tm" style="background:#86efac;grid-area:2 / 4;color:#fff;" onclick="oaiWavePickSymbol('LIXT')"><b>LIXT</b><span>6.17%</span></div>
+        <div class="oai-ws-tm" style="background:#bbf7d0;grid-area:3 / 1;color:#000;" onclick="oaiWavePickSymbol('PTHS')"><b>PTHS</b><span>5.47%</span></div>
+        <div class="oai-ws-tm" style="background:#bbf7d0;grid-area:3 / 2;color:#000;" onclick="oaiWavePickSymbol('ASST')"><b>ASST</b><span>5.40%</span></div>
+        <div class="oai-ws-tm" style="background:#bbf7d0;grid-area:3 / 3;color:#000;" onclick="oaiWavePickSymbol('MAMK')"><b>MAMK</b><span>5.03%</span></div>
+        <div class="oai-ws-tm" style="background:#bbf7d0;grid-area:3 / 4;color:#000;" onclick="oaiWavePickSymbol('BSGM')"><b>BSGM</b><span>4.99%</span></div>
+        <div class="oai-ws-tm" style="background:#dcfce7;grid-area:4 / 1;color:#000;" onclick="oaiWavePickSymbol('KZIA')"><b>KZIA</b><span>4.55%</span></div>
+        <div class="oai-ws-tm" style="background:#dcfce7;grid-area:4 / 2;color:#000;" onclick="oaiWavePickSymbol('BTCS')"><b>BTCS</b><span>4.40%</span></div>
+        <div class="oai-ws-tm" style="background:#dcfce7;grid-area:4 / 3;color:#000;" onclick="oaiWavePickSymbol('IRBT')"><b>IRBT</b><span>4.28%</span></div>
+        <div class="oai-ws-tm" style="background:#dcfce7;grid-area:4 / 4;color:#000;" onclick="oaiWavePickSymbol('SYTA')"><b>SYTA</b><span>4.26%</span></div>
+      </div>
+    </div>
+
+    <div class="oai-sr-note">
+      Static spec demo per v4.3 L561-619 · live wire ships in Step 6b (Option B
+      fast/slow EMA pair with regime-color fill · ribbons from
+      <code>/api/movers</code> · candles from <code>/api/charts/ohlcv?interval=15m</code>
+      · treemap from sorted movers · auto-pick top gainer on first view · ribbon
+      click updates center chart only).
+    </div>
   </div>
   <div class="oai-view" id="oai-view-ollie-machine" style="display:none;">
     <div class="oai-placeholder"><h3>🤖 Ollie Machine</h3><p>2nd-gen automated momentum · top-3 picks · Sim/Live toggle · auto-entry optimization. Ships in Step 7.</p></div>
@@ -10685,6 +10840,61 @@ document.addEventListener('keydown', function(e) {
 [data-theme="light"] #section-ollie-ai .oai-bl-opt-row { background:#f0f2f5 !important; }
 [data-theme="light"] #section-ollie-ai .oai-bl-opt-badge.add { background:#dcfce7 !important; }
 [data-theme="light"] #section-ollie-ai .oai-bl-opt-badge.kill { background:#fee2e2 !important; }
+
+/* ───── Step 6a — Wave Scope sub-view ───── */
+#section-ollie-ai .oai-ws-controls { display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+#section-ollie-ai .oai-ws-meta { font-size:11px; color:var(--text-dim); margin-left:auto; font-family:var(--font-mono); }
+
+/* 3-col grid: 1fr 2fr 1fr (left ribbon / chart / right ribbon) */
+#section-ollie-ai .oai-ws-grid { display:grid; grid-template-columns:1fr 2fr 1fr; gap:10px; }
+@media (max-width:1400px) { #section-ollie-ai .oai-ws-grid { grid-template-columns:1fr; } }
+#section-ollie-ai .oai-ws-ribbon-card { padding:10px; }
+#section-ollie-ai .oai-ws-chart-card { padding:10px; }
+
+/* Vertical ribbon list (stacked rows; reuses .oai-ribbon-i shape from
+   Workspace but vertical instead of horizontal) */
+#section-ollie-ai .oai-ws-ribbon-card .oai-ribbon { display:flex; flex-direction:column; gap:3px; margin-top:6px; }
+#section-ollie-ai .oai-ws-ribbon-card .oai-ribbon-i { display:grid; grid-template-columns:1fr 70px 70px; align-items:center; gap:6px; padding:5px 8px; font-size:11px; background:var(--panel-2); border-radius:3px; cursor:pointer; transition:filter .12s, border-color .12s; border-left:3px solid var(--border); }
+#section-ollie-ai .oai-ws-ribbon-card .oai-ribbon-i.up { border-left-color:#22c55e; }
+#section-ollie-ai .oai-ws-ribbon-card .oai-ribbon-i.dn { border-left-color:#ef4444; }
+#section-ollie-ai .oai-ws-ribbon-card .oai-ribbon-i:hover { filter:brightness(1.15); }
+#section-ollie-ai .oai-ws-ribbon-card .oai-ribbon-i b { color:#e5e7eb; font-weight:700; font-size:12px; }
+#section-ollie-ai .oai-ws-ribbon-card .oai-ribbon-i .p { color:var(--text-dim); font-size:10px; text-align:right; font-family:var(--font-mono); }
+#section-ollie-ai .oai-ws-ribbon-card .oai-ribbon-i .c { font-weight:700; font-size:11px; text-align:right; font-family:var(--font-mono); }
+#section-ollie-ai .oai-ws-ribbon-card .oai-ribbon-i .c.pos { color:#22c55e; }
+#section-ollie-ai .oai-ws-ribbon-card .oai-ribbon-i .c.neg { color:#ef4444; }
+
+/* Chart header price row */
+#section-ollie-ai .oai-ws-price-row { display:flex; align-items:baseline; gap:10px; margin:6px 0 8px; }
+#section-ollie-ai .oai-ws-price { font-size:22px; font-weight:800; color:#e5e7eb; font-family:var(--font-mono); letter-spacing:-.3px; line-height:1; }
+#section-ollie-ai .oai-ws-change { font-size:11px; font-weight:700; font-family:var(--font-mono); }
+#section-ollie-ai .oai-ws-change.up { color:#22c55e; }
+#section-ollie-ai .oai-ws-change.dn { color:#ef4444; }
+#section-ollie-ai .oai-ws-relvol { margin-left:auto; background:#1c1408; border:1px solid #fbbf24; padding:3px 10px; border-radius:3px; font-size:11px; color:#fbbf24; font-weight:700; font-family:var(--font-mono); }
+
+/* Chart legend chips */
+#section-ollie-ai .oai-ws-legend { display:flex; gap:6px; margin-top:8px; flex-wrap:wrap; }
+#section-ollie-ai .oai-ws-legend-chip { padding:3px 10px; border-radius:3px; font-size:10px; font-weight:700; letter-spacing:.4px; border:1px solid; }
+#section-ollie-ai .oai-ws-legend-chip.ws-buy  { background:#0a2e1a; border-color:#22c55e; color:#22c55e; }
+#section-ollie-ai .oai-ws-legend-chip.ws-sell { background:#2e1010; border-color:#ef4444; color:#ef4444; }
+#section-ollie-ai .oai-ws-legend-chip.ws-band { background:#1c1408; border-color:#fbbf24; color:#fbbf24; }
+
+/* Momentum treemap — fixed 4x4 grid, cells sized via inline grid-area */
+#section-ollie-ai .oai-ws-treemap { display:grid; grid-template-columns:repeat(4,1fr); grid-template-rows:repeat(4,1fr); gap:3px; background:#0d1117; border:1px solid var(--border); border-radius:4px; padding:4px; min-height:320px; }
+#section-ollie-ai .oai-ws-tm { display:flex; flex-direction:column; justify-content:center; align-items:center; padding:6px; border-radius:3px; text-align:center; cursor:pointer; transition:filter .12s, transform .08s; }
+#section-ollie-ai .oai-ws-tm:hover { filter:brightness(1.12); transform:translateY(-1px); }
+#section-ollie-ai .oai-ws-tm b { font-size:14px; font-weight:800; letter-spacing:.3px; }
+#section-ollie-ai .oai-ws-tm span { font-size:11px; font-family:var(--font-mono); margin-top:3px; }
+
+/* Light-mode tweaks */
+[data-theme="light"] #section-ollie-ai .oai-ws-ribbon-card .oai-ribbon-i { background:#f0f2f5 !important; }
+[data-theme="light"] #section-ollie-ai .oai-ws-ribbon-card .oai-ribbon-i b { color:#1a1f2e !important; }
+[data-theme="light"] #section-ollie-ai .oai-ws-price { color:#1a1f2e !important; }
+[data-theme="light"] #section-ollie-ai .oai-ws-relvol { background:#fef3c7 !important; border-color:#d97706 !important; color:#b45309 !important; }
+[data-theme="light"] #section-ollie-ai .oai-ws-treemap { background:#f0f2f5 !important; border-color:#d1d5db !important; }
+[data-theme="light"] #section-ollie-ai .oai-ws-legend-chip.ws-buy  { background:#dcfce7 !important; color:#15803d !important; }
+[data-theme="light"] #section-ollie-ai .oai-ws-legend-chip.ws-sell { background:#fee2e2 !important; color:#b91c1c !important; }
+[data-theme="light"] #section-ollie-ai .oai-ws-legend-chip.ws-band { background:#fef3c7 !important; border-color:#d97706 !important; color:#b45309 !important; }
 </style>
 
 <script>
@@ -12229,6 +12439,39 @@ document.addEventListener('keydown', function(e) {
         }
       });
     }).observe(bl, { attributes:true, attributeFilter:['style'] });
+  });
+
+  /* ───── Step 6a — Wave Scope stubs.
+     Symbol input + ribbon-click + treemap-click all route through
+     oaiWavePickSymbol. Step 6a logs to console + updates the chart
+     title only (kept on static MKFG demo SVG); Step 6b replaces with
+     a full fetch + EMA-pair compute + crossover-marker placement +
+     candle re-render. */
+  window.oaiWavePickSymbol = function(sym) {
+    // Called either from a ribbon/treemap click (with sym arg) or the
+    // input Go button (sym=undefined → read from #oai-ws-sym-input).
+    if (sym == null) {
+      var inp = document.getElementById('oai-ws-sym-input');
+      if (!inp) return;
+      sym = (inp.value || '').trim().toUpperCase().replace(/[^A-Z]/g, '').slice(0, 5);
+      if (!sym) { inp.focus(); return; }
+      inp.value = sym;
+    }
+    sym = String(sym).toUpperCase();
+    // 6a behavior: only update the chart title — SVG stays on MKFG demo.
+    var t = document.getElementById('oai-ws-chart-title');
+    if (t) t.textContent = sym + ' · OLLIE WAVE · 15m · ADAPTIVE EMA BANDS';
+    try { console.log('[OAI-WAVE] pickSymbol:', sym, '(Step 6b wires live candles + EMA bands)'); } catch(e) {}
+  };
+
+  // Enter key in the Wave Scope symbol input
+  document.addEventListener('DOMContentLoaded', function() {
+    var inp = document.getElementById('oai-ws-sym-input');
+    if (inp) {
+      inp.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); window.oaiWavePickSymbol(); }
+      });
+    }
   });
 
   /* Admiral symbol input — types any ticker, Enter or Go button fires
