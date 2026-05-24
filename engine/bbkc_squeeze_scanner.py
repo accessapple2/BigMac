@@ -55,6 +55,13 @@ _DEDUPE_HOURS: int = 24
 _CACHE_TTL: int = 300          # 5 min in-memory cache on run_scan() result
 _NTFY_PER_RUN_CAP: int = 5     # belt-and-suspenders cap to prevent notification
                                # storm on first scan against a virgin DB
+                               # (HM-SQUEEZE-RELEASE-DETECT: shared between
+                               # entry-NTFYs and release-NTFYs in one run)
+
+# HM-SQUEEZE-RELEASE-DETECT
+_RELEASE_VOL_GATE: float = 2.0          # min vol_ratio for release-NTFY
+_RELEASE_LOOKBACK_DAYS: int = 30        # how far back to scan unreleased rows
+_RELEASE_VOL_MEAN_WINDOW: int = 20      # bars used for vol-baseline mean
 
 # Tier mapping by consecutive in-squeeze days
 _TIER_WATCH_MIN: int = 5
@@ -186,6 +193,71 @@ def _detect_squeeze_run(df: pd.DataFrame) -> tuple[bool, int, float, float, floa
     return (True, run, bb_width_pct, kc_width_pct, last_close)
 
 
+def _detect_release(
+    df: pd.DataFrame,
+) -> tuple[bool, str | None, float, float, float]:
+    """Inspect the most-recent bar for a fresh BB-out-of-KC release.
+
+    A release fires when bar[-2] was BB-inside-KC AND bar[-1] is NOT.
+    Direction:
+      - bb_upper > kc_upper → 'up'
+      - bb_lower < kc_lower → 'down'
+      - both true (rare)    → larger excess wins
+
+    Returns ``(released, direction, volume_ratio, last_close, excess)``.
+    ``volume_ratio`` is volume[-1] / mean(volume[-21:-1]). The caller
+    decides whether to NTFY based on ``_RELEASE_VOL_GATE``.
+    """
+    if len(df) < _MIN_BARS_REQUIRED + 1:
+        return (False, None, 0.0, 0.0, 0.0)
+
+    bands = _compute_bands(df)
+    in_sq = (bands["bb_upper"] < bands["kc_upper"]) & (
+        bands["bb_lower"] > bands["kc_lower"]
+    )
+    in_sq = in_sq.fillna(False).to_numpy()
+    if len(in_sq) < 2:
+        return (False, None, 0.0, 0.0, 0.0)
+    # bar[-2] must have been in squeeze, bar[-1] must NOT be
+    if not (bool(in_sq[-2]) and not bool(in_sq[-1])):
+        return (False, None, 0.0, 0.0, 0.0)
+
+    # BB and KC are both symmetric around SMA(20), so bb_upper-kc_upper and
+    # kc_lower-bb_lower are equal in magnitude — the band geometry alone
+    # cannot distinguish direction. The actual directional signal is the
+    # close: a release fires UP when close pierces the prior bar's BB upper
+    # (or simply moves up), DOWN when it pierces the lower. Use close
+    # position vs prior bar's BB edges, falling back to close direction.
+    last = bands.iloc[-1]
+    prev = bands.iloc[-2]
+    close_now = float(df["Close"].iloc[-1])
+    close_prev = float(df["Close"].iloc[-2])
+    prev_bb_upper = float(prev["bb_upper"]) if pd.notna(prev["bb_upper"]) else close_prev
+    prev_bb_lower = float(prev["bb_lower"]) if pd.notna(prev["bb_lower"]) else close_prev
+
+    excess = abs(float(last["bb_upper"]) - float(last["kc_upper"]))
+    if close_now > prev_bb_upper:
+        direction = "up"
+    elif close_now < prev_bb_lower:
+        direction = "down"
+    elif close_now > close_prev:
+        direction = "up"
+    elif close_now < close_prev:
+        direction = "down"
+    else:
+        return (False, None, 0.0, 0.0, 0.0)
+
+    # Volume confirmation: today vs prior 20-day mean (today excluded)
+    volumes = df["Volume"].to_numpy(dtype=float)
+    today_vol = float(volumes[-1])
+    prior = volumes[-(_RELEASE_VOL_MEAN_WINDOW + 1) : -1]
+    prior_mean = float(np.mean(prior)) if len(prior) and np.mean(prior) > 0 else 0.0
+    vol_ratio = (today_vol / prior_mean) if prior_mean > 0 else 0.0
+
+    last_close = float(df["Close"].iloc[-1])
+    return (True, direction, vol_ratio, last_close, excess)
+
+
 # ─── Tier mapping ─────────────────────────────────────────────────────────
 
 
@@ -245,9 +317,9 @@ def _is_quiet_hours_et() -> bool:
 
 
 def _ensure_schema(conn: sqlite3.Connection) -> None:
-    """Idempotent: add kind + bbkc_duration_days if missing. Mirrors the
-    HM-DASH.4 pattern in engine/squeeze_scanner.py — fresh DBs / migration
-    drift are handled without crashing the scan."""
+    """Idempotent: add kind/bbkc_duration_days/release_* columns if missing.
+    Mirrors the HM-DASH.4 pattern in engine/squeeze_scanner.py — fresh DBs /
+    migration drift are handled without crashing the scan."""
     try:
         cols = {row[1] for row in conn.execute("PRAGMA table_info(squeeze_watch)")}
         if "kind" not in cols:
@@ -263,9 +335,23 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "ALTER TABLE squeeze_watch ADD COLUMN bbkc_duration_days INTEGER"
             )
+        # HM-SQUEEZE-RELEASE-DETECT 2026-05-24
+        if "released_at" not in cols:
+            conn.execute("ALTER TABLE squeeze_watch ADD COLUMN released_at TEXT")
+        if "release_direction" not in cols:
+            conn.execute("ALTER TABLE squeeze_watch ADD COLUMN release_direction TEXT")
+        if "release_volume_ratio" not in cols:
+            conn.execute("ALTER TABLE squeeze_watch ADD COLUMN release_volume_ratio REAL")
+        if "release_close" not in cols:
+            conn.execute("ALTER TABLE squeeze_watch ADD COLUMN release_close REAL")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_squeeze_watch_kind_ts "
             "ON squeeze_watch(kind, scan_ts DESC) WHERE dismissed = 0"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_squeeze_watch_release "
+            "ON squeeze_watch(kind, released_at DESC) "
+            "WHERE released_at IS NOT NULL"
         )
         conn.commit()
     except Exception as e:
@@ -434,6 +520,150 @@ def _fire_ntfy(symbol: str, duration: int) -> bool:
         return False
 
 
+def _fire_release_ntfy(
+    symbol: str, direction: str, duration: int, vol_ratio: float
+) -> bool:
+    """NTFY a BB/KC release. Per-symbol 24h rate-limit via alert_type +
+    in-process dedupe (a single squeeze row can only release once). Returns
+    True if the send_alert call ran, False on dedupe-skip."""
+    key = f"bbkc_release::{symbol}"
+    if key in _ntfy_fired_classes:
+        return False
+    _ntfy_fired_classes.add(key)
+    try:
+        from engine.alert_channels import send_alert
+
+        arrow = "↑" if direction == "up" else "↓"
+        send_alert(
+            level="warning",
+            alert_type=f"bbkc_squeeze_release_{symbol}",
+            message=(
+                f"🚀 BB/KC Squeeze RELEASE — {symbol} {arrow} "
+                f"({duration}d coil broken). Volume {vol_ratio:.1f}× the "
+                f"20d mean."
+            ),
+            title=f"🚀 BB/KC Squeeze RELEASE — {symbol} {arrow}",
+            audience="admin",
+            rate_limit_secs=86400,
+        )
+        return True
+    except Exception as e:
+        console.log(
+            f"[yellow]bbkc_squeeze: release NTFY {symbol} failed: "
+            f"{type(e).__name__}: {e!r}"
+        )
+        return False
+
+
+def _scan_for_releases(
+    bars_by_sym: dict,
+    db_path: str | None = None,
+    remaining_ntfy_budget: int = 0,
+) -> dict:
+    """Second pass: for every unreleased ALERT/PRIORITY bbkc row scanned in
+    the last _RELEASE_LOOKBACK_DAYS days, run _detect_release() against
+    today's bar. UPDATE the row with release_* columns when a release fires.
+    NTFY only when ``vol_ratio >= _RELEASE_VOL_GATE`` AND budget remaining.
+
+    Returns ``{detected, ntfy_fired, deferred, skipped}``.
+    """
+    db_path = db_path or _DB_PATH
+    summary = {"detected": 0, "ntfy_fired": 0, "deferred": 0, "skipped": 0}
+    quiet = _is_quiet_hours_et()
+    now_utc = datetime.now(timezone.utc)
+    lookback_cutoff = (
+        now_utc - timedelta(days=_RELEASE_LOOKBACK_DAYS)
+    ).isoformat()
+    released_at = now_utc.isoformat()
+
+    try:
+        conn = _conn(db_path)
+    except Exception as e:
+        console.log(
+            f"[yellow]bbkc_squeeze: release-scan conn failed: "
+            f"{type(e).__name__}: {e!r}"
+        )
+        return summary
+
+    fired_this_run = 0
+    try:
+        _ensure_schema(conn)
+        rows = conn.execute(
+            """SELECT id, symbol, threshold_tier, bbkc_duration_days
+                 FROM squeeze_watch
+                WHERE kind = 'bbkc'
+                  AND dismissed = 0
+                  AND released_at IS NULL
+                  AND threshold_tier IN ('ALERT', 'PRIORITY')
+                  AND scan_ts >= ?
+                ORDER BY scan_ts DESC""",
+            (lookback_cutoff,),
+        ).fetchall()
+
+        for row in rows:
+            symbol = row["symbol"]
+            df = bars_by_sym.get(symbol)
+            if df is None or df.empty:
+                continue
+            try:
+                released, direction, vol_ratio, last_close, _excess = (
+                    _detect_release(df)
+                )
+            except Exception as e:
+                console.log(
+                    f"[yellow]bbkc_squeeze: release-detect {symbol}: "
+                    f"{type(e).__name__}: {e!r}"
+                )
+                continue
+            if not released:
+                continue
+
+            summary["detected"] += 1
+            try:
+                conn.execute(
+                    "UPDATE squeeze_watch "
+                    "SET released_at = ?, release_direction = ?, "
+                    "    release_volume_ratio = ?, release_close = ? "
+                    "WHERE id = ?",
+                    (
+                        released_at,
+                        direction,
+                        float(vol_ratio),
+                        float(last_close),
+                        row["id"],
+                    ),
+                )
+            except Exception as e:
+                console.log(
+                    f"[yellow]bbkc_squeeze: release UPDATE {symbol} failed: "
+                    f"{type(e).__name__}: {e!r}"
+                )
+                continue
+
+            # NTFY gate: volume + budget + not quiet-hours-deferred.
+            duration = int(row["bbkc_duration_days"] or 0)
+            if vol_ratio < _RELEASE_VOL_GATE:
+                summary["skipped"] += 1
+                continue
+            if quiet:
+                summary["deferred"] += 1
+                continue
+            if fired_this_run >= remaining_ntfy_budget:
+                summary["skipped"] += 1
+                continue
+            if _fire_release_ntfy(symbol, direction, duration, vol_ratio):
+                summary["ntfy_fired"] += 1
+                fired_this_run += 1
+
+        conn.commit()
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
+    return summary
+
+
 # ─── Main scan loop ──────────────────────────────────────────────────────
 
 
@@ -526,11 +756,28 @@ def run_scan(force: bool = False) -> dict:
                 f"{type(e).__name__}: {e!r}"
             )
 
+        # HM-SQUEEZE-RELEASE-DETECT — second pass: detect releases of
+        # previously-watched coils using the SAME bars dict (no re-fetch).
+        # Shares the per-run NTFY cap with the entry-NTFY pass.
+        release_summary: dict = {}
+        try:
+            entry_ntfy = int(persist_summary.get("ntfy_fired", 0) or 0)
+            budget = max(0, _NTFY_PER_RUN_CAP - entry_ntfy)
+            release_summary = _scan_for_releases(
+                bars_by_sym, remaining_ntfy_budget=budget
+            )
+        except Exception as e:
+            console.log(
+                f"[yellow]bbkc_squeeze: release-scan top-level failed: "
+                f"{type(e).__name__}: {e!r}"
+            )
+
         _last_result = {
             "results": results,
             "scanned_at": datetime.now().isoformat(),
             "candidate_count": scanned,
             "watch_persist": persist_summary,
+            "release_scan": release_summary,
         }
         _last_scan_ts = time.time()
 
@@ -538,7 +785,9 @@ def run_scan(force: bool = False) -> dict:
             f"[green]BBKC Squeeze Scanner: scanned={scanned} "
             f"in_squeeze={len(results)} "
             f"inserted={persist_summary.get('inserted', 0)} "
-            f"ntfy={persist_summary.get('ntfy_fired', 0)}"
+            f"ntfy={persist_summary.get('ntfy_fired', 0)} · "
+            f"released={release_summary.get('detected', 0)} "
+            f"rel_ntfy={release_summary.get('ntfy_fired', 0)}"
         )
         return _last_result
 

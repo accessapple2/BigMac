@@ -20149,7 +20149,12 @@ async def options_scan_preview():
 
 
 @app.get("/api/squeeze/recent")
-def get_squeeze_recent(days: int = 7, tier: str = "all", kind: str = "short_interest"):
+def get_squeeze_recent(
+    days: int = 7,
+    tier: str = "all",
+    kind: str = "short_interest",
+    released: str = "0",
+):
     """Recent squeeze_watch candidates for the dashboard panel.
 
     Returns rows ordered by tier desc (PRIORITY → ALERT → WATCH), then
@@ -20159,6 +20164,13 @@ def get_squeeze_recent(days: int = 7, tier: str = "all", kind: str = "short_inte
       - 'short_interest' (default, backward-compat): Finviz/Polygon SI scan
       - 'bbkc'                                     : BB/KC compression scan
       - 'all'                                      : union of both
+
+    `released` (HM-SQUEEZE-RELEASE-DETECT 2026-05-24):
+      - '0'   (default, backward-compat): active candidates only
+                                          (released_at IS NULL)
+      - '1'   : released rows only (released_at IS NOT NULL); ordered by
+                released_at DESC instead of tier/scan_ts.
+      - 'all' : union of both
     """
     days = max(1, min(int(days or 7), 90))
     valid_tiers = {"all", "WATCH", "ALERT", "PRIORITY"}
@@ -20167,6 +20179,9 @@ def get_squeeze_recent(days: int = 7, tier: str = "all", kind: str = "short_inte
     valid_kinds = {"short_interest", "bbkc", "all"}
     if kind not in valid_kinds:
         kind = "short_interest"
+    valid_released = {"0", "1", "all"}
+    if released not in valid_released:
+        released = "0"
 
     cutoff = (
         __import__("datetime").datetime.utcnow()
@@ -20178,6 +20193,8 @@ def get_squeeze_recent(days: int = 7, tier: str = "all", kind: str = "short_inte
         "       breakout_score, composite_score, threshold_tier, "
         "       price_at_scan, notes, ntfy_sent, ntfy_deferred, "
         "       kind, bbkc_duration_days, "
+        "       released_at, release_direction, release_volume_ratio, "
+        "       release_close, "
         "       (CAST((julianday('now') - julianday(scan_ts)) * 24 AS REAL)) AS age_hours "
         "FROM squeeze_watch "
         "WHERE dismissed = 0 AND scan_ts >= ? "
@@ -20189,14 +20206,22 @@ def get_squeeze_recent(days: int = 7, tier: str = "all", kind: str = "short_inte
     if tier != "all":
         sql += "AND threshold_tier = ? "
         params.append(tier)
-    sql += (
-        "ORDER BY CASE threshold_tier "
-        "  WHEN 'PRIORITY' THEN 3 "
-        "  WHEN 'ALERT'    THEN 2 "
-        "  WHEN 'WATCH'    THEN 1 "
-        "  ELSE 0 END DESC, "
-        "scan_ts DESC LIMIT 200"
-    )
+    if released == "0":
+        sql += "AND released_at IS NULL "
+    elif released == "1":
+        sql += "AND released_at IS NOT NULL "
+    if released == "1":
+        # Ordered by release recency
+        sql += "ORDER BY released_at DESC LIMIT 200"
+    else:
+        sql += (
+            "ORDER BY CASE threshold_tier "
+            "  WHEN 'PRIORITY' THEN 3 "
+            "  WHEN 'ALERT'    THEN 2 "
+            "  WHEN 'WATCH'    THEN 1 "
+            "  ELSE 0 END DESC, "
+            "scan_ts DESC LIMIT 200"
+        )
 
     conn = _conn()
     try:
@@ -20206,6 +20231,7 @@ def get_squeeze_recent(days: int = 7, tier: str = "all", kind: str = "short_inte
             "days": days,
             "tier": tier,
             "kind": kind,
+            "released": released,
             "count": len(rows),
             "items": [dict(r) for r in rows],
         }
