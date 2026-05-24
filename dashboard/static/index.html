@@ -9927,13 +9927,15 @@ document.addEventListener('keydown', function(e) {
       <div class="oai-sym-px" id="oai-sym-price">$5.29</div>
       <div class="oai-sym-chg" id="oai-sym-change">-0.95 (-15.25%)</div>
 
-      <!-- Action bar — buttons render but no-op (broker wiring is Step 3c) -->
+      <!-- Action bar — Step 3c: wired to /api/alpaca/* + /api/position/{sym}
+           behind a confirmation modal. agent_id='captain-cockpit' for audit.
+           Reverse step-2 failure produces a PERSISTENT (no-auto-fade) toast. -->
       <div class="oai-sym-act">
-        <button class="oai-btn oai-btn--pri" onclick="oaiActionStub('trade-ticket')">Trade Ticket</button>
-        <button class="oai-btn" onclick="oaiActionStub('flatten')">Flatten</button>
-        <button class="oai-btn" onclick="oaiActionStub('half')">½</button>
-        <button class="oai-btn" onclick="oaiActionStub('double')">Double</button>
-        <button class="oai-btn" onclick="oaiActionStub('reverse')">Reverse</button>
+        <button class="oai-btn oai-btn--pri" onclick="oaiAction('trade-ticket')">Trade Ticket</button>
+        <button class="oai-btn" onclick="oaiAction('flatten')">Flatten</button>
+        <button class="oai-btn" onclick="oaiAction('half')">½</button>
+        <button class="oai-btn" onclick="oaiAction('double')">Double</button>
+        <button class="oai-btn" onclick="oaiAction('reverse')">Reverse</button>
       </div>
 
       <!-- Main chart (Step 3a static SVG; Step 3b.1 swaps to dynamic
@@ -10016,6 +10018,22 @@ document.addEventListener('keydown', function(e) {
   <div class="oai-view" id="oai-view-ollie-machine" style="display:none;">
     <div class="oai-placeholder"><h3>🤖 Ollie Machine</h3><p>2nd-gen automated momentum · top-3 picks · Sim/Live toggle · auto-entry optimization. Ships in Step 7.</p></div>
   </div>
+
+  <!-- Step 3c — confirmation modal + toast container. Both scoped under
+       #section-ollie-ai so they only render when this section is active. -->
+  <div id="oai-confirm-modal" class="oai-modal" style="display:none;">
+    <div class="oai-modal-backdrop" onclick="window.oaiConfirmCancel && window.oaiConfirmCancel()"></div>
+    <div class="oai-modal-body">
+      <div class="oai-modal-title" id="oai-confirm-title">Confirm action</div>
+      <div class="oai-modal-msg" id="oai-confirm-msg">Are you sure?</div>
+      <div class="oai-modal-detail" id="oai-confirm-detail"></div>
+      <div class="oai-modal-actions">
+        <button class="oai-btn" onclick="window.oaiConfirmCancel && window.oaiConfirmCancel()">Cancel</button>
+        <button class="oai-btn oai-btn--pri" id="oai-confirm-go" onclick="window.oaiConfirmGo && window.oaiConfirmGo()">Confirm</button>
+      </div>
+    </div>
+  </div>
+  <div id="oai-toast-container"></div>
 
 </div>
 
@@ -10176,6 +10194,35 @@ document.addEventListener('keydown', function(e) {
 #section-ollie-ai .oai-vol .vb { flex:1; background:#3b82f6; min-height:2px; }
 #section-ollie-ai .oai-vol .vb.vb--o { background:#f59e0b; }
 #section-ollie-ai .oai-sym-note { font-size:11px; color:var(--text-dim); margin-top:12px; padding:8px 10px; background:var(--panel-2); border-radius:4px; border-left:3px solid #fbbf24; line-height:1.5; }
+
+/* ───── Step 3c — confirmation modal + toast container ───── */
+#section-ollie-ai .oai-modal { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:20px; }
+#section-ollie-ai .oai-modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(2px); }
+#section-ollie-ai .oai-modal-body { position:relative; z-index:1; background:var(--panel); border:1px solid #fbbf24; border-radius:10px; padding:24px 28px; min-width:340px; max-width:480px; box-shadow:0 20px 60px rgba(0,0,0,0.4); }
+#section-ollie-ai .oai-modal-title { font-size:16px; font-weight:800; color:#fbbf24; letter-spacing:.5px; margin-bottom:10px; }
+#section-ollie-ai .oai-modal-msg { font-size:14px; color:var(--text); margin-bottom:10px; line-height:1.5; }
+#section-ollie-ai .oai-modal-detail { font-size:12px; color:var(--text-dim); margin-bottom:18px; padding:8px 10px; background:var(--panel-2); border-radius:4px; border-left:3px solid #fbbf24; font-family:var(--font-mono); line-height:1.5; white-space:pre-wrap; }
+#section-ollie-ai .oai-modal-detail:empty { display:none; }
+#section-ollie-ai .oai-modal-actions { display:flex; gap:8px; justify-content:flex-end; }
+#section-ollie-ai .oai-modal-actions .oai-btn { padding:8px 18px; font-size:13px; }
+
+#section-ollie-ai #oai-toast-container { position:fixed; bottom:20px; right:20px; z-index:10001; display:flex; flex-direction:column; gap:8px; max-width:380px; pointer-events:none; }
+#section-ollie-ai .oai-toast { pointer-events:auto; background:var(--panel); border:1px solid var(--border); border-left:4px solid var(--border); border-radius:6px; padding:10px 14px; font-size:13px; color:var(--text); box-shadow:0 6px 20px rgba(0,0,0,0.35); display:flex; align-items:flex-start; gap:10px; opacity:0; transform:translateX(20px); transition:opacity .2s, transform .2s; line-height:1.4; }
+#section-ollie-ai .oai-toast.on { opacity:1; transform:translateX(0); }
+#section-ollie-ai .oai-toast--success { border-left-color:#22c55e; }
+#section-ollie-ai .oai-toast--error { border-left-color:#ef4444; }
+#section-ollie-ai .oai-toast--persistent { border-left-color:#dc2626; border-color:#dc2626; background:#1f0a0a; }
+#section-ollie-ai .oai-toast--info { border-left-color:#3b82f6; }
+#section-ollie-ai .oai-toast-msg { flex:1; }
+#section-ollie-ai .oai-toast-close { background:none; border:none; color:var(--text-dim); cursor:pointer; font-size:16px; padding:0; line-height:1; font-weight:700; }
+#section-ollie-ai .oai-toast-close:hover { color:var(--text); }
+
+/* Disabled action-bar buttons (pending state) */
+#section-ollie-ai .oai-btn[disabled],
+#section-ollie-ai .oai-btn.oai-btn--busy { opacity:0.5; cursor:wait; pointer-events:none; }
+[data-theme="light"] #section-ollie-ai .oai-toast--persistent { background:#fef2f2 !important; border-color:#dc2626 !important; color:#7f1d1d !important; }
+[data-theme="light"] #section-ollie-ai .oai-modal-body { border-color:#d97706 !important; }
+[data-theme="light"] #section-ollie-ai .oai-modal-title { color:#b45309 !important; }
 </style>
 
 <script>
@@ -10733,12 +10780,277 @@ document.addEventListener('keydown', function(e) {
     });
   };
 
-  /* Action bar stub — Trade Ticket / Flatten / ½ / Double / Reverse.
-     Step 3c will wire to broker endpoints with a confirmation modal. */
-  window.oaiActionStub = function(action) {
-    var sym = (document.getElementById('oai-sym-ticker') || {}).textContent || '?';
-    try { console.log('[OAI-ACTION-STUB] ' + action + ' on ' + sym + ' — broker wiring deferred to Step 3c'); } catch(e) {}
+  /* ───── Step 3c — action bar broker wiring.
+     Trade Ticket (Option A: section-switch to trade-desk with #td-symbol
+     pre-fill). Flatten / ½ / Double / Reverse fire through /api/alpaca/*
+     endpoints behind a confirmation modal. Pre-flight /api/position/{sym}
+     for any size-aware action. All trades tagged agent_id="captain-cockpit"
+     for audit attribution. Reverse step-2 failure surfaces a persistent
+     toast (no auto-fade) per Captain spec. */
+  var _oaiConfirmResolve = null;
+
+  function _oaiShowConfirm(opts) {
+    return new Promise(function(resolve) {
+      _oaiConfirmResolve = resolve;
+      var modal = document.getElementById('oai-confirm-modal');
+      document.getElementById('oai-confirm-title').textContent = opts.title || 'Confirm action';
+      document.getElementById('oai-confirm-msg').textContent = opts.msg || 'Are you sure?';
+      document.getElementById('oai-confirm-detail').textContent = opts.detail || '';
+      var goBtn = document.getElementById('oai-confirm-go');
+      if (goBtn) goBtn.textContent = opts.confirmLabel || 'Confirm';
+      if (modal) modal.style.display = 'flex';
+    });
+  }
+  window.oaiConfirmCancel = function() {
+    var modal = document.getElementById('oai-confirm-modal');
+    if (modal) modal.style.display = 'none';
+    if (_oaiConfirmResolve) { _oaiConfirmResolve(false); _oaiConfirmResolve = null; }
   };
+  window.oaiConfirmGo = function() {
+    var modal = document.getElementById('oai-confirm-modal');
+    if (modal) modal.style.display = 'none';
+    if (_oaiConfirmResolve) { _oaiConfirmResolve(true); _oaiConfirmResolve = null; }
+  };
+
+  function _oaiShowToast(msg, type, persistent) {
+    var container = document.getElementById('oai-toast-container');
+    if (!container) return;
+    var t = document.createElement('div');
+    t.className = 'oai-toast oai-toast--' + (type || 'info') + (persistent ? ' oai-toast--persistent' : '');
+    var msgSpan = document.createElement('div');
+    msgSpan.className = 'oai-toast-msg';
+    msgSpan.textContent = msg;
+    var closeBtn = document.createElement('button');
+    closeBtn.className = 'oai-toast-close';
+    closeBtn.type = 'button';
+    closeBtn.textContent = '×';
+    closeBtn.title = 'Dismiss';
+    closeBtn.onclick = function() { t.remove(); };
+    t.appendChild(msgSpan);
+    t.appendChild(closeBtn);
+    container.appendChild(t);
+    requestAnimationFrame(function() { t.classList.add('on'); });
+    if (!persistent) {
+      setTimeout(function() {
+        t.classList.remove('on');
+        setTimeout(function() { t.remove(); }, 300);
+      }, 4000);
+    }
+    try { console.log('[OAI-TOAST/' + (type || 'info') + (persistent ? '/persistent' : '') + '] ' + msg); } catch(e) {}
+    return t;
+  }
+
+  function _oaiSetButtonsBusy(busy) {
+    document.querySelectorAll('#oai-view-symbol-focus .oai-sym-act .oai-btn').forEach(function(b) {
+      b.classList.toggle('oai-btn--busy', !!busy);
+      if (busy) b.setAttribute('disabled', 'disabled');
+      else b.removeAttribute('disabled');
+    });
+  }
+
+  function _oaiGetPosition(sym) {
+    return fetch('/api/position/' + encodeURIComponent(sym))
+      .then(function(r){ return r.ok ? r.json() : null; })
+      .catch(function(){ return null; });
+  }
+
+  function _oaiRoundQty(q) {
+    // Alpaca fractional positions support up to 6 decimal places. Round
+    // ½/Double quantities so they don't trip "qty precision" rejects.
+    return Math.round(q * 1e6) / 1e6;
+  }
+
+  function _oaiFmtSide(side) {
+    return String(side || '').toLowerCase() === 'long' ? 'LONG' : 'SHORT';
+  }
+
+  // ── Individual action handlers ───────────────────────────────────────
+
+  async function _oaiFlatten(sym) {
+    var pos = await _oaiGetPosition(sym);
+    if (!pos || !pos.has_position) {
+      _oaiShowToast('No open position in ' + sym + ' to flatten', 'error');
+      return;
+    }
+    var ok = await _oaiShowConfirm({
+      title: 'Flatten ' + sym + '?',
+      msg: 'Close 100% of current position via Alpaca paper.',
+      detail: _oaiFmtSide(pos.side) + ' · ' + Math.abs(pos.qty) + ' sh · entry $' + Number(pos.avg_entry).toFixed(2) +
+              ' · mark $' + Number(pos.current_price).toFixed(2) +
+              ' · unrealized $' + Number(pos.unrealized_pl).toFixed(2) + ' (' + Number(pos.unrealized_plpc).toFixed(2) + '%)',
+      confirmLabel: 'Flatten',
+    });
+    if (!ok) return;
+    _oaiSetButtonsBusy(true);
+    try {
+      var r = await fetch('/api/alpaca/close/' + encodeURIComponent(sym), { method:'POST' });
+      var res = r.ok ? await r.json() : { error: 'HTTP ' + r.status };
+      if (res && (res.success || res.order_id)) {
+        _oaiShowToast('Flattened ' + sym + ' · order ' + (res.order_id || 'submitted'), 'success');
+      } else {
+        _oaiShowToast('Flatten failed: ' + (res.error || 'unknown'), 'error');
+      }
+    } catch(e) {
+      _oaiShowToast('Flatten error: ' + (e && e.message || e), 'error');
+    } finally {
+      _oaiSetButtonsBusy(false);
+    }
+  }
+
+  async function _oaiHalfOrDouble(sym, mode) {
+    /* mode: 'half' → close 50% of position; 'double' → add same qty + side */
+    var pos = await _oaiGetPosition(sym);
+    if (!pos || !pos.has_position) {
+      _oaiShowToast('No open position in ' + sym + ' to ' + mode, 'error');
+      return;
+    }
+    var curQty = Math.abs(Number(pos.qty));
+    var isLong = String(pos.side).toLowerCase() === 'long';
+    var actionQty, endpoint, intent;
+    if (mode === 'half') {
+      actionQty = _oaiRoundQty(curQty / 2);
+      if (actionQty <= 0) { _oaiShowToast('Position too small to halve', 'error'); return; }
+      // Close half = sell half if long, buy half if short
+      endpoint = isLong ? '/api/alpaca/sell' : '/api/alpaca/buy';
+      intent = 'Sell ' + actionQty + ' sh (close half of LONG)';
+      if (!isLong) intent = 'Buy ' + actionQty + ' sh (cover half of SHORT)';
+    } else { // 'double'
+      actionQty = _oaiRoundQty(curQty);
+      // Same direction = buy more if long, sell more if short
+      endpoint = isLong ? '/api/alpaca/buy' : '/api/alpaca/sell';
+      intent = (isLong ? 'Buy ' : 'Sell ') + actionQty + ' sh (double ' + _oaiFmtSide(pos.side) + ')';
+    }
+    var ok = await _oaiShowConfirm({
+      title: (mode === 'half' ? '½ position · ' : 'Double · ') + sym,
+      msg: intent + '.',
+      detail: 'Current: ' + _oaiFmtSide(pos.side) + ' ' + curQty + ' sh @ $' + Number(pos.avg_entry).toFixed(2) +
+              ' · mark $' + Number(pos.current_price).toFixed(2),
+      confirmLabel: mode === 'half' ? '½' : 'Double',
+    });
+    if (!ok) return;
+    _oaiSetButtonsBusy(true);
+    try {
+      var r = await fetch(endpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: sym, qty: actionQty, agent_id: 'captain-cockpit' }),
+      });
+      var res = r.ok ? await r.json() : { error: 'HTTP ' + r.status };
+      if (res && (res.success || res.order_id)) {
+        _oaiShowToast((mode === 'half' ? 'Half-closed ' : 'Doubled ') + sym + ' · ' + actionQty + ' sh · order ' + (res.order_id || 'submitted'), 'success');
+      } else {
+        _oaiShowToast(mode + ' failed: ' + (res.error || 'unknown'), 'error');
+      }
+    } catch(e) {
+      _oaiShowToast(mode + ' error: ' + (e && e.message || e), 'error');
+    } finally {
+      _oaiSetButtonsBusy(false);
+    }
+  }
+
+  async function _oaiReverse(sym) {
+    var pos = await _oaiGetPosition(sym);
+    if (!pos || !pos.has_position) {
+      _oaiShowToast('No open position in ' + sym + ' to reverse', 'error');
+      return;
+    }
+    var curQty = Math.abs(Number(pos.qty));
+    var isLong = String(pos.side).toLowerCase() === 'long';
+    var oppositeSide = isLong ? 'SHORT' : 'LONG';
+    var oppositeEndpoint = isLong ? '/api/alpaca/sell' : '/api/alpaca/buy';
+    var ok = await _oaiShowConfirm({
+      title: 'Reverse ' + sym + '?',
+      msg: 'Two-step: close current ' + _oaiFmtSide(pos.side) + ' position, then open ' + oppositeSide + ' at same size.',
+      detail: 'Current: ' + _oaiFmtSide(pos.side) + ' ' + curQty + ' sh · After: ' + oppositeSide + ' ' + curQty + ' sh' +
+              '\nIf step 2 fails, you must re-enter manually via Trade Desk.',
+      confirmLabel: 'Reverse',
+    });
+    if (!ok) return;
+    _oaiSetButtonsBusy(true);
+    var step1Done = false;
+    try {
+      // Step 1: close
+      var r1 = await fetch('/api/alpaca/close/' + encodeURIComponent(sym), { method:'POST' });
+      var res1 = r1.ok ? await r1.json() : { error: 'HTTP ' + r1.status };
+      if (!res1 || (!res1.success && !res1.order_id)) {
+        _oaiShowToast('Reverse step 1 (close) failed: ' + ((res1 && res1.error) || 'unknown'), 'error');
+        return;
+      }
+      step1Done = true;
+      _oaiShowToast('Step 1 close submitted · waiting 1.5s for fill before re-entry…', 'info');
+
+      // Brief settle delay so the close has a chance to fill before opposite fires.
+      // Alpaca will reject the second order if the position isn't yet flat.
+      await new Promise(function(r){ setTimeout(r, 1500); });
+
+      // Step 2: open opposite
+      var r2 = await fetch(oppositeEndpoint, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: sym, qty: _oaiRoundQty(curQty), agent_id: 'captain-cockpit' }),
+      });
+      var res2 = r2.ok ? await r2.json() : { error: 'HTTP ' + r2.status };
+      if (res2 && (res2.success || res2.order_id)) {
+        _oaiShowToast('Reversed ' + sym + ' → ' + oppositeSide + ' ' + curQty + ' sh · order ' + (res2.order_id || 'submitted'), 'success');
+      } else {
+        // PERSISTENT toast — Captain spec: do not auto-fade. Buttons stay live.
+        _oaiShowToast(
+          'Position closed but re-entry failed — check Trade Desk. (' + sym + ' ' + oppositeSide + ' ' + curQty + ' sh) Error: ' + ((res2 && res2.error) || 'unknown'),
+          'error',
+          true  /* persistent */
+        );
+      }
+    } catch(e) {
+      if (step1Done) {
+        _oaiShowToast(
+          'Position closed but re-entry threw — check Trade Desk. (' + sym + ' ' + oppositeSide + ' ' + curQty + ' sh) Error: ' + (e && e.message || e),
+          'error',
+          true
+        );
+      } else {
+        _oaiShowToast('Reverse error: ' + (e && e.message || e), 'error');
+      }
+    } finally {
+      _oaiSetButtonsBusy(false);
+    }
+  }
+
+  function _oaiTradeTicket(sym) {
+    /* Option A: switch to trade-desk section, then best-effort plumb the
+       current symbol into #td-symbol (verified to exist at section L6895). */
+    if (typeof window.showSection === 'function') {
+      window.showSection('trade-desk');
+    }
+    setTimeout(function() {
+      var inp = document.getElementById('td-symbol');
+      if (inp) {
+        inp.value = sym;
+        inp.dispatchEvent(new Event('input',  { bubbles:true }));
+        inp.dispatchEvent(new Event('change', { bubbles:true }));
+        inp.focus();
+        _oaiShowToast('Trade Desk · symbol pre-filled to ' + sym, 'info');
+      } else {
+        _oaiShowToast('Trade Desk opened — paste ' + sym + ' into the symbol input', 'info');
+      }
+    }, 120);
+  }
+
+  window.oaiAction = function(action) {
+    var sym = (document.getElementById('oai-sym-ticker') || {}).textContent || '';
+    sym = String(sym).trim().toUpperCase();
+    if (!sym || sym === '—') { _oaiShowToast('No symbol selected', 'error'); return; }
+    switch (action) {
+      case 'trade-ticket': return _oaiTradeTicket(sym);
+      case 'flatten':      return _oaiFlatten(sym);
+      case 'half':         return _oaiHalfOrDouble(sym, 'half');
+      case 'double':       return _oaiHalfOrDouble(sym, 'double');
+      case 'reverse':      return _oaiReverse(sym);
+      default:
+        _oaiShowToast('Unknown action: ' + action, 'error');
+    }
+  };
+  // Back-compat shim — Step 3a used oaiActionStub; bound to same path.
+  window.oaiActionStub = window.oaiAction;
 
   /* Admiral symbol input — types any ticker, Enter or Go button fires
      oaiFocusSymbol(). Sanitizes to uppercase A-Z + 1-5 chars (skip BRK.B
