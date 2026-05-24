@@ -7946,7 +7946,7 @@ def fundamentals_symbol(symbol: str):
     result = fetch_fundamentals(sym)
     if not result:
         return {"error": f"No fundamental data for {symbol}"}
-    # Cheap LEFT JOIN — nullable fields when no rank yet
+    # Cheap LEFT JOINs — nullable fields when no rank/template yet
     try:
         conn = _conn()
         try:
@@ -7960,11 +7960,31 @@ def fundamentals_symbol(symbol: str):
                 result["rs_return_pct"] = row["rs_return_pct"]
                 result["rs_vs_spy_pct"] = row["rs_vs_spy_pct"]
                 result["rs_computed_at"] = row["computed_at"]
+            # HM-MINERVINI-TREND-FILTER 2026-05-24
+            mrow = conn.execute(
+                "SELECT template_score, template_pass, rs_pass, conds_json, "
+                "       computed_at FROM minervini_trend WHERE symbol = ?",
+                (sym,),
+            ).fetchone()
+            if mrow is not None:
+                result["minervini_score"] = mrow["template_score"]
+                result["minervini_pass"] = bool(mrow["template_pass"])
+                result["minervini_rs_pass"] = bool(mrow["rs_pass"])
+                try:
+                    result["minervini_conds"] = json.loads(
+                        mrow["conds_json"] or "{}"
+                    )
+                except Exception:
+                    result["minervini_conds"] = {}
+                result["minervini_computed_at"] = mrow["computed_at"]
         finally:
             conn.close()
     except Exception as e:
-        # Don't break the fundamentals response on rs_rank lookup failure
-        console.log(f"[dim]rs_rank lookup for {sym}: {type(e).__name__}: {e!r}")
+        # Don't break the fundamentals response on rs_rank/minervini failure
+        console.log(
+            f"[dim]rs_rank/minervini lookup for {sym}: "
+            f"{type(e).__name__}: {e!r}"
+        )
     return result
 
 
@@ -20419,6 +20439,87 @@ def get_rs_rank_symbol(symbol: str):
         if row is None:
             return {"ok": False, "error": "not_ranked", "symbol": symbol}
         return {"ok": True, "item": dict(row)}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        conn.close()
+
+
+# HM-MINERVINI-TREND-FILTER 2026-05-24
+@app.get("/api/minervini")
+def get_minervini(passing_only: int = 0, top: int = 200):
+    """Universe-wide Minervini Trend Template state.
+
+    Sorted by ``template_pass DESC, template_score DESC, symbol ASC``.
+    Empty until the nightly scan runs (flip MINERVINI_FILTER_ENABLED=True).
+
+    Query:
+      - ``passing_only=1`` filters to rows with all 8 conds passing
+      - ``top=N`` caps the result (default 200, max 3500)
+    """
+    top = max(1, min(int(top or 200), 3500))
+    passing_only_b = int(passing_only or 0) == 1
+
+    conn = _conn()
+    try:
+        meta = conn.execute(
+            "SELECT MAX(computed_at) AS computed_at, "
+            "       SUM(template_pass) AS total_passing, "
+            "       COUNT(*) AS total "
+            "FROM minervini_trend"
+        ).fetchone()
+        sql = (
+            "SELECT symbol, computed_at, template_score, template_pass, "
+            "       rs_pass, conds_json, price_at_scan, high_52w, low_52w, "
+            "       bars_used "
+            "FROM minervini_trend "
+        )
+        params: list = []
+        if passing_only_b:
+            sql += "WHERE template_pass = 1 "
+        sql += (
+            "ORDER BY template_pass DESC, template_score DESC, symbol ASC "
+            "LIMIT ?"
+        )
+        params.append(top)
+        rows = conn.execute(sql, params).fetchall()
+        return {
+            "ok": True,
+            "computed_at": (meta and meta["computed_at"]) or None,
+            "total_passing": (meta and (meta["total_passing"] or 0)) or 0,
+            "total_ranked": (meta and (meta["total"] or 0)) or 0,
+            "passing_only": passing_only_b,
+            "count": len(rows),
+            "items": [dict(r) for r in rows],
+        }
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+    finally:
+        conn.close()
+
+
+@app.get("/api/minervini/{symbol}")
+def get_minervini_symbol(symbol: str):
+    """Per-symbol Minervini lookup; conds_json expanded for tooltip use."""
+    symbol = (symbol or "").strip().upper()
+    if not symbol:
+        raise HTTPException(status_code=400, detail="symbol required")
+    conn = _conn()
+    try:
+        row = conn.execute(
+            "SELECT symbol, computed_at, template_score, template_pass, "
+            "       rs_pass, conds_json, price_at_scan, high_52w, low_52w, "
+            "       bars_used FROM minervini_trend WHERE symbol = ?",
+            (symbol,),
+        ).fetchone()
+        if row is None:
+            return {"ok": False, "error": "not_evaluated", "symbol": symbol}
+        item = dict(row)
+        try:
+            item["conds"] = json.loads(item.pop("conds_json", "{}"))
+        except Exception:
+            item["conds"] = {}
+        return {"ok": True, "item": item}
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
     finally:

@@ -30752,31 +30752,48 @@ async function fetchActiveDeals() {
 async function fetchFundamentals() {
   var c = document.getElementById('fundamentalsContent');
   try {
-    // HM-RS-RANK-VS-SPY 2026-05-24: parallel-fetch rs_rank + fundamentals
-    var [fRes, rsRes] = await Promise.all([
+    // HM-RS-RANK-VS-SPY + HM-MINERVINI-TREND-FILTER 2026-05-24:
+    // parallel-fetch rs_rank, minervini, and fundamentals in one trip
+    var [fRes, rsRes, mvRes] = await Promise.all([
       fetch('/api/fundamentals'),
       fetch('/api/rs-rank?top=3500&min_rank=0').catch(function(){ return null; }),
+      fetch('/api/minervini?top=3500').catch(function(){ return null; }),
     ]);
     var d = await fRes.json();
     if (!d || !d.length) { c.innerHTML = '<div style="color:var(--muted);">No fundamental data.</div>'; return; }
 
-    // Build rs_rank lookup keyed by symbol; render SPY badge
+    // Build lookups keyed by symbol
     var rsBySym = {};
+    var mvBySym = {};
     var spyBadge = document.getElementById('fundamentalsRsBadge');
     try {
       var rsJson = rsRes ? await rsRes.json() : null;
+      var mvJson = mvRes ? await mvRes.json() : null;
       if (rsJson && rsJson.ok) {
         (rsJson.items || []).forEach(function(r) { rsBySym[r.symbol] = r; });
-        if (spyBadge && rsJson.spy_return_pct != null) {
+      }
+      if (mvJson && mvJson.ok) {
+        (mvJson.items || []).forEach(function(m) { mvBySym[m.symbol] = m; });
+      }
+      // SPY 12wk + Minervini leaders combined badge
+      if (spyBadge) {
+        var parts = [];
+        if (rsJson && rsJson.ok && rsJson.spy_return_pct != null) {
           var sp = rsJson.spy_return_pct;
           var spCol = sp >= 0 ? '#22c55e' : '#ef4444';
-          spyBadge.innerHTML = 'RS benchmark: SPY 12wk <span style="font-weight:700;color:' + spCol + ';">' + (sp >= 0 ? '+' : '') + sp.toFixed(2) + '%</span> · ' + (rsJson.count || 0) + ' symbols ranked';
-          spyBadge.style.display = '';
+          parts.push('RS benchmark: SPY 12wk <span style="font-weight:700;color:' + spCol + ';">' + (sp >= 0 ? '+' : '') + sp.toFixed(2) + '%</span> · ' + (rsJson.count || 0) + ' symbols ranked');
         }
-      } else if (spyBadge) {
-        spyBadge.style.display = 'none';
+        if (mvJson && mvJson.ok && mvJson.total_ranked) {
+          parts.push('Trend leaders: <span style="font-weight:700;color:#22c55e;">' + (mvJson.total_passing || 0) + '</span> / ' + (mvJson.total_ranked || 0));
+        }
+        if (parts.length) {
+          spyBadge.innerHTML = parts.join(' · ');
+          spyBadge.style.display = '';
+        } else {
+          spyBadge.style.display = 'none';
+        }
       }
-    } catch(e) { /* tolerate rs_rank fetch failure — fundamentals still render */ }
+    } catch(e) { /* tolerate fetch failure — fundamentals still render */ }
 
     // Sort: smart_score primary (existing behavior), rs_rank tiebreaker
     d.sort(function(a,b) {
@@ -30818,6 +30835,33 @@ async function fetchFundamentals() {
         var rsCol = rk >= 70 ? '#22c55e' : (rk <= 29 ? '#ef4444' : 'var(--muted)');
         var rsRet = (rs.rs_return_pct != null) ? ((rs.rs_return_pct >= 0 ? '+' : '') + rs.rs_return_pct.toFixed(1) + '%') : '';
         html += '<div style="display:flex;justify-content:space-between;"><span>RS Rank (12wk)</span><span style="font-weight:700;color:' + rsCol + ';">' + rk + ' <span style="color:var(--muted);font-weight:400;font-size:11px;">(' + rsRet + ')</span></span></div>';
+      }
+      // HM-MINERVINI-TREND-FILTER: 8-cond trend template, color by score
+      // (8 green, 5-7 neutral, ≤4 red). Native title tooltip lists each cond.
+      var mv = mvBySym[f.symbol];
+      if (mv && mv.template_score != null) {
+        var score = mv.template_score;
+        var mvCol = score >= 8 ? '#22c55e' : (score <= 4 ? '#ef4444' : 'var(--muted)');
+        var label = score >= 8 ? 'PASS 8/8 ✓' : 'FAIL ' + score + '/8';
+        var rsTag = mv.rs_pass ? ' <span style="font-size:10px;color:#22c55e;font-weight:600;" title="RS Rank ≥ 70">RS✓</span>' : '';
+        var conds = {};
+        try { conds = JSON.parse(mv.conds_json || '{}'); } catch(e) {}
+        var condLabels = {
+          cond1: 'Price > 150-day SMA',
+          cond2: 'Price > 200-day SMA',
+          cond3: '150-SMA > 200-SMA',
+          cond4: '200-SMA trending up (1mo)',
+          cond5: 'Price > 50-day SMA',
+          cond6: '50-SMA > 150 > 200',
+          cond7: 'Within 25% of 52w high',
+          cond8: '≥ 30% above 52w low'
+        };
+        var tipLines = [];
+        for (var k in condLabels) {
+          tipLines.push((conds[k] ? '✓ ' : '✗ ') + condLabels[k]);
+        }
+        var tip = _esc('Minervini Trend Template:\n' + tipLines.join('\n'));
+        html += '<div style="display:flex;justify-content:space-between;" title="' + tip + '"><span>Trend Template</span><span style="font-weight:700;color:' + mvCol + ';">' + label + rsTag + '</span></div>';
       }
       html += '</div>';
       html += '</div>';

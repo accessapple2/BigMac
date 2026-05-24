@@ -1831,6 +1831,65 @@ def run_rs_rank_nightly():
         )
 
 
+# HM-MINERVINI-TREND-FILTER 2026-05-24 — nightly Stage-2 uptrend template
+# evaluation. Default-OFF via MINERVINI_FILTER_ENABLED env flag. Depends on
+# rs_rank table being fresh (LEFT JOIN'd at scan time for the rs_pass
+# field); scheduled 15 min after the rs_rank nightly job.
+_minervini_bg_lock = threading.Lock()
+_minervini_disabled_logged = False
+
+
+@_hm_bq_instr("_bg_minervini_filter")
+def _bg_minervini_filter():
+    """Daemon-thread wrapper around run_minervini_filter_nightly()."""
+    if not _minervini_bg_lock.acquire(blocking=False):
+        console.log("[dim]Minervini bg: prior tick still running — skip")
+        return
+    def _runner():
+        try:
+            run_minervini_filter_nightly()
+        finally:
+            _minervini_bg_lock.release()
+    threading.Thread(
+        target=_runner, daemon=True, name="sched_minervini_filter"
+    ).start()
+
+
+@_hm_bq_instr("run_minervini_filter_nightly")
+def run_minervini_filter_nightly():
+    """Nightly Minervini Trend Template rebuild. Default-OFF via
+    MINERVINI_FILTER_ENABLED. Runs post-close at 20:45 AZ (15 min after
+    rs_rank at 20:30 so the rs_pass join sees fresh data)."""
+    global _minervini_disabled_logged
+    import os as _os
+
+    if _os.environ.get("MINERVINI_FILTER_ENABLED", "").lower() not in (
+        "1", "true", "yes", "on"
+    ):
+        if not _minervini_disabled_logged:
+            console.log(
+                "[dim]Minervini Filter: MINERVINI_FILTER_ENABLED not set "
+                "— skipping (HM-MINERVINI-TREND-FILTER default-off)"
+            )
+            _minervini_disabled_logged = True
+        return
+
+    try:
+        from engine.minervini_filter import run_minervini_scan
+        result = run_minervini_scan(force=True)
+        top = (result.get("top_pass_symbols") or [])[:3]
+        console.log(
+            f"[cyan]Minervini: scanned={result.get('scanned', 0)} "
+            f"persisted={result.get('persisted', 0)} "
+            f"passing={result.get('passing', 0)} "
+            f"top3={','.join(top) if top else '—'}"
+        )
+    except Exception as e:
+        console.log(
+            f"[yellow]Minervini error: {type(e).__name__}: {e!r}"
+        )
+
+
 _theta_last_run = 0.0
 
 @_hm_bq_instr("run_theta_scan")
@@ -3708,6 +3767,7 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(_bg_squeeze_watcher)          # HM-AO-β Squeeze Watcher (HM-AS-β.2 thread-wrapper): 30-min, default-OFF via SQUEEZE_WATCHER_ENABLED
     schedule.every(30).minutes.do(_bg_bbkc_squeeze_watcher)     # HM-SQUEEZE-BBKC-COMPRESSION (2026-05-24): 30-min, default-OFF via BBKC_SQUEEZE_WATCHER_ENABLED
     schedule.every().day.at("20:30").do(_bg_rs_rank)            # HM-RS-RANK-VS-SPY (2026-05-24): nightly post-close, default-OFF via RS_RANK_ENABLED
+    schedule.every().day.at("20:45").do(_bg_minervini_filter)   # HM-MINERVINI-TREND-FILTER (2026-05-24): nightly post-close +15min so rs_rank LEFT JOIN sees fresh data, default-OFF via MINERVINI_FILTER_ENABLED
     # Capitol Trades Fund — Congress copycat scan (daily at market open, 9:35 AM ET)
     from engine.capitol_fund import run_capitol_scan as _raw_capitol_scan
     def run_capitol_scan():
