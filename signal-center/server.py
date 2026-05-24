@@ -1824,6 +1824,13 @@ def _compute_trade_levels(symbol):
     if not price:
         raise ValueError("No price data")
 
+    # HM-SC-ATR-INTU-ANOMALY 2026-05-24 — single gap days (e.g. INTU's
+    # 2026-05-21 −$73 gap-down) produce one bar with TR ≈ $80 that lifts
+    # the 14-bar simple-mean ATR to 3-5× its true range. Outlier-robust
+    # mean: clamp individual TR contributions at 5× the window median.
+    # Normal volatility is unchanged (median ≈ mean for stable series);
+    # a single gap bar gets reined in to 5× typical TR. Median uses the
+    # raw TR list so a gap bar can't lift the threshold either.
     atr_vals = []
     for i in range(1, min(15, len(daily))):
         c  = daily[-(i)]
@@ -1831,7 +1838,16 @@ def _compute_trade_levels(symbol):
         h, l, pc = c['high'], c['low'], p['close']
         if h and l and pc:
             atr_vals.append(max(h - l, abs(h - pc), abs(l - pc)))
-    atr = sum(atr_vals) / len(atr_vals) if atr_vals else price * 0.015
+    if atr_vals:
+        sorted_tr = sorted(atr_vals)
+        mid = len(sorted_tr) // 2
+        median_tr = (sorted_tr[mid] if len(sorted_tr) % 2 else
+                     (sorted_tr[mid - 1] + sorted_tr[mid]) / 2)
+        cap = median_tr * 5.0 if median_tr > 0 else max(atr_vals)
+        clamped = [min(tr, cap) for tr in atr_vals]
+        atr = sum(clamped) / len(clamped)
+    else:
+        atr = price * 0.015
 
     recent = daily[-15:] if len(daily) >= 15 else daily
     highs_list = sorted([c['high'] for c in recent], reverse=True)

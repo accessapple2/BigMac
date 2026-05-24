@@ -403,6 +403,41 @@ prev_close resolution. Likely needs a unified prior-trading-day
 anchor across all symbol sources (Polygon vs Alpaca vs yfinance).
 **Priority:** LOW (cosmetic, doesn't affect trade execution).
 
+### HM-SC-ATR-FEED-DISCREPANCY — residual investigation after partial fix
+
+**Banked 2026-05-24 during XO power-run after HM-SC-ATR-INTU-ANOMALY
+partial-fix ship (signal-center/server.py, commit pending).**
+
+The outlier-robust mean (cap individual TR at 5× window median) ships
+a real ATR robustness improvement and removes single-gap-bar distortion
+(verified: INTU's 2026-05-21 −$73 gap-down would be clamped from $82
+TR to $66 cap, ATR reduced ~6%).
+
+But the live `/api/trade-levels/INTU` STILL returns ATR=$40 (atr_pct=12.51%)
+even though Alpaca daily bars via engine.market_data.get_bulk_daily_ohlcv
+show a 14-bar TR series of ~$13 median with one gap-day outlier of $82
+→ a simple-mean ATR of $17.83 (clamped: $16.68). Math difference: $40
+live API result implies the bars feed signal-center sees has multiple
+high-TR bars (not just the one gap day), OR the time-bucket aggregation
+in `_compute_trade_levels` is producing wider 'daily' OHLC than Alpaca's
+official daily bars (possibly due to extended-hours inclusion in the
+intraday-aggregated path).
+
+**Fix path (not in power run):**
+1. Add per-bar tracing to `_compute_trade_levels` to dump the actual
+   TR list for INTU vs AAPL side-by-side.
+2. Cross-check `_bridge_get('/api/charts/ohlcv?symbol=INTU&timeframe=1D&limit=60')`
+   response against `engine.market_data.get_bulk_daily_ohlcv('INTU', '3mo')`
+   to identify the feed divergence.
+3. If extended-hours inclusion is the cause, add a regular-trading-hours
+   filter to the bucket aggregator OR switch the source to the
+   already-clean daily bars endpoint.
+
+**Note:** The XO power-run partial fix (5× median cap) is correct on
+its own merits and ships independently — gap-day distortion is a real
+ATR issue regardless of the feed discrepancy. Requires signal-center
+restart to activate (Captain decision; not part of trader restart).
+
 ### HM-SC-ATR-INTU-ANOMALY — signal-center reports ATR_PCT 12.51% on INTU vs 1-3% normal range
 
 **Surfaced 2026-05-23 during Step 3 Option 3 verification pass.**
