@@ -53,6 +53,8 @@ _MIN_BARS_REQUIRED: int = 25   # need at least period+5 for stable ATR/stdev
 _MIN_PERSIST_DAYS: int = 5     # below this duration, skip persistence
 _DEDUPE_HOURS: int = 24
 _CACHE_TTL: int = 300          # 5 min in-memory cache on run_scan() result
+_NTFY_PER_RUN_CAP: int = 5     # belt-and-suspenders cap to prevent notification
+                               # storm on first scan against a virgin DB
 
 # Tier mapping by consecutive in-squeeze days
 _TIER_WATCH_MIN: int = 5
@@ -309,6 +311,7 @@ def _persist_results(
 
     try:
         _ensure_schema(conn)
+        ntfy_fired_this_run = 0
 
         for r in results:
             duration = int(r.get("duration_days", 0) or 0)
@@ -374,9 +377,14 @@ def _persist_results(
                 if ntfy_deferred:
                     summary["deferred"] += 1
 
-                if tier == "PRIORITY" and not ntfy_deferred:
+                if (
+                    tier == "PRIORITY"
+                    and not ntfy_deferred
+                    and ntfy_fired_this_run < _NTFY_PER_RUN_CAP
+                ):
                     if _fire_ntfy(symbol, duration):
                         summary["ntfy_fired"] += 1
+                        ntfy_fired_this_run += 1
                         conn.execute(
                             "UPDATE squeeze_watch SET ntfy_sent=1 "
                             "WHERE symbol=? AND scan_ts=? AND kind='bbkc'",
@@ -408,12 +416,13 @@ def _fire_ntfy(symbol: str, duration: int) -> bool:
 
         send_alert(
             level="warning",
-            alert_type="bbkc_squeeze_priority",
+            alert_type=f"bbkc_squeeze_priority_{symbol}",
             message=(
                 f"🔥 BB/KC Squeeze PRIORITY — {symbol} ({duration}d coil). "
                 f"Volatility compression on the daily; breakout pending."
             ),
-            ntfy_topic="ollietrades-admin",
+            title=f"🔥 BB/KC Squeeze PRIORITY — {symbol}",
+            audience="admin",
             rate_limit_secs=86400,
         )
         return True
