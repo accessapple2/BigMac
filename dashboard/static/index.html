@@ -9931,10 +9931,10 @@ document.addEventListener('keydown', function(e) {
         <button class="oai-btn" onclick="oaiActionStub('reverse')">Reverse</button>
       </div>
 
-      <!-- Main chart (faithful SVG port from v4.3 spec — daily candles +
-           supply/demand zones + earnings line + AI-projected level) -->
+      <!-- Main chart (Step 3a static SVG; Step 3b.1 swaps to dynamic
+           candles from /api/chart-data when oaiFocusSymbol fires) -->
       <div class="oai-chart">
-        <svg viewBox="0 0 580 280" preserveAspectRatio="none" style="background:#0d1117;width:100%;height:280px;">
+        <svg id="oai-chart-svg" viewBox="0 0 580 280" preserveAspectRatio="none" style="background:#0d1117;width:100%;height:280px;">
           <text x="290" y="120" fill="#1f2937" font-size="48" font-weight="800" text-anchor="middle" opacity="0.5">OPAD · D</text>
           <!-- gold supply zone (left) -->
           <path d="M 30,80 Q 100,60 180,90 L 200,140 Q 100,110 30,130 Z" fill="#f59e0b" opacity="0.25"/>
@@ -9985,8 +9985,9 @@ document.addEventListener('keydown', function(e) {
             <text x="55" y="32" fill="#1f2937" font-size="9" font-weight="700" text-anchor="middle">OPAD · M</text>
           </svg>
         </div>
-        <!-- Volume bars (30 bars, one orange standout) -->
-        <div class="oai-vol">
+        <!-- Volume bars (Step 3a static demo; Step 3b.1 swaps to last 30
+             candles' volume from /api/chart-data when oaiFocusSymbol fires) -->
+        <div class="oai-vol" id="oai-vol-bars">
           <div class="vb" style="height:20%;"></div><div class="vb" style="height:30%;"></div><div class="vb" style="height:37%;"></div><div class="vb" style="height:40%;"></div><div class="vb" style="height:38%;"></div><div class="vb" style="height:32%;"></div><div class="vb" style="height:23%;"></div><div class="vb" style="height:13%;"></div><div class="vb" style="height:5%;"></div><div class="vb" style="height:1%;"></div><div class="vb" style="height:1%;"></div><div class="vb" style="height:6%;"></div><div class="vb" style="height:14%;"></div><div class="vb" style="height:24%;"></div><div class="vb" style="height:33%;"></div><div class="vb vb--o" style="height:90%;"></div><div class="vb" style="height:40%;"></div><div class="vb" style="height:36%;"></div><div class="vb" style="height:28%;"></div><div class="vb" style="height:18%;"></div><div class="vb" style="height:9%;"></div><div class="vb" style="height:32%;"></div><div class="vb" style="height:30%;"></div><div class="vb" style="height:32%;"></div><div class="vb" style="height:39%;"></div><div class="vb" style="height:49%;"></div><div class="vb" style="height:58%;"></div><div class="vb" style="height:66%;"></div><div class="vb" style="height:70%;"></div><div class="vb" style="height:69%;"></div>
         </div>
       </div>
@@ -10322,26 +10323,219 @@ document.addEventListener('keydown', function(e) {
     if (lbl) lbl.textContent = top.slice(0, 6).map(function(m){ return m.symbol; }).join(' · ');
   }
 
-  /* ───── Step 3a — Symbol focus selection + cockpit header update.
-     Live quote / candles / fundamentals wiring is Step 3b. Action-bar
-     broker submission is Step 3c. */
-  window.oaiFocusSymbol = function(sym) {
-    if (!sym) return;
-    sym = String(sym).toUpperCase();
-    var tabs = document.querySelectorAll('#oai-subview-tabs .oai-sti');
-    tabs.forEach(function(t){ t.classList.toggle('on', t.dataset.view === 'symbol-focus'); });
-    document.querySelectorAll('#section-ollie-ai .oai-view').forEach(function(v) {
-      v.style.display = v.id === 'oai-view-symbol-focus' ? '' : 'none';
+  /* ───── Step 3b.1 — Symbol Focus live wire.
+     Parallel fetch of /api/price, /api/fundamentals, /api/chart-data; renders
+     header, price block, SVG candles, volume bars, optional earnings line.
+     AI projected dashed line + BUY/SELL marker + monthly inset deferred to
+     Step 3b.2 (proxy /api/trade-levels ships in this commit ready for use).
+     Action-bar broker submission deferred to Step 3c. */
+  var _oaiSymInflight = null;  // cancels stale calls when user clicks new sym
+
+  function _oaiFmtVol(v) {
+    if (v == null || isNaN(v)) return '—';
+    v = Number(v);
+    if (v >= 1e9) return (v/1e9).toFixed(2) + 'B';
+    if (v >= 1e6) return (v/1e6).toFixed(2) + 'M';
+    if (v >= 1e3) return (v/1e3).toFixed(1) + 'K';
+    return String(Math.round(v));
+  }
+  function _oaiFmtMoney(v) {
+    if (v == null || isNaN(v)) return '—';
+    return '$' + Number(v).toFixed(2);
+  }
+
+  function _oaiRenderSvg(sym, candles) {
+    var svg = document.getElementById('oai-chart-svg');
+    if (!svg) return;
+    if (!candles || !candles.length) {
+      svg.innerHTML = '<text x="290" y="140" fill="#6b7280" font-size="14" text-anchor="middle">No candle data for ' + sym + '</text>';
+      return;
+    }
+    // Plot area: 30px left padding for Y labels, 20px right padding
+    var W = 580, H = 280, PAD_L = 40, PAD_R = 30, PAD_T = 30, PAD_B = 30;
+    var plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
+    var lows = candles.map(function(c){ return Number(c.low ?? c.l); });
+    var highs = candles.map(function(c){ return Number(c.high ?? c.h); });
+    var pMin = Math.min.apply(null, lows), pMax = Math.max.apply(null, highs);
+    var pRange = pMax - pMin || 1;
+    // Add 5% headroom on top and bottom for breathing room
+    pMin -= pRange * 0.05; pMax += pRange * 0.05; pRange = pMax - pMin;
+    function yAt(price) { return PAD_T + (pMax - price) / pRange * plotH; }
+    var n = candles.length;
+    var barW = plotW / n;
+    var bodyW = Math.max(1, barW * 0.6);
+
+    var parts = [];
+    // Watermark
+    parts.push('<text x="' + (W/2) + '" y="' + (H/2) + '" fill="#1f2937" font-size="48" font-weight="800" text-anchor="middle" opacity="0.5">' + sym + ' · D</text>');
+
+    // Candles
+    candles.forEach(function(c, i) {
+      var o = Number(c.open ?? c.o), cl = Number(c.close ?? c.c);
+      var hi = Number(c.high ?? c.h), lo = Number(c.low ?? c.l);
+      var x = PAD_L + i * barW + barW / 2;
+      var color = cl >= o ? '#22c55e' : '#ef4444';
+      var yHi = yAt(hi), yLo = yAt(lo);
+      var yOpen = yAt(o), yClose = yAt(cl);
+      var bodyTop = Math.min(yOpen, yClose);
+      var bodyH = Math.max(1, Math.abs(yClose - yOpen));
+      parts.push('<line x1="' + x.toFixed(2) + '" y1="' + yHi.toFixed(2) + '" x2="' + x.toFixed(2) + '" y2="' + yLo.toFixed(2) + '" stroke="' + color + '" stroke-width="1"/>');
+      parts.push('<rect x="' + (x - bodyW/2).toFixed(2) + '" y="' + bodyTop.toFixed(2) + '" width="' + bodyW.toFixed(2) + '" height="' + bodyH.toFixed(2) + '" fill="' + color + '"/>');
     });
-    // Header — derive 2-letter logo abbreviation, plumb ticker into the
-    // cockpit. Other fields (name, volume, rel-vol, price, change) stay on
-    // the OPAD demo data until Step 3b wires live quotes.
+
+    // Current price tag (last candle close)
+    var lastClose = Number(candles[n-1].close ?? candles[n-1].c);
+    var yLast = yAt(lastClose);
+    parts.push('<rect x="' + (W - PAD_R - 6) + '" y="' + (yLast - 7).toFixed(2) + '" width="36" height="14" fill="#22c55e" rx="2"/>');
+    parts.push('<text x="' + (W - PAD_R + 12) + '" y="' + (yLast + 3).toFixed(2) + '" fill="#fff" font-size="9" text-anchor="middle" font-weight="700">' + lastClose.toFixed(2) + '</text>');
+
+    // Y-axis labels at min / mid / max (using actual data range, not padded)
+    var midPrice = (pMin + pMax) / 2;
+    parts.push('<text x="' + (PAD_L - 6) + '" y="' + (PAD_T + 5) + '" fill="#9ca3af" font-size="9" text-anchor="end">$' + pMax.toFixed(2) + '</text>');
+    parts.push('<text x="' + (PAD_L - 6) + '" y="' + (PAD_T + plotH/2 + 3) + '" fill="#9ca3af" font-size="9" text-anchor="end">$' + midPrice.toFixed(2) + '</text>');
+    parts.push('<text x="' + (PAD_L - 6) + '" y="' + (PAD_T + plotH - 3) + '" fill="#9ca3af" font-size="9" text-anchor="end">$' + pMin.toFixed(2) + '</text>');
+
+    svg.innerHTML = parts.join('');
+    svg.dataset.lastClose = lastClose;
+    svg.dataset.padL = PAD_L;
+    svg.dataset.padR = PAD_R;
+    svg.dataset.plotW = plotW;
+  }
+
+  function _oaiRenderVolBars(candles) {
+    var el = document.getElementById('oai-vol-bars');
+    if (!el || !candles || !candles.length) return;
+    var last = candles.slice(-30);
+    var vols = last.map(function(c){ return Number(c.volume ?? c.v ?? 0); });
+    var maxV = Math.max.apply(null, vols) || 1;
+    var maxIdx = vols.indexOf(maxV);
+    el.innerHTML = vols.map(function(v, i) {
+      var h = Math.max(2, (v / maxV) * 100);
+      var cls = i === maxIdx ? 'vb vb--o' : 'vb';
+      return '<div class="' + cls + '" style="height:' + h.toFixed(1) + '%;"></div>';
+    }).join('');
+  }
+
+  function _oaiUpdateHeader(sym, payload) {
     var logoEl = document.getElementById('oai-sym-logo');
     if (logoEl) logoEl.textContent = sym.slice(0, 2);
     var tkEl = document.getElementById('oai-sym-ticker');
     if (tkEl) tkEl.textContent = sym;
     var nmEl = document.getElementById('oai-sym-name');
-    if (nmEl) nmEl.textContent = 'Live name pending Step 3b';
+    if (nmEl) nmEl.textContent = payload.name || 'Loading…';
+
+    var price = payload.price;
+    var pxEl = document.getElementById('oai-sym-price');
+    if (pxEl) pxEl.textContent = (price != null && !isNaN(price)) ? _oaiFmtMoney(price) : '—';
+
+    var chgEl = document.getElementById('oai-sym-change');
+    if (chgEl) {
+      if (price != null && payload.prev_close != null) {
+        var dollarChg = price - payload.prev_close;
+        var pctChg = Number(payload.change_pct || 0);
+        var sign = dollarChg >= 0 ? '+' : '';
+        chgEl.textContent = sign + dollarChg.toFixed(2) + ' (' + sign + pctChg.toFixed(2) + '%)';
+        chgEl.classList.toggle('up', dollarChg >= 0);
+      } else {
+        chgEl.textContent = '—';
+      }
+    }
+
+    var volEl = document.getElementById('oai-sym-vol');
+    if (volEl) volEl.textContent = _oaiFmtVol(payload.todayVol);
+
+    var rvEl = document.getElementById('oai-sym-rv');
+    if (rvEl) {
+      rvEl.textContent = (payload.relVol != null && !isNaN(payload.relVol))
+        ? 'Rel Vol ' + payload.relVol.toFixed(2)
+        : 'Rel Vol —';
+    }
+  }
+
+  function _oaiSetLoadingState(sym) {
+    _oaiUpdateHeader(sym, { name: 'Loading…', price: null, prev_close: null, todayVol: null, relVol: null });
+    var svg = document.getElementById('oai-chart-svg');
+    if (svg) svg.innerHTML = '<text x="290" y="140" fill="#6b7280" font-size="14" text-anchor="middle">Loading ' + sym + ' chart…</text>';
+  }
+
+  function _oaiPlotEarningsLine(sym, earnings) {
+    /* Plot vertical gold "E" line at right edge of chart if earnings is
+       within next 14 days. Past earnings dates aren't available in current
+       endpoints (chart-data.earnings_dates is declared but never populated
+       — backend bug to bank). */
+    if (!earnings || !earnings.length) return;
+    var hit = earnings.find(function(e){ return e.symbol === sym; });
+    if (!hit) return;
+    var svg = document.getElementById('oai-chart-svg');
+    if (!svg) return;
+    var W = 580, H = 280, PAD_R = Number(svg.dataset.padR || 30);
+    // Position line at right edge minus a small inset since earnings is future
+    var x = W - PAD_R - 6;
+    var line = '<line x1="' + x + '" y1="20" x2="' + x + '" y2="260" stroke="#fbbf24" stroke-width="2" opacity="0.7"/>' +
+               '<text x="' + x + '" y="278" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">E</text>';
+    svg.insertAdjacentHTML('beforeend', line);
+    // Update note line with earnings info
+    var note = document.querySelector('#oai-view-symbol-focus .oai-sym-note');
+    if (note && hit.days_until != null) {
+      note.textContent = sym + ' earnings in ' + hit.days_until + ' day' + (hit.days_until === 1 ? '' : 's') +
+        ' (' + (hit.date || '') + ' ' + (hit.timing || '') + '). AI projected line + BUY/SELL marker + monthly inset ship in Step 3b.2.';
+    }
+  }
+
+  window.oaiFocusSymbol = function(sym) {
+    if (!sym) return;
+    sym = String(sym).toUpperCase();
+    // Switch sub-view tab
+    document.querySelectorAll('#oai-subview-tabs .oai-sti').forEach(function(t) {
+      t.classList.toggle('on', t.dataset.view === 'symbol-focus');
+    });
+    document.querySelectorAll('#section-ollie-ai .oai-view').forEach(function(v) {
+      v.style.display = v.id === 'oai-view-symbol-focus' ? '' : 'none';
+    });
+
+    var token = (_oaiSymInflight = Symbol(sym));
+    _oaiSetLoadingState(sym);
+
+    // Parallel fetch: price + fundamentals + 90-day daily candles
+    var pPrice = fetch('/api/price/' + sym).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var pFund  = fetch('/api/fundamentals/' + sym).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var pChart = fetch('/api/chart-data?symbol=' + sym + '&timeframe=1Day&bars=90').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var pEarn  = fetch('/api/earnings/countdown?days=14').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+
+    Promise.all([pPrice, pFund, pChart, pEarn]).then(function(res) {
+      if (token !== _oaiSymInflight) return;  // stale — user clicked a different symbol
+      var priceR = res[0] || {};
+      var fundR  = res[1] || {};
+      var chartR = res[2] || {};
+      var earnR  = res[3] || {};
+
+      var candles = chartR.candles || [];
+      var todayBar = candles[candles.length - 1] || {};
+      var todayVol = Number(todayBar.volume ?? todayBar.v ?? 0);
+
+      // Rel-vol: today_vol / mean(prior 30 bars, excluding today)
+      var relVol = null;
+      if (candles.length >= 2) {
+        var prior = candles.slice(Math.max(0, candles.length - 31), candles.length - 1);
+        var vols = prior.map(function(c){ return Number(c.volume ?? c.v ?? 0); }).filter(function(v){ return v > 0; });
+        if (vols.length) {
+          var avg = vols.reduce(function(a,b){ return a+b; }, 0) / vols.length;
+          if (avg > 0) relVol = todayVol / avg;
+        }
+      }
+
+      _oaiUpdateHeader(sym, {
+        name: fundR.company_name || sym,
+        price: priceR.price,
+        prev_close: priceR.prev_close,
+        change_pct: priceR.change_pct,
+        todayVol: todayVol,
+        relVol: relVol,
+      });
+      _oaiRenderSvg(sym, candles);
+      _oaiRenderVolBars(candles);
+      _oaiPlotEarningsLine(sym, (earnR && earnR.earnings) || []);
+    });
   };
 
   /* Action bar stub — Trade Ticket / Flatten / ½ / Double / Reverse.

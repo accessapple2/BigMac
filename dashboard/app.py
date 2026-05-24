@@ -7654,6 +7654,44 @@ def risk_levels_symbol(symbol: str):
     return get_levels_for_symbol(symbol.upper(), prices)
 
 
+@app.get("/api/trade-levels/{symbol}")
+def trade_levels_proxy(symbol: str):
+    """HM-OLLIE-AI-STEP-3B1 2026-05-23: dashboard-side proxy to signal-center's
+    trade-levels endpoint. Signal-center runs on 127.0.0.1:9000 and the
+    browser can't reach it cross-origin from bridge.ollietrades.com (port
+    8080); proxy here so Symbol Focus cockpit can render AI projected
+    entry/stop/target levels (the dashed 'AI' line + BUY/SELL marker per
+    v4.3 spec L375-439).
+
+    Upstream shape:
+      {price, atr, regime, recommendation, support, resistance,
+       gex:{gamma_flip, put_wall, call_wall},
+       long:{entry_lo, entry_hi, stop_loss, tp1, tp2, tp3, rr, sl_pct, tp2_pct},
+       short:{...}}
+
+    Returns 502 + {error} on upstream failure so the frontend can render a
+    graceful fallback instead of mistakenly rendering stale levels.
+    """
+    import requests as _req
+    try:
+        r = _req.get(
+            f"http://127.0.0.1:9000/api/trade-levels/{symbol.upper()}",
+            timeout=5,
+        )
+        if r.status_code != 200:
+            return JSONResponse(
+                status_code=502,
+                content={"error": f"signal-center HTTP {r.status_code}", "symbol": symbol.upper()},
+            )
+        return r.json()
+    except Exception as e:
+        console.log(f"[yellow]/api/trade-levels/{symbol.upper()}: {type(e).__name__}: {e!r}[/yellow]")
+        return JSONResponse(
+            status_code=502,
+            content={"error": f"signal-center unreachable: {type(e).__name__}", "symbol": symbol.upper()},
+        )
+
+
 # --- Strategy Race ---
 
 @app.get("/api/strategy-race")
