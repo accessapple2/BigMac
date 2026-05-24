@@ -220,13 +220,30 @@ drop into `~/autonomous-trader/docs/design/` before continuing.
 
 **Shipped to date:**
 - Step 1 (commit `23d42be`, 2026-05-23) — sidebar 🧠 Ollie AI nav with purple NEW badge + empty `section-ollie-ai` shell.
+- Step 2 v4.3 (commit `fb1e7b1`, 2026-05-23) — Concept 5 Workspace sub-view per v4.3 spec L310-374:
+  Idea Surfing badge, 6-tab sub-view bar, 8-cell Channel Bar, SPDR sectors + Halts row,
+  dual races, movers histogram + Top List Config. Smoke passed.
 
-**Step 2 status (uncommitted):**
-- First pass at `dashboard/static/index.html` L9551–L9921 against v4.2 verbal spec
-  (Channel Bar + dual races + sector tiles + Top List filter + Halts feed + Movers ribbon).
-- Wired to `/api/stock-race`, `/api/sectors/heatmap`, `/api/movers`. Halts is fixture
-  pending live wire.
-- **Needs v4.3 review before commit** — layout/visual specifics not yet aligned.
+**Step 2 follow-ups (banked 2026-05-23 post-smoke):**
+
+1. **HM-OLLIE-AI-MOVERS-FIXTURE** — Movers histogram renders "No movers" when
+   `/api/movers` returns empty (off-hours, cold cache, or stale-filter excludes all
+   rows). Same path also leaves Idea Surfing queue empty. Wire fixture fallback
+   when `j.movers.length === 0`. Same fixture pattern as Halts feed. Priority: LOW.
+2. **HM-OLLIE-AI-SECTION-ISOLATION** — Portfolio Value + Sector Allocation panels
+   from `section-webull` (index.html L6354 region) bleed through above the Workspace
+   when viewing `section-ollie-ai`. Persisted across v4.2-pass AND v4.3 rewrite even
+   with `min-height:calc(100vh - 120px)` + opaque `background:#05080d` on the section
+   wrapper. Diagnosis hypothesis: orphan `.card` elements between `section-ollie`
+   close (L8746) and `section-ollie-ai` open (~L9558) OR a section's `display`
+   style being overridden by JS elsewhere. Browser DevTools required — read
+   `showSection()` flow + scan computed styles in production. Priority: MEDIUM.
+3. **HM-OLLIE-AI-SURF-ANIM** — Idea Surfing countdown ring stays static; the
+   `conic-gradient(--surf-deg)` CSS-var update from JS every 100ms isn't repainting
+   the ring. Likely either: (a) conic-gradient with var() not re-evaluating on var
+   change in Safari, OR (b) need to use `@property --surf-deg { syntax:'<angle>'; }`
+   for animatable custom property, OR (c) swap to SVG arc/stroke-dashoffset for
+   guaranteed cross-browser. Priority: LOW (cosmetic).
 
 ### Accessapple rebrand cleanup sprint
 **Verified count: 22 references across 6 files** (down from claimed 24):
