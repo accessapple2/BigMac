@@ -9938,6 +9938,17 @@ document.addEventListener('keydown', function(e) {
         <button class="oai-btn" onclick="oaiAction('reverse')">Reverse</button>
       </div>
 
+      <!-- HM-OAI-SYMBOL-FOCUS-TIMEFRAMES 2026-05-24: tab strip above chart.
+           10m via 5m × 2 client-side aggregation; D/W/M map to native
+           yfinance intervals (1d / 1wk / 1mo). Default D on symbol pick;
+           cache per (symbol, tf) for instant tab switch. -->
+      <div class="oai-tf-tabs" id="oai-tf-tabs">
+        <button class="oai-tf" data-tf="10m" onclick="oaiPickTimeframe('10m')">10m</button>
+        <button class="oai-tf on" data-tf="D" onclick="oaiPickTimeframe('D')">D</button>
+        <button class="oai-tf" data-tf="W" onclick="oaiPickTimeframe('W')">W</button>
+        <button class="oai-tf" data-tf="M" onclick="oaiPickTimeframe('M')">M</button>
+      </div>
+
       <!-- Main chart (Step 3a static SVG; Step 3b.1 swaps to dynamic
            candles from /api/chart-data when oaiFocusSymbol fires) -->
       <div class="oai-chart">
@@ -10727,6 +10738,15 @@ document.addEventListener('keydown', function(e) {
 #section-ollie-ai .oai-vol .vb.vb--o { background:#f59e0b; }
 #section-ollie-ai .oai-sym-note { font-size:11px; color:var(--text-dim); margin-top:12px; padding:8px 10px; background:var(--panel-2); border-radius:4px; border-left:3px solid #fbbf24; line-height:1.5; }
 
+/* ───── HM-OAI-SYMBOL-FOCUS-TIMEFRAMES — TF tab strip ───── */
+#section-ollie-ai .oai-tf-tabs { display:flex; gap:4px; margin:8px 0; }
+#section-ollie-ai .oai-tf { padding:5px 12px; background:var(--panel-2); color:var(--text-dim); border:1px solid var(--border); border-radius:4px; font-size:11px; font-weight:700; letter-spacing:.4px; font-family:var(--font-mono); cursor:pointer; user-select:none; transition:filter .12s, border-color .12s, color .12s; }
+#section-ollie-ai .oai-tf:hover { color:#fbbf24; border-color:#fbbf24; }
+#section-ollie-ai .oai-tf.on { background:var(--panel); color:#fbbf24; border-color:#fbbf24; }
+#section-ollie-ai .oai-tf.oai-tf--busy { opacity:0.6; cursor:wait; pointer-events:none; }
+[data-theme="light"] #section-ollie-ai .oai-tf { background:#f0f2f5 !important; color:#475569 !important; border-color:#d1d5db !important; }
+[data-theme="light"] #section-ollie-ai .oai-tf.on { background:#fef3c7 !important; color:#b45309 !important; border-color:#d97706 !important; }
+
 /* ───── Step 3c — confirmation modal + toast container ───── */
 #section-ollie-ai .oai-modal { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:20px; }
 #section-ollie-ai .oai-modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(2px); }
@@ -11132,8 +11152,9 @@ document.addEventListener('keydown', function(e) {
 
     var parts = [];
 
-    // --- Watermark ---
-    parts.push('<text x="' + (W/2) + '" y="' + (H/2) + '" fill="#1f2937" font-size="48" font-weight="800" text-anchor="middle" opacity="0.5">' + sym + ' · D</text>');
+    // --- Watermark (HM-OAI-SYMBOL-FOCUS-TIMEFRAMES: TF threaded via extras) ---
+    var _wmTf = (extras && extras.tf) ? extras.tf : 'D';
+    parts.push('<text x="' + (W/2) + '" y="' + (H/2) + '" fill="#1f2937" font-size="48" font-weight="800" text-anchor="middle" opacity="0.5">' + sym + ' · ' + _wmTf + '</text>');
 
     // --- Supply / Demand zones (synthesized from levels.resistance/support
     //     and ATR — gold above price = supply, blue below price = demand) ---
@@ -11377,6 +11398,130 @@ document.addEventListener('keydown', function(e) {
     }
   }
 
+  /* HM-OAI-SYMBOL-FOCUS-TIMEFRAMES — TF state + helpers.
+     Per-(symbol, tf) candle cache. Extras (battle_station, levels,
+     earnings) are TF-agnostic and stored once per symbol; chart
+     re-renders against current TF on tab click. */
+  var _oaiSfTf = {
+    currentSym: null,    // last symbol picked
+    currentTf: 'D',      // active TF tab
+    candles: {},         // key: SYM_TF → candles array
+    extras: {},          // key: SYM → { battleStation, levels, earnings }
+    fetching: {},        // key: SYM_TF → in-flight Promise (dedup)
+  };
+
+  // yfinance interval map per TF tab + tuned days for usable bar count
+  var _OAI_TF_FETCH = {
+    '10m': { interval: '5m',  days: 2   },  // aggregated 2:1 client-side → ~78 bars
+    'D'  : { interval: '1d',  days: 90  },
+    'W'  : { interval: '1wk', days: 365 },
+    'M'  : { interval: '1mo', days: 1500 },
+  };
+
+  function _oaiAggregate5mTo10m(candles) {
+    /* Pairs consecutive 5m bars into 10m bars:
+         open = first.open · close = second.close
+         high = max(both)  · low  = min(both)
+         volume = sum(both)
+         time  = first.time (canonical "bucket start")
+       If the array has an odd length, the trailing 5m bar is kept as a
+       partial 10m bar (open=last.open, close=last.close, etc.) so the
+       chart still includes the most-recent print. */
+    var out = [];
+    if (!candles || !candles.length) return out;
+    for (var i = 0; i < candles.length; i += 2) {
+      var a = candles[i];
+      var b = candles[i + 1];
+      if (!b) {
+        out.push({
+          time: a.time, open: a.open, close: a.close,
+          high: a.high, low: a.low, volume: Number(a.volume || 0),
+        });
+        break;
+      }
+      out.push({
+        time: a.time,
+        open: a.open,
+        close: b.close,
+        high: Math.max(Number(a.high), Number(b.high)),
+        low:  Math.min(Number(a.low),  Number(b.low)),
+        volume: Number(a.volume || 0) + Number(b.volume || 0),
+      });
+    }
+    return out;
+  }
+
+  async function _oaiSfFetchTfCandles(sym, tf) {
+    /* Returns Promise<candles[]> for (sym, tf). Hits cache if available;
+       otherwise fetches /api/charts/ohlcv with TF-mapped params. For
+       '10m' aggregates 5m bars 2:1 client-side. Dedup concurrent
+       requests per (sym, tf). */
+    var key = sym + '_' + tf;
+    if (_oaiSfTf.candles[key]) return _oaiSfTf.candles[key];
+    if (_oaiSfTf.fetching[key]) return _oaiSfTf.fetching[key];
+    var cfg = _OAI_TF_FETCH[tf];
+    if (!cfg) return [];
+    var p = fetch('/api/charts/ohlcv?symbol=' + encodeURIComponent(sym) + '&interval=' + cfg.interval + '&days=' + cfg.days)
+      .then(function(r){ return r.ok ? r.json() : []; })
+      .catch(function(){ return []; })
+      .then(function(raw) {
+        if (!Array.isArray(raw)) raw = [];
+        var candles = (tf === '10m') ? _oaiAggregate5mTo10m(raw) : raw;
+        _oaiSfTf.candles[key] = candles;
+        delete _oaiSfTf.fetching[key];
+        return candles;
+      });
+    _oaiSfTf.fetching[key] = p;
+    return p;
+  }
+
+  function _oaiSfRenderForTf() {
+    /* Re-render chart + sym-note watermark for current (sym, tf). Uses
+       cached extras (battleStation + levels) which are TF-agnostic.
+       Empty-state if no candles cached yet. */
+    var sym = _oaiSfTf.currentSym;
+    var tf  = _oaiSfTf.currentTf;
+    if (!sym) return;
+    var candles = _oaiSfTf.candles[sym + '_' + tf] || [];
+    var extras  = _oaiSfTf.extras[sym] || {};
+    if (!candles.length) {
+      var svg = document.getElementById('oai-chart-svg');
+      if (svg) {
+        svg.innerHTML = '<text x="290" y="140" fill="#6b7280" font-size="14" text-anchor="middle">No ' + tf + ' candle data for ' + sym + '</text>';
+      }
+      return;
+    }
+    _oaiRenderSvg(sym, candles, {
+      levels: extras.levels,
+      battleStation: extras.battleStation,
+      tf: tf,
+    });
+    _oaiRenderVolBars(candles);
+  }
+
+  function _oaiSfSetTfTab(tf) {
+    document.querySelectorAll('#oai-tf-tabs .oai-tf').forEach(function(b) {
+      b.classList.toggle('on', b.dataset.tf === tf);
+    });
+  }
+
+  window.oaiPickTimeframe = async function(tf) {
+    if (!_OAI_TF_FETCH[tf]) return;
+    var sym = _oaiSfTf.currentSym;
+    if (!sym) { _oaiSfSetTfTab(tf); _oaiSfTf.currentTf = tf; return; }
+    _oaiSfTf.currentTf = tf;
+    _oaiSfSetTfTab(tf);
+    // Keep previous chart visible during fetch (no loading scrim)
+    var btn = document.querySelector('#oai-tf-tabs .oai-tf[data-tf="' + tf + '"]');
+    if (btn) btn.classList.add('oai-tf--busy');
+    try {
+      await _oaiSfFetchTfCandles(sym, tf);
+      _oaiSfRenderForTf();
+    } finally {
+      if (btn) btn.classList.remove('oai-tf--busy');
+    }
+  };
+
   window.oaiFocusSymbol = function(sym) {
     if (!sym) return;
     sym = String(sym).toUpperCase();
@@ -11388,11 +11533,17 @@ document.addEventListener('keydown', function(e) {
       v.style.display = v.id === 'oai-view-symbol-focus' ? '' : 'none';
     });
 
+    // HM-OAI-SYMBOL-FOCUS-TIMEFRAMES: reset TF to D on symbol switch.
+    // Clear caches for new symbol (extras change per symbol; candles
+    // keyed per (sym,tf) so old symbol's caches don't pollute).
+    _oaiSfTf.currentSym = sym;
+    _oaiSfTf.currentTf  = 'D';
+    _oaiSfSetTfTab('D');
+
     var token = (_oaiSymInflight = Symbol(sym));
     _oaiSetLoadingState(sym);
 
-    // Step 3b.2: 6 parallel fetches now —
-    //   pPrice / pFund / pChart (90-day) / pEarn / pLevels / pMonthly (750-day)
+    // 6 parallel fetches (Step 3b.2 baseline):
     var pPrice   = fetch('/api/price/' + sym).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
     var pFund    = fetch('/api/fundamentals/' + sym).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
     var pChart   = fetch('/api/chart-data?symbol=' + sym + '&timeframe=1Day&bars=90').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
@@ -11433,13 +11584,19 @@ document.addEventListener('keydown', function(e) {
         relVol: relVol,
       });
 
-      // Step 3b.2: pass levels + battle_station into the SVG renderer so
-      // it draws zones + BS overlay lines + AI dashed line + BUY/SELL marker.
-      // levelsR has {error} key on proxy 502 — treat as null in that case.
+      // Cache D candles + extras into TF state so tab switches reuse them
       var safeLevels = (levelsR && !levelsR.error) ? levelsR : null;
+      _oaiSfTf.candles[sym + '_D'] = candles;
+      _oaiSfTf.extras[sym] = {
+        levels: safeLevels,
+        battleStation: chartR.battle_station || null,
+        earnings: (earnR && earnR.earnings) || [],
+      };
+
       _oaiRenderSvg(sym, candles, {
         levels: safeLevels,
         battleStation: chartR.battle_station || null,
+        tf: 'D',
       });
       _oaiRenderVolBars(candles);
       _oaiPlotEarningsLine(sym, (earnR && earnR.earnings) || []);
