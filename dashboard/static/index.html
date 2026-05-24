@@ -102,9 +102,14 @@ body { font-size: 14px; }
 
 :root {
   --bg: #0a0e17;
+  --bg-elevated: #0a0e14;
+  --panel: #0a0e14;
+  --panel-2: #1a2236;
   --surface: #111827;
   --surface2: #1a2236;
   --border: #1e2a3a;
+  --text-dim: #94a3b8;
+  --shadow: rgba(0,0,0,0.4);
   --accent: #00d4aa;
   --accent2: #7c4dff;
   --accent3: #ff9800;
@@ -120,26 +125,35 @@ body { font-size: 14px; }
   --font-mono: 'DM Mono', monospace;
 }
 
-/* Light theme */
+/* Light theme — HM-LIGHT-MODE-FIX 2026-05-23: user-prescribed root-cause fix.
+   Variables override dark defaults. Cascade covers any element using var()
+   for bg / panel / border / text / shadow. */
 [data-theme="light"] {
-  --bg: #f1f5f9;
+  --bg: #f5f7fa;
+  --bg-elevated: #ffffff;
+  --panel: #ffffff;
+  --panel-2: #f0f2f5;
   --surface: #ffffff;
-  --surface2: #f1f5f9;
-  --border: #cbd5e1;
+  --surface2: #e2e8f0;
+  --border: #d1d5db;
   --accent: #2563eb;
   --accent2: #7c3aed;
   --accent3: #ea580c;
   --red: #ea580c;
   --green: #2563eb;
-  --text: #0f172a;
+  --text: #1a1f2e;
+  --text-dim: #4a5365;
   --muted: #334155;
+  --shadow: rgba(0,0,0,0.08);
   --nav-bg: #0f172a;
-  --sidebar-bg: #f8fafc;
+  --sidebar-bg: #ffffff;
   --input-bg: #f8fafc;
 }
+/* User-prescribed explicit body + sidebar overrides */
+[data-theme="light"] body { background: #f5f7fa; color: #1a1f2e; }
+[data-theme="light"] .sidebar { background: #ffffff; border-right: 1px solid #d1d5db; }
 [data-theme="light"] .nav { background: var(--nav-bg); }
-/* Light sidebar — clean light gray with readable text */
-[data-theme="light"] .sidebar { background: #f8fafc; border-right: 1px solid #e2e8f0; }
+/* Light sidebar — uses user-prescribed --sidebar-bg + #d1d5db border (L154 above) */
 [data-theme="light"] .sidebar-item { color: #1e293b; font-size: 15px; }
 [data-theme="light"] .sidebar-item.active { background: #dbeafe; color: #1d4ed8; font-weight: 600; }
 [data-theme="light"] .sidebar-item:hover { background: #e2e8f0; color: #0f172a; }
@@ -177,12 +191,26 @@ body { font-size: 14px; }
 [data-theme="light"] [style*="rgba(37,99,235,0.06)"] strong,
 [data-theme="light"] [style*="rgba(37,99,235,0.08)"] b,
 [data-theme="light"] [style*="rgba(37,99,235,0.08)"] strong { color: #0f172a !important; }
-/* Flip hardcoded light colors */
+/* Flip hardcoded light text colors — covers ~290 inline sites across 12
+   headline sections (slate-200..400 + custom grays + Tailwind gray-200..400).
+   These cause the ~1.1:1 contrast on 565 light-mode cards when light text
+   lands on the new --panel/--bg-elevated white backgrounds. */
 [data-theme="light"] [style*="color:#f1f5f9"],[data-theme="light"] [style*="color: #f1f5f9"],
 [data-theme="light"] [style*="color:#cbd5e1"],[data-theme="light"] [style*="color: #cbd5e1"],
 [data-theme="light"] [style*="color:#e2e8f0"],[data-theme="light"] [style*="color: #e2e8f0"],
+[data-theme="light"] [style*="color:#e5e7eb"],[data-theme="light"] [style*="color: #e5e7eb"],
+[data-theme="light"] [style*="color:#d9d9d9"],[data-theme="light"] [style*="color: #d9d9d9"],
+[data-theme="light"] [style*="color:#d1d5db"],[data-theme="light"] [style*="color: #d1d5db"],
 [data-theme="light"] [style*="color:#94a3b8"],[data-theme="light"] [style*="color: #94a3b8"],
+[data-theme="light"] [style*="color:#9ca3af"],[data-theme="light"] [style*="color: #9ca3af"],
+[data-theme="light"] [style*="color:#8b919c"],[data-theme="light"] [style*="color: #8b919c"],
+[data-theme="light"] [style*="color:#64748b"],[data-theme="light"] [style*="color: #64748b"],
 [data-theme="light"] [style*="color:#93c5fd"],[data-theme="light"] [style*="color: #93c5fd"] { color: #334155 !important; }
+/* Bold variants of light text need darker still */
+[data-theme="light"] [style*="color:#fff"]:not([style*="background"]),
+[data-theme="light"] [style*="color: #fff"]:not([style*="background"]),
+[data-theme="light"] [style*="color:#ffffff"]:not([style*="background"]),
+[data-theme="light"] [style*="color: #ffffff"]:not([style*="background"]) { color: #1a1f2e !important; }
 /* rgba white borders */
 [data-theme="light"] [style*="rgba(255,255,255"] { border-color: rgba(0,0,0,0.08) !important; }
 /* Mono font text — exclude .fleet-pnl so its positive/negative colors are not overridden */
@@ -200,6 +228,176 @@ body { font-size: 14px; }
 [data-theme="light"] #section-rikers-log [style*="monospace"],
 [data-theme="light"] #section-rikers-log pre,
 [data-theme="light"] #section-rikers-log code { color: #1e293b !important; background: #f1f5f9 !important; }
+
+/* ───────── HM-LIGHT-MODE-FIX 2026-05-23 ─────────
+   Global override forcing body/html light regardless of cascade order.
+   Sweeps hardcoded dark hex backgrounds via attribute-selectors so sections
+   that bypass the var(--bg) / var(--surface) system still respond to theme.
+   Specifically flips section-ollie-ai (v4.3 design uses hardcoded #05080d
+   / #0a0e14 / #1f2937 by spec — those need explicit light overrides). */
+
+[data-theme="light"] html,
+[data-theme="light"] body {
+  background: #f5f7fa !important;
+  color: #1a1f2e !important;
+}
+[data-theme="light"] .layout,
+[data-theme="light"] .main { background: #f5f7fa !important; }
+
+/* Sweep — flip inline hardcoded dark hex backgrounds to white panel.
+   Caught with [style*=] attribute selectors; covers both `#xxx` and `# xxx`
+   spacing variants used across 12 Tier-1 sections. */
+[data-theme="light"] [style*="background:#0a0e17"],
+[data-theme="light"] [style*="background: #0a0e17"],
+[data-theme="light"] [style*="background:#0a0e14"],
+[data-theme="light"] [style*="background: #0a0e14"],
+[data-theme="light"] [style*="background:#05080d"],
+[data-theme="light"] [style*="background: #05080d"],
+[data-theme="light"] [style*="background:#0d1117"],
+[data-theme="light"] [style*="background: #0d1117"],
+[data-theme="light"] [style*="background:#0f172a"],
+[data-theme="light"] [style*="background: #0f172a"],
+[data-theme="light"] [style*="background:#111827"],
+[data-theme="light"] [style*="background: #111827"],
+[data-theme="light"] [style*="background:#1a2236"],
+[data-theme="light"] [style*="background:#1f2937"],
+[data-theme="light"] [style*="background: #1f2937"] {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+  color: #1a1f2e !important;
+}
+
+/* Inline hardcoded dark borders (very common in v4.3 ollie-ai) */
+[data-theme="light"] [style*="border:1px solid #1f2937"],
+[data-theme="light"] [style*="border: 1px solid #1f2937"],
+[data-theme="light"] [style*="border:1px solid #1e2a3a"],
+[data-theme="light"] [style*="border: 1px solid #1e2a3a"] {
+  border-color: #cbd5e1 !important;
+}
+
+/* section-ollie-ai — v4.3 design is intentionally dark-spec; light-mode
+   override flips wrapper + inner panels via scoped selectors so the
+   namespace doesn't fight the global sweep above. */
+[data-theme="light"] #section-ollie-ai {
+  background: #f5f7fa !important;
+  color: #1a1f2e !important;
+}
+[data-theme="light"] #section-ollie-ai .oai-page-head,
+[data-theme="light"] #section-ollie-ai .oai-sti,
+[data-theme="light"] #section-ollie-ai .oai-ch-bar,
+[data-theme="light"] #section-ollie-ai .oai-ch,
+[data-theme="light"] #section-ollie-ai .oai-sec,
+[data-theme="light"] #section-ollie-ai .oai-race-box,
+[data-theme="light"] #section-ollie-ai .oai-race-h,
+[data-theme="light"] #section-ollie-ai .oai-race-row,
+[data-theme="light"] #section-ollie-ai .oai-tile,
+[data-theme="light"] #section-ollie-ai .oai-placeholder {
+  background: #ffffff !important;
+  border-color: #cbd5e1 !important;
+}
+[data-theme="light"] #section-ollie-ai .oai-pt,
+[data-theme="light"] #section-ollie-ai .oai-sec-h,
+[data-theme="light"] #section-ollie-ai .oai-race-t,
+[data-theme="light"] #section-ollie-ai .oai-placeholder h3,
+[data-theme="light"] #section-ollie-ai .oai-sti.on,
+[data-theme="light"] #section-ollie-ai .oai-ch.on { color: #b45309 !important; }
+[data-theme="light"] #section-ollie-ai .oai-sti.on,
+[data-theme="light"] #section-ollie-ai .oai-ch.on { background: #fef3c7 !important; border-color: #d97706 !important; }
+[data-theme="light"] #section-ollie-ai .oai-ps,
+[data-theme="light"] #section-ollie-ai .oai-sec-meta,
+[data-theme="light"] #section-ollie-ai .oai-surf-lbl,
+[data-theme="light"] #section-ollie-ai .oai-surf-next,
+[data-theme="light"] #section-ollie-ai .oai-sti,
+[data-theme="light"] #section-ollie-ai .oai-ch,
+[data-theme="light"] #section-ollie-ai .oai-tile span,
+[data-theme="light"] #section-ollie-ai .oai-kv span,
+[data-theme="light"] #section-ollie-ai .oai-race-row .rd,
+[data-theme="light"] #section-ollie-ai .oai-placeholder p,
+[data-theme="light"] #section-ollie-ai .oai-hist-labels { color: #475569 !important; }
+[data-theme="light"] #section-ollie-ai .oai-tile b,
+[data-theme="light"] #section-ollie-ai .oai-kv b,
+[data-theme="light"] #section-ollie-ai .oai-race-row .rt,
+[data-theme="light"] #section-ollie-ai .oai-race-row .rv,
+[data-theme="light"] #section-ollie-ai .oai-sig,
+[data-theme="light"] #section-ollie-ai .oai-surf-cur { color: #1a1f2e !important; }
+[data-theme="light"] #section-ollie-ai .oai-surf { background: #fef3c7 !important; border-color: #d97706 !important; }
+[data-theme="light"] #section-ollie-ai .oai-tile.up { background: #ecfdf5 !important; border-color: #22c55e !important; }
+[data-theme="light"] #section-ollie-ai .oai-tile.dn { background: #fef2f2 !important; border-color: #ef4444 !important; }
+[data-theme="light"] #section-ollie-ai .oai-race-row.lead { background: linear-gradient(90deg, rgba(34,197,94,.18), rgba(34,197,94,.04) 70%, transparent) !important; }
+
+/* section-model-control — Global Controls bar, RAM widget, and Models
+   table card backgrounds need explicit flip because JS at L17624+ writes
+   inline background:#78350f (dark amber for FALLBACK states) directly via
+   element.style.background. Browsers normalize that to rgb(120,53,15) on
+   serialization, so [style*="#78350f"] attribute selectors don't match
+   reliably — must target by id/scoped descendants. */
+[data-theme="light"] #section-model-control { background: #f5f7fa !important; }
+[data-theme="light"] #section-model-control .card {
+  background: #ffffff !important;
+  color: #1a1f2e !important;
+  border: 1px solid #d1d5db !important;
+}
+[data-theme="light"] #section-model-control h2,
+[data-theme="light"] #section-model-control h3 { color: #1a1f2e !important; }
+[data-theme="light"] #section-model-control table tr { background: transparent !important; }
+[data-theme="light"] #section-model-control table thead tr {
+  background: #f0f2f5 !important;
+}
+[data-theme="light"] #section-model-control table td,
+[data-theme="light"] #section-model-control table th {
+  color: #1a1f2e !important;
+  border-color: #e2e8f0 !important;
+}
+/* JS-set FALLBACK pills + the FALLBACKS ON top button — flip the dark amber
+   #78350f to a light amber chip readable on white. */
+[data-theme="light"] #section-model-control button[onclick*="togglePausePlayer"],
+[data-theme="light"] #section-model-control #mc-fallbacks-btn {
+  /* default: don't trample JS-applied colors, but ensure border is visible */
+  border-color: #d1d5db !important;
+}
+[data-theme="light"] #section-model-control button[style*="rgb(120, 53, 15)"],
+[data-theme="light"] #section-model-control button[style*="rgb(120,53,15)"],
+[data-theme="light"] #section-model-control button[style*="#78350f"] {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+  border: 1px solid #d97706 !important;
+}
+/* JS-set status pills using rgba colored tints — leave bg, force text contrast */
+[data-theme="light"] #section-model-control button[style*="rgba(239,68,68"] { color: #b91c1c !important; }
+[data-theme="light"] #section-model-control button[style*="rgba(37,99,235"] { color: #1d4ed8 !important; }
+/* JS-set PAUSE/RESUME button (var(--green) blue in light + white text — already OK)
+   and FALLBACKS OFF (var(--surface2) light gray bg + var(--muted) dark text — OK).
+   No override needed for those, var system carries them. */
+/* Inline FALLBACK badge in model name cell uses background:#78350f via inline style */
+[data-theme="light"] #section-model-control [style*="background:#78350f"],
+[data-theme="light"] #section-model-control [style*="background: #78350f"] {
+  background: #fef3c7 !important;
+  color: #92400e !important;
+}
+/* RAM bar (#ramBar) bg is set by JS based on usage thresholds (green/amber/red).
+   Container bar bg uses var(--surface2). Both already responsive. No override. */
+
+/* Component-scoped CSS variables that default to #000 in dark mode.
+   .race-section (Race tile, Phase 2) and .premarket-tile (Phase 6) declare
+   their own --race-bg / --pm-bg as #000 — flip those to white in light. */
+[data-theme="light"] .race-section {
+  --race-bg: #ffffff; --race-fg: #1a1f2e; --race-dim: #4a5365;
+}
+[data-theme="light"] .premarket-tile {
+  --pm-bg: #ffffff; --pm-fg: #1a1f2e; --pm-dim: #4a5365;
+}
+
+/* Portfolio Value + Sector Allocation panels (section-webull L6454-6474).
+   Period buttons use var(--surface2) bg + var(--muted) text which dims in
+   light mode; force readable contrast. Sparkline range labels + donut SVG
+   text colors are inline; need fill override. */
+[data-theme="light"] #wb-period-btns button { color: #1a1f2e !important; }
+[data-theme="light"] #wb-period-btns button[style*="var(--accent)"] { color: #ffffff !important; }
+[data-theme="light"] #wb-sparkline-range { color: #1a1f2e !important; }
+[data-theme="light"] #wb-sparkline text,
+[data-theme="light"] #wb-donut-wrap text { fill: #1a1f2e !important; }
+[data-theme="light"] #wb-sparkline path[stroke="#94a3b8"],
+[data-theme="light"] #wb-sparkline line[stroke="#94a3b8"] { stroke: #475569 !important; }
 
 /* Colorblind mode — blue/orange instead of green/red */
 [data-cb="true"] {
@@ -2724,7 +2922,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
 </div>
 
 <!-- STICKY FOOTER DISCLAIMER -->
-<div id="disclaimer-footer" style="position:fixed;bottom:0;left:0;right:0;background:#0a0e1a;border-top:1px solid #1e293b;padding:3px 12px;font-size:10px;color:#334155;text-align:center;z-index:9999;">
+<div id="disclaimer-footer" style="position:fixed;bottom:0;left:0;right:0;background:var(--bg);border-top:1px solid var(--border);padding:3px 12px;font-size:10px;color:#334155;text-align:center;z-index:9999;">
   📄 Paper Trade Accounts — Educational &amp; Research Purposes Only. Not Financial Advice. Past performance does not guarantee future results. No real money is at risk.
 </div>
 
@@ -23351,9 +23549,9 @@ async function _wrFetchDebateStatus(symbol) {
 }
 function _wrStartPolling(symbol) {
   // HM-WR-DEBATE-DEFAULT-SYMBOL-FIX: symbol arg kept for backward-compat with
-  // callers (e.g. loadWarRoom) but no longer forwarded to the API. Backend
-  // resolves the latest debate from war_room_debates DESC. This also makes
-  // the in-progress UI symbol track what's actually being debated.
+  // callers (e.g. loadWarRoom at L23628) but no longer forwarded to the API.
+  // Backend resolves the latest debate from war_room_debates DESC. This also
+  // makes the in-progress UI symbol track what's actually being debated.
   if (_wrDebatePoller) clearInterval(_wrDebatePoller);
   _wrDebateSymbol = symbol || null;
   _wrFetchDebateStatus();
