@@ -9911,6 +9911,11 @@ document.addEventListener('keydown', function(e) {
           <div class="oai-sym-tk" id="oai-sym-ticker">OPAD</div>
           <div class="oai-sym-nm" id="oai-sym-name">Offerpad Solutions, Inc. Class A</div>
         </div>
+        <!-- Admiral symbol input — type any ticker + Enter or click Go -->
+        <div class="oai-sym-input">
+          <input id="oai-sym-input-field" type="text" placeholder="Ticker (e.g. NVDA)" maxlength="10" spellcheck="false" autocomplete="off" />
+          <button id="oai-sym-input-go" type="button" onclick="oaiSymInputGo()">Go</button>
+        </div>
         <div class="oai-sym-vol">
           <div class="oai-sym-vol-lbl">Total Volume</div>
           <div class="oai-sym-vol-v" id="oai-sym-vol">17.82M</div>
@@ -10146,6 +10151,15 @@ document.addEventListener('keydown', function(e) {
 #section-ollie-ai .oai-sym-vol-lbl { font-size:10px; color:var(--text-dim); letter-spacing:.4px; text-transform:uppercase; }
 #section-ollie-ai .oai-sym-vol-v { font-weight:700; color:#e5e7eb; font-family:var(--font-mono); font-size:14px; margin-top:2px; }
 #section-ollie-ai .oai-sym-rv { background:#1c1408; border:1px solid #fbbf24; padding:5px 10px; border-radius:4px; font-size:12px; color:#fbbf24; font-weight:700; font-family:var(--font-mono); }
+#section-ollie-ai .oai-sym-input { display:flex; align-items:center; gap:4px; margin-left:8px; }
+#section-ollie-ai .oai-sym-input input { background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:5px 9px; font-size:12px; font-family:var(--font-mono); font-weight:700; letter-spacing:.5px; width:108px; text-transform:uppercase; outline:none; transition:border-color .12s, box-shadow .12s; }
+#section-ollie-ai .oai-sym-input input::placeholder { color:var(--text-dim); font-weight:400; letter-spacing:0; text-transform:none; }
+#section-ollie-ai .oai-sym-input input:focus { border-color:#fbbf24; box-shadow:0 0 0 2px rgba(251,191,36,0.25); }
+#section-ollie-ai .oai-sym-input button { background:#fbbf24; color:#000; border:1px solid #fbbf24; padding:5px 12px; border-radius:4px; font-size:12px; font-weight:700; letter-spacing:.4px; cursor:pointer; font-family:Inter,system-ui,sans-serif; transition:filter .12s; }
+#section-ollie-ai .oai-sym-input button:hover { filter:brightness(1.1); }
+[data-theme="light"] #section-ollie-ai .oai-sym-input input { background:#ffffff !important; color:#1a1f2e !important; border-color:#d1d5db !important; }
+[data-theme="light"] #section-ollie-ai .oai-sym-input input:focus { border-color:#d97706 !important; box-shadow:0 0 0 2px rgba(217,119,6,0.25) !important; }
+[data-theme="light"] #section-ollie-ai .oai-sym-input button { background:#d97706 !important; border-color:#d97706 !important; color:#fff !important; }
 #section-ollie-ai .oai-sym-px { font-size:42px; font-weight:800; color:#e5e7eb; margin:14px 0 4px; font-family:var(--font-mono); letter-spacing:-1px; line-height:1; }
 #section-ollie-ai .oai-sym-chg { font-size:14px; color:#ef4444; font-weight:700; font-family:var(--font-mono); }
 #section-ollie-ai .oai-sym-chg.up { color:#22c55e; }
@@ -10344,32 +10358,133 @@ document.addEventListener('keydown', function(e) {
     return '$' + Number(v).toFixed(2);
   }
 
-  function _oaiRenderSvg(sym, candles) {
+  function _oaiRenderSvg(sym, candles, extras) {
+    /* Step 3b.2: extras = {levels, battleStation}. levels is the upstream
+       trade-levels response, battleStation is chart-data.battle_station.
+       Y-axis auto-scaled to include candle range PLUS all overlay prices
+       (BS levels + AI entry/stop/target + support/resistance) so nothing
+       gets clipped off-chart. Render layers bottom-up: watermark → S/D
+       zones → BS overlay lines → candles → AI dashed line → BUY/SELL
+       marker → current price pill → Y labels. */
+    extras = extras || {};
+    var levels = extras.levels || null;
+    var bs = extras.battleStation || null;
     var svg = document.getElementById('oai-chart-svg');
     if (!svg) return;
     if (!candles || !candles.length) {
       svg.innerHTML = '<text x="290" y="140" fill="#6b7280" font-size="14" text-anchor="middle">No candle data for ' + sym + '</text>';
       return;
     }
-    // Plot area: 30px left padding for Y labels, 20px right padding
-    var W = 580, H = 280, PAD_L = 40, PAD_R = 30, PAD_T = 30, PAD_B = 30;
+    var W = 580, H = 280, PAD_L = 40, PAD_R = 60, PAD_T = 30, PAD_B = 30;
     var plotW = W - PAD_L - PAD_R, plotH = H - PAD_T - PAD_B;
     var lows = candles.map(function(c){ return Number(c.low ?? c.l); });
     var highs = candles.map(function(c){ return Number(c.high ?? c.h); });
     var pMin = Math.min.apply(null, lows), pMax = Math.max.apply(null, highs);
+
+    // Expand range to include overlay prices so they always render visibly
+    function _expand(v) {
+      v = Number(v);
+      if (!isFinite(v) || v <= 0) return;
+      if (v < pMin) pMin = v;
+      if (v > pMax) pMax = v;
+    }
+    if (bs) { _expand(bs.prior_high); _expand(bs.prior_low); _expand(bs.prior_vwap); _expand(bs.or_high); _expand(bs.or_low); }
+    if (levels) {
+      _expand(levels.support); _expand(levels.resistance);
+      if (levels.long)  { _expand(levels.long.entry_lo);  _expand(levels.long.entry_hi);  _expand(levels.long.stop_loss);  _expand(levels.long.tp1);  _expand(levels.long.tp2); }
+      if (levels.short) { _expand(levels.short.entry_lo); _expand(levels.short.entry_hi); _expand(levels.short.stop_loss); _expand(levels.short.tp1); _expand(levels.short.tp2); }
+    }
+
     var pRange = pMax - pMin || 1;
-    // Add 5% headroom on top and bottom for breathing room
     pMin -= pRange * 0.05; pMax += pRange * 0.05; pRange = pMax - pMin;
     function yAt(price) { return PAD_T + (pMax - price) / pRange * plotH; }
     var n = candles.length;
     var barW = plotW / n;
     var bodyW = Math.max(1, barW * 0.6);
+    var plotRight = PAD_L + plotW;
 
     var parts = [];
-    // Watermark
+
+    // --- Watermark ---
     parts.push('<text x="' + (W/2) + '" y="' + (H/2) + '" fill="#1f2937" font-size="48" font-weight="800" text-anchor="middle" opacity="0.5">' + sym + ' · D</text>');
 
-    // Candles
+    // --- Supply / Demand zones (synthesized from levels.resistance/support
+    //     and ATR — gold above price = supply, blue below price = demand) ---
+    if (levels && levels.atr) {
+      var atr = Number(levels.atr);
+      if (isFinite(levels.resistance) && levels.resistance > 0) {
+        var rTop = Number(levels.resistance) + atr * 0.4;
+        var rBot = Number(levels.resistance) - atr * 0.1;
+        parts.push('<rect x="' + PAD_L + '" y="' + yAt(rTop).toFixed(2) + '" width="' + plotW.toFixed(2) + '" height="' + Math.max(2, yAt(rBot) - yAt(rTop)).toFixed(2) + '" fill="#f59e0b" opacity="0.18"/>');
+      }
+      if (isFinite(levels.support) && levels.support > 0) {
+        var sTop = Number(levels.support) + atr * 0.1;
+        var sBot = Number(levels.support) - atr * 0.4;
+        parts.push('<rect x="' + PAD_L + '" y="' + yAt(sTop).toFixed(2) + '" width="' + plotW.toFixed(2) + '" height="' + Math.max(2, yAt(sBot) - yAt(sTop)).toFixed(2) + '" fill="#3b82f6" opacity="0.22"/>');
+      }
+    }
+
+    // --- Battle Station overlay lines (dotted) ---
+    function _bsLine(price, color, label) {
+      if (!isFinite(price) || price <= 0) return;
+      var y = yAt(price);
+      if (y < PAD_T || y > PAD_T + plotH) return;
+      parts.push('<line x1="' + PAD_L + '" y1="' + y.toFixed(2) + '" x2="' + plotRight + '" y2="' + y.toFixed(2) + '" stroke="' + color + '" stroke-width="0.8" stroke-dasharray="2,3" opacity="0.7"/>');
+      parts.push('<text x="' + (plotRight + 4) + '" y="' + (y + 3).toFixed(2) + '" fill="' + color + '" font-size="8" font-weight="700" font-family="var(--font-mono)">' + label + '</text>');
+    }
+    if (bs) {
+      _bsLine(bs.prior_high, '#f59e0b', 'PH');
+      _bsLine(bs.prior_low,  '#f59e0b', 'PL');
+      _bsLine(bs.prior_vwap, '#22d3ee', 'VWAP');
+      _bsLine(bs.or_high,    '#fbbf24', 'ORH');
+      _bsLine(bs.or_low,     '#fbbf24', 'ORL');
+    }
+
+    // HM-OAI-CHART-ZORDER 2026-05-23: candles must paint LAST (highest
+    // z-order) so they sit on top of zones + BS lines + AI dashed line.
+    // Compute lastClose + yLast before the AI block so the BUY/SELL marker
+    // can position relative to the latest candle without needing the loop
+    // to run first.
+    var lastClose = Number(candles[n-1].close ?? candles[n-1].c);
+    var yLast = yAt(lastClose);
+
+    // --- AI projected entry — dashed horizontal line + label pill + marker
+    //     (drawn BEFORE candles so candles sit on top) ---
+    if (levels && levels.recommendation) {
+      var aiPrice = null, aiLabel = '';
+      if (levels.recommendation === 'LONG' && levels.long) {
+        aiPrice = Number(levels.long.entry_hi);
+        aiLabel = aiPrice.toFixed(2) + ' AI';
+      } else if (levels.recommendation === 'SHORT' && levels.short) {
+        aiPrice = Number(levels.short.entry_lo);
+        aiLabel = aiPrice.toFixed(2) + ' AI';
+      }
+      if (isFinite(aiPrice) && aiPrice > 0) {
+        var yAi = yAt(aiPrice);
+        if (yAi >= PAD_T && yAi <= PAD_T + plotH) {
+          parts.push('<line x1="' + PAD_L + '" y1="' + yAi.toFixed(2) + '" x2="' + plotRight + '" y2="' + yAi.toFixed(2) + '" stroke="#3b82f6" stroke-width="1.2" stroke-dasharray="4,3"/>');
+          parts.push('<rect x="' + (plotRight - 44) + '" y="' + (yAi - 7).toFixed(2) + '" width="44" height="14" fill="#3b82f6" rx="2"/>');
+          parts.push('<text x="' + (plotRight - 22) + '" y="' + (yAi + 3).toFixed(2) + '" fill="#fff" font-size="9" text-anchor="middle" font-weight="700" font-family="var(--font-mono)">' + aiLabel + '</text>');
+        }
+
+        // BUY / SELL marker on the latest candle (offset above/below body
+        // so the candle itself is visible — marker drawn before candles
+        // would technically be hidden by the body if positions overlap,
+        // but yLast±14 px keeps them out of the way)
+        var xLast = PAD_L + (n - 1) * barW + barW / 2;
+        if (levels.recommendation === 'LONG') {
+          var triY = yLast + 14;  // below current close, pointing up
+          parts.push('<polygon points="' + xLast + ',' + (triY - 6) + ' ' + (xLast - 6) + ',' + (triY + 4) + ' ' + (xLast + 6) + ',' + (triY + 4) + '" fill="#22c55e"/>');
+          parts.push('<text x="' + xLast + '" y="' + (triY + 16) + '" fill="#22c55e" font-size="9" text-anchor="middle" font-weight="700">BUY</text>');
+        } else if (levels.recommendation === 'SHORT') {
+          var triY2 = yLast - 14;  // above current close, pointing down
+          parts.push('<polygon points="' + xLast + ',' + (triY2 + 6) + ' ' + (xLast - 6) + ',' + (triY2 - 4) + ' ' + (xLast + 6) + ',' + (triY2 - 4) + '" fill="#ef4444"/>');
+          parts.push('<text x="' + xLast + '" y="' + (triY2 - 8) + '" fill="#ef4444" font-size="9" text-anchor="middle" font-weight="700">SELL</text>');
+        }
+      }
+    }
+
+    // --- Candles (LAST in plot area — paints on top of zones + BS + AI) ---
     candles.forEach(function(c, i) {
       var o = Number(c.open ?? c.o), cl = Number(c.close ?? c.c);
       var hi = Number(c.high ?? c.h), lo = Number(c.low ?? c.l);
@@ -10383,23 +10498,76 @@ document.addEventListener('keydown', function(e) {
       parts.push('<rect x="' + (x - bodyW/2).toFixed(2) + '" y="' + bodyTop.toFixed(2) + '" width="' + bodyW.toFixed(2) + '" height="' + bodyH.toFixed(2) + '" fill="' + color + '"/>');
     });
 
-    // Current price tag (last candle close)
-    var lastClose = Number(candles[n-1].close ?? candles[n-1].c);
-    var yLast = yAt(lastClose);
-    parts.push('<rect x="' + (W - PAD_R - 6) + '" y="' + (yLast - 7).toFixed(2) + '" width="36" height="14" fill="#22c55e" rx="2"/>');
-    parts.push('<text x="' + (W - PAD_R + 12) + '" y="' + (yLast + 3).toFixed(2) + '" fill="#fff" font-size="9" text-anchor="middle" font-weight="700">' + lastClose.toFixed(2) + '</text>');
+    // --- Current price tag ---
+    parts.push('<rect x="' + (plotRight + 4) + '" y="' + (yLast - 7).toFixed(2) + '" width="44" height="14" fill="#22c55e" rx="2"/>');
+    parts.push('<text x="' + (plotRight + 26) + '" y="' + (yLast + 3).toFixed(2) + '" fill="#fff" font-size="9" text-anchor="middle" font-weight="700" font-family="var(--font-mono)">' + lastClose.toFixed(2) + '</text>');
 
-    // Y-axis labels at min / mid / max (using actual data range, not padded)
+    // --- Y-axis labels ---
     var midPrice = (pMin + pMax) / 2;
-    parts.push('<text x="' + (PAD_L - 6) + '" y="' + (PAD_T + 5) + '" fill="#9ca3af" font-size="9" text-anchor="end">$' + pMax.toFixed(2) + '</text>');
-    parts.push('<text x="' + (PAD_L - 6) + '" y="' + (PAD_T + plotH/2 + 3) + '" fill="#9ca3af" font-size="9" text-anchor="end">$' + midPrice.toFixed(2) + '</text>');
-    parts.push('<text x="' + (PAD_L - 6) + '" y="' + (PAD_T + plotH - 3) + '" fill="#9ca3af" font-size="9" text-anchor="end">$' + pMin.toFixed(2) + '</text>');
+    parts.push('<text x="' + (PAD_L - 6) + '" y="' + (PAD_T + 5) + '" fill="#9ca3af" font-size="9" text-anchor="end" font-family="var(--font-mono)">$' + pMax.toFixed(2) + '</text>');
+    parts.push('<text x="' + (PAD_L - 6) + '" y="' + (PAD_T + plotH/2 + 3) + '" fill="#9ca3af" font-size="9" text-anchor="end" font-family="var(--font-mono)">$' + midPrice.toFixed(2) + '</text>');
+    parts.push('<text x="' + (PAD_L - 6) + '" y="' + (PAD_T + plotH - 3) + '" fill="#9ca3af" font-size="9" text-anchor="end" font-family="var(--font-mono)">$' + pMin.toFixed(2) + '</text>');
 
     svg.innerHTML = parts.join('');
     svg.dataset.lastClose = lastClose;
     svg.dataset.padL = PAD_L;
     svg.dataset.padR = PAD_R;
     svg.dataset.plotW = plotW;
+  }
+
+  function _oaiRenderMonthly(sym, threeYearCandles) {
+    /* Step 3b.2: replaces the static OPAD monthly sparkline. Aggregates
+       ~21 daily bars into one monthly point (close-of-last-bar), draws an
+       SVG path inside the existing .oai-inset, and computes pct change
+       from earliest-to-latest close for the red tag. */
+    var inset = document.querySelector('#oai-view-symbol-focus .oai-inset');
+    if (!inset) return;
+    if (!threeYearCandles || threeYearCandles.length < 2) {
+      inset.innerHTML = '<div class="oai-inset-pct">— · monthly data N/A</div><svg viewBox="0 0 110 60" style="margin-top:14px;width:100%;"><text x="55" y="32" fill="#1f2937" font-size="9" font-weight="700" text-anchor="middle">' + sym + ' · M</text></svg>';
+      return;
+    }
+    // Aggregate every 21 daily bars → 1 monthly close
+    var monthly = [];
+    for (var i = 20; i < threeYearCandles.length; i += 21) {
+      monthly.push(Number(threeYearCandles[i].close ?? threeYearCandles[i].c));
+    }
+    // Ensure we keep the final partial month
+    var lastIdx = threeYearCandles.length - 1;
+    if (!monthly.length || monthly[monthly.length - 1] !== Number(threeYearCandles[lastIdx].close ?? threeYearCandles[lastIdx].c)) {
+      monthly.push(Number(threeYearCandles[lastIdx].close ?? threeYearCandles[lastIdx].c));
+    }
+    if (monthly.length < 2) {
+      inset.innerHTML = '<div class="oai-inset-pct">— · monthly data N/A</div>';
+      return;
+    }
+
+    var pctChg = (monthly[monthly.length - 1] - monthly[0]) / monthly[0] * 100;
+    var years = (threeYearCandles.length / 252).toFixed(1).replace(/\.0$/, '');  // approx years (252 trading days/yr)
+    var tagColor = pctChg >= 0 ? '#15803d' : '#7f1d1d';
+    var pctSign = pctChg >= 0 ? '+' : '';
+    var pctText = pctSign + pctChg.toFixed(2) + '% in ' + years + ' year' + (years === '1' ? '' : 's');
+
+    // SVG path: map monthly closes to 0..110 x, 0..60 y (inverted)
+    var mMin = Math.min.apply(null, monthly), mMax = Math.max.apply(null, monthly);
+    var mRange = mMax - mMin || 1;
+    var W = 110, H = 60, PAD_TOP = 8, PAD_BOTTOM = 4;
+    var plotH = H - PAD_TOP - PAD_BOTTOM;
+    var stroke = pctChg >= 0 ? '#22c55e' : '#ef4444';
+    var fill   = pctChg >= 0 ? 'rgba(34,197,94,0.18)' : 'rgba(239,68,68,0.18)';
+    var coords = monthly.map(function(v, j) {
+      var x = (j / (monthly.length - 1)) * W;
+      var y = PAD_TOP + (mMax - v) / mRange * plotH;
+      return [x, y];
+    });
+    var pathD = coords.reduce(function(acc, p, j){ return acc + (j === 0 ? 'M ' : ' L ') + p[0].toFixed(2) + ',' + p[1].toFixed(2); }, '');
+    var fillD = pathD + ' L ' + W + ',' + H + ' L 0,' + H + ' Z';
+
+    inset.innerHTML = '<div class="oai-inset-pct" style="background:' + tagColor + ';">' + pctText + '</div>' +
+                      '<svg viewBox="0 0 ' + W + ' ' + H + '" style="margin-top:14px;width:100%;">' +
+                        '<path d="' + fillD + '" fill="' + fill + '"/>' +
+                        '<path d="' + pathD + '" fill="none" stroke="' + stroke + '" stroke-width="1.5"/>' +
+                        '<text x="55" y="32" fill="#1f2937" font-size="9" font-weight="700" text-anchor="middle">' + sym + ' · M</text>' +
+                      '</svg>';
   }
 
   function _oaiRenderVolBars(candles) {
@@ -10496,18 +10664,23 @@ document.addEventListener('keydown', function(e) {
     var token = (_oaiSymInflight = Symbol(sym));
     _oaiSetLoadingState(sym);
 
-    // Parallel fetch: price + fundamentals + 90-day daily candles
-    var pPrice = fetch('/api/price/' + sym).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
-    var pFund  = fetch('/api/fundamentals/' + sym).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
-    var pChart = fetch('/api/chart-data?symbol=' + sym + '&timeframe=1Day&bars=90').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
-    var pEarn  = fetch('/api/earnings/countdown?days=14').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    // Step 3b.2: 6 parallel fetches now —
+    //   pPrice / pFund / pChart (90-day) / pEarn / pLevels / pMonthly (750-day)
+    var pPrice   = fetch('/api/price/' + sym).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var pFund    = fetch('/api/fundamentals/' + sym).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var pChart   = fetch('/api/chart-data?symbol=' + sym + '&timeframe=1Day&bars=90').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var pEarn    = fetch('/api/earnings/countdown?days=14').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var pLevels  = fetch('/api/trade-levels/' + sym).then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
+    var pMonthly = fetch('/api/chart-data?symbol=' + sym + '&timeframe=1Day&bars=750').then(function(r){ return r.ok ? r.json() : null; }).catch(function(){ return null; });
 
-    Promise.all([pPrice, pFund, pChart, pEarn]).then(function(res) {
+    Promise.all([pPrice, pFund, pChart, pEarn, pLevels, pMonthly]).then(function(res) {
       if (token !== _oaiSymInflight) return;  // stale — user clicked a different symbol
-      var priceR = res[0] || {};
-      var fundR  = res[1] || {};
-      var chartR = res[2] || {};
-      var earnR  = res[3] || {};
+      var priceR   = res[0] || {};
+      var fundR    = res[1] || {};
+      var chartR   = res[2] || {};
+      var earnR    = res[3] || {};
+      var levelsR  = res[4] || {};
+      var monthlyR = res[5] || {};
 
       var candles = chartR.candles || [];
       var todayBar = candles[candles.length - 1] || {};
@@ -10532,9 +10705,31 @@ document.addEventListener('keydown', function(e) {
         todayVol: todayVol,
         relVol: relVol,
       });
-      _oaiRenderSvg(sym, candles);
+
+      // Step 3b.2: pass levels + battle_station into the SVG renderer so
+      // it draws zones + BS overlay lines + AI dashed line + BUY/SELL marker.
+      // levelsR has {error} key on proxy 502 — treat as null in that case.
+      var safeLevels = (levelsR && !levelsR.error) ? levelsR : null;
+      _oaiRenderSvg(sym, candles, {
+        levels: safeLevels,
+        battleStation: chartR.battle_station || null,
+      });
       _oaiRenderVolBars(candles);
       _oaiPlotEarningsLine(sym, (earnR && earnR.earnings) || []);
+      _oaiRenderMonthly(sym, (monthlyR && monthlyR.candles) || []);
+
+      // Update sym-note with rec + regime + ATR if levels resolved
+      if (safeLevels) {
+        var note = document.querySelector('#oai-view-symbol-focus .oai-sym-note');
+        if (note) {
+          var atrPct = safeLevels.atr_pct != null ? safeLevels.atr_pct.toFixed(2) + '%' : '—';
+          var rec = safeLevels.recommendation || 'NEUTRAL';
+          var regime = safeLevels.regime || '—';
+          note.textContent = sym + ' · AI rec: ' + rec + ' · regime: ' + regime + ' · ATR ' + atrPct +
+            ' · ' + (safeLevels.sizing || '') +
+            ' · Action-bar broker wiring ships in Step 3c.';
+        }
+      }
     });
   };
 
@@ -10543,6 +10738,19 @@ document.addEventListener('keydown', function(e) {
   window.oaiActionStub = function(action) {
     var sym = (document.getElementById('oai-sym-ticker') || {}).textContent || '?';
     try { console.log('[OAI-ACTION-STUB] ' + action + ' on ' + sym + ' — broker wiring deferred to Step 3c'); } catch(e) {}
+  };
+
+  /* Admiral symbol input — types any ticker, Enter or Go button fires
+     oaiFocusSymbol(). Sanitizes to uppercase A-Z + 1-5 chars (skip BRK.B
+     style for now — current backend endpoints don't tolerate dots either). */
+  window.oaiSymInputGo = function() {
+    var inp = document.getElementById('oai-sym-input-field');
+    if (!inp) return;
+    var raw = (inp.value || '').trim().toUpperCase();
+    var sym = raw.replace(/[^A-Z]/g, '').slice(0, 5);
+    if (!sym) { inp.focus(); return; }
+    inp.value = sym;
+    window.oaiFocusSymbol(sym);
   };
 
   /* ───── Wiring ───── */
@@ -10602,6 +10810,13 @@ document.addEventListener('keydown', function(e) {
     if (!sec) return;
     wireSubviewTabs();
     wireChannelBar();
+    // Admiral symbol input: Enter key submits, blur preserves uppercased value
+    var symInput = document.getElementById('oai-sym-input-field');
+    if (symInput) {
+      symInput.addEventListener('keydown', function(e) {
+        if (e.key === 'Enter') { e.preventDefault(); window.oaiSymInputGo(); }
+      });
+    }
     new MutationObserver(function(mutations) {
       mutations.forEach(function(m) {
         if (m.attributeName === 'style' && sec.style.display !== 'none') {
