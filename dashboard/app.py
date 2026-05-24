@@ -1618,9 +1618,12 @@ def api_movers():
                    tm.market_cap,
                    tm.optionable,
                    tm.ticker_type,
-                   mw.refreshed_at
+                   mw.refreshed_at,
+                   rr.rs_rank,
+                   rr.rs_return_pct
               FROM mover_watchlist mw
               LEFT JOIN ticker_metadata tm ON tm.symbol = mw.symbol
+              LEFT JOIN rs_rank rr         ON rr.symbol = mw.symbol
              WHERE mw.refreshed_at >= datetime('now','-24 hours')
                AND ABS(COALESCE(mw.pct_change, 0)) <= 50
              ORDER BY ABS(COALESCE(mw.pct_change, 0)) DESC

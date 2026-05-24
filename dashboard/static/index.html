@@ -9883,6 +9883,15 @@ document.addEventListener('keydown', function(e) {
         <div class="oai-sec-h">MOVERS · UPSIDE VS DOWNSIDE</div>
         <div class="oai-hist" id="oai-movers-hist"></div>
         <div class="oai-hist-labels" id="oai-movers-hist-labels">—</div>
+        <!-- HM-OAI-MOVERS-RS-OVERLAY 2026-05-24: RS-rank tier color legend.
+             Hidden until movers histogram has at least one ranked bar. -->
+        <div id="oai-movers-hist-legend" style="display:none;margin-top:6px;font-size:10px;color:var(--text-dim,#9ca3af);font-family:var(--font-mono,monospace);letter-spacing:.4px;">
+          <span style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;"><span style="display:inline-block;width:10px;height:10px;background:#16a34a;border-radius:2px;"></span>RS ≥80</span>
+          <span style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;"><span style="display:inline-block;width:10px;height:10px;background:#86efac;border-radius:2px;"></span>60–79</span>
+          <span style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;"><span style="display:inline-block;width:10px;height:10px;background:#6b7280;border-radius:2px;"></span>40–59</span>
+          <span style="display:inline-flex;align-items:center;gap:3px;margin-right:8px;"><span style="display:inline-block;width:10px;height:10px;background:#fca5a5;border-radius:2px;"></span>20–39</span>
+          <span style="display:inline-flex;align-items:center;gap:3px;"><span style="display:inline-block;width:10px;height:10px;background:#dc2626;border-radius:2px;"></span>≤19</span>
+        </div>
       </div>
       <div class="oai-sec oai-sec--filters">
         <div class="oai-sec-h">TOP LIST CONFIG · ACTIVE FILTERS</div>
@@ -11092,21 +11101,49 @@ document.addEventListener('keydown', function(e) {
     }, 1000);
   }
 
-  /* ───── Movers histogram + Top List labels ───── */
+  /* ───── Movers histogram + Top List labels ─────
+     HM-OAI-MOVERS-RS-OVERLAY 2026-05-24: bar fill colored by RS rank tier
+     (80/60/40/20 breakpoints, IBD-style quintile split). Falls back to
+     binary gain/loss color when rs_rank is null (off-hours, pre-rank, or
+     symbol not in scan_universe). */
+  function _oaiMoverTierColor(rsRank, pctChange) {
+    if (rsRank == null) return pctChange >= 0 ? '#22c55e' : '#ef4444';  // fallback
+    if (rsRank >= 80) return '#16a34a';   // Leader
+    if (rsRank >= 60) return '#86efac';   // Above-avg
+    if (rsRank >= 40) return '#6b7280';   // Neutral
+    if (rsRank >= 20) return '#fca5a5';   // Laggard
+    return '#dc2626';                      // Weak
+  }
+
   function renderMoversHist(movers) {
     var el = document.getElementById('oai-movers-hist');
     var lbl = document.getElementById('oai-movers-hist-labels');
+    var lgd = document.getElementById('oai-movers-hist-legend');
     if (!el) return;
-    if (!movers || !movers.length) { el.innerHTML = ''; if (lbl) lbl.textContent = 'No movers'; return; }
+    if (!movers || !movers.length) {
+      el.innerHTML = '';
+      if (lbl) lbl.textContent = 'No movers';
+      if (lgd) lgd.style.display = 'none';
+      return;
+    }
     var top = movers.slice(0, 20);
     var maxAbs = Math.max.apply(null, top.map(function(m){ return Math.abs(m.pct_change || 0); })) || 1;
+    var anyRanked = false;
     el.innerHTML = top.map(function(m) {
       var pct = Number(m.pct_change || 0);
       var height = Math.max(3, (Math.abs(pct) / maxAbs) * 100);
-      var cls = pct >= 0 ? '' : 'dn';
-      return '<div class="oai-hist-bar ' + cls + '" style="height:' + height + '%;" title="' + m.symbol + ' ' + fmtPct(pct, true) + '" onclick="oaiFocusSymbol(\'' + m.symbol + '\')"></div>';
+      var rsRank = (m.rs_rank != null) ? Number(m.rs_rank) : null;
+      if (rsRank != null) anyRanked = true;
+      var color = _oaiMoverTierColor(rsRank, pct);
+      var tip = m.symbol + ' ' + fmtPct(pct, true);
+      if (rsRank != null) {
+        var rsRet = (m.rs_return_pct != null) ? (m.rs_return_pct >= 0 ? '+' : '') + m.rs_return_pct.toFixed(1) + '%' : '—';
+        tip += ' · RS=' + rsRank + ' (12wk ' + rsRet + ')';
+      }
+      return '<div class="oai-hist-bar" style="height:' + height + '%;background:' + color + ';" title="' + tip + '" onclick="oaiFocusSymbol(\'' + m.symbol + '\')"></div>';
     }).join('');
     if (lbl) lbl.textContent = top.slice(0, 6).map(function(m){ return m.symbol; }).join(' · ');
+    if (lgd) lgd.style.display = anyRanked ? '' : 'none';
   }
 
   /* ───── Step 3b.1 — Symbol Focus live wire.
