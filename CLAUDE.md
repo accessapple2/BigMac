@@ -438,7 +438,7 @@ Physical holdings tracked as header widget above the quadrant grid. ETFs tracked
 - CSP dominates: OOS Sharpe +6.05 across BULL and CAUTIOUS regimes
 
 ## Pending TODOs
-- **Polygon.io — ACTIVE.** $29/mo Stocks + Options Starter bundle. Wire as PRIMARY for candles + options; Alpaca + yfinance as fallbacks. (Originally approved in principle; activated 2026-05-12 via HM-CB stocks + HM-CA options. First paid exception under Free Models First doctrine.)
+- **Polygon Stocks + Options Starter ($29/mo) ACTIVE since 2026-05-12. PRIMARY source for candles + options. Fallbacks: Alpaca, yfinance.**
 - Build Elder Council agents (Sarek 5yr, Janeway 10yr, Surak 20yr) — stub strategy modules + DCA paper-trade logic
 - Build Metals Command quadrant agents (Scotty news, O'Brien recommendations); upgrade `section-metals` to 4-quadrant grid with spot + ETF tracking
 - Rename dashboard `section-webull` label → "Starfleet" (keep internal id to avoid 50+ ref breakage)
