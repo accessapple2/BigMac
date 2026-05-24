@@ -20200,6 +20200,7 @@ def get_squeeze_recent(
     tier: str = "all",
     kind: str = "short_interest",
     released: str = "0",
+    composite: str = "0",
 ):
     """Recent squeeze_watch candidates for the dashboard panel.
 
@@ -20217,6 +20218,13 @@ def get_squeeze_recent(
       - '1'   : released rows only (released_at IS NOT NULL); ordered by
                 released_at DESC instead of tier/scan_ts.
       - 'all' : union of both
+
+    `composite` (HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE 2026-05-24):
+      - '0' (default): all rows for the kind
+      - '1'          : composite_pass=1 only (pre-breakout subset)
+      - 'all'        : same as '0' (alias for clarity)
+    Composite hits sort to the top of the result list regardless of filter
+    so they're discoverable without flipping the param.
     """
     days = max(1, min(int(days or 7), 90))
     valid_tiers = {"all", "WATCH", "ALERT", "PRIORITY"}
@@ -20228,6 +20236,9 @@ def get_squeeze_recent(
     valid_released = {"0", "1", "all"}
     if released not in valid_released:
         released = "0"
+    valid_composite = {"0", "1", "all"}
+    if composite not in valid_composite:
+        composite = "0"
 
     cutoff = (
         __import__("datetime").datetime.utcnow()
@@ -20241,6 +20252,8 @@ def get_squeeze_recent(
         "       kind, bbkc_duration_days, "
         "       released_at, release_direction, release_volume_ratio, "
         "       release_close, "
+        "       composite_pass, range_position_pct, vol_contracting_pct, "
+        "       composite_rs_pass, "
         "       (CAST((julianday('now') - julianday(scan_ts)) * 24 AS REAL)) AS age_hours "
         "FROM squeeze_watch "
         "WHERE dismissed = 0 AND scan_ts >= ? "
@@ -20256,12 +20269,16 @@ def get_squeeze_recent(
         sql += "AND released_at IS NULL "
     elif released == "1":
         sql += "AND released_at IS NOT NULL "
+    if composite == "1":
+        sql += "AND composite_pass = 1 "
     if released == "1":
         # Ordered by release recency
         sql += "ORDER BY released_at DESC LIMIT 200"
     else:
+        # Composite hits sort first within each tier
         sql += (
-            "ORDER BY CASE threshold_tier "
+            "ORDER BY composite_pass DESC, "
+            "CASE threshold_tier "
             "  WHEN 'PRIORITY' THEN 3 "
             "  WHEN 'ALERT'    THEN 2 "
             "  WHEN 'WATCH'    THEN 1 "
@@ -20278,6 +20295,7 @@ def get_squeeze_recent(
             "tier": tier,
             "kind": kind,
             "released": released,
+            "composite": composite,
             "count": len(rows),
             "items": [dict(r) for r in rows],
         }
@@ -20326,16 +20344,29 @@ def dismiss_squeeze_candidate(data: dict = Body(...)):
 
 
 @app.get("/api/squeeze/summary")
-def get_squeeze_summary(days: int = 7, kind: str = "short_interest"):
+def get_squeeze_summary(
+    days: int = 7,
+    kind: str = "short_interest",
+    composite: str = "0",
+):
     """Tier counts for the dashboard headline, last N days.
 
     `kind` accepts 'short_interest' (default), 'bbkc', or 'all' — see
     /api/squeeze/recent for the HM-SQUEEZE-BBKC-COMPRESSION cross-ref.
+
+    `composite='1'` (HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE 2026-05-24) filters
+    to composite_pass=1 rows only. The response also always includes a
+    `composite_total` field — total composite-pass rows in the window
+    regardless of the filter — so the dashboard can show 'N composite of
+    M total' even when the filter is off.
     """
     days = max(1, min(int(days or 7), 90))
     valid_kinds = {"short_interest", "bbkc", "all"}
     if kind not in valid_kinds:
         kind = "short_interest"
+    valid_composite = {"0", "1", "all"}
+    if composite not in valid_composite:
+        composite = "0"
     cutoff = (
         __import__("datetime").datetime.utcnow()
         - __import__("datetime").timedelta(days=days)
@@ -20350,17 +20381,33 @@ def get_squeeze_summary(days: int = 7, kind: str = "short_interest"):
         if kind != "all":
             sql += "AND kind = ? "
             params.append(kind)
+        if composite == "1":
+            sql += "AND composite_pass = 1 "
         sql += "GROUP BY threshold_tier"
         rows = conn.execute(sql, params).fetchall()
         counts = {r["threshold_tier"]: r["n"] for r in rows}
+        # Always compute composite_total (kind-scoped) for the badge
+        comp_sql = (
+            "SELECT COUNT(*) FROM squeeze_watch "
+            "WHERE dismissed=0 AND scan_ts >= ? AND composite_pass = 1 "
+        )
+        comp_params: list = [cutoff]
+        if kind != "all":
+            comp_sql += "AND kind = ?"
+            comp_params.append(kind)
+        composite_total = int(
+            conn.execute(comp_sql, comp_params).fetchone()[0] or 0
+        )
         return {
             "ok": True,
             "days": days,
             "kind": kind,
+            "composite": composite,
             "PRIORITY": counts.get("PRIORITY", 0),
             "ALERT":    counts.get("ALERT", 0),
             "WATCH":    counts.get("WATCH", 0),
             "total":    sum(counts.values()),
+            "composite_total": composite_total,
         }
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}

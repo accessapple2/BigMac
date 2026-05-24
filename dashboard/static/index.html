@@ -15567,9 +15567,12 @@ async function fetchSignalTracker() {
       </div>
     </div>
     <!-- Kind toggle. Persisted via localStorage key 'squeeze_kind'. -->
-    <div id="squeezeKindTabs" style="display:flex;gap:6px;padding:0 16px 8px;">
+    <div id="squeezeKindTabs" style="display:flex;gap:6px;padding:0 16px 8px;align-items:center;">
       <button id="sqz-kind-short_interest" class="sqz-kind-tab on" onclick="setSqueezeKind('short_interest')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Short Interest</button>
       <button id="sqz-kind-bbkc" class="sqz-kind-tab" onclick="setSqueezeKind('bbkc')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:12px;font-weight:600;cursor:pointer;">BB/KC Compression</button>
+      <!-- HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE 2026-05-24: composite-only toggle.
+           Only visible when kind=bbkc. Persisted via localStorage 'squeeze_composite'. -->
+      <button id="sqz-composite-toggle" onclick="toggleSqueezeComposite()" style="display:none;margin-left:12px;padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:12px;font-weight:600;cursor:pointer;">🎯 Pre-Breakout Only</button>
     </div>
     <div id="squeezeBlurb" style="padding:0 16px 10px;font-size:12px;color:var(--muted);">
       HM-AO-β Ghost Watcher. Scanner runs every 30 min during market hours. PRIORITY (composite ≥ 90) hits also ntfy <code>ollietrades-admin</code>. Watcher does NOT auto-trade — Admiral reviews each candidate.
@@ -27961,6 +27964,36 @@ var _squeezeKind = (function() {
   } catch(e) { return 'short_interest'; }
 })();
 
+// HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE 2026-05-24: composite-only filter state,
+// restored from localStorage. Only applies when kind === 'bbkc'.
+var _squeezeComposite = (function() {
+  try { return localStorage.getItem('squeeze_composite') === '1'; }
+  catch(e) { return false; }
+})();
+
+function toggleSqueezeComposite() {
+  _squeezeComposite = !_squeezeComposite;
+  try { localStorage.setItem('squeeze_composite', _squeezeComposite ? '1' : '0'); } catch(e) {}
+  _renderSqueezeCompositeToggle();
+  fetchSqueezeRecent();
+}
+
+function _renderSqueezeCompositeToggle() {
+  var btn = document.getElementById('sqz-composite-toggle');
+  if (!btn) return;
+  // Visibility — only meaningful on the BB/KC tab
+  btn.style.display = (_squeezeKind === 'bbkc') ? '' : 'none';
+  if (_squeezeComposite) {
+    btn.style.background = 'var(--accent)';
+    btn.style.color = '#fff';
+    btn.style.borderColor = 'var(--accent)';
+  } else {
+    btn.style.background = 'transparent';
+    btn.style.color = 'var(--text)';
+    btn.style.borderColor = 'var(--border)';
+  }
+}
+
 function setSqueezeKind(kind) {
   if (kind !== 'short_interest' && kind !== 'bbkc') return;
   _squeezeKind = kind;
@@ -27979,11 +28012,12 @@ function setSqueezeKind(kind) {
   var blurb = document.getElementById('squeezeBlurb');
   if (blurb) {
     if (kind === 'bbkc') {
-      blurb.innerHTML = 'HM-SQUEEZE-BBKC-COMPRESSION (2026-05-24). Daily BB(20,2σ) inside KC(20,1.5×ATR). Tier by consecutive in-squeeze days: WATCH 5–9d · ALERT 10–19d · PRIORITY 20d+. PRIORITY also ntfys <code>ollietrades-admin</code>. Surfaces volatility coils — Admiral reviews each.';
+      blurb.innerHTML = 'HM-SQUEEZE-BBKC-COMPRESSION (2026-05-24). Daily BB(20,2σ) inside KC(20,1.5×ATR). Tier by consecutive in-squeeze days: WATCH 5–9d · ALERT 10–19d · PRIORITY 20d+. 🎯 = pre-breakout composite (squeeze ≥10d + top-25% of 20d range + contracting volume). Composite hits + PRIORITY both ntfy <code>ollietrades-admin</code>.';
     } else {
       blurb.innerHTML = 'HM-AO-β Ghost Watcher. Scanner runs every 30 min during market hours. PRIORITY (composite ≥ 90) hits also ntfy <code>ollietrades-admin</code>. Watcher does NOT auto-trade — Admiral reviews each candidate.';
     }
   }
+  _renderSqueezeCompositeToggle();
   fetchSqueezeRecent();
 }
 
@@ -28015,6 +28049,8 @@ async function fetchSqueezeRecent() {
   var tier = (document.getElementById('squeezeTier') || {}).value || 'all';
   var kind = _squeezeKind || 'short_interest';
   var kindQ = '&kind=' + encodeURIComponent(kind);
+  // HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE: composite filter only applies on BB/KC tab.
+  var compositeQ = (kind === 'bbkc' && _squeezeComposite) ? '&composite=1' : '&composite=0';
   // HM-SQUEEZE-RELEASE-DETECT: BB/KC tab also pulls recently-released rows
   // in parallel. The released strip is hidden on the SI tab.
   var releasedP = (kind === 'bbkc')
@@ -28022,7 +28058,7 @@ async function fetchSqueezeRecent() {
     : Promise.resolve(null);
   try {
     var [rRes, sRes, relJson] = await Promise.all([
-      fetch('/api/squeeze/recent?days=' + encodeURIComponent(days) + '&tier=' + encodeURIComponent(tier) + kindQ + '&released=0'),
+      fetch('/api/squeeze/recent?days=' + encodeURIComponent(days) + '&tier=' + encodeURIComponent(tier) + kindQ + '&released=0' + compositeQ),
       fetch('/api/squeeze/summary?days=' + encodeURIComponent(days) + kindQ),
       releasedP,
     ]);
@@ -28078,12 +28114,18 @@ function renderSqueezeSummary() {
   var s = _squeezeSummary;
   if (!s) { el.innerHTML = '<div style="color:var(--muted);">Summary unavailable.</div>'; return; }
   var latest = (_squeezeData[0] && _squeezeData[0].scan_ts) ? _squeezeRelTime(_squeezeData[0].scan_ts) : '—';
+  // HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE: include composite count when kind=bbkc
+  var compHtml = '';
+  if (_squeezeKind === 'bbkc' && s.composite_total != null) {
+    compHtml = '<div><span style="color:#22c55e;font-size:11px;">🎯 COMPOSITE</span> <span style="font-weight:700;color:#22c55e;">' + s.composite_total + '</span></div>';
+  }
   el.innerHTML =
     '<div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;">' +
       '<div><span style="color:var(--muted);font-size:11px;">TOTAL</span> <span style="font-weight:700;font-size:16px;">' + s.total + '</span></div>' +
       '<div><span style="color:var(--red);font-size:11px;">PRIORITY</span> <span style="font-weight:700;color:var(--red);">' + s.PRIORITY + '</span></div>' +
       '<div><span style="color:var(--accent3);font-size:11px;">ALERT</span> <span style="font-weight:700;color:var(--accent3);">' + s.ALERT + '</span></div>' +
       '<div><span style="color:var(--accent);font-size:11px;">WATCH</span> <span style="font-weight:700;color:var(--accent);">' + s.WATCH + '</span></div>' +
+      compHtml +
       '<div style="margin-left:auto;color:var(--muted);font-size:12px;">last surface: ' + _esc(latest) + ' · window: ' + s.days + 'd</div>' +
     '</div>';
 }
@@ -28129,11 +28171,21 @@ function renderSqueezeCards() {
     // 'short_interest' when the API was hit pre-migration; explicit check
     // for 'bbkc' so future kinds fall through to the SI default.
     var bodyLine;
+    var compositeLine = '';
+    var compositeBadge = '';
     if (r.kind === 'bbkc') {
       var dur = (r.bbkc_duration_days != null) ? r.bbkc_duration_days + 'd' : '—';
       // breakout_score is reused as "tightness" (0–1) for bbkc rows
       var tight = (r.breakout_score != null) ? Math.round(r.breakout_score * 100) + '%' : '—';
       bodyLine = 'Coil ' + dur + ' · Tightness ' + tight + ' · ' + px;
+      // HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE: 🎯 badge in header + composite stats line
+      if (r.composite_pass) {
+        var rp = (r.range_position_pct != null) ? r.range_position_pct.toFixed(0) + '%' : '—';
+        var vc = (r.vol_contracting_pct != null) ? r.vol_contracting_pct.toFixed(2) + '×' : '—';
+        var rsT = r.composite_rs_pass ? ' <span style="color:#22c55e;font-weight:700;">RS✓</span>' : '';
+        compositeBadge = '<span style="margin-left:6px;font-size:12px;font-weight:700;color:#22c55e;" title="Pre-Breakout Composite: ≥10d coil + top-25% of 20d range + contracting volume">🎯</span>';
+        compositeLine = '<div style="font-size:11px;color:#22c55e;font-family:var(--font-mono,monospace);letter-spacing:.3px;">Range pos ' + rp + ' · Vol contract ' + vc + rsT + '</div>';
+      }
     } else {
       var sp  = (r.short_pct != null)  ? r.short_pct.toFixed(1) + '%' : '—';
       var fm  = (r.float_m != null)    ? r.float_m.toFixed(1) + 'M'   : '—';
@@ -28146,12 +28198,13 @@ function renderSqueezeCards() {
     html +=
       '<div id="sqz-card-' + r.id + '" style="border:1px solid ' + st.bd + ';background:' + st.bg + ';border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;transition:opacity .25s ease;">' +
         '<div style="display:flex;align-items:baseline;justify-content:space-between;">' +
-          '<div><span style="font-size:18px;font-weight:700;letter-spacing:.5px;">' + sym + '</span> <span style="font-size:11px;color:var(--muted);margin-left:6px;">' + _esc(rel) + '</span> ' + ntfy_badge + deferred_badge + '</div>' +
+          '<div><span style="font-size:18px;font-weight:700;letter-spacing:.5px;">' + sym + '</span>' + compositeBadge + ' <span style="font-size:11px;color:var(--muted);margin-left:6px;">' + _esc(rel) + '</span> ' + ntfy_badge + deferred_badge + '</div>' +
           '<div style="font-size:14px;font-weight:700;color:' + st.col + ';">' + st.icon + ' ' + composite + ' · ' + _esc(r.threshold_tier) + '</div>' +
         '</div>' +
         '<div style="font-size:12px;color:var(--text);font-family:var(--font-mono,monospace);letter-spacing:.3px;">' +
           bodyLine +
         '</div>' +
+        compositeLine +
         notes +
         '<div id="sqz-dismiss-' + r.id + '" style="display:flex;justify-content:flex-end;margin-top:6px;">' +
           '<button onclick="_squeezeDismissPrompt(' + r.id + ')" style="font-size:11px;padding:4px 10px;border:1px solid var(--border);background:transparent;color:var(--muted);border-radius:6px;cursor:pointer;">Dismiss</button>' +

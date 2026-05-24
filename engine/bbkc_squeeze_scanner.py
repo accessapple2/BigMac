@@ -63,6 +63,14 @@ _RELEASE_VOL_GATE: float = 2.0          # min vol_ratio for release-NTFY
 _RELEASE_LOOKBACK_DAYS: int = 30        # how far back to scan unreleased rows
 _RELEASE_VOL_MEAN_WINDOW: int = 20      # bars used for vol-baseline mean
 
+# HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE
+_COMPOSITE_MIN_DURATION: int = 10       # ALERT tier or higher
+_COMPOSITE_RANGE_WINDOW: int = 20       # bars for high/low range
+_COMPOSITE_RANGE_POS_FLOOR: float = 75.0    # price in top 25% of 20d range
+_COMPOSITE_ATR_WINDOW: int = 20         # ATR window for vol baseline
+_COMPOSITE_VOL_CONTRACT_CEIL: float = 0.85  # today_atr <= 85% of prior mean
+_COMPOSITE_RS_FLOOR: int = 80           # rs_rank threshold for composite_rs_pass
+
 # Tier mapping by consecutive in-squeeze days
 _TIER_WATCH_MIN: int = 5
 _TIER_ALERT_MIN: int = 10
@@ -191,6 +199,76 @@ def _detect_squeeze_run(df: pd.DataFrame) -> tuple[bool, int, float, float, floa
         (float(last_row["kc_upper"]) - float(last_row["kc_lower"])) / bb_mid * 100.0
     )
     return (True, run, bb_width_pct, kc_width_pct, last_close)
+
+
+def _compute_composite_factors(df: pd.DataFrame) -> tuple[float, float]:
+    """Returns (range_position_pct, vol_contracting_pct).
+
+    - ``range_position_pct``: where close[-1] sits inside the 20-day range
+      as 0–100. 100 = at 20d high, 0 = at 20d low. NaN if range collapsed
+      (high == low) or history too short.
+    - ``vol_contracting_pct``: today's ATR(20) divided by the mean of the
+      prior 20 ATR(20) values. <1.0 = volatility shrinking. NaN if
+      insufficient history.
+    """
+    if df is None or df.empty:
+        return (float("nan"), float("nan"))
+    highs = df["High"].to_numpy(dtype=float)
+    lows = df["Low"].to_numpy(dtype=float)
+    closes = df["Close"].to_numpy(dtype=float)
+    n = len(closes)
+    if n < _COMPOSITE_RANGE_WINDOW + _COMPOSITE_ATR_WINDOW + 1:
+        return (float("nan"), float("nan"))
+
+    # Range position in last 20 bars
+    win_high = float(np.nanmax(highs[-_COMPOSITE_RANGE_WINDOW:]))
+    win_low = float(np.nanmin(lows[-_COMPOSITE_RANGE_WINDOW:]))
+    close_now = float(closes[-1])
+    if win_high <= win_low:
+        range_position_pct = float("nan")
+    else:
+        range_position_pct = (
+            (close_now - win_low) / (win_high - win_low) * 100.0
+        )
+
+    # Vol contraction: today's ATR vs prior 20-day ATR mean
+    atr_series = _atr_series(highs, lows, closes, _COMPOSITE_ATR_WINDOW)
+    today_atr = float(atr_series[-1])
+    prior = atr_series[-(_COMPOSITE_ATR_WINDOW + 1) : -1]
+    prior_valid = prior[~np.isnan(prior)]
+    if today_atr <= 0 or len(prior_valid) == 0:
+        vol_contracting_pct = float("nan")
+    else:
+        prior_mean = float(np.mean(prior_valid))
+        vol_contracting_pct = (
+            (today_atr / prior_mean) if prior_mean > 0 else float("nan")
+        )
+
+    return (range_position_pct, vol_contracting_pct)
+
+
+def _load_rs_pass_set(
+    threshold: int = _COMPOSITE_RS_FLOOR, db_path: str | None = None
+) -> set[str]:
+    """One-shot read from rs_rank — returns set of symbols with
+    rs_rank >= threshold. Empty if rs_rank table missing / unpopulated."""
+    db_path = db_path or _DB_PATH
+    try:
+        conn = _conn(db_path)
+        try:
+            rows = conn.execute(
+                "SELECT symbol FROM rs_rank WHERE rs_rank >= ?",
+                (int(threshold),),
+            ).fetchall()
+            return {r["symbol"] for r in rows}
+        finally:
+            conn.close()
+    except Exception as e:
+        console.log(
+            f"[dim]bbkc_squeeze: rs_rank table empty/missing "
+            f"({type(e).__name__}: {e!r}) — composite_rs_pass=0 for all"
+        )
+        return set()
 
 
 def _detect_release(
@@ -344,6 +422,23 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             conn.execute("ALTER TABLE squeeze_watch ADD COLUMN release_volume_ratio REAL")
         if "release_close" not in cols:
             conn.execute("ALTER TABLE squeeze_watch ADD COLUMN release_close REAL")
+        # HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE 2026-05-24
+        if "composite_pass" not in cols:
+            conn.execute(
+                "ALTER TABLE squeeze_watch ADD COLUMN composite_pass INTEGER DEFAULT 0"
+            )
+        if "range_position_pct" not in cols:
+            conn.execute(
+                "ALTER TABLE squeeze_watch ADD COLUMN range_position_pct REAL"
+            )
+        if "vol_contracting_pct" not in cols:
+            conn.execute(
+                "ALTER TABLE squeeze_watch ADD COLUMN vol_contracting_pct REAL"
+            )
+        if "composite_rs_pass" not in cols:
+            conn.execute(
+                "ALTER TABLE squeeze_watch ADD COLUMN composite_rs_pass INTEGER DEFAULT 0"
+            )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_squeeze_watch_kind_ts "
             "ON squeeze_watch(kind, scan_ts DESC) WHERE dismissed = 0"
@@ -352,6 +447,11 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             "CREATE INDEX IF NOT EXISTS idx_squeeze_watch_release "
             "ON squeeze_watch(kind, released_at DESC) "
             "WHERE released_at IS NOT NULL"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_squeeze_watch_composite "
+            "ON squeeze_watch(kind, composite_pass DESC, scan_ts DESC) "
+            "WHERE composite_pass = 1 AND dismissed = 0"
         )
         conn.commit()
     except Exception as e:
@@ -425,15 +525,35 @@ def _persist_results(
                 summary["skipped_dedup"] += 1
                 continue
 
+            # HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE — composite flags + factors
+            composite_pass_flag = 1 if r.get("composite_pass") else 0
+            composite_rs_pass_flag = 1 if r.get("composite_rs_pass") else 0
+            range_pos_val = r.get("range_position_pct")  # may be None
+            vol_contract_val = r.get("vol_contracting_pct")
+
+            notes_extra = ""
+            if composite_pass_flag:
+                rp_disp = f"{range_pos_val:.1f}" if range_pos_val is not None else "—"
+                vc_disp = f"{vol_contract_val:.2f}" if vol_contract_val is not None else "—"
+                notes_extra = (
+                    f"; composite=YES range_pos={rp_disp}% "
+                    f"vol_contract={vc_disp}× "
+                    f"rs80={'YES' if composite_rs_pass_flag else 'no'}"
+                )
             notes = (
                 f"duration_days={duration}; "
                 f"bb_width_pct={r.get('bb_width_pct'):.2f}; "
                 f"kc_width_pct={r.get('kc_width_pct'):.2f}; "
                 f"tightness={r.get('tightness'):.2f}"
+                f"{notes_extra}"
             )
             # breakout_score reused as "tightness" (1 - bb/kc ratio); 0→1 range
             breakout = float(r.get("tightness", 0.0))
-            ntfy_deferred = 1 if (tier == "PRIORITY" and quiet) else 0
+            # NTFY is deferred during quiet hours when tier is PRIORITY OR when
+            # the row is a composite pass (composite expands the NTFY surface
+            # down to ALERT tier).
+            ntfy_eligible_tier = (tier == "PRIORITY") or bool(composite_pass_flag)
+            ntfy_deferred = 1 if (ntfy_eligible_tier and quiet) else 0
             price_at_scan = float(r.get("last_close", 0.0))
 
             try:
@@ -442,11 +562,14 @@ def _persist_results(
                        (symbol, scan_ts, short_pct, float_m, vol_ratio, rsi,
                         breakout_score, composite_score, threshold_tier,
                         price_at_scan, notes, ntfy_sent, ntfy_deferred,
-                        kind, bbkc_duration_days)
+                        kind, bbkc_duration_days,
+                        composite_pass, range_position_pct,
+                        vol_contracting_pct, composite_rs_pass)
                        VALUES (?, ?, NULL, NULL, NULL, NULL,
                                ?, ?, ?,
                                ?, ?, 0, ?,
-                               'bbkc', ?)""",
+                               'bbkc', ?,
+                               ?, ?, ?, ?)""",
                     (
                         symbol,
                         scan_ts,
@@ -457,18 +580,37 @@ def _persist_results(
                         notes,
                         ntfy_deferred,
                         duration,
+                        composite_pass_flag,
+                        range_pos_val,
+                        vol_contract_val,
+                        composite_rs_pass_flag,
                     ),
                 )
                 summary["inserted"] += 1
                 if ntfy_deferred:
                     summary["deferred"] += 1
 
+                # NTFY title swap: composite hits NTFY at ALERT+ AND replace the
+                # plain entry title with the composite title. Single notification
+                # per insertion. Plain PRIORITY (non-composite) still fires its
+                # original entry NTFY.
                 if (
-                    tier == "PRIORITY"
+                    ntfy_eligible_tier
                     and not ntfy_deferred
                     and ntfy_fired_this_run < _NTFY_PER_RUN_CAP
                 ):
-                    if _fire_ntfy(symbol, duration):
+                    fire_fn_result = False
+                    if composite_pass_flag:
+                        fire_fn_result = _fire_composite_ntfy(
+                            symbol,
+                            duration,
+                            range_pos_val,
+                            vol_contract_val,
+                            bool(composite_rs_pass_flag),
+                        )
+                    elif tier == "PRIORITY":
+                        fire_fn_result = _fire_ntfy(symbol, duration)
+                    if fire_fn_result:
                         summary["ntfy_fired"] += 1
                         ntfy_fired_this_run += 1
                         conn.execute(
@@ -515,6 +657,47 @@ def _fire_ntfy(symbol: str, duration: int) -> bool:
     except Exception as e:
         console.log(
             f"[yellow]bbkc_squeeze: NTFY {symbol} failed: "
+            f"{type(e).__name__}: {e!r}"
+        )
+        return False
+
+
+def _fire_composite_ntfy(
+    symbol: str,
+    duration: int,
+    range_pos: float | None,
+    vol_contract: float | None,
+    rs_pass: bool,
+) -> bool:
+    """HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE NTFY. Replaces the plain entry
+    NTFY for composite hits — single notification per insertion. Per-
+    symbol 24h rate-limit + in-process dedupe."""
+    key = f"bbkc_composite::{symbol}"
+    if key in _ntfy_fired_classes:
+        return False
+    _ntfy_fired_classes.add(key)
+    try:
+        from engine.alert_channels import send_alert
+
+        rp_str = f"{range_pos:.0f}%" if range_pos is not None else "—"
+        vc_str = f"{vol_contract:.2f}×" if vol_contract is not None else "—"
+        rs_tag = " RS✓" if rs_pass else ""
+        send_alert(
+            level="warning",
+            alert_type=f"bbkc_squeeze_composite_{symbol}",
+            message=(
+                f"🎯 BB/KC Pre-Breakout — {symbol} ({duration}d coil, "
+                f"top {rp_str} of 20d range, vol {vc_str}){rs_tag}. "
+                f"Directional-bias setup — coiling under the lid."
+            ),
+            title=f"🎯 BB/KC Pre-Breakout — {symbol}{rs_tag}",
+            audience="admin",
+            rate_limit_secs=86400,
+        )
+        return True
+    except Exception as e:
+        console.log(
+            f"[yellow]bbkc_squeeze: composite NTFY {symbol} failed: "
             f"{type(e).__name__}: {e!r}"
         )
         return False
@@ -712,6 +895,10 @@ def run_scan(force: bool = False) -> dict:
             )
             bars_by_sym = {}
 
+        # HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE — pre-load rs_rank ≥ 80 set once
+        # for the bonus composite_rs_pass field (LEFT JOIN at scan time).
+        rs_pass_set = _load_rs_pass_set()
+
         results: list[dict] = []
         scanned = 0
         for symbol, df in bars_by_sym.items():
@@ -729,6 +916,25 @@ def run_scan(force: bool = False) -> dict:
             if not in_sq or duration < _MIN_PERSIST_DAYS:
                 continue
             tightness = 1.0 - (bb_w / kc_w) if kc_w > 0 else 0.0
+
+            # HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE — compute factors + flag pass
+            try:
+                range_pos, vol_contract = _compute_composite_factors(df)
+            except Exception as e:
+                console.log(
+                    f"[yellow]bbkc_squeeze: composite factors {symbol}: "
+                    f"{type(e).__name__}: {e!r}"
+                )
+                range_pos, vol_contract = float("nan"), float("nan")
+            composite_pass = bool(
+                duration >= _COMPOSITE_MIN_DURATION
+                and not np.isnan(range_pos)
+                and range_pos >= _COMPOSITE_RANGE_POS_FLOOR
+                and not np.isnan(vol_contract)
+                and vol_contract <= _COMPOSITE_VOL_CONTRACT_CEIL
+            )
+            composite_rs_pass = symbol in rs_pass_set
+
             results.append(
                 {
                     "symbol": symbol,
@@ -738,12 +944,25 @@ def run_scan(force: bool = False) -> dict:
                     "tightness": max(0.0, min(1.0, tightness)),
                     "last_close": last_close,
                     "tier": _tier_for_duration(duration),
+                    "range_position_pct": (
+                        None if np.isnan(range_pos) else float(range_pos)
+                    ),
+                    "vol_contracting_pct": (
+                        None if np.isnan(vol_contract) else float(vol_contract)
+                    ),
+                    "composite_pass": composite_pass,
+                    "composite_rs_pass": composite_rs_pass,
                 }
             )
 
-        # Sort by duration desc, then tightness desc
+        # Sort: composite_pass DESC (true first), then duration DESC, then tightness DESC.
+        # Composite hits surface at the top of the BB/KC tab regardless of filter state.
         results.sort(
-            key=lambda r: (r["duration_days"], r["tightness"]),
+            key=lambda r: (
+                1 if r["composite_pass"] else 0,
+                r["duration_days"],
+                r["tightness"],
+            ),
             reverse=True,
         )
 
@@ -772,10 +991,13 @@ def run_scan(force: bool = False) -> dict:
                 f"{type(e).__name__}: {e!r}"
             )
 
+        composite_count = sum(1 for r in results if r.get("composite_pass"))
+
         _last_result = {
             "results": results,
             "scanned_at": datetime.now().isoformat(),
             "candidate_count": scanned,
+            "composite_count": composite_count,
             "watch_persist": persist_summary,
             "release_scan": release_summary,
         }
@@ -783,7 +1005,7 @@ def run_scan(force: bool = False) -> dict:
 
         console.log(
             f"[green]BBKC Squeeze Scanner: scanned={scanned} "
-            f"in_squeeze={len(results)} "
+            f"in_squeeze={len(results)} composite={composite_count} "
             f"inserted={persist_summary.get('inserted', 0)} "
             f"ntfy={persist_summary.get('ntfy_fired', 0)} · "
             f"released={release_summary.get('detected', 0)} "
