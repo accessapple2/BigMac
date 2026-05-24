@@ -618,6 +618,115 @@ selected timeframe).
 Effort: ~3h backend (TF_MAP extension + 10m feed) + ~2-3h frontend
 (tab strip + state + redraw + sub-view title).
 
+### HM-TRENDSPIDER-INSPIRED — five tickets banked 2026-05-24 from TrendSpider scanner deep-dive
+
+**Banked 2026-05-24 from TS scan menu cross-referenced against bridge.ollietrades.com.**
+Key finding: the existing `section-squeeze` Ghost Watcher is a **short-interest squeeze**
+scanner (Finviz/Polygon SI + low float + RSI + volume), NOT a Bollinger-inside-Keltner
+volatility-compression squeeze. These are orthogonal concepts. Five tickets below close
+the gap. Priorities call out the recommended ship order; none scoped yet.
+
+#### HM-SQUEEZE-BBKC-COMPRESSION — Bollinger/Keltner volatility-compression scanner
+
+New scanner: Bollinger(20, 2σ) fully inside Keltner(20, 1.5×ATR) for ≥N consecutive
+daily bars. The classic TTM-squeeze setup — different from our short-interest squeeze.
+Tier by duration: WATCH 5–9d / ALERT 10–19d / PRIORITY 20d+.
+
+**Implementation:**
+- New module `engine/bbkc_squeeze_scanner.py` (mirror existing `engine/squeeze_scanner.py`
+  pattern: `run_scan()` → `_persist_results()` → NTFY at PRIORITY tier).
+- Reuse existing `squeeze_watch` table schema; add `kind` column (`'short_interest'` |
+  `'bbkc'`) so the two scanners coexist without table fork. Backfill existing rows to
+  `kind='short_interest'`.
+- Dashboard: extend existing `section-squeeze` with a tab toggle ("Short Interest" /
+  "BB/KC Compression"). Reuse the existing card-grid layout for results.
+- Scheduler: register at module scope in `main.py` alongside `_HM_BK_*` movers job;
+  fire every 30min during market hours.
+- Universe: same Top-N fleet + movers list the short-interest scanner uses.
+
+**Priority:** MEDIUM (highest leverage of the five). ~4–6h scope.
+
+#### HM-RS-RANK-VS-SPY — relative-strength rank vs SPY across universe
+
+RS = (symbol 12wk return / SPY 12wk return), percentile-ranked across the scan universe.
+This is the column every Minervini / Correction-Deniers / Earnings-Leaders / IBD-style
+leader scan reads off. Unblocks HM-MINERVINI-TREND-FILTER below at near-zero marginal cost.
+
+**Implementation:**
+- Daily background job (nightly, post-close): compute 12wk return for every symbol in
+  scan universe (~3,026 symbols, reuse cached Alpaca bars from
+  `get_bulk_daily_ohlcv` shipped 2026-05-21 PR #60), divide by SPY's 12wk return,
+  rank-percentile.
+- Persist as new column `rs_rank` on `stock_fundamentals` (or new `rs_rank` table if
+  fundamentals table is shared across cadences).
+- Dashboard: add sortable `RS%` column to `section-fundamentals`; overlay as color tint
+  on Ollie AI Workspace movers histogram bars (deep green = RS 90+, deep red = RS 10-).
+- No new scanner — just a precomputed rank consumers can read.
+
+**Priority:** MEDIUM (foundational; unblocks several downstream filters). ~3–4h scope.
+
+#### HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE — multi-factor pre-breakout coil scan
+
+Composite scan combining BB/KC squeeze ≥10 days **AND** price in top 25% of 20-day range
+**AND** volume contracting (declining 20-day ATR/HV). This is TS's highest-conviction
+"coil under the lid" signal — the BB/KC squeeze alone fires too often; the composite
+filters to setups with directional bias.
+
+**Depends on:** HM-SQUEEZE-BBKC-COMPRESSION (provides the squeeze input) +
+HM-RS-RANK-VS-SPY (optional fourth factor: RS ≥ 80).
+
+**Implementation:**
+- Composite computed inside `engine/bbkc_squeeze_scanner.py` (4th tier above PRIORITY,
+  call it `COMPOSITE` or `COILED`).
+- Same persistence + NTFY pattern.
+- Dashboard: third tab on `section-squeeze` ("Pre-Breakout Composite"), or filter chip
+  on the BB/KC tab.
+
+**Priority:** MEDIUM (sequential dep on the first two). ~3–4h scope.
+
+#### HM-SQUEEZE-RELEASE-DETECT — alert when an existing squeeze breaks out
+
+Companion alert: when a row already in `squeeze_watch` with `kind='bbkc'` sees BB expand
+back outside KC AND a 2σ volume spike on the breakout candle, fire NTFY with
+direction (BB upper break = bullish, BB lower break = bearish). Currently we only
+alert on entry to the squeeze; the breakout is the actual tradeable moment.
+
+**Implementation:**
+- Add release-detect pass to `engine/bbkc_squeeze_scanner.py::run_scan()`: for every
+  row in `squeeze_watch` with `tier IN ('ALERT','PRIORITY','COMPOSITE')` and
+  `released_at IS NULL`, check current bar against the entry conditions; if released,
+  flip `released_at` + NTFY.
+- New columns on `squeeze_watch`: `released_at`, `release_direction` (`'up'`|`'down'`),
+  `release_volume_ratio`.
+- NTFY topic: `ollietrades-admin` (same as short-interest PRIORITY).
+- Dashboard: add "Recently Released" subsection on `section-squeeze` showing rows with
+  `released_at` within last 5 days.
+
+**Priority:** MEDIUM (closes the loop on HM-SQUEEZE-BBKC). ~2–3h scope.
+
+#### HM-MINERVINI-TREND-FILTER — Minervini Trend Template pass/fail tagging
+
+Daily background job tagging every symbol in scan universe with Minervini Trend
+Template pass/fail (8 conditions: price > 150/200 SMA, 150 > 200, 200 trending up
+1mo+, price > 50 SMA, 50 > 150, price within 25% of 52wk high, price > 30% above
+52wk low, RS ≥ 70). Cheap — all inputs already cached from Alpaca daily bars +
+HM-RS-RANK-VS-SPY.
+
+**Depends on:** HM-RS-RANK-VS-SPY (for the RS ≥ 70 condition).
+
+**Implementation:**
+- Daily job alongside RS-rank compute.
+- New column `trend_template_pass` (boolean) + `trend_template_score` (0–8 count) on
+  `stock_fundamentals`.
+- Dashboard v1: add column to `section-fundamentals` + filter chip on Ollie AI
+  Workspace movers histogram.
+- v2 (deferred): use as a hard pre-filter for the Active 4 voters (Capitol, Neo,
+  McCoy, Dax) — only buy candidates that pass the template. Requires fleet-side
+  approval; v1 is observation-only.
+
+**Priority:** LOW–MEDIUM (foundational filter for any "leader" composite scan; v1 is
+data-only, no fleet behavior change). ~3h v1 scope.
+
 ### HM-CHART-DATA-EARNINGS-DATES-POPULATE — `/api/chart-data.earnings_dates` declared empty, never filled
 
 **Backend bug surfaced during Step 3b.1 endpoint discovery 2026-05-23.**
