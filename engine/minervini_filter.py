@@ -19,6 +19,31 @@ The 8 conditions:
 ``template_pass`` is 1 only when all 8 are true (strict 8/8 — Captain spec
 2026-05-24). ``template_score`` is the 0–8 count.
 
+Brief-to-production rule mapping (HM-MINERVINI-COND-MAPPING 2026-05-24).
+Some specs frame Minervini as a 10-rule template by expanding the SMA
+hierarchy and listing RS-rank inside the score. Production keeps RS as
+a separate gate (``rs_pass``) and consolidates the hierarchy into two
+checks (``cond3`` + ``cond6``). Mapping:
+
+    Brief rule                         | Production
+    -----------------------------------|---------------------------------
+    price > 50 SMA                     | cond5
+    price > 150 SMA                    | cond1
+    price > 200 SMA                    | cond2
+    50 SMA > 150 SMA                   | cond6 (paired AND)
+    150 SMA > 200 SMA                  | cond3
+    50 SMA > 200 SMA                   | cond6 (paired AND, same check)
+    200 SMA rising ≥ 1mo               | cond4
+    price ≥ 30% above 52w low          | cond8
+    price within 25% of 52w high       | cond7
+    RS rank ≥ 70 vs SPX                | rs_pass (separate column, NOT in
+                                       |   template_score; gate consumers
+                                       |   AND template_pass with rs_pass)
+
+No rules are missing — the brief's expanded count folds into the canonical
+8 trend conds + 1 RS gate. If a future spec adds a genuinely new rule
+(e.g. weekly trend confirmation, ADX, sector RS), open HM-MINERVINI-V2-COND-COMPLETE.
+
 Ship state: gated by ``MINERVINI_FILTER_ENABLED`` env flag (default OFF).
 Nightly cadence at 20:45 AZ post-close, 15 min after the RS-rank job at
 20:30 so the ``rs_pass`` LEFT JOIN sees fresh data.
