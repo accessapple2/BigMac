@@ -11366,9 +11366,13 @@ document.addEventListener('keydown', function(e) {
       var sx = (e.clientX - rect.left) * (vbW / rect.width);
       var sy = (e.clientY - rect.top)  * (vbH / rect.height);
 
-      var sym = (window._oaiSfTf && _oaiSfTf.currentSym) || '';
-      var tf  = (window._oaiSfTf && _oaiSfTf.currentTf)  || 'D';
-      var candles = (window._oaiSfTf && _oaiSfTf.candles[sym + '_' + tf]) || [];
+      // HM-OLLIE-AI-SYMBOL-FOCUS-HOVER-FIX 2026-05-24: _oaiSfTf is a closure
+      // var inside this IIFE — never assigned to window. The earlier
+      // `window._oaiSfTf && ...` guard was always undefined → bail.
+      // Reference via closure directly (same as _oaiSfRenderForTf).
+      var sym = _oaiSfTf.currentSym || '';
+      var tf  = _oaiSfTf.currentTf  || 'D';
+      var candles = _oaiSfTf.candles[sym + '_' + tf] || [];
       if (!candles.length) return;
 
       var idx = Math.max(0, Math.min(candles.length - 1,
@@ -13144,8 +13148,11 @@ document.addEventListener('keydown', function(e) {
         });
         /* HM-OLLIE-AI-SYMBOL-FOCUS-COLDSTART 2026-05-24: auto-load AAPL on
            first visit to Symbol Focus so the static spec demo never shows
-           and hover works immediately without manual symbol entry. */
-        if (view === 'symbol-focus' && !(window._oaiSfTf && _oaiSfTf.currentSym)) {
+           and hover works immediately without manual symbol entry.
+           NOTE: _oaiSfTf is closure-scoped — do NOT guard with window._oaiSfTf
+           (always undefined → cold-start would fire every click and stomp
+           the user's current symbol). */
+        if (view === 'symbol-focus' && !_oaiSfTf.currentSym) {
           if (typeof window.oaiFocusSymbol === 'function') {
             window.oaiFocusSymbol('AAPL');
           }
