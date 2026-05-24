@@ -10008,6 +10008,10 @@ document.addEventListener('keydown', function(e) {
         <div class="oai-vol" id="oai-vol-bars">
           <div class="vb" style="height:20%;"></div><div class="vb" style="height:30%;"></div><div class="vb" style="height:37%;"></div><div class="vb" style="height:40%;"></div><div class="vb" style="height:38%;"></div><div class="vb" style="height:32%;"></div><div class="vb" style="height:23%;"></div><div class="vb" style="height:13%;"></div><div class="vb" style="height:5%;"></div><div class="vb" style="height:1%;"></div><div class="vb" style="height:1%;"></div><div class="vb" style="height:6%;"></div><div class="vb" style="height:14%;"></div><div class="vb" style="height:24%;"></div><div class="vb" style="height:33%;"></div><div class="vb vb--o" style="height:90%;"></div><div class="vb" style="height:40%;"></div><div class="vb" style="height:36%;"></div><div class="vb" style="height:28%;"></div><div class="vb" style="height:18%;"></div><div class="vb" style="height:9%;"></div><div class="vb" style="height:32%;"></div><div class="vb" style="height:30%;"></div><div class="vb" style="height:32%;"></div><div class="vb" style="height:39%;"></div><div class="vb" style="height:49%;"></div><div class="vb" style="height:58%;"></div><div class="vb" style="height:66%;"></div><div class="vb" style="height:70%;"></div><div class="vb" style="height:69%;"></div>
         </div>
+        <!-- HM-OLLIE-AI-SYMBOL-FOCUS-HOVER 2026-05-24: floating tooltip
+             positioned absolutely inside .oai-chart (which is
+             position:relative). Hidden until oaiChartHover() shows it. -->
+        <div class="oai-chart-tooltip" id="oai-chart-tooltip" style="display:none;"></div>
       </div>
 
       <!-- Step 3b/3c stub note -->
@@ -10747,6 +10751,27 @@ document.addEventListener('keydown', function(e) {
 [data-theme="light"] #section-ollie-ai .oai-tf { background:#f0f2f5 !important; color:#475569 !important; border-color:#d1d5db !important; }
 [data-theme="light"] #section-ollie-ai .oai-tf.on { background:#fef3c7 !important; color:#b45309 !important; border-color:#d97706 !important; }
 
+/* ───── HM-OLLIE-AI-SYMBOL-FOCUS-HOVER — chart tooltip ───── */
+#section-ollie-ai .oai-chart-tooltip {
+  position:absolute; top:0; left:0; transform:translate(0,0);
+  z-index:5; pointer-events:none;
+  background:var(--panel); border:1px solid #fbbf24; border-radius:4px;
+  padding:6px 10px; font-family:var(--font-mono); font-size:11px;
+  color:#e5e7eb; white-space:nowrap;
+  box-shadow:0 4px 12px rgba(0,0,0,0.35);
+  line-height:1.4;
+}
+#section-ollie-ai .oai-chart-tooltip .oai-hov-date { color:#fbbf24; font-weight:700; margin-right:10px; }
+#section-ollie-ai .oai-chart-tooltip .oai-hov-k { color:var(--text-dim); margin-right:3px; font-weight:600; }
+#section-ollie-ai .oai-chart-tooltip .oai-hov-v { color:#e5e7eb; margin-right:8px; }
+#section-ollie-ai .oai-chart-tooltip .oai-hov-d { font-weight:700; margin-left:6px; }
+#section-ollie-ai .oai-chart-tooltip .oai-hov-d.pos { color:#22c55e; }
+#section-ollie-ai .oai-chart-tooltip .oai-hov-d.neg { color:#ef4444; }
+#section-ollie-ai .oai-chart-tooltip .oai-hov-d.neu { color:var(--text-dim); }
+[data-theme="light"] #section-ollie-ai .oai-chart-tooltip { background:#ffffff !important; border-color:#d97706 !important; color:#1a1f2e !important; box-shadow:0 4px 12px rgba(0,0,0,0.12) !important; }
+[data-theme="light"] #section-ollie-ai .oai-chart-tooltip .oai-hov-date { color:#b45309 !important; }
+[data-theme="light"] #section-ollie-ai .oai-chart-tooltip .oai-hov-v { color:#1a1f2e !important; }
+
 /* ───── Step 3c — confirmation modal + toast container ───── */
 #section-ollie-ai .oai-modal { position:fixed; inset:0; z-index:10000; display:flex; align-items:center; justify-content:center; padding:20px; }
 #section-ollie-ai .oai-modal-backdrop { position:absolute; inset:0; background:rgba(0,0,0,0.6); backdrop-filter:blur(2px); }
@@ -11256,12 +11281,174 @@ document.addEventListener('keydown', function(e) {
     parts.push('<text x="' + (PAD_L - 6) + '" y="' + (PAD_T + plotH/2 + 3) + '" fill="#9ca3af" font-size="9" text-anchor="end" font-family="var(--font-mono)">$' + midPrice.toFixed(2) + '</text>');
     parts.push('<text x="' + (PAD_L - 6) + '" y="' + (PAD_T + plotH - 3) + '" fill="#9ca3af" font-size="9" text-anchor="end" font-family="var(--font-mono)">$' + pMin.toFixed(2) + '</text>');
 
+    // HM-OLLIE-AI-SYMBOL-FOCUS-HOVER 2026-05-24: hover overlay rect captures
+    // mousemove events over the plot area; crosshair <g> starts hidden,
+    // shown by oaiChartHover() when pointer enters. Appended last so the
+    // overlay sits on top of all candle/zone layers for event capture.
+    parts.push('<g id="oai-hover-crosshair" style="display:none;pointer-events:none;">');
+    parts.push('<line id="oai-hover-vline" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>');
+    parts.push('<line id="oai-hover-hline" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3" opacity="0.6"/>');
+    parts.push('<rect id="oai-hover-ypill" fill="#fbbf24" rx="2" width="46" height="14"/>');
+    parts.push('<text id="oai-hover-yprice" fill="#000" font-size="9" font-weight="700" font-family="var(--font-mono)" text-anchor="middle"/>');
+    parts.push('</g>');
+    parts.push('<rect id="oai-hover-overlay" x="' + PAD_L + '" y="' + PAD_T +
+               '" width="' + plotW + '" height="' + plotH +
+               '" fill="transparent" pointer-events="all" style="cursor:crosshair;"' +
+               ' onmousemove="oaiChartHover(event)" onmouseleave="oaiChartHoverEnd()"/>');
+
     svg.innerHTML = parts.join('');
     svg.dataset.lastClose = lastClose;
     svg.dataset.padL = PAD_L;
     svg.dataset.padR = PAD_R;
+    svg.dataset.padT = PAD_T;
+    svg.dataset.padB = PAD_B;
     svg.dataset.plotW = plotW;
+    svg.dataset.plotH = plotH;
+    svg.dataset.pMin = pMin;
+    svg.dataset.pMax = pMax;
+    svg.dataset.barW = barW;
   }
+
+  /* ───── HM-OLLIE-AI-SYMBOL-FOCUS-HOVER — chart hover crosshair + tooltip.
+     Pointer overlay rect inside SVG captures mousemove; RAF-throttled
+     handler computes nearest-candle snap + mouse-Y price, updates
+     crosshair <g> + Y-pill + HTML tooltip div. mouseleave hides both. */
+  var _oaiHoverRaf = null;
+
+  function _oaiFmtHoverDate(unixSec, tf) {
+    if (!unixSec) return '—';
+    var d = new Date(Number(unixSec) * 1000);
+    if (isNaN(d.getTime())) return '—';
+    var MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+    var mo = MO[d.getMonth()], day = d.getDate(), yr = d.getFullYear();
+    if (tf === '10m') {
+      var h = String(d.getHours()).padStart(2,'0');
+      var m = String(d.getMinutes()).padStart(2,'0');
+      return mo + ' ' + day + ' ' + h + ':' + m;
+    }
+    if (tf === 'W') {
+      var endOfWeek = new Date(d); endOfWeek.setDate(d.getDate() + 4);
+      return mo + ' ' + day + '–' + endOfWeek.getDate();
+    }
+    if (tf === 'M') return mo + ' ' + yr;
+    return mo + ' ' + day;  // D default
+  }
+
+  function _oaiFmtHoverVol(v) {
+    if (v == null || isNaN(v)) return '—';
+    v = Number(v);
+    if (v >= 1e9) return (v/1e9).toFixed(2) + 'B';
+    if (v >= 1e6) return (v/1e6).toFixed(2) + 'M';
+    if (v >= 1e3) return (v/1e3).toFixed(1) + 'K';
+    return String(Math.round(v));
+  }
+
+  window.oaiChartHover = function(e) {
+    if (_oaiHoverRaf) return;
+    _oaiHoverRaf = requestAnimationFrame(function() {
+      _oaiHoverRaf = null;
+      var svg = document.getElementById('oai-chart-svg');
+      var tip = document.getElementById('oai-chart-tooltip');
+      var cross = document.getElementById('oai-hover-crosshair');
+      if (!svg || !tip || !cross) return;
+      var ds = svg.dataset;
+      var padL = +ds.padL || 0, padR = +ds.padR || 0;
+      var padT = +ds.padT || 0, padB = +ds.padB || 0;
+      var plotW = +ds.plotW || 0, plotH = +ds.plotH || 0;
+      var pMin = +ds.pMin || 0, pMax = +ds.pMax || 0;
+      var barW = +ds.barW || 0;
+      if (!plotW || !plotH || !barW || pMax <= pMin) return;
+
+      // Translate page coords → SVG viewBox coords
+      var rect = svg.getBoundingClientRect();
+      var vbW = svg.viewBox.baseVal.width || 580;
+      var vbH = svg.viewBox.baseVal.height || 280;
+      var sx = (e.clientX - rect.left) * (vbW / rect.width);
+      var sy = (e.clientY - rect.top)  * (vbH / rect.height);
+
+      var sym = (window._oaiSfTf && _oaiSfTf.currentSym) || '';
+      var tf  = (window._oaiSfTf && _oaiSfTf.currentTf)  || 'D';
+      var candles = (window._oaiSfTf && _oaiSfTf.candles[sym + '_' + tf]) || [];
+      if (!candles.length) return;
+
+      var idx = Math.max(0, Math.min(candles.length - 1,
+        Math.floor((sx - padL) / barW)));
+      var c = candles[idx];
+      if (!c) return;
+      var snapX = padL + idx * barW + barW / 2;
+      var priceAtY = pMax - (sy - padT) / plotH * (pMax - pMin);
+
+      // Render SVG crosshair
+      cross.style.display = '';
+      var vline = document.getElementById('oai-hover-vline');
+      var hline = document.getElementById('oai-hover-hline');
+      var ypill = document.getElementById('oai-hover-ypill');
+      var yprice = document.getElementById('oai-hover-yprice');
+      if (vline) {
+        vline.setAttribute('x1', snapX); vline.setAttribute('x2', snapX);
+        vline.setAttribute('y1', padT);  vline.setAttribute('y2', padT + plotH);
+      }
+      if (hline) {
+        hline.setAttribute('x1', padL);          hline.setAttribute('x2', padL + plotW);
+        hline.setAttribute('y1', sy.toFixed(1)); hline.setAttribute('y2', sy.toFixed(1));
+      }
+      if (ypill) {
+        ypill.setAttribute('x', padL + plotW + 2);
+        ypill.setAttribute('y', sy - 7);
+      }
+      if (yprice) {
+        yprice.setAttribute('x', padL + plotW + 25);
+        yprice.setAttribute('y', sy + 3);
+        yprice.textContent = priceAtY.toFixed(2);
+      }
+
+      // Render HTML tooltip
+      var o = Number(c.open ?? c.o);
+      var cl = Number(c.close ?? c.c);
+      var hi = Number(c.high ?? c.h);
+      var lo = Number(c.low ?? c.l);
+      var vol = Number(c.volume ?? c.v ?? 0);
+      var prior = idx > 0 ? Number(candles[idx-1].close ?? candles[idx-1].c) : null;
+      var delta = prior != null ? cl - prior : null;
+      var deltaPct = prior != null && prior !== 0 ? (delta / prior * 100) : null;
+      var deltaCls = delta == null ? 'neu' : (delta >= 0 ? 'pos' : 'neg');
+      var deltaSign = delta == null ? '' : (delta >= 0 ? '+' : '');
+      var deltaHtml = delta == null
+        ? '<span class="oai-hov-d neu">Δ —</span>'
+        : '<span class="oai-hov-d ' + deltaCls + '">Δ ' + deltaSign + delta.toFixed(2) +
+          ' (' + deltaSign + deltaPct.toFixed(2) + '%)</span>';
+
+      tip.innerHTML =
+        '<span class="oai-hov-date">' + _oaiFmtHoverDate(c.time, tf) + '</span>' +
+        '<span class="oai-hov-k">O</span> <span class="oai-hov-v">' + o.toFixed(2) + '</span>' +
+        '<span class="oai-hov-k">H</span> <span class="oai-hov-v">' + hi.toFixed(2) + '</span>' +
+        '<span class="oai-hov-k">L</span> <span class="oai-hov-v">' + lo.toFixed(2) + '</span>' +
+        '<span class="oai-hov-k">C</span> <span class="oai-hov-v">' + cl.toFixed(2) + '</span>' +
+        '<span class="oai-hov-k">V</span> <span class="oai-hov-v">' + _oaiFmtHoverVol(vol) + '</span>' +
+        deltaHtml;
+      tip.style.display = 'block';
+
+      // Position tooltip near cursor with edge-flip
+      var chartRect = svg.parentNode.getBoundingClientRect();
+      var pxX = e.clientX - chartRect.left;
+      var pxY = e.clientY - chartRect.top;
+      var tipW = tip.offsetWidth || 320;
+      var tipH = tip.offsetHeight || 28;
+      var tx = pxX + 14;
+      if (tx + tipW > chartRect.width - 8) tx = pxX - tipW - 14;
+      var ty = pxY - tipH - 12;
+      if (ty < 4) ty = pxY + 18;
+      tip.style.transform = 'translate(' + tx + 'px,' + ty + 'px)';
+    });
+  };
+
+  window.oaiChartHoverEnd = function() {
+    if (_oaiHoverRaf) { cancelAnimationFrame(_oaiHoverRaf); _oaiHoverRaf = null; }
+    var tip = document.getElementById('oai-chart-tooltip');
+    var cross = document.getElementById('oai-hover-crosshair');
+    if (tip) tip.style.display = 'none';
+    if (cross) cross.style.display = 'none';
+  };
 
   function _oaiRenderMonthly(sym, threeYearCandles) {
     /* Step 3b.2: replaces the static OPAD monthly sparkline. Aggregates
