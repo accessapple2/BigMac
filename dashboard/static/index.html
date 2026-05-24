@@ -11947,55 +11947,285 @@ document.addEventListener('keydown', function(e) {
     }).observe(sr, { attributes:true, attributeFilter:['style'] });
   });
 
-  /* ───── Step 5a — Backtest Lab visual scaffold.
-     Seeds the 53x7 heatmap with 256 cells matching the v4.3 spec color
-     distribution. Run + agent selectors render but don't fetch live —
-     Step 5b wires /api/backtest/runs + /api/backtest/run/{id} and
-     replaces oaiBacktestPickRun / oaiBacktestPickAgent with real
-     fetchers + KPI/equity/heatmap re-render. */
-  function _oaiBacktestSeedHeatmap() {
+  /* ───── Step 5b — Backtest Lab live wire.
+     /api/backtest/runs → RUN dropdown (sorted by id desc, completed only).
+     /api/backtest/run/{id} → AGENT dropdown (list of agent rows per run).
+     Agent pick triggers KPI compute + equity curve + heatmap re-render.
+     Filter Contribution stays static (HM-OAI-BL-FILTER-LIVE banked for
+     per-filter sweep endpoint). All `*_pct` fields in agent rows are
+     stored as fractions despite the suffix; multiply by 100 client-side.
+     Per-trade `pct` is already a percent (NOT a fraction). */
+
+  var _oaiBlRuns = [];       // cached /api/backtest/runs response
+  var _oaiBlRunCache = {};   // runId → agent rows (caches /api/backtest/run/{id})
+  var _oaiBlCurrentRun = null;
+  var _oaiBlCurrentAgents = [];
+  var _oaiBlInit = false;
+
+  // 7-color heatmap palette per spec L539-545
+  var _OAI_BL_PAL = ['#dc2626','#ef4444','#fca5a5','#1f2937','#86efac','#22c55e','#16a34a'];
+
+  function _oaiBlSeedDemoHeatmap() {
+    /* Fallback when the API hasn't loaded yet or fails. Same xorshift PRNG
+       pattern that Step 5a used. Kept so the panel never renders empty. */
     var el = document.getElementById('oai-bl-heatmap');
     if (!el) return;
-    // 7-color palette per spec L539-545 (Loss -> Gain)
-    var COLORS = ['#dc2626','#ef4444','#fca5a5','#1f2937','#86efac','#22c55e','#16a34a'];
-    // Distribution mimicking the spec example (heavy green tilt, like a
-    // winning strategy). Step 5b replaces with real per-day-pct bucketing.
-    var BIAS = [1, 3, 7, 16, 18, 30, 25];  // sums to 100 — % of cells per bucket
-    // Generate 256 cells (~52 weeks × 5 trading days), deterministic via xorshift
-    var cells = [];
-    var seed = 19260817;
+    var BIAS = [1, 3, 7, 16, 18, 30, 25];
+    var cells = [], seed = 19260817;
     function rnd() { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return (seed >>> 0) / 0xffffffff; }
     for (var i = 0; i < 256; i++) {
       var r = rnd() * 100, acc = 0, idx = 0;
       for (var k = 0; k < BIAS.length; k++) { acc += BIAS[k]; if (r < acc) { idx = k; break; } }
-      cells.push(COLORS[idx]);
+      cells.push(_OAI_BL_PAL[idx]);
     }
     el.innerHTML = cells.map(function(c){ return '<div style="background:' + c + ';"></div>'; }).join('');
   }
 
-  window.oaiBacktestPickRun = function(value) {
-    /* Step 5a stub — Step 5b wires this to refetch run details + agent list. */
-    try { console.log('[OAI-BL] pickRun:', value, '(Step 5b will wire)'); } catch(e) {}
-  };
-  window.oaiBacktestPickAgent = function(value) {
-    /* Step 5a stub — Step 5b wires this to fetch /api/backtest/run/{id},
-       refresh KPIs from agent row, regenerate equity curve from
-       equity_curve[], regenerate heatmap from trades[] aggregated by date. */
-    try { console.log('[OAI-BL] pickAgent:', value, '(Step 5b will wire)'); } catch(e) {}
+  function _oaiBlBucket(pct) {
+    /* Map a daily-pct value to one of 7 spec colors. */
+    if (pct < -3.0)  return _OAI_BL_PAL[0];   // deep red
+    if (pct < -1.5)  return _OAI_BL_PAL[1];   // red
+    if (pct < -0.5)  return _OAI_BL_PAL[2];   // light red
+    if (pct <= 0.5)  return _OAI_BL_PAL[3];   // neutral (no significant move)
+    if (pct <= 1.5)  return _OAI_BL_PAL[4];   // light green
+    if (pct <= 3.0)  return _OAI_BL_PAL[5];   // green
+    return _OAI_BL_PAL[6];                    // deep green
+  }
+
+  function _oaiBlDdDuration(equityCurve) {
+    /* Longest peak-to-trough day count (drawdown duration). Walks the
+       curve tracking running max; counts days where current < running
+       max; returns the longest such streak. */
+    if (!equityCurve || equityCurve.length < 2) return 0;
+    var peak = equityCurve[0].value, longest = 0, current = 0;
+    for (var i = 1; i < equityCurve.length; i++) {
+      var v = Number(equityCurve[i].value);
+      if (v >= peak) { peak = v; current = 0; }
+      else { current++; if (current > longest) longest = current; }
+    }
+    return longest;
+  }
+
+  function _oaiBlComputeKpis(agent) {
+    /* All `*_pct` fields are FRACTIONS in the agent row — multiply by 100
+       for display. Per-trade `pct` is already a percent. */
+    var trades = agent.trades || [];
+    var winners = trades.filter(function(t){ return Number(t.pct || 0) > 0; });
+    var losers  = trades.filter(function(t){ return Number(t.pct || 0) < 0; });
+    var winSum  = winners.reduce(function(a,t){ return a + Number(t.pct); }, 0);
+    var lossSum = Math.abs(losers.reduce(function(a,t){ return a + Number(t.pct); }, 0));
+    var pf = lossSum > 0 ? winSum / lossSum : (winSum > 0 ? Infinity : 0);
+    var n = Number(agent.num_trades || trades.length);
+    var wr = Number(agent.win_rate || 0) * 100;
+    var winCount  = Math.round(wr / 100 * n);
+    var lossCount = n - winCount;
+    var avgW = winners.length ? winSum / winners.length : 0;
+    var avgL = losers.length  ? -lossSum / losers.length : 0;
+    var maxDdPct = Number(agent.max_drawdown || 0) * 100;
+    var ddDays   = _oaiBlDdDuration(agent.equity_curve);
+    var days     = (agent.equity_curve || []).length;
+    return {
+      pf: isFinite(pf) ? pf.toFixed(2) : '∞',
+      wr: wr.toFixed(1) + '%',
+      wrSub: winCount + ' / ' + n + ' trades',
+      avgW: (avgW >= 0 ? '+' : '') + avgW.toFixed(2) + '%',
+      avgWSub: winners.length + ' winners',
+      avgL: avgL.toFixed(2) + '%',
+      avgLSub: losers.length + ' losers',
+      maxDd: '-' + Math.abs(maxDdPct).toFixed(2) + '%',
+      maxDdSub: ddDays + ' day' + (ddDays === 1 ? '' : 's'),
+      total: String(n),
+      totalSub: days + ' day' + (days === 1 ? '' : 's'),
+    };
+  }
+
+  function _oaiBlRenderKpis(k) {
+    function set(id, val) { var el = document.getElementById(id); if (el) el.textContent = val; }
+    set('oai-bl-kpi-pf', k.pf);
+    set('oai-bl-kpi-wr', k.wr);
+    set('oai-bl-kpi-wr-sub', k.wrSub);
+    set('oai-bl-kpi-aw', k.avgW);
+    set('oai-bl-kpi-aw-sub', k.avgWSub);
+    set('oai-bl-kpi-al', k.avgL);
+    set('oai-bl-kpi-al-sub', k.avgLSub);
+    set('oai-bl-kpi-dd', k.maxDd);
+    set('oai-bl-kpi-dd-sub', k.maxDdSub);
+    set('oai-bl-kpi-tt', k.total);
+    set('oai-bl-kpi-tt-sub', k.totalSub);
+  }
+
+  function _oaiBlRenderEquityCurve(agent, runName) {
+    /* Rebuilds the 900×180 equity curve SVG from agent.equity_curve[]. */
+    var svg = document.getElementById('oai-bl-equity-svg');
+    if (!svg) return;
+    var eq = agent.equity_curve || [];
+    var titleEl = document.getElementById('oai-bl-eq-title');
+    if (titleEl) titleEl.textContent = 'EQUITY CURVE · ' + eq.length + 'd · ' + (agent.display_name || agent.player_id || '?') + ': ' + (runName || '');
+
+    if (eq.length < 2) {
+      svg.innerHTML = '<text x="450" y="90" fill="#6b7280" font-size="14" text-anchor="middle">Equity curve unavailable</text>';
+      return;
+    }
+    var values = eq.map(function(p){ return Number(p.value); });
+    var vMin = Math.min.apply(null, values), vMax = Math.max.apply(null, values);
+    var vRange = vMax - vMin || 1;
+    var W = 900, H = 180, PAD_T = 20, PAD_B = 8;
+    var plotH = H - PAD_T - PAD_B;
+    var startVal = values[0], endVal = values[values.length - 1];
+    var totalReturn = (endVal - startVal) / startVal * 100;
+    var win = endVal >= startVal;
+    var stroke = win ? '#22c55e' : '#ef4444';
+    var fill   = win ? '#22c55e' : '#ef4444';
+
+    var pts = values.map(function(v, i) {
+      var x = (i / (values.length - 1)) * W;
+      var y = PAD_T + (vMax - v) / vRange * plotH;
+      return x.toFixed(1) + ',' + y.toFixed(1);
+    });
+    var line = 'M ' + pts.join(' L ');
+    var area = line + ' L ' + W + ',' + H + ' L 0,' + H + ' Z';
+
+    function fmt$(v) {
+      v = Math.round(v);
+      if (Math.abs(v) >= 1e6) return '$' + (v/1e6).toFixed(2) + 'M';
+      if (Math.abs(v) >= 1e3) return '$' + (v/1e3).toFixed(1) + 'K';
+      return '$' + v.toLocaleString();
+    }
+    var sign = totalReturn >= 0 ? '+' : '';
+
+    svg.innerHTML =
+      '<line x1="0" y1="90" x2="900" y2="90" stroke="#1f2937" stroke-dasharray="3,3"/>' +
+      '<path d="' + area + '" fill="' + fill + '" opacity="0.15"/>' +
+      '<path d="' + line + '" fill="none" stroke="' + stroke + '" stroke-width="1.5"/>' +
+      '<text x="8" y="14" fill="#fbbf24" font-size="10" font-weight="700" font-family="var(--font-mono)">' +
+        fmt$(startVal) + ' → ' + fmt$(endVal) +
+      '</text>' +
+      '<text x="892" y="14" fill="' + stroke + '" font-size="11" font-weight="700" text-anchor="end" font-family="var(--font-mono)">' +
+        sign + totalReturn.toFixed(2) + '%' +
+      '</text>';
+  }
+
+  function _oaiBlRenderHeatmap(equityCurve) {
+    /* Daily deltas from equity_curve → bucketed colors. One cell per
+       trading day after day 0 (since delta needs a prior point). */
+    var el = document.getElementById('oai-bl-heatmap');
+    if (!el) return;
+    if (!equityCurve || equityCurve.length < 2) { _oaiBlSeedDemoHeatmap(); return; }
+    var cells = [];
+    for (var i = 1; i < equityCurve.length; i++) {
+      var prev = Number(equityCurve[i-1].value);
+      var cur  = Number(equityCurve[i].value);
+      var pct = prev > 0 ? (cur - prev) / prev * 100 : 0;
+      var color = _oaiBlBucket(pct);
+      cells.push('<div style="background:' + color + ';" title="' +
+                 (equityCurve[i].date || '') + ' · ' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%"></div>');
+    }
+    el.innerHTML = cells.join('');
+  }
+
+  async function _oaiBlLoadRuns() {
+    /* Fetch /api/backtest/runs, sort by id desc, filter status='completed',
+       populate RUN dropdown, auto-select runs[0]. */
+    var metaEl = document.getElementById('oai-bl-meta');
+    var sel = document.getElementById('oai-bl-pick-run');
+    try {
+      var r = await fetch('/api/backtest/runs');
+      if (!r || !r.ok) throw new Error('HTTP ' + (r && r.status));
+      var runs = await r.json();
+      if (!Array.isArray(runs)) runs = [];
+      runs = runs.filter(function(x){ return x.status === 'completed'; });
+      runs.sort(function(a, b){ return Number(b.id) - Number(a.id); });
+      _oaiBlRuns = runs;
+      if (!runs.length) {
+        if (metaEl) metaEl.textContent = 'No completed backtest runs available — showing spec demo';
+        return;
+      }
+      // Repopulate dropdown — keep nothing from the demo option
+      sel.innerHTML = '';
+      runs.forEach(function(run) {
+        var opt = document.createElement('option');
+        opt.value = String(run.id);
+        opt.textContent = '#' + run.id + ' · ' + (run.run_name || '?') + ' · ' +
+                          (run.days || '?') + 'd · ' + (run.version_tag || '');
+        sel.appendChild(opt);
+      });
+      if (metaEl) metaEl.textContent = runs.length + ' completed runs loaded';
+      // Auto-select first run
+      sel.value = String(runs[0].id);
+      await window.oaiBacktestPickRun(String(runs[0].id));
+    } catch(e) {
+      if (metaEl) metaEl.textContent = 'Backtest runs unavailable — showing spec demo';
+      try { console.warn('[OAI-BL] load runs failed:', e); } catch(_) {}
+    }
+  }
+
+  window.oaiBacktestPickRun = async function(runIdStr) {
+    if (!runIdStr || runIdStr === '__demo__') return;
+    var runId = parseInt(runIdStr, 10);
+    if (isNaN(runId)) return;
+    var run = _oaiBlRuns.find(function(r){ return r.id === runId; });
+    if (!run) return;
+    _oaiBlCurrentRun = run;
+    // Fetch (or pull from cache) the agent rows for this run
+    var agents = _oaiBlRunCache[runId];
+    if (!agents) {
+      try {
+        var r = await fetch('/api/backtest/run/' + runId);
+        if (!r || !r.ok) throw new Error('HTTP ' + (r && r.status));
+        agents = await r.json();
+        if (!Array.isArray(agents)) agents = [];
+        _oaiBlRunCache[runId] = agents;
+      } catch(e) {
+        try { console.warn('[OAI-BL] load run', runId, 'failed:', e); } catch(_) {}
+        return;
+      }
+    }
+    _oaiBlCurrentAgents = agents;
+    var agentSel = document.getElementById('oai-bl-pick-agent');
+    if (agentSel) {
+      agentSel.innerHTML = '';
+      if (!agents.length) {
+        var opt = document.createElement('option');
+        opt.value = '__none__';
+        opt.textContent = 'Run has no agent results';
+        agentSel.appendChild(opt);
+        return;
+      }
+      agents.forEach(function(a, idx) {
+        var opt = document.createElement('option');
+        opt.value = String(idx);
+        var ret = Number(a.total_return_pct || 0) * 100;
+        var sign = ret >= 0 ? '+' : '';
+        opt.textContent = (a.display_name || a.player_id || '?') + ' · ' + sign + ret.toFixed(2) + '%';
+        agentSel.appendChild(opt);
+      });
+      agentSel.value = '0';
+      window.oaiBacktestPickAgent('0');
+    }
   };
 
-  // Lazy-init: seed the heatmap when the Backtest Lab sub-view first becomes
-  // visible. Cheap to recompute; the deterministic xorshift gives identical
-  // pattern across visits, no flicker on re-pick.
+  window.oaiBacktestPickAgent = function(idxStr) {
+    if (idxStr == null || idxStr === '__none__') return;
+    var idx = parseInt(idxStr, 10);
+    if (isNaN(idx) || idx < 0 || idx >= _oaiBlCurrentAgents.length) return;
+    var agent = _oaiBlCurrentAgents[idx];
+    if (!agent) return;
+    _oaiBlRenderKpis(_oaiBlComputeKpis(agent));
+    _oaiBlRenderEquityCurve(agent, _oaiBlCurrentRun ? _oaiBlCurrentRun.run_name : '');
+    _oaiBlRenderHeatmap(agent.equity_curve);
+  };
+
+  // Lazy-init on first Backtest Lab visibility — seed demo heatmap
+  // immediately (so the panel is never blank), then fetch real runs.
   document.addEventListener('DOMContentLoaded', function() {
     var bl = document.getElementById('oai-view-backtest-lab');
     if (!bl) return;
-    var seeded = false;
     new MutationObserver(function(mutations) {
       mutations.forEach(function(m) {
-        if (m.attributeName === 'style' && bl.style.display !== 'none' && !seeded) {
-          _oaiBacktestSeedHeatmap();
-          seeded = true;
+        if (m.attributeName === 'style' && bl.style.display !== 'none' && !_oaiBlInit) {
+          _oaiBlInit = true;
+          _oaiBlSeedDemoHeatmap();
+          _oaiBlLoadRuns();
         }
       });
     }).observe(bl, { attributes:true, attributeFilter:['style'] });
