@@ -2862,6 +2862,8 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="sidebar-item" onclick="showSection('ollie')"><span class="icon">💻</span> Ollie</div>
   <div class="sidebar-item" title="0DTE tactical trading station" onclick="showSection('dayblade')"><span class="icon">⚔️</span> Battle Station</div>
   <div class="sidebar-item" title="Holly Live Trading — live candle chart with fleet trade markers, entry-zone alerts, active-agent attribution" onclick="showSection('live-trading')"><span class="icon">⚡</span> Live Trading</div>
+  <!-- HM-OLLIE-AI-WORKSPACE 2026-05-23 Step 1: nav entry only; section shell below. -->
+  <div class="sidebar-item" id="nav-ollie-ai" title="Ollie AI Workspace — Channel Bar, dual races, sector tiles, Top List, Halts feed, Symbol Focus, Signal Replay" onclick="showSection('ollie-ai')"><span class="icon">🧠</span> Ollie AI <span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:#8b5cf6;color:#fff;font-size:9px;font-weight:700;letter-spacing:0.5px;vertical-align:middle;">NEW</span></div>
   <div class="sidebar-item" onclick="showSection('charts')"><span class="icon">📈</span> Charts</div>
   <div class="sidebar-item" onclick="showSection('leaderboard')"><span class="icon">🏆</span> Leaderboard</div>
   <div class="sidebar-item admin-only" title="Real-world net worth: Schwab + Webull + IBKR + physical metals (excludes Alpaca paper). Admin-only — contains liquid net-worth detail." onclick="showSection('real-portfolio')"><span class="icon">💰</span> Real Portfolio</div>
@@ -9545,6 +9547,16 @@ document.addEventListener('keydown', function(e) {
 
 <!-- SCREENER PRO SECTION -->
 </div>
+
+<!-- HM-OLLIE-AI-WORKSPACE 2026-05-23: Step 1 — section shell only.
+     Sub-views (Workspace / Symbol Focus / Signal Replay) ship in later steps. -->
+<div id="section-ollie-ai" style="display:none;">
+  <div style="padding:16px;color:var(--muted);">
+    <h2 style="margin:0 0 12px 0;color:var(--text);">🧠 Ollie AI Workspace</h2>
+    <p style="font-size:13px;">Shell loaded. Sub-views (Workspace · Symbol Focus · Signal Replay) ship in subsequent steps per HM-OLLIE-AI-WORKSPACE.</p>
+  </div>
+</div>
+
 <div id="section-sector-watch" style="display:none;overflow-y:auto;height:calc(100vh - 120px);">
   <div style="display:flex;align-items:center;justify-content:flex-end;padding:8px 16px;gap:10px;border-bottom:1px solid var(--border);">
     <span id="sw-last-updated" style="font-size:12px;color:var(--muted);"></span>
