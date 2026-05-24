@@ -866,6 +866,78 @@ behavior needs careful testing across all 4 theme combinations
 (dark, light, dark-cb, light-cb if [[hm-theme-cb-consolidate]] ships first).
 Bundling with the v4.4 migration sprint avoids a one-off touchpoint.
 
+### HM-DEEPSEEK-STOP-DISCIPLINE — ✅ CLOSED 2026-05-24, no action needed
+
+**Closed 2026-05-24 after XO data review.** Initial diagnosis (30-day window:
+81.4% WR, PF 0.53, net −$478, loser:winner 1.92×) appeared to indicate a
+stop-discipline problem. Task 1 re-pull split the window pre/post the MU
+disaster:
+
+| Window | Closes | WR | PF | Net P&L |
+|---|---:|---:|---:|---:|
+| Full 30d | 118 | 81.4% | 0.53 | −$478 |
+| Post-MU-disaster (5-04+) | 61 | 95.1% | **22.03** | **+$162** |
+
+The 30-day report was poisoned by a SINGLE pre-cap MU concentration disaster
+(−$671 on 2026-04-30, before HM-DEEPSEEK-STOP-CAP shipped 2026-05-23).
+Post-disaster behavior is dramatically healthy. The agent was mis-calibrated
+on CONCENTRATION (already fixed by HM-DEEPSEEK-CONCENTRATION-CAP 2026-05-20),
+not on stops. Further % tightening risks killing +6% NOW/AMD-class winners
+that are normal volatility band.
+
+**XO decision:** no production stop changes. Wait for post-cap live data.
+
+### HM-DEEPSEEK-30D-RECHECK — re-pull deepseek stats due 2026-06-07
+
+**Reminder 2026-06-07 (~2 weeks post-cap).** Run Task 1 query again:
+```sql
+SELECT COUNT(*) AS closes,
+  SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) AS wins,
+  ROUND(SUM(realized_pnl), 2) AS net_pnl,
+  ROUND(SUM(CASE WHEN realized_pnl > 0 THEN realized_pnl ELSE 0 END) /
+        NULLIF(ABS(SUM(CASE WHEN realized_pnl < 0 THEN realized_pnl ELSE 0 END)),0), 2) AS pf
+FROM trades
+WHERE player_id='deepseek-7b-grok4'
+  AND (action LIKE 'SELL%' OR action='COVER')
+  AND executed_at >= '2026-05-23'
+  AND realized_pnl IS NOT NULL;
+```
+**Gate**: if post-cap PF ≥ 1.0 AND WR ≥ 70% AND no losses > $150, hold steady.
+If PF < 1.0 OR cap-escape occurs, re-open HM-DEEPSEEK-STOP-DISCIPLINE.
+
+Also check W21+ signal volume — if concentration-cap continues to suppress
+deepseek to <100 signals/week with 0 executions, the agent is effectively
+muted and the post-cap denominator stays zero (no data to compare against).
+
+### HM-RISK-MANAGER-CONVICTION-STOP-WIRE — wire conviction-scaled stop into live path
+
+**Banked 2026-05-24 for a future power run.** Code-debt fix; orthogonal to
+the deepseek decision.
+
+`engine/risk_manager.py:115` already exposes `get_stop_loss_pct(conviction)`:
+- conv ≥ 0.90 → 18%
+- conv ≥ 0.80 → 15%
+- conv ≥ 0.70 → 12%
+- conv < 0.70 → 8%
+
+The static helper is used by `engine/backtester.py:459` but **not** by the
+live exit path. `engine/risk_manager.py:785` reads
+`get_model_guardrail("stop_loss_pct", self.stop_loss_pct)` which returns
+the per-model override OR the constructor default — never the conviction
+scaler.
+
+**Fix (~10 LOC):** at L785, prefer `get_model_guardrail` if present, else
+fall back to `get_stop_loss_pct(pos.get('confidence') or 0.7)` instead of
+`self.stop_loss_pct`. High-conviction trades get wider stops; low-conviction
+get tighter (the existing wisdom that's currently buried in the static).
+
+**Backtest required:** replay last 30 days with conviction-scaled stops,
+compare to flat 12%. Acceptance: aggregate PF improves AND no single agent
+sees a WR drop > 10 pts.
+
+**Risk:** changes live exit behavior for every agent. Worth its own scoping
+session — Captain decides activation per-agent or fleet-wide.
+
 ### HM-INLINE-STYLE-SWEEP — replace 575 hardcoded inline style="" colors with CSS vars
 
 **Banked 2026-05-24 during HM-CB-PATH-A.** 47 diagnosed 575 inline `style=""`
