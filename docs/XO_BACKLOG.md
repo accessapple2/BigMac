@@ -245,6 +245,36 @@ drop into `~/autonomous-trader/docs/design/` before continuing.
    for animatable custom property, OR (c) swap to SVG arc/stroke-dashoffset for
    guaranteed cross-browser. Priority: LOW (cosmetic).
 
+### HM-SIDEBAR-VAR-MIGRATION — Migrate hardcoded `.sidebar` background to `var(--sidebar-bg)`
+
+**Part of the larger v4.4 migration.** The `.sidebar` selector at
+`dashboard/static/index.html` L814 correctly uses `background: var(--sidebar-bg)`,
+but a media-query override at **L29137** hardcodes
+`.sidebar { background:#0a0e17 !important; ... }` for the mobile breakpoint.
+The `!important` plus hardcoded color short-circuits the variable cascade —
+light-mode + mobile = dark sidebar, dark-mode + mobile = same dark sidebar
+but with the wrong shade vs. desktop. L154 also has an explicit
+`[data-theme="light"] .sidebar { background:#ffffff; ... }` that re-hardcodes
+the value the var should provide.
+
+**Migration steps:**
+1. Refactor L29137's mobile-media-query `.sidebar` rule — remove the
+   `background:#0a0e17 !important` clause entirely; the desktop rule's
+   `var(--sidebar-bg)` will cascade through.
+2. Replace L154 explicit light-mode override with reliance on the
+   `[data-theme="light"]` `--sidebar-bg` variable (set to `#ffffff` in the
+   light-mode variable block at L134-150). Same for the `border-right`
+   color which should pull from `var(--border)`.
+3. Grep for any other `.sidebar` rules in the file (`grep -nE
+   '\.sidebar\s*{[^}]*background' index.html`) and migrate each to the
+   variable system.
+4. Browser smoke at mobile breakpoint in both themes per Frontend Ship Rule.
+
+**Why deferred:** sidebar background is sensitive — mobile drawer overlay
+behavior needs careful testing across all 4 theme combinations
+(dark, light, dark-cb, light-cb if [[hm-theme-cb-consolidate]] ships first).
+Bundling with the v4.4 migration sprint avoids a one-off touchpoint.
+
 ### HM-THEME-CB-CONSOLIDATE — Unify dual colorblind systems + migrate to data-theme axis
 
 **Lands after v4.4 ships.** Two parallel colorblind systems exist in
