@@ -171,7 +171,12 @@ def fetch_fundamentals(symbol: str, force: bool = False) -> dict | None:
 
     from engine.market_data import yahoo_quote_summary
 
-    # Fetch multiple modules in one call
+    # Fetch multiple modules in one call.
+    # HM-FUNDAMENTALS-COMPANY-NAME 2026-05-24: added quoteType. summaryProfile
+    # returns sector/industry/businessSummary but NOT longName/shortName —
+    # those live in quoteType (and price). Without this, company_name fell
+    # back to ticker for every symbol, breaking Symbol Focus + Signal Replay
+    # headers.
     modules = ",".join([
         "financialData",
         "defaultKeyStatistics",
@@ -180,6 +185,7 @@ def fetch_fundamentals(symbol: str, force: bool = False) -> dict | None:
         "recommendationTrend",
         "majorHoldersBreakdown",
         "summaryProfile",
+        "quoteType",
         "earningsTrend",
     ])
     summary = yahoo_quote_summary(symbol, modules=modules)
@@ -298,7 +304,18 @@ def fetch_fundamentals(symbol: str, force: bool = False) -> dict | None:
         # --- Sector / Industry ---
         sector = profile.get("sector", "Unknown")
         industry = profile.get("industry", "Unknown")
-        company_name = profile.get("longName") or profile.get("shortName") or symbol
+        # HM-FUNDAMENTALS-COMPANY-NAME 2026-05-24: longName/shortName live in
+        # the quoteType module, not summaryProfile. Read from quoteType
+        # first, fall through to legacy summaryProfile lookup (always empty
+        # in current Yahoo schema), then to bare symbol.
+        quote_type = summary.get("quoteType", {})
+        company_name = (
+            quote_type.get("longName")
+            or quote_type.get("shortName")
+            or profile.get("longName")
+            or profile.get("shortName")
+            or symbol
+        )
 
         # --- Beta ---
         beta = _safe_get(stats, "beta") or _safe_get(detail, "beta")
