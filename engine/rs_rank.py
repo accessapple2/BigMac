@@ -42,6 +42,12 @@ _MIN_BARS_REQUIRED: int = 30    # below this, skip the symbol entirely
 _BENCHMARK_SYMBOL: str = "SPY"
 _CACHE_TTL: int = 43200         # 12h in-memory cache on run_rs_rank() result
 
+# HM-RS-RANK-OUTLIER-FILTER 2026-05-24 — pre-rank quality gates to keep IPO
+# / penny-stock / split-artifact noise out of the rank=99 slot.
+_OUTLIER_MIN_START_PRICE: float = 1.0       # penny stocks excluded
+_OUTLIER_MAX_ABS_RETURN_PCT: float = 500.0  # IPO / split artifacts excluded
+_OUTLIER_REQUIRE_FULL_WINDOW: bool = True   # short-history symbols excluded
+
 _scan_lock = threading.Lock()
 _last_result: dict | None = None
 _last_scan_ts: float = 0.0
@@ -53,9 +59,15 @@ _last_scan_ts: float = 0.0
 def _compute_window_return(
     df: pd.DataFrame, window: int = _WINDOW_BARS
 ) -> tuple[float, int]:
-    """Return percent change over the trailing window. Degrades gracefully:
-    if history < window, uses available bars; if < _MIN_BARS_REQUIRED,
-    returns (NaN, 0).
+    """Return percent change over the trailing window.
+
+    HM-RS-RANK-OUTLIER-FILTER 2026-05-24: three pre-rank quality gates:
+      1. bars_used == window (strict full-window only, no short-history)
+      2. start_price >= $1.00 (penny stock filter)
+      3. abs(return_pct) < 500% (IPO / split / delist-relist cap)
+
+    Failing any gate returns ``(NaN, 0)`` → drops to rank 0 (unranked) in
+    _percentile_rank.
 
     Returns ``(return_pct, bars_used)``.
     """
@@ -69,11 +81,22 @@ def _compute_window_return(
     bars_used = min(window, n - 1)
     if bars_used <= 0:
         return (float("nan"), 0)
+    # Gate 3: strict full-window — short-history symbols can't compete in
+    # the same percentile pool as full-window symbols.
+    if _OUTLIER_REQUIRE_FULL_WINDOW and bars_used < window:
+        return (float("nan"), 0)
     start = float(closes[-(bars_used + 1)])
     end = float(closes[-1])
     if start <= 0:
         return (float("nan"), 0)
-    return ((end / start - 1.0) * 100.0, bars_used)
+    # Gate 1: penny stock filter — small absolute moves explode the % return
+    if start < _OUTLIER_MIN_START_PRICE:
+        return (float("nan"), 0)
+    ret = (end / start - 1.0) * 100.0
+    # Gate 2: extreme-return cap — IPO debuts / reverse splits / delist-relist
+    if abs(ret) >= _OUTLIER_MAX_ABS_RETURN_PCT:
+        return (float("nan"), 0)
+    return (ret, bars_used)
 
 
 def _percentile_rank(values: list[float]) -> list[int]:
@@ -294,12 +317,39 @@ def run_rs_rank(force: bool = False) -> dict:
         scanned_at = datetime.now(timezone.utc).isoformat()
         rows: list[dict] = []
         returns: list[float] = []
+        # HM-RS-RANK-OUTLIER-FILTER 2026-05-24: telemetry for the 3 gates.
+        # Computed by re-inspecting bars on the NaN path so the production
+        # _compute_window_return signature stays clean.
+        filter_stats = {"low_price": 0, "extreme": 0, "short_history": 0}
+
         for symbol in universe:
             if symbol == _BENCHMARK_SYMBOL:
                 # Benchmark itself doesn't get ranked
                 continue
             df = bars_by_sym.get(symbol)
             r, bars_used = _compute_window_return(df)
+
+            # On NaN result, classify which gate fired (best-effort; useful
+            # for understanding nightly leaderboard shape).
+            if np.isnan(r) and df is not None and not df.empty:
+                closes = df["Close"].to_numpy(dtype=float)
+                closes = closes[~np.isnan(closes)]
+                n = len(closes)
+                if n >= _MIN_BARS_REQUIRED:
+                    bu = min(_WINDOW_BARS, n - 1)
+                    if bu < _WINDOW_BARS:
+                        filter_stats["short_history"] += 1
+                    elif bu > 0:
+                        start = float(closes[-(bu + 1)])
+                        if start > 0 and start < _OUTLIER_MIN_START_PRICE:
+                            filter_stats["low_price"] += 1
+                        elif start > 0:
+                            ret_check = (
+                                (float(closes[-1]) / start - 1.0) * 100.0
+                            )
+                            if abs(ret_check) >= _OUTLIER_MAX_ABS_RETURN_PCT:
+                                filter_stats["extreme"] += 1
+
             rows.append(
                 {
                     "symbol": symbol,
@@ -338,6 +388,7 @@ def run_rs_rank(force: bool = False) -> dict:
             "spy_return_pct": round(spy_return, 2),
             "top10": top10,
             "scanned_at": datetime.now().isoformat(),
+            "filter_stats": filter_stats,
         }
         _last_result = result
         _last_scan_ts = time.time()
@@ -345,7 +396,10 @@ def run_rs_rank(force: bool = False) -> dict:
         console.log(
             f"[green]RS-Rank Scanner: scanned={len(rows)} "
             f"persisted={persisted} spy_12wk={spy_return:.2f}% "
-            f"top1={top10[0]['symbol'] if top10 else '—'}"
+            f"top1={top10[0]['symbol'] if top10 else '—'} · "
+            f"filtered: low_price={filter_stats['low_price']} "
+            f"extreme={filter_stats['extreme']} "
+            f"short_history={filter_stats['short_history']}"
         )
         return result
 

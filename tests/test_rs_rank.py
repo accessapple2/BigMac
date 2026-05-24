@@ -59,12 +59,44 @@ def test_compute_window_return_full_window():
     assert 9.0 < ret < 10.5
 
 
-def test_compute_window_return_short_history_degrades():
+def test_compute_window_return_short_history_filtered_out():
+    """HM-RS-RANK-OUTLIER-FILTER 2026-05-24: strict full-window gate —
+    symbols below the 60-bar requirement are unranked (NaN/0)."""
     closes = np.linspace(100, 105, 40).tolist()  # 40 bars only
     df = _make_close_df(closes)
     ret, bars = rs_rank._compute_window_return(df, window=60)
-    assert bars == 39  # window degrades to len-1
-    assert ret > 0
+    assert np.isnan(ret)
+    assert bars == 0
+
+
+def test_compute_window_return_low_start_price_filtered():
+    """Gate 1: start_price < $1 → unranked."""
+    closes = np.linspace(0.50, 4.00, 70).tolist()  # starts at $0.50
+    df = _make_close_df(closes)
+    ret, bars = rs_rank._compute_window_return(df, window=60)
+    assert np.isnan(ret)
+    assert bars == 0
+
+
+def test_compute_window_return_extreme_return_filtered():
+    """Gate 2: abs(return) >= 500% → unranked. Construct so the 60-bar
+    lookback covers a >5× move (e.g. IPO debut shape)."""
+    # 10 leading bars at $1, then 60 bars ramping to $50 (5000%+)
+    closes = [1.0] * 10 + np.linspace(1.0, 50.0, 60).tolist()
+    df = _make_close_df(closes)
+    ret, bars = rs_rank._compute_window_return(df, window=60)
+    assert np.isnan(ret)
+    assert bars == 0
+
+
+def test_compute_window_return_full_window_passes():
+    """Passing case: $100 start, full 60 bars, modest return."""
+    closes = np.linspace(100.0, 130.0, 70).tolist()
+    df = _make_close_df(closes)
+    ret, bars = rs_rank._compute_window_return(df, window=60)
+    assert bars == 60
+    assert not np.isnan(ret)
+    assert 0 < ret < 500
 
 
 def test_compute_window_return_below_min_bars_returns_nan():
