@@ -4,6 +4,32 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>OllieTrades — The Bridge</title>
+<!-- HM-THEME-CB-CONSOLIDATE v4.4 — Synchronous preload (FOUC prevention)
+     Resolves theme value from localStorage and stamps it on <html> before
+     first paint. Full migration IIFE (block 4) runs after DOM ready.
+-->
+<script>
+  (function() {
+    try {
+      var t = localStorage.getItem('uss-theme');
+      if (!t) {
+        var legacyTheme = localStorage.getItem('tm-theme');
+        var legacyCb    = localStorage.getItem('tm-cb');
+        var mode = (legacyTheme === 'light') ? 'light' : 'dark';
+        var cb   = (legacyCb === 'true');
+        t = mode + (cb ? '-cb' : '');
+      }
+      if (['dark','light','dark-cb','light-cb'].indexOf(t) === -1) t = 'dark';
+      document.documentElement.setAttribute('data-theme-preload', t);
+      document.documentElement.setAttribute('data-cb', t.indexOf('-cb') !== -1 ? 'true' : 'false');
+      document.documentElement.setAttribute('data-theme', t.indexOf('light') === 0 ? 'light' : 'dark');
+    } catch (e) {
+      document.documentElement.setAttribute('data-theme-preload', 'dark');
+      document.documentElement.setAttribute('data-theme', 'dark');
+      document.documentElement.setAttribute('data-cb', 'false');
+    }
+  })();
+</script>
   <!-- HM-CONSOLE-NOISE-CLEANUP note: Cloudflare Insights (cf-beacon /
        cloudflareinsights.com) is injected by Cloudflare's edge proxy
        and may emit a CORS-blocked fetch in the browser console. This
@@ -20,6 +46,207 @@
   <meta name="theme-color" content="#1a1a2e">
 <link href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Syne:wght@600;700;800&family=DM+Sans:wght@400;500;600&family=Antonio:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
 <style>
+/* ============================================================
+   HM-THEME-CB-CONSOLIDATE v4.4 — Unified theme module
+   Themes: dark | light | dark-cb | light-cb
+   Author: 47 (Claude in Chrome) — 2026-05-24
+   ============================================================ */
+
+/* --- Canonical v4.4 variables (defaults = dark/LCARS) --- */
+:root {
+  --bg-primary:    #0a0e17;
+  --bg-secondary:  #111827;
+  --bg-panel:      #050505;
+  --bg-elevated:   #1a2332;
+
+  --text-primary:   #e2e8f0;
+  --text-secondary: #94a3b8;
+  --text-muted:     #64748b;
+
+  --up:        #22c55e;
+  --down:      #ef4444;
+  --up-bg:     rgba(34, 197, 94, 0.12);
+  --down-bg:   rgba(239, 68, 68, 0.12);
+
+  --accent:        #00d4aa;
+  --accent-orange: #f97316;
+  --border:        #1e2a3a;
+  --sidebar-bg:    #060a12;
+  --header-bg:     #0a0e17;
+
+  --glyph-up:   "▲";
+  --glyph-down: "▼";
+}
+
+/* --- Legacy var aliases (one-release deprecation window, remove in v4.5) --- */
+:root {
+  --bg:      var(--bg-primary);
+  --surface: var(--bg-secondary);
+  --text:    var(--text-primary);
+  --green:   var(--up);
+  --red:     var(--down);
+  --muted:   var(--text-secondary);
+}
+
+/* THEME: dark (intentionally empty — uses :root defaults) */
+body[data-theme="dark"],
+html[data-theme-preload="dark"] { }
+
+/* THEME: dark-cb */
+body[data-theme="dark-cb"],
+html[data-theme-preload="dark-cb"] {
+  --up:      #0d9488;
+  --down:    #ea580c;
+  --up-bg:   rgba(13, 148, 136, 0.15);
+  --down-bg: rgba(234, 88, 12, 0.15);
+}
+
+/* THEME: light */
+body[data-theme="light"],
+html[data-theme-preload="light"] {
+  --bg-primary:    #f5f7fa;
+  --bg-secondary:  #ffffff;
+  --bg-panel:      #ffffff;
+  --bg-elevated:   #ffffff;
+  --text-primary:   #0f172a;
+  --text-secondary: #475569;
+  --text-muted:     #94a3b8;
+  --up:      #16a34a;
+  --down:    #dc2626;
+  --up-bg:   rgba(22, 163, 74, 0.10);
+  --down-bg: rgba(220, 38, 38, 0.10);
+  --accent:        #2563eb;
+  --accent-orange: #ea580c;
+  --border:        #e5e7eb;
+  --sidebar-bg:    #ffffff;
+  --header-bg:     #ffffff;
+}
+
+/* THEME: light-cb */
+body[data-theme="light-cb"],
+html[data-theme-preload="light-cb"] {
+  --bg-primary:    #f5f7fa;
+  --bg-secondary:  #ffffff;
+  --bg-panel:      #ffffff;
+  --bg-elevated:   #ffffff;
+  --text-primary:   #0f172a;
+  --text-secondary: #475569;
+  --text-muted:     #94a3b8;
+  --up:      #0d9488;
+  --down:    #ea580c;
+  --up-bg:   rgba(13, 148, 136, 0.12);
+  --down-bg: rgba(234, 88, 12, 0.12);
+  --accent:        #0d9488;
+  --accent-orange: #ea580c;
+  --border:        #d1d5db;
+  --sidebar-bg:    #ffffff;
+  --header-bg:     #ffffff;
+}
+
+/* Light-mode surface chrome */
+body[data-theme="light"],
+body[data-theme="light-cb"] {
+  background: var(--bg-primary);
+  color: var(--text-primary);
+}
+
+body[data-theme="light"] .card,
+body[data-theme="light-cb"] .card,
+body[data-theme="light"] [class*="card-"],
+body[data-theme="light-cb"] [class*="card-"] {
+  background: var(--bg-secondary) !important;
+  border: 1px solid var(--border) !important;
+  box-shadow: 0 1px 2px rgba(15, 23, 42, 0.04), 0 1px 3px rgba(15, 23, 42, 0.06);
+  border-radius: 10px;
+  color: var(--text-primary);
+}
+
+body[data-theme="light"] aside,
+body[data-theme="light-cb"] aside,
+body[data-theme="light"] .sidebar,
+body[data-theme="light-cb"] .sidebar {
+  background: var(--sidebar-bg) !important;
+  border-right: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+body[data-theme="light"]  .sidebar-item.active,
+body[data-theme="light-cb"] .sidebar-item.active {
+  background: var(--bg-primary);
+  border-left: 3px solid var(--accent);
+  color: var(--accent);
+  font-weight: 600;
+}
+
+body[data-theme="light"]  header,
+body[data-theme="light-cb"] header,
+body[data-theme="light"]  .topbar,
+body[data-theme="light-cb"] .topbar {
+  background: var(--header-bg) !important;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-primary);
+}
+
+/* STARDATE ↔ ISO date swap */
+body[data-theme="light"]  .stardate-label,
+body[data-theme="light-cb"] .stardate-label { display: none; }
+body[data-theme="light"]  .iso-date-label,
+body[data-theme="light-cb"] .iso-date-label { display: inline; }
+body[data-theme="dark"]    .iso-date-label,
+body[data-theme="dark-cb"] .iso-date-label { display: none; }
+body[data-theme="dark"]    .stardate-label,
+body[data-theme="dark-cb"] .stardate-label { display: inline; }
+
+/* Universal up/down color (covers canonical + legacy + HM-CB-PATH-A) */
+.up, .delta-up, .pos, [data-direction="up"]       { color: var(--up); }
+.down, .delta-down, .neg, [data-direction="down"] { color: var(--down); }
+.up-bg, .pos-bg, [data-direction="up"].bg     { background: var(--up-bg); }
+.down-bg, .neg-bg, [data-direction="down"].bg { background: var(--down-bg); }
+
+/* Glyph swap (▲▼) under *-cb variants */
+body[data-theme="dark-cb"]  .delta-up::before,
+body[data-theme="light-cb"] .delta-up::before,
+body[data-theme="dark-cb"]  .pos::before,
+body[data-theme="light-cb"] .pos::before,
+body[data-theme="dark-cb"]  [data-direction="up"]::before,
+body[data-theme="light-cb"] [data-direction="up"]::before {
+  content: var(--glyph-up);
+  margin-right: 0.25em;
+  font-size: 0.85em;
+  color: var(--up);
+  display: inline-block;
+}
+
+body[data-theme="dark-cb"]  .delta-down::before,
+body[data-theme="light-cb"] .delta-down::before,
+body[data-theme="dark-cb"]  .neg::before,
+body[data-theme="light-cb"] .neg::before,
+body[data-theme="dark-cb"]  [data-direction="down"]::before,
+body[data-theme="light-cb"] [data-direction="down"]::before {
+  content: var(--glyph-down);
+  margin-right: 0.25em;
+  font-size: 0.85em;
+  color: var(--down);
+  display: inline-block;
+}
+
+/* Suppress glyphs in non-CB themes */
+body[data-theme="dark"]  .delta-up::before,
+body[data-theme="light"] .delta-up::before,
+body[data-theme="dark"]  .delta-down::before,
+body[data-theme="light"] .delta-down::before,
+body[data-theme="dark"]  .pos::before,
+body[data-theme="light"] .pos::before,
+body[data-theme="dark"]  .neg::before,
+body[data-theme="light"] .neg::before,
+body[data-theme="dark"]  [data-direction="up"]::before,
+body[data-theme="light"] [data-direction="up"]::before,
+body[data-theme="dark"]  [data-direction="down"]::before,
+body[data-theme="light"] [data-direction="down"]::before {
+  content: none;
+}
+/* === END HM-THEME-CB-CONSOLIDATE v4.4 === */
+
 /* === TOOLTIP v3 — position:fixed, never clipped, high contrast === */
 #tooltipPopup {
   display: none;
@@ -26683,31 +26910,96 @@ setInterval(updateEarningsCountdown, 60000); // minute cadence for countdown
 
 <script>
 // === THEME + COLORBLIND TOGGLES ===
-function toggleTheme() {
-  var html = document.documentElement;
-  var current = html.getAttribute('data-theme');
-  var next = current === 'light' ? 'dark' : 'light';
-  html.setAttribute('data-theme', next);
-  localStorage.setItem('tm-theme', next);
-  applyThemeUI(next);
+/* ============================================================
+   HM-THEME-CB-CONSOLIDATE v4.4 — Theme controller
+   ============================================================ */
+
+const USS_THEMES = ['dark', 'light', 'dark-cb', 'light-cb'];
+
+function _composeTheme(mode, cb) {
+  const base = (mode === 'light') ? 'light' : 'dark';
+  return cb ? (base + '-cb') : base;
 }
 
-function applyThemeUI(theme) {
-  var btn = document.getElementById('themeBtn');
-  if (btn) btn.textContent = theme === 'dark' ? '☀️' : '🌙';
-  btn.title = theme === 'dark' ? 'Switch to light mode' : 'Switch to dark mode';
+function _decomposeTheme(theme) {
+  const cb   = theme.endsWith('-cb');
+  const mode = theme.startsWith('light') ? 'light' : 'dark';
+  return { mode, cb };
+}
+
+function setUssTheme(theme) {
+  if (!USS_THEMES.includes(theme)) theme = 'dark';
+  document.body.setAttribute('data-theme', theme);
+  const { mode, cb } = _decomposeTheme(theme);
+  document.documentElement.setAttribute('data-theme', mode);
+  document.documentElement.setAttribute('data-cb', cb ? 'true' : 'false');
+  document.documentElement.removeAttribute('data-theme-preload');
+  try { localStorage.setItem('uss-theme', theme); } catch (e) {}
+
+  const cbBtn = document.getElementById('cbBtn');
+  if (cbBtn) {
+    cbBtn.classList.toggle('active', cb);
+    cbBtn.setAttribute('title', cb
+      ? 'Colorblind mode ON (teal/orange) — click to disable'
+      : 'Colorblind mode OFF — click to enable');
+    cbBtn.setAttribute('aria-pressed', cb ? 'true' : 'false');
+  }
+  const themeBtn = document.getElementById('themeBtn');
+  if (themeBtn) {
+    themeBtn.setAttribute('title', mode === 'dark' ? 'Switch to light mode' : 'Switch to dark mode');
+    themeBtn.textContent = mode === 'dark' ? '🌙' : '☀️';
+  }
+}
+
+function getUssTheme() {
+  return document.body.getAttribute('data-theme')
+      || document.documentElement.getAttribute('data-theme-preload')
+      || 'dark';
 }
 
 function toggleColorblind() {
-  var html = document.documentElement;
-  var current = html.getAttribute('data-cb') === 'true';
-  var next = !current;
-  html.setAttribute('data-cb', next ? 'true' : 'false');
-  localStorage.setItem('tm-cb', next ? 'true' : 'false');
-  var btn = document.getElementById('cbBtn');
-  if (btn) btn.classList.toggle('active', next);
-  btn.title = next ? 'Colorblind mode ON (blue/orange)' : 'Colorblind mode OFF (green/red)';
+  const current = getUssTheme();
+  const { mode, cb } = _decomposeTheme(current);
+  setUssTheme(_composeTheme(mode, !cb));
 }
+
+function toggleTheme() {
+  const current = getUssTheme();
+  const { mode, cb } = _decomposeTheme(current);
+  const nextMode = (mode === 'dark') ? 'light' : 'dark';
+  setUssTheme(_composeTheme(nextMode, cb));
+}
+
+/* ============================================================
+   HM-THEME-CB-CONSOLIDATE v4.4 — One-time migration IIFE
+   ============================================================ */
+(function migrateLegacyTheme() {
+  function run() {
+    try {
+      let theme = document.documentElement.getAttribute('data-theme-preload')
+               || localStorage.getItem('uss-theme');
+      if (!theme || !USS_THEMES.includes(theme)) {
+        const legacyTheme = localStorage.getItem('tm-theme');
+        const legacyCb    = localStorage.getItem('tm-cb');
+        const mode = (legacyTheme === 'light') ? 'light' : 'dark';
+        const cb   = (legacyCb === 'true');
+        theme = _composeTheme(mode, cb);
+      }
+      setUssTheme(theme);
+      localStorage.removeItem('tm-theme');
+      localStorage.removeItem('tm-cb');
+    } catch (e) {
+      document.body && document.body.setAttribute('data-theme', 'dark');
+      console.warn('[uss-theme] migration failed, defaulted to dark:', e);
+    }
+  }
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', run, { once: true });
+  } else {
+    run();
+  }
+})();
+/* === END HM-THEME-CB-CONSOLIDATE v4.4 === */
 
 // ── Nav ticker input: show Price/+Trade after typing ─────────────────────────
 function onNavTickerInput(val) {
@@ -26761,18 +27053,8 @@ function completeWizard() {
   setInterval(check, 60000);
 })();
 
-(function initPrefs() {
-  var theme = localStorage.getItem('tm-theme') || 'dark';
-  document.documentElement.setAttribute('data-theme', theme);
-  applyThemeUI(theme);
-
-  var cb = localStorage.getItem('tm-cb') === 'true';
-  if (cb) {
-    document.documentElement.setAttribute('data-cb', 'true');
-    var btn = document.getElementById('cbBtn');
-    if (btn) btn.classList.add('active');
-  }
-})();
+/* Legacy initPrefs IIFE removed; superseded by migrateLegacyTheme IIFE
+   earlier in this script (Block 4 of the v4.4 unified theme module). */
 </script>
 
 <script>
