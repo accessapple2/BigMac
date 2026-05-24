@@ -648,24 +648,52 @@ Sunday-bypass one-shot baseline (PID 36748, 4.66s wall, 3,009 symbols):
 4. Query: `SELECT threshold_tier, COUNT(*) FROM squeeze_watch WHERE
    kind='bbkc' AND scan_ts > '2026-05-25T13:00:00' GROUP BY threshold_tier;`
 
-#### HM-RS-RANK-VS-SPY — relative-strength rank vs SPY across universe
+#### HM-RS-RANK-VS-SPY — relative-strength rank vs SPY across universe ✅ SHIPPED 2026-05-24
 
-RS = (symbol 12wk return / SPY 12wk return), percentile-ranked across the scan universe.
-This is the column every Minervini / Correction-Deniers / Earnings-Leaders / IBD-style
-leader scan reads off. Unblocks HM-MINERVINI-TREND-FILTER below at near-zero marginal cost.
+**Shipped 2026-05-24 commit `b265ff7` (+805/-6, 6 files).** Default-OFF via
+`RS_RANK_ENABLED`. Live one-shot baseline: 3,026 universe → 2,432 ranked rows in
+3.42s wall; SPY 12wk = +8.17%; rank distribution ~24-25 symbols per slot
+(clean percentile spread). NVDA rank 78, return +16.49% vs SPY.
 
-**Implementation:**
-- Daily background job (nightly, post-close): compute 12wk return for every symbol in
-  scan universe (~3,026 symbols, reuse cached Alpaca bars from
-  `get_bulk_daily_ohlcv` shipped 2026-05-21 PR #60), divide by SPY's 12wk return,
-  rank-percentile.
-- Persist as new column `rs_rank` on `stock_fundamentals` (or new `rs_rank` table if
-  fundamentals table is shared across cadences).
-- Dashboard: add sortable `RS%` column to `section-fundamentals`; overlay as color tint
-  on Ollie AI Workspace movers histogram bars (deep green = RS 90+, deep red = RS 10-).
-- No new scanner — just a precomputed rank consumers can read.
+Surface live: `GET /api/rs-rank?top=N&min_rank=M`, `GET /api/rs-rank/{symbol}`,
+`/api/fundamentals/{sym}` augmented with rs_rank fields, section-fundamentals
+cards show RS row + SPY benchmark badge.
 
-**Priority:** MEDIUM (foundational; unblocks several downstream filters). ~3–4h scope.
+#### HM-RS-RANK-OUTLIER-FILTER — gate IPO / penny-stock noise out of the rank
+
+**Banked 2026-05-24 as a follow-up to HM-RS-RANK-VS-SPY.**
+
+Top-10 from the first live scan included entries like ADV +7764% / AGL +14266%
+— real returns but on discontinuous price histories (IPOs, reverse splits,
+delisted-relisted symbols). The 60-bar lookback hits a near-zero starting
+close and the percentage explodes. Outliers crowd the rank=99 slot with
+unusable signal.
+
+**Fix (single ~30-min ticket):**
+- In `engine/rs_rank.py::_compute_window_return`, gate on
+  `start_price >= 1.0` AND `abs(return_pct) < 500.0`. Symbols failing either
+  return `(NaN, 0)` → unranked (rank=0).
+- Also worth adding: filter `bars_used < 60` from the rankable set so the
+  rank pool is apples-to-apples. Currently a 35-bar symbol's 35-bar return
+  gets percentile-ranked against 60-bar returns — minor unfairness but
+  noticeable on the edges.
+
+**Impact:** ~30–80 symbols drop to unranked (rough estimate from the
++7000% / +14000% tail), tightening the 99-rank slot to genuine leaders.
+
+**Priority:** LOW (current data is usable; filter is a quality tightening).
+~30 min scope.
+
+#### HM-OAI-MOVERS-RS-OVERLAY — color movers histogram bars by RS rank
+
+**Banked 2026-05-24 as a deferred surface from HM-RS-RANK-VS-SPY scope.**
+Ollie AI Workspace movers histogram currently colors bars by gain/loss sign.
+Overlay rs_rank tier (≥70 deep green, 30–69 neutral, ≤29 deep red) as the
+fill color instead, so the captain can see "this is up but it's a weak
+RS=20 lagger" at a glance. Tooltip already shows symbol + gain%; add
+"RS=N (12wk)" line.
+
+**Priority:** LOW–MEDIUM (cosmetic but high-density signal). ~1–1.5h scope.
 
 #### HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE — multi-factor pre-breakout coil scan
 
