@@ -13142,6 +13142,14 @@ document.addEventListener('keydown', function(e) {
         document.querySelectorAll('#section-ollie-ai .oai-view').forEach(function(v) {
           v.style.display = v.id === 'oai-view-' + view ? '' : 'none';
         });
+        /* HM-OLLIE-AI-SYMBOL-FOCUS-COLDSTART 2026-05-24: auto-load AAPL on
+           first visit to Symbol Focus so the static spec demo never shows
+           and hover works immediately without manual symbol entry. */
+        if (view === 'symbol-focus' && !(window._oaiSfTf && _oaiSfTf.currentSym)) {
+          if (typeof window.oaiFocusSymbol === 'function') {
+            window.oaiFocusSymbol('AAPL');
+          }
+        }
       });
     });
   }
