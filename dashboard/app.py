@@ -3584,6 +3584,94 @@ def operations_status_alias():
 
 _trades_cache = {"data": None, "ts": 0, "key": ""}
 
+# HM-OAI-SIGNAL-REPLAY-POLISH 2026-05-24 — dedicated round-trip endpoint.
+# Returns closed round-trips (both long BUY→SELL and short SHORT→COVER)
+# with the entry-leg date paired in. Signal Replay uses this to center
+# the candle window on the BUY date (not the SELL) + detect direction.
+# Separate endpoint to avoid polluting the heavily-shared /api/trades/recent.
+@app.get("/api/trades/round-trips")
+def trade_round_trips(limit: int = 200, season: int = 0):
+    """Closed long + short round-trips with entry date paired in.
+
+    For each CLOSE row (SELL or COVER), finds the most recent prior OPEN
+    row (BUY or SHORT) for the same (symbol, player_id) and exposes its
+    executed_at as ``entry_executed_at``. The close row's ``executed_at``
+    becomes ``exit_executed_at``.
+
+    ``direction``: 'long' if action='SELL', 'short' if action='COVER'.
+    """
+    limit = max(1, min(int(limit or 200), 1000))
+    conn = _conn()
+    try:
+        all_seasons = (season == -1)
+        if season <= 0 and not all_seasons:
+            s_row = conn.execute(
+                "SELECT value FROM settings WHERE key='current_season'"
+            ).fetchone()
+            season = int(s_row["value"]) if s_row else 1
+
+        # Correlated subquery picks the most-recent prior OPEN leg matching
+        # the close direction. 1.3k close rows × 1 indexed lookup each is
+        # cheap on SQLite for this table size.
+        sql = """
+        SELECT
+          t.id, t.player_id, p.display_name, t.symbol, t.action,
+          t.qty, t.entry_price, t.exit_price, t.realized_pnl,
+          t.confidence, t.reasoning, t.executed_at AS exit_executed_at,
+          CASE
+            WHEN t.action LIKE 'SELL%' THEN 'long'
+            WHEN t.action = 'COVER'    THEN 'short'
+            ELSE 'unknown'
+          END AS direction,
+          (
+            SELECT MAX(o.executed_at)
+              FROM trades o
+             WHERE o.player_id = t.player_id
+               AND o.symbol    = t.symbol
+               AND o.executed_at < t.executed_at
+               AND (
+                 (t.action LIKE 'SELL%' AND o.action = 'BUY')
+                 OR
+                 (t.action = 'COVER'    AND o.action = 'SHORT')
+               )
+          ) AS entry_executed_at
+        FROM trades t
+        LEFT JOIN ai_players p ON p.id = t.player_id
+        WHERE (t.action LIKE 'SELL%' OR t.action = 'COVER')
+          AND t.entry_price > 0
+          AND t.exit_price  > 0
+          AND t.realized_pnl IS NOT NULL
+        """
+        params: list = []
+        if not all_seasons:
+            sql += " AND t.season = ?"
+            params.append(season)
+        sql += " ORDER BY t.executed_at DESC LIMIT ?"
+        params.append(limit)
+
+        rows = conn.execute(sql, params).fetchall()
+        items = []
+        for r in rows:
+            d = dict(r)
+            ep = d.get("entry_price") or 0
+            xp = d.get("exit_price") or 0
+            # pnl_pct sign respects direction: long = (exit-entry)/entry,
+            # short = (entry-exit)/entry.
+            pnl_pct = None
+            if ep and ep > 0:
+                if d["direction"] == "short":
+                    pnl_pct = (ep - xp) / ep * 100.0
+                else:
+                    pnl_pct = (xp - ep) / ep * 100.0
+            d["pnl_pct"] = pnl_pct
+            items.append(d)
+        return items
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}", "items": []}
+    finally:
+        conn.close()
+
+
 @app.get("/api/trades/recent")
 def recent_trades(limit: int = 30, season: int = 0, timeframe: str = "", player_id: str = ""):
     import time as _time

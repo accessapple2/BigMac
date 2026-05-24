@@ -10047,8 +10047,37 @@ document.addEventListener('keydown', function(e) {
   <!-- ───── SIGNAL REPLAY (Step 4a — visual scaffold w/ FDMT+HE demo) ───── -->
   <div class="oai-view" id="oai-view-signal-replay" style="display:none;">
 
-    <!-- Signal selectors: two dropdowns populated from /api/signals/recent
-         filtered acted_on=1 (broad scope — all agents, not just ollie-auto). -->
+    <!-- HM-OAI-SIGNAL-REPLAY-POLISH 2026-05-24: filter chips above the
+         LEFT/RIGHT selectors — narrow the dropdown population by date
+         range, player, and outcome. Direction filter (long/short) honors
+         the new round-trip pairing. -->
+    <div class="oai-sr-filters" style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;margin-bottom:8px;font-size:12px;">
+      <span style="color:var(--muted);text-transform:uppercase;letter-spacing:.4px;font-weight:700;">FILTERS:</span>
+      <select id="oai-sr-filter-days" onchange="oaiReplayApplyFilters()" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);">
+        <option value="all" selected>All time</option>
+        <option value="7">Last 7d</option>
+        <option value="30">Last 30d</option>
+        <option value="90">Last 90d</option>
+      </select>
+      <select id="oai-sr-filter-player" onchange="oaiReplayApplyFilters()" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);">
+        <option value="all" selected>All players</option>
+      </select>
+      <select id="oai-sr-filter-outcome" onchange="oaiReplayApplyFilters()" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);">
+        <option value="all" selected>All outcomes</option>
+        <option value="win">Winners</option>
+        <option value="loss">Losers</option>
+      </select>
+      <select id="oai-sr-filter-direction" onchange="oaiReplayApplyFilters()" style="padding:4px 8px;border-radius:4px;border:1px solid var(--border);background:var(--surface);color:var(--text);">
+        <option value="all" selected>Long + Short</option>
+        <option value="long">Long only</option>
+        <option value="short">Short only</option>
+      </select>
+    </div>
+
+    <!-- Signal selectors: two dropdowns populated from /api/trades/round-trips
+         (HM-OAI-SIGNAL-REPLAY-POLISH 2026-05-24). Round-trip endpoint pairs
+         the BUY/SHORT open with its SELL/COVER close so the candle pivot
+         centers on the actual entry date. -->
     <div class="oai-sr-selectors">
       <div class="oai-sr-selector">
         <label for="oai-sr-pick-left">LEFT</label>
@@ -12201,51 +12230,48 @@ document.addEventListener('keydown', function(e) {
     if (_oaiReplayLoaded) return _oaiReplayTrades;
     var metaEl = document.getElementById('oai-sr-meta');
     try {
-      var r = await fetch('/api/trades/recent?limit=200');
+      // HM-OAI-SIGNAL-REPLAY-POLISH 2026-05-24: switched from
+      // /api/trades/recent (SELL-only, no BUY date) to /api/trades/round-trips
+      // which pairs each close (SELL or COVER) with its entry timestamp
+      // and reports direction ('long'|'short').
+      var r = await fetch('/api/trades/round-trips?limit=200');
       if (!r || !r.ok) throw new Error('HTTP ' + (r && r.status));
-      var rows = await r.json();
-      if (!Array.isArray(rows)) rows = [];
-      // Replayable = closed long round-trip with valid price writeback.
-      // SELL row carries the BUY entry price + outcome.
-      var filtered = rows.filter(function(t) {
-        if ((t.action || '').toUpperCase().indexOf('SELL') !== 0) return false;
-        if (!(Number(t.entry_price) > 0)) return false;
-        if (!(Number(t.exit_price)  > 0)) return false;  // writeback filter
-        if (t.realized_pnl == null) return false;
-        return true;
-      });
-      _oaiReplayTrades = filtered;
+      var payload = await r.json();
+      var rows = Array.isArray(payload) ? payload : (payload.items || []);
+      _oaiReplayTrades = rows;  // backend already filters bad writeback rows
       _oaiReplayLoaded = true;
 
-      function _popOpts(selectId) {
-        var sel = document.getElementById(selectId);
-        if (!sel) return;
-        if (!filtered.length) return;
-        filtered.forEach(function(t, idx) {
-          var opt = document.createElement('option');
-          opt.value = String(idx);  // index into _oaiReplayTrades
-          var pnl = Number(t.pnl_pct || 0);
-          var sign = pnl >= 0 ? '+' : '';
-          opt.textContent = (t.symbol || '?') + ' · ' + _oaiFmtSignalDate(t.executed_at) +
-                            ' · ' + sign + pnl.toFixed(2) + '% · ' + (t.player_id || '?');
-          sel.appendChild(opt);
+      // Seed the player filter dropdown from the loaded set
+      var playerSet = {};
+      rows.forEach(function(t) { if (t.player_id) playerSet[t.player_id] = true; });
+      var playerSel = document.getElementById('oai-sr-filter-player');
+      if (playerSel) {
+        var keep = playerSel.querySelector('option[value="all"]');
+        playerSel.innerHTML = '';
+        playerSel.appendChild(keep);
+        Object.keys(playerSet).sort().forEach(function(p) {
+          var o = document.createElement('option');
+          o.value = p;
+          o.textContent = p;
+          playerSel.appendChild(o);
         });
       }
-      _popOpts('oai-sr-pick-left');
-      _popOpts('oai-sr-pick-right');
+
+      oaiReplayApplyFilters();
       if (metaEl) {
-        if (!filtered.length) metaEl.textContent = 'No replayable trades in window. Showing FDMT + HE demo.';
-        else metaEl.textContent = filtered.length + ' replayable trades (broad scope, writeback filtered)';
+        if (!rows.length) metaEl.textContent = 'No replayable round-trips. Showing FDMT + HE demo.';
+        else metaEl.textContent = rows.length + ' round-trips loaded (long + short, paired entries)';
       }
 
-      // Auto-populate: 2 most recent replayable trades into LEFT + RIGHT.
-      if (filtered.length >= 1) {
-        document.getElementById('oai-sr-pick-left').value  = '0';
-        window.oaiReplayPick('left', '0');
+      // Auto-populate: 2 most recent visible round-trips into LEFT + RIGHT.
+      var visible = _oaiReplayVisibleIndices();
+      if (visible.length >= 1) {
+        document.getElementById('oai-sr-pick-left').value  = String(visible[0]);
+        window.oaiReplayPick('left', String(visible[0]));
       }
-      if (filtered.length >= 2) {
-        document.getElementById('oai-sr-pick-right').value = '1';
-        window.oaiReplayPick('right', '1');
+      if (visible.length >= 2) {
+        document.getElementById('oai-sr-pick-right').value = String(visible[1]);
+        window.oaiReplayPick('right', String(visible[1]));
       }
     } catch(e) {
       if (metaEl) metaEl.textContent = 'Trade history unavailable — showing demo only';
@@ -12253,6 +12279,62 @@ document.addEventListener('keydown', function(e) {
     }
     return _oaiReplayTrades;
   }
+
+  // HM-OAI-SIGNAL-REPLAY-POLISH 2026-05-24: compute the visible index list
+  // honoring the filter chip selections; rebuild both LEFT + RIGHT dropdowns.
+  function _oaiReplayVisibleIndices() {
+    var days = (document.getElementById('oai-sr-filter-days') || {}).value || 'all';
+    var player = (document.getElementById('oai-sr-filter-player') || {}).value || 'all';
+    var outcome = (document.getElementById('oai-sr-filter-outcome') || {}).value || 'all';
+    var dir = (document.getElementById('oai-sr-filter-direction') || {}).value || 'all';
+    var nowMs = Date.now();
+    var cutoff = (days === 'all') ? 0 : (nowMs - parseInt(days, 10) * 86400000);
+    var out = [];
+    (_oaiReplayTrades || []).forEach(function(t, idx) {
+      if (player !== 'all' && t.player_id !== player) return;
+      if (dir !== 'all' && t.direction !== dir) return;
+      var pnl = Number(t.pnl_pct || 0);
+      if (outcome === 'win' && !(pnl >= 0)) return;
+      if (outcome === 'loss' && !(pnl < 0)) return;
+      if (cutoff > 0) {
+        var ts = t.exit_executed_at || t.entry_executed_at;
+        var d = ts ? Date.parse(ts.replace(' ', 'T') + 'Z') : NaN;
+        if (isFinite(d) && d < cutoff) return;
+      }
+      out.push(idx);
+    });
+    return out;
+  }
+
+  window.oaiReplayApplyFilters = function() {
+    var visible = _oaiReplayVisibleIndices();
+    ['oai-sr-pick-left', 'oai-sr-pick-right'].forEach(function(selectId) {
+      var sel = document.getElementById(selectId);
+      if (!sel) return;
+      sel.innerHTML = '';
+      if (!visible.length) {
+        var opt = document.createElement('option');
+        opt.value = '__none__';
+        opt.textContent = 'No matches';
+        sel.appendChild(opt);
+        return;
+      }
+      visible.forEach(function(idx) {
+        var t = _oaiReplayTrades[idx];
+        var opt = document.createElement('option');
+        opt.value = String(idx);
+        var pnl = Number(t.pnl_pct || 0);
+        var sign = pnl >= 0 ? '+' : '';
+        var dTag = t.direction === 'short' ? ' [S]' : '';
+        opt.textContent = (t.symbol || '?') + dTag + ' · ' +
+                          _oaiFmtSignalDate(t.entry_executed_at || t.exit_executed_at) +
+                          ' · ' + sign + pnl.toFixed(2) + '% · ' + (t.player_id || '?');
+        sel.appendChild(opt);
+      });
+    });
+    var metaEl = document.getElementById('oai-sr-meta');
+    if (metaEl) metaEl.textContent = visible.length + ' / ' + _oaiReplayTrades.length + ' round-trips match filters';
+  };
 
   function _oaiRenderReplaySvg(side, trade, candles) {
     /* 460x240 viewBox. Layer order intentionally puts annotations ON TOP
@@ -12283,8 +12365,11 @@ document.addEventListener('keydown', function(e) {
     var pnlPct = Number(trade.pnl_pct || 0);
     var win = pnlPct >= 0;
 
-    // Pivot: which candle is the signal day
-    var pivot = _oaiPickPivotIdx(candles, trade.executed_at);
+    // HM-OAI-SIGNAL-REPLAY-POLISH 2026-05-24: pivot on the actual entry
+    // (BUY for long, SHORT for short) date, not the close. Falls back to
+    // exit if entry timestamp is missing (older rows pre-pairing).
+    var pivotTs = trade.entry_executed_at || trade.exit_executed_at || trade.executed_at;
+    var pivot = _oaiPickPivotIdx(candles, pivotTs);
     if (pivot < 0) pivot = Math.floor(candles.length / 2);
 
     // Y-scale: include candle range + entry + exit prices
@@ -12360,16 +12445,18 @@ document.addEventListener('keydown', function(e) {
                ' ' + xEnd.toFixed(2) + ',' + yEnd.toFixed(2) +
                '" fill="none" stroke="' + outcomeColor + '" stroke-width="2.5" marker-end="' + arrowMarker + '"/>');
 
-    // --- Signal stamp (Buy Signal green above for wins, Sell Signal red
-    //     below for losses since the entry was a BUY; placement chosen so
-    //     stamp doesn't overlap the trajectory) ---
+    // --- Signal stamp ---
+    // HM-OAI-SIGNAL-REPLAY-POLISH 2026-05-24: direction-aware label.
+    // Long entry = BUY (label "Buy Signal"); short entry = SHORT (label
+    // "Sell Signal"). Color is win/loss as before. Stamp position chosen
+    // so it doesn't overlap the trajectory.
     var stampW = 80, stampH = 22;
     var stampX = Math.max(PAD_L, Math.min(plotRight - stampW, xSignal - stampW / 2));
     var stampY = win ? Math.min(ySignal, yMid) - stampH - 6 : Math.max(ySignal, yMid) + 6;
     if (stampY < 2) stampY = 2;
     if (stampY > H - stampH - 2) stampY = H - stampH - 2;
     var stampFill = win ? '#16a34a' : '#dc2626';
-    var stampLabel = win ? 'Buy Signal' : 'Sell Signal';
+    var stampLabel = trade.direction === 'short' ? 'Sell Signal' : 'Buy Signal';
     parts.push('<rect x="' + stampX + '" y="' + stampY + '" width="' + stampW + '" height="' + stampH + '" fill="' + stampFill + '" rx="3"/>');
     parts.push('<text x="' + (stampX + stampW / 2) + '" y="' + (stampY + 16) + '" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">' + stampLabel + '</text>');
 
