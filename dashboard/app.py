@@ -28,7 +28,7 @@ from fastapi import FastAPI, Request, Form, HTTPException, Body
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
-from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse
+from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse, Response
 import sqlite3
 import json
 import os
@@ -7690,6 +7690,100 @@ def trade_levels_proxy(symbol: str):
             status_code=502,
             content={"error": f"signal-center unreachable: {type(e).__name__}", "symbol": symbol.upper()},
         )
+
+
+@app.get("/api/logo/{symbol}")
+def logo_proxy(symbol: str, force: int = 0):
+    """HM-OAI-RACE-LOGOS 2026-05-24: company-logo proxy for Workspace
+    race rows. Pulls Polygon `branding.icon_url` (PNG ~32x32), caches
+    bytes to data/logo_cache/{SYM}.png and metadata to
+    data/logo_cache_meta.json with 30-day TTL. Returns 404 (negative
+    cached) when Polygon has no branding for the symbol (small caps,
+    ETFs); frontend <img onerror> hides the slot.
+
+    Polygon API key stays server-side — never reaches the browser.
+    Pass ?force=1 to bypass the cache and re-fetch.
+    """
+    import os
+    import time
+    import json
+    import requests as _req
+    from pathlib import Path
+
+    sym = symbol.upper().strip()
+    if not sym or not sym.replace(".", "").isalnum():
+        return Response(status_code=400)
+
+    api_key = os.getenv("POLYGON_API_KEY", "")
+    if not api_key:
+        return JSONResponse(status_code=503, content={"error": "POLYGON_API_KEY not set"})
+
+    cache_dir = Path("data/logo_cache")
+    meta_path = Path("data/logo_cache_meta.json")
+    img_path = cache_dir / f"{sym}.png"
+
+    # Load metadata (best-effort)
+    try:
+        meta = json.loads(meta_path.read_text()) if meta_path.exists() else {}
+    except Exception:
+        meta = {}
+
+    entry = meta.get(sym, {})
+    fetched_at = float(entry.get("fetched_at", 0))
+    age = time.time() - fetched_at
+    fresh = age < 30 * 86400  # 30 day TTL
+
+    if fresh and not force:
+        if entry.get("has_logo") and img_path.exists():
+            return FileResponse(str(img_path), media_type="image/png")
+        if entry.get("has_logo") is False:
+            # Negative-cached: Polygon has no branding for this ticker.
+            return Response(status_code=404)
+
+    # Cache miss / forced refresh — hit Polygon reference endpoint
+    try:
+        r = _req.get(
+            f"https://api.polygon.io/v3/reference/tickers/{sym}",
+            params={"apikey": api_key},
+            timeout=8,
+        )
+        data = r.json() if r.status_code == 200 else {}
+    except Exception as e:
+        console.log(f"[yellow]/api/logo/{sym}: polygon ref {type(e).__name__}: {e!r}[/yellow]")
+        return Response(status_code=502)
+
+    icon_url = ((data.get("results") or {}).get("branding") or {}).get("icon_url")
+    if not icon_url:
+        # No branding available — negative-cache and 404
+        meta[sym] = {"has_logo": False, "fetched_at": time.time()}
+        try:
+            meta_path.parent.mkdir(parents=True, exist_ok=True)
+            meta_path.write_text(json.dumps(meta, indent=0))
+        except Exception:
+            pass
+        return Response(status_code=404)
+
+    # Fetch the image bytes — icon_url requires apikey query param
+    try:
+        sep = "&" if "?" in icon_url else "?"
+        img_r = _req.get(f"{icon_url}{sep}apikey={api_key}", timeout=8)
+        if img_r.status_code != 200 or not img_r.content:
+            return Response(status_code=502)
+        cache_dir.mkdir(parents=True, exist_ok=True)
+        img_path.write_bytes(img_r.content)
+        meta[sym] = {
+            "has_logo": True,
+            "fetched_at": time.time(),
+            "icon_url": icon_url,
+        }
+        try:
+            meta_path.write_text(json.dumps(meta, indent=0))
+        except Exception:
+            pass
+        return FileResponse(str(img_path), media_type="image/png")
+    except Exception as e:
+        console.log(f"[yellow]/api/logo/{sym}: polygon img {type(e).__name__}: {e!r}[/yellow]")
+        return Response(status_code=502)
 
 
 # --- Strategy Race ---

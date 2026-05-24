@@ -10653,7 +10653,11 @@ document.addEventListener('keydown', function(e) {
 #section-ollie-ai .oai-race-box--lc .oai-race-t { color:#22d3ee; }
 #section-ollie-ai .oai-race-tm { color:#fbbf24; font-family:var(--font-mono); font-size:12px; }
 #section-ollie-ai .oai-race-box--lc .oai-race-tm { color:#22d3ee; }
-#section-ollie-ai .oai-race-row { position:relative; display:grid; grid-template-columns:60px 1fr 70px 80px 80px; align-items:center; gap:8px; padding:9px 38px 9px 12px; background:var(--panel); border-bottom:1px solid var(--border); min-height:40px; overflow:hidden; cursor:pointer; }
+#section-ollie-ai .oai-race-row { position:relative; display:grid; grid-template-columns:60px 20px 1fr 70px 80px 80px; align-items:center; gap:8px; padding:9px 38px 9px 12px; background:var(--panel); border-bottom:1px solid var(--border); min-height:40px; overflow:hidden; cursor:pointer; }
+/* HM-OAI-RACE-LOGOS 2026-05-24: Polygon-fetched company icon, 18px square.
+   onerror in renderRace hides the slot when no logo is available
+   (small caps / ETFs) — ticker text remains as the identifier. */
+#section-ollie-ai .oai-race-logo { width:18px; height:18px; object-fit:contain; border-radius:3px; background:transparent; }
 #section-ollie-ai .oai-race-row:last-child { border-bottom:none; }
 #section-ollie-ai .oai-race-row:hover { filter:brightness(1.15); }
 #section-ollie-ai .oai-race-row .rp { font-weight:700; color:#22c55e; font-size:12px; font-family:var(--font-mono); }
@@ -11017,8 +11021,12 @@ document.addEventListener('keydown', function(e) {
       var leg = (Math.abs(pct) / maxAbs * 5).toFixed(2);
       var leadCls = i === 0 ? ' lead' : '';
       var dollarMove = (Number(r.price || 0) * (pct/100));
+      // HM-OAI-RACE-LOGOS 2026-05-24: insert <img> between leg pct and ticker
+      // text. onerror hides slot when Polygon has no logo for the symbol
+      // (small caps, ETFs) — ticker text remains as the visible identifier.
       return '<div class="oai-race-row ' + dirCls + leadCls + '" onclick="oaiFocusSymbol(\'' + r.symbol + '\')">'
         + '<span class="rp">' + leg + '%</span>'
+        + '<img class="oai-race-logo" src="/api/logo/' + encodeURIComponent(r.symbol) + '" alt="" loading="lazy" onerror="this.style.visibility=\'hidden\';">'
         + '<span class="rt">' + r.symbol + '</span>'
         + '<span class="rd">$' + dollarMove.toFixed(2) + '</span>'
         + '<span class="rv">' + (Number(r.volume || 0) / 1e6).toFixed(2) + '</span>'
