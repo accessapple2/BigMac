@@ -15542,6 +15542,9 @@ async function fetchSignalTracker() {
 </div>
 
 <!-- HM-AO-β-2 SQUEEZE WATCHER SECTION (Scotty 3.4) -->
+<!-- HM-SQUEEZE-BBKC-COMPRESSION 2026-05-24: kind tab toggle added above
+     controls. Short Interest tab = Finviz/Polygon SI scan (original).
+     BB/KC Compression tab = volatility-compression squeeze scan (new). -->
 <div id="section-squeeze" style="display:none;">
   <div class="card">
     <div class="card-header">
@@ -15563,7 +15566,12 @@ async function fetchSignalTracker() {
         <button class="btn btn-ghost" onclick="fetchSqueezeRecent()" style="font-size:13px;">⟳ Refresh</button>
       </div>
     </div>
-    <div style="padding:6px 16px 10px;font-size:12px;color:var(--muted);">
+    <!-- Kind toggle. Persisted via localStorage key 'squeeze_kind'. -->
+    <div id="squeezeKindTabs" style="display:flex;gap:6px;padding:0 16px 8px;">
+      <button id="sqz-kind-short_interest" class="sqz-kind-tab on" onclick="setSqueezeKind('short_interest')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font-size:12px;font-weight:600;cursor:pointer;">Short Interest</button>
+      <button id="sqz-kind-bbkc" class="sqz-kind-tab" onclick="setSqueezeKind('bbkc')" style="padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:12px;font-weight:600;cursor:pointer;">BB/KC Compression</button>
+    </div>
+    <div id="squeezeBlurb" style="padding:0 16px 10px;font-size:12px;color:var(--muted);">
       HM-AO-β Ghost Watcher. Scanner runs every 30 min during market hours. PRIORITY (composite ≥ 90) hits also ntfy <code>ollietrades-admin</code>. Watcher does NOT auto-trade — Admiral reviews each candidate.
     </div>
 
@@ -27931,12 +27939,46 @@ async function fetchGhostTrades() {
 
 <script>
 // === HM-AO-β-2 SQUEEZE PANEL (Scotty 3.4) ===
+// HM-SQUEEZE-BBKC-COMPRESSION 2026-05-24: kind dispatch + BB/KC card layout.
 // Reads /api/squeeze/{recent,summary,dismiss}. Watcher runs server-side
 // every 30 min; this panel auto-refreshes on a 60s cadence via the
 // existing _sectionFetchMap / registerSectionInit infra (so refresh
 // pauses when section is not active or tab is hidden).
 var _squeezeData = [];
 var _squeezeSummary = null;
+// Active kind tab — restored from localStorage on init.
+var _squeezeKind = (function() {
+  try {
+    var v = localStorage.getItem('squeeze_kind');
+    return (v === 'bbkc' || v === 'short_interest') ? v : 'short_interest';
+  } catch(e) { return 'short_interest'; }
+})();
+
+function setSqueezeKind(kind) {
+  if (kind !== 'short_interest' && kind !== 'bbkc') return;
+  _squeezeKind = kind;
+  try { localStorage.setItem('squeeze_kind', kind); } catch(e) {}
+  // Visual toggle
+  var tabs = document.querySelectorAll('#squeezeKindTabs .sqz-kind-tab');
+  for (var i = 0; i < tabs.length; i++) {
+    var btn = tabs[i];
+    var isOn = btn.id === ('sqz-kind-' + kind);
+    btn.classList.toggle('on', isOn);
+    btn.style.background = isOn ? 'var(--accent)' : 'transparent';
+    btn.style.color = isOn ? '#fff' : 'var(--text)';
+    btn.style.borderColor = isOn ? 'var(--accent)' : 'var(--border)';
+  }
+  // Blurb swap
+  var blurb = document.getElementById('squeezeBlurb');
+  if (blurb) {
+    if (kind === 'bbkc') {
+      blurb.innerHTML = 'HM-SQUEEZE-BBKC-COMPRESSION (2026-05-24). Daily BB(20,2σ) inside KC(20,1.5×ATR). Tier by consecutive in-squeeze days: WATCH 5–9d · ALERT 10–19d · PRIORITY 20d+. PRIORITY also ntfys <code>ollietrades-admin</code>. Surfaces volatility coils — Admiral reviews each.';
+    } else {
+      blurb.innerHTML = 'HM-AO-β Ghost Watcher. Scanner runs every 30 min during market hours. PRIORITY (composite ≥ 90) hits also ntfy <code>ollietrades-admin</code>. Watcher does NOT auto-trade — Admiral reviews each candidate.';
+    }
+  }
+  fetchSqueezeRecent();
+}
 
 function _squeezeRelTime(iso) {
   if (!iso) return '-';
@@ -27964,10 +28006,12 @@ function _esc(s) {
 async function fetchSqueezeRecent() {
   var days = (document.getElementById('squeezeDays') || {}).value || 7;
   var tier = (document.getElementById('squeezeTier') || {}).value || 'all';
+  var kind = _squeezeKind || 'short_interest';
+  var kindQ = '&kind=' + encodeURIComponent(kind);
   try {
     var [rRes, sRes] = await Promise.all([
-      fetch('/api/squeeze/recent?days=' + encodeURIComponent(days) + '&tier=' + encodeURIComponent(tier)),
-      fetch('/api/squeeze/summary?days=' + encodeURIComponent(days)),
+      fetch('/api/squeeze/recent?days=' + encodeURIComponent(days) + '&tier=' + encodeURIComponent(tier) + kindQ),
+      fetch('/api/squeeze/summary?days=' + encodeURIComponent(days) + kindQ),
     ]);
     var rJson = await rRes.json();
     var sJson = await sRes.json();
@@ -28028,16 +28072,29 @@ function renderSqueezeCards() {
     var st = _squeezeTierStyle(r.threshold_tier);
     var composite = (r.composite_score != null) ? Math.round(r.composite_score) : '?';
     var sym = _esc(r.symbol);
-    var sp  = (r.short_pct != null)  ? r.short_pct.toFixed(1) + '%' : '—';
-    var fm  = (r.float_m != null)    ? r.float_m.toFixed(1) + 'M'   : '—';
-    var vr  = (r.vol_ratio != null)  ? r.vol_ratio.toFixed(1) + 'x' : '—';
-    var rsi = (r.rsi != null)        ? r.rsi.toFixed(1)             : '—';
-    var brk = (r.breakout_score != null) ? Math.round(r.breakout_score * 100) : '—';
     var px  = (r.price_at_scan != null) ? '$' + r.price_at_scan.toFixed(2) : '—';
     var rel = _squeezeRelTime(r.scan_ts);
     var notes = r.notes ? '<div style="font-size:11px;color:var(--muted);margin-top:6px;font-family:var(--font-mono,monospace);">' + _esc(r.notes) + '</div>' : '';
     var ntfy_badge = r.ntfy_sent ? '<span style="font-size:10px;color:var(--green);margin-left:4px;" title="ntfy fired">📨</span>' : '';
     var deferred_badge = r.ntfy_deferred ? '<span style="font-size:10px;color:var(--muted);margin-left:4px;" title="ntfy deferred (quiet hours)">🌙</span>' : '';
+
+    // HM-SQUEEZE-BBKC-COMPRESSION per-kind body. r.kind defaults to
+    // 'short_interest' when the API was hit pre-migration; explicit check
+    // for 'bbkc' so future kinds fall through to the SI default.
+    var bodyLine;
+    if (r.kind === 'bbkc') {
+      var dur = (r.bbkc_duration_days != null) ? r.bbkc_duration_days + 'd' : '—';
+      // breakout_score is reused as "tightness" (0–1) for bbkc rows
+      var tight = (r.breakout_score != null) ? Math.round(r.breakout_score * 100) + '%' : '—';
+      bodyLine = 'Coil ' + dur + ' · Tightness ' + tight + ' · ' + px;
+    } else {
+      var sp  = (r.short_pct != null)  ? r.short_pct.toFixed(1) + '%' : '—';
+      var fm  = (r.float_m != null)    ? r.float_m.toFixed(1) + 'M'   : '—';
+      var vr  = (r.vol_ratio != null)  ? r.vol_ratio.toFixed(1) + 'x' : '—';
+      var rsi = (r.rsi != null)        ? r.rsi.toFixed(1)             : '—';
+      var brk = (r.breakout_score != null) ? Math.round(r.breakout_score * 100) : '—';
+      bodyLine = 'SI ' + sp + ' · Float ' + fm + ' · Vol ' + vr + ' · RSI ' + rsi + ' · Brk ' + brk + ' · ' + px;
+    }
 
     html +=
       '<div id="sqz-card-' + r.id + '" style="border:1px solid ' + st.bd + ';background:' + st.bg + ';border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;transition:opacity .25s ease;">' +
@@ -28046,7 +28103,7 @@ function renderSqueezeCards() {
           '<div style="font-size:14px;font-weight:700;color:' + st.col + ';">' + st.icon + ' ' + composite + ' · ' + _esc(r.threshold_tier) + '</div>' +
         '</div>' +
         '<div style="font-size:12px;color:var(--text);font-family:var(--font-mono,monospace);letter-spacing:.3px;">' +
-          'SI ' + sp + ' · Float ' + fm + ' · Vol ' + vr + ' · RSI ' + rsi + ' · Brk ' + brk + ' · ' + px +
+          bodyLine +
         '</div>' +
         notes +
         '<div id="sqz-dismiss-' + r.id + '" style="display:flex;justify-content:flex-end;margin-top:6px;">' +
@@ -28111,14 +28168,18 @@ async function _squeezeDismissConfirm(id) {
 
 // Register with the section-aware refresh infra: 60s cadence, only
 // fires when the section is visible AND the tab is focused.
+// HM-SQUEEZE-BBKC-COMPRESSION: initFn calls setSqueezeKind() so the kind
+// tab toggle restores its visual state from localStorage AND fires the
+// initial fetch in a single call.
+function _initSqueezePanel() { setSqueezeKind(_squeezeKind); }
 if (typeof registerSectionInit === 'function') {
   registerSectionInit(
     'squeeze',
-    fetchSqueezeRecent,
+    _initSqueezePanel,
     [{fn: fetchSqueezeRecent, ms: 60000}]
   );
 } else if (typeof _sectionInitQueue !== 'undefined') {
-  _sectionInitQueue.push({name: 'squeeze', initFn: fetchSqueezeRecent, intervalFns: [{fn: fetchSqueezeRecent, ms: 60000}]});
+  _sectionInitQueue.push({name: 'squeeze', initFn: _initSqueezePanel, intervalFns: [{fn: fetchSqueezeRecent, ms: 60000}]});
 }
 </script>
 

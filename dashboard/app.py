@@ -20149,16 +20149,24 @@ async def options_scan_preview():
 
 
 @app.get("/api/squeeze/recent")
-def get_squeeze_recent(days: int = 7, tier: str = "all"):
+def get_squeeze_recent(days: int = 7, tier: str = "all", kind: str = "short_interest"):
     """Recent squeeze_watch candidates for the dashboard panel.
 
     Returns rows ordered by tier desc (PRIORITY → ALERT → WATCH), then
     scan_ts desc. Filters out dismissed rows. Read-only — no mutations.
+
+    `kind` (HM-SQUEEZE-BBKC-COMPRESSION 2026-05-24):
+      - 'short_interest' (default, backward-compat): Finviz/Polygon SI scan
+      - 'bbkc'                                     : BB/KC compression scan
+      - 'all'                                      : union of both
     """
     days = max(1, min(int(days or 7), 90))
     valid_tiers = {"all", "WATCH", "ALERT", "PRIORITY"}
     if tier not in valid_tiers:
         tier = "all"
+    valid_kinds = {"short_interest", "bbkc", "all"}
+    if kind not in valid_kinds:
+        kind = "short_interest"
 
     cutoff = (
         __import__("datetime").datetime.utcnow()
@@ -20169,11 +20177,15 @@ def get_squeeze_recent(days: int = 7, tier: str = "all"):
         "SELECT id, symbol, scan_ts, short_pct, float_m, vol_ratio, rsi, "
         "       breakout_score, composite_score, threshold_tier, "
         "       price_at_scan, notes, ntfy_sent, ntfy_deferred, "
+        "       kind, bbkc_duration_days, "
         "       (CAST((julianday('now') - julianday(scan_ts)) * 24 AS REAL)) AS age_hours "
         "FROM squeeze_watch "
         "WHERE dismissed = 0 AND scan_ts >= ? "
     )
     params: list = [cutoff]
+    if kind != "all":
+        sql += "AND kind = ? "
+        params.append(kind)
     if tier != "all":
         sql += "AND threshold_tier = ? "
         params.append(tier)
@@ -20193,6 +20205,7 @@ def get_squeeze_recent(days: int = 7, tier: str = "all"):
             "ok": True,
             "days": days,
             "tier": tier,
+            "kind": kind,
             "count": len(rows),
             "items": [dict(r) for r in rows],
         }
@@ -20241,25 +20254,37 @@ def dismiss_squeeze_candidate(data: dict = Body(...)):
 
 
 @app.get("/api/squeeze/summary")
-def get_squeeze_summary(days: int = 7):
-    """Tier counts for the dashboard headline, last N days."""
+def get_squeeze_summary(days: int = 7, kind: str = "short_interest"):
+    """Tier counts for the dashboard headline, last N days.
+
+    `kind` accepts 'short_interest' (default), 'bbkc', or 'all' — see
+    /api/squeeze/recent for the HM-SQUEEZE-BBKC-COMPRESSION cross-ref.
+    """
     days = max(1, min(int(days or 7), 90))
+    valid_kinds = {"short_interest", "bbkc", "all"}
+    if kind not in valid_kinds:
+        kind = "short_interest"
     cutoff = (
         __import__("datetime").datetime.utcnow()
         - __import__("datetime").timedelta(days=days)
     ).isoformat()
     conn = _conn()
     try:
-        rows = conn.execute(
+        sql = (
             "SELECT threshold_tier, COUNT(*) AS n FROM squeeze_watch "
             "WHERE dismissed=0 AND scan_ts >= ? "
-            "GROUP BY threshold_tier",
-            (cutoff,),
-        ).fetchall()
+        )
+        params: list = [cutoff]
+        if kind != "all":
+            sql += "AND kind = ? "
+            params.append(kind)
+        sql += "GROUP BY threshold_tier"
+        rows = conn.execute(sql, params).fetchall()
         counts = {r["threshold_tier"]: r["n"] for r in rows}
         return {
             "ok": True,
             "days": days,
+            "kind": kind,
             "PRIORITY": counts.get("PRIORITY", 0),
             "ALERT":    counts.get("ALERT", 0),
             "WATCH":    counts.get("WATCH", 0),

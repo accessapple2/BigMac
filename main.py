@@ -1682,6 +1682,95 @@ def run_squeeze_watcher():
         console.log(f"[yellow]Squeeze Watcher error: {type(e).__name__}: {e!r}")
 
 
+# HM-SQUEEZE-BBKC-COMPRESSION 2026-05-24 — BB/KC volatility-compression
+# scanner. Same daemon-thread wrapper pattern as squeeze watcher above.
+# Default-OFF via BBKC_SQUEEZE_WATCHER_ENABLED env flag.
+_bbkc_squeeze_bg_lock = threading.Lock()
+_bbkc_squeeze_watcher_last_run = 0.0
+_bbkc_squeeze_watcher_last_fire_ts = 0.0
+_bbkc_squeeze_watcher_disabled_logged = False
+
+
+@_hm_bq_instr("_bg_bbkc_squeeze_watcher")
+def _bg_bbkc_squeeze_watcher():
+    """Daemon-thread wrapper around run_bbkc_squeeze_watcher(). Skip if a
+    prior 30-min run is still in flight."""
+    if not _bbkc_squeeze_bg_lock.acquire(blocking=False):
+        console.log("[dim]BBKC Squeeze Watcher bg: prior tick still running — skip")
+        return
+    def _runner():
+        try:
+            run_bbkc_squeeze_watcher()
+        finally:
+            _bbkc_squeeze_bg_lock.release()
+    threading.Thread(
+        target=_runner, daemon=True, name="sched_bbkc_squeeze_watcher"
+    ).start()
+
+
+@_hm_bq_instr("run_bbkc_squeeze_watcher")
+def run_bbkc_squeeze_watcher():
+    """30-min cadence wrapper for engine.bbkc_squeeze_scanner.run_scan.
+    Default-OFF via BBKC_SQUEEZE_WATCHER_ENABLED env flag.
+
+    Ghost Watcher pattern — surfaces candidates only; does NOT write to
+    signals table and does NOT route to paper_trader.
+    """
+    global _bbkc_squeeze_watcher_last_run, _bbkc_squeeze_watcher_last_fire_ts
+    global _bbkc_squeeze_watcher_disabled_logged
+    import os as _os
+    import time as _t
+
+    if _os.environ.get("BBKC_SQUEEZE_WATCHER_ENABLED", "").lower() not in (
+        "1", "true", "yes", "on"
+    ):
+        if not _bbkc_squeeze_watcher_disabled_logged:
+            console.log(
+                "[dim]BBKC Squeeze Watcher: BBKC_SQUEEZE_WATCHER_ENABLED not set"
+                " — skipping (HM-SQUEEZE-BBKC default-off)"
+            )
+            _bbkc_squeeze_watcher_disabled_logged = True
+        return
+
+    _now_ts = _t.time()
+    if _bbkc_squeeze_watcher_last_fire_ts > 0:
+        _interval = _now_ts - _bbkc_squeeze_watcher_last_fire_ts
+        if _interval > 2400:
+            logger.warning(
+                "[HM-AS-β] bbkc_squeeze_watcher cadence drift: "
+                "%.1fs since last fire (target: 1800s)", _interval
+            )
+    _bbkc_squeeze_watcher_last_fire_ts = _now_ts
+
+    if _now_ts - _bbkc_squeeze_watcher_last_run < 1500:
+        return
+    _bbkc_squeeze_watcher_last_run = _now_ts
+
+    try:
+        from engine.risk_manager import RiskManager
+        if not RiskManager.is_market_hours():
+            return
+    except Exception:
+        return
+
+    try:
+        from engine.bbkc_squeeze_scanner import run_scan as _bbkc_run_scan
+        result = _bbkc_run_scan(force=True)
+        n = len(result.get("results") or [])
+        ws = result.get("watch_persist") or {}
+        console.log(
+            f"[cyan]BBKC Squeeze Watcher: {n} in-squeeze "
+            f"(scanned={result.get('candidate_count', 0)} "
+            f"inserted={ws.get('inserted', 0)} "
+            f"deferred={ws.get('deferred', 0)} "
+            f"ntfy={ws.get('ntfy_fired', 0)})"
+        )
+    except Exception as e:
+        console.log(
+            f"[yellow]BBKC Squeeze Watcher error: {type(e).__name__}: {e!r}"
+        )
+
+
 _theta_last_run = 0.0
 
 @_hm_bq_instr("run_theta_scan")
@@ -3557,6 +3646,7 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(run_gap_scan)                 # Gap Scanner: checks every 5 min, fires once at market open
     schedule.every(15).minutes.do(run_gap_fill_check)           # Gap Fill Tracker: every 5 min during market hours
     schedule.every(30).minutes.do(_bg_squeeze_watcher)          # HM-AO-β Squeeze Watcher (HM-AS-β.2 thread-wrapper): 30-min, default-OFF via SQUEEZE_WATCHER_ENABLED
+    schedule.every(30).minutes.do(_bg_bbkc_squeeze_watcher)     # HM-SQUEEZE-BBKC-COMPRESSION (2026-05-24): 30-min, default-OFF via BBKC_SQUEEZE_WATCHER_ENABLED
     # Capitol Trades Fund — Congress copycat scan (daily at market open, 9:35 AM ET)
     from engine.capitol_fund import run_capitol_scan as _raw_capitol_scan
     def run_capitol_scan():
