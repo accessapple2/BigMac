@@ -10206,6 +10206,8 @@ document.addEventListener('keydown', function(e) {
             <rect x="345" y="190" width="90" height="24" fill="#dc2626" rx="3"/>
             <text x="390" y="207" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" font-family="var(--font-mono)">Profit +52%</text>
           </svg>
+          <!-- HM-OAI-SIGNAL-REPLAY-HOVER 2026-05-24: per-card tooltip -->
+          <div class="oai-sr-tip" id="oai-sr-tip-left" style="display:none;"></div>
           <!-- Monthly inset -->
           <div class="oai-inset">
             <div class="oai-inset-pct" style="background:#7f1d1d;">-13.82%</div>
@@ -10316,6 +10318,8 @@ document.addEventListener('keydown', function(e) {
             <rect x="345" y="35" width="90" height="24" fill="#16a34a" rx="3"/>
             <text x="390" y="52" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" font-family="var(--font-mono)">Profit +88%</text>
           </svg>
+          <!-- HM-OAI-SIGNAL-REPLAY-HOVER 2026-05-24: per-card tooltip -->
+          <div class="oai-sr-tip" id="oai-sr-tip-right" style="display:none;"></div>
           <div class="oai-inset">
             <div class="oai-inset-pct" style="background:#14532d;">+79.63%</div>
             <svg viewBox="0 0 110 60" style="margin-top:14px;width:100%;">
@@ -10898,7 +10902,22 @@ document.addEventListener('keydown', function(e) {
 #section-ollie-ai .oai-sr-date { color:var(--text-dim); font-size:10px; letter-spacing:.4px; margin:8px 0 4px; }
 
 /* Card-local chart wrapper (smaller than Symbol Focus's full-width chart) */
-#section-ollie-ai .oai-sr-chart { padding:6px; }
+#section-ollie-ai .oai-sr-chart { padding:6px; position:relative; }
+/* HM-OAI-SIGNAL-REPLAY-HOVER 2026-05-24: per-card tooltip styled like
+   Symbol Focus's .oai-chart-tooltip (same selectors but scoped to
+   .oai-sr-chart since both live under #section-ollie-ai). */
+#section-ollie-ai .oai-sr-chart .oai-sr-tip {
+  position:absolute; top:0; left:0; transform:translate(0,0);
+  z-index:5; pointer-events:none;
+  background:var(--panel); border:1px solid #fbbf24; border-radius:4px;
+  padding:5px 9px; font-family:var(--font-mono); font-size:11px;
+  color:#e5e7eb; white-space:nowrap;
+  box-shadow:0 4px 12px rgba(0,0,0,0.35);
+  line-height:1.4;
+}
+#section-ollie-ai .oai-sr-chart .oai-sr-tip .oai-hov-date { color:#fbbf24; font-weight:700; margin-right:8px; }
+#section-ollie-ai .oai-sr-chart .oai-sr-tip .oai-hov-k { color:var(--text-dim); margin-right:3px; font-weight:600; }
+#section-ollie-ai .oai-sr-chart .oai-sr-tip .oai-hov-v { color:#e5e7eb; margin-right:6px; }
 
 /* Bottom note bar */
 #section-ollie-ai .oai-sr-note { font-size:11px; color:var(--text-dim); margin-top:12px; padding:8px 10px; background:var(--panel-2); border-radius:4px; border-left:3px solid #fbbf24; line-height:1.5; }
@@ -11540,6 +11559,108 @@ document.addEventListener('keydown', function(e) {
       if (ty < 4) ty = pxY + 18;
       tip.style.transform = 'translate(' + tx + 'px,' + ty + 'px)';
     });
+  };
+
+  // ───── HM-OAI-SIGNAL-REPLAY-HOVER 2026-05-24 — per-card hover handlers.
+  // Mirrors Symbol Focus oaiChartHover/End but scoped to a specific side
+  // ('left'|'right'). Reads geometry from svg.dataset + candles from the
+  // svg.__oaiSrCandles property cached by _oaiRenderReplaySvg.
+  var _oaiSrHoverRaf = { left: null, right: null };
+
+  window.oaiSrChartHover = function(e, side) {
+    if (_oaiSrHoverRaf[side]) return;
+    _oaiSrHoverRaf[side] = requestAnimationFrame(function() {
+      _oaiSrHoverRaf[side] = null;
+      var svg = document.getElementById('oai-sr-svg-' + side);
+      var tip = document.getElementById('oai-sr-tip-' + side);
+      var cross = document.getElementById('oai-sr-cross-' + side);
+      if (!svg || !tip || !cross) return;
+      var ds = svg.dataset;
+      var padL = +ds.padL || 0, padR = +ds.padR || 0;
+      var padT = +ds.padT || 0, padB = +ds.padB || 0;
+      var plotW = +ds.plotW || 0, plotH = +ds.plotH || 0;
+      var pMin = +ds.pMin || 0, pMax = +ds.pMax || 0;
+      var barW = +ds.barW || 0;
+      if (!plotW || !plotH || !barW || pMax <= pMin) return;
+
+      var candles = svg.__oaiSrCandles || [];
+      if (!candles.length) return;
+
+      // viewBox→SVG coords
+      var rect = svg.getBoundingClientRect();
+      var vbW = svg.viewBox.baseVal.width || 460;
+      var vbH = svg.viewBox.baseVal.height || 240;
+      var sx = (e.clientX - rect.left) * (vbW / rect.width);
+      var sy = (e.clientY - rect.top)  * (vbH / rect.height);
+
+      var idx = Math.max(0, Math.min(candles.length - 1,
+        Math.floor((sx - padL) / barW)));
+      var c = candles[idx];
+      if (!c) return;
+      var snapX = padL + idx * barW + barW / 2;
+      var priceAtY = pMax - (sy - padT) / plotH * (pMax - pMin);
+
+      // Crosshair
+      cross.style.display = '';
+      var vline = document.getElementById('oai-sr-vline-' + side);
+      var hline = document.getElementById('oai-sr-hline-' + side);
+      var ypill = document.getElementById('oai-sr-ypill-' + side);
+      var yprice = document.getElementById('oai-sr-yprice-' + side);
+      if (vline) { vline.setAttribute('x1', snapX); vline.setAttribute('x2', snapX); vline.setAttribute('y1', padT); vline.setAttribute('y2', padT + plotH); }
+      if (hline) { hline.setAttribute('x1', padL); hline.setAttribute('x2', padL + plotW); hline.setAttribute('y1', sy.toFixed(1)); hline.setAttribute('y2', sy.toFixed(1)); }
+      if (ypill) { ypill.setAttribute('x', padL + plotW + 2); ypill.setAttribute('y', sy - 7); }
+      if (yprice) {
+        yprice.setAttribute('x', padL + plotW + 25);
+        yprice.setAttribute('y', sy + 3);
+        yprice.textContent = priceAtY.toFixed(2);
+      }
+
+      // Tooltip
+      var o = Number(c.open ?? c.o);
+      var cl = Number(c.close ?? c.c);
+      var hi = Number(c.high ?? c.h);
+      var lo = Number(c.low ?? c.l);
+      var prior = idx > 0 ? Number(candles[idx-1].close ?? candles[idx-1].c) : null;
+      var delta = prior != null ? cl - prior : null;
+      var deltaPct = prior != null && prior !== 0 ? (delta / prior * 100) : null;
+      var deltaCls = delta == null ? 'neu' : (delta >= 0 ? 'pos' : 'neg');
+      var deltaSign = delta == null ? '' : (delta >= 0 ? '+' : '');
+      var deltaColor = delta == null ? '#9ca3af' : (delta >= 0 ? '#22c55e' : '#ef4444');
+      var deltaHtml = delta == null
+        ? '<span style="color:#9ca3af;font-weight:700;margin-left:6px;">Δ —</span>'
+        : '<span style="color:' + deltaColor + ';font-weight:700;margin-left:6px;">Δ ' + deltaSign + delta.toFixed(2) +
+          ' (' + deltaSign + deltaPct.toFixed(2) + '%)</span>';
+
+      tip.innerHTML =
+        '<span class="oai-hov-date">' + _oaiFmtHoverDate(c.time, 'D') + '</span>' +
+        '<span class="oai-hov-k">O</span><span class="oai-hov-v">' + o.toFixed(2) + '</span>' +
+        '<span class="oai-hov-k">H</span><span class="oai-hov-v">' + hi.toFixed(2) + '</span>' +
+        '<span class="oai-hov-k">L</span><span class="oai-hov-v">' + lo.toFixed(2) + '</span>' +
+        '<span class="oai-hov-k">C</span><span class="oai-hov-v">' + cl.toFixed(2) + '</span>' +
+        deltaHtml;
+      tip.style.display = 'block';
+
+      // Position with edge-flip — tooltip lives inside .oai-sr-chart (position:relative)
+      var chartEl = svg.parentNode;
+      var chartRect = chartEl.getBoundingClientRect();
+      var pxX = e.clientX - chartRect.left;
+      var pxY = e.clientY - chartRect.top;
+      var tipW = tip.offsetWidth || 280;
+      var tipH = tip.offsetHeight || 24;
+      var tx = pxX + 12;
+      if (tx + tipW > chartRect.width - 6) tx = pxX - tipW - 12;
+      var ty = pxY - tipH - 10;
+      if (ty < 4) ty = pxY + 16;
+      tip.style.transform = 'translate(' + tx + 'px,' + ty + 'px)';
+    });
+  };
+
+  window.oaiSrChartHoverEnd = function(side) {
+    if (_oaiSrHoverRaf[side]) { cancelAnimationFrame(_oaiSrHoverRaf[side]); _oaiSrHoverRaf[side] = null; }
+    var tip = document.getElementById('oai-sr-tip-' + side);
+    var cross = document.getElementById('oai-sr-cross-' + side);
+    if (tip) tip.style.display = 'none';
+    if (cross) cross.style.display = 'none';
   };
 
   window.oaiChartHoverEnd = function() {
@@ -12478,7 +12599,34 @@ document.addEventListener('keydown', function(e) {
     parts.push('<text x="' + (PAD_L - 4) + '" y="' + (PAD_T + plotH/2 + 3) + '" fill="#9ca3af" font-size="8" text-anchor="end" font-family="var(--font-mono)">' + midPrice.toFixed(2) + '</text>');
     parts.push('<text x="' + (PAD_L - 4) + '" y="' + (PAD_T + plotH - 3) + '" fill="#9ca3af" font-size="8" text-anchor="end" font-family="var(--font-mono)">' + pMin.toFixed(2) + '</text>');
 
+    // HM-OAI-SIGNAL-REPLAY-HOVER 2026-05-24: hidden crosshair <g> + transparent
+    // overlay rect for mousemove capture. Appended last so the rect sits on
+    // top of all candle/annotation layers and reliably receives pointer events.
+    parts.push('<g id="oai-sr-cross-' + side + '" style="display:none;pointer-events:none;">');
+    parts.push('<line id="oai-sr-vline-' + side + '" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3" opacity="0.7"/>');
+    parts.push('<line id="oai-sr-hline-' + side + '" stroke="#9ca3af" stroke-width="1" stroke-dasharray="3,3" opacity="0.7"/>');
+    parts.push('<rect id="oai-sr-ypill-' + side + '" fill="#fbbf24" rx="2" width="46" height="14"/>');
+    parts.push('<text id="oai-sr-yprice-' + side + '" fill="#000" font-size="9" font-weight="700" font-family="var(--font-mono)" text-anchor="middle"/>');
+    parts.push('</g>');
+    parts.push('<rect id="oai-sr-overlay-' + side + '" x="' + PAD_L + '" y="' + PAD_T +
+               '" width="' + plotW + '" height="' + plotH +
+               '" fill="transparent" pointer-events="all" style="cursor:crosshair;"' +
+               " onmousemove=\"oaiSrChartHover(event,'" + side + "')\"" +
+               " onmouseleave=\"oaiSrChartHoverEnd('" + side + "')\"/>");
+
     svg.innerHTML = parts.join('');
+    // Cache geometry + candles on the SVG node so the hover handler can
+    // reconstruct screen→data mapping without re-walking the render scope.
+    svg.dataset.padL = PAD_L;
+    svg.dataset.padR = PAD_R;
+    svg.dataset.padT = PAD_T;
+    svg.dataset.padB = PAD_B;
+    svg.dataset.plotW = plotW;
+    svg.dataset.plotH = plotH;
+    svg.dataset.pMin = pMin;
+    svg.dataset.pMax = pMax;
+    svg.dataset.barW = barW;
+    svg.__oaiSrCandles = candles;   // direct property — avoids JSON round-trip
   }
 
   function _oaiRenderReplayHeader(side, trade, fundamentals, price) {
