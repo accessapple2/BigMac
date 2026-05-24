@@ -245,6 +245,43 @@ drop into `~/autonomous-trader/docs/design/` before continuing.
    for animatable custom property, OR (c) swap to SVG arc/stroke-dashoffset for
    guaranteed cross-browser. Priority: LOW (cosmetic).
 
+### HM-OLLIE-AI-SYMBOL-FOCUS-HOVER — chart hover crosshair + candle tooltip
+
+**Polish item explicitly deferred from Step 3b.2** (commit `718904c`,
+2026-05-23). Step 3b.2 scope item #5 of 5 — hover crosshair / candle
+tooltip — pulled out of the shipped scope so the AI line + Battle
+Station + zones + monthly inset could land cleaner.
+
+**Surface:** Symbol Focus cockpit main chart (`#oai-chart-svg` inside
+`#section-ollie-ai`, populated by `_oaiRenderSvg()`).
+
+**Target behavior:**
+1. On `mousemove` over the SVG plot area, project mouse X to nearest
+   candle index, render a vertical dashed crosshair line at that X +
+   horizontal line at the mouse Y price level.
+2. Floating tooltip near the cursor showing the hovered candle's
+   OHLCV + date + delta-from-prior-close. SF Mono numerics, gold
+   accent for ticker/date.
+3. Show the implied price at mouse Y on the Y-axis (small tag pill).
+4. On `mouseleave`, hide crosshair + tooltip.
+
+**Implementation notes:**
+- Cleanest path: add a transparent `<rect>` overlay covering the plot
+  area to capture pointer events without blocking candle interactions.
+- Candle index = `Math.round((mouseX - PAD_L) / barW)` clamped to
+  `[0, n-1]`.
+- Tooltip as a separate absolutely-positioned div outside the SVG
+  (easier to style + position via offsetX/offsetY).
+- Throttle mousemove handler with `requestAnimationFrame` so re-render
+  doesn't tank scroll perf on 90 candles.
+
+**Effort:** ~2-3h (overlay rect + index math + crosshair render +
+tooltip DOM + RAF throttle + theme styling).
+
+**Priority:** LOW (polish). Symbol Focus is functional and readable
+without it; hover/tooltip is a power-user nicety for precise level
+reading.
+
 ### HM-OAI-POLISH (post-Step 3c) — three reference-image gaps banked 2026-05-23
 
 Captain reviewed three reference images vs the current Ollie AI build and
