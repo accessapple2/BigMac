@@ -245,6 +245,102 @@ drop into `~/autonomous-trader/docs/design/` before continuing.
    for animatable custom property, OR (c) swap to SVG arc/stroke-dashoffset for
    guaranteed cross-browser. Priority: LOW (cosmetic).
 
+### HM-FUNDAMENTALS-COMPANY-NAME — `/api/fundamentals/{sym}.company_name` falls back to ticker for most symbols
+
+**Surfaced 2026-05-23 during Step 3 Option 3 verification pass.** Tested
+7 held Alpaca positions (WMB, INTU, AVGO, SPGI, LLY, F, COST) via
+`/api/fundamentals/{sym}` — **all 7 returned `company_name == symbol`**
+instead of "Williams Companies, Inc." / "Intuit Inc." / etc.
+
+**Impact:** Symbol Focus cockpit header shows the ticker twice (logo +
+ticker line + name line all show the same 4-letter string). Degraded
+UX without breaking functionality.
+
+**Root cause** at `engine/stock_fundamentals.py:301`:
+```python
+company_name = profile.get("longName") or profile.get("shortName") or symbol
+```
+Falls back to `symbol` when both `longName` and `shortName` are missing
+from the yfinance profile dict. Other fields in the SAME endpoint response
+(sector="Technology", industry="Software - Application", market_cap,
+pe_trailing, target_high, etc.) ARE populated — so yfinance itself is
+reachable and returning a profile — just not the name fields specifically.
+
+**Hypotheses:**
+1. yfinance API surface shifted; `longName` / `shortName` now under a
+   different key (e.g. `name` / `displayName` / `quoteType.shortName`).
+2. The fields are now in `Ticker.info` vs the older `Ticker.profile`
+   path that `fetch_fundamentals` may be using.
+3. Polygon Reference (`/v3/reference/tickers/{sym}`) returns a `name`
+   field reliably — could be used as a fallback before falling all the
+   way back to ticker.
+
+**Fix paths:**
+1. Inspect `engine/stock_fundamentals.py::fetch_fundamentals` to see
+   which yfinance call provides `profile`. Compare against current
+   yfinance docs.
+2. Add Polygon Reference fallback: if `profile.get('longName')` empty,
+   try Polygon's `/v3/reference/tickers/{sym}` (`branding` + `name`
+   already used by HM-OAI-RACE-LOGOS proposal).
+3. Cache resolved names in `data/ticker_metadata` table column
+   `company_name` so a one-time backfill makes the issue invisible.
+
+**Priority:** MEDIUM. Cosmetic — cockpit functional without it.
+
+### HM-MARKET-DATA-PREV-CLOSE-INCONSISTENCY — `/api/price.change_pct` flips between 0 and stale-percent across symbols
+
+**Surfaced 2026-05-23 during Step 3 Option 3 verification pass.** Same
+sample of 7 held positions:
+
+| Symbol | price | prev_close | change_pct |
+|---|---|---|---|
+| INTU | 374.44 | 374.44 | **0.00%** |
+| LLY  | 1058.72 | 1058.72 | **0.00%** |
+| F    | 14.93 | 13.67 | **+9.22%** |
+| WMB  | 78.47 | (delta consistent) | +1.23% |
+
+Market is closed (verified via dashboard log `[Market Closed] Active`).
+Expected: all symbols should show `price == prev_close` and 0% change,
+OR all should show last-trading-day change from prior-close. Mixed
+behavior suggests `engine.market_data.get_stock_price` is pulling
+`prev_close` from different time-anchors for different symbols (some
+get yesterday's close as `prev_close`, others get the same day's close,
+producing 0%).
+
+**Impact:** Symbol Focus header sometimes shows `$XXX.XX (0.00 (0.00%))`
+which looks like a quote bug; sometimes shows `+9.22%` which may be a
+real intraday move or a 2-day-stale prev_close producing inflated
+delta. Inconsistent → user can't tell signal from noise.
+
+**Fix path:** audit `engine/market_data.py::get_stock_price`'s
+prev_close resolution. Likely needs a unified prior-trading-day
+anchor across all symbol sources (Polygon vs Alpaca vs yfinance).
+**Priority:** LOW (cosmetic, doesn't affect trade execution).
+
+### HM-SC-ATR-INTU-ANOMALY — signal-center reports ATR_PCT 12.51% on INTU vs 1-3% normal range
+
+**Surfaced 2026-05-23 during Step 3 Option 3 verification pass.**
+`signal-center:9000/api/trade-levels/INTU` returns `atr_pct: 12.51`
+where the 6 other sampled symbols range 0.99% (SPY/AAPL) to 5.20% (F).
+
+**Possible legitimate explanation:** INTU had recent rough sessions
+(week52 range $302 - $814 per fundamentals payload) and the ATR window
+includes a large drop bar.
+
+**Possible bug:** ATR calc in `signal-center/server.py::_calc_trade_levels`
+upstream of the trade-levels response may have a stale OR malformed
+candle window producing inflated true-range values.
+
+**Impact:** Symbol Focus on INTU shows wide supply/demand zones because
+they're synthesized from `resistance ± atr*0.4`. The zones extend well
+beyond the visible candle range, forcing the auto-scale to zoom out and
+making the candles compress vertically.
+
+**Fix path:** print the candle window signal-center is using for INTU
+ATR calculation. Verify it's the right 14-day daily ATR vs intraday vs
+fragmentary. Cross-check against ATR(14) on a charting platform.
+**Priority:** LOW (cosmetic for INTU; only affects 1 symbol).
+
 ### HM-OLLIE-AI-SYMBOL-FOCUS-HOVER — chart hover crosshair + candle tooltip
 
 **Polish item explicitly deferred from Step 3b.2** (commit `718904c`,
