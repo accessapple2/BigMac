@@ -20305,6 +20305,7 @@ def get_squeeze_recent(
     kind: str = "short_interest",
     released: str = "0",
     composite: str = "0",
+    prewatch: str = "0",
 ):
     """Recent squeeze_watch candidates for the dashboard panel.
 
@@ -20329,6 +20330,10 @@ def get_squeeze_recent(
       - 'all'        : same as '0' (alias for clarity)
     Composite hits sort to the top of the result list regardless of filter
     so they're discoverable without flipping the param.
+
+    `prewatch` (HM-SQUEEZE-PRE-BREAKOUT-WATCH 2026-05-24):
+      - '0' (default): all rows
+      - '1'          : pre_breakout_watch=1 only (tight-to-10d-high subset)
     """
     days = max(1, min(int(days or 7), 90))
     valid_tiers = {"all", "WATCH", "ALERT", "PRIORITY"}
@@ -20343,6 +20348,9 @@ def get_squeeze_recent(
     valid_composite = {"0", "1", "all"}
     if composite not in valid_composite:
         composite = "0"
+    valid_prewatch = {"0", "1", "all"}
+    if prewatch not in valid_prewatch:
+        prewatch = "0"
 
     cutoff = (
         __import__("datetime").datetime.utcnow()
@@ -20358,6 +20366,7 @@ def get_squeeze_recent(
         "       release_close, "
         "       composite_pass, range_position_pct, vol_contracting_pct, "
         "       composite_rs_pass, "
+        "       pre_breakout_watch, dist_to_10d_high_pct, neutral_vol_ratio, "
         "       (CAST((julianday('now') - julianday(scan_ts)) * 24 AS REAL)) AS age_hours "
         "FROM squeeze_watch "
         "WHERE dismissed = 0 AND scan_ts >= ? "
@@ -20375,13 +20384,15 @@ def get_squeeze_recent(
         sql += "AND released_at IS NOT NULL "
     if composite == "1":
         sql += "AND composite_pass = 1 "
+    if prewatch == "1":
+        sql += "AND pre_breakout_watch = 1 "
     if released == "1":
         # Ordered by release recency
         sql += "ORDER BY released_at DESC LIMIT 200"
     else:
-        # Composite hits sort first within each tier
+        # Composite hits surface first, then pre-breakout-watch, then tier
         sql += (
-            "ORDER BY composite_pass DESC, "
+            "ORDER BY composite_pass DESC, pre_breakout_watch DESC, "
             "CASE threshold_tier "
             "  WHEN 'PRIORITY' THEN 3 "
             "  WHEN 'ALERT'    THEN 2 "
@@ -20400,6 +20411,7 @@ def get_squeeze_recent(
             "kind": kind,
             "released": released,
             "composite": composite,
+            "prewatch": prewatch,
             "count": len(rows),
             "items": [dict(r) for r in rows],
         }
@@ -20502,6 +20514,18 @@ def get_squeeze_summary(
         composite_total = int(
             conn.execute(comp_sql, comp_params).fetchone()[0] or 0
         )
+        # HM-SQUEEZE-PRE-BREAKOUT-WATCH 2026-05-24 — same pattern for prewatch
+        pw_sql = (
+            "SELECT COUNT(*) FROM squeeze_watch "
+            "WHERE dismissed=0 AND scan_ts >= ? AND pre_breakout_watch = 1 "
+        )
+        pw_params: list = [cutoff]
+        if kind != "all":
+            pw_sql += "AND kind = ?"
+            pw_params.append(kind)
+        prewatch_total = int(
+            conn.execute(pw_sql, pw_params).fetchone()[0] or 0
+        )
         return {
             "ok": True,
             "days": days,
@@ -20512,6 +20536,7 @@ def get_squeeze_summary(
             "WATCH":    counts.get("WATCH", 0),
             "total":    sum(counts.values()),
             "composite_total": composite_total,
+            "prewatch_total": prewatch_total,
         }
     except Exception as e:
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}

@@ -15926,6 +15926,8 @@ async function fetchSignalTracker() {
       <!-- HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE 2026-05-24: composite-only toggle.
            Only visible when kind=bbkc. Persisted via localStorage 'squeeze_composite'. -->
       <button id="sqz-composite-toggle" onclick="toggleSqueezeComposite()" style="display:none;margin-left:12px;padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:12px;font-weight:600;cursor:pointer;">🎯 Pre-Breakout Only</button>
+      <!-- HM-SQUEEZE-PRE-BREAKOUT-WATCH 2026-05-24: tighter precursor toggle. -->
+      <button id="sqz-prewatch-toggle" onclick="toggleSqueezePrewatch()" style="display:none;margin-left:6px;padding:6px 14px;border-radius:6px;border:1px solid var(--border);background:transparent;color:var(--text);font-size:12px;font-weight:600;cursor:pointer;">👀 Pre-Breakout Watch Only</button>
     </div>
     <div id="squeezeBlurb" style="padding:0 16px 10px;font-size:12px;color:var(--muted);">
       HM-AO-β Ghost Watcher. Scanner runs every 30 min during market hours. PRIORITY (composite ≥ 90) hits also ntfy <code>ollietrades-admin</code>. Watcher does NOT auto-trade — Admiral reviews each candidate.
@@ -28323,11 +28325,35 @@ var _squeezeComposite = (function() {
   try { return localStorage.getItem('squeeze_composite') === '1'; }
   catch(e) { return false; }
 })();
+// HM-SQUEEZE-PRE-BREAKOUT-WATCH 2026-05-24: precursor-only filter state.
+var _squeezePrewatch = (function() {
+  try { return localStorage.getItem('squeeze_prewatch') === '1'; }
+  catch(e) { return false; }
+})();
 
 function toggleSqueezeComposite() {
   _squeezeComposite = !_squeezeComposite;
+  // Mutually exclusive with prewatch — the two filter the same column
+  // family so leaving both on would clear the list.
+  if (_squeezeComposite) {
+    _squeezePrewatch = false;
+    try { localStorage.setItem('squeeze_prewatch', '0'); } catch(e) {}
+  }
   try { localStorage.setItem('squeeze_composite', _squeezeComposite ? '1' : '0'); } catch(e) {}
   _renderSqueezeCompositeToggle();
+  _renderSqueezePrewatchToggle();
+  fetchSqueezeRecent();
+}
+
+function toggleSqueezePrewatch() {
+  _squeezePrewatch = !_squeezePrewatch;
+  if (_squeezePrewatch) {
+    _squeezeComposite = false;
+    try { localStorage.setItem('squeeze_composite', '0'); } catch(e) {}
+  }
+  try { localStorage.setItem('squeeze_prewatch', _squeezePrewatch ? '1' : '0'); } catch(e) {}
+  _renderSqueezeCompositeToggle();
+  _renderSqueezePrewatchToggle();
   fetchSqueezeRecent();
 }
 
@@ -28337,6 +28363,21 @@ function _renderSqueezeCompositeToggle() {
   // Visibility — only meaningful on the BB/KC tab
   btn.style.display = (_squeezeKind === 'bbkc') ? '' : 'none';
   if (_squeezeComposite) {
+    btn.style.background = 'var(--accent)';
+    btn.style.color = '#fff';
+    btn.style.borderColor = 'var(--accent)';
+  } else {
+    btn.style.background = 'transparent';
+    btn.style.color = 'var(--text)';
+    btn.style.borderColor = 'var(--border)';
+  }
+}
+
+function _renderSqueezePrewatchToggle() {
+  var btn = document.getElementById('sqz-prewatch-toggle');
+  if (!btn) return;
+  btn.style.display = (_squeezeKind === 'bbkc') ? '' : 'none';
+  if (_squeezePrewatch) {
     btn.style.background = 'var(--accent)';
     btn.style.color = '#fff';
     btn.style.borderColor = 'var(--accent)';
@@ -28371,6 +28412,7 @@ function setSqueezeKind(kind) {
     }
   }
   _renderSqueezeCompositeToggle();
+  _renderSqueezePrewatchToggle();
   fetchSqueezeRecent();
 }
 
@@ -28404,6 +28446,8 @@ async function fetchSqueezeRecent() {
   var kindQ = '&kind=' + encodeURIComponent(kind);
   // HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE: composite filter only applies on BB/KC tab.
   var compositeQ = (kind === 'bbkc' && _squeezeComposite) ? '&composite=1' : '&composite=0';
+  // HM-SQUEEZE-PRE-BREAKOUT-WATCH: same scope. Mutually exclusive with composite.
+  var prewatchQ = (kind === 'bbkc' && _squeezePrewatch) ? '&prewatch=1' : '&prewatch=0';
   // HM-SQUEEZE-RELEASE-DETECT: BB/KC tab also pulls recently-released rows
   // in parallel. The released strip is hidden on the SI tab.
   var releasedP = (kind === 'bbkc')
@@ -28411,7 +28455,7 @@ async function fetchSqueezeRecent() {
     : Promise.resolve(null);
   try {
     var [rRes, sRes, relJson] = await Promise.all([
-      fetch('/api/squeeze/recent?days=' + encodeURIComponent(days) + '&tier=' + encodeURIComponent(tier) + kindQ + '&released=0' + compositeQ),
+      fetch('/api/squeeze/recent?days=' + encodeURIComponent(days) + '&tier=' + encodeURIComponent(tier) + kindQ + '&released=0' + compositeQ + prewatchQ),
       fetch('/api/squeeze/summary?days=' + encodeURIComponent(days) + kindQ),
       releasedP,
     ]);
@@ -28467,10 +28511,14 @@ function renderSqueezeSummary() {
   var s = _squeezeSummary;
   if (!s) { el.innerHTML = '<div style="color:var(--muted);">Summary unavailable.</div>'; return; }
   var latest = (_squeezeData[0] && _squeezeData[0].scan_ts) ? _squeezeRelTime(_squeezeData[0].scan_ts) : '—';
-  // HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE: include composite count when kind=bbkc
+  // HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE + PRE-BREAKOUT-WATCH: counts when kind=bbkc
   var compHtml = '';
   if (_squeezeKind === 'bbkc' && s.composite_total != null) {
     compHtml = '<div><span style="color:#22c55e;font-size:11px;">🎯 COMPOSITE</span> <span style="font-weight:700;color:#22c55e;">' + s.composite_total + '</span></div>';
+  }
+  var pwHtml = '';
+  if (_squeezeKind === 'bbkc' && s.prewatch_total != null) {
+    pwHtml = '<div><span style="color:#fbbf24;font-size:11px;">👀 PRE-WATCH</span> <span style="font-weight:700;color:#fbbf24;">' + s.prewatch_total + '</span></div>';
   }
   el.innerHTML =
     '<div style="display:flex;flex-wrap:wrap;gap:14px;align-items:center;">' +
@@ -28479,6 +28527,7 @@ function renderSqueezeSummary() {
       '<div><span style="color:var(--accent3);font-size:11px;">ALERT</span> <span style="font-weight:700;color:var(--accent3);">' + s.ALERT + '</span></div>' +
       '<div><span style="color:var(--accent);font-size:11px;">WATCH</span> <span style="font-weight:700;color:var(--accent);">' + s.WATCH + '</span></div>' +
       compHtml +
+      pwHtml +
       '<div style="margin-left:auto;color:var(--muted);font-size:12px;">last surface: ' + _esc(latest) + ' · window: ' + s.days + 'd</div>' +
     '</div>';
 }
@@ -28538,6 +28587,15 @@ function renderSqueezeCards() {
         var rsT = r.composite_rs_pass ? ' <span style="color:#22c55e;font-weight:700;">RS✓</span>' : '';
         compositeBadge = '<span style="margin-left:6px;font-size:12px;font-weight:700;color:#22c55e;" title="Pre-Breakout Composite: ≥10d coil + top-25% of 20d range + contracting volume">🎯</span>';
         compositeLine = '<div style="font-size:11px;color:#22c55e;font-family:var(--font-mono,monospace);letter-spacing:.3px;">Range pos ' + rp + ' · Vol contract ' + vc + rsT + '</div>';
+      }
+      // HM-SQUEEZE-PRE-BREAKOUT-WATCH: 👀 badge + tight-ceiling stats line.
+      // Append after composite — a row can be both (composite is broader),
+      // but the WATCH badge surfaces the tighter signal as its own marker.
+      if (r.pre_breakout_watch) {
+        var d10 = (r.dist_to_10d_high_pct != null) ? r.dist_to_10d_high_pct.toFixed(2) + '%' : '—';
+        var nv  = (r.neutral_vol_ratio != null) ? r.neutral_vol_ratio.toFixed(2) + '×' : '—';
+        compositeBadge += '<span style="margin-left:4px;font-size:12px;font-weight:700;color:#fbbf24;" title="Pre-Breakout WATCH: ≥10d coil + within ±2% of 10d high + neutral volume 0.7-1.3×">👀</span>';
+        compositeLine += '<div style="font-size:11px;color:#fbbf24;font-family:var(--font-mono,monospace);letter-spacing:.3px;">Dist 10d-high ' + d10 + ' · Neutral vol ' + nv + '</div>';
       }
     } else {
       var sp  = (r.short_pct != null)  ? r.short_pct.toFixed(1) + '%' : '—';

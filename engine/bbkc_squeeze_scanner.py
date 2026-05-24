@@ -71,6 +71,15 @@ _COMPOSITE_ATR_WINDOW: int = 20         # ATR window for vol baseline
 _COMPOSITE_VOL_CONTRACT_CEIL: float = 0.85  # today_atr <= 85% of prior mean
 _COMPOSITE_RS_FLOOR: int = 80           # rs_rank threshold for composite_rs_pass
 
+# HM-SQUEEZE-PRE-BREAKOUT-WATCH 2026-05-24 — precursor alert: tight to
+# the 10d ceiling, coil still active, volume normal (not yet breakout).
+_PREWATCH_MIN_DURATION: int = 10        # same ALERT-tier floor as composite
+_PREWATCH_HIGH_WINDOW: int = 10         # 10-day reference high
+_PREWATCH_DIST_TO_HIGH_PCT: float = 2.0 # within ±2% of 10d high
+_PREWATCH_VOL_LO: float = 0.7           # neutral vol band (avoid contractions
+_PREWATCH_VOL_HI: float = 1.3           # AND pre-spikes — both signal release)
+_PREWATCH_VOL_MEAN_WINDOW: int = 20
+
 # Tier mapping by consecutive in-squeeze days
 _TIER_WATCH_MIN: int = 5
 _TIER_ALERT_MIN: int = 10
@@ -245,6 +254,45 @@ def _compute_composite_factors(df: pd.DataFrame) -> tuple[float, float]:
         )
 
     return (range_position_pct, vol_contracting_pct)
+
+
+def _compute_prebreakout_factors(df: pd.DataFrame) -> tuple[float, float]:
+    """Returns (dist_to_10d_high_pct, neutral_vol_ratio).
+
+    - ``dist_to_10d_high_pct`` = abs(close[-1] - high_10d) / high_10d * 100.
+      Lower = tighter to the ceiling. NaN if history < 10 bars.
+    - ``neutral_vol_ratio`` = volume[-1] / mean(volume[-21:-1]). The
+      pre-breakout-watch flag fires only when this is in [0.7, 1.3] — both
+      contraction-died (<0.7) and pre-spike (>1.3) signal release, not watch.
+      NaN if insufficient history or no volume.
+    """
+    if df is None or df.empty:
+        return (float("nan"), float("nan"))
+    highs = df["High"].to_numpy(dtype=float)
+    closes = df["Close"].to_numpy(dtype=float)
+    volumes = df["Volume"].to_numpy(dtype=float)
+    n = len(closes)
+    if n < max(_PREWATCH_HIGH_WINDOW + 1, _PREWATCH_VOL_MEAN_WINDOW + 1):
+        return (float("nan"), float("nan"))
+
+    win_high = float(np.nanmax(highs[-_PREWATCH_HIGH_WINDOW:]))
+    close_now = float(closes[-1])
+    if win_high <= 0:
+        dist_pct = float("nan")
+    else:
+        dist_pct = abs(close_now - win_high) / win_high * 100.0
+
+    today_vol = float(volumes[-1])
+    prior = volumes[-(_PREWATCH_VOL_MEAN_WINDOW + 1) : -1]
+    prior_valid = prior[~np.isnan(prior)]
+    if today_vol <= 0 or len(prior_valid) == 0:
+        vol_ratio = float("nan")
+    else:
+        prior_mean = float(np.mean(prior_valid))
+        vol_ratio = (
+            (today_vol / prior_mean) if prior_mean > 0 else float("nan")
+        )
+    return (dist_pct, vol_ratio)
 
 
 def _load_rs_pass_set(
@@ -439,6 +487,19 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             conn.execute(
                 "ALTER TABLE squeeze_watch ADD COLUMN composite_rs_pass INTEGER DEFAULT 0"
             )
+        # HM-SQUEEZE-PRE-BREAKOUT-WATCH 2026-05-24
+        if "pre_breakout_watch" not in cols:
+            conn.execute(
+                "ALTER TABLE squeeze_watch ADD COLUMN pre_breakout_watch INTEGER DEFAULT 0"
+            )
+        if "dist_to_10d_high_pct" not in cols:
+            conn.execute(
+                "ALTER TABLE squeeze_watch ADD COLUMN dist_to_10d_high_pct REAL"
+            )
+        if "neutral_vol_ratio" not in cols:
+            conn.execute(
+                "ALTER TABLE squeeze_watch ADD COLUMN neutral_vol_ratio REAL"
+            )
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_squeeze_watch_kind_ts "
             "ON squeeze_watch(kind, scan_ts DESC) WHERE dismissed = 0"
@@ -452,6 +513,11 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             "CREATE INDEX IF NOT EXISTS idx_squeeze_watch_composite "
             "ON squeeze_watch(kind, composite_pass DESC, scan_ts DESC) "
             "WHERE composite_pass = 1 AND dismissed = 0"
+        )
+        conn.execute(
+            "CREATE INDEX IF NOT EXISTS idx_squeeze_watch_prebreakout "
+            "ON squeeze_watch(kind, pre_breakout_watch DESC, scan_ts DESC) "
+            "WHERE pre_breakout_watch = 1 AND dismissed = 0"
         )
         conn.commit()
     except Exception as e:
@@ -528,17 +594,27 @@ def _persist_results(
             # HM-SQUEEZE-PRE-BREAKOUT-COMPOSITE — composite flags + factors
             composite_pass_flag = 1 if r.get("composite_pass") else 0
             composite_rs_pass_flag = 1 if r.get("composite_rs_pass") else 0
-            range_pos_val = r.get("range_position_pct")  # may be None
+            range_pos_val = r.get("range_position_pct")
             vol_contract_val = r.get("vol_contracting_pct")
+            # HM-SQUEEZE-PRE-BREAKOUT-WATCH — precursor flag + factors
+            prewatch_flag = 1 if r.get("pre_breakout_watch") else 0
+            dist_10d_val = r.get("dist_to_10d_high_pct")
+            neutral_vol_val = r.get("neutral_vol_ratio")
 
             notes_extra = ""
             if composite_pass_flag:
                 rp_disp = f"{range_pos_val:.1f}" if range_pos_val is not None else "—"
                 vc_disp = f"{vol_contract_val:.2f}" if vol_contract_val is not None else "—"
-                notes_extra = (
+                notes_extra += (
                     f"; composite=YES range_pos={rp_disp}% "
                     f"vol_contract={vc_disp}× "
                     f"rs80={'YES' if composite_rs_pass_flag else 'no'}"
+                )
+            if prewatch_flag:
+                d_disp = f"{dist_10d_val:.2f}" if dist_10d_val is not None else "—"
+                nv_disp = f"{neutral_vol_val:.2f}" if neutral_vol_val is not None else "—"
+                notes_extra += (
+                    f"; prewatch=YES dist_10d={d_disp}% neutral_vol={nv_disp}×"
                 )
             notes = (
                 f"duration_days={duration}; "
@@ -549,10 +625,12 @@ def _persist_results(
             )
             # breakout_score reused as "tightness" (1 - bb/kc ratio); 0→1 range
             breakout = float(r.get("tightness", 0.0))
-            # NTFY is deferred during quiet hours when tier is PRIORITY OR when
-            # the row is a composite pass (composite expands the NTFY surface
-            # down to ALERT tier).
-            ntfy_eligible_tier = (tier == "PRIORITY") or bool(composite_pass_flag)
+            # NTFY eligibility: PRIORITY entry OR composite OR pre-breakout-watch
+            ntfy_eligible_tier = (
+                (tier == "PRIORITY")
+                or bool(composite_pass_flag)
+                or bool(prewatch_flag)
+            )
             ntfy_deferred = 1 if (ntfy_eligible_tier and quiet) else 0
             price_at_scan = float(r.get("last_close", 0.0))
 
@@ -564,12 +642,15 @@ def _persist_results(
                         price_at_scan, notes, ntfy_sent, ntfy_deferred,
                         kind, bbkc_duration_days,
                         composite_pass, range_position_pct,
-                        vol_contracting_pct, composite_rs_pass)
+                        vol_contracting_pct, composite_rs_pass,
+                        pre_breakout_watch, dist_to_10d_high_pct,
+                        neutral_vol_ratio)
                        VALUES (?, ?, NULL, NULL, NULL, NULL,
                                ?, ?, ?,
                                ?, ?, 0, ?,
                                'bbkc', ?,
-                               ?, ?, ?, ?)""",
+                               ?, ?, ?, ?,
+                               ?, ?, ?)""",
                     (
                         symbol,
                         scan_ts,
@@ -584,16 +665,20 @@ def _persist_results(
                         range_pos_val,
                         vol_contract_val,
                         composite_rs_pass_flag,
+                        prewatch_flag,
+                        dist_10d_val,
+                        neutral_vol_val,
                     ),
                 )
                 summary["inserted"] += 1
                 if ntfy_deferred:
                     summary["deferred"] += 1
 
-                # NTFY title swap: composite hits NTFY at ALERT+ AND replace the
-                # plain entry title with the composite title. Single notification
-                # per insertion. Plain PRIORITY (non-composite) still fires its
-                # original entry NTFY.
+                # NTFY routing — priority order (single fire per insertion):
+                # 1. composite_pass=1 → 🎯 composite NTFY
+                # 2. pre_breakout_watch=1 (and not composite) → 👀 prewatch NTFY
+                # 3. plain PRIORITY tier entry → 🔥 entry NTFY
+                # ALERT-tier without composite/prewatch → no NTFY (existing rule).
                 if (
                     ntfy_eligible_tier
                     and not ntfy_deferred
@@ -607,6 +692,13 @@ def _persist_results(
                             range_pos_val,
                             vol_contract_val,
                             bool(composite_rs_pass_flag),
+                        )
+                    elif prewatch_flag:
+                        fire_fn_result = _fire_pre_breakout_watch_ntfy(
+                            symbol,
+                            duration,
+                            dist_10d_val,
+                            neutral_vol_val,
                         )
                     elif tier == "PRIORITY":
                         fire_fn_result = _fire_ntfy(symbol, duration)
@@ -657,6 +749,45 @@ def _fire_ntfy(symbol: str, duration: int) -> bool:
     except Exception as e:
         console.log(
             f"[yellow]bbkc_squeeze: NTFY {symbol} failed: "
+            f"{type(e).__name__}: {e!r}"
+        )
+        return False
+
+
+def _fire_pre_breakout_watch_ntfy(
+    symbol: str,
+    duration: int,
+    dist_pct: float | None,
+    vol_ratio: float | None,
+) -> bool:
+    """HM-SQUEEZE-PRE-BREAKOUT-WATCH NTFY. Precursor-level alert — fires
+    when the symbol is tight to the 10d ceiling with neutral volume but
+    hasn't released yet. Per-symbol 24h rate-limit + in-process dedupe."""
+    key = f"bbkc_prewatch::{symbol}"
+    if key in _ntfy_fired_classes:
+        return False
+    _ntfy_fired_classes.add(key)
+    try:
+        from engine.alert_channels import send_alert
+
+        dist_str = f"{dist_pct:.2f}%" if dist_pct is not None else "—"
+        vol_str = f"{vol_ratio:.2f}×" if vol_ratio is not None else "—"
+        send_alert(
+            level="warning",
+            alert_type=f"bbkc_squeeze_prewatch_{symbol}",
+            message=(
+                f"👀 BB/KC Pre-Breakout WATCH — {symbol} ({duration}d coil, "
+                f"{dist_str} from 10d high, vol {vol_str}). Tight to the "
+                f"ceiling — precursor to release."
+            ),
+            title=f"👀 BB/KC Pre-Breakout WATCH — {symbol}",
+            audience="admin",
+            rate_limit_secs=86400,
+        )
+        return True
+    except Exception as e:
+        console.log(
+            f"[yellow]bbkc_squeeze: prewatch NTFY {symbol} failed: "
             f"{type(e).__name__}: {e!r}"
         )
         return False
@@ -935,6 +1066,23 @@ def run_scan(force: bool = False) -> dict:
             )
             composite_rs_pass = symbol in rs_pass_set
 
+            # HM-SQUEEZE-PRE-BREAKOUT-WATCH — tighter precursor flag
+            try:
+                dist_to_10d, neutral_vol = _compute_prebreakout_factors(df)
+            except Exception as e:
+                console.log(
+                    f"[yellow]bbkc_squeeze: prewatch factors {symbol}: "
+                    f"{type(e).__name__}: {e!r}"
+                )
+                dist_to_10d, neutral_vol = float("nan"), float("nan")
+            pre_breakout_watch = bool(
+                duration >= _PREWATCH_MIN_DURATION
+                and not np.isnan(dist_to_10d)
+                and dist_to_10d <= _PREWATCH_DIST_TO_HIGH_PCT
+                and not np.isnan(neutral_vol)
+                and _PREWATCH_VOL_LO <= neutral_vol <= _PREWATCH_VOL_HI
+            )
+
             results.append(
                 {
                     "symbol": symbol,
@@ -952,6 +1100,13 @@ def run_scan(force: bool = False) -> dict:
                     ),
                     "composite_pass": composite_pass,
                     "composite_rs_pass": composite_rs_pass,
+                    "pre_breakout_watch": pre_breakout_watch,
+                    "dist_to_10d_high_pct": (
+                        None if np.isnan(dist_to_10d) else float(dist_to_10d)
+                    ),
+                    "neutral_vol_ratio": (
+                        None if np.isnan(neutral_vol) else float(neutral_vol)
+                    ),
                 }
             )
 
@@ -992,12 +1147,14 @@ def run_scan(force: bool = False) -> dict:
             )
 
         composite_count = sum(1 for r in results if r.get("composite_pass"))
+        prewatch_count = sum(1 for r in results if r.get("pre_breakout_watch"))
 
         _last_result = {
             "results": results,
             "scanned_at": datetime.now().isoformat(),
             "candidate_count": scanned,
             "composite_count": composite_count,
+            "prewatch_count": prewatch_count,
             "watch_persist": persist_summary,
             "release_scan": release_summary,
         }
@@ -1006,6 +1163,7 @@ def run_scan(force: bool = False) -> dict:
         console.log(
             f"[green]BBKC Squeeze Scanner: scanned={scanned} "
             f"in_squeeze={len(results)} composite={composite_count} "
+            f"prewatch={prewatch_count} "
             f"inserted={persist_summary.get('inserted', 0)} "
             f"ntfy={persist_summary.get('ntfy_fired', 0)} · "
             f"released={release_summary.get('detected', 0)} "
