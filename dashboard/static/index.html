@@ -10269,8 +10269,121 @@ document.addEventListener('keydown', function(e) {
       through Trade Desk via <code>_oaiTradeTicket(sym)</code>.
     </div>
   </div>
+  <!-- ───── BACKTEST LAB (Step 5a — visual scaffold per v4.3 spec L498-557) ───── -->
   <div class="oai-view" id="oai-view-backtest-lab" style="display:none;">
-    <div class="oai-placeholder"><h3>📊 Backtest Lab</h3><p>Event-based backtest · profit factor · win rate · daily heatmap · filter optimizer. Ships in Step 5.</p></div>
+
+    <!-- Run + agent selectors (5b live-wires these to /api/backtest/runs +
+         /api/backtest/run/{id}). 5a renders them with demo placeholder. -->
+    <div class="oai-bl-selectors">
+      <div class="oai-bl-selector">
+        <label for="oai-bl-pick-run">RUN</label>
+        <select id="oai-bl-pick-run" onchange="oaiBacktestPickRun(this.value)">
+          <option value="__demo__">v6_90day_baseline · 2026-05-15 (demo)</option>
+        </select>
+      </div>
+      <div class="oai-bl-selector">
+        <label for="oai-bl-pick-agent">AGENT</label>
+        <select id="oai-bl-pick-agent" onchange="oaiBacktestPickAgent(this.value)">
+          <option value="__demo__">NEO · BREAKOUT_VOLUME (demo)</option>
+        </select>
+      </div>
+      <div class="oai-bl-meta" id="oai-bl-meta">Live wire ships in Step 5b — showing spec demo data</div>
+    </div>
+
+    <!-- 6-KPI strip -->
+    <div class="oai-kpis" id="oai-bl-kpis">
+      <div class="oai-kpi">
+        <div class="oai-kpi-l">PROFIT FACTOR</div>
+        <div class="oai-kpi-v pos" id="oai-bl-kpi-pf">2.34</div>
+        <div class="oai-kpi-s">wins / losses</div>
+      </div>
+      <div class="oai-kpi">
+        <div class="oai-kpi-l">WIN RATE</div>
+        <div class="oai-kpi-v pos" id="oai-bl-kpi-wr">61.4%</div>
+        <div class="oai-kpi-s" id="oai-bl-kpi-wr-sub">487 / 793 trades</div>
+      </div>
+      <div class="oai-kpi">
+        <div class="oai-kpi-l">AVG WINNER</div>
+        <div class="oai-kpi-v pos" id="oai-bl-kpi-aw">+$184</div>
+        <div class="oai-kpi-s" id="oai-bl-kpi-aw-sub">2.3% avg</div>
+      </div>
+      <div class="oai-kpi">
+        <div class="oai-kpi-l">AVG LOSER</div>
+        <div class="oai-kpi-v neg" id="oai-bl-kpi-al">-$77</div>
+        <div class="oai-kpi-s" id="oai-bl-kpi-al-sub">-0.9% avg</div>
+      </div>
+      <div class="oai-kpi">
+        <div class="oai-kpi-l">MAX DRAWDOWN</div>
+        <div class="oai-kpi-v neg" id="oai-bl-kpi-dd">-9.4%</div>
+        <div class="oai-kpi-s" id="oai-bl-kpi-dd-sub">12 days</div>
+      </div>
+      <div class="oai-kpi">
+        <div class="oai-kpi-l">TOTAL TRADES</div>
+        <div class="oai-kpi-v gold" id="oai-bl-kpi-tt">793</div>
+        <div class="oai-kpi-s" id="oai-bl-kpi-tt-sub">52 weeks</div>
+      </div>
+    </div>
+
+    <!-- Equity curve panel (full-width) -->
+    <div class="oai-sec" style="margin-bottom:12px;">
+      <div class="oai-sec-h" id="oai-bl-eq-title">EQUITY CURVE · 12 MO · NEO STRATEGY: BREAKOUT_VOLUME</div>
+      <svg id="oai-bl-equity-svg" viewBox="0 0 900 180" preserveAspectRatio="none" style="width:100%;height:180px;background:#0d1117;border-radius:4px;">
+        <line x1="0" y1="90" x2="900" y2="90" stroke="#1f2937" stroke-dasharray="3,3"/>
+        <!-- Spec exact 256-point path (5a static demo; 5b regenerates from equity_curve[]) -->
+        <path d="M 0,170 L 28,167 L 56,164 L 84,160 L 112,157 L 140,153 L 168,148 L 196,143 L 224,137 L 252,131 L 280,124 L 308,118 L 336,113 L 364,107 L 392,99 L 420,90 L 448,82 L 476,72 L 504,63 L 532,58 L 560,62 L 588,65 L 616,62 L 644,57 L 672,49 L 700,40 L 728,32 L 756,22 L 784,16 L 812,12 L 840,12 L 868,13 L 900,12 L 900,180 L 0,180 Z" fill="#22c55e" opacity="0.15"/>
+        <path d="M 0,170 L 28,167 L 56,164 L 84,160 L 112,157 L 140,153 L 168,148 L 196,143 L 224,137 L 252,131 L 280,124 L 308,118 L 336,113 L 364,107 L 392,99 L 420,90 L 448,82 L 476,72 L 504,63 L 532,58 L 560,62 L 588,65 L 616,62 L 644,57 L 672,49 L 700,40 L 728,32 L 756,22 L 784,16 L 812,12 L 840,12 L 868,13 L 900,12" fill="none" stroke="#22c55e" stroke-width="1.5"/>
+        <text x="8" y="14" fill="#fbbf24" font-size="10" font-weight="700" font-family="var(--font-mono)" id="oai-bl-eq-start-end">$10,000 → $20,459</text>
+        <text x="892" y="14" fill="#22c55e" font-size="11" font-weight="700" text-anchor="end" font-family="var(--font-mono)" id="oai-bl-eq-return">+104.6%</text>
+      </svg>
+    </div>
+
+    <!-- 2-col: Heatmap + Filter Contribution -->
+    <div class="oai-2col">
+      <div class="oai-sec">
+        <div class="oai-sec-h">DAILY P&amp;L HEATMAP · 52 WEEKS</div>
+        <div class="oai-bl-cal" id="oai-bl-heatmap">
+          <!-- 5a static demo: 256 cells with spec-style color distribution.
+               5b regenerates from trades[] aggregated by date. -->
+        </div>
+        <div class="oai-bl-cal-legend">
+          <span>Loss</span>
+          <div class="oai-bl-cal-legend-strip">
+            <div style="background:#dc2626;"></div>
+            <div style="background:#ef4444;"></div>
+            <div style="background:#fca5a5;"></div>
+            <div style="background:#1f2937;"></div>
+            <div style="background:#86efac;"></div>
+            <div style="background:#22c55e;"></div>
+            <div style="background:#16a34a;"></div>
+          </div>
+          <span>Gain</span>
+        </div>
+      </div>
+
+      <div class="oai-sec">
+        <div class="oai-sec-h">OPTIMIZATION · FILTER CONTRIBUTION <span class="oai-sec-meta">Static demo — live sweep is HM-OAI-BL-FILTER-LIVE</span></div>
+        <div id="oai-bl-filters">
+          <div class="oai-bl-opt-row"><span>Float &lt; 100M shares</span><span class="oai-bl-opt-pct pos">+18.4%</span><span class="oai-bl-opt-badge add">KEEP</span></div>
+          <div class="oai-bl-opt-row"><span>Volume &gt; 400K</span><span class="oai-bl-opt-pct pos">+12.7%</span><span class="oai-bl-opt-badge add">KEEP</span></div>
+          <div class="oai-bl-opt-row"><span>Relative Volume &gt; 2x</span><span class="oai-bl-opt-pct pos">+9.1%</span><span class="oai-bl-opt-badge add">KEEP</span></div>
+          <div class="oai-bl-opt-row"><span>Earnings within 5d</span><span class="oai-bl-opt-pct pos">+6.8%</span><span class="oai-bl-opt-badge add">KEEP</span></div>
+          <div class="oai-bl-opt-row"><span>Position in Range &gt; 80%</span><span class="oai-bl-opt-pct pos">+4.2%</span><span class="oai-bl-opt-badge add">KEEP</span></div>
+          <div class="oai-bl-opt-row"><span>Price &gt; $5</span><span class="oai-bl-opt-pct pos">+2.1%</span><span class="oai-bl-opt-badge add">KEEP</span></div>
+          <div class="oai-bl-opt-row"><span>Short Float &gt; 20%</span><span class="oai-bl-opt-pct neg">-3.4%</span><span class="oai-bl-opt-badge kill">DROP</span></div>
+          <div class="oai-bl-opt-row"><span>Days to Cover &gt; 5</span><span class="oai-bl-opt-pct neg">-5.8%</span><span class="oai-bl-opt-badge kill">DROP</span></div>
+          <div class="oai-bl-opt-row"><span>Consecutive Down Days</span><span class="oai-bl-opt-pct neg">-7.2%</span><span class="oai-bl-opt-badge kill">DROP</span></div>
+          <div class="oai-bl-opt-row"><span>Sector: Healthcare</span><span class="oai-bl-opt-pct neg">-9.6%</span><span class="oai-bl-opt-badge kill">DROP</span></div>
+        </div>
+      </div>
+    </div>
+
+    <div class="oai-sr-note">
+      Static spec demo per v4.3 L498-557 · KPIs / equity curve / heatmap live wire ships in Step 5b
+      (source: <code>/api/backtest/runs</code> + <code>/api/backtest/run/{id}</code> → KPIs computed
+      client-side + equity_curve[] mapped to path + trades[] aggregated by date for heatmap) ·
+      Filter Contribution remains static until <b>HM-OAI-BL-FILTER-LIVE</b> ships a per-filter
+      sweep endpoint.
+    </div>
   </div>
   <div class="oai-view" id="oai-view-wave-scope" style="display:none;">
     <div class="oai-placeholder"><h3>🌊 Ollie Wave Scope</h3><p>Adaptive EMA bands · Biggest Gainers/Losers ribbons · momentum treemap. Ships under <b>HM-OLLIE-WAVE</b>.</p></div>
@@ -10526,6 +10639,52 @@ document.addEventListener('keydown', function(e) {
 [data-theme="light"] #section-ollie-ai .oai-fund div { background:#f0f2f5 !important; }
 [data-theme="light"] #section-ollie-ai .oai-fund b { color:#1a1f2e !important; }
 [data-theme="light"] #section-ollie-ai .oai-sr-note code { color:#b45309 !important; }
+
+/* ───── Step 5a — Backtest Lab sub-view ───── */
+#section-ollie-ai .oai-bl-selectors { display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+#section-ollie-ai .oai-bl-selector { display:flex; align-items:center; gap:6px; }
+#section-ollie-ai .oai-bl-selector label { font-size:10px; font-weight:800; letter-spacing:1px; color:var(--text-dim); }
+#section-ollie-ai .oai-bl-selector select { background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:5px 10px; font-size:12px; font-family:var(--font-mono); min-width:280px; cursor:pointer; outline:none; }
+#section-ollie-ai .oai-bl-selector select:focus { border-color:#fbbf24; }
+#section-ollie-ai .oai-bl-meta { font-size:11px; color:var(--text-dim); margin-left:auto; font-family:var(--font-mono); }
+
+/* 6-cell KPI strip */
+#section-ollie-ai .oai-kpis { display:grid; grid-template-columns:repeat(6,1fr); gap:8px; margin-bottom:12px; }
+@media (max-width:1100px) { #section-ollie-ai .oai-kpis { grid-template-columns:repeat(3,1fr); } }
+@media (max-width:700px)  { #section-ollie-ai .oai-kpis { grid-template-columns:repeat(2,1fr); } }
+#section-ollie-ai .oai-kpi { background:var(--panel); border:1px solid var(--border); border-radius:6px; padding:10px 12px; }
+#section-ollie-ai .oai-kpi-l { color:var(--text-dim); font-size:9px; letter-spacing:1px; font-weight:800; }
+#section-ollie-ai .oai-kpi-v { font-size:22px; font-weight:800; margin-top:4px; color:#e5e7eb; font-family:var(--font-mono); letter-spacing:-.3px; line-height:1; }
+#section-ollie-ai .oai-kpi-v.pos { color:#22c55e; }
+#section-ollie-ai .oai-kpi-v.neg { color:#ef4444; }
+#section-ollie-ai .oai-kpi-v.gold { color:#fbbf24; }
+#section-ollie-ai .oai-kpi-s { color:var(--text-dim); font-size:10px; margin-top:3px; }
+
+/* Daily P&L heatmap calendar grid (53 cols × 7 rows GitHub-style) */
+#section-ollie-ai .oai-bl-cal { display:grid; grid-template-columns:repeat(53,1fr); grid-auto-rows:1fr; gap:2px; margin-top:6px; }
+#section-ollie-ai .oai-bl-cal > div { aspect-ratio:1; border-radius:1px; background:#1f2937; }
+#section-ollie-ai .oai-bl-cal-legend { display:flex; justify-content:space-between; align-items:center; margin-top:8px; font-size:10px; color:var(--text-dim); }
+#section-ollie-ai .oai-bl-cal-legend-strip { display:flex; gap:2px; }
+#section-ollie-ai .oai-bl-cal-legend-strip > div { width:12px; height:12px; border-radius:1px; }
+
+/* Filter Contribution optimizer rows */
+#section-ollie-ai .oai-bl-opt-row { display:grid; grid-template-columns:1fr 80px 64px; align-items:center; gap:8px; padding:6px 10px; font-size:11px; background:var(--panel-2); border-radius:3px; margin-bottom:4px; }
+#section-ollie-ai .oai-bl-opt-row:last-child { margin-bottom:0; }
+#section-ollie-ai .oai-bl-opt-pct { text-align:right; font-weight:700; font-family:var(--font-mono); }
+#section-ollie-ai .oai-bl-opt-pct.pos { color:#22c55e; }
+#section-ollie-ai .oai-bl-opt-pct.neg { color:#ef4444; }
+#section-ollie-ai .oai-bl-opt-badge { font-size:10px; font-weight:700; padding:2px 6px; border-radius:3px; text-align:center; letter-spacing:.4px; }
+#section-ollie-ai .oai-bl-opt-badge.add { background:#0a2e1a; color:#22c55e; border:1px solid #22c55e; }
+#section-ollie-ai .oai-bl-opt-badge.kill { background:#2e1010; color:#ef4444; border:1px solid #ef4444; }
+
+/* Light-mode tweaks */
+[data-theme="light"] #section-ollie-ai .oai-bl-selector select { background:#ffffff !important; color:#1a1f2e !important; border-color:#d1d5db !important; }
+[data-theme="light"] #section-ollie-ai .oai-kpi { background:#ffffff !important; border-color:#d1d5db !important; }
+[data-theme="light"] #section-ollie-ai .oai-kpi-v { color:#1a1f2e !important; }
+[data-theme="light"] #section-ollie-ai .oai-bl-cal > div { background:#e2e8f0; }
+[data-theme="light"] #section-ollie-ai .oai-bl-opt-row { background:#f0f2f5 !important; }
+[data-theme="light"] #section-ollie-ai .oai-bl-opt-badge.add { background:#dcfce7 !important; }
+[data-theme="light"] #section-ollie-ai .oai-bl-opt-badge.kill { background:#fee2e2 !important; }
 </style>
 
 <script>
@@ -11786,6 +11945,60 @@ document.addEventListener('keydown', function(e) {
         }
       });
     }).observe(sr, { attributes:true, attributeFilter:['style'] });
+  });
+
+  /* ───── Step 5a — Backtest Lab visual scaffold.
+     Seeds the 53x7 heatmap with 256 cells matching the v4.3 spec color
+     distribution. Run + agent selectors render but don't fetch live —
+     Step 5b wires /api/backtest/runs + /api/backtest/run/{id} and
+     replaces oaiBacktestPickRun / oaiBacktestPickAgent with real
+     fetchers + KPI/equity/heatmap re-render. */
+  function _oaiBacktestSeedHeatmap() {
+    var el = document.getElementById('oai-bl-heatmap');
+    if (!el) return;
+    // 7-color palette per spec L539-545 (Loss -> Gain)
+    var COLORS = ['#dc2626','#ef4444','#fca5a5','#1f2937','#86efac','#22c55e','#16a34a'];
+    // Distribution mimicking the spec example (heavy green tilt, like a
+    // winning strategy). Step 5b replaces with real per-day-pct bucketing.
+    var BIAS = [1, 3, 7, 16, 18, 30, 25];  // sums to 100 — % of cells per bucket
+    // Generate 256 cells (~52 weeks × 5 trading days), deterministic via xorshift
+    var cells = [];
+    var seed = 19260817;
+    function rnd() { seed ^= seed << 13; seed ^= seed >>> 17; seed ^= seed << 5; return (seed >>> 0) / 0xffffffff; }
+    for (var i = 0; i < 256; i++) {
+      var r = rnd() * 100, acc = 0, idx = 0;
+      for (var k = 0; k < BIAS.length; k++) { acc += BIAS[k]; if (r < acc) { idx = k; break; } }
+      cells.push(COLORS[idx]);
+    }
+    el.innerHTML = cells.map(function(c){ return '<div style="background:' + c + ';"></div>'; }).join('');
+  }
+
+  window.oaiBacktestPickRun = function(value) {
+    /* Step 5a stub — Step 5b wires this to refetch run details + agent list. */
+    try { console.log('[OAI-BL] pickRun:', value, '(Step 5b will wire)'); } catch(e) {}
+  };
+  window.oaiBacktestPickAgent = function(value) {
+    /* Step 5a stub — Step 5b wires this to fetch /api/backtest/run/{id},
+       refresh KPIs from agent row, regenerate equity curve from
+       equity_curve[], regenerate heatmap from trades[] aggregated by date. */
+    try { console.log('[OAI-BL] pickAgent:', value, '(Step 5b will wire)'); } catch(e) {}
+  };
+
+  // Lazy-init: seed the heatmap when the Backtest Lab sub-view first becomes
+  // visible. Cheap to recompute; the deterministic xorshift gives identical
+  // pattern across visits, no flicker on re-pick.
+  document.addEventListener('DOMContentLoaded', function() {
+    var bl = document.getElementById('oai-view-backtest-lab');
+    if (!bl) return;
+    var seeded = false;
+    new MutationObserver(function(mutations) {
+      mutations.forEach(function(m) {
+        if (m.attributeName === 'style' && bl.style.display !== 'none' && !seeded) {
+          _oaiBacktestSeedHeatmap();
+          seeded = true;
+        }
+      });
+    }).observe(bl, { attributes:true, attributeFilter:['style'] });
   });
 
   /* Admiral symbol input — types any ticker, Enter or Go button fires
