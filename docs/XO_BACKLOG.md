@@ -427,6 +427,67 @@ ATR calculation. Verify it's the right 14-day daily ATR vs intraday vs
 fragmentary. Cross-check against ATR(14) on a charting platform.
 **Priority:** LOW (cosmetic for INTU; only affects 1 symbol).
 
+### HM-OLLIE-MACHINE — 6th Concept 5 sub-view (depends on backend agent build)
+
+**Deferred sprint.** Banked 2026-05-24 after the Wave Scope arc shipped.
+Last sub-view in the v4.3 Concept 5 map (`docs/design/v4.3-FINAL.html`
+L621+) — `OLLIE MACHINE · 2ND GEN AUTOMATED MOMENTUM`. Spec shows:
+
+  - Sim / Live toggle (mode pill switcher)
+  - Top-3 momentum picks table with score columns
+  - Auto-entry optimization settings (per-rank position sizing,
+    confidence thresholds)
+  - Machine activity log (last 7 actions)
+
+**Why deferred:** the "Ollie Machine" agent **does not exist in
+`config.AI_PLAYERS`** today. v4.3 spec describes the UI for a future
+2nd-gen automated momentum agent. Shipping the UI now would render
+against vapor data forever until the agent is built.
+
+**Prerequisites before any UI work:**
+
+1. **Build the Ollie Machine agent** in `engine/agents/` (or similar
+   strategies path). Likely modeled on neo-matrix (rule-based momentum
+   scout currently in active fleet). Specifically v4.3 spec mentions
+   "2ND GEN" — implies improvements over neo-matrix:
+   - Multi-timeframe confirmation (10m + D agreement)
+   - Adaptive position sizing tied to momentum strength
+   - Earnings-window awareness (skip pre-earnings setups)
+2. **Register in `ai_players` DB row** with `halt_mode='full'`
+   initially (cost-doctrine path) for backtesting.
+3. **Run 30-day backtest pool** vs neo-matrix to confirm edge.
+4. **Promote via Admiral approval gate** per CLAUDE.md Free Models
+   First doctrine.
+5. **THEN ship the UI** — Step 7a (visual scaffold matching spec) +
+   Step 7b (live wire to agent's signals + Sim/Live config endpoint
+   + auto-entry settings table).
+
+**UI scope (post-agent ship):**
+
+- Top of page: Sim ↔ Live toggle pill (defaults to Sim; flipping
+  to Live requires confirmation modal — broker-state mutating)
+- Top-3 picks card: sorted by confidence, columns for symbol /
+  entry trigger / SL / TP / sizing / confidence score / "ARM" button
+- Auto-entry config: position sizing % per rank, confidence floor,
+  earnings blackout days
+- Activity log: last 7 actions with timestamps + outcomes
+- Performance summary: WR / avg R / total $ since Sim/Live flip
+
+**Effort estimate (post-prerequisite):**
+
+- Agent build + backtest: 8-12h (medium agent, leverages existing
+  engine/momentum patterns from neo-matrix)
+- UI Step 7a visual scaffold: 3-4h
+- UI Step 7b live wire: 4-5h
+- Sim/Live toggle + broker-submit confirmation: 2-3h (mirrors Step
+  3c action-bar pattern)
+- Total ≈ 17-24h split across at least 3 ship cycles
+
+**Priority:** LOW — Concept 5 is 5/6 sub-views shipped and the
+existing fleet (McCoy + Dax + Neo + Capitol) already covers
+automated trading. Ollie Machine is a future strategic upgrade,
+not a blocker on any current workflow.
+
 ### HM-OLLIE-AI-SYMBOL-FOCUS-HOVER — chart hover crosshair + candle tooltip
 
 **Polish item explicitly deferred from Step 3b.2** (commit `718904c`,
