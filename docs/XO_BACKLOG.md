@@ -245,6 +245,47 @@ drop into `~/autonomous-trader/docs/design/` before continuing.
    for animatable custom property, OR (c) swap to SVG arc/stroke-dashoffset for
    guaranteed cross-browser. Priority: LOW (cosmetic).
 
+### HM-SIGNALS-RECENT-ACTED-ON-FIELD — `/api/signals/recent` payload omits the `acted_on` column
+
+**Surfaced 2026-05-24 during Step 4a Signal Replay build.**
+`dashboard/app.py::recent_signals` (L3790) selects from the `signals`
+table but the response payload does not include the `acted_on` column
+even though it's defined in the schema (`signals.acted_on INTEGER
+DEFAULT 0`). Confirmed via curl + inspection — payload contains
+`player_id, display_name, provider, symbol, signal, confidence,
+reasoning, asset_type, option_type, created_at, sources, timeframe,
+execution_status, rejection_reason` — no `acted_on`.
+
+**Impact:** Signal Replay (Step 4a/4b) can't filter signals by
+"actually became a trade" using the canonical field. Step 4a worked
+around it by using `execution_status !== 'REJECTED'` as a proxy
+(includes EXECUTED + SKIPPED + any other non-rejection state) but the
+semantic match is imperfect. Today's signal-db is dominated by
+REJECTED rows (47/50 of most recent), so the workaround yields very
+few replay candidates.
+
+**Fix paths:**
+
+1. **Add `acted_on` to the SELECT** in `recent_signals()` at
+   `dashboard/app.py:3790-3840`. ~1 line change. Frontend filter then
+   uses canonical field: `r.acted_on === 1`.
+
+2. **Cross-reference with trades table** for richer replay data — join
+   `signals` to `trades` on `(player_id, symbol, created_at)` so each
+   signal in the payload includes the resulting trade's
+   entry/exit/realized_pnl. Heavier but unblocks Step 4b's outcome %
+   computation without separate per-signal trades queries.
+
+3. **Compound — add `acted_on` AND a separate
+   `/api/signals/replayable?limit=N` endpoint** that returns only
+   signals with corresponding trades + computed outcome %. Cleanest
+   for Signal Replay use case; isolates the query optimization from
+   the general /api/signals/recent consumers.
+
+**Priority:** MEDIUM. Blocks the broader-scope Step 4b query semantics.
+Step 4b can still ship with the execution_status proxy; banking so
+the proper fix lands once a backend window opens.
+
 ### HM-FUNDAMENTALS-COMPANY-NAME — `/api/fundamentals/{sym}.company_name` falls back to ticker for most symbols
 
 **Surfaced 2026-05-23 during Step 3 Option 3 verification pass.** Tested
