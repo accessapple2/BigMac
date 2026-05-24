@@ -245,6 +245,56 @@ drop into `~/autonomous-trader/docs/design/` before continuing.
    for animatable custom property, OR (c) swap to SVG arc/stroke-dashoffset for
    guaranteed cross-browser. Priority: LOW (cosmetic).
 
+### HM-THEME-CB-CONSOLIDATE — Unify dual colorblind systems + migrate to data-theme axis
+
+**Lands after v4.4 ships.** Two parallel colorblind systems exist in
+`dashboard/static/index.html` today, each with its own button + storage key +
+CSS target. Confusing, orthogonal, and the `data-cb` flag is independent of
+`data-theme` which forces 4 css-rule matrices instead of a single theme axis.
+
+**System A — KEEP:**
+- Button: `#cbBtn` at L2908 (top nav, "CB" label)
+- Function: `toggleColorblind()` at L23234
+- Flag: `data-cb="true"` set on `<html>`
+- Storage key: `tm-cb`
+- CSS targets: `[data-cb="true"]` blocks at L403, L407-409, L523
+
+**System B — REMOVE:**
+- Button: `#cb-mode-btn` at L8476 (inside sniff-scan page, "CB" label)
+- Function: `toggleCBMode()` at L31774
+- Flag: `body.classList.add('cb-mode')` (uses a class, not an attribute)
+- Storage key: `cb_mode`
+- CSS targets: `.cb-mode` selectors (audit before deletion)
+
+**Migration steps:**
+1. Delete `#cb-mode-btn` button at L8476 + `toggleCBMode()` function at L31774-31787.
+2. Grep for `.cb-mode` selectors — migrate any unique styling into the kept
+   `[data-cb="true"]` blocks or fold into the new `data-theme="light-cb"`
+   value (see step 4).
+3. localStorage cleanup: write a one-time migration that, on page load, if
+   `cb_mode === '1'` and `tm-cb` is unset, set `tm-cb = 'true'` then
+   `localStorage.removeItem('cb_mode')`. Run once, remove the migration shim
+   after a week.
+4. Theme-axis migration: replace the orthogonal `data-cb` attribute with a
+   composite `data-theme` value. New scheme:
+   - `data-theme="dark"` (default)
+   - `data-theme="light"` (current light mode)
+   - `data-theme="dark-cb"` (dark + colorblind palette swap)
+   - `data-theme="light-cb"` (light + colorblind palette swap)
+   `toggleColorblind()` becomes a function that appends/strips `-cb` to the
+   current theme value. localStorage stays at `tm-theme`. CSS selectors
+   collapse from `[data-cb="true"]` + `[data-theme="light"]` cross-products
+   into clean per-theme rule blocks.
+
+**Why deferred to post-v4.4:** v4.3 → v4.4 sprint is touching the theme system
+heavily already (HM-LIGHT-MODE-FIX 2026-05-23 just landed). Stacking another
+theme-axis refactor on top risks visual regressions during smoke. Pick this
+back up once v4.4 has soaked for 48h.
+
+**Verification target:** all current `[data-cb]` and `.cb-mode` styling
+continues to render correctly in all 4 theme combinations after migration.
+Browser smoke required per Frontend Ship Rule.
+
 ### Accessapple rebrand cleanup sprint
 **Verified count: 22 references across 6 files** (down from claimed 24):
 - `healthcheck.py` (2)
