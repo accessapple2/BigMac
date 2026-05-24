@@ -245,6 +245,99 @@ drop into `~/autonomous-trader/docs/design/` before continuing.
    for animatable custom property, OR (c) swap to SVG arc/stroke-dashoffset for
    guaranteed cross-browser. Priority: LOW (cosmetic).
 
+### HM-OAI-POLISH (post-Step 3c) — three reference-image gaps banked 2026-05-23
+
+Captain reviewed three reference images vs the current Ollie AI build and
+flagged three deltas. All are post-Step 3c polish — Step 3c (action-bar
+broker wiring + confirmation modal) stays the priority until shipped.
+Images not retained on bigmac; descriptions captured below.
+
+#### HM-OAI-RACE-LOGOS — real company logos in race rows
+**Surface:** Workspace sub-view → Volatile Race + Large Cap Race rows
+(`dashboard/static/index.html`, `_oaiRenderRaces` and the `<div class="oai-race-row">`
+template). Currently `.rt` cell shows the bare ticker text.
+
+**Target:** swap the bare-text ticker with a small (~18-22px) company logo
+glyph alongside it, matching the reference image. Options:
+
+1. **Polygon `/v3/reference/tickers/{symbol}` logo URLs** — already on the
+   Starter plan ($29/mo Stocks + $29/mo Options, per CLAUDE.md "Polygon
+   ACTIVE" line). Returns `branding.icon_url` and `branding.logo_url`.
+   Cache locally to avoid request burst on race re-renders (8 symbols ×
+   2 races every refresh = 16 calls/cycle if uncached).
+2. **Logo.dev / Clearbit** free-tier proxy on `https://img.logo.dev/ticker/{SYM}?token=…`
+   — easier integration, no Polygon dependency, but third-party rate
+   limits + privacy review needed.
+3. **Local logo set** in `dashboard/static/logos/{SYM}.png` for the top
+   200 most-traded tickers; fallback to text for misses. Lowest runtime
+   cost, manual maintenance.
+
+**Recommended:** path 1 (Polygon — paid plan already active) with a
+`dashboard/app.py` proxy `/api/logo/{symbol}` that caches `branding.icon_url`
+to `data/logo_cache.json` with 30-day TTL. Frontend renders
+`<img src="/api/logo/{SYM}" onerror="this.replaceWith(text fallback)">`.
+
+Effort: ~3-4h (proxy + cache + race-row HTML/CSS rework + fallback).
+
+#### HM-OAI-TOP-LIST-FILTER-DIALOG — interactive Min/Max filter inputs
+**Surface:** Workspace sub-view → Top List Config card
+(`dashboard/static/index.html` L9841-9850 ish, the `.oai-sec--filters`
+card with `.oai-kv` rows). Currently each row shows a static
+`label · value` pair (Earnings Date: any, Price: $5-$100, Volume Today:
+400K-∞, etc.).
+
+**Target:** convert each kv row into an editable Min/Max input pair
+matching the reference image, so the Admiral can adjust filters live and
+the Top List re-queries. Per-field UI:
+
+| Field | Input shape |
+|---|---|
+| Earnings Date | dropdown: any / next 7d / next 14d / past 7d |
+| Price | min `$X` + max `$Y` (number) |
+| Volume Today | min `X` + max `Y` (number with M/K shorthand parser) |
+| Float | min + max (M-shares) |
+| Short Float % | min + max (0-100) |
+| Position in Range | min + max (0-100) |
+| Change from Close | min `X%` + max `Y%` |
+| Consecutive Days | min `X` (integer) |
+| Relative Volume | min `X.X` (float) |
+
+**Backend:** new endpoint `/api/movers/filtered` accepting all 9 filter
+params as query string, querying `mover_watchlist` joined to
+`ticker_metadata` + `stock_fundamentals` with WHERE clauses. ~2-3h
+backend, ~3-4h frontend (input grid + debounced refetch + apply/reset
+buttons + persist to localStorage so filters survive reload).
+
+#### HM-OAI-SYMBOL-FOCUS-TIMEFRAMES — multi-timeframe tabs (10m / D / W / M)
+**Surface:** Symbol Focus cockpit chart
+(`dashboard/static/index.html` `_oaiRenderSvg`, main `<svg id="oai-chart-svg">`
++ surrounding `.oai-chart` div). Currently locked to `timeframe=1Day` from
+the `/api/chart-data?timeframe=1Day&bars=90` fetch.
+
+**Target:** add a 4-tab strip above the chart matching the reference image:
+
+| Tab | Backend param | Bars |
+|---|---|---|
+| **10m** | `timeframe=10Min`*  | ~78 (1 RTH session) |
+| **D** | `timeframe=1Day` (default) | 90 |
+| **W** | `timeframe=1Week`* OR client-side aggregate 5 daily → 1 weekly | 52 |
+| **M** | `timeframe=1Month`* OR client-side aggregate 21 daily → 1 monthly | 36 |
+
+*`/api/chart-data._TF_MAP` (dashboard/app.py:12534-12541) currently maps
+`1m/5m/15m/30m/1h/1d` — needs `10m/1w/1M` added. For 1W/1M the cleanest
+path is client-side aggregation from the existing 1Day candles (already
+fetched for the monthly inset at bars=750) so no backend change required.
+10m requires an Alpaca SIP feed call with the new TF; same `_TF_LOOKBACK`
+table needs an entry (~2 days for 10m).
+
+Sub-view title (`{SYM} · D` watermark) updates to `{SYM} · {TF}` on tab
+switch. Battle Station overlays (PH/PL/VWAP/ORH/ORL) only make sense on
+intraday → hide on D/W/M tabs (or recompute prior_high/low from the
+selected timeframe).
+
+Effort: ~3h backend (TF_MAP extension + 10m feed) + ~2-3h frontend
+(tab strip + state + redraw + sub-view title).
+
 ### HM-CHART-DATA-EARNINGS-DATES-POPULATE — `/api/chart-data.earnings_dates` declared empty, never filled
 
 **Backend bug surfaced during Step 3b.1 endpoint discovery 2026-05-23.**
