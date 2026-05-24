@@ -626,25 +626,27 @@ scanner (Finviz/Polygon SI + low float + RSI + volume), NOT a Bollinger-inside-K
 volatility-compression squeeze. These are orthogonal concepts. Five tickets below close
 the gap. Priorities call out the recommended ship order; none scoped yet.
 
-#### HM-SQUEEZE-BBKC-COMPRESSION — Bollinger/Keltner volatility-compression scanner
+#### HM-SQUEEZE-BBKC-COMPRESSION — Bollinger/Keltner volatility-compression scanner ✅ SHIPPED 2026-05-24
 
-New scanner: Bollinger(20, 2σ) fully inside Keltner(20, 1.5×ATR) for ≥N consecutive
-daily bars. The classic TTM-squeeze setup — different from our short-interest squeeze.
-Tier by duration: WATCH 5–9d / ALERT 10–19d / PRIORITY 20d+.
+**Shipped 2026-05-24 commits `ecd2d1b` (core, +1002/-18) + follow-up `fed16de` (NTFY signature + per-run cap).**
+First TS-inspired ticket from the cluster live. Default-ON via `BBKC_SQUEEZE_WATCHER_ENABLED=True`.
 
-**Implementation:**
-- New module `engine/bbkc_squeeze_scanner.py` (mirror existing `engine/squeeze_scanner.py`
-  pattern: `run_scan()` → `_persist_results()` → NTFY at PRIORITY tier).
-- Reuse existing `squeeze_watch` table schema; add `kind` column (`'short_interest'` |
-  `'bbkc'`) so the two scanners coexist without table fork. Backfill existing rows to
-  `kind='short_interest'`.
-- Dashboard: extend existing `section-squeeze` with a tab toggle ("Short Interest" /
-  "BB/KC Compression"). Reuse the existing card-grid layout for results.
-- Scheduler: register at module scope in `main.py` alongside `_HM_BK_*` movers job;
-  fire every 30min during market hours.
-- Universe: same Top-N fleet + movers list the short-interest scanner uses.
+Sunday-bypass one-shot baseline (PID 36748, 4.66s wall, 3,009 symbols):
+- **35 PRIORITY** (≥20d coil)
+- **141 ALERT** (10–19d)
+- **96 WATCH** (5–9d)
+- Top by duration: VRE 45d, SHNY 44d, OII 43d, RNA 41d, AXS 39d
 
-**Priority:** MEDIUM (highest leverage of the five). ~4–6h scope.
+**Monday verification note (no separate ticket).** First live cycle at 06:30 AZ
+2026-05-25 should:
+1. Compare new-row count vs Sunday baseline (272 total). Dedupe should mean
+   most rows skip — expect <50 new inserts, mostly tier upgrades.
+2. Tier distribution drift: PRIORITY should grow modestly (yesterday's 19d
+   ALERTs aging to 20d PRIORITY); WATCH should churn the most.
+3. NTFY fired count should be ≤5 (per-run cap). Already-PRIORITY symbols
+   from Sunday dedupe out — only fresh PRIORITY entries NTFY.
+4. Query: `SELECT threshold_tier, COUNT(*) FROM squeeze_watch WHERE
+   kind='bbkc' AND scan_ts > '2026-05-25T13:00:00' GROUP BY threshold_tier;`
 
 #### HM-RS-RANK-VS-SPY — relative-strength rank vs SPY across universe
 
