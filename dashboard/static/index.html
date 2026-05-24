@@ -1187,8 +1187,9 @@ body:not(.role-admin) .admin-only { display: none !important; }
 }
 .pos { color:var(--green); } .neg { color:var(--red); }
 /* Colorblind mode */
-body.cb-mode { --green: #3b82f6; --red: #f97316; }
-#cb-mode-btn.cb-on { background: var(--accent); color: #000; border-color: var(--accent); font-weight: 700; }
+/* HM-THEME-CB-CONSOLIDATE 2026-05-24: var-level CB swap migrated from
+   body.cb-mode (now removed) → [data-cb="true"]. Single canonical path. */
+[data-cb="true"] { --green: #3b82f6; --red: #f97316; }
 .wb-table { width: 100%; border-collapse: collapse; font-size: 13px; }
 .wb-table th { font-size: 13px; font-weight: 700; letter-spacing: 1px; text-transform: uppercase; color: var(--muted); padding: 8px; border-bottom: 1px solid var(--border); text-align: right; }
 .wb-table th:first-child { text-align: left; }
@@ -8534,7 +8535,9 @@ async function loadSECFilings() {
       <button class="lw-tf-btn" data-tf="1Min" onclick="lwSelectTF(this,'1Min')">1m</button>
       <div style="flex:1;"></div>
       <button onclick="lwScreenshot()" title="Screenshot" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:3px 8px;color:var(--muted);cursor:pointer;font-size:13px;">📷</button>
-      <button id="cb-mode-btn" onclick="toggleCBMode()" title="Colorblind mode: swap green→blue, red→orange" style="background:transparent;border:1px solid var(--border);border-radius:6px;padding:3px 8px;color:var(--muted);cursor:pointer;font-size:11px;letter-spacing:.03em;">CB</button>
+      <!-- HM-THEME-CB-CONSOLIDATE 2026-05-24: removed duplicate CB button.
+           Global CB toggle (#cbBtn in nav) is the single canonical path. -->
+
     </div>
     <!-- Toggle controls -->
     <div id="lw-toggles" style="display:flex;gap:4px;padding:6px 16px;flex-wrap:wrap;border-bottom:1px solid var(--border);">
@@ -35317,19 +35320,23 @@ async function wbcLoadAlerts() {
 }
 
 // ── Colorblind Mode ─────────────────────────────────────────────
-function toggleCBMode() {
-  var on = !document.body.classList.contains('cb-mode');
-  document.body.classList.toggle('cb-mode', on);
-  var btn = document.getElementById('cb-mode-btn');
-  if (btn) btn.classList.toggle('cb-on', on);
-  localStorage.setItem('cb_mode', on ? '1' : '0');
-}
-(function initCBMode() {
-  if (localStorage.getItem('cb_mode') === '1') {
-    document.body.classList.add('cb-mode');
-    var btn = document.getElementById('cb-mode-btn');
-    if (btn) btn.classList.add('cb-on');
-  }
+// HM-THEME-CB-CONSOLIDATE 2026-05-24: toggleCBMode() + initCBMode() removed.
+// Single canonical CB path is toggleColorblind() (data-cb="true"/false +
+// localStorage 'tm-cb'). Old code lived here previously and managed body
+// .cb-mode + localStorage 'cb_mode'; the dual systems caused state drift
+// when the user toggled one but not the other. Migrate any leftover
+// 'cb_mode'='1' state into 'tm-cb'='true' on next page load so existing
+// users don't lose their colorblind preference.
+(function migrateLegacyCBState() {
+  try {
+    if (localStorage.getItem('cb_mode') === '1' && localStorage.getItem('tm-cb') !== 'true') {
+      localStorage.setItem('tm-cb', 'true');
+      document.documentElement.setAttribute('data-cb', 'true');
+      var btn = document.getElementById('cbBtn');
+      if (btn) btn.classList.add('active');
+    }
+    localStorage.removeItem('cb_mode');
+  } catch(e) {}
 })();
 </script>
 
