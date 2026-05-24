@@ -12960,6 +12960,19 @@ def chart_data(symbol: str = "SPY", timeframe: str = "1Day", bars: int = 200):
     except Exception:
         pass
 
+    # HM-CHART-DATA-EARNINGS-DATES-POPULATE 2026-05-24 — past 2 years +
+    # next scheduled earnings dates for chart overlay. 24h disk cache;
+    # failure-tolerant — empty list on yfinance hiccup keeps the rest of
+    # the chart_data response intact.
+    try:
+        from engine.earnings_calendar import get_chart_earnings_dates
+        result["earnings_dates"] = get_chart_earnings_dates(symbol) or []
+    except Exception as _ee:
+        console.log(
+            f"[dim]chart_data earnings_dates lookup {symbol}: "
+            f"{type(_ee).__name__}: {_ee!r}"
+        )
+
     return result
 
 

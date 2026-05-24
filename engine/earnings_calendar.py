@@ -106,3 +106,131 @@ def _get_upcoming(data: dict, days: int = 7) -> list:
 def get_earnings_warnings(symbols: list) -> list:
     """Get earnings within next 7 days for dashboard banner."""
     return fetch_earnings(symbols)
+
+
+# HM-CHART-DATA-EARNINGS-DATES-POPULATE 2026-05-24 — per-symbol historical
+# earnings dates for chart overlay rendering. Returns past 2 years + next
+# scheduled earnings as ISO date strings keyed by type. 24h disk cache.
+
+_CHART_EARNINGS_CACHE_FILE = "data/earnings_dates_cache.json"
+_CHART_EARNINGS_TTL_HOURS = 24
+_chart_earnings_mem: dict = {}     # symbol → {fetched_at, dates}
+
+
+def get_chart_earnings_dates(symbol: str) -> list[dict]:
+    """Return earnings dates for chart overlay rendering.
+
+    Output: list of ``{date: 'YYYY-MM-DD', type: 'past' | 'next'}`` covering
+    the trailing ~2 years (up to 8 past quarters) plus the next scheduled
+    earnings date if known. Empty list on lookup failure (no exception).
+
+    24h two-tier cache:
+      - in-process ``_chart_earnings_mem`` per-symbol
+      - disk ``data/earnings_dates_cache.json`` {symbol: {fetched_at, dates}}
+    """
+    if not symbol:
+        return []
+    sym = str(symbol).strip().upper()
+    if not sym:
+        return []
+
+    now = datetime.now()
+
+    # Tier 1: in-memory
+    mem = _chart_earnings_mem.get(sym)
+    if mem:
+        try:
+            fetched_at = datetime.fromisoformat(mem.get("fetched_at", "2000-01-01"))
+            if (now - fetched_at).total_seconds() < _CHART_EARNINGS_TTL_HOURS * 3600:
+                return mem.get("dates", [])
+        except Exception:
+            pass
+
+    # Tier 2: disk
+    disk_entry = None
+    if os.path.exists(_CHART_EARNINGS_CACHE_FILE):
+        try:
+            with open(_CHART_EARNINGS_CACHE_FILE, "r") as f:
+                disk_all = json.load(f)
+            disk_entry = disk_all.get(sym)
+            if disk_entry:
+                fetched_at = datetime.fromisoformat(disk_entry.get("fetched_at", "2000-01-01"))
+                if (now - fetched_at).total_seconds() < _CHART_EARNINGS_TTL_HOURS * 3600:
+                    _chart_earnings_mem[sym] = disk_entry
+                    return disk_entry.get("dates", [])
+        except Exception:
+            disk_entry = None
+
+    # Tier 3: Yahoo direct HTTP via yahoo_quote_summary (already used by
+    # stock_fundamentals + the existing fetch_earnings path). Avoids the
+    # yfinance lxml dependency required by Ticker.earnings_dates.
+    dates: list[dict] = []
+    try:
+        from engine.market_data import yahoo_quote_summary
+
+        cutoff_past = now - timedelta(days=730)
+        past_set: set[str] = set()
+        future_set: set[str] = set()
+
+        # 1. Past earnings via earningsHistory module
+        summary = yahoo_quote_summary(sym, modules="earningsHistory")
+        if summary:
+            history = summary.get("earningsHistory", {}).get("history", [])
+            for row in history:
+                ts = row.get("quarter", {}).get("raw")
+                if ts is None:
+                    continue
+                try:
+                    d = datetime.fromtimestamp(int(ts))
+                except Exception:
+                    continue
+                if d >= cutoff_past and d < now:
+                    past_set.add(d.strftime("%Y-%m-%d"))
+
+        # 2. Next earnings via calendarEvents module (same path fetch_earnings uses)
+        summary2 = yahoo_quote_summary(sym, modules="calendarEvents")
+        if summary2:
+            cal = summary2.get("calendarEvents", {}).get("earnings", {})
+            for entry in cal.get("earningsDate", []):
+                raw = entry.get("raw") or entry.get("fmt")
+                if raw is None:
+                    continue
+                try:
+                    if isinstance(raw, (int, float)):
+                        d = datetime.fromtimestamp(int(raw))
+                        ds = d.strftime("%Y-%m-%d")
+                    else:
+                        ds = str(raw)[:10]
+                        d = datetime.strptime(ds, "%Y-%m-%d")
+                except Exception:
+                    continue
+                if d >= now:
+                    future_set.add(ds)
+
+        # past = oldest→newest; cap at 8 most recent
+        past_list = sorted(past_set)[-8:]
+        for ds in past_list:
+            dates.append({"date": ds, "type": "past"})
+        if future_set:
+            next_ds = sorted(future_set)[0]
+            dates.append({"date": next_ds, "type": "next"})
+    except Exception as e:
+        console.log(f"[dim]get_chart_earnings_dates {sym} failed: {type(e).__name__}: {e!r}")
+        dates = []
+
+    # Persist to both tiers
+    entry = {"fetched_at": now.isoformat(), "dates": dates}
+    _chart_earnings_mem[sym] = entry
+    try:
+        disk_all = {}
+        if os.path.exists(_CHART_EARNINGS_CACHE_FILE):
+            with open(_CHART_EARNINGS_CACHE_FILE, "r") as f:
+                disk_all = json.load(f) or {}
+        disk_all[sym] = entry
+        os.makedirs(os.path.dirname(_CHART_EARNINGS_CACHE_FILE), exist_ok=True)
+        with open(_CHART_EARNINGS_CACHE_FILE, "w") as f:
+            json.dump(disk_all, f)
+    except Exception:
+        pass
+
+    return dates
