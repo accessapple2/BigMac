@@ -10006,8 +10006,268 @@ document.addEventListener('keydown', function(e) {
       </div>
     </div>
   </div>
+  <!-- ───── SIGNAL REPLAY (Step 4a — visual scaffold w/ FDMT+HE demo) ───── -->
   <div class="oai-view" id="oai-view-signal-replay" style="display:none;">
-    <div class="oai-placeholder"><h3>🎬 Signal Replay</h3><p>Side-by-side Ollie Signal replay · entry/exit annotations · post-signal trajectory. Ships in Step 4.</p></div>
+
+    <!-- Signal selectors: two dropdowns populated from /api/signals/recent
+         filtered acted_on=1 (broad scope — all agents, not just ollie-auto). -->
+    <div class="oai-sr-selectors">
+      <div class="oai-sr-selector">
+        <label for="oai-sr-pick-left">LEFT</label>
+        <select id="oai-sr-pick-left" onchange="oaiReplayPick('left', this.value)">
+          <option value="__demo__">FDMT · Jul 25 2024 (demo)</option>
+        </select>
+      </div>
+      <div class="oai-sr-selector">
+        <label for="oai-sr-pick-right">RIGHT</label>
+        <select id="oai-sr-pick-right" onchange="oaiReplayPick('right', this.value)">
+          <option value="__demo__">HE · Aug 5 2024 (demo)</option>
+        </select>
+      </div>
+      <div class="oai-sr-meta" id="oai-sr-meta">Loading signal history…</div>
+    </div>
+
+    <!-- 2-col layout of two identical replay cards -->
+    <div class="oai-sr-row">
+
+      <!-- LEFT card — FDMT (Sell Signal, -52% profit on short) -->
+      <div class="oai-sr-card" id="oai-sr-card-left">
+        <div class="oai-sym-hd">
+          <div class="oai-sym-lg" id="oai-sr-logo-left" style="background:#7c3aed;">FD</div>
+          <div>
+            <div class="oai-sym-tk" id="oai-sr-ticker-left">FDMT</div>
+            <div class="oai-sym-nm" id="oai-sr-name-left">4D Molecular Therapeutics, Inc.</div>
+          </div>
+          <div class="oai-sym-rv" id="oai-sr-rv-left">Rel Vol 1.99</div>
+        </div>
+
+        <div class="oai-sr-px-row">
+          <div class="oai-sr-px" id="oai-sr-price-left">18.96</div>
+          <div class="oai-sr-chg up" id="oai-sr-change-left">+1.02 (+5.69%)</div>
+        </div>
+
+        <!-- 9-cell fundamentals grid -->
+        <div class="oai-fund" id="oai-sr-fund-left">
+          <div><span>Total Vol</span><b>1.48M</b></div>
+          <div><span>Float</span><b>57.59M</b></div>
+          <div><span>Short Float %</span><b>17.17%</b></div>
+          <div><span>Days to Cover</span><b>4.14</b></div>
+          <div><span>Shares Out</span><b>57.59M</b></div>
+          <div><span>Earnings Date</span><b>AUG 5 PRE</b></div>
+          <div><span>EPS</span><b>$-0.66</b></div>
+          <div><span>Market Cap</span><b>$1.09B</b></div>
+          <div><span>Revenue</span><b>$20.45M</b></div>
+        </div>
+
+        <!-- 2-button action bar (BUY/SELL only; both route through Trade Desk) -->
+        <div class="oai-sym-act">
+          <button class="oai-btn oai-btn--pri" onclick="oaiReplayAction('left','buy')">BUY</button>
+          <button class="oai-btn" onclick="oaiReplayAction('left','sell')">SELL</button>
+        </div>
+
+        <div class="oai-sr-date" id="oai-sr-date-left">Ollie Signal · Jul 25 2024</div>
+
+        <!-- Chart (460×240) with embedded signal annotations -->
+        <div class="oai-chart oai-sr-chart">
+          <svg id="oai-sr-svg-left" viewBox="0 0 460 240" preserveAspectRatio="none" style="background:#0d1117;width:100%;height:240px;">
+            <defs>
+              <marker id="arr-r-left" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                <polygon points="0,0 8,3 0,6" fill="#ef4444"/>
+              </marker>
+              <marker id="arr-g-left" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                <polygon points="0,0 8,3 0,6" fill="#22c55e"/>
+              </marker>
+            </defs>
+            <text x="230" y="125" fill="#1f2937" font-size="42" font-weight="800" text-anchor="middle" opacity="0.4">FDMT · D</text>
+            <!-- Pre-signal candles (gray) -->
+            <g id="oai-sr-pre-left" fill="#9ca3af" stroke="#9ca3af">
+              <!-- 20 small gray candles drawn from x≈24 to x≈254 -->
+              <line x1="24" y1="104" x2="24" y2="116" stroke-width="1"/><rect x="21" y="107" width="6" height="6"/>
+              <line x1="36" y1="105" x2="36" y2="117" stroke-width="1"/><rect x="33" y="108" width="6" height="6"/>
+              <line x1="48" y1="106" x2="48" y2="118" stroke-width="1"/><rect x="45" y="109" width="6" height="6"/>
+              <line x1="60" y1="107" x2="60" y2="119" stroke-width="1"/><rect x="57" y="110" width="6" height="6"/>
+              <line x1="72" y1="108" x2="72" y2="120" stroke-width="1"/><rect x="69" y="111" width="6" height="6"/>
+              <line x1="84" y1="107" x2="84" y2="119" stroke-width="1"/><rect x="81" y="110" width="6" height="6"/>
+              <line x1="96" y1="106" x2="96" y2="118" stroke-width="1"/><rect x="93" y="109" width="6" height="6"/>
+              <line x1="108" y1="105" x2="108" y2="117" stroke-width="1"/><rect x="105" y="108" width="6" height="6"/>
+              <line x1="120" y1="103" x2="120" y2="115" stroke-width="1"/><rect x="117" y="106" width="6" height="6"/>
+              <line x1="132" y1="102" x2="132" y2="114" stroke-width="1"/><rect x="129" y="105" width="6" height="6"/>
+              <line x1="144" y1="100" x2="144" y2="112" stroke-width="1"/><rect x="141" y="103" width="6" height="6"/>
+              <line x1="156" y1="100" x2="156" y2="112" stroke-width="1"/><rect x="153" y="103" width="6" height="6"/>
+              <line x1="168" y1="100" x2="168" y2="112" stroke-width="1"/><rect x="165" y="103" width="6" height="6"/>
+              <line x1="180" y1="100" x2="180" y2="112" stroke-width="1"/><rect x="177" y="103" width="6" height="6"/>
+              <line x1="192" y1="101" x2="192" y2="113" stroke-width="1"/><rect x="189" y="104" width="6" height="6"/>
+              <line x1="204" y1="102" x2="204" y2="114" stroke-width="1"/><rect x="201" y="105" width="6" height="6"/>
+              <line x1="216" y1="104" x2="216" y2="116" stroke-width="1"/><rect x="213" y="107" width="6" height="6"/>
+              <line x1="228" y1="106" x2="228" y2="118" stroke-width="1"/><rect x="225" y="109" width="6" height="6"/>
+              <line x1="240" y1="107" x2="240" y2="119" stroke-width="1"/><rect x="237" y="110" width="6" height="6"/>
+              <line x1="252" y1="108" x2="252" y2="120" stroke-width="1"/><rect x="249" y="111" width="6" height="6"/>
+            </g>
+            <!-- Signal candle (big red, x=266) -->
+            <line x1="266" y1="97" x2="266" y2="143" stroke="#ef4444" stroke-width="1"/>
+            <rect x="263" y="100" width="6" height="40" fill="#ef4444"/>
+            <!-- Post-signal candles (red, descending) -->
+            <g fill="#ef4444" stroke="#ef4444">
+              <line x1="278" y1="107" x2="278" y2="117" stroke-width="1"/><rect x="275" y="110" width="6" height="4"/>
+              <line x1="290" y1="111" x2="290" y2="121" stroke-width="1"/><rect x="287" y="114" width="6" height="4"/>
+              <line x1="302" y1="116" x2="302" y2="126" stroke-width="1"/><rect x="299" y="119" width="6" height="4"/>
+              <line x1="314" y1="121" x2="314" y2="131" stroke-width="1"/><rect x="311" y="124" width="6" height="4"/>
+              <line x1="326" y1="127" x2="326" y2="137" stroke-width="1"/><rect x="323" y="130" width="6" height="4"/>
+              <line x1="338" y1="133" x2="338" y2="143" stroke-width="1"/><rect x="335" y="136" width="6" height="4"/>
+              <line x1="350" y1="139" x2="350" y2="149" stroke-width="1"/><rect x="347" y="142" width="6" height="4"/>
+              <line x1="362" y1="144" x2="362" y2="154" stroke-width="1"/><rect x="359" y="147" width="6" height="4"/>
+              <line x1="374" y1="148" x2="374" y2="158" stroke-width="1"/><rect x="371" y="151" width="6" height="4"/>
+              <line x1="386" y1="152" x2="386" y2="162" stroke-width="1"/><rect x="383" y="155" width="6" height="4"/>
+              <line x1="398" y1="155" x2="398" y2="165" stroke-width="1"/><rect x="395" y="158" width="6" height="4"/>
+              <line x1="410" y1="158" x2="410" y2="168" stroke-width="1"/><rect x="407" y="161" width="6" height="4"/>
+              <line x1="422" y1="161" x2="422" y2="171" stroke-width="1"/><rect x="419" y="164" width="6" height="4"/>
+              <line x1="434" y1="165" x2="434" y2="175" stroke-width="1"/><rect x="431" y="168" width="6" height="4"/>
+            </g>
+            <!-- AI dashed line + pill -->
+            <line x1="20" y1="145" x2="430" y2="145" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3,3"/>
+            <rect x="395" y="138" width="42" height="14" fill="#3b82f6" rx="2"/>
+            <text x="416" y="148" fill="#fff" font-size="9" text-anchor="middle" font-weight="700" font-family="var(--font-mono)">23.11 AI</text>
+            <!-- Trajectory arrow (red, signal → bottom-right) -->
+            <line x1="266" y1="140" x2="430" y2="210" stroke="#ef4444" stroke-width="2.5" marker-end="url(#arr-r-left)"/>
+            <!-- Sell Signal stamp -->
+            <rect x="216" y="60" width="80" height="22" fill="#dc2626" rx="3"/>
+            <text x="256" y="76" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Sell Signal</text>
+            <!-- Profit badge -->
+            <rect x="345" y="190" width="90" height="24" fill="#dc2626" rx="3"/>
+            <text x="390" y="207" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" font-family="var(--font-mono)">Profit +52%</text>
+          </svg>
+          <!-- Monthly inset -->
+          <div class="oai-inset">
+            <div class="oai-inset-pct" style="background:#7f1d1d;">-13.82%</div>
+            <svg viewBox="0 0 110 60" style="margin-top:14px;width:100%;">
+              <path d="M 5,40 Q 30,30 55,50 Q 80,55 105,52" fill="none" stroke="#ef4444" stroke-width="1.5"/>
+              <text x="55" y="32" fill="#1f2937" font-size="9" font-weight="700" text-anchor="middle">FDMT · M</text>
+            </svg>
+          </div>
+          <!-- Volume bars (25) -->
+          <div class="oai-vol">
+            <div class="vb" style="height:15%;"></div><div class="vb" style="height:21%;"></div><div class="vb" style="height:24%;"></div><div class="vb" style="height:25%;"></div><div class="vb" style="height:22%;"></div><div class="vb" style="height:16%;"></div><div class="vb" style="height:11%;"></div><div class="vb" style="height:6%;"></div><div class="vb" style="height:5%;"></div><div class="vb" style="height:7%;"></div><div class="vb" style="height:12%;"></div><div class="vb" style="height:18%;"></div><div class="vb" style="height:23%;"></div><div class="vb" style="height:25%;"></div><div class="vb" style="height:24%;"></div><div class="vb" style="height:19%;"></div><div class="vb" style="height:13%;"></div><div class="vb" style="height:8%;"></div><div class="vb" style="height:5%;"></div><div class="vb" style="height:6%;"></div><div class="vb vb--o" style="height:95%;"></div><div class="vb" style="height:15%;"></div><div class="vb" style="height:21%;"></div><div class="vb" style="height:24%;"></div><div class="vb" style="height:25%;"></div>
+          </div>
+        </div>
+      </div>
+
+      <!-- RIGHT card — HE (Buy Signal, +88% profit on long) -->
+      <div class="oai-sr-card" id="oai-sr-card-right">
+        <div class="oai-sym-hd">
+          <div class="oai-sym-lg" id="oai-sr-logo-right" style="background:#dc2626;">HE</div>
+          <div>
+            <div class="oai-sym-tk" id="oai-sr-ticker-right">HE</div>
+            <div class="oai-sym-nm" id="oai-sr-name-right">Hawaiian Electric Industries, Inc.</div>
+          </div>
+          <div class="oai-sym-rv" id="oai-sr-rv-right">Rel Vol 0.87</div>
+        </div>
+
+        <div class="oai-sr-px-row">
+          <div class="oai-sr-px" id="oai-sr-price-right">16.31</div>
+          <div class="oai-sr-chg dn" id="oai-sr-change-right">-0.44 (-2.63%)</div>
+        </div>
+
+        <div class="oai-fund" id="oai-sr-fund-right">
+          <div><span>Total Vol</span><b>3.85M</b></div>
+          <div><span>Float</span><b>109.90M</b></div>
+          <div><span>Short Float %</span><b>24.45%</b></div>
+          <div><span>Days to Cover</span><b>2.79</b></div>
+          <div><span>Shares Out</span><b>110.30M</b></div>
+          <div><span>Earnings Date</span><b>AUG 5 POST</b></div>
+          <div><span>EPS</span><b>$0.45</b></div>
+          <div><span>Market Cap</span><b>$1.80B</b></div>
+          <div><span>Revenue</span><b>$3.65B</b></div>
+        </div>
+
+        <div class="oai-sym-act">
+          <button class="oai-btn oai-btn--pri" onclick="oaiReplayAction('right','buy')">BUY</button>
+          <button class="oai-btn" onclick="oaiReplayAction('right','sell')">SELL</button>
+        </div>
+
+        <div class="oai-sr-date" id="oai-sr-date-right">Ollie Signal · Aug 5 2024</div>
+
+        <div class="oai-chart oai-sr-chart">
+          <svg id="oai-sr-svg-right" viewBox="0 0 460 240" preserveAspectRatio="none" style="background:#0d1117;width:100%;height:240px;">
+            <defs>
+              <marker id="arr-r-right" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                <polygon points="0,0 8,3 0,6" fill="#ef4444"/>
+              </marker>
+              <marker id="arr-g-right" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto">
+                <polygon points="0,0 8,3 0,6" fill="#22c55e"/>
+              </marker>
+            </defs>
+            <text x="230" y="125" fill="#1f2937" font-size="42" font-weight="800" text-anchor="middle" opacity="0.4">HE · D</text>
+            <g fill="#9ca3af" stroke="#9ca3af">
+              <line x1="24" y1="104" x2="24" y2="116" stroke-width="1"/><rect x="21" y="107" width="6" height="6"/>
+              <line x1="36" y1="105" x2="36" y2="117" stroke-width="1"/><rect x="33" y="108" width="6" height="6"/>
+              <line x1="48" y1="106" x2="48" y2="118" stroke-width="1"/><rect x="45" y="109" width="6" height="6"/>
+              <line x1="60" y1="107" x2="60" y2="119" stroke-width="1"/><rect x="57" y="110" width="6" height="6"/>
+              <line x1="72" y1="108" x2="72" y2="120" stroke-width="1"/><rect x="69" y="111" width="6" height="6"/>
+              <line x1="84" y1="107" x2="84" y2="119" stroke-width="1"/><rect x="81" y="110" width="6" height="6"/>
+              <line x1="96" y1="106" x2="96" y2="118" stroke-width="1"/><rect x="93" y="109" width="6" height="6"/>
+              <line x1="108" y1="105" x2="108" y2="117" stroke-width="1"/><rect x="105" y="108" width="6" height="6"/>
+              <line x1="120" y1="103" x2="120" y2="115" stroke-width="1"/><rect x="117" y="106" width="6" height="6"/>
+              <line x1="132" y1="102" x2="132" y2="114" stroke-width="1"/><rect x="129" y="105" width="6" height="6"/>
+              <line x1="144" y1="100" x2="144" y2="112" stroke-width="1"/><rect x="141" y="103" width="6" height="6"/>
+              <line x1="156" y1="100" x2="156" y2="112" stroke-width="1"/><rect x="153" y="103" width="6" height="6"/>
+              <line x1="168" y1="100" x2="168" y2="112" stroke-width="1"/><rect x="165" y="103" width="6" height="6"/>
+              <line x1="180" y1="100" x2="180" y2="112" stroke-width="1"/><rect x="177" y="103" width="6" height="6"/>
+              <line x1="192" y1="101" x2="192" y2="113" stroke-width="1"/><rect x="189" y="104" width="6" height="6"/>
+              <line x1="204" y1="102" x2="204" y2="114" stroke-width="1"/><rect x="201" y="105" width="6" height="6"/>
+              <line x1="216" y1="104" x2="216" y2="116" stroke-width="1"/><rect x="213" y="107" width="6" height="6"/>
+              <line x1="228" y1="106" x2="228" y2="118" stroke-width="1"/><rect x="225" y="109" width="6" height="6"/>
+              <line x1="240" y1="107" x2="240" y2="119" stroke-width="1"/><rect x="237" y="110" width="6" height="6"/>
+              <line x1="252" y1="108" x2="252" y2="120" stroke-width="1"/><rect x="249" y="111" width="6" height="6"/>
+            </g>
+            <line x1="266" y1="127" x2="266" y2="163" stroke="#22c55e" stroke-width="1"/>
+            <rect x="263" y="130" width="6" height="30" fill="#22c55e"/>
+            <g fill="#22c55e" stroke="#22c55e">
+              <line x1="278" y1="98" x2="278" y2="108" stroke-width="1"/><rect x="275" y="101" width="6" height="4"/>
+              <line x1="290" y1="93" x2="290" y2="103" stroke-width="1"/><rect x="287" y="96" width="6" height="4"/>
+              <line x1="302" y1="89" x2="302" y2="99" stroke-width="1"/><rect x="299" y="92" width="6" height="4"/>
+              <line x1="314" y1="85" x2="314" y2="95" stroke-width="1"/><rect x="311" y="88" width="6" height="4"/>
+              <line x1="326" y1="82" x2="326" y2="92" stroke-width="1"/><rect x="323" y="85" width="6" height="4"/>
+              <line x1="338" y1="79" x2="338" y2="89" stroke-width="1"/><rect x="335" y="82" width="6" height="4"/>
+              <line x1="350" y1="76" x2="350" y2="86" stroke-width="1"/><rect x="347" y="79" width="6" height="4"/>
+              <line x1="362" y1="72" x2="362" y2="82" stroke-width="1"/><rect x="359" y="75" width="6" height="4"/>
+              <line x1="374" y1="67" x2="374" y2="77" stroke-width="1"/><rect x="371" y="70" width="6" height="4"/>
+              <line x1="386" y1="62" x2="386" y2="72" stroke-width="1"/><rect x="383" y="65" width="6" height="4"/>
+              <line x1="398" y1="56" x2="398" y2="66" stroke-width="1"/><rect x="395" y="59" width="6" height="4"/>
+              <line x1="410" y1="50" x2="410" y2="60" stroke-width="1"/><rect x="407" y="53" width="6" height="4"/>
+              <line x1="422" y1="44" x2="422" y2="54" stroke-width="1"/><rect x="419" y="47" width="6" height="4"/>
+              <line x1="434" y1="39" x2="434" y2="49" stroke-width="1"/><rect x="431" y="42" width="6" height="4"/>
+            </g>
+            <line x1="20" y1="165" x2="430" y2="165" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3,3"/>
+            <rect x="395" y="158" width="42" height="14" fill="#3b82f6" rx="2"/>
+            <text x="416" y="168" fill="#fff" font-size="9" text-anchor="middle" font-weight="700" font-family="var(--font-mono)">9.67 AI</text>
+            <path d="M 266,160 Q 330,80 425,55" fill="none" stroke="#22c55e" stroke-width="2.5" marker-end="url(#arr-g-right)"/>
+            <rect x="216" y="175" width="80" height="22" fill="#16a34a" rx="3"/>
+            <text x="256" y="191" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Buy Signal</text>
+            <rect x="345" y="35" width="90" height="24" fill="#16a34a" rx="3"/>
+            <text x="390" y="52" fill="#fff" font-size="13" font-weight="700" text-anchor="middle" font-family="var(--font-mono)">Profit +88%</text>
+          </svg>
+          <div class="oai-inset">
+            <div class="oai-inset-pct" style="background:#14532d;">+79.63%</div>
+            <svg viewBox="0 0 110 60" style="margin-top:14px;width:100%;">
+              <path d="M 5,50 Q 30,55 55,30 Q 80,15 105,10" fill="none" stroke="#22c55e" stroke-width="1.5"/>
+              <text x="55" y="32" fill="#1f2937" font-size="9" font-weight="700" text-anchor="middle">HE · M</text>
+            </svg>
+          </div>
+          <div class="oai-vol">
+            <div class="vb" style="height:15%;"></div><div class="vb" style="height:21%;"></div><div class="vb" style="height:24%;"></div><div class="vb" style="height:25%;"></div><div class="vb" style="height:22%;"></div><div class="vb" style="height:16%;"></div><div class="vb" style="height:11%;"></div><div class="vb" style="height:6%;"></div><div class="vb" style="height:5%;"></div><div class="vb" style="height:7%;"></div><div class="vb" style="height:12%;"></div><div class="vb" style="height:18%;"></div><div class="vb" style="height:23%;"></div><div class="vb" style="height:25%;"></div><div class="vb" style="height:24%;"></div><div class="vb" style="height:19%;"></div><div class="vb" style="height:13%;"></div><div class="vb" style="height:8%;"></div><div class="vb" style="height:5%;"></div><div class="vb" style="height:6%;"></div><div class="vb vb--o" style="height:95%;"></div><div class="vb" style="height:15%;"></div><div class="vb" style="height:21%;"></div><div class="vb" style="height:24%;"></div><div class="vb" style="height:25%;"></div>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <div class="oai-sr-note">
+      Static FDMT + HE demo per v4.3 spec L442-498 · selectors populate from
+      <code>/api/signals/recent?limit=50</code> filtered <code>acted_on=1</code>
+      (broad scope — all agents) · live wire (per-card candle render + outcome
+      compute + scoped chart annotations) ships in Step 4b · BUY/SELL route
+      through Trade Desk via <code>_oaiTradeTicket(sym)</code>.
+    </div>
   </div>
   <div class="oai-view" id="oai-view-backtest-lab" style="display:none;">
     <div class="oai-placeholder"><h3>📊 Backtest Lab</h3><p>Event-based backtest · profit factor · win rate · daily heatmap · filter optimizer. Ships in Step 5.</p></div>
@@ -10223,6 +10483,49 @@ document.addEventListener('keydown', function(e) {
 [data-theme="light"] #section-ollie-ai .oai-toast--persistent { background:#fef2f2 !important; border-color:#dc2626 !important; color:#7f1d1d !important; }
 [data-theme="light"] #section-ollie-ai .oai-modal-body { border-color:#d97706 !important; }
 [data-theme="light"] #section-ollie-ai .oai-modal-title { color:#b45309 !important; }
+
+/* ───── Step 4a — Signal Replay sub-view ───── */
+#section-ollie-ai .oai-sr-selectors { display:flex; align-items:center; gap:12px; margin-bottom:12px; flex-wrap:wrap; }
+#section-ollie-ai .oai-sr-selector { display:flex; align-items:center; gap:6px; }
+#section-ollie-ai .oai-sr-selector label { font-size:10px; font-weight:800; letter-spacing:1px; color:var(--text-dim); }
+#section-ollie-ai .oai-sr-selector select { background:var(--panel-2); color:var(--text); border:1px solid var(--border); border-radius:4px; padding:5px 10px; font-size:12px; font-family:var(--font-mono); min-width:260px; cursor:pointer; outline:none; }
+#section-ollie-ai .oai-sr-selector select:focus { border-color:#fbbf24; }
+#section-ollie-ai .oai-sr-meta { font-size:11px; color:var(--text-dim); margin-left:auto; font-family:var(--font-mono); }
+
+#section-ollie-ai .oai-sr-row { display:grid; grid-template-columns:1fr 1fr; gap:12px; }
+@media (max-width:1100px) { #section-ollie-ai .oai-sr-row { grid-template-columns:1fr; } }
+#section-ollie-ai .oai-sr-card { background:var(--panel); border:1px solid var(--border); border-radius:8px; padding:12px; }
+
+/* Smaller price block (26px vs Symbol Focus's 42px) */
+#section-ollie-ai .oai-sr-px-row { display:flex; align-items:baseline; gap:10px; margin:8px 0 6px; }
+#section-ollie-ai .oai-sr-px { font-size:26px; font-weight:800; color:#e5e7eb; font-family:var(--font-mono); letter-spacing:-.5px; line-height:1; }
+#section-ollie-ai .oai-sr-chg { font-size:12px; font-weight:700; font-family:var(--font-mono); }
+#section-ollie-ai .oai-sr-chg.up { color:#22c55e; }
+#section-ollie-ai .oai-sr-chg.dn { color:#ef4444; }
+
+/* 3x3 fundamentals grid */
+#section-ollie-ai .oai-fund { display:grid; grid-template-columns:repeat(3,1fr); gap:6px; margin:8px 0 10px; font-size:10px; }
+#section-ollie-ai .oai-fund div { background:var(--panel-2); padding:6px 8px; border-radius:3px; line-height:1.3; }
+#section-ollie-ai .oai-fund span { color:var(--text-dim); display:block; font-size:9px; letter-spacing:.3px; text-transform:uppercase; }
+#section-ollie-ai .oai-fund b { color:#e5e7eb; font-family:var(--font-mono); font-size:11px; font-weight:700; }
+
+/* "Ollie Signal · {date}" label */
+#section-ollie-ai .oai-sr-date { color:var(--text-dim); font-size:10px; letter-spacing:.4px; margin:8px 0 4px; }
+
+/* Card-local chart wrapper (smaller than Symbol Focus's full-width chart) */
+#section-ollie-ai .oai-sr-chart { padding:6px; }
+
+/* Bottom note bar */
+#section-ollie-ai .oai-sr-note { font-size:11px; color:var(--text-dim); margin-top:12px; padding:8px 10px; background:var(--panel-2); border-radius:4px; border-left:3px solid #fbbf24; line-height:1.5; }
+#section-ollie-ai .oai-sr-note code { font-family:var(--font-mono); font-size:10px; color:#fbbf24; background:transparent; }
+
+/* Light-mode tweaks */
+[data-theme="light"] #section-ollie-ai .oai-sr-selector select { background:#ffffff !important; color:#1a1f2e !important; border-color:#d1d5db !important; }
+[data-theme="light"] #section-ollie-ai .oai-sr-card { background:#ffffff !important; border-color:#d1d5db !important; }
+[data-theme="light"] #section-ollie-ai .oai-sr-px { color:#1a1f2e !important; }
+[data-theme="light"] #section-ollie-ai .oai-fund div { background:#f0f2f5 !important; }
+[data-theme="light"] #section-ollie-ai .oai-fund b { color:#1a1f2e !important; }
+[data-theme="light"] #section-ollie-ai .oai-sr-note code { color:#b45309 !important; }
 </style>
 
 <script>
@@ -11051,6 +11354,129 @@ document.addEventListener('keydown', function(e) {
   };
   // Back-compat shim — Step 3a used oaiActionStub; bound to same path.
   window.oaiActionStub = window.oaiAction;
+
+  /* ───── Step 4a — Signal Replay wiring.
+     - Expose _oaiTradeTicket so Replay BUY/SELL buttons can call it
+       with their own card-local ticker (vs Symbol Focus's #oai-sym-ticker).
+     - Load /api/signals/recent into both dropdowns on first view.
+     - Selecting a signal updates the card header (logo/ticker/name/date)
+       but keeps the static FDMT/HE chart demo until Step 4b wires live
+       per-card candle rendering with pre/post coloring + annotations. */
+  window.oaiTradeTicket = _oaiTradeTicket;
+
+  var _oaiReplayLoaded = false;
+  var _oaiReplaySignals = [];  // cached list from /api/signals/recent
+
+  // Per-symbol deterministic logo color (hash 8 ways)
+  var _OAI_REPLAY_PALETTE = ['#7c3aed','#dc2626','#0891b2','#15803d','#b45309','#be185d','#0e7490','#6d28d9'];
+  function _oaiReplayLogoColor(sym) {
+    if (!sym) return '#475569';
+    var h = 0;
+    for (var i = 0; i < sym.length; i++) h = (h * 31 + sym.charCodeAt(i)) >>> 0;
+    return _OAI_REPLAY_PALETTE[h % _OAI_REPLAY_PALETTE.length];
+  }
+  function _oaiFmtSignalDate(iso) {
+    if (!iso) return '';
+    try {
+      var d = new Date(iso);
+      if (isNaN(d.getTime())) return iso;
+      var MO = ['Jan','Feb','Mar','Apr','May','Jun','Jul','Aug','Sep','Oct','Nov','Dec'];
+      return MO[d.getMonth()] + ' ' + d.getDate() + ' ' + d.getFullYear();
+    } catch(e) { return iso; }
+  }
+
+  async function _oaiReplayLoadSignals() {
+    if (_oaiReplayLoaded) return _oaiReplaySignals;
+    var metaEl = document.getElementById('oai-sr-meta');
+    try {
+      var r = await fetch('/api/signals/recent?limit=50');
+      if (!r || !r.ok) throw new Error('HTTP ' + (r && r.status));
+      var data = await r.json();
+      // /api/signals/recent returns a bare list (data IS the list). Handle
+      // both shapes defensively.
+      var rows = Array.isArray(data) ? data : ((data && data.signals) || []);
+      // Broad scope: signals that weren't rejected. `acted_on` isn't in the
+      // response payload (HM-SIGNALS-RECENT-ACTED-ON-FIELD banked) so use
+      // execution_status as the proxy — anything that progressed beyond
+      // REJECTED counts as "acted upon" for replay purposes.
+      var filtered = rows.filter(function(s){
+        var st = String(s.execution_status || '').toUpperCase();
+        return st && st !== 'REJECTED';
+      });
+      _oaiReplaySignals = filtered;
+      _oaiReplayLoaded = true;
+
+      function _popOpts(selectId, defaultLabel) {
+        var sel = document.getElementById(selectId);
+        if (!sel) return;
+        // Keep the demo option, append real signals
+        if (!filtered.length) {
+          if (metaEl) metaEl.textContent = 'No signals in window. Showing FDMT + HE demo from spec.';
+          return;
+        }
+        filtered.forEach(function(s) {
+          var opt = document.createElement('option');
+          opt.value = JSON.stringify({sym:s.symbol, ts:s.created_at, sig:s.signal, pid:s.player_id});
+          opt.textContent = (s.symbol || '?') + ' · ' + _oaiFmtSignalDate(s.created_at) +
+                            ' · ' + (s.signal || '?') + ' · ' + (s.player_id || '?');
+          sel.appendChild(opt);
+        });
+      }
+      _popOpts('oai-sr-pick-left');
+      _popOpts('oai-sr-pick-right');
+      if (metaEl) metaEl.textContent = filtered.length + ' non-rejected signals loaded (broad scope, all agents)';
+    } catch(e) {
+      if (metaEl) metaEl.textContent = 'Signal history unavailable — showing demo only';
+      try { console.warn('[OAI-REPLAY] load failed:', e); } catch(_) {}
+    }
+    return _oaiReplaySignals;
+  }
+
+  window.oaiReplayPick = function(side, value) {
+    if (!side || !value || value === '__demo__') return;
+    var parsed;
+    try { parsed = JSON.parse(value); } catch(e) { return; }
+    var sym = (parsed.sym || '').toUpperCase();
+    if (!sym) return;
+    var logoEl = document.getElementById('oai-sr-logo-' + side);
+    var tkEl   = document.getElementById('oai-sr-ticker-' + side);
+    var nmEl   = document.getElementById('oai-sr-name-' + side);
+    var dateEl = document.getElementById('oai-sr-date-' + side);
+    if (logoEl) {
+      logoEl.textContent = sym.slice(0, 2);
+      logoEl.style.background = _oaiReplayLogoColor(sym);
+    }
+    if (tkEl) tkEl.textContent = sym;
+    if (nmEl) nmEl.textContent = 'Live name pending Step 4b';
+    if (dateEl) {
+      var signalWord = (parsed.sig || 'Signal').toString().toUpperCase().indexOf('SELL') >= 0 ? 'Sell Signal' : 'Buy Signal';
+      dateEl.textContent = 'Ollie Signal · ' + _oaiFmtSignalDate(parsed.ts) + ' · ' + (parsed.pid || '?');
+    }
+  };
+
+  window.oaiReplayAction = function(side, action) {
+    var tkEl = document.getElementById('oai-sr-ticker-' + side);
+    var sym = tkEl ? tkEl.textContent.trim().toUpperCase() : '';
+    if (!sym) return;
+    // Both BUY and SELL route through Trade Desk (Option A — section-switch
+    // + #td-symbol pre-fill). Captain can then choose side + size manually.
+    if (typeof window.oaiTradeTicket === 'function') window.oaiTradeTicket(sym);
+  };
+
+  // Lazy-load signals when Signal Replay sub-view first becomes visible.
+  // Hook into existing sub-view tab clicks via MutationObserver on the
+  // #oai-view-signal-replay container.
+  document.addEventListener('DOMContentLoaded', function() {
+    var sr = document.getElementById('oai-view-signal-replay');
+    if (!sr) return;
+    new MutationObserver(function(mutations) {
+      mutations.forEach(function(m) {
+        if (m.attributeName === 'style' && sr.style.display !== 'none') {
+          _oaiReplayLoadSignals();
+        }
+      });
+    }).observe(sr, { attributes:true, attributeFilter:['style'] });
+  });
 
   /* Admiral symbol input — types any ticker, Enter or Go button fires
      oaiFocusSymbol(). Sanitizes to uppercase A-Z + 1-5 chars (skip BRK.B
