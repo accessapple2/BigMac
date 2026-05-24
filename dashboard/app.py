@@ -8042,7 +8042,8 @@ def fundamentals_symbol(symbol: str):
         conn = _conn()
         try:
             row = conn.execute(
-                "SELECT rs_rank, rs_return_pct, rs_vs_spy_pct, computed_at "
+                "SELECT rs_rank, rs_return_pct, rs_vs_spy_pct, computed_at, "
+                "       rs_rank_blended "
                 "FROM rs_rank WHERE symbol = ?",
                 (sym,),
             ).fetchone()
@@ -8051,6 +8052,8 @@ def fundamentals_symbol(symbol: str):
                 result["rs_return_pct"] = row["rs_return_pct"]
                 result["rs_vs_spy_pct"] = row["rs_vs_spy_pct"]
                 result["rs_computed_at"] = row["computed_at"]
+                # HM-RS-RANK-IBD-BLENDED 2026-05-24
+                result["rs_rank_blended"] = row["rs_rank_blended"]
             # HM-MINERVINI-TREND-FILTER 2026-05-24
             mrow = conn.execute(
                 "SELECT template_score, template_pass, rs_pass, conds_json, "
@@ -20570,7 +20573,7 @@ def get_rs_rank(top: int = 200, min_rank: int = 0):
         computed_at = (meta_row and meta_row["computed_at"]) or None
         rows = conn.execute(
             "SELECT symbol, computed_at, rs_return_pct, rs_vs_spy_pct, "
-            "       rs_rank, bars_used "
+            "       rs_rank, bars_used, rs_rank_blended "
             "FROM rs_rank WHERE rs_rank >= ? "
             "ORDER BY rs_rank DESC, symbol ASC LIMIT ?",
             (min_rank, top),
@@ -20609,7 +20612,8 @@ def get_rs_rank_symbol(symbol: str):
     try:
         row = conn.execute(
             "SELECT symbol, computed_at, rs_return_pct, rs_vs_spy_pct, "
-            "       rs_rank, bars_used FROM rs_rank WHERE symbol = ?",
+            "       rs_rank, bars_used, rs_rank_blended "
+            "FROM rs_rank WHERE symbol = ?",
             (symbol,),
         ).fetchone()
         if row is None:

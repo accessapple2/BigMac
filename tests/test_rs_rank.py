@@ -107,6 +107,61 @@ def test_compute_window_return_below_min_bars_returns_nan():
     assert bars == 0
 
 
+# ─── HM-RS-RANK-IBD-BLENDED 2026-05-24 ─────────────────────────────────────
+
+def test_compute_blended_return_monotonic_uptrend():
+    """260-bar steady uptrend should produce a positive blended return,
+    and a steeper uptrend over the same span should rank higher."""
+    n = 260
+    closes_a = np.linspace(100, 130, n).tolist()  # +30% over the year
+    closes_b = np.linspace(100, 200, n).tolist()  # +100% over the year
+    ret_a, bars_a = rs_rank._compute_blended_return(_make_close_df(closes_a))
+    ret_b, bars_b = rs_rank._compute_blended_return(_make_close_df(closes_b))
+    assert bars_a == rs_rank._BLEND_MIN_BARS
+    assert bars_b == rs_rank._BLEND_MIN_BARS
+    assert ret_b > ret_a > 0
+
+
+def test_compute_blended_return_below_min_bars_returns_nan():
+    """Less than 252 bars → NaN/0 (strict full-window policy)."""
+    closes = np.linspace(100, 110, 200).tolist()  # under 252
+    ret, bars = rs_rank._compute_blended_return(_make_close_df(closes))
+    assert np.isnan(ret)
+    assert bars == 0
+
+
+def test_compute_blended_return_extreme_sub_return_filtered():
+    """If any of the 4 sub-returns exceeds 500%, the whole blend is NaN."""
+    # Construct so the 12mo lookback yields ~+800%
+    closes = [1.0] * 10 + np.linspace(1.0, 50.0, 260).tolist()
+    ret, bars = rs_rank._compute_blended_return(_make_close_df(closes))
+    assert np.isnan(ret)
+    assert bars == 0
+
+
+def test_compute_blended_return_low_start_price_filtered():
+    """Anchor start price < $1 → NaN/0 (penny-stock filter)."""
+    closes = np.linspace(0.50, 1.50, 260).tolist()
+    ret, bars = rs_rank._compute_blended_return(_make_close_df(closes))
+    assert np.isnan(ret)
+    assert bars == 0
+
+
+def test_compute_blended_return_formula_weights():
+    """Sanity-check the weighted formula: closes flat for 252 bars then
+    a +N% jump in the last 63 bars produces 0.40 * N% blend.
+
+    With closes[-1] much higher than all four lookback anchors, all four
+    sub-returns are positive; weights sum to 1.0 so the blend is bounded."""
+    n = 260
+    closes = [100.0] * (n - 63) + np.linspace(100.0, 120.0, 63).tolist()
+    ret, bars = rs_rank._compute_blended_return(_make_close_df(closes))
+    assert bars == rs_rank._BLEND_MIN_BARS
+    # 3m ret = ~20%, 6/9/12m ret = ~20% all (anchor is 100 in every case;
+    # only the recent 63 bars saw movement). Blend = 1.0 * 20% = 20%.
+    assert 15 < ret < 25
+
+
 def test_compute_window_return_empty_df():
     ret, bars = rs_rank._compute_window_return(pd.DataFrame({"Close": []}))
     assert np.isnan(ret)

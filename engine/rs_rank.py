@@ -48,6 +48,16 @@ _OUTLIER_MIN_START_PRICE: float = 1.0       # penny stocks excluded
 _OUTLIER_MAX_ABS_RETURN_PCT: float = 500.0  # IPO / split artifacts excluded
 _OUTLIER_REQUIRE_FULL_WINDOW: bool = True   # short-history symbols excluded
 
+# HM-RS-RANK-IBD-BLENDED 2026-05-24 — weighted blend of 3/6/9/12-month
+# returns, IBD-style. Requires 252-bar history minimum (full year).
+_BLEND_WEIGHTS: tuple = (
+    (63,  0.40),   # 3mo
+    (126, 0.20),   # 6mo
+    (189, 0.20),   # 9mo
+    (252, 0.20),   # 12mo
+)
+_BLEND_MIN_BARS: int = 252
+
 _scan_lock = threading.Lock()
 _last_result: dict | None = None
 _last_scan_ts: float = 0.0
@@ -99,6 +109,43 @@ def _compute_window_return(
     return (ret, bars_used)
 
 
+def _compute_blended_return(df: pd.DataFrame) -> tuple[float, int]:
+    """HM-RS-RANK-IBD-BLENDED 2026-05-24 — weighted blend of 3/6/9/12-month
+    returns: 0.40·3mo + 0.20·6mo + 0.20·9mo + 0.20·12mo. Requires 252 bars.
+
+    Returns ``(blended_return_pct, bars_used)``. Drops to ``(NaN, 0)`` when:
+      - History < 252 bars (matches single-period strict-window policy)
+      - Any one of the 4 reference closes is ≤ 0 (split / data error)
+      - Any sub-return exceeds ±500% (single outlier kills the blend)
+      - 252-bar start price < $1 (consistent with single-period gate)
+    """
+    if df is None or df.empty:
+        return (float("nan"), 0)
+    closes = df["Close"].to_numpy(dtype=float)
+    closes = closes[~np.isnan(closes)]
+    n = len(closes)
+    if n < _BLEND_MIN_BARS + 1:
+        return (float("nan"), 0)
+
+    end = float(closes[-1])
+    # Use the 252-bar start as the outlier-filter anchor (most extreme of
+    # the four lookback points, so passes here ⇒ passes for shorter windows).
+    anchor_start = float(closes[-(_BLEND_MIN_BARS + 1)])
+    if anchor_start <= 0 or anchor_start < _OUTLIER_MIN_START_PRICE:
+        return (float("nan"), 0)
+
+    blended = 0.0
+    for bars_back, weight in _BLEND_WEIGHTS:
+        start = float(closes[-(bars_back + 1)])
+        if start <= 0:
+            return (float("nan"), 0)
+        ret = (end / start - 1.0) * 100.0
+        if abs(ret) >= _OUTLIER_MAX_ABS_RETURN_PCT:
+            return (float("nan"), 0)
+        blended += weight * ret
+    return (blended, _BLEND_MIN_BARS)
+
+
 def _percentile_rank(values: list[float]) -> list[int]:
     """1–99 integer percentile rank with mean-rank tie-breaking.
 
@@ -147,6 +194,10 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
             " PRIMARY KEY (symbol)"
             ")"
         )
+        # HM-RS-RANK-IBD-BLENDED 2026-05-24
+        cols = {row[1] for row in conn.execute("PRAGMA table_info(rs_rank)")}
+        if "rs_rank_blended" not in cols:
+            conn.execute("ALTER TABLE rs_rank ADD COLUMN rs_rank_blended INTEGER")
         conn.execute(
             "CREATE INDEX IF NOT EXISTS idx_rs_rank_rank "
             "ON rs_rank(rs_rank DESC)"
@@ -212,14 +263,17 @@ def _persist_results(
                 float(r["rs_vs_spy_pct"]),
                 int(r["rs_rank"]),
                 int(r["bars_used"]),
+                # HM-RS-RANK-IBD-BLENDED — int or None for unranked
+                (int(r["rs_rank_blended"]) if r.get("rs_rank_blended") else None),
             )
             for r in rs_data
-            if r.get("rs_rank")  # skip rank=0 (unranked)
+            if r.get("rs_rank")  # skip rank=0 (unranked in primary)
         ]
         conn.executemany(
             "INSERT INTO rs_rank "
             "(symbol, computed_at, rs_return_pct, rs_vs_spy_pct, rs_rank, "
-            " bars_used) VALUES (?, ?, ?, ?, ?, ?)",
+            " bars_used, rs_rank_blended) "
+            "VALUES (?, ?, ?, ?, ?, ?, ?)",
             rows_to_insert,
         )
         conn.commit()
@@ -287,7 +341,10 @@ def run_rs_rank(force: bool = False) -> dict:
         try:
             from engine.market_data import get_bulk_daily_ohlcv
 
-            bars_by_sym = get_bulk_daily_ohlcv(fetch_syms, range_str="6mo")
+            # HM-RS-RANK-IBD-BLENDED 2026-05-24: bump fetch window 6mo→1y
+            # so the blended formula (252-bar lookback) has full history.
+            # Single-period 60-bar return is unaffected — uses tail of same.
+            bars_by_sym = get_bulk_daily_ohlcv(fetch_syms, range_str="1y")
         except Exception as e:
             console.log(
                 f"[yellow]rs_rank: get_bulk_daily_ohlcv failed: "
@@ -317,6 +374,8 @@ def run_rs_rank(force: bool = False) -> dict:
         scanned_at = datetime.now(timezone.utc).isoformat()
         rows: list[dict] = []
         returns: list[float] = []
+        # HM-RS-RANK-IBD-BLENDED 2026-05-24: parallel blended return series.
+        blended_returns: list[float] = []
         # HM-RS-RANK-OUTLIER-FILTER 2026-05-24: telemetry for the 3 gates.
         # Computed by re-inspecting bars on the NaN path so the production
         # _compute_window_return signature stays clean.
@@ -328,6 +387,8 @@ def run_rs_rank(force: bool = False) -> dict:
                 continue
             df = bars_by_sym.get(symbol)
             r, bars_used = _compute_window_return(df)
+            # HM-RS-RANK-IBD-BLENDED — compute blended in parallel
+            br, _br_bars = _compute_blended_return(df)
 
             # On NaN result, classify which gate fired (best-effort; useful
             # for understanding nightly leaderboard shape).
@@ -357,13 +418,17 @@ def run_rs_rank(force: bool = False) -> dict:
                     "rs_vs_spy_pct": (r - spy_return) if not np.isnan(r) else float("nan"),
                     "bars_used": bars_used,
                     "computed_at": scanned_at,
+                    "rs_blended_pct": br,
                 }
             )
             returns.append(r)
+            blended_returns.append(br)
 
         ranks = _percentile_rank(returns)
-        for row, rk in zip(rows, ranks):
+        blended_ranks = _percentile_rank(blended_returns)
+        for row, rk, brk in zip(rows, ranks, blended_ranks):
             row["rs_rank"] = int(rk)
+            row["rs_rank_blended"] = int(brk)
 
         persisted = _persist_results(rows)
 
