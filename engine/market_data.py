@@ -213,7 +213,35 @@ def _alpaca_quote_to_price(symbol: str, q: dict) -> dict:
 
 
 def _get_alpaca_price(symbol: str) -> dict | None:
-    """GET /v2/stocks/{symbol}/quotes/latest — single symbol, ~5 ms, no rate limit."""
+    """HM-MARKET-DATA-PREV-CLOSE-INCONSISTENCY 2026-05-24 fix — was hitting
+    /v2/stocks/{sym}/quotes/latest which only carries bid/ask (no prev_close),
+    forcing change_pct=0.0 hardcode. Now hits /v2/stocks/snapshots which
+    returns last + dailyBar + prevDailyBar, giving real prev_close-anchored
+    change_pct. Same source / feed as the bulk path (_get_alpaca_bulk_prices)
+    so prev_close anchors are consistent across single + bulk consumers.
+    Falls back to quotes/latest on snapshot failure to preserve uptime."""
+    snaps = _get_alpaca_bulk_snapshots([symbol])
+    if snaps and symbol in snaps:
+        snap = snaps[symbol]
+        last = snap.get("last_price")
+        prev = snap.get("prev_close")
+        if last:
+            chg = round((last - prev) / prev * 100, 2) if prev else 0.0
+            return {
+                "symbol": symbol,
+                "price": round(float(last), 2),
+                "prev_close": round(float(prev), 2) if prev else None,
+                "change_pct": chg,
+                "high": round(float(snap.get("high") or last), 2),
+                "low": round(float(snap.get("low") or last), 2),
+                "volume": int(snap.get("volume") or 0),
+                "timestamp": datetime.now().isoformat(),
+                "source": "alpaca_snapshot",
+            }
+
+    # Fallback: legacy quotes/latest path. Carries bid/ask only (no
+    # prev_close), so change_pct stays 0.0 — but downstream sources
+    # (Yahoo, Finnhub, Alpha Vantage) will still try.
     hdrs = _get_alpaca_headers()
     if not hdrs:
         return None
