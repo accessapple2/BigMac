@@ -938,6 +938,82 @@ sees a WR drop > 10 pts.
 **Risk:** changes live exit behavior for every agent. Worth its own scoping
 session — Captain decides activation per-agent or fleet-wide.
 
+### HM-DOCTRINE-SHORT-INTEREST-READING — agent-prompt note: high SI is bullish (squeeze fuel), not bearish
+
+**Banked 2026-05-24 during HM-ONDS-COVER trading review.** Two agents
+opened ONDS shorts on 2026-03-30 citing high short interest as BEARISH
+evidence:
+
+- gemini-2.5-flash (signal_id 46119): "ONDS is experiencing a short squeeze
+  (41% short float)... a short position with a stop-loss above $8.80
+  appears prudent."
+- dalio-metals (signal_id 46525): "short interest extremely high (34.1%
+  of float), indicating significant bearish sentiment."
+
+Both agents read high SI as confirming a downtrend. **Inverted read.**
+Classically high short interest is **bullish-via-squeeze** — the trade
+is crowded SHORT, exposing the symbol to violent upside as covers pile
+in. The agents took the side they should have been against.
+
+Outcome: both shorts held 55 days, closed −$106.95 combined via
+HM-ONDS-COVER 2026-05-24. ONDS traded $9.07 vs entries $8.80 / $7.88.
+
+**For future agent prompt tuning** (no immediate action — Admiral
+decides timing):
+- Add to gemini/dalio prompt context: "High short interest (>20% float)
+  is a bullish squeeze setup, NOT bearish confirmation. Short the
+  symbol only if SI is LOW and price is breaking down on volume."
+- Consider a doctrine-level guardrail: reject SHORT signals where
+  `short_float_pct > 20` AND reasoning mentions "short squeeze" as
+  bearish evidence.
+- Pattern is broader than ONDS — sample other historical SHORT signals
+  to see how often this inversion appears in the corpus.
+
+**Priority:** LOW (single-event harm so far). Watch for repeat pattern;
+size of corrective action scales with frequency.
+
+### HM-EXIT-TRAILING-STOP-TIER-DOCTRINE — pending Admiral decisions before build
+
+**Banked 2026-05-24 after HM-EXIT-TRAILING-STOP-TIER scope surfaced a
+critical reframe.** Scope analysis showed a 5th runner tier does NOT
+recover the MU $1,916 miss because that move was intra-bar (+418% in
+one minute — all 4 tiers ripped on the same bar). Runner helps grinder-
+class trades that compound past +50% over weeks, not instant-rippers.
+
+**Four decisions needed from Admiral before build:**
+
+Q1: **What case are we optimizing for?**
+  - (a) Capture intra-bar rippers like MU $533 — runner doesn't help,
+    needs different solution (event detection + sell-rate damping that
+    detects a tier-cascade and pauses the ladder)
+  - (b) Capture multi-week compounders past +50% — runner helps
+  - (c) Both — needs a 2-part solution
+
+Q2: **Tier weight interpretation A or B?**
+  - (a) Reduce tier 4 `sell_frac` only → runner = ~3% of original
+    position (tiny tail; meaningful only on the largest winners)
+  - (b) Restructure ladder weights (e.g. 0.4/0.4/0.4/0.5) →
+    runner = ~22% of original (bigger spec change; affects every
+    agent's tier shape, not just runner-enabled ones)
+
+Q3: **Path A or Path B for the trailing stop?**
+  - (a) Path A — existing 3% fleet trail (zero new code; trails
+    catch fast; small contribution)
+  - (b) Path B — wire V3 conviction-scaled trail (10% at +20% gain,
+    `_get_trailing_stop_pct` already in `risk_manager.py:851` but
+    only used by backtester). Parallel ticket
+    HM-RISK-MANAGER-TRAILING-V3-WIRE; affects all fleet agents
+
+Q4: **Which agents opt in?**
+  - `ollama-plutus` is obvious (the MU $533 trade is its winner)
+  - `super-agent` and `neo-matrix` are candidates
+  - Capitol (data feed) and deterministic strategies probably not
+  - Each agent's opt-in goes in `MODEL_GUARDRAILS["agent_id"]["runner_pct"]`
+
+**Cross-reference:** scope report in this session (HM-EXIT-TRAILING-STOP-TIER
+Captain-framed scope, 2026-05-24). Build is on HOLD until Admiral
+answers the 4 questions in a clean session.
+
 ### HM-INLINE-STYLE-SWEEP — replace 575 hardcoded inline style="" colors with CSS vars
 
 **Banked 2026-05-24 during HM-CB-PATH-A.** 47 diagnosed 575 inline `style=""`
