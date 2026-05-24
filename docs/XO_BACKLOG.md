@@ -532,6 +532,15 @@ flagged three deltas. All are post-Step 3c polish — Step 3c (action-bar
 broker wiring + confirmation modal) stays the priority until shipped.
 Images not retained on bigmac; descriptions captured below.
 
+**Status (XO power-run audit 2026-05-24):**
+- ✅ HM-OAI-RACE-LOGOS — shipped commit `ff4c09f` (2026-05-23)
+- ✅ HM-OAI-SYMBOL-FOCUS-TIMEFRAMES — shipped commit `e83e652` (2026-05-23)
+- ⏸ HM-OAI-TOP-LIST-FILTER-DIALOG — **DEFERRED out of XO power run.**
+  Scope (~5-7h: 9-field min/max input grid + new `/api/movers/filtered`
+  backend endpoint + debounced refetch + localStorage persistence)
+  exceeds power-run cadence and requires Captain decisions on filter
+  defaults + universe scope. Banking for a dedicated session.
+
 #### HM-OAI-RACE-LOGOS — real company logos in race rows
 **Surface:** Workspace sub-view → Volatile Race + Large Cap Race rows
 (`dashboard/static/index.html`, `_oaiRenderRaces` and the `<div class="oai-race-row">`
