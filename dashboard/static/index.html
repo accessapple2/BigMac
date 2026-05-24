@@ -10311,6 +10311,19 @@ document.addEventListener('keydown', function(e) {
           <option value="__demo__">NEO · BREAKOUT_VOLUME (demo)</option>
         </select>
       </div>
+      <!-- HM-OAI-BL-FILTER-LIVE 2026-05-24: window slicer over equity_curve.
+           Slices equity + heatmap to the trailing N days; KPIs stay computed
+           over the full run. Persisted via localStorage 'oai_bl_window'. -->
+      <div class="oai-bl-selector">
+        <label for="oai-bl-pick-window">WINDOW</label>
+        <select id="oai-bl-pick-window" onchange="oaiBacktestPickWindow(this.value)">
+          <option value="all" selected>All</option>
+          <option value="30">Last 30d</option>
+          <option value="60">Last 60d</option>
+          <option value="90">Last 90d</option>
+          <option value="180">Last 180d</option>
+        </select>
+      </div>
       <div class="oai-bl-meta" id="oai-bl-meta">Live wire ships in Step 5b — showing spec demo data</div>
     </div>
 
@@ -12563,7 +12576,33 @@ document.addEventListener('keydown', function(e) {
   var _oaiBlRunCache = {};   // runId → agent rows (caches /api/backtest/run/{id})
   var _oaiBlCurrentRun = null;
   var _oaiBlCurrentAgents = [];
+  var _oaiBlCurrentAgent = null;    // HM-OAI-BL-FILTER-LIVE: last-picked agent for window re-render
   var _oaiBlInit = false;
+  // Window slicer state — restored from localStorage on init.
+  var _oaiBlWindow = (function() {
+    try {
+      var v = localStorage.getItem('oai_bl_window');
+      if (v === 'all' || v === '30' || v === '60' || v === '90' || v === '180') return v;
+    } catch(e) {}
+    return 'all';
+  })();
+
+  /* HM-OAI-BL-FILTER-LIVE: slice the agent's equity_curve to the trailing
+     N bars per _oaiBlWindow. KPIs stay computed off the full run (those
+     are aggregate stats from the backend); only the equity SVG + heatmap
+     re-render off the slice. */
+  function _oaiBlSliceEquity(agent) {
+    if (!agent) return agent;
+    var eq = agent.equity_curve || [];
+    if (_oaiBlWindow === 'all' || !eq.length) return agent;
+    var n = parseInt(_oaiBlWindow, 10);
+    if (!isFinite(n) || n <= 0 || eq.length <= n) return agent;
+    // Shallow copy so we don't mutate the cached agent object
+    var clone = {};
+    for (var k in agent) clone[k] = agent[k];
+    clone.equity_curve = eq.slice(eq.length - n);
+    return clone;
+  }
 
   // 7-color heatmap palette per spec L539-545
   var _OAI_BL_PAL = ['#dc2626','#ef4444','#fca5a5','#1f2937','#86efac','#22c55e','#16a34a'];
@@ -12813,10 +12852,34 @@ document.addEventListener('keydown', function(e) {
     if (isNaN(idx) || idx < 0 || idx >= _oaiBlCurrentAgents.length) return;
     var agent = _oaiBlCurrentAgents[idx];
     if (!agent) return;
+    // HM-OAI-BL-FILTER-LIVE 2026-05-24: cache + slice through the window
+    // selector. KPIs use the FULL agent (aggregate); equity + heatmap use
+    // the windowed slice.
+    _oaiBlCurrentAgent = agent;
+    var sliced = _oaiBlSliceEquity(agent);
     _oaiBlRenderKpis(_oaiBlComputeKpis(agent));
-    _oaiBlRenderEquityCurve(agent, _oaiBlCurrentRun ? _oaiBlCurrentRun.run_name : '');
-    _oaiBlRenderHeatmap(agent.equity_curve);
+    _oaiBlRenderEquityCurve(sliced, _oaiBlCurrentRun ? _oaiBlCurrentRun.run_name : '');
+    _oaiBlRenderHeatmap(sliced.equity_curve);
   };
+
+  // HM-OAI-BL-FILTER-LIVE 2026-05-24: window slicer handler — re-renders
+  // equity + heatmap from the cached agent against the new window.
+  window.oaiBacktestPickWindow = function(value) {
+    if (value !== 'all' && value !== '30' && value !== '60' && value !== '90' && value !== '180') return;
+    _oaiBlWindow = value;
+    try { localStorage.setItem('oai_bl_window', value); } catch(e) {}
+    if (!_oaiBlCurrentAgent) return;
+    var sliced = _oaiBlSliceEquity(_oaiBlCurrentAgent);
+    _oaiBlRenderEquityCurve(sliced, _oaiBlCurrentRun ? _oaiBlCurrentRun.run_name : '');
+    _oaiBlRenderHeatmap(sliced.equity_curve);
+  };
+
+  // Sync the WINDOW <select> visible value with the restored localStorage
+  // state on first paint, so the dropdown reflects the persisted choice.
+  function _oaiBlSyncWindowSelect() {
+    var el = document.getElementById('oai-bl-pick-window');
+    if (el && el.value !== _oaiBlWindow) el.value = _oaiBlWindow;
+  }
 
   // Lazy-init on first Backtest Lab visibility — seed demo heatmap
   // immediately (so the panel is never blank), then fetch real runs.
@@ -12827,6 +12890,7 @@ document.addEventListener('keydown', function(e) {
       mutations.forEach(function(m) {
         if (m.attributeName === 'style' && bl.style.display !== 'none' && !_oaiBlInit) {
           _oaiBlInit = true;
+          _oaiBlSyncWindowSelect();   // restore window dropdown from localStorage
           _oaiBlSeedDemoHeatmap();
           _oaiBlLoadRuns();
         }
