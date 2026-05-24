@@ -1787,8 +1787,18 @@ def stats():
 
 def _compute_trade_levels(symbol):
     """Compute trade levels for symbol and return a plain dict (not a Response).
-    Caller is responsible for caching.  Raises on error."""
-    bars    = _bridge_get(f'/api/charts/ohlcv?symbol={symbol}&timeframe=1D&limit=60', timeout=8)
+    Caller is responsible for caching.  Raises on error.
+
+    HM-SC-ATR-FEED-DISCREPANCY 2026-05-24 — was passing 'timeframe=1D&limit=60'
+    which the trader endpoint silently IGNORED (it takes interval= + days=
+    parameters), defaulting to 5min bars over 5 days. The downstream
+    time-bucket aggregation in `daily = []` (below) then collapsed ~78 5min
+    bars per session into one bucket, taking max(highs)/min(lows) across
+    intraday — producing artificially wide 'daily' OHLC. INTU's atr_pct
+    showed 12.51% (real ~4-5%). Fix: pass the correct param names so
+    yfinance returns actual daily bars; bucketing becomes a no-op (each
+    bar already a day)."""
+    bars    = _bridge_get(f'/api/charts/ohlcv?symbol={symbol}&interval=1d&days=90', timeout=8)
     gex     = _bridge_get(f'/api/gex-overlay/levels?symbol={symbol}', timeout=5)
     regime  = _bridge_get('/api/regime', timeout=5)
 
