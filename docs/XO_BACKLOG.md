@@ -264,6 +264,59 @@ Consolidated scope (~4-5h):
 Priority: LOW. Bank for post-shadow-validation review. Per-layer Phase D
 analyses are sufficient input for the initial flag-flip decisions.
 
+#### HM-INLINE-STYLE-SWEEP — IN PROGRESS (3 of 9 batches complete)
+
+Frontend dashboard inline-style → CSS-var migration. Multi-batch sprint
+to consume ~1191 inline color literals across `dashboard/static/index.html`.
+Conservative power-paste pattern via
+`scripts/hm_inline_style_sweep_batch_migrate.py` — line-range-scoped
+Python regex acting only inside `style="..."` attribute values, mapping
+only the 5 hex codes whose canonical var exists in production :root.
+
+  Batch 1 (b905935) bridge-tip-finish          —  6 migrated, 14 banked
+  Batch 2 (f6ef2eb) bridge-rest L7000-10000    — 58 migrated, 109 banked
+  Batch 3 (4a56141) leaderboard-fleet L14000-18000 — 60 migrated, 119 banked
+  Merge   (58c0ad6) 2+3 to main 2026-05-25
+
+  Cumulative: 124 literals migrated, 242 banked-with-comment
+
+Remaining batches **BLOCKED on HM-V4.5-TOKEN-EXTENSION** — the 242 banked
+inventory cannot migrate further until canonical-var coverage expands:
+  Batch 4 cockpit L18000-22000 (~81 literals)
+  Batch 5 squeeze-movers L22000-26000 (~60)
+  Batch 6 debate-oai L26000-30000 + L10000-14000 (~102)
+  Batch 7a js-templates-static (helper class introduction)
+  Batch 7b js-templates-dynamic (conditional class injection)
+  Batch 8 class-bg-sweep (~57)
+  Batch 9 svg-fills (162 fills + 100 strokes)
+
+#### HM-V4.5-TOKEN-EXTENSION — banked, HIGH priority (blocks sweep batches 4-9)
+
+The 242 banked literals across sweep batches 1-3 reveal a concrete
+spec gap in the v4.4 unified theme module. Top-frequency hex codes
+that DON'T have a canonical var:
+
+  #2563eb + #3b82f6 family (26 occurrences) — needs `--accent-blue`
+  #e5e7eb                  (16)              — needs `--border-light`
+  #f59e0b                  (14)              — needs `--warning`
+  #10b981                  (12)              — needs `--success-variant`
+  #000                     (12, theme-blind) — needs `--text-absolute-black`
+  #fff                     (11, theme-blind) — needs `--text-absolute-white`
+  #ea580c                   (9)              — needs `--accent-orange-variant`
+  #818cf8                   (8)              — needs `--accent-indigo`
+  #ffd700                   (6)              — needs `--gold`
+
+Scope (~1.5-2h):
+- Add tokens to v4.4 unified theme module (4 theme cascades: dark, light,
+  dark-cb, light-cb)
+- Verify cascade specificity doesn't conflict with v4.4 base
+- Smoke 4-theme render for new tokens
+- Migrator script can then map these on next sweep batch
+
+Priority: HIGH (blocks sweep progress past Batch 3). Greenfield-design
+adjacent (token naming, cascade design) — work for fresh context, not
+late-marathon execution.
+
 #### HM-NTFY-ACK-CLICKTHROUGH — banked (Week 7 work)
 
 Single click-through URL in NTFY body → logs `ntfy_ack` row to new
