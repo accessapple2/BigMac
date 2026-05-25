@@ -334,7 +334,17 @@ The two modules export non-overlapping functions, read different DBs, and serve 
 | Picard  | Weekly strategic thesis → modifies Ollie's regime table      | Gemma3 4B (local)      |
 
 ### Sniper Squad — Active Scouts (signal generation, route via Ollie gate)
-**Added 2026-05-08 to align with `dashboard/app.py:1431+1439` toggle reality** (Phase 3 toggle infra map). These are the active scouts firing signals into the Sniper Mode trial; both are in `PROTECTED_AGENTS` (roster-locked) and emit signals daily. Sniper Mode is a 30-day proving-ground role of `ollie-auto`, not a separate sub-mode flag — see `docs/MODEL_TOGGLE_INFRASTRUCTURE_MAP.md` §6.
+**Added 2026-05-08 to align with `dashboard/app.py:1431+1439` toggle reality** (Phase 3 toggle infra map). These are the active scouts firing signals into the Sniper Mode trial; both are in `PROTECTED_AGENTS` (roster-locked) and emit signals daily. Sniper Mode is a proving-ground role of `ollie-auto`, not a separate sub-mode flag — see `docs/MODEL_TOGGLE_INFRASTRUCTURE_MAP.md` §6.
+
+**Proving Ground trial formalization (HM-PROVING-GROUND-FORMALIZE-V2 2026-05-25):**
+The trial began 2026-04-10 with a 30-day spec, ran to Day 45 without formal extension or exit criteria, was reviewed Memorial Day 2026-05-25, and formalized as follows:
+- **Duration:** extended to 60 days (Day 60 = 2026-06-09); forced go/no-go at Day 60 boundary
+- **Dedicated NTFY topic:** `ollietrades-proving-ground` (was sharing `ollietrades-crew`; see `engine/ntfy.py::_fire_pg`)
+- **Exit criteria codified in `engine/proving_ground.py::ship_kill_evaluator`:**
+  - SHIP: `go_count >= 5/6` AND `max_drawdown <= -15%` simultaneously for 10 consecutive days
+  - KILL: `max_drawdown > -15%` on any day past Day 60 OR `go_count < 3/6` for 10 days OR trade-count collapse >50% over 10-day rolling
+  - WARNING: `go_count 3/6 or 4/6` for 5+ days (non-action, awareness only)
+- **No auto-ship / no auto-kill:** evaluator emits NTFY on state transitions only; Admiral makes final call via `scripts/proving_ground_admiral.py --ship` / `--kill` with `--confirm` flag.
 
 | Player ID            | Star Trek role | Strategy / Type                                | Model                | Recent volume |
 |----------------------|----------------|------------------------------------------------|----------------------|---------------|

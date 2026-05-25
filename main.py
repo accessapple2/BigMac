@@ -4627,7 +4627,28 @@ if __name__ == "__main__":
         except Exception as _e:
             console.log(f"[yellow]Proving Ground weekly report error: {_e}")
 
+    def run_proving_ground_evaluator():
+        """HM-PROVING-GROUND-FORMALIZE-V2 SUB-2 2026-05-25 — daily state
+        machine evaluator. Runs at 13:18 AZ (3 min after the scorecard
+        write, 12 min before the ntfy report) so state transitions are
+        visible in the daily summary that follows."""
+        import pytz as _pz
+        _az = datetime.now(_pz.timezone("US/Arizona"))
+        if _az.weekday() >= 5:
+            return
+        try:
+            from engine.proving_ground import ship_kill_evaluator
+            result = ship_kill_evaluator()
+            console.log(
+                f"[bold cyan]🎯 Proving Ground evaluator: "
+                f"day={result['trial_day']} state={result['target_state']} "
+                f"transitioned={result['transitioned']}"
+            )
+        except Exception as _e:
+            console.log(f"[yellow]Proving Ground evaluator error: {_e}")
+
     schedule.every().day.at("13:15").do(run_proving_ground_scorecard)   # 4:15 PM ET
+    schedule.every().day.at("13:18").do(run_proving_ground_evaluator)   # 4:18 PM ET (HM-PROVING-GROUND-FORMALIZE-V2 SUB-2)
     schedule.every().day.at("13:30").do(run_proving_ground_report)      # 4:30 PM ET
     schedule.every().sunday.at("12:00").do(run_proving_ground_weekly)   # Sunday 3 PM ET
 
