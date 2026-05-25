@@ -203,25 +203,66 @@ Admiral shadow-validation sequence (heads-up):
   5. Observe additional 5-10 days
   6. If either degrades behavior, flip back to False and revisit tiers
 
-#### HM-FLEET-TRAIL-BACKTEST-HARNESS — banked
+#### HM-OPTIONS-CONVICTION-STOP-WIRE — ✅ **SHIPPED** 2026-05-25 (merge `263c8dd`)
 
-Surfaced during HM-FLEET-TRAIL-CONVICTION-SCALE Phase D. The Lane A
-backtest harness (`scripts/hm_conviction_stop_backtest_compare.py` →
-`engine.backtester._simulate_guarded`) models a gain-tiered trail via
-`_v3_trailing_stop_pct(gain)` — structurally different from the FLAT
-3% fleet trail in `engine/risk_manager.py::check_stop_loss_take_profit`.
-The backtester cannot directly simulate the production-trail change
-without a new harness branch.
+Third symmetric pairing — completes the conviction-scaling trio (entry
+stop + fleet trail + options stop). Flag default OFF via code; same
+ship-as-is + shadow-validate-live posture as Lane A + Lane C.
 
-Scope (~3-4h):
-- Extend `_simulate_guarded` with optional `fleet_trail_pct_fn` callable
-  parameter (analogous to `flat_stop_pct`)
-- Wire `engine.stops.get_trail_pct` as injectable trail function
-- Re-run A/B at L800-820 layer with proper harness
-- Validate Phase D's directional signal with G1-G4 acceptance gates
+Branch ship (5 phases merged):
+  Phase A `0124a70` baseline annotation
+  Phase B `24332ea` engine.stops.get_options_stop_pct (30/40/50%) +
+                    CONVICTION_SCALED_OPTIONS_STOP_ENABLED flag + gate
+  Phase C `9bc5cbe` 11/11 tier-table + gate-behavior tests
+  Phase D `eb6e432` targeted analysis (1 options position diverges —
+                    navigator PLD call conv=0.75 would tighten 50% -> 30%)
+  Phase E `5a81448` docs/DOCTRINE.md Rule #5 — options floor-invariant
+                    EXCEPTION codified
 
-Priority: LOW. Bank for post-shadow-validation review. Phase D's
-targeted analysis is sufficient input for the initial flag-flip decision.
+INTENTIONAL DOCTRINE DEVIATION (Admiral-locked): unlike stops + trail
+where the low tier matches the flat baseline, the options low-conv
+tier (0.30) is TIGHTER than the current 0.50 baseline. Rationale:
+theta decay + IV crush asymmetry. Documented as the only floor-
+invariant exception in Rule #5; future stop layers must amend Rule #5
+explicitly if they want to invert direction.
+
+Three independent flags now exist (all default OFF):
+  CONVICTION_SCALED_STOPS_ENABLED         (12/15/18% entry stop)
+  CONVICTION_SCALED_TRAIL_ENABLED         (3/4/5% fleet trail)
+  CONVICTION_SCALED_OPTIONS_STOP_ENABLED  (30/40/50% options stop)
+
+Recommended shadow-validation order (least to most blast radius):
+  1. STOPS  → observe 5-10 days
+  2. TRAIL  → observe 5-10 days
+  3. OPTIONS_STOP → observe closely; tier inverts floor + applies to
+     small options surface; first divergent position is navigator PLD
+
+#### HM-CONVICTION-SCALED-BACKTEST-HARNESS — banked (consolidates two prior)
+
+Replaces and consolidates HM-FLEET-TRAIL-BACKTEST-HARNESS (banked
+earlier this session). Both gaps share a root cause: engine.backtester
+_simulate_guarded does not exercise the production fleet-trail or
+options-stop layers — only the entry-stop layer that Lane A's
+flat_stop_pct param covers.
+
+Surfaced during Phase D of both HM-FLEET-TRAIL-CONVICTION-SCALE +
+HM-OPTIONS-CONVICTION-STOP-WIRE. Targeted analyses in those tickets
+provided directional input but not G1-G4 acceptance-gate validation.
+
+Consolidated scope (~4-5h):
+- Extend `_simulate_guarded` with TWO new optional callable parameters:
+    `fleet_trail_pct_fn(conviction) -> float`
+    `options_stop_pct_fn(conviction) -> float`
+- Replace hardcoded V3 trail logic with the injected callable when set
+- Add simulation of the options-stop branch (premium estimation from
+  stock_price + entry_premium, then stop check)
+- Wire `engine.stops.get_trail_pct` and `engine.stops.get_options_stop_pct`
+  as the production-mirror callables
+- Run 180-day A/B for each layer independently and as a combined ON
+- Validate Phase D directional signals with G1-G4 gates
+
+Priority: LOW. Bank for post-shadow-validation review. Per-layer Phase D
+analyses are sufficient input for the initial flag-flip decisions.
 
 #### HM-NTFY-ACK-CLICKTHROUGH — banked (Week 7 work)
 
