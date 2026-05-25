@@ -323,3 +323,34 @@ ollie-auto  full       HM-MARKET-HOLIDAY-CALENDAR doctrine violation 2026-05-25 
 - `6cdf9d5` Stage 1 — order cancel + forensic snapshot
 - `c35aa51` Stage 2 — local reconcile (Doctrine Rule #2 archive)
 - (this commit) Stage 3 — agent halt
+
+## 2026-05-25 09:00 AZ — HM-MARKET-HOLIDAY-CALENDAR full structural fix shipped (Stage 4 Phases A-D)
+
+Memorial Day emergency arc closed. Trader now blocks signal emission +
+order submission on weekends + 10 US holidays + early-close windows +
+before/after hours. Rule #4 codified in `docs/DOCTRINE.md`.
+
+**Phases:**
+- A `7d55d35` — `engine/market_calendar.py` (NYSE holidays 2025-2027,
+  early-close days, `MarketStatus` enum, helpers). 18/18 tests pass.
+- B `3cd4838` — 7 hard gates (paper_trader buy/sell/short_sell +
+  alpaca_bridge buy/sell/short_sell + alpaca_options.execute_options_signal)
+  + soft update on `risk_manager.is_market_hours`. 11/11 gate tests pass.
+- C `bf54ee8` — `dashboard/app.py::fleet_pulse` + `renderFleetPulse` JS;
+  banner now shows `🛌 HOLIDAY · MEMORIAL DAY` instead of generic STANDBY.
+  Live smoke verified.
+- D (this commit) — docs/DOCTRINE.md Rule #4 + this OPS_LOG entry.
+
+**Test totals (Phase A + B):** 29 passed, 3.92s.
+
+**Visual smoke:** GET /api/fleet/pulse returns
+`{market_status: "closed_holiday", holiday_name: "Memorial Day",
+next_market_open: "2026-05-26T09:30:00-04:00", reasons: ["Holiday —
+Memorial Day · fleet at rest"]}`. Banner JS produces "🛌 HOLIDAY ·
+MEMORIAL DAY".
+
+**Next:** Push all 7 commits (Stage 1 + 2 + 3 + Phase A + B + C + D) to
+origin/main. Restore PG-V2 SUB-1 work from stash. Move halt_mode from
+`full` to `exit_only` overnight for `neo-matrix` + `ollie-auto`
+(conservative posture for first overnight after fix; Admiral promotes
+to `active` Tuesday 09:30 ET via manual unhalt).

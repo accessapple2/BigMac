@@ -145,10 +145,92 @@ Quarterly: grep `DELETE FROM` / `TRUNCATE` / `DROP TABLE` across the
 codebase. Categorize each hit as SAFE / DEFENSIBLE / VIOLATION using
 the gold/non-gold list in Rule #1. Bank any new VIOLATION immediately.
 
+## Rule #4 — Never trade on closed markets
+
+The fleet does not generate signals, submit orders, or execute trades
+when US markets are closed.
+
+Closed states (per `engine/market_calendar.py::MarketStatus`):
+- `CLOSED_WEEKEND` (Saturday, Sunday)
+- `CLOSED_HOLIDAY` (NYSE-observed federal holidays — see `US_HOLIDAYS`)
+- `CLOSED_EARLY` (past 1pm ET on early-close days — Black Friday,
+  Christmas Eve, day before July 4 when applicable)
+- `CLOSED_BEFORE_HOURS` (before 9:30 ET)
+- `CLOSED_AFTER_HOURS` (after 4:00 ET on regular days)
+
+### Required gates
+
+Every signal-emission and order-submission path MUST consult
+`engine.market_calendar.market_closed_reason()` BEFORE producing output.
+A non-None return blocks the action and surfaces the reason for logging
+and rejection-record bookkeeping.
+
+Hard gates instrumented in HM-MARKET-HOLIDAY-CALENDAR Phase B:
+- `engine/paper_trader.py::buy()`
+- `engine/paper_trader.py::sell()`
+- `engine/paper_trader.py::short_sell()`
+- `engine/alpaca_bridge.py::buy()`
+- `engine/alpaca_bridge.py::sell()`
+- `engine/alpaca_bridge.py::short_sell()`
+- `engine/alpaca_options.py::execute_options_signal()` (options-spread fwd path)
+
+Soft updates:
+- `engine/risk_manager.py::is_market_hours()` — holiday-aware (returns
+  False on NYSE holidays; battle_station + UI widgets pick up the fix
+  transparently).
+- `dashboard/app.py::fleet_pulse()` — calendar-driven `market_status` +
+  `holiday_name` + `next_market_open` fields in API response.
+- `dashboard/static/index.html::renderFleetPulse()` — banner shows
+  `🛌 HOLIDAY · {NAME}` / `🛌 WEEKEND` distinctly from generic `STANDBY`.
+
+### Required gate pattern
+
+```python
+from engine.market_calendar import market_closed_reason as _mcr
+_r = _mcr()
+if _r is not None:
+    # log + return blocked-result with reason captured for forensic record
+    log.warning(f"[HM-MARKET-CLOSED] <action> <symbol> blocked — {_r}")
+    return None  # or appropriate negative-response shape
+```
+
+Extended-hours intent: gates block all non-OPEN states regardless of
+extended_hours kwarg. Alpaca rejects pre/post-market non-LIMIT
+submissions anyway, and the trader has no doctrine for pre/post-market
+trading. Future override possible if needed.
+
+### Reference incident
+
+**HM-MARKET-HOLIDAY-CALENDAR**, Memorial Day 2026-05-25. The trader
+fired 6 Alpaca orders + 2 simulated positions on a market-closed day
+because production had no holiday calendar (only backtest scripts did,
+via `US_HOLIDAYS` constants local to those scripts). Cancellation arc:
+- Stage 1 `6cdf9d5` — 6 Alpaca orders cancelled, 0/0 filled
+- Stage 2 `c35aa51` — 11 local rows archived (Rule #2 archive-then-delete)
+- Stage 3 `02d3558` — `neo-matrix` + `ollie-auto` halted
+- Stage 4 Phase A `7d55d35` — `engine/market_calendar.py` created
+- Stage 4 Phase B `3cd4838` — 7 hard gates + 1 soft update instrumented
+- Stage 4 Phase C `bf54ee8` — dashboard banner holiday-aware
+- Stage 4 Phase D (this commit) — Rule #4 codified
+
+### Future maintenance
+
+`US_HOLIDAYS` dict in `engine/market_calendar.py` must be reviewed and
+extended annually. Bank a calendar-year-end ticket each December for the
+upcoming year. Good Friday + observed-day logic require special
+attention (date varies, observation shifts when Saturday/Sunday).
+
+### Banked future work
+
+- **HM-MARKET-CALENDAR-INTERNATIONAL** — non-US markets (London/Tokyo/etc.)
+  when the fleet expands abroad.
+
 ## Cross-references
 
 - HM-DATA-INTEGRITY-FORENSICS parent ticket — `docs/XO_BACKLOG.md`
 - Emergency lock pattern — `45e57e1`
 - Archive-then-delete reference — `04b00f3` (schema), `8c9b942` (endpoint),
   `a5054c0` (recovery), `b634dd0` (tests)
+- HM-MARKET-HOLIDAY-CALENDAR — `7d55d35` (calendar), `3cd4838` (gates),
+  `bf54ee8` (banner), (this commit) (Rule #4 codify)
 - Sacred Data Rule reaffirmation — `CLAUDE.md` ("SACRED DATA RULES" section)
