@@ -22,7 +22,14 @@ PG_DB     = "data/proving_ground.db"
 AZ_TZ     = pytz.timezone("US/Arizona")
 
 TRIAL_START = date(2026, 4, 10)
-TRIAL_DAYS  = 30
+# HM-PROVING-GROUND-FORMALIZE-V2 SUB-3 2026-05-25 — extended from 30 to 60
+# days at Day 45 Memorial Day review. Original 30-day spec already
+# overshot (Day 1-45 ran without formal extension or exit criteria).
+# Day 60 = 2026-06-09. At Day 60 boundary, evaluator emits HIGH-severity
+# "DAY 60 FORCED EVALUATION" NTFY (engine/proving_ground.py::
+# ship_kill_evaluator) and the K1 kill condition (dd > 15% absolute)
+# activates. Admiral runs scripts/proving_ground_admiral.py to terminal.
+TRIAL_DAYS  = 60
 
 # Backtest reference numbers (v4 sniper + prior sniper run)
 BT_RETURN_PCT     = 16.30

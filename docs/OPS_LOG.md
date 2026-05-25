@@ -354,3 +354,39 @@ origin/main. Restore PG-V2 SUB-1 work from stash. Move halt_mode from
 `full` to `exit_only` overnight for `neo-matrix` + `ollie-auto`
 (conservative posture for first overnight after fix; Admiral promotes
 to `active` Tuesday 09:30 ET via manual unhalt).
+
+## 2026-05-25 09:30 AZ — HM-PROVING-GROUND-FORMALIZE-V2 — three-SUB structural ship
+
+Reference: NTFY Proving Ground review banked Memorial Day morning identified
+that the Sniper Mode trial (started 2026-04-10) had no exit criteria, no
+dedicated NTFY topic, and was running 15 days past its 30-day spec without
+formal extension. Admiral GREEN-LIGHT EXTEND-FORMALIZE this session.
+
+**SUB-1** `e79a12a` — Dedicated NTFY topic `ollietrades-proving-ground`.
+- `engine/ntfy.py::_fire_pg` + module-level `NTFY_PROVING_GROUND_TOPIC` env-overridable constant
+- `engine/proving_ground.py` import-alias change (zero call-site diff)
+- CLAUDE.md formalization block documented
+- Admiral mobile NTFY receipt confirmed 09:00 AZ
+
+**SUB-2** `af22d32` — Exit criteria + state machine evaluator + Admiral CLI.
+- Thresholds (Admiral-locked): SHIP=10d go>=5 AND |dd|<=15%; KILL=any of dd>15% past Day 60 / go<3 for 10d / trades collapse >50%; WARN=go in 3-4 band 5+ days
+- `scripts/migrations/hm_proving_ground_formalize_v2_sub2.sql` — `exit_status` column on running_scorecard + `state_transitions` append-only audit table
+- `engine/proving_ground.py::ship_kill_evaluator` + helpers; terminal-sticky for shipped/killed
+- `scripts/proving_ground_admiral.py` — ONLY path to terminal states; requires --confirm + --agent ollie-auto
+- `main.py` — daily 13:18 AZ scheduler hook (between scorecard at 13:15 and ntfy at 13:30)
+- **10/10 evaluator tests pass.** **DRY-RUN** against current 45 days: state=warning (NOT kill_warning); regression test pinned: K1 dd-past-Day-60 condition correctly does NOT fire before Day 60 even with dd=-24% sustained.
+
+**SUB-3** (this commit) — Extension to Day 60.
+- TRIAL_DAYS = 60 in engine/proving_ground.py (was 30)
+- CLAUDE.md formalization block updated with extension rationale + thresholds (sign-convention-corrected) + heads-up that K1 will fire at Day 60 due to sustained -24% drawdown
+- Day 60 boundary = 2026-06-09
+- Forced-evaluation NTFY (HIGH severity) emits daily past Day 60 until Admiral terminal action
+
+**Phase 1B Hard Gate #2 PASSED** at SUB-2 dry-run (state=warning, in allowed set).
+
+Branch hm-proving-ground-formalize-v2 ready for merge to main.
+
+**Heads-up for 2026-06-09:** the evaluator will fire kill_warning the
+moment trial passes Day 60 because max_drawdown has held at -24% across
+the entire trial. Admiral can preempt with --kill before Day 60 OR let
+the structural finding surface itself and respond at that point.
