@@ -796,6 +796,15 @@ class RiskManager:
             # Opt-out models (geordi -8%, sulu -3%, trip -7%) keep their per-model stops below.
             # Activates only after position is up >= 5% from entry.
             # Trail: 3% below the high watermark, floor at breakeven (entry price).
+            #
+            # HM-FLEET-TRAIL-CONVICTION-SCALE Phase A 2026-05-25 — current
+            # behavior baseline. Trail width is a flat 3% (0.97 multiplier
+            # on high_wm) for every player not in FLEET_TRAILING_STOP_OPT_OUT.
+            # Symmetric gap to HM-RISK-MANAGER-CONVICTION-STOP-WIRE (which
+            # scaled the entry stop at L825 by conviction tier). Phase B
+            # introduces conviction-scaled trail via engine.stops.get_trail_pct
+            # behind CONVICTION_SCALED_TRAIL_ENABLED feature flag (default
+            # OFF — flag-off keeps the 3% flat behavior intact).
             if player_id not in self.FLEET_TRAILING_STOP_OPT_OUT and gain_from_entry >= 0.05:
                 fleet_trail_price = high_wm * 0.97  # 3% below high watermark
                 # Breakeven floor: once up 5%+ we never stop below entry
