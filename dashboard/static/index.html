@@ -40979,8 +40979,30 @@ function renderFleetPulse(p) {
   const s = p.status || 'red';
   dot.className = 'pulse-dot ' + s;
   lbl.className = 'pulse-label ' + s;
-  const map = { green: 'FLEET HEALTHY', yellow: 'FLEET WARN', red: 'FLEET DOWN', standby: 'STANDBY' };
-  lbl.textContent = map[s] || 'UNKNOWN';
+  // HM-MARKET-HOLIDAY-CALENDAR Phase C 2026-05-25: surface holiday +
+  // weekend distinctly so an admin glance at the banner cannot mistake
+  // closed-market state for normal off-hours STANDBY.
+  let labelText;
+  if (s === 'standby') {
+    const ms = p.market_status || '';
+    if (ms === 'closed_holiday' && p.holiday_name) {
+      labelText = '🛌 HOLIDAY · ' + p.holiday_name.toUpperCase();
+    } else if (ms === 'closed_weekend') {
+      labelText = '🛌 WEEKEND';
+    } else if (ms === 'closed_early') {
+      labelText = 'EARLY CLOSE';
+    } else if (ms === 'closed_before_hours') {
+      labelText = 'PRE-MARKET';
+    } else if (ms === 'closed_after_hours') {
+      labelText = 'AFTER-HOURS';
+    } else {
+      labelText = 'STANDBY';
+    }
+  } else {
+    const map = { green: 'FLEET HEALTHY', yellow: 'FLEET WARN', red: 'FLEET DOWN' };
+    labelText = map[s] || 'UNKNOWN';
+  }
+  lbl.textContent = labelText;
   const el = document.getElementById('fleet-pulse');
   if (el) el.title = (p.reasons && p.reasons.length) ? p.reasons.join(' · ') : 'All checks passing';
 }

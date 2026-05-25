@@ -19873,17 +19873,39 @@ def execute_trade_manual(request: Request):
 
 @app.get("/api/fleet/pulse")
 async def fleet_pulse():
-    """Fleet health check. Returns overall status + individual checks. Polled every 30s by the Bridge."""
+    """Fleet health check. Returns overall status + individual checks. Polled every 30s by the Bridge.
+
+    HM-MARKET-HOLIDAY-CALENDAR Phase C 2026-05-25: market state now sourced
+    from engine.market_calendar (DST-aware via pytz + holiday-aware) instead
+    of the prior weekday-only check. Response includes ``market_status``
+    (enum value), ``holiday_name`` (or None), and ``next_market_open`` (ISO
+    string) for the banner UI.
+    """
     import sqlite3 as _sq
-    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
+    from datetime import datetime as _dt, timezone as _tz
+
+    from engine.market_calendar import (
+        ET as _ET,
+        MarketStatus as _MarketStatus,
+        get_holiday_name as _get_holiday_name,
+        get_market_status as _get_market_status,
+        next_market_open as _next_market_open,
+    )
 
     now_utc = _dt.now(_tz.utc)
-    now_et = now_utc - _td(hours=4)  # ET is UTC-4 during DST
+    now_et = now_utc.astimezone(_ET)  # DST-aware via pytz
     today_et_str = now_et.strftime("%Y-%m-%d")
 
     weekday = now_et.weekday()
     minutes_into_day = now_et.hour * 60 + now_et.minute
-    market_is_open = (weekday < 5 and minutes_into_day >= 570 and minutes_into_day < 960)
+    _mkt_status = _get_market_status(now_utc)
+    market_is_open = _mkt_status == _MarketStatus.OPEN
+    _holiday_name = _get_holiday_name(now_et.date())
+    try:
+        _next_open_dt = _next_market_open(now_utc)
+        _next_open_iso = _next_open_dt.isoformat()
+    except Exception:
+        _next_open_iso = None
 
     checks = {}
 
@@ -19939,15 +19961,23 @@ async def fleet_pulse():
 
     if not market_is_open:
         status = "standby"
-        if weekday >= 5:
+        # HM-MARKET-HOLIDAY-CALENDAR Phase C — reason text per market_status.
+        if _mkt_status == _MarketStatus.CLOSED_HOLIDAY:
+            nm = _holiday_name or "Holiday"
+            reasons.append(f"Holiday — {nm} · fleet at rest")
+        elif _mkt_status == _MarketStatus.CLOSED_WEEKEND:
             reasons.append("Weekend — fleet at rest")
-        elif minutes_into_day < market_open_min:
+        elif _mkt_status == _MarketStatus.CLOSED_BEFORE_HOURS:
             mins_to_open = market_open_min - minutes_into_day
             hrs = mins_to_open // 60
             mins = mins_to_open % 60
             reasons.append(f"Pre-market — opens in {hrs}h {mins}m")
-        else:
+        elif _mkt_status == _MarketStatus.CLOSED_EARLY:
+            reasons.append("Early close (1pm ET) — fleet standby")
+        elif _mkt_status == _MarketStatus.CLOSED_AFTER_HOURS:
             reasons.append("After-hours — fleet standby")
+        else:
+            reasons.append(f"Market closed ({_mkt_status.value})")
     else:
         last_trade_min = checks["last_trade"].get("minutes_ago")
         scanner_ok = checks["scanner_signals_today"].get("ok", True)
@@ -19970,6 +20000,9 @@ async def fleet_pulse():
     return {
         "status": status,
         "market_open": market_is_open,
+        "market_status": _mkt_status.value,         # HM-MARKET-HOLIDAY-CALENDAR Phase C
+        "holiday_name": _holiday_name,
+        "next_market_open": _next_open_iso,
         "et_now": now_et.strftime("%Y-%m-%d %H:%M:%S"),
         "reasons": reasons,
         "checks": checks,
