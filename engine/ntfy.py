@@ -1,9 +1,17 @@
 """
 engine/ntfy.py — ntfy.sh push notifications for TradeMinds
 
-Topic: https://ntfy.sh/ollietrades-crew  (trade events)
+Topics:
+  - https://ntfy.sh/ollietrades-crew              (default — trade events)
+  - https://ntfy.sh/ollietrades-proving-ground    (Sniper Mode trial — _fire_pg)
+
 No external dependencies — uses stdlib urllib.request only.
 Fire-and-forget: all sends are in a daemon thread, never block the caller.
+
+Topic selection: _fire() → NTFY_TOPIC (crew). _fire_pg() → NTFY_PROVING_GROUND_TOPIC
+(proving ground). The latter exists so the Sniper Mode trial's volume +
+engagement can be measured independently from the broader crew channel
+(HM-PROVING-GROUND-FORMALIZE-V2 SUB-1 2026-05-25).
 """
 import os
 import threading
@@ -14,6 +22,13 @@ import json
 NTFY_TOPIC = os.getenv("NTFY_CREW_TOPIC",
              os.getenv("NTFY_TOPIC", "ollietrades-crew"))
 NTFY_URL   = f"https://ntfy.sh/{NTFY_TOPIC}"
+
+# HM-PROVING-GROUND-FORMALIZE-V2 SUB-1 2026-05-25 — dedicated topic for
+# the Sniper Mode trial NTFY stream so its volume/engagement can be
+# measured independently from the broader ollietrades-crew channel.
+NTFY_PROVING_GROUND_TOPIC = os.getenv(
+    "NTFY_PROVING_GROUND_TOPIC", "ollietrades-proving-ground"
+)
 
 # Priority constants (ntfy.sh values)
 P_MAX     = 5   # urgent — sound + persistent
@@ -40,10 +55,16 @@ _TAGS = {
 }
 
 
-def _send(title: str, body: str, priority: int = P_DEFAULT, tags: str = "") -> None:
-    """POST a single ntfy message. Called in a daemon thread."""
+def _send(title: str, body: str, priority: int = P_DEFAULT, tags: str = "",
+          topic: str = None) -> None:
+    """POST a single ntfy message. Called in a daemon thread.
+
+    HM-PROVING-GROUND-FORMALIZE-V2 SUB-1: optional ``topic`` param allows
+    routing to a non-default topic (default remains NTFY_TOPIC). When None,
+    uses NTFY_TOPIC to preserve all pre-existing _fire callers.
+    """
     try:
-        data = json.dumps({"topic": NTFY_TOPIC,
+        data = json.dumps({"topic": topic or NTFY_TOPIC,
                            "title": title,
                            "message": body,
                            "priority": priority,
@@ -62,6 +83,20 @@ def _send(title: str, body: str, priority: int = P_DEFAULT, tags: str = "") -> N
 def _fire(title: str, body: str, priority: int = P_DEFAULT, tags: str = "") -> None:
     """Spawn a daemon thread and return immediately."""
     t = threading.Thread(target=_send, args=(title, body, priority, tags), daemon=True)
+    t.start()
+
+
+def _fire_pg(title: str, body: str, priority: int = P_DEFAULT, tags: str = "") -> None:
+    """HM-PROVING-GROUND-FORMALIZE-V2 SUB-1 — fire to the dedicated
+    ollietrades-proving-ground topic instead of the shared crew channel.
+    Used by engine/proving_ground.py so proving-ground volume/engagement
+    can be measured independently. Drop-in replacement for _fire signature."""
+    t = threading.Thread(
+        target=_send,
+        args=(title, body, priority, tags),
+        kwargs={"topic": NTFY_PROVING_GROUND_TOPIC},
+        daemon=True,
+    )
     t.start()
 
 

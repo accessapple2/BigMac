@@ -14,7 +14,7 @@ from typing import Any
 import pytz
 
 # ── ntfy ──────────────────────────────────────────────────────────────────────
-from engine.ntfy import _fire, P_HIGH, P_DEFAULT, P_MAX, P_LOW
+from engine.ntfy import _fire_pg as _fire, P_HIGH, P_DEFAULT, P_MAX, P_LOW  # HM-PROVING-GROUND-FORMALIZE-V2 SUB-1: route to dedicated ollietrades-proving-ground topic
 
 # ── Config ────────────────────────────────────────────────────────────────────
 TRADER_DB = "data/trader.db"
