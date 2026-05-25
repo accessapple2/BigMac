@@ -142,16 +142,11 @@ def _get_position_size_pct(conviction: float, is_bear: bool) -> float:
             return 0.15
 
 # V2: Conviction-scaled stop-loss (replaces flat STOP_LOSS_PCT)
-def _get_stop_loss_pct(conviction: float) -> float:
-    """Wider stops for higher conviction — let winners breathe."""
-    if conviction >= 0.90:
-        return 0.18
-    elif conviction >= 0.80:
-        return 0.15
-    elif conviction >= 0.70:
-        return 0.12
-    else:
-        return 0.08
+# HM-RISK-MANAGER-CONVICTION-STOP-WIRE 2026-05-24: extracted to engine/stops.py
+# so risk_manager.py can share the same logic without importing this module-
+# private name. Re-exported here as _get_stop_loss_pct for backward compatibility
+# with the local caller below; new code should import directly from engine.stops.
+from engine.stops import get_stop_loss_pct as _get_stop_loss_pct
 
 # V2: Minimum holding periods (days)
 MIN_HOLD_DAYS = {
@@ -242,8 +237,13 @@ def _v3_trailing_stop_pct(gain_pct: float) -> float:
 
 
 def _simulate_guarded(player_id: str, signals: list, hist_data: dict,
-                      vix_history: dict) -> tuple:
-    """V3 Guarded simulation — per-model limits, quality gate, trailing stops, pyramids."""
+                      vix_history: dict, flat_stop_pct: float | None = None) -> tuple:
+    """V3 Guarded simulation — per-model limits, quality gate, trailing stops, pyramids.
+
+    flat_stop_pct: HM-RISK-MANAGER-CONVICTION-STOP-WIRE Phase 5 — when set,
+    override the conviction-scaled stop with a flat percentage. Used by
+    the A/B comparison harness to simulate the pre-wire baseline (flat 12%).
+    """
     cash = STARTING_CASH
     trades = []
     skipped = []
@@ -456,7 +456,9 @@ def _simulate_guarded(player_id: str, signals: list, hist_data: dict,
                 continue
 
         # --- Open position with conviction-scaled stop ---
-        stop_pct = _get_stop_loss_pct(conf)
+        # HM-RISK-MANAGER-CONVICTION-STOP-WIRE Phase 5 A/B: flat_stop_pct
+        # overrides for baseline simulation.
+        stop_pct = flat_stop_pct if flat_stop_pct is not None else _get_stop_loss_pct(conf)
         stop_price = entry_price * (1 - stop_pct)
 
         cash -= cost
@@ -573,7 +575,8 @@ def _find_exit_with_stop(prices: dict, signal_date: str, entry_price: float,
 
 def backtest_player(player_id: str, days: int = 30,
                     start_date: str = None, end_date: str = None,
-                    apply_guardrails: bool = False) -> dict:
+                    apply_guardrails: bool = False,
+                    flat_stop_pct: float | None = None) -> dict:
     """Simulate replaying a model's actual signals against historical prices.
 
     Args:
@@ -655,7 +658,7 @@ def backtest_player(player_id: str, days: int = 30,
     # Run simulation
     if apply_guardrails:
         result_tuple = _simulate_guarded(
-            player_id, signals, hist_data, vix_history
+            player_id, signals, hist_data, vix_history, flat_stop_pct=flat_stop_pct
         )
         # V3 returns 4 values, V2 returned 3
         if len(result_tuple) == 4:

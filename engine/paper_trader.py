@@ -465,10 +465,16 @@ def _current_season() -> int:
 
 
 def get_portfolio(player_id: str) -> dict:
+    # HM-POSITIONS-CONVICTION-DENORM 2026-05-24: include conviction so the
+    # exit-evaluation site (engine/risk_manager.py:785) can read it without
+    # an extra DB roundtrip. NULL conviction is expected for non-AI-signal
+    # players (alpaca-mirror, enterprise-computer) and pre-denorm legacy
+    # rows — the consumer's allow-list + NULL-fallback handles those.
     conn = _conn()
     row = conn.execute("SELECT cash FROM ai_players WHERE id=?", (player_id,)).fetchone()
     pos = conn.execute(
-        "SELECT symbol, qty, avg_price, asset_type, option_type, strike_price, expiry_date, high_watermark "
+        "SELECT symbol, qty, avg_price, asset_type, option_type, strike_price, expiry_date, "
+        "high_watermark, conviction "
         "FROM positions WHERE player_id=?", (player_id,)
     ).fetchall()
     conn.close()
@@ -477,7 +483,7 @@ def get_portfolio(player_id: str) -> dict:
         "positions": [
             {"symbol": p[0], "qty": p[1], "avg_price": p[2], "asset_type": p[3],
              "option_type": p[4], "strike_price": p[5], "expiry_date": p[6],
-             "high_watermark": p[7]}
+             "high_watermark": p[7], "conviction": p[8]}
             for p in pos
         ]
     }
@@ -1324,6 +1330,12 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     _pos_ex_qty_before = 0.0
     _pos_ex_avg_before = 0.0
     _pos_was_new = True
+    # HM-POSITIONS-CONVICTION-DENORM 2026-05-24: stamp conviction from the
+    # BUY signal's confidence onto positions.conviction so risk_manager.py
+    # can scale stops without re-fetching. 0.0 / negative confidence becomes
+    # NULL so the Phase 4 NULL-fallback uses flat stops rather than the
+    # tightest scaled tier (8%) — "no real signal" should not narrow stops.
+    _conv = float(confidence) if confidence and confidence > 0 else None
     if asset_type == "stock":
         ex = conn.execute(
             "SELECT qty, avg_price FROM positions WHERE player_id=? AND symbol=? AND asset_type='stock'",
@@ -1336,19 +1348,23 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             nq = ex[0] + qty
             na = round(((ex[0] * ex[1]) + cost) / nq, 4)
             conn.execute(
-                "UPDATE positions SET qty=?, avg_price=? WHERE player_id=? AND symbol=? AND asset_type='stock'",
-                (nq, na, player_id, symbol)
+                "UPDATE positions SET qty=?, avg_price=?, conviction=?, conviction_source='live_buy' "
+                "WHERE player_id=? AND symbol=? AND asset_type='stock'",
+                (nq, na, _conv, player_id, symbol)
             )
         else:
             conn.execute(
-                "INSERT INTO positions(player_id, symbol, qty, avg_price, asset_type) VALUES(?,?,?,?,?)",
-                (player_id, symbol, qty, price, "stock")
+                "INSERT INTO positions(player_id, symbol, qty, avg_price, asset_type, "
+                "conviction, conviction_source) VALUES(?,?,?,?,?,?,?)",
+                (player_id, symbol, qty, price, "stock", _conv, "live_buy")
             )
     else:
         conn.execute(
-            "INSERT INTO positions(player_id, symbol, qty, avg_price, asset_type, option_type, strike_price, expiry_date) "
-            "VALUES(?,?,?,?,?,?,?,?)",
-            (player_id, symbol, qty, price, "option", option_type, strike_price, expiry_date)
+            "INSERT INTO positions(player_id, symbol, qty, avg_price, asset_type, option_type, "
+            "strike_price, expiry_date, conviction, conviction_source) "
+            "VALUES(?,?,?,?,?,?,?,?,?,?)",
+            (player_id, symbol, qty, price, "option", option_type, strike_price, expiry_date,
+             _conv, "live_buy")
         )
 
     # HM-PROMPT-VERSIONING (POC Day 2b) 2026-05-22: look up signals.prompt_version
@@ -4148,9 +4164,14 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
         return None
 
     conn.execute("UPDATE ai_players SET cash=? WHERE id=?", (round(cash - margin, 2), player_id))
+    # HM-POSITIONS-CONVICTION-DENORM 2026-05-24: same conviction-stamp policy
+    # as the long-side buy() path. 0.0/negative confidence -> NULL conviction
+    # so Phase 4 stop-loss falls back to flat rather than the tightest tier.
+    _conv_short = float(confidence) if confidence and confidence > 0 else None
     conn.execute(
-        "INSERT INTO positions(player_id, symbol, qty, avg_price, asset_type) VALUES(?,?,?,?,?)",
-        (player_id, symbol, -qty, price, "stock")  # negative qty = short
+        "INSERT INTO positions(player_id, symbol, qty, avg_price, asset_type, "
+        "conviction, conviction_source) VALUES(?,?,?,?,?,?,?)",
+        (player_id, symbol, -qty, price, "stock", _conv_short, "live_buy")  # negative qty = short
     )
     _short_cur = conn.execute(
         "INSERT INTO trades(player_id, symbol, action, qty, price, asset_type, "
