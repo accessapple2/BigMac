@@ -284,3 +284,42 @@ The 24-point delta (deepseek-7b-grok4 raw 0.85 × modifier 0.72 = meta 0.61) is 
 **Reversal:** `git revert 727573d` + drop new cols (or leave NULL — back-compat preserved). Restart: `launchctl kickstart -k gui/$(id -u)/com.trademinds.trader`.
 
 **Backup:** `data/trader.db.bak_HM-DECISION-AUDIT-V1-1_20260522_062104` (365MB).
+
+## 2026-05-25 08:45 AZ — HM-MARKET-HOLIDAY-CALENDAR emergency halt (Stage 3)
+
+**neo-matrix + ollie-auto** halt_mode set to `full` due to Memorial Day market-closed doctrine violation.
+
+**Root cause:** Production trader has no US market holiday calendar. Memorial Day = Monday = weekday 0; dashboard's `market_is_open` widget (`dashboard/app.py:19886`) is weekday-only and returns True; trader fired as a normal Monday. `US_HOLIDAYS` constants exist only in backtest scripts (`scripts/ollie_backtest_12m.py`, `scripts/s6_*_backtest.py`), never imported by production execution path.
+
+**Impact contained:**
+- Stage 1 — 6 Alpaca orders cancelled, 0/0 filled (commit `6cdf9d5`)
+- Stage 2 — 11 local rows archived to `positions_archived` + `trades_archived` per Doctrine Rule #2 (commit `c35aa51`, session `07d121ec-574e-44b0-a280-b2948c638c64`)
+- Stage 3 — both offending players halted (this commit)
+
+**Halt SQL applied:**
+```sql
+UPDATE ai_players
+   SET halt_mode = 'full',
+       halt_reason = 'HM-MARKET-HOLIDAY-CALENDAR doctrine violation 2026-05-25',
+       halted_at = datetime('now', 'localtime')
+ WHERE id IN ('neo-matrix', 'ollie-auto');
+```
+
+Verification:
+```
+id          halt_mode  halt_reason                                               halted_at
+----------  ---------  --------------------------------------------------------  -------------------
+neo-matrix  full       HM-MARKET-HOLIDAY-CALENDAR doctrine violation 2026-05-25  2026-05-25 08:45:42
+ollie-auto  full       HM-MARKET-HOLIDAY-CALENDAR doctrine violation 2026-05-25  2026-05-25 08:45:42
+```
+
+**Re-engagement path:** Tuesday 2026-05-26 09:30 ET via Admiral manual unhalt (`UPDATE ai_players SET halt_mode='active', halted_at=NULL, halt_reason=NULL` per the standard unhalt pattern in CLAUDE.md), OR automatic when HM-MARKET-HOLIDAY-CALENDAR structural fix lands (Stage 4 in progress).
+
+**Other 17 active AI players unaffected** — only the 2 that fired today are halted. Per guard rail: do not halt non-offending players.
+
+**Trader behavior:** halt_mode is read per-cycle from ai_players, no restart needed. Next read by trader will pick up `full` and suppress further signal emission + trade execution for both players.
+
+**Commits (NOT pushed; held pending Stage 4 Phase B tests):**
+- `6cdf9d5` Stage 1 — order cancel + forensic snapshot
+- `c35aa51` Stage 2 — local reconcile (Doctrine Rule #2 archive)
+- (this commit) Stage 3 — agent halt
