@@ -9854,42 +9854,139 @@ def record_api_call(player_id: str):
 
 @app.post("/api/admin/clean-stale-snapshots")
 def clean_stale_snapshots():
-    # HM-CATEGORY-C-EMERGENCY-LOCK 2026-05-25 — DISABLED.
-    # Forensic audit (HM-DATA-INTEGRITY-FORENSICS) determined this endpoint
-    # was the path that wiped pre-2026-03-11 portfolio_history. DELETE
-    # without archive violates the "Trade data is gold. Never delete data."
-    # doctrine. Endpoint short-circuits to 403 until HM-CLEAN-STALE-ARCHIVE-
-    # NOT-DELETE ships (archive-then-delete pattern with audit trail).
-    # Function body preserved below as forensic evidence — do NOT remove.
+    """Archive-then-delete stale portfolio_history rows for recently-
+    recapitalized players.
+
+    HM-CLEAN-STALE-ARCHIVE-NOT-DELETE 2026-05-25 — replaces the prior
+    delete-without-archive logic (and the HM-CATEGORY-C-EMERGENCY-LOCK
+    403 short-circuit from commit 45e57e1) with archive-then-delete in
+    a single transaction. Sacred Data Rule: "Trade data is gold. Never
+    delete data" — every row moved out of portfolio_history is INSERTed
+    into portfolio_history_archived first with full audit trail
+    (archived_by, archive_reason, archive_session_id, archived_at).
+
+    Selection criteria (unchanged from original): player_id rows in
+    portfolio_history with season == current AND ai_players.cash >= 9999
+    (recently recapitalized) AND portfolio_history.total_value < 9000
+    (stale losing snapshots prior to the recap).
+
+    Atomicity: archive INSERTs and source DELETEs run in a single
+    sqlite3 transaction. If counts don't match at the end (defensive
+    consistency check), the transaction rolls back and the request
+    returns HTTP 500 — no data is lost.
+
+    Returns: archived_count, deleted_count (asserted equal), session_id
+    (UUID grouping this batch — usable with the restore endpoint),
+    by_player map, and a sample of newly-created archive row ids.
+    """
+    import uuid
     from fastapi import HTTPException
-    raise HTTPException(
-        status_code=403,
-        detail=(
-            "DISABLED 2026-05-25 — HM-DATA-INTEGRITY-FORENSICS doctrine "
-            "violation. Archive-not-delete fix pending under "
-            "HM-CLEAN-STALE-ARCHIVE-NOT-DELETE. Contact Admiral."
-        ),
-    )
-    # --- ORIGINAL BODY (forensic evidence, unreachable) ---
+    session_id = str(uuid.uuid4())
     conn = _conn()
-    season_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
-    season = int(season_row[0]) if season_row else 3
-    # Find models with $10k cash but portfolio_history showing losses (stale from pre-reset)
-    stale = conn.execute("""
-        SELECT DISTINCT ph.player_id FROM portfolio_history ph
-        JOIN ai_players ap ON ap.id = ph.player_id
-        WHERE ph.season=? AND ap.cash >= 9999
-        AND ph.total_value < 9000
-    """, (season,)).fetchall()
-    deleted = {}
-    for row in stale:
-        pid = row["player_id"]
-        cnt = conn.execute("SELECT count(*) FROM portfolio_history WHERE player_id=? AND season=?", (pid, season)).fetchone()[0]
-        conn.execute("DELETE FROM portfolio_history WHERE player_id=? AND season=?", (pid, season))
-        deleted[pid] = cnt
-    conn.commit()
-    conn.close()
-    return {"ok": True, "deleted": deleted}
+    try:
+        season_row = conn.execute(
+            "SELECT value FROM settings WHERE key='current_season'"
+        ).fetchone()
+        season = int(season_row[0]) if season_row else 3
+
+        candidate_rows = conn.execute(
+            """
+            SELECT DISTINCT ph.player_id FROM portfolio_history ph
+            JOIN ai_players ap ON ap.id = ph.player_id
+            WHERE ph.season = ?
+              AND ap.cash >= 9999
+              AND ph.total_value < 9000
+            """,
+            (season,),
+        ).fetchall()
+        candidate_pids = [r["player_id"] for r in candidate_rows]
+
+        if not candidate_pids:
+            conn.close()
+            return {
+                "ok": True,
+                "archived_count": 0,
+                "deleted_count": 0,
+                "session_id": session_id,
+                "by_player": {},
+                "message": "No stale snapshots to archive",
+            }
+
+        archived_count = 0
+        deleted_count = 0
+        by_player = {}
+        sample_archived_ids = []
+
+        for pid in candidate_pids:
+            rows = conn.execute(
+                """
+                SELECT id, player_id, total_value, cash, positions_value,
+                       recorded_at, season
+                  FROM portfolio_history
+                 WHERE player_id = ? AND season = ?
+                """,
+                (pid, season),
+            ).fetchall()
+            for r in rows:
+                cur = conn.execute(
+                    """
+                    INSERT INTO portfolio_history_archived
+                      (original_row_id, player_id, total_value, cash,
+                       positions_value, recorded_at, season,
+                       archived_by, archive_reason, archive_session_id)
+                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+                    """,
+                    (
+                        r["id"], r["player_id"], r["total_value"], r["cash"],
+                        r["positions_value"], r["recorded_at"], r["season"],
+                        "clean_stale_snapshots",
+                        f"cash>=9999 AND total_value<9000 (season {season})",
+                        session_id,
+                    ),
+                )
+                archived_count += 1
+                if len(sample_archived_ids) < 5:
+                    sample_archived_ids.append(cur.lastrowid)
+
+            del_cur = conn.execute(
+                "DELETE FROM portfolio_history WHERE player_id = ? AND season = ?",
+                (pid, season),
+            )
+            by_player[pid] = del_cur.rowcount
+            deleted_count += del_cur.rowcount
+
+        if archived_count != deleted_count:
+            # Defensive consistency check — rollback via outer except
+            raise HTTPException(
+                status_code=500,
+                detail=(
+                    f"Archive/delete count mismatch "
+                    f"(archived={archived_count}, deleted={deleted_count}). "
+                    "Transaction rolled back; no data lost."
+                ),
+            )
+
+        conn.commit()
+        return {
+            "ok": True,
+            "archived_count": archived_count,
+            "deleted_count": deleted_count,
+            "session_id": session_id,
+            "by_player": by_player,
+            "sample_archived_ids": sample_archived_ids,
+            "restore_endpoint": "POST /api/admin/portfolio-history/restore-from-archive",
+        }
+    except Exception:
+        try:
+            conn.rollback()
+        except Exception:
+            pass
+        raise
+    finally:
+        try:
+            conn.close()
+        except Exception:
+            pass
 
 
 
