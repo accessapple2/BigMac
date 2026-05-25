@@ -99,6 +99,88 @@ Banked adjacent (not actionable now):
 - No NTFY on recap events (silent) — fleet observability gap, low priority.
 - No 'unrecap' / refund path — one-way by design, acceptable.
 
+#### HM-MARKET-HOLIDAY-CALENDAR — ✅ **SHIPPED** 2026-05-25 (Memorial Day arc)
+
+Production trader fired 6 Alpaca orders + 2 simulated positions on
+Memorial Day 2026-05-25 (market closed) because there was no holiday
+calendar in production code. Full structural fix delivered same session.
+
+Containment + structural commits (all pushed to main):
+  `6cdf9d5`  Stage 1 — 6 Alpaca orders cancelled, 0/0 filled
+  `c35aa51`  Stage 2 — 11 local rows archived per Doctrine Rule #2
+  `02d3558`  Stage 3 — neo-matrix + ollie-auto halted
+  `7d55d35`  Phase A — engine/market_calendar.py + tests (18/18)
+  `3cd4838`  Phase B — 7 hard gates + 1 soft update (11/11 tests)
+  `bf54ee8`  Phase C — dashboard banner holiday-aware
+  `4588639`  Phase D — docs/DOCTRINE.md Rule #4
+
+Doctrine Rule #4 codified: "Never trade on closed markets." Gates at
+paper_trader buy/sell/short_sell + alpaca_bridge buy/sell/short_sell
++ alpaca_options.execute_options_signal + risk_manager.is_market_hours.
+
+`engine/market_calendar.py` carries 2025-2027 NYSE holidays + early-
+close days + DST-aware status enum. Annual extension required (bank
+calendar-year-end ticket each December).
+
+neo-matrix + ollie-auto held at `halt_mode='exit_only'` overnight
+2026-05-25 → 2026-05-26 as conservative posture for first overnight
+after fix; Admiral promotes to `active` Tuesday 09:30 ET after banner
+verification.
+
+#### HM-PROVING-GROUND-FORMALIZE-V2 — ✅ **SHIPPED** 2026-05-25 (merge `3b4bdac`)
+
+Sniper Mode trial formalized after Memorial Day NTFY Proving Ground
+review surfaced that the 30-day spec had run to Day 45 without formal
+extension or exit criteria. Three-SUB structural ship:
+
+  `e79a12a`  SUB-1 — dedicated `ollietrades-proving-ground` NTFY topic
+                    (Admiral mobile receipt confirmed)
+  `af22d32`  SUB-2 — Admiral-locked exit criteria + state evaluator
+                    + Admiral CLI for terminal states (10/10 tests)
+  `20d696c`  SUB-3 — TRIAL_DAYS 30 -> 60 + formalization rationale
+
+Daily 13:18 AZ evaluator hook (`main.py::run_proving_ground_evaluator`).
+State machine: pending → warning → ship_ready | kill_warning → shipped |
+killed (terminal states require `scripts/proving_ground_admiral.py
+--ship`/`--kill` --confirm --agent ollie-auto).
+
+Dry-run at Day 46 (today): state='warning' (4/6 streak 5+ days).
+**Heads-up:** at Day 60 boundary (2026-06-09) K1 kill_warning will fire
+automatically because dd has held at -24% across the entire trial.
+Admiral can preempt with --kill before Day 60 OR respond when the
+auto-surfaced kill_warning emits.
+
+#### HM-RISK-MANAGER-CONVICTION-STOP-WIRE — ✅ **SHIPPED** 2026-05-25 (merge `9b55466`)
+
+Conviction-scaled stops shipped with feature flag default OFF. Tier
+table at d41216b floor-fix state (0.18/0.15/0.12 — never tighter than
+flat baseline).
+
+Branch ship (11 commits merged):
+  5655fb0 → f42c181  full HM-POSITIONS-CONVICTION-DENORM + WIRE arc
+  d41216b           floor fix (eliminate 0.08 regression band)
+  6971a91           Phase 5c 180d re-run (G1 +0.8%, G3 still 2/14)
+  568cb81           Phase 6 feature flag default off
+  51650ad           Opt 1 calibration trial (REJECTED — worse than floor)
+  f42c181           Restore d41216b tier table per Admiral ship-as-is
+
+Admiral flips `CONVICTION_SCALED_STOPS_ENABLED=True` in .env after
+shadow-validating live trader behavior. Until then, production is
+doctrine-equivalent to pre-wire (flat per-model guardrail for all
+players).
+
+HM-CONVICTION-TIER-BOUNDARY-CALIBRATION remains banked (separate
+ticket) for post-shadow review — 3/4 regressors (dayblade-sulu,
+options-sosnoff, partial ollama-llama) live in the 0.15 tier and would
+benefit from calibration that the rejected Opt 1 trial failed to find.
+
+#### HM-NTFY-ACK-CLICKTHROUGH — banked (Week 7 work)
+
+Single click-through URL in NTFY body → logs `ntfy_ack` row to new
+`ntfy_acknowledgements` table. ~30-min implementation. Enables real
+engagement measurement instead of inferred-via-correlation. Low
+priority — can ship anytime in the next 2 weeks.
+
 #### HM-FINMEM-AGENT-MEMORY-ARCHIVE — defensive flag
 
 `engine/finmem_writers.py:280` prunes `agent_memory` rows where
