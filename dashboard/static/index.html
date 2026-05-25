@@ -14453,7 +14453,7 @@ var emaScanner = (function() {
         + '<td style="padding:7px 10px;text-align:right;">$' + r.price.toFixed(2) + '</td>'
         + '<td style="padding:7px 10px;text-align:right;color:var(--muted);">$' + r.ema8.toFixed(2) + '</td>'
         + '<td style="padding:7px 10px;text-align:right;font-weight:700;color:' + symClr + ';">+'  + r.distPct.toFixed(2) + '%</td>'
-        + '<td style="padding:7px 10px;text-align:right;color:#22c55e;font-weight:700;">+'          + r.rs4w.toFixed(2)   + '%</td>'
+        + '<td style="padding:7px 10px;text-align:right;color:var(--up);font-weight:700;">+'          + r.rs4w.toFixed(2)   + '%</td>'
         + '<td style="padding:7px 10px;text-align:center;"><span style="font-size:10px;padding:2px 8px;background:' + tagBg + ';color:' + symClr + ';border-radius:4px;font-weight:700;white-space:nowrap;">' + tagLabel + '</span></td>'
         + '<td style="padding:7px 10px;text-align:center;white-space:nowrap;">'
         +   '<button onclick="event.stopPropagation();showTickerPopup(\'' + r.symbol + '\')" class="btn" style="font-size:10px;padding:1px 6px;margin-right:3px;">Detail</button>'
@@ -14526,7 +14526,7 @@ var emaScanner = (function() {
 
     } catch(e) {
       _setStatus('📈 EMA Pullback error: ' + (e.message || String(e)));
-      if (emaWrap) emaWrap.innerHTML = '<div style="padding:20px;color:#ef4444;">Scan error: ' + (e.message || String(e)) + '</div>';
+      if (emaWrap) emaWrap.innerHTML = '<div style="padding:20px;color:var(--down);">Scan error: ' + (e.message || String(e)) + '</div>';
     }
   }
 
@@ -14835,7 +14835,7 @@ async function fetchCaptainsLog() {
       } else if (action === 'SELL') {
         actionBadge = '<span style="padding:2px 8px;border-radius:4px;font-weight:700;font-size:13px;background:rgba(234,88,12,0.15);color:#ea580c;border:1px solid rgba(234,88,12,0.3);">[SELL] ▼</span>';
       } else {
-        actionBadge = '<span style="padding:2px 8px;border-radius:4px;font-weight:700;font-size:13px;background:rgba(148,163,184,0.15);color:#94a3b8;">' + action + '</span>';
+        actionBadge = '<span style="padding:2px 8px;border-radius:4px;font-weight:700;font-size:13px;background:rgba(148,163,184,0.15);color:var(--text-secondary);">' + action + '</span>';
       }
       var typeLabel = t.asset_type === 'option' ? ((t.option_type||'').toUpperCase() + ' OPT') : 'STOCK';
       var details = '';
@@ -15275,7 +15275,7 @@ registerSectionInit('model-dna', fetchModelDNA, []);
 <!-- WAR ROOM SECTION — Captain's Bridge -->
 <div id="section-war-room" style="display:none;">
   <div id="guide-container-war-room"></div>
-  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Captain's Bridge</div><div style="font-size:13px;color:#94a3b8;">Manual order entry and direct Grok consultation. Post trade ideas, get live AI analysis, and execute with full context from the command chair.</div></div>
+  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Captain's Bridge</div><div style="font-size:13px;color:var(--text-secondary);">Manual order entry and direct Grok consultation. Post trade ideas, get live AI analysis, and execute with full context from the command chair.</div></div>
   <!-- Captain's Command Bar -->
   <div class="card" style="margin-bottom:12px;border:1px solid #fbbf2430;">
     <div style="padding:14px 16px;">
@@ -15439,7 +15439,7 @@ registerSectionInit('model-dna', fetchModelDNA, []);
 
 <!-- RIKER'S LOG -->
 <div id="section-rikers-log" style="display:none;">
-  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Trading Journal</div><div style="font-size:13px;color:#94a3b8;">Log trades, lessons, and observations. Sync with Spock for post-trade analysis. The log that turns mistakes into edge — discipline lives here.</div></div>
+  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Trading Journal</div><div style="font-size:13px;color:var(--text-secondary);">Log trades, lessons, and observations. Sync with Spock for post-trade analysis. The log that turns mistakes into edge — discipline lives here.</div></div>
   <!-- New Entry -->
   <div class="card" style="margin-bottom:16px;border:1px solid rgba(251,191,36,0.2);">
     <div class="card-header">
@@ -15514,7 +15514,7 @@ registerSectionInit('model-dna', fetchModelDNA, []);
 <!-- ALPACA PAPER TRADING -->
 <div id="section-alpaca" style="display:none;">
   <div id="guide-container-alpaca"></div>
-  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Paper Trading Lab</div><div style="font-size:13px;color:#94a3b8;">Alpaca paper trading account — separate from the USS OllieTrades arena. Tests strategy execution via the Alpaca API with zero real capital at risk.</div></div>
+  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Paper Trading Lab</div><div style="font-size:13px;color:var(--text-secondary);">Alpaca paper trading account — separate from the USS OllieTrades arena. Tests strategy execution via the Alpaca API with zero real capital at risk.</div></div>
   <div class="card" style="margin-bottom:16px;">
     <div class="card-header">
       <div class="card-title">🦙 Alpaca Paper Trading</div>
@@ -15654,7 +15654,7 @@ registerSectionInit('alpaca', fetchAlpacaAll, [{fn:fetchAlpacaAll, ms:30000}]);
 
 <div id="section-metals" style="display:none;">
   <div id="guide-container-dalio"></div>
-  <div style="border-left:4px solid #ffd700;background:rgba(255,215,0,0.04);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:#ffd700;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">⚗️ Dilithium Reserve — Strategic Metals Vault</div><div style="font-size:13px;color:#94a3b8;">Real physical gold &amp; silver holdings. Cost basis from actual purchase ledger — not paper defaults.</div></div>
+  <div style="border-left:4px solid #ffd700;background:rgba(255,215,0,0.04);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:#ffd700;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">⚗️ Dilithium Reserve — Strategic Metals Vault</div><div style="font-size:13px;color:var(--text-secondary);">Real physical gold &amp; silver holdings. Cost basis from actual purchase ledger — not paper defaults.</div></div>
   <!-- Spot Prices Bar -->
   <div style="display:flex;gap:12px;margin-bottom:16px;flex-wrap:wrap;" id="metalsSpotBar"></div>
 
@@ -15712,7 +15712,7 @@ registerSectionInit('alpaca', fetchAlpacaAll, [{fn:fetchAlpacaAll, ms:30000}]);
 
   <!-- Metals Command — ETF Flow Bar (S6.3, 2026-04-16) -->
   <!-- Tracks: GLD, SLV, COPX, GDX, SIL, PPLT, PALL, REMX, URA -->
-  <div class="card" style="margin-bottom:16px;border-left:3px solid #94a3b8;">
+  <div class="card" style="margin-bottom:16px;border-left:3px solid var(--text-secondary);">
     <div class="card-header">
       <div class="card-title">🛒 ETF Flow Tracker</div>
       <span style="font-size:11px;color:var(--muted);">GLD · SLV · COPX · GDX · SIL · PPLT · PALL · REMX · URA</span>
@@ -16333,7 +16333,7 @@ async function runInverseBacktest() {
 <!-- UOA (UNUSUAL OPTIONS ACTIVITY) SECTION -->
 <div id="section-uoa" style="display:none;">
   <div id="guide-container-uoa"></div>
-  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Whale Tracker</div><div style="font-size:13px;color:#94a3b8;">Detects abnormal options contract volume — whale trades and institutional flow that often precede catalysts, earnings moves, or sector rotation.</div></div>
+  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Whale Tracker</div><div style="font-size:13px;color:var(--text-secondary);">Detects abnormal options contract volume — whale trades and institutional flow that often precede catalysts, earnings moves, or sector rotation.</div></div>
   <div class="card">
     <div class="card-header">
       <div class="card-title">🐋 Unusual Options Activity</div>
@@ -16397,8 +16397,8 @@ async function fetchUOADashboard() {
         if (entry > 0) {
           html += '<div style="display:flex;gap:14px;margin-top:5px;font-size:12px;font-family:var(--font-mono);">';
           html += '<span style="color:var(--muted);">Entry <b style="color:var(--text);">$' + entry.toFixed(2) + '</b></span>';
-          if (target) html += '<span style="color:var(--muted);">Target <b style="color:#22c55e;">$' + target + '</b> <span style="color:#22c55e;">(+5%)</span></span>';
-          if (stop)   html += '<span style="color:var(--muted);">Stop <b style="color:#ef4444;">$' + stop + '</b> <span style="color:#ef4444;">(-3%)</span></span>';
+          if (target) html += '<span style="color:var(--muted);">Target <b style="color:var(--up);">$' + target + '</b> <span style="color:var(--up);">(+5%)</span></span>';
+          if (stop)   html += '<span style="color:var(--muted);">Stop <b style="color:var(--down);">$' + stop + '</b> <span style="color:var(--down);">(-3%)</span></span>';
           html += '</div>';
         }
         html += '</div>';
@@ -16658,7 +16658,7 @@ registerSectionInit('options-flow', fetchOptionsFlow, []);
      stomped by startsWith('loading') during after-hours. -->
 <div id="section-fear-greed" data-no-market-gate="true" style="display:none;">
   <div id="guide-container-fear-greed"></div>
-  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Sentiment Engine</div><div style="font-size:13px;color:#94a3b8;">CNN Fear &amp; Greed Index with 7 sub-indicators. Drives fleet-wide position sizing — Extreme Fear multiplies buys 1.25×, Extreme Greed cuts to 0.50× to avoid buying tops.</div></div>
+  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Sentiment Engine</div><div style="font-size:13px;color:var(--text-secondary);">CNN Fear &amp; Greed Index with 7 sub-indicators. Drives fleet-wide position sizing — Extreme Fear multiplies buys 1.25×, Extreme Greed cuts to 0.50× to avoid buying tops.</div></div>
   <div class="card" style="margin-bottom:16px;">
     <div class="card-header" data-tip="WHAT: CNN Fear &amp; Greed Index (0=Extreme Fear, 100=Extreme Greed) — composite of 7 market indicators. WHY: Contrarian signal — Extreme Fear (0-25) = buy opportunity, Extreme Greed (75-100) = reduce exposure. Fleet multiplies position size by 1.25× in Fear, 0.5× in Greed. HOW: 7 sub-indicators: market momentum, stock breadth, safe haven demand, VIX, put/call ratio, junk bond demand, stock price breadth.">
       <div class="card-title">🌡️ Fear &amp; Greed Index — Market Sentiment</div>
@@ -17561,7 +17561,7 @@ registerSectionInit('economy', fetchEconomy, []);
 
 <!-- COST TRACKER SECTION -->
 <div id="section-costs" style="display:none;">
-  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Dilithium Budget</div><div style="font-size:13px;color:#94a3b8;">API token usage and spend tracker per crew member. Keeps the fleet running within budget — monitor cost-per-trade and burn rate before the dilithium runs out.</div></div>
+  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Dilithium Budget</div><div style="font-size:13px;color:var(--text-secondary);">API token usage and spend tracker per crew member. Keeps the fleet running within budget — monitor cost-per-trade and burn rate before the dilithium runs out.</div></div>
   <div class="card" style="margin-bottom:16px;">
     <div class="card-header">
       <div class="card-title">Dilithium Costs — API Spend Tracker</div>
@@ -17786,23 +17786,23 @@ fetch('/api/settings/pause-all').then(function(r){return r.json();}).then(functi
     <div style="display:flex;align-items:center;gap:14px;">
       <div id="dbStrategyIcon" style="font-size:28px;">⚪</div>
       <div style="flex:1;">
-        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:#64748b;margin-bottom:3px;">TODAY'S OPTIMAL STRATEGY</div>
-        <div id="dbStrategyLabel" style="font-size:15px;font-weight:700;color:#94a3b8;">Loading…</div>
-        <div id="dbStrategyDesc" style="font-size:12px;color:#64748b;margin-top:2px;"></div>
+        <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.08em;color:var(--text-muted);margin-bottom:3px;">TODAY'S OPTIMAL STRATEGY</div>
+        <div id="dbStrategyLabel" style="font-size:15px;font-weight:700;color:var(--text-secondary);">Loading…</div>
+        <div id="dbStrategyDesc" style="font-size:12px;color:var(--text-muted);margin-top:2px;"></div>
       </div>
       <div style="text-align:right;">
         <div style="font-size:10px;color:#475569;text-transform:uppercase;letter-spacing:.05em;">Session</div>
-        <div id="dbSession" style="font-size:13px;font-weight:700;color:#94a3b8;text-transform:uppercase;">--</div>
+        <div id="dbSession" style="font-size:13px;font-weight:700;color:var(--text-secondary);text-transform:uppercase;">--</div>
       </div>
     </div>
     <!-- Spread legs — shown only for spread strategies -->
     <div id="dbSpreadLegs" style="display:none;margin-top:10px;padding:8px 12px;border-radius:6px;background:rgba(255,255,255,0.03);border:1px solid #1e293b;font-size:12px;font-family:var(--font-mono);">
       <div style="display:flex;gap:24px;flex-wrap:wrap;">
-        <div><span style="color:#64748b;">BUY: </span><span id="dbLegBuy" style="color:#22c55e;font-weight:700;">--</span></div>
-        <div><span style="color:#64748b;">SELL: </span><span id="dbLegSell" style="color:#ef4444;font-weight:700;">--</span></div>
-        <div><span style="color:#64748b;">WIDTH: </span><span id="dbLegWidth" style="color:#94a3b8;">--</span></div>
-        <div><span style="color:#64748b;">MAX PROFIT: </span><span id="dbLegProfit" style="color:#22c55e;">--</span></div>
-        <div><span style="color:#64748b;">MAX LOSS: </span><span id="dbLegLoss" style="color:#ef4444;">--</span></div>
+        <div><span style="color:var(--text-muted);">BUY: </span><span id="dbLegBuy" style="color:var(--up);font-weight:700;">--</span></div>
+        <div><span style="color:var(--text-muted);">SELL: </span><span id="dbLegSell" style="color:var(--down);font-weight:700;">--</span></div>
+        <div><span style="color:var(--text-muted);">WIDTH: </span><span id="dbLegWidth" style="color:var(--text-secondary);">--</span></div>
+        <div><span style="color:var(--text-muted);">MAX PROFIT: </span><span id="dbLegProfit" style="color:var(--up);">--</span></div>
+        <div><span style="color:var(--text-muted);">MAX LOSS: </span><span id="dbLegLoss" style="color:var(--down);">--</span></div>
       </div>
     </div>
   </div>
@@ -17836,28 +17836,28 @@ fetch('/api/settings/pause-all').then(function(r){return r.json();}).then(functi
     <div class="card-header"><div class="card-title">🗺️ Level Map</div></div>
     <div style="padding:0 14px 14px;font-family:var(--font-mono);font-size:13px;display:flex;flex-direction:column;gap:5px;">
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="color:#ef4444;font-weight:700;">CALL WALL</span>
-        <span id="lvCallWall" style="color:#ef4444;">--</span>
-        <span id="lvCallWallDist" style="color:#64748b;font-size:11px;"></span>
+        <span style="color:var(--down);font-weight:700;">CALL WALL</span>
+        <span id="lvCallWall" style="color:var(--down);">--</span>
+        <span id="lvCallWallDist" style="color:var(--text-muted);font-size:11px;"></span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;">
         <span style="color:#818cf8;font-weight:700;">GAMMA FLIP</span>
         <span id="lvGammaFlip" style="color:#818cf8;">--</span>
-        <span id="lvFlipPos" style="color:#64748b;font-size:11px;"></span>
+        <span id="lvFlipPos" style="color:var(--text-muted);font-size:11px;"></span>
       </div>
       <div id="lvYouAreHere" style="padding:4px 10px;border-radius:4px;background:rgba(59,130,246,0.15);border-left:3px solid #3b82f6;display:flex;justify-content:space-between;">
         <span style="color:#3b82f6;font-weight:700;">── YOU ARE HERE</span>
         <span id="lvSpyPrice" style="color:#3b82f6;">--</span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="color:#94a3b8;">VWAP</span>
-        <span id="lvVwap" style="color:#94a3b8;">--</span>
-        <span id="lvVwapPos" style="color:#64748b;font-size:11px;"></span>
+        <span style="color:var(--text-secondary);">VWAP</span>
+        <span id="lvVwap" style="color:var(--text-secondary);">--</span>
+        <span id="lvVwapPos" style="color:var(--text-muted);font-size:11px;"></span>
       </div>
       <div style="display:flex;justify-content:space-between;align-items:center;">
-        <span style="color:#22c55e;font-weight:700;">PUT WALL</span>
-        <span id="lvPutWall" style="color:#22c55e;">--</span>
-        <span id="lvPutWallDist" style="color:#64748b;font-size:11px;"></span>
+        <span style="color:var(--up);font-weight:700;">PUT WALL</span>
+        <span id="lvPutWall" style="color:var(--up);">--</span>
+        <span id="lvPutWallDist" style="color:var(--text-muted);font-size:11px;"></span>
       </div>
     </div>
   </div>
@@ -17871,20 +17871,20 @@ fetch('/api/settings/pause-all').then(function(r){return r.json();}).then(functi
     <div style="padding:0 14px 14px;">
       <!-- Bar -->
       <div style="position:relative;height:20px;background:#1e293b;border-radius:10px;overflow:hidden;margin-bottom:8px;">
-        <div id="dbFlowBarPut" style="position:absolute;left:0;top:0;height:100%;background:#ef4444;border-radius:10px 0 0 10px;transition:width .5s ease;width:50%;"></div>
-        <div id="dbFlowBarCall" style="position:absolute;right:0;top:0;height:100%;background:#22c55e;border-radius:0 10px 10px 0;transition:width .5s ease;width:50%;"></div>
+        <div id="dbFlowBarPut" style="position:absolute;left:0;top:0;height:100%;background:var(--down);border-radius:10px 0 0 10px;transition:width .5s ease;width:50%;"></div>
+        <div id="dbFlowBarCall" style="position:absolute;right:0;top:0;height:100%;background:var(--up);border-radius:0 10px 10px 0;transition:width .5s ease;width:50%;"></div>
         <div style="position:absolute;left:50%;top:0;width:2px;height:100%;background:#0f172a;"></div>
       </div>
       <div style="display:flex;justify-content:space-between;font-size:12px;">
-        <span style="color:#ef4444;">PUTS: <b id="dbPutPrem">--</b></span>
-        <span id="dbFlowSummary" style="color:#64748b;font-size:11px;"></span>
-        <span style="color:#22c55e;">CALLS: <b id="dbCallPrem">--</b></span>
+        <span style="color:var(--down);">PUTS: <b id="dbPutPrem">--</b></span>
+        <span id="dbFlowSummary" style="color:var(--text-muted);font-size:11px;"></span>
+        <span style="color:var(--up);">CALLS: <b id="dbCallPrem">--</b></span>
       </div>
     </div>
   </div>
 
   <!-- ── OPTIONS CHAIN MINI-VIEW ──────────────────────────────────────────── -->
-  <div class="card" style="margin-bottom:14px;border-left:3px solid #64748b;">
+  <div class="card" style="margin-bottom:14px;border-left:3px solid var(--text-muted);">
     <div class="card-header">
       <div class="card-title">⛓️ 0DTE Chain — SPY</div>
       <button onclick="loadDbChain()" style="font-size:11px;padding:2px 8px;border:1px solid var(--border);border-radius:4px;background:var(--surface2);color:var(--muted);cursor:pointer;">↺</button>
@@ -17892,7 +17892,7 @@ fetch('/api/settings/pause-all').then(function(r){return r.json();}).then(functi
     <div style="overflow-x:auto;padding:0 4px 8px;">
       <table style="width:100%;border-collapse:collapse;font-size:12px;font-family:var(--font-mono);">
         <thead>
-          <tr style="color:#64748b;font-size:10px;text-transform:uppercase;border-bottom:1px solid #1e293b;">
+          <tr style="color:var(--text-muted);font-size:10px;text-transform:uppercase;border-bottom:1px solid #1e293b;">
             <th style="padding:4px 8px;text-align:left;">Strike</th>
             <th style="padding:4px 8px;text-align:left;">Type</th>
             <th style="padding:4px 8px;">Bid</th>
@@ -17903,32 +17903,32 @@ fetch('/api/settings/pause-all').then(function(r){return r.json();}).then(functi
           </tr>
         </thead>
         <tbody id="dbChainBody">
-          <tr><td colspan="7" style="text-align:center;color:#64748b;padding:16px;">Load chain →</td></tr>
+          <tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:16px;">Load chain →</td></tr>
         </tbody>
       </table>
     </div>
   </div>
 
   <!-- ── ACTIVE SIGNAL ──────────────────────────────────────────────────── -->
-  <div id="dbSignalCard" class="card" style="margin-bottom:14px;display:none;border-left:3px solid #ef4444;">
+  <div id="dbSignalCard" class="card" style="margin-bottom:14px;display:none;border-left:3px solid var(--down);">
     <div class="card-header"><div class="card-title" id="dbSignalTitle">⚡ Signal Detected</div></div>
     <div id="dbSignalBody" style="padding:0 14px 14px;font-size:13px;"></div>
   </div>
 
   <!-- ── GAP FILL INDICATOR ─────────────────────────────────────────────── -->
-  <div id="dbGapFillCard" class="card" style="margin-bottom:14px;display:none;border-left:3px solid #22c55e;">
+  <div id="dbGapFillCard" class="card" style="margin-bottom:14px;display:none;border-left:3px solid var(--up);">
     <div class="card-header">
       <div class="card-title">📈 Gap Fill Setup Active</div>
-      <span style="font-size:11px;color:#64748b;">Close by 11:00 AM ET</span>
+      <span style="font-size:11px;color:var(--text-muted);">Close by 11:00 AM ET</span>
     </div>
     <div style="padding:0 14px 14px;font-size:13px;">
       <div style="display:flex;gap:24px;flex-wrap:wrap;margin-bottom:8px;">
-        <div><span style="color:#64748b;">Gap Down: </span><span id="dbGapPct" style="color:#ef4444;font-weight:700;">--%</span></div>
-        <div><span style="color:#64748b;">Prev Close: </span><span id="dbGapTarget" style="color:#22c55e;font-weight:700;">$--</span></div>
-        <div><span style="color:#64748b;">Current: </span><span id="dbGapSpy" style="color:#94a3b8;font-weight:700;">$--</span></div>
+        <div><span style="color:var(--text-muted);">Gap Down: </span><span id="dbGapPct" style="color:var(--down);font-weight:700;">--%</span></div>
+        <div><span style="color:var(--text-muted);">Prev Close: </span><span id="dbGapTarget" style="color:var(--up);font-weight:700;">$--</span></div>
+        <div><span style="color:var(--text-muted);">Current: </span><span id="dbGapSpy" style="color:var(--text-secondary);font-weight:700;">$--</span></div>
       </div>
-      <div id="dbGapTriggers" style="font-size:12px;color:#64748b;line-height:1.6;"></div>
-      <div style="margin-top:8px;padding:6px 10px;border-radius:4px;background:rgba(34,197,94,0.08);font-size:12px;color:#22c55e;">
+      <div id="dbGapTriggers" style="font-size:12px;color:var(--text-muted);line-height:1.6;"></div>
+      <div style="margin-top:8px;padding:6px 10px;border-radius:4px;background:rgba(34,197,94,0.08);font-size:12px;color:var(--up);">
         Play: ATM or 1 OTM calls, delta 0.30-0.40 &bull; Target: 50-75% &bull; Stop: 40% premium &bull; Exit by 11 AM hard
       </div>
     </div>
@@ -17945,8 +17945,8 @@ fetch('/api/settings/pause-all').then(function(r){return r.json();}).then(functi
     </div>
     <!-- Short candidates -->
     <div style="border-top:1px solid #1e293b;padding:10px 14px 6px;">
-      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:#64748b;margin-bottom:8px;">Short Candidates (bear regime)</div>
-      <div id="dbShortCandidates" style="font-size:12px;color:#64748b;">--</div>
+      <div style="font-size:10px;font-weight:700;text-transform:uppercase;letter-spacing:.06em;color:var(--text-muted);margin-bottom:8px;">Short Candidates (bear regime)</div>
+      <div id="dbShortCandidates" style="font-size:12px;color:var(--text-muted);">--</div>
     </div>
     <div style="padding:6px 14px 12px;">
       <div style="padding:6px 10px;border-radius:4px;background:rgba(249,115,22,0.06);font-size:11px;color:#f97316;">
