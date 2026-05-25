@@ -1,6 +1,108 @@
 # XO Backlog — USS TradeMinds
 # Riker's Standing Work Queue
-# Updated: 2026-05-03 (Yellow Alert Phase 1 reconciliation)
+# Updated: 2026-05-25 (Memorial Day — HM-DATA-INTEGRITY-FORENSICS triage)
+
+---
+
+## 🔴 HM-DATA-INTEGRITY-FORENSICS — PARENT TICKET (filed 2026-05-25)
+
+**Trigger:** Forensic audit during HM-RISK-MANAGER-CONVICTION-STOP-WIRE Lane A
+discovered an active "delete-without-archive" endpoint that wiped
+`portfolio_history` rows pre-2026-03-11. All 9 DB backups inherit the
+post-wipe state; data is unrecoverable from local sources.
+
+**Sacred Data Rule violation:** "Trade data is gold. Never delete data."
+
+### Sub-tickets
+
+#### HM-CATEGORY-C-EMERGENCY-LOCK — ✅ **SHIPPED** 2026-05-25 (commit `45e57e1`, pushed to main)
+
+`dashboard/app.py:9856 clean_stale_snapshots()` → returns `HTTP 403` with
+explanation. Function body preserved as forensic evidence (unreachable).
+Hotfix pushed direct-to-main per Admiral authorization (doctrinal
+exception: closing active data-integrity violation supersedes normal
+merge process).
+
+#### HM-CLEAN-STALE-ARCHIVE-NOT-DELETE — proper fix, pending Admiral
+
+Replace `clean_stale_snapshots()` delete with archive-then-delete:
+- Create `portfolio_history_archived` table (same schema + `archived_at`,
+  `archived_reason`, `archived_by`).
+- Selection logic unchanged (cash >= 9999 AND total_value < 9000).
+- INSERT into archive, THEN DELETE from live, in a single transaction.
+- Audit log entry per archival batch (count, season, player_ids).
+- Re-enable the endpoint (remove the 403 short-circuit).
+- Scope: ~2-3h.
+
+#### HM-SIGNAL-WIPE-FORENSIC — ✅ **CLOSED AS NO-VIOLATION** 2026-05-25
+
+Investigation result: `signals.earliest = 2026-03-11 18:18:16` is **NOT
+a delete event**. Forensic searches confirmed:
+- Zero `DELETE FROM signals` in code or git history.
+- No clean-* endpoint touches signals.
+- No retention/cleanup/prune cron for signals.
+- Earliest timestamp matches fleet go-live; sibling tables (portfolio_
+  history) started 24s later from same admin session.
+
+Reclassified as Category B (never captured) — signal-emission code first
+went live on that date; nothing was deleted. No further action required.
+
+#### HM-PORTFOLIO-RECONSTRUCT-FROM-TRADES — optional, Admiral decides timing
+
+Rebuild portfolio_history Jan 6 → Mar 11 from `trades` + Yahoo/Polygon
+OHLCV. Caveat: most AI_SIGNAL_PLAYERS didn't exist pre-Mar-11; the
+window is dominated by webull (liquidated) and 3 paid LLMs (now in
+exit_only). Reconstruction is feasible but partial; ~6-8h scope. The
+50d window we currently have IS the operational reality of the current
+fleet — reconstruction adds historical color, not active calibration data.
+
+#### HM-RECAP-TRIGGERS-DELETE-PATTERN — investigate `scripts/recapitalize_player.py`
+
+The clean_stale_snapshots was designed to follow recapitalization events.
+Verify whether `scripts/recapitalize_player.py` itself performs any delete
+or only ARMs the conditions (cash >= 9999) that clean_stale_snapshots
+then exploits. If recap directly deletes history, apply emergency-lock
++ archive-not-delete pattern. Scope: ~1h investigation + 2-3h fix if violation.
+
+#### HM-FINMEM-AGENT-MEMORY-ARCHIVE — defensive flag
+
+`engine/finmem_writers.py:280` prunes `agent_memory` rows where
+`decay_rate IS NOT NULL AND score < floor`. This is intentional memory
+management (decay → prune below threshold), but agent memory IS partial
+gold (learned context). Currently delete-without-archive.
+
+Suggested fix: archive pruned rows to `agent_memory_pruned` with
+timestamp + reason. Low priority — by design the pruned rows are low-
+score memories the agent considered low-relevance; not the same severity
+as portfolio_history.
+
+#### HM-PORTFOLIO-POSITIONS-SYNC-ARCHIVE — defensive flag
+
+`dashboard/app.py:10915` Alpaca-sync wipes `portfolio_positions WHERE
+status='open'` before re-inserting current Alpaca state. Comment
+explicitly preserves closed-history. State-sync is DEFENSIBLE but
+worth adding a "last_synced_at" + audit log to make the sync events
+queryable. Low priority.
+
+### Audit complete — codebase delete-pattern inventory
+
+Scanned: `dashboard/app.py`, `engine/`, `scripts/`, all `*.sh`,
+`*.sql`, `migrations/`. Categories:
+
+| Pattern | Count | Status |
+|---|---|---|
+| Active VIOLATION (delete gold without archive) | **1** | LOCKED via `45e57e1` |
+| DEFENSIBLE state-sync (positions table on close, Alpaca sync, watchlist remove, season reset) | 13 | trades preserve history; positions are live-state |
+| DEFENSIBLE computed-table refresh (rs_rank, minervini_trend, premarket_scan, backtest_extras, gex_levels) | 12 | nightly INSERT-replace pattern |
+| Test scaffold cleanup (synthetic scripts) | 6 | not production paths |
+| Watchlist user-driven removal | 3 | user intent, not data wipe |
+
+No second active violation found. Sacred Data Rule integrity restored
+(pending HM-CLEAN-STALE-ARCHIVE-NOT-DELETE proper fix).
+
+---
+
+
 
 **Reconciliation method**: every claim below verified against running code, DB state,
 launchctl, trader.log post-PID-84968 startup (15:45 MST today), and on-disk files.
