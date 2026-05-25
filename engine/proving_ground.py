@@ -53,6 +53,34 @@ BENCH = {
 # Alert consecutive fail threshold
 CONSEC_FAIL_DAYS = 5
 
+# ── HM-PROVING-GROUND-FORMALIZE-V2 SUB-2 ─────────────────────────────────────
+# Formal exit-criteria thresholds (Admiral-locked 2026-05-25).
+#
+# Sign convention reminder: max_drawdown is stored as a NEGATIVE percent
+# (_compute_metrics line ~230: max_dd = min(max_dd, dd) where dd<0). So
+# "drawdown of 15%" stored as -15.0. "drawdown WORSE than 15%" = value MORE
+# NEGATIVE than -15.0 (e.g. -24.0). The brief's prose phrases this as
+# "max_drawdown <= -15%" for the SHIP no-go-deeper guard and
+# "max_drawdown > -15%" for KILL when past Day 60 — both expressions
+# translate to the same intent under the absolute-value reading:
+#   SHIP requires |max_drawdown| <= 15  i.e. max_drawdown >= -15.0
+#   KILL fires on |max_drawdown|  > 15  i.e. max_drawdown <  -15.0
+DD_GUARD_PCT_ABS = 15.0          # abs-value boundary
+SHIP_CONSECUTIVE_DAYS = 10
+SHIP_GO_COUNT_MIN = 5            # >= 5/6 benchmarks green
+KILL_GO_COUNT_THRESHOLD = 3      # < 3/6 is the kill band
+KILL_GO_COUNT_DAYS = 10
+KILL_TRADES_COLLAPSE_FRAC = 0.5  # rolling-10d trade count drop fraction
+WARN_GO_COUNT_LO = 3             # 3 and 4 are warning band (inclusive)
+WARN_GO_COUNT_HI = 4
+WARN_DAYS = 5
+FORCED_EVAL_DAY = 60             # forced go/no-go fires after this trial day
+
+VALID_STATES = {
+    "pending", "warning", "ship_ready", "kill_warning", "shipped", "killed",
+}
+TERMINAL_STATES = {"shipped", "killed"}
+
 
 # ── DB helpers ────────────────────────────────────────────────────────────────
 
@@ -456,6 +484,270 @@ def _check_consecutive_failures(pg_conn=None) -> None:
                 )
     if not pg_conn:
         c.close()
+
+
+# ── HM-PROVING-GROUND-FORMALIZE-V2 SUB-2: state evaluator ───────────────────
+
+
+def _load_recent_scorecard(n: int, pg_conn=None) -> list[dict]:
+    """Return the last ``n`` running_scorecard rows, most-recent first."""
+    c = pg_conn or _conn_pg()
+    rows = c.execute(
+        "SELECT as_of_date, total_trades, max_drawdown, go_count, "
+        "       COALESCE(exit_status, 'pending') AS exit_status "
+        "  FROM running_scorecard "
+        " ORDER BY as_of_date DESC LIMIT ?",
+        (n,),
+    ).fetchall()
+    if pg_conn is None:
+        c.close()
+    return [dict(r) for r in rows]
+
+
+def _evaluate_state(
+    history: list[dict],
+    prev_state: str,
+    trial_day: int,
+) -> tuple[str, dict]:
+    """Pure function: compute the target state from history + previous state.
+
+    ``history`` is most-recent-first list of running_scorecard rows
+    (each dict has at least ``go_count``, ``max_drawdown``, ``total_trades``,
+    ``as_of_date``).
+
+    Returns (target_state, metrics_dict). ``metrics_dict`` captures the
+    deciding factor for the transition (logged into state_transitions
+    table for audit).
+    """
+    metrics: dict = {
+        "trial_day": trial_day,
+        "history_len": len(history),
+        "prev_state": prev_state,
+    }
+    if prev_state in TERMINAL_STATES:
+        metrics["sticky"] = True
+        return prev_state, metrics
+    if not history:
+        return prev_state, metrics
+
+    latest = history[0]
+    metrics["latest"] = {
+        "as_of_date":    latest.get("as_of_date"),
+        "go_count":      latest.get("go_count"),
+        "max_drawdown":  latest.get("max_drawdown"),
+        "total_trades":  latest.get("total_trades"),
+    }
+
+    # ── KILL conditions (any one fires) ───────────────────────────────────
+    # K1: max_drawdown more negative than -DD_GUARD_PCT_ABS on any day past Day 60
+    if trial_day > FORCED_EVAL_DAY:
+        dd_breach = [
+            r for r in history
+            if (r.get("max_drawdown") or 0.0) < -DD_GUARD_PCT_ABS
+        ]
+        if dd_breach:
+            metrics["kill_trigger"] = "dd_past_day60"
+            metrics["dd_breach_days"] = [r["as_of_date"] for r in dd_breach[:5]]
+            return "kill_warning", metrics
+
+    # K2: go_count below threshold for 10 consecutive days
+    if len(history) >= KILL_GO_COUNT_DAYS:
+        last_k = history[:KILL_GO_COUNT_DAYS]
+        if all((r.get("go_count") or 0) < KILL_GO_COUNT_THRESHOLD for r in last_k):
+            metrics["kill_trigger"] = "go_count_collapse"
+            metrics["go_counts"] = [r.get("go_count") for r in last_k]
+            return "kill_warning", metrics
+
+    # K3: trade-count collapse — current 10d trade volume drops <50% of prior 10d
+    if len(history) >= 2 * KILL_GO_COUNT_DAYS:
+        recent_10 = history[:KILL_GO_COUNT_DAYS]
+        prior_10 = history[KILL_GO_COUNT_DAYS : 2 * KILL_GO_COUNT_DAYS]
+        # total_trades is cumulative; diff = delta over the window
+        if len(recent_10) and len(prior_10):
+            recent_delta = (
+                (recent_10[0].get("total_trades") or 0)
+                - (recent_10[-1].get("total_trades") or 0)
+            )
+            prior_delta = (
+                (prior_10[0].get("total_trades") or 0)
+                - (prior_10[-1].get("total_trades") or 0)
+            )
+            if prior_delta > 0 and recent_delta < prior_delta * KILL_TRADES_COLLAPSE_FRAC:
+                metrics["kill_trigger"] = "trades_collapse"
+                metrics["recent_delta"] = recent_delta
+                metrics["prior_delta"] = prior_delta
+                return "kill_warning", metrics
+
+    # ── SHIP conditions (both must hold for SHIP_CONSECUTIVE_DAYS) ────────
+    if len(history) >= SHIP_CONSECUTIVE_DAYS:
+        last_ship = history[:SHIP_CONSECUTIVE_DAYS]
+        if (
+            all((r.get("go_count") or 0) >= SHIP_GO_COUNT_MIN for r in last_ship)
+            and all(
+                (r.get("max_drawdown") or 0.0) >= -DD_GUARD_PCT_ABS
+                for r in last_ship
+            )
+        ):
+            metrics["ship_streak"] = SHIP_CONSECUTIVE_DAYS
+            return "ship_ready", metrics
+
+    # ── WARNING condition ────────────────────────────────────────────────
+    if len(history) >= WARN_DAYS:
+        last_w = history[:WARN_DAYS]
+        if all(
+            WARN_GO_COUNT_LO <= (r.get("go_count") or 0) <= WARN_GO_COUNT_HI
+            for r in last_w
+        ):
+            metrics["warning_streak"] = WARN_DAYS
+            return "warning", metrics
+
+    # Default: remain in current state, or 'pending' if we have no prior
+    return prev_state if prev_state in ("pending", "warning") else "pending", metrics
+
+
+def _log_state_transition(
+    from_state: str, to_state: str, metrics: dict,
+    ntfy_sent: bool, pg_conn=None,
+) -> None:
+    """Append a row to state_transitions (Doctrine Rule #1 — append-only)."""
+    c = pg_conn or _conn_pg()
+    c.execute(
+        "INSERT INTO state_transitions "
+        "(from_state, to_state, trigger_metrics_json, ntfy_sent) "
+        "VALUES (?, ?, ?, ?)",
+        (from_state, to_state, json.dumps(metrics, default=str), 1 if ntfy_sent else 0),
+    )
+    c.commit()
+    if pg_conn is None:
+        c.close()
+
+
+def _fire_state_transition_ntfy(from_state: str, to_state: str, metrics: dict) -> bool:
+    """Emit NTFY for a state-machine edge. Returns True if sent."""
+    try:
+        if to_state == "warning":
+            _fire(
+                title="PROVING GROUND: WARNING",
+                body=(
+                    f"go_count in {WARN_GO_COUNT_LO}-{WARN_GO_COUNT_HI} band "
+                    f"for {metrics.get('warning_streak', WARN_DAYS)}+ days. "
+                    "Trial continues; flag for awareness."
+                ),
+                priority=P_DEFAULT,
+                tags="warning",
+            )
+        elif to_state == "ship_ready":
+            _fire(
+                title="PROVING GROUND: GRADUATION CANDIDATE",
+                body=(
+                    f"SHIP criteria met for {SHIP_CONSECUTIVE_DAYS} days "
+                    f"(go_count >= {SHIP_GO_COUNT_MIN}/6 AND "
+                    f"|max_dd| <= {int(DD_GUARD_PCT_ABS)}%). "
+                    "Admiral CLI: scripts/proving_ground_admiral.py --ship "
+                    "to graduate ollie-auto."
+                ),
+                priority=P_HIGH,
+                tags="trophy",
+            )
+        elif to_state == "kill_warning":
+            trigger = metrics.get("kill_trigger", "unknown")
+            _fire(
+                title="PROVING GROUND: TERMINATION CANDIDATE",
+                body=(
+                    f"KILL criterion fired ({trigger}). "
+                    f"Trial Day {metrics.get('trial_day', '?')}. "
+                    "Admiral CLI: scripts/proving_ground_admiral.py --kill "
+                    "to terminate Sniper Mode."
+                ),
+                priority=P_HIGH,
+                tags="red_circle",
+            )
+        else:
+            # No NTFY for pending/shipped/killed transitions (handled by CLI).
+            return False
+        return True
+    except Exception:
+        return False
+
+
+def ship_kill_evaluator(pg_conn=None) -> dict:
+    """Evaluate SHIP/KILL/WARNING conditions and log/transition state.
+
+    Runs daily after the 13:15 AZ scorecard write. Side effects:
+      1. Reads recent scorecard (last 2 * 10 = 20 rows for the trade-
+         collapse comparison).
+      2. Determines previous state from latest scorecard row's
+         exit_status (default 'pending' for back-compat).
+      3. Computes target state via _evaluate_state.
+      4. If target != prev_state, logs the transition to
+         state_transitions (Doctrine Rule #1 append-only) and emits
+         NTFY to ollietrades-proving-ground.
+      5. Updates today's scorecard row's exit_status to the new state.
+      6. If trial_day > FORCED_EVAL_DAY and state is not terminal,
+         emits a daily "DAY 60 FORCED EVALUATION" NTFY (HIGH severity).
+
+    Returns the full evaluation dict (used by tests + dry-run reporting)."""
+    today_d = datetime.now(AZ_TZ).date()
+    today_s = today_d.isoformat()
+    trial_day = (today_d - TRIAL_START).days + 1
+
+    c = pg_conn or _conn_pg()
+    history = _load_recent_scorecard(2 * KILL_GO_COUNT_DAYS, pg_conn=c)
+    prev_state = (history[0]["exit_status"] if history else "pending") or "pending"
+    target_state, metrics = _evaluate_state(history, prev_state, trial_day)
+
+    transitioned = (target_state != prev_state) and (
+        prev_state not in TERMINAL_STATES
+    )
+    ntfy_sent = False
+
+    if transitioned:
+        ntfy_sent = _fire_state_transition_ntfy(prev_state, target_state, metrics)
+        _log_state_transition(prev_state, target_state, metrics, ntfy_sent, pg_conn=c)
+        # Update today's row exit_status (or latest if today's not yet written)
+        c.execute(
+            "UPDATE running_scorecard SET exit_status = ? "
+            " WHERE as_of_date = ?",
+            (target_state, today_s),
+        )
+        if c.total_changes == 0:
+            # No row for today yet — update the latest scorecard row
+            c.execute(
+                "UPDATE running_scorecard SET exit_status = ? "
+                " WHERE as_of_date = (SELECT MAX(as_of_date) FROM running_scorecard)",
+                (target_state,),
+            )
+        c.commit()
+
+    # Day 60+ forced-eval NTFY (daily nudge while non-terminal)
+    if trial_day > FORCED_EVAL_DAY and target_state not in TERMINAL_STATES:
+        try:
+            _fire(
+                title=f"PROVING GROUND: DAY {trial_day} FORCED EVALUATION",
+                body=(
+                    f"Trial past Day {FORCED_EVAL_DAY} boundary. Current state: "
+                    f"{target_state}. Admiral CLI: "
+                    "scripts/proving_ground_admiral.py --ship/--kill --confirm."
+                ),
+                priority=P_HIGH,
+                tags="alarm_clock",
+            )
+        except Exception:
+            pass
+
+    if pg_conn is None:
+        c.close()
+
+    return {
+        "today":         today_s,
+        "trial_day":     trial_day,
+        "prev_state":    prev_state,
+        "target_state":  target_state,
+        "transitioned":  transitioned,
+        "ntfy_sent":     ntfy_sent,
+        "metrics":       metrics,
+        "history_len":   len(history),
+    }
 
 
 # ── Daily ntfy report ─────────────────────────────────────────────────────────
