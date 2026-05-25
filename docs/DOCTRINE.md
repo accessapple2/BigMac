@@ -1,0 +1,154 @@
+# USS TradeMinds — Data Preservation Doctrine
+
+> Established 2026-05-25 following the HM-DATA-INTEGRITY-FORENSICS audit
+> that surfaced an active "delete-without-archive" endpoint (locked in
+> commit `45e57e1`; properly fixed by HM-CLEAN-STALE-ARCHIVE-NOT-DELETE).
+
+---
+
+## Rule #1 — Never delete data
+
+**Trade data is gold. Equity history is gold. Signal history is gold.**
+
+The fleet's value is the audit trail. A trade row, an equity snapshot,
+or a signal emission represents a decision the fleet made under a
+specific market state — losing that record is losing the ability to
+study, calibrate, or recover from it.
+
+Gold tables (non-exhaustive — anything modeling a historical event):
+- `trades`
+- `signals` / `signals_v2`
+- `portfolio_history` / `real_portfolio_history` / `ghost_equity_history`
+- `season_history`
+- `bridge_votes` / `bridge_consensus` / `debate_history_v2`
+- `crew_decisions`
+- `player_funding_events`
+- Any future per-event log table
+
+Non-gold tables (current-state mirrors, computed indices, caches):
+- `positions` (live state — history lives in `trades`)
+- `portfolio_positions` (Alpaca sync mirror — history lives in `trades`)
+- `rs_rank` / `minervini_trend` (nightly INSERT-replace)
+- `premarket_scan` / `gex_levels` / `volume_daily_log` (rolling windows)
+- `backtest_equity_curve*` / `extras_*` (per-run, replaceable)
+
+When in doubt: **assume gold.** Promotion from gold to non-gold requires
+Admiral signoff.
+
+## Rule #2 — Archive-then-delete pattern
+
+Any endpoint, script, or migration that needs to remove rows from a gold
+table MUST use the archive-then-delete pattern:
+
+### Required schema
+
+A paired `<table>_archived` mirror with at minimum these audit-trail columns:
+
+```sql
+CREATE TABLE <table>_archived (
+    id                  INTEGER PRIMARY KEY AUTOINCREMENT,
+    original_row_id     INTEGER NOT NULL,    -- source table's id
+    -- ... mirror all data columns from source ...
+    archived_at         TEXT NOT NULL DEFAULT (datetime('now')),
+    archived_by         TEXT NOT NULL,       -- function/endpoint name
+    archive_reason      TEXT NOT NULL,       -- free-form context
+    archive_session_id  TEXT NOT NULL,       -- UUID grouping a batch
+    restored_at         TEXT                 -- NULL unless restored
+);
+CREATE INDEX idx_<table>_archived_session ON <table>_archived(archive_session_id);
+```
+
+### Required transaction shape
+
+```python
+session_id = str(uuid.uuid4())
+conn = _conn()
+try:
+    # 1. SELECT candidates (full row data, not just IDs).
+    rows = conn.execute("SELECT ... FROM <table> WHERE ...").fetchall()
+
+    # 2. INSERT each into archive with audit metadata.
+    archived = 0
+    for r in rows:
+        conn.execute(
+            "INSERT INTO <table>_archived (original_row_id, ..., "
+            " archived_by, archive_reason, archive_session_id) "
+            "VALUES (?, ..., ?, ?, ?)",
+            (r["id"], ..., "<endpoint_name>", "<reason>", session_id),
+        )
+        archived += 1
+
+    # 3. DELETE matching rows from source.
+    d = conn.execute("DELETE FROM <table> WHERE ...")
+    deleted = d.rowcount
+
+    # 4. Consistency check — archived must equal deleted.
+    if archived != deleted:
+        raise HTTPException(500, f"mismatch archived={archived} deleted={deleted}")
+
+    # 5. Commit only after the check passes.
+    conn.commit()
+    return {"ok": True, "archived_count": archived,
+            "deleted_count": deleted, "session_id": session_id}
+except Exception:
+    conn.rollback()
+    raise
+finally:
+    conn.close()
+```
+
+### Required restore path
+
+Every archive-capable endpoint must have a paired
+`restore-from-archive` endpoint that reverses a batch by `session_id`:
+- SELECT archived rows for this session where `restored_at IS NULL`
+- INSERT each back into the source table (auto-assigned new id)
+- UPDATE archive row `restored_at = datetime('now')`
+- All in a single transaction; mismatch -> rollback
+- Idempotent: re-running the same session_id skips already-restored rows
+
+### Reference implementation
+
+- Schema: `scripts/migrations/hm_clean_stale_archive_not_delete.sql`
+- Archive endpoint: `dashboard/app.py::clean_stale_snapshots`
+- List endpoint: `dashboard/app.py::list_archived_portfolio_history`
+- Restore endpoint: `dashboard/app.py::restore_portfolio_history_from_archive`
+- Tests: `tests/test_hm_clean_stale_archive_not_delete.py`
+
+## Rule #3 — Future violations are tickets, not silent fixes
+
+When a `DELETE FROM <gold_table>` is discovered in the codebase:
+
+1. **Bank the finding under HM-DATA-INTEGRITY-FORENSICS as a sub-ticket.**
+2. **If the path is reachable in production (live endpoint, scheduled
+   job, called from a hot path):** emergency-lock immediately. Acceptable
+   exception to the normal merge process — push the lock to main
+   directly. Then file the proper archive-then-delete fix as a separate
+   ticket. The lock pattern is:
+   ```python
+   from fastapi import HTTPException
+   raise HTTPException(
+       status_code=403,
+       detail="DISABLED <date> — <ticket-id> doctrine violation pending fix"
+   )
+   ```
+   Preserve the original function body below the lock as forensic evidence.
+3. **If the path is dormant (only callable from archive/test scripts,
+   never wired to a live endpoint):** file the ticket but don't emergency-
+   lock. Fix in normal order.
+4. **No silent rewrite.** Every doctrine fix gets a ticket + a commit
+   that names the violation it closes.
+
+### Audit cadence
+
+Quarterly: grep `DELETE FROM` / `TRUNCATE` / `DROP TABLE` across the
+codebase. Categorize each hit as SAFE / DEFENSIBLE / VIOLATION using
+the gold/non-gold list in Rule #1. Bank any new VIOLATION immediately.
+
+## Cross-references
+
+- HM-DATA-INTEGRITY-FORENSICS parent ticket — `docs/XO_BACKLOG.md`
+- Emergency lock pattern — `45e57e1`
+- Archive-then-delete reference — `04b00f3` (schema), `8c9b942` (endpoint),
+  `a5054c0` (recovery), `b634dd0` (tests)
+- Sacred Data Rule reaffirmation — `CLAUDE.md` ("SACRED DATA RULES" section)
