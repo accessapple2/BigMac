@@ -1,0 +1,198 @@
+{
+  "captured_at": "2026-05-25T15:34:00.151585+00:00",
+  "purpose": "HM-MEMORIAL-DAY-ORDER-CANCEL forensic record",
+  "pre_cancel_snapshot": [
+    {
+      "order_id": "66c53421-8422-4599-968d-94a24cf8b7c5",
+      "symbol": "LNTH",
+      "side": "sell",
+      "qty": "0.6",
+      "type": "limit",
+      "status": "accepted",
+      "filled_qty": "0",
+      "filled_avg_price": null,
+      "submitted_at": "2026-05-25 08:14:39.382328+00:00",
+      "limit_price": "102.49",
+      "time_in_force": "day",
+      "extended_hours": true
+    },
+    {
+      "order_id": "d74c05fc-0ee8-41da-9ade-73a5db197e15",
+      "symbol": "QQQ",
+      "side": "buy",
+      "qty": "0.43",
+      "type": "limit",
+      "status": "accepted",
+      "filled_qty": "0",
+      "filled_avg_price": null,
+      "submitted_at": "2026-05-25 13:45:25.281226+00:00",
+      "limit_price": "698.91",
+      "time_in_force": "day",
+      "extended_hours": true
+    },
+    {
+      "order_id": "579eeb63-805c-455a-bce5-ebef3f8b62b6",
+      "symbol": "QQQ",
+      "side": "buy",
+      "qty": "0.41",
+      "type": "limit",
+      "status": "accepted",
+      "filled_qty": "0",
+      "filled_avg_price": null,
+      "submitted_at": "2026-05-25 13:47:03.360943+00:00",
+      "limit_price": "698.91",
+      "time_in_force": "day",
+      "extended_hours": true
+    },
+    {
+      "order_id": "54ea3cfd-41b6-49bb-a6d9-c53a4efbf6ab",
+      "symbol": "QQQ",
+      "side": "buy",
+      "qty": "0.36",
+      "type": "limit",
+      "status": "accepted",
+      "filled_qty": "0",
+      "filled_avg_price": null,
+      "submitted_at": "2026-05-25 13:48:22.872259+00:00",
+      "limit_price": "686.78",
+      "time_in_force": "day",
+      "extended_hours": true
+    },
+    {
+      "order_id": "25153e72-76fb-4ed9-9b4c-7a2e05c07f6e",
+      "symbol": "ZM",
+      "side": "sell",
+      "qty": "1.18",
+      "type": "limit",
+      "status": "accepted",
+      "filled_qty": "0",
+      "filled_avg_price": null,
+      "submitted_at": "2026-05-25 15:19:35.232141+00:00",
+      "limit_price": "105.01",
+      "time_in_force": "day",
+      "extended_hours": true
+    },
+    {
+      "order_id": "96f93d97-83fc-4c59-9b71-2f258ef04362",
+      "symbol": "SYM",
+      "side": "sell",
+      "qty": "2.25",
+      "type": "limit",
+      "status": "accepted",
+      "filled_qty": "0",
+      "filled_avg_price": null,
+      "submitted_at": "2026-05-25 15:19:38.604713+00:00",
+      "limit_price": "53.73",
+      "time_in_force": "day",
+      "extended_hours": true
+    }
+  ],
+  "cancel_results": [
+    {
+      "order_id": "66c53421-8422-4599-968d-94a24cf8b7c5",
+      "result": {
+        "success": true,
+        "order_id": "66c53421-8422-4599-968d-94a24cf8b7c5",
+        "status": "canceled"
+      }
+    },
+    {
+      "order_id": "d74c05fc-0ee8-41da-9ade-73a5db197e15",
+      "result": {
+        "success": true,
+        "order_id": "d74c05fc-0ee8-41da-9ade-73a5db197e15",
+        "status": "canceled"
+      }
+    },
+    {
+      "order_id": "579eeb63-805c-455a-bce5-ebef3f8b62b6",
+      "result": {
+        "success": true,
+        "order_id": "579eeb63-805c-455a-bce5-ebef3f8b62b6",
+        "status": "canceled"
+      }
+    },
+    {
+      "order_id": "54ea3cfd-41b6-49bb-a6d9-c53a4efbf6ab",
+      "result": {
+        "success": true,
+        "order_id": "54ea3cfd-41b6-49bb-a6d9-c53a4efbf6ab",
+        "status": "canceled"
+      }
+    },
+    {
+      "order_id": "25153e72-76fb-4ed9-9b4c-7a2e05c07f6e",
+      "result": {
+        "success": true,
+        "order_id": "25153e72-76fb-4ed9-9b4c-7a2e05c07f6e",
+        "status": "canceled"
+      }
+    },
+    {
+      "order_id": "96f93d97-83fc-4c59-9b71-2f258ef04362",
+      "result": {
+        "success": true,
+        "order_id": "96f93d97-83fc-4c59-9b71-2f258ef04362",
+        "status": "canceled"
+      }
+    }
+  ],
+  "post_cancel_verify": [
+    {
+      "order_id": "66c53421-8422-4599-968d-94a24cf8b7c5",
+      "post_status": "canceled",
+      "filled_qty": "0"
+    },
+    {
+      "order_id": "d74c05fc-0ee8-41da-9ade-73a5db197e15",
+      "post_status": "canceled",
+      "filled_qty": "0"
+    },
+    {
+      "order_id": "579eeb63-805c-455a-bce5-ebef3f8b62b6",
+      "post_status": "canceled",
+      "filled_qty": "0"
+    },
+    {
+      "order_id": "54ea3cfd-41b6-49bb-a6d9-c53a4efbf6ab",
+      "post_status": "canceled",
+      "filled_qty": "0"
+    },
+    {
+      "order_id": "25153e72-76fb-4ed9-9b4c-7a2e05c07f6e",
+      "post_status": "canceled",
+      "filled_qty": "0"
+    },
+    {
+      "order_id": "96f93d97-83fc-4c59-9b71-2f258ef04362",
+      "post_status": "canceled",
+      "filled_qty": "0"
+    }
+  ],
+  "local_trades_updated": [
+    {
+      "order_id": "66c53421-8422-4599-968d-94a24cf8b7c5",
+      "rows_updated": 1
+    },
+    {
+      "order_id": "d74c05fc-0ee8-41da-9ade-73a5db197e15",
+      "rows_updated": 1
+    },
+    {
+      "order_id": "579eeb63-805c-455a-bce5-ebef3f8b62b6",
+      "rows_updated": 1
+    },
+    {
+      "order_id": "54ea3cfd-41b6-49bb-a6d9-c53a4efbf6ab",
+      "rows_updated": 1
+    },
+    {
+      "order_id": "25153e72-76fb-4ed9-9b4c-7a2e05c07f6e",
+      "rows_updated": 1
+    },
+    {
+      "order_id": "96f93d97-83fc-4c59-9b71-2f258ef04362",
+      "rows_updated": 1
+    }
+  ]
+}
