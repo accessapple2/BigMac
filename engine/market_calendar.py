@@ -189,6 +189,35 @@ def is_us_market_open(now: Optional[datetime] = None) -> bool:
     return get_market_status(now) == MarketStatus.OPEN
 
 
+def market_closed_reason(now: Optional[datetime] = None) -> Optional[str]:
+    """Structured rejection reason if market is closed at ``now``, else None.
+
+    Used by signal-emission and order-submission gates per HM-MARKET-
+    HOLIDAY-CALENDAR Phase B. Format::
+
+        market_closed_<status_value>[ (holiday_name)]
+
+    Examples::
+
+        market_closed_weekend
+        market_closed_holiday (Memorial Day)
+        market_closed_before_hours
+        market_closed_early
+
+    Callers should append the prefix ``[HM-MARKET-CLOSED]`` when logging.
+    """
+    status = get_market_status(now)
+    if status == MarketStatus.OPEN:
+        return None
+    base = f"market_{status.value}"
+    if status == MarketStatus.CLOSED_HOLIDAY:
+        now_et = _to_et(now)
+        nm = get_holiday_name(now_et.date())
+        if nm:
+            return f"{base} ({nm})"
+    return base
+
+
 def next_market_open(now: Optional[datetime] = None) -> datetime:
     """Return the next datetime when the market opens (ET-localized).
 

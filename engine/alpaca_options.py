@@ -697,7 +697,17 @@ def execute_options_signal(
 
     Calculates qty based on max_capital and close_price from contract.
     Always enforces MAX_CAPITAL_PER_TRADE and contract limits.
+
+    HM-MARKET-HOLIDAY-CALENDAR Phase B 2026-05-25: options-spread fwd
+    path (bypasses paper_trader). Gate against closed-market fires here.
     """
+    # HM-MARKET-HOLIDAY-CALENDAR Phase B gate (third forward path per
+    # CLAUDE.md two-book-bridge doctrine — bull_call_spread_v1,
+    # bear_put_spread_v1, etc. route through here, NOT paper_trader).
+    from engine.market_calendar import market_closed_reason as _mcr
+    _r = _mcr()
+    if _r is not None:
+        return {"error": f"market_closed: {_r}", "skipped": True, "market_closed": True}
     if player_id not in OPTIONS_PLAYERS:
         return {"skipped": True}
 

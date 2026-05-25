@@ -263,6 +263,15 @@ class AlpacaBridge:
             attach_sl_pct: float | None = None,
             attach_tp_pct: float | None = None,
             bracket_basis_price: float | None = None):
+        # HM-MARKET-HOLIDAY-CALENDAR Phase B 2026-05-25 — defense-in-depth
+        # gate. Even with extended_hours=True we block all non-OPEN states
+        # (weekend/holiday/before/after); Alpaca rejects those anyway and
+        # the trader has no doctrine for pre/post-market trading.
+        from engine.market_calendar import market_closed_reason as _mcr
+        _r = _mcr()
+        if _r is not None:
+            console.log(f"[yellow][HM-MARKET-CLOSED] alpaca.buy {symbol} (agent={agent_id}) blocked — {_r}")
+            return {"error": f"market_closed: {_r}"}
         """HM-TRADE-DESK-AUTOPILOT-PHASE1 2026-05-23: when attach_sl_pct AND
         attach_tp_pct are both > 0 AND qty is whole-share AND
         extended_hours=False AND order_type is market or limit, submits a
@@ -388,6 +397,12 @@ class AlpacaBridge:
     def sell(self, symbol, qty, agent_id: str = "unknown", extended_hours: bool = False,
              limit_price: float = 0.0, order_type: str = "market", stop_price: float = 0.0,
              notional: float = 0.0, time_in_force: str = "DAY"):
+        # HM-MARKET-HOLIDAY-CALENDAR Phase B 2026-05-25 — defense-in-depth gate.
+        from engine.market_calendar import market_closed_reason as _mcr
+        _r = _mcr()
+        if _r is not None:
+            console.log(f"[yellow][HM-MARKET-CLOSED] alpaca.sell {symbol} (agent={agent_id}) blocked — {_r}")
+            return {"error": f"market_closed: {_r}"}
         if not self.client:
             return {'error': 'Not connected'}
         try:
@@ -419,6 +434,12 @@ class AlpacaBridge:
     def short_sell(self, symbol, qty, agent_id: str = "unknown"):
         """Open a short position via Alpaca paper. Submits a SELL order with no existing long.
         Alpaca paper accounts allow short selling — the position will show as negative qty."""
+        # HM-MARKET-HOLIDAY-CALENDAR Phase B 2026-05-25 — defense-in-depth gate.
+        from engine.market_calendar import market_closed_reason as _mcr
+        _r = _mcr()
+        if _r is not None:
+            console.log(f"[yellow][HM-MARKET-CLOSED] alpaca.short_sell {symbol} (agent={agent_id}) blocked — {_r}")
+            return {"error": f"market_closed: {_r}"}
         if not self.client:
             return {'error': 'Not connected'}
         try:

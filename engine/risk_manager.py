@@ -924,13 +924,23 @@ class RiskManager:
         Post-market: 4:00 PM - 8:00 PM ET  →  2:00 PM - 6:00 PM MT
         Extended AH: 8:00 PM - 11:00 PM ET →  6:00 PM - 9:00 PM MT (earnings reactions)
         Closed:     11:00 PM - 4:00 AM ET  →  9:00 PM - 2:00 AM MT
+
+        HM-MARKET-HOLIDAY-CALENDAR Phase B 2026-05-25: holiday-aware. On
+        a NYSE holiday (Memorial Day, etc.) returns False outright so
+        downstream consumers (battle_station, dashboard widgets) treat
+        the day as closed even though Mon-Fri weekday check passes.
         """
         import pytz
+        from engine.market_calendar import is_us_market_holiday
         mt = pytz.timezone("US/Mountain")
         now = datetime.now(mt)
 
         # Weekend check
         if now.weekday() >= 5:  # Saturday=5, Sunday=6
+            return False
+
+        # HM-MARKET-HOLIDAY-CALENDAR Phase B — holiday check
+        if is_us_market_holiday(now.date()):
             return False
 
         t = now.time()

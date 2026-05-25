@@ -579,6 +579,19 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     through the multi-leg alpaca_options path) can stamp trades.strategy_id.
     Multi-leg spreads continue to land in options_trades.strategy_id —
     already correctly populated (25 bull_spread_v1 rows verified)."""
+    # HM-MARKET-HOLIDAY-CALENDAR Phase B 2026-05-25 — primary gate against
+    # closed-market signal/order fires. Memorial Day 2026-05-25 fired 6
+    # Alpaca orders before this gate existed. Block FIRST, before any
+    # side effect (events_bus emit, DB writes, Alpaca submit).
+    from engine.market_calendar import market_closed_reason as _mcr
+    _mkt_block_reason = _mcr()
+    if _mkt_block_reason is not None:
+        _last_rejection[player_id] = f"[HM-MARKET-CLOSED] {_mkt_block_reason}"
+        console.log(
+            f"[yellow][HM-MARKET-CLOSED] {player_id} BUY {symbol} "
+            f"blocked — {_mkt_block_reason}"
+        )
+        return None
     # HM-SIGNAL-TRADE-FK 2026-05-20: signal_id is the rowid of the originating
     # row in `signals` returned by save_signal(). Optional — callers without
     # the signal_id in scope pass None, and the trade row stores NULL.
@@ -1483,6 +1496,16 @@ def _check_min_hold(player_id: str, symbol: str, pos: dict, reasoning: str) -> b
 def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
          reasoning: str = "", confidence: float = 0.0,
          option_type: str = None) -> dict | None:
+    # HM-MARKET-HOLIDAY-CALENDAR Phase B 2026-05-25 — primary gate.
+    from engine.market_calendar import market_closed_reason as _mcr
+    _mkt_block_reason = _mcr()
+    if _mkt_block_reason is not None:
+        _last_rejection[player_id] = f"[HM-MARKET-CLOSED] {_mkt_block_reason}"
+        console.log(
+            f"[yellow][HM-MARKET-CLOSED] {player_id} SELL {symbol} "
+            f"blocked — {_mkt_block_reason}"
+        )
+        return None
     # GUARD: Never auto-trade human portfolios
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
@@ -3984,6 +4007,16 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
     Gated by SHORT_ENABLED module flag. Flip to True when Counselor Troi's
     ghost-trade performance justifies live short execution.
     """
+    # HM-MARKET-HOLIDAY-CALENDAR Phase B 2026-05-25 — primary gate.
+    from engine.market_calendar import market_closed_reason as _mcr
+    _mkt_block_reason = _mcr()
+    if _mkt_block_reason is not None:
+        _last_rejection[player_id] = f"[HM-MARKET-CLOSED] {_mkt_block_reason}"
+        console.log(
+            f"[yellow][HM-MARKET-CLOSED] {player_id} SHORT {symbol} "
+            f"blocked — {_mkt_block_reason}"
+        )
+        return None
     if not SHORT_ENABLED:
         console.log(f"[yellow]{player_id}: SHORT {symbol} blocked — SHORT_ENABLED=False (set True in paper_trader.py to unlock)")
         return None
