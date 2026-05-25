@@ -15,24 +15,40 @@ post-wipe state; data is unrecoverable from local sources.
 
 ### Sub-tickets
 
-#### HM-CATEGORY-C-EMERGENCY-LOCK — ✅ **SHIPPED** 2026-05-25 (commit `45e57e1`, pushed to main)
+#### HM-CATEGORY-C-EMERGENCY-LOCK — ✅ **SHIPPED + SUPERSEDED** 2026-05-25
 
-`dashboard/app.py:9856 clean_stale_snapshots()` → returns `HTTP 403` with
-explanation. Function body preserved as forensic evidence (unreachable).
-Hotfix pushed direct-to-main per Admiral authorization (doctrinal
-exception: closing active data-integrity violation supersedes normal
-merge process).
+Initial emergency lock at `45e57e1` (returned HTTP 403, pushed direct-
+to-main per Admiral authorization for active data-integrity violation).
+Superseded by the proper fix HM-CLEAN-STALE-ARCHIVE-NOT-DELETE (merge
+`38a38e4`), which replaces the 403 with the archive-then-delete pattern.
+Lock commit retained in main history as forensic record of the doctrine
+violation it closed.
 
-#### HM-CLEAN-STALE-ARCHIVE-NOT-DELETE — proper fix, pending Admiral
+#### HM-CLEAN-STALE-ARCHIVE-NOT-DELETE — ✅ **SHIPPED** 2026-05-25 (merge `38a38e4`, pushed to main)
 
-Replace `clean_stale_snapshots()` delete with archive-then-delete:
-- Create `portfolio_history_archived` table (same schema + `archived_at`,
-  `archived_reason`, `archived_by`).
-- Selection logic unchanged (cash >= 9999 AND total_value < 9000).
-- INSERT into archive, THEN DELETE from live, in a single transaction.
-- Audit log entry per archival batch (count, season, player_ids).
-- Re-enable the endpoint (remove the 403 short-circuit).
-- Scope: ~2-3h.
+Six-commit branch merged to main with end-to-end smoke + 5/5 tests:
+
+  Phase 1 `04b00f3` — schema (portfolio_history_archived + 3 indexes)
+  Phase 2 `8c9b942` — endpoint rewrite (archive-then-delete transaction)
+  Phase 3 `a5054c0` — recovery endpoints (GET list + POST restore-from-archive)
+  Phase 4 `b634dd0` — pattern tests (5/5 PASS, 0.04s wall)
+  Phase 5 `c10eb06` — docs/DOCTRINE.md (Rules 1/2/3 codified)
+  Phase 3.1 `c5a9d49` — typing.Optional fix (Py3.9 FastAPI runtime introspection)
+  Merge `38a38e4` — merged to main + pushed
+
+Post-merge verification: POST `/api/admin/clean-stale-snapshots` on
+live DB (no-match case) returns 200 with `archived_count=0,
+deleted_count=0, message="No stale snapshots to archive"`. The 403
+short-circuit is gone; archive-then-delete pattern is the active code
+path. Live trader continues running pre-merge bytecode until natural
+restart — acceptable since the endpoint is admin-only with no
+automated caller.
+
+Sacred Data Rule restored: every gold-row removal is now traceable via
+session_id + reversible via the restore endpoint.
+
+Branch cleanup: keep `hm-clean-stale-archive-not-delete` 7 days, then
+prune (standard).
 
 #### HM-SIGNAL-WIPE-FORENSIC — ✅ **CLOSED AS NO-VIOLATION** 2026-05-25
 
