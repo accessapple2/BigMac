@@ -4,7 +4,7 @@ import os
 import sqlite3
 
 from engine.halt_gate import HALTED_EMIT_FILTER
-from engine.stops import get_stop_loss_pct, get_trail_pct
+from engine.stops import get_options_stop_pct, get_stop_loss_pct, get_trail_pct
 
 # HM-RISK-MANAGER-CONVICTION-STOP-WIRE Phase 6 2026-05-25 — default-off
 # feature flag wrapping the conviction-scaled stop path. When False, the
@@ -22,6 +22,19 @@ _CONVICTION_SCALED_STOPS_ENABLED = os.environ.get(
 # AI_SIGNAL_PLAYERS allow-list only; NULL conviction falls back to 3%.
 _CONVICTION_SCALED_TRAIL_ENABLED = os.environ.get(
     "CONVICTION_SCALED_TRAIL_ENABLED", ""
+).lower() in ("1", "true", "yes", "on")
+
+# HM-OPTIONS-CONVICTION-STOP-WIRE Phase B 2026-05-25 — third paired
+# default-off flag for the options stop-loss conviction-scaled width.
+# Flag-off preserves the flat opt_sl_pct from config (default 0.50).
+# Flag-on path scales 0.50/0.40/0.30 by tier on AI_SIGNAL_PLAYERS
+# allow-list only; NULL conviction falls back to flat. Doctrine
+# deviation (intentional, Admiral-locked): low-conviction options get
+# TIGHTER stops than the current 0.50 baseline due to theta/IV decay
+# asymmetry — see engine.stops.get_options_stop_pct docstring + Rule #5
+# amendment in docs/DOCTRINE.md.
+_CONVICTION_SCALED_OPTIONS_STOP_ENABLED = os.environ.get(
+    "CONVICTION_SCALED_OPTIONS_STOP_ENABLED", ""
 ).lower() in ("1", "true", "yes", "on")
 
 DB = os.environ.get(
@@ -767,6 +780,21 @@ class RiskManager:
                 continue
 
             # For options, estimate current premium and enforce stop-loss
+            #
+            # HM-OPTIONS-CONVICTION-STOP-WIRE Phase A 2026-05-25 — current
+            # behavior baseline. Flat opt_sl_pct from config (default 0.50,
+            # i.e. exit if premium drops 50% from entry). Same symmetric gap
+            # as Lane A entry-stop + Lane C fleet-trail; Phase B introduces
+            # conviction-scaled options stop via engine.stops.get_options_stop_pct
+            # behind CONVICTION_SCALED_OPTIONS_STOP_ENABLED feature flag
+            # (default OFF — flag-off keeps current flat 50% behavior).
+            #
+            # Conviction reachability verified: paper_trader.buy() options
+            # INSERT path (engine/paper_trader.py L1335-1340) writes
+            # conviction onto positions row alongside the standard option
+            # keys. Audit of current positions table 2026-05-25: 1 options
+            # position (navigator PLD call, conv=0.75 backfilled), 0 NULL —
+            # no fallback edge cases in current portfolio.
             if pos.get("asset_type") == "option":
                 from engine.paper_trader import estimate_option_price
                 current = estimate_option_price(
@@ -775,7 +803,24 @@ class RiskManager:
                 )
                 # Options stop-loss: exit if premium drops below threshold
                 from config import OPTIONS_STOP_LOSS_PCT
-                opt_sl_pct = OPTIONS_STOP_LOSS_PCT if OPTIONS_STOP_LOSS_PCT else 0.50
+                _flat_opt_sl_pct = OPTIONS_STOP_LOSS_PCT if OPTIONS_STOP_LOSS_PCT else 0.50
+                # HM-OPTIONS-CONVICTION-STOP-WIRE Phase B 2026-05-25 — when
+                # CONVICTION_SCALED_OPTIONS_STOP_ENABLED + player is an AI-
+                # signal player + conviction known, scale by tier
+                # (0.50/0.40/0.30 via get_options_stop_pct). Otherwise
+                # inherit the flat opt_sl_pct (back-compat default).
+                if (
+                    _CONVICTION_SCALED_OPTIONS_STOP_ENABLED
+                    and player_id in self.AI_SIGNAL_PLAYERS
+                ):
+                    _conv = pos.get("conviction")
+                    opt_sl_pct = (
+                        get_options_stop_pct(_conv)
+                        if _conv is not None
+                        else _flat_opt_sl_pct
+                    )
+                else:
+                    opt_sl_pct = _flat_opt_sl_pct
                 if pos["avg_price"] > 0 and current < pos["avg_price"] * (1 - opt_sl_pct):
                     actions.append({
                         "symbol": symbol,

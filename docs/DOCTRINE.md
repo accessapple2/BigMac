@@ -233,8 +233,10 @@ attention (date varies, observation shifts when Saturday/Sunday).
   `a5054c0` (recovery), `b634dd0` (tests)
 - HM-MARKET-HOLIDAY-CALENDAR — `7d55d35` (calendar), `3cd4838` (gates),
   `bf54ee8` (banner), `4588639` (Rule #4 codify)
-- HM-RISK-MANAGER-CONVICTION-STOP-WIRE + HM-FLEET-TRAIL-CONVICTION-SCALE —
-  `3760345` / `568cb81` / `21a5347` (paired Rule #5 implementations)
+- HM-RISK-MANAGER-CONVICTION-STOP-WIRE + HM-FLEET-TRAIL-CONVICTION-SCALE
+  + HM-OPTIONS-CONVICTION-STOP-WIRE — `3760345` / `568cb81` / `21a5347` /
+  `24332ea` (paired Rule #5 implementations — conviction-scaling trio
+  fully realized)
 - Sacred Data Rule reaffirmation — `CLAUDE.md` ("SACRED DATA RULES" section)
 
 ## Rule #5 — Conviction-scaling is symmetric across stop layers
@@ -267,17 +269,38 @@ MUST follow the same doctrine when conviction-scaling is introduced:
 
 ### Reference paired implementations
 
-| Layer | Helper | Flag | Phase 6 commit |
-|---|---|---|---|
-| Entry stop-loss (L825 of risk_manager.py) | `engine.stops.get_stop_loss_pct` (0.12/0.15/0.18) | `CONVICTION_SCALED_STOPS_ENABLED` | `568cb81` |
-| Fleet trail (L800 of risk_manager.py) | `engine.stops.get_trail_pct` (0.03/0.04/0.05) | `CONVICTION_SCALED_TRAIL_ENABLED` | `21a5347` |
+| Layer | Helper | Tier table | Flag | Phase B commit |
+|---|---|---|---|---|
+| Entry stop-loss | `engine.stops.get_stop_loss_pct` | 0.12 / 0.15 / 0.18 | `CONVICTION_SCALED_STOPS_ENABLED` | `568cb81` |
+| Fleet trail | `engine.stops.get_trail_pct` | 0.03 / 0.04 / 0.05 | `CONVICTION_SCALED_TRAIL_ENABLED` | `21a5347` |
+| Options stop-loss | `engine.stops.get_options_stop_pct` | 0.30 / 0.40 / 0.50 | `CONVICTION_SCALED_OPTIONS_STOP_ENABLED` | `24332ea` |
 
-### Still asymmetric (banked for future symmetric ship)
+The conviction-scaling trio is fully realized. Doctrine boundaries
+(0.80 / 0.90) are shared across all three; per-layer width values
+differ; flags are independent so each layer can be shadow-validated
+in isolation.
 
-- **Options stop-loss** (`risk_manager.py:738`, uses `opt_sl_pct` const)
-  is not yet conviction-scaled. Banked as `HM-OPTIONS-CONVICTION-STOP-WIRE`
-  in XO_BACKLOG. Same pattern when it ships: paired helper in
-  `engine.stops`, paired flag, paired allow-list gate.
+### Floor invariant — exception for options
+
+Rule #5's "no tier produces a width TIGHTER than the flat baseline"
+holds for the equity layers (stops + trail). It does **NOT** hold for
+the options layer.
+
+The options tier table inverts the direction:
+- Top tier (conv >= 0.90) preserves the current 0.50 baseline.
+- Low tier (conv < 0.80) is **0.30 — tighter than the 0.50 baseline.**
+
+Rationale (Admiral-locked 2026-05-25, HM-OPTIONS-CONVICTION-STOP-WIRE):
+options premium is uniquely vulnerable to theta decay and IV crush.
+A tighter stop on a low-conviction option bet cuts capital risk faster
+when the original thesis was already uncertain. The high-conviction
+band keeps the existing room.
+
+This is the only documented exception to the universal floor invariant.
+Any future stop layer (equity, fixed-income, futures, etc.) that wants
+to invert the floor must do so via an EXPLICIT amendment to Rule #5
+referencing the per-asset decay characteristic that justifies it — not
+implicitly through tier-table values that happen to dip below baseline.
 
 ### Doctrine implication for new stop-layer additions
 
