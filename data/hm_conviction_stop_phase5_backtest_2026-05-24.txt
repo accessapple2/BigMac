@@ -1,0 +1,80 @@
+           skipped by guardrails                                                
+scaled trades=  6 pnl=     719 | flat trades=  6 pnl=     719
+[12/19] ollama-kimi            [18:39:48] Backtest VIX data: 49 days, 10 bear days (VIX>25)   backtester.py:656
+           Guarded backtest: 6 trades executed, 9 signals      backtester.py:669
+           skipped by guardrails                                                
+[18:40:00] Backtest VIX data: 49 days, 10 bear days (VIX>25)   backtester.py:656
+           Guarded backtest: 6 trades executed, 9 signals      backtester.py:669
+           skipped by guardrails                                                
+scaled trades=  6 pnl=     349 | flat trades=  6 pnl=     349
+[13/19] ollama-llama           scaled trades=  0 pnl=       0 | flat trades=  0 pnl=       0
+[14/19] ollama-local           [18:40:16] Backtest VIX data: 49 days, 10 bear days (VIX>25)   backtester.py:656
+           Guarded backtest: 3 trades executed, 21 signals     backtester.py:669
+           skipped by guardrails                                                
+[18:40:32] Backtest VIX data: 49 days, 10 bear days (VIX>25)   backtester.py:656
+           Guarded backtest: 3 trades executed, 21 signals     backtester.py:669
+           skipped by guardrails                                                
+scaled trades=  3 pnl=     290 | flat trades=  3 pnl=     290
+[15/19] ollama-plutus          [18:40:57] Backtest VIX data: 49 days, 10 bear days (VIX>25)   backtester.py:656
+           Guarded backtest: 8 trades executed, 475 signals    backtester.py:669
+           skipped by guardrails                                                
+[18:41:22] Backtest VIX data: 49 days, 10 bear days (VIX>25)   backtester.py:656
+[18:41:23] Guarded backtest: 8 trades executed, 475 signals    backtester.py:669
+           skipped by guardrails                                                
+scaled trades=  8 pnl=     458 | flat trades=  8 pnl=     458
+[16/19] ollama-qwen3           [18:41:48] Backtest VIX data: 49 days, 10 bear days (VIX>25)   backtester.py:656
+           Guarded backtest: 7 trades executed, 699 signals    backtester.py:669
+           skipped by guardrails                                                
+[18:42:13] Backtest VIX data: 49 days, 10 bear days (VIX>25)   backtester.py:656
+           Guarded backtest: 7 trades executed, 699 signals    backtester.py:669
+           skipped by guardrails                                                
+scaled trades=  7 pnl=     191 | flat trades=  7 pnl=     191
+[17/19] ollie-auto             scaled trades=  0 pnl=       0 | flat trades=  0 pnl=       0
+[18/19] options-sosnoff        [18:42:38] Backtest VIX data: 49 days, 10 bear days (VIX>25)   backtester.py:656
+           Guarded backtest: 10 trades executed, 950 signals   backtester.py:669
+           skipped by guardrails                                                
+[18:43:03] Backtest VIX data: 49 days, 10 bear days (VIX>25)   backtester.py:656
+           Guarded backtest: 10 trades executed, 950 signals   backtester.py:669
+           skipped by guardrails                                                
+scaled trades= 10 pnl=     793 | flat trades= 10 pnl=     793
+[19/19] qwen3-8b-flash         [18:43:28] Backtest VIX data: 49 days, 10 bear days (VIX>25)   backtester.py:656
+           Guarded backtest: 8 trades executed, 606 signals    backtester.py:669
+           skipped by guardrails                                                
+[18:43:54] Backtest VIX data: 49 days, 10 bear days (VIX>25)   backtester.py:656
+           Guarded backtest: 8 trades executed, 606 signals    backtester.py:669
+           skipped by guardrails                                                
+scaled trades=  8 pnl=     902 | flat trades=  8 pnl=     902
+
+==================================================================================================================================
+player                 | SCALED trades       pnl    wr%    dd%     pf | FLAT trades       pnl    wr%    dd%     pf
+----------------------------------------------------------------------------------------------------------------------------------
+capitol-trades         |             0         0    0.0    0.0    inf |           0         0    0.0    0.0    inf
+cto-grok42             |             6       386   83.3    0.0 127.89 |           6       386   83.3    0.0 127.89
+dayblade-sulu          |             0         0    0.0    0.0    inf |           0         0    0.0    0.0    inf
+deepseek-7b-grok4      |             9       280   66.7    0.9   3.39 |           9       280   66.7    0.9   3.39
+energy-arnold          |             6       756  100.0    0.0    inf |           6       756  100.0    0.0    inf
+gemini-2.5-flash       |             0         0    0.0    0.0    inf |           0         0    0.0    0.0    inf
+gemini-2.5-pro         |             0         0    0.0    0.0    inf |           0         0    0.0    0.0    inf
+grok-3                 |             0         0    0.0    0.0    inf |           0         0    0.0    0.0    inf
+navigator              |             0         0    0.0    0.0    inf |           0         0    0.0    0.0    inf
+neo-matrix             |             0         0    0.0    0.0    inf |           0         0    0.0    0.0    inf
+ollama-deepseek        |             6       719   83.3    0.1 154.63 |           6       719   83.3    0.1 154.63
+ollama-kimi            |             6       349   66.7    0.2  21.17 |           6       349   66.7    0.2  21.17
+ollama-llama           |             0         0    0.0    0.0    inf |           0         0    0.0    0.0    inf
+ollama-local           |             3       290  100.0    0.0    inf |           3       290  100.0    0.0    inf
+ollama-plutus          |             8       458   62.5    0.7   6.98 |           8       458   62.5    0.7   6.98
+ollama-qwen3           |             7       191   85.7    0.2  12.28 |           7       191   85.7    0.2  12.28
+ollie-auto             |             0         0    0.0    0.0    inf |           0         0    0.0    0.0    inf
+options-sosnoff        |            10       793  100.0    0.0    inf |          10       793  100.0    0.0    inf
+qwen3-8b-flash         |             8       902  100.0    0.0    inf |           8       902  100.0    0.0    inf
+----------------------------------------------------------------------------------------------------------------------------------
+FLEET TOTAL            |                    5123                            |                  5123                    
+fleet pnl delta          scaled - flat = +0  (+0.0%)
+
+ACCEPTANCE GATES:
+  [PASS] G1_fleet_pnl: fleet pnl delta +0.0%  (scaled +5123 vs flat +5123)
+  [PASS] G2_max_dd: no DD violators
+  [FAIL] G3_profit_factor: 0/6 agents improved profit factor (brief threshold >=6 of 9; using >=min(6, active))
+  [PASS] G4_trade_count: no trade-count violators
+
+HOLD — one or more gates failed. Phase 6 should NOT enable flag.
