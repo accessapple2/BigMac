@@ -11,6 +11,7 @@ if _proj_root not in _sys.path:
 import logging as _logging
 logger = _logging.getLogger("app")
 import math
+from typing import Optional
 from dotenv import load_dotenv
 load_dotenv(override=True)
 # === HM-BJ.E4 ===
@@ -9991,10 +9992,10 @@ def clean_stale_snapshots():
 
 @app.get("/api/admin/portfolio-history/archived")
 def list_archived_portfolio_history(
-    player_id: str | None = None,
-    season: int | None = None,
-    since: str | None = None,
-    session_id: str | None = None,
+    player_id: Optional[str] = None,
+    season: Optional[int] = None,
+    since: Optional[str] = None,
+    session_id: Optional[str] = None,
     include_restored: bool = False,
     limit: int = 100,
 ):
