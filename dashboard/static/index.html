@@ -33082,7 +33082,11 @@ var AlertSystem={
     var existing=document.getElementById('hm-conv-detail-modal');
     if(existing) existing.remove();
     var sym=payload.ticker||payload.symbol||'?';
-    var stratList=payload.strategies||payload.strategies_list||[];
+    // HM-NAVIGATOR-CONVERGENCE-LIST-MISSING 2026-05-25: backend at
+    // engine/strategies.py:898 returns the field as `strategy_names` (snake_case
+    // GROUP_CONCAT result); prior frontend only checked `strategies` +
+    // `strategies_list` and fell through to the "list not provided" placeholder.
+    var stratList=payload.strategies||payload.strategies_list||payload.strategy_names||[];
     var stratCount=payload.strategies_triggered||stratList.length||0;
     var conf=payload.confidence||payload.score||0;
     var regime=payload.regime||payload.current_regime||window._lastKnownRegime||'—';
