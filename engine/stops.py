@@ -18,17 +18,25 @@ def get_stop_loss_pct(conviction: float) -> float:
 
     Wider stops for higher conviction — let winners breathe.
 
-    Tiers (matches HM-DEEPSEEK-STOP-DISCIPLINE backtester behavior):
+    Doctrine invariant (HM-CONVICTION-STOP-TIER-FLOOR 2026-05-25): scaled
+    stops never go below 0.12 (flat baseline). Conviction-scaling is
+    additive — high-conviction earns wider stops, low-conviction inherits
+    baseline. We never punish low-conviction with tighter stops than the
+    flat default. The original tier table returned 0.08 for conviction
+    below 0.70, which actively regressed low-conviction agents in 180d
+    backtest (ollama-kimi pf 9.89 -> 4.02). Floor restored 2026-05-25.
+
+    Tiers:
         conviction >= 0.90 -> 0.18  (18% stop, highest-conviction band)
         conviction >= 0.80 -> 0.15
-        conviction >= 0.70 -> 0.12  (same as fleet flat default)
-        conviction <  0.70 -> 0.08  (8% stop, lowest-conviction band)
+        conviction <  0.80 -> 0.12  (flat baseline; floor invariant)
+
+    Banked HM-CONVICTION-TIER-TABLE-CALIBRATION — tier boundaries
+    (0.80/0.90) inferred from prior backtester logic; full calibration
+    review pending more live data.
     """
     if conviction >= 0.90:
         return 0.18
-    elif conviction >= 0.80:
+    if conviction >= 0.80:
         return 0.15
-    elif conviction >= 0.70:
-        return 0.12
-    else:
-        return 0.08
+    return 0.12
