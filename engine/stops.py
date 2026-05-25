@@ -26,14 +26,17 @@ def get_stop_loss_pct(conviction: float) -> float:
     below 0.70, which actively regressed low-conviction agents in 180d
     backtest (ollama-kimi pf 9.89 -> 4.02). Floor restored 2026-05-25.
 
-    Tiers (HM-CONVICTION-TIER-BOUNDARY-CALIBRATION Opt 1 2026-05-25):
+    Tiers:
         conviction >= 0.90 -> 0.18  (18% stop, highest-conviction band)
-        conviction >= 0.80 -> 0.13  (compressed from 0.15 to reduce
-                                     0.80-0.89 band hold-loser-longer regression)
+        conviction >= 0.80 -> 0.15
         conviction <  0.80 -> 0.12  (flat baseline; floor invariant)
+
+    Banked HM-CONVICTION-TIER-TABLE-CALIBRATION — tier boundaries
+    (0.80/0.90) inferred from prior backtester logic; full calibration
+    review pending more live data.
     """
     if conviction >= 0.90:
         return 0.18
     if conviction >= 0.80:
-        return 0.13
+        return 0.15
     return 0.12
