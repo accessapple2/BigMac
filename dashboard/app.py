@@ -9854,6 +9854,23 @@ def record_api_call(player_id: str):
 
 @app.post("/api/admin/clean-stale-snapshots")
 def clean_stale_snapshots():
+    # HM-CATEGORY-C-EMERGENCY-LOCK 2026-05-25 — DISABLED.
+    # Forensic audit (HM-DATA-INTEGRITY-FORENSICS) determined this endpoint
+    # was the path that wiped pre-2026-03-11 portfolio_history. DELETE
+    # without archive violates the "Trade data is gold. Never delete data."
+    # doctrine. Endpoint short-circuits to 403 until HM-CLEAN-STALE-ARCHIVE-
+    # NOT-DELETE ships (archive-then-delete pattern with audit trail).
+    # Function body preserved below as forensic evidence — do NOT remove.
+    from fastapi import HTTPException
+    raise HTTPException(
+        status_code=403,
+        detail=(
+            "DISABLED 2026-05-25 — HM-DATA-INTEGRITY-FORENSICS doctrine "
+            "violation. Archive-not-delete fix pending under "
+            "HM-CLEAN-STALE-ARCHIVE-NOT-DELETE. Contact Admiral."
+        ),
+    )
+    # --- ORIGINAL BODY (forensic evidence, unreachable) ---
     conn = _conn()
     season_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
     season = int(season_row[0]) if season_row else 3
