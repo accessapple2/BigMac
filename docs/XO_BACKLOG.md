@@ -174,6 +174,55 @@ ticket) for post-shadow review — 3/4 regressors (dayblade-sulu,
 options-sosnoff, partial ollama-llama) live in the 0.15 tier and would
 benefit from calibration that the rejected Opt 1 trial failed to find.
 
+#### HM-FLEET-TRAIL-CONVICTION-SCALE — ✅ **SHIPPED** 2026-05-25 (merge `ecc86b1`)
+
+Symmetric counterpart to HM-RISK-MANAGER-CONVICTION-STOP-WIRE. Wires
+conviction-scaled fleet trailing-stop width (3/4/5%) behind feature
+flag `CONVICTION_SCALED_TRAIL_ENABLED` (default OFF). Codifies
+Doctrine Rule #5 — symmetric conviction-scaling across all stop layers.
+
+Branch ship (5 phases merged):
+  Phase A `74116c5`  document current behavior baseline
+  Phase B `21a5347`  engine.stops.get_trail_pct + flag + gate wiring
+  Phase C `9bc22f2`  11/11 tier-table + gate-behavior tests
+  Phase D `7f74c43`  targeted impact analysis (backtest harness mismatch
+                     documented; 10/17 allow-list positions diverge under
+                     flag-on; ollama-qwen3/neo-matrix/qwen3-8b-flash most
+                     affected; AVGO/GOOGL/META/MSFT divergent tickers)
+  Phase E `8d13ad6`  docs/DOCTRINE.md Rule #5 codified
+
+Production behavior unchanged at merge — flag default OFF via code
+(env entry omitted from .env per Admiral; code's empty-env-var fallback
+to False is sufficient).
+
+Admiral shadow-validation sequence (heads-up):
+  1. Watch live trader under both flags=False through 2026-05-26+
+  2. Flip CONVICTION_SCALED_STOPS_ENABLED=True first (smaller blast radius)
+  3. Observe 5-10 trading days
+  4. Then flip CONVICTION_SCALED_TRAIL_ENABLED=True
+  5. Observe additional 5-10 days
+  6. If either degrades behavior, flip back to False and revisit tiers
+
+#### HM-FLEET-TRAIL-BACKTEST-HARNESS — banked
+
+Surfaced during HM-FLEET-TRAIL-CONVICTION-SCALE Phase D. The Lane A
+backtest harness (`scripts/hm_conviction_stop_backtest_compare.py` →
+`engine.backtester._simulate_guarded`) models a gain-tiered trail via
+`_v3_trailing_stop_pct(gain)` — structurally different from the FLAT
+3% fleet trail in `engine/risk_manager.py::check_stop_loss_take_profit`.
+The backtester cannot directly simulate the production-trail change
+without a new harness branch.
+
+Scope (~3-4h):
+- Extend `_simulate_guarded` with optional `fleet_trail_pct_fn` callable
+  parameter (analogous to `flat_stop_pct`)
+- Wire `engine.stops.get_trail_pct` as injectable trail function
+- Re-run A/B at L800-820 layer with proper harness
+- Validate Phase D's directional signal with G1-G4 acceptance gates
+
+Priority: LOW. Bank for post-shadow-validation review. Phase D's
+targeted analysis is sufficient input for the initial flag-flip decision.
+
 #### HM-NTFY-ACK-CLICKTHROUGH — banked (Week 7 work)
 
 Single click-through URL in NTFY body → logs `ntfy_ack` row to new
