@@ -2,9 +2,14 @@
 from the most-recent opening trade per (player_id, symbol[, option key]).
 
 For each currently-open position, find the latest matching trade with a
-non-NULL confidence value among the opening-action set
-(BUY, BUY_CALL, BUY_PUT, SHORT) and copy its confidence into
-positions.conviction. Stamp conviction_source='backfill'.
+non-NULL confidence value among the opening-action set and copy its
+confidence into positions.conviction. Stamp conviction_source='backfill'.
+
+Opening actions per asset_type:
+  stock:  BUY, SHORT
+  option: BUY_CALL, BUY_PUT, SELL-with-option-key  (long calls/puts AND
+          sold-to-open writes like covered calls / short puts — Phase 2.5
+          extension 2026-05-24 to capture navigator-style PLD short calls)
 
 Skips positions whose matching key produces no opening trade or whose
 matching trade has NULL confidence (legacy rows, edge cases, pre-confidence
@@ -23,8 +28,8 @@ from pathlib import Path
 
 DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
 
-OPENING_ACTIONS_STOCK = ("BUY", "SHORT")
-OPENING_ACTIONS_OPTION = ("BUY_CALL", "BUY_PUT")
+# Action vocabulary documented here; SQL uses inline literals to keep
+# the (action IN (...) OR ...) compound condition readable for options.
 
 
 def _fetch_latest_opening_confidence(
@@ -56,7 +61,8 @@ def _fetch_latest_opening_confidence(
                AND option_type IS ?
                AND strike_price IS ?
                AND expiry_date IS ?
-               AND action IN ('BUY_CALL', 'BUY_PUT')
+               AND (action IN ('BUY_CALL', 'BUY_PUT')
+                    OR (action = 'SELL' AND option_type IS NOT NULL))
                AND confidence IS NOT NULL
              ORDER BY executed_at DESC
              LIMIT 1
