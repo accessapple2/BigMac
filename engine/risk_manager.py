@@ -6,6 +6,16 @@ import sqlite3
 from engine.halt_gate import HALTED_EMIT_FILTER
 from engine.stops import get_stop_loss_pct
 
+# HM-RISK-MANAGER-CONVICTION-STOP-WIRE Phase 6 2026-05-25 — default-off
+# feature flag wrapping the conviction-scaled stop path. When False, the
+# exit-evaluator reverts to the per-model flat guardrail for all players
+# (production behavior pre-wire). When True, the AI_SIGNAL_PLAYERS allow-
+# list + engine.stops.get_stop_loss_pct path activates. Flip via .env;
+# requires service restart per Feature Flags doctrine in CLAUDE.md.
+_CONVICTION_SCALED_STOPS_ENABLED = os.environ.get(
+    "CONVICTION_SCALED_STOPS_ENABLED", ""
+).lower() in ("1", "true", "yes", "on")
+
 DB = os.environ.get(
     "TRADEMINDS_DB",
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
@@ -812,7 +822,11 @@ class RiskManager:
             # and fall back to flat so an unscaled stop still protects the
             # position. Non-AI players (alpaca-mirror / metals trackers) always
             # use the flat guardrail; they have no conviction concept.
-            if player_id in self.AI_SIGNAL_PLAYERS:
+            # Phase 6 2026-05-25: entire conviction-scaled branch gated by
+            # CONVICTION_SCALED_STOPS_ENABLED env flag (default False). Flag-off
+            # path is the pre-wire flat behavior; flag-on path is the allow-
+            # list + scaled-stops doctrine validated in Phase 5c backtest.
+            if _CONVICTION_SCALED_STOPS_ENABLED and player_id in self.AI_SIGNAL_PLAYERS:
                 conviction = pos.get("conviction")
                 if conviction is not None:
                     model_sl = get_stop_loss_pct(conviction)
