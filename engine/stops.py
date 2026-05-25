@@ -13,6 +13,32 @@ should route to the flat-stop default (the non-conviction-scaled path).
 from __future__ import annotations
 
 
+def get_trail_pct(conviction: float) -> float:
+    """Conviction-scaled fleet trailing-stop width.
+
+    HM-FLEET-TRAIL-CONVICTION-SCALE Phase B 2026-05-25 — symmetric
+    counterpart to ``get_stop_loss_pct``. High-conviction positions get
+    a wider trail (let winners breathe past short-term pullbacks); low-
+    conviction inherits the flat 3% baseline (floor invariant — same
+    doctrine as the stop-loss tier floor).
+
+    Tiers (Admiral-locked 2026-05-25):
+
+        conviction >= 0.90 -> 0.05  (5% trail, widest band)
+        conviction >= 0.80 -> 0.04  (4% trail)
+        conviction <  0.80 -> 0.03  (3% trail = current flat baseline; floor invariant)
+
+    Banked HM-CONVICTION-TIER-TABLE-CALIBRATION (already open for the
+    stop-loss tier) — same boundary set (0.80/0.90) applies here; revisit
+    once live shadow data accumulates.
+    """
+    if conviction >= 0.90:
+        return 0.05
+    if conviction >= 0.80:
+        return 0.04
+    return 0.03
+
+
 def get_stop_loss_pct(conviction: float) -> float:
     """Conviction-scaled stop loss percentage.
 
