@@ -72,13 +72,32 @@ exit_only). Reconstruction is feasible but partial; ~6-8h scope. The
 50d window we currently have IS the operational reality of the current
 fleet — reconstruction adds historical color, not active calibration data.
 
-#### HM-RECAP-TRIGGERS-DELETE-PATTERN — investigate `scripts/recapitalize_player.py`
+#### HM-RECAP-TRIGGERS-DELETE-PATTERN — ✅ **AUDITED — NO ACTION REQUIRED** 2026-05-25
 
-The clean_stale_snapshots was designed to follow recapitalization events.
-Verify whether `scripts/recapitalize_player.py` itself performs any delete
-or only ARMs the conditions (cash >= 9999) that clean_stale_snapshots
-then exploits. If recap directly deletes history, apply emergency-lock
-+ archive-not-delete pattern. Scope: ~1h investigation + 2-3h fix if violation.
+Full audit of `scripts/recapitalize_player.py` (137 lines, single source).
+Findings:
+
+- **Zero DELETE / DROP / TRUNCATE.** Only one mutation outside audit
+  trail: `UPDATE ai_players SET cash=?, is_paused=? WHERE id=?` (L85).
+- **Two gold-table INSERTs preserved per recap event:**
+  `player_funding_events` (full delta audit) + `portfolio_history` (new
+  snapshot at new equity level — prior rows untouched).
+- **CLI-only:** no cron, no plist, no imports from other modules.
+- **Lifetime usage:** 1 event in 76 days (dalio-metals 2026-03-28
+  "restore baseline"). Audit mechanism rarely exercised.
+
+Recap **arms** the precondition (cash >= 9999 + stale low-equity rows)
+that the locked-and-fixed `clean_stale_snapshots` endpoint exploited.
+Post-merge `38a38e4`, the endpoint archives-not-deletes, so the
+script + endpoint now operate as a safe pair: recap sets new cash,
+endpoint archives the now-stale prior snapshots to
+`portfolio_history_archived`.
+
+No code change needed. Recap is doctrine-compliant. Closing.
+
+Banked adjacent (not actionable now):
+- No NTFY on recap events (silent) — fleet observability gap, low priority.
+- No 'unrecap' / refund path — one-way by design, acceptable.
 
 #### HM-FINMEM-AGENT-MEMORY-ARCHIVE — defensive flag
 
