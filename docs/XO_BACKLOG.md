@@ -317,6 +317,30 @@ Priority: HIGH (blocks sweep progress past Batch 3). Greenfield-design
 adjacent (token naming, cascade design) — work for fresh context, not
 late-marathon execution.
 
+#### HM-NAVIGATOR-CONVERGENCE-LIST-MISSING — ✅ **SHIPPED** 2026-05-25 (merge `b76ea91`)
+
+Chekov convergence modal was showing "(N strategies — list not provided
+by /api/navigator/convergence)" placeholder when the backend was ALWAYS
+serving the data. One-line frontend field-name fix.
+
+ROOT CAUSE: `engine/strategies.py::get_todays_signals()` at L898 returns
+each signal with field `strategy_names` (snake_case GROUP_CONCAT). The
+modal's lookup chain at `dashboard/static/index.html:33085` checked
+`payload.strategies || payload.strategies_list || []` — never
+`strategy_names`. Two other frontend sites (L18372 + L19795) already
+used the correct field name; the modal was the outlier.
+
+FIX: extend lookup chain to include `strategy_names`. Existing render
+loop picks up the array.
+
+Live smoke (2026-05-25 16:00 AZ) — 31 convergence signals today; the
+bug report's sample matches production:
+  RGTX 6 strategies conf 1.0
+  [breakout_volume, macd_crossover, unusual_volume, ema_ribbon,
+   trend_resumption, bull_momentum_breakout]
+
+Single commit (`9b49b4f`) merged via `b76ea91`. ~10 min total.
+
 #### HM-NTFY-ACK-CLICKTHROUGH — banked (Week 7 work)
 
 Single click-through URL in NTFY body → logs `ntfy_ack` row to new
