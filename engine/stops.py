@@ -13,6 +13,41 @@ should route to the flat-stop default (the non-conviction-scaled path).
 from __future__ import annotations
 
 
+def get_options_stop_pct(conviction: float) -> float:
+    """Conviction-scaled options stop-loss percentage.
+
+    HM-OPTIONS-CONVICTION-STOP-WIRE Phase B 2026-05-25 — third paired
+    implementation in the conviction-scaling trio (entry stop + fleet
+    trail + options stop). Same allow-list, same flag pattern, same
+    NULL-conviction-falls-back semantics as ``get_stop_loss_pct`` and
+    ``get_trail_pct``.
+
+    DOCTRINE DEVIATION (Admiral-locked): unlike the equity stops, this
+    tier table inverts the floor-invariant direction. Current flat
+    baseline is config.OPTIONS_STOP_LOSS_PCT (default 0.50). The brief's
+    tier table:
+
+        conviction >= 0.90 -> 0.50  (preserves current 50% baseline)
+        conviction >= 0.80 -> 0.40
+        conviction <  0.80 -> 0.30  (TIGHTER than current 0.50 baseline)
+
+    Rationale (Admiral): options premium is uniquely vulnerable to theta
+    decay + IV crush; tighter stops on low-conviction option bets cut
+    capital risk faster, while high-conviction bets retain the existing
+    50% room. This intentionally deviates from Rule #5's universal
+    floor invariant; Rule #5 will be amended in Phase E to note this
+    options-specific exception.
+
+    Banked HM-CONVICTION-TIER-TABLE-CALIBRATION already covers tier-
+    boundary review for all three layers.
+    """
+    if conviction >= 0.90:
+        return 0.50
+    if conviction >= 0.80:
+        return 0.40
+    return 0.30
+
+
 def get_trail_pct(conviction: float) -> float:
     """Conviction-scaled fleet trailing-stop width.
 
