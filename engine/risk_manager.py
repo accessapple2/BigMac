@@ -4,6 +4,7 @@ import os
 import sqlite3
 
 from engine.halt_gate import HALTED_EMIT_FILTER
+from engine.stops import get_stop_loss_pct
 
 DB = os.environ.get(
     "TRADEMINDS_DB",
@@ -57,6 +58,28 @@ class RiskManager:
     # These models keep their existing per-model stops instead.
     # geordi: -8% hard stop  |  sulu: -3% intraday stop  |  trip: -7% sector stop
     FLEET_TRAILING_STOP_OPT_OUT = {"ollama-local", "dayblade-sulu", "energy-arnold"}
+
+    # HM-RISK-MANAGER-CONVICTION-STOP-WIRE 2026-05-24 — players eligible for
+    # conviction-scaled stops via engine.stops.get_stop_loss_pct (tiers
+    # 8/12/15/18%). Anyone NOT in this set falls through to the flat
+    # per-model guardrail (get_model_guardrail("stop_loss_pct", ...)).
+    #
+    # Excluded by design (categorical NULL conviction surfaced by
+    # HM-POSITIONS-CONVICTION-DENORM Phase 2):
+    #   alpaca-mirror        — broker-mirror sync, no signal/confidence concept
+    #   enterprise-computer  — physical metals tracker (GC=F, SI=F)
+    #   dalio-metals         — metals route (route_mode='tracking')
+    #
+    # Derived 2026-05-24 from ai_players halt_mode IN ('active','exit_only')
+    # joined to trades with confidence IS NOT NULL in last 90d, minus the
+    # three categorical exclusions above.
+    AI_SIGNAL_PLAYERS = frozenset({
+        "capitol-trades", "cto-grok42", "dayblade-sulu", "deepseek-7b-grok4",
+        "energy-arnold", "gemini-2.5-flash", "gemini-2.5-pro", "grok-3",
+        "navigator", "neo-matrix", "ollama-deepseek", "ollama-kimi",
+        "ollama-llama", "ollama-local", "ollama-plutus", "ollama-qwen3",
+        "ollie-auto", "options-sosnoff", "qwen3-8b-flash",
+    })
 
     # Defensive tickers always allowed in BEAR mode (inverse ETFs, treasuries, metals, volatility)
     BEAR_DEFENSIVE_TICKERS = {
@@ -782,7 +805,30 @@ class RiskManager:
                     continue
 
             # Stop-loss: sell entire position (per-model override: Geordi=8%, default=12%)
-            model_sl = self.get_model_guardrail(player_id, "stop_loss_pct", self.stop_loss_pct)
+            # HM-RISK-MANAGER-CONVICTION-STOP-WIRE 2026-05-24: for AI-signal
+            # players, scale the stop by the BUY-time conviction read off the
+            # position row (populated by HM-POSITIONS-CONVICTION-DENORM Phase 3).
+            # NULL conviction on an AI player is unexpected post-denorm — log
+            # and fall back to flat so an unscaled stop still protects the
+            # position. Non-AI players (alpaca-mirror / metals trackers) always
+            # use the flat guardrail; they have no conviction concept.
+            if player_id in self.AI_SIGNAL_PLAYERS:
+                conviction = pos.get("conviction")
+                if conviction is not None:
+                    model_sl = get_stop_loss_pct(conviction)
+                else:
+                    from rich.console import Console
+                    Console().log(
+                        f"[yellow]HM-CONVICTION-STOP: {player_id} has NULL "
+                        f"conviction for {symbol} — using flat stop"
+                    )
+                    model_sl = self.get_model_guardrail(
+                        player_id, "stop_loss_pct", self.stop_loss_pct
+                    )
+            else:
+                model_sl = self.get_model_guardrail(
+                    player_id, "stop_loss_pct", self.stop_loss_pct
+                )
             if pnl_pct <= -model_sl:
                 actions.append({
                     "symbol": symbol,

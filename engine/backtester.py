@@ -142,16 +142,11 @@ def _get_position_size_pct(conviction: float, is_bear: bool) -> float:
             return 0.15
 
 # V2: Conviction-scaled stop-loss (replaces flat STOP_LOSS_PCT)
-def _get_stop_loss_pct(conviction: float) -> float:
-    """Wider stops for higher conviction — let winners breathe."""
-    if conviction >= 0.90:
-        return 0.18
-    elif conviction >= 0.80:
-        return 0.15
-    elif conviction >= 0.70:
-        return 0.12
-    else:
-        return 0.08
+# HM-RISK-MANAGER-CONVICTION-STOP-WIRE 2026-05-24: extracted to engine/stops.py
+# so risk_manager.py can share the same logic without importing this module-
+# private name. Re-exported here as _get_stop_loss_pct for backward compatibility
+# with the local caller below; new code should import directly from engine.stops.
+from engine.stops import get_stop_loss_pct as _get_stop_loss_pct
 
 # V2: Minimum holding periods (days)
 MIN_HOLD_DAYS = {
