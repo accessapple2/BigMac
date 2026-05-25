@@ -7131,7 +7131,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
 <!-- LEADERBOARD SECTION (dedicated page) -->
 <div id="section-leaderboard" style="display:none;">
   <div id="guide-container-leaderboard"></div>
-  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Crew Performance</div><div style="font-size:13px;color:#94a3b8;">Real-time AI crew rankings by P&amp;L, win rate, and portfolio value. Click any row to expand positions and model bio.</div></div>
+  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Crew Performance</div><div style="font-size:13px;color:var(--text-secondary);">Real-time AI crew rankings by P&amp;L, win rate, and portfolio value. Click any row to expand positions and model bio.</div></div>
   <div class="card">
     <div class="card-header"><div class="card-title">🕵️ Starfleet Intelligence — Crew Performance & Rankings</div></div>
     <div style="font-size:13px;color:var(--muted);padding:4px 16px 0;">Click any row to expand positions</div>
@@ -7168,7 +7168,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
 <div id="section-trade-desk" style="display:none;">
   <div style="border-left:4px solid #d4a030;background:rgba(212,160,48,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
     <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Manual Trading — Captain Override</div>
-    <div style="font-size:13px;color:#94a3b8;">Direct order entry on Alpaca paper. Orders bypass fleet gates (daily limit, position cap, Uhura veto) but honor the universal kill switch. Tagged <code>player_id='trade-desk'</code> for clean attribution.</div>
+    <div style="font-size:13px;color:var(--text-secondary);">Direct order entry on Alpaca paper. Orders bypass fleet gates (daily limit, position cap, Uhura veto) but honor the universal kill switch. Tagged <code>player_id='trade-desk'</code> for clean attribution.</div>
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
@@ -7549,13 +7549,13 @@ function tdRecomputeProtectivePreview() {
     : '<span style="color:#10b981;font-weight:600;">⛓ BRACKET</span>';
   var basisLabel = isPhase2 ? 'fill price' : 'basis';
   var slCell = isTrailing
-    ? '<span style="color:#ef4444;">🛡 trailing-stop −' + sl.toFixed(1) + '% (broker-side)</span>'
-    : '<span style="color:#ef4444;">🛡 stop @ $' + stopP.toFixed(2) + ' (−' + sl.toFixed(1) + '%)</span>';
+    ? '<span style="color:var(--down);">🛡 trailing-stop −' + sl.toFixed(1) + '% (broker-side)</span>'
+    : '<span style="color:var(--down);">🛡 stop @ $' + stopP.toFixed(2) + ' (−' + sl.toFixed(1) + '%)</span>';
   box.innerHTML =
     modeLabel + ' · ' +
-    '<span style="color:#94a3b8;">' + basisLabel + ' ≈$' + ref.toFixed(2) + ' · </span>' +
+    '<span style="color:var(--text-secondary);">' + basisLabel + ' ≈$' + ref.toFixed(2) + ' · </span>' +
     slCell +
-    '<span style="color:#94a3b8;"> · </span>' +
+    '<span style="color:var(--text-secondary);"> · </span>' +
     '<span style="color:#10b981;">🎯 target @ $' + targetP.toFixed(2) + ' (+' + tp.toFixed(1) + '%)</span>';
 }
 
@@ -7572,7 +7572,7 @@ function tdLoadQuote() {
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (!d || d.error) {
-        box.innerHTML = '<span style="color:#ef4444;">No quote: ' + ((d && d.error) || 'unknown') + '</span>';
+        box.innerHTML = '<span style="color:var(--down);">No quote: ' + ((d && d.error) || 'unknown') + '</span>';
         _tdLastQuotePrice = null;
         return;
       }
@@ -7589,7 +7589,7 @@ function tdLoadQuote() {
       tdRecomputeProtectivePreview();
     })
     .catch(function(e) {
-      box.innerHTML = '<span style="color:#ef4444;">Quote fetch failed: ' + e + '</span>';
+      box.innerHTML = '<span style="color:var(--down);">Quote fetch failed: ' + e + '</span>';
     });
 }
 
@@ -7614,7 +7614,7 @@ function tdSubmitOrder() {
   var err = tdValidate();
   var status = document.getElementById('td-status');
   if (err) {
-    status.innerHTML = '<span style="color:#ef4444;">⚠ ' + err + '</span>';
+    status.innerHTML = '<span style="color:var(--down);">⚠ ' + err + '</span>';
     return;
   }
   // HM-TRADE-DESK-AUTOPILOT-PHASE1 2026-05-23: autopilot pct validation
@@ -7622,7 +7622,7 @@ function tdSubmitOrder() {
   // upfront instead of the backend bouncing the request.
   var apErr = tdValidateAutopilot();
   if (apErr) {
-    status.innerHTML = '<span style="color:#ef4444;">⚠ ' + apErr + '</span>';
+    status.innerHTML = '<span style="color:var(--down);">⚠ ' + apErr + '</span>';
     return;
   }
   var sym = (document.getElementById('td-symbol').value || '').toUpperCase().trim();
@@ -7687,7 +7687,7 @@ function tdSubmitOrder() {
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.error) {
-        status.innerHTML = '<span style="color:#ef4444;">✗ ' + d.error + '</span>';
+        status.innerHTML = '<span style="color:var(--down);">✗ ' + d.error + '</span>';
       } else {
         var fillStr = d.filled_avg_price ?
           ('@ $' + parseFloat(d.filled_avg_price).toFixed(2)) :
@@ -7711,7 +7711,7 @@ function tdSubmitOrder() {
             if (ap.bracket) prefix = '<span style="color:#10b981;font-weight:600;">⛓ BRACKET</span>';
             else if (ap.attach_after_fill) prefix = '<span style="color:#06b6d4;font-weight:600;">🔄 ATTACHED</span>';
             else prefix = '<span style="color:#06b6d4;">autopilot</span>';
-            apStr = ' · ' + prefix + ' <span style="color:#94a3b8;">' + apBits.join(' / ') + '</span>';
+            apStr = ' · ' + prefix + ' <span style="color:var(--text-secondary);">' + apBits.join(' / ') + '</span>';
           }
           if (ap.errors && ap.errors.length) {
             apStr += ' · <span style="color:#f59e0b;">⚠ ' + ap.errors.join('; ') + '</span>';
@@ -7728,7 +7728,7 @@ function tdSubmitOrder() {
       }
     })
     .catch(function(e) {
-      status.innerHTML = '<span style="color:#ef4444;">✗ ' + e + '</span>';
+      status.innerHTML = '<span style="color:var(--down);">✗ ' + e + '</span>';
     })
     .finally(function() {
       _tdSubmitInFlight = false;
@@ -7764,24 +7764,24 @@ function tdLoadPending() {
         var sp = o.stop_price ? '$' + parseFloat(o.stop_price).toFixed(2) : '—';
         var badge = '';
         if (stopSet[o.id]) {
-          badge = ' <span title="Trade Desk autopilot stop-loss" style="color:#ef4444;font-size:10px;">🛡 SL</span>';
+          badge = ' <span title="Trade Desk autopilot stop-loss" style="color:var(--down);font-size:10px;">🛡 SL</span>';
         } else if (targetSet[o.id]) {
           badge = ' <span title="Trade Desk autopilot take-profit" style="color:#10b981;font-size:10px;">🎯 TP</span>';
         }
         return '<tr style="border-bottom:1px solid rgba(212,160,48,0.1);">' +
           '<td style="padding:6px 4px;font-family:monospace;">' + (o.symbol || '—') + '</td>' +
-          '<td style="padding:6px 4px;color:' + (o.side === 'sell' ? '#ef4444' : '#10b981') + ';">' + (o.side || '').toUpperCase() + '</td>' +
+          '<td style="padding:6px 4px;color:' + (o.side === 'sell' ? 'var(--down)' : '#10b981') + ';">' + (o.side || '').toUpperCase() + '</td>' +
           '<td style="padding:6px 4px;font-family:monospace;color:var(--muted);">' + (o.type || '—') + badge + '</td>' +
           '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + (o.qty || '—') + '</td>' +
           '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + lp + '</td>' +
           '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + sp + '</td>' +
-          '<td style="padding:6px 4px;text-align:center;"><button onclick="tdCancel(\'' + o.id + '\')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#ef4444;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">✕</button></td>' +
+          '<td style="padding:6px 4px;text-align:center;"><button onclick="tdCancel(\'' + o.id + '\')" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:var(--down);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">✕</button></td>' +
           '</tr>';
       }).join('');
     })
     .catch(function() {
       var tbody = document.getElementById('td-pending-tbody');
-      if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="padding:8px 4px;color:#ef4444;text-align:center;">Load failed</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="7" style="padding:8px 4px;color:var(--down);text-align:center;">Load failed</td></tr>';
     });
 }
 
@@ -7804,7 +7804,7 @@ function tdLoadFills() {
         return '<tr style="border-bottom:1px solid rgba(212,160,48,0.1);">' +
           '<td style="padding:6px 4px;font-family:monospace;color:var(--muted);">' + ts + '</td>' +
           '<td style="padding:6px 4px;font-family:monospace;">' + (o.symbol || '—') + '</td>' +
-          '<td style="padding:6px 4px;color:' + (o.side === 'sell' ? '#ef4444' : '#10b981') + ';">' + (o.side || '').toUpperCase() + '</td>' +
+          '<td style="padding:6px 4px;color:' + (o.side === 'sell' ? 'var(--down)' : '#10b981') + ';">' + (o.side || '').toUpperCase() + '</td>' +
           '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + (o.qty || '—') + '</td>' +
           '<td style="padding:6px 4px;text-align:right;font-family:monospace;">' + fill + '</td>' +
           '<td style="padding:6px 4px;font-family:monospace;color:var(--muted);">' + (o.status || '—') + '</td>' +
@@ -7813,7 +7813,7 @@ function tdLoadFills() {
     })
     .catch(function() {
       var tbody = document.getElementById('td-fills-tbody');
-      if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="padding:8px 4px;color:#ef4444;text-align:center;">Load failed</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="padding:8px 4px;color:var(--down);text-align:center;">Load failed</td></tr>';
     });
 }
 
@@ -7852,7 +7852,7 @@ function tdCancel(orderId) {
           var status = document.getElementById('td-status');
           if (!status) { tdLoadPending(); tdLoadOcoPairs(); return; }
           if (d.error) {
-            status.innerHTML = '<span style="color:#ef4444;">Cancel failed: ' + d.error + '</span>';
+            status.innerHTML = '<span style="color:var(--down);">Cancel failed: ' + d.error + '</span>';
           } else if (d.cascade) {
             var n = 0;
             if (d.sl) n++;
@@ -7869,7 +7869,7 @@ function tdCancel(orderId) {
         })
         .catch(function(e) {
           var status = document.getElementById('td-status');
-          if (status) status.innerHTML = '<span style="color:#ef4444;">Cancel failed: ' + e + '</span>';
+          if (status) status.innerHTML = '<span style="color:var(--down);">Cancel failed: ' + e + '</span>';
         });
     });
 }
@@ -7903,19 +7903,19 @@ function tdLoadOcoPairs() {
         var hasTp = !!pr.tp_order_id;
         return '<tr style="border-bottom:1px solid rgba(212,160,48,0.1);" title="attached ' + attached + '">'
           + '<td style="padding:6px 4px;font-family:monospace;">' + sym + '</td>'
-          + '<td style="padding:6px 4px;font-family:monospace;color:var(--muted);">' + short + (hasSl ? '' : ' <span title="no SL" style="color:#94a3b8;">·noSL</span>') + (hasTp ? '' : ' <span title="no TP" style="color:#94a3b8;">·noTP</span>') + '</td>'
+          + '<td style="padding:6px 4px;font-family:monospace;color:var(--muted);">' + short + (hasSl ? '' : ' <span title="no SL" style="color:var(--text-secondary);">·noSL</span>') + (hasTp ? '' : ' <span title="no TP" style="color:var(--text-secondary);">·noTP</span>') + '</td>'
           + '<td style="padding:6px 4px;text-align:right;"><input id="' + idAttr('sl-pct') + '" type="number" step="0.1" min="0.5" max="50" value="8" style="width:64px;padding:3px 6px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:3px;font-family:monospace;text-align:right;" /></td>'
           + '<td style="padding:6px 4px;text-align:right;"><select id="' + idAttr('sl-kind') + '" style="padding:3px 6px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:3px;font-family:monospace;font-size:11px;"><option value="fixed">Fixed</option><option value="trailing">Trailing</option></select></td>'
           + '<td style="padding:6px 4px;text-align:right;"><input id="' + idAttr('tp-pct') + '" type="number" step="0.1" min="0.5" max="200" value="15" style="width:64px;padding:3px 6px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:3px;font-family:monospace;text-align:right;" /></td>'
           + '<td style="padding:6px 4px;text-align:center;white-space:nowrap;">'
           + '<button onclick="tdReplaceOcoPair(\'' + pid + '\')" title="Cancel current SL+TP and submit new ones (brief unprotected window)" style="background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.4);color:#06b6d4;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:4px;">✏ Edit</button>'
-          + '<button onclick="tdCancel(\'' + pid + '\')" title="Cancel parent + children (cascade)" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:#ef4444;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">✕</button>'
+          + '<button onclick="tdCancel(\'' + pid + '\')" title="Cancel parent + children (cascade)" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:var(--down);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">✕</button>'
           + '</td></tr>';
       }).join('');
     })
     .catch(function() {
       var tbody = document.getElementById('td-oco-tbody');
-      if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="padding:8px 4px;color:#ef4444;text-align:center;">OCO load failed</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="6" style="padding:8px 4px;color:var(--down);text-align:center;">OCO load failed</td></tr>';
     });
 }
 
@@ -7952,7 +7952,7 @@ function tdReplaceOcoPair(parentOrderId) {
     .then(function(r) { return r.json(); })
     .then(function(d) {
       if (d.error) {
-        if (status) status.innerHTML = '<span style="color:#ef4444;">✗ Replace failed: ' + d.error + '</span>';
+        if (status) status.innerHTML = '<span style="color:var(--down);">✗ Replace failed: ' + d.error + '</span>';
         return;
       }
       var canceled = (d.canceled && d.canceled.length) || 0;
@@ -7967,7 +7967,7 @@ function tdReplaceOcoPair(parentOrderId) {
       tdLoadPending();
     })
     .catch(function(e) {
-      if (status) status.innerHTML = '<span style="color:#ef4444;">✗ Replace failed: ' + e + '</span>';
+      if (status) status.innerHTML = '<span style="color:var(--down);">✗ Replace failed: ' + e + '</span>';
     });
 }
 
@@ -8039,7 +8039,7 @@ if (typeof registerSectionInit === 'function') {
 <div id="section-cockpit" data-no-market-gate="true" style="display:none;">
   <div style="border-left:4px solid #06b6d4;background:rgba(6,182,212,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
     <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Command Bridge — Mission Control</div>
-    <div style="font-size:13px;color:#94a3b8;">Live system status. Every panel reads from <code>/api/cockpit/snapshot</code>. Refreshes every 30s. <span id="cockpit-last-refresh" style="font-family:monospace;color:var(--muted);"></span></div>
+    <div style="font-size:13px;color:var(--text-secondary);">Live system status. Every panel reads from <code>/api/cockpit/snapshot</code>. Refreshes every 30s. <span id="cockpit-last-refresh" style="font-family:monospace;color:var(--muted);"></span></div>
   </div>
 
   <!-- Row 1: status tiles -->
@@ -8386,7 +8386,7 @@ function cpLoad() {
     .then(cpRender)
     .catch(function(e) {
       var rf = document.getElementById('cockpit-last-refresh');
-      if (rf) rf.innerHTML = '<span style="color:#ef4444;">load failed: ' + e + '</span>';
+      if (rf) rf.innerHTML = '<span style="color:var(--down);">load failed: ' + e + '</span>';
     });
   // HM-COCKPIT-SIGNAL-LOG 2026-05-22: parallel fetch for the persistent
   // signal log. Independent of the snapshot — failure here doesn't blank
@@ -8419,7 +8419,7 @@ function cpLoad() {
     })
     .catch(function() {
       var tbody = document.getElementById('cp-signal-log-tbody');
-      if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:8px 4px;color:#ef4444;text-align:center;">Signal log fetch failed</td></tr>';
+      if (tbody) tbody.innerHTML = '<tr><td colspan="5" style="padding:8px 4px;color:var(--down);text-align:center;">Signal log fetch failed</td></tr>';
     });
 }
 
@@ -8437,7 +8437,7 @@ if (typeof registerSectionInit === 'function') {
 
 <!-- FEED SECTION -->
 <div id="section-feed" style="display:none;">
-  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">External Intel</div><div style="font-size:13px;color:#94a3b8;">Trade signals and commentary from external AI arena participants. Comms from across the galaxy — cross-reference with fleet signals for confluence.</div></div>
+  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">External Intel</div><div style="font-size:13px;color:var(--text-secondary);">Trade signals and commentary from external AI arena participants. Comms from across the galaxy — cross-reference with fleet signals for confluence.</div></div>
   <div class="card">
     <div class="card-header"><div class="card-title">📡 Comms — External AI Arena Intel</div></div>
     <div id="tradeFeed" style="max-height:800px;overflow-y:auto;">Loading...</div>
@@ -8778,7 +8778,7 @@ async function loadSECFilings() {
       <button class="btn btn-primary" onclick="analyzeChart(this)" style="font-size:13px;padding:5px 14px;white-space:nowrap;">AI Analyze</button>
       <input id="chart-ticker-search" type="text"
         placeholder="Search: GS"
-        style="background:#1e3a5f;border:1px solid #0ea5e9;color:#e2e8f0;border-radius:6px;padding:4px 8px;width:90px;font-size:12px;outline:none;"
+        style="background:#1e3a5f;border:1px solid #0ea5e9;color:var(--text-primary);border-radius:6px;padding:4px 8px;width:90px;font-size:12px;outline:none;"
         onkeydown="if(event.key==='Enter'){var t=this.value.trim().toUpperCase();if(t){selectChart(t);this.blur();}}"
       >
     </div>
@@ -9024,7 +9024,7 @@ async function loadSECFilings() {
       <div id="sniff-scan-list-panel" style="width:200px;flex-shrink:0;border-right:1px solid var(--border);display:flex;flex-direction:column;">
         <div style="display:flex;align-items:center;gap:6px;padding:8px 10px;border-bottom:1px solid var(--border);font-size:11px;font-weight:700;letter-spacing:.8px;text-transform:uppercase;color:var(--muted);">
           <span>Scanner Hits</span>
-          <span id="sniff-list-dot" style="width:6px;height:6px;border-radius:50%;background:#22c55e;display:inline-block;animation:pulse 2s infinite;box-shadow:0 0 5px #22c55e;margin-left:2px;"></span>
+          <span id="sniff-list-dot" style="width:6px;height:6px;border-radius:50%;background:var(--up);display:inline-block;animation:pulse 2s infinite;box-shadow:0 0 5px var(--up);margin-left:2px;"></span>
         </div>
         <div id="sniff-scan-rows" style="overflow-y:auto;flex:1;"></div>
       </div>
@@ -9062,7 +9062,7 @@ async function loadSECFilings() {
         </div>
         <!-- GEX legend (SPY only) -->
         <div id="sniff-gex-legend" style="display:none;padding:2px 12px;font-size:10px;font-family:var(--font-mono);color:var(--muted);display:flex;gap:14px;align-items:center;">
-          <span><span style="display:inline-block;width:10px;height:2px;background:#ef4444;border-top:2px dashed #ef4444;vertical-align:middle;margin-right:4px;"></span>Call Wall</span>
+          <span><span style="display:inline-block;width:10px;height:2px;background:var(--down);border-top:2px dashed var(--down);vertical-align:middle;margin-right:4px;"></span>Call Wall</span>
           <span><span style="display:inline-block;width:10px;height:2px;border-top:2px dashed #f59e0b;vertical-align:middle;margin-right:4px;"></span>Gamma Flip</span>
           <span><span style="display:inline-block;width:10px;height:2px;border-top:2px dashed #3b82f6;vertical-align:middle;margin-right:4px;"></span>Put Wall</span>
           <span><span style="display:inline-block;width:10px;height:2px;border-top:2px dashed rgba(200,200,200,0.7);vertical-align:middle;margin-right:4px;"></span>VWAP</span>
@@ -9091,7 +9091,7 @@ async function loadSECFilings() {
         <span style="flex:1;display:flex;align-items:center;gap:8px;flex-wrap:wrap;">
           <span id="cp-rvol" style="font-size:11px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(240,165,0,0.15);color:#f0a500;font-family:var(--font-mono);">—</span>
           <span id="cp-alert-badge" style="font-size:10px;font-weight:700;padding:2px 7px;border-radius:4px;background:rgba(99,102,241,0.15);color:#a5b4fc;font-family:var(--font-mono);text-transform:uppercase;">—</span>
-          <span id="cp-gap" style="font-size:11px;color:#94a3b8;font-family:var(--font-mono);">Gap: —</span>
+          <span id="cp-gap" style="font-size:11px;color:var(--text-secondary);font-family:var(--font-mono);">Gap: —</span>
         </span>
         <button id="cockpit-close" onclick="sniffCloseCockpit()" style="border:1px solid #444;background:transparent;color:#aaa;padding:4px 12px;cursor:pointer;border-radius:4px;font-size:13px;font-family:var(--font-mono);">✕</button>
       </div>
@@ -9119,7 +9119,7 @@ async function loadSECFilings() {
       <!-- ROW 4: Trade controls -->
       <div style="display:flex;align-items:center;gap:10px;margin:12px 0;flex-wrap:wrap;">
         <button id="cp-btn-long" onclick="sniffCockpitBuy()" style="border:1px solid #f0a500;color:#f0a500;background:transparent;padding:6px 14px;cursor:pointer;border-radius:4px;font-size:12px;font-weight:700;font-family:var(--font-mono);">+ ENTER LONG</button>
-        <input id="cp-qty" type="number" value="1" min="0.01" step="0.01" style="width:60px;background:#0a0a0a;border:1px solid #333;color:#e2e8f0;padding:5px 8px;border-radius:4px;font-family:var(--font-mono);font-size:12px;">
+        <input id="cp-qty" type="number" value="1" min="0.01" step="0.01" style="width:60px;background:#0a0a0a;border:1px solid #333;color:var(--text-primary);padding:5px 8px;border-radius:4px;font-family:var(--font-mono);font-size:12px;">
         <span style="font-size:11px;color:#555;font-family:var(--font-mono);">shares</span>
         <button id="cp-btn-close" onclick="sniffCockpitClose()" style="border:1px solid #e24b4a;color:#e24b4a;background:transparent;padding:6px 14px;cursor:pointer;border-radius:4px;font-size:12px;font-weight:700;font-family:var(--font-mono);opacity:0.35;cursor:not-allowed;">✕ CLOSE POSITION</button>
         <button id="cp-btn-kirk" onclick="sniffCockpitAskKirk()" style="border:1px solid #7f77dd;color:#7f77dd;background:transparent;padding:6px 14px;cursor:pointer;border-radius:4px;font-size:12px;font-weight:700;font-family:var(--font-mono);">★ ASK KIRK</button>
@@ -9152,7 +9152,7 @@ async function loadSECFilings() {
     </div>
     <div style="display:flex;gap:8px;align-items:center;flex-wrap:wrap;">
       <button id="ollie-auto-btn" onclick="ollieToggleAuto()" style="font-size:11px;padding:4px 10px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.4);border-radius:5px;color:#818cf8;cursor:pointer;">⟳ Auto OFF</button>
-      <button onclick="ollieRefresh()" style="font-size:11px;padding:4px 12px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.4);border-radius:5px;color:#22c55e;cursor:pointer;">↻ Refresh</button>
+      <button onclick="ollieRefresh()" style="font-size:11px;padding:4px 12px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.4);border-radius:5px;color:var(--up);cursor:pointer;">↻ Refresh</button>
     </div>
   </div>
 
@@ -9163,8 +9163,8 @@ async function loadSECFilings() {
       <span>VIX <span id="ollie-vix" style="font-weight:700;">—</span></span>
       <span>Regime <span id="ollie-regime" style="font-weight:700;">—</span></span>
       <span>GEX <span id="ollie-gex" style="font-weight:700;">—</span></span>
-      <span>Call Wall <span id="ollie-call-wall" style="font-weight:700;color:#ef4444;">—</span></span>
-      <span>Put Wall <span id="ollie-put-wall" style="font-weight:700;color:#22c55e;">—</span></span>
+      <span>Call Wall <span id="ollie-call-wall" style="font-weight:700;color:var(--down);">—</span></span>
+      <span>Put Wall <span id="ollie-put-wall" style="font-weight:700;color:var(--up);">—</span></span>
     </div>
   </div>
 
@@ -9180,11 +9180,11 @@ async function loadSECFilings() {
     <div class="card" style="padding:10px;overflow:hidden;">
       <div id="ollie-chart-slot" style="min-height:320px;position:relative;"></div>
       <div style="display:flex;gap:16px;font-size:11px;color:var(--muted);margin-top:6px;flex-wrap:wrap;">
-        <span style="color:#22c55e;">── Entry</span>
-        <span style="color:#ef4444;">── Stop</span>
+        <span style="color:var(--up);">── Entry</span>
+        <span style="color:var(--down);">── Stop</span>
         <span style="color:#3b82f6;">── Target</span>
         <span id="ollie-chart-sym" style="margin-left:auto;font-family:var(--font-mono);"></span>
-        <span id="ollie-live-dot" style="display:none;align-items:center;gap:3px;font-size:10px;color:#22c55e;margin-left:6px;font-weight:700;"><span style="width:6px;height:6px;border-radius:50%;background:#22c55e;animation:pulse 1.5s ease-in-out infinite;display:inline-block;"></span>LIVE</span>
+        <span id="ollie-live-dot" style="display:none;align-items:center;gap:3px;font-size:10px;color:var(--up);margin-left:6px;font-weight:700;"><span style="width:6px;height:6px;border-radius:50%;background:var(--up);animation:pulse 1.5s ease-in-out infinite;display:inline-block;"></span>LIVE</span>
       </div>
     </div>
 
@@ -9197,13 +9197,13 @@ async function loadSECFilings() {
       <div style="display:grid;grid-template-columns:1fr 1fr;gap:6px;margin-bottom:10px;">
         <div id="ollie-entry-box" style="background:rgba(34,197,94,0.08);border:1px solid rgba(34,197,94,0.25);border-radius:6px;padding:7px;text-align:center;transition:background 0.3s,border-color 0.3s;">
           <div style="font-size:9px;color:var(--muted);text-transform:uppercase;">Entry</div>
-          <div id="ollie-entry" style="font-size:13px;font-weight:700;color:#22c55e;">—</div>
-          <div id="ollie-entry-status" style="font-size:8px;font-weight:700;color:#22c55e;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;min-height:10px;"></div>
+          <div id="ollie-entry" style="font-size:13px;font-weight:700;color:var(--up);">—</div>
+          <div id="ollie-entry-status" style="font-size:8px;font-weight:700;color:var(--up);text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;min-height:10px;"></div>
         </div>
         <div id="ollie-stop-box" style="background:rgba(239,68,68,0.08);border:1px solid rgba(239,68,68,0.25);border-radius:6px;padding:7px;text-align:center;transition:background 0.3s,border-color 0.3s;">
           <div style="font-size:9px;color:var(--muted);text-transform:uppercase;">Stop</div>
-          <div id="ollie-stop" style="font-size:13px;font-weight:700;color:#ef4444;">—</div>
-          <div id="ollie-stop-status" style="font-size:8px;font-weight:700;color:#ef4444;text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;min-height:10px;"></div>
+          <div id="ollie-stop" style="font-size:13px;font-weight:700;color:var(--down);">—</div>
+          <div id="ollie-stop-status" style="font-size:8px;font-weight:700;color:var(--down);text-transform:uppercase;letter-spacing:0.5px;margin-top:2px;min-height:10px;"></div>
         </div>
         <div id="ollie-target-box" style="background:rgba(59,130,246,0.08);border:1px solid rgba(59,130,246,0.25);border-radius:6px;padding:7px;text-align:center;transition:background 0.3s,border-color 0.3s;">
           <div style="font-size:9px;color:var(--muted);text-transform:uppercase;">Target</div>
@@ -9416,9 +9416,9 @@ function _ollieLoadScan() {
     list.innerHTML = picks.map(function(p) {
       var isVar  = p.source === 'finviz_variable';
       var dotClr = isVar ? '#22c55e' : '#818cf8';
-      var badge  = isVar ? '<span style="font-size:8px;padding:1px 5px;background:rgba(34,197,94,0.15);color:#22c55e;border-radius:3px;margin-left:4px;">MOVER</span>' : '';
+      var badge  = isVar ? '<span style="font-size:8px;padding:1px 5px;background:rgba(34,197,94,0.15);color:var(--up);border-radius:3px;margin-left:4px;">MOVER</span>' : '';
       var gapStr = (p.gap_pct && p.gap_pct !== 0)
-        ? '<span style="color:' + (p.gap_pct > 0 ? '#22c55e' : '#ef4444') + ';font-size:10px;margin-left:auto;">' + (p.gap_pct > 0 ? '+' : '') + p.gap_pct.toFixed(1) + '%</span>'
+        ? '<span style="color:' + (p.gap_pct > 0 ? 'var(--up)' : 'var(--down)') + ';font-size:10px;margin-left:auto;">' + (p.gap_pct > 0 ? '+' : '') + p.gap_pct.toFixed(1) + '%</span>'
         : '';
       var rvolStr = (p.rvol && p.rvol > 0)
         ? '<span style="font-size:9px;color:var(--muted);margin-left:6px;">' + p.rvol.toFixed(1) + 'x vol</span>'
@@ -9461,7 +9461,7 @@ function _ollieLoadSignalCenter() {
       var clr   = scoreColor(sc);
       var stars = sc >= 4 ? '★★★★' : sc >= 3 ? '★★★' : sc >= 2 ? '★★' : '★';
       var rvol  = parseFloat(p.rvol) || 0;
-      var rvolStr = rvol > 1.5 ? '<span style="font-size:9px;color:#22c55e;margin-left:auto;">' + rvol.toFixed(1) + 'x vol</span>' : '';
+      var rvolStr = rvol > 1.5 ? '<span style="font-size:9px;color:var(--up);margin-left:auto;">' + rvol.toFixed(1) + 'x vol</span>' : '';
       var preset = (p.preset || '').replace(/_/g,' ');
       var sigStrat    = _ollieGetStrategy(_ollieVix, _ollieRegime);
       var sigStratHtml = _ollieStrategyTag(sigStrat, true);
@@ -9671,11 +9671,11 @@ function ollieFleetSend() {
     if (res) {
       var lines = (d.results || []).map(function(r) {
         var col = r.action === 'BUY' ? '#22c55e' : r.action === 'SELL' ? '#ef4444' : '#64748b';
-        var exec = r.executed ? ' <span style="color:#22c55e;">✓ executed</span>' : '';
+        var exec = r.executed ? ' <span style="color:var(--up);">✓ executed</span>' : '';
         return '<span style="color:'+col+';font-weight:700;">'+r.action+'</span> '+
                (r.agent||r.player_id)+exec+' · '+((r.reason||'').slice(0,80));
       });
-      res.innerHTML = lines.join('<br>') || '<span style="color:#64748b;">No results from fleet</span>';
+      res.innerHTML = lines.join('<br>') || '<span style="color:var(--text-muted);">No results from fleet</span>';
       res.style.display = 'block';
     }
   }).catch(function() {
@@ -9706,7 +9706,7 @@ function _ollieUpdateAutoTradedBadge() {
   var symEl = document.getElementById('ollie-pick-symbol');
   if (symEl) {
     var badge = _ollieAutoTraded[pick.symbol]
-      ? ' <span style="font-size:11px;background:rgba(34,197,94,0.2);color:#22c55e;padding:2px 6px;border-radius:4px;font-weight:700;vertical-align:middle;">AUTO-TRADED</span>'
+      ? ' <span style="font-size:11px;background:rgba(34,197,94,0.2);color:var(--up);padding:2px 6px;border-radius:4px;font-weight:700;vertical-align:middle;">AUTO-TRADED</span>'
       : '';
     symEl.innerHTML = pick.symbol + badge;
   }
@@ -9734,7 +9734,7 @@ function _ollieRenderPick() {
   var symEl = document.getElementById('ollie-pick-symbol');
   if (symEl) {
     var atBadge = _ollieAutoTraded[pick.symbol]
-      ? ' <span style="font-size:11px;background:rgba(34,197,94,0.2);color:#22c55e;padding:2px 6px;border-radius:4px;font-weight:700;vertical-align:middle;">AUTO-TRADED</span>'
+      ? ' <span style="font-size:11px;background:rgba(34,197,94,0.2);color:var(--up);padding:2px 6px;border-radius:4px;font-weight:700;vertical-align:middle;">AUTO-TRADED</span>'
       : '';
     symEl.innerHTML = pick.symbol + atBadge;
   }
@@ -9887,7 +9887,7 @@ if (typeof registerSectionInit === 'function') {
 
     <!-- Action buttons -->
     <div style="display:grid;grid-template-columns:1fr 1fr;gap:8px;">
-      <button id="tp-btn-chart"  onclick="_tpLoadChart()"    style="padding:9px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.4);border-radius:7px;color:#22c55e;cursor:pointer;font-size:12px;font-weight:700;">📈 Load Chart</button>
+      <button id="tp-btn-chart"  onclick="_tpLoadChart()"    style="padding:9px;background:rgba(34,197,94,0.1);border:1px solid rgba(34,197,94,0.4);border-radius:7px;color:var(--up);cursor:pointer;font-size:12px;font-weight:700;">📈 Load Chart</button>
       <button id="tp-btn-fleet"  onclick="_tpSendFleet()"    class="admin-only" style="padding:9px;background:rgba(0,229,170,0.1);border:1px solid rgba(0,229,170,0.4);border-radius:7px;color:var(--accent);cursor:pointer;font-size:12px;font-weight:700;">⚡ Send to Fleet</button>
       <button id="tp-btn-fav"    onclick="_tpToggleFav()"    style="padding:9px;background:rgba(245,158,11,0.1);border:1px solid rgba(245,158,11,0.4);border-radius:7px;color:#f59e0b;cursor:pointer;font-size:12px;font-weight:700;">🐕 Save to Favorites</button>
       <button id="tp-btn-screen" onclick="_tpFullAnalysis()" style="padding:9px;background:rgba(99,102,241,0.1);border:1px solid rgba(99,102,241,0.4);border-radius:7px;color:#818cf8;cursor:pointer;font-size:12px;font-weight:700;">📊 Full Analysis</button>
