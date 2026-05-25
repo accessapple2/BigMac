@@ -23,6 +23,7 @@ calls. No DB writes.
 """
 from __future__ import annotations
 
+import argparse
 import sys
 from pathlib import Path
 
@@ -31,7 +32,6 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from engine.backtester import backtest_player  # noqa: E402
 from engine.risk_manager import RiskManager  # noqa: E402
 
-DAYS = 30
 FLAT_STOP = 0.12
 
 
@@ -86,8 +86,14 @@ def _fmt_pf(pf: float | None) -> str:
 
 
 def main() -> int:
+    parser = argparse.ArgumentParser(description="Phase 5 A/B backtest harness")
+    parser.add_argument("--days", type=int, default=30,
+                        help="Lookback window in days (default 30; Phase 5b Window 1 uses 180)")
+    args = parser.parse_args()
+    days = args.days
+
     players = sorted(RiskManager.AI_SIGNAL_PLAYERS)
-    print(f"Phase 5 A/B backtest: {len(players)} AI-signal players, {DAYS}-day window")
+    print(f"Phase 5 A/B backtest: {len(players)} AI-signal players, {days}-day window")
     print(f"  SCALED uses engine.stops.get_stop_loss_pct (0.08/0.12/0.15/0.18 by tier)")
     print(f"  FLAT   uses {FLAT_STOP:.2f} (production pre-wire default)")
     print()
@@ -96,8 +102,8 @@ def main() -> int:
     for i, pid in enumerate(players, 1):
         print(f"[{i:2}/{len(players)}] {pid:<22} ", end="", flush=True)
         try:
-            scaled = backtest_player(pid, days=DAYS, apply_guardrails=True)
-            flat = backtest_player(pid, days=DAYS, apply_guardrails=True,
+            scaled = backtest_player(pid, days=days, apply_guardrails=True)
+            flat = backtest_player(pid, days=days, apply_guardrails=True,
                                    flat_stop_pct=FLAT_STOP)
         except Exception as e:
             print(f"ERROR: {type(e).__name__}: {e}")
