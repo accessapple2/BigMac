@@ -4,7 +4,7 @@ import os
 import sqlite3
 
 from engine.halt_gate import HALTED_EMIT_FILTER
-from engine.stops import get_stop_loss_pct
+from engine.stops import get_stop_loss_pct, get_trail_pct
 
 # HM-RISK-MANAGER-CONVICTION-STOP-WIRE Phase 6 2026-05-25 — default-off
 # feature flag wrapping the conviction-scaled stop path. When False, the
@@ -14,6 +14,14 @@ from engine.stops import get_stop_loss_pct
 # requires service restart per Feature Flags doctrine in CLAUDE.md.
 _CONVICTION_SCALED_STOPS_ENABLED = os.environ.get(
     "CONVICTION_SCALED_STOPS_ENABLED", ""
+).lower() in ("1", "true", "yes", "on")
+
+# HM-FLEET-TRAIL-CONVICTION-SCALE Phase B 2026-05-25 — paired default-off
+# flag for the fleet trailing stop's conviction-scaled width. Flag-off
+# preserves the 3% flat trail. Flag-on path scales 3/4/5% by tier on
+# AI_SIGNAL_PLAYERS allow-list only; NULL conviction falls back to 3%.
+_CONVICTION_SCALED_TRAIL_ENABLED = os.environ.get(
+    "CONVICTION_SCALED_TRAIL_ENABLED", ""
 ).lower() in ("1", "true", "yes", "on")
 
 DB = os.environ.get(
@@ -796,8 +804,29 @@ class RiskManager:
             # Opt-out models (geordi -8%, sulu -3%, trip -7%) keep their per-model stops below.
             # Activates only after position is up >= 5% from entry.
             # Trail: 3% below the high watermark, floor at breakeven (entry price).
+            #
+            # HM-FLEET-TRAIL-CONVICTION-SCALE Phase A 2026-05-25 — current
+            # behavior baseline. Trail width is a flat 3% (0.97 multiplier
+            # on high_wm) for every player not in FLEET_TRAILING_STOP_OPT_OUT.
+            # Symmetric gap to HM-RISK-MANAGER-CONVICTION-STOP-WIRE (which
+            # scaled the entry stop at L825 by conviction tier). Phase B
+            # introduces conviction-scaled trail via engine.stops.get_trail_pct
+            # behind CONVICTION_SCALED_TRAIL_ENABLED feature flag (default
+            # OFF — flag-off keeps the 3% flat behavior intact).
             if player_id not in self.FLEET_TRAILING_STOP_OPT_OUT and gain_from_entry >= 0.05:
-                fleet_trail_price = high_wm * 0.97  # 3% below high watermark
+                # HM-FLEET-TRAIL-CONVICTION-SCALE Phase B 2026-05-25 — when
+                # CONVICTION_SCALED_TRAIL_ENABLED + player is an AI-signal
+                # player + conviction known, scale trail by tier (3/4/5%).
+                # Otherwise inherit the 3% flat floor (back-compat default).
+                if (
+                    _CONVICTION_SCALED_TRAIL_ENABLED
+                    and player_id in self.AI_SIGNAL_PLAYERS
+                ):
+                    _conv = pos.get("conviction")
+                    _trail_pct = get_trail_pct(_conv) if _conv is not None else 0.03
+                else:
+                    _trail_pct = 0.03
+                fleet_trail_price = high_wm * (1.0 - _trail_pct)
                 # Breakeven floor: once up 5%+ we never stop below entry
                 fleet_trail_price = max(fleet_trail_price, pos["avg_price"])
                 if current <= fleet_trail_price:
@@ -807,7 +836,8 @@ class RiskManager:
                         "qty": pos["qty"],
                         "reason": (
                             f"Fleet trailing stop: ${current:.2f} ≤ ${fleet_trail_price:.2f} "
-                            f"(high: ${high_wm:.2f}, 3% trail, entry +{gain_from_entry:.1%})"
+                            f"(high: ${high_wm:.2f}, {_trail_pct:.0%} trail, "
+                            f"entry +{gain_from_entry:.1%})"
                         ),
                         "asset_type": pos.get("asset_type", "stock"),
                         "option_type": pos.get("option_type"),

@@ -232,5 +232,55 @@ attention (date varies, observation shifts when Saturday/Sunday).
 - Archive-then-delete reference — `04b00f3` (schema), `8c9b942` (endpoint),
   `a5054c0` (recovery), `b634dd0` (tests)
 - HM-MARKET-HOLIDAY-CALENDAR — `7d55d35` (calendar), `3cd4838` (gates),
-  `bf54ee8` (banner), (this commit) (Rule #4 codify)
+  `bf54ee8` (banner), `4588639` (Rule #4 codify)
+- HM-RISK-MANAGER-CONVICTION-STOP-WIRE + HM-FLEET-TRAIL-CONVICTION-SCALE —
+  `3760345` / `568cb81` / `21a5347` (paired Rule #5 implementations)
 - Sacred Data Rule reaffirmation — `CLAUDE.md` ("SACRED DATA RULES" section)
+
+## Rule #5 — Conviction-scaling is symmetric across stop layers
+
+Every stop-loss / trail-stop / options-exit width that the fleet uses
+MUST follow the same doctrine when conviction-scaling is introduced:
+
+1. **Same tier table boundaries.** Per-layer width values differ (entry
+   stop = 12/15/18%, fleet trail = 3/4/5%), but the conviction
+   boundaries (0.80 / 0.90) and the floor invariant (no tier ever
+   produces a value TIGHTER than the flat baseline) are shared.
+
+2. **Same allow-list gate.** Only `RiskManager.AI_SIGNAL_PLAYERS`
+   players receive conviction-scaled widths. Non-allow-list players
+   (alpaca-mirror, enterprise-computer metals tracker, dalio-metals)
+   inherit the flat baseline regardless of conviction column state.
+
+3. **Same flag pattern.** Each layer gets its own
+   `CONVICTION_SCALED_<LAYER>_ENABLED` env flag, default OFF. Flags are
+   INDEPENDENT — Admiral can enable scaled-stops without scaled-trail
+   (or vice-versa) to shadow-validate each layer separately before
+   coupling.
+
+4. **Same NULL-conviction fallback.** Allow-list player with NULL
+   `positions.conviction` (categorical NULL — e.g. legacy row before
+   HM-POSITIONS-CONVICTION-DENORM backfill) inherits the flat baseline
+   value, NOT the bottom tier. The floor invariant guarantees that
+   "no conviction known" never produces tighter stops than "no
+   conviction scaling at all".
+
+### Reference paired implementations
+
+| Layer | Helper | Flag | Phase 6 commit |
+|---|---|---|---|
+| Entry stop-loss (L825 of risk_manager.py) | `engine.stops.get_stop_loss_pct` (0.12/0.15/0.18) | `CONVICTION_SCALED_STOPS_ENABLED` | `568cb81` |
+| Fleet trail (L800 of risk_manager.py) | `engine.stops.get_trail_pct` (0.03/0.04/0.05) | `CONVICTION_SCALED_TRAIL_ENABLED` | `21a5347` |
+
+### Still asymmetric (banked for future symmetric ship)
+
+- **Options stop-loss** (`risk_manager.py:738`, uses `opt_sl_pct` const)
+  is not yet conviction-scaled. Banked as `HM-OPTIONS-CONVICTION-STOP-WIRE`
+  in XO_BACKLOG. Same pattern when it ships: paired helper in
+  `engine.stops`, paired flag, paired allow-list gate.
+
+### Doctrine implication for new stop-layer additions
+
+Any NEW stop layer added to the trader must consult this rule before
+shipping a flat-rate width. If the new layer applies to AI_SIGNAL_PLAYERS,
+it MUST follow the paired-implementation pattern from day one.
