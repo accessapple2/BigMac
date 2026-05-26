@@ -317,6 +317,40 @@ Priority: HIGH (blocks sweep progress past Batch 3). Greenfield-design
 adjacent (token naming, cascade design) — work for fresh context, not
 late-marathon execution.
 
+#### HM-CHEKOV-SEND-TO-HOLODECK-CONTEXT-WIRE — ✅ **SHIPPED** 2026-05-25 (commit `3852df5`)
+
+The "Send to Holodeck" button on Chekov's convergence detail modal
+navigated to the Holodeck section but never populated the Backtester
+ticker field. User clicked alert on RGTX → landed on Holodeck with
+NVDA (the default) still in the ticker field, forced to retype.
+
+ROOT CAUSE: handler at `dashboard/static/index.html:33139` stashed the
+symbol on `window._hmHolodeckPendingSymbol` and called
+`showSection('holodeck')` — but nothing ever consumed the stashed
+value. Dead state, unbroken UX gap since the convergence modal shipped.
+
+FIX: defer one tick after `showSection()` (50ms — lets the
+display:none → block transition complete so the field is real
+in the DOM), then:
+  1. write `sym` (uppercased) to `#holodeck-ticker`
+  2. dispatch `input` + `change` events for downstream listeners
+  3. smooth-scroll the field into view, block:'center'
+  4. focus + select — Tab to strategy/days or type-replace
+
+Bake-Off section intentionally untouched (no ticker input — fleet
+replay, model + days only). Strategy + days selections preserved
+per guard rail "don't be too aggressive".
+
+Scope:
+- Frontend-only, single-handler edit, 25 LOC
+- No backend / no API contract changes
+- `_hmHolodeckPendingSymbol` write preserved (in case any latent
+  reader exists — none found via grep, but cheap to keep)
+
+Admiral-verify-tomorrow (mirrors HM-INLINE-STYLE-SWEEP precedent):
+click any active convergence alert toast → "🧪 Send to Holodeck" →
+verify Backtester ticker shows the convergence symbol (not "NVDA").
+
 #### HM-NAVIGATOR-CONVERGENCE-LIST-MISSING — ✅ **SHIPPED** 2026-05-25 (merge `b76ea91`)
 
 Chekov convergence modal was showing "(N strategies — list not provided
