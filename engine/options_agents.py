@@ -137,8 +137,9 @@ class QuarkIronCondor(OptionsAgent):
     allowed_regimes  = {"CHOP", "BULL", "BEAR", "BULL_CROSS"}
     require_vix_under = 25.0
 
-    universe      = [s for s in get_effective_watchlist()
-                     if s not in ('TQQQ', 'SQQQ', 'UVXY', 'VXX')]
+    universe      = ["SPY", "QQQ", "NVDA", "AAPL", "MSFT",
+                     "META", "AMZN", "TSLA", "AMD", "MU"]
+    anchor        = "SPY"
     target_delta  = 0.22
     wing_width    = 5
     target_dte_min = 7
@@ -157,7 +158,7 @@ class QuarkIronCondor(OptionsAgent):
         return [{
             "agent_id": self.agent_id,
             "structure": "iron_condor",
-            "symbol": self.universe[0],
+            "symbol": self.anchor,
             "reason": f"CHOP/BULL regime, VIX {vix:.1f} < 25, range collection",
             "params": {
                 "target_delta": self.target_delta,
@@ -313,7 +314,9 @@ class AndersonBearCall(OptionsAgent):
     allowed_regimes  = {"BEAR", "BULL"}
     require_vix_over = 18.0
 
-    universe      = get_effective_watchlist()
+    universe      = ["SPY", "QQQ", "NVDA", "AAPL", "MSFT",
+                     "META", "AMZN", "TSLA", "AMD", "MU"]
+    anchor        = "SPY"
     target_delta  = 0.25
     wing_width    = 5
     target_dte_min = 7
@@ -339,7 +342,7 @@ class AndersonBearCall(OptionsAgent):
         return [{
             "agent_id": self.agent_id,
             "structure": "bear_call_spread",
-            "symbol": self.universe[0],
+            "symbol": self.anchor,
             "reason": f"{regime} regime, VIX {vix:.1f} > 18",
             "params": {
                 "target_delta": self.target_delta,
