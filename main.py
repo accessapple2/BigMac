@@ -2610,6 +2610,22 @@ def run_events_bus_consumer():
         )
 
 
+@_hm_bq_instr("run_signal_center_refresh")
+def run_signal_center_refresh():
+    """HM-SIGNAL-CENTER-REFRESH 2026-05-26: keep signal_history fresh by polling
+    /api/signals/all every 5 minutes during market hours. Before this fix,
+    signal_history was only updated as a side effect of browser-tab polling
+    which stopped 2026-05-23T07:49."""
+    from engine.market_calendar import is_us_market_open
+    if not is_us_market_open():
+        return
+    try:
+        import requests as _req
+        _req.get("http://localhost:9000/api/signals/all", timeout=60)
+    except Exception:
+        pass  # fail-safe, never block scheduler
+
+
 # === HM-AW: Chekov intraday convergence buyer ===
 @_hm_bq_instr("run_chekov_intraday_convergence")
 def run_chekov_intraday_convergence():
@@ -3809,6 +3825,7 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_strategy_scan)         # Strategy Scan: checks every 30 min, runs 10 PM MST (1 AM ET)
     schedule.every(10).minutes.do(run_chekov_stoploss)        # Chekov SL/TP: every 10 min, check positions vs stop/target
     schedule.every(1).minutes.do(run_events_bus_consumer)     # HM-EVENTS-BUS-CONSUMER: drain pending signals_v2 (NYSE hours only)
+    schedule.every(5).minutes.do(run_signal_center_refresh)   # HM-SIGNAL-CENTER-REFRESH: keep signal_history fresh (NYSE hours only)
     schedule.every(15).minutes.do(run_chekov_intraday_convergence)  # HM-AW: Chekov intraday convergence buyer (market hours only)
     schedule.every(30).minutes.do(run_metals_commentary)     # Dalio Metals: checks every 30 min, runs 7 AM MST only
     schedule.every(15).minutes.do(run_premarket_gaps)         # Pre-market gaps: checks every 15 min, fires 1 AM MST (4 AM ET)
