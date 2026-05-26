@@ -183,49 +183,15 @@ def ic_squadron_filter(symbol: str, df: pd.DataFrame, account_equity: float,
 # ═════════════════════════════════════════════════════════════════════════
 
 def load_universe() -> list[str]:
-    """HM-BACKTEST-UNIVERSE-EXPAND — tiered universe loader.
+    """HM-BACKTEST-180D-345SYM — pull from prod dynamic watchlist.
 
-    Brief targeted 500+ but the tiers as enumerated dedupe to ~125 unique
-    symbols. Still ~5x the 24-symbol baseline. Report actual count.
+    Delegates to config.get_effective_watchlist() so the backtest universe
+    tracks the live trading universe (engine/universe.py + extras overlay).
+    Falls back to defensive 20-name list if engine.universe import fails.
     """
-    # Tier 1: core large cap (always included)
-    tier1 = [
-        "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META",
-        "TSLA", "AVGO", "AMD", "MU", "INTC", "QCOM",
-        "JPM", "BAC", "GS", "MS", "V", "MA",
-        "SPY", "QQQ", "IWM", "XLE", "XLF", "XLK",
-        "TQQQ", "SQQQ", "UVXY",
-    ]
-    # Tier 2: mid cap / sector leaders
-    tier2 = [
-        "CRM", "ORCL", "NOW", "SNOW", "PLTR", "COIN",
-        "MRVL", "SMCI", "ARM", "TSM", "AMAT", "LRCX",
-        "NFLX", "DIS", "ROKU", "SPOT", "UBER", "LYFT",
-        "COST", "WMT", "TGT", "HD", "LOW", "AMZN",
-        "XOM", "CVX", "OXY", "SLB", "HAL",
-        "LLY", "PFE", "MRNA", "JNJ", "UNH",
-        "BA", "LMT", "RTX", "NOC", "GD",
-        "GLD", "SLV", "USO", "TLT", "HYG",
-    ]
-    # Tier 3: high IV / options-rich (best CSP + IC candidates)
-    tier3 = [
-        "MSTR", "HOOD", "RIVN", "LCID", "NIO", "XPEV",
-        "AMC", "GME", "BBBY", "SOFI", "UPST", "AFRM",
-        "SHOP", "ETSY", "PINS", "SNAP", "RBLX", "U",
-        "DKNG", "PENN", "MGM", "WYNN",
-        "ENPH", "FSLR", "PLUG", "BE", "CHPT",
-        "HIMS", "CELH", "SAVA", "ACAD", "MRNA",
-    ]
-    # Tier 4: squeeze / RS candidates (momentum + breakout)
-    tier4 = [
-        "SMCI", "ASTS", "LUNR", "RR", "JOBY", "ACHR",
-        "IONQ", "RGTI", "QUBT", "QBTS",
-        "SOUN", "BBAI", "AAON", "DUOL", "AXON",
-        "CRWD", "PANW", "ZS", "OKTA", "DDOG",
-    ]
-    syms = list(dict.fromkeys(tier1 + tier2 + tier3 + tier4))
-    print(f"[UNIVERSE] {len(syms)} unique symbols across 4 tiers "
-          f"(tier sizes: {len(tier1)}/{len(tier2)}/{len(tier3)}/{len(tier4)})")
+    from config import get_effective_watchlist
+    syms = get_effective_watchlist()
+    print(f"[UNIVERSE] {len(syms)} symbols loaded from get_effective_watchlist()")
     return syms
 
 
@@ -442,9 +408,13 @@ def patched_download_universe(days: int = 120) -> dict[str, pd.DataFrame]:
 
     Uses fetch_bars (Polygon primary) instead of yfinance. Same return shape
     (dict of OHLCV DataFrames keyed by ticker).
+
+    HM-BACKTEST-180D-345SYM: pulls tickers from the script-level UNIVERSE
+    (driven by get_effective_watchlist) rather than MASTER_UNIVERSE so the
+    master harness sees the same 345-symbol universe as IC Squadron.
     """
-    from engine.master_backtest import MASTER_UNIVERSE, INVERSE_ETFS, METALS_ETFS
-    all_tickers = list(set(MASTER_UNIVERSE + INVERSE_ETFS + METALS_ETFS + ["^VIX", "SPY"]))
+    from engine.master_backtest import INVERSE_ETFS, METALS_ETFS
+    all_tickers = list(set(UNIVERSE + INVERSE_ETFS + METALS_ETFS + ["^VIX", "SPY"]))
     start = (datetime.now() - timedelta(days=days + 30)).strftime("%Y-%m-%d")
     end = datetime.now().strftime("%Y-%m-%d")
     td: dict[str, pd.DataFrame] = {}
@@ -461,10 +431,36 @@ def patched_download_universe(days: int = 120) -> dict[str, pd.DataFrame]:
 
 
 def run_master(days: int) -> dict:
-    """Run engine.master_backtest with the patched downloader."""
+    """Run engine.master_backtest with the patched downloader.
+
+    HM-BACKTEST-180D-345SYM: rebinds MASTER_UNIVERSE so per-strategy loops
+    at master_backtest.py:1325/1876/2056 iterate the full 345-symbol
+    universe. Then pre-filters MASTER_UNIVERSE to tickers whose history
+    extends back through the backtest window — newly-IPO'd / thin-history
+    names (IONQ, RGTI, ASTS, ...) otherwise crash the strategy loop at
+    master_backtest.py:1336 (empty close-price slice on early iteration
+    days). Engine code is not modified.
+    """
     import engine.master_backtest as mb
-    # Monkey-patch the downloader before run
-    mb._download_universe = patched_download_universe
+    # Pre-download so we can inspect history depth before strategy iteration.
+    # Mirror the engine's own (days+60) warmup buffer.
+    td = patched_download_universe(days + 60)
+    window_start = datetime.now() - timedelta(days=days + 30)
+    window_start_ts = pd.Timestamp(window_start.strftime("%Y-%m-%d"))
+    eligible = [
+        s for s in UNIVERSE
+        if s in td and len(td[s]) > 0
+        and pd.Timestamp(td[s].index.min()) <= window_start_ts
+    ]
+    dropped = sorted(set(UNIVERSE) - set(eligible))
+    print(f"[master harness] {len(eligible)}/{len(UNIVERSE)} tickers eligible "
+          f"for {days}d window (dropped {len(dropped)} for insufficient history)")
+    if dropped[:20]:
+        print(f"  dropped sample: {dropped[:20]}")
+    mb.MASTER_UNIVERSE = eligible
+    # Serve the pre-downloaded td when master_backtest calls _download_universe
+    # (avoids a second round of Polygon fetches).
+    mb._download_universe = lambda _days=120, _td=td: _td
     return mb.run_master_backtest(days=days, compare=False)
 
 
