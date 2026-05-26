@@ -721,6 +721,22 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             )
     # === /HM-EVENTS-BUS-FOUNDATION stale-signal gate ===
 
+    # HM-DEEPSEEK-CONCENTRATION-CAP-V2: cap single-symbol concentration at 25%
+    # for deepseek-7b-grok4. MU grew to ~90% of portfolio causing phantom -$960
+    # loss when price feed failed. Prevents recurrence.
+    if player_id == "deepseek-7b-grok4":
+        _port = get_portfolio(player_id)
+        _pos = get_position(player_id, symbol, asset_type)
+        _current_exposure = (_pos["qty"] * price) if _pos else 0
+        _port_value = max(_port.get("total_value", _port.get("cash", 10000)), 1)
+        if _current_exposure / _port_value >= 0.25:
+            console.log(
+                f"[yellow][CONCENTRATION-CAP] deepseek-7b-grok4 BUY {symbol} blocked: "
+                f"exposure ${_current_exposure:.0f} already >= 25% of portfolio ${_port_value:.0f}"
+            )
+            _last_rejection[player_id] = f"[CONCENTRATION-CAP] {symbol} >= 25% of portfolio"
+            return None
+
     # === HM-REGIME-ROUTER 2026-05-22 ===
     # Strategy-regime fit gate. Fires upstream of HM-GRADE-B-FLEET-GATE so a
     # regime mismatch rejects at the coarse strategy-fit layer before the
