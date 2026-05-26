@@ -24,6 +24,7 @@ from typing import Dict, List, Optional
 from zoneinfo import ZoneInfo
 
 from engine.options_exec import open_options_trade, close_options_trade  # noqa: F401
+from config import get_effective_watchlist
 
 DB_PATH = "data/trader.db"
 ET = ZoneInfo("America/New_York")
@@ -136,7 +137,8 @@ class QuarkIronCondor(OptionsAgent):
     allowed_regimes  = {"CHOP", "BULL", "BEAR", "BULL_CROSS"}
     require_vix_under = 25.0
 
-    universe      = ["SPY", "QQQ"]
+    universe      = [s for s in get_effective_watchlist()
+                     if s not in ('TQQQ', 'SQQQ', 'UVXY', 'VXX')]
     target_delta  = 0.22
     wing_width    = 5
     target_dte_min = 7
@@ -225,7 +227,8 @@ class McCoyBullPut(OptionsAgent):
     allowed_regimes  = {"BULL", "CHOP"}
     require_vix_under = 22.0
 
-    universe      = ["SPY", "QQQ", "NVDA", "AAPL", "MSFT", "META"]
+    universe      = [s for s in get_effective_watchlist()
+                     if s not in ('TQQQ', 'SQQQ', 'UVXY', 'VXX')]
     target_delta  = 0.30
     wing_width    = 5
     target_dte_min = 7
@@ -310,7 +313,7 @@ class AndersonBearCall(OptionsAgent):
     allowed_regimes  = {"BEAR", "BULL"}
     require_vix_over = 18.0
 
-    universe      = ["SPY", "QQQ"]
+    universe      = get_effective_watchlist()
     target_delta  = 0.25
     wing_width    = 5
     target_dte_min = 7
@@ -503,7 +506,8 @@ class GhostKirkBullCall(GhostAgent):
     allowed_regimes  = {"BULL"}
     require_vix_under = 20.0
 
-    universe           = ["SPY", "QQQ", "NVDA", "AAPL", "MSFT"]
+    universe           = [s for s in get_effective_watchlist()
+                          if s not in ('TQQQ', 'SQQQ', 'UVXY', 'VXX')]
     target_dte_min     = 14
     target_dte_max     = 30
     target_delta_long  = 0.45
@@ -577,7 +581,7 @@ class GhostKirk0DTEBullCall(GhostAgent):
     allowed_regimes  = {"BULL"}
     require_vix_under = 22.0
 
-    universe       = ["SPY", "QQQ"]
+    universe       = get_effective_watchlist()
     spread_width   = 3
     earliest_entry = dtime(10, 0)
     latest_entry   = dtime(14, 0)
@@ -658,7 +662,8 @@ class GhostLongCall(GhostAgent):
     allowed_regimes  = {"BULL"}
     require_vix_under = 22.0
 
-    universe       = ["SPY", "QQQ", "NVDA"]
+    universe       = [s for s in get_effective_watchlist()
+                      if s not in ('TQQQ', 'SQQQ', 'UVXY', 'VXX')]
     target_dte_min = 14
     target_dte_max = 30
     target_delta   = 0.50
@@ -728,7 +733,7 @@ class GhostNakedPut(GhostAgent):
     allowed_regimes = {"BEAR", "CHOP"}
     require_vix_over = 20.0
 
-    universe       = ["SPY", "QQQ"]
+    universe       = get_effective_watchlist()
     target_dte_min = 14
     target_dte_max = 30
     target_delta   = 0.40
