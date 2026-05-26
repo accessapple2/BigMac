@@ -1086,20 +1086,29 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         _last_rejection[player_id] = f"VIX circuit breaker ({_vix:.1f} > {_VIX_CIRCUIT_BREAKER})"
         return None
 
-    # DRAWDOWN PAUSE: Block new entries if player is down 15%+ from peak portfolio value
+    # DRAWDOWN PAUSE: Block new entries if player is down 20%+ from peak portfolio value
+    # HM-DRAWDOWN-GATE-SYNC 2026-05-26: season-scope the peak (match
+    # risk_manager.check_drawdown at risk_manager.py:1018-1021) so stale
+    # S1-S5 peaks don't inflate S6 drawdown. Threshold 0.15→0.20 matches
+    # risk_manager.max_drawdown_pct default so the two gates agree.
     try:
         _pf_check = get_portfolio(player_id)
         _pos_val = sum(abs(p["qty"]) * p["avg_price"] for p in _pf_check["positions"])
         _cur_val = _pf_check["cash"] + _pos_val
         _peak_conn = _conn()
+        _season_row = _peak_conn.execute(
+            "SELECT value FROM settings WHERE key='current_season'"
+        ).fetchone()
+        _season = int(_season_row[0]) if _season_row else 1
         _peak_row = _peak_conn.execute(
-            "SELECT MAX(total_value) FROM portfolio_history WHERE player_id=?", (player_id,)
+            "SELECT MAX(total_value) FROM portfolio_history WHERE player_id=? AND season=?",
+            (player_id, _season),
         ).fetchone()
         _peak_conn.close()
         _peak = _peak_row[0] if _peak_row and _peak_row[0] else None
-        if _peak and _peak > 0 and (_peak - _cur_val) / _peak >= 0.15:
+        if _peak and _peak > 0 and (_peak - _cur_val) / _peak >= 0.20:
             console.log(f"[yellow]DRAWDOWN PAUSE: {player_id} at {((_peak-_cur_val)/_peak*100):.1f}% drawdown — no new entries until recovery")
-            _last_rejection[player_id] = f"Drawdown pause: {((_peak-_cur_val)/_peak*100):.1f}% below peak (threshold 15%)"
+            _last_rejection[player_id] = f"Drawdown pause: {((_peak-_cur_val)/_peak*100):.1f}% below peak (threshold 20%)"
             return None
     except Exception:
         pass
@@ -4083,20 +4092,25 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
         _last_rejection[player_id] = "Short requires stop loss in reasoning"
         return None
 
-    # Check drawdown pause (15% from peak)
+    # Check drawdown pause (20% from peak, season-scoped) — HM-DRAWDOWN-GATE-SYNC 2026-05-26
     pf = get_portfolio(player_id)
     pos_value = sum(p["qty"] * p["avg_price"] for p in pf["positions"])
     current_value = cash + pos_value
     try:
         _c = _conn()
+        _season_row = _c.execute(
+            "SELECT value FROM settings WHERE key='current_season'"
+        ).fetchone()
+        _season = int(_season_row[0]) if _season_row else 1
         peak_row = _c.execute(
-            "SELECT MAX(total_value) FROM portfolio_history WHERE player_id=?", (player_id,)
+            "SELECT MAX(total_value) FROM portfolio_history WHERE player_id=? AND season=?",
+            (player_id, _season),
         ).fetchone()
         _c.close()
         peak = peak_row[0] if peak_row and peak_row[0] else None
-        if peak and peak > 0 and (peak - current_value) / peak >= 0.15:
+        if peak and peak > 0 and (peak - current_value) / peak >= 0.20:
             console.log(f"[yellow]DRAWDOWN PAUSE: {player_id} at {((peak-current_value)/peak*100):.1f}% drawdown — no new shorts")
-            _last_rejection[player_id] = "Drawdown pause: portfolio down 15%+ from peak"
+            _last_rejection[player_id] = "Drawdown pause: portfolio down 20%+ from peak"
             return None
     except Exception:
         pass
