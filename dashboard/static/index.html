@@ -21525,11 +21525,24 @@ function updateFleetBar() {
 
   // Totals — use total_value (authoritative), fallback to current_equity
   var totalValue = players.reduce(function(s,p){ return s + (p.total_value || p.current_equity || 0); }, 0);
-  var totalPnl = players.reduce(function(s,p){
-    var start = _FLEET_START_CAP[p.player_id] || 10000;
-    return s + ((p.total_value || p.current_equity || 0) - start);
-  }, 0);
   var totalPositions = players.reduce(function(s,p){ return s + (p.positions_count || 0); }, 0);
+
+  // HM-FLEET-BAR-DISPLAY: uniform $10k start per active agent for fleet P&L math.
+  var STARTING_CAPITAL_PER_AGENT = 10000;
+  var activeAgentCount = _FLEET_CORE.size;
+  var totalStart       = activeAgentCount * STARTING_CAPITAL_PER_AGENT;
+  var fleetPnl         = totalValue - totalStart;
+  var avgPnl           = activeAgentCount > 0 ? fleetPnl / activeAgentCount : 0;
+  var fleetPnlSign     = fleetPnl >= 0 ? '▲' : '▼';
+  var avgSign          = avgPnl   >= 0 ? '▲' : '▼';
+  var pnlColor         = fleetPnl >= 0 ? '#00ff88' : '#ff4444';
+  var avgColor         = avgPnl   >= 0 ? '#00ff88' : '#ff4444';
+  var fmt = function(val) {
+    var abs  = Math.abs(val);
+    var sign = val >= 0 ? '+' : '-';
+    if (abs >= 1000) return sign + '$' + (abs/1000).toFixed(1) + 'k';
+    return sign + '$' + abs.toFixed(0);
+  };
 
   // Best performer in active fleet
   var coreOnly = players.filter(function(p){ return _FLEET_CORE.has(p.player_id); });
@@ -21539,10 +21552,7 @@ function updateFleetBar() {
   var bestPct  = best ? (best.return_pct || 0).toFixed(1) : '0.0';
   var bestColor = parseFloat(bestPct) >= 0 ? '#2563eb' : '#ea580c';
 
-  var pnlColor = totalPnl >= 0 ? '#2563eb' : '#ea580c';
-  var pnlArrow = totalPnl >= 0 ? '▲' : '▼';
-
-  // Fleet tooltip (hover)
+  // Fleet tooltip (hover) — moved onto the ACTIVE FLEET label since VALUE is gone.
   var fleetTip = coreOnly.map(function(p) {
     var val = (p.current_equity || p.total_value || 0);
     var ret = (p.return_pct || 0);
@@ -21553,24 +21563,32 @@ function updateFleetBar() {
 
   var html = '';
 
-  // Static label — no dropdown
-  html += '<span style="font-weight:700;color:var(--accent);font-size:13px;font-family:var(--font-mono);">ACTIVE FLEET</span>';
-  html += '<span style="font-size:12px;color:var(--muted);margin-left:2px;">(' + _FLEET_CORE.size + ')</span>';
+  // ACTIVE FLEET (N) — label carries the hover-tooltip
+  html += '<span data-tip="' + fleetTip.replace(/"/g, '&quot;') + '" style="font-weight:700;color:var(--accent);font-size:13px;font-family:var(--font-mono);cursor:help;">ACTIVE FLEET</span>';
+  html += '<span style="font-size:12px;color:var(--muted);margin-left:2px;">(' + activeAgentCount + ')</span>';
 
-  // Optional add-on checkboxes
+  // Optional add-on checkboxes (unchanged)
   html += '<label style="display:flex;align-items:center;gap:3px;font-size:12px;color:var(--muted);cursor:pointer;margin-left:6px;" title="Include Dilithium Reserve in fleet totals"><input type="checkbox" id="fleetIncludeMetals" onchange="updateFleetBar()" style="cursor:pointer;"> ⚗</label>';
-  // Kirk/Webull hidden from UI - data preserved in DB
   html += '<label style="display:none" title="Include Captain Kirk (Webull) in fleet totals"><input type="checkbox" id="fleetIncludeKirk" onchange="updateFleetBar()"> Kirk</label>';
   html += '<span style="color:var(--border);margin:0 4px;">|</span>';
 
-  // Stats
-  html += '<span data-tip="' + fleetTip.replace(/"/g, '&quot;') + '" style="color:var(--muted);cursor:help;">VALUE</span> ';
-  html += '<span style="font-weight:700;color:var(--text);">$' + totalValue.toLocaleString(undefined,{maximumFractionDigits:0}) + '</span>';
-  html += '<span style="margin-left:4px;color:' + pnlColor + ';font-weight:700;">' + pnlArrow + ' $' + Math.abs(totalPnl).toFixed(0) + '</span>';
+  // FLEET P&L  (replaces VALUE $xxx)
+  html += '<span style="color:var(--muted);">FLEET P&amp;L</span> ';
+  html += '<span style="font-weight:700;color:' + pnlColor + ';">' + fleetPnlSign + ' ' + fmt(fleetPnl) + '</span>';
   html += '<span style="color:var(--border);margin:0 4px;">|</span>';
-  html += '<span style="color:var(--muted);">POS</span> <span style="font-weight:700;color:var(--text);">' + totalPositions + '</span>';
+
+  // AVG /agent
+  html += '<span style="color:var(--muted);">AVG</span> ';
+  html += '<span style="font-weight:700;color:' + avgColor + ';">' + avgSign + ' ' + fmt(avgPnl) + '</span>';
+  html += '<span style="font-size:11px;color:var(--muted);margin-left:2px;">/agent</span>';
   html += '<span style="color:var(--border);margin:0 4px;">|</span>';
+
+  // BEST [name] [+Z%]
   html += '<span style="color:var(--muted);">BEST</span> <span style="font-weight:700;color:' + bestColor + ';">' + bestName + ' ' + (parseFloat(bestPct) >= 0 ? '+' : '') + bestPct + '%</span>';
+  html += '<span style="color:var(--border);margin:0 4px;">|</span>';
+
+  // POS N
+  html += '<span style="color:var(--muted);">POS</span> <span style="font-weight:700;color:var(--text);">' + totalPositions + '</span>';
 
   el.innerHTML = html;
 
