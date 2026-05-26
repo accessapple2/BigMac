@@ -784,7 +784,7 @@ def _sim_long_call(future_df, entry_px, iv, dte) -> dict | None:
         cur = _bs_price(px, strike, rem, RISK_FREE, iv * 0.95, "call")
         # Sell at bid (fair - half-spread) at exit
         exit_val = cur * (1 - OPT_SLIP_PER_LEG / 2) - OPT_COST / 100
-        pnl_pct  = (exit_val - premium) / premium * 100
+        pnl_pct  = (exit_val - premium) / STARTING_CASH * 100
         if pnl_pct >= 100:
             return {"pnl": exit_val - premium, "pnl_pct": 100, "exit_type": "TARGET",
                     "days": i + 1, "delta": delta, "theta": theta,
@@ -796,7 +796,7 @@ def _sim_long_call(future_df, entry_px, iv, dte) -> dict | None:
     final_px  = float(future_df["Close"].iloc[-1]) if len(future_df) > 0 else entry_px
     final_v   = _bs_price(final_px, strike, 21 / 365, RISK_FREE, iv * 0.90, "call")
     exit_val  = final_v * (1 - OPT_SLIP_PER_LEG / 2) - OPT_COST / 100
-    return {"pnl": exit_val - premium, "pnl_pct": (exit_val - premium) / premium * 100,
+    return {"pnl": exit_val - premium, "pnl_pct": (exit_val - premium) / STARTING_CASH * 100,
             "exit_type": "21DTE", "days": dte - 21, "delta": delta, "theta": theta,
             "iv_entry": iv, "iv_exit": iv * 0.90, "premium": premium}
 
@@ -815,7 +815,7 @@ def _sim_long_put(future_df, entry_px, iv, dte) -> dict | None:
         rem = max(1, dte - i - 1) / 365
         cur = _bs_price(px, strike, rem, RISK_FREE, iv * 0.95, "put")
         exit_val = cur * (1 - OPT_SLIP_PER_LEG / 2) - OPT_COST / 100
-        pnl_pct  = (exit_val - premium) / premium * 100
+        pnl_pct  = (exit_val - premium) / STARTING_CASH * 100
         if pnl_pct >= 100:
             return {"pnl": exit_val - premium, "pnl_pct": 100, "exit_type": "TARGET",
                     "days": i + 1, "delta": delta, "theta": theta,
@@ -827,7 +827,7 @@ def _sim_long_put(future_df, entry_px, iv, dte) -> dict | None:
     final_px = float(future_df["Close"].iloc[-1]) if len(future_df) > 0 else entry_px
     final_v  = _bs_price(final_px, strike, 21 / 365, RISK_FREE, iv * 0.90, "put")
     exit_val = final_v * (1 - OPT_SLIP_PER_LEG / 2) - OPT_COST / 100
-    return {"pnl": exit_val - premium, "pnl_pct": (exit_val - premium) / premium * 100,
+    return {"pnl": exit_val - premium, "pnl_pct": (exit_val - premium) / STARTING_CASH * 100,
             "exit_type": "21DTE", "days": dte - 21, "delta": delta, "theta": theta,
             "iv_entry": iv, "iv_exit": iv * 0.90, "premium": premium}
 
@@ -851,13 +851,13 @@ def _sim_csp(future_df, entry_px, iv, dte) -> dict | None:
         cur = _bs_price(px, strike, rem, RISK_FREE, iv * 0.85, "put")
         pnl = credit - cur
         if pnl >= credit * 0.5:
-            return {"pnl": pnl, "pnl_pct": pnl / (strike * 0.10) * 100,
+            return {"pnl": pnl, "pnl_pct": pnl / STARTING_CASH * 100,
                     "credit": credit, "exit_type": "PROFIT_50", "days": i + 1,
                     "delta": delta, "theta": theta, "iv_entry": iv, "iv_exit": iv * 0.85,
                     "assignment": 0, "pop": pop, "premium": credit}
         if px < strike * 0.97:  # deep ITM → assign risk
             return {"pnl": -abs(strike - px) + credit,
-                    "pnl_pct": (-abs(strike - px) + credit) / (strike * 0.10) * 100,
+                    "pnl_pct": (-abs(strike - px) + credit) / STARTING_CASH * 100,
                     "credit": credit, "exit_type": "ASSIGNED", "days": i + 1,
                     "delta": delta, "theta": theta, "iv_entry": iv, "iv_exit": iv,
                     "assignment": 1, "pop": pop, "premium": credit}
@@ -865,7 +865,7 @@ def _sim_csp(future_df, entry_px, iv, dte) -> dict | None:
     final_px = float(future_df["Close"].iloc[-1]) if len(future_df) > 0 else entry_px
     win = final_px >= strike
     return {"pnl": credit if win else -(strike - final_px) + credit,
-            "pnl_pct": credit / (strike * 0.10) * 100 if win else (-(strike - final_px) + credit) / (strike * 0.10) * 100,
+            "pnl_pct": credit / STARTING_CASH * 100 if win else (-(strike - final_px) + credit) / STARTING_CASH * 100,
             "credit": credit, "exit_type": "EXPIRED_WIN" if win else "EXPIRED_LOSS",
             "days": dte, "delta": delta, "theta": theta,
             "iv_entry": iv, "iv_exit": iv * 0.80, "assignment": 0 if win else 1,
@@ -894,7 +894,7 @@ def _sim_covered_call(future_df, entry_px, iv, dte) -> dict | None:
             # Total P&L = option gain + stock gain (position notional = entry_px).
             stock_pnl = px - entry_px
             total_pnl = option_pnl + stock_pnl
-            return {"pnl": total_pnl, "pnl_pct": total_pnl / entry_px * 100,
+            return {"pnl": total_pnl, "pnl_pct": total_pnl / STARTING_CASH * 100,
                     "credit": credit, "exit_type": "PROFIT_50", "days": i + 1,
                     "delta": delta, "theta": theta, "iv_entry": iv, "iv_exit": iv * 0.85,
                     "assignment": 0, "pop": pop, "premium": credit}
@@ -907,7 +907,7 @@ def _sim_covered_call(future_df, entry_px, iv, dte) -> dict | None:
         # Stock called away at strike; receive strike price for shares.
         # Upside is capped at strike, not final_px — covered call, not naked.
         total_pnl = credit + (strike - entry_px)
-    return {"pnl": total_pnl, "pnl_pct": total_pnl / entry_px * 100,
+    return {"pnl": total_pnl, "pnl_pct": total_pnl / STARTING_CASH * 100,
             "credit": credit, "exit_type": "EXPIRED_WIN" if win else "CALLED_AWAY",
             "days": dte, "delta": delta, "theta": theta,
             "iv_entry": iv, "iv_exit": iv * 0.80,
@@ -935,7 +935,7 @@ def _sim_bull_call_spread(future_df, entry_px, iv, dte) -> dict | None:
         cur = long_bid2 - short_ask2 - 2 * OPT_COST / 100
         pnl = cur - debit
         if pnl >= max_profit * 0.75:
-            return {"pnl": pnl, "pnl_pct": pnl / debit * 100, "credit": -debit,
+            return {"pnl": pnl, "pnl_pct": pnl / STARTING_CASH * 100, "credit": -debit,
                     "max_profit": max_profit, "max_loss": debit,
                     "pop": 0.45, "exit_type": "PROFIT_75", "days": i + 1}
         if pnl <= -debit * 0.5:
@@ -944,7 +944,7 @@ def _sim_bull_call_spread(future_df, entry_px, iv, dte) -> dict | None:
                     "pop": 0.45, "exit_type": "STOP_50", "days": i + 1}
     final_px = float(future_df["Close"].iloc[-1]) if len(future_df) > 0 else entry_px
     itm = max(0, final_px - K_long) - max(0, final_px - K_short)
-    return {"pnl": itm - debit, "pnl_pct": (itm - debit) / debit * 100,
+    return {"pnl": itm - debit, "pnl_pct": (itm - debit) / STARTING_CASH * 100,
             "credit": -debit, "max_profit": max_profit, "max_loss": debit,
             "pop": 0.45, "exit_type": "EXPIRED", "days": dte}
 
@@ -968,7 +968,7 @@ def _sim_bear_put_spread(future_df, entry_px, iv, dte) -> dict | None:
         cur = long_bid2 - short_ask2 - 2 * OPT_COST / 100
         pnl = cur - debit
         if pnl >= max_profit * 0.75:
-            return {"pnl": pnl, "pnl_pct": pnl / debit * 100, "credit": -debit,
+            return {"pnl": pnl, "pnl_pct": pnl / STARTING_CASH * 100, "credit": -debit,
                     "max_profit": max_profit, "max_loss": debit,
                     "pop": 0.45, "exit_type": "PROFIT_75", "days": i + 1}
         if pnl <= -debit * 0.5:
@@ -977,7 +977,7 @@ def _sim_bear_put_spread(future_df, entry_px, iv, dte) -> dict | None:
                     "pop": 0.45, "exit_type": "STOP_50", "days": i + 1}
     final_px = float(future_df["Close"].iloc[-1]) if len(future_df) > 0 else entry_px
     itm = max(0, K_long - final_px) - max(0, K_short - final_px)
-    return {"pnl": itm - debit, "pnl_pct": (itm - debit) / debit * 100,
+    return {"pnl": itm - debit, "pnl_pct": (itm - debit) / STARTING_CASH * 100,
             "credit": -debit, "max_profit": max_profit, "max_loss": debit,
             "pop": 0.45, "exit_type": "EXPIRED", "days": dte}
 
@@ -1001,17 +1001,17 @@ def _sim_bull_put_spread(future_df, entry_px, iv, dte) -> dict | None:
         cur_l = _bs_price(px, pb, rem, RISK_FREE, iv * 0.90, "put") * (1 - OPT_SLIP_PER_LEG / 2)
         pnl   = credit - (cur_s - cur_l)
         if pnl >= credit * 0.5:
-            return {"pnl": pnl, "pnl_pct": pnl / (width * 0.05) * 100, "credit": credit,
+            return {"pnl": pnl, "pnl_pct": pnl / STARTING_CASH * 100, "credit": credit,
                     "max_profit": credit, "max_loss": max_loss,
                     "pop": 0.70, "exit_type": "PROFIT_50", "days": i + 1}
         if pnl <= -max_loss:
-            return {"pnl": -max_loss, "pnl_pct": -max_loss / (width * 0.05) * 100, "credit": credit,
+            return {"pnl": -max_loss, "pnl_pct": -max_loss / STARTING_CASH * 100, "credit": credit,
                     "max_profit": credit, "max_loss": max_loss,
                     "pop": 0.70, "exit_type": "MAX_LOSS", "days": i + 1}
     final_px = float(future_df["Close"].iloc[-1]) if len(future_df) > 0 else entry_px
     win = final_px > ps
     return {"pnl": credit if win else -max_loss * 0.5,
-            "pnl_pct": (credit if win else -max_loss * 0.5) / (width * 0.05) * 100,
+            "pnl_pct": (credit if win else -max_loss * 0.5) / STARTING_CASH * 100,
             "credit": credit, "max_profit": credit, "max_loss": max_loss,
             "pop": 0.70, "exit_type": "EXPIRED_WIN" if win else "EXPIRED_LOSS", "days": dte}
 
@@ -1034,17 +1034,17 @@ def _sim_bear_call_spread(future_df, entry_px, iv, dte) -> dict | None:
         cur_l = _bs_price(px, cb, rem, RISK_FREE, iv * 0.90, "call") * (1 - OPT_SLIP_PER_LEG / 2)
         pnl   = credit - (cur_s - cur_l)
         if pnl >= credit * 0.5:
-            return {"pnl": pnl, "pnl_pct": pnl / (width * 0.05) * 100, "credit": credit,
+            return {"pnl": pnl, "pnl_pct": pnl / STARTING_CASH * 100, "credit": credit,
                     "max_profit": credit, "max_loss": max_loss,
                     "pop": 0.70, "exit_type": "PROFIT_50", "days": i + 1}
         if pnl <= -max_loss:
-            return {"pnl": -max_loss, "pnl_pct": -max_loss / (width * 0.05) * 100, "credit": credit,
+            return {"pnl": -max_loss, "pnl_pct": -max_loss / STARTING_CASH * 100, "credit": credit,
                     "max_profit": credit, "max_loss": max_loss,
                     "pop": 0.70, "exit_type": "MAX_LOSS", "days": i + 1}
     final_px = float(future_df["Close"].iloc[-1]) if len(future_df) > 0 else entry_px
     win = final_px < cs
     return {"pnl": credit if win else -max_loss * 0.5,
-            "pnl_pct": (credit if win else -max_loss * 0.5) / (width * 0.05) * 100,
+            "pnl_pct": (credit if win else -max_loss * 0.5) / STARTING_CASH * 100,
             "credit": credit, "max_profit": credit, "max_loss": max_loss,
             "pop": 0.70, "exit_type": "EXPIRED_WIN" if win else "EXPIRED_LOSS", "days": dte}
 
@@ -1133,7 +1133,7 @@ def _sim_0dte(future_row, entry_px, iv, direction) -> dict | None:
         intrinsic = max(0, entry_px - day_low) * 0.7
         pnl       = intrinsic - premium
 
-    return {"pnl": round(pnl, 4), "pnl_pct": round(pnl / premium * 100, 1),
+    return {"pnl": round(pnl, 4), "pnl_pct": round(pnl / STARTING_CASH * 100, 1),
             "premium": round(premium, 4), "days": 1,
             "exit_type": "0DTE_EXPIRY",
             "iv_entry": iv, "iv_exit": iv * 0.5}
@@ -1502,7 +1502,7 @@ def _run_options_loop(td: dict, days: list, vix_map: dict) -> tuple[list, list, 
                     dte0_trades.append({"strategy": "tqqq_0dte_straddle", "ticker": sym0,
                                         "trade_date": day_str, "direction": "straddle",
                                         "pnl": combined_pnl,
-                                        "pnl_pct": combined_pnl / combined_premium * 100,
+                                        "pnl_pct": combined_pnl / STARTING_CASH * 100,
                                         "gex_env": "SPIKE", "vix_at_entry": vix_val,
                                         "win": 1 if combined_pnl > 0 else 0,
                                         "premium": combined_premium})
@@ -1978,11 +1978,17 @@ def run_master_backtest(days: int = BACKTEST_DAYS, compare: bool = True) -> dict
             logger.debug("0dte save: %s", e)
 
     def _ensure_pnl_pct(t: dict) -> dict:
-        """Guarantee every trade dict has pnl_pct; compute from pnl/credit if missing."""
+        """Guarantee every trade dict has pnl_pct as a portfolio-fraction return.
+
+        HM-BACKTEST-PNL-DENOMINATOR-FIX: every option/spread/0dte path now
+        normalizes pnl_pct by STARTING_CASH so per-trade percentages compose
+        sensibly through `_trade_metrics` geometric compounding. The earlier
+        per-leg / per-credit / (width*0.05) denominators inflated per-trade
+        pnl_pct by 10-100x, producing +10610% and -22156% artifacts.
+        """
         if "pnl_pct" not in t or t["pnl_pct"] is None:
-            pnl  = t.get("pnl", 0) or 0
-            base = abs(t.get("credit", t.get("max_loss", t.get("premium", 1)))) or 1
-            t = {**t, "pnl_pct": round(pnl / base * 100, 2)}
+            pnl = t.get("pnl", 0) or 0
+            t = {**t, "pnl_pct": round(pnl / STARTING_CASH * 100, 4)}
         return t
 
     # Aggregate options/spreads/0dte for master_results table
