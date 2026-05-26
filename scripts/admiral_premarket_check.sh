@@ -317,6 +317,36 @@ except Exception as e:
     esac
 }
 
+# ── CHECK 9: Code freshness ───────────────────────────────────────────────
+# Born from the Memorial Day 2026-05-25 finding that the trader process
+# (PID 43883, started Sun May 24) was running pre-Memorial-Day bytecode
+# while all of today's Phase A/B/C/D commits existed on disk only. A
+# script that says "safe to unhalt" must verify the process is loading
+# the commits the Admiral actually shipped.
+check_code_freshness() {
+    local trader_pid pid_start_epoch head_epoch head_commit unloaded
+    trader_pid=$(pgrep -f "python.*main\.py$" | head -1)
+    if [ -z "$trader_pid" ]; then
+        fail "CHECK 9: Code freshness — no trader PID found (skipping freshness compare)"
+        return
+    fi
+    pid_start_epoch=$(ps -o lstart= -p "$trader_pid" | xargs -I {} date -j -f "%a %b %e %T %Y" "{}" "+%s" 2>/dev/null)
+    head_epoch=$(git log -1 --format=%ct HEAD 2>/dev/null)
+    head_commit=$(git log -1 --format='%h' HEAD 2>/dev/null)
+
+    if [ -z "$pid_start_epoch" ] || [ -z "$head_epoch" ]; then
+        fail "CHECK 9: Code freshness — could not compute timestamps (pid_start=$pid_start_epoch, head=$head_epoch)"
+        return
+    fi
+
+    if [ "$pid_start_epoch" -ge "$head_epoch" ]; then
+        pass "CHECK 9: Code freshness — PID $trader_pid started after HEAD ($head_commit), bytecode is current"
+    else
+        unloaded=$(git log --oneline --since="@$pid_start_epoch" 2>/dev/null | wc -l | xargs)
+        fail "CHECK 9: Code freshness — PID $trader_pid running STALE bytecode ($unloaded commits since restart, HEAD=$head_commit). Use scripts/admiral_trader_restart.sh --confirm"
+    fi
+}
+
 # ── Run all checks ────────────────────────────────────────────────────────
 check_system_health
 check_market_calendar
@@ -326,6 +356,7 @@ check_alpaca_state
 check_scanner_health
 check_db_integrity
 check_convergence_smoke
+check_code_freshness
 
 # ── Summary ───────────────────────────────────────────────────────────────
 TOTAL=$((PASS_COUNT + FAIL_COUNT))

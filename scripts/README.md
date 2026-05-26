@@ -31,8 +31,42 @@ Checks:
 6. **Scanner job health** — `MAX(computed_at)` from `rs_rank`, `minervini_trend`, `squeeze_watch.scan_ts` (within 24h)
 7. **DB integrity** — `portfolio_history` row count for yesterday
 8. **Convergence smoke** — `/api/navigator/convergence` first signal includes `strategy_names` array (verifies b76ea91 fix still live)
+9. **Code freshness** — trader PID start time vs `git log -1 HEAD` commit time. FAIL if HEAD commits exist newer than PID start, with count of unloaded commits + pointer to the restart script. Born from the Memorial Day 2026-05-25 finding that the trader had been running pre-Memorial-Day bytecode for 24h while the holiday gates lived on disk only.
 
 Read-only. No writes. No mutations. Safe to run any time.
+
+### `admiral_trader_restart.sh`
+
+Controlled restart with safety gates. Stops the running trader and
+starts a fresh process so newly-shipped commits become live in-process.
+
+```bash
+scripts/admiral_trader_restart.sh           # dry-run preview
+scripts/admiral_trader_restart.sh --confirm # execute
+```
+
+Why this exists (not `launchctl kickstart`): per CLAUDE.md "LaunchAgent
+Reboot Lifecycle" (2026-05-23), `launchctl kickstart gui/$UID/com.trademinds.trader`
+returns "Domain does not support specified action" on this Mac when run
+over SSH. Production startup uses `scripts/trader_reboot_start.sh` via
+`@reboot` cron with a `nohup … &` detach. This script reuses the same
+detach pattern after a graceful SIGTERM → SIGKILL fallback.
+
+Safety gates (all must pass + `--confirm`):
+1. Git working tree clean (no uncommitted tracked changes)
+2. Conviction flags all False or absent
+3. neo-matrix + ollie-auto at a safe `halt_mode` (NULL = unsafe)
+4. Python interpreter at `.venv/bin/python3` present
+5. Trader PID currently alive (this is restart, not cold-start)
+
+Sequence:
+1. Capture old PID + start time, show `git log` of commits to be loaded
+2. Gate eval — abort if any gate fails
+3. SIGTERM → 20s grace → SIGKILL fallback
+4. `nohup .venv/bin/python3 main.py &` (detached, mirrors reboot script)
+5. Wait up to 30s for new PID + port 8080 listening
+6. Re-run premarket check
+7. Print old PID / new PID / commits loaded / premarket result
 
 ### `admiral_unhalt_agents.sh`
 
