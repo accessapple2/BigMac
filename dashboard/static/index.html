@@ -18162,7 +18162,7 @@ function loadDbBearScan() {
       sigCard.style.borderColor = sig.direction === 'PUT' ? '#ef4444' : sig.direction === 'GAP_CALL' ? '#22c55e' : '#22c55e';
       if (sigTitle) sigTitle.textContent = '⚡ ' + sig.direction + ' SIGNAL — ' + sig.confidence + '% confidence';
       if (sigBody) sigBody.innerHTML = (sig.triggers || []).map(function(t){
-        return '<div style="padding:2px 0;color:#94a3b8;">✓ ' + t + '</div>';
+        return '<div style="padding:2px 0;color:var(--text-secondary);">✓ ' + t + '</div>';
       }).join('');
     } else if (sigCard) {
       sigCard.style.display = 'none';
@@ -18190,10 +18190,10 @@ function loadDbShorts() {
           var pnlSign = s.pnl_usd >= 0 ? '+' : '';
           return '<div style="display:flex;align-items:center;gap:10px;padding:8px 6px;border-bottom:1px solid #1e293b;flex-wrap:wrap;">' +
             '<div style="font-weight:700;font-size:14px;min-width:60px;">' + s.symbol + '</div>' +
-            '<div style="font-size:12px;color:#64748b;">Entry: <span style="color:#94a3b8;">$' + s.entry_price + '</span></div>' +
-            '<div style="font-size:12px;color:#64748b;">Current: <span style="color:#94a3b8;">$' + s.current_price + '</span></div>' +
-            '<div style="font-size:12px;color:#64748b;">P&L: <span style="color:' + pnlCol + ';font-weight:700;">' + pnlSign + '$' + s.pnl_usd.toFixed(2) + ' (' + pnlSign + s.pnl_pct + '%)</span></div>' +
-            '<div style="font-size:12px;color:#64748b;">Stop: <span style="color:#f59e0b;">$' + s.stop_loss + ' (' + s.stop_dist_pct + '% away)</span></div>' +
+            '<div style="font-size:12px;color:var(--text-muted);">Entry: <span style="color:var(--text-secondary);">$' + s.entry_price + '</span></div>' +
+            '<div style="font-size:12px;color:var(--text-muted);">Current: <span style="color:var(--text-secondary);">$' + s.current_price + '</span></div>' +
+            '<div style="font-size:12px;color:var(--text-muted);">P&L: <span style="color:' + pnlCol + ';font-weight:700;">' + pnlSign + '$' + s.pnl_usd.toFixed(2) + ' (' + pnlSign + s.pnl_pct + '%)</span></div>' +
+            '<div style="font-size:12px;color:var(--text-muted);">Stop: <span style="color:#f59e0b;">$' + s.stop_loss + ' (' + s.stop_dist_pct + '% away)</span></div>' +
             '<button onclick="coverShort(\'' + s.symbol + '\')" style="margin-left:auto;padding:4px 12px;border-radius:4px;background:#dc2626;color:#fff;border:none;font-size:12px;font-weight:700;cursor:pointer;">COVER</button>' +
             '</div>';
         }).join('');
@@ -18212,10 +18212,10 @@ function loadDbShorts() {
         candEl.innerHTML = cands.map(function(c) {
           return '<div style="display:flex;gap:10px;align-items:center;padding:4px 0;border-bottom:1px solid #1e293b22;flex-wrap:wrap;">' +
             '<span style="font-weight:700;color:#f97316;min-width:50px;">' + c.ticker + '</span>' +
-            '<span style="color:#94a3b8;">$' + c.price + '</span>' +
-            '<span style="color:#64748b;font-size:11px;">RSI ' + c.rsi_14d + ' overbought</span>' +
-            '<span style="color:#64748b;font-size:11px;">' + c.below_ma50_pct + '% below 50MA</span>' +
-            '<span style="color:#64748b;font-size:11px;">Vol ratio ' + c.volume_ratio + 'x</span>' +
+            '<span style="color:var(--text-secondary);">$' + c.price + '</span>' +
+            '<span style="color:var(--text-muted);font-size:11px;">RSI ' + c.rsi_14d + ' overbought</span>' +
+            '<span style="color:var(--text-muted);font-size:11px;">' + c.below_ma50_pct + '% below 50MA</span>' +
+            '<span style="color:var(--text-muted);font-size:11px;">Vol ratio ' + c.volume_ratio + 'x</span>' +
             '<span style="color:#f59e0b;font-size:11px;">Stop $' + c.stop_loss + '</span>' +
             '</div>';
         }).join('');
@@ -18261,7 +18261,7 @@ function loadDbChain() {
     }).join('');
   }).catch(function() {
     var body = document.getElementById('dbChainBody');
-    if (body) body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:#64748b;padding:16px;">Chain unavailable</td></tr>';
+    if (body) body.innerHTML = '<tr><td colspan="7" style="text-align:center;color:var(--text-muted);padding:16px;">Chain unavailable</td></tr>';
   });
 }
 
@@ -18455,7 +18455,7 @@ async function fetchNavSchedule() {
 <!-- CONGRESSIONAL TRADES SECTION -->
 <div id="section-congress" style="display:none;">
   <div id="guide-container-congress"></div>
-  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Congressional Alpha</div><div style="font-size:13px;color:#94a3b8;">Stock purchases by U.S. Congress members. When 2+ members buy the same ticker in 30 days, the Capitol Trades player auto-copies the position. Congress historically outperforms S&amp;P 500 by 6%/yr.</div></div>
+  <div style="border-left:4px solid #2563eb;background:rgba(37,99,235,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;"><div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Congressional Alpha</div><div style="font-size:13px;color:var(--text-secondary);">Stock purchases by U.S. Congress members. When 2+ members buy the same ticker in 30 days, the Capitol Trades player auto-copies the position. Congress historically outperforms S&amp;P 500 by 6%/yr.</div></div>
   <div class="card" style="margin-bottom:16px;">
     <div class="card-header">
       <div class="card-title">🏛️ Capitol Trades — Congressional Stock Activity</div>
@@ -18518,12 +18518,12 @@ async function fetchCapitolPortfolio() {
       var price = parseFloat(t.price||t.entry_price||0);
       var dateStr = (t.executed_at||t.created_at||'').substring(0,10);
       html += '<tr style="border-bottom:1px solid rgba(255,255,255,0.04);">';
-      html += '<td style="padding:7px 8px;font-weight:600;color:#e2e8f0;">' + (t.symbol||'—') + '</td>';
+      html += '<td style="padding:7px 8px;font-weight:600;color:var(--text-primary);">' + (t.symbol||'—') + '</td>';
       html += '<td style="padding:7px 8px;color:' + actCol + ';font-size:11px;font-weight:700;">' + (t.action||'—') + '</td>';
-      html += '<td style="padding:7px 8px;text-align:right;color:#94a3b8;font-family:monospace;">$' + (price > 0 ? price.toFixed(2) : '—') + '</td>';
-      html += '<td style="padding:7px 8px;text-align:right;color:#94a3b8;">' + (t.qty||'—') + '</td>';
-      html += '<td style="padding:7px 8px;text-align:right;font-family:monospace;font-weight:600;color:' + (hasPnl ? pnlCol2 : '#64748b') + ';">' + (hasPnl ? (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2) : '—') + '</td>';
-      html += '<td style="padding:7px 8px;text-align:right;color:#64748b;">' + (dateStr||'—') + '</td>';
+      html += '<td style="padding:7px 8px;text-align:right;color:var(--text-secondary);font-family:monospace;">$' + (price > 0 ? price.toFixed(2) : '—') + '</td>';
+      html += '<td style="padding:7px 8px;text-align:right;color:var(--text-secondary);">' + (t.qty||'—') + '</td>';
+      html += '<td style="padding:7px 8px;text-align:right;font-family:monospace;font-weight:600;color:' + (hasPnl ? pnlCol2 : 'var(--text-muted)') + ';">' + (hasPnl ? (pnl >= 0 ? '+$' : '-$') + Math.abs(pnl).toFixed(2) : '—') + '</td>';
+      html += '<td style="padding:7px 8px;text-align:right;color:var(--text-muted);">' + (dateStr||'—') + '</td>';
       html += '</tr>';
     });
     html += '</tbody></table>';
@@ -19112,7 +19112,7 @@ function drawHolodeckEquityCurve(curve, stats) {
             <button onclick="runCrewCode()" id="crew-run-btn" class="btn btn-primary" style="font-size:13px;padding:3px 10px;">▶ Run Backtest</button>
             <button disabled title="Coming Soon — Alpaca integration" class="btn btn-ghost" style="font-size:13px;padding:3px 10px;opacity:0.5;cursor:not-allowed;">🦙 Beam to Alpaca</button>
           </div>
-          <pre id="crew-code" style="background:#0f172a;color:#e2e8f0;border-radius:8px;padding:14px;font-size:12px;font-family:var(--font-mono);overflow-x:auto;max-height:400px;overflow-y:auto;line-height:1.5;"></pre>
+          <pre id="crew-code" style="background:#0f172a;color:var(--text-primary);border-radius:8px;padding:14px;font-size:12px;font-family:var(--font-mono);overflow-x:auto;max-height:400px;overflow-y:auto;line-height:1.5;"></pre>
         </div>
         <!-- Backtest output -->
         <div id="crew-backtest" style="display:none;">
@@ -19763,9 +19763,9 @@ function openTickerDetail(symbol) {
             if (crEnt) h += '<span style="color:var(--muted);">Entry <b>$'+crEnt.toFixed(2)+'</b></span>';
             if (crTgt) {
               var crRetPct = crEnt ? (((crTgt-crEnt)/crEnt)*100).toFixed(1) : null;
-              h += '<span style="color:var(--muted);">Target <b style="color:#22c55e;">$'+crTgt.toFixed(2)+'</b>'+(crRetPct?' <span style="color:#22c55e;font-family:inherit;">(+'+crRetPct+'%)</span>':'')+'</span>';
+              h += '<span style="color:var(--muted);">Target <b style="color:var(--up);">$'+crTgt.toFixed(2)+'</b>'+(crRetPct?' <span style="color:var(--up);font-family:inherit;">(+'+crRetPct+'%)</span>':'')+'</span>';
             }
-            if (crSl) h += '<span style="color:var(--muted);">SL <b style="color:#ef4444;">$'+crSl.toFixed(2)+'</b></span>';
+            if (crSl) h += '<span style="color:var(--muted);">SL <b style="color:var(--down);">$'+crSl.toFixed(2)+'</b></span>';
             h += '</div>';
           }
         }
@@ -21377,7 +21377,7 @@ async function loadModelControl() {
       const statusBtn = m.is_fallback
         ? `<button onclick="togglePausePlayer('${m.player_id}')" style="background:#78350f;color:#fbbf24;border:1px solid #fbbf24;border-radius:6px;padding:6px 14px;cursor:pointer;font-size:12px;font-weight:700;">FALLBACK</button>`
         : m.is_halted
-          ? `<button style="background:rgba(239,68,68,0.15);color:#ef4444;border:1px solid #ef4444;border-radius:6px;padding:6px 14px;cursor:default;font-size:12px;font-weight:700;">HALTED</button>`
+          ? `<button style="background:rgba(239,68,68,0.15);color:var(--down);border:1px solid var(--down);border-radius:6px;padding:6px 14px;cursor:default;font-size:12px;font-weight:700;">HALTED</button>`
           : m.is_paused
             ? `<button onclick="togglePausePlayer('${m.player_id}')" style="background:var(--surface2);color:var(--muted);border:1px solid var(--border);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:12px;">PAUSED</button>`
             : `<button onclick="togglePausePlayer('${m.player_id}')" style="background:rgba(37,99,235,0.15);color:var(--green);border:1px solid var(--green);border-radius:6px;padding:6px 14px;cursor:pointer;font-size:12px;">ACTIVE</button>`;
