@@ -390,3 +390,58 @@ Branch hm-proving-ground-formalize-v2 ready for merge to main.
 moment trial passes Day 60 because max_drawdown has held at -24% across
 the entire trial. Admiral can preempt with --kill before Day 60 OR let
 the structural finding surface itself and respond at that point.
+
+---
+
+## 2026-05-25 evening — HM-ALPACA-OOB-ORDER-CANCEL
+
+**Surfaced by:** `scripts/admiral_premarket_check.sh` CHECK 5 (the script
+shipped earlier this same session) on its first live smoke run.
+
+**State found:** 5 Alpaca-paper `status=accepted` orders, all QQQ buy×1
+market, submitted Memorial Day 2026-05-25 between 08:55 AZ and 09:46 AZ:
+
+  · 176ace6e-da57-4b3b-ae26-adb8568fad61  08:55:32
+  · f0a6f8c7-cefa-4b9a-a54c-fa5258a12ad6  08:55:56
+  · f4afbe16-eb0f-452c-b9d1-ef5af43867a8  08:59:20
+  · 9930f338-c37d-46e1-90da-fef354b452bf  09:19:32
+  · fee4a5d1-a7f5-4515-afe6-c78aa7afab75  09:46:57
+
+**Investigation (read-only, 20 min):**
+
+- ZERO local trace. None of the 5 order IDs appear in `trades` table.
+- ZERO matching `/api/alpaca/buy` POST hits in `trader.log` for the
+  Memorial Day window (last POST was 2026-05-22 19:57:07).
+- ZERO `player_id='trade-desk'` trades on 2026-05-25.
+- ZERO `/api/alpaca/*` GET hits from a dashboard session during the
+  08:00-10:00 AZ window (Captain wasn't viewing the local UI either).
+- ZERO positions table rows in QQQ.
+- HALT-GATE confirmed live in-process (suppressed Impulse MULL at
+  09:46:20, 4 sec before order #5 — the local trader's halt-cascade
+  was working).
+- Trader PID 43883 started Sun May 24 13:14:05 → all of today's Phase
+  A/B/C/D commits exist on disk but NOT in running bytecode. Phase B
+  gates would not have caught the orders even if they HAD originated
+  in-process; they did not.
+
+**Conclusion:** The 5 orders were submitted to Alpaca paper **out-of-
+band**, from outside the local trader process. Probable vectors:
+Alpaca's own web UI, Alpaca mobile app, or a separate alpaca-py SDK
+script. No fleet agent fired them. No fleet code path is responsible.
+
+**Action (Admiral-approved):** cancel-by-API via
+`POST /api/alpaca/cancel/{order_id}` × 5. All 5 returned
+`{"success":true, "status":"canceled"}`. Post-probe at 19:30 MST
+confirmed open-orders count = 0; all 5 IDs visible under
+`?status=all` with `status=canceled`.
+
+**Premarket re-run at 19:30 MST: 8/8 PASS** (CHECK 2 still WARN for
+Memorial Day holiday — correct; it is still Memorial Day tonight).
+Safe-to-unhalt achieved.
+
+**Doctrine gap banked:** `HM-ALPACA-OUT-OF-BAND-ORDER-RECONCILE` —
+periodic reconciliation job comparing `/v2/orders` against the local
+`trades.alpaca_order_id` set; NTFY on any mismatch. ~1-2h scope. The
+premarket check (CHECK 5) is the manual version of this; the banked
+ticket would automate it on a 5-15 min cadence during market hours
+plus a once-at-pre-bell sweep.
