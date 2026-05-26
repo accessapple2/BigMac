@@ -1846,6 +1846,7 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
             f"[yellow][PRICE-SANITY-REJECT] {player_id} SELL_PARTIAL {symbol}: "
             f"price=${price:.2f} < 20% of avg=${_avg:.2f} — blocked"
         )
+        _last_rejection[player_id] = f"[PRICE-SANITY-REJECT] price={price:.2f} avg={_avg:.2f}"
         return None
 
     # For options, estimate current premium using intrinsic value + time value
