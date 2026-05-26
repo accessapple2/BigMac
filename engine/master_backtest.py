@@ -1079,6 +1079,10 @@ def _sim_ic(future_df, entry_px, iv, dte) -> dict | None:
     if credit <= 0:
         return None
     max_loss = (cs - ps) * 0.08 + credit  # width × buffer
+    # HM-BACKTEST-COLLATERAL-DENOMINATOR (follow-up): IC collateral = wider-wing × 100
+    # (assignment occurs on one side only). Symmetric IC here: put_width = call_width.
+    width      = max(ps - pb, cb - cs)
+    collateral = max((width - credit) * 100, 1)
     for i in range(min(dte, len(future_df))):
         px  = float(future_df["Close"].iloc[i])
         rem = max(1, dte - i - 1) / 365
@@ -1088,15 +1092,18 @@ def _sim_ic(future_df, entry_px, iv, dte) -> dict | None:
                   - _bs_price(px, cb, rem, RISK_FREE, iv, "call") * (1 - OPT_SLIP_PER_LEG / 2)))
         pnl = credit - cur
         if pnl >= credit * 0.5:
-            return {"pnl": pnl, "credit": credit, "max_profit": credit,
+            return {"pnl": pnl, "pnl_pct": pnl / collateral * 100,
+                    "credit": credit, "max_profit": credit,
                     "max_loss": max_loss, "pop": 0.68, "exit_type": "PROFIT_50", "days": i + 1}
         if pnl <= -max_loss:
-            return {"pnl": -max_loss, "credit": credit, "max_profit": credit,
+            return {"pnl": -max_loss, "pnl_pct": -max_loss / collateral * 100,
+                    "credit": credit, "max_profit": credit,
                     "max_loss": max_loss, "pop": 0.68, "exit_type": "MAX_LOSS", "days": i + 1}
     final_px = float(future_df["Close"].iloc[-1]) if len(future_df) > 0 else entry_px
     win = ps < final_px < cs
-    return {"pnl": credit if win else -max_loss * 0.5, "credit": credit,
-            "max_profit": credit, "max_loss": max_loss, "pop": 0.68,
+    return {"pnl": credit if win else -max_loss * 0.5,
+            "pnl_pct": (credit if win else -max_loss * 0.5) / collateral * 100,
+            "credit": credit, "max_profit": credit, "max_loss": max_loss, "pop": 0.68,
             "exit_type": "EXPIRED_WIN" if win else "EXPIRED_LOSS", "days": dte}
 
 
@@ -1112,6 +1119,10 @@ def _sim_broken_wing_ic(future_df, entry_px, iv, dte) -> dict | None:
     if credit <= 0:
         return None
     max_loss = (cs - ps) * 0.05
+    # HM-BACKTEST-COLLATERAL-DENOMINATOR (follow-up): BWIC collateral = wider-wing × 100.
+    # Asymmetric IC; here the put wing (ps→pb) is wider by design.
+    width      = max(ps - pb, cb - cs)
+    collateral = max((width - credit) * 100, 1)
     for i in range(min(dte, len(future_df))):
         px  = float(future_df["Close"].iloc[i])
         rem = max(1, dte - i - 1) / 365
@@ -1119,15 +1130,18 @@ def _sim_broken_wing_ic(future_df, entry_px, iv, dte) -> dict | None:
                + _bs_price(px, cs, rem, RISK_FREE, iv, "call") - _bs_price(px, cb, rem, RISK_FREE, iv, "call"))
         pnl = credit - cur
         if pnl >= credit * 0.50:
-            return {"pnl": pnl, "credit": credit, "max_profit": credit,
+            return {"pnl": pnl, "pnl_pct": pnl / collateral * 100,
+                    "credit": credit, "max_profit": credit,
                     "max_loss": max_loss, "pop": 0.68, "exit_type": "PROFIT_50", "days": i + 1}
         if pnl <= -max_loss:
-            return {"pnl": -max_loss, "credit": credit, "max_profit": credit,
+            return {"pnl": -max_loss, "pnl_pct": -max_loss / collateral * 100,
+                    "credit": credit, "max_profit": credit,
                     "max_loss": max_loss, "pop": 0.68, "exit_type": "MAX_LOSS", "days": i + 1}
     final_px = float(future_df["Close"].iloc[-1]) if len(future_df) > 0 else entry_px
     win = ps < final_px < cs
-    return {"pnl": credit if win else -max_loss * 0.5, "credit": credit,
-            "max_profit": credit, "max_loss": max_loss, "pop": 0.68,
+    return {"pnl": credit if win else -max_loss * 0.5,
+            "pnl_pct": (credit if win else -max_loss * 0.5) / collateral * 100,
+            "credit": credit, "max_profit": credit, "max_loss": max_loss, "pop": 0.68,
             "exit_type": "EXPIRED_WIN" if win else "EXPIRED_LOSS", "days": dte}
 
 
