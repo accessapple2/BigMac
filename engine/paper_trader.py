@@ -1565,6 +1565,18 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         console.log(f"[red]{player_id}: No position in {symbol}")
         return None
 
+    # HM-SELL-PRICE-SANITY-GLOBAL: reject sell if price < 20% of avg_price
+    # Prevents garbage post-market prices from creating phantom losses fleet-wide.
+    # Same threshold as HM-CHEKOV-PRICE-SANITY-GATE (chekov_autotrade.py:553).
+    _avg = pos.get("avg_price", 0)
+    if asset_type == "stock" and _avg > 0 and price < (_avg * 0.20):
+        console.log(
+            f"[yellow][PRICE-SANITY-REJECT] {player_id} SELL {symbol}: "
+            f"price=${price:.2f} < 20% of avg=${_avg:.2f} — blocked"
+        )
+        _last_rejection[player_id] = f"[PRICE-SANITY-REJECT] price={price:.2f} avg={_avg:.2f}"
+        return None
+
     # GUARD: Minimum 24h hold period (unless stop-loss)
     if not _check_min_hold(player_id, symbol, pos, reasoning):
         return None
