@@ -264,7 +264,7 @@ Consolidated scope (~4-5h):
 Priority: LOW. Bank for post-shadow-validation review. Per-layer Phase D
 analyses are sufficient input for the initial flag-flip decisions.
 
-#### HM-INLINE-STYLE-SWEEP — IN PROGRESS (3 of 9 batches complete)
+#### HM-INLINE-STYLE-SWEEP — IN PROGRESS (5 of 9 batches complete)
 
 Frontend dashboard inline-style → CSS-var migration. Multi-batch sprint
 to consume ~1191 inline color literals across `dashboard/static/index.html`.
@@ -273,17 +273,29 @@ Conservative power-paste pattern via
 Python regex acting only inside `style="..."` attribute values, mapping
 only the 5 hex codes whose canonical var exists in production :root.
 
-  Batch 1 (b905935) bridge-tip-finish          —  6 migrated, 14 banked
-  Batch 2 (f6ef2eb) bridge-rest L7000-10000    — 58 migrated, 109 banked
-  Batch 3 (4a56141) leaderboard-fleet L14000-18000 — 60 migrated, 119 banked
+  Batch 1 (b905935) bridge-tip-finish              —   6 migrated,  14 banked
+  Batch 2 (f6ef2eb) bridge-rest      L7000-10000   —  58 migrated, 109 banked
+  Batch 3 (4a56141) leaderboard-fleet L14000-18000 —  60 migrated, 119 banked
   Merge   (58c0ad6) 2+3 to main 2026-05-25
+  Batch 4 (d9d7d65) cockpit          L18000-22000  —  24 migrated,  69 banked
+  Batch 5 (db60387) squeeze-movers   L22000-26000  —  29 migrated,  25 banked
+  Merge   (fast-fwd) 4+5 to main 2026-05-25
 
-  Cumulative: 124 literals migrated, 242 banked-with-comment
+  Cumulative: 177 literals migrated, 336 banked-with-comment
+  Site-wide hex-in-style-attr remaining: 1073
 
-Remaining batches **BLOCKED on HM-V4.5-TOKEN-EXTENSION** — the 242 banked
+Migration rates so far:
+  Batch 1: 30.0%      Batch 2: 34.7%     Batch 3: 33.5%
+  Batch 4: 25.8%      Batch 5: 53.7%
+  Cumulative: 34.5% (177 / 513 examined)
+
+Batch 4's lower rate is a content-shape signal: cockpit zone is
+accent-heavy (#2563eb, #ea580c, #fff family — the V4.5-token
+candidates). Batch 5 is text-heavy (up/down/muted status indicators
+on movers table) → highest single-batch migration rate.
+
+Remaining batches **BLOCKED on HM-V4.5-TOKEN-EXTENSION** — the 336 banked
 inventory cannot migrate further until canonical-var coverage expands:
-  Batch 4 cockpit L18000-22000 (~81 literals)
-  Batch 5 squeeze-movers L22000-26000 (~60)
   Batch 6 debate-oai L26000-30000 + L10000-14000 (~102)
   Batch 7a js-templates-static (helper class introduction)
   Batch 7b js-templates-dynamic (conditional class injection)
