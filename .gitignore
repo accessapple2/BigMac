@@ -219,3 +219,4 @@ data/scotty_*.md
 directives/*.md
 # reports/*.md mostly ignored via reports/ above; reports/BANKED_ITEMS_*.md is
 # whitelisted (see exception line ~203). Other reports/*.md remain scratch.
+.venv-backtest/
