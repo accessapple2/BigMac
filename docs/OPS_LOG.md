@@ -439,9 +439,56 @@ confirmed open-orders count = 0; all 5 IDs visible under
 Memorial Day holiday — correct; it is still Memorial Day tonight).
 Safe-to-unhalt achieved.
 
-**Doctrine gap banked:** `HM-ALPACA-OUT-OF-BAND-ORDER-RECONCILE` —
-periodic reconciliation job comparing `/v2/orders` against the local
-`trades.alpaca_order_id` set; NTFY on any mismatch. ~1-2h scope. The
-premarket check (CHECK 5) is the manual version of this; the banked
-ticket would automate it on a 5-15 min cadence during market hours
-plus a once-at-pre-bell sweep.
+---
+
+**Admiral confirmation 2026-05-25 evening (after cancel + restart):**
+
+Source of the 5 OOB orders was **Admiral manual Alpaca UI activity** —
+single intended test order, UI lag caused click repetition that
+registered 5× at the broker side. Not a security incident, not a
+fleet violation, not anomalous external activity. The pattern fits
+the timing precisely (08:55:32 + 08:55:56 only 24 sec apart, then
+3-4 min spacing as the human re-attempted thinking the previous click
+hadn't taken).
+
+**Companion datapoint:** 4× AAPL bracket orders 2026-05-23 05:49-05:59
+AZ — also Admiral manual activity, testing OCO bracket functionality
+($1.00 unreachable limit + market buy + limit sell + stop sell). Both
+events are Admiral exploratory/testing activity against the paper
+account, not fleet behavior.
+
+**Doctrine gap REFRAMED:** the gap was never about detecting
+"unauthorized activity." The gap is that the fleet had **zero
+observability** of Alpaca-paper activity it didn't originate — even
+when the Admiral was the originator. A premarket check that says
+"safe to unhalt" must surface the full picture of what's pending at
+the broker, whoever submitted it.
+
+**`HM-ALPACA-OUT-OF-BAND-ORDER-RECONCILE` — REPRIORITIZED to MEDIUM**
+
+Original framing (cleared): "unauthorized activity detection."
+Updated framing: **fleet observability of all Alpaca paper account
+activity, Admiral or otherwise.** The fleet doesn't need to PREVENT
+Admiral OOB orders — just SEE them and not panic.
+
+Bonus capability worth scoping into the ticket: **UI-lag click-repeat
+detection.** Pattern signature is N orders, identical symbol+side+qty,
+submitted within a small window (e.g. >2 orders with same shape in
+60 sec). A console.log + NTFY at the moment of detection would let
+the Admiral know the broker took N copies before the rest fire. ~1-2h
+scope still — this is observability, not gating.
+
+**Premarket CHECK 5** is the manual version of the observability
+half of this ticket; the automated reconcile would run on a 5-15 min
+cadence during market hours plus a once-at-pre-bell sweep.
+
+---
+
+**Restart executed 2026-05-25 19:35:52 MST (separate commit
+`0483afb`):** Old PID 43883 → SIGTERM 2s → New PID 67615 → port 8080
+listening 8s. 79 commits loaded. Post-restart premarket 9/9 PASS
+(CHECK 9 code-freshness added in the same commit; PID 67615 now
+verifies as current bytecode). `/api/fleet/pulse` now returns
+`market_status: "closed_holiday"` + `holiday_name: "Memorial Day"`
++ `next_market_open` — proof that Memorial Day Phase B/C/D code is
+LIVE in-process, no longer disk-only.
