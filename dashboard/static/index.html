@@ -33137,8 +33137,33 @@ var AlertSystem={
     document.body.appendChild(modal);
     var self=this;
     document.getElementById('hm-conv-modal-holodeck').addEventListener('click',function(){
+      // HM-CHEKOV-SEND-TO-HOLODECK-CONTEXT-WIRE 2026-05-25: populate Backtester
+      // ticker from convergence alert + scroll/focus. Prior version stashed
+      // the symbol on window._hmHolodeckPendingSymbol and navigated, but
+      // never consumed it — the Backtester ticker field stayed at its prior
+      // value (default "NVDA"), forcing the user to re-type. Bake-Off has no
+      // ticker input (fleet-replay, model+days only) so it's intentionally
+      // untouched. Strategy + days selections preserved.
       try{ window._hmHolodeckPendingSymbol=sym; }catch(e){}
       try{ if(typeof showSection==='function') showSection('holodeck'); }catch(e){}
+      // Defer field write + scroll one tick so showSection() finishes
+      // toggling the section's display:none → block. Scrolling into a
+      // hidden section is a no-op.
+      setTimeout(function(){
+        try{
+          var f=document.getElementById('holodeck-ticker');
+          if(f){
+            f.value=String(sym||'').toUpperCase();
+            // Fire input+change so any listener (analytics, autosuggest,
+            // strategy filter) updates downstream state.
+            f.dispatchEvent(new Event('input',{bubbles:true}));
+            f.dispatchEvent(new Event('change',{bubbles:true}));
+            f.scrollIntoView({behavior:'smooth',block:'center'});
+            f.focus();
+            f.select();
+          }
+        }catch(e){}
+      },50);
       // Holodeck navigation closes modal but leaves toast for explicit Ack
       modal.remove();
     });
