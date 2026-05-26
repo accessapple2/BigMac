@@ -949,7 +949,7 @@ def _sim_bull_call_spread(future_df, entry_px, iv, dte) -> dict | None:
                     "max_profit": max_profit, "max_loss": debit,
                     "pop": 0.45, "exit_type": "PROFIT_75", "days": i + 1}
         if pnl <= -debit * 0.5:
-            return {"pnl": -debit * 0.5, "pnl_pct": -50, "credit": -debit,
+            return {"pnl": -debit * 0.5, "pnl_pct": (-debit * 0.5) / collateral * 100, "credit": -debit,
                     "max_profit": max_profit, "max_loss": debit,
                     "pop": 0.45, "exit_type": "STOP_50", "days": i + 1}
     final_px = float(future_df["Close"].iloc[-1]) if len(future_df) > 0 else entry_px
@@ -984,7 +984,7 @@ def _sim_bear_put_spread(future_df, entry_px, iv, dte) -> dict | None:
                     "max_profit": max_profit, "max_loss": debit,
                     "pop": 0.45, "exit_type": "PROFIT_75", "days": i + 1}
         if pnl <= -debit * 0.5:
-            return {"pnl": -debit * 0.5, "pnl_pct": -50, "credit": -debit,
+            return {"pnl": -debit * 0.5, "pnl_pct": (-debit * 0.5) / collateral * 100, "credit": -debit,
                     "max_profit": max_profit, "max_loss": debit,
                     "pop": 0.45, "exit_type": "STOP_50", "days": i + 1}
     final_px = float(future_df["Close"].iloc[-1]) if len(future_df) > 0 else entry_px
