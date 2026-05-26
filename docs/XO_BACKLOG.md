@@ -329,6 +329,54 @@ Priority: HIGH (blocks sweep progress past Batch 3). Greenfield-design
 adjacent (token naming, cascade design) — work for fresh context, not
 late-marathon execution.
 
+#### HM-ADMIRAL-PREMARKET-CHECK — ✅ **SHIPPED** 2026-05-25 (3-phase merge `c0f3518`)
+
+Final Memorial Day sprint. Two executable scripts that turn Tuesday
+morning's "is it safe to unhalt the fleet?" question into one command
++ one safety-gated command.
+
+`scripts/admiral_premarket_check.sh` (Phase A, commit `54b5a3e`)
+  8 read-only checks, color-coded PASS/FAIL/WARN, exit 0 if clean:
+    1. System health (PIDs + ports)
+    2. Market calendar (engine.market_calendar direct call)
+    3. Agent halt state (neo-matrix + ollie-auto)
+    4. Conviction flags (.env)
+    5. Alpaca state (equity + pending orders via local proxy)
+    6. Scanner health (rs_rank + minervini_trend + squeeze_watch <24h)
+    7. DB integrity (portfolio_history yesterday)
+    8. Convergence smoke (strategy_names field — b76ea91 verifier)
+
+`scripts/admiral_unhalt_agents.sh` (Phase B, commit `128fd46`)
+  Safety-gated unhalt. Re-runs the premarket check as a gate. Without
+  `--confirm` it prints the SQL it would run (dry-run). With `--confirm`
+  it executes `UPDATE ai_players SET halt_mode='active' WHERE id IN
+  ('neo-matrix','ollie-auto') AND halt_mode='exit_only'` and verifies.
+
+`scripts/README.md` (Phase C, commit `c0f3518`)
+  Usage notes for the suite + index of every existing script in
+  `scripts/` grouped by purpose (Admiral pre-bell, backtests, ops,
+  reboot wrappers, data export, archived).
+
+Memorial Day evening smoke (live current-state):
+  - 7/8 checks PASS
+  - 1 FAIL on CHECK 5: 5 Memorial Day Neo QQQ orders still show
+    "accepted" in Alpaca paper despite Stage 1 cancel arc. These
+    will attempt to fill at 09:30 ET if not canceled at the broker
+    UI side before bell. Admiral attention required.
+  - Unhalt script correctly aborts when the check FAILs.
+
+Tomorrow's runway: `scripts/admiral_premarket_check.sh` → fix any reds
+(probable: cancel residual QQQ pendings at Alpaca UI) →
+`scripts/admiral_unhalt_agents.sh --confirm`. Done.
+
+Guard rails honored:
+  - Premarket check is fully read-only
+  - Unhalt is the only writer, behind --confirm
+  - Only halt_mode column flipped (halted_at + halt_reason preserved
+    as historical record per CLAUDE.md doctrine)
+  - No schema changes
+  - No live trader restart required (halt_mode is hot-read per cycle)
+
 #### HM-CHEKOV-SEND-TO-HOLODECK-CONTEXT-WIRE — ✅ **SHIPPED** 2026-05-25 (commit `3852df5`)
 
 The "Send to Holodeck" button on Chekov's convergence detail modal
