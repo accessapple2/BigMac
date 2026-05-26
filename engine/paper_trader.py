@@ -724,17 +724,24 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     # HM-DEEPSEEK-CONCENTRATION-CAP-V2: cap single-symbol concentration at 25%
     # for deepseek-7b-grok4. MU grew to ~90% of portfolio causing phantom -$960
     # loss when price feed failed. Prevents recurrence.
+    # HM-CONCENTRATION-CAP-NLV 2026-05-26: denominator is true NLV (cash +
+    # sum(qty * avg_price)), not cash-only. Cash-only was tighter than
+    # nominal 25% — true NLV reflects the deployable-capital base properly.
     if player_id == "deepseek-7b-grok4":
         _port = get_portfolio(player_id)
         _pos = get_position(player_id, symbol, asset_type)
         _current_exposure = (_pos["qty"] * price) if _pos else 0
-        _port_value = max(_port.get("total_value", _port.get("cash", 10000)), 1)
+        _pos_rows = _conn().execute(
+            "SELECT qty, avg_price FROM positions WHERE player_id=?", (player_id,)
+        ).fetchall()
+        _equity = sum(r[0] * r[1] for r in _pos_rows if r[0] and r[1])
+        _port_value = max(_port.get("cash", 0) + _equity, 1)
         if _current_exposure / _port_value >= 0.25:
             console.log(
                 f"[yellow][CONCENTRATION-CAP] deepseek-7b-grok4 BUY {symbol} blocked: "
-                f"exposure ${_current_exposure:.0f} already >= 25% of portfolio ${_port_value:.0f}"
+                f"exposure ${_current_exposure:.0f} already >= 25% of NLV ${_port_value:.0f}"
             )
-            _last_rejection[player_id] = f"[CONCENTRATION-CAP] {symbol} >= 25% of portfolio"
+            _last_rejection[player_id] = f"[CONCENTRATION-CAP] {symbol} >= 25% of NLV"
             return None
 
     # === HM-REGIME-ROUTER 2026-05-22 ===
