@@ -3790,7 +3790,7 @@ if __name__ == "__main__":
         console.log(f"[yellow]Bridge Vote scheduler skip: {_bv_sched_err}")
     schedule.every(30).minutes.do(run_universe_scan)         # Universe Scanner: checks every 30 min, runs 9 PM MST (12 AM ET)
     schedule.every(30).minutes.do(run_strategy_scan)         # Strategy Scan: checks every 30 min, runs 10 PM MST (1 AM ET)
-    schedule.every(10).minutes.do(run_chekov_stoploss)        # Chekov SL/TP: every 5 min, check positions vs stop/target
+    schedule.every(10).minutes.do(run_chekov_stoploss)        # Chekov SL/TP: every 10 min, check positions vs stop/target
     schedule.every(15).minutes.do(run_chekov_intraday_convergence)  # HM-AW: Chekov intraday convergence buyer (market hours only)
     schedule.every(30).minutes.do(run_metals_commentary)     # Dalio Metals: checks every 30 min, runs 7 AM MST only
     schedule.every(15).minutes.do(run_premarket_gaps)         # Pre-market gaps: checks every 15 min, fires 1 AM MST (4 AM ET)
