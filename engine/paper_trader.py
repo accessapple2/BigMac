@@ -1494,6 +1494,7 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         "qty": qty,
         "price": price,
         "player_id": player_id,
+        "trade_id": _trade_id,  # HM-EVENTS-BUS-CONSUMER-TRADE-ID 2026-05-26
         "portfolio_name": route["portfolio_name"],
         "execution_mode": route["execution_mode"],
         "portfolio_type": route["type"],

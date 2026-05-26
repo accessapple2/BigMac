@@ -15,9 +15,10 @@ Known cross-table caveats (banked, not blocking):
     (paper_trader.py:678) reads signals(v1) so passing signals_v2.id makes
     that gate fail-safe-open. The consumer's own stale check upstream covers
     this case.
-  - buy() success return has no `id`/`trade_id` field, so the trade_id slot
-    on the executed signals_v2 row stays NULL. Linkage can be reconstructed
-    via JOIN on (player_id, symbol, executed_at).
+  - HM-EVENTS-BUS-CONSUMER-TRADE-ID 2026-05-26: buy() now returns trade_id
+    in its success dict; this consumer wires it into signals_v2.trade_id so
+    the FK chain signals_v2 → trades is hydrated at executed-mark time. (The
+    earlier note about trade_id staying NULL is obsolete.)
 """
 from __future__ import annotations
 
@@ -126,14 +127,14 @@ def consume_pending_signals(max_batch: int = 10) -> dict:
             )
 
             if result:
-                # buy() doesn't expose trade rowid in its return dict, so we
-                # mark with trade_id=None and rely on (player_id, symbol,
-                # executed_at) JOIN if FK linkage is needed later.
-                mark_signal_executed(signal_id=sig_id, trade_id=result.get("id"))
+                # HM-EVENTS-BUS-CONSUMER-TRADE-ID 2026-05-26: buy() now returns
+                # trade_id (= trades.rowid). Wire it into signals_v2.trade_id
+                # so the FK chain signals_v2 → trades is hydrated immediately.
+                mark_signal_executed(signal_id=sig_id, trade_id=result.get("trade_id"))
                 stats["executed"] += 1
                 console.log(
                     f"[green][EVENTS-BUS-CONSUMER] sig={sig_id} {source} "
-                    f"{symbol} EXECUTED"
+                    f"{symbol} EXECUTED trade_id={result.get('trade_id')}"
                 )
             else:
                 _mark(sig_id, "failed")
