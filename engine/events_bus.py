@@ -163,12 +163,34 @@ def mark_signal_executed(
     try:
         conn = _conn()
         try:
+            # HM-DASHBOARD-SELFCLOSE-METRIC: read created_at first so we can
+            # classify dispatch latency after the UPDATE lands.
+            _row = conn.execute(
+                "SELECT created_at FROM signals_v2 WHERE id=?",
+                (int(signal_id),),
+            ).fetchone()
             conn.execute(
                 "UPDATE signals_v2 SET status='executed', trade_id=? "
                 " WHERE id=?",
                 (trade_id, int(signal_id)),
             )
             conn.commit()
+            # HM-DASHBOARD-SELFCLOSE-METRIC: <50ms = same-buy self-close
+            # (paper_trader.buy() audit path); >=50ms = events-bus consumer
+            # round-trip. Best-effort, never blocks the UPDATE.
+            if _row and _row[0]:
+                try:
+                    _created = datetime.fromisoformat(
+                        str(_row[0]).replace("Z", "+00:00")
+                    ).replace(tzinfo=None)
+                    _elapsed_ms = (datetime.utcnow() - _created).total_seconds() * 1000
+                    _tag = "[SELF-CLOSE]" if _elapsed_ms < 50 else "[CONSUMER-DISPATCH]"
+                    console.log(
+                        f"{_tag} sig={signal_id} trade={trade_id} "
+                        f"elapsed_ms={_elapsed_ms:.1f}"
+                    )
+                except Exception:
+                    pass  # metric is best-effort, never block fill
             return True
         finally:
             conn.close()

@@ -1839,6 +1839,15 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
         console.log(f"[red]{player_id}: No position in {symbol}")
         return None
 
+    # HM-SELL-PRICE-SANITY-PARTIAL: symmetric with HM-SELL-PRICE-SANITY-GLOBAL
+    _avg = pos.get("avg_price", 0)
+    if asset_type == "stock" and _avg > 0 and price < (_avg * 0.20):
+        console.log(
+            f"[yellow][PRICE-SANITY-REJECT] {player_id} SELL_PARTIAL {symbol}: "
+            f"price=${price:.2f} < 20% of avg=${_avg:.2f} — blocked"
+        )
+        return None
+
     # For options, estimate current premium using intrinsic value + time value
     if asset_type == "option" or (asset_type != "stock" and pos.get("asset_type") == "option"):
         ot = option_type or pos.get("option_type")
