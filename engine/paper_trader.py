@@ -623,10 +623,11 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             else (('long_' + option_type.lower())
                   if (asset_type == 'option' and option_type) else 'unknown')
         )
-        emit_signal_v2(
+        _audit_sid = None
+        _audit_sid = emit_signal_v2(
             source=player_id, signal_type='direct_buy_intent', symbol=symbol,
             direction='LONG', confidence=confidence or 0.0,
-            timeframe=(timeframe or 'swing').lower(),
+            timeframe=('scalp' if (timeframe or 'swing').lower() == 'short' else (timeframe or 'swing').lower()),
             strategy_tag=_direct_strategy,
             metadata={'direct_call': True, 'caller': player_id, 'asset_type': asset_type},
         )
@@ -1422,6 +1423,13 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     _trade_id = _trade_cur.lastrowid  # HM-DECISION-AUDIT-V1 2026-05-20
     conn.commit()
     conn.close()
+    # HM-SIGNAL-AUDIT-CLOSE: self-close the direct_buy_intent audit row
+    try:
+        if _audit_sid and _trade_id:
+            from engine.events_bus import mark_signal_executed
+            mark_signal_executed(signal_id=_audit_sid, trade_id=_trade_id)
+    except Exception:
+        pass  # audit close is best-effort, never block fill
     console.log(f"[green]{player_id}: BUY {qty} {symbol} @ ${price:.2f}")
     # HM-DECISION-AUDIT-V1 2026-05-20: trade_fire hook
     _write_decision_audit(
