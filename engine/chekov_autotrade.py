@@ -550,6 +550,11 @@ def check_stop_loss_take_profit():
         price = _get_current_price(symbol)
         if not price:
             continue
+        # SANITY GATE: reject price if < 20% of avg_price (stale/garbage data)
+        avg = pos.get("avg_price", 0)
+        if avg > 0 and price < (avg * 0.20):
+            console.log(f"[yellow]🧭 Chekov PRICE-SANITY-REJECT {symbol}: price=${price:.2f} < 20% of avg=${avg:.2f} — skipping stop/target check")
+            continue
 
         # Read stop/target from the trade reasoning
         stop_price = _parse_price_from_reasoning(pos, "stop")
