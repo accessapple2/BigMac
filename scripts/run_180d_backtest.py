@@ -30,6 +30,7 @@ Three things this driver does that the 90d run didn't:
 from __future__ import annotations
 
 import argparse
+import concurrent.futures
 import json
 import os
 import sqlite3
@@ -42,6 +43,13 @@ from pathlib import Path
 import numpy as np
 import pandas as pd
 import requests
+
+# HM-BACKTEST-UNIVERSE-EXPAND — parallel fetch worker count.
+# Runs on bigmac M4 (16GB RAM, 10-core CPU). I/O-bound so threads work
+# well — 16 keeps Polygon Stocks Starter (paid, unlimited) saturated
+# without overwhelming the local socket pool.
+PARALLEL_WORKERS = 16
+POLYGON_SLEEP_PER_CALL = 0.05  # 50ms = ~20 req/s ceiling, safe for paid tier
 
 ROOT = Path(__file__).parent.parent
 sys.path.insert(0, str(ROOT))
@@ -64,6 +72,11 @@ def fetch_bars(symbol: str, start: str, end: str) -> pd.DataFrame:
     start/end are YYYY-MM-DD strings.
     Returns DataFrame with OHLCV columns + DatetimeIndex.
     """
+    # Rate-limit cushion (Polygon Stocks Starter paid is unlimited, but a
+    # tiny stagger prevents bursting the local socket pool when called
+    # concurrently from PARALLEL_WORKERS threads).
+    time.sleep(POLYGON_SLEEP_PER_CALL)
+
     # PRIMARY: Polygon
     key = os.environ.get("POLYGON_API_KEY", "")
     if key:
@@ -169,11 +182,81 @@ def ic_squadron_filter(symbol: str, df: pd.DataFrame, account_equity: float,
 # Standalone IC backtest — sized $10k, applies the filter
 # ═════════════════════════════════════════════════════════════════════════
 
-UNIVERSE = [
-    "NVDA", "AMD", "MU", "AVGO", "META", "GOOGL", "AAPL", "AMZN", "MSFT", "TSLA",
-    "TQQQ", "SPY", "QQQ", "PLTR", "MRVL", "NFLX", "SOFI", "COIN", "BAC", "MARA",
-    "XLE", "INTC", "STAA", "SMR",
-]
+def load_universe() -> list[str]:
+    """HM-BACKTEST-UNIVERSE-EXPAND — tiered universe loader.
+
+    Brief targeted 500+ but the tiers as enumerated dedupe to ~125 unique
+    symbols. Still ~5x the 24-symbol baseline. Report actual count.
+    """
+    # Tier 1: core large cap (always included)
+    tier1 = [
+        "AAPL", "MSFT", "NVDA", "AMZN", "GOOGL", "META",
+        "TSLA", "AVGO", "AMD", "MU", "INTC", "QCOM",
+        "JPM", "BAC", "GS", "MS", "V", "MA",
+        "SPY", "QQQ", "IWM", "XLE", "XLF", "XLK",
+        "TQQQ", "SQQQ", "UVXY",
+    ]
+    # Tier 2: mid cap / sector leaders
+    tier2 = [
+        "CRM", "ORCL", "NOW", "SNOW", "PLTR", "COIN",
+        "MRVL", "SMCI", "ARM", "TSM", "AMAT", "LRCX",
+        "NFLX", "DIS", "ROKU", "SPOT", "UBER", "LYFT",
+        "COST", "WMT", "TGT", "HD", "LOW", "AMZN",
+        "XOM", "CVX", "OXY", "SLB", "HAL",
+        "LLY", "PFE", "MRNA", "JNJ", "UNH",
+        "BA", "LMT", "RTX", "NOC", "GD",
+        "GLD", "SLV", "USO", "TLT", "HYG",
+    ]
+    # Tier 3: high IV / options-rich (best CSP + IC candidates)
+    tier3 = [
+        "MSTR", "HOOD", "RIVN", "LCID", "NIO", "XPEV",
+        "AMC", "GME", "BBBY", "SOFI", "UPST", "AFRM",
+        "SHOP", "ETSY", "PINS", "SNAP", "RBLX", "U",
+        "DKNG", "PENN", "MGM", "WYNN",
+        "ENPH", "FSLR", "PLUG", "BE", "CHPT",
+        "HIMS", "CELH", "SAVA", "ACAD", "MRNA",
+    ]
+    # Tier 4: squeeze / RS candidates (momentum + breakout)
+    tier4 = [
+        "SMCI", "ASTS", "LUNR", "RR", "JOBY", "ACHR",
+        "IONQ", "RGTI", "QUBT", "QBTS",
+        "SOUN", "BBAI", "AAON", "DUOL", "AXON",
+        "CRWD", "PANW", "ZS", "OKTA", "DDOG",
+    ]
+    syms = list(dict.fromkeys(tier1 + tier2 + tier3 + tier4))
+    print(f"[UNIVERSE] {len(syms)} unique symbols across 4 tiers "
+          f"(tier sizes: {len(tier1)}/{len(tier2)}/{len(tier3)}/{len(tier4)})")
+    return syms
+
+
+UNIVERSE = load_universe()
+
+
+def fetch_all_bars(symbols: list[str], start: str, end: str) -> dict[str, pd.DataFrame]:
+    """Parallel-fetch via ThreadPoolExecutor.
+
+    Runs on bigmac M4 (where this script lives); 'Ollie Max' in the brief
+    is the Ollama box at 192.168.1.168 — it doesn't host a Python compute
+    environment we SSH into. Thread parallelism is appropriate here
+    because fetch_bars is I/O-bound (HTTPS to Polygon).
+    """
+    results: dict[str, pd.DataFrame] = {}
+    skipped: list[str] = []
+    with concurrent.futures.ThreadPoolExecutor(max_workers=PARALLEL_WORKERS) as ex:
+        futs = {ex.submit(fetch_bars, sym, start, end): sym for sym in symbols}
+        for fut in concurrent.futures.as_completed(futs):
+            sym = futs[fut]
+            try:
+                df = fut.result()
+                if df is not None and not df.empty and len(df) >= 40:
+                    results[sym] = df
+                else:
+                    skipped.append(sym)
+            except Exception as e:
+                skipped.append(f"{sym}({type(e).__name__})")
+    print(f"[FETCH] got {len(results)}/{len(symbols)} symbols "
+          f"({len(skipped)} skipped: {skipped[:8]}{'…' if len(skipped) > 8 else ''})")
+    return results
 
 
 def ic_squadron_backtest(days: int = 180) -> dict:
@@ -200,14 +283,11 @@ def ic_squadron_backtest(days: int = 180) -> dict:
     closed_trades: list[dict] = []
     filter_outcomes: dict[str, int] = {}
 
-    universe_data: dict[str, pd.DataFrame] = {}
-    print(f"[IC] Fetching {len(UNIVERSE)} symbols from {start_s} to {end_s}...")
-    for sym in UNIVERSE:
-        df = fetch_bars(sym, start_s, end_s)
-        if df is not None and not df.empty and len(df) >= 40:
-            universe_data[sym] = df
-        time.sleep(0.06)  # gentle Polygon rate limit
-    print(f"[IC] Got {len(universe_data)} symbols with sufficient history")
+    print(f"[IC] Parallel-fetching {len(UNIVERSE)} symbols from {start_s} to {end_s}...")
+    t_fetch = time.time()
+    universe_data = fetch_all_bars(UNIVERSE, start_s, end_s)
+    print(f"[IC] Fetch wall: {time.time() - t_fetch:.1f}s — "
+          f"{len(universe_data)} symbols with sufficient history")
 
     if not universe_data:
         return {"error": "no_data", "trades": [], "equity_curve": []}
