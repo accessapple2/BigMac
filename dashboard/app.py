@@ -20567,48 +20567,8 @@ async def options_agents_list():
 
 @app.get("/api/options/scan-preview")
 async def options_scan_preview():
-    """
-    Dry-run scan of all options agents. Returns what each agent WOULD do
-    given current regime/VIX/convergence — no trades are created.
-    """
-    import httpx as _hx
-    from engine.options_agents import run_scan_cycle
-
-    regime_data: dict = {}
-    convergence: list = []
-
-    async with _hx.AsyncClient(timeout=5.0) as _c:
-        try:
-            r = await _c.get("http://127.0.0.1:8080/api/regime")
-            if r.status_code == 200:
-                regime_data = r.json()
-        except Exception:
-            pass
-        try:
-            r = await _c.get("http://127.0.0.1:8080/api/bridge/consensus")
-            if r.status_code == 200:
-                d = r.json()
-                for row in d.get("signals", []):
-                    if str(row.get("action", "")).upper() in ("BUY", "SELL"):
-                        convergence.append(row)
-        except Exception:
-            pass
-
-    regime = regime_data.get("regime", "UNKNOWN")
-    vix    = float(regime_data.get("vix") or 20.0)
-    quotes = {"SPY": float(regime_data.get("spy_price") or 0), "QQQ": 0.0}
-
-    result = run_scan_cycle(regime, vix, convergence, quotes)
-    production_result = {k: v for k, v in result.items() if not k.startswith("ghost-")}
-    ghost_result      = {k: v for k, v in result.items() if k.startswith("ghost-")}
-    return {
-        "ok": True,
-        "regime": regime,
-        "vix": vix,
-        "convergence_count": len(convergence),
-        "production": production_result,
-        "ghost": ghost_result,
-    }
+    """Stub — options engine retired 2026-05-26 (see engine/options_agents.py)."""
+    return {"ok": False, "reason": "options engine retired 2026-05-26"}
 
 
 # ─── HM-AO-β Squeeze Watcher routes (Phase 5) ─────────────────────────────
