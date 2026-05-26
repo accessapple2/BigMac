@@ -33,6 +33,17 @@ if pgrep -fl "$ENTRYPOINT" >/dev/null 2>&1; then
   exit 0
 fi
 
+# Belt-and-braces: port 8080 may be held by a trader launched without the
+# absolute ENTRYPOINT path (e.g. `python main.py` from CWD) — pgrep misses
+# those. Bail out rather than start a sibling that can't bind. Log the
+# zombie's PID + cmdline so a human can clean it up.
+PORT_HOLDER=$(/usr/sbin/lsof -iTCP:8080 -sTCP:LISTEN -t 2>/dev/null | head -1)
+if [[ -n "$PORT_HOLDER" ]]; then
+  HOLDER_CMD=$(ps -p "$PORT_HOLDER" -o command= 2>/dev/null | head -c 200)
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] port 8080 held by pid=$PORT_HOLDER (cmd: $HOLDER_CMD), skipping start — manual cleanup required" >> "$REBOOT_LOG"
+  exit 0
+fi
+
 if [[ ! -x "$PYTHON" ]]; then
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] FATAL: $PYTHON not executable" >> "$REBOOT_LOG"
   exit 1
