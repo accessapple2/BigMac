@@ -4663,7 +4663,7 @@ if __name__ == "__main__":
         if not (6 <= _az.hour < 13):
             return
         try:
-            from engine.rallies_scraper import run_rallies_scrape
+            from engine.rallies_scraper import run_once as run_rallies_scrape
             run_rallies_scrape()
         except Exception as _e:
             console.log(f"[yellow]Rallies scraper error: {_e}")

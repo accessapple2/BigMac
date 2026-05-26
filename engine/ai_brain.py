@@ -251,7 +251,7 @@ def _hmeq_do_snapshots():
         _c.row_factory = _sq.Row
         rows = _c.execute(
             "SELECT id FROM ai_players "
-            "WHERE is_active=1 AND id != 'webull' AND id != 'steve-webull'"
+            "WHERE is_active=1 AND halt_mode='active' AND id != 'webull' AND id != 'steve-webull'"
         ).fetchall()
         _c.close()
         players = [r["id"] for r in rows]

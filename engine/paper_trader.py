@@ -437,6 +437,11 @@ def _log_signal_only(player_id: str, action: str, symbol: str, route: dict, reas
     )
     console.log(f"[yellow]{msg}")
     _last_rejection[player_id] = "tracking-only portfolio"
+    try:
+        from engine.signal_scorecard import log_signal
+        log_signal({"ticker": symbol, "direction": action, "indicator": "agent", "strategy": player_id, "confidence": confidence})
+    except Exception:
+        pass
     return {
         "action": action,
         "symbol": symbol,
