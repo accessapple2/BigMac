@@ -2593,6 +2593,23 @@ def run_chekov_stoploss():
         console.log(f"[yellow]Chekov SL/TP check error: {e}")
 
 
+# === HM-EVENTS-BUS-CONSUMER 2026-05-26 ===
+@_hm_bq_instr("run_events_bus_consumer")
+def run_events_bus_consumer():
+    """Drain pending signals_v2 rows → paper_trader.buy(). NYSE-hours only."""
+    try:
+        from engine.market_calendar import is_us_market_open
+        if not is_us_market_open():
+            return
+        from engine.events_bus_consumer import consume_pending_signals
+        consume_pending_signals(max_batch=10)
+    except Exception as e:
+        console.log(
+            f"[red][EVENTS-BUS-CONSUMER] wrapper error: "
+            f"{type(e).__name__}: {e!r}"
+        )
+
+
 # === HM-AW: Chekov intraday convergence buyer ===
 @_hm_bq_instr("run_chekov_intraday_convergence")
 def run_chekov_intraday_convergence():
@@ -3791,6 +3808,7 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_universe_scan)         # Universe Scanner: checks every 30 min, runs 9 PM MST (12 AM ET)
     schedule.every(30).minutes.do(run_strategy_scan)         # Strategy Scan: checks every 30 min, runs 10 PM MST (1 AM ET)
     schedule.every(10).minutes.do(run_chekov_stoploss)        # Chekov SL/TP: every 10 min, check positions vs stop/target
+    schedule.every(1).minutes.do(run_events_bus_consumer)     # HM-EVENTS-BUS-CONSUMER: drain pending signals_v2 (NYSE hours only)
     schedule.every(15).minutes.do(run_chekov_intraday_convergence)  # HM-AW: Chekov intraday convergence buyer (market hours only)
     schedule.every(30).minutes.do(run_metals_commentary)     # Dalio Metals: checks every 30 min, runs 7 AM MST only
     schedule.every(15).minutes.do(run_premarket_gaps)         # Pre-market gaps: checks every 15 min, fires 1 AM MST (4 AM ET)
