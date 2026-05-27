@@ -1366,6 +1366,24 @@ body:not(.role-admin) .admin-only { display: none !important; }
 .wb2-table td { padding:8px 10px; border-bottom:1px solid var(--border); }
 .td-sym { color:var(--accent); font-weight:700; font-size:13px; }
 .td-act { font-weight:700; font-size:11px; letter-spacing:.05em; }
+/* Trade Desk inputs — slate-800 always-dark trading-terminal aesthetic — 2026-05-26 */
+.td-input {
+  padding: 6px 8px;
+  background: #1e293b;          /* slate-800 — visibly lighter than card bg */
+  border: 1px solid rgba(212,160,48,0.5);  /* amber border, bumped to 50% opacity */
+  color: #f1f5f9;               /* near-white — high contrast text */
+  border-radius: 4px;
+  font-family: monospace;
+}
+.td-input:focus {
+  outline: none;
+  border-color: rgba(212,160,48,0.9);  /* bright amber on focus */
+  box-shadow: 0 0 0 2px rgba(212,160,48,0.2);
+}
+.td-input:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
 .act-BUY { color:var(--green); } .act-TRIM { color:var(--orange); } .act-SELL { color:var(--red); } .act-HOLD { color:var(--muted); }
 .urg-HIGH { color:var(--red); font-weight:700; } .urg-MEDIUM { color:var(--yellow); } .urg-LOW { color:var(--muted); }
 .heatmap-grid { display:grid; grid-template-columns:repeat(auto-fill,minmax(120px,1fr)); gap:8px; }
@@ -7178,16 +7196,16 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       <div style="padding:12px 16px 16px;display:flex;flex-direction:column;gap:10px;">
         <div style="display:grid;grid-template-columns:90px 1fr;gap:8px;align-items:center;">
           <label for="td-symbol" style="font-size:12px;color:var(--muted);">Symbol</label>
-          <input id="td-symbol" type="text" placeholder="e.g. AAPL" maxlength="8" style="text-transform:uppercase;padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+          <input id="td-symbol" type="text" placeholder="e.g. AAPL" maxlength="8" class="td-input" style="text-transform:uppercase;" />
 
           <label for="td-side" style="font-size:12px;color:var(--muted);">Side</label>
-          <select id="td-side" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;">
+          <select id="td-side" class="td-input">
             <option value="buy">BUY</option>
             <option value="sell">SELL</option>
           </select>
 
           <label for="td-order-type" style="font-size:12px;color:var(--muted);">Type</label>
-          <select id="td-order-type" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;" onchange="tdOnOrderTypeChange()">
+          <select id="td-order-type" class="td-input" onchange="tdOnOrderTypeChange()">
             <option value="market">Market</option>
             <option value="limit">Limit</option>
             <option value="stop">Stop</option>
@@ -7195,18 +7213,18 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           </select>
 
           <label for="td-limit-price" id="td-limit-label" style="font-size:12px;color:var(--muted);opacity:0.5;">Limit $</label>
-          <input id="td-limit-price" type="number" step="0.01" min="0" disabled placeholder="—" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+          <input id="td-limit-price" type="number" step="0.01" min="0" disabled placeholder="—" class="td-input" />
 
           <label for="td-stop-price" id="td-stop-label" style="font-size:12px;color:var(--muted);opacity:0.5;">Stop $</label>
-          <input id="td-stop-price" type="number" step="0.01" min="0" disabled placeholder="—" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+          <input id="td-stop-price" type="number" step="0.01" min="0" disabled placeholder="—" class="td-input" />
 
           <label for="td-qty" style="font-size:12px;color:var(--muted);">Qty (sh)</label>
-          <input id="td-qty" type="number" step="0.0001" min="0" placeholder="0" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+          <input id="td-qty" type="number" step="0.0001" min="0" placeholder="0" class="td-input" />
 
           <div style="font-size:10px;color:var(--muted);text-align:center;grid-column:1/3;">— or —</div>
 
           <label for="td-notional" style="font-size:12px;color:var(--muted);">Dollar $</label>
-          <input id="td-notional" type="number" step="1" min="0" placeholder="0" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+          <input id="td-notional" type="number" step="1" min="0" placeholder="0" class="td-input" />
         </div>
 
         <!-- HM-TRADE-DESK-AUTOPILOT-PHASE1 2026-05-23 (HM-NEXT-WAVE Phase 2):
@@ -7223,15 +7241,15 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           <div style="display:grid;grid-template-columns:22px 90px 90px 1fr;gap:6px;align-items:center;">
             <input id="td-sl-enabled" type="checkbox" checked oninput="tdOnAutopilotInput()" style="margin:0;" />
             <label for="td-sl-pct" style="font-size:12px;color:var(--muted);">Stop %</label>
-            <select id="td-sl-kind" onchange="tdOnAutopilotInput()" title="Fixed: stop at fill × (1 − %); Trailing: broker-side trail %" style="padding:5px 6px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;font-size:11px;">
+            <select id="td-sl-kind" onchange="tdOnAutopilotInput()" title="Fixed: stop at fill × (1 − %); Trailing: broker-side trail %" class="td-input" style="padding:5px 6px;font-size:11px;">
               <option value="fixed">Fixed</option>
               <option value="trailing">Trailing</option>
             </select>
-            <input id="td-sl-pct" type="number" step="0.1" min="0.5" max="50" value="8" oninput="tdOnAutopilotInput()" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+            <input id="td-sl-pct" type="number" step="0.1" min="0.5" max="50" value="8" oninput="tdOnAutopilotInput()" class="td-input" />
 
             <input id="td-tp-enabled" type="checkbox" checked oninput="tdOnAutopilotInput()" style="margin:0;" />
             <label for="td-tp-pct" style="font-size:12px;color:var(--muted);grid-column:2 / span 2;">Target %</label>
-            <input id="td-tp-pct" type="number" step="0.1" min="0.5" max="200" value="15" oninput="tdOnAutopilotInput()" style="padding:6px 8px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;" />
+            <input id="td-tp-pct" type="number" step="0.1" min="0.5" max="200" value="15" oninput="tdOnAutopilotInput()" class="td-input" />
           </div>
           <div id="td-protective-preview" style="margin-top:6px;font-size:11px;font-family:monospace;color:var(--muted);min-height:14px;">Enter symbol + qty to preview protective prices.</div>
         </div>
@@ -7905,9 +7923,9 @@ function tdLoadOcoPairs() {
         return '<tr style="border-bottom:1px solid rgba(212,160,48,0.1);" title="attached ' + attached + '">'
           + '<td style="padding:6px 4px;font-family:monospace;">' + sym + '</td>'
           + '<td style="padding:6px 4px;font-family:monospace;color:var(--muted);">' + short + (hasSl ? '' : ' <span title="no SL" style="color:var(--text-secondary);">·noSL</span>') + (hasTp ? '' : ' <span title="no TP" style="color:var(--text-secondary);">·noTP</span>') + '</td>'
-          + '<td style="padding:6px 4px;text-align:right;"><input id="' + idAttr('sl-pct') + '" type="number" step="0.1" min="0.5" max="50" value="8" style="width:64px;padding:3px 6px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:3px;font-family:monospace;text-align:right;" /></td>'
-          + '<td style="padding:6px 4px;text-align:right;"><select id="' + idAttr('sl-kind') + '" style="padding:3px 6px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:3px;font-family:monospace;font-size:11px;"><option value="fixed">Fixed</option><option value="trailing">Trailing</option></select></td>'
-          + '<td style="padding:6px 4px;text-align:right;"><input id="' + idAttr('tp-pct') + '" type="number" step="0.1" min="0.5" max="200" value="15" style="width:64px;padding:3px 6px;background:rgba(15,23,42,0.6);border:1px solid rgba(212,160,48,0.3);color:#e5e7eb;border-radius:3px;font-family:monospace;text-align:right;" /></td>'
+          + '<td style="padding:6px 4px;text-align:right;"><input id="' + idAttr('sl-pct') + '" type="number" step="0.1" min="0.5" max="50" value="8" class="td-input" style="width:64px;padding:3px 6px;border-radius:3px;text-align:right;" /></td>'
+          + '<td style="padding:6px 4px;text-align:right;"><select id="' + idAttr('sl-kind') + '" class="td-input" style="padding:3px 6px;border-radius:3px;font-size:11px;"><option value="fixed">Fixed</option><option value="trailing">Trailing</option></select></td>'
+          + '<td style="padding:6px 4px;text-align:right;"><input id="' + idAttr('tp-pct') + '" type="number" step="0.1" min="0.5" max="200" value="15" class="td-input" style="width:64px;padding:3px 6px;border-radius:3px;text-align:right;" /></td>'
           + '<td style="padding:6px 4px;text-align:center;white-space:nowrap;">'
           + '<button onclick="tdReplaceOcoPair(\'' + pid + '\')" title="Cancel current SL+TP and submit new ones (brief unprotected window)" style="background:rgba(6,182,212,0.15);border:1px solid rgba(6,182,212,0.4);color:#06b6d4;padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;margin-right:4px;">✏ Edit</button>'
           + '<button onclick="tdCancel(\'' + pid + '\')" title="Cancel parent + children (cascade)" style="background:rgba(239,68,68,0.15);border:1px solid rgba(239,68,68,0.4);color:var(--down);padding:2px 8px;border-radius:3px;cursor:pointer;font-size:11px;">✕</button>'
@@ -8046,42 +8064,42 @@ if (typeof registerSectionInit === 'function') {
   <!-- Row 1: status tiles -->
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;">
     <div class="card" id="cp-tile-regime">
-      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Regime</div></div>
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--text);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Regime</div></div>
       <div style="padding:8px 12px 12px;font-family:monospace;">
         <div id="cp-regime-name" style="font-size:18px;font-weight:700;color:#06b6d4;">—</div>
         <div id="cp-regime-date" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
       </div>
     </div>
     <div class="card" id="cp-tile-ladder">
-      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Capital Ladder</div></div>
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--text);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Capital Ladder</div></div>
       <div style="padding:8px 12px 12px;font-family:monospace;">
         <div id="cp-ladder-name" style="font-size:18px;font-weight:700;color:#10b981;">—</div>
         <div id="cp-ladder-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
       </div>
     </div>
     <div class="card" id="cp-tile-killswitch">
-      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Kill-Switch</div></div>
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--text);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Kill-Switch</div></div>
       <div style="padding:8px 12px 12px;font-family:monospace;">
         <div id="cp-ks-state" style="font-size:18px;font-weight:700;">—</div>
         <div id="cp-ks-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
       </div>
     </div>
     <div class="card" id="cp-tile-wr">
-      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">War Room Heartbeat</div></div>
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--text);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">War Room Heartbeat</div></div>
       <div style="padding:8px 12px 12px;font-family:monospace;">
         <div id="cp-wr-age" style="font-size:18px;font-weight:700;">—</div>
         <div id="cp-wr-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
       </div>
     </div>
     <div class="card" id="cp-tile-fleet">
-      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Fleet</div></div>
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--text);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Fleet</div></div>
       <div style="padding:8px 12px 12px;font-family:monospace;">
         <div id="cp-fleet-active" style="font-size:18px;font-weight:700;color:#10b981;">—</div>
         <div id="cp-fleet-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
       </div>
     </div>
     <div class="card" id="cp-tile-trade-desk">
-      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Trade Desk Today</div></div>
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--text);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Trade Desk Today</div></div>
       <div style="padding:8px 12px 12px;font-family:monospace;">
         <div id="cp-td-trades" style="font-size:18px;font-weight:700;color:#d4a030;">—</div>
         <div id="cp-td-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
