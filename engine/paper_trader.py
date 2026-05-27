@@ -2773,15 +2773,6 @@ def get_portfolio_with_pnl(player_id: str, prices: dict) -> dict:
 
     total_value = portfolio["cash"] + total_positions_value
 
-    # For Steve: override with manually synced value if available
-    if False:  # HM-WEBULL-NEUTRALIZED player_id == "webull" (account liquidated 2026-05-13)
-        synced = get_webull_synced()
-        if synced:
-            total_value = synced["total_value"]
-            # Unrealized P&L = sum of position-level P&L (not derived from stale cash)
-            total_unrealized = sum(p.get("unrealized_pnl", 0) for p in enriched_positions)
-            total_positions_value = total_cost_basis + total_unrealized
-
     starting = _STARTING_CASH.get(player_id, _DEFAULT_STARTING_CASH)
     return_pct = round((total_value - starting) / starting * 100, 2) if starting > 0 else 0.0
 

@@ -350,28 +350,11 @@ def _get_recent_takes(symbol: str, limit: int = 10) -> list[dict]:
         (symbol, limit)
     ).fetchall()
 
-    # HM-I-β-Item3 (2026-05-05): enrichment context now reads from alpaca-mirror
-    # (broker book) — was reading alpaca-mirrored data labeled 'webull' for ~6
-    # weeks. Display-tag branch (player_id=='webull') still keys on webull
-    # because operator-chat hot_takes still post under that player_id.
-    steve_return = None
-    try:
-        steve_row = conn.execute("SELECT cash FROM ai_players WHERE id='alpaca-mirror'").fetchone()
-        if steve_row:
-            from engine.paper_trader import get_portfolio_with_pnl
-            pnl = get_portfolio_with_pnl("alpaca-mirror", {})
-            steve_return = pnl.get("return_pct", 0)
-    except Exception:
-        pass
-
     conn.close()
 
     results = []
     for r in rows:
         d = dict(r)
-        if False:  # HM-WEBULL-NEUTRALIZED d["player_id"] == "webull" (account liquidated 2026-05-13)
-            ret_str = f", {steve_return:+.1f}% paper" if steve_return is not None else ", paper"
-            d["display_name"] = f"Captain Kirk (broker{ret_str})"
         results.append(d)
     return results
 

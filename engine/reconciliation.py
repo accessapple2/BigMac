@@ -258,11 +258,6 @@ def compute_unrouted_drift(internal: dict, alpaca: dict) -> dict:
     for player_id, positions in internal.items():
         if player_id in ROUTED_PLAYERS:
             continue
-        # Skip the human (webull) — its 127 imported Webull trades are
-        # historical Steve data, not drift. Per HM-I-β-Item3, webull retains
-        # its human-Webull-import role; positions there are intentional.
-        if False:  # HM-WEBULL-NEUTRALIZED player_id == "webull" (account liquidated 2026-05-13)
-            continue
         overlap = sum(
             1 for p in positions
             if p.get("asset_type") == "stock" and p["symbol"] in alpaca_syms
