@@ -5028,6 +5028,244 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     </div>
   </div>
 
+  <!-- HM-OLLIE-LIVE-SCANNER Phase 1 — convergence scanner tile -->
+  <div class="card" id="ollie-scanner-card" style="margin-bottom:16px;border-left:3px solid #22c55e;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+      <div class="card-title" data-tip="Live convergence scanner. Tickers ranked by how many strategies fired in the last 90 minutes. Tier 1 = 5+ strategies converged, Tier 2 = 4, Tier 3 = 3. Click any row for the full ticker drawer.">🔭 Ollie Live Scanner</div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:11px;">
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--muted);" title="Ding on new Tier 1 ticker">
+          <input type="checkbox" id="scannerAudioT1" checked style="margin:0;"> 🔔 T1
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--muted);" title="Ding on new Tier 2 ticker">
+          <input type="checkbox" id="scannerAudioT2" style="margin:0;"> 🔔 T2
+        </label>
+        <label style="display:flex;align-items:center;gap:4px;cursor:pointer;color:var(--muted);" title="Ding on new Tier 3 ticker">
+          <input type="checkbox" id="scannerAudioT3" style="margin:0;"> 🔔 T3
+        </label>
+        <span id="scannerStatusBadge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:#6b728022;color:#6b7280;">LOADING</span>
+        <span id="scannerLastUpdate" style="font-size:11px;color:var(--muted);font-family:var(--font-mono);">--</span>
+      </div>
+    </div>
+
+    <style>
+      #ollie-scanner-card details.scanner-tier { margin: 0 14px 8px; border-radius: 6px; }
+      #ollie-scanner-card details.scanner-tier > summary { cursor:pointer; padding:6px 10px; font-size:12px; font-weight:700; letter-spacing:.04em; text-transform:uppercase; user-select:none; display:flex; justify-content:space-between; align-items:center; gap:8px; list-style:none; }
+      #ollie-scanner-card details.scanner-tier > summary::-webkit-details-marker { display:none; }
+      #ollie-scanner-card details.tier-1 { border-left:3px solid #22c55e; background:rgba(34,197,94,0.04); }
+      #ollie-scanner-card details.tier-2 { border-left:3px solid #eab308; background:rgba(234,179,8,0.04); }
+      #ollie-scanner-card details.tier-3 { border-left:3px solid #64748b; background:rgba(100,116,139,0.04); }
+      #ollie-scanner-card .scanner-table { width:100%; border-collapse:collapse; font-size:11px; font-family:var(--font-mono); }
+      #ollie-scanner-card .scanner-table th { text-align:left; padding:4px 6px; color:var(--muted); font-weight:600; font-size:10px; text-transform:uppercase; letter-spacing:.05em; border-bottom:1px solid var(--border); }
+      #ollie-scanner-card .scanner-table td { padding:4px 6px; border-bottom:1px solid rgba(127,127,127,0.08); color:var(--text); white-space:nowrap; }
+      #ollie-scanner-card .scanner-table tr.scanner-row { cursor:pointer; }
+      #ollie-scanner-card .scanner-table tr.scanner-row:hover { background:rgba(99,102,241,0.08); }
+      #ollie-scanner-card .scanner-table tr.scanner-row.in-fleet { opacity:0.55; }
+      #ollie-scanner-card .in-fleet-badge { display:inline-block; margin-left:4px; padding:0 5px; border-radius:3px; font-size:9px; font-weight:700; background:#6b728044; color:#9ca3af; letter-spacing:.05em; }
+      #ollie-scanner-card .scanner-empty { padding:8px 12px; color:var(--muted); font-size:12px; font-style:italic; }
+      #ollie-scanner-card .scanner-strategies { color:var(--muted); font-size:10px; white-space:normal; max-width:260px; line-height:1.3; }
+      #ollie-scanner-card .scanner-sym { font-weight:700; color:var(--text); }
+    </style>
+
+    <details class="scanner-tier tier-1" id="scannerTier1Details" open>
+      <summary>
+        <span><span style="color:#22c55e;">●</span> Tier 1 — 5+ Strategies <span id="scannerTier1Count" style="color:var(--muted);font-weight:500;">(0)</span></span>
+        <span style="font-size:10px;color:var(--muted);font-weight:500;">click to toggle</span>
+      </summary>
+      <div id="scannerTier1Body"><div class="scanner-empty">Loading…</div></div>
+    </details>
+
+    <details class="scanner-tier tier-2" id="scannerTier2Details" open>
+      <summary>
+        <span><span style="color:#eab308;">●</span> Tier 2 — 4 Strategies <span id="scannerTier2Count" style="color:var(--muted);font-weight:500;">(0)</span></span>
+        <span style="font-size:10px;color:var(--muted);font-weight:500;">click to toggle</span>
+      </summary>
+      <div id="scannerTier2Body"><div class="scanner-empty">Loading…</div></div>
+    </details>
+
+    <details class="scanner-tier tier-3" id="scannerTier3Details">
+      <summary>
+        <span><span style="color:#64748b;">●</span> Tier 3 — 3 Strategies <span id="scannerTier3Count" style="color:var(--muted);font-weight:500;">(0)</span></span>
+        <span style="font-size:10px;color:var(--muted);font-weight:500;">click to toggle</span>
+      </summary>
+      <div id="scannerTier3Body"><div class="scanner-empty">Loading…</div></div>
+    </details>
+  </div>
+
+  <script>
+  (function() {
+    // HM-OLLIE-LIVE-SCANNER Phase 1 — populates tier tables every 30s.
+    // Endpoint: GET /api/scanner/convergence (25s server-side cache absorbs
+    // polling). NOTE: /api/scanner/live is taken by the legacy signal-center
+    // stream; this tile uses /api/scanner/convergence instead.
+    const POLL_MS = 30000;
+    const KNOWN_TIERS = ['tier1','tier2','tier3'];
+    // Remember which tickers we've already seen so we only ding on NEW Tier-N arrivals.
+    const _seen = { tier1: new Set(), tier2: new Set(), tier3: new Set() };
+    let _firstRender = true;
+
+    function fmtNum(v, digits) {
+      if (v === null || v === undefined || v === '') return '--';
+      const n = Number(v);
+      if (!isFinite(n)) return '--';
+      return n.toFixed(digits == null ? 2 : digits);
+    }
+    function fmtPct(v) {
+      if (v === null || v === undefined || v === '') return '--';
+      const n = Number(v);
+      if (!isFinite(n)) return '--';
+      const s = n.toFixed(1) + '%';
+      return n > 0 ? '+' + s : s;
+    }
+    function heatColor(v, scale) {
+      // scale = [neg_max, pos_max] threshold in same unit as v
+      if (v === null || v === undefined || v === '') return '';
+      const n = Number(v);
+      if (!isFinite(n) || n === 0) return '';
+      const [neg, pos] = scale;
+      const intensity = Math.min(1, Math.abs(n) / (n >= 0 ? pos : neg));
+      const a = (0.10 + intensity * 0.35).toFixed(2);
+      return n > 0
+        ? 'background:rgba(34,197,94,' + a + ');color:#22c55e;'
+        : 'background:rgba(248,113,113,' + a + ');color:#f87171;';
+    }
+    function heatRelVol(v) {
+      if (v === null || v === undefined || v === '') return '';
+      const n = Number(v);
+      if (!isFinite(n) || n <= 1) return '';
+      const intensity = Math.min(1, (n - 1) / 4);  // 1.0x → off, 5x+ → max
+      const a = (0.10 + intensity * 0.35).toFixed(2);
+      return 'background:rgba(34,197,94,' + a + ');color:#22c55e;';
+    }
+    function heatVol5min(v) {
+      if (v === null || v === undefined || v === '') return '';
+      const n = Number(v);
+      if (!isFinite(n) || n <= 100) return '';
+      const intensity = Math.min(1, (n - 100) / 400);  // 100% → off, 500%+ → max
+      const a = (0.10 + intensity * 0.40).toFixed(2);
+      return 'background:rgba(34,197,94,' + a + ');color:#22c55e;';
+    }
+
+    function buildTierTable(rows) {
+      if (!rows || rows.length === 0) {
+        return '<div class="scanner-empty">No tickers in this tier right now.</div>';
+      }
+      let html = '<div style="overflow-x:auto;padding:0 6px 8px;">';
+      html += '<table class="scanner-table"><thead><tr>';
+      html += '<th>Symbol</th><th>Price</th><th>Chg Close</th><th>Chg Open</th>';
+      html += '<th>Rel Vol</th><th>Vol 5 Min</th><th>Conf</th>';
+      html += '<th>Entry</th><th>Stop</th><th>Target</th><th>R/R</th><th>Strategies</th>';
+      html += '</tr></thead><tbody>';
+      for (const r of rows) {
+        const sym = String(r.ticker || '').replace(/[^A-Z0-9.=]/gi,'').toUpperCase();
+        const fleetCls = r.in_fleet ? ' in-fleet' : '';
+        const fleetBadge = r.in_fleet ? '<span class="in-fleet-badge">IN FLEET</span>' : '';
+        const strats = Array.isArray(r.strategies) ? r.strategies.join(', ') : '';
+        html += '<tr class="scanner-row' + fleetCls + '" data-symbol="' + sym + '">';
+        html += '<td class="scanner-sym">' + sym + fleetBadge + '</td>';
+        html += '<td>' + (r.price != null ? '$' + fmtNum(r.price, 2) : '--') + '</td>';
+        html += '<td style="' + heatColor(r.chg_close_pct, [5, 5]) + '">' + fmtPct(r.chg_close_pct) + '</td>';
+        html += '<td style="' + heatColor(r.chg_open_pct, [3, 3]) + '">' + fmtPct(r.chg_open_pct) + '</td>';
+        html += '<td style="' + heatRelVol(r.rel_vol) + '">' + (r.rel_vol != null ? fmtNum(r.rel_vol, 2) + 'x' : '--') + '</td>';
+        html += '<td style="' + heatVol5min(r.vol_5min_pct) + '">' + (r.vol_5min_pct != null ? fmtNum(r.vol_5min_pct, 0) + '%' : '--') + '</td>';
+        html += '<td>' + (r.conf != null ? r.conf + '%' : '--') + '</td>';
+        html += '<td>' + (r.entry != null ? '$' + fmtNum(r.entry, 2) : '--') + '</td>';
+        html += '<td>' + (r.stop != null ? '$' + fmtNum(r.stop, 2) : '--') + '</td>';
+        html += '<td>' + (r.target != null ? '$' + fmtNum(r.target, 2) : '--') + '</td>';
+        html += '<td>' + (r.rr != null ? fmtNum(r.rr, 2) : '--') + '</td>';
+        html += '<td class="scanner-strategies" title="' + strats.replace(/"/g, '&quot;') + '">' + strats + '</td>';
+        html += '</tr>';
+      }
+      html += '</tbody></table></div>';
+      return html;
+    }
+
+    function playScannerDing() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 880;
+        osc.type = 'sine';
+        gain.gain.setValueAtTime(0.001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.15, ctx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.2);
+      } catch (e) { /* audio context may be blocked pre-user-gesture */ }
+    }
+
+    function renderOllieLiveScanner() {
+      fetch('/api/scanner/convergence').then(r => r.json()).then(d => {
+        const badge = document.getElementById('scannerStatusBadge');
+        const stamp = document.getElementById('scannerLastUpdate');
+        if (d && d.error) {
+          badge.textContent = 'ERROR';
+          badge.style.background = '#f8717122';
+          badge.style.color = '#f87171';
+          return;
+        }
+        badge.textContent = 'LIVE';
+        badge.style.background = '#22c55e22';
+        badge.style.color = '#22c55e';
+        try {
+          const t = d.ts ? new Date(d.ts) : new Date();
+          stamp.textContent = t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+        } catch (e) { stamp.textContent = '--'; }
+
+        for (const tier of KNOWN_TIERS) {
+          const rows = (d && d[tier]) || [];
+          document.getElementById('scanner' + tier.replace('tier','Tier') + 'Count').textContent = '(' + rows.length + ')';
+          document.getElementById('scanner' + tier.replace('tier','Tier') + 'Body').innerHTML = buildTierTable(rows);
+
+          // Audio: ding once per NEW ticker in tier when its toggle is enabled (skip very first render).
+          const toggle = document.getElementById('scannerAudio' + tier.toUpperCase().replace('TIER','T'));
+          const wantAudio = toggle && toggle.checked;
+          const seen = _seen[tier];
+          const incoming = new Set(rows.map(r => r.ticker));
+          if (!_firstRender && wantAudio) {
+            for (const sym of incoming) {
+              if (!seen.has(sym)) {
+                playScannerDing();
+                break;  // one ding per cycle per tier — avoid burst
+              }
+            }
+          }
+          _seen[tier] = incoming;
+        }
+
+        // Wire row clicks → existing ticker drawer.
+        document.querySelectorAll('#ollie-scanner-card .scanner-row').forEach(tr => {
+          tr.addEventListener('click', () => {
+            const sym = tr.getAttribute('data-symbol');
+            if (sym && typeof window.openTickerDetail === 'function') {
+              window.openTickerDetail(sym);
+            }
+          });
+        });
+
+        _firstRender = false;
+      }).catch(err => {
+        const badge = document.getElementById('scannerStatusBadge');
+        if (badge) {
+          badge.textContent = 'OFFLINE';
+          badge.style.background = '#f8717122';
+          badge.style.color = '#f87171';
+        }
+      });
+    }
+
+    // Initial render + 30s poll.
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', renderOllieLiveScanner);
+    } else {
+      renderOllieLiveScanner();
+    }
+    setInterval(renderOllieLiveScanner, POLL_MS);
+    window.renderOllieLiveScanner = renderOllieLiveScanner;  // expose for manual refresh
+  })();
+  </script>
+
   <!-- P11: Positions At Risk -->
   <div class="at-risk-panel" id="at-risk-panel">
     <div class="panel-header">

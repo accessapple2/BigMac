@@ -1649,6 +1649,218 @@ def api_movers():
 # ===== /HM-DASH-MOVERS Stage 2 =======================================
 
 
+# ===== HM-OLLIE-LIVE-SCANNER Phase 1 — /api/scanner/convergence =======
+# Reference: drafts/HM-OLLIE-LIVE-SCANNER-DASHBOARD-TILE.md (v3 LOCKED).
+#
+# NOTE: spec on paper called the endpoint /api/scanner/live, but that path
+# already serves the signal-center BUY-signal stream (line ~13708, used by
+# the live-scanner panel + scanner.html). To avoid a route shadow, this
+# new tiered-convergence feed lives at /api/scanner/convergence. The
+# dashboard tile fetches the new path; nothing on /api/scanner/live changes.
+#
+# Returns three tiers of convergence candidates from strategy_signals
+# joined to mover_watchlist (price/pct_change), volume_baselines (rel_vol),
+# volume_alerts (most-recent spike magnitude as vol_5min proxy), and
+# positions (in_fleet flag).
+#
+# Schema notes that deviate from the spec on paper:
+# - volume_baselines only has avg_volume_20d (no avg_5min). rel_vol is
+#   computed as mw.volume / vb.avg_volume_20d.
+# - market_snapshots is end-of-day, not real-time. Live price/pct_change
+#   come from mover_watchlist (refreshed by movers-poller every 5 min in
+#   market hours).
+# - vol_5min_pct is sourced from the latest volume_alerts.relative_volume
+#   within the last 90 min as a stand-in (no true 5-min bucket data yet).
+# - chg_open_pct left None for Phase 1; needs intraday open snapshot we
+#   don't capture yet. UI renders '--' for missing values.
+_SCANNER_LIVE_CACHE: dict = {"data": None, "ts": 0.0}
+_SCANNER_LIVE_CACHE_TTL: int = 25  # seconds — 30s poll cadence, 25s absorbs spam
+
+
+def _scanner_tier_for(strat_count: int) -> str | None:
+    if strat_count >= 5:
+        return "tier1"
+    if strat_count == 4:
+        return "tier2"
+    if strat_count == 3:
+        return "tier3"
+    return None
+
+
+@app.get("/api/scanner/convergence")
+def api_scanner_convergence():
+    """Live convergence scanner — Phase 1 of HM-OLLIE-LIVE-SCANNER.
+
+    Tiers strategy_signals (last 90 min) by COUNT(DISTINCT strategy_name):
+      Tier 1: >=5 strategies converged
+      Tier 2: 4 strategies
+      Tier 3: 3 strategies
+
+    Each row carries the convergence trade plan (entry/stop/target/conf)
+    plus heatmap fields (price, chg_close_pct, rel_vol, vol_5min_pct) and
+    an in_fleet flag for tickers held by any active player.
+
+    Cached 25s in-memory.
+    """
+    import time as _time
+    from datetime import datetime, timezone
+
+    now = _time.time()
+    cached = _SCANNER_LIVE_CACHE.get("data")
+    if cached is not None and (now - _SCANNER_LIVE_CACHE.get("ts", 0.0)) < _SCANNER_LIVE_CACHE_TTL:
+        return {**cached, "cached": True}
+
+    try:
+        c = _conn()
+        rows = c.execute(
+            """
+            WITH recent AS (
+              SELECT ticker,
+                     COUNT(DISTINCT strategy_name) AS strat_count,
+                     GROUP_CONCAT(DISTINCT strategy_name) AS strategies,
+                     MAX(confidence) AS conf,
+                     MAX(entry_price) AS entry,
+                     MAX(stop_price) AS stop_price,
+                     MAX(target_price) AS target,
+                     MAX(created_at) AS last_seen
+                FROM strategy_signals
+               WHERE created_at >= datetime('now','-90 minutes')
+               GROUP BY ticker
+              HAVING strat_count >= 3
+            ),
+            latest_alert AS (
+              SELECT symbol,
+                     MAX(detected_at) AS detected_at,
+                     relative_volume,
+                     alert_type
+                FROM volume_alerts
+               WHERE detected_at >= datetime('now','-90 minutes')
+               GROUP BY symbol
+            ),
+            in_fleet AS (
+              SELECT DISTINCT symbol
+                FROM positions
+               WHERE qty IS NOT NULL AND qty != 0
+            )
+            SELECT r.ticker,
+                   r.strat_count,
+                   r.strategies,
+                   r.conf,
+                   r.entry,
+                   r.stop_price,
+                   r.target,
+                   r.last_seen,
+                   mw.last_price       AS price,
+                   mw.pct_change       AS chg_close_pct,
+                   mw.volume           AS volume,
+                   vb.avg_volume_20d   AS avg_volume_20d,
+                   la.relative_volume  AS recent_rel_vol,
+                   la.alert_type       AS recent_alert_type,
+                   CASE WHEN ifl.symbol IS NOT NULL THEN 1 ELSE 0 END AS in_fleet
+              FROM recent r
+              LEFT JOIN mover_watchlist  mw  ON mw.symbol = r.ticker
+              LEFT JOIN volume_baselines vb  ON vb.symbol = r.ticker
+              LEFT JOIN latest_alert     la  ON la.symbol = r.ticker
+              LEFT JOIN in_fleet         ifl ON ifl.symbol = r.ticker
+             ORDER BY r.strat_count DESC, r.conf DESC, r.ticker ASC
+            """
+        ).fetchall()
+        c.close()
+
+        tier1: list[dict] = []
+        tier2: list[dict] = []
+        tier3: list[dict] = []
+        for r in rows:
+            d = dict(r)
+            strat_count = int(d.get("strat_count") or 0)
+            tier = _scanner_tier_for(strat_count)
+            if tier is None:
+                continue
+
+            entry = d.get("entry")
+            stop = d.get("stop_price")
+            target = d.get("target")
+            rr = None
+            try:
+                if entry is not None and stop is not None and target is not None:
+                    risk = float(entry) - float(stop)
+                    reward = float(target) - float(entry)
+                    if risk and risk != 0:
+                        rr = round(reward / risk, 2)
+            except (TypeError, ValueError):
+                rr = None
+
+            rel_vol = None
+            try:
+                vol = d.get("volume")
+                avg = d.get("avg_volume_20d")
+                if vol and avg and float(avg) > 0:
+                    rel_vol = round(float(vol) / float(avg), 2)
+            except (TypeError, ValueError):
+                rel_vol = None
+
+            vol_5min_pct = None
+            try:
+                rv = d.get("recent_rel_vol")
+                if rv is not None:
+                    vol_5min_pct = round(float(rv) * 100.0, 1)
+            except (TypeError, ValueError):
+                vol_5min_pct = None
+
+            strategies_raw = d.get("strategies") or ""
+            strategies = [s for s in strategies_raw.split(",") if s] if strategies_raw else []
+
+            conf_raw = d.get("conf")
+            try:
+                conf_pct = int(round(float(conf_raw) * 100)) if conf_raw is not None else None
+            except (TypeError, ValueError):
+                conf_pct = None
+
+            tier_list = {"tier1": tier1, "tier2": tier2, "tier3": tier3}[tier]
+            tier_list.append({
+                "ticker": d["ticker"],
+                "strategies": strategies,
+                "strat_count": strat_count,
+                "conf": conf_pct,
+                "entry": entry,
+                "stop": stop,
+                "target": target,
+                "rr": rr,
+                "price": d.get("price"),
+                "chg_close_pct": d.get("chg_close_pct"),
+                "chg_open_pct": None,  # Phase 1: intraday open not captured yet
+                "rel_vol": rel_vol,
+                "vol_5min_pct": vol_5min_pct,
+                "recent_alert_type": d.get("recent_alert_type"),
+                "in_fleet": bool(d.get("in_fleet")),
+                "last_seen": d.get("last_seen"),
+            })
+
+        payload = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "tier1": tier1,
+            "tier2": tier2,
+            "tier3": tier3,
+            "meta": {
+                "tier1_count": len(tier1),
+                "tier2_count": len(tier2),
+                "tier3_count": len(tier3),
+                "window_minutes": 90,
+            },
+        }
+        _SCANNER_LIVE_CACHE["data"] = payload
+        _SCANNER_LIVE_CACHE["ts"] = now
+        return {**payload, "cached": False}
+    except Exception as exc:
+        return {
+            "error": str(exc),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "tier1": [], "tier2": [], "tier3": [],
+            "meta": {"tier1_count": 0, "tier2_count": 0, "tier3_count": 0},
+        }
+# ===== /HM-OLLIE-LIVE-SCANNER Phase 1 ================================
+
+
 # --- Notification System ---
 
 def _init_notifications_table():
