@@ -9133,6 +9133,41 @@ def get_performance(model: str = None, season: int = None, fleet_only: bool = Fa
     }
 
 
+@app.get("/api/fleet/halt_status")
+def fleet_halt_status(ids: str = ""):
+    """HM-DASHBOARD-OPTIONS-LIE 2026-05-27 — return halt_mode for a list of
+    player IDs so the dashboard can replace stale "queued/active" labels
+    with truthful "retired" / "exit_only" rendering.
+
+    Query: ?ids=mccoy-bps,anderson-bcs,dayblade-sulu
+    Returns: {<player_id>: {halt_mode, halt_reason, halted_at}, ...}
+
+    Players not found in ai_players are omitted from the response (frontend
+    treats missing as "no halt" = render existing label as-is).
+    """
+    ids_clean = [s.strip() for s in (ids or "").split(",") if s.strip()]
+    if not ids_clean:
+        return {"players": {}, "count": 0}
+    # Bounded param expansion (max 50 IDs to keep query safe).
+    ids_clean = ids_clean[:50]
+    placeholders = ",".join("?" for _ in ids_clean)
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            f"SELECT id, halt_mode, halt_reason, halted_at FROM ai_players "
+            f"WHERE id IN ({placeholders})",
+            ids_clean,
+        ).fetchall()
+    finally:
+        conn.close()
+    result = {r["id"]: {
+        "halt_mode": r["halt_mode"],
+        "halt_reason": r["halt_reason"],
+        "halted_at": r["halted_at"],
+    } for r in rows}
+    return {"players": result, "count": len(result)}
+
+
 @app.get("/api/fleet/active")
 def fleet_active():
     """HM-FLEET-CORE-DB-DRIVEN — return the DB-truth active fleet roster.

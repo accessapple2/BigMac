@@ -6436,9 +6436,49 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         <div class="oe-book-sub">
           <span class="oe-agent-slot">IC Squadron <em>queued — shadow pending</em></span>
           <span class="oe-agent-slot">Wheel CSPs <em style="color:#10b981;">ACTIVE — Troi/McCoy</em></span>
-          <span class="oe-agent-slot">McCoy Bull Put <em>queued</em></span>
-          <span class="oe-agent-slot">Anderson Bear Call <em>queued</em></span>
+          <!-- HM-DASHBOARD-OPTIONS-LIE 2026-05-27: data-player-id lets the
+               oe-halt-status IIFE below replace the placeholder <em> text with
+               truthful retired/exit_only labels pulled from ai_players. -->
+          <span class="oe-agent-slot" data-player-id="mccoy-bps">McCoy Bull Put <em>queued</em></span>
+          <span class="oe-agent-slot" data-player-id="anderson-bcs">Anderson Bear Call <em>queued</em></span>
+          <span class="oe-agent-slot" data-player-id="dayblade-sulu">Lt. Sulu DayBlade <em>queued</em></span>
         </div>
+        <script>
+        (function() {
+          // HM-DASHBOARD-OPTIONS-LIE — replace "queued" with truthful halt state.
+          // Reads /api/fleet/halt_status and rewrites any <em> inside slots
+          // whose data-player-id matches a halted player.
+          var ids = [];
+          document.querySelectorAll('#options-engine-panel [data-player-id]').forEach(function(el) {
+            var pid = el.getAttribute('data-player-id');
+            if (pid && ids.indexOf(pid) === -1) ids.push(pid);
+          });
+          if (!ids.length) return;
+          fetch('/api/fleet/halt_status?ids=' + encodeURIComponent(ids.join(','))).then(function(r) {
+            return r.json();
+          }).then(function(data) {
+            var players = (data && data.players) || {};
+            document.querySelectorAll('#options-engine-panel [data-player-id]').forEach(function(el) {
+              var pid = el.getAttribute('data-player-id');
+              var info = players[pid];
+              if (!info) return;
+              var mode = info.halt_mode || '';
+              var em = el.querySelector('em');
+              if (!em) return;
+              if (mode === 'full') {
+                em.textContent = 'retired';
+                em.style.color = '#f87171';
+                em.title = info.halt_reason || 'halt_mode=full';
+              } else if (mode === 'exit_only') {
+                em.textContent = 'exit-only (dormant)';
+                em.style.color = '#fbbf24';
+                em.title = info.halt_reason || 'halt_mode=exit_only';
+              }
+              // active or unknown: leave existing <em> untouched
+            });
+          }).catch(function() { /* network/transient — keep existing label */ });
+        })();
+        </script>
         <div class="oe-positions" id="oe-fleet-positions">
           <div class="oe-empty">No open positions</div>
         </div>
