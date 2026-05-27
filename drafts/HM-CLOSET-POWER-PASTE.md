@@ -62,3 +62,18 @@ recommended swap. **SPEC ONLY**.
 
 After each item, post 3-line update — what shipped, what commit, blockers.
 Halt chain if anything unexpected.
+
+---
+
+## ITEM 3 prerequisites flagged by Scotty (2026-05-27)
+Two of the 5 detectors need data not currently in volume_baselines:
+- **vwap_reclaim** — needs session VWAP per symbol
+- **power_hour_thrust** — needs last 60min avg vs session avg
+- **breakout_resistance** — needs 20-day high per symbol
+
+Two paths to get there:
+1. Compute on-the-fly from price_ticks (already have minute-level data)
+2. Add columns to volume_baselines (or new table session_metrics)
+
+Recommend Path 1 for vwap/power_hour (price_ticks is already there), Path 2
+for 20-day-high (compute once daily, cache).
