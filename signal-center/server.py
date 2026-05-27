@@ -1702,7 +1702,11 @@ def morpheus_action_fire_kirk():
     import threading
     def _runner():
         try:
-            r = requests.post("http://127.0.0.1:8080/api/kirk/advisory", timeout=30)
+            # HM-AN Phase 4 2026-05-27: GET not POST. Trader endpoint at
+            # dashboard/app.py:16031 is @app.get("/api/kirk/advisory") —
+            # POST would 405. run-advisory-team's POST to /api/wb-team/scan
+            # (line 1726) is correct as-is per the trader's @app.post route.
+            r = requests.get("http://127.0.0.1:8080/api/kirk/advisory", timeout=30)
             result = "EXECUTED" if r.status_code == 200 else "FAILED"
             _morpheus_log_action("fire-kirk", who, result, {"http": r.status_code})
         except Exception as _e:

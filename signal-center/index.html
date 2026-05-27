@@ -637,6 +637,33 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       Loading oracle feed…
     </div>
   </div>
+
+  <!-- HM-AN Phase 4 (2026-05-27) — admin actions panel. Fires the 4 Morpheus
+       action POST routes (server.py:1667+). All admin-gated. -->
+  <div id="oracle-admin-panel" style="margin-top:20px;padding:14px 16px;
+    background:var(--surface2);border:1px solid var(--border);border-radius:8px;max-width:900px;">
+    <div style="font-size:11px;font-weight:800;letter-spacing:1px;color:var(--muted);
+                text-transform:uppercase;margin-bottom:12px;">⚡ Admin Actions</div>
+    <div style="display:flex;gap:10px;flex-wrap:wrap;">
+      <button onclick="morpheusAction('refresh-schwab')"
+        style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
+               color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
+        🔄 Refresh Schwab
+      </button>
+      <button onclick="morpheusAction('fire-kirk')"
+        style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
+               color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
+        🖖 Fire Kirk
+      </button>
+      <button onclick="morpheusAction('run-advisory-team')"
+        style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
+               color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
+        🧠 Run Advisory Team
+      </button>
+    </div>
+    <div id="oracle-admin-result" style="margin-top:10px;font-size:11px;
+         color:var(--muted);font-style:italic;min-height:18px;"></div>
+  </div>
 </div>
 
 <script>
@@ -1160,6 +1187,25 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   if (document.readyState !== 'loading') loadMatrix();
   setInterval(loadMatrix, POLL_MS);
 })();
+</script>
+
+<!-- HM-AN Phase 4 (2026-05-27) — Morpheus admin-action button handler.
+     Route paths are /api/morpheus/action/<name> (note the /action/ segment;
+     spec sketch omitted it). All routes are admin-gated POST endpoints. -->
+<script>
+function morpheusAction(action) {
+  const el = document.getElementById('oracle-admin-result');
+  if (el) el.textContent = 'Firing ' + action + '…';
+  fetch('/api/morpheus/action/' + action, {method:'POST',
+    headers:{'Content-Type':'application/json'}, body:'{}'})
+    .then(r => r.json())
+    .then(d => {
+      if (el) el.textContent = '✓ ' + action + ': ' + JSON.stringify(d).slice(0, 120);
+    })
+    .catch(e => {
+      if (el) el.textContent = '✗ ' + action + ' failed: ' + e.message;
+    });
+}
 </script>
 
 <!-- ═══════════════ SIGNALS TAB ═══════════════ -->
