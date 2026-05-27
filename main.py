@@ -5030,6 +5030,16 @@ if __name__ == "__main__":
     except Exception as e:
         console.log(f"[yellow]Tick Recorder failed to start: {e}")
 
+    # HM-OLLIE-EVENT-TAPE-V2-REALTIME Phase 2.5 Component 2 — event detector.
+    # Reads price_ticks, fires events into event_tape. 30s detection cadence,
+    # daemon-thread pattern (matches tick_recorder). Heartbeat per HM-EQ doctrine.
+    try:
+        from engine.event_tape import start_event_detector
+        start_event_detector()
+        console.log("[cyan]Event Detector armed (event_tape table, 5 v1 detectors)")
+    except Exception as e:
+        console.log(f"[yellow]Event Detector failed to start: {e}")
+
     # === HM-WR-CYCLE-RCA-PHASE2 2026-05-20 ===
     # 60-second heartbeat in the schedule loop — confirms run_pending() is being
     # called and surfaces run_war_room's live next_run state for diagnosis.
