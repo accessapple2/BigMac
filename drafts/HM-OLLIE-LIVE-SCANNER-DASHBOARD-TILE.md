@@ -1,8 +1,8 @@
-# HM-OLLIE-LIVE-SCANNER-DASHBOARD-TILE v2
+# HM-OLLIE-LIVE-SCANNER-DASHBOARD-TILE v3 (LOCKED FOR PHASE 1 BUILD)
 
 ## Vision
 Match Trade Ideas Holly AI + Swing Trade Watcher + event tape, then exceed it
-by leveraging the autonomous fleet (which Trade Ideas users don't have).
+by leveraging the autonomous fleet.
 
 ## Reference visuals (Trade Ideas screenshots, 2026-05-27)
 - Swing Trade Watcher right-side panel: 20-row tabular heatmap
@@ -11,73 +11,91 @@ by leveraging the autonomous fleet (which Trade Ideas users don't have).
   - Selected row highlights blue
 - Big chart panel left: daily candles, anchored VWAP wave, vol bars below
 - Event tape footer: "Running up quickly: +$0.05 in less than one minute  AMPY 5.10  07:16AM"
-- Tiny weekly chart bottom-left with multi-month % gain badge
 
-## Three layers to build (sequenced)
+## DECISIONS LOCKED (2026-05-27 Admiral sign-off)
+- **Polling cadence:** 30s for now. WebSocket upgrade path in Phase 3 IF we
+  determine tighter cadence delivers material edge in production.
+- **Event tape source:** reuse existing `volume_alerts` table.
+- **Audio alert:** Tier 1 ding ON by default. Per-tier toggle in scanner header.
+- **Mobile variant:** desktop-first now, mobile follow-up later.
 
-### Phase 1 — Scanner panel + heatmap (this week)
-Drop into dashboard/static/index.html near Fleet Activity (~line 6500).
-- New section: "🔭 Ollie Live Scanner"
-- Three sub-tables (Tier 1: 5+ strategies, Tier 2: 4, Tier 3: 3)
-- Per row: ticker | strategies-agreeing-badges | conf | entry | stop | target | rr
-- "IN FLEET" grey badge for held tickers
-- Auto-refresh every 30s (matches existing tick)
-- NEW columns matching Swing Trade Watcher:
-  - Chg Close (% from prior close) — color heatmap
-  - Chg Open (% from today's open) — color heatmap  
-  - Rel Vol (vs 20-day avg)
-  - Vol 5 Min (% of 5-min historical avg) — deep-green when >300%
-- Data source: strategy_signals + market_snapshots + volume_baselines
-- New endpoint: GET /api/scanner/live → {tier1[], tier2[], tier3[]}
+## Phase 1 build — Scanner panel + heatmap (SHIP THIS)
 
-### Phase 2 — Live event tape (next week)
+### Backend (dashboard/app.py)
+- New endpoint: `GET /api/scanner/live`
+- Returns JSON:
+```json
+  {
+    "ts": "2026-05-27T...",
+    "tier1": [{"ticker":"MNTS","strategies":["breakout_volume",...],
+               "conf":100,"entry":19.41,"stop":16.90,"target":23.18,"rr":1.5,
+               "price":19.50,"chg_close_pct":1.2,"chg_open_pct":0.8,
+               "rel_vol":1.4,"vol_5min_pct":287.3,"in_fleet":true}, ...],
+    "tier2": [...],
+    "tier3": [...]
+  }
+```
+- SQL joins:
+  - strategy_signals (last 90 min) → tiered by COUNT(DISTINCT strategy_name)
+  - LEFT JOIN market_snapshots (latest row per ticker) for price/chg
+  - LEFT JOIN volume_baselines for rel_vol / vol_5min calc
+  - LEFT JOIN positions (qty != 0) for in_fleet flag
+- Cache 25s in-memory to absorb polling spam
+
+### Frontend (dashboard/static/index.html)
+- New section "🔭 Ollie Live Scanner" inserted near Fleet Activity (~line 6500)
+- Three collapsible tier tables:
+  - Tier 1 (5+ strategies, green border)
+  - Tier 2 (4 strategies, yellow border)
+  - Tier 3 (3 strategies, light border)
+- Each row columns (matching Swing Trade Watcher):
+  - Symbol | Price | Chg Close | Chg Open | Rel Vol | Vol 5 Min | Conf | Entry | Stop | Target | R/R | Strategies
+- Cell coloring: green→red heatmap on Chg Close/Open/Vol columns
+- "IN FLEET" greyed-out badge for held tickers
+- Click row → existing ticker drawer
+- New JS function `renderOllieLiveScanner()` on standard 30s tick
+- Header controls: tier collapse toggles, audio toggle per-tier (default Tier 1 ON)
+
+### Phase 1 acceptance criteria
+- [ ] Endpoint responds <500ms
+- [ ] Tile renders all 3 tiers correctly
+- [ ] Heatmap colors visually distinct
+- [ ] IN FLEET badge applied to held tickers
+- [ ] Refreshes every 30s without UI flash
+- [ ] Click row opens ticker drawer
+- [ ] Light + dark theme both readable
+
+## Phase 2 — Live event tape (next)
 - Footer ribbon below scanner: scrolling event feed
-- Events sourced from volume_alerts table (already exists)
-- Each event: ticker, narration string ("Running up quickly +$X in <1min"),
-  price, timestamp, magnitude badge
-- Audio "ding" toggle for Tier 1 events
-- New endpoint: GET /api/scanner/events → last N events streaming
-- Backend event detector: new module engine/event_tape.py
-  - Watches market_snapshots delta vs prev tick
-  - Fires "Running up quickly" when delta > 1.5x ATR/min
-  - Fires "Price crossed above close" when crossing prev day close
-  - Fires "Vol burst" when 5-min vol > 3x avg
+- Pulls from `volume_alerts` table (created_at desc, last 15 min)
+- Each event: ticker, narration, price, ts, magnitude badge
+- Tier 1 audio ding when new alert appears for a ticker also in Tier 1 scanner
+- Per-tier audio toggle persisted in localStorage
+- New endpoint: `GET /api/scanner/events?since=<ts>`
 
-### Phase 3 — Tick-rate refresh (later)
-- WebSocket push from main.py → dashboard
-- Sub-second updates for ticker the Admiral is watching
-- Falls back to 30s polling for non-focused tickers
-- Adds endpoint: WS /api/scanner/stream
+## Phase 3 — Tighter cadence (gated on Phase 1+2 in production)
+- Evaluate: is 30s costing us trades vs 5s? Measure first.
+- If yes, WebSocket migration: main.py → dashboard push
+- Sub-second ticker focus when row hovered
 
-## Data sources already available
-- strategy_signals (ticker, strategy_name, confidence, entry/stop/target, created_at)
-- volume_alerts (ticker, alert_type, timestamp, magnitude)
+## Data sources already in DB (verified 2026-05-27)
+- strategy_signals (ticker, strategy_name, confidence, entry_price, stop_price, target_price, created_at)
+- volume_alerts (ticker, alert_type, magnitude, timestamp)
 - volume_baselines (ticker, avg_5min, avg_daily)
 - market_snapshots (ticker, price, change_pct, ts)
-- mover_watchlist (curated ticker list)
+- mover_watchlist (curated tickers)
 - ticker_metadata (sector, market_cap, etc.)
-- /api/movers (existing endpoint at dashboard/app.py:1583)
+- positions (in_fleet flag source)
+- existing /api/movers endpoint at dashboard/app.py:1583 (reference impl)
 
 ## Why this beats Trade Ideas Holly
-1. Our convergence engine already runs 10+ strategies in parallel; Holly runs
-   her overnight backtested top-N.
-2. Our fleet of AI agents (Spock, Worf, Dr. McCoy, dayblade) AUTONOMOUSLY
-   executes on convergence. Trade Ideas users still click. We're past that.
-3. Our IC Squadron + bull/bear spread agents add options dimension Holly lacks.
-4. Plutus financial-intelligence officer critiques every closed trade.
-5. We control the entire stack — can add domain-specific events Holly can't
-   (e.g., "Sector rotation into Energy detected", "Gamma flip below SPY spot").
+1. Convergence engine runs 10+ strategies in parallel; Holly's overnight backtested top-N
+2. Autonomous fleet executes on convergence — Holly users still click
+3. IC Squadron + spread agents add options dimension Holly lacks
+4. Plutus officer critiques every closed trade
+5. Full-stack control — can add domain events Holly can't (sector rotation, gamma flip, etc.)
 
-## Open questions
-1. Polling cadence: 30s (cheap) vs 5s (Trade Ideas-class) vs WebSocket (best)?
-2. Event tape: from volume_alerts only, or build new event_tape.py?
-3. Audio alert: toggle per-tier? Per-symbol?
-4. Mobile-friendly variant (Bonnie's phone)?
-
-## Priority
-HIGH — this becomes the primary "what should I look at right now?" view.
-
-## Estimated effort
-- Phase 1: 1 day (backend endpoint + frontend tile + test)
-- Phase 2: 2-3 days (event detector + event tape UI + alert toggle)
-- Phase 3: 3-5 days (WebSocket migration + load test)
+## Effort estimate
+- Phase 1: 1 day (Scotty on bigmac)
+- Phase 2: 1-2 days
+- Phase 3: 3-5 days (only if Phase 1/2 prove cadence is the bottleneck)
