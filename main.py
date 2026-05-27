@@ -433,9 +433,18 @@ def run_scanner():
     threading.Thread(target=_arena_scan_thread, daemon=True, name="arena_scanner").start()
 
 
+_dayblade_tick_count = 0
+
 @_hm_bq_instr("run_dayblade")
 def run_dayblade():
-    global dayblade
+    # HM-DAYBLADE-SCHEDULER-AUDIT 2026-05-27: log every outer-wrapper invocation
+    # to disambiguate "scheduler not firing" vs "scheduler firing but run_scan
+    # gates early-return". If ticks increment but no positions open/no signals
+    # land, blame is downstream in engine/dayblade.py::run_scan (most likely
+    # the is_paused=1 gate at line ~921). Pure observability, no behavior change.
+    global dayblade, _dayblade_tick_count
+    _dayblade_tick_count += 1
+    console.log(f"[cyan][DAYBLADE-CYCLE-START] tick={_dayblade_tick_count}")
     if dayblade is None:
         dayblade = initialize_dayblade()
     try:
