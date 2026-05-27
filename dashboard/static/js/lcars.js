@@ -86,7 +86,7 @@
       '<rect x="148" y="0" width="4" height="30" fill="#000"/>' +
       '<rect x="148" y="34" width="4" height="22" fill="#000"/>' +
       /* "TradeMinds" text in elbow */
-      '<text x="10" y="36" font-family="Antonio,sans-serif" font-size="16" font-weight="700" fill="#000" letter-spacing="2">TRADEMINDS</text>' +
+      '<text x="10" y="36" font-family="Antonio,sans-serif" font-size="16" font-weight="700" fill="#000" letter-spacing="2">OLLIETRADES</text>' +
       '<text x="10" y="50" font-family="Antonio,sans-serif" font-size="9" font-weight="400" fill="rgba(0,0,0,0.6)" letter-spacing="3">BRIDGE SYSTEM</text>' +
       '</svg>';
     document.body.insertBefore(el, document.body.firstChild);

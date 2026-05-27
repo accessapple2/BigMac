@@ -1,0 +1,341 @@
+HM-ROUND-5-MEGA — 7 high-value items, single push
+
+Per BANKED_ITEMS_2026-05-18_DASHBOARD_AUDIT.md. Top of bank, all
+audited-first per item. Single bundled commit OR per-item per
+Scotty preference. AUDIT-FIRST is non-negotiable per item.
+
+═══════════════════════════════════════════════════════════════
+ITEM 1 — HM-CHARTS-STALE-DATA-SOURCE
+Highest user impact. Affects trading decisions.
+═══════════════════════════════════════════════════════════════
+
+Surface: Charts tab + Big Charts tab in dashboard
+Symptom: Both show SPY ~$681 vs real $737 — ~$56/share / 8% off
+Truth check: Sniff Scan + header + Tactical Display all read 
+             $737 correctly, so data exists somewhere
+
+INVESTIGATION
+  grep -n "Charts\|Big Charts\|section-chart\|section-charts\|section-big-charts" dashboard/static/index.html | head -20
+  
+  # Find what feed Charts reads
+  grep -n "fetchChart\|loadChart\|renderChart\|chartData" dashboard/static/index.html | head -20
+  
+  # Find what feed Sniff Scan reads (the WORKING one)
+  grep -n "fetchSniff\|sniffScan\|loadSniff" dashboard/static/index.html | head -10
+  
+  # Probe live endpoints
+  curl -s http://127.0.0.1:8080/api/charts/spy 2>&1 | head -20
+  curl -s http://127.0.0.1:8080/api/chart/spy 2>&1 | head -20
+  curl -s "http://127.0.0.1:8080/api/quote/SPY" 2>&1 | head -20
+  
+  # Compare what Charts gets vs what Sniff Scan gets
+  
+DECISION TREE
+  (a) Charts reads stale cached endpoint → repoint to live source
+  (b) Charts reads correct endpoint but stale data IN the endpoint
+      → backend bug, bank as HM-CHARTS-BACKEND-STALE-CACHE
+  (c) Charts reads wrong ticker/timeframe combo → fix params
+
+FIX
+  Inline if (a) or (c) — both are 1-LOC route/param changes
+  Bank as separate epic if (b) — needs cache invalidation logic
+
+VERIFY
+  Browser smoke at 127.0.0.1:8080 Charts + Big Charts — SPY 
+  should match header ($737 range, not $681).
+
+═══════════════════════════════════════════════════════════════
+ITEM 2 — HM-UHURA-DATA-SIGNAL-PRODUCERS-IDLE
+Multi-component producer revival. Likely largest scope.
+═══════════════════════════════════════════════════════════════
+
+Surface: Bridge tab Consensus panel + per-ticker grid
+Symptom: 503/515 tickers stuck at ⚠️ SPLIT, only ~5 directional
+         Summary: "Spock ▲ BULLISH | Data ■ NEUTRAL | Uhura ■ NEUTRAL"
+         Spock IS firing; Data + Uhura are dead
+
+INVESTIGATION
+  # Verify producers are halted vs running
+  sqlite3 ~/autonomous-trader/data/trader.db "SELECT login, halt, model_id, last_seen FROM ai_players WHERE login IN ('data', 'lt-cmdr-data', 'uhura', 'lt-uhura', 'ollama-llama') ORDER BY login;"
+  
+  # Check last signal from each
+  sqlite3 ~/autonomous-trader/data/trader.db "SELECT agent, MAX(created_at), COUNT(*) FROM ai_signals WHERE agent IN ('data', 'uhura', 'ollama-llama') GROUP BY agent;"
+  
+  # Check Spock for comparison
+  sqlite3 ~/autonomous-trader/data/trader.db "SELECT agent, MAX(created_at), COUNT(*) FROM ai_signals WHERE agent='spock';"
+  
+  # Producer process state
+  ps aux | grep -iE "data|uhura|llama" | grep -v grep | head -20
+
+DECISION TREE per producer
+  (a) halt='full' intentionally per documented zombie set → 
+      bank as separate revival epic, NOT a fix
+  (b) halt='active' but process not running → investigate why
+      OR mark as intentional and update documentation
+  (c) halt='active' AND running but signals stale → producer
+      loop bug, may need debugger
+
+GUARDRAILS (HARD STOPS)
+  - DO NOT unilaterally restart any halted producer
+  - DO NOT modify ai_players.halt values
+  - DO NOT enable producers that are intentionally halted per 
+    memory rules (Uhura's ollama-llama is in documented zombie set)
+  - If finding is (a): bank cleanly, don't try to fix
+  - If finding is (b)/(c): document and bank, await Admiral
+    decision on revival vs deprecation
+
+FIX
+  AUDIT-ONLY this round. Bank findings as:
+    HM-UHURA-PRODUCER-REVIVAL-DECISION (data for Admiral)
+    HM-DATA-PRODUCER-REVIVAL-DECISION (data for Admiral)
+  
+  This is NOT a UI bug — it's a fleet composition decision.
+  Goal of this item is honest diagnosis, not patching.
+
+═══════════════════════════════════════════════════════════════
+ITEM 3 — HM-FLEET-REPORT-CARD-LOADING-STUCK
+High-visibility on Bridge. Unknown scope.
+═══════════════════════════════════════════════════════════════
+
+Surface: Bridge tab Fleet Report Card panel
+Symptom: Perma-stuck on "Loading…" spinner
+Other Fleet panels load fine, only this widget hangs
+
+INVESTIGATION
+  grep -n "Fleet Report Card\|fleetReportCard\|FleetReportCard\|fleet-report-card\|fleet_report_card" dashboard/static/index.html | head -10
+  
+  # Find which API call backs it
+  # (likely grepable from the renderer name)
+  
+  # Probe the endpoint
+  curl -s -w "\n%{http_code}\nTime: %{time_total}s\n" http://127.0.0.1:8080/api/fleet/report-card 2>&1 | tail -10
+  curl -s -w "\n%{http_code}\n" http://127.0.0.1:8080/api/fleet/grades 2>&1 | tail -5
+
+DECISION TREE
+  (a) Endpoint returns 200 cleanly → frontend never resolves the 
+      promise → fix renderer
+  (b) Endpoint hangs / times out → backend perf bug, may need 
+      timeout override like Round 4 dayblade fix
+  (c) Endpoint 404 → route never registered, bank for separate 
+      wire-up epic
+  (d) Endpoint returns valid JSON but renderer can't parse 
+      shape → field rename like dashboard audit Round 2
+
+FIX
+  Inline if (a)/(d) — small renderer fix
+  Inline if (b) — apply timeout override pattern
+  Bank if (c) — route work
+
+═══════════════════════════════════════════════════════════════
+ITEM 4 — HM-RED-ALERT-ROUTE-WIRE
+Small, direct follow-on from Round 4. Should be quick.
+═══════════════════════════════════════════════════════════════
+
+Surface: /api/red-alert/status route registration
+Symptom: Route never registered anywhere; only 
+         red_alert_check() function exists in 
+         engine/volume_scanner.py
+Round 4 removed it from Signal Center fetch list; goal here 
+is to actually WIRE it.
+
+INVESTIGATION
+  grep -n "red_alert_check\|red.alert" engine/volume_scanner.py | head -10
+  grep -rn "@app.route\|@app.get" dashboard/app.py | grep -i "alert\|volume" | head -10
+  
+  # See what red_alert_check returns (the function exists)
+  python3 -c "from engine.volume_scanner import red_alert_check; import json; print(json.dumps(red_alert_check(), default=str, indent=2))" 2>&1 | head -30
+
+FIX
+  Add FastAPI route to dashboard/app.py:
+    @app.get('/api/red-alert/status')
+    def red_alert_status():
+        try:
+            return jsonify(red_alert_check())
+        except Exception as e:
+            return jsonify({'error': str(e)}), 500
+  
+  Then re-add 'red_alert_score' to Signal Center 
+  _SIGNALS_ENDPOINTS pointing at the now-live trader route 
+  (port 8080, NOT 9000 per Round 4 lesson).
+
+VERIFY
+  curl -s http://127.0.0.1:8080/api/red-alert/status | python3 -m json.tool | head -20
+  curl -s http://127.0.0.1:9000/api/signals/all | python3 -c "import json,sys;d=json.load(sys.stdin);print('red_alert_score:', d.get('red_alert_score'))"
+
+═══════════════════════════════════════════════════════════════
+ITEM 5 — HM-QUANT-VIX-CATEGORIZER-LIVE-READ
+Backend literal-string bug, banked since Round 1.
+═══════════════════════════════════════════════════════════════
+
+Surface: /api/quant-signals composer → signals.momentum.why[]
+Symptom: Emits literal string "VIX 0.0 low (risk-on)" 
+         while real VIX is 18.6+
+Root cause: VIX categorizer defaulting to 0 when live feed not read
+
+INVESTIGATION
+  grep -rn "VIX 0.0\|VIX.*low.*risk-on\|categoriz" engine/ | head -20
+  grep -rn "/api/quant-signals\|quant_signals\|quant-signals" dashboard/app.py engine/ | head -10
+  
+  # Find the live VIX feed reader (what works for other panels)
+  grep -rn "current_vix\|live_vix\|fetch_vix" engine/ | head -10
+
+FIX
+  Locate the VIX categorizer that defaults to 0. Repoint at the 
+  same live VIX feed the header/Sniff Scan use (those work).
+  Inline guard: if vix is None/0, return "VIX unavailable" 
+  instead of the misleading "0.0 low" string.
+
+VERIFY
+  curl -s http://127.0.0.1:8080/api/quant-signals | python3 -m json.tool | grep -A 2 "momentum"
+  Should NOT contain "VIX 0.0 low (risk-on)" when live VIX > 15
+
+═══════════════════════════════════════════════════════════════
+ITEM 6 — HM-METALS-GSR-DATA-WIRE (verify-or-close)
+May be auto-closed by Round 3 Item 3 ledger fix.
+═══════════════════════════════════════════════════════════════
+
+Surface: Bridge tab Metals panel GSR ratio
+Symptom (from earlier audit): "--", "No metals data" for GSR
+Current state per Captain's page dump:
+  GSR 58.6, SIGNAL: HOLD neutral — looks LIVE now
+  Plus header $9,638.70 and detail $9,634.10 both populated
+
+INVESTIGATION
+  curl -s http://127.0.0.1:8080/api/metals/portfolio | python3 -m json.tool | head -20
+  curl -s http://127.0.0.1:8080/api/metals/exposure | python3 -m json.tool | head -20
+  curl -s http://127.0.0.1:8080/api/metals/gsr 2>&1 | head -10
+
+DECISION
+  (a) GSR + No metals data both rendering correctly post Round 3 
+      restart → close the ticket as auto-resolved by metals_ledger 
+      ship (commit 21e7462)
+  (b) Still broken in any cell → audit which cell and fix
+
+ACTION
+  If (a): remove HM-METALS-GSR-DATA-WIRE from 
+          BANKED_ITEMS_2026-05-18_DASHBOARD_AUDIT.md 
+          (it's auto-closed, document the chain)
+  If (b): inline fix
+
+═══════════════════════════════════════════════════════════════
+ITEM 7 — HM-BULL-BEAR-CONSENSUS-WIRE
+0/28 models producing analyses. Producer state question.
+═══════════════════════════════════════════════════════════════
+
+Surface: Bridge Bull/Bear Consensus block + History tab
+Symptom: 0 bull / 0 bear of 28 models
+         History consistently shows "No analyses" for: 
+         volume_radar, smart_money, bull_bear, earnings, convergence
+
+INVESTIGATION
+  # Verify all 28 models genuinely idle
+  sqlite3 ~/autonomous-trader/data/trader.db "SELECT login, halt, COUNT(*) FROM ai_signals s JOIN ai_players p ON s.agent = p.login WHERE s.created_at > datetime('now', '-24 hours') GROUP BY login, halt ORDER BY halt, login;"
+  
+  # Check bull_bear table specifically
+  sqlite3 ~/autonomous-trader/data/trader.db "SELECT COUNT(*) FROM bull_bear_consensus WHERE created_at > datetime('now', '-24 hours');" 2>&1 | head -5
+  
+  # See what's in the bull_bear cache file referenced in earlier 
+  # commits (data/bull_bear_cache.json keeps showing up as uncommitted)
+  head -50 data/bull_bear_cache.json 2>&1
+  ls -la data/bull_bear_cache.json
+  
+  # Find the producer
+  grep -rn "bull_bear_consensus\|bull-bear" engine/ dashboard/app.py | head -10
+
+DECISION TREE
+  (a) All 28 producers intentionally halted → bank as fleet 
+      composition decision (HM-BULL-BEAR-FLEET-DECISION)
+  (b) Producers active but writing to cache file not DB → 
+      cache-vs-DB drift, bank as HM-BULL-BEAR-CACHE-DB-DRIFT
+  (c) Cron not running → audit launchd / launchctl
+  (d) Producer ran but data shape changed → renderer bug
+
+ACTION
+  AUDIT-ONLY for revival decisions
+  Inline fix for (b) or (d) if shape/path issue
+  Bank for (c) if cron timing
+
+═══════════════════════════════════════════════════════════════
+GUARDRAILS — APPLY TO ALL 7 ITEMS
+═══════════════════════════════════════════════════════════════
+
+- AUDIT-FIRST per item. Diagnose before patching. Catch wrong
+  premises before they ship. (Today's record: 0 wrong-premise
+  ships across 25+ commits — keep it.)
+- DO NOT touch ai_players.halt values or enable halted 
+  producers without Admiral go-ahead per memory rules.
+- DO NOT touch sacred DBs (trader.db, arena.db, tractor.db) —
+  audit reads only, no DELETE/DROP/TRUNCATE.
+- Python 3.9 lesson applies to any signal-center/ code 
+  (no PEP 604 unions, X | None).
+- Second-renderer search lesson applies to any UI fix — grep 
+  for ALL renderers reading the same API/field, not just first.
+- If an item turns out to be 3+ hours of work, BANK IT cleanly
+  and move on. Don't burn the session on one item.
+- Frontend Ship Rule applies to any UI changes — Captain owes
+  browser smoke. Note which items require smoke in handoff.
+- Items 2, 6, 7 are likely audit-only / bank actions, not 
+  ships. That's a feature, not a failure.
+
+═══════════════════════════════════════════════════════════════
+ORDERING & EXECUTION
+═══════════════════════════════════════════════════════════════
+
+Suggested order (small-to-large to build momentum):
+  4. RED-ALERT-ROUTE-WIRE   (small, direct ship)
+  6. METALS-GSR verify      (likely close, doc update)
+  5. QUANT-VIX-CATEGORIZER  (small backend fix)
+  3. FLEET-REPORT-CARD      (medium, diagnostic-heavy)
+  1. CHARTS-STALE-SOURCE    (high impact, audit-first)
+  7. BULL-BEAR-CONSENSUS    (audit-only, decision-bank)
+  2. UHURA-DATA-PRODUCERS   (audit-only, decision-bank)
+
+Single commit OR per-item commits, Scotty preference. 
+Banked items file gets updated atomically with ships.
+
+═══════════════════════════════════════════════════════════════
+POST-SHIP
+═══════════════════════════════════════════════════════════════
+
+- Update BANKED_ITEMS_2026-05-18_DASHBOARD_AUDIT.md per item:
+  ships move to "Shipped" header section at top of file,
+  audit-only items get updated with findings + decision-banked 
+  sub-tickets.
+- Frontend Ship Rule: Captain owes browser smoke at 
+  127.0.0.1:8080 (Charts, Fleet Report Card if shipped) and 
+  127.0.0.1:9000 Matrix tab (Red Alert if re-wired).
+- Handoff doc append: list per-item outcome (shipped/banked/
+  audit-only), commit hash if shipped, next-session pickup 
+  notes if bank.
+- Memory: if any new gotcha lesson discovered, bank to 
+  ~/autonomous-trader/MEMORY.md per established pattern 
+  (Python 3.9, second-renderer search precedents).
+
+Commit message base if bundled:
+"HM-ROUND-5-MEGA: 7-item dashboard cleanup — Red Alert route 
+wire, Metals GSR verify, Quant VIX live read, Fleet Report 
+Card, Charts data source. Bull/Bear + Uhura/Data audit-only 
+banked as fleet composition decisions per memory rules."
+
+═══════════════════════════════════════════════════════════════
+END HM-ROUND-5-MEGA
+═══════════════════════════════════════════════════════════════
+
+# COMPLETED 2026-05-18 (disposition added 2026-05-19)
+
+All 7 items shipped per AUDIT-FIRST doctrine yesterday. Commits:
+- Item 1 HM-CHARTS-STALE-DATA-SOURCE       → 9484cce
+- Item 2 HM-UHURA-DATA-SIGNAL-PRODUCERS    → c939f6b (audit-only bank)
+- Item 3 HM-FLEET-REPORT-CARD-LOADING-STUCK → ecaadd2
+- Item 4 HM-RED-ALERT-ROUTE-WIRE           → f2c44bd
+- Item 5 HM-QUANT-VIX-CATEGORIZER-LIVE-READ → 667eb93
+- Item 6 HM-METALS-GSR-DATA-WIRE           → 279bf35 (auto-closed)
+- Item 7 HM-BULL-BEAR-CONSENSUS-WIRE       → 5874829
+
+Disposition rename was lost in real-time flow; backfilled 
+2026-05-19 after Scotty XO-flagged the drift per 
+feedback_xo_re_fetch_after_pause discipline.
+
+XO lesson: disposition renames must happen IN the same turn as 
+ship confirmation, not deferred to "next turn cleanup" which 
+gets lost.

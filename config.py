@@ -160,7 +160,7 @@ AI_PLAYERS = [
     {"id": "ollama-deepseek", "name": "Spock R1 14B",       "provider": "ollama", "model": "deepseek-r1:14b",   "url": OLLIE_URL},  # Ollie GPU
     {"id": "ollama-qwen3",    "name": "Scotty 8B",          "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU
     {"id": "ollama-coder",    "name": "Lt. Cmdr. Data",     "provider": "ollama", "model": "qwen2.5-coder:7b",  "url": OLLIE_URL},  # Ollie GPU — was qwen3-coder:30b
-    {"id": "ollama-plutus",   "name": "Uhura Plutus",       "provider": "ollama", "model": "0xroyce/plutus",    "url": OLLIE_URL},  # Ollie GPU — McCoy's finance brain
+    {"id": "ollama-plutus",   "name": "Uhura Plutus",       "provider": "ollama", "model": "plutus-v1",    "url": OLLIE_URL},  # Ollie GPU — McCoy's finance brain
     {"id": "navigator",       "name": "Ensign Chekov",       "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — backtest routing; live uses chekov_rules()
     {"id": "neo-matrix",      "name": "Neo Matrix",          "provider": "ollama", "model": "qwen3:14b",         "url": OLLIE_URL},  # 2026-04-23: rerouted to Ollie Box, freed bigmac RAM (Ollie Box has 32GB RAM, handles qwen3:14b)
     {"id": "ollama-llama",    "name": "Llama 3.1 8B",       "provider": "ollama", "model": "llama3.1:latest"},                      # bigmac localhost fallback

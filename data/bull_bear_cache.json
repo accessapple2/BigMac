@@ -338,10 +338,10 @@
   "GOOGL:all": {
     "symbol": "GOOGL",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778632836.375594,
-    "price": 387.38
+    "bull_case": "Strong growth in AI and cloud computing drives long-term value. Positive earnings outlook and market sentiment support higher prices.",
+    "bear_case": "Regulatory risks and competition could pressure margins. Market volatility and macroeconomic concerns may lead to price declines.",
+    "timestamp": 1779888820.3431208,
+    "price": 386.67
   },
   "NVDA:all": {
     "symbol": "NVDA",
@@ -354,10 +354,10 @@
   "AAPL:all": {
     "symbol": "AAPL",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778196426.209162,
-    "price": 289.12
+    "bull_case": "Strong quarterly results and robust iPhone demand support the stock's upside potential. Positive macroeconomic trends and strong cash flow enhance long-term growth prospects.",
+    "bear_case": "Rising interest rates and inflationary pressures could weigh on consumer spending and margins. Regulatory challenges and supply chain disruptions pose significant risks to profitability.",
+    "timestamp": 1779888820.884049,
+    "price": 308.31
   },
   "MU:all": {
     "symbol": "MU",
@@ -370,18 +370,18 @@
   "GC=F:all": {
     "symbol": "GC=F",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778632824.298713,
-    "price": 4729.8
+    "bull_case": "Strong earnings and positive sector momentum could drive GC=F above $4445.5. Favorable macroeconomic data may support higher gold prices.",
+    "bear_case": "Weakness in real interest rates and dollar strength could pressure GC=F below $4445.5. Sell-off in risk assets may reduce demand for gold.",
+    "timestamp": 1779888816.987322,
+    "price": 4445.5
   },
   "SI=F:all": {
     "symbol": "SI=F",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778632836.369874,
-    "price": 88.26
+    "bull_case": "Strong earnings reports and positive macroeconomic data could push SI=F above $74.47. Positive sentiment in the energy sector may drive demand for SI=F shares.",
+    "bear_case": "Weak oil prices and geopolitical tensions could pressure SI=F below $74.47. Negative earnings guidance may lead to selling pressure.",
+    "timestamp": 1779888817.526506,
+    "price": 74.47
   },
   "TQQQ:all": {
     "symbol": "TQQQ",
@@ -474,34 +474,34 @@
   "MSFT:all": {
     "symbol": "MSFT",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778632836.390785,
-    "price": 413.83
+    "bull_case": "Strong cloud computing growth and AI investments drive long-term value. Dividend yield and market leadership support upside potential.",
+    "bear_case": "Regulatory risks and macroeconomic uncertainty could pressure earnings. Overvaluation relative to peers may limit upside.",
+    "timestamp": 1779888818.8703182,
+    "price": 411.07
   },
   "KMI:all": {
     "symbol": "KMI",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778632836.750168,
-    "price": 32.11
+    "bull_case": "KMI's strong presence in the energy sector and rising oil prices could drive significant gains. The stock is undervalued compared to its historical performance and industry peers.",
+    "bear_case": "Weak demand for oil and potential regulatory changes could hurt KMI's profitability. A downturn in the energy market may lead to lower revenues and stock price declines.",
+    "timestamp": 1779888833.091529,
+    "price": 32.34
   },
   "QQQ:all": {
     "symbol": "QQQ",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778196426.20801,
-    "price": 695.5
+    "bull_case": "QQQ is near key support and could rally on positive earnings reports or tech sector optimism. Strong momentum in the broader market may drive QQQ higher.",
+    "bear_case": "QQQ faces resistance near $732.2 and could retreat on profit-taking or weakness in tech fundamentals. Negative macroeconomic data may trigger a broader market selloff.",
+    "timestamp": 1779888821.8798342,
+    "price": 732.2
   },
   "WMB:all": {
     "symbol": "WMB",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778632836.757728,
-    "price": 70.44
+    "bull_case": "WMB's strong presence in the energy sector and recent price recovery signal potential for further gains. The stock is undervalued relative to its peers and fundamentals are improving.",
+    "bear_case": "Weakness in the energy market and rising interest rates could pressure WMB's profitability and valuation. The stock faces significant downside if oil prices decline further.",
+    "timestamp": 1779888836.999813,
+    "price": 75.03
   },
   "INTC:all": {
     "symbol": "INTC",
@@ -746,10 +746,10 @@
   "META:all": {
     "symbol": "META",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778632836.384809,
-    "price": 603.0
+    "bull_case": "Strong AI adoption and expanding metaverse opportunities drive long-term growth. Recent product launches and strategic acquisitions boost investor confidence.",
+    "bear_case": "Regulatory risks and competition could pressure revenue growth. Market saturation and rising interest rates may dampen tech sector performance.",
+    "timestamp": 1779888817.960643,
+    "price": 610.92
   },
   "NET:all": {
     "symbol": "NET",
@@ -818,10 +818,10 @@
   "AVGO:all": {
     "symbol": "AVGO",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778632836.392601,
-    "price": 414.73
+    "bull_case": "AVGO's strong cash flow and dominant market position support its valuation. The growth of cloud computing and AI adoption boosts long-term prospects.",
+    "bear_case": "Rising interest rates could pressure tech stocks and reduce future cash flows. Market volatility and regulatory risks may challenge AVGO's performance.",
+    "timestamp": 1779888819.3534698,
+    "price": 425.11
   },
   "SPY:all": {
     "symbol": "SPY",
@@ -842,10 +842,10 @@
   "AXP:all": {
     "symbol": "AXP",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778632836.389075,
-    "price": 314.31
+    "bull_case": "AXP's strong performance in financial services and resilient demand could drive shares higher. Positive earnings surprises and improved market conditions may boost investor confidence.",
+    "bear_case": "Weak macroeconomic data and rising interest rates could pressure financial stocks, including AXP. Regulatory challenges and lower consumer spending may limit growth potential.",
+    "timestamp": 1779888818.4641979,
+    "price": 315.55
   },
   "ATH:all": {
     "symbol": "ATH",
@@ -858,10 +858,10 @@
   "JPM:all": {
     "symbol": "JPM",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778196426.211467,
-    "price": 308.39
+    "bull_case": "JPM is well-positioned to benefit from a recovery in financial markets and improved credit conditions. Stronger economic data could drive demand for banking services and boost earnings.",
+    "bear_case": "Persistent economic weakness and rising interest rates could pressure loan losses and reduce profitability. Regulatory challenges and geopolitical risks may also weigh on performance.",
+    "timestamp": 1779888819.898604,
+    "price": 304.92
   },
   "GS:all": {
     "symbol": "GS",
@@ -930,10 +930,10 @@
   "SPGI:all": {
     "symbol": "SPGI",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778632836.399393,
-    "price": 405.74
+    "bull_case": "Strong brand equity and consistent dividend growth support the stock. Recent earnings beat expectations, boosting investor confidence.",
+    "bear_case": "Rising interest rates could pressure valuation multiples. Competitive pressures in the beverage industry may impact margins.",
+    "timestamp": 1779888835.0108202,
+    "price": 413.16
   },
   "LITE:all": {
     "symbol": "LITE",
@@ -962,10 +962,10 @@
   "LLY:all": {
     "symbol": "LLY",
     "model": "all",
-    "bull_case": "",
-    "bear_case": "",
-    "timestamp": 1778632836.4047759,
-    "price": 938.6
+    "bull_case": "LLY's strong brand and expanding product portfolio position it well for continued growth. The stock is undervalued relative to its peers and earnings potential.",
+    "bear_case": "Regulatory scrutiny and potential pricing pressures could impact profitability. High valuations and sector volatility pose risks to short-term performance.",
+    "timestamp": 1779888833.5751061,
+    "price": 1073.36
   },
   "XOM:all": {
     "symbol": "XOM",
@@ -998,5 +998,205 @@
     "bear_case": "",
     "timestamp": 1778632836.754024,
     "price": 371.19
+  },
+  "ITT:all": {
+    "symbol": "ITT",
+    "model": "all",
+    "bull_case": "Strong defense contracts and geopolitical tensions boost demand for ITT's aerospace and defense products. Recent earnings growth and strategic acquisitions enhance long-term value.",
+    "bear_case": "Weakness in commercial aerospace and declining defense budgets could pressure revenue. High debt levels and competitive pressures may limit growth.",
+    "timestamp": 1779888822.675112,
+    "price": 201.42
+  },
+  "STLD:all": {
+    "symbol": "STLD",
+    "model": "all",
+    "bull_case": "Strong demand in the logistics sector and improved supply chain efficiency drive the stock higher. Strategic partnerships and expansion into high-growth markets boost long-term value.",
+    "bear_case": "Regulatory challenges and rising operational costs threaten profitability. Weak macroeconomic conditions could reduce demand for logistics services.",
+    "timestamp": 1779888823.439498,
+    "price": 250.6
+  },
+  "RBC:all": {
+    "symbol": "RBC",
+    "model": "all",
+    "bull_case": "Strong earnings growth and positive industry trends support the stock's upside potential. Rising interest rates may benefit RBC's net interest income.",
+    "bear_case": "Weak economic data could pressure loan growth and credit quality. Rising competition and regulatory challenges may limit profitability.",
+    "timestamp": 1779888824.160264,
+    "price": 582.12
+  },
+  "SBAC:all": {
+    "symbol": "SBAC",
+    "model": "all",
+    "bull_case": "Strong revenue growth and expanding market share position SBAC for long-term value. The company's innovative products and strategic acquisitions enhance its competitive edge.",
+    "bear_case": "Regulatory challenges and industry headwinds could pressure margins and growth. Rising interest rates may dampen investor appetite for high-valued stocks.",
+    "timestamp": 1779888824.9977112,
+    "price": 201.81
+  },
+  "JTAI:all": {
+    "symbol": "JTAI",
+    "model": "all",
+    "bull_case": "JTAI shows strong growth potential with expanding market share and robust revenue growth. The stock is undervalued compared to industry peers and has a solid balance sheet.",
+    "bear_case": "JTAI faces increasing competition and regulatory risks that could hurt profitability. Weak macroeconomic conditions may pressure demand and lead to lower earnings than expected.",
+    "timestamp": 1779888825.914622,
+    "price": 7.87
+  },
+  "ON:all": {
+    "symbol": "ON",
+    "model": "all",
+    "bull_case": "Strong earnings growth and positive industry trends support a potential breakout above $127.0. Increasing demand and strategic expansion could drive further price appreciation.",
+    "bear_case": "Weakness in key fundamentals and rising interest rates could pressure the stock below $127.0. Negative sector sentiment may lead to a sustained downtrend.",
+    "timestamp": 1779888826.825355,
+    "price": 127.0
+  },
+  "QCOM:all": {
+    "symbol": "QCOM",
+    "model": "all",
+    "bull_case": "Strong demand in 5G and AI-driven edge computing boosts long-term growth. Strategic partnerships and robust balance sheet support resilience.",
+    "bear_case": "Intensifying competition and macroeconomic headwinds could pressure margins. Overvaluation relative to peers and sector underperformance risk.",
+    "timestamp": 1779888827.607241,
+    "price": 243.9
+  },
+  "LRCX:all": {
+    "symbol": "LRCX",
+    "model": "all",
+    "bull_case": "LRCX is well-positioned in the semiconductor industry with strong demand for advanced manufacturing equipment. The stock has shown resilience and potential for growth with favorable industry trends.",
+    "bear_case": "LRCX faces competitive pressures and supply chain challenges that could impact profitability. Rising interest rates and economic uncertainty may weigh on investor sentiment and stock performance.",
+    "timestamp": 1779888828.216846,
+    "price": 329.19
+  },
+  "PRAX:all": {
+    "symbol": "PRAX",
+    "model": "all",
+    "bull_case": "PRAX is positioned to benefit from growth in the precision medicine and diagnostics markets. Strong partnerships and a robust pipeline could drive significant value creation.",
+    "bear_case": "Regulatory hurdles and reimbursement challenges could delay product launches. Intense competition may limit market share and profitability.",
+    "timestamp": 1779888828.671365,
+    "price": 349.69
+  },
+  "LII:all": {
+    "symbol": "LII",
+    "model": "all",
+    "bull_case": "The company's strong market position and recent product launches position it well for growth. Rising demand in key sectors supports higher stock valuation.",
+    "bear_case": "Regulatory challenges and increased competition could pressure profitability. Weakness in key markets may lead to declining revenues.",
+    "timestamp": 1779888829.1033201,
+    "price": 503.02
+  },
+  "BAP:all": {
+    "symbol": "BAP",
+    "model": "all",
+    "bull_case": "Strong earnings reports and positive industry trends support a potential upward move. Technical indicators suggest a breakout above key resistance levels.",
+    "bear_case": "Weakness in key sector performance could drag down the stock. Overbought conditions may lead to a corrective decline.",
+    "timestamp": 1779888829.54571,
+    "price": 351.88
+  },
+  "ESE:all": {
+    "symbol": "ESE",
+    "model": "all",
+    "bull_case": "ESE is poised for growth with strong sector demand and positive macroeconomic trends. The stock's recent performance indicates strong investor confidence and potential for further upside.",
+    "bear_case": "ESE faces headwinds from rising interest rates and economic uncertainty, which could pressure valuations. Weakness in key sectors may lead to a decline in share price.",
+    "timestamp": 1779888830.108354,
+    "price": 306.84
+  },
+  "AVB:all": {
+    "symbol": "AVB",
+    "model": "all",
+    "bull_case": "AVB's strong fundamentals and growth potential in the automotive industry support the price. Positive macroeconomic trends could drive demand for its products.",
+    "bear_case": "Weakness in the automotive sector and rising interest rates may pressure AVB's stock. Overvaluation relative to peers could lead to a correction.",
+    "timestamp": 1779888830.6122491,
+    "price": 185.13
+  },
+  "COST:all": {
+    "symbol": "COST",
+    "model": "all",
+    "bull_case": "Strong growth in renewable energy and electric vehicle demand boosts long-term value. Strategic acquisitions enhance market position and diversification.",
+    "bear_case": "High debt levels and regulatory risks could strain financial stability. Market saturation and supply chain issues may limit growth potential.",
+    "timestamp": 1779888831.044346,
+    "price": 1002.88
+  },
+  "F:all": {
+    "symbol": "F",
+    "model": "all",
+    "bull_case": "Strong earnings growth and positive industry trends support the stock's potential to reach $15.69. Institutional buying adds momentum to the upward move.",
+    "bear_case": "Weakness in key financial metrics and rising interest rates could pressure the stock below $15.69. Negative sector sentiment may lead to a sell-off.",
+    "timestamp": 1779888831.586643,
+    "price": 15.69
+  },
+  "GM:all": {
+    "symbol": "GM",
+    "model": "all",
+    "bull_case": "Strong demand for EVs and GM's leadership in electric vehicle technology position it well for long-term growth. The company's expanding global footprint and cost efficiencies could drive significant shareholder value.",
+    "bear_case": "Weakness in the auto industry and slowing global economic growth could reduce demand for vehicles. High debt levels and competitive pressures may limit profitability and stock performance.",
+    "timestamp": 1779888832.1579678,
+    "price": 82.3
+  },
+  "INTU:all": {
+    "symbol": "INTU",
+    "model": "all",
+    "bull_case": "Strong AI demand and cloud growth drive long-term value. Recent earnings beat reinforces growth trajectory.",
+    "bear_case": "Regulatory risks and macroeconomic uncertainty could pressure margins. Valuation may be stretched relative to peers.",
+    "timestamp": 1779888832.536397,
+    "price": 306.05
+  },
+  "LNTH:all": {
+    "symbol": "LNTH",
+    "model": "all",
+    "bull_case": "LNTH could benefit from a strong rebound in the underlying asset, driving higher demand and price. Positive market sentiment and improved fundamentals may support a significant upward move.",
+    "bear_case": "LNTH faces potential weakness if the underlying asset declines, leading to lower demand and price pressure. Negative market sentiment and poor fundamentals could trigger a sharp downward move.",
+    "timestamp": 1779888834.1425128,
+    "price": 100.49
+  },
+  "MDGL:all": {
+    "symbol": "MDGL",
+    "model": "all",
+    "bull_case": "MDGL's strong growth in medical cannabis could drive significant stock appreciation. The company's expanding market presence and potential regulatory changes favor long-term gains.",
+    "bear_case": "Regulatory risks and limited cannabis legalization could hinder MDGL's growth. Market volatility and competition may pressure stock performance.",
+    "timestamp": 1779888834.618679,
+    "price": 525.0
+  },
+  "SYM:all": {
+    "symbol": "SYM",
+    "model": "all",
+    "bull_case": "Strong demand in the EV sector boosts SYM's growth potential. Strategic partnerships enhance market position and revenue streams.",
+    "bear_case": "Regulatory risks and supply chain disruptions could impact profitability. Weak macroeconomic conditions may dampen investor sentiment.",
+    "timestamp": 1779888835.4321668,
+    "price": 53.7
+  },
+  "TKR:all": {
+    "symbol": "TKR",
+    "model": "all",
+    "bull_case": "Strong momentum from the AI and tech sectors could drive further gains. Positive earnings reports and increased institutional buying may support the upward trend.",
+    "bear_case": "Rising interest rates and market volatility could pressure the stock. Underperformance relative to peers might lead to a correction.",
+    "timestamp": 1779888835.89198,
+    "price": 127.39
+  },
+  "WFRD:all": {
+    "symbol": "WFRD",
+    "model": "all",
+    "bull_case": "Strong earnings growth and positive industry trends support the stock's current price. The stock is undervalued compared to its historical performance and sector peers.",
+    "bear_case": "Weakness in the broader market and regulatory challenges could pressure the stock. High valuations relative to fundamentals may lead to a correction.",
+    "timestamp": 1779888836.426878,
+    "price": 108.15
+  },
+  "WMG:all": {
+    "symbol": "WMG",
+    "model": "all",
+    "bull_case": "Strong growth in renewable energy adoption boosts demand for WMG's products. Strategic partnerships enhance market position and revenue potential.",
+    "bear_case": "Supply chain disruptions and rising material costs could pressure margins. Regulatory changes may slow down key market expansion efforts.",
+    "timestamp": 1779888837.429659,
+    "price": 34.5
+  },
+  "ZM:all": {
+    "symbol": "ZM",
+    "model": "all",
+    "bull_case": "Strong demand in the gaming sector and potential stock buybacks could drive ZM higher. The company's growth in cloud gaming and hardware sales supports a bullish outlook.",
+    "bear_case": "Regulatory risks and competition in cloud gaming could pressure ZM's growth. A slowdown in hardware sales or negative earnings reports may lead to a decline.",
+    "timestamp": 1779888837.983521,
+    "price": 99.59
+  },
+  "UPRO:all": {
+    "symbol": "UPRO",
+    "model": "all",
+    "bull_case": "UPRO could benefit from continued bullish sentiment in retail and tech stocks, driving higher volatility and gains. The ETF's exposure to S&P 500 volatility could rally on increased market uncertainty and risk-on trade.",
+    "bear_case": "A potential market correction or risk-off sentiment could drag down volatility, hurting UPRO's performance. Weakness in underlying indices or a shift to defensive positioning may pressure the ETF lower.",
+    "timestamp": 1779889794.67099,
+    "price": 145.51
   }
 }

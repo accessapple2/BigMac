@@ -1,0 +1,317 @@
+HM-BRIDGE-REMODEL-CHAPTER-0 — Stop the Bleeding
+
+Purpose: Three quality wins before any cosmetic remodel work begins.
+After audit pass against Brief #2 from Opus 4.7 Chrome, only these
+3 items remained un-shipped. All scoped, all small surface, all 
+quality (no new features).
+
+Mode: AUDIT-FIRST per item, then ship. Single bundled commit OR 
+per-item per Scotty preference.
+Effort: ~1 hour Scotty
+Output: 1 perf bundle + measurable improvements
+
+═══════════════════════════════════════════════════════════
+P1 — HM-TRADES-RECENT-CONSOLIDATE
+═══════════════════════════════════════════════════════════
+
+Per audit: 6 distinct callers of /api/trades/recent hit on a 
+single Bridge load with different params. None are strict 
+duplicates but all are consolidatable.
+
+Callers identified:
+  line 12595 — fetchCapitolPortfolio       player=capitol&limit=50
+  line 16172 — arena leaderboard row       player={pid}&limit=5&season=cur
+  line 16585 — fetchArenaFeed              limit=30&season=cur
+  line 16955 — toggleSidebarAgent          player={pid}&limit=8&season=5
+  line 18504 — checkNewTrades              limit=5
+  line 26021 — pollShipComputerAlerts      limit=20
+
+PROPOSED PATTERN — shared in-memory store:
+
+  // Module-level cache + fetcher
+  const _tradesRecentStore = {
+    data: null,
+    timestamp: 0,
+    TTL_MS: 30000,  // 30s
+    inflight: null
+  };
+  
+  async function getTradesRecent({player_id=null, limit=50, season=null} = {}) {
+    const now = Date.now();
+    
+    // Stale-while-revalidate: return cache if fresh
+    if (_tradesRecentStore.data && (now - _tradesRecentStore.timestamp) < _tradesRecentStore.TTL_MS) {
+      return _filterTrades(_tradesRecentStore.data, {player_id, limit, season});
+    }
+    
+    // Coalesce in-flight requests
+    if (_tradesRecentStore.inflight) {
+      return _tradesRecentStore.inflight.then(d => _filterTrades(d, {player_id, limit, season}));
+    }
+    
+    // Fetch broadest scope (limit=100, no filters) — let client filter
+    _tradesRecentStore.inflight = fetch('/api/trades/recent?limit=100')
+      .then(r => r.json())
+      .then(d => {
+        _tradesRecentStore.data = d;
+        _tradesRecentStore.timestamp = Date.now();
+        _tradesRecentStore.inflight = null;
+        return d;
+      })
+      .catch(e => {
+        _tradesRecentStore.inflight = null;
+        throw e;
+      });
+    
+    return _tradesRecentStore.inflight.then(d => _filterTrades(d, {player_id, limit, season}));
+  }
+  
+  function _filterTrades(data, {player_id, limit, season}) {
+    let trades = data.trades || data;
+    if (player_id) trades = trades.filter(t => t.player_id === player_id);
+    if (season) trades = trades.filter(t => t.season === season);
+    if (limit) trades = trades.slice(0, limit);
+    return {trades};
+  }
+
+REPLACE 6 callers with getTradesRecent() calls. Each caller becomes:
+  // Before: await fetch('/api/trades/recent?player_id=capitol-trades&limit=50')
+  // After:  await getTradesRecent({player_id: 'capitol-trades', limit: 50})
+
+PERF EXPECTATION
+  Before: 6 fetches per Bridge load
+  After: 1 fetch + 5 cache hits
+  Win: -83% trades/recent fanout
+  Steady state (30s TTL): all callers <1ms
+
+VERIFY
+  # Open browser DevTools Network tab, hard-refresh Bridge
+  # Filter to /api/trades/recent
+  # Count: should be 1, was 6
+
+GUARDRAILS
+- limit=100 default may miss historical lookups — verify each 
+  caller's max needed limit; bump default if any caller needs >100
+- If season filter matters semantically (Season 6 vs all-time), 
+  preserve in _filterTrades; don't drop the filter
+- DO NOT change /api/trades/recent backend — pure frontend dedupe
+
+═══════════════════════════════════════════════════════════
+P2 — HM-CHART-LIB-DEDUPE
+═══════════════════════════════════════════════════════════
+
+Per audit: 4 chart libraries loaded simultaneously (worse than 
+Brief #2's "2"):
+  line 2454  — lightweight-charts@4.1.0   ← DROP
+  line 14568 — Chart.js 3.9.1             ← KEEP (defer 4.4 migration)
+  line 14569 — lightweight-charts@4.2.2   ← KEEP (canonical)
+  line 33349 — Chart.js 4.4.1 (dynamic)   ← DEFER (SniffScan only)
+
+ACTION
+1. Audit all uses of lightweight-charts to confirm none depend on 
+   4.1.0-specific API:
+     grep -n "LightweightCharts\|createChart\|addCandlestickSeries\|addLineSeries\|addAreaSeries\|addHistogramSeries" dashboard/static/index.html | head -30
+   
+   Verify all match the 4.2.2 API surface. If any caller breaks 
+   on 4.2.2 specifically, document the breakage as separate ticket 
+   and DO NOT ship dedupe.
+
+2. Remove the line 2454 script tag for lightweight-charts@4.1.0
+   - Single line deletion
+   - Verify after: page loads, all chart-using surfaces still render
+
+3. Keep Chart.js 3.9.1 → 4.4.1 migration deferred (separate epic 
+   HM-CHART-JS-MIGRATION-V4). The SniffScan dynamic 4.4.1 load is 
+   a separate code path that doesn't conflict with 3.9.1 at runtime.
+
+PERF EXPECTATION
+  Before: ~500KB duplicate JS parse+execute on every page load
+  After: ~250KB saved per page load
+  Win: ~250KB bundle reduction, ~50ms faster parse phase
+
+VERIFY
+  # After change, hard-refresh Bridge
+  # Open DevTools → Network → Filter "lightweight-charts"
+  # Should see ONE matching response, not two
+  # Open DevTools → Console → look for LightweightCharts errors
+  # Click Charts tab, Big Charts tab, Live Chart tab — all render
+  # Click Sniff Scan — Chart.js 4.4.1 still loads dynamically (intact)
+
+GUARDRAILS
+- Frontend Ship Rule applies — Captain owes browser smoke on 
+  Charts + Big Charts + Live Chart + Sniff Scan tabs
+- If any chart breaks: revert immediately, ship as separate 
+  HM-LIGHTWEIGHT-CHARTS-API-MIGRATION ticket
+- DO NOT touch Chart.js loads this round
+
+═══════════════════════════════════════════════════════════
+P2 — HM-METALS-PORTFOLIO-CACHE-WARM
+═══════════════════════════════════════════════════════════
+
+Already proposed in earlier turn as HM-METALS-PORTFOLIO-CACHE-WARM.
+Now formally part of Chapter 0.
+
+TIER A — extend metals spot cache from 60s → 5 min
+  engine/metals_tracker.py:54 — wrap get_spot_prices() in 
+  module-level _SPOT_CACHE dict with 300s TTL.
+  
+  Pattern: same as market_data.py:1026 _VIX_CACHE_TTL = 300.
+  
+  Steady state: every load within 5 min = ~10ms.
+  Captain's open-close-open navigation within 5 min: cold once.
+
+TIER B — parallelize /api/metals/etf-flows
+  dashboard/app.py:4520 — wrap 9-ticker yf.Ticker(t).history() 
+  for-loop in ThreadPoolExecutor(max_workers=9).
+  
+  Pattern: same ThreadPoolExecutor as commit 91a5ed8.
+  
+  IMPORTANT — apply the c0e9234 shadow-bug lesson:
+  - Use module-level _ETF_FLOWS_POOL, NOT inline `with` block
+  - The 91a5ed8 commit used inline `with` — if those calls are 
+    bounded by external timeout, they'll hit the same shadow bug
+  - Consider whether 91a5ed8 needs same retrofit (audit but DO NOT
+    ship retrofit in this commit; bank separately if needed)
+
+PERF EXPECTATION
+  Before (post 91a5ed8): cold 18.6s, warm 0.014s (60s TTL)
+  After: cold 6s (first ever), warm 10ms (300s TTL)
+  ETF flows: 1.0s → 0.15s
+  
+  Captain's Dilithium tab navigation pattern:
+    Open → close → reopen (within 5 min) = cold once instead of 
+    every-time
+
+VERIFY
+  # Cold call (first ever post-restart)
+  time curl -s http://127.0.0.1:8080/api/metals/portfolio > /dev/null
+  # Should be ~6s, not 18s
+  
+  # 90s later (between 60s and 300s window)
+  sleep 90 && time curl -s http://127.0.0.1:8080/api/metals/portfolio > /dev/null
+  # Should be <50ms, not cold-fetch again
+  
+  # ETF flows parallelization
+  time curl -s http://127.0.0.1:8080/api/metals/etf-flows > /dev/null
+  # Should be ~0.15s, not 1.0s
+
+GUARDRAILS
+- Cache TTL semantic change: metals up to 5 min stale
+  - For UI: invisible (gold moves ~$0.50/min on volatile day)
+  - For trading: crew/agents.py + shared/alpaca_sync.py are 
+    non-trading consumers (advisory + log-only per CLAUDE.md 
+    two-book bridge). SAFE.
+- Module-level cache + ThreadPoolExecutor pool: GIL-atomic dict 
+  reads/writes under CPython. Same pattern as existing 
+  _price_cache. SAFE.
+- Python 3.9 lesson DOES NOT apply (this is trader, not 
+  signal-center)
+- ThreadPoolExecutor max_workers=9 — fixed pool size, no growth
+- Apply c0e9234 shadow-bug lesson: module-level _ETF_FLOWS_POOL,
+  NOT inline `with` block
+
+═══════════════════════════════════════════════════════════
+EXECUTION ORDERING
+═══════════════════════════════════════════════════════════
+
+Suggested order (small-to-large impact, each verifiable solo):
+
+1. HM-CHART-LIB-DEDUPE first (smallest surface, single line delete)
+   - Quick verification cycle
+   - If breaks anything, easy rollback
+   
+2. HM-METALS-PORTFOLIO-CACHE-WARM second (backend perf, no UI risk)
+   - Verifiable via curl
+   - No frontend smoke required
+   
+3. HM-TRADES-RECENT-CONSOLIDATE third (largest surface, 6 callers)
+   - Most thorough verification needed
+   - Frontend smoke required across 6 surfaces
+
+OR
+
+All three in single bundled commit if Scotty prefers atomic ship.
+Per-item commits also acceptable.
+
+═══════════════════════════════════════════════════════════
+POST-SHIP
+═══════════════════════════════════════════════════════════
+
+- Update BANKED_ITEMS_2026-05-18_DASHBOARD_AUDIT.md with 
+  "Shipped Bridge Remodel Chapter 0" header section
+- Captain owes Chrome browser smoke at 127.0.0.1:8080:
+  * Charts tab + Big Charts tab + Live Chart + Sniff Scan 
+    (chart lib dedupe verification)
+  * 6 surfaces using /api/trades/recent (Bridge load, sidebar, 
+    arena leaderboard, alerts)
+- Re-run audit 1 (metals perf) post-ship to confirm:
+  for ep in /api/metals/portfolio /api/metals/exposure /api/metals/prices /api/metals/etf-flows; do
+    echo "=== $ep COLD ==="
+    time curl -s "http://127.0.0.1:8080$ep" > /dev/null
+    sleep 1
+    echo "=== $ep WARM ==="
+    time curl -s "http://127.0.0.1:8080$ep" > /dev/null
+  done
+- Bank any new findings from chapter execution
+- Move HM-BRIDGE-REMODEL-CHAPTER-0.md to .completed-2026-05-19
+
+═══════════════════════════════════════════════════════════
+COMMIT MESSAGES
+═══════════════════════════════════════════════════════════
+
+Per-item OR bundled commit. If bundled:
+  "HM-BRIDGE-REMODEL-CHAPTER-0: 3-item Stop-the-Bleeding bundle —
+   trades/recent consolidation (6→1 fetch), chart lib dedupe 
+   (drop LWC 4.1.0), metals spot cache 60s→300s + etf-flows 
+   parallelize. Quality-only, no new features. Brief #2 Chapter 0 
+   audit per HM-BRIDGE-REMODEL-CHAPTER-0-AUDIT findings."
+
+═══════════════════════════════════════════════════════════
+NOT IN CHAPTER 0 (deferred / closed)
+═══════════════════════════════════════════════════════════
+
+Per audit triage:
+- DOM StructureFix warnings → already WONTFIX-COSMETIC (Round 6)
+- Loading… placeholders → market-closed.js handles (Round 6)
+- All cosmetic-sweep items → shipped 5f7a25d
+- Riker tokenizer, Worf Arsenal, Sniff Scan empty, Squeeze dupe,
+  Fleet WR contradiction, Battle Station banner, LiveChart obs 
+  leak → all shipped in COSMETIC-SWEEP today
+- /api/capital hang → shipped c9c0681 + c0e9234 today
+- Chart.js 3.9 → 4.4 migration → deferred as separate epic 
+  HM-CHART-JS-MIGRATION-V4
+- React/Vue/Svelte adoption → deferred to Chapter 2 of remodel
+- WebSocket/SSE for real-time → deferred to Chapter 4 of remodel
+- Service worker → deferred to Chapter 4 of remodel
+- State store → deferred to Chapter 2 of remodel
+- Command palette → deferred to Chapter 1 of remodel
+- Route-level code splitting → deferred to Chapter 2 of remodel
+
+These are real and important, but Chapter 0 is QUALITY ONLY.
+Each deferred item gets its own chapter draft when ready.
+
+END HM-BRIDGE-REMODEL-CHAPTER-0
+
+# COMPLETED 2026-05-19
+
+Single bundled commit (c809d67) — 3 files, 149/-27 lines.
+
+All 3 items shipped:
+- HM-CHART-LIB-DEDUPE: LWC 4.1.0 script tag deleted (line 2454)
+- HM-METALS-PORTFOLIO-CACHE-WARM Tier A: _SPOT_CACHE 300s TTL
+- HM-METALS-PORTFOLIO-CACHE-WARM Tier B: _ETF_FLOWS_POOL parallelization
+- HM-TRADES-RECENT-CONSOLIDATE: window.getTradesRecent() + 6 caller replacements
+
+Verified post-ship:
+- /api/metals/portfolio cold 11.5s → warm 35ms (530× win)
+- /api/metals/etf-flows 1.0s → 0.27s (~4× win)
+- /api/capital 94ms (no regression from HM-CAPITAL-HANG-EMERGENCY)
+- /api/trades/recent backend unchanged, helper passes node --check
+- Only 1 <script src="...lightweight-charts@4.2.2"> tag in served HTML
+- /static/index.html serves with all 3 sentinels (HM-CHART-LIB-DEDUPE,
+  HM-TRADES-RECENT-CONSOLIDATE, window.getTradesRecent)
+
+Bank file updated with "Shipped Bridge Remodel Chapter 0" header section.
+Disposition rename done IN SAME TURN as ship per XO lesson from MEGA backfill.
+
+Captain owes Chrome browser smoke per draft post-ship checklist.

@@ -1,0 +1,263 @@
+SCOTTY — 13:00 AZ CLOSE SESSION PASTE
+════════════════════════════════════════════════════════════════════════════════
+Fire this whole block as a single prompt at 13:00 AZ close window. Drafted by
+Scotty 2026-05-21 ~10:00 AZ during morning session. Hands-off execution: halt
+ONLY at PR push gates per usual workflow.
+
+Read these context memos first (they're in ~/.claude/projects/-Users-bigmac/memory/):
+- MEMORY.md  — top-level index, scan for the project_hm_* entries below
+- project_hm_chekov_conf_calibration.md     (Item 1, PR #58 context)
+- project_hm_chekov_reentry_guard.md        (Item 1, PR #59 context)
+- project_hm_wr_ollama_queue_starvation.md  (Item 2 — full diagnosis + fix scope)
+- project_hm_bulk_prices_fixture_bug.md     (Item 3 — root cause + fix surface)
+- project_hm_slow_fundamentals_refactor_scope.md      (Item 4 design)
+- project_hm_bulk_daily_ohlcv_phase1_shipped.md       (Item 4 — Phase 1 reference)
+
+Trading-path doctrine reminders:
+- 13:00 AZ = ~25 min before market close. Restart at Item 1 is safe within
+  this window (positions are stable, no new entries this late).
+- All code edits use venv/bin/python3 for any local probe.
+- Frontend changes hot-reload via FastAPI FileResponse; Python backend
+  changes need restart (Item 1 handles the only required restart).
+
+════════════════════════════════════════════════════════════════════════════════
+ITEM 1 — Trader restart to activate PRs #58 + #59 (~5 min)
+════════════════════════════════════════════════════════════════════════════════
+Both Chekov PRs are on disk (commits 671a87c + 2de353e merged earlier today)
+but the running trader process still holds pre-PR bytecode. This restart
+picks them up.
+
+  PR #58 (HM-CHEKOV-CONF-CALIBRATION): tiered convergence confidence floors
+    2→0.65, 3→0.72, 4→0.78, 5+→0.85 replacing the upstream 0.82 floor.
+    SHORT -0.05 across all tiers.
+
+  PR #59 (HM-CHEKOV-REENTRY-GUARD): adds Rails 7 (DB open-position check) +
+    Rail 8 (3-close declining-trend filter vs entry price). Marker
+    [CHEKOV-REENTRY-BLOCK] in trader.log on first block.
+
+Steps:
+  1. Sanity check that both commits are on main:
+       git log --oneline -10 | grep -E "CHEKOV-CONF|CHEKOV-REENTRY"
+     Expect: two lines with the SHAs above.
+
+  2. Confirm no edits in progress:
+       git status -s
+     Expect: only untracked / .bak files. No staged or unstaged changes.
+
+  3. Restart the trader:
+       launchctl kickstart -k gui/$(id -u)/com.trademinds.trader
+
+  4. Verify new PID + clean startup (no traceback in first ~30 seconds):
+       sleep 8
+       pgrep -f "main.py" | head -3
+       tail -80 logs/trader.log | grep -iE "starting|startup|error|traceback" | tail -20
+
+  5. Look for the next Chekov scan cycle in logs/trader.log (usually fires
+     every 1-2 min during market hours). Verify the tiered conf floors are
+     active by grepping for any [CHEKOV-CONF] markers or convergence reject
+     reasons that reference the new thresholds.
+
+  6. NO PR FOR THIS ITEM — it's a restart action only. Move to Item 2.
+
+════════════════════════════════════════════════════════════════════════════════
+ITEM 2 — Ollama cancel-on-timeout fix
+════════════════════════════════════════════════════════════════════════════════
+Root cause (full detail in project_hm_wr_ollama_queue_starvation.md):
+HM-WR-VRAM-THRASHING shipped a 90s per-provider timeout at the WR-cycle loop
+level. When exceeded, the loop emits [WR-PROVIDER-TIMEOUT] and moves on —
+BUT the underlying requests.post(... ollama) HTTP call is NOT cancelled. The
+inference keeps running on the Ollama server, completes whenever VRAM/queue
+permits, and gets discarded (WR loop already moved past). Compute is wasted
+AND the queue stays loaded with abandoned work.
+
+Two agents are currently halt_mode='exit_only' as mitigation (set 2026-05-21
+14:51:46 UTC): dalio-metals + ollama-kimi. Both reactivate after this fix
+ships and one full WR cycle proves no [WR-PROVIDER-TIMEOUT] on ministral-3:3b.
+
+Implementation steps:
+  1. Find the Ollama HTTP wrapper. Likely candidates:
+       grep -rn "ollama.*generate\|/api/generate\|requests.post.*11434" \
+         engine/ providers/ 2>/dev/null | head -10
+     The wrapper probably lives at engine/providers/ollama.py or
+     engine/ollama_client.py.
+
+  2. Identify the WR-loop timeout site:
+       grep -rn "WR-PROVIDER-TIMEOUT\|provider_timeout\|provider.*90" \
+         engine/ | head -10
+
+  3. Inspect both. The cancellation needs to be wired such that when the
+     WR-loop timeout trips, the in-flight request gets closed:
+       - If using requests.Session: call session.close() on timeout
+       - If using bare requests.post(timeout=X): the timeout already aborts
+         locally; the SERVER may keep running but we stop waiting (lower-
+         severity fix — confirm Alpaca/Ollama behavior)
+       - Best: switch to a requests.Session held in a contextmanager so the
+         WR-loop wrapper can force-close it when its outer timeout trips
+
+  4. Minimum viable fix per the memo:
+       Option (a, simplest): ensure each Ollama call uses a fresh Session
+       and the WR-loop wrapper closes it on outer timeout. Adds ~10-20 LOC.
+       Option (b, robust): module-level _in_flight dict keyed by model_id;
+       second arrival for same model either reuses first's result or is
+       rejected with [WR-PROVIDER-IN-FLIGHT]. Adds ~30-50 LOC.
+
+  5. Write a test that fails today and passes after the fix:
+       - Mock a slow Ollama response (sleep 120s before returning)
+       - Call the wrapper with a 90s outer timeout
+       - After 90s, verify the wrapper returned/raised AND the underlying
+         HTTP connection was closed (use a spy on requests.Session.close
+         or check via httpretty/responses library)
+
+  6. py_compile every modified .py:
+       venv/bin/python3 -m py_compile engine/providers/ollama.py    # or actual path
+
+  7. Branch + ship:
+       git checkout -b hm-wr-cancel-on-timeout
+       git add <paths>
+       git commit -m "<descriptive HM-WR-CANCEL-ON-TIMEOUT message>"
+       git push -u origin hm-wr-cancel-on-timeout
+
+  8. HALT for Captain merge. Report PR URL.
+
+DO NOT reactivate dalio-metals + ollama-kimi yet — that's a separate step
+Captain runs after merge + one clean WR cycle verifies no more
+[WR-PROVIDER-TIMEOUT] on ministral-3:3b.
+
+════════════════════════════════════════════════════════════════════════════════
+ITEM 3 — get_bulk_prices fixture bug fix
+════════════════════════════════════════════════════════════════════════════════
+Root cause (full detail in project_hm_bulk_prices_fixture_bug.md):
+engine.market_data::get_bulk_prices returns change_pct=0.0 + volume=40 for
+all 508 symbols on Alpaca's bulk quotes endpoint. Affects two consumer
+surfaces:
+  - /api/market/heatmap (Sectors Watchlist heatmap shows all zeros)
+  - /api/market-movers (Starfleet was repointed by HM-STARFLEET-MOVERS-FIX
+    earlier today; this endpoint still bleeds fixture data)
+
+Strong hypothesis: HM-AQ-β v3 2026-05-07 migration switched from
+get_stock_price per-symbol fanout to a single bulk call against
+/v2/stocks/quotes/latest. That endpoint returns QUOTES (bid/ask), NOT
+TRADES — there's no volume in the quote payload, so the parser probably
+fills volume=40 as a default. change_pct=0 likely because the parser
+computes against bid/ask midpoint instead of prev_close vs last_trade.
+
+Implementation steps:
+  1. Read engine/market_data.py:
+       grep -n "def get_bulk_prices\|def get_stock_price\|stocks/quotes\|stocks/bars" \
+         engine/market_data.py
+     Find both get_bulk_prices and the working get_stock_price for diff.
+
+  2. Inspect the Alpaca endpoint URL used in get_bulk_prices. If it's
+     /v2/stocks/quotes/latest, the bug is structural: quotes don't have
+     volume. Two fix paths:
+
+       a. Switch to /v2/stocks/bars/latest (returns OHLCV including volume
+          and prev_close → change_pct can be computed against open or
+          prev_close). Cleanest.
+
+       b. Keep /v2/stocks/quotes/latest for prices but also call
+          /v2/stocks/bars/latest in parallel for volume/change_pct.
+          Combine. More HTTP calls but stays compatible.
+
+       Option (a) is recommended unless there's a documented reason for
+       quotes (e.g., need bid/ask spread).
+
+  3. Live probe BEFORE and AFTER the fix:
+       venv/bin/python3 -c "
+       from engine.market_data import get_bulk_prices
+       import json
+       r = get_bulk_prices(['SPY','QQQ','TSLA','AAPL','MSFT'])
+       for sym, d in r.items():
+           print(f'{sym}: price={d.get(\"price\")} vol={d.get(\"volume\")} chg%={d.get(\"change_pct\")}')
+       "
+     Expect post-fix: realistic volumes (millions of shares for SPY/QQQ),
+     non-zero change_pct reflecting today's move.
+
+  4. py_compile:
+       venv/bin/python3 -m py_compile engine/market_data.py
+
+  5. Run any existing market_data tests:
+       venv/bin/python3 -m pytest tests/ -k market_data -v   # if tests exist
+
+  6. Branch + ship:
+       git checkout -b hm-bulk-prices-fixture-fix
+       git add engine/market_data.py
+       git commit -m "<descriptive HM-BULK-PRICES-FIXTURE-FIX message>"
+       git push -u origin hm-bulk-prices-fixture-fix
+
+  7. HALT for Captain merge. Report PR URL.
+
+Backend Python change — does NOT activate until Captain restarts the trader.
+The Item 1 restart at 13:00 has already happened by this point in the
+sequence, so the fix sits dormant until the NEXT natural restart window.
+Document that explicitly in the commit message.
+
+════════════════════════════════════════════════════════════════════════════════
+ITEM 4 — HM-SLOW-FUNDAMENTALS Phase 2 (~2-3 h)
+════════════════════════════════════════════════════════════════════════════════
+Background (project_hm_bulk_daily_ohlcv_phase1_shipped +
+project_hm_slow_fundamentals_refactor_scope memos):
+Phase 1 shipped get_bulk_daily_ohlcv (PR #60, commit 5ade725) — a chunked +
+parallel + cached Alpaca bulk-bars fetcher. 10/10 tests, cold 0.29s /
+warm 0.0000s (2905× cache hit ratio). Currently UNUSED — Phase 2 wires it.
+
+Four dashboard endpoints share a per-symbol Yahoo 3-month OHLCV fanout
+over 3,026 symbols. Yahoo rate-limit floors at ~300s, can't fit a 25s
+budget regardless of parallelism. Phase 2 replaces all four fanouts
+with a single get_bulk_daily_ohlcv() call.
+
+Endpoints to rewire (in dashboard/app.py):
+  1. /api/trendlines
+  2. /api/patterns
+  3. /api/pattern-alerts
+  4. /api/channels
+
+Per-endpoint pattern (~30-45 min each):
+  a. Read the current implementation:
+       grep -n "@app.get.*\"/api/trendlines\"" dashboard/app.py
+     Then read the function body — note the Yahoo fanout pattern.
+
+  b. Replace the fanout with:
+       from engine.market_data import get_bulk_daily_ohlcv
+       bars = get_bulk_daily_ohlcv(symbols=<universe>, lookback_days=90)
+     bars is a dict keyed by symbol, value is a pandas DataFrame.
+
+  c. Adapt the consumer code. The per-symbol loop probably looked like:
+       for sym in symbols:
+           df = yahoo_fetch(sym, period="3mo")
+           if df is None or df.empty: continue
+           ... process df ...
+     becomes:
+       for sym, df in bars.items():
+           if df is None or df.empty: continue
+           ... process df ...
+
+  d. Live probe each rewired endpoint:
+       curl -s -w "HTTP %{http_code} %{time_total}s\n" \
+         "http://127.0.0.1:8080/api/trendlines" -o /tmp/out.json
+     Expect: HTTP 200 in <5s (was timing out at 25s+ on Yahoo fanout).
+
+  e. py_compile after each rewire:
+       venv/bin/python3 -m py_compile dashboard/app.py
+
+After all 4 endpoints are rewired:
+  - SINGLE commit covering all 4 (semantically one ship).
+  - Branch hm-slow-fundamentals-phase-2.
+  - Push. HALT for Captain merge.
+
+Backend Python change — also dormant until next restart.
+
+════════════════════════════════════════════════════════════════════════════════
+END SEQUENCE
+════════════════════════════════════════════════════════════════════════════════
+After Item 4 push, halt cleanly and report:
+  - Item 1: restart status + Chekov PR activation evidence
+  - Item 2: PR URL + branch name
+  - Item 3: PR URL + branch name
+  - Item 4: PR URL + branch name
+
+Cumulative work this session expected: ~3-4 hours. If running short on time,
+ship Items 1 + 2 + 3 first (each ~30-60 min) and defer Item 4 to a follow-up
+session — Phase 2 is a clean 4-endpoint batch that survives being deferred.
+
+ENDS.

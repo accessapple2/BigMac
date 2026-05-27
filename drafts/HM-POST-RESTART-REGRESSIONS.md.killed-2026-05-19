@@ -1,0 +1,69 @@
+HM-POST-RESTART-REGRESSIONS — 2 panels stale after Round 5 restarts
+
+CONDITIONAL FIRE: Tomorrow morning, hard-refresh dashboard first.
+If both regressions self-healed via cache TTL → kill this draft.
+If still broken → fire the paste.
+
+Discovered: 2026-05-18 18:26 ET via Captain's Bridge page dump.
+After 3x trader restart during HM-ROUND-5-MEGA execution.
+
+═══════════════════════════════════════════════════════════
+REGRESSION 1 — METALS panel BLANK
+═══════════════════════════════════════════════════════════
+
+Surface: Bridge Metals panel + Metals Exposure detail
+Before today: $9,638.70 header / $9,634.10 detail (Round 3 fix)
+After 3x trader restart: all "--" / "Market Closed"
+
+Likely causes:
+  (a) Cache didn't repopulate post-restart
+  (b) "Market Closed" guard fires too aggressively post-hours
+  (c) metals_ledger SQL query failing silently after restart
+  (d) /api/metals/portfolio + /api/metals/exposure stale
+
+INVESTIGATION
+  curl -s http://127.0.0.1:8080/api/metals/portfolio | python3 -m json.tool | head -30
+  curl -s http://127.0.0.1:8080/api/metals/exposure | python3 -m json.tool | head -30
+  curl -s http://127.0.0.1:8080/api/metals/gsr 2>&1 | head -10
+  sqlite3 ~/autonomous-trader/data/trader.db "SELECT * FROM metals_ledger ORDER BY id DESC LIMIT 5;"
+  tail -100 logs/trader.log | grep -iE "metals|ledger|market.?closed" | tail -20
+
+═══════════════════════════════════════════════════════════
+REGRESSION 2 — Fleet S6 stats reset to zeros
+═══════════════════════════════════════════════════════════
+
+Surface: Bridge Season Stats footer
+Before today: Total P&L +$4009.91, 393 closed trades, WR 74.3%
+After 3x trader restart: $0.00, 0 closed, WR 0.0%, PF 0.00
+
+Key insight: Fleet Leaderboard per-agent panel shows REAL P&L 
+(McCoy +$38, Chekov +$115, Capitol -$16) — per-agent data 
+INTACT. Only AGGREGATE rollup is zero. Suggests rollup 
+calculation bug, not data loss.
+
+INVESTIGATION
+  curl -s http://127.0.0.1:8080/api/season/stats 2>&1 | python3 -m json.tool | head -20
+  curl -s http://127.0.0.1:8080/api/leaderboard 2>&1 | python3 -m json.tool | head -20
+  sqlite3 ~/autonomous-trader/data/trader.db "SELECT season, COUNT(*) FROM closed_trades WHERE season = 6 GROUP BY season;"
+  sqlite3 ~/autonomous-trader/data/trader.db "SELECT COUNT(*) FROM closed_trades WHERE created_at > datetime('now', '-1 day');"
+
+═══════════════════════════════════════════════════════════
+GUARDRAILS
+═══════════════════════════════════════════════════════════
+
+- Sacred DB rule: AUDIT READS ONLY
+- Per-agent data is intact — do not "fix" that
+- Cache TTL <24h is likely — self-heal possible overnight
+- If self-healed by morning: kill this draft entirely
+- AUDIT-FIRST per regression
+- DO NOT mistake post-restart cache stale for actual data loss
+
+END HM-POST-RESTART-REGRESSIONS
+
+# KILLED 2026-05-19
+
+Invalidated by:
+- Metals "regression" was perf, not data — fixed by HM-METALS-CACHE-FRESH-TRUE-PERF (commit 91a5ed8). 3 metals endpoints called get_spot_prices(fresh=True) concurrently, popping the 60s _PRICE_CACHE_TTL on every Bridge load and paying 4× serial yfinance fanout per call. Fix: drop fresh=True from /api/metals/prices and /api/metals/exposure + parallelize get_spot_prices for-loop. Cold cache 24s → 9s, warm <100ms.
+- S6 stats path was wrong (/api/season/stats → 404; correct path TBD via AUTO-CLOSE-SWEEP — Bridge footer reads a different endpoint).
+- closed_trades table doesn't exist in trader.db; canonical table is 'trades' (column executed_at, not created_at).
+- /api/metals/gsr endpoint doesn't exist in the FastAPI app.

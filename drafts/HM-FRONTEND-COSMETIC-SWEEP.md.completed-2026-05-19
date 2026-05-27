@@ -1,0 +1,101 @@
+HM-FRONTEND-COSMETIC-SWEEP — single-commit polish bundle
+
+Purpose: 7 small frontend renderer fixes shipped as ONE 
+bundled commit. Same shape as Round 1 dashboard audit fixes.
+
+Mode: Pure frontend, single commit, browser smoke at end.
+Effort: ~1 hour Scotty.
+Expected: 7 items closed in one ship.
+
+══════════════════════════════════════════════════════════
+PER-ITEM FIXES
+══════════════════════════════════════════════════════════
+
+C1. HM-RIKER-LLM-TOKENIZER-ARTIFACT
+   Surface: Bridge tab Riker XO synthesis renderer
+   Symptom: <unused4106> tag prefix on every Riker output
+   Fix: Strip <unused\d+> pattern in the renderer before 
+        innerHTML. One-line regex replace.
+   Investigation:
+     grep -n "Riker\|riker_synthesis\|riker.synthesis" dashboard/static/index.html | head -10
+
+C2. HM-WORF-ARSENAL-ETF-LIST-EMPTY
+   Surface: Bridge tab Worf's Defensive Arsenal section
+   Symptom: "Defensive Weapons Locker" description shows but 
+            no ETF cards/prices load
+   Fix: Find renderer, check what API/data source it expects.
+        Likely a missing fetch or wrong endpoint.
+   Investigation:
+     grep -n "Worf.*Arsenal\|defensive.*weapons\|inverse.*etf" dashboard/static/index.html | head -10
+
+C3. HM-SNIFF-SCAN-EMPTY-PANEL-NO-MESSAGE
+   Surface: Sniff Scan tab "Scanner Hits" column
+   Symptom: Blank panel when no results, no "no results" 
+            message — visually confusing
+   Fix: Add empty-state message: "No scanner hits this cycle"
+
+C4. HM-SQUEEZE-DUPLICATE-BENF
+   Surface: Squeeze tab candidate list
+   Symptom: BENF appears twice (21h ago and 2d ago)
+   Fix: Add dedupe Set on ticker+settle-date composite, same 
+        pattern as Red Alert dedupe from Round 1.
+
+C5. HM-FLEET-WIN-RATE-CONTRADICTION
+   Surface: Bridge tab Fleet stats footer
+   Symptom: "Fleet Win Rate 74.3%" + "0W / 0L" displayed 
+            simultaneously
+   Fix: Display logic — if W=0 AND L=0, hide win rate OR 
+        label it "all-time WR" to disambiguate from current.
+
+C6. HM-BATTLE-STATION-HALT-STATUS-BANNER
+   Surface: Bridge tab Battle Station 0DTE section
+   Symptom: All "--" everywhere because T'Pol intentionally
+            halted; users see broken UI
+   Fix: Add banner: "⏸ T'Pol halted (spread cannibalization 
+        2026-05-06) — Battle Station idle. See Models tab to
+        re-enable."
+
+C7. HM-LIVECHART-OBSERVER-LEAK
+   Surface: Live Chart section MutationObserver
+   Symptom: "[LiveChart] section hidden!" warning fires 
+            repeatedly on every section switch
+   Fix: Tear down observer in section-hide handler.
+
+══════════════════════════════════════════════════════════
+EXECUTION
+══════════════════════════════════════════════════════════
+
+1. Audit each renderer location (5 min per item with grep).
+2. Apply all 7 fixes in single editor session.
+3. node --check on touched script blocks.
+4. Single bundled commit:
+   "HM-FRONTEND-COSMETIC-SWEEP: 7 UI polish fixes — Riker 
+    tokenizer strip, Worf Arsenal ETF list, Sniff empty 
+    state, Squeeze dedupe, Fleet WR contradiction, Battle 
+    Station halt banner, LiveChart observer teardown."
+5. Update BANKED_ITEMS_2026-05-18_DASHBOARD_AUDIT.md with 
+   "Shipped Round 7" section.
+
+══════════════════════════════════════════════════════════
+GUARDRAILS
+══════════════════════════════════════════════════════════
+
+- Frontend only. No backend, no DB, no producer changes.
+- Per Frontend Ship Rule, Captain owes browser smoke at 
+  127.0.0.1:8080 after commit lands.
+- Second-renderer search pattern: grep for ALL renderers 
+  of each fix surface before patching.
+- Bank lesson from today: don't assume first grep hit is 
+  the only renderer.
+
+END HM-FRONTEND-COSMETIC-SWEEP
+
+# COMPLETED 2026-05-19
+
+Single bundled commit (5f7a25d) — dashboard/static/index.html: 70/-19 lines.
+All 7 items shipped. Second-renderer pattern caught Worf second hit at
+line 27153. node --check passed clean across 156 script blocks.
+
+Captain owes browser smoke at 127.0.0.1:8080 per Frontend Ship Rule.
+
+Bank file updated with "Shipped Round 7" section.

@@ -1,0 +1,205 @@
+# HM-BL: OllieTrades Model Fleet Refresh — May 2026
+
+**Issued:** 2026-05-15
+**From:** Admiral Steve (via Claude XO)
+**To:** Scotty (Claude Code, executor on Ollie Box)
+**Classification:** Hardening Milestone — Model Refresh
+**Note:** Originally drafted as HM-BK; renamed to HM-BL because HM-BK.md on disk is the Small-Cap Mover Watchlist ticket (different topic). HM-BM is the related Model Bakeoff directive (sibling).
+
+---
+
+## OBJECTIVE
+
+Refresh local model fleet on Ollie Box (192.168.1.166) against May 2026 SOTA. Update agent routing per the new model→role mapping. Wire (but do NOT activate) the `KIRK_FRONTIER_REVIEW` flag for optional Ollama Cloud cross-check on real-money signals.
+
+**Hard rules:**
+- NEVER `rm` on `.db` files or any dir under `~/autonomous-trader/data/`
+- Archive/rename only — no destructive deletes
+- Daemon lifecycle: any new module state binds to process lifecycle, not lazy-instantiated
+- Frontend ship rule: any `dashboard/static/index.html` change requires browser smoke test (none expected here)
+- Verify model toggle page (see CLAUDE.md memory item 13) before retiring any halted agent's model
+
+---
+
+## PHASE 1 — Ollama version check & update
+
+Verify Ollama 0.24.0+ on Ollie Box. If below, upgrade via the install script and restart the service. Verify API responds on :11434.
+
+**CHECKPOINT:** `ollama --version` reports 0.24.0+ and API responds on `:11434`.
+
+---
+
+## PHASE 2 — Pull new model fleet (already complete by Admiral)
+
+All 7 models confirmed installed by Admiral pre-handoff:
+- gemma4:26b (17GB), gemma4:31b (19GB)
+- qwen3.6:27b (17GB), qwen3.6:35b-a3b (23GB)
+- llama4:scout (67GB)
+- devstral-small-2 (15GB)
+- ministral-3:3b (3GB)
+
+Re-run `ollama pull` for each is idempotent (no-op if present); safe to verify.
+
+**CHECKPOINT:** `ollama list` shows all 7 with non-zero sizes.
+
+---
+
+## PHASE 3 — Smoke test the new fleet
+
+For each new model, run a single-shot "Reply with exactly: OK" prompt with 90s timeout. Log all to `~/autonomous-trader/logs/model_refresh_may2026.log`.
+
+Models to test: gemma4:26b, gemma4:31b, qwen3.6:27b, qwen3.6:35b-a3b, llama4:scout, devstral-small-2, ministral-3:3b
+
+**CHECKPOINT:** Each model returns non-empty response. Log file written.
+
+---
+
+## PHASE 4 — Agent routing update
+
+**Snapshot first:**
+```
+cd ~/autonomous-trader
+TS=$(date +%Y%m%d_%H%M%S)
+sqlite3 data/trader.db ".dump agents" > backups/agents_table_pre_BL_${TS}.sql
+[ -f configs/agent_routing.json ] && cp configs/agent_routing.json backups/agent_routing_pre_BL_${TS}.json.bak
+```
+
+**Routing mapping** (verify each agent is NOT on the model toggle page per CLAUDE.md item 13 — toggle-page agents in `halt_mode='full'` are deliberate OFF, NOT stale routing):
+
+| Role | Model | Notes |
+|------|-------|-------|
+| Real-time / spread scanners (resident) | `ministral-3:3b` | Keep hot, smallest, vision-capable bonus |
+| Lightweight signal triage | `qwen3:8b` | Keep current |
+| Production agents with tool calls (chekov, navigator, neo-matrix, capitol-trades) | `gemma4:26b` | MoE, ~3.8B active, vision-capable |
+| Tool-call-heavy edge cases | `qwen3.6:35b-a3b` | Past Gemma 4's ~11-call repetition cliff |
+| Options pricing / Greeks (primary) | `phi4:14b` | Keep — precision math |
+| Options heavy lifts (multi-leg, BSM ceiling, IV surface) | `gemma4:31b` | Dense, sharper reasoning |
+| Code work / signal-center / agent edits | `qwen3.6:35b-a3b` OR `devstral-small-2` | Both agentic-coding tuned |
+| Vision (CSV screenshots, charts) primary | `gemma4:26b` | Multimodal |
+| Vision heavy | `gemma4:31b` | Slower, sharper |
+| War Room debate — Bull | `gemma4:31b` | |
+| War Room debate — Bear | `qwen3.6:35b-a3b` | Forces cross-architecture disagreement |
+
+Apply via SQL or config edit (Scotty to determine schema), then verify with `SELECT agent_id, model_name, halt_mode FROM agents ORDER BY halt_mode, agent_id;`.
+
+**CHECKPOINT:** Snapshot exists in `backups/`, routing reflects mapping, NO halted toggle-page agents touched.
+
+---
+
+## PHASE 5 — Wire KIRK_FRONTIER_REVIEW flag (PERMANENTLY INACTIVE)
+
+Admiral declined Ollama Cloud Pro on 2026-05-15. This phase wires the code path dormant for future optionality only.
+
+Add to `.env` (idempotent — abort if already present):
+```
+KIRK_FRONTIER_REVIEW=false
+KIRK_FRONTIER_MODELS=kimi-k2.6:cloud,deepseek-v4-pro:cloud
+```
+
+Add a gated branch in `generate_kirk_advisory()` at `dashboard/app.py:13420` (per CLAUDE.md item 24, source routing in `docs/KIRK_SOURCES.md`):
+
+```python
+import os
+KIRK_FRONTIER_REVIEW = os.getenv("KIRK_FRONTIER_REVIEW", "false").lower() == "true"
+KIRK_FRONTIER_MODELS = os.getenv("KIRK_FRONTIER_MODELS", "").split(",")
+
+def _frontier_cross_check(signal, advisory):
+    """LOG ONLY — never blocks. Inactive unless KIRK_FRONTIER_REVIEW=true."""
+    if not KIRK_FRONTIER_REVIEW:
+        return
+    if not _is_real_money_signal(signal):
+        return
+    for model in KIRK_FRONTIER_MODELS:
+        if not model.strip():
+            continue
+        try:
+            resp = ollama_client.chat(
+                model=model.strip(),
+                messages=[{"role": "user", "content": _build_frontier_prompt(signal, advisory)}],
+                options={"timeout": 30}
+            )
+            _log_frontier_response(signal["id"], model, resp)
+        except Exception as e:
+            logger.warning(f"frontier review {model} failed: {e}")
+```
+
+Add tracking column (idempotent):
+```
+ALTER TABLE ghost_options_watch ADD COLUMN frontier_review_json TEXT DEFAULT NULL;
+```
+
+**CHECKPOINT:** `.env` has `KIRK_FRONTIER_REVIEW=false`. Code path exists but is dormant. `ghost_options_watch.frontier_review_json` column exists. Verify with `grep -r "kimi-k2.6:cloud\|deepseek-v4-pro:cloud" logs/` returns empty.
+
+---
+
+## PHASE 6 — Archival candidates report (NO REMOVAL)
+
+Write `~/autonomous-trader/logs/model_archival_candidates_2026-05-15.txt`:
+
+```
+HM-BL Model Archival Candidates — 2026-05-15
+Admiral decision required. NO models removed by this directive.
+
+SUPERSEDED (recommend retire after HM-BM bakeoff + 7-day soak):
+  phi3:mini           → superseded by phi4:14b
+  qwen2.5:7b          → superseded by qwen3 family
+  qwen2.5-coder:7b    → superseded by devstral-small-2 + qwen3.6:35b-a3b
+  llama3.1:latest     → superseded by llama4:scout
+  gemma3:27b-it-qat   → superseded by gemma4:26b (just pulled, now obsolete)
+
+DECISION PENDING (await HM-BM bakeoff results):
+  deepseek-r1:14b     → vs deepseek-r1:32b (also installed)
+  qwen3-coder:30b     → vs qwen3.6:35b-a3b
+  qwen3:14b           → vs qwen3.6:27b
+  0xroyce/plutus      → custom finance-tuned, no direct replacement; KEEP unless backtest shows obsolescence
+
+DO NOT TOUCH:
+  Any model currently referenced by a halt_mode=full agent on the model toggle page
+  (see CLAUDE.md memory item 13)
+```
+
+**CHECKPOINT:** Report file exists. Zero `ollama rm` commands executed.
+
+---
+
+## PHASE 7 — Service restart & live verification
+
+```
+launchctl kickstart -k gui/$(id -u)/com.trademinds.trader
+sleep 5
+pgrep -af main.py
+lsof -ti :8080
+```
+
+Wait 30s, then verify one production agent end-to-end:
+```
+sqlite3 ~/autonomous-trader/data/trader.db "SELECT agent_id, model_name, last_run, status FROM agents WHERE halt_mode='active' ORDER BY last_run DESC LIMIT 5;"
+```
+
+**CHECKPOINT:** New PID for `main.py`. Port 8080 bound. Active agent has emitted a signal post-restart using a new-fleet model.
+
+---
+
+## PASTE-BACK RULES
+
+Routine green = "green, next." ONLY paste back:
+- Phase 1: if Ollama install fails or version stays below 0.24
+- Phase 3: if any model times out or returns empty
+- Phase 4: if routing schema is unexpected (likely needs Admiral input)
+- Phase 5: if Kirk pipeline can't accept the gated branch cleanly
+- Phase 7: if service won't restart or agents emit errors
+
+Otherwise: single closure with all checkpoints met + paths to log/report files.
+
+---
+
+## ADMIRAL FOLLOW-UPS (status)
+
+1. ~~Ollama Cloud Pro~~ — **DECLINED 2026-05-15.** KIRK_FRONTIER_REVIEW remains wired-dormant as zero-cost optionality.
+2. Backtest new fleet vs incumbents — **APPROVED 2026-05-15.** See HM-BM (Model Bakeoff).
+3. After HM-BM + 7-day soak, issue HM-BL.1 to retire models per bakeoff results.
+4. Monthly cadence — next refresh ~2026-06-15.
+
+---
+
+## END DIRECTIVE

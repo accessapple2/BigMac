@@ -1,0 +1,1 @@
+INSERT INTO positions (id, player_id, symbol, qty, avg_price, asset_type, option_type, strike_price, expiry_date, opened_at, high_watermark) VALUES (127, 'dalio-metals', 'GOOGL', 5.9831, 12.93, 'option', 'call', 275.0, '2026-05-01', '2026-03-30 18:28:40', NULL);

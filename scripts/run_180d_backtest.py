@@ -150,8 +150,8 @@ def ic_squadron_filter(symbol: str, df: pd.DataFrame, account_equity: float,
     # ── Pillar 3: max 6 concurrent ICs (tuned from 3 — P3 was binding at
     # 840 rejections in the 3-cap run; raising the cap lets more trades
     # through to test whether the edge holds at higher concurrency) ──
-    if open_ic_count >= 6:
-        return False, f"P3_FAIL open_ics={open_ic_count}>=6"
+    if open_ic_count >= 10:
+        return False, f"P3_FAIL open_ics={open_ic_count}>=10"
 
     # ── Pillar 4: capital ladder + 8% drawdown demotion ──
     stage = stage_stats.get("stage", 0)

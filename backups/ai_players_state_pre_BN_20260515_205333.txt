@@ -1,0 +1,52 @@
+id                   model_id                        fallback_model    halt_mode  role         
+-------------------  ------------------------------  ----------------  ---------  -------------
+alpaca-mirror        sync                                              active     broker-mirror
+capitol-trades       congress-copycat                                  active     production   
+cto-grok42           qwen2.5-coder:7b                deepseek-r1:7b    active     production   
+dalio-metals         qwen3:8b                        qwen3:8b          active     production   
+deepseek-7b-grok4    deepseek-r1:7b                  deepseek-r1:7b    active     production   
+energy-arnold        qwen3:8b                                          active     production   
+enterprise-computer  metals-tracker                                    active     production   
+mlx-qwen3            phi3:mini                                         active     production   
+navigator            qwen2.5:7b                                        active     production   
+neo-matrix           8000 / Independent                                active     production   
+ollama-coder         qwen2.5-coder:7b                                  active     production   
+ollama-deepseek      deepseek-r1:14b                                   active     production   
+ollama-kimi          phi3:mini                                         active     production   
+ollama-plutus        hf.co/0xroyce/Plutus-3B:Q4_K_M                    active     production   
+ollama-qwen3         qwen3:8b                                          active     production   
+ollie-auto           ollie                                             active     production   
+options-sosnoff      qwen3:8b                        qwen3:8b          active     production   
+qwen3-14b-pro        qwen3:8b                        qwen3:8b          active     production   
+qwen3-8b-flash       qwen3:8b                        qwen3:8b          active     production   
+qwen3-8b-sonnet      qwen3:8b                        qwen3:8b          active     production   
+red-alert            system                                            active     production   
+dayblade-sulu        phi4:14b                                          exit_only  production   
+gemini-2.5-flash     qwen3:8b                        qwen3:8b          exit_only  production   
+gemini-2.5-pro       qwen3:14b                       qwen3:14b         exit_only  production   
+grok-3               qwen3:14b                       qwen3:14b         exit_only  production   
+ollama-llama         qwen3:8b                        qwen3:8b          exit_only  production   
+ollama-local         gemma3:4b                                         exit_only  production   
+anderson-bcs         rules                                             full       production   
+chekov               qwen2.5:7b                                        full       production   
+claude-haiku         qwen2.5-coder:7b                qwen2.5-coder:7b  full       production   
+claude-sonnet        qwen3:8b                        qwen3:8b          full       production   
+covered-call         rules                                             full       production   
+dayblade-0dte        options-s2                                        full       production   
+ghost-kirk-0dte-bc   rules                                             full       ghost        
+ghost-kirk-bc        rules                                             full       ghost        
+ghost-long-call      rules                                             full       ghost        
+ghost-naked-put      rules                                             full       ghost        
+gpt-4o               qwen3:8b                        qwen3:8b          full       production   
+gpt-o3               qwen3:8b                        deepseek-r1:7b    full       production   
+grok-4               deepseek-r1:7b                  deepseek-r1:7b    full       production   
+mccoy-bps            rules                                             full       production   
+ollama-gemma27b      qwen3:8b                                          full       production   
+ollama-glm4          qwen3:8b                                          full       production   
+quark-ic             rules                                             full       production   
+qwen-coder-haiku     qwen2.5-coder:7b                qwen3:8b          full       production   
+qwen3-14b-grok3      qwen3:8b                        deepseek-r1:7b    full       production   
+qwen3-8b-4o          qwen3:8b                        qwen3:8b          full       production   
+qwen3-8b-o3          qwen3:8b                        qwen3:14b         full       production   
+super-agent          crewai/crew                     deepseek-r1:7b    full       production   
+webull               human                                             full       production   

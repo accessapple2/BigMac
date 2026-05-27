@@ -109,8 +109,8 @@ html[data-theme-preload="light"] {
   --bg-panel:      #ffffff;
   --bg-elevated:   #ffffff;
   --text-primary:   #0f172a;
-  --text-secondary: #475569;
-  --text-muted:     #94a3b8;
+  --text-secondary: #334155;
+  --text-muted:     #475569;
   --up:      #16a34a;
   --down:    #dc2626;
   --up-bg:   rgba(22, 163, 74, 0.10);
@@ -130,8 +130,8 @@ html[data-theme-preload="light-cb"] {
   --bg-panel:      #ffffff;
   --bg-elevated:   #ffffff;
   --text-primary:   #0f172a;
-  --text-secondary: #475569;
-  --text-muted:     #94a3b8;
+  --text-secondary: #334155;
+  --text-muted:     #475569;
   --up:      #0d9488;
   --down:    #ea580c;
   --up-bg:   rgba(13, 148, 136, 0.12);
@@ -6537,7 +6537,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     </div>
     <!-- C6 HM-BATTLE-STATION-HALT-STATUS-BANNER: surface intentional halt so "--" everywhere reads as expected, not broken UI. -->
     <div style="margin:0 14px 10px;padding:8px 12px;background:rgba(245,158,11,0.08);border-left:3px solid #f59e0b;border-radius:0 6px 6px 0;font-size:12px;color:var(--text);">
-      ⏸ <b>T'Pol halted</b> (spread cannibalization 2026-05-06) — Battle Station idle. See <span style="color:var(--accent);">Models</span> tab to re-enable.
+      ✅ <b>T'Pol active</b> — dayblade-0dte unhalted 2026-05-27 (β/γ cannibalization defense layers protecting). Power hour scans armed.
     </div>
 
     <!-- Morning Levels row -->
@@ -23463,7 +23463,19 @@ async function fetchWebullPortfolio() {
 
     // Store portfolio data and render supplemental panels
     window._wbPortfolio = d;
-    wbRenderDonut(d);
+    // HM-DONUT-ALPACA: feed donut from Alpaca paper (active fleet) instead of Webull
+    try {
+      var [posR, statR] = await Promise.all([
+        fetch('/api/alpaca/positions'),
+        fetch('/api/alpaca/status')
+      ]);
+      var posJ = await posR.json();
+      var statJ = await statR.json();
+      wbRenderDonut({ positions: posJ.positions || [], cash: statJ.cash || 0 });
+    } catch(donutErr) {
+      console.warn('[Donut-Alpaca] fallback to webull data:', donutErr);
+      wbRenderDonut(d);
+    }
     fetchWbRecentTrades();
     // Load history for sparkline (use cached period or default 7d)
     wbLoadHistory(window._wbPnlDays || 7);
@@ -23548,13 +23560,20 @@ window._wbPortfolio = null;
 
 var _WB_SECTOR_MAP = {
   AMD:'Technology', MSFT:'Technology', NVDA:'Technology', AAPL:'Technology',
-  GOOGL:'Technology', META:'Technology', AMZN:'Consumer', TSLA:'Consumer',
+  GOOGL:'Technology', META:'Technology', NOW:'Technology', DELL:'Technology',
+  MU:'Technology', PLTR:'Technology', AVGO:'Technology', SYM:'Technology',
+  ZM:'Technology', SBAC:'Technology', SPGI:'Technology', WMG:'Technology',
+  AMZN:'Consumer', TSLA:'Consumer', COST:'Consumer', F:'Consumer', GM:'Consumer', RBC:'Consumer',
   XLE:'Energy', XOM:'Energy', CVX:'Energy', COP:'Energy',
+  KMI:'Energy', WMB:'Energy', WFRD:'Energy',
   JPM:'Financials', BAC:'Financials', GS:'Financials', C:'Financials',
+  BAP:'Financials', INTU:'Financials',
   JNJ:'Healthcare', UNH:'Healthcare', PFE:'Healthcare', ABBV:'Healthcare',
+  LLY:'Healthcare', LNTH:'Healthcare', MDGL:'Healthcare', PRAX:'Healthcare',
   SPY:'Broad Market', QQQ:'Broad Market', IWM:'Broad Market',
-  NOW:'Technology', DELL:'Technology', MU:'Technology', PLTR:'Technology',
-  VRT:'Industrials', CLF:'Materials', FCX:'Materials',
+  VRT:'Industrials', ITT:'Industrials', LII:'Industrials', TKR:'Industrials', ESE:'Industrials',
+  CLF:'Materials', FCX:'Materials', STLD:'Materials',
+  AVB:'Real Estate',
 };
 var _WB_SECTOR_COLORS = [
   '#4f8ef7','#22c55e','#eab308','#f97316','#ef4444',

@@ -1,0 +1,138 @@
+HM-AUTO-CLOSE-SWEEP — verify-or-close bank pass
+
+Purpose: 11 banked items may have been auto-closed by today's 
+ships but were never verified. Single audit pass, single doc 
+commit removing closed items. ZERO code changes expected.
+
+Mode: AUDIT-ONLY + DOC-COMMIT. No application code touched.
+Effort: ~30 min Scotty.
+Expected shrinkage: 6-10 items closed from bank.
+
+══════════════════════════════════════════════════════════
+PER-ITEM VERIFY CHECKLIST
+══════════════════════════════════════════════════════════
+
+ITEM 1 — HM-METALS-GSR-DATA-WIRE
+  Likely closed by commit 21e7462 (Round 3 Item 3 metals_ledger).
+  Verify:
+    curl -s http://127.0.0.1:8080/api/metals/exposure | python3 -m json.tool | grep -i "gsr\|ratio"
+  Close if GSR returns a real number (not "--").
+
+ITEM 2 — HM-WHEEL-PUT-COUNT-MISMATCH
+  Closed by commit 21e7462 (Round 3 Item 5 slice bump).
+  Verify Captain's page dump 2026-05-18 PM showed 9/9 puts.
+  Close — already confirmed.
+
+ITEM 3 — HM-METALS-HEADER-DETAIL-DISCREPANCY
+  Closed by commit 21e7462 (Round 3 Item 3 metals_ledger).
+  Verify both surfaces match:
+    curl -s http://127.0.0.1:8080/api/metals/portfolio | python3 -m json.tool | grep total
+    curl -s http://127.0.0.1:8080/api/metals/exposure | python3 -m json.tool | grep total
+  Close if both show same total (~$9,634).
+
+ITEM 4 — HM-CONSENSUS-PANEL-SPLIT
+  Likely SUBSET of HM-UHURA-DATA-SIGNAL-PRODUCERS-IDLE.
+  Verify if it's truly duplicate or independent symptom.
+  If duplicate: close with reference to parent ticket.
+  If independent: leave banked.
+
+ITEM 5 — HM-INSIDER-FEED-INIT-STUCK
+  Re-test post Signal Center fixes (commit 42c7456):
+    curl -s http://127.0.0.1:8080/api/insider/feed 2>&1 | head -10
+  Close if feed populates. Leave banked if still "initializing."
+
+ITEM 6 — HM-FEAR-GREED-WIDGET-STANDALONE-UNDEFINED
+  Re-test the standalone widget (vs Bridge embed which works):
+    curl -s http://127.0.0.1:8080/api/fear-greed/standalone 2>&1 | head -10
+  Check if Captain's page dump 2026-05-18 PM showed F&G 80 in 
+  Sentiment Engine — if rendering live, close.
+
+ITEM 7 — HM-LIVE-CHART-VOL-ZERO-STALE-STREAM
+  Re-test Live Chart VOL field:
+    curl -s http://127.0.0.1:8080/api/livechart/MSFT 2>&1 | python3 -m json.tool | grep -i "vol\|volume" | head -5
+  Close if VOL non-zero. Leave banked if still 0.
+
+ITEM 8 — HM-RACE-FEED-INITIALIZING-STUCK
+  Market-state dependent — check during market hours.
+  Captain's page dump 2026-05-18 PM showed Race "Top Gainers 
+  table 20 of 20 rows" working. Likely closed.
+  Verify and close.
+
+ITEM 9 — HM-SQUEEZE-CRON-NOT-RUNNING
+  Audit cron state:
+    launchctl list | grep -i squeeze
+    grep -rn "squeeze.*scan\|squeeze.*cron" engine/ scripts/ | head -10
+    sqlite3 ~/autonomous-trader/data/trader.db "SELECT MAX(created_at), COUNT(*) FROM squeeze_alerts WHERE created_at > datetime('now', '-2 hours');"
+  Close if cron alive and recent runs visible.
+  Leave banked if cron dead (separate revival ticket).
+
+ITEM 10 — HM-GEX-OVERLAY-STALE-TIMESTAMP
+  Captain's page dump 2026-05-18 PM showed "GEX Overlay 
+  07:03:12" — likely still stale.
+  Re-verify and close OR document specific failure.
+
+ITEM 11 — HM-DOM-STRUCTUREFIX-WARNINGS
+  Runtime-corrected, cosmetic only. Audit if root cause 
+  (template misorder) is worth fixing OR if accept-and-close 
+  is the right call (90+ warnings, but all auto-fixed).
+  Decision-bank: either fix root cause OR mark as 
+  WONTFIX-COSMETIC and close.
+
+══════════════════════════════════════════════════════════
+EXECUTION
+══════════════════════════════════════════════════════════
+
+1. Run all 11 verifications sequentially. ~30 min total.
+2. Build CLOSED list per item with the verification evidence 
+   (curl output snippet, page dump quote, etc.).
+3. Update BANKED_ITEMS_2026-05-18_DASHBOARD_AUDIT.md:
+   - Add "Auto-Closed Round 6" section at top
+   - List each closed item with one-line justification + 
+     reference commit
+   - Remove closed items from the active bank list
+4. Single doc-only commit:
+   "HM-AUTO-CLOSE-SWEEP: verify-or-close pass on 11 banked 
+    items. N closed via Round 3-4 spillover, M remain banked."
+
+══════════════════════════════════════════════════════════
+GUARDRAILS
+══════════════════════════════════════════════════════════
+
+- AUDIT-ONLY. No application code changes.
+- DOC-COMMIT only at the end.
+- DO NOT touch ai_players, halt states, or any sacred DB row.
+- If verification is ambiguous: LEAVE BANKED, don't close 
+  prematurely.
+- If a verification surfaces a NEW bug: bank it as new ticket,
+  don't try to fix mid-sweep.
+
+END HM-AUTO-CLOSE-SWEEP
+
+# COMPLETED 2026-05-19
+
+Verify-or-close pass executed. Disposition logged in
+`reports/BANKED_ITEMS_2026-05-18_DASHBOARD_AUDIT.md` under
+"Auto-Closed Round 6" section.
+
+Score: 7 closed / 4 still banked / 1 new finding banked.
+
+Closed (7): 1 HM-METALS-GSR-DATA-WIRE, 2 HM-WHEEL-PUT-COUNT-MISMATCH,
+3 HM-METALS-HEADER-DETAIL-DISCREPANCY, 4 HM-CONSENSUS-PANEL-SPLIT
+(subset of HM-UHURA), 8 HM-RACE-FEED-INITIALIZING-STUCK,
+9 HM-SQUEEZE-CRON-NOT-RUNNING, 11 HM-DOM-STRUCTUREFIX-WARNINGS
+(WONTFIX-COSMETIC).
+
+Still banked (4): 5 HM-INSIDER-FEED-INIT-STUCK,
+6 HM-FEAR-GREED-WIDGET-STANDALONE-UNDEFINED,
+7 HM-LIVE-CHART-VOL-ZERO-STALE-STREAM,
+10 HM-GEX-OVERLAY-STALE-TIMESTAMP.
+
+New banked: HM-INSIDER-FEED-PATH-CONFLATION (surfaced during Item 5
+verification; /api/insider/feed treats "feed" as ticker symbol).
+
+Side deliverable: S6 stats footer endpoint identified as
+`/api/performance?season=N&fleet_only=true`. Backend currently
+returning correct values (total_pnl=$4009.91, closed=393, WR=74.3%,
+PF=3.51) — match killed HM-POST-RESTART-REGRESSIONS "before"
+baseline. "After 3x restart: $0.00" symptom was transient UI state
+via silent try/catch in fetchStats(). No backend bug.

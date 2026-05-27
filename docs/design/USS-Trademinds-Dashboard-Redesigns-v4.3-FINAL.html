@@ -1,0 +1,696 @@
+<!DOCTYPE html><html><head><meta charset="utf-8"><title>USS Trademinds — Dashboard Redesigns v4.3</title><style>
+*{box-sizing:border-box;}
+html,body{margin:0;padding:0;background:#05080d;color:#e5e7eb;font-family:Inter,system-ui,-apple-system,Segoe UI,Roboto,sans-serif;}
+.uss-doc{max-width:1400px;margin:0 auto;padding:24px;}
+.uss-doc-head{padding:16px 0 24px;border-bottom:1px solid #1f2937;margin-bottom:24px;}
+.uss-doc-title{font-size:22px;font-weight:800;color:#fbbf24;letter-spacing:1px;}
+.uss-doc-sub{color:#9ca3af;font-size:13px;margin-top:4px;}
+.uss-page{background:#05080d;padding:0;margin:0 0 48px;page-break-after:always;}
+.uss-page-head{padding:14px 18px;background:#0a0e14;border:1px solid #1f2937;border-radius:8px 8px 0 0;display:flex;justify-content:space-between;align-items:center;}
+.uss-pt{color:#fbbf24;font-weight:800;font-size:15px;letter-spacing:1px;}
+.uss-ps{color:#9ca3af;font-size:12px;margin-top:2px;}
+.uss-shell{display:grid !important;grid-template-columns:220px 1fr !important;gap:12px;background:#05080d;border:1px solid #1f2937;border-top:none;border-radius:0 0 8px 8px;padding:12px;}
+.uss-sb{position:relative !important;background:#0a0e14;border:1px solid #1f2937;border-radius:6px;padding:10px;font-size:12px;}
+.uss-sb-h{color:#fbbf24;font-size:10px;font-weight:700;letter-spacing:1px;padding:8px 6px 4px;border-top:1px solid #1f2937;margin-top:6px;}
+.uss-sb-h:first-child{border-top:none;margin-top:0;}
+.uss-sb-i{padding:5px 8px;color:#9ca3af;border-radius:4px;display:flex;justify-content:space-between;}
+.uss-sb-i.on{background:#1f2937;color:#fbbf24;font-weight:700;}
+.uss-sb-i .bg{background:#1f2937;color:#fbbf24;font-size:9px;padding:1px 5px;border-radius:8px;}
+.uss-main{padding:4px;}
+.uss-hero{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:10px;}
+.uss-hc{background:#0a0e14;border:1px solid #1f2937;border-radius:6px;padding:14px;}
+.uss-hc.alert{border-color:#dc2626;}
+.uss-hl{color:#9ca3af;font-size:10px;letter-spacing:1px;font-weight:700;}
+.uss-hv{font-size:28px;font-weight:800;margin-top:6px;}
+.uss-hv.pos{color:#22c55e;}.uss-hv.neg{color:#ef4444;}.uss-hv.gold{color:#fbbf24;}
+.uss-hs{color:#9ca3af;font-size:11px;margin-top:4px;}
+.uss-dual{display:grid;grid-template-columns:1fr 1fr;gap:10px;}
+.uss-pnl{background:#0a0e14;border:1px solid #1f2937;border-radius:6px;padding:10px;}
+.uss-ph{color:#fbbf24;font-size:10px;letter-spacing:1px;font-weight:700;padding-bottom:8px;border-bottom:1px solid #1f2937;margin-bottom:8px;}
+.uss-dc{background:#111827;border:1px solid #1f2937;border-radius:6px;padding:12px;}
+.uss-dc-t{font-size:20px;font-weight:800;color:#fbbf24;}
+.uss-dc-l{color:#e5e7eb;font-size:13px;margin-top:4px;}
+.uss-dc-m{color:#9ca3af;font-size:11px;margin-top:4px;}
+.uss-dc-a{margin-top:10px;display:flex;gap:6px;}
+.uss-btn{background:#1f2937;color:#e5e7eb;border:1px solid #374151;padding:6px 12px;border-radius:4px;font-size:11px;font-weight:600;}
+.uss-btn.pri{background:#f59e0b;color:#000;border-color:#f59e0b;}
+.uss-btn.gh{background:transparent;}
+.uss-rost{display:flex;flex-direction:column;gap:4px;}
+.uss-rr{display:grid;grid-template-columns:1fr 80px 80px;align-items:center;padding:4px 6px;font-size:12px;background:#111827;border-radius:4px;}
+.uss-rs{font-size:9px;font-weight:700;}
+.uss-rs.on{color:#22c55e;}.uss-rs.cool{color:#9ca3af;}
+.uss-rp.pos{color:#22c55e;}.uss-rp.neg{color:#ef4444;}
+.uss-g12{display:grid;grid-template-columns:repeat(12,1fr);gap:8px;}
+.uss-w{background:#0a0e14;border:1px solid #1f2937;border-radius:6px;padding:10px;}
+.uss-s4{grid-column:span 4;}.uss-s6{grid-column:span 6;}.uss-s12{grid-column:span 12;}
+.uss-wh{color:#fbbf24;font-size:9px;font-weight:700;letter-spacing:1px;}
+.uss-wb{font-size:24px;font-weight:800;margin-top:4px;}
+.uss-wb.pos{color:#22c55e;}.uss-wb.gold{color:#fbbf24;}.uss-wb.neg{color:#ef4444;}
+.uss-ws{color:#9ca3af;font-size:11px;margin-top:2px;}
+.uss-tbl{width:100%;border-collapse:collapse;font-size:11px;margin-top:6px;}
+.uss-tbl th{color:#9ca3af;text-align:left;font-weight:600;padding:4px;border-bottom:1px solid #1f2937;}
+.uss-tbl td{padding:4px;border-bottom:1px solid #111827;}
+.uss-tbl .pos{color:#22c55e;}.uss-tbl .neg{color:#ef4444;}
+.uss-sig{padding:5px 6px;font-size:11px;color:#cbd5e1;border-bottom:1px solid #111827;}
+.uss-sig b{color:#fbbf24;}
+.uss-tl{display:grid;grid-template-columns:12px 1fr;gap:4px 8px;margin-top:6px;}
+.uss-td{width:8px;height:8px;border-radius:50%;background:#f59e0b;margin-top:5px;}
+.uss-tr{font-size:11px;color:#cbd5e1;padding:2px 0;}
+.uss-tr b{color:#fbbf24;}
+.uss-chap{display:grid;grid-template-columns:60px 1fr;gap:14px;background:#0a0e14;border:1px solid #1f2937;border-radius:6px;padding:14px;margin-bottom:10px;}
+.uss-cn{font-size:32px;font-weight:800;color:#fbbf24;line-height:1;}
+.uss-ct{font-size:13px;font-weight:700;color:#e5e7eb;letter-spacing:.5px;}
+.uss-cx{color:#9ca3af;font-size:12px;margin-top:4px;line-height:1.5;}
+.uss-quad{display:grid;grid-template-columns:1fr 1fr;grid-template-rows:1fr 1fr;gap:8px;min-height:540px;}
+.uss-qc{background:#0a0e14;border:1px solid #1f2937;border-radius:6px;padding:10px;display:flex;flex-direction:column;}
+.uss-qh{color:#fbbf24;font-size:9px;font-weight:700;letter-spacing:1px;padding-bottom:6px;border-bottom:1px solid #1f2937;}
+.uss-qb{flex:1;padding-top:6px;font-size:11px;}
+.uss-cm{display:flex;align-items:flex-end;gap:3px;height:140px;}
+.uss-cb{flex:1;background:#22c55e;border-radius:1px;}
+.uss-cb.neg{background:#ef4444;}
+.uss-kv{display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid #111827;font-size:11px;}
+.uss-kv span{color:#9ca3af;}
+.uss-kv .pos{color:#22c55e;}.uss-kv .neg{color:#ef4444;}
+.uss-mem{background:#111827;padding:6px 8px;border-radius:4px;margin-bottom:4px;font-size:11px;color:#cbd5e1;}
+.uss-gold{color:#fbbf24;}
+.uss-st{display:flex;gap:4px;margin-bottom:10px;flex-wrap:wrap;}
+.uss-sti{padding:6px 12px;background:#0a0e14;border:1px solid #1f2937;border-radius:4px;color:#9ca3af;font-size:10px;font-weight:700;letter-spacing:1px;}
+.uss-sti.on{background:#1f2937;color:#fbbf24;border-color:#fbbf24;}
+
+.uss-ch-bar{background:#0a0e14;border:1px solid #1f2937;border-radius:6px;padding:10px;margin-bottom:10px;display:grid;grid-template-columns:repeat(8,1fr);gap:6px;}
+.uss-ch{background:#111827;border:1px solid #1f2937;border-radius:4px;padding:8px;text-align:center;font-size:10px;color:#cbd5e1;}
+.uss-ch.on{border-color:#fbbf24;color:#fbbf24;background:#1c1408;}
+.uss-ch b{display:block;font-size:11px;font-weight:700;}
+.uss-2col{display:grid;grid-template-columns:1fr 1fr;gap:10px;margin-bottom:10px;}
+.uss-3col{display:grid;grid-template-columns:1fr 1fr 1fr;gap:10px;}
+.uss-sec{background:#0a0e14;border:1px solid #1f2937;border-radius:6px;padding:10px;}
+.uss-sec-h{color:#fbbf24;font-size:10px;font-weight:700;letter-spacing:1px;padding-bottom:6px;border-bottom:1px solid #1f2937;margin-bottom:8px;}
+.uss-sec-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:4px;}
+.uss-tile{background:#0d1117;border:1px solid #1f2937;border-radius:3px;padding:4px 6px;font-size:10px;}
+.uss-tile.up{background:#0a2e1a;border-color:#22c55e;}
+.uss-tile.dn{background:#2e1010;border-color:#ef4444;}
+.uss-tile b{color:#e5e7eb;font-weight:700;}
+.uss-tile span{color:#9ca3af;display:block;font-size:9px;}
+
+.uss-race-box{background:#0d1117;border:1px solid #1f2937;border-radius:6px;overflow:hidden;}
+.uss-race-h{display:flex;justify-content:space-between;align-items:center;padding:8px 10px;border-bottom:1px solid #1f2937;background:#0a0e14;}
+.uss-race-t{font-weight:700;color:#fbbf24;font-size:11px;letter-spacing:.5px;}
+.uss-race-tm{color:#fbbf24;font-family:monospace;font-size:11px;}
+.uss-race-row{position:relative;display:grid;grid-template-columns:60px 1fr 60px 70px 70px;align-items:center;gap:6px;padding:5px 36px 5px 10px;background:#0d1117;border-bottom:1px solid #1f2937;min-height:30px;overflow:hidden;}
+.uss-race-row .rp{font-weight:700;color:#22c55e;font-size:11px;}
+.uss-race-row .rt{font-weight:700;color:#e5e7eb;font-size:11px;white-space:nowrap;overflow:hidden;text-overflow:ellipsis;}
+.uss-race-row .rd{color:#9ca3af;font-size:10px;text-align:right;}
+.uss-race-row .rv{color:#e5e7eb;font-weight:700;font-size:11px;text-align:right;}
+.uss-race-row .rc{color:#22c55e;font-size:10px;text-align:right;}
+.uss-race-row::after{content:'';position:absolute;top:0;right:0;bottom:0;width:30px;background-image:linear-gradient(45deg,#000 25%,transparent 25%),linear-gradient(-45deg,#000 25%,transparent 25%),linear-gradient(45deg,transparent 75%,#000 75%),linear-gradient(-45deg,transparent 75%,#000 75%);background-size:6px 6px;background-position:0 0,0 3px,3px -3px,-3px 0;background-color:#fff;opacity:.85;pointer-events:none;}
+.uss-race-row.lead{background:linear-gradient(90deg,rgba(34,197,94,.18),rgba(34,197,94,.04) 70%,transparent);}
+
+.uss-sym{background:#0a0e14;border:1px solid #1f2937;border-radius:6px;padding:12px;}
+.uss-sym-hd{display:flex;align-items:center;gap:10px;padding-bottom:8px;border-bottom:1px solid #1f2937;}
+.uss-sym-lg{width:32px;height:32px;border-radius:4px;background:#f59e0b;color:#000;display:flex;align-items:center;justify-content:center;font-weight:800;font-size:13px;}
+.uss-sym-tk{font-size:18px;font-weight:800;color:#fbbf24;}
+.uss-sym-nm{font-size:11px;color:#9ca3af;}
+.uss-sym-rv{margin-left:auto;background:#1c1408;border:1px solid #fbbf24;padding:3px 8px;border-radius:3px;font-size:11px;color:#fbbf24;}
+.uss-sym-px{font-size:38px;font-weight:800;color:#e5e7eb;margin:8px 0 4px;}
+.uss-sym-chg{font-size:13px;color:#ef4444;font-weight:700;}
+.uss-sym-act{display:flex;gap:4px;margin:8px 0;}
+.uss-sym-act .uss-btn{font-size:10px;padding:4px 8px;}
+.uss-fund{display:grid;grid-template-columns:repeat(3,1fr);gap:6px;margin:10px 0;font-size:10px;}
+.uss-fund div{background:#111827;padding:5px 7px;border-radius:3px;}
+.uss-fund span{color:#9ca3af;display:block;font-size:9px;}
+.uss-fund b{color:#e5e7eb;}
+.uss-chart{background:#0d1117;border:1px solid #1f2937;border-radius:4px;padding:8px;position:relative;}
+.uss-chart svg{display:block;width:100%;height:auto;}
+.uss-vol{display:flex;align-items:flex-end;gap:1px;height:40px;margin-top:6px;}
+.uss-vol .vb{flex:1;background:#3b82f6;}
+.uss-vol .vb.o{background:#f59e0b;}
+.uss-inset{position:absolute;left:6px;bottom:50px;width:120px;height:80px;background:#0a0e14;border:1px solid #fbbf24;border-radius:3px;padding:4px;}
+.uss-inset-tk{font-size:9px;color:#9ca3af;}
+.uss-inset-pct{position:absolute;top:2px;left:4px;background:#7f1d1d;color:#fff;padding:1px 4px;border-radius:2px;font-size:8px;font-weight:700;}
+
+/* v4.3: Idea Surfing badge */
+.uss-surf{display:flex;align-items:center;gap:8px;background:#1c1408;border:1px solid #fbbf24;border-radius:20px;padding:4px 10px;}
+.uss-surf-ring{width:22px;height:22px;border-radius:50%;background:conic-gradient(#fbbf24 0deg 220deg,#1f2937 220deg 360deg);display:flex;align-items:center;justify-content:center;}
+.uss-surf-ring span{width:16px;height:16px;border-radius:50%;background:#0a0e14;color:#fbbf24;font-size:9px;font-weight:800;display:flex;align-items:center;justify-content:center;}
+.uss-surf-lbl{font-size:9px;color:#9ca3af;letter-spacing:1px;font-weight:700;}
+.uss-surf-cur{font-size:13px;color:#fbbf24;font-weight:800;}
+.uss-surf-next{font-size:9px;color:#9ca3af;}
+.uss-surf-next b{color:#cbd5e1;margin-right:6px;}
+
+/* v4.3: Backtest Lab */
+.uss-kpis{display:grid;grid-template-columns:repeat(6,1fr);gap:8px;margin-bottom:10px;}
+.uss-kpi{background:#0a0e14;border:1px solid #1f2937;border-radius:6px;padding:10px;}
+.uss-kpi-l{color:#9ca3af;font-size:9px;letter-spacing:1px;font-weight:700;}
+.uss-kpi-v{font-size:20px;font-weight:800;margin-top:4px;color:#e5e7eb;}
+.uss-kpi-v.pos{color:#22c55e;}.uss-kpi-v.neg{color:#ef4444;}.uss-kpi-v.gold{color:#fbbf24;}
+.uss-kpi-s{color:#9ca3af;font-size:10px;margin-top:2px;}
+.uss-cal{display:grid;grid-template-columns:repeat(53,1fr);gap:2px;margin-top:6px;}
+.uss-cal .day{width:100%;aspect-ratio:1;border-radius:1px;background:#111827;}
+.uss-opt-row{display:grid;grid-template-columns:1fr 80px 60px;align-items:center;padding:5px 8px;font-size:11px;background:#111827;border-radius:3px;margin-bottom:3px;}
+.uss-opt-row .badge{font-size:10px;font-weight:700;padding:2px 6px;border-radius:3px;text-align:center;}
+.uss-opt-row .badge.add{background:#0a2e1a;color:#22c55e;border:1px solid #22c55e;}
+.uss-opt-row .badge.kill{background:#2e1010;color:#ef4444;border:1px solid #ef4444;}
+
+/* v4.3: Wave Scope */
+.uss-scope-grid{display:grid;grid-template-columns:1fr 2fr 1fr;gap:10px;}
+.uss-ribbon{display:flex;flex-direction:column;gap:3px;}
+.uss-ribbon-i{background:#111827;border:1px solid #1f2937;border-radius:3px;padding:5px 7px;font-size:11px;display:flex;justify-content:space-between;align-items:center;}
+.uss-ribbon-i.up{border-left:3px solid #22c55e;}
+.uss-ribbon-i.dn{border-left:3px solid #ef4444;}
+.uss-ribbon-i b{color:#e5e7eb;font-weight:700;}
+.uss-ribbon-i .p{color:#9ca3af;font-size:10px;}
+.uss-ribbon-i .c{font-weight:700;font-size:11px;}
+.uss-ribbon-i .c.pos{color:#22c55e;}.uss-ribbon-i .c.neg{color:#ef4444;}
+.uss-treemap{display:grid;grid-template-columns:repeat(4,1fr);grid-template-rows:repeat(4,1fr);gap:2px;background:#0d1117;border:1px solid #1f2937;border-radius:4px;padding:3px;min-height:300px;}
+.uss-tm{display:flex;flex-direction:column;justify-content:center;align-items:center;padding:4px;border-radius:2px;color:#fff;text-align:center;}
+.uss-tm b{font-size:13px;font-weight:800;}
+.uss-tm span{font-size:10px;}
+
+/* v4.3: Ollie Machine */
+.uss-mm-mode{display:inline-flex;background:#0a0e14;border:1px solid #1f2937;border-radius:20px;padding:3px;gap:2px;}
+.uss-mm-mode div{padding:4px 12px;font-size:10px;font-weight:700;letter-spacing:1px;color:#9ca3af;border-radius:16px;}
+.uss-mm-mode div.on{background:#f59e0b;color:#000;}
+.uss-mm-tbl{width:100%;border-collapse:separate;border-spacing:0 4px;}
+.uss-mm-tbl th{color:#9ca3af;font-size:9px;font-weight:700;letter-spacing:1px;text-align:left;padding:4px 8px;}
+.uss-mm-tbl td{background:#111827;padding:10px 8px;font-size:12px;}
+.uss-mm-tbl td:first-child{border-radius:4px 0 0 4px;}
+.uss-mm-tbl td:last-child{border-radius:0 4px 4px 0;}
+.uss-mm-ls{font-size:10px;font-weight:700;padding:3px 8px;border-radius:3px;}
+.uss-mm-ls.long{background:#0a2e1a;color:#22c55e;}
+.uss-mm-ls.short{background:#2e1010;color:#ef4444;}
+.uss-mm-sym{display:flex;align-items:center;gap:8px;}
+.uss-mm-sym .lg{width:24px;height:24px;border-radius:3px;display:flex;align-items:center;justify-content:center;font-size:10px;font-weight:800;color:#fff;}
+</style></head><body><div class="uss-doc"><div class="uss-doc-head"><div class="uss-doc-title">USS TRADEMINDS · DASHBOARD REDESIGNS · v4.3 · FOR SCOTTY</div><div class="uss-doc-sub">5 concepts · Concept 5 with 6 sub-views: Workspace · Symbol Focus · Signal Replay · Backtest Lab · Ollie Wave Scope · Ollie Machine · Idea Surfing badge · 2026-05-24</div></div><div class="uss-page">
+    <div class="uss-page-head"><div><div class="uss-pt">CONCEPT 1 · CAPTAIN'S CHAIR</div><div class="uss-ps">Triage-first minimalist · single decision per glance</div></div></div>
+    <div class="uss-shell"><aside class="uss-sb">
+    <div class="uss-sb-h">PRIMARY</div>
+    <div class="uss-sb-i on"><span>Bridge</span></div><div class="uss-sb-i"><span>Cockpit</span></div><div class="uss-sb-i"><span>Trade Desk</span></div><div class="uss-sb-i"><span>Ollie</span></div><div class="uss-sb-i"><span>Battle Station</span></div><div class="uss-sb-i"><span>Live Trading</span><span class="bg">LIVE</span></div><div class="uss-sb-i"><span>Charts</span></div><div class="uss-sb-i"><span>Leaderboard</span></div><div class="uss-sb-i"><span>Real Portfolio</span></div><div class="uss-sb-i"><span>Ghost Scorecard</span></div><div class="uss-sb-i"><span>Models</span></div>
+    <div class="uss-sb-h">MORE</div>
+    <div class="uss-sb-i"><span>Starfleet</span></div><div class="uss-sb-i"><span>Race</span></div><div class="uss-sb-i"><span>Squeeze</span></div><div class="uss-sb-i"><span>Live Scanner</span></div><div class="uss-sb-i"><span>Movers</span></div><div class="uss-sb-i"><span>Screener Pro</span></div><div class="uss-sb-i"><span>Sectors</span></div><div class="uss-sb-i"><span>Alerts</span><span class="bg">3</span></div><div class="uss-sb-i"><span>Congress</span></div><div class="uss-sb-i"><span>News</span></div><div class="uss-sb-i"><span>Macro</span></div><div class="uss-sb-i"><span>Fear & Greed</span></div>
+    <div class="uss-sb-h">RESERVE</div>
+    <div class="uss-sb-i"><span>Seven of Nine</span></div><div class="uss-sb-i"><span>Sulu</span></div>
+    <div class="uss-sb-h">FLEET</div>
+    <div class="uss-sb-i"><span>Memory</span></div>
+  </aside>
+      <main class="uss-main">
+        <div class="uss-hero">
+          <div class="uss-hc"><div class="uss-hl">FLEET P&L · TODAY</div><div class="uss-hv pos">+$1,049</div><div class="uss-hs">17 agents live · 4 in cooldown</div></div>
+          <div class="uss-hc"><div class="uss-hl">REGIME</div><div class="uss-hv gold">BULL</div><div class="uss-hs">VIX 16.7 · SPY 746.24</div></div>
+          <div class="uss-hc alert"><div class="uss-hl">ACTION REQUIRED</div><div class="uss-hv">3</div><div class="uss-hs">AVGO near stop · NEO conf 78%</div></div>
+        </div>
+        <div class="uss-dual">
+          <div class="uss-pnl"><div class="uss-ph">NEXT DECISION</div>
+            <div class="uss-dc"><div class="uss-dc-t">AVGO</div><div class="uss-dc-l">Neo · qwen3:8b · BUY · 5 sh @ $429.80</div><div class="uss-dc-m">stop $408.31 · -5% away · target $475.49 · +10.6%</div>
+              <div class="uss-dc-a"><button class="uss-btn pri">APPROVE</button><button class="uss-btn">HOLD</button><button class="uss-btn gh">REJECT</button></div>
+            </div>
+          </div>
+          <div class="uss-pnl"><div class="uss-ph">FLEET ROSTER</div>
+            <div class="uss-rost">
+              <div class="uss-rr"><span>Neo</span><span class="uss-rs on">ACTIVE</span><span class="uss-rp pos">+$312</span></div>
+              <div class="uss-rr"><span>Ollie</span><span class="uss-rs on">ACTIVE</span><span class="uss-rp pos">+$408</span></div>
+              <div class="uss-rr"><span>Navigator</span><span class="uss-rs on">ACTIVE</span><span class="uss-rp pos">+$211</span></div>
+              <div class="uss-rr"><span>Trade Desk</span><span class="uss-rs on">ACTIVE</span><span class="uss-rp pos">+$118</span></div>
+              <div class="uss-rr"><span>Seven of Nine</span><span class="uss-rs cool">RESERVE</span><span class="uss-rp">—</span></div>
+              <div class="uss-rr"><span>Sulu</span><span class="uss-rs cool">RESERVE</span><span class="uss-rp">—</span></div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div><div class="uss-page">
+    <div class="uss-page-head"><div><div class="uss-pt">CONCEPT 2 · TACTICAL GRID</div><div class="uss-ps">Bloomberg-style modular widgets · max signal density</div></div></div>
+    <div class="uss-shell"><aside class="uss-sb">
+    <div class="uss-sb-h">PRIMARY</div>
+    <div class="uss-sb-i"><span>Bridge</span></div><div class="uss-sb-i on"><span>Cockpit</span></div><div class="uss-sb-i"><span>Trade Desk</span></div><div class="uss-sb-i"><span>Ollie</span></div><div class="uss-sb-i"><span>Battle Station</span></div><div class="uss-sb-i"><span>Live Trading</span><span class="bg">LIVE</span></div><div class="uss-sb-i"><span>Charts</span></div><div class="uss-sb-i"><span>Leaderboard</span></div><div class="uss-sb-i"><span>Real Portfolio</span></div><div class="uss-sb-i"><span>Ghost Scorecard</span></div><div class="uss-sb-i"><span>Models</span></div>
+    <div class="uss-sb-h">MORE</div>
+    <div class="uss-sb-i"><span>Starfleet</span></div><div class="uss-sb-i"><span>Race</span></div><div class="uss-sb-i"><span>Squeeze</span></div><div class="uss-sb-i"><span>Live Scanner</span></div><div class="uss-sb-i"><span>Movers</span></div><div class="uss-sb-i"><span>Screener Pro</span></div><div class="uss-sb-i"><span>Sectors</span></div><div class="uss-sb-i"><span>Alerts</span><span class="bg">3</span></div><div class="uss-sb-i"><span>Congress</span></div><div class="uss-sb-i"><span>News</span></div><div class="uss-sb-i"><span>Macro</span></div><div class="uss-sb-i"><span>Fear & Greed</span></div>
+    <div class="uss-sb-h">RESERVE</div>
+    <div class="uss-sb-i"><span>Seven of Nine</span></div><div class="uss-sb-i"><span>Sulu</span></div>
+    <div class="uss-sb-h">FLEET</div>
+    <div class="uss-sb-i"><span>Memory</span></div>
+  </aside>
+      <main class="uss-main">
+        <div class="uss-g12">
+          <div class="uss-w uss-s4"><div class="uss-wh">PNL</div><div class="uss-wb pos">+$1,049</div><div class="uss-ws">+0.84% · 17 trades</div></div>
+          <div class="uss-w uss-s4"><div class="uss-wh">REGIME</div><div class="uss-wb gold">BULL</div><div class="uss-ws">VIX 16.7</div></div>
+          <div class="uss-w uss-s4"><div class="uss-wh">FLEET</div><div class="uss-wb">17/21</div><div class="uss-ws">4 in reserve</div></div>
+          <div class="uss-w uss-s6"><div class="uss-wh">ACTIVE POSITIONS</div>
+            <table class="uss-tbl"><tr><th>SYM</th><th>QTY</th><th>ENTRY</th><th>PNL</th></tr>
+              <tr><td>AVGO</td><td>5</td><td>$429.80</td><td class="pos">+$12</td></tr>
+              <tr><td>ZM</td><td>1.18</td><td>$105.64</td><td class="pos">+$3.40</td></tr>
+              <tr><td>LNTH</td><td>1.19</td><td>$103.00</td><td class="neg">-$1.10</td></tr>
+              <tr><td>GM</td><td>1</td><td>$79.73</td><td class="pos">+$0.80</td></tr></table>
+          </div>
+          <div class="uss-w uss-s6"><div class="uss-wh">SIGNAL QUEUE</div>
+            <div class="uss-sig"><b>NEO</b> AVGO BUY · conf 78% · sig#1158</div>
+            <div class="uss-sig"><b>OLLIE</b> ZM BUY · conf 82%</div>
+            <div class="uss-sig"><b>NAVIGATOR</b> PLD SELL · TP hit</div>
+            <div class="uss-sig"><b>TRADE DESK</b> GM BUY · manual</div>
+          </div>
+          <div class="uss-w uss-s12"><div class="uss-wh">FLEET ACTIVITY · TIMELINE</div>
+            <div class="uss-tl">
+              <div class="uss-td"></div><div class="uss-tr"><b>08:16</b> NEO BUY AVGO 0.54 sh @ $429.80</div>
+              <div class="uss-td"></div><div class="uss-tr"><b>08:15</b> NEO BUY AVGO 0.58 sh @ $429.80</div>
+              <div class="uss-td"></div><div class="uss-tr"><b>08:05</b> NEO BUY AVGO 0.62 sh @ $429.80</div>
+              <div class="uss-td"></div><div class="uss-tr"><b>09:32</b> NEO autopilot SELL AVGO 3.17 sh @ $416.05</div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div><div class="uss-page">
+    <div class="uss-page-head"><div><div class="uss-pt">CONCEPT 3 · MISSION CONTROL</div><div class="uss-ps">Narrative chapters · the day told as a story</div></div></div>
+    <div class="uss-shell"><aside class="uss-sb">
+    <div class="uss-sb-h">PRIMARY</div>
+    <div class="uss-sb-i"><span>Bridge</span></div><div class="uss-sb-i"><span>Cockpit</span></div><div class="uss-sb-i"><span>Trade Desk</span></div><div class="uss-sb-i"><span>Ollie</span></div><div class="uss-sb-i"><span>Battle Station</span></div><div class="uss-sb-i"><span>Live Trading</span><span class="bg">LIVE</span></div><div class="uss-sb-i"><span>Charts</span></div><div class="uss-sb-i"><span>Leaderboard</span></div><div class="uss-sb-i"><span>Real Portfolio</span></div><div class="uss-sb-i"><span>Ghost Scorecard</span></div><div class="uss-sb-i"><span>Models</span></div>
+    <div class="uss-sb-h">MORE</div>
+    <div class="uss-sb-i"><span>Starfleet</span></div><div class="uss-sb-i"><span>Race</span></div><div class="uss-sb-i"><span>Squeeze</span></div><div class="uss-sb-i"><span>Live Scanner</span></div><div class="uss-sb-i"><span>Movers</span></div><div class="uss-sb-i"><span>Screener Pro</span></div><div class="uss-sb-i"><span>Sectors</span></div><div class="uss-sb-i"><span>Alerts</span><span class="bg">3</span></div><div class="uss-sb-i"><span>Congress</span></div><div class="uss-sb-i"><span>News</span></div><div class="uss-sb-i"><span>Macro</span></div><div class="uss-sb-i"><span>Fear & Greed</span></div>
+    <div class="uss-sb-h">RESERVE</div>
+    <div class="uss-sb-i"><span>Seven of Nine</span></div><div class="uss-sb-i"><span>Sulu</span></div>
+    <div class="uss-sb-h">FLEET</div>
+    <div class="uss-sb-i on"><span>Memory</span></div>
+  </aside>
+      <main class="uss-main">
+        <div class="uss-chap"><div class="uss-cn">01</div><div><div class="uss-ct">OPENING BELL · REGIME CONFIRMED BULL</div><div class="uss-cx">VIX opened at 16.7. SPY printed 746.24. Models flipped to BULL_CROSS at 09:32. Neo + Ollie cleared cooldown.</div></div></div>
+        <div class="uss-chap"><div class="uss-cn">02</div><div><div class="uss-ct">CONVICTION · AVGO LADDER ENTRY</div><div class="uss-cx">Neo (qwen3:8b) built AVGO across 3 fills between 08:05 and 08:16 · sig#1158 · conf 78% · breakout volume strategy.</div></div></div>
+        <div class="uss-chap"><div class="uss-cn">03</div><div><div class="uss-ct">DEFENSE · AUTO TRIM</div><div class="uss-cx">Autopilot trimmed 3.17 sh of AVGO at $416.05 as the entry zone monitor flashed within 0.8% of stop. Remaining position building.</div></div></div>
+        <div class="uss-chap"><div class="uss-cn">04</div><div><div class="uss-ct">PROFIT TAKING · PLD TP3</div><div class="uss-cx">Navigator hit TP3 on PLD at $149.27 · grade B. Position closed +profit.</div></div></div>
+      </main>
+    </div>
+  </div><div class="uss-page">
+    <div class="uss-page-head"><div><div class="uss-pt">CONCEPT 4 · WAR ROOM</div><div class="uss-ps">4-quadrant max-density · everything visible at once</div></div></div>
+    <div class="uss-shell"><aside class="uss-sb">
+    <div class="uss-sb-h">PRIMARY</div>
+    <div class="uss-sb-i"><span>Bridge</span></div><div class="uss-sb-i"><span>Cockpit</span></div><div class="uss-sb-i"><span>Trade Desk</span></div><div class="uss-sb-i"><span>Ollie</span></div><div class="uss-sb-i"><span>Battle Station</span></div><div class="uss-sb-i on"><span>Live Trading</span><span class="bg">LIVE</span></div><div class="uss-sb-i"><span>Charts</span></div><div class="uss-sb-i"><span>Leaderboard</span></div><div class="uss-sb-i"><span>Real Portfolio</span></div><div class="uss-sb-i"><span>Ghost Scorecard</span></div><div class="uss-sb-i"><span>Models</span></div>
+    <div class="uss-sb-h">MORE</div>
+    <div class="uss-sb-i"><span>Starfleet</span></div><div class="uss-sb-i"><span>Race</span></div><div class="uss-sb-i"><span>Squeeze</span></div><div class="uss-sb-i"><span>Live Scanner</span></div><div class="uss-sb-i"><span>Movers</span></div><div class="uss-sb-i"><span>Screener Pro</span></div><div class="uss-sb-i"><span>Sectors</span></div><div class="uss-sb-i"><span>Alerts</span><span class="bg">3</span></div><div class="uss-sb-i"><span>Congress</span></div><div class="uss-sb-i"><span>News</span></div><div class="uss-sb-i"><span>Macro</span></div><div class="uss-sb-i"><span>Fear & Greed</span></div>
+    <div class="uss-sb-h">RESERVE</div>
+    <div class="uss-sb-i"><span>Seven of Nine</span></div><div class="uss-sb-i"><span>Sulu</span></div>
+    <div class="uss-sb-h">FLEET</div>
+    <div class="uss-sb-i"><span>Memory</span></div>
+  </aside>
+      <main class="uss-main">
+        <div class="uss-quad">
+          <div class="uss-qc"><div class="uss-qh">QUAD I · LIVE CHART · AVGO 1m</div><div class="uss-qb"><div class="uss-cm">
+            <div class="uss-cb" style="height:40%"></div><div class="uss-cb" style="height:55%"></div><div class="uss-cb neg" style="height:30%"></div><div class="uss-cb" style="height:60%"></div><div class="uss-cb" style="height:50%"></div><div class="uss-cb neg" style="height:25%"></div><div class="uss-cb" style="height:65%"></div><div class="uss-cb" style="height:70%"></div><div class="uss-cb neg" style="height:35%"></div><div class="uss-cb" style="height:55%"></div><div class="uss-cb" style="height:62%"></div><div class="uss-cb neg" style="height:45%"></div>
+          </div></div></div>
+          <div class="uss-qc"><div class="uss-qh">QUAD II · FLEET ACTIVITY</div><div class="uss-qb">
+            <div class="uss-sig"><b>08:16</b> NEO BUY AVGO @ $429.80</div><div class="uss-sig"><b>08:15</b> NEO BUY AVGO @ $429.80</div><div class="uss-sig"><b>08:05</b> NEO BUY AVGO @ $429.80</div><div class="uss-sig"><b>09:32</b> AUTOPILOT SELL AVGO</div><div class="uss-sig"><b>13:15</b> OLLIE BUY ZM</div><div class="uss-sig"><b>13:10</b> OLLIE SELL RL · TP3 grade B</div>
+          </div></div>
+          <div class="uss-qc"><div class="uss-qh">QUAD III · ENTRY ZONE MONITOR</div><div class="uss-qb">
+            <div class="uss-kv"><span>Current</span><b>$429.80</b></div><div class="uss-kv"><span>Entry basis</span><b>$429.80</b></div><div class="uss-kv"><span>Stop</span><b class="neg">$408.31 · -5.0%</b></div><div class="uss-kv"><span>Target</span><b class="pos">$475.49 · +10.6%</b></div><div class="uss-kv"><span>R:R</span><b>2.1:1</b></div>
+          </div></div>
+          <div class="uss-qc"><div class="uss-qh">QUAD IV · WORF MEMORY</div><div class="uss-qb">
+            <div class="uss-mem"><b class="uss-gold">SHORT</b> AVGO 3W 0L · strong earnings growth edge</div><div class="uss-mem"><b class="uss-gold">LONG</b> Semi leadership holds in BULL_CROSS — avoid in BEAR</div>
+          </div></div>
+        </div>
+      </main>
+    </div>
+  </div>
+  <div class="uss-page">
+    <div class="uss-page-head">
+      <div><div class="uss-pt">CONCEPT 5 · OLLIE WORKSPACE · WORKSPACE</div><div class="uss-ps">Trade Ideas / Idea Surfing pattern · Channel Bar · Sector Status · Races</div></div>
+      <div class="uss-surf">
+    <div class="uss-surf-ring"><span>5s</span></div>
+    <div>
+      <div class="uss-surf-lbl">NOW SURFING</div>
+      <div class="uss-surf-cur">AVGO</div>
+    </div>
+    <div class="uss-surf-next">
+      <b>NEXT</b><span>ZM</span> &middot; <span>LNTH</span> &middot; <span>GM</span>
+    </div>
+  </div>
+    </div>
+    <div class="uss-shell">
+      <aside class="uss-sb">
+    <div class="uss-sb-h">PRIMARY</div>
+    <div class="uss-sb-i"><span>Bridge</span></div><div class="uss-sb-i"><span>Cockpit</span></div><div class="uss-sb-i"><span>Trade Desk</span></div><div class="uss-sb-i"><span>Ollie</span></div><div class="uss-sb-i"><span>Battle Station</span></div><div class="uss-sb-i on"><span>Live Trading</span><span class="bg">LIVE</span></div><div class="uss-sb-i"><span>Charts</span></div><div class="uss-sb-i"><span>Leaderboard</span></div><div class="uss-sb-i"><span>Real Portfolio</span></div><div class="uss-sb-i"><span>Ghost Scorecard</span></div><div class="uss-sb-i"><span>Models</span></div>
+    <div class="uss-sb-h">MORE</div>
+    <div class="uss-sb-i"><span>Starfleet</span></div><div class="uss-sb-i"><span>Race</span></div><div class="uss-sb-i"><span>Squeeze</span></div><div class="uss-sb-i"><span>Live Scanner</span></div><div class="uss-sb-i"><span>Movers</span></div><div class="uss-sb-i"><span>Screener Pro</span></div><div class="uss-sb-i"><span>Sectors</span></div><div class="uss-sb-i"><span>Alerts</span><span class="bg">3</span></div><div class="uss-sb-i"><span>Congress</span></div><div class="uss-sb-i"><span>News</span></div><div class="uss-sb-i"><span>Macro</span></div><div class="uss-sb-i"><span>Fear & Greed</span></div>
+    <div class="uss-sb-h">RESERVE</div>
+    <div class="uss-sb-i"><span>Seven of Nine</span></div><div class="uss-sb-i"><span>Sulu</span></div>
+    <div class="uss-sb-h">FLEET</div>
+    <div class="uss-sb-i"><span>Memory</span></div>
+  </aside>
+      <main class="uss-main">
+        <div class="uss-st"><div class="uss-sti on">WORKSPACE</div><div class="uss-sti">SYMBOL FOCUS</div><div class="uss-sti">SIGNAL REPLAY</div><div class="uss-sti">BACKTEST LAB</div><div class="uss-sti">OLLIE WAVE SCOPE</div><div class="uss-sti">OLLIE MACHINE</div></div>
+        
+  <div class="uss-ch-bar"><div class="uss-ch on"><b>Sector Status</b></div><div class="uss-ch"><b>Change From 0</b></div><div class="uss-ch"><b>Trade Mentor</b></div><div class="uss-ch"><b>Long</b></div><div class="uss-ch"><b>Short</b></div><div class="uss-ch"><b>Explosive Winners</b></div><div class="uss-ch"><b>The Most 2x</b></div><div class="uss-ch"><b>Rumble Rippers</b></div></div>
+  <div class="uss-2col">
+    <div class="uss-sec"><div class="uss-sec-h">SPDR SECTORS · LIVE</div><div class="uss-sec-grid"><div class="uss-tile up"><b>XLE</b><span>55.96 · +0.06%</span></div><div class="uss-tile up"><b>XLU</b><span>44.87 · +0.06%</span></div><div class="uss-tile up"><b>XLF</b><span>51.34 · +0.05%</span></div><div class="uss-tile "><b>XLP</b><span>84.44 · 0%</span></div><div class="uss-tile up"><b>SPY</b><span>736.74 · +0.7%</span></div><div class="uss-tile dn"><b>XLI</b><span>173.71 · -0.17%</span></div><div class="uss-tile dn"><b>XLC</b><span>116.86 · -0.45%</span></div><div class="uss-tile up"><b>XLY</b><span>428.41 · +1.5%</span></div><div class="uss-tile dn"><b>XLV</b><span>148.85 · -2.9%</span></div><div class="uss-tile up"><b>XRT</b><span>83.13 · +2.6%</span></div><div class="uss-tile up"><b>XLB</b><span>49.39 · +2.1%</span></div><div class="uss-tile dn"><b>XLK</b><span>140.35 · -3.2%</span></div></div></div>
+    <div class="uss-sec"><div class="uss-sec-h">HALTS &amp; RESUMES · SHARED</div>
+      <div class="uss-sig"><b>10:18</b> PHOE · RESUMED · 29.39 · 1.15M sh</div>
+      <div class="uss-sig"><b>10:13</b> PHOE · HALTED · volatility · 29.39</div>
+      <div class="uss-sig"><b>10:13</b> OLOX · RESUMED · 5.19 · 51.8K sh</div>
+      <div class="uss-sig"><b>10:10</b> OLOX · HALTED · volatility · 5.19</div>
+      <div class="uss-sig"><b>10:05</b> PHOE · RESUMED · 33.60 · 1.08M sh</div>
+      <div class="uss-sig"><b>10:02</b> NEPH · RESUMED · 3.47 · 22.8K sh</div>
+      <div class="uss-sig"><b>09:59</b> NEPH · HALTED · volatility · 3.47</div>
+    </div>
+  </div>
+  <div class="uss-2col">
+    <div class="uss-race-box"><div class="uss-race-h"><span class="uss-race-t">VOLATILE RACE · GAINERS FROM OPEN</span><span class="uss-race-tm">00:00:23 · 4 MIN RACE</span></div><div class="uss-race-row lead"><span class="rp">4.51%</span><span class="rt">MRAM</span><span class="rd">$1.00</span><span class="rv">23.93</span><span class="rc">+11.25%</span></div><div class="uss-race-row"><span class="rp">3.75%</span><span class="rt">RXT</span><span class="rd">$0.15</span><span class="rv">4.76</span><span class="rc">+35.23%</span></div><div class="uss-race-row"><span class="rp">2.29%</span><span class="rt">GCTS</span><span class="rd">$0.03</span><span class="rv">1.88</span><span class="rc">+25.00%</span></div><div class="uss-race-row"><span class="rp">2.10%</span><span class="rt">XWEL</span><span class="rd">$0.05</span><span class="rv">1.50</span><span class="rc">+18.11%</span></div><div class="uss-race-row"><span class="rp">1.68%</span><span class="rt">ANGX</span><span class="rd">$0.03</span><span class="rv">3.18</span><span class="rc">+6.35%</span></div><div class="uss-race-row"><span class="rp">1.44%</span><span class="rt">ANGI</span><span class="rd">$0.05</span><span class="rv">5.45</span><span class="rc">+3.91%</span></div><div class="uss-race-row"><span class="rp">1.35%</span><span class="rt">NVAX</span><span class="rd">$0.05</span><span class="rv">10.54</span><span class="rc">+14.19%</span></div><div class="uss-race-row"><span class="rp">1.02%</span><span class="rt">POET</span><span class="rd">$0.04</span><span class="rv">11.10</span><span class="rc">+15.87%</span></div><div class="uss-race-row"><span class="rp">0.99%</span><span class="rt">GPRE</span><span class="rd">$0.05</span><span class="rv">18.07</span><span class="rc">+9.77%</span></div></div>
+    <div class="uss-race-box"><div class="uss-race-h"><span class="uss-race-t">LARGE CAP RACE · GAINERS FROM CLOSE</span><span class="uss-race-tm">00:01:48 · 4 MIN RACE</span></div><div class="uss-race-row lead"><span class="rp">0.46%</span><span class="rt">MRX</span><span class="rd">$1.20</span><span class="rv">55.46</span><span class="rc">+6.90%</span></div><div class="uss-race-row"><span class="rp">0.31%</span><span class="rt">FLY</span><span class="rd">$0.85</span><span class="rv">37.40</span><span class="rc">+15.57%</span></div><div class="uss-race-row"><span class="rp">0.18%</span><span class="rt">MRP</span><span class="rd">$0.45</span><span class="rv">27.62</span><span class="rc">+2.68%</span></div><div class="uss-race-row"><span class="rp">0.15%</span><span class="rt">CART</span><span class="rd">$0.40</span><span class="rv">39.35</span><span class="rc">+3.58%</span></div><div class="uss-race-row"><span class="rp">0.12%</span><span class="rt">GTX</span><span class="rd">$0.30</span><span class="rv">28.15</span><span class="rc">+4.14%</span></div><div class="uss-race-row"><span class="rp">0.10%</span><span class="rt">SMCI</span><span class="rd">$0.28</span><span class="rv">35.08</span><span class="rc">+4.34%</span></div><div class="uss-race-row"><span class="rp">0.08%</span><span class="rt">TGTX</span><span class="rd">$0.22</span><span class="rv">43.93</span><span class="rc">+2.10%</span></div></div>
+  </div>
+  <div class="uss-2col" style="margin-top:10px;">
+    <div class="uss-sec"><div class="uss-sec-h">MOVERS · UPSIDE VS DOWNSIDE</div>
+      <div style="display:flex;align-items:flex-end;gap:2px;height:40px;margin-top:6px;"><div style="flex:1;background:#22c55e;height:30%;"></div><div style="flex:1;background:#22c55e;height:52.53677462019741%;"></div><div style="flex:1;background:#22c55e;height:55.73243567064205%;"></div><div style="flex:1;background:#22c55e;height:38.02800020149668%;"></div><div style="flex:1;background:#22c55e;height:17.079937617301795%;"></div><div style="flex:1;background:#22c55e;height:13.526893133421538%;"></div><div style="flex:1;background:#22c55e;height:32.01461254502685%;"></div><div style="flex:1;background:#22c55e;height:56.924664967969726%;"></div><div style="flex:1;background:#22c55e;height:66.73395616558454%;"></div><div style="flex:1;background:#22c55e;height:53.80296213104391%;"></div><div style="flex:1;background:#22c55e;height:31.399472227765756%;"></div><div style="flex:1;background:#22c55e;height:21.50024483623241%;"></div><div style="flex:1;background:#22c55e;height:34.58567704998913%;"></div><div style="flex:1;background:#22c55e;height:60.00417592066602%;"></div><div style="flex:1;background:#22c55e;height:75.76518389237177%;"></div><div style="flex:1;background:#22c55e;height:68.75719600392792%;"></div><div style="flex:1;background:#22c55e;height:46.80241708337337%;"></div><div style="flex:1;background:#22c55e;height:31.46506270301108%;"></div><div style="flex:1;background:#22c55e;height:38.2253188307081%;"></div><div style="flex:1;background:#22c55e;height:62.24693024157381%;"></div></div>
+      <div style="color:#9ca3af;font-size:10px;margin-top:4px;">FIGS · HSAI · NETG · MRAM · MRAM · MRAM</div>
+    </div>
+    <div class="uss-sec"><div class="uss-sec-h">TOP LIST CONFIG · ACTIVE FILTERS</div>
+      <div class="uss-kv"><span>Earnings Date</span><b>any</b></div>
+      <div class="uss-kv"><span>Price</span><b>$5 – $100</b></div>
+      <div class="uss-kv"><span>Volume Today</span><b>400K – ∞</b></div>
+      <div class="uss-kv"><span>Float</span><b>0 – ∞</b></div>
+      <div class="uss-kv"><span>Short Float %</span><b>0 – ∞</b></div>
+      <div class="uss-kv"><span>Position in Range</span><b>0 – 100</b></div>
+      <div class="uss-kv"><span>Change from Close</span><b>3% – ∞</b></div>
+      <div class="uss-kv"><span>Consecutive Days</span><b>0+</b></div>
+      <div class="uss-kv"><span>Relative Volume</span><b>1.0+</b></div>
+    </div>
+  </div>
+      </main>
+    </div>
+  </div>
+  <div class="uss-page">
+    <div class="uss-page-head">
+      <div><div class="uss-pt">CONCEPT 5 · OLLIE WORKSPACE · SYMBOL</div><div class="uss-ps">OPAD-style single-symbol cockpit · trade ticket · AI projected levels</div></div>
+      <div class="uss-surf">
+    <div class="uss-surf-ring"><span>5s</span></div>
+    <div>
+      <div class="uss-surf-lbl">NOW SURFING</div>
+      <div class="uss-surf-cur">OPAD</div>
+    </div>
+    <div class="uss-surf-next">
+      <b>NEXT</b><span>ZTS</span> &middot; <span>MKFG</span> &middot; <span>GRPN</span>
+    </div>
+  </div>
+    </div>
+    <div class="uss-shell">
+      <aside class="uss-sb">
+    <div class="uss-sb-h">PRIMARY</div>
+    <div class="uss-sb-i"><span>Bridge</span></div><div class="uss-sb-i"><span>Cockpit</span></div><div class="uss-sb-i"><span>Trade Desk</span></div><div class="uss-sb-i"><span>Ollie</span></div><div class="uss-sb-i"><span>Battle Station</span></div><div class="uss-sb-i on"><span>Live Trading</span><span class="bg">LIVE</span></div><div class="uss-sb-i"><span>Charts</span></div><div class="uss-sb-i"><span>Leaderboard</span></div><div class="uss-sb-i"><span>Real Portfolio</span></div><div class="uss-sb-i"><span>Ghost Scorecard</span></div><div class="uss-sb-i"><span>Models</span></div>
+    <div class="uss-sb-h">MORE</div>
+    <div class="uss-sb-i"><span>Starfleet</span></div><div class="uss-sb-i"><span>Race</span></div><div class="uss-sb-i"><span>Squeeze</span></div><div class="uss-sb-i"><span>Live Scanner</span></div><div class="uss-sb-i"><span>Movers</span></div><div class="uss-sb-i"><span>Screener Pro</span></div><div class="uss-sb-i"><span>Sectors</span></div><div class="uss-sb-i"><span>Alerts</span><span class="bg">3</span></div><div class="uss-sb-i"><span>Congress</span></div><div class="uss-sb-i"><span>News</span></div><div class="uss-sb-i"><span>Macro</span></div><div class="uss-sb-i"><span>Fear & Greed</span></div>
+    <div class="uss-sb-h">RESERVE</div>
+    <div class="uss-sb-i"><span>Seven of Nine</span></div><div class="uss-sb-i"><span>Sulu</span></div>
+    <div class="uss-sb-h">FLEET</div>
+    <div class="uss-sb-i"><span>Memory</span></div>
+  </aside>
+      <main class="uss-main">
+        <div class="uss-st"><div class="uss-sti">WORKSPACE</div><div class="uss-sti on">SYMBOL FOCUS</div><div class="uss-sti">SIGNAL REPLAY</div><div class="uss-sti">BACKTEST LAB</div><div class="uss-sti">OLLIE WAVE SCOPE</div><div class="uss-sti">OLLIE MACHINE</div></div>
+        <div class="uss-sym">
+    <div class="uss-sym-hd">
+      <div class="uss-sym-lg">OP</div>
+      <div><div class="uss-sym-tk">OPAD</div><div class="uss-sym-nm">Offerpad Solutions, Inc. Class A</div></div>
+      <div style="margin-left:auto;text-align:right;"><div style="font-size:10px;color:#9ca3af;">Total Volume</div><div style="font-weight:700;color:#e5e7eb;">17.82M</div></div>
+      <div class="uss-sym-rv">Rel Vol 9.18</div>
+    </div>
+    <div class="uss-sym-px">$5.29</div>
+    <div class="uss-sym-chg">-0.95 (-15.25%)</div>
+    <div class="uss-sym-act"><button class="uss-btn pri">Trade Ticket</button><button class="uss-btn">Flatten</button><button class="uss-btn">½</button><button class="uss-btn">Double</button><button class="uss-btn">Reverse</button></div>
+    <div class="uss-chart">
+      <svg viewBox="0 0 580 280" style="background:#0d1117;">
+        <text x="290" y="120" fill="#1f2937" font-size="48" font-weight="800" text-anchor="middle" opacity="0.5">OPAD , D</text>
+        <path d="M 30,80 Q 100,60 180,90 L 200,140 Q 100,110 30,130 Z" fill="#f59e0b" opacity="0.25"/>
+        <path d="M 380,180 Q 460,140 540,40 L 560,80 Q 460,170 380,210 Z" fill="#3b82f6" opacity="0.3"/>
+        <line x1="220" y1="20" x2="220" y2="260" stroke="#fbbf24" stroke-width="2" opacity="0.7"/>
+        <text x="220" y="278" fill="#fbbf24" font-size="11" font-weight="700" text-anchor="middle">E</text>
+        <line x1="30.526315789473685" y1="217.5" x2="30.526315789473685" y2="260" stroke="#22c55e" stroke-width="1"/><rect x="26.526315789473685" y="225" width="8" height="30" fill="#22c55e"/><line x1="61.05263157894737" y1="200" x2="61.05263157894737" y2="235" stroke="#22c55e" stroke-width="1"/><rect x="57.05263157894737" y="210" width="8" height="20" fill="#22c55e"/><line x1="91.57894736842105" y1="192.5" x2="91.57894736842105" y2="217.5" stroke="#22c55e" stroke-width="1"/><rect x="87.57894736842105" y="205" width="8" height="5" fill="#22c55e"/><line x1="122.10526315789474" y1="185" x2="122.10526315789474" y2="212.5" stroke="#ef4444" stroke-width="1"/><rect x="118.10526315789474" y="205" width="8" height="12.5" fill="#ef4444"/><line x1="152.63157894736844" y1="210" x2="152.63157894736844" y2="250" stroke="#ef4444" stroke-width="1"/><rect x="148.63157894736844" y="217.5" width="8" height="25" fill="#ef4444"/><line x1="183.1578947368421" y1="235" x2="183.1578947368421" y2="260" stroke="#ef4444" stroke-width="1"/><rect x="179.1578947368421" y="242.5" width="8" height="12.5" fill="#ef4444"/><line x1="213.68421052631578" y1="225" x2="213.68421052631578" y2="260" stroke="#22c55e" stroke-width="1"/><rect x="209.68421052631578" y="230" width="8" height="25" fill="#22c55e"/><line x1="244.21052631578948" y1="217.5" x2="244.21052631578948" y2="255" stroke="#ef4444" stroke-width="1"/><rect x="240.21052631578948" y="230" width="8" height="20" fill="#ef4444"/><line x1="274.7368421052632" y1="235" x2="274.7368421052632" y2="260" stroke="#22c55e" stroke-width="1"/><rect x="270.7368421052632" y="240" width="8" height="10" fill="#22c55e"/><line x1="305.2631578947369" y1="225" x2="305.2631578947369" y2="245" stroke="#22c55e" stroke-width="1"/><rect x="301.2631578947369" y="230" width="8" height="10" fill="#22c55e"/><line x1="335.7894736842105" y1="210" x2="335.7894736842105" y2="235" stroke="#22c55e" stroke-width="1"/><rect x="331.7894736842105" y="220" width="8" height="10" fill="#22c55e"/><line x1="366.3157894736842" y1="205" x2="366.3157894736842" y2="225" stroke="#22c55e" stroke-width="1"/><rect x="362.3157894736842" y="210" width="8" height="10" fill="#22c55e"/><line x1="396.8421052631579" y1="200" x2="396.8421052631579" y2="215" stroke="#22c55e" stroke-width="1"/><rect x="392.8421052631579" y="205" width="8" height="5" fill="#22c55e"/><line x1="427.36842105263156" y1="180" x2="427.36842105263156" y2="210" stroke="#22c55e" stroke-width="1"/><rect x="423.36842105263156" y="192.5" width="8" height="12.5" fill="#22c55e"/><line x1="457.89473684210526" y1="130" x2="457.89473684210526" y2="200" stroke="#22c55e" stroke-width="1"/><rect x="453.89473684210526" y="150" width="8" height="42.5" fill="#22c55e"/><line x1="488.42105263157896" y1="117.5" x2="488.42105263157896" y2="160" stroke="#22c55e" stroke-width="1"/><rect x="484.42105263157896" y="135" width="8" height="15" fill="#22c55e"/><line x1="518.9473684210526" y1="85" x2="518.9473684210526" y2="142.5" stroke="#22c55e" stroke-width="1"/><rect x="514.9473684210526" y="117.5" width="8" height="17.5" fill="#22c55e"/>
+        <polygon points="280,210 285,200 290,210" fill="#3b82f6"/>
+        <text x="285" y="225" fill="#3b82f6" font-size="9" text-anchor="middle">BUY</text>
+        <line x1="30" y1="195" x2="560" y2="195" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3,3"/>
+        <rect x="540" y="188" width="36" height="14" fill="#3b82f6" rx="2"/>
+        <text x="558" y="198" fill="#fff" font-size="9" text-anchor="middle" font-weight="700">1.55 AI</text>
+        <rect x="540" y="58" width="36" height="14" fill="#22c55e" rx="2"/>
+        <text x="558" y="68" fill="#fff" font-size="9" text-anchor="middle" font-weight="700">5.29</text>
+        <text x="20" y="65" fill="#9ca3af" font-size="9" text-anchor="end">$6.00</text>
+        <text x="20" y="115" fill="#9ca3af" font-size="9" text-anchor="end">$4.00</text>
+        <text x="20" y="195" fill="#9ca3af" font-size="9" text-anchor="end">$2.00</text>
+      </svg>
+      <div class="uss-inset"><div class="uss-inset-pct">-95.96% in 3+ years</div>
+        <svg viewBox="0 0 110 60" style="margin-top:14px;"><path d="M 5,15 Q 20,18 35,40 Q 50,55 70,55 Q 90,55 105,50" fill="none" stroke="#ef4444" stroke-width="1.5"/><path d="M 5,15 Q 20,18 35,40 Q 50,55 70,55 Q 90,55 105,50 L 105,60 L 5,60 Z" fill="#ef4444" opacity="0.2"/><text x="55" y="32" fill="#1f2937" font-size="9" font-weight="700" text-anchor="middle">OPAD , M</text></svg>
+      </div>
+      <div class="uss-vol"><div class="vb" style="height:20%;"></div><div class="vb" style="height:29.58851077208406%;"></div><div class="vb" style="height:36.82941969615793%;"></div><div class="vb" style="height:39.94989973208109%;"></div><div class="vb" style="height:38.185948536513635%;"></div><div class="vb" style="height:31.96944288207913%;"></div><div class="vb" style="height:22.822400161197343%;"></div><div class="vb" style="height:12.984335446207602%;"></div><div class="vb" style="height:4.863950093841435%;"></div><div class="vb" style="height:0.4493976466980598%;"></div><div class="vb" style="height:0.8215145067372305%;"></div><div class="vb" style="height:5.889193488592161%;"></div><div class="vb" style="height:14.411690036021483%;"></div><div class="vb" style="height:24.302399761756313%;"></div><div class="vb" style="height:33.13973197437578%;"></div><div class="vb o" style="height:90%;"></div><div class="vb" style="height:39.78716493246763%;"></div><div class="vb" style="height:35.96974225246981%;"></div><div class="vb" style="height:28.242369704835134%;"></div><div class="vb" style="height:18.496977590763812%;"></div><div class="vb" style="height:9.119577782212605%;"></div><div class="vb" style="height:32.4060848005666%;"></div><div class="vb" style="height:30.00019586898593%;"></div><div class="vb" style="height:32.49095650623143%;"></div><div class="vb" style="height:39.2685416399913%;"></div><div class="vb" style="height:48.67356205297598%;"></div><div class="vb" style="height:58.40334073653282%;"></div><div class="vb" style="height:66.07568853103243%;"></div><div class="vb" style="height:69.81214711389741%;"></div><div class="vb" style="height:68.69790111049366%;"></div></div>
+    </div>
+  </div>
+      </main>
+    </div>
+  </div>
+  <div class="uss-page">
+    <div class="uss-page-head">
+      <div><div class="uss-pt">CONCEPT 5 · OLLIE WORKSPACE · REPLAY</div><div class="uss-ps">Side-by-side Ollie Signal replay · entry/exit annotations · post-signal trajectory</div></div>
+      
+    </div>
+    <div class="uss-shell">
+      <aside class="uss-sb">
+    <div class="uss-sb-h">PRIMARY</div>
+    <div class="uss-sb-i"><span>Bridge</span></div><div class="uss-sb-i"><span>Cockpit</span></div><div class="uss-sb-i"><span>Trade Desk</span></div><div class="uss-sb-i"><span>Ollie</span></div><div class="uss-sb-i"><span>Battle Station</span></div><div class="uss-sb-i on"><span>Live Trading</span><span class="bg">LIVE</span></div><div class="uss-sb-i"><span>Charts</span></div><div class="uss-sb-i"><span>Leaderboard</span></div><div class="uss-sb-i"><span>Real Portfolio</span></div><div class="uss-sb-i"><span>Ghost Scorecard</span></div><div class="uss-sb-i"><span>Models</span></div>
+    <div class="uss-sb-h">MORE</div>
+    <div class="uss-sb-i"><span>Starfleet</span></div><div class="uss-sb-i"><span>Race</span></div><div class="uss-sb-i"><span>Squeeze</span></div><div class="uss-sb-i"><span>Live Scanner</span></div><div class="uss-sb-i"><span>Movers</span></div><div class="uss-sb-i"><span>Screener Pro</span></div><div class="uss-sb-i"><span>Sectors</span></div><div class="uss-sb-i"><span>Alerts</span><span class="bg">3</span></div><div class="uss-sb-i"><span>Congress</span></div><div class="uss-sb-i"><span>News</span></div><div class="uss-sb-i"><span>Macro</span></div><div class="uss-sb-i"><span>Fear & Greed</span></div>
+    <div class="uss-sb-h">RESERVE</div>
+    <div class="uss-sb-i"><span>Seven of Nine</span></div><div class="uss-sb-i"><span>Sulu</span></div>
+    <div class="uss-sb-h">FLEET</div>
+    <div class="uss-sb-i"><span>Memory</span></div>
+  </aside>
+      <main class="uss-main">
+        <div class="uss-st"><div class="uss-sti">WORKSPACE</div><div class="uss-sti">SYMBOL FOCUS</div><div class="uss-sti on">SIGNAL REPLAY</div><div class="uss-sti">BACKTEST LAB</div><div class="uss-sti">OLLIE WAVE SCOPE</div><div class="uss-sti">OLLIE MACHINE</div></div>
+        <div class="uss-2col"><div class="uss-sym">
+      <div class="uss-sym-hd"><div class="uss-sym-lg" style="background:#7c3aed;">FD</div>
+        <div><div class="uss-sym-tk">FDMT</div><div class="uss-sym-nm">4D Molecular Therapeutics, Inc.</div></div>
+        <div class="uss-sym-rv">Rel Vol 1.99</div></div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin:6px 0;"><div style="font-size:26px;font-weight:800;color:#e5e7eb;">18.96</div><div style="font-size:12px;color:#22c55e;font-weight:700;">+1.02 (+5.69%)</div></div>
+      <div class="uss-fund"><div><span>Total Vol</span><b>1.48M</b></div><div><span>Float</span><b>57.59M</b></div><div><span>Short Float %</span><b>17.17%</b></div><div><span>Days to Cover</span><b>4.14</b></div><div><span>Shares Out</span><b>57.59M</b></div><div><span>Earnings Date</span><b>AUG 5 PRE</b></div><div><span>EPS</span><b>$-0.66</b></div><div><span>Market Cap</span><b>$1.09B</b></div><div><span>Revenue</span><b>$20.45M</b></div></div>
+      <div class="uss-sym-act"><button class="uss-btn pri">BUY</button><button class="uss-btn">SELL</button></div>
+      <div style="color:#9ca3af;font-size:10px;margin-bottom:4px;">Ollie Signal · Jul 25 2024</div>
+      <div class="uss-chart"><svg viewBox="0 0 460 240" style="background:#0d1117;width:100%;height:240px;">
+        <defs><marker id="arr-r-FDMT" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><polygon points="0,0 8,3 0,6" fill="#ef4444"/></marker><marker id="arr-g-FDMT" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><polygon points="0,0 8,3 0,6" fill="#22c55e"/></marker></defs>
+        <text x="230" y="125" fill="#1f2937" font-size="42" font-weight="800" text-anchor="middle" opacity="0.4">FDMT , D</text>
+        <line x1="24.210526315789473" y1="104" x2="24.210526315789473" y2="116" stroke="#9ca3af" stroke-width="1"/><rect x="21.210526315789473" y="107" width="6" height="6" fill="#9ca3af"/><line x1="36.315789473684205" y1="105.5576733692346" x2="36.315789473684205" y2="117.5576733692346" stroke="#9ca3af" stroke-width="1"/><rect x="33.315789473684205" y="108.5576733692346" width="6" height="6" fill="#9ca3af"/><line x1="48.421052631578945" y1="106.86942436359809" x2="48.421052631578945" y2="118.86942436359809" stroke="#9ca3af" stroke-width="1"/><rect x="45.421052631578945" y="109.86942436359809" width="6" height="6" fill="#9ca3af"/><line x1="60.526315789473685" y1="107.7281563438689" x2="60.526315789473685" y2="119.7281563438689" stroke="#9ca3af" stroke-width="1"/><rect x="57.526315789473685" y="110.7281563438689" width="6" height="6" fill="#9ca3af"/><line x1="72.63157894736841" y1="107.99829441216602" x2="72.63157894736841" y2="119.99829441216602" stroke="#9ca3af" stroke-width="1"/><rect x="69.63157894736841" y="110.99829441216602" width="6" height="6" fill="#9ca3af"/><line x1="84.73684210526315" y1="107.63718970730272" x2="84.73684210526315" y2="119.63718970730272" stroke="#9ca3af" stroke-width="1"/><rect x="81.73684210526315" y="110.63718970730272" width="6" height="6" fill="#9ca3af"/><line x1="96.84210526315789" y1="106.7018527222046" x2="96.84210526315789" y2="118.7018527222046" stroke="#9ca3af" stroke-width="1"/><rect x="93.84210526315789" y="109.7018527222046" width="6" height="6" fill="#9ca3af"/><line x1="108.94736842105263" y1="105.33995260062362" x2="108.94736842105263" y2="117.33995260062362" stroke="#9ca3af" stroke-width="1"/><rect x="105.94736842105263" y="108.33995260062362" width="6" height="6" fill="#9ca3af"/><line x1="121.05263157894737" y1="103.76650342628967" x2="121.05263157894737" y2="115.76650342628967" stroke="#9ca3af" stroke-width="1"/><rect x="118.05263157894737" y="106.76650342628967" width="6" height="6" fill="#9ca3af"/><line x1="133.1578947368421" y1="102.22991822682059" x2="133.1578947368421" y2="114.22991822682059" stroke="#9ca3af" stroke-width="1"/><rect x="130.1578947368421" y="105.22991822682059" width="6" height="6" fill="#9ca3af"/><line x1="145.26315789473682" y1="100.9727900187683" x2="145.26315789473682" y2="112.9727900187683" stroke="#9ca3af" stroke-width="1"/><rect x="142.26315789473682" y="103.9727900187683" width="6" height="6" fill="#9ca3af"/><line x1="157.36842105263156" y1="100.19359170444194" x2="157.36842105263156" y2="112.19359170444194" stroke="#9ca3af" stroke-width="1"/><rect x="154.36842105263156" y="103.19359170444194" width="6" height="6" fill="#9ca3af"/><line x1="169.4736842105263" y1="100.01534156465664" x2="169.4736842105263" y2="112.01534156465664" stroke="#9ca3af" stroke-width="1"/><rect x="166.4736842105263" y="103.01534156465664" width="6" height="6" fill="#9ca3af"/><line x1="181.57894736842104" y1="100.46618137711938" x2="181.57894736842104" y2="112.46618137711938" stroke="#9ca3af" stroke-width="1"/><rect x="178.57894736842104" y="103.46618137711938" width="6" height="6" fill="#9ca3af"/><line x1="193.68421052631578" y1="101.47493344851071" x2="193.68421052631578" y2="113.47493344851071" stroke="#9ca3af" stroke-width="1"/><rect x="190.68421052631578" y="104.47493344851071" width="6" height="6" fill="#9ca3af"/><line x1="205.78947368421052" y1="102.8823380072043" x2="205.78947368421052" y2="114.8823380072043" stroke="#9ca3af" stroke-width="1"/><rect x="202.78947368421052" y="105.8823380072043" width="6" height="6" fill="#9ca3af"/><line x1="217.89473684210526" y1="104.46619681940197" x2="217.89473684210526" y2="116.46619681940197" stroke="#9ca3af" stroke-width="1"/><rect x="214.89473684210526" y="107.46619681940197" width="6" height="6" fill="#9ca3af"/><line x1="230" y1="105.97645340455443" x2="230" y2="117.97645340455443" stroke="#9ca3af" stroke-width="1"/><rect x="227" y="108.97645340455443" width="6" height="6" fill="#9ca3af"/><line x1="242.10526315789474" y1="107.1746714553966" x2="242.10526315789474" y2="119.1746714553966" stroke="#9ca3af" stroke-width="1"/><rect x="239.10526315789474" y="110.1746714553966" width="6" height="6" fill="#9ca3af"/><line x1="254.21052631578945" y1="107.87167868812594" x2="254.21052631578945" y2="119.87167868812594" stroke="#9ca3af" stroke-width="1"/><rect x="251.21052631578945" y="110.87167868812594" width="6" height="6" fill="#9ca3af"/><line x1="266.3157894736842" y1="97" x2="266.3157894736842" y2="143" stroke="#ef4444" stroke-width="1"/><rect x="263.3157894736842" y="100" width="6" height="40" fill="#ef4444"/><line x1="278.42105263157896" y1="106.860912720085" x2="278.42105263157896" y2="116.860912720085" stroke="#ef4444" stroke-width="1"/><rect x="275.42105263157896" y="109.860912720085" width="6" height="4" fill="#ef4444"/><line x1="290.52631578947364" y1="111.00002938034788" x2="290.52631578947364" y2="121.00002938034788" stroke="#ef4444" stroke-width="1"/><rect x="287.52631578947364" y="114.00002938034788" width="6" height="4" fill="#ef4444"/><line x1="302.6315789473684" y1="115.87364347593471" x2="302.6315789473684" y2="125.87364347593471" stroke="#ef4444" stroke-width="1"/><rect x="299.6315789473684" y="118.87364347593471" width="6" height="4" fill="#ef4444"/><line x1="314.7368421052631" y1="121.3902812459987" x2="314.7368421052631" y2="131.3902812459987" stroke="#ef4444" stroke-width="1"/><rect x="311.7368421052631" y="124.3902812459987" width="6" height="4" fill="#ef4444"/><line x1="326.84210526315786" y1="127.3010343079464" x2="326.84210526315786" y2="137.3010343079464" stroke="#ef4444" stroke-width="1"/><rect x="323.84210526315786" y="130.3010343079464" width="6" height="4" fill="#ef4444"/><line x1="338.9473684210526" y1="133.26050111047994" x2="338.9473684210526" y2="143.26050111047994" stroke="#ef4444" stroke-width="1"/><rect x="335.9473684210526" y="136.26050111047994" width="6" height="4" fill="#ef4444"/><line x1="351.05263157894734" y1="138.91135327965486" x2="351.05263157894734" y2="148.91135327965486" stroke="#ef4444" stroke-width="1"/><rect x="348.05263157894734" y="141.91135327965486" width="6" height="4" fill="#ef4444"/><line x1="363.1578947368421" y1="143.97182206708462" x2="363.1578947368421" y2="153.97182206708462" stroke="#ef4444" stroke-width="1"/><rect x="360.1578947368421" y="146.97182206708462" width="6" height="4" fill="#ef4444"/><line x1="375.2631578947368" y1="148.30468516657405" x2="375.2631578947368" y2="158.30468516657405" stroke="#ef4444" stroke-width="1"/><rect x="372.2631578947368" y="151.30468516657405" width="6" height="4" fill="#ef4444"/><line x1="387.36842105263156" y1="151.95086352047136" x2="387.36842105263156" y2="161.95086352047136" stroke="#ef4444" stroke-width="1"/><rect x="384.36842105263156" y="154.95086352047136" width="6" height="4" fill="#ef4444"/><line x1="399.4736842105263" y1="155.1194024458134" x2="399.4736842105263" y2="165.1194024458134" stroke="#ef4444" stroke-width="1"/><rect x="396.4736842105263" y="158.1194024458134" width="6" height="4" fill="#ef4444"/><line x1="411.57894736842104" y1="158.13629005000482" x2="411.57894736842104" y2="168.13629005000482" stroke="#ef4444" stroke-width="1"/><rect x="408.57894736842104" y="161.13629005000482" width="6" height="4" fill="#ef4444"/><line x1="423.6842105263158" y1="161.36464397289262" x2="423.6842105263158" y2="171.36464397289262" stroke="#ef4444" stroke-width="1"/><rect x="420.6842105263158" y="164.36464397289262" width="6" height="4" fill="#ef4444"/><line x1="435.7894736842105" y1="165.11580752436134" x2="435.7894736842105" y2="175.11580752436134" stroke="#ef4444" stroke-width="1"/><rect x="432.7894736842105" y="168.11580752436134" width="6" height="4" fill="#ef4444"/><line x1="20" y1="145" x2="430" y2="145" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3,3"/><rect x="395" y="138" width="42" height="14" fill="#3b82f6" rx="2"/><text x="416" y="148" fill="#fff" font-size="9" text-anchor="middle" font-weight="700">23.11 AI</text><line x1="266.3157894736842" y1="140" x2="430" y2="210" stroke="#ef4444" stroke-width="2.5" marker-end="url(#arr-r-FDMT)"/><rect x="216.31578947368422" y="60" width="80" height="22" fill="#dc2626" rx="3"/><text x="256.3157894736842" y="76" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Sell Signal</text><rect x="345" y="190" width="90" height="24" fill="#dc2626" rx="3"/><text x="390" y="207" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">Profit +52%</text>
+      </svg>
+      <div class="uss-inset"><div class="uss-inset-pct" style="background:#7f1d1d;">-13.82%</div>
+        <svg viewBox="0 0 110 60" style="margin-top:14px;"><path d="M 5,40 Q 30,30 55,50 Q 80,55 105,52" fill="none" stroke="#ef4444" stroke-width="1.5"/><text x="55" y="32" fill="#1f2937" font-size="9" font-weight="700" text-anchor="middle">FDMT , D</text></svg>
+      </div>
+      <div class="uss-vol"><div class="vb" style="height:15%;"></div><div class="vb" style="height:20.646424733950354%;"></div><div class="vb" style="height:24.320390859672262%;"></div><div class="vb" style="height:24.738476308781955%;"></div><div class="vb" style="height:21.754631805511508%;"></div><div class="vb" style="height:16.41120008059867%;"></div><div class="vb" style="height:10.57479556705148%;"></div><div class="vb" style="height:6.284242275864118%;"></div><div class="vb" style="height:5.038353911641593%;"></div><div class="vb" style="height:7.272355124440123%;"></div><div class="vb" style="height:12.205845018010741%;"></div><div class="vb" style="height:18.115413635133777%;"></div><div class="vb" style="height:22.93667863849153%;"></div><div class="vb" style="height:24.985433453746047%;"></div><div class="vb" style="height:23.545989080882805%;"></div><div class="vb" style="height:19.121184852417567%;"></div><div class="vb" style="height:13.256732187770204%;"></div><div class="vb" style="height:8.001253124064576%;"></div><div class="vb" style="height:5.190637699335088%;"></div><div class="vb" style="height:5.806714743353243%;"></div><div class="vb o" style="height:95%;"></div><div class="vb" style="height:15.336230472211367%;"></div><div class="vb" style="height:20.92073514707223%;"></div><div class="vb" style="height:24.436956694441044%;"></div><div class="vb" style="height:24.65657776549278%;"></div></div>
+      </div>
+    </div><div class="uss-sym">
+      <div class="uss-sym-hd"><div class="uss-sym-lg" style="background:#dc2626;">HE</div>
+        <div><div class="uss-sym-tk">HE</div><div class="uss-sym-nm">Hawaiian Electric Industries, Inc.</div></div>
+        <div class="uss-sym-rv">Rel Vol 0.87</div></div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin:6px 0;"><div style="font-size:26px;font-weight:800;color:#e5e7eb;">16.31</div><div style="font-size:12px;color:#ef4444;font-weight:700;">-0.44 (-2.63%)</div></div>
+      <div class="uss-fund"><div><span>Total Vol</span><b>3.85M</b></div><div><span>Float</span><b>109.90M</b></div><div><span>Short Float %</span><b>24.45%</b></div><div><span>Days to Cover</span><b>2.79</b></div><div><span>Shares Out</span><b>110.30M</b></div><div><span>Earnings Date</span><b>AUG 5 POST</b></div><div><span>EPS</span><b>$0.45</b></div><div><span>Market Cap</span><b>$1.80B</b></div><div><span>Revenue</span><b>$3.65B</b></div></div>
+      <div class="uss-sym-act"><button class="uss-btn pri">BUY</button><button class="uss-btn">SELL</button></div>
+      <div style="color:#9ca3af;font-size:10px;margin-bottom:4px;">Ollie Signal · Aug 5 2024</div>
+      <div class="uss-chart"><svg viewBox="0 0 460 240" style="background:#0d1117;width:100%;height:240px;">
+        <defs><marker id="arr-r-HE" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><polygon points="0,0 8,3 0,6" fill="#ef4444"/></marker><marker id="arr-g-HE" markerWidth="10" markerHeight="10" refX="8" refY="3" orient="auto"><polygon points="0,0 8,3 0,6" fill="#22c55e"/></marker></defs>
+        <text x="230" y="125" fill="#1f2937" font-size="42" font-weight="800" text-anchor="middle" opacity="0.4">HE , D</text>
+        <line x1="24.210526315789473" y1="104" x2="24.210526315789473" y2="116" stroke="#9ca3af" stroke-width="1"/><rect x="21.210526315789473" y="107" width="6" height="6" fill="#9ca3af"/><line x1="36.315789473684205" y1="105.5576733692346" x2="36.315789473684205" y2="117.5576733692346" stroke="#9ca3af" stroke-width="1"/><rect x="33.315789473684205" y="108.5576733692346" width="6" height="6" fill="#9ca3af"/><line x1="48.421052631578945" y1="106.86942436359809" x2="48.421052631578945" y2="118.86942436359809" stroke="#9ca3af" stroke-width="1"/><rect x="45.421052631578945" y="109.86942436359809" width="6" height="6" fill="#9ca3af"/><line x1="60.526315789473685" y1="107.7281563438689" x2="60.526315789473685" y2="119.7281563438689" stroke="#9ca3af" stroke-width="1"/><rect x="57.526315789473685" y="110.7281563438689" width="6" height="6" fill="#9ca3af"/><line x1="72.63157894736841" y1="107.99829441216602" x2="72.63157894736841" y2="119.99829441216602" stroke="#9ca3af" stroke-width="1"/><rect x="69.63157894736841" y="110.99829441216602" width="6" height="6" fill="#9ca3af"/><line x1="84.73684210526315" y1="107.63718970730272" x2="84.73684210526315" y2="119.63718970730272" stroke="#9ca3af" stroke-width="1"/><rect x="81.73684210526315" y="110.63718970730272" width="6" height="6" fill="#9ca3af"/><line x1="96.84210526315789" y1="106.7018527222046" x2="96.84210526315789" y2="118.7018527222046" stroke="#9ca3af" stroke-width="1"/><rect x="93.84210526315789" y="109.7018527222046" width="6" height="6" fill="#9ca3af"/><line x1="108.94736842105263" y1="105.33995260062362" x2="108.94736842105263" y2="117.33995260062362" stroke="#9ca3af" stroke-width="1"/><rect x="105.94736842105263" y="108.33995260062362" width="6" height="6" fill="#9ca3af"/><line x1="121.05263157894737" y1="103.76650342628967" x2="121.05263157894737" y2="115.76650342628967" stroke="#9ca3af" stroke-width="1"/><rect x="118.05263157894737" y="106.76650342628967" width="6" height="6" fill="#9ca3af"/><line x1="133.1578947368421" y1="102.22991822682059" x2="133.1578947368421" y2="114.22991822682059" stroke="#9ca3af" stroke-width="1"/><rect x="130.1578947368421" y="105.22991822682059" width="6" height="6" fill="#9ca3af"/><line x1="145.26315789473682" y1="100.9727900187683" x2="145.26315789473682" y2="112.9727900187683" stroke="#9ca3af" stroke-width="1"/><rect x="142.26315789473682" y="103.9727900187683" width="6" height="6" fill="#9ca3af"/><line x1="157.36842105263156" y1="100.19359170444194" x2="157.36842105263156" y2="112.19359170444194" stroke="#9ca3af" stroke-width="1"/><rect x="154.36842105263156" y="103.19359170444194" width="6" height="6" fill="#9ca3af"/><line x1="169.4736842105263" y1="100.01534156465664" x2="169.4736842105263" y2="112.01534156465664" stroke="#9ca3af" stroke-width="1"/><rect x="166.4736842105263" y="103.01534156465664" width="6" height="6" fill="#9ca3af"/><line x1="181.57894736842104" y1="100.46618137711938" x2="181.57894736842104" y2="112.46618137711938" stroke="#9ca3af" stroke-width="1"/><rect x="178.57894736842104" y="103.46618137711938" width="6" height="6" fill="#9ca3af"/><line x1="193.68421052631578" y1="101.47493344851071" x2="193.68421052631578" y2="113.47493344851071" stroke="#9ca3af" stroke-width="1"/><rect x="190.68421052631578" y="104.47493344851071" width="6" height="6" fill="#9ca3af"/><line x1="205.78947368421052" y1="102.8823380072043" x2="205.78947368421052" y2="114.8823380072043" stroke="#9ca3af" stroke-width="1"/><rect x="202.78947368421052" y="105.8823380072043" width="6" height="6" fill="#9ca3af"/><line x1="217.89473684210526" y1="104.46619681940197" x2="217.89473684210526" y2="116.46619681940197" stroke="#9ca3af" stroke-width="1"/><rect x="214.89473684210526" y="107.46619681940197" width="6" height="6" fill="#9ca3af"/><line x1="230" y1="105.97645340455443" x2="230" y2="117.97645340455443" stroke="#9ca3af" stroke-width="1"/><rect x="227" y="108.97645340455443" width="6" height="6" fill="#9ca3af"/><line x1="242.10526315789474" y1="107.1746714553966" x2="242.10526315789474" y2="119.1746714553966" stroke="#9ca3af" stroke-width="1"/><rect x="239.10526315789474" y="110.1746714553966" width="6" height="6" fill="#9ca3af"/><line x1="254.21052631578945" y1="107.87167868812594" x2="254.21052631578945" y2="119.87167868812594" stroke="#9ca3af" stroke-width="1"/><rect x="251.21052631578945" y="110.87167868812594" width="6" height="6" fill="#9ca3af"/><line x1="266.3157894736842" y1="127" x2="266.3157894736842" y2="163" stroke="#22c55e" stroke-width="1"/><rect x="263.3157894736842" y="130" width="6" height="30" fill="#22c55e"/><line x1="278.42105263157896" y1="97.860912720085" x2="278.42105263157896" y2="107.860912720085" stroke="#22c55e" stroke-width="1"/><rect x="275.42105263157896" y="100.860912720085" width="6" height="4" fill="#22c55e"/><line x1="290.52631578947364" y1="93.00002938034788" x2="290.52631578947364" y2="103.00002938034788" stroke="#22c55e" stroke-width="1"/><rect x="287.52631578947364" y="96.00002938034788" width="6" height="4" fill="#22c55e"/><line x1="302.6315789473684" y1="88.87364347593471" x2="302.6315789473684" y2="98.87364347593471" stroke="#22c55e" stroke-width="1"/><rect x="299.6315789473684" y="91.87364347593471" width="6" height="4" fill="#22c55e"/><line x1="314.7368421052631" y1="85.3902812459987" x2="314.7368421052631" y2="95.3902812459987" stroke="#22c55e" stroke-width="1"/><rect x="311.7368421052631" y="88.3902812459987" width="6" height="4" fill="#22c55e"/><line x1="326.84210526315786" y1="82.3010343079464" x2="326.84210526315786" y2="92.3010343079464" stroke="#22c55e" stroke-width="1"/><rect x="323.84210526315786" y="85.3010343079464" width="6" height="4" fill="#22c55e"/><line x1="338.9473684210526" y1="79.26050111047992" x2="338.9473684210526" y2="89.26050111047992" stroke="#22c55e" stroke-width="1"/><rect x="335.9473684210526" y="82.26050111047992" width="6" height="4" fill="#22c55e"/><line x1="351.05263157894734" y1="75.91135327965486" x2="351.05263157894734" y2="85.91135327965486" stroke="#22c55e" stroke-width="1"/><rect x="348.05263157894734" y="78.91135327965486" width="6" height="4" fill="#22c55e"/><line x1="363.1578947368421" y1="71.97182206708462" x2="363.1578947368421" y2="81.97182206708462" stroke="#22c55e" stroke-width="1"/><rect x="360.1578947368421" y="74.97182206708462" width="6" height="4" fill="#22c55e"/><line x1="375.2631578947368" y1="67.30468516657405" x2="375.2631578947368" y2="77.30468516657405" stroke="#22c55e" stroke-width="1"/><rect x="372.2631578947368" y="70.30468516657405" width="6" height="4" fill="#22c55e"/><line x1="387.36842105263156" y1="61.950863520471344" x2="387.36842105263156" y2="71.95086352047134" stroke="#22c55e" stroke-width="1"/><rect x="384.36842105263156" y="64.95086352047134" width="6" height="4" fill="#22c55e"/><line x1="399.4736842105263" y1="56.11940244581339" x2="399.4736842105263" y2="66.11940244581339" stroke="#22c55e" stroke-width="1"/><rect x="396.4736842105263" y="59.11940244581339" width="6" height="4" fill="#22c55e"/><line x1="411.57894736842104" y1="50.1362900500048" x2="411.57894736842104" y2="60.1362900500048" stroke="#22c55e" stroke-width="1"/><rect x="408.57894736842104" y="53.1362900500048" width="6" height="4" fill="#22c55e"/><line x1="423.6842105263158" y1="44.36464397289263" x2="423.6842105263158" y2="54.36464397289263" stroke="#22c55e" stroke-width="1"/><rect x="420.6842105263158" y="47.36464397289263" width="6" height="4" fill="#22c55e"/><line x1="435.7894736842105" y1="39.11580752436133" x2="435.7894736842105" y2="49.11580752436133" stroke="#22c55e" stroke-width="1"/><rect x="432.7894736842105" y="42.11580752436133" width="6" height="4" fill="#22c55e"/><line x1="20" y1="165" x2="430" y2="165" stroke="#3b82f6" stroke-width="1" stroke-dasharray="3,3"/><rect x="395" y="158" width="42" height="14" fill="#3b82f6" rx="2"/><text x="416" y="168" fill="#fff" font-size="9" text-anchor="middle" font-weight="700">9.67 AI</text><path d="M 266.3157894736842,160 Q 330,80 425,55" fill="none" stroke="#22c55e" stroke-width="2.5" marker-end="url(#arr-g-HE)"/><rect x="216.31578947368422" y="175" width="80" height="22" fill="#16a34a" rx="3"/><text x="256.3157894736842" y="191" fill="#fff" font-size="12" font-weight="700" text-anchor="middle">Buy Signal</text><rect x="345" y="35" width="90" height="24" fill="#16a34a" rx="3"/><text x="390" y="52" fill="#fff" font-size="13" font-weight="700" text-anchor="middle">Profit +88%</text>
+      </svg>
+      <div class="uss-inset"><div class="uss-inset-pct" style="background:#14532d;">+79.63%</div>
+        <svg viewBox="0 0 110 60" style="margin-top:14px;"><path d="M 5,50 Q 30,55 55,30 Q 80,15 105,10" fill="none" stroke="#22c55e" stroke-width="1.5"/><text x="55" y="32" fill="#1f2937" font-size="9" font-weight="700" text-anchor="middle">HE , D</text></svg>
+      </div>
+      <div class="uss-vol"><div class="vb" style="height:15%;"></div><div class="vb" style="height:20.646424733950354%;"></div><div class="vb" style="height:24.320390859672262%;"></div><div class="vb" style="height:24.738476308781955%;"></div><div class="vb" style="height:21.754631805511508%;"></div><div class="vb" style="height:16.41120008059867%;"></div><div class="vb" style="height:10.57479556705148%;"></div><div class="vb" style="height:6.284242275864118%;"></div><div class="vb" style="height:5.038353911641593%;"></div><div class="vb" style="height:7.272355124440123%;"></div><div class="vb" style="height:12.205845018010741%;"></div><div class="vb" style="height:18.115413635133777%;"></div><div class="vb" style="height:22.93667863849153%;"></div><div class="vb" style="height:24.985433453746047%;"></div><div class="vb" style="height:23.545989080882805%;"></div><div class="vb" style="height:19.121184852417567%;"></div><div class="vb" style="height:13.256732187770204%;"></div><div class="vb" style="height:8.001253124064576%;"></div><div class="vb" style="height:5.190637699335088%;"></div><div class="vb" style="height:5.806714743353243%;"></div><div class="vb o" style="height:95%;"></div><div class="vb" style="height:15.336230472211367%;"></div><div class="vb" style="height:20.92073514707223%;"></div><div class="vb" style="height:24.436956694441044%;"></div><div class="vb" style="height:24.65657776549278%;"></div></div>
+      </div>
+    </div></div>
+      </main>
+    </div>
+  </div>
+  <div class="uss-page">
+    <div class="uss-page-head">
+      <div><div class="uss-pt">CONCEPT 5 · OLLIE WORKSPACE · BACKTEST</div><div class="uss-ps">Event-based backtest · profit factor · win rate · daily heatmap · filter optimizer</div></div>
+      
+    </div>
+    <div class="uss-shell">
+      <aside class="uss-sb">
+    <div class="uss-sb-h">PRIMARY</div>
+    <div class="uss-sb-i"><span>Bridge</span></div><div class="uss-sb-i"><span>Cockpit</span></div><div class="uss-sb-i"><span>Trade Desk</span></div><div class="uss-sb-i"><span>Ollie</span></div><div class="uss-sb-i"><span>Battle Station</span></div><div class="uss-sb-i on"><span>Live Trading</span><span class="bg">LIVE</span></div><div class="uss-sb-i"><span>Charts</span></div><div class="uss-sb-i"><span>Leaderboard</span></div><div class="uss-sb-i"><span>Real Portfolio</span></div><div class="uss-sb-i"><span>Ghost Scorecard</span></div><div class="uss-sb-i"><span>Models</span></div>
+    <div class="uss-sb-h">MORE</div>
+    <div class="uss-sb-i"><span>Starfleet</span></div><div class="uss-sb-i"><span>Race</span></div><div class="uss-sb-i"><span>Squeeze</span></div><div class="uss-sb-i"><span>Live Scanner</span></div><div class="uss-sb-i"><span>Movers</span></div><div class="uss-sb-i"><span>Screener Pro</span></div><div class="uss-sb-i"><span>Sectors</span></div><div class="uss-sb-i"><span>Alerts</span><span class="bg">3</span></div><div class="uss-sb-i"><span>Congress</span></div><div class="uss-sb-i"><span>News</span></div><div class="uss-sb-i"><span>Macro</span></div><div class="uss-sb-i"><span>Fear & Greed</span></div>
+    <div class="uss-sb-h">RESERVE</div>
+    <div class="uss-sb-i"><span>Seven of Nine</span></div><div class="uss-sb-i"><span>Sulu</span></div>
+    <div class="uss-sb-h">FLEET</div>
+    <div class="uss-sb-i"><span>Memory</span></div>
+  </aside>
+      <main class="uss-main">
+        <div class="uss-st"><div class="uss-sti">WORKSPACE</div><div class="uss-sti">SYMBOL FOCUS</div><div class="uss-sti">SIGNAL REPLAY</div><div class="uss-sti on">BACKTEST LAB</div><div class="uss-sti">OLLIE WAVE SCOPE</div><div class="uss-sti">OLLIE MACHINE</div></div>
+        
+  <div class="uss-kpis"><div class="uss-kpi"><div class="uss-kpi-l">PROFIT FACTOR</div><div class="uss-kpi-v pos">2.34</div><div class="uss-kpi-s">wins / losses</div></div><div class="uss-kpi"><div class="uss-kpi-l">WIN RATE</div><div class="uss-kpi-v pos">61.4%</div><div class="uss-kpi-s">487 / 793 trades</div></div><div class="uss-kpi"><div class="uss-kpi-l">AVG WINNER</div><div class="uss-kpi-v pos">+$184</div><div class="uss-kpi-s">2.3% avg</div></div><div class="uss-kpi"><div class="uss-kpi-l">AVG LOSER</div><div class="uss-kpi-v neg">-$77</div><div class="uss-kpi-s">-0.9% avg</div></div><div class="uss-kpi"><div class="uss-kpi-l">MAX DRAWDOWN</div><div class="uss-kpi-v neg">-9.4%</div><div class="uss-kpi-s">12 days</div></div><div class="uss-kpi"><div class="uss-kpi-l">TOTAL TRADES</div><div class="uss-kpi-v gold">793</div><div class="uss-kpi-s">52 weeks</div></div></div>
+  
+  <div class="uss-2col">
+    <div class="uss-sec" style="grid-column: span 2;">
+      <div class="uss-sec-h">EQUITY CURVE · 12 MO · NEO STRATEGY: BREAKOUT_VOLUME</div>
+      <svg viewBox="0 0 900 180" style="width:100%;height:180px;background:#0d1117;border-radius:4px;">
+        <line x1="0" y1="90" x2="900" y2="90" stroke="#1f2937" stroke-dasharray="3,3"/>
+        <path d="M 0.0,170.0 L 3.5,169.8 L 6.9,169.3 L 10.4,169.0 L 13.9,168.3 L 17.4,167.6 L 20.8,166.4 L 24.3,165.9 L 27.8,165.3 L 31.3,164.4 L 34.7,163.8 L 38.2,162.9 L 41.7,160.9 L 45.2,159.6 L 48.6,157.8 L 52.1,156.1 L 55.6,155.0 L 59.1,152.8 L 62.5,150.8 L 66.0,148.9 L 69.5,146.8 L 73.0,146.1 L 76.4,145.2 L 79.9,144.5 L 83.4,142.9 L 86.9,142.2 L 90.3,141.6 L 93.8,139.8 L 97.3,137.7 L 100.8,137.0 L 104.2,135.7 L 107.7,134.8 L 111.2,133.2 L 114.7,131.6 L 118.1,130.6 L 121.6,129.4 L 125.1,128.4 L 128.6,127.5 L 132.0,125.9 L 135.5,124.1 L 139.0,123.6 L 142.5,123.2 L 145.9,122.2 L 149.4,120.7 L 152.9,119.3 L 156.4,119.5 L 159.8,118.2 L 163.3,117.4 L 166.8,117.0 L 170.3,117.4 L 173.7,117.9 L 177.2,117.6 L 180.7,117.2 L 184.2,116.7 L 187.6,117.1 L 191.1,117.3 L 194.6,117.9 L 198.1,118.6 L 201.5,118.3 L 205.0,118.2 L 208.5,119.0 L 212.0,118.5 L 215.4,119.4 L 218.9,119.7 L 222.4,119.8 L 225.9,119.9 L 229.3,120.8 L 232.8,121.3 L 236.3,121.9 L 239.8,121.5 L 243.2,122.1 L 246.7,122.5 L 250.2,121.9 L 253.7,123.0 L 257.1,122.8 L 260.6,123.1 L 264.1,122.6 L 267.6,122.4 L 271.0,122.6 L 274.5,122.3 L 278.0,122.8 L 281.5,122.3 L 284.9,122.1 L 288.4,121.3 L 291.9,120.5 L 295.4,119.8 L 298.8,120.3 L 302.3,120.3 L 305.8,120.7 L 309.3,120.8 L 312.7,120.4 L 316.2,119.6 L 319.7,119.4 L 323.2,119.3 L 326.6,118.9 L 330.1,117.4 L 333.6,116.9 L 337.1,115.3 L 340.5,114.4 L 344.0,112.4 L 347.5,111.0 L 351.0,109.8 L 354.4,109.3 L 357.9,108.1 L 361.4,106.7 L 364.9,104.7 L 368.3,103.6 L 371.8,101.7 L 375.3,99.8 L 378.8,97.5 L 382.2,96.6 L 385.7,94.5 L 389.2,93.3 L 392.7,91.0 L 396.1,89.6 L 399.6,87.3 L 403.1,85.1 L 406.6,83.0 L 410.0,81.3 L 413.5,80.4 L 417.0,79.5 L 420.5,77.8 L 423.9,76.1 L 427.4,75.0 L 430.9,73.0 L 434.4,71.5 L 437.8,71.3 L 441.3,69.4 L 444.8,68.4 L 448.3,66.7 L 451.7,65.0 L 455.2,65.1 L 458.7,64.9 L 462.2,64.7 L 465.6,63.4 L 469.1,63.3 L 472.6,63.2 L 476.1,62.6 L 479.5,62.1 L 483.0,62.6 L 486.5,62.3 L 490.0,61.9 L 493.4,61.2 L 496.9,60.5 L 500.4,60.5 L 503.9,60.2 L 507.3,60.8 L 510.8,61.4 L 514.3,61.6 L 517.8,61.4 L 521.2,61.2 L 524.7,61.3 L 528.2,60.8 L 531.7,60.5 L 535.1,61.2 L 538.6,62.1 L 542.1,62.2 L 545.6,63.4 L 549.0,64.5 L 552.5,65.7 L 556.0,65.8 L 559.5,66.0 L 562.9,65.6 L 566.4,65.9 L 569.9,65.5 L 573.4,65.6 L 576.8,66.5 L 580.3,67.2 L 583.8,67.2 L 587.3,67.9 L 590.7,68.6 L 594.2,68.2 L 597.7,67.9 L 601.2,68.5 L 604.6,68.3 L 608.1,68.0 L 611.6,67.9 L 615.1,67.6 L 618.5,66.7 L 622.0,65.5 L 625.5,64.5 L 629.0,64.1 L 632.4,64.0 L 635.9,63.5 L 639.4,62.2 L 642.9,61.5 L 646.3,60.5 L 649.8,59.1 L 653.3,58.5 L 656.8,57.1 L 660.2,56.0 L 663.7,54.2 L 667.2,52.7 L 670.7,51.3 L 674.1,50.0 L 677.6,49.3 L 681.1,47.9 L 684.6,45.6 L 688.0,43.4 L 691.5,42.5 L 695.0,40.1 L 698.5,38.2 L 701.9,35.9 L 705.4,34.6 L 708.9,32.9 L 712.4,31.8 L 715.8,31.0 L 719.3,29.9 L 722.8,29.4 L 726.3,27.9 L 729.7,27.1 L 733.2,26.5 L 736.7,24.6 L 740.2,23.2 L 743.6,22.0 L 747.1,20.1 L 750.6,18.5 L 754.1,18.4 L 757.5,16.5 L 761.0,15.7 L 764.5,15.4 L 768.0,14.8 L 771.4,14.1 L 774.9,13.8 L 778.4,13.7 L 781.9,12.6 L 785.3,12.9 L 788.8,12.6 L 792.3,11.5 L 795.8,11.7 L 799.2,11.8 L 802.7,11.0 L 806.2,10.2 L 809.7,10.3 L 813.1,10.6 L 816.6,10.0 L 820.1,10.5 L 823.6,10.1 L 827.0,11.1 L 830.5,12.0 L 834.0,12.0 L 837.5,12.5 L 840.9,12.1 L 844.4,11.5 L 847.9,11.4 L 851.4,11.4 L 854.8,11.7 L 858.3,11.9 L 861.8,12.8 L 865.3,12.9 L 868.7,13.2 L 872.2,12.7 L 875.7,12.3 L 879.2,12.2 L 882.6,12.5 L 886.1,12.3 L 889.6,13.2 L 893.1,12.6 L 896.5,12.1 L 900.0,12.2 L 900,180 L 0,180 Z" fill="#22c55e" opacity="0.15"/>
+        <path d="M 0.0,170.0 L 3.5,169.8 L 6.9,169.3 L 10.4,169.0 L 13.9,168.3 L 17.4,167.6 L 20.8,166.4 L 24.3,165.9 L 27.8,165.3 L 31.3,164.4 L 34.7,163.8 L 38.2,162.9 L 41.7,160.9 L 45.2,159.6 L 48.6,157.8 L 52.1,156.1 L 55.6,155.0 L 59.1,152.8 L 62.5,150.8 L 66.0,148.9 L 69.5,146.8 L 73.0,146.1 L 76.4,145.2 L 79.9,144.5 L 83.4,142.9 L 86.9,142.2 L 90.3,141.6 L 93.8,139.8 L 97.3,137.7 L 100.8,137.0 L 104.2,135.7 L 107.7,134.8 L 111.2,133.2 L 114.7,131.6 L 118.1,130.6 L 121.6,129.4 L 125.1,128.4 L 128.6,127.5 L 132.0,125.9 L 135.5,124.1 L 139.0,123.6 L 142.5,123.2 L 145.9,122.2 L 149.4,120.7 L 152.9,119.3 L 156.4,119.5 L 159.8,118.2 L 163.3,117.4 L 166.8,117.0 L 170.3,117.4 L 173.7,117.9 L 177.2,117.6 L 180.7,117.2 L 184.2,116.7 L 187.6,117.1 L 191.1,117.3 L 194.6,117.9 L 198.1,118.6 L 201.5,118.3 L 205.0,118.2 L 208.5,119.0 L 212.0,118.5 L 215.4,119.4 L 218.9,119.7 L 222.4,119.8 L 225.9,119.9 L 229.3,120.8 L 232.8,121.3 L 236.3,121.9 L 239.8,121.5 L 243.2,122.1 L 246.7,122.5 L 250.2,121.9 L 253.7,123.0 L 257.1,122.8 L 260.6,123.1 L 264.1,122.6 L 267.6,122.4 L 271.0,122.6 L 274.5,122.3 L 278.0,122.8 L 281.5,122.3 L 284.9,122.1 L 288.4,121.3 L 291.9,120.5 L 295.4,119.8 L 298.8,120.3 L 302.3,120.3 L 305.8,120.7 L 309.3,120.8 L 312.7,120.4 L 316.2,119.6 L 319.7,119.4 L 323.2,119.3 L 326.6,118.9 L 330.1,117.4 L 333.6,116.9 L 337.1,115.3 L 340.5,114.4 L 344.0,112.4 L 347.5,111.0 L 351.0,109.8 L 354.4,109.3 L 357.9,108.1 L 361.4,106.7 L 364.9,104.7 L 368.3,103.6 L 371.8,101.7 L 375.3,99.8 L 378.8,97.5 L 382.2,96.6 L 385.7,94.5 L 389.2,93.3 L 392.7,91.0 L 396.1,89.6 L 399.6,87.3 L 403.1,85.1 L 406.6,83.0 L 410.0,81.3 L 413.5,80.4 L 417.0,79.5 L 420.5,77.8 L 423.9,76.1 L 427.4,75.0 L 430.9,73.0 L 434.4,71.5 L 437.8,71.3 L 441.3,69.4 L 444.8,68.4 L 448.3,66.7 L 451.7,65.0 L 455.2,65.1 L 458.7,64.9 L 462.2,64.7 L 465.6,63.4 L 469.1,63.3 L 472.6,63.2 L 476.1,62.6 L 479.5,62.1 L 483.0,62.6 L 486.5,62.3 L 490.0,61.9 L 493.4,61.2 L 496.9,60.5 L 500.4,60.5 L 503.9,60.2 L 507.3,60.8 L 510.8,61.4 L 514.3,61.6 L 517.8,61.4 L 521.2,61.2 L 524.7,61.3 L 528.2,60.8 L 531.7,60.5 L 535.1,61.2 L 538.6,62.1 L 542.1,62.2 L 545.6,63.4 L 549.0,64.5 L 552.5,65.7 L 556.0,65.8 L 559.5,66.0 L 562.9,65.6 L 566.4,65.9 L 569.9,65.5 L 573.4,65.6 L 576.8,66.5 L 580.3,67.2 L 583.8,67.2 L 587.3,67.9 L 590.7,68.6 L 594.2,68.2 L 597.7,67.9 L 601.2,68.5 L 604.6,68.3 L 608.1,68.0 L 611.6,67.9 L 615.1,67.6 L 618.5,66.7 L 622.0,65.5 L 625.5,64.5 L 629.0,64.1 L 632.4,64.0 L 635.9,63.5 L 639.4,62.2 L 642.9,61.5 L 646.3,60.5 L 649.8,59.1 L 653.3,58.5 L 656.8,57.1 L 660.2,56.0 L 663.7,54.2 L 667.2,52.7 L 670.7,51.3 L 674.1,50.0 L 677.6,49.3 L 681.1,47.9 L 684.6,45.6 L 688.0,43.4 L 691.5,42.5 L 695.0,40.1 L 698.5,38.2 L 701.9,35.9 L 705.4,34.6 L 708.9,32.9 L 712.4,31.8 L 715.8,31.0 L 719.3,29.9 L 722.8,29.4 L 726.3,27.9 L 729.7,27.1 L 733.2,26.5 L 736.7,24.6 L 740.2,23.2 L 743.6,22.0 L 747.1,20.1 L 750.6,18.5 L 754.1,18.4 L 757.5,16.5 L 761.0,15.7 L 764.5,15.4 L 768.0,14.8 L 771.4,14.1 L 774.9,13.8 L 778.4,13.7 L 781.9,12.6 L 785.3,12.9 L 788.8,12.6 L 792.3,11.5 L 795.8,11.7 L 799.2,11.8 L 802.7,11.0 L 806.2,10.2 L 809.7,10.3 L 813.1,10.6 L 816.6,10.0 L 820.1,10.5 L 823.6,10.1 L 827.0,11.1 L 830.5,12.0 L 834.0,12.0 L 837.5,12.5 L 840.9,12.1 L 844.4,11.5 L 847.9,11.4 L 851.4,11.4 L 854.8,11.7 L 858.3,11.9 L 861.8,12.8 L 865.3,12.9 L 868.7,13.2 L 872.2,12.7 L 875.7,12.3 L 879.2,12.2 L 882.6,12.5 L 886.1,12.3 L 889.6,13.2 L 893.1,12.6 L 896.5,12.1 L 900.0,12.2" fill="none" stroke="#22c55e" stroke-width="1.5"/>
+        <text x="8" y="14" fill="#fbbf24" font-size="10" font-weight="700">$10,000 → $20459</text>
+        <text x="892" y="14" fill="#22c55e" font-size="11" font-weight="700" text-anchor="end">+104.6%</text>
+      </svg>
+    </div>
+  </div>
+  
+  <div class="uss-2col">
+    <div class="uss-sec">
+      <div class="uss-sec-h">DAILY P&L HEATMAP · 52 WEEKS</div>
+      <div class="uss-cal"><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#ef4444;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#1f2937;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#22c55e;"></div><div class="day" style="background:#86efac;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#16a34a;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#dc2626;"></div><div class="day" style="background:#fca5a5;"></div><div class="day" style="background:#16a34a;"></div></div>
+      <div style="display:flex;justify-content:space-between;margin-top:6px;font-size:9px;color:#9ca3af;">
+        <span>Loss</span>
+        <div style="display:flex;gap:2px;">
+          <div style="width:12px;height:12px;background:#dc2626;"></div>
+          <div style="width:12px;height:12px;background:#ef4444;"></div>
+          <div style="width:12px;height:12px;background:#fca5a5;"></div>
+          <div style="width:12px;height:12px;background:#1f2937;"></div>
+          <div style="width:12px;height:12px;background:#86efac;"></div>
+          <div style="width:12px;height:12px;background:#22c55e;"></div>
+          <div style="width:12px;height:12px;background:#16a34a;"></div>
+        </div>
+        <span>Gain</span>
+      </div>
+    </div>
+    
+    <div class="uss-sec">
+      <div class="uss-sec-h">OPTIMIZATION · FILTER CONTRIBUTION</div>
+      <div class="uss-opt-row"><span>Float < 100M shares</span><span style="text-align:right;color:#22c55e;font-weight:700;">+18.4%</span><span class="badge add">KEEP</span></div><div class="uss-opt-row"><span>Volume > 400K</span><span style="text-align:right;color:#22c55e;font-weight:700;">+12.7%</span><span class="badge add">KEEP</span></div><div class="uss-opt-row"><span>Relative Volume > 2x</span><span style="text-align:right;color:#22c55e;font-weight:700;">+9.1%</span><span class="badge add">KEEP</span></div><div class="uss-opt-row"><span>Earnings within 5d</span><span style="text-align:right;color:#22c55e;font-weight:700;">+6.8%</span><span class="badge add">KEEP</span></div><div class="uss-opt-row"><span>Position in Range > 80%</span><span style="text-align:right;color:#22c55e;font-weight:700;">+4.2%</span><span class="badge add">KEEP</span></div><div class="uss-opt-row"><span>Price > $5</span><span style="text-align:right;color:#22c55e;font-weight:700;">+2.1%</span><span class="badge add">KEEP</span></div><div class="uss-opt-row"><span>Short Float > 20%</span><span style="text-align:right;color:#ef4444;font-weight:700;">-3.4%</span><span class="badge kill">DROP</span></div><div class="uss-opt-row"><span>Days to Cover > 5</span><span style="text-align:right;color:#ef4444;font-weight:700;">-5.8%</span><span class="badge kill">DROP</span></div><div class="uss-opt-row"><span>Consecutive Down Days</span><span style="text-align:right;color:#ef4444;font-weight:700;">-7.2%</span><span class="badge kill">DROP</span></div><div class="uss-opt-row"><span>Sector: Healthcare</span><span style="text-align:right;color:#ef4444;font-weight:700;">-9.6%</span><span class="badge kill">DROP</span></div>
+    </div>
+  </div>
+      </main>
+    </div>
+  </div>
+  <div class="uss-page">
+    <div class="uss-page-head">
+      <div><div class="uss-pt">CONCEPT 5 · OLLIE WORKSPACE · SCOPE</div><div class="uss-ps">Ollie Wave adaptive EMA bands · Biggest Gainers/Losers ribbons · momentum treemap</div></div>
+      
+    </div>
+    <div class="uss-shell">
+      <aside class="uss-sb">
+    <div class="uss-sb-h">PRIMARY</div>
+    <div class="uss-sb-i"><span>Bridge</span></div><div class="uss-sb-i"><span>Cockpit</span></div><div class="uss-sb-i"><span>Trade Desk</span></div><div class="uss-sb-i"><span>Ollie</span></div><div class="uss-sb-i"><span>Battle Station</span></div><div class="uss-sb-i on"><span>Live Trading</span><span class="bg">LIVE</span></div><div class="uss-sb-i"><span>Charts</span></div><div class="uss-sb-i"><span>Leaderboard</span></div><div class="uss-sb-i"><span>Real Portfolio</span></div><div class="uss-sb-i"><span>Ghost Scorecard</span></div><div class="uss-sb-i"><span>Models</span></div>
+    <div class="uss-sb-h">MORE</div>
+    <div class="uss-sb-i"><span>Starfleet</span></div><div class="uss-sb-i"><span>Race</span></div><div class="uss-sb-i"><span>Squeeze</span></div><div class="uss-sb-i"><span>Live Scanner</span></div><div class="uss-sb-i"><span>Movers</span></div><div class="uss-sb-i"><span>Screener Pro</span></div><div class="uss-sb-i"><span>Sectors</span></div><div class="uss-sb-i"><span>Alerts</span><span class="bg">3</span></div><div class="uss-sb-i"><span>Congress</span></div><div class="uss-sb-i"><span>News</span></div><div class="uss-sb-i"><span>Macro</span></div><div class="uss-sb-i"><span>Fear & Greed</span></div>
+    <div class="uss-sb-h">RESERVE</div>
+    <div class="uss-sb-i"><span>Seven of Nine</span></div><div class="uss-sb-i"><span>Sulu</span></div>
+    <div class="uss-sb-h">FLEET</div>
+    <div class="uss-sb-i"><span>Memory</span></div>
+  </aside>
+      <main class="uss-main">
+        <div class="uss-st"><div class="uss-sti">WORKSPACE</div><div class="uss-sti">SYMBOL FOCUS</div><div class="uss-sti">SIGNAL REPLAY</div><div class="uss-sti">BACKTEST LAB</div><div class="uss-sti on">OLLIE WAVE SCOPE</div><div class="uss-sti">OLLIE MACHINE</div></div>
+        
+  <div class="uss-scope-grid">
+    <div class="uss-sec">
+      <div class="uss-sec-h">▲ BIGGEST GAINERS</div>
+      <div class="uss-ribbon"><div class="uss-ribbon-i up"><b>GSIW</b><span class="p">$3.04</span><span class="c pos">+276.12%</span></div><div class="uss-ribbon-i up"><b>BATL</b><span class="p">$3.96</span><span class="c pos">+114.52%</span></div><div class="uss-ribbon-i up"><b>LFLY</b><span class="p">$6.62</span><span class="c pos">+107.57%</span></div><div class="uss-ribbon-i up"><b>AGBA</b><span class="p">$8.14</span><span class="c pos">+65.4%</span></div><div class="uss-ribbon-i up"><b>UJCY</b><span class="p">$3.28</span><span class="c pos">+58.2%</span></div><div class="uss-ribbon-i up"><b>WPN</b><span class="p">$8.78</span><span class="c pos">+49.1%</span></div><div class="uss-ribbon-i up"><b>EWTX</b><span class="p">$4.05</span><span class="c pos">+41.8%</span></div><div class="uss-ribbon-i up"><b>LBRH</b><span class="p">$3.17</span><span class="c pos">+33.5%</span></div><div class="uss-ribbon-i up"><b>CABA</b><span class="p">$4.01</span><span class="c pos">+28.9%</span></div></div>
+    </div>
+    
+    <div class="uss-sec">
+      <div class="uss-sec-h">MKFG · OLLIE WAVE · 15m · ADAPTIVE EMA BANDS</div>
+      <div style="display:flex;align-items:baseline;gap:10px;margin-bottom:4px;">
+        <div style="font-size:22px;font-weight:800;color:#e5e7eb;">$2.09</div>
+        <div style="font-size:11px;color:#22c55e;font-weight:700;">+0.14 (+7.72%)</div>
+        <div style="margin-left:auto;background:#1c1408;border:1px solid #fbbf24;padding:2px 8px;border-radius:3px;font-size:10px;color:#fbbf24;">Rel Vol 8.96</div>
+      </div>
+      <svg viewBox="0 0 720 320" style="width:100%;height:280px;background:#0d1117;border-radius:4px;">
+        <text x="360" y="170" fill="#1f2937" font-size="56" font-weight="800" text-anchor="middle" opacity="0.4">MKFG · WAVE</text>
+        <path d="M 40.0,179.8 L 53.1,185.8 L 66.1,190.0 L 79.2,191.2 L 92.2,189.8 L 105.3,188.1 L 118.4,186.5 L 131.4,187.5 L 144.5,191.9 L 157.6,197.3 L 170.6,203.0 L 183.7,206.8 L 196.7,208.3 L 209.8,207.0 L 222.9,205.2 L 222.9,249.2 L 209.8,251.0 L 196.7,252.3 L 183.7,250.8 L 170.6,247.0 L 157.6,241.3 L 144.5,235.9 L 131.4,231.5 L 118.4,230.5 L 105.3,232.1 L 92.2,233.8 L 79.2,235.2 L 66.1,234.0 L 53.1,229.8 L 40.0,223.8 Z" fill="#ef4444" opacity="0.18"/><path d="M 235.9,199.9 L 249.0,196.9 L 262.0,196.1 L 275.1,197.0 L 288.2,197.6 L 301.2,196.8 L 314.3,193.5 L 327.3,188.0 L 340.4,181.8 L 353.5,175.6 L 366.5,171.8 L 379.6,171.0 L 392.7,172.7 L 405.7,173.9 L 418.8,173.3 L 431.8,169.8 L 444.9,163.8 L 458.0,157.1 L 471.0,151.3 L 484.1,148.0 L 497.1,147.3 L 510.2,148.3 L 523.3,150.0 L 523.3,194.0 L 510.2,192.3 L 497.1,191.3 L 484.1,192.0 L 471.0,195.3 L 458.0,201.1 L 444.9,207.8 L 431.8,213.8 L 418.8,217.3 L 405.7,217.9 L 392.7,216.7 L 379.6,215.0 L 366.5,215.8 L 353.5,219.6 L 340.4,225.8 L 327.3,232.0 L 314.3,237.5 L 301.2,240.8 L 288.2,241.6 L 275.1,241.0 L 262.0,240.1 L 249.0,240.9 L 235.9,243.9 Z" fill="#22c55e" opacity="0.18"/><path d="M 536.3,153.3 L 549.4,154.5 L 562.4,152.9 L 575.5,151.3 L 588.6,149.9 L 601.6,151.1 L 614.7,155.6 L 627.8,161.9 L 640.8,168.0 L 653.9,171.5 L 666.9,172.4 L 680.0,171.0 L 680.0,215.0 L 666.9,216.4 L 653.9,215.5 L 640.8,212.0 L 627.8,205.9 L 614.7,199.6 L 601.6,195.1 L 588.6,193.9 L 575.5,195.3 L 562.4,196.9 L 549.4,198.5 L 536.3,197.3 Z" fill="#ef4444" opacity="0.18"/>
+        <path d="M 40.0,179.8 L 53.1,185.8 L 66.1,190.0 L 79.2,191.2 L 92.2,189.8 L 105.3,188.1 L 118.4,186.5 L 131.4,187.5 L 144.5,191.9 L 157.6,197.3 L 170.6,203.0 L 183.7,206.8 L 196.7,208.3 L 209.8,207.0 L 222.9,205.2 L 235.9,199.9 L 249.0,196.9 L 262.0,196.1 L 275.1,197.0 L 288.2,197.6 L 301.2,196.8 L 314.3,193.5 L 327.3,188.0 L 340.4,181.8 L 353.5,175.6 L 366.5,171.8 L 379.6,171.0 L 392.7,172.7 L 405.7,173.9 L 418.8,173.3 L 431.8,169.8 L 444.9,163.8 L 458.0,157.1 L 471.0,151.3 L 484.1,148.0 L 497.1,147.3 L 510.2,148.3 L 523.3,150.0 L 536.3,153.3 L 549.4,154.5 L 562.4,152.9 L 575.5,151.3 L 588.6,149.9 L 601.6,151.1 L 614.7,155.6 L 627.8,161.9 L 640.8,168.0 L 653.9,171.5 L 666.9,172.4 L 680.0,171.0" fill="none" stroke="#fbbf24" stroke-width="1" opacity="0.6"/>
+        <path d="M 40.0,223.8 L 53.1,229.8 L 66.1,234.0 L 79.2,235.2 L 92.2,233.8 L 105.3,232.1 L 118.4,230.5 L 131.4,231.5 L 144.5,235.9 L 157.6,241.3 L 170.6,247.0 L 183.7,250.8 L 196.7,252.3 L 209.8,251.0 L 222.9,249.2 L 235.9,243.9 L 249.0,240.9 L 262.0,240.1 L 275.1,241.0 L 288.2,241.6 L 301.2,240.8 L 314.3,237.5 L 327.3,232.0 L 340.4,225.8 L 353.5,219.6 L 366.5,215.8 L 379.6,215.0 L 392.7,216.7 L 405.7,217.9 L 418.8,217.3 L 431.8,213.8 L 444.9,207.8 L 458.0,201.1 L 471.0,195.3 L 484.1,192.0 L 497.1,191.3 L 510.2,192.3 L 523.3,194.0 L 536.3,197.3 L 549.4,198.5 L 562.4,196.9 L 575.5,195.3 L 588.6,193.9 L 601.6,195.1 L 614.7,199.6 L 627.8,205.9 L 640.8,212.0 L 653.9,215.5 L 666.9,216.4 L 680.0,215.0" fill="none" stroke="#fbbf24" stroke-width="1" opacity="0.6"/>
+        <line x1="40.0" y1="191.8" x2="40.0" y2="211.8" stroke="#ef4444" stroke-width="1"/><rect x="36.0" y="195.8" width="8" height="12.0" fill="#ef4444"/><line x1="53.1" y1="197.8" x2="53.1" y2="217.8" stroke="#22c55e" stroke-width="1"/><rect x="49.1" y="201.8" width="8" height="12.0" fill="#22c55e"/><line x1="66.1" y1="202.0" x2="66.1" y2="222.0" stroke="#22c55e" stroke-width="1"/><rect x="62.1" y="206.0" width="8" height="12.0" fill="#22c55e"/><line x1="79.2" y1="203.2" x2="79.2" y2="223.2" stroke="#ef4444" stroke-width="1"/><rect x="75.2" y="207.2" width="8" height="12.0" fill="#ef4444"/><line x1="92.2" y1="201.8" x2="92.2" y2="221.8" stroke="#22c55e" stroke-width="1"/><rect x="88.2" y="205.8" width="8" height="12.0" fill="#22c55e"/><line x1="105.3" y1="200.1" x2="105.3" y2="220.1" stroke="#22c55e" stroke-width="1"/><rect x="101.3" y="204.1" width="8" height="12.0" fill="#22c55e"/><line x1="118.4" y1="198.5" x2="118.4" y2="218.5" stroke="#22c55e" stroke-width="1"/><rect x="114.4" y="202.5" width="8" height="12.0" fill="#22c55e"/><line x1="131.4" y1="199.5" x2="131.4" y2="219.5" stroke="#22c55e" stroke-width="1"/><rect x="127.4" y="203.5" width="8" height="12.0" fill="#22c55e"/><line x1="144.5" y1="203.9" x2="144.5" y2="223.9" stroke="#22c55e" stroke-width="1"/><rect x="140.5" y="207.9" width="8" height="12.0" fill="#22c55e"/><line x1="157.6" y1="209.3" x2="157.6" y2="229.3" stroke="#ef4444" stroke-width="1"/><rect x="153.6" y="213.3" width="8" height="12.0" fill="#ef4444"/><line x1="170.6" y1="215.0" x2="170.6" y2="235.0" stroke="#22c55e" stroke-width="1"/><rect x="166.6" y="219.0" width="8" height="12.0" fill="#22c55e"/><line x1="183.7" y1="218.8" x2="183.7" y2="238.8" stroke="#ef4444" stroke-width="1"/><rect x="179.7" y="222.8" width="8" height="12.0" fill="#ef4444"/><line x1="196.7" y1="220.3" x2="196.7" y2="240.3" stroke="#ef4444" stroke-width="1"/><rect x="192.7" y="224.3" width="8" height="12.0" fill="#ef4444"/><line x1="209.8" y1="219.0" x2="209.8" y2="239.0" stroke="#ef4444" stroke-width="1"/><rect x="205.8" y="223.0" width="8" height="12.0" fill="#ef4444"/><line x1="222.9" y1="217.2" x2="222.9" y2="237.2" stroke="#22c55e" stroke-width="1"/><rect x="218.9" y="221.2" width="8" height="12.0" fill="#22c55e"/><line x1="235.9" y1="211.9" x2="235.9" y2="231.9" stroke="#22c55e" stroke-width="1"/><rect x="231.9" y="215.9" width="8" height="12.0" fill="#22c55e"/><line x1="249.0" y1="208.9" x2="249.0" y2="228.9" stroke="#22c55e" stroke-width="1"/><rect x="245.0" y="212.9" width="8" height="12.0" fill="#22c55e"/><line x1="262.0" y1="208.1" x2="262.0" y2="228.1" stroke="#22c55e" stroke-width="1"/><rect x="258.0" y="212.1" width="8" height="12.0" fill="#22c55e"/><line x1="275.1" y1="209.0" x2="275.1" y2="229.0" stroke="#ef4444" stroke-width="1"/><rect x="271.1" y="213.0" width="8" height="12.0" fill="#ef4444"/><line x1="288.2" y1="209.6" x2="288.2" y2="229.6" stroke="#ef4444" stroke-width="1"/><rect x="284.2" y="213.6" width="8" height="12.0" fill="#ef4444"/><line x1="301.2" y1="208.8" x2="301.2" y2="228.8" stroke="#22c55e" stroke-width="1"/><rect x="297.2" y="212.8" width="8" height="12.0" fill="#22c55e"/><line x1="314.3" y1="205.5" x2="314.3" y2="225.5" stroke="#ef4444" stroke-width="1"/><rect x="310.3" y="209.5" width="8" height="12.0" fill="#ef4444"/><line x1="327.3" y1="200.0" x2="327.3" y2="220.0" stroke="#22c55e" stroke-width="1"/><rect x="323.3" y="204.0" width="8" height="12.0" fill="#22c55e"/><line x1="340.4" y1="193.8" x2="340.4" y2="213.8" stroke="#22c55e" stroke-width="1"/><rect x="336.4" y="197.8" width="8" height="12.0" fill="#22c55e"/><line x1="353.5" y1="187.6" x2="353.5" y2="207.6" stroke="#22c55e" stroke-width="1"/><rect x="349.5" y="191.6" width="8" height="12.0" fill="#22c55e"/><line x1="366.5" y1="183.8" x2="366.5" y2="203.8" stroke="#ef4444" stroke-width="1"/><rect x="362.5" y="187.8" width="8" height="12.0" fill="#ef4444"/><line x1="379.6" y1="183.0" x2="379.6" y2="203.0" stroke="#22c55e" stroke-width="1"/><rect x="375.6" y="187.0" width="8" height="12.0" fill="#22c55e"/><line x1="392.7" y1="184.7" x2="392.7" y2="204.7" stroke="#22c55e" stroke-width="1"/><rect x="388.7" y="188.7" width="8" height="12.0" fill="#22c55e"/><line x1="405.7" y1="185.9" x2="405.7" y2="205.9" stroke="#ef4444" stroke-width="1"/><rect x="401.7" y="189.9" width="8" height="12.0" fill="#ef4444"/><line x1="418.8" y1="185.3" x2="418.8" y2="205.3" stroke="#22c55e" stroke-width="1"/><rect x="414.8" y="189.3" width="8" height="12.0" fill="#22c55e"/><line x1="431.8" y1="181.8" x2="431.8" y2="201.8" stroke="#22c55e" stroke-width="1"/><rect x="427.8" y="185.8" width="8" height="12.0" fill="#22c55e"/><line x1="444.9" y1="175.8" x2="444.9" y2="195.8" stroke="#ef4444" stroke-width="1"/><rect x="440.9" y="179.8" width="8" height="12.0" fill="#ef4444"/><line x1="458.0" y1="169.1" x2="458.0" y2="189.1" stroke="#ef4444" stroke-width="1"/><rect x="454.0" y="173.1" width="8" height="12.0" fill="#ef4444"/><line x1="471.0" y1="163.3" x2="471.0" y2="183.3" stroke="#22c55e" stroke-width="1"/><rect x="467.0" y="167.3" width="8" height="12.0" fill="#22c55e"/><line x1="484.1" y1="160.0" x2="484.1" y2="180.0" stroke="#22c55e" stroke-width="1"/><rect x="480.1" y="164.0" width="8" height="12.0" fill="#22c55e"/><line x1="497.1" y1="159.3" x2="497.1" y2="179.3" stroke="#22c55e" stroke-width="1"/><rect x="493.1" y="163.3" width="8" height="12.0" fill="#22c55e"/><line x1="510.2" y1="160.3" x2="510.2" y2="180.3" stroke="#ef4444" stroke-width="1"/><rect x="506.2" y="164.3" width="8" height="12.0" fill="#ef4444"/><line x1="523.3" y1="162.0" x2="523.3" y2="182.0" stroke="#22c55e" stroke-width="1"/><rect x="519.3" y="166.0" width="8" height="12.0" fill="#22c55e"/><line x1="536.3" y1="165.3" x2="536.3" y2="185.3" stroke="#22c55e" stroke-width="1"/><rect x="532.3" y="169.3" width="8" height="12.0" fill="#22c55e"/><line x1="549.4" y1="166.5" x2="549.4" y2="186.5" stroke="#ef4444" stroke-width="1"/><rect x="545.4" y="170.5" width="8" height="12.0" fill="#ef4444"/><line x1="562.4" y1="164.9" x2="562.4" y2="184.9" stroke="#ef4444" stroke-width="1"/><rect x="558.4" y="168.9" width="8" height="12.0" fill="#ef4444"/><line x1="575.5" y1="163.3" x2="575.5" y2="183.3" stroke="#22c55e" stroke-width="1"/><rect x="571.5" y="167.3" width="8" height="12.0" fill="#22c55e"/><line x1="588.6" y1="161.9" x2="588.6" y2="181.9" stroke="#ef4444" stroke-width="1"/><rect x="584.6" y="165.9" width="8" height="12.0" fill="#ef4444"/><line x1="601.6" y1="163.1" x2="601.6" y2="183.1" stroke="#22c55e" stroke-width="1"/><rect x="597.6" y="167.1" width="8" height="12.0" fill="#22c55e"/><line x1="614.7" y1="167.6" x2="614.7" y2="187.6" stroke="#ef4444" stroke-width="1"/><rect x="610.7" y="171.6" width="8" height="12.0" fill="#ef4444"/><line x1="627.8" y1="173.9" x2="627.8" y2="193.9" stroke="#ef4444" stroke-width="1"/><rect x="623.8" y="177.9" width="8" height="12.0" fill="#ef4444"/><line x1="640.8" y1="180.0" x2="640.8" y2="200.0" stroke="#ef4444" stroke-width="1"/><rect x="636.8" y="184.0" width="8" height="12.0" fill="#ef4444"/><line x1="653.9" y1="183.5" x2="653.9" y2="203.5" stroke="#ef4444" stroke-width="1"/><rect x="649.9" y="187.5" width="8" height="12.0" fill="#ef4444"/><line x1="666.9" y1="184.4" x2="666.9" y2="204.4" stroke="#ef4444" stroke-width="1"/><rect x="662.9" y="188.4" width="8" height="12.0" fill="#ef4444"/><line x1="680.0" y1="183.0" x2="680.0" y2="203.0" stroke="#22c55e" stroke-width="1"/><rect x="676.0" y="187.0" width="8" height="12.0" fill="#22c55e"/>
+        <circle cx="235.9" cy="251.9" r="9" fill="#16a34a"/><text x="235.9" y="255.9" fill="#fff" font-size="11" font-weight="800" text-anchor="middle">B</text><circle cx="536.3" cy="145.3" r="9" fill="#dc2626"/><text x="536.3" y="149.3" fill="#fff" font-size="11" font-weight="800" text-anchor="middle">S</text>
+      </svg>
+      <div style="display:flex;gap:6px;margin-top:6px;">
+        <div style="background:#0a2e1a;border:1px solid #22c55e;color:#22c55e;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:700;">B = BUY CROSSOVER</div>
+        <div style="background:#2e1010;border:1px solid #ef4444;color:#ef4444;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:700;">S = SELL CROSSOVER</div>
+        <div style="background:#1c1408;border:1px solid #fbbf24;color:#fbbf24;padding:3px 10px;border-radius:3px;font-size:10px;font-weight:700;">BAND = AI-TUNED EMA ENVELOPE</div>
+      </div>
+    </div>
+    
+    <div class="uss-sec">
+      <div class="uss-sec-h">▼ BIGGEST LOSERS</div>
+      <div class="uss-ribbon"><div class="uss-ribbon-i dn"><b>SCHL</b><span class="p">$4.95</span><span class="c neg">-44.3%</span></div><div class="uss-ribbon-i dn"><b>GLXG</b><span class="p">$1.86</span><span class="c neg">-38.1%</span></div><div class="uss-ribbon-i dn"><b>SNES</b><span class="p">$10.78</span><span class="c neg">-31.8%</span></div><div class="uss-ribbon-i dn"><b>VVOS</b><span class="p">$1.19</span><span class="c neg">-27.4%</span></div><div class="uss-ribbon-i dn"><b>NWFL</b><span class="p">$10.53</span><span class="c neg">-21.6%</span></div><div class="uss-ribbon-i dn"><b>BHLB</b><span class="p">$1.59</span><span class="c neg">-18.2%</span></div><div class="uss-ribbon-i dn"><b>PIK</b><span class="p">$2.67</span><span class="c neg">-15.7%</span></div><div class="uss-ribbon-i dn"><b>SBSI</b><span class="p">$4.36</span><span class="c neg">-12.4%</span></div></div>
+    </div>
+  </div>
+  
+  <div class="uss-sec" style="margin-top:10px;">
+    <div class="uss-sec-h">MOMENTUM TREEMAP · POST-MARKET GAINERS · SIZED BY % MOVE</div>
+    <div class="uss-treemap"><div class="uss-tm" style="background:#16a34a;grid-area:1 / span 2 / 1 / span 2;color:#fff;"><b>YOUL</b><span>22.45%</span></div><div class="uss-tm" style="background:#22c55e;grid-area:1 / 3 / 1 / 4;color:#fff;"><b>YSXT</b><span>19.48%</span></div><div class="uss-tm" style="background:#22c55e;grid-area:1 / 4 / 1 / 5;color:#fff;"><b>HSCS</b><span>14.97%</span></div><div class="uss-tm" style="background:#86efac;grid-area:2 / 1;color:#fff;"><b>SQNS</b><span>8.30%</span></div><div class="uss-tm" style="background:#86efac;grid-area:2 / 2;color:#fff;"><b>LIXT</b><span>6.17%</span></div><div class="uss-tm" style="background:#bbf7d0;grid-area:2 / 3;color:#000;"><b>PTHS</b><span>5.47%</span></div><div class="uss-tm" style="background:#bbf7d0;grid-area:2 / 4;color:#000;"><b>ASST</b><span>5.40%</span></div><div class="uss-tm" style="background:#bbf7d0;grid-area:3 / 1;color:#000;"><b>MAMK</b><span>5.03%</span></div><div class="uss-tm" style="background:#bbf7d0;grid-area:3 / 2;color:#000;"><b>BSGM</b><span>4.99%</span></div><div class="uss-tm" style="background:#bbf7d0;grid-area:3 / 3;color:#000;"><b>KZIA</b><span>4.55%</span></div><div class="uss-tm" style="background:#bbf7d0;grid-area:3 / 4;color:#000;"><b>BTCS</b><span>4.40%</span></div><div class="uss-tm" style="background:#dcfce7;grid-area:4 / 1;color:#000;"><b>IRBT</b><span>4.28%</span></div><div class="uss-tm" style="background:#dcfce7;grid-area:4 / 2;color:#000;"><b>SYTA</b><span>4.26%</span></div><div class="uss-tm" style="background:#dcfce7;grid-area:4 / 3;color:#000;"><b>ANNX</b><span>4.12%</span></div><div class="uss-tm" style="background:#dcfce7;grid-area:4 / 4;color:#000;"><b>MYNZ</b><span>3.69%</span></div></div>
+  </div>
+      </main>
+    </div>
+  </div>
+  <div class="uss-page">
+    <div class="uss-page-head">
+      <div><div class="uss-pt">CONCEPT 5 · OLLIE WORKSPACE · MACHINE</div><div class="uss-ps">2nd Gen Automated Momentum · top-3 picks · Sim/Live · auto-entry optimization</div></div>
+      
+    </div>
+    <div class="uss-shell">
+      <aside class="uss-sb">
+    <div class="uss-sb-h">PRIMARY</div>
+    <div class="uss-sb-i"><span>Bridge</span></div><div class="uss-sb-i"><span>Cockpit</span></div><div class="uss-sb-i"><span>Trade Desk</span></div><div class="uss-sb-i"><span>Ollie</span></div><div class="uss-sb-i"><span>Battle Station</span></div><div class="uss-sb-i on"><span>Live Trading</span><span class="bg">LIVE</span></div><div class="uss-sb-i"><span>Charts</span></div><div class="uss-sb-i"><span>Leaderboard</span></div><div class="uss-sb-i"><span>Real Portfolio</span></div><div class="uss-sb-i"><span>Ghost Scorecard</span></div><div class="uss-sb-i"><span>Models</span></div>
+    <div class="uss-sb-h">MORE</div>
+    <div class="uss-sb-i"><span>Starfleet</span></div><div class="uss-sb-i"><span>Race</span></div><div class="uss-sb-i"><span>Squeeze</span></div><div class="uss-sb-i"><span>Live Scanner</span></div><div class="uss-sb-i"><span>Movers</span></div><div class="uss-sb-i"><span>Screener Pro</span></div><div class="uss-sb-i"><span>Sectors</span></div><div class="uss-sb-i"><span>Alerts</span><span class="bg">3</span></div><div class="uss-sb-i"><span>Congress</span></div><div class="uss-sb-i"><span>News</span></div><div class="uss-sb-i"><span>Macro</span></div><div class="uss-sb-i"><span>Fear & Greed</span></div>
+    <div class="uss-sb-h">RESERVE</div>
+    <div class="uss-sb-i"><span>Seven of Nine</span></div><div class="uss-sb-i"><span>Sulu</span></div>
+    <div class="uss-sb-h">FLEET</div>
+    <div class="uss-sb-i"><span>Memory</span></div>
+  </aside>
+      <main class="uss-main">
+        <div class="uss-st"><div class="uss-sti">WORKSPACE</div><div class="uss-sti">SYMBOL FOCUS</div><div class="uss-sti">SIGNAL REPLAY</div><div class="uss-sti">BACKTEST LAB</div><div class="uss-sti">OLLIE WAVE SCOPE</div><div class="uss-sti on">OLLIE MACHINE</div></div>
+        
+  <div style="display:flex;justify-content:space-between;align-items:center;margin-bottom:10px;">
+    <div>
+      <div style="font-size:16px;font-weight:800;color:#fbbf24;letter-spacing:1px;">OLLIE MACHINE · 2ND GEN AUTOMATED MOMENTUM</div>
+      <div style="font-size:11px;color:#9ca3af;margin-top:2px;">Auto-positions you in the market's top-3 momentum opportunities, rebalances continuously</div>
+    </div>
+    <div class="uss-mm-mode">
+      <div class="on">SIM MODE</div>
+      <div>LIVE MODE</div>
+    </div>
+  </div>
+  
+  <div class="uss-hero">
+    <div class="uss-hc">
+      <div class="uss-hl">PORTFOLIO EXPOSURE</div>
+      <div class="uss-hv">$6,180</div>
+      <div class="uss-hs">3 positions · all long · 100% allocated</div>
+    </div>
+    <div class="uss-hc">
+      <div class="uss-hl">SESSION P&L</div>
+      <div class="uss-hv pos">+$1,462</div>
+      <div class="uss-hs">+23.6% on capital · 11:14 AZ</div>
+    </div>
+    <div class="uss-hc">
+      <div class="uss-hl">AUTO-ENTRY OPTIMIZATION</div>
+      <div class="uss-hv gold">RUNNING</div>
+      <div class="uss-hs">Next rebalance in 47 sec</div>
+    </div>
+  </div>
+  
+  <div class="uss-sec">
+    <div class="uss-sec-h">TOP-3 MOMENTUM POSITIONS · AUTOMATICALLY MANAGED</div>
+    <table class="uss-mm-tbl">
+      <thead><tr><th>L/S</th><th>SYMBOL</th><th>PRICE</th><th>POSITION SIZE</th><th>EXPOSURE</th><th>P&L</th></tr></thead>
+      <tbody><tr><td><span class="uss-mm-ls long">LONG</span></td><td><div class="uss-mm-sym"><div class="lg" style="background:#0ea5e9;">V</div><div><div style="font-weight:800;color:#fbbf24;">VTYX</div><div style="font-size:10px;color:#9ca3af;">Ventyx Biosciences</div></div></div></td><td><div style="font-weight:700;color:#e5e7eb;">$2.91</div><div style="font-size:10px;color:#22c55e;font-weight:700;">+0.61 (+26.52%)</div></td><td style="color:#cbd5e1;">724 sh</td><td style="color:#e5e7eb;font-weight:700;">$2,107</td><td><span style="color:#22c55e;font-weight:700;">+$447</span></td></tr><tr><td><span class="uss-mm-ls long">LONG</span></td><td><div class="uss-mm-sym"><div class="lg" style="background:#7c3aed;">K</div><div><div style="font-weight:800;color:#fbbf24;">KOD</div><div style="font-size:10px;color:#9ca3af;">Kodiak Sciences</div></div></div></td><td><div style="font-weight:700;color:#e5e7eb;">$13.86</div><div style="font-size:10px;color:#22c55e;font-weight:700;">+4.33 (+45.44%)</div></td><td style="color:#cbd5e1;">148 sh</td><td style="color:#e5e7eb;font-weight:700;">$2,051</td><td><span style="color:#22c55e;font-weight:700;">+$641</span></td></tr><tr><td><span class="uss-mm-ls long">LONG</span></td><td><div class="uss-mm-sym"><div class="lg" style="background:#dc2626;">n</div><div><div style="font-weight:800;color:#fbbf24;">KITT</div><div style="font-size:10px;color:#9ca3af;">Nauticus Robotics</div></div></div></td><td><div style="font-weight:700;color:#e5e7eb;">$4.11</div><div style="font-size:10px;color:#22c55e;font-weight:700;">+0.76 (+22.75%)</div></td><td style="color:#cbd5e1;">492 sh</td><td style="color:#e5e7eb;font-weight:700;">$2,022</td><td><span style="color:#22c55e;font-weight:700;">+$374</span></td></tr></tbody>
+    </table>
+  </div>
+  
+  <div class="uss-2col" style="margin-top:10px;">
+    <div class="uss-sec">
+      <div class="uss-sec-h">CANDIDATE TREEMAP · SIZE-WEIGHTED · $/SHARE IMPACT</div>
+      <div class="uss-treemap" style="grid-template-rows:repeat(3,1fr);min-height:240px;"><div class="uss-tm" style="background:#16a34a;grid-area:1 / span 2 / span 2 / span 2;color:#fff;"><b>BETR</b><span>48.93%</span><span style="font-size:9px;margin-top:2px;">5,000 sh · $245</span></div><div class="uss-tm" style="background:#22c55e;grid-area:1 / 3 / span 2 / span 1;color:#fff;"><b>YSXT</b><span>19.48%</span><span style="font-size:9px;margin-top:2px;">3,000 sh · $153</span></div><div class="uss-tm" style="background:#22c55e;grid-area:1 / 4 / span 1 / span 1;color:#fff;"><b>RAYA</b><span>17.48%</span><span style="font-size:9px;margin-top:2px;">2,000 sh · $50</span></div><div class="uss-tm" style="background:#86efac;grid-area:2 / 4 / span 1 / span 1;color:#000;"><b>ARTL</b><span>12.36%</span><span style="font-size:9px;margin-top:2px;">1,500 sh · -$66</span></div><div class="uss-tm" style="background:#bbf7d0;grid-area:3 / 1 / span 1 / span 1;color:#000;"><b>KLG</b><span>8.30%</span><span style="font-size:9px;margin-top:2px;">1,000 sh · $9</span></div><div class="uss-tm" style="background:#bbf7d0;grid-area:3 / 2 / span 1 / span 1;color:#000;"><b>SQNS</b><span>7.71%</span><span style="font-size:9px;margin-top:2px;">800 sh · -$66</span></div><div class="uss-tm" style="background:#fef3c7;grid-area:3 / 3 / span 1 / span 1;color:#000;"><b>ASST</b><span>5.40%</span><span style="font-size:9px;margin-top:2px;">600 sh · -$100</span></div><div class="uss-tm" style="background:#86efac;grid-area:3 / 4 / span 1 / span 1;color:#000;"><b>CHEK</b><span>12.11%</span><span style="font-size:9px;margin-top:2px;">1,200 sh · $78</span></div></div>
+    </div>
+    <div class="uss-sec">
+      <div class="uss-sec-h">MACHINE LOG · LAST 7 ACTIONS</div>
+      <div class="uss-sig"><b>11:14:32</b> ENTER LONG VTYX · 724 sh @ $2.91 · momentum rank #1</div>
+      <div class="uss-sig"><b>11:13:08</b> ENTER LONG KOD · 148 sh @ $13.86 · momentum rank #2</div>
+      <div class="uss-sig"><b>11:11:55</b> ENTER LONG KITT · 492 sh @ $4.11 · momentum rank #3</div>
+      <div class="uss-sig"><b>11:09:20</b> EXIT LONG BETR · TP hit · 5,000 sh · +$245</div>
+      <div class="uss-sig"><b>11:06:14</b> REBALANCE · trim ARTL exposure → KOD</div>
+      <div class="uss-sig"><b>11:02:47</b> SIGNAL · YSXT momentum decay → drop from top-3</div>
+      <div class="uss-sig"><b>10:58:33</b> ENTER LONG YSXT · 3,000 sh @ $7.24 · momentum rank #1</div>
+      <div style="margin-top:10px;padding:8px;background:#111827;border-left:3px solid #fbbf24;font-size:11px;color:#cbd5e1;">
+        <b style="color:#fbbf24;">PARAMETERS:</b> top-3 momentum / 3-min rebalance / max 33% per position / hard stop at -5% / TP trail at +8%
+      </div>
+    </div>
+  </div>
+      </main>
+    </div>
+  </div></div></body></html>

@@ -408,7 +408,7 @@
 
     const header = document.createElement('div');
     header.id = 'sc-header';
-    header.textContent = "USS TRADEMINDS — CIC";
+    header.textContent = "USS OLLIETRADES — CIC";
     content.appendChild(header);
 
     // Loading
