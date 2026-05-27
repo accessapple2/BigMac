@@ -1741,6 +1741,31 @@ def api_scanner_convergence():
               SELECT DISTINCT symbol
                 FROM positions
                WHERE qty IS NOT NULL AND qty != 0
+            ),
+            -- HM-SCANNER-MEGACAP-PRICE-GAP Path 1 — DB-only fallbacks when
+            -- mover_watchlist.last_price is null (mover_watchlist is sourced
+            -- from Polygon's biggest-%-mover snapshot, which excludes
+            -- mega-caps like STLD/KEY/ADI/AMZN/AVGO). No new network calls.
+            position_price AS (
+              -- Mean cost basis across all players holding the stock.
+              -- Per spec: avg_price applies to IN-FLEET tickers only.
+              SELECT symbol, AVG(avg_price) AS avg_price
+                FROM positions
+               WHERE qty IS NOT NULL AND qty != 0
+                 AND asset_type = 'stock'
+                 AND avg_price IS NOT NULL
+                 AND avg_price > 0
+               GROUP BY symbol
+            ),
+            latest_trade_price AS (
+              -- SQLite bare-column-with-MAX extension: `price` comes from
+              -- the row with MAX(id), i.e. the most recent stock trade.
+              SELECT symbol, price, MAX(id) AS max_id
+                FROM trades
+               WHERE asset_type = 'stock'
+                 AND price IS NOT NULL
+                 AND price > 0
+               GROUP BY symbol
             )
             SELECT r.ticker,
                    r.strat_count,
@@ -1750,7 +1775,17 @@ def api_scanner_convergence():
                    r.stop_price,
                    r.target,
                    r.last_seen,
-                   mw.last_price       AS price,
+                   -- Price fallback chain: mover_watchlist primary; if null,
+                   -- positions.avg_price for in-fleet tickers, else latest
+                   -- trades.price for non-fleet. Sticks strictly to DB —
+                   -- no extra network calls.
+                   COALESCE(
+                       mw.last_price,
+                       CASE
+                           WHEN ifl.symbol IS NOT NULL THEN pp.avg_price
+                           ELSE ltp.price
+                       END
+                   )                   AS price,
                    mw.pct_change       AS chg_close_pct,
                    mw.volume           AS volume,
                    vb.avg_volume_20d   AS avg_volume_20d,
@@ -1758,10 +1793,12 @@ def api_scanner_convergence():
                    la.alert_type       AS recent_alert_type,
                    CASE WHEN ifl.symbol IS NOT NULL THEN 1 ELSE 0 END AS in_fleet
               FROM recent r
-              LEFT JOIN mover_watchlist  mw  ON mw.symbol = r.ticker
-              LEFT JOIN volume_baselines vb  ON vb.symbol = r.ticker
-              LEFT JOIN latest_alert     la  ON la.symbol = r.ticker
-              LEFT JOIN in_fleet         ifl ON ifl.symbol = r.ticker
+              LEFT JOIN mover_watchlist     mw  ON mw.symbol = r.ticker
+              LEFT JOIN volume_baselines    vb  ON vb.symbol = r.ticker
+              LEFT JOIN latest_alert        la  ON la.symbol = r.ticker
+              LEFT JOIN in_fleet            ifl ON ifl.symbol = r.ticker
+              LEFT JOIN position_price      pp  ON pp.symbol  = r.ticker
+              LEFT JOIN latest_trade_price  ltp ON ltp.symbol = r.ticker
              ORDER BY r.strat_count DESC, r.conf DESC, r.ticker ASC
             """
         ).fetchall()
