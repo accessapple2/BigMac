@@ -1196,6 +1196,8 @@ body:not(.role-admin) .admin-only { display: none !important; }
 
 /* Card */
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: 10px; padding: 20px; margin-bottom: 14px; }
+/* Command Bridge cockpit tiles — elevated background + stronger border for contrast (2026-05-26) */
+#section-cockpit .card { background: var(--surface2); border: 1px solid rgba(255,255,255,0.15); }
 .card-header { display: flex; align-items: center; justify-content: space-between; margin-bottom: 16px; }
 .card-title { font-family: var(--font-head); font-size: 15px; font-weight: 700; color: var(--text); letter-spacing: -0.3px; }
 
@@ -8044,42 +8046,42 @@ if (typeof registerSectionInit === 'function') {
   <!-- Row 1: status tiles -->
   <div style="display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px;margin-bottom:16px;">
     <div class="card" id="cp-tile-regime">
-      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Regime</div></div>
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Regime</div></div>
       <div style="padding:8px 12px 12px;font-family:monospace;">
         <div id="cp-regime-name" style="font-size:18px;font-weight:700;color:#06b6d4;">—</div>
         <div id="cp-regime-date" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
       </div>
     </div>
     <div class="card" id="cp-tile-ladder">
-      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Capital Ladder</div></div>
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Capital Ladder</div></div>
       <div style="padding:8px 12px 12px;font-family:monospace;">
         <div id="cp-ladder-name" style="font-size:18px;font-weight:700;color:#10b981;">—</div>
         <div id="cp-ladder-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
       </div>
     </div>
     <div class="card" id="cp-tile-killswitch">
-      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Kill-Switch</div></div>
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Kill-Switch</div></div>
       <div style="padding:8px 12px 12px;font-family:monospace;">
         <div id="cp-ks-state" style="font-size:18px;font-weight:700;">—</div>
         <div id="cp-ks-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
       </div>
     </div>
     <div class="card" id="cp-tile-wr">
-      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">War Room Heartbeat</div></div>
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">War Room Heartbeat</div></div>
       <div style="padding:8px 12px 12px;font-family:monospace;">
         <div id="cp-wr-age" style="font-size:18px;font-weight:700;">—</div>
         <div id="cp-wr-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
       </div>
     </div>
     <div class="card" id="cp-tile-fleet">
-      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Fleet</div></div>
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Fleet</div></div>
       <div style="padding:8px 12px 12px;font-family:monospace;">
         <div id="cp-fleet-active" style="font-size:18px;font-weight:700;color:#10b981;">—</div>
         <div id="cp-fleet-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
       </div>
     </div>
     <div class="card" id="cp-tile-trade-desk">
-      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Trade Desk Today</div></div>
+      <div class="card-header" style="padding:8px 12px;"><div style="font-size:11px;color:rgba(255,255,255,0.85);font-weight:500;text-transform:uppercase;letter-spacing:0.08em;">Trade Desk Today</div></div>
       <div style="padding:8px 12px 12px;font-family:monospace;">
         <div id="cp-td-trades" style="font-size:18px;font-weight:700;color:#d4a030;">—</div>
         <div id="cp-td-detail" style="font-size:11px;color:var(--muted);margin-top:2px;">—</div>
@@ -8220,7 +8222,14 @@ function cpRender(snap) {
   try {
     var r = snap.regime || {};
     var el = document.getElementById('cp-regime-name');
-    if (el) el.textContent = r.regime || '—';
+    if (el) {
+      el.textContent = r.regime || '—';
+      var rg = (r.regime || '').toUpperCase();
+      if (rg === 'BULL' || rg === 'BULL_CROSS')      el.style.color = '#22c55e';
+      else if (rg === 'BEAR' || rg === 'BEAR_CROSS') el.style.color = '#ef4444';
+      else if (rg === 'CAUTIOUS' || rg === 'CAUTIOUS_BEAR' || rg === 'CAUTIOUS_BULL') el.style.color = '#f59e0b';
+      else                                            el.style.color = 'var(--text)';
+    }
     var ed = document.getElementById('cp-regime-date');
     if (ed) ed.textContent = r.date ? ('as of ' + r.date) : '—';
   } catch(e) {}
@@ -8229,7 +8238,14 @@ function cpRender(snap) {
   try {
     var cl = snap.capital_ladder || {};
     var name = document.getElementById('cp-ladder-name');
-    if (name) name.textContent = cl.name ? ('Stage ' + cl.stage + ' · ' + cl.name) : '—';
+    if (name) {
+      name.textContent = cl.name ? ('Stage ' + cl.stage + ' · ' + cl.name) : '—';
+      var st = (cl.stage !== undefined && cl.stage !== null) ? Number(cl.stage) : null;
+      if      (st === 0)  name.style.color = '#22c55e';
+      else if (st === 1)  name.style.color = '#f59e0b';
+      else if (st >= 2)   name.style.color = '#ef4444';
+      else                name.style.color = 'var(--text)';
+    }
     var dt = document.getElementById('cp-ladder-detail');
     if (dt) dt.textContent = cl.capital ? ('$' + cl.capital.toLocaleString() + ' · ' + (cl.gate_extra || '')) : '—';
   } catch(e) {}
@@ -8240,7 +8256,11 @@ function cpRender(snap) {
     var ksEl = document.getElementById('cp-ks-state');
     if (ksEl) {
       ksEl.textContent = (ks.state || '—').toUpperCase();
-      ksEl.style.color = ks.state === 'armed' ? '#10b981' : '#ef4444';
+      var kss = (ks.state || '').toLowerCase();
+      if      (kss === 'armed')   ksEl.style.color = '#22c55e';
+      else if (kss === 'halted')  ksEl.style.color = '#ef4444';
+      else if (kss === 'partial') ksEl.style.color = '#f59e0b';
+      else                         ksEl.style.color = 'var(--text)';
     }
     var ksd = document.getElementById('cp-ks-detail');
     if (ksd) ksd.textContent = (ks.engaged_24h || 0) + ' halted in 24h';
@@ -8255,8 +8275,13 @@ function cpRender(snap) {
       var ageStr = _cpFmtAge(wr.age_seconds);
       if (age) {
         age.textContent = ageStr;
-        // Stale alarm: >750s without a cycle (HM-WR-STALL threshold)
-        age.style.color = (wr.age_seconds && wr.age_seconds > 750) ? '#ef4444' : '#10b981';
+        // Thresholds: <5min green, 5-15min amber, >15min red.
+        // Note: HM-WR-STALL alarm fires at >750s (12.5min) — amber zone here
+        // may visually conflict with that alarm; both are intentional today.
+        var sec = wr.age_seconds || 0;
+        if      (sec < 300)              age.style.color = '#22c55e';
+        else if (sec < 900)              age.style.color = '#f59e0b';
+        else                              age.style.color = '#ef4444';
       }
       if (det) det.textContent = 'cycle wall ' + (wr.last_cycle_wall_s || '?').toString().slice(0,6) + 's @ ' + (wr.last_cycle_ts || '—');
     } else {
@@ -8269,9 +8294,15 @@ function cpRender(snap) {
   try {
     var fs = snap.fleet_summary || {};
     var act = document.getElementById('cp-fleet-active');
-    if (act) act.textContent = (fs.active || 0) + ' / ' + (fs.total || 0);
+    if (act) {
+      act.innerHTML = '<span style="color:#22c55e;">' + (fs.active || 0) + '</span>'
+                    + ' <span style="color:var(--muted);font-weight:500;">/ ' + (fs.total || 0) + '</span>';
+    }
     var fd = document.getElementById('cp-fleet-detail');
-    if (fd) fd.textContent = (fs.exit_only || 0) + ' exit-only · ' + (fs.full || 0) + ' halted';
+    if (fd) {
+      fd.innerHTML = '<span style="color:#f59e0b;">' + (fs.exit_only || 0) + ' exit-only</span>'
+                   + ' · <span style="color:#ef4444;">' + (fs.full || 0) + ' halted</span>';
+    }
   } catch(e) {}
 
   // Trade Desk today
