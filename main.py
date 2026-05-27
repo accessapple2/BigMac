@@ -3904,21 +3904,36 @@ if __name__ == "__main__":
     schedule.every(2).minutes.do(run_crew_scanner_job)        # Crew Scanner: agent signal pipeline (every 2 min, alpha squad only)
 
     # Ollie Extended-Hours Scan — pre-market (7–9:30 AM ET) + after-hours (4–6 PM ET)
+    # HM-CHANNEL-SCANNER-DEADLOCK P2 (2026-05-27): re-entrancy guard. The
+    # underlying `ollie_auto_check → _ollie_channel_scan → _scan_all` chain
+    # holds the schedule-loop thread while it serializes 8 ThreadPoolExecutor
+    # workers on `_yahoo_lock`. If the 10-min tick fires while a previous
+    # instance is still draining, the schedule library would queue the second
+    # call behind the first, compounding the lockup. Non-blocking acquire
+    # short-circuits the re-entry: caller logs and bails immediately.
+    _ollie_ext_scan_lock = threading.Lock()
+
     def run_ollie_extended_scan():
         """Run ollie-auto signal pipeline during extended trading hours.
         Other agents are market-hours only; this fires exclusively for ollie-auto.
         """
-        from engine.risk_manager import RiskManager
-        if not RiskManager.is_extended_trading_hours():
+        if not _ollie_ext_scan_lock.acquire(blocking=False):
+            console.log("[yellow]Ollie Extended-Hours: previous scan still running, skipping this tick")
             return
         try:
-            from engine.crew_scanner import ollie_auto_check, gather_market_context
-            ctx = gather_market_context()
-            trades = ollie_auto_check(ctx)
-            if trades:
-                console.log(f"[bold cyan]🌙 Ollie Extended-Hours: {len(trades)} trade(s) executed")
-        except Exception as _oex_err:
-            console.log(f"[yellow]Ollie Extended-Hours error: {_oex_err}")
+            from engine.risk_manager import RiskManager
+            if not RiskManager.is_extended_trading_hours():
+                return
+            try:
+                from engine.crew_scanner import ollie_auto_check, gather_market_context
+                ctx = gather_market_context()
+                trades = ollie_auto_check(ctx)
+                if trades:
+                    console.log(f"[bold cyan]🌙 Ollie Extended-Hours: {len(trades)} trade(s) executed")
+            except Exception as _oex_err:
+                console.log(f"[yellow]Ollie Extended-Hours error: {_oex_err}")
+        finally:
+            _ollie_ext_scan_lock.release()
     schedule.every(10).minutes.do(run_ollie_extended_scan)   # Ollie Extended-Hours: every 10 min during pre/post market
     schedule.every(5).minutes.do(run_battle_station_0dte_job) # Battle Station 0DTE: rules-based SPY 0DTE scanner
     from engine.recovery_protocol import run_recovery_scan
