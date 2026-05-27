@@ -844,7 +844,7 @@ body { background: var(--bg); color: var(--text); font-family: var(--font-body);
 body:not(.role-admin) .admin-only { display: none !important; }
 
 /* Top Nav */
-.nav { display: grid; grid-template-columns: auto 1fr auto; align-items: center; padding: 0 24px; height: 64px; border-bottom: 1px solid var(--border); background: var(--nav-bg); position: sticky; top: 0; z-index: 100; gap: 20px; }
+.nav { display: grid; grid-template-columns: auto 1fr auto; align-items: center; padding: 0 24px; height: 64px; border-bottom: 1px solid var(--border); background: var(--nav-bg); position: sticky; top: 0; z-index: 100; gap: 20px; overflow: hidden; }
 .nav-left { display: flex; align-items: center; gap: 12px; white-space: nowrap; }
 .nav-logo { font-family: var(--font-head); font-size: 20px; font-weight: 800; color: var(--accent); letter-spacing: -0.5px; }
 .nav-logo span { color: var(--muted); }
@@ -3354,7 +3354,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
 </script>
 
 <!-- Fleet Status Bar -->
-<div id="fleetStatusBar" style="position:sticky;top:48px;z-index:999;background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;justify-content:space-between;align-items:center;gap:16px;font-family:var(--font-mono);font-size:14px;">
+<div id="fleetStatusBar" style="position:sticky;top:64px;z-index:99;background:var(--surface);border-bottom:1px solid var(--border);padding:8px 20px;display:flex;justify-content:space-between;align-items:center;gap:16px;font-family:var(--font-mono);font-size:14px;">
   <div id="fleetBarContent" style="display:flex;gap:20px;align-items:center;flex-wrap:wrap;">Loading fleet data...</div>
   <div id="scannerTierBadge" style="flex-shrink:0;font-size:12px;color:var(--muted);" title="Active scanning tier"></div>
 </div>
@@ -3467,7 +3467,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
 </aside>
 
 <!-- FLASH ALERT BANNER — thin persistent strip, distinct from DayBlade full-screen overlay -->
-<div id="flash-alert-banner" style="display:none;position:fixed;top:56px;left:0;right:0;z-index:9000;background:linear-gradient(90deg,#7f1d1d,#991b1b);border-bottom:2px solid #ef4444;padding:7px 16px;align-items:center;gap:12px;">
+<div id="flash-alert-banner" style="display:none;position:fixed;top:104px;left:0;right:0;z-index:9000;background:linear-gradient(90deg,#7f1d1d,#991b1b);border-bottom:2px solid #ef4444;padding:7px 16px;align-items:center;gap:12px;">
   <span style="font-size:15px;">⚡</span>
   <span id="fab-type" style="font-weight:700;font-size:12px;color:#fca5a5;letter-spacing:0.08em;text-transform:uppercase;white-space:nowrap;"></span>
   <span id="fab-body" style="font-size:13px;color:#fef2f2;flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap;"></span>
