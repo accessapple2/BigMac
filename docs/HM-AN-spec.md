@@ -6,7 +6,7 @@
 
 ## Objective
 Reframe port 9000 from a signal-intelligence SPA into Morpheus — the Matrix Operator view.
-New default landing = tab-matrix layout with 5 sections.
+New default landing = tab-matrix layout with 6 sections.
 
 ## Current state (surveyed 2026-05-26)
 - signal-center/index.html: 3,266 lines monolithic, 3 section-title divs, no tab DOM
