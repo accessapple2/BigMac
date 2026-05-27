@@ -1,7 +1,11 @@
-transformers==4.46.3
-unsloth==2024.12.4
-torch==2.5.1
-peft==0.13.2
-trl==0.12.2
-bitsandbytes==0.45.0
-accelerate==1.2.1
+# Plutus v1 fine-tune pinned versions
+# Validated 2026-05-27 on RTX 5080 (sm_120) + Ubuntu 26.04 + Python 3.12
+# CRITICAL: do NOT install xformers — its bundled flash-attn lacks sm_120 kernels
+torch==2.8.0
+transformers==4.51.3
+unsloth==2025.4.7
+unsloth_zoo==2025.4.4
+peft==0.15.2
+trl==0.15.2
+bitsandbytes==0.46.0
+accelerate==1.6.0
