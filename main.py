@@ -5017,6 +5017,19 @@ if __name__ == "__main__":
     except Exception as e:
         console.log(f"[yellow]Realtime Monitor failed to start: {e}")
 
+    # HM-OLLIE-EVENT-TAPE-V2-REALTIME Phase 2.5 Component 1 — Alpaca IEX tick recorder.
+    # Spawns 5 daemon threads (ws, writer, cleanup, heartbeat, universe-refresh).
+    # Heartbeat fires every 60s into trader.log so a silent recorder is visible.
+    # Per CLAUDE.md Daemon Lifecycle Rule — module-level startup, not scan-coupled.
+    # Polygon pivot 2026-05-27: Starter doesn't include WS trades; Alpaca IEX is
+    # free and works. SIP ($99/mo) upgrade path documented in spec.
+    try:
+        from engine.tick_recorder import start_tick_recorder
+        start_tick_recorder()
+        console.log("[cyan]Tick Recorder armed (Alpaca IEX WebSocket, price_ticks table, 4h retention)")
+    except Exception as e:
+        console.log(f"[yellow]Tick Recorder failed to start: {e}")
+
     # === HM-WR-CYCLE-RCA-PHASE2 2026-05-20 ===
     # 60-second heartbeat in the schedule loop — confirms run_pending() is being
     # called and surfaces run_war_room's live next_run state for diagnosis.
