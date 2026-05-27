@@ -500,20 +500,18 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <div id="sc-toast-container" style="position:fixed;top:80px;right:20px;z-index:99999;display:flex;flex-direction:column;gap:8px;pointer-events:none;"></div>
 
 <!-- NAV TABS -->
-<!-- HM-MORPHEUS Phase 0 (2026-05-17): tab-matrix prepended as default per G31-A.
-     All 10 existing tabs preserved with content + URLs unchanged. -->
+<!-- HM-AN Phase 1 (2026-05-27): consolidated from 11 tabs → 6 canonical Morpheus
+     tabs. Retired nav links: stocks, options, spreads, hunter, trade, predictions,
+     quant. Their tab-* content divs remain in place (dead code, Phase 2 cleanup
+     will remove). New tabs intel + oracle have no content divs yet (Phase 2/3
+     wires them — showTab guards against missing divs via `if(sec)` check). -->
 <div class="nav-tabs">
   <div class="nav-tab active" onclick="showTab('matrix')">⌧ Matrix</div>
   <div class="nav-tab" onclick="showTab('signals')">⚡ Signals</div>
   <div class="nav-tab" onclick="showTab('crew')">⚔ Crew</div>
-  <div class="nav-tab" onclick="showTab('stocks')">📊 Top 25 Stocks</div>
-  <div class="nav-tab" onclick="showTab('options')">🎯 Options Flow</div>
-  <div class="nav-tab" onclick="showTab('spreads')">📐 Spreads</div>
-  <div class="nav-tab" onclick="showTab('hunter')">🏹 Premium Hunter</div>
-  <div class="nav-tab" onclick="showTab('trade')">🎯 Trade Levels</div>
-  <div class="nav-tab" onclick="showTab('predictions')">📈 Predictions</div>
-  <div class="nav-tab" onclick="showTab('quant')">🧠 Quant</div>
-  <div class="nav-tab" onclick="showTab('history')">📜 History</div>
+  <div class="nav-tab" onclick="showTab('intel')">🧠 Intelligence</div>
+  <div class="nav-tab" onclick="showTab('oracle')">🔭 Oracle</div>
+  <div class="nav-tab" onclick="showTab('history')">📜 Ship's Log</div>
 </div>
 
 <!-- ═══════════════ MATRIX TAB ═══════════════ -->
