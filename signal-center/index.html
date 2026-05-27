@@ -624,6 +624,21 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   </div>
 </div>
 
+<!-- ═══════════════ ORACLE TAB ═══════════════ -->
+<!-- HM-AN Phase 3 (2026-05-27): Oracle tab. Reuses /api/morpheus/awareness
+     payload polled by Matrix. Rendered by renderOracleTab(d) inside the
+     existing Matrix IIFE. -->
+<div id="tab-oracle" class="section">
+  <div style="padding:16px 12px 8px;font-size:11px;color:var(--muted);letter-spacing:1px;">
+    // ORACLE — KIRK ADVISORY + PREDICTIONS //
+  </div>
+  <div id="oracle-tab-content" style="padding:0 12px 20px;max-width:900px;">
+    <div style="color:var(--muted);font-style:italic;font-size:12px;padding:20px 0;">
+      Loading oracle feed…
+    </div>
+  </div>
+</div>
+
 <script>
 // HM-MORPHEUS Ship 2 Phase 2 (2026-05-18) — Matrix tab hydration.
 // IIFE so locals don't leak into the global namespace.
@@ -1011,6 +1026,73 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     el.innerHTML = html || '<div style="color:var(--muted);font-style:italic">No data available.</div>';
   }
 
+  // HM-AN Phase 3 (2026-05-27) — Oracle TAB renderer. Same awareness payload,
+  // distinct DOM target (#oracle-tab-content). Renders Kirk advisory +
+  // predictions + Riker synthesis.
+  function renderOracleTab(d) {
+    const el = document.getElementById('oracle-tab-content');
+    if (!el) return;
+    let html = '';
+
+    // Kirk advisory recent
+    const kirk = Array.isArray(d.kirk_advisory_recent) ? d.kirk_advisory_recent.slice(0, 8) : [];
+    if (kirk.length) {
+      html += `<div style="margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:800;letter-spacing:1px;color:var(--muted);
+                    text-transform:uppercase;border-bottom:1px solid var(--border);
+                    padding-bottom:6px;margin-bottom:8px;">🖖 Kirk Advisory</div>`;
+      kirk.forEach(a => {
+        const ac = (a.action||'').toUpperCase();
+        const acColor = ac==='BUY'?'#22c55e':ac==='SELL'?'#ef4444':'#f59e0b';
+        html += `<div style="padding:7px 0;border-bottom:1px dashed var(--border);font-size:12px;">
+          <span style="font-weight:700;color:var(--accent)">${_esc(a.ticker||'—')}</span>
+          <span style="color:${acColor};font-weight:700;margin-left:8px">${_esc(ac)}</span>
+          <span style="color:var(--muted);font-size:10px;margin-left:8px">VIX ${_esc(a.vix_level||'—')} · F&G ${_esc(a.fear_greed_score||'—')}</span>
+          <div style="color:var(--text);margin-top:3px;font-size:11px">${_esc((a.message||'').slice(0,120))}</div>
+        </div>`;
+      });
+      html += '</div>';
+    }
+
+    // Predictions
+    const preds = Array.isArray(d.predictions) ? d.predictions.slice(0, 8) : [];
+    if (preds.length) {
+      html += `<div style="margin-bottom:16px;">
+        <div style="font-size:11px;font-weight:800;letter-spacing:1px;color:var(--muted);
+                    text-transform:uppercase;border-bottom:1px solid var(--border);
+                    padding-bottom:6px;margin-bottom:8px;">📈 Predictions</div>`;
+      preds.forEach(p => {
+        const rc = (p.recommendation||'').toUpperCase();
+        const rcColor = rc==='LONG'?'#22c55e':rc==='SHORT'?'#ef4444':'#f59e0b';
+        html += `<div style="padding:6px 0;border-bottom:1px dashed var(--border);font-size:12px;
+                             display:flex;justify-content:space-between;align-items:center;">
+          <span style="font-weight:700;color:var(--accent);min-width:60px">${_esc(p.symbol||'—')}</span>
+          <span style="color:${rcColor};font-weight:700">${_esc(rc)}</span>
+          <span style="color:var(--muted);font-size:11px">score ${_esc(p.master_score||'—')}</span>
+          <span style="color:var(--text);font-size:11px">TP1 ${_esc(p.tp1||'—')} · TP2 ${_esc(p.tp2||'—')}</span>
+          <span style="color:var(--muted);font-size:10px">${_esc(p.snap_date||'')}</span>
+        </div>`;
+      });
+      html += '</div>';
+    }
+
+    // Riker synthesis (last 3)
+    const riker = Array.isArray(d.riker_synthesis) ? d.riker_synthesis.slice(0, 3) : [];
+    if (riker.length) {
+      html += `<div style="font-size:11px;font-weight:800;letter-spacing:1px;color:var(--muted);
+                  text-transform:uppercase;border-bottom:1px solid var(--border);
+                  padding-bottom:6px;margin-bottom:8px;">🫡 Riker Synthesis</div>`;
+      riker.forEach(r => {
+        html += `<div style="padding:6px 0;border-bottom:1px dashed var(--border);font-size:11px;">
+          <span style="color:var(--accent)">${_esc(r.title||'—')}</span>
+          <span style="color:var(--muted);margin-left:8px;font-size:10px">${_esc(r.created_at||'')}</span>
+        </div>`;
+      });
+    }
+
+    el.innerHTML = html || '<div style="color:var(--muted);font-style:italic">No oracle data.</div>';
+  }
+
   function _renderSection(id, html) {
     const el = document.getElementById(id);
     if (el) el.innerHTML = html;
@@ -1064,6 +1146,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       // separate DOM target (#intel-content). Wrapped defensively so render
       // errors don't break the Matrix tab's hydration.
       try { renderIntelTab(d); } catch (e) { console.warn('[HM-AN] renderIntelTab failed:', e); }
+      // HM-AN Phase 3 (2026-05-27) — Oracle TAB hydration. Same payload,
+      // separate DOM target (#oracle-tab-content). Same defensive wrap.
+      try { renderOracleTab(d); } catch (e) { console.warn('[HM-AN] renderOracleTab failed:', e); }
     } catch (err) {
       if (statusEl) statusEl.textContent = 'fetch error';
       _renderError('red-alert-content', err.message || String(err));
