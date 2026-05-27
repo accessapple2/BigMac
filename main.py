@@ -2647,6 +2647,44 @@ def run_daily_snapshot_refresh():
         pass  # fail-safe, never block scheduler
 
 
+@_hm_bq_instr("run_pending_manual_closes")
+def run_pending_manual_closes():
+    """Fire pending manual close requests queued by Admiral. Reads data/pending_manual_closes.json,
+    attempts sell() for each entry, removes on success."""
+    import json, os
+    from engine.market_calendar import is_us_market_open
+    if not is_us_market_open():
+        return
+    path = "data/pending_manual_closes.json"
+    if not os.path.exists(path):
+        return
+    try:
+        with open(path) as f:
+            entries = json.load(f)
+        if not entries:
+            return
+        from engine.paper_trader import sell
+        from engine.market_data import get_all_prices
+        remaining = []
+        symbols = [e["symbol"] for e in entries]
+        prices = get_all_prices(symbols)
+        for entry in entries:
+            sym = entry["symbol"]
+            price = prices.get(sym, {}).get("price", 0)
+            if price <= 0:
+                remaining.append(entry)
+                continue
+            result = sell(entry["player_id"], sym, price, reasoning=entry["reason"])
+            if result is None:
+                remaining.append(entry)
+            else:
+                console.log(f"[green][MANUAL-CLOSE] {entry['player_id']} {sym} @ ${price:.2f} — done")
+        with open(path, "w") as f:
+            json.dump(remaining, f)
+    except Exception as e:
+        console.log(f"[yellow][MANUAL-CLOSE] error: {e}")
+
+
 # === HM-AW: Chekov intraday convergence buyer ===
 @_hm_bq_instr("run_chekov_intraday_convergence")
 def run_chekov_intraday_convergence():
@@ -3846,6 +3884,7 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_strategy_scan)         # Strategy Scan: checks every 30 min, runs 10 PM MST (1 AM ET)
     schedule.every(10).minutes.do(run_chekov_stoploss)        # Chekov SL/TP: every 10 min, check positions vs stop/target
     schedule.every(1).minutes.do(run_events_bus_consumer)     # HM-EVENTS-BUS-CONSUMER: drain pending signals_v2 (NYSE hours only)
+    schedule.every(1).minutes.do(run_pending_manual_closes)   # Manual-close queue (NYSE hours only) — reads data/pending_manual_closes.json
     schedule.every(5).minutes.do(run_signal_center_refresh)   # HM-SIGNAL-CENTER-REFRESH: keep signal_history fresh (NYSE hours only)
     schedule.every(5).minutes.do(run_daily_snapshot_refresh)  # HM-DAILY-SNAPSHOT-REFRESH: EOD trigger 13:00-14:00 AZ post-close window
     schedule.every(15).minutes.do(run_chekov_intraday_convergence)  # HM-AW: Chekov intraday convergence buyer (market hours only)
