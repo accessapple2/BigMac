@@ -1605,6 +1605,16 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     if not _check_min_hold(player_id, symbol, pos, reasoning):
         return None
 
+    # HM-BP-FOLLOW-UP-2 P3 2026-05-26: symmetric data-shape race fix for sell().
+    # 9/27 corrupt option exit_price rows came through this full-sell path.
+    if asset_type == "stock" and pos.get("asset_type") == "option":
+        console.log(
+            f"[yellow][HM-BP-FU-2] {player_id} SELL {symbol}: caller said "
+            f"'stock' but position is 'option' — reclassifying to prevent spot-as-premium leak"
+        )
+        asset_type = "option"
+        option_type = option_type or pos.get("option_type")
+
     # For options, estimate current premium using intrinsic value + time value
     # (caller passes stock price — we convert to option value via strike)
     if asset_type == "option" or (asset_type != "stock" and pos.get("asset_type") == "option"):
