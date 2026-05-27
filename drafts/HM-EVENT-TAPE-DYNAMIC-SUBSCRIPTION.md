@@ -27,3 +27,37 @@ Path 2: bigger static list
 ## Priority
 Medium. Phase 2.5 works for in-fleet event detection but misses the most
 actionable signals (fresh convergence). Add to power paste backlog.
+
+---
+
+## Diagnostic confirmation 2026-05-27 12:50 PM AZ (15 min before close)
+
+Detector logic VERIFIED CORRECT against engine/event_tape.py:
+- _detect_running_fast: 0.5% move in 60-second window — CORRECT, narrow by design
+- _detect_session_high: requires last_px > prior_high × 1.001 — CORRECT, fires once per high
+- _detect_volume_burst: 60s vol >= 3x rolling 20-min baseline — CORRECT
+
+Hourly tick range of subscribed mega-caps today:
+- META 2.1%, IREN 2.45%, LII 1.05%, ON 0.99%, AVGO 0.87%
+- Most others < 0.7%
+
+Spread over 60 min, 2% across hour = ~0.03%/min. To trip running_up_fast,
+need sustained 0.5% in single 60-sec window — requires a real news pop or
+algo flush. Did not happen on subscribed tickers today.
+
+CRSR (scanner Tier 2, 379% vol burst) and MUU (239%) WOULD HAVE fired
+running_up_fast and volume_burst — but are not in the IEX subscription.
+
+## Conclusion
+
+Phase 2.5 is correctly built. The issue is structural:
+- Detector calibrated for actionable events (right)
+- Subscription doesn't include the volatile tickers that produce events (wrong)
+
+Dynamic subscription is the correct fix. Do NOT tune thresholds down to
+create false noise on subscribed tickers — that masks the real problem
+and reduces the value of the signal when it does fire.
+
+Priority bump: MEDIUM -> HIGH. This is the gating issue for Phase 2.5
+proving its worth. Without dynamic subscription, the tape will continue
+to show ~1 event per session even during active markets.
