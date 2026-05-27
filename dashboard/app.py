@@ -2061,6 +2061,106 @@ def api_scanner_events(since: str = "", limit: int = 50):
 # ===== /HM-OLLIE-LIVE-SCANNER Phase 2 ================================
 
 
+# ===== HM-OLLIE-EVENT-TAPE-V2 Phase 2.5 — /api/scanner/events_realtime =
+# Reference: drafts/HM-OLLIE-EVENT-TAPE-V2-REALTIME.md.
+# Reads event_tape (populated by engine/event_tape.py running off
+# price_ticks from engine/tick_recorder.py / Alpaca IEX). Response shape
+# matches /api/scanner/events for frontend compat — only the event source
+# differs (realtime tick-detector vs 15-min volume_alerts batch).
+_SCANNER_EVENTS_RT_CACHE: dict = {"data": None, "ts": 0.0, "since_key": None}
+_SCANNER_EVENTS_RT_CACHE_TTL: int = 5  # seconds — realtime tape; keep cache tight
+
+
+@app.get("/api/scanner/events_realtime")
+def api_scanner_events_realtime(since: str = "", limit: int = 50, window_min: int = 30):
+    """Live event tape — Phase 2.5 of HM-OLLIE-EVENT-TAPE-V2.
+
+    Returns event_tape rows over the last `window_min` minutes (default 30).
+    If ?since=<iso ts> is provided, only events strictly newer than that
+    timestamp are returned (incremental polling). 5s in-memory cache keyed
+    by since arg.
+
+    Response shape mirrors /api/scanner/events:
+      {ts, events: [{ticker, alert_type, narration, magnitude, price,
+                     detected_at, in_scanner_tier, ...}], meta, cached}
+    """
+    import time as _time
+    from datetime import datetime, timezone
+
+    now = _time.time()
+    cache_key = f"{since}|{window_min}|{limit}"
+    cached = _SCANNER_EVENTS_RT_CACHE.get("data")
+    if (cached is not None
+        and _SCANNER_EVENTS_RT_CACHE.get("since_key") == cache_key
+        and (now - _SCANNER_EVENTS_RT_CACHE.get("ts", 0.0)) < _SCANNER_EVENTS_RT_CACHE_TTL):
+        return {**cached, "cached": True}
+
+    try:
+        c = _conn()
+        params: list = [int(window_min)]
+        since_clause = ""
+        if since:
+            since_clause = " AND datetime(detected_at) > datetime(?)"
+            params.append(since)
+        params.append(int(limit))
+
+        rows = c.execute(
+            f"""
+            SELECT id, symbol, event_type, narration, price, magnitude,
+                   in_scanner_tier, detected_at, metadata
+              FROM event_tape
+             WHERE datetime(detected_at) >= datetime('now', '-' || ? || ' minutes')
+                {since_clause}
+             ORDER BY datetime(detected_at) DESC, id DESC
+             LIMIT ?
+            """,
+            params,
+        ).fetchall()
+        c.close()
+
+        events: list[dict] = []
+        for r in rows:
+            d = dict(r)
+            # Map event_type → alert_type for frontend compat (the Phase 2 UI
+            # keys off `alert_type` to pick narration color class).
+            event_type = d.get("event_type") or ""
+            events.append({
+                "ticker": d["symbol"],
+                "alert_type": event_type,                # keeps narration class compat
+                "event_type": event_type,                # explicit field too
+                "narration": d.get("narration"),
+                "magnitude": d.get("magnitude"),
+                "price": d.get("price"),
+                "in_scanner_tier": d.get("in_scanner_tier"),
+                "detected_at": d.get("detected_at"),
+                "metadata": d.get("metadata"),
+            })
+
+        payload = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "events": events,
+            "meta": {
+                "count": len(events),
+                "window_minutes": int(window_min),
+                "since": since or None,
+                "source": "event_tape",
+            },
+        }
+        _SCANNER_EVENTS_RT_CACHE["data"] = payload
+        _SCANNER_EVENTS_RT_CACHE["ts"] = now
+        _SCANNER_EVENTS_RT_CACHE["since_key"] = cache_key
+        return {**payload, "cached": False}
+    except Exception as exc:
+        return {
+            "error": str(exc),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "events": [],
+            "meta": {"count": 0, "window_minutes": int(window_min),
+                     "since": since or None, "source": "event_tape"},
+        }
+# ===== /HM-OLLIE-EVENT-TAPE-V2 Phase 2.5 =============================
+
+
 # --- Notification System ---
 
 def _init_notifications_table():

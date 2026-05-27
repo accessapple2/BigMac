@@ -5274,10 +5274,235 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
   })();
   </script>
 
-  <!-- HM-OLLIE-LIVE-SCANNER Phase 2 — live event tape ribbon -->
+  <!-- HM-OLLIE-EVENT-TAPE-V2 Phase 2.5 — realtime event tape (Alpaca IEX) -->
+  <div class="card" id="ollie-events-rt-card" style="margin-bottom:16px;border-left:3px solid #22c55e;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+      <div class="card-title" data-tip="REALTIME tape from Alpaca IEX trade stream (last 30 min). Events fire as price moves happen: running_up_fast (≥0.5% move in <60s), volume_burst (≥3× 20-min baseline), new_session_high/low. Tickers in scanner tiers get colored badges. T1 audio toggle (in the scanner card) controls ding on Tier 1 events.">📡 Live Event Tape <span style="font-size:11px;font-weight:500;color:#22c55e;background:rgba(34,197,94,0.15);padding:1px 6px;border-radius:3px;margin-left:6px;">REALTIME</span></div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:11px;">
+        <span id="eventsRtCountBadge" style="font-size:11px;color:var(--muted);font-family:var(--font-mono);">0 events</span>
+        <span id="eventsRtStatusBadge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:#6b728022;color:#6b7280;">LOADING</span>
+        <span id="eventsRtLastUpdate" style="font-size:11px;color:var(--muted);font-family:var(--font-mono);">--</span>
+      </div>
+    </div>
+
+    <style>
+      #ollie-events-rt-card .events-feed { max-height:200px; overflow-y:auto; padding:4px 12px 10px; font-family:var(--font-mono); font-size:12px; }
+      #ollie-events-rt-card .event-row { display:flex; align-items:center; gap:10px; padding:5px 6px; border-bottom:1px solid rgba(127,127,127,0.08); cursor:pointer; }
+      #ollie-events-rt-card .event-row:hover { background:rgba(99,102,241,0.08); }
+      #ollie-events-rt-card .event-row.new-event { animation: eventsRtFadeIn 0.6s ease-out; }
+      @keyframes eventsRtFadeIn { from { background:rgba(34,197,94,0.22); } to { background:transparent; } }
+      #ollie-events-rt-card .event-tick { font-weight:700; padding:2px 7px; border-radius:3px; font-size:11px; min-width:55px; text-align:center; letter-spacing:.03em; }
+      #ollie-events-rt-card .event-tick.tier-1 { background:rgba(34,197,94,0.18); color:#22c55e; border:1px solid rgba(34,197,94,0.45); }
+      #ollie-events-rt-card .event-tick.tier-2 { background:rgba(234,179,8,0.18); color:#eab308; border:1px solid rgba(234,179,8,0.45); }
+      #ollie-events-rt-card .event-tick.tier-3 { background:rgba(100,116,139,0.18); color:#94a3b8; border:1px solid rgba(100,116,139,0.45); }
+      #ollie-events-rt-card .event-tick.no-tier  { background:rgba(120,120,120,0.12); color:var(--muted); }
+      #ollie-events-rt-card .event-narration { color:var(--text); font-weight:600; flex:0 0 auto; }
+      #ollie-events-rt-card .event-narration.running-up-fast    { color:#22c55e; }
+      #ollie-events-rt-card .event-narration.running-down-fast  { color:#f87171; }
+      #ollie-events-rt-card .event-narration.volume-burst       { color:#a78bfa; }
+      #ollie-events-rt-card .event-narration.new-session-high   { color:#22c55e; }
+      #ollie-events-rt-card .event-narration.new-session-low    { color:#f87171; }
+      #ollie-events-rt-card .event-price { color:var(--muted); font-size:11px; }
+      #ollie-events-rt-card .event-age   { margin-left:auto; color:var(--muted); font-size:11px; }
+      #ollie-events-rt-card .events-empty { padding:10px 14px; color:var(--muted); font-size:12px; font-style:italic; }
+    </style>
+
+    <div class="events-feed" id="eventsRtFeed">
+      <div class="events-empty">Loading realtime tape…</div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    // HM-OLLIE-EVENT-TAPE-V2 Phase 2.5 — realtime tape.
+    // Endpoint: GET /api/scanner/events_realtime?since=<iso>&window_min=30
+    // 30s poll cadence (matches scanner). Audio ding fires when a NEW event
+    // arrives for a ticker that is currently in the scanner's Tier 1 set
+    // AND the existing 🔔 T1 checkbox is on. State cross-ref comes from
+    // window._scannerTiers populated by the Phase 1 IIFE.
+    const POLL_MS = 30000;
+    const _eventSeenRt = new Set();
+    let _lastSinceRt = '';
+    let _firstRtRender = true;
+
+    function fmtAgoRt(iso) {
+      if (!iso) return '--';
+      try {
+        const t = new Date(iso.includes('T') ? iso : iso.replace(' ','T'));
+        const secs = Math.max(0, Math.floor((Date.now() - t.getTime()) / 1000));
+        if (secs < 60)    return secs + 's ago';
+        if (secs < 3600)  return Math.floor(secs/60) + 'm ago';
+        if (secs < 86400) return Math.floor(secs/3600) + 'h ago';
+        return Math.floor(secs/86400) + 'd ago';
+      } catch (e) { return '--'; }
+    }
+
+    function tierClassRt(tier) {
+      if (tier === 1) return 'tier-1';
+      if (tier === 2) return 'tier-2';
+      if (tier === 3) return 'tier-3';
+      return 'no-tier';
+    }
+    function narrationClassRt(eventType) {
+      const t = (eventType || '').toLowerCase();
+      if (t === 'running_up_fast')   return 'running-up-fast';
+      if (t === 'running_down_fast') return 'running-down-fast';
+      if (t === 'volume_burst')      return 'volume-burst';
+      if (t === 'new_session_high')  return 'new-session-high';
+      if (t === 'new_session_low')   return 'new-session-low';
+      return '';
+    }
+
+    function buildEventRowRt(ev, isNew) {
+      const sym = String(ev.ticker || '').replace(/[^A-Z0-9.=]/gi,'').toUpperCase();
+      const tCls = tierClassRt(ev.in_scanner_tier);
+      const nCls = narrationClassRt(ev.event_type || ev.alert_type);
+      const price = (ev.price != null && isFinite(Number(ev.price)))
+        ? '$' + Number(ev.price).toFixed(2)
+        : '';
+      const newCls = isNew ? ' new-event' : '';
+      const tierTitle = ev.in_scanner_tier
+        ? 'Tier ' + ev.in_scanner_tier + ' scanner candidate'
+        : 'Not in scanner tiers';
+      return ''
+        + '<div class="event-row' + newCls + '" data-symbol="' + sym + '">'
+        +   '<span class="event-tick ' + tCls + '" title="' + tierTitle + '">' + sym + '</span>'
+        +   '<span class="event-narration ' + nCls + '">' + (ev.narration || ev.event_type || ev.alert_type || '--') + '</span>'
+        +   '<span class="event-price">' + price + '</span>'
+        +   '<span class="event-age" data-ts="' + (ev.detected_at || '') + '">' + fmtAgoRt(ev.detected_at) + '</span>'
+        + '</div>';
+    }
+
+    function playRtDing() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 1000;   // sharper than scanner (880) / batch (660)
+        osc.type = 'square';
+        gain.gain.setValueAtTime(0.001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.16, ctx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.18);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.2);
+      } catch (e) { /* audio context may be blocked pre-user-gesture */ }
+    }
+
+    function renderRealtimeTape() {
+      const url = _lastSinceRt
+        ? '/api/scanner/events_realtime?since=' + encodeURIComponent(_lastSinceRt) + '&window_min=30&limit=50'
+        : '/api/scanner/events_realtime?window_min=30&limit=50';
+      fetch(url).then(r => r.json()).then(d => {
+        const badge = document.getElementById('eventsRtStatusBadge');
+        const stamp = document.getElementById('eventsRtLastUpdate');
+        const countBadge = document.getElementById('eventsRtCountBadge');
+        if (d && d.error) {
+          if (badge) { badge.textContent = 'ERROR'; badge.style.background = '#f8717122'; badge.style.color = '#f87171'; }
+          return;
+        }
+        if (badge) { badge.textContent = 'LIVE'; badge.style.background = '#22c55e22'; badge.style.color = '#22c55e'; }
+        try {
+          const t = d.ts ? new Date(d.ts) : new Date();
+          stamp.textContent = t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+        } catch (e) { stamp.textContent = '--'; }
+
+        const incoming = Array.isArray(d.events) ? d.events : [];
+
+        // Audio: ding when a new event lands on a ticker in scanner Tier 1
+        // AND the existing T1 toggle is on.
+        const t1Set = (window._scannerTiers && window._scannerTiers.tier1) || new Set();
+        const t1Toggle = document.getElementById('scannerAudioT1');
+        const wantT1Audio = t1Toggle && t1Toggle.checked;
+        if (!_firstRtRender && wantT1Audio) {
+          for (const ev of incoming) {
+            const key = (ev.ticker || '') + '|' + (ev.event_type || ev.alert_type || '') + '|' + (ev.detected_at || '');
+            if (!_eventSeenRt.has(key) && t1Set.has(ev.ticker)) {
+              playRtDing();
+              break;
+            }
+          }
+        }
+
+        const newKeys = new Set();
+        for (const ev of incoming) {
+          const key = (ev.ticker || '') + '|' + (ev.event_type || ev.alert_type || '') + '|' + (ev.detected_at || '');
+          if (!_eventSeenRt.has(key)) newKeys.add(key);
+          _eventSeenRt.add(key);
+          if (ev.detected_at && (!_lastSinceRt || ev.detected_at > _lastSinceRt)) {
+            _lastSinceRt = ev.detected_at;
+          }
+        }
+
+        // First render: use incoming directly. Subsequent renders: re-fetch
+        // full window so we always show what's current.
+        if (_firstRtRender || !_lastSinceRt) {
+          renderRtFeed(incoming);
+        } else {
+          fetch('/api/scanner/events_realtime?window_min=30&limit=50').then(r => r.json()).then(d2 => {
+            const all = (d2 && Array.isArray(d2.events)) ? d2.events : incoming;
+            renderRtFeed(all, newKeys);
+          }).catch(() => renderRtFeed(incoming, newKeys));
+        }
+
+        if (countBadge) {
+          const total = (d.meta && d.meta.count != null ? d.meta.count : incoming.length);
+          countBadge.textContent = total + (since_present(_lastSinceRt) ? ' new this cycle' : ' events');
+        }
+        _firstRtRender = false;
+      }).catch(err => {
+        const badge = document.getElementById('eventsRtStatusBadge');
+        if (badge) { badge.textContent = 'OFFLINE'; badge.style.background = '#f8717122'; badge.style.color = '#f87171'; }
+      });
+    }
+
+    function since_present(s) { return !!s; }
+
+    function renderRtFeed(events, newKeysSet) {
+      const feed = document.getElementById('eventsRtFeed');
+      if (!feed) return;
+      if (!events || events.length === 0) {
+        feed.innerHTML = '<div class="events-empty">No realtime events yet. Detector fires on ≥0.5% moves, 3× volume bursts, or new session highs/lows.</div>';
+        return;
+      }
+      const newKeys = newKeysSet || new Set();
+      let html = '';
+      for (const ev of events) {
+        const key = (ev.ticker || '') + '|' + (ev.event_type || ev.alert_type || '') + '|' + (ev.detected_at || '');
+        html += buildEventRowRt(ev, newKeys.has(key));
+      }
+      feed.innerHTML = html;
+      feed.querySelectorAll('.event-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const sym = row.getAttribute('data-symbol');
+          if (sym && typeof window.openTickerDetail === 'function') {
+            window.openTickerDetail(sym);
+          }
+        });
+      });
+    }
+
+    setInterval(() => {
+      document.querySelectorAll('#ollie-events-rt-card .event-age').forEach(el => {
+        const ts = el.getAttribute('data-ts');
+        if (ts) el.textContent = fmtAgoRt(ts);
+      });
+    }, 5000);
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', renderRealtimeTape);
+    } else {
+      renderRealtimeTape();
+    }
+    setInterval(renderRealtimeTape, POLL_MS);
+    window.renderRealtimeTape = renderRealtimeTape;
+  })();
+  </script>
+
+  <!-- HM-OLLIE-LIVE-SCANNER Phase 2 — 15-min batch tape from volume_alerts -->
   <div class="card" id="ollie-events-card" style="margin-bottom:16px;border-left:3px solid #f59e0b;">
     <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
-      <div class="card-title" data-tip="Live event tape from volume_alerts (last 15 min). VOL BOOM = relative volume explosion; GAP UP/DOWN = pre-open gap. Tickers also in the convergence scanner above are color-coded by tier (Tier 1 green, Tier 2 yellow, Tier 3 grey). T1 audio ding (top of card) fires when a NEW event arrives for a Tier 1 ticker.">📡 Event Tape — Live</div>
+      <div class="card-title" data-tip="BATCH scan alerts from volume_alerts (last 15 min). VOL BOOM = relative volume explosion; GAP UP/DOWN = pre-open gap detected by the 75-min batch scanner. Tickers also in the convergence scanner above are color-coded by tier. T1 audio ding fires when a NEW event arrives for a Tier 1 ticker.">📋 Batch Scan Alerts <span style="font-size:11px;font-weight:500;color:#f59e0b;background:rgba(245,158,11,0.15);padding:1px 6px;border-radius:3px;margin-left:6px;">15-MIN BATCH</span></div>
       <div style="display:flex;align-items:center;gap:10px;font-size:11px;">
         <span id="eventsCountBadge" style="font-size:11px;color:var(--muted);font-family:var(--font-mono);">0 events</span>
         <span id="eventsStatusBadge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:#6b728022;color:#6b7280;">LOADING</span>
