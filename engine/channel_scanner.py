@@ -104,14 +104,20 @@ def _scan_all(bars: dict | None = None) -> list:
     `_get_stock_data` call reads its OHLCV slice from `bars[symbol]` instead
     of fanning out to Yahoo.
     """
-    # HM-CHANNEL-SCANNER-DEADLOCK P1 (2026-05-27): bound the wait so a single
-    # slow Yahoo call cannot block the entire schedule loop. _yahoo_lock
-    # serializes all 8 workers; with a 1s/req throttle + 10s HTTP timeout +
-    # 3×backoff on 429, the worst-case per-call wall is ~25s. timeout=30 on
-    # as_completed gives one batch a bounded ceiling; timeout=5 on f.result
+    # HM-CHANNEL-SCANNER-DEADLOCK P1-FINAL (2026-05-27): manual executor
+    # lifecycle with shutdown(wait=False, cancel_futures=True). The earlier P1
+    # added timeouts to as_completed + f.result but kept `with ThreadPoolExecutor`,
+    # which forces shutdown(wait=True) on __exit__ — that re-blocks indefinitely
+    # if any worker is still stuck inside _yahoo_lock. Manual try/finally with
+    # cancel_futures=True is the only correct pattern when futures may hang
+    # past the as_completed timeout.
+    # _yahoo_lock serializes all 8 workers; with a 1s/req throttle + 10s HTTP
+    # timeout + 3×backoff on 429, worst-case per-call wall is ~25s. timeout=30
+    # on as_completed gives one batch a bounded ceiling; timeout=5 on f.result
     # guards against a future that completed-but-blocked elsewhere.
     results = []
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    ex = ThreadPoolExecutor(max_workers=8)
+    try:
         futs = {ex.submit(_get_stock_data, sym, bars): sym for sym in get_active_universe()}
         try:
             for f in as_completed(futs, timeout=30):
@@ -129,6 +135,12 @@ def _scan_all(bars: dict | None = None) -> list:
             done = sum(1 for f in futs if f.done())
             console.log(f"[yellow][CHANNEL-SCAN] as_completed batch timeout after 30s "
                         f"({done}/{len(futs)} futures finished) — returning partial results")
+    finally:
+        # cancel_futures=True cancels not-yet-started futures; wait=False
+        # leaves running futures to finish in background without blocking
+        # the caller. Workers stuck in _yahoo_lock are abandoned — they'll
+        # eventually unblock when the lock releases, but we don't wait.
+        ex.shutdown(wait=False, cancel_futures=True)
     return results
 
 
