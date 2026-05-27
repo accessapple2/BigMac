@@ -185,6 +185,21 @@ def setup():
         UNIQUE(player_id, date)
     )''')
 
+    # HM-GATE-REJECT-TELEMETRY-V1 2026-05-26
+    c.execute('''CREATE TABLE IF NOT EXISTS gate_reject_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts TEXT NOT NULL DEFAULT (datetime('now')),
+        player_id TEXT NOT NULL,
+        symbol TEXT,
+        gate_name TEXT NOT NULL,
+        reason TEXT,
+        signal_id INTEGER,
+        price REAL,
+        confidence REAL
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_gate_reject_player ON gate_reject_log(player_id)')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_gate_reject_ts ON gate_reject_log(ts)')
+
     c.execute('''CREATE TABLE IF NOT EXISTS api_costs (
         id INTEGER PRIMARY KEY,
         player_id TEXT NOT NULL REFERENCES ai_players(id),

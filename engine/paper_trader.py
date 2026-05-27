@@ -429,6 +429,31 @@ def _resolve_execution_portfolio(player_id: str) -> dict:
     }
 
 
+def _log_gate_reject(player_id: str, symbol: str | None, gate_name: str,
+                     reason: str | None, signal_id: int | None = None,
+                     price: float | None = None, confidence: float | None = None) -> None:
+    """HM-GATE-REJECT-TELEMETRY-V1 2026-05-26: fail-safe writer for gate_reject_log.
+
+    Never blocks the calling gate. Any DB / connection / payload error is
+    silently swallowed (HM-Z/HM-AA error posture). Consolidates rejection
+    telemetry previously scattered across trader.log lines + _last_rejection
+    in-memory dict + decision_audit gate_reject events."""
+    try:
+        conn = _conn()
+        try:
+            conn.execute(
+                "INSERT INTO gate_reject_log "
+                "(player_id, symbol, gate_name, reason, signal_id, price, confidence) "
+                "VALUES (?,?,?,?,?,?,?)",
+                (player_id, symbol, gate_name, reason, signal_id, price, confidence),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass  # fail-safe — gate logic must never be blocked by telemetry
+
+
 def _log_signal_only(player_id: str, action: str, symbol: str, route: dict, reasoning: str,
                      confidence: float) -> dict:
     msg = (
@@ -598,6 +623,8 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     _mkt_block_reason = _mcr()
     if _mkt_block_reason is not None:
         _last_rejection[player_id] = f"[HM-MARKET-CLOSED] {_mkt_block_reason}"
+        _log_gate_reject(player_id, symbol, "MARKET_CLOSED", _mkt_block_reason,
+                         signal_id=signal_id, price=price, confidence=confidence)
         console.log(
             f"[yellow][HM-MARKET-CLOSED] {player_id} BUY {symbol} "
             f"blocked — {_mkt_block_reason}"
@@ -649,6 +676,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     if _halt and (_halt[1] != "active"):
         console.log(f"[red]HALTED: {player_id} ({_halt[1]}) — {_halt[0] or 'no reason given'}")
         _last_rejection[player_id] = f"Halted ({_halt[1]}): {_halt[0] or 'no reason given'}"
+        _log_gate_reject(player_id, symbol, "HALT",
+                         f"halt_mode={_halt[1]} reason={_halt[0] or 'no reason given'}",
+                         signal_id=signal_id, price=price, confidence=confidence)
         return None
     route = _resolve_execution_portfolio(player_id)
     if route["route_mode"] == "tracking":
@@ -742,6 +772,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
                 f"exposure ${_current_exposure:.0f} already >= 25% of NLV ${_port_value:.0f}"
             )
             _last_rejection[player_id] = f"[CONCENTRATION-CAP] {symbol} >= 25% of NLV"
+            _log_gate_reject(player_id, symbol, "CONCENTRATION_CAP",
+                             f"exposure ${_current_exposure:.0f} >= 25% of NLV ${_port_value:.0f}",
+                             signal_id=signal_id, price=price, confidence=confidence)
             return None
 
     # === HM-REGIME-ROUTER 2026-05-22 ===
@@ -835,6 +868,8 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             _last_rejection[player_id] = (
                 f"GRADE-B-FLEET-GATE: {_fleet_block_reason}"
             )
+            _log_gate_reject(player_id, symbol, "GRADE_B", _fleet_block_reason,
+                             signal_id=signal_id, price=price, confidence=confidence)
             return None
     # === /HM-GRADE-B-FLEET-GATE ===
 
@@ -1563,6 +1598,8 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     _mkt_block_reason = _mcr()
     if _mkt_block_reason is not None:
         _last_rejection[player_id] = f"[HM-MARKET-CLOSED] {_mkt_block_reason}"
+        _log_gate_reject(player_id, symbol, "MARKET_CLOSED", _mkt_block_reason,
+                         price=price, confidence=confidence)
         console.log(
             f"[yellow][HM-MARKET-CLOSED] {player_id} SELL {symbol} "
             f"blocked — {_mkt_block_reason}"
@@ -1580,6 +1617,9 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     if _halt and _halt[1] == "full":
         console.log(f"[red]HALTED (full): {player_id} — {_halt[0] or 'no reason given'}")
         _last_rejection[player_id] = f"Halted (full): {_halt[0] or 'no reason given'}"
+        _log_gate_reject(player_id, symbol, "HALT",
+                         f"halt_mode=full reason={_halt[0] or 'no reason given'}",
+                         price=price, confidence=confidence)
         return None
     route = _resolve_execution_portfolio(player_id)
     if route["route_mode"] == "tracking":
@@ -1599,6 +1639,9 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             f"price=${price:.2f} < 20% of avg=${_avg:.2f} — blocked"
         )
         _last_rejection[player_id] = f"[PRICE-SANITY-REJECT] price={price:.2f} avg={_avg:.2f}"
+        _log_gate_reject(player_id, symbol, "PRICE_SANITY",
+                         f"SELL price={price:.2f} < 20% of avg={_avg:.2f}",
+                         price=price, confidence=confidence)
         return None
 
     # GUARD: Minimum 24h hold period (unless stop-loss)
@@ -1865,6 +1908,9 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
             f"price=${price:.2f} < 20% of avg=${_avg:.2f} — blocked"
         )
         _last_rejection[player_id] = f"[PRICE-SANITY-REJECT] price={price:.2f} avg={_avg:.2f}"
+        _log_gate_reject(player_id, symbol, "PRICE_SANITY",
+                         f"SELL_PARTIAL price={price:.2f} < 20% of avg={_avg:.2f}",
+                         price=price, confidence=confidence)
         return None
 
     # HM-BP-FOLLOW-UP-2 P2 2026-05-26: data-shape race fix. If caller passed
@@ -4111,6 +4157,8 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
     _mkt_block_reason = _mcr()
     if _mkt_block_reason is not None:
         _last_rejection[player_id] = f"[HM-MARKET-CLOSED] {_mkt_block_reason}"
+        _log_gate_reject(player_id, symbol, "MARKET_CLOSED", _mkt_block_reason,
+                         price=price, confidence=confidence)
         console.log(
             f"[yellow][HM-MARKET-CLOSED] {player_id} SHORT {symbol} "
             f"blocked — {_mkt_block_reason}"
