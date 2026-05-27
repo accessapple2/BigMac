@@ -1,6 +1,6 @@
 """Channel Bar -- pre-built Starfleet scan channel templates."""
 from __future__ import annotations
-from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import ThreadPoolExecutor, TimeoutError as _FutTimeoutError, as_completed
 from rich.console import Console
 
 import config
@@ -104,16 +104,31 @@ def _scan_all(bars: dict | None = None) -> list:
     `_get_stock_data` call reads its OHLCV slice from `bars[symbol]` instead
     of fanning out to Yahoo.
     """
+    # HM-CHANNEL-SCANNER-DEADLOCK P1 (2026-05-27): bound the wait so a single
+    # slow Yahoo call cannot block the entire schedule loop. _yahoo_lock
+    # serializes all 8 workers; with a 1s/req throttle + 10s HTTP timeout +
+    # 3×backoff on 429, the worst-case per-call wall is ~25s. timeout=30 on
+    # as_completed gives one batch a bounded ceiling; timeout=5 on f.result
+    # guards against a future that completed-but-blocked elsewhere.
     results = []
     with ThreadPoolExecutor(max_workers=8) as ex:
         futs = {ex.submit(_get_stock_data, sym, bars): sym for sym in get_active_universe()}
-        for f in as_completed(futs):
-            try:
-                data = f.result()
-                if data:
-                    results.append(data)
-            except Exception:
-                pass
+        try:
+            for f in as_completed(futs, timeout=30):
+                sym = futs.get(f, "?")
+                try:
+                    data = f.result(timeout=5)
+                    if data:
+                        results.append(data)
+                except _FutTimeoutError:
+                    console.log(f"[yellow][CHANNEL-SCAN] {sym} result timeout — skipping")
+                except Exception as _scan_e:
+                    console.log(f"[yellow][CHANNEL-SCAN] {sym} error — skipping: "
+                                f"{type(_scan_e).__name__}: {_scan_e!r}")
+        except _FutTimeoutError:
+            done = sum(1 for f in futs if f.done())
+            console.log(f"[yellow][CHANNEL-SCAN] as_completed batch timeout after 30s "
+                        f"({done}/{len(futs)} futures finished) — returning partial results")
     return results
 
 
