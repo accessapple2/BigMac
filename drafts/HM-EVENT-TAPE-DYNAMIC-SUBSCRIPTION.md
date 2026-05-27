@@ -61,3 +61,9 @@ and reduces the value of the signal when it does fire.
 Priority bump: MEDIUM -> HIGH. This is the gating issue for Phase 2.5
 proving its worth. Without dynamic subscription, the tape will continue
 to show ~1 event per session even during active markets.
+
+## Diagnostic 2026-05-27 12:50 PM AZ
+Detector logic verified correct: 0.5% in 60s, session-high +0.1% buffer, 3x vol burst.
+Subscribed mega-caps moved 0.17-2.45% hourly = 0.03%/min sustained. Threshold needs a 60s burst that didn't happen today.
+CRSR (Tier 2, 379% vol) and MUU (239%) would have fired — not subscribed.
+Conclusion: detectors correct, subscription wrong. Dynamic sub is the fix. Priority MEDIUM -> HIGH.
