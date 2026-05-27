@@ -69,7 +69,7 @@ STRUCT_LONG_SIGMA = 2.0           # ±2σ long wings (~5-10Δ)
 STRUCT_TARGET_CREDIT_FRACTION = 1.0 / 3.0  # credit ≥ 33% of width
 
 # Risk Officer caps
-RO_MAX_OPEN_ICS_PER_SECTOR = 3
+RO_MAX_OPEN_ICS_PER_SECTOR = 5
 RO_MAX_AT_RISK_PCT = 0.08
 RO_VIX_3D_ROC_MAX = 0.15          # 15% — block IC entry on vol spike
 # RO regime check defers to engine.regime_router.check_regime_fit
