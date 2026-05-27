@@ -39,3 +39,10 @@ Captain authenticates via existing 2FA TOTP flow.
 - Phase 1 must be browser smoke-tested before Phase 2
 
 ## Estimated effort: 5h Scotty
+
+---
+## Follow-up tickets surfaced 2026-05-26 cleanup sweep
+
+- **HM-BP-FOLLOW-UP-2 P3**: symmetric asset_type guard for sell() at line 1610 (same data-shape race; 9/27 corrupt rows came through full-sell path)
+- **HM-GATE-REJECT-TELEMETRY-V1**: single gate_reject_log table (player_id, gate_name, reason, signal_id) — today requires 4 sources + log greps
+- **HM-ENERGY-ARNOLD-BIMODAL-PARSER**: 10,160 signals 0% fire rate, bimodal confidence (69% at 0.0) — parser producing noise
