@@ -1857,6 +1857,20 @@ def sell_partial(player_id: str, symbol: str, price: float, qty: float,
         _last_rejection[player_id] = f"[PRICE-SANITY-REJECT] price={price:.2f} avg={_avg:.2f}"
         return None
 
+    # HM-BP-FOLLOW-UP-2 P2 2026-05-26: data-shape race fix. If caller passed
+    # asset_type='stock' but the position is actually an option, the existing
+    # conversion gate below skips and the stock spot leaks straight into
+    # exit_price (root cause of the 27 corrupt rows on 2026-03-12, where
+    # ai_brain dispatched tier-take-profit/autopilot-trim actions with stale
+    # asset_type metadata). Reclassify upward to force the conversion.
+    if asset_type == "stock" and pos.get("asset_type") == "option":
+        console.log(
+            f"[yellow][HM-BP-FU-2] {player_id} SELL_PARTIAL {symbol}: caller said "
+            f"'stock' but position is 'option' — reclassifying to prevent spot-as-premium leak"
+        )
+        asset_type = "option"
+        option_type = option_type or pos.get("option_type")
+
     # For options, estimate current premium using intrinsic value + time value
     if asset_type == "option" or (asset_type != "stock" and pos.get("asset_type") == "option"):
         ot = option_type or pos.get("option_type")
