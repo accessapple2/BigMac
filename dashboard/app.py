@@ -1861,6 +1861,169 @@ def api_scanner_convergence():
 # ===== /HM-OLLIE-LIVE-SCANNER Phase 1 ================================
 
 
+# ===== HM-OLLIE-LIVE-SCANNER Phase 2 — /api/scanner/events ============
+# Reference: drafts/HM-OLLIE-LIVE-SCANNER-DASHBOARD-TILE.md (v3 LOCKED).
+#
+# Live event tape: reads volume_alerts table (gap_up / gap_down /
+# volume_explosion) over a rolling 15-min window. Optional ?since=<ts>
+# filter for incremental polling — returns only events strictly newer.
+# Each event is decorated with an in_scanner_tier flag (1/2/3/None) by
+# computing the current convergence tier for the ticker from
+# strategy_signals (same 90-min window as Phase 1).
+#
+# SQL gotcha: volume_alerts.detected_at is stored as ISO-T string
+# ('2026-05-27T09:12:52.375585'). Direct string compare against
+# datetime('now',...) (space-separator format) is lexicographically wrong
+# because 'T' > ' ' in ASCII — leaks every older 'T'-format row. Always
+# wrap the column with datetime(detected_at) to normalize before compare.
+_SCANNER_EVENTS_CACHE: dict = {"data": None, "ts": 0.0, "since_key": None}
+_SCANNER_EVENTS_CACHE_TTL: int = 10  # seconds — shorter than convergence; events are time-sensitive
+
+
+def _event_narration(alert_type: str, rel_vol, gap_pct) -> str:
+    """Render an alert into a Holly-style narration string."""
+    at = (alert_type or "").lower()
+    try:
+        rv = float(rel_vol) if rel_vol is not None else None
+    except (TypeError, ValueError):
+        rv = None
+    try:
+        gp = float(gap_pct) if gap_pct is not None else None
+    except (TypeError, ValueError):
+        gp = None
+
+    if at == "volume_explosion":
+        return f"VOL BOOM {rv:.0f}x" if rv is not None else "VOL BOOM"
+    if at == "gap_up":
+        return f"GAP UP +{gp:.1f}%" if gp is not None else "GAP UP"
+    if at == "gap_down":
+        return f"GAP DOWN {gp:.1f}%" if gp is not None else "GAP DOWN"
+    return at.upper().replace("_", " ")
+
+
+@app.get("/api/scanner/events")
+def api_scanner_events(since: str = "", limit: int = 50):
+    """Live event tape — Phase 2 of HM-OLLIE-LIVE-SCANNER.
+
+    Returns the last 15 min of volume_alerts events. If ?since=<iso ts> is
+    provided, only events strictly newer than that timestamp are returned
+    (incremental polling). Each event includes an in_scanner_tier flag
+    showing whether the ticker is currently a Tier 1/2/3 convergence
+    candidate (last 90 min of strategy_signals, same as Phase 1).
+
+    Cached 10s in-memory keyed by the `since` arg.
+    """
+    import time as _time
+    from datetime import datetime, timezone
+
+    now = _time.time()
+    cache_key = since or "_all"
+    cached = _SCANNER_EVENTS_CACHE.get("data")
+    if (cached is not None
+        and _SCANNER_EVENTS_CACHE.get("since_key") == cache_key
+        and (now - _SCANNER_EVENTS_CACHE.get("ts", 0.0)) < _SCANNER_EVENTS_CACHE_TTL):
+        return {**cached, "cached": True}
+
+    try:
+        c = _conn()
+
+        params: list = []
+        since_clause = ""
+        if since:
+            since_clause = " AND datetime(va.detected_at) > datetime(?)"
+            params.append(since)
+        params.append(int(limit))
+
+        rows = c.execute(
+            f"""
+            WITH tiers AS (
+              SELECT ticker,
+                     COUNT(DISTINCT strategy_name) AS strat_count
+                FROM strategy_signals
+               WHERE created_at >= datetime('now','-90 minutes')
+               GROUP BY ticker
+            )
+            SELECT va.symbol,
+                   va.alert_type,
+                   va.price,
+                   va.relative_volume,
+                   va.gap_pct,
+                   va.dollar_volume,
+                   va.detected_at,
+                   mw.last_price       AS mw_price,
+                   mw.pct_change       AS mw_pct_change,
+                   t.strat_count       AS strat_count
+              FROM volume_alerts va
+              LEFT JOIN mover_watchlist mw ON mw.symbol = va.symbol
+              LEFT JOIN tiers t            ON t.ticker  = va.symbol
+             WHERE datetime(va.detected_at) >= datetime('now','-15 minutes')
+                {since_clause}
+             ORDER BY datetime(va.detected_at) DESC
+             LIMIT ?
+            """,
+            params,
+        ).fetchall()
+        c.close()
+
+        events: list[dict] = []
+        for r in rows:
+            d = dict(r)
+            strat_count = d.get("strat_count")
+            tier: int | None = None
+            try:
+                sc = int(strat_count) if strat_count is not None else 0
+                if sc >= 5:
+                    tier = 1
+                elif sc == 4:
+                    tier = 2
+                elif sc == 3:
+                    tier = 3
+            except (TypeError, ValueError):
+                tier = None
+
+            magnitude = None
+            if d.get("alert_type") == "volume_explosion":
+                magnitude = d.get("relative_volume")
+            elif (d.get("alert_type") or "").startswith("gap_"):
+                magnitude = d.get("gap_pct")
+
+            events.append({
+                "ticker": d["symbol"],
+                "alert_type": d.get("alert_type"),
+                "narration": _event_narration(d.get("alert_type"), d.get("relative_volume"), d.get("gap_pct")),
+                "magnitude": magnitude,
+                "price": d.get("price") if d.get("price") is not None else d.get("mw_price"),
+                "rel_vol": d.get("relative_volume"),
+                "gap_pct": d.get("gap_pct"),
+                "dollar_volume": d.get("dollar_volume"),
+                "detected_at": d.get("detected_at"),
+                "in_scanner_tier": tier,
+                "mw_pct_change": d.get("mw_pct_change"),
+            })
+
+        payload = {
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "events": events,
+            "meta": {
+                "count": len(events),
+                "window_minutes": 15,
+                "since": since or None,
+            },
+        }
+        _SCANNER_EVENTS_CACHE["data"] = payload
+        _SCANNER_EVENTS_CACHE["ts"] = now
+        _SCANNER_EVENTS_CACHE["since_key"] = cache_key
+        return {**payload, "cached": False}
+    except Exception as exc:
+        return {
+            "error": str(exc),
+            "ts": datetime.now(timezone.utc).isoformat(),
+            "events": [],
+            "meta": {"count": 0, "window_minutes": 15, "since": since or None},
+        }
+# ===== /HM-OLLIE-LIVE-SCANNER Phase 2 ================================
+
+
 # --- Notification System ---
 
 def _init_notifications_table():

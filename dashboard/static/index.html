@@ -5234,6 +5234,14 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           _seen[tier] = incoming;
         }
 
+        // Expose current tier sets so the Phase 2 event tape can decorate
+        // event tickers with tier color + decide T1-audio ding eligibility.
+        window._scannerTiers = {
+          tier1: new Set(_seen.tier1),
+          tier2: new Set(_seen.tier2),
+          tier3: new Set(_seen.tier3),
+        };
+
         // Wire row clicks → existing ticker drawer.
         document.querySelectorAll('#ollie-scanner-card .scanner-row').forEach(tr => {
           tr.addEventListener('click', () => {
@@ -5263,6 +5271,241 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     }
     setInterval(renderOllieLiveScanner, POLL_MS);
     window.renderOllieLiveScanner = renderOllieLiveScanner;  // expose for manual refresh
+  })();
+  </script>
+
+  <!-- HM-OLLIE-LIVE-SCANNER Phase 2 — live event tape ribbon -->
+  <div class="card" id="ollie-events-card" style="margin-bottom:16px;border-left:3px solid #f59e0b;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;gap:8px;flex-wrap:wrap;">
+      <div class="card-title" data-tip="Live event tape from volume_alerts (last 15 min). VOL BOOM = relative volume explosion; GAP UP/DOWN = pre-open gap. Tickers also in the convergence scanner above are color-coded by tier (Tier 1 green, Tier 2 yellow, Tier 3 grey). T1 audio ding (top of card) fires when a NEW event arrives for a Tier 1 ticker.">📡 Event Tape — Live</div>
+      <div style="display:flex;align-items:center;gap:10px;font-size:11px;">
+        <span id="eventsCountBadge" style="font-size:11px;color:var(--muted);font-family:var(--font-mono);">0 events</span>
+        <span id="eventsStatusBadge" style="font-size:11px;font-weight:700;padding:2px 8px;border-radius:4px;background:#6b728022;color:#6b7280;">LOADING</span>
+        <span id="eventsLastUpdate" style="font-size:11px;color:var(--muted);font-family:var(--font-mono);">--</span>
+      </div>
+    </div>
+
+    <style>
+      #ollie-events-card .events-feed { max-height:160px; overflow-y:auto; padding:4px 12px 10px; font-family:var(--font-mono); font-size:12px; }
+      #ollie-events-card .event-row { display:flex; align-items:center; gap:10px; padding:5px 6px; border-bottom:1px solid rgba(127,127,127,0.08); cursor:pointer; }
+      #ollie-events-card .event-row:hover { background:rgba(99,102,241,0.08); }
+      #ollie-events-card .event-row.new-event { animation: eventsFadeIn 0.6s ease-out; }
+      @keyframes eventsFadeIn { from { background:rgba(245,158,11,0.18); } to { background:transparent; } }
+      #ollie-events-card .event-tick { font-weight:700; padding:2px 7px; border-radius:3px; font-size:11px; min-width:55px; text-align:center; letter-spacing:.03em; }
+      #ollie-events-card .event-tick.tier-1 { background:rgba(34,197,94,0.18); color:#22c55e; border:1px solid rgba(34,197,94,0.45); }
+      #ollie-events-card .event-tick.tier-2 { background:rgba(234,179,8,0.18); color:#eab308; border:1px solid rgba(234,179,8,0.45); }
+      #ollie-events-card .event-tick.tier-3 { background:rgba(100,116,139,0.18); color:#94a3b8; border:1px solid rgba(100,116,139,0.45); }
+      #ollie-events-card .event-tick.no-tier  { background:rgba(120,120,120,0.12); color:var(--muted); }
+      #ollie-events-card .event-narration { color:var(--text); font-weight:600; flex:0 0 auto; }
+      #ollie-events-card .event-narration.vol-boom { color:#22c55e; }
+      #ollie-events-card .event-narration.gap-up   { color:#22c55e; }
+      #ollie-events-card .event-narration.gap-down { color:#f87171; }
+      #ollie-events-card .event-price { color:var(--muted); font-size:11px; }
+      #ollie-events-card .event-age   { margin-left:auto; color:var(--muted); font-size:11px; }
+      #ollie-events-card .events-empty { padding:10px 14px; color:var(--muted); font-size:12px; font-style:italic; }
+    </style>
+
+    <div class="events-feed" id="eventsFeed">
+      <div class="events-empty">Loading event tape…</div>
+    </div>
+  </div>
+
+  <script>
+  (function() {
+    // HM-OLLIE-LIVE-SCANNER Phase 2 — live event tape.
+    // Endpoint: GET /api/scanner/events?since=<iso ts>
+    // 30s poll cadence (matches scanner). Audio ding fires when a new event
+    // arrives for a ticker that is currently in the scanner's Tier 1 set
+    // AND the existing 🔔 T1 checkbox is on. State cross-ref comes from
+    // window._scannerTiers populated by the Phase 1 IIFE.
+    const POLL_MS = 30000;
+    const _eventSeen = new Set();   // composite key: ticker|alert_type|detected_at
+    let _lastSince = '';            // latest detected_at observed, for incremental fetch
+    let _firstEventsRender = true;
+
+    function fmtAgo(iso) {
+      if (!iso) return '--';
+      try {
+        // Normalize Z-less ISO with microseconds — Date parses 'T' format fine.
+        const t = new Date(iso.includes('T') ? iso : iso.replace(' ','T'));
+        const secs = Math.max(0, Math.floor((Date.now() - t.getTime()) / 1000));
+        if (secs < 60) return secs + 's ago';
+        if (secs < 3600) return Math.floor(secs/60) + 'm ago';
+        if (secs < 86400) return Math.floor(secs/3600) + 'h ago';
+        return Math.floor(secs/86400) + 'd ago';
+      } catch (e) { return '--'; }
+    }
+
+    function tierClass(tier) {
+      if (tier === 1) return 'tier-1';
+      if (tier === 2) return 'tier-2';
+      if (tier === 3) return 'tier-3';
+      return 'no-tier';
+    }
+    function narrationClass(alertType) {
+      const at = (alertType || '').toLowerCase();
+      if (at === 'volume_explosion') return 'vol-boom';
+      if (at === 'gap_up')           return 'gap-up';
+      if (at === 'gap_down')         return 'gap-down';
+      return '';
+    }
+
+    function buildEventRow(ev, isNew) {
+      const sym = String(ev.ticker || '').replace(/[^A-Z0-9.=]/gi,'').toUpperCase();
+      const tCls = tierClass(ev.in_scanner_tier);
+      const nCls = narrationClass(ev.alert_type);
+      const price = (ev.price != null && isFinite(Number(ev.price)))
+        ? '$' + Number(ev.price).toFixed(2)
+        : '';
+      const newCls = isNew ? ' new-event' : '';
+      return ''
+        + '<div class="event-row' + newCls + '" data-symbol="' + sym + '">'
+        +   '<span class="event-tick ' + tCls + '" title="' + (ev.in_scanner_tier ? 'Tier ' + ev.in_scanner_tier + ' scanner candidate' : 'Not in scanner tiers') + '">' + sym + '</span>'
+        +   '<span class="event-narration ' + nCls + '">' + (ev.narration || ev.alert_type || '--') + '</span>'
+        +   '<span class="event-price">' + price + '</span>'
+        +   '<span class="event-age" data-ts="' + (ev.detected_at || '') + '">' + fmtAgo(ev.detected_at) + '</span>'
+        + '</div>';
+    }
+
+    function playEventDing() {
+      try {
+        const ctx = new (window.AudioContext || window.webkitAudioContext)();
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.frequency.value = 660;   // a touch lower than scanner ding so they're distinguishable
+        osc.type = 'triangle';
+        gain.gain.setValueAtTime(0.001, ctx.currentTime);
+        gain.gain.exponentialRampToValueAtTime(0.18, ctx.currentTime + 0.01);
+        gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + 0.22);
+        osc.connect(gain).connect(ctx.destination);
+        osc.start();
+        osc.stop(ctx.currentTime + 0.24);
+      } catch (e) { /* audio context may be blocked pre-user-gesture */ }
+    }
+
+    function renderEventTape() {
+      // Use incremental since= once we have a high-water mark; first hit
+      // pulls the full 15-min window.
+      const url = _lastSince
+        ? '/api/scanner/events?since=' + encodeURIComponent(_lastSince) + '&limit=50'
+        : '/api/scanner/events?limit=50';
+      fetch(url).then(r => r.json()).then(d => {
+        const badge = document.getElementById('eventsStatusBadge');
+        const stamp = document.getElementById('eventsLastUpdate');
+        const countBadge = document.getElementById('eventsCountBadge');
+        const feed = document.getElementById('eventsFeed');
+        if (d && d.error) {
+          if (badge) {
+            badge.textContent = 'ERROR';
+            badge.style.background = '#f8717122'; badge.style.color = '#f87171';
+          }
+          return;
+        }
+        if (badge) {
+          badge.textContent = 'LIVE';
+          badge.style.background = '#22c55e22'; badge.style.color = '#22c55e';
+        }
+        try {
+          const t = d.ts ? new Date(d.ts) : new Date();
+          stamp.textContent = t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+        } catch (e) { stamp.textContent = '--'; }
+
+        const incoming = Array.isArray(d.events) ? d.events : [];
+
+        // Audio ding decision: any incoming event for a ticker currently in
+        // Tier 1 of the scanner, if the existing T1 toggle is checked.
+        const t1Set = (window._scannerTiers && window._scannerTiers.tier1) || new Set();
+        const t1Toggle = document.getElementById('scannerAudioT1');
+        const wantT1Audio = t1Toggle && t1Toggle.checked;
+        if (!_firstEventsRender && wantT1Audio) {
+          for (const ev of incoming) {
+            const key = (ev.ticker || '') + '|' + (ev.alert_type || '') + '|' + (ev.detected_at || '');
+            if (!_eventSeen.has(key) && t1Set.has(ev.ticker)) {
+              playEventDing();
+              break;  // one ding per cycle
+            }
+          }
+        }
+
+        // Merge: prepend new events to the visible feed (top is newest).
+        // Build a new key-set for "new this cycle" markup.
+        const newKeys = new Set();
+        for (const ev of incoming) {
+          const key = (ev.ticker || '') + '|' + (ev.alert_type || '') + '|' + (ev.detected_at || '');
+          if (!_eventSeen.has(key)) newKeys.add(key);
+          _eventSeen.add(key);
+          if (ev.detected_at && (!_lastSince || ev.detected_at > _lastSince)) {
+            _lastSince = ev.detected_at;
+          }
+        }
+
+        // Re-fetch the full window for rendering so we always show what's
+        // current (not just what's new). Cheap because of the 10s server cache.
+        // The since= incremental fetch above is for the audio/new detection
+        // only; we make a second small fetch only on the very first render.
+        if (_firstEventsRender || !_lastSince) {
+          // First render path: use the events we just fetched directly.
+          renderFeed(incoming);
+        } else {
+          // Subsequent renders: pull the full 15-min window for display.
+          fetch('/api/scanner/events?limit=50').then(r => r.json()).then(d2 => {
+            const all = (d2 && Array.isArray(d2.events)) ? d2.events : incoming;
+            renderFeed(all, newKeys);
+          }).catch(() => renderFeed(incoming, newKeys));
+        }
+
+        if (countBadge) countBadge.textContent = (d.meta && d.meta.count != null ? d.meta.count : incoming.length) + ' new this cycle';
+        _firstEventsRender = false;
+      }).catch(err => {
+        const badge = document.getElementById('eventsStatusBadge');
+        if (badge) {
+          badge.textContent = 'OFFLINE';
+          badge.style.background = '#f8717122'; badge.style.color = '#f87171';
+        }
+      });
+    }
+
+    function renderFeed(events, newKeysSet) {
+      const feed = document.getElementById('eventsFeed');
+      if (!feed) return;
+      if (!events || events.length === 0) {
+        feed.innerHTML = '<div class="events-empty">No events in the last 15 minutes.</div>';
+        return;
+      }
+      const newKeys = newKeysSet || new Set();
+      let html = '';
+      for (const ev of events) {
+        const key = (ev.ticker || '') + '|' + (ev.alert_type || '') + '|' + (ev.detected_at || '');
+        html += buildEventRow(ev, newKeys.has(key));
+      }
+      feed.innerHTML = html;
+
+      // Row click → existing ticker drawer (same wiring as scanner rows).
+      feed.querySelectorAll('.event-row').forEach(row => {
+        row.addEventListener('click', () => {
+          const sym = row.getAttribute('data-symbol');
+          if (sym && typeof window.openTickerDetail === 'function') {
+            window.openTickerDetail(sym);
+          }
+        });
+      });
+    }
+
+    // Refresh "Xs ago" labels every 5s without re-fetching.
+    setInterval(() => {
+      document.querySelectorAll('#ollie-events-card .event-age').forEach(el => {
+        const ts = el.getAttribute('data-ts');
+        if (ts) el.textContent = fmtAgo(ts);
+      });
+    }, 5000);
+
+    if (document.readyState === 'loading') {
+      document.addEventListener('DOMContentLoaded', renderEventTape);
+    } else {
+      renderEventTape();
+    }
+    setInterval(renderEventTape, POLL_MS);
+    window.renderEventTape = renderEventTape;
   })();
   </script>
 
