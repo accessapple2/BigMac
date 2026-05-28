@@ -230,7 +230,7 @@ body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-ser
 <div class="toast" id="toast"></div>
 
 <script>
-const API = 'http://localhost:8889';
+const API = '';  // HM-O-TASTY 3.3: same-origin — relative /api/* works through the otasty.ollietrades.com tunnel AND on localhost:8889 (was hardcoded localhost, broke the Test Kitchen tab off-box)
 let currentSym  = null;
 let currentData = null;
 let currentStruct = 'iron_condor';
