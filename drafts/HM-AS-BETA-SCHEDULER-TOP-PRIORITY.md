@@ -40,39 +40,69 @@ crew_decisions`, with `gate_result` + `reason`).
 - `engine/crew_specialization.py:76` comments **"benched S6.1 (-0.36%)."**
 - Reality: **not in the crew scan union** → silent since 2026-05-07. Sibling
   scout Spock (`deepseek-7b-grok4`) IS in `RULES_SCANNERS` and emits daily.
-- **Decision needed:** if Worf should be active per CLAUDE.md, repoint —
-  one line: add `'qwen3-8b-flash'` to `RULES_SCANNERS` (crew_scanner.py:256)
-  or `ALPHA_SQUAD`. This starts a dormant agent firing live signals into the
-  gate after a 3-week silence + a documented −0.36% bench — **signal-flow
-  change, needs Captain sign-off.** If the bench is still intended, update
-  CLAUDE.md:391 to reflect benched status instead (kill the drift either way).
+- **DECISION: REPOINTED — SHIPPED 2026-05-28 (commit `f99e2e2`).** Captain ruled
+  the S6.1 −0.36% bench stale (pre TIER3/conviction-stops/two-lane/remap refactors);
+  align reality to doctrine, re-bench later if it underperforms on current-system
+  data. `'qwen3-8b-flash'` added to `RULES_SCANNERS` (crew_scanner.py:262, beside
+  Spock). LLM agent — still subject to Sniper Alpha gate. Activated on the
+  2026-05-28 16:24 restart (PID 42748). **SOAKING:** confirm Worf scans + emits
+  next market session (crew_scanner is market-hours-only).
 
 ---
 
 ## §B — Cadence drift — THE REAL (SEPARABLE) SCHEDULER WORK
 
-This is the genuine HM-AS-β perf issue, but it is **narrowly scoped** and does
-**not** touch signal flow. All 918 `[HM-AS-β]` drift warnings name exactly:
+> **5th refutation (2026-05-28 PM): the victims are NOT the fix.** Wrapping
+> `battle_station_monitor` + the squeeze watchers would have done nothing —
+> `squeeze_watcher` was already `_bg`-wrapped since β.2 yet still logged 161 drift
+> warnings, proving the loop-blocker is elsewhere. And "918 warnings = these 3
+> jobs" is an **instrumentation-coverage artifact**: only those 3 functions
+> contain drift-logging code; every other job drifts silently.
 
-| Job | Drift warnings | Target cadence |
-|---|---|---|
-| `battle_station_monitor` (2-min options monitor) | 719 | 120s (drifts to 1183s) |
-| `squeeze_watcher` | 161 | 1800s |
-| `bbkc_squeeze_watcher` | 38 | 1800s |
+**Root cause (from `[HM-BQ-instr]` wall-time data):** the single-thread
+`schedule.run_pending()` loop is blocked by long *synchronous* jobs. Ranked:
 
-No scan job ever appears in the drift log. The crew scanner completes every
-cycle (~150s) with **0** "previous cycle still running" skips.
+| Job | total | n | max | avg |
+|---|---|---|---|---|
+| **`run_whisper`** | 39,061s | 47 | **1194s** | **831s** |
+| `run_autopilot` | 4,006s | 42 | 168s | 95s |
+| `run_strategy_scan` | 335s | 2 | 254s | 167s |
+| `run_gap_scan` | 232s | 2 | 119s | 116s |
+| `run_imbalance_scan` | 471s | 7 | 81s | 67s |
 
-**Fix (HM-AS-β.3, surgical — matches shipped β.2 `_bg()` pilot):** wrap
-`run_battle_station_monitor` + the two squeeze watchers in the `_bg()`
-fire-and-forget wrapper (bounded by a small ThreadPoolExecutor). Do NOT
-blanket-wrap all 145 jobs. APScheduler migration only if `_bg()` doesn't clear
-the drift. Soak + confirm drift warnings drop. **This will NOT revive any tail
-agent** — it addresses cadence integrity only.
+`run_whisper` (registered `every(10).minutes`, runs ~14min avg / 20min max) is
+the dominant blocker — its 1194s max ≈ `battle_station_monitor`'s 1183s max drift.
+
+**Fix — data-ranked blockers, loop-by-loop:**
+- **Loop 1 — SHIPPED 2026-05-28 (commit `a31d365`, PID 42748):** wrapped
+  `run_whisper` in `_bg_whisper` (skip-if-prior-running lock, max 1 in-flight;
+  mirrors β.2 pilot). Registration `do(run_whisper)` → `do(_bg_whisper)`.
+  **SOAKING:** confirm drift warnings drop next market session.
+- **Loop 2 — STAGED, not shipped:** wrap `run_autopilot` (#2 blocker). Ship ONLY
+  if drift persists after the Loop-1 soak. Data first.
+- **Loop 3 — only if needed:** the infrequent heavies (`run_strategy_scan`,
+  `run_gap_scan`, `run_imbalance_scan`).
+
+Do NOT blanket-wrap all 145 jobs. **This will NOT revive any tail agent** — it
+addresses cadence integrity only.
 
 ---
 
 ## §C — Arena/TIER2 scan starvation — NEW finding, the real "scheduler" link
+
+> **INSTRUMENTATION LIVE + SOAKING — 2026-05-28 16:24 (commit `a31d365`, PID 42748).**
+> Read-only telemetry shipped in `main.py::run_scanner`, ZERO behavior change. DO
+> NOT re-instrument and DO NOT assume §C is unstarted — data is accumulating:
+> - `[HM-AS-β-C] scan_lock held {N}s ({scan-only|scan+WR})` — per-scan lock-hold
+>   duration + whether `run_war_room` ran inside the held lock.
+> - `[HM-AS-β-C] due-but-skipped: T1,T2,T3 (cum …)` on each skipped tick — how
+>   often each tier is starved because the lock was held.
+>
+> **Next session: read this data from a clean market day (no restart in window)
+> BEFORE proposing any decouple.** It will confirm or KILL §C. NOTE: the original
+> §C premise (WR holds lock 3–19min) was REFUTED — WR cycles are now 34–66s post
+> VRAM-fixes; the dominant lock-holder is likely the arena scan itself (~150s),
+> not WR. The telemetry settles which.
 
 `main.py::run_scanner` runs the tiered scan (`_SCAN_TIER1/2/3`) in a background
 thread holding `_scan_lock`, and calls `run_war_room()` **inline** every 3rd
@@ -94,13 +124,25 @@ cadence and is the first casualty: today it fired **1×** vs TIER1 **9×**.
 
 ---
 
-## Corrected next-session order
-1. **§C** — decouple inline `run_war_room` from `_scan_lock` (revives TIER2 cadence).
-2. **§B** — `_bg()` wrap on battle_station_monitor + squeeze watchers (cadence drift).
-3. **§A.1** — Captain decision on Worf repoint vs CLAUDE.md drift fix.
-- §A (ollama-qwen3/plutus, energy-arnold wiring) needs **no code** — verified working / already fixed.
+## Next-session order (updated 2026-05-28 PM — post-batch)
+1. **§B Loop-1 soak verify** — from a clean market day, confirm `[HM-AS-β]` drift
+   warnings for battle_station_monitor + squeeze watchers DROP after the
+   `_bg_whisper` ship. If they DON'T → ship Loop 2 (`run_autopilot` wrap, staged).
+2. **§C soak verify** — read the live `[HM-AS-β-C]` telemetry (lock-hold +
+   due-but-skipped) from a clean market day. Confirm-or-KILL §C BEFORE any
+   scan-loop decouple. (Premise already refuted — WR now 34–66s, not 3–19min.)
+3. **§A.1 Worf soak verify** — confirm qwen3-8b-flash scans + emits via crew path.
 
-Risk note from original still holds for §B/§C: changes job timing/concurrency —
+**SHIPPED 2026-05-28 (PID 42748):** §A.1 Worf repoint (`f99e2e2`), §B Loop 1
+`_bg_whisper` (`a31d365`), §C telemetry (`a31d365`). §A (ollama-qwen3/plutus,
+energy-arnold wiring) needs **no code** — verified working / already fixed.
+
+⚠️ **Data caveat:** the "TIER2 fired 1× vs TIER1 9×" + "178 skips" figures in §C
+above were from a CONTAMINATED window (12:55 restart + log rotation ~05-27 13:30
++ rich-console line-wrap). Trust the NEW `[HM-AS-β-C]` telemetry from a clean day,
+not those numbers.
+
+Risk note still holds for any §C decouple: changes job timing/concurrency —
 design carefully, soak, do NOT rush at a session tail.
 
 ---
