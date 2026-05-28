@@ -948,12 +948,15 @@ def get_polygon_bars(
             return sym, None
 
     result: dict = {}
-    with ThreadPoolExecutor(max_workers=max_workers) as pool:
+    pool = ThreadPoolExecutor(max_workers=max_workers)
+    try:
         futures = [pool.submit(_fetch_one, s) for s in sym_list]
         for fut in as_completed(futures):
             sym, df = fut.result()
             if df is not None and not df.empty:
                 result[sym] = df
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
     if single:
         return result.get(symbols, pd.DataFrame())
