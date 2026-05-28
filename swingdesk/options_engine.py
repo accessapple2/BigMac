@@ -32,11 +32,16 @@ POLYGON_BASE = "https://api.polygon.io"
 # ── TASTY TRADE CONSTANTS ─────────────────────────────────────────────────────
 TARGET_DTE          = 45
 EXIT_DTE            = 21
-TARGET_DELTA        = 0.16       # 16 delta short strike
+TARGET_DELTA        = 0.20       # HM-O-TASTY-DOCTRINE: 20Δ short strike (was 0.16)
 PROFIT_TARGET_PCT   = 0.50       # close at 50% of credit
 LOSS_LIMIT_MULT     = 2.0        # close at 2x credit received
 MIN_IVR             = 50         # only sell above IVR 50
-MIN_CREDIT_RATIO    = 0.33       # credit must be >= 1/3 of spread width
+MIN_CREDIT_RATIO    = 0.33       # IC (two-sided): credit >= 1/3 of width
+# HM-O-TASTY-DOCTRINE 2026-05-28: single-sided credit spreads (BPS/BCS) collect
+# ~half what a two-sided IC does, so the 0.33 bar filtered them out entirely and
+# the directional recommendation could never pick them. A directional spread at
+# 20Δ acceptably collects ~20% of width.
+SINGLE_SIDED_MIN_CREDIT_RATIO = 0.20
 MAX_BPE_PCT         = 0.05       # max 5% of portfolio per trade
 
 UNIVERSE = [
@@ -201,10 +206,15 @@ def find_strike_for_delta(S: float, T: float, sigma: float, target_delta: float,
         mid   = (lo + hi) / 2
         delta = bs_delta(S, mid, T, r, sigma, opt_type)
         if opt_type == "put":
+            # Put delta is DECREASING in K (K↑ → delta 0→−1). Target = −target_delta.
+            # delta > −target_delta ⇒ too close to 0 ⇒ strike too low ⇒ raise it.
+            # (HM-OTASTY-STRIKE-SOLVER 2026-05-28: branch was inverted — drove the
+            #  search to the S*1.5 bound, producing far-above-spot put strikes and
+            #  negative IC max_loss.)
             if delta > -target_delta:
-                hi = mid
-            else:
                 lo = mid
+            else:
+                hi = mid
         else:
             if delta < target_delta:
                 hi = mid
@@ -303,7 +313,7 @@ def build_bull_put_spread(symbol: str, spot: float, iv_pct: float,
     pop        = round((1 - TARGET_DELTA) * 100, 1)
     bpe        = round(max_loss * 100, 0)
     contracts  = max(1, int((portfolio_size * MAX_BPE_PCT) / bpe)) if bpe > 0 else 1
-    min_credit = round(width * MIN_CREDIT_RATIO, 2)
+    min_credit = round(width * SINGLE_SIDED_MIN_CREDIT_RATIO, 2)
     viable     = credit >= min_credit and credit > 0
 
     return {
@@ -356,7 +366,7 @@ def build_bear_call_spread(symbol: str, spot: float, iv_pct: float,
     pop        = round((1 - TARGET_DELTA) * 100, 1)
     bpe        = round(max_loss * 100, 0)
     contracts  = max(1, int((portfolio_size * MAX_BPE_PCT) / bpe)) if bpe > 0 else 1
-    min_credit = round(width * MIN_CREDIT_RATIO, 2)
+    min_credit = round(width * SINGLE_SIDED_MIN_CREDIT_RATIO, 2)
     viable     = credit >= min_credit and credit > 0
 
     return {
@@ -467,6 +477,30 @@ def get_spot(symbol: str) -> float:
 
     return 0.0
 
+def _directional_lean(symbol: str) -> str:
+    """HM-O-TASTY-DOCTRINE 2026-05-28: directional bias from price vs 20/50 SMA.
+    bullish: price > SMA20 > SMA50; bearish: price < SMA20 < SMA50; else neutral.
+    Drives structure selection (bullish→BPS, bearish→BCS, neutral→IC). Fail-safe → neutral."""
+    try:
+        end = datetime.now().strftime("%Y-%m-%d")
+        start = (datetime.now() - timedelta(days=90)).strftime("%Y-%m-%d")
+        bars = _pg(f"/v2/aggs/ticker/{symbol}/range/1/day/{start}/{end}",
+                   {"adjusted": "true", "sort": "asc", "limit": "120"}).get("results", [])
+        closes = [b["c"] for b in bars]
+        if len(closes) < 50:
+            return "neutral"
+        price = closes[-1]
+        sma20 = sum(closes[-20:]) / 20
+        sma50 = sum(closes[-50:]) / 50
+        if price > sma20 > sma50:
+            return "bullish"
+        if price < sma20 < sma50:
+            return "bearish"
+        return "neutral"
+    except Exception:
+        return "neutral"
+
+
 def scan_ivr(symbols: list = None, portfolio_size: float = 52340) -> list:
     """
     Full IVR scan: for each symbol compute IVR, find expiration,
@@ -514,11 +548,28 @@ def scan_ivr(symbols: list = None, portfolio_size: float = 52340) -> list:
                 entry["structures"]["bear_call_spread"] = build_bear_call_spread(sym, spot, iv, expiration, portfolio_size)
                 entry["structures"]["csp"]              = build_csp(sym, spot, iv, expiration, portfolio_size)
 
-                # Best structure recommendation
-                viable = {k: v for k, v in entry["structures"].items() if v.get("viable")}
+                # Structure recommendation — HM-O-TASTY-DOCTRINE 2026-05-28.
+                # Direction picks the structure (bullish→BPS, bearish→BCS,
+                # neutral→IC); CSP stays built as the discretionary "willing to
+                # own" alternative (not auto-recommended without an own-it call).
+                # Only consider viable structures with positive max_loss — this
+                # retires the max(max_loss,0.01) ratio exploit that let a
+                # negative/near-zero max_loss make IC win every time.
+                lean = _directional_lean(sym)
+                entry["directional_lean"] = lean
+                _by_lean = {"bullish": "bull_put_spread",
+                            "bearish": "bear_call_spread",
+                            "neutral": "iron_condor"}
+                viable = {k: v for k, v in entry["structures"].items()
+                          if v.get("viable") and v.get("max_loss", 0) > 0}
                 if viable:
-                    best_k = max(viable, key=lambda k: viable[k].get("credit", 0) / max(viable[k].get("max_loss", 1), 0.01))
-                    entry["recommended"] = best_k
+                    preferred = _by_lean.get(lean, "iron_condor")
+                    if preferred in viable:
+                        entry["recommended"] = preferred
+                    else:
+                        # doctrine structure not viable → best return-on-risk among viable
+                        entry["recommended"] = max(
+                            viable, key=lambda k: viable[k]["credit"] / viable[k]["max_loss"])
 
             results.append(entry)
 
