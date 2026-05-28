@@ -18,6 +18,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import urllib.request
 from datetime import datetime
 from pathlib import Path
 
@@ -517,6 +518,118 @@ def run_loop_c() -> dict:
     }
 
 
+# ── Loop E: nightly doctrine compliance auditor (SHADOW) ─────────────────────
+# Exempt from the kill switch by design — it's read-only + the trust layer, so it
+# audits even during a halt. (Loop D's kill switch gates A/B/C, not E.)
+VALID_EXIT_REASONS = {
+    "profit_50pct", "time_21dte", "loss_2x_credit", "short_strike_breach",
+    "earnings_7d", "killswitch_tripped", "killswitch_hard_halt",
+}
+
+
+def _ensure_audit_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS swingdesk_audit_log (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            audit_date TEXT NOT NULL,
+            audit_type TEXT NOT NULL,
+            shadow_trade_id INTEGER,
+            exit_reason TEXT,
+            compliant INTEGER,
+            violation_detail TEXT,
+            note TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.commit()
+
+
+def _ntfy_admin(title: str, message: str, priority: str = "high") -> bool:
+    """Fire an NTFY alert to the O-Tasty admin topic. Self-contained (ntfy.sh
+    public topic via urllib) — NO broker, no engine dependency. Returns True on 2xx."""
+    topic = os.getenv("OTASTY_NTFY_TOPIC", "ollietrades-admin")
+    try:
+        req = urllib.request.Request(
+            f"https://ntfy.sh/{topic}",
+            data=message.encode("utf-8"),
+            headers={"Title": title, "Priority": priority, "Tags": "rotating_light"},
+            method="POST",
+        )
+        with urllib.request.urlopen(req, timeout=8) as r:
+            return 200 <= r.status < 300
+    except Exception as e:
+        print(f"[NTFY] admin alert failed: {type(e).__name__}: {e}")
+        return False
+
+
+def run_loop_e() -> dict:
+    """LOOP E — nightly doctrine compliance auditor (SHADOW). Walks today's closed
+    shadow trades, verifies each exit_reason is a documented rule, logs findings to
+    swingdesk_audit_log, logs today's kill-switch transitions, and NTFYs the admin
+    topic on ANY violation (P0 trust layer). Pure read + audit-write — NO orders."""
+    today = datetime.now().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    _ensure_shadow_schema(conn)
+    _ensure_audit_schema(conn)
+    _ensure_killswitch_schema(conn)
+
+    closed = conn.execute(
+        "SELECT id, symbol, structure, exit_reason FROM swingdesk_shadow_trades "
+        "WHERE status='would_have_closed' AND would_have_exit_at LIKE ?", (today + "%",)).fetchall()
+    compliant_n, violations = 0, []
+    for t in closed:
+        er = t["exit_reason"]
+        ok = er in VALID_EXIT_REASONS
+        detail = None if ok else f"undocumented exit_reason '{er}' — not in rule set"
+        conn.execute(
+            "INSERT INTO swingdesk_audit_log "
+            "(audit_date, audit_type, shadow_trade_id, exit_reason, compliant, violation_detail) "
+            "VALUES (?,?,?,?,?,?)",
+            (today, "exit_compliance", t["id"], er, int(ok), detail))
+        if ok:
+            compliant_n += 1
+        else:
+            violations.append({"shadow_trade_id": t["id"], "symbol": t["symbol"],
+                               "exit_reason": er, "detail": detail})
+
+    ks = conn.execute(
+        "SELECT state, reason, changed_by, changed_at FROM swingdesk_killswitch "
+        "WHERE changed_at LIKE ?", (today + "%",)).fetchall()
+    for k in ks:
+        conn.execute(
+            "INSERT INTO swingdesk_audit_log (audit_date, audit_type, exit_reason, compliant, note) "
+            "VALUES (?,?,?,?,?)",
+            (today, "killswitch_transition", k["state"], 1,
+             f"{k['state']} by {k['changed_by']}: {k['reason']} @ {k['changed_at']}"))
+    conn.commit()
+    conn.close()
+
+    total = len(closed)
+    pct = round(100.0 * compliant_n / total, 1) if total else 100.0
+    alerted = False
+    if violations:
+        msg = (f"O-TASTY COMPLIANCE VIOLATION x{len(violations)}: "
+               + "; ".join(f"#{v['shadow_trade_id']} {v['symbol']} exit='{v['exit_reason']}'"
+                           for v in violations))
+        alerted = _ntfy_admin("O-Tasty Compliance Violation", msg, priority="urgent")
+
+    return {
+        "loop": "E",
+        "audit_date": today,
+        "closed_today": total,
+        "compliant": compliant_n,
+        "violations": len(violations),
+        "pct_compliant": pct,
+        "violation_detail": violations,
+        "killswitch_transitions_logged": len(ks),
+        "ntfy_alerted": alerted,
+        "orders_submitted": 0,  # invariant: Loop E never submits
+    }
+
+
 if __name__ == "__main__":
     import sys
     loop = sys.argv[1].upper() if len(sys.argv) > 1 else "A"
@@ -526,5 +639,5 @@ if __name__ == "__main__":
         else:
             print({"state": get_killswitch_state(), "log": killswitch_log(10)})
     else:
-        fn = {"A": run_loop_a, "B": run_loop_b, "C": run_loop_c}.get(loop, run_loop_a)
+        fn = {"A": run_loop_a, "B": run_loop_b, "C": run_loop_c, "E": run_loop_e}.get(loop, run_loop_a)
         print(fn())
