@@ -9550,9 +9550,10 @@ async function loadSECFilings() {
 
 <!-- TEST KITCHEN (O-Tasty) — HM-O-TASTY-PHASE-0. Embeds the SwingDesk options UI
      served by swingdesk/backend.py on 127.0.0.1:8889 at /static/options_tab.html
-     (NOT "/", which 404s). Backend must be running for the iframe to load. -->
+     (NOT "/", which 404s), now reachable off-box via the otasty.ollietrades.com
+     Cloudflare tunnel route. Backend must be running for the iframe to load. -->
 <div id="section-test-kitchen" style="display:none;">
-  <iframe src="http://localhost:8889/static/options_tab.html" style="width:100%;height:90vh;border:none;"></iframe>
+  <iframe src="https://otasty.ollietrades.com/static/options_tab.html" style="width:100%;height:90vh;border:none;"></iframe>
 </div>
 
 <!-- CHART SECTION -->
