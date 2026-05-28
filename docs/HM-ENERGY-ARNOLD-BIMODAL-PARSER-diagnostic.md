@@ -1,6 +1,26 @@
 # HM-ENERGY-ARNOLD-BIMODAL-PARSER — Diagnostic Report 2026-05-26
 
-## Status: DEFERRED — not a parser bug; architectural fix required
+## Status: CLOSED 2026-05-28 — root cause RESOLVED; residual is cadence (§C of HM-AS-β)
+
+> **2026-05-28 close-out (Option B verify-before-fix).** The Priority-1 root
+> cause (energy-arnold resolving to dead `localhost:11434`) is **already
+> fixed**: `main.py:124` calls `build_all_providers(default_url=OLLIE_URL)`, and
+> energy-arnold has no per-agent `url` override, so it now resolves to Ollie Max
+> (192.168.1.168), not localhost. Confirmed by zero fresh `11434 timed out` rows
+> since 2026-05-07 (the bulk — 2191+768 — are 2026-03-23/24 historical, and even
+> those referenced the OLD host `.166`). Priority-3 model_id reconcile is also
+> moot — `ai_players.model_id` is now `ministral-3:3b` (installed on Ollie Max).
+>
+> **Residual:** energy-arnold's continued silence is NOT wiring or parser. It is
+> only in `main.py::_SCAN_TIER2` (arena scan), which is starved behind
+> TIER1 + inline `run_war_room()` holding `_scan_lock` (fired 1× vs TIER1 9×
+> today). Tracked as **§C of `drafts/HM-AS-BETA-SCHEDULER-TOP-PRIORITY.md`**
+> (decouple WR from the scan lock). Priority-2 (error-row-as-signal anti-pattern)
+> remains a valid cleanup but is low-urgency now that the error source is gone.
+>
+> Original 2026-05-26 diagnostic preserved below for the record.
+
+## Status (2026-05-26): DEFERRED — not a parser bug; architectural fix required
 
 ## Premise reframe
 
