@@ -1,0 +1,575 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SwingDesk — Options Desk</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{--bg:#0a0c0f;--bg2:#0f1318;--bg3:#141920;--bg4:#1a2030;--border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);--text:#e8eaf0;--text2:#8892a4;--text3:#4a5568;--green:#00d4aa;--gdim:rgba(0,212,170,0.12);--red:#ff4d6a;--rdim:rgba(255,77,106,0.12);--amber:#f59e0b;--adim:rgba(245,158,11,0.12);--blue:#3b9eff;--bdim:rgba(59,158,255,0.12);--purple:#a78bfa;--pdim:rgba(167,139,250,0.12);}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13px;min-height:100vh}
+.mono{font-family:'IBM Plex Mono',monospace}
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:44px;background:var(--bg2);border-bottom:1px solid var(--border)}
+.logo{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;letter-spacing:.12em;color:var(--green);display:flex;align-items:center;gap:10px}
+.logo-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.nav{display:flex;gap:0}
+.nav a{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:0 14px;height:44px;display:flex;align-items:center;color:var(--text3);text-decoration:none;border-right:1px solid var(--border);letter-spacing:.06em;transition:all .1s}
+.nav a:hover{color:var(--text2);background:var(--bg3)}
+.nav a.act{color:var(--green);background:var(--bg3);border-bottom:1px solid var(--green)}
+.pill{font-size:10px;font-family:'IBM Plex Mono',monospace;padding:2px 8px;border-radius:3px;letter-spacing:.06em}
+.pill-green{background:var(--gdim);color:var(--green);border:1px solid rgba(0,212,170,.25)}
+.pill-amber{background:var(--adim);color:var(--amber);border:1px solid rgba(245,158,11,.25)}
+
+/* LAYOUT */
+.page{display:grid;grid-template-columns:260px 1fr;gap:0;min-height:calc(100vh - 44px)}
+.sidebar{border-right:1px solid var(--border);background:var(--bg2);overflow-y:auto}
+.content{padding:16px;overflow-y:auto}
+
+/* SIDEBAR PANELS */
+.sp{margin-bottom:0;border-bottom:1px solid var(--border)}
+.sph{display:flex;align-items:center;justify-content:space-between;padding:7px 12px;background:var(--bg3)}
+.sph .t{font-size:10px;font-family:'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--text2)}
+.sph .a{font-size:10px;color:var(--text3);cursor:pointer;font-family:'IBM Plex Mono',monospace}
+.sph .a:hover{color:var(--green)}
+
+/* IVR SCAN ROWS */
+.ivr-row{display:flex;align-items:center;justify-content:space-between;padding:6px 12px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s}
+.ivr-row:hover,.ivr-row.act{background:var(--bg4)}
+.ivr-row.act{border-left:2px solid var(--green)}
+.ivr-sym{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600}
+.ivr-sub{font-size:10px;color:var(--text3);margin-top:1px}
+.ivr-badge{font-size:11px;font-family:'IBM Plex Mono',monospace;padding:2px 6px;border-radius:3px}
+.ivr-hot{background:var(--rdim);color:var(--red)}
+.ivr-warm{background:var(--adim);color:var(--amber)}
+.ivr-cold{background:var(--bg4);color:var(--text3)}
+.ivr-num{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600}
+
+/* IVR GAUGE */
+.gauge-wrap{padding:12px;background:var(--bg3);border-bottom:1px solid var(--border)}
+.gauge-label{font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--text3);display:flex;justify-content:space-between;margin-bottom:5px}
+.gauge-bar{height:8px;background:var(--bg4);border-radius:4px;overflow:hidden;position:relative}
+.gauge-fill{height:100%;border-radius:4px;transition:width .5s}
+.gauge-marker{position:absolute;top:-3px;width:2px;height:14px;background:var(--text3);border-radius:1px}
+
+/* STRUCTURE TABS */
+.struct-tabs{display:flex;gap:0;border-bottom:1px solid var(--border);background:var(--bg2);flex-wrap:wrap}
+.stab{font-family:'IBM Plex Mono',monospace;font-size:11px;padding:7px 14px;cursor:pointer;color:var(--text3);border-right:1px solid var(--border);transition:all .1s;letter-spacing:.04em}
+.stab:hover{background:var(--bg3);color:var(--text2)}
+.stab.act{background:var(--bg3);color:var(--green);border-bottom:2px solid var(--green)}
+
+/* SPREAD CARD */
+.spread-card{background:var(--bg2);border:1px solid var(--border2);border-radius:6px;overflow:hidden;margin-bottom:16px}
+.sc-hdr{padding:10px 14px;background:var(--bg3);border-bottom:1px solid var(--border);display:flex;align-items:center;justify-content:space-between}
+.sc-title{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600}
+.sc-meta{font-size:11px;color:var(--text2)}
+.sc-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;padding:12px 14px}
+.sc-card{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:8px 10px}
+.sc-card .l{font-size:10px;color:var(--text3);font-family:'IBM Plex Mono',monospace;letter-spacing:.05em}
+.sc-card .v{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;margin-top:3px}
+.sc-card .v.sm{font-size:12px}
+.legs{padding:0 14px 12px}
+.legs-title{font-size:10px;font-family:'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
+.leg-row{display:flex;align-items:center;justify-content:space-between;padding:5px 10px;background:var(--bg3);border-radius:3px;margin-bottom:4px;font-family:'IBM Plex Mono',monospace;font-size:12px}
+.leg-action{font-size:10px;padding:2px 6px;border-radius:2px;letter-spacing:.04em}
+.la-sell{background:var(--rdim);color:var(--red)}
+.la-buy{background:var(--gdim);color:var(--green)}
+.leg-type{color:var(--text2)}
+.leg-strike{font-weight:600}
+.leg-delta{font-size:10px;color:var(--text3)}
+
+/* MANAGEMENT RULES */
+.rules{padding:0 14px 14px;display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px}
+.rule{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:8px 10px}
+.rule .rt{font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--text3);letter-spacing:.05em;margin-bottom:4px}
+.rule .rv{font-size:12px;font-family:'IBM Plex Mono',monospace;font-weight:500}
+
+/* CHECKLIST */
+.chk-grid{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:0 14px 14px}
+.chk{display:flex;align-items:center;gap:7px;font-size:11px;color:var(--text2)}
+.ck{width:14px;height:14px;border-radius:2px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:9px}
+.ck-p{background:var(--gdim);color:var(--green)}
+.ck-f{background:var(--rdim);color:var(--red)}
+.ck-w{background:var(--adim);color:var(--amber)}
+
+/* ACTION BUTTONS */
+.actions{padding:0 14px 14px;display:flex;gap:8px}
+.btn-log{flex:1;padding:10px;background:var(--green);color:#000;font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600;letter-spacing:.08em;border:none;border-radius:4px;cursor:pointer;transition:opacity .15s}
+.btn-log:hover{opacity:.85}
+.btn-log:disabled{background:var(--bg4);color:var(--text3);cursor:not-allowed;opacity:1}
+.btn-sec{flex:1;padding:10px;background:none;color:var(--text2);font-family:'IBM Plex Mono',monospace;font-size:12px;border:1px solid var(--border2);border-radius:4px;cursor:pointer}
+.btn-sec:hover{background:var(--bg3)}
+
+/* VIABLE BADGE */
+.viable{display:inline-flex;align-items:center;gap:5px;font-size:10px;font-family:'IBM Plex Mono',monospace;padding:2px 8px;border-radius:3px}
+.v-yes{background:var(--gdim);color:var(--green);border:1px solid rgba(0,212,170,.2)}
+.v-no{background:var(--rdim);color:var(--red);border:1px solid rgba(255,77,106,.2)}
+
+/* OPEN TRADES */
+.ot-row{display:grid;grid-template-columns:70px 100px 80px 80px 80px 1fr;gap:8px;align-items:center;padding:7px 12px;border-bottom:1px solid var(--border);font-family:'IBM Plex Mono',monospace;font-size:11px}
+.ot-row.hdr{background:var(--bg3);font-size:10px;color:var(--text3);letter-spacing:.06em;text-transform:uppercase}
+.manage-btn{font-size:10px;padding:2px 8px;border-radius:3px;background:var(--adim);color:var(--amber);border:1px solid rgba(245,158,11,.2);cursor:pointer;font-family:'IBM Plex Mono',monospace}
+.manage-btn:hover{background:var(--amber);color:#000}
+.manage-urgent{background:var(--rdim);color:var(--red);border-color:rgba(255,77,106,.2)}
+.manage-urgent:hover{background:var(--red);color:#000}
+
+/* TOAST */
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg2);border:1px solid var(--green);border-radius:5px;padding:10px 14px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--green);transform:translateY(80px);opacity:0;transition:all .3s;z-index:200;max-width:400px}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.err{border-color:var(--red);color:var(--red)}
+
+/* SPIN */
+.spin{display:inline-block;width:10px;height:10px;border:1.5px solid var(--text3);border-top-color:var(--green);border-radius:50%;animation:spin .6s linear infinite;margin-right:4px;vertical-align:middle}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:2px}
+.up{color:var(--green)} .dn{color:var(--red)} .neu{color:var(--text2)}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="logo"><div class="logo-dot"></div>SWINGDESK — OPTIONS DESK</div>
+  <nav class="nav">
+    <a href="index.html">SWING</a>
+    <a href="options_tab.html" class="act">OPTIONS</a>
+  </nav>
+  <div style="display:flex;gap:8px;align-items:center">
+    <span class="pill pill-amber">⚡ ALPACA PHASE 2</span>
+    <span class="pill pill-green" id="pg-pill">◆ POLYGON</span>
+  </div>
+</div>
+
+<div class="page">
+
+<!-- SIDEBAR: IVR SCANNER -->
+<div class="sidebar">
+  <div class="sp">
+    <div class="sph">
+      <span class="t">IVR Scanner</span>
+      <span class="a" onclick="runIVRScan()"><span id="scan-spin" style="display:none" class="spin"></span>Scan ↻</span>
+    </div>
+    <div id="ivr-list">
+      <div style="padding:12px;color:var(--text3);font-size:11px;font-family:'IBM Plex Mono',monospace">
+        Click Scan ↻ to run IVR scanner
+      </div>
+    </div>
+  </div>
+
+  <div class="sp">
+    <div class="sph"><span class="t">Quick Lookup</span></div>
+    <div style="padding:8px 12px;display:flex;gap:6px">
+      <input id="quick-sym" type="text" placeholder="AAPL" style="flex:1;background:var(--bg3);border:1px solid var(--border2);border-radius:3px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:12px;padding:5px 8px;outline:none">
+      <button onclick="quickLookup()" style="padding:5px 10px;background:var(--bdim);color:var(--blue);border:1px solid rgba(59,158,255,.25);border-radius:3px;font-family:'IBM Plex Mono',monospace;font-size:11px;cursor:pointer">GO</button>
+    </div>
+  </div>
+
+  <div class="sp">
+    <div class="sph"><span class="t">TastyTrade Rules</span></div>
+    <div style="padding:10px 12px">
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--text3)">Entry DTE</span><span class="mono up">45 days</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--text3)">Short delta</span><span class="mono">16Δ (~84% PoP)</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--text3)">Profit exit</span><span class="mono up">50% of credit</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--text3)">Time exit</span><span class="mono" style="color:var(--amber)">21 DTE — always</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--text3)">Loss limit</span><span class="mono dn">2x credit received</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;border-bottom:1px solid var(--border);font-size:11px"><span style="color:var(--text3)">Min IVR</span><span class="mono" style="color:var(--amber)">50</span></div>
+      <div style="display:flex;justify-content:space-between;padding:4px 0;font-size:11px"><span style="color:var(--text3)">Max BPE</span><span class="mono">5% per trade</span></div>
+    </div>
+  </div>
+</div>
+
+<!-- CONTENT -->
+<div class="content">
+
+  <!-- SYMBOL HEADER -->
+  <div style="display:flex;align-items:center;gap:14px;margin-bottom:16px;flex-wrap:wrap">
+    <div>
+      <div style="font-family:'IBM Plex Mono',monospace;font-size:22px;font-weight:600" id="hdr-sym">—</div>
+      <div style="font-size:12px;color:var(--text2)" id="hdr-price">Select a symbol from scanner</div>
+    </div>
+    <div id="ivr-gauge-inline" style="flex:1;max-width:300px;display:none">
+      <div class="gauge-label"><span>IVR</span><span id="g-ivr-val">—</span></div>
+      <div class="gauge-bar">
+        <div class="gauge-fill" id="g-ivr-fill" style="width:0%;background:var(--green)"></div>
+        <div class="gauge-marker" style="left:50%"></div>
+      </div>
+      <div style="display:flex;justify-content:space-between;font-size:9px;color:var(--text3);font-family:'IBM Plex Mono',monospace;margin-top:3px">
+        <span>0 — Buy</span><span>50 — Sell zone</span><span>100</span>
+      </div>
+    </div>
+    <div id="hdr-badges" style="display:flex;gap:6px;flex-wrap:wrap"></div>
+  </div>
+
+  <!-- STRUCTURE TABS -->
+  <div class="struct-tabs" id="struct-tabs" style="display:none">
+    <div class="stab act" onclick="showStructure('iron_condor',this)">IRON CONDOR</div>
+    <div class="stab" onclick="showStructure('bull_put_spread',this)">BULL PUT SPREAD</div>
+    <div class="stab" onclick="showStructure('bear_call_spread',this)">BEAR CALL SPREAD</div>
+    <div class="stab" onclick="showStructure('csp',this)">CASH-SECURED PUT</div>
+  </div>
+
+  <!-- SPREAD DISPLAY -->
+  <div id="spread-display" style="margin-top:16px"></div>
+
+  <!-- OPEN OPTIONS TRADES -->
+  <div style="margin-top:24px">
+    <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:10px">
+      <span style="font-size:10px;font-family:'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--text2)">Open Options Trades</span>
+      <span style="font-size:10px;color:var(--text3);cursor:pointer;font-family:'IBM Plex Mono',monospace" onclick="loadOpenTrades()">↻ refresh</span>
+    </div>
+    <div id="open-trades">
+      <div style="color:var(--text3);font-size:11px;font-family:'IBM Plex Mono',monospace;padding:8px 0">No open options trades logged</div>
+    </div>
+  </div>
+
+</div><!-- /content -->
+</div><!-- /page -->
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'http://localhost:8889';
+let currentSym  = null;
+let currentData = null;
+let currentStruct = 'iron_condor';
+
+// ── IVR SCAN ──────────────────────────────────────────────────────────────────
+async function runIVRScan() {
+  const spin = document.getElementById('scan-spin');
+  spin.style.display = 'inline-block';
+  try {
+    const res  = await fetch(`${API}/api/options/scan?limit=20`);
+    const data = await res.json();
+    renderIVRList(data);
+    showToast(`IVR scan complete — ${data.filter(d=>d.sell_signal).length} sell signals`);
+  } catch(e) {
+    showToast('Scan failed: ' + e.message, true);
+  }
+  spin.style.display = 'none';
+}
+
+function renderIVRList(data) {
+  const el = document.getElementById('ivr-list');
+  if (!data.length) { el.innerHTML = '<div style="padding:12px;color:var(--text3);font-size:11px">No results</div>'; return; }
+  el.innerHTML = data.slice(0,20).map(d => {
+    const ivrCls = d.ivr >= 75 ? 'ivr-hot' : d.ivr >= 50 ? 'ivr-warm' : 'ivr-cold';
+    const ivrTxt = d.ivr >= 75 ? 'HIGH' : d.ivr >= 50 ? 'SELL' : 'LOW';
+    return `<div class="ivr-row${d.symbol===currentSym?' act':''}" onclick="selectSymbol('${d.symbol}',${JSON.stringify(d).replace(/"/g,'&quot;')})">
+      <div>
+        <div class="ivr-sym">${d.symbol}</div>
+        <div class="ivr-sub">IV ${d.iv_current}% · $${d.spot}</div>
+      </div>
+      <div style="text-align:right">
+        <div class="ivr-num ${d.ivr>=50?'up':'neu'}">${d.ivr}</div>
+        <div class="ivr-badge ${ivrCls}">${ivrTxt}</div>
+      </div>
+    </div>`;
+  }).join('');
+}
+
+// ── QUICK LOOKUP ──────────────────────────────────────────────────────────────
+async function quickLookup() {
+  const sym = document.getElementById('quick-sym').value.trim().toUpperCase();
+  if (!sym) return;
+  try {
+    const res  = await fetch(`${API}/api/options/ivr/${sym}`);
+    const ivr  = await res.json();
+    const sRes = await fetch(`${API}/api/options/build`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({symbol: sym, structure: 'iron_condor'})
+    });
+    const spread = await sRes.json();
+    const mockData = {
+      symbol: sym, spot: spread.spot || 0,
+      ivr: ivr.ivr || 0, ivp: ivr.ivp || 0,
+      iv_current: ivr.iv_current || 0,
+      iv_high: ivr.iv_high || 0, iv_low: ivr.iv_low || 0,
+      expiration: spread.expiration, dte: spread.dte,
+      sell_signal: ivr.sell_signal,
+      structures: { iron_condor: spread }
+    };
+    selectSymbol(sym, mockData);
+  } catch(e) { showToast('Lookup failed: ' + e.message, true); }
+}
+
+// ── SELECT SYMBOL ─────────────────────────────────────────────────────────────
+async function selectSymbol(sym, data) {
+  currentSym  = sym;
+  currentData = data;
+
+  document.getElementById('hdr-sym').textContent   = sym;
+  document.getElementById('hdr-price').textContent = `$${data.spot} · IV ${data.iv_current}% · DTE ${data.dte}`;
+  document.getElementById('struct-tabs').style.display = 'flex';
+  document.getElementById('ivr-gauge-inline').style.display = 'block';
+
+  const ivr  = data.ivr || 0;
+  const fill = document.getElementById('g-ivr-fill');
+  fill.style.width      = Math.min(ivr, 100) + '%';
+  fill.style.background = ivr >= 75 ? 'var(--red)' : ivr >= 50 ? 'var(--amber)' : 'var(--green)';
+  document.getElementById('g-ivr-val').textContent = ivr.toFixed(1);
+
+  const badges = document.getElementById('hdr-badges');
+  badges.innerHTML = `
+    <span class="pill ${ivr>=50?'pill-green':'pill-amber'}">IVR ${ivr.toFixed(0)}</span>
+    <span class="pill pill-amber">IVP ${data.ivp?.toFixed(0) || '—'}</span>
+    <span class="pill ${data.sell_signal?'pill-green':'pill-amber'}">${data.sell_signal?'✓ SELL SIGNAL':'WAIT — IVR LOW'}</span>
+    <span class="pill pill-amber">${data.dte} DTE · ${data.expiration}</span>
+  `;
+
+  // If we already have all structures, render; else fetch
+  if (data.structures && Object.keys(data.structures).length >= 3) {
+    renderStructure(currentStruct, data.structures[currentStruct] || data.structures[Object.keys(data.structures)[0]]);
+  } else {
+    await fetchAndRenderStructure(sym, currentStruct);
+  }
+
+  // Re-render IVR list to highlight active
+  const ivrl = document.getElementById('ivr-list');
+  ivrl.querySelectorAll('.ivr-row').forEach(r => {
+    r.classList.toggle('act', r.querySelector('.ivr-sym')?.textContent === sym);
+  });
+}
+
+async function fetchAndRenderStructure(sym, struct) {
+  const mapName = {iron_condor:'iron_condor',bull_put_spread:'bull_put',bear_call_spread:'bear_call',csp:'csp'};
+  try {
+    const res  = await fetch(`${API}/api/options/build`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({symbol: sym, structure: mapName[struct] || struct})
+    });
+    const spread = await res.json();
+    if (!currentData.structures) currentData.structures = {};
+    currentData.structures[struct] = spread;
+    renderStructure(struct, spread);
+  } catch(e) {
+    showToast('Build failed: ' + e.message, true);
+  }
+}
+
+function showStructure(struct, el) {
+  document.querySelectorAll('.stab').forEach(t => t.classList.remove('act'));
+  el.classList.add('act');
+  currentStruct = struct;
+  if (currentData?.structures?.[struct]) {
+    renderStructure(struct, currentData.structures[struct]);
+  } else if (currentSym) {
+    fetchAndRenderStructure(currentSym, struct);
+  }
+}
+
+// ── RENDER SPREAD ─────────────────────────────────────────────────────────────
+function renderStructure(struct, s) {
+  if (!s) return;
+  const el       = document.getElementById('spread-display');
+  const viable   = s.viable;
+  const ivr      = currentData?.ivr || 0;
+
+  // Build legs HTML
+  const legsHtml = buildLegsHtml(struct, s);
+
+  // Checklist
+  const rrRatio  = s.profit_target && s.loss_limit ? (s.profit_target / (s.loss_limit - s.profit_target)) : 0;
+  const checks   = [
+    { pass: ivr >= 50,          warn: ivr >= 40 && ivr < 50, label: `IVR ≥ 50 (current: ${ivr})` },
+    { pass: s.dte >= 30 && s.dte <= 60, warn: s.dte >= 21,  label: `~45 DTE (${s.dte} DTE)` },
+    { pass: s.credit >= s.min_credit, warn: false,           label: `Credit ≥ 1/3 width ($${s.min_credit})` },
+    { pass: viable,             warn: false,                  label: 'Spread is viable' },
+    { pass: s.pop >= 70,        warn: s.pop >= 65,           label: `PoP ≥ 70% (${s.pop}%)` },
+    { pass: true,               warn: struct === 'csp',      label: struct === 'csp' ? 'Willing to own at strike' : 'Defined risk confirmed' },
+  ];
+
+  el.innerHTML = `
+    <div class="spread-card">
+      <div class="sc-hdr">
+        <div>
+          <span class="sc-title">${s.structure} — ${s.symbol}</span>
+          <span class="sc-meta" style="margin-left:10px">${s.expiration} · ${s.dte} DTE</span>
+        </div>
+        <div style="display:flex;align-items:center;gap:8px">
+          ${s.bias ? `<span style="font-size:11px;color:var(--text2)">${s.bias}</span>` : ''}
+          <span class="viable ${viable?'v-yes':'v-no'}">${viable ? '✓ VIABLE' : '✗ NOT VIABLE'}</span>
+        </div>
+      </div>
+
+      <div class="sc-grid">
+        <div class="sc-card"><div class="l">Credit / contract</div><div class="v up">$${(s.credit_per_contract||0).toFixed(0)}</div></div>
+        <div class="sc-card"><div class="l">Max loss / contract</div><div class="v dn">$${(s.max_loss_per_contract||0).toFixed(0)}</div></div>
+        <div class="sc-card"><div class="l">Prob. of profit</div><div class="v">${s.pop}%</div></div>
+        <div class="sc-card"><div class="l">Contracts</div><div class="v">${s.contracts}</div></div>
+        <div class="sc-card"><div class="l">Total credit</div><div class="v up">$${(s.total_credit||0).toFixed(0)}</div></div>
+        <div class="sc-card"><div class="l">Total risk</div><div class="v dn">$${(s.total_risk||0).toFixed(0)}</div></div>
+        ${s.breakeven_low !== undefined ? `<div class="sc-card"><div class="l">Breakeven low</div><div class="v sm">$${s.breakeven_low}</div></div><div class="sc-card"><div class="l">Breakeven high</div><div class="v sm">$${s.breakeven_high}</div></div>` : ''}
+        ${s.breakeven !== undefined ? `<div class="sc-card"><div class="l">Breakeven</div><div class="v sm">$${s.breakeven}</div></div>` : ''}
+        ${s.assignment_price ? `<div class="sc-card"><div class="l">Assignment price</div><div class="v sm">$${s.assignment_price}</div></div>` : ''}
+      </div>
+
+      <div class="legs">
+        <div class="legs-title">Legs</div>
+        ${legsHtml}
+      </div>
+
+      <div style="padding:0 14px 10px">
+        <div class="legs-title">Management Rules</div>
+      </div>
+      <div class="rules">
+        <div class="rule"><div class="rt">Profit exit</div><div class="rv up">Close @ $${(s.profit_target||0).toFixed(2)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">50% of credit</div></div>
+        <div class="rule"><div class="rt">Loss limit</div><div class="rv dn">Close @ $${(s.loss_limit||0).toFixed(2)}</div><div style="font-size:10px;color:var(--text3);margin-top:2px">2x credit</div></div>
+        <div class="rule"><div class="rt">Time exit</div><div class="rv" style="color:var(--amber)">${s.exit_dte} DTE</div><div style="font-size:10px;color:var(--text3);margin-top:2px">No matter what</div></div>
+      </div>
+
+      <div style="padding:0 14px 10px;margin-top:4px">
+        <div class="legs-title">Entry Checklist</div>
+      </div>
+      <div class="chk-grid">
+        ${checks.map(c => `<div class="chk"><div class="ck ${c.pass?'ck-p':c.warn?'ck-w':'ck-f'}">${c.pass?'✓':c.warn?'!':'✗'}</div><span>${c.label}</span></div>`).join('')}
+      </div>
+
+      <div class="actions">
+        <button class="btn-log" ${!viable?'disabled':''} onclick="logTrade()">
+          ${viable ? 'LOG TRADE PLAN →' : 'NOT VIABLE — ADJUST PARAMS'}
+        </button>
+        <button class="btn-sec" onclick="copySetup()">COPY SETUP</button>
+      </div>
+    </div>
+  `;
+}
+
+function buildLegsHtml(struct, s) {
+  const legs = s.legs || {};
+  const rows = [];
+  if (struct === 'iron_condor') {
+    rows.push(leg('BUY',  'PUT',  legs.long_put,  null, null));
+    rows.push(leg('SELL', 'PUT',  legs.short_put, '-16Δ', s.credit ? (s.credit/2).toFixed(2) : null));
+    rows.push(leg('SELL', 'CALL', legs.short_call, '-16Δ', s.credit ? (s.credit/2).toFixed(2) : null));
+    rows.push(leg('BUY',  'CALL', legs.long_call,  null, null));
+  } else if (struct === 'bull_put_spread') {
+    rows.push(leg('BUY',  'PUT', legs.long_put,  null, null));
+    rows.push(leg('SELL', 'PUT', legs.short_put, '-16Δ', s.credit?.toFixed(2)));
+  } else if (struct === 'bear_call_spread') {
+    rows.push(leg('SELL', 'CALL', legs.short_call, '+16Δ', s.credit?.toFixed(2)));
+    rows.push(leg('BUY',  'CALL', legs.long_call,  null, null));
+  } else if (struct === 'csp') {
+    rows.push(leg('SELL', 'PUT', legs.short_put, '-16Δ', s.credit?.toFixed(2)));
+  }
+  return rows.join('');
+}
+
+function leg(action, type, strike, delta, credit) {
+  return `<div class="leg-row">
+    <span class="leg-action ${action==='SELL'?'la-sell':'la-buy'}">${action}</span>
+    <span class="leg-type">${type}</span>
+    <span class="leg-strike">$${strike || '—'}</span>
+    <span class="leg-delta">${delta || ''}</span>
+    <span style="color:${action==='SELL'?'var(--green)':'var(--red)'};">${credit ? (action==='SELL'?'+':'−') + '$' + credit : ''}</span>
+  </div>`;
+}
+
+// ── LOG TRADE ─────────────────────────────────────────────────────────────────
+async function logTrade() {
+  if (!currentData || !currentSym) return;
+  const s = currentData.structures?.[currentStruct];
+  if (!s) return;
+  try {
+    const res = await fetch(`${API}/api/options/trade/plan`, {
+      method: 'POST',
+      headers: {'Content-Type':'application/json'},
+      body: JSON.stringify({
+        symbol:         s.symbol,
+        structure:      s.structure,
+        expiration:     s.expiration,
+        dte:            s.dte,
+        credit:         s.credit,
+        max_loss:       s.max_loss,
+        contracts:      s.contracts,
+        legs:           s.legs || {},
+        profit_target:  s.profit_target,
+        loss_limit:     s.loss_limit,
+        notes:          `IVR=${currentData.ivr} IV=${currentData.iv_current}%`
+      })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Failed');
+    showToast(`✓ Logged — ${s.structure} ${s.symbol} | $${(s.total_credit||0).toFixed(0)} credit | ID #${data.trade_id}`);
+    loadOpenTrades();
+  } catch(e) { showToast('Error: ' + e.message, true); }
+}
+
+function copySetup() {
+  const s = currentData?.structures?.[currentStruct];
+  if (!s) return;
+  const text = `${s.structure} — ${s.symbol}
+Exp: ${s.expiration} (${s.dte} DTE)
+Legs: ${JSON.stringify(s.legs)}
+Credit: $${s.credit} | Max Loss: $${s.max_loss}
+Exit: 50% profit ($${s.profit_target}) or 21 DTE or 2x loss ($${s.loss_limit})`;
+  navigator.clipboard.writeText(text).then(() => showToast('Setup copied to clipboard'));
+}
+
+// ── OPEN TRADES ───────────────────────────────────────────────────────────────
+async function loadOpenTrades() {
+  try {
+    const res = await fetch(`${API}/api/positions`);
+    const pos = await res.json();
+    const opts = pos.filter(p => p.direction === 'SHORT PREMIUM');
+    const el   = document.getElementById('open-trades');
+    if (!opts.length) {
+      el.innerHTML = '<div style="color:var(--text3);font-size:11px;font-family:\'IBM Plex Mono\',monospace;padding:8px 0">No open options trades logged</div>';
+      return;
+    }
+    el.innerHTML = `
+      <div class="ot-row hdr">
+        <span>Symbol</span><span>Structure</span><span>Credit</span><span>Exp</span><span>Status</span><span>Manage</span>
+      </div>
+      ${opts.map(t => {
+        const exp = t.notes?.match(/exp:([\d-]+)/)?.[1] || '—';
+        const dte = exp !== '—' ? Math.max(Math.round((new Date(exp)-new Date())/(1000*86400)),0) : '—';
+        const urgent = dte !== '—' && dte <= 21;
+        return `<div class="ot-row">
+          <span style="font-weight:600">${t.symbol}</span>
+          <span style="color:var(--text2)">${t.setup}</span>
+          <span class="up">$${(t.entry_price*100).toFixed(0)}</span>
+          <span style="color:var(--text3)">${exp}</span>
+          <span>${dte !== '—' ? dte + ' DTE' : '—'}</span>
+          <button class="manage-btn${urgent?' manage-urgent':''}" onclick="checkManage(${t.id},${t.entry_price*0.5})">
+            ${urgent ? '⚠ MANAGE' : 'CHECK'}
+          </button>
+        </div>`;
+      }).join('')}`;
+  } catch(e) {}
+}
+
+async function checkManage(id, mark) {
+  try {
+    const res  = await fetch(`${API}/api/options/manage/${id}?current_mark=${mark}`);
+    const data = await res.json();
+    const msg  = data.reasons?.join('\n') || 'No action needed';
+    alert(`Trade #${id} Management:\n\n${msg}`);
+  } catch(e) { showToast('Error: ' + e.message, true); }
+}
+
+// ── UTILS ─────────────────────────────────────────────────────────────────────
+function showToast(msg, err=false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg; t.className = 'toast show' + (err?' err':'');
+  setTimeout(() => t.className = 'toast', 4000);
+}
+
+async function checkHealth() {
+  try {
+    const res = await fetch(`${API}/api/health`);
+    const d   = await res.json();
+    document.getElementById('pg-pill').textContent = d.polygon === 'configured' ? '◆ POLYGON LIVE' : '◆ POLYGON MISSING';
+  } catch(e) {}
+}
+
+window.addEventListener('load', () => {
+  checkHealth();
+  loadOpenTrades();
+});
+</script>
+</body>
+</html>

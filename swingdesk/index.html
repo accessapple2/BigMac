@@ -1,0 +1,831 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>SwingDesk</title>
+<link href="https://fonts.googleapis.com/css2?family=IBM+Plex+Mono:wght@400;500;600&family=IBM+Plex+Sans:wght@300;400;500;600&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+<style>
+:root{--bg:#0a0c0f;--bg2:#0f1318;--bg3:#141920;--bg4:#1a2030;--border:rgba(255,255,255,0.07);--border2:rgba(255,255,255,0.12);--text:#e8eaf0;--text2:#8892a4;--text3:#4a5568;--green:#00d4aa;--gdim:rgba(0,212,170,0.12);--red:#ff4d6a;--rdim:rgba(255,77,106,0.12);--amber:#f59e0b;--adim:rgba(245,158,11,0.12);--blue:#3b9eff;--bdim:rgba(59,158,255,0.12);}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-serif;font-size:13px;overflow:hidden;height:100vh;display:flex;flex-direction:column}
+.mono{font-family:'IBM Plex Mono',monospace}
+
+/* TOPBAR */
+.topbar{display:flex;align-items:center;justify-content:space-between;padding:0 16px;height:44px;background:var(--bg2);border-bottom:1px solid var(--border);flex-shrink:0}
+.logo{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;letter-spacing:.12em;color:var(--green);display:flex;align-items:center;gap:10px}
+.logo-dot{width:6px;height:6px;border-radius:50%;background:var(--green);box-shadow:0 0 8px var(--green);animation:pulse 2s infinite}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:.4}}
+.tb-stats{display:flex;gap:20px}
+.tbs{display:flex;flex-direction:column;align-items:center}
+.tbs .l{font-size:10px;color:var(--text3);font-family:'IBM Plex Mono',monospace;letter-spacing:.05em;text-transform:uppercase}
+.tbs .v{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:500}
+.tb-right{display:flex;align-items:center;gap:8px}
+.pill{font-size:10px;font-family:'IBM Plex Mono',monospace;padding:2px 8px;border-radius:3px;letter-spacing:.06em}
+.pill-green{background:var(--gdim);color:var(--green);border:1px solid rgba(0,212,170,.25)}
+.pill-amber{background:var(--adim);color:var(--amber);border:1px solid rgba(245,158,11,.25)}
+.pill-red{background:var(--rdim);color:var(--red);border:1px solid rgba(255,77,106,.25)}
+.pill-blue{background:var(--bdim);color:var(--blue);border:1px solid rgba(59,158,255,.25)}
+.btn-cb{font-size:10px;font-family:'IBM Plex Mono',monospace;padding:4px 10px;border-radius:3px;background:var(--rdim);color:var(--red);border:1px solid rgba(255,77,106,.25);cursor:pointer}
+.btn-cb:hover{background:var(--red);color:#000}
+
+/* LAYOUT */
+.main{display:grid;grid-template-columns:200px 1fr 205px 218px;flex:1;overflow:hidden}
+.col{display:flex;flex-direction:column;border-right:1px solid var(--border);overflow:hidden}
+.col:last-child{border-right:none}
+
+/* PANEL */
+.ph{display:flex;align-items:center;justify-content:space-between;padding:5px 10px;background:var(--bg3);border-bottom:1px solid var(--border);flex-shrink:0}
+.ph .t{font-size:10px;font-family:'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--text2)}
+.ph .a{font-size:10px;color:var(--text3);cursor:pointer}
+.ph .a:hover{color:var(--blue)}
+.pb{padding:8px 10px;overflow-y:auto}
+
+/* WATCH */
+.wi{display:flex;align-items:center;justify-content:space-between;padding:5px 4px;cursor:pointer;border-radius:3px;transition:background .1s;border-left:2px solid transparent}
+.wi:hover{background:var(--bg4)}
+.wi.act{background:var(--bg4);border-left-color:var(--green)}
+.wi-l{display:flex;flex-direction:column}
+.wi-sym{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600}
+.wi-sub{font-size:10px;color:var(--text3)}
+.wi-r{display:flex;flex-direction:column;align-items:flex-end}
+.wi-p{font-family:'IBM Plex Mono',monospace;font-size:12px}
+.wi-c{font-size:10px;font-family:'IBM Plex Mono',monospace}
+.up{color:var(--green)} .dn{color:var(--red)} .neu{color:var(--text2)}
+.slbl{font-size:9px;font-family:'IBM Plex Mono',monospace;letter-spacing:.12em;text-transform:uppercase;color:var(--text3);padding:5px 4px 2px}
+
+/* SECTORS */
+.sg{display:grid;grid-template-columns:1fr 1fr;gap:4px;padding:8px 10px}
+.si{display:flex;flex-direction:column;gap:2px}
+.sn{display:flex;justify-content:space-between;font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--text3)}
+.sbar{height:3px;background:var(--bg4);border-radius:2px;overflow:hidden}
+.sf{height:100%;border-radius:2px}
+
+/* CHART */
+.ctabs{display:flex;background:var(--bg3);border-bottom:1px solid var(--border);flex-shrink:0}
+.ct{font-family:'IBM Plex Mono',monospace;font-size:10px;padding:5px 10px;cursor:pointer;color:var(--text3);border-right:1px solid var(--border);transition:all .1s}
+.ct:hover{background:var(--bg4);color:var(--text2)}
+.ct.act{background:var(--bg4);color:var(--green);border-bottom:1px solid var(--green)}
+.chart-area{flex:1;position:relative;min-height:0}
+#chart{width:100%;height:100%}
+.chart-ov{position:absolute;top:8px;left:10px;display:flex;gap:6px;z-index:10;pointer-events:none}
+.cb{font-size:10px;font-family:'IBM Plex Mono',monospace;padding:2px 6px;border-radius:2px}
+.cb-g{background:var(--gdim);color:var(--green)}
+.cb-a{background:var(--adim);color:var(--amber)}
+.cb-b{background:var(--bdim);color:var(--blue)}
+.loading-msg{position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);color:var(--text3);font-family:'IBM Plex Mono',monospace;font-size:12px}
+
+/* POSITIONS */
+.pr{display:grid;grid-template-columns:46px 28px 1fr 50px 48px;gap:4px;align-items:center;padding:5px 4px;border-bottom:1px solid var(--border);font-family:'IBM Plex Mono',monospace;font-size:11px}
+.pr:last-child{border-bottom:none}
+.psym{font-weight:600}
+.pside{font-size:9px;text-align:center;padding:1px 3px;border-radius:2px}
+.ps-l{background:var(--bdim);color:var(--blue)}
+.ps-s{background:var(--rdim);color:var(--red)}
+.pinfo{display:flex;flex-direction:column}
+.pd{font-size:10px;color:var(--text3)}
+.setup-b{display:inline-block;font-size:9px;font-family:'IBM Plex Mono',monospace;padding:1px 4px;border-radius:2px;letter-spacing:.04em}
+.sb-bull{background:var(--gdim);color:var(--green)}
+.sb-bear{background:var(--rdim);color:var(--red)}
+.sb-w{background:var(--adim);color:var(--amber)}
+
+/* PLANNER */
+.tpi{display:flex;flex-direction:column;gap:3px;padding:0 10px 7px}
+.tpi label{font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--text3);letter-spacing:.06em;text-transform:uppercase}
+.inp{background:var(--bg3);border:1px solid var(--border2);border-radius:3px;color:var(--text);font-family:'IBM Plex Mono',monospace;font-size:13px;padding:5px 8px;width:100%;outline:none;transition:border-color .15s}
+.inp:focus{border-color:var(--blue)}
+.inp option{background:var(--bg3)}
+.divider{height:1px;background:var(--border);flex-shrink:0}
+.tpg{display:grid;grid-template-columns:1fr 1fr;gap:5px;padding:7px 10px}
+.tpc{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:6px 8px}
+.tpc .l{font-size:10px;color:var(--text3);font-family:'IBM Plex Mono',monospace}
+.tpc .v{font-family:'IBM Plex Mono',monospace;font-size:14px;font-weight:500;margin-top:2px}
+.ck-row{display:flex;align-items:center;gap:7px;padding:3px 0;font-size:11px;color:var(--text2)}
+.ck{width:14px;height:14px;border-radius:2px;display:flex;align-items:center;justify-content:center;flex-shrink:0;font-size:9px}
+.ck-p{background:var(--gdim);color:var(--green)}
+.ck-f{background:var(--rdim);color:var(--red)}
+.ck-w{background:var(--adim);color:var(--amber)}
+.btn-prev{width:calc(100% - 20px);margin:0 10px 10px;padding:9px;background:none;border:1px solid var(--border2);border-radius:4px;color:var(--blue);font-family:'IBM Plex Mono',monospace;font-size:11px;letter-spacing:.08em;cursor:pointer;transition:all .15s}
+.btn-prev:hover{background:var(--bdim)}
+.btn-scan{width:calc(100% - 20px);margin:5px 10px 0;padding:7px;background:none;border:1px solid rgba(0,212,170,.3);border-radius:4px;color:var(--green);font-family:'IBM Plex Mono',monospace;font-size:10px;letter-spacing:.08em;cursor:pointer;transition:all .15s}
+.btn-scan:hover{background:var(--gdim)}
+
+/* SIGNALS */
+.sig-i{display:flex;gap:8px;padding:6px 10px;border-bottom:1px solid var(--border);cursor:pointer;transition:background .1s}
+.sig-i:hover{background:var(--bg3)}
+.sig-d{width:7px;height:7px;border-radius:50%;flex-shrink:0;margin-top:4px}
+.sd-bull{background:var(--green);box-shadow:0 0 6px var(--green)}
+.sd-bear{background:var(--red);box-shadow:0 0 6px var(--red)}
+.sd-watch{background:var(--amber)}
+.sig-b{flex:1}
+.sig-sym{font-family:'IBM Plex Mono',monospace;font-size:12px;font-weight:600}
+.sig-desc{font-size:11px;color:var(--text2);margin-top:1px}
+.sig-time{font-size:10px;color:var(--text3);font-family:'IBM Plex Mono',monospace;white-space:nowrap}
+
+/* RISK BARS */
+.rr{margin-bottom:8px}
+.rm{display:flex;justify-content:space-between;font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--text3);margin-bottom:3px}
+.rbar{height:4px;background:var(--bg4);border-radius:2px;overflow:hidden}
+.rf{height:100%;border-radius:2px;transition:width .4s}
+.rf-g{background:var(--green)} .rf-a{background:var(--amber)} .rf-r{background:var(--red)}
+
+/* JOURNAL */
+.ji{padding:6px 10px;border-bottom:1px solid var(--border)}
+.ji:last-child{border-bottom:none}
+.jt{display:flex;justify-content:space-between;align-items:center}
+.jsym{font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600}
+.jr{font-family:'IBM Plex Mono',monospace;font-size:11px}
+.jn{font-size:11px;color:var(--text3);margin-top:2px;line-height:1.4}
+
+/* PERF */
+.perf-g{display:grid;grid-template-columns:1fr 1fr 1fr;gap:5px;padding:8px 10px}
+.pc{background:var(--bg3);border:1px solid var(--border);border-radius:3px;padding:6px 8px}
+.pc .pl{font-size:10px;color:var(--text3);font-family:'IBM Plex Mono',monospace}
+.pc .pv{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:500;margin-top:1px}
+
+/* CAL */
+.cal-i{display:flex;justify-content:space-between;align-items:center;padding:5px 10px;border-bottom:1px solid var(--border);font-size:11px}
+.cal-d{font-family:'IBM Plex Mono',monospace;color:var(--text3);width:32px;flex-shrink:0}
+.cal-e{flex:1;color:var(--text2)}
+.ci{font-size:9px;font-family:'IBM Plex Mono',monospace;padding:1px 4px;border-radius:2px}
+.ci-h{background:var(--rdim);color:var(--red)}
+.ci-m{background:var(--adim);color:var(--amber)}
+.ci-av{background:var(--rdim);color:var(--red)}
+
+/* MODAL */
+.modal-ov{position:fixed;inset:0;background:rgba(0,0,0,.8);display:none;align-items:center;justify-content:center;z-index:100}
+.modal-ov.open{display:flex}
+.modal{background:var(--bg2);border:1px solid var(--border2);border-radius:6px;width:440px;overflow:hidden}
+.mh{display:flex;align-items:center;justify-content:space-between;padding:12px 16px;background:var(--bg3);border-bottom:1px solid var(--border)}
+.mt{font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600}
+.mc{background:none;border:none;color:var(--text3);cursor:pointer;font-size:18px;line-height:1}
+.mc:hover{color:var(--text)}
+.mb{padding:16px}
+.ms-t{font-size:10px;font-family:'IBM Plex Mono',monospace;letter-spacing:.1em;text-transform:uppercase;color:var(--text3);margin-bottom:8px}
+.mg{display:grid;grid-template-columns:1fr 1fr 1fr;gap:8px;margin-bottom:14px}
+.mcard{background:var(--bg3);border:1px solid var(--border);border-radius:4px;padding:8px 10px}
+.mcard .l{font-size:10px;color:var(--text3);font-family:'IBM Plex Mono',monospace}
+.mcard .v{font-family:'IBM Plex Mono',monospace;font-size:15px;font-weight:500;margin-top:2px}
+.note-row{display:flex;align-items:center;gap:8px;padding:8px 12px;background:var(--gdim);border:1px solid rgba(0,212,170,.2);border-radius:4px;margin-bottom:12px;font-size:12px;color:var(--green)}
+.btn-exec{width:100%;padding:12px;background:var(--green);color:#000;font-family:'IBM Plex Mono',monospace;font-size:13px;font-weight:600;letter-spacing:.1em;text-transform:uppercase;border:none;border-radius:4px;cursor:pointer;transition:opacity .15s}
+.btn-exec:hover{opacity:.85}
+.btn-exec:disabled{background:var(--bg4);color:var(--text3);cursor:not-allowed;opacity:1}
+.btn-canc{width:100%;padding:8px;background:none;color:var(--text3);font-family:'IBM Plex Mono',monospace;font-size:11px;border:1px solid var(--border);border-radius:4px;cursor:pointer;margin-top:6px}
+.btn-canc:hover{color:var(--text2)}
+
+/* TOAST */
+.toast{position:fixed;bottom:20px;right:20px;background:var(--bg2);border:1px solid var(--green);border-radius:5px;padding:10px 14px;font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--green);transform:translateY(80px);opacity:0;transition:all .3s;z-index:200;max-width:420px}
+.toast.show{transform:translateY(0);opacity:1}
+.toast.err{border-color:var(--red);color:var(--red)}
+
+/* SCROLLBARS */
+::-webkit-scrollbar{width:3px}
+::-webkit-scrollbar-thumb{background:var(--bg4);border-radius:2px}
+
+/* LOADING SPINNER */
+.spin{display:inline-block;width:10px;height:10px;border:1.5px solid var(--text3);border-top-color:var(--green);border-radius:50%;animation:spin .6s linear infinite;margin-right:4px}
+@keyframes spin{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+
+<!-- TOPBAR -->
+<div class="topbar">
+  <div class="logo"><div class="logo-dot"></div>SWINGDESK</div>
+  <div class="tb-stats">
+    <div class="tbs"><span class="l">Portfolio</span><span class="v" id="tb-portfolio">—</span></div>
+    <div class="tbs"><span class="l">Day P&L</span><span class="v" id="tb-daypnl">—</span></div>
+    <div class="tbs"><span class="l">Open Risk</span><span class="v" id="tb-openrisk" style="color:var(--amber)">—</span></div>
+    <div class="tbs"><span class="l">Win Rate 30d</span><span class="v up" id="tb-winrate">—</span></div>
+    <div class="tbs"><span class="l">Avg R:R</span><span class="v" id="tb-rr">—</span></div>
+    <div class="tbs"><span class="l">Positions</span><span class="v" id="tb-pos">—</span></div>
+  </div>
+  <div class="tb-right">
+    <span class="pill pill-green" id="pill-market">● MARKET OPEN</span>
+    <span class="pill pill-amber" id="pill-alpaca">⚡ ALPACA PHASE 2</span>
+    <span class="pill pill-blue" id="pill-polygon">◆ POLYGON LIVE</span>
+    <button class="btn-cb" onclick="triggerCB()">CIRCUIT BREAKER</button>
+  </div>
+</div>
+
+<!-- MAIN -->
+<div class="main">
+
+<!-- COL 1: WATCHLIST -->
+<div class="col" style="overflow-y:auto">
+  <div style="flex-shrink:0">
+    <div class="ph"><span class="t">Watchlist</span><span class="a" onclick="runScan()"><span id="scan-spin" style="display:none" class="spin"></span>Scan ↻</span></div>
+    <div style="padding:6px 8px" id="watchlist-body">
+      <div class="slbl">Loading...</div>
+    </div>
+  </div>
+  <div style="flex-shrink:0">
+    <div class="ph"><span class="t">Sector Health</span></div>
+    <div class="sg" id="sector-grid">
+      <div class="si"><div class="sn"><span>XLK</span><span id="s-xlk">—</span></div><div class="sbar"><div class="sf" id="sb-xlk" style="width:50%;background:var(--green)"></div></div></div>
+      <div class="si"><div class="sn"><span>XLE</span><span id="s-xle">—</span></div><div class="sbar"><div class="sf" id="sb-xle" style="width:50%;background:var(--green)"></div></div></div>
+      <div class="si"><div class="sn"><span>XLF</span><span id="s-xlf">—</span></div><div class="sbar"><div class="sf" id="sb-xlf" style="width:50%;background:var(--green)"></div></div></div>
+      <div class="si"><div class="sn"><span>XLY</span><span id="s-xly">—</span></div><div class="sbar"><div class="sf" id="sb-xly" style="width:50%;background:var(--green)"></div></div></div>
+      <div class="si"><div class="sn"><span>XLV</span><span id="s-xlv">—</span></div><div class="sbar"><div class="sf" id="sb-xlv" style="width:50%;background:var(--green)"></div></div></div>
+      <div class="si"><div class="sn"><span>XLI</span><span id="s-xli">—</span></div><div class="sbar"><div class="sf" id="sb-xli" style="width:50%;background:var(--green)"></div></div></div>
+    </div>
+  </div>
+  <div style="flex:1;display:flex;flex-direction:column">
+    <div class="ph"><span class="t">Performance 30d</span></div>
+    <div class="perf-g" id="perf-grid">
+      <div class="pc"><div class="pl">Trades</div><div class="pv" id="p-trades">—</div></div>
+      <div class="pc"><div class="pl">Win %</div><div class="pv up" id="p-winrate">—</div></div>
+      <div class="pc"><div class="pl">Avg R:R</div><div class="pv" id="p-rr">—</div></div>
+      <div class="pc"><div class="pl">Best</div><div class="pv up" id="p-best">—</div></div>
+      <div class="pc"><div class="pl">Worst</div><div class="pv dn" id="p-worst">—</div></div>
+      <div class="pc"><div class="pl">Net P&L</div><div class="pv up" id="p-net">—</div></div>
+    </div>
+  </div>
+</div>
+
+<!-- COL 2: CHART + POSITIONS -->
+<div class="col">
+  <div class="ctabs">
+    <div class="ct act" onclick="setTF(this,'day',90)">D</div>
+    <div class="ct" onclick="setTF(this,'week',180)">W</div>
+    <div class="ct" onclick="setTF(this,'hour',14)">4H</div>
+    <div style="flex:1"></div>
+    <span id="chart-title" style="font-family:'IBM Plex Mono',monospace;font-size:12px;color:var(--text2);padding:0 12px;line-height:32px">NVDA — D</span>
+  </div>
+  <div class="chart-area">
+    <div class="chart-ov">
+      <span class="cb cb-g" id="badge-ema">EMA —</span>
+      <span class="cb cb-b" id="badge-rsi">RSI —</span>
+      <span class="cb cb-g" id="badge-vol">Vol —</span>
+      <span class="cb cb-a" id="badge-score">Score —</span>
+    </div>
+    <div id="chart"></div>
+    <div class="loading-msg" id="chart-loading">Loading chart…</div>
+  </div>
+  <div style="flex-shrink:0">
+    <div class="ph"><span class="t">Open Positions</span><span class="a" onclick="loadPositions()">↻</span></div>
+    <div id="positions-body" style="padding:4px 6px">
+      <div style="color:var(--text3);font-size:11px;padding:6px 4px">No open positions</div>
+    </div>
+  </div>
+</div>
+
+<!-- COL 3: TRADE PLANNER -->
+<div class="col" style="overflow-y:auto">
+  <div class="ph"><span class="t" style="color:var(--green)">Trade Planner</span><span id="plan-sym" style="font-family:'IBM Plex Mono',monospace;font-size:11px;font-weight:600">NVDA</span></div>
+  <div class="tpi" style="padding-top:8px">
+    <label>Setup Type</label>
+    <select class="inp" id="setup-type" onchange="recalc()">
+      <option>EMA Pullback</option><option>Bull Flag</option>
+      <option>S/R Bounce</option><option>S/R Rejection</option>
+    </select>
+  </div>
+  <div class="tpi">
+    <label>Direction</label>
+    <select class="inp" id="direction" onchange="recalc()">
+      <option>LONG</option><option>SHORT</option>
+    </select>
+  </div>
+  <div class="tpi">
+    <label>Entry Price</label>
+    <input class="inp" id="entry" type="number" value="0" step="0.01" oninput="recalc()">
+  </div>
+  <div class="tpi">
+    <label>Stop Loss</label>
+    <input class="inp" id="stop" type="number" value="0" step="0.01" oninput="recalc()">
+  </div>
+  <div class="tpi">
+    <label>Target</label>
+    <input class="inp" id="target" type="number" value="0" step="0.01" oninput="recalc()">
+  </div>
+  <div class="tpi">
+    <label>Account ($)</label>
+    <input class="inp" id="account" type="number" value="52340" step="100" oninput="recalc()">
+  </div>
+  <div class="tpi">
+    <label>Risk % Per Trade</label>
+    <input class="inp" id="riskpct" type="number" value="1.0" step="0.1" min="0.1" max="3" oninput="recalc()">
+  </div>
+  <div class="divider"></div>
+  <div class="tpg">
+    <div class="tpc"><div class="l">Risk $</div><div class="v" id="o-risk">—</div></div>
+    <div class="tpc"><div class="l">Shares</div><div class="v" id="o-shares">—</div></div>
+    <div class="tpc"><div class="l">Position $</div><div class="v" id="o-pos">—</div></div>
+    <div class="tpc"><div class="l">R:R</div><div class="v" id="o-rr" style="color:var(--green)">—</div></div>
+    <div class="tpc"><div class="l">Max Gain</div><div class="v up" id="o-gain">—</div></div>
+    <div class="tpc"><div class="l">% Acct</div><div class="v" id="o-pct">—</div></div>
+  </div>
+  <div class="divider"></div>
+  <div style="padding:8px 10px">
+    <div class="slbl" style="padding:0 0 5px">Checklist</div>
+    <div class="ck-row"><div class="ck ck-p" id="ck-trend">✓</div><span>Trend confirmed</span></div>
+    <div class="ck-row"><div class="ck ck-p" id="ck-ema">✓</div><span>EMA 20/50 aligned</span></div>
+    <div class="ck-row"><div class="ck ck-p" id="ck-vol">✓</div><span>Volume above avg</span></div>
+    <div class="ck-row"><div class="ck ck-p" id="ck-rsi">✓</div><span>RSI not overbought</span></div>
+    <div class="ck-row"><div class="ck ck-w" id="ck-earn">!</div><span>Earnings &gt; 21d</span></div>
+    <div class="ck-row"><div class="ck ck-p" id="ck-rr">✓</div><span>R:R ≥ 2:1</span></div>
+    <div class="ck-row"><div class="ck ck-p" id="ck-gate">✓</div><span>Risk gate OK</span></div>
+  </div>
+  <div class="divider"></div>
+  <button class="btn-scan" onclick="runScan()">⚡ RUN SCANNER (POLYGON LIVE)</button>
+  <div style="height:6px"></div>
+  <button class="btn-prev" onclick="openModal()">PREVIEW &amp; LOG TRADE →</button>
+</div>
+
+<!-- COL 4: SIGNALS + RISK + JOURNAL + CAL -->
+<div class="col" style="overflow-y:auto">
+  <div style="flex-shrink:0">
+    <div class="ph"><span class="t">Signal Feed</span><span class="a" onclick="loadSignals()">↻</span></div>
+    <div id="signals-body">
+      <div style="color:var(--text3);font-size:11px;padding:8px 10px">Run scanner to populate</div>
+    </div>
+  </div>
+  <div style="flex-shrink:0">
+    <div class="ph"><span class="t">Risk Monitor</span></div>
+    <div style="padding:8px 10px" id="risk-body">
+      <div class="rr"><div class="rm"><span>Daily loss limit</span><span id="r-daily">—</span></div><div class="rbar"><div class="rf rf-g" id="r-daily-bar" style="width:5%"></div></div></div>
+      <div class="rr"><div class="rm"><span>Open positions</span><span id="r-pos">—</span></div><div class="rbar"><div class="rf rf-g" id="r-pos-bar" style="width:5%"></div></div></div>
+      <div class="rr"><div class="rm"><span>Capital deployed</span><span id="r-cap">—</span></div><div class="rbar"><div class="rf rf-g" id="r-cap-bar" style="width:5%"></div></div></div>
+      <div class="rr"><div class="rm"><span>Monthly drawdown</span><span id="r-month">—</span></div><div class="rbar"><div class="rf rf-g" id="r-month-bar" style="width:5%"></div></div></div>
+    </div>
+  </div>
+  <div style="flex-shrink:0">
+    <div class="ph"><span class="t">Trade Journal</span><span class="a" onclick="loadJournal()">↻</span></div>
+    <div id="journal-body">
+      <div style="color:var(--text3);font-size:11px;padding:8px 10px">No closed trades yet</div>
+    </div>
+  </div>
+  <div style="flex-shrink:0">
+    <div class="ph"><span class="t">Calendar</span></div>
+    <div class="cal-i"><span class="cal-d">Today</span><span class="cal-e">CPI Data 8:30a</span><span class="ci ci-h">HIGH</span></div>
+    <div class="cal-i"><span class="cal-d">Thu</span><span class="cal-e">NVDA Earnings</span><span class="ci ci-av">AVOID</span></div>
+    <div class="cal-i"><span class="cal-d">Fri</span><span class="cal-e">FOMC Minutes</span><span class="ci ci-m">MED</span></div>
+    <div class="cal-i"><span class="cal-d">Mon</span><span class="cal-e">AAPL Earnings</span><span class="ci ci-av">AVOID</span></div>
+  </div>
+</div>
+</div><!-- /main -->
+
+<!-- MODAL -->
+<div class="modal-ov" id="modal">
+  <div class="modal">
+    <div class="mh">
+      <span class="mt">TRADE PLAN — <span id="m-sym">—</span></span>
+      <button class="mc" onclick="closeModal()">×</button>
+    </div>
+    <div class="mb">
+      <div class="ms-t">Order Details</div>
+      <div class="mg">
+        <div class="mcard"><div class="l">Symbol</div><div class="v" id="m-sym2">—</div></div>
+        <div class="mcard"><div class="l">Direction</div><div class="v" id="m-dir">LONG</div></div>
+        <div class="mcard"><div class="l">Shares</div><div class="v" id="m-shares">—</div></div>
+        <div class="mcard"><div class="l">Entry</div><div class="v" id="m-entry">—</div></div>
+        <div class="mcard"><div class="l">Stop</div><div class="v dn" id="m-stop">—</div></div>
+        <div class="mcard"><div class="l">Target</div><div class="v up" id="m-target">—</div></div>
+        <div class="mcard"><div class="l">Risk $</div><div class="v dn" id="m-risk">—</div></div>
+        <div class="mcard"><div class="l">Max Gain</div><div class="v up" id="m-gain">—</div></div>
+        <div class="mcard"><div class="l">R:R</div><div class="v up" id="m-rr">—</div></div>
+      </div>
+      <div class="note-row">
+        ⚡ Phase 1 — trade logged to SwingDesk DB. Alpaca execution in Phase 2.
+      </div>
+      <div style="margin-bottom:8px">
+        <label style="font-size:10px;font-family:'IBM Plex Mono',monospace;color:var(--text3);letter-spacing:.06em;text-transform:uppercase;display:block;margin-bottom:4px">Notes (optional)</label>
+        <input class="inp" id="trade-notes" type="text" placeholder="Why are you taking this trade?">
+      </div>
+      <button class="btn-exec" id="exec-btn" onclick="executeTrade()">LOG TRADE PLAN</button>
+      <button class="btn-canc" onclick="closeModal()">Cancel</button>
+    </div>
+  </div>
+</div>
+
+<div class="toast" id="toast"></div>
+
+<script>
+const API = 'http://localhost:8889';
+let chart, candleSeries, volSeries, ema20Series, ema50Series;
+let currentSym = 'NVDA';
+let currentTF = 'day';
+let currentDays = 90;
+let watchlistData = {};
+
+// ── CHART INIT ────────────────────────────────────────────────────────────────
+function initChart() {
+  const el = document.getElementById('chart');
+  chart = LightweightCharts.createChart(el, {
+    layout: { background: { color: '#0a0c0f' }, textColor: '#8892a4' },
+    grid: { vertLines: { color: 'rgba(255,255,255,0.04)' }, horzLines: { color: 'rgba(255,255,255,0.04)' } },
+    crosshair: { mode: LightweightCharts.CrosshairMode.Normal },
+    rightPriceScale: { borderColor: 'rgba(255,255,255,0.07)' },
+    timeScale: { borderColor: 'rgba(255,255,255,0.07)', timeVisible: true },
+    width: el.offsetWidth, height: el.offsetHeight
+  });
+  candleSeries = chart.addCandlestickSeries({
+    upColor: '#00d4aa', downColor: '#ff4d6a',
+    borderUpColor: '#00d4aa', borderDownColor: '#ff4d6a',
+    wickUpColor: '#00d4aa', wickDownColor: '#ff4d6a'
+  });
+  ema20Series = chart.addLineSeries({ color: '#f59e0b', lineWidth: 1, lineStyle: 2, title: 'EMA20', priceLineVisible: false });
+  ema50Series = chart.addLineSeries({ color: '#3b9eff', lineWidth: 1, lineStyle: 2, title: 'EMA50', priceLineVisible: false });
+  window.addEventListener('resize', () => chart.resize(el.offsetWidth, el.offsetHeight));
+}
+
+// ── LOAD CANDLES FROM BACKEND ─────────────────────────────────────────────────
+async function loadChart(sym, tf, days) {
+  currentSym = sym; currentTF = tf; currentDays = days;
+  document.getElementById('chart-loading').style.display = 'block';
+  document.getElementById('chart-title').textContent = `${sym} — ${tf.toUpperCase()}`;
+  document.getElementById('plan-sym').textContent = sym;
+  document.getElementById('m-sym').textContent = sym;
+  document.getElementById('m-sym2').textContent = sym;
+  try {
+    const res = await fetch(`${API}/api/candles/${sym}?tf=${tf}&days=${days}`);
+    const bars = await res.json();
+    if (!bars.length) throw new Error('No data');
+    candleSeries.setData(bars.map(b => ({ time: b.time, open: b.open, high: b.high, low: b.low, close: b.close })));
+    // EMA on closes
+    const closes = bars.map(b => b.close);
+    const e20 = calcEMA(closes, 20);
+    const e50 = calcEMA(closes, 50);
+    const offset20 = closes.length - e20.length;
+    const offset50 = closes.length - e50.length;
+    ema20Series.setData(bars.slice(offset20).map((b, i) => ({ time: b.time, value: +e20[i].toFixed(2) })));
+    ema50Series.setData(bars.slice(offset50).map((b, i) => ({ time: b.time, value: +e50[i].toFixed(2) })));
+    // Update badges
+    const last = bars[bars.length - 1];
+    const rsi = calcRSI(closes.slice(-30));
+    const avgVol = bars.slice(-20).reduce((a, b) => a + b.volume, 0) / 20;
+    const volR = last.volume / avgVol;
+    document.getElementById('badge-ema').textContent = `EMA ${last.close > e20[e20.length-1] ? '▲' : '▼'}`;
+    document.getElementById('badge-rsi').textContent = `RSI ${rsi.toFixed(0)}`;
+    document.getElementById('badge-vol').textContent = `Vol ${volR.toFixed(1)}x`;
+    // Suggest entry/stop/target via ATR
+    const atr = calcATR(bars.slice(-15));
+    const entry = last.close;
+    const sugStop   = +(entry - 1.5 * atr).toFixed(2);
+    const sugTarget = +(entry + 3.0 * atr).toFixed(2);
+    document.getElementById('entry').value  = entry.toFixed(2);
+    document.getElementById('stop').value   = sugStop;
+    document.getElementById('target').value = sugTarget;
+    recalc();
+  } catch(e) {
+    showToast('Chart load failed: ' + e.message, true);
+  }
+  document.getElementById('chart-loading').style.display = 'none';
+}
+
+// ── INDICATOR MATH (CLIENT SIDE) ──────────────────────────────────────────────
+function calcEMA(prices, period) {
+  if (prices.length < period) return [];
+  const k = 2 / (period + 1);
+  const ema = [prices.slice(0, period).reduce((a, b) => a + b) / period];
+  for (let i = period; i < prices.length; i++) ema.push(prices[i] * k + ema[ema.length-1] * (1-k));
+  return ema;
+}
+function calcRSI(closes, period = 14) {
+  if (closes.length < period + 1) return 50;
+  let gains = 0, losses = 0;
+  for (let i = closes.length - period; i < closes.length; i++) {
+    const d = closes[i] - closes[i-1];
+    d > 0 ? gains += d : losses += -d;
+  }
+  const ag = gains / period, al = losses / period;
+  if (al === 0) return 100;
+  return +(100 - 100 / (1 + ag/al)).toFixed(1);
+}
+function calcATR(bars, period = 14) {
+  if (bars.length < 2) return 0;
+  const trs = bars.slice(1).map((b, i) => Math.max(b.high - b.low, Math.abs(b.high - bars[i].close), Math.abs(b.low - bars[i].close)));
+  return trs.slice(-period).reduce((a, b) => a + b, 0) / Math.min(period, trs.length);
+}
+
+// ── WATCHLIST ─────────────────────────────────────────────────────────────────
+async function loadWatchlist() {
+  try {
+    const res = await fetch(`${API}/api/watchlist`);
+    watchlistData = await res.json();
+    renderWatchlist();
+    updateSectors();
+  } catch(e) { console.error('Watchlist failed', e); }
+}
+
+function renderWatchlist() {
+  const SETUPS = {NVDA:'EMA Pullback',AMD:'Bull Flag',META:'S/R Bounce',SPY:'Index',QQQ:'Index',MSFT:'Watch',AAPL:'Watch',TSLA:'Watch',AMZN:'Watch',GOOGL:'Watch',PLTR:'Watch',SMCI:'Watch'};
+  const READY = ['NVDA','AMD','META'];
+  const MONITOR = ['SPY','QQQ','MSFT','AAPL','TSLA','AMZN','GOOGL','PLTR'];
+  const el = document.getElementById('watchlist-body');
+  let html = '<div class="slbl">Setups Ready</div>';
+  READY.forEach(sym => html += watchRow(sym, SETUPS[sym] || 'Watch', sym === currentSym));
+  html += '<div class="slbl" style="margin-top:4px">Monitoring</div>';
+  MONITOR.forEach(sym => html += watchRow(sym, SETUPS[sym] || 'Watch', sym === currentSym));
+  el.innerHTML = html;
+}
+
+function watchRow(sym, setup, active) {
+  const d = watchlistData[sym] || {};
+  const price = d.price ? d.price.toFixed(2) : '—';
+  const chg   = d.chg_pct !== undefined ? d.chg_pct : null;
+  const cls   = chg === null ? 'neu' : chg >= 0 ? 'up' : 'dn';
+  const chgStr = chg !== null ? (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%' : '—';
+  return `<div class="wi${active?' act':''}" onclick="selectSym('${sym}')">
+    <div class="wi-l"><span class="wi-sym">${sym}</span><span class="wi-sub">${setup}</span></div>
+    <div class="wi-r"><span class="wi-p ${cls}">${price}</span><span class="wi-c ${cls}">${chgStr}</span></div>
+  </div>`;
+}
+
+function updateSectors() {
+  const SECTORS = {XLK:'xlk',XLE:'xle',XLF:'xlf',XLY:'xly',XLV:'xlv',XLI:'xli'};
+  Object.entries(SECTORS).forEach(([sym, id]) => {
+    const d = watchlistData[sym] || {};
+    const chg = d.chg_pct || 0;
+    const cls = chg >= 0 ? 'var(--green)' : 'var(--red)';
+    const el = document.getElementById('s-' + id);
+    const bar = document.getElementById('sb-' + id);
+    if (el) { el.textContent = (chg >= 0 ? '+' : '') + chg.toFixed(1) + '%'; el.className = chg >= 0 ? 'up' : 'dn'; }
+    if (bar) { bar.style.width = Math.min(Math.abs(chg) * 20 + 20, 95) + '%'; bar.style.background = cls; }
+  });
+}
+
+function selectSym(sym) {
+  currentSym = sym;
+  loadChart(sym, currentTF, currentDays);
+  renderWatchlist();
+  document.getElementById('plan-sym').textContent = sym;
+  document.getElementById('m-sym').textContent = sym;
+  document.getElementById('m-sym2').textContent = sym;
+}
+
+// ── SCANNER ───────────────────────────────────────────────────────────────────
+async function runScan() {
+  const spin = document.getElementById('scan-spin');
+  spin.style.display = 'inline-block';
+  try {
+    const res = await fetch(`${API}/api/scan`);
+    const results = await res.json();
+    renderSignals(results);
+    showToast(`Scanner complete — ${results.length} setups found`);
+  } catch(e) {
+    showToast('Scanner failed: ' + e.message, true);
+  }
+  spin.style.display = 'none';
+}
+
+// ── SIGNALS ───────────────────────────────────────────────────────────────────
+async function loadSignals() {
+  try {
+    const res = await fetch(`${API}/api/signals?limit=15`);
+    const sigs = await res.json();
+    if (sigs.length) renderSignals(sigs);
+  } catch(e) {}
+}
+
+function renderSignals(signals) {
+  const el = document.getElementById('signals-body');
+  if (!signals.length) { el.innerHTML = '<div style="color:var(--text3);font-size:11px;padding:8px 10px">No signals</div>'; return; }
+  el.innerHTML = signals.map(s => {
+    const dotCls = s.signal_type === 'bull' ? 'sd-bull' : s.signal_type === 'bear' ? 'sd-bear' : 'sd-watch';
+    const badgeCls = s.signal_type === 'bull' ? 'sb-bull' : s.signal_type === 'bear' ? 'sb-bear' : 'sb-w';
+    const time = s.created_at ? new Date(s.created_at).toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'}) : '—';
+    const score = s.score ? `${Math.round(s.score)}` : '—';
+    return `<div class="sig-i" onclick="selectSym('${s.symbol}')">
+      <div class="sig-d ${dotCls}"></div>
+      <div class="sig-b">
+        <div class="sig-sym">${s.symbol} <span class="setup-b ${badgeCls}">${(s.setup||'').toUpperCase()}</span> <span style="font-size:10px;color:var(--text3)">score:${score}</span></div>
+        <div class="sig-desc">${s.description || ''}</div>
+      </div>
+      <span class="sig-time">${time}</span>
+    </div>`;
+  }).join('');
+  // Update badge in planner for current sym
+  const cur = signals.find(s => s.symbol === currentSym);
+  if (cur) {
+    document.getElementById('badge-score').textContent = `Score ${Math.round(cur.score)}`;
+    document.getElementById('badge-rsi').textContent = `RSI ${cur.rsi || '—'}`;
+  }
+}
+
+// ── RISK GATE ─────────────────────────────────────────────────────────────────
+async function loadRiskGate() {
+  try {
+    const res = await fetch(`${API}/api/risk-gate`);
+    const g = await res.json();
+    const dailyPct = Math.abs(g.daily_loss / Math.abs(g.daily_loss_limit || 1)) * 100;
+    const posPct   = (g.open_positions / g.max_positions) * 100;
+    document.getElementById('r-daily').textContent = `$${Math.abs(g.daily_loss).toFixed(0)} / $${Math.abs(g.daily_loss_limit).toFixed(0)}`;
+    document.getElementById('r-daily-bar').style.width = Math.min(dailyPct, 100) + '%';
+    document.getElementById('r-daily-bar').className = 'rf ' + (dailyPct > 70 ? 'rf-r' : dailyPct > 40 ? 'rf-a' : 'rf-g');
+    document.getElementById('r-pos').textContent = `${g.open_positions} / ${g.max_positions}`;
+    document.getElementById('r-pos-bar').style.width = posPct + '%';
+    document.getElementById('r-cap').textContent = '—';
+    document.getElementById('r-month').textContent = '—';
+    document.getElementById('ck-gate').textContent = g.can_trade ? '✓' : '✗';
+    document.getElementById('ck-gate').className = 'ck ' + (g.can_trade ? 'ck-p' : 'ck-f');
+    document.getElementById('tb-pos').textContent = `${g.open_positions} / ${g.max_positions}`;
+  } catch(e) {}
+}
+
+// ── POSITION SIZER ────────────────────────────────────────────────────────────
+function recalc() {
+  const entry   = parseFloat(document.getElementById('entry').value) || 0;
+  const stop    = parseFloat(document.getElementById('stop').value) || 0;
+  const target  = parseFloat(document.getElementById('target').value) || 0;
+  const account = parseFloat(document.getElementById('account').value) || 52340;
+  const riskpct = parseFloat(document.getElementById('riskpct').value) || 1;
+  const dir = document.getElementById('direction').value;
+
+  const riskD  = account * (riskpct / 100);
+  const perSh  = Math.abs(entry - stop);
+  const shares = perSh > 0 ? Math.floor(riskD / perSh) : 0;
+  const pos    = shares * entry;
+  const gain   = shares * Math.abs(target - entry);
+  const rr     = perSh > 0 ? Math.abs(target - entry) / perSh : 0;
+
+  document.getElementById('o-risk').textContent    = '$' + riskD.toFixed(0);
+  document.getElementById('o-shares').textContent  = shares;
+  document.getElementById('o-pos').textContent     = '$' + pos.toLocaleString('en-US', {maximumFractionDigits:0});
+  document.getElementById('o-rr').textContent      = rr.toFixed(1) + ':1';
+  document.getElementById('o-rr').style.color      = rr >= 2 ? 'var(--green)' : rr >= 1.5 ? 'var(--amber)' : 'var(--red)';
+  document.getElementById('o-gain').textContent    = '$' + gain.toFixed(0);
+  document.getElementById('o-pct').textContent     = (pos/account*100).toFixed(1) + '%';
+
+  // Checklist
+  const rrOk = rr >= 2;
+  document.getElementById('ck-rr').textContent  = rrOk ? '✓' : '✗';
+  document.getElementById('ck-rr').className    = 'ck ' + (rrOk ? 'ck-p' : 'ck-f');
+
+  // Sync modal
+  const sym = document.getElementById('plan-sym').textContent;
+  document.getElementById('m-sym').textContent    = sym;
+  document.getElementById('m-sym2').textContent   = sym;
+  document.getElementById('m-dir').textContent    = dir;
+  document.getElementById('m-dir').style.color    = dir === 'LONG' ? 'var(--blue)' : 'var(--red)';
+  document.getElementById('m-shares').textContent = shares;
+  document.getElementById('m-entry').textContent  = '$' + entry.toFixed(2);
+  document.getElementById('m-stop').textContent   = '$' + stop.toFixed(2);
+  document.getElementById('m-target').textContent = '$' + target.toFixed(2);
+  document.getElementById('m-risk').textContent   = '$' + riskD.toFixed(0);
+  document.getElementById('m-gain').textContent   = '$' + gain.toFixed(0);
+  document.getElementById('m-rr').textContent     = rr.toFixed(1) + ':1';
+
+  const execBtn = document.getElementById('exec-btn');
+  execBtn.textContent = `LOG TRADE — ${sym} ${dir} ${shares} SH @ $${entry.toFixed(2)}`;
+  execBtn.disabled    = shares === 0 || rr < 1.5;
+}
+
+// ── MODAL ──────────────────────────────────────────────────────────────────────
+function openModal() { recalc(); document.getElementById('modal').classList.add('open'); }
+function closeModal() { document.getElementById('modal').classList.remove('open'); }
+
+async function executeTrade() {
+  const sym    = document.getElementById('plan-sym').textContent;
+  const dir    = document.getElementById('direction').value;
+  const entry  = parseFloat(document.getElementById('entry').value);
+  const stop   = parseFloat(document.getElementById('stop').value);
+  const target = parseFloat(document.getElementById('target').value);
+  const account = parseFloat(document.getElementById('account').value);
+  const riskpct = parseFloat(document.getElementById('riskpct').value);
+  const setup  = document.getElementById('setup-type').value;
+  const notes  = document.getElementById('trade-notes').value;
+  const riskD  = account * (riskpct / 100);
+  const perSh  = Math.abs(entry - stop);
+  const shares = perSh > 0 ? Math.floor(riskD / perSh) : 0;
+  const rr     = perSh > 0 ? Math.abs(target - entry) / perSh : 0;
+
+  try {
+    const res = await fetch(`${API}/api/trade/plan`, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ symbol: sym, direction: dir, setup, entry_price: entry,
+        stop_price: stop, target_price: target, shares, risk_dollars: riskD,
+        rr_ratio: rr, notes })
+    });
+    const data = await res.json();
+    if (!res.ok) throw new Error(data.detail || 'Failed');
+    closeModal();
+    showToast(`✓ Trade logged — ${sym} ${dir} ${shares} sh @ $${entry.toFixed(2)} | ID #${data.trade_id}`);
+    loadPositions();
+    loadRiskGate();
+    loadStats();
+  } catch(e) {
+    showToast('Error: ' + e.message, true);
+  }
+}
+
+// ── POSITIONS ─────────────────────────────────────────────────────────────────
+async function loadPositions() {
+  try {
+    const res = await fetch(`${API}/api/positions`);
+    const pos = await res.json();
+    const el  = document.getElementById('positions-body');
+    if (!pos.length) {
+      el.innerHTML = '<div style="color:var(--text3);font-size:11px;padding:6px 4px">No open positions</div>';
+      return;
+    }
+    el.innerHTML = pos.map(p => {
+      const sideCls = p.direction === 'LONG' ? 'ps-l' : 'ps-s';
+      return `<div class="pr">
+        <span class="psym">${p.symbol}</span>
+        <span class="pside ${sideCls}">${p.direction === 'LONG' ? 'L' : 'S'}</span>
+        <div class="pinfo"><span>${p.shares} sh @ $${p.entry_price.toFixed(2)}</span><span class="pd setup-b sb-bull">${p.setup.toUpperCase().slice(0,8)}</span></div>
+        <span style="color:var(--text2)">—</span>
+        <span style="color:var(--text3);font-size:10px">$${p.stop_price.toFixed(0)}</span>
+      </div>`;
+    }).join('');
+  } catch(e) {}
+}
+
+// ── JOURNAL ───────────────────────────────────────────────────────────────────
+async function loadJournal() {
+  try {
+    const res = await fetch(`${API}/api/journal?limit=10`);
+    const trades = await res.json();
+    const el = document.getElementById('journal-body');
+    if (!trades.length) { el.innerHTML = '<div style="color:var(--text3);font-size:11px;padding:8px 10px">No closed trades yet</div>'; return; }
+    el.innerHTML = trades.map(t => {
+      const pnlCls = t.pnl >= 0 ? 'up' : 'dn';
+      const rStr   = t.r_multiple !== null ? (t.r_multiple >= 0 ? '+' : '') + t.r_multiple.toFixed(1) + 'R' : '—';
+      return `<div class="ji">
+        <div class="jt">
+          <span class="jsym">${t.symbol} ${t.direction}</span>
+          <span class="jr ${pnlCls}">${rStr} / ${t.pnl >= 0 ? '+' : ''}$${Math.abs(t.pnl).toFixed(0)}</span>
+        </div>
+        <div class="jn">${t.notes || t.setup}</div>
+      </div>`;
+    }).join('');
+  } catch(e) {}
+}
+
+// ── STATS ──────────────────────────────────────────────────────────────────────
+async function loadStats() {
+  try {
+    const res = await fetch(`${API}/api/stats`);
+    const s = await res.json();
+    document.getElementById('p-trades').textContent  = s.trades || '0';
+    document.getElementById('p-winrate').textContent = s.win_rate ? s.win_rate + '%' : '—';
+    document.getElementById('p-rr').textContent      = s.avg_rr || '—';
+    document.getElementById('p-best').textContent    = s.best_trade ? '+$' + s.best_trade.toFixed(0) : '—';
+    document.getElementById('p-worst').textContent   = s.worst_trade ? '$' + s.worst_trade.toFixed(0) : '—';
+    document.getElementById('p-net').textContent     = s.net_pnl ? (s.net_pnl >= 0 ? '+' : '') + '$' + Math.abs(s.net_pnl).toFixed(0) : '$0';
+    document.getElementById('tb-winrate').textContent = s.win_rate ? s.win_rate + '%' : '—';
+    document.getElementById('tb-rr').textContent     = s.avg_rr ? s.avg_rr + ':1' : '—';
+  } catch(e) {}
+}
+
+// ── CIRCUIT BREAKER ────────────────────────────────────────────────────────────
+async function triggerCB() {
+  if (!confirm('⛔ Engage Circuit Breaker?\n\nThis will block all new trade logging for today.')) return;
+  try {
+    await fetch(`${API}/api/circuit-breaker/trigger`);
+    showToast('⛔ Circuit Breaker engaged — no new trades today');
+    loadRiskGate();
+  } catch(e) { showToast('Failed: ' + e.message, true); }
+}
+
+// ── TOAST ──────────────────────────────────────────────────────────────────────
+function showToast(msg, err = false) {
+  const t = document.getElementById('toast');
+  t.textContent = msg;
+  t.className = 'toast show' + (err ? ' err' : '');
+  setTimeout(() => t.className = 'toast', 4000);
+}
+
+// ── TF SWITCH ─────────────────────────────────────────────────────────────────
+function setTF(el, tf, days) {
+  document.querySelectorAll('.ct').forEach(t => t.classList.remove('act'));
+  el.classList.add('act');
+  currentTF = tf; currentDays = days;
+  loadChart(currentSym, tf, days);
+}
+
+// ── HEALTH CHECK ───────────────────────────────────────────────────────────────
+async function checkHealth() {
+  try {
+    const res  = await fetch(`${API}/api/health`);
+    const data = await res.json();
+    const polyEl = document.getElementById('pill-polygon');
+    polyEl.textContent = data.polygon === 'configured' ? '◆ POLYGON LIVE' : '◆ POLYGON MISSING';
+    polyEl.className   = data.polygon === 'configured' ? 'pill pill-blue' : 'pill pill-red';
+  } catch(e) {
+    showToast('Backend offline — start: python3 swingdesk/backend.py', true);
+  }
+}
+
+// ── INIT ───────────────────────────────────────────────────────────────────────
+window.addEventListener('load', async () => {
+  initChart();
+  await checkHealth();
+  await loadWatchlist();
+  loadChart('NVDA', 'day', 90);
+  loadPositions();
+  loadJournal();
+  loadStats();
+  loadRiskGate();
+  loadSignals();
+  recalc();
+  // Refresh watchlist every 60s
+  setInterval(loadWatchlist, 60000);
+  setInterval(loadRiskGate, 30000);
+});
+</script>
+</body>
+</html>
