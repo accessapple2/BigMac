@@ -40,6 +40,7 @@ _load_local_env()
 from options_engine import (  # noqa: E402  — all read-only compute/build; NONE submit orders
     calc_ivr, get_spot, MIN_IVR, find_target_expiration, _directional_lean,
     build_bull_put_spread, build_bear_call_spread, build_iron_condor, build_csp,
+    bs_price, get_dte, EXIT_DTE, LOSS_LIMIT_MULT,
 )
 
 DB_PATH = str(Path(__file__).resolve().parent.parent / "swingdesk.db")
@@ -190,10 +191,14 @@ def _ensure_shadow_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
-    try:  # idempotent column add for tables created before refused_reason existed
-        conn.execute("ALTER TABLE swingdesk_shadow_trades ADD COLUMN refused_reason TEXT")
-    except sqlite3.OperationalError:
-        pass
+    # idempotent column adds (refused_reason + Loop C exit fields)
+    for _col, _typ in [("refused_reason", "TEXT"), ("exit_reason", "TEXT"),
+                       ("would_have_exit_at", "TIMESTAMP"), ("exit_value", "REAL"),
+                       ("exit_pnl", "REAL")]:
+        try:
+            conn.execute(f"ALTER TABLE swingdesk_shadow_trades ADD COLUMN {_col} {_typ}")
+        except sqlite3.OperationalError:
+            pass
     conn.execute(
         "CREATE INDEX IF NOT EXISTS idx_shadow_trades ON swingdesk_shadow_trades(scan_date, symbol, status)"
     )
@@ -319,7 +324,113 @@ def run_loop_b() -> dict:
     }
 
 
+# ── Loop C: position manager (SHADOW) ────────────────────────────────────────
+_R = 0.045
+
+
+def _current_spread_value(structure: str, legs: dict, spot: float, dte: int, sigma: float) -> float:
+    """Re-price the structure's current debit-to-close at current spot + remaining
+    DTE (entry IV as sigma proxy). Read-only Black-Scholes; no orders."""
+    T = max(dte, 0) / 365.0
+
+    def p(strike, typ):
+        return bs_price(spot, float(strike), T, _R, sigma, typ)
+
+    if structure == "bull_put_spread":
+        return round(p(legs["short_put"], "put") - p(legs["long_put"], "put"), 2)
+    if structure == "bear_call_spread":
+        return round(p(legs["short_call"], "call") - p(legs["long_call"], "call"), 2)
+    if structure == "iron_condor":
+        return round((p(legs["short_put"], "put") - p(legs["long_put"], "put"))
+                     + (p(legs["short_call"], "call") - p(legs["long_call"], "call")), 2)
+    if structure == "csp":
+        return round(p(legs["short_put"], "put"), 2)
+    return 0.0
+
+
+def _earnings_within_7d(symbol: str) -> bool:
+    """Earnings-within-7-days check. The O-Tasty universe is ETFs (no earnings),
+    so this returns False for them; a stock universe would wire an earnings
+    calendar here. Read-only; no orders."""
+    return False
+
+
+def _short_strike_breached(structure: str, legs: dict, spot: float) -> bool:
+    if structure in ("bull_put_spread", "csp"):
+        return spot < float(legs["short_put"])
+    if structure == "bear_call_spread":
+        return spot > float(legs["short_call"])
+    if structure == "iron_condor":
+        return spot < float(legs["short_put"]) or spot > float(legs["short_call"])
+    return False
+
+
+def _exit_decision(structure: str, legs: dict, credit: float, current_value: float,
+                   spot: float, dte, symbol: str):
+    """Exit triggers in priority order (HM-O-TASTY-DOCTRINE). Returns exit_reason
+    str or None. Pure decision — no I/O, no orders."""
+    if credit and credit > 0 and (credit - current_value) / credit * 100.0 >= 50.0:
+        return "profit_50pct"                                   # 1
+    if dte is not None and dte <= EXIT_DTE:
+        return f"time_{EXIT_DTE}dte"                            # 2
+    if credit and current_value >= credit * LOSS_LIMIT_MULT:
+        return "loss_2x_credit"                                 # 3
+    if _earnings_within_7d(symbol):
+        return "earnings_7d"                                    # 4
+    if _short_strike_breached(structure, legs, spot):
+        return "short_strike_breach"                            # 5
+    return None
+
+
+def run_loop_c() -> dict:
+    """LOOP C — position manager (SHADOW). Walk shadow_open rows, re-price current
+    value, check exit triggers in priority order, mark would-have-closed rows
+    (status='would_have_closed' + exit_reason + would_have_exit_at + exit_value +
+    exit_pnl). NO order submission anywhere in this path."""
+    import json
+    conn = sqlite3.connect(DB_PATH)
+    _ensure_shadow_schema(conn)
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        "SELECT * FROM swingdesk_shadow_trades WHERE status='shadow_open'").fetchall()
+
+    closed, held = [], []
+    for r in rows:
+        try:
+            legs = json.loads(r["legs"] or "{}")
+        except Exception:
+            legs = {}
+        structure = r["structure"]
+        credit = r["credit"] or 0.0
+        contracts = r["contracts"] or 1
+        sigma = (r["iv"] or 30.0) / 100.0
+        spot = get_spot(r["symbol"]) or r["spot"]
+        dte = get_dte(r["expiration"]) if r["expiration"] else None
+        cur_val = _current_spread_value(structure, legs, spot, dte if dte is not None else 0, sigma)
+        reason = _exit_decision(structure, legs, credit, cur_val, spot, dte, r["symbol"])
+        if reason:
+            exit_pnl = round((credit - cur_val) * 100.0 * contracts, 2)
+            conn.execute(
+                "UPDATE swingdesk_shadow_trades SET status='would_have_closed', "
+                "exit_reason=?, would_have_exit_at=?, exit_value=?, exit_pnl=? WHERE id=?",
+                (reason, datetime.now().isoformat(timespec="seconds"), cur_val, exit_pnl, r["id"]),
+            )
+            closed.append((r["symbol"], structure, reason, exit_pnl))
+        else:
+            held.append((r["symbol"], structure, cur_val, dte))
+    conn.commit()
+    conn.close()
+    return {
+        "loop": "C",
+        "walked": len(rows),
+        "would_have_closed": closed,
+        "held": held,
+        "orders_submitted": 0,  # invariant: Loop C never submits
+    }
+
+
 if __name__ == "__main__":
     import sys
     loop = sys.argv[1].upper() if len(sys.argv) > 1 else "A"
-    print(run_loop_a() if loop == "A" else run_loop_b())
+    fn = {"A": run_loop_a, "B": run_loop_b, "C": run_loop_c}.get(loop, run_loop_a)
+    print(fn())
