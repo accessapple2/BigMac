@@ -213,6 +213,34 @@ def _alpaca_position_qty(bridge, symbol: str) -> float:
         return None
 
 
+def _reconcile_phantom_position(player_id: str, symbol: str) -> None:
+    """HM-TRADES-MIRROR-GAP forward-guard 2026-05-28: when a routed SELL is
+    skipped because the shared Alpaca account holds 0 of the symbol, the
+    internal per-player ledger is carrying a phantom position (drift, often a
+    pre-fix contaminated BUY that never filled on Alpaca). Zero the internal
+    stock position so the fleet stops generating/retrying sells for something
+    the broker doesn't hold. Routed-players only (this path is gated on
+    route_mode='trading'); stock-only; never raises."""
+    try:
+        conn = _conn()
+        cur = conn.execute(
+            "DELETE FROM positions WHERE player_id=? AND symbol=? AND asset_type='stock'",
+            (player_id, symbol),
+        )
+        conn.commit()
+        conn.close()
+        if cur.rowcount:
+            console.log(
+                f"[yellow][PHANTOM-RECONCILE] zeroed internal {symbol} for "
+                f"{player_id} (Alpaca holds 0 — internal ledger drift cleared)"
+            )
+    except Exception as e:
+        console.log(
+            f"[yellow][PHANTOM-RECONCILE] failed {player_id} {symbol}: "
+            f"{type(e).__name__}: {e!r}"
+        )
+
+
 def _forward_to_alpaca(action: str, player_id: str, symbol: str, qty: float,
                         asset_type: str = "stock", price: float = 0.0):
     """Forward a trade to Alpaca paper account. Never raises.
@@ -248,6 +276,7 @@ def _forward_to_alpaca(action: str, player_id: str, symbol: str, qty: float,
                 return None
             if alpaca_qty <= 0:
                 console.log(f"[yellow]Alpaca SELL {symbol} skipped: Alpaca qty={alpaca_qty} (would create/worsen short — internal ledger drift, player={player_id})")
+                _reconcile_phantom_position(player_id, symbol)  # HM-MIRROR-GAP forward-guard: clear the phantom so it isn't retried
                 return None
             if alpaca_qty < frac_qty:
                 old = frac_qty
