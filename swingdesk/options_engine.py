@@ -567,9 +567,15 @@ def scan_ivr(symbols: list = None, portfolio_size: float = 52340) -> list:
                     if preferred in viable:
                         entry["recommended"] = preferred
                     else:
-                        # doctrine structure not viable → best return-on-risk among viable
-                        entry["recommended"] = max(
-                            viable, key=lambda k: viable[k]["credit"] / viable[k]["max_loss"])
+                        # Doctrine structure not viable → best return-on-risk among
+                        # the other DEFINED-RISK structures. Exclude CSP: it's the
+                        # discretionary "willing to own" trade (bullish), never a
+                        # directional fallback (e.g. CSP on a bearish name is wrong).
+                        defined = {k: v for k, v in viable.items() if k != "csp"}
+                        if defined:
+                            entry["recommended"] = max(
+                                defined, key=lambda k: defined[k]["credit"] / defined[k]["max_loss"])
+                        # else: no viable defined-risk structure → leave unrecommended
 
             results.append(entry)
 
