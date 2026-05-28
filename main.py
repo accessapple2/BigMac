@@ -178,8 +178,10 @@ def _stagger_schedule_jobs() -> None:
         if offset <= 0:
             continue
 
-        if unit in ("seconds", "minutes"):
+        if unit == "seconds":
             job.next_run = now + _dt.timedelta(seconds=offset)
+        elif unit == "minutes":
+            job.next_run = now + _dt.timedelta(minutes=offset)
         elif unit == "hours":
             job.next_run = now + _dt.timedelta(minutes=offset)
 
