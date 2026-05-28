@@ -918,9 +918,12 @@ class DayBladeScanner:
         # Check if DayBlade is paused or deactivated
         try:
             _c = sqlite3.connect(DB, check_same_thread=False, timeout=10)
-            _r = _c.execute("SELECT is_active, COALESCE(is_paused,0) as is_paused FROM ai_players WHERE id=?", (DAYBLADE_PLAYER,)).fetchone()
+            _r = _c.execute("SELECT is_active, halt_mode FROM ai_players WHERE id=?", (DAYBLADE_PLAYER,)).fetchone()
             _c.close()
-            if _r and (not _r[0] or _r[1]):
+            # HM-DAYBLADE-OPTION-B 2026-05-28: halt_mode is the single source of
+            # truth (replaces the legacy is_paused gate that blocked dayblade for
+            # 56 days). Skip the cycle unless the agent is active AND halt_mode='active'.
+            if _r and (not _r[0] or _r[1] != "active"):
                 return
         except Exception:
             pass
