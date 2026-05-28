@@ -23967,7 +23967,25 @@ function renderTrades() {
     const pnlPctStr = t.pnl_pct!=null?' ('+pnlSign+t.pnl_pct.toFixed(1)+'%)':'';
     const pnlColor = pnlVal!=null?(pnlVal>0?'var(--green)':pnlVal<0?'var(--red)':'var(--muted)'):'var(--muted)';
     const statusLabel = t.status==='open'?(pnlVal!=null?'open':'open'):'closed';
-    html += `<tr><td><b>${t.symbol}</b></td><td>${side}</td><td style="font-family:var(--font-mono);">$${t.entry_price}</td><td style="font-family:var(--font-mono);">${t.exit_price?'$'+t.exit_price:'-'}</td><td style="font-family:var(--font-mono);">${t.quantity}</td><td style="font-family:var(--font-mono);font-weight:600;color:${pnlColor};">${pnlStr}<span style="font-size:13px;opacity:0.8;">${pnlPctStr}</span></td><td style="font-size:13px;color:var(--muted);">${(t.model_source||'').substring(0,12)}</td><td><span class="badge ${t.status==='open'?'badge-open':''}">${statusLabel}</span></td><td style="display:flex;gap:4px;"><button class="action-btn" style="background:rgba(100,180,255,0.15);color:#4aa8ff;border:1px solid #4aa8ff;" onclick="explainTrade(${t.id})">🔍 Why</button><button class="action-btn btn-close" onclick="closeTrade('${t.id}')">Close</button><button class="action-btn btn-delete" onclick="deleteTrade('${t.id}')">Del</button></td></tr>`;
+    // HM-TRADES-VIEW-OPTION-TYPE: show C/P + strike + expiry for option rows
+    let symbolCell = `<b>${t.symbol}</b>`;
+    let qtyCell = `${t.quantity}`;
+    let priceCell = `$${t.entry_price}`;
+    if (t.asset_type === 'option') {
+      const cp = t.option_type === 'call' ? 'C' : (t.option_type === 'put' ? 'P' : '');
+      const strikeNum = t.strike_price != null ? Number(t.strike_price) : null;
+      const strike = strikeNum != null && !isNaN(strikeNum) ? strikeNum.toString() : '';
+      let exp = '';
+      if (t.expiry_date) {
+        const m = String(t.expiry_date).match(/^(\d{4})-(\d{2})-(\d{2})/);
+        exp = m ? (m[2] + '/' + m[3]) : String(t.expiry_date);
+      }
+      const optTag = `${cp}${strike}${exp?' '+exp:''}`;
+      symbolCell = `<b>${t.symbol}</b> <span style="color:var(--muted);font-size:12px;">${optTag}</span>`;
+      qtyCell = `${t.quantity}`;
+      priceCell = `$${t.entry_price} <span style="color:var(--muted);font-size:11px;">prem</span>`;
+    }
+    html += `<tr><td>${symbolCell}</td><td>${side}</td><td style="font-family:var(--font-mono);">${priceCell}</td><td style="font-family:var(--font-mono);">${t.exit_price?'$'+t.exit_price:'-'}</td><td style="font-family:var(--font-mono);">${qtyCell}</td><td style="font-family:var(--font-mono);font-weight:600;color:${pnlColor};">${pnlStr}<span style="font-size:13px;opacity:0.8;">${pnlPctStr}</span></td><td style="font-size:13px;color:var(--muted);">${(t.model_source||'').substring(0,12)}</td><td><span class="badge ${t.status==='open'?'badge-open':''}">${statusLabel}</span></td><td style="display:flex;gap:4px;"><button class="action-btn" style="background:rgba(100,180,255,0.15);color:#4aa8ff;border:1px solid #4aa8ff;" onclick="explainTrade(${t.id})">🔍 Why</button><button class="action-btn btn-close" onclick="closeTrade('${t.id}')">Close</button><button class="action-btn btn-delete" onclick="deleteTrade('${t.id}')">Del</button></td></tr>`;
   }
   body.innerHTML = html || '<tr><td colspan="9" style="text-align:center;color:var(--muted);padding:20px;">No trades</td></tr>';
 }

@@ -8989,7 +8989,7 @@ def get_all_trades(
     rows = conn.execute(
         f"SELECT t.id, t.player_id, t.symbol, t.action, t.qty, t.price, t.reasoning, t.confidence, "
         f"t.executed_at, t.asset_type, t.option_type, t.entry_price, t.exit_price, t.realized_pnl, "
-        f"t.strike_price, p.display_name "
+        f"t.strike_price, t.expiry_date, p.display_name "
         f"FROM trades t LEFT JOIN ai_players p ON t.player_id = p.id "
         f"{where_sql} ORDER BY t.executed_at DESC LIMIT {limit_i}",
         params,
@@ -9019,6 +9019,10 @@ def get_all_trades(
                 "signal_reasoning": r["reasoning"],
                 "pnl": round(pnl, 2) if pnl is not None else None,
                 "pnl_pct": round((exit_p - entry_p) / entry_p * 100, 2) if entry_p and entry_p > 0 else None,
+                "asset_type": r["asset_type"],
+                "option_type": r["option_type"],
+                "strike_price": r["strike_price"],
+                "expiry_date": r["expiry_date"],
             }
         else:
             side_val = "long" if action in ("BUY", "BUY_CALL") else "short"
@@ -9057,6 +9061,10 @@ def get_all_trades(
                 "signal_reasoning": r["reasoning"],
                 "pnl": unrealized_pnl,
                 "pnl_pct": unrealized_pnl_pct,
+                "asset_type": r["asset_type"],
+                "option_type": r["option_type"],
+                "strike_price": r["strike_price"],
+                "expiry_date": r["expiry_date"],
             }
         trades.append(t)
     return trades
