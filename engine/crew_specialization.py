@@ -149,7 +149,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Lt. Cmdr. Spock",
         "role": "Mean Reversion",
         "strategy": "RSI extremes only — buy oversold, short overbought. Avoids trending sessions.",
-        "model": "deepseek-r1:7b",  # RAM patch 2026-04-17: back to 7b (14b was 9.7GB on a 16GB box)
+        "model": "qwen3:8b",  # HM-TIER3 2026-05-28: deepseek-r1:7b uninstalled (404) → qwen3:8b (debate/#2 role; rule-based RSI control signals are model-independent)
         "max_positions": 2,
         "size_factor": 0.8,
         "bridge_voter": False,
@@ -169,7 +169,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
             "vs SPY +4.64% = +567pp alpha. Exit model: 50% at 50% max profit, 30% at 75%, 20% at 90%/21DTE. "
             "Stop: 2× credit received. Trade window: 10:30–15:00 ET. Min OI: 500. VIX > 35: pause."
         ),
-        "model": "phi4:14b",
+        "model": "qwen3:14b",  # HM-TIER3 2026-05-28: phi4:14b uninstalled (404) → qwen3:14b (benched; kept 14b-class for IC strategy)
         "max_positions": 4,
         "size_factor": 1.2,
         "bridge_voter": False,
@@ -527,7 +527,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Capitol Trades",
         "role": "Congress Scout [S6.2]",
         "strategy": "S6.2 SCOUT. Follows congressional trade disclosures (SEC filings). Bypasses alpha gate — congress signals are regime-agnostic. Feeds signals to fleet.",
-        "model": "phi3:mini",  # 2026-04-20: qwen3:8b → phi3:mini (data feed, bigmac resident)
+        "model": "qwen3:8b",  # HM-TIER3 2026-05-28: phi3:mini uninstalled (404) → qwen3:8b (data-feed agent; LLM ref cleared)
         "max_positions": 2,
         "size_factor": 0.8,
         "bridge_voter": False,
@@ -597,7 +597,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "T'Pol",
         "role": "Vulcan Precision Options [ADVISORY]",
         "strategy": "Vulcan precision 0DTE options specialist. Logic-driven, no emotional holds.",
-        "model": "phi3:mini",  # 2026-04-20: qwen3:8b → phi3:mini (bigmac localhost, shelved)
+        "model": "qwen3:8b",  # HM-TIER3 2026-05-28: phi3:mini uninstalled (404) → qwen3:8b (paused agent; valid model for when WAVE 5.2 unpauses)
         "max_positions": 3,
         "size_factor": 1.0,
         "bridge_voter": True,      # still votes on bridge
@@ -610,7 +610,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "CTO Grok 4.2",
         "role": "CTO Advisor",
         "strategy": "Strategic technology sector advisor. No mandate restrictions.",
-        "model": "devstral-small-2",  # HM-CN.tail 2026-05-17: was qwen3:14b; DB ai_players.model_id authoritative is devstral-small-2. Used as crew_scanner fallback only.
+        "model": "qwen3:8b",  # HM-TIER3 2026-05-28: devstral-small-2 uninstalled on Ollie Box (404, MSI-migration orphan) → qwen3:8b (local_redirect target). NOTE: ai_players.model_id also still devstral-small-2 — WR/debate path dead until DB fix.
         "max_positions": 3,
         "size_factor": 1.0,
         "bridge_voter": False,
