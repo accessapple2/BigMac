@@ -435,7 +435,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Dr. Bashir",
         "role": "Sharp Diagnostics [ADVISORY]",
         "strategy": "Genetically enhanced analytical bridge voter. Sharp pattern recognition. No individual trades.",
-        "model": "phi3:mini",  # 2026-04-20: qwen3:8b → phi3:mini (bigmac localhost)
+        "model": "ministral-3:3b",  # HM-TIER3 2026-05-28: phi3:mini uninstalled on Ollie Box (404) → ministral-3:3b (installed, matches WR path)
         "max_positions": 0,
         "size_factor": 0.0,
         "bridge_voter": True,
@@ -450,7 +450,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Constable Odo",
         "role": "Contrarian / Deception Detector [ADVISORY]",
         "strategy": "Sees through market deception. Contrarian plays when consensus is too comfortable.",
-        "model": "deepseek-r1:7b",
+        "model": "deepseek-r1:14b",  # HM-TIER3 2026-05-28: deepseek-r1:7b uninstalled on Ollie Box (404) → 14b (installed, same lineage, matches WR path)
         "max_positions": 2,
         "size_factor": 0.7,
         "bridge_voter": True,
@@ -500,7 +500,7 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "display_name": "Neo",
         "role": "Matrix Agent",
         "strategy": "Independent — no mandate restrictions.",
-        "model": "phi3:mini",  # 2026-04-20: qwen3:8b → phi3:mini (rule-based, bigmac resident)
+        "model": "qwen3:8b",  # HM-TIER3 2026-05-28: phi3:mini uninstalled on Ollie Box (404) → qwen3:8b (installed resident workhorse; was qwen3:8b pre-04-20)
         "max_positions": 3,
         "size_factor": 1.0,
         "bridge_voter": False,
