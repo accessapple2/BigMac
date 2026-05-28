@@ -344,6 +344,13 @@ def _get_scan_interval():
     return SCAN_INTERVAL_OVERNIGHT  # 1800s
 
 
+# HM-AS-β §C instrumentation (2026-05-28) — read-only _scan_lock telemetry.
+# Measures lock contention: hold duration (scan-only vs scan+WR) + how often each
+# tier is "due but skipped" because the lock was held. Pure telemetry, zero
+# behavior change. Routes to trader.log. Soak target: confirm or kill §C with data.
+_scan_skip_due_by_tier = {1: 0, 2: 0, 3: 0}
+
+
 @_hm_bq_instr("run_scanner")
 def run_scanner():
     global arena, _news_counter, _last_scan_time, _tier_last_scan
@@ -354,10 +361,24 @@ def run_scanner():
 
     # Prevent scan stacking — skip if previous scan still running
     if not _scan_lock.acquire(blocking=False):
-        console.log("[yellow]Scan skipped — previous scan still running")
+        # HM-AS-β §C: record which tiers are due-but-skipped because lock is held
+        _now_skip = _time.time()
+        _due = []
+        if _now_skip - _tier_last_scan[1] >= _TIER1_INTERVAL:
+            _due.append("T1"); _scan_skip_due_by_tier[1] += 1
+        if _now_skip - _tier_last_scan[2] >= _TIER2_INTERVAL:
+            _due.append("T2"); _scan_skip_due_by_tier[2] += 1
+        if _tier3_window_open() and _now_skip - _tier_last_scan[3] >= _TIER3_INTERVAL:
+            _due.append("T3"); _scan_skip_due_by_tier[3] += 1
+        _msg = "[yellow]Scan skipped — previous scan still running"
+        if _due:
+            _msg += (f" | [HM-AS-β-C] due-but-skipped: {','.join(_due)}"
+                     f" (cum T1={_scan_skip_due_by_tier[1]} T2={_scan_skip_due_by_tier[2]} T3={_scan_skip_due_by_tier[3]})")
+        console.log(_msg)
         return
 
     # From here we OWN the lock — every code path must release it exactly once.
+    _scan_lock_acq_ts = _time.time()  # HM-AS-β §C: lock-hold start
     interval = _get_scan_interval()
     if interval is None:
         _scan_lock.release()
@@ -414,6 +435,7 @@ def run_scanner():
     _captured_stocks   = list(get_active_universe())
     _captured_players  = frozenset(active_players)
     _captured_counter  = _news_counter
+    _captured_acq_ts   = _scan_lock_acq_ts  # HM-AS-β §C: lock-hold start
     console.log(f"[cyan]Market scan triggered [{tier_label}] — {len(active_players)} agents (interval={interval}s)")
 
     # Run arena.run_scan() in a background thread so the scheduler main thread
@@ -431,6 +453,10 @@ def run_scanner():
             console.log(f"[red]Scan error: {e}")
         finally:
             _scan_lock.release()
+            # HM-AS-β §C: lock-hold duration + whether WR ran inside this thread
+            _hold = _time.time() - _captured_acq_ts
+            _mode = "scan+WR" if (_captured_counter % 3 == 0) else "scan-only"
+            console.log(f"[cyan][HM-AS-β-C] scan_lock held {_hold:.1f}s ({_mode})")
 
     threading.Thread(target=_arena_scan_thread, daemon=True, name="arena_scanner").start()
 
@@ -1352,6 +1378,32 @@ def run_whisper():
         run_whisper_check()
     except Exception as e:
         console.log(f"[red]Whisper error: {e}")
+
+
+# HM-AS-β §B Loop 1 (2026-05-28): fire-and-forget thread wrapper for run_whisper.
+# Wall-time instrumentation ([HM-BQ-instr]) identified run_whisper as THE
+# single-thread schedule.run_pending() loop-blocker: avg 831s / max 1194s on a
+# 10-min cadence — its 1194s max ≈ battle_station_monitor's 1183s max drift.
+# Backgrounding it (not the drift VICTIMS) is the real fix: squeeze_watcher was
+# already _bg-wrapped since β.2 yet still drifted, proving the blocker was elsewhere.
+# At ~14min on a 10-min cadence it WILL overlap — skip-if-prior-running lock keeps
+# max 1 in-flight (no unbounded thread spawn).
+_whisper_bg_lock = threading.Lock()
+
+
+@_hm_bq_instr("_bg_whisper")
+def _bg_whisper():
+    """Daemon-thread wrapper around run_whisper() — never blocks the scheduler.
+    If a prior invocation is still running, skip this tick."""
+    if not _whisper_bg_lock.acquire(blocking=False):
+        console.log("[dim]Whisper bg: prior tick still running — skip")
+        return
+    def _runner():
+        try:
+            run_whisper()
+        finally:
+            _whisper_bg_lock.release()
+    threading.Thread(target=_runner, daemon=True, name="sched_whisper").start()
 
 
 @_hm_bq_instr("run_strength_scan")
@@ -3510,7 +3562,7 @@ if __name__ == "__main__":
     # thread (see _war_room_scheduler_thread above) to bypass single-threaded
     # schedule.run_pending() queue blocking. Cadence preserved at 300s.
     schedule.every(30).minutes.do(run_autopilot)           # Autopilot: every 30 min
-    schedule.every(10).minutes.do(run_whisper)             # Whisper Network: every 10 min
+    schedule.every(10).minutes.do(_bg_whisper)             # Whisper Network: every 10 min (HM-AS-β §B Loop 1: _bg wrap — was the loop-blocker, avg 831s)
     schedule.every(15).minutes.do(run_strength_scan)        # Strength Scanner: every 15 min
     schedule.every(1).hours.do(run_strategy_race)           # Strategy Race: hourly update
     schedule.every(30).minutes.do(run_weekly_picks)          # Weekly Picks: checks every 30 min, sends Sunday 6PM ET
