@@ -37,7 +37,10 @@ def _load_local_env() -> None:
 
 _load_local_env()
 
-from options_engine import calc_ivr, get_spot, MIN_IVR  # noqa: E402  (read-only IVR + spot)
+from options_engine import (  # noqa: E402  — all read-only compute/build; NONE submit orders
+    calc_ivr, get_spot, MIN_IVR, find_target_expiration, _directional_lean,
+    build_bull_put_spread, build_bear_call_spread, build_iron_condor, build_csp,
+)
 
 DB_PATH = str(Path(__file__).resolve().parent.parent / "swingdesk.db")
 
@@ -133,5 +136,190 @@ def run_loop_a(universe: list[tuple[str, str]] | None = None) -> dict:
     }
 
 
+# ── Loop B params (HM-O-TASTY-DOCTRINE) ──────────────────────────────────────
+SHADOW_PORTFOLIO = 52340.0   # shadow-book notional (matches options_engine default)
+BPR_PER_TRADE    = 0.03      # 3% buying-power reduction per trade
+SOFT_CAP         = 0.35      # refuse NEW entries when total book BPR > 35%
+HARD_CAP         = 0.50      # refuse entirely when total book BPR > 50%
+MAX_POSITIONS    = 20        # max concurrent shadow positions
+MAX_PER_SECTOR   = 3         # max concurrent per sector
+
+# Directional auto-map (WAVE 3 doctrine). CSP is NOT auto-selected here — it's the
+# discretionary "willing-to-own" trade and was excluded from the directional default
+# in WAVE 3 (no wrong-direction CSP). The CSP special-case MATH (cash-secured BPR,
+# defined_risk=0, audit tag) IS implemented in _size_at_3pct + the builder import,
+# so CSP is handled correctly the moment a willing-to-own signal selects it.
+_LEAN_STRUCT = {"bullish": "bull_put_spread", "bearish": "bear_call_spread", "neutral": "iron_condor"}
+_BUILDER = {
+    "bull_put_spread":  build_bull_put_spread,
+    "bear_call_spread": build_bear_call_spread,
+    "iron_condor":      build_iron_condor,
+    "csp":              build_csp,
+}
+
+
+def _ensure_shadow_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS swingdesk_shadow_trades (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            would_have_submitted_at TIMESTAMP,
+            scan_date TEXT NOT NULL,
+            symbol TEXT NOT NULL,
+            sector TEXT,
+            structure TEXT,
+            directional_lean TEXT,
+            defined_risk INTEGER,
+            legs TEXT,
+            credit REAL,
+            max_loss REAL,
+            breakevens TEXT,
+            contracts INTEGER,
+            bpr REAL,
+            bpr_pct REAL,
+            pop REAL,
+            dte INTEGER,
+            expiration TEXT,
+            spot REAL,
+            ivr REAL,
+            iv REAL,
+            status TEXT NOT NULL DEFAULT 'shadow_open',
+            audit_tag TEXT,
+            refused_reason TEXT,
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    try:  # idempotent column add for tables created before refused_reason existed
+        conn.execute("ALTER TABLE swingdesk_shadow_trades ADD COLUMN refused_reason TEXT")
+    except sqlite3.OperationalError:
+        pass
+    conn.execute(
+        "CREATE INDEX IF NOT EXISTS idx_shadow_trades ON swingdesk_shadow_trades(scan_date, symbol, status)"
+    )
+    conn.commit()
+
+
+def _size_at_3pct(structure: str, build: dict):
+    """Contracts at 3% BPR. Defined-risk spreads: BPR = max_loss×100. CSP
+    (special-case, non-defined-risk): BPR = cash_required (cash-secured).
+    Returns (contracts, bpr_total, bpr_per_contract, defined_risk)."""
+    if structure == "csp":
+        per = float(build.get("cash_required") or 0.0)
+        defined = 0
+    else:
+        per = float(build.get("max_loss") or 0.0) * 100.0
+        defined = 1
+    if per <= 0:
+        return 0, 0.0, per, defined
+    contracts = int((SHADOW_PORTFOLIO * BPR_PER_TRADE) / per)
+    return contracts, round(per * contracts, 2), per, defined
+
+
+def run_loop_b() -> dict:
+    """LOOP B — structure + entry (SHADOW ONLY). For each Loop-A gate-passer:
+    pick directional structure, size at 3% BPR, enforce 35%/50% caps + 20-max /
+    3-per-sector limits, and write a would-have-entered row to
+    swingdesk_shadow_trades. NO order submission anywhere in this path.
+    """
+    import json
+    from collections import Counter
+
+    scan_date = datetime.now().strftime("%Y-%m-%d")
+    conn = sqlite3.connect(DB_PATH)
+    _ensure_shadow_schema(conn)
+    conn.row_factory = sqlite3.Row
+
+    passers = conn.execute(
+        "SELECT symbol, sector, ivr, iv_current, spot FROM swingdesk_ivr "
+        "WHERE scan_date=? AND gate_pass=1 ORDER BY ivr DESC", (scan_date,)).fetchall()
+
+    openrows = conn.execute(
+        "SELECT symbol, sector, bpr FROM swingdesk_shadow_trades WHERE status='shadow_open'").fetchall()
+    open_count = len(openrows)
+    open_bpr = sum((r["bpr"] or 0) for r in openrows)
+    sector_ct = Counter(r["sector"] for r in openrows)
+    open_syms = {r["symbol"] for r in openrows}
+
+    entered, refused = [], []
+    for p in passers:
+        sym, sector, ivr, iv = p["symbol"], p["sector"], p["ivr"], p["iv_current"]
+        # evaluate (single persist point at the end — every candidate gets a row)
+        lean = structure = exp = None
+        build, bes = {}, []
+        contracts, bpr, defined, audit_tag = 0, 0.0, None, None
+        status, reason = "refused", None
+
+        if sym in open_syms:
+            reason = "already_open"
+        else:
+            lean = _directional_lean(sym)
+            structure = _LEAN_STRUCT.get(lean)
+            if not structure:
+                reason = f"no_structure:{lean}"
+            else:
+                exp = find_target_expiration(sym)
+                if not exp:
+                    reason = "no_expiration"
+                else:
+                    spot = get_spot(sym) or p["spot"]
+                    build = _BUILDER[structure](sym, spot, iv, exp) or {}
+                    bes = ([build.get("breakeven_low"), build.get("breakeven_high")]
+                           if structure == "iron_condor" else [build.get("breakeven")])
+                    audit_tag = "csp_cash_secured" if structure == "csp" else "defined_risk_spread"
+                    if not build.get("viable") or (build.get("max_loss") or 0) <= 0:
+                        reason = f"{structure}_not_viable"
+                    else:
+                        contracts, bpr, per, defined = _size_at_3pct(structure, build)
+                        proj = (open_bpr + bpr) / SHADOW_PORTFOLIO
+                        if contracts < 1:
+                            reason = f"{structure}_per_contract_bpr>{int(BPR_PER_TRADE*100)}pct"
+                        elif proj > HARD_CAP:
+                            reason = f"hard_cap_50pct({proj:.0%})"
+                        elif proj > SOFT_CAP:
+                            reason = f"soft_cap_35pct({proj:.0%})"
+                        elif open_count >= MAX_POSITIONS:
+                            reason = "max_positions_20"
+                        elif sector_ct[sector] >= MAX_PER_SECTOR:
+                            reason = f"sector_limit_3:{sector}"
+                        else:
+                            status, reason = "shadow_open", None
+
+        conn.execute(
+            "INSERT INTO swingdesk_shadow_trades "
+            "(would_have_submitted_at, scan_date, symbol, sector, structure, directional_lean, "
+            " defined_risk, legs, credit, max_loss, breakevens, contracts, bpr, bpr_pct, pop, dte, "
+            " expiration, spot, ivr, iv, status, audit_tag, refused_reason) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            (datetime.now().isoformat(timespec="seconds") if status == "shadow_open" else None,
+             scan_date, sym, sector, structure, lean, defined,
+             json.dumps(build.get("legs", {})), build.get("credit"), build.get("max_loss"),
+             json.dumps(bes) if build else None, contracts, bpr,
+             round(bpr / SHADOW_PORTFOLIO, 4), build.get("pop"), build.get("dte"),
+             exp, build.get("spot") or p["spot"], ivr, iv, status, audit_tag, reason),
+        )
+        if status == "shadow_open":
+            open_count += 1; open_bpr += bpr; sector_ct[sector] += 1
+            entered.append((sym, structure, contracts, bpr))
+        else:
+            refused.append((sym, reason))
+
+    conn.commit()
+    conn.close()
+    return {
+        "loop": "B",
+        "scan_date": scan_date,
+        "gate_passers": len(passers),
+        "entered": len(entered),
+        "entered_detail": entered,
+        "refused": refused,
+        "book_bpr_pct": round(open_bpr / SHADOW_PORTFOLIO, 4),
+        "open_positions": open_count,
+        "orders_submitted": 0,  # invariant: Loop B never submits
+    }
+
+
 if __name__ == "__main__":
-    print(run_loop_a())
+    import sys
+    loop = sys.argv[1].upper() if len(sys.argv) > 1 else "A"
+    print(run_loop_a() if loop == "A" else run_loop_b())
