@@ -3448,6 +3448,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
       <!-- Performance / Analysis -->
       <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:8px 12px 4px;">Performance / Analysis</div>
       <div class="sidebar-item" id="nav-trades" title="Full trades history — paper book, filter by open/closed, options show C/P strike expiry" onclick="showSection('trades')"><span class="icon">📒</span> Trade Log</div>
+      <div class="sidebar-item" id="nav-test-kitchen" title="O-Tasty mechanical premium-selling — paper PA3YVDTUH5CB, Phase 1 manual-assist" onclick="showSection('test-kitchen')"><span class="icon">🧪</span> Test Kitchen (O-Tasty)</div>
       <div class="sidebar-item" title="Individual AI agent performance analysis" onclick="showSection('agent-deepdive');ddAutoLoad()"><span class="icon">🔬</span> Agent Deep Dive</div>
       <div class="sidebar-item" title="Real physical gold &amp; silver holdings ledger" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
       <div class="sidebar-item" onclick="showSection('costs')"><span class="icon">💰</span> Costs</div>
@@ -9545,6 +9546,13 @@ async function loadSECFilings() {
       </table>
     </div>
   </div>
+</div>
+
+<!-- TEST KITCHEN (O-Tasty) — HM-O-TASTY-PHASE-0. Embeds the SwingDesk options UI
+     served by swingdesk/backend.py on 127.0.0.1:8889 at /static/options_tab.html
+     (NOT "/", which 404s). Backend must be running for the iframe to load. -->
+<div id="section-test-kitchen" style="display:none;">
+  <iframe src="http://localhost:8889/static/options_tab.html" style="width:100%;height:90vh;border:none;"></iframe>
 </div>
 
 <!-- CHART SECTION -->
