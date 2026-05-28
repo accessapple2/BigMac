@@ -50,6 +50,21 @@ def _is_market_hours() -> bool:
     return 400 <= mins <= 780  # 6:40 AM–1:00 PM AZ (9:30–4 PM ET)
 
 
+def _latest_regime() -> str | None:
+    """HM-WHEEL-REGIME 2026-05-28: latest macro regime tag for wheel trade
+    records (same source the morning briefing reads). Fail-safe → None."""
+    try:
+        import sqlite3
+        conn = sqlite3.connect("data/trader.db")
+        row = conn.execute(
+            "SELECT regime FROM regime_history ORDER BY created_at DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        return row[0] if row else None
+    except Exception:
+        return None
+
+
 def run_wheel_scan():
     """Scan for wheel opportunities — sell puts on high-IV leveraged ETFs."""
     global _done_today, _last_date
@@ -167,7 +182,7 @@ def run_wheel_scan():
                     {"side": "short", "type": "put", "strike": put_strike,
                      "qty": contracts, "entry_price": estimated_premium},
                 ],
-                regime=None,  # TODO: pull from get_latest_briefing() if needed
+                regime=_latest_regime(),  # HM-WHEEL-REGIME: latest macro regime from regime_history
                 vix=vix,
                 notes=reasoning[:500],
             )

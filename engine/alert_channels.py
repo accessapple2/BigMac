@@ -89,6 +89,15 @@ def _load_state() -> None:
                 _alerts_enabled = (r["value"] or "1") != "0"
             elif r["key"] == "alert_email_to" and r["value"]:
                 ALERT_EMAIL_TO = r["value"]
+        # HM-NTFY-RATE-PERSIST 2026-05-28: restore rate-limit timestamps so NTFY
+        # dedup survives restarts (was in-memory only → alerts re-fired post-restart).
+        rs = _conn()
+        rsrow = rs.execute(
+            "SELECT value FROM settings WHERE key=?", ("alert_rate_state",)
+        ).fetchone()
+        rs.close()
+        if rsrow and rsrow["value"]:
+            _rate_state.update({k: float(v) for k, v in json.loads(rsrow["value"]).items()})
     except Exception:
         pass
 
@@ -136,7 +145,13 @@ def _rate_ok(alert_type: str, rate_limit_secs: int = RATE_LIMIT_SECS) -> bool:
         if _time.time() - last < rate_limit_secs:
             return False
         _rate_state[alert_type] = _time.time()
-        return True
+        _snapshot = dict(_rate_state)
+    # HM-NTFY-RATE-PERSIST 2026-05-28: persist to settings so dedup survives restarts
+    try:
+        _save_setting("alert_rate_state", json.dumps(_snapshot))
+    except Exception:
+        pass
+    return True
 
 
 # ── Channel senders ────────────────────────────────────────────────────────────

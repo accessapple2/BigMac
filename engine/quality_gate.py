@@ -135,4 +135,4 @@ def passes_quality_gate(symbol: str, indicators: dict = None) -> tuple:
         details.append("SKIP smart_money=error")
 
     passes = int(score) >= 3
-    return passes, int(score), details
+    return passes, round(score, 1), details  # HM-QG-SCORE-FLOAT-TRUNCATION: preserve 0.5 partials (was int(score)); pass/fail is float-based so decision is unchanged, this just stops the displayed score hiding half-points
