@@ -63,6 +63,73 @@ ETF_UNIVERSE: list[tuple[str, str]] = [
 ]
 
 
+# ── Kill switch (Loop D) — O-Tasty's OWN switch, separate from the fleet kill ─
+# switch so the Captain can halt O-Tasty independently. Captain-only control;
+# NO auto-flipping in WAVE 8. Append-only audit log; current state = latest row.
+# Gates internal loop behavior ONLY — never touches the broker.
+_KS_STATES = ("ARMED", "TRIPPED", "HARD_HALT")
+
+
+def _ensure_killswitch_schema(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        """
+        CREATE TABLE IF NOT EXISTS swingdesk_killswitch (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            state TEXT NOT NULL,
+            reason TEXT,
+            changed_by TEXT,
+            changed_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+        )
+        """
+    )
+    conn.commit()
+
+
+def get_killswitch_state(conn: sqlite3.Connection | None = None) -> str:
+    """Current O-Tasty kill-switch state (latest row). Seeds ARMED on first read."""
+    own = conn is None
+    if own:
+        conn = sqlite3.connect(DB_PATH)
+    _ensure_killswitch_schema(conn)
+    row = conn.execute("SELECT state FROM swingdesk_killswitch ORDER BY id DESC LIMIT 1").fetchone()
+    if row is None:
+        conn.execute("INSERT INTO swingdesk_killswitch (state, reason, changed_by) "
+                     "VALUES ('ARMED','default seed','system')")
+        conn.commit()
+        state = "ARMED"
+    else:
+        state = row[0]
+    if own:
+        conn.close()
+    return state
+
+
+def set_killswitch(state: str, reason: str = "", changed_by: str = "captain") -> dict:
+    """Captain-only kill-switch control. Appends a state-change row (audit trail).
+    Gates internal loop behavior only — NO broker calls."""
+    state = state.upper()
+    if state not in _KS_STATES:
+        raise ValueError(f"invalid state {state!r}; must be one of {_KS_STATES}")
+    conn = sqlite3.connect(DB_PATH)
+    _ensure_killswitch_schema(conn)
+    conn.execute("INSERT INTO swingdesk_killswitch (state, reason, changed_by) VALUES (?,?,?)",
+                 (state, reason, changed_by))
+    conn.commit()
+    conn.close()
+    return {"state": state, "reason": reason, "changed_by": changed_by}
+
+
+def killswitch_log(limit: int = 20) -> list:
+    conn = sqlite3.connect(DB_PATH)
+    conn.row_factory = sqlite3.Row
+    _ensure_killswitch_schema(conn)
+    rows = [dict(r) for r in conn.execute(
+        "SELECT state, reason, changed_by, changed_at FROM swingdesk_killswitch "
+        "ORDER BY id DESC LIMIT ?", (limit,))]
+    conn.close()
+    return rows
+
+
 def _ensure_schema(conn: sqlite3.Connection) -> None:
     conn.execute(
         """
@@ -98,6 +165,12 @@ def run_loop_a(universe: list[tuple[str, str]] | None = None) -> dict:
     scan_date = datetime.now().strftime("%Y-%m-%d")
     conn = sqlite3.connect(DB_PATH)
     _ensure_schema(conn)
+
+    state = get_killswitch_state(conn)
+    if state == "HARD_HALT":   # halt everything, including the read-only scan
+        conn.close()
+        return {"loop": "A", "killswitch": state, "halted": True, "written": 0, "orders_submitted": 0}
+    # ARMED + TRIPPED both scan (data collection is safe under TRIPPED)
 
     written, passed, errored = 0, 0, []
     for symbol, sector in universe:
@@ -235,6 +308,12 @@ def run_loop_b() -> dict:
     _ensure_shadow_schema(conn)
     conn.row_factory = sqlite3.Row
 
+    state = get_killswitch_state(conn)
+    if state == "HARD_HALT":   # halt everything
+        conn.close()
+        return {"loop": "B", "killswitch": state, "halted": True, "entered": 0, "orders_submitted": 0}
+    # TRIPPED → still evaluate candidates but refuse every new entry (below)
+
     passers = conn.execute(
         "SELECT symbol, sector, ivr, iv_current, spot FROM swingdesk_ivr "
         "WHERE scan_date=? AND gate_pass=1 ORDER BY ivr DESC", (scan_date,)).fetchall()
@@ -255,7 +334,9 @@ def run_loop_b() -> dict:
         contracts, bpr, defined, audit_tag = 0, 0.0, None, None
         status, reason = "refused", None
 
-        if sym in open_syms:
+        if state == "TRIPPED":
+            reason = "killswitch_tripped"   # kill switch halts NEW entries (exits still run in Loop C)
+        elif sym in open_syms:
             reason = "already_open"
         else:
             lean = _directional_lean(sym)
@@ -391,6 +472,13 @@ def run_loop_c() -> dict:
     conn = sqlite3.connect(DB_PATH)
     _ensure_shadow_schema(conn)
     conn.row_factory = sqlite3.Row
+
+    state = get_killswitch_state(conn)
+    if state == "HARD_HALT":   # halt everything, including management exits
+        conn.close()
+        return {"loop": "C", "killswitch": state, "halted": True, "walked": 0, "orders_submitted": 0}
+    # ARMED + TRIPPED both manage — closing positions is allowed/safe under TRIPPED
+
     rows = conn.execute(
         "SELECT * FROM swingdesk_shadow_trades WHERE status='shadow_open'").fetchall()
 
@@ -432,5 +520,11 @@ def run_loop_c() -> dict:
 if __name__ == "__main__":
     import sys
     loop = sys.argv[1].upper() if len(sys.argv) > 1 else "A"
-    fn = {"A": run_loop_a, "B": run_loop_b, "C": run_loop_c}.get(loop, run_loop_a)
-    print(fn())
+    if loop == "D":   # kill switch: "D" → status+log; "D <STATE> [reason]" → set
+        if len(sys.argv) > 2:
+            print(set_killswitch(sys.argv[2], " ".join(sys.argv[3:]) or "cli"))
+        else:
+            print({"state": get_killswitch_state(), "log": killswitch_log(10)})
+    else:
+        fn = {"A": run_loop_a, "B": run_loop_b, "C": run_loop_c}.get(loop, run_loop_a)
+        print(fn())
