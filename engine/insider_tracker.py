@@ -102,8 +102,9 @@ def scan_insider_alerts() -> list:
             console.log(f"[red]Insider alert scan error for {symbol}: {e}")
             return symbol, []
 
+    pool = ThreadPoolExecutor(max_workers=4)
     try:
-        with ThreadPoolExecutor(max_workers=4) as pool:
+        try:
             futures = {pool.submit(_fetch_symbol, s): s for s in config.get_effective_watchlist()}
             for f in as_completed(futures, timeout=10):
                 try:
@@ -131,8 +132,10 @@ def scan_insider_alerts() -> list:
                             })
                 except (FuturesTimeout, Exception):
                     continue
-    except FuturesTimeout:
-        pass  # return partial results collected so far
+        except FuturesTimeout:
+            pass  # return partial results collected so far
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
     # Sort by value descending
     alerts.sort(key=lambda x: x.get("value", 0), reverse=True)

@@ -167,7 +167,8 @@ def download_day_data(date_str: str, symbols: list = None) -> dict:
         time.sleep(0.4)  # Rate limit
         return sym, candles
 
-    with ThreadPoolExecutor(max_workers=4) as pool:
+    pool = ThreadPoolExecutor(max_workers=4)
+    try:
         futures = {pool.submit(_fetch, s): s for s in symbols}
         for future in as_completed(futures):
             sym, candles = future.result()
@@ -176,6 +177,8 @@ def download_day_data(date_str: str, symbols: list = None) -> dict:
                 console.log(f"  [dim]{sym}: {len(candles)} candles")
             else:
                 console.log(f"  [yellow]{sym}: no data")
+    finally:
+        pool.shutdown(wait=False, cancel_futures=True)
 
     # Save cache
     with open(cache_file, "w") as f:

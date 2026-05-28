@@ -227,7 +227,8 @@ def scan_all_impulses(symbols: list[str] | None = None) -> list[dict]:
     from concurrent.futures import ThreadPoolExecutor, as_completed
     alerts = []
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    ex = ThreadPoolExecutor(max_workers=4)
+    try:
         futs = {ex.submit(analyze_impulse, sym): sym for sym in symbols}
         for fut in as_completed(futs, timeout=120):
             sym = futs[fut]
@@ -238,6 +239,8 @@ def scan_all_impulses(symbols: list[str] | None = None) -> list[dict]:
                     alerts.append(result)
             except Exception as e:
                 console.log(f"[red]Impulse scan error {sym}: {e}")
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
 
     alerts.sort(key=lambda x: x["strength_score"], reverse=True)
     return alerts

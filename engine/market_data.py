@@ -510,7 +510,8 @@ def get_all_prices(symbols: list) -> dict:
     """Fetch all prices in parallel. Returns {symbol: price_data}."""
     from concurrent.futures import ThreadPoolExecutor, as_completed
     results = {}
-    with ThreadPoolExecutor(max_workers=8) as ex:
+    ex = ThreadPoolExecutor(max_workers=8)
+    try:
         futs = {ex.submit(get_stock_price, sym): sym for sym in symbols}
         for f in as_completed(futs):
             sym = futs[f]
@@ -520,6 +521,8 @@ def get_all_prices(symbols: list) -> dict:
                     results[sym] = data
             except Exception:
                 pass
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
     return results
 
 
@@ -1208,9 +1211,8 @@ def get_bulk_daily_ohlcv(
     ]
 
     import concurrent.futures
-    with concurrent.futures.ThreadPoolExecutor(
-        max_workers=_BULK_BARS_PARALLELISM
-    ) as ex:
+    ex = concurrent.futures.ThreadPoolExecutor(max_workers=_BULK_BARS_PARALLELISM)
+    try:
         futures = [
             ex.submit(_alpaca_bulk_bars_chunk, chunk, start_iso, end_iso)
             for chunk in chunks
@@ -1224,6 +1226,8 @@ def get_bulk_daily_ohlcv(
                     f"[yellow]get_bulk_daily_ohlcv chunk failed "
                     f"({type(e).__name__}: {e!r})"
                 )
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
 
     with _bulk_bars_cache_lock:
         for sym, df in result.items():

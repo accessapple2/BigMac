@@ -47,12 +47,15 @@ def get_finviz_sector_performance() -> dict[str, float]:
                 ov = Overview()
                 return ov.screener_view(group="Sector")
 
-            with concurrent.futures.ThreadPoolExecutor(max_workers=1) as _ex:
+            _ex = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+            try:
                 future = _ex.submit(_fetch)
                 try:
                     df = future.result(timeout=8)  # 8s hard timeout on Finviz
                 except concurrent.futures.TimeoutError:
                     return _cache["data"] or {}
+            finally:
+                _ex.shutdown(wait=False, cancel_futures=True)
 
             result: dict[str, float] = {}
             for _, row in df.iterrows():

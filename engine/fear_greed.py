@@ -195,9 +195,12 @@ def get_fear_greed_index() -> dict:
             if _cache["data"] and time.time() - _cache["ts"] < _TTL:
                 return _cache["data"]
 
-        with concurrent.futures.ThreadPoolExecutor(max_workers=1) as pool:
+        pool = concurrent.futures.ThreadPoolExecutor(max_workers=1)
+        try:
             future = pool.submit(_compute_fear_greed)
             result = future.result(timeout=_TIMEOUT)
+        finally:
+            pool.shutdown(wait=False, cancel_futures=True)
 
         with _lock:
             _cache["data"] = result

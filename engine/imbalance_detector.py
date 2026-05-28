@@ -247,7 +247,8 @@ def scan_all_imbalances(symbols: list[str] | None = None) -> dict[str, list[dict
     from concurrent.futures import ThreadPoolExecutor, as_completed
     results: dict[str, list[dict]] = {}
 
-    with ThreadPoolExecutor(max_workers=3) as ex:
+    ex = ThreadPoolExecutor(max_workers=3)
+    try:
         futs = {ex.submit(scan_imbalances, sym): sym for sym in symbols}
         for fut in as_completed(futs, timeout=180):
             sym = futs[fut]
@@ -255,6 +256,8 @@ def scan_all_imbalances(symbols: list[str] | None = None) -> dict[str, list[dict
                 results[sym] = fut.result()
             except Exception as e:
                 console.log(f"[red]Imbalance error {sym}: {e}")
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
 
     return results
 

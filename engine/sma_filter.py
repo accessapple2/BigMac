@@ -172,7 +172,8 @@ def scan_all_sma_signals(symbols: list[str] | None = None) -> dict[str, dict]:
     from concurrent.futures import ThreadPoolExecutor, as_completed
     results: dict[str, dict] = {}
 
-    with ThreadPoolExecutor(max_workers=4) as ex:
+    ex = ThreadPoolExecutor(max_workers=4)
+    try:
         futs = {ex.submit(get_sma_200_status, sym): sym for sym in symbols}
         for fut in as_completed(futs, timeout=120):
             sym = futs[fut]
@@ -183,6 +184,8 @@ def scan_all_sma_signals(symbols: list[str] | None = None) -> dict[str, dict]:
                     save_sma_signal(st)
             except Exception as e:
                 console.log(f"[red]SMA scan error {sym}: {e}")
+    finally:
+        ex.shutdown(wait=False, cancel_futures=True)
 
     with _cache_lock:
         _cache["data"] = results
