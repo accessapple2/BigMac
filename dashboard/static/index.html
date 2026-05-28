@@ -23942,7 +23942,12 @@ function fetchTradeFeed() { fetchArenaFeed(); }
 // TRADES TABLE
 async function fetchTrades() {
   try {
-    const r = await fetch('/api/trades?season=' + currentSeason);
+    // currentSeason=0 is the pre-init sentinel; only pass season when it's been resolved.
+    // Omitting the param lets /api/trades default to settings.current_season server-side.
+    const url = currentSeason > 0 || currentSeason === -1
+      ? '/api/trades?season=' + currentSeason
+      : '/api/trades';
+    const r = await fetch(url);
     allTrades = await r.json();
     renderTrades();
   } catch(e) {}
