@@ -51,14 +51,15 @@ paths from `is_halted` to `halt_mode != 'active'`, and HM-B (2026-05-04, commit
 **Drawdown-halt mechanism (do NOT confuse with manual halt above):**
 The 20% drawdown auto-halt lives in `engine/risk_manager.py::check_drawdown()`.
 Reads `portfolio_history`, computes `(peak - current) / peak >= max_drawdown_pct`
-(default 0.20) every cycle, called from `engine/ai_brain.py:817`. The halt is
+(default 0.20) every cycle, called from `engine/ai_brain.py:962`. The halt is
 **transient** — recomputed each cycle, no flag table. To "unhalt" a
 drawdown-halted agent, the natural path is recovery to a new peak.
 
 There is **no `agent_state` table** in any DB. A vestigial reference in
-`agents/post_earnings_drift.py::is_halted()` queries the phantom table but is
-wrapped in `try/except → False`, so it's functionally inert. PED's actual
-protection is `self.gated = True` (paper-only).
+`archive/retired/2026-05-04-post-earnings-drift/post_earnings_drift.py::is_halted()`
+(PED retired 2026-05-04) queries the phantom table but is wrapped in
+`try/except → False`, so it's functionally inert. PED's actual protection is
+`self.gated = True` (paper-only).
 
 **Why `halted_at` is mandatory:** no schema default, no trigger before
 2026-05-19. Forgetting it left NULL timestamps that audit #6A flagged. As of
@@ -84,8 +85,8 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
 ## Network Bindings
 - **Trader dashboard (port 8080)**: uvicorn binds `127.0.0.1` (loopback only);
   LAN clients reach via Cloudflare tunnel at `bridge.ollietrades.com`.
-  Network-wide bind would require separate auth review at
-  `dashboard/app.py:1086-1088`.
+  Network-wide bind would require separate auth review at the uvicorn bind
+  `main.py:2944`.
 - **Signal Center (port 9000)**: bound to `127.0.0.1` from pre-2FA legacy
   posture. HM-AW (`docs/XO_BACKLOG.md`) tracks reopening to network now that
   2FA TOTP + multi-user auth (Captain, Bonnie observer, Dad charts) are in
@@ -183,7 +184,7 @@ in `drafts/HM-CLOSET-POWER-PASTE.md` ITEM 4 plans the migration.
 ### Scheduler-owned jobs — keep parallel launchd plists archived
 
 When a job is registered in the in-process `schedule` library inside `main.py`
-(Riker XO at `main.py:3841`, the daemons at module scope), a parallel
+(Riker XO at `main.py:4226`, the daemons at module scope), a parallel
 `~/Library/LaunchAgents/com.ollietrades.*-cron.plist` that hits the same
 endpoint is a **double-fire footgun**. The in-process scheduler tick is the
 authoritative path; the launchd cron only causes contention (duplicate
@@ -235,7 +236,7 @@ decision 2026-05-05.
     2026-05-13 (HM-AN2.3, "the show must go on Maestro!")
   - `dalio-metals` → Enterprise Computer (portfolio id=5, physical-metals
     tracker, `route_mode=tracking`, log-only)
-- The **spread strategies** (post-gate-flip 2026-05-04, `_EXECUTION_ENABLED=True`):
+- The **spread strategies** (post-gate-flip 2026-05-04, gated on `player_id in OPTIONS_PLAYERS` at `engine/alpaca_options.py:711` inside `execute_options_signal` (line 688)):
   - `bull_call_spread_v1`, `bear_put_spread_v1`, `executor` — route via
     `engine/alpaca_options.py::execute_options_signal`, a third forward path
     that bypasses the player-keyed routing table.
@@ -245,9 +246,9 @@ Every other player. The 9+ active legacy-fleet agents emit signals and trades
 into the `positions` table only. Their entries never reach Alpaca paper.
 
 ### How forwarding gates work
-`engine/paper_trader.py::_forward_to_alpaca` (line 216) is gated on
+`engine/paper_trader.py::_forward_to_alpaca` (line 244) is gated on
 `route["route_mode"] == "trading"` at all three call sites:
-- BUY (line 1015), full-SELL (line 1167), partial-SELL (line 1300 — gated as
+- BUY (line 1546), full-SELL (line 1850), partial-SELL (line 2045 — gated as
   of 2026-05-05 commit `d06c33c` per HM-I Option ε).
 
 Players whose mapped portfolio resolves to `route_mode=paper` (default) or
@@ -362,7 +363,7 @@ both UI panels still render before touching either module.**
 ### Bench 4 — Ghost Trading (signals recorded, no real trades, scored monthly)
 | Name    | Strategy / Type                                              | Model                  |
 |---------|--------------------------------------------------------------|------------------------|
-| Uhura   | SEC EDGAR 13F + Form 4 institutional veto                    | llama3.1               |
+| Uhura   | SEC EDGAR 13F + Form 4 institutional veto                    | qwen3:8b (exit_only)   |
 | Aladdin | BlackRock iShares ETF flow + BII macro signals               | Rule-based (no LLM)    |
 | Spock   | Premium second opinion on McCoy's ambiguous high-VIX CSPs    | qwen3:8b (HM-CN truth-up 2026-05-17 — deepseek-r1:7b in original plan was never installed) |
 | Picard  | Weekly strategic thesis → modifies Ollie's regime table      | Gemma3 4B (local)      |
@@ -407,8 +408,8 @@ test LLM lineages later or revive any single one without code changes.
 ### Gates & Coordination (non-voters)
 - Ollie (`ollie-auto`) — quality gate, OllieScore ≥ 2.0 to approve. **Also the
   Sniper Mode role-holder.**
-- Tractor Beam (`tractor-beam`) — tiebreaker only, not a full voter.
-- Riker (`riker-xo`) — XO synthesis/alerts, fires every 10 min.
+- Tractor Beam — tiebreaker only, not a full voter. (no `tractor-beam` ai_players row exists; it's a coordination role in code)
+- Riker — XO synthesis/alerts, fires every 10 min. (no `riker-xo` ai_players row exists; Riker is the scheduled job `run_riker_synthesis` at `main.py:4226`)
 
 ### Retired (muted, code preserved per sacred-data rule)
 - Chekov — momentum agent, threshold raised to 5.0. REHAB PATH:
@@ -423,9 +424,9 @@ test LLM lineages later or revive any single one without code changes.
 
 ### Zombie Candidates — preserved per sacred-data rule, listed for future audits
 
-14 rows at `halt_mode='full'` with no cost-doctrine angle. Rows stay forever,
+13 rows at `halt_mode='full'` with no cost-doctrine angle. Rows stay forever,
 code preserved, no DROP:
-`anderson-bcs`, `covered-call`, `mccoy-bps`, `quark-ic`, `ghost-kirk-0dte-bc`,
+`anderson-bcs`, `covered-call`, `mccoy-bps`, `ghost-kirk-0dte-bc`,
 `ghost-kirk-bc`, `ghost-long-call`, `ghost-naked-put`, `ollama-gemma27b`,
 `ollama-glm4`, `qwen-coder-haiku`, `qwen3-14b-grok3`, `qwen3-8b-4o`,
 `qwen3-8b-o3`. `dayblade-0dte` is separately `halt_mode='full'` from the
@@ -458,9 +459,9 @@ SI=F, HG=F, PL=F, PA=F.
   and remains live.
 
 ### Fleet count truth (live DB)
-**21 active**, 6 `exit_only`, 43 `full` (as of 2026-05-20). Includes
-`alpaca-mirror`, `mlx-qwen3`, `red-alert` season-1 carryovers intentionally
-`halt_mode='active'`.
+**20 active**, 6 `exit_only`, 45 `full` (as of 2026-05-28). `alpaca-mirror`,
+`mlx-qwen3`, `red-alert` season-1 carryovers are now `halt_mode='full'` (no
+longer active).
 
 ## Duplicate Role Policy
 - **Healthy duplication** (keep): McCoy+Dax both run CSP but on different VIX
@@ -625,7 +626,7 @@ here so the doc can be trusted without re-verifying each session.
    to Ollie Box; reality was bigmac. Pin → routing decisions based on false
    state.
 6. **Docs-vs-bind reality** — CLAUDE.md claimed port 8080 "bound network-wide"
-   but `main.py:2484` pins to `127.0.0.1`. LAN reachability is Cloudflare
+   but `main.py:2944` pins to `127.0.0.1`. LAN reachability is Cloudflare
    tunnel only. (Fixed in network bindings section above.)
 7. **debate_engine.py is NOT CrewAI** — any doc describing
    `engine/debate_engine.py` as CrewAI-orchestrated is wrong. Reality: plain
