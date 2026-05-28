@@ -491,7 +491,7 @@ Flipping a flag requires a service restart:
 
 | Flag | Default | Purpose | Reversal |
 |------|---------|---------|----------|
-| `SPREAD_CANNIBALIZATION_GUARD_ENABLED` | `True` | HM-AF-α 2026-05-06 (emergency halt). Halts P1 (`engine/battle_station.py::monitor_active_options`), P2 (`engine/alpaca_options.py::close_all_options`), P3 (`engine/dayblade.py` post-trade close). HM-AF-β added inner-layer `engine/options_utils.is_spread_leg(symbol)` filter at all three sites; HM-AF-γ added wrong-side-of-book correction in `_auto_close` via `qty_signed`. Lifting requires separate Phase 4 decision; do not auto-lift. | Set `False` in `config.py` + restart |
+| `SPREAD_CANNIBALIZATION_GUARD_ENABLED` | `False` (LIFTED 2026-05-28) | HM-AF-α 2026-05-06 (emergency halt). Halts P1 (`engine/battle_station.py::monitor_active_options`), P2 (`engine/alpaca_options.py::close_all_options`), P3 (`engine/dayblade.py` post-trade close). HM-AF-β added inner-layer `engine/options_utils.is_spread_leg(symbol)` filter at all three sites; HM-AF-γ added wrong-side-of-book correction in `_auto_close` via `qty_signed`. **Phase 4 decision 2026-05-28: LIFTED** — containment moved to the cannibalization source (dayblade-0dte / T'Pol) being `halt_mode='full'`. Re-enable in `config.py` if cannibalization recurs. | Set `True`/`False` in `config.py` + restart |
 
 ## strategy_signals (convergence scanner data plane)
 
@@ -508,11 +508,15 @@ tape. Columns: `ticker`, `strategy_name`, `confidence`, `entry_price`,
 - `engine/event_tape.py::_scanner_tier_for()` — Phase 2.5 detector
   cross-reference.
 
-**Legacy convergence scanner retirement (carry-forward):**
-`engine/strategies.py::scan_strategies` write path has been silently dead
-since 2026-04-07. Eight readers still query the old shape. Coordinated
-retirement queued — see `/tmp/scotty_session_2026-05-03/legacy_scanner_triage.md`
-and `/tmp/scotty_session_2026-05-03/oq3_strategy_signals_readers.md`.
+**Legacy convergence scanner — NOT dead (corrected 2026-05-28, HM-CLAUDE-STALENESS):**
+The earlier "scan_strategies write path silently dead since 2026-04-07" note is
+**STALE/WRONG**. `engine/strategies.py::scan_strategies` is LIVE: the Navigator
+endpoints `/api/navigator/strategies/scan` and `/api/navigator/scan-now`
+(dashboard/app.py) call it with default `save=True` → writes `strategy_signals`,
+which is read back by `/api/navigator/convergence`, `get_todays_signals`,
+`event_tape`, `trade_cards_api`, `tick_recorder`. Do NOT retire it without first
+deprecating those Navigator endpoints (a product decision) + a coordinated
+reader migration. Verified live during WAVE 4 (2026-05-28).
 
 **Window doctrine:** the canonical convergence window is 90 minutes. Match it
 when adding new readers — windows shorter than 30 min miss premarket scan

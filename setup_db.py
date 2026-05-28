@@ -459,7 +459,10 @@ def setup():
             pass
 
     # Add exit_price and realized_pnl columns to trades (migration for existing DBs)
-    for col, typ in [("exit_price", "REAL"), ("realized_pnl", "REAL"), ("entry_price", "REAL")]:
+    # known_contaminated: HM-TRADES-PRICE-WRITEBACK Option B — flags pre-2026-05-21
+    # routed rows with internal (non-broker) prices so Plutus/PnL exclude them.
+    for col, typ in [("exit_price", "REAL"), ("realized_pnl", "REAL"), ("entry_price", "REAL"),
+                     ("known_contaminated", "INTEGER DEFAULT 0")]:
         try:
             c.execute(f"ALTER TABLE trades ADD COLUMN {col} {typ}")
         except sqlite3.OperationalError:
