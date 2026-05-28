@@ -11,11 +11,15 @@ v1 detectors (this module ships these five):
   - new_session_high         current price > today's session high (so far) + 0.1%
   - new_session_low          mirror
 
-Deferred to follow-up (need extra data sources):
+C5 Phase 2.5 detectors (HM-SCANNER-EVENT-DETECTORS-C5):
+  - gap_fill_complete        price returns to prev_close after gapping; once per session
+  - breakout_resistance      price > 20d high AND today_vol > 1.2× 20d avg; once per day
+  - failed_breakdown         session_low < prev_low then reclaimed; once per session
+  - vwap_reclaim             crosses back above session VWAP; 30-min dedup
+  - power_hour_thrust        last-60min vol > 1.5× session avg in last hour ET; once per session
+
+Deferred:
   - crossed_above_close / crossed_below_close — needs yesterday's close (market_snapshots)
-  - gap_fill_complete — needs morning gap state
-  - breakout_resistance — needs 20-day high (volume_baselines doesn't carry it yet)
-  - failed_breakdown — needs prev-low state
 
 Design notes
 ------------
@@ -182,6 +186,38 @@ def _record_event(
     _stats["by_type"][event_type] = _stats["by_type"].get(event_type, 0) + 1
     console.log(f"[green][EVENT-TAPE] {symbol} {event_type}: {narration}")
     return True
+
+
+# ─── Session-level dedup helpers (used by C5 detectors) ──────────────────────
+
+def _fired_today(conn: sqlite3.Connection, symbol: str, event_type: str) -> bool:
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    row = conn.execute(
+        "SELECT 1 FROM event_tape WHERE symbol=? AND event_type=? "
+        "AND substr(detected_at,1,10)=? LIMIT 1",
+        (symbol, event_type, today),
+    ).fetchone()
+    return row is not None
+
+
+def _fired_within(conn: sqlite3.Connection, symbol: str, event_type: str, secs: int) -> bool:
+    row = conn.execute(
+        "SELECT 1 FROM event_tape WHERE symbol=? AND event_type=? "
+        "AND detected_at >= datetime('now', ?) LIMIT 1",
+        (symbol, event_type, f"-{secs} seconds"),
+    ).fetchone()
+    return row is not None
+
+
+def _is_power_hour_et() -> bool:
+    """Return True if current ET wall-clock hour is >= 15 (i.e. last hour before close)."""
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/New_York")).hour >= 15
+    except Exception:
+        # Fallback: approximate via UTC (US/Eastern is UTC-5 standard, UTC-4 DST).
+        # 15:00 ET ≈ 19:00-20:00 UTC depending on DST. Use 19:00 UTC as floor.
+        return datetime.now(timezone.utc).hour >= 19
 
 
 # ─── Detectors ────────────────────────────────────────────────────────────────
@@ -377,6 +413,291 @@ def _detect_session_extremes(conn: sqlite3.Connection) -> None:
             )
 
 
+# ─── C5 Phase 2.5 detectors ──────────────────────────────────────────────────
+
+def _detect_gap_fill_complete(conn: sqlite3.Connection) -> None:
+    """Fire when price returns to prior day's close after gapping open.
+
+    Requires gap ≥ 0.5% from prev_close at today's open. Fires once per
+    (symbol, session) when current price crosses back through prev_close
+    from the gap side.
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    rows = conn.execute(
+        """
+        WITH prev AS (
+          SELECT symbol, close AS prev_close
+            FROM market_snapshots
+           WHERE date = (SELECT MAX(date) FROM market_snapshots WHERE date < ?)
+        ),
+        today_ticks AS (
+          SELECT symbol, price, id
+            FROM price_ticks
+           WHERE substr(ts,1,10) = ?
+        ),
+        agg AS (
+          SELECT t.symbol,
+                 (SELECT price FROM today_ticks WHERE symbol = t.symbol ORDER BY id ASC  LIMIT 1) AS today_open,
+                 (SELECT price FROM today_ticks WHERE symbol = t.symbol ORDER BY id DESC LIMIT 1) AS current_price,
+                 COUNT(*) AS n
+            FROM today_ticks t
+           GROUP BY t.symbol
+          HAVING n >= 5
+        )
+        SELECT a.symbol, a.today_open, a.current_price, p.prev_close
+          FROM agg a
+          JOIN prev p ON p.symbol = a.symbol
+        """,
+        (today, today),
+    ).fetchall()
+
+    for r in rows:
+        try:
+            today_open = float(r["today_open"])
+            current = float(r["current_price"])
+            prev_close = float(r["prev_close"])
+        except (TypeError, ValueError):
+            continue
+        if prev_close <= 0:
+            continue
+        gap_up = today_open > prev_close * 1.005
+        gap_down = today_open < prev_close * 0.995
+        if not (gap_up or gap_down):
+            continue
+        filled = (gap_up and current <= prev_close) or (gap_down and current >= prev_close)
+        if not filled:
+            continue
+        if _fired_today(conn, r["symbol"], "gap_fill_complete"):
+            continue
+        gap_pct = abs(today_open - prev_close) / prev_close * 100.0
+        direction = "down" if gap_up else "up"
+        narration = f"Gap fill complete: {direction} to prev close ${prev_close:.2f}"
+        _record_event(
+            conn, r["symbol"], "gap_fill_complete", narration,
+            price=current, magnitude=gap_pct,
+            metadata={"today_open": today_open, "prev_close": prev_close,
+                      "gap_pct": gap_pct, "direction": direction},
+        )
+
+
+def _detect_breakout_resistance(conn: sqlite3.Connection) -> None:
+    """Fire when current price > 20-day high AND today's volume > 1.2× 20d avg.
+
+    20d window pulls from market_snapshots (requires ≥15 days of history).
+    Today's volume = SUM(price_ticks.volume) for today. Fires once per
+    (symbol, day).
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    rows = conn.execute(
+        """
+        WITH ms_20 AS (
+          SELECT symbol,
+                 MAX(high) AS hi_20d,
+                 AVG(volume) AS avg_vol_20d,
+                 COUNT(*) AS n_days
+            FROM market_snapshots
+           WHERE date >= date(?, '-30 days') AND date < ?
+           GROUP BY symbol
+          HAVING n_days >= 15
+        ),
+        today_agg AS (
+          SELECT symbol,
+                 SUM(COALESCE(volume,0)) AS today_vol,
+                 (SELECT price FROM price_ticks p
+                   WHERE p.symbol = price_ticks.symbol
+                   ORDER BY id DESC LIMIT 1) AS last_price,
+                 COUNT(*) AS n
+            FROM price_ticks
+           WHERE substr(ts,1,10) = ?
+           GROUP BY symbol
+          HAVING n >= 20
+        )
+        SELECT t.symbol, t.last_price, t.today_vol, m.hi_20d, m.avg_vol_20d
+          FROM today_agg t
+          JOIN ms_20 m ON m.symbol = t.symbol
+         WHERE t.last_price > m.hi_20d
+           AND t.today_vol > m.avg_vol_20d * 1.2
+        """,
+        (today, today, today),
+    ).fetchall()
+
+    for r in rows:
+        if _fired_today(conn, r["symbol"], "breakout_resistance"):
+            continue
+        try:
+            last = float(r["last_price"])
+            hi20 = float(r["hi_20d"])
+            if hi20 <= 0:
+                continue
+            pct_over = (last - hi20) / hi20 * 100.0
+        except (TypeError, ValueError):
+            continue
+        narration = f"Breakout above 20d high: ${last:.2f} (+{pct_over:.2f}% over ${hi20:.2f})"
+        _record_event(
+            conn, r["symbol"], "breakout_resistance", narration,
+            price=last, magnitude=pct_over,
+            metadata={"hi_20d": hi20,
+                      "today_vol": float(r["today_vol"] or 0),
+                      "avg_vol_20d": float(r["avg_vol_20d"] or 0)},
+        )
+
+
+def _detect_failed_breakdown(conn: sqlite3.Connection) -> None:
+    """Fire when session_low < prev_low AND current_price > prev_low.
+
+    Captures a false-breakdown reclaim. Fires once per (symbol, session).
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    rows = conn.execute(
+        """
+        WITH prev AS (
+          SELECT symbol, low AS prev_low
+            FROM market_snapshots
+           WHERE date = (SELECT MAX(date) FROM market_snapshots WHERE date < ?)
+        ),
+        today_agg AS (
+          SELECT symbol,
+                 MIN(price) AS session_low,
+                 (SELECT price FROM price_ticks p
+                   WHERE p.symbol = price_ticks.symbol
+                   ORDER BY id DESC LIMIT 1) AS current_price,
+                 COUNT(*) AS n
+            FROM price_ticks
+           WHERE substr(ts,1,10) = ?
+           GROUP BY symbol
+          HAVING n >= 10
+        )
+        SELECT t.symbol, t.session_low, t.current_price, p.prev_low
+          FROM today_agg t
+          JOIN prev p ON p.symbol = t.symbol
+         WHERE t.session_low < p.prev_low
+           AND t.current_price > p.prev_low
+        """,
+        (today, today),
+    ).fetchall()
+
+    for r in rows:
+        if _fired_today(conn, r["symbol"], "failed_breakdown"):
+            continue
+        try:
+            session_low = float(r["session_low"])
+            prev_low = float(r["prev_low"])
+            current = float(r["current_price"])
+        except (TypeError, ValueError):
+            continue
+        if prev_low <= 0:
+            continue
+        narration = (f"Failed breakdown: dipped to ${session_low:.2f} below prev "
+                     f"low ${prev_low:.2f}, reclaimed at ${current:.2f}")
+        _record_event(
+            conn, r["symbol"], "failed_breakdown", narration,
+            price=current,
+            magnitude=((current - prev_low) / prev_low) * 100.0,
+            metadata={"session_low": session_low, "prev_low": prev_low},
+        )
+
+
+def _detect_vwap_reclaim(conn: sqlite3.Connection) -> None:
+    """Fire when prev_tick_price < session VWAP and current_price >= VWAP.
+
+    VWAP = SUM(price * volume) / SUM(volume) for the session. 30-min dedup
+    window so a stock that flips around VWAP doesn't fire every cycle.
+    """
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    rows = conn.execute(
+        """
+        SELECT symbol,
+               SUM(price * COALESCE(volume,0)) / NULLIF(SUM(COALESCE(volume,0)), 0) AS vwap,
+               (SELECT price FROM price_ticks p
+                 WHERE p.symbol = price_ticks.symbol
+                 ORDER BY id DESC LIMIT 1) AS current_price,
+               (SELECT price FROM price_ticks p
+                 WHERE p.symbol = price_ticks.symbol
+                 ORDER BY id DESC LIMIT 1 OFFSET 1) AS prev_price,
+               COUNT(*) AS n
+          FROM price_ticks
+         WHERE substr(ts,1,10) = ?
+         GROUP BY symbol
+        HAVING n >= 20 AND vwap IS NOT NULL
+        """,
+        (today,),
+    ).fetchall()
+
+    for r in rows:
+        try:
+            vwap = float(r["vwap"])
+            current = float(r["current_price"])
+            prev = float(r["prev_price"])
+        except (TypeError, ValueError):
+            continue
+        if vwap <= 0:
+            continue
+        if not (prev < vwap and current >= vwap):
+            continue
+        if _fired_within(conn, r["symbol"], "vwap_reclaim", 30 * 60):
+            continue
+        narration = f"VWAP reclaim: crossed back above ${vwap:.2f}"
+        _record_event(
+            conn, r["symbol"], "vwap_reclaim", narration,
+            price=current,
+            magnitude=((current - vwap) / vwap) * 100.0,
+            metadata={"vwap": vwap, "prev_price": prev},
+        )
+
+
+def _detect_power_hour_thrust(conn: sqlite3.Connection) -> None:
+    """Fire in last 60 min of ET session when last-60min volume rate exceeds
+    1.5× the session average rate. Once per (symbol, session).
+    """
+    if not _is_power_hour_et():
+        return
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    rows = conn.execute(
+        """
+        SELECT symbol,
+               SUM(CASE WHEN datetime(ts) >= datetime('now', '-60 minutes')
+                        THEN COALESCE(volume,0) END) AS vol_60min,
+               SUM(COALESCE(volume,0)) AS vol_total,
+               (julianday(MAX(ts)) - julianday(MIN(ts))) * 24.0 AS hours_elapsed,
+               (SELECT price FROM price_ticks p
+                 WHERE p.symbol = price_ticks.symbol
+                 ORDER BY id DESC LIMIT 1) AS last_price,
+               COUNT(*) AS n
+          FROM price_ticks
+         WHERE substr(ts,1,10) = ?
+         GROUP BY symbol
+        HAVING n >= 30 AND vol_60min > 0 AND vol_total > 0
+        """,
+        (today,),
+    ).fetchall()
+
+    for r in rows:
+        if _fired_today(conn, r["symbol"], "power_hour_thrust"):
+            continue
+        try:
+            vol_60min = float(r["vol_60min"] or 0)
+            vol_total = float(r["vol_total"] or 0)
+            hours_elapsed = float(r["hours_elapsed"] or 0)
+        except (TypeError, ValueError):
+            continue
+        if hours_elapsed <= 0:
+            continue
+        avg_per_hour = vol_total / hours_elapsed
+        if avg_per_hour <= 0:
+            continue
+        ratio = vol_60min / avg_per_hour
+        if ratio < 1.5:
+            continue
+        last_px = float(r["last_price"]) if r["last_price"] is not None else None
+        narration = f"Power-hour thrust: {ratio:.1f}× session avg in last 60min"
+        _record_event(
+            conn, r["symbol"], "power_hour_thrust", narration,
+            price=last_px, magnitude=ratio,
+            metadata={"vol_60min": vol_60min, "avg_per_hour": avg_per_hour,
+                      "hours_elapsed": hours_elapsed},
+        )
+
+
 # ─── Main loops ──────────────────────────────────────────────────────────────
 
 def _run_detector_loop() -> None:
@@ -400,6 +721,12 @@ def _run_detector_loop() -> None:
             _detect_running_fast(c)
             _detect_volume_burst(c)
             _detect_session_extremes(c)
+            # HM-SCANNER-EVENT-DETECTORS-C5
+            _detect_gap_fill_complete(c)
+            _detect_breakout_resistance(c)
+            _detect_failed_breakdown(c)
+            _detect_vwap_reclaim(c)
+            _detect_power_hour_thrust(c)
             c.close()
             _stats["cycles"] += 1
             _stats["last_cycle_at"] = datetime.now(timezone.utc).isoformat()
@@ -475,7 +802,7 @@ def start_event_detector() -> None:
     _cleanup_thread.start()
     _heartbeat_thread = threading.Thread(target=_run_heartbeat, daemon=True, name="event-tape-heartbeat")
     _heartbeat_thread.start()
-    console.log("[green][EVENT-TAPE] event detector started (5 v1 detectors, 30s cadence)")
+    console.log("[green][EVENT-TAPE] event detector started (5 v1 + 5 C5 detectors, 30s cadence)")
 
 
 def stop_event_detector() -> None:
