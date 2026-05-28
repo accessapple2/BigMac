@@ -18,6 +18,8 @@ from __future__ import annotations
 
 import os
 import sqlite3
+import threading
+import time
 import urllib.request
 from datetime import datetime
 from pathlib import Path
@@ -630,6 +632,88 @@ def run_loop_e() -> dict:
     }
 
 
+# ── Scheduler cadence (still SHADOW, still zero-order) ───────────────────────
+# Runs in the isolated O-Tasty backend process — NOT the fleet's 145-job
+# single-thread scheduler (HM-AS-β). The scheduler only INVOKES the shadow loops
+# (all zero-order); it submits nothing itself.
+_E_LAST_RUN_DATE: str | None = None
+_scheduler_thread: threading.Thread | None = None
+
+
+def _et_now() -> datetime:
+    try:
+        from zoneinfo import ZoneInfo
+        return datetime.now(ZoneInfo("America/New_York"))
+    except Exception:
+        return datetime.now()
+
+
+def is_rth() -> bool:
+    """US equity regular trading hours: 9:30–16:00 ET, Mon–Fri (DST-aware)."""
+    now = _et_now()
+    if now.weekday() >= 5:
+        return False
+    mins = now.hour * 60 + now.minute
+    return (9 * 60 + 30) <= mins < (16 * 60)
+
+
+def _shadow_cycle() -> dict:
+    """A/B/C every 5 min during RTH. Shadow; zero-order. No-op outside RTH."""
+    if not is_rth():
+        return {"cycle": "skipped_outside_rth"}
+    a = run_loop_a()
+    b = run_loop_b()
+    c = run_loop_c()
+    return {"cycle": "ran", "killswitch": a.get("killswitch"),
+            "A_written": a.get("written"), "B_entered": b.get("entered"),
+            "C_walked": c.get("walked")}
+
+
+def _nightly_e_guard() -> dict:
+    """Fire Loop E once per day after 18:00 ET (DST-safe via live ET clock)."""
+    global _E_LAST_RUN_DATE
+    now = _et_now()
+    today = now.strftime("%Y-%m-%d")
+    if now.hour >= 18 and _E_LAST_RUN_DATE != today:
+        _E_LAST_RUN_DATE = today
+        return run_loop_e()
+    return {"e": "not_due"}
+
+
+def register_shadow_schedule(scheduler=None):
+    """Register the O-Tasty shadow cadence: A/B/C every 5 min (RTH-gated) + Loop E
+    nightly after 6 PM ET. Registration only — does not start the run loop.
+    Returns the registered jobs (for inspection)."""
+    import schedule as _sch
+    s = scheduler or _sch
+    s.every(5).minutes.do(_shadow_cycle).tag("otasty", "abc-5min-rth")
+    s.every(15).minutes.do(_nightly_e_guard).tag("otasty", "e-nightly-6pm-et")
+    return s.get_jobs("otasty")
+
+
+def start_shadow_scheduler() -> bool:
+    """Start the O-Tasty shadow scheduler in a daemon thread (HM-EQ lifecycle:
+    startup-bound, not lazy). Idempotent. Shadow; zero-order. Called from
+    backend.py startup()."""
+    global _scheduler_thread
+    if _scheduler_thread is not None and _scheduler_thread.is_alive():
+        return False
+    import schedule as _sch
+    register_shadow_schedule(_sch)
+
+    def _loop():
+        while True:
+            try:
+                _sch.run_pending()
+            except Exception as e:
+                print(f"[otasty-shadow-scheduler] {type(e).__name__}: {e}")
+            time.sleep(30)
+
+    _scheduler_thread = threading.Thread(target=_loop, daemon=True, name="otasty-shadow-scheduler")
+    _scheduler_thread.start()
+    return True
+
+
 if __name__ == "__main__":
     import sys
     loop = sys.argv[1].upper() if len(sys.argv) > 1 else "A"
@@ -638,6 +722,10 @@ if __name__ == "__main__":
             print(set_killswitch(sys.argv[2], " ".join(sys.argv[3:]) or "cli"))
         else:
             print({"state": get_killswitch_state(), "log": killswitch_log(10)})
+    elif loop == "SCHED":   # show the registered cadence (no run loop)
+        import schedule as _sch
+        for j in register_shadow_schedule(_sch):
+            print(j)
     else:
         fn = {"A": run_loop_a, "B": run_loop_b, "C": run_loop_c, "E": run_loop_e}.get(loop, run_loop_a)
         print(fn())

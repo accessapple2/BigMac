@@ -591,6 +591,14 @@ def startup():
     print(f"[SwingDesk] DB: {DB_PATH}")
     print(f"[SwingDesk] Polygon: {'OK ' + POLYGON_KEY[:4] + '...' if POLYGON_KEY else 'MISSING'}")
     print(f"[SwingDesk] Alpaca:  loaded (Phase 2 — not wired)")
+    # HM-O-TASTY WAVE 8: start the SHADOW autopilot scheduler (A/B/C every 5 min
+    # RTH + Loop E nightly 6 PM ET). Isolated daemon thread; zero-order.
+    try:
+        from shadow_autopilot import start_shadow_scheduler
+        started = start_shadow_scheduler()
+        print(f"[SwingDesk] Shadow autopilot scheduler: {'started' if started else 'already running'} (SHADOW, zero-order)")
+    except Exception as e:
+        print(f"[SwingDesk] Shadow scheduler start failed: {type(e).__name__}: {e}")
 
 if __name__ == "__main__":
     import uvicorn
