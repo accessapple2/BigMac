@@ -2,6 +2,7 @@ from __future__ import annotations
 import random
 import requests  # HM-BD.F: module-level so except clauses can reference requests.RequestException
 from concurrent.futures import ThreadPoolExecutor, as_completed
+from concurrent.futures import TimeoutError as _FuturesTimeout
 from rich.console import Console
 from engine.providers.base import AIProvider, TradeDecision
 from engine.paper_trader import (
@@ -17,6 +18,25 @@ from engine.telegram_alerts import alert_trade, alert_stop_loss
 from engine.halt_gate import HALTED_EMIT_FILTER
 
 console = Console()
+
+# === HM-SCAN-PROVIDER-TIMEOUT 2026-05-27 — module-level scan pool ===
+# Mirrors HM-WR-VRAM-THRASHING 2026-05-20 (war_room.py:51-66). Before this fix,
+# the Tier 1 inner scan loop called self._run_player synchronously with no
+# timeout. On Ollie Box (RTX 5060 8GB VRAM) a single LLM analyze can take
+# 5+ min — blocking the entire scan cycle on the second provider after the
+# fast deterministic deepseek-7b-grok4. All downstream providers in the model
+# group never reach their emit_signal call.
+#
+# Pool is module-level (NOT `with TPE() as ex:`) — same reason as WR:
+# `with TPE() as ex` __exit__ calls shutdown(wait=True) which shadows any
+# inner .result(timeout=N). Daemon-thread-named for ps debugging. Futures
+# that time out continue in background (discarded) but the scan loop moves
+# on to the next provider.
+import atexit as _scan_atexit
+_SCAN_PROVIDER_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="scan_provider_pool")
+_scan_atexit.register(lambda: _SCAN_PROVIDER_POOL.shutdown(wait=False))
+_SCAN_PROVIDER_TIMEOUT_S = 60  # per-provider hard cap (WR uses 90s; scan is per-symbol-loop so tighter)
+# === /HM-SCAN-PROVIDER-TIMEOUT ===
 
 # === OPT 2/3: CYCLE-SCOPED CACHES ===
 # Premarket gaps: same for all agents — cache 5 min to avoid N localhost HTTP calls/cycle.
@@ -646,11 +666,32 @@ class Arena:
                     console.log(f"[cyan]TIER 1: scanning {pid} ({model_id})...")
                     _cycle_total += 1
                     _t0 = _time.monotonic()
+                    # HM-SCAN-PROVIDER-TIMEOUT 2026-05-27: submit to module-level
+                    # pool with hard timeout. Mirrors HM-WR-VRAM-THRASHING fix.
+                    # Pre-fix: synchronous call hangs scan when Ollie Box LLM
+                    # takes 5+ min/call, blocking all downstream providers.
+                    _fut = _SCAN_PROVIDER_POOL.submit(
+                        self._run_player, pid, provider, prices, indicators, news_by_symbol
+                    )
                     try:
-                        self._run_player(pid, provider, prices, indicators, news_by_symbol)
+                        _fut.result(timeout=_SCAN_PROVIDER_TIMEOUT_S)
                         _cycle_responded += 1
                         _wd.record_success(model_id)
                         _cycle_response_times.append(_time.monotonic() - _t0)
+                    except _FuturesTimeout:
+                        _elapsed = _time.monotonic() - _t0
+                        _cycle_timeouts_by_model[model_id] = (
+                            _cycle_timeouts_by_model.get(model_id, 0) + 1
+                        )
+                        _action = _wd.record_timeout(model_id)
+                        if _action == "recycle":
+                            console.log(f"[yellow]WATCHDOG: recycling {model_id} after consecutive timeouts")
+                            _wd.recycle_model(model_id)
+                        console.log(
+                            f"[yellow][SCAN-PROVIDER-TIMEOUT] {pid} "
+                            f"({model_id}, {_SCAN_PROVIDER_TIMEOUT_S}s) — moving on "
+                            f"(future runs to completion in background)"
+                        )
                     except Exception as e:
                         _elapsed = _time.monotonic() - _t0
                         _is_to = isinstance(e, TimeoutError) or "timed out" in str(e).lower()
