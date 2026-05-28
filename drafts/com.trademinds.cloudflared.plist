@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  HM-CLOUDFLARED-LAUNCHDAEMON — system-domain boot launcher for the Cloudflare
+  tunnel fronting bridge.ollietrades.com → localhost:8080.
+
+  Why a LaunchDaemon (vs the current @reboot cron wrapper): runs at boot in the
+  system domain independent of a logged-in Aqua session, AND gives KeepAlive
+  respawn on crash (the @reboot cron has neither). Supersedes
+  scripts/cloudflared_reboot_start.sh once installed.
+
+  Runs as user 'bigmac' (UserName key) so cloudflared finds the tunnel
+  credentials in ~/.cloudflared/. INSTALL REQUIRES sudo — see the runbook in
+  drafts/WAVE6-CAPTAIN-RUNBOOK.md. NOT auto-installed (Scotty has no sudo).
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.trademinds.cloudflared</string>
+    <key>ProgramArguments</key>
+    <array>
+        <string>/opt/homebrew/bin/cloudflared</string>
+        <string>tunnel</string>
+        <string>--config</string>
+        <string>/Users/bigmac/.cloudflared/config.yml</string>
+        <string>run</string>
+    </array>
+    <key>UserName</key>
+    <string>bigmac</string>
+    <key>RunAtLoad</key>
+    <true/>
+    <key>KeepAlive</key>
+    <true/>
+    <key>StandardOutPath</key>
+    <string>/Users/bigmac/autonomous-trader/logs/cloudflared-trademinds.log</string>
+    <key>StandardErrorPath</key>
+    <string>/Users/bigmac/autonomous-trader/logs/cloudflared-trademinds.log</string>
+    <key>ThrottleInterval</key>
+    <integer>10</integer>
+</dict>
+</plist>
