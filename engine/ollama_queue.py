@@ -33,6 +33,9 @@ import logging
 from typing import Callable, Any
 
 logger = logging.getLogger(__name__)
+# Root logger defaults to WARNING in this codebase; raise to INFO so the
+# [OLLAMA-QUEUE-SWAP] observability lines actually emit (mirrors ollama_provider).
+logger.setLevel(logging.INFO)
 
 # Per-request timeout (seconds). Exceeded requests are skipped, not retried.
 # 2026-04-20: raised 120 → 300 — war_room has many agents queuing simultaneously;
