@@ -578,6 +578,11 @@ def run_loop_e() -> dict:
     _ensure_audit_schema(conn)
     _ensure_killswitch_schema(conn)
 
+    # Idempotent: clear today's audit rows before re-auditing so a re-run (e.g.
+    # after a backend restart resets the in-memory once-daily guard) regenerates
+    # the same findings instead of duplicating them.
+    conn.execute("DELETE FROM swingdesk_audit_log WHERE audit_date=?", (today,))
+
     closed = conn.execute(
         "SELECT id, symbol, structure, exit_reason FROM swingdesk_shadow_trades "
         "WHERE status='would_have_closed' AND would_have_exit_at LIKE ?", (today + "%",)).fetchall()
