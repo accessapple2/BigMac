@@ -9,10 +9,10 @@
 - **WAVE 5 (fleet logic): ✅ COMPLETE** — dayblade Option-B shipped; conviction-scaled stops ENABLED (live); 6 Admiral decisions made.
 - **WAVE 6 (infra): ✅ COMPLETE** — restart.sh fixed + CLAUDE.md staleness sweep + setup_db mirror; cloudflared/auth scaffolding prepped for Captain; HM-AS-β banked.
 - **WAVE 7 (frontend): ⏭ CARRY-FORWARD** (last priority).
-- **WAVE 8 (O-Tasty shadow loop): 🔜 NEXT SESSION — TOP PRIORITY, single task.** From-scratch 5-loop build; engine ready (WAVE 3); zero-order verified loop-by-loop.
+- **WAVE 8 (O-Tasty shadow loop): ✅ COMPLETE** (2026-05-28). 5 loops A–E + scheduler cadence, all zero-order verified by direct broker query (PA3YVDTUH5CB 0 orders). Live shadow daemon running in the O-Tasty backend (A/B/C 5-min RTH, E nightly 6 PM ET). Commits `b2755b9` `b3defcd` `2b537a0` `c9e81e4` `8eb0b5a` `e4b959a` `701a875`. **Live-paper promotion GATED on 30 shadow trades + Captain approval.**
 - **WAVE 9 (events bus / event tape): ⏭ CARRY-FORWARD.**
 
-**NEXT-SESSION ORDER:** WAVE 8 first (focused, zero-order), then HM-AS-β scheduler (`drafts/HM-AS-BETA-SCHEDULER-TOP-PRIORITY.md`).
+**NEXT-SESSION ORDER:** HM-AS-β scheduler (`drafts/HM-AS-BETA-SCHEDULER-TOP-PRIORITY.md`) — TOP PRIORITY (systemic perf + TIER3 5.9 tail). Then carry-forward WAVE 7 (frontend) / WAVE 9 (events bus). WAVE 8 DONE.
 **CAPTAIN QUEUE:** cloudflared sudo install + auth secret-gen (`drafts/WAVE6-CAPTAIN-RUNBOOK.md`). Signal Center :9000 = HOLD.
 
 ---
