@@ -35,7 +35,7 @@ console = Console()
 import atexit as _scan_atexit
 _SCAN_PROVIDER_POOL = ThreadPoolExecutor(max_workers=2, thread_name_prefix="scan_provider_pool")
 _scan_atexit.register(lambda: _SCAN_PROVIDER_POOL.shutdown(wait=False))
-_SCAN_PROVIDER_TIMEOUT_S = 120  # per-provider hard cap. Bumped 60s→120s 2026-05-27 after first cycle showed 6/6 providers timing out at 60s (Ollie Box ministral-3:3b/qwen3:8b inference ≥60s cold). Trade-off: longer total scan wall per cycle, but actually lets signals emit.
+_SCAN_PROVIDER_TIMEOUT_S = 60  # per-provider hard cap (WR uses 90s; scan is per-symbol-loop so tighter)
 # === /HM-SCAN-PROVIDER-TIMEOUT ===
 
 # === OPT 2/3: CYCLE-SCOPED CACHES ===
