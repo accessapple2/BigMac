@@ -24,11 +24,20 @@ console = Console()
 # logging + a module global; zero behavior change. run_scan is serialized by
 # _scan_lock (one scan at a time), so a single module global is safe.
 import time as _hm_scan_time
-_CURRENT_SCAN_PHASE = {"name": "idle", "started": 0.0}
+_CURRENT_SCAN_PHASE = {"name": "idle", "started": 0.0, "quiet": False}
 
-def _scan_phase(name: str, log_prev: bool = True) -> None:
+def _scan_phase(name: str, log_prev: bool = True, quiet: bool = False) -> None:
+    """Update the in-flight scan phase global (read by the §C HELD-INFLIGHT heartbeat).
+
+    quiet=True (HM-RUN-SCAN-WATCHDOG Loop 5A): update the phase global ONLY — emit
+    no [SCAN-SUBCALL] completion log when transitioning OFF this phase. Used for the
+    high-frequency per-symbol markers inside _run_player so the heartbeat can pinpoint
+    the stuck symbol/substep without flooding the log with ~37×agents transition lines.
+    Coarse (non-quiet) markers keep their informative completion logs.
+    """
     now = _hm_scan_time.perf_counter()
-    if log_prev:
+    # Suppress the completion log when leaving a quiet phase (per-symbol churn).
+    if log_prev and not _CURRENT_SCAN_PHASE.get("quiet", False):
         prev = _CURRENT_SCAN_PHASE.get("name")
         if prev and prev not in ("idle", "scan_start"):
             try:
@@ -37,6 +46,7 @@ def _scan_phase(name: str, log_prev: bool = True) -> None:
                 pass
     _CURRENT_SCAN_PHASE["name"] = name
     _CURRENT_SCAN_PHASE["started"] = now
+    _CURRENT_SCAN_PHASE["quiet"] = quiet
 
 # === OPT 2/3: CYCLE-SCOPED CACHES ===
 # Premarket gaps: same for all agents — cache 5 min to avoid N localhost HTTP calls/cycle.
@@ -1147,7 +1157,14 @@ class Arena:
                 console.log(f"[yellow]Dalio symbol fetch error: {_de}")
 
         # Analyze each symbol (multi-step research chain when Flash available)
+        # HM-RUN-SCAN-WATCHDOG Loop 5A: quiet per-symbol phase markers — heartbeat
+        # readout pinpoints which symbol/substep is stuck without log spam.
+        _sym_total = len(_scan_prices)
+        _sym_i = 0
+        _scan_phase(f"player:{player_id}:symloop_start", quiet=True)
         for symbol, data in _scan_prices.items():
+            _sym_i += 1
+            _scan_phase(f"player:{player_id}:sym{_sym_i}/{_sym_total}:{symbol}", quiet=True)
             sym_indicators = indicators.get(symbol, {})
             sym_news = news_by_symbol.get(symbol, [])
 
@@ -1195,6 +1212,9 @@ class Arena:
                     continue
             # === /HM-DEEPSEEK-CONCENTRATION-CAP ===
 
+            # HM-RUN-SCAN-WATCHDOG Loop 5A: mark right before the ollama research
+            # chain — heartbeat stuck here ⇒ analyze_chain wedged (vs post-inference).
+            _scan_phase(f"player:{player_id}:infer:{symbol}", quiet=True)
             decision = provider.analyze_chain(
                 symbol=symbol,
                 price=data["price"],
