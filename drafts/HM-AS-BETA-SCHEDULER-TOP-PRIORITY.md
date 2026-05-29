@@ -84,10 +84,16 @@ the dominant blocker — its 1194s max ≈ `battle_station_monitor`'s 1183s max 
   gap_fill_check/squeeze_watcher all fired on cadence DURING the 17-min whisper run.
   **Still soaking:** drift-warning RATE drop for battle_station/squeeze needs a
   market-hours window (those jobs are market-gated) — mechanism already proven.
-- **Loop 2 — STAGED, not shipped:** wrap `run_autopilot` (#2 blocker). Ship ONLY
-  if drift persists after the Loop-1 soak. Data first.
-- **Loop 3 — only if needed:** the infrequent heavies (`run_strategy_scan`,
-  `run_gap_scan`, `run_imbalance_scan`).
+- **Loop 2 — SHIPPED 2026-05-29 (PID 5299):** wrapped `run_autopilot` in
+  `_bg_autopilot` (same skip-if-prior-running pattern as `_bg_whisper`),
+  registration at `main.py` 30-min job swapped to `_bg_autopilot`. Data drove it:
+  post-Loop-1 `[HM-BQ-instr]` showed `run_autopilot` (avg 96s/max 169s, every
+  30min) as the most FREQUENT remaining synchronous blocker; Loop-1 had already
+  cut max drift 1183s→364s. Verdict pending market-hours soak (drift has multiple
+  synchronous contributors — autopilot is one, not all; Loop 3 likely needed).
+- **Loop 3 — likely needed:** the other synchronous batch members
+  (`run_strategy_scan` max 255s, `run_imbalance_scan` 65s, `run_scanner` 59s).
+  run_pending() batches several due jobs into one pass → cumulative >180s block.
 
 Do NOT blanket-wrap all 145 jobs. **This will NOT revive any tail agent** — it
 addresses cadence integrity only.
@@ -119,10 +125,44 @@ VRAM thrashing). During that window every `run_scanner` tick hits
 cadence and is the first casualty: today it fired **1×** vs TIER1 **9×**.
 
 - Lock release IS in a `finally` (no leak) — this is contention, not a deadlock.
-- **Candidate fix:** decouple `run_war_room()` from inside the `_scan_lock`
-  critical section (run it on its own thread/job), so a long WR cycle stops
-  blocking TIER2/TIER3 scans. This is the actual mechanism keeping
-  energy-arnold/qwen3-8b-flash dormant — distinct from §B's single-thread drift.
+
+> **§C SOAK FINDING — 2026-05-29 (corrects the assumption above).** Read the
+> live telemetry on a clean window (PID 4012, restarted 05:59): the
+> `[HM-AS-β-C] scan_lock held …` line has fired **0 times EVER** — NOT because it
+> wasn't wired (it is, `main.py:459`) but because it only logs on scan
+> COMPLETION, and **scans are not completing**. A scan acquired `_scan_lock` at
+> 06:05:34 and still held it ~14 min later (06:16:17) with no held-line, no
+> `Scan error` — every tick `Scan skipped`. Same pattern in the OLD trader
+> (PID 48180) → **pre-existing**, not Loop-2-induced. So the dominant lock-holder
+> is the **arena scan stalling unboundedly**, not WR (WR is on its own daemon,
+> `main.py:3395`, and is fast — 0.4s cycles). This is closer to a **stall/hang
+> than mere contention** — `run_scan()` holds the lock until the next restart.
+> WR-decouple alone (below) would NOT fix it. The lock-hold half of §C never
+> produced data; only `due-but-skipped` did.
+
+> **SHIPPED 2026-05-29 (PID 5299) — in-flight hold heartbeat (read-only).**
+> `main.py::run_scanner` now spawns a `scan_hold_hb` daemon that logs
+> `[HM-AS-β-C] scan_lock HELD-INFLIGHT {N}s ({mode})` every 60s WHILE a scan is in
+> flight, stopping the instant the scan thread's `finally` sets `_scan_done_evt`.
+> Zero behavior change. Makes the next stall visible within 60s instead of silent
+> until skips pile up — and gives the first real hold-duration distribution.
+
+- **NEW HIGH-PRIORITY ITEM — `run_scan` watchdog (focused session, NOT a
+  tail-patch).** Behavior-changing fix for the scan-lock stall above:
+  - Need: identify WHERE `run_scan()` hangs (which provider call / network with no
+    timeout) — the new HELD-INFLIGHT heartbeat surfaces this on the next stall.
+  - Design options: (a) signal-based timeout returning from run_scan after N min;
+    (b) thread-kill with state cleanup; (c) per-subcall timeouts inside run_scan so
+    the lock holder always returns.
+  - Risk: all touch the critical scan path → real testing before ship.
+  - **Soak first** with the heartbeat to learn the stall's frequency + duration
+    distribution (once/day? once/hour?) before designing. Pre-existing → the system
+    has been periodically starving T1/T2 for an unknown duration; today's heartbeat
+    soak gives the first real answer.
+- **Candidate fix (separate, secondary):** decouple `run_war_room()` from inside
+  the `_scan_lock` critical section (run it on its own thread/job). NOTE: WR is
+  already only 0.4s and runs on its own daemon, so this is now LOW value vs the
+  watchdog — the stall is run_scan itself, not WR.
 - Optional follow-on: bring `crew_decisions`-style PASS/ERROR telemetry to the
   arena scan path (TIER2 agents currently write outcomes to the `signals` table,
   including the error-row-as-signal anti-pattern flagged in the energy-arnold

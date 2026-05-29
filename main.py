@@ -436,7 +436,24 @@ def run_scanner():
     _captured_players  = frozenset(active_players)
     _captured_counter  = _news_counter
     _captured_acq_ts   = _scan_lock_acq_ts  # HM-AS-β §C: lock-hold start
+    _captured_mode     = "scan+WR" if (_captured_counter % 3 == 0) else "scan-only"
     console.log(f"[cyan]Market scan triggered [{tier_label}] — {len(active_players)} agents (interval={interval}s)")
+
+    # HM-AS-β §C in-flight heartbeat (2026-05-29): the held-line below only logs
+    # on COMPLETION, so a long/hung run_scan is invisible until it returns (it may
+    # never — a scan stalled ~14min holding the lock on 2026-05-29, starving T1/T2).
+    # This read-only heartbeat surfaces the lock-hold duration every 60s WHILE the
+    # scan is in flight — pure logging, zero behavior change. Stops the instant the
+    # scan thread sets _scan_done_evt in its finally. (run_scan watchdog = separate
+    # behavior-changing item; this just makes the next stall visible within 60s.)
+    _scan_done_evt = threading.Event()
+
+    def _hold_heartbeat():
+        while not _scan_done_evt.wait(60):
+            _inflight = _time.time() - _captured_acq_ts
+            console.log(f"[yellow][HM-AS-β-C] scan_lock HELD-INFLIGHT {_inflight:.0f}s "
+                        f"({_captured_mode}) — run_scan not yet complete")
+    threading.Thread(target=_hold_heartbeat, daemon=True, name="scan_hold_hb").start()
 
     # Run arena.run_scan() in a background thread so the scheduler main thread
     # is never blocked.  The lock is released by the thread when done.
@@ -453,10 +470,10 @@ def run_scanner():
             console.log(f"[red]Scan error: {e}")
         finally:
             _scan_lock.release()
+            _scan_done_evt.set()  # HM-AS-β §C: stop the in-flight heartbeat
             # HM-AS-β §C: lock-hold duration + whether WR ran inside this thread
             _hold = _time.time() - _captured_acq_ts
-            _mode = "scan+WR" if (_captured_counter % 3 == 0) else "scan-only"
-            console.log(f"[cyan][HM-AS-β-C] scan_lock held {_hold:.1f}s ({_mode})")
+            console.log(f"[cyan][HM-AS-β-C] scan_lock held {_hold:.1f}s ({_captured_mode})")
 
     threading.Thread(target=_arena_scan_thread, daemon=True, name="arena_scanner").start()
 
