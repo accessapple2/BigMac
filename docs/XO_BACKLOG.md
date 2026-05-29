@@ -39,6 +39,13 @@ delete the dead `mark_signal_expired`/`expired` path (`stale` is canonical); rec
 no-price reprocessing spin. NO wrong-trade risk (buy() stale-gate) → MEDIUM. Activation needs
 a restart. Diagnostic detail in `docs/QUEUE_AUDIT_2026-05-29.md`.
 
+**§C OVERLAP (bank 2026-05-29):** root-cause #2 (shared scheduler-thread contention)
+directly overlaps the §C scan-lock stall. The run_scan watchdog (Loop 2+) may PARTIALLY
+unblock the signals_v2 consumer via the same architectural fix. After the watchdog ships,
+re-check whether the stale-sweep is still needed — but the **bulk UPDATE is the right
+architecture regardless**: staleness is a set-property, not a per-signal decision. Expect the
+watchdog to reduce (not eliminate) the accumulation.
+
 ---
 
 ## 🟢 HM-LOOP-1-LOG-VOLUME-ROTATION-CHECK — LOW (filed 2026-05-29)
