@@ -312,7 +312,16 @@ def _build_catalyst_block() -> str:
     """Upcoming catalysts: earnings, events."""
     lines = ["=== CATALYSTS NEXT 14 DAYS ==="]
 
+    # HM-RUN-SCAN-WATCHDOG (I): split ctx:catalyst into its two cold-cache fetches
+    # (earnings enrichment vs trending) so the heartbeat names which one dominates.
     try:
+        from engine.ai_brain import _scan_phase as _sp
+    except Exception:
+        def _sp(*_a, **_k):
+            return None
+
+    try:
+        _sp("ctx:catalyst:earnings", quiet=True)
         from engine.earnings_hub import get_earnings_countdown
         earnings = get_earnings_countdown(days_ahead=14)
         if earnings:
@@ -331,6 +340,7 @@ def _build_catalyst_block() -> str:
 
     # Trending / whisper
     try:
+        _sp("ctx:catalyst:trending", quiet=True)
         from engine.whisper_network import get_trending_tickers
         trending = get_trending_tickers()
         if trending:
