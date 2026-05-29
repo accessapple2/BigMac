@@ -43291,6 +43291,17 @@ async function fetchMovers() {
     <div id="realPortfolioMeta" style="padding:0 16px 12px;font-size:11px;color:var(--muted);text-align:center;"></div>
   </div>
 
+  <!-- HM-SCHWAB-UPLOAD 2026-05-28: browser upload → same import pipeline as the cron watcher (for remote users e.g. Bonnie via the tunnel) -->
+  <div class="card" style="margin-bottom:16px;border-left:4px solid #f59e0b;">
+    <div class="card-header"><div class="card-title">⬆️ Upload Schwab CSV</div></div>
+    <div style="padding:14px;font-size:13px;">
+      <div style="color:var(--muted);margin-bottom:8px;">Export "Positions" from Schwab, then upload the CSV here — it runs the same import + sync as the auto-watcher and refreshes net worth in seconds.</div>
+      <input type="file" id="schwabCsvFile" accept=".csv,text/csv" style="font-size:13px;margin-bottom:8px;display:block;">
+      <button class="btn btn-primary" onclick="uploadSchwabCsv()" style="font-size:13px;">Import</button>
+      <div id="schwabUploadStatus" style="margin-top:10px;font-size:12px;color:var(--muted);"></div>
+    </div>
+  </div>
+
   <!-- Per-account breakdown: 4-card auto-fit grid (mobile: stacks; desktop: 2x2 or 4-col) -->
   <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:12px;margin-bottom:16px;">
     <div class="card">
@@ -43356,6 +43367,34 @@ function _w5dFmtUSD(n, opts) {
   var min = o.min === undefined ? 2 : o.min;
   var max = o.max === undefined ? 2 : o.max;
   return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits: min, maximumFractionDigits: max});
+}
+
+// HM-SCHWAB-UPLOAD 2026-05-28: POST a Schwab positions CSV to the import endpoint,
+// then refresh the net-worth view. Same pipeline as the cron watcher (idempotent).
+async function uploadSchwabCsv() {
+  var inp = document.getElementById('schwabCsvFile');
+  var status = document.getElementById('schwabUploadStatus');
+  if (!inp || !inp.files || !inp.files.length) {
+    status.textContent = '⚠️ Choose a CSV file first.'; status.style.color = '#f59e0b'; return;
+  }
+  var file = inp.files[0];
+  status.textContent = '⏳ Uploading + importing ' + file.name + '…'; status.style.color = 'var(--muted)';
+  try {
+    var fd = new FormData();
+    fd.append('file', file);
+    var r = await fetch('/api/data/import/schwab', { method: 'POST', body: fd });
+    var d = await r.json().catch(function(){ return {}; });
+    if (!r.ok) {
+      status.textContent = '❌ ' + (d.detail || ('HTTP ' + r.status)); status.style.color = '#ef4444'; return;
+    }
+    var cash = (d.cash_balance != null) ? Number(d.cash_balance).toLocaleString() : '?';
+    status.innerHTML = '✅ Imported <b>' + (d.position_count != null ? d.position_count : '?') +
+      '</b> position(s), cash $' + cash + ' — snapshot ' + (d.last_updated || '?') + '. Refreshing…';
+    status.style.color = '#10b981';
+    if (typeof fetchRealPortfolio === 'function') fetchRealPortfolio();
+  } catch (e) {
+    status.textContent = '❌ Upload error: ' + e; status.style.color = '#ef4444';
+  }
 }
 
 async function fetchRealPortfolio() {

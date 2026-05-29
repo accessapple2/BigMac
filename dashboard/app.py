@@ -18687,6 +18687,104 @@ async def api_import_webull(request: Request):
         raise HTTPException(status_code=500, detail=str(e))
 
 
+@app.post("/api/data/import/schwab")
+async def api_import_schwab(request: Request):
+    """Upload + import a Schwab positions CSV ('Scwab New BS-Positions-*.csv').
+
+    HM-SCHWAB-UPLOAD 2026-05-28: lets a remote browser user (Bonnie via the
+    tunnel) feed the real-world portfolio pipeline without file-transfer
+    gymnastics. Mirrors the proven cron-watcher chain (import_schwab_csv.py →
+    sync_schwab_to_real_holdings.py) via subprocess on the venv the scripts are
+    validated under. Idempotent: import uses INSERT OR IGNORE keyed on
+    snapshot_id, so a re-upload OR a race with the every-60s cron watcher is a
+    harmless no-op. Accepts multipart/form-data field 'file', or JSON 'filepath'.
+    """
+    import tempfile, subprocess, shutil, json as _json
+    from pathlib import Path as _P
+    from datetime import datetime as _dt
+
+    _ROOT = _P(__file__).resolve().parent.parent
+    _PY = str(_ROOT / "venv" / "bin" / "python3")  # 3.9 venv (matches the watcher)
+    _ARCHIVE = _ROOT / "data" / "schwab_csv_archive"
+
+    # 1. Obtain the CSV bytes (multipart upload) or a server-side path (JSON).
+    content_type = request.headers.get("content-type", "")
+    orig_name = "schwab_upload.csv"
+    tmp_path = ""
+    is_temp = False
+    if "multipart" in content_type:
+        try:
+            form = await request.form()
+            upload = form.get("file")
+            if upload is None:
+                raise HTTPException(status_code=400, detail="No 'file' field in form data")
+            orig_name = getattr(upload, "filename", None) or orig_name
+            contents = await upload.read()
+            if not contents:
+                raise HTTPException(status_code=400, detail="Uploaded file is empty")
+            tf = tempfile.NamedTemporaryFile(mode="wb", suffix=".csv",
+                                             delete=False, prefix="schwab_upload_")
+            tf.write(contents); tf.close()
+            tmp_path = tf.name
+            is_temp = True
+        except HTTPException:
+            raise
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Upload error: {e}")
+    else:
+        try:
+            body = await request.json()
+            tmp_path = body.get("filepath", "")
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"Request parse error: {e}")
+        if not tmp_path or not _P(tmp_path).is_file():
+            raise HTTPException(status_code=400, detail="'filepath' missing or not a server-side file")
+        orig_name = _P(tmp_path).name
+
+    # 2. Run the proven import + sync chain (subprocess; cwd = repo root).
+    try:
+        imp = subprocess.run([_PY, "scripts/import_schwab_csv.py", tmp_path],
+                             cwd=str(_ROOT), capture_output=True, text=True, timeout=120)
+        if imp.returncode != 0:
+            raise HTTPException(status_code=422,
+                detail=f"Schwab import failed: {(imp.stderr or imp.stdout or '')[-400:]}")
+        syn = subprocess.run([_PY, "scripts/sync_schwab_to_real_holdings.py"],
+                             cwd=str(_ROOT), capture_output=True, text=True, timeout=60)
+        if syn.returncode != 0:
+            raise HTTPException(status_code=422,
+                detail=f"real_holdings sync failed: {(syn.stderr or syn.stdout or '')[-400:]}")
+        # 3. Archive the CSV (record), mirroring the watcher's PROCESSED_DIR move.
+        try:
+            _ARCHIVE.mkdir(parents=True, exist_ok=True)
+            ts = _dt.now().strftime("%Y%m%d_%H%M%S")
+            shutil.copy(tmp_path, str(_ARCHIVE / f"{ts}_{orig_name.replace('/', '_')}"))
+        except Exception:
+            pass  # archive is best-effort; import already succeeded
+    except subprocess.TimeoutExpired:
+        raise HTTPException(status_code=504, detail="Schwab import/sync timed out")
+    finally:
+        if is_temp:
+            try: _P(tmp_path).unlink()
+            except Exception: pass
+
+    # 4. Return the refreshed Schwab block so the UI can confirm immediately.
+    try:
+        rh = _json.load(open(str(_ROOT / "data" / "real_holdings.json")))
+        sch = rh.get("accounts", {}).get("schwab", {})
+        return {
+            "status": "ok",
+            "imported": orig_name,
+            "last_updated": rh.get("last_updated"),
+            "cash_balance": sch.get("cash_balance"),
+            "position_count": len(sch.get("positions", [])),
+            "positions": sch.get("positions", []),
+            "notes": sch.get("notes"),
+        }
+    except Exception as e:
+        return {"status": "ok", "imported": orig_name,
+                "note": f"imported + synced, but real_holdings read-back failed: {e}"}
+
+
 @app.get("/api/analyze/{ticker}")
 def analyze_ticker(ticker: str):
     """AI analysis for a ticker: pulls recent signals then asks deepseek-r1:7b for synthesis."""
