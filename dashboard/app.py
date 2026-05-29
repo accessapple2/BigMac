@@ -4883,9 +4883,40 @@ def dayblade_strategy():
         return {"error": str(e), "strategy": {"label": "Unavailable", "color": "#6b7280"}}
 
 
+# HM-DAYBLADE-FLASH-GUARD (2026-05-29): the flash-alert feature is fed by the
+# 0DTE scanner (dayblade-0dte). That player is halt_mode='full', so no new
+# flash_alerts rows are written and the readers below only churned fresh DB
+# connections per poll (ensure_tables + reader) — the intermittent
+# "unable to open database file" (FD exhaustion under burst) traced to this
+# path. When dayblade-0dte is not active, short-circuit to empty without
+# touching the scanner. Cached 60s so the guard itself adds ~1 DB hit/min, not
+# one per poll. Fail-open: if the halt state can't be read, fall through to the
+# original behavior so a revived scanner is never silently suppressed.
+_dayblade_halt_cache = {"halted": None, "ts": 0.0}
+
+
+def _dayblade_halted() -> bool:
+    now = _time_module.monotonic()
+    if _dayblade_halt_cache["halted"] is not None and now - _dayblade_halt_cache["ts"] < 60:
+        return _dayblade_halt_cache["halted"]
+    try:
+        with _conn() as c:
+            row = c.execute(
+                "SELECT halt_mode FROM ai_players WHERE id='dayblade-0dte'"
+            ).fetchone()
+        halted = bool(row) and row["halt_mode"] != "active"
+    except Exception:
+        halted = False  # fail-open
+    _dayblade_halt_cache["halted"] = halted
+    _dayblade_halt_cache["ts"] = now
+    return halted
+
+
 @app.get("/api/flash-alerts")
 def flash_alerts_list(limit: int = 10):
     """Recent flash alerts from the 0DTE scanner."""
+    if _dayblade_halted():
+        return {"alerts": [], "count": 0}
     from engine.dayblade_scanner import get_recent_flash_alerts, ensure_tables
     ensure_tables()
     alerts = get_recent_flash_alerts(limit)
@@ -4895,6 +4926,8 @@ def flash_alerts_list(limit: int = 10):
 @app.get("/api/flash-alerts/active")
 def flash_alert_active():
     """Most recent non-dismissed alert from last 5 minutes (for flash overlay)."""
+    if _dayblade_halted():
+        return {"alert": None, "has_alert": False}
     from engine.dayblade_scanner import get_active_flash_alert, ensure_tables
     ensure_tables()
     alert = get_active_flash_alert()
@@ -4904,6 +4937,8 @@ def flash_alert_active():
 @app.get("/api/flash-alerts/latest")
 def flash_alert_latest():
     """Alias for /active — returns most recent undismissed alert (used by top banner)."""
+    if _dayblade_halted():
+        return {"has_alert": False, "alert": None}
     from engine.dayblade_scanner import get_active_flash_alert, ensure_tables
     ensure_tables()
     alert = get_active_flash_alert()
