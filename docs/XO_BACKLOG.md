@@ -22,10 +22,17 @@ Now **6+ confirmed instances in two sessions** — promoted MEDIUM→HIGH on ins
 4. Loop 5B — other `_fh_get` callers (insider, news-sentiment, quote, company-news) shared the gap.
 5. Loop 5D — catalyst earnings AV enrichment (per-symbol Alpha Vantage, 5/min).
 6. Loop 5D — `get_trending_tickers` per-symbol `_yahoo_chart` over the 3,048-symbol universe.
-**+ NEWLY SURFACED (Loop 5C read, not yet fixed):** `base.build_prompt` makes ~15 per-symbol
-fetches, several UNBOUNDED — `build_fundamentals_prompt` (Yahoo), `build_sell_fundamentals_prompt`
-(analyst ratings), `build_sentiment_prompt_section` (Finnhub), `build_whisper_prompt_section`,
-+ a `get_stock_price` loop for open positions. Likely **8-12 more instances exist uncaught.**
+**+ Loop 5C read — `base.build_prompt` inventory (accurate, ~15 per-symbol fetches):** MOST are
+already BOUNDED — `market_data._is_yf_limited()` is hardwired `True` so all yfinance-routed
+builders (mtf, fibonacci, trend, strategy, fundamental_score) short-circuit to empty before any
+I/O; DB-backed ones (impulse, theta, gap, sentiment, strength) are DB reads. **4 LIVE unbounded-
+on-cold paths remain:** (1) `build_whisper_prompt_section`→`get_trending_tickers()` **called with
+NO `prices`** (base.py:658 — Loop 5D rewire MISSED this caller; legacy 3,048-sym Yahoo loop;
+usually warm-cached but a latent re-hang); (2) `get_stock_price` loop over open positions
+(base.py:1011 — Alpaca→Yahoo→Finnhub→AV per position); (3) `build_fundamentals_prompt` /
+`build_sell_fundamentals_prompt`→`yahoo_quote_summary` (per-symbol Yahoo v10, timeout=10
+single-attempt, NOT yf-gated); (4) `build_sr`/`build_pattern`→`_yahoo_chart` (bounded ~30s).
+**Loop 5D follow-up:** thread `prices` into the whisper caller (one-liner, parks until 5C lands).
 
 **Scope:** sweep ALL external fetches (HTTP, broker APIs, third-party data) in `engine/`. For each
 confirm: (1) per-call timeout, (2) cache where appropriate, (3) **total** deadline on the cold path

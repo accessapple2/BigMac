@@ -425,6 +425,16 @@ class AIProvider(ABC):
                 indicators: dict = None, news: list = None) -> TradeDecision:
         self.limiter.wait()
 
+        # HM-RUN-SCAN-WATCHDOG Loop 5C-A: split the per-symbol infer phase into
+        # prompt-build vs model-call, so the §C heartbeat names which half hangs on
+        # TEAM/XOM/KLAC. quiet=True → phase global only, no log spam.
+        try:
+            from engine.ai_brain import _scan_phase as _sp
+        except Exception:
+            _sp = None
+        if _sp:
+            _sp(f"player:{self.player_id}:infer:{symbol}:prompt", quiet=True)
+
         # Check if we already hold this symbol as STOCK - skip to avoid double-buy stock
         held_stock_symbols = {
             p["symbol"] for p in portfolio_context.get("positions", [])
@@ -445,6 +455,8 @@ class AIProvider(ABC):
             held_options=held_options,
         )
         try:
+            if _sp:
+                _sp(f"player:{self.player_id}:infer:{symbol}:model", quiet=True)
             response = self.call_model(prompt)
 
             # Track API call with token-level cost tracking
