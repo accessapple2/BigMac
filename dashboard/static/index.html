@@ -13187,7 +13187,7 @@ body[data-theme="light"] .sidebar-item {
   async function _oaiFlatten(sym) {
     var pos = await _oaiGetPosition(sym);
     if (!pos || !pos.has_position) {
-      _oaiShowToast('No open position in ' + sym + ' to flatten', 'error');
+      _oaiShowToast('No ' + sym + ' position in the Alpaca paper book to flatten (this workspace trades paper only; real-money holdings live in Real Portfolio)', 'error');
       return;
     }
     var ok = await _oaiShowConfirm({
@@ -13219,7 +13219,7 @@ body[data-theme="light"] .sidebar-item {
     /* mode: 'half' → close 50% of position; 'double' → add same qty + side */
     var pos = await _oaiGetPosition(sym);
     if (!pos || !pos.has_position) {
-      _oaiShowToast('No open position in ' + sym + ' to ' + mode, 'error');
+      _oaiShowToast('No ' + sym + ' position in the Alpaca paper book to ' + mode + ' (this workspace trades paper only; real-money holdings live in Real Portfolio)', 'error');
       return;
     }
     var curQty = Math.abs(Number(pos.qty));
@@ -13269,7 +13269,7 @@ body[data-theme="light"] .sidebar-item {
   async function _oaiReverse(sym) {
     var pos = await _oaiGetPosition(sym);
     if (!pos || !pos.has_position) {
-      _oaiShowToast('No open position in ' + sym + ' to reverse', 'error');
+      _oaiShowToast('No ' + sym + ' position in the Alpaca paper book to reverse (this workspace trades paper only; real-money holdings live in Real Portfolio)', 'error');
       return;
     }
     var curQty = Math.abs(Number(pos.qty));
