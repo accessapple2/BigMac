@@ -617,6 +617,30 @@ day-boundary verification (how the post-restart/today segment was isolated — l
 restart marker, contiguous-ascending-timestamp block) BEFORE reporting a rate.** A rate
 without a stated boundary method is suspect. Verify the instrument, not just the result.
 
+### Trace EVERY sub-fetch to its leaf before fixing a multi-fetch block (2026-05-29)
+When a hang localizes to a block that bundles multiple sub-fetches, trace **every**
+fetch to its leaf — or instrument to distinguish them — **before** committing to a fix.
+Don't stop at the first HTTP call and assume. HM-RUN-SCAN-WATCHDOG Loop 5B localized the
+stall to `build_scan_context`'s `ctx:catalyst` block, traced it to the Finnhub
+`/calendar/earnings` call, and shipped a cache+deadline on `_fh_get` — but the real hang
+was two levels deeper (`get_earnings_countdown`'s per-symbol Alpha Vantage enrichment +
+`get_trending_tickers`'s per-symbol Yahoo loop), so the fix didn't move the needle. The
+**no-deadline-trip test** (ctx:catalyst still hung 200s+ with zero `TOTAL-deadline` logs ⇒
+the hang is NOT in `_fh_get`) caught the mis-attribution — but only **after** a restart
+cycle. **Cost of one wrong-fix restart cycle > cost of one extra instrumentation pass to
+confirm the cause.** When a block fans out, split-marker first (same family as
+[[boundary-isolate]] and layered-bottleneck). Related: external-fetch-discipline bug class
+(unbounded per-item external fetch, cold cache, every agent re-pays) — now at 5 instances
+(Loop 1 Yahoo indicators, Loop 3, 5B Finnhub calendar, earnings AV enrichment, trending Yahoo).
+
+### Code comments document INTENT — divergence from implementation is a signal (2026-05-29)
+When implementation diverges from a comment, investigate — it's code drift, a wrong
+comment, or a design that was never realized. `build_scan_context`'s "Build shared scan
+context once per model" comment vs the per-agent-call reality (every one of 19 agents
+rebuilds all 14 blocks, re-paying market-wide fetches) is example #1: the comment captured
+the *intended* design; the code never implemented the sharing. Aligning code to its own
+documented intent (cache the market-wide blocks once per cycle) is the highest-leverage fix.
+
 Full session narratives in `docs/CLAUDE-archive-2026-05.md`. Rules below are
 load-bearing today.
 
