@@ -35389,6 +35389,7 @@ function _notifDestination(notif) {
     case 'trade':    return "showSection('feed')";
     case 'alert':   case 'critical': return "showSection('alert-history')";
     case 'risk':    return "showSection('dashboard')";
+    case 'war_room': case 'war-room': return "showSection('war-room')";  // HM-NOTIF-DEEPLINK-WAR-ROOM 2026-05-29: deeplink half (inert until producer exists)
     default:        return "showSection('dashboard')";
   }
 }
