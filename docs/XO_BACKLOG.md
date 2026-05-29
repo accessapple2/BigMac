@@ -20,10 +20,34 @@ inert — worth checking).
 canNOT be executed as fresh (no wrong-trade risk). Harm = pending-bucket bloat + status-
 column inaccuracy + possible consumer-throughput lag.
 
-**Fix options (focused session, NOT a tail-patch):** (a) explicit scheduled stale-sweep
-(`UPDATE signals_v2 SET status='stale' WHERE status='pending' AND stale_after < now`);
-(b) fix consumer to expire past-stale rows it skips; (c) reconcile the dead `expired`-write
-path vs `stale`. Diagnostic detail in `docs/QUEUE_AUDIT_2026-05-29.md`.
+**ROOT CAUSE (2026-05-29 deeper diagnosis):** the consumer (`run_events_bus_consumer`,
+main.py:4048, every 1 min NYSE-hours) drains only `max_batch=10` pending/min, oldest-first,
+and DOES mark past-stale at step (a) — but (1) 10/min < producer rate during heavy scanning
+(navigator 368 + ollie-auto 240 fill faster), (2) it runs on the SHARED scheduler thread —
+the same one §B/§C contention blocks — so it fires < every minute when scanners batch, and
+(3) the no-price branch leaves signals `pending` (re-processed each tick). So staleness expiry
+is gated behind rate-limited, contention-prone per-signal processing → past-stale accumulates.
+`mark_signal_expired` is a CONFIRMED dead path (zero external callers; only its own warn-log
+references it) → vestigial `expired` status, never written.
+
+**RECOMMENDED FIX (focused session):** a **bulk stale-sweep decoupled from the consumer** —
+`UPDATE signals_v2 SET status='stale' WHERE status='pending' AND stale_after IS NOT NULL AND
+stale_after < datetime('now')` at the top of the consumer (or its own daemon). Expiry is a
+bulk set-op, NOT a per-signal decision — shouldn't be rate-limited to 10/min or starved by
+scheduler-thread contention. One cheap UPDATE clears the whole backlog each fire. Secondary:
+delete the dead `mark_signal_expired`/`expired` path (`stale` is canonical); reconsider the
+no-price reprocessing spin. NO wrong-trade risk (buy() stale-gate) → MEDIUM. Activation needs
+a restart. Diagnostic detail in `docs/QUEUE_AUDIT_2026-05-29.md`.
+
+---
+
+## 🟢 HM-LOOP-1-LOG-VOLUME-ROTATION-CHECK — LOW (filed 2026-05-29)
+
+Loop 1 instrumentation (HM-RUN-SCAN-WATCHDOG) adds ~10 `[SCAN-SUBCALL]` lines per scan to
+trader.log. Not a problem now, but if Loop 1 stays long-term (post-watchdog ship), verify log
+rotation handles the added volume. **Check after Loop 1 has soaked 24h+:** trader.log growth
+rate + rotation config still sane. Either remove the instrumentation OR confirm rotation when
+the watchdog ships.
 
 ---
 
