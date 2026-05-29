@@ -3,7 +3,10 @@ SwingDesk Backend — Solo Swing Trading System
 FastAPI + SQLite + Polygon.io real data
 Phase 1: Real data, manual-assist execution, NO Alpaca wiring yet
 Run: cd ~/autonomous-trader && python3 swingdesk/backend.py
-     OR: uvicorn swingdesk.backend:app --port 8889 --reload
+     OR: uvicorn swingdesk.backend:app --port 8889
+NOTE: reload disabled (HM-OTASTY-NO-RELOAD 2026-05-29) — StatReload pegged a
+      full core + churned the worker on file touches, polluting the 30-shadow-
+      trade gate soak. Do NOT re-add --reload to the production launch.
 """
 
 import sqlite3, json, math, os, urllib.request, urllib.parse
@@ -602,7 +605,7 @@ def startup():
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run("backend:app", host="0.0.0.0", port=8889, reload=True)
+    uvicorn.run("backend:app", host="0.0.0.0", port=8889, reload=False)
 
 
 # ═══════════════════════════════════════════════════════════════════════════════
