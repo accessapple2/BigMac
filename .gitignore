@@ -223,3 +223,8 @@ directives/*.md
 
 # Runtime cache — churns every run, should not be tracked (SC-9 2026-05-28)
 data/bull_bear_cache.json
+
+# DB backup snapshots in data/ — sacred, archived off-git (HM-PUSH-UNBLOCK 2026-05-28)
+data/trader.db.backup-*
+data/*.db.backup*
+backups/**/trader.db.bak
