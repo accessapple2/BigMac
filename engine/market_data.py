@@ -676,27 +676,35 @@ def _calc_macd(series: pd.Series) -> dict:
     }
 
 
-def get_technical_indicators(symbol: str) -> dict:
-    """Fetch daily data via Yahoo direct and compute RSI, MACD, SMA 50/200, volume ratio."""
-    chart = _yahoo_chart(symbol, interval="1d", range_="1y")
-    if not chart:
-        return {}
+def get_technical_indicators(symbol: str, bars=None) -> dict:
+    """Compute RSI, MACD, SMA 50/200, volume ratio from daily data.
+
+    HM-RUN-SCAN-WATCHDOG-LOOP-3 (2026-05-29): if `bars` (a pre-fetched
+    get_bulk_daily_ohlcv DataFrame with Close/Volume columns) is provided, compute
+    from it instead of a per-symbol Yahoo `_yahoo_chart` fetch — this eliminates the
+    per-symbol Yahoo loop that caused the §C scan-lock stall (552s+). bars=None
+    preserves the original Yahoo path for all single-symbol callers (autopilot,
+    chekov, dayblade, regime_detector, risk_manager, etc.).
+    """
     try:
-        timestamps = chart.get("timestamp", [])
-        indicators = chart.get("indicators", {})
-        quotes = indicators.get("quote", [{}])[0]
-
-        closes = quotes.get("close", [])
-        volumes = quotes.get("volume", [])
-        highs = quotes.get("high", [])
-        lows = quotes.get("low", [])
-
-        if not closes or len(closes) < 30:
-            return {}
-
-        # Build pandas Series, filtering None values
-        close = pd.Series([c for c in closes if c is not None])
-        volume = pd.Series([v if v is not None else 0 for v in volumes])
+        if bars is not None:
+            # Bulk path: DataFrame[Open,High,Low,Close,Volume] from get_bulk_daily_ohlcv.
+            if getattr(bars, "empty", True) or len(bars) < 30:
+                return {}
+            close = bars["Close"].dropna().reset_index(drop=True)
+            volume = bars["Volume"].fillna(0).reset_index(drop=True)
+        else:
+            # Yahoo path (unchanged): per-symbol chart fetch.
+            chart = _yahoo_chart(symbol, interval="1d", range_="1y")
+            if not chart:
+                return {}
+            quotes = chart.get("indicators", {}).get("quote", [{}])[0]
+            closes = quotes.get("close", [])
+            volumes = quotes.get("volume", [])
+            if not closes or len(closes) < 30:
+                return {}
+            close = pd.Series([c for c in closes if c is not None])
+            volume = pd.Series([v if v is not None else 0 for v in volumes])
 
         if len(close) < 30:
             return {}
@@ -1115,6 +1123,11 @@ def _alpaca_bulk_bars_chunk(
             params={
                 "symbols":   ",".join(symbols_chunk),
                 "timeframe": "1Day",
+                # HM-RUN-SCAN-WATCHDOG-LOOP-3 2026-05-29: split-adjusted (was default
+                # 'raw') — correct for ALL TA consumers (indicators/patterns/squeeze/
+                # channels/minervini/rs_rank/trendlines); raw was a latent split-
+                # discontinuity false-signal bug. No-op for non-recently-split symbols.
+                "adjustment": "all",
                 "start":     start_date_iso,
                 "end":       end_date_iso,
                 "limit":     10000,

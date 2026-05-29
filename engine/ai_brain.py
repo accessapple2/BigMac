@@ -454,8 +454,28 @@ class Arena:
         _scan_phase("indicators")
         console.log("[cyan]Computing technical indicators...")
         indicators = {}
+        # HM-RUN-SCAN-WATCHDOG-LOOP-3 (2026-05-29): fetch daily bars for ALL symbols in
+        # ONE bulk Alpaca call (1y, split-adjusted) instead of ~37 serialized per-symbol
+        # Yahoo charts — the per-symbol loop was the §C scan-lock stall (552s+, unbounded).
+        # 30s phase time-budget = safety net (B); on timeout skip remainder (partial dict
+        # is graceful — AI players get fewer indicators, scan continues, lock releases).
+        import time as _ind_t
+        _ind_deadline = _ind_t.monotonic() + 30.0
+        try:
+            from engine.market_data import get_bulk_daily_ohlcv as _bulk_ohlcv
+            _bars_by_sym = _bulk_ohlcv(list(prices), range_str="1y")
+        except Exception as _bulk_e:
+            console.log(f"[yellow]Indicators bulk fetch failed: {type(_bulk_e).__name__}: {_bulk_e!r} — per-symbol Yahoo fallback")
+            _bars_by_sym = {}
+        _ind_done = 0
+        _ind_total = len(prices)
         for symbol in prices:
-            ind = get_technical_indicators(symbol)
+            if _ind_t.monotonic() > _ind_deadline:
+                console.log(f"[yellow][INDICATORS-TIMEOUT] symbol={_ind_done}/{_ind_total} — 30s budget hit, skipping remainder")
+                break
+            # bars=None for symbols missing from the bulk result → graceful per-symbol Yahoo fallback.
+            ind = get_technical_indicators(symbol, bars=_bars_by_sym.get(symbol))
+            _ind_done += 1
             if ind:
                 indicators[symbol] = ind
                 rsi = ind.get("rsi", "?")
