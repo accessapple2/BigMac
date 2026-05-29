@@ -18,6 +18,26 @@ from engine.halt_gate import HALTED_EMIT_FILTER
 
 console = Console()
 
+# === HM-RUN-SCAN-WATCHDOG Loop 1 (2026-05-29) — read-only run_scan subcall telemetry ===
+# _CURRENT_SCAN_PHASE names the in-flight phase of run_scan so the §C HELD-INFLIGHT
+# heartbeat (main.py) can pinpoint WHICH subcall is hung when a scan stalls. Pure
+# logging + a module global; zero behavior change. run_scan is serialized by
+# _scan_lock (one scan at a time), so a single module global is safe.
+import time as _hm_scan_time
+_CURRENT_SCAN_PHASE = {"name": "idle", "started": 0.0}
+
+def _scan_phase(name: str, log_prev: bool = True) -> None:
+    now = _hm_scan_time.perf_counter()
+    if log_prev:
+        prev = _CURRENT_SCAN_PHASE.get("name")
+        if prev and prev not in ("idle", "scan_start"):
+            try:
+                console.log(f"[SCAN-SUBCALL] {prev} wall={now - _CURRENT_SCAN_PHASE.get('started', now):.1f}s")
+            except Exception:
+                pass
+    _CURRENT_SCAN_PHASE["name"] = name
+    _CURRENT_SCAN_PHASE["started"] = now
+
 # === OPT 2/3: CYCLE-SCOPED CACHES ===
 # Premarket gaps: same for all agents — cache 5 min to avoid N localhost HTTP calls/cycle.
 _premarket_gap_cache: dict = {"ts": 0.0, "gaps": []}
@@ -355,6 +375,7 @@ class Arena:
             return
         session_label = session if isinstance(session, str) else ("FORCED" if force else "market")
         console.log(f"[cyan]Session: {session_label.upper()}")
+        _scan_phase("scan_start", log_prev=False)
 
         # Check global pause
         import sqlite3 as _sqlite3
@@ -388,6 +409,7 @@ class Arena:
 
         # 1. Fetch all prices in parallel (shared across AIs)
         from engine.market_data import get_all_prices
+        _scan_phase("get_all_prices")
         console.log("[cyan]Fetching market data (parallel)...")
         prices = get_all_prices(symbols)
         for symbol, data in prices.items():
@@ -429,6 +451,7 @@ class Arena:
             console.log(f"[red]Option exit check error: {_opt_exit_e}")
 
         # 2. Fetch technical indicators once (shared across AIs)
+        _scan_phase("indicators")
         console.log("[cyan]Computing technical indicators...")
         indicators = {}
         for symbol in prices:
@@ -442,6 +465,7 @@ class Arena:
         self._indicators_cache = indicators
 
         # 3. Fetch latest news per symbol from DB (already fetched by main.py cycle)
+        _scan_phase("news")
         news_by_symbol = {}
         for symbol in prices:
             news_by_symbol[symbol] = get_news_for_symbol(symbol, limit=5)
@@ -563,6 +587,7 @@ class Arena:
         # --- Phase 1: Run Ollama models grouped by model_id to minimize load/unload swaps ---
         tier1_has_signal = False
         if ollama_providers:
+            _scan_phase("ollama_batch")
             import time as _time
             import requests as _requests
             from collections import defaultdict as _defaultdict
@@ -643,6 +668,7 @@ class Arena:
                 console.log(f"[cyan]TIER 1: loading {model_id} for [{', '.join(pids_in_group)}]...")
 
                 for pid, provider in group:
+                    _scan_phase(f"ollama:{model_id}:{pid}")
                     console.log(f"[cyan]TIER 1: scanning {pid} ({model_id})...")
                     _cycle_total += 1
                     _t0 = _time.monotonic()
@@ -719,7 +745,9 @@ class Arena:
 
         # --- Phase 1b: Run MLX models (free, deep analysis, no Ollama model swap) ---
         if mlx_providers:
+            _scan_phase("mlx_providers")
             for pid, provider in mlx_providers:
+                _scan_phase(f"mlx:{provider.model_id}:{pid}")
                 console.log(f"[cyan]TIER 1 MLX: {pid} ({provider.model_id}) — deep analysis...")
                 try:
                     self._run_player(pid, provider, prices, indicators, news_by_symbol)
@@ -727,6 +755,7 @@ class Arena:
                     console.log(f"[red]{pid} failed: {e}")
 
         # --- Collect results from background API threads (started before Ollama) ---
+        _scan_phase("api_collect")
         if _api_futures:
             for future in as_completed(_api_futures, timeout=120):
                 pid = _api_futures[future]
@@ -775,6 +804,7 @@ class Arena:
 
         # (Old Phase 2 Ollama code removed — Ollama now runs as Phase 1 / Tier 1 above)
 
+        _scan_phase("post_processing")
         # 5. Log unrealized P&L for each player
         for pid in self.providers:
             pnl_data = get_portfolio_with_pnl(pid, prices)

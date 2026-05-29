@@ -456,8 +456,17 @@ def run_scanner():
     def _hold_heartbeat():
         while not _scan_done_evt.wait(60):
             _inflight = _time.time() - _captured_acq_ts
+            # HM-RUN-SCAN-WATCHDOG Loop 1: name the in-flight run_scan subcall so a
+            # stall pinpoints WHICH phase is hung (not just total hold duration).
+            _phase = "?"
+            try:
+                from engine.ai_brain import _CURRENT_SCAN_PHASE as _csp, _hm_scan_time as _cst
+                _phase = (f"{_csp.get('name','?')} "
+                          f"({_cst.perf_counter() - _csp.get('started', _cst.perf_counter()):.0f}s in phase)")
+            except Exception:
+                pass
             console.log(f"[yellow][HM-AS-β-C] scan_lock HELD-INFLIGHT {_inflight:.0f}s "
-                        f"({_captured_mode}) — run_scan not yet complete")
+                        f"({_captured_mode}) — phase: {_phase}")
     threading.Thread(target=_hold_heartbeat, daemon=True, name="scan_hold_hb").start()
 
     # Run arena.run_scan() in a background thread so the scheduler main thread
