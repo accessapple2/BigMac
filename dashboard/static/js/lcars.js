@@ -61,6 +61,14 @@
     'sector-heatmap':    { title: 'SECTOR HEATMAP',      sub: 'MONEY FLOW VISUALIZATION' },
     'sniff-scan':        { title: 'SNIFF SCAN',          sub: 'OLLIE\'S MARKET-WIDE SCANNER' },
     'squeeze':           { title: 'SHORT SQUEEZE',       sub: 'HIGH-SHORT-INTEREST WATCH' },
+    // HM-LCARS-COVERAGE Tier 1 (WAVE 7, 2026-05-29): 6 routes that fell through to
+    // the toUpperCase() fallback. Labels match each route's sidebar-item title.
+    'cockpit':           { title: 'COCKPIT',             sub: 'SYSTEM MISSION CONTROL' },
+    'trade-desk':        { title: 'TRADE DESK',          sub: 'MANUAL ORDER ENTRY — ALPACA PAPER' },
+    'live-trading':      { title: 'LIVE TRADING',        sub: 'LIVE CHART & FLEET TRADE MARKERS' },
+    'ollie-ai':          { title: 'OLLIE AI',            sub: 'AI WORKSPACE & ANALYSIS' },
+    'real-portfolio':    { title: 'REAL PORTFOLIO',      sub: 'REAL-WORLD NET WORTH (EX-PAPER)' },
+    'test-kitchen':      { title: 'TEST KITCHEN',        sub: 'O-TASTY PREMIUM-SELLING SHADOW' },
   };
 
   /* ── ELBOW INJECTION ─────────────────────────────────── */
