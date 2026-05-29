@@ -12,6 +12,32 @@
 
 ---
 
+## 🔴 HM-EXTERNAL-FETCH-DISCIPLINE-AUDIT — HIGH (filed 2026-05-29, promoted from MEDIUM/quarterly)
+
+**Bug class: "unbounded external fetch on first cold caller, no caching, every caller re-pays."**
+Now **6+ confirmed instances in two sessions** — promoted MEDIUM→HIGH on instance count:
+1. Loop 1 — `get_technical_indicators` per-symbol Yahoo loop (552s).
+2. Loop 3 — fixed via bulk Alpaca fetch + deadline.
+3. Loop 5B — Finnhub `/calendar/earnings` (`_fh_get`, requests timeout ≠ total).
+4. Loop 5B — other `_fh_get` callers (insider, news-sentiment, quote, company-news) shared the gap.
+5. Loop 5D — catalyst earnings AV enrichment (per-symbol Alpha Vantage, 5/min).
+6. Loop 5D — `get_trending_tickers` per-symbol `_yahoo_chart` over the 3,048-symbol universe.
+**+ NEWLY SURFACED (Loop 5C read, not yet fixed):** `base.build_prompt` makes ~15 per-symbol
+fetches, several UNBOUNDED — `build_fundamentals_prompt` (Yahoo), `build_sell_fundamentals_prompt`
+(analyst ratings), `build_sentiment_prompt_section` (Finnhub), `build_whisper_prompt_section`,
++ a `get_stock_price` loop for open positions. Likely **8-12 more instances exist uncaught.**
+
+**Scope:** sweep ALL external fetches (HTTP, broker APIs, third-party data) in `engine/`. For each
+confirm: (1) per-call timeout, (2) cache where appropriate, (3) **total** deadline on the cold path
+(requests `timeout=` bounds inter-read gaps, NOT total transfer — see Loop 5B). Prefer bulk/in-hand
+data over per-symbol loops (Loop 1→3, Loop 5D-trending pattern).
+
+**Priority: SHIP BEFORE WAVE 7 weekend work** — this class keeps surfacing as new §C-style hangs;
+a systematic sweep retires it instead of whack-a-mole. Pairs with the `_assemble_scan_context`
+sharing pattern + the cache+deadline shape proven in Loops 3/5B/5D.
+
+---
+
 ## 🟡 HM-SIGNALS-V2-STALE-SWEEP — MEDIUM (filed 2026-05-29) — read-only diagnostic done
 
 **Finding (2026-05-29 diagnostic):** 123 `signals_v2` rows are `status='pending'` but
@@ -159,27 +185,37 @@ next main.py restart.
 
 ---
 
-## 🔴 HM-RUN-SCAN-WATCHDOG — HIGH, IN PROGRESS (filed 2026-05-29) — multi-cause, Loops 1-5
+## 🔴 HM-RUN-SCAN-WATCHDOG — HIGH, IN PROGRESS (filed 2026-05-29) — multi-cause, Loops 1-5C
 
-**STATUS 2026-05-29 PM: §C stall is REDUCED, NOT CLOSED — multi-cause.**
-- **Loop 1 (instrumentation): SHIPPED** — `[SCAN-SUBCALL]` per-phase + per-agent telemetry.
+**STATUS 2026-05-29 PM: §C stall REDUCED from 3 causes → 1. Catalyst CLOSED; infer remains.**
+- **Loop 1 (instrumentation): SHIPPED** — `[SCAN-SUBCALL]` + quiet per-phase/per-symbol telemetry.
 - **Loop 3 (CAUSE #1 — indicators): SHIPPED + VERIFIED** (`befb327`) — per-symbol Yahoo
-  loop (552s) → ONE bulk Alpaca call (`indicators wall=2.0s`, 276×). adjusted='all' global
-  (fixed a latent false-signal-on-split bug across 6 TA scanners). **This cause is CLOSED.**
-- **Loop 5 (CAUSE #2 — ollama research-chain): IN PROGRESS** — soak unmasked a second hang:
-  `_run_player`'s per-symbol loop (`ai_brain.py:1150`) calls `provider.analyze_chain` per
-  symbol (~37) — a multi-call ollama "research chain" → 230s+ held (phase
-  `ollama:...:deepseek-7b-grok4`). Same per-symbol-serial shape as indicators. The 90s
-  per-call ollama timeout + responsive Ollie Max ⇒ NOT one raw call; cumulative serial loop.
-  **Loop 5A (finer instrumentation) proposed** — quiet per-symbol sub-markers in `_run_player`
-  to confirm progressing-vs-stuck + symbol + substep before designing the narrow fix (5B/5C).
-  NO broad post-indicators timeout (that's option D by another name).
+  loop (552s) → ONE bulk Alpaca call (`indicators wall=2.0s`). adjusted='all' global. **CLOSED.**
+- **Loop 5A/5A.2 (instrumentation): SHIPPED** — setup-segment + 14 `build_scan_context`
+  inner markers localized the 2nd cause to `ctx:catalyst`, then split it `:earnings`/`:trending`.
+- **Loop 5B (Finnhub calendar): SHIPPED** (`9eb6e07`) — `_fh_get` cache + 15s thread-deadline.
+  Valid hardening but NOT the catalyst hang (no-deadline-trip test proved it).
+- **Loop 5D (CAUSE #2 — catalyst): SHIPPED + VALIDATED** (`0770c54`) — the real catalyst hang
+  was `get_trending_tickers` looping `_yahoo_chart` over the **3,048-symbol** universe (Loop-1
+  shape at scale). Fix: **trending-rewire** (derive movers from in-hand `prices`, 0 Yahoo) +
+  **profile-keyed `build_scan_context` cache** (~4 builds/cycle, was 19). 16-min soak: **0
+  `ctx:catalyst:trending` HELD samples; 10-min trending-TTL boundary passed with no hang.**
+  **This cause is CLOSED.**
+- **Loop 5C (CAUSE #3 — infer/analyze_chain): IN PROGRESS — now the SOLE remaining §C cause.**
+  Post-5D, the dominant hang is `analyze_chain` wedging on specific symbols (TEAM 315s+, prior
+  XOM/KLAC) — single-symbol, not cumulative (~10 other syms clear in 2-40s). Scan never
+  completes (0 `post_processing` in 16 min; `_scan_lock` held 961s+). Read (Explore) found:
+  deepseek path = `analyze_chain`→`analyze`→`build_prompt` (**~15 per-symbol fetches, several
+  UNBOUNDED**: fundamentals/Yahoo, sell-fundamentals/analyst-ratings, sentiment/Finnhub, whisper,
+  + a `get_stock_price` loop) → `call_model`→`get_queue().submit` (requests timeout=90s but
+  queue `REQUEST_TIMEOUT=300s` is the operative outer bound; 315s ≈ 300s+slop). a/b/c AMBIGUOUS
+  (queue-wait vs per-symbol build_prompt fetch) — **Loop 5C-A instrumentation next** to split
+  `infer:{sym}:prompt` vs `:model` before fixing. Symbol-specificity hints at build_prompt data.
 
-> **§C stall: REDUCED (dominant 552s indicators cause eliminated) but NOT CLOSED** — a
-> ~230s ollama-research-chain cause remains; Loop 5 in progress.
-> **Nightly-scanner follow-up:** rs_rank + minervini (20:30/20:45 AZ) run under the new
-> adjusted='all' bars tonight — confirm their output is sane (squeeze already verified
-> 131 rows/hr, 0 errors during the day).
+> **§C stall: 2 of 3 causes CLOSED (indicators + catalyst). 1 remains: infer/analyze_chain
+> (Loop 5C). NOT declaring §C closed until 5C lands + soak holds zero-HELD>60s.**
+> **Nightly-scanner follow-up:** rs_rank + minervini (20:30/20:45 AZ) under adjusted='all' —
+> confirm output sane tonight (squeeze verified 131 rows/hr, 0 errors).
 
 **STATUS 2026-05-29 PM: DATA-READY.** Two confirmed stalls reliably reproducing —
 ~14 min (AM) and 16+ min (PM, ongoing post-09:33 restart, HELD-INFLIGHT climbing

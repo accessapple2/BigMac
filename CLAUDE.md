@@ -641,6 +641,17 @@ rebuilds all 14 blocks, re-paying market-wide fetches) is example #1: the commen
 the *intended* design; the code never implemented the sharing. Aligning code to its own
 documented intent (cache the market-wide blocks once per cycle) is the highest-leverage fix.
 
+### Verify the MODEL of the system before designing a fix against it (2026-05-29)
+The design model you carry of "how the code is shaped" is itself a verify-before-fix
+surface. HM-RUN-SCAN-WATCHDOG Loop 5D proposed "cache 12 market-wide blocks once / 3
+agent-specific fresh per agent" — a model assuming every agent computes a unique context.
+Reading the actual code showed the real variation is only 3-4 *profile* branches
+(energy-arnold / options-model / chekov-gate), so the correct cache key is `(cycle,
+profile)` (~4 builds/cycle), not per-block. The right cache key follows the **actual
+variation pattern, not the proposed model**. Confirm the model reflects the code before
+designing structure against it — same family as [[trace-every-subfetch-to-leaf]] and
+boundary-isolate.
+
 Full session narratives in `docs/CLAUDE-archive-2026-05.md`. Rules below are
 load-bearing today.
 
