@@ -1,6 +1,33 @@
 # XO Backlog — USS TradeMinds
 # Riker's Standing Work Queue
-# Updated: 2026-05-29 (HM-AS-β Loop 2 ship + §C scan-lock stall discovery + Worf drift reconcile)
+# Updated: 2026-05-29 (HM-AS-β Loop 2 + §C stall + Worf reconcile + Tier A sweep + memory trim)
+
+---
+
+## 🟢 HM-MEMORY-DEEP-AUDIT-Q2 — LOW / quarterly hygiene (filed 2026-05-29)
+
+**Context:** A-6 Phase 1 done 2026-05-29 — MEMORY.md index trimmed 36.6KB→23.5KB (109 entries, hooks ≤~200 chars, under the 24.4KB load limit; backup in memory/archive/). 3 high-confidence stale entries fixed (all-out resume pointer, risk-manager-conviction precursor-met, conviction-tier denorm context).
+
+**Deferred (this ticket):** full per-file verification of all **112 memory files** + 29 CLAUDE.md sections vs live code/DB. Multi-pass job, NOT between-soaks filler.
+- 55 files carry BLOCKED/PENDING/queued/TODO markers — some likely resolved.
+- 81 files carry RESOLVED/SHIPPED/CLOSED — mostly correct records, but any citing `file:line` refs are drift-prone (line-drift hit twice on 2026-05-29: auth 21269→21409, flash 4387→4896).
+- Also: MEMORY.md has duplicate section headers (## Feedback ×2, ## Reference ×2) — consolidate during the deep pass.
+- CLAUDE.md Fleet Roster "20 active" count needs reconcile vs the Worf bench.
+
+**How:** dedicated focused session, or a multi-agent workflow (each agent verifies a batch vs live state) if Captain opts into orchestration.
+
+---
+
+## 🟡 HM-NOTIF-WAR-ROOM-PRODUCER — MED, BLOCKED on Captain trigger definition (filed 2026-05-29)
+
+**Context:** A-3 deeplink half SHIPPED 2026-05-29 (`_notifDestination` `war_room`/`war-room` → `showSection('war-room')`, index.html:35392). Inert until a producer emits a `war_room`-typed notification.
+
+**Blocked on Captain decision — what WR event fires the notif?**
+- High-conviction debate consensus above a threshold (which threshold?)
+- WR-surfaced actionable signal (which signal criteria?)
+- Other?
+
+**When trigger defined:** wire `_emit_notification(notif_type='war_room', ...)` at the WR event site (app.py helper at ~2189), with the agreed threshold to avoid every-9-min spam. Backend, S–M. Frontend deeplink already done.
 
 ---
 
