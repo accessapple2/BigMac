@@ -229,6 +229,15 @@ monitor), so one infrastructure failure can't take out both the function and
 its watchdog. NOTE: the 2026-05-28 cron fix still has watcher + alarm on the
 SAME cron — shared-fate remains; cross-mechanism relocation tracked in XO_BACKLOG.
 
+**Second instance, same day (HM-PUSH-UNBLOCK):** `git push` failed silently for
+**87 commits** because nothing monitors push health independently of the push
+pipeline — surfaced only reactively when a push during HM-AUDIT-T0 hit the
+large-file limit. Same disease: no independent watchdog. Fix queued as
+HM-GIT-PUSH-HEALTH-MONITOR (a daily cron, separate from pushing, that NTFYs if
+local is >N commits ahead of origin). Two instances in one day → this is the
+program's recurring blind spot: **build the monitor on a different mechanism than
+the thing it watches, every time.**
+
 ### Restart-then-verify (HM-CONSOLE-INIT doctrine, 2026-05-13)
 The "trader restart deferred until natural maintenance window" pattern creates
 a window where buggy bytecode runs invisibly. Smoke-restart in a verify

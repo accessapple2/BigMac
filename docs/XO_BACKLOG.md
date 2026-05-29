@@ -3086,3 +3086,12 @@ rather than read directly. TODO (no fix now): install an SSH key bigmac→Ollie
 Max (or document the manual access path) so shell is available when the API is
 the outage. Also why the exact GPU model (RTX 5080 per XO audit) stays
 nvidia-smi-unconfirmed.
+
+## OPEN 2026-05-28 — HM-GIT-PUSH-HEALTH-MONITOR (defense-in-depth, ~30min, not someday)
+
+87 commits of silent push failure (HM-PUSH-UNBLOCK) fired no alert. Build a
+daily cron — INDEPENDENT of the push pipeline — that runs `git fetch && git
+status` (or `git rev-list --count origin/main..HEAD`) and NTFYs ollietrades-admin
+if local is more than N commits ahead of origin (suggest N=5). Must NOT live in
+the same mechanism as pushing. Pairs with HM-SCHWAB-ALARM-CROSS-MECHANISM as the
+2nd instance of the "monitor must fail independently of the monitored" principle.

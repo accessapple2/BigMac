@@ -534,3 +534,35 @@ import confirmation pending Captain's next fresh-CSV drop (cron ingests <60s).
 **Lesson (→ CLAUDE.md doctrine):** an alarm that shares a failure mode with the
 thing it monitors provides no defense. The cron fix still has watcher + alarm on
 the SAME mechanism — cross-mechanism alarm relocation tracked in XO_BACKLOG.
+
+## 2026-05-28 ~18:xx AZ — HM-PUSH-UNBLOCK: git history purge (12 DB backups) + force-push
+
+**Incident:** `git push` rejected `GH001: Large files detected`. Root cause: 12
+`trader.db` backups (300–384MB each) accumulated in git history over prior
+sessions, sitting in an **87-commit unpushed backlog** — every push had been
+failing silently for days.
+
+**Discovery: REACTIVE, not proactive.** A normal `git push` during HM-AUDIT-T0
+(committing GPU/F-4 doc fixes) surfaced it. Nobody was watching push health.
+
+**Fix:** `git filter-repo --invert-paths` purge of `data/trader.db.backup-*` +
+`backups/*/trader.db.bak` from ALL history → `git push --force-with-lease origin
+main` (8ed2037 → 9838383). 0 blobs >100MB remain; **.git 1.8GB → 193MB.**
+
+**No remote work lost:** origin was a strict ancestor (87 behind, the original
+push failed only on large-files, not non-fast-forward), so force-push overwrote
+nothing unique. Sole committer confirmed (4 git identities, all Steve; CI =
+grep-gate scanner only, non-deploying, passed green).
+
+**Recovery net:** `~/ollie-pre-purge-2026-05-28.bundle` (889MB full `--all`).
+**Sacred preservation:** 31 DB backup files moved to
+`~/ollie_db_backups_archive_2026-05-28/` BEFORE the purge (archive-don't-delete).
+**Prevention:** `data/trader.db.backup-*` now gitignored.
+**Trader impact:** none — runs from local working tree, no git pull; PID 48180
+unaffected.
+
+**DOCTRINE (2nd instance today):** 87 commits of silent push failure fired no
+alert — because nothing monitors push health independently of the push pipeline.
+This is the SAME class as the Schwab cadence alarm dying on the same launchd as
+its watcher. Monitors must fail INDEPENDENTLY of what they monitor. See
+CLAUDE.md "Alarms must not share a failure mode with what they watch."
