@@ -98,12 +98,19 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
 ## RAM Discipline (post-MSI-migration 2026-05-20)
 - **bigmac (Mac Mini M4, 16GB RAM)** — runs FastAPI trader, dashboard,
   schedulers, signal center. Ollama is NO LONGER co-located here.
-- **Ollie Max (`olliemax.home.local`, 192.168.1.168, RTX 5060 8GB VRAM)** —
-  sole Ollama host. Realistic budget: ONE 7B-class model fully resident,
-  possibly a second with partial offload.
+- **Ollie Max (`olliemax.home.local`, 192.168.1.168, RTX 5080 16GB VRAM)** —
+  sole Ollama host. Budget: TWO 7–8B-class models fully co-resident (~10–12GB;
+  live `/api/ps` 2026-05-28 showed qwen3:8b 5.98GB + ministral-3:3b 4.62GB =
+  10.6GB resident together). A 14B fits solo but TWO 14B cannot co-reside in
+  16GB → 14B-vs-14B rotation still swaps. **(Corrected 2026-05-28 HM-AUDIT-T0:**
+  prior "RTX 5060 8GB / one 7B fits" was WRONG — it drove HM-WR-VRAM-THRASHING's
+  premise + the navigator "too big for 8GB" swap, both now suspect; keep_alive/
+  batching fixes still help, only the scheduling *rationale* changes. 16GB
+  confirmed via live /api/ps; exact model per XO audit, nvidia-smi unverified —
+  SSH-to-Ollie-Max key gap logged in XO_BACKLOG.)
 - **Preferred local workhorse:** `qwen3:8b` (7 active agents share it per
   HM-CD `_HM_CD_KEEP_ALIVE` lookup).
-- `qwen3:30b` rejected — too slow for RTX 5060.
+- `qwen3:30b` rejected — too slow for this GPU (latency, not a VRAM-fit issue).
 - Avoid loading full datasets into memory; stream or chunk.
 - `0xroyce/plutus` is the finance-trained model used for McCoy (CSP /
   Plutus-3B) — present on Ollie Max as `0xroyce/plutus:latest`.
@@ -602,8 +609,9 @@ Universal `keep_alive: "30s"` (legacy 16GB constraint) forces full model
 reload on every call. Per-model `_HM_CD_KEEP_ALIVE` lookup: high-frequency
 models (qwen3:8b=7 agents, qwen2.5-coder:7b=2 agents) get 30m residency;
 alpha-squad rotation 10m; rare models keep 30s default. Hardware reality is
-RTX 5060 with 8GB VRAM (not the 32GB previously assumed); realistic budget
-is ONE 7B model resident, possibly a second with partial offload.
+RTX 5080 with 16GB VRAM (corrected 2026-05-28 HM-AUDIT-T0 — NOT the "8GB"
+previously recorded here; live /api/ps showed 10.6GB co-resident); budget is
+two 7–8B models co-resident, but 14B-vs-14B rotation still swaps.
 
 ### Three-book broker reconciliation (2026-05-20)
 Verify ALL three books (real-money / Alpaca paper / fleet) before declaring

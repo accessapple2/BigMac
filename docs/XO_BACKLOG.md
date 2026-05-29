@@ -3073,3 +3073,16 @@ watcher — e.g. a 48h-staleness check inside the always-on trader process
 or an external uptime/dead-man's-switch monitor. Then a single cron failure can't
 silence both the import and its watchdog. Priority: MEDIUM (cron is more robust
 than the failed launchd, but the principle stands). Est: 1-2h.
+
+## OPEN 2026-05-28 — HM-OPS-SSH-OLLIE-MAX (incident-response gap, LOW)
+
+During HM-AUDIT-T0 GPU verification, `ssh bigmac@192.168.1.168` (Ollie Max) →
+`Permission denied (publickey,password)` — no passwordless key from bigmac to
+Ollie Max. Not urgent, but a latent incident-response gap: when the Ollama API
+itself is the thing that's down, the dashboard/API can't tell you GPU state and
+you'll need a shell on the box (nvidia-smi, systemctl, logs). Today it forced
+the GPU spec to be inferred from `/api/ps` (10.6GB co-resident → 16GB-class)
+rather than read directly. TODO (no fix now): install an SSH key bigmac→Ollie
+Max (or document the manual access path) so shell is available when the API is
+the outage. Also why the exact GPU model (RTX 5080 per XO audit) stays
+nvidia-smi-unconfirmed.
