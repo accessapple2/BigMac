@@ -412,10 +412,17 @@ both UI panels still render before touching either module.**
 | Picard  | Weekly strategic thesis → modifies Ollie's regime table      | Gemma3 4B (local)      |
 
 ### Sniper Squad — Active Scouts (signal generation, route via Ollie gate)
-Active scouts firing signals into the Sniper Mode trial; both in
-`PROTECTED_AGENTS` (roster-locked). Sniper Mode is a proving-ground role of
-`ollie-auto`, not a separate flag — see
-`docs/MODEL_TOGGLE_INFRASTRUCTURE_MAP.md` §6.
+Active scouts firing signals into the Sniper Mode trial, in `PROTECTED_AGENTS`
+(roster-locked). Sniper Mode is a proving-ground role of `ollie-auto`, not a
+separate flag — see `docs/MODEL_TOGGLE_INFRASTRUCTURE_MAP.md` §6.
+
+> **Worf (`qwen3-8b-flash`) BENCHED S6.1 (−0.36%) — 2026-05-29 reconcile.** Moved
+> to `ADVISORY_CREW` (bridge-vote only); last emitted 2026-05-07. Removed from
+> `_SCAN_TIER2` (main.py) + `SNIPER_AGENTS` (proving_ground.py). Kept
+> `ai_players` **active** — required for WR bridge-voting (`war_room.py` skips
+> `halt_mode!='active'`/`is_active=0`/`is_paused=1`). The sole live LLM scout is
+> now `deepseek-7b-grok4` (Spock). **Review next genuine BEAR cycle (not a bull
+> cross)** — see XO_BACKLOG `review-2026-06-04`.
 
 **Proving Ground trial formalization (HM-PROVING-GROUND-FORMALIZE-V2 2026-05-25):**
 - **Duration:** 60 days (Day 60 = 2026-06-09); forced go/no-go at Day 60
@@ -432,7 +439,7 @@ Active scouts firing signals into the Sniper Mode trial; both in
 | Player ID            | Star Trek role | Strategy / Type                                | Model                | Recent volume |
 |----------------------|----------------|------------------------------------------------|----------------------|---------------|
 | `deepseek-7b-grok4`  | Spock          | Role #1: RSI-bounce scout (DETERMINISTIC — no LLM) | qwen3:8b (for #2/debate roles) | 10–15 sigs/day |
-| `qwen3-8b-flash`     | Worf           | Sniper Mode scout                                  | qwen3:8b (local)     | ~25 sigs/day |
+| `qwen3-8b-flash`     | Worf           | **BENCHED S6.1 (−0.36%)** — bridge-vote only (ADVISORY_CREW); review next bear cycle | qwen3:8b (local)     | 0 since 2026-05-07 |
 
 ### Backtest Pool — Deliberate OFF (cost-doctrine, KEEP wired)
 5 paid LLM agents intentionally `halt_mode='full'` so they don't burn API
@@ -587,6 +594,23 @@ and produce correctly; they just land in the other file.
 
 Full session narratives in `docs/CLAUDE-archive-2026-05.md`. Rules below are
 load-bearing today.
+
+### Agent state must reconcile across ALL sources (HM-WORF-DRIFT-RECONCILE, 2026-05-29)
+When an agent's state lives in N sources, **all N must reconcile or the system
+lies to future-session diagnostics.** Worf (`qwen3-8b-flash`) was benched S6.1
+(−0.36%) but still appeared "active" in 6 places — `ADVISORY_CREW` (correct),
+`_SCAN_TIER2` (stale), `SNIPER_AGENTS` (stale), `ai_players` active (correct —
+load-bearing), the WR provider rotation (correct), and the Fleet Roster doc
+("~25 sigs/day", stale). A morning diagnostic wrongly read "in WR rotation +
+active" as healthy. **`ADVISORY_CREW` is canonical for benched-but-keeping-for-
+bridge-vote agents** = no individual scanning, but `ai_players` stays `active`
+(+`is_active=1`,`is_paused=0`) because `war_room.py` skips
+`halt_mode!='active'`/`is_active=0`/`is_paused=1` — so an "active" row is
+*required* to keep the bridge vote, NOT drift. Deeper bench (no bridge vote
+either) = `exit_only`/`is_paused=1` (Uhura, Sulu). Before "fixing" an agent's
+`ai_players` state, check whether WR/scan paths depend on it. **Known parallel
+drift still open:** Uhura/Troi/Trip remain in `_SCAN_TIER2` despite ADVISORY_CREW
+— same reconcile needed (follow-up, not yet done).
 
 ### Diagnostics first (HM-CD-migrate, HM-BP, 2026-05-13)
 Never modify production code paths before reading current behavior via

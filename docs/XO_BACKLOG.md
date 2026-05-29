@@ -1,6 +1,52 @@
 # XO Backlog — USS TradeMinds
 # Riker's Standing Work Queue
-# Updated: 2026-05-25 (Memorial Day — HM-DATA-INTEGRITY-FORENSICS triage)
+# Updated: 2026-05-29 (HM-AS-β Loop 2 ship + §C scan-lock stall discovery + Worf drift reconcile)
+
+---
+
+## 🗓️ review-2026-06-04 — Worf (qwen3-8b-flash) bench re-evaluation
+
+**Context:** Worf benched S6.1 (−0.36%), reconciled across all 6 state sources
+2026-05-29 (HM-WORF-DRIFT-RECONCILE): removed from `_SCAN_TIER2` + `SNIPER_AGENTS`,
+doc marked BENCHED, kept `ai_players` active for WR bridge-vote, `ADVISORY_CREW`
+canonical. It's a **Bear Specialist** (bearish-only, stands down in confirmed
+bulls / TRENDING_BULL).
+
+**Review task (on/after 2026-06-04):** re-evaluate the −0.36% bench using
+**current-system data** — conviction stops, scheduler fixes (Loop 1/2 + run_scan
+watchdog), and model remaps have all landed since the S6.1 bench. The −0.36% was
+measured under the old system.
+
+**HARD GATE:** re-evaluate only during a **genuine BEAR cycle** — NOT a bull cross.
+Regime on 2026-05-29 = BULL_CROSS, where a bear specialist is correctly dormant
+and would show no edge regardless. Wait for RISK_OFF / confirmed bear, then
+ghost-trade Worf for a window before deciding re-activate vs keep-benched.
+
+---
+
+## 🔴 HM-RUN-SCAN-WATCHDOG — NEW HIGH (filed 2026-05-29) — focused session, NOT a tail-patch
+
+**Trigger:** §C soak (HM-AS-β) found a **pre-existing scan-lock stall** — a scan
+acquires `_scan_lock` (`main.py::run_scanner`) and `run_scan()` hangs unboundedly
+(observed ~14 min, 06:05→06:16 on 2026-05-29, never completed) → every subsequent
+tick `Scan skipped`, T1/T2 starved until restart. Same pattern in the old trader →
+not new. The `[HM-AS-β-C] scan_lock held` line never fires because scans don't
+complete; only `due-but-skipped` accumulates.
+
+**Already shipped (read-only, 2026-05-29 PID 5299):** in-flight HELD-INFLIGHT
+heartbeat (logs hold duration every 60s while a scan is in flight) — makes the
+next stall visible within 60s. **Behavior-changing watchdog deferred to this item.**
+
+**Scope:**
+- Identify WHERE `run_scan()` hangs (which provider call / network with no timeout)
+  — HELD-INFLIGHT heartbeat surfaces it on the next stall.
+- Design options: (a) signal-based timeout returning after N min; (b) thread-kill +
+  state cleanup; (c) per-subcall timeouts so the lock holder always returns.
+- Risk: all touch the critical scan path → real testing before ship.
+- **Soak first** with the heartbeat to learn stall frequency + duration distribution
+  (once/day? once/hour?) before designing the fix.
+
+Full context + design notes: `drafts/HM-AS-BETA-SCHEDULER-TOP-PRIORITY.md` §C.
 
 ---
 

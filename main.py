@@ -239,7 +239,10 @@ _SCAN_TIER2: frozenset = frozenset({
     "ollama-plutus",     # McCoy         (ministral-3:3b — HM-BN.1 canonical; was mistral:7b)
     "ollama-local",      # Geordi        (gemma3:4b)
     "ollama-llama",      # Uhura         (llama3.1:latest)
-    "qwen3-8b-flash",  # Worf          (phi3:mini)
+    # qwen3-8b-flash (Worf) REMOVED 2026-05-29 (HM-WORF-DRIFT-RECONCILE): benched
+    #   S6.1 (-0.36%) → ADVISORY_CREW (bridge-vote only). Emitted nothing via any
+    #   scan path since 2026-05-07; listing it here lied to the scanner roster.
+    #   ADVISORY_CREW is canonical for benched-but-bridge-voting agents.
     "ollama-qwen3",      # Scotty        (phi3:mini)
 })
 
