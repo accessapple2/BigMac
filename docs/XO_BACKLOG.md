@@ -4,6 +4,29 @@
 
 ---
 
+## 🔴 HM-ADVISORY-CREW-DRIFT-SWEEP — NEW HIGH (filed 2026-05-29) — ~30 min, batch with next restart
+
+**Trigger:** Worf reconcile (HM-WORF-DRIFT-RECONCILE) exposed the same disease in
+its `_SCAN_TIER2` peers — agents in `ADVISORY_CREW` (bridge-vote-only, no scanning)
+that are ALSO listed in `_SCAN_TIER2`, so the scanner roster claims they scan.
+
+**Known offenders in `_SCAN_TIER2` ∩ `ADVISORY_CREW`:**
+- `ollama-llama` (Uhura)
+- `options-sosnoff` (Troi)
+- `energy-arnold` (Trip)
+- _(verify full intersection during the sweep — `ollama-local`/Geordi also appears
+  in both; confirm against live `ADVISORY_CREW` before removing.)_
+
+**Fix (same pattern as Worf):** remove each ADVISORY_CREW member from `_SCAN_TIER2`
+(main.py) with a why-comment. Leave `ai_players` state alone unless verified
+(active = required for WR bridge-vote, per HM-WORF-DRIFT-RECONCILE). Do NOT touch
+`ollama-plutus`/`ollama-qwen3` (McCoy/Scotty — NOT benched).
+
+**Activation:** `_SCAN_TIER2` change needs a restart; **batch with the run_scan
+watchdog restart** — these agents emit nothing meaningful meanwhile.
+
+---
+
 ## 🗓️ review-2026-06-04 — Worf (qwen3-8b-flash) bench re-evaluation
 
 **Context:** Worf benched S6.1 (−0.36%), reconciled across all 6 state sources
