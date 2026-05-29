@@ -9,6 +9,17 @@ from rich.console import Console
 console = Console()
 
 
+def _fetch_phase(player_id: str, symbol: str, tag: str) -> None:
+    """HM-RUN-SCAN-WATCHDOG Loop 5C-A.2: quiet sub-marker inside build_prompt to
+    localize which per-symbol fetch owns an `infer:{sym}:prompt` hang. Lazy import
+    (build_prompt runs only after ai_brain is loaded); silent no-op if unavailable."""
+    try:
+        from engine.ai_brain import _scan_phase as _sp
+        _sp(f"player:{player_id}:infer:{symbol}:prompt:{tag}", quiet=True)
+    except Exception:
+        pass
+
+
 @dataclass
 class TradeDecision:
     action: str       # BUY, BUY_CALL, BUY_PUT, SHORT, or HOLD
@@ -655,6 +666,7 @@ class AIProvider(ABC):
         whisper_block = ""
         try:
             from engine.whisper_network import build_whisper_prompt_section
+            _fetch_phase(self.player_id, symbol, "whisper")
             whisper_block = build_whisper_prompt_section(symbol)
             if whisper_block:
                 self._sources.append("Whisper")
@@ -755,6 +767,7 @@ class AIProvider(ABC):
         openbb_fundamentals_block = ""
         try:
             from engine.stock_fundamentals import build_fundamentals_prompt
+            _fetch_phase(self.player_id, symbol, "fundamentals")
             openbb_fundamentals_block = build_fundamentals_prompt(symbol)
             if openbb_fundamentals_block:
                 self._sources.append("Yahoo Fundamentals")
@@ -765,6 +778,7 @@ class AIProvider(ABC):
         sell_fundamentals_block = ""
         try:
             from engine.stock_fundamentals import build_sell_fundamentals_prompt
+            _fetch_phase(self.player_id, symbol, "sell_fundamentals")
             sell_fundamentals_block = build_sell_fundamentals_prompt(symbol)
             if sell_fundamentals_block:
                 self._sources.append("Analyst Ratings")
@@ -1009,6 +1023,7 @@ class AIProvider(ABC):
             if open_positions:
                 try:
                     from engine.market_data import get_stock_price
+                    _fetch_phase(self.player_id, symbol, "positions")
                     for pos in open_positions:
                         sym = pos["symbol"]
                         if sym not in pos_prices:
