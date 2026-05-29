@@ -149,12 +149,20 @@ Report WAVE 6 before WAVE 7.
 ═══════════════════════════════════════════════════════════════════════════
 WAVE 7 — DASHBOARD / FRONTEND
 ═══════════════════════════════════════════════════════════════════════════
-7.1 HM-AN-BRIDGE-AUTH Phase 1 — 5 Tier-1 endpoint proxies (TODO).
-7.2 HM-LCARS-COVERAGE Tier 1 — 13 SECTION_LABEL entries (quick).
-7.3 HM-NOTIF-DEEPLINK-WAR-ROOM — classify + wire deeplink.
-7.4 HM-V4.4-PALETTE-EXTENSION + HM-THEME-V4.5-DEPRECATIONS — theme.
-7.5 HM-OLLIE-AI-WORKSPACE Steps 3-7 — placeholder panes. LARGE, build what fits.
-7.6 HM-INLINE-STYLE-SWEEP — 9-batch. LARGE, start batch 1.
+SCOPE CORRECTED 2026-05-28 (SC-5 pre-scope, verified vs live code — 3 stale notes fixed).
+Sequence by dependency-cleanliness; all are index.html/lcars.js/app.py → mandatory browser smoke.
+7.2 HM-LCARS-COVERAGE Tier 1 — **6** SECTION_LABEL entries (NOT 13; labels added since).
+    cockpit, trade-desk, live-trading, ollie-ai, real-portfolio, test-kitchen. S, ~15min. DO FIRST.
+7.1 HM-AN-BRIDGE-AUTH Phase 1 — 5 Tier-1 SC READ-proxies in app.py (top5,
+    intelligence-summary, scorecard, leaderboard, outcomes; SC localhost bypass
+    already live). NOT the 11-route verify_admin_token auth (separate). S, ~2-3h.
+7.3 HM-NOTIF-DEEPLINK-WAR-ROOM — needs BOTH a producer (no war_room notif_type
+    emitted today) AND the deeplink case in _notifDestination. CONFIRM scope w/ Captain. S→S-M.
+7.5 HM-OLLIE-AI-WORKSPACE — only **Step 7 (ollie-machine)** is a true placeholder
+    (Steps 2-6 shipped). Step 7a scaffold M ~3-4h; + Backtest-Lab 5b / Wave-Scope 6b live-wire. NOT 5 panes.
+7.6 HM-INLINE-STYLE-SWEEP — Batches 1-5 ALREADY SHIPPED to main. Real work =
+    HM-V4.5-TOKEN-EXTENSION precursor (M ~1.5-2h) THEN Batches 6-9 (hard-blocked until tokens land). L. NOT "start batch 1".
+7.4 HM-V4.4-PALETTE-EXTENSION + HM-THEME-V4.5-DEPRECATIONS — theme. (folds with 7.6 token work)
 7.7 HM-LCARS-COVERAGE Tier 2 — LCARS cards. LARGE, as time allows.
 Report WAVE 7 before WAVE 8.
 
@@ -172,13 +180,21 @@ Report WAVE 8.
 ═══════════════════════════════════════════════════════════════════════════
 WAVE 9 — EVENTS BUS + EVENT TAPE (foundation specs)
 ═══════════════════════════════════════════════════════════════════════════
-LARGE multi-phase. Build as far as time allows — the wedge under future work.
-9.1 HM-EVENT-TAPE-DYNAMIC-SUBSCRIPTION — discrete spec, build it.
-9.2 HM-EVENTS-BUS-FOUNDATION — events + signals_v2 + engine_allocation +
-    stale-signal gate.
-9.3 HM-OLLIE-EVENT-TAPE-V2-REALTIME — Alpaca IEX realtime pivot.
-9.4 HM-PRODUCER-DECISIONS-CYCLE-1.
-9.5 HM-OLLIE-LIVE-SCANNER-DASHBOARD-TILE.
+SCOPE CORRECTED 2026-05-28 (SC-6 pre-scope, verified vs live code/DB).
+NOT a build-from-scratch: the events bus AND the event tape are ALREADY SHIPPED + LIVE
+(price_ticks 222k rows, event_tape firing, signals_v2 live, /api/events/health up). WAVE 9
+is a bug-fix + incremental, not foundation work.
+9.1 **WEDGE (confirmed LIVE BUG, HIGH)** HM-EVENT-TAPE-DYNAMIC-SUBSCRIPTION —
+    tick_recorder `_MAX_SUBSCRIBED_SYMBOLS=28` < 34 active positions, so fleet
+    positions consume the whole budget BEFORE convergence candidates (CRSR/QCOM/HOOD…)
+    get a slot → detector never sees them. Fix: reorder _get_universe() to reserve
+    convergence slots + probe real IEX cap. ~2-4h. SHIP NEXT SESSION.
+9.2 HM-EVENTS-BUS-FOUNDATION — ✅ ALREADY SHIPPED (events/signals_v2/engine_allocation
+    + consumer + /api/events/health all live). No work; verify-only.
+9.3 HM-OLLIE-EVENT-TAPE-V2-REALTIME — ✅ ALREADY SHIPPED (Alpaca IEX pivot live; spec archived to docs/archive/).
+9.x follow-ups (incremental, MEDIUM): tier-aware sampling C1.x; remaining ~4 event
+    detectors; signals_v2 pending-backlog triage (1,142 pending vs 591 exec).
+9.4 HM-PRODUCER-DECISIONS-CYCLE-1.   9.5 HM-OLLIE-LIVE-SCANNER-DASHBOARD-TILE.
 Report WAVE 9.
 
 ═══════════════════════════════════════════════════════════════════════════

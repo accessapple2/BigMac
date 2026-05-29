@@ -74,10 +74,16 @@ crew_decisions`, with `gate_result` + `reason`).
 the dominant blocker — its 1194s max ≈ `battle_station_monitor`'s 1183s max drift.
 
 **Fix — data-ranked blockers, loop-by-loop:**
-- **Loop 1 — SHIPPED 2026-05-28 (commit `a31d365`, PID 42748):** wrapped
+- **Loop 1 — SHIPPED + VERIFIED 2026-05-28 (commit `a31d365`, PID 42748):** wrapped
   `run_whisper` in `_bg_whisper` (skip-if-prior-running lock, max 1 in-flight;
   mirrors β.2 pilot). Registration `do(run_whisper)` → `do(_bg_whisper)`.
-  **SOAKING:** confirm drift warnings drop next market session.
+  **VERIFIED post-restart from raw log:** (1) scheduler holds `_bg_whisper`
+  (`Whisper Network armed`); (2) skip-lock fired on overlap (`16:44:47 Whisper bg:
+  prior tick still running — skip`) — expected, max-1-in-flight; (3) `run_whisper
+  wall=1037s` ran in background; (4) **non-blocking PROVEN** — gex_refresh/flow_lean/
+  gap_fill_check/squeeze_watcher all fired on cadence DURING the 17-min whisper run.
+  **Still soaking:** drift-warning RATE drop for battle_station/squeeze needs a
+  market-hours window (those jobs are market-gated) — mechanism already proven.
 - **Loop 2 — STAGED, not shipped:** wrap `run_autopilot` (#2 blocker). Ship ONLY
   if drift persists after the Loop-1 soak. Data first.
 - **Loop 3 — only if needed:** the infrequent heavies (`run_strategy_scan`,
@@ -144,6 +150,16 @@ not those numbers.
 
 Risk note still holds for any §C decouple: changes job timing/concurrency —
 design carefully, soak, do NOT rush at a session tail.
+
+## SC-3 held items (intentional non-correction — do NOT re-flag)
+The 2026-05-28 CLAUDE.md staleness sweep (commit `98ac9f9`) applied 11 of 13
+corrections. Two were deliberately HELD — known drift, intentional non-correction,
+see SC-3 audit 2026-05-28:
+1. **Dax config-vs-DB** — `config.AI_PLAYERS` says `qwen3:8b`, DB `model_id` says
+   `ministral-3:3b`. This is the documented Drift-Catalog-#1 runtime-override
+   ambiguity; "correcting" the doc could be wrong. Left as-is by design.
+2. **war_room `~` row counts** (`~1,447`/`~272` vs actual 2,649/337) — tilde-
+   approximate by design; would re-drift immediately. Low-value churn, skipped.
 
 ---
 ---
