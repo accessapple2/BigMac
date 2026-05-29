@@ -64,6 +64,19 @@ the watchdog ships.
 
 ---
 
+## 🟢 HM-ADJUSTED-OHLCV-DOWNSTREAM-VERIFY — LOW (filed 2026-05-29)
+
+Loop 3 set `adjustment='all'` GLOBALLY on `get_bulk_daily_ohlcv` (split-adjusted bars).
+Residual flag from the Loop-2A analysis: not every consumer was exhaustively traced for
+**adjusted-bar-vs-raw-live-quote mixing** on *recently-split* symbols (where adjusted ≠ raw).
+Low risk (live quote sources are typically already adjusted; non-recently-split symbols see
+raw≡adjusted no-op). **Read-only audit:** sweep all 6 bulk consumers (chart_patterns,
+bbkc_squeeze_scanner, channel_scanner, minervini_filter, rs_rank, trendlines) + downstream
+signal consumers for any place that compares an adjusted bulk-bar level to a raw live price.
+Likely zero issues; deserves a clean closure. If a mix surfaces, narrow-fix that consumer.
+
+---
+
 ## 🟢 HM-MEMORY-DEEP-AUDIT-Q2 — LOW / quarterly hygiene (filed 2026-05-29)
 
 **Context:** A-6 Phase 1 done 2026-05-29 — MEMORY.md index trimmed 36.6KB→23.5KB (109 entries, hooks ≤~200 chars, under the 24.4KB load limit; backup in memory/archive/). 3 high-confidence stale entries fixed (all-out resume pointer, risk-manager-conviction precursor-met, conviction-tier denorm context).
