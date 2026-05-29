@@ -3,6 +3,7 @@ from __future__ import annotations
 import requests
 import time
 import json
+import threading
 from pathlib import Path
 from datetime import datetime, timedelta
 from rich.console import Console
@@ -15,26 +16,52 @@ console = Console()
 _FINNHUB_BASE = "https://finnhub.io/api/v1"
 _cache = {}
 _CACHE_TTL = 300  # 5 minutes
+# HM-RUN-SCAN-WATCHDOG Loop 5B: hard total deadline for _fh_get (requests timeout=
+# bounds inter-read gaps, not total transfer) + a lock to serialize the cold earnings
+# fetch across partly-parallel agents (avoid an N-way Finnhub thundering herd).
+_FH_TOTAL_DEADLINE = 15  # seconds
+_earnings_cache_lock = threading.Lock()
 
 def _fh_get(endpoint: str, params: dict = None) -> dict | None:
-    """Make authenticated Finnhub API call with rate limiting."""
+    """Make authenticated Finnhub API call with a hard TOTAL deadline.
+
+    HM-RUN-SCAN-WATCHDOG Loop 5B (B): requests' timeout= bounds connect + inter-read
+    gaps, NOT total transfer time — a slow-trickling large response (the full-market
+    /calendar/earnings payload) hung run_scan 300s+ (§C ctx:catalyst). Run the request
+    on a daemon worker and abandon it after _FH_TOTAL_DEADLINE s. Returns None on
+    timeout — every caller already treats None as default-open (no data).
+    """
     key = config.FINNHUB_API_KEY
     if not key:
         return None
     if params is None:
         params = {}
     params["token"] = key
-    try:
-        r = requests.get(f"{_FINNHUB_BASE}{endpoint}", params=params, timeout=10)
-        if r.status_code == 429:
-            console.log("[yellow]Finnhub rate limited")
-            return None
-        if r.status_code != 200:
-            return None
-        return r.json()
-    except Exception as e:
-        console.log(f"[red]Finnhub error: {e}")
+
+    _box: dict = {}
+
+    def _do():
+        try:
+            r = requests.get(f"{_FINNHUB_BASE}{endpoint}", params=params, timeout=10)
+            if r.status_code == 429:
+                console.log("[yellow]Finnhub rate limited")
+                return
+            if r.status_code != 200:
+                return
+            _box["data"] = r.json()
+        except Exception as e:
+            console.log(f"[red]Finnhub error: {e}")
+
+    t = threading.Thread(target=_do, daemon=True)
+    t.start()
+    t.join(_FH_TOTAL_DEADLINE)
+    if t.is_alive():
+        console.log(
+            f"[yellow]Finnhub TOTAL-deadline {_FH_TOTAL_DEADLINE}s exceeded: "
+            f"{endpoint} — abandoning (None)"
+        )
         return None
+    return _box.get("data")
 
 
 def get_insider_transactions(symbol: str) -> list:
@@ -99,30 +126,48 @@ def get_earnings_calendar(from_date: str = None, to_date: str = None) -> list:
     if not to_date:
         to_date = (datetime.now() + timedelta(days=14)).strftime("%Y-%m-%d")
 
-    data = _fh_get("/calendar/earnings", {"from": from_date, "to": to_date})
-    if not data or "earningsCalendar" not in data:
-        return []
+    # HM-RUN-SCAN-WATCHDOG Loop 5B (A): read-through cache (TTL 300s). The earnings
+    # calendar is market-wide + slow-changing, so one Finnhub call per window is
+    # shared across all (partly-parallel) agents instead of every agent re-paying —
+    # this fetch was the §C ctx:catalyst cold-hang. Double-checked lock prevents an
+    # N-way thundering herd; the result (incl. []) is cached so a slow/failed Finnhub
+    # can't re-hang each agent. (Watchlist filter is frozen for the TTL — acceptable:
+    # the active universe changes rarely intraday and earnings context is supplementary.)
+    _ck = ("earnings_calendar", from_date, to_date)
+    _hit = _cache.get(_ck)
+    if _hit and (time.time() - _hit[0]) < _CACHE_TTL:
+        return _hit[1]
 
-    # Filter to watchlist stocks
-    watchlist = set(s.upper() for s in get_active_universe())
-    results = []
-    for e in data["earningsCalendar"]:
-        sym = e.get("symbol", "")
-        if sym in watchlist:
-            results.append({
-                "symbol": sym,
-                "date": e.get("date", ""),
-                "hour": e.get("hour", ""),  # bmo=before market open, amc=after market close
-                "eps_estimate": e.get("epsEstimate"),
-                "eps_actual": e.get("epsActual"),
-                "revenue_estimate": e.get("revenueEstimate"),
-                "revenue_actual": e.get("revenueActual"),
-                "quarter": e.get("quarter"),
-                "year": e.get("year"),
-            })
+    with _earnings_cache_lock:
+        _hit = _cache.get(_ck)  # re-check: another thread may have populated
+        if _hit and (time.time() - _hit[0]) < _CACHE_TTL:
+            return _hit[1]
 
-    results.sort(key=lambda x: x["date"])
-    return results
+        data = _fh_get("/calendar/earnings", {"from": from_date, "to": to_date})
+        if not data or "earningsCalendar" not in data:
+            results = []
+        else:
+            # Filter to watchlist stocks
+            watchlist = set(s.upper() for s in get_active_universe())
+            results = []
+            for e in data["earningsCalendar"]:
+                sym = e.get("symbol", "")
+                if sym in watchlist:
+                    results.append({
+                        "symbol": sym,
+                        "date": e.get("date", ""),
+                        "hour": e.get("hour", ""),  # bmo=before market open, amc=after market close
+                        "eps_estimate": e.get("epsEstimate"),
+                        "eps_actual": e.get("epsActual"),
+                        "revenue_estimate": e.get("revenueEstimate"),
+                        "revenue_actual": e.get("revenueActual"),
+                        "quarter": e.get("quarter"),
+                        "year": e.get("year"),
+                    })
+            results.sort(key=lambda x: x["date"])
+
+        _cache[_ck] = (time.time(), results)
+        return results
 
 
 def get_news_sentiment(symbol: str) -> dict:
