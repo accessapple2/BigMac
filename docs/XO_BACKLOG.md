@@ -73,6 +73,25 @@ Full context + design notes: `drafts/HM-AS-BETA-SCHEDULER-TOP-PRIORITY.md` §C.
 
 ---
 
+## 🟢 HM-FRONTEND-VISUAL-TEST-HARNESS — LOW / conditional (filed 2026-05-29)
+
+**Gate:** only if WAVE 7 frontend work keeps growing (AN-Bridge READ-proxies,
+inline-style-sweep Batches 6-9, Ollie-AI workspace panes — 5+ more frontend
+items). Below that threshold, eyeball verification during normal dashboard use
+is sufficient and Playwright's ~300MB + tooling overhead isn't justified.
+
+**Scope (when triggered):** `npm i -D playwright` + `tests/visual/` with headless
+smoke per LCARS section (assert section-bar title/sub renders, no IIFE throw) +
+a screenshot baseline. Makes the Frontend Ship Rule's browser smoke scriptable
+instead of manual. Captain decision per the WAVE-7 frontend roadmap; separate
+scope from any single patch.
+
+**Why filed:** LCARS-T1 (2026-05-29) was data-only and verified via node --check
++ served-fresh + object-resolution, so no browser driver was needed — but the
+next frontend items carry real runtime/closure risk where a harness pays off.
+
+---
+
 ## 🔴 HM-DATA-INTEGRITY-FORENSICS — PARENT TICKET (filed 2026-05-25)
 
 **Trigger:** Forensic audit during HM-RISK-MANAGER-CONVICTION-STOP-WIRE Lane A
