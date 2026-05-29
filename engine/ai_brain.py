@@ -1018,12 +1018,17 @@ class Arena:
             except Exception as e:
                 console.log(f"[yellow]RAM-safety check: {type(e).__name__}: {e!r}")
 
+        # HM-RUN-SCAN-WATCHDOG Loop 5A.2: quiet setup-segment markers (heartbeat-only)
+        # to localize the ~463s _run_player setup stall.
+        _scan_phase(f"player:{player_id}:post_guards", quiet=True)
+
         # Check if player is halted
         is_halted, drawdown = self.risk.check_drawdown(player_id)
         if is_halted:
             console.log(f"[red]{player_id} HALTED: {drawdown:.1%} drawdown — stop-loss still active")
 
         portfolio = get_portfolio(player_id)
+        _scan_phase(f"player:{player_id}:post_portfolio", quiet=True)
 
         # Check stop-loss / take-profit first (runs even when halted — must exit losers)
         sl_tp_actions = self.risk.check_stop_loss_take_profit(
@@ -1058,6 +1063,8 @@ class Arena:
             portfolio = get_portfolio(player_id)
             console.log(f"[cyan]{player_id}: Auto-restart — scanning for replacement after {len(sl_tp_actions)} close(s)")
 
+        _scan_phase(f"player:{player_id}:post_sltp", quiet=True)
+
         # Build shared scan context once per model (market regime, options, catalysts, intel)
         scan_ctx = ""
         try:
@@ -1068,6 +1075,8 @@ class Arena:
                 scan_ctx += "\n\n=== EARNINGS ALERTS ===\n" + ea
         except Exception as e:
             console.log(f"[yellow]{player_id}: scan context build error: {e}")
+
+        _scan_phase(f"player:{player_id}:post_build_ctx", quiet=True)
 
         # Inject learning context (lessons, adjustments, ticker warnings)
         try:
@@ -1111,6 +1120,8 @@ class Arena:
             console.log(f"[yellow]gap-context inject failed: {type(e).__name__}: {e!r}")
         except Exception as e:
             console.log(f"[red]gap-context inject UNEXPECTED: {type(e).__name__}: {e!r}")
+
+        _scan_phase(f"player:{player_id}:post_injects", quiet=True)
 
         # Inject scan context into the provider for prompt building
         provider._scan_context = scan_ctx

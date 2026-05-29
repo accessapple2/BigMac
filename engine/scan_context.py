@@ -22,19 +22,34 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
     """
     sections = []
 
+    # HM-RUN-SCAN-WATCHDOG Loop 5A.2: quiet per-block phase markers so the §C
+    # HELD-INFLIGHT heartbeat pinpoints which context-build fetch owns the ~463s
+    # setup stall. quiet=True → phase global only, no log spam. Import is lazy to
+    # avoid a circular import (ai_brain lazily imports this module).
+    try:
+        from engine.ai_brain import _scan_phase as _sp
+    except Exception:
+        def _sp(*_a, **_k):
+            return None
+
     # === MARKET REGIME ===
+    _sp(f"player:{player_id}:ctx:regime", quiet=True)
     sections.append(_build_regime_block())
 
     # === SECTOR PERFORMANCE (V3) ===
+    _sp(f"player:{player_id}:ctx:sector", quiet=True)
     sections.append(_build_sector_performance_block(prices))
 
     # === WATCHLIST ===
+    _sp(f"player:{player_id}:ctx:watchlist", quiet=True)
     sections.append(_build_watchlist_block(prices, indicators, player_id))
 
     # === CATALYSTS ===
+    _sp(f"player:{player_id}:ctx:catalyst", quiet=True)
     sections.append(_build_catalyst_block())
 
     # === GEX OVERLAY (gamma exposure levels) ===
+    _sp(f"player:{player_id}:ctx:gex", quiet=True)
     try:
         from engine.gex_overlay import get_gex_context_for_prompt
         gex_block = get_gex_context_for_prompt()
@@ -44,12 +59,15 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
         pass
 
     # === OPTIONS DATA ===
+    _sp(f"player:{player_id}:ctx:options", quiet=True)
     sections.append(_build_options_block(player_id))
 
     # === ARENA INTELLIGENCE ===
+    _sp(f"player:{player_id}:ctx:arena", quiet=True)
     sections.append(_build_arena_intel_block(player_id))
 
     # === TACTICAL DISPLAY (Warp 10 regime allocation) ===
+    _sp(f"player:{player_id}:ctx:tactical", quiet=True)
     try:
         from engine.warp10_engine import get_current_allocation, REGIME_ALLOCATIONS
         ra = get_current_allocation()
@@ -76,6 +94,7 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
         pass
 
     # === EARNINGS CATALYST (Warp 10 Final) ===
+    _sp(f"player:{player_id}:ctx:earnings_catalyst", quiet=True)
     try:
         from engine.earnings_catalyst import build_earnings_catalyst_section
         earn_block = build_earnings_catalyst_section()
@@ -85,6 +104,7 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
         pass
 
     # === VOLUME RADAR (Full market scanner — intraday hot stocks) ===
+    _sp(f"player:{player_id}:ctx:volume_radar", quiet=True)
     try:
         from engine.volume_scanner import build_volume_radar_prompt_section
         radar_block = build_volume_radar_prompt_section()
@@ -94,6 +114,7 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
         pass
 
     # === UNIVERSE SCANNER (Chekov's nightly sweep) ===
+    _sp(f"player:{player_id}:ctx:universe", quiet=True)
     try:
         from engine.universe_scanner import build_universe_prompt_section
         universe_block = build_universe_prompt_section()
@@ -103,6 +124,7 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
         pass
 
     # === STRATEGY CONVERGENCE (Starfleet multi-strategy signals) ===
+    _sp(f"player:{player_id}:ctx:strategy", quiet=True)
     try:
         from engine.strategies import build_strategy_prompt_section
         strat_block = build_strategy_prompt_section()
@@ -112,6 +134,7 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
         pass
 
     # === CHEKOV STRATEGY MEMORY (performance weights, last 60 days) ===
+    _sp(f"player:{player_id}:ctx:chekov_mem", quiet=True)
     if player_id in ("navigator", "mlx-qwen3", ""):
         try:
             from engine.trade_memory import get_memory_block_for_chekov
@@ -122,6 +145,7 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
             pass
 
     # === RALLIES ARENA INTEL (External AI Competition) ===
+    _sp(f"player:{player_id}:ctx:rallies", quiet=True)
     try:
         from engine.rallies_intel import build_rallies_intel_block
         rallies_block = build_rallies_intel_block()
