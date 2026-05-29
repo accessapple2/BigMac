@@ -3472,6 +3472,43 @@ if __name__ == "__main__":
         )
     # === /HM-WR-DAEMON-THREAD ===
 
+    # === HM-AS-β LOOP 3 — battle_station dedicated daemon thread (2026-05-29) ===
+    # Decouple the 60s-critical options monitor from the shared schedule.run_pending()
+    # queue. Loops 1+2 backgrounded whisper+autopilot, but every-cycle scanners still
+    # batch into 180-584s blocks that starved battle_station (the [HM-AS-β] drift).
+    # A dedicated thread makes battle_station immune to ALL scheduler-thread load —
+    # the durable fix vs whack-a-mole job-wrapping. Mirrors HM-WR-DAEMON-THREAD.
+    # Dispatch substitution only: the monitor's internal is_market_hours/dedup gates
+    # still apply; its [HM-AS-β] drift log now doubles as a thread-liveness check
+    # (sleeps exactly 120s, no contention → interval stays ~120s, never trips 180s).
+    def _battle_station_scheduler_thread():
+        import time as _bs_dt
+        _tick = 0
+        while True:
+            _tick += 1
+            try:
+                run_battle_station_monitor()
+            except Exception as _bs_err:
+                console.log(
+                    f"[red][HM-BS-DAEMON] tick={_tick} error: "
+                    f"{type(_bs_err).__name__}: {_bs_err!r}[/red]"
+                )
+            _bs_dt.sleep(120)
+
+    try:
+        threading.Thread(
+            target=_battle_station_scheduler_thread,
+            daemon=True,
+            name="battle_station_scheduler",
+        ).start()
+        console.log("[green][HM-BS-DAEMON] Battle Station scheduler thread started (120s cadence)")
+    except Exception as _bsd_e:
+        console.log(
+            f"[red][HM-BS-DAEMON] thread startup failed: "
+            f"{type(_bsd_e).__name__}: {_bsd_e!r}[/red]"
+        )
+    # === /HM-AS-β LOOP 3 ===
+
     # Scanner ticks every 30s; run_scanner enforces dynamic cooldown internally
     schedule.every(2).minutes.do(run_scanner)
     schedule.every(5).minutes.do(run_dayblade)  # DayBlade 0DTE: T'Pol on plutus, every 5 min
@@ -3605,7 +3642,10 @@ if __name__ == "__main__":
     schedule.every().day.at("06:00").do(run_carts_persist)            # CARTS retail nowcast persistence: 6:00 AM AZ (HM-AO 2026-05-17)
     schedule.every(5).minutes.do(run_earnings_day_scan)               # Earnings Day: every 5 min market hours
     schedule.every().day.at("06:45").do(run_opening_range)            # Battle Station: opening range 6:45 AM AZ
-    schedule.every(2).minutes.do(run_battle_station_monitor)  # Battle Station: 2-min options position monitor
+    # HM-AS-β LOOP 3 (2026-05-29): run_battle_station_monitor MOVED to its own daemon
+    # thread (_battle_station_scheduler_thread above) — decoupled from the shared
+    # scheduler so heavy-scanner batching can't starve the 60s-critical options monitor.
+    # Was: schedule.every(2).minutes.do(run_battle_station_monitor)
     # HM-WR-DAEMON-THREAD 2026-05-20: run_war_room moved to its own daemon
     # thread (see _war_room_scheduler_thread above) to bypass single-threaded
     # schedule.run_pending() queue blocking. Cadence preserved at 300s.
