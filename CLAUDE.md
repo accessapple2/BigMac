@@ -232,9 +232,12 @@ SAME cron — shared-fate remains; cross-mechanism relocation tracked in XO_BACK
 **Second instance, same day (HM-PUSH-UNBLOCK):** `git push` failed silently for
 **87 commits** because nothing monitors push health independently of the push
 pipeline — surfaced only reactively when a push during HM-AUDIT-T0 hit the
-large-file limit. Same disease: no independent watchdog. Fix queued as
-HM-GIT-PUSH-HEALTH-MONITOR (a daily cron, separate from pushing, that NTFYs if
-local is >N commits ahead of origin). Two instances in one day → this is the
+large-file limit. Same disease: no independent watchdog. **SHIPPED 2026-05-29:
+HM-PUSH-HEALTH-MONITOR** — `scripts/git_push_health_check.py`, daily cron
+(`0 20 * * *`, NOT launchd), runs `git fetch` + `git rev-list --count
+origin/main..HEAD` and NTFYs `ollietrades-admin` if local is >5 ahead OR if
+fetch itself fails (can't-reach-origin is also push-health). Independent of the
+push pipeline by construction. Two instances in one day → this is the
 program's recurring blind spot: **build the monitor on a different mechanism than
 the thing it watches, every time.**
 
