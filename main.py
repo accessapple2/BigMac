@@ -1370,6 +1370,34 @@ def run_autopilot():
         console.log(f"[red]Autopilot error: {e}")
 
 
+# HM-AS-β §B Loop 2 (2026-05-29): fire-and-forget thread wrapper for run_autopilot.
+# After Loop 1 backgrounded run_whisper, [HM-BQ-instr] shows run_autopilot is the
+# most FREQUENT remaining synchronous loop-blocker: avg 96s / max 169s on a 30-min
+# cadence — its wall lands inside schedule.run_pending() and delays the 30s-tick
+# battle_station_monitor, a primary [HM-AS-β] drift victim. Backgrounding it frees
+# the scheduler thread. Same proven pattern as _bg_whisper: skip-if-prior-running
+# lock keeps max 1 in-flight (169s max ≪ 1800s cadence, so overlap is belt-and-
+# braces, not expected). NOTE: drift has multiple synchronous contributors
+# (run_scanner/run_imbalance_scan/run_strategy_scan); Loop 2 reduces but may not
+# zero drift — measure, then decide on further wraps (loop-by-loop discipline).
+_autopilot_bg_lock = threading.Lock()
+
+
+@_hm_bq_instr("_bg_autopilot")
+def _bg_autopilot():
+    """Daemon-thread wrapper around run_autopilot() — never blocks the scheduler.
+    If a prior invocation is still running, skip this tick."""
+    if not _autopilot_bg_lock.acquire(blocking=False):
+        console.log("[dim]Autopilot bg: prior tick still running — skip")
+        return
+    def _runner():
+        try:
+            run_autopilot()
+        finally:
+            _autopilot_bg_lock.release()
+    threading.Thread(target=_runner, daemon=True, name="sched_autopilot").start()
+
+
 @_hm_bq_instr("run_whisper")
 def run_whisper():
     """Whisper Network: check for trending watchlist stocks."""
@@ -3561,7 +3589,7 @@ if __name__ == "__main__":
     # HM-WR-DAEMON-THREAD 2026-05-20: run_war_room moved to its own daemon
     # thread (see _war_room_scheduler_thread above) to bypass single-threaded
     # schedule.run_pending() queue blocking. Cadence preserved at 300s.
-    schedule.every(30).minutes.do(run_autopilot)           # Autopilot: every 30 min
+    schedule.every(30).minutes.do(_bg_autopilot)           # Autopilot: every 30 min (HM-AS-β §B Loop 2: _bg wrap — synchronous loop-blocker, avg 96s/max 169s)
     schedule.every(10).minutes.do(_bg_whisper)             # Whisper Network: every 10 min (HM-AS-β §B Loop 1: _bg wrap — was the loop-blocker, avg 831s)
     schedule.every(15).minutes.do(run_strength_scan)        # Strength Scanner: every 15 min
     schedule.every(1).hours.do(run_strategy_race)           # Strategy Race: hourly update
