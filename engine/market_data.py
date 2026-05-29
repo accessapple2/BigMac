@@ -98,6 +98,13 @@ def yahoo_quote_summary(symbol: str, modules: str = "calendarEvents") -> dict | 
     `infer:{sym}:prompt:sell_fundamentals` phase for minutes. Run on a daemon worker and
     abandon after 15s (default-open → None; all callers already handle None).
     """
+    # HM-RUN-SCAN-WATCHDOG Loop 5C/TIER-1 (circuit breaker): fast-fail when Yahoo is
+    # rate-limited — the SAME `_is_yahoo_limited` gate `_yahoo_chart` uses. The 15s
+    # per-call deadline (above) bounds one call but still summed to a ~40-min cold scan
+    # when Yahoo throttled all ~37 symbols; the breaker collapses that to a few trips
+    # then instant-None until the 60s cooldown clears (fundamentals recover after).
+    if _is_yahoo_limited():
+        return None
     s, crumb = _get_yahoo_session()
     if not s or not crumb:
         return None
@@ -108,6 +115,9 @@ def yahoo_quote_summary(symbol: str, modules: str = "calendarEvents") -> dict | 
         try:
             url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules={modules}&crumb={crumb}"
             r = s.get(url, timeout=10)
+            if r.status_code == 429:
+                _set_yahoo_limited()
+                return
             if r.status_code != 200:
                 return
             data = r.json()
@@ -120,6 +130,7 @@ def yahoo_quote_summary(symbol: str, modules: str = "calendarEvents") -> dict | 
     t.start()
     t.join(15.0)
     if t.is_alive():
+        _set_yahoo_limited()   # deadline trip ⇒ Yahoo is hanging; feed the breaker
         return None
     return _box.get("r")
 
