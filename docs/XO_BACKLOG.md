@@ -4,6 +4,12 @@
 
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
+> **Closure-sweep result 2026-05-29** (verify-before-fix audit of standing tickets):
+> - **CLOSED (shipped, were queue-rot):** HM-ALERT-AUTH-STORM (90544a6, 2026-05-23), HM-DATA-INTEGRITY-FORENSICS (sub-tickets shipped 2026-05-25).
+> - **RE-SPEC'd:** HM-DEEPSEEK-CONCENTRATION-CAP-V2 → standalone preventive cap LOW (deepseek already active, 0 positions; "prereq for unhalt" was stale).
+> - **6 REAL standing items:** HM-RISK-MANAGER-CONVICTION-STOP (unblocked — precursor met, gated on ~57% NULL backfill + flag-enable), HM-SCHWAB-CROSS-MECHANISM-ALARM (still shared-cron fate), HM-TRADES-MIRROR-GAP (P0 prereq shipped → measure current gap), HM-ALPACA-BRIDGE-LIMIT-FIX (maintenance window), HM-QG-FLOAT-TRUNCATION (LOW), HM-CONVICTION-TIER-BOUNDARY (Admiral-gated decision).
+> - ~33% of the standing backlog was not-actually-open.
+
 ---
 
 ## 🟡 HM-SIGNALS-V2-STALE-SWEEP — MEDIUM (filed 2026-05-29) — read-only diagnostic done
@@ -192,7 +198,14 @@ next frontend items carry real runtime/closure risk where a harness pays off.
 
 ---
 
-## 🔴 HM-DATA-INTEGRITY-FORENSICS — PARENT TICKET (filed 2026-05-25)
+## ✅ HM-DATA-INTEGRITY-FORENSICS — CLOSED 2026-05-29 (all sub-tickets shipped)
+
+> **CLOSED 2026-05-29 (closure sweep):** both sub-tickets shipped 2026-05-25 —
+> HM-CATEGORY-C-EMERGENCY-LOCK (`45e57e1`, superseded) + HM-CLEAN-STALE-ARCHIVE-NOT-DELETE
+> (merge `38a38e4`, pushed to main). No open sub-work remains; parent was queue-rot.
+> Forensic record retained below.
+
+### (CLOSED) HM-DATA-INTEGRITY-FORENSICS — PARENT TICKET (filed 2026-05-25)
 
 **Trigger:** Forensic audit during HM-RISK-MANAGER-CONVICTION-STOP-WIRE Lane A
 discovered an active "delete-without-archive" endpoint that wiped
