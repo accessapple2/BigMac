@@ -1,6 +1,29 @@
 # XO Backlog — USS TradeMinds
 # Riker's Standing Work Queue
-# Updated: 2026-05-29 (HM-AS-β Loop 2 + §C stall + Worf reconcile + Tier A sweep + memory trim)
+# Updated: 2026-05-29 (HM-AS-β Loop 2 + §C stall + Worf reconcile + Tier A sweep + memory trim + queue audit)
+
+> **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
+
+---
+
+## 🟡 HM-SIGNALS-V2-STALE-SWEEP — MEDIUM (filed 2026-05-29) — read-only diagnostic done
+
+**Finding (2026-05-29 diagnostic):** 123 `signals_v2` rows are `status='pending'` but
+PAST their `stale_after` (93 @ 6-24h, 30 @ >24h) — not expired. Newest *stale*-marked
+signal created yesterday 16:14 while *executed* continues today → the consumer-driven
+sweep (`events_bus_consumer` owns pending→stale, reads `WHERE status='pending'`) reaches
+fresh pending but old past-stale ones accumulate. Pending IS draining overall (1142→815).
+No `expired` rows exist despite `events_bus.mark_signal_expired` writing that status (path
+inert — worth checking).
+
+**Severity: MEDIUM, not HIGH** — `buy()` has an internal stale-gate, so stuck-pending
+canNOT be executed as fresh (no wrong-trade risk). Harm = pending-bucket bloat + status-
+column inaccuracy + possible consumer-throughput lag.
+
+**Fix options (focused session, NOT a tail-patch):** (a) explicit scheduled stale-sweep
+(`UPDATE signals_v2 SET status='stale' WHERE status='pending' AND stale_after < now`);
+(b) fix consumer to expire past-stale rows it skips; (c) reconcile the dead `expired`-write
+path vs `stale`. Diagnostic detail in `docs/QUEUE_AUDIT_2026-05-29.md`.
 
 ---
 

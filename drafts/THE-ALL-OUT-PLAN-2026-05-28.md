@@ -1,5 +1,11 @@
 # THE ALL OUT PLAN — v2 (whole-system) — 2026-05-28
 
+> **STATUS: CLOSED / HISTORICAL — 2026-05-29.** WAVE 0-6 + 8 complete; WAVE 9.1
+> wedge (tick-recorder cap fix) shipped 2026-05-29. Only WAVE 7 (frontend) +
+> WAVE 9.x (event-pipeline follow-ups) remain. **This plan is spent — future
+> sessions resume from `docs/XO_BACKLOG.md` + the gated list in
+> `docs/QUEUE_AUDIT_2026-05-29.md`, NOT from this doc.**
+
 ## STATUS — end of session 2026-05-28
 - **WAVE 0 (TIER3): ✅ infrastructure CLOSED** (two-lane scheduler + dead-model sweep + book-reconcile all proven). Per-agent tail → 5.9 / HM-AS-β.
 - **WAVE 1 (data integrity): ✅ COMPLETE** — forward-fixes already shipped; Option B (`known_contaminated` + `trades_clean`) unblocks Plutus/PnL; historical backfill correctly STOPPED (unsafe to auto-match).
