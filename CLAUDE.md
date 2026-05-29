@@ -652,6 +652,20 @@ variation pattern, not the proposed model**. Confirm the model reflects the code
 designing structure against it — same family as [[trace-every-subfetch-to-leaf]] and
 boundary-isolate.
 
+### Restart verification: confirm the LISTENER died, not "something on the port" (2026-05-29)
+`lsof -ti tcp:8080` returns **every** process with a connection to the port — clients and
+child connections too, not just the LISTEN owner. Killing a transient client leaves the real
+trader running on **old bytecode** — a *silent restart failure* (the relaunch can't bind, so
+it exits, and the stale process keeps serving). Near-miss 2026-05-29: killed PID 22601 (a
+client) thinking it was the trader; listener 26349 survived on Loop-5D bytecode; the new
+process bound in "2s" (suspiciously fast) — the tell that nothing actually restarted. Caught
+by re-checking the LISTEN owner. **Correct pattern:** target the listener specifically —
+`lsof -tiTCP:8080 -sTCP:LISTEN` — and verify post-restart that the **new PID differs from the
+old listener PID** AND the bind took the normal ~40s (a ~2s bind means the old process never
+died). **Restart success = new-PID-bound + old-PID-gone, verified — not assumed.** Same class
+as "deployed ≠ working" / [[kickstart-after-backend-merge]]: *restarted ≠ new bytecode active.*
+Verify the state transition; don't assume the command did what you intended.
+
 Full session narratives in `docs/CLAUDE-archive-2026-05.md`. Rules below are
 load-bearing today.
 
