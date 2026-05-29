@@ -25,7 +25,8 @@ from rich.console import Console
 console = Console()
 # === /HM-BJ.E4 ===
 
-from fastapi import FastAPI, Request, Form, HTTPException, Body
+from fastapi import FastAPI, Request, Form, HTTPException, Body, Depends
+from dashboard.auth import verify_admin_token  # HM-AUTH-PHASE1: TOTP/service/recovery admin guard
 from pydantic import BaseModel
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
@@ -21393,7 +21394,7 @@ def get_squeeze_recent(
 
 
 @app.post("/api/squeeze/dismiss")
-def dismiss_squeeze_candidate(data: dict = Body(...)):
+def dismiss_squeeze_candidate(data: dict = Body(...), _: str = Depends(verify_admin_token)):
     """Admiral marks a squeeze_watch row as dismissed.
 
     Body: {id: int, reason: str}
@@ -21405,8 +21406,11 @@ def dismiss_squeeze_candidate(data: dict = Body(...)):
     (docs/AUTH_SETUP.md). Stub left below for fast Phase 1
     enablement when secrets land.
     """
-    # TODO Phase 1: enable after Admiral secret-gen per docs/AUTH_SETUP.md
-    # _: str = Depends(verify_admin_token)
+    # HM-AUTH-PHASE1 ENABLED 2026-05-29: guard wired via the `_` param above
+    # (Depends(verify_admin_token)) — first gated mutating route (TIER B). Admiral
+    # secrets in .env: TOTP live; service token + recovery hash still TODO
+    # (AUTH_SETUP §2/§3) but verify_admin_token degrades gracefully (TOTP-only OK).
+    # Line was misreferenced as 21269 in the request — actual stub was here.
     try:
         rid = int(data.get("id"))
     except (TypeError, ValueError):
