@@ -43461,19 +43461,25 @@ async function fetchRealPortfolio() {
       if (Array.isArray(sw.positions) && sw.positions.length > 0) {
         // HM-SCHWAB-LINE-DETAIL 2026-05-28: per-ticker gain/loss line.
         rows += '<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;font-size:11px;color:var(--muted);margin-bottom:4px;">' + sw.positions.length + ' position(s) — gain since purchase</div>';
+        var _gradeColors = { A: '#10b981', B: '#38bdf8', C: '#f59e0b', D: '#fb923c', F: '#ef4444' };
+        function _gainStr(dol, pct) {  // colored "+$X (+Y%)" (green/red), or em-dash
+          if (typeof pct !== 'number') return '<span style="color:var(--muted);">—</span>';
+          var c = pct >= 0 ? '#10b981' : '#ef4444';
+          var ds = (typeof dol === 'number')
+            ? ((dol >= 0 ? '+$' : '-$') + Math.abs(dol).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ')
+            : '';
+          return '<span style="color:' + c + ';">' + ds + '(' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)</span>';
+        }
         sw.positions.forEach(function(p) {
-          var gp = (typeof p.gain_pct === 'number') ? p.gain_pct : null;
-          var gd = (typeof p.gain_dollar === 'number') ? p.gain_dollar : null;
-          var dc = (typeof p.day_change_pct === 'number') ? p.day_change_pct : null;
-          var col = (gp == null) ? 'var(--muted)' : (gp >= 0 ? '#10b981' : '#ef4444');
-          var gdStr = (gd == null) ? '' : ((gd >= 0 ? '+$' : '-$') + Math.abs(gd).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}));
-          var gpStr = (gp == null) ? '—' : ((gp >= 0 ? '+' : '') + gp.toFixed(2) + '%');
-          // Day line only when it diverges from total (fresh same-day buys: day == total → hide).
-          var dcStr = (dc == null || (gp != null && Math.abs(dc - gp) < 0.005)) ? '' : ('<br><span style="font-weight:400;font-size:10px;color:var(--muted);">day ' + (dc >= 0 ? '+' : '') + dc.toFixed(2) + '%</span>');
-          rows += '<div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);">';
-          rows += '<span style="font-weight:600;min-width:50px;">' + p.symbol + '</span>';
-          rows += '<span style="color:var(--muted);font-size:11px;white-space:nowrap;">' + (p.qty != null ? p.qty : '?') + ' sh · ' + _w5dFmtUSD(p.market_value) + '</span>';
-          rows += '<span style="color:' + col + ';font-weight:600;text-align:right;white-space:nowrap;">' + gdStr + ' (' + gpStr + ')' + dcStr + '</span>';
+          var gr = p.grade || null;
+          var badge = gr
+            ? '<span title="Smart Score ' + (p.smart_score != null ? p.smart_score : '?') + '/100" style="display:inline-block;min-width:16px;text-align:center;font-weight:700;font-size:11px;color:#0b1220;background:' + (_gradeColors[gr] || 'var(--muted)') + ';border-radius:4px;padding:1px 5px;margin-right:6px;">' + gr + '</span>'
+            : '<span style="display:inline-block;min-width:16px;text-align:center;font-size:11px;color:var(--muted);margin-right:6px;">–</span>';
+          rows += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">';
+          rows += '<span style="white-space:nowrap;">' + badge + '<span style="font-weight:600;">' + p.symbol + '</span>' +
+                  '<br><span style="color:var(--muted);font-size:10px;margin-left:28px;">' + (p.qty != null ? p.qty : '?') + ' sh · ' + _w5dFmtUSD(p.market_value) + '</span></span>';
+          rows += '<span style="text-align:right;white-space:nowrap;font-size:11px;font-weight:600;">total ' + _gainStr(p.gain_dollar, p.gain_pct) +
+                  '<br><span style="font-weight:400;font-size:10px;">day ' + _gainStr(p.day_change_dollar, p.day_change_pct) + '</span></span>';
           rows += '</div>';
         });
       }
