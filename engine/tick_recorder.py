@@ -64,8 +64,14 @@ _WRITE_BATCH_MAX = 100   # flush at this many ticks OR every second
 _WRITE_FLUSH_SECS = 1.0
 
 # Alpaca IEX free tier caps at 30 trade subscriptions per connection.
-# Keeping a small safety margin below the documented cap.
-_MAX_SUBSCRIBED_SYMBOLS = 28
+# HM-TICK-RECORDER-CAP-FIX 2026-05-29: use the full documented cap (was 28
+# conservative margin) — the real bottleneck was a 40-position book monopolizing
+# every slot, not the cap itself; see _CONVERGENCE_RESERVE + _get_universe.
+_MAX_SUBSCRIBED_SYMBOLS = 30
+# Guaranteed slots for top scanner-convergence candidates (by strategy count),
+# allocated BEFORE positions so a large position book can't starve imminent-entry
+# candidates of all ticks. Tunable; 10 covers all ≥4-strategy convergence + margin.
+_CONVERGENCE_RESERVE = 10
 _UNIVERSE_REFRESH_SECS = 300   # recompute subscription set every 5 min
 
 # Rolling retention: ticks older than this are pruned hourly.
@@ -148,15 +154,18 @@ def _get_universe() -> list[str]:
             symbols.append(sym)
             seen.add(sym)
 
-    # 1) Active fleet positions (highest priority)
+    # HM-TICK-RECORDER-CAP-FIX 2026-05-29: gather the buckets first, then allocate
+    # with a RESERVED block for top convergence so a large position book (40 stock
+    # positions vs 30 slots) can't starve the scanner's imminent-entry candidates
+    # of all ticks (pre-fix: 0 convergence subscribed, incl. a 6-strategy ticker).
+    positions: list[str] = []
+    convergence: list[str] = []
     try:
         c = _conn()
-        for (s,) in c.execute(
+        positions = [s for (s,) in c.execute(
             "SELECT DISTINCT symbol FROM positions WHERE qty IS NOT NULL AND qty != 0 AND asset_type='stock'"
-        ).fetchall():
-            _add(s)
-        # 2) Recent scanner convergence tickers (3+ strategies, 90 min window)
-        for (s,) in c.execute(
+        ).fetchall()]
+        convergence = [s for (s,) in c.execute(
             """
             SELECT ticker
               FROM strategy_signals
@@ -165,13 +174,21 @@ def _get_universe() -> list[str]:
             HAVING COUNT(DISTINCT strategy_name) >= 3
              ORDER BY COUNT(DISTINCT strategy_name) DESC
             """
-        ).fetchall():
-            _add(s)
+        ).fetchall()]
         c.close()
     except Exception as exc:
         console.log(f"[yellow][TICK-REC] universe DB query failed: {type(exc).__name__}: {exc!r}")
 
-    # 3) Active watchlist (engine/universe convention used by realtime_monitor)
+    # 1) RESERVE: top convergence candidates (by strategy count) — guaranteed slots
+    for s in convergence[:_CONVERGENCE_RESERVE]:
+        _add(s)
+    # 2) Active fleet positions — fill remaining slots after the reserve
+    for s in positions:
+        _add(s)
+    # 3) Remaining convergence (beyond the reserve), if room
+    for s in convergence[_CONVERGENCE_RESERVE:]:
+        _add(s)
+    # 4) Active watchlist (engine/universe convention used by realtime_monitor), if room
     try:
         from engine.universe import get_active_universe
         for s in get_active_universe():
