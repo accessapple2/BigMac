@@ -159,7 +159,27 @@ next main.py restart.
 
 ---
 
-## 🔴 HM-RUN-SCAN-WATCHDOG — HIGH, DATA-READY (filed 2026-05-29) — focused session, NOT a tail-patch
+## 🔴 HM-RUN-SCAN-WATCHDOG — HIGH, IN PROGRESS (filed 2026-05-29) — multi-cause, Loops 1-5
+
+**STATUS 2026-05-29 PM: §C stall is REDUCED, NOT CLOSED — multi-cause.**
+- **Loop 1 (instrumentation): SHIPPED** — `[SCAN-SUBCALL]` per-phase + per-agent telemetry.
+- **Loop 3 (CAUSE #1 — indicators): SHIPPED + VERIFIED** (`befb327`) — per-symbol Yahoo
+  loop (552s) → ONE bulk Alpaca call (`indicators wall=2.0s`, 276×). adjusted='all' global
+  (fixed a latent false-signal-on-split bug across 6 TA scanners). **This cause is CLOSED.**
+- **Loop 5 (CAUSE #2 — ollama research-chain): IN PROGRESS** — soak unmasked a second hang:
+  `_run_player`'s per-symbol loop (`ai_brain.py:1150`) calls `provider.analyze_chain` per
+  symbol (~37) — a multi-call ollama "research chain" → 230s+ held (phase
+  `ollama:...:deepseek-7b-grok4`). Same per-symbol-serial shape as indicators. The 90s
+  per-call ollama timeout + responsive Ollie Max ⇒ NOT one raw call; cumulative serial loop.
+  **Loop 5A (finer instrumentation) proposed** — quiet per-symbol sub-markers in `_run_player`
+  to confirm progressing-vs-stuck + symbol + substep before designing the narrow fix (5B/5C).
+  NO broad post-indicators timeout (that's option D by another name).
+
+> **§C stall: REDUCED (dominant 552s indicators cause eliminated) but NOT CLOSED** — a
+> ~230s ollama-research-chain cause remains; Loop 5 in progress.
+> **Nightly-scanner follow-up:** rs_rank + minervini (20:30/20:45 AZ) run under the new
+> adjusted='all' bars tonight — confirm their output is sane (squeeze already verified
+> 131 rows/hr, 0 errors during the day).
 
 **STATUS 2026-05-29 PM: DATA-READY.** Two confirmed stalls reliably reproducing —
 ~14 min (AM) and 16+ min (PM, ongoing post-09:33 restart, HELD-INFLIGHT climbing
