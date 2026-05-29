@@ -595,6 +595,17 @@ and produce correctly; they just land in the other file.
 
 ## Doctrine Lessons (distilled from sprint sessions)
 
+### Multi-path scanning is implicit resilience — preserve it deliberately (2026-05-29)
+When the arena scan stalls (`run_scan` holds `_scan_lock` unboundedly, §C), the
+`crew_scanner` keeps producing signals (`sig#` advances) — the fleet doesn't go
+signal-dark. Two independent scan paths (arena/`_SCAN_TIER` + `crew_scanner`) mean
+one can hang without total signal-flow loss. This redundancy wasn't designed as
+fault-tolerance but functions as it. **Preserve it deliberately:** don't
+consolidate the two scan paths into one for "simplicity," and when fixing the §C
+stall (HM-RUN-SCAN-WATCHDOG) keep `crew_scanner` independent of the arena lock.
+Same family as "alarms must not share a failure mode" — independent paths survive
+independent failures.
+
 ### Measurement-instrument bugs: boundary-isolate before reporting rates (2026-05-29)
 The analysis tooling keeps biting us as badly as the bugs. Two instances: **date-less
 log lines** (2026-05-29 — `trader_error.log` `[LRS]` lines carry HH:MM:SS but no date, so

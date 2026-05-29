@@ -74,7 +74,26 @@ ghost-trade Worf for a window before deciding re-activate vs keep-benched.
 
 ---
 
-## 🔴 HM-RUN-SCAN-WATCHDOG — NEW HIGH (filed 2026-05-29) — focused session, NOT a tail-patch
+## 🟢 HM-BS-DAEMON-HEARTBEAT — LOW / one-liner (filed 2026-05-29) — next main.py restart
+
+Loop 3's battle_station daemon (`_battle_station_scheduler_thread`, main.py) is
+silent-unless-error — no per-tick heartbeat (unlike the WR daemon's
+`[WR-DAEMON-HB]`). Absence-of-drift is the only liveness proxy, which is ambiguous
+(a dead daemon also produces no drift). Add a per-tick `[HM-BS-DAEMON-HB] tick=N`
+log (mirror the WR daemon) so liveness is POSITIVELY verifiable. Same observability
+lesson as §C: silence is ambiguous, presence is proof. One-liner; bundle with the
+next main.py restart.
+
+---
+
+## 🔴 HM-RUN-SCAN-WATCHDOG — HIGH, DATA-READY (filed 2026-05-29) — focused session, NOT a tail-patch
+
+**STATUS 2026-05-29 PM: DATA-READY.** Two confirmed stalls reliably reproducing —
+~14 min (AM) and 16+ min (PM, ongoing post-09:33 restart, HELD-INFLIGHT climbing
+60s→960s+). The shipped HELD-INFLIGHT heartbeat is producing the duration
+distribution; stalls appear effectively unbounded (hold the lock until restart).
+Design against this real evidence in a focused session (signal-timeout vs
+thread-kill vs per-subcall timeout) — needs design time, NOT a tail-patch.
 
 **Trigger:** §C soak (HM-AS-β) found a **pre-existing scan-lock stall** — a scan
 acquires `_scan_lock` (`main.py::run_scanner`) and `run_scan()` hangs unboundedly
