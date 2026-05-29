@@ -69,10 +69,19 @@ def main():
             cash_balance = float(mkt_val or 0)
             continue
         avg_cost = round(float(cost_basis or 0) / float(qty), 4) if qty else 0
+        # HM-SCHWAB-LINE-DETAIL 2026-05-28: carry structured per-ticker fields
+        # (market_value, total gain $/%, current price) so the UI can show a
+        # full holdings line instead of burying gain in `notes`. NOTE: for
+        # positions opened today, day_change_pct == gain_pct (day-since-purchase
+        # == total gain); they diverge once held overnight.
         positions.append({
             "symbol": symbol,
             "qty": qty,
             "avg_cost": avg_cost,
+            "price": round(float(price), 4) if price is not None else None,
+            "market_value": round(float(mkt_val), 2) if mkt_val is not None else None,
+            "gain_dollar": round(float(gain_d), 2) if gain_d is not None else None,
+            "gain_pct": round(float(gain_pct), 2) if gain_pct is not None else None,
             "day_change_pct": round(float(day_chg_pct), 2) if day_chg_pct is not None else None,
             "notes": (
                 f"market_value=${mkt_val:.2f}, gain=${gain_d:+.2f} ({gain_pct:+.2f}%) "
