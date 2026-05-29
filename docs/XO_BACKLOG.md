@@ -34,14 +34,30 @@ usually warm-cached but a latent re-hang); (2) `get_stock_price` loop over open 
 single-attempt, NOT yf-gated); (4) `build_sr`/`build_pattern`→`_yahoo_chart` (bounded ~30s).
 **Loop 5D follow-up:** thread `prices` into the whisper caller (one-liner, parks until 5C lands).
 
-**Scope:** sweep ALL external fetches (HTTP, broker APIs, third-party data) in `engine/`. For each
-confirm: (1) per-call timeout, (2) cache where appropriate, (3) **total** deadline on the cold path
-(requests `timeout=` bounds inter-read gaps, NOT total transfer — see Loop 5B). Prefer bulk/in-hand
-data over per-symbol loops (Loop 1→3, Loop 5D-trending pattern).
+**COMPLETE engine/ SWEEP DONE 2026-05-29 (Explore inventory): 25 fetch-leaves — 13 BOUNDED,
+8 UNBOUNDED (+OpenBB-SDK pair), 2 UNKNOWN.** Concrete fix list (ranked by hang risk):
+- **TIER 1 (live scan-hot, reachable cold from `build_prompt`/catalyst — fix first):**
+  1. `earnings_hub.py:13 get_earnings_countdown` → per-symbol `alphavantage_data.py:142
+     get_earnings_surprises` (AV 5/min) + `market_data.py:550 get_stock_price`. No internal total
+     deadline; `_CTX_CACHE` reduces re-pay but not a single cold build.
+  2. `whisper_network.py:65 get_trending_tickers` legacy `_yahoo_chart` loop over ~3,048 syms —
+     fixed when `prices=` passed (scan path does), but `check_watchlist_trending` +
+     `build_whisper_prompt_section` callers still hit it (Loop 5D-miss).
+  3. `market_data.py:550 get_stock_price` — 5-source serial cascade (Alpaca→Yahoo→Finnhub→AV→DB),
+     no total deadline (~30s+ worst on Yahoo leg); the universal price leaf, called in many loops.
+- **TIER 2 (lower-traffic unbounded — deadline/cache each):** `market_data.py:1022` Alpaca
+  per-symbol bars fallback (N×10s, no cap); `market_data.py:509 get_all_prices` (8-worker pool, no
+  pool-level timeout); `news_fetcher.py:20 fetch_news` (per-symbol Yahoo RSS, no cache); `sec_edgar.py:37/81`
+  (per-symbol EDGAR, no cache); `openbb_data.py:145/236` insider/filings (OpenBB SDK, **no `timeout=`
+  controllable at all**).
+- **UNKNOWN (confirm):** `market_data.py:92 yahoo_quote_summary` (timeout=10, no cache — caller-frequency
+  dependent).
+- **ALREADY BOUNDED (no action):** `_fh_get` (15s thread-join), `_av_get` (timeout+1hr cache), Alpaca
+  bulk/snapshot/bars-chunk, Polygon `_get`, FRED; yfinance paths inert via `_is_yf_limited()→True`.
 
-**Priority: SHIP BEFORE WAVE 7 weekend work** — this class keeps surfacing as new §C-style hangs;
-a systematic sweep retires it instead of whack-a-mole. Pairs with the `_assemble_scan_context`
-sharing pattern + the cache+deadline shape proven in Loops 3/5B/5D.
+**Fix shape:** total-deadline (thread-join like Loop 5B `_fh_get`) on each unbounded leaf + cache where
+market-wide + prefer bulk/in-hand data over per-symbol loops (Loop 1→3, 5D-trending). **Priority:
+SHIP BEFORE WAVE 7 weekend.** Tier 1 overlaps Loop 5C (in flight) — fold 5C's fix into Tier 1.
 
 ---
 
