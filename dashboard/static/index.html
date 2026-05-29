@@ -43306,25 +43306,25 @@ async function fetchMovers() {
   <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:12px;margin-bottom:16px;">
     <div class="card">
       <div class="card-header"><div class="card-title">🏦 Schwab</div></div>
-      <div id="realPortfolioSchwab" style="padding:14px;font-size:13px;">
+      <div id="realPortfolioSchwab" style="padding:14px;font-size:15px;">
         <div style="color:var(--muted);">Loading…</div>
       </div>
     </div>
     <div class="card">
       <div class="card-header"><div class="card-title">🛸 Webull</div></div>
-      <div id="realPortfolioWebull" style="padding:14px;font-size:13px;">
+      <div id="realPortfolioWebull" style="padding:14px;font-size:15px;">
         <div style="color:var(--muted);">Loading…</div>
       </div>
     </div>
     <div class="card">
       <div class="card-header"><div class="card-title">📊 IBKR</div></div>
-      <div id="realPortfolioIBKR" style="padding:14px;font-size:13px;">
+      <div id="realPortfolioIBKR" style="padding:14px;font-size:15px;">
         <div style="color:var(--muted);">Loading…</div>
       </div>
     </div>
     <div class="card">
       <div class="card-header"><div class="card-title">⚗️ Physical Metals</div></div>
-      <div id="realPortfolioMetals" style="padding:14px;font-size:13px;">
+      <div id="realPortfolioMetals" style="padding:14px;font-size:15px;">
         <div style="color:var(--muted);">Loading…</div>
       </div>
     </div>
@@ -43495,10 +43495,10 @@ async function fetchRealPortfolio() {
     wbRows += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">';
     wbRows += '<span style="color:var(--muted);">Est. value</span><span style="font-weight:700;color:#38bdf8;">' + _w5dFmtUSD(wb.total_est) + '</span></div>';
     if (Array.isArray(wb.holdings) && wb.holdings.length > 0) {
-      wbRows += '<div style="padding:6px 0;font-size:11px;"><span style="color:var(--muted);">Tickers:</span> ' + wb.holdings.join(', ') + '</div>';
+      wbRows += '<div style="padding:6px 0;font-size:13px;"><span style="color:var(--muted);">Tickers:</span> ' + wb.holdings.join(', ') + '</div>';
     }
     if (wb.note) {
-      wbRows += '<div style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;font-size:10px;color:var(--muted);font-style:italic;">' + wb.note + '</div>';
+      wbRows += '<div style="margin-top:6px;border-top:1px solid var(--border);padding-top:6px;font-size:12px;color:var(--muted);font-style:italic;">' + wb.note + '</div>';
     }
     webull.innerHTML = wbRows;
 
@@ -43508,7 +43508,7 @@ async function fetchRealPortfolio() {
     ibRows += '<div style="display:flex;justify-content:space-between;padding:6px 0;border-bottom:1px solid var(--border);">';
     ibRows += '<span style="color:var(--muted);">Total</span><span style="font-weight:700;color:#38bdf8;">' + _w5dFmtUSD(ib.total) + '</span></div>';
     if (ib.note) {
-      ibRows += '<div style="margin-top:6px;font-size:10px;color:var(--muted);font-style:italic;">' + ib.note + '</div>';
+      ibRows += '<div style="margin-top:6px;font-size:12px;color:var(--muted);font-style:italic;">' + ib.note + '</div>';
     }
     ibkr.innerHTML = ibRows;
 
@@ -43530,7 +43530,7 @@ async function fetchRealPortfolio() {
       var html = '<div style="border-bottom:1px solid var(--border);padding:8px 0;">';
       html += '<div style="display:flex;justify-content:space-between;align-items:baseline;">';
       html += '<span style="font-weight:600;">' + label + '</span><span style="font-weight:600;color:#38bdf8;">' + cur + '</span></div>';
-      html += '<div style="display:flex;justify-content:space-between;font-size:11px;color:var(--muted);padding-top:3px;">';
+      html += '<div style="display:flex;justify-content:space-between;font-size:13px;color:var(--muted);padding-top:3px;">';
       html += '<span>' + (m.oz || 0) + ' oz @ avg $' + (m.avg_cost || 0).toLocaleString() + '</span>';
       html += '<span>spot ' + spot + ' • ' + unrealStr + '</span></div></div>';
       return html;
