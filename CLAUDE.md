@@ -595,6 +595,17 @@ and produce correctly; they just land in the other file.
 
 ## Doctrine Lessons (distilled from sprint sessions)
 
+### Measurement-instrument bugs: boundary-isolate before reporting rates (2026-05-29)
+The analysis tooling keeps biting us as badly as the bugs. Two instances: **date-less
+log lines** (2026-05-29 — `trader_error.log` `[LRS]` lines carry HH:MM:SS but no date, so
+`grep | uniq -c` by hour silently aggregates *multiple days* into one bucket → the "30-53/hr
+drift baseline" was multi-day-per-bucket, ~6× the true single-night rate); and **rich-console
+wrapping** (2026-05-28 — `console.log` wraps long lines, so naïve `grep`/`wc` of wrapped
+output miscounts). **Rule: any time-window rate analysis MUST explicitly state the
+day-boundary verification (how the post-restart/today segment was isolated — line offset,
+restart marker, contiguous-ascending-timestamp block) BEFORE reporting a rate.** A rate
+without a stated boundary method is suspect. Verify the instrument, not just the result.
+
 Full session narratives in `docs/CLAUDE-archive-2026-05.md`. Rules below are
 load-bearing today.
 
