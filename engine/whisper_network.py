@@ -67,8 +67,19 @@ def get_trending_tickers(prices: dict = None) -> list:
         extra_tickers = ["SOFI", "RIVN", "NIO", "COIN", "MARA", "HOOD", "SNAP", "UBER", "XYZ", "ROKU"]
         all_tickers = list(set(get_active_universe() + extra_tickers))
 
+        # HM-RUN-SCAN-WATCHDOG Loop 5C/TIER-1: hard wall-clock budget on the legacy
+        # per-symbol Yahoo loop. This no-args path (build_whisper_prompt_section /
+        # check_watchlist_trending / discovery_scanner) was the DOMINANT §C
+        # ctx:catalyst:trending / infer:{sym}:prompt:whisper hang — ~3,048 serial
+        # _yahoo_chart calls when the 600s cache lapsed mid-scan. Normal path is the
+        # prices= fast-path above (cache pre-warmed by the catalyst block each cycle);
+        # this bounded fallback returns partial results instead of wedging the scan.
+        _loop_deadline = time.monotonic() + 15.0
         trending = []
         for sym in all_tickers:
+            if time.monotonic() > _loop_deadline:
+                console.log(f"[yellow][WHISPER-BUDGET] 15s hit at {len(trending)} hits / partial scan — returning partial")
+                break
             try:
                 chart = _yahoo_chart(sym, interval="1m", range_="1d")
                 if not chart:

@@ -90,20 +90,38 @@ def yahoo_options_chain_for_date(symbol: str, expiry_ts: int) -> dict | None:
 
 
 def yahoo_quote_summary(symbol: str, modules: str = "calendarEvents") -> dict | None:
-    """Fetch quote summary from Yahoo Finance v10 with crumb auth."""
+    """Fetch quote summary from Yahoo Finance v10 with crumb auth.
+
+    HM-RUN-SCAN-WATCHDOG Loop 5C/TIER-1: hard 15s TOTAL deadline. requests `timeout=10`
+    bounds connect + inter-read gaps, NOT total transfer — a trickling Yahoo v10
+    connection on a thin/throttled symbol hung the per-symbol
+    `infer:{sym}:prompt:sell_fundamentals` phase for minutes. Run on a daemon worker and
+    abandon after 15s (default-open → None; all callers already handle None).
+    """
     s, crumb = _get_yahoo_session()
     if not s or not crumb:
         return None
-    try:
-        url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules={modules}&crumb={crumb}"
-        r = s.get(url, timeout=10)
-        if r.status_code != 200:
-            return None
-        data = r.json()
-        results = data.get("quoteSummary", {}).get("result", [])
-        return results[0] if results else None
-    except Exception:
+
+    _box: dict = {}
+
+    def _do():
+        try:
+            url = f"https://query1.finance.yahoo.com/v10/finance/quoteSummary/{symbol}?modules={modules}&crumb={crumb}"
+            r = s.get(url, timeout=10)
+            if r.status_code != 200:
+                return
+            data = r.json()
+            results = data.get("quoteSummary", {}).get("result", [])
+            _box["r"] = results[0] if results else None
+        except Exception:
+            pass
+
+    t = threading.Thread(target=_do, daemon=True)
+    t.start()
+    t.join(15.0)
+    if t.is_alive():
         return None
+    return _box.get("r")
 
 _YAHOO_UA_POOL = [
     "Mozilla/5.0",
