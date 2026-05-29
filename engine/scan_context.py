@@ -14,7 +14,62 @@ ENERGY_TICKERS = {"XOM", "CVX", "COP", "OXY", "DVN", "EOG", "FANG", "MPC",
                   "XLE", "XOP", "OIH", "USO", "CCJ", "FCX", "NEM", "CLF"}
 
 
+# HM-RUN-SCAN-WATCHDOG Loop 5D (S): per-(scan-cycle, profile) cache for the assembled
+# scan context. The market-wide blocks are identical for every agent in a cycle, so
+# computing them once per cycle (not once per each of ~19 agents) removes the dominant
+# redundant work and aligns the code with its own "build shared scan context once per
+# model" intent. `profile` captures the ONLY player_id branches inside the blocks
+# (energy-arnold watchlist filter / options-model options block / chekov_mem gate);
+# agents sharing a profile get byte-identical context. Cycle-scoped (NOT a TTL): exactly
+# one build per cycle per profile. Double-checked lock; only the current cycle is retained.
+import threading as _ctx_threading
+_CTX_CACHE: dict = {}            # (cycle_id, profile) -> assembled string
+_CTX_CACHE_CYCLE: list = [None]  # current cycle id (single-element box)
+_ctx_lock = _ctx_threading.Lock()
+
+
+def _ctx_profile(player_id: str) -> str:
+    """Collapse player_id to the context profile it selects. MUST enumerate every
+    player_id branch used inside _assemble_scan_context's blocks — if a new branch is
+    added there, add it here too, or agents will receive a stale shared context."""
+    if player_id == "energy-arnold":
+        return "energy"
+    if player_id in ("options-sosnoff", "dayblade-0dte"):
+        return "options"
+    if player_id in ("navigator", "mlx-qwen3", ""):
+        return "chekov"
+    return "default"
+
+
 def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> str:
+    """Cache wrapper (Loop 5D (S)): return the per-cycle/profile shared context.
+
+    Falls through to a fresh build when no scan-cycle id is available (e.g. a caller
+    outside run_scan), preserving the original behavior.
+    """
+    try:
+        from engine.ai_brain import _SCAN_CYCLE_ID as _cycle
+    except Exception:
+        _cycle = None
+    if _cycle is None:
+        return _assemble_scan_context(prices, indicators, player_id)
+    _ck = (_cycle, _ctx_profile(player_id))
+    _hit = _CTX_CACHE.get(_ck)
+    if _hit is not None:
+        return _hit
+    with _ctx_lock:
+        if _CTX_CACHE_CYCLE[0] != _cycle:
+            _CTX_CACHE.clear()
+            _CTX_CACHE_CYCLE[0] = _cycle
+        _hit = _CTX_CACHE.get(_ck)
+        if _hit is not None:
+            return _hit
+        _result = _assemble_scan_context(prices, indicators, player_id)
+        _CTX_CACHE[_ck] = _result
+        return _result
+
+
+def _assemble_scan_context(prices: dict, indicators: dict, player_id: str = "") -> str:
     """Build the shared data context block for all models.
 
     Returns a formatted text block with market regime, per-stock technicals,
@@ -46,7 +101,7 @@ def build_scan_context(prices: dict, indicators: dict, player_id: str = "") -> s
 
     # === CATALYSTS ===
     _sp(f"player:{player_id}:ctx:catalyst", quiet=True)
-    sections.append(_build_catalyst_block())
+    sections.append(_build_catalyst_block(prices))
 
     # === GEX OVERLAY (gamma exposure levels) ===
     _sp(f"player:{player_id}:ctx:gex", quiet=True)
@@ -308,7 +363,7 @@ def _build_watchlist_block(prices: dict, indicators: dict, player_id: str) -> st
     return "\n".join(lines)
 
 
-def _build_catalyst_block() -> str:
+def _build_catalyst_block(prices: dict = None) -> str:
     """Upcoming catalysts: earnings, events."""
     lines = ["=== CATALYSTS NEXT 14 DAYS ==="]
 
@@ -342,7 +397,7 @@ def _build_catalyst_block() -> str:
     try:
         _sp("ctx:catalyst:trending", quiet=True)
         from engine.whisper_network import get_trending_tickers
-        trending = get_trending_tickers()
+        trending = get_trending_tickers(prices)
         if trending:
             names = [f"{t['symbol']}({t['change_pct']:+.1f}%)" for t in trending[:5]]
             lines.append(f"  Trending: {', '.join(names)}")

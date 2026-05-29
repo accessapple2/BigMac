@@ -13,15 +13,54 @@ _cache_lock = threading.Lock()
 _CACHE_TTL = 600  # 10 minutes
 
 
-def get_trending_tickers() -> list:
+def get_trending_tickers(prices: dict = None) -> list:
     """Get trending tickers by detecting big movers in watchlist + popular tickers.
 
     Returns list of {symbol, price, change_pct, reason, detected_at}.
+
+    HM-RUN-SCAN-WATCHDOG Loop 5D: when `prices` (run_scan's already-fetched bulk price
+    dict) is supplied, derive movers directly from it — no network calls. The legacy
+    path below looped `_yahoo_chart` over the full ~3,000-symbol active universe
+    serially (the §C ctx:catalyst:trending cold hang; same class as the Loop 1
+    indicators bug). Falls back to the per-symbol path when called with no prices
+    (backward-compat for other callers, e.g. check_watchlist_trending).
     """
     now = time.time()
     with _cache_lock:
         if _trending_cache and (now - _trending_cache[0].get("_ts", 0)) < _CACHE_TTL:
             return [{k: v for k, v in t.items() if k != "_ts"} for t in _trending_cache]
+
+    # HM-RUN-SCAN-WATCHDOG Loop 5D: fast path — movers from in-hand bulk prices.
+    if prices:
+        try:
+            trending = []
+            for sym, data in prices.items():
+                try:
+                    change_pct = data.get("change_pct")
+                    price = data.get("price")
+                    if change_pct is None or not price:
+                        continue
+                    if abs(float(change_pct)) >= 3.0:
+                        trending.append({
+                            "symbol": sym,
+                            "price": round(float(price), 2),
+                            "change_pct": round(float(change_pct), 2),
+                            "reason": "big_move",
+                            "detected_at": datetime.now().isoformat(),
+                        })
+                except (TypeError, ValueError):
+                    continue
+            trending.sort(key=lambda x: abs(x.get("change_pct", 0)), reverse=True)
+            trending = trending[:10]
+            with _cache_lock:
+                _trending_cache.clear()
+                for t in trending:
+                    t["_ts"] = now
+                    _trending_cache.append(t)
+            return trending
+        except Exception as e:
+            console.log(f"[red]Whisper network (prices fast-path) error: {e}")
+            return []
 
     try:
         from engine.universe import get_active_universe

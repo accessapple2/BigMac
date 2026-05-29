@@ -25,6 +25,10 @@ console = Console()
 # _scan_lock (one scan at a time), so a single module global is safe.
 import time as _hm_scan_time
 _CURRENT_SCAN_PHASE = {"name": "idle", "started": 0.0, "quiet": False}
+# HM-RUN-SCAN-WATCHDOG Loop 5D (S): monotonic scan-cycle id, bumped once per run_scan at
+# scan_start. build_scan_context keys its per-cycle/profile context cache on this so the
+# market-wide blocks are built once per cycle instead of once per agent.
+_SCAN_CYCLE_ID = 0
 
 def _scan_phase(name: str, log_prev: bool = True, quiet: bool = False) -> None:
     """Update the in-flight scan phase global (read by the §C HELD-INFLIGHT heartbeat).
@@ -386,6 +390,10 @@ class Arena:
         session_label = session if isinstance(session, str) else ("FORCED" if force else "market")
         console.log(f"[cyan]Session: {session_label.upper()}")
         _scan_phase("scan_start", log_prev=False)
+        # HM-RUN-SCAN-WATCHDOG Loop 5D (S): new scan cycle → build_scan_context rebuilds
+        # the shared market-wide context once for this cycle (across all agents).
+        global _SCAN_CYCLE_ID
+        _SCAN_CYCLE_ID += 1
 
         # Check global pause
         import sqlite3 as _sqlite3
