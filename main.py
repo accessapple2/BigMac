@@ -234,16 +234,18 @@ _SCAN_TIER1: frozenset = frozenset({
 
 # Tier 2 — Department Heads: secondary signals, every 2 hours
 _SCAN_TIER2: frozenset = frozenset({
-    "options-sosnoff",   # Troi          (phi3:mini)
-    "energy-arnold",     # Trip Tucker   (phi3:mini)
     "ollama-plutus",     # McCoy         (ministral-3:3b — HM-BN.1 canonical; was mistral:7b)
-    "ollama-local",      # Geordi        (gemma3:4b)
-    "ollama-llama",      # Uhura         (llama3.1:latest)
-    # qwen3-8b-flash (Worf) REMOVED 2026-05-29 (HM-WORF-DRIFT-RECONCILE): benched
-    #   S6.1 (-0.36%) → ADVISORY_CREW (bridge-vote only). Emitted nothing via any
-    #   scan path since 2026-05-07; listing it here lied to the scanner roster.
-    #   ADVISORY_CREW is canonical for benched-but-bridge-voting agents.
     "ollama-qwen3",      # Scotty        (phi3:mini)
+    # ── benched ADVISORY_CREW agents removed from this scan roster ──────────────
+    # qwen3-8b-flash (Worf) REMOVED 2026-05-29 (HM-WORF-DRIFT-RECONCILE): benched
+    #   S6.1 → ADVISORY_CREW (bridge-vote only), non-emitting since 2026-05-07.
+    # HM-ADVISORY-CREW-DRIFT-SWEEP 2026-05-29: removed 4 more ADVISORY_CREW (bridge-
+    #   vote only) agents that lied to the scanner roster — options-sosnoff (Troi),
+    #   energy-arnold (Trip), ollama-local (Geordi), ollama-llama (Uhura). All benched
+    #   S6.x, all non-emitting since early May (last signals 2026-05-02..05-07); all
+    #   keep ai_players active for WR bridge-voting (war_room.py skips
+    #   halt_mode!='active'/is_active=0). Same disease/fix as Worf. Only the true
+    #   active scanners (McCoy, Scotty) remain in TIER2.
 })
 
 # Tier 3 — Cadets: market open + close only (learning, not real-time)

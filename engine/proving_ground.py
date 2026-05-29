@@ -39,13 +39,12 @@ BT_TRADES_PER_WK  = 5.0
 
 # Active Sniper agents
 SNIPER_AGENTS = [
-    "ollama-llama",     # Uhura
-    # qwen3-8b-flash (Worf) REMOVED 2026-05-29 (HM-WORF-DRIFT-RECONCILE): benched
-    #   S6.1 → ADVISORY_CREW (bridge-vote only), 0 trades since 2026-05-07. Not a
-    #   live sniper; contributed 0 to trial metrics. (go/no-go denominator is 6
-    #   BENCHMARKS, not roster size, so removal doesn't move the trial math.)
+    # HM-ADVISORY-CREW-DRIFT-SWEEP 2026-05-29: ollama-llama (Uhura) + qwen3-14b-pro
+    #   (Seven) REMOVED — both benched ADVISORY_CREW, non-emitting, not live snipers.
+    # qwen3-8b-flash (Worf) REMOVED 2026-05-29 (HM-WORF-DRIFT-RECONCILE): same reason.
+    #   (go/no-go denominator is 6 BENCHMARKS not roster size — removals don't move
+    #   the trial math.)
     "deepseek-7b-grok4",           # Spock
-    "qwen3-14b-pro",   # Seven
     "ollama-plutus",    # McCoy
     "neo-matrix",       # Neo
 ]
