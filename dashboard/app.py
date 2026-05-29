@@ -17801,12 +17801,19 @@ def _track_cic_cost(model: str, input_tokens: int, output_tokens: int) -> float:
 
 
 async def _sonnet_chat(message: str, system_prompt: str, history: list) -> dict:
-    """Claude Sonnet 4.6 — primary Archer brain."""
-    import anthropic as _ant
-    api_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    if not api_key:
-        return {"reply": "", "model": "none"}
+    """Claude Sonnet 4.6 — primary Archer brain (paid; only when ANTHROPIC_API_KEY
+    is set AND the anthropic SDK is installed — otherwise _claude_chat('auto')
+    falls back to free Ollama per Free Models First).
+
+    HM-ARCHER-BRIEFING-500 (2026-05-29): the `import anthropic` was OUTSIDE this
+    try, so a missing module raised ModuleNotFoundError up through _claude_chat →
+    /api/computer/morning-briefing 500, instead of returning model='none' and
+    letting the auto-fallback reach Ollama. Import is now inside the try."""
     try:
+        import anthropic as _ant
+        api_key = os.environ.get("ANTHROPIC_API_KEY", "")
+        if not api_key:
+            return {"reply": "", "model": "none"}
         client = _ant.Anthropic(api_key=api_key)
         msgs = []
         for h in (history or [])[-10:]:
