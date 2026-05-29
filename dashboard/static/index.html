@@ -43336,17 +43336,20 @@ async function fetchMovers() {
       <div class="card-title">📋 Positions by Symbol <span id="realPortfolioPositionsCount" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div>
     </div>
     <div style="padding:0 16px 12px;overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;font-size:12px;min-width:420px;">
+      <table style="width:100%;border-collapse:collapse;font-size:14px;min-width:640px;">
         <thead>
-          <tr style="border-bottom:1px solid var(--border);color:var(--muted);text-align:left;">
-            <th style="padding:6px 4px;">Symbol</th>
-            <th style="padding:6px 4px;text-align:right;">Qty</th>
-            <th style="padding:6px 4px;text-align:right;">Market Value</th>
-            <th style="padding:6px 4px;">Accounts</th>
+          <tr style="border-bottom:1px solid var(--border);color:var(--muted);text-align:left;font-size:13px;">
+            <th style="padding:9px 6px;">Symbol</th>
+            <th style="padding:9px 6px;text-align:center;">Grade</th>
+            <th style="padding:9px 6px;text-align:right;">Qty</th>
+            <th style="padding:9px 6px;text-align:right;">Market Value</th>
+            <th style="padding:9px 6px;text-align:right;">Day</th>
+            <th style="padding:9px 6px;text-align:right;">Total Gain</th>
+            <th style="padding:9px 6px;">Acct</th>
           </tr>
         </thead>
         <tbody id="realPortfolioPositionsTbody">
-          <tr><td colspan="4" style="padding:12px;color:var(--muted);text-align:center;">Loading…</td></tr>
+          <tr><td colspan="7" style="padding:12px;color:var(--muted);text-align:center;">Loading…</td></tr>
         </tbody>
       </table>
     </div>
@@ -43443,6 +43446,20 @@ async function fetchRealPortfolio() {
     var src = (d._source || '/api/portfolio/real') + (u.ts ? (' • snapshot ' + u.ts) : '');
     meta.textContent = src + ' • refreshed ' + new Date().toLocaleTimeString();
 
+    // HM-SCHWAB-LINE-DETAIL: shared grade-badge + gain-cell helpers, used by BOTH
+    // the Schwab card and the Positions by Symbol table.
+    var _gradeColors = { A: '#10b981', B: '#38bdf8', C: '#f59e0b', D: '#fb923c', F: '#ef4444' };
+    function _gradeBadge(grade, score) {
+      if (!grade) return '<span style="color:var(--muted);">—</span>';
+      return '<span title="Smart Score ' + (score != null ? score : '?') + '/100" style="display:inline-block;min-width:16px;text-align:center;font-weight:700;color:#0b1220;background:' + (_gradeColors[grade] || 'var(--muted)') + ';border-radius:4px;padding:1px 5px;">' + grade + '</span>';
+    }
+    function _gainCell(dol, pct) {  // colored "+$X (+Y%)" green/red, or em-dash
+      if (typeof pct !== 'number') return '<span style="color:var(--muted);">—</span>';
+      var c = pct >= 0 ? '#10b981' : '#ef4444';
+      var ds = (typeof dol === 'number') ? ((dol >= 0 ? '+$' : '-$') + Math.abs(dol).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ') : '';
+      return '<span style="color:' + c + ';white-space:nowrap;">' + ds + '(' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)</span>';
+    }
+
     // ── Schwab card (legacy shape — already rich) ─────────────────────
     var sw = d.schwab || {};
     if (sw.error) {
@@ -43459,27 +43476,13 @@ async function fetchRealPortfolio() {
         rows += '<div style="font-size:10px;color:var(--muted);text-align:right;padding-top:4px;">snapshot ' + sw.last_updated + '</div>';
       }
       if (Array.isArray(sw.positions) && sw.positions.length > 0) {
-        // HM-SCHWAB-LINE-DETAIL 2026-05-28: per-ticker gain/loss line.
-        rows += '<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;font-size:11px;color:var(--muted);margin-bottom:4px;">' + sw.positions.length + ' position(s) — gain since purchase</div>';
-        var _gradeColors = { A: '#10b981', B: '#38bdf8', C: '#f59e0b', D: '#fb923c', F: '#ef4444' };
-        function _gainStr(dol, pct) {  // colored "+$X (+Y%)" (green/red), or em-dash
-          if (typeof pct !== 'number') return '<span style="color:var(--muted);">—</span>';
-          var c = pct >= 0 ? '#10b981' : '#ef4444';
-          var ds = (typeof dol === 'number')
-            ? ((dol >= 0 ? '+$' : '-$') + Math.abs(dol).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2}) + ' ')
-            : '';
-          return '<span style="color:' + c + ';">' + ds + '(' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%)</span>';
-        }
+        rows += '<div style="margin-top:10px;border-top:1px solid var(--border);padding-top:8px;font-size:12px;color:var(--muted);margin-bottom:4px;">' + sw.positions.length + ' position(s) — gain since purchase</div>';
         sw.positions.forEach(function(p) {
-          var gr = p.grade || null;
-          var badge = gr
-            ? '<span title="Smart Score ' + (p.smart_score != null ? p.smart_score : '?') + '/100" style="display:inline-block;min-width:16px;text-align:center;font-weight:700;font-size:11px;color:#0b1220;background:' + (_gradeColors[gr] || 'var(--muted)') + ';border-radius:4px;padding:1px 5px;margin-right:6px;">' + gr + '</span>'
-            : '<span style="display:inline-block;min-width:16px;text-align:center;font-size:11px;color:var(--muted);margin-right:6px;">–</span>';
-          rows += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:5px 0;border-bottom:1px solid var(--border);">';
-          rows += '<span style="white-space:nowrap;">' + badge + '<span style="font-weight:600;">' + p.symbol + '</span>' +
-                  '<br><span style="color:var(--muted);font-size:10px;margin-left:28px;">' + (p.qty != null ? p.qty : '?') + ' sh · ' + _w5dFmtUSD(p.market_value) + '</span></span>';
-          rows += '<span style="text-align:right;white-space:nowrap;font-size:11px;font-weight:600;">total ' + _gainStr(p.gain_dollar, p.gain_pct) +
-                  '<br><span style="font-weight:400;font-size:10px;">day ' + _gainStr(p.day_change_dollar, p.day_change_pct) + '</span></span>';
+          rows += '<div style="display:flex;justify-content:space-between;align-items:flex-start;gap:8px;padding:6px 0;border-bottom:1px solid var(--border);">';
+          rows += '<span style="white-space:nowrap;">' + _gradeBadge(p.grade, p.smart_score) + ' <span style="font-weight:600;font-size:14px;">' + p.symbol + '</span>' +
+                  '<br><span style="color:var(--muted);font-size:12px;margin-left:28px;">' + (p.qty != null ? p.qty : '?') + ' sh · ' + _w5dFmtUSD(p.market_value) + '</span></span>';
+          rows += '<span style="text-align:right;white-space:nowrap;font-size:13px;font-weight:600;">total ' + _gainCell(p.gain_dollar, p.gain_pct) +
+                  '<br><span style="font-weight:400;font-size:12px;">day ' + _gainCell(p.day_change_dollar, p.day_change_pct) + '</span></span>';
           rows += '</div>';
         });
       }
@@ -43542,19 +43545,27 @@ async function fetchRealPortfolio() {
       return (Number(b.market_value) || 0) - (Number(a.market_value) || 0);
     });
     if (bySymbol.length === 0) {
-      posBody.innerHTML = '<tr><td colspan="4" style="padding:12px;color:var(--muted);text-align:center;">No positions surfaced via unified shape.</td></tr>';
+      posBody.innerHTML = '<tr><td colspan="7" style="padding:12px;color:var(--muted);text-align:center;">No positions surfaced via unified shape.</td></tr>';
       posCount.textContent = '';
     } else {
       posCount.textContent = '(' + bySymbol.length + ')';
+      // HM-SCHWAB-LINE-DETAIL 2026-05-28: join per-ticker gain/grade (from the
+      // Schwab snapshot) onto the cross-account by_symbol rows, keyed by symbol.
+      var _swBySym = {};
+      (d.schwab && Array.isArray(d.schwab.positions) ? d.schwab.positions : []).forEach(function(sp) { _swBySym[sp.symbol] = sp; });
       posBody.innerHTML = bySymbol.map(function(p) {
         var qty = (typeof p.qty === 'number') ? p.qty : 0;
         var mv = (typeof p.market_value === 'number') ? p.market_value : 0;
         var accts = Array.isArray(p.accounts) ? p.accounts.join(', ') : '—';
+        var sp = _swBySym[p.symbol] || {};
         return '<tr style="border-bottom:1px solid var(--border);">' +
-          '<td style="padding:6px 4px;font-family:var(--font-mono);font-weight:600;">' + (p.symbol || '—') + '</td>' +
-          '<td style="padding:6px 4px;text-align:right;font-family:var(--font-mono);">' + (qty ? qty.toLocaleString(undefined, {maximumFractionDigits:4}) : '—') + '</td>' +
-          '<td style="padding:6px 4px;text-align:right;font-family:var(--font-mono);">' + (mv ? _w5dFmtUSD(mv) : '—') + '</td>' +
-          '<td style="padding:6px 4px;font-size:11px;color:var(--muted);">' + accts + '</td>' +
+          '<td style="padding:9px 6px;font-family:var(--font-mono);font-weight:600;">' + (p.symbol || '—') + '</td>' +
+          '<td style="padding:9px 6px;text-align:center;">' + _gradeBadge(sp.grade, sp.smart_score) + '</td>' +
+          '<td style="padding:9px 6px;text-align:right;font-family:var(--font-mono);">' + (qty ? qty.toLocaleString(undefined, {maximumFractionDigits:4}) : '—') + '</td>' +
+          '<td style="padding:9px 6px;text-align:right;font-family:var(--font-mono);">' + (mv ? _w5dFmtUSD(mv) : '—') + '</td>' +
+          '<td style="padding:9px 6px;text-align:right;">' + _gainCell(sp.day_change_dollar, sp.day_change_pct) + '</td>' +
+          '<td style="padding:9px 6px;text-align:right;">' + _gainCell(sp.gain_dollar, sp.gain_pct) + '</td>' +
+          '<td style="padding:9px 6px;color:var(--muted);">' + accts + '</td>' +
           '</tr>';
       }).join('');
     }
