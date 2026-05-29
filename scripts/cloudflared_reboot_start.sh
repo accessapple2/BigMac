@@ -28,7 +28,14 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] @reboot fired — waiting 30s for network" 
 sleep 30
 
 # Guard: don't double-fire if an operator beat the wrapper to it.
-if pgrep -fl "cloudflared tunnel" >/dev/null 2>&1; then
+# HM-CLOUDFLARED-DUP-GUARD (2026-05-29): match the BINARY (pgrep -x), not the
+# arg string. The prior guard `pgrep -f "cloudflared tunnel"` missed an instance
+# started as `cloudflared --config <cfg> tunnel run` (the --config breaks the
+# contiguous "cloudflared tunnel" substring) → a duplicate connector started on
+# the same tunnel, causing intermittent 502s (edge load-balanced onto a flapping
+# connector). `-x cloudflared` matches any invocation order; the zsh wrapper
+# itself is "zsh", not "cloudflared", so it won't self-match.
+if pgrep -x cloudflared >/dev/null 2>&1; then
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] cloudflared already running, skipping start" >> "$REBOOT_LOG"
   exit 0
 fi
@@ -48,8 +55,8 @@ echo "[$(date '+%Y-%m-%d %H:%M:%S')] starting cloudflared: $CLOUDFLARED tunnel -
 nohup "$CLOUDFLARED" tunnel --config "$CONFIG" run >> "$LOG" 2>> "$LOG" &!
 
 sleep 4
-if pgrep -fl "cloudflared tunnel" >/dev/null 2>&1; then
-  PID=$(pgrep -f "cloudflared tunnel" | head -1)
+if pgrep -x cloudflared >/dev/null 2>&1; then
+  PID=$(pgrep -x cloudflared | head -1)
   echo "[$(date '+%Y-%m-%d %H:%M:%S')] cloudflared started, pid=$PID" >> "$REBOOT_LOG"
   exit 0
 else
