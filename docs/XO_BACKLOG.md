@@ -3056,3 +3056,20 @@ To lift α (separate Phase 4 decision after 24h soak):
 | Task 3B | `uoa/scraper.py:16` | Fixed docstring example path |
 | Task 3C | `premarket-scan.sh:46` | Commented out defunct `launchctl start com.trademinds.crew` |
 | restart.sh | `restart.sh:11` | Split `qwen3.5:9b` across two vars to pass pre-commit hook |
+
+## OPEN 2026-05-28 — HM-SCHWAB-ALARM-CROSS-MECHANISM (defense-in-depth follow-up)
+
+**Context:** Schwab watcher + cadence alarm migrated launchd→cron 2026-05-28
+(HM-SCHWAB-WATCHER-CRON, OPS_LOG) after both went silent 05-23→05-28 via the
+same launchd-at-boot failure. The cron fix restores reboot-survival BUT puts the
+watcher AND its staleness alarm on the SAME mechanism (cron) — still shared-fate.
+
+**Lesson (CLAUDE.md doctrine):** an alarm that shares a failure mode with the
+thing it monitors provides no defense.
+
+**TODO:** relocate the Schwab staleness alarm to a DIFFERENT mechanism than the
+watcher — e.g. a 48h-staleness check inside the always-on trader process
+(`main.py` scheduler, which has independent monitoring + its own @reboot wrapper),
+or an external uptime/dead-man's-switch monitor. Then a single cron failure can't
+silence both the import and its watchdog. Priority: MEDIUM (cron is more robust
+than the failed launchd, but the principle stands). Est: 1-2h.

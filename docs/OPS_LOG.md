@@ -492,3 +492,45 @@ verifies as current bytecode). `/api/fleet/pulse` now returns
 `market_status: "closed_holiday"` + `holiday_name: "Memorial Day"`
 + `next_market_open` — proof that Memorial Day Phase B/C/D code is
 LIVE in-process, no longer disk-only.
+
+## 2026-05-28 17:33 AZ — HM-SCHWAB-WATCHER-CRON: launchd→cron migration (silent-gap fix)
+
+**Incident:** Schwab CSV import pipeline silently frozen 2026-05-23 → 2026-05-28
+(5 days). `/api/portfolio/real` (and Morpheus real-world net worth, HM-AM) served
+stale data: 1 position (INTU 3 @ $307) from snapshot `2026-05-23T16:33:00`. No
+position dated today; no fresh CSV in `inbox/` since 05-23.
+
+**Root cause:** The watcher (`schwab_csv_watcher.sh`, 60s poll) and its 48h
+staleness alarm (`schwab_cadence_check.py`, daily 06:30) ran ONLY via launchd
+plists (`com.ollietrades.schwab-{watcher,cadence}`). Neither was loaded in
+`launchctl` — the documented `launchctl bootstrap gui/$UID` "Domain does not
+support specified action" over SSH + RunAtLoad-needs-Aqua-session failure (same
+failure that blocked the trader `launchctl kickstart` earlier today). Last
+successful auto-import: 2026-05-18 (watcher log ends there). The 05-23 update
+was a MANUAL import (CSVs left unarchived in `inbox/`, no watcher-log entry).
+**Double failure:** the staleness alarm shared launchd with the watcher, so it
+died by the same cause and never fired.
+
+**Fix:** migrated both jobs to crontab (cron survives reboot here — proven by
+the existing trader/signal-center/cloudflared/swingdesk `@reboot` wrappers):
+  - `* * * * * /bin/bash .../schwab_csv_watcher.sh >> logs/schwab_watcher_cron.log 2>&1`
+  - `30 6 * * * venv/bin/python3 .../schwab_cadence_check.py >> logs/schwab_cadence_cron.log 2>&1`
+Crontab backed up to `/tmp/crontab.backup_20260528_173325` (append-only; all 4
+production `@reboot` entries verified intact, 25→27 lines). Stale 05-23 CSVs
+archived out of `inbox/` → `data/schwab_csv_archive/`. Both launchd plists
+archived → `archive/launchagents_2026-05-28/` (cron is now the SOLE trigger;
+no double-fire). Watcher deps verified: scripts compile under venv 3.9,
+`schwab_holdings` populated (166 rows, last 2026-05-23).
+
+**Why cron not launchd:** launchd-at-boot is the known-broken path on this box
+(needs an Aqua login session; `bootstrap` fails over SSH). cron `@reboot` and
+periodic entries demonstrably fire here. So reboot-durable services live on cron.
+
+**Verification:** cron daemon running (pid 532); entry installed; first tick
+fired ~30s after install (created `schwab_watcher_cron.log` at 17:34:00 — empty,
+correct: watcher no-ops with zero output on an empty `inbox/`). End-to-end
+import confirmation pending Captain's next fresh-CSV drop (cron ingests <60s).
+
+**Lesson (→ CLAUDE.md doctrine):** an alarm that shares a failure mode with the
+thing it monitors provides no defense. The cron fix still has watcher + alarm on
+the SAME mechanism — cross-mechanism alarm relocation tracked in XO_BACKLOG.
