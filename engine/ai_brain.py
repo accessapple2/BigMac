@@ -598,7 +598,17 @@ class Arena:
             # path is the deterministic data_rules (crew_scanner.py:2742, RSI scoring on top picks);
             # 0 realized trades; it was the §C wedger after deepseek's removal. Same redundant-arena
             # -path pattern, zero coverage loss. data_rules + war_room bridge-vote (is_active=1) stay.
-            if pid in ("deepseek-7b-grok4", "ollama-coder"):
+            #
+            # HM-AGENT-DUAL-PATH-AUDIT (2026-05-30): 4 more redundant arena paths excluded — Tier3
+            # agents wired into the arena LLM scan with NO rules path (they hit crew_scanner's
+            # "Unknown→PASS") and NO documented edge: cto-grok42 (CTO-advisor, bridge_voter=False,
+            # real model uninstalled), and ollama-deepseek (Odo) / ollama-kimi (Bashir) /
+            # qwen3-8b-sonnet (Sisko) — all ADVISORY_CREW "bridge-vote only, no individual scanning".
+            # The arena analyze-all-307 is exactly the individual scanning their role forbids.
+            # is_active=1 stays → war_room bridge-vote untouched (Worf invariant). Roster-alignment
+            # + compute reduction; Tier3 (open+close only) so NOT the §C floor fix (that's McCoy/Dax).
+            if pid in ("deepseek-7b-grok4", "ollama-coder",
+                       "cto-grok42", "ollama-deepseek", "ollama-kimi", "qwen3-8b-sonnet"):
                 continue
             ollama_providers.append((pid, prov))
 

@@ -2842,6 +2842,20 @@ def _scan_rules_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, A
     executed        = False
     gate_result     = "TRADE_SUBMITTED"
 
+    # HM-NAVIGATOR-SIGNAL-PATH-DEAD fix (2026-05-30): record actionable rules-scanner
+    # decisions into the `signals` table (orphaned for ALL rules-scanners since agents
+    # were re-homed to the trade-only path 2026-04-12; the old tractor_beam→save_signal
+    # emitter was dropped). Only ACTED-ON decisions reach here — every PASS/gate exit
+    # returned above — so no flood from PASS evals, and no double-emit (rules-scanners
+    # never traverse the arena save_signal path at ai_brain.py:1282). Mirrors that call.
+    try:
+        from engine.paper_trader import save_signal as _save_rules_signal
+        _save_rules_signal(player_id, symbol, action, conf_normalized,
+                           reason_str, sources="rules", timeframe="INTRADAY",
+                           prompt_version=f"{player_id}_rules_v1")
+    except Exception as _ss_err:
+        logger.warning(f"rules save_signal {player_id} {symbol}: {type(_ss_err).__name__}: {_ss_err!r}")
+
     try:
         from engine.paper_trader import buy, sell
         if action == "BUY":
