@@ -694,6 +694,26 @@ the head and starve the tail.)
 Full session narratives in `docs/CLAUDE-archive-2026-05.md`. Rules below are
 load-bearing today.
 
+### §C-arc lessons: deletion, stale paths, and spikes-mask-floors (2026-05-29/30)
+Three lessons from the multi-day HM-RUN-SCAN-WATCHDOG arc, consolidated:
+- **The cheapest fix to an expensive operation is sometimes deleting it.** §C's biggest infer cost
+  (deepseek scanning 307 via LLM) wasn't a perf bug — it was a *path that shouldn't run at all*
+  (Spock was converted to deterministic `spock_rules`; the arena LLM was a leftover). Before
+  optimizing HOW an expensive path runs, ask whether it should run. deepseek + ollama-coder were both
+  free deletions (zero coverage loss).
+- **Role-conversions leave stale parallel paths — and they bite repeatedly.** When an agent is
+  converted (LLM→deterministic, scanner→bench), the OLD path is often left wired. Bitten ~6× this arc:
+  deepseek + ollama-coder (arena LLM leftover after rules-conversion), Worf in 3 roster lists, navigator
+  (re-homed to trade-only, old `tractor_beam→save_signal` emitter dropped → dead `signals`). **When you
+  convert an agent's role, enumerate + remove ALL old paths, don't just add the new one.** Same family as
+  [[agent-state-must-reconcile-across-all-sources]].
+- **Spikes mask the floor — fixing a hang reveals the next, slower bottleneck.** §C had layered causes:
+  the loud spikes (catalyst 540s, indicators 552s, quote_summary) masked a quiet legitimately-long
+  *floor* (analyze-all-307). Each spike-fix unmasked the next layer. **The soak metric (zero HELD>60s) is
+  the true closure signal, not "fixed cause X"** — and a remaining "stall" may be a legitimate-but-slow
+  floor (fix by bounding/reducing work), not a hang (fix by bounding the call). Distinguish them before
+  reaching for a deadline.
+
 ### Agent state must reconcile across ALL sources (HM-WORF-DRIFT-RECONCILE, 2026-05-29)
 When an agent's state lives in N sources, **all N must reconcile or the system
 lies to future-session diagnostics.** Worf (`qwen3-8b-flash`) was benched S6.1
