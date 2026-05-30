@@ -154,6 +154,18 @@ MONTHLY_API_BUDGET = 35.00 # Soft limit — switch to economy mode
 FREE_CALLS_DAILY_LIMIT = int(os.environ.get("FREE_CALLS_DAILY_LIMIT", "1000"))
 
 # AI Arena Players
+#
+# ⚠️ HM-MODEL-CONFIG-STALENESS (2026-05-30): the `model` field below is the INITIAL /
+# informational value ONLY. The CANONICAL runtime model is `ai_players.model_id` (DB),
+# enforced on startup per HM-BN doctrine (main.py:121). For ~10 agents the live runtime
+# model differs from the `model` here — read the DB, NOT this file, for the live model.
+# Confirmed mismatches (config → DB): ollama-plutus plutus-v1→0xroyce/plutus,
+# ollama-qwen3 qwen3:8b→ministral-3:3b, ollama-llama llama3.1→qwen3:8b, ollama-local
+# qwen3:8b→gemma3:4b, ollama-gemma27b qwen3:8b→ministral-3:3b, ollama-kimi
+# kimi-k2.5→ministral-3:3b, qwen3-14b-grok3 qwen3:14b→qwen3:8b, qwen3-8b-4o→qwen3:8b,
+# qwen3-8b-o3 o3→qwen3:8b. (NOT synced to DB here because some DB model_ids are garbage
+# placeholders for no-LLM rule agents — e.g. neo-matrix model_id='8000 / Independent' —
+# and syncing would propagate them. The DB is the runtime source; this comment is the fix.)
 AI_PLAYERS = [
     {"id": "ollama-local",    "name": "Pike/Kirk 14B",      "provider": "ollama", "model": "qwen3:8b",         "url": OLLIE_URL},  # Ollie GPU
     {"id": "ollama-gemma27b", "name": "Qwen3 8B",           "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — was qwen3:14b
