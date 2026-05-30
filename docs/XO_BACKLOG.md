@@ -11,8 +11,10 @@
 > 10 sim agents preserved (202-trade fleet proves aoid-global would've wrongly erased them). Retires the dead
 > `known_contaminated` flag + cosmetic `trades_clean` view as the canonical boundary. Map: `docs/TRACKING-AGGREGATOR-SITE-MAP-2026-05-30.md`.
 > **Two orphans filed separately (NOT folded into the filter):**
-> - **HM-EQUITY-CURVE-ORPHAN (LOW)** — `dashboard/app.py:9448 get_equity_curve` (`/api/equity-curve`) has NO in-page
->   consumer; left un-adopted. Decide revive (wire a panel) vs retire (delete endpoint).
+> - **HM-EQUITY-CURVE-ORPHAN (LOW)** — ✅ **RETIRED 2026-05-30 (commit `9d5986f`).** Verified 0 fetch
+>   consumers + 0 internal callers; removed `get_equity_curve`/`/api/equity-curve` from `dashboard/app.py`,
+>   archived to `archive/retired/2026-05-30-equity-curve-orphan/get_equity_curve.py`. py_compile clean. The
+>   separate live `/api/arena/equity-curve` (def `equity_curve`) is distinct and untouched.
 > - **HM-BENCHMARK-DB-MISMATCH (MED)** — `engine/benchmark.py` writes `benchmark_snapshots` to `autonomous_trader.db`
 >   but reads fleet PnL from `data/trader.db` → benchmark/Sharpe-vs-SPY data is silently wrong (snapshots land in a
 >   different DB than the source). Fix the DB constant or document the split.
