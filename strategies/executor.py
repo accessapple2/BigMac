@@ -1,9 +1,12 @@
 """
 Execution adapter: routes StrategySignal -> alpaca_options paper orders.
 
-HARD SAFETY GATE: _EXECUTION_ENABLED is a module-level constant hardcoded
-to False. Task 7b ships close_position() stub — gate stays False.
-NOT an env var. NOT runtime config. Must be edited in source to enable.
+EXECUTION GATE: _EXECUTION_ENABLED is a module-level constant, currently
+**True** — live paper execution is ENABLED. The False->True flip (~2026-05-05)
+was DELIBERATE and Admiral-confirmed; this is the live gate the autonomous
+paper trader runs on. NOT an env var, NOT runtime config — must be edited in
+source to change. Do NOT flip back to False without Admiral sign-off (that
+reverts the whole fleet to emit-only).
 """
 from __future__ import annotations
 import json
@@ -17,7 +20,8 @@ from .base import StrategySignal
 
 
 # ═══════════════════════════════════════════════════════════════════════
-# HARD SAFETY GATE — DO NOT CHANGE WITHOUT TASK 7 SIGN-OFF
+# EXECUTION GATE — LIVE (True). Admiral-confirmed deliberate (~2026-05-05).
+# Do NOT flip to False without Admiral sign-off (reverts fleet to emit-only).
 # ═══════════════════════════════════════════════════════════════════════
 _EXECUTION_ENABLED: bool = True
 # ═══════════════════════════════════════════════════════════════════════
@@ -40,8 +44,9 @@ class ExecutionResult:
 
 def execute_signal(signal: StrategySignal, signal_id: Optional[int] = None) -> ExecutionResult:
     """
-    Execute a StrategySignal. In Task 6, always returns 'emit_only' due to
-    the hard gate. Task 7 will flip _EXECUTION_ENABLED.
+    Execute a StrategySignal. With _EXECUTION_ENABLED=True (current/live),
+    routes to _execute_live. If the gate is ever flipped back to False,
+    returns 'emit_only' instead.
     """
     if not _EXECUTION_ENABLED:
         return ExecutionResult(

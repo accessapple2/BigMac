@@ -86,7 +86,16 @@ player-scoped pass that misses 99.9% of garbage dollars. Already the stated guid
 drafts/HM-F4-RECONCILIATION.md:18-22) to `WHERE alpaca_order_id IS NOT NULL` (subsumes the date+exec-type
 filters; admits ~1 extra clean week since boundary 05-14 < the view's 05-21 floor). The dalio id=2539
 tracking-route exclusion is ORTHOGONAL → handle via the `route_mode='tracking'`-aware aggregator (see
-HM-DALIO-GOOGL-ZERO-EXIT), NOT by keeping the flag. **Original ticket text below:**
+HM-DALIO-GOOGL-ZERO-EXIT), NOT by keeping the flag.
+
+**⚠️ ALL-OUT-AUDIT-2026-05-30 CORRECTION — the view redefine already shipped, but it was COSMETIC.** The
+`trades_clean` view now exists with the `alpaca_order_id IS NOT NULL` definition (118 rows) — **but it has ZERO
+readers in code** (`rg trades_clean` → only the DDL/docs). Redefining a view nobody queries changed no PnL path.
+**The REAL, still-OPEN work is ADOPTION:** repoint the actual realized-PnL rollups (brain_context.py, dashboard
+WR%/PnL surfaces, scorecard) to key off the `alpaca_order_id` boundary (and exclude tracking-route players),
+either by querying `trades_clean` or by inlining the predicate. Until a rollup READS the boundary, the
+deprecation is paperwork. This is the same site-set as the dalio aggregator fix → **do them together.**
+**Original ticket text below:**
 
 ## 🟡 HM-CONTAMINATED-FLAG-INCOMPLETE-orig — MEDIUM (filed 2026-05-29) — data-integrity-of-the-tool
 
@@ -99,12 +108,20 @@ boundary** as the trustworthy clean/dirty discriminator. Recommend (b) — simpl
 ## 🟢 HM-DALIO-GOOGL-ZERO-EXIT — ROW-FIX SHIPPED 2026-05-30; aggregator follow-up OPEN
 
 **SHIPPED 2026-05-30:** row 2539 corrected (`realized_pnl=0, known_contaminated=1`; archived to
-`data/archive/dalio_row_2539_pre-correction_2026-05-30.txt`). **BUT dalio total realized PnL is STILL
-−255.08** after the fix → there are OTHER manual-cleanup rows (the predicted ONDS legacy-shorts siblings).
-**This VALIDATES the durable fix = the `route_mode='tracking'`-aware aggregator** (exclude tracking-route
-players from realized-PnL rollups — brain_context.py:273-275/452/530 + any dashboard sites), NOT row-by-row
-whack-a-mole. **OPEN follow-up (RED, multi-site, verified session):** make the aggregator tracking-aware,
-which zeroes ALL dalio/tracking pollution at once. Don't chase individual rows.
+`data/archive/dalio_row_2539_pre-correction_2026-05-30.txt`). **BUT dalio total realized PnL is STILL −255.08.**
+
+**ALL-OUT-AUDIT-2026-05-30 ENUMERATION (corrects the earlier "ONDS-sibling" guess):** the residual is **18
+polluted rows**, NOT 2, and it is **AAPL-dominant, not ONDS**: AAPL id 1372 = **−229.48 (90% of the residual)**,
+ONDS id 2545 = −91.05, GOOGL/QQQ small, partially offset by +DELL/+PLTR gains → nets −255.08. Neither AAPL nor
+ONDS is "metals" — these are generic manual-cleanup sprays on a tracking-only player. **And `known_contaminated`
+is INVERTED:** it is set on exactly ONE dalio row — id 2539, the one already fixed to 0 — and on NONE of the 18
+rows still wrong. The flag points at the fixed row and ignores the pollution.
+
+**→ This kills row-by-row whack-a-mole definitively (18 rows, AAPL-dominant, flag-inverted) and confirms the ONLY
+sane fix = the `route_mode='tracking'`-aware aggregator** (exclude tracking-route players from realized-PnL rollups
+— brain_context.py:273-275/452/530 + any dashboard sites). **OPEN follow-up (RED, multi-site, verified session):**
+make the aggregator tracking-aware → zeroes ALL dalio/tracking pollution at once. See [[feedback_repeat_offender_bug_classes]]
+(manual-SQL-cleanup-pollution class). Do NOT chase the 18 rows individually.
 
 ## 🟢 HM-DALIO-GOOGL-ZERO-EXIT-dx — DIAGNOSED 2026-05-30 (not a code bug; data + aggregator fix)
 
