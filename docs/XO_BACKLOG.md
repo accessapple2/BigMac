@@ -30,9 +30,16 @@
 >   (watchdog + healthcheck) route trader-restart through the flock-mutexed orphan-proof path — two actors can't double-spawn.
 > - **NEW (surfaced live):** cloudflared tunnel DOWN (no process; remote-access tunnel). Was a 05-23 cron @reboot
 >   service — died mid-session, nothing restarted it (same reboot-survival-gap, mid-life variant). Captain decision: restart if remote access wanted.
-> - **DEFERRED daemons (after Phase-1 healthy):** morningbriefing (gap confirmed), squeeze-scan, ghost-advisor, metals-sync,
->   sitrep (⚠️ uses system py3.9 — PEP604 risk), uhura/fleet-auditor/real-portfolio-snapshot. **RETIRED safe-dead:**
->   crusher (disabled), scanner (crashed 04-11), optionsflow/etfregime/movers (old /ollietrades path). **HELD for own decision:** ollie-scan (may double the in-process arena scan — confirm before restore).
+> - **Phase 2 APPLIED 2026-05-30:** ✅ **ghost-advisor** re-homed (cron `*/10`, plist retired, observed firing — 172-decision
+>   backlog pending its 1st live run after 7d dead) + ✅ **metals-sync** (cron `6:15`+`13:10`, plist retired, observed —
+>   updated XAU/XAG live). Neither touches trader.log; single-writer stayed 1.
+> - **squeeze-scan — RETIRED not restored (verify-before-code catch):** the in-process `_bg_squeeze_watcher` (main.py:1731,
+>   daemon thread, `_squeeze_bg_lock`, 30-min cadence) is LIVE (1103 log hits, `/api/squeeze` serving) — the standalone
+>   `scripts/run_squeeze_scan.py` is superseded; cron-restoring it = two scanners hammering rate-limited finviz/yfinance.
+>   Plist LEFT IN PLACE pending Captain call: **retire** (rename plist) vs **swap** (move scan out of main.py → standalone). NO cron added.
+> - **STILL DEFERRED:** morningbriefing (gap confirmed), sitrep (⚠️ system py3.9 — PEP604 risk), uhura/fleet-auditor/real-portfolio-snapshot.
+>   **RETIRED safe-dead:** crusher (disabled), scanner (crashed 04-11), optionsflow/etfregime/movers (old /ollietrades path).
+>   **HELD (in-process overlap, confirm before restore):** ollie-scan (arena scan), squeeze-scan (squeeze watcher).
 
 > **Closure-sweep result 2026-05-29** (verify-before-fix audit of standing tickets):
 > - **CLOSED (shipped, were queue-rot):** HM-ALERT-AUTH-STORM (90544a6, 2026-05-23), HM-DATA-INTEGRITY-FORENSICS (sub-tickets shipped 2026-05-25).
