@@ -666,6 +666,16 @@ died). **Restart success = new-PID-bound + old-PID-gone, verified — not assume
 as "deployed ≠ working" / [[kickstart-after-backend-merge]]: *restarted ≠ new bytecode active.*
 Verify the state transition; don't assume the command did what you intended.
 
+**ESCALATION 2026-05-29 — orphan traders (HM-RESTART-ORPHAN-PREVENTION):** killing only the LISTENER
+isn't enough. A process can **free the listener but keep running its scan loop** as an orphan. Today
+two traders ran in parallel 2.6h (PID 29543 from 15:15 + the live listener) — the orphan ran OLD code,
+double-scanned, and polluted the shared `trader.log` with stale phase lines that made a *correct* fix
+look failed → a multi-restart phantom chase. **"Port freed" ≠ "process dead."** Restart MUST: (1) kill
+ALL `main.py` procs (`pkill -f main.py` — note the binary is `Python` capitalized, so `grep
+python.*main.py` MISSES it; match `main.py`), and (2) confirm **single-writer** via `lsof
+logs/trader.log` (exactly one Python PID) BEFORE trusting any post-restart measurement. A shared log
+with two writers is a measurement-instrument bug that survives every boundary trick.
+
 Full session narratives in `docs/CLAUDE-archive-2026-05.md`. Rules below are
 load-bearing today.
 

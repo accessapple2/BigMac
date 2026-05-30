@@ -12,6 +12,36 @@
 
 ---
 
+## 🔴 HM-RESTART-ORPHAN-PREVENTION — HIGH (filed 2026-05-29) — operational hazard
+
+**The restart procedure can spawn ORPHAN traders.** 2026-05-29: a process started 15:15 froze the
+listener-free but **kept running its scan loop** after a later restart took the port — two traders ran
+in parallel **2.6 hours** (PID 29543 orphan + the live listener), double-scanning + double-signalling,
+and the orphan (OLD code) polluted the shared `trader.log` with `deepseek:infer` lines that made a
+*correct* §C-close fix look failed → triggered a multi-restart phantom chase. **Root cause:** the
+restart pattern `kill $(lsof -tiTCP:8080 -sTCP:LISTEN)` only kills the **listener-holder** — an orphan
+that already lost the listener survives. **"Port freed" ≠ "process dead."**
+
+**Fix (harden the restart procedure — real fix, not just doctrine):**
+1. Kill ALL trader processes: `pkill -f "main.py"` (or enumerate `ps | grep main.py` — note the binary
+   is `Python` capitalized, so naive `grep python.*main.py` MISSES it; match on `main.py`).
+2. After relaunch, **verify single-writer**: `lsof logs/trader.log` must show exactly ONE Python PID.
+   If two → an orphan survived; kill it before declaring restart complete.
+3. Bake into `scripts/trader_reboot_start.sh` + the manual restart runbook.
+
+**Priority HIGH:** on any real-money posture a double-running trader = **duplicate orders**. On paper
+it's account-harmless but it corrupted hours of measurement today. (Pairs with the restart-verification
+doctrine already in CLAUDE.md — extend it from "new-PID-bound" to "single-writer-confirmed".)
+
+## ⚠️ DATA SANITY-FLAG 2026-05-29: orphan double-run window 15:15-18:0x may have INFLATED magnitudes
+
+A 2.6h orphan double-run (see HM-RESTART-ORPHAN-PREVENTION) means today's **absolute counts** may be
+~2× inflated for that window: the 100%+ CPU readings, deepseek's "~100 sigs/day flood", and some
+HELD-INFLIGHT magnitudes. **The CONCLUSIONS hold** (deepseek's redundant arena path is real; the
+spike-bugs — catalyst/indicators/whisper/quote_summary — were real). But future analysis (esp. the
+agent-review clean-window re-assessment) must NOT trust today's absolute magnitudes from the
+15:15-18:0x window blindly; re-measure post-orphan-kill. Banked so the inflation isn't mistaken for signal.
+
 ## 🚨 GATE 0 — FLEET PERFORMANCE NOT ASSESSABLE PRE-2026-05-14 (data-integrity headline)
 
 **Fleet-review 2026-05-29 finding (load-bearing for ALL roster decisions):** trade data before
