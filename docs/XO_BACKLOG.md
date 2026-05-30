@@ -4,6 +4,19 @@
 
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
+> **HM-TRACKING-AGGREGATOR — ✅ SHIPPED 2026-05-30 (eb2886e).** Two-predicate clean-trades boundary
+> (`executed_at >= '2026-05-14' AND player_id NOT IN tracking`) via new `engine/trades_filter.py`, adopted at ~22
+> realized-PnL/WR rollup sites (proving_ground on date-floor-only `SIM_EVAL_WHERE`). **Verify-the-verifier PASSED
+> post-restart (PID 78251):** fleet realized **$237,423 → $286 live** (was pure pre-05-14 garbage), dalio trades-PnL **0**,
+> 10 sim agents preserved (202-trade fleet proves aoid-global would've wrongly erased them). Retires the dead
+> `known_contaminated` flag + cosmetic `trades_clean` view as the canonical boundary. Map: `docs/TRACKING-AGGREGATOR-SITE-MAP-2026-05-30.md`.
+> **Two orphans filed separately (NOT folded into the filter):**
+> - **HM-EQUITY-CURVE-ORPHAN (LOW)** — `dashboard/app.py:9448 get_equity_curve` (`/api/equity-curve`) has NO in-page
+>   consumer; left un-adopted. Decide revive (wire a panel) vs retire (delete endpoint).
+> - **HM-BENCHMARK-DB-MISMATCH (MED)** — `engine/benchmark.py` writes `benchmark_snapshots` to `autonomous_trader.db`
+>   but reads fleet PnL from `data/trader.db` → benchmark/Sharpe-vs-SPY data is silently wrong (snapshots land in a
+>   different DB than the source). Fix the DB constant or document the split.
+
 > **DAEMON GRAVEYARD (ALL-OUT-AUDIT-2026-05-30) — Phase 1 + 1b APPLIED 2026-05-30 (BOTH safety monitors restored):**
 > Phase 1 = watchdog re-homed launchd→cron (`scripts/watchdog_supervisor.sh` `*/5`, plist retired, observed running,
 > alarm layer BACK — caught cloudflared-down in 3 min). Phase 1b = healthcheck re-homed (plist retired, cron `0 6-13`,
