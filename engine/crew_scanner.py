@@ -260,11 +260,11 @@ RULES_SCANNERS: list[str] = [
     # "dayblade-sulu", # Sulu — benched S6.3 (XO coaching: R:R 0.10, META -$525)
     "navigator",       # Chekov — EMA pullback (S6.1 activated)
     "deepseek-7b-grok4",          # Spock — RSI mean reversion (pure rules, bypasses Sniper Alpha gate)
-    "qwen3-8b-flash",  # Worf — LLM bearish-setup sniper scout. REPOINTED 2026-05-28 (HM-AS-β §A.1):
-                       #   dropped from scan union since 2026-05-07 vs CLAUDE.md "active scout ~25/day".
-                       #   The S6.1 -0.36% bench is stale (pre TIER3/conviction-stops/remap refactors).
-                       #   NOTE: LLM agent — still subject to the Sniper Alpha gate (its strategy is
-                       #   NOT in BYPASS_SNIPER_ALPHA); placed here for every-cycle parity with Spock.
+    # qwen3-8b-flash (Worf) REMOVED 2026-05-29 — HM-WORF-DRIFT-RECONCILE completion. Benched to
+    #   ADVISORY_CREW (bridge-vote only); this RULES_SCANNERS entry (repointed 2026-05-28, pre-bench)
+    #   was the 3rd & final residual scanner membership — the morning sweep caught _SCAN_TIER2 +
+    #   SNIPER_AGENTS but missed this one. is_active=1 stays in ai_players (required for the WR bridge
+    #   vote per war_room.py); re-add here only on a genuine bear-cycle un-bench (review-2026-06-04).
     "holly-scanner",   # Holly — 6-pattern detector (S6.2: vol spike, gap, RSI, breakout, pullback, sector)
 ]
 
