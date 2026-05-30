@@ -280,21 +280,48 @@ def rotate_scanner_log() -> bool:
 
 
 def restart_server() -> None:
-    log("Restarting USS TradeMinds via launchctl...")
-    subprocess.run(["launchctl", "unload", PLIST], capture_output=True)
-    subprocess.run(["pkill", "-9", "-f", r"main\.py"], capture_output=True)
-    time.sleep(3)
-    # Clear port 8080 in case it's still bound
+    """Restart USS TradeMinds via the orphan-proof scripts/trader_restart.sh.
+
+    HM-HEALTHCHECK-RESTART-HARDEN (2026-05-30). The old path did
+    `launchctl unload` + `pkill -9 -f main.py` + kill :8080 holders +
+    `launchctl load` — a naive kill+relaunch that (a) had NO single-writer gate
+    so a port-freed-but-alive scan-loop survived as an orphan, and (b) from a
+    headless context (cron/watchdog) `launchctl load` hits the unreachable
+    gui/501 domain and FAILS, leaving the trader DOWN.
+
+    We now delegate to scripts/trader_restart.sh, which: kills ALL trader.log
+    WRITE-holders (orphans included) via SIGTERM→SIGKILL escalation, relaunches
+    detached, and GATES on exactly one writer (exit 2 if an orphan survives,
+    3 if no listener). It identifies instances by `lsof` on the log file — the
+    PID holding it open for write — NOT by interpreter name, so the
+    venv→CLT-python3.9 argv reality (which silently broke the watchdog
+    supervisor's `pgrep "python3 …"` guard) cannot fool it. Fails-closed and
+    headless-safe (no launchctl, no gui domain). This single gate is also the
+    cross-actor coordination: with watchdog routed here too, two restart actors
+    firing at once still cannot double-spawn — the gate admits exactly one.
+    """
+    script = os.path.join(BASE_DIR, "scripts", "trader_restart.sh")
+    log(f"Restarting USS TradeMinds via {script} (orphan-proof, single-writer gate)...")
     try:
-        port_pids = subprocess.check_output(["lsof", "-ti", ":8080"], text=True).split()
-        for pid in port_pids:
-            subprocess.run(["kill", "-9", pid], capture_output=True)
-    except Exception:
-        pass
-    time.sleep(1)
-    subprocess.run(["launchctl", "load", PLIST], capture_output=True)
-    log(f"Waiting {RESTART_WAIT}s for startup...")
-    time.sleep(RESTART_WAIT)
+        result = subprocess.run(
+            ["/bin/zsh", script],
+            capture_output=True, text=True, timeout=180,
+        )
+        for line in (result.stdout or "").splitlines():
+            log(f"  trader_restart: {line}")
+        if result.returncode == 0:
+            log("  trader_restart: RESTART OK (single-writer gate passed)")
+        else:
+            err = (result.stderr or "").strip()
+            if err:
+                log(f"  trader_restart STDERR: {err}")
+            log(f"CRITICAL: trader_restart.sh exited {result.returncode} "
+                "(1=kill-failed/python-missing, 2=single-writer-gate-failed/orphan, "
+                "3=no-listener) — manual intervention may be required")
+    except subprocess.TimeoutExpired:
+        log("CRITICAL: trader_restart.sh timed out (>180s) — manual intervention required")
+    except Exception as e:
+        log(f"CRITICAL: trader_restart.sh invocation failed: {type(e).__name__}: {e}")
 
 
 def restart_ollama() -> None:
