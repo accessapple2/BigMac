@@ -591,7 +591,14 @@ class Arena:
             # ~307 symbols was a REDUNDANT pre-deterministic leftover: the §C infer scan-cost +
             # a ~100 sigs/day flood (7× spec). spock_rules + war_room bridge-vote (separate
             # paths, need is_active=1) untouched. (crew_scanner has no analyze_chain path.)
-            if pid == "deepseek-7b-grok4":
+            #
+            # HM-RUN-SCAN-WATCHDOG §C CLOSE (2026-05-30): ollama-coder (Data) ALSO excluded.
+            # It's a CODE model (qwen2.5-coder:7b) documented "Utility / Out-of-Scope: strategy
+            # review / code tasks" — never meant to LLM-analyze the 307-symbol universe. Its real
+            # path is the deterministic data_rules (crew_scanner.py:2742, RSI scoring on top picks);
+            # 0 realized trades; it was the §C wedger after deepseek's removal. Same redundant-arena
+            # -path pattern, zero coverage loss. data_rules + war_room bridge-vote (is_active=1) stay.
+            if pid in ("deepseek-7b-grok4", "ollama-coder"):
                 continue
             ollama_providers.append((pid, prov))
 
