@@ -42,11 +42,14 @@
 >   daemons — squeeze by `_bg_squeeze_watcher` (main.py:1731, 1103 hits, /api/squeeze serving); ollie-scan by `run_scanner`
 >   (main.py:360, scheduled, `run_scanner wall=60s` actively running, the §C scan path). Cron-restoring either = double-scan
 >   on rate-limited finviz/yfinance. NO cron; plists retired (kills latent double-run vector).
-> - **REMAINING — Captain's call (one-liners):** **uhura** (SEC 13F + Form-4 insider intel scraper, daily 05:30, no
->   trader.log, no overlap → safe RESTORE candidate) · **fleet-auditor** (health-manifest / 10-job-freshness generator,
->   15min, no trader.log, partial overlap w/ healthcheck → REVIEW) · **real-portfolio-snapshot** (daily Schwab REAL
->   portfolio snapshot, 13:45, idempotent, no trader.log, no overlap → safe RESTORE candidate).
->   **RETIRED safe-dead:** crusher (disabled), scanner (crashed 04-11), optionsflow/etfregime/movers (old /ollietrades path).
+> - **Phase 2c APPLIED 2026-05-30 — ALL THREE RESTORED (observed-firing):** ✅ **uhura** (cron `5:30`; SEC 13F/Form-4
+>   scraper — observed: 29 insider signals) · ✅ **real-portfolio-snapshot** (cron `13:45`; observed: snapshotted real
+>   Schwab book $27,734.51) · ✅ **fleet-auditor** (cron `*/15`; manifest IS consumed → `dashboard/app.py:3469` endpoint +
+>   NTFY transition-alerts, NOT cosmetic — observed: refreshed the 7-day-stale manifest). None touch trader.log; single-writer held 1.
+> - **🏁 DAEMON GRAVEYARD ARC COMPLETE.** 12 cron-managed daemons (all paths absolute). **Restored:** watchdog, healthcheck,
+>   ghost-advisor, metals-sync, morningbriefing, sitrep, uhura, real-portfolio-snapshot, fleet-auditor. **Retired (superseded
+>   /dead):** squeeze-scan + ollie-scan (live in-process twins), crusher (disabled), scanner (crashed 04-11),
+>   optionsflow/etfregime/movers (old /ollietrades path). Root cause banked: [[feedback_reboot_survival_gap]].
 >   **py-version note:** venv/bin/python3 IS 3.9.6 (same as /usr/bin/python3); a venv swap does NOT fix PEP604, only the package set differs.
 
 > **Closure-sweep result 2026-05-29** (verify-before-fix audit of standing tickets):
