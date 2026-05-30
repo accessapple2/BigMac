@@ -682,9 +682,15 @@ bridge-vote agents** = no individual scanning, but `ai_players` stays `active`
 `halt_mode!='active'`/`is_active=0`/`is_paused=1` — so an "active" row is
 *required* to keep the bridge vote, NOT drift. Deeper bench (no bridge vote
 either) = `exit_only`/`is_paused=1` (Uhura, Sulu). Before "fixing" an agent's
-`ai_players` state, check whether WR/scan paths depend on it. **Known parallel
-drift still open:** Uhura/Troi/Trip remain in `_SCAN_TIER2` despite ADVISORY_CREW
-— same reconcile needed (follow-up, not yet done).
+`ai_players` state, check whether WR/scan paths depend on it. **Worf reconcile
+CLOSED 2026-05-29:** all 3 residual scanner memberships removed —
+`_SCAN_TIER2` (main.py, only `ollama-plutus`+`ollama-qwen3` remain),
+`SNIPER_AGENTS` (proving_ground.py), and `RULES_SCANNERS` (crew_scanner.py, the 3rd
+location, found in the fleet-review sweep). The earlier "Uhura/Troi/Trip still in
+`_SCAN_TIER2`" note was itself stale (inverse drift — doc lagged code): live
+`main.py:236` had already pruned them. **Lesson:** a roster-drift sweep must enumerate
+ALL membership lists (`_SCAN_TIER2`, `SNIPER_AGENTS`, `RULES_SCANNERS`, `ADVISORY_CREW`,
+`ai_players`) in one pass — Worf lived in 3 of them and took 2 sweeps to fully clear.
 
 ### Diagnostics first (HM-CD-migrate, HM-BP, 2026-05-13)
 Never modify production code paths before reading current behavior via

@@ -34,6 +34,7 @@ scan-lock *stall* is NOT solved (watchdog pending).
 
 ## 🔒 Out-of-scope (real dependencies)
 - Plutus v6 (HM-BM-BAKEOFF, V6-CORPUS) — mid-June.
+  - **deepseek-7b-grok4 → BAKEOFF CANDIDATE (banked 2026-05-29 fleet-review):** convergence — it was the §C infer-floor source (slow per-symbol build_prompt over 307-sym universe) + signal-flood (3,145/30d) + ZERO broker-realized trades (N=13 sim only). Operational-cost case for the swap; decision waits on bakeoff data. Do NOT swap now.
 - HM-IC-SQUADRON 50-close shadow — trade accumulation.
 - HM-CAPITAL-LADDER — gated on IC validation.
 - HM-TIER-5-MEAN-REVERSION — gated after 7.6.

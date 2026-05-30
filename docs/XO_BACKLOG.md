@@ -12,6 +12,43 @@
 
 ---
 
+## 🚨 GATE 0 — FLEET PERFORMANCE NOT ASSESSABLE PRE-2026-05-14 (data-integrity headline)
+
+**Fleet-review 2026-05-29 finding (load-bearing for ALL roster decisions):** trade data before
+**2026-05-14** is contaminated by the P0 price-writeback bug (internal price written, broker
+`filled_avg_price` never read back). First real Alpaca fill: `2026-05-14 07:37:44`. **Trust the
+`alpaca_order_id IS NOT NULL` boundary, NOT the `known_contaminated` flag** (the flag is incomplete
+— caught 235 trades but missed ~$230K of garbage PnL in March alone, e.g. a `simulated` TSLA
+$21.52→$396.83). **Only 2 agents have broker-real realized trades in the clean window: ollie-auto
+(N=38), neo-matrix (N=18) — both low-N.** Every other agent has 0–17 clean trades (internal
+`simulated` book by two-book design). **→ No perf-based keep/bench call is defensible this cycle
+except WATCH; re-assess when the clean window grows past ~30 trades/agent.** Both clean agents show
++realized but −MTM (bank winners, hold losers) — realized WR is a selection artifact, not edge.
+
+## 🟡 HM-CONTAMINATED-FLAG-INCOMPLETE — MEDIUM (filed 2026-05-29) — data-integrity-of-the-tool
+
+The `trades.known_contaminated` flag is unreliable: it flagged 235 trades (ollie-auto 190, neo-matrix
+29, super-agent 16) but **missed ~$230K of garbage PnL pre-2026-05-14** (March `simulated` shows
++$230,349 across 522 sells, 20 trades >$1K each, all `known_contaminated=0`). Either (a) fix it to
+catch all pre-5/14 contamination, or (b) **formally deprecate it in favor of the `alpaca_order_id`
+boundary** as the trustworthy clean/dirty discriminator. Recommend (b) — simpler + already proven.
+
+## 🟢 HM-DALIO-GOOGL-ZERO-EXIT — investigation (filed 2026-05-29) — READ-ONLY first
+
+`dalio-metals` has a GOOGL trade with `exit_price=$0.0` polluting its realized PnL (−$91). Investigate
+the `$0` write path (also seen on navigator ×4 exit_price=0 rows in spot-check). Likely a sell-price
+fallback writing 0 when the fill price is unavailable. READ the write path before any fix.
+
+## 🟢 HM-NAVIGATOR-SIGNAL-PATH-DEAD — investigation (filed 2026-05-29) — READ-ONLY first
+
+`navigator` (Chekov) produces internal **trades** but has emitted **no signal since 2026-04-14**
+(~6 weeks). Either it's emitting and signals aren't recording, or it stopped emitting while the trade
+path lives. Investigate which — READ the signal-emission path vs the `signals` table writes before
+concluding. (Note: navigator is in RULES_SCANNERS + crew_scanner — it IS scanning; the question is
+the signal *recording*.)
+
+---
+
 ## 🔴 HM-EXTERNAL-FETCH-DISCIPLINE-AUDIT — HIGH (filed 2026-05-29, promoted from MEDIUM/quarterly)
 
 **Bug class: "unbounded external fetch on first cold caller, no caching, every caller re-pays."**
