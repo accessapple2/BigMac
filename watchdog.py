@@ -166,6 +166,41 @@ def launchctl_kickstart(label: str) -> bool:
         return False
 
 
+def restart_trader() -> bool:
+    """Restart the trader via the orphan-proof scripts/trader_restart.sh.
+
+    HM-WATCHDOG-RESTART-REPOINT (2026-05-30). The old path,
+    launchctl_kickstart("com.trademinds.trader"), targeted a gui/$UID LaunchAgent
+    that does NOT bootstrap on this headless box — and the trader now runs via
+    cron @reboot, not that launchd job — so it was a stale no-op: watchdog alarmed
+    but could not actually heal the trader. trader_restart.sh kills ALL trader.log
+    WRITE-holders (orphans included) via SIGTERM→SIGKILL, relaunches detached, and
+    GATES on exactly one writer. It detects instances by lsof on the log file, not
+    by interpreter name (immune to the venv→python3.9 argv reality). It also holds
+    an mkdir-atomic flock mutex (HM-TRADER-RESTART-FLOCK): if healthcheck is
+    restarting concurrently, this invocation ABORTS exit-4 and defers — two restart
+    actors are serialized, no double-spawn. Returns True iff exit 0 (clean restart).
+    """
+    script = os.path.expanduser("~/autonomous-trader/scripts/trader_restart.sh")
+    try:
+        r = subprocess.run(["/bin/zsh", script], capture_output=True, text=True, timeout=180)
+        for line in (r.stdout or "").splitlines():
+            log.info(f"trader_restart: {line}")
+        if r.returncode == 0:
+            return True
+        if r.returncode == 4:
+            log.warning("trader_restart: another restart already in progress (flock) — deferring to it")
+            return False
+        log.error(f"trader_restart exited {r.returncode}: {(r.stderr or '').strip()}")
+        return False
+    except subprocess.TimeoutExpired:
+        log.error("trader_restart timed out (>180s) — manual intervention may be needed")
+        return False
+    except Exception as e:
+        log.error(f"trader_restart invocation failed: {type(e).__name__}: {e}")
+        return False
+
+
 def restart_ollama() -> bool:
     try:
         r = subprocess.run(
@@ -254,8 +289,8 @@ def check_bridge() -> None:
     except Exception:
         pass
     diagnosis = " | ".join(diag) if diag else "Unknown cause"
-    alert("🚨 Bridge Down", f"Port 8080 unresponsive — {diagnosis}\nRestarting via launchd", "bridge")
-    launchctl_kickstart("com.trademinds.trader")
+    alert("🚨 Bridge Down", f"Port 8080 unresponsive — {diagnosis}\nRestarting via trader_restart.sh", "bridge")
+    restart_trader()
     time.sleep(BRIDGE_POST_RESTART_WAIT)
     if http_ok(BRIDGE_URL, timeout=BRIDGE_HTTP_TIMEOUT):
         log.info("Bridge RECOVERED")
