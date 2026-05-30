@@ -676,6 +676,21 @@ python.*main.py` MISSES it; match `main.py`), and (2) confirm **single-writer** 
 logs/trader.log` (exactly one Python PID) BEFORE trusting any post-restart measurement. A shared log
 with two writers is a measurement-instrument bug that survives every boundary trick.
 
+### When you can't validate a content filter, bound QUANTITY not content (2026-05-30)
+A scan/screen that's too big has two fix shapes: (a) a **content filter** (keep the "relevant" subset)
+or (b) a **quantity bound** (process N per cycle, rotate, full coverage over time). Choose by whether
+you can VALIDATE the content criteria. The §C floor (McCoy/Dax CSP sellers analyzing all 307) looked
+like a content-screen problem — until verify-before-fix found there was **nothing to validate against**:
+they'd signaled on ~all 312 symbols (no selectivity to learn from) AND there was no cached
+options/IV universe to screen on (a real CSP screen would need the per-symbol fetches we'd just killed).
+**A content filter you can't validate risks silent PERMANENT alpha loss** (you drop a profitable name
+and never know). **A quantity bound (bounded-rotation) loses nothing** — every name still scans, just
+rotated across cycles — and for a SLOW strategy (CSP hold-to-expiry) temporal coverage (~12h full sweep)
+is fine; you don't need every name every cycle. Rule: **no known-good-set + no cached universe to filter
+on ⇒ bound the quantity, don't guess the content.** (Rotation cursor pattern already exists:
+`_ALPHA_PAIR_IDX` in crew_scanner.py — but persist the offset to `settings` so restarts don't re-scan
+the head and starve the tail.)
+
 Full session narratives in `docs/CLAUDE-archive-2026-05.md`. Rules below are
 load-bearing today.
 

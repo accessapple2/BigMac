@@ -292,6 +292,32 @@ next main.py restart.
 
 ## 🔴 HM-RUN-SCAN-WATCHDOG — HIGH, IN PROGRESS (filed 2026-05-29) — multi-cause, Loops 1-5C
 
+### ▶ MONDAY-RESUME (2026-05-30 weekend checkpoint) — §C floor = Lever A "bounded-rotation"
+**§C causes CLOSED + clean-verified:** indicators (Loop 3) · catalyst/trending/quote_summary spikes
+(5B/5C/5D) · **deepseek** redundant arena path (7d7caa8) · **ollama-coder** redundant path (7d7caa8).
+**Remaining = the analyze-all FLOOR:** genuine LLM agents (McCoy/Dax, ±others) analyze all 307 symbols
+→ ~85min TIER2 scan holds `_scan_lock`, starving TIER1 (BridgeCrew, 30-min cadence) ~2 slots/2h. NOT a
+hang — a legitimately-long scan. (Arena scan is MARKET-HOURS-GATED → no weekend scans → floor dormant +
+unconfirmable till Monday open.)
+**FIX DECIDED = Lever A "bounded-rotation" (NOT a content screen):** verify-before-fix killed the
+content-screen (Shape A) — McCoy/Dax signal on ~all 312 symbols (nothing to validate against) + no cached
+options/IV universe (a CSP screen would need the per-symbol fetches we killed). Bounded-rotation bounds
+QUANTITY (N≈50/cycle, rotate offset, full coverage over ~6 scans) with ZERO alpha loss; suits CSP's slow
+cadence. See [[when-you-cant-validate-content-bound-quantity]] doctrine.
+**STAGED (uncommitted, working tree `M engine/ai_brain.py`):** 4 Tier3 redundant removals (cto-grok42,
+ollama-deepseek/Odo, ollama-kimi/Bashir, qwen3-8b-sonnet/Sisko) — bundle into the floor restart.
+**MONDAY BUILD SEQUENCE:** (1) first clean scan → read TRUE arena set on single-writer (orphan tally
+hinted Worf/Seven/navigator still scan — CONFIRM, don't trust contaminated tally). (2) if extra redundant
+agents → dual-path-audit + remove (cheaper than bounding). (3) build bounded-rotation on confirmed set.
+(4) bundle the 4 staged Tier3 removals. (5) live scan confirms TIER2 ≤15min + TIER1 starvation gone +
+scans COMPLETE (post_processing>0) + full coverage over ~6 scans.
+**VBC gates — STATIC ones DONE (cleared weekend):** offset → mirror `_ALPHA_PAIR_IDX` (crew_scanner:272)
+BUT persist to `settings` (in-memory resets on restart → re-scans head, starves tail); modulo handles
+universe-growth. No downstream assumes full-307/cycle (consumers drain what's emitted; bounded-rotation may
+even HELP signals_v2 bloat). **VBC-2 (N sizing) = MONDAY** — needs clean per-symbol cost (the ~10.5s is
+orphan-era; size N so N×agents×cost ≤ ~15min, margin under the 30-min TIER1 cadence).
+**Also Monday:** signals_v2 stale-sweep runs AFTER the floor fix (don't drain a still-filling pond).
+
 **STATUS 2026-05-29 PM: §C stall REDUCED from 3 causes → 1. Catalyst CLOSED; infer remains.**
 - **Loop 1 (instrumentation): SHIPPED** — `[SCAN-SUBCALL]` + quiet per-phase/per-symbol telemetry.
 - **Loop 3 (CAUSE #1 — indicators): SHIPPED + VERIFIED** (`befb327`) — per-symbol Yahoo
