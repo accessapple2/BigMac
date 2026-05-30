@@ -78,13 +78,45 @@ The `trades.known_contaminated` flag is unreliable: it flagged 235 trades (ollie
 catch all pre-5/14 contamination, or (b) **formally deprecate it in favor of the `alpaca_order_id`
 boundary** as the trustworthy clean/dirty discriminator. Recommend (b) — simpler + already proven.
 
-## 🟢 HM-DALIO-GOOGL-ZERO-EXIT — investigation (filed 2026-05-29) — READ-ONLY first
+## 🟢 HM-DALIO-GOOGL-ZERO-EXIT — DIAGNOSED 2026-05-30 (not a code bug; data + aggregator fix)
+
+**ROOT CAUSE (2026-05-30 read-only):** `trades.id=2539` (dalio-metals GOOGL SELL, exit_price=0.0,
+realized_pnl=−77.36) is a **MANUAL SQL worthless-expiry cleanup**, NOT a live code write. Its own
+`reasoning` field is the provenance ("orphan expired option DTE-23... closed via worthless-expiry SQL
+pattern... HM-MASTER-PLAN W2-D"). PROVEN not-a-code-bug: dalio-metals is `route_mode='tracking'`
+(log-only) → `sell()`/`sell_partial()` short-circuit to `_log_signal_only` (paper_trader.py:1653-1655,
+1922-1924, 486-512) which writes NO trades row. The $0.0 = deliberate "expired worthless" close; the
+defect is it booked entry×qty (12.93×5.98≈77.36) as realized PnL against a **tracking-only player that
+should carry ZERO realized PnL** (Two-Book doctrine). **PROPOSED FIX (not applied — RED, DB write):**
+(1) `UPDATE trades SET realized_pnl=0, known_contaminated=1 WHERE id=2539` (sacred-data: correct, don't
+delete); (2) make the realized-PnL aggregator **tracking-route-aware** (exclude route_mode='tracking'
+players OR known_contaminated=1) — the durable fix; (3) audit the referenced ONDS legacy-shorts cleanup
+for sibling rows. Other exit_price=0 rows (navigator ×4, dalio ×13) are legit OPEN entry rows (NULL exit),
+not pollution. **Monday/Captain decision: the 2 SQL writes are RED → stage, await go.**
+
+<details><summary>original</summary>
 
 `dalio-metals` has a GOOGL trade with `exit_price=$0.0` polluting its realized PnL (−$91). Investigate
 the `$0` write path (also seen on navigator ×4 exit_price=0 rows in spot-check). Likely a sell-price
 fallback writing 0 when the fill price is unavailable. READ the write path before any fix.
 
-## 🟢 HM-NAVIGATOR-SIGNAL-PATH-DEAD — investigation (filed 2026-05-29) — READ-ONLY first
+## 🟢 HM-NAVIGATOR-SIGNAL-PATH-DEAD — DIAGNOSED 2026-05-30 (by-design omission, not a bug)
+
+**ROOT CAUSE (2026-05-30 read-only):** navigator NOT-EMITTING into `signals` **by design** — not
+emitting-but-not-recording. Commit `08cc0eb` (2026-04-12) re-homed navigator onto a TRADE-ONLY lineage
+(`chekov_rules` in crew_scanner + `chekov_autotrade.py` convergence path), and the OLD `tractor_beam→
+save_signal` emitter that wrote its 307 signals (all dated 2026-04-14, `sources='tractor_beam,...'`) was
+**never carried into the imported codebase** → signals ceased 4-14. navigator still TRADES (37 since
+5-14). `save_signal()` is called in **exactly ONE place: ai_brain.py:1282** (the arena LLM loop), and
+navigator isn't in `_SCAN_TIER1/2/3` → never reaches it. **This is a FLEET-WIDE blind spot:** ALL
+rules-scanners (capitol-trades, dalio-metals, holly-scanner, deepseek-as-rules, dayblade-0dte) trade but
+write no `signals`. **PROPOSED FIX (not applied):** add a `save_signal()` hook to the crew_scanner rules
+path (~crew_scanner.py:2766) mirroring ai_brain.py:1282 — restores `signals` coverage for ALL rules
+agents. **CAVEAT (Admiral decision):** rules agents PASS far more than they trade → recording every eval
+could FLOOD `signals`; decide scope (every eval vs only acted-on BUY/SELL) before wiring. RED-ish
+(scan-path-adjacent + flood risk) → stage, await go.
+
+<details><summary>original</summary>
 
 `navigator` (Chekov) produces internal **trades** but has emitted **no signal since 2026-04-14**
 (~6 weeks). Either it's emitting and signals aren't recording, or it stopped emitting while the trade
@@ -306,9 +338,13 @@ QUANTITY (N≈50/cycle, rotate offset, full coverage over ~6 scans) with ZERO al
 cadence. See [[when-you-cant-validate-content-bound-quantity]] doctrine.
 **STAGED (uncommitted, working tree `M engine/ai_brain.py`):** 4 Tier3 redundant removals (cto-grok42,
 ollama-deepseek/Odo, ollama-kimi/Bashir, qwen3-8b-sonnet/Sisko) — bundle into the floor restart.
-**MONDAY BUILD SEQUENCE:** (1) first clean scan → read TRUE arena set on single-writer (orphan tally
-hinted Worf/Seven/navigator still scan — CONFIRM, don't trust contaminated tally). (2) if extra redundant
-agents → dual-path-audit + remove (cheaper than bounding). (3) build bounded-rotation on confirmed set.
+**DUAL-PATH FULL SWEEP DONE 2026-05-30 (static, uncontaminated) — orphan-hint REFUTED:** the arena
+collapses to EXACTLY **{McCoy (ollama-plutus), Dax (ollama-qwen3)}** — both GENUINE. Worf/Seven/navigator
+do NOT reach the arena (NOT in any scan tier — the orphan ran old bytecode w/ a pre-pruning roster). NO
+additional free deletions beyond the staged skip-set (the other redundants are tier/DB-gated already).
+So the floor is just McCoy+Dax; bounded-rotation applies to those 2.
+**MONDAY BUILD SEQUENCE:** (1) first clean scan → CONFIRM arena set = {McCoy, Dax} (static expectation
+set; should match). (2) build bounded-rotation on {McCoy, Dax}. (3) ditto step (2) — no extra deletions.
 (4) bundle the 4 staged Tier3 removals. (5) live scan confirms TIER2 ≤15min + TIER1 starvation gone +
 scans COMPLETE (post_processing>0) + full coverage over ~6 scans.
 **VBC gates — STATIC ones DONE (cleared weekend):** offset → mirror `_ALPHA_PAIR_IDX` (crew_scanner:272)
