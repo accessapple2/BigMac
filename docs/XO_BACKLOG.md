@@ -15,19 +15,18 @@
 >   `launchctl load` (headless→unreachable gui/501→can down-and-not-restore). **healthcheck stays DEFERRED/OFF until
 >   this is rewritten to call `trader_restart.sh`** (orphan-proof single-writer gate). Falsifiable trigger: restart_server
 >   invokes trader_restart.sh + a forced restart leaves exactly 1 writer.
-> - **HM-TRADER-RESTART-FLOCK (HIGH) — 🚧 HARD BLOCKER on HM-WATCHDOG-RESTART-REPOINT.** The single-writer gate in
->   `trader_restart.sh` is a DETECTOR, not a MUTEX: two concurrent invocations both kill→both relaunch→both spawn a
->   trader→both gate-fail (exit 2). The actual race-resolver is `main.py`'s `:8080` bind-conflict behavior, which is
->   UNVERIFIED. Fix: add an `flock` mutex (`flock -n` on a lockfile at the top of trader_restart.sh) so a 2nd concurrent
->   restart blocks or aborts cleanly → "admit one" becomes ENFORCED. **DEPENDENCY (wired, do not violate):** watchdog
->   must NOT be repointed to route through trader_restart.sh until flock lands — two live callers without the mutex =
->   the double-spawn race. **flock first → controlled 2×-concurrent thrash test proves serialization → THEN repoint.**
->   Falsifiable trigger: two `trader_restart.sh` fired together leave exactly 1 trader + 1 writer (loser aborts on lock).
-> - **HM-WATCHDOG-RESTART-REPOINT (MED) — 🚧 BLOCKED BY HM-TRADER-RESTART-FLOCK.** `watchdog.py:258
->   launchctl_kickstart("com.trademinds.trader")` targets the launchd job, not the cron-launched trader; gui/501
->   unreachable headless → trader auto-heal is STALE (alarms, can't restart). Orphan-safe (fails closed). Repoint to
->   `trader_restart.sh` — **but ONLY after flock ships** (else watchdog + healthcheck both route through the un-mutexed
->   script = race). Trigger: kill the trader → watchdog brings it back via trader_restart.sh with exactly 1 writer.
+> - **HM-TRADER-RESTART-FLOCK (HIGH) — ✅ SHIPPED 2026-05-30 (0f1c2cf).** flock absent on macOS → portable mkdir-atomic
+>   mutex (`/tmp/uss_trader_restart.lock`, PID-liveness + age-guard staleness, trap-cleanup) at the top of
+>   `trader_restart.sh`. 2nd concurrent caller ABORTS exit-4 BEFORE the kill step. **Thrash-test PROVEN:** loser-isolation
+>   (lock pre-held by live pid) → restart aborts exit-4, kill never reached, trader PID UNCHANGED; 2×-concurrent →
+>   one exit-0 (restart) + one exit-4 (abort, 0 kills), single-writer 1, exactly 1 trader, lock self-cleaned. The gate's
+>   "admit one" is now ENFORCED. **This UNBLOCKS HM-WATCHDOG-RESTART-REPOINT.**
+> - **HM-WATCHDOG-RESTART-REPOINT (MED) — ✅ UNBLOCKED 2026-05-30 (flock landed), awaiting separate GO to apply.** Repoint
+>   `watchdog.py:258 launchctl_kickstart("com.trademinds.trader")` → `trader_restart.sh` so watchdog can actually heal the
+>   cron-launched trader (today it alarms but its launchctl-kickstart is stale/headless-unreachable). Now SAFE to route a
+>   2nd actor through trader_restart.sh — the flock mutex serializes watchdog + healthcheck if they both fire. **Not
+>   auto-applied; needs its own go + its own verify-the-verifier** (kill the trader → watchdog heals it via trader_restart.sh,
+>   exactly 1 writer; confirm no thrash with healthcheck under the mutex).
 > - **NEW (surfaced live):** cloudflared tunnel DOWN (no process; remote-access tunnel). Was a 05-23 cron @reboot
 >   service — died mid-session, nothing restarted it (same reboot-survival-gap, mid-life variant). Captain decision: restart if remote access wanted.
 > - **DEFERRED daemons (after Phase-1 healthy):** morningbriefing (gap confirmed), squeeze-scan, ghost-advisor, metals-sync,
