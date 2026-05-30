@@ -9,6 +9,7 @@ import sqlite3
 from datetime import datetime
 from rich.console import Console
 from shared.matrix_bridge import NEO_PLAYER_ID
+from engine.trades_filter import CLEAN_TRADES_WHERE
 
 console = Console()
 DB = "data/trader.db"
@@ -84,7 +85,12 @@ def save_season_summary(season: int):
         stats = conn.execute(
             "SELECT COUNT(*) as total, "
             "SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as wins "
-            "FROM trades WHERE player_id=? AND season=?",
+            "FROM trades WHERE player_id=? AND season=? "
+            # HM-TRACKING-AGGREGATOR: query had NO realized_pnl gate (counted every row
+            # incl BUY). Added realized_pnl IS NOT NULL (BUY-row exclusion) separately
+            # from the clean-trades boundary.
+            "AND realized_pnl IS NOT NULL "
+            f"AND {CLEAN_TRADES_WHERE}",
             (pid, season)
         ).fetchone()
         total_trades = stats["total"] or 0

@@ -15,6 +15,7 @@ import pytz
 
 # ── ntfy ──────────────────────────────────────────────────────────────────────
 from engine.ntfy import _fire_pg as _fire, P_HIGH, P_DEFAULT, P_MAX, P_LOW  # HM-PROVING-GROUND-FORMALIZE-V2 SUB-1: route to dedicated ollietrades-proving-ground topic
+from engine.trades_filter import SIM_EVAL_WHERE  # HM-TRACKING-AGGREGATOR: sim-eval boundary (date-floor only)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 TRADER_DB = "data/trader.db"
@@ -186,7 +187,8 @@ def _pull_today_trades(trade_date: str) -> list[dict]:
              AND t.player_id IN ({})
              AND t.exit_price IS NOT NULL
              AND t.realized_pnl IS NOT NULL
-        """.format(",".join("?" * len(SNIPER_AGENTS))),
+             AND {SIM_EVAL_WHERE}
+        """.format(",".join("?" * len(SNIPER_AGENTS)), SIM_EVAL_WHERE=SIM_EVAL_WHERE),
         (trade_date, *SNIPER_AGENTS)
     ).fetchall()
     tc.close()
@@ -205,8 +207,9 @@ def _pull_all_closed_trades(since: str) -> list[dict]:
              AND t.player_id IN ({})
              AND t.exit_price IS NOT NULL
              AND t.realized_pnl IS NOT NULL
+             AND {SIM_EVAL_WHERE}
            ORDER BY t.executed_at ASC
-        """.format(",".join("?" * len(SNIPER_AGENTS))),
+        """.format(",".join("?" * len(SNIPER_AGENTS)), SIM_EVAL_WHERE=SIM_EVAL_WHERE),
         (since, *SNIPER_AGENTS)
     ).fetchall()
     tc.close()

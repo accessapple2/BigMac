@@ -9,7 +9,16 @@ import sqlite3
 import threading
 from datetime import datetime
 
+from engine.trades_filter import CLEAN_TRADES_WHERE
+
 DB = "data/trader.db"
+
+# t.-qualified clean boundary for use inside SUM(CASE ...) over LEFT-JOINed trades t.
+# (The LEFT JOIN must stay a LEFT JOIN — putting the boundary in the top-level WHERE
+#  would drop active players with no clean trades. So it goes inside the CASE.)
+_CLEAN_T = CLEAN_TRADES_WHERE.replace("executed_at", "t.executed_at").replace(
+    "player_id", "t.player_id"
+)
 _lock = threading.Lock()
 
 # In-memory set of player IDs currently in fallback mode (free local inference).
@@ -291,9 +300,9 @@ def get_free_vs_paid_pnl() -> dict:
     """Compare cumulative P&L: free local models vs paid cloud models."""
     free_ids = {pid for pid, rates in TOKEN_RATES.items() if rates == (0.0, 0.0)}
     conn = _conn()
-    rows = conn.execute("""
+    rows = conn.execute(f"""
         SELECT p.id, p.display_name, p.cash,
-               COALESCE(SUM(CASE WHEN t.action='SELL' AND t.realized_pnl IS NOT NULL THEN t.realized_pnl ELSE 0 END), 0) as realized_pnl
+               COALESCE(SUM(CASE WHEN t.action='SELL' AND t.realized_pnl IS NOT NULL AND {_CLEAN_T} THEN t.realized_pnl ELSE 0 END), 0) as realized_pnl
         FROM ai_players p
         LEFT JOIN trades t ON p.id = t.player_id
         WHERE p.is_active = 1
@@ -327,9 +336,9 @@ def get_model_roi_ranking() -> list:
     costs = conn.execute("SELECT player_id, SUM(cost_usd) as total_cost FROM api_costs GROUP BY player_id").fetchall()
     cost_map = {r["player_id"]: r["total_cost"] for r in costs}
 
-    players = conn.execute("""
+    players = conn.execute(f"""
         SELECT p.id, p.display_name, p.cash, p.provider,
-               COALESCE(SUM(CASE WHEN t.action='SELL' AND t.realized_pnl IS NOT NULL THEN t.realized_pnl ELSE 0 END), 0) as realized_pnl
+               COALESCE(SUM(CASE WHEN t.action='SELL' AND t.realized_pnl IS NOT NULL AND {_CLEAN_T} THEN t.realized_pnl ELSE 0 END), 0) as realized_pnl
         FROM ai_players p
         LEFT JOIN trades t ON p.id = t.player_id
         WHERE p.is_active = 1
@@ -362,12 +371,13 @@ def get_model_efficiency_grades() -> list:
     """Grade each model A-F based on win rate, avg P&L, cost per trade, token efficiency."""
     conn = _conn()
     # Win rate and avg P&L per trade
-    trade_stats = conn.execute("""
+    trade_stats = conn.execute(f"""
         SELECT player_id,
                COUNT(*) as total_sells,
                SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as wins,
                AVG(realized_pnl) as avg_pnl
         FROM trades WHERE action='SELL' AND realized_pnl IS NOT NULL
+          AND {CLEAN_TRADES_WHERE}
         GROUP BY player_id
     """).fetchall()
     trade_map = {r["player_id"]: dict(r) for r in trade_stats}

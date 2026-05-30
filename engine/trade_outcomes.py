@@ -15,6 +15,8 @@ from datetime import datetime, timedelta
 
 from rich.console import Console
 
+from engine.trades_filter import CLEAN_TRADES_WHERE  # HM-TRACKING-AGGREGATOR: clean-trades boundary
+
 console = Console()
 DB = os.environ.get(
     "TRADEMINDS_DB",
@@ -197,7 +199,7 @@ def auto_record_closed_trades() -> None:
         conn = _conn()
 
         # Find SELL trades not yet recorded
-        sells = conn.execute("""
+        sells = conn.execute(f"""
             SELECT t.id, t.player_id, t.symbol,
                    t.price          AS sell_price,
                    t.exit_price     AS exit_price_col,
@@ -206,6 +208,7 @@ def auto_record_closed_trades() -> None:
             FROM trades t
             WHERE t.action = 'SELL'
               AND t.realized_pnl IS NOT NULL
+              AND {CLEAN_TRADES_WHERE}
               AND NOT EXISTS (
                   SELECT 1 FROM trade_outcomes o WHERE o.trade_id = t.id
               )

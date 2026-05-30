@@ -6,9 +6,15 @@ from rich.console import Console
 
 import config
 from engine.halt_gate import HALTED_EMIT_FILTER
+from engine.trades_filter import CLEAN_TRADES_WHERE
 
 console = Console()
 DB = "data/trader.db"
+
+# t.-qualified clean-trades boundary (trades is aliased `t` in calculate_odds).
+_CLEAN_T = CLEAN_TRADES_WHERE.replace("executed_at", "t.executed_at").replace(
+    "player_id", "t.player_id"
+)
 
 
 def calculate_odds(symbol: str, signal: str, lookback_days: int = 30) -> dict:
@@ -26,10 +32,11 @@ def calculate_odds(symbol: str, signal: str, lookback_days: int = 30) -> dict:
 
         # Get trades that match this symbol and direction
         rows = conn.execute(
-            """
+            f"""
             SELECT t.realized_pnl, t.symbol, t.action, t.executed_at
             FROM trades t
             WHERE t.symbol = ? AND t.action = ? AND t.executed_at > ? AND t.realized_pnl IS NOT NULL AND t.realized_pnl != 0
+              AND {_CLEAN_T}
             ORDER BY t.executed_at DESC
         """,
             (symbol.upper(), action, cutoff),
@@ -38,10 +45,11 @@ def calculate_odds(symbol: str, signal: str, lookback_days: int = 30) -> dict:
         if not rows:
             # Broaden: look at all trades for this symbol
             rows = conn.execute(
-                """
+                f"""
                 SELECT t.realized_pnl, t.symbol, t.action, t.executed_at
                 FROM trades t
                 WHERE t.symbol = ? AND t.executed_at > ? AND t.realized_pnl IS NOT NULL AND t.realized_pnl != 0
+                  AND {_CLEAN_T}
                 ORDER BY t.executed_at DESC
             """,
                 (symbol.upper(), cutoff),
@@ -50,10 +58,11 @@ def calculate_odds(symbol: str, signal: str, lookback_days: int = 30) -> dict:
         if not rows:
             # Even broader: look at all trades for similar signals
             rows = conn.execute(
-                """
+                f"""
                 SELECT t.realized_pnl, t.symbol, t.action, t.executed_at
                 FROM trades t
                 WHERE t.action = ? AND t.executed_at > ? AND t.realized_pnl IS NOT NULL AND t.realized_pnl != 0
+                  AND {_CLEAN_T}
                 ORDER BY t.executed_at DESC LIMIT 50
             """,
                 (action, cutoff),

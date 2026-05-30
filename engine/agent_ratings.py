@@ -16,6 +16,8 @@ import re
 import sqlite3
 from typing import Any
 
+from engine.trades_filter import CLEAN_TRADES_WHERE
+
 # HM-RATINGS-STALE-SEASON 2026-05-23: dynamic via paper_trader helper.
 # Was hardcoded `_CURRENT_SEASON = 5` and never bumped — caused
 # Fleet Report Card to show `Not enough clean trades` for every
@@ -86,6 +88,7 @@ def calculate_rating(player_id: str, period: str = "alltime") -> dict[str, Any]:
           AND action = 'SELL'
           AND realized_pnl IS NOT NULL
           AND season = {_CURRENT_SEASON}
+          AND {CLEAN_TRADES_WHERE}
           {where}
         ORDER BY executed_at DESC
     """, (player_id,)).fetchall()
@@ -304,9 +307,10 @@ def detect_cold_agents() -> list[dict[str, Any]]:
     cold: list[dict[str, Any]] = []
 
     for pid, dname in fleet:
-        recent = conn.execute("""
+        recent = conn.execute(f"""
             SELECT realized_pnl FROM trades
             WHERE player_id = ? AND action = 'SELL' AND realized_pnl IS NOT NULL
+              AND {CLEAN_TRADES_WHERE}
             ORDER BY executed_at DESC LIMIT 5
         """, (pid,)).fetchall()
 

@@ -10,6 +10,8 @@ import sqlite3
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from engine.trades_filter import CLEAN_TRADES_WHERE
+
 DB_PATH = Path(__file__).parent.parent / "data" / "trader.db"
 
 
@@ -35,7 +37,8 @@ def get_strategy_breakdown(agent_id: str | None = None, days: int = 30) -> list[
         FROM trades
         WHERE executed_at >= ?
           AND realized_pnl IS NOT NULL
-    """
+          AND {clean}
+    """.format(clean=CLEAN_TRADES_WHERE)
     params: list = [date_filter]
 
     if agent_id:

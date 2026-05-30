@@ -19,6 +19,8 @@ import os
 from datetime import datetime, timedelta
 from typing import Any
 
+from engine.trades_filter import CLEAN_TRADES_WHERE
+
 # ── Config ────────────────────────────────────────────────────────────────────
 TRADER_DB  = "data/trader.db"
 ALPHA_DB   = "data/alpha_signals.db"
@@ -142,7 +144,8 @@ def _get_agent_wr_pts(player_id: str) -> float:
             """SELECT COUNT(*) as total,
                       SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as wins
                FROM trades
-               WHERE player_id=? AND executed_at >= ? AND realized_pnl IS NOT NULL""",
+               WHERE player_id=? AND executed_at >= ? AND realized_pnl IS NOT NULL
+                 AND {CLEAN_TRADES_WHERE}""".format(CLEAN_TRADES_WHERE=CLEAN_TRADES_WHERE),
             (player_id, cutoff)
         ).fetchone()
         c.close()
@@ -348,7 +351,12 @@ def get_ollie_stats(days: int = 30) -> dict[str, Any]:
                JOIN trades t ON od.symbol = t.symbol AND od.player_id = t.player_id
                              AND ABS(strftime('%s', od.decided_at) - strftime('%s', t.executed_at)) < 300
                WHERE od.decision='APPROVE' AND od.decided_at >= ?
-                 AND t.realized_pnl IS NOT NULL""",
+                 AND t.realized_pnl IS NOT NULL
+                 AND {clean}""".format(
+                clean=CLEAN_TRADES_WHERE.replace("executed_at", "t.executed_at").replace(
+                    "player_id", "t.player_id"
+                )
+            ),
             (cutoff,)
         ).fetchone()
 

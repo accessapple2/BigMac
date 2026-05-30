@@ -13,6 +13,7 @@ from datetime import datetime
 from rich.console import Console
 
 from engine.openai_text import DEFAULT_CODEX_MINI_MODEL, generate_text
+from engine.trades_filter import CLEAN_TRADES_WHERE
 from shared.matrix_bridge import annotate_player_payload
 
 console = Console()
@@ -601,7 +602,11 @@ def post_super_agent_pipeline_take(prices: dict | None = None) -> bool:
             "  COALESCE(SUM(t.realized_pnl), 0) as total_pnl "
             "FROM trades t JOIN ai_players a ON a.id = t.player_id "
             "WHERE a.is_human = 0 "
-            "AND t.executed_at > datetime('now', '-24 hours')"
+            "AND t.executed_at > datetime('now', '-24 hours') "
+            # HM-TRACKING-AGGREGATOR: query had NO realized_pnl gate (counted BUY rows);
+            # added realized_pnl IS NOT NULL + the clean-trades boundary.
+            "AND t.realized_pnl IS NOT NULL "
+            f"AND {CLEAN_TRADES_WHERE.replace('executed_at', 't.executed_at').replace('player_id', 't.player_id')}"
         ).fetchone()
 
         conn.close()

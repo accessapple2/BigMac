@@ -11,6 +11,8 @@ from collections import defaultdict
 from datetime import datetime, timedelta
 from pathlib import Path
 
+from engine.trades_filter import CLEAN_TRADES_WHERE
+
 DB_PATH = Path(__file__).parent.parent / "data" / "trader.db"
 
 REGIMES = ["BULL", "CAUTIOUS", "BEAR", "CRISIS", "NEUTRAL"]
@@ -38,7 +40,12 @@ def get_trades_by_regime(agent_id: str | None = None, days: int = 90) -> dict[st
                ON date(t.executed_at) = rh.date
         WHERE t.executed_at >= ?
           AND t.realized_pnl IS NOT NULL
-    """
+          AND {clean}
+    """.format(
+        clean=CLEAN_TRADES_WHERE.replace("executed_at", "t.executed_at").replace(
+            "player_id", "t.player_id"
+        )
+    )
     params: list = [date_filter]
 
     if agent_id:

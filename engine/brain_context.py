@@ -20,6 +20,8 @@ import threading
 import time
 from typing import Any
 
+from engine.trades_filter import CLEAN_TRADES_WHERE
+
 # ── Cache ────────────────────────────────────────────────────────────────────
 _cache: dict[tuple, dict] = {}
 _cache_lock = threading.Lock()
@@ -403,12 +405,13 @@ def get_fleet_recent_trades(limit: int = 20) -> str:
     try:
         conn = sqlite3.connect("data/trader.db", check_same_thread=False, timeout=5)
         cursor = conn.cursor()
-        cursor.execute("""
+        cursor.execute(f"""
             SELECT p.display_name, t.action, t.symbol, t.price,
                    t.realized_pnl, t.executed_at
             FROM trades t
             JOIN ai_players p ON t.player_id = p.id
             WHERE t.executed_at > datetime('now', '-7 days')
+              AND {CLEAN_TRADES_WHERE}
             ORDER BY t.executed_at DESC
             LIMIT ?
         """, (limit,))
@@ -453,10 +456,11 @@ def get_strategy_leaderboard(days: int = 30) -> str:
             FROM trades
             WHERE executed_at > datetime('now', ? || ' days')
               AND realized_pnl IS NOT NULL
+              AND {CLEAN_TRADES_WHERE}
             GROUP BY strategy
             HAVING trades >= 3
             ORDER BY total_pnl DESC
-        """, (f"-{days}",))
+        """.format(CLEAN_TRADES_WHERE=CLEAN_TRADES_WHERE), (f"-{days}",))
         results = cursor.fetchall()
         conn.close()
     except Exception:
@@ -493,10 +497,11 @@ def get_hot_agents(days: int = 7) -> str:
             JOIN ai_players p ON t.player_id = p.id
             WHERE t.executed_at > datetime('now', ? || ' days')
               AND t.realized_pnl IS NOT NULL
+              AND {CLEAN_TRADES_WHERE}
             GROUP BY t.player_id
             HAVING trades >= 2
             ORDER BY total_pnl DESC
-        """, (f"-{days}",))
+        """.format(CLEAN_TRADES_WHERE=CLEAN_TRADES_WHERE), (f"-{days}",))
         results = cursor.fetchall()
         conn.close()
     except Exception:
@@ -531,11 +536,12 @@ def get_danger_tickers(days: int = 14, min_losses: int = 2) -> str:
             FROM trades
             WHERE executed_at > datetime('now', ? || ' days')
               AND realized_pnl < 0
+              AND {CLEAN_TRADES_WHERE}
             GROUP BY symbol
             HAVING losses >= ?
             ORDER BY total_loss ASC
             LIMIT 5
-        """, (f"-{days}", min_losses))
+        """.format(CLEAN_TRADES_WHERE=CLEAN_TRADES_WHERE), (f"-{days}", min_losses))
         results = cursor.fetchall()
         conn.close()
     except Exception:

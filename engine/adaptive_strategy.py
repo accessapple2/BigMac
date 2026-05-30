@@ -14,6 +14,7 @@ from datetime import datetime, timedelta
 from typing import Any
 
 from engine.halt_gate import HALTED_EMIT_FILTER
+from engine.trades_filter import CLEAN_TRADES_WHERE  # HM-TRACKING-AGGREGATOR: clean-trades boundary
 
 logger = logging.getLogger(__name__)
 
@@ -137,11 +138,12 @@ def weekly_agent_review() -> None:
         db.row_factory = sqlite3.Row
 
         # Get 30-day closed trade P&L per agent
-        rows = db.execute("""
+        rows = db.execute(f"""
             SELECT player_id, realized_pnl
             FROM trades
             WHERE action='SELL' AND realized_pnl IS NOT NULL
               AND executed_at >= datetime('now', '-30 days')
+              AND {CLEAN_TRADES_WHERE}
             ORDER BY player_id
         """).fetchall()
 

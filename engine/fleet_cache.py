@@ -17,6 +17,8 @@ import logging
 from datetime import datetime
 from typing import Optional
 
+from engine.trades_filter import CLEAN_TRADES_WHERE
+
 logger = logging.getLogger(__name__)
 
 _DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..", "data", "trader.db")
@@ -73,18 +75,19 @@ class FleetCache:
         conn.row_factory = sqlite3.Row
         try:
             # ── Recent trades (7d) ──────────────────────────────────────
-            trades = conn.execute("""
+            trades = conn.execute(f"""
                 SELECT p.display_name, t.action, t.symbol, t.realized_pnl
                 FROM trades t
                 JOIN ai_players p ON t.player_id = p.id
                 WHERE t.executed_at > datetime('now', '-7 days')
                   AND t.realized_pnl IS NOT NULL
+                  AND {CLEAN_TRADES_WHERE}
                 ORDER BY t.executed_at DESC
                 LIMIT 15
             """).fetchall()
 
             # ── Strategy leaderboard (30d, via timeframe column) ────────
-            strategies = conn.execute("""
+            strategies = conn.execute(f"""
                 SELECT
                     COALESCE(timeframe, 'unknown') as strat,
                     COUNT(*) as cnt,
@@ -93,6 +96,7 @@ class FleetCache:
                 FROM trades
                 WHERE executed_at > datetime('now', '-30 days')
                   AND realized_pnl IS NOT NULL
+                  AND {CLEAN_TRADES_WHERE}
                 GROUP BY timeframe
                 HAVING COUNT(*) >= 3
                 ORDER BY SUM(realized_pnl) DESC
@@ -100,23 +104,25 @@ class FleetCache:
             """).fetchall()
 
             # ── Hot agents (7d) ─────────────────────────────────────────
-            agents = conn.execute("""
+            agents = conn.execute(f"""
                 SELECT p.display_name, SUM(t.realized_pnl) as pnl
                 FROM trades t
                 JOIN ai_players p ON t.player_id = p.id
                 WHERE t.executed_at > datetime('now', '-7 days')
                   AND t.realized_pnl IS NOT NULL
+                  AND {CLEAN_TRADES_WHERE}
                 GROUP BY t.player_id
                 ORDER BY SUM(t.realized_pnl) DESC
                 LIMIT 3
             """).fetchall()
 
             # ── Danger tickers (14d) ─────────────────────────────────────
-            dangers = conn.execute("""
+            dangers = conn.execute(f"""
                 SELECT symbol, COUNT(*) as cnt, SUM(realized_pnl) as total_loss
                 FROM trades
                 WHERE executed_at > datetime('now', '-14 days')
                   AND realized_pnl < 0
+                  AND {CLEAN_TRADES_WHERE}
                 GROUP BY symbol
                 HAVING COUNT(*) >= 2
                 ORDER BY SUM(realized_pnl) ASC

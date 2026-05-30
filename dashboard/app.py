@@ -58,6 +58,8 @@ import io as _io
 import base64 as _base64
 import qrcode as _qrcode
 from shared.matrix_bridge import annotate_player_payload, ensure_matrix_shared_records, is_independent_player
+# HM-TRACKING-AGGREGATOR 2026-05-30: canonical clean-trades boundary for realized-PnL/WR rollups.
+from engine.trades_filter import CLEAN_TRADES_WHERE
 from engine.halt_gate import HALTED_EMIT_FILTER
 
 
@@ -2765,7 +2767,8 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
         SELECT player_id,
                COUNT(*) as total_sells,
                SUM(CASE WHEN realized_pnl > 0 THEN 1 ELSE 0 END) as wins
-        FROM trades WHERE action='SELL' AND realized_pnl IS NOT NULL AND realized_pnl != 0"""
+        FROM trades WHERE action='SELL' AND realized_pnl IS NOT NULL AND realized_pnl != 0
+              AND """ + CLEAN_TRADES_WHERE
     if all_seasons:
         win_q += " GROUP BY player_id"
         win_rows = conn.execute(win_q).fetchall()
@@ -2795,7 +2798,8 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
         SELECT player_id,
                COALESCE(SUM(CASE WHEN realized_pnl > 0 THEN realized_pnl ELSE 0 END), 0) as total_gains,
                COALESCE(SUM(CASE WHEN realized_pnl < 0 THEN ABS(realized_pnl) ELSE 0 END), 0) as total_losses
-        FROM trades WHERE action='SELL' AND realized_pnl IS NOT NULL"""
+        FROM trades WHERE action='SELL' AND realized_pnl IS NOT NULL
+              AND """ + CLEAN_TRADES_WHERE
     if all_seasons:
         pf_q += " GROUP BY player_id"
         pf_rows = conn.execute(pf_q).fetchall()
@@ -2814,6 +2818,7 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
         for row in conn.execute(
             "SELECT player_id, COALESCE(SUM(realized_pnl), 0) as total "
             "FROM trades WHERE action='SELL' AND realized_pnl IS NOT NULL AND season=5 "
+            "AND " + CLEAN_TRADES_WHERE + " "
             "GROUP BY player_id"
         ).fetchall():
             s5_realized[row["player_id"]] = float(row["total"])
@@ -3009,7 +3014,7 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
             ).fetchone()
             # Get realized P&L sum for the season
             rpnl = conn2.execute(
-                "SELECT COALESCE(SUM(realized_pnl), 0) as total FROM trades WHERE player_id=? AND season=? AND action='SELL' AND realized_pnl IS NOT NULL",
+                "SELECT COALESCE(SUM(realized_pnl), 0) as total FROM trades WHERE player_id=? AND season=? AND action='SELL' AND realized_pnl IS NOT NULL AND " + CLEAN_TRADES_WHERE,
                 (pid, season)
             ).fetchone()
 
@@ -3663,6 +3668,9 @@ def cockpit_snapshot():
                     "  FROM trades t "
                     "  JOIN ai_players p ON t.player_id = p.id "
                     " WHERE t.executed_at >= datetime('now','-24 hours') "
+                    # HM-TRACKING-AGGREGATOR: boundary (t.-aliased) + BUY-row exclusion
+                    "   AND t.realized_pnl IS NOT NULL "
+                    "   AND " + CLEAN_TRADES_WHERE.replace("executed_at", "t.executed_at").replace("player_id", "t.player_id") + " "
                     " GROUP BY p.provider "
                     " ORDER BY trades DESC"
                 ).fetchall()
@@ -6080,7 +6088,8 @@ def arena_analytics():
         # All trades for this player
         trades = conn.execute(
             "SELECT symbol, action, qty, price, executed_at, reasoning "
-            "FROM trades WHERE player_id=? ORDER BY executed_at ASC",
+            "FROM trades WHERE player_id=? AND " + CLEAN_TRADES_WHERE + " "
+            "ORDER BY executed_at ASC",
             (pid,)
         ).fetchall()
 
@@ -9129,22 +9138,22 @@ def get_performance(model: str = None, season: int = None, fleet_only: bool = Fa
     if season == -1:
         if fleet_only:
             sells = conn.execute(
-                f"SELECT player_id, symbol, qty, price, reasoning, realized_pnl FROM trades WHERE action='SELL' AND player_id IN ({fleet_ph})",
+                f"SELECT player_id, symbol, qty, price, reasoning, realized_pnl FROM trades WHERE action='SELL' AND player_id IN ({fleet_ph}) AND {CLEAN_TRADES_WHERE}",
                 fleet_ids
             ).fetchall()
         else:
             sells = conn.execute(
-                "SELECT player_id, symbol, qty, price, reasoning, realized_pnl FROM trades WHERE action='SELL'"
+                "SELECT player_id, symbol, qty, price, reasoning, realized_pnl FROM trades WHERE action='SELL' AND " + CLEAN_TRADES_WHERE
             ).fetchall()
     else:
         if fleet_only:
             sells = conn.execute(
-                f"SELECT player_id, symbol, qty, price, reasoning, realized_pnl FROM trades WHERE action='SELL' AND season=? AND player_id IN ({fleet_ph})",
+                f"SELECT player_id, symbol, qty, price, reasoning, realized_pnl FROM trades WHERE action='SELL' AND season=? AND player_id IN ({fleet_ph}) AND {CLEAN_TRADES_WHERE}",
                 [season] + fleet_ids
             ).fetchall()
         else:
             sells = conn.execute(
-                "SELECT player_id, symbol, qty, price, reasoning, realized_pnl FROM trades WHERE action='SELL' AND season=?",
+                "SELECT player_id, symbol, qty, price, reasoning, realized_pnl FROM trades WHERE action='SELL' AND season=? AND " + CLEAN_TRADES_WHERE,
                 (season,)
             ).fetchall()
     conn.close()
@@ -9414,9 +9423,9 @@ def get_performance_by_model(season: int = None):
     result = {}
     for p in players:
         if season == -1:
-            trades = conn.execute("SELECT action, reasoning FROM trades WHERE player_id=?", (p["id"],)).fetchall()
+            trades = conn.execute("SELECT action, reasoning FROM trades WHERE player_id=? AND " + CLEAN_TRADES_WHERE, (p["id"],)).fetchall()
         else:
-            trades = conn.execute("SELECT action, reasoning FROM trades WHERE player_id=? AND season=?", (p["id"], season)).fetchall()
+            trades = conn.execute("SELECT action, reasoning FROM trades WHERE player_id=? AND season=? AND " + CLEAN_TRADES_WHERE, (p["id"], season)).fetchall()
         sells = [t for t in trades if t["action"] == "SELL"]
         import re
         pnls = []
@@ -12423,6 +12432,9 @@ def fleet_report_card_alias():
                 "       SUM(CASE WHEN realized_pnl < 0 THEN 1 ELSE 0 END) AS losses_7d "
                 "  FROM trades "
                 " WHERE executed_at > datetime('now','-7 days')"
+                # HM-TRACKING-AGGREGATOR: boundary + BUY-row exclusion (realized_pnl gate)
+                "   AND realized_pnl IS NOT NULL "
+                "   AND " + CLEAN_TRADES_WHERE
             ).fetchone()
             if rows:
                 out["7d_summary"] = dict(rows)
@@ -21015,6 +21027,7 @@ async def agent_scoreboard():
             FROM trades t
             LEFT JOIN agent_id_aliases a ON a.old_id = t.player_id
             WHERE t.realized_pnl IS NOT NULL
+              AND """ + CLEAN_TRADES_WHERE.replace("executed_at", "t.executed_at").replace("player_id", "t.player_id") + """
             GROUP BY COALESCE(a.new_id, t.player_id)
             ORDER BY total_pnl DESC
         """)
@@ -21046,6 +21059,7 @@ async def agent_affinity():
         cur = conn.cursor()
         cur.execute(
             "SELECT symbol, COUNT(*) AS c FROM trades WHERE realized_pnl IS NOT NULL "
+            "AND " + CLEAN_TRADES_WHERE + " "
             "GROUP BY symbol ORDER BY c DESC LIMIT 15"
         )
         top_tickers = [r["symbol"] for r in cur.fetchall()]
@@ -21058,6 +21072,7 @@ async def agent_affinity():
             f"SUM(CASE WHEN realized_pnl>0 THEN 1 ELSE 0 END) AS wins, "
             f"SUM(realized_pnl) AS total_pnl "
             f"FROM trades WHERE realized_pnl IS NOT NULL AND symbol IN ({placeholders}) "
+            f"AND {CLEAN_TRADES_WHERE} "
             f"GROUP BY player_id, symbol",
             top_tickers
         )
