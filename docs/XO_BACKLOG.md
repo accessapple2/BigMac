@@ -44,6 +44,19 @@ spike-bugs — catalyst/indicators/whisper/quote_summary — were real). But fut
 agent-review clean-window re-assessment) must NOT trust today's absolute magnitudes from the
 15:15-18:0x window blindly; re-measure post-orphan-kill. Banked so the inflation isn't mistaken for signal.
 
+## 🟡 HM-MODEL-CONFIG-STALENESS — MED (filed 2026-05-30) — config.py model fields stale vs canonical DB
+
+**Finding (floor-math investigation 2026-05-30):** `config.py` AI_PLAYERS `model` fields are STALE vs the
+canonical `ai_players.model_id` (DB), the runtime source-of-truth per HM-BN doctrine ("enforces canonical
+model_ids on startup", main.py:121). Confirmed:
+- `ollama-plutus` (McCoy): config `plutus-v1` → **DB/runtime `0xroyce/plutus`** (finance brain).
+- `ollama-qwen3` (Dax): config `qwen3:8b` → **DB/runtime `ministral-3:3b`**.
+**Verdict: DELIBERATE (DB canonical); config.py just never updated.** NOT a runtime bug — but it MISLED the
+§C floor-math (trusting config.py gave wrong per-unit costs). **Harm:** any analysis reading config.py for
+the live model is wrong. **Fix:** update config.py `model` to match the canonical DB, OR comment that
+`ai_players.model_id` is authoritative and config.py `model` is informational-only. Likely >2 agents affected
+(HM-BN made the DB canonical fleet-wide; config wasn't swept). Low-risk doc/config sync. (Drift Catalog #1.)
+
 ## 🚨 GATE 0 — FLEET PERFORMANCE NOT ASSESSABLE PRE-2026-05-14 (data-integrity headline)
 
 **Fleet-review 2026-05-29 finding (load-bearing for ALL roster decisions):** trade data before
