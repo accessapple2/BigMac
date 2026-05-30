@@ -581,6 +581,16 @@ class Arena:
             if pid in STRATEGIC_SCAN_MODEL_IDS and not strategic_window_open:
                 skipped_strategic.append(pid)
                 continue
+            # HM-RUN-SCAN-WATCHDOG §C CLOSE (2026-05-29): deepseek-7b-grok4 (Spock) does its
+            # real RSI mean-reversion job via the DETERMINISTIC spock_rules path
+            # (crew_scanner.py:2737 — top-5 pre-screened deep_scan picks, ~10-15 sigs/day, the
+            # roster spec). Its arena LLM analyze_chain over the full ~307-symbol universe is a
+            # REDUNDANT leftover from its pre-deterministic era: it was the §C infer scan-cost
+            # AND a ~100 sigs/day flood (7× spec). Skip the ARENA LLM scan ONLY — spock_rules
+            # (crew_scanner) and the war_room bridge-vote (separate paths, need is_active=1) are
+            # untouched. plutus/qwen3 stay (genuine CSP LLM analysts); their residual → Lever B.
+            if pid == "deepseek-7b-grok4":
+                continue
             ollama_providers.append((pid, prov))
 
         # Run Ollama FIRST (free), then API models only if signal detected + budget allows
