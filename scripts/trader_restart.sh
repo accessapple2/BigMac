@@ -25,6 +25,39 @@ ts() { date '+%Y-%m-%d %H:%M:%S'; }
 # -f / grep, FD mode 'r') are excluded so we never kill a human's monitor.
 writers() { /usr/sbin/lsof "$LOG" 2>/dev/null | awk 'NR>1 && $4 ~ /w/ {print $2}' | sort -u; }
 
+# ── MUTEX — HM-TRADER-RESTART-FLOCK (2026-05-30) ────────────────────────────
+# WHY: the single-writer gate below is a DETECTOR, not a MUTEX. Two concurrent
+# invocations both kill writers, both relaunch, both spawn a trader, then both
+# fail the gate — a transient double-spawn whose resolution depends on main.py's
+# UNVERIFIED :8080 bind-conflict behavior. Serializing restarts makes "admit one"
+# ENFORCED. Required before a 2nd actor (watchdog repoint) routes through here.
+# HOW: flock is NOT on this macOS box (no native BSD flock, none via brew), so we
+# use a portable mkdir-atomic lock (mkdir is atomic: exactly one concurrent caller
+# creates the dir). Staleness: reclaim only if the recorded PID is dead, OR the
+# lock is >5min old with no live PID — never destroy a lock created microseconds
+# ago (pid-not-yet-written race). Second live caller ABORTS LOUD (exit 4).
+LOCKDIR="/tmp/uss_trader_restart.lock"
+_acquire_lock() {
+  if mkdir "$LOCKDIR" 2>/dev/null; then echo $$ > "$LOCKDIR/pid"; return 0; fi
+  local holder; holder="$(cat "$LOCKDIR/pid" 2>/dev/null || true)"
+  if [[ -n "$holder" ]] && kill -0 "$holder" 2>/dev/null; then
+    return 1   # live holder → caller aborts
+  fi
+  # no live PID: reclaim ONLY if genuinely old (>5min), else treat as a just-born
+  # lock mid-creation and abort — never steal a lock whose pid isn't written yet.
+  if [[ -n "$(find "$LOCKDIR" -maxdepth 0 -mmin +5 2>/dev/null)" ]]; then
+    rm -rf "$LOCKDIR"
+    if mkdir "$LOCKDIR" 2>/dev/null; then echo $$ > "$LOCKDIR/pid"; return 0; fi
+  fi
+  return 1
+}
+if ! _acquire_lock; then
+  echo "[$(ts)] ABORT: another trader_restart already in progress (pid=$(cat "$LOCKDIR/pid" 2>/dev/null)) — refusing to double-spawn" >&2
+  exit 4
+fi
+trap 'rm -rf "$LOCKDIR"' EXIT INT TERM
+echo "[$(ts)] restart lock acquired (pid $$)"
+
 # 1. Kill ALL trader instances (orphans included).
 PIDS="$(writers)"
 if [[ -n "$PIDS" ]]; then
