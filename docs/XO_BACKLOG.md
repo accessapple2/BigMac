@@ -2003,6 +2003,19 @@ size of corrective action scales with frequency.
 
 ### HM-EXIT-TRAILING-STOP-TIER-DOCTRINE — pending Admiral decisions before build
 
+**REVIEWED 2026-05-30 (Admiral):** trailing-tier philosophy **REAFFIRMED as
+wider-high (NOT inverted).** `engine/stops.py::get_trail_pct` keeps the
+Admiral-locked 5/4/3% tiers (≥0.90 → 5%, ≥0.80 → 4%, <0.80 → 3%). A
+"tighter-high" inversion (lock profits on high-conviction winners) was
+considered and **rejected** — the existing wider-high doctrine ("let winners
+breathe past short-term pullbacks", matching `get_stop_loss_pct`) stands.
+**Activation deliberately DEFERRED:** `CONVICTION_SCALED_TRAIL_ENABLED` stays
+unset → **flat 3% trail is live by choice**; the 5/4/3 tiers remain
+documented-but-off until live shadow data justifies flipping the flag. Zero
+code changed this review. The runner-tier Q1–Q4 below stay OPEN/DEFERRED as a
+**separate** future decision — NOT blocking, and orthogonal to the trail-%
+tiering above.
+
 **Banked 2026-05-24 after HM-EXIT-TRAILING-STOP-TIER scope surfaced a
 critical reframe.** Scope analysis showed a 5th runner tier does NOT
 recover the MU $1,916 miss because that move was intra-bar (+418% in
