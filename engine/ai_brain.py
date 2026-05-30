@@ -560,17 +560,13 @@ class Arena:
         for pid, prov in self.providers.items():
             if pid in paused_ids or _is_local(prov):
                 continue
-            # HM-RUN-SCAN-WATCHDOG §C CLOSE (2026-05-29): deepseek-7b-grok4 (Spock) EXCLUDED
-            # from the arena LLM scan entirely. Its real RSI mean-reversion job runs via the
-            # DETERMINISTIC spock_rules path (crew_scanner.py:2737 — top-5 pre-screened
-            # deep_scan picks, ~10-15 sigs/day, roster spec). The arena analyze_chain over the
-            # full ~307-symbol universe (dispatched HERE via api_providers because Ollie-Max is
-            # non-localhost, so _is_local is False) was a REDUNDANT pre-deterministic leftover:
-            # the §C infer scan-cost + a ~100 sigs/day flood (7× spec). spock_rules and the
-            # war_room bridge-vote (separate paths, need is_active=1) are untouched.
+            # Spock (grok-4) uses reduced 2x/day schedule + every-3rd-cycle gate
+            # (NOTE: dead for deepseek — it's a local OllamaProvider, skipped above at
+            #  _is_local; the real arena exclusion is in the ollama loop below.)
             if pid == "deepseek-7b-grok4":
-                skipped_paid.append(pid)
-                continue
+                if not spock_window_open or _spock_cycle_count % 3 != 0:
+                    skipped_paid.append(pid)
+                    continue
             # HM-CN.tail 2026-05-17: PAID_MODEL_IDS gate removed (set is empty post-cto-grok42 local-route).
             api_providers.append((pid, prov))
 
@@ -586,6 +582,16 @@ class Arena:
                 continue
             if pid in STRATEGIC_SCAN_MODEL_IDS and not strategic_window_open:
                 skipped_strategic.append(pid)
+                continue
+            # HM-RUN-SCAN-WATCHDOG §C CLOSE (2026-05-29): deepseek-7b-grok4 (Spock) EXCLUDED
+            # from the arena LLM scan. It's a local OllamaProvider (_is_local=True) so it lands
+            # HERE (the api-loop deepseek gate is dead code). Its real RSI mean-reversion job
+            # runs via the DETERMINISTIC spock_rules path (crew_scanner.py:2737, top-5
+            # pre-screened picks, ~10-15 sigs/day, roster spec). The arena analyze_chain over
+            # ~307 symbols was a REDUNDANT pre-deterministic leftover: the §C infer scan-cost +
+            # a ~100 sigs/day flood (7× spec). spock_rules + war_room bridge-vote (separate
+            # paths, need is_active=1) untouched. (crew_scanner has no analyze_chain path.)
+            if pid == "deepseek-7b-grok4":
                 continue
             ollama_providers.append((pid, prov))
 
