@@ -4,6 +4,24 @@
 
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
+> **DAEMON GRAVEYARD (ALL-OUT-AUDIT-2026-05-30) — Phase 1 APPLIED 2026-05-30:** watchdog re-homed launchd→cron
+> (`scripts/watchdog_supervisor.sh` `*/5`, plist retired, observed running PID-of-the-day, alarm layer BACK — caught
+> cloudflared-down in 3 min). Full diagnosis + tiered plan: `docs/DAEMON-GRAVEYARD-REHOME-PLAN-2026-05-30.md`.
+> **Two follow-ups filed (both = route restart through `trader_restart.sh`):**
+> - **HM-HEALTHCHECK-RESTART-HARDEN (HIGH)** — `healthcheck.py::restart_server()` uses naive `pkill -9 main.py` +
+>   `launchctl load` (headless→unreachable gui/501→can down-and-not-restore). **healthcheck stays DEFERRED/OFF until
+>   this is rewritten to call `trader_restart.sh`** (orphan-proof single-writer gate). Falsifiable trigger: restart_server
+>   invokes trader_restart.sh + a forced restart leaves exactly 1 writer.
+> - **HM-WATCHDOG-RESTART-REPOINT (MED)** — `watchdog.py:258 launchctl_kickstart("com.trademinds.trader")` targets the
+>   launchd job, not the cron-launched trader; gui/501 unreachable headless → trader auto-heal is STALE (alarms, can't
+>   restart). Orphan-safe (fails closed), so not a blocker. Repoint to `trader_restart.sh`. Trigger: kill the trader →
+>   watchdog brings it back via trader_restart.sh with 1 writer.
+> - **NEW (surfaced live):** cloudflared tunnel DOWN (no process; remote-access tunnel). Was a 05-23 cron @reboot
+>   service — died mid-session, nothing restarted it (same reboot-survival-gap, mid-life variant). Captain decision: restart if remote access wanted.
+> - **DEFERRED daemons (after Phase-1 healthy):** morningbriefing (gap confirmed), squeeze-scan, ghost-advisor, metals-sync,
+>   sitrep (⚠️ uses system py3.9 — PEP604 risk), uhura/fleet-auditor/real-portfolio-snapshot. **RETIRED safe-dead:**
+>   crusher (disabled), scanner (crashed 04-11), optionsflow/etfregime/movers (old /ollietrades path). **HELD for own decision:** ollie-scan (may double the in-process arena scan — confirm before restore).
+
 > **Closure-sweep result 2026-05-29** (verify-before-fix audit of standing tickets):
 > - **CLOSED (shipped, were queue-rot):** HM-ALERT-AUTH-STORM (90544a6, 2026-05-23), HM-DATA-INTEGRITY-FORENSICS (sub-tickets shipped 2026-05-25).
 > - **RE-SPEC'd:** HM-DEEPSEEK-CONCENTRATION-CAP-V2 → standalone preventive cap LOW (deepseek already active, 0 positions; "prereq for unhalt" was stale).
