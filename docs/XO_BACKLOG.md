@@ -12,7 +12,7 @@
 
 ---
 
-## 🔴 HM-RESTART-ORPHAN-PREVENTION — HIGH (filed 2026-05-29) — operational hazard
+## 🟢 HM-RESTART-ORPHAN-PREVENTION — SHIPPED 2026-05-30 (was HIGH) — operational hazard CLOSED
 
 **The restart procedure can spawn ORPHAN traders.** 2026-05-29: a process started 15:15 froze the
 listener-free but **kept running its scan loop** after a later restart took the port — two traders ran
@@ -28,6 +28,8 @@ that already lost the listener survives. **"Port freed" ≠ "process dead."**
 2. After relaunch, **verify single-writer**: `lsof logs/trader.log` must show exactly ONE Python PID.
    If two → an orphan survived; kill it before declaring restart complete.
 3. Bake into `scripts/trader_reboot_start.sh` + the manual restart runbook.
+
+**SHIPPED 2026-05-30:** `scripts/trader_restart.sh` — kills ALL trader.log WRITE-holders (orphan-proof; write-mode filter spares `tail -f`/grep readers), SIGTERM→SIGKILL escalation, then a hard SINGLE-WRITER gate (fails loudly if >1, exit 2). **PROVEN**: test spawned a dummy orphan + a reader, ran the script → both real trader + orphan killed (DEAD-OK), reader survived (ALIVE-OK), single-writer gate passed (1 writer). Use this for ALL manual restarts; the @reboot script correctly bails-on-existing and is unchanged.
 
 **Priority HIGH:** on any real-money posture a double-running trader = **duplicate orders**. On paper
 it's account-harmless but it corrupted hours of measurement today. (Pairs with the restart-verification
