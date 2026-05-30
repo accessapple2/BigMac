@@ -2,11 +2,36 @@
 
 Maps every realized-PnL / win-rate / scorecard rollup over `trades` for the dalio/tracking-pollution + contaminated-flag-adoption fix. **No code changed.** Built from 4 parallel read-only sweeps.
 
-## The headline (reshapes the fix)
-- **`alpaca_order_id IS NOT NULL` is the WHOLE fix.** Tracking-route players (dalio et al.) are log-only → their rows are **100% NULL-aoid** (dalio: 39/39 rows, all −255.08 of pollution). The aoid boundary (first real fill 2026-05-14) **inherently excludes all tracking pollution AND all pre-boundary garbage** in one predicate. Changes A (tracking-aware) and B (alpaca-boundary) **are the same one-line filter.**
-- **No `ai_players.route_mode` column exists** (it's derived in paper_trader.py) → there's nothing to JOIN on anyway; the aoid boundary is the only practical tracking filter.
-- **`trades_clean` view: 0 readers** (cosmetic). **`known_contaminated`: 0 rollup readers** (only setup_db.py DDL). Both dead — confirmed across all 4 sweeps.
-- **NO shared chokepoint.** ~30 inline copies of `action='SELL' AND realized_pnl IS NOT NULL` across ~22 files. **Zero** filter on aoid. → a one-line fix is impossible; fixing in place leaves drift-prone copies.
+## ⚠️ CORRECTED BOUNDARY (2026-05-30) — `alpaca_order_id IS NOT NULL` RETRACTED as the global filter
+**An earlier draft of this map concluded "aoid IS NOT NULL is the whole fix." That is WRONG and retracted.** The
+proving-ground provenance dig proved why: **aoid conflates "not real Alpaca" with "dirty."** Post-2026-05-14, **72% of
+clean fleet performance is `execution_type='simulated'`** (143 trades / 11 agents / +$124.84, vs only 56 alpaca_paper
+trades / 2 agents) — legitimate paper-sim evaluation, NOT garbage. `alpaca_order_id IS NOT NULL` would **erase clean
+post-boundary performance for 11 of 13 agents**, gutting the leaderboard/ratings/scorecard. The contamination is
+**pre-boundary mispricing garbage** (impossible prices: MU $533, TSLA $4 — gemini-2.5-pro alone carries +$225K of it),
+not "non-Alpaca."
+
+### The correct filter = TWO predicates (`CLEAN_TRADES_WHERE`)
+1. **`executed_at >= '2026-05-14 07:37:44'`** — date floor; drops the pre-S5 mispricing garbage (affects ALL agents). Post-05-14 garbage spot-check = **empty** (the floor cleanly bounds it).
+2. **`player_id NOT IN (<TRACKING_PLAYERS>)`** — drops manual-SQL tracking pollution incl. dalio's **post**-boundary ONDS row that the date floor alone misses.
+
+**TRACKING_PLAYERS = `('dalio-metals','enterprise-computer','schwab')`** — derived from `engine/paper_trader.py`
+`_EXECUTION_PORTFOLIO_BY_PLAYER` → portfolios with `execution_mode='tracking'` OR `type='physical'` (Enterprise
+Computer + Schwab). **Only `dalio-metals` actually has trades rows today** (18, −255.08); the other two are 0-row
+belt-and-braces/future-proofing. (No `route_mode` DB column exists — this set IS the code-precise mirror.)
+
+**VBC proof (compose-correctly):** dalio → **0.0** (both predicates) · clean sim qwen3-8b-flash +$57.24/aoid=0 **kept** ·
+fleet **$237,423 (polluted) → $270.35 (clean)** · post-05-14 garbage spot-check empty.
+
+### proving_ground EXCEPTION — predicate-1 ONLY (date floor, NO tracking-exclusion)
+The Sniper agents (deepseek-7b-grok4, ollama-plutus, neo-matrix) are **sim-evaluation** agents — deepseek & plutus are
+100% `simulated`/0-aoid post-boundary BY DESIGN (evaluated in sim before shipping to real money). They are NOT tracking
+players. proving_ground uses **`executed_at >= '2026-05-14'` only** — drops the confirmed-contaminated pre-boundary month
+(WR-holds-post-boundary: deepseek 79→100%, neo-matrix 25→94.6%, plutus 84.7→100%; 59 clean post-trades suffice the gate),
+keeps the clean sim it needs. `SIM_EVAL_WHERE` = predicate-1 only.
+
+- **`trades_clean` view: 0 readers** (cosmetic — and now also wrong-definition: it uses aoid). **`known_contaminated`: 0 rollup readers** (only setup_db.py DDL). Both dead.
+- **NO shared chokepoint.** ~30 inline copies of `action='SELL' AND realized_pnl IS NOT NULL` across ~22 files. **Zero** apply the date floor or tracking exclusion. → fixing in place leaves drift-prone copies; a shared helper is required.
 
 ## STRUCTURAL VERDICT: scattered → needs a shared helper
 The only existing reused rollup is `agent_ratings.calculate_rating` (covers 5 endpoints). Everything else hand-rolls its own SQL with its own `_conn()`. **Recommendation:** new canonical module `engine/trades_filter.py` exposing a `CLEAN_TRADES_WHERE` constant (`alpaca_order_id IS NOT NULL`) + `fleet_realized_pnl(conn, player=None, season=None, since_days=None)` helper, adopted at every NEEDS-FIX site — so the boundary lives in ONE place, not 30.
@@ -85,4 +110,52 @@ finmem_memory.py:156-192 (×4), trade_log.py:100, providers/base.py:1175, crew_s
 4. **Two orphan/bug findings (separate from the fix):** `get_equity_curve` has no consumer (revive/retire?); `benchmark.py` writes snapshots to `autonomous_trader.db` but reads `data/trader.db` (DB-constant inconsistency).
 5. **season_manager + cockpit dispatcher_mix + fleet-report-card-7d don't even gate `realized_pnl IS NOT NULL`** → they pull BUY rows too; the boundary fix also tightens these.
 
-*Phase 2 (design + change shape) and Phase 3 (before/after on every number) follow on your review of this map.*
+═══════════════════════════════════════════════════════════════════════════════
+## PHASE 2 — THE DESIGN (proposed, not built)
+═══════════════════════════════════════════════════════════════════════════════
+### New module: `engine/trades_filter.py` (one place the boundary lives)
+```python
+# Tracking-route players: portfolio execution_mode='tracking' or type='physical'
+# (mirror of engine/paper_trader.py _EXECUTION_PORTFOLIO_BY_PLAYER → Enterprise Computer/Schwab).
+# Their `trades` rows are log-only / manual-SQL pollution, never real performance.
+TRACKING_PLAYERS = ("dalio-metals", "enterprise-computer", "schwab")
+GARBAGE_FLOOR = "2026-05-14 07:37:44"   # first real Alpaca fill; pre = pre-S5 mispricing garbage
+
+# Fleet/dashboard/scorecard rollups → drop garbage AND tracking pollution:
+CLEAN_TRADES_WHERE = (
+    f"executed_at >= '{GARBAGE_FLOOR}' "
+    f"AND player_id NOT IN ({','.join(repr(p) for p in TRACKING_PLAYERS)})"
+)
+# Sim-evaluation gates (proving_ground) → drop garbage ONLY, keep clean sim:
+SIM_EVAL_WHERE = f"executed_at >= '{GARBAGE_FLOOR}'"
+
+def fleet_realized_pnl(conn, player=None, season=None, since_days=None, sim_eval=False) -> dict:
+    """Per-player (or single-player) {wins, losses, total_pnl, trade_count, win_rate}
+    over CLEAN trades. sim_eval=True uses SIM_EVAL_WHERE (proving_ground)."""
+    where = SIM_EVAL_WHERE if sim_eval else CLEAN_TRADES_WHERE
+    # ... action IN ('SELL','COVER') AND realized_pnl IS NOT NULL AND {where} [+player/season/since] ...
+```
+**Why a helper, not 30 inline edits:** the boundary is replicated ~30× today with zero consistency; one constant means
+the next new rollup is clean by construction and the floor/tracking-set changes in ONE place.
+
+### Adoption — the ~22 NEEDS-FIX sites route through it
+- **5 endpoints collapse via `agent_ratings.calculate_rating`** (fix its WHERE once).
+- **brain_context (4) + fleet_cache (4 cached aggs)** → adopt `CLEAN_TRADES_WHERE`.
+- **dashboard app.py (9 inline)** → adopt (leaderboard cluster, cockpit dispatcher-mix, analytics, performance, by-model, scoreboard, affinity, report-card-7d; equity-curve = revive/retire first).
+- **commander/reports (11)**: ollie_commander (2, live gate), cost_tracker (3, scorecard), war_room, strategy_breakdown, regime_analyzer, season_manager, oddsmaker → adopt.
+- **indirect (2)**: adaptive weekly_review + trade_outcomes backfill → adopt at the upstream SELECT.
+- **proving_ground.py:176/196** → adopt `SIM_EVAL_WHERE` (predicate-1 only).
+- **NOT touched**: metals_tracker/commentary (legit tracking display), eod_scorecard/signal_scorecard (different tables), unrealized/list endpoints.
+
+### Two orphan/bug findings to resolve alongside (not part of the filter)
+- `get_equity_curve` (app.py:9448) — no in-page consumer → revive or retire (decide before adopting).
+- `benchmark.py` — writes snapshots to `autonomous_trader.db` but reads `data/trader.db` (DB-constant inconsistency) — fix or document.
+
+═══════════════════════════════════════════════════════════════════════════════
+## PHASE 3 — BEFORE/AFTER (to run on the helper, before ship)
+═══════════════════════════════════════════════════════════════════════════════
+Predicted (from VBC): **dalio → 0** · **fleet realized $237,423 → ~$270** (delta = pre-05-14 garbage + dalio, NOT clean sim) ·
+**11 sim agents' clean post-05-14 sim PRESERVED** (the thing aoid would've broken) · **proving_ground keeps deepseek+plutus+neo-matrix
+clean post-05-14 sim, drops the contaminated month**. NOTE: ollie-auto/neo-matrix **do shift** (they carry pre-05-14 garbage too:
+ollie-auto +98.79 pre dropped, neo-matrix +26.91 pre dropped) — correct garbage-removal, not data loss; their post-05-14 data is unchanged.
+Phase 3 will tabulate every affected site's number before/after on your review of this design.
