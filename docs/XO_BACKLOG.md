@@ -2081,7 +2081,31 @@ BLOCK `[finnhub]`. The "no rows = fetch failed = fail-closed" rule distinguishes
 "no earnings" (False) from "couldn't check" (None) since the market-wide window is
 never genuinely empty. **No yfinance, no Finviz** in the earnings path.
 
-### HM-FINVIZ-ELITE-AUTH — wire the paid Finviz Elite API (pay-but-don't-use) (MED)
+### HM-FINVIZ-ELITE-FLEETWIDE — repoint the 4 free-scrape modules to authed Elite (MED, deferred)
+
+**Filed 2026-05-30 alongside HM-FINVIZ-ELITE-AUTH STEP 2.** STEP 2 wired the authed
+Elite export (`login_submit.ashx` → `.ASPXAUTH` → `export.ashx?v=131`, parses
+`Short Float`) into `engine/short_guard.py` ONLY (the RED short-guard bundle). Four
+other modules still use the `finvizfinance` FREE SCRAPE: `squeeze_scanner.py`,
+`premarket_scanner.py`, `finviz_sectors.py`, `scripts/scotty_backtest.py`. This
+ticket extracts the short_guard Elite-session helper into a shared client and
+repoints those four. Deferred to a separate pass (not bundled into the RED short
+change). Trigger: after the short-guard Elite bundle ships + bakes.
+
+### HM-FINVIZ-ELITE-AUTH — wire the paid Finviz Elite API (pay-but-don't-use) (MED) — STEP 2 BUILT 2026-05-30, staged for eyes-on
+
+**UPDATE 2026-05-30:** STEP 2 BUILT (staged, awaiting Captain dry-run approval).
+Authed Elite export wired into `short_guard.py` (`export.ashx?v=131` → `Short
+Float`); SI%>20 gate restored as the 3rd squeeze gate with **Option-B graceful
+degrade** — Elite up = 3 gates (DTC+earnings+SI%), Elite down = 2 gates
+(DTC+earnings still fail-closed), never 0 gates, never falls to free-scrape. Per-
+verdict gate logging makes the degrade visible. Dry-run proved all 5 scenarios incl.
+BYND 64% SI → BLOCK [finviz-elite] and Elite-down → DTC still blocks GME. NOTE: GME
+real SI%=14.2% is BELOW the 20% floor → SI gate does NOT block GME (DTC 7.8>5 does);
+"close the GME gap on SI%" needs SQUEEZE_SI_PCT_MAX lowered — an Admiral call. The
+fleetwide repoint of the other 4 free-scrape modules is HM-FINVIZ-ELITE-FLEETWIDE.
+
+### HM-FINVIZ-ELITE-AUTH (original filing) — wire the paid Finviz Elite API (pay-but-don't-use) (MED)
 
 **Surfaced 2026-05-30 in the short-guard data-source audit.** We PAY for **Finviz
 Elite (valid through Dec 2026)** — `FINVIZ_EMAIL`/`FINVIZ_PASSWORD` are in `.env` —
