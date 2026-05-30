@@ -166,7 +166,7 @@ def register_sell_callback(callback):
 # Set to True to enable short-sell execution for agents with short_enabled=1 in ai_players.
 # Wiring added 2026-04-21. Flip to True only after reviewing Counselor Troi's
 # ghost-trade performance. To enable: set SHORT_ENABLED = True below.
-SHORT_ENABLED = False  # Admiral: flip this to True when ready
+SHORT_ENABLED = True  # HM-SHORT-ACTIVATION 2026-05-30: Admiral-approved live (LLM path, all-paid squeeze guard, 8% stop + 10%/20% caps + fail-closed)
 
 # === ALPACA PAPER TRADING BRIDGE ===
 # Forwards DB trades to Alpaca paper account for real execution.
@@ -4232,10 +4232,27 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
 
     cash = row[1]
 
-    # Require bearish thesis + stop defined
+    # HM-SHORT-ACTIVATION 2026-05-30: the legacy "stop in reasoning" substring is a
+    # weak proxy — superseded by the real attached buy-stop (short_guard.short_levels
+    # + the Alpaca StopOrderRequest below). Kept only as a belt-and-braces require.
     if "stop" not in reasoning.lower():
         console.log(f"[red]SHORT BLOCKED: {player_id} {symbol} — stop loss required in reasoning")
         _last_rejection[player_id] = "Short requires stop loss in reasoning"
+        return None
+
+    # HM-SHORT-ACTIVATION 2026-05-30: squeeze guard — FAILS CLOSED. Block the short
+    # if SI%>20 OR days-to-cover>5 OR earnings<=3d, AND if SI%+DTC data are both
+    # unavailable (never short blind to the single largest tail risk of an
+    # unbounded-loss trade — the deliberate opposite of the long-side fail-open).
+    try:
+        from engine.short_guard import squeeze_block as _squeeze_block
+        _blocked, _sq_reason = _squeeze_block(symbol)
+    except Exception as _sg_err:
+        # short_guard itself failing is also a data-unavailable condition → fail closed.
+        _blocked, _sq_reason = True, f"SHORT REFUSED (squeeze guard error: {type(_sg_err).__name__})"
+    if _blocked:
+        console.log(f"[bold red]SHORT BLOCKED (squeeze guard): {player_id} {symbol} — {_sq_reason}")
+        _last_rejection[player_id] = _sq_reason
         return None
 
     # Check drawdown pause (20% from peak, season-scoped) — HM-DRAWDOWN-GATE-SYNC 2026-05-26
@@ -4261,20 +4278,49 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
     except Exception:
         pass
 
-    # Size: Kelly-based, max 15% (tier-scaled per HM-KELLY-TIER-MULTIPLIER 2026-05-23).
+    # Size: Kelly-based. HM-SHORT-ACTIVATION 2026-05-30 — per-position cap tightened
+    # 15%→10% (short_guard.SHORT_MAX_POSITION_PCT) because the loss is unbounded;
+    # Kelly may still pull it lower.
+    from engine.short_guard import (
+        SHORT_MAX_POSITION_PCT as _SHORT_MAX_POS,
+        aggregate_short_room as _agg_room,
+    )
     kelly_pct = get_kelly_fraction(player_id)
     _km = get_kelly_cap_multiplier(player_id)
-    max_short_pct = min(kelly_pct, 0.15 * _km)
+    max_short_pct = min(kelly_pct, _SHORT_MAX_POS * _km)
     if _km > 1.0:
         console.log(
             f"[cyan][KELLY-TIER] {player_id} short cap "
-            f"15.0%→{0.15 * _km:.1%} (Sharpe-tier {_km:.1f}×)"
+            f"{_SHORT_MAX_POS:.0%}→{_SHORT_MAX_POS * _km:.1%} (Sharpe-tier {_km:.1f}×)"
         )
     if qty is None:
         qty = round((cash * max_short_pct) / price, 4)
     else:
-        max_qty = round((cash * 0.15) / price, 4)
+        max_qty = round((cash * _SHORT_MAX_POS) / price, 4)
         qty = min(qty, max_qty)
+
+    # HM-SHORT-ACTIVATION 2026-05-30: aggregate short-exposure cap — total open
+    # shorts may not exceed 20% of book (short_guard.SHORT_MAX_AGGREGATE_PCT).
+    try:
+        _open_short_val = sum(
+            abs(p["qty"]) * p["avg_price"]
+            for p in pf["positions"]
+            if p.get("asset_type") == "stock" and p["qty"] < 0
+        )
+        _room, _at_cap = _agg_room(_open_short_val, current_value)
+        _this_notional = qty * price
+        if _at_cap or _this_notional > _room:
+            console.log(
+                f"[yellow]SHORT BLOCKED (aggregate cap): {player_id} {symbol} — "
+                f"open shorts ${_open_short_val:.0f}, room ${_room:.0f}, "
+                f"this ${_this_notional:.0f} (20% of ${current_value:.0f} book)"
+            )
+            _last_rejection[player_id] = (
+                f"Aggregate short cap: ${_room:.0f} room < ${_this_notional:.0f} needed"
+            )
+            return None
+    except Exception:
+        pass
 
     # READY ROOM ADVISORY (Counselor Troi): Gate on market condition before short execution
     _short_adv_mult = 1.0

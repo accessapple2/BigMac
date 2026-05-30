@@ -2056,6 +2056,49 @@ Q4: **Which agents opt in?**
 Captain-framed scope, 2026-05-24). Build is on HOLD until Admiral
 answers the 4 questions in a clean session.
 
+### HM-SHORT-RULES-PATH — wire the rules-scanner SHORT stub to short_sell() (deferred)
+
+**Filed 2026-05-30 alongside HM-SHORT-ACTIVATION (LLM-path-only build).** The
+crew_scanner rules path has a `SHORT_LOGGED` stub at `engine/crew_scanner.py:3542`
+("SHORT — logged, not executed") that drops rules-driven short signals. HM-SHORT-
+ACTIVATION wired only the LLM/arena path (agents emit `action="SHORT"` →
+`execute_signal` → `short_sell()`), which is the proven path. This ticket wires the
+rules stub to `short_sell()` too, so rules-scanner agents can short. **Gated on
+HM-SHORT-ACTIVATION being proven live first** (don't add a 2nd execution surface
+before the 1st is validated). When built, it inherits the same `short_guard`
+safeguards automatically (they live inside `short_sell()`).
+
+### HM-SHORT-EARNINGS-DATA-GAP — ✅ RESOLVED 2026-05-30 (all-paid-source repoint)
+
+**Found then fixed same day.** Original gap: `short_guard._earnings_within` relied on
+yfinance `.calendar` (empty under Yahoo throttle → earnings sub-guard always n/a).
+**Fixed** in the Admiral-directed data-source audit: earnings now sourced from
+**Finnhub `/calendar/earnings`** (paid, already wired at
+`engine/finnhub_data.get_earnings_calendar`, used live by event_shield +
+channel_scanner; probed HTTP 200, 122 rows/6d). **Proven on real data in the
+re-run dry-run:** ULTA (reporting ≤3d) → `_earnings_within=True` → squeeze_block
+BLOCK `[finnhub]`. The "no rows = fetch failed = fail-closed" rule distinguishes
+"no earnings" (False) from "couldn't check" (None) since the market-wide window is
+never genuinely empty. **No yfinance, no Finviz** in the earnings path.
+
+### HM-FINVIZ-ELITE-AUTH — wire the paid Finviz Elite API (pay-but-don't-use) (MED)
+
+**Surfaced 2026-05-30 in the short-guard data-source audit.** We PAY for **Finviz
+Elite (valid through Dec 2026)** — `FINVIZ_EMAIL`/`FINVIZ_PASSWORD` are in `.env` —
+but the code uses the **`finvizfinance` free scraper** (no auth), which is the same
+rate-limit/silent-degrade class as yfinance. **Probed live 2026-05-30:** the Elite
+login works — `POST finviz.com/login_submit.ashx` → 200 + `.ASPXAUTH` cookie →
+`elite.finviz.com/export.ashx?v=111&t=AAPL` returns CSV. So Elite is wireable today;
+it's just not wired. Impact: (a) the short guard had to **DROP SI %-of-float** (no
+reliable wired source — Polygon lacks float, free-Finviz is unreliable), leaving DTC
+as the sole structural squeeze metric; (b) system-wide, every `finvizfinance` caller
+(`squeeze_scanner`, `premarket_scanner`, `finviz_sectors`, `scotty_backtest`) is on
+the free scrape. **Wiring Elite** (session-cookie or token export client) would
+restore SI %-of-float to the squeeze guard (re-add `SI%>20` block alongside DTC>5)
+AND give all agents reliable Finviz data. **Trigger:** after shorting ships.
+**When done:** restore `SQUEEZE_SI_PCT_MAX` block to `short_guard.squeeze_block`
+(the constant is still defined, unused, ready).
+
 ### HM-THEME-V4.5-DEPRECATIONS — remove legacy compat shims one release after V4.4
 
 **Banked 2026-05-24 per 47's note.** After HM-THEME-CB-CONSOLIDATE v4.4
