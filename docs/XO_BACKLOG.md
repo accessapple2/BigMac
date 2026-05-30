@@ -4,18 +4,30 @@
 
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
-> **DAEMON GRAVEYARD (ALL-OUT-AUDIT-2026-05-30) — Phase 1 APPLIED 2026-05-30:** watchdog re-homed launchd→cron
-> (`scripts/watchdog_supervisor.sh` `*/5`, plist retired, observed running PID-of-the-day, alarm layer BACK — caught
-> cloudflared-down in 3 min). Full diagnosis + tiered plan: `docs/DAEMON-GRAVEYARD-REHOME-PLAN-2026-05-30.md`.
+> **DAEMON GRAVEYARD (ALL-OUT-AUDIT-2026-05-30) — Phase 1 + 1b APPLIED 2026-05-30 (BOTH safety monitors restored):**
+> Phase 1 = watchdog re-homed launchd→cron (`scripts/watchdog_supervisor.sh` `*/5`, plist retired, observed running,
+> alarm layer BACK — caught cloudflared-down in 3 min). Phase 1b = healthcheck re-homed (plist retired, cron `0 6-13`,
+> restart path HARDENED via trader_restart.sh d66b297, observed firing + correctly left healthy trader alone, single-writer 1).
+> Both now route trader-restart through the orphan-proof path (healthcheck live; watchdog pending repoint — see flock blocker
+> below). Full diagnosis + tiered plan: `docs/DAEMON-GRAVEYARD-REHOME-PLAN-2026-05-30.md`.
 > **Two follow-ups filed (both = route restart through `trader_restart.sh`):**
 > - **HM-HEALTHCHECK-RESTART-HARDEN (HIGH)** — `healthcheck.py::restart_server()` uses naive `pkill -9 main.py` +
 >   `launchctl load` (headless→unreachable gui/501→can down-and-not-restore). **healthcheck stays DEFERRED/OFF until
 >   this is rewritten to call `trader_restart.sh`** (orphan-proof single-writer gate). Falsifiable trigger: restart_server
 >   invokes trader_restart.sh + a forced restart leaves exactly 1 writer.
-> - **HM-WATCHDOG-RESTART-REPOINT (MED)** — `watchdog.py:258 launchctl_kickstart("com.trademinds.trader")` targets the
->   launchd job, not the cron-launched trader; gui/501 unreachable headless → trader auto-heal is STALE (alarms, can't
->   restart). Orphan-safe (fails closed), so not a blocker. Repoint to `trader_restart.sh`. Trigger: kill the trader →
->   watchdog brings it back via trader_restart.sh with 1 writer.
+> - **HM-TRADER-RESTART-FLOCK (HIGH) — 🚧 HARD BLOCKER on HM-WATCHDOG-RESTART-REPOINT.** The single-writer gate in
+>   `trader_restart.sh` is a DETECTOR, not a MUTEX: two concurrent invocations both kill→both relaunch→both spawn a
+>   trader→both gate-fail (exit 2). The actual race-resolver is `main.py`'s `:8080` bind-conflict behavior, which is
+>   UNVERIFIED. Fix: add an `flock` mutex (`flock -n` on a lockfile at the top of trader_restart.sh) so a 2nd concurrent
+>   restart blocks or aborts cleanly → "admit one" becomes ENFORCED. **DEPENDENCY (wired, do not violate):** watchdog
+>   must NOT be repointed to route through trader_restart.sh until flock lands — two live callers without the mutex =
+>   the double-spawn race. **flock first → controlled 2×-concurrent thrash test proves serialization → THEN repoint.**
+>   Falsifiable trigger: two `trader_restart.sh` fired together leave exactly 1 trader + 1 writer (loser aborts on lock).
+> - **HM-WATCHDOG-RESTART-REPOINT (MED) — 🚧 BLOCKED BY HM-TRADER-RESTART-FLOCK.** `watchdog.py:258
+>   launchctl_kickstart("com.trademinds.trader")` targets the launchd job, not the cron-launched trader; gui/501
+>   unreachable headless → trader auto-heal is STALE (alarms, can't restart). Orphan-safe (fails closed). Repoint to
+>   `trader_restart.sh` — **but ONLY after flock ships** (else watchdog + healthcheck both route through the un-mutexed
+>   script = race). Trigger: kill the trader → watchdog brings it back via trader_restart.sh with exactly 1 writer.
 > - **NEW (surfaced live):** cloudflared tunnel DOWN (no process; remote-access tunnel). Was a 05-23 cron @reboot
 >   service — died mid-session, nothing restarted it (same reboot-survival-gap, mid-life variant). Captain decision: restart if remote access wanted.
 > - **DEFERRED daemons (after Phase-1 healthy):** morningbriefing (gap confirmed), squeeze-scan, ghost-advisor, metals-sync,
