@@ -96,7 +96,17 @@ The `trades.known_contaminated` flag is unreliable: it flagged 235 trades (ollie
 catch all pre-5/14 contamination, or (b) **formally deprecate it in favor of the `alpaca_order_id`
 boundary** as the trustworthy clean/dirty discriminator. Recommend (b) — simpler + already proven.
 
-## 🟢 HM-DALIO-GOOGL-ZERO-EXIT — DIAGNOSED 2026-05-30 (not a code bug; data + aggregator fix)
+## 🟢 HM-DALIO-GOOGL-ZERO-EXIT — ROW-FIX SHIPPED 2026-05-30; aggregator follow-up OPEN
+
+**SHIPPED 2026-05-30:** row 2539 corrected (`realized_pnl=0, known_contaminated=1`; archived to
+`data/archive/dalio_row_2539_pre-correction_2026-05-30.txt`). **BUT dalio total realized PnL is STILL
+−255.08** after the fix → there are OTHER manual-cleanup rows (the predicted ONDS legacy-shorts siblings).
+**This VALIDATES the durable fix = the `route_mode='tracking'`-aware aggregator** (exclude tracking-route
+players from realized-PnL rollups — brain_context.py:273-275/452/530 + any dashboard sites), NOT row-by-row
+whack-a-mole. **OPEN follow-up (RED, multi-site, verified session):** make the aggregator tracking-aware,
+which zeroes ALL dalio/tracking pollution at once. Don't chase individual rows.
+
+## 🟢 HM-DALIO-GOOGL-ZERO-EXIT-dx — DIAGNOSED 2026-05-30 (not a code bug; data + aggregator fix)
 
 **ROOT CAUSE (2026-05-30 read-only):** `trades.id=2539` (dalio-metals GOOGL SELL, exit_price=0.0,
 realized_pnl=−77.36) is a **MANUAL SQL worthless-expiry cleanup**, NOT a live code write. Its own
