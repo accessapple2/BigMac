@@ -2848,9 +2848,13 @@ def _scan_rules_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, A
     # emitter was dropped). Only ACTED-ON decisions reach here — every PASS/gate exit
     # returned above — so no flood from PASS evals, and no double-emit (rules-scanners
     # never traverse the arena save_signal path at ai_brain.py:1282). Mirrors that call.
+    # HM-SIGNAL-TRADE-FK (2026-05-30): capture the signal id and thread it into buy()
+    # below, so trades.signal_id + trades.prompt_version populate via the inherited
+    # lookup in paper_trader.buy() (the rules-scanner path previously dropped both).
+    _rules_sid = None
     try:
         from engine.paper_trader import save_signal as _save_rules_signal
-        _save_rules_signal(player_id, symbol, action, conf_normalized,
+        _rules_sid = _save_rules_signal(player_id, symbol, action, conf_normalized,
                            reason_str, sources="rules", timeframe="INTRADAY",
                            prompt_version=f"{player_id}_rules_v1")
     except Exception as _ss_err:
@@ -2861,7 +2865,7 @@ def _scan_rules_agent(player_id: str, market_ctx: dict[str, Any]) -> dict[str, A
         if action == "BUY":
             result      = buy(player_id=player_id, symbol=symbol, price=price,
                               reasoning=reason_str, confidence=conf_normalized,
-                              timeframe="INTRADAY",
+                              timeframe="INTRADAY", signal_id=_rules_sid,
                               sizing_multiplier=troi_caution_multiplier)
             executed    = bool(result)
             gate_result = "EXECUTED" if executed else "TRADE_REJECTED"
