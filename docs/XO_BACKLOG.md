@@ -33,13 +33,21 @@
 > - **Phase 2 APPLIED 2026-05-30:** ✅ **ghost-advisor** re-homed (cron `*/10`, plist retired, observed firing — 172-decision
 >   backlog pending its 1st live run after 7d dead) + ✅ **metals-sync** (cron `6:15`+`13:10`, plist retired, observed —
 >   updated XAU/XAG live). Neither touches trader.log; single-writer stayed 1.
-> - **squeeze-scan — RETIRED not restored (verify-before-code catch):** the in-process `_bg_squeeze_watcher` (main.py:1731,
->   daemon thread, `_squeeze_bg_lock`, 30-min cadence) is LIVE (1103 log hits, `/api/squeeze` serving) — the standalone
->   `scripts/run_squeeze_scan.py` is superseded; cron-restoring it = two scanners hammering rate-limited finviz/yfinance.
->   Plist LEFT IN PLACE pending Captain call: **retire** (rename plist) vs **swap** (move scan out of main.py → standalone). NO cron added.
-> - **STILL DEFERRED:** morningbriefing (gap confirmed), sitrep (⚠️ system py3.9 — PEP604 risk), uhura/fleet-auditor/real-portfolio-snapshot.
+> - **Phase 2b APPLIED 2026-05-30:** ✅ **morningbriefing** re-homed (cron `0 6`, plist retired, import-smoke clean — full
+>   audio/NTFY firing = next 0600 cron; fixes morning_brief.json stale-since-05-29 gap) + ✅ **sitrep** re-homed (cron
+>   `6:30`/`10:00`/`13:30`, plist retired; reads trader.log via `tail` = single-writer safe; the "py3.9/PEP604 risk" was
+>   FALSE — no PEP604 syntax, compiles under 3.9). **9 cron-managed daemons total; all script paths absolute** (caught +
+>   fixed a relative-path bug: cron cwd=$HOME would've failed `engine/morning_briefing.py` at 6 AM).
+> - **squeeze-scan + ollie-scan — RETIRED (plists renamed, verify-before-code catches):** both superseded by LIVE in-process
+>   daemons — squeeze by `_bg_squeeze_watcher` (main.py:1731, 1103 hits, /api/squeeze serving); ollie-scan by `run_scanner`
+>   (main.py:360, scheduled, `run_scanner wall=60s` actively running, the §C scan path). Cron-restoring either = double-scan
+>   on rate-limited finviz/yfinance. NO cron; plists retired (kills latent double-run vector).
+> - **REMAINING — Captain's call (one-liners):** **uhura** (SEC 13F + Form-4 insider intel scraper, daily 05:30, no
+>   trader.log, no overlap → safe RESTORE candidate) · **fleet-auditor** (health-manifest / 10-job-freshness generator,
+>   15min, no trader.log, partial overlap w/ healthcheck → REVIEW) · **real-portfolio-snapshot** (daily Schwab REAL
+>   portfolio snapshot, 13:45, idempotent, no trader.log, no overlap → safe RESTORE candidate).
 >   **RETIRED safe-dead:** crusher (disabled), scanner (crashed 04-11), optionsflow/etfregime/movers (old /ollietrades path).
->   **HELD (in-process overlap, confirm before restore):** ollie-scan (arena scan), squeeze-scan (squeeze watcher).
+>   **py-version note:** venv/bin/python3 IS 3.9.6 (same as /usr/bin/python3); a venv swap does NOT fix PEP604, only the package set differs.
 
 > **Closure-sweep result 2026-05-29** (verify-before-fix audit of standing tickets):
 > - **CLOSED (shipped, were queue-rot):** HM-ALERT-AUTH-STORM (90544a6, 2026-05-23), HM-DATA-INTEGRITY-FORENSICS (sub-tickets shipped 2026-05-25).
