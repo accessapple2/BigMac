@@ -21,12 +21,13 @@
 >   (lock pre-held by live pid) → restart aborts exit-4, kill never reached, trader PID UNCHANGED; 2×-concurrent →
 >   one exit-0 (restart) + one exit-4 (abort, 0 kills), single-writer 1, exactly 1 trader, lock self-cleaned. The gate's
 >   "admit one" is now ENFORCED. **This UNBLOCKS HM-WATCHDOG-RESTART-REPOINT.**
-> - **HM-WATCHDOG-RESTART-REPOINT (MED) — ✅ UNBLOCKED 2026-05-30 (flock landed), awaiting separate GO to apply.** Repoint
->   `watchdog.py:258 launchctl_kickstart("com.trademinds.trader")` → `trader_restart.sh` so watchdog can actually heal the
->   cron-launched trader (today it alarms but its launchctl-kickstart is stale/headless-unreachable). Now SAFE to route a
->   2nd actor through trader_restart.sh — the flock mutex serializes watchdog + healthcheck if they both fire. **Not
->   auto-applied; needs its own go + its own verify-the-verifier** (kill the trader → watchdog heals it via trader_restart.sh,
->   exactly 1 writer; confirm no thrash with healthcheck under the mutex).
+> - **HM-WATCHDOG-RESTART-REPOINT (MED) — ✅ SHIPPED 2026-05-30 (806ff99).** `watchdog.py` now calls `restart_trader()`
+>   → `/bin/zsh scripts/trader_restart.sh` (orphan-proof, lsof-by-handle, single-writer gate, flock-serialized) instead of
+>   the stale `launchctl_kickstart("com.trademinds.trader")`. Handles flock exit-4 gracefully (defers to a concurrent
+>   healthcheck restart). **Verify-the-verifier PASSED:** killed the live trader → watchdog 3-strike grace (180s) →
+>   "Restarting via trader_restart.sh" → flock lock acquired → RESTART OK, new PID, single-writer 1, orphan-free, HTTP 200.
+>   Watchdog can now ACTUALLY heal the cron-launched trader (was alarm-only). **Safety arc complete:** both monitors
+>   (watchdog + healthcheck) route trader-restart through the flock-mutexed orphan-proof path — two actors can't double-spawn.
 > - **NEW (surfaced live):** cloudflared tunnel DOWN (no process; remote-access tunnel). Was a 05-23 cron @reboot
 >   service — died mid-session, nothing restarted it (same reboot-survival-gap, mid-life variant). Captain decision: restart if remote access wanted.
 > - **DEFERRED daemons (after Phase-1 healthy):** morningbriefing (gap confirmed), squeeze-scan, ghost-advisor, metals-sync,
