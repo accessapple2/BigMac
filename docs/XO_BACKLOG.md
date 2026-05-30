@@ -70,7 +70,25 @@ $21.52→$396.83). **Only 2 agents have broker-real realized trades in the clean
 except WATCH; re-assess when the clean window grows past ~30 trades/agent.** Both clean agents show
 +realized but −MTM (bank winners, hold losers) — realized WR is a selection artifact, not edge.
 
-## 🟡 HM-CONTAMINATED-FLAG-INCOMPLETE — MEDIUM (filed 2026-05-29) — data-integrity-of-the-tool
+## 🟡 HM-CONTAMINATED-FLAG-INCOMPLETE — DIAGNOSED 2026-05-30 → recommend DEPRECATE
+
+**ROOT CAUSE (2026-05-30 read-only):** `known_contaminated` has **NO detection logic** — the column exists
+(setup_db.py:462-465 DDL) but **nothing computes/populates it**. The 235 flagged rows were set by ad-hoc
+manual SQL scoped to 3 routed players (ollie-auto 190, neo-matrix 29, super-agent 16); one-time, no writer,
+no anomaly logic. It missed ~$237K because the garbage is from **non-routed legacy/backtest agents**
+(gemini-2.5-pro TSLA $21.52→$396.83 = id 179, +$117K, flag=0) — structurally out of scope. Quantified:
+flag=0 simulated = **+$237,632** unflagged garbage vs flag=1 catching only −$333.
+**RECOMMENDATION: DEPRECATE the flag, use `alpaca_order_id IS NOT NULL` as the authoritative clean/dirty
+boundary** (first appears 2026-05-14 07:37:44, perfect pre/post separation: 0/2030 pre vs 118/342 post).
+Broker ground-truth, auto-written on every fill, self-maintaining, one predicate — vs a manual one-time
+player-scoped pass that misses 99.9% of garbage dollars. Already the stated guidance (XO_BACKLOG:65).
+**Fix scope (RED — DB/view change, go-gated):** redefine the `trades_clean` view (DDL in
+drafts/HM-F4-RECONCILIATION.md:18-22) to `WHERE alpaca_order_id IS NOT NULL` (subsumes the date+exec-type
+filters; admits ~1 extra clean week since boundary 05-14 < the view's 05-21 floor). The dalio id=2539
+tracking-route exclusion is ORTHOGONAL → handle via the `route_mode='tracking'`-aware aggregator (see
+HM-DALIO-GOOGL-ZERO-EXIT), NOT by keeping the flag. **Original ticket text below:**
+
+## 🟡 HM-CONTAMINATED-FLAG-INCOMPLETE-orig — MEDIUM (filed 2026-05-29) — data-integrity-of-the-tool
 
 The `trades.known_contaminated` flag is unreliable: it flagged 235 trades (ollie-auto 190, neo-matrix
 29, super-agent 16) but **missed ~$230K of garbage PnL pre-2026-05-14** (March `simulated` shows
