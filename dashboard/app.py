@@ -4562,6 +4562,28 @@ def news_feed_alias(limit: int = 50, ticker: str = ""):
     return news_feed(limit=limit, ticker=ticker)
 
 
+@app.post("/api/intel/paste")
+def intel_paste(data: dict = None):
+    """HM-EXTERNAL-INTEL paste-box: capture pasted intelligence (TI picks / news / Bloomberg)
+    into the external_intel store. Auto-routes pick-blocks→Tier1 structured (external_picks),
+    prose→Tier2 free-text (external_intel_text). Same store the email pipeline feeds."""
+    import datetime as _dt
+    if not data:
+        return {"ok": False, "error": "no data"}
+    source = (data.get("source") or "paste").strip()
+    intel_date = (data.get("date") or "").strip() or _dt.date.today().isoformat()
+    text = (data.get("text") or "").strip()
+    kind = (data.get("kind") or "auto").strip()
+    if not text:
+        return {"ok": False, "error": "empty text"}
+    try:
+        from engine.external_intel import capture_paste
+        result = capture_paste(source, intel_date, text, kind=kind)
+        return {"ok": True, "source": source, "date": intel_date, **result}
+    except Exception as e:
+        return {"ok": False, "error": f"{type(e).__name__}: {e}"}
+
+
 @app.post("/api/news/go-deeper")
 def news_go_deeper(data: dict = None):
     """Generate AI follow-up questions for a news article (Ollama, free)."""

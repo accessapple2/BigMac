@@ -280,7 +280,12 @@ def capture_paste(source: str, intel_date: str, text: str, kind: str = "auto") -
     ensure_tables()
     if kind in ("picks", "auto"):
         picks = parse_ti_picks(text, source, intel_date)
-        if picks and (kind == "picks" or len(picks) >= 2):
+        # Route to Tier 1 when it's structured picks: explicit kind='picks', OR multiple
+        # parsed picks, OR any pick carries a concrete entry/stop level (a prose sentence
+        # that merely starts with a ticker-like word won't have "stop 4.50"). This fixes a
+        # single-line pick paste being misrouted to Tier-2 text (2026-05-31 verify bug).
+        structured = any(p.get("entry") is not None or p.get("stop") is not None for p in picks)
+        if picks and (kind == "picks" or len(picks) >= 2 or structured):
             added = capture_picks(picks, source, intel_date)
             return {"tier": 1, "captured_picks": added, "parsed": len(picks)}
     f = capture_text(source, intel_date, text)
