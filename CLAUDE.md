@@ -147,6 +147,7 @@ local Ollama model.
   + verify inline. No Captain handoff (workflow updated 2026-05-11).
 - Commit messages should reference the season (currently S6) and agent name
   when relevant.
+- Trader runs under `.venv/bin/python3` (3.14); restart via `scripts/trader_restart.sh`, NEVER a hand-rolled `venv` nohup (venv=3.9 crashes on PEP 604).
 
 ## Frontend Ship Rule (added 2026-05-12, HM-BJ.E4 lesson)
 Non-trivial frontend JS changes require a **manual browser hover/click smoke
