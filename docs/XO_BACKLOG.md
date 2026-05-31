@@ -1230,6 +1230,26 @@ Original archive preserved at `~/autonomous-trader-archive/2026-05-04-pre-hmg-re
 
 ## DEFERRED (planned sprints, out of scope tonight)
 
+### TI NEWSLETTER LEARNING LOOP — filed 2026-05-30 (build AFTER current pipeline + Holly repair)
+
+Admiral's vision: a 4-stage LEARNING LOOP where OllieTrades generates its own morning
+swing picks, compares them to Trade Ideas (TI) newsletter picks (the "answer key"),
+diagnoses misses to tune the scanner, and promotes both-lists-agree setups to a
+high-confidence watchlist. **Dependency order matters — most parts need Holly's engine
+producing picks first (Stage 3 repair is a prerequisite).** Filed now, build in order.
+
+| Ticket | Depends on | What |
+|---|---|---|
+| **HM-TI-NEWSLETTER-CAPTURE** | none (parallel) | Parse the daily TI Swing Picks email → structured daily TI-picks table (ticker, entry-trigger price, stop, rationale, the "juice check" market-regime note). The answer-key feed. **OPEN QUESTION for Admiral: ingestion method** — does the email forward to an inbox OllieTrades reads? Confirm before build. |
+| **HM-SWING-PICKS-GENERATOR** | Holly engine repaired (Stage 3) | OllieTrades produces its OWN morning swing watchlist — 5–10 tickers (start 10 to get a feel → tune to 5) with entry-trigger + stop + rationale, newsletter format. SWING side (multi-day, long-only, entry-triggered) — DISTINCT from the intraday Holly engine; likely uses Holly's strategy breadth, swing-configured. |
+| **HM-PICKS-COMPARISON-LEARN** | both above | The learning core — daily diff our-picks vs TI-picks. For names TI flagged that we MISSED → diagnose WHY (which filter excluded it, which signal we underweighted) and LOG the lesson. Misses inform scanner tuning over time. |
+| **HM-CROSS-VALIDATED-WATCHLIST** | comparison | Setups on BOTH lists → high-confidence → auto-add to watchlist; flag both-confirmed as auto-trade candidates IF they match our entry criteria. **Auto-trade execution = separately gated** — entry-triggered swing trades are a different execution model than the current market-order agents; NO auto-execute without Admiral's explicit go. |
+
+**Sequence:** current pipeline (Stage 2 ship → Stage 3 Holly → Stage 4 A/B → Stage 5 launch)
+→ HM-TI-NEWSLETTER-CAPTURE (can start parallel, independent) → HM-SWING-PICKS-GENERATOR
+(needs Holly) → HM-PICKS-COMPARISON-LEARN → HM-CROSS-VALIDATED-WATCHLIST. Each its own
+staged build. DO NOT build now — the loop needs Holly's engine producing picks to compare.
+
 ### HM-OLLIE-AI-WORKSPACE — Concept 5 Ollie AI Workspace
 
 **North star:** `USS-Trademinds-Dashboard-Redesigns-v4.3-FINAL.{html,pdf}` (supersedes v4.2).
