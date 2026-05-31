@@ -81,7 +81,7 @@ DALIO_BOND_SYMBOLS = {"TLT", "IEF"}  # stored as asset_type='bond' in paper_trad
 OLLAMA_MODEL = "phi3:mini"
 OLLAMA_URL = "http://192.168.1.168:11434"          # Ollie Box (all heavy inference — 2026-04-24 routing fix)
 OLLAMA_LOCAL_URL = "http://localhost:11434"        # bigmac residents only (phi3/gemma3/mistral)
-OLLIE_URL  = "http://192.168.1.168:11434"          # Ollie G1 Pro — RTX 5060 GPU primary
+OLLIE_URL  = "http://192.168.1.168:11434"          # Ollie Max — RTX 5080 16GB VRAM + 32GB sys RAM (Admiral-confirmed 2026-05-30; was mislabeled "RTX 5060")
 MLX_URL = "http://localhost:8899"
 MLX_MODEL = "mlx-community/Qwen3-8B-4bit"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
