@@ -112,8 +112,13 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
   HM-CD `_HM_CD_KEEP_ALIVE` lookup).
 - `qwen3:30b` rejected — too slow for this GPU (latency, not a VRAM-fit issue).
 - Avoid loading full datasets into memory; stream or chunk.
-- `0xroyce/plutus` is the finance-trained model used for McCoy (CSP /
-  Plutus-3B) — present on Ollie Max as `0xroyce/plutus:latest`.
+- McCoy (CSP) runs on **`plutus-v1`** — the finance-trained model resolved via
+  `ai_players.ollama-plutus` (`config.py:175`, "McCoy's finance brain"). Doc
+  previously asserted McCoy=`0xroyce/plutus`; corrected to plutus-v1 (doc-vs-
+  reality drift, HM-MODEL-RETIRE pre-check C 2026-05-31). The `0xroyce/plutus:
+  latest` tag is unwired (its only ref, `dayblade-0dte`, is halt_mode='full',
+  inert) and is **slated for retirement under HM-MODEL-RETIRE** (host `ollama
+  rm` pending manual execution). Re-pullable from HF if ever needed.
 
 ## Free Models First (cost doctrine, set 2026-04-16)
 - All agents default to FREE models — local Ollama or no-CC-required cloud
@@ -402,7 +407,7 @@ both UI panels still render before touching either module.**
 ### Active 4 — Voters (live paper trading)
 | Rank | Name    | Strategy / Type                              | Model                         | OOS Sharpe |
 |-----:|---------|----------------------------------------------|-------------------------------|-----------:|
-| 1    | McCoy   | CSP options seller — high-VIX regime         | 0xroyce/plutus (Plutus-3B)    | +11.1      |
+| 1    | McCoy   | CSP options seller — high-VIX regime         | plutus-v1 (Plutus, finance)   | +11.1      |
 | 2    | Neo     | Rule-based premium/GEX pattern detector      | Deterministic (no LLM)        |  +6.1      |
 | 3    | Dax     | CSP options seller — low-VIX regime          | qwen3:8b                      |  +4.9      |
 | 4    | Capitol | Congressional STOCK Act copy-trader          | Data feed (no LLM)            |  +1.8      |
