@@ -62,7 +62,52 @@ def _ensure_shadow(conn) -> None:
                n_tests INTEGER, n_followed INTEGER, n_ignored INTEGER,
                right_rate REAL, verdict TEXT, cur_score REAL, would_be_score REAL,
                cluster TEXT, note TEXT)""")
+    # one-row-per-(lesson,verdict) so the NTFY fires ONCE on the first transition out of
+    # provisional, not every cron run while it stays in verdict.
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS lesson_validation_alerted (
+               lesson_key TEXT, verdict TEXT, alerted_at TEXT,
+               PRIMARY KEY (lesson_key, verdict))""")
     conn.commit()
+
+
+def _notify_verdicts(conn, results, run_date) -> int:
+    """Fire an NTFY to ollietrades-admin the FIRST time a lesson transitions out of
+    provisional → harmful (would-cull) / helpful (would-boost). Once per (lesson, verdict) —
+    tracked in lesson_validation_alerted, no per-run spam. SHADOW: 'verdict ready to review',
+    NOT 'validator acted'. Carries actionable detail to judge the verdict at a glance."""
+    fired = 0
+    for r in results:
+        if r["verdict"] not in ("harmful", "helpful"):
+            continue
+        key = "%s|%s|%s|%s" % (r["player_id"], r["ticker"], r["regime"], r["action"])
+        if conn.execute("SELECT 1 FROM lesson_validation_alerted WHERE lesson_key=? AND verdict=?",
+                        (key, r["verdict"])).fetchone():
+            continue
+        verb = "WOULD-CULL" if r["verdict"] == "harmful" else "WOULD-BOOST"
+        evidence = ("ignored %d (took the action anyway) / followed %d (obeyed); right_rate %s"
+                    % (r["n_ignored"], r["n_followed"], r["right_rate"]))
+        title = "🧪 Lesson Validator: %s %s" % (verb, r["ticker"])
+        body = ("Condition: do-not %s %s in %s  (agent %s)\n"
+                "Verdict: %s after n=%d forward tests.\n"
+                "Evidence: %s\n"
+                "Would-be salience %.2f→%.2f (NOT applied — SHADOW).\n"
+                "Rule: %s\n"
+                "→ Review the validator panel; decide if the culling judgment is sound before "
+                "any approval to touch live salience."
+                % (r["action"], r["ticker"], r["regime"], r["player_id"], r["verdict"],
+                   r["n_tests"], evidence, r["cur_score"], r["would_be_score"], r["rule"][:120]))
+        try:
+            from engine.ntfy import _send, P_HIGH
+            _send(title, body, P_HIGH, "test_tube", topic="ollietrades-admin")
+        except Exception as e:
+            logger.warning("[lesson_validator] ntfy verdict alert failed: %s", e)
+        conn.execute(
+            "INSERT OR IGNORE INTO lesson_validation_alerted (lesson_key, verdict, alerted_at) "
+            "VALUES (?,?,?)", (key, r["verdict"], datetime.now(timezone.utc).isoformat()))
+        fired += 1
+    conn.commit()
+    return fired
 
 
 # ── Q1: parse lessons ─────────────────────────────────────────────────────────
@@ -192,12 +237,13 @@ def run_validation(shadow: bool = True) -> dict:
                  "SHADOW — agent_memory.score NOT modified"))
             results.append({**L, **att, "verdict": v, "would_be_score": would, "cluster": cluster})
         conn.commit()
+        alerts_fired = _notify_verdicts(conn, results, run_date)  # NTFY on first transition
         from collections import Counter
         vc = Counter(r["verdict"] for r in results)
         return {
             "run_date": run_date, "mode": "SHADOW — no live salience change",
             "parse_coverage": f"{len(lessons)}/{total_rules} rules parseable",
-            "verdicts": dict(vc), "n_lessons": len(results),
+            "verdicts": dict(vc), "n_lessons": len(results), "alerts_fired": alerts_fired,
             "min_tests_k": MIN_TESTS, "results": results,
             "note": ("CULLING loop: only clearly-harmful lessons (right_rate ≤ %.0f%% over ≥%d "
                      "forward tests) are flagged to cull; the rest stay PROVISIONAL — honest "
