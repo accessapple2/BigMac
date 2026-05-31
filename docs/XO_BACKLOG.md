@@ -1,8 +1,73 @@
 # XO Backlog — USS TradeMinds
 # Riker's Standing Work Queue
-# Updated: 2026-05-29 (HM-AS-β Loop 2 + §C stall + Worf reconcile + Tier A sweep + memory trim + queue audit)
+# Updated: 2026-05-31 (BACKLOG RECONCILE — filed the 2026-05-31 session: Holly A/B, External-Intel, learning loops)
 
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
+
+---
+## 🆕 2026-05-31 SESSION — filed retroactively (was git+memory only; backlog was stale-by-omission)
+
+### 🟢 HM-HOLLY-WORKS — LIVE / racing (commits → cfe53bf)
+The "faithful ~60 documented TI strategies, intraday-flat" frame is **DISPROVEN**. Rebuilt around what's
+**OOS-validated**: works-set = **the_continuation** (OOS Sharpe 1.47, 58% WR, +5.6%/6wk; tuned 8%stop/6%tgt/
+20d-hold) + **count_de_monet** (marginal, OOS Sharpe 0.59). Per-strategy exit regimes (`TI_EXIT_TYPE`:
+momentum→swing, mean-rev→flat — the no-EOD-flat experiment proved momentum needs overnight holds). **180-day
+regime test (Dec1→May29): the_continuation is BULL-ONLY** — +1.57%/trade 66%WR in bull, ~0 edge (+0.10%/trade)
+& −88% drawdown path in bear; 95% of return from bull → motivated the regime gate. `engine/holly_intraday.py`
+(HOLLY_WORKS), `engine/holly_live.py`, `scripts/holly_live_cron.sh` (live `*/15 13-20 * * 1-5`). Supersedes
+the stale "HM-HOLLY-FAITHFUL Phase 1" task. **Status: LIVE A/B vs ollie-auto ($10k each, internal book).**
+
+### 🟢 HM-HOLLY-REGIME-GATE — LIVE, awaiting first real bench (commit cfe53bf)
+Entries-only gate on holly-scanner: benches the_continuation in CAUTIOUS_BEAR/BEAR_CROSS/CRISIS, trades in
+BULL_CROSS/CAUTIOUS_BULL. Reads BOTH the fleet source (`_get_regime_from_8080`) AND regime_history (union —
+catches CAUTIOUS_BEAR the fleet source can't distinguish). **Promoted shadow→LIVE.** Exits NEVER gated (no
+position thrashing). NTFY to ollietrades-admin on the first real bench (deduped + 6h cooldown). Currently BULL
+→ trading. **Status: LIVE; first real bench is the confirm trigger.**
+
+### 🟢 HM-EXTERNAL-INTEL — live / capturing (commits b467491, f719e2f, 2683d18, 44b089c)
+Captures the Admiral's pasted/forwarded intelligence. **Tier-1** (structured picks): TI Swing Picks → 32 in
+external_picks; follow-TI shadow **+3.45%/pick, 53% WR** (tracked, not traded); watchlist; daily snapshot cron.
+**Tier-2** (prose): 15 rows in external_intel_text; TrendSpider capture (ad-strip + theme/ticker extraction);
+**eM Client forward-bug fixed** (was silently SKIP-dropping all forwards) + 14-row backfill of historical prose.
+Dual ingestion: hourly email poller (OllieTradeMinds@gmail, eM Client auto-forward) + paste-box (`/api/intel/
+paste`). Dashboard panels (browser-smoke passed). **Closes HM-TI-NEWSLETTER-CAPTURE** (its open ingestion
+question is answered + built). **Status: live. Tier-2 features stay OUT of live gating until OOS-proven.**
+
+### 🟡 HM-LESSON-VALIDATOR — SHADOW, awaiting first verdict (commits 8c9835e, 8de2ded)
+Culling loop for the FinMem Reflexion lessons: parse → {ticker,regime,action}, scan decision_audit forward-only
+→ followed-vs-ignored + counterfactual; CULL demonstrably-harmful (≥5 tests + significance margin), don't anoint
+winners at N=5. **SHADOW-ONLY** (logs to lesson_validation_shadow, never touches agent_memory). Daily cron. NTFY
+to ollietrades-admin on first verdict. **All 85 lessons PROVISIONAL** (n=0 forward tests yet — correct/conservative).
+**Status: shadow; first non-provisional verdict → NTFY → Admiral promote decision.**
+
+### 🟡 HM-OLLIE-LEARN — Phase 1 done (negative), Phase 2 shadow/parked (commits 0a9ebdc, 4872ad7)
+Phase 1 rule-optimizer: OOS-validated, found **NO threshold change beats the static 2.0 gate** (OllieScore
+clusters ≥2.0, re-thresholding inert) → 2.0 stays; kept as nightly-check infra. Phase 2 GB learned-gate: trained
+on ~540 scoreable decisions, **OOS AUC 0.534 — no edge** (CV 0.674 was regime base-rate); SHADOW-only, never
+gates live. **Status: both shadow/parked. Revisit Phase 2 only as regime diversity / corpus grows.**
+
+### 🔵 HM-HOLLY-ENTRY-FIDELITY — DEFERRED (memory: project_hm_holly_entry_fidelity)
+17/19 documented TI strategies fail OOS even with correct exit regimes (generic triggers — "close>20-bar-high" —
+not real Holly setups; 33-37% WR). Rework entries toward real setup conditions to grow the works-set beyond the
+2 validated. **Status: DEFERRED, hard + uncertain payoff. LOW-MED. Gated behind the the_continuation A/B baking.**
+
+### 🟢 HM-SHORT-GUARD-ELITE — SHIPPED earlier 2026-05-31 (Stage-2 commit)
+Stock-shorting activation with the Finviz Elite short guard: SI%>20 (authed Elite export) + DTC>5 (Polygon) +
+earnings≤3d (Finnhub), fail-CLOSED, Option-B graceful degrade (Elite-down → DTC+earnings, never skip-and-allow).
+8% hard buy-stop, 10%/position + 20% aggregate caps, 3 authorized agents. **Status: SHIPPED, SHORT_ENABLED=True.**
+
+> **CALENDAR-FLAG for Admiral:** the items I'd been carrying as "tracked" — **HM-BM bakeoff (~Jun 15), Plutus v6,
+> Polygon VX/WS migration, PDT-rule 2026-06-04** — are **NOT in XO_BACKLOG, CLAUDE.md, or memory**. Either real-but-
+> never-filed (→ file them) or misremembered (→ drop them). The only filed 2026-06-04 item is the *Worf bench review*.
+
+> **AGGREGATOR STATUS (clarifies HM-DALIO + HM-TRACKING adoption):** the core fix **HM-TRACKING-AGGREGATOR IS
+> SHIPPED** (eb2886e, ~22 rollup sites, `CLEAN_TRADES_WHERE` excludes tracking-route players incl. dalio-metals) —
+> the clean aggregator used all this session IS that fix and it WORKS. The two "open" items are **residuals, NOT
+> the last mile of the same fix**: (1) the dalio 18 polluted raw rows are already EXCLUDED by the live aggregator
+> (don't surface in clean rollups) — only the raw DB rows are still wrong = a sacred-data correction (RED, staged-
+> await-go), LOW urgency; (2) the stricter `alpaca_order_id`-boundary `trades_clean` view has zero readers = an
+> optional refinement, not the core fix. **The aggregator fix is functionally complete.**
+---
 
 > **HM-TRACKING-AGGREGATOR — ✅ SHIPPED 2026-05-30 (eb2886e).** Two-predicate clean-trades boundary
 > (`executed_at >= '2026-05-14' AND player_id NOT IN tracking`) via new `engine/trades_filter.py`, adopted at ~22
