@@ -167,19 +167,36 @@ def ti_shadow_scorecard(price_fn=None) -> dict:
             price_fn = lambda t: 0.0
     c = sqlite3.connect(DB, timeout=30.0); c.row_factory = sqlite3.Row
     rows = c.execute("SELECT * FROM ti_shadow_trades").fetchall()
-    rets = []
+    rets, stopped = [], 0
     for r in rows:
         entry = r["entry"] or 0
+        stop = r["stop"] or 0
+        if not entry:
+            continue
         px = r["exit_price"] if r["status"] == "closed" else price_fn(r["ticker"])
-        if entry and px:
-            rets.append((px - entry) / entry * 100)
+        if not px:
+            continue
+        # Apply the stop as a floor: if current price is at/below the stop, the swing
+        # would have exited at the stop (approximation — no intraday history, so a name
+        # that dipped to stop then recovered is scored mark-to-current; flagged below).
+        if stop and px <= stop:
+            px = stop
+            stopped += 1
+        rets.append((px - entry) / entry * 100)
     c.close()
     if not rets:
         return {"n": 0, "note": "no shadow trades with prices yet"}
     wins = sum(1 for x in rets if x > 0)
-    return {"n": len(rets), "avg_return_pct": round(sum(rets) / len(rets), 2),
-            "win_rate": round(wins / len(rets) * 100, 1),
-            "note": "follow-TI shadow — tracked, not auto-traded"}
+    return {
+        "n": len(rets), "stopped_out": stopped,
+        "avg_return_pct": round(sum(rets) / len(rets), 2),
+        "win_rate": round(wins / len(rets) * 100, 1),
+        "best_pct": round(max(rets), 1), "worst_pct": round(min(rets), 1),
+        "note": ("follow-TI shadow — TRACKED, not auto-traded (parallel ghost tracker, "
+                 "clean-aggregator discipline: separable, date-stamped, never co-mingled "
+                 "with the live book). Stop applied as a floor; mark-to-current otherwise. "
+                 "Early/low-N — needs time."),
+    }
 
 
 # ── TIER 1 payoff (iii): cross-validation OT picks vs TI answer-key ────────────
