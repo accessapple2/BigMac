@@ -590,6 +590,24 @@ async def run_picard(
     }
 
 
+def _resolve_plutus_model() -> str:
+    """HM-PLUTUS-PURPOSE 2026-05-31: resolve the Plutus expert-witness model from
+    ai_players.model_id (DB = source of truth) instead of a hardcoded literal, so a
+    model swap is a DB change, not a code edit. Fail-safe → stock 0xroyce/plutus if
+    the DB read fails or returns empty."""
+    try:
+        conn = sqlite3.connect(TRADER_DB, timeout=5)
+        row = conn.execute(
+            "SELECT model_id FROM ai_players WHERE id='ollama-plutus'"
+        ).fetchone()
+        conn.close()
+        if row and row[0]:
+            return row[0]
+    except Exception as e:
+        logger.warning(f"[HM-PLUTUS-PURPOSE] model_id resolve failed, using stock: {e!r}")
+    return "0xroyce/plutus"
+
+
 async def run_plutus_witness(
     session: aiohttp.ClientSession,
     semaphore: asyncio.Semaphore,
@@ -619,7 +637,7 @@ async def run_plutus_witness(
         bear_summary=bear_summary,
     )
 
-    response = await call_ollama(session, semaphore, "0xroyce/plutus", prompt)
+    response = await call_ollama(session, semaphore, _resolve_plutus_model(), prompt)
     if not response or not response.strip():
         return None
 
