@@ -291,6 +291,80 @@ def _sweep_intraday(close, strategy: str) -> dict:
     return best_params
 
 
+# ── PHASE 3: SHORT-BACKTEST HARNESS ───────────────────────────────────────────
+# Backtests SHORT strategies: short entry -> buy-to-cover -> INVERSE PnL (profit when
+# price FALLS). Uses vectorbt direction='shortonly' (verified: a 100->80 fall yields
+# +17.9% return, sign correct). Reuses the intraday bars + EOD-flat infra. Short
+# strategies enter on BEARISH signals (inverse of the long runners). Leverages the
+# live short path's intent: short_guard squeeze exclusions are checked so we don't
+# surface a backtested short on a name the live guard would block.
+
+
+def _squeeze_excluded(symbol: str) -> tuple[bool, str]:
+    """True if the live short_guard would BLOCK shorting `symbol` (DTC/earnings/SI).
+
+    Mirrors the live gate so a backtested short isn't surfaced for a name that could
+    never trade. Backtest is read-only (not an order), so a guard-import error here
+    fails-OPEN but is LOGGED LOUD (never silent) — distinct from the live path which
+    fails CLOSED. Recurring-bug-class guard: surface the degraded state, don't hide it.
+    """
+    try:
+        from engine.short_guard import squeeze_block
+        return squeeze_block(symbol)
+    except Exception as e:
+        logger.warning("short squeeze-guard check failed for %s (%s) — backtest proceeds "
+                       "but is NOT validated against the live guard", symbol, type(e).__name__)
+        return False, f"guard-check-error:{type(e).__name__}"
+
+
+def _run_intraday_short(close, strategy: str, params: dict, cash: float = 10_000, fees: float = 0.001):
+    """Backtest one SHORT strategy intraday, EOD-flat cover, inverse PnL. None on fail."""
+    import vectorbt as vbt
+    eod = _eod_flat_exits(close)
+    if strategy == "rsi":
+        rsi = vbt.RSI.run(close, window=params.get("window", 14))
+        short_entries = rsi.rsi_crossed_below(params.get("entry", 70))  # roll down from overbought
+        short_exits = rsi.rsi_crossed_below(params.get("exit", 30))     # cover when oversold
+    elif strategy == "macd":
+        m = vbt.MACD.run(close, fast_window=params.get("fast", 12),
+                         slow_window=params.get("slow", 26), signal_window=params.get("signal", 9))
+        short_entries = m.macd_crossed_below(m.signal)   # bearish cross -> short
+        short_exits = m.macd_crossed_above(m.signal)     # bullish cross -> cover
+    elif strategy == "bollinger":
+        bb = vbt.BBANDS.run(close, window=params.get("window", 20), alpha=params.get("std", 2.0))
+        short_entries = close.vbt.crossed_above(bb.upper)  # fade upper band -> short
+        short_exits = close.vbt.crossed_below(bb.lower)    # cover at lower band
+    elif strategy == "sma_cross":
+        fast = vbt.MA.run(close, params.get("fast", 10))
+        slow = vbt.MA.run(close, params.get("slow", 50))
+        short_entries = fast.ma_crossed_below(slow.ma)   # death cross -> short
+        short_exits = fast.ma_crossed_above(slow.ma)     # golden cross -> cover
+    else:
+        return None
+    short_exits = (short_exits.astype(bool) | eod.astype(bool)).copy()  # EOD-flat cover
+    short_exits.iloc[-1] = True
+    try:
+        pf = vbt.Portfolio.from_signals(
+            close, entries=short_entries, exits=short_exits,
+            direction="shortonly", freq="5min", fees=fees, init_cash=cash,
+        )
+        st = pf.stats()
+        return {
+            "total_return": _stat(st, "Total Return [%]"),
+            "win_rate":     _stat(st, "Win Rate [%]"),
+            "sharpe":       _stat(st, "Sharpe Ratio", 3),
+            "max_drawdown": _stat(st, "Max Drawdown [%]"),
+            "profit_factor":_stat(st, "Profit Factor"),
+            "num_trades":   int(_s(st.get("Total Trades", 0))),
+            "final_value":  round(_s(pf.final_value()), 2),
+            "bar":          BAR_LABEL,
+            "direction":    "short",
+        }
+    except Exception as e:
+        logger.debug("_run_intraday_short %s error: %s", strategy, e)
+        return None
+
+
 # ── ORCHESTRATOR ──────────────────────────────────────────────────────────────
 
 def run_holly_intraday(days: int = 30, top_n: int = 50) -> dict:
