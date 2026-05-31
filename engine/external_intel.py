@@ -276,12 +276,19 @@ _THEMES = {"memory", "space", "cybersecurity", "semiconductor", "nuclear", "quan
 _AD_MARKERS = ("memorial day sale", "sale is on", "% off", "clock's ticking", "click here",
                "no images?", "unsubscribe", "report spam", "duckduckgo removed", "view in browser",
                "feature is", "try this instead", "for $4", "/day", "profit playbook", "free trial",
-               "limited time", "act now", "upgrade your plan")
+               "limited time", "act now", "upgrade your plan", "forwarded message")
 
 
 def _clean_prose(text: str) -> str:
-    """Strip invisible spacers + ad/boilerplate lines so only signal prose is stored."""
+    """Strip invisible spacers + ad boilerplate + FORWARDING boilerplate (Gmail / eM Client /
+    DuckDuckGo wrappers: '---------- Forwarded message ---------', From:/To:/Date:/Subject:
+    header lines) so only signal prose is stored."""
     txt = re.sub(r"[‌͏­\xa0]+", " ", text or "")
+    # forwarding wrappers (Gmail/eM Client/DuckDuckGo all use these)
+    txt = re.sub(r"-{2,}\s*(?:Begin )?Forwarded message\s*-{2,}", " ", txt, flags=re.IGNORECASE)
+    txt = re.sub(r"\b(?:From|To|Cc|Reply-To)\s*:\s*[^<\n]{0,80}<[^>]+@[^>]+>", " ", txt)  # header w/ email
+    txt = re.sub(r"\bDate\s*:\s*\w{2,4},?\s+\w{2,4}\s+\d{1,2},?\s+\d{4}[^\n]{0,30}", " ", txt)  # Date: Thu, May 14, 2026...
+    txt = re.sub(r"\bSubject\s*:\s*(?:Fwd:|Re:)?\s*", " ", txt, flags=re.IGNORECASE)
     out = []
     for seg in re.split(r"(?<=[.!?])\s+|\n", txt):
         s = seg.strip()
