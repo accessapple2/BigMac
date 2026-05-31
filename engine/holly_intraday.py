@@ -477,10 +477,122 @@ def _ti_signals(df, name: str):
     return None, None
 
 
+# ── PHASE 4 BATCH 2: 10 more documented TI Holly LONG strategies ──────────────
+_float_cache: dict = {}
+_FLOAT_TTL = 7 * 24 * 3600  # float changes rarely
+
+
+def _shares_float_m(symbol: str):
+    """Shares float in MILLIONS via authed Finviz Elite (reuses short_guard session).
+    None if unavailable (the float-gated strategy then SKIPS the name — never silent-True)."""
+    now = time.time()
+    hit = _float_cache.get(symbol)
+    if hit and now - hit[0] < _FLOAT_TTL:
+        return hit[1]
+    val = None
+    try:
+        from engine.short_guard import _get_elite_session
+        import csv as _csv, io as _io
+        sess = _get_elite_session()
+        if sess is not None:
+            r = sess.get(f"https://elite.finviz.com/export.ashx?v=131&t={symbol.upper()}", timeout=12)
+            if r.status_code == 200:
+                for row in _csv.DictReader(_io.StringIO(r.text)):
+                    if str(row.get("Ticker", "")).upper() == symbol.upper():
+                        raw = str(row.get("Shares Float", "")).strip().upper().replace(",", "")
+                        if raw and raw not in ("-", "—"):
+                            mult = 1.0
+                            if raw.endswith("B"):
+                                mult, raw = 1000.0, raw[:-1]
+                            elif raw.endswith("M"):
+                                mult, raw = 1.0, raw[:-1]
+                            elif raw.endswith("K"):
+                                mult, raw = 0.001, raw[:-1]
+                            try:
+                                val = float(raw) * mult
+                            except Exception:
+                                val = None
+                        break
+    except Exception as e:
+        logger.warning("float lookup %s failed: %s", symbol, type(e).__name__)
+    _float_cache[symbol] = (now, val)
+    return val
+
+
+def _ti_signals_b2(df, name: str, symbol: str = ""):
+    """(entries, exits) for Batch-2 documented TI strategies, or (None,None).
+    Same OHLCV/anchored-OR/retracement vocabulary as Batch 1."""
+    import pandas as pd, numpy as np
+    o, h, l, c, v = df["Open"], df["High"], df["Low"], df["Close"], df["Volume"]
+    px = float(c.iloc[-1])
+    day = c.index.normalize()
+    rel_vol = v / v.rolling(20).mean()
+    hi20 = h.rolling(20).max()
+    hi12 = h.rolling(12).max()           # ~60-min high
+    hi5d = h.rolling(390, min_periods=78).max()   # ~5-session high
+    sma8 = c.rolling(8).mean(); sma20 = c.rolling(20).mean(); sma50 = c.rolling(50).mean()
+    swing_hi = h.rolling(40).max(); swing_lo = l.rolling(40).min()
+
+    def _ret(e, x, lo=None, hi=None):
+        if lo is not None and not (lo <= px):
+            return None, None
+        if hi is not None and not (px <= hi):
+            return None, None
+        return e.fillna(False), x.fillna(False)
+
+    if name == "alpha_predators":        # momentum pullback then resume, <$20
+        retr = swing_hi - 0.382 * (swing_hi - swing_lo)
+        e = (c <= retr) & (c > c.shift(1)) & (c > sma20)
+        return _ret(e, c >= swing_hi, hi=20)
+    if name == "early_bird":             # cross algo resistance, <$20
+        e = (c > hi20.shift(1)) & (rel_vol >= 1.25)
+        return _ret(e, c < hi20.shift(1), hi=20)
+    if name == "float_on":               # low-float (<20M) breakout — FLOAT-GATED (faithful)
+        fl = _shares_float_m(symbol)
+        if fl is None or fl >= 20.0:     # no float data OR not low-float → skip (never silent-True)
+            return None, None
+        e = (c > hi20.shift(1)) & (rel_vol >= 1.5)
+        return _ret(e, c < hi20.shift(1))
+    if name == "count_de_monet":         # resistance breakout to 5-day high, <$40
+        e = (c >= hi5d) & (c > hi20.shift(1))
+        return _ret(e, c < sma8, hi=40)
+    if name == "buyers_stepping":        # Fibonacci (38.2%) pullback on uptrend
+        retr = swing_hi - 0.382 * (swing_hi - swing_lo)
+        e = (c <= retr) & (c > c.shift(1)) & (sma8 > sma20) & (sma20 > sma50)
+        return _ret(e, c >= swing_hi)
+    if name == "strong_stock_pulling_back":  # 25% retracement + rel strength, <$20
+        retr = swing_hi - 0.25 * (swing_hi - swing_lo)
+        e = (c <= retr) & (c > c.shift(1)) & (rel_vol >= 1.0) & (c > c.shift(78))
+        return _ret(e, c >= swing_hi, hi=20)
+    if name == "tailwind":               # complex MA stack + pullback, <=$60
+        stacked = (sma8 > sma20) & (sma20 > sma50)
+        pulled = (c <= sma20 * 1.01) & (c >= sma20 * 0.99) & (c > c.shift(1))  # pullback to 20MA, turning
+        return _ret(stacked & pulled, c < sma50, hi=60)
+    if name == "bullish_trend_change":   # cross resistance + 60-min high, >$20
+        e = (c > hi20.shift(1)) & (c >= hi12)
+        return _ret(e, c < sma8, lo=20)
+    if name == "trend_play":             # MA ribbon aligned up (8>20>50, price>8)
+        e = (sma8 > sma20) & (sma20 > sma50) & (c > sma8) & (c.shift(1) <= sma8.shift(1))
+        return _ret(e, c < sma20)
+    if name == "guiding_hand":           # gap up + MA catch-up (price holds, rising MA catches)
+        day_open = o.groupby(day).transform("first")
+        prev_close = c.groupby(day).transform("last").groupby(day).shift(1)
+        gap = (day_open > c.shift(1) * 1.01)
+        e = gap & (c >= sma8) & (sma8 > sma8.shift(3))   # held gap, 8MA rising into price
+        return _ret(e, c < sma8)
+    return None, None
+
+
 TI_BATCH_1 = [
     "staggering_volume", "volume_doesnt_lie", "breakout", "pushing_through_resistance",
     "bullish_pullback", "quarterback", "five_day_bounce", "on_support",
     "the_continuation", "separation_from_8",
+]
+
+TI_BATCH_2 = [
+    "alpha_predators", "early_bird", "float_on", "count_de_monet", "buyers_stepping",
+    "strong_stock_pulling_back", "tailwind", "bullish_trend_change", "trend_play",
+    "guiding_hand",
 ]
 
 
