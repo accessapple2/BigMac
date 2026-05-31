@@ -461,7 +461,7 @@ SWING_SL, SWING_TP, SWING_MAXHOLD = 0.05, 0.10, 780   # default swing exit (~10 
 # fail OOS even with the correct exit regime (generic triggers, not real Holly setups).
 HOLLY_WORKS = {
     "the_continuation": {"enabled": True,  "exit": "swing", "sl": 0.08, "tp": 0.06, "max_hold": 1560},
-    "count_de_monet":   {"enabled": False, "exit": "swing", "sl": 0.05, "tp": 0.06, "max_hold": 390},
+    "count_de_monet":   {"enabled": True,  "exit": "swing", "sl": 0.05, "tp": 0.06, "max_hold": 390},
 }
 
 
