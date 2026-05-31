@@ -2931,7 +2931,7 @@ window._cachedFetch = function(url, ttlMs) {
   var _dashboardUrls = ['/api/status','/api/arena/leaderboard','/api/trades','/api/chat',
     '/api/system/ram','/api/cto/','/api/costs/','/api/market/prices','/api/webull',
     '/api/market/vix','/api/market/earnings','/api/signals','/api/market/flow',
-    '/api/news','/api/smart-money','/api/market/movers','/api/market-movers','/api/movers','/api/price/',
+    '/api/news','/api/intel/','/api/smart-money','/api/market/movers','/api/market-movers','/api/movers','/api/price/',
     '/api/regime','/api/navigator/','/api/sectors/heatmap','/api/fear-greed',
     '/api/metals/','/api/earnings/','/api/inverse-etfs','/api/premium-etfs',
     '/api/congress/','/api/volume-radar','/api/universe/status',
@@ -9261,6 +9261,48 @@ if (typeof registerSectionInit === 'function') {
 
 <!-- NEWS SECTION — Redesigned split-panel research tool -->
 <div id="section-news" style="display:none;">
+  <!-- HM-EXTERNAL-INTEL panels (2026-05-31): follow-TI shadow + lesson-validator shadow.
+       Read-only. Routes allowlisted ('/api/intel/'). Hazard-safe: unique ids, var(--text)
+       dual-theme, no 'loading' placeholder, r.ok gate. Nothing auto-trades / live-gates. -->
+  <div style="display:flex;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+    <div id="ti-shadow-panel" style="flex:1;min-width:300px;border:1px solid var(--border,#333);border-radius:8px;padding:12px;color:var(--text,#ddd)">
+      <h3 style="margin:0 0 8px;font-size:14px">📨 Follow-TI Shadow <span style="font-size:11px;opacity:.6">(tracked, not traded)</span></h3>
+      <div id="ti-shadow-body">—</div>
+    </div>
+    <div id="lesson-validator-panel" style="flex:1;min-width:300px;border:1px solid var(--border,#333);border-radius:8px;padding:12px;color:var(--text,#ddd)">
+      <h3 style="margin:0 0 8px;font-size:14px">🧪 Lesson Validator <span style="font-size:11px;opacity:.6">(shadow — culling loop)</span></h3>
+      <div id="lesson-validator-body">—</div>
+    </div>
+  </div>
+  <script>
+  (function(){
+    async function loadTIShadow(){
+      try{
+        var r = await fetch('/api/intel/ti-shadow'); if(!r.ok) return;
+        var d = await r.json(); var s = d.scorecard || {};
+        document.getElementById('ti-shadow-body').innerHTML =
+          '<b>'+(s.avg_return_pct ?? '—')+'%</b> avg/pick &nbsp;|&nbsp; '+(s.win_rate ?? '—')+'% WR &nbsp;|&nbsp; '+
+          'n='+(s.n ?? 0)+' &nbsp;|&nbsp; best '+(s.best_pct ?? '—')+'% / worst '+(s.worst_pct ?? '—')+'% &nbsp;|&nbsp; '+
+          (s.stopped_out ?? 0)+' stopped<br><span style="font-size:11px;opacity:.6">Does following TI swing picks make money? Low-N, needs time.</span>';
+      }catch(e){}
+    }
+    async function loadLessonValidator(){
+      try{
+        var r = await fetch('/api/intel/lesson-validator'); if(!r.ok) return;
+        var d = await r.json(); var sm = d.summary || {};
+        var prov = sm.provisional || 0, harm = (d.would_cull||[]).length, boost = (d.would_boost||[]).length;
+        var cull = (d.would_cull||[]).slice(0,3).map(function(x){return x.ticker+' '+x.action+'/'+x.regime;}).join(', ');
+        document.getElementById('lesson-validator-body').innerHTML =
+          '<b>'+(d.n_lessons ?? 0)+'</b> lessons &nbsp;|&nbsp; <span style="opacity:.7">provisional '+prov+'</span> &nbsp; '+
+          '<span style="color:#e66">would-cull '+harm+'</span> &nbsp; <span style="color:#6c6">would-boost '+boost+'</span>'+
+          (cull ? '<br><span style="font-size:11px;opacity:.6">cull candidates: '+cull+'</span>' : '')+
+          '<br><span style="font-size:11px;opacity:.6">SHADOW — agent_memory untouched. Most provisional until conditions recur (correct).</span>';
+      }catch(e){}
+    }
+    loadTIShadow(); loadLessonValidator();
+    setInterval(loadTIShadow, 300000); setInterval(loadLessonValidator, 300000);
+  })();
+  </script>
   <!-- Top bar: tabs + search -->
   <div style="display:flex;align-items:center;gap:12px;margin-bottom:12px;">
     <div style="display:flex;gap:2px;">

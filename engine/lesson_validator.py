@@ -208,6 +208,36 @@ def run_validation(shadow: bool = True) -> dict:
         conn.close()
 
 
+def validator_panel_data() -> dict:
+    """Read-only window into the shadow culling loop for the dashboard. Latest run's verdict
+    summary + per-lesson rows (status, n forward tests, would-be salience, evidence). No side
+    effects. Most lessons read PROVISIONAL until conditions recur — correct; the panel shows
+    them maturing provisional → verdict as n climbs."""
+    conn = _conn()
+    try:
+        if not conn.execute("SELECT 1 FROM sqlite_master WHERE name='lesson_validation_shadow'").fetchone():
+            return {"summary": {}, "verdicts": [], "note": "validator has not run yet"}
+        rd = conn.execute("SELECT MAX(run_date) FROM lesson_validation_shadow").fetchone()[0]
+        rows = [dict(r) for r in conn.execute(
+            "SELECT player_id,rule,ticker,regime,action,n_tests,n_followed,n_ignored,"
+            "right_rate,verdict,cur_score,would_be_score,cluster FROM lesson_validation_shadow "
+            "WHERE run_date=? ORDER BY n_tests DESC, verdict", (rd,)).fetchall()]
+        from collections import Counter
+        vc = Counter(r["verdict"] for r in rows)
+        return {
+            "run_date": rd, "mode": "SHADOW — agent_memory untouched, nothing live-gated",
+            "summary": dict(vc), "n_lessons": len(rows), "min_tests_k": MIN_TESTS,
+            "would_cull": [r for r in rows if r["verdict"] == "harmful"][:20],
+            "would_boost": [r for r in rows if r["verdict"] == "helpful"][:20],
+            "verdicts": rows[:60],
+            "note": ("Culling loop in SHADOW. Most lessons read PROVISIONAL until their "
+                     "(ticker,regime) condition recurs ≥%d times — correct + conservative. "
+                     "Watch n climb → verdicts emerge." % MIN_TESTS),
+        }
+    finally:
+        conn.close()
+
+
 if __name__ == "__main__":
     logging.basicConfig(level=logging.INFO)
     import json

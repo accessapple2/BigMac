@@ -4595,6 +4595,18 @@ def intel_ti_shadow():
         return {"error": f"{type(e).__name__}: {e}"}
 
 
+@app.get("/api/intel/lesson-validator")
+def intel_lesson_validator():
+    """Lesson-validation SHADOW verdicts: provisional/harmful/helpful per lesson, forward-test
+    counts, would-be salience (logged not applied). Read-only window into the culling loop —
+    watch it bake. NOTHING live-gated; agent_memory untouched."""
+    try:
+        from engine.lesson_validator import validator_panel_data
+        return validator_panel_data()
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
 @app.post("/api/news/go-deeper")
 def news_go_deeper(data: dict = None):
     """Generate AI follow-up questions for a news article (Ollama, free)."""
