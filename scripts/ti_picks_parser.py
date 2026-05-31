@@ -133,49 +133,35 @@ def extract_forwarded_sender(msg) -> str | None:
 
 
 def extract_ti_swing_picks(html: str) -> list:
-    """Andy / A-List structured picks: ticker headers + Entry Alert / Stop Loss
-    sentences. Best-effort heuristic — returns [] on shape mismatch.
+    """Andy / A-List structured picks. TEXT-based (2026-05-31 fix): the real format is
+        TICKER (Company Name) Entry Alert: Look for a move above $ENTRY
+        Stop Loss: Consider placing a stop at $STOP  Strategy: <note>
+    The old tag-based heuristic looked for the ticker ALONE in a <strong> tag, but the
+    ticker is bundled with the company name → it matched nothing (7 emails, 0 picks).
     """
     from bs4 import BeautifulSoup
-    soup = BeautifulSoup(html or "", "lxml")
-    picks = []
-    seen = set()
-    for tag in soup.find_all(["strong", "b", "h1", "h2", "h3"]):
-        text = (tag.get_text(strip=True) or "").upper()
-        m = re.fullmatch(r"[A-Z]{1,5}", text)
-        if not m:
+    txt = BeautifulSoup(html or "", "lxml").get_text(" ", strip=True)
+    txt = re.sub(r"[‌\xa0]+", " ", txt)   # strip zero-width / nbsp spacers
+    txt = re.sub(r"\s+", " ", txt)
+    pat = re.compile(
+        r"\b([A-Z]{2,5})\s*\([^)]{2,70}\)\s*Entry Alert[^$]{0,70}\$([0-9]+(?:\.[0-9]+)?)"
+        r"[^$]{0,120}Stop Loss[^$]{0,70}\$([0-9]+(?:\.[0-9]+)?)"
+    )
+    note_pat = re.compile(r"Strategy:\s*(.{0,200}?)(?=\b[A-Z]{2,5}\s*\(|$)")
+    picks, seen = [], set()
+    for m in pat.finditer(txt):
+        tk = m.group(1).upper()
+        if tk in seen:
             continue
-        ticker = m.group(0)
-        if ticker in seen:
-            continue
-        # Gather surrounding context (next ~1200 chars of text).
-        ctx_parts = []
-        node = tag
-        for _ in range(40):
-            node = node.next_element
-            if node is None:
-                break
-            try:
-                t = node.get_text(" ", strip=True) if hasattr(node, "get_text") else str(node).strip()
-                if t:
-                    ctx_parts.append(t)
-            except Exception:
-                continue
-            if sum(len(p) for p in ctx_parts) > 1200:
-                break
-        ctx = " ".join(ctx_parts)
-        entry_m = re.search(r"Entry\s*Alert[^$]{0,80}\$([0-9]+(?:\.[0-9]+)?)", ctx, re.IGNORECASE)
-        stop_m  = re.search(r"Stop\s*Loss[^$]{0,80}\$([0-9]+(?:\.[0-9]+)?)", ctx, re.IGNORECASE)
-        if not (entry_m or stop_m):
-            continue
+        seen.add(tk)
+        note_m = note_pat.search(txt, m.end())
         picks.append({
-            "ticker": ticker,
-            "entry": float(entry_m.group(1)) if entry_m else None,
-            "stop":  float(stop_m.group(1))  if stop_m  else None,
+            "ticker": tk,
+            "entry": float(m.group(2)),
+            "stop": float(m.group(3)),
             "strategy": "swing",
-            "raw_text": ctx[:500],
+            "raw_text": (note_m.group(1).strip() if note_m else "")[:300],
         })
-        seen.add(ticker)
     return picks
 
 
@@ -215,6 +201,37 @@ def insert_row(log, feed_type: str, payload: dict) -> int:
         conn.close()
 
 
+def write_external_picks(log, feed_type: str, payload: dict, received_at: str) -> int:
+    """HM-EXTERNAL-INTEL repoint 2026-05-31: structured TI picks → external_picks (the CLEAN
+    store), IN ADDITION to the intelligence_feed raw archive (kept for audit + non-pick feeds;
+    never deleted — Golden Rule). Append-only + idempotent (source+date+ticker)."""
+    picks = payload.get("picks") or []
+    if not picks:
+        return 0
+    try:
+        sys.path.insert(0, str(ROOT))
+        from engine.external_intel import capture_picks
+        import email.utils as _eu
+        import datetime as _dt
+        try:
+            pd = _eu.parsedate_to_datetime(received_at).date().isoformat()
+        except Exception:
+            pd = _dt.date.today().isoformat()
+        src = "TI Swing Picks (email)" if feed_type == "ti_swing_picks" else f"TI:{feed_type}"
+        mapped = [{
+            "ticker": p["ticker"], "action": "buy",
+            "entry": p.get("entry"), "stop": p.get("stop"),
+            "note": (p.get("raw_text") or "")[:200],
+            "raw_json": json.dumps({k: p.get(k) for k in ("ticker", "entry", "stop", "strategy")}),
+        } for p in picks if p.get("ticker")]
+        added = capture_picks(mapped, src, pd)
+        log.info("external_picks: +%d of %d picks (src=%r date=%s)", added, len(mapped), src, pd)
+        return added
+    except Exception as e:
+        log.warning("external_picks write failed: %s: %s", type(e).__name__, e)
+        return 0
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("eml_path")
@@ -252,6 +269,8 @@ def main():
     except Exception as e:
         log.exception("DB insert failed: %s", e)
         sys.exit(4)
+    # Repoint: clean structured picks → external_picks (in addition to the raw archive).
+    write_external_picks(log, feed_type, payload, received)
     sys.exit(0)
 
 
