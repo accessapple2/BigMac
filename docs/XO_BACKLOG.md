@@ -60,12 +60,14 @@ earnings≤3d (Finnhub), fail-CLOSED, Option-B graceful degrade (Elite-down → 
 One-shot 4-candidate Plutus **model-selection bakeoff** (stratified 100-trade corpus + outcome-aligned hybrid
 scoring). **NEVER RAN — spec explicitly "do not execute until Plutus v6 lands (mid-June)."** NOT a recurring
 monthly audit (earlier half-memory was wrong). Falls back to 4 candidates if v6 isn't ready. **Status: 🔵 spec,
-mid-June, gated on HM-PLUTUS-V6. Blocked-on: v6 train.**
+mid-June, gated on HM-PLUTUS-V6. Blocked-on: v6 train.** (UNBLOCKED by HM-PLUTUS-PURPOSE 2026-05-31 — a fine-tune
+now serves the witness, so the bakeoff has a live consumer to select for; still timing-gated on v6.)
 
 ### 🔵 HM-PLUTUS-V6 — SPEC, corpus not built (spec e5f46cf, `drafts/HM-PLUTUS-V6-CORPUS.md`)
 Next-gen Plutus fine-tune on a substantially larger corpus; **target mid-June 2026 train.** Corpus NOT built
 (`data/` tops out at `plutus_corpus_v5.jsonl`). Train on the RTX 5080 pinned env (NOT Ollie Max). **Status: 🔵
-spec, not-started.**
+spec, not-started.** (UNBLOCKED by HM-PLUTUS-PURPOSE 2026-05-31 — the serve-path is no longer the question; v6's
+output (register as `plutus-v2`) now has a live consumer: swap `ai_players.ollama-plutus.model_id` → `plutus-v2`.)
 > ⚠️ **VERIFIED 2026-05-31 — the fine-tune is NOT serving (escalates HM-MODEL-CONFIG-STALENESS):** the v5-win doc
 > claims "McCoy now runs the trained model instead of stock 0xroyce/plutus," but `ai_players.ollama-plutus.model_id
 > = 0xroyce/plutus` (**stock**). Ollie Max `/api/tags` confirms the fine-tunes (`plutus-v2:latest` 4.68GB, modified
@@ -101,12 +103,16 @@ spec, not-started.**
 
 ## 🆕 HM-BACKLOG-ADD — comparison candidates (2026-05-31, file-only · do not build yet)
 
-### ⛔ DECISION GATE (blocks the whole Plutus branch — Admiral ruling needed)
-- **HM-PLUTUS-PURPOSE** (decision) — SETTLED 5063bfa: **no fine-tune is wired anywhere.** McCoy = deterministic
-  rules (no LLM); the only Plutus LLM call `run_plutus_witness` (debate_engine.py:622) hardcodes stock
-  `0xroyce/plutus`, ignores `ai_players.model_id`. **NOT a config fix.** RULE: (a) wire fine-tune into a decision
-  path (repoint :622 to read model_id / use `plutus-v2`; and/or give McCoy an LLM layer) **OR** (b) retire the
-  fine-tune track. **BLOCKS HM-PLUTUS-V6 + HM-BM-BAKEOFF — both moot until this is ruled.**
+### ✅ DECISION GATE — RESOLVED 2026-05-31 (ruled: WIRE)
+- **HM-PLUTUS-PURPOSE** — ✅ **RESOLVED 2026-05-31 (e3c396d): wired, not retired.** `run_plutus_witness`
+  (debate_engine.py:622) de-hardcoded → `_resolve_plutus_model()` reads `ai_players.model_id` (fail-safe → stock),
+  so a model swap is now a DB change not a code edit. `ai_players.ollama-plutus.model_id` set to the canonical
+  trained tag **`plutus-v1`** (digest 4bea908c0348 == plutus-v1-pinned; the HM-PLUTUS-V5-WIN production fine-tune —
+  NOT `plutus-v2`, which is RESERVED as the v6-bakeoff slot). config.py:175 already = plutus-v1 → config+DB+witness
+  agree. main.py:145 (T'Pol) left alone (separate path). **WATCH (not blocking):** plutus-v1 unvalidated in the
+  witness role; verdicts log to `debate_history_v2.plutus_analysis` — compare fine-tune vs stock over next debates
+  (HM-VALIDATION-RIGOR formalizes). **UNBLOCKS HM-PLUTUS-V6 + HM-BM-BAKEOFF** (a real fine-tune is now served, so
+  both have a live consumer to improve/select for).
 
 ### 🟡 NEW EDGE (Polygon-native, data already owned)
 - **HM-FLOW-NATIVE** (P2, HIGH) — unusual-options-activity classifier from Polygon options trades: sweep/block,
