@@ -70,10 +70,18 @@ spec, not-started.**
 > claims "McCoy now runs the trained model instead of stock 0xroyce/plutus," but `ai_players.ollama-plutus.model_id
 > = 0xroyce/plutus` (**stock**). Ollie Max `/api/tags` confirms the fine-tunes (`plutus-v2:latest` 4.68GB, modified
 > 2026-05-27 23:33 + v1/v1-pinned) sit on the box **unwired** while stock `0xroyce/plutus:latest` (5.73GB) is what
-> McCoy points at. So the v5 fine-tune we trained **is not deployed.** (Caveat: confirm no `main.py` per-call
-> override flips it — Drift Catalog #1. If no override, McCoy has been running STOCK Plutus, not the trained model.)
-> Decide BEFORE v6: is the not-serving a config-sync miss (repoint McCoy → `plutus-v2`) or was stock chosen on
-> purpose? v6 is moot if we never actually serve a fine-tune.
+> McCoy points at. So the v5 fine-tune we trained **is not deployed.**
+> **CHASED 2026-05-31 — definitive, no override exists:** traced every Plutus path. (1) McCoy's **trading decisions
+> are DETERMINISTIC** — scan routes to `crew_scanner.mccoy_rules` via `_scan_rules_agent` ("No Ollama call"), a
+> VIX-tiered rule function. No LLM, so model_id is irrelevant to McCoy's trades. (2) The **only** actual Plutus LLM
+> inference is `debate_engine.run_plutus_witness` (expert-witness step in 12-agent debates writing `debate_history_v2`)
+> and it is **hardcoded** `call_ollama(..., "0xroyce/plutus", ...)` (debate_engine.py:622) — **stock**, doesn't even
+> read `ai_players.model_id`. (3) The startup banner "McCoy=ministral-3:3b" (main.py:3348) is a **hardcoded stale
+> literal**, not the resolved model. **CONCLUSION: nothing serves any fine-tune — the trained plutus-v1/v2 tags are
+> fully unwired; the lone Plutus brain-call hardcodes stock.** v6 is **moot under current wiring**: McCoy trades on
+> rules (a better model changes nothing) and the debate witness would need its hardcode repointed to even use one.
+> **BEFORE spending on v6, decide what a fine-tuned Plutus is even FOR** — wire it into a decision path, or accept
+> McCoy is a deterministic rules agent and retire the fine-tune track.
 
 > **PHANTOM-CALENDAR RECONCILE (HM-PHANTOM-RECONCILE, 2026-05-31) — forensic-verified, all 4 resolved:**
 > The 4 items I'd carried as "tracked" were **directionally real but stateful-wrong.** Verdicts: **HM-BM + Plutus-v6
