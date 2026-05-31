@@ -160,12 +160,18 @@ def run_daily_review():
         f"Grade each of these trades A through F. Current regime: {regime_label}.\n\n"
         f"TRADES:\n{trades_text}\n\n"
         f"For each trade output JSON: "
-        f'[{{"player_id":"...","symbol":"...","action":"...","grade":"A/B/C/D/F","lesson":"one sentence","pnl":0}}]\n'
+        f'[{{"player_id":"...","symbol":"...","action":"...","grade":"A/B/C/D/F",'
+        f'"lesson":"SPECIFIC actionable rule — reference the TICKER + REGIME + concrete reason, '
+        f"e.g. 'Do not buy MSFT in BULL_CROSS — overbought 3x this week.' NEVER a generic "
+        f'platitude like \'taking profits is prudent\'.","pnl":0}}]\n'
         f"Only output the JSON array, no other text.",
         system=(
             "You are a trade analyst. Grade A=thesis correct+profitable, B=partially correct, "
             "C=mediocre/no edge, D=thesis wrong but manageable, F=thesis contradicted or regime violation. "
-            "Ghost promotion overriding a model's own thesis is always F."
+            "Ghost promotion overriding a model's own thesis is always F. "
+            # HM-LESSON-VALIDATION bundle 2026-05-31: lessons MUST be specific + actionable "
+            "(ticker + regime + concrete reason) so they're parseable + validatable — NEVER "
+            "generic platitudes ('profit-taking is prudent'), which carry no signal."
         )
     )
 
