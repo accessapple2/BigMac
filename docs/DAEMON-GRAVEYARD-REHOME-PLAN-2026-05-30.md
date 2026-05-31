@@ -73,3 +73,26 @@ Cadence keys: RAL=RunAtLoad daemon · SI=StartInterval(sec) · SCI=StartCalendar
 **Implementation is NOT in this doc — show-and-review only.** On your `GO`, I'll produce the exact cron block +
 the `launchctl disable` / plist-archive commands as a second proposal for a final eyes-on before applying. The
 `launchctl disable` / GUI-bootstrap steps may need your logged-in session (gui/501 is unreachable from SSH).
+
+═══════════════════════════════════════════════════════════════════════════════════════
+## UPDATE 2026-05-31 — HM-PRODUCER-RETIRE: 2 Tier-4 producers RETIRED (APPLIED)
+═══════════════════════════════════════════════════════════════════════════════════════
+The two signal producers in Tier 4 are **RETIRED, not restored** (Captain decision HM-PRODUCER-RETIRE):
+- **com.ollietrades.optionsflow** (`/ollietrades/options_flow_scanner.py`, 07:00) → **RETIRED** — superseded by
+  **HM-FLOW-NATIVE**.
+- **com.ollietrades.etfregime** (`/ollietrades/etf_regime_trader.py`, 06:35) → **RETIRED** — legacy; **10d-edge
+  rebuild candidate gated on HM-VALIDATION-RIGOR deflation** (W0: +0.997R @10d, n=33 — undeflated/thin).
+
+Why retire not revive: consumer check proved `trade_signals` is **write-orphaned for trading** (neo-matrix consumes
+it observation-only via `exit_only`; short path + Holly A/B use independent sources). Both scripts lived **only** in
+the deprecated `/ollietrades` tree (no autonomous-trader copy) — reviving would mean blessing/porting legacy code for
+a feed nothing trades off.
+
+Applied (data preserved, archive-never-rm):
+- plists → `~/Library/LaunchAgents/_archived_2026-05-31/` (closes Caveat-1 double-fire: can't re-bootstrap on GUI login).
+- scripts → `/Users/bigmac/ollietrades/_archived/`.
+- `trade_signals` + all .db **untouched** (W0 research substrate — every row kept).
+- W1 `source_registry`: both `criticality=retired` → `/api/sources/health` renders **RETIRED** (not RED-fault);
+  `signals` demoted `live_decision→context` so consensus won't flag degraded on their absence.
+- **HELD:** consensus gate activation needs the trader restart — not done (held for explicit GO). riker_synthesis
+  (UNKNOWN, live_decision, pre-existing) remains a separate degraded-flag source / W1 follow-up.

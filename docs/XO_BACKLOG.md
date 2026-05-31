@@ -7,6 +7,24 @@
 ---
 ## 🆕 2026-05-31 SESSION — filed retroactively (was git+memory only; backlog was stale-by-omission)
 
+### ✅ HM-PRODUCER-RETIRE — 2 legacy signal producers RETIRED (2026-05-31)
+Diagnosis of the signals-feed silence (no new `trade_signals` since 2026-05-23) = **reboot-survival-gap**: the
+2026-05-23 SSH-only reboot killed the last two live producers (`com.ollietrades.etfregime` @06:35 + `.optionsflow`
+@07:00), launchd `gui/501` jobs that never re-bootstrapped. Consumer check proved the `signals` table is
+**write-orphaned for trading** (neo-matrix consumes it observation-only via `exit_only`; short path + Holly A/B read
+independent sources — nothing that trades goes dark). Both producers lived **only** in the deprecated
+`/Users/bigmac/ollietrades` tree (no autonomous-trader copy). **Retired, not revived:**
+- **options_flow RETIRED** — superseded by **HM-FLOW-NATIVE**.
+- **etf_regime RETIRED** — legacy; **10d-edge rebuild candidate gated on HM-VALIDATION-RIGOR deflation** (W0 showed
+  etf_regime_trader +0.997R @10d, n=33 — undeflated/thin, do not act on raw).
+Actions (data preserved, archive-never-rm): plists → `~/Library/LaunchAgents/_archived_2026-05-31/`; scripts →
+`/Users/bigmac/ollietrades/_archived/`; `trade_signals` + all .db **untouched** (W0 research substrate). W1 registry:
+both marked `criticality=retired` → `/api/sources/health` reads **RETIRED** (not RED-fault); `signals` demoted
+`live_decision→context` so consensus won't flag degraded on their absence.
+**⚠️ HOLD:** consensus gate hook (`engine/consensus.py`) is coded but NOT live (trader not restarted). Activating it
+needs the trader restart — **held for explicit go**. Note: once restarted, `riker_synthesis` (UNKNOWN, live_decision,
+pre-existing) would still independently flag consensus degraded — separate W1 follow-up (riker ts_format resolution).
+
 ### 🟢 HM-HOLLY-WORKS — LIVE / racing (commits → cfe53bf)
 The "faithful ~60 documented TI strategies, intraday-flat" frame is **DISPROVEN**. Rebuilt around what's
 **OOS-validated**: works-set = **the_continuation** (OOS Sharpe 1.47, 58% WR, +5.6%/6wk; tuned 8%stop/6%tgt/

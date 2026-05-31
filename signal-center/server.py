@@ -2338,6 +2338,110 @@ def predictions_leaderboard():
     return jsonify({"leaderboard": data[:10], "laggards": list(reversed(data))[:5]})
 
 
+# ══════════════════════════════════════════════════════════════════════════
+# W0 — Expectancy & R-Multiple Engine  +  W1 — Source Integrity Gate
+# Additive, read-only (one admin POST each, flag-only). Canonical substrate:
+# signal_outcomes ⟷ trade_signals. Source: expectancy_engine.py / engine.source_gate.
+# ══════════════════════════════════════════════════════════════════════════
+def _ensure_root_path():
+    import sys as _sys
+    _root = os.path.join(os.path.dirname(os.path.abspath(__file__)), "..")
+    _root = os.path.abspath(_root)
+    if _root not in _sys.path:
+        _sys.path.insert(0, _root)
+
+
+def _exp_engine():
+    _ensure_root_path()
+    import expectancy_engine as _E
+    return _E
+
+
+def _src_gate():
+    _ensure_root_path()
+    from engine import source_gate as _g
+    return _g
+
+
+@app.route('/api/predictions/expectancy')
+def api_predictions_expectancy():
+    """W0 leaderboard. group=action|setup_tag|agent  horizon=1|3|5|10  oos=is|oos"""
+    group = request.args.get('group', 'action')
+    try:
+        horizon = int(request.args.get('horizon', 5))
+    except (TypeError, ValueError):
+        horizon = 5
+    oos = request.args.get('oos')
+    try:
+        return jsonify(_exp_engine().expectancy(group=group, horizon=horizon, oos=oos))
+    except Exception as e:
+        return jsonify({"error": "%s: %r" % (type(e).__name__, e)}), 500
+
+
+@app.route('/api/predictions/equity_curve')
+def api_predictions_equity_curve():
+    """Cumulative R + max drawdown for a specific group VALUE (e.g. long, premarket_gap)."""
+    group = request.args.get('group', 'long')
+    try:
+        horizon = int(request.args.get('horizon', 5))
+    except (TypeError, ValueError):
+        horizon = 5
+    return jsonify(_exp_engine().equity_curve(group, horizon))
+
+
+@app.route('/api/predictions/unscoreable')
+def api_predictions_unscoreable():
+    """Unscoreable taxonomy counts (non_directional/no_stop/missing_levels/
+    no_bars/stale_gated/direction_level_mismatch) — never hidden."""
+    return jsonify(_exp_engine().unscoreable_counts())
+
+
+@app.route('/api/predictions/taxonomy')
+def api_predictions_taxonomy():
+    """Derived setup-vs-data-source tag classification over the substrate."""
+    return jsonify(_exp_engine().taxonomy_report())
+
+
+@app.route('/api/predictions/rescore', methods=['POST'])
+def api_predictions_rescore():
+    """Admin: re-run backlog scoring (optionally re-backfill Polygon bars)."""
+    authorized, who = _morpheus_admin_required()
+    if not authorized:
+        return jsonify({"error": "admin_required"}), 403
+    do_bf = request.args.get('backfill', '0') in ('1', 'true', 'yes')
+    try:
+        return jsonify(_exp_engine().rebuild_all(do_backfill=do_bf))
+    except Exception as e:
+        return jsonify({"error": "%s: %r" % (type(e).__name__, e)}), 500
+
+
+@app.route('/api/sources/health')
+def api_sources_health():
+    """W1 health grid — replaces the meaningless '13/13 loaded' badge.
+    RED-first sorted; UNKNOWN counted as RED for gating."""
+    try:
+        return jsonify(_src_gate().all_health())
+    except Exception as e:
+        return jsonify({"error": "%s: %r" % (type(e).__name__, e)}), 500
+
+
+@app.route('/api/sources/health/<source_id>')
+def api_sources_health_one(source_id):
+    return jsonify(_src_gate().source_freshness(source_id))
+
+
+@app.route('/api/sources/quarantine/<source_id>', methods=['POST'])
+def api_sources_quarantine(source_id):
+    """Admin-only manual enable/disable. Flips an enabled flag only — touches
+    no market data and no order path."""
+    authorized, who = _morpheus_admin_required()
+    if not authorized:
+        return jsonify({"error": "admin_required"}), 403
+    enabled = request.args.get('enabled', '0') in ('1', 'true', 'yes')
+    ok = _src_gate().set_enabled(source_id, enabled)
+    return jsonify({"source_id": source_id, "enabled": enabled, "updated": ok})
+
+
 @app.route('/api/predictions/analysis/<symbol>')
 def predictions_analysis(symbol):
     """Deep WHY analysis — why was this pick made, why was it right/wrong, lessons."""

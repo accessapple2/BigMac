@@ -11,7 +11,42 @@ from rich.console import Console
 
 from engine.halt_gate import HALTED_EMIT_FILTER
 
+try:
+    from engine import source_gate as _source_gate  # W1 Source Integrity Gate
+except Exception:  # never let a gate import break consensus
+    _source_gate = None
+
 console = Console()
+
+# Live-decision sources whose freshness gates the consensus (W1 §3.3).
+_GATE_SOURCES = ("signals", "riker_synthesis", "bridge_consensus")
+
+
+def _evaluate_source_gate() -> dict:
+    """Return {usable, excluded, degraded, signals_stale} for the live_decision
+    sources. Excluded RED/UNKNOWN sources are logged with reason (never silent)."""
+    status = {"usable": [], "excluded": [], "degraded": False, "signals_stale": False}
+    if _source_gate is None:
+        return status
+    for sid in _GATE_SOURCES:
+        try:
+            fr = _source_gate.source_freshness(sid)
+            usable = _source_gate.is_usable(sid)
+        except Exception as e:
+            console.log(f"[yellow][W1-GATE] freshness check failed for {sid}: {type(e).__name__}: {e!r}")
+            continue
+        if usable:
+            status["usable"].append(sid)
+        else:
+            status["excluded"].append({"source_id": sid, "state": fr.get("state"),
+                                        "age": fr.get("age_human"), "as_of": fr.get("as_of")})
+            status["degraded"] = True
+            if sid == "signals":
+                status["signals_stale"] = True
+            # gate_excluded log — visible, never silent (W1 §3.3)
+            console.log(f"[red][W1-GATE] gate_excluded: {sid} state={fr.get('state')} "
+                        f"age={fr.get('age_human')} (excluded from consensus)")
+    return status
 DB = "data/trader.db"
 
 # Canonical actions in priority order (for matching)
@@ -402,6 +437,9 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
 
     Returns structured data for the dashboard API.
     """
+    # W1 Source Integrity Gate: RED/UNKNOWN live_decision sources are excluded
+    # from the consensus (logged, surfaced in gate_status — never silent).
+    _gate_status = _evaluate_source_gate()
     # Get broker-book portfolio tickers if not provided — always union with get_active_universe()
     # HM-I-β-Item3 (2026-05-05): re-targets to alpaca-mirror (broker book).
     if not tickers:
@@ -569,6 +607,7 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
         "total_compared": total_compared,
         "agree_count": agree_count,
         "high_conviction_calls": high_conviction,
+        "gate_status": _gate_status,
         "timestamp": datetime.now().isoformat(),
     }
 
