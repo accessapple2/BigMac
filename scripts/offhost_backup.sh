@@ -1,7 +1,9 @@
 #!/bin/bash
 # scripts/offhost_backup.sh
-# Off-host backup of bigmac → Ollie Box (192.168.1.166)
+# Off-host backup of bigmac → Ollie Max (192.168.1.168)
 # HM-AY-α #1 — Scotty 2.4 sprint. See docs/SCOTTY_AUDIT_2.md Section L (Backup Reality Check).
+# Repointed 192.168.1.166 → 192.168.1.168 on 2026-05-31 (HM-OFFHOST-DR-WIRE) once
+# passwordless bigmac→.168 SSH was live. rsync is copy-only (no --delete).
 #
 # Replicates:
 #   - data/trader.db (+ -shm / -wal)
@@ -9,14 +11,14 @@
 #   - ~/ollietrades/tractor_beam/tractor.db
 #   - backups/trader_YYYY-MM-DD.db (last 7 daily snapshots)
 #
-# Schedule: launchd com.ollietrades.offhost-backup at 06:30 daily (after the 06:00 local backup).
+# Schedule: cron `30 6 * * *` (time-based = reboot-survivable on this box; HM-OFFHOST-DR-WIRE 2026-05-31).
 # NTFY topic: ollietrades-admin
 #
 # Sacred rules: rsync only. No source mutation. No rm. No VACUUM.
 
 set -euo pipefail
 
-REMOTE_HOST="192.168.1.166"
+REMOTE_HOST="192.168.1.168"
 REMOTE_BASE="bigmac-backups"
 REPO="$HOME/autonomous-trader"
 LOG="$REPO/logs/offhost_backup.log"
