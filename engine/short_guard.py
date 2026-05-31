@@ -41,9 +41,99 @@ import time as _time
 _dtc_cache: dict = {}
 _DTC_TTL = 12 * 3600  # 12h
 
+# Finviz Elite SI%-of-float cache: {symbol: (mono_ts, value|None)}. SI updates
+# ~2×/month; 12h TTL. A cached None still means "Elite gave no value" (degrade-skip),
+# NOT a free-source clean read.
+_elite_si_cache: dict = {}
+_ELITE_SI_TTL = 12 * 3600  # 12h
+_elite_session = None         # requests.Session with .ASPXAUTH cookie, lazily logged-in
+_elite_login_attempted = False
+
 
 def _now_mono() -> float:
     return _time.monotonic()
+
+
+def _get_elite_session():
+    """Authenticated Finviz Elite session (.ASPXAUTH cookie). None if login fails.
+
+    HM-FINVIZ-ELITE-AUTH 2026-05-30: replaces the finvizfinance FREE SCRAPE with the
+    PAID Elite export. Probed schema: export.ashx?v=131 returns 'Short Float' (%-of-
+    float) + 'Short Ratio' (DTC). Credentials FINVIZ_EMAIL/FINVIZ_PASSWORD from .env
+    (gitignored). One login per process; session reused. A login failure returns None
+    → SI% gate degrades to SKIP (Option B) — DTC + earnings still enforced.
+    """
+    global _elite_session, _elite_login_attempted
+    if _elite_session is not None:
+        return _elite_session
+    if _elite_login_attempted:
+        return None  # already tried this process; don't hammer login on every call
+    _elite_login_attempted = True
+    try:
+        import os
+        import requests
+        from dotenv import load_dotenv
+        load_dotenv("/Users/bigmac/autonomous-trader/.env")
+        email = os.getenv("FINVIZ_EMAIL")
+        pw = os.getenv("FINVIZ_PASSWORD")
+        if not email or not pw:
+            return None
+        s = requests.Session()
+        s.headers["User-Agent"] = "Mozilla/5.0"
+        s.post("https://finviz.com/login_submit.ashx",
+               data={"email": email, "password": pw}, timeout=12)
+        if ".ASPXAUTH" not in s.cookies:
+            return None  # login did not authenticate → treat as Elite-down
+        _elite_session = s
+        return s
+    except Exception:
+        return None
+
+
+def _pct_to_float(val):
+    """'14.17%' -> 14.17 ; '-' / '' / None -> None."""
+    if val is None:
+        return None
+    s = str(val).replace("%", "").strip()
+    if not s or s in ("-", "—"):
+        return None
+    try:
+        return float(s)
+    except Exception:
+        return None
+
+
+def _fetch_si_pct_elite(symbol: str) -> tuple[float | None, str]:
+    """SI %-of-float from AUTHENTICATED Finviz Elite export. (value, source).
+
+    Returns (float, "finviz-elite") on success; (None, "elite-unavailable") when
+    Elite login/fetch fails or the column is empty. The None branch is the Option-B
+    degrade signal — the caller SKIPS the SI% gate but STILL enforces DTC + earnings.
+    NEVER falls to finvizfinance free-scrape or yfinance.
+    """
+    now = _now_mono()
+    cached = _elite_si_cache.get(symbol)
+    if cached and (now - cached[0]) < _ELITE_SI_TTL:
+        return cached[1], ("finviz-elite" if cached[1] is not None else "elite-unavailable")
+    sess = _get_elite_session()
+    if sess is None:
+        return None, "elite-unavailable"
+    try:
+        import csv as _csv
+        import io as _io
+        r = sess.get(f"https://elite.finviz.com/export.ashx?v=131&t={symbol.upper()}", timeout=12)
+        if r.status_code != 200:
+            return None, "elite-unavailable"
+        rows = list(_csv.DictReader(_io.StringIO(r.text)))
+        si = None
+        for row in rows:
+            if str(row.get("Ticker", "")).upper() == symbol.upper():
+                si = _pct_to_float(row.get("Short Float"))
+                break
+        _elite_si_cache[symbol] = (now, si)
+        return si, ("finviz-elite" if si is not None else "elite-unavailable")
+    except Exception:
+        return None, "elite-unavailable"
 
 
 # ── Admiral-approved constants ───────────────────────────────────────────────
@@ -137,32 +227,54 @@ def _earnings_within(symbol: str, days: int):
 
 
 def squeeze_block(symbol: str) -> tuple[bool, str]:
-    """Squeeze guard — FAILS CLOSED.
+    """Squeeze guard — three gates, two fail-CLOSED + one degrade-to-skip (Option B).
 
     Returns (blocked, reason). blocked=True means DO NOT short.
-    Blocks if SI%>20 OR DTC>5 OR earnings<=3d. CRITICALLY: if BOTH the SI% and DTC
-    probes return None (no squeeze data at all), we BLOCK — missing data on the
-    single largest tail risk of an unbounded-loss trade fails closed, the opposite
-    of the long-side fail-open policy.
+
+    Gates:
+      1. DTC > 5         [Polygon]  — ALWAYS enforced; fail-CLOSED (None → block)
+      2. earnings ≤ 3d   [Finnhub]  — ALWAYS enforced; fail-CLOSED (None → block)
+      3. SI% > 20        [Finviz Elite, authed] — layered ON TOP. When Elite is UP:
+         block if SI%>20 (3-gate mode). When Elite is DOWN: SKIP this gate only —
+         DTC + earnings still enforced (2-gate degraded mode), made VISIBLE in the
+         reason string. NEVER 0 gates; NEVER falls to a free/empty source.
+
+    The reason string tags which feeds ran so the degrade is auditable, e.g.
+    "[finviz-elite SI …, polygon DTC …, finnhub earn] (3 gates)" vs
+    "[polygon DTC …, finnhub earn — Elite unavailable, SI% gate skipped] (2 gates,
+    degraded)".
     """
     dtc, dtc_src = _fetch_dtc(symbol)
     earn = _earnings_within(symbol, SQUEEZE_EARNINGS_DAYS)
+    si, si_src = _fetch_si_pct_elite(symbol)
 
-    # FAIL-CLOSED on EITHER required input being unfetchable. Both come from paid
-    # feeds (Polygon DTC, Finnhub earnings) with NO free-source fallback, so a
-    # None can never be a throttled-empty masquerading as clean — it always means
-    # "couldn't verify", and we never short an unbounded-risk trade unverified.
+    # ── DTC + earnings: ALWAYS fail-CLOSED (Polygon / Finnhub paid feeds, no free
+    # fallback). A None always means "couldn't verify" → refuse. These two gates
+    # NEVER degrade-to-skip. ──
     if dtc is None:
         return True, "SHORT REFUSED (days-to-cover unavailable from Polygon — fail-closed)"
     if earn is None:
         return True, "SHORT REFUSED (earnings calendar unavailable from Finnhub — fail-closed)"
-
     if dtc > SQUEEZE_DTC_MAX:
         return True, f"SHORT REFUSED (days-to-cover {dtc:.1f} > {SQUEEZE_DTC_MAX:.0f} [polygon])"
     if earn is True:
         return True, f"SHORT REFUSED (earnings within {SQUEEZE_EARNINGS_DAYS}d — gap risk [finnhub])"
 
-    return False, f"squeeze-clear (DTC {dtc:.1f}[polygon], earnings clear[finnhub])"
+    # ── SI%-of-float: the THIRD gate, layered on top. HM-FINVIZ-ELITE-AUTH Option B:
+    # when Elite returns a value → block if > 20% (3-gate mode). When Elite is
+    # unavailable → SKIP this gate only (DTC + earnings above already passed), and
+    # make the degrade VISIBLE in the reason. This is the ONLY gate that degrades;
+    # it NEVER falls to a free source. The bounded accepted risk: a name that passes
+    # DTC+earnings where SI% would have been the sole blocker gets through during an
+    # Elite outage. ──
+    if si is not None:
+        if si > SQUEEZE_SI_PCT_MAX:
+            return True, f"SHORT REFUSED (SI {si:.1f}% > {SQUEEZE_SI_PCT_MAX:.0f}% [finviz-elite])"
+        return False, (f"squeeze-clear [finviz-elite SI {si:.1f}%, polygon DTC {dtc:.1f}, "
+                       f"finnhub earn] (3 gates)")
+    # Elite unavailable → degrade to DTC+earnings (2 gates), made explicit.
+    return False, (f"squeeze-clear [polygon DTC {dtc:.1f}, finnhub earn — Elite unavailable, "
+                   f"SI% gate skipped] (2 gates, degraded)")
 
 
 def aggregate_short_room(open_short_value: float, book_value: float) -> tuple[float, bool]:
