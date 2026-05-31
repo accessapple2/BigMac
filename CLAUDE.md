@@ -106,8 +106,12 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
   prior "RTX 5060 8GB / one 7B fits" was WRONG — it drove HM-WR-VRAM-THRASHING's
   premise + the navigator "too big for 8GB" swap, both now suspect; keep_alive/
   batching fixes still help, only the scheduling *rationale* changes. 16GB
-  confirmed via live /api/ps; exact model per XO audit, nvidia-smi unverified —
-  SSH-to-Ollie-Max key gap logged in XO_BACKLOG.)
+  confirmed via live /api/ps; exact model per XO audit.) **SSH-gap RESOLVED
+  2026-05-31:** passwordless `ssh bigmac@192.168.1.168` works (provisioned this
+  day; verified `echo OK`). Ollama store on .168 = `/usr/share/ollama/.ollama/
+  models` (service user; manifests/blobs world-readable, no sudo for reads;
+  `ollama rm`/`list` work as bigmac via the API). The prior "SSH-to-Ollie-Max
+  key gap" note is STALE.
 - **Preferred local workhorse:** `qwen3:8b` (7 active agents share it per
   HM-CD `_HM_CD_KEEP_ALIVE` lookup).
 - `qwen3:30b` rejected — too slow for this GPU (latency, not a VRAM-fit issue).
