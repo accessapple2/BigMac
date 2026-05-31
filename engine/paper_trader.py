@@ -4414,6 +4414,57 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
                     _exec_type = "alpaca_paper"
                     _update_trade_alpaca_fields(player_id, symbol, _order_id, _exec_type)
                     console.log(f"[cyan]Alpaca SHORT {qty} {symbol} → order {_order_id}")
+                    # HM-SHORT-BROKER-STOP 2026-05-31: attach a broker-RESTING GTC
+                    # buy-to-cover stop so the short is protected even if THIS process
+                    # is down (the internal manage-loop stop only fires while the trader
+                    # is alive — a naked short at the broker is otherwise unbounded-loss
+                    # on a process outage). This realizes the buy-stop the HM-SHORT-
+                    # ACTIVATION comment (~line 4236) documented but never wired.
+                    # Level = short_guard flat 8% hard_stop, so the resting broker stop
+                    # and the internal short ladder agree by construction (proven: both
+                    # = entry×1.08). Deliberately NOT conviction-widened — a short is
+                    # unbounded-loss, so we keep short_guard's tight 8% hard stop rather
+                    # than the long-side 8–18% conviction scale. The internal stop stays
+                    # too (defense in depth); the tiered-cover target/trail stay with the
+                    # internal manage loop (tp_pct=0 here, stop-only at the broker).
+                    try:
+                        from engine.short_guard import SHORT_HARD_STOP_PCT as _SHS
+                        _prot = _alp.submit_protective_orders(
+                            symbol=symbol, entry_side="SELL", qty=qty,
+                            fill_price=price, sl_pct=_SHS * 100.0, tp_pct=0.0,
+                            sl_kind="fixed",
+                        )
+                        if _prot.get("stop_order_id"):
+                            console.log(
+                                f"[green]HM-SHORT-BROKER-STOP {symbol}: resting buy-stop "
+                                f"@ ${_prot['stop_price']} GTC — order {_prot['stop_order_id']}"
+                            )
+                        if _prot.get("errors"):
+                            console.log(
+                                f"[red]HM-SHORT-BROKER-STOP {symbol} stop-attach errors: {_prot['errors']}"
+                            )
+                            # Architecture-class broker-submit path — NTFY first per day.
+                            from engine.alert_channels import send_alert, AlertLevel
+                            send_alert(
+                                message=f"short broker-stop attach FAILED ({player_id} {symbol}): {_prot['errors']} — short is NAKED, internal stop only",
+                                level=AlertLevel.WARNING,
+                                alert_type="hm-short-broker-stop-fail",
+                                rate_limit_secs=86400,
+                            )
+                    except Exception as _pe:
+                        console.log(
+                            f"[red]HM-SHORT-BROKER-STOP {symbol} attach exception: {type(_pe).__name__}: {_pe!r}"
+                        )
+                        try:
+                            from engine.alert_channels import send_alert, AlertLevel
+                            send_alert(
+                                message=f"short broker-stop attach EXCEPTION ({player_id} {symbol}): {type(_pe).__name__}: {_pe!r} — short is NAKED, internal stop only",
+                                level=AlertLevel.WARNING,
+                                alert_type=f"hm-short-broker-stop-exc-{type(_pe).__name__}",
+                                rate_limit_secs=86400,
+                            )
+                        except Exception:
+                            pass
                 else:
                     console.log(f"[yellow]Alpaca short forward failed: {(_ap_res or {}).get('error')}")
         except Exception as _ae:
