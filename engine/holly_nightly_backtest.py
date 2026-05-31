@@ -693,6 +693,29 @@ def run_holly_nightly(days: int = 90, cash: float = 10_000) -> dict:
       - Returns summary with top winners for morning scan prioritization
     """
     _init_tables()
+
+    # HM-HOLLY-REPAIR 2026-05-30 (Cause A — UNSWALLOW): vectorbt is the engine. It is
+    # installed ONLY in .venv-backtest, NOT in the live trader's .venv. The per-runner
+    # `import vectorbt` lived inside try/except that swallowed ModuleNotFoundError →
+    # every runner silently returned None → "no results" → Holly looked alive but
+    # produced nothing for 8 days unnoticed. Fail LOUD here instead: if vectorbt can't
+    # import, NTFY + return an explicit error so the failure is impossible to miss.
+    # The cron wrapper (scripts/holly_nightly_cron.sh) runs this under .venv-backtest.
+    try:
+        import vectorbt as _vbt_probe  # noqa: F401
+    except Exception as _vbt_err:
+        _msg = (f"Holly nightly ABORTED — vectorbt unavailable in this runtime "
+                f"({type(_vbt_err).__name__}: {_vbt_err}). Run under .venv-backtest "
+                f"(scripts/holly_nightly_cron.sh), not the live .venv.")
+        logger.error(_msg)
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(message=_msg, level=AlertLevel.WARNING,
+                       alert_type="hm-holly-vectorbt-missing", rate_limit_secs=86400)
+        except Exception:
+            pass
+        return {"status": "error", "message": _msg, "cause": "vectorbt_missing"}
+
     run_date = datetime.now().strftime("%Y-%m-%d")
     spy_ret  = _spy_return(days)
 

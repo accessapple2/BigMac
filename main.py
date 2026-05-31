@@ -2948,9 +2948,14 @@ def run_finviz_premarket_scan():
             if holly_winners:
                 holly_tickers = [w["ticker"] for w in holly_winners]
                 scan_symbols  = result.get("symbols", [])
-                # Move matching tickers to the front of the watchlist
-                matched   = [s for s in holly_tickers if s in scan_symbols or s not in scan_symbols]
-                boosted   = list(dict.fromkeys(matched + scan_symbols))  # deduplicated, Holly first
+                # HM-HOLLY-CONSUMER-BUG fix 2026-05-30: the prior filter
+                #   [s for s in holly_tickers if s in scan_symbols or s not in scan_symbols]
+                # was ALWAYS-TRUE (every s is either in or not-in) → it kept the full
+                # holly list regardless of overlap, defeating the "priority boost".
+                # Correct intent: surface Holly's overnight winners that ARE in today's
+                # scan universe to the FRONT, then the rest of the scan list.
+                matched   = [s for s in holly_tickers if s in scan_symbols]
+                boosted   = list(dict.fromkeys(matched + scan_symbols))  # deduplicated, Holly-matched first
                 result["symbols"]       = boosted
                 result["holly_matches"] = [w for w in holly_winners if w["ticker"] in set(scan_symbols)]
                 console.log(
@@ -4806,7 +4811,14 @@ if __name__ == "__main__":
         except Exception as _he:
             console.log(f"[red]Holly Nightly Backtest error: {_he}")
 
-    schedule.every(15).minutes.do(run_holly_nightly_job)   # Holly Nightly: midnight AZ (3 AM ET)
+    # HM-HOLLY-REPAIR 2026-05-30: in-process Holly nightly DISABLED. Two reasons:
+    # (1) it dies on every trader restart (the 8-day stall, last good 2026-05-22), and
+    # (2) it runs under the live .venv which lacks vectorbt → would now fail-loud + NTFY
+    # every midnight = alarm noise. Authoritative path is now cron under .venv-backtest:
+    #   scripts/holly_nightly_cron.sh  (crontab: 0 0 * * 1-5)
+    # which survives restarts AND has the vectorbt engine. Re-enable this line only if
+    # vectorbt is ever installed into the live .venv.
+    # schedule.every(15).minutes.do(run_holly_nightly_job)   # DISABLED — see cron wrapper
 
     def run_adaptive_tuner():
         try:
