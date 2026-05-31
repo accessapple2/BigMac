@@ -98,6 +98,46 @@ spec, not-started.**
 > (don't surface in clean rollups) — only the raw DB rows are still wrong = a sacred-data correction (RED, staged-
 > await-go), LOW urgency; (2) the stricter `alpaca_order_id`-boundary `trades_clean` view has zero readers = an
 > optional refinement, not the core fix. **The aggregator fix is functionally complete.**
+
+## 🆕 HM-BACKLOG-ADD — comparison candidates (2026-05-31, file-only · do not build yet)
+
+### ⛔ DECISION GATE (blocks the whole Plutus branch — Admiral ruling needed)
+- **HM-PLUTUS-PURPOSE** (decision) — SETTLED 5063bfa: **no fine-tune is wired anywhere.** McCoy = deterministic
+  rules (no LLM); the only Plutus LLM call `run_plutus_witness` (debate_engine.py:622) hardcodes stock
+  `0xroyce/plutus`, ignores `ai_players.model_id`. **NOT a config fix.** RULE: (a) wire fine-tune into a decision
+  path (repoint :622 to read model_id / use `plutus-v2`; and/or give McCoy an LLM layer) **OR** (b) retire the
+  fine-tune track. **BLOCKS HM-PLUTUS-V6 + HM-BM-BAKEOFF — both moot until this is ruled.**
+
+### 🟡 NEW EDGE (Polygon-native, data already owned)
+- **HM-FLOW-NATIVE** (P2, HIGH) — unusual-options-activity classifier from Polygon options trades: sweep/block,
+  opening/closing (OI delta), at-ask/bid, premium≥$250K; DROP spread legs (reuse `is_spread_leg` from HM-AF) +
+  delta hedges. Feed crew as a scored signal; convergence = flow + technical confirm. #1 named retail edge —
+  rivals show raw data, don't classify; classification is our advantage.
+- **HM-GEX** (P2, HIGH 0DTE/SPY) — dealer gamma from options OI+greeks; gamma walls + flip point on dashboard.
+  Polygon-native.
+
+### 🟡 RIGOR (pure software; upgrades live selection systems)
+- **HM-VALIDATION-RIGOR** (P2) — Deflated Sharpe + PBO via CPCV + trial-count penalty, wired into **BOTH** the
+  Holly-race winner-selection **AND** HM-BM scoring (both are selection-bias today; raw Sharpe is in-sample-
+  inflated). Guardrails: t-stat≥3.0, slippage stress 0.1–0.3%/round-trip, drawdown-clustering, size to P95
+  drawdown. **SUBSUMES** the deferred cross-validation + Tier-2-OOS items.
+
+### 🔵 AGENTIC (debate engine ALREADY EXISTS — file only the delta)
+- **HM-CONSENSUS-WEIGHTING** (P3) — debate engine (bull/bear + Picard + `run_plutus_witness`, `debate_history_v2`)
+  is already live. ADD ONLY: selective-consensus weighting — discount divergent / temporally-inconsistent inputs
+  on confidence tiers. **Do NOT rebuild debate.**
+- **HM-SIGNAL-PASSTHROUGH** (P3, small) — verify crew/debate → advisory handoff doesn't collapse a detailed
+  scored report into a bland summary; add pass-through if needed.
+- **HM-LESSON-GRADUATE** (P3, small) — define the shadow→live criterion for lesson-validator (N sessions of
+  verdicts matching outcomes). Pairs with the shadow HM-LESSON-VALIDATOR filed above.
+
+### 🔵 INFRA STANDARD
+- **HM-HEARTBEAT-LAYERED** (P3) — generalize Dr. Crusher / Tractor monitoring beyond PID: broker-connected,
+  LLM-connected, data-fresh, decision-recent. HM-RUN-SCAN-WATCHDOG is the first instance.
+
+### ⏸ DEFERRED (cost-gated)
+- **HM-DARKPOOL-FEED** (deferred) — true off-exchange print feed; only if the spend proves worth it.
+  Flow + GEX stand alone without it.
 ---
 
 > **HM-TRACKING-AGGREGATOR — ✅ SHIPPED 2026-05-30 (eb2886e).** Two-predicate clean-trades boundary
