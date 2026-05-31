@@ -56,9 +56,32 @@ Stock-shorting activation with the Finviz Elite short guard: SI%>20 (authed Elit
 earnings≤3d (Finnhub), fail-CLOSED, Option-B graceful degrade (Elite-down → DTC+earnings, never skip-and-allow).
 8% hard buy-stop, 10%/position + 20% aggregate caps, 3 authorized agents. **Status: SHIPPED, SHORT_ENABLED=True.**
 
-> **CALENDAR-FLAG for Admiral:** the items I'd been carrying as "tracked" — **HM-BM bakeoff (~Jun 15), Plutus v6,
-> Polygon VX/WS migration, PDT-rule 2026-06-04** — are **NOT in XO_BACKLOG, CLAUDE.md, or memory**. Either real-but-
-> never-filed (→ file them) or misremembered (→ drop them). The only filed 2026-06-04 item is the *Worf bench review*.
+### 🔵 HM-BM-BAKEOFF — SPEC, gated behind Plutus v6 (spec d296e6c, `drafts/HM-BM-BAKEOFF-SPEC.md`)
+One-shot 4-candidate Plutus **model-selection bakeoff** (stratified 100-trade corpus + outcome-aligned hybrid
+scoring). **NEVER RAN — spec explicitly "do not execute until Plutus v6 lands (mid-June)."** NOT a recurring
+monthly audit (earlier half-memory was wrong). Falls back to 4 candidates if v6 isn't ready. **Status: 🔵 spec,
+mid-June, gated on HM-PLUTUS-V6. Blocked-on: v6 train.**
+
+### 🔵 HM-PLUTUS-V6 — SPEC, corpus not built (spec e5f46cf, `drafts/HM-PLUTUS-V6-CORPUS.md`)
+Next-gen Plutus fine-tune on a substantially larger corpus; **target mid-June 2026 train.** Corpus NOT built
+(`data/` tops out at `plutus_corpus_v5.jsonl`). Train on the RTX 5080 pinned env (NOT Ollie Max). **Status: 🔵
+spec, not-started.**
+> ⚠️ **VERIFIED 2026-05-31 — the fine-tune is NOT serving (escalates HM-MODEL-CONFIG-STALENESS):** the v5-win doc
+> claims "McCoy now runs the trained model instead of stock 0xroyce/plutus," but `ai_players.ollama-plutus.model_id
+> = 0xroyce/plutus` (**stock**). Ollie Max `/api/tags` confirms the fine-tunes (`plutus-v2:latest` 4.68GB, modified
+> 2026-05-27 23:33 + v1/v1-pinned) sit on the box **unwired** while stock `0xroyce/plutus:latest` (5.73GB) is what
+> McCoy points at. So the v5 fine-tune we trained **is not deployed.** (Caveat: confirm no `main.py` per-call
+> override flips it — Drift Catalog #1. If no override, McCoy has been running STOCK Plutus, not the trained model.)
+> Decide BEFORE v6: is the not-serving a config-sync miss (repoint McCoy → `plutus-v2`) or was stock chosen on
+> purpose? v6 is moot if we never actually serve a fine-tune.
+
+> **PHANTOM-CALENDAR RECONCILE (HM-PHANTOM-RECONCILE, 2026-05-31) — forensic-verified, all 4 resolved:**
+> The 4 items I'd carried as "tracked" were **directionally real but stateful-wrong.** Verdicts: **HM-BM + Plutus-v6
+> → FILED above** (real, spec-gated, mid-June — not recurring, not stale). **Polygon WS/VX → DROPPED/DONE:** resolved
+> 2026-05-27 (realtime pivoted to Alpaca IEX; REST on current `v2/aggs` + `v3/reference`; **NO sunset deadline exists**
+> in any doc — the "pre-Jun-22" deadline was misremembered; not at data-break risk). **PDT-rule 2026-06-04 → DROPPED:**
+> MOOT — Alpaca **paper only**; PDT applies to real margin <$25k; no code keys off the date (only trace is a 6-wk-old
+> `crew_scanner.py:188` comment). Only *filed* 06-04 item remains the *Worf bench review*.
 
 > **AGGREGATOR STATUS (clarifies HM-DALIO + HM-TRACKING adoption):** the core fix **HM-TRACKING-AGGREGATOR IS
 > SHIPPED** (eb2886e, ~22 rollup sites, `CLEAN_TRADES_WHERE` excludes tracking-route players incl. dalio-metals) —
