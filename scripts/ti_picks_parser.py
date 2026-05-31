@@ -102,10 +102,15 @@ def get_plain_body(msg) -> str:
 
 
 def extract_forwarded_sender(msg) -> str | None:
-    """If this email is a forward, return the original sender from the body.
+    """If this email is a forward, return the ORIGINAL sender from the body.
 
-    Looks for a 'Forwarded message' marker (Gmail/DuckDuckGo style) then the
-    next From: line, extracts the email address inside angle brackets.
+    Handles multiple client formats (2026-05-31 — eM Client broke the old version):
+      - Gmail/DuckDuckGo: '---------- Forwarded message ---------' + 'From: X <email>'
+      - eM Client:        '------ Forwarded Message ------'        + 'From "X" <email>'  (NO colon!)
+      - Outlook/other:    '----- Original Message -----'
+    The From field may or may not have a colon, and the marker varies. Fallback: if the
+    subject is a forward (Fwd:/Fw:) but no marker matched, scan the head of the body for the
+    first email address (the forwarded original sender).
 
     Returns None if not a forward or no original sender found.
     """
@@ -115,21 +120,26 @@ def extract_forwarded_sender(msg) -> str | None:
         bodies.append(plain)
     html = get_html_body(msg)
     if html and html != plain:
-        # Strip HTML tags lightly for regex purposes
         bodies.append(re.sub(r"<[^>]+>", " ", html))
     blob = "\n".join(bodies)
     if not blob:
         return None
-    marker_re = re.compile(r"(Forwarded message|Begin forwarded message)", re.IGNORECASE)
+    # marker variants across clients (Forwarded Message / Begin forwarded / Original Message)
+    marker_re = re.compile(r"(Forwarded\s+message|Begin forwarded message|Original Message)",
+                           re.IGNORECASE)
     m = marker_re.search(blob)
-    if not m:
-        return None
-    after = blob[m.start():]
-    # Find first From: that has an email address in <...>
-    fm = re.search(r"From\s*:\s*[^<\n]*?<\s*([^>\s]+@[^>\s]+)\s*>", after, re.IGNORECASE)
-    if not fm:
-        return None
-    return fm.group(1).strip()
+    after = blob[m.start():] if m else blob
+    # From field — colon OPTIONAL (eM Client uses 'From "Name" <email>' with no colon)
+    fm = re.search(r"From\s*:?\s*[^<\n]{0,80}<\s*([^>\s]+@[^>\s]+)\s*>", after, re.IGNORECASE)
+    if fm:
+        return fm.group(1).strip()
+    # Fallback: forward subject but no parseable From → take first email in the head region.
+    subj = str(msg.get("Subject", "")).lower()
+    if subj.startswith(("fwd:", "fw:", "re:")) or m:
+        em = re.search(r"<\s*([^>\s]+@[^>\s]+)\s*>", after[:600])
+        if em:
+            return em.group(1).strip()
+    return None
 
 
 def extract_ti_swing_picks(html: str) -> list:
