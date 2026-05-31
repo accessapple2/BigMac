@@ -368,15 +368,58 @@ def _fetch_polygon_ohlcv(symbol: str, days: int = 20):
                          "Volume": [x[1][4] for x in items]}, index=idx).dropna()
 
 
-def _backtest_signals(df, entries, exits, cash=10_000, fees=0.001):
-    """Backtest (entries, exits) boolean Series on df.Close with EOD-flat. Metrics or None."""
+# ── HARNESS REALISM (HM-HOLLY-REWORK 2026-05-31) ──────────────────────────────
+# Real Holly takes a FEW SETUPS/DAY, not every 5min re-trigger. The strategies' raw
+# masks are True on EVERY bar the condition holds, so the old harness round-tripped
+# thousands of times (14k trades, 15% WR) and got chewed up by fees. Two fixes:
+#   1. RISING-EDGE only — enter when the setup BECOMES true, not while it persists.
+#   2. Per-day cap + post-entry cooldown — a few considered setups, no machine-gun re-entry.
+MAX_ENTRIES_PER_DAY = 2       # ≤2 setups per symbol per session (was effectively unbounded)
+ENTRY_COOLDOWN_BARS = 12      # ~60min lockout after an entry before another is allowed
+REALISTIC_FEES = 0.0015       # 15bps/side — commission + slippage proxy for liquid small-caps
+
+
+def _gate_entries(entries, close, max_per_day: int = MAX_ENTRIES_PER_DAY,
+                  cooldown: int = ENTRY_COOLDOWN_BARS):
+    """Turn a raw condition-True mask into SELECTIVE setup entries: rising-edge only,
+    capped per session day, with a post-entry cooldown. This is the 'faithful Holly'
+    selectivity — a few setups/day, not every re-trigger."""
+    import pandas as pd
+    e = entries.fillna(False).astype(bool)
+    rising = e & ~e.shift(1, fill_value=False)
+    day = close.index.normalize()
+    out = pd.Series(False, index=close.index)
+    last_i = -10 ** 9
+    per_day: dict = {}
+    rv = rising.values
+    for i in range(len(rv)):
+        if not rv[i]:
+            continue
+        d = day[i]
+        if i - last_i < cooldown or per_day.get(d, 0) >= max_per_day:
+            continue
+        out.iloc[i] = True
+        last_i = i
+        per_day[d] = per_day.get(d, 0) + 1
+    return out
+
+
+def _backtest_signals(df, entries, exits, cash=10_000, fees=REALISTIC_FEES, realistic=True):
+    """Backtest (entries, exits) on df.Close, EOD-flat. Metrics or None.
+
+    realistic=True (default) applies the selectivity/frequency gate (_gate_entries) +
+    realistic fees so the result reflects how Holly actually trades. Set realistic=False
+    for the raw ungated behavior (diagnostics only)."""
     import vectorbt as vbt
     close = df["Close"]
+    entries = entries.astype(bool)
+    if realistic:
+        entries = _gate_entries(entries, close)
     eod = _eod_flat_exits(close)
     exits = (exits.astype(bool) | eod.astype(bool)).copy()
     exits.iloc[-1] = True
     try:
-        pf = vbt.Portfolio.from_signals(close, entries.astype(bool), exits, freq="5min",
+        pf = vbt.Portfolio.from_signals(close, entries, exits, freq="5min",
                                         fees=fees, init_cash=cash)
         st = pf.stats()
         return {
@@ -388,6 +431,69 @@ def _backtest_signals(df, entries, exits, cash=10_000, fees=0.001):
     except Exception as e:
         logger.debug("_backtest_signals error: %s", e)
         return None
+
+
+# ── PER-STRATEGY EXIT REGIME (HM-HOLLY-WORKS 2026-05-31) ───────────────────────
+# The no-EOD-flat experiment proved one-size "intraday-flat" is wrong: momentum/
+# breakout/continuation strategies need SWING (overnight) exits to capture the small-
+# cap gap edge (win rates ~doubled, 2 flipped positive), while mean-reversion/pullback
+# strategies need intraday-FLAT (their bounce thesis is intraday — they got WORSE held).
+# Classification is data-driven: improved-overnight → swing; neutral/worsened → flat.
+TI_EXIT_TYPE = {
+    # SWING — improved with overnight holds (momentum / breakout / continuation)
+    "the_continuation": "swing", "count_de_monet": "swing", "breakout": "swing",
+    "pushing_through_resistance": "swing", "five_day_bounce": "swing", "guiding_hand": "swing",
+    "strong_stock_pulling_back": "swing", "trend_play": "swing", "staggering_volume": "swing",
+    "tailwind": "swing", "bullish_trend_change": "swing", "early_bird": "swing",
+    "volume_doesnt_lie": "swing", "alpha_predators": "swing",
+    # FLAT — neutral/worse overnight (mean-reversion / pullback)
+    "quarterback": "flat", "separation_from_8": "flat", "buyers_stepping": "flat",
+    "on_support": "flat", "bullish_pullback": "flat",
+}
+SWING_SL, SWING_TP, SWING_MAXHOLD = 0.05, 0.10, 780   # default swing exit (~10 trading days)
+
+# ── LIVE "WORKS" SET (HM-HOLLY-WORKS 2026-05-31) ──────────────────────────────
+# OOS-validated strategies cleared for live trading (tuned in-sample Jan2–Apr15, held
+# out Apr15–May29). the_continuation: OOS Sharpe 1.47, 58% WR, +5.6%/6wk, 11% DD (8/6/20d)
+# — a real edge, robust across params. count_de_monet: marginal (OOS Sharpe 0.59, +1.7%),
+# kept validated-but-OFF for the cleanest single-edge A/B race (flip enabled=True to add).
+# The other 17 documented strategies are OFF pending HM-HOLLY-ENTRY-FIDELITY rework — they
+# fail OOS even with the correct exit regime (generic triggers, not real Holly setups).
+HOLLY_WORKS = {
+    "the_continuation": {"enabled": True,  "exit": "swing", "sl": 0.08, "tp": 0.06, "max_hold": 1560},
+    "count_de_monet":   {"enabled": False, "exit": "swing", "sl": 0.05, "tp": 0.06, "max_hold": 390},
+}
+
+
+def _backtest_swing(df, entries, sl=SWING_SL, tp=SWING_TP, max_hold=SWING_MAXHOLD,
+                    cash=10_000, fees=REALISTIC_FEES):
+    """Swing backtest: gated entries, NO EOD-flat. Exit on stop / target / max-hold.
+    Same selectivity gate + fees as the flat path — only the exit regime differs."""
+    import vectorbt as vbt
+    close = df["Close"]
+    ge = _gate_entries(entries.astype(bool), close)
+    exits = ge.shift(max_hold, fill_value=False).copy()
+    exits.iloc[-1] = True
+    try:
+        pf = vbt.Portfolio.from_signals(close, ge, exits, freq="5min", fees=fees,
+                                        init_cash=cash, sl_stop=sl, tp_stop=tp)
+        st = pf.stats()
+        return {
+            "total_return": _stat(st, "Total Return [%]"), "win_rate": _stat(st, "Win Rate [%]"),
+            "sharpe": _stat(st, "Sharpe Ratio", 3), "max_drawdown": _stat(st, "Max Drawdown [%]"),
+            "profit_factor": _stat(st, "Profit Factor"), "num_trades": int(_s(st.get("Total Trades", 0))),
+            "final_value": round(_s(pf.final_value()), 2), "bar": BAR_LABEL,
+        }
+    except Exception as e:
+        logger.debug("_backtest_swing error: %s", e)
+        return None
+
+
+def _backtest_by_type(df, entries, exits, strategy: str):
+    """Dispatch to the exit regime declared for `strategy`: swing (overnight) vs flat (EOD)."""
+    if TI_EXIT_TYPE.get(strategy) == "swing":
+        return _backtest_swing(df, entries)
+    return _backtest_signals(df, entries, exits)
 
 
 def _ti_signals(df, name: str):
@@ -532,6 +638,7 @@ def _ti_signals_b2(df, name: str, symbol: str = ""):
     hi5d = h.rolling(390, min_periods=78).max()   # ~5-session high
     sma8 = c.rolling(8).mean(); sma20 = c.rolling(20).mean(); sma50 = c.rolling(50).mean()
     swing_hi = h.rolling(40).max(); swing_lo = l.rolling(40).min()
+    bar_of_day = pd.Series(c.groupby(day).cumcount(), index=c.index)  # bars since session open
 
     def _ret(e, x, lo=None, hi=None):
         if lo is not None and not (lo <= px):
@@ -544,17 +651,42 @@ def _ti_signals_b2(df, name: str, symbol: str = ""):
         retr = swing_hi - 0.382 * (swing_hi - swing_lo)
         e = (c <= retr) & (c > c.shift(1)) & (c > sma20)
         return _ret(e, c >= swing_hi, hi=20)
-    if name == "early_bird":             # cross algo resistance, <$20
-        e = (c > hi20.shift(1)) & (rel_vol >= 1.25)
+    if name == "early_bird":             # TIGHTENED: EARLY-SESSION breakout w/ conviction volume, <$20
+        # FIDELITY 2026-05-30 (Batch-2 review): was identical to Batch-1 `breakout`
+        # (loose/redundant). "Early Bird" = catch the move EARLY — gate to the first
+        # hour (bar_of_day < 12 ≈ 60min) and require stronger volume (1.5x vs 1.25x).
+        e = (c > hi20.shift(1)) & (rel_vol >= 1.5) & (bar_of_day < 12)
         return _ret(e, c < hi20.shift(1), hi=20)
-    if name == "float_on":               # low-float (<20M) breakout — FLOAT-GATED (faithful)
+    if name == "float_on":               # LOW-FLOAT MOMENTUM — 5 MANDATORY guards (Admiral spec 2026-05-30)
+        # Squeeze-prone class. ALL FIVE guards required, none optional:
+        #   G1 float < 10M shares   G2 price $1-12   G3 volume > 750k
+        #   G4 CATALYST REQUIRED    G5 0.5% risk cap (HALF size — see TI_STRATEGY_RISK)
+        # GUARD 1 — float < 150M (Admiral ruling 2026-05-31, widened from 10M which never
+        # engaged on any liquid mover — measured floats: LCID 133M, LUNR 128M, RGTI 325M,
+        # so <10M was true-micro-float-only). 150M = realistic "low float" for liquid names.
+        # None float data → SKIP the name, never silent-allow.
         fl = _shares_float_m(symbol)
-        if fl is None or fl >= 20.0:     # no float data OR not low-float → skip (never silent-True)
+        if fl is None or fl >= 150.0:
             return None, None
-        e = (c > hi20.shift(1)) & (rel_vol >= 1.5)
-        return _ret(e, c < hi20.shift(1))
-    if name == "count_de_monet":         # resistance breakout to 5-day high, <$40
-        e = (c >= hi5d) & (c > hi20.shift(1))
+        # GUARD 3 — absolute volume > 750k on the entry bar
+        vol_ok = v > 750_000
+        # GUARD 4 — CATALYST REQUIRED (no naked low-float entry). Backtest proxy for a
+        # catalyst = a catalyst-grade event on the bar: volume explosion (>=3x avg) AND
+        # range expansion (>1.5x avg true range). FIDELITY NOTE: "catalyst" is genuinely
+        # unknowable from price/volume alone — the LIVE path must AND this with a real
+        # catalyst signal (event tape / news / earnings) at execution; this proxy is the
+        # closest faithful stand-in for backtest selection. Replica-pass per Batch-1 ruling.
+        _rng = h - l
+        _rng_ma = _rng.rolling(20).mean()
+        catalyst = (rel_vol >= 3.0) & (_rng > _rng_ma * 1.5)
+        e = (c > hi20.shift(1)) & vol_ok & catalyst
+        # GUARD 2 — price $1-12 (via _ret lo/hi). GUARD 5 enforced at sizing (TI_STRATEGY_RISK).
+        return _ret(e, c < hi20.shift(1), lo=1, hi=12)
+    if name == "count_de_monet":         # TIGHTENED: new 5-day high w/ VOLUME confirmation, <$40
+        # FIDELITY 2026-05-30 (Batch-2 review): was a drift-to-highs (avg -1.2%, no
+        # confirmation). A real momentum breakout to a new multi-session high needs
+        # volume behind it — add rel_vol>=1.5 so it's a conviction break, not a drift.
+        e = (c >= hi5d) & (c > hi20.shift(1)) & (rel_vol >= 1.5)
         return _ret(e, c < sma8, hi=40)
     if name == "buyers_stepping":        # Fibonacci (38.2%) pullback on uptrend
         retr = swing_hi - 0.382 * (swing_hi - swing_lo)
@@ -594,6 +726,17 @@ TI_BATCH_2 = [
     "strong_stock_pulling_back", "tailwind", "bullish_trend_change", "trend_play",
     "guiding_hand",
 ]
+
+# Per-strategy LIVE risk cap (fraction of capital risked per position). Default 1%;
+# float_on is HALF (0.5%) — the riskiest low-float/squeeze-prone class (Admiral 2026-05-30).
+# Consumed at trade-sizing when a strategy is wired live; recorded here as the source of truth.
+TI_STRATEGY_RISK = {"float_on": 0.005}
+TI_DEFAULT_RISK = 0.01
+
+
+def ti_risk_cap(strategy: str) -> float:
+    """Risk cap (fraction of capital) for a TI strategy. float_on → 0.5%, else 1%."""
+    return TI_STRATEGY_RISK.get(strategy, TI_DEFAULT_RISK)
 
 
 def backtest_ti_batch(days: int = 20, top_n: int = 8, strategies=None) -> dict:
