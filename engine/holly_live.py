@@ -127,12 +127,50 @@ def _fresh_setup(df, strategy: str, symbol: str) -> bool:
 # would-bench-vs-trade decision to holly_regime_gate_shadow; it does NOT block live trades
 # yet. Flip to live (actually bench) only after the shadow log proves it reads regime +
 # decides sanely over real sessions — same shadow→eyes-on→promote discipline as the lesson-validator.
+REGIME_GATE_LIVE = True   # 2026-05-31: promoted shadow→LIVE (Admiral). Benches for real now.
+_BENCH_ALERT_COOLDOWN_H = 6   # don't re-NTFY a bench within 6h (prevents boundary flip-flop spam)
+
+
 def _init_regime_shadow(conn) -> None:
     conn.execute(
         """CREATE TABLE IF NOT EXISTS holly_regime_gate_shadow (
                id INTEGER PRIMARY KEY AUTOINCREMENT, checked_at TEXT, fleet_regime TEXT,
                history_regime TEXT, would_bench INTEGER, setups_this_cycle INTEGER, note TEXT)""")
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS holly_regime_gate_alerted (
+               id INTEGER PRIMARY KEY AUTOINCREMENT, alerted_at TEXT, regime TEXT)""")
     conn.commit()
+
+
+def _notify_first_bench(conn, gate: dict, suppressed: int) -> None:
+    """NTFY ollietrades-admin the FIRST time the gate benches live (a fresh regime turn).
+    Deduped: only on a non-bench→bench transition AND not within the cooldown — so no per-cycle
+    spam and no boundary-flip-flop spam. The gate has never acted on a REAL transition (messier
+    than the synthetic test), so the Admiral gets pinged to confirm it did the right thing."""
+    try:
+        last = conn.execute(
+            "SELECT alerted_at FROM holly_regime_gate_alerted ORDER BY id DESC LIMIT 1").fetchone()
+        if last:
+            try:
+                dt = datetime.fromisoformat(str(last["alerted_at"]))
+                if (datetime.now(timezone.utc) - dt) < timedelta(hours=_BENCH_ALERT_COOLDOWN_H):
+                    return   # within cooldown — skip
+            except Exception:
+                pass
+        title = "🚧 Holly Regime Gate: FIRST LIVE BENCH"
+        body = (f"Regime turned → Holly is now BENCHING the_continuation (no new entries).\n"
+                f"Trigger: fleet={gate['fleet']} history={gate['history']}\n"
+                f"Suppressed {suppressed} setup(s) this cycle. Open positions still managed "
+                f"(exits run regardless).\n"
+                f"→ First real live action of the regime gate (synthetic test proved the logic; "
+                f"this is the live transition). Confirm it did the right thing.")
+        from engine.ntfy import _send, P_HIGH
+        _send(title, body, P_HIGH, "construction", topic="ollietrades-admin")
+        conn.execute("INSERT INTO holly_regime_gate_alerted (alerted_at, regime) VALUES (?,?)",
+                     (datetime.now(timezone.utc).isoformat(), f"{gate['fleet']}/{gate['history']}"))
+        conn.commit()
+    except Exception as e:
+        logger.warning("[holly_live] bench NTFY failed: %s", e)
 
 
 def _holly_regime_gate() -> dict:
@@ -183,7 +221,12 @@ def holly_scanner_check(dry_run: bool = False) -> list[dict]:
     try:
         _init_swing_table(conn)
         _init_regime_shadow(conn)
-        gate = _holly_regime_gate()   # SHADOW — read but don't block
+        gate = _holly_regime_gate()
+        benched = bool(gate["would_bench"]) and REGIME_GATE_LIVE   # LIVE: actually suppress
+        suppressed = 0
+        prev = conn.execute(
+            "SELECT would_bench FROM holly_regime_gate_shadow ORDER BY id DESC LIMIT 1").fetchone()
+        prev_benched = bool(prev["would_bench"]) if prev else False
         universe = _holly_universe()
         if not universe:
             _notify_fail("empty universe (universe_scan has no $1-50 vol≥2 movers)")
@@ -231,6 +274,11 @@ def holly_scanner_check(dry_run: bool = False) -> list[dict]:
                         logger.info("[holly_live][DRY] would BUY %s %s @ %.2f stop=%.2f tgt=%.2f",
                                     symbol, strat, price, stop, target)
                         continue
+                    if benched:   # LIVE REGIME GATE — bear/crisis → suppress this entry
+                        suppressed += 1
+                        logger.info("[holly_live][REGIME-BENCH] suppressed %s %s (regime bench: "
+                                    "fleet=%s history=%s)", symbol, strat, gate["fleet"], gate["history"])
+                        continue
                     from engine.paper_trader import buy as pt_buy
                     res = pt_buy(PLAYER_ID, symbol, price, qty=qty, timeframe="SWING",
                                  confidence=0.0, reasoning=f"Holly {strat} swing setup",
@@ -250,23 +298,30 @@ def holly_scanner_check(dry_run: bool = False) -> list[dict]:
             except Exception as e:
                 _notify_fail(f"scan error {symbol}: {type(e).__name__}: {e}")
 
-        # REGIME GATE — SHADOW log (does NOT block; trades above executed live as-is).
-        # Records what the gate WOULD do this cycle so it can be verified before going live.
+        # REGIME GATE log + first-bench NTFY. LIVE now: bench actually suppressed entries above
+        # (exits run regardless in holly_manage_exits). The shadow table keeps the full decision
+        # trail even when live. Entries-only gating ⇒ NO open/close thrashing at a boundary; a
+        # regime flip-flop only changes whether NEW entries fire (open positions stay managed).
         try:
+            detected = len(actions) + suppressed
             verb = "BENCH" if gate["would_bench"] else "TRADE"
-            note = (f"regime={verb}: fleet={gate['fleet']} history={gate['history']} | "
-                    f"{len(actions)} setup(s) this cycle "
-                    f"{'WOULD BE SUPPRESSED' if gate['would_bench'] else 'traded'} (SHADOW — not blocked)")
+            note = (f"regime={verb} [{'LIVE' if REGIME_GATE_LIVE else 'SHADOW'}]: "
+                    f"fleet={gate['fleet']} history={gate['history']} | {detected} setup(s) detected, "
+                    + (f"{suppressed} SUPPRESSED (benched), {len(actions)} traded"
+                       if benched else f"{len(actions)} traded"))
             conn.execute(
                 "INSERT INTO holly_regime_gate_shadow "
                 "(checked_at,fleet_regime,history_regime,would_bench,setups_this_cycle,note) "
                 "VALUES (?,?,?,?,?,?)",
                 (datetime.now(timezone.utc).isoformat(), gate["fleet"], gate["history"],
-                 1 if gate["would_bench"] else 0, len(actions), note))
+                 1 if gate["would_bench"] else 0, detected, note))
             conn.commit()
-            logger.info("[holly_live][REGIME-GATE-SHADOW] %s", note)
+            logger.info("[holly_live][REGIME-GATE] %s", note)
+            # NTFY on the FIRST real bench (fresh non-bench→bench transition, live, not dry-run)
+            if benched and not prev_benched and not dry_run:
+                _notify_first_bench(conn, gate, suppressed)
         except Exception as e:
-            logger.warning("[holly_live] regime-gate shadow log error: %s", e)
+            logger.warning("[holly_live] regime-gate log error: %s", e)
     finally:
         conn.close()
     return actions
