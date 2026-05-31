@@ -232,6 +232,44 @@ def write_external_picks(log, feed_type: str, payload: dict, received_at: str) -
         return 0
 
 
+# Prose newsletters worth capturing as Tier-2 research (NOT TI-pick format). Excludes:
+#   grok_kirk_scan (OT's OWN generated digests — self-referential), danelfin_ai_rank
+#   (structured rankings), ti_unknown (marketing/promos). TrendSpider + single-trade theses.
+PROSE_FEEDS = {"trendspider_alerts", "ti_barrie_picks", "trade_of_week"}
+
+
+def write_external_prose(log, feed_type: str, html: str, received_at: str) -> bool:
+    """HM-EXTERNAL-INTEL Tier-2 (2026-05-31): route PROSE newsletters → external_intel_text
+    (ad-stripped, tickers + THEMES + catalysts extracted). The email pipeline previously only
+    handled TI-pick format and DROPPED prose — this is that gap. REDUNDANCY: captures the
+    prose/theme/thesis layer only; earnings/insider/congress are already API-captured."""
+    if feed_type not in PROSE_FEEDS:
+        return False
+    try:
+        from bs4 import BeautifulSoup
+        txt = BeautifulSoup(html or "", "lxml").get_text(" ", strip=True)
+        if len(txt) < 80:
+            return False
+        sys.path.insert(0, str(ROOT))
+        from engine.external_intel import capture_text
+        import email.utils as _eu
+        import datetime as _dt
+        try:
+            pd = _eu.parsedate_to_datetime(received_at).date().isoformat()
+        except Exception:
+            pd = _dt.date.today().isoformat()
+        src = {"trendspider_alerts": "TrendSpider (email)",
+               "ti_barrie_picks": "TI Barrie thesis (email)",
+               "trade_of_week": "TI Trade of Week (email)"}.get(feed_type, feed_type)
+        f = capture_text(src, pd, txt)
+        log.info("external_intel_text(Tier2): %s tickers=%s themes=%s catalysts=%s",
+                 src, f["tickers"][:8], f.get("themes"), f["catalysts"])
+        return True
+    except Exception as e:
+        log.warning("prose capture failed: %s: %s", type(e).__name__, e)
+        return False
+
+
 def main():
     ap = argparse.ArgumentParser()
     ap.add_argument("eml_path")
@@ -271,6 +309,8 @@ def main():
         sys.exit(4)
     # Repoint: clean structured picks → external_picks (in addition to the raw archive).
     write_external_picks(log, feed_type, payload, received)
+    # Tier-2: prose newsletters (TrendSpider etc.) → external_intel_text (was dropped before).
+    write_external_prose(log, feed_type, html, received)
     sys.exit(0)
 
 

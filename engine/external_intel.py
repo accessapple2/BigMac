@@ -41,8 +41,12 @@ def ensure_tables() -> None:
     # free-text intelligence (Tier 2 capture) + extracted features
     c.execute("""CREATE TABLE IF NOT EXISTS external_intel_text (
         id INTEGER PRIMARY KEY AUTOINCREMENT, source TEXT, intel_date TEXT, raw_text TEXT,
-        tickers TEXT, sentiment REAL, catalysts TEXT, captured_at TEXT,
+        tickers TEXT, sentiment REAL, catalysts TEXT, themes TEXT, captured_at TEXT,
         UNIQUE(source, intel_date, raw_text))""")
+    try:  # additive migration for pre-existing tables (themes col)
+        c.execute("ALTER TABLE external_intel_text ADD COLUMN themes TEXT")
+    except Exception:
+        pass
     # follow-TI shadow tracker (tracked, NOT auto-traded; measured by price lookup)
     c.execute("""CREATE TABLE IF NOT EXISTS ti_shadow_trades (
         id INTEGER PRIMARY KEY AUTOINCREMENT, pick_id INTEGER, ticker TEXT, source TEXT,
@@ -262,6 +266,32 @@ _NEG = {"miss", "plunge", "downgrade", "bearish", "breakdown", "fall", "drop", "
 _CATALYSTS = {"earnings", "fda", "upgrade", "downgrade", "merger", "acquisition", "guidance",
               "buyback", "dividend", "split", "offering", "approval", "recall", "lawsuit",
               "partnership", "contract", "ipo", "insider"}
+# Macro/sector THEMES + chart patterns — the prose layer OT does NOT already capture via API
+# (earnings/insider/congress ARE captured via Finnhub/Capitol, so we don't re-extract those).
+_THEMES = {"memory", "space", "cybersecurity", "semiconductor", "nuclear", "quantum",
+           "crypto", "bitcoin", "biotech", "defense", "robotics", "datacenter", "uranium",
+           "solar", "lithium", "cup and handle", "breakout", "flag", "wedge",
+           "ascending triangle", "pullback", "consolidation", "ceasefire", "tariff", "fed"}
+# Ad / boilerplate markers — strip so TrendSpider marketing doesn't pollute the corpus.
+_AD_MARKERS = ("memorial day sale", "sale is on", "% off", "clock's ticking", "click here",
+               "no images?", "unsubscribe", "report spam", "duckduckgo removed", "view in browser",
+               "feature is", "try this instead", "for $4", "/day", "profit playbook", "free trial",
+               "limited time", "act now", "upgrade your plan")
+
+
+def _clean_prose(text: str) -> str:
+    """Strip invisible spacers + ad/boilerplate lines so only signal prose is stored."""
+    txt = re.sub(r"[‌͏­\xa0]+", " ", text or "")
+    out = []
+    for seg in re.split(r"(?<=[.!?])\s+|\n", txt):
+        s = seg.strip()
+        if len(s) < 4:
+            continue
+        low = s.lower()
+        if any(m in low for m in _AD_MARKERS):
+            continue
+        out.append(s)
+    return re.sub(r"\s+", " ", " ".join(out)).strip()
 
 
 def _known_tickers() -> set[str]:
@@ -287,22 +317,28 @@ def extract_features(text: str) -> dict:
     neg = sum(low.count(w) for w in _NEG)
     sentiment = round((pos - neg) / (pos + neg), 3) if (pos + neg) else 0.0
     cats = sorted({k for k in _CATALYSTS if k in low})
-    return {"tickers": sorted(matched), "sentiment": sentiment, "catalysts": cats}
+    themes = sorted({k for k in _THEMES if k in low})
+    return {"tickers": sorted(matched), "sentiment": sentiment, "catalysts": cats,
+            "themes": themes}
 
 
 def capture_text(source: str, intel_date: str, text: str) -> dict:
-    """Tier-2 capture: store raw free text + extracted features. Trivial capture; the HARD
-    part (does it add tradeable signal?) is gated separately in tier2_validation_status."""
+    """Tier-2 capture: ad-strip the prose, store the cleaned signal text + extracted features
+    (tickers/sentiment/catalysts/THEMES). Trivial capture; the HARD part (does it add tradeable
+    signal?) is gated in tier2_validation_status. REDUNDANCY: we capture the prose/theme/thesis
+    layer only — earnings/insider/congress are already captured via API feeds, NOT re-extracted."""
     ensure_tables()
-    f = extract_features(text)
+    clean = _clean_prose(text)
+    f = extract_features(clean)
     c = sqlite3.connect(DB, timeout=30.0)
     try:
         c.execute(
             "INSERT OR IGNORE INTO external_intel_text "
-            "(source,intel_date,raw_text,tickers,sentiment,catalysts,captured_at) "
-            "VALUES (?,?,?,?,?,?,?)",
-            (source, intel_date, text, json.dumps(f["tickers"]), f["sentiment"],
-             json.dumps(f["catalysts"]), datetime.now(timezone.utc).isoformat()))
+            "(source,intel_date,raw_text,tickers,sentiment,catalysts,themes,captured_at) "
+            "VALUES (?,?,?,?,?,?,?,?)",
+            (source, intel_date, clean, json.dumps(f["tickers"]), f["sentiment"],
+             json.dumps(f["catalysts"]), json.dumps(f.get("themes", [])),
+             datetime.now(timezone.utc).isoformat()))
         c.commit()
     finally:
         c.close()
