@@ -4584,6 +4584,17 @@ def intel_paste(data: dict = None):
         return {"ok": False, "error": f"{type(e).__name__}: {e}"}
 
 
+@app.get("/api/intel/ti-shadow")
+def intel_ti_shadow():
+    """Follow-TI shadow panel: scorecard + daily snapshots + watchlist (read-only, no trading).
+    'Does following Andy Lindloff's TI swing picks actually make money?' — tracked, not traded."""
+    try:
+        from engine.external_intel import ti_shadow_panel_data
+        return ti_shadow_panel_data()
+    except Exception as e:
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
 @app.post("/api/news/go-deeper")
 def news_go_deeper(data: dict = None):
     """Generate AI follow-up questions for a news article (Ollama, free)."""

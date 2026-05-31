@@ -199,6 +199,49 @@ def ti_shadow_scorecard(price_fn=None) -> dict:
     }
 
 
+def ti_shadow_snapshot() -> dict:
+    """Daily snapshot of the follow-TI shadow scorecard → ti_shadow_snapshots, so the edge is
+    tracked over time as picks accumulate. Records any new captured picks as shadows first,
+    then scores + snapshots (idempotent per day). Tracked, NOT auto-traded."""
+    ensure_tables()
+    ti_shadow_record()
+    sc = ti_shadow_scorecard()
+    today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    c = sqlite3.connect(DB, timeout=30.0)
+    try:
+        c.execute(
+            """CREATE TABLE IF NOT EXISTS ti_shadow_snapshots (
+                   snap_date TEXT PRIMARY KEY, n INTEGER, avg_return_pct REAL, win_rate REAL,
+                   best_pct REAL, worst_pct REAL, stopped_out INTEGER, created_at TEXT)""")
+        c.execute(
+            """INSERT OR REPLACE INTO ti_shadow_snapshots
+               (snap_date,n,avg_return_pct,win_rate,best_pct,worst_pct,stopped_out,created_at)
+               VALUES (?,?,?,?,?,?,?,?)""",
+            (today, sc.get("n", 0), sc.get("avg_return_pct"), sc.get("win_rate"),
+             sc.get("best_pct"), sc.get("worst_pct"), sc.get("stopped_out"),
+             datetime.now(timezone.utc).isoformat()))
+        c.commit()
+    finally:
+        c.close()
+    return {**sc, "snap_date": today}
+
+
+def ti_shadow_panel_data() -> dict:
+    """Read-only data for the dashboard panel: current scorecard + recent snapshots +
+    watchlist. No trading, no side effects (scores mark-to-current)."""
+    c = sqlite3.connect(DB, timeout=30.0); c.row_factory = sqlite3.Row
+    try:
+        snaps = []
+        if c.execute("SELECT 1 FROM sqlite_master WHERE name='ti_shadow_snapshots'").fetchone():
+            snaps = [dict(r) for r in c.execute(
+                "SELECT snap_date,n,avg_return_pct,win_rate,best_pct,worst_pct,stopped_out "
+                "FROM ti_shadow_snapshots ORDER BY snap_date DESC LIMIT 30").fetchall()]
+    finally:
+        c.close()
+    return {"scorecard": ti_shadow_scorecard(), "watchlist": ti_watchlist(days=30),
+            "snapshots": snaps}
+
+
 # ── TIER 1 payoff (iii): cross-validation OT picks vs TI answer-key ────────────
 def cross_validate(ot_picks: list[str], ti_picks: list[str]) -> dict:
     """Agreement/miss diff between OT's own swing picks and TI's (the answer key)."""
