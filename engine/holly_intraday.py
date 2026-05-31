@@ -291,6 +291,232 @@ def _sweep_intraday(close, strategy: str) -> dict:
     return best_params
 
 
+# ── PHASE 4 BATCH 1: OHLCV FETCH + DOCUMENTED TI HOLLY STRATEGIES ─────────────
+# The 4 baseline strategies (rsi/macd/bollinger/sma_cross) need only close. The
+# documented TI Holly strategies need full OHLCV (volume surges, intraday highs for
+# resistance breakouts, ranges for pullbacks). _fetch_polygon_ohlcv returns a DataFrame
+# (Open/High/Low/Close/Volume) from the SAME Polygon 5min source + cache; additive, the
+# close-only path above is untouched. Each strategy is a DOCUMENTED TI replica (from
+# trade-ideas.com/hollyguide) implemented as (entries, exits) boolean Series on the
+# OHLCV frame; TI params are proprietary/fixed, so these are RULE-based (not swept).
+# All backtest via the shared _backtest_signals helper → EOD-flat, same metrics shape.
+
+
+def _fetch_polygon_ohlcv(symbol: str, days: int = 20):
+    """Full OHLCV DataFrame (tz-naive index) from Polygon 5min, or None. Reuses the
+    holly_intraday_cache_ohlcv table. RELIABLE source only (no yfinance)."""
+    import pandas as pd
+    sym = symbol.upper()
+    now = time.time()
+    conn = sqlite3.connect(_BACKTEST_DB, timeout=30)
+    conn.execute("""CREATE TABLE IF NOT EXISTS holly_intraday_cache_ohlcv (
+        symbol TEXT, bar TEXT, ts TEXT, o REAL, h REAL, l REAL, c REAL, v REAL,
+        fetched_at REAL, UNIQUE(symbol, bar, ts))""")
+    conn.commit()
+    cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+    rows = conn.execute(
+        "SELECT ts,o,h,l,c,v,MAX(fetched_at) FROM holly_intraday_cache_ohlcv "
+        "WHERE symbol=? AND bar=? AND ts>=? GROUP BY ts ORDER BY ts ASC",
+        (sym, BAR_LABEL, cutoff)).fetchall()
+    if rows and len(rows) >= 200 and (now - max((r[6] or 0) for r in rows)) < _INTRADAY_CACHE_TTL:
+        conn.close()
+        idx = pd.to_datetime([r[0] for r in rows])
+        if getattr(idx, "tz", None) is not None:
+            idx = idx.tz_localize(None)
+        return pd.DataFrame({"Open": [r[1] for r in rows], "High": [r[2] for r in rows],
+                             "Low": [r[3] for r in rows], "Close": [r[4] for r in rows],
+                             "Volume": [r[5] for r in rows]}, index=idx).dropna()
+    key = os.getenv("POLYGON_API_KEY")
+    if not key:
+        conn.close()
+        return None
+    import requests
+    end = datetime.now(timezone.utc).date()
+    win_start = end - timedelta(days=days)
+    bars = {}
+    while win_start < end:
+        win_end = min(win_start + timedelta(days=10), end)
+        url = (f"https://api.polygon.io/v2/aggs/ticker/{sym}"
+               f"/range/{BAR_MULTIPLIER}/{BAR_TIMESPAN}/{win_start}/{win_end}"
+               f"?adjusted=true&sort=asc&limit=50000")
+        try:
+            r = requests.get(url, headers={"Authorization": f"Bearer {key}"}, timeout=15)
+            if r.status_code == 200:
+                for b in (r.json().get("results") or []):
+                    if b.get("t") is None:
+                        continue
+                    iso = datetime.fromtimestamp(b["t"] / 1000, tz=timezone.utc).isoformat()
+                    bars[iso] = (b.get("o", 0), b.get("h", 0), b.get("l", 0), b.get("c", 0), b.get("v", 0))
+        except Exception as e:
+            logger.warning("ohlcv fetch %s: %s", sym, e)
+        win_start = win_end
+    if not bars:
+        conn.close()
+        return None
+    conn.executemany(
+        "INSERT OR IGNORE INTO holly_intraday_cache_ohlcv(symbol,bar,ts,o,h,l,c,v,fetched_at) "
+        "VALUES (?,?,?,?,?,?,?,?,?)",
+        [(sym, BAR_LABEL, ts, o, h, l, c, v, now) for ts, (o, h, l, c, v) in bars.items()])
+    conn.commit()
+    conn.close()
+    items = sorted(bars.items())
+    idx = pd.to_datetime([t for t, _ in items])
+    if getattr(idx, "tz", None) is not None:
+        idx = idx.tz_localize(None)
+    return pd.DataFrame({"Open": [x[1][0] for x in items], "High": [x[1][1] for x in items],
+                         "Low": [x[1][2] for x in items], "Close": [x[1][3] for x in items],
+                         "Volume": [x[1][4] for x in items]}, index=idx).dropna()
+
+
+def _backtest_signals(df, entries, exits, cash=10_000, fees=0.001):
+    """Backtest (entries, exits) boolean Series on df.Close with EOD-flat. Metrics or None."""
+    import vectorbt as vbt
+    close = df["Close"]
+    eod = _eod_flat_exits(close)
+    exits = (exits.astype(bool) | eod.astype(bool)).copy()
+    exits.iloc[-1] = True
+    try:
+        pf = vbt.Portfolio.from_signals(close, entries.astype(bool), exits, freq="5min",
+                                        fees=fees, init_cash=cash)
+        st = pf.stats()
+        return {
+            "total_return": _stat(st, "Total Return [%]"), "win_rate": _stat(st, "Win Rate [%]"),
+            "sharpe": _stat(st, "Sharpe Ratio", 3), "max_drawdown": _stat(st, "Max Drawdown [%]"),
+            "profit_factor": _stat(st, "Profit Factor"), "num_trades": int(_s(st.get("Total Trades", 0))),
+            "final_value": round(_s(pf.final_value()), 2), "bar": BAR_LABEL,
+        }
+    except Exception as e:
+        logger.debug("_backtest_signals error: %s", e)
+        return None
+
+
+def _ti_signals(df, name: str):
+    """Return (entries, exits) for a documented TI Holly strategy `name`, or (None,None).
+
+    Faithful replicas of the documented TI Holly logic (trade-ideas.com/hollyguide).
+    Intraday 5min bars. Exits are momentum-fade / opposite-condition; EOD-flat is added
+    by _backtest_signals. Price-range filters from the docs are applied as guards.
+    """
+    import pandas as pd, numpy as np
+    o, h, l, c, v = df["Open"], df["High"], df["Low"], df["Close"], df["Volume"]
+    px = float(c.iloc[-1])
+    day = c.index.normalize()
+    vol_ma = v.rolling(20).mean()
+    rel_vol = v / vol_ma
+    hi20 = h.rolling(20).max()          # ~recent intraday resistance (20×5m ≈ 100min)
+    hi12 = h.rolling(12).max()          # ~60-min high
+    sma8 = c.rolling(8).mean()
+    rng = (h - l)
+    rng_ma = rng.rolling(20).mean()
+
+    # FIDELITY tightening 2026-05-30 (Batch-1 review):
+    # ANCHORED opening range — the high/low of each session's FIRST 6 bars (30min),
+    # held constant for the rest of that day (the documented "30-minute opening range",
+    # not a rolling window). bar_of_day counts bars since the session open.
+    bar_of_day = pd.Series(c.groupby(day).cumcount(), index=c.index)
+    _or_hi_raw = h.where(bar_of_day < 6)
+    _or_lo_raw = l.where(bar_of_day < 6)
+    or_hi = _or_hi_raw.groupby(day).transform(lambda s: s.max())   # session OR high (anchored)
+    or_lo = _or_lo_raw.groupby(day).transform(lambda s: s.min())   # session OR low (anchored)
+    # True multi-session low (~5 sessions × 78 5m bars ≈ 390 bars) for 5-day-range bounce.
+    lo5d = l.rolling(390, min_periods=78).min()
+    # Daily up/down: each session's close vs prior session's close (for "2 up days").
+    daily_close = c.groupby(day).transform("last")
+    sess_last = c.groupby(day).tail(1)
+    prior_up = pd.Series(sess_last.values, index=sess_last.index.normalize()).diff() > 0
+    up_days_map = prior_up.rolling(2).sum()   # 2.0 == two consecutive up sessions
+    two_up = day.map(lambda d: up_days_map.get(d, 0) >= 2)
+    two_up = pd.Series(np.asarray(two_up), index=c.index)
+
+    def _ret(entries, exits, lo=None, hi=None):
+        if lo is not None and not (lo <= px):
+            return None, None  # price-range filter (current px proxy for universe filter)
+        if hi is not None and not (px <= hi):
+            return None, None
+        return entries.fillna(False), exits.fillna(False)
+
+    if name == "staggering_volume":      # TIGHT: new highs + extreme rel volume
+        e = (c >= hi20) & (rel_vol >= 3.0)
+        return _ret(e, c < sma8)
+    if name == "volume_doesnt_lie":      # TIGHT: up >=4% from day-open + >=2x volume
+        day_open = o.groupby(day).transform("first")
+        e = ((c / day_open - 1) >= 0.04) & (rel_vol >= 2.0)
+        return _ret(e, c < sma8)
+    if name == "breakout":               # TIGHT: cross resistance + rel vol, $10-150
+        e = (c > hi20.shift(1)) & (rel_vol >= 1.25)
+        return _ret(e, c < hi20.shift(1), lo=10, hi=150)
+    if name == "pushing_through_resistance":  # TIGHTENED: ANCHORED 30-min OR breakout + trailing-15m up
+        e = (c > or_hi) & (bar_of_day >= 6) & (c > c.shift(3))
+        return _ret(e, c < sma8)
+    if name == "bullish_pullback":       # TIGHTENED: 25% RETRACEMENT of prior up-leg, $20-100
+        # Doc says "pulls back 25%" (ambiguous — see FLAG). Best-faithful: 25% Fib
+        # retracement of the swing (recent high - recent low), entering as price turns up
+        # from that level in an uptrend. (Was a flat -3% price drop — too shallow.)
+        swing_hi = h.rolling(40).max(); swing_lo = l.rolling(40).min()
+        retr_25 = swing_hi - 0.25 * (swing_hi - swing_lo)
+        e = (c <= retr_25) & (c > c.shift(1)) & (swing_hi > c.rolling(78).mean())
+        return _ret(e, c >= swing_hi, lo=20, hi=100)
+    if name == "quarterback":            # TIGHTENED: 25% retracement + rel vol + up-from-yest, $5-100
+        swing_hi = h.rolling(40).max(); swing_lo = l.rolling(40).min()
+        retr_25 = swing_hi - 0.25 * (swing_hi - swing_lo)
+        e = (c <= retr_25) & (c > c.shift(1)) & (rel_vol >= 1.0) & (c > c.shift(78))
+        return _ret(e, c >= swing_hi, lo=5, hi=100)
+    if name == "five_day_bounce":        # TIGHTENED: bounce from true ~5-DAY low + 60-min high, <=$20
+        e = (c.shift(3) <= lo5d.shift(3) * 1.03) & (c >= hi12)
+        return _ret(e, c < sma8, hi=20)
+    if name == "on_support":             # TIGHTENED: ANCHORED opening-range-low bounce, >$20
+        e = (c <= or_lo * 1.005) & (bar_of_day >= 6) & (c > c.shift(1))
+        return _ret(e, c < or_lo, lo=20)
+    if name == "the_continuation":       # TIGHTENED: new ANCHORED 30-min high + 2 UP DAYS + wide range, $0.5-50
+        e = (c >= or_hi) & (bar_of_day >= 6) & two_up & (rng > rng_ma * 1.2)
+        return _ret(e, c < sma8, lo=0.5, hi=50)
+    if name == "separation_from_8":      # TIGHT: far above 8-MA (overbought) then rolling over; fade
+        far = (c - sma8) / sma8 >= 0.02
+        e = far & (c < c.shift(1))
+        return _ret(e, c <= sma8)
+    return None, None
+
+
+TI_BATCH_1 = [
+    "staggering_volume", "volume_doesnt_lie", "breakout", "pushing_through_resistance",
+    "bullish_pullback", "quarterback", "five_day_bounce", "on_support",
+    "the_continuation", "separation_from_8",
+]
+
+
+def backtest_ti_batch(days: int = 20, top_n: int = 8, strategies=None) -> dict:
+    """Validate the TI Batch-1 strategies on real OHLCV. Returns per-strategy results.
+    Fail-LOUD: a strategy that errors is recorded with status='error', never silent."""
+    try:
+        import vectorbt  # noqa: F401
+    except Exception as e:
+        return {"status": "error", "cause": "vectorbt_missing", "message": str(e)}
+    strategies = strategies or TI_BATCH_1
+    tickers = _get_top_volume_movers(top_n) or []
+    out = {s: {"runs": 0, "winners": 0, "best": None, "errors": 0} for s in strategies}
+    for tk in tickers:
+        df = _fetch_polygon_ohlcv(tk, days=days)
+        if df is None or len(df) < 100:
+            continue
+        for s in strategies:
+            try:
+                e, x = _ti_signals(df, s)
+                if e is None:
+                    continue  # price-range filtered out for this name
+                m = _backtest_signals(df, e, x)
+                if m is None:
+                    continue
+                out[s]["runs"] += 1
+                if m["num_trades"] > 0:
+                    out[s]["winners"] += 1
+                    if out[s]["best"] is None or m["total_return"] > out[s]["best"]["total_return"]:
+                        out[s]["best"] = {"ticker": tk, **m}
+            except Exception as ex:
+                out[s]["errors"] += 1
+                logger.error("TI batch %s/%s ERROR: %s: %s", tk, s, type(ex).__name__, ex)
+    return {"status": "ok", "tickers": len(tickers), "results": out}
+
+
 # ── PHASE 3: SHORT-BACKTEST HARNESS ───────────────────────────────────────────
 # Backtests SHORT strategies: short entry -> buy-to-cover -> INVERSE PnL (profit when
 # price FALLS). Uses vectorbt direction='shortonly' (verified: a 100->80 fall yields
@@ -389,24 +615,44 @@ def run_holly_intraday(days: int = 30, top_n: int = 50) -> dict:
 
     run_date = datetime.now().strftime("%Y-%m-%d")
     tickers = _get_top_volume_movers(top_n) or []
-    strategies = ["rsi", "macd", "bollinger", "sma_cross"]
+    strategies = ["rsi", "macd", "bollinger", "sma_cross"]   # swept (param optimization)
     results: list[dict] = []
 
     for tk in tickers:
         close = _fetch_polygon_intraday(tk, days=days)
-        if close is None or len(close) < 100:   # need enough intraday bars
-            continue
-        for strat in strategies:
-            try:
-                bp = _sweep_intraday(close, strat)
-                if not bp:
-                    continue
-                m = _run_intraday(close, strat, bp)
-                if not m:
-                    continue
-                results.append({"ticker": tk, "strategy": strat, "params": bp, **m})
-            except Exception as e:
-                logger.error("Holly intraday %s/%s: %s", tk, strat, e)
+        if close is not None and len(close) >= 100:   # need enough intraday bars
+            for strat in strategies:
+                try:
+                    bp = _sweep_intraday(close, strat)
+                    if not bp:
+                        continue
+                    m = _run_intraday(close, strat, bp)
+                    if not m:
+                        continue
+                    results.append({"ticker": tk, "strategy": strat, "params": bp, **m})
+                except Exception as e:
+                    logger.error("Holly intraday %s/%s: %s", tk, strat, e)
+
+        # HM-HOLLY-FAITHFUL Phase 4 Batch 1: documented TI strategies on OHLCV
+        # (fixed-rule, not swept — TI params are proprietary). Wired alongside the 4
+        # swept strategies so Holly now ranks 14 strategies. Fail-LOUD per strategy.
+        try:
+            df = _fetch_polygon_ohlcv(tk, days=days)
+        except Exception as e:
+            logger.error("Holly intraday OHLCV fetch %s: %s", tk, e)
+            df = None
+        if df is not None and len(df) >= 100:
+            for s in TI_BATCH_1:
+                try:
+                    e_sig, x_sig = _ti_signals(df, s)
+                    if e_sig is None:           # price-band filtered for this name
+                        continue
+                    m = _backtest_signals(df, e_sig, x_sig)
+                    if not m or m["num_trades"] == 0:
+                        continue
+                    results.append({"ticker": tk, "strategy": s, "params": {"ti": True}, **m})
+                except Exception as ex:
+                    logger.error("Holly intraday TI %s/%s: %s: %s", tk, s, type(ex).__name__, ex)
 
     if not results:
         return {"status": "error", "message": "No intraday results", "cause": "no_results"}
