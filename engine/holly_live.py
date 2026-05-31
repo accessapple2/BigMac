@@ -119,10 +119,57 @@ def _fresh_setup(df, strategy: str, symbol: str) -> bool:
     return bool(e.iloc[-1] and not e.iloc[-2])
 
 
+# ── REGIME GATE (HM-HOLLY-REGIME-GATE 2026-05-31, SHADOW-FIRST) ────────────────
+# The 180-day regime test proved the_continuation is BULL-ONLY: +1.57%/trade & 66% WR in
+# BULL_CROSS, but ~0 edge (+0.10%/trade) and a -88% drawdown PATH in bear/cautious-bear.
+# This gate would BENCH the momentum works-set in bear/crisis, TRADE in bull/trending —
+# mirroring the fleet's stand-down (crew_scanner BEAR/CRISIS). SHADOW-ONLY: it LOGS the
+# would-bench-vs-trade decision to holly_regime_gate_shadow; it does NOT block live trades
+# yet. Flip to live (actually bench) only after the shadow log proves it reads regime +
+# decides sanely over real sessions — same shadow→eyes-on→promote discipline as the lesson-validator.
+def _init_regime_shadow(conn) -> None:
+    conn.execute(
+        """CREATE TABLE IF NOT EXISTS holly_regime_gate_shadow (
+               id INTEGER PRIMARY KEY AUTOINCREMENT, checked_at TEXT, fleet_regime TEXT,
+               history_regime TEXT, would_bench INTEGER, setups_this_cycle INTEGER, note TEXT)""")
+    conn.commit()
+
+
+def _holly_regime_gate() -> dict:
+    """Read regime from BOTH the fleet runtime source (_get_regime_from_8080 — what Ollie uses,
+    so Holly's gate AGREES with the fleet) AND the regime_history log (the granular BULL_CROSS/
+    CAUTIOUS_BEAR taxonomy the 180-day test segmented on). would_bench if EITHER flags bear/
+    crisis — the fleet source returns plain 'CAUTIOUS' and can't distinguish CAUTIOUS_BEAR
+    (no edge) from CAUTIOUS_BULL (edge), so the UNION is the conservative, backtest-aligned read."""
+    fleet = "UNKNOWN"
+    try:
+        from engine.crew_scanner import _get_regime_from_8080
+        fleet = _get_regime_from_8080() or "UNKNOWN"
+    except Exception:
+        pass
+    hist = "UNKNOWN"
+    try:
+        c = _conn()
+        row = c.execute("SELECT regime FROM regime_history ORDER BY date DESC LIMIT 1").fetchone()
+        c.close()
+        if row:
+            hist = row["regime"]
+    except Exception:
+        pass
+    def _bench(r):
+        u = (r or "").upper()
+        return ("BEAR" in u) or ("CRISIS" in u)
+    return {"fleet": fleet, "history": hist, "would_bench": _bench(fleet) or _bench(hist)}
+
+
 # ── ENTRY LOOP ────────────────────────────────────────────────────────────────
 def holly_scanner_check(dry_run: bool = False) -> list[dict]:
     """Scan the validated universe for fresh works-set setups; open positions. Returns the
-    list of actions taken (or intended, if dry_run). FAIL-LOUD on any error."""
+    list of actions taken (or intended, if dry_run). FAIL-LOUD on any error.
+
+    REGIME GATE is SHADOW-ONLY: a would-bench-vs-trade decision is logged each cycle to
+    holly_regime_gate_shadow, but it does NOT block trades yet (the strategy trades live
+    unchanged). Promote to live only after eyes-on of the shadow log."""
     from engine.holly_intraday import HOLLY_WORKS, _fetch_polygon_ohlcv
     from engine.market_data import get_stock_price
 
@@ -135,6 +182,8 @@ def holly_scanner_check(dry_run: bool = False) -> list[dict]:
     conn = _conn()
     try:
         _init_swing_table(conn)
+        _init_regime_shadow(conn)
+        gate = _holly_regime_gate()   # SHADOW — read but don't block
         universe = _holly_universe()
         if not universe:
             _notify_fail("empty universe (universe_scan has no $1-50 vol≥2 movers)")
@@ -200,6 +249,24 @@ def holly_scanner_check(dry_run: bool = False) -> list[dict]:
                                     symbol, strat, price, stop, target)
             except Exception as e:
                 _notify_fail(f"scan error {symbol}: {type(e).__name__}: {e}")
+
+        # REGIME GATE — SHADOW log (does NOT block; trades above executed live as-is).
+        # Records what the gate WOULD do this cycle so it can be verified before going live.
+        try:
+            verb = "BENCH" if gate["would_bench"] else "TRADE"
+            note = (f"regime={verb}: fleet={gate['fleet']} history={gate['history']} | "
+                    f"{len(actions)} setup(s) this cycle "
+                    f"{'WOULD BE SUPPRESSED' if gate['would_bench'] else 'traded'} (SHADOW — not blocked)")
+            conn.execute(
+                "INSERT INTO holly_regime_gate_shadow "
+                "(checked_at,fleet_regime,history_regime,would_bench,setups_this_cycle,note) "
+                "VALUES (?,?,?,?,?,?)",
+                (datetime.now(timezone.utc).isoformat(), gate["fleet"], gate["history"],
+                 1 if gate["would_bench"] else 0, len(actions), note))
+            conn.commit()
+            logger.info("[holly_live][REGIME-GATE-SHADOW] %s", note)
+        except Exception as e:
+            logger.warning("[holly_live] regime-gate shadow log error: %s", e)
     finally:
         conn.close()
     return actions
