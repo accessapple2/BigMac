@@ -2192,4 +2192,25 @@ def run_master_backtest(days: int = BACKTEST_DAYS, compare: bool = True) -> dict
     else:
         summary["comparison"] = None
 
+    # ── HM-VALIDATION-RIGOR: deflated Sharpe beside raw (report-only, no DB write) ──
+    # Raw Sharpe is never the last word — attach SR0 (selection hurdle) + DSR per
+    # strategy. Import-guarded + try/except so it can NEVER break the backtest.
+    try:
+        from strategies import validation as _V
+        _top = summary.get("top10_strategies", []) or []
+        _trials = [{"name": r.get("strategy", "?"),
+                    "sharpe": float(r.get("realistic_sharpe") or r.get("avg_sharpe") or 0),
+                    "T": int(r.get("num_trades") or r.get("total_trades") or 0),
+                    "skew": 0.0, "kurt": 3.0} for r in _top]
+        if len(_trials) >= 2:
+            _rep = _V.deflate_ranking(_trials, n_trials=summary.get("strategies_run") or len(_trials))
+            summary["deflation"] = _rep
+            _npass = sum(1 for x in _rep["ranking"] if x["dsr_passes"])
+            logger.info("[HM-VALIDATION-RIGOR] SR0(null,N=%d)=%.3f  DSR-pass %d/%d "
+                        "(gate DSR>=%.2f AND PBO<=%.2f) — raw Sharpe never shown alone",
+                        _rep["n_trials"], _rep["sr0"], _npass, len(_rep["ranking"]),
+                        _V.DSR_GRADUATE, _V.PBO_GRADUATE)
+    except Exception as _e:
+        logger.debug("deflation report skipped: %s", _e)
+
     return summary
