@@ -238,6 +238,11 @@ def _classify(cadence_class: str, source_id: str, age_s: float) -> str:
         return GREEN if age_s <= 5400 else AMBER if age_s <= 4 * 3600 else RED
     if c == "daily":
         return GREEN if age_s <= _DAY else AMBER if age_s <= 2 * _DAY else RED
+    if c == "daily_batch":  # once-per-trading-day morning batch (e.g. shadow signal
+        # bridge). GREEN within ~1 trading day of the last batch; small grace; RED once
+        # >1 day with no new batch so a DEAD bridge still trips (market-aware age, so
+        # weekends/holidays don't false-trip).
+        return GREEN if age_s <= _DAY else AMBER if age_s <= _DAY + 10800 else RED
     if c == "weekly":
         return GREEN if age_s <= 7 * _DAY else AMBER if age_s <= 14 * _DAY else RED
     if c == "monthly":
@@ -357,7 +362,7 @@ def all_health(now_utc: Optional[datetime] = None) -> Dict[str, Any]:
     sources = [source_freshness(sid, now_utc) for sid in ids]
     order = {RED: 0, UNKNOWN: 1, AMBER: 2, GREEN: 3, RETIRED: 4}
     sources.sort(key=lambda s: order.get(s.get("state"), 9))
-    summary = {"green": 0, "amber": 0, "red": 0, "quarantined": 0,
+    summary = {"green": 0, "amber": 0, "red": 0, "unknown": 0, "quarantined": 0,
                "retired": 0, "total": len(sources)}
     for s in sources:
         if s.get("quarantined"):
@@ -369,7 +374,11 @@ def all_health(now_utc: Optional[datetime] = None) -> Dict[str, Any]:
             summary["amber"] += 1
         elif st == RETIRED:
             summary["retired"] += 1
-        elif st in (RED, UNKNOWN):
+        elif st == UNKNOWN:
+            # UNKNOWN-by-design (manual/idle snapshot sources: metals, schwab w/ no CSV)
+            # is NOT a fault — own bucket, render grey, do NOT inflate the RED alarm count.
+            summary["unknown"] += 1
+        elif st == RED:
             summary["red"] += 1
     return {"summary": summary, "sources": sources}
 

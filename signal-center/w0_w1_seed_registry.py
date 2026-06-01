@@ -20,7 +20,7 @@ DB_PATH = os.path.join(os.path.dirname(os.path.abspath(__file__)), "signals.db")
 # (source_id, display_name, endpoint, cadence_class, criticality, ts_field, ts_format, enabled, notes)
 ROWS = [
     # ── signal-center DB-backed sources (no network) ──────────────────────────
-    ("signals",          "Trade Signals",     "(signals.db)",          "intraday", "live_decision", "created_at",   "db_max:trade_signals.created_at",   1, "canonical signal feed; scored by W0"),
+    ("signals",          "Trade Signals",     "(signals.db)",          "daily_batch", "live_decision", "created_at",   "db_max:trade_signals.created_at",   1, "shadow/observation feed (executor boundary hardened — not driving trades). Emits a once-daily morning batch via the bridge; reclassed intraday→daily_batch 2026-06-01 (GREEN within ~1 trading day of last batch; RED >1 day so a dead bridge still trips)."),
     ("predictions",      "Predictions",       "(signals.db)",          "daily",    "context",       "created_at",   "db_max:predictions.created_at",     1, "legacy daily snapshot predictions"),
     ("signal_outcomes",  "Signal Outcomes",   "(signals.db)",          "hourly",   "context",       "last_updated", "db_max:signal_outcomes.last_updated", 1, "path-aware tracker; W0 substrate parent. CADENCE: run_signal_scorecard is HOURLY — intraday 15m-GREEN band was a structural false-red (2026-06-01)"),
     ("intelligence",     "Intelligence Feed", "(signals.db)",          "daily",    "context",       "created_at",   "db_max:intelligence_feed.created_at", 1, ""),
