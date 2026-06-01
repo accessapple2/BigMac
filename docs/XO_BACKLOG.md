@@ -18,9 +18,9 @@ flow_gex.db write stays the validation series.
 **RETIRED (dormant, code+DB tables PRESERVED — do NOT delete):**
 - `engine/gex_scanner.py` (CBOE delayed) — job `run_gex_refresh` DISABLED (main.py).
 - `engine/gex_calculator.py` (Alpaca) — job `run_alpaca_gex_refresh` DISABLED.
-- `engine/gex_overlay.py` (CBOE OI / king-node DB) — job `run_gex_overlay_update` DISABLED. NOTE: still
-  referenced by `/api/gex-overlay/heatmap` (7137) + app.py:13863 — those compute on-demand now (cron off);
-  repoint-or-retire is a small follow-up.
+- `engine/gex_overlay.py` (CBOE OI / king-node DB) — job `run_gex_overlay_update` DISABLED; `/api/gex-overlay/heatmap`
+  + the symbol-detail `gex_levels` (app.py) REPOINTED to `_canonical_gex` 2026-05-31. **gex_overlay now has ZERO live
+  refs in app.py — fully dormant.** Consolidation 100%: every GEX route (heatmap included) resolves to the single source.
 Commit 5f04271→(this). Browser-smoke to auth boundary only (dashboard 2FA-gated); Admiral does final visual.
 
 ### ✅ HM-PRODUCER-RETIRE — 2 legacy signal producers RETIRED (2026-05-31)

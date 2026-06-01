@@ -7092,11 +7092,15 @@ def gex_overlay_levels(symbol: str = "SPY"):
 
 @app.get("/api/gex-overlay/heatmap")
 def gex_overlay_heatmap(symbol: str = "SPY"):
-    """Per-strike GEX data for heatmap visualization (call_gex, put_gex, net_gex)."""
+    """Per-strike GEX (call_gex, put_gex, net_gex) — HM-GEX-CANONICAL: served from the
+    single canonical source (engine.options_flow_gex). Legacy engine.gex_overlay dormant."""
     try:
-        from engine.gex_overlay import get_heatmap_data
-        strikes = get_heatmap_data(symbol.upper())
-        return {"symbol": symbol.upper(), "strikes": strikes, "count": len(strikes)}
+        c = _canonical_gex(symbol)
+        if c.get("error"):
+            return {"error": c["error"], "strikes": [], "count": 0}
+        strikes = c.get("strikes", [])
+        return {"symbol": c.get("underlying", symbol.upper()), "strikes": strikes,
+                "count": len(strikes), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")"}
     except Exception as e:
         return {"error": str(e), "strikes": [], "count": 0}
 
@@ -13816,15 +13820,17 @@ def chart_data(symbol: str = "SPY", timeframe: str = "1Day", bars: int = 200):
 
     # ── GEX levels ─────────────────────────────────────────────────────────
     try:
-        from engine.gex_overlay import get_latest_gex
-        _gex = get_latest_gex(symbol.upper())
-        if _gex:
+        # HM-GEX-CANONICAL: single canonical source (engine.options_flow_gex), gex_overlay dormant.
+        _c = _canonical_gex(symbol)
+        if not _c.get("error"):
+            _spot = _c.get("spot"); _flip = _c.get("gamma_flip")
+            _stable = (_spot is not None and _flip is not None and _spot >= _flip)
             result["gex_levels"] = {
-                "gamma_flip": _gex.get("gamma_flip"),
-                "call_wall":  _gex.get("call_wall"),
-                "put_wall":   _gex.get("put_wall"),
-                "king_node":  _gex.get("king_node"),
-                "regime":     _gex.get("regime", "unknown"),
+                "gamma_flip": _flip,
+                "call_wall":  _c.get("call_wall"),
+                "put_wall":   _c.get("put_wall"),
+                "king_node":  _c.get("king_node"),
+                "regime":     ("stable (above flip)" if _stable else "volatile (below flip)"),
             }
     except Exception:
         pass
