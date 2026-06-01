@@ -528,7 +528,7 @@ SI=F, HG=F, PL=F, PA=F.
   and remains live.
 
 ### Fleet count truth (live DB)
-**20 active**, 6 `exit_only`, 45 `full` (as of 2026-05-28). `alpaca-mirror`,
+**21 active**, 6 `exit_only`, 45 `full` (as of 2026-06-01; DB-verified). `alpaca-mirror`,
 `mlx-qwen3`, `red-alert` season-1 carryovers are now `halt_mode='full'` (no
 longer active).
 

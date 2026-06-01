@@ -16698,13 +16698,22 @@ def get_kirk_advisory(source: str = "paper"):
                 msg = f"Flat at {pnl_pct:+.1f}%. No action."
             enriched.append({**pos, "action": action, "pnl_pct": pnl_pct,
                              "current_price": current_price, "message": msg})
-        # Try to pull live market context
+        # Live market context. HM repoint 2026-06-01: `engine.regime_indicators` was a
+        # DEAD import (module removed) so the except ALWAYS fired → the bridge-Kirk panel
+        # was stuck at a silent F&G 50 / VIX 20 placeholder. Read the real live accessors
+        # and stamp as_of; on failure show n/a (None), never a fabricated 50/20.
+        fg = vix = None
+        fg_vix_source = "unavailable"
         try:
-            from engine.regime_indicators import get_fg_score, get_vix_level
-            fg = get_fg_score()
-            vix = get_vix_level()
-        except Exception:
-            fg, vix = 50, 20
+            from engine.fear_greed import get_fear_greed_index
+            from engine.market_data import get_vix
+            fg = (get_fear_greed_index() or {}).get("score")
+            vix = get_vix()
+            fg_vix_source = "live"
+        except Exception as _ctx_e:
+            logger.warning(f"kirk advisory: live F&G/VIX unavailable ({_ctx_e}) — showing n/a")
+        fg_vix_as_of = datetime.now(timezone.utc).isoformat()
+        fg_txt = f"F&G {fg}" if fg is not None else "F&G n/a"
         # Smarter cash recommendation
         total_mv = sum(
             float(_re.search(r"market_value=\$([+-]?\d+\.?\d*)", pos.get("notes","")).group(1))
@@ -16716,7 +16725,7 @@ def get_kirk_advisory(source: str = "paper"):
         if real_cash < 100:
             cash_action, cash_reason = "DEPLOYED", "Fully deployed. Cash reserve minimal."
         elif cash_pct > 50:
-            cash_action, cash_reason = "WAIT", f"{cash_pct:.0f}% cash — high reserve. F&G {fg}: be selective."
+            cash_action, cash_reason = "WAIT", f"{cash_pct:.0f}% cash — high reserve. {fg_txt}: be selective."
         elif cash_pct > 20:
             cash_action, cash_reason = "READY", f"{cash_pct:.0f}% cash available for opportunities."
         else:
@@ -16726,10 +16735,11 @@ def get_kirk_advisory(source: str = "paper"):
             "source_label": "Real (Schwab + Webull + IBKR + TradeStation)",
             "positions": enriched,
             "real_cash_available": real_cash,
-            "market_context": {"fg_score": fg, "vix": vix, "gex_regime": "stable", "put_wall": None},
+            "market_context": {"fg_score": fg, "vix": vix, "gex_regime": "stable",
+                                "put_wall": None, "as_of": fg_vix_as_of, "source": fg_vix_source},
             "cash": real_cash,
             "cash_recommendation": {"action": cash_action, "reasoning": cash_reason},
-            "generated_at": None,
+            "generated_at": fg_vix_as_of,
         }
 
     if source == "all":
