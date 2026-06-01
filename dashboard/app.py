@@ -14069,8 +14069,9 @@ def scanner_status():
     import time, pytz
     from datetime import datetime as _dt
     from engine.risk_manager import RiskManager
-    from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
-    now = az_now()
+    # Option A (2026-06-01): timestamp emitted in UTC below so the TimezoneRoute
+    # middleware localizes it to AZ exactly ONCE (like movers). Emitting AZ here was
+    # double-converted by the middleware (-7h → 05:xx). az_now() not needed for this.
     # HM-OVERNIGHT item 4: phase AND market_open both derive from the ONE source
     # of truth (engine/market_calendar) — handles weekends/holidays/early-close, so
     # phase can never contradict market_open (the old time-bins ignored holidays).
@@ -14094,7 +14095,7 @@ def scanner_status():
             "tier3": {"name": "Cadets", "interval_min": 240, "members": 10},
         },
         "active_tier": 1 if market_open else (2 if phase in ("pre-market", "after-hours") else 0),
-        "timestamp": now.isoformat(),
+        "timestamp": _dt.now(timezone.utc).isoformat(),  # UTC → middleware localizes once
     }
 
 
@@ -15516,7 +15517,7 @@ def holdings_top():
                     print(f"holdings_top refresh failed: {_e}")
                     # Always update timestamp so we don't serve perpetually stale data
                     _swr_cache[cache_key] = {"data": {"winners": [], "losers": [],
-                        "timestamp": datetime.now().isoformat()}, "ts": _t.time()}
+                        "timestamp": datetime.now(timezone.utc).isoformat()}, "ts": _t.time()}
                 finally:
                     _swr_refreshing.discard(cache_key)
                     _swr_locks[cache_key].release()
@@ -15551,7 +15552,7 @@ def _compute_holdings_top():
         conn.close()
 
     if not rows:
-        return {"winners": [], "losers": [], "timestamp": datetime.now().isoformat()}
+        return {"winners": [], "losers": [], "timestamp": datetime.now(timezone.utc).isoformat()}
 
     symbols = list({r["symbol"] for r in rows})
     price_map = {}
@@ -15607,7 +15608,7 @@ def _compute_holdings_top():
     return {
         "winners": winners,
         "losers": losers,
-        "timestamp": datetime.now().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
     }
 
 

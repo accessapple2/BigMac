@@ -37,3 +37,19 @@ green; sacred-data; revert-on-failure. Report shipped vs held vs scoped.
 - bridge-Kirk root cause: `engine.regime_indicators` module deleted → except always fired → silent 50/20.
 - W1 tracker: tick1 alerts 'signals' RED; tick3 recommends quarantine (report-only, no auto-disable).
 - Restart gate: both services clean, boundary held, season/Troi/W1/Kirk all green.
+
+## CORRECTION 2026-06-01 (HM-TZ-AZNOW root cause) — was NOT pytz
+The scanner_status/holdings_top 7h skew is NOT pytz-singleton corruption (that diagnosis
+was WRONG). Real cause = `dashboard/app.py` **TimezoneRoute middleware + _to_arizona** (line
+670/687): it assumes EVERY response timestamp string is UTC and shifts -7h. Endpoints that
+emit AZ (scanner_status, holdings_top) get DOUBLE-converted → 05:xx. Endpoints that emit UTC
+(movers) convert once → correct. pytz/now(az) were always fine (clean-process tests bypass
+the middleware). The az_now() swaps (f6abebc, e9dbd6d) are harmless+correct but were not the
+fix; kept per Admiral as defensive no-ops.
+- **Option A (this commit):** scanner_status + holdings_top → emit `datetime.now(timezone.utc)`
+  so the middleware localizes ONCE (movers parity). Dormant; activates on after-close restart.
+- **SECOND bug found (separate, NOT fixed):** `source_gate._market_aware_age` localizes naive
+  bridge timestamps as **ET** (`mc.ET.localize`) but the middleware emits **AZ** (-7) → ~3h
+  false-staleness on ALL bridge_iso intraday sources. PROOF: movers fresh (as_of=now) reads
+  age=3h→RED. So Option A fixes the DISPLAY but the grid RED for scanner_status/holdings_top/
+  movers likely persists (~3h) until this ET↔AZ mismatch is reconciled (bundle with Option B).
