@@ -1,0 +1,73 @@
+{
+  "setup": "relative_strength (decorrelated grid)",
+  "T_days": 115,
+  "N_configs": 144,
+  "date_range": [
+    "2025-11-07",
+    "2026-04-24"
+  ],
+  "axes": {
+    "lookbacks": [
+      40,
+      60,
+      90
+    ],
+    "pct": [
+      70,
+      85
+    ],
+    "triggers": [
+      "level",
+      "breakout",
+      "trend",
+      "accel"
+    ],
+    "holds": [
+      3,
+      10
+    ],
+    "slices": [
+      "all",
+      "liquid",
+      "illiquid"
+    ]
+  },
+  "slice_sizes": {
+    "all": 494,
+    "liquid": 247,
+    "illiquid": 247
+  },
+  "mean_abs_corr_new": 0.6308,
+  "mean_abs_corr_old_grid": 0.8941,
+  "decorrelated": true,
+  "pbo": 0.6348,
+  "fragile": true,
+  "n_splits": 9330,
+  "median_logit": -0.7348,
+  "purge": 10,
+  "embargo": 10,
+  "sharpe_median": 1.914,
+  "sharpe_top5": [
+    [
+      "Uilliquid_L90_P85_breakout_H10",
+      3.194
+    ],
+    [
+      "Uliquid_L90_P85_level_H3",
+      3.193
+    ],
+    [
+      "Uliquid_L90_P85_trend_H3",
+      3.179
+    ],
+    [
+      "Uliquid_L90_P85_trend_H10",
+      3.176
+    ],
+    [
+      "Uilliquid_L40_P70_breakout_H3",
+      3.136
+    ]
+  ],
+  "verdict": "GENUINELY FRAGILE \u2014 PBO>=0.30 on a decorrelated grid \u2192 DO NOT graduate"
+}
