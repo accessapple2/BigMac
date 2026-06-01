@@ -9135,8 +9135,14 @@ _FLEET_CORE_IDS = frozenset(_load_fleet_active_ids())
 def get_performance(model: str = None, season: int = None, fleet_only: bool = False):
     """Get overall performance statistics, filtered by season."""
     conn = _conn()
-    # Default to current season
-    if season is None:
+    # Default to current season. NOTE: also treat season == 0 as "current" —
+    # the dashboard's fetchStats() can fire with currentSeason still at its
+    # init value 0 (before the leaderboard fetch corrects it to the live
+    # season), and a literal season=0 matches no rows (seasons are 1..N) →
+    # the S6 summary zeroed out (Total P&L $0 / 0 trades / PF 0.00) while
+    # per-agent + Fleet Report Card stayed intact. season == -1 (all-seasons)
+    # is preserved by the branch below.
+    if season is None or season == 0:
         s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
         season = int(s_row["value"]) if s_row else 2
 
@@ -15993,46 +15999,13 @@ def fear_greed():
 
 
 def _canonical_gex(symbol: str) -> dict:
-    """SINGLE canonical GEX for a symbol (HM-GEX-CANONICAL 2026-05-31). Priority:
-    1) intraday in-process cache (engine.options_flow_gex, refreshed ~15m RTH by
-       main.run_gex_snapshot_refresh), 2) latest daily row in flow_gex.db,
-    3) live compute. Every Bridge GEX endpoint reshapes THIS one source —
-    Polygon-native, gamma×OI, BS-re-gamma flip, ±20%/≤60DTE band. Observation-only."""
-    sym = (symbol or "").upper()
-    try:
-        from engine import options_flow_gex as _ofg
-        latest = _ofg.get_latest()
-        d = (latest.get("data") or {}).get(sym)
-        if d and d.get("gex") and not d["gex"].get("error"):
-            g = dict(d["gex"]); g["_asof"] = latest.get("ts"); g["_src"] = "intraday-cache"
-            return g
-    except Exception:
-        pass
-    try:
-        import sqlite3 as _sq, json as _json
-        from pathlib import Path as _P
-        dbp = _P(__file__).parent.parent / "data" / "flow_gex.db"
-        conn = _sq.connect(str(dbp)); conn.row_factory = _sq.Row
-        r = conn.execute("SELECT * FROM gex_snapshots WHERE underlying=? ORDER BY id DESC LIMIT 1",
-                         (sym,)).fetchone()
-        conn.close()
-        if r:
-            ps = _json.loads(r["per_strike_json"] or "{}")
-            strikes = [{"strike": float(k), "net_gex": v} for k, v in sorted(ps.items(), key=lambda kv: float(kv[0]))]
-            magnets = sorted(strikes, key=lambda x: -abs(x["net_gex"]))[:5]
-            king = max(ps, key=lambda k: abs(ps[k])) if ps else None
-            return {"underlying": sym, "spot": r["spot"], "total_gex": r["total_gex"], "regime": r["regime"],
-                    "gamma_flip": r["gamma_flip"], "call_wall": r["call_wall"], "put_wall": r["put_wall"],
-                    "king_node": (float(king) if king is not None else None), "magnets": magnets,
-                    "strikes": strikes, "_asof": r["asof"], "_src": "daily-flow_gex.db"}
-    except Exception:
-        pass
-    try:
-        from engine import options_flow_gex as _ofg
-        g = _ofg.compute_gex(sym); g["_src"] = "live-compute"
-        return g
-    except Exception as e:
-        return {"underlying": sym, "error": f"{type(e).__name__}: {e}"}
+    """SINGLE canonical GEX for a symbol (HM-GEX-CANONICAL 2026-05-31).
+    Delegates to engine.canonical_gex.canonical_gex — the importable source of
+    truth so non-dashboard consumers (Ready Room / Troi) read the SAME numbers
+    without a dashboard→engine import inversion. Every Bridge GEX endpoint
+    reshapes THIS one source. Observation-only."""
+    from engine.canonical_gex import canonical_gex as _cg
+    return _cg(symbol)
 
 
 @app.get("/api/gex-snapshot")

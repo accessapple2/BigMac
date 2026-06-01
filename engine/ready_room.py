@@ -494,6 +494,31 @@ def generate_ready_room_briefing(force: bool = False) -> dict:
     total_gex   = profile.total_gex
     levels      = profile.levels  # list[GEXLevel]
 
+    # ── HM-GEX-CANONICAL repoint ──────────────────────────────────────────
+    # The headline walls/flip surfaced to Troi (via red_alert → dynamic_advisor)
+    # MUST come from the canonical Polygon source, not the legacy Alpaca
+    # gex_calculator above (the one consumer the consolidation missed — it was
+    # citing put_wall 740 / flip 749 vs canonical 750 / 755). The legacy
+    # `profile` is retained ONLY for per-strike OI (`levels`), which the
+    # canonical daily row does not persist — the P/C ratio + max-pain below
+    # still consume `levels`. Overlay is best-effort: on canonical error the
+    # legacy values stand (no regression vs prior behavior).
+    try:
+        from engine.canonical_gex import canonical_gex as _canon_gex
+        _c = _canon_gex("SPY")
+        if _c and not _c.get("error"):
+            if _c.get("spot") is not None:       spot       = _c["spot"]
+            if _c.get("call_wall") is not None:  call_wall  = _c["call_wall"]
+            if _c.get("put_wall") is not None:   put_wall   = _c["put_wall"]
+            if _c.get("gamma_flip") is not None: gamma_flip = _c["gamma_flip"]
+            if _c.get("king_node") is not None:  max_gamma  = _c["king_node"]
+            if _c.get("total_gex") is not None:  total_gex  = _c["total_gex"]
+            console.log(f"[dim]ReadyRoom: GEX walls from canonical "
+                        f"({_c.get('_src')}): put_wall={put_wall} flip={gamma_flip}")
+    except Exception as _ce:
+        console.log(f"[yellow]ReadyRoom: canonical GEX overlay skipped ({_ce}); "
+                    f"using legacy walls")
+
     # ── 2. VIX ────────────────────────────────────────────────────────────
     vix = _get_vix()
 
