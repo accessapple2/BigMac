@@ -96,3 +96,31 @@ Applied (data preserved, archive-never-rm):
   `signals` demoted `live_decision→context` so consensus won't flag degraded on their absence.
 - **HELD:** consensus gate activation needs the trader restart — not done (held for explicit GO). riker_synthesis
   (UNKNOWN, live_decision, pre-existing) remains a separate degraded-flag source / W1 follow-up.
+
+═══════════════════════════════════════════════════════════════════════════════════════
+## UPDATE 2026-06-01 — TWO MORE DEAD/STALLED PRODUCERS (DOC-ONLY, NOT APPLIED)
+═══════════════════════════════════════════════════════════════════════════════════════
+Surfaced while hardening the signal-center Morpheus operator (HM-OVERNIGHT items 1/3). **Nothing
+revived — Admiral-gated alongside the ~24 LaunchAgents above. Diagnosis + proposed re-home only.**
+
+### 🟡 Kirk-advisory producer — DEAD since 2026-05-18 (re-home candidate)
+| signal | detail |
+|---|---|
+| symptom | `kirk_advisory_log` (data/trader.db) last write **2026-05-18 02:54:50** — 14d stale at audit. |
+| consumer | signal-center Oracle surface (`_morpheus_load_kirk_advisory_recent` → `/api/morpheus/awareness`). |
+| now flagged | **APPLIED (item 3):** `kirk_advisory` registered in `source_registry` (daily, context,
+  `db_max:trader:kirk_advisory_log.created_at`) → `/api/sources/health` renders **RED, 14d**. So the
+  dead feed is now *visible*; it is not *re-homed*. |
+| producer | whatever writes `kirk_advisory_log` (Kirk/Oracle advisory job). **Not yet located on disk** — likely
+  another `gui/501` LaunchAgent caught by the reboot-survival-gap, or an in-process hook that stopped firing.
+  **TODO before re-home:** locate the producer, confirm dead-vs-disabled, then `@reboot`/cron re-home paired
+  with Caveat-1 plist-disable (same playbook as the Tier-1/2 jobs above). |
+| risk if revived blindly | none to the executor (advisory surface is observation-only; no order path), but
+  honor Caveat 1 (no double-fire) when re-homing. |
+
+### 🟢 Riker synthesis — FEED-DEPENDENT, not an independently-dead daemon
+`riker_synthesis` flags UNKNOWN/stale (`rikers_log` entry_type='synthesis' last fresh row **2026-05-23**), but
+this is **not** a dead-producer case in the graveyard sense: the XO synthesis job still **fires** — it is
+**starved of upstream input** and emits nothing fresh. It will **un-freeze on its own when the feed it
+synthesizes returns**; it does **not** need a separate `@reboot`/cron re-home. Do **not** add it to the
+restore list — track it as a *feed-dependency* follow-up (W1), distinct from the launchd-lifecycle deaths.
