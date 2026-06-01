@@ -1596,6 +1596,29 @@ def morpheus_awareness():
                 {"source": name, "error": f"{type(e).__name__}: {e!r}"}
             )
 
+    # HM-OVERNIGHT item 3: the Matrix header binds scoreRegime(data.regime) +
+    # scoreVix(data.vix); awareness previously lacked both → header rendered
+    # UNKNOWN / "—". Add them (resilient; shapes match the JS: regime.regime,
+    # vix.current.vix). total_records added for parity (db-stats are served by
+    # /api/stats via loadStats(), which is a separate frontend path).
+    try:
+        _adb = get_db()
+        _rg = _adb.execute("SELECT regime FROM predictions WHERE regime IS NOT NULL "
+                           "ORDER BY snap_date DESC LIMIT 1").fetchone()
+        awareness["total_records"] = _adb.execute("SELECT COUNT(*) FROM signal_history").fetchone()[0]
+        _adb.close()
+        _rgs = (_rg["regime"] if _rg else "") or "UNKNOWN"
+        awareness["regime"] = {"regime": _rgs, "label": _rgs}
+    except Exception:
+        pass
+    try:
+        _vd = _bridge_get('/api/regime', timeout=4)
+        _vx = (_vd or {}).get("vix") if isinstance(_vd, dict) else None
+        if _vx:
+            awareness["vix"] = {"current": {"vix": float(_vx)}}
+    except Exception:
+        pass
+
     # Daily-snapshot capture (idempotent first-of-day)
     try:
         awareness["daily_snapshot_inserted_this_call"] = _morpheus_daily_snapshot_capture(awareness)

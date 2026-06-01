@@ -237,3 +237,22 @@ coin-flip artifact, not a real read). bull_flag clears DSR at 3d/5d only.
 
 **All execution remains OFF; all frontend HELD for your browser smoke; no bare launchd touched;
 no .db deleted; nothing left broken.**
+
+## GROUP A SHIPPED — 2026-06-01 (Admiral approved; relabel Master-Score)
+All py_compile clean; signal-center + trader restarted (canonical), single-writer verified.
+- **(3) Morpheus header — SHIPPED.** Added `regime{regime,label}` + `vix{current:{vix}}` + `total_records`
+  to `/api/morpheus/awareness`. Verified: regime=BULL, vix=15.78, total_records=90192 → header
+  `scoreRegime(data.regime)`/`scoreVix(data.vix)` now resolve. (db-records is a SEPARATE frontend
+  path — loadStats()→/api/stats, already works; not an awareness gap.)
+- **(4) Scanner clock — SHIPPED.** phase + market_open both from `engine/market_calendar`
+  (get_market_status/is_us_market_open). Verified: phase=pre-market, market_open=False, AGREE=True
+  (no more holiday/weekend contradiction).
+- **(5) Movers session-guard — SHIPPED.** `get_market_movers` returns last-session disk cache when
+  `not is_us_market_open()`. Correct + additive; live benefit is RTH-dependent (SWR cold right after
+  restart; disk-cache source warms during RTH). Not broken.
+- **(6) Master-Score RELABEL — SHIPPED.** Header "Score:"→"Composite:" (the weighted indicator
+  composite, ~61); Matrix "Master Score"/"Score:"→"Top Pick Score"/"Top Pick:" (the top single
+  pick, =100). Two distinct metrics now distinctly labeled.
+- **(7) /api/health idle-sentinels — SHIPPED.** null→"idle" for last_ollama_success/dayblade_last_scan,
+  "unknown" for websocket_status, {"status":"idle"} for scan_health. Verified.
+Restarts: 1 signal-center (3,6) + 1 trader via trader_restart.sh (4,5,7). Nothing reverted; nothing broken.

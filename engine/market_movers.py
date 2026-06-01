@@ -54,6 +54,15 @@ def get_market_movers() -> dict:
     """Get top 5 gainers, losers, and most active from the watchlist.
     Uses bulk Yahoo fetch (one request for all watchlist symbols).
     Falls back to disk cache if Yahoo is unavailable."""
+    # HM-OVERNIGHT item 5: when the market is CLOSED every symbol shows ~0% change,
+    # so live computation surfaces no gainers/losers (the "553/553 excluded" symptom).
+    # Serve the last SESSION's movers from disk cache instead (session-aware guard).
+    try:
+        from engine.market_calendar import is_us_market_open
+        if not is_us_market_open() and _movers_disk_cache.get("gainers"):
+            return {k: v for k, v in _movers_disk_cache.items() if k != "_ts"}
+    except Exception:
+        pass
     from engine.market_data import get_bulk_prices
 
     prices = get_bulk_prices(list(get_active_universe()), timeout=5)

@@ -485,7 +485,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   <div class="header-right">
     <span>Regime: <span class="hdr-val" id="h-regime">—</span></span>
     <span>VIX: <span class="hdr-val" id="h-vix">—</span></span>
-    <span>Score: <span class="hdr-val" id="h-score">—</span></span>
+    <span>Composite: <span class="hdr-val" id="h-score">—</span></span>
     <span>Updated: <span class="hdr-val" id="h-time">—</span></span>
     <div class="export-btns">
       <button class="export-btn" onclick="exportData('csv')">⬇ CSV</button>
@@ -734,7 +734,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       const scoreColor = score >= 80 ? '#22c55e' : score >= 60 ? '#f59e0b' : score >= 40 ? '#fb923c' : '#ef4444';
       const headRows = [
         { k: 'Date',         v: snap.date },
-        { k: 'Master Score', v: `<span style="color:${scoreColor};font-weight:700">${score != null ? score : '—'}</span>${grade ? ' (' + _esc(grade) + ')' : ''}` },
+        { k: 'Top Pick Score', v: `<span style="color:${scoreColor};font-weight:700">${score != null ? score : '—'}</span>${grade ? ' (' + _esc(grade) + ')' : ''}` },
         { k: 'Signals',      v: sigCount },
       ];
       // Top signal preview rows (render up to 3 from snap.top_signals)
@@ -1011,7 +1011,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
                     text-transform:uppercase;border-bottom:1px solid var(--border);
                     padding-bottom:6px;margin-bottom:8px;">📅 Daily Snapshot — ${_esc(snap.date)}</div>
         <div style="display:flex;gap:24px;font-size:13px;">
-          <span>Score: <b style="color:${scColor}">${sc != null ? sc : '—'}</b></span>
+          <span>Top Pick: <b style="color:${scColor}">${sc != null ? sc : '—'}</b></span>
           <span>Signals: <b>${snap.signal_count || 0}</b></span>
           ${snap.master_grade ? `<span>Grade: <b>${_esc(snap.master_grade)}</b></span>` : ''}
         </div>

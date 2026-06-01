@@ -3974,13 +3974,16 @@ def health_detail():
 
     return {
         "server_up": True,
-        "last_ollama_success": last_ollama_success,
+        # HM-OVERNIGHT item 7: explicit "idle" sentinels instead of null, so the W1
+        # health grid renders idle-not-broken (the sources are genuinely idle when
+        # the trader queue / dayblade / scan-health haven't produced data this session).
+        "last_ollama_success": last_ollama_success or "idle",
         "ollama_reachable": ollama_reachable,
-        "websocket_status": websocket_status,
+        "websocket_status": websocket_status or "unknown",
         "scheduler_errors": scheduler_errors,
-        "dayblade_last_scan": dayblade_last_scan,
+        "dayblade_last_scan": dayblade_last_scan or "idle",
         "uptime_minutes": uptime_minutes,
-        "scan_health": scan_health,
+        "scan_health": scan_health or {"status": "idle"},
     }
 
 
@@ -14062,17 +14065,20 @@ def scanner_status():
     from engine.risk_manager import RiskManager
     az = pytz.timezone("US/Arizona")
     now = _dt.now(az)
-    h = now.hour + now.minute / 60.0
-    # Market phases (MST = Arizona = US/Arizona, no DST)
-    if 4.0 <= h < 6.5:
-        phase = "pre-market"
-    elif 6.5 <= h < 13.0:
+    # HM-OVERNIGHT item 4: phase AND market_open both derive from the ONE source
+    # of truth (engine/market_calendar) — handles weekends/holidays/early-close, so
+    # phase can never contradict market_open (the old time-bins ignored holidays).
+    from engine.market_calendar import get_market_status, is_us_market_open, MarketStatus
+    _status = get_market_status()
+    market_open = is_us_market_open()
+    if _status == MarketStatus.OPEN:
         phase = "market-open"
-    elif 13.0 <= h < 16.0:
+    elif _status == MarketStatus.CLOSED_BEFORE_HOURS:
+        phase = "pre-market"
+    elif _status in (MarketStatus.CLOSED_AFTER_HOURS, MarketStatus.CLOSED_EARLY):
         phase = "after-hours"
-    else:
+    else:  # CLOSED_WEEKEND, CLOSED_HOLIDAY
         phase = "closed"
-    market_open = RiskManager.is_market_hours()
     return {
         "phase": phase,
         "market_open": market_open,
