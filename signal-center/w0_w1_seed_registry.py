@@ -22,9 +22,9 @@ ROWS = [
     # ── signal-center DB-backed sources (no network) ──────────────────────────
     ("signals",          "Trade Signals",     "(signals.db)",          "intraday", "live_decision", "created_at",   "db_max:trade_signals.created_at",   1, "canonical signal feed; scored by W0"),
     ("predictions",      "Predictions",       "(signals.db)",          "daily",    "context",       "created_at",   "db_max:predictions.created_at",     1, "legacy daily snapshot predictions"),
-    ("signal_outcomes",  "Signal Outcomes",   "(signals.db)",          "intraday", "context",       "last_updated", "db_max:signal_outcomes.last_updated", 1, "path-aware tracker; W0 substrate parent"),
+    ("signal_outcomes",  "Signal Outcomes",   "(signals.db)",          "hourly",   "context",       "last_updated", "db_max:signal_outcomes.last_updated", 1, "path-aware tracker; W0 substrate parent. CADENCE: run_signal_scorecard is HOURLY — intraday 15m-GREEN band was a structural false-red (2026-06-01)"),
     ("intelligence",     "Intelligence Feed", "(signals.db)",          "daily",    "context",       "created_at",   "db_max:intelligence_feed.created_at", 1, ""),
-    ("execution_log",    "Execution Log",     "(signals.db)",          "intraday", "context",       "executed_at",  "db_max:execution_log.executed_at",  1, ""),
+    ("execution_log",    "Execution Log",     "(signals.db)",          "weekly",   "context",       "executed_at",  "db_max:execution_log.executed_at",  1, "EVENT-DRIVEN (dispatcher direct-execute, sparse — 4 rows ever); fleet executes via `trades` not here. Reclassed intraday→weekly 2026-06-01 (intraday 1h-RED was a structural false-red)"),
     ("daily_snapshot",   "Daily Snapshot",    "(signals.db)",          "daily",    "context",       "created_at",   "db_max:daily_snapshot.created_at",  1, ""),
     # ── live-decision sources (these GATE consensus/expectancy when RED) ───────
     ("riker_synthesis",  "Riker Synthesis",   "/api/riker/synthesis",  "daily",    "live_decision", "timestamp",    "bridge_iso:/api/riker/synthesis:timestamp", 1, "XO 10-min roll-up; shown as Intelligence"),
@@ -37,12 +37,12 @@ ROWS = [
     ("movers",           "Movers",            "/api/movers",           "intraday", "context",       "fetched_at",   "bridge_iso:/api/movers:fetched_at", 1, ""),
     ("holdings_top",     "Holdings Top",      "/api/holdings-top",     "intraday", "context",       "timestamp",    "bridge_iso:/api/holdings-top:timestamp", 1, ""),
     ("morning_brief",    "Morning Brief",     "/api/morning-brief",    "daily",    "context",       "generated_at", "bridge_iso:/api/morning-brief:generated_at", 1, ""),
-    ("scanner_status",   "Scanner Status",    "/api/scanner/status",   "intraday", "context",       "fetched_at",   "bridge_iso:/api/scanner/status:fetched_at", 1, "best-effort ts; UNKNOWN if absent"),
+    ("scanner_status",   "Scanner Status",    "/api/scanner/status",   "intraday", "context",       "timestamp",    "bridge_iso:/api/scanner/status:timestamp", 1, "ts-field fix 2026-06-01: endpoint exposes `timestamp` not `fetched_at` (registry read a non-existent field → garbage freshness). Now reads the real ts."),
     # ── snapshot imports ──────────────────────────────────────────────────────
     ("schwab_snapshot",  "Schwab Snapshot",   "(CSV import)",          "snapshot", "context",       "mtime",        "file_mtime:/Users/bigmac/autonomous-trader/inbox/*.csv", 1, "3-day manual CSV import; cadence_days=3"),
     ("metals",           "Metals Holdings",   "(manual)",              "snapshot", "context",       "",             "manual", 1, "physical holdings; cadence_days=7"),
     # ── archive / quarantined (never live) ────────────────────────────────────
-    ("webull_trades",    "Webull Trades",     "/api/webull/trades",    "archive",  "archive",       "",             "none", 0, "ARCHIVE/NOT LIVE — liquidated 2026-02-27 (~94d); never in any live path"),
+    ("webull_trades",    "Webull Trades",     "/api/webull/trades",    "retired",  "retired",       "",             "none", 0, "RETIRED 2026-06-01 — Webull liquidated (broker gone); was rendering RED via archive→always-RED. Intentional death → RETIRED (grey), not a fault."),
 ]
 
 UPSERT = """

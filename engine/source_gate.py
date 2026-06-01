@@ -233,6 +233,9 @@ def _classify(cadence_class: str, source_id: str, age_s: float) -> str:
         return GREEN if age_s <= 60 else AMBER if age_s <= 300 else RED
     if c == "intraday":
         return GREEN if age_s <= 900 else AMBER if age_s <= 3600 else RED
+    if c == "hourly":   # hourly producers (e.g. signal_outcomes scorecard) — the
+        # intraday 15m-GREEN band is impossible for them; this band fits an hourly tick.
+        return GREEN if age_s <= 5400 else AMBER if age_s <= 4 * 3600 else RED
     if c == "daily":
         return GREEN if age_s <= _DAY else AMBER if age_s <= 2 * _DAY else RED
     if c == "weekly":
