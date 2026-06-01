@@ -3227,7 +3227,7 @@ _bs0dte_lock = threading.Lock()
 
 @_hm_bq_instr("run_battle_station_0dte_job")
 def run_battle_station_0dte_job() -> None:
-    """Rules-based 0DTE battle station — fires every 2 min during 9:45 AM - 2:30 PM ET."""
+    """Rules-based 0DTE battle station — fires every 5 min during 9:45 AM - 2:30 PM ET."""
     import pytz
     from datetime import datetime as _dt
     az = pytz.timezone("US/Arizona")

@@ -1,6 +1,7 @@
 """
 Battle Station 0DTE — Rules-based SPY 0DTE options agent.
-No Ollama. Pure math. Fires every 2 minutes during market hours.
+No Ollama. Pure math. Fires every 5 minutes during market hours
+(scheduled in main.py: schedule.every(5).minutes.do(run_battle_station_0dte_job)).
 
 Entry rules:
   CALL: SPY within 0.3% of put wall + momentum flipping positive + VIX < 30 + no open position
