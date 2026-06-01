@@ -53,11 +53,15 @@ def _init_db():
 
 def _already_fired(conn: sqlite3.Connection, alert_type: str, symbol: str) -> bool:
     """Return True if same alert fired within TTL window."""
-    cutoff = (datetime.utcnow() - timedelta(hours=ALERT_TTL_HOURS)).isoformat()
+    # FIX 2026-06-01: compare inside SQLite against datetime('now','-Nh') so BOTH sides are
+    # space-separated UTC. The old cutoff was utcnow().isoformat() (T-separated) vs the
+    # space-separated created_at (DEFAULT CURRENT_TIMESTAMP) → string compare (' ' 0x20 <
+    # 'T' 0x54 at char 10) was ALWAYS False → dedup NEVER fired → every poll re-emitted
+    # every alert (cards stacked; CEG got SELL+TRIM every 5-min cycle).
     row = conn.execute(
         "SELECT id FROM ship_computer_alerts "
-        "WHERE alert_type=? AND symbol=? AND created_at > ?",
-        (alert_type, symbol, cutoff),
+        "WHERE alert_type=? AND symbol=? AND created_at > datetime('now', ?)",
+        (alert_type, symbol, f"-{ALERT_TTL_HOURS} hours"),
     ).fetchone()
     return row is not None
 
@@ -148,12 +152,17 @@ def check_captains_portfolio() -> list[dict]:
                     logger.info("BIG_MOVE %s %+.1f%%", sym, pnl_pct)
 
         # ── Check for new SELL/TRIM advice ───────────────────────────────────
+        # Latest-action-per-symbol (MAX(id) GROUP BY symbol) so a symbol can't fire BOTH a
+        # TRIM and a SELL — only its most recent actionable advice alerts (2026-06-01).
         new_advice = conn.execute(
             "SELECT symbol, action, advisor, model_used, created_at "
             "FROM portfolio_advice "
-            "WHERE action IN ('SELL','TRIM') "
-            "  AND (expires_at IS NULL OR expires_at > datetime('now')) "
-            "  AND created_at > datetime('now', '-30 minutes')",
+            "WHERE id IN ("
+            "  SELECT MAX(id) FROM portfolio_advice "
+            "  WHERE action IN ('SELL','TRIM') "
+            "    AND (expires_at IS NULL OR expires_at > datetime('now')) "
+            "    AND created_at > datetime('now', '-30 minutes') "
+            "  GROUP BY symbol)",
         ).fetchall()
         for a in new_advice:
             sym = a["symbol"]

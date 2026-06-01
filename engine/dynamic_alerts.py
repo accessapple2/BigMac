@@ -78,10 +78,16 @@ def check_trendline_breaks(symbol: str, price: float, indicators: dict):
         return []
 
     alerts = []
+    # FIX 2026-06-01: require a GENUINE upward cross (prev_close < r <= price), not just
+    # price > r. The old `price > r` fired on ANY resistance below price — including levels
+    # the stock cleared long ago — so e.g. MRVL @ $219 "broke above $93.43" every poll.
+    # prev_close comes from detect_support_resistance (yesterday's close); paired with the
+    # above-spot resistance filter, only a fresh cross above a nearby level alerts.
+    prev = sr.get("prev_close")
 
     # Check resistance breaks (bullish breakout)
     for r in sr.get("resistance", []):
-        if price > r * 1.002:  # Confirmed break above (0.2% buffer)
+        if prev is not None and prev < r <= price:  # genuine upward cross of resistance
             key = f"resist_break_{symbol}_{r}"
             if _should_alert(key):
                 msg = f"BREAKOUT: {symbol} broke above resistance ${r:.2f} — now ${price:.2f}"
@@ -92,7 +98,7 @@ def check_trendline_breaks(symbol: str, price: float, indicators: dict):
 
     # Check support breaks (bearish breakdown)
     for s in sr.get("support", []):
-        if price < s * 0.998:  # Confirmed break below
+        if prev is not None and prev > s >= price:  # genuine downward cross of support
             key = f"support_break_{symbol}_{s}"
             if _should_alert(key):
                 msg = f"BREAKDOWN: {symbol} broke below support ${s:.2f} — now ${price:.2f}"

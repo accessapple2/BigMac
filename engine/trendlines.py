@@ -132,16 +132,13 @@ def detect_support_resistance(symbol: str, bars: dict | None = None) -> dict | N
         resistance_clusters = _cluster_levels(pivot_highs)
         support_clusters = _cluster_levels(pivot_lows)
 
-        # Filter: resistance above current price, support below
+        # Filter: resistance STRICTLY above current price, support STRICTLY below.
+        # FIX 2026-06-01: the old "pad to 3 with extra clusters" fallback re-added WRONG-SIDE
+        # levels — for uptrending stocks it stuffed below-spot pivots into `resistance`
+        # (e.g. MRVL res=[93,95,100] @ $219, APLS [18.03,...] @ $41), firing systematic false
+        # "broke above $X" alerts on levels long cleared. Return fewer rather than wrong-side.
         resistances = [r for r in resistance_clusters if r["level"] > current_price * 1.001]
         supports = [s for s in support_clusters if s["level"] < current_price * 0.999]
-
-        if len(resistances) < 3:
-            extra = [r for r in resistance_clusters if r not in resistances]
-            resistances.extend(extra[:3 - len(resistances)])
-        if len(supports) < 3:
-            extra = [s for s in support_clusters if s not in supports]
-            supports.extend(extra[:3 - len(supports)])
 
         top_resistance = sorted(resistances[:3], key=lambda x: x["level"])
         top_support = sorted(supports[:3], key=lambda x: x["level"], reverse=True)
@@ -154,6 +151,7 @@ def detect_support_resistance(symbol: str, bars: dict | None = None) -> dict | N
         result = {
             "symbol": symbol,
             "current_price": round(current_price, 2),
+            "prev_close": round(float(close.iloc[-2]), 2) if len(close) >= 2 else round(current_price, 2),
             "support": [s["level"] for s in top_support],
             "resistance": [r["level"] for r in top_resistance],
             "support_details": top_support,
