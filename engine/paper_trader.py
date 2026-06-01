@@ -659,6 +659,32 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             f"blocked — {_mkt_block_reason}"
         )
         return None
+
+    # ── HM-BRINGBACK SHADOW BOUNDARY 2026-05-31 — SINGLE executor chokepoint ──
+    # Observation-only signals (agent 'shadow-bridge:*', from engine/signal_bridge.py)
+    # must NEVER execute, regardless of which consumer calls buy(). Enforced ONCE here
+    # so a forgotten per-consumer skip can't leak. Markers: the 'shadow-bridge'/'[SHADOW'
+    # sentinel propagated via reasoning/sources, PLUS a signal_id->agent_name lookup when
+    # a signal_id is supplied. Fires BEFORE any side effect (events-bus emit, DB, broker).
+    _shadow_probe = (str(reasoning) + " " + str(sources)).lower()
+    _is_shadow = ("shadow-bridge" in _shadow_probe) or ("[shadow" in _shadow_probe)
+    if not _is_shadow and signal_id:
+        try:
+            import sqlite3 as _sq
+            from pathlib import Path as _P
+            _scdb = _P.home() / "autonomous-trader" / "signal-center" / "signals.db"
+            _c = _sq.connect(str(_scdb), timeout=3)
+            _r = _c.execute("SELECT agent_name FROM trade_signals WHERE id=?", (signal_id,)).fetchone()
+            _c.close()
+            if _r and str(_r[0] or "").startswith("shadow"):
+                _is_shadow = True
+        except Exception:
+            pass
+    if _is_shadow:
+        _last_rejection[player_id] = "[SHADOW-BOUNDARY] observation-only signal refused at executor"
+        console.log(f"[yellow][SHADOW-BOUNDARY] {player_id} BUY {symbol} refused — "
+                    f"observation-only signal (W0 forward-scoring only, no execution)")
+        return None
     # HM-SIGNAL-TRADE-FK 2026-05-20: signal_id is the rowid of the originating
     # row in `signals` returned by save_signal(). Optional — callers without
     # the signal_id in scope pass None, and the trade row stores NULL.

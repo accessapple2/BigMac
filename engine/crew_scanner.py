@@ -2162,10 +2162,13 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
       - Conviction guardrails
       - Earnings blackout, kill switch, fleet exposure, allocation policy
 
-    With neo-matrix.halt_mode='exit_only', every BUY here is observation-only:
-    paper_trader logs '[red]HALTED: neo-matrix (exit_only) — <reason>' and
-    returns None. The [HM-AN2] prefix on this function's own log lines makes
-    grep-by-prefix easy: `grep HM-AN2 logs/trader.log`.
+    ⚠️ CORRECTED 2026-05-31 (HM-BRINGBACK): neo-matrix is halt_mode='ACTIVE',
+    NOT 'exit_only' — this BUY path DOES execute (the prior docstring was stale
+    and led to a false safety assumption). neo is the sole executor-reaching
+    consumer of the signal-center feed. Shadow/observation-only signals are kept
+    out of execution by TWO layers: (1) the shadow-skip filter below, and (2) the
+    single chokepoint in paper_trader.buy (refuses agent='shadow-bridge:*'). The
+    [HM-AN2] prefix makes log lines greppable: `grep HM-AN2 logs/trader.log`.
     """
     from engine.momentum.bridge import fetch_signal_center_active_signals
     from engine.paper_trader import buy
@@ -2179,7 +2182,8 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
 
     # HM-BRINGBACK 2026-05-31: defense-in-depth — shadow-bridge signals are
     # observation-only (W0 forward-scoring) and MUST NOT reach paper_trader.buy.
-    # (neo-matrix is already exit_only, but skip shadow agents explicitly too.)
+    # (neo-matrix is halt_mode=ACTIVE and DOES execute — the executor chokepoint
+    #  in paper_trader.buy is the real boundary; this skip is defense-in-depth.)
     fresh = [s for s in sigs
              if int(s.get("id", 0)) not in _HM_AN2_SEEN_IDS
              and not str(s.get("agent_name", "")).startswith("shadow")]
