@@ -3938,3 +3938,18 @@ Diagnose-before-fix per repeat-offender rule (could be stale).
    show a price that appears mis-mapped to the wrong column (price vs another
    numeric column). Verify against the source payload (could be a column-order /
    render-mapping drift, the DOM-shape-drift class). LOW.
+
+## QUEUED 2026-06-01 — RISK-QUALITY: Battle Station 0DTE penny-premium stop (proper review)
+
+NOT a stop-logic bug (the −66.7% SPY PUT was 2026-04-27, historical; stop fired
+correctly as CLOSED_LOSS). Root cause = applying a −30% PERCENTAGE stop to a
+penny-premium 0DTE option: from a $0.03 entry the option ticks $0.03→$0.02 (−33%)
+→$0.01 (−66.7%) with no observable price near −30% (tick granularity wider than
+the stop band). Queue for proper review (engine/battle_station_0dte.py):
+1. **Min-premium entry gate** — reject contracts whose premium is so low a single
+   $0.01 tick already blows the −30% stop (e.g. require entry premium ≥ ~$0.20–0.50).
+2. **Absolute-dollar stop** alongside the % stop (STOP_DOLLARS) so cheap options
+   exit on absolute risk, not an unrealizable percentage.
+Cadence doc-drift (docstrings said "2 min" vs actual every(5).minutes) FIXED
+2026-06-01 (doc-only). Tighter cadence reduces but cannot eliminate the overshoot;
+the entry gate + dollar stop are the real fix. MED (risk quality), not live-bleeding.
