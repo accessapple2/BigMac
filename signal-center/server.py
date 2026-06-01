@@ -2459,7 +2459,17 @@ def api_sources_health():
     """W1 health grid — replaces the meaningless '13/13 loaded' badge.
     RED-first sorted; UNKNOWN counted as RED for gating."""
     try:
-        return jsonify(_src_gate().all_health())
+        health = _src_gate().all_health()
+        # W1 (2026-06-01): fire-and-forget alert/auto-quarantine tracker. Min-interval
+        # gated (advances every 15 min) + report-only by default, so this is cheap and
+        # safe; threaded so NTFY latency never blocks the grid response.
+        try:
+            import threading as _t
+            _t.Thread(target=lambda: _src_gate().check_source_health_alerts(),
+                      daemon=True).start()
+        except Exception:
+            pass
+        return jsonify(health)
     except Exception as e:
         return jsonify({"error": "%s: %r" % (type(e).__name__, e)}), 500
 

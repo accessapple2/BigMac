@@ -28,7 +28,7 @@ import glob as _glob
 import json
 import os
 import sqlite3
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 try:
@@ -382,3 +382,113 @@ def set_enabled(source_id: str, enabled: bool) -> bool:
         return cur.rowcount > 0
     finally:
         conn.close()
+
+
+# ── W1 NTFY auto-quarantine tracker (2026-06-01) ────────────────────────────
+# Report-only first (project pattern: ship gates default-off). The tracker fires
+# throttled NTFY when a live_decision source flips RED or stays RED past a
+# threshold; it RECOMMENDS quarantine but only auto-disables when the flag below
+# is flipped on by the Admiral. Consecutive-RED is counted per tracker TICK
+# (min-interval gated) not per poll, so frontend poll frequency can't inflate it.
+AUTO_QUARANTINE_ENABLED = False          # flip True to let the tracker set_enabled(0)
+RED_TICKS_TO_QUARANTINE = 3              # consecutive RED ticks before recommend/auto
+_TRACKER_MIN_INTERVAL_S = 900           # advance at most every 15 min
+_HEALTH_STATE_PATH = os.path.join(_ROOT, "data", "source_health_state.json")
+
+
+def _load_health_state() -> Dict[str, Any]:
+    try:
+        import json as _json
+        with open(_HEALTH_STATE_PATH) as f:
+            return _json.load(f)
+    except Exception:
+        return {}
+
+
+def _save_health_state(state: Dict[str, Any]) -> None:
+    import json as _json
+    import tempfile
+    try:
+        d = os.path.dirname(_HEALTH_STATE_PATH)
+        fd, tmp = tempfile.mkstemp(dir=d, suffix=".tmp")
+        with os.fdopen(fd, "w") as f:
+            f.write(_json.dumps(state))
+        os.replace(tmp, _HEALTH_STATE_PATH)
+    except Exception:
+        pass
+
+
+def _quarantine_ntfy(title: str, message: str, priority: str = "high",
+                     tags: str = "rotating_light") -> None:
+    try:
+        from engine.alert_channels import _send_ntfy
+        _send_ntfy(title, message, priority=priority, tags=tags, topic="ollietrades-admin")
+    except Exception:
+        pass
+
+
+def check_source_health_alerts(now_utc: Optional[datetime] = None,
+                               force: bool = False) -> Dict[str, Any]:
+    """W1 alerting/auto-quarantine. Call on each /api/sources/health poll; advances
+    at most once per _TRACKER_MIN_INTERVAL_S (force=True bypasses, for tests).
+
+    Fires throttled NTFY (ollietrades-admin) on: a live_decision source flipping RED
+    (one per state-change), and a live_decision source RED >= RED_TICKS_TO_QUARANTINE
+    consecutive ticks (recommend; auto-disable only if AUTO_QUARANTINE_ENABLED).
+    Never raises — returns a small action summary for observability."""
+    try:
+        now = now_utc or datetime.now(timezone.utc)
+        state = _load_health_state()
+        last_run = state.get("_last_run", 0)
+        now_epoch = now.timestamp()
+        if not force and (now_epoch - float(last_run or 0)) < _TRACKER_MIN_INTERVAL_S:
+            return {"skipped": "min-interval"}
+
+        health = all_health(now)
+        actions = {"alerts": [], "recommended": [], "quarantined": [], "ts": now.isoformat()}
+        for s in health.get("sources", []):
+            sid = s.get("source_id")
+            if not sid:
+                continue
+            st = s.get("state")
+            crit = s.get("criticality")
+            prev = state.get(sid, {}) if isinstance(state.get(sid), dict) else {}
+            prev_state = prev.get("state")
+            consec = int(prev.get("consec_red", 0))
+            fired = bool(prev.get("quarantine_fired", False))
+            consec = consec + 1 if st == RED else 0
+
+            if st == RED and crit == "live_decision" and prev_state != RED:
+                _quarantine_ntfy(
+                    f"Source RED: {s.get('display_name', sid)}",
+                    f"{sid} ({crit}) flipped RED — stale {s.get('age_human')}, as_of {s.get('as_of')}",
+                    priority="high", tags="rotating_light")
+                actions["alerts"].append(sid)
+
+            if (st == RED and crit == "live_decision"
+                    and consec >= RED_TICKS_TO_QUARANTINE and not fired):
+                if AUTO_QUARANTINE_ENABLED:
+                    set_enabled(sid, False)
+                    _quarantine_ntfy(
+                        f"AUTO-QUARANTINE: {sid}",
+                        f"{sid} RED {consec} ticks (live_decision) -> enabled=0. Re-enable is manual.",
+                        priority="urgent", tags="no_entry_sign")
+                    actions["quarantined"].append(sid)
+                else:
+                    _quarantine_ntfy(
+                        f"RECOMMEND QUARANTINE: {sid}",
+                        f"{sid} RED {consec} consecutive ticks (live_decision). Report-only — "
+                        f"flip source_gate.AUTO_QUARANTINE_ENABLED to auto-disable.",
+                        priority="high", tags="warning")
+                    actions["recommended"].append(sid)
+                fired = True
+            elif st != RED:
+                fired = False
+
+            state[sid] = {"state": st, "consec_red": consec, "quarantine_fired": fired}
+
+        state["_last_run"] = now_epoch
+        _save_health_state(state)
+        return actions
+    except Exception as e:
+        return {"error": "%s: %s" % (type(e).__name__, e)}
