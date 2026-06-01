@@ -5412,12 +5412,22 @@ def gex_all():
 
 @app.get("/api/market/gex/{ticker}")
 def gex_ticker(ticker: str):
-    """Get GEX data for a specific ticker."""
-    from engine.gex_scanner import get_gex
-    result = get_gex(ticker.upper())
-    if result is None:
-        return {"error": f"No GEX data for {ticker.upper()}"}
-    return result
+    """HM-GEX-CANONICAL 2026-05-31: magnets/strikes served from the single canonical
+    GEX (engine.options_flow_gex). Legacy engine.gex_scanner (CBOE) dormant."""
+    c = _canonical_gex(ticker)
+    if c.get("error"):
+        return {"error": c["error"]}
+    spot = c.get("spot") or 0
+    magnets = [{"strike": m["strike"], "net_gex": m["net_gex"],
+                "type": ("call_wall" if (spot and m["strike"] >= spot) else "put_wall")}
+               for m in c.get("magnets", [])]
+    return {
+        "symbol": c.get("underlying"), "spot": c.get("spot"),
+        "total_gex": c.get("total_gex"), "gamma_flip": c.get("gamma_flip"),
+        "call_wall": c.get("call_wall"), "put_wall": c.get("put_wall"),
+        "king_node": c.get("king_node"), "magnets": magnets, "strikes": c.get("strikes", []),
+        "updated": c.get("_asof", ""), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
+    }
 
 
 # --- Alpaca GEX Endpoints ---
@@ -5430,76 +5440,23 @@ def gex_alpaca(symbol: str):
     Pass ?force=true to trigger a fresh Alpaca API call.
     Cached 15 min when market closed.
     """
-    from gex_calculator import compute_gex_sync, get_latest_snapshot
-
-    sym = symbol.upper()
-
-    def _fetch():
-        profile = compute_gex_sync(sym, force=False)
-        if profile is not None:
-            return {
-                "symbol": profile.symbol,
-                "spot": profile.spot_price,
-                "timestamp": profile.timestamp,
-                "max_gamma_strike": profile.max_gamma_strike,
-                "zero_gamma_level": profile.zero_gamma_level,
-                "put_wall": profile.put_wall,
-                "call_wall": profile.call_wall,
-                "gamma_flip": profile.gamma_flip,
-                "total_gex": profile.total_gex,
-                "regime": "pinned" if profile.total_gex > 0 else "volatile",
-                "source": profile.source,
-                "levels": [
-                    {
-                        "strike": l.strike,
-                        "net_gex": l.net_gex,
-                        "call_gex": l.call_gex,
-                        "put_gex": l.put_gex,
-                        "call_oi": l.call_oi,
-                        "put_oi": l.put_oi,
-                    }
-                    for l in profile.levels
-                ],
-            }
-        # Fall back to DB snapshot
-        snap = get_latest_snapshot(sym)
-        if snap:
-            snap.pop("levels_json", None)
-            snap["regime"] = "pinned" if (snap.get("total_gex") or 0) > 0 else "volatile"
-            snap["source"] = snap.get("source", "alpaca")
-            if "spot_price" in snap and "spot" not in snap:
-                snap["spot"] = snap["spot_price"]
-            return snap
-        # Fall back to CBOE delayed GEX (free, no API key needed)
-        try:
-            from engine.gex_scanner import get_gex as _cboe_gex
-            cboe = _cboe_gex(sym)
-            if cboe and cboe.get("spot"):
-                magnets = cboe.get("magnets", [])
-                call_walls = sorted([m["strike"] for m in magnets if m["type"] == "call_wall"])
-                put_walls  = sorted([m["strike"] for m in magnets if m["type"] == "put_wall"], reverse=True)
-                call_wall = call_walls[0] if call_walls else (cboe["spot"] * 1.02)
-                put_wall  = put_walls[0]  if put_walls  else (cboe["spot"] * 0.98)
-                total_gex = cboe.get("total_gex", 0)
-                return {
-                    "symbol": sym,
-                    "spot": cboe["spot"],
-                    "timestamp": cboe.get("updated", ""),
-                    "put_wall": round(put_wall, 2),
-                    "call_wall": round(call_wall, 2),
-                    "gamma_flip": round((put_wall + call_wall) / 2, 2),
-                    "max_gamma_strike": call_wall if total_gex > 0 else put_wall,
-                    "zero_gamma_level": round((put_wall + call_wall) / 2, 2),
-                    "total_gex": total_gex,
-                    "regime": "pinned" if total_gex > 0 else "volatile",
-                    "source": "cboe-delayed",
-                    "levels": cboe.get("strikes", []),
-                }
-        except Exception:
-            pass
-        return {"error": f"No GEX data for {sym}. Alpaca keys may not be configured."}
-
-    return _cached_response(f"gex:{sym}", 900, _fetch)
+    # HM-GEX-CANONICAL 2026-05-31: served from the single canonical GEX
+    # (engine.options_flow_gex via _canonical_gex). The legacy Alpaca gex_calculator
+    # is preserved/dormant (no longer called here). Superset shape kept for back-compat.
+    c = _canonical_gex(symbol)
+    if c.get("error"):
+        return {"error": c["error"]}
+    spot = c.get("spot"); flip = c.get("gamma_flip"); tot = c.get("total_gex") or 0
+    stable = (spot is not None and flip is not None and spot >= flip)
+    return {
+        "symbol": c.get("underlying"), "spot": spot, "timestamp": c.get("_asof"),
+        "max_gamma_strike": c.get("king_node"), "zero_gamma_level": flip,
+        "put_wall": c.get("put_wall"), "call_wall": c.get("call_wall"),
+        "gamma_flip": flip, "total_gex": tot,
+        "regime": ("stable (above flip)" if stable else "volatile (below flip)"),
+        "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
+        "levels": c.get("strikes", []),
+    }
 
 
 @app.get("/api/gex/{symbol}/history")
@@ -7117,21 +7074,20 @@ def red_alert_status(limit: int = 10):
 
 @app.get("/api/gex-overlay/levels")
 def gex_overlay_levels(symbol: str = "SPY"):
-    """Latest GEX Overlay key levels: king node, gamma flip, put/call walls, regime."""
-    try:
-        from engine.gex_overlay import get_latest_gex
-        data = get_latest_gex(symbol.upper())
-        if data:
-            return data
-        # Compute fresh if no DB data yet
-        from engine.gex_overlay import calculate_gex, _save_gex_levels
-        levels = calculate_gex(symbol.upper())
-        if levels:
-            _save_gex_levels(symbol.upper(), levels)
-            return get_latest_gex(symbol.upper()) or {"error": "no data after compute"}
-        return {"error": f"GEX Overlay data unavailable for {symbol}"}
-    except Exception as e:
-        return {"error": str(e)}
+    """HM-GEX-CANONICAL 2026-05-31: king node / flip / walls served from the single
+    canonical GEX (engine.options_flow_gex). Legacy engine.gex_overlay dormant."""
+    c = _canonical_gex(symbol)
+    if c.get("error"):
+        return {"error": c["error"]}
+    spot = c.get("spot"); flip = c.get("gamma_flip")
+    stable = (spot is not None and flip is not None and spot >= flip)
+    return {
+        "symbol": c.get("underlying"), "spot": spot,
+        "king_node": c.get("king_node"), "gamma_flip": flip,
+        "put_wall": c.get("put_wall"), "call_wall": c.get("call_wall"),
+        "regime": ("stable (above flip)" if stable else "volatile (below flip)"),
+        "as_of": c.get("_asof"), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
+    }
 
 
 @app.get("/api/gex-overlay/heatmap")
@@ -16024,29 +15980,60 @@ def fear_greed():
         return {"score": 50, "label": "NEUTRAL", "error": f"Fear & Greed data unavailable: {e}", "signals": {}}
 
 
+def _canonical_gex(symbol: str) -> dict:
+    """SINGLE canonical GEX for a symbol (HM-GEX-CANONICAL 2026-05-31). Priority:
+    1) intraday in-process cache (engine.options_flow_gex, refreshed ~15m RTH by
+       main.run_gex_snapshot_refresh), 2) latest daily row in flow_gex.db,
+    3) live compute. Every Bridge GEX endpoint reshapes THIS one source —
+    Polygon-native, gamma×OI, BS-re-gamma flip, ±20%/≤60DTE band. Observation-only."""
+    sym = (symbol or "").upper()
+    try:
+        from engine import options_flow_gex as _ofg
+        latest = _ofg.get_latest()
+        d = (latest.get("data") or {}).get(sym)
+        if d and d.get("gex") and not d["gex"].get("error"):
+            g = dict(d["gex"]); g["_asof"] = latest.get("ts"); g["_src"] = "intraday-cache"
+            return g
+    except Exception:
+        pass
+    try:
+        import sqlite3 as _sq, json as _json
+        from pathlib import Path as _P
+        dbp = _P(__file__).parent.parent / "data" / "flow_gex.db"
+        conn = _sq.connect(str(dbp)); conn.row_factory = _sq.Row
+        r = conn.execute("SELECT * FROM gex_snapshots WHERE underlying=? ORDER BY id DESC LIMIT 1",
+                         (sym,)).fetchone()
+        conn.close()
+        if r:
+            ps = _json.loads(r["per_strike_json"] or "{}")
+            strikes = [{"strike": float(k), "net_gex": v} for k, v in sorted(ps.items(), key=lambda kv: float(kv[0]))]
+            magnets = sorted(strikes, key=lambda x: -abs(x["net_gex"]))[:5]
+            king = max(ps, key=lambda k: abs(ps[k])) if ps else None
+            return {"underlying": sym, "spot": r["spot"], "total_gex": r["total_gex"], "regime": r["regime"],
+                    "gamma_flip": r["gamma_flip"], "call_wall": r["call_wall"], "put_wall": r["put_wall"],
+                    "king_node": (float(king) if king is not None else None), "magnets": magnets,
+                    "strikes": strikes, "_asof": r["asof"], "_src": "daily-flow_gex.db"}
+    except Exception:
+        pass
+    try:
+        from engine import options_flow_gex as _ofg
+        g = _ofg.compute_gex(sym); g["_src"] = "live-compute"
+        return g
+    except Exception as e:
+        return {"underlying": sym, "error": f"{type(e).__name__}: {e}"}
+
+
 @app.get("/api/gex-snapshot")
 def gex_latest():
-    """Latest daily GEX snapshot per underlying from data/flow_gex.db (HM-GEX-COLLECT).
-    OBSERVATION-ONLY display — reads the collector's table, touches no order path.
-    Daily snapshot near close (the collector cadence), NOT realtime."""
-    import sqlite3
-    from pathlib import Path
-    dbp = Path(__file__).parent.parent / "data" / "flow_gex.db"
+    """Canonical GEX (HM-GEX-CANONICAL): intraday-fresh SPY/QQQ from the single source.
+    OBSERVATION-ONLY — no order path. Daily-close flow_gex.db row is the validation series."""
     out = {}
-    try:
-        conn = sqlite3.connect(str(dbp))
-        conn.row_factory = sqlite3.Row
-        for u in ("SPY", "QQQ"):
-            r = conn.execute(
-                "SELECT underlying, spot, total_gex, regime, gamma_flip, call_wall, put_wall, "
-                "contracts_used, asof FROM gex_snapshots WHERE underlying=? ORDER BY id DESC LIMIT 1",
-                (u,)).fetchone()
-            if r:
-                out[u] = dict(r)
-        conn.close()
-    except Exception as e:
-        return {"data": {}, "error": f"{type(e).__name__}: {e}"}
-    return {"data": out, "cadence": "daily snapshot near close", "observation_only": True}
+    for u in ("SPY", "QQQ"):
+        c = _canonical_gex(u)
+        if not c.get("error"):
+            out[u] = c
+    return {"data": out, "cadence": "intraday ~15m (RTH); daily-close row persisted",
+            "observation_only": True}
 
 
 @app.get("/api/institutional-intel")

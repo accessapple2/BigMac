@@ -7,6 +7,22 @@
 ---
 ## 🆕 2026-05-31 SESSION — filed retroactively (was git+memory only; backlog was stale-by-omission)
 
+### ✅ HM-GEX-CANONICAL — single GEX source; 3 legacy GEX systems RETIRED (2026-05-31)
+≥3 GEX displays disagreed (overlay walls 700/800 vs gamma-weighted 750/760; #1 self-contradicting regime).
+**Canonical = `engine/options_flow_gex.py` (Polygon, gamma×OI, BS-re-gamma flip, ±20%/≤60DTE band).** All
+Bridge GEX endpoints now reshape ONE source via `dashboard/app.py::_canonical_gex` (intraday cache →
+flow_gex.db daily row → live compute): `/api/gex-snapshot`, `/api/gex/{symbol}` (#1/#5), `/api/gex-overlay/levels`
+(#2), `/api/market/gex/{ticker}` (#4). Verified consistent: flip 754.01, walls 750/760, regime "stable (above
+flip)". Intraday refresh: `main.run_gex_snapshot_refresh` every 15m RTH → in-process cache; daily-close
+flow_gex.db write stays the validation series.
+**RETIRED (dormant, code+DB tables PRESERVED — do NOT delete):**
+- `engine/gex_scanner.py` (CBOE delayed) — job `run_gex_refresh` DISABLED (main.py).
+- `engine/gex_calculator.py` (Alpaca) — job `run_alpaca_gex_refresh` DISABLED.
+- `engine/gex_overlay.py` (CBOE OI / king-node DB) — job `run_gex_overlay_update` DISABLED. NOTE: still
+  referenced by `/api/gex-overlay/heatmap` (7137) + app.py:13863 — those compute on-demand now (cron off);
+  repoint-or-retire is a small follow-up.
+Commit 5f04271→(this). Browser-smoke to auth boundary only (dashboard 2FA-gated); Admiral does final visual.
+
 ### ✅ HM-PRODUCER-RETIRE — 2 legacy signal producers RETIRED (2026-05-31)
 Diagnosis of the signals-feed silence (no new `trade_signals` since 2026-05-23) = **reboot-survival-gap**: the
 2026-05-23 SSH-only reboot killed the last two live producers (`com.ollietrades.etfregime` @06:35 + `.optionsflow`

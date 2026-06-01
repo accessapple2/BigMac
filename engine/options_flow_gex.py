@@ -219,10 +219,27 @@ def compute_gex(underlying: str, chain: list | None = None, spot: float | None =
                          % ("long-gamma" if total_gex > 0 else "short-gamma"))
     call_wall = max(call_gex, key=call_gex.get) if call_gex else None
     put_wall = max(put_gex, key=put_gex.get) if put_gex else None
+    # king_node = strike carrying the largest |net GEX| (dominant gamma node).
+    king_node = max(per_strike, key=lambda k: abs(per_strike[k])) if per_strike else None
+    # magnets / strikes array for chart consumers (top |net GEX| first)
+    strikes_arr = [{"strike": round(k, 2), "net_gex": round(per_strike[k], 0),
+                    "call_gex": round(call_gex.get(k, 0.0), 0),
+                    "put_gex": round(put_gex.get(k, 0.0), 0)}
+                   for k in sorted(per_strike)]
+    magnets = sorted(strikes_arr, key=lambda x: -abs(x["net_gex"]))[:5]
+    # regime that MATCHES state: above flip = long-gamma/stable, below = short/volatile
+    if flip is not None:
+        above = spot >= flip
+        regime_label = ("LONG GAMMA · stable (spot above flip)" if above
+                        else "SHORT GAMMA · volatile (spot below flip)")
+    else:
+        regime_label = ("LONG GAMMA · stable" if total_gex > 0 else "SHORT GAMMA · volatile")
     return {
         "underlying": underlying, "spot": round(spot, 2),
         "total_gex": total_gex,
-        "regime": ("positive/long-gamma" if total_gex > 0 else "negative/short-gamma"),
+        "regime": regime_label,
+        "king_node": (round(king_node, 2) if king_node is not None else None),
+        "magnets": magnets, "strikes": strikes_arr,
         "gamma_flip": (round(flip, 2) if flip else None),
         "flip_note": flip_note,
         "flip_vs_spot_pct": (round((flip / spot - 1) * 100, 2) if flip else None),
@@ -342,6 +359,36 @@ def collect(symbols=("SPY", "QQQ")) -> dict:
         persist(gex, flow)
         res[u] = {"gex": gex, "flow": flow}
     return res
+
+
+# ── Intraday in-process cache (HM-GEX-CANONICAL) ──────────────────────────────
+# Serves the live Bridge panels every poll. main.py refreshes it ~every 15 min
+# during RTH. The daily-close collect() (cron) is what writes flow_gex.db — the
+# clean one-row/day validation series. Intraday recomputes never touch the series.
+_LATEST = {"data": {}, "ts": None}
+
+
+def compute_pair(symbols=("SPY", "QQQ")) -> dict:
+    """Compute GEX (+ aggregate flow) for symbols WITHOUT persisting."""
+    out = {}
+    for u in symbols:
+        chain = fetch_chain(u)
+        spot = fetch_spot(u)
+        out[u] = {"gex": compute_gex(u, chain=chain, spot=spot),
+                  "flow": compute_flow_aggregate(u, chain=chain)}
+    return out
+
+
+def refresh_latest(symbols=("SPY", "QQQ")) -> dict:
+    """Recompute + update the in-process cache (called by main.py every ~15 min RTH)."""
+    _LATEST["data"] = compute_pair(symbols)
+    _LATEST["ts"] = datetime.now(timezone.utc).isoformat()
+    return _LATEST
+
+
+def get_latest() -> dict:
+    """Latest cached intraday compute (instant; empty dict until first refresh)."""
+    return dict(_LATEST)
 
 
 if __name__ == "__main__":

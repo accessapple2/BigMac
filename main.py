@@ -651,9 +651,25 @@ def run_journal():
         console.log(f"[red]Journal error: {e}")
 
 
+@_hm_bq_instr("run_gex_snapshot_refresh")
+def run_gex_snapshot_refresh():
+    """HM-GEX-CANONICAL 2026-05-31: refresh the canonical GEX (Polygon, engine.options_flow_gex)
+    in-process cache every 15 min during RTH. Serves ALL Bridge GEX displays via /api/gex-snapshot
+    + the adapter endpoints. The daily-close flow_gex.db write (collector cron) stays the clean
+    one-row/day validation series — intraday recomputes never touch it. Observation-only."""
+    try:
+        from engine.market_calendar import is_us_market_open
+        if not is_us_market_open():
+            return
+        from engine import options_flow_gex
+        options_flow_gex.refresh_latest(("SPY", "QQQ"))
+    except Exception as e:
+        console.log(f"[red]GEX snapshot refresh error: {type(e).__name__}: {e}")
+
+
 @_hm_bq_instr("run_gex_refresh")
 def run_gex_refresh():
-    """Refresh GEX cache every 15 minutes during market hours."""
+    """[DORMANT — HM-GEX-CANONICAL] legacy CBOE/gex_scanner refresh; no longer scheduled."""
     try:
         from engine.gex_scanner import refresh_gex_cache
         result = refresh_gex_cache()
@@ -3534,9 +3550,13 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_daily_summary)      # Daily summary: checks every 30 min, sends once at close
     schedule.every(30).minutes.do(run_daily_rating_update) # Agent ratings: checks every 30 min, fires once at 4:30 PM ET
     schedule.every(30).minutes.do(run_journal)             # AI journal: checks every 30 min, writes once at close
-    schedule.every(15).minutes.do(run_gex_refresh)        # GEX (CBOE): every 15 min during market hours
-    schedule.every(30).minutes.do(run_alpaca_gex_refresh)  # GEX (Alpaca): 4x/day at 9:00/9:35/12:00/15:00 ET
-    schedule.every(15).minutes.do(run_gex_overlay_update) # GEX Overlay DB: every 15 min (king node, flip, walls)
+    # HM-GEX-CANONICAL 2026-05-31: /api/gex-snapshot (engine.options_flow_gex, Polygon) is the
+    # SINGLE GEX source. The 3 legacy refreshers are DISABLED (modules preserved/dormant — see
+    # XO_BACKLOG). One canonical intraday refresh replaces them; feeds all displays via adapters.
+    schedule.every(15).minutes.do(run_gex_snapshot_refresh)  # canonical GEX (Polygon): 15 min during RTH
+    # schedule.every(15).minutes.do(run_gex_refresh)        # DISABLED HM-GEX-CANONICAL — CBOE/gex_scanner
+    # schedule.every(30).minutes.do(run_alpaca_gex_refresh)  # DISABLED HM-GEX-CANONICAL — Alpaca/gex_calculator
+    # schedule.every(15).minutes.do(run_gex_overlay_update) # DISABLED HM-GEX-CANONICAL — gex_overlay
     schedule.every().day.at("06:00").do(run_morning_briefing)         # Battle Station: 6:00 AM AZ (was every 5 min)
     schedule.every().day.at("06:00").do(run_archer_morning_briefing)  # Phase 3.6: Archer briefing 6:00 AM AZ
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
