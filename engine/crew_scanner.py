@@ -2177,7 +2177,12 @@ def _hm_an2_consume_signal_center(market_ctx: dict[str, Any]) -> None:
     if not sigs:
         return
 
-    fresh = [s for s in sigs if int(s.get("id", 0)) not in _HM_AN2_SEEN_IDS]
+    # HM-BRINGBACK 2026-05-31: defense-in-depth — shadow-bridge signals are
+    # observation-only (W0 forward-scoring) and MUST NOT reach paper_trader.buy.
+    # (neo-matrix is already exit_only, but skip shadow agents explicitly too.)
+    fresh = [s for s in sigs
+             if int(s.get("id", 0)) not in _HM_AN2_SEEN_IDS
+             and not str(s.get("agent_name", "")).startswith("shadow")]
     if not fresh:
         return
 

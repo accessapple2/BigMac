@@ -4890,7 +4890,27 @@ if __name__ == "__main__":
         except Exception as _e:
             console.log(f"[red]Universe refresh error: {_e}")
 
+    def run_signal_bridge_job():
+        """HM-BRINGBACK 2026-05-31: bridge W0-edge deep_scan_results -> trade_signals
+        as SHADOW signals (observation-only, W0 forward-scoring). In-process => inherits
+        the trader's @reboot survivability (NOT a launchd agent). Runs during RTH; the
+        bridge dedupes per (symbol,setup,scan_date) so frequent runs are idempotent.
+        Observation-only — emitted rows are agent='shadow-bridge:*', excluded from execution."""
+        try:
+            from engine.market_calendar import is_us_market_open
+            if not is_us_market_open():
+                return
+            from engine.signal_bridge import run_signal_bridge, run_flow_bridge
+            p = run_signal_bridge()
+            f = run_flow_bridge()
+            if (p.get("emitted") or 0) or (f.get("emitted") or 0):
+                console.log(f"[cyan][SHADOW-BRIDGE] emitted primary={p.get('emitted')} "
+                            f"flow={f.get('emitted')} by_setup={p.get('by_setup')} (observation-only)")
+        except Exception as _e:
+            console.log(f"[red]Signal bridge error: {type(_e).__name__}: {_e}")
+
     schedule.every(30).minutes.do(run_deep_scan_job)        # deep scan at 8AM ET
+    schedule.every(30).minutes.do(run_signal_bridge_job)    # HM-BRINGBACK: shadow bridge (RTH, observation-only)
     schedule.every(30).minutes.do(run_strategy_rotation_job) # rotation at 5:30PM ET
     schedule.every().sunday.at("20:30").do(run_universe_refresh_job)  # Sunday 11:30PM AZ
 
