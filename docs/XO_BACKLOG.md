@@ -3920,3 +3920,21 @@ status` (or `git rev-list --count origin/main..HEAD`) and NTFYs ollietrades-admi
 if local is more than N commits ahead of origin (suggest N=5). Must NOT live in
 the same mechanism as pushing. Pairs with HM-SCHWAB-ALARM-CROSS-MECHANISM as the
 2nd instance of the "monitor must fail independently of the monitored" principle.
+
+## OPEN 2026-06-01 — LOW: two display items (Captain-observed, log-only)
+
+Parked as lower-priority display bugs during the S6/0DTE/Troi diagnostic pass.
+Diagnose-before-fix per repeat-offender rule (could be stale).
+
+1. **Bridge-Kirk panel stuck F&G 50 / VIX 20.** The Bridge-side Kirk panel still
+   renders Fear&Greed 50 / VIX 20 (looks like a hardcoded default/fallback). This
+   is a DIFFERENT surface from the signal-center Morpheus Oracle, which was just
+   fixed (HM-OVERNIGHT item 3: dedup + as_of stamp + kirk_advisory source_registry
+   → /api/sources/health RED). Investigate which endpoint/default the bridge panel
+   reads; likely wants the same as_of treatment or to read live VIX/F&G rather than
+   a 50/20 placeholder. LOW.
+
+2. **Scanner MU/DELL price-column mismatch.** In the scanner table, MU and DELL
+   show a price that appears mis-mapped to the wrong column (price vs another
+   numeric column). Verify against the source payload (could be a column-order /
+   render-mapping drift, the DOM-shape-drift class). LOW.
