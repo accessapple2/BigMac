@@ -286,7 +286,13 @@ decision 2026-05-05.
 
 ### What routes to Alpaca
 - The **routed players** in `engine/paper_trader.py::_EXECUTION_PORTFOLIO_BY_PLAYER`:
-  - `super-agent` → Alpaca Paper (portfolio id=1)
+  - `super-agent` (Mr. Anderson) → Alpaca Paper (portfolio id=1) — **HALTED
+    `halt_mode='full'` since 2026-05-11** (`is_paused=1` reconcile; last actually
+    traded **2026-03-28**, 16 lifetime trades, 0 open positions). The routing
+    entry persists but is INERT while halted — this row is the routing map, NOT
+    a claim that Anderson is live. No recurring cost (api_costs empty; crewai
+    pinned/not loaded). Reviving = an Admiral decision. (Doc truth-up 2026-05-31,
+    HM-SUPER-AGENT-VERIFY — was silently listed as a live router for 10+ weeks.)
   - `ollie-auto` → Alpaca Paper (portfolio id=1)
   - `neo-matrix` → Neo Matrix (portfolio id=7) — flipped to `halt_mode='active'`
     2026-05-13 (HM-AN2.3, "the show must go on Maestro!")
