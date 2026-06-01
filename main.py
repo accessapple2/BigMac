@@ -2369,11 +2369,54 @@ def run_cto_advisory():
                 if briefing:
                     console.log(f"[bold green]CTO Advisory [{bt_label}]: generated ({len(briefing)} chars)")
                 else:
-                    console.log(f"[dim]CTO Advisory [{bt_label}]: skipped (already done or no API key)")
+                    console.log(f"[dim]CTO Advisory [{bt_label}]: skipped (already generated today)")
             except Exception as e:
-                console.log(f"[red]CTO Advisory [{btype}] error: {e}")
-                _cto_slots_done_today.add(btype)  # Don't retry on error
+                # STRUCTURAL FIX 2026-06-01: a model/generate failure is LOUD + RETRYABLE.
+                # Do NOT mark the slot done (that's how the removed devstral-small-2 went dark
+                # for 13 days). NTFY fires in generate_cto_briefing; leave the slot open to retry.
+                console.log(f"[red]CTO Advisory [{btype}] FAILED (slot left open for retry): {e}")
             break  # Only fire one per cycle
+
+
+# ── Kirk Advisory persistence (HM-KIRK-REHOME 2026-06-01) ─────────────────────
+# The Kirk advisory COMPUTE is fine (live /api/kirk/advisory works), but the persisted
+# kirk_advisory_log only got written on-demand → went stale (W1 RED) since 2026-05-18.
+# Schedule it at open / midday / close (AZ weekdays) so the log stays fresh and W1 tracks it.
+_kirk_slots_done_today: set = set()
+_KIRK_SCHEDULE = [(6, 35), (9, 30), (13, 5)]  # AZ: ~market open, midday, ~close
+
+@_hm_bq_instr("run_kirk_advisory")
+def run_kirk_advisory_job():
+    global _kirk_slots_done_today
+    now = az_now()
+    if now.hour < 5:
+        _kirk_slots_done_today = set()
+        return
+    if now.weekday() >= 5:
+        return
+    now_mins = now.hour * 60 + now.minute
+    for sh, sm in _KIRK_SCHEDULE:
+        slot = f"{sh:02d}{sm:02d}"
+        if slot in _kirk_slots_done_today:
+            continue
+        sched_mins = sh * 60 + sm
+        if sched_mins <= now_mins <= sched_mins + 10:
+            try:
+                from engine.kirk_advisory import generate_kirk_advisory
+                console.log(f"[cyan]Kirk Advisory: firing slot {slot}...")
+                generate_kirk_advisory()
+                _kirk_slots_done_today.add(slot)
+                console.log(f"[bold green]Kirk Advisory [{slot}]: computed + log persisted")
+            except Exception as e:
+                # Same loud+retryable contract as CTO: don't mark the slot done on failure.
+                console.log(f"[red]Kirk Advisory [{slot}] FAILED (slot left open for retry): {e}")
+                try:
+                    from engine.alert_channels import _send_ntfy
+                    _send_ntfy("Kirk Advisory FAILED", f"slot {slot}: {e}",
+                               priority="high", tags="rotating_light", topic="ollietrades-admin")
+                except Exception:
+                    pass
+            break
 
 
 _team_advisor_slots_done_today: set = set()
@@ -3695,6 +3738,7 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(run_flow_lean)            # Flow Lean: every 15 min (options premium directional bias)
     schedule.every(15).minutes.do(run_ai_saas_disruption)   # AI SaaS Disruption: IGV + 13 SaaS names, 4 triggers, posts to 9000
     schedule.every(30).minutes.do(run_cto_advisory)          # CTO Advisory: checks every 30 min, fires 4x daily (pre_market, post_open, pre_close, post_close)
+    schedule.every(30).minutes.do(run_kirk_advisory_job)     # Kirk Advisory: persist kirk_advisory_log at open/midday/close (AZ weekdays) — HM-KIRK-REHOME 2026-06-01
     schedule.every(30).minutes.do(run_ready_room)             # Ready Room: checks every 30 min, fires 4x daily (8:00/9:15/12:00/3:30 ET)
     schedule.every(30).minutes.do(run_team_advisor)           # Advisory Team (Grok/Ollie+Troi+Worf): fires at 9:30 AM and 1:30 PM ET
     schedule.every(5).minutes.do(run_portfolio_monitor)       # Ship's Computer: Captain's Portfolio monitor (stop breaches, big moves, new advice)

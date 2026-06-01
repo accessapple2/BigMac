@@ -24,7 +24,7 @@ DB = "data/trader.db"
 
 # Ollama CTO config — devstral-small-2 (HM-BN aligned to ai_players.model_id)
 CTO_PLAYER_ID = "cto-grok42"
-CTO_MODEL = "devstral-small-2"
+CTO_MODEL = "phi4:14b"  # 2026-06-01: was devstral-small-2 (removed from ollama → silent death since 05-18). phi4:14b is installed + capable, no qwen3 think-mode contamination.
 CTO_MAX_TOKENS = 2000  # kept for compatibility, Ollama uses num_predict
 _ollie = os.environ.get("OLLAMA_URL", _OLLIE_URL)  # Ollie Box GPU (was localhost)
 
@@ -423,8 +423,19 @@ Be direct, specific, and actionable. Give exact price levels, not vague advice. 
         return briefing
 
     except Exception as e:
-        console.log(f"[red]CTO Advisory [{bt['label']}] error: {e}. Ensure Ollama server is running and model {CTO_MODEL} is available for the request.")
-        return None
+        # STRUCTURAL FIX 2026-06-01: do NOT swallow to None. A missing/failing model
+        # (e.g. CTO_MODEL removed from ollama — how devstral-small-2 silently killed this
+        # since 05-18) must be LOUD: log + NTFY + raise, so callers alert/retry instead of
+        # marking the slot "done" and going dark. (The /api/cto caller already try/excepts.)
+        console.log(f"[red]CTO Advisory [{bt['label']}] FAILED: {e}. Check Ollama + model {CTO_MODEL}.")
+        try:
+            from engine.alert_channels import _send_ntfy
+            _send_ntfy("CTO Advisory FAILED",
+                       f"{bt['label']}: {e} — check Ollama / model {CTO_MODEL}",
+                       priority="high", tags="rotating_light", topic="ollietrades-admin")
+        except Exception:
+            pass
+        raise
 
 
 def get_latest_briefing() -> dict | None:
