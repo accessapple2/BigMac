@@ -171,3 +171,20 @@ Summary now: 11 GREEN · 0 AMBER · 6 RED/UNKNOWN · 2 RETIRED · 1 quarantined.
   cataloged); the real count of unloaded LaunchAgents is ~24.
 - **Rule (load-bearing):** on this box, ANY bare LaunchAgent is non-reboot-survivable. Re-home the
   ones with real function to `@reboot`/time cron (the graveyard plan, Admiral-gated). HOLD.
+
+## PHASE 4 — Design specs → drafts/ (design-only, no build)
+Five specs written (each grounded in this session's W0 edges / canonical GEX / validation gate /
+shadow-bridge pattern; all observation-first, execution gated on graduation + Admiral go):
+- **SPEC_W2_BRACKET_SIZING.md** — fixed-fractional 0.5–1%/trade → ≤0.25× Kelly post-graduation;
+  correlation/exposure + earnings/IV blackout + P95-DD sizing; observation-only hook logs size on
+  shadow signals for W0 ("sized R" vs "raw R"), no buy().
+- **SPEC_W3_GAMMA_STRATEGY_MAPPER.md** — canonical GEX → structure: pos-gamma between walls=iron
+  condor at walls; approaching call wall=fade/short-call-spread; neg-gamma=directional/debit;
+  strikes anchored to flip/walls. Emits shadow-gex signals.
+- **SPEC_W3_UNUSUAL_OI_SMART_MONEY.md** — ranked unusual-OI from the flow_gex aggregate (vol/OI,
+  notional), tier-compliant; print-level (sweep/block/aggressor) flagged as a Polygon tier DECISION.
+- **SPEC_W4_REGIME_CONDITIONAL_ROUTING.md** — expectancy sliced by gamma-sign × VIX-term × time-of-day;
+  router surfaces a setup only where it has graduated edge in the live regime. Start LOGGING the
+  regime vector on shadow signals now so buckets accrue.
+- **SPEC_W1_FRONTEND.md** — health grid (replaces "13/13 loaded"), per-tile as-of stamps, NTFY
+  auto-quarantine (>3 RED cadence periods). Frontend → Admiral browser smoke before ship.
