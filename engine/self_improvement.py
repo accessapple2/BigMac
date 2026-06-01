@@ -14,6 +14,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
 import threading
 from datetime import datetime
 
@@ -150,7 +151,7 @@ def run_daily_reflection() -> None:
     try:
         import pytz
         az = pytz.timezone("US/Arizona")
-        now = datetime.now(az)
+        now = az_now()
     except ImportError:
         now = datetime.now()
 

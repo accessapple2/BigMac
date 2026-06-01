@@ -11,6 +11,7 @@ Key functions:
 """
 import sqlite3
 import logging
+from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
 import math
 from datetime import datetime, timezone
 
@@ -66,7 +67,7 @@ def run_indicator_bench():
     """
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = datetime.now(az)
+    now = az_now()
 
     # Reset daily flag at midnight
     if now.hour < 4:

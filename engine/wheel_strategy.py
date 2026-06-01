@@ -14,6 +14,7 @@ The Wheel:
 import logging
 from datetime import datetime, timedelta
 import pytz
+from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
 from engine.paper_trader import get_portfolio
 # HM-W1F4 2026-05-17: canonical options-trade helper for sell-put accounting.
 # Replaces paper_trader.buy(asset_type="option") which was unconditional BUY
@@ -43,7 +44,7 @@ _last_date = None
 
 def _is_market_hours() -> bool:
     az = pytz.timezone("US/Arizona")
-    now = datetime.now(az)
+    now = az_now()
     if now.weekday() >= 5:
         return False
     mins = now.hour * 60 + now.minute
@@ -70,7 +71,7 @@ def run_wheel_scan():
     global _done_today, _last_date
 
     az = pytz.timezone("US/Arizona")
-    today = datetime.now(az).strftime("%Y-%m-%d")
+    today = az_now().strftime("%Y-%m-%d")
     if _last_date != today:
         _done_today = False
         _last_date = today

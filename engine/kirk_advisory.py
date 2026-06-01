@@ -17,6 +17,7 @@ history, and backtest results. Generates TRIM/HOLD/ADD signals with reasoning.
 import json
 import logging
 import os
+from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
 import sqlite3 as _sq
 from datetime import datetime
 from pathlib import Path
@@ -305,7 +306,7 @@ def generate_kirk_advisory():
         # HM-AJ-β 2026-05-06: success-side observability — entry log
         logger.info(
             "[Kirk] advisory run started at %s",
-            datetime.now(pytz.timezone("US/Arizona")).isoformat(timespec="seconds"),
+            az_now().isoformat(timespec="seconds"),
         )
         # Kirk-Schwab-realign-2026-05-05: real_holdings.json is the truth source
         # post-Admiral Option A decision (was alpaca-mirror paper). Schwab cash
@@ -605,7 +606,7 @@ def generate_kirk_advisory():
             # HM-AM Phase 2 (2026-05-07): unified portfolio summary envelope.
             # None on load failure (logged above as warning).
             "total_portfolio": total_portfolio_summary,
-            "generated_at": datetime.now(pytz.timezone("US/Arizona")).isoformat(),
+            "generated_at": az_now().isoformat(),
         }
         # HM-BN 2026-05-15: dormant frontier cross-check (LOG ONLY,
         # gated on KIRK_FRONTIER_REVIEW=false). No-op until flag flips.

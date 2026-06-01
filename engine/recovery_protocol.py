@@ -16,6 +16,7 @@ Strategy:
 import logging
 from datetime import datetime
 import pytz
+from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
 from engine.market_data import get_stock_price
 from engine.paper_trader import buy, get_portfolio
 from engine.fear_greed import get_fear_greed_index
@@ -40,7 +41,7 @@ def run_recovery_scan():
     global _done_today, _last_date
 
     az = pytz.timezone("US/Arizona")
-    now = datetime.now(az)
+    now = az_now()
     today = now.strftime("%Y-%m-%d")
 
     # Reset daily flag

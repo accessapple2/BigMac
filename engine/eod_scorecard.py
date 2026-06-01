@@ -11,6 +11,7 @@ from __future__ import annotations
 
 import os
 import sqlite3
+from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
 from datetime import date, datetime, timezone
 from typing import Any
 
@@ -376,7 +377,7 @@ def run_eod_scorecard_job():
         import pytz
         from datetime import datetime as _dt
         az = pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        now = az_now()
         if now.weekday() >= 5:
             return
         # Fire between 13:15–13:25 AZ (4:15–4:25 PM ET)

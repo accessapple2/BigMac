@@ -5,6 +5,7 @@ All strategies use free Yahoo Finance data (yfinance).
 """
 from __future__ import annotations
 import sqlite3
+from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
 import json
 import time
 from datetime import datetime
@@ -441,7 +442,7 @@ def score_convergence(ticker: str, triggered: list) -> dict | None:
     import pytz
     from datetime import datetime as _dt
     _az = pytz.timezone("US/Arizona")
-    _now = _dt.now(_az)
+    _now = az_now()
     _mins = _now.hour * 60 + _now.minute
     # 750 = 12:30 PM MST (power hour start / 3:30 PM ET)
     min_strategies = 1 if _mins >= 750 else 2  # === HM-AX: lowered from 3 → 2 (2026-05-11) ===
@@ -617,7 +618,7 @@ def scan_strategies(tickers: list = None, save: bool = True) -> list:
 
     import pytz as _pytz
     from datetime import datetime as _dt2
-    _mins2 = _dt2.now(_pytz.timezone("US/Arizona"))
+    _mins2 = az_now()
     _mins2 = _mins2.hour * 60 + _mins2.minute
     _threshold_label = "1+ strategy (power hour/AH)" if _mins2 >= 750 else "2+ strategies"
     console.log(f"[green]🧭 Strategy scan complete: {len(signals)} convergence signals "
