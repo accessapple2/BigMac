@@ -24,7 +24,7 @@ DB = "data/trader.db"
 
 # Ollama CTO config — devstral-small-2 (HM-BN aligned to ai_players.model_id)
 CTO_PLAYER_ID = "cto-grok42"
-CTO_MODEL = "phi4:14b"  # 2026-06-01: was devstral-small-2 (removed from ollama → silent death since 05-18). phi4:14b is installed + capable, no qwen3 think-mode contamination.
+CTO_MODEL = "qwen3:8b"  # 2026-06-01: was devstral-small-2 (removed → silent death since 05-18). qwen3:8b is installed on the ACTUAL inference host (.168 Ollie Max; NOT localhost) + is the qwen3-class model there. think:False already set in the generate call below (no <think> contamination).
 CTO_MAX_TOKENS = 2000  # kept for compatibility, Ollama uses num_predict
 _ollie = os.environ.get("OLLAMA_URL", _OLLIE_URL)  # Ollie Box GPU (was localhost)
 
