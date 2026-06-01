@@ -29,10 +29,23 @@ from datetime import datetime, date, time, timedelta
 from typing import Optional
 
 import pytz
+from zoneinfo import ZoneInfo
 
 # ── Timezones ───────────────────────────────────────────────────────────
 ET = pytz.timezone("America/New_York")
 UTC = pytz.UTC
+
+# Arizona (Phoenix) via stdlib zoneinfo — NOT pytz. The long-running trader process
+# was observed serving datetime.now(pytz.timezone("US/Arizona")) skewed 7h (the cached
+# pytz singleton's offset got corrupted in-process; naive now() stayed correct). zoneinfo
+# is a separate, immutable-per-key cache immune to that corruption. Phoenix has no DST,
+# so az_now() is exact and always == MST. Use this for ALL time-of-day gating.
+_AZ = ZoneInfo("America/Phoenix")
+
+
+def az_now() -> datetime:
+    """Current Arizona time (stdlib zoneinfo; corruption-proof vs the pytz path)."""
+    return datetime.now(_AZ)
 
 # ── Hours (ET) ──────────────────────────────────────────────────────────
 MARKET_OPEN_TIME = time(9, 30)   # regular open

@@ -16,6 +16,7 @@ import sqlite3
 import os
 from datetime import datetime
 from datetime import datetime as _dt
+from engine.market_calendar import az_now  # Arizona-now via zoneinfo (corruption-proof) — HM-TZ-AZNOW 2026-06-01
 from rich.console import Console
 from rich.panel import Panel
 
@@ -91,7 +92,7 @@ def is_extended_or_market_hours() -> bool:
     import pytz
     from datetime import datetime as _dt
     az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    now = az_now()
     if now.weekday() >= 5:  # Saturday / Sunday
         return False
     h = now.hour + now.minute / 60.0
@@ -290,7 +291,7 @@ def _tier3_window_open() -> bool:
     import pytz
     from datetime import datetime as _dt
     az = pytz.timezone("US/Arizona")
-    mins = _dt.now(az).hour * 60 + _dt.now(az).minute
+    mins = az_now().hour * 60 + az_now().minute
     # Open: 6:30–7:00 AM MST = 390–420 min; Close: 12:45–1:30 PM MST = 765–810 min
     return (390 <= mins < 420) or (765 <= mins < 810)
 
@@ -315,7 +316,7 @@ def _get_scan_interval():
     from datetime import datetime as _dt
 
     az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    now = az_now()
     hour, minute = now.hour, now.minute
     mins = hour * 60 + minute
     day = now.weekday()  # 0=Mon, 6=Sun
@@ -705,7 +706,7 @@ def run_morning_briefing():
     import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.datetime.now(az)
+    now = az_now()
     if now.weekday() >= 5:  # Skip weekends
         return
     if now.hour != 6 or now.minute > 30:
@@ -724,7 +725,7 @@ def run_archer_morning_briefing():
     import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.datetime.now(az)
+    now = az_now()
     if now.weekday() >= 5:  # Skip weekends
         return
     if now.hour != 6 or now.minute > 15:  # Fire 6:00–6:15 AM AZ window
@@ -744,7 +745,7 @@ def run_intel_report_morning():
     import datetime as _dt
     import pytz
     az  = pytz.timezone("US/Arizona")
-    now = _dt.datetime.now(az)
+    now = az_now()
     if now.weekday() >= 5:          # Skip weekends
         return
     if now.hour != 6 or now.minute > 20:
@@ -764,7 +765,7 @@ def run_intel_report_evening():
     import datetime as _dt
     import pytz
     az  = pytz.timezone("US/Arizona")
-    now = _dt.datetime.now(az)
+    now = az_now()
     if now.weekday() >= 5:          # Skip weekends
         return
     if now.hour != 20 or now.minute > 20:
@@ -795,7 +796,7 @@ def run_earnings_scan_inject():
     import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.datetime.now(az)
+    now = az_now()
     if now.weekday() >= 5:
         return
     if now.hour != 6 or now.minute > 30:
@@ -861,7 +862,7 @@ def run_carts_persist():
     import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.datetime.now(az)
+    now = az_now()
     # Daily 06:00 AZ — single fire window
     if now.hour != 6 or now.minute > 30:
         return
@@ -891,7 +892,7 @@ def run_earnings_day_scan():
     import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.datetime.now(az)
+    now = az_now()
     if now.weekday() >= 5:
         return
     # Market hours gate: 6:30 AM – 1:15 PM AZ (9:30 AM – 4:15 PM ET)
@@ -1042,7 +1043,7 @@ def run_ah_scanner():
     global _ah_ntfy_sent
 
     az  = pytz.timezone("US/Arizona")
-    now = _dt.datetime.now(az)
+    now = az_now()
     if now.weekday() >= 5:
         return
     # AZ 4 PM – 7 PM = ~7 PM – 10 PM ET (extended AH window)
@@ -1095,7 +1096,7 @@ def run_premarket_scanner():
     import pytz
 
     az  = pytz.timezone("US/Arizona")
-    now = _dt.datetime.now(az)
+    now = az_now()
     if now.weekday() >= 5:
         return
     # AZ 6:00 AM – 9:25 AM
@@ -1126,7 +1127,7 @@ def run_opening_range():
     import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.datetime.now(az)
+    now = az_now()
     if now.weekday() >= 5:
         return
     if now.hour != 6 or now.minute < 45 or now.minute > 55:
@@ -1556,7 +1557,7 @@ def run_volume_universe_refresh():
     from datetime import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    now = az_now()
     if now.weekday() != 6:  # Sunday only
         return
     if now.hour != 22:
@@ -1575,7 +1576,7 @@ def run_volume_baselines():
     from datetime import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    now = az_now()
     if now.weekday() >= 5:  # Skip Saturday (5) and Sunday (6)
         return
     if now.hour != 23:
@@ -1674,7 +1675,7 @@ def run_gap_scan():
     import pytz
     from datetime import datetime as _dt
     az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    now = az_now()
 
     # Reset flag at midnight
     if now.hour == 0:
@@ -2246,7 +2247,7 @@ def run_ready_room():
 
     try:
         az = pytz.timezone("US/Arizona")
-        now = datetime.now(az)
+        now = az_now()
     except Exception:
         return
 
@@ -2293,7 +2294,7 @@ def run_oi_morning_snapshot():
 
     try:
         az = pytz.timezone("US/Arizona")
-        now = datetime.now(az)
+        now = az_now()
     except Exception:
         return
 
@@ -2339,7 +2340,7 @@ def run_cto_advisory():
 
     try:
         az = pytz.timezone("US/Arizona")
-        now = datetime.now(az)
+        now = az_now()
     except Exception:
         return
 
@@ -2676,7 +2677,7 @@ def run_universe_scan():
     from datetime import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    now = az_now()
     # Run weeknights at 9 PM MST, plus Sunday night
     if now.hour != 21:
         return
@@ -2698,7 +2699,7 @@ def run_strategy_scan():
     from datetime import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    now = az_now()
     # Run weeknights at 10 PM MST, plus Sunday night
     if now.hour != 22:
         return
@@ -2837,7 +2838,7 @@ def run_chekov_intraday_convergence():
     from datetime import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    now = az_now()
     # Market hours: 6:30 AM – 1:00 PM AZ (= 9:30 AM – 4:00 PM ET).
     # Coarse-gate at the hour level; lets us run 06:00-06:29 too (catches opening setup window).
     if not (6 <= now.hour < 13):
@@ -2869,7 +2870,7 @@ def run_premarket_gaps():
     from datetime import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    now = az_now()
 
     # Reset flag at midnight
     if now.hour == 0:
@@ -2939,7 +2940,7 @@ def run_finviz_premarket_scan():
     from datetime import datetime as _dt
     import pytz
     az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    now = az_now()
 
     # Reset flag at midnight
     if now.hour == 0:
@@ -3042,7 +3043,7 @@ def run_sulu_autoclose():
 
     try:
         az = pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        now = az_now()
     except Exception:
         return
 
@@ -3130,7 +3131,7 @@ def run_crew_scanner_job() -> None:
 
     try:
         az  = pytz.timezone("US/Arizona")
-        now = __import__("datetime").datetime.now(az)
+        now = az_now()
     except Exception:
         return
 
@@ -3231,7 +3232,7 @@ def run_battle_station_0dte_job() -> None:
     import pytz
     from datetime import datetime as _dt
     az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    now = az_now()
     if now.weekday() >= 5:
         return
     mins = now.hour * 60 + now.minute
@@ -3960,8 +3961,8 @@ if __name__ == "__main__":
             import pytz as _ptz
             from datetime import datetime as _dtc
             _az = _ptz.timezone("US/Arizona")
-            _now_h = _dtc.now(_az).hour
-            _now_wd = _dtc.now(_az).weekday()
+            _now_h = az_now().hour
+            _now_wd = az_now().weekday()
             if _now_wd < 5 and 7 <= _now_h <= 14:
                 _sc = sqlite3.connect(_db_path, timeout=5)
                 _last_scan = _sc.execute(
@@ -3991,7 +3992,7 @@ if __name__ == "__main__":
         import pytz as _pytz
         from datetime import datetime as _dt
         az = _pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        now = az_now()
         if now.weekday() >= 5:
             return
         if now.hour < 4:
@@ -4266,7 +4267,7 @@ if __name__ == "__main__":
         from datetime import datetime as _dt
         import pytz
         az = pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        now = az_now()
         if now.weekday() >= 5 or now.hour != 6:
             return
         try:
@@ -4284,7 +4285,7 @@ if __name__ == "__main__":
         from datetime import datetime as _dt
         import pytz
         az = pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        now = az_now()
         today = now.strftime('%Y-%m-%d')
         # Reset flag at midnight
         if now.hour == 0:
@@ -4356,7 +4357,7 @@ if __name__ == "__main__":
         import pytz
         try:
             az = pytz.timezone("US/Arizona")
-            now = _dt.now(az)
+            now = az_now()
         except Exception:
             return
         # Sunday (weekday 6) between 10:00-10:30 PM MST
@@ -4377,7 +4378,7 @@ if __name__ == "__main__":
         import pytz
         try:
             az = pytz.timezone("US/Arizona")
-            now = _dt.now(az)
+            now = az_now()
         except Exception:
             return
         # Sunday (weekday 6) between 10:30-11:00 PM MST
@@ -4401,7 +4402,7 @@ if __name__ == "__main__":
         import pytz
         from datetime import datetime as _dt
         az = pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        now = az_now()
         today = now.strftime("%Y-%m-%d")
         if now.weekday() >= 5:
             return  # skip weekends
@@ -4428,7 +4429,7 @@ if __name__ == "__main__":
         from datetime import datetime as _dt
         import pytz
         az = pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        now = az_now()
         # Sunday (weekday 6) at 11:59 PM MST
         if now.weekday() != 6 or now.hour != 23 or now.minute < 55:
             return
@@ -4460,7 +4461,7 @@ if __name__ == "__main__":
         import pytz
         from datetime import datetime as _dt
         az = pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        now = az_now()
         if now.weekday() >= 5:
             return  # Skip weekends
         if not (17 <= now.hour < 18):
@@ -4481,7 +4482,7 @@ if __name__ == "__main__":
         import pytz
         from datetime import datetime as _dt
         az = pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        now = az_now()
         if now.weekday() >= 5:
             return
         if not (17 <= now.hour < 18 and now.minute >= 30):
@@ -4563,7 +4564,7 @@ if __name__ == "__main__":
         import pytz
         from datetime import datetime as _dt
         az = pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        now = az_now()
         # Mon-Fri only, 1:15 PM MST (fire within 10-min window)
         if now.weekday() >= 5:
             return
@@ -4586,7 +4587,7 @@ if __name__ == "__main__":
         import pytz
         from datetime import datetime as _dt
         az = pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        now = az_now()
         if now.weekday() != 6 or now.hour != 20 or now.minute > 30:
             return
         try:
@@ -4606,7 +4607,7 @@ if __name__ == "__main__":
         import pytz
         from datetime import datetime as _dt
         az = pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        now = az_now()
         if now.weekday() != 6 or now.hour != 21 or now.minute > 30:
             return
         try:

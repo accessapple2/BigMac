@@ -14069,8 +14069,8 @@ def scanner_status():
     import time, pytz
     from datetime import datetime as _dt
     from engine.risk_manager import RiskManager
-    az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
+    now = az_now()
     # HM-OVERNIGHT item 4: phase AND market_open both derive from the ONE source
     # of truth (engine/market_calendar) — handles weekends/holidays/early-close, so
     # phase can never contradict market_open (the old time-bins ignored holidays).
@@ -15494,8 +15494,8 @@ def holdings_top():
 
     # Market-hours TTL: 60s during 6:30–1:30 PM MST, 300s outside
     try:
-        _az = pytz.timezone("US/Arizona")
-        _now_az = datetime.now(_az)
+        from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
+        _now_az = az_now()
         _mins = _az_h = _now_az.hour * 60 + _now_az.minute
         is_market = 390 <= _mins <= 810
     except Exception:

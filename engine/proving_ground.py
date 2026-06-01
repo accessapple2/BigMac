@@ -21,6 +21,7 @@ from engine.trades_filter import SIM_EVAL_WHERE  # HM-TRACKING-AGGREGATOR: sim-e
 TRADER_DB = "data/trader.db"
 PG_DB     = "data/proving_ground.db"
 AZ_TZ     = pytz.timezone("US/Arizona")
+from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
 
 TRIAL_START = date(2026, 4, 10)
 # HM-PROVING-GROUND-FORMALIZE-V2 SUB-3 2026-05-25 — extended from 30 to 60
@@ -367,7 +368,7 @@ def run_daily_scorecard() -> dict[str, Any]:
     Returns a summary dict.
     """
     ensure_tables()
-    today      = datetime.now(AZ_TZ).date()
+    today      = az_now().date()
     today_str  = today.isoformat()
     start_str  = TRIAL_START.isoformat()
     trial_day  = (today - TRIAL_START).days + 1
@@ -699,7 +700,7 @@ def ship_kill_evaluator(pg_conn=None) -> dict:
          emits a daily "DAY 60 FORCED EVALUATION" NTFY (HIGH severity).
 
     Returns the full evaluation dict (used by tests + dry-run reporting)."""
-    today_d = datetime.now(AZ_TZ).date()
+    today_d = az_now().date()
     today_s = today_d.isoformat()
     trial_day = (today_d - TRIAL_START).days + 1
 
@@ -767,7 +768,7 @@ def ship_kill_evaluator(pg_conn=None) -> dict:
 def send_daily_ntfy_report() -> None:
     """Push daily summary at 1:30 PM AZ (4:30 PM ET)."""
     ensure_tables()
-    today   = datetime.now(AZ_TZ).date()
+    today   = az_now().date()
     today_s = today.isoformat()
 
     c = _conn_pg()
@@ -817,7 +818,7 @@ def send_daily_ntfy_report() -> None:
 def send_weekly_comparison() -> None:
     """Send weekly backtest vs actual comparison every Sunday."""
     ensure_tables()
-    today = datetime.now(AZ_TZ).date()
+    today = az_now().date()
 
     all_trades = _pull_all_closed_trades(TRIAL_START.isoformat())
     metrics    = _compute_metrics(all_trades)
@@ -853,7 +854,7 @@ def send_weekly_comparison() -> None:
 def get_proving_ground_status() -> dict[str, Any]:
     """Return current Proving Ground status dict for dashboard."""
     ensure_tables()
-    today = datetime.now(AZ_TZ).date()
+    today = az_now().date()
     trial_day = (today - TRIAL_START).days + 1
     days_left = max(0, TRIAL_DAYS - trial_day)
 
