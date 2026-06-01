@@ -1786,7 +1786,8 @@ def stats():
         "oldest_record":   oldest,
         "newest_record":   newest,
         "daily_snapshots": snapshots,
-        "db_path":         DB_PATH,
+        # db_path removed 2026-06-01 (HM-OVERNIGHT Phase 5b) — filesystem path
+        # disclosure; no consumer needs it. total_records etc. retained.
     })
 
 def _compute_trade_levels(symbol):

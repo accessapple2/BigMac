@@ -188,3 +188,52 @@ shadow-bridge pattern; all observation-first, execution gated on graduation + Ad
   regime vector on shadow signals now so buckets accrue.
 - **SPEC_W1_FRONTEND.md** — health grid (replaces "13/13 loaded"), per-tile as-of stamps, NTFY
   auto-quarantine (>3 RED cadence periods). Frontend → Admiral browser smoke before ship.
+
+## PHASE 5 — Guard-railed additive fixes (Phases 1–4 were clean → proceeded)
+- **(a) /api/trades ?limit= — HELD (already bounded).** The endpoint ALREADY has `limit: int = 500`
+  with all filters pushed to SQL before LIMIT — it is NOT an unbounded fetch. Lowering the default
+  to 100 would truncate existing consumers (dashboard trades view expects up to 500). No safe
+  additive fix needed; lowering the default is a product DECISION → held for Admiral.
+- **(b) /api/stats path leak — SHIPPED ✅.** Removed `"db_path": DB_PATH` from the signal-center
+  `/api/stats` response (server.py:1789). Verified: response keys now {daily_snapshots, newest_record,
+  oldest_record, total_records, unique_signals} — **db_path gone**, total_records intact (90192).
+  py_compile OK; signal-center restarted (PID 59916); trader untouched.
+- **(c) /api/health nulls — HELD.** Item-7 showed the fields ARE wired (last_ollama_success,
+  scan_health, websocket_status, dayblade_last_scan all read real sources). The nulls reflect
+  genuinely-IDLE sources (dayblade halted → no scan; Ollama queue total_requests=0; WS in polling/
+  unknown), NOT unwired fields. "Wiring" empty sources to fake values would MASK the real idle
+  state. Correct fix = render them as "idle/stale" in the W1 health grid (SPEC_W1_FRONTEND), not
+  fabricate. Held — needs the W1 frontend + an Admiral call on default semantics.
+
+### Phase 5 restart accounting
+Only signal-center changed (b) → one signal-center restart (low-risk read aggregator, same as W0/
+GEX ships). **NO trader restart** (a & c held → zero trader code change). No broken code left;
+nothing reverted (the one shipped change verified clean).
+
+---
+
+# CONSOLIDATED REPORT — overnight 2026-06-01
+
+**Shipped (verified, safe):** /api/stats path-leak strip (b). That's the only code change overnight;
+everything else was read-only diagnosis/specs per the queue rules.
+
+**Shadow feed / W0 (left to accrue, untouched):** 22 shadow signals tracked in signal_outcomes, 0
+executed, boundary intact. **relative_strength clears the DSR leg at all horizons (1.0, n=444)** —
+lead graduation candidate; awaiting forward shadow sample + a NON-degenerate PBO (2-setup PBO is a
+coin-flip artifact, not a real read). bull_flag clears DSR at 3d/5d only.
+
+**HELD for Admiral (decisions / restart-to-verify / frontend):**
+1. ⚠️ **Security (highest):** mutation endpoints (alpaca buy/sell/close-all, autopilot/toggle,
+   kill-switch) have NO app-level auth — protection is network-only. Verify the Cloudflare tunnel
+   gates /api/* (not just /); add app-level auth as defense-in-depth.
+2. Morpheus binding "—" → add regime/total_records to /api/morpheus/awareness (SC restart + browser smoke).
+3. Scanner phase-vs-market_open + movers-when-closed → single source of truth = market_calendar (restart-verify).
+4. Master-Score 100-vs-61 → standardize on one definition (design decision).
+5. /api/trades default 500→100 (decision); /api/health nulls → render idle, not fake (W1 frontend).
+6. Crew empty-E "dormant drawer", LiveChart MutationObserver guard, DOM-bloat lazy-load (frontend → browser smoke).
+7. ~24 LaunchAgents dead (0 loaded) — reboot-survival re-home (DAEMON-GRAVEYARD plan, Admiral-gated).
+8. Fleet-count doc 20→21 stale; recommend a periodic doc-vs-runtime reconcile script.
+9. Wave 2/3/4 + W1-frontend specs in drafts/ — review before any build.
+
+**All execution remains OFF; all frontend HELD for your browser smoke; no bare launchd touched;
+no .db deleted; nothing left broken.**
