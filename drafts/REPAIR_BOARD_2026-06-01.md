@@ -8,23 +8,32 @@ green; sacred-data; revert-on-failure. Report shipped vs held vs scoped.
 ## STATE LEGEND: ⬜ todo · 🔨 building · ✅ done(committed) · 🟡 HELD(smoke) · 📋 scoped · 💤 summarized
 
 ### BUILD NOW
-- ⬜ 1. PBO config matrix — relative_strength param-grid × universe, .venv-backtest, observation-only → report real PBO
-- ⬜ 2. #2 0DTE min-premium entry gate + absolute-dollar stop (backend, verify execution path)
-- ⬜ 3. Display backend (batch→restart): bridge-Kirk as_of/live VIX-F&G · scanner MU/DELL col mis-map · fleet-count doc 20→21
-- ⬜ 4. #8 crew dormant-drawer (collapse empty-E) — frontend HELD
-- ⬜ 5. #9 LiveChart MutationObserver guard — frontend HELD
-- ⬜ 6. W1 frontend health grid (real /api/sources/health + as-of + NTFY auto-quarantine) — frontend HELD
+- ✅ 1. PBO matrix — N=36 configs, PBO=0.4787 FRAGILE → FAILS ≤0.30 leg (gate NOT cleared). `strategies/pbo_relative_strength.py` + report. Commit.
+- ✅ 2. #2 0DTE MIN_PREMIUM=0.30 + STOP_DOLLARS=50 — verified offline (gate skips <$0.30; $stop binds -25% on $2). 0 open. Trader restart ACTIVATED.
+- ✅ 3a. bridge-Kirk: dead `regime_indicators` import → repointed live (fg=72,vix=16.08,as_of). Trader restart ACTIVATED.
+- ✅ 3c. fleet-count doc 20→21 (DB-verified). Shipped.
+- 🟡 3b. scanner MU/DELL: NO backend defect (DELL payload correctly fielded). HELD for Admiral repro (frontend/other surface).
+- 🟡 4. #8 crew dormant-drawer — built, node-clean. HELD (smoke: drawer toggles).
+- 🟡 5. #9 LiveChart observer guard — built, node-clean. HELD (smoke: guard holds under stream).
+- 🟡 6a. W1 frontend health grid — built, node-clean. HELD (smoke: kirk/riker RED + as-of render).
+- ✅ 6b. W1 NTFY auto-quarantine BACKEND (source_gate tracker, report-only/AUTO-off). Signal-center restart ACTIVATED.
 
-### RESTART GATE
-- ⬜ ONE restart → boundary verify + season/Troi green
+### RESTART GATE ✅ (trader 84573 + signal-center 84753, both single-writer)
+- ✅ Boundary: chokepoint live · 45 shadow signals intact (both tables) · 0 shadow trades
+- ✅ #1 season=0 live 224/$316/75.9%/1.69 (not zeros) · #3 Troi 750.0/754.01 (canonical, fresh snapshots)
+- ✅ W1 /api/sources/health live + tracker state written · bridge-Kirk live 72/16.08
 
-### SCOPE-ONLY (hold for go)
-- ⬜ 7. #10 DOM lazy-load refactor (~100-section page) — scope only
-- ⬜ 8. Daemon graveyard re-home commands (signal-center @reboot+disable, Kirk producer, ~24 agents) — scope only
+### SCOPE-ONLY (hold for go) ✅ docs written
+- 📋 7. #10 DOM lazy-load → `SCOPE_DOM_LAZYLOAD_2026-06-01.md` (110 sections all in DOM; lazy-mount via <template>; P0 instrument + P1 top-5 pilot)
+- 📋 8. Daemon re-home → `SCOPE_DAEMON_REHOME_COMMANDS_2026-06-01.md` (signal-center @reboot ALREADY done; close Caveat-1 plist; Kirk = unscheduled → cron; Tier-1 watchdog+*/5)
 
-### SUMMARIZE (green-light, don't build)
-- ⬜ 9. 4 specs: W2 sizing, W3 gamma mapper, W3 unusual-OI, W4 routing — one paragraph each
+### SUMMARIZE ✅
+- 💤 9. 4 specs → `SPEC_SUMMARIES_2026-06-01.md`. Build order: W3-OI → W2-obs → W3-gamma → W4(last).
 
 ---
 ## LOG
-(checkpoints appended as work proceeds)
+- PBO real result: 0.4787 FRAGILE (DSR passes, PBO fails → gate not cleared). Caveat: 36 collinear configs.
+- #2 verified: -30% stop tick-realizable at ≥$0.30; $50 cap binds before -30% above ~$1.67 entry.
+- bridge-Kirk root cause: `engine.regime_indicators` module deleted → except always fired → silent 50/20.
+- W1 tracker: tick1 alerts 'signals' RED; tick3 recommends quarantine (report-only, no auto-disable).
+- Restart gate: both services clean, boundary held, season/Troi/W1/Kirk all green.
