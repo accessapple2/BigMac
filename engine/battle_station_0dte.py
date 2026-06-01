@@ -43,6 +43,18 @@ VIX_MAX     = 30.0
 MOMENTUM_FLIP_THRESHOLD = 5
 MOMENTUM_REVERSE_POINTS = 20
 
+# item 2 (2026-06-01): stop-quality bracket for penny-premium 0DTE.
+# MIN_PREMIUM — reject entries below $0.30. A -30% stop on a sub-$0.30 premium is
+# unrealizable because $0.01 ticks are >30% increments (the 3¢→2¢=-33%→1¢=-66.7%
+# case that realized -66.7% vs a -30% floor). At $0.30 a -30% stop sits at $0.21 —
+# ~9 ticks of resolution, so the stop can actually hold near the floor.
+MIN_PREMIUM  = 0.30
+# STOP_DOLLARS — hard absolute per-contract loss cap ($ per 100-share contract),
+# evaluated ALONGSIDE the % stop (whichever triggers first). Bounds worst-case $
+# risk on expensive premiums independent of the percentage (binds before -30% once
+# entry premium >~ $1.67); harmless for cheap premiums where the % stop governs.
+STOP_DOLLARS = 50.0
+
 # Tiered exits — raise stop floor as position profits (item 12)
 # [(pnl_milestone, new_stop_floor)] — checked in descending pnl order
 _TIER_STOPS: list[tuple[float, float]] = [
@@ -277,6 +289,22 @@ def scan() -> dict[str, Any]:
             if current_price > 0:
                 pnl_pct = (current_price - entry_price) / entry_price
 
+                # Absolute-dollar stop (item 2) — hard per-contract loss cap,
+                # checked BEFORE the % stop so an expensive premium can't bleed past
+                # a fixed $ risk. 1 contract = 100 shares (matches _close_trade pnl).
+                dollar_loss = (entry_price - current_price) * 100.0
+                if dollar_loss >= STOP_DOLLARS:
+                    _close_trade(pos["id"], current_price, spy,
+                                 f"Dollar stop hit: -${dollar_loss:.0f}/contract "
+                                 f"(cap ${STOP_DOLLARS:.0f}, {pnl_pct*100:.1f}%)",
+                                 "CLOSED_LOSS")
+                    logger.info(f"[0DTE] Dollar stop: {pos['option_type']} @ "
+                                f"${current_price:.2f} (-${dollar_loss:.0f}/contract)")
+                    result["action"] = "STOP_LOSS"
+                    result["reason"] = (f"Dollar stop -${dollar_loss:.0f}/contract "
+                                        f"(cap ${STOP_DOLLARS:.0f})")
+                    return result
+
                 # Dynamic trailing stop floor (item 12)
                 dynamic_stop = STOP_PCT
                 for milestone, floor in sorted(_TIER_STOPS, key=lambda x: -x[0]):
@@ -351,7 +379,11 @@ def scan() -> dict[str, Any]:
             vix_ok = not valid_prior or (prior_vix is not None and prior_vix - vix >= 0.2)
             if momentum_up and vix_ok:
                 price, contract, strike = _get_option_price("call")
-                if price > 0:
+                if 0 < price < MIN_PREMIUM:
+                    result["reason"] = (f"CALL skipped: premium ${price:.2f} < min "
+                                        f"${MIN_PREMIUM:.2f} (-30% stop unrealizable)")
+                    return result
+                if price >= MIN_PREMIUM:
                     reason = (
                         f"Put wall bounce: SPY ${spy:.2f} at put wall ${put_wall:.0f} "
                         f"({dist*100:.2f}% away). Momentum {prior_trend:.0f}→{trend:.0f}. "
@@ -385,7 +417,11 @@ def scan() -> dict[str, Any]:
                     pass
                 if volume_spike:
                     price, contract, strike = _get_option_price("put")
-                    if price > 0:
+                    if 0 < price < MIN_PREMIUM:
+                        result["reason"] = (f"PUT skipped: premium ${price:.2f} < min "
+                                            f"${MIN_PREMIUM:.2f} (-30% stop unrealizable)")
+                        return result
+                    if price >= MIN_PREMIUM:
                         reason = (
                             f"Call wall rejection: SPY ${spy:.2f} at call wall ${call_wall:.0f} "
                             f"({dist*100:.2f}% away). Momentum {prior_trend:.0f}→{trend:.0f}. "
