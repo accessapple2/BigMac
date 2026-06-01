@@ -20,6 +20,26 @@ _latency_logger.setLevel(logging.INFO)
 # starving subsequent agents in the same WR cycle (project_hm_wr_ollama_queue_starvation).
 _HM_WR_CANCEL_BUDGET_S = 85
 
+# HM-MODEL-LOUD 2026-06-01: a missing/failing model must ALARM, not silently return "".
+# (How devstral-small-2 etc. went dark — _do_request swallowed the 404 to an empty string.)
+# Throttled to ONE NTFY per (model_id) per process lifetime — the fleet inference path is
+# high-frequency, so an un-throttled dead model would storm. Same loud contract as the CTO fix.
+_alerted_models: set = set()
+
+
+def _model_failure_alert(model_id: str, player_id: str, err) -> None:
+    _latency_logger.error("[OLLAMA-MODEL-FAIL] model=%s agent=%s err=%s", model_id, player_id, err)
+    if model_id in _alerted_models:
+        return
+    _alerted_models.add(model_id)
+    try:
+        from engine.alert_channels import _send_ntfy
+        _send_ntfy("Fleet model FAILED",
+                   f"{player_id} model {model_id}: {err} — check ollama on .168",
+                   priority="high", tags="rotating_light", topic="ollietrades-admin")
+    except Exception:
+        pass
+
 
 class OllamaProvider(AIProvider):
     def __init__(self, player_id: str = "ollama-local", model: str = "qwen3:14b",
@@ -58,7 +78,19 @@ class OllamaProvider(AIProvider):
 
         def _do_request() -> str:
             r = requests.post(self.url, json=payload, timeout=self.timeout)
-            return r.json().get("response", "")
+            # STRUCTURAL: do NOT swallow a missing/failing model to "". A 404 (model not on
+            # the host) or an {"error":...} body must alarm + raise, not return empty.
+            try:
+                r.raise_for_status()
+                body = r.json()
+            except Exception as e:
+                _model_failure_alert(self.model_id, self.player_id, e)
+                raise
+            err = body.get("error")
+            if err:
+                _model_failure_alert(self.model_id, self.player_id, err)
+                raise RuntimeError(f"ollama error for {self.model_id}: {err}")
+            return body.get("response", "")
 
         # HM-CN 2026-05-17: time the queue submit (queue wait + Ollama inference).
         t0 = time.time()

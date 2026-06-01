@@ -317,7 +317,7 @@ def setup():
     c.execute("UPDATE ai_players SET provider='ollama', model_id='ministral-3:3b' WHERE id='gpt-o3'")                  # was deepseek-r1:7b
     c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:14b' WHERE id='grok-3'")                 # was qwen3:8b
     c.execute("UPDATE ai_players SET provider='ollama', model_id='deepseek-r1:7b' WHERE id='grok-4'")
-    c.execute("UPDATE ai_players SET provider='ollama', model_id='devstral-small-2' WHERE id='cto-grok42'")
+    c.execute("UPDATE ai_players SET provider='ollama', model_id='qwen3:8b' WHERE id='cto-grok42'")  # 2026-06-01: devstral-small-2 removed for good → repoint to installed qwen3:8b (the unconditional UPDATE here was forcing the dead model back on every setup_db)
     c.execute("UPDATE ai_players SET provider='ollama', model_id='deepseek-r1:14b' WHERE id='ollama-deepseek'")  # was deepseek-r1:7b
     c.execute("UPDATE ai_players SET provider='ollama', model_id='ministral-3:3b', display_name='Lt. Cmdr. Worf' WHERE id='ollama-gemma27b'")    # was qwen3:8b
     c.execute("UPDATE ai_players SET provider='ollama', model_id='ministral-3:3b', display_name='Lt. Cmdr. GLM4' WHERE id='ollama-glm4'")        # was qwen3:8b

@@ -2384,6 +2384,11 @@ def run_cto_advisory():
 # Schedule it at open / midday / close (AZ weekdays) so the log stays fresh and W1 tracks it.
 _kirk_slots_done_today: set = set()
 _KIRK_SCHEDULE = [(6, 35), (9, 30), (13, 5)]  # AZ: ~market open, midday, ~close
+# W1 liveness heartbeat: kirk_advisory_log is EVENT-gated (never logs HOLD, 30-min dedup), so its
+# created_at can't signal "the job is alive". This file's mtime is stamped on each successful run
+# (below) and is what W1 reads instead — GREEN while the job runs, RED if it stops (preserves the
+# death-detection that missed kirk dying for 2 weeks). Market-aware daily handles weekend gaps.
+_KIRK_HEARTBEAT = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "kirk_advisory.heartbeat")
 
 @_hm_bq_instr("run_kirk_advisory")
 def run_kirk_advisory_job():
@@ -2405,8 +2410,15 @@ def run_kirk_advisory_job():
                 from engine.kirk_advisory import generate_kirk_advisory
                 console.log(f"[cyan]Kirk Advisory: firing slot {slot}...")
                 generate_kirk_advisory()
+                # Stamp the W1 liveness heartbeat regardless of whether an actionable (non-HOLD)
+                # row was logged — proves the advisory COMPUTE ran. This is what W1 reads.
+                try:
+                    from pathlib import Path as _P
+                    _P(_KIRK_HEARTBEAT).touch()
+                except Exception:
+                    pass
                 _kirk_slots_done_today.add(slot)
-                console.log(f"[bold green]Kirk Advisory [{slot}]: computed + log persisted")
+                console.log(f"[bold green]Kirk Advisory [{slot}]: computed + heartbeat stamped")
             except Exception as e:
                 # Same loud+retryable contract as CTO: don't mark the slot done on failure.
                 console.log(f"[red]Kirk Advisory [{slot}] FAILED (slot left open for retry): {e}")
