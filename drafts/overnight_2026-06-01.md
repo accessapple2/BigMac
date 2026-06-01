@@ -127,3 +127,47 @@ scripts; (b) move per-section HTML to templates injected on `showSection` (bigge
 - **/api/stats path leak CONFIRMED:** signal-center `/api/stats` (server.py:1774) returns
   `"/Users/bigmac/autonomous-trader/signal-center/signals.db"` in its body — filesystem path
   disclosure. **Fix (Phase 5b):** strip the path from the response. (Trader has no /api/stats → 404.)
+
+## PHASE 3 — State/hygiene sweeps (read-only)
+
+**12. Doc-drift sweep (CLAUDE.md + docstrings vs runtime).**
+- ✅ already fixed this session: neo-matrix docstring ("exit_only"→active), super-agent two-book
+  routing (listed live→annotated halted).
+- **Fleet-count line (CLAUDE.md:531) is stale:** claims "20 active … as of 2026-05-28"; runtime =
+  **21 active** (holly-scanner added for the Holly A/B, never halted). 3-day drift. Doc-only fix.
+- Port/bind claims (8080 / 9000 / 127.0.0.1 loopback) — **match runtime ✓.**
+- Pattern: doc-vs-runtime drift is RECURRING (neo, super-agent, fleet count, prior navigator/
+  scanner "NOT dead" corrections). **Recommend** a periodic doc-reconcile (or a tiny script that
+  diffs `ai_players` halt states + counts against the roster) so this stops accreting. Design-only.
+
+**13. Halt-mode-vs-intent reconcile (all agents).**
+Runtime: **21 active / 6 exit_only / 45 full.** Reconciled against the documented roster:
+- No dangerous "documented-active-but-silently-halted" found beyond super-agent (already handled).
+- `mccoy-bps`=full is the retired BPS variant (NOT the McCoy voter = `ollama-plutus`, active) — OK.
+- Worf (`qwen3-8b-flash`) active is INTENTIONAL (kept for WR bridge-vote, per the Worf reconcile) — OK.
+- Only drift = the count (20→21, holly-scanner) — doc lag, not a runtime problem.
+**Verdict:** halt states are consistent with intent; the one true drift (super-agent) is fixed.
+
+**14. Source-freshness sweep (W1 /api/sources/health).**
+Summary now: 11 GREEN · 0 AMBER · 6 RED/UNKNOWN · 2 RETIRED · 1 quarantined.
+- **Both live_decision sources GREEN:** bridge_consensus (2h), riker_synthesis (0s — recovered;
+  was UNKNOWN earlier, its ts now resolves). **No silently-stale live feed.** ✓
+- Stale but context-only (non-gating): cto_briefing 11d (known), execution_log 2d (minor —
+  Morpheus exec log idle), macro/metals/schwab UNKNOWN (no ts source / manual). webull archive.
+- No NEW silently-stale feed beyond the known ones.
+
+**15. Daemon reboot-survival inventory — SYSTEMIC GAP confirmed at scale.**
+- **SURVIVE SSH-only reboot:** 4 `@reboot` cron wrappers (trader, signal-center, cloudflared,
+  swingdesk) + **28 time-based cron** jobs. These are the resilient set.
+- **DIE on SSH-only reboot:** ~**24 `com.ollietrades.*` / `com.trademinds.*` LaunchAgents** present
+  in ~/Library/LaunchAgents — and **`launchctl list` shows ZERO of them loaded right now.** Same
+  failure mode that killed etfregime/optionsflow: gui/501 domain isn't bootstrapped on a headless
+  reboot. Dead jobs include: danelfin-update, iv-backfill, model-watcher, ti-email-poller,
+  ti-picks-watcher, uhura-watch, movers-poller, nightly-backtest/regression, enrichment-poller,
+  archer-briefing, premarket, scanner, mcp, stale-trim-obs, universe-refresh, ollama-keepalive …
+- Some are redundant (signal-center/tunnel ALSO have @reboot crons — the cron is the live path,
+  the plist is dead-but-harmless). Others have NO cron equivalent → genuinely dead since the last
+  reboot. This is the broader confirmation of the `DAEMON-GRAVEYARD-REHOME-PLAN-2026-05-30` (16
+  cataloged); the real count of unloaded LaunchAgents is ~24.
+- **Rule (load-bearing):** on this box, ANY bare LaunchAgent is non-reboot-survivable. Re-home the
+  ones with real function to `@reboot`/time cron (the graveyard plan, Admiral-gated). HOLD.
