@@ -39,6 +39,11 @@ except Exception:  # pragma: no cover - allow standalone use
 # ── Paths ────────────────────────────────────────────────────────────────
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 SIGNALS_DB = os.path.join(_ROOT, "signal-center", "signals.db")
+TRADER_DB = os.path.join(_ROOT, "data", "trader.db")
+
+# db_max sources default to signals.db; a `db_max:<db>:<table>.<col>` spec can
+# point at another DB. Whitelisted keys only (no arbitrary paths).
+_DB_PATHS = {"signals": SIGNALS_DB, "trader": TRADER_DB}
 
 # Base cadence (days) for `snapshot`-class sources (§2.2).
 SNAPSHOT_CADENCE_DAYS = {"schwab_snapshot": 3, "metals": 7}
@@ -123,11 +128,18 @@ def _resolve_ts(ts_format: str, ts_field: str) -> Tuple[Optional[datetime], Opti
 
     if ts_format.startswith("db_max:"):
         spec = ts_format[len("db_max:"):]
+        # optional db selector: db_max:<db>:<table>.<col> (default signals)
+        db_path = None
+        if ":" in spec:
+            db_key, _, spec = spec.partition(":")
+            db_path = _DB_PATHS.get(db_key)
+            if db_path is None:
+                return None, None
         table, _, col = spec.partition(".")
         # whitelist identifiers (no injection)
         if not table.isidentifier() or not col.isidentifier():
             return None, None
-        conn = _db()
+        conn = _db(db_path)
         try:
             row = conn.execute(
                 "SELECT max(%s) AS m FROM %s" % (col, table)  # nosec - identifiers validated

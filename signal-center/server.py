@@ -1349,13 +1349,28 @@ def _morpheus_load_kirk_advisory_recent():
     conn = sqlite3.connect(_morpheus_trader_db_path(), timeout=5)
     conn.row_factory = sqlite3.Row
     try:
+        # HM-OVERNIGHT item 3: dedup to the LATEST row per ticker. The producer
+        # re-stamps the same ticker each run, so a plain id-DESC LIMIT 8 showed
+        # CEG/MU 4-6x and crowded out every other name. MAX(id) GROUP BY ticker
+        # keeps one row per ticker; outer ORDER BY id DESC LIMIT 8 = 8 freshest.
         rows = conn.execute(
             "SELECT ticker, action, message, alert_type, fear_greed_score, "
             "       vix_level, acted_on, dismissed_at, created_at "
             "FROM kirk_advisory_log "
+            "WHERE id IN (SELECT MAX(id) FROM kirk_advisory_log GROUP BY ticker) "
             "ORDER BY id DESC LIMIT 8"
         ).fetchall()
-        return [dict(r) for r in rows]
+        out = []
+        for r in rows:
+            d = dict(r)
+            # Stamp as_of so the embedded VIX / Fear&Greed read as the values
+            # AT advisory time, not "current". The Kirk feed is dead since
+            # 2026-05-18 (see source_registry kirk_advisory); without this the
+            # frontend implies 18.4/68 is live.
+            created = d.get("created_at") or ""
+            d["as_of"] = str(created)[:10] if created else None
+            out.append(d)
+        return out
     finally:
         conn.close()
 

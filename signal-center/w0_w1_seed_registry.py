@@ -29,6 +29,8 @@ ROWS = [
     # ── live-decision sources (these GATE consensus/expectancy when RED) ───────
     ("riker_synthesis",  "Riker Synthesis",   "/api/riker/synthesis",  "daily",    "live_decision", "timestamp",    "bridge_iso:/api/riker/synthesis:timestamp", 1, "XO 10-min roll-up; shown as Intelligence"),
     ("bridge_consensus", "Consensus Briefing","/api/bridge/consensus", "daily",    "live_decision", "created_at",   "bridge_iso:/api/bridge/consensus:created_at", 1, "drives per-ticker matrix; refuse if stardate > 1 trading day"),
+    # ── trader.db-backed advisory (cross-DB db_max selector) ──────────────────
+    ("kirk_advisory",    "Kirk Advisory",     "(trader.db)",           "daily",    "context",       "created_at",   "db_max:trader:kirk_advisory_log.created_at", 1, "Oracle advisory surface; producer DEAD since 2026-05-18 — flags RED until re-homed (see DAEMON-GRAVEYARD rehome plan)"),
     # ── bridge context sources ────────────────────────────────────────────────
     ("cto_briefing",     "CTO Briefing",      "/api/cto/briefing",     "daily",    "context",       "latest.created_at", "bridge_iso:/api/cto/briefing:latest.created_at", 1, "44KB Spock report"),
     ("macro",            "Macro / FRED",      "/api/macro",            "monthly",  "context",       "consumer_sentiment.date", "bridge_iso:/api/macro:consumer_sentiment.date", 1, "slow cadence expected — fine"),
