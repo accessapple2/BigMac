@@ -16024,6 +16024,31 @@ def fear_greed():
         return {"score": 50, "label": "NEUTRAL", "error": f"Fear & Greed data unavailable: {e}", "signals": {}}
 
 
+@app.get("/api/gex-snapshot")
+def gex_latest():
+    """Latest daily GEX snapshot per underlying from data/flow_gex.db (HM-GEX-COLLECT).
+    OBSERVATION-ONLY display — reads the collector's table, touches no order path.
+    Daily snapshot near close (the collector cadence), NOT realtime."""
+    import sqlite3
+    from pathlib import Path
+    dbp = Path(__file__).parent.parent / "data" / "flow_gex.db"
+    out = {}
+    try:
+        conn = sqlite3.connect(str(dbp))
+        conn.row_factory = sqlite3.Row
+        for u in ("SPY", "QQQ"):
+            r = conn.execute(
+                "SELECT underlying, spot, total_gex, regime, gamma_flip, call_wall, put_wall, "
+                "contracts_used, asof FROM gex_snapshots WHERE underlying=? ORDER BY id DESC LIMIT 1",
+                (u,)).fetchone()
+            if r:
+                out[u] = dict(r)
+        conn.close()
+    except Exception as e:
+        return {"data": {}, "error": f"{type(e).__name__}: {e}"}
+    return {"data": out, "cadence": "daily snapshot near close", "observation_only": True}
+
+
 @app.get("/api/institutional-intel")
 @timed_cache(300)
 def institutional_intel():

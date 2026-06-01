@@ -2934,7 +2934,7 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/news','/api/intel/','/api/smart-money','/api/market/movers','/api/market-movers','/api/movers','/api/price/',
     '/api/regime','/api/navigator/','/api/sectors/heatmap','/api/fear-greed',
     '/api/metals/','/api/earnings/','/api/inverse-etfs','/api/premium-etfs',
-    '/api/congress/','/api/volume-radar','/api/universe/status',
+    '/api/congress/','/api/volume-radar','/api/universe/status','/api/gex-snapshot',
     '/api/fleet/active',  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
     '/api/portfolio/real',  // HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — Schwab+metals real-world view (PR #44 endpoint)
     // HM-BATTLE-STATION-BIND-FIX 2026-05-21: GEX Overlay + Battle Station cards
@@ -16975,6 +16975,7 @@ async function fetchSignalTracker() {
     <div style="padding:6px 16px 10px;font-size:12px;color:var(--muted);">
       Tracks every BUY signal from signal-center and scores it against actual price movement. WIN = target hit, LOSS = stop hit, EXPIRED = 72h elapsed.
     </div>
+    <div style="padding:0 16px 10px;font-size:12px;color:#f59e0b;font-weight:600;">⚠️ Scoring frozen 2026-05-23 — signal producers retired (HM-PRODUCER-RETIRE). Emptying grades are intentional, not a panel bug.</div>
 
     <!-- Scorecard table -->
     <div id="ghostScorecardTable" style="padding:0 16px 16px;">
@@ -17333,6 +17334,18 @@ registerSectionInit('uoa', fetchUOADashboard, [{ fn: fetchUOADashboard, ms: 1200
 
 <!-- GEX MAP SECTION -->
 <div id="section-gex" style="display:none;">
+  <!-- HM-GEX-PANEL 2026-05-31: Polygon-native dealer-GEX daily snapshot (flow_gex.db).
+       Distinct from the GEX Map below (per-ticker /api/market/gex, 15-min CBOE). Observation-only. -->
+  <div class="card" id="gex-native-card" style="margin-bottom:16px;border-left:3px solid #22d3ee;">
+    <div class="card-header" data-tip="Polygon-native dealer GEX (gamma x OI per strike; SqueezeMetrics sign: dealers long calls / short puts). Gamma flip = spot level where net dealer gamma crosses zero (above = long-gamma/stabilizing, below = short-gamma/trend-amplifying). Call/put walls = largest gamma strikes. DAILY snapshot near close — NOT realtime. Observation-only, no order path.">
+      <div class="card-title">🧲 GEX — SPY/QQQ, daily snapshot</div>
+      <button class="btn btn-ghost" onclick="fetchGexNative()" style="font-size:13px;">Refresh</button>
+    </div>
+    <div id="gexNativeBody" style="padding:14px 16px;display:grid;grid-template-columns:repeat(auto-fit,minmax(260px,1fr));gap:12px;">
+      <div style="color:var(--muted);text-align:center;padding:20px;">Fetching daily GEX snapshot…</div>
+    </div>
+    <div id="gexNativeMeta" style="font-size:11px;color:var(--muted);padding:0 16px 12px;"></div>
+  </div>
   <div class="card">
     <div class="card-header">
       <div class="card-title">🧲 GEX Map (Gamma Exposure)</div>
@@ -17420,7 +17433,39 @@ async function fetchGex() {
     document.getElementById('gexChart').innerHTML = '<div style="color:var(--muted);padding:40px;text-align:center;">Error loading GEX data.</div>';
   }
 }
-registerSectionInit('gex', fetchGex, []);
+async function fetchGexNative() {
+  var body = document.getElementById('gexNativeBody');
+  var meta = document.getElementById('gexNativeMeta');
+  try {
+    var r = await _cachedFetch('/api/gex-snapshot', 60000);
+    if (!r.ok) { if (body) body.innerHTML = '<div style="color:var(--muted);padding:20px;">GEX snapshot unavailable (' + r.status + ').</div>'; return; }
+    var d = await r.json();
+    var data = (d && d.data) || {};
+    var syms = Object.keys(data);
+    if (!syms.length) { if (body) body.innerHTML = '<div style="color:var(--muted);padding:20px;">No GEX snapshot yet — collector runs daily near close.</div>'; return; }
+    var h = '';
+    for (var i = 0; i < syms.length; i++) {
+      var u = syms[i], g = data[u] || {};
+      var spot = g.spot, flip = g.gamma_flip, tot = g.total_gex || 0;
+      var longGamma = tot > 0;
+      var regColor = longGamma ? 'var(--green)' : 'var(--red)';
+      var flipDelta = (flip != null && spot) ? ((flip / spot - 1) * 100) : null;
+      var a = Math.abs(tot);
+      var totStr = a > 1e9 ? (tot / 1e9).toFixed(2) + 'B' : a > 1e6 ? (tot / 1e6).toFixed(1) + 'M' : tot.toFixed(0);
+      h += '<div style="padding:12px;background:var(--surface);border-radius:8px;">';
+      h += '<div style="display:flex;justify-content:space-between;align-items:center;"><div style="font-size:16px;font-weight:800;">' + u + '</div><div style="font-size:12px;font-weight:700;color:' + regColor + ';">' + (longGamma ? 'LONG-γ' : 'SHORT-γ') + '</div></div>';
+      h += '<div style="font-size:12px;color:var(--muted);margin-top:2px;">spot ' + (spot != null ? spot.toFixed(2) : '—') + '  ·  total GEX ' + (tot >= 0 ? '+' : '') + totStr + '</div>';
+      h += '<div style="display:flex;justify-content:space-between;margin-top:8px;font-family:var(--font-mono);font-size:13px;"><span style="color:var(--muted);">gamma flip</span><span>' + (flip != null ? flip.toFixed(2) : '—') + (flipDelta != null ? ' <span style="color:var(--muted);">(' + (flipDelta >= 0 ? '+' : '') + flipDelta.toFixed(1) + '%)</span>' : '') + '</span></div>';
+      h += '<div style="display:flex;justify-content:space-between;margin-top:4px;font-family:var(--font-mono);font-size:13px;"><span style="color:var(--muted);">call wall</span><span style="color:var(--green);">' + (g.call_wall != null ? g.call_wall : '—') + '</span></div>';
+      h += '<div style="display:flex;justify-content:space-between;margin-top:4px;font-family:var(--font-mono);font-size:13px;"><span style="color:var(--muted);">put wall</span><span style="color:var(--red);">' + (g.put_wall != null ? g.put_wall : '—') + '</span></div>';
+      h += '</div>';
+    }
+    if (body) body.innerHTML = h;
+    var asof = (data[syms[0]] || {}).asof || '';
+    if (meta) meta.textContent = 'Daily snapshot near close · observation-only (no order path) · Polygon-native · as of ' + (asof ? asof.replace('T', ' ').slice(0, 16) : '—');
+  } catch (e) { if (body) body.innerHTML = '<div style="color:var(--muted);padding:20px;">Error loading GEX snapshot.</div>'; }
+}
+registerSectionInit('gex', function () { try { fetchGex(); } catch (e) {} try { fetchGexNative(); } catch (e) {} }, []);
 </script>
 
 <!-- PAIR TRADES SECTION -->
