@@ -23,10 +23,11 @@ Reuses strategies/polygon_client (no new paid feed). py3.14.
 """
 from __future__ import annotations
 
+import math
 import os
 import sqlite3
 import sys
-from datetime import datetime, timezone
+from datetime import date, datetime, timezone
 
 import requests
 
@@ -39,6 +40,15 @@ DB_PATH = os.path.join(_ROOT, "data", "flow_gex.db")
 CONTRACT_MULT = 100
 PREMIUM_FLOOR = 250_000          # $ — tunable; applies to aggregate notional here
 UNUSUAL_VOL_OI = 1.0             # day.volume / OI >= this => 'unusual' (vol>OI opening proxy)
+
+# GEX gamma-relevant band (documented). Full /v3/snapshot chain spans strikes
+# 150..1000 over 26 expirations — but gamma is negligible far from spot / far-dated.
+# We aggregate strikes within +/-STRIKE_BAND of spot and expiries <= EXPIRY_DTE_MAX
+# days. Outside that, BS gamma ~ 0 and only adds noise (the far-OTM put cluster that
+# was dragging the cumulative flip to 482).
+STRIKE_BAND = 0.20               # +/-20% of spot
+EXPIRY_DTE_MAX = 60              # near-term (gamma-relevant) expirations only
+RISK_FREE = 0.0                  # r~0 for short-dated flip profile
 
 # ── GEX dealer-sign convention (DOCUMENTED) ────────────────────────────────
 # SqueezeMetrics-style: dealers are LONG calls / SHORT puts (they hold the other
@@ -69,8 +79,10 @@ def _key() -> str | None:
 
 
 # ── Chain snapshot (paginated) ─────────────────────────────────────────────
-def fetch_chain(underlying: str, max_pages: int = 6) -> list:
-    """Full(ish) option chain snapshot via /v3/snapshot/options/{u} + next_url."""
+def fetch_chain(underlying: str, max_pages: int = 60) -> list:
+    """FULL option chain snapshot via /v3/snapshot/options/{u} + next_url.
+    Default 60 pages x 250 = up to 15k contracts (SPY full chain ~10k). The old
+    6-page (1500) cap was the HM-GEX-SANITY bug — it truncated the chain."""
     key = _key()
     if not key:
         return []
@@ -111,60 +123,113 @@ def fetch_spot(underlying: str) -> float | None:
 
 
 # ── HM-GEX ──────────────────────────────────────────────────────────────────
+_SQRT_2PI = math.sqrt(2.0 * math.pi)
+
+
+def _bs_gamma(S: float, K: float, T: float, sigma: float) -> float:
+    """Black-Scholes gamma at hypothetical spot S (r=0). Lets us re-evaluate
+    dealer gamma across spot levels to find the true flip (snapshot gamma is
+    only valid at the current spot)."""
+    if S <= 0 or K <= 0 or T <= 0 or sigma <= 0:
+        return 0.0
+    d1 = (math.log(S / K) + (RISK_FREE + 0.5 * sigma * sigma) * T) / (sigma * math.sqrt(T))
+    return math.exp(-0.5 * d1 * d1) / _SQRT_2PI / (S * sigma * math.sqrt(T))
+
+
+def _net_gex_at(spot_level: float, contracts: list) -> float:
+    """Net dealer GEX (calls +, puts −) at a hypothetical spot, BS-re-gammaed."""
+    tot = 0.0
+    for K, ctype, oi, iv, T in contracts:
+        g = _bs_gamma(spot_level, K, T, iv)
+        gex = g * oi * CONTRACT_MULT * spot_level * spot_level * 0.01
+        tot += gex if ctype == "call" else -gex
+    return tot
+
+
 def compute_gex(underlying: str, chain: list | None = None, spot: float | None = None) -> dict:
-    """Dealer GEX profile. Returns total GEX, gamma flip, call/put walls, per-strike net."""
+    """Dealer GEX. Aggregates the gamma-relevant band (+/-STRIKE_BAND of spot,
+    expiries <= EXPIRY_DTE_MAX). total GEX + walls use snapshot gamma at spot;
+    gamma flip = spot level where BS-re-gammaed net GEX crosses zero."""
     chain = chain if chain is not None else fetch_chain(underlying)
     spot = spot if spot is not None else fetch_spot(underlying)
     if not chain or not spot:
         return {"underlying": underlying, "error": "no chain/spot", "spot": spot}
 
-    per_strike: dict = {}     # strike -> net GEX
+    lo, hi = spot * (1 - STRIKE_BAND), spot * (1 + STRIKE_BAND)
+    today = date.today()
+    per_strike: dict = {}
     call_gex: dict = {}
     put_gex: dict = {}
+    bs_contracts = []           # (K, type, OI, IV, T_years) for the flip profile
     coef = CONTRACT_MULT * spot * spot * 0.01
     used = 0
+    n_exp = set()
     for c in chain:
-        g = (c.get("greeks") or {}).get("gamma")
-        oi = c.get("open_interest") or 0
         d = c.get("details") or {}
         k = d.get("strike_price")
         ctype = d.get("contract_type")
-        if g is None or not oi or k is None or ctype not in ("call", "put"):
+        oi = c.get("open_interest") or 0
+        g = (c.get("greeks") or {}).get("gamma")
+        iv = c.get("implied_volatility") or 0
+        exp = d.get("expiration_date")
+        if k is None or ctype not in ("call", "put") or not oi or not (lo <= k <= hi):
             continue
-        gex = g * oi * coef
-        signed = gex if ctype == "call" else -gex   # dealers long calls / short puts
-        per_strike[k] = per_strike.get(k, 0.0) + signed
-        if ctype == "call":
-            call_gex[k] = call_gex.get(k, 0.0) + gex
-        else:
-            put_gex[k] = put_gex.get(k, 0.0) + gex
+        # expiry window
+        T = None
+        if exp:
+            try:
+                dte = (date.fromisoformat(exp) - today).days
+                if dte < 0 or dte > EXPIRY_DTE_MAX:
+                    continue
+                T = max(dte, 0) / 365.0
+            except ValueError:
+                continue
+        n_exp.add(exp)
+        if g is not None:
+            gex = g * oi * coef
+            per_strike[k] = per_strike.get(k, 0.0) + (gex if ctype == "call" else -gex)
+            (call_gex if ctype == "call" else put_gex)[k] = \
+                (call_gex if ctype == "call" else put_gex).get(k, 0.0) + gex
+        if T and iv:
+            bs_contracts.append((k, ctype, oi, iv, T))
         used += 1
 
     if not per_strike:
-        return {"underlying": underlying, "error": "no usable contracts", "spot": spot}
+        return {"underlying": underlying, "error": "no usable contracts in band", "spot": spot}
 
     total_gex = sum(per_strike.values())
-    strikes = sorted(per_strike)
-    # gamma flip: cumulative net GEX zero-cross (interpolated)
-    cum = 0.0
+    # gamma flip via BS spot-profile zero-cross (scan +/-15% of spot, fine step)
     flip = None
-    prev_k, prev_cum = None, 0.0
-    for k in strikes:
-        cum += per_strike[k]
-        if prev_k is not None and (prev_cum <= 0 < cum or prev_cum >= 0 > cum):
-            # linear interp between prev_k and k
-            span = cum - prev_cum
-            flip = prev_k + (k - prev_k) * (0 - prev_cum) / span if span else k
-            break
-        prev_k, prev_cum = k, cum
-    call_wall = max(call_gex, key=call_gex.get) if call_gex else None     # largest +call GEX
-    put_wall = max(put_gex, key=put_gex.get) if put_gex else None         # largest put GEX (|−|)
+    flip_note = None
+    if bs_contracts:
+        s_lo, s_hi = spot * 0.85, spot * 1.15
+        steps = 240
+        prev_s = s_lo
+        prev_v = _net_gex_at(prev_s, bs_contracts)
+        for i in range(1, steps + 1):
+            s = s_lo + (s_hi - s_lo) * i / steps
+            v = _net_gex_at(s, bs_contracts)
+            if (prev_v <= 0 < v) or (prev_v >= 0 > v):
+                span = v - prev_v
+                flip = prev_s + (s - prev_s) * (0 - prev_v) / span if span else s
+                break
+            prev_s, prev_v = s, v
+        if flip is None:
+            flip_note = ("no zero-cross in +/-15%% of spot — deep %s regime"
+                         % ("long-gamma" if total_gex > 0 else "short-gamma"))
+    call_wall = max(call_gex, key=call_gex.get) if call_gex else None
+    put_wall = max(put_gex, key=put_gex.get) if put_gex else None
     return {
         "underlying": underlying, "spot": round(spot, 2),
-        "total_gex": total_gex, "regime": ("positive/long-gamma" if total_gex > 0 else "negative/short-gamma"),
+        "total_gex": total_gex,
+        "regime": ("positive/long-gamma" if total_gex > 0 else "negative/short-gamma"),
         "gamma_flip": (round(flip, 2) if flip else None),
+        "flip_note": flip_note,
+        "flip_vs_spot_pct": (round((flip / spot - 1) * 100, 2) if flip else None),
         "call_wall": call_wall, "put_wall": put_wall,
-        "contracts_used": used,
+        "contracts_used": used, "expirations_used": len(n_exp),
+        "band": "strikes +/-%d%% of spot, expiries <=%dDTE" % (int(STRIKE_BAND * 100), EXPIRY_DTE_MAX),
+        "flip_method": "BS re-gamma net-GEX zero-cross across spot (not cumulative-across-strikes)",
         "convention": "dealers long calls / short puts (SqueezeMetrics); call +, put -",
         "per_strike": {round(k, 2): round(v, 0) for k, v in sorted(per_strike.items())},
         "asof": datetime.now(timezone.utc).isoformat(),
