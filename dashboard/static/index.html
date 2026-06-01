@@ -2625,7 +2625,26 @@ function agentName(player_id, fallback) {
     requestAnimationFrame(function() { queued = false; upgradeAll(); });
   }
 
-  var observer = new MutationObserver(schedule);
+  // #9 (2026-06-01): LiveChart guard. The chart streams ticks and churns its own
+  // subtree; a full-document ticker re-scan per frame is wasted work and can jank
+  // the page. Only re-scan when a mutation originates OUTSIDE the LiveChart subtree
+  // (worst case unchanged — pure-chart frames are simply skipped).
+  function _inLiveChart(node) {
+    for (var n = node; n; n = n.parentNode) {
+      if (n.nodeType === 1) {
+        if ((n.id || '').indexOf('liveChart') === 0) return true;
+        if (n.classList && (n.classList.contains('lc-canvas') ||
+                            n.classList.contains('live-chart'))) return true;
+      }
+    }
+    return false;
+  }
+  var observer = new MutationObserver(function(mutations) {
+    for (var i = 0; i < mutations.length; i++) {
+      if (!_inLiveChart(mutations[i].target)) { schedule(); return; }
+    }
+    // every mutation was inside the LiveChart subtree — skip the rescan
+  });
   function start() {
     upgradeAll();
     observer.observe(document.body, { childList: true, subtree: true });

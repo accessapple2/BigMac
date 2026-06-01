@@ -570,8 +570,12 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 <div id="tab-matrix" class="section active">
   <div class="matrix-header">
     <div>// MORPHEUS — OPERATOR //</div>
-    <div id="matrix-status">awareness: <span class="mh-loaded" id="matrix-status-text">loading</span> · last: <span id="matrix-last-fetch">—</span></div>
+    <div id="matrix-status" onclick="(function(){var g=document.getElementById('w1-health-grid');if(g)g.style.display=(g.style.display==='none'||!g.style.display)?'block':'none';})()" style="cursor:pointer" title="Click to toggle the source-health grid (W1 /api/sources/health)">sources: <span class="mh-loaded" id="matrix-status-text">loading</span> · last: <span id="matrix-last-fetch">—</span></div>
   </div>
+  <!-- W1 (2026-06-01): real source-health grid from /api/sources/health (RED-first,
+       per-source as-of). Replaces the meaningless "13/13 loaded" count. Collapsed by
+       default; toggle via the header. HELD for Admiral browser smoke. -->
+  <div id="w1-health-grid" style="display:none;padding:4px 12px 10px"></div>
   <div class="matrix-grid">
     <div class="matrix-section" id="matrix-red-alert">
       <h2><span>🟥 Red Alert</span><span class="ms-fresh" id="ra-fresh"></span></h2>
@@ -1129,6 +1133,53 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     _renderSection(id, `<div class="ms-error">error: ${_esc(msg)}</div>`);
   }
 
+  // W1 (2026-06-01): real source-health grid. Reads /api/sources/health (the W1
+  // source_gate), sorts RED-first, sets the header summary, and renders per-source
+  // {name, state badge, criticality, age, as_of}. RETIRED shown grey (not RED-alarm).
+  async function _renderHealthGrid() {
+    const statusEl = document.getElementById('matrix-status-text');
+    const grid = document.getElementById('w1-health-grid');
+    try {
+      const r = await fetch('/api/sources/health', { credentials: 'same-origin' });
+      if (!r.ok) { if (statusEl) statusEl.textContent = `health HTTP ${r.status}`; return; }
+      let rows = await r.json();
+      if (!Array.isArray(rows)) rows = rows.sources || rows.health || [];
+      const ord = { RED: 0, AMBER: 1, UNKNOWN: 2, GREEN: 3, RETIRED: 4 };
+      rows.sort((a, b) => (ord[a.state] ?? 9) - (ord[b.state] ?? 9) ||
+                          (a.source_id || '').localeCompare(b.source_id || ''));
+      const c = { GREEN: 0, AMBER: 0, RED: 0, RETIRED: 0, UNKNOWN: 0 };
+      rows.forEach(s => { c[s.state] = (c[s.state] || 0) + 1; });
+      if (statusEl) statusEl.innerHTML =
+        `${c.GREEN} GREEN · ${c.AMBER} AMBER · ` +
+        `<span style="color:#ef4444;font-weight:700">${c.RED} RED</span>` +
+        (c.RETIRED ? ` · ${c.RETIRED} RET` : '') + (c.UNKNOWN ? ` · ${c.UNKNOWN} UNK` : '');
+      if (grid) {
+        const COL = { GREEN: '#10b981', AMBER: '#f59e0b', RED: '#ef4444',
+                      RETIRED: '#6b7280', UNKNOWN: '#6b7280' };
+        const badge = st => {
+          const col = COL[st] || '#6b7280';
+          return `<span style="background:${col}22;color:${col};border:1px solid ${col}55;` +
+                 `padding:1px 6px;border-radius:6px;font-size:10px;font-weight:700">${st}</span>`;
+        };
+        grid.innerHTML =
+          '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">' +
+          rows.map(s => {
+            const dim = (s.state === 'RED' || s.state === 'RETIRED') ? 'opacity:.7;' : '';
+            const crit = s.criticality === 'live_decision'
+              ? '<span style="color:#f59e0b">◆ live</span>' : _esc(s.criticality || '');
+            const qd = s.quarantined ? ' · <span style="color:#ef4444">⛔ quarantined</span>' : '';
+            return `<div style="${dim}border:1px solid var(--border,#333);border-radius:8px;` +
+                   `padding:8px 10px;background:var(--card,#161628)">` +
+              `<div style="display:flex;justify-content:space-between;align-items:center;gap:6px">` +
+                `<strong style="font-size:12px">${_esc(s.display_name || s.source_id)}</strong>${badge(s.state)}</div>` +
+              `<div style="font-size:10px;color:var(--muted);margin-top:4px">${crit} · age ${_esc(s.age_human || '—')}${qd}</div>` +
+              `<div style="font-size:10px;color:var(--muted)">as of ${_esc((s.as_of || '—').toString().slice(0, 16))}</div>` +
+            `</div>`;
+          }).join('') + '</div>';
+      }
+    } catch (e) { if (statusEl) statusEl.textContent = 'health unavailable'; }
+  }
+
   async function loadMatrix() {
     const statusEl = document.getElementById('matrix-status-text');
     const fetchEl  = document.getElementById('matrix-last-fetch');
@@ -1140,10 +1191,9 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       }
       const d = await r.json();
       const failed = new Set((d.sources_failed || []).map(s => s.source));
-      if (statusEl) {
-        statusEl.textContent = (d.sources_loaded || []).length + '/' +
-          ((d.sources_loaded || []).length + (d.sources_failed || []).length) + ' sources';
-      }
+      // W1: header summary + grid now come from real /api/sources/health (kirk/riker
+      // RED etc.), replacing the meaningless awareness loaded/failed count.
+      _renderHealthGrid();
       if (fetchEl) fetchEl.textContent = new Date().toLocaleTimeString();
 
       // W1-C 2026-05-23: each section consumes its Captain-spec primary
@@ -1983,36 +2033,67 @@ function buildDashboard(data){
 // ══════════════════════════════════════════════
 // CREW
 // ══════════════════════════════════════════════
+// #8 (2026-06-01): collapse empty-E agents (grade E, 0 trades, $0 P&L, not halted)
+// into a dormant drawer so the grid leads with the contributing crew. Halted agents
+// carry season-cumulative P&L and stay visible.
+function _crewAgentScore(a){
+  var ret=parseFloat(a.return_pct||0), wr=parseFloat(a.win_rate||0), trades=parseInt(a.trades||0);
+  return Math.round(Math.min(100,Math.max(0,wr*0.45+Math.min(Math.max(ret*8,0),30)+Math.min(trades*3,25))));
+}
+function _crewIsEmptyE(a){
+  return gl(_crewAgentScore(a))==='E' && parseInt(a.trades||0)===0
+         && Math.abs(parseFloat(a.total_pnl||0))<0.005 && !a.is_halted;
+}
+function _crewCard(a){
+  var ret=parseFloat(a.return_pct||0);
+  var wr=parseFloat(a.win_rate||0);
+  var trades=parseInt(a.trades||0);
+  var pnl=parseFloat(a.total_pnl||0);
+  // Bug 5: halted players legitimately carry season-cumulative P&L with
+  // trades=0 in the current period. Without a halt badge the combo reads
+  // as "mathematically impossible" (e.g. Lt. Sulu -$451 / 0 trades since
+  // 2026-03-31 R:R-0.10 dormancy). Render the halt state visibly and dim
+  // the card so the cumulative value is read as historical, not stale.
+  var halted=!!a.is_halted;
+  var haltReason=(a.halt_reason||'').toString();
+  var agentScore=_crewAgentScore(a);
+  var color=gc(agentScore);
+  var cardStyle=halted?' style="opacity:.55;filter:grayscale(.4)"':'';
+  var haltBadge=halted
+    ? '<div style="font-size:9px;font-weight:700;letter-spacing:1px;color:#f59e0b;background:#f59e0b22;padding:2px 6px;border-radius:6px;margin-top:4px;display:inline-block" title="'+haltReason.replace(/"/g,'&quot;')+'">⏸ HALTED</div>'
+    : '';
+  var pnlLabel=halted?'season P&amp;L':'P&amp;L';
+  return '<div class="crew-card"'+cardStyle+'>'+
+    '<div class="crew-grade-ring" style="background:'+color+'">'+gl(agentScore)+'</div>'+
+    '<div class="crew-name">'+(a.name||a.player_id||'Agent')+'</div>'+
+    haltBadge+
+    '<div class="crew-return '+pcls(ret)+'">'+pct(ret)+'</div>'+
+    '<div class="crew-stats">WR '+wr.toFixed(0)+'% &bull; '+trades+' trades<br><span class="'+pcls(pnl)+'">'+fmt$(pnl)+'</span> '+pnlLabel+'</div>'+
+    '<div class="crew-bar"><div class="crew-bar-fill" style="width:'+Math.min(wr,100)+'%;background:'+color+'"></div></div>'+
+  '</div>';
+}
+function toggleCrewDormant(btn){
+  var d=document.getElementById('crew-dormant-body'); if(!d) return;
+  var open=d.style.display!=='none';
+  d.style.display=open?'none':'grid';
+  btn.innerHTML=(open?'▸':'▾')+' '+(btn.getAttribute('data-n')||'')+' dormant agents (grade E, 0 trades)';
+}
 function buildCrew(agents){ try {
   var sorted=agents.slice().sort(function(a,b){return (b.total_pnl||0)-(a.total_pnl||0);});
-  var html=sorted.map(function(a){
-    var ret=parseFloat(a.return_pct||0);
-    var wr=parseFloat(a.win_rate||0);
-    var trades=parseInt(a.trades||0);
-    var pnl=parseFloat(a.total_pnl||0);
-    // Bug 5: halted players legitimately carry season-cumulative P&L with
-    // trades=0 in the current period. Without a halt badge the combo reads
-    // as "mathematically impossible" (e.g. Lt. Sulu -$451 / 0 trades since
-    // 2026-03-31 R:R-0.10 dormancy). Render the halt state visibly and dim
-    // the card so the cumulative value is read as historical, not stale.
-    var halted=!!a.is_halted;
-    var haltReason=(a.halt_reason||'').toString();
-    var agentScore=Math.round(Math.min(100,Math.max(0,wr*0.45+Math.min(Math.max(ret*8,0),30)+Math.min(trades*3,25))));
-    var color=gc(agentScore);
-    var cardStyle=halted?' style="opacity:.55;filter:grayscale(.4)"':'';
-    var haltBadge=halted
-      ? '<div style="font-size:9px;font-weight:700;letter-spacing:1px;color:#f59e0b;background:#f59e0b22;padding:2px 6px;border-radius:6px;margin-top:4px;display:inline-block" title="'+haltReason.replace(/"/g,'&quot;')+'">⏸ HALTED</div>'
-      : '';
-    var pnlLabel=halted?'season P&amp;L':'P&amp;L';
-    return '<div class="crew-card"'+cardStyle+'>'+
-      '<div class="crew-grade-ring" style="background:'+color+'">'+gl(agentScore)+'</div>'+
-      '<div class="crew-name">'+(a.name||a.player_id||'Agent')+'</div>'+
-      haltBadge+
-      '<div class="crew-return '+pcls(ret)+'">'+pct(ret)+'</div>'+
-      '<div class="crew-stats">WR '+wr.toFixed(0)+'% &bull; '+trades+' trades<br><span class="'+pcls(pnl)+'">'+fmt$(pnl)+'</span> '+pnlLabel+'</div>'+
-      '<div class="crew-bar"><div class="crew-bar-fill" style="width:'+Math.min(wr,100)+'%;background:'+color+'"></div></div>'+
+  var active=sorted.filter(function(a){return !_crewIsEmptyE(a);});
+  var dormant=sorted.filter(_crewIsEmptyE);
+  var html=active.map(_crewCard).join('');
+  if(dormant.length){
+    html+='<div class="crew-dormant-drawer" style="grid-column:1/-1;margin-top:6px">'+
+      '<button class="crew-dormant-toggle" data-n="'+dormant.length+'" onclick="toggleCrewDormant(this)" '+
+        'style="width:100%;text-align:left;background:var(--card,#1a1a2e);border:1px solid var(--border,#333);'+
+        'color:var(--muted,#9aa);padding:8px 12px;border-radius:8px;cursor:pointer;font-size:12px;font-weight:600">'+
+        '&#9656; '+dormant.length+' dormant agents (grade E, 0 trades)</button>'+
+      '<div id="crew-dormant-body" class="crew-grid" style="display:none;margin-top:8px;padding:0">'+
+        dormant.map(_crewCard).join('')+
+      '</div>'+
     '</div>';
-  }).join('');
+  }
   setHTML('crew-grid', html||'<div class="empty-state">No crew data</div>');
   } catch(_e){ console.error('buildCrew:', _e); }
 }
