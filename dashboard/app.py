@@ -1426,7 +1426,16 @@ def robots_txt():
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next):
         response = await call_next(request)
-        response.headers["X-Frame-Options"] = "DENY"
+        # HM-O-TASTY-PHASE-2.1 (2026-06-02): the Test Kitchen tab embeds the same-origin
+        # /test-kitchen/ proxy (SwingDesk) in an iframe; the bridge-wide DENY refuses ALL
+        # framing — even same-origin — which blocked the embed (X-Frame-Options:DENY, no
+        # CSP frame-ancestors override). Allow SAMEORIGIN for /test-kitchen ONLY; every
+        # other route keeps DENY so clickjacking protection is unchanged bridge-wide.
+        # (api/* under the prefix are XHR — XFO-irrelevant — but matching them is harmless.)
+        if request.url.path.startswith("/test-kitchen"):
+            response.headers["X-Frame-Options"] = "SAMEORIGIN"
+        else:
+            response.headers["X-Frame-Options"] = "DENY"
         response.headers["X-Content-Type-Options"] = "nosniff"
         response.headers["X-XSS-Protection"] = "1; mode=block"
         response.headers["Referrer-Policy"] = "no-referrer"
