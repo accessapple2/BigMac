@@ -22,7 +22,7 @@ import logging
 import os
 import sqlite3
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 
 from dotenv import load_dotenv
 from rich.console import Console
@@ -329,7 +329,7 @@ def build_universe(force: bool = False) -> dict:
     # Step 2 — liquidity filter in chunks of 200
     # ----------------------------------------------------------------
     qualifying: list[dict] = []
-    now_str = datetime.now().isoformat()
+    now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')  # HM-TZ-COMPLETION 2026-06-02: scan_universe.last_updated canonical space-UTC
     end_date = datetime.now()
     start_date = end_date - timedelta(days=35)  # covers 20 trading days with weekends
 

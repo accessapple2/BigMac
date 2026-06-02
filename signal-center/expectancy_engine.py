@@ -27,7 +27,7 @@ import os
 import sqlite3
 import sys
 import time
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any, Dict, List, Optional, Tuple
 
 import requests
@@ -187,7 +187,8 @@ def backfill_daily_bars(symbols: Optional[List[str]] = None,
                         "(symbol,date,open,high,low,close,volume,source,fetched_at) "
                         "VALUES (?,?,?,?,?,?,?, 'polygon', ?)",
                         (sym, b["date"], b["open"], b["high"], b["low"],
-                         b["close"], b["volume"], datetime.now().isoformat()))
+                         b["close"], b["volume"],
+                         datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')))  # HM-TZ-COMPLETION 2026-06-02: was local .isoformat() (daily_bars.fetched_at, provenance-only, no UTC reader — canonicalized for consistency)
                     total_rows += 1
                 conn.commit()
             if verbose and (i + 1) % 25 == 0:

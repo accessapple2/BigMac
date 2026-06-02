@@ -2157,7 +2157,10 @@ def predictions_snapshot():
         db.close()
         return jsonify({"error": "Could not fetch Top 25", "date": today}), 500
 
-    now = datetime.now().isoformat()
+    # HM-TZ residual fix (2026-06-02, HM-SOURCE-HEALTH-WATCHER): was local
+    # datetime.now().isoformat() -> predictions.created_at stored AZ-local -> db_max
+    # freshness read it as UTC -> phantom 7h staleness. Canonical space-UTC (matches :551).
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     for r in rows:
         db.execute(
             "INSERT INTO predictions "
@@ -2226,7 +2229,9 @@ def predictions_check():
         }), 404
 
     results = []
-    now_str = datetime.now().isoformat()
+    # HM-TZ residual fix (2026-06-02, HM-SOURCE-HEALTH-WATCHER): was local
+    # datetime.now().isoformat(); canonical space-UTC for scorecard writes (matches :551).
+    now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     best  = {"symbol": "", "pct": -999}
     worst = {"symbol": "", "pct":  999}
     tp1_hits = tp2_hits = sl_hits = wins = 0

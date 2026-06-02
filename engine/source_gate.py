@@ -142,7 +142,14 @@ def _resolve_ts(ts_format: str, ts_field: str) -> Tuple[Optional[datetime], Opti
         conn = _db(db_path)
         try:
             row = conn.execute(
-                "SELECT max(%s) AS m FROM %s" % (col, table)  # nosec - identifiers validated
+                # HM-DBMAX-HARDEN 2026-06-02: max(datetime(col)) normalizes mixed timestamp
+                # formats (isoformat-'T' vs space-UTC) BEFORE comparing, so lexical sort can't
+                # let a stale 'T'-row out-rank a fresh space-UTC write (see
+                # feedback_db_max_lexical_format_freshness; the permanent guard behind the
+                # signal_outcomes/predictions/trade_signals backfills). datetime() returns NULL
+                # on an unparseable value -> MAX skips it (a malformed stamp must not read fresh).
+                # Verified: still uses the covering index (no full-scan) and ~1ms on the 23k-row feed.
+                "SELECT max(datetime(%s)) AS m FROM %s" % (col, table)  # nosec - identifiers validated
             ).fetchone()
             raw = row["m"] if row else None
             return _parse_ts(raw), (str(raw) if raw is not None else None)
@@ -156,7 +163,13 @@ def _resolve_ts(ts_format: str, ts_field: str) -> Tuple[Optional[datetime], Opti
         endpoint, _, dotpath = rest.partition(":")
         try:
             import requests  # local import; available in both envs
-            resp = requests.get(_BRIDGE + endpoint, timeout=8)
+            # HM-SOURCE-HEALTH-WATCHER (2026-06-02): opt out of the dashboard's
+            # TimezoneRoute UTC->AZ localization (dashboard/app.py TimezoneRoute) so
+            # freshness probes read canonical UTC. Without this the -7h MST rewrite
+            # is mis-read as staleness -> phantom 7h age -> false RED on every
+            # bridge_iso source with a time component (movers/scanner_status/...).
+            resp = requests.get(_BRIDGE + endpoint, timeout=8,
+                                headers={"X-Raw-Timestamps": "1"})
             if resp.status_code != 200:
                 return None, None
             data = resp.json()
@@ -405,6 +418,14 @@ def set_enabled(source_id: str, enabled: bool) -> bool:
 # (min-interval gated) not per poll, so frontend poll frequency can't inflate it.
 AUTO_QUARANTINE_ENABLED = False          # flip True to let the tracker set_enabled(0)
 RED_TICKS_TO_QUARANTINE = 3              # consecutive RED ticks before recommend/auto
+# HM-SOURCE-HEALTH-WATCHER (2026-06-02): the GREEN->RED *freshness* NTFY moved to the
+# independent cron watcher (scripts/source_health_watcher.py), which (a) covers context
+# sources too — `movers` is criticality=context, which this in-process path never alerted
+# on — and (b) runs on a different mechanism than signal-center (this path only fires when
+# the /api/sources/health endpoint is polled). Muted here to avoid double-fire. The
+# consec-RED *quarantine recommendation* below is policy (default-off) and stays put.
+# `actions["alerts"]` bookkeeping is retained for the endpoint's observability payload.
+TRANSITION_NTFY_ENABLED = False
 _TRACKER_MIN_INTERVAL_S = 900           # advance at most every 15 min
 _HEALTH_STATE_PATH = os.path.join(_ROOT, "data", "source_health_state.json")
 
@@ -472,10 +493,11 @@ def check_source_health_alerts(now_utc: Optional[datetime] = None,
             consec = consec + 1 if st == RED else 0
 
             if st == RED and crit == "live_decision" and prev_state != RED:
-                _quarantine_ntfy(
-                    f"Source RED: {s.get('display_name', sid)}",
-                    f"{sid} ({crit}) flipped RED — stale {s.get('age_human')}, as_of {s.get('as_of')}",
-                    priority="high", tags="rotating_light")
+                if TRANSITION_NTFY_ENABLED:  # muted — owned by source_health_watcher cron
+                    _quarantine_ntfy(
+                        f"Source RED: {s.get('display_name', sid)}",
+                        f"{sid} ({crit}) flipped RED — stale {s.get('age_human')}, as_of {s.get('as_of')}",
+                        priority="high", tags="rotating_light")
                 actions["alerts"].append(sid)
 
             if (st == RED and crit == "live_decision"

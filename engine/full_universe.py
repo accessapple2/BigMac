@@ -12,7 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 
 import requests
 
@@ -122,7 +122,7 @@ def refresh_universe() -> int:
         return 0
 
     # Upsert into DB
-    now = datetime.now().isoformat()
+    now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')  # HM-TZ-COMPLETION 2026-06-02: universe_stocks.updated_at canonical space-UTC
     with _conn() as c:
         c.executemany(
             """

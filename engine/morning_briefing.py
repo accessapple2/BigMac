@@ -392,7 +392,7 @@ def generate_morning_briefing(force: bool = False) -> dict:
             "text":         briefing_text,
             "sections":     sections,
             "audio_url":    audio_url,
-            "generated_at": datetime.datetime.now().isoformat(),
+            "generated_at": datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),  # HM-TZ straggler fix 2026-06-02: was local (morning_brief bridge_iso source)
             "date":         today,
         }
 
@@ -1161,7 +1161,7 @@ def generate_daily_intel_report(force: bool = False, push_ntfy: bool = False,
 
         report = {
             "date":             today,
-            "generated_at":     datetime.datetime.now().isoformat(),
+            "generated_at":     datetime.datetime.now(datetime.timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),  # HM-TZ straggler fix 2026-06-02: was local (morning_brief bridge_iso source)
             "label":            f"Daily Intel — {now_str}",
             "earnings":         earnings,
             "sector_rotation":  sectors,

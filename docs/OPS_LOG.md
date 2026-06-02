@@ -567,3 +567,6 @@ This is the SAME class as the Schwab cadence alarm dying on the same launchd as
 its watcher. Monitors must fail INDEPENDENTLY of what they monitor. See
 CLAUDE.md "Alarms must not share a failure mode with what they watch."
 - 2026-05-30T09:47:16 | daily_backup | backup=trader_2026-05-30.db | 471040KB
+- 2026-05-31T06:00:06 | daily_backup | backup=trader_2026-05-31.db | 471040KB
+- 2026-06-01T06:00:07 | daily_backup | backup=trader_2026-06-01.db | 471040KB
+- 2026-06-02T06:00:06 | daily_backup | backup=trader_2026-06-02.db | 496652KB

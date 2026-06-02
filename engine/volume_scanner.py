@@ -523,7 +523,7 @@ def get_todays_volume_alerts(limit: int = 200) -> list[dict]:
                     f"""
                     SELECT symbol, COUNT(DISTINCT date(detected_at, 'localtime')) AS days_active
                     FROM volume_alerts
-                    WHERE detected_at >= date('now', 'localtime', '-10 days')
+                    WHERE detected_at >= date('now', '-10 days')  -- HM-TZ-COMPLETION 2026-06-02: detected_at is UTC (utc_now_str); boundary must be UTC too (was 'localtime')
                       AND symbol IN ({placeholders})
                     GROUP BY symbol
                     """,

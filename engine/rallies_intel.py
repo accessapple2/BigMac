@@ -12,7 +12,7 @@ Data flow:
 from __future__ import annotations
 import json
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timezone
 from rich.console import Console
 
 console = Console()
@@ -99,7 +99,7 @@ def import_leaderboard(data: list[dict]) -> dict:
             m.get("name", model_id),
             m.get("return_pct", 0),
             m.get("portfolio_value", 100000),
-            datetime.now().isoformat(),
+            datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
         ))
         imported += 1
     conn.commit()
@@ -139,7 +139,7 @@ def import_trades(trades: list[dict]) -> dict:
             t.get("confidence", 0),
             t.get("reasoning", ""),
             t.get("price", 0),
-            datetime.now().isoformat(),
+            datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
         ))
         imported += 1
 
@@ -348,7 +348,7 @@ def _post_war_room_alert(alert_type: str, alert: dict):
                 alert.get("symbol", ""),
                 alert["message"],
                 "RALLIES",
-                datetime.now().isoformat(),
+                datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),
             )
         )
         conn.commit()
@@ -590,7 +590,7 @@ def update_rallies_win_rates():
         win_rate = (wins / total * 100) if total > 0 else 0
         conn.execute(
             "UPDATE rallies_models SET win_rate=?, total_trades=?, winning_trades=?, updated_at=? WHERE id=?",
-            (win_rate, total, wins, datetime.now().isoformat(), mid)
+            (win_rate, total, wins, datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'), mid)
         )
 
     conn.commit()

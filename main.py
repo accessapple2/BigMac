@@ -2027,6 +2027,59 @@ def _bg_ollie_machine_p4_gate():
     threading.Thread(target=_runner, daemon=True, name="sched_ollie_machine_p4_gate").start()
 
 
+# HM-SOURCE-HEALTH-WATCHER (2026-06-02) — dead-man's-switch for the independent
+# source-health watcher cron (scripts/source_health_watcher.py). The watcher writes
+# data/source_health_watcher_heartbeat.json each run; this in-process check reads it
+# and NTFYs if it's stale. Cron-watcher watched by the always-on trader = a DIFFERENT
+# mechanism (CLAUDE.md "Alarms must not share a failure mode with what they watch":
+# who-watches-the-watcher). Read-only — reads one JSON file, may send NTFY.
+_SOURCE_HEALTH_HB_PATH = os.path.join(
+    os.path.dirname(os.path.abspath(__file__)), "data", "source_health_watcher_heartbeat.json"
+)
+# Stale if no heartbeat for > this many seconds (~3.5 missed 10-min runs).
+_SOURCE_HEALTH_HB_STALE_S = int(os.environ.get("SOURCE_HEALTH_HB_STALE_S", str(35 * 60)))
+
+
+def _bg_source_health_dms():
+    """Alarm if the source-health watcher's heartbeat has gone stale (or never
+    ran). Different mechanism than the cron it guards, so one failure can't take
+    out both the watcher and its watchdog."""
+    try:
+        import json as _json
+        import time as _time
+        from engine.alert_channels import send_alert, AlertLevel
+
+        if not os.path.exists(_SOURCE_HEALTH_HB_PATH):
+            send_alert(
+                message=("source-health watcher heartbeat MISSING "
+                         f"({_SOURCE_HEALTH_HB_PATH}) — the watcher cron may never have "
+                         "run. Source-staleness alerting (incl. the Movers-gap backstop) "
+                         "is DOWN."),
+                level=AlertLevel.WARNING,
+                alert_type="source-health-watcher-dead",
+                rate_limit_secs=3600,
+            )
+            return
+
+        with open(_SOURCE_HEALTH_HB_PATH) as f:
+            hb = _json.load(f)
+        last_run = float(hb.get("last_run", 0) or 0)
+        age = _time.time() - last_run
+        if age > _SOURCE_HEALTH_HB_STALE_S:
+            mins = int(age // 60)
+            send_alert(
+                message=(f"source-health watcher heartbeat STALE — last run {mins} min ago "
+                         f"(threshold {_SOURCE_HEALTH_HB_STALE_S // 60} min). The watcher cron "
+                         "is dead/hung; source-staleness alerting is DOWN. Check "
+                         "logs/source_health_watcher_cron.log + crontab."),
+                level=AlertLevel.WARNING,
+                alert_type="source-health-watcher-stale",
+                rate_limit_secs=3600,
+            )
+    except Exception as e:
+        console.log(f"[yellow]source-health DMS error: {type(e).__name__}: {e!r}")
+
+
 # HM-RS-RANK-VS-SPY 2026-05-24 — nightly 12wk relative-strength rank scanner.
 # Default-OFF via RS_RANK_ENABLED env flag. Foundational for downstream
 # leader-composite scans (Minervini Trend Template etc.).
@@ -4224,6 +4277,7 @@ if __name__ == "__main__":
     schedule.every().day.at("21:00").do(_bg_ollie_machine_daily) # OLLIE-MACHINE-P3 (2026-06-01): SIM evaluate→enter, +15min after Minervini so signals are fresh. tracking-mode, default-OFF via OLLIE_MACHINE_LOOP_ENABLED
     schedule.every(20).minutes.do(_bg_ollie_machine_exits)      # OLLIE-MACHINE-P3 (2026-06-01): SIM exit-monitor, RTH-gated. ledger-direct close, default-OFF via OLLIE_MACHINE_LOOP_ENABLED
     schedule.every().day.at("21:30").do(_bg_ollie_machine_p4_gate) # OLLIE-MACHINE-P4 (2026-06-02): SIM promotion gate, read-only. Daily tick; internally eval'd every 10 closed trades OR weekly. Writes ollie_machine_p4_status only.
+    schedule.every(30).minutes.do(_bg_source_health_dms)        # HM-SOURCE-HEALTH-WATCHER (2026-06-02): dead-man's-switch for the source-health watcher cron (reads its heartbeat, NTFYs if stale). Different mechanism than the cron it guards.
     # Capitol Trades Fund — Congress copycat scan (daily at market open, 9:35 AM ET)
     from engine.capitol_fund import run_capitol_scan as _raw_capitol_scan
     def run_capitol_scan():

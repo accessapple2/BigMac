@@ -13,7 +13,7 @@ import json
 import logging
 import sqlite3
 from collections import defaultdict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 import os
@@ -124,7 +124,7 @@ def generate_synthesis(minutes: int = 10) -> dict:
         agent_activity[s["agent"]] += 1
 
     return {
-        "timestamp":      datetime.now().isoformat(),
+        "timestamp":      datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),  # HM-TZ straggler fix 2026-06-02: was local .isoformat() (riker_synthesis bridge_iso source)
         "period_minutes": minutes,
         "summary": {
             "total_signals":     len(signals),
