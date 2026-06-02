@@ -4665,14 +4665,15 @@ if __name__ == "__main__":
             from engine.strategy_lab import auto_optimize_all
             console.log("[bold cyan]Strategy Lab: Starting weekly auto-optimization...")
             report = auto_optimize_all()
-            deployed = report.get("deployed", [])
+            proposed = report.get("proposed", [])
             best = report.get("best_strategy", {})
-            if deployed:
-                console.log(f"[bold green]Strategy Lab: Deployed {len(deployed)} parameter update(s). "
-                            f"Best: {best.get('strategy_name', 'N/A')} (PF={best.get('avg_profit_factor', 0):.2f})")
+            if proposed:
+                console.log(f"[bold yellow]Strategy Lab: {len(proposed)} proposal(s) for Admiral review "
+                            f"(NOT applied). Best: {best.get('strategy_name', 'N/A')} "
+                            f"(PF={best.get('avg_profit_factor', 0):.2f})")
             else:
                 console.log(f"[green]Strategy Lab: Complete. Best: {best.get('strategy_name', 'N/A')} "
-                            f"(PF={best.get('avg_profit_factor', 0):.2f}). No deployment needed.")
+                            f"(PF={best.get('avg_profit_factor', 0):.2f}). No proposals.")
         except Exception as e:
             console.log(f"[red]Strategy Lab auto-optimize error: {e}")
 

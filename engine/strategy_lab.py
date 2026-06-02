@@ -931,30 +931,11 @@ def _get_current_config_params() -> dict:
         return {"stop_loss_pct": -12, "position_pct": 10}
 
 
-def _update_config_param(param_name: str, new_value: float) -> bool:
-    """Update a numeric parameter in config.py."""
-    config_path = Path("config.py")
-    try:
-        text = config_path.read_text()
-        import re
-        # Map strategy param names to config variable names
-        config_map = {
-            "stop_loss_pct": ("STOP_LOSS_PCT", abs(new_value) / 100),  # -12 → 0.12
-            "position_pct":  ("POSITION_SIZE_PCT", new_value / 100),   # 10 → 0.10
-        }
-        if param_name not in config_map:
-            return False
-        var_name, val = config_map[param_name]
-        pattern = rf"^({var_name}\s*=\s*)[\d.]+(.*)$"
-        replacement = rf"\g<1>{val:.2f}\2"
-        new_text, count = re.subn(pattern, replacement, text, flags=re.MULTILINE)
-        if count > 0:
-            config_path.write_text(new_text)
-            return True
-        return False
-    except Exception as e:
-        console.log(f"[red]Failed to update config.py: {e}")
-        return False
+# _update_config_param() DELETED 2026-06-01 (fix(safety) — Strategy Lab
+# auto-deploy footgun). It wrote config.py directly via regex sub and misfired
+# STOP_LOSS_PCT 0.05→0.20 on 2026-05-31 off a placeholder-1.0-baseline "4900%
+# improvement". auto_optimize_all now PROPOSES only — no file writes. Recover
+# from git history (pre-2026-06-01) if a vetted deploy path is ever rebuilt.
 
 
 def auto_optimize_all(progress_cb=None) -> dict:
@@ -1038,42 +1019,63 @@ def auto_optimize_all(progress_cb=None) -> dict:
     # Sort all strategies by avg profit factor
     all_results.sort(key=lambda x: x["avg_profit_factor"], reverse=True)
 
-    # Compare best vs current and auto-deploy
-    deployed = []
+    # Compare best vs current and PROPOSE — do NOT auto-deploy.
+    # Doctrine (scripts/model_sweep_*.py): "DO NOT AUTO-DEPLOY — Steve reviews
+    # recommendations before any config.py edits." This block formerly wrote
+    # config.py directly via _update_config_param (now deleted) AND appended to
+    # trading_rules.txt; on 2026-05-31 03:50 it flipped STOP_LOSS_PCT 0.05→0.20
+    # off a "4900% improvement" that was purely an artifact of the placeholder
+    # 1.0 baseline below. Now: build proposals, notify the Admiral, write nothing.
+    proposed = []
     if all_results:
         best = all_results[0]
         best_pf = best["avg_profit_factor"]
 
-        # Calculate current baseline PF (use default params)
-        current_pf_estimate = 1.0  # baseline assumption
+        # PLACEHOLDER baseline (1.0) — NOT a real backtest of the live config, so
+        # the improvement % is an over-estimate. Surfaced for human review only;
+        # it is no longer an auto-deploy gate. TODO: backtest current config
+        # params for an honest baseline PF before trusting this number.
+        current_pf_estimate = 1.0
         improvement = ((best_pf - current_pf_estimate) / max(current_pf_estimate, 0.01)) * 100
 
-        # Check if any optimized params differ from current config and beat by >10%
         for param_name, param_val in best["best_params"].items():
             if param_name in current_params:
                 current_val = current_params[param_name]
                 if param_val != current_val and improvement > 10:
-                    if _update_config_param(param_name, param_val):
-                        deployed.append({
-                            "param": param_name,
-                            "old": current_val,
-                            "new": param_val,
-                            "improvement_pct": round(improvement, 1),
-                        })
-                        console.log(
-                            f"[bold green]Strategy Lab: {best['strategy_name']} with "
-                            f"{param_name}={param_val} beat current rules by "
-                            f"{improvement:.0f}%. Auto-deploying new parameters."
-                        )
+                    proposed.append({
+                        "param": param_name,
+                        "old": current_val,
+                        "new": param_val,
+                        "improvement_pct_vs_baseline": round(improvement, 1),
+                        "baseline_note": "vs placeholder PF=1.0, not live config",
+                    })
+                    console.log(
+                        f"[bold yellow]Strategy Lab PROPOSAL (not deployed): "
+                        f"{best['strategy_name']} suggests {param_name}={param_val} "
+                        f"(current {current_val}). Admiral review required before "
+                        f"any config.py edit."
+                    )
 
-        # Also deploy to trading_rules.txt
-        if deployed:
-            deploy_winning_params(best["strategy"], best["best_params"], {
-                "win_rate": best["avg_win_rate"],
-                "profit_factor": best_pf,
-                "total_return_pct": 0,
-                "max_drawdown_pct": 0,
-            })
+        # Notify the Admiral so proposals get a human review (doctrine).
+        if proposed:
+            try:
+                from engine.alert_channels import alert_warning
+                lines = ", ".join(f"{p['param']} {p['old']}→{p['new']}" for p in proposed)
+                alert_warning(
+                    f"Strategy Lab proposes config changes (review, NOT applied): "
+                    f"{lines} [best={best['strategy_name']}, PF={best_pf:.2f}]",
+                    alert_type="strategy_lab_proposal",
+                )
+            except Exception as _e:
+                console.log(
+                    f"[red]Strategy Lab: proposal NTFY failed: "
+                    f"{type(_e).__name__}: {_e!r}"
+                )
+
+        # NOTE: the former deploy_winning_params(...) write to trading_rules.txt
+        # was gated on a successful config.py deploy and is intentionally removed
+        # — it was the same auto-deploy footgun on a second surface. Not
+        # flag-gated: a flag would just re-arm the same gun.
 
     # Save report
     report = {
@@ -1084,7 +1086,8 @@ def auto_optimize_all(progress_cb=None) -> dict:
         "strategies_tested": len(STRATEGIES),
         "current_config": current_params,
         "results": all_results,
-        "deployed": deployed,
+        "deployed": [],          # auto-deploy disabled — see "proposed"
+        "proposed": proposed,
         "best_strategy": all_results[0] if all_results else None,
     }
 
