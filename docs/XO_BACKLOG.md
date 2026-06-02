@@ -3953,3 +3953,19 @@ the stop band). Queue for proper review (engine/battle_station_0dte.py):
 Cadence doc-drift (docstrings said "2 min" vs actual every(5).minutes) FIXED
 2026-06-01 (doc-only). Tighter cadence reduces but cannot eliminate the overshoot;
 the entry gate + dollar stop are the real fix. MED (risk quality), not live-bleeding.
+
+## QUEUED 2026-06-01 — DASHBOARD UX: Strategy Lab "Auto-Optimize" button now no-ops a deploy
+
+Follow-up to fix(safety) cf97b67 (disabled the Strategy Lab auto-deploy footgun —
+`auto_optimize_all` now PROPOSES only, writes no files). The dashboard
+"Auto-Optimize" button (`dashboard/app.py:13345` `strategy_lab_auto_optimize`)
+still reports plain "Complete" — implying a deploy that no longer happens. Update
+the panel to show **"Proposed — pending review"** and surface the
+`report["proposed"]` list (param old→new + that it was NOT applied), so the next
+person to click it isn't misled into thinking config changed.
+- Cosmetic-honesty, not a safety issue (the dangerous write path is already gone).
+- **Do before anyone relies on the button** — a misleading "success" could fool
+  the next operator — but it must NOT jump ahead of a real build.
+- Requires manual browser hover/click smoke test per the Frontend Ship Rule
+  (single-file edit to `dashboard/static/index.html` + the app.py status text).
+LOW (cosmetic), bounded by the "before button is trusted" caveat.
