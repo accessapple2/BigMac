@@ -2956,6 +2956,7 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/congress/','/api/volume-radar','/api/universe/status','/api/gex-snapshot',
     '/api/fleet/active',  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
     '/api/portfolio/real',  // HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — Schwab+metals real-world view (PR #44 endpoint)
+    '/api/networth',  // HM-AM 2026-06-02 — unified net-worth breakdown (cash/equities/metals), data-driven over is_active accounts
     // HM-BATTLE-STATION-BIND-FIX 2026-05-21: GEX Overlay + Battle Station cards
     // fire their fetches from IIFEs during initial page parse while _pageLoading
     // is still true. Without these allowlist entries, the page-load stub at
@@ -43405,6 +43406,18 @@ async function fetchMovers() {
     <div id="realPortfolioMeta" style="padding:0 16px 12px;font-size:11px;color:var(--muted);text-align:center;"></div>
   </div>
 
+  <!-- HM-AM 2026-06-02: unified net-worth breakdown from /api/networth (cash/equities/metals,
+       data-driven over is_active accounts; metals live-spot, equities as-of-sync — freshness honest). -->
+  <div class="card" style="margin-bottom:16px;border-left:4px solid #34d399;">
+    <div class="card-header">
+      <div class="card-title">🧮 Net Worth — Breakdown (HM-AM)</div>
+    </div>
+    <div id="netWorthTotal" style="padding:14px 16px 4px;font-size:28px;font-weight:700;text-align:center;color:#34d399;">Loading…</div>
+    <div id="netWorthBuckets" style="padding:0 16px 8px;"></div>
+    <div id="netWorthAccounts" style="padding:0 16px 8px;font-size:13px;"></div>
+    <div id="netWorthFreshness" style="padding:0 16px 12px;font-size:11px;color:var(--muted);text-align:center;font-style:italic;"></div>
+  </div>
+
   <!-- HM-SCHWAB-UPLOAD 2026-05-28: browser upload → same import pipeline as the cron watcher (for remote users e.g. Bonnie via the tunnel) -->
   <div class="card" style="margin-bottom:16px;border-left:4px solid #f59e0b;">
     <div class="card-header"><div class="card-title">⬆️ Upload Schwab CSV</div></div>
@@ -43514,7 +43527,55 @@ async function uploadSchwabCsv() {
   }
 }
 
+// HM-AM 2026-06-02: unified net-worth breakdown (cash/equities/metals) from the
+// new read-only /api/networth aggregator. Additive to the legacy tab; freshness-honest.
+async function fetchNetWorth() {
+  var totalEl = document.getElementById('netWorthTotal');
+  var bucketsEl = document.getElementById('netWorthBuckets');
+  var acctEl = document.getElementById('netWorthAccounts');
+  var freshEl = document.getElementById('netWorthFreshness');
+  if (!totalEl) return;
+  try {
+    var r = await fetch('/api/networth');
+    if (!r.ok) { totalEl.textContent = '—'; freshEl.textContent = 'Backend error (HTTP ' + r.status + ')'; return; }
+    var d = await r.json();
+    if (!d || d.detail === 'Not Found') { totalEl.textContent = '—'; freshEl.textContent = 'Endpoint unavailable.'; return; }
+    var b = d.buckets || {};
+    totalEl.textContent = _w5dFmtUSD(d.net_worth);
+    // bucket rows
+    bucketsEl.innerHTML =
+      _nwRow('💵 Cash', b.cash, '#38bdf8') +
+      _nwRow('📈 Equities', b.equities, '#a78bfa') +
+      _nwRow('⚗️ Metals (live spot)', b.metals, '#fbbf24');
+    // per-account rows
+    var accts = Array.isArray(d.by_account) ? d.by_account : [];
+    if (accts.length) {
+      acctEl.innerHTML = '<div style="color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:0.5px;margin:6px 0 2px;">Per account</div>' +
+        accts.map(function(a) {
+          return '<div style="display:flex;justify-content:space-between;padding:3px 0;">' +
+            '<span>' + (a.label || a.account) + ' <span style="color:var(--muted);font-size:11px;">(' + a.positions + ' pos)</span></span>' +
+            '<span style="font-weight:600;">' + _w5dFmtUSD(a.total) + ' <span style="color:var(--muted);font-weight:400;font-size:11px;">cash ' + _w5dFmtUSD(a.cash) + ' · eq ' + _w5dFmtUSD(a.equities) + '</span></span></div>';
+        }).join('');
+    } else {
+      acctEl.innerHTML = '';
+    }
+    var lu = d.real_holdings_last_updated || '?';
+    var errNote = (Array.isArray(d.errors) && d.errors.length) ? ' · ⚠️ ' + d.errors.join('; ') : '';
+    freshEl.innerHTML = 'Metals live spot · Cash + equities as-of last sync (' + lu + ') — not live-quoted' + errNote;
+  } catch (e) {
+    totalEl.textContent = '—';
+    freshEl.textContent = 'Net-worth fetch error: ' + e;
+  }
+}
+
+function _nwRow(label, val, color) {
+  return '<div style="display:flex;justify-content:space-between;padding:5px 0;border-bottom:1px solid var(--border);">' +
+    '<span style="color:var(--muted);">' + label + '</span>' +
+    '<span style="font-weight:600;color:' + color + ';">' + _w5dFmtUSD(val) + '</span></div>';
+}
+
 async function fetchRealPortfolio() {
+  fetchNetWorth();
   var headline = document.getElementById('realPortfolioHeadline');
   var metalsPct = document.getElementById('realPortfolioMetalsPct');
   var meta = document.getElementById('realPortfolioMeta');

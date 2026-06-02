@@ -8864,6 +8864,116 @@ def portfolio_real():
 # === /HM-AM-PORTFOLIO-UNIFICATION ===
 
 
+@app.get("/api/networth")
+def networth():
+    """HM-AM real-world net worth (READ-ONLY). Real assets ONLY — EXCLUDES the
+    Alpaca paper book, the Ollie-Machine SIM ledger, and ghost books (research
+    surfaces, never real-money) per HM-AM doctrine.
+
+    Buckets:
+      • cash + equities — `data/real_holdings.json`, summed across ALL `is_active`
+        accounts (DATA-DRIVEN — currently schwab + tradestation; the set stays
+        configurable via the JSON, not hardcoded to one broker).
+      • metals — live-spot current value via
+        `engine.metals_tracker.get_dilithium_portfolio()` (metals_ledger × spot).
+
+    net_worth = cash + equities + metals. Returns per-bucket and per-account
+    breakdowns + `real_holdings_last_updated`.
+
+    Freshness honesty: metals are LIVE spot; cash + equities are AS-OF the last
+    Schwab/TradeStation sync (`real_holdings_last_updated`) — NOT live-quoted.
+    No writes.
+    """
+    import json
+    from pathlib import Path
+
+    result: dict = {
+        "net_worth": 0.0,
+        "buckets": {"cash": 0.0, "equities": 0.0, "metals": 0.0},
+        "by_account": [],
+        "metals": {},
+        "real_holdings_last_updated": None,
+        "freshness": {
+            "cash": "as-of last account sync (real_holdings_last_updated)",
+            "equities": "as-of last Schwab/TradeStation sync — NOT live-quoted",
+            "metals": "live spot",
+        },
+        "excludes": "Alpaca paper book, Ollie-Machine SIM, ghost books (research surfaces)",
+        "errors": [],
+        "_source": "HM-AM /api/networth",
+    }
+
+    cash_total = 0.0
+    equities_total = 0.0
+
+    # ── Real accounts — data-driven over every is_active account ───────────
+    try:
+        rh_path = Path(__file__).resolve().parent.parent / "data" / "real_holdings.json"
+        with open(rh_path, "r") as _f:
+            rh = json.load(_f)
+        result["real_holdings_last_updated"] = rh.get("last_updated")
+        try:
+            from engine.total_portfolio import _parse_market_value as _pmv
+        except Exception:
+            def _pmv(_s):  # noqa: ANN001
+                return None
+        for acct_key, acct in (rh.get("accounts") or {}).items():
+            if not acct.get("is_active"):
+                continue
+            cash = float(acct.get("cash_balance") or 0.0)
+            equities = 0.0
+            for p in acct.get("positions") or []:
+                # Prefer the top-level market_value; fall back to legacy note-text.
+                mv = p.get("market_value")
+                if mv is None:
+                    mv = p.get("value")
+                if mv is None:
+                    mv = _pmv(p.get("notes") or "")
+                try:
+                    if mv is not None:
+                        equities += float(mv)
+                except (TypeError, ValueError):
+                    continue
+            cash_total += cash
+            equities_total += equities
+            result["by_account"].append({
+                "account": acct_key,
+                "label": acct.get("label") or acct_key,
+                "cash": round(cash, 2),
+                "equities": round(equities, 2),
+                "total": round(cash + equities, 2),
+                "positions": len(acct.get("positions") or []),
+            })
+    except FileNotFoundError:
+        result["errors"].append("data/real_holdings.json not found")
+    except Exception as _rh_err:
+        result["errors"].append(f"real_holdings: {type(_rh_err).__name__}: {_rh_err!r}")
+
+    # ── Metals — live-spot current value via the Dilithium ledger ──────────
+    metals_total = 0.0
+    try:
+        from engine.metals_tracker import get_dilithium_portfolio
+        dil = get_dilithium_portfolio() or {}
+        metals_total = float(dil.get("total_value") or 0.0)
+        result["metals"] = {
+            "total_value": round(metals_total, 2),
+            "total_invested": dil.get("total_invested"),
+            "total_pnl": dil.get("total_pnl"),
+            "total_pnl_pct": dil.get("total_pnl_pct"),
+            "gold": dil.get("gold"),
+            "silver": dil.get("silver"),
+        }
+    except Exception as _m_err:
+        result["errors"].append(f"metals: {type(_m_err).__name__}: {_m_err!r}")
+        result["metals"] = {"total_value": 0.0, "error": True}
+
+    result["buckets"]["cash"] = round(cash_total, 2)
+    result["buckets"]["equities"] = round(equities_total, 2)
+    result["buckets"]["metals"] = round(metals_total, 2)
+    result["net_worth"] = round(cash_total + equities_total + metals_total, 2)
+    return result
+
+
 @app.get("/api/portfolio-health/{player_id}")
 def portfolio_health(player_id: str):
     """Get portfolio health check for an AI player."""
