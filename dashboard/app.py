@@ -20107,15 +20107,36 @@ def _run_buy_hold(ticker: str, days: int) -> dict:
 
 
 def _run_holodeck_strategy(ticker: str, days: int, strategy_type: str, params: dict) -> dict:
-    """Run via holodeck.run_custom_strategy."""
+    """Run a holodeck (vectorbt) strategy OUT OF PROCESS under .venv-backtest.
+
+    vectorbt is installed only in .venv-backtest, NOT the live trader's .venv, so
+    importing engine.holodeck in-process raises ModuleNotFoundError and 500s every
+    run (HM-HOLODECK-VENV 2026-06-01). Shell out to the isolated interpreter and
+    parse its JSON. Inputs are pre-validated by the caller (ticker regex +
+    ALLOWED_STRATEGIES) and passed as argv (no shell=True) — no injection surface.
+    """
+    import subprocess
+    import os
+    repo = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+    py = os.path.join(repo, ".venv-backtest", "bin", "python")
+    if not os.path.exists(py):
+        return {"error": "backtest engine offline (.venv-backtest interpreter missing)"}
     try:
-        from engine.holodeck import holodeck
-        result = holodeck.run_custom_strategy(
-            ticker, days=days, strategy_type=strategy_type, params=params
+        proc = subprocess.run(
+            [py, "-m", "engine.holodeck",
+             "--symbol", ticker, "--days", str(days),
+             "--strategy", strategy_type, "--params", json.dumps(params or {})],
+            cwd=repo, capture_output=True, text=True, timeout=90,
         )
-        return result
+    except subprocess.TimeoutExpired:
+        return {"error": "backtest timed out (90s)"}
+    if proc.returncode != 0:
+        _err = (proc.stderr or "").strip().splitlines()
+        return {"error": f"backtest engine failed: {_err[-1] if _err else 'unknown error'}"}
+    try:
+        return json.loads(proc.stdout)
     except Exception as e:
-        return {"error": str(e)}
+        return {"error": f"backtest output parse error: {type(e).__name__}: {e}"}
 
 
 def _run_momentum(ticker: str, days: int, lookback: int = 20) -> dict:

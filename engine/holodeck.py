@@ -216,3 +216,31 @@ class Holodeck:
 
 
 holodeck = Holodeck()
+
+
+# ── Subprocess entry (HM-HOLODECK-VENV 2026-06-01) ───────────────────────────
+# vectorbt is installed ONLY in .venv-backtest, NOT the live trader's .venv, so
+# the dashboard cannot import this module in-process: `from engine.holodeck
+# import holodeck` raises ModuleNotFoundError and 500s every rsi/ma_cross
+# community backtest (confirmed: F AND SPY both 500 — the "F-vs-SPY" split was a
+# strategy confound, buy_hold/momentum being pure-pandas). The community endpoint
+# now shells out to `.venv-backtest/bin/python -m engine.holodeck ...` and parses
+# the JSON emitted below. Mirrors the offline-runner pattern (run_180d_backtest,
+# holly_nightly) — vectorbt stays quarantined in its isolated venv.
+if __name__ == "__main__":
+    import argparse
+    import sys
+    _p = argparse.ArgumentParser(description="Run one holodeck strategy; emit JSON to stdout.")
+    _p.add_argument("--symbol", required=True)
+    _p.add_argument("--days", type=int, default=180)
+    _p.add_argument("--strategy", default="sma_cross")
+    _p.add_argument("--params", default="{}", help="JSON dict of strategy params")
+    _a = _p.parse_args()
+    try:
+        _params = json.loads(_a.params) if _a.params else {}
+        _out = holodeck.run_custom_strategy(
+            _a.symbol, days=_a.days, strategy_type=_a.strategy, params=_params
+        )
+    except Exception as _e:  # emit structured error so the parent can surface it
+        _out = {"error": f"{type(_e).__name__}: {_e}"}
+    sys.stdout.write(json.dumps(_out, default=str))
