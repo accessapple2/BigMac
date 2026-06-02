@@ -8,7 +8,9 @@
   <meta name="apple-mobile-web-app-title" content="Charts">
   <link rel="apple-touch-icon" href="/static/icon-192.png">
   <title>TradeMinds Charts</title>
-  <script src="https://unpkg.com/lightweight-charts@4.1.1/dist/lightweight-charts.standalone.production.js"></script>
+  <!-- Self-hosted (HM-CHARTS-CDN-SPOF 2026-06-01): dropped the unpkg CDN so off-box
+       viewers (Dad's charts) don't need to reach unpkg for the lib to load. -->
+  <script src="/static/lightweight-charts.standalone.production.js"></script>
   <style>
     *, *::before, *::after { box-sizing: border-box; margin: 0; padding: 0; }
 
