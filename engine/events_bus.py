@@ -46,7 +46,9 @@ def _compute_stale_after(timeframe: str | None) -> str | None:
     budget = _STALE_BUDGET_S.get(timeframe.lower())
     if budget is None:
         return None
-    return (datetime.utcnow() + timedelta(seconds=budget)).isoformat() + "Z"
+    # HM-TZ Stage 3: stale_after canonical space-UTC (was T+Z); readers (_parse_iso_utc,
+    # events_bus.py:283) handle the space form. Future-dated expiry stamp.
+    return (datetime.utcnow() + timedelta(seconds=budget)).strftime('%Y-%m-%d %H:%M:%S')
 
 
 # ---------------------------------------------------------------------------

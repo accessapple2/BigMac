@@ -166,7 +166,8 @@ def _recent_signals(ticker: str, since_hours: int = 24, limit: int = 20) -> list
     """Return recent non-legacy signals on `ticker` (newest first)."""
     if not DB.exists():
         return []
-    cutoff = (datetime.utcnow() - timedelta(hours=since_hours)).isoformat()
+    # HM-TZ Stage 2a: compare in SQLite (signals.created_at is space-UTC).
+    cutoff = f"-{since_hours} hours"
     conn = sqlite3.connect(DB)
     conn.row_factory = sqlite3.Row
     try:
@@ -174,7 +175,7 @@ def _recent_signals(ticker: str, since_hours: int = 24, limit: int = 20) -> list
             """
             SELECT created_at AS ts, player_id, confidence, signal, reasoning
             FROM signals
-            WHERE symbol = ? AND created_at >= ?
+            WHERE symbol = ? AND created_at >= datetime('now', ?)
               AND (reasoning IS NULL OR reasoning NOT LIKE '%[LEGACY_BIMODAL%')
             ORDER BY id DESC
             LIMIT ?

@@ -18,6 +18,7 @@ import sqlite3
 import logging
 import json
 from datetime import datetime
+from engine.market_calendar import parse_dt  # HM-TZ Stage 2b: shared tolerant parser
 from typing import Any
 
 logger = logging.getLogger(__name__)
@@ -155,7 +156,7 @@ def refresh_bootstrap() -> dict:
     by_dow: dict[int, list[float]] = {}
     for t in sell_trades:
         try:
-            dt = datetime.fromisoformat(str(t["executed_at"]).replace("Z", ""))
+            dt = parse_dt(t["executed_at"])
             dow = dt.weekday()  # 0=Mon ... 4=Fri
             by_dow.setdefault(dow, []).append(t["realized_pnl"] or 0)
         except Exception:
@@ -177,7 +178,7 @@ def refresh_bootstrap() -> dict:
     by_hour: dict[int, list[float]] = {}
     for t in sell_trades:
         try:
-            dt = datetime.fromisoformat(str(t["executed_at"]).replace("Z", ""))
+            dt = parse_dt(t["executed_at"])
             hr = dt.hour
             by_hour.setdefault(hr, []).append(t["realized_pnl"] or 0)
         except Exception:

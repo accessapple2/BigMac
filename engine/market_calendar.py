@@ -47,6 +47,52 @@ def az_now() -> datetime:
     """Current Arizona time (stdlib zoneinfo; corruption-proof vs the pytz path)."""
     return datetime.now(_AZ)
 
+
+def utc_now_str() -> str:
+    """Canonical DB timestamp: space-separated UTC, whole-second precision —
+    byte-identical to SQLite ``CURRENT_TIMESTAMP``. HM-TZ Stage 3 write convention.
+
+    Use for any datetime written to a DB column. (JSON/API fields use T-separated
+    UTC with a ``+00:00`` offset instead — do NOT use this there.)
+    """
+    return datetime.now(UTC).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def parse_dt(value, *, assume_utc: bool = True) -> Optional[datetime]:
+    """Tolerant ISO-8601 parse → timezone-aware UTC datetime (or None).
+
+    HM-TZ Stage 2b canonical read helper. Accepts space- or T-separated strings,
+    a trailing ``Z``, an explicit ``+HH:MM`` offset, naive strings, or an existing
+    ``datetime``. Naive inputs are assumed UTC (the project's storage convention),
+    so a value read from a space-separated ``CURRENT_TIMESTAMP`` column comes back
+    correctly tagged. Over-long fractional seconds (e.g. Alpaca nanosecond ``Z``
+    stamps) are clamped to microseconds. Returns None on empty/unparseable input.
+
+    Replaces scattered ``datetime.fromisoformat(s.replace("Z",""))`` hacks. For
+    naive arithmetic call sites this is drop-in: aware-UTC preserves both elapsed
+    math and ``.hour``/``.weekday()`` (the old naive values were already UTC).
+    """
+    if value is None or value == "":
+        return None
+    if isinstance(value, datetime):
+        dt = value
+    else:
+        s = str(value).strip().replace("Z", "+00:00")
+        if not s:
+            return None
+        try:
+            dt = datetime.fromisoformat(s)
+        except ValueError:
+            import re
+            s2 = re.sub(r"(\.\d{6})\d+", r"\1", s)  # clamp ns → µs
+            try:
+                dt = datetime.fromisoformat(s2)
+            except ValueError:
+                return None
+    if dt.tzinfo is None:
+        return UTC.localize(dt) if assume_utc else dt
+    return dt.astimezone(UTC)
+
 # ── Hours (ET) ──────────────────────────────────────────────────────────
 MARKET_OPEN_TIME = time(9, 30)   # regular open
 MARKET_CLOSE_TIME = time(16, 0)  # regular close

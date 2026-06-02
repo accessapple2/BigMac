@@ -210,11 +210,12 @@ def _market_aware_age_seconds(as_of_dt: datetime, now_utc: Optional[datetime] = 
     """Age in seconds, but for closed-market windows measure against the last
     session close (a source updated at/after last close is 'current')."""
     now_et = mc._to_et(now_utc)
-    # localize as_of to ET (assume the source stamps in ET local time)
-    if as_of_dt.tzinfo is None:
-        as_of_et = mc.ET.localize(as_of_dt)
-    else:
-        as_of_et = as_of_dt.astimezone(mc.ET)
+    # TZ-FIX 2026-06-02 (HM-TZ Stage 1): route as_of through the SAME convention as
+    # `now` — mc._to_et treats a naive datetime as UTC. The old `mc.ET.localize(as_of_dt)`
+    # mis-assumed naive=ET; since bridge stamps + SQLite CURRENT_TIMESTAMP are UTC, that
+    # was a +4h (EDT) forward skew that the max(0,...) clamp turned into false-GREEN
+    # (moderate staleness ≤~4h was masked as fresh). Now both sides assume naive=UTC.
+    as_of_et = mc._to_et(as_of_dt)
     if mc.is_us_market_open(now_utc):
         return max(0.0, (now_et - as_of_et).total_seconds())
     last_close = _last_session_close(now_utc)

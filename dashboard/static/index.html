@@ -11550,7 +11550,7 @@ document.addEventListener('keydown', function(e) {
     <!-- 2-col: Heatmap + Filter Contribution -->
     <div class="oai-2col">
       <div class="oai-sec">
-        <div class="oai-sec-h">DAILY P&amp;L HEATMAP · 52 WEEKS</div>
+        <div class="oai-sec-h">DAILY P&amp;L HEATMAP · 52 WEEKS <span id="oai-bl-heatmap-src" class="oai-sec-meta"></span></div>
         <div class="oai-bl-cal" id="oai-bl-heatmap">
           <!-- 5a static demo: 256 cells with spec-style color distribution.
                5b regenerates from trades[] aggregated by date. -->
@@ -13995,7 +13995,10 @@ body[data-theme="light"] .sidebar-item {
 
   function _oaiBlSeedDemoHeatmap() {
     /* Fallback when the API hasn't loaded yet or fails. Same xorshift PRNG
-       pattern that Step 5a used. Kept so the panel never renders empty. */
+       pattern that Step 5a used. Kept so the panel never renders empty — but
+       NOT silent: a "DEMO — not live" badge marks it so seeded cells are never
+       mistaken for real backtest results. Cleared by _oaiBlRenderHeatmap on
+       real data. (Real wire IS live: /api/backtest/runs + run/{id}.) */
     var el = document.getElementById('oai-bl-heatmap');
     if (!el) return;
     var BIAS = [1, 3, 7, 16, 18, 30, 25];
@@ -14006,7 +14009,9 @@ body[data-theme="light"] .sidebar-item {
       for (var k = 0; k < BIAS.length; k++) { acc += BIAS[k]; if (r < acc) { idx = k; break; } }
       cells.push(_OAI_BL_PAL[idx]);
     }
-    el.innerHTML = cells.map(function(c){ return '<div style="background:' + c + ';"></div>'; }).join('');
+    el.innerHTML = cells.map(function(c){ return '<div style="background:' + c + ';opacity:0.45;"></div>'; }).join('');
+    var lbl = document.getElementById('oai-bl-heatmap-src');
+    if (lbl) { lbl.textContent = '⚠ DEMO — not live'; lbl.style.color = '#fbbf24'; }
   }
 
   function _oaiBlBucket(pct) {
@@ -14149,6 +14154,8 @@ body[data-theme="light"] .sidebar-item {
                  (equityCurve[i].date || '') + ' · ' + (pct >= 0 ? '+' : '') + pct.toFixed(2) + '%"></div>');
     }
     el.innerHTML = cells.join('');
+    var lbl = document.getElementById('oai-bl-heatmap-src');   // real data → clear DEMO badge
+    if (lbl) { lbl.textContent = ''; lbl.style.color = ''; }
   }
 
   async function _oaiBlLoadRuns() {

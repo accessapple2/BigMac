@@ -2,6 +2,7 @@
 from __future__ import annotations
 import sqlite3
 from datetime import datetime
+from engine.market_calendar import utc_now_str  # HM-TZ Stage 3: canonical space-UTC writes
 from rich.console import Console
 
 console = Console()
@@ -54,7 +55,7 @@ def check_smart_money_signals() -> list:
                 "symbol": sym,
                 "buyers": buyers,
                 "count": len(buyers),
-                "detected_at": datetime.now().isoformat(),
+                "detected_at": utc_now_str(),
             })
 
     return signals

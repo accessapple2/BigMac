@@ -54,8 +54,8 @@ def run_capitol_scan():
     if not session:
         return
 
-    az = pytz.timezone("US/Arizona")
-    now = _dt.now(az)
+    from engine.market_calendar import az_now  # HM-TZ Stage 3: zoneinfo, corruption-proof
+    now = az_now()
 
     # Reset flag at midnight
     if now.hour == 0:

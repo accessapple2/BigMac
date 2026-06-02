@@ -88,7 +88,9 @@ def fetch_recent_signals(
         logger.warning("trader.db not found at %s", db)
         return []
 
-    cutoff = (datetime.utcnow() - timedelta(minutes=since_minutes)).isoformat()
+    # HM-TZ Stage 2a: compare in SQLite (signals.created_at is space-UTC) instead of a
+    # Python isoformat string.
+    cutoff = f"-{since_minutes} minutes"
     conn = sqlite3.connect(db)
     conn.row_factory = sqlite3.Row
     try:
@@ -97,7 +99,7 @@ def fetch_recent_signals(
             SELECT id, player_id, symbol, signal, confidence,
                    created_at, reasoning
             FROM signals
-            WHERE created_at >= ?
+            WHERE created_at >= datetime('now', ?)
               AND (reasoning IS NULL OR reasoning NOT LIKE '%[LEGACY_BIMODAL%')
             ORDER BY id DESC
             LIMIT ?

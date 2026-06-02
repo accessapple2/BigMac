@@ -275,13 +275,15 @@ def get_player_stats(player_id: str, lookback_days: int = 30) -> dict:
     try:
         init_trade_outcomes_table()
         conn = _conn()
-        cutoff = (datetime.now() - timedelta(days=lookback_days)).isoformat()
+        # HM-TZ Stage 2a: compare in SQLite (trade_outcomes.created_at is space-UTC)
+        # instead of a Python isoformat string (T-separated LOCAL).
+        cutoff = f"-{lookback_days} days"
 
         rows = conn.execute("""
             SELECT symbol, pnl_dollars, pnl_percent, outcome,
                    hold_duration_hours, regime_at_entry, exit_time
             FROM trade_outcomes
-            WHERE player_id = ? AND created_at >= ?
+            WHERE player_id = ? AND created_at >= datetime('now', ?)
             ORDER BY created_at DESC
         """, (player_id, cutoff)).fetchall()
         conn.close()
@@ -371,12 +373,13 @@ def get_strategy_stats(lookback_days: int = 60) -> dict:
     try:
         init_trade_outcomes_table()
         conn = _conn()
-        cutoff = (datetime.now() - timedelta(days=lookback_days)).isoformat()
+        # HM-TZ Stage 2a: compare in SQLite (created_at is space-UTC).
+        cutoff = f"-{lookback_days} days"
 
         rows = conn.execute("""
             SELECT strategy_name, outcome, pnl_dollars
             FROM trade_outcomes
-            WHERE strategy_name IS NOT NULL AND created_at >= ?
+            WHERE strategy_name IS NOT NULL AND created_at >= datetime('now', ?)
         """, (cutoff,)).fetchall()
         conn.close()
 

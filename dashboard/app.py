@@ -13594,15 +13594,16 @@ def trade_feed(symbol: str = "SPY", since_id: int = 0):
         conn = _sq.connect("data/trader.db", check_same_thread=False, timeout=5)
         conn.row_factory = _sq.Row
         if since_id == 0:
-            # First call: seed last 30 min
-            cutoff = (datetime.now() - timedelta(minutes=30)).strftime("%Y-%m-%d %H:%M:%S")
+            # First call: seed last 30 min. HM-TZ Stage 2a: compare in SQLite
+            # (trades.executed_at is space-UTC) — old strftime cutoff was LOCAL (MST),
+            # skewing the seed window by the UTC offset.
             rows = conn.execute(
                 "SELECT t.id, t.player_id, t.symbol, t.action, t.price, "
                 "t.entry_price, t.exit_price, t.realized_pnl, t.reasoning, t.executed_at, "
                 "COALESCE(p.display_name, t.player_id) AS agent_name "
                 "FROM trades t LEFT JOIN ai_players p ON t.player_id = p.id "
-                "WHERE t.symbol=? AND t.executed_at >= ? ORDER BY t.id ASC",
-                (sym, cutoff),
+                "WHERE t.symbol=? AND t.executed_at >= datetime('now', '-30 minutes') ORDER BY t.id ASC",
+                (sym,),
             ).fetchall()
         else:
             rows = conn.execute(

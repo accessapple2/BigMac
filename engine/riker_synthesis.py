@@ -53,11 +53,13 @@ def _ntfy(title: str, body: str, priority: str = "default") -> None:
 # ── Data fetchers ─────────────────────────────────────────────────────────────
 def _get_recent_signals(minutes: int) -> list[dict]:
     conn   = sqlite3.connect(DB_PATH)
-    cutoff = (datetime.now() - timedelta(minutes=minutes)).isoformat()
+    # HM-TZ Stage 2a: compare in SQLite (signals.created_at is space-UTC) instead of a
+    # Python isoformat string (T-separated LOCAL) — the old cutoff silently mismatched.
+    cutoff = f"-{minutes} minutes"
     rows   = conn.execute("""
         SELECT player_id, symbol, signal, confidence, created_at
         FROM   signals
-        WHERE  created_at >= ?
+        WHERE  created_at >= datetime('now', ?)
         ORDER  BY confidence DESC
     """, (cutoff,)).fetchall()
     conn.close()
@@ -67,11 +69,13 @@ def _get_recent_signals(minutes: int) -> list[dict]:
 
 def _get_recent_trades(minutes: int) -> list[dict]:
     conn   = sqlite3.connect(DB_PATH)
-    cutoff = (datetime.now() - timedelta(minutes=minutes)).isoformat()
+    # HM-TZ Stage 2a: compare in SQLite (trades.executed_at is space-UTC) instead of a
+    # Python isoformat string (T-separated LOCAL).
+    cutoff = f"-{minutes} minutes"
     rows   = conn.execute("""
         SELECT player_id, symbol, action, qty, price, executed_at
         FROM   trades
-        WHERE  executed_at >= ?
+        WHERE  executed_at >= datetime('now', ?)
         ORDER  BY executed_at DESC
     """, (cutoff,)).fetchall()
     conn.close()

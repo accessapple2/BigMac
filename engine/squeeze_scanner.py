@@ -423,8 +423,10 @@ def _persist_results(results: list[dict], db_path: str = _DB_PATH) -> dict:
         return summary
 
     quiet = _is_quiet_hours_et()
-    cutoff_ts = (datetime.now(timezone.utc) - timedelta(hours=_DEDUPE_HOURS)).isoformat()
-    scan_ts = datetime.now(timezone.utc).isoformat()
+    # HM-TZ Stage 3: scan_ts + its dedup cutoff both canonical space-UTC (were T+offset).
+    # Pinned together so the `scan_ts >= cutoff_ts` dedup compares like-for-like.
+    cutoff_ts = (datetime.now(timezone.utc) - timedelta(hours=_DEDUPE_HOURS)).strftime('%Y-%m-%d %H:%M:%S')
+    scan_ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
     inserted_ids: list[int] = []
 
     # === HM-DASH.4 === counter for candidates-table inserts (added to summary)

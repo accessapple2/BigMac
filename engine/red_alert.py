@@ -94,8 +94,8 @@ def _is_market_hours() -> bool:
     try:
         import pytz
         from datetime import datetime as _dt
-        az = pytz.timezone("US/Arizona")
-        now = _dt.now(az)
+        from engine.market_calendar import az_now  # HM-TZ Stage 3: zoneinfo, corruption-proof
+        now = az_now()
         if now.weekday() >= 5:
             return False
         mins = now.hour * 60 + now.minute

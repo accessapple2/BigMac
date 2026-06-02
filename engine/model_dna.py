@@ -2,6 +2,7 @@
 from __future__ import annotations
 import sqlite3
 from datetime import datetime
+from engine.market_calendar import parse_dt  # HM-TZ Stage 2b: shared tolerant parser
 from collections import Counter
 from rich.console import Console
 
@@ -110,8 +111,8 @@ def get_model_dna(player_id: str) -> dict:
             buys[sym].append(t["executed_at"])
         elif t["action"] == "SELL" and sym in buys and buys[sym]:
             try:
-                buy_dt = datetime.fromisoformat(buys[sym][0].replace("Z", ""))
-                sell_dt = datetime.fromisoformat(t["executed_at"].replace("Z", ""))
+                buy_dt = parse_dt(buys[sym][0])
+                sell_dt = parse_dt(t["executed_at"])
                 hold_hours = (sell_dt - buy_dt).total_seconds() / 3600
                 hold_times.append(hold_hours)
                 buys[sym].pop(0)
@@ -125,7 +126,7 @@ def get_model_dna(player_id: str) -> dict:
     for t in trades:
         if t["action"] in ("BUY", "BUY_CALL", "BUY_PUT"):
             try:
-                dt = datetime.fromisoformat(t["executed_at"].replace("Z", ""))
+                dt = parse_dt(t["executed_at"])
                 hour_counts[dt.hour] += 1
             except Exception:
                 pass
@@ -171,8 +172,8 @@ def get_model_dna(player_id: str) -> dict:
     # --- Trade frequency ---
     if trades:
         try:
-            first_trade = datetime.fromisoformat(trades[0]["executed_at"].replace("Z", ""))
-            last_trade = datetime.fromisoformat(trades[-1]["executed_at"].replace("Z", ""))
+            first_trade = parse_dt(trades[0]["executed_at"])
+            last_trade = parse_dt(trades[-1]["executed_at"])
             days_active = max(1, (last_trade - first_trade).days)
             trades_per_day = round(len(trades) / days_active, 1)
         except Exception:

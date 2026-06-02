@@ -24,7 +24,9 @@ def calculate_odds(symbol: str, signal: str, lookback_days: int = 30) -> dict:
     try:
         conn = sqlite3.connect(DB, check_same_thread=False)
         conn.row_factory = sqlite3.Row
-        cutoff = (datetime.now() - timedelta(days=lookback_days)).isoformat()
+        # HM-TZ Stage 2a: compare in SQLite (trades.executed_at is space-UTC) instead of
+        # a Python isoformat string (T-separated LOCAL) — old cutoff defeated the window.
+        cutoff = f"-{lookback_days} days"
 
         # Find all closed trades for this symbol with this signal direction
         is_buy = "BUY" in signal.upper()
@@ -35,7 +37,7 @@ def calculate_odds(symbol: str, signal: str, lookback_days: int = 30) -> dict:
             f"""
             SELECT t.realized_pnl, t.symbol, t.action, t.executed_at
             FROM trades t
-            WHERE t.symbol = ? AND t.action = ? AND t.executed_at > ? AND t.realized_pnl IS NOT NULL AND t.realized_pnl != 0
+            WHERE t.symbol = ? AND t.action = ? AND t.executed_at > datetime('now', ?) AND t.realized_pnl IS NOT NULL AND t.realized_pnl != 0
               AND {_CLEAN_T}
             ORDER BY t.executed_at DESC
         """,
@@ -48,7 +50,7 @@ def calculate_odds(symbol: str, signal: str, lookback_days: int = 30) -> dict:
                 f"""
                 SELECT t.realized_pnl, t.symbol, t.action, t.executed_at
                 FROM trades t
-                WHERE t.symbol = ? AND t.executed_at > ? AND t.realized_pnl IS NOT NULL AND t.realized_pnl != 0
+                WHERE t.symbol = ? AND t.executed_at > datetime('now', ?) AND t.realized_pnl IS NOT NULL AND t.realized_pnl != 0
                   AND {_CLEAN_T}
                 ORDER BY t.executed_at DESC
             """,
@@ -61,7 +63,7 @@ def calculate_odds(symbol: str, signal: str, lookback_days: int = 30) -> dict:
                 f"""
                 SELECT t.realized_pnl, t.symbol, t.action, t.executed_at
                 FROM trades t
-                WHERE t.action = ? AND t.executed_at > ? AND t.realized_pnl IS NOT NULL AND t.realized_pnl != 0
+                WHERE t.action = ? AND t.executed_at > datetime('now', ?) AND t.realized_pnl IS NOT NULL AND t.realized_pnl != 0
                   AND {_CLEAN_T}
                 ORDER BY t.executed_at DESC LIMIT 50
             """,

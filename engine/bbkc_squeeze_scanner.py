@@ -40,6 +40,12 @@ import numpy as np
 import pandas as pd
 from rich.console import Console
 
+try:
+    from zoneinfo import ZoneInfo
+    _ET = ZoneInfo("America/New_York")
+except Exception:  # pragma: no cover — stdlib in py3.9+, defensive only
+    _ET = None
+
 console = Console()
 
 _DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
@@ -319,10 +325,37 @@ def _load_rs_pass_set(
         return set()
 
 
+def _drop_forming_bar(df: pd.DataFrame) -> pd.DataFrame:
+    """Release detection (and its RVOL numerator) MUST use a COMPLETED daily bar.
+
+    The watcher runs every 30 min, so during market hours the trailing daily bar is a
+    partial intraday bar (volume-so-far) — that deflated ``release_volume_ratio`` 2-7×
+    (max-ever 1.70, 84% < 0.5×) and made genuine 2.0× volume releases unreachable.
+    If the trailing bar is the current ET session and the session has NOT closed yet,
+    drop it so detection anchors on the last completed session. Post-close (>=16:00 ET)
+    today's bar is complete and kept — so release alerts fire that evening on
+    complete-volume confirmation. pre_breakout is untouched (band-compression only,
+    not volume-dependent — this helper is release-path-only)."""
+    if df is None or len(df) == 0:
+        return df
+    try:
+        last_ts = pd.Timestamp(df.index[-1])
+        if _ET is not None:
+            last_ts = (last_ts.tz_convert(_ET) if last_ts.tzinfo
+                       else last_ts.tz_localize("UTC").tz_convert(_ET))
+            et_now = datetime.now(_ET)
+        else:
+            et_now = datetime.now(timezone.utc)
+        forming = last_ts.date() == et_now.date() and et_now.hour < 16  # before 16:00 ET close
+        return df.iloc[:-1] if forming else df
+    except Exception:
+        return df  # never break detection on a tz/index edge
+
+
 def _detect_release(
     df: pd.DataFrame,
 ) -> tuple[bool, str | None, float, float, float]:
-    """Inspect the most-recent bar for a fresh BB-out-of-KC release.
+    """Inspect the most-recent COMPLETED bar for a fresh BB-out-of-KC release.
 
     A release fires when bar[-2] was BB-inside-KC AND bar[-1] is NOT.
     Direction:
@@ -331,9 +364,11 @@ def _detect_release(
       - both true (rare)    → larger excess wins
 
     Returns ``(released, direction, volume_ratio, last_close, excess)``.
-    ``volume_ratio`` is volume[-1] / mean(volume[-21:-1]). The caller
-    decides whether to NTFY based on ``_RELEASE_VOL_GATE``.
+    ``volume_ratio`` is volume[-1] / mean(volume[-21:-1]) on the last COMPLETED
+    session (a forming intraday bar is dropped first — see _drop_forming_bar).
+    The caller decides whether to NTFY based on ``_RELEASE_VOL_GATE`` (2.0).
     """
+    df = _drop_forming_bar(df)
     if len(df) < _MIN_BARS_REQUIRED + 1:
         return (False, None, 0.0, 0.0, 0.0)
 
@@ -547,10 +582,12 @@ def _persist_results(
         return summary
 
     quiet = _is_quiet_hours_et()
+    # HM-TZ Stage 3: scan_ts + dedup cutoff both canonical space-UTC (paired so
+    # `scan_ts >= cutoff_ts` compares like-for-like).
     cutoff_ts = (
         datetime.now(timezone.utc) - timedelta(hours=_DEDUPE_HOURS)
-    ).isoformat()
-    scan_ts = datetime.now(timezone.utc).isoformat()
+    ).strftime('%Y-%m-%d %H:%M:%S')
+    scan_ts = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
 
     try:
         conn = _conn(db_path)
@@ -885,10 +922,12 @@ def _scan_for_releases(
     summary = {"detected": 0, "ntfy_fired": 0, "deferred": 0, "skipped": 0}
     quiet = _is_quiet_hours_et()
     now_utc = datetime.now(timezone.utc)
+    # HM-TZ Stage 3: released_at + its lookback cutoff both canonical space-UTC
+    # (paired so `scan_ts >= lookback_cutoff` compares like-for-like vs pinned scan_ts).
     lookback_cutoff = (
         now_utc - timedelta(days=_RELEASE_LOOKBACK_DAYS)
-    ).isoformat()
-    released_at = now_utc.isoformat()
+    ).strftime('%Y-%m-%d %H:%M:%S')
+    released_at = now_utc.strftime('%Y-%m-%d %H:%M:%S')
 
     try:
         conn = _conn(db_path)

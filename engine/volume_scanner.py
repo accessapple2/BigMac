@@ -21,6 +21,8 @@ import sqlite3
 import time
 from datetime import datetime, date
 from typing import Optional
+from zoneinfo import ZoneInfo
+from engine.market_calendar import utc_now_str  # HM-TZ Stage 3: canonical space-UTC writes
 
 import requests
 
@@ -40,6 +42,19 @@ REL_VOL_TRIGGER = 10.0    # 10x normal volume
 GAP_TRIGGER = 5.0         # 5% gap up or down
 RED_ALERT_THRESHOLD = 50.0
 CRITICAL_THRESHOLD = 100.0
+
+# ---------------------------------------------------------------------------
+# Regular trading hours (RTH), in market-local time (US/Eastern).
+# Used for the time-of-day relative-volume correction (see _session_fraction_elapsed).
+# ---------------------------------------------------------------------------
+_MARKET_TZ = ZoneInfo("America/New_York")
+RTH_OPEN_MINUTE = 9 * 60 + 30     # 09:30 ET
+RTH_CLOSE_MINUTE = 16 * 60        # 16:00 ET
+RTH_TOTAL_MINUTES = RTH_CLOSE_MINUTE - RTH_OPEN_MINUTE   # 390
+# Floor on the elapsed-fraction so the first minutes of the session don't divide
+# partial volume by a near-zero fraction (which would amplify a single block trade
+# into a fake spike). Treat anything before 09:45 ET as 15 minutes elapsed.
+MIN_SESSION_FRACTION = 15.0 / RTH_TOTAL_MINUTES
 
 # War Room player ID for Chekov's volume posts
 CHEKOV_PLAYER_ID = "navigator"
@@ -132,7 +147,44 @@ def _fetch_snapshots(symbols: list[str], headers: dict) -> dict[str, dict]:
 # Parse snapshot into enriched stock data
 # ---------------------------------------------------------------------------
 
-def _parse_snapshot(sym: str, snap: dict, baselines: dict[str, float]) -> Optional[dict]:
+def _session_fraction_elapsed(now: Optional[datetime] = None) -> float:
+    """Fraction of the RTH session (09:30–16:00 ET) elapsed, in (0, 1].
+
+    Today's Alpaca daily-bar volume is a PARTIAL cumulative figure that grows
+    through the session, whereas the 20d baseline is a COMPLETE-day average.
+    Comparing them directly deflates relative volume mid-session. Scaling the
+    baseline by this fraction makes the comparison apples-to-apples at any time
+    of day (a stock running at its normal pace lands at ~1.0x all session long;
+    a true 10x spike clears the trigger immediately instead of only after close).
+
+    Clamped to MIN_SESSION_FRACTION early in the session (avoids amplifying
+    opening-print noise / div-by-zero) and to 1.0 outside RTH (a completed bar
+    compares against the full-day average; pre-open partials under-fire, which is
+    the safe direction).
+    """
+    now = now or datetime.now(_MARKET_TZ)
+    if now.tzinfo is None:
+        now = now.replace(tzinfo=_MARKET_TZ)
+    else:
+        now = now.astimezone(_MARKET_TZ)
+
+    minutes = now.hour * 60 + now.minute + now.second / 60.0
+    elapsed = minutes - RTH_OPEN_MINUTE
+    if elapsed <= 0:
+        # Pre-open: avoid dividing premarket volume by ~0; compare to full day (under-fires).
+        return 1.0
+    frac = elapsed / RTH_TOTAL_MINUTES
+    if frac >= 1.0:
+        return 1.0
+    return max(frac, MIN_SESSION_FRACTION)
+
+
+def _parse_snapshot(
+    sym: str,
+    snap: dict,
+    baselines: dict[str, float],
+    session_frac: Optional[float] = None,
+) -> Optional[dict]:
     """Extract key metrics from an Alpaca snapshot dict.
 
     Returns None if data is missing or price is below minimum.
@@ -156,9 +208,17 @@ def _parse_snapshot(sym: str, snap: dict, baselines: dict[str, float]) -> Option
         dollar_volume = price * current_vol
         gap_pct = ((open_price - prev_close) / prev_close * 100) if prev_close else 0.0
 
-        # Relative volume
+        # Relative volume — time-of-day corrected.
+        # current_vol is today's PARTIAL cumulative volume; avg_vol is a 20d
+        # COMPLETE-day average. Scale the baseline by the fraction of the RTH
+        # session elapsed so the ratio isn't deflated mid-session (the old
+        # current_vol/avg_vol only cleared 10x once the bar completed → real
+        # spikes landed post-close). See _session_fraction_elapsed.
+        if session_frac is None:
+            session_frac = _session_fraction_elapsed()
         avg_vol = baselines.get(sym, 0)
-        rel_vol = (current_vol / avg_vol) if avg_vol and avg_vol > 0 else 0.0
+        expected_vol = avg_vol * session_frac
+        rel_vol = (current_vol / expected_vol) if expected_vol and expected_vol > 0 else 0.0
 
         return {
             "symbol": sym,
@@ -250,11 +310,12 @@ def scan_full_market() -> list[dict]:
 
     # Parse and filter
     hot_stocks: list[dict] = []
-    now = datetime.now().isoformat()
+    now = utc_now_str()   # HM-TZ Stage 3: detected_at canonical space-UTC
+    session_frac = _session_fraction_elapsed()   # computed once per scan, applied to every symbol
 
     with _conn() as c:
         for sym, snap in all_snapshots.items():
-            stock = _parse_snapshot(sym, snap, baselines)
+            stock = _parse_snapshot(sym, snap, baselines, session_frac)
             if not stock:
                 continue
             alert_type = _passes_filter(stock)
@@ -361,10 +422,11 @@ def red_alert_check() -> None:
     except Exception:
         existing_red = set()
 
-    now = datetime.now().isoformat()
+    now = utc_now_str()   # HM-TZ Stage 3: detected_at canonical space-UTC
+    session_frac = _session_fraction_elapsed()   # computed once per scan, applied to every symbol
     with _conn() as c:
         for sym, snap in snaps.items():
-            stock = _parse_snapshot(sym, snap, baselines)
+            stock = _parse_snapshot(sym, snap, baselines, session_frac)
             if not stock:
                 continue
 

@@ -1910,6 +1910,87 @@ def run_bbkc_squeeze_watcher():
         )
 
 
+# ── Ollie Machine P3 scheduled loop (SIM-only, tracking-mode) ──────────────
+# Assembles the P1/P2 convergence modules (engine/ollie_machine_loop.py) into a
+# daily evaluate→enter + intraday exit-monitor. Writes ollie_machine_ledger ONLY —
+# NEVER paper_trader.buy()/executor (sim_enter is a direct INSERT). Default-OFF via
+# OLLIE_MACHINE_LOOP_ENABLED. The player stays can_trade_live=0 + tracking-mode +
+# absent from every scan/exec roster, so the live trader's own loops never act on it.
+_ollie_machine_daily_lock = threading.Lock()
+_ollie_machine_exits_lock = threading.Lock()
+_ollie_machine_disabled_logged = False
+
+
+def _ollie_machine_enabled() -> bool:
+    import os as _os
+    return _os.environ.get("OLLIE_MACHINE_LOOP_ENABLED", "").lower() in (
+        "1", "true", "yes", "on"
+    )
+
+
+@_hm_bq_instr("_bg_ollie_machine_daily")
+def _bg_ollie_machine_daily():
+    """P3 daily evaluate→enter (post-close, fresh nightly signals). SIM/tracking.
+    No market-hours gate — runs post-close after the nightly RS/Minervini rebuild."""
+    global _ollie_machine_disabled_logged
+    if not _ollie_machine_enabled():
+        if not _ollie_machine_disabled_logged:
+            console.log("[dim]Ollie Machine loop: OLLIE_MACHINE_LOOP_ENABLED not set — skipping (P3 default-off)")
+            _ollie_machine_disabled_logged = True
+        return
+    if not _ollie_machine_daily_lock.acquire(blocking=False):
+        console.log("[dim]Ollie Machine daily: prior run still in flight — skip")
+        return
+
+    def _runner():
+        try:
+            from engine.ollie_machine_loop import run_daily_cycle
+            r = run_daily_cycle()
+            console.log(
+                f"[cyan]Ollie Machine DAILY (SIM/tracking): universe "
+                f"{r['universe_pre']}→{r['universe_post']} | {r['qualifiers']} qual | "
+                f"top {r['top']} | entered {[o['symbol'] for o in r['opened']]} | "
+                f"breaker={'TRIPPED' if r['breaker_tripped'] else 'ok'}"
+            )
+        except Exception as e:
+            console.log(f"[yellow]Ollie Machine daily error: {type(e).__name__}: {e!r}")
+        finally:
+            _ollie_machine_daily_lock.release()
+
+    threading.Thread(target=_runner, daemon=True, name="sched_ollie_machine_daily").start()
+
+
+@_hm_bq_instr("_bg_ollie_machine_exits")
+def _bg_ollie_machine_exits():
+    """P3 intraday exit-monitor (RTH-gated). SIM/tracking — ledger-direct close on stop/tp."""
+    if not _ollie_machine_enabled():
+        return
+    try:
+        from engine.risk_manager import RiskManager
+        if not RiskManager.is_market_hours():
+            return
+    except Exception:
+        return
+    if not _ollie_machine_exits_lock.acquire(blocking=False):
+        return
+
+    def _runner():
+        try:
+            from engine.ollie_machine_loop import run_exit_monitor
+            mon = run_exit_monitor()
+            if mon.get("closed"):
+                console.log(
+                    "[cyan]Ollie Machine EXITS (SIM): closed "
+                    f"{[(c['symbol'], c['reason'], c['realized_pnl']) for c in mon['closed']]}"
+                )
+        except Exception as e:
+            console.log(f"[yellow]Ollie Machine exits error: {type(e).__name__}: {e!r}")
+        finally:
+            _ollie_machine_exits_lock.release()
+
+    threading.Thread(target=_runner, daemon=True, name="sched_ollie_machine_exits").start()
+
+
 # HM-RS-RANK-VS-SPY 2026-05-24 — nightly 12wk relative-strength rank scanner.
 # Default-OFF via RS_RANK_ENABLED env flag. Foundational for downstream
 # leader-composite scans (Minervini Trend Template etc.).
@@ -4104,6 +4185,8 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(_bg_bbkc_squeeze_watcher)     # HM-SQUEEZE-BBKC-COMPRESSION (2026-05-24): 30-min, default-OFF via BBKC_SQUEEZE_WATCHER_ENABLED
     schedule.every().day.at("20:30").do(_bg_rs_rank)            # HM-RS-RANK-VS-SPY (2026-05-24): nightly post-close, default-OFF via RS_RANK_ENABLED
     schedule.every().day.at("20:45").do(_bg_minervini_filter)   # HM-MINERVINI-TREND-FILTER (2026-05-24): nightly post-close +15min so rs_rank LEFT JOIN sees fresh data, default-OFF via MINERVINI_FILTER_ENABLED
+    schedule.every().day.at("21:00").do(_bg_ollie_machine_daily) # OLLIE-MACHINE-P3 (2026-06-01): SIM evaluate→enter, +15min after Minervini so signals are fresh. tracking-mode, default-OFF via OLLIE_MACHINE_LOOP_ENABLED
+    schedule.every(20).minutes.do(_bg_ollie_machine_exits)      # OLLIE-MACHINE-P3 (2026-06-01): SIM exit-monitor, RTH-gated. ledger-direct close, default-OFF via OLLIE_MACHINE_LOOP_ENABLED
     # Capitol Trades Fund — Congress copycat scan (daily at market open, 9:35 AM ET)
     from engine.capitol_fund import run_capitol_scan as _raw_capitol_scan
     def run_capitol_scan():
@@ -4797,7 +4880,7 @@ if __name__ == "__main__":
     # DayBlade pre-market warm: 6:15 AM AZ (9:15 AM ET) — warm Ollama models before market open
     def _dayblade_premarket_warm():
         import pytz as _pz
-        _az = datetime.now(_pz.timezone("US/Arizona"))
+        _az = az_now()  # HM-TZ Stage 3: zoneinfo (corruption-proof) vs pytz singleton
         if _az.weekday() >= 5:
             return
         import requests as _rq
@@ -4851,7 +4934,7 @@ if __name__ == "__main__":
         """
         global _holly_nightly_done
         import pytz as _pz
-        _az = datetime.now(_pz.timezone("US/Arizona"))
+        _az = az_now()  # HM-TZ Stage 3: zoneinfo (corruption-proof) vs pytz singleton
 
         # Reset flag each day at noon so it can fire again the next night
         if _az.hour == 12:
@@ -4975,7 +5058,7 @@ if __name__ == "__main__":
     def run_proving_ground_scorecard():
         """Daily scorecard at 1:15 PM AZ (4:15 PM ET) — market close."""
         import pytz as _pz
-        _az = datetime.now(_pz.timezone("US/Arizona"))
+        _az = az_now()  # HM-TZ Stage 3: zoneinfo (corruption-proof) vs pytz singleton
         if _az.weekday() >= 5:
             return  # weekdays only
         try:
@@ -4992,7 +5075,7 @@ if __name__ == "__main__":
     def run_proving_ground_report():
         """Daily ntfy push at 1:30 PM AZ (4:30 PM ET)."""
         import pytz as _pz
-        _az = datetime.now(_pz.timezone("US/Arizona"))
+        _az = az_now()  # HM-TZ Stage 3: zoneinfo (corruption-proof) vs pytz singleton
         if _az.weekday() >= 5:
             return
         try:
@@ -5015,7 +5098,7 @@ if __name__ == "__main__":
         write, 12 min before the ntfy report) so state transitions are
         visible in the daily summary that follows."""
         import pytz as _pz
-        _az = datetime.now(_pz.timezone("US/Arizona"))
+        _az = az_now()  # HM-TZ Stage 3: zoneinfo (corruption-proof) vs pytz singleton
         if _az.weekday() >= 5:
             return
         try:
@@ -5038,7 +5121,7 @@ if __name__ == "__main__":
     def run_rallies_scraper_job():
         """Hourly Rallies.ai scrape during market hours."""
         import pytz as _pz
-        _az = datetime.now(_pz.timezone("US/Arizona"))
+        _az = az_now()  # HM-TZ Stage 3: zoneinfo (corruption-proof) vs pytz singleton
         if _az.weekday() >= 5:
             return
         # Market hours: 6:30 AM – 1:00 PM AZ
@@ -5071,7 +5154,7 @@ if __name__ == "__main__":
             return
         import pytz as _pz
         from datetime import date as _date
-        _az = datetime.now(_pz.timezone("US/Arizona"))
+        _az = az_now()  # HM-TZ Stage 3: zoneinfo (corruption-proof) vs pytz singleton
         if _az.date() != _date(2026, 4, 10):
             return
         if not (6 <= _az.hour < 7):
@@ -5162,7 +5245,7 @@ if __name__ == "__main__":
     # ── Phase 2 autostart confirmation ────────────────────────────────────────
     import pytz as _stz
     from datetime import datetime as _dtm
-    _az_now = _dtm.now(_stz.timezone("US/Arizona"))
+    _az_now = az_now()  # HM-TZ Stage 3: zoneinfo (corruption-proof)
     _is_weekday = _az_now.weekday() < 5
     console.log(f"[STARTUP] DayBlade: {'auto-armed for market day (9:30–4:00 PM ET)' if _is_weekday else 'standby (weekend)'}")
     console.log("[STARTUP] Bridge Vote: scheduled (every 5 min, fires 9:00–9:10 AM ET)")

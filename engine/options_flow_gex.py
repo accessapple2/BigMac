@@ -249,7 +249,7 @@ def compute_gex(underlying: str, chain: list | None = None, spot: float | None =
         "flip_method": "BS re-gamma net-GEX zero-cross across spot (not cumulative-across-strikes)",
         "convention": "dealers long calls / short puts (SqueezeMetrics); call +, put -",
         "per_strike": {round(k, 2): round(v, 0) for k, v in sorted(per_strike.items())},
-        "asof": datetime.now(timezone.utc).isoformat(),
+        "asof": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),  # HM-TZ Stage 3: space-UTC (DB column)
     }
 
 
@@ -300,7 +300,7 @@ def compute_flow_aggregate(underlying: str, chain: list | None = None,
         "opening_closing": "ESTIMATED via vol/OI proxy; true confirm = next-day OI delta",
         "spread_leg_filter": "n/a at aggregate level (is_spread_leg is print-level)",
         "premium_floor": premium_floor,
-        "asof": datetime.now(timezone.utc).isoformat(),
+        "asof": datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),  # HM-TZ Stage 3: space-UTC (DB column)
     }
 
 

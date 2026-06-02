@@ -21,7 +21,7 @@ import subprocess
 import threading
 import urllib.request
 from concurrent.futures import ThreadPoolExecutor, as_completed
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from queue import Queue, Empty
 import sys
 import time as _time
@@ -548,7 +548,7 @@ def _outcome_tracker_loop():
                 except Exception:
                     pass
 
-            now_str = datetime.now().isoformat()
+            now_str = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')  # HM-TZ Stage 3: last_updated space-UTC
             for sig in signals:
                 cur = prices.get(sig["symbol"], 0)
                 if cur <= 0:
@@ -2913,7 +2913,7 @@ def receive_signal():
             json.dumps({"context_summary": ctx_summary}),
             json.dumps(sources if isinstance(sources, list) else [sources]),
             timeframe,
-            datetime.now().isoformat(),
+            datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),  # HM-TZ Stage 3: trade_signals.created_at space-UTC
         ))
         signal_id = cur.lastrowid
         db.commit()

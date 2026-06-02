@@ -47,9 +47,8 @@ _briefing_lock = threading.Lock()
 
 
 def _today_str() -> str:
-    import pytz
-    az = pytz.timezone("US/Arizona")
-    return datetime.datetime.now(az).strftime("%Y-%m-%d")
+    from engine.market_calendar import az_now  # HM-TZ Stage 3: zoneinfo, corruption-proof
+    return az_now().strftime("%Y-%m-%d")
 
 
 # ── Data gatherers ──────────────────────────────────────────────────────────────
@@ -367,9 +366,8 @@ def generate_morning_briefing(force: bool = False) -> dict:
             "risk":       _get_risk_report(),
         }
 
-        import pytz
-        az = pytz.timezone("US/Arizona")
-        now_str = datetime.datetime.now(az).strftime("%A, %B %-d, %Y — %I:%M %p AZ")
+        from engine.market_calendar import az_now  # HM-TZ Stage 3: zoneinfo, corruption-proof
+        now_str = az_now().strftime("%A, %B %-d, %Y — %I:%M %p AZ")
 
         text_parts = [
             f"=== MORNING BRIEFING — {now_str} ===\n",
@@ -1136,9 +1134,8 @@ def generate_daily_intel_report(force: bool = False, push_ntfy: bool = False,
                 "unavailable": True, "disk_only": True,
             }
 
-        import pytz
-        az      = pytz.timezone("US/Arizona")
-        now_str = datetime.datetime.now(az).strftime("%A, %B %-d, %Y — %I:%M %p AZ")
+        from engine.market_calendar import az_now  # HM-TZ Stage 3: zoneinfo, corruption-proof
+        now_str = az_now().strftime("%A, %B %-d, %Y — %I:%M %p AZ")
 
         earnings    = _get_earnings_intel_3d()
         sectors     = _get_sector_rotation_radar()

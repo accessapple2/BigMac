@@ -65,9 +65,8 @@ def _market_session() -> str:
         if result == "post":
             return "post"
         # Distinguish weekends from plain after-hours
-        import pytz
-        az = pytz.timezone("US/Arizona")
-        now = datetime.now(az)
+        from engine.market_calendar import az_now  # HM-TZ Stage 3: zoneinfo, corruption-proof
+        now = az_now()
         if now.weekday() >= 5:
             return "weekend"
         return "after"
@@ -310,8 +309,7 @@ def get_last_sync_status() -> dict:
 def _az_time_label() -> str:
     """Return current time as 'H:MM AM/PM AZ' in Arizona timezone."""
     try:
-        import pytz
-        az = pytz.timezone("US/Arizona")
-        return datetime.now(az).strftime("%-I:%M %p AZ")
+        from engine.market_calendar import az_now  # HM-TZ Stage 3: zoneinfo, corruption-proof
+        return az_now().strftime("%-I:%M %p AZ")
     except Exception:
         return datetime.utcnow().strftime("%H:%M UTC")

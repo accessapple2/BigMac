@@ -28,7 +28,7 @@ from __future__ import annotations
 import re
 import sqlite3
 import time
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 import logging
 
@@ -254,7 +254,9 @@ def check_outcomes() -> int:
         outcomes = {}
     sc.close()
 
-    now = datetime.now()
+    # HM-TZ Stage 3: naive-UTC so age_hours math matches signal_time (now space-UTC
+    # after the pin+backfill); a LOCAL now() here would skew every age by -7h.
+    now = datetime.now(timezone.utc).replace(tzinfo=None)
     scored = 0
 
     for row in open_rows:
@@ -360,7 +362,7 @@ def check_outcomes() -> int:
                       exit_time=?
                 WHERE id=?""",
             (status, exit_price, pnl_pct, hit_target, hit_stop,
-             max_gain, max_loss, now.isoformat(), trade_id),
+             max_gain, max_loss, now.strftime('%Y-%m-%d %H:%M:%S'), trade_id),  # HM-TZ Stage 3: space-UTC exit_time
         )
         scored += 1
         log.info("👻 %-6s → %-8s %+.1f%%", symbol, status, pnl_pct)

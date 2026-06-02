@@ -187,10 +187,13 @@ def query_congress_trades(days: int) -> str:
                              "data": [dict(r) for r in rows]})
 
         # 2. smart_money_signals — multi-AI convergence buys
+        # HM-TZ Stage 3: compare in SQLite (detected_at now pinned space-UTC) instead of
+        # the T-UTC `cutoff` string. (reference_trades.traded_at above is uncontrolled
+        # external data and congress_trades below is table-absent — both left as-is.)
         rows = conn.execute(
             "SELECT symbol, buyers, detected_at FROM smart_money_signals "
-            "WHERE detected_at >= ? ORDER BY detected_at DESC LIMIT 10",
-            (cutoff,),
+            "WHERE detected_at >= datetime('now', ?) ORDER BY detected_at DESC LIMIT 10",
+            (f"-{days} days",),
         ).fetchall()
         if rows:
             sections.append({"source": "smart_money_convergence", "count": len(rows),
