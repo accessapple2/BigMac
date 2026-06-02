@@ -1991,6 +1991,42 @@ def _bg_ollie_machine_exits():
     threading.Thread(target=_runner, daemon=True, name="sched_ollie_machine_exits").start()
 
 
+# ── Ollie Machine P4 promotion gate (SIM, read-only observability) ────────────
+# Scores the SIM ledger (Observe/Eligible/Promote) into ollie_machine_p4_status.
+# PURE measurement: zero executor calls, writes only its status row, never touches
+# ai_players (can_trade_live stays 0); Eligible/Promote raise a flag, never auto-advance.
+# Runs unconditionally (measuring an empty ledger is harmless + reports Observe) — the
+# eval is internally rate-limited to "every 10 closed trades OR weekly" via the persisted
+# status row, so the daily tick is cheap and carries no lazy module state.
+_ollie_machine_p4_lock = threading.Lock()
+
+
+@_hm_bq_instr("_bg_ollie_machine_p4_gate")
+def _bg_ollie_machine_p4_gate():
+    """P4 gate tick — eval if due (10-closed / weekly cadence). SIM/read-only."""
+    if not _ollie_machine_p4_lock.acquire(blocking=False):
+        return
+
+    def _runner():
+        try:
+            from engine.ollie_machine_p4_gate import run_eval
+            r = run_eval()
+            if r.get("evaluated"):
+                m = r["metrics"]
+                console.log(
+                    f"[cyan]Ollie Machine P4 GATE: tier={r['tier']} "
+                    f"(prev={r['prev_tier']}) | {m['count']} closed | "
+                    f"WR={(m['win_rate'] or 0) * 100:.0f}% exp={m['expectancy_r'] or 0:+.2f}R | "
+                    f"failed={r['failed_floors'] or 'none'} | flag={r['flag_raised']}"
+                )
+        except Exception as e:
+            console.log(f"[yellow]Ollie Machine P4 gate error: {type(e).__name__}: {e!r}")
+        finally:
+            _ollie_machine_p4_lock.release()
+
+    threading.Thread(target=_runner, daemon=True, name="sched_ollie_machine_p4_gate").start()
+
+
 # HM-RS-RANK-VS-SPY 2026-05-24 — nightly 12wk relative-strength rank scanner.
 # Default-OFF via RS_RANK_ENABLED env flag. Foundational for downstream
 # leader-composite scans (Minervini Trend Template etc.).
@@ -4187,6 +4223,7 @@ if __name__ == "__main__":
     schedule.every().day.at("20:45").do(_bg_minervini_filter)   # HM-MINERVINI-TREND-FILTER (2026-05-24): nightly post-close +15min so rs_rank LEFT JOIN sees fresh data, default-OFF via MINERVINI_FILTER_ENABLED
     schedule.every().day.at("21:00").do(_bg_ollie_machine_daily) # OLLIE-MACHINE-P3 (2026-06-01): SIM evaluate→enter, +15min after Minervini so signals are fresh. tracking-mode, default-OFF via OLLIE_MACHINE_LOOP_ENABLED
     schedule.every(20).minutes.do(_bg_ollie_machine_exits)      # OLLIE-MACHINE-P3 (2026-06-01): SIM exit-monitor, RTH-gated. ledger-direct close, default-OFF via OLLIE_MACHINE_LOOP_ENABLED
+    schedule.every().day.at("21:30").do(_bg_ollie_machine_p4_gate) # OLLIE-MACHINE-P4 (2026-06-02): SIM promotion gate, read-only. Daily tick; internally eval'd every 10 closed trades OR weekly. Writes ollie_machine_p4_status only.
     # Capitol Trades Fund — Congress copycat scan (daily at market open, 9:35 AM ET)
     from engine.capitol_fund import run_capitol_scan as _raw_capitol_scan
     def run_capitol_scan():
