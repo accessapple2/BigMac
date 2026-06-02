@@ -385,7 +385,14 @@ def run_strategies(ticker: str, df, spy_df=None) -> list:
                     stop   = round(entry * 1.02, 2)   # 2% stop ABOVE
                     target = round(entry * 0.94, 2)   # 6% target BELOW
                 else:
-                    atr    = float(np.mean(np.abs(np.diff(close[-15:])))) if len(close) >= 15 else entry * 0.02
+                    # ATR off COMPLETE bars only (partial-bar-as-complete class, bbkc
+                    # pattern — volatility, not volume, so drop the forming bar rather
+                    # than time-of-day scale). close[-1] is today's in-progress daily
+                    # bar (Alpaca bars include the live day during RTH); including it
+                    # skews the close-to-close volatility estimate. Measure ATR on the
+                    # last 15 COMPLETED closes; entry_price stays the live close[-1].
+                    complete = close[:-1]
+                    atr    = float(np.mean(np.abs(np.diff(complete[-15:])))) if len(complete) >= 15 else entry * 0.02
                     stop   = round(entry - 2 * atr, 2)
                     target = round(entry + 3 * atr, 2)  # 1.5:1 minimum R/R
 

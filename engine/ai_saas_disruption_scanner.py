@@ -85,9 +85,15 @@ def _fetch_ticker_data(symbol: str) -> dict | None:
         open_price = float(open_.iloc[-1])
         today_vol  = float(volume.iloc[-1])
 
-        # 20-day avg volume (exclude today)
+        # 20-day avg volume (exclude today's forming bar from the baseline)
         avg_vol_20d = float(volume.iloc[-21:-1].mean()) if len(volume) >= 21 else float(volume.iloc[:-1].mean())
-        vol_ratio   = round(today_vol / avg_vol_20d, 2) if avg_vol_20d > 0 else 0.0
+        # Time-of-day correction (partial-bar-as-complete class): today_vol is the
+        # PARTIAL cumulative bar but avg_vol_20d is a complete-day average, so the raw
+        # ratio deflates mid-session. Scale the baseline by the fraction of the RTH
+        # session elapsed. Reuses volume_scanner's shared helper (lazy import).
+        from engine.volume_scanner import _session_fraction_elapsed
+        expected_vol = avg_vol_20d * _session_fraction_elapsed()
+        vol_ratio   = round(today_vol / expected_vol, 2) if expected_vol > 0 else 0.0
 
         # Intraday % change
         day_change_pct = round((price - open_price) / open_price * 100, 2) if open_price else 0.0

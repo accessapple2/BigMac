@@ -265,7 +265,15 @@ def _get_atr(symbol: str, period: int = 14) -> float:
         from engine.market_data import get_alpaca_bars
         import pandas as pd
         df = get_alpaca_bars(symbol, days=30)
-        if df is None or df.empty or len(df) < period:
+        if df is None or df.empty:
+            return 0.0
+        # ATR off COMPLETE bars only (partial-bar-as-complete / bbkc pattern):
+        # df[-1] is today's in-progress daily bar during RTH, whose forming H/L/close
+        # skews the true range. Drop it so ATR reflects completed sessions. Callers
+        # (execute_covered_calls strike/premium) evaluate against the live close
+        # separately — only the volatility estimate must use complete bars.
+        df = df.iloc[:-1]
+        if len(df) < period:
             return 0.0
         hi = df["High"].squeeze()
         lo = df["Low"].squeeze()

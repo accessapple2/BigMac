@@ -304,7 +304,13 @@ def _get_ticker_snapshot(ticker: str) -> dict:
             ).fetchone()
             c.close()
             if row and row["avg_volume_20d"]:
-                vol_ratio = volume / row["avg_volume_20d"]
+                # Time-of-day correction (partial-bar-as-complete class): `volume` is
+                # today's PARTIAL bar but avg_volume_20d is a complete-day baseline, so
+                # the raw ratio deflates mid-session. Scale the baseline by the fraction
+                # of the RTH session elapsed (shared helper, lazy import).
+                from engine.volume_scanner import _session_fraction_elapsed
+                expected_vol = row["avg_volume_20d"] * _session_fraction_elapsed()
+                vol_ratio = volume / expected_vol if expected_vol > 0 else 1.0
         except Exception:
             pass
 

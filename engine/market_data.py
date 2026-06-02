@@ -743,8 +743,19 @@ def get_technical_indicators(symbol: str, bars=None) -> dict:
         rsi = _calc_rsi(close)
         macd = _calc_macd(close)
 
+        # Volume ratio is time-of-day corrected (partial-bar-as-complete class):
+        # volume.iloc[-1] is today's PARTIAL cumulative bar (both the Alpaca bulk
+        # path and the Yahoo 1d path append today's forming daily bar during RTH),
+        # but avg_vol_20 is a 20d COMPLETE-day average — so the raw ratio deflates
+        # mid-session and only clears thresholds after close. Scale the baseline by
+        # the fraction of the RTH session elapsed. Reuses volume_scanner's helper
+        # (shared, not duplicated); lazy import avoids that module's import-time
+        # logging.basicConfig side-effect. SMA/RSI/MACD/close are not partial-
+        # sensitive here (complete-bar history) and are deliberately left alone.
+        from engine.volume_scanner import _session_fraction_elapsed
         avg_vol_20 = volume.rolling(20).mean().iloc[-1]
-        vol_ratio = round(float(volume.iloc[-1] / avg_vol_20), 2) if avg_vol_20 > 0 else 1.0
+        expected_vol_20 = avg_vol_20 * _session_fraction_elapsed()
+        vol_ratio = round(float(volume.iloc[-1] / expected_vol_20), 2) if expected_vol_20 > 0 else 1.0
 
         current = float(close.iloc[-1])
         above_50 = current > sma_50 if sma_50 else None
