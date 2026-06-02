@@ -3468,7 +3468,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
       <!-- Performance / Analysis -->
       <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:8px 12px 4px;">Performance / Analysis</div>
       <div class="sidebar-item" id="nav-trades" title="Full trades history — paper book, filter by open/closed, options show C/P strike expiry" onclick="showSection('trades')"><span class="icon">📒</span> Trade Log</div>
-      <div class="sidebar-item" id="nav-test-kitchen" title="O-Tasty mechanical premium-selling — paper PA3YVDTUH5CB, Phase 1 manual-assist" onclick="showSection('test-kitchen')"><span class="icon">🧪</span> Test Kitchen (O-Tasty)</div>
+      <div class="sidebar-item" id="nav-test-kitchen" title="O-Tasty mechanical premium-selling — isolated paper PA3YVDTUH5CB. SIM-ONLY sandbox: no live orders (bracket wiring is Phase 2). Standalone SwingDesk :8889 via same-origin proxy /test-kitchen/." onclick="showSection('test-kitchen')"><span class="icon">🧪</span> Test Kitchen <span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:#b8860b;color:#1a1400;font-size:9px;font-weight:700;letter-spacing:0.5px;vertical-align:middle;">SANDBOX</span></div>
       <div class="sidebar-item" title="Individual AI agent performance analysis" onclick="showSection('agent-deepdive');ddAutoLoad()"><span class="icon">🔬</span> Agent Deep Dive</div>
       <div class="sidebar-item" title="Real physical gold &amp; silver holdings ledger" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
       <div class="sidebar-item" onclick="showSection('costs')"><span class="icon">💰</span> Costs</div>
@@ -9610,12 +9610,19 @@ async function loadSECFilings() {
   </div>
 </div>
 
-<!-- TEST KITCHEN (O-Tasty) — HM-O-TASTY-PHASE-0. Embeds the SwingDesk options UI
-     served by swingdesk/backend.py on 127.0.0.1:8889 at /static/options_tab.html
-     (NOT "/", which 404s), now reachable off-box via the otasty.ollietrades.com
-     Cloudflare tunnel route. Backend must be running for the iframe to load. -->
+<!-- TEST KITCHEN (O-Tasty) — HM-O-TASTY-PHASE-2.1 (2026-06-02). Migrated from the
+     Phase-0 cross-origin iframe (otasty.ollietrades.com tunnel — route removed from
+     cloudflared config) to a SAME-ORIGIN proxy through this bridge: /test-kitchen/ ->
+     app.py -> 127.0.0.1:8889. Loads behind the bridge's 2FA (SwingDesk has no auth).
+     SIM-ONLY sandbox: no live order path — brackets are the gated step 2. Backend must
+     be running on :8889 for the iframe to load. -->
 <div id="section-test-kitchen" style="display:none;">
-  <iframe src="https://otasty.ollietrades.com/static/options_tab.html" style="width:100%;height:90vh;border:none;"></iframe>
+  <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;padding:9px 14px;margin:8px;border:1px solid #b8860b;border-radius:6px;background:repeating-linear-gradient(45deg,#3a2a00,#3a2a00 11px,#2e2200 11px,#2e2200 22px);">
+    <span style="font-size:18px;">🧪</span>
+    <span style="font-weight:800;letter-spacing:1.5px;color:#ffcc44;font-family:var(--font-head,monospace);">TEST KITCHEN — SANDBOX</span>
+    <span style="font-size:12px;color:#e0bb55;">O-Tasty options desk · isolated paper <b>PA3YVDTUH5CB</b> · <b>SIM-only — no live orders</b> (bracket wiring is Phase 2) · standalone SwingDesk :8889 via same-origin proxy</span>
+  </div>
+  <iframe src="/test-kitchen/" style="width:100%;height:calc(90vh - 52px);border:none;"></iframe>
 </div>
 
 <!-- CHART SECTION -->

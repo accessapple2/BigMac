@@ -673,6 +673,12 @@ class TimezoneRoute(APIRoute):
         original_handler = super().get_route_handler()
         async def handler(request: StarletteRequest):
             response = await original_handler(request)
+            # HM-SOURCE-HEALTH-WATCHER (2026-06-02): the UTC->AZ rewrite below is for
+            # browser display. Machine consumers (source_gate freshness probes) send
+            # X-Raw-Timestamps:1 to opt out and read canonical UTC — otherwise they
+            # mis-read the localized -7h value as 7h of staleness (false RED).
+            if request.headers.get("x-raw-timestamps") == "1":
+                return response
             if isinstance(response, JSONResponse):
                 try:
                     import json as _json
@@ -7521,14 +7527,14 @@ def smart_money(limit: int = 20):
     """Get recent Smart Money signals. Auto-rescans with 24h window if stored data is >7 days old."""
     from engine.smart_money import get_recent_smart_money, check_smart_money_signals, save_smart_money_signal
     import sqlite3 as _sq
-    from datetime import datetime as _dt, timedelta as _td
+    from datetime import datetime as _dt, timedelta as _td, timezone as _tz
     stored = get_recent_smart_money(limit)
     # If stored signals are stale (>7 days) or absent, run a wider-window scan
     is_stale = True
     if stored:
         try:
             newest = _dt.fromisoformat(stored[0]["detected_at"].replace("T", " ").split(".")[0])
-            is_stale = newest < _dt.now() - _td(days=7)
+            is_stale = newest < _dt.now(_tz.utc).replace(tzinfo=None) - _td(days=7)  # HM-TZ-COMPLETION 2026-06-02: detected_at is UTC; compare to naive-UTC now (was local)
         except Exception:
             pass
     if is_stale:
@@ -22046,3 +22052,68 @@ def squeeze_candidates(limit: int = 20, tier: str = "", min_score: int = 3) -> d
     }
 # === /HM-DASH.4 ===
 # === /HM-DASH.3 ===
+
+
+# === HM-O-TASTY-PHASE-2.1 — SwingDesk "Test Kitchen" same-origin proxy ====================
+# Migration step 1 (2026-06-02): replace the broken cross-origin iframe (the
+# otasty.ollietrades.com tunnel route is gone from cloudflared config — only
+# bridge.ollietrades.com remains) with a SAME-ORIGIN reverse proxy through this bridge,
+# so the Test Kitchen tab loads behind the bridge's 2FA/session auth (SwingDesk on :8889
+# has NO auth of its own and binds 0.0.0.0). Backend stays STANDALONE — this only proxies
+# HTTP to 127.0.0.1:8889; swingdesk.db is untouched and no SwingDesk code is merged here.
+# SIM-SAFE: SwingDesk is non-executing — Alpaca keys are loaded but unused; all order paths
+# only INSERT a planned trade into swingdesk.db ("No Alpaca submission yet (Phase 2)").
+# Bracket-order wiring is the SEPARATE gated step 2 — nothing goes live through this proxy.
+_SWINGDESK_BASE = "http://127.0.0.1:8889"
+_SWINGDESK_TAB_HTML = os.path.join(_proj_root, "swingdesk", "options_tab.html")
+
+
+def _test_kitchen_page():
+    """Serve SwingDesk's options_tab.html with its same-origin API base rewritten from
+    '' to the proxy prefix, so its fetch(`${API}/api/*`) calls resolve to
+    /test-kitchen/api/* (proxied to :8889) instead of the bridge's own /api/*."""
+    try:
+        with open(_SWINGDESK_TAB_HTML, encoding="utf-8") as _f:
+            html = _f.read()
+    except Exception as e:
+        return HTMLResponse(
+            f"<h3>Test Kitchen unavailable</h3><p>{type(e).__name__}: {e}</p>"
+            "<p>SwingDesk options_tab.html not found.</p>", status_code=503)
+    html = html.replace("const API = '';", "const API = '/test-kitchen';")
+    return HTMLResponse(html)
+
+
+@app.get("/test-kitchen")
+@app.get("/test-kitchen/")
+def test_kitchen_root():
+    return _test_kitchen_page()
+
+
+@app.api_route("/test-kitchen/{path:path}", methods=["GET", "POST"])
+async def test_kitchen_proxy(path: str, request: Request):
+    """Same-origin reverse proxy to standalone SwingDesk (:8889). Forwards method/query/
+    body, returns the upstream response. SIM-safe: no order path goes live (brackets=step 2).
+    Sits behind AuthMiddleware (observers are already blocked from POSTs)."""
+    if not path:
+        return _test_kitchen_page()
+    import requests as _rq
+    from starlette.concurrency import run_in_threadpool
+    body = await request.body()
+    fwd_headers = {k: v for k, v in request.headers.items()
+                   if k.lower() in ("content-type", "accept")}
+
+    def _do():
+        return _rq.request(
+            request.method, f"{_SWINGDESK_BASE}/{path}",
+            params=dict(request.query_params), data=body,
+            headers=fwd_headers, timeout=15,
+        )
+    try:
+        up = await run_in_threadpool(_do)
+    except Exception as e:
+        return JSONResponse(
+            {"error": f"SwingDesk backend (:8889) unreachable: {type(e).__name__}"},
+            status_code=502)
+    return Response(content=up.content, status_code=up.status_code,
+                    media_type=up.headers.get("content-type"))
+# === /HM-O-TASTY-PHASE-2.1 ===
