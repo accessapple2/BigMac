@@ -167,24 +167,26 @@ def _load_metals() -> dict:
     if not rows:
         return {"positions": [], "cash_by_account": {"metals": 0.0}}
 
-    # Spot prices via yfinance (best-effort; fall back to NULL market_value).
+    # Spot prices — route through the canonical metals_tracker.get_spot_prices()
+    # source so this surface (/api/portfolio/real → unified) reconciles with
+    # /api/networth (which prices metals via get_dilithium_portfolio → the same
+    # get_spot_prices). HM-METALS-SINGLE-SOURCE 2026-06-02: both endpoints now
+    # share the 300s spot cache. The prior independent yfinance 2d-history call
+    # drifted ~$1-3 vs networth's Polygon-preferred spot, surfacing as the
+    # "two Net Worth cards disagree by ~$2.70" reconciliation bug.
     spot_prices: dict[str, Optional[float]] = {}
-    # === HM-BL-broad ===
-    from engine.yf_safe import yf_history_safe
+    try:
+        from engine.metals_tracker import get_spot_prices, LEDGER_TO_SPOT
+        _spot = get_spot_prices() or {}
+    except Exception:
+        _spot, LEDGER_TO_SPOT = {}, {}
     for metal, _, _ in rows:
-        sym = _METAL_YAHOO_SYMBOL.get(metal.lower())
-        if sym is None:
-            spot_prices[metal] = None
-            continue
-        try:
-            hist = yf_history_safe(sym, period="2d")
-            if not hist.empty:
-                spot_prices[metal] = float(hist["Close"].iloc[-1])
-            else:
-                spot_prices[metal] = None
-        except Exception:
-            spot_prices[metal] = None
-    # === /HM-BL-broad ===
+        key = LEDGER_TO_SPOT.get(metal.lower(), metal.upper())
+        entry = _spot.get(key)
+        price = entry.get("price") if isinstance(entry, dict) else None
+        spot_prices[metal] = (
+            float(price) if isinstance(price, (int, float)) and price > 0 else None
+        )
 
     positions: list[Position] = []
     for metal, total_oz, total_cost in rows:

@@ -11476,13 +11476,13 @@ document.addEventListener('keydown', function(e) {
       <div class="oai-bl-selector">
         <label for="oai-bl-pick-run">RUN</label>
         <select id="oai-bl-pick-run" onchange="oaiBacktestPickRun(this.value)">
-          <option value="__demo__">v6_90day_baseline · 2026-05-15 (demo)</option>
+          <option value="__demo__">Loading runs…</option>
         </select>
       </div>
       <div class="oai-bl-selector">
         <label for="oai-bl-pick-agent">AGENT</label>
         <select id="oai-bl-pick-agent" onchange="oaiBacktestPickAgent(this.value)">
-          <option value="__demo__">NEO · BREAKOUT_VOLUME (demo)</option>
+          <option value="__demo__">Loading agents…</option>
         </select>
       </div>
       <!-- HM-OAI-BL-FILTER-LIVE 2026-05-24: window slicer over equity_curve.
@@ -11498,7 +11498,7 @@ document.addEventListener('keydown', function(e) {
           <option value="180">Last 180d</option>
         </select>
       </div>
-      <div class="oai-bl-meta" id="oai-bl-meta">Live wire ships in Step 5b — showing spec demo data</div>
+      <div class="oai-bl-meta" id="oai-bl-meta">Loading completed runs…</div>
     </div>
 
     <!-- 6-KPI strip -->
@@ -11589,11 +11589,12 @@ document.addEventListener('keydown', function(e) {
     </div>
 
     <div class="oai-sr-note">
-      Static spec demo per v4.3 L498-557 · KPIs / equity curve / heatmap live wire ships in Step 5b
-      (source: <code>/api/backtest/runs</code> + <code>/api/backtest/run/{id}</code> → KPIs computed
-      client-side + equity_curve[] mapped to path + trades[] aggregated by date for heatmap) ·
-      Filter Contribution remains static until <b>HM-OAI-BL-FILTER-LIVE</b> ships a per-filter
-      sweep endpoint.
+      KPIs · equity curve · daily P&amp;L heatmap are <b>live</b> — sourced from
+      <code>/api/backtest/runs</code> + <code>/api/backtest/run/{id}</code> (KPIs computed
+      client-side, equity_curve[] mapped to path, trades[] aggregated by date for heatmap).
+      Selecting a different RUN / AGENT re-reads the real backtest results. ·
+      Only <b>Filter Contribution</b> below remains static until <b>HM-OAI-BL-FILTER-LIVE</b>
+      ships a per-filter sweep endpoint.
     </div>
   </div>
   <!-- ───── WAVE SCOPE (Step 6a — visual scaffold per v4.3 spec L561-619) ───── -->
@@ -43618,8 +43619,16 @@ async function fetchRealPortfolio() {
       metalsPct.textContent = '';
     }
 
-    var src = (d._source || '/api/portfolio/real') + (u.ts ? (' • snapshot ' + u.ts) : '');
-    meta.textContent = src + ' • refreshed ' + new Date().toLocaleTimeString();
+    // HM-FRESHNESS-HONEST 2026-06-02: u.ts is the backend FETCH time (_now_iso),
+    // not the data-age. Cash+equities are as-of the last broker sync (same date
+    // the Net Worth card shows); only metals are live spot. Label each honestly
+    // so the two cards stop reading as contradictory ("06-02 snapshot" vs
+    // "as-of 05-28").
+    var asOf = (d.schwab && d.schwab.last_updated) ? d.schwab.last_updated : (u.ts || '?');
+    var src = (d._source || '/api/portfolio/real');
+    meta.textContent = src + ' • cash + equities as-of ' + asOf +
+      ' (last sync, not live-quoted) · metals live spot • fetched ' +
+      new Date().toLocaleTimeString();
 
     // HM-SCHWAB-LINE-DETAIL: shared grade-badge + gain-cell helpers, used by BOTH
     // the Schwab card and the Positions by Symbol table.
