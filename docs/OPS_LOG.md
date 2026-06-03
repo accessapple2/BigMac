@@ -608,3 +608,17 @@ if the bus is meant to dispatch them, (b) drop the consumer poll below the budge
 or (c) accept the bus as intraday/position-only and document 0dte/swing as
 direct-path-only. No change made — flagging only. Cross-ref CLAUDE.md
 "Role-conversions leave stale parallel paths."
+- 2026-06-03T06:00:06 | daily_backup | backup=trader_2026-06-03.db | 502504KB
+
+## 2026-06-03 — Auth hardening + doc drift (053dfc5)
+
+- Hardened /api/* auth bypass: AuthMiddleware localhost bypass now requires
+  not _is_via_cf_tunnel() — tunnel traffic can no longer satisfy the loopback
+  bypass even if uvicorn proxy-header rewriting breaks (dashboard/app.py)
+- Made uvicorn proxy_headers=True + forwarded_allow_ips="127.0.0.1" explicit
+  with SECURITY comment documenting the auth dependency (main.py:3250)
+- Marked secondary uvicorn.run at app.py:20650 as non-canonical entry point
+- Fixed stale CLAUDE.md uvicorn bind line refs: 2944→3250 (two locations)
+- Verified: loopback 200 (scanner intact), tunnel 401 (kill-switch gated)
+- Working tree has pre-existing unrelated changes (OPS_LOG.md, swingdesk.db,
+  backtest artifacts) — not staged, left as-is
