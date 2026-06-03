@@ -25,9 +25,17 @@ console = Console()
 
 _DB_PATH = Path(__file__).resolve().parent.parent / "data" / "trader.db"
 
-# Stale-after budgets per timeframe (Captain spec).
+# Stale-after budgets per timeframe (Captain spec). Unit: SECONDS
+# (consumed via timedelta(seconds=...) in _compute_stale_after below).
+# HM-INTRADAY-STALE-BUDGET 2026-06-02: 'intraday' was MISSING from this map, so
+# crew_scanner's INTRADAY emissions (paper_trader.save_signal timeframe="INTRADAY")
+# resolved budget=None → stale_after NULL → born never-stale, which let the INTC
+# pile rebuild in signals_v2 (consumer treats NULL as never-stale, events_bus_
+# consumer.py:91). 900s (15min) chosen to clear the 60s consumer poll AND the 120s
+# crew_scanner emit cycle while still expiring same-session (« 6.5h RTH).
 _STALE_BUDGET_S: dict[str, int] = {
     "0dte": 2,
+    "intraday": 900,
     "swing": 30,
     "position": 300,
 }
