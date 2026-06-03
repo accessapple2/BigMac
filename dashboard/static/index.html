@@ -20938,6 +20938,7 @@ function openTickerDetail(symbol) {
   fetch('/api/kirk/advisory?source=' + (typeof _kirkSource !== 'undefined' ? _kirkSource : 'real')).then(function(r){return r.json();}).then(function(d) {
     var el = document.getElementById('trc-kirk');
     if (!el) return;
+    if (d.stale) { el.innerHTML = '<div class="sec-title">🖖 Kirk\'s Recommendation</div><div style="color:#f59e0b;font-size:12px;padding:8px;">⚠️ ' + (d.stale_message || 'Holdings stale — re-import Schwab CSV') + '</div>'; return; }
     var positions = d.positions || [];
     var match = null;
     for (var i = 0; i < positions.length; i++) {
@@ -24604,6 +24605,10 @@ async function wbToggleActionPanel(type) {
       _wbKirkData = await fetch('/api/kirk/advisory').then(function(r){ return r.json(); });
     }
     var k = _wbKirkData;
+    if (k && k.stale) {
+      panel.innerHTML = '<div style="color:#f59e0b;font-weight:600;padding:8px;">⚠️ ' + (k.stale_message || 'Holdings data stale — re-import Schwab CSV') + '</div>';
+      return;
+    }
     if (type === 'buy') {
       // Candidates from trade cards with BUY decision
       var cards = [];
@@ -33218,6 +33223,19 @@ async function fetchKirkAdvisory() {
     var r = await fetch('/api/kirk/advisory?source=' + _kirkSource);
     var d = await r.json();
 
+    // Kirk staleness guard (real_holdings.json mtime > 4h / missing): banner + skip render.
+    // The STALE envelope has no market_context/cash_recommendation, so render MUST stop here.
+    if (d.stale) {
+      var _kAge = (d.age_minutes != null) ? (d.age_minutes / 60).toFixed(1) + 'h old' : 'missing';
+      el.innerHTML = '<div style="background:linear-gradient(135deg,#b45309 0%,#7c2d12 100%);border-radius:10px;padding:16px 18px;">' +
+        '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:20px;">⚠️</span>' +
+        '<span style="font-size:16px;font-weight:800;color:white;letter-spacing:0.5px;">HOLDINGS DATA STALE</span></div>' +
+        '<div style="color:#fde68a;font-size:14px;font-weight:600;">' + (d.stale_message || 'Re-import Schwab CSV before acting') + '</div>' +
+        '<div style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:4px;">Kirk advisory paused — Schwab snapshot ' + _kAge + ' (threshold 4h). Re-run the CSV import to refresh.</div>' +
+        '</div>';
+      return;
+    }
+
     // Update source label badge
     var badge = document.getElementById('kirk-badge');
     if (badge) { badge.className = 'source-badge ' + (_kirkSource === 'all' ? 'all' : _kirkSource); badge.textContent = (d.source_label || _kirkSource).toUpperCase().slice(0,8); }
@@ -33647,6 +33665,16 @@ async function fetchKirkDetail() {
       fetch('/api/congress/top-buys?days=30').then(function(r){return r.json();}).catch(function(){return {};}),
       fetch('/api/fleet/positions').then(function(r){return r.json();}).catch(function(){return {fleet_cash:0, agents:[]};})
     ]);
+
+    if (kirk && kirk.stale) {
+      var _kdAge = (kirk.age_minutes != null) ? (kirk.age_minutes / 60).toFixed(1) + 'h old' : 'missing';
+      el.innerHTML = '<div style="background:linear-gradient(135deg,#b45309 0%,#7c2d12 100%);border-radius:10px;padding:16px 18px;margin:8px;">' +
+        '<div style="font-size:16px;font-weight:800;color:white;">⚠️ HOLDINGS DATA STALE</div>' +
+        '<div style="color:#fde68a;font-size:14px;margin-top:6px;">' + (kirk.stale_message || 'Re-import Schwab CSV before acting') + '</div>' +
+        '<div style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:4px;">Full analysis paused — Schwab snapshot ' + _kdAge + '.</div>' +
+        '</div>';
+      return;
+    }
 
     var trades = [];
     // HM-TRADES-RECENT-CONSOLIDATE 2026-05-19: shared store; was: fetch('/api/trades/recent?limit=20')

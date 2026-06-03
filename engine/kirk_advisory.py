@@ -34,7 +34,7 @@ logger = logging.getLogger("kirk_advisory")
 # _load_real_holdings(). Historical advisory_log rows reflect the
 # alpaca-mirror era and stay as historical record.
 PLAYER_ID = "alpaca-mirror"
-REAL_HOLDINGS_PATH = Path("data/real_holdings.json")
+REAL_HOLDINGS_PATH = Path(__file__).resolve().parent.parent / "data" / "real_holdings.json"
 STOP_LOSS_PCT = -8.0      # Hard stop at -8%
 TRIM_WARNING_PCT = -6.0   # Warn when approaching stop
 WINNER_HOLD_PCT = 5.0     # Don't sell winners above this
@@ -80,6 +80,24 @@ def _load_real_holdings() -> dict:
             "snapshot_at": None,
             "source": "schwab/real_holdings.json",
             "error": "real_holdings.json missing",
+            "stale": True,
+            "stale_reason": "file_missing",
+            "age_minutes": None,
+        }
+    import time as _t
+    _age_min = (_t.time() - REAL_HOLDINGS_PATH.stat().st_mtime) / 60
+    _STALE_THRESHOLD_MIN = 240  # 4 hours
+    if _age_min > _STALE_THRESHOLD_MIN:
+        return {
+            "positions": [],
+            "cash": 0.0,
+            "snapshot_at": None,
+            "source": "schwab/real_holdings.json",
+            "error": None,
+            "stale": True,
+            "stale_reason": "holdings_stale",
+            "age_minutes": round(_age_min, 1),
+            "stale_message": f"Schwab holdings data is {round(_age_min / 60, 1)}h old — re-import CSV to refresh",
         }
     try:
         with REAL_HOLDINGS_PATH.open() as fh:
@@ -126,6 +144,8 @@ def _load_real_holdings() -> dict:
         "cash": cash,
         "snapshot_at": raw.get("last_updated"),
         "source": "schwab/real_holdings.json",
+        "stale": False,
+        "age_minutes": round(_age_min, 1),
     }
 
 
@@ -313,6 +333,21 @@ def generate_kirk_advisory():
         # comes from the snapshot directly; KIRK_PORTFOLIO_CASH env override
         # still wins via _get_live_cash for operator-driven adjustments.
         holdings = _load_real_holdings()
+        if holdings.get("stale"):
+            logger.warning(
+                "[Kirk] holdings stale (%s, age=%s min) — returning STALE advisory",
+                holdings.get("stale_reason"), holdings.get("age_minutes"),
+            )
+            return {
+                "action": "STALE",
+                "stale": True,
+                "stale_reason": holdings.get("stale_reason"),
+                "age_minutes": holdings.get("age_minutes"),
+                "stale_message": holdings.get("stale_message", "Holdings data stale — re-import Schwab CSV"),
+                "recommendations": [],
+                "positions": [],
+                "summary": "Holdings data stale — re-import Schwab CSV before acting",
+            }
         positions = holdings.get("positions", [])
         cash = _get_live_cash(fallback=holdings.get("cash") or 0)
 
