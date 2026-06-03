@@ -36,7 +36,9 @@ if _ROOT not in sys.path:
 
 TRADER_DB = os.path.join(_ROOT, "data", "trader.db")
 FLOW_GEX_DB = os.path.join(_ROOT, "data", "flow_gex.db")
+SIGNALS_DB = os.path.join(_ROOT, "signal-center", "signals.db")   # W4 regime sidecar lives here
 SIGNAL_CENTER_URL = "http://127.0.0.1:9000/api/signal"
+GEX_SNAPSHOT_URL = "http://127.0.0.1:8080/api/gex-snapshot"        # W4: canonical gamma sign
 SHADOW_AGENT_PREFIX = "shadow-bridge"
 
 # deep_scan strategy_name -> W0-PROVEN setup tag. ONLY proven edges (W0):
@@ -77,6 +79,104 @@ def _mark_emitted(conn: sqlite3.Connection, symbol: str, setup: str, day: str, s
                  (symbol, setup, day, source, datetime.now(timezone.utc).isoformat(), http))
 
 
+# ── W4 regime sidecar (observation-only) ────────────────────────────────────
+# Capture the live regime vector (gamma sign × VIX term × time-of-day) beside each
+# shadow signal so the W4 conditional-expectancy table can accrue. NEVER touches an
+# order path; silent-fail only; must never block emission. signal-center's W0 scorer
+# can JOIN signal_regime on signal_id later (it does not read context_json).
+_GEX_CACHE: dict = {}
+_GEX_CACHE_TS: float = 0.0
+_GEX_CACHE_TTL = 60.0   # cache the snapshot per ~run — avoid the per-item-fetch bug class
+
+
+def _ensure_regime_table(conn: sqlite3.Connection) -> None:
+    conn.execute("""
+        CREATE TABLE IF NOT EXISTS signal_regime (
+            signal_id      INTEGER PRIMARY KEY,
+            gamma_sign     TEXT,
+            vix_state      TEXT,
+            vix_spot       REAL,
+            vix_3m         REAL,
+            contango_ratio REAL,
+            tod            TEXT,
+            asof           TEXT
+        )""")
+
+
+def _gamma_sign() -> str:
+    """LONG/SHORT/UNKNOWN from the canonical GEX snapshot's OWN regime label.
+    (total_gex sign alone is misleading — live SPY showed total_gex<0 labeled
+    'LONG GAMMA'; the engine's regime string is authoritative.) Cached ~60s."""
+    global _GEX_CACHE, _GEX_CACHE_TS
+    import time as _t
+    if not _GEX_CACHE or (_t.time() - _GEX_CACHE_TS) >= _GEX_CACHE_TTL:
+        try:
+            gx = requests.get(GEX_SNAPSHOT_URL, timeout=6).json()
+            _GEX_CACHE = (gx.get("data") or {}).get("SPY") or {}
+            _GEX_CACHE_TS = _t.time()
+        except Exception:
+            return "UNKNOWN"
+    reg = str(_GEX_CACHE.get("regime", "")).upper()
+    if "LONG GAMMA" in reg:
+        return "LONG"
+    if "SHORT GAMMA" in reg:
+        return "SHORT"
+    tg = _GEX_CACHE.get("total_gex")
+    return ("LONG" if tg > 0 else "SHORT") if isinstance(tg, (int, float)) and tg else "UNKNOWN"
+
+
+def _tod_et() -> str:
+    """Session bucket from Eastern time (DST-safe via zoneinfo; the boundaries are ET)."""
+    try:
+        from zoneinfo import ZoneInfo
+        et = datetime.now(ZoneInfo("America/New_York"))
+        m = et.hour * 60 + et.minute
+        if m < 9 * 60 + 30:
+            return "premarket"
+        if m < 12 * 60:
+            return "open"
+        if m < 14 * 60:
+            return "midday"
+        if m < 16 * 60:
+            return "close"
+        return "after"
+    except Exception:
+        return "UNKNOWN"
+
+
+def _stamp_regime(signal_id: int) -> None:
+    """Write one signal_regime row (INSERT OR IGNORE) for signal_id. Observation-only;
+    silent-fail; never raises into the emission path. Zero order path."""
+    try:
+        gamma_sign = _gamma_sign()
+        vix_spot = vix_3m = contango_ratio = None
+        vix_state = "UNKNOWN"
+        try:
+            from engine.vix_monitor import get_vix_term_structure
+            v = get_vix_term_structure() or {}
+            vix_spot, vix_3m = v.get("vix"), v.get("vix3m")
+            if vix_spot and vix_3m:
+                contango_ratio = round(vix_3m / vix_spot, 4)
+                vix_state = ("contango" if contango_ratio > 1
+                             else "backwardation" if contango_ratio < 1 else "UNKNOWN")
+        except Exception:
+            pass
+        asof = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")
+        conn = sqlite3.connect(SIGNALS_DB, timeout=20)
+        try:
+            _ensure_regime_table(conn)
+            conn.execute(
+                "INSERT OR IGNORE INTO signal_regime "
+                "(signal_id, gamma_sign, vix_state, vix_spot, vix_3m, contango_ratio, tod, asof) "
+                "VALUES (?,?,?,?,?,?,?,?)",
+                (signal_id, gamma_sign, vix_state, vix_spot, vix_3m, contango_ratio, _tod_et(), asof))
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception:
+        pass
+
+
 def _post_signal(symbol: str, setup: str, conf01: float, entry, stop, target, reasoning: str) -> int:
     """POST a SHADOW signal to signal-center. Returns HTTP status (0 on error).
     agent='shadow-bridge:<setup>' => excluded from execution by construction."""
@@ -93,6 +193,13 @@ def _post_signal(symbol: str, setup: str, conf01: float, entry, stop, target, re
     }
     try:
         r = requests.post(SIGNAL_CENTER_URL, json=payload, timeout=6)
+        if r.status_code in (200, 201):
+            try:
+                _sid = (r.json() or {}).get("signal_id")
+                if _sid:
+                    _stamp_regime(int(_sid))   # W4 regime sidecar — observation-only, never blocks
+            except Exception:
+                pass
         return r.status_code
     except Exception:
         return 0
