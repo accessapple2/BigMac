@@ -86,7 +86,7 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
 - **Trader dashboard (port 8080)**: uvicorn binds `127.0.0.1` (loopback only);
   LAN clients reach via Cloudflare tunnel at `bridge.ollietrades.com`.
   Network-wide bind would require separate auth review at the uvicorn bind
-  `main.py:2944`.
+  `main.py:3250`.
 - **Signal Center (port 9000)**: bound to `127.0.0.1` from pre-2FA legacy
   posture. HM-AW (`docs/XO_BACKLOG.md`) tracks reopening to network now that
   2FA TOTP + multi-user auth (Captain, Bonnie observer, Dad charts) are in
@@ -835,7 +835,7 @@ here so the doc can be trusted without re-verifying each session.
    to Ollie Box; reality was bigmac. Pin → routing decisions based on false
    state.
 6. **Docs-vs-bind reality** — CLAUDE.md claimed port 8080 "bound network-wide"
-   but `main.py:2944` pins to `127.0.0.1`. LAN reachability is Cloudflare
+   but `main.py:3250` pins to `127.0.0.1`. LAN reachability is Cloudflare
    tunnel only. (Fixed in network bindings section above.)
 7. **debate_engine.py is NOT CrewAI** — any doc describing
    `engine/debate_engine.py` as CrewAI-orchestrated is wrong. Reality: plain

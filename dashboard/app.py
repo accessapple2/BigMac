@@ -1231,7 +1231,8 @@ class AuthMiddleware(BaseHTTPMiddleware):
             return await call_next(request)
 
         # API routes from localhost bypass auth (scanner needs these)
-        if path.startswith("/api/") and _is_localhost(request):
+        # never bypass for tunnel traffic even if proxy-header rewriting breaks
+        if path.startswith("/api/") and _is_localhost(request) and not _is_via_cf_tunnel(request):
             return await call_next(request)
         # Everything else requires a valid session
         if path.startswith("/api/"):
@@ -20647,6 +20648,7 @@ def api_backtest_matrix():
 
 
 if __name__ == "__main__":
+    # non-canonical entry point — not used in production (main.py is the live launcher)
     uvicorn.run(app, host="127.0.0.1", port=8080)
 
 

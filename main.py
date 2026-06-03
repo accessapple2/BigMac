@@ -3247,7 +3247,9 @@ def run_dashboard():
         try:
             from dashboard.app import app
             _dashboard_started.set()
-            uvicorn.run(app, host="127.0.0.1", port=8080, log_level="warning")
+            # SECURITY: auth bypass safety depends on uvicorn rewriting client.host from X-Forwarded-For — do not set proxy_headers=False or change forwarded_allow_ips
+            uvicorn.run(app, host="127.0.0.1", port=8080, log_level="warning",
+                        proxy_headers=True, forwarded_allow_ips="127.0.0.1")
             return  # Clean exit (shutdown)
         except Exception as exc:
             _dashboard_error = exc
