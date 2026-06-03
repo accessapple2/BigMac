@@ -214,8 +214,8 @@ def run_loop_a(universe: list[tuple[str, str]] | None = None) -> dict:
 
 
 # ── Loop B params (HM-O-TASTY-DOCTRINE) ──────────────────────────────────────
-SHADOW_PORTFOLIO = 52340.0   # shadow-book notional (matches options_engine default)
-BPR_PER_TRADE    = 0.03      # 3% buying-power reduction per trade
+SHADOW_PORTFOLIO = 100000.0  # shadow-book notional (matched to PA3YVDTUH5CB live equity 2026-06-03)
+BPR_PER_TRADE    = 0.05      # 5% buying-power reduction per trade (raised from 3% 2026-06-03 — more flow, still defined-risk)
 SOFT_CAP         = 0.35      # refuse NEW entries when total book BPR > 35%
 HARD_CAP         = 0.50      # refuse entirely when total book BPR > 50%
 MAX_POSITIONS    = 20        # max concurrent shadow positions
