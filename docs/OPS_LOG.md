@@ -622,3 +622,14 @@ direct-path-only. No change made — flagging only. Cross-ref CLAUDE.md
 - Verified: loopback 200 (scanner intact), tunnel 401 (kill-switch gated)
 - Working tree has pre-existing unrelated changes (OPS_LOG.md, swingdesk.db,
   backtest artifacts) — not staged, left as-is
+
+## 2026-06-03 — relative_strength PBO verdict confirmed GENUINELY FRAGILE
+
+- 144-config decorrelated grid (pbo_rs_decorrelated.py) run 2026-06-01
+- PBO = 0.6348 (gate requires ≤0.30) — FAILS
+- Median logit = −0.73 (IS-best below OOS median on 63% of splits)
+- Decorrelation was valid (mean |corr| 0.89→0.63, −0.26 drop confirmed)
+- Verdict: fragility is genuine, not a collinearity artifact
+- DSR passes (aggregate edge may exist) but no parameterization is selectable OOS
+- Decision: keep relative_strength shadow/observation only — DO NOT GRADUATE
+- Graduation gate remains open — bull_flag + rsi_bounce + rsi_divergence accruing

@@ -353,7 +353,9 @@ scoring only; emission never forwards to Alpaca.
 ### The waves
 - W0 — forward-scoring substrate: signal_outcomes (signals.db) ⟷ trade_signals 1:1 by
   signal_id; expectancy_engine.score_backlog() = stop-first R @1/3/5/10d, IS/OOS split.
-  Lead: relative_strength (in-sample DSR ✓, n=444). No-level signals are unscoreable.
+  Lead: relative_strength (in-sample DSR ✓, n=444). PBO = 0.6348 FAIL (genuinely fragile,
+  confirmed 2026-06-01 on 144-config decorrelated grid — do not graduate). bull_flag +
+  rsi_bounce + rsi_divergence accruing. No-level signals are unscoreable.
 - W1 — source health: engine.source_gate + /api/sources/health (signal-center :9000) →
   RED-first grid (signal-center/index.html). Auto-quarantine tracker is report-only
   (AUTO_QUARANTINE_ENABLED default-off); independent cron watcher
