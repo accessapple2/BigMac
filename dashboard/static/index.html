@@ -24380,18 +24380,18 @@ async function fetchWebullPortfolio() {
 
     // Store portfolio data and render supplemental panels
     window._wbPortfolio = d;
-    // HM-DONUT-ALPACA: feed donut from Alpaca paper (active fleet) instead of Webull
+    // HM-DONUT-SCHWAB 2026-06-02: feed the Sector Allocation donut from the LIVE
+    // Schwab brokerage book (/api/portfolio/real) — was Alpaca-paper-fed, which
+    // showed a stale ~93.5% cash vs the breakdown's ~62% Schwab cash. Schwab-only
+    // denominator: cash as a labeled slice + equities grouped by sector. Also
+    // re-rendered from the SAME source in fetchRealPortfolio so the donut stays in
+    // lockstep with the breakdown's Refresh / post-CSV-import trigger.
     try {
-      var [posR, statR] = await Promise.all([
-        fetch('/api/alpaca/positions'),
-        fetch('/api/alpaca/status')
-      ]);
-      var posJ = await posR.json();
-      var statJ = await statR.json();
-      wbRenderDonut({ positions: posJ.positions || [], cash: statJ.cash || 0 });
+      var realJ = await fetch('/api/portfolio/real').then(function(rr){ return rr.json(); });
+      var _sw = (realJ && realJ.schwab) || {};
+      wbRenderDonut({ positions: _sw.positions || [], cash: _sw.cash_balance || 0 });
     } catch(donutErr) {
-      console.warn('[Donut-Alpaca] fallback to webull data:', donutErr);
-      wbRenderDonut(d);
+      console.warn('[Donut-Schwab] feed error:', donutErr);
     }
     fetchWbRecentTrades();
     // Load history for sparkline (use cached period or default 7d)
@@ -24491,6 +24491,12 @@ var _WB_SECTOR_MAP = {
   VRT:'Industrials', ITT:'Industrials', LII:'Industrials', TKR:'Industrials', ESE:'Industrials',
   CLF:'Materials', FCX:'Materials', STLD:'Materials',
   AVB:'Real Estate',
+  // HM-DONUT-SCHWAB 2026-06-02: live Schwab-book tickers previously missing →
+  // they fell through to 'Other'. CEG=Constellation (GICS Utilities/IPP),
+  // CCJ=Cameco (uranium fuel → Energy), COPX=copper-miner ETF (Materials),
+  // IBM/MRVL/PANW = Technology.
+  CEG:'Utilities', CCJ:'Energy', IBM:'Technology', MRVL:'Technology',
+  PANW:'Technology', COPX:'Materials',
 };
 var _WB_SECTOR_COLORS = [
   '#4f8ef7','#22c55e','#eab308','#f97316','#ef4444',
@@ -24556,13 +24562,24 @@ function wbRenderDonut(d) {
   if (!wrap) return;
   if (!d) { wrap.innerHTML = '<span style="color:var(--muted);font-size:12px;">No data</span>'; return; }
   var pos = d.positions || [];
-  var total = pos.reduce(function(s,p){ return s+(p.market_value||0); }, 0) + (d.cash||0);
+  // market_value is normally a top-level numeric field, but legacy real_holdings
+  // rows embed it only in notes text ("market_value=$959.82, ..."). Fall back to
+  // parsing notes so a legacy row doesn't silently weigh 0 in the donut.
+  function _mvOf(p) {
+    var mv = p.market_value;
+    if (!mv && p.notes) {
+      var m = /market_value=\$([\d,.]+)/.exec(p.notes);
+      if (m) mv = parseFloat(m[1].replace(/,/g, ''));
+    }
+    return mv || 0;
+  }
+  var total = pos.reduce(function(s,p){ return s+_mvOf(p); }, 0) + (d.cash||0);
   if (!total) { wrap.innerHTML = '<span style="color:var(--muted);font-size:12px;">No positions</span>'; return; }
 
   var sectors = {};
   pos.forEach(function(p) {
     var sec = _WB_SECTOR_MAP[p.symbol] || 'Other';
-    sectors[sec] = (sectors[sec]||0) + (p.market_value||0);
+    sectors[sec] = (sectors[sec]||0) + _mvOf(p);
   });
   if (d.cash > 0) sectors['Cash'] = d.cash;
 
@@ -43671,6 +43688,12 @@ async function fetchRealPortfolio() {
 
     // ── Schwab card (legacy shape — already rich) ─────────────────────
     var sw = d.schwab || {};
+    // HM-DONUT-SCHWAB 2026-06-02: re-render the Sector Allocation donut from the
+    // SAME Schwab book this breakdown uses, so Refresh / post-CSV-import updates
+    // both in lockstep. Schwab-only denominator (cash slice + equities by sector).
+    if (!sw.error && typeof wbRenderDonut === 'function') {
+      wbRenderDonut({ positions: sw.positions || [], cash: sw.cash_balance || 0 });
+    }
     if (sw.error) {
       schwab.innerHTML = '<div style="color:#f87171;">Schwab error: ' + sw.error + '</div>';
     } else {
