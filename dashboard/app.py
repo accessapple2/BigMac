@@ -16815,6 +16815,17 @@ def get_kirk_advisory(source: str = "paper"):
         return result
 
     real_positions, real_cash = _read_real_positions_sync()
+    # Staleness guard (reuses engine.kirk_advisory threshold — single source of truth)
+    from engine.kirk_advisory import _load_real_holdings as _lrh
+    _rh_stale = _lrh()
+    if _rh_stale.get("stale"):
+        return {
+            "source": source, "stale": True, "action": "STALE",
+            "stale_reason": _rh_stale.get("stale_reason"),
+            "age_minutes": _rh_stale.get("age_minutes"),
+            "stale_message": _rh_stale.get("stale_message", "Holdings data stale — re-import Schwab CSV"),
+            "positions": [], "summary": "Holdings data stale — re-import Schwab CSV before acting",
+        }
 
     if source == "real":
         # Enrich positions with action/pnl_pct/message parsed from notes
