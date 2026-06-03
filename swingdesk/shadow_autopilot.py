@@ -216,10 +216,159 @@ def run_loop_a(universe: list[tuple[str, str]] | None = None) -> dict:
 # ── Loop B params (HM-O-TASTY-DOCTRINE) ──────────────────────────────────────
 SHADOW_PORTFOLIO = 100000.0  # shadow-book notional (matched to PA3YVDTUH5CB live equity 2026-06-03)
 BPR_PER_TRADE    = 0.05      # 5% buying-power reduction per trade (raised from 3% 2026-06-03 — more flow, still defined-risk)
+# ── Phase 2 execution flag (default OFF — flip only after shadow book has 30+ closed trades) ──
+LIVE_EXECUTION_ENABLED = False   # PA3YVDTUH5CB paper only; never fleet account; never real money
 SOFT_CAP         = 0.35      # refuse NEW entries when total book BPR > 35%
 HARD_CAP         = 0.50      # refuse entirely when total book BPR > 50%
 MAX_POSITIONS    = 20        # max concurrent shadow positions
 MAX_PER_SECTOR   = 3         # max concurrent per sector
+
+
+# ── Phase 2: lightweight logger (module logs via print(); helpers below call _log) ──
+def _log(msg: str) -> None:
+    print(msg)
+
+
+# ── Phase 2: OTASTY Alpaca client (isolated — PA3YVDTUH5CB only, never fleet) ──────
+import functools
+
+@functools.lru_cache(maxsize=1)
+def _otasty_client():
+    """Lazy singleton — OTASTY isolated paper account client. Never the fleet client."""
+    import alpaca
+    from alpaca.trading.client import TradingClient
+    from alpaca.data.historical.option import OptionHistoricalDataClient
+    key    = os.environ.get("OTASTY_APCA_API_KEY_ID", "")
+    secret = os.environ.get("OTASTY_APCA_API_SECRET_KEY", "")
+    if not key or not secret:
+        raise RuntimeError("OTASTY Alpaca creds not loaded — check swingdesk/.env")
+    return TradingClient(key, secret, paper=True)
+
+@functools.lru_cache(maxsize=1)
+def _otasty_data_client():
+    key    = os.environ.get("OTASTY_APCA_API_KEY_ID", "")
+    secret = os.environ.get("OTASTY_APCA_API_SECRET_KEY", "")
+    from alpaca.data.historical.option import OptionHistoricalDataClient
+    return OptionHistoricalDataClient(key, secret)
+
+
+def to_occ(sym: str, exp_date: str, opt_type: str, strike: float) -> str:
+    """Build OCC symbol: ROOT(6) + YYMMDD + C/P + strike*1000 zero-padded to 8.
+    exp_date: 'YYYY-MM-DD'. opt_type: 'C' or 'P'."""
+    root   = sym.upper()
+    ymd    = exp_date.replace("-", "")[2:]          # YYYYMMDD → YYMMDD
+    s_int  = int(round(strike * 1000))
+    return f"{root}{ymd}{opt_type.upper()}{s_int:08d}"
+
+
+def _snap_strike(sym: str, exp_date: str, opt_type: str, theoretical: float) -> float:
+    """Snap a theoretical BS strike to the nearest real listed strike via Alpaca chain.
+    Returns theoretical if chain lookup fails (order will likely reject — logged)."""
+    try:
+        from alpaca.data.requests import OptionChainRequest
+        req = OptionChainRequest(
+            underlying_symbol=sym,
+            expiration_date=exp_date,
+            type=("put" if opt_type.upper().startswith("P") else "call"),
+        )
+        chain = _otasty_data_client().get_option_chain(req)
+        if not chain:
+            return theoretical
+        # strike is encoded in the OCC key (last 8 digits / 1000); OptionsSnapshot has no strike_price
+        strikes = sorted({int(k[-8:]) / 1000.0 for k in chain.keys() if k[-8:].isdigit()})
+        if not strikes:
+            return theoretical
+        return min(strikes, key=lambda s: abs(s - theoretical))
+    except Exception as e:
+        _log(f"[SNAP] strike snap failed for {sym} {exp_date} {opt_type} {theoretical}: {e}")
+        return theoretical
+
+
+def _snap_expiration(sym: str, exp_date: str) -> str:
+    """Snap a Polygon/OCC Saturday expiration to the nearest Alpaca-listed tradeable
+    expiration date. Expiration is parsed from the OCC keys (OptionsSnapshot carries
+    no expiration_date attr). Returns exp_date unchanged on failure."""
+    try:
+        import re
+        from datetime import datetime
+        from alpaca.data.requests import OptionChainRequest
+        chain = _otasty_data_client().get_option_chain(OptionChainRequest(underlying_symbol=sym))
+        if not chain:
+            return exp_date
+        exps = set()
+        for k in chain.keys():
+            m = re.match(r"^[A-Z]+(\d{2})(\d{2})(\d{2})[CP]\d{8}$", k)
+            if m:
+                exps.add(f"20{m.group(1)}-{m.group(2)}-{m.group(3)}")
+        if not exps:
+            return exp_date
+        target = datetime.strptime(exp_date, "%Y-%m-%d").date()
+        nearest = min(exps, key=lambda e: abs((datetime.strptime(e, "%Y-%m-%d").date() - target).days))
+        if nearest != exp_date:
+            _log(f"[SNAP_EXP] {sym} expiration {exp_date} → {nearest}")
+        return nearest
+    except Exception as e:
+        _log(f"[SNAP_EXP] expiration snap failed for {sym} {exp_date}: {e}")
+        return exp_date
+
+
+def _get_nbbo_mid(occ_symbol: str) -> float | None:
+    """Fetch real NBBO mid for an OCC contract. Returns None on failure."""
+    try:
+        from alpaca.data.requests import OptionLatestQuoteRequest
+        req = OptionLatestQuoteRequest(symbol_or_symbols=occ_symbol)
+        quotes = _otasty_data_client().get_option_latest_quote(req)
+        q = quotes.get(occ_symbol)
+        if q and q.bid_price is not None and q.ask_price is not None:
+            return round((q.bid_price + q.ask_price) / 2, 2)
+    except Exception as e:
+        _log(f"[NBBO] quote fetch failed for {occ_symbol}: {e}")
+    return None
+
+
+def _build_mleg_legs(structure: str, sym: str, exp_date: str,
+                     legs_dict: dict, contracts: int) -> list[dict] | None:
+    """Build snapped + NBBO-priced MLEG legs for a structure.
+    Returns list of leg dicts for Alpaca order, or None if snap/quote fails fatally."""
+    from alpaca.trading.enums import OrderSide, PositionIntent
+
+    structure_legs = {
+        "bull_put_spread":  [("short_put", "P", OrderSide.SELL, PositionIntent.SELL_TO_OPEN),
+                             ("long_put",  "P", OrderSide.BUY,  PositionIntent.BUY_TO_OPEN)],
+        "bear_call_spread": [("short_call","C", OrderSide.SELL, PositionIntent.SELL_TO_OPEN),
+                             ("long_call", "C", OrderSide.BUY,  PositionIntent.BUY_TO_OPEN)],
+        "iron_condor":      [("short_put", "P", OrderSide.SELL, PositionIntent.SELL_TO_OPEN),
+                             ("long_put",  "P", OrderSide.BUY,  PositionIntent.BUY_TO_OPEN),
+                             ("short_call","C", OrderSide.SELL, PositionIntent.SELL_TO_OPEN),
+                             ("long_call", "C", OrderSide.BUY,  PositionIntent.BUY_TO_OPEN)],
+        "csp":              [("short_put", "P", OrderSide.SELL, PositionIntent.SELL_TO_OPEN)],
+    }
+    leg_specs = structure_legs.get(structure)
+    if not leg_specs:
+        _log(f"[MLEG] unknown structure {structure}")
+        return None
+
+    exp_date = _snap_expiration(sym, exp_date)
+    built = []
+    for (key, opt_type, side, intent) in leg_specs:
+        theoretical = float(legs_dict.get(key, 0))
+        snapped     = _snap_strike(sym, exp_date, opt_type, theoretical)
+        occ         = to_occ(sym, exp_date, opt_type, snapped)
+        nbbo_mid    = _get_nbbo_mid(occ)
+        if nbbo_mid is None:
+            _log(f"[MLEG] NBBO unavailable for {occ} — aborting order")
+            return None
+        built.append({
+            "symbol":          occ,
+            "ratio_qty":       contracts,
+            "side":            side,
+            "position_intent": intent,
+        })
+    return built
+
+
+# ── end Phase 2 helpers ──────────────────────────────────────────────────────────────
+
 
 # Directional auto-map (WAVE 3 doctrine). CSP is NOT auto-selected here — it's the
 # discretionary "willing-to-own" trade and was excluded from the directional default
@@ -301,7 +450,8 @@ def run_loop_b() -> dict:
     """LOOP B — structure + entry (SHADOW ONLY). For each Loop-A gate-passer:
     pick directional structure, size at 3% BPR, enforce 35%/50% caps + 20-max /
     3-per-sector limits, and write a would-have-entered row to
-    swingdesk_shadow_trades. NO order submission anywhere in this path.
+    swingdesk_shadow_trades. Order submission happens ONLY when LIVE_EXECUTION_ENABLED
+    (default OFF) — pure shadow otherwise; live path routes to PA3YVDTUH5CB paper only.
     """
     import json
     from collections import Counter
@@ -329,12 +479,14 @@ def run_loop_b() -> dict:
     open_syms = {r["symbol"] for r in openrows}
 
     entered, refused = [], []
+    orders_submitted_count = 0
     for p in passers:
         sym, sector, ivr, iv = p["symbol"], p["sector"], p["ivr"], p["iv_current"]
         # evaluate (single persist point at the end — every candidate gets a row)
         lean = structure = exp = None
         build, bes = {}, []
         contracts, bpr, defined, audit_tag = 0, 0.0, None, None
+        broker_order_id, live_status_val = None, None   # defined for ALL candidates (INSERT runs for refused too)
         status, reason = "refused", None
 
         if state == "TRIPPED":
@@ -373,19 +525,49 @@ def run_loop_b() -> dict:
                             reason = f"sector_limit_3:{sector}"
                         else:
                             status, reason = "shadow_open", None
+                            if LIVE_EXECUTION_ENABLED:
+                                try:
+                                    mleg_legs = _build_mleg_legs(
+                                        structure, sym, exp, build.get("legs", {}), contracts
+                                    )
+                                    if mleg_legs is None:
+                                        status, reason = "refused", "live_execution_legs_failed"
+                                    else:
+                                        from alpaca.trading.requests import LimitOrderRequest
+                                        from alpaca.trading.enums import OrderClass, TimeInForce
+                                        net_credit = max(round(float(build.get("credit", 0.10)), 2), 0.10)
+                                        req = LimitOrderRequest(
+                                            symbol=sym,
+                                            qty=contracts,
+                                            order_class=OrderClass.MLEG,
+                                            time_in_force=TimeInForce.DAY,
+                                            limit_price=net_credit,
+                                            legs=mleg_legs,
+                                        )
+                                        live_status_val = "live_pending"
+                                        order = _otasty_client().submit_order(req)
+                                        broker_order_id = str(order.id)
+                                        live_status_val = "live_pending"
+                                        orders_submitted_count += 1
+                                        _log(f"[LIVE] submitted {structure} {sym} {contracts}x credit={net_credit} → {broker_order_id}")
+                                except Exception as e:
+                                    _log(f"[LIVE] submit failed {structure} {sym}: {e}")
+                                    status, reason = "refused", f"live_submit_error:{str(e)[:80]}"
+                                    live_status_val = "live_rejected"
 
         conn.execute(
             "INSERT INTO swingdesk_shadow_trades "
             "(would_have_submitted_at, scan_date, symbol, sector, structure, directional_lean, "
             " defined_risk, legs, credit, max_loss, breakevens, contracts, bpr, bpr_pct, pop, dte, "
-            " expiration, spot, ivr, iv, status, audit_tag, refused_reason) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+            " expiration, spot, ivr, iv, status, audit_tag, refused_reason, broker_order_id, live_status) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
             (datetime.now().isoformat(timespec="seconds") if status == "shadow_open" else None,
              scan_date, sym, sector, structure, lean, defined,
              json.dumps(build.get("legs", {})), build.get("credit"), build.get("max_loss"),
              json.dumps(bes) if build else None, contracts, bpr,
              round(bpr / SHADOW_PORTFOLIO, 4), build.get("pop"), build.get("dte"),
-             exp, build.get("spot") or p["spot"], ivr, iv, status, audit_tag, reason),
+             exp, build.get("spot") or p["spot"], ivr, iv, status, audit_tag, reason,
+             broker_order_id, live_status_val),
         )
         if status == "shadow_open":
             open_count += 1; open_bpr += bpr; sector_ct[sector] += 1
@@ -404,7 +586,7 @@ def run_loop_b() -> dict:
         "refused": refused,
         "book_bpr_pct": round(open_bpr / SHADOW_PORTFOLIO, 4),
         "open_positions": open_count,
-        "orders_submitted": 0,  # invariant: Loop B never submits
+        "orders_submitted": orders_submitted_count if LIVE_EXECUTION_ENABLED else 0,
     }
 
 
@@ -464,6 +646,55 @@ def _exit_decision(structure: str, legs: dict, credit: float, current_value: flo
     if _short_strike_breached(structure, legs, spot):
         return "short_strike_breach"                            # 5
     return None
+
+
+def run_loop_reconcile() -> dict:
+    """Phase 2 reconcile loop — polls live_pending/live_open rows against OTASTY
+    Alpaca order/position status and transitions them. ONLY runs when
+    LIVE_EXECUTION_ENABLED. Silent-fail per-row; never blocks the scheduler."""
+    if not LIVE_EXECUTION_ENABLED:
+        return {"reconciled": 0, "note": "LIVE_EXECUTION_ENABLED=False — skipped"}
+    try:
+        from alpaca.trading.enums import OrderStatus
+        client = _otasty_client()
+        conn = sqlite3.connect(DB_PATH)
+        rows = conn.execute(
+            "SELECT id, broker_order_id, live_status, symbol, structure "
+            "FROM swingdesk_shadow_trades "
+            "WHERE live_status IN ('live_pending', 'live_open') "
+            "AND broker_order_id IS NOT NULL"
+        ).fetchall()
+        reconciled = 0
+        for row in rows:
+            rid, oid, lstatus, sym, struct = row
+            try:
+                order = client.get_order_by_id(oid)
+                os = order.status
+                if os in (OrderStatus.FILLED,):
+                    new_live = "live_open"
+                elif os in (OrderStatus.CANCELED, OrderStatus.EXPIRED,
+                            OrderStatus.REJECTED, OrderStatus.DONE_FOR_DAY):
+                    new_live = "live_rejected"
+                else:
+                    continue  # still pending/partial — check next cycle
+                if new_live != lstatus:
+                    conn.execute(
+                        "UPDATE swingdesk_shadow_trades SET live_status=?, "
+                        "would_have_submitted_at=COALESCE(would_have_submitted_at, CURRENT_TIMESTAMP) "
+                        "WHERE id=?",
+                        (new_live, rid)
+                    )
+                    conn.commit()
+                    _log(f"[RECONCILE] #{rid} {sym} {struct} {lstatus} → {new_live} (order {oid})")
+                    reconciled += 1
+            except Exception as e:
+                _log(f"[RECONCILE] row {rid} order {oid} error: {e}")
+        conn.close()
+        return {"reconciled": reconciled, "live_pending": len([r for r in rows if r[2]=="live_pending"]),
+                "live_open": len([r for r in rows if r[2]=="live_open"])}
+    except Exception as e:
+        _log(f"[RECONCILE] loop error: {e}")
+        return {"reconciled": 0, "error": str(e)}
 
 
 def run_loop_c() -> dict:
@@ -693,6 +924,7 @@ def register_shadow_schedule(scheduler=None):
     s = scheduler or _sch
     s.every(5).minutes.do(_shadow_cycle).tag("otasty", "abc-5min-rth")
     s.every(15).minutes.do(_nightly_e_guard).tag("otasty", "e-nightly-6pm-et")
+    s.every(5).minutes.do(run_loop_reconcile).tag("otasty", "reconcile-5min")
     return s.get_jobs("otasty")
 
 
