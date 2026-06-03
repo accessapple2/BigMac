@@ -47,6 +47,9 @@ SETUP_MAP = {
     "relative_strength_high": "relative_strength",
     "bull_momentum_breakout": "bull_flag",
     "breakout_volume":        "bull_flag",
+    # unproven — accruing from zero, graduation-gated (no W0 evidence yet)
+    "rsi_oversold_bounce":    "rsi_bounce",
+    "rsi_divergence":         "rsi_divergence",
 }
 MIN_CONF = 0.70          # deep_scan confidence is 0..1
 MAX_PER_RUN = 40
