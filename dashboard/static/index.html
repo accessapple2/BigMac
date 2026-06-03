@@ -11777,7 +11777,38 @@ document.addEventListener('keydown', function(e) {
     </div>
   </div>
   <div class="oai-view" id="oai-view-ollie-machine" style="display:none;">
-    <div class="oai-placeholder"><h3>🤖 Ollie Machine</h3><p>2nd-gen automated momentum · top-3 picks · Sim/Live toggle · auto-entry optimization. Ships in Step 7.</p></div>
+    <!-- HM-OLLIE-MACHINE-SIM-MVP 2026-06-02: surfaces the already-running SIM
+         convergence engine (engine/ollie_machine*.py). READ-ONLY / tracking — it
+         never touches a broker (can_trade_live=0, ledger-direct entry). -->
+    <div style="display:flex;align-items:flex-start;justify-content:space-between;gap:12px;flex-wrap:wrap;margin-bottom:12px;">
+      <div>
+        <h3 style="margin:0;font-size:15px;color:#fbbf24;">🤖 Ollie Machine
+          <span style="font-size:9px;font-weight:700;letter-spacing:.5px;padding:2px 7px;border-radius:4px;background:#3a2e0a;color:#fbbf24;border:1px solid #6b5311;vertical-align:middle;margin-left:6px;">SIM · TRACKING-ONLY</span>
+        </h3>
+        <div style="font-size:11px;color:var(--muted);margin-top:3px;">2nd-gen convergence engine — qualifies on <b>≥2 of 4</b> signals. SIM/tracking only; never touches a broker (<code>can_trade_live=0</code>, ledger-direct).</div>
+        <div id="om-sizing" style="font-size:10px;color:var(--muted);margin-top:3px;"></div>
+      </div>
+      <button class="oai-btn" onclick="oaiLoadOllieMachine()" style="font-size:11px;white-space:nowrap;">↻ Refresh</button>
+    </div>
+    <div id="om-error" style="display:none;color:var(--red);font-size:12px;padding:8px 0;"></div>
+    <div style="display:grid;grid-template-columns:1fr;gap:14px;">
+      <div class="card" style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+        <div style="font-size:12px;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+          <span>📋 Today's Picks</span><span id="om-picks-meta" style="font-size:10px;color:var(--muted);font-weight:400;text-transform:none;"></span>
+        </div>
+        <div id="om-picks"><div style="color:var(--muted);font-size:12px;">Loading…</div></div>
+      </div>
+      <div class="card" style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+        <div style="font-size:12px;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;display:flex;justify-content:space-between;align-items:center;">
+          <span>📒 SIM Ledger</span><span id="om-breaker" style="font-size:10px;font-weight:700;text-transform:none;"></span>
+        </div>
+        <div id="om-ledger"><div style="color:var(--muted);font-size:12px;">Loading…</div></div>
+      </div>
+      <div class="card" style="background:var(--panel);border:1px solid var(--border);border-radius:10px;padding:12px 14px;">
+        <div style="font-size:12px;font-weight:700;color:#fbbf24;text-transform:uppercase;letter-spacing:.5px;margin-bottom:8px;">🎖️ Promotion Status (P4)</div>
+        <div id="om-status"><div style="color:var(--muted);font-size:12px;">Loading…</div></div>
+      </div>
+    </div>
   </div>
 
   <!-- Step 3c — confirmation modal + toast container. Both scoped under
@@ -14674,6 +14705,10 @@ body[data-theme="light"] .sidebar-item {
             window.oaiFocusSymbol('AAPL');
           }
         }
+        // HM-OLLIE-MACHINE-SIM-MVP 2026-06-02: load the SIM pane on first/each view.
+        if (view === 'ollie-machine' && typeof window.oaiLoadOllieMachine === 'function') {
+          window.oaiLoadOllieMachine();
+        }
       });
     });
   }
@@ -14685,6 +14720,150 @@ body[data-theme="light"] .sidebar-item {
       });
     });
   }
+
+  /* ───── Ollie Machine SIM MVP (HM-OLLIE-MACHINE-SIM-MVP 2026-06-02) ─────
+     READ-ONLY surface of the running SIM engine. /api/ollie-machine/summary. */
+  window.oaiLoadOllieMachine = function() {
+    var _m = function(v){ return (v==null) ? '—' : '$'+Number(v).toLocaleString(undefined,{minimumFractionDigits:2,maximumFractionDigits:2}); };
+    var _n = function(v,d){ return (v==null) ? '—' : Number(v).toFixed(d==null?2:d); };
+    var errEl = document.getElementById('om-error');
+    fetch('/api/ollie-machine/summary').then(function(r){ return r.json(); }).then(function(d) {
+      if (!d || !d.ok) {
+        if (errEl) { errEl.style.display='block'; errEl.textContent = 'Ollie Machine: ' + ((d && d.error) || 'unavailable'); }
+        return;
+      }
+      if (errEl) errEl.style.display='none';
+      var meta = d.meta || {};
+      var sz = document.getElementById('om-sizing');
+      if (sz) sz.innerHTML = 'Sizing: <b>'+Math.round((meta.position_pct||0.02)*100)+'%</b> notional · <b>'
+        + (meta.max_concurrent||5)+'</b>-concurrent cap · <b>'+Math.round((meta.daily_breaker_pct||-0.02)*100)
+        + '%</b> daily breaker · genesis '+_m(meta.genesis_capital)+' · open <b>'+(meta.open_count||0)+'/'+(meta.max_concurrent||5)+'</b>';
+
+      /* ── Today's Picks ── */
+      var picks = d.picks || [];
+      var pm = document.getElementById('om-picks-meta');
+      if (pm) pm.textContent = picks.length ? (picks.length + ' picks · as of ' + (picks[0].created_at||'')) : '';
+      var ph = '';
+      if (!picks.length) {
+        ph = '<div style="color:var(--muted);font-size:12px;">No picks in the latest run.</div>';
+      } else {
+        ph = '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+          + '<thead><tr style="color:var(--muted);text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;">'
+          + '<th style="padding:4px 6px;">#</th><th style="padding:4px 6px;">Symbol</th>'
+          + '<th style="padding:4px 6px;">Signals (≥2 of 4)</th><th style="padding:4px 6px;text-align:center;">Conv</th>'
+          + '<th style="padding:4px 6px;text-align:right;">Entry</th><th style="padding:4px 6px;text-align:right;">Stop</th>'
+          + '<th style="padding:4px 6px;text-align:right;">TP1</th><th style="padding:4px 6px;text-align:right;">RS</th></tr></thead><tbody>';
+        picks.forEach(function(p) {
+          var chips = (p.signals||[]).map(function(s){
+            return s.fired
+              ? '<span style="display:inline-block;font-size:9px;font-weight:700;padding:1px 6px;margin:1px;border-radius:3px;background:#3a2e0a;color:#fbbf24;border:1px solid #6b5311;">'+s.label+'</span>'
+              : '<span style="display:inline-block;font-size:9px;padding:1px 6px;margin:1px;border-radius:3px;background:transparent;color:#5a6373;border:1px solid var(--border);">'+s.label+'</span>';
+          }).join(' ');
+          ph += '<tr style="border-top:1px solid var(--border);">'
+            + '<td style="padding:5px 6px;color:var(--muted);">'+(p.rank||'')+'</td>'
+            + '<td style="padding:5px 6px;font-weight:700;">'+p.symbol+'</td>'
+            + '<td style="padding:5px 6px;">'+chips+'</td>'
+            + '<td style="padding:5px 6px;text-align:center;font-weight:700;color:#fbbf24;">'+(p.convergence_count||0)+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;">'+_m(p.entry_price)+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;color:var(--red);">'+_m(p.stop)+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;color:var(--green);">'+_m(p.tp1)+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;">'+(p.rs_rank==null?'—':p.rs_rank)+'</td></tr>';
+        });
+        ph += '</tbody></table></div>';
+      }
+      document.getElementById('om-picks').innerHTML = ph;
+
+      /* ── SIM Ledger ── */
+      var L = d.ledger || {open:[],closed:[],breaker:{}};
+      var br = L.breaker || {};
+      var brEl = document.getElementById('om-breaker');
+      if (brEl) {
+        if (br.tripped) brEl.innerHTML = '<span style="color:var(--red);">⛔ BREAKER TRIPPED</span> · today '+_m(br.today_realized)+' ≤ '+_m(br.floor);
+        else brEl.innerHTML = '<span style="color:var(--green);">● breaker clean</span> · today '+_m(br.today_realized)+' (floor '+_m(br.floor)+')';
+      }
+      var lh = '';
+      var open = L.open || [];
+      lh += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:2px 0 4px;">Open ('+open.length+')</div>';
+      if (!open.length) {
+        lh += '<div style="color:var(--muted);font-size:12px;margin-bottom:8px;">No open SIM positions.</div>';
+      } else {
+        lh += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;margin-bottom:10px;">'
+          + '<thead><tr style="color:var(--muted);text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;">'
+          + '<th style="padding:4px 6px;">Symbol</th><th style="padding:4px 6px;text-align:right;">Entry</th>'
+          + '<th style="padding:4px 6px;text-align:right;">Mark</th><th style="padding:4px 6px;text-align:right;">Unrl</th>'
+          + '<th style="padding:4px 6px;text-align:right;">Stop</th><th style="padding:4px 6px;text-align:right;">TP1</th>'
+          + '<th style="padding:4px 6px;text-align:right;">Qty</th><th style="padding:4px 6px;text-align:right;">Notional</th></tr></thead><tbody>';
+        open.forEach(function(o){
+          var uc = (o.unrealized==null) ? 'var(--muted)' : (o.unrealized>=0 ? 'var(--green)':'var(--red)');
+          lh += '<tr style="border-top:1px solid var(--border);">'
+            + '<td style="padding:5px 6px;font-weight:700;">'+o.symbol+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;">'+_m(o.entry)+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;">'+_m(o.mark)+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;color:'+uc+';">'+(o.unrealized==null?'—':_m(o.unrealized))+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;color:var(--red);">'+_m(o.stop)+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;color:var(--green);">'+_m(o.tp1)+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;">'+(o.qty==null?'—':o.qty)+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;">'+_m(o.notional)+'</td></tr>';
+        });
+        lh += '</tbody></table></div>';
+      }
+      var closed = L.closed || [];
+      lh += '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:.5px;margin:2px 0 4px;">Closed ('+closed.length+')</div>';
+      if (!closed.length) {
+        lh += '<div style="color:var(--muted);font-size:12px;">No closed SIM trades yet.</div>';
+      } else {
+        lh += '<div style="overflow-x:auto;"><table style="width:100%;border-collapse:collapse;font-size:12px;">'
+          + '<thead><tr style="color:var(--muted);text-align:left;font-size:10px;text-transform:uppercase;letter-spacing:.5px;">'
+          + '<th style="padding:4px 6px;">Symbol</th><th style="padding:4px 6px;text-align:right;">Entry</th>'
+          + '<th style="padding:4px 6px;text-align:right;">Exit</th><th style="padding:4px 6px;">Reason</th>'
+          + '<th style="padding:4px 6px;text-align:right;">Realized</th><th style="padding:4px 6px;">Closed</th></tr></thead><tbody>';
+        closed.forEach(function(c){
+          var pc = (c.realized_pnl==null)?'var(--muted)':(c.realized_pnl>=0?'var(--green)':'var(--red)');
+          lh += '<tr style="border-top:1px solid var(--border);">'
+            + '<td style="padding:5px 6px;font-weight:700;">'+c.symbol+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;">'+_m(c.entry)+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;">'+_m(c.exit_price)+'</td>'
+            + '<td style="padding:5px 6px;color:var(--muted);">'+(c.exit_reason||'—')+'</td>'
+            + '<td style="padding:5px 6px;text-align:right;font-weight:700;color:'+pc+';">'+(c.realized_pnl==null?'—':_m(c.realized_pnl))+'</td>'
+            + '<td style="padding:5px 6px;color:var(--muted);font-size:11px;">'+(c.closed_at||'')+'</td></tr>';
+        });
+        lh += '</tbody></table></div>';
+      }
+      document.getElementById('om-ledger').innerHTML = lh;
+
+      /* ── Promotion Status (P4) ── */
+      var st = d.status;
+      var sh = '';
+      if (!st) {
+        sh = '<div style="color:var(--muted);font-size:12px;">No P4 evaluation yet.</div>';
+      } else {
+        var tierColors = { 'Observe':'#94a3b8', 'Eligible':'#fbbf24', 'Promote':'var(--green)' };
+        var tc = tierColors[st.tier] || '#94a3b8';
+        sh += '<div style="display:flex;align-items:center;gap:10px;flex-wrap:wrap;margin-bottom:8px;">'
+          + '<span style="font-size:13px;font-weight:700;padding:3px 12px;border-radius:5px;background:'+tc+'22;color:'+tc+';border:1px solid '+tc+';">'+st.tier+'</span>'
+          + '<span style="font-size:11px;color:var(--muted);">'+(st.trade_count||0)+' closed trades · evaluated '+(st.evaluated_at||'')+'</span>'
+          + (st.flag_raised ? '<span style="font-size:10px;font-weight:700;color:#fbbf24;">⚑ FLAG RAISED (Admiral review — never auto-advances)</span>' : '')
+          + '</div>';
+        sh += '<div style="display:flex;gap:6px;flex-wrap:wrap;margin-bottom:8px;">';
+        (st.floors||[]).forEach(function(f){
+          var col = f.met ? 'var(--green)' : '#5a6373';
+          var ic = f.met ? '✓' : '○';
+          sh += '<span style="font-size:10px;padding:2px 8px;border-radius:4px;border:1px solid '+col+';color:'+col+';">'+ic+' '+f.label+'</span>';
+        });
+        sh += '</div>';
+        sh += '<div style="font-size:11px;color:var(--muted);display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:4px;">'
+          + '<span>WR: <b style="color:var(--text);">'+(st.win_rate==null?'—':(Number(st.win_rate*100).toFixed(0)+'%'))+'</b></span>'
+          + '<span>Expectancy: <b style="color:var(--text);">'+(st.expectancy_r==null?'—':('+'+_n(st.expectancy_r)+'R'))+'</b></span>'
+          + '<span>PF: <b style="color:var(--text);">'+(st.profit_factor==null?'—':_n(st.profit_factor))+'</b></span>'
+          + '<span>Max DD: <b style="color:var(--text);">'+(st.max_dd_pct==null?'—':(_n(st.max_dd_pct,1)+'%'))+'</b></span>'
+          + '</div>';
+        sh += '<div style="font-size:10px;color:var(--muted);margin-top:8px;border-top:1px solid var(--border);padding-top:6px;">🔒 Read-only gate — Eligible/Promote raise a flag for the Admiral; they NEVER flip <code>can_trade_live</code> (currently '+(st.can_trade_live_guard==null?'0':st.can_trade_live_guard)+').</div>';
+      }
+      document.getElementById('om-status').innerHTML = sh;
+    }).catch(function(e){
+      if (errEl) { errEl.style.display='block'; errEl.textContent = 'Ollie Machine fetch error: '+e.message; }
+    });
+  };
 
   function loadWorkspace() {
     /* Races — /api/stock-race returns [{symbol, price, change_pct, volume}, ...]

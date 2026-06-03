@@ -2,23 +2,31 @@
 
 Run BY HAND. Builds on P1 (`engine/ollie_machine.py`, which writes `ollie_machine_picks`):
   1. Register the `ollie-machine` player in `ai_players` — rule-based provider,
-     can_trade_live=0, is_paused=1 (dormant), and its own tracking-mode portfolio.
+     can_trade_live=0, and its own tracking-mode portfolio. (NOTE 2026-06-02:
+     once the P3 SIM accrual loop was enabled, the row runs is_paused=0 /
+     halt_mode='active' so the loop can write the ledger — is_paused is NOT a
+     safety guard here; see the corrected guard list below.)
   2. Generate brackets for the picks (NULL in the broad-universe screen) via the
      EXISTING `/api/trade-levels` endpoint (signal-center :9000). Write them back
      onto `ollie_machine_picks`.
   3. SIM-enter the top-3 into a new `ollie_machine_ledger` — sized at 2% notional,
      respecting a 5-concurrent cap + a -2% daily breaker. NO executor call.
 
-SIM-SAFE BY CONSTRUCTION — four independent guards keep this inert on the live box:
-  • can_trade_live=0
-  • portfolio.execution_mode='tracking' (log-only, like dalio-metals)
-  • ollie-machine is NOT in `_EXECUTION_PORTFOLIO_BY_PLAYER` (engine/paper_trader.py)
-    → no broker forward path exists for it
-  • ollie-machine is NOT in any scan/trade roster list (_SCAN_TIER{1,2,3},
-    SNIPER_AGENTS, RULES_SCANNERS, ADVISORY_CREW) AND is_paused=1 → the running
-    trader never scans or trades it. (Auto-discovery audit 2026-06-01: a new
-    ai_players row is inert unless it is a MEMBER of one of those hardcoded
-    Python lists; a brand-new row is invisible to every scan/trade loop.)
+SIM-SAFE BY CONSTRUCTION — the binding guards keep this inert on the live box.
+(Corrected 2026-06-02: is_paused is NOT one of them — SIM accrual requires
+is_paused=0/active, so the real guards are the four below.)
+  • can_trade_live=0 — the player can never route a live order.
+  • ROSTER-ABSENCE — ollie-machine is NOT in any scan/trade roster list
+    (_SCAN_TIER{1,2,3}, SNIPER_AGENTS, RULES_SCANNERS, ADVISORY_CREW). Per the
+    auto-discovery audit 2026-06-01, an ai_players row is inert unless it is a
+    MEMBER of one of those hardcoded Python lists; a row absent from all of them
+    is invisible to every scan/trade loop REGARDLESS of is_paused/halt_mode.
+  • TRACKING-PORTFOLIO — portfolio.execution_mode='tracking' (log-only, like
+    dalio-metals) AND ollie-machine is NOT in `_EXECUTION_PORTFOLIO_BY_PLAYER`
+    (engine/paper_trader.py) → no broker forward path exists for it.
+  • LEDGER-DIRECT / NEVER-buy() — the SIM entry path (`sim_enter`) is a direct
+    INSERT into `ollie_machine_ledger`; it never calls paper_trader.buy() / the
+    executor chokepoint, so the dedup + re-entry guards there are moot here.
 
 NO scheduling, NO exit-monitor, NO restart. The `ollie_machine_ledger` table is
 SIM-private — the running trader has NO reader for it and needs none.

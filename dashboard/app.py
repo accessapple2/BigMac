@@ -20672,6 +20672,182 @@ def gateway_agent_status():
     return {"agents": result}
 
 
+# ── Ollie Machine API (Step-7 SIM MVP — READ-ONLY) ────────────────────────────
+# Surfaces the already-running SIM convergence engine (engine/ollie_machine*.py).
+# SELECT-ONLY: this endpoint never writes any table and never touches a broker.
+# The engine itself is SIM/tracking by construction (can_trade_live=0, absent from
+# every scan/exec roster, tracking-portfolio, ledger-direct entry that never calls
+# paper_trader.buy()). This proxy just reads picks / ledger / p4_status.
+
+_OM_SIG_LABELS = {
+    "pre_breakout": "Squeeze Pre-Breakout",
+    "release_vol":  "Squeeze-Release+Vol",
+    "minervini":    "Minervini 8/8",
+    "rs_rank":      "RS-Rank ≥80",
+}
+_OM_SIG_ORDER = ("pre_breakout", "release_vol", "minervini", "rs_rank")
+
+
+@app.get("/api/ollie-machine/summary")
+def ollie_machine_summary():
+    """Read-only snapshot of the Ollie Machine SIM engine: today's picks, the SIM
+    ledger (open/closed + breaker state), and the P4 promotion status. SELECT-only.
+    """
+    try:
+        from engine.ollie_machine_p2a import (
+            GENESIS_CAPITAL, POSITION_PCT, MAX_CONCURRENT, DAILY_BREAKER_PCT, PLAYER_ID,
+        )
+    except Exception:
+        GENESIS_CAPITAL, POSITION_PCT, MAX_CONCURRENT, DAILY_BREAKER_PCT, PLAYER_ID = (
+            10_000.0, 0.02, 5, -0.02, "ollie-machine",
+        )
+    try:
+        from engine.ollie_machine_p4_gate import (
+            FLOOR_MIN_TRADES, FLOOR_WIN_RATE, FLOOR_EXPECTANCY_R,
+            FLOOR_PROFIT_FACTOR, FLOOR_MAX_DD_PCT,
+        )
+    except Exception:
+        FLOOR_MIN_TRADES, FLOOR_WIN_RATE, FLOOR_EXPECTANCY_R, FLOOR_PROFIT_FACTOR, FLOOR_MAX_DD_PCT = (
+            30, 0.48, 0.30, 1.5, 18.0,
+        )
+
+    out = {"ok": True, "sim_only": True, "picks": [], "ledger": {"open": [], "closed": [], "breaker": {}},
+           "status": None, "meta": {}}
+    try:
+        c = _conn()
+        try:
+            # ── Today's picks (latest run batch) ──────────────────────────────
+            prows = c.execute(
+                "SELECT symbol, conviction_rank, signals_fired, convergence_count, "
+                "       convergence_type, entry_price, stop, tp1, tp2, tp3, rs_rank, created_at "
+                "FROM ollie_machine_picks "
+                "WHERE date(created_at) = (SELECT date(MAX(created_at)) FROM ollie_machine_picks) "
+                "ORDER BY conviction_rank ASC"
+            ).fetchall()
+            for r in prows:
+                fired = [s.strip() for s in (r["signals_fired"] or "").split(",") if s.strip()]
+                out["picks"].append({
+                    "symbol": r["symbol"],
+                    "rank": r["conviction_rank"],
+                    "convergence_count": r["convergence_count"],
+                    "convergence_type": r["convergence_type"],
+                    "signals": [
+                        {"key": k, "label": _OM_SIG_LABELS.get(k, k), "fired": (k in fired)}
+                        for k in _OM_SIG_ORDER
+                    ],
+                    "entry_price": r["entry_price"], "stop": r["stop"],
+                    "tp1": r["tp1"], "tp2": r["tp2"], "tp3": r["tp3"],
+                    "rs_rank": r["rs_rank"], "created_at": r["created_at"],
+                })
+
+            # ── Ledger: open (best-effort live mark + unrealized) ─────────────
+            try:
+                from engine.chekov_autotrade import _get_current_price as _ompx
+            except Exception:
+                _ompx = None
+            orows = c.execute(
+                "SELECT symbol, side, entry_price, qty, notional, stop, tp1, tp2, tp3, "
+                "       risk_amount, rr, convergence_count, pick_rank, opened_at "
+                "FROM ollie_machine_ledger WHERE player_id=? AND status='open' "
+                "ORDER BY opened_at DESC", (PLAYER_ID,),
+            ).fetchall()
+            for r in orows:
+                mark = None
+                if _ompx is not None:
+                    try:
+                        mark = _ompx(r["symbol"])
+                    except Exception:
+                        mark = None
+                unrl = None
+                if mark and r["entry_price"] and r["qty"]:
+                    unrl = round((float(mark) - float(r["entry_price"])) * float(r["qty"]), 2)
+                out["ledger"]["open"].append({
+                    "symbol": r["symbol"], "side": r["side"], "entry": r["entry_price"],
+                    "qty": r["qty"], "notional": r["notional"], "stop": r["stop"],
+                    "tp1": r["tp1"], "tp2": r["tp2"], "tp3": r["tp3"],
+                    "risk_amount": r["risk_amount"], "rr": r["rr"],
+                    "convergence_count": r["convergence_count"], "pick_rank": r["pick_rank"],
+                    "opened_at": r["opened_at"], "mark": mark, "unrealized": unrl,
+                })
+
+            # ── Ledger: closed ────────────────────────────────────────────────
+            crows = c.execute(
+                "SELECT symbol, side, entry_price, qty, exit_price, exit_reason, "
+                "       realized_pnl, opened_at, closed_at "
+                "FROM ollie_machine_ledger WHERE player_id=? AND status='closed' "
+                "ORDER BY closed_at DESC LIMIT 50", (PLAYER_ID,),
+            ).fetchall()
+            for r in crows:
+                out["ledger"]["closed"].append({
+                    "symbol": r["symbol"], "side": r["side"], "entry": r["entry_price"],
+                    "qty": r["qty"], "exit_price": r["exit_price"], "exit_reason": r["exit_reason"],
+                    "realized_pnl": r["realized_pnl"], "opened_at": r["opened_at"],
+                    "closed_at": r["closed_at"],
+                })
+
+            # ── Breaker state (today's SIM realized vs −2% of genesis) ─────────
+            today_realized = c.execute(
+                "SELECT COALESCE(SUM(realized_pnl),0) FROM ollie_machine_ledger "
+                "WHERE player_id=? AND status='closed' AND date(closed_at)=date('now')",
+                (PLAYER_ID,),
+            ).fetchone()[0] or 0.0
+            breaker_floor = round(DAILY_BREAKER_PCT * GENESIS_CAPITAL, 2)  # e.g. −200
+            out["ledger"]["breaker"] = {
+                "today_realized": round(float(today_realized), 2),
+                "floor": breaker_floor,
+                "tripped": float(today_realized) <= breaker_floor,
+                "daily_breaker_pct": DAILY_BREAKER_PCT,
+            }
+
+            # ── P4 promotion status + floors ──────────────────────────────────
+            srow = c.execute(
+                "SELECT tier, prev_tier, trade_count, win_rate, expectancy_r, profit_factor, "
+                "       max_dd_pct, breaker_clean, failed_floors, flag_raised, "
+                "       can_trade_live_guard, snapshot_json, evaluated_at "
+                "FROM ollie_machine_p4_status WHERE id=1"
+            ).fetchone()
+            if srow is not None:
+                floors_state = {}
+                try:
+                    floors_state = (json.loads(srow["snapshot_json"]) or {}).get("floors", {})
+                except Exception:
+                    floors_state = {}
+                out["status"] = {
+                    "tier": srow["tier"], "prev_tier": srow["prev_tier"],
+                    "trade_count": srow["trade_count"], "win_rate": srow["win_rate"],
+                    "expectancy_r": srow["expectancy_r"], "profit_factor": srow["profit_factor"],
+                    "max_dd_pct": srow["max_dd_pct"], "breaker_clean": bool(srow["breaker_clean"]),
+                    "flag_raised": bool(srow["flag_raised"]),
+                    "can_trade_live_guard": srow["can_trade_live_guard"],
+                    "evaluated_at": srow["evaluated_at"],
+                    "floors": [
+                        {"key": "min_trades", "label": f"Trades ≥{FLOOR_MIN_TRADES}", "met": bool(floors_state.get("min_trades"))},
+                        {"key": "win_rate", "label": f"Win rate ≥{int(FLOOR_WIN_RATE*100)}%", "met": bool(floors_state.get("win_rate"))},
+                        {"key": "expectancy_r", "label": f"Expectancy ≥+{FLOOR_EXPECTANCY_R}R", "met": bool(floors_state.get("expectancy_r"))},
+                        {"key": "profit_factor", "label": f"Profit factor ≥{FLOOR_PROFIT_FACTOR}", "met": bool(floors_state.get("profit_factor"))},
+                        {"key": "max_dd", "label": f"Max DD ≤{FLOOR_MAX_DD_PCT}%", "met": bool(floors_state.get("max_dd"))},
+                        {"key": "breaker_clean", "label": "Breaker clean", "met": bool(floors_state.get("breaker_clean"))},
+                    ],
+                }
+
+            out["meta"] = {
+                "genesis_capital": GENESIS_CAPITAL,
+                "position_pct": POSITION_PCT,
+                "max_concurrent": MAX_CONCURRENT,
+                "daily_breaker_pct": DAILY_BREAKER_PCT,
+                "open_count": len(out["ledger"]["open"]),
+                "player_id": PLAYER_ID,
+            }
+        finally:
+            c.close()
+    except Exception as e:
+        return {"ok": False, "sim_only": True,
+                "error": f"{type(e).__name__}: {e!r}",
+                "picks": [], "ledger": {"open": [], "closed": [], "breaker": {}},
+                "status": None, "meta": {}}
+    return out
+
+
 # ── Ghost Trader API ──────────────────────────────────────────────────────────
 
 @app.get("/api/ghost/scorecard")
