@@ -23,6 +23,7 @@ Additive only: new table signal_bridge_emitted (dedupe); no source-row mutation.
 """
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 import sys
@@ -33,6 +34,8 @@ import requests
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 if _ROOT not in sys.path:
     sys.path.insert(0, _ROOT)
+
+logger = logging.getLogger(__name__)
 
 TRADER_DB = os.path.join(_ROOT, "data", "trader.db")
 FLOW_GEX_DB = os.path.join(_ROOT, "data", "flow_gex.db")
@@ -77,6 +80,18 @@ def _mark_emitted(conn: sqlite3.Connection, symbol: str, setup: str, day: str, s
     conn.execute("INSERT OR REPLACE INTO signal_bridge_emitted "
                  "(symbol,setup_tag,scan_date,source,emitted_at,http_status) VALUES (?,?,?,?,?,?)",
                  (symbol, setup, day, source, datetime.now(timezone.utc).isoformat(), http))
+
+
+def _load_blocked(conn: sqlite3.Connection) -> set:
+    """Tickers currently blocked from emission (regime_blocked_tickers, trader.db).
+    NULL expires_date = manual-remove-only. Silent: missing table / any error -> empty set."""
+    try:
+        cur = conn.execute(
+            "SELECT ticker FROM regime_blocked_tickers "
+            "WHERE expires_date IS NULL OR expires_date >= date('now')")
+        return {row[0] for row in cur.fetchall()}
+    except Exception:
+        return set()
 
 
 # ── W4 regime sidecar (observation-only) ────────────────────────────────────
@@ -214,11 +229,15 @@ def run_signal_bridge() -> dict:
     conn.row_factory = sqlite3.Row
     try:
         _ensure_dedupe_table(conn)
+        blocked = _load_blocked(conn)   # regime_blocked_tickers — loaded once per run
         rows = conn.execute(
             "SELECT symbol, strategy_name, confidence, entry_price, stop_price, target_price, scan_date "
             "FROM deep_scan_results WHERE scan_date >= date('now','-1 day') AND confidence >= ? "
             "ORDER BY confidence DESC", (MIN_CONF,)).fetchall()
         for r in rows:
+            if r["symbol"] in blocked:
+                logger.info(f"[REGIME] BLOCKED {r['symbol']} — in regime_blocked_tickers")
+                continue
             setup = SETUP_MAP.get(r["strategy_name"])
             if not setup:
                 continue   # not a W0-proven edge
@@ -258,12 +277,16 @@ def run_flow_bridge() -> dict:
     tconn = sqlite3.connect(TRADER_DB, timeout=20)
     try:
         _ensure_dedupe_table(tconn)
+        blocked = _load_blocked(tconn)   # regime_blocked_tickers — loaded once per run
         import json as _json
         rows = fconn.execute("SELECT underlying, lean, unusual_json FROM flow_aggregates "
                              "ORDER BY id DESC LIMIT 4").fetchall()
         seen = set()
         for fr in rows:
             u = fr["underlying"]
+            if u in blocked:
+                logger.info(f"[REGIME] BLOCKED {u} — in regime_blocked_tickers")
+                continue
             if u in seen:
                 continue
             seen.add(u)
