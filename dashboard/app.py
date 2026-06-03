@@ -11948,6 +11948,31 @@ def _get_holodeck():
     return holodeck
 
 
+def _holodeck_subprocess(*args: str, timeout: int = 120) -> dict:
+    """HM-HOLODECK-VENV-2 2026-06-02: run engine.holodeck OUT OF PROCESS under
+    .venv-backtest. vectorbt is quarantined there (NOT in the live .venv) — importing
+    engine.holodeck in-process 500s every sweep/walk-forward/regime/portfolio call.
+    Returns parsed JSON or {"error": ...}. Args passed as argv (no shell=True)."""
+    import subprocess as _sp
+    import os as _os
+    repo = _os.path.dirname(_os.path.dirname(_os.path.abspath(__file__)))
+    py = _os.path.join(repo, ".venv-backtest", "bin", "python")
+    if not _os.path.exists(py):
+        return {"error": "backtest engine offline (.venv-backtest interpreter missing)"}
+    try:
+        proc = _sp.run([py, "-m", "engine.holodeck", *args],
+                       cwd=repo, capture_output=True, text=True, timeout=timeout)
+    except _sp.TimeoutExpired:
+        return {"error": f"backtest timed out ({timeout}s)"}
+    if proc.returncode != 0:
+        _err = (proc.stderr or "").strip().splitlines()
+        return {"error": f"backtest engine failed: {_err[-1] if _err else 'unknown error'}"}
+    try:
+        return json.loads(proc.stdout)
+    except Exception as e:
+        return {"error": f"backtest output parse error: {type(e).__name__}: {e}"}
+
+
 def _save_backtests(rows: list):
     """Save backtest results to strategy_backtests table. rows is list of dicts."""
     if not rows:
@@ -11976,7 +12001,7 @@ async def holodeck_rsi_sweep(symbol: str, days: int = 180):
     """Sweep RSI parameters — returns best combos, saves all to DB"""
     try:
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_holodeck_pool, lambda: _get_holodeck().run_rsi_sweep(symbol, days=days))
+        result = await loop.run_in_executor(_holodeck_pool, lambda: _holodeck_subprocess("--mode", "rsi_sweep", "--symbol", symbol, "--days", str(days)))
         # Save every combo to strategy_backtests
         if result.get("all_results"):
             _save_backtests([{
@@ -11996,7 +12021,7 @@ async def holodeck_rsi_sweep(symbol: str, days: int = 180):
 async def holodeck_bollinger_sweep(symbol: str, days: int = 180):
     try:
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_holodeck_pool, lambda: _get_holodeck().run_bollinger_sweep(symbol, days=days))
+        result = await loop.run_in_executor(_holodeck_pool, lambda: _holodeck_subprocess("--mode", "bollinger_sweep", "--symbol", symbol, "--days", str(days)))
         if result.get("all_results"):
             _save_backtests([{
                 "source": "holodeck_sweep", "ticker": symbol, "strategy_type": "BBANDS", "days": days,
@@ -12014,7 +12039,7 @@ async def holodeck_bollinger_sweep(symbol: str, days: int = 180):
 async def holodeck_macd_sweep(symbol: str, days: int = 180):
     try:
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_holodeck_pool, lambda: _get_holodeck().run_macd_sweep(symbol, days=days))
+        result = await loop.run_in_executor(_holodeck_pool, lambda: _holodeck_subprocess("--mode", "macd_sweep", "--symbol", symbol, "--days", str(days)))
         if result.get("all_results"):
             _save_backtests([{
                 "source": "holodeck_sweep", "ticker": symbol, "strategy_type": "MACD", "days": days,
@@ -12034,7 +12059,7 @@ async def holodeck_strategy(symbol: str, strategy: str = "rsi", days: int = 180,
     try:
         p = json.loads(params)
         loop = asyncio.get_event_loop()
-        result = await loop.run_in_executor(_holodeck_pool, lambda: _get_holodeck().run_custom_strategy(symbol, days=days, strategy_type=strategy, params=p))
+        result = await loop.run_in_executor(_holodeck_pool, lambda: _holodeck_subprocess("--mode", "custom", "--symbol", symbol, "--days", str(days), "--strategy", strategy, "--params", json.dumps(p)))
         return result
     except Exception as e:
         return {"error": str(e)}
@@ -13508,23 +13533,20 @@ def strategy_lab_auto_optimize():
 @app.post("/api/holodeck/walk-forward")
 def run_walk_forward(symbol: str = "SPY", period: str = "5y", n_windows: int = 5):
     """Walk-forward optimization — in-sample optimize, out-of-sample validate."""
-    import asyncio
-    from engine.holodeck_expansion import walk_forward_backtest
-    return walk_forward_backtest(symbol, period, n_windows=n_windows)
+    return _holodeck_subprocess("--mode", "walk_forward", "--symbol", symbol,
+                                "--period", period, "--n_windows", str(n_windows))
 
 
 @app.post("/api/holodeck/regime-test")
 def run_regime_test(symbol: str = "SPY", period: str = "5y"):
     """Regime-aware backtest — partition results by BEAR/BULL/SIDEWAYS."""
-    from engine.holodeck_expansion import regime_aware_backtest
-    return regime_aware_backtest(symbol, period)
+    return _holodeck_subprocess("--mode", "regime_test", "--symbol", symbol, "--period", period)
 
 
 @app.post("/api/holodeck/portfolio-sim")
 def run_portfolio_sim(season: int = 5):
     """Portfolio-level simulation — concentration risk and correlation."""
-    from engine.holodeck_expansion import portfolio_simulation
-    return portfolio_simulation(season)
+    return _holodeck_subprocess("--mode", "portfolio_sim", "--season", str(season))
 
 
 @app.post("/api/crew/generate-strategy")
@@ -22089,6 +22111,17 @@ def _test_kitchen_page():
             f"<h3>Test Kitchen unavailable</h3><p>{type(e).__name__}: {e}</p>"
             "<p>SwingDesk options_tab.html not found.</p>", status_code=503)
     html = html.replace("const API = '';", "const API = '/test-kitchen';")
+    # HM-O-TASTY-PHASE-2.1: Test Kitchen embeds the O-Tasty OPTIONS desk ONLY (per the tab's
+    # identity/banner). SwingDesk's nav links are relative — href="index.html" (SWING) and
+    # "options_tab.html" (OPTIONS) — which, through the proxy at /test-kitchen/, resolve to
+    # :8889/<file> and 404 (the files live under :8889/static/), so SwingDesk's 404 JSON
+    # renders as a raw-JSON page. Drop the SWING link; point OPTIONS at the working proxy
+    # root. SwingDesk's own options_tab.html is untouched (standalone preserved) — embed-only.
+    # (To enable SWING later: proxy index.html with its hardcoded API base rewritten the same
+    # way, then restore the link to a proxied path.)
+    html = html.replace('<a href="index.html">SWING</a>', '')
+    html = html.replace('<a href="options_tab.html" class="act">OPTIONS</a>',
+                        '<a href="/test-kitchen/" class="act">OPTIONS</a>')
     return HTMLResponse(html)
 
 

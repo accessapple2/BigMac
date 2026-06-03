@@ -656,6 +656,20 @@ body[data-active-section="ollie-ai"] #section-webull {
   display: none !important;
 }
 
+/* HM-O-TASTY-PHASE-2.1 2026-06-02 (catch-all): section-isolation backstop for the Test
+   Kitchen tab. #section-test-kitchen is an iframe StructureFix appends to the END of .main,
+   and MANY direct .main children escape showSection()'s display-clearing and render above it
+   (conditional banners shown by their own JS: #ctoBanner / #missed-picks-banner /
+   #earningsBanner / #vixAlertBanner / #spock-alerts-container / #bridge-tip-card, plus
+   section-webull panels that escape their own display:none). Enumerating them is whack-a-mole,
+   so: when test-kitchen is active, hide EVERY direct .main child except the tab itself — it
+   then renders only the SANDBOX banner + desk. Verified safe: nav / sidebar / ticker-tape live
+   OUTSIDE .main; every direct .main child is a section or a conditional banner/overlay, none
+   essential always-visible chrome. Scoped to test-kitchen via body[data-active-section]. */
+body[data-active-section="test-kitchen"] .main > *:not(#section-test-kitchen) {
+  display: none !important;
+}
+
 /* Component-scoped CSS variables that default to #000 in dark mode.
    .race-section (Race tile, Phase 2) and .premarket-tile (Phase 6) declare
    their own --race-bg / --pm-bg as #000 — flip those to white in light. */
@@ -34160,6 +34174,10 @@ var AlertSystem={
             f.scrollIntoView({behavior:'smooth',block:'center'});
             f.focus();
             f.select();
+            // HM-HOLODECK-VENV-2 2026-06-02: auto-run the backtest so the section shows
+            // results — or a surfaced engine error (engageHolodeck renders d.error in the
+            // status line, incl. ".venv-backtest interpreter missing") — instead of going blank.
+            try{ if(typeof engageHolodeck==='function') engageHolodeck(); }catch(e){}
           }
         }catch(e){}
       },50);
