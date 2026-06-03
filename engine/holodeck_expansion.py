@@ -151,6 +151,7 @@ def regime_aware_backtest(symbol="SPY", period="5y", rsi_window=14,
     """Backtest partitioned by BEAR/BULL/SIDEWAYS regime (VIX-based)."""
     import vectorbt as vbt
     import yfinance as yf
+    from engine.yf_download_safe import yf_download_safe  # HM-HOLODECK-VENV-2 2026-06-02: was missing (NameError) — walk_forward_backtest imports it, this didn't
 
     spy = yf_download_safe(symbol, period=period, interval="1d", progress=False)
     vix = yf_download_safe("^VIX", period=period, interval="1d", progress=False)

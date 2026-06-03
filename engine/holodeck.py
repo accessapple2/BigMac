@@ -230,17 +230,43 @@ holodeck = Holodeck()
 if __name__ == "__main__":
     import argparse
     import sys
-    _p = argparse.ArgumentParser(description="Run one holodeck strategy; emit JSON to stdout.")
-    _p.add_argument("--symbol", required=True)
+    # HM-HOLODECK-VENV-2 2026-06-02: --mode dispatch so EVERY vectorbt-backed Holodeck
+    # endpoint (sweeps + walk-forward/regime/portfolio, incl. holodeck_expansion) can run
+    # OUT OF PROCESS under .venv-backtest, not just the community 'custom' path. Keeps
+    # vectorbt quarantined out of the live .venv (it 500s in-process).
+    _p = argparse.ArgumentParser(description="Run one holodeck backtest/sweep; emit JSON to stdout.")
+    _p.add_argument("--mode", default="custom",
+                    help="custom|rsi_sweep|bollinger_sweep|macd_sweep|walk_forward|regime_test|portfolio_sim")
+    _p.add_argument("--symbol", default="SPY")
     _p.add_argument("--days", type=int, default=180)
+    _p.add_argument("--period", default="5y")
+    _p.add_argument("--season", type=int, default=5)
+    _p.add_argument("--n_windows", type=int, default=5)
     _p.add_argument("--strategy", default="sma_cross")
     _p.add_argument("--params", default="{}", help="JSON dict of strategy params")
     _a = _p.parse_args()
     try:
         _params = json.loads(_a.params) if _a.params else {}
-        _out = holodeck.run_custom_strategy(
-            _a.symbol, days=_a.days, strategy_type=_a.strategy, params=_params
-        )
+        _m = _a.mode
+        if _m == "rsi_sweep":
+            _out = holodeck.run_rsi_sweep(_a.symbol, days=_a.days)
+        elif _m == "bollinger_sweep":
+            _out = holodeck.run_bollinger_sweep(_a.symbol, days=_a.days)
+        elif _m == "macd_sweep":
+            _out = holodeck.run_macd_sweep(_a.symbol, days=_a.days)
+        elif _m == "walk_forward":
+            from engine.holodeck_expansion import walk_forward_backtest
+            _out = walk_forward_backtest(_a.symbol, _a.period, n_windows=_a.n_windows)
+        elif _m == "regime_test":
+            from engine.holodeck_expansion import regime_aware_backtest
+            _out = regime_aware_backtest(_a.symbol, _a.period)
+        elif _m == "portfolio_sim":
+            from engine.holodeck_expansion import portfolio_simulation
+            _out = portfolio_simulation(season=_a.season)
+        else:  # custom (default; community backtest path)
+            _out = holodeck.run_custom_strategy(
+                _a.symbol, days=_a.days, strategy_type=_a.strategy, params=_params
+            )
     except Exception as _e:  # emit structured error so the parent can surface it
         _out = {"error": f"{type(_e).__name__}: {_e}"}
     sys.stdout.write(json.dumps(_out, default=str))
