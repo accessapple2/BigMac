@@ -23,7 +23,7 @@ Known cross-table caveats (banked, not blocking):
 from __future__ import annotations
 
 import sqlite3
-from datetime import datetime
+from datetime import datetime, timedelta
 from pathlib import Path
 
 from rich.console import Console
@@ -31,6 +31,10 @@ from rich.console import Console
 console = Console()
 
 _DB_PATH = Path(__file__).resolve().parent.parent / "data" / "trader.db"
+
+# HM-EVENTS-BUS-REENTRY-GUARD 2026-06-02: per-(source,symbol) re-entry cooldown (minutes).
+# Backstop to the open-position rail — blocks a rapid re-buy of a name just closed.
+REENTRY_COOLDOWN_MIN = 60
 
 
 def _conn() -> sqlite3.Connection:
@@ -58,7 +62,7 @@ def consume_pending_signals(max_batch: int = 10) -> dict:
     Returns a small stats dict the scheduler can log; on any unhandled error
     returns {"error": "..."} without raising.
     """
-    stats = {"scanned": 0, "stale": 0, "skipped_dedup": 0,
+    stats = {"scanned": 0, "stale": 0, "skipped_dedup": 0, "skipped_reentry": 0,
              "skipped_no_price": 0, "executed": 0, "failed": 0}
     try:
         conn = _conn()
@@ -99,6 +103,22 @@ def consume_pending_signals(max_batch: int = 10) -> dict:
             cur_status = _refetch_status(sig_id)
             if cur_status != "pending":
                 stats["skipped_dedup"] += 1
+                continue
+
+            # (b2) HM-EVENTS-BUS-REENTRY-GUARD 2026-06-02: per-(source,symbol) re-entry
+            # guard. A source (e.g. Spock/deepseek-7b-grok4) re-emits the same setup every
+            # scan cycle; without this each emission stacked a fresh buy (the INTC 8x
+            # cluster). Skip if (source,symbol) already holds an open position OR bought the
+            # name within REENTRY_COOLDOWN_MIN — AND expire the skipped signal (soft-void:
+            # status='expired' + stale_after=now) so the never-stale pile can't rebuild.
+            block = _reentry_blocked(source, symbol, now)
+            if block:
+                _expire_signal(sig_id)
+                stats["skipped_reentry"] += 1
+                console.log(
+                    f"[dim][EVENTS-BUS-CONSUMER] sig={sig_id} {source} {symbol} "
+                    f"skipped+expired — re-entry guard ({block})"
+                )
                 continue
 
             # (c) Resolve a price. buy() requires a positional price; if the
@@ -162,6 +182,63 @@ def _refetch_status(signal_id: int) -> str | None:
         return row["status"] if row else None
     except Exception:
         return None
+
+
+def _reentry_blocked(source: str, symbol: str, now: datetime) -> str | None:
+    """HM-EVENTS-BUS-REENTRY-GUARD 2026-06-02: return a reason string if a BUY for
+    (source, symbol) should be SKIPPED, else None to allow. Blocks when the source already
+    holds an open position in the name (rail 1) OR bought it within REENTRY_COOLDOWN_MIN
+    (rail 2). Prevents the stack-the-same-name pattern (Spock INTC 8x cluster) where a
+    source re-emits the identical setup every scan cycle. Fail-OPEN on error (a transient
+    DB hiccup must not block legit first-entries) — never raises."""
+    try:
+        conn = _conn()
+        try:
+            pos = conn.execute(
+                "SELECT COALESCE(SUM(qty), 0) AS q FROM positions WHERE player_id=? AND symbol=?",
+                (source, symbol),
+            ).fetchone()
+            if pos and abs(float(pos["q"] or 0.0)) > 1e-9:
+                return "open_position"
+            cutoff = (now - timedelta(minutes=REENTRY_COOLDOWN_MIN)).strftime("%Y-%m-%d %H:%M:%S")
+            recent = conn.execute(
+                "SELECT 1 FROM trades WHERE player_id=? AND symbol=? "
+                "AND action IN ('buy','BUY') AND executed_at >= ? LIMIT 1",
+                (source, symbol, cutoff),
+            ).fetchone()
+            return "cooldown" if recent else None
+        finally:
+            conn.close()
+    except Exception as e:
+        console.log(
+            f"[yellow][EVENTS-BUS-CONSUMER] reentry-guard check {source} {symbol}: "
+            f"{type(e).__name__}: {e!r}"
+        )
+        return None
+
+
+def _expire_signal(signal_id: int) -> bool:
+    """Soft-void a skipped signal so it leaves the executable pool AND can't re-accumulate
+    as a never-stale row: status='expired' + stale_after=now (already-past next tick).
+    Archive-not-delete — the row stays for audit and is reversible."""
+    try:
+        conn = _conn()
+        try:
+            past = datetime.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+            conn.execute(
+                "UPDATE signals_v2 SET status='expired', stale_after=? WHERE id=?",
+                (past, int(signal_id)),
+            )
+            conn.commit()
+            return True
+        finally:
+            conn.close()
+    except Exception as e:
+        console.log(
+            f"[yellow][EVENTS-BUS-CONSUMER] _expire_signal sig={signal_id}: "
+            f"{type(e).__name__}: {e!r}"
+        )
+        return False
 
 
 def _mark(signal_id: int, new_status: str) -> bool:
