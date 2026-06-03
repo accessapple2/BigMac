@@ -29506,7 +29506,13 @@ function renderGhostScorecard() {
 
   for (const s of _ghostScoreData) {
     const wrColor = s.win_rate >= 50 ? 'var(--green)' : s.win_rate >= 35 ? 'var(--accent3)' : 'var(--red)';
-    const pfColor = s.profit_factor >= 1.5 ? 'var(--green)' : s.profit_factor >= 1.0 ? 'var(--accent3)' : 'var(--red)';
+    // Profit factor with zero losing trades is undefined/infinite, not 0 — the
+    // backend returns 0 in that case (app.py:9321 "... if losers else 0").
+    // Display fix only (no math change): render ∞ for a clean win record.
+    const _pfNoLoss = (s.losses === 0 && s.wins > 0);
+    const pfColor = _pfNoLoss ? 'var(--green)'
+      : (s.profit_factor >= 1.5 ? 'var(--green)' : s.profit_factor >= 1.0 ? 'var(--accent3)' : 'var(--red)');
+    const _pfDisp = _pfNoLoss ? '∞' : (s.profit_factor.toFixed(2) + 'x');
     const pnlColor = c => c >= 0 ? 'var(--green)' : 'var(--red)';
     html += '<tr style="border-bottom:1px solid var(--border);">'
       + '<td style="padding:10px 6px;font-weight:600;">' + s.agent + '</td>'
@@ -29520,7 +29526,7 @@ function renderGhostScorecard() {
       + '<td style="padding:10px 6px;text-align:right;font-weight:700;color:' + wrColor + ';">' + s.win_rate.toFixed(1) + '%</td>'
       + '<td style="padding:10px 6px;text-align:right;color:var(--green);">' + (s.avg_win >= 0 ? '+' : '') + s.avg_win.toFixed(2) + '%</td>'
       + '<td style="padding:10px 6px;text-align:right;color:var(--red);">' + s.avg_loss.toFixed(2) + '%</td>'
-      + '<td style="padding:10px 6px;text-align:right;font-weight:600;color:' + pfColor + ';">' + s.profit_factor.toFixed(2) + 'x</td>'
+      + '<td style="padding:10px 6px;text-align:right;font-weight:600;color:' + pfColor + ';">' + _pfDisp + '</td>'
       + '<td style="padding:10px 6px;text-align:right;color:var(--muted);">' + s.avg_conf.toFixed(0) + '%</td>'
       + '</tr>';
   }
