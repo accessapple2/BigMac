@@ -20,7 +20,11 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
-DB_PATH = "data/trader.db"
+# HM-SCHWAB-CADENCE-DBPATH 2026-06-02: absolute path. Was relative "data/trader.db",
+# which under cron's cwd ($HOME, no `cd` in the cron line) opened ~/data/trader.db
+# (table-less) → every run errored "no such table: schwab_holdings" → the 48h staleness
+# alarm silently no-op'd. Derive from __file__ so cwd can't break it.
+DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
 CADENCE_HOURS_WARN = 48
 
 
