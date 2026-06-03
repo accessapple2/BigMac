@@ -3470,7 +3470,7 @@ def _write_decision_audit(
 def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
                 reasoning: str, asset_type: str = "stock", option_type: str = None,
                 sources: str = "", timeframe: str = "SWING",
-                prompt_version: str | None = None) -> int:
+                prompt_version: str | None = None, force: bool = False) -> int:
     """Save signal and return its rowid for status tracking. Returns -1 on error.
 
     HM-PROMPT-VERSIONING (POC Day 2b) 2026-05-22: prompt_version is optional;
@@ -3493,6 +3493,39 @@ def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
             conn.close()
             console.log(f"[yellow][HALT-GATE] Suppressed signal from {player_id} (not active)")
             return -1
+        # === SOURCE DEDUP === HM-SOURCE-DEDUP 2026-06-02: chokepoint guard.
+        # Suppress re-emitting the same (player_id, symbol, signal) while a prior
+        # emission is still within its staleness budget — collapses the per-cycle
+        # flood (e.g. Spock re-pushing INTC BUY every 120s) at the single point all
+        # emitters funnel through. Window auto-tunes per timeframe via _STALE_BUDGET_S
+        # (intraday=900s → 15min) and falls back to SOURCE_DEDUP_WINDOW_MIN for
+        # timeframes with no budget. A direction flip (different `signal`) is a
+        # distinct key → flows through. force=True bypasses (manual/forced signals).
+        if not force:
+            try:
+                from config import SOURCE_DEDUP_ENABLED, SOURCE_DEDUP_WINDOW_MIN
+            except Exception:
+                SOURCE_DEDUP_ENABLED, SOURCE_DEDUP_WINDOW_MIN = True, 60
+            if SOURCE_DEDUP_ENABLED:
+                from engine.events_bus import _STALE_BUDGET_S
+                _budget_s = _STALE_BUDGET_S.get((timeframe or "").lower())
+                if _budget_s is None:
+                    _budget_s = int(SOURCE_DEDUP_WINDOW_MIN) * 60
+                _dup = conn.execute(
+                    "SELECT id FROM signals "
+                    "WHERE player_id=? AND symbol=? AND signal=? "
+                    "  AND created_at >= datetime('now', ?) "
+                    "ORDER BY created_at DESC LIMIT 1",
+                    (player_id, symbol, signal, f"-{int(_budget_s)} seconds"),
+                ).fetchone()
+                if _dup is not None:
+                    conn.close()
+                    console.log(
+                        f"[dim][SOURCE-DEDUP] suppressed {player_id} {signal} "
+                        f"{symbol} — prior signal id={_dup[0]} still fresh "
+                        f"(<{_budget_s}s, tf={timeframe})"
+                    )
+                    return -1
         cur = conn.execute(
             "INSERT INTO signals (player_id, symbol, signal, confidence, reasoning, "
             "asset_type, option_type, season, sources, timeframe, execution_status, "

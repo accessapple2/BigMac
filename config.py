@@ -23,6 +23,24 @@ SPREAD_CANNIBALIZATION_GUARD_ENABLED = False
 # Reversal: flip + restart.
 TRADE_DESK_BYPASS_GATES = True
 
+# HM-SOURCE-DEDUP 2026-06-02: source-side signal dedup at the save_signal
+# chokepoint (engine/paper_trader.py::save_signal). Suppresses re-emitting the
+# same (player_id, symbol, signal/direction) while a prior emission is still
+# within its staleness budget (events_bus._STALE_BUDGET_S for that timeframe),
+# collapsing the per-cycle flood (e.g. Spock re-pushing INTC BUY every 120s scan
+# cycle). Because it sits at the single chokepoint, it covers ALL emitters
+# (Spock/Neo/Navigator/crew_scanner). The window AUTO-TUNES per timeframe and
+# interlocks with Fix 1: intraday(900s)=15min suppression → ~1 emit per 15min per
+# (player,symbol,direction); the 60-min re-entry guard handles actual entry.
+# A genuine direction flip (BUY→SELL is a different `signal` value) is a distinct
+# key → never suppressed. DB-backed (queries the persistent `signals` table) so it
+# survives restarts. Pass force=True at the call site to bypass for manual/forced
+# signals. SOURCE_DEDUP_WINDOW_MIN is the FALLBACK window (minutes) used only when
+# a timeframe has NO staleness budget (e.g. unknown timeframe); 60 is symmetric
+# with events_bus_consumer.REENTRY_COOLDOWN_MIN. Reversal: set False + restart.
+SOURCE_DEDUP_ENABLED = True
+SOURCE_DEDUP_WINDOW_MIN = 60
+
 # Tickers confirmed delisted/halted — excluded from all scan universes
 DELISTED_BLACKLIST: set[str] = {
     "XCEM", "EAOA", "YFYA", "BULZ", "TDWDR", "TWLVR", "UCFIW", "VSTA",

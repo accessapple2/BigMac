@@ -570,3 +570,41 @@ CLAUDE.md "Alarms must not share a failure mode with what they watch."
 - 2026-05-31T06:00:06 | daily_backup | backup=trader_2026-05-31.db | 471040KB
 - 2026-06-01T06:00:07 | daily_backup | backup=trader_2026-06-01.db | 471040KB
 - 2026-06-02T06:00:06 | daily_backup | backup=trader_2026-06-02.db | 496652KB
+
+## 2026-06-02 — CALIBRATION FLAG: _STALE_BUDGET_S sub-poll budgets (0dte/swing)
+
+**Not a bug to fix tonight — logged so it isn't lost.** Surfaced while adding
+`intraday` to `engine/events_bus._STALE_BUDGET_S` (HM-INTRADAY-STALE-BUDGET).
+
+**Observation.** The map is in SECONDS (`timedelta(seconds=budget)`,
+events_bus.py:51). Two budgets are BELOW the signals_v2 bus consumer's poll
+interval:
+- `0dte: 2` (2s) and `swing: 30` (30s) — vs `run_events_bus_consumer` polling
+  every **60s** (`main.py:4304`, `schedule.every(1).minutes`).
+
+So any `signals_v2` row stamped 0dte/swing is past its `stale_after` before the
+consumer's first pass and gets marked `status='stale'` (events_bus_consumer.py:92-100)
+**without ever dispatching on the bus path.** (intraday=900s and position=300s
+clear the 60s poll fine.)
+
+**Does this lose trades? No.** Verified the primary execution path is NOT the bus:
+- `engine/ai_brain.py` executes directly via `buy()` (ai_brain.py:1409) and
+  `execute_signal()` (1620).
+- `engine/crew_scanner.py` calls `buy()` directly (crew_scanner.py:2875) in the
+  same cycle it emits the signal.
+- `engine/dayblade.py` (T'Pol, 0dte) emits via `save_signal` (1095) with the
+  DEFAULT `timeframe="SWING"` (no explicit tf) and manages its own options path.
+
+`save_signal` → signals_v2 is a RECORDING + secondary-dispatch side-channel
+(HM-EVENTS-BUS-CONSUMER 2026-05-26). So 0dte/swing dispatch via the faster DIRECT
+path; they are effectively **dead on the bus consumer path specifically** — their
+signals_v2 rows silently expire as `stale`. No missed trades today, but the bus
+consumer is a no-op for those two timeframes, and any future migration that relies
+on the bus for 0dte/swing execution would silently drop them.
+
+**Calibration question for the Admiral (separate from tonight's two fixes):**
+either (a) raise 0dte/swing budgets above the 60s poll (e.g. 0dte→120s, swing→300s)
+if the bus is meant to dispatch them, (b) drop the consumer poll below the budgets,
+or (c) accept the bus as intraday/position-only and document 0dte/swing as
+direct-path-only. No change made — flagging only. Cross-ref CLAUDE.md
+"Role-conversions leave stale parallel paths."
