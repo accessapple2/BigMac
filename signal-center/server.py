@@ -2913,6 +2913,16 @@ def receive_signal():
         w2_bracket_tier        = payload.get("w2_bracket_tier")
         w2_sizing_note         = payload.get("w2_sizing_note")
 
+        # ── SUPER_MAX W3 — gamma mapper fields (observation-only; None for non-W3 senders) ──
+        w3_derived_stop    = payload.get("w3_derived_stop")
+        w3_derived_target  = payload.get("w3_derived_target")
+        w3_level_source    = payload.get("w3_level_source")
+        w3_level_note      = payload.get("w3_level_note")
+        w3_strategy_tag    = payload.get("w3_strategy_tag")
+        w3_gex_regime      = payload.get("w3_gex_regime")
+        w3_gamma_flip      = payload.get("w3_gamma_flip")
+        w3_nearest_wall    = payload.get("w3_nearest_wall")
+
         db = get_db()
         cur = db.execute("""
             INSERT INTO trade_signals
@@ -2920,8 +2930,10 @@ def receive_signal():
              confidence, agent_name, model_used, reasoning,
              context_json, sources_json, timeframe, status, created_at,
              w2_account_risk_pct, w2_risk_dollars, w2_stop_distance_pct,
-             w2_shares_or_contracts, w2_bracket_tier, w2_sizing_note)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'NEW',?,?,?,?,?,?,?)
+             w2_shares_or_contracts, w2_bracket_tier, w2_sizing_note,
+             w3_derived_stop, w3_derived_target, w3_level_source, w3_level_note,
+             w3_strategy_tag, w3_gex_regime, w3_gamma_flip, w3_nearest_wall)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'NEW',?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
         """, (
             sig_type, symbol, action, entry_price, stop_loss, take_profit,
             confidence, agent, model, reasoning,
@@ -2931,6 +2943,8 @@ def receive_signal():
             datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),  # HM-TZ Stage 3: trade_signals.created_at space-UTC
             w2_account_risk_pct, w2_risk_dollars, w2_stop_distance_pct,
             w2_shares_or_contracts, w2_bracket_tier, w2_sizing_note,
+            w3_derived_stop, w3_derived_target, w3_level_source, w3_level_note,
+            w3_strategy_tag, w3_gex_regime, w3_gamma_flip, w3_nearest_wall,
         ))
         signal_id = cur.lastrowid
         db.commit()

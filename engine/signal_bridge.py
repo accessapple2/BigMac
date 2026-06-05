@@ -192,7 +192,8 @@ def _stamp_regime(signal_id: int) -> None:
         pass
 
 
-def _post_signal(symbol: str, setup: str, conf01: float, entry, stop, target, reasoning: str) -> int:
+def _post_signal(symbol: str, setup: str, conf01: float, entry, stop, target, reasoning: str,
+                 w3: dict | None = None) -> int:
     """POST a SHADOW signal to signal-center. Returns HTTP status (0 on error).
     agent='shadow-bridge:<setup>' => excluded from execution by construction."""
     _entry  = float(entry or 0)
@@ -201,6 +202,8 @@ def _post_signal(symbol: str, setup: str, conf01: float, entry, stop, target, re
     # ── SUPER_MAX W2 — bracket sizing (observation-only, never executes) ──────
     from engine.w2_bracket_sizer import calculate_bracket as _w2_calc
     _w2 = _w2_calc(entry_price=_entry, stop_price=_stop, take_profit_price=_target)
+    # ── SUPER_MAX W3 — strategy tag + derived levels (observation-only) ───────
+    _w3 = w3 or {}
     # ─────────────────────────────────────────────────────────────────────────
     payload = {
         "symbol": symbol, "action": "BUY", "type": "SWING",
@@ -219,6 +222,15 @@ def _post_signal(symbol: str, setup: str, conf01: float, entry, stop, target, re
         "w2_shares_or_contracts": _w2["w2_shares_or_contracts"],
         "w2_bracket_tier":        _w2["w2_bracket_tier"],
         "w2_sizing_note":         _w2["w2_sizing_note"],
+        # SUPER_MAX W3 fields (observation-only)
+        "w3_derived_stop":   _w3.get("w3_derived_stop"),
+        "w3_derived_target": _w3.get("w3_derived_target"),
+        "w3_level_source":   _w3.get("w3_level_source"),
+        "w3_level_note":     _w3.get("w3_level_note"),
+        "w3_strategy_tag":   _w3.get("w3_strategy_tag"),
+        "w3_gex_regime":     _w3.get("w3_gex_regime"),
+        "w3_gamma_flip":     _w3.get("w3_gamma_flip"),
+        "w3_nearest_wall":   _w3.get("w3_nearest_wall"),
     }
     try:
         r = requests.post(SIGNAL_CENTER_URL, json=payload, timeout=6)
@@ -232,6 +244,33 @@ def _post_signal(symbol: str, setup: str, conf01: float, entry, stop, target, re
         return r.status_code
     except Exception:
         return 0
+
+
+def _w3_context(underlying: str) -> dict:
+    """SUPER_MAX W3 — latest GEX snapshot + flow lean for an underlying.
+    Reads data/flow_gex.db (gex_snapshots has NO king_node/lean; lean lives in
+    flow_aggregates). Returns Nones/'neutral' gracefully when no data (e.g. only
+    QQQ/SPY are covered today)."""
+    ctx = {"gamma_flip": None, "call_wall": None, "put_wall": None,
+           "regime": None, "lean": "neutral"}
+    if not os.path.exists(FLOW_GEX_DB):
+        return ctx
+    try:
+        gconn = sqlite3.connect(FLOW_GEX_DB, timeout=10)
+        grow = gconn.execute(
+            "SELECT gamma_flip, call_wall, put_wall, regime FROM gex_snapshots "
+            "WHERE underlying=? ORDER BY asof DESC LIMIT 1", (underlying,)).fetchone()
+        if grow:
+            ctx["gamma_flip"], ctx["call_wall"], ctx["put_wall"], ctx["regime"] = grow
+        lrow = gconn.execute(
+            "SELECT lean FROM flow_aggregates WHERE underlying=? ORDER BY asof DESC LIMIT 1",
+            (underlying,)).fetchone()
+        if lrow and lrow[0]:
+            ctx["lean"] = lrow[0]
+        gconn.close()
+    except Exception as e:
+        logger.warning("[W3] GEX context lookup failed for %s: %s", underlying, e)
+    return ctx
 
 
 def run_signal_bridge() -> dict:
@@ -262,9 +301,16 @@ def run_signal_bridge() -> dict:
                 continue
             if emitted >= MAX_PER_RUN:
                 break
+            # ── SUPER_MAX W3B — strategy tag (levels already present) ─────────
+            from engine.w3_gamma_mapper import tag_strategy as _w3_tag
+            _ctx = _w3_context(r["symbol"])
+            _w3 = _w3_tag(_ctx["regime"] or "", _ctx["lean"] or "neutral",
+                          _ctx["gamma_flip"], _ctx["call_wall"], _ctx["put_wall"])
+            # ─────────────────────────────────────────────────────────────────
             http = _post_signal(r["symbol"], setup, float(r["confidence"]),
                                 r["entry_price"], r["stop_price"], r["target_price"],
-                                f"{r['strategy_name']} {r['symbol']} @ {r['entry_price']}")
+                                f"{r['strategy_name']} {r['symbol']} @ {r['entry_price']}",
+                                w3=_w3)
             if http in (200, 201):
                 _mark_emitted(conn, r["symbol"], setup, r["scan_date"], "deep_scan", http)
                 emitted += 1
@@ -315,8 +361,23 @@ def run_flow_bridge() -> dict:
                 skipped_dupe += 1
                 continue
             top = unusual[0]
-            http = _post_signal(u, "unusual_oi", 0.70, top.get("strike"), None, None,
-                                f"unusual OI {fr['lean']} ({len(unusual)} contracts, top {top.get('type')} {top.get('strike')})")
+            # ── SUPER_MAX W3A — derive GEX levels + tag for unusual_oi ────────
+            from engine.w3_gamma_mapper import derive_levels as _w3_derive, tag_strategy as _w3_tag
+            _ctx = _w3_context(u)
+            _lean = fr["lean"] or _ctx["lean"] or "neutral"
+            _lvl = _w3_derive(
+                entry_price=float(top.get("strike") or 0),
+                action="BUY_CALL" if _lean == "bullish" else "SELL",
+                gamma_flip=_ctx["gamma_flip"], call_wall=_ctx["call_wall"],
+                put_wall=_ctx["put_wall"], king_node=None, lean=_lean)
+            _tag = _w3_tag(_ctx["regime"] or "", _lean,
+                           _ctx["gamma_flip"], _ctx["call_wall"], _ctx["put_wall"])
+            _w3 = {**_lvl, **_tag}
+            # ─────────────────────────────────────────────────────────────────
+            http = _post_signal(u, "unusual_oi", 0.70, top.get("strike"),
+                                _lvl["w3_derived_stop"], _lvl["w3_derived_target"],
+                                f"unusual OI {fr['lean']} ({len(unusual)} contracts, top {top.get('type')} {top.get('strike')})",
+                                w3=_w3)
             if http in (200, 201):
                 _mark_emitted(tconn, u, "unusual_oi", day, "flow_gex", http)
                 emitted += 1

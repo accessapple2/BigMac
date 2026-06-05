@@ -269,7 +269,8 @@ def score_backlog() -> Dict[str, Any]:
                    ts.entry_price AS entry, ts.stop_loss AS stop,
                    ts.take_profit AS target, ts.agent_name AS agent_name,
                    ts.sources_json AS sources_json, ts.created_at AS created_at,
-                   ts.w2_shares_or_contracts AS w2_shares, ts.w2_risk_dollars AS w2_risk
+                   ts.w2_shares_or_contracts AS w2_shares, ts.w2_risk_dollars AS w2_risk,
+                   ts.w3_strategy_tag AS w3_strategy_tag
             FROM signal_outcomes so
             JOIN trade_signals ts ON ts.id = so.signal_id
         """).fetchall()
@@ -335,7 +336,7 @@ def score_backlog() -> Dict[str, Any]:
                         sid, h, symbol, entry_date, action, direction, setup_tag, agent,
                         entry, stop, target, (abs(entry - stop) if (entry and stop) else None),
                         None, None, None, "UNSCOREABLE", None, None,
-                        0, 0, reason, stale_gated, is_oos, 0, None))
+                        0, 0, reason, stale_gated, is_oos, 0, None, r["w3_strategy_tag"]))
                 continue
 
             risk = abs(entry - stop)
@@ -353,7 +354,7 @@ def score_backlog() -> Dict[str, Any]:
                         sid, h, symbol, entry_date, action, direction, setup_tag, agent,
                         entry, stop, target, risk, None, None, None,
                         "OPEN", 0.0, round(realized_r, 4), 0, 0, None, 0, is_oos, 0,
-                        _w2_position_r(0.0, r["w2_shares"], r["w2_risk"], risk)))
+                        _w2_position_r(0.0, r["w2_shares"], r["w2_risk"], risk), r["w3_strategy_tag"]))
                     continue
                 hi = max(b["high"] for b in window)
                 lo = min(b["low"] for b in window)
@@ -371,7 +372,7 @@ def score_backlog() -> Dict[str, Any]:
                     entry, stop, target, risk, round(hi, 4), round(lo, 4), round(close, 4),
                     outcome, round(rmult, 4), round(realized_r, 4),
                     closed, 1, None, 0, is_oos, complete,
-                    _w2_position_r(rmult, r["w2_shares"], r["w2_risk"], risk)))
+                    _w2_position_r(rmult, r["w2_shares"], r["w2_risk"], risk), r["w3_strategy_tag"]))
                 stats["scored_rows"] += 1
         conn.commit()
         return stats
@@ -384,8 +385,8 @@ INSERT OR REPLACE INTO scored_predictions
  (signal_id, horizon_days, symbol, entry_date, action, direction, setup_tag, agent_name,
   entry, stop, target, risk, window_high, window_low, window_close,
   outcome_v2, r_multiple, realized_r, closed, scoreable, unscoreable_reason,
-  stale_gated, is_oos, is_complete, w2_position_r)
-VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
+  stale_gated, is_oos, is_complete, w2_position_r, w3_strategy_tag)
+VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)
 """
 
 
