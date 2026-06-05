@@ -5861,6 +5861,119 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     </div>
   </div>
   </details>
+
+  <!-- HM-RIKER-HERO: XO recommendation hero card (UI-only; same /api/riker/recommendation
+       as the Bridge Status g-riker row, which stays for redundancy) -->
+  <div class="card" data-component="riker-hero" id="riker-hero-card" style="margin-bottom:12px;border:1px solid var(--border);border-left:4px solid #2563eb;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);">
+      <div class="card-title" style="font-weight:700;font-size:14px;">🫡 Number One's Recommendation</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span id="riker-hero-ts" style="font-size:11px;color:var(--muted);">—</span>
+        <button class="btn btn-ghost" onclick="loadRikerHero(true)" style="font-size:11px;">Refresh</button>
+      </div>
+    </div>
+    <div style="padding:16px 20px;">
+      <div style="display:flex;gap:22px;align-items:center;flex-wrap:wrap;margin-bottom:16px;">
+        <div id="riker-hero-badge" style="font-size:36px;font-weight:900;font-family:var(--font-mono);line-height:1;letter-spacing:1px;color:#8b949e;">—</div>
+        <div style="display:flex;gap:18px;flex-wrap:wrap;font-size:11px;color:var(--muted);text-transform:uppercase;letter-spacing:1px;">
+          <div>Agreement<br><span id="riker-hero-agreement" style="font-size:13px;font-weight:800;letter-spacing:0;text-transform:none;color:#8b949e;">—</span></div>
+          <div>Confidence<br><span id="riker-hero-confidence" style="font-size:13px;font-weight:800;letter-spacing:0;text-transform:none;color:#8b949e;">—</span></div>
+        </div>
+      </div>
+      <div id="riker-hero-body">
+        <div style="color:var(--muted);text-align:center;padding:12px;">Loading Commander Riker's synthesis…</div>
+      </div>
+    </div>
+  </div>
+  <script>
+  /* HM-RIKER-HERO: parse the Riker narrative into a hero card. Self-contained + defensive
+     (HM-BJ.E2): null-checks, try/catch, idempotent mount log. No edits to loadGlanceData. */
+  (function(){
+    var _heroMounted = false;
+    function $(id){ return document.getElementById(id); }
+    function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+      return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+    // capture text after a section label up to the next known label / '===' / end
+    function grab(t, label){
+      try {
+        var re = new RegExp(label + '\\s*:?\\s*([\\s\\S]*?)(?=\\n\\s*(?:CREW STATUS|AGREEMENT LEVEL|MY RECOMMENDATION|CONFIDENCE|RISK NOTE)\\s*:|\\n=+|$)', 'i');
+        var m = t.match(re); return m ? m[1].trim() : '';
+      } catch(e){ return ''; }
+    }
+    function recColor(r){ r=String(r).toUpperCase();
+      if(r==='YES') return 'var(--green)'; if(r==='NO') return 'var(--red)';
+      if(r==='WAIT'||r==='HOLD') return '#f59e0b'; return '#8b949e'; }
+    function agrColor(a){ a=String(a).toUpperCase();
+      if(a.indexOf('UNIFIED')!==-1||a.indexOf('AGREE')!==-1) return 'var(--green)';
+      if(a.indexOf('CONFLICT')!==-1||a.indexOf('SPLIT')!==-1) return 'var(--red)';
+      if(a.indexOf('DIVIDED')!==-1||a.indexOf('MIXED')!==-1) return '#f59e0b';
+      return '#8b949e'; }
+    function confColor(c){ c=String(c).toUpperCase();
+      if(c==='HIGH') return 'var(--green)';
+      if(c==='MODERATE'||c==='MEDIUM') return '#f59e0b';
+      return '#8b949e'; }
+    function block(label, text){
+      if(!text) return '';
+      return '<div style="margin-bottom:12px;"><div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:1px;margin-bottom:3px;">'+label+'</div>'+
+             '<div style="font-size:13px;color:var(--text);line-height:1.55;">'+esc(text)+'</div></div>'; }
+
+    window.loadRikerHero = async function(force){
+      var badge = $('riker-hero-badge'); var body = $('riker-hero-body');
+      if(!badge || !body) return;
+      try {
+        var r = await fetch('/api/riker/recommendation');
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        var d = await r.json();
+        var tsEl = $('riker-hero-ts');
+        var txt = d && d.recommendation ? String(d.recommendation) : '';
+        if(!txt){
+          badge.textContent = '—'; badge.style.color = '#8b949e';
+          body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">Awaiting synthesis (market hours).</div>';
+          if(tsEl) tsEl.textContent = '';
+          console.info('[riker-hero] mounted, recommendation=NONE (awaiting synthesis)');
+          _heroMounted = true; return;
+        }
+        var crew = grab(txt,'CREW STATUS');
+        var agrRaw = grab(txt,'AGREEMENT LEVEL');
+        var recRaw = grab(txt,'MY RECOMMENDATION');
+        var confRaw = grab(txt,'CONFIDENCE');
+        var risk = grab(txt,'RISK NOTE').replace(/\n?=+\s*$/,'').trim();
+        var rec = (recRaw.match(/\b(YES|NO|WAIT|HOLD)\b/i)||[])[1];
+        rec = rec ? rec.toUpperCase() : '—';
+        var reasoning = recRaw.replace(/^\s*(YES|NO|WAIT|HOLD)\b[.:,\s\-—]*/i,'').trim() || recRaw;
+        var agr = (agrRaw.split('\n')[0]||'').trim().toUpperCase() || '—';
+        var conf = ((confRaw.split('\n')[0]||'').match(/\b(HIGH|MODERATE|MEDIUM|LOW)\b/i)||[])[1];
+        conf = conf ? conf.toUpperCase() : '—';
+
+        badge.textContent = rec; badge.style.color = recColor(rec);
+        var aEl=$('riker-hero-agreement'); if(aEl){ aEl.textContent=agr; aEl.style.color=agrColor(agr); }
+        var cEl=$('riker-hero-confidence'); if(cEl){ cEl.textContent=conf; cEl.style.color=confColor(conf); }
+
+        // If parsing found nothing recognizable, fall back to the raw narrative (never blank)
+        var parsed = crew || reasoning || risk;
+        body.innerHTML = parsed
+          ? (block('Crew Status', crew) + block('Reasoning', reasoning) + (risk ? block('⚠ Risk Note', risk) : ''))
+          : '<div style="font-size:13px;color:var(--text);line-height:1.55;white-space:pre-wrap;">'+esc(txt)+'</div>';
+
+        if(tsEl){ tsEl.textContent = (d.fresh?'🟢 ':'🟡 ') + (d.generated_at||''); }
+
+        if(!_heroMounted){ _heroMounted=true; console.info('[riker-hero] mounted, recommendation=%s agreement=%s confidence=%s', rec, agr, conf); }
+        else { console.debug('[riker-hero] refreshed, recommendation=%s agreement=%s confidence=%s', rec, agr, conf); }
+      } catch(e){
+        badge.textContent = '—';
+        body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">Error loading XO synthesis.</div>';
+        console.info('[riker-hero] mount error: '+(e&&e.message?e.message:e));
+      }
+    };
+
+    function _initRikerHero(){
+      try { window.loadRikerHero(); } catch(e){}
+      try { setInterval(function(){ try{ window.loadRikerHero(); }catch(e){} }, 120000); } catch(e){}
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _initRikerHero);
+    else _initRikerHero();
+  })();
+  </script>
   <script>
   // Shared offline-reason helpers (available globally for all later script blocks)
   function _mktIsOpen() {
