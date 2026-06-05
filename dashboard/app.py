@@ -4213,6 +4213,116 @@ def trade_round_trips(limit: int = 200, season: int = 0):
         conn.close()
 
 
+# HM-REPLAY-PATTERN-ALERT — live signals that resemble historical winners.
+def _recent_entry_signals_for_match(season: int, limit: int = 50) -> list:
+    """Recent BUY/SHORT (entry-only) signals with display_name, season-scoped.
+    SELL/COVER are exits and HOLD/BUY_CALL are skipped — see
+    engine.replay_pattern_matcher for the entry-vs-exit rationale."""
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT s.player_id, p.display_name, s.symbol, s.signal, "
+            "s.confidence, s.reasoning, s.created_at "
+            "FROM signals s JOIN ai_players p ON s.player_id = p.id "
+            "WHERE s.season=? AND s.signal IN ('BUY','SHORT') "
+            "ORDER BY s.created_at DESC LIMIT ?",
+            (season, limit),
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.get("/api/alerts/replay-match")
+@timed_cache(60)
+def get_replay_matches(min_pnl_pct: float = 3.0, client_now: str = ""):
+    """Live signals matching historical winning patterns. Bridge polls this
+    every 60s during market hours. @timed_cache(60) means the match compute
+    (and therefore the server-side NTFY push) runs at most once per minute.
+
+    ``client_now`` is the browser's minute-truncated UTC (e.g. 2026-06-05T15:13:00Z).
+    The trader process clock is unreliable (~7h skew — see notes below), so the
+    browser clock is the ONLY trustworthy recency source: NTFY fires only for
+    matches within 15 min of ``client_now``. The frontend re-applies the same
+    browser-clock gate before toasting. Minute-truncation keeps the cache warm."""
+    from engine.replay_pattern_matcher import ReplayPatternMatcher
+
+    market_open = False
+    try:
+        from engine.market_calendar import is_us_market_open
+        market_open = bool(is_us_market_open())
+    except Exception:
+        pass
+    # NOTE: no process wall-clock here on purpose — the long-running trader runs
+    # ~7h behind real UTC (time.gmtime()/datetime.now()/pytz/zoneinfo all skewed,
+    # verified via /api/_tz_probe 2026-06-05). `checked_at` is sourced from the
+    # data frame (newest signal) below so it's meaningful and skew-proof.
+    checked_at = None
+
+    # Current season (same resolution other endpoints use).
+    conn = _conn()
+    try:
+        s_row = conn.execute(
+            "SELECT value FROM settings WHERE key='current_season'"
+        ).fetchone()
+        season = int(s_row["value"]) if s_row else 1
+    finally:
+        conn.close()
+
+    matcher = ReplayPatternMatcher(db_path=DB)
+    try:
+        fingerprints = matcher.build_winner_fingerprints(min_pnl_pct=min_pnl_pct, season=season)
+        signals = _recent_entry_signals_for_match(season=season, limit=50)
+        # Newest entry-signal timestamp = the skew-proof "as-of" marker and the
+        # freshness reference the matcher uses internally (string max is valid for
+        # the sortable canonical format).
+        checked_at = max((s.get("created_at") for s in signals if s.get("created_at")),
+                         default=None)
+        matches = matcher.match_live_signals(signals, fingerprints=fingerprints)
+    except Exception as e:
+        return {"matches": [], "fingerprint_count": 0,
+                "checked_at": checked_at,
+                "market_open": market_open,
+                "error": f"{type(e).__name__}: {e}"}
+
+    # Server-side NTFY push for newly-seen matches (fire-and-forget, deduped
+    # per player:symbol:signal for 2h). Only during market hours AND only for
+    # matches recent per the RELIABLE browser clock (client_now) — the process
+    # clock can't be trusted to judge recency. No client_now ⇒ no NTFY.
+    from engine.replay_pattern_matcher import _parse_dt as _parse_sig_dt
+    ref_now = _parse_sig_dt(client_now)
+    if matches and market_open and ref_now is not None:
+        ntfy_cutoff = ref_now - timedelta(minutes=15)
+        try:
+            from engine.alert_channels import alert_info
+            for m in matches:
+                cdt = _parse_sig_dt(m.get("created_at"))
+                if cdt is None or cdt < ntfy_cutoff:   # not recent per browser clock
+                    continue
+                if matcher.should_notify(m):
+                    fp = m["matched_fingerprint"]
+                    alert_info(
+                        message=(
+                            f"{m['display_name']} {m['signal']} {m['symbol']} "
+                            f"(conf {int(m['confidence'] * 100)}%) — resembles "
+                            f"{fp['best_example_symbol']} +{fp['best_example_pnl_pct']:.1f}% win, "
+                            f"{fp['sample_count']} matches, avg +{fp['avg_pnl_pct']:.1f}%"
+                        ),
+                        # Per-key alert_type so distinct matches don't rate-limit
+                        # each other; the 2h should_notify set is the real dedup.
+                        alert_type=f"replay_match:{m['player_id']}:{m['symbol']}:{m['signal']}",
+                    )
+        except Exception:
+            pass
+
+    return {
+        "matches": matches,
+        "fingerprint_count": len(fingerprints),
+        "checked_at": checked_at,
+        "market_open": market_open,
+    }
+
+
 @app.get("/api/trades/recent")
 def recent_trades(limit: int = 30, season: int = 0, timeframe: str = "", player_id: str = ""):
     import time as _time

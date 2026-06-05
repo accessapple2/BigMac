@@ -11606,11 +11606,12 @@ document.addEventListener('keydown', function(e) {
     </div>
 
     <div class="oai-sr-note">
-      Static FDMT + HE demo per v4.3 spec L442-498 · selectors populate from
-      <code>/api/signals/recent?limit=50</code> filtered <code>acted_on=1</code>
-      (broad scope — all agents) · live wire (per-card candle render + outcome
-      compute + scoped chart annotations) ships in Step 4b · BUY/SELL route
-      through Trade Desk via <code>_oaiTradeTicket(sym)</code>.
+      Live wire (Step 4b, HM-OAI-SIGNAL-REPLAY-POLISH) · cards auto-populate from
+      <code>/api/trades/round-trips?limit=200</code> (paired entries, long + short;
+      backend filters bad writeback rows) with real candle render + outcome compute +
+      scoped chart annotations · FDMT + HE shown only as fallback when no replayable
+      round-trips exist · BUY/SELL route through Trade Desk via
+      <code>_oaiTradeTicket(sym)</code>.
     </div>
   </div>
   <!-- ───── BACKTEST LAB (Step 5a — visual scaffold per v4.3 spec L498-557) ───── -->
@@ -25876,6 +25877,94 @@ function showToast(msg, type) {
   setTimeout(function(){ t.style.opacity='0'; t.style.transition='opacity 0.5s'; }, 8000);
   setTimeout(function(){ t.remove(); }, 8500);
 }
+
+/* ───── HM-REPLAY-PATTERN-ALERT — Bridge poller + toast ─────
+   Polls /api/alerts/replay-match every 60s during market hours and toasts live
+   signals that resemble historical winners. NTFY fires server-side (engine.
+   alert_channels); the browser only renders the toast. Client-side Set dedups
+   toasts per session per player:symbol:signal. */
+var _replayMatchSeen = new Set();
+
+function _replayMarketOpen() {
+  // Reuse the existing market-status source of truth (#marketStatus text).
+  // If the element is missing, allow the poll — the backend gates on its own
+  // is_us_market_open() and returns [] when closed.
+  var ms = document.getElementById('marketStatus');
+  if (!ms) return true;
+  return (ms.textContent || '').indexOf('Open') >= 0;
+}
+
+function oaiOpenSignalReplay() {
+  // Navigate to the Ollie AI section, then activate the Signal Replay sub-view.
+  // (It's an .oai-view tab, not a showSection target.)
+  try {
+    if (typeof showSection === 'function') showSection('ollie-ai');
+    var tab = document.querySelector('#oai-subview-tabs .oai-sti[data-view="signal-replay"]');
+    if (tab) tab.click();
+  } catch (e) { try { console.warn('[REPLAY-MATCH] nav failed', e); } catch(_) {} }
+}
+
+function showReplayMatchAlert(match) {
+  var fp = match.matched_fingerprint || {};
+  var pnlColor = match.signal === 'BUY' ? '#22c55e' : '#f97316';
+  var bestPnl = (fp.best_example_pnl_pct != null) ? fp.best_example_pnl_pct.toFixed(1) : '?';
+  var avgPnl  = (fp.avg_pnl_pct != null) ? fp.avg_pnl_pct.toFixed(1) : '?';
+  var symEsc  = String(match.symbol || '').replace(/[^A-Za-z0-9.\-]/g, '');
+  var html =
+    '<div style="min-width:300px">' +
+      '<div style="font-size:11px;color:#94a3b8;margin-bottom:4px">⚡ REPLAY PATTERN MATCH</div>' +
+      '<div style="font-size:16px;font-weight:700;color:' + pnlColor + '">' +
+        symEsc + ' — ' + match.signal + '</div>' +
+      '<div style="font-size:12px;color:var(--text-secondary);margin:4px 0">' +
+        (match.display_name || match.player_id) + ' · confidence ' +
+        Math.round((match.confidence || 0) * 100) + '%</div>' +
+      '<div style="font-size:11px;color:var(--text-secondary);border-top:1px solid var(--border);padding-top:6px;margin-top:6px">' +
+        'Resembles <strong>' + (fp.best_example_symbol || '?') + '</strong> +' + bestPnl + '% win · ' +
+        (fp.sample_count || 0) + ' historical matches · avg +' + avgPnl + '%</div>' +
+      '<div style="font-size:11px;color:var(--text-secondary);margin-top:4px;font-style:italic">' +
+        '"' + String(match.reasoning_snippet || '').replace(/</g, '&lt;') + '"</div>' +
+      '<div style="margin-top:8px;display:flex;gap:8px">' +
+        '<button onclick="oaiTradeTicket(\'' + symEsc + '\')" ' +
+          'style="background:' + pnlColor + ';color:#000;border:none;padding:4px 12px;' +
+          'border-radius:4px;font-size:12px;font-weight:700;cursor:pointer">' +
+          match.signal + ' via Trade Desk</button>' +
+        '<button onclick="oaiOpenSignalReplay()" ' +
+          'style="background:var(--bg-secondary);color:var(--text-secondary);border:1px solid var(--border);' +
+          'padding:4px 12px;border-radius:4px;font-size:12px;cursor:pointer">View Replay</button>' +
+      '</div>' +
+    '</div>';
+  showToast(html, match.signal === 'BUY' ? 'buy' : 'sell');
+}
+
+function pollReplayPatternMatches() {
+  if (!_replayMarketOpen()) return;
+  // The trader process clock is unreliable (~7h skew), so the browser clock is
+  // the authoritative recency source. Send a minute-truncated UTC now (keeps the
+  // server cache warm + gates server-side NTFY), and re-filter matches here to
+  // those within 15 min of real browser time before toasting.
+  var nowMs = Date.now();
+  var clientNow = new Date(nowMs).toISOString().slice(0, 16) + ':00Z';
+  var FRESH_MS = 15 * 60 * 1000;
+  fetch('/api/alerts/replay-match?client_now=' + encodeURIComponent(clientNow))
+    .then(function(r){ return r.ok ? r.json() : null; })
+    .then(function(data){
+      if (!data || !Array.isArray(data.matches) || data.matches.length === 0) return;
+      data.matches.forEach(function(match){
+        // created_at is canonical naive UTC ("YYYY-MM-DD HH:MM:SS"); parse as UTC.
+        var ts = match.created_at ? Date.parse(match.created_at.replace(' ', 'T') + 'Z') : NaN;
+        if (isNaN(ts)) return;
+        var age = nowMs - ts;
+        if (age > FRESH_MS || age < -120000) return;  // too old, or >2min in future
+        var key = match.player_id + ':' + match.symbol + ':' + match.signal;
+        if (_replayMatchSeen.has(key)) return;
+        _replayMatchSeen.add(key);
+        showReplayMatchAlert(match);  // NTFY is server-side; toast only here
+      });
+    })
+    .catch(function(){});  // silent — non-critical Bridge poller
+}
+setTimeout(pollReplayPatternMatches, 1500);   // T2 tier first run
+setInterval(pollReplayPatternMatches, 60000); // then every 60s
 
 async function checkNewTrades() {
   try {
