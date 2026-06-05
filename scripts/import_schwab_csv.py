@@ -342,6 +342,8 @@ def _check_delta(prior_count: int | None, new_count: int) -> tuple[bool, str]:
     """Returns (is_sane, reason). is_sane=False means quarantine + ntfy."""
     if prior_count is None or prior_count == 0:
         return True, "no prior baseline"
+    if new_count <= 1:
+        return True, "flat portfolio — 0 or 1 rows (cash-only); treating as legitimate empty import"
     if new_count < prior_count / DELTA_RATIO_LO:
         return False, (
             f"row count {new_count} < {prior_count}/{DELTA_RATIO_LO:g} "
@@ -393,6 +395,13 @@ def import_csv(csv_path: Path) -> None:
             raise SchwabCSVError(msg)
         else:
             print(f"  Delta-check : OK ({delta_reason})")
+            if len(rows) <= 1:
+                _ntfy(
+                    "⚠️ Schwab import: flat portfolio detected — 0 positions imported "
+                    f"({csv_path.name}). Verify this is a genuine empty account, not a truncated export.",
+                    priority="default",
+                )
+                print("  [FLAT] flat-portfolio import — advisory ntfy sent")
 
         inserted = skipped = 0
         for row in rows:
