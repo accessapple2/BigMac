@@ -7,13 +7,20 @@ from __future__ import annotations
 import sqlite3
 from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
 import json
+import logging
 import time
 from datetime import datetime
 from pathlib import Path
 from rich.console import Console
 import numpy as np
 
+from engine.external_intel_signal import collect_by_ticker as collect_ti_triggers  # HM-TI-CONVERGENCE-VOTE
+
 console = Console()
+# HM-TI-CONVERGENCE-VOTE: module lacked a Python logger; the TI-vote append below
+# logs via logger.info → trader_error.log. Without this, that call would NameError
+# inside scan_strategies' per-ticker try/except and silently drop the voted ticker.
+logger = logging.getLogger(__name__)
 DB = "data/trader.db"
 _SIGNAL_CENTER_DB = Path(__file__).resolve().parent.parent / "signal-center" / "signals.db"
 
@@ -596,6 +603,8 @@ def scan_strategies(tickers: list = None, save: bool = True) -> list:
     signals = []
     all_triggered = {}
 
+    ti_triggers = collect_ti_triggers()  # HM-TI-CONVERGENCE-VOTE
+
     for ticker in tickers:
         try:
             try:
@@ -609,6 +618,11 @@ def scan_strategies(tickers: list = None, save: bool = True) -> list:
                 continue
 
             triggered = run_strategies(ticker, df, spy_df)
+            # HM-TI-CONVERGENCE-VOTE: append TI vote only if a fleet trigger already exists
+            ti_trigger = ti_triggers.get(ticker)
+            if ti_trigger and triggered:
+                triggered.append(ti_trigger)
+                logger.info("HM-TI-CONVERGENCE-VOTE: appended TI vote for %s", ticker)
             if triggered:
                 all_triggered[ticker] = triggered
 
