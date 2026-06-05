@@ -195,16 +195,30 @@ def _stamp_regime(signal_id: int) -> None:
 def _post_signal(symbol: str, setup: str, conf01: float, entry, stop, target, reasoning: str) -> int:
     """POST a SHADOW signal to signal-center. Returns HTTP status (0 on error).
     agent='shadow-bridge:<setup>' => excluded from execution by construction."""
+    _entry  = float(entry or 0)
+    _stop   = float(stop or 0)
+    _target = float(target or 0)
+    # ── SUPER_MAX W2 — bracket sizing (observation-only, never executes) ──────
+    from engine.w2_bracket_sizer import calculate_bracket as _w2_calc
+    _w2 = _w2_calc(entry_price=_entry, stop_price=_stop, take_profit_price=_target)
+    # ─────────────────────────────────────────────────────────────────────────
     payload = {
         "symbol": symbol, "action": "BUY", "type": "SWING",
         "confidence": int(round(conf01 * 100)),
         "agent": f"{SHADOW_AGENT_PREFIX}:{setup}",
         "model": "deep_scan_bridge",
         "reasoning": f"[SHADOW · observation-only · W0 forward-scoring] {reasoning}",
-        "price": float(entry or 0), "stop_loss": float(stop or 0),
-        "take_profit": float(target or 0), "timeframe": "SWING",
+        "price": _entry, "stop_loss": _stop,
+        "take_profit": _target, "timeframe": "SWING",
         "context_summary": f"SHADOW bridge: {setup} | conf {conf01:.2f} | NOT executed (W0 scoring only)",
         "sources": [SHADOW_AGENT_PREFIX, setup, "deep_scan"],
+        # SUPER_MAX W2 sizing fields (observation-only)
+        "w2_account_risk_pct":    _w2["w2_account_risk_pct"],
+        "w2_risk_dollars":        _w2["w2_risk_dollars"],
+        "w2_stop_distance_pct":   _w2["w2_stop_distance_pct"],
+        "w2_shares_or_contracts": _w2["w2_shares_or_contracts"],
+        "w2_bracket_tier":        _w2["w2_bracket_tier"],
+        "w2_sizing_note":         _w2["w2_sizing_note"],
     }
     try:
         r = requests.post(SIGNAL_CENTER_URL, json=payload, timeout=6)

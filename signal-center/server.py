@@ -2905,13 +2905,23 @@ def receive_signal():
         take_profit = float(payload.get("take_profit", 0) or 0)
         ctx_summary = str(payload.get("context_summary", ""))
 
+        # ── SUPER_MAX W2 — bracket sizing fields (observation-only; None for non-W2 senders) ──
+        w2_account_risk_pct    = payload.get("w2_account_risk_pct")
+        w2_risk_dollars        = payload.get("w2_risk_dollars")
+        w2_stop_distance_pct   = payload.get("w2_stop_distance_pct")
+        w2_shares_or_contracts = payload.get("w2_shares_or_contracts")
+        w2_bracket_tier        = payload.get("w2_bracket_tier")
+        w2_sizing_note         = payload.get("w2_sizing_note")
+
         db = get_db()
         cur = db.execute("""
             INSERT INTO trade_signals
             (type, symbol, action, entry_price, stop_loss, take_profit,
              confidence, agent_name, model_used, reasoning,
-             context_json, sources_json, timeframe, status, created_at)
-            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'NEW',?)
+             context_json, sources_json, timeframe, status, created_at,
+             w2_account_risk_pct, w2_risk_dollars, w2_stop_distance_pct,
+             w2_shares_or_contracts, w2_bracket_tier, w2_sizing_note)
+            VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,'NEW',?,?,?,?,?,?,?)
         """, (
             sig_type, symbol, action, entry_price, stop_loss, take_profit,
             confidence, agent, model, reasoning,
@@ -2919,6 +2929,8 @@ def receive_signal():
             json.dumps(sources if isinstance(sources, list) else [sources]),
             timeframe,
             datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S'),  # HM-TZ Stage 3: trade_signals.created_at space-UTC
+            w2_account_risk_pct, w2_risk_dollars, w2_stop_distance_pct,
+            w2_shares_or_contracts, w2_bracket_tier, w2_sizing_note,
         ))
         signal_id = cur.lastrowid
         db.commit()
