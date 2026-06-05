@@ -474,6 +474,26 @@ both UI panels still render before touching either module.**
 | Spock   | Premium second opinion on McCoy's ambiguous high-VIX CSPs    | qwen3:8b (HM-CN truth-up 2026-05-17 — deepseek-r1:7b in original plan was never installed) |
 | Picard  | Weekly strategic thesis → modifies Ollie's regime table      | Gemma3 4B (local)      |
 
+**Uhura UI surfaces (HM-UHURA-VISIBILITY, 2026-06-04).** Uhura runs as TWO
+orthogonal systems, now both surfaced in the dashboard:
+- **v1 — institutional Form-4** (`agents/uhura_agent.py`, 05:30 AZ daily →
+  `institutional_signals` in trader.db). Endpoint `GET /api/uhura/institutional?limit=N`
+  (MAX-scan_date, ordered STRONG_SELL→STRONG_BUY→SELL→BUY; commit `7e7eb74`). UI:
+  **"Top Insider Reads"** card in the Congress/Capitol section + an explanatory
+  tooltip on the per-ticker Riker-consensus "Insider" (Uhura) "—" cells (the
+  universe is mega-cap-focused, so most watchlist tickers show "—" — that's
+  data-correct, not dead wiring).
+- **v2 — 7-source confluence** (`engine/uhura.py`, the 86% / 4-of-7 filter).
+  Endpoint `GET /api/uhura/signal` (120s cached). UI: **"Market Mood Pill"** in
+  the Tactical Display header (`#uhura-mood-pill`, click-to-expand reasoning +
+  signal_votes) alongside the standalone `section-uhura-signal` page. Pill logs
+  one `[uhura-mood-pill] mounted` then `console.debug` "refreshed" on the 120s
+  tick (idempotent mount logging, P2.1 `a00b4eb`).
+- Frontend lands in `dashboard/static/index.html` (commits `690dc98` + `a00b4eb`),
+  browser-smoke-PASS per Frontend Ship Rule. All four touch points read-only.
+- **Parked:** literal per-ticker column-header rename "Uhura"→"Insider" deferred —
+  that view is an S/D/U badge flex-list, not a labeled column; tooltip shipped instead.
+
 ### Sniper Squad — Active Scouts (signal generation, route via Ollie gate)
 Active scouts firing signals into the Sniper Mode trial, in `PROTECTED_AGENTS`
 (roster-locked). Sniper Mode is a proving-ground role of `ollie-auto`, not a
