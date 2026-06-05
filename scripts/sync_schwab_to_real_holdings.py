@@ -118,6 +118,7 @@ def main():
     schwab["account_id"] = f"...{acct_last4}"
     schwab["account_name"] = f"{acct_label} (Brokerage)"
     schwab["positions"] = positions
+    schwab["source"] = "csv_snapshot"   # HM-SCHWAB-LIVE-SYNC: stamp path so live_api vs csv is always known
     total_equity = sum(float(p.get("avg_cost", 0)) * float(p.get("qty", 0)) for p in positions)
     schwab["notes"] = (
         f"Auto-synced from schwab_holdings snapshot {snap_id}. "
