@@ -4898,11 +4898,13 @@ async function fetchRikerRecommendation() {
         var ua = t.uhura ? t.uhura.action : '—';
         var _ai = function(a){return a==='BUY'||a==='ADD'?'▲':a==='SELL'||a==='CLOSE'?'▼':a==='TRIM'?'◄':'■';};
         var cmp = t.comparison==='agree'?'✅ AGREE':t.comparison==='opposite'?'❌ OPPOSE':'⚠️ SPLIT';
+        // HM-UHURA-VISIBILITY: explain the dash on the Insider (Uhura v1) cell — not dead wiring, mega-cap-focused universe
+        var _uTip = (ua==='—') ? ' title="No SEC Form-4 insider activity in the last 30 days. Uhura\'s signal universe is currently mega-cap focused. See the Top Insider Reads panel for active signals."' : '';
         h += '<div style="display:flex;align-items:center;gap:10px;padding:6px 8px;font-size:12px;font-family:var(--font-mono);border-bottom:1px solid var(--border);">';
         h += '<span style="font-weight:700;min-width:48px;" class="ticker-click" onclick="openTickerDetail(\''+tk+'\')">'+tk+'</span>';
         h += '<span style="min-width:70px;"><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#ea580c;text-align:center;line-height:16px;font-size:13px;font-weight:700;color:#fff;margin-right:3px;">S</span>'+_ai(sa)+' '+sa+'</span>';
         h += '<span style="min-width:70px;"><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#3b82f6;text-align:center;line-height:16px;font-size:13px;font-weight:700;color:#fff;margin-right:3px;">D</span>'+_ai(da)+' '+da+'</span>';
-        h += '<span style="min-width:70px;"><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#14b8a6;text-align:center;line-height:16px;font-size:13px;font-weight:700;color:#fff;margin-right:3px;">U</span>'+_ai(ua)+' '+ua+'</span>';
+        h += '<span style="min-width:70px;"'+_uTip+'><span style="display:inline-block;width:16px;height:16px;border-radius:50%;background:#14b8a6;text-align:center;line-height:16px;font-size:13px;font-weight:700;color:#fff;margin-right:3px;">U</span>'+_ai(ua)+' '+ua+'</span>';
         h += '<span>'+cmp+'</span></div>';
       }
       h += '<div style="padding:8px;font-size:12px;color:var(--muted);">Overall: '+cd.overall_agreement+'% agreement (3-way: Spock + Data + Uhura)</div>';
@@ -5806,6 +5808,16 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       <span class="tac-fact"><span class="tac-fact-label">SPY</span>&nbsp;<span id="tac-spy" class="tac-fact-val">—</span></span>
       <span class="tac-fact-sep">·</span>
       <span class="tac-fact"><span class="tac-fact-label">Scan</span>&nbsp;<span id="tac-scan" class="tac-fact-val">—</span></span>
+      <span class="tac-fact-sep">·</span>
+      <!-- HM-UHURA-VISIBILITY: Market Mood Pill (v2 confluence) — click to expand -->
+      <span id="uhura-mood-pill" data-component="uhura-mood-pill"
+            onclick="toggleUhuraMoodPanel()" data-tip="Lt. Uhura v2 — 7-source confluence signal. Click for the full read."
+            style="cursor:pointer;padding:2px 9px;border-radius:4px;font-weight:700;font-size:11px;background:#555;color:#fff;white-space:nowrap;user-select:none;">UHURA · …</span>
+    </div>
+    <!-- HM-UHURA-VISIBILITY: Mood Pill expanded panel (hidden until pill clicked) -->
+    <div id="uhura-mood-panel" data-component="uhura-mood-panel" style="display:none;margin-top:8px;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);">
+      <div id="uhura-mood-reasoning" style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:8px;"></div>
+      <div id="uhura-mood-votes"></div>
     </div>
     <!-- Allocation bars: target row + actual row per bucket -->
     <!-- grid: label | tgt-bar | tgt-pct | act-bar | act-pct -->
@@ -19605,7 +19617,114 @@ async function fetchNavSchedule() {
     <div id="congress-top" style="display:none;padding:16px;"></div>
     <div id="congress-portfolio" style="display:none;padding:16px;"></div>
   </div>
+  <!-- HM-UHURA-VISIBILITY: Top Insider Reads (v1 institutional Form-4) -->
+  <div class="card" data-component="uhura-insider-reads" style="margin-bottom:16px;">
+    <div class="card-header">
+      <div class="card-title">📡 Top Insider Reads <span id="uhura-insider-date" style="font-size:11px;color:var(--muted);font-weight:400;"></span></div>
+      <button class="btn btn-ghost" onclick="loadUhuraInsiderReads()" style="font-size:13px;">Refresh</button>
+    </div>
+    <div id="uhura-insider-body" style="padding:16px;">
+      <div style="color:var(--muted);text-align:center;">Loading insider reads…</div>
+    </div>
+    <div id="uhura-insider-footer" style="padding:8px 16px 14px;font-size:12px;color:var(--muted);border-top:1px solid var(--border);"></div>
+  </div>
 </div>
+<script>
+/* HM-UHURA-VISIBILITY: Market Mood Pill (v2 confluence) + Top Insider Reads (v1 Form-4).
+   Self-contained + defensive (HM-BJ.E2 protection): all DOM lookups null-checked,
+   try/catch around fetch chains, no edits to existing functions. */
+(function(){
+  function $(id){ return document.getElementById(id); }
+  function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
+    return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
+
+  // Reuse the existing Uhura conviction palette (see loadUhuraSignal::convColor)
+  function convColor(c){ c = String(c||'').toUpperCase();
+    if(c==='MAXIMUM') return '#d4a017';
+    if(c==='HIGH')    return '#e07b39';
+    if(c==='MEDIUM')  return '#4a90d9';
+    return '#8b949e'; }
+  function convLabel(c){ c = String(c||'LOW').toUpperCase();
+    return (c==='LOW') ? 'STAND DOWN' : c; }
+
+  window.toggleUhuraMoodPanel = function(){
+    var p = $('uhura-mood-panel'); if(!p) return;
+    p.style.display = (!p.style.display || p.style.display==='none') ? 'block' : 'none';
+  };
+
+  window.loadUhuraMoodPill = async function(){
+    var pill = $('uhura-mood-pill'); if(!pill) return;
+    try {
+      var r = await fetch('/api/uhura/signal');
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      var d = await r.json();
+      if(d.error) throw new Error(d.error);
+      var conv = d.conviction || 'LOW';
+      var aligned = d.aligned_signals||0, total = d.total_signals||7;
+      var extra = (d.suggested_structure ? (' · '+String(d.suggested_structure).replace(/_/g,' ')+(d.suggested_ticker?(' '+d.suggested_ticker):'')) : '');
+      pill.textContent = 'UHURA · '+convLabel(conv)+' · '+aligned+'/'+total+extra;
+      pill.style.background = convColor(conv);
+      var rEl = $('uhura-mood-reasoning'); if(rEl) rEl.textContent = d.reasoning || '';
+      var vEl = $('uhura-mood-votes');
+      if(vEl){
+        var votes = d.signal_votes || [];   // pre-formatted "🔴 src: DIR (wt:..) — reason"
+        vEl.innerHTML = votes.length
+          ? votes.map(function(v){ return '<div class="uhura-vote-row" style="font-size:12px;">'+esc(v)+'</div>'; }).join('')
+          : '<div style="font-size:12px;color:var(--muted);">No votes.</div>';
+      }
+      console.info('[uhura-mood-pill] mounted, conviction='+conv+' aligned='+aligned+'/'+total);
+    } catch(e){
+      pill.textContent = 'UHURA · —';
+      console.info('[uhura-mood-pill] mount error: '+(e&&e.message?e.message:e));
+    }
+  };
+
+  window.loadUhuraInsiderReads = async function(){
+    var body = $('uhura-insider-body'); if(!body) return;
+    try {
+      var r = await fetch('/api/uhura/institutional?limit=10');
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      var d = await r.json();
+      if(d.error) throw new Error(d.error);
+      var sigs = d.signals || [];
+      function dotFor(s){ s=String(s||'').toUpperCase();
+        if(s.indexOf('SELL')!==-1) return '🔴';
+        if(s.indexOf('BUY')!==-1)  return '🟢';
+        return '⚪'; }
+      body.innerHTML = sigs.length
+        ? sigs.map(function(s){
+            return '<div style="display:flex;align-items:center;gap:10px;padding:6px 0;font-size:13px;font-family:var(--font-mono);border-bottom:1px solid var(--border);">'+
+              '<span style="width:18px;">'+dotFor(s.signal)+'</span>'+
+              '<span style="font-weight:700;min-width:56px;">'+esc(s.ticker)+'</span>'+
+              '<span style="min-width:104px;font-weight:600;">'+esc(s.signal)+'</span>'+
+              '<span style="color:var(--muted);">'+esc(s.reasoning)+'</span>'+
+            '</div>'; }).join('')
+        : '<div style="color:var(--muted);text-align:center;padding:12px;">No insider signals in the latest scan.</div>';
+      var dEl = $('uhura-insider-date'); if(dEl) dEl.textContent = d.scan_date ? ('— '+d.scan_date) : '';
+      var fEl = $('uhura-insider-footer');
+      if(fEl){
+        var nBuy=0, nSell=0;
+        sigs.forEach(function(s){ var x=String(s.signal||'').toUpperCase();
+          if(x.indexOf('SELL')!==-1) nSell++; else if(x.indexOf('BUY')!==-1) nBuy++; });
+        var dir = (nSell&&!nBuy)?'all bearish':(nBuy&&!nSell)?'all bullish':(nSell>nBuy)?'mostly bearish':(nBuy>nSell)?'mostly bullish':'mixed';
+        fEl.textContent = (d.count||sigs.length)+' signals today · '+dir+((nBuy===0&&sigs.length)?' · zero buys':'');
+      }
+      console.info('[uhura-insider-reads] mounted, count='+(d.count||sigs.length)+' scan_date='+(d.scan_date||'n/a'));
+    } catch(e){
+      body.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">Error loading insider reads.</div>';
+      console.info('[uhura-insider-reads] mount error: '+(e&&e.message?e.message:e));
+    }
+  };
+
+  function _initUhuraVisibility(){
+    try { window.loadUhuraMoodPill(); } catch(e){}
+    try { window.loadUhuraInsiderReads(); } catch(e){}
+    try { setInterval(function(){ try{ window.loadUhuraMoodPill(); }catch(e){} }, 120000); } catch(e){}
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _initUhuraVisibility);
+  else _initUhuraVisibility();
+})();
+</script>
 <script>
 function showCongressTab(tab) {
   ['recent','overlap','top','portfolio'].forEach(function(t) {
