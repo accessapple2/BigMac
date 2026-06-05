@@ -618,9 +618,11 @@ def scan_strategies(tickers: list = None, save: bool = True) -> list:
                 continue
 
             triggered = run_strategies(ticker, df, spy_df)
-            # HM-TI-CONVERGENCE-VOTE: append TI vote only if a fleet trigger already exists
+            # HM-TI-CONVERGENCE-VOTE: append TI vote only when >=2 fleet strategies
+            # already triggered — TI is a non-decisive 3rd nudge, never the vote that
+            # creates a 2-count convergence at the single-fleet-strategy level.
             ti_trigger = ti_triggers.get(ticker)
-            if ti_trigger and triggered:
+            if ti_trigger and len(triggered) >= 2:
                 triggered.append(ti_trigger)
                 logger.info("HM-TI-CONVERGENCE-VOTE: appended TI vote for %s", ticker)
             if triggered:
