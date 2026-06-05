@@ -4241,10 +4241,10 @@ def get_replay_matches(min_pnl_pct: float = 3.0, client_now: str = ""):
     (and therefore the server-side NTFY push) runs at most once per minute.
 
     ``client_now`` is the browser's minute-truncated UTC (e.g. 2026-06-05T15:13:00Z).
-    The trader process clock is unreliable (~7h skew — see notes below), so the
-    browser clock is the ONLY trustworthy recency source: NTFY fires only for
-    matches within 15 min of ``client_now``. The frontend re-applies the same
-    browser-clock gate before toasting. Minute-truncation keeps the cache warm."""
+    Recency is anchored to the browser clock so the 15-min window tracks the
+    user's real wall-time: NTFY fires only for matches within 15 min of
+    ``client_now``, and the frontend re-applies the same gate before toasting.
+    Minute-truncation keeps the @timed_cache(60) entry warm."""
     from engine.replay_pattern_matcher import ReplayPatternMatcher
 
     market_open = False
@@ -4253,10 +4253,9 @@ def get_replay_matches(min_pnl_pct: float = 3.0, client_now: str = ""):
         market_open = bool(is_us_market_open())
     except Exception:
         pass
-    # NOTE: no process wall-clock here on purpose — the long-running trader runs
-    # ~7h behind real UTC (time.gmtime()/datetime.now()/pytz/zoneinfo all skewed,
-    # verified via /api/_tz_probe 2026-06-05). `checked_at` is sourced from the
-    # data frame (newest signal) below so it's meaningful and skew-proof.
+    # `checked_at` is sourced from the data frame (newest signal) below rather
+    # than a wall-clock read, so it reflects the freshest signal the matcher
+    # actually saw — a meaningful "as-of" marker for the UI.
     checked_at = None
 
     # Current season (same resolution other endpoints use).
@@ -4273,9 +4272,9 @@ def get_replay_matches(min_pnl_pct: float = 3.0, client_now: str = ""):
     try:
         fingerprints = matcher.build_winner_fingerprints(min_pnl_pct=min_pnl_pct, season=season)
         signals = _recent_entry_signals_for_match(season=season, limit=50)
-        # Newest entry-signal timestamp = the skew-proof "as-of" marker and the
-        # freshness reference the matcher uses internally (string max is valid for
-        # the sortable canonical format).
+        # Newest entry-signal timestamp = the "as-of" marker and the freshness
+        # reference the matcher uses internally (string max is valid for the
+        # sortable canonical format).
         checked_at = max((s.get("created_at") for s in signals if s.get("created_at")),
                          default=None)
         matches = matcher.match_live_signals(signals, fingerprints=fingerprints)
@@ -4287,8 +4286,7 @@ def get_replay_matches(min_pnl_pct: float = 3.0, client_now: str = ""):
 
     # Server-side NTFY push for newly-seen matches (fire-and-forget, deduped
     # per player:symbol:signal for 2h). Only during market hours AND only for
-    # matches recent per the RELIABLE browser clock (client_now) — the process
-    # clock can't be trusted to judge recency. No client_now ⇒ no NTFY.
+    # matches recent per the browser clock (client_now). No client_now ⇒ no NTFY.
     from engine.replay_pattern_matcher import _parse_dt as _parse_sig_dt
     ref_now = _parse_sig_dt(client_now)
     if matches and market_open and ref_now is not None:

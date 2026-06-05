@@ -154,13 +154,12 @@ class ReplayPatternMatcher:
         if fingerprints is None:
             fingerprints = self.build_winner_fingerprints(min_pnl_pct, season)
 
-        # Freshness reference is the NEWEST signal's own timestamp, NOT a process
-        # clock. The long-running trader process runs ~7h behind real UTC (its
-        # time.gmtime()/datetime.now()/pytz/zoneinfo are all skewed; verified via
-        # /api/_tz_probe 2026-06-05), so any process-now vs DB-created_at compare
-        # is meaningless. created_at values share one writer frame, so comparing
-        # them to max(created_at) is skew-proof: "fresh" = within _FRESH_MINUTES
-        # of the most recent signal.
+        # Freshness reference is the NEWEST signal's own timestamp, not a wall
+        # clock. created_at values all share one writer frame, so defining "fresh"
+        # relative to max(created_at) needs no external now() at all: "fresh" =
+        # within _FRESH_MINUTES of the most recent signal. This keeps the matcher
+        # self-contained (the caller applies the browser-clock recency gate on top
+        # for NTFY/toast).
         parsed = [(_parse_dt(s.get("created_at")), s) for s in (signals or [])]
         stamps = [d for d, _ in parsed if d is not None]
         if not stamps:

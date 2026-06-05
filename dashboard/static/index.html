@@ -25938,14 +25938,18 @@ function showReplayMatchAlert(match) {
 
 function pollReplayPatternMatches() {
   if (!_replayMarketOpen()) return;
-  // The trader process clock is unreliable (~7h skew), so the browser clock is
-  // the authoritative recency source. Send a minute-truncated UTC now (keeps the
-  // server cache warm + gates server-side NTFY), and re-filter matches here to
-  // those within 15 min of real browser time before toasting.
+  // Recency is judged against the browser clock: send a minute-truncated UTC now
+  // (keeps the server cache warm + gates server-side NTFY), and re-filter matches
+  // here to those within 15 min of browser time before toasting.
+  // X-Raw-Timestamps:1 opts this fetch out of the UTC->AZ display-localization
+  // middleware (app.py TimezoneRoute) so match.created_at arrives as canonical
+  // UTC and the parse below is correct. WITHOUT it, created_at comes back
+  // localized -7h and every fresh match reads as 7h stale -> never toasts.
   var nowMs = Date.now();
   var clientNow = new Date(nowMs).toISOString().slice(0, 16) + ':00Z';
   var FRESH_MS = 15 * 60 * 1000;
-  fetch('/api/alerts/replay-match?client_now=' + encodeURIComponent(clientNow))
+  fetch('/api/alerts/replay-match?client_now=' + encodeURIComponent(clientNow),
+        { headers: { 'X-Raw-Timestamps': '1' } })
     .then(function(r){ return r.ok ? r.json() : null; })
     .then(function(data){
       if (!data || !Array.isArray(data.matches) || data.matches.length === 0) return;
