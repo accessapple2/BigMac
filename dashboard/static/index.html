@@ -1102,6 +1102,18 @@ body:not(.role-admin) .admin-only { display: none !important; }
 .sb-group-header:hover { color: var(--text); }
 .sb-arrow { font-size: 8px; width: 10px; display: inline-block; transition: transform 0.2s; }
 .sb-group-items { padding: 0 8px 4px; }
+/* ── Time-of-day nav zones (Bridge-Nav-Reorg 2026-06-05) ─────────────────── */
+.nav-zone { margin-bottom: 2px; }
+.zone-header { display: flex; align-items: center; justify-content: space-between; gap: 6px; padding: 10px 16px 4px; font-size: 12px; font-weight: 700; letter-spacing: 1px; color: var(--muted); text-transform: uppercase; cursor: pointer; user-select: none; border-left: 2px solid transparent; transition: color 0.15s, opacity 0.15s; }
+.zone-header:hover { color: var(--text); }
+.zone-header-static { cursor: default; }
+.zone-arrow { font-size: 9px; transition: transform 0.2s; }
+.zone-items { padding: 0 8px 4px; display: none; }
+.nav-zone.open > .zone-items { display: block; }
+.nav-zone.open > .zone-header .zone-arrow { transform: rotate(90deg); }
+.zone-items-open { display: block !important; }   /* ALWAYS zone — never collapses */
+.sidebar[data-active-zone] .nav-zone.zone-active > .zone-header { color: var(--text); border-left-color: var(--sidebar-item-active-fg); }
+.sidebar[data-active-zone] .nav-zone:not(.zone-active):not(.zone-always) { opacity: 0.7; }
 
 /* Stat Cards */
 .stats-grid { display: grid; grid-template-columns: repeat(4, 1fr); gap: 12px; margin-bottom: 20px; }
@@ -3427,71 +3439,80 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
     <div class="sidebar-item active" onclick="showSection('dashboard')"><span class="icon">🖥️</span> Bridge</div>
   </div>
 
-  <!-- TIER 1 — Always visible (10 items per W5-Sidebar Consolidation 2026-05-23) -->
-  <!-- HM-COCKPIT 2026-05-22: Command Bridge mission control. -->
-  <div class="sidebar-item" id="nav-cockpit" title="Command Bridge — system mission control (events bus, dispatcher mix, last decisions, kill switch)" onclick="showSection('cockpit')"><span class="icon">🎛️</span> Cockpit</div>
-  <div class="sidebar-item" id="nav-trade-desk" title="Manual trade desk (Captain) — Alpaca paper" onclick="showSection('trade-desk')"><span class="icon">📋</span> Trade Desk</div>
-  <div class="sidebar-item" onclick="showSection('ollie')"><span class="icon">💻</span> Ollie</div>
-  <div class="sidebar-item" title="0DTE tactical trading station" onclick="showSection('dayblade')"><span class="icon">⚔️</span> Battle Station</div>
-  <div class="sidebar-item" title="Holly Live Trading — live candle chart with fleet trade markers, entry-zone alerts, active-agent attribution" onclick="showSection('live-trading')"><span class="icon">⚡</span> Live Trading</div>
-  <!-- HM-OLLIE-AI-WORKSPACE 2026-05-23 Step 1: nav entry only; section shell below. -->
-  <div class="sidebar-item" id="nav-ollie-ai" title="Ollie AI Workspace — Channel Bar, dual races, sector tiles, Top List, Halts feed, Symbol Focus, Signal Replay" onclick="showSection('ollie-ai')"><span class="icon">🧠</span> Ollie AI <span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:#8b5cf6;color:#fff;font-size:9px;font-weight:700;letter-spacing:0.5px;vertical-align:middle;">NEW</span></div>
-  <div class="sidebar-item" onclick="showSection('charts')"><span class="icon">📈</span> Charts</div>
-  <div class="sidebar-item" onclick="showSection('leaderboard')"><span class="icon">🏆</span> Leaderboard</div>
-  <div class="sidebar-item admin-only" title="Real-world net worth: Schwab + Webull + IBKR + physical metals (excludes Alpaca paper). Admin-only — contains liquid net-worth detail." onclick="showSection('real-portfolio')"><span class="icon">💰</span> Real Portfolio</div>
-  <div class="sidebar-item" title="Ghost Trader research-only book performance" onclick="showSection('ghost-scorecard');fetchGhostScorecard()"><span class="icon">👻</span> Ghost Scorecard</div>
-  <div class="sidebar-item" onclick="showSection('model-control'); loadModelControl()"><span class="icon">⚙️</span> Models</div>
+  <!-- TIME-OF-DAY ZONES — replaces W5 function groups (Bridge-Nav-Reorg 2026-06-05).
+       Collapsible per-zone; active zone auto-expands on load (data-active-zone + toggleZone).
+       showSection ids preserved verbatim — only grouping/labels changed. -->
 
-  <!-- TIER 2 — More dropdown, grouped by function (W5-Sidebar Consolidation 2026-05-23) -->
-  <div style="margin:4px 8px 0;">
-    <div id="sidebar-more-btn" class="sidebar-item" onclick="toggleSidebarMore()" style="font-weight:700;color:var(--muted);justify-content:space-between;">
-      <span><span class="icon">⋯</span> More</span>
-      <span id="sidebar-more-arrow" style="font-size:11px;">▸</span>
-    </div>
-    <div id="sidebar-more-list" style="display:none;padding-left:4px;">
-
-      <!-- Trading / Execution -->
-      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:8px 12px 4px;">Trading / Execution</div>
-      <div class="sidebar-item" onclick="showSection('webull')"><span class="icon">🛸</span> Starfleet</div>
-      <div class="sidebar-item" id="nav-race" onclick="showSection('race');if(typeof raceStart==='function')raceStart()"><span class="icon">🏁</span> Race</div>
-      <div class="sidebar-item" onclick="showSection('squeeze');fetchSqueezeRecent()"><span class="icon">🎯</span> Squeeze</div>
-
-      <!-- Monitoring / Scanning -->
-      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:8px 12px 4px;">Monitoring / Scanning</div>
-      <div class="sidebar-item" onclick="showSection('livechart')"><span class="icon">⚡</span> Live Chart</div>
+  <!-- 🟡 PRE-MARKET -->
+  <div class="nav-zone zone-premarket" data-zone="premarket">
+    <div class="zone-header" onclick="toggleZone('premarket')"><span><span class="icon">🟡</span> PRE-MARKET</span><span class="zone-arrow">▸</span></div>
+    <div class="zone-items" id="zone-premarket">
+      <div class="sidebar-item" onclick="showSection('ready-room')"><span class="icon">📋</span> Ready Room</div>
+      <div class="sidebar-item" onclick="showSection('macro');loadMacroDashboard(false)"><span class="icon">🌍</span> Macro</div>
+      <div class="sidebar-item" onclick="showSection('news')"><span class="icon">📰</span> News</div>
+      <div class="sidebar-item" onclick="showSection('fear-greed')"><span class="icon">😱</span> Fear &amp; Greed</div>
+      <div class="sidebar-item" onclick="showSection('congress')"><span class="icon">🏛️</span> Congress</div>
       <div class="sidebar-item" id="nav-sniff-scan" title="Ollie's whole-market opportunity scanner" onclick="showSection('sniff-scan')"><span class="icon">📡</span> Sniff Scan</div>
-      <div class="sidebar-item" onclick="showSection('live-scanner');lsAutoLoad()"><span class="icon">📡</span> Live Scanner</div>
       <div class="sidebar-item" id="nav-movers" onclick="showSection('movers')"><span class="icon">📊</span> Movers</div>
-      <div class="sidebar-item" onclick="showSection('screener-pro')"><span class="icon">🔍</span> Screener Pro</div>
       <div class="sidebar-item" onclick="showSection('sector-watch')"><span class="icon">📡</span> Sector Watch</div>
+    </div>
+  </div>
+
+  <!-- 🔵 MARKET OPEN -->
+  <div class="nav-zone zone-open" data-zone="open">
+    <div class="zone-header" onclick="toggleZone('open')"><span><span class="icon">🔵</span> MARKET OPEN</span><span class="zone-arrow">▸</span></div>
+    <div class="zone-items" id="zone-open">
+      <div class="sidebar-item" id="nav-ollie-ai" title="Ollie AI Workspace — Channel Bar, dual races, sector tiles, Top List, Halts feed, Symbol Focus, Signal Replay" onclick="showSection('ollie-ai')"><span class="icon">🧠</span> Ollie AI <span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:#8b5cf6;color:#fff;font-size:9px;font-weight:700;letter-spacing:0.5px;vertical-align:middle;">NEW</span></div>
+      <div class="sidebar-item" onclick="showSection('ollie')"><span class="icon">💻</span> Ollie</div>
+      <div class="sidebar-item" title="Holly Live Trading — live candle chart with fleet trade markers, entry-zone alerts, active-agent attribution" onclick="showSection('live-trading')"><span class="icon">⚡</span> Live Trading</div>
+      <div class="sidebar-item" title="0DTE tactical trading station" onclick="showSection('dayblade')"><span class="icon">⚔️</span> Battle Station</div>
+      <div class="sidebar-item" id="nav-trade-desk" title="Manual trade desk (Captain) — Alpaca paper" onclick="showSection('trade-desk')"><span class="icon">📋</span> Trade Desk</div>
+      <div class="sidebar-item" onclick="showSection('live-scanner');lsAutoLoad()"><span class="icon">📡</span> Live Scanner</div>
+      <div class="sidebar-item" onclick="showSection('livechart')"><span class="icon">⚡</span> Live Chart</div>
+      <div class="sidebar-item" onclick="showSection('feed')"><span class="icon">👥</span> Crew Activity</div>
+      <div class="sidebar-item" onclick="showSection('alert-history')"><span class="icon">🔔</span> Alerts</div>
+    </div>
+  </div>
+
+  <!-- 🩵 MIDDAY -->
+  <div class="nav-zone zone-midday" data-zone="midday">
+    <div class="zone-header" onclick="toggleZone('midday')"><span><span class="icon">🩵</span> MIDDAY</span><span class="zone-arrow">▸</span></div>
+    <div class="zone-items" id="zone-midday">
+      <div class="sidebar-item" id="nav-cockpit" title="Command Bridge — system mission control (events bus, dispatcher mix, last decisions, kill switch)" onclick="showSection('cockpit')"><span class="icon">🎛️</span> Cockpit</div>
+      <div class="sidebar-item" onclick="showSection('charts')"><span class="icon">📈</span> Charts</div>
+      <div class="sidebar-item" onclick="showSection('leaderboard')"><span class="icon">🏆</span> Leaderboard</div>
+      <div class="sidebar-item" onclick="showSection('navigator')"><span class="icon">🔭</span> Navigator</div>
+      <div class="sidebar-item" title="Institutional Intelligence — smart money tracking" onclick="showSection('institutional-intel')"><span class="icon">🏛️</span> Inst. Intel</div>
+      <div class="sidebar-item" onclick="showSection('screener-pro')"><span class="icon">🔍</span> Screener Pro</div>
+      <div class="sidebar-item" onclick="showSection('squeeze');fetchSqueezeRecent()"><span class="icon">🎯</span> Squeeze</div>
       <div class="sidebar-item" onclick="showSection('heatmap')"><span class="icon">🗺️</span> Sectors</div>
       <div class="sidebar-item" onclick="showSection('big-charts')"><span class="icon">📱</span> Big Charts</div>
-      <div class="sidebar-item" onclick="showSection('alert-history')"><span class="icon">🔔</span> Alerts</div>
-
-      <!-- Research / Intel -->
-      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:8px 12px 4px;">Research / Intel</div>
-      <div class="sidebar-item" onclick="showSection('ready-room')"><span class="icon">📋</span> Ready Room</div>
-      <div class="sidebar-item" onclick="showSection('feed')"><span class="icon">👥</span> Crew Activity</div>
-      <div class="sidebar-item" title="Institutional Intelligence — smart money tracking" onclick="showSection('institutional-intel')"><span class="icon">🏛️</span> Inst. Intel</div>
-      <div class="sidebar-item" onclick="showSection('congress')"><span class="icon">🏛️</span> Congress</div>
-      <div class="sidebar-item" onclick="showSection('news')"><span class="icon">📰</span> News</div>
-      <div class="sidebar-item" onclick="showSection('macro');loadMacroDashboard(false)"><span class="icon">🌍</span> Macro</div>
-      <div class="sidebar-item" onclick="showSection('fear-greed')"><span class="icon">😱</span> Fear &amp; Greed</div>
-      <div class="sidebar-item" onclick="showSection('navigator')"><span class="icon">🔭</span> Navigator</div>
-
-      <!-- Performance / Analysis -->
-      <div style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:8px 12px 4px;">Performance / Analysis</div>
-      <div class="sidebar-item" id="nav-trades" title="Full trades history — paper book, filter by open/closed, options show C/P strike expiry" onclick="showSection('trades')"><span class="icon">📒</span> Trade Log</div>
-      <div class="sidebar-item" id="nav-test-kitchen" title="O-Tasty mechanical premium-selling — isolated paper PA3YVDTUH5CB. SIM-ONLY sandbox: no live orders (bracket wiring is Phase 2). Standalone SwingDesk :8889 via same-origin proxy /test-kitchen/." onclick="showSection('test-kitchen')"><span class="icon">🧪</span> Test Kitchen <span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:#b8860b;color:#1a1400;font-size:9px;font-weight:700;letter-spacing:0.5px;vertical-align:middle;">SANDBOX</span></div>
-      <div class="sidebar-item" title="Individual AI agent performance analysis" onclick="showSection('agent-deepdive');ddAutoLoad()"><span class="icon">🔬</span> Agent Deep Dive</div>
-      <div class="sidebar-item" title="Real physical gold &amp; silver holdings ledger" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
-      <div class="sidebar-item" onclick="showSection('costs')"><span class="icon">💰</span> Costs</div>
-      <a class="sidebar-item" href="/backtest" style="text-decoration:none;color:inherit;"><span class="icon">🧪</span> Backtest</a>
       <div class="sidebar-item" onclick="showSection('holodeck')"><span class="icon">🧪</span> Holodeck</div>
+    </div>
+  </div>
 
-      <!-- Admin (role-gated — admin-only class hides for role-observer via L329 CSS;
-           HM-ADMIN-ONLY-CSS-DEFAULT-DENY in XO_BACKLOG tracks the role-enumeration gap) -->
-      <div class="admin-only" style="font-size:10px;font-weight:700;color:#64748b;text-transform:uppercase;letter-spacing:0.5px;padding:8px 12px 4px;">Admin</div>
+  <!-- 🪸 POWER HOUR / CLOSE -->
+  <div class="nav-zone zone-power" data-zone="power">
+    <div class="zone-header" onclick="toggleZone('power')"><span><span class="icon">🪸</span> POWER HOUR</span><span class="zone-arrow">▸</span></div>
+    <div class="zone-items" id="zone-power">
+      <div class="sidebar-item" id="nav-trades" title="Full trades history — paper book, filter by open/closed, options show C/P strike expiry" onclick="showSection('trades')"><span class="icon">📒</span> Trade Log</div>
+      <div class="sidebar-item" title="Ghost Trader research-only book performance" onclick="showSection('ghost-scorecard');fetchGhostScorecard()"><span class="icon">👻</span> Ghost Scorecard</div>
+      <div class="sidebar-item" id="nav-test-kitchen" title="O-Tasty mechanical premium-selling — isolated paper PA3YVDTUH5CB. SIM-ONLY sandbox: no live orders (bracket wiring is Phase 2). Standalone SwingDesk :8889 via same-origin proxy /test-kitchen/." onclick="showSection('test-kitchen')"><span class="icon">🧪</span> Test Kitchen <span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:#b8860b;color:#1a1400;font-size:9px;font-weight:700;letter-spacing:0.5px;vertical-align:middle;">SANDBOX</span></div>
+      <div class="sidebar-item" onclick="showSection('webull')"><span class="icon">🛸</span> Starfleet</div>
+      <div class="sidebar-item" title="Individual AI agent performance analysis" onclick="showSection('agent-deepdive');ddAutoLoad()"><span class="icon">🔬</span> Agent Deep Dive</div>
+      <div class="sidebar-item" id="nav-race" onclick="showSection('race');if(typeof raceStart==='function')raceStart()"><span class="icon">🏁</span> Race</div>
+    </div>
+  </div>
+
+  <!-- ⬜ ALWAYS — pinned, never collapses, no opacity dim -->
+  <div class="nav-zone zone-always" data-zone="always">
+    <div class="zone-header zone-header-static"><span><span class="icon">⬜</span> ALWAYS</span></div>
+    <div class="zone-items zone-items-open" id="zone-always">
+      <div class="sidebar-item admin-only" title="Real-world net worth: Schwab + Webull + IBKR + physical metals (excludes Alpaca paper). Admin-only — contains liquid net-worth detail." onclick="showSection('real-portfolio')"><span class="icon">💰</span> Real Portfolio</div>
+      <div class="sidebar-item" onclick="showSection('model-control'); loadModelControl()"><span class="icon">⚙️</span> Models</div>
+      <div class="sidebar-item" onclick="showSection('costs')"><span class="icon">💰</span> Costs</div>
+      <div class="sidebar-item" title="Real physical gold &amp; silver holdings ledger" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
+      <a class="sidebar-item" href="/backtest" style="text-decoration:none;color:inherit;"><span class="icon">🧪</span> Backtest</a>
       <div class="sidebar-item admin-only" onclick="showSection('war-room')"><span class="icon">⚔️</span> War Room</div>
     </div>
   </div>
@@ -22297,6 +22318,8 @@ document.addEventListener('DOMContentLoaded', function() {
   }
   // Activate default section (dashboard) — all sections start as display:none
   showSection('dashboard');
+  // Bridge-Nav-Reorg 2026-06-05: auto-expand + highlight the current time-of-day zone
+  if (typeof applyZones === 'function') applyZones();
 });
 
 function toggleMobileSidebar() {
@@ -22308,13 +22331,41 @@ function toggleMobileSidebar() {
   if (ov) ov.classList.toggle('active', opening);
 }
 
-function toggleSidebarMore() {
-  var list = document.getElementById('sidebar-more-list');
-  var arrow = document.getElementById('sidebar-more-arrow');
-  var open = list && list.style.display === 'none';
-  if (list) list.style.display = open ? 'block' : 'none';
-  if (arrow) arrow.textContent = open ? '▾' : '▸';
+// Bridge-Nav-Reorg 2026-06-05: time-of-day zones replaced the "More" dropdown.
+// (toggleSidebarMore retired — no remaining references.)
+function toggleZone(zone) {
+  var z = document.querySelector('.nav-zone.zone-' + zone);
+  if (z) z.classList.toggle('open');
 }
+
+// Eastern-time → trading zone (DST-safe via Intl). After-hours/overnight → premarket (next-session prep).
+function currentMarketZone() {
+  try {
+    var et = new Intl.DateTimeFormat('en-US', { timeZone: 'America/New_York', hour12: false, hour: '2-digit', minute: '2-digit' }).format(new Date());
+    var p = et.split(':');
+    var m = (parseInt(p[0], 10) % 24) * 60 + parseInt(p[1], 10);
+    if (m < 9 * 60 + 30) return 'premarket';
+    if (m < 12 * 60) return 'open';
+    if (m < 14 * 60 + 30) return 'midday';
+    if (m < 16 * 60) return 'power';
+    return 'premarket';
+  } catch (e) { return 'open'; }
+}
+
+// Auto-highlight + auto-expand the current zone; collapse others; ALWAYS stays open.
+function applyZones() {
+  var zone = currentMarketZone();
+  var sb = document.querySelector('.sidebar');
+  document.querySelectorAll('.nav-zone').forEach(function (z) {
+    if (z.classList.contains('zone-always')) return;   // ALWAYS never toggles
+    var isActive = z.classList.contains('zone-' + zone);
+    z.classList.toggle('open', isActive);
+    z.classList.toggle('zone-active', isActive);
+  });
+  if (sb) sb.setAttribute('data-active-zone', zone);
+}
+// Re-evaluate the active zone every 30 min.
+setInterval(applyZones, 30 * 60 * 1000);
 
 // Close sidebar when a nav item is tapped on mobile
 document.addEventListener('click', function(e) {
