@@ -16327,6 +16327,45 @@ def uhura_signal():
         return {"error": str(e), "traceback": traceback.format_exc()}
 
 
+@app.get("/api/uhura/institutional")
+@timed_cache(120)
+def uhura_institutional(limit: int = 10):
+    """Lt. Uhura v1 — Top Insider Reads.
+    Latest SEC Form-4 institutional signals (institutional_signals table,
+    trader.db). Source: agents/uhura_agent.py, runs 05:30 AZ daily.
+    """
+    try:
+        conn = _conn()  # routes to trader.db (DB constant) with Row factory
+        rows = conn.execute(
+            """
+            SELECT ticker, signal, reasoning, scan_date, created_at
+            FROM institutional_signals
+            WHERE scan_date = (SELECT MAX(scan_date) FROM institutional_signals)
+            ORDER BY
+                CASE signal
+                    WHEN 'STRONG_SELL' THEN 1
+                    WHEN 'STRONG_BUY'  THEN 2
+                    WHEN 'SELL'        THEN 3
+                    WHEN 'BUY'         THEN 4
+                    ELSE 5
+                END,
+                created_at DESC
+            LIMIT ?
+            """,
+            (limit,),
+        ).fetchall()
+        conn.close()
+        signals = [dict(r) for r in rows]
+        return {
+            "signals":   signals,
+            "scan_date": signals[0]["scan_date"] if signals else None,
+            "count":     len(signals),
+        }
+    except Exception as e:
+        import traceback
+        return {"error": str(e), "traceback": traceback.format_exc()}
+
+
 @app.get("/api/volume-profile/{symbol}")
 @timed_cache(600)
 def volume_profile(symbol: str, period: str = "30d"):
