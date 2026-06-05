@@ -2,7 +2,7 @@
  * ConceptGlyphs.tsx
  * OllieTrades Bridge — Tier 2 concept glyphs.
  *
- * 14 line-art SVG icons, 24×24 source viewBox, render at 16 px in
+ * 16 line-art SVG icons, 24×24 source viewBox, render at 16 px in
  * walk-back narration and on Concept Cards. All strokes use
  * `currentColor` — inherit the surrounding text color so glyphs sit
  * inline with paragraph text without fighting the palette.
@@ -294,6 +294,46 @@ export const TakeProfitGlyph: React.FC<IconProps> = ({
 );
 
 /* ============================================================
+ *  SIGNAL / MOMENTUM (2)
+ * ============================================================ */
+
+export const ConvergenceGlyph: React.FC<IconProps> = ({
+  size = 16,
+  title = 'Convergence',
+  ...props
+}) => (
+  <svg {...SVG_DEFAULTS} width={size} height={size} {...props}>
+    <title>{title}</title>
+    {/* Solid lines — primary signals */}
+    <line x1="3" y1="3" x2="12" y2="12" strokeWidth={1.8} />
+    <line x1="21" y1="3" x2="12" y2="12" strokeWidth={1.8} />
+    {/* Dashed lines — secondary signals */}
+    <line x1="3" y1="21" x2="12" y2="12" strokeWidth={1.4} strokeDasharray="2.5 2" />
+    <line x1="21" y1="21" x2="12" y2="12" strokeWidth={1.4} strokeDasharray="2.5 2" />
+    {/* Meeting point */}
+    <circle cx="12" cy="12" r="2.5" fill="currentColor" />
+  </svg>
+);
+
+export const MacdGlyph: React.FC<IconProps> = ({
+  size = 16,
+  title = 'MACD',
+  ...props
+}) => (
+  <svg {...SVG_DEFAULTS} width={size} height={size} {...props}>
+    <title>{title}</title>
+    {/* Origin dot — shared start of both EMAs */}
+    <circle cx="3" cy="16" r="1.5" fill="currentColor" />
+    {/* Fast EMA — aggressive curve */}
+    <path d="M3 16 Q8 14 13 10 Q17 7 21 5" strokeWidth={1.8} />
+    {/* Slow EMA — shallower, dashed */}
+    <path d="M3 16 Q8 15 13 13 Q17 11 21 10" strokeWidth={1.4} strokeDasharray="2.5 2" />
+    {/* Divergence gap indicator at right edge */}
+    <line x1="21" y1="5" x2="21" y2="10" strokeWidth={1} opacity={0.5} />
+  </svg>
+);
+
+/* ============================================================
  *  Registry + types
  * ============================================================ */
 
@@ -305,6 +345,8 @@ export const conceptGlyphs = {
   cash_secured_put: CashSecuredPutGlyph,
   rsi: RsiGlyph,
   relative_volume: RelativeVolumeGlyph,
+  convergence: ConvergenceGlyph,
+  macd: MacdGlyph,
   atr: AtrGlyph,
   ema_ribbon: EmaRibbonGlyph,
   iv_rank: IvRankGlyph,
