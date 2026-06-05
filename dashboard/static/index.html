@@ -19634,6 +19634,7 @@ async function fetchNavSchedule() {
    Self-contained + defensive (HM-BJ.E2 protection): all DOM lookups null-checked,
    try/catch around fetch chains, no edits to existing functions. */
 (function(){
+  var _pillMounted = false;  // HM-UHURA-VISIBILITY: log "mounted" once; 120s refreshes log as "refreshed" (true multi-mount count)
   function $(id){ return document.getElementById(id); }
   function esc(s){ return String(s==null?'':s).replace(/[&<>"]/g, function(c){
     return {'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c]; }); }
@@ -19672,7 +19673,8 @@ async function fetchNavSchedule() {
           ? votes.map(function(v){ return '<div class="uhura-vote-row" style="font-size:12px;">'+esc(v)+'</div>'; }).join('')
           : '<div style="font-size:12px;color:var(--muted);">No votes.</div>';
       }
-      console.info('[uhura-mood-pill] mounted, conviction='+conv+' aligned='+aligned+'/'+total);
+      if (!_pillMounted) { _pillMounted = true; console.info('[uhura-mood-pill] mounted, conviction='+conv+' aligned='+aligned+'/'+total); }
+      else { console.debug('[uhura-mood-pill] refreshed, conviction='+conv+' aligned='+aligned+'/'+total); }
     } catch(e){
       pill.textContent = 'UHURA · —';
       console.info('[uhura-mood-pill] mount error: '+(e&&e.message?e.message:e));
