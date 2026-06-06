@@ -29411,7 +29411,7 @@ async function postWarRoomMessage() {
   // Starfleet command shortcuts
   var msgLower = msg.toLowerCase().trim();
   var starfleetCmd = null;
-  if (msgLower === 'red alert') { starfleetCmd = {input:'RED ALERT — all crew: immediate risk assessment! Report threats NOW.', command:'red_alert'}; playArcherVideo('archer-welcome.mp4'); }
+  if (msgLower === 'red alert') { starfleetCmd = {input:'RED ALERT — all crew: immediate risk assessment! Report threats NOW.', command:'red_alert'}; }
   else if (msgLower === 'yellow alert') starfleetCmd = {input:'YELLOW ALERT — heightened monitoring. Tighten stops, reduce new exposure.', command:'yellow_alert'};
   else if (msgLower === 'all stop') starfleetCmd = {input:'ALL STOP — no new trades. Cash preservation mode. Report status.', command:'all_stop'};
   else if (msgLower === 'battlestations') starfleetCmd = {input:'BATTLESTATIONS — crash protocol! Raise cash targets, tighten all stops, defensive positions only.', command:'battlestations'};
@@ -36375,36 +36375,23 @@ function showNotificationPopup(notif) {
   }
   if (notif.type === 'trade' || notif.type === 'alert') playNotifSound(notif.severity);
   // Archer audio — route by notification type and body content
+  // HM-ARCHER-DYNAMIC 2026-06-06: canned HeyGen clips RETIRED → dynamic announcements
+  // with live specifics, spoken via Edge TTS + rendered as visible text (caption +
+  // console scrollback). Route notif → announcement type; archerAnnounce does the rest.
   (function() {
     var body = (notif.body || '').toLowerCase();
     var title = (notif.title || '').toLowerCase();
+    var t = null;
     if (notif.type === 'trade') {
-      if (body.includes('stop') || body.includes('loss') || title.includes('stop')) {
-        playArcherAudio('07-stoploss');
-        playArcherVideo('archer-07-stoploss.mp4');
-      } else if (body.includes('profit') || body.includes('scaled') || body.includes('target')) {
-        playArcherAudio('08-profit');
-        playArcherVideo('archer-08-profit.mp4');
-      } else if (body.includes('option') || body.includes('call') || body.includes('put') || body.includes('0dte')) {
-        playArcherAudio('06-options');
-        playArcherVideo('archer-06-options.mp4');
-      } else if (body.includes('buy') || body.includes('open') || body.includes('long') || body.includes('enter')) {
-        playArcherAudio('04-buy');
-        playArcherVideo('archer-04-buy.mp4');
-      } else {
-        playArcherAudio('05-sell');
-        playArcherVideo('archer-05-sell.mp4');
-      }
-    } else if (notif.type === 'vix') {
-      playArcherAudio('09-vix');
-      playArcherVideo('archer-09-vix.mp4');
-    } else if (notif.type === 'convergence') {
-      playArcherAudio('10-convergence');
-      playArcherVideo('archer-10-convergence.mp4');
-    } else if (notif.severity === 'critical' || notif.type === 'alert') {
-      playArcherAudio('03-redalert');
-      playArcherVideo('archer-03-redalert.mp4');
-    }
+      t = (/stop|loss/.test(body) || /stop/.test(title)) ? 'stoploss'
+        : /profit|scaled|target/.test(body) ? 'profit'
+        : /option|call|put|0dte/.test(body) ? 'options'
+        : /buy|open|long|enter/.test(body) ? 'open'
+        : 'close';
+    } else if (notif.type === 'vix') { t = 'vix'; }
+    else if (notif.type === 'convergence') { t = 'convergence'; }
+    else if (notif.severity === 'critical' || notif.type === 'alert') { t = 'redalert'; }
+    if (t && typeof archerAnnounce === 'function') { archerAnnounce(t, notif); }
   })();
   if (typeof Notification !== 'undefined' && Notification.permission === 'granted' && notif.id > 0) {
     try {
@@ -36676,7 +36663,8 @@ setTimeout(pollNotifications, 3000); // First poll after 3s
     <button onclick="archerMorningBriefing()" title="Morning Briefing" style="padding:3px 10px;background:#1e3a5f;border:1px solid #3b82f6;border-radius:5px;color:#93c5fd;font-size:10px;cursor:pointer;white-space:nowrap;">☀️ Brief</button>
     <button id="archer-stop-bar" onclick="stopArcherNow()" title="Stop Archer audio" style="display:none;padding:3px 8px;background:#3b0000;border:1px solid #ef4444;border-radius:5px;color:#ef4444;font-size:10px;cursor:pointer;">🔇 Stop</button>
     <button onclick="replayArcherVoice()" id="archer-replay-btn" title="Replay last voice" style="padding:3px 8px;background:none;border:1px solid #334155;border-radius:5px;color:#64748b;font-size:12px;cursor:pointer;">🔊</button>
-    <button onclick="archerPlayIntro()" id="archer-intro-btn" title="Play Archer intro video" style="padding:3px 8px;background:none;border:1px solid #334155;border-radius:5px;color:#64748b;font-size:11px;cursor:pointer;white-space:nowrap;">▶ Intro</button>
+    <button onclick="repeatArcher()" id="archer-repeat-btn" title="Repeat Archer's last line — show the text (and re-speak)" style="padding:3px 8px;background:none;border:1px solid #334155;border-radius:5px;color:#64748b;font-size:12px;cursor:pointer;">🔁</button>
+    <!-- HM-ARCHER-DYNAMIC 2026-06-06: ▶ Intro button removed (welcome clip retired; briefing-on-open greets). -->
   </div>
   <div id="computer-chat-header">
     <img src="/static/archer-portrait.png?v=4" style="width:36px;height:36px;border-radius:50%;object-fit:cover;border:2px solid #d4a030;flex-shrink:0;">
@@ -36783,6 +36771,13 @@ setTimeout(pollNotifications, 3000); // First poll after 3s
       <div class="cc-msg computer" style="margin:0;" id="archer-initial-msg">Standing by, Captain.</div>
     </div>
   </div>
+  <!-- HM-ARCHER-CAPTIONS: live caption — rides Archer's voice so the Admiral can READ
+       what he says (fans-running accessibility). aria-live announces to screen readers. -->
+  <div id="archer-caption" aria-live="polite" role="status"
+       style="display:none;margin:0 8px 6px;padding:11px 14px;background:rgba(2,8,20,0.97);
+              border:1px solid #38bdf8;border-left:4px solid #38bdf8;border-radius:8px;
+              color:#e8f4ff;font-size:15px;line-height:1.45;font-weight:600;
+              box-shadow:0 2px 12px rgba(0,0,0,0.5);"></div>
   <div id="computer-chat-input-row">
     <textarea id="computer-chat-input" placeholder="Ask the computer..." rows="1"
       onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();sendComputerChat();}"></textarea>
@@ -36904,7 +36899,7 @@ function speakChatText(text, listenBtn) {
   });
 }
 
-function addComputerMessage(role, text) {
+function addComputerMessage(role, text, opts) {
   var msgs = document.getElementById('computer-chat-messages');
   if (!msgs) return;
   var div = document.createElement('div');
@@ -36943,8 +36938,11 @@ function addComputerMessage(role, text) {
     row.appendChild(inner);
     msgs.appendChild(row);
     msgs.scrollTop = msgs.scrollHeight;
-    if (_ccAutoSpeak) { speakChatText(text, listenBtn); }
-    else if (typeof archerAutoRead === 'function') { archerAutoRead(text); }
+    if (!(opts && opts.noSpeak)) {   // archerAnnounce renders text but speaks once itself
+      if (_ccAutoSpeak) { speakChatText(text, listenBtn); }
+      else if (typeof archerAutoRead === 'function') { archerAutoRead(text); }
+    }
+    if (typeof captureArcherUtterance === 'function') { captureArcherUtterance(text); }  // HM-ARCHER-CAPTIONS
     return bubble; // return bubble so caller can mutate .textContent
   }
 
@@ -36972,13 +36970,8 @@ function sendComputerChat() {
   addComputerMessage('user', msg);
   _computerChatHistory.push({role: 'user', content: msg});
 
-  // Trigger contextual HeyGen video based on message intent
-  var _msgL = msg.toLowerCase();
-  if (_msgL.includes('red alert') || _msgL.includes('battle stations') || _msgL.includes('battlestation') || _msgL.includes('emergency') || _msgL.includes('crash')) {
-    playArcherVideo('archer-03-redalert.mp4');
-  } else if (_msgL.includes('brief') || _msgL.includes('morning') || _msgL.includes('status report') || _msgL.includes('good morning')) {
-    playArcherVideo('archer-02-briefing.mp4');
-  }
+  // HM-ARCHER-DYNAMIC 2026-06-06: canned chat-intent HeyGen videos removed —
+  // the dynamic Sonnet/Ollama reply already speaks (TTS) + renders text.
 
   var thinkingDiv = addComputerMessage('computer thinking', 'Processing...');
   if (sendBtn) sendBtn.disabled = true;
@@ -37906,82 +37899,93 @@ document.addEventListener('DOMContentLoaded', function() {
 
 <script>
 // ── Archer Audio Player ───────────────────────────────────────────────────────
-function playArcherAudio(clip) {
-  var audio = document.getElementById('archer-audio-player');
-  if (!audio) {
-    audio = document.createElement('audio');
-    audio.id = 'archer-audio-player';
-    document.body.appendChild(audio);
-  }
-  audio.src = '/static/archer-audio/archer-' + clip + '.mp3';
-  audio.play().catch(function(e) { console.log('[Archer audio] blocked:', e.message); });
+// ── HM-ARCHER-CAPTIONS + DYNAMIC ANNOUNCE: everything Archer says is readable, ─────
+// repeatable, and (for live events) spoken with real specifics. Canned HeyGen clips
+// RETIRED 2026-06-06 (archived) → replaced by archerAnnounce() below.
+var _archerLastUtterance = '';   // last thing Archer "said" on ANY path — for 🔁 repeat
+var _archerCaptionTimer = null;
+
+// Show the caption; auto-hide a few seconds after the voice would finish.
+function showArcherCaption(text, holdMs) {
+  var el = document.getElementById('archer-caption');
+  if (!el) return;
+  if (!text) { el.style.display = 'none'; el.textContent = ''; return; }
+  el.textContent = '⚓ ' + text;
+  el.style.display = 'block';
+  if (_archerCaptionTimer) { clearTimeout(_archerCaptionTimer); }
+  var ms = holdMs || Math.min(20000, 4000 + text.length * 60);
+  _archerCaptionTimer = setTimeout(function() { el.style.display = 'none'; el.textContent = ''; }, ms);
 }
 
-// ── Archer HeyGen Video Player ────────────────────────────────────────────────
-// HM-CLEANUP-SWEEP: removed orphaned `_archerVideoCicOpen` (welcome-video autoplay
-// flag) — superseded by briefing-on-open; it was declared but referenced nowhere.
-var _archerBriefingShownOnOpen = false; // HM-ARCHER-REBUILD: briefing-on-open one-shot per session
-
-function playArcherVideo(videoFile) {
-  var player = document.getElementById('archer-video-player');
-  if (!player) {
-    player = document.createElement('video');
-    player.id = 'archer-video-player';
-    player.setAttribute('playsinline', '');
-    player.setAttribute('preload', 'none');
-    player.style.cssText = 'width:100%;max-height:280px;object-fit:contain;border-radius:8px;margin:8px 0 4px;display:block;background:#0a0a1a;';
-    var msgs = document.getElementById('computer-chat-messages');
-    if (msgs) {
-      msgs.insertBefore(player, msgs.firstChild);
-    }
-
-    // Stand By button — inserted immediately after the video
-    var standByBtn = document.createElement('button');
-    standByBtn.id = 'archer-standby-btn';
-    standByBtn.textContent = 'Stand By';
-    standByBtn.style.cssText = 'display:none;margin:4px auto;padding:4px 14px;background:rgba(100,100,120,0.3);border:1px solid rgba(255,255,255,0.15);border-radius:6px;color:#8899aa;font-size:11px;font-family:monospace;cursor:pointer;';
-    standByBtn.onclick = function() {
-      var v = document.getElementById('archer-video-player');
-      if (v) { v.pause(); v.currentTime = 0; v.style.display = 'none'; }
-      this.style.display = 'none';
-      if (typeof setArcherState === 'function') setArcherState('idle');
-    };
-    player.parentNode.insertBefore(standByBtn, player.nextSibling);
-  }
-
-  var standByBtn = document.getElementById('archer-standby-btn');
-
-  // Swap source and play
-  player.src = '/static/' + videoFile;
-  player.style.display = 'block';
-  player.load();
-  player.play().catch(function(e) { console.log('[Archer video] autoplay blocked:', e.message); });
-
-  player.onplay = function() {
-    if (standByBtn) standByBtn.style.display = 'block';
-  };
-  player.onended = function() {
-    player.style.display = 'none';
-    player.removeAttribute('src');
-    if (standByBtn) standByBtn.style.display = 'none';
-  };
+// Capture hook — call on EVERY speak path so 🔁 repeat always has the text.
+function captureArcherUtterance(text, opts) {
+  if (!text || !String(text).trim()) return;
+  _archerLastUtterance = String(text).trim();
+  if (opts && opts.caption) { showArcherCaption(_archerLastUtterance); }
 }
 
-// HM-ARCHER-REBUILD 2026-06-06: ▶ Intro must reveal the chat surface BEFORE
-// playing, so the welcome video is VISIBLE (not a hidden element whose audio
-// still plays). Dismiss hologram if up, un-hide messages, scroll video into view.
-function archerPlayIntro() {
-  if (window.shipComputer && typeof window.shipComputer.isActive === 'function'
-      && window.shipComputer.isActive() && typeof window.shipComputer.stopAndShowChat === 'function') {
-    window.shipComputer.stopAndShowChat();
+// 🔁 Re-display Archer's last line (chat reply OR announcement) + re-speak.
+function repeatArcher() {
+  var text = _archerLastUtterance;
+  if (!text) {
+    var bubbles = document.querySelectorAll('#computer-chat-messages .cc-msg.computer');
+    if (bubbles.length) { text = (bubbles[bubbles.length - 1].textContent || '').trim(); }
   }
-  var m = document.getElementById('computer-chat-messages');
-  if (m) m.style.display = '';
-  playArcherVideo('archer-01-welcome.mp4');
-  var v = document.getElementById('archer-video-player');
-  if (v && typeof v.scrollIntoView === 'function') v.scrollIntoView({behavior:'smooth', block:'center'});
-  else if (m) m.scrollTop = 0;
+  if (!text) { showArcherCaption('(nothing to repeat yet)', 3000); return; }
+  showArcherCaption(text, Math.min(20000, 5000 + text.length * 60));
+  try {
+    if (window._archerAutoRead && typeof archerAutoRead === 'function') { archerAutoRead(text); }
+    else if (typeof speakChatText === 'function') { speakChatText(text); }
+  } catch (e) { /* re-speak is best-effort */ }
 }
+
+// ── HM-ARCHER-DYNAMIC: extensible live-announcement dispatcher ────────────────
+// Archer SPEAKS live events with specifics via Edge TTS (audible) + caption
+// (transient) + console (permanent scrollback). Add a new announcement type =
+// add ONE entry to ARCHER_ANNOUNCERS. Each formatter templates structured `d`
+// when present, else falls back to the server's notif.body/title string.
+function _amText(d) { return (d && (d.body || d.title)) || ''; }
+function _amPnl(d) {
+  if (d.pnl === undefined || d.pnl === null) return '';
+  var v = Number(d.pnl);
+  if (isNaN(v)) return '';
+  return v >= 0 ? (', up $' + Math.abs(v)) : (', down $' + Math.abs(v));
+}
+var ARCHER_ANNOUNCERS = {
+  stoploss:    function(d){ return d.symbol ? ('Stop loss hit on ' + d.symbol + ' at $' + d.price + _amPnl(d) + '.') : _amText(d); },
+  profit:      function(d){ return d.symbol ? ('Profit target on ' + d.symbol + ' at $' + d.price + _amPnl(d) + '.') : _amText(d); },
+  open:        function(d){ return d.symbol ? ('Opened ' + d.symbol + (d.qty ? (' — ' + d.qty + ' shares') : '') + ' at $' + d.price + '.') : _amText(d); },
+  close:       function(d){ return d.symbol ? ('Closed ' + d.symbol + ' at $' + d.price + _amPnl(d) + '.') : _amText(d); },
+  options:     function(d){ return d.symbol ? ('Options ' + (d.action || 'order') + ' on ' + d.symbol + '.') : _amText(d); },
+  vix:         function(d){ return (d.value !== undefined && d.value !== null) ? ('VIX alert — ' + d.value + '.') : _amText(d); },
+  convergence: function(d){
+                 if (d.symbol) {
+                   var sys = (d.systems && d.systems.length) ? (': ' + d.systems.join(', ')) : '';
+                   return 'Convergence on ' + d.symbol + ' — ' + (d.count || 'multiple') + ' systems aligned' + sys + '.';
+                 }
+                 return _amText(d);
+               },
+  dissent:     function(d){ return d.symbol ? ('Crew split on ' + d.symbol + ' — ' + (d.dissenter || 'an officer') + ' dissenting ' + (d.call || '') + ((d.accuracy !== undefined && d.accuracy !== null) ? (', ' + d.accuracy + '% dissent accuracy') : '') + '.') : _amText(d); },
+  bridgevote:  function(d){ return d.symbol ? ('Bridge vote — ' + (d.n || '?') + ' of ' + (d.total || '?') + ' ' + (d.direction || '') + ' on ' + d.symbol + (d.level ? (', conviction ' + d.level) : '') + '.') : _amText(d); },
+  redalert:    function(d){ var s = _amText(d); return 'Red alert, Captain.' + (s ? (' ' + s) : ''); },
+  marketclose: function(d){ return _amText(d) || 'Market closed for the day, Captain.'; },
+  weekend:     function(d){ return _amText(d) || 'Markets are closed for the weekend, Captain.'; }
+};
+
+function archerAnnounce(type, data) {
+  try {
+    var fn = ARCHER_ANNOUNCERS[type] || function(d){ return _amText(d); };
+    var line = (fn(data || {}) || '').trim();
+    if (!line) return;
+    if (typeof addComputerMessage === 'function') { addComputerMessage('computer', line, {noSpeak: true}); } // permanent scrollback
+    captureArcherUtterance(line, {caption: true});            // transient caption + repeat capture
+    if (typeof speakChatText === 'function') { speakChatText(line); }  // Edge TTS — speaks once
+  } catch (e) { console.info('[archerAnnounce] ' + (e && e.message ? e.message : e)); }
+}
+
+// briefing-on-open one-shot per session (HM-ARCHER-REBUILD)
+var _archerBriefingShownOnOpen = false;
+
 
 // ── Archer Avatar — Canvas Portrait with Lip Sync ────────────────────────────
 var _archerAudioCtx = null;
@@ -38291,13 +38295,11 @@ async function archerMorningBriefing() {
       });
     }
 
-    // Play HeyGen briefing video — track element for stop button
-    playArcherVideo('archer-02-briefing.mp4');
-    _archerVideoEl = document.getElementById('archer-video-player');
-    if (_archerVideoEl) {
-      _archerVideoEl.onended = function() { _showStopBtn(false); _briefingInFlight = false; };
-      _archerVideoEl.onpause = function() { _showStopBtn(false); };
-    }
+    // HM-ARCHER-DYNAMIC 2026-06-06: canned briefing video retired — the briefing
+    // text already renders (above) + speaks via TTS. _archerVideoEl stays null
+    // (declared above) so the stop-button / finally guards remain null-safe.
+    _briefingInFlight = false;
+    _showStopBtn(false);
 
   } catch(e) {
     console.error('Morning briefing error:', e);
@@ -39378,14 +39380,14 @@ function _interceptTaxCommand(msg) {
   if (day >= 1 && day <= 5 && mst >= 840 && mst <= 845) {
     if (!sessionStorage.getItem('tm_market_close_done')) {
       sessionStorage.setItem('tm_market_close_done', '1');
-      setTimeout(function() { playArcherAudio('11-close'); }, 3000);
+      setTimeout(function() { if (typeof archerAnnounce === 'function') archerAnnounce('marketclose', {}); }, 3000);
     }
   }
   // Weekend check: Saturday morning (day=6) play weekend clip
   if (day === 6 && mst >= 480 && mst <= 485) {
     if (!sessionStorage.getItem('tm_weekend_done')) {
       sessionStorage.setItem('tm_weekend_done', '1');
-      setTimeout(function() { playArcherAudio('12-weekend'); }, 3000);
+      setTimeout(function() { if (typeof archerAnnounce === 'function') archerAnnounce('weekend', {}); }, 3000);
     }
   }
 })();
