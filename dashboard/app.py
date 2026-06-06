@@ -16670,20 +16670,73 @@ def get_riker_synthesis():
     return {"synthesis": "Awaiting crew signals — no synthesis available yet", "timestamp": None, "fresh": False, "source": "none"}
 
 
+@app.get("/api/archer/briefing")
+def archer_briefing():
+    """Latest Captain Archer briefing (plutus-v1 synthesis). HM-ARCHER-REBUILD."""
+    try:
+        conn = _conn()
+        row = conn.execute(
+            "SELECT briefing, created_at FROM archer_briefings ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        conn.close()
+        if not row:
+            return {"briefing": None, "created_at": None, "stale": True}
+        return {"briefing": row[0], "created_at": row[1], "stale": False}
+    except Exception as e:
+        logger.warning("[archer/briefing] %s: %r", type(e).__name__, e)
+        return {"briefing": None, "created_at": None, "error": f"{type(e).__name__}"}
+
+
+@app.get("/api/archer/alerts")
+def archer_alerts(tier: str = None, limit: int = 20):
+    """Recent Captain Archer convergence/short alerts, optionally tier-filtered."""
+    try:
+        conn = _conn()
+        if tier:
+            rows = conn.execute(
+                "SELECT tier, symbol, systems, narrative, created_at FROM archer_alerts "
+                "WHERE UPPER(tier)=UPPER(?) ORDER BY id DESC LIMIT ?",
+                (tier, int(limit)),
+            ).fetchall()
+        else:
+            rows = conn.execute(
+                "SELECT tier, symbol, systems, narrative, created_at FROM archer_alerts "
+                "ORDER BY id DESC LIMIT ?",
+                (int(limit),),
+            ).fetchall()
+        conn.close()
+        return {"alerts": [
+            {"tier": r[0], "symbol": r[1], "systems": (r[2] or "").split(","),
+             "narrative": r[3], "created_at": r[4]}
+            for r in rows
+        ]}
+    except Exception as e:
+        logger.warning("[archer/alerts] %s: %r", type(e).__name__, e)
+        return {"alerts": [], "error": f"{type(e).__name__}"}
+
+
+@app.post("/api/archer/ask")
+def archer_ask(data: dict = None):
+    """Ask Captain Archer (plutus-v1) a question, grounded in live convergence."""
+    if not data or not (data.get("query") or data.get("question")):
+        return {"error": "query is required"}
+    query = (data.get("query") or data.get("question")).strip()
+    try:
+        from engine.archer.brain import interactive
+        answer = interactive(query)
+        if not answer:
+            return {"answer": None, "error": "plutus returned empty"}
+        return {"answer": answer, "query": query}
+    except Exception as e:
+        logger.warning("[archer/ask] %s: %r", type(e).__name__, e)
+        return {"answer": None, "error": f"{type(e).__name__}: {e}"}
+
+
 @app.get("/api/archer/frontier")
-@timed_cache(3600)
 def archer_frontier():
-    """Admiral Archer's frontier scanner report."""
-    from engine.archer_frontier import get_latest_report
-    return get_latest_report()
-
-
-@app.post("/api/archer/scan")
-def archer_scan():
-    """Force Archer to scan the frontier now."""
-    from engine.archer_frontier import generate_archer_report
-    result = generate_archer_report()
-    return {"ok": bool(result), "length": len(result) if result else 0}
+    """Legacy alias — frontier intel is now the unified Archer briefing.
+    HM-ARCHER-REBUILD: repointed off the archived engine.archer_frontier module."""
+    return archer_briefing()
 
 
 # --- Congressional Trades ---
@@ -22495,3 +22548,87 @@ async def test_kitchen_proxy(path: str, request: Request):
     return Response(content=up.content, status_code=up.status_code,
                     media_type=up.headers.get("content-type"))
 # === /HM-O-TASTY-PHASE-2.1 ===
+
+
+# === HM-ARCHER-REBUILD — Captain Archer intel/alert/interactive endpoints ===
+@app.get("/api/archer/briefing")
+def api_archer_briefing():
+    """Latest Captain Archer morning briefing (plutus-v1 synthesis)."""
+    try:
+        c = _conn()
+        row = c.execute(
+            "SELECT briefing, created_at FROM archer_briefings "
+            "ORDER BY id DESC LIMIT 1"
+        ).fetchone()
+        c.close()
+        if not row:
+            return {"briefing": None, "created_at": None}
+        return {"briefing": row["briefing"], "created_at": row["created_at"]}
+    except Exception as e:
+        return SafeJSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
+
+
+@app.get("/api/archer/alerts")
+def api_archer_alerts(tier: str = "", limit: int = 20):
+    """Recent Captain Archer alerts. Optional ?tier=red|yellow filter."""
+    try:
+        c = _conn()
+        # archer_alerts may not exist until the first cycle runs
+        exists = c.execute(
+            "SELECT name FROM sqlite_master WHERE type='table' AND name='archer_alerts'"
+        ).fetchone()
+        if not exists:
+            c.close()
+            return {"items": [], "count": 0}
+        q = ("SELECT tier, symbol, systems, narrative, created_at "
+             "FROM archer_alerts")
+        params: list = []
+        if tier:
+            q += " WHERE UPPER(tier) = ?"
+            params.append(tier.upper())
+        q += " ORDER BY id DESC LIMIT ?"
+        params.append(max(1, min(int(limit), 100)))
+        rows = c.execute(q, params).fetchall()
+        c.close()
+        items = [
+            {"tier": r["tier"], "symbol": r["symbol"],
+             "systems": (r["systems"] or "").split(","),
+             "narrative": r["narrative"], "created_at": r["created_at"]}
+            for r in rows
+        ]
+        return {"items": items, "count": len(items)}
+    except Exception as e:
+        return SafeJSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
+
+
+@app.get("/api/archer/convergence")
+def api_archer_convergence():
+    """Live 5-system convergence counter (caps at 4/5 while congress is down)."""
+    try:
+        from engine.archer.convergence import compute_convergence
+        conv = compute_convergence()
+        return {
+            "items": conv[:40],
+            "red": [c for c in conv if c["tier"] == "RED"],
+            "yellow": [c for c in conv if c["tier"] == "YELLOW"],
+            "count": len(conv),
+        }
+    except Exception as e:
+        return SafeJSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
+
+
+@app.post("/api/archer/ask")
+def api_archer_ask(payload: dict = Body(...)):
+    """Ask-Archer: interactive plutus-v1 query grounded in live context."""
+    query = (payload or {}).get("query", "").strip()
+    if not query:
+        return SafeJSONResponse({"error": "missing 'query'"}, status_code=400)
+    try:
+        from engine.archer.brain import interactive
+        answer = interactive(query)
+        if not answer:
+            return {"answer": "(Captain Archer is offline — plutus-v1 returned no response.)"}
+        return {"answer": answer, "query": query}
+    except Exception as e:
+        return SafeJSONResponse({"error": f"{type(e).__name__}: {e}"}, status_code=500)
+# === /HM-ARCHER-REBUILD ===

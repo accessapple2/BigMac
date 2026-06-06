@@ -136,10 +136,7 @@ def scan_frontier() -> list:
 
 def generate_archer_report() -> str | None:
     """Generate Archer's frontier report using Ollama."""
-    # HM-ARCHER-REBUILD: route to plutus-v1 (Archer's brain), not the phi3:mini
-    # global default. OLLAMA_URL still points at Ollie Max (.168).
-    from config import OLLAMA_URL
-    OLLAMA_MODEL = "plutus-v1"
+    from config import OLLAMA_URL, OLLAMA_MODEL
 
     picks = scan_frontier()
     if not picks:
@@ -197,8 +194,8 @@ ARCHER'S TAKE:
             from engine.war_room import save_hot_take
             preview = report[:400] + ("..." if len(report) > 400 else "")
             save_hot_take("archer", "FRONTIER", f"🚀 ADMIRAL ARCHER: {preview}")
-        except Exception as e:
-            console.log(f"[yellow]Archer frontier war-room post failed: {type(e).__name__}: {e!r}")
+        except Exception:
+            pass
 
         # Post top picks to Signal Center (trade_signals table)
         try:
@@ -216,8 +213,8 @@ ARCHER'S TAKE:
                     "reasoning": f"Frontier scan: {', '.join(p['signals'])}. "
                                  f"Change {p['change_pct']:+.1f}%, vol {p['volume_ratio']}x avg.",
                 })
-        except Exception as e:
-            console.log(f"[yellow]Archer frontier signal post failed: {type(e).__name__}: {e!r}")
+        except Exception:
+            pass
 
         console.log(f"[bold green]Admiral Archer: Frontier report generated ({len(picks)} picks)")
         return report

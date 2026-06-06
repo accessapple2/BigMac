@@ -2980,6 +2980,7 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/regime','/api/navigator/','/api/sectors/heatmap','/api/fear-greed',
     '/api/metals/','/api/earnings/','/api/inverse-etfs','/api/premium-etfs',
     '/api/congress/','/api/volume-radar','/api/universe/status','/api/gex-snapshot',
+    '/api/archer/',  // HM-ARCHER-REBUILD 2026-06-05 — Captain Archer intel/alerts/briefing/convergence
     '/api/fleet/active',  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
     '/api/portfolio/real',  // HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — Schwab+metals real-world view (PR #44 endpoint)
     '/api/networth',  // HM-AM 2026-06-02 — unified net-worth breakdown (cash/equities/metals), data-driven over is_active accounts
@@ -44949,6 +44950,127 @@ if (typeof registerSectionInit === 'function') {
 }
 </script>
 <!-- ==================== /W5-E Holly Live Trading ==================== -->
+
+<!-- ==================== HM-ARCHER-REBUILD — Captain Archer Intel Widget ==================== -->
+<style>
+  #archer-intel-fab{position:fixed;right:16px;bottom:16px;z-index:9000;width:44px;height:44px;border-radius:50%;
+    background:rgba(0,5,20,0.92);border:2px solid #d4a030;color:#d4a030;font-size:20px;cursor:pointer;
+    box-shadow:0 0 12px rgba(212,160,48,0.35);display:flex;align-items:center;justify-content:center;}
+  #archer-intel-fab.has-alert{border-color:#ff7a18;color:#ff7a18;box-shadow:0 0 14px rgba(255,122,24,0.6);}
+  #archer-intel-panel{position:fixed;right:16px;bottom:70px;z-index:9000;width:360px;max-height:72vh;overflow-y:auto;
+    display:none;background:rgba(0,5,20,0.97);border:1px solid rgba(212,160,48,0.4);border-radius:10px;
+    padding:12px 14px;box-shadow:0 8px 30px rgba(0,0,0,0.6);font-size:12px;color:var(--text,#c7d2fe);}
+  #archer-intel-panel.open{display:block;}
+  #archer-intel-panel h4{margin:0 0 6px;color:#d4a030;font-size:12px;letter-spacing:.5px;}
+  .archer-intel-alert{padding:6px 8px;border-radius:6px;margin-bottom:5px;font-size:11px;line-height:1.4;}
+  .archer-intel-alert.RED{background:rgba(255,122,24,0.12);border-left:3px solid #ff7a18;}
+  .archer-intel-alert.YELLOW{background:rgba(245,194,66,0.12);border-left:3px solid #f5c242;}
+  .archer-intel-conv{font-family:monospace;font-size:11px;color:#94a3b8;margin:2px 0;}
+  #archer-intel-briefing{white-space:pre-wrap;font-size:11px;line-height:1.5;color:#c7d2fe;
+    max-height:220px;overflow-y:auto;border:1px solid rgba(255,255,255,0.08);border-radius:6px;padding:8px;background:rgba(0,0,0,0.25);}
+  #archer-intel-ask{width:100%;box-sizing:border-box;background:rgba(0,0,0,0.4);border:1px solid #334155;
+    border-radius:6px;color:#e2e8f0;padding:6px 8px;font-size:12px;resize:vertical;}
+  #archer-intel-answer{white-space:pre-wrap;font-size:11px;line-height:1.5;color:#a7f3d0;margin-top:6px;}
+  .archer-intel-sec{margin-top:10px;}
+  .archer-intel-muted{color:#64748b;font-size:10px;}
+</style>
+<button id="archer-intel-fab" title="Captain Archer — Intel" onclick="archerIntelToggle()">🖖</button>
+<div id="archer-intel-panel" aria-label="Captain Archer Intel">
+  <h4>🖖 CAPTAIN ARCHER — INTEL <span class="archer-intel-muted">plutus-v1</span></h4>
+
+  <div class="archer-intel-sec">
+    <div class="archer-intel-muted">CONVERGENCE (5 systems · congress offline → caps 4/5)</div>
+    <div id="archer-intel-convergence">Loading…</div>
+  </div>
+
+  <div class="archer-intel-sec">
+    <div class="archer-intel-muted">RECENT ALERTS</div>
+    <div id="archer-intel-alerts">Loading…</div>
+  </div>
+
+  <div class="archer-intel-sec">
+    <div class="archer-intel-muted">MORNING BRIEFING</div>
+    <div id="archer-intel-briefing">Loading…</div>
+  </div>
+
+  <div class="archer-intel-sec">
+    <div class="archer-intel-muted">ASK ARCHER (models · strategies · reads)</div>
+    <textarea id="archer-intel-ask" rows="2" placeholder="e.g. explain the sell-the-news strategy"
+      onkeydown="if(event.key==='Enter'&&!event.shiftKey){event.preventDefault();archerIntelAsk();}"></textarea>
+    <div id="archer-intel-answer"></div>
+  </div>
+</div>
+<script>
+(function(){
+  var _archerIntelOpen = false;
+  var _archerIntelLoaded = false;
+
+  function _fmtSystems(arr){ return (arr||[]).join('+'); }
+
+  function archerIntelLoad(){
+    // Convergence
+    fetch('/api/archer/convergence').then(function(r){return r.ok?r.json():null;}).then(function(d){
+      var el = document.getElementById('archer-intel-convergence'); if(!el) return;
+      if(!d || !d.items){ el.innerHTML = '<span class="archer-intel-muted">unavailable</span>'; return; }
+      var top = d.items.slice(0,6);
+      if(!top.length){ el.innerHTML = '<span class="archer-intel-muted">no symbols flagged</span>'; return; }
+      el.innerHTML = top.map(function(c){
+        return '<div class="archer-intel-conv">'+c.symbol+'  '+c.count+'/5  ['+_fmtSystems(c.systems)+']</div>';
+      }).join('');
+    }).catch(function(){});
+
+    // Alerts
+    fetch('/api/archer/alerts?limit=8').then(function(r){return r.ok?r.json():null;}).then(function(d){
+      var el = document.getElementById('archer-intel-alerts'); if(!el) return;
+      var items = (d&&d.items)||[];
+      var fab = document.getElementById('archer-intel-fab');
+      if(fab){ if(items.some(function(x){return (x.tier||'').toUpperCase()==='RED';})) fab.classList.add('has-alert'); else fab.classList.remove('has-alert'); }
+      if(!items.length){ el.innerHTML = '<span class="archer-intel-muted">no alerts (quiet)</span>'; return; }
+      el.innerHTML = items.map(function(a){
+        var t=(a.tier||'').toUpperCase();
+        return '<div class="archer-intel-alert '+t+'"><b>'+(t==='RED'?'🔴':'🟡')+' '+a.symbol+'</b> — '+(a.narrative||'').slice(0,180)+'</div>';
+      }).join('');
+    }).catch(function(){});
+
+    // Briefing
+    fetch('/api/archer/briefing').then(function(r){return r.ok?r.json():null;}).then(function(d){
+      var el = document.getElementById('archer-intel-briefing'); if(!el) return;
+      el.textContent = (d&&d.briefing) ? d.briefing : 'No briefing yet today.';
+    }).catch(function(){});
+  }
+
+  window.archerIntelToggle = function(){
+    var p = document.getElementById('archer-intel-panel'); if(!p) return;
+    _archerIntelOpen = !_archerIntelOpen;
+    p.classList.toggle('open', _archerIntelOpen);
+    if(_archerIntelOpen && !_archerIntelLoaded){ _archerIntelLoaded = true; archerIntelLoad(); }
+    else if(_archerIntelOpen){ archerIntelLoad(); }
+  };
+
+  window.archerIntelAsk = function(){
+    var ta = document.getElementById('archer-intel-ask');
+    var out = document.getElementById('archer-intel-answer');
+    if(!ta || !out) return;
+    var q = (ta.value||'').trim(); if(!q){ return; }
+    out.textContent = 'Captain Archer is thinking… (plutus-v1)';
+    fetch('/api/archer/ask', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({query:q})})
+      .then(function(r){return r.ok?r.json():{error:'HTTP '+r.status};})
+      .then(function(d){ out.textContent = d.answer || ('Error: '+(d.error||'no response')); })
+      .catch(function(e){ out.textContent = 'Error: '+(e&&e.message?e.message:e); });
+  };
+
+  // Lightweight alert poll so the FAB lights up RED without opening the panel.
+  function _archerFabPoll(){
+    fetch('/api/archer/alerts?tier=red&limit=1').then(function(r){return r.ok?r.json():null;}).then(function(d){
+      var fab = document.getElementById('archer-intel-fab'); if(!fab) return;
+      if(d && d.items && d.items.length) fab.classList.add('has-alert');
+    }).catch(function(){});
+  }
+  setTimeout(_archerFabPoll, 4000);
+  setInterval(_archerFabPoll, 180000);
+})();
+</script>
+<!-- ==================== /HM-ARCHER-REBUILD ==================== -->
 
 </body>
 </html>

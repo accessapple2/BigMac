@@ -731,12 +731,92 @@ def run_archer_morning_briefing():
     if now.hour != 6 or now.minute > 15:  # Fire 6:00–6:15 AM AZ window
         return
     try:
-        from engine.morning_briefing import generate_morning_briefing
-        result = generate_morning_briefing()
-        audio = result.get("audio_url") or "no audio"
-        console.log(f"[cyan]Archer Morning Briefing generated — audio: {audio}")
+        # HM-ARCHER-REBUILD: Captain Archer (plutus-v1) synthesizes a fresh
+        # briefing from every live surface. engine.morning_briefing remains a
+        # data source Archer can read — it is no longer the briefing output.
+        import sqlite3 as _sql
+        import requests as _rq
+        from engine.archer.brain import morning_briefing as _archer_brief
+        briefing = (_archer_brief() or "").strip()
+        if not briefing:
+            console.log("[yellow]Archer briefing: plutus returned empty — skipping")
+            return
+        # Persist
+        _c = _sql.connect("data/trader.db")
+        _c.execute(
+            "CREATE TABLE IF NOT EXISTS archer_briefings ("
+            "id INTEGER PRIMARY KEY AUTOINCREMENT, briefing TEXT NOT NULL, "
+            "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+        )
+        _c.execute("INSERT INTO archer_briefings (briefing) VALUES (?)", (briefing,))
+        _c.commit()
+        _c.close()
+        # NTFY (admin)
+        try:
+            _rq.post(
+                "https://ntfy.sh/ollietrades-admin",
+                data=briefing.encode("utf-8"),
+                headers={"Title": "Captain Archer -- Morning Briefing",
+                         "Priority": "default"},
+                timeout=10,
+            )
+        except Exception as _ne:
+            console.log(f"[yellow]Archer briefing ntfy failed: {type(_ne).__name__}: {_ne!r}")
+        console.log(f"[cyan]Captain Archer briefing generated ({len(briefing)} chars, plutus-v1)")
     except Exception as e:
-        console.log(f"[red]Archer briefing error: {e}")
+        console.log(f"[red]Archer briefing error: {type(e).__name__}: {e!r}")
+
+
+@_hm_bq_instr("run_archer_alert_cycle")
+def run_archer_alert_cycle():
+    """HM-ARCHER-REBUILD: tiered Red/Yellow alert sweep, RTH-gated.
+
+    Fires only when convergence hits RED/YELLOW or a short signal emits;
+    deduped so the same (tier, symbol, systems) never re-alerts. Advisory only.
+    """
+    try:
+        now = az_now()
+    except Exception:
+        return
+    # Regular trading hours only (6:30am-1:00pm AZ ≈ 9:30-16:00 ET), weekdays
+    if now.weekday() >= 5:
+        return
+    if not ((now.hour == 6 and now.minute >= 30) or (7 <= now.hour < 13)):
+        return
+    try:
+        from engine.archer.alerts import run_alert_cycle
+        result = run_alert_cycle()
+        if result.get("red") or result.get("yellow"):
+            console.log(f"[cyan]Captain Archer alerts: {result}")
+    except Exception as e:
+        console.log(f"[red]Archer alert cycle error: {type(e).__name__}: {e!r}")
+
+
+# HM-ARCHER-REBUILD: run the alert sweep on a daemon thread so the per-alert
+# plutus narration (up to 150s each) never blocks the scheduler thread. Same
+# skip-if-prior-running lock pattern as _bg_whisper/_bg_autopilot, plus an
+# enabled flag for one-line reversal (flag flip requires a restart).
+_ARCHER_ALERTS_ENABLED = True
+_archer_alerts_bg_lock = threading.Lock()
+
+
+@_hm_bq_instr("_bg_archer_alerts")
+def _bg_archer_alerts():
+    """Daemon-thread wrapper around run_archer_alert_cycle() — never blocks the
+    scheduler. Skips if disabled or if a prior sweep is still running."""
+    if not _ARCHER_ALERTS_ENABLED:
+        return
+    if not _archer_alerts_bg_lock.acquire(blocking=False):
+        console.log("[dim]Archer alerts bg: prior sweep still running — skip")
+        return
+
+    def _runner():
+        try:
+            run_archer_alert_cycle()
+        finally:
+            _archer_alerts_bg_lock.release()
+
+    threading.Thread(target=_runner, daemon=True, name="sched_archer_alerts").start()
 
 
 @_hm_bq_instr("run_intel_report_morning")
@@ -3864,6 +3944,7 @@ if __name__ == "__main__":
     # schedule.every(15).minutes.do(run_gex_overlay_update) # DISABLED HM-GEX-CANONICAL — gex_overlay
     schedule.every().day.at("06:00").do(run_morning_briefing)         # Battle Station: 6:00 AM AZ (was every 5 min)
     schedule.every().day.at("06:00").do(run_archer_morning_briefing)  # Phase 3.6: Archer briefing 6:00 AM AZ
+    schedule.every(15).minutes.do(_bg_archer_alerts)                  # HM-ARCHER-REBUILD: tiered alerts (RTH-gated)
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
 
@@ -4684,25 +4765,59 @@ if __name__ == "__main__":
 
     # Admiral Archer: frontier scanner (Sunday 10:30 PM MST)
     def run_archer_frontier():
-        """Admiral Archer: scan frontier stocks Sunday 10:30 PM MST."""
-        from datetime import datetime as _dt
-        import pytz
+        """Admiral Archer: weekend forward-looking briefing, Sunday 10:30 PM MST.
+
+        HM-ARCHER-REBUILD: routes to plutus-v1 (engine.archer.brain) instead of
+        the archived engine.archer_frontier module. Idempotent per Sunday via a
+        recency guard on archer_briefings. No bare except:pass — the timezone
+        guard now logs instead of silently swallowing.
+        """
         try:
-            az = pytz.timezone("US/Arizona")
             now = az_now()
-        except Exception:
+        except Exception as _tz_e:
+            console.log(f"[red]Archer frontier tz error: {type(_tz_e).__name__}: {_tz_e!r}")
             return
         # Sunday (weekday 6) between 10:30-11:00 PM MST
         if now.weekday() != 6 or now.hour != 22 or now.minute < 30:
             return
         try:
-            from engine.archer_frontier import get_latest_report, generate_archer_report
-            latest = get_latest_report()
-            if latest.get("report") and latest.get("generated_at"):
+            import sqlite3 as _sql
+            import requests as _rq
+            from engine.archer.brain import morning_briefing as _archer_brief
+            # Recency guard: skip if a briefing was already stored in the last 6h.
+            _c = _sql.connect("data/trader.db")
+            _c.execute(
+                "CREATE TABLE IF NOT EXISTS archer_briefings ("
+                "id INTEGER PRIMARY KEY AUTOINCREMENT, briefing TEXT NOT NULL, "
+                "created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP)"
+            )
+            _recent = _c.execute(
+                "SELECT 1 FROM archer_briefings WHERE created_at >= datetime('now','-6 hours') LIMIT 1"
+            ).fetchone()
+            if _recent:
+                _c.close()
                 return
-            generate_archer_report()
+            briefing = (_archer_brief() or "").strip()
+            if not briefing:
+                console.log("[yellow]Archer frontier: plutus returned empty — skipping")
+                _c.close()
+                return
+            _c.execute("INSERT INTO archer_briefings (briefing) VALUES (?)", (briefing,))
+            _c.commit()
+            _c.close()
+            try:
+                _rq.post(
+                    "https://ntfy.sh/ollietrades-admin",
+                    data=briefing.encode("utf-8"),
+                    headers={"Title": "Captain Archer -- Frontier Briefing",
+                             "Priority": "default"},
+                    timeout=10,
+                )
+            except Exception as _ne:
+                console.log(f"[yellow]Archer frontier ntfy failed: {type(_ne).__name__}: {_ne!r}")
+            console.log(f"[cyan]Captain Archer frontier briefing generated ({len(briefing)} chars, plutus-v1)")
         except Exception as e:
-            console.log(f"[red]Archer frontier error: {e}")
+            console.log(f"[red]Archer frontier error: {type(e).__name__}: {e!r}")
 
     schedule.every(30).minutes.do(run_archer_frontier)       # Archer: Sunday 10:30 PM MST frontier scan
 
