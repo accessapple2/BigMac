@@ -67,6 +67,14 @@ _cache: dict = {"data": None, "ts": 0.0}
 # Spot-price symbols for metals market-value calc.
 _METAL_YAHOO_SYMBOL = {"gold": "GC=F", "silver": "SI=F"}
 
+# HM-AM TOTAL PORTFOLIO UNIFICATION (2026-06-06): only these accounts count
+# toward net worth AND display. Others (tradestation, webull, ibkr) are
+# SUSPENDED — their loaders STILL RUN (data/plumbing stays fresh) but they are
+# filtered out of the total and the returned accounts. Flip an account back on
+# by adding it to this list — the single toggle point. Alpaca paper / SIM are
+# NEVER here (Two-Book Policy — paper money is never summed into net worth).
+INCLUDED_ACCOUNTS = ["schwab", "metals"]
+
 # Regex to parse market_value from Schwab note text:
 #   "market_value=$3625.40, gain=$+22.90 (+0.64%) [from snapshot ...]"
 _MARKET_VALUE_RE = re.compile(r"market_value=\$([+-]?\d+\.?\d*)")
@@ -101,6 +109,32 @@ class TotalPortfolio(TypedDict, total=False):
 
 def _now_iso() -> str:
     return datetime.now(timezone.utc).isoformat(timespec="seconds")
+
+
+def _ensure_networth_history() -> None:
+    """HM-AM UNIFICATION: daily net-worth snapshot table — baseline for daily
+    change (close-to-close). One row per day, last-write-wins."""
+    conn = sqlite3.connect(_DB_PATH, timeout=15)
+    try:
+        conn.execute(
+            """
+            CREATE TABLE IF NOT EXISTS networth_history (
+                id             INTEGER PRIMARY KEY AUTOINCREMENT,
+                snapshot_date  TEXT NOT NULL,
+                net_worth      REAL NOT NULL,
+                schwab_value   REAL,
+                metals_value   REAL,
+                gold_value     REAL,
+                silver_value   REAL,
+                breakdown_json TEXT,
+                created_at     TEXT DEFAULT (datetime('now')),
+                UNIQUE(snapshot_date)
+            )
+            """
+        )
+        conn.commit()
+    finally:
+        conn.close()
 
 
 def _parse_market_value(notes: str) -> Optional[float]:
@@ -326,6 +360,28 @@ def get_total_portfolio(force_refresh: bool = False) -> TotalPortfolio:
     # Bridge Policy + HM-AM Scope doctrine. The earlier (2026-05-12)
     # _load_alpaca_paper source has been removed; do NOT re-add it.
 
+    # HM-AM UNIFICATION 2026-06-06: apply INCLUDED_ACCOUNTS filter POST-load.
+    # Loaders ran above (plumbing/data stays fresh); here we drop suspended
+    # accounts from positions + cash so they leave the total AND the display.
+    # Filter is key-level (not per-loader) because _load_schwab bundles both
+    # schwab + tradestation. `sources_loaded` keeps the full ran-list for
+    # observability; `sources_excluded` records what was filtered out.
+    result["sources_excluded"] = [
+        a for a in result["cash_by_account"]
+        if a not in INCLUDED_ACCOUNTS
+    ] + sorted({
+        (p.get("account") or "unknown") for p in result["positions"]
+        if (p.get("account") or "unknown") not in INCLUDED_ACCOUNTS
+    })
+    result["positions"] = [
+        p for p in result["positions"]
+        if (p.get("account") or "unknown") in INCLUDED_ACCOUNTS
+    ]
+    result["cash_by_account"] = {
+        k: v for k, v in result["cash_by_account"].items()
+        if k in INCLUDED_ACCOUNTS
+    }
+
     # Totals
     result["total_invested"] = sum(
         float(p.get("market_value") or 0) for p in result["positions"]
@@ -354,6 +410,202 @@ def get_portfolio_summary() -> dict:
         "sources_failed": tp["sources_failed"],
         "last_updated": tp["last_updated"],
     }
+
+
+def _az_today() -> str:
+    """AZ date 'YYYY-MM-DD' for snapshot keys."""
+    try:
+        from engine.market_calendar import az_now
+        return az_now().strftime("%Y-%m-%d")
+    except Exception:
+        return datetime.now(timezone.utc).strftime("%Y-%m-%d")
+
+
+def _prior_snapshot(before_date: str) -> Optional[dict]:
+    """Most recent networth_history row strictly before `before_date` (the daily
+    baseline). Returns None if none exists (first-ever snapshot → daily = '—')."""
+    try:
+        conn = sqlite3.connect(_DB_PATH, timeout=10)
+        try:
+            row = conn.execute(
+                "SELECT snapshot_date, net_worth, schwab_value, metals_value "
+                "FROM networth_history WHERE snapshot_date < ? "
+                "ORDER BY snapshot_date DESC LIMIT 1",
+                (before_date,),
+            ).fetchone()
+        finally:
+            conn.close()
+        if not row:
+            return None
+        return {"snapshot_date": row[0], "net_worth": row[1],
+                "schwab_value": row[2], "metals_value": row[3]}
+    except Exception:
+        return None
+
+
+def get_unified_networth(force_refresh: bool = False) -> dict:
+    """HM-AM UNIFICATION — the SINGLE canonical real-net-worth view.
+
+    Schwab + Metals only (INCLUDED_ACCOUNTS). Per-bucket + per-metal gain/loss:
+    all-time (vs cost basis) and daily (per-metal live spot change_pct;
+    total/bucket close-to-close vs the prior networth_history snapshot).
+    Daily total is None until a prior snapshot exists (first day → '—').
+    """
+    tp = get_total_portfolio(force_refresh=force_refresh)
+    positions = tp.get("positions") or []
+    cash_by_account = tp.get("cash_by_account") or {}
+
+    # Live spot (per-metal daily change_pct) — 300s cached, cheap.
+    spot: dict = {}
+    LEDGER_TO_SPOT: dict = {}
+    try:
+        from engine.metals_tracker import get_spot_prices, LEDGER_TO_SPOT as _l2s
+        spot = get_spot_prices() or {}
+        LEDGER_TO_SPOT = _l2s or {}
+    except Exception as e:
+        _ntfy_admin("Net worth: spot fetch failed", f"{type(e).__name__}: {e}")
+
+    def _pct(num: float, den: float) -> float:
+        return round(num / den * 100, 2) if den else 0.0
+
+    # ── Schwab bucket (cash + any equities; all-time ready for when it holds them)
+    schwab_cash = float(cash_by_account.get("schwab", 0.0) or 0.0)
+    schwab_positions = [p for p in positions if (p.get("account") == "schwab")]
+    schwab_equity = sum(float(p.get("market_value") or 0) for p in schwab_positions)
+    schwab_value = round(schwab_cash + schwab_equity, 2)
+    schwab_all_time = 0.0
+    schwab_cost = 0.0
+    for p in schwab_positions:
+        mv = p.get("market_value")
+        avg = p.get("avg_cost")
+        qty = float(p.get("qty") or 0)
+        if mv is not None and avg:
+            cost = float(avg) * qty
+            schwab_cost += cost
+            schwab_all_time += float(mv) - cost
+    schwab_bucket = {
+        "value": schwab_value,
+        "daily_dollar": 0.0, "daily_pct": 0.0,            # cash has no daily move
+        "all_time_dollar": round(schwab_all_time, 2),
+        "all_time_pct": _pct(schwab_all_time, schwab_cost),
+        "type": "cash" if not schwab_positions else "mixed",
+    }
+
+    # ── Metals bucket — per metal
+    metals_positions = [p for p in positions if (p.get("account") == "metals")]
+    metal_detail = []
+    metals_value = metals_basis = metals_daily_dollar = 0.0
+    gold_value = silver_value = 0.0
+    for p in metals_positions:
+        metal = (p.get("symbol") or "").lower()           # GOLD/SILVER -> gold/silver
+        qty = float(p.get("qty") or 0)
+        mv = float(p.get("market_value") or 0)
+        avg = float(p.get("avg_cost") or 0)
+        cost_basis = round(avg * qty, 2)
+        at_dollar = round(mv - cost_basis, 2)
+        # daily change_pct from live spot
+        key = LEDGER_TO_SPOT.get(metal, metal.upper())
+        entry = spot.get(key)
+        chg = entry.get("change_pct") if isinstance(entry, dict) else None
+        spot_price = entry.get("price") if isinstance(entry, dict) else None
+        daily_pct = float(chg) if isinstance(chg, (int, float)) else None
+        daily_dollar = None
+        if daily_pct is not None and daily_pct != -100:
+            daily_dollar = round(mv - mv / (1 + daily_pct / 100), 2)
+            metals_daily_dollar += daily_dollar
+        metals_value += mv
+        metals_basis += cost_basis
+        if metal == "gold":
+            gold_value = mv
+        elif metal == "silver":
+            silver_value = mv
+        metal_detail.append({
+            "metal": metal, "qty_oz": qty,
+            "spot": round(float(spot_price), 2) if spot_price else None,
+            "value": round(mv, 2), "cost_basis": cost_basis,
+            "all_time_dollar": at_dollar, "all_time_pct": _pct(at_dollar, cost_basis),
+            "daily_pct": round(daily_pct, 2) if daily_pct is not None else None,
+        })
+    metals_at = round(metals_value - metals_basis, 2)
+    metals_bucket = {
+        "value": round(metals_value, 2),
+        "daily_dollar": round(metals_daily_dollar, 2) if metals_positions else 0.0,
+        "all_time_dollar": metals_at,
+        "all_time_pct": _pct(metals_at, metals_basis),
+        "detail": metal_detail,
+    }
+
+    net_worth = round(schwab_value + metals_value, 2)
+    all_time_total = round(schwab_all_time + metals_at, 2)
+    all_time_cost = schwab_cost + metals_basis
+
+    # ── Daily (total) — close-to-close vs prior snapshot
+    today = _az_today()
+    prior = _prior_snapshot(today)
+    if prior and isinstance(prior.get("net_worth"), (int, float)):
+        d_dollar = round(net_worth - float(prior["net_worth"]), 2)
+        daily = {"dollar": d_dollar, "pct": _pct(d_dollar, float(prior["net_worth"])),
+                 "baseline_date": prior["snapshot_date"]}
+    else:
+        daily = {"dollar": None, "pct": None, "baseline_date": None}  # first day → '—'
+
+    return {
+        "net_worth": net_worth,
+        "daily": daily,
+        "all_time": {"dollar": all_time_total, "pct": _pct(all_time_total, all_time_cost)},
+        "buckets": {"schwab": schwab_bucket, "metals": metals_bucket},
+        "gold_value": round(gold_value, 2),
+        "silver_value": round(silver_value, 2),
+        "excluded": tp.get("sources_excluded", []) + ["alpaca paper (Two-Book)", "SIM", "ghost books"],
+        "real_holdings_last_updated": _schwab_last_updated(),
+        "freshness": {
+            "schwab": "as-of last broker sync (real_holdings_last_updated) — not live-quoted",
+            "metals": "live spot",
+        },
+        "sources_failed": tp.get("sources_failed", []),
+        "_source": "HM-AM get_unified_networth",
+    }
+
+
+def _schwab_last_updated() -> Optional[str]:
+    """Read real_holdings.json top-level last_updated (sync freshness)."""
+    try:
+        with _REAL_HOLDINGS_PATH.open() as f:
+            return (json.load(f) or {}).get("last_updated")
+    except Exception:
+        return None
+
+
+def snapshot_networth() -> dict:
+    """HM-AM UNIFICATION — persist today's net-worth snapshot (one row per AZ
+    day, last-write-wins). Provides the close-to-close baseline for daily change.
+    Returns {snapshot_date, net_worth, seeded}."""
+    _ensure_networth_history()
+    d = get_unified_networth(force_refresh=True)
+    today = _az_today()
+    nw = float(d.get("net_worth") or 0.0)
+    schwab_v = float((d.get("buckets", {}).get("schwab", {}) or {}).get("value") or 0.0)
+    metals_v = float((d.get("buckets", {}).get("metals", {}) or {}).get("value") or 0.0)
+    gold_v = float(d.get("gold_value") or 0.0)
+    silver_v = float(d.get("silver_value") or 0.0)
+    conn = sqlite3.connect(_DB_PATH, timeout=15)
+    try:
+        conn.execute(
+            """INSERT INTO networth_history
+               (snapshot_date, net_worth, schwab_value, metals_value, gold_value,
+                silver_value, breakdown_json)
+               VALUES (?,?,?,?,?,?,?)
+               ON CONFLICT(snapshot_date) DO UPDATE SET
+                 net_worth=excluded.net_worth, schwab_value=excluded.schwab_value,
+                 metals_value=excluded.metals_value, gold_value=excluded.gold_value,
+                 silver_value=excluded.silver_value, breakdown_json=excluded.breakdown_json,
+                 created_at=datetime('now')""",
+            (today, nw, schwab_v, metals_v, gold_v, silver_v, json.dumps(d)),
+        )
+        conn.commit()
+    finally:
+        conn.close()
+    return {"snapshot_date": today, "net_worth": round(nw, 2), "seeded": True}
 
 
 def read_total_portfolio(force_refresh: bool = False) -> dict:
@@ -386,7 +638,9 @@ def read_total_portfolio(force_refresh: bool = False) -> dict:
         "ibkr": "IBKR",
         "metals": "Dilithium Reserve (Metals)",
     }
-    for acct_key in ("schwab", "tradestation", "webull", "ibkr", "metals"):
+    # HM-AM UNIFICATION: display only the included accounts (suspended ones are
+    # already filtered out of positions/cash upstream in get_total_portfolio).
+    for acct_key in INCLUDED_ACCOUNTS:
         acct_positions = by_account_positions.get(acct_key) or []
         cash = float(cash_by_account.get(acct_key, 0.0))
         positions_value = sum(

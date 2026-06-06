@@ -834,6 +834,43 @@ def run_crew_dissent_nightly():
         console.log(f"[red][crew_dissent] nightly error: {type(e).__name__}: {e!r}")
 
 
+# HM-AM UNIFICATION: daily net-worth snapshot (close-to-close baseline for the
+# unified Net Worth card's daily change). Runs on a daemon thread (spot fetch
+# can block ~6s cold). Enabled-flag for one-line reversal.
+_NETWORTH_SNAPSHOT_ENABLED = True
+_networth_snapshot_lock = threading.Lock()
+
+
+@_hm_bq_instr("run_networth_snapshot")
+def run_networth_snapshot():
+    """Persist today's real net-worth (Schwab + Metals) into networth_history.
+    Advisory/reporting only — no order path, no writes beyond the snapshot row."""
+    try:
+        from engine.total_portfolio import snapshot_networth
+        r = snapshot_networth()
+        console.log(f"[cyan][networth] snapshot {r.get('snapshot_date')}: "
+                    f"net worth ${r.get('net_worth')}")
+    except Exception as e:
+        console.log(f"[red][networth] snapshot error: {type(e).__name__}: {e!r}")
+
+
+def _bg_networth_snapshot():
+    """Daemon-thread wrapper — never blocks the scheduler; skip if prior running."""
+    if not _NETWORTH_SNAPSHOT_ENABLED:
+        return
+    if not _networth_snapshot_lock.acquire(blocking=False):
+        console.log("[dim]Net-worth snapshot: prior run still active — skip")
+        return
+
+    def _runner():
+        try:
+            run_networth_snapshot()
+        finally:
+            _networth_snapshot_lock.release()
+
+    threading.Thread(target=_runner, daemon=True, name="sched_networth_snapshot").start()
+
+
 @_hm_bq_instr("run_intel_report_morning")
 def run_intel_report_morning():
     """6:00 AM AZ — daily intel report + ntfy push to ollietrades-admin."""
@@ -4437,6 +4474,7 @@ if __name__ == "__main__":
     # schedule.every(30).minutes.do(run_discovery_scan)      # RETIRED: replaced by Volume Radar below
     schedule.every().sunday.at("22:00").do(run_volume_universe_refresh)   # Universe refresh: Sunday 10 PM MST
     schedule.every().day.at("23:00").do(run_volume_baselines)             # Baselines: nightly 11 PM MST (skip weekends internally)
+    schedule.every().day.at("13:05").do(_bg_networth_snapshot)            # HM-AM: net-worth snapshot, 13:05 AZ (post 16:00 ET close) — daily baseline
     schedule.every().day.at("23:30").do(run_crew_dissent_nightly)         # HM-CREW-DISSENT: nightly resolve + recompute (post-close, after scoring)
     schedule.every(15).minutes.do(run_volume_market_scan)                 # Volume Radar: every 15 min during market hours
     schedule.every(5).minutes.do(run_volume_red_alert)                    # Red Alert: every 2 min during market hours

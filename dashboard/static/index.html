@@ -44251,11 +44251,37 @@ async function fetchMovers() {
 <div id="section-real-portfolio" class="admin-only" style="display:none;">
   <div style="border-left:4px solid #38bdf8;background:rgba(56,189,248,0.04);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
     <div style="font-size:11px;font-weight:700;color:#38bdf8;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">💰 Real Portfolio — Unified Net Worth</div>
-    <div style="font-size:13px;color:#94a3b8;">Schwab + Webull + IBKR + physical metals. <b>Excludes Alpaca paper</b> (separate research book) per HM-AM doctrine.</div>
+    <div style="font-size:13px;color:#94a3b8;"><b>Schwab + physical metals only.</b> TradeStation / Webull / IBKR suspended (reversible). Excludes Alpaca paper &amp; SIM (Two-Book Policy).</div>
   </div>
 
-  <!-- Headline net worth + metals % -->
-  <div class="card" style="margin-bottom:16px;border-left:4px solid #38bdf8;">
+  <!-- HM-AM UNIFICATION 2026-06-06: ONE canonical net-worth card (collapses the two
+       prior redundant headline cards). Backed by the repointed /api/networth (single
+       source of truth = total_portfolio.get_unified_networth). -->
+  <div class="card" data-component="unified-networth" id="unifiedNetWorthCard" style="margin-bottom:16px;border-left:4px solid #38bdf8;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card-title">💵 Net Worth — Schwab + Metals</div>
+      <button class="btn btn-ghost" onclick="fetchUnifiedNetWorth()" style="font-size:12px;">Refresh</button>
+    </div>
+    <div style="padding:16px 16px 6px;text-align:center;">
+      <div id="unifiedNetWorthTotal" style="font-size:34px;font-weight:800;color:#38bdf8;line-height:1.1;">Standby…</div>
+      <div style="display:flex;gap:18px;justify-content:center;margin-top:8px;font-size:13px;flex-wrap:wrap;">
+        <span>Today <span id="unifiedNetWorthDaily" style="font-weight:700;">—</span></span>
+        <span>All-time <span id="unifiedNetWorthAllTime" style="font-weight:700;">—</span></span>
+      </div>
+    </div>
+    <div style="padding:4px 16px 12px;">
+      <div id="unifiedSchwabLine" style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);"></div>
+      <div id="unifiedMetalsLine" onclick="toggleUnifiedMetals()" style="display:flex;justify-content:space-between;padding:7px 0;cursor:pointer;border-bottom:1px solid var(--border);" title="Click to expand per-metal"></div>
+      <div id="unifiedMetalsDetail" style="display:none;padding:4px 0 0 14px;"></div>
+      <div id="unifiedNetWorthFresh" style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic;text-align:center;"></div>
+    </div>
+  </div>
+
+  <!-- HM-AM UNIFICATION 2026-06-06: the two prior headline cards (Total Real-Money
+       Value + Net Worth Breakdown) are ARCHIVED (display:none, not deleted) — collapsed
+       into #unifiedNetWorthCard above. Their JS (fetchRealPortfolio/fetchNetWorth) still
+       runs to feed the per-account grid, positions table, and the holdings donut. -->
+  <div class="card" style="display:none;margin-bottom:16px;border-left:4px solid #38bdf8;">
     <div class="card-header">
       <div class="card-title">💵 Total Real-Money Value</div>
       <button class="btn btn-ghost" onclick="fetchRealPortfolio()" style="font-size:13px;">Refresh</button>
@@ -44267,9 +44293,9 @@ async function fetchMovers() {
     <div id="realPortfolioMeta" style="padding:0 16px 12px;font-size:11px;color:var(--muted);text-align:center;"></div>
   </div>
 
-  <!-- HM-AM 2026-06-02: unified net-worth breakdown from /api/networth (cash/equities/metals,
-       data-driven over is_active accounts; metals live-spot, equities as-of-sync — freshness honest). -->
-  <div class="card" style="margin-bottom:16px;border-left:4px solid #34d399;">
+  <!-- HM-AM 2026-06-02 → ARCHIVED 2026-06-06 (display:none): superseded by #unifiedNetWorthCard.
+       Kept so fetchNetWorth has live targets (null-safe) and is fully reversible. -->
+  <div class="card" style="display:none;margin-bottom:16px;border-left:4px solid #34d399;">
     <div class="card-header">
       <div class="card-title">🧮 Net Worth — Breakdown (HM-AM)</div>
     </div>
@@ -44298,13 +44324,15 @@ async function fetchMovers() {
         <div style="color:var(--muted);">Loading…</div>
       </div>
     </div>
-    <div class="card">
+    <!-- HM-AM UNIFICATION: Webull + IBKR grid cards hidden (suspended accounts) —
+         markup kept (display:none) so the renderer targets stay null-safe + reversible. -->
+    <div class="card" style="display:none;">
       <div class="card-header"><div class="card-title">🛸 Webull</div></div>
       <div id="realPortfolioWebull" style="padding:14px;font-size:15px;">
         <div style="color:var(--muted);">Loading…</div>
       </div>
     </div>
-    <div class="card">
+    <div class="card" style="display:none;">
       <div class="card-header"><div class="card-title">📊 IBKR</div></div>
       <div id="realPortfolioIBKR" style="padding:14px;font-size:15px;">
         <div style="color:var(--muted);">Loading…</div>
@@ -44382,7 +44410,8 @@ async function uploadSchwabCsv() {
     status.innerHTML = '✅ Imported <b>' + (d.position_count != null ? d.position_count : '?') +
       '</b> position(s), cash $' + cash + ' — snapshot ' + (d.last_updated || '?') + '. Refreshing…';
     status.style.color = '#10b981';
-    if (typeof fetchRealPortfolio === 'function') fetchRealPortfolio();
+    if (typeof fetchUnifiedNetWorth === 'function') fetchUnifiedNetWorth();  // HM-AM: canonical card
+  if (typeof fetchRealPortfolio === 'function') fetchRealPortfolio();      // feeds grid/positions/donut detail
   } catch (e) {
     status.textContent = '❌ Upload error: ' + e; status.style.color = '#ef4444';
   }
@@ -44390,6 +44419,77 @@ async function uploadSchwabCsv() {
 
 // HM-AM 2026-06-02: unified net-worth breakdown (cash/equities/metals) from the
 // new read-only /api/networth aggregator. Additive to the legacy tab; freshness-honest.
+// HM-AM UNIFICATION 2026-06-06: the ONE canonical net-worth renderer.
+// Backed by the repointed /api/networth (= total_portfolio.get_unified_networth).
+// Colorblind: gains green (#34d399), losses orange (#fb923c).
+function _amFmtUSD(n) {
+  if (n === null || n === undefined || isNaN(n)) return '—';
+  return '$' + Number(n).toLocaleString(undefined, {minimumFractionDigits: 2, maximumFractionDigits: 2});
+}
+function _amDelta(dollar, pct) {
+  if (dollar === null || dollar === undefined) return '<span style="color:var(--muted);">—</span>';
+  var up = dollar >= 0;
+  var col = up ? '#34d399' : '#fb923c';
+  var sign = up ? '+' : '−';
+  var p = (pct === null || pct === undefined) ? '' : ' (' + sign + Math.abs(pct).toFixed(2) + '%)';
+  return '<span style="color:' + col + ';">' + sign + _amFmtUSD(Math.abs(dollar)).slice(1) + p + '</span>';
+}
+window.toggleUnifiedMetals = function() {
+  var d = document.getElementById('unifiedMetalsDetail'); if (!d) return;
+  d.style.display = (!d.style.display || d.style.display === 'none') ? 'block' : 'none';
+};
+window.fetchUnifiedNetWorth = async function() {
+  var totalEl = document.getElementById('unifiedNetWorthTotal');
+  if (!totalEl) return;
+  try {
+    var r = await fetch('/api/networth');
+    if (!r.ok) { totalEl.textContent = '—'; return; }
+    var d = await r.json();
+    if (!d || d.detail === 'Not Found') { totalEl.textContent = '—'; return; }
+    totalEl.textContent = _amFmtUSD(d.net_worth);
+    var daily = d.daily || {}, allt = d.all_time || {};
+    document.getElementById('unifiedNetWorthDaily').innerHTML =
+      (daily.dollar === null || daily.dollar === undefined)
+        ? '<span style="color:var(--muted);" title="No prior snapshot yet — daily change starts at tomorrow\'s close">— (baseline pending)</span>'
+        : _amDelta(daily.dollar, daily.pct);
+    document.getElementById('unifiedNetWorthAllTime').innerHTML = _amDelta(allt.dollar, allt.pct);
+
+    var b = d.buckets || {};
+    var sb = b.schwab || {}, mb = b.metals || {};
+    document.getElementById('unifiedSchwabLine').innerHTML =
+      '<span>🏦 Schwab <span style="color:var(--muted);font-size:11px;">(' + (sb.type || 'cash') + ')</span></span>' +
+      '<span style="font-weight:700;">' + _amFmtUSD(sb.value) +
+      ' <span style="font-weight:400;font-size:11px;">all-time ' + _amDelta(sb.all_time_dollar, sb.all_time_pct) + '</span></span>';
+
+    var metalArrow = '<span style="color:var(--muted);font-size:11px;">▸ per-metal</span>';
+    document.getElementById('unifiedMetalsLine').innerHTML =
+      '<span>⚗️ Metals ' + metalArrow + '</span>' +
+      '<span style="font-weight:700;">' + _amFmtUSD(mb.value) +
+      ' <span style="font-weight:400;font-size:11px;">all-time ' + _amDelta(mb.all_time_dollar, mb.all_time_pct) + '</span></span>';
+
+    var detail = Array.isArray(mb.detail) ? mb.detail : [];
+    document.getElementById('unifiedMetalsDetail').innerHTML = detail.map(function(m) {
+      var icon = m.metal === 'gold' ? '🥇' : (m.metal === 'silver' ? '🥈' : '⚪');
+      var dailyTxt = (m.daily_pct === null || m.daily_pct === undefined) ? '—'
+        : '<span style="color:' + (m.daily_pct >= 0 ? '#34d399' : '#fb923c') + ';">' + (m.daily_pct >= 0 ? '+' : '') + m.daily_pct.toFixed(2) + '%</span>';
+      return '<div style="display:flex;justify-content:space-between;padding:3px 0;font-size:12px;">' +
+        '<span>' + icon + ' ' + (m.metal || '').replace(/^./, function(c){return c.toUpperCase();}) +
+        ' <span style="color:var(--muted);">' + m.qty_oz + 'oz @ ' + _amFmtUSD(m.spot) + '</span></span>' +
+        '<span>' + _amFmtUSD(m.value) + ' · today ' + dailyTxt +
+        ' · all-time ' + _amDelta(m.all_time_dollar, m.all_time_pct) + '</span></div>';
+    }).join('') || '<div style="color:var(--muted);font-size:12px;">No metals.</div>';
+
+    var lu = d.real_holdings_last_updated || '?';
+    var exc = Array.isArray(d.excluded) ? d.excluded.join(', ') : '';
+    document.getElementById('unifiedNetWorthFresh').innerHTML =
+      'Metals live spot · Schwab as-of last sync (' + lu + ') — not live-quoted' +
+      (exc ? '<br>Suspended/excluded: ' + exc : '');
+  } catch (e) {
+    totalEl.textContent = '—';
+    console.info('[unified-networth] ' + (e && e.message ? e.message : e));
+  }
+};
+
 async function fetchNetWorth() {
   var totalEl = document.getElementById('netWorthTotal');
   var bucketsEl = document.getElementById('netWorthBuckets');
