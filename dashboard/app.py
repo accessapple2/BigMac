@@ -18533,55 +18533,11 @@ async def morning_briefing():
     return {"briefing": briefing_text, "model": result.get("model", ""), "timestamp": datetime.now().isoformat()}
 
 
-@app.get("/api/archer/briefing")
-async def archer_briefing():
-    """Alias for /api/computer/morning-briefing — returns structured fleet + briefing data."""
-    # Use cached leaderboard for correct equity values
-    lb_data = leaderboard()
-    agents = lb_data.get("leaderboard", [])
-    fleet = []
-    for a in agents:
-        fleet.append({
-            "id": a.get("player_id", ""),
-            "name": a.get("name", a.get("player_id", "")),
-            "equity": round(float(a.get("current_equity", 10000)), 2),
-            "return_pct": round(float(a.get("return_pct", 0)), 2),
-            "trades": a.get("trades", 0),
-            "win_rate": a.get("win_rate", 0),
-        })
-    fleet.sort(key=lambda x: -x["return_pct"])
-
-    conn = _conn()
-    try:
-
-        # Recent trades (S5)
-        trade_rows = conn.execute("""
-            SELECT t.player_id, t.symbol, t.action, t.price, t.qty,
-                   COALESCE(t.realized_pnl, 0) as pnl, t.executed_at
-            FROM trades t WHERE t.season=5
-            ORDER BY t.executed_at DESC LIMIT 5
-        """).fetchall()
-        recent_trades = [{"agent": r["player_id"], "symbol": r["symbol"], "action": r["action"],
-                          "pnl": round(float(r["pnl"] or 0), 2), "at": r["executed_at"]} for r in trade_rows]
-
-        # Spock alerts
-        alert_rows = []
-        try:
-            alert_rows = conn.execute(
-                "SELECT message, severity FROM risk_alerts WHERE acknowledged=0 ORDER BY id DESC LIMIT 3"
-            ).fetchall()
-        except Exception:
-            pass
-        alerts = [{"message": a["message"], "severity": a["severity"]} for a in alert_rows]
-    finally:
-        conn.close()
-
-    return {
-        "fleet": fleet,
-        "recent_trades": recent_trades,
-        "alerts": alerts,
-        "timestamp": datetime.now().isoformat()
-    }
+# HM-ARCHER-REBUILD: the former second `/api/archer/briefing` (a fleet-status
+# alias for /api/computer/morning-briefing) was removed here — it shadowed the
+# canonical plutus-v1 briefing endpoint above (~16673) and had zero callers
+# (both Archer UIs expect the {briefing:text} plutus shape). The fleet-status
+# data is still served by /api/computer/morning-briefing (unchanged).
 
 
 # ── Phase 2.1: Natural Language Agent Builder ─────────────────────────────────
