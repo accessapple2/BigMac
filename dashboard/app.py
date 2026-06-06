@@ -16757,6 +16757,57 @@ def archer_convergence():
         return {"items": [], "red": [], "yellow": [], "count": 0, "error": f"{type(e).__name__}"}
 
 
+@app.get("/api/dissent/summary")
+def dissent_summary():
+    """HM-CREW-DISSENT: crew-dissent track record for the Riker Ready Room.
+    pending/resolved counts, top contrarians (30d count>=5), recent dissents."""
+    try:
+        conn = _conn()
+        try:
+            # Tables may not exist yet on a fresh deploy — treat as empty.
+            has = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='crew_dissent_log'"
+            ).fetchone()
+            if not has:
+                return {"pending": 0, "resolved": 0, "top_dissenters": [], "recent": []}
+
+            pending = conn.execute(
+                "SELECT COUNT(*) FROM crew_dissent_log WHERE dissenter_correct IS NULL"
+            ).fetchone()[0]
+            resolved = conn.execute(
+                "SELECT COUNT(*) FROM crew_dissent_log WHERE dissenter_correct IS NOT NULL"
+            ).fetchone()[0]
+
+            # Top contrarians — 30d window, min 5 resolved dissents (statistical floor).
+            top = [
+                {"dissenter": r[0], "dissent_count": r[1], "correct_count": r[2],
+                 "accuracy": r[3], "avg_r_when_correct": r[4], "avg_r_when_wrong": r[5]}
+                for r in conn.execute(
+                    "SELECT dissenter, dissent_count, correct_count, accuracy, "
+                    "avg_r_when_correct, avg_r_when_wrong FROM crew_dissent_stats "
+                    "WHERE window_days=30 AND dissent_count>=5 "
+                    "ORDER BY accuracy DESC NULLS LAST, dissent_count DESC"
+                ).fetchall()
+            ]
+
+            recent = [
+                {"symbol": r[0], "dissent_date": r[1], "dissenter": r[2], "dissenter_call": r[3],
+                 "consensus_call": r[4], "magnitude": r[5], "outcome_r": r[6], "correct": r[7]}
+                for r in conn.execute(
+                    "SELECT symbol, dissent_date, dissenter, dissenter_call, consensus_call, "
+                    "dissent_magnitude, outcome_r, dissenter_correct FROM crew_dissent_log "
+                    "ORDER BY id DESC LIMIT 20"
+                ).fetchall()
+            ]
+            return {"pending": pending, "resolved": resolved,
+                    "top_dissenters": top, "recent": recent}
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning("[dissent/summary] %s: %r", type(e).__name__, e)
+        return {"pending": 0, "resolved": 0, "top_dissenters": [], "recent": [], "error": f"{type(e).__name__}"}
+
+
 # --- Congressional Trades ---
 
 @app.get("/api/metals/exposure")
@@ -18320,6 +18371,14 @@ def _archer_intel_block() -> str:
                 break
         L.append(f"Bridge Vote: {bc['consensus_vote']} {agree}/{bc.get('total_voters')} "
                  f"conf{bc.get('avg_confidence')} {sess}".rstrip())
+    # HM-CREW-DISSENT: one-line contrarian track record (capped — top officer only).
+    cd = _src.get_crew_dissent()
+    tc = cd.get("top_contrarian")
+    if tc:
+        L.append(f"Crew dissent: best contrarian {tc['dissenter']} "
+                 f"{round((tc.get('accuracy') or 0)*100)}% over {tc['count']} dissents (30d).")
+    elif cd.get("pending"):
+        L.append(f"Crew dissent: {cd['pending']} dissent(s) pending resolution.")
     return "\n".join(L)
 
 

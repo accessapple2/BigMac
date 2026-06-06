@@ -819,6 +819,21 @@ def _bg_archer_alerts():
     threading.Thread(target=_runner, daemon=True, name="sched_archer_alerts").start()
 
 
+@_hm_bq_instr("run_crew_dissent_nightly")
+def run_crew_dissent_nightly():
+    """HM-CREW-DISSENT: nightly resolve crew dissents vs realized 5d outcomes
+    (signals.db scored_predictions) + recompute per-officer accuracy stats.
+    Advisory measurement only — no order path."""
+    try:
+        from engine.crew_dissent import resolve_dissent_outcomes, recompute_dissent_stats
+        r = resolve_dissent_outcomes()
+        s = recompute_dissent_stats()
+        console.log(f"[cyan][crew_dissent] nightly: resolved {r.get('resolved', 0)} "
+                    f"(pending {r.get('still_pending', 0)}), stats upserted {s.get('rows_upserted', 0)}")
+    except Exception as e:
+        console.log(f"[red][crew_dissent] nightly error: {type(e).__name__}: {e!r}")
+
+
 @_hm_bq_instr("run_intel_report_morning")
 def run_intel_report_morning():
     """6:00 AM AZ — daily intel report + ntfy push to ollietrades-admin."""
@@ -4422,6 +4437,7 @@ if __name__ == "__main__":
     # schedule.every(30).minutes.do(run_discovery_scan)      # RETIRED: replaced by Volume Radar below
     schedule.every().sunday.at("22:00").do(run_volume_universe_refresh)   # Universe refresh: Sunday 10 PM MST
     schedule.every().day.at("23:00").do(run_volume_baselines)             # Baselines: nightly 11 PM MST (skip weekends internally)
+    schedule.every().day.at("23:30").do(run_crew_dissent_nightly)         # HM-CREW-DISSENT: nightly resolve + recompute (post-close, after scoring)
     schedule.every(15).minutes.do(run_volume_market_scan)                 # Volume Radar: every 15 min during market hours
     schedule.every(5).minutes.do(run_volume_red_alert)                    # Red Alert: every 2 min during market hours
     schedule.every(30).minutes.do(run_sma_scan)               # 200 SMA Filter: checks every 30 min, runs every 4 hours

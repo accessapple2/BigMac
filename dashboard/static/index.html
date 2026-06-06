@@ -5933,6 +5933,99 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       </div>
     </div>
   </div>
+
+  <!-- HM-CREW-DISSENT: contrarian track record panel (Riker Ready Room). Hidden until dissents exist. -->
+  <div class="card" data-component="crew-dissent" id="dissent-panel-card" style="display:none;margin-bottom:12px;border:1px solid var(--border);border-left:4px solid #e67e22;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);">
+      <div class="card-title" style="font-weight:700;font-size:14px;">⚖️ Crew Dissent — Contrarian Track Record</div>
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span id="dissent-counts" style="font-size:11px;color:var(--muted);">—</span>
+        <button class="btn btn-ghost" onclick="toggleDissentHistory()" id="dissent-history-btn" style="font-size:11px;">History</button>
+      </div>
+    </div>
+    <div style="padding:12px 16px;">
+      <div id="dissent-top" style="font-size:12.5px;color:var(--text);line-height:1.6;"></div>
+      <div id="dissent-history" style="display:none;margin-top:10px;border-top:1px solid var(--border);padding-top:8px;font-size:11.5px;"></div>
+    </div>
+  </div>
+  <script>
+  /* HM-CREW-DISSENT: Riker Ready Room contrarian panel. Self-contained IIFE;
+     renders only when dissents exist; colorblind RED=orange / YELLOW=blue. */
+  (function(){
+    function _d$(id){ return document.getElementById(id); }
+    function _dEsc(s){ var d=document.createElement('div'); d.textContent=String(s==null?'':s); return d.innerHTML; }
+    var _dissentMounted = false;
+    var _DORANGE = '#e67e22', _DBLUE = '#3b82f6';  // colorblind-safe RED/YELLOW substitutes
+
+    window.toggleDissentHistory = function(){
+      var h = _d$('dissent-history'); if(!h) return;
+      h.style.display = (!h.style.display || h.style.display==='none') ? 'block' : 'none';
+    };
+
+    window.loadDissentPanel = async function(){
+      var card = _d$('dissent-panel-card'); if(!card) return;
+      try {
+        var r = await fetch('/api/dissent/summary');
+        if(!r.ok) throw new Error('HTTP '+r.status);
+        var d = await r.json();
+        var top = d.top_dissenters || [];
+        var recent = d.recent || [];
+        var total = (d.pending||0) + (d.resolved||0);
+        // Render only when there is something to show (dissent_count>0).
+        if(total === 0 && !top.length){ card.style.display='none'; return; }
+        card.style.display = 'block';
+
+        var counts = _d$('dissent-counts');
+        if(counts) counts.textContent = (d.resolved||0)+' resolved · '+(d.pending||0)+' pending';
+
+        var topEl = _d$('dissent-top');
+        if(topEl){
+          if(!top.length){
+            topEl.innerHTML = '<span style="color:var(--muted);">No contrarian has ≥5 resolved dissents yet (30d). Track record builds as dissents resolve.</span>';
+          } else {
+            topEl.innerHTML = top.map(function(t){
+              var acc = (t.accuracy!=null) ? Math.round(t.accuracy*100) : null;
+              var col = (acc!=null && acc>=60) ? _DORANGE : _DBLUE;  // strong contrarian = orange
+              return '<div style="margin-bottom:4px;">⚖️ <b>'+_dEsc(t.dissenter)+'</b> — '
+                + '<span style="color:'+col+';font-weight:700;">'+(acc!=null?acc+'%':'—')+'</span> right '
+                + 'over '+(t.dissent_count||0)+' dissents (30d)'
+                + (t.avg_r_when_correct!=null ? ' · avg '+(t.avg_r_when_correct>=0?'+':'')+t.avg_r_when_correct+'R when right' : '')
+                + '</div>';
+            }).join('');
+          }
+        }
+
+        var hist = _d$('dissent-history');
+        if(hist){
+          hist.innerHTML = recent.length ? recent.map(function(x){
+            var mag = (x.magnitude||'').toUpperCase();
+            var col = (mag==='OUTLIER') ? _DORANGE : _DBLUE;
+            var res = (x.correct===1) ? '✓ right' : (x.correct===0 ? '✗ wrong' : '… pending');
+            return '<div style="margin-bottom:3px;color:var(--muted);">'
+              + '<span style="color:'+col+';">●</span> '+_dEsc(x.dissent_date)+' '+_dEsc(x.symbol)+' — '
+              + _dEsc(x.dissenter)+' '+_dEsc(x.dissenter_call)+' vs '+_dEsc(x.consensus_call)
+              + ' ['+_dEsc(mag)+'] '+res
+              + (x.outcome_r!=null ? ' ('+(x.outcome_r>=0?'+':'')+x.outcome_r+'R)' : '')
+              + '</div>';
+          }).join('') : '<span style="color:var(--muted);">No dissents logged yet.</span>';
+        }
+
+        if(!_dissentMounted){ _dissentMounted = true; console.info('[crew-dissent] mounted, resolved='+(d.resolved||0)+' pending='+(d.pending||0)); }
+        else { console.debug('[crew-dissent] refreshed'); }
+      } catch(e){
+        card.style.display='none';
+        console.info('[crew-dissent] load error: '+(e&&e.message?e.message:e));
+      }
+    };
+
+    function _initDissent(){
+      try { window.loadDissentPanel(); } catch(e){}
+      try { setInterval(function(){ try{ window.loadDissentPanel(); }catch(e){} }, 120000); } catch(e){}
+    }
+    if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _initDissent);
+    else _initDissent();
+  })();
+  </script>
   <script>
   /* HM-RIKER-HERO: parse the Riker narrative into a hero card. Self-contained + defensive
      (HM-BJ.E2): null-checks, try/catch, idempotent mount log. No edits to loadGlanceData. */

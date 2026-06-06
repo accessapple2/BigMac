@@ -278,3 +278,43 @@ def get_bridge_consensus() -> dict:
     except Exception as e:
         logger.warning("[Archer/intel] bridge consensus failed: %s: %r", type(e).__name__, e)
         return {}
+
+
+def get_crew_dissent() -> dict:
+    """HM-CREW-DISSENT: compact contrarian track record for Archer's prompt.
+
+    Returns {top_contrarian: {dissenter, accuracy, count} | None, pending,
+    recent: [{symbol, dissenter, call, correct}]}. Capped — top contrarian only
+    (30d, min 5 resolved dissents) + a couple of recent dissents. Empty until
+    dissents accrue + resolve."""
+    out = {"top_contrarian": None, "pending": 0, "recent": []}
+    try:
+        conn = _ro(TRADER_DB)
+        try:
+            has = conn.execute(
+                "SELECT name FROM sqlite_master WHERE type='table' AND name='crew_dissent_log'"
+            ).fetchone()
+            if not has:
+                return out
+            out["pending"] = conn.execute(
+                "SELECT COUNT(*) FROM crew_dissent_log WHERE dissenter_correct IS NULL"
+            ).fetchone()[0]
+            top = conn.execute(
+                "SELECT dissenter, accuracy, dissent_count FROM crew_dissent_stats "
+                "WHERE window_days=30 AND dissent_count>=5 AND accuracy IS NOT NULL "
+                "ORDER BY accuracy DESC LIMIT 1"
+            ).fetchone()
+            if top:
+                out["top_contrarian"] = {"dissenter": top[0], "accuracy": top[1], "count": top[2]}
+            out["recent"] = [
+                {"symbol": r[0], "dissenter": r[1], "call": r[2], "correct": r[3]}
+                for r in conn.execute(
+                    "SELECT symbol, dissenter, dissenter_call, dissenter_correct "
+                    "FROM crew_dissent_log ORDER BY id DESC LIMIT 3"
+                ).fetchall()
+            ]
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning("[Archer/intel] crew dissent failed: %s: %r", type(e).__name__, e)
+    return out

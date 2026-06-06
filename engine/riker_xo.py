@@ -131,6 +131,17 @@ def _do_riker_synthesis() -> str | None:
     try:
         from engine.consensus import build_consensus
         consensus = build_consensus()
+        # HM-CREW-DISSENT: log any officer who dissents from the per-ticker
+        # majority (advisory measurement only; never blocks Riker synthesis).
+        try:
+            from engine.crew_dissent import log_dissents
+            _d = log_dissents(consensus)
+            if _d.get("dissents_logged"):
+                console.log(f"[cyan][crew_dissent] logged {_d['dissents_logged']} dissent(s) "
+                            f"across {_d['tickers_examined']} tickers")
+        except Exception as _de:
+            console.log(f"[red][crew_dissent] log_dissents hook failed: "
+                        f"{type(_de).__name__}: {_de!r}")
         outlook = consensus.get("market_outlook", {})
         agreement = consensus.get("overall_agreement", 0)
         tickers = consensus.get("tickers", {})
