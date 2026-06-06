@@ -5835,11 +5835,19 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       <span id="uhura-mood-pill" data-component="uhura-mood-pill"
             onclick="toggleUhuraMoodPanel()" data-tip="Lt. Uhura v2 — 7-source confluence signal. Click for the full read."
             style="cursor:pointer;padding:2px 9px;border-radius:4px;font-weight:700;font-size:11px;background:#555;color:#fff;white-space:nowrap;user-select:none;">UHURA · …</span>
+      <!-- HM-ARCHER-REBUILD: convergence/short alert pill (hidden until a RED/YELLOW fires) -->
+      <span id="archer-alert-pill" data-component="archer-alert-pill"
+            onclick="toggleArcherAlertPanel()" data-tip="Captain Archer's latest convergence/short alert. Click for the full read."
+            style="display:none;cursor:pointer;padding:2px 9px;border-radius:4px;font-weight:700;font-size:11px;color:#fff;white-space:nowrap;user-select:none;"></span>
     </div>
     <!-- HM-UHURA-VISIBILITY: Mood Pill expanded panel (hidden until pill clicked) -->
     <div id="uhura-mood-panel" data-component="uhura-mood-panel" style="display:none;margin-top:8px;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);">
       <div id="uhura-mood-reasoning" style="font-size:12px;color:var(--muted);line-height:1.5;margin-bottom:8px;"></div>
       <div id="uhura-mood-votes"></div>
+    </div>
+    <!-- HM-ARCHER-REBUILD: Archer alert expanded panel (hidden until alert pill clicked) -->
+    <div id="archer-alert-panel" data-component="archer-alert-panel" style="display:none;margin-top:8px;padding:12px 14px;border:1px solid var(--border);border-radius:8px;background:var(--surface2);">
+      <div id="archer-alert-narrative" style="font-size:12px;color:var(--text);line-height:1.5;"></div>
     </div>
     <!-- Allocation bars: target row + actual row per bucket -->
     <!-- grid: label | tgt-bar | tgt-pct | act-bar | act-pct -->
@@ -5883,6 +5891,24 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     </div>
   </div>
   </details>
+
+  <!-- HM-ARCHER-REBUILD: Captain Archer intel card — fresh plutus-v1 briefing + Ask-Archer box -->
+  <div class="card" data-component="archer-intel" id="archer-intel-card" style="margin-bottom:12px;border:1px solid var(--border);border-left:4px solid #d4a030;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);">
+      <div class="card-title" style="font-weight:700;font-size:14px;">⚓ Captain Archer — Intel Briefing</div>
+      <span id="archer-briefing-ts" style="font-size:11px;color:var(--muted);">—</span>
+    </div>
+    <div style="padding:12px 14px;">
+      <div id="archer-briefing-body" style="font-size:12.5px;color:var(--text);line-height:1.55;white-space:pre-wrap;">Standby — Archer's briefing renders on mount.</div>
+      <div style="margin-top:12px;display:flex;gap:6px;">
+        <input id="archer-ask-input" type="text" placeholder="Ask Captain Archer… (e.g. explain sell-the-news)"
+               onkeydown="if(event.key==='Enter'){archerAsk();}"
+               style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:12px;">
+        <button onclick="archerAsk()" style="padding:7px 14px;border:1px solid #d4a030;border-radius:6px;background:#d4a030;color:#1a1205;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">Ask</button>
+      </div>
+      <div id="archer-ask-answer" style="display:none;margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);font-size:12px;color:var(--text);line-height:1.5;white-space:pre-wrap;"></div>
+    </div>
+  </div>
 
   <!-- HM-RIKER-HERO: XO recommendation hero card (UI-only; same /api/riker/recommendation
        as the Bridge Status g-riker row, which stays for redundancy) -->
@@ -19861,6 +19887,88 @@ async function fetchNavSchedule() {
   }
   if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _initUhuraVisibility);
   else _initUhuraVisibility();
+})();
+</script>
+<script>
+/* HM-ARCHER-REBUILD: Captain Archer Bridge UI — briefing card, Ask box, alert pill.
+   Self-contained IIFE; r.ok-gated fetches; mount logged once. */
+(function(){
+  function _a$(id){ return document.getElementById(id); }
+  function _aEsc(s){ var d=document.createElement('div'); d.textContent=String(s==null?'':s); return d.innerHTML; }
+  // Tier colors — RED=orange, YELLOW=amber (colorblind-safe, distinct from green/red dots)
+  function _tierColor(t){ t=String(t||'').toUpperCase(); return t==='RED' ? '#e67e22' : (t==='YELLOW' ? '#d4a030' : '#555'); }
+  var _archerMounted = false;
+
+  window.toggleArcherAlertPanel = function(){
+    var p = _a$('archer-alert-panel'); if(!p) return;
+    p.style.display = (!p.style.display || p.style.display==='none') ? 'block' : 'none';
+  };
+
+  window.archerAsk = async function(){
+    var inp = _a$('archer-ask-input'), out = _a$('archer-ask-answer');
+    if(!inp || !out) return;
+    var q = (inp.value||'').trim();
+    if(!q){ return; }
+    out.style.display = 'block';
+    out.textContent = 'Captain Archer is thinking…';
+    try {
+      var r = await fetch('/api/archer/ask', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({query:q})
+      });
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      var d = await r.json();
+      if(d.error || !d.answer) throw new Error(d.error || 'no answer');
+      out.textContent = d.answer;
+    } catch(e){
+      out.textContent = 'Archer could not answer: '+(e&&e.message?e.message:e);
+      console.info('[archer-ask] error: '+(e&&e.message?e.message:e));
+    }
+  };
+
+  window.loadArcherIntel = async function(){
+    // Briefing
+    var body = _a$('archer-briefing-body'), ts = _a$('archer-briefing-ts');
+    try {
+      var r = await fetch('/api/archer/briefing');
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      var d = await r.json();
+      if(body){ body.textContent = d.briefing || 'No briefing yet — Archer generates one each morning (6:00 AZ) and Sunday night.'; }
+      if(ts){ ts.textContent = d.created_at ? ('as of '+d.created_at) : '—'; }
+    } catch(e){
+      if(body){ body.textContent = 'Briefing unavailable: '+(e&&e.message?e.message:e); }
+      console.info('[archer-intel] briefing error: '+(e&&e.message?e.message:e));
+    }
+    // Latest alert pill
+    var pill = _a$('archer-alert-pill'), narr = _a$('archer-alert-narrative');
+    try {
+      var ra = await fetch('/api/archer/alerts?limit=1');
+      if(!ra.ok) throw new Error('HTTP '+ra.status);
+      var da = await ra.json();
+      var alerts = (da && da.alerts) || [];
+      if(alerts.length && pill){
+        var a = alerts[0];
+        pill.style.display = 'inline-block';
+        pill.style.background = _tierColor(a.tier);
+        pill.textContent = 'ARCHER · '+String(a.tier||'').toUpperCase()+' · '+(a.symbol||'');
+        if(narr){ narr.textContent = a.narrative || ((a.systems||[]).join(', ')); }
+      } else if(pill){
+        pill.style.display = 'none';
+      }
+    } catch(e){
+      if(pill){ pill.style.display = 'none'; }
+      console.info('[archer-intel] alerts error: '+(e&&e.message?e.message:e));
+    }
+    if(!_archerMounted){ _archerMounted = true; console.info('[archer-intel] mounted'); }
+    else { console.debug('[archer-intel] refreshed'); }
+  };
+
+  function _initArcherIntel(){
+    try { window.loadArcherIntel(); } catch(e){}
+    try { setInterval(function(){ try{ window.loadArcherIntel(); }catch(e){} }, 120000); } catch(e){}
+  }
+  if (document.readyState === 'loading') document.addEventListener('DOMContentLoaded', _initArcherIntel);
+  else _initArcherIntel();
 })();
 </script>
 <script>
