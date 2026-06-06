@@ -254,3 +254,27 @@ def get_congress() -> list[dict]:
     except Exception as e:
         logger.warning("[Archer/intel] congress failed: %s: %r", type(e).__name__, e)
         return []
+
+
+def get_bridge_consensus() -> dict:
+    """Latest daily Bridge Vote — market-direction consensus on SPY. NO per-symbol.
+    Stored in bridge_consensus (trader.db) — DISTINCT from war_room crew takes and
+    from the shadow-bridge signal emitter."""
+    try:
+        conn = _ro(TRADER_DB)
+        row = conn.execute(
+            """SELECT session_date, consensus_vote, buy_votes, sell_votes, hold_votes,
+                      total_voters, conviction, avg_confidence, briefing_summary
+               FROM bridge_consensus ORDER BY id DESC LIMIT 1"""
+        ).fetchone()
+        conn.close()
+        if not row:
+            return {}
+        return {
+            "session_date": row[0], "consensus_vote": row[1], "buy": row[2],
+            "sell": row[3], "hold": row[4], "total_voters": row[5],
+            "conviction": row[6], "avg_confidence": row[7], "briefing": row[8],
+        }
+    except Exception as e:
+        logger.warning("[Archer/intel] bridge consensus failed: %s: %r", type(e).__name__, e)
+        return {}

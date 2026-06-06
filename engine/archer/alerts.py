@@ -68,6 +68,26 @@ def _candidates() -> list[dict]:
             cands.append({"tier": "RED", "symbol": s["symbol"],
                           "systems": ["sell-the-news"], "short": s})
 
+    # Bridge Vote — daily market-direction consensus (REGIME alert, not per-symbol).
+    # YELLOW: total_voters>=5 AND agreement>=5/6. RED: that + conf>=80 AND conviction!=LOW.
+    bc = src.get_bridge_consensus()
+    if bc and (bc.get("total_voters") or 0) >= 5:
+        agree = max(bc.get("buy", 0), bc.get("sell", 0), bc.get("hold", 0))
+        conv = (bc.get("conviction") or "").upper()
+        conf = bc.get("avg_confidence") or 0
+        if agree >= 5:
+            tier = "RED" if (conf >= 80 and conv != "LOW") else "YELLOW"
+            head = next((ln.strip() for ln in (bc.get("briefing") or "").splitlines()
+                         if ln.strip()), "")
+            cands.append({
+                "tier": tier, "symbol": "SPY", "systems": ["bridge-vote"],
+                "dedup_key": f"bridge-vote:{bc.get('session_date')}",  # one per daily vote
+                "bridge": {"vote": bc.get("consensus_vote"), "agree": agree,
+                           "total": bc.get("total_voters"), "conf": conf,
+                           "conviction": conv, "session_date": bc.get("session_date"),
+                           "headline": head},
+            })
+
     return cands
 
 
@@ -81,7 +101,7 @@ def run_alert_cycle() -> dict:
     fired["candidates"] = len(cands)
 
     for item in cands:
-        key = _dedup_key(item["tier"], item["symbol"], item["systems"])
+        key = item.get("dedup_key") or _dedup_key(item["tier"], item["symbol"], item["systems"])
         if conn.execute("SELECT 1 FROM archer_alerts WHERE dedup_key=?", (key,)).fetchone():
             fired["skipped_dup"] += 1
             continue
