@@ -36390,6 +36390,8 @@ function showNotificationPopup(notif) {
         : 'close';
     } else if (notif.type === 'vix') { t = 'vix'; }
     else if (notif.type === 'convergence') { t = 'convergence'; }
+    else if (notif.type === 'dissent') { t = 'dissent'; }
+    else if (notif.type === 'bridgevote') { t = 'bridgevote'; }
     else if (notif.severity === 'critical' || notif.type === 'alert') { t = 'redalert'; }
     if (t && typeof archerAnnounce === 'function') { archerAnnounce(t, notif); }
   })();

@@ -108,6 +108,52 @@ def _magnitude(consensus_size: int, total_voters: int) -> str:
     return "SPLIT"
 
 
+def _save_notification(title: str, body: str, severity: str, notif_type: str, icon: str) -> None:
+    """Write a dashboard notification (trader.db) so Archer announces it on the
+    frontend. 5-min title+body dedup mirrors the canonical helper. Never raises."""
+    try:
+        conn = sqlite3.connect(str(TRADER_DB), timeout=10)
+        try:
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                    type TEXT, severity TEXT, title TEXT, body TEXT,
+                    icon TEXT, agent_id TEXT, acknowledged INTEGER DEFAULT 0)"""
+            )
+            exists = conn.execute(
+                "SELECT id FROM notifications WHERE title=? AND body=? "
+                "AND timestamp >= datetime('now','-5 minutes')",
+                (title, body),
+            ).fetchone()
+            if not exists:
+                conn.execute(
+                    "INSERT INTO notifications (type, severity, title, body, icon) VALUES (?,?,?,?,?)",
+                    (notif_type, severity, title, body, icon),
+                )
+                conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning("[crew_dissent] notify failed: %s: %r", type(e).__name__, e)
+
+
+def _dissenter_accuracy_30d(dissenter: str) -> Optional[float]:
+    """Latest 30d dissent accuracy (0..1) for an officer, or None if not computed yet."""
+    try:
+        conn = sqlite3.connect(str(TRADER_DB), timeout=10)
+        try:
+            row = conn.execute(
+                "SELECT accuracy FROM crew_dissent_stats WHERE dissenter=? AND window_days=30",
+                (dissenter,),
+            ).fetchone()
+        finally:
+            conn.close()
+        return float(row[0]) if row and row[0] is not None else None
+    except Exception:
+        return None
+
+
 def log_dissents(consensus_result: dict) -> dict:
     """For each ticker, map the 3 officers' stances to BULL/BEAR/HOLD, find the
     majority, and INSERT OR IGNORE a dissent row for each officer that disagrees.
@@ -131,6 +177,9 @@ def log_dissents(consensus_result: dict) -> dict:
         return stats
 
     dissent_date = _today_str()
+    # Notable NEW dissents to announce via Archer (collected here, emitted AFTER the
+    # write txn closes so the notification INSERT doesn't contend on the lock).
+    _to_announce: list[tuple] = []
     conn = sqlite3.connect(str(TRADER_DB), timeout=15)
     try:
         for symbol, data in tickers.items():
@@ -184,12 +233,28 @@ def log_dissents(consensus_result: dict) -> dict:
                     )
                     if cur.rowcount:
                         stats["dissents_logged"] += 1
+                        # Announce only NOTABLE new splits (OUTLIER/SPLIT) — routine
+                        # MINOR 2-1 dissents log silently to avoid TTS storms.
+                        if magnitude in ("OUTLIER", "SPLIT"):
+                            _to_announce.append((sym, officer, call))
                 except Exception as e:
                     logger.warning("[crew_dissent] insert failed %s/%s/%s: %s: %r",
                                    sym, dissent_date, officer, type(e).__name__, e)
         conn.commit()
     finally:
         conn.close()
+
+    # Emit one dashboard notification per notable new dissent (after the txn closed).
+    # type='dissent' → frontend routes to archerAnnounce → speaks + captions + logs.
+    for sym, officer, call in _to_announce:
+        acc = _dissenter_accuracy_30d(officer)
+        acc_txt = f", {round(acc * 100)}% dissent accuracy" if acc is not None else ""
+        body = f"Crew split on {sym} — {officer} dissenting {call}{acc_txt}."
+        _save_notification(
+            title=f"⚖️ Crew Dissent — {sym}", body=body,
+            severity="info", notif_type="dissent", icon="⚖️",
+        )
+
     return stats
 
 

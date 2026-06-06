@@ -48,6 +48,36 @@ def _ensure_table() -> None:
     conn.close()
 
 
+def _save_notification(title: str, body: str, severity: str, notif_type: str, icon: str) -> None:
+    """Write a dashboard notification (trader.db) so Archer announces it on the
+    frontend. 5-min title+body dedup. Never raises."""
+    try:
+        conn = sqlite3.connect(TRADER_DB, timeout=10)
+        try:
+            conn.execute(
+                """CREATE TABLE IF NOT EXISTS notifications (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    timestamp TEXT DEFAULT CURRENT_TIMESTAMP,
+                    type TEXT, severity TEXT, title TEXT, body TEXT,
+                    icon TEXT, agent_id TEXT, acknowledged INTEGER DEFAULT 0)"""
+            )
+            exists = conn.execute(
+                "SELECT id FROM notifications WHERE title=? AND body=? "
+                "AND timestamp >= datetime('now','-5 minutes')",
+                (title, body),
+            ).fetchone()
+            if not exists:
+                conn.execute(
+                    "INSERT INTO notifications (type, severity, title, body, icon) VALUES (?,?,?,?,?)",
+                    (notif_type, severity, title, body, icon),
+                )
+                conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        logger.warning("[Archer/alerts] notify failed: %s: %r", type(e).__name__, e)
+
+
 def _dedup_key(tier: str, symbol: str, systems: list[str]) -> str:
     raw = f"{tier}:{symbol}:{','.join(sorted(systems))}"
     return hashlib.md5(raw.encode()).hexdigest()[:16]
@@ -132,6 +162,18 @@ def run_alert_cycle() -> dict:
         )
         conn.commit()
         fired["red" if item["tier"] == "RED" else "yellow"] += 1
+
+        # HM-ARCHER-DYNAMIC: bridge-vote alerts announce via Archer (once per session_date,
+        # already deduped above). type='bridgevote' → frontend archerAnnounce.
+        bridge = item.get("bridge")
+        if bridge:
+            body = (f"Bridge vote — {bridge.get('agree')} of {bridge.get('total')} "
+                    f"{bridge.get('vote')} on {item['symbol']}, conviction {bridge.get('conviction')}.")
+            _save_notification(
+                title=f"🛞 Bridge Vote — {item['symbol']}", body=body,
+                severity="warning" if item["tier"] == "RED" else "info",
+                notif_type="bridgevote", icon="🛞",
+            )
 
     conn.close()
     return fired
