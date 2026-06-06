@@ -2023,6 +2023,51 @@ def _bg_ollie_machine_exits():
     threading.Thread(target=_runner, daemon=True, name="sched_ollie_machine_exits").start()
 
 
+# ── HM-SHORT-ENGINE — sell-the-news shadow scanner (Path B, observation-only) ──
+# Post-earnings fade → SHORT votes into the W0 shadow substrate via
+# engine/sell_the_news_scanner.py (POST :9000/api/signal, agent
+# 'shadow-bridge:sell_the_news'). NEVER executes: shadow-bridge prefix is refused
+# at the paper_trader.buy chokepoint + the ai_players row is can_trade_live=0.
+# Default-OFF via SELL_THE_NEWS_ENABLED (mirrors OLLIE_MACHINE_LOOP_ENABLED).
+_sell_the_news_lock = threading.Lock()
+
+
+def _sell_the_news_enabled() -> bool:
+    import os as _os
+    return _os.environ.get("SELL_THE_NEWS_ENABLED", "").lower() in ("1", "true", "yes", "on")
+
+
+@_hm_bq_instr("_bg_sell_the_news")
+def _bg_sell_the_news():
+    """HM-SHORT-ENGINE shadow scanner — post-earnings fade → SHORT shadow signals.
+    Observation-only (agent 'shadow-bridge:sell_the_news'); RTH-gated; default-OFF."""
+    if not _sell_the_news_enabled():
+        return
+    try:
+        from engine.risk_manager import RiskManager
+        if not RiskManager.is_market_hours():
+            return
+    except Exception:
+        return
+    if not _sell_the_news_lock.acquire(blocking=False):
+        return
+
+    def _runner():
+        try:
+            from engine.sell_the_news_scanner import scan_and_emit
+            m = scan_and_emit()
+            console.log(
+                f"[cyan]Sell-The-News (SHADOW): checked {m['checked']} | "
+                f"qualified {m['qualified']} | emitted {m['emitted']} | regime {m.get('regime')}"
+            )
+        except Exception as e:
+            console.log(f"[yellow]Sell-The-News error: {type(e).__name__}: {e!r}")
+        finally:
+            _sell_the_news_lock.release()
+
+    threading.Thread(target=_runner, daemon=True, name="sched_sell_the_news").start()
+
+
 # ── Ollie Machine P4 promotion gate (SIM, read-only observability) ────────────
 # Scores the SIM ledger (Observe/Eligible/Promote) into ollie_machine_p4_status.
 # PURE measurement: zero executor calls, writes only its status row, never touches
@@ -4312,6 +4357,7 @@ if __name__ == "__main__":
     schedule.every().day.at("06:30").do(_bg_ollie_machine_enter) # OLLIE-MACHINE-P3 (HM-OLLIE-MACHINE-BRACKET-WINDOW 2026-06-05): bracket+SIM-enter in the market window (trade-levels healthy; 21:00 had endpoint cold). default-OFF via OLLIE_MACHINE_LOOP_ENABLED
     schedule.every(20).minutes.do(_bg_ollie_machine_exits)      # OLLIE-MACHINE-P3 (2026-06-01): SIM exit-monitor, RTH-gated. ledger-direct close, default-OFF via OLLIE_MACHINE_LOOP_ENABLED
     schedule.every().day.at("21:30").do(_bg_ollie_machine_p4_gate) # OLLIE-MACHINE-P4 (2026-06-02): SIM promotion gate, read-only. Daily tick; internally eval'd every 10 closed trades OR weekly. Writes ollie_machine_p4_status only.
+    schedule.every(30).minutes.do(_bg_sell_the_news)            # HM-SHORT-ENGINE (2026-06-05): sell-the-news shadow scanner, RTH-gated, observation-only (shadow-bridge). default-OFF via SELL_THE_NEWS_ENABLED
     schedule.every(30).minutes.do(_bg_source_health_dms)        # HM-SOURCE-HEALTH-WATCHER (2026-06-02): dead-man's-switch for the source-health watcher cron (reads its heartbeat, NTFYs if stale). Different mechanism than the cron it guards.
     # Capitol Trades Fund — Congress copycat scan (daily at market open, 9:35 AM ET)
     from engine.capitol_fund import run_capitol_scan as _raw_capitol_scan
