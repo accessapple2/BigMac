@@ -1917,6 +1917,7 @@ def run_bbkc_squeeze_watcher():
 # OLLIE_MACHINE_LOOP_ENABLED. The player stays can_trade_live=0 + tracking-mode +
 # absent from every scan/exec roster, so the live trader's own loops never act on it.
 _ollie_machine_daily_lock = threading.Lock()
+_ollie_machine_enter_lock = threading.Lock()
 _ollie_machine_exits_lock = threading.Lock()
 _ollie_machine_disabled_logged = False
 
@@ -1944,20 +1945,51 @@ def _bg_ollie_machine_daily():
 
     def _runner():
         try:
-            from engine.ollie_machine_loop import run_daily_cycle
-            r = run_daily_cycle()
+            # HM-OLLIE-MACHINE-BRACKET-WINDOW 2026-06-05: 21:00 does pick SELECTION
+            # only. Bracketing + SIM-entry moved to _bg_ollie_machine_enter (06:30),
+            # when /api/trade-levels is healthy (the 21:00 window had it cold).
+            from engine.ollie_machine_loop import run_pick_generation
+            r = run_pick_generation()
             console.log(
-                f"[cyan]Ollie Machine DAILY (SIM/tracking): universe "
-                f"{r['universe_pre']}→{r['universe_post']} | {r['qualifiers']} qual | "
-                f"top {r['top']} | entered {[o['symbol'] for o in r['opened']]} | "
-                f"breaker={'TRIPPED' if r['breaker_tripped'] else 'ok'}"
+                f"[cyan]Ollie Machine PICKS (SIM/tracking): universe "
+                f"{r['universe_pre']}→{r['universe_post']} | top {r['top']} "
+                f"(bracket+enter at 06:30)"
             )
         except Exception as e:
-            console.log(f"[yellow]Ollie Machine daily error: {type(e).__name__}: {e!r}")
+            console.log(f"[yellow]Ollie Machine picks error: {type(e).__name__}: {e!r}")
         finally:
             _ollie_machine_daily_lock.release()
 
     threading.Thread(target=_runner, daemon=True, name="sched_ollie_machine_daily").start()
+
+
+@_hm_bq_instr("_bg_ollie_machine_enter")
+def _bg_ollie_machine_enter():
+    """P3 pre-open bracket+enter (06:30, market window). SIM/tracking — brackets the
+    latest 21:00 picks via /api/trade-levels + ledger-direct SIM-enter. Split out of
+    the 21:00 job so the trade-levels endpoint is healthy at run time
+    (HM-OLLIE-MACHINE-BRACKET-WINDOW)."""
+    if not _ollie_machine_enabled():
+        return
+    if not _ollie_machine_enter_lock.acquire(blocking=False):
+        console.log("[dim]Ollie Machine enter: prior run still in flight — skip")
+        return
+
+    def _runner():
+        try:
+            from engine.ollie_machine_loop import run_bracket_and_enter
+            r = run_bracket_and_enter()
+            console.log(
+                f"[cyan]Ollie Machine ENTER (SIM/tracking): entered "
+                f"{[o['symbol'] for o in r['opened']]} | skipped {len(r['skipped'])} | "
+                f"breaker={'TRIPPED' if r['breaker_tripped'] else 'ok'}"
+            )
+        except Exception as e:
+            console.log(f"[yellow]Ollie Machine enter error: {type(e).__name__}: {e!r}")
+        finally:
+            _ollie_machine_enter_lock.release()
+
+    threading.Thread(target=_runner, daemon=True, name="sched_ollie_machine_enter").start()
 
 
 @_hm_bq_instr("_bg_ollie_machine_exits")
@@ -4276,7 +4308,8 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(_bg_bbkc_squeeze_watcher)     # HM-SQUEEZE-BBKC-COMPRESSION (2026-05-24): 30-min, default-OFF via BBKC_SQUEEZE_WATCHER_ENABLED
     schedule.every().day.at("20:30").do(_bg_rs_rank)            # HM-RS-RANK-VS-SPY (2026-05-24): nightly post-close, default-OFF via RS_RANK_ENABLED
     schedule.every().day.at("20:45").do(_bg_minervini_filter)   # HM-MINERVINI-TREND-FILTER (2026-05-24): nightly post-close +15min so rs_rank LEFT JOIN sees fresh data, default-OFF via MINERVINI_FILTER_ENABLED
-    schedule.every().day.at("21:00").do(_bg_ollie_machine_daily) # OLLIE-MACHINE-P3 (2026-06-01): SIM evaluate→enter, +15min after Minervini so signals are fresh. tracking-mode, default-OFF via OLLIE_MACHINE_LOOP_ENABLED
+    schedule.every().day.at("21:00").do(_bg_ollie_machine_daily) # OLLIE-MACHINE-P3 (2026-06-01): SIM pick SELECTION, +15min after Minervini so signals are fresh. tracking-mode, default-OFF via OLLIE_MACHINE_LOOP_ENABLED
+    schedule.every().day.at("06:30").do(_bg_ollie_machine_enter) # OLLIE-MACHINE-P3 (HM-OLLIE-MACHINE-BRACKET-WINDOW 2026-06-05): bracket+SIM-enter in the market window (trade-levels healthy; 21:00 had endpoint cold). default-OFF via OLLIE_MACHINE_LOOP_ENABLED
     schedule.every(20).minutes.do(_bg_ollie_machine_exits)      # OLLIE-MACHINE-P3 (2026-06-01): SIM exit-monitor, RTH-gated. ledger-direct close, default-OFF via OLLIE_MACHINE_LOOP_ENABLED
     schedule.every().day.at("21:30").do(_bg_ollie_machine_p4_gate) # OLLIE-MACHINE-P4 (2026-06-02): SIM promotion gate, read-only. Daily tick; internally eval'd every 10 closed trades OR weekly. Writes ollie_machine_p4_status only.
     schedule.every(30).minutes.do(_bg_source_health_dms)        # HM-SOURCE-HEALTH-WATCHER (2026-06-02): dead-man's-switch for the source-health watcher cron (reads its heartbeat, NTFYs if stale). Different mechanism than the cron it guards.

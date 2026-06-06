@@ -1855,13 +1855,28 @@ def _compute_trade_levels(symbol):
         day_key = int(t) // 86400
         day_buckets[day_key].append(b)
 
+    def _f(x):
+        # null-safe: the post-hours OHLCV bridge can return bars with explicit
+        # null OHLC (esp. the current incomplete day). b.get('open', 0) returns
+        # None when the key EXISTS with value null, so float(None) used to throw
+        # and poison the whole symbol — every trade-levels call 404'd after 8pm,
+        # which left Ollie Machine's 21:00 picks bracket-less (HM-OLLIE-MACHINE-
+        # BRACKET-WINDOW). Coalesce to None and drop the bad value instead.
+        try:
+            v = float(x)
+            return v if v == v else None   # also drop NaN
+        except (TypeError, ValueError):
+            return None
+
     daily = []
     for day_key in sorted(day_buckets.keys()):
         day_bars = day_buckets[day_key]
-        opens  = [float(b.get('open',  b.get('o', 0))) for b in day_bars]
-        highs  = [float(b.get('high',  b.get('h', 0))) for b in day_bars]
-        lows   = [float(b.get('low',   b.get('l', 0))) for b in day_bars]
-        closes = [float(b.get('close', b.get('c', 0))) for b in day_bars]
+        opens  = [f for f in (_f(b.get('open',  b.get('o'))) for b in day_bars) if f is not None]
+        highs  = [f for f in (_f(b.get('high',  b.get('h'))) for b in day_bars) if f is not None]
+        lows   = [f for f in (_f(b.get('low',   b.get('l'))) for b in day_bars) if f is not None]
+        closes = [f for f in (_f(b.get('close', b.get('c'))) for b in day_bars) if f is not None]
+        if not (opens and highs and lows and closes):
+            continue   # post-hours null bar → skip, don't poison the symbol
         daily.append({
             'open':  opens[0],
             'high':  max(highs),

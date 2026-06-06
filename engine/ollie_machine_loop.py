@@ -45,6 +45,48 @@ def run_daily_cycle() -> dict:
     }
 
 
+# ── HM-OLLIE-MACHINE-BRACKET-WINDOW 2026-06-05 — split daily cycle into two ────
+# phases so each runs when its data dependency is healthy:
+#   • run_pick_generation()  — 21:00 post-close, on fresh nightly RS/Minervini
+#                              signals (pick SELECTION only; levels stay NULL).
+#   • run_bracket_and_enter()— pre-open market window (06:30), when /api/trade-
+#                              levels is warm + computable. The 21:00 window had
+#                              the endpoint cold (warmer off after 20:00) which
+#                              left every pick bracket-less and the ledger empty.
+# run_daily_cycle() above stays intact for manual / backtest use.
+def run_pick_generation() -> dict:
+    """21:00 post-close: refresh ollie_machine_picks from fresh nightly signals.
+    SELECTION ONLY — bracketing + entry happen in run_bracket_and_enter()."""
+    res = om.run(write=True, apply_filter=True)
+    return {
+        "ts": res.get("ts"),
+        "universe_pre": res.get("universe_pre"),
+        "universe_post": res.get("universe_post"),
+        "top": [s["symbol"] for s in res.get("top", [])],
+    }
+
+
+def run_bracket_and_enter() -> dict:
+    """Pre-open market window: bracket the latest picks via /api/trade-levels +
+    SIM-enter (ledger-direct, flat-then-enter). Same guards as run_daily_cycle —
+    NEVER calls paper_trader.buy()."""
+    conn = p2a._conn()
+    try:
+        p2a.ensure_ledger_table(conn)
+        p2c.ensure_exit_columns(conn)
+        reg = p2a.register_player(conn)
+        bracketed = p2c.generate_top3_brackets(conn)
+        entry = p2a.sim_enter(conn, bracketed, reg["portfolio_id"], source=ENTRY_SOURCE)
+    finally:
+        conn.close()
+    return {
+        "opened": entry.get("opened", []),
+        "skipped": entry.get("skipped", []),
+        "breaker_tripped": entry.get("breaker_tripped"),
+        "today_realized": entry.get("today_realized"),
+    }
+
+
 def run_exit_monitor() -> dict:
     """Intraday: check open ledger positions vs current price; close on stop/tp
     (realized_pnl, closed_at, exit_price, exit_reason), feeding the -2% daily breaker."""
