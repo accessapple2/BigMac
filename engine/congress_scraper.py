@@ -20,7 +20,7 @@ QUIVER_ENABLED = False  # 2026-04-26: API returns 401 (no key configured). Capit
 def scrape_capitol_trades(limit: int = 50, pages: int = 4) -> list:
     """Scrape recent trades from capitoltrades.com (multiple pages)."""
     trades = []
-    from scrapling import Adaptor
+    from scrapling.parser import Adaptor  # HM-CONGRESS-SCRAPER-REPAIR: relocated in scrapling 0.4.8 (Adaptor is Selector); top-level export dropped on py3.14
 
     _headers = {
         "User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
