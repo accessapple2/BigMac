@@ -18289,6 +18289,40 @@ async def _claude_chat(message: str, system_prompt: str, history: list,
     return {"reply": "CIC offline. All providers unavailable.", "model": "none"}
 
 
+def _archer_intel_block() -> str:
+    """HM-ARCHER-REBUILD: compact live intel appended to the CIC system prompt.
+    CAPPED — top 5 convergences + regime + RED/YELLOW + shorts only (never all 41)."""
+    from engine.archer.convergence import compute_convergence
+    from engine.archer import intel_sources as _src
+    conv = compute_convergence()
+    reds = [c for c in conv if c["tier"] == "RED"]
+    yellows = [c for c in conv if c["tier"] == "YELLOW"]
+    regime = _src.get_regime()
+    shorts = _src.get_short_signals()
+    L = ["", "--- LIVE ARCHER INTEL (cite when relevant; do not invent) ---"]
+    if regime:
+        L.append(f"Regime: {regime.get('regime')} | VIX {regime.get('vix')} | SPY {regime.get('spy_price')}")
+    if reds:
+        L.append("RED 5/5: " + ", ".join(f"{c['symbol']}[{'+'.join(c['systems'])}]" for c in reds))
+    if yellows:
+        L.append("YELLOW 3-4/5: " + ", ".join(f"{c['symbol']}({c['count']}/5)" for c in yellows[:5]))
+    top = conv[:5]
+    L.append("Top convergences: " + (", ".join(f"{c['symbol']} {c['count']}/5[{'+'.join(c['systems'])}]" for c in top) or "none flagged"))
+    L.append("Sell-the-news shorts: " + (", ".join(s["symbol"] for s in shorts) if shorts else "none (dormant until earnings season)"))
+    L.append("Congress leg offline (scraper down) — convergence caps at 4/5.")
+    bc = _src.get_bridge_consensus()
+    if bc and bc.get("consensus_vote"):
+        agree = max(bc.get("buy", 0), bc.get("sell", 0), bc.get("hold", 0))
+        sess = ""
+        for ln in (bc.get("briefing") or "").splitlines():
+            if ln.strip().lower().startswith("session:"):
+                sess = ln.split(":", 1)[1].strip()
+                break
+        L.append(f"Bridge Vote: {bc['consensus_vote']} {agree}/{bc.get('total_voters')} "
+                 f"conf{bc.get('avg_confidence')} {sess}".rstrip())
+    return "\n".join(L)
+
+
 @app.post("/api/computer/chat")
 async def computer_chat(req: Request):
     """Captain Archer chat — Claude Sonnet primary, Ollama fallback."""
@@ -18313,6 +18347,12 @@ async def computer_chat(req: Request):
         system_prompt = _build_ticker_system_prompt(detected_ticker, ticker_data, context, longer_memory)
     else:
         system_prompt = _build_chat_system_prompt(context, longer_memory)
+
+    # HM-ARCHER-REBUILD: enrich with capped live convergence/GEX/shorts intel.
+    try:
+        system_prompt += _archer_intel_block()
+    except Exception as e:
+        logger.warning("[CIC-CHAT] archer intel block failed: %s: %r", type(e).__name__, e)
 
     result = await _claude_chat(user_msg, system_prompt, history, provider=provider)
     model = result.get("model", "none")
