@@ -37918,7 +37918,8 @@ function playArcherAudio(clip) {
 }
 
 // ── Archer HeyGen Video Player ────────────────────────────────────────────────
-var _archerVideoCicOpen = false; // tracks first-open state for welcome video
+// HM-CLEANUP-SWEEP: removed orphaned `_archerVideoCicOpen` (welcome-video autoplay
+// flag) — superseded by briefing-on-open; it was declared but referenced nowhere.
 var _archerBriefingShownOnOpen = false; // HM-ARCHER-REBUILD: briefing-on-open one-shot per session
 
 function playArcherVideo(videoFile) {
