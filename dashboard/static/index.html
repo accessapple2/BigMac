@@ -45130,7 +45130,7 @@ if (typeof registerSectionInit === 'function') {
     // Alerts
     fetch('/api/archer/alerts?limit=8').then(function(r){return r.ok?r.json():null;}).then(function(d){
       var el = document.getElementById('archer-intel-alerts'); if(!el) return;
-      var items = (d&&d.items)||[];
+      var items = (d&&(d.alerts||d.items))||[];
       var fab = document.getElementById('archer-intel-fab');
       if(fab){ if(items.some(function(x){return (x.tier||'').toUpperCase()==='RED';})) fab.classList.add('has-alert'); else fab.classList.remove('has-alert'); }
       if(!items.length){ el.innerHTML = '<span class="archer-intel-muted">no alerts (quiet)</span>'; return; }
@@ -45171,7 +45171,8 @@ if (typeof registerSectionInit === 'function') {
   function _archerFabPoll(){
     fetch('/api/archer/alerts?tier=red&limit=1').then(function(r){return r.ok?r.json():null;}).then(function(d){
       var fab = document.getElementById('archer-intel-fab'); if(!fab) return;
-      if(d && d.items && d.items.length) fab.classList.add('has-alert');
+      var arr = d && (d.alerts||d.items);
+      if(arr && arr.length) fab.classList.add('has-alert');
     }).catch(function(){});
   }
   setTimeout(_archerFabPoll, 4000);

@@ -16739,6 +16739,24 @@ def archer_frontier():
     return archer_briefing()
 
 
+@app.get("/api/archer/convergence")
+def archer_convergence():
+    """Live 5-system convergence counter (caps at 4/5 while congress is down).
+    HM-ARCHER-REBUILD."""
+    try:
+        from engine.archer.convergence import compute_convergence
+        conv = compute_convergence()
+        return {
+            "items": conv[:40],
+            "red": [c for c in conv if c["tier"] == "RED"],
+            "yellow": [c for c in conv if c["tier"] == "YELLOW"],
+            "count": len(conv),
+        }
+    except Exception as e:
+        logger.warning("[archer/convergence] %s: %r", type(e).__name__, e)
+        return {"items": [], "red": [], "yellow": [], "count": 0, "error": f"{type(e).__name__}"}
+
+
 # --- Congressional Trades ---
 
 @app.get("/api/metals/exposure")
