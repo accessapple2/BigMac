@@ -97,7 +97,7 @@ def _load_real_holdings() -> dict:
             "stale": True,
             "stale_reason": "holdings_stale",
             "age_minutes": round(_age_min, 1),
-            "stale_message": f"Schwab holdings data is {round(_age_min / 60, 1)}h old — re-import CSV to refresh",
+            "stale_message": f"Schwab holdings data is {round(_age_min / 60, 1)}h old — Schwab live sync stale; check sync_schwab_live cron (CSV fallback via ||)",
         }
     try:
         with REAL_HOLDINGS_PATH.open() as fh:

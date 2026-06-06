@@ -116,6 +116,23 @@ def _parse_market_value(notes: str) -> Optional[float]:
         return None
 
 
+def _coerce_market_value(p: dict) -> Optional[float]:
+    """Resolve a position's market_value.
+
+    HM-SCHWAB-API-READ: the live_api sync (sync_schwab_live.py) writes an
+    explicit ``market_value`` field. The legacy CSV path embeds it as "$X" in
+    the ``notes`` string instead. Prefer the explicit field; fall back to
+    notes-parsing only when the field is absent/null so BOTH paths report MV.
+    """
+    mv = p.get("market_value")
+    if mv is not None:
+        try:
+            return float(mv)
+        except (ValueError, TypeError):
+            pass
+    return _parse_market_value(p.get("notes") or "")
+
+
 # ─── Source loaders ─────────────────────────────────────────────────────────
 
 
@@ -142,7 +159,7 @@ def _load_schwab() -> dict:
                 "account": acct_key,
                 "qty": float(p.get("qty") or 0),
                 "avg_cost": float(p["avg_cost"]) if p.get("avg_cost") else None,
-                "market_value": _parse_market_value(p.get("notes") or ""),
+                "market_value": _coerce_market_value(p),
                 "asset_type": "equity",  # Schwab holdings — equity/ETF mix; refine in Phase 2 if needed
                 "notes": p.get("notes") or "",
             })
