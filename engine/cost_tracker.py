@@ -150,6 +150,36 @@ def log_cost(player_id: str, call_type: str, prompt: str, response: str) -> floa
     return cost_usd
 
 
+def log_cost_exact(player_id: str, call_type: str, input_tokens: int,
+                   output_tokens: int, cost_usd: float) -> float:
+    """Log an API call with the EXACT cost + real token counts (e.g. Q/Grok's
+    cost_in_usd_ticks), bypassing the estimate. Same tables as log_cost."""
+    if player_id in _fallback_active:
+        call_type = f"fallback:{call_type}"
+    now = datetime.now()
+    today = now.strftime("%Y-%m-%d")
+    with _lock:
+        try:
+            conn = _conn()
+            conn.execute(
+                "INSERT INTO api_costs (player_id, call_type, input_tokens, output_tokens, cost_usd, timestamp) "
+                "VALUES (?,?,?,?,?,?)",
+                (player_id, call_type, int(input_tokens or 0), int(output_tokens or 0),
+                 float(cost_usd or 0.0), now.isoformat()),
+            )
+            conn.execute(
+                "INSERT INTO model_stats (player_id, api_calls, total_cost, date) "
+                "VALUES (?,1,?,?) ON CONFLICT(player_id, date) DO UPDATE SET "
+                "api_calls=api_calls+1, total_cost=total_cost+?",
+                (player_id, float(cost_usd or 0.0), today, float(cost_usd or 0.0)),
+            )
+            conn.commit()
+            conn.close()
+        except Exception:
+            pass
+    return float(cost_usd or 0.0)
+
+
 def get_daily_costs(date: str = None) -> dict:
     """Get per-model costs for a given date (default today)."""
     if not date:

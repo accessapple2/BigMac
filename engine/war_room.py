@@ -30,6 +30,7 @@ CREW_NAMES = {
     "options-sosnoff": "Counselor Troi",
     "webull": "Captain Kirk",
     "q-entity": "Q",
+    "q-witness": "Q",
     "dalio-metals": "Mr. Dalio",
     "navigator": "Ensign Chekov",
     "riker": "Cmdr. Riker",
@@ -502,8 +503,12 @@ def generate_hot_take(provider, player_id: str, symbol: str, price_data: dict,
         response = provider.call_model(prompt)
 
         try:
-            from engine.cost_tracker import log_cost
-            log_cost(player_id, "war_room", prompt, response)
+            # HM-Q-WARROOM: providers that log their own EXACT cost (Q/Grok via
+            # cost_in_usd_ticks) set _logs_own_cost — don't double-count with the
+            # token-estimate here.
+            if not getattr(provider, "_logs_own_cost", False):
+                from engine.cost_tracker import log_cost
+                log_cost(player_id, "war_room", prompt, response)
         except Exception:
             pass
 

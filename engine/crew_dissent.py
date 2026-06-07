@@ -36,7 +36,7 @@ _ACTION_TO_CALL = {
 }
 
 # Officer display names, in the order build_consensus exposes them per ticker.
-_OFFICERS = ("Spock", "Data", "Uhura")
+_OFFICERS = ("Spock", "Data", "Uhura", "Q")  # HM-Q-WARROOM: Q (Grok) is a tracked dissenter
 
 
 def _today_str() -> str:
@@ -189,7 +189,7 @@ def log_dissents(consensus_result: dict) -> dict:
 
             # Map each present officer's action to a directional call.
             calls: dict[str, str] = {}
-            for officer, key in zip(_OFFICERS, ("spock", "data", "uhura")):
+            for officer, key in zip(_OFFICERS, ("spock", "data", "uhura", "grok")):
                 stance = data.get(key)
                 if not stance:
                     continue

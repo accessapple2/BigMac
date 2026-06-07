@@ -81,6 +81,7 @@ CREW_INFO = {
     "energy-arnold": ("⚡", "Cmdr. Trip Tucker"),
     "options-sosnoff": ("💜", "Counselor Troi"),
     "q-entity": ("✨", "Q"),
+    "q-witness": ("🌀", "Q"),
     "dalio-metals": ("📊", "Mr. Dalio"),
     "enterprise-computer": ("⚙️", "Computer"),
     "ollama-llama": ("📡", "Lt. Cmdr. Uhura"),
@@ -331,6 +332,39 @@ def _get_uhura_stance(tickers: list[str]) -> tuple[str, dict]:
     return "NEUTRAL", {}
 
 
+def _get_grok_stance(tickers: list[str]) -> tuple[str, dict]:
+    """Get Q's stance from War Room takes — the Grok (xAI) debate voice.
+
+    HM-Q-WARROOM 2026-06-06: mirrors _get_uhura_stance (reads `war_room` posts),
+    but for player_id='q-witness'. Q always votes, so its dissents feed the
+    crew-dissent tracker (see crew_dissent.py)."""
+    try:
+        conn = _conn()
+        rows = conn.execute(
+            "SELECT symbol, take FROM war_room "
+            "WHERE player_id='q-witness' "
+            "AND created_at >= datetime('now', '-24 hours') "
+            "ORDER BY created_at DESC"
+        ).fetchall()
+        conn.close()
+        if rows:
+            stances = {}
+            all_text = ""
+            seen = set()
+            for r in rows:
+                sym = r["symbol"]
+                if sym in seen or sym not in tickers:
+                    continue
+                seen.add(sym)
+                stances.update(parse_officer_stance(r["take"], [sym]))
+                all_text += (r["take"] or "") + " "
+            if stances:
+                return (parse_outlook(all_text) if all_text.strip() else "NEUTRAL"), stances
+    except Exception as e:
+        console.log(f"[dim]Consensus: Q (grok) stance unavailable: {e}")
+    return "NEUTRAL", {}
+
+
 def _get_crew_stances(tickers: list[str]) -> dict:
     """Get all crew stances from latest War Room posts and signals.
 
@@ -474,15 +508,17 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
     spock_outlook, spock_stances = _get_spock_stance(tickers)
     data_outlook, data_stances = _get_data_stance(tickers)
     uhura_outlook, uhura_stances = _get_uhura_stance(tickers)
+    grok_outlook, grok_stances = _get_grok_stance(tickers)  # HM-Q-WARROOM: Q (Grok voice)
     crew_stances = _get_crew_stances(tickers)
 
-    # Market outlook comparison (3-way)
+    # Market outlook comparison
     outlooks = [spock_outlook, data_outlook, uhura_outlook]
     outlook_agree = len(set(outlooks)) == 1
     market_outlook = {
         "spock": spock_outlook,
         "data": data_outlook,
         "uhura": uhura_outlook,
+        "grok": grok_outlook,   # HM-Q-WARROOM: Q's market outlook
         "agree": outlook_agree,
     }
 
@@ -495,6 +531,7 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
         spock = spock_stances.get(ticker)
         data = data_stances.get(ticker)
         uhura = uhura_stances.get(ticker)
+        grok = grok_stances.get(ticker)  # HM-Q-WARROOM: Q's per-ticker stance
 
         # Officer comparison (3-way: count how many of the available officers agree)
         officers = [o for o in [spock, data, uhura] if o]
@@ -548,6 +585,7 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
             ("deepseek-7b-grok4", spock, "S", "Spock"),
             ("first-officer", data, "D", "Data"),
             ("ollama-llama", uhura, "U", "Uhura"),
+            ("q-witness", grok, "🌀", "Q"),   # HM-Q-WARROOM: Q always votes
         ]:
             if stance and not any(e["player_id"] == pid for e in crew_entries):
                 crew_entries.append({
@@ -576,6 +614,7 @@ def build_consensus(tickers: list[str] | None = None) -> dict:
             "spock": spock,
             "data": data,
             "uhura": uhura,
+            "grok": grok,   # HM-Q-WARROOM: Q's stance — read by crew_dissent
             "comparison": comparison,
             "crew_poll": {
                 "entries": crew_entries,

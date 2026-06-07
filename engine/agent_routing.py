@@ -133,6 +133,20 @@ def build_provider(player_entry: dict,
         logger.warning(f"no model resolvable for {pid}; skipping provider")
         return None
 
+    # HM-Q-WARROOM 2026-06-06: Q (q-witness) — the Admiral-approved paid xAI
+    # debate voice. This is the explicit routing path that gets the real-xAI
+    # GrokProvider into the War Room providers dict (otherwise the non-ollama
+    # filter below would skip it). Q_ENABLED is the kill switch; the provider
+    # itself degrades to local Ollama on xAI failure or when its daily cost cap
+    # (Q_DAILY_COST_CAP) is hit, so the debate never blocks.
+    if pid == "q-witness":
+        import os as _os
+        if _os.getenv("Q_ENABLED", "1").lower() not in ("1", "true", "yes", "on"):
+            logger.info("Q (q-witness) War Room voice disabled (Q_ENABLED off) — skipping")
+            return None
+        from engine.providers.grok_provider import GrokProvider
+        return GrokProvider(player_id=pid, model=model, display_name="Q", use_xai=True)
+
     # Route to OllamaProvider if explicitly ollama OR local_redirect=True
     if provider in _OLLAMA_PROVIDER_VALUES or local_redirect:
         from engine.providers.ollama_provider import OllamaProvider
