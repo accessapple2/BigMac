@@ -2983,6 +2983,7 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/archer/',  // HM-ARCHER-REBUILD 2026-06-05 — Captain Archer intel/alerts/briefing/convergence
     '/api/q/',  // HM-ASK-Q 2026-06-06 — Q deep analyst (pull/deep)
     '/api/shadow-csp/',  // HM-SHADOW-CSP 2026-06-07 — options-income bake-off standings card (Options Engine panel)
+    '/api/systems-status',  // HM-SYSTEMS-STATUS 2026-06-07 — Bridge Systems Status tile
     '/api/fleet/active',  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
     '/api/portfolio/real',  // HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — Schwab+metals real-world view (PR #44 endpoint)
     '/api/networth',  // HM-AM 2026-06-02 — unified net-worth breakdown (cash/equities/metals), data-driven over is_active accounts
@@ -6739,6 +6740,44 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       <div style="font-size:13px;color:var(--muted);line-height:1.5;">Shows where options dealers must hedge. Green zones = dealers buy dips (price gets pinned). Red zones = dealers sell dips (price accelerates). The Gamma Flip is THE key level — above it markets are calm, below it markets are volatile.</div>
     </div>
     <div id="gexBody" style="padding:12px 16px;">Loading GEX data...</div>
+  </div>
+
+  <!-- HM-SYSTEMS-STATUS 2026-06-07: at-a-glance state of every major system.
+       Read-only; data from /api/systems-status. Defensive IIFE (r.ok-gated, try/catch, 60s refresh). -->
+  <div class="card" id="systems-status-tile">
+    <h2 class="panel-title">🛰️ Systems Status</h2>
+    <div id="systems-status-body" style="padding:8px 14px 14px;">
+      <div style="color:var(--muted);font-size:13px;">loading…</div>
+    </div>
+    <script>
+    (function(){
+      var BADGE = {LIVE:'🟢', SHADOW:'🌑', GATED:'⏳', PARKED:'⏸'};
+      var COL   = {LIVE:'var(--green)', SHADOW:'#c084fc', GATED:'#fbbf24', PARKED:'var(--muted)'};
+      function esc(s){ return String(s==null?'':s).replace(/[&<>]/g,function(c){return {'&':'&amp;','<':'&lt;','>':'&gt;'}[c];}); }
+      function render(d){
+        var el=document.getElementById('systems-status-body'); if(!el) return;
+        if(!d || d.error || !Array.isArray(d.systems)){
+          el.innerHTML='<div style="color:var(--muted);font-size:13px;">unavailable</div>'; return;
+        }
+        var rows=d.systems.map(function(s){
+          var st=s.state||'GATED', badge=BADGE[st]||'•', col=COL[st]||'var(--muted)';
+          return '<div style="display:flex;align-items:baseline;gap:8px;padding:4px 0;border-bottom:1px solid var(--border);">'+
+            '<span style="flex:0 0 150px;font-weight:600;">'+esc(s.name)+'</span>'+
+            '<span style="flex:0 0 78px;color:'+col+';font-size:12px;font-weight:600;">'+badge+' '+esc(st)+'</span>'+
+            '<span style="flex:1;color:var(--muted);font-size:12px;">'+esc(s.detail)+'</span></div>';
+        }).join('');
+        el.innerHTML=rows+'<div style="color:var(--muted);font-size:10px;opacity:.6;margin-top:6px;">'+esc(d.generated_at||'')+'</div>';
+      }
+      function load(){
+        fetch('/api/systems-status').then(function(r){ if(!r.ok) throw new Error('http '+r.status); return r.json(); })
+          .then(render).catch(function(){
+            var el=document.getElementById('systems-status-body');
+            if(el) el.innerHTML='<div style="color:var(--muted);font-size:13px;">unavailable</div>';
+          });
+      }
+      load(); setInterval(load, 60000);
+    })();
+    </script>
   </div>
 
   <!-- Options Engine Panel -->

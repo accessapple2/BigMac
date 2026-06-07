@@ -144,6 +144,105 @@ def shadow_csp_standings():
         return {"error": str(e), "baseline": None, "seats": []}
 
 
+@app.get("/api/systems-status")
+def systems_status():
+    """HM-SYSTEMS-STATUS (2026-06-07) — at-a-glance state of every major system
+    for the Bridge 'Systems Status' tile. Read-only; pulls LIVE state where
+    queryable (ai_players, shadow_csp_scorecard, crew_dissent_log, signals,
+    ic_proposals) and reports documented doctrine-state for gated/parked items.
+    Each source is independently try/except'd so one failure can't blank the tile.
+    state ∈ LIVE | SHADOW | GATED | PARKED."""
+    import os as _os
+    import sqlite3 as _sql
+    from datetime import datetime as _dt, timezone as _tz
+    from pathlib import Path as _P
+    _db = str(_P(__file__).resolve().parent.parent / "data" / "trader.db")
+    _sigdb = str(_P(__file__).resolve().parent.parent / "signal-center" / "signals.db")
+    systems = []
+
+    def _add(name, state, detail):
+        systems.append({"name": name, "state": state, "detail": detail})
+
+    # Trading agents (live)
+    try:
+        c = _sql.connect(_db, timeout=10)
+        rows = dict(c.execute("SELECT halt_mode, COUNT(*) FROM ai_players GROUP BY halt_mode").fetchall())
+        c.close()
+        active = rows.get("active", 0)
+        halted = sum(v for k, v in rows.items() if k != "active")
+        _add("Trading agents", "LIVE",
+             f"{active} active · {halted} halted ({rows.get('exit_only',0)} exit-only, {rows.get('full',0)} full)")
+    except Exception as e:
+        _add("Trading agents", "GATED", f"unavailable: {type(e).__name__}")
+
+    # Bake-off shadow seats (CSP ghost) — live closed counts toward N
+    try:
+        from engine.shadow_csp_scorecard import compute as _csp
+        sc = _csp()
+        n_req = sc.get("graduate_n", 30)
+        for s in sc.get("seats", []):
+            nm = "plutus-shadow" if s["agent"] == "shadow-plutus-csp" else (
+                 "qwen3.5-shadow" if s["agent"] == "shadow-qwen35-csp" else s["agent"])
+            _add(f"Bake-off: {nm}", "SHADOW",
+                 f"{s['n_closed']}/{n_req} closed · CSP ghost · {s['graduation']['verdict']}")
+        b = sc.get("baseline") or {}
+        if b:
+            _add("Bake-off baseline (Troi wheel)", "LIVE",
+                 f"{b.get('n_closed',0)} closed · {b.get('win_rate_pct',0)}% WR · {b.get('total_roc_pct',0)}% ROC")
+    except Exception as e:
+        _add("Bake-off seats", "SHADOW", f"unavailable: {type(e).__name__}")
+
+    # Sell-the-news shadow scanner
+    try:
+        c = _sql.connect(_sigdb, timeout=10)
+        n = c.execute("SELECT COUNT(*) FROM trade_signals WHERE agent_name LIKE 'shadow-bridge%'").fetchone()[0]
+        c.close()
+        _add("Sell-the-news", "SHADOW", f"{n} shadow signals emitted (observation-only, no execution)")
+    except Exception as e:
+        _add("Sell-the-news", "SHADOW", f"unavailable: {type(e).__name__}")
+
+    # Quark IC squadron (shadow until 50 closes @≥70% WR)
+    try:
+        c = _sql.connect(_db, timeout=10)
+        try:
+            closed = c.execute("SELECT COUNT(*) FROM ic_proposals WHERE status='shadow_closed'").fetchone()[0]
+        except Exception:
+            closed = 0
+        c.close()
+        _add("Quark IC", "SHADOW", f"{closed}/50 closes toward graduation (shadow, no live options)")
+    except Exception as e:
+        _add("Quark IC", "SHADOW", f"unavailable: {type(e).__name__}")
+
+    # Q — War Room voice
+    try:
+        q_on = _os.getenv("Q_ENABLED", "1").lower() in ("1", "true", "yes", "on")
+        _add("Q — War Room vote", "LIVE" if q_on else "PARKED",
+             "voting ON · Ask-Q live · advisory (can_trade_live=0)" if q_on else "voting OFF (Q_ENABLED off)")
+    except Exception as e:
+        _add("Q — War Room vote", "GATED", f"unavailable: {type(e).__name__}")
+    try:
+        c = _sql.connect(_db, timeout=10)
+        try:
+            d = c.execute("SELECT COUNT(*) FROM crew_dissent_log").fetchone()[0]
+        except Exception:
+            d = 0
+        c.close()
+        _add("Q — crew dissents", "LIVE", f"{d} dissents logged (contrarian accuracy tracked)")
+    except Exception as e:
+        _add("Q — crew dissents", "LIVE", f"unavailable: {type(e).__name__}")
+
+    # Gated / parked (doctrine state — not live metrics)
+    _add("W4 regime router", "PARKED", "parked-by-design — regime sample zero-variance + Phase-1 blocklist not yet validated")
+    _add("SUPER_MAX W2/W3", "GATED", "spec-only — gated on a setup graduating (DSR≥0.95 ∧ PBO≤0.30)")
+    _add("Plutus v6 corpus", "GATED", "scoped-for-later — free-source build assembled; GPU training window pending")
+
+    return {
+        "generated_at": _dt.now(_tz.utc).strftime("%Y-%m-%d %H:%M:%S UTC"),
+        "count": len(systems),
+        "systems": systems,
+    }
+
+
 # Trade Cards — Command Center API
 from engine.trade_cards_api import router as trade_cards_router
 app.include_router(trade_cards_router, tags=["Trade Cards"])
