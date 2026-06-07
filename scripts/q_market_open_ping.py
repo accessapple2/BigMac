@@ -1,20 +1,24 @@
 #!/usr/bin/env python3
-"""HM-Q-MARKET-OPEN-PING — Monday market-open reminder. NTFYs the Captain that Q
-(the Grok War Room voice) is live now that the session is open, with a quick
-status (Q's recent debate takes + dissent count). Complements q_dissent_watch.py
-(which fires on each actual Q dissent); this is the "market's open, go look" ping.
+"""HM-Q-MARKET-OPEN-PING — ONE-SHOT market-open reminder for Q's FIRST live
+session (2026-06-09). NTFYs the Captain that Q (the Grok War Room voice) is live
+now that the session is open, with a quick status (Q's recent debate takes +
+dissent count). Complements q_dissent_watch.py (the recurring per-dissent alert).
 
-Local cron (the remote /schedule can't read this local trader.db). Read-only DB,
-stdlib only. Fires Monday at market open via crontab.
+ONE-SHOT: a date guard (TARGET_DATE) means this fires on exactly one day and is a
+silent no-op every other time it's invoked — so the cron entry can linger
+harmlessly. Local cron (the remote /schedule can't read this local trader.db).
+Read-only DB, stdlib only.
 """
 import sqlite3
 import sys
 import urllib.request
+from datetime import datetime
 from pathlib import Path
 
 ROOT = Path("/Users/bigmac/autonomous-trader")
 DB = ROOT / "data" / "trader.db"
 NTFY = "https://ntfy.sh/ollietrades-admin"
+TARGET_DATE = "2026-06-09"  # Q's first live session — fire once, then no-op forever
 
 
 def _ntfy(title: str, body: str) -> None:
@@ -34,6 +38,10 @@ def _ntfy(title: str, body: str) -> None:
 
 
 def main() -> int:
+    # ONE-SHOT guard: the box runs in Arizona local time (no DST), so naive
+    # datetime.now() is the AZ date. Fire only on Q's first live session.
+    if datetime.now().strftime("%Y-%m-%d") != TARGET_DATE:
+        return 0
     takes = q_dissents = 0
     try:
         conn = sqlite3.connect(f"file:{DB}?mode=ro", uri=True, timeout=15)
