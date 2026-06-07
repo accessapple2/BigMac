@@ -24910,9 +24910,9 @@ function renderTrades() {
       let exp = '';
       if (t.expiry_date) {
         const m = String(t.expiry_date).match(/^(\d{4})-(\d{2})-(\d{2})/);
-        exp = m ? (m[2] + '/' + m[3]) : String(t.expiry_date);
+        exp = m ? (m[2] + '-' + m[3]) : String(t.expiry_date);
       }
-      const optTag = `${cp}${strike}${exp?' '+exp:''}`;
+      const optTag = `${strike?'$'+strike:''}${cp}${exp?' '+exp:''}`;
       symbolCell = `<b>${t.symbol}</b> <span style="color:var(--muted);font-size:12px;">${optTag}</span>`;
       qtyCell = `${t.quantity}`;
       priceCell = `$${t.entry_price} <span style="color:var(--muted);font-size:11px;">prem</span>`;
