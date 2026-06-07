@@ -4566,6 +4566,34 @@ if __name__ == "__main__":
     from engine.wheel_strategy import run_wheel_scan, check_wheel_assignments
     schedule.every(15).minutes.do(run_wheel_scan)              # Wheel Strategy: scan for put-selling opportunities every 15 min
     schedule.every(1).hours.do(check_wheel_assignments)        # Wheel Strategy: check for option assignments hourly
+
+    # === HM-SHADOW-CSP (2026-06-07): options-income bake-off, shadow-first ===
+    # Two candidate CSP seats emit to the GHOST options book and are scored
+    # forward (return-on-collateral) vs Troi's wheel baseline. Default-OFF via
+    # SHADOW_CSP_ENABLED + per-seat envs. Ghost CSPs are auto-managed/expired by
+    # paper_trader's book-agnostic short-premium + expiry paths — no exit wiring.
+    #   • plutus seat shares McCoy's resident plutus-v1 (zero new VRAM) → RTH.
+    #   • qwen3.5 seat runs OFF-HOURS (21:30 AZ, queue idle) → never evicts
+    #     the 7 live qwen3:8b agents.
+    def _run_shadow_csp_plutus_safe():
+        try:
+            from engine.shadow_csp import run_shadow_csp_plutus
+            return run_shadow_csp_plutus()
+        except Exception as _e:
+            console.log(f"[red][SHADOW-CSP] plutus seat crash: {type(_e).__name__}: {_e!r}")
+            return None
+
+    def _run_shadow_csp_qwen35_safe():
+        try:
+            from engine.shadow_csp import run_shadow_csp_qwen35
+            return run_shadow_csp_qwen35()
+        except Exception as _e:
+            console.log(f"[red][SHADOW-CSP] qwen35 seat crash: {type(_e).__name__}: {_e!r}")
+            return None
+    schedule.every(2).hours.do(_run_shadow_csp_plutus_safe)        # shadow CSP A: shares McCoy plutus-v1, RTH-gated, ghost-only
+    schedule.every().day.at("21:30").do(_run_shadow_csp_qwen35_safe)  # shadow CSP B: qwen3.5 off-hours batch, ghost-only (model id from .env)
+    # === /HM-SHADOW-CSP ===
+
     # Self-Improvement Loop — 2:30 PM AZ (4:30 PM ET), generates 3 rules per agent
     try:
         from engine.self_improvement import run_daily_reflection

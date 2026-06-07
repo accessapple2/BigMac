@@ -131,6 +131,19 @@ def wheel_status():
         return {"puts_open": 0, "stocks_held": 0, "total_premium_collected": 0, "error": str(e)}
 
 
+@app.get("/api/shadow-csp/standings")
+def shadow_csp_standings():
+    """HM-SHADOW-CSP (2026-06-07) options-income bake-off standings — Troi's
+    wheel baseline vs the two ghost CSP seats (close counts, return-on-collateral,
+    DSR, report-only graduation verdict). Read-only; wraps
+    engine/shadow_csp_scorecard.compute()."""
+    try:
+        from engine.shadow_csp_scorecard import compute
+        return compute()
+    except Exception as e:
+        return {"error": str(e), "baseline": None, "seats": []}
+
+
 # Trade Cards — Command Center API
 from engine.trade_cards_api import router as trade_cards_router
 app.include_router(trade_cards_router, tags=["Trade Cards"])

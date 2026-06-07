@@ -2982,6 +2982,7 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/congress/','/api/volume-radar','/api/universe/status','/api/gex-snapshot',
     '/api/archer/',  // HM-ARCHER-REBUILD 2026-06-05 — Captain Archer intel/alerts/briefing/convergence
     '/api/q/',  // HM-ASK-Q 2026-06-06 — Q deep analyst (pull/deep)
+    '/api/shadow-csp/',  // HM-SHADOW-CSP 2026-06-07 — options-income bake-off standings card (Options Engine panel)
     '/api/fleet/active',  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
     '/api/portfolio/real',  // HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — Schwab+metals real-world view (PR #44 endpoint)
     '/api/networth',  // HM-AM 2026-06-02 — unified net-worth breakdown (cash/equities/metals), data-driven over is_active accounts
@@ -6751,6 +6752,54 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       <span class="oe-subtitle" id="oe-subtitle">Wheel ACTIVE · IC Squadron in shadow · spread agents queued</span>
     </h2>
     <div class="oe-body">
+      <!-- HM-SHADOW-CSP 2026-06-07: options-income bake-off standings (ghost seats vs Troi baseline).
+           Read-only glance card; data from /api/shadow-csp/standings. Defensive: r.ok-gated,
+           try/catch, idempotent IIFE, reuses oe-book/oe-agent-slot classes. -->
+      <div class="oe-book" id="oe-shadow-csp">
+        <div class="oe-book-header">
+          <span class="oe-book-name">🌑 Shadow CSP Bake-off</span>
+          <span class="oe-book-cash" id="shadow-csp-meta" style="font-size:11px;opacity:.7;">ghost · report-only</span>
+        </div>
+        <div class="oe-book-sub" id="shadow-csp-standings">
+          <span class="oe-agent-slot"><em>loading…</em></span>
+        </div>
+        <script>
+        (function(){
+          function pct(x){ return (x===null||x===undefined)?'—':(Number(x).toFixed(1)+'%'); }
+          function row(label, s, isBase){
+            var dsr=(s.dsr===null||s.dsr===undefined)?'—':Number(s.dsr).toFixed(2);
+            var v=isBase?'baseline':((s.graduation&&s.graduation.verdict)||'');
+            var col=(v==='GRADUATE')?'#10b981':(isBase?'#60a5fa':'#fbbf24');
+            return '<span class="oe-agent-slot" title="return-on-collateral; report-only graduation">'+
+              label+' <em style="color:'+col+'">'+(s.n_closed||0)+' closed · '+
+              pct(s.win_rate_pct)+' WR · '+pct(s.total_roc_pct)+' ROC · DSR '+dsr+' · '+v+'</em></span>';
+          }
+          function render(d){
+            var el=document.getElementById('shadow-csp-standings'); if(!el) return;
+            if(!d||d.error){ el.innerHTML='<span class="oe-agent-slot"><em>unavailable</em></span>'; return; }
+            var html='';
+            if(d.baseline) html+=row('Troi (wheel)', d.baseline, true);
+            (d.seats||[]).forEach(function(s){
+              var nm=(s.agent==='shadow-plutus-csp')?'plutus-v1 shadow'
+                   :(s.agent==='shadow-qwen35-csp')?'qwen3.5 shadow':s.agent;
+              html+=row(nm, s, false);
+            });
+            el.innerHTML=html||'<span class="oe-agent-slot"><em>no data</em></span>';
+            var meta=document.getElementById('shadow-csp-meta');
+            if(meta&&d.graduate_n) meta.textContent='ghost · gate N≥'+d.graduate_n+' · report-only';
+          }
+          function load(){
+            fetch('/api/shadow-csp/standings').then(function(r){
+              if(!r.ok) throw new Error('http '+r.status); return r.json();
+            }).then(render).catch(function(){
+              var el=document.getElementById('shadow-csp-standings');
+              if(el) el.innerHTML='<span class="oe-agent-slot"><em>unavailable</em></span>';
+            });
+          }
+          load(); setInterval(load, 300000);
+        })();
+        </script>
+      </div>
       <!-- Production Book -->
       <div class="oe-book" id="oe-book-fleet">
         <div class="oe-book-header">
