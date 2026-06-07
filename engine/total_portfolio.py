@@ -421,6 +421,72 @@ def _az_today() -> str:
         return datetime.now(timezone.utc).strftime("%Y-%m-%d")
 
 
+def _az_hhmm() -> str:
+    """AZ wall-clock 'HH:MM' for 'as of' timestamps."""
+    try:
+        from engine.market_calendar import az_now
+        return az_now().strftime("%H:%M")
+    except Exception:
+        return datetime.now(timezone.utc).strftime("%H:%M")
+
+
+def _session_state() -> dict:
+    """Map RiskManager.is_market_hours() → a UI session badge.
+    Returns {state, label} where label ∈ LIVE / PRE-MARKET / AFTER-HOURS / CLOSED."""
+    s = None
+    try:
+        from engine.risk_manager import RiskManager
+        s = RiskManager.is_market_hours()   # "pre_market"/"market"/"post_market"/False
+    except Exception:
+        pass
+    label = {"market": "LIVE", "pre_market": "PRE-MARKET",
+             "post_market": "AFTER-HOURS"}.get(s, "CLOSED")
+    return {"state": (s or "closed"), "label": label, "live": (s == "market")}
+
+
+# HM-TOTAL-PORTFOLIO PART 2 (piece 4): extended-hours equity re-mark for DISPLAY only.
+# Test-overridable so the simulated-position test doesn't hit the network.
+_EXTENDED_QUOTE_FN = None
+
+
+def _extended_quote(symbol: str) -> Optional[dict]:
+    """Best-effort extended-hours / last equity quote for DISPLAY re-marking.
+    Polygon Stocks Starter (primary) → Alpaca IEX (fallback). Returns
+    {price, source, as_of} or None (caller then keeps the last RTH close).
+    NEVER used for the daily-change baseline — that stays the official RTH close."""
+    if _EXTENDED_QUOTE_FN is not None:
+        try:
+            return _EXTENDED_QUOTE_FN(symbol)
+        except Exception:
+            return None
+    try:
+        import requests
+        key = os.getenv("POLYGON_API_KEY")
+        if key:
+            r = requests.get(f"https://api.polygon.io/v2/last/trade/{symbol}",
+                             params={"apiKey": key}, timeout=5)
+            if r.ok:
+                px = ((r.json().get("results") or {}).get("p"))
+                if px:
+                    return {"price": float(px), "source": "polygon", "as_of": _az_hhmm()}
+    except Exception:
+        pass
+    try:
+        import requests
+        ak, sk = os.getenv("ALPACA_API_KEY"), os.getenv("ALPACA_SECRET_KEY")
+        if ak and sk:
+            r = requests.get(f"https://data.alpaca.markets/v2/stocks/{symbol}/trades/latest",
+                             headers={"APCA-API-KEY-ID": ak, "APCA-API-SECRET-KEY": sk},
+                             params={"feed": "iex"}, timeout=5)
+            if r.ok:
+                px = ((r.json().get("trade") or {}).get("p"))
+                if px:
+                    return {"price": float(px), "source": "alpaca_iex", "as_of": _az_hhmm()}
+    except Exception:
+        pass
+    return None
+
+
 def _prior_snapshot(before_date: str) -> Optional[dict]:
     """Most recent networth_history row strictly before `before_date` (the daily
     baseline). Returns None if none exists (first-ever snapshot → daily = '—')."""
@@ -443,7 +509,7 @@ def _prior_snapshot(before_date: str) -> Optional[dict]:
         return None
 
 
-def get_unified_networth(force_refresh: bool = False) -> dict:
+def get_unified_networth(force_refresh: bool = False, extended: Optional[bool] = None) -> dict:
     """HM-AM UNIFICATION — the SINGLE canonical real-net-worth view.
 
     Schwab + Metals only (INCLUDED_ACCOUNTS). Per-bucket + per-metal gain/loss:
@@ -469,14 +535,38 @@ def get_unified_networth(force_refresh: bool = False) -> dict:
         return round(num / den * 100, 2) if den else 0.0
 
     # ── Schwab bucket (cash + any equities; all-time ready for when it holds them)
+    session = _session_state()
+    # Re-mark equities with extended-hours quotes for DISPLAY during pre/post sessions.
+    # `extended` override forces it on/off (snapshot baseline passes extended=False so the
+    # baseline is ALWAYS the official RTH close — an after-hours blip never becomes it).
+    do_ext = extended if extended is not None else (session["state"] in ("pre_market", "post_market"))
     schwab_cash = float(cash_by_account.get("schwab", 0.0) or 0.0)
     schwab_positions = [p for p in positions if (p.get("account") == "schwab")]
-    schwab_equity = sum(float(p.get("market_value") or 0) for p in schwab_positions)
+    schwab_equity = 0.0
+    schwab_daily_dollar = 0.0        # extended move vs RTH close (display only)
+    equity_marks = []
+    for p in schwab_positions:
+        qty = float(p.get("qty") or 0)
+        rth_mv = float(p.get("market_value") or 0)     # official RTH close
+        disp_mv = rth_mv
+        mark = {"symbol": p.get("symbol"), "source": "rth_close", "as_of": _schwab_last_updated()}
+        is_equity = (p.get("asset_type") or "stock") in ("stock", "equity")
+        if do_ext and qty and is_equity and p.get("symbol"):
+            q = _extended_quote(p["symbol"])
+            if q and q.get("price"):
+                disp_mv = round(qty * float(q["price"]), 2)
+                mark = {"symbol": p.get("symbol"), "source": q.get("source", "extended"),
+                        "as_of": q.get("as_of"), "ext_price": q.get("price")}
+            else:
+                mark["note"] = "extended quote unavailable — last RTH close"
+        schwab_equity += disp_mv
+        schwab_daily_dollar += (disp_mv - rth_mv)
+        equity_marks.append(mark)
     schwab_value = round(schwab_cash + schwab_equity, 2)
     schwab_all_time = 0.0
     schwab_cost = 0.0
     for p in schwab_positions:
-        mv = p.get("market_value")
+        mv = p.get("market_value")    # all-time vs cost is RTH-based (not extended)
         avg = p.get("avg_cost")
         qty = float(p.get("qty") or 0)
         if mv is not None and avg:
@@ -485,7 +575,9 @@ def get_unified_networth(force_refresh: bool = False) -> dict:
             schwab_all_time += float(mv) - cost
     schwab_bucket = {
         "value": schwab_value,
-        "daily_dollar": 0.0, "daily_pct": 0.0,            # cash has no daily move
+        "daily_dollar": round(schwab_daily_dollar, 2),
+        "daily_pct": _pct(schwab_daily_dollar, schwab_value - schwab_daily_dollar) if (schwab_value - schwab_daily_dollar) else 0.0,
+        "marks": equity_marks,            # per-equity mark provenance (rth_close vs extended)
         "all_time_dollar": round(schwab_all_time, 2),
         "all_time_pct": _pct(schwab_all_time, schwab_cost),
         "type": "cash" if not schwab_positions else "mixed",
@@ -539,15 +631,20 @@ def get_unified_networth(force_refresh: bool = False) -> dict:
     all_time_total = round(schwab_all_time + metals_at, 2)
     all_time_cost = schwab_cost + metals_basis
 
-    # ── Daily (total) — close-to-close vs prior snapshot
+    # ── Daily (total) — prefer close-to-close vs the prior snapshot; fall back to the
+    # sum of live bucket day-moves (metals spot; schwab cash=0, equities last-close) so
+    # "Today" is NEVER blank. `basis` lets the UI label it ("vs prev close" off-hours).
     today = _az_today()
     prior = _prior_snapshot(today)
     if prior and isinstance(prior.get("net_worth"), (int, float)):
         d_dollar = round(net_worth - float(prior["net_worth"]), 2)
         daily = {"dollar": d_dollar, "pct": _pct(d_dollar, float(prior["net_worth"])),
-                 "baseline_date": prior["snapshot_date"]}
+                 "baseline_date": prior["snapshot_date"], "basis": "close_to_close"}
     else:
-        daily = {"dollar": None, "pct": None, "baseline_date": None}  # first day → '—'
+        bucket_daily = round(metals_daily_dollar + float(schwab_bucket.get("daily_dollar") or 0.0), 2)
+        base = net_worth - bucket_daily
+        daily = {"dollar": bucket_daily, "pct": (_pct(bucket_daily, base) if base else None),
+                 "baseline_date": None, "basis": "intraday_buckets"}
 
     return {
         "net_worth": net_worth,
@@ -558,9 +655,16 @@ def get_unified_networth(force_refresh: bool = False) -> dict:
         "silver_value": round(silver_value, 2),
         "excluded": tp.get("sources_excluded", []) + ["alpaca paper (Two-Book)", "SIM", "ghost books"],
         "real_holdings_last_updated": _schwab_last_updated(),
+        "session": session,
+        "as_of": {
+            # metals are fetched live each call (~23h market) → stamped now;
+            # schwab is the last broker sync date.
+            "metals": _az_hhmm(),
+            "schwab": _schwab_last_updated(),
+        },
         "freshness": {
             "schwab": "as-of last broker sync (real_holdings_last_updated) — not live-quoted",
-            "metals": "live spot",
+            "metals": "live spot" if session["state"] != "closed" else "last spot (futures closed)",
         },
         "sources_failed": tp.get("sources_failed", []),
         "_source": "HM-AM get_unified_networth",
@@ -581,7 +685,9 @@ def snapshot_networth() -> dict:
     day, last-write-wins). Provides the close-to-close baseline for daily change.
     Returns {snapshot_date, net_worth, seeded}."""
     _ensure_networth_history()
-    d = get_unified_networth(force_refresh=True)
+    # Baseline MUST be the official RTH close — extended=False so an after-hours /
+    # pre-market mark can never become tomorrow's "prev close".
+    d = get_unified_networth(force_refresh=True, extended=False)
     today = _az_today()
     nw = float(d.get("net_worth") or 0.0)
     schwab_v = float((d.get("buckets", {}).get("schwab", {}) or {}).get("value") or 0.0)

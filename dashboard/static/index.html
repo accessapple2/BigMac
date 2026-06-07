@@ -44514,10 +44514,12 @@ window.fetchUnifiedNetWorth = async function() {
     if (!d || d.detail === 'Not Found') { totalEl.textContent = '—'; return; }
     totalEl.textContent = _amFmtUSD(d.net_worth);
     var daily = d.daily || {}, allt = d.all_time || {};
+    var dailyLbl = (daily.basis === 'intraday_buckets')
+      ? ' <span style="color:var(--muted);font-size:10px;" title="Day-move from live metals spot + cash; equities at last close (no prior close-snapshot yet)">vs prev close</span>' : '';
     document.getElementById('unifiedNetWorthDaily').innerHTML =
       (daily.dollar === null || daily.dollar === undefined)
-        ? '<span style="color:var(--muted);" title="No prior snapshot yet — daily change starts at tomorrow\'s close">— (baseline pending)</span>'
-        : _amDelta(daily.dollar, daily.pct);
+        ? '<span style="color:var(--muted);">—</span>'
+        : _amDelta(daily.dollar, daily.pct) + dailyLbl;
     document.getElementById('unifiedNetWorthAllTime').innerHTML = _amDelta(allt.dollar, allt.pct);
 
     var b = d.buckets || {};
@@ -44547,9 +44549,16 @@ window.fetchUnifiedNetWorth = async function() {
 
     var lu = d.real_holdings_last_updated || '?';
     var exc = Array.isArray(d.excluded) ? d.excluded.join(', ') : '';
+    var sess = d.session || { label: 'CLOSED' };
+    var aof = d.as_of || {};
+    var badgeColor = { 'LIVE':'#34d399', 'PRE-MARKET':'#fbbf24', 'AFTER-HOURS':'#fb923c', 'CLOSED':'#8b919c' }[sess.label] || '#8b919c';
+    var dot = { 'LIVE':'🟢', 'PRE-MARKET':'🟡', 'AFTER-HOURS':'🟠', 'CLOSED':'⚪' }[sess.label] || '⚪';
+    var metalsFresh = (d.freshness && d.freshness.metals) || 'spot';
     document.getElementById('unifiedNetWorthFresh').innerHTML =
-      'Metals live spot · Schwab as-of last sync (' + lu + ') — not live-quoted' +
-      (exc ? '<br>Suspended/excluded: ' + exc : '');
+      '<span style="color:' + badgeColor + ';font-weight:700;">' + dot + ' ' + sess.label + '</span> · ' +
+      'Metals as of ' + (aof.metals || '?') + ' AZ (' + metalsFresh + ') · ' +
+      'Schwab as of ' + (aof.schwab || lu) + ' (last sync)' +
+      (exc ? '<br><span style="color:var(--muted);">Excluded: ' + exc + '</span>' : '');
   } catch (e) {
     totalEl.textContent = '—';
     console.info('[unified-networth] ' + (e && e.message ? e.message : e));
@@ -45348,5 +45357,31 @@ if (typeof registerSectionInit === 'function') {
      near the top of this file). Removed per the inline-UI brief to avoid two
      parallel Archer surfaces. Recoverable from git history if the FAB is preferred. -->
 
+<script>
+// HM-TOTAL-PORTFOLIO PART 2 (piece 1): auto-fetch the Total Portfolio card when the
+// Real Portfolio section opens, so it never sits on the "Standby…" placeholder. Chains
+// the canonical window.showSection (whichever of the 7 defs is live last-wins) — runs
+// AFTER it, idempotent.
+(function(){
+  function wrap(){
+    if (typeof window.showSection !== 'function') return false;
+    if (window.__tpShowSectionWrapped) return true;
+    var _prev = window.showSection;
+    window.showSection = function(section){
+      _prev.apply(this, arguments);
+      try {
+        var sec = (typeof section === 'string') ? section : (section && section.id) || '';
+        if (sec === 'real-portfolio') {
+          if (typeof window.fetchUnifiedNetWorth === 'function') window.fetchUnifiedNetWorth();
+          if (typeof window.fetchRealPortfolio === 'function') window.fetchRealPortfolio();
+        }
+      } catch(e){ console.info('[total-portfolio mount] ' + (e && e.message ? e.message : e)); }
+    };
+    window.__tpShowSectionWrapped = true;
+    return true;
+  }
+  if (!wrap()) { window.addEventListener('DOMContentLoaded', wrap); setTimeout(wrap, 1200); }
+})();
+</script>
 </body>
 </html>
