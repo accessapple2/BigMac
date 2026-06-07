@@ -13,6 +13,7 @@ venv/
 venv_py312_archive/
 .venv/
 .venv-crew/
+.venv-deps/
 
 # Python cache
 __pycache__/
@@ -228,3 +229,4 @@ data/bull_bear_cache.json
 data/trader.db.backup-*
 data/*.db.backup*
 backups/**/trader.db.bak
+schwab_token.json

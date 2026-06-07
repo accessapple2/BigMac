@@ -1,0 +1,48 @@
+name: O-Tasty Invariant — Phase-2 paper-executor safety gate
+
+# Reconciles c7c36ff (SwingDesk Phase 2 — Alpaca execution wiring, default-OFF)
+# with the original zero-order guard. Enforces that swingdesk/shadow_autopilot.py
+# stays a SHADOW emitter + DEFAULT-OFF *paper* executor:
+#   flag pinned False · no ungated submit · paper-only client · OTASTY-scoped
+#   creds · account pinned PA3YVDTUH5CB · no Schwab / no fleet broker-wrapper.
+# The tamper suite proves each guard goes RED when violated.
+#
+# Mark this job a REQUIRED status check in branch protection so a refactor that
+# breaks any invariant fails the merge, not just the run.
+
+on:
+  push:
+    branches: ["**"]
+  pull_request:
+    branches: ["**"]
+
+jobs:
+  otasty-invariant:
+    name: shadow_autopilot.py paper-only / flag-gated invariants
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+
+      - name: Create deps venv + install test deps (FIX-6)
+        run: |
+          python -m venv .venv-deps
+          ./.venv-deps/bin/python -m pip install --upgrade pip
+          # The invariant + coupling tests need only the stdlib + pytest by
+          # design: options_engine is pure-stdlib and shadow_autopilot imports
+          # alpaca/schedule LAZILY inside functions, never at module load. So
+          # the gate stays fast and broker-dependency-free.
+          ./.venv-deps/bin/python -m pip install pytest
+
+      - name: Run O-Tasty Phase-2 safety invariants + tamper proofs
+        run: |
+          ./.venv-deps/bin/python -m pytest \
+            tests/test_otasty_shadow_invariants.py \
+            tests/test_otasty_invariant_tamper.py \
+            -v

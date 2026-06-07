@@ -1,16 +1,33 @@
-"""O-Tasty SHADOW autopilot — WAVE 8 (HM-O-TASTY-AUTOPILOT).
+"""O-Tasty autopilot — WAVE 8 (HM-O-TASTY-AUTOPILOT) + Phase 2 (c7c36ff).
 
-SHADOW ONLY. Every loop in this module is read/compute/persist. There is NO
-order-submission path here — nothing imports the Alpaca trading client, nothing
-calls buy/sell/submit_order. The isolated paper account PA3YVDTUH5CB is never
-touched by this module. Verification is enforced loop-by-loop (zero-order audit).
+DUAL-ROLE module. Two behaviors coexist; read both before editing.
+
+  1. ALWAYS-ON SHADOW EMIT (unchanged). Every loop reads/computes/persists. Loop
+     B writes a would-have-entered row to swingdesk_shadow_trades for EVERY
+     gate-passer, unconditionally — independent of any execution flag. This is
+     the research substrate and it never stops.
+
+  2. DEFAULT-OFF PAPER EXECUTOR (Phase 2, default OFF). A broker-submit path
+     exists but is INERT unless LIVE_EXECUTION_ENABLED is flipped True (default
+     False; flip only after 30+ closed shadow trades). When live, it routes the
+     MLEG order to the ISOLATED PA3YVDTUH5CB *paper* account ONLY, via the
+     alpaca.* SDK with paper=True and OTASTY_-scoped creds — never the fleet
+     account, never Schwab, never real money. The submit is lexically gated
+     inside `if LIVE_EXECUTION_ENABLED:`; run_loop_reconcile early-returns when
+     the flag is off.
+
+These properties are enforced by tests/test_otasty_shadow_invariants.py
+(flag-pinned-False, no-ungated-submit, paper-only client, OTASTY-scoped creds,
+account-pinned, no-Schwab/no-fleet-wrapper) and required in CI — a refactor that
+breaks any of them fails the build, it does not ship silently.
 
 Loops (built incrementally, hard checkpoint between each):
-  A. IVR scan        → swingdesk_ivr        [THIS COMMIT]
-  B. structure+entry → swingdesk_shadow_trades (shadow)   [pending]
-  C. position mgr    → updates shadow_trades             [pending]
-  D. kill-switch                                          [pending]
-  E. nightly auditor                                      [pending]
+  A. IVR scan        → swingdesk_ivr
+  B. structure+entry → swingdesk_shadow_trades (shadow emit; flag-gated submit)
+  C. position mgr    → updates shadow_trades
+  D. kill-switch
+  E. nightly auditor
+  reconcile. polls live_pending/live_open rows (flag-gated; read-only poll)
 
 DB: the swingdesk-local swingdesk.db (repo root) — never the fleet trader.db.
 """
