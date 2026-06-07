@@ -28,7 +28,12 @@ TRADER_DB = _ROOT / "data" / "trader.db"
 REAL_HOLDINGS = _ROOT / "data" / "real_holdings.json"
 
 XAI_BASE_URL = "https://api.x.ai/v1"
-MODEL = os.getenv("Q_ASK_MODEL", "grok-4.20-0309-reasoning")   # the DEEP model
+MODEL = os.getenv("Q_ASK_MODEL", "grok-4.20-0309-reasoning")   # no-search deep model
+# HM-ASK-Q-SEARCH 2026-06-06: search-eligible (portfolio/metals/macro) intents use the
+# flagship grok-4.3 via the Agent Tools API (/v1/responses + tools:[web_search]). These
+# are the structurally-blind questions where we have ZERO free data (the A/B/C test:
+# free eyes said CUT, paid search said HOLD — opposite, and search was right).
+SEARCH_MODEL = os.getenv("Q_ASK_SEARCH_MODEL", "grok-4.3")
 ASK_DAILY_CAP = float(os.getenv("Q_ASK_DAILY_CAP", "0.50"))
 # Fallback per-M rates if a response ever lacks cost_in_usd_ticks (reasoning bills
 # reasoning tokens as output).
@@ -38,6 +43,12 @@ _PORTFOLIO_KEYWORDS = (
     "portfolio", "net worth", "networth", "net-worth", "how's", "how is",
     "recommendation", "recommend", "holdings", "positions", "metals", "schwab",
     "should i", "my book", "allocat", "rebalance", "gold", "silver",
+)
+# Macro/commodity intents are also structurally blind (no free data) → search-eligible.
+_MACRO_KEYWORDS = (
+    "fed", "fomc", "rate", "inflation", "cpi", "jobs report", "payroll", "recession",
+    "macro", "gdp", "treasury", "yield", "dollar", "commodit", "oil", "crude",
+    "gold", "silver", "platinum", "copper", "metals",
 )
 
 _SYSTEM = (
@@ -198,24 +209,30 @@ def _build_general_user(query: str, ctx: dict) -> str:
     )
 
 
-# ─── the reasoning call ─────────────────────────────────────────────────────
-def _call_q(system: str, user: str, max_tokens: int = 1500, x_search: bool = False) -> dict:
-    key = os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY", "")
-    if not key:
+# ─── the reasoning calls ────────────────────────────────────────────────────
+def _key() -> str:
+    k = os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY", "")
+    if not k:
         raise ValueError("XAI_API_KEY not set")
-    payload = {
-        "model": MODEL,
-        "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
-        "temperature": 0.4,
-        "max_tokens": max_tokens,
-    }
-    # X Search — FLAG-GATED OFF by default ($5/1K). Opt-in only.
-    if x_search:
-        payload["search_parameters"] = {"mode": "on", "sources": [{"type": "x"}]}
+    return k
+
+
+def _exact_cost(usage: dict, in_tok: int, out_tok: int) -> float:
+    ticks = usage.get("cost_in_usd_ticks")
+    return (float(ticks) * 1e-10) if ticks is not None else (
+        in_tok / 1e6 * _FB_IN + out_tok / 1e6 * _FB_OUT)
+
+
+def _call_q_chat(system: str, user: str, max_tokens: int = 1500) -> dict:
+    """No-search path: grok-4.20-reasoning via chat/completions. For routine
+    equity/general questions — the free FinGPT/brain_context bridge covers those."""
     resp = requests.post(
         f"{XAI_BASE_URL}/chat/completions",
-        headers={"Authorization": f"Bearer {key}", "Content-Type": "application/json"},
-        json=payload, timeout=150,   # reasoning is slower
+        headers={"Authorization": f"Bearer {_key()}", "Content-Type": "application/json"},
+        json={"model": MODEL,
+              "messages": [{"role": "system", "content": system}, {"role": "user", "content": user}],
+              "temperature": 0.4, "max_tokens": max_tokens},
+        timeout=150,
     )
     resp.raise_for_status()
     data = resp.json()
@@ -223,11 +240,49 @@ def _call_q(system: str, user: str, max_tokens: int = 1500, x_search: bool = Fal
     usage = data.get("usage", {}) or {}
     in_tok = usage.get("prompt_tokens") or (len(user) // 4)
     out_tok = usage.get("completion_tokens") or (len(content) // 4)
-    ticks = usage.get("cost_in_usd_ticks")
-    exact = (float(ticks) * 1e-10) if ticks is not None else (
-        in_tok / 1e6 * _FB_IN + out_tok / 1e6 * _FB_OUT)
     return {"content": content, "in_tok": in_tok, "out_tok": out_tok,
-            "exact_cost": exact, "x_sources": usage.get("num_sources_used", 0)}
+            "exact_cost": _exact_cost(usage, in_tok, out_tok), "x_sources": 0,
+            "model": MODEL, "searched": False}
+
+
+def _call_q_responses(system: str, user: str, x_search: bool = False) -> dict:
+    """Search path: grok-4.3 + Agent Tools API (/v1/responses, tools:[web_search],
+    optional x_search). For PORTFOLIO/METALS/MACRO — the structurally-blind questions.
+    HM-ASK-Q-SEARCH 2026-06-06: replaces the deprecated search_parameters (HTTP 410)."""
+    tools = [{"type": "web_search"}]
+    if x_search:
+        tools.append({"type": "x_search"})
+    # Explicitly direct the search — otherwise grok-4.3 often answers from the injected
+    # context (which can be stale) without ever invoking the tool. This is the whole
+    # point of the paid path: get CURRENT world data the fleet is blind to.
+    search_directive = (
+        "\n\nIMPORTANT: Use web search to verify CURRENT prices/spot levels, recent "
+        "catalysts (Fed/FOMC, jobs data, earnings), and analyst targets BEFORE answering. "
+        "Any prices in the context above may be stale — confirm against live sources and "
+        "cite them.")
+    resp = requests.post(
+        f"{XAI_BASE_URL}/responses",
+        headers={"Authorization": f"Bearer {_key()}", "Content-Type": "application/json"},
+        # System framing is prepended to the input (responses API takes `input`).
+        json={"model": SEARCH_MODEL, "input": system + "\n\n" + user + search_directive,
+              "tools": tools},
+        timeout=220,   # web search + reasoning is the slowest path
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    content = ""
+    for o in data.get("output", []):
+        if o.get("type") == "message":
+            for ci in o.get("content", []):
+                if ci.get("type") == "output_text":
+                    content += ci.get("text", "")
+    usage = data.get("usage", {}) or {}
+    in_tok = usage.get("input_tokens") or usage.get("prompt_tokens") or (len(user) // 4)
+    out_tok = usage.get("output_tokens") or usage.get("completion_tokens") or (len(content) // 4)
+    return {"content": content, "in_tok": in_tok, "out_tok": out_tok,
+            "exact_cost": _exact_cost(usage, in_tok, out_tok),
+            "x_sources": usage.get("num_sources_used", 0),
+            "model": SEARCH_MODEL, "searched": True}
 
 
 def ask_q(query: str, x_search: bool = False) -> dict:
@@ -241,23 +296,33 @@ def ask_q(query: str, x_search: bool = False) -> dict:
         return {"answer": None, "capped": True,
                 "error": f"Ask-Q daily cap reached (${spent:.4f} / ${ASK_DAILY_CAP:.2f}). Resets at UTC midnight."}
 
-    intent = "portfolio" if any(k in query.lower() for k in _PORTFOLIO_KEYWORDS) else "general"
+    ql = query.lower()
+    is_portfolio = any(k in ql for k in _PORTFOLIO_KEYWORDS)
+    is_macro = any(k in ql for k in _MACRO_KEYWORDS)
+    intent = "portfolio" if is_portfolio else ("macro" if is_macro else "general")
+    # Search-eligible = the structurally-blind intents (portfolio/metals/macro), where we
+    # have ZERO free data. Routine equity/general stay on the free no-search path (the
+    # FinGPT/brain_context bridge covers those). x_search opt-in only adds X on top.
+    search_eligible = is_portfolio or is_macro
+
     ctx = _gather_context()
-    if intent == "portfolio":
-        user = _build_portfolio_user(query, ctx)
-    else:
-        user = _build_general_user(query, ctx)
+    user = _build_portfolio_user(query, ctx) if is_portfolio else _build_general_user(query, ctx)
 
     try:
-        r = _call_q(_SYSTEM, user, x_search=bool(x_search))
+        if search_eligible:
+            r = _call_q_responses(_SYSTEM, user, x_search=bool(x_search))
+        else:
+            r = _call_q_chat(_SYSTEM, user)
     except Exception as e:
         logger.warning("[ask_q] call failed: %s: %r", type(e).__name__, e)
         return {"answer": None, "error": f"{type(e).__name__}: {e}"}
 
     # Exact-tick accounting (separate call_type so it caps independently of voting).
+    # Tag searched calls so the dashboard can see the paid-search spend distinctly.
     try:
         from engine.cost_tracker import log_cost_exact
-        log_cost_exact("q-witness", "ask", r["in_tok"], r["out_tok"], r["exact_cost"])
+        log_cost_exact("q-witness", "ask:search" if r["searched"] else "ask",
+                       r["in_tok"], r["out_tok"], r["exact_cost"])
     except Exception:
         pass
 
@@ -265,7 +330,7 @@ def ask_q(query: str, x_search: bool = False) -> dict:
         "answer": r["content"],
         "cost_usd": round(r["exact_cost"], 6),
         "input_tokens": r["in_tok"], "output_tokens": r["out_tok"],
-        "model": MODEL, "intent": intent,
+        "model": r["model"], "intent": intent, "searched": r["searched"],
         "x_search": bool(x_search), "x_sources_used": r["x_sources"],
         "daily_spend_after": round(spent + r["exact_cost"], 6),
         "daily_cap": ASK_DAILY_CAP,

@@ -1,9 +1,10 @@
 """
 USS TradeMinds — FinGPT-Inspired Sentiment Scorer (engine/fingpt_sentiment.py)
 
-Classifies recent headlines from market_news table using ministral-3:3b via Ollama
-(Wave 1 Fix #2: was mistral:7b — never installed on Ollie; fallback chain now
-ministral-3:3b → 0xroyce/plutus:latest).
+Classifies recent headlines from market_news table using ministral-3:3b via Ollama.
+Fallback chain: ministral-3:3b → plutus-v1 (HM-FINGPT-REPOINT 2026-06-06: was
+0xroyce/plutus:latest, which is now HTTP 404 on Ollie — removed per HM-MODEL-RETIRE;
+plutus-v1 is the resident finance model McCoy uses, so the fallback is live again).
 Aggregates per-symbol: BULLISH/BEARISH/NEUTRAL with strength 1-10.
 15-minute cache per symbol. Returns None gracefully if Ollama is busy.
 """
@@ -41,8 +42,10 @@ def _score_headline(symbol: str, headline: str) -> dict | None:
         f'Reply with ONLY a JSON: {{"sentiment":"BULLISH" or "BEARISH" or "NEUTRAL",'
         f'"strength":1-10,"reasoning":"one sentence"}}\n\nHeadline: {headline}'
     )
-    # 2026-05-17 Wave 1 Fix #2: mistral:7b removed — never installed on Ollie; ministral-3:3b primary (HM-BN.1 winner, McCoy's current model_id), plutus fallback (still installed, finance-specialized)
-    for model in ["ministral-3:3b", "0xroyce/plutus:latest"]:
+    # ministral-3:3b primary (resident on Ollie); plutus-v1 fallback (resident finance
+    # model). HM-FINGPT-REPOINT 2026-06-06: 0xroyce/plutus:latest → plutus-v1 (the old
+    # tag now 404s on .168 per HM-MODEL-RETIRE, leaving FinGPT with a dead fallback).
+    for model in ["ministral-3:3b", "plutus-v1"]:
         try:
             r = requests.post(
                 f"{_OLLAMA}/api/generate",
