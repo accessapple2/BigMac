@@ -62,7 +62,7 @@ TOKEN_RATES = {
     "qwen3-14b-grok3":            (0.00, 0.00),  # Ensign Hoshi     → ollama/qwen3:8b
     "deepseek-7b-grok4":            (0.00, 0.00),  # Lt. Cmdr. Spock  → ollama/deepseek-r1:7b
     "cto-grok42":        (0.00, 0.00),  # CTO Grok 4.2     → ollama/qwen2.5-coder:7b
-    "kirk-grok-advisor": (3.00, 15.00), # Kirk Grok Swing Advisor — real xAI API calls
+    "kirk-grok-advisor": (1.25, 2.50), # Kirk Grok Swing Advisor — grok-4.20-0309-non-reasoning FALLBACK rate (exact cost from cost_in_usd_ticks)
     "first-officer":     (0.00, 0.00),
     "q-entity":          (0.00, 0.00),
     # ── Google free tier (dalio-metals uses Gemini Flash — $0 under quota) ─

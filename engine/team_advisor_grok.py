@@ -38,15 +38,20 @@ logger = logging.getLogger("team_advisor_grok")
 DB = "data/trader.db"
 PLAYER_ID = "kirk-grok-advisor"
 
-# Model: override with GROK_MODEL env var if xAI releases a newer version
-MODEL = os.getenv("GROK_MODEL", "grok-4-0709")
+# Model: override with GROK_MODEL env var if xAI releases a newer version.
+# HM-GROK-REENABLE 2026-06-06: default = grok-4.20-0309-non-reasoning (the fast,
+# tool-free variant; grok-4-0709/grok-4.1-fast no longer exist on the account).
+MODEL = os.getenv("GROK_MODEL", "grok-4.20-0309-non-reasoning")
 
 # Cost cap (USD/day). Override with GROK_ADVISOR_DAILY_CAP env var.
 DAILY_COST_CAP = float(os.getenv("GROK_ADVISOR_DAILY_CAP", "0.50"))
 
-# xAI API pricing (per 1M tokens) — grok-3 / grok-4 rates as of 2025
-INPUT_RATE_PER_M = 3.00
-OUTPUT_RATE_PER_M = 15.00
+# xAI pricing (per 1M tokens) — FALLBACK ONLY. The exact billed cost is read
+# from the API's usage.cost_in_usd_ticks (1 tick = $1e-10) on every call; these
+# constants are used only if a response ever lacks the tick field. grok-4.20
+# family rate as of 2026-06 (re-enabled HM-GROK-REENABLE): $1.25/M in, $2.50/M out.
+INPUT_RATE_PER_M = 1.25
+OUTPUT_RATE_PER_M = 2.50
 
 XAI_BASE_URL = "https://api.x.ai/v1"
 
@@ -138,12 +143,19 @@ def get_daily_cost() -> float:
         return 0.0
 
 
-def _log_cost(input_tok: int, output_tok: int) -> float:
-    """Write api_costs + model_stats rows. Returns cost_usd."""
-    cost_usd = (
-        (input_tok / 1_000_000) * INPUT_RATE_PER_M
-        + (output_tok / 1_000_000) * OUTPUT_RATE_PER_M
-    )
+def _log_cost(input_tok: int, output_tok: int, exact_cost: float | None = None) -> float:
+    """Write api_costs + model_stats rows. Returns cost_usd.
+
+    Prefers the EXACT billed cost reported by xAI (usage.cost_in_usd_ticks ×
+    1e-10), so accounting stays correct even if rates change. Falls back to the
+    per-M rate constants only when a response lacks the tick field."""
+    if exact_cost is not None:
+        cost_usd = float(exact_cost)
+    else:
+        cost_usd = (
+            (input_tok / 1_000_000) * INPUT_RATE_PER_M
+            + (output_tok / 1_000_000) * OUTPUT_RATE_PER_M
+        )
     today = datetime.utcnow().strftime("%Y-%m-%d")
     now_iso = datetime.utcnow().isoformat()
     try:
@@ -214,8 +226,10 @@ def _get_positions() -> list[dict]:
 # ── Grok API ────────────────────────────────────────────────────────────────
 
 
-def _call_grok(prompt: str) -> tuple[str, int, int]:
-    """POST to xAI /v1/chat/completions. Returns (text, input_tokens, output_tokens)."""
+def _call_grok(prompt: str) -> tuple[str, int, int, "float | None"]:
+    """POST to xAI /v1/chat/completions (plain text reasoning — NO server-side
+    tools / web search). Returns (text, input_tokens, output_tokens, exact_cost_usd).
+    exact_cost_usd comes from usage.cost_in_usd_ticks (1 tick = $1e-10), or None."""
     api_key = os.getenv("XAI_API_KEY") or os.getenv("GROK_API_KEY", "")
     if not api_key:
         raise ValueError(
@@ -247,7 +261,11 @@ def _call_grok(prompt: str) -> tuple[str, int, int]:
     usage = data.get("usage", {})
     input_tok = usage.get("prompt_tokens") or (len(prompt) // 4)
     output_tok = usage.get("completion_tokens") or (len(content) // 4)
-    return content, input_tok, output_tok
+    # xAI reports the exact billed cost in "ticks" (1 tick = $1e-10 USD) — use it
+    # for accounting rather than estimating from per-M constants.
+    ticks = usage.get("cost_in_usd_ticks")
+    exact_cost = (float(ticks) * 1e-10) if ticks is not None else None
+    return content, input_tok, output_tok, exact_cost
 
 
 def _call_ollama(prompt: str) -> tuple[str, int, int]:
@@ -423,16 +441,18 @@ def run_grok_subadvisor() -> dict:
     # Free-Models-First patch 2026-04-17: Grok was retired on 2026-04-16 (CLAUDE.md).
     # Force local Ollama unconditionally. The xAI path remains in the file (dead code)
     # so the Admiral can re-enable per-agent with explicit approval if ever needed.
-    # Previously: use_ollama = daily_cost >= DAILY_COST_CAP * 0.9
-    use_ollama = True
+    # HM-GROK-REENABLE 2026-06-06 (Admiral spend-approval, grok-4.20-0309-non-reasoning):
+    # use Grok normally, but auto-fall back to local Ollama once the day's spend nears
+    # the cap — keeps cost bounded while restoring the paid advisor.
+    use_ollama = daily_cost >= DAILY_COST_CAP * 0.9
     cost = 0.0
     model_used = ""
     t0 = time.time()
 
     if not use_ollama:
         try:
-            raw, input_tok, output_tok = _call_grok(prompt)
-            cost = _log_cost(input_tok, output_tok)
+            raw, input_tok, output_tok, exact_cost = _call_grok(prompt)
+            cost = _log_cost(input_tok, output_tok, exact_cost)
             model_used = MODEL
             logger.info(
                 "Grok advisory: %d positions, %d/%d tok, $%.6f (day total $%.4f)",
