@@ -12,18 +12,30 @@
 set -euo pipefail
 
 DROPIN=/etc/systemd/system/ollama.service.d/override.conf
+# CRITICAL: the original install drop-in carried OLLAMA_HOST=0.0.0.0:11434 (the LAN
+# bind the fleet on bigmac reaches). This drop-in MUST preserve it or ollama falls back
+# to 127.0.0.1 and the whole fleet loses inference. (Fixed 2026-06-06 after the first
+# version clobbered it.)
+OLLAMA_HOST_BIND="0.0.0.0:11434"
 
 if [[ "${1:-}" == "--revert" ]]; then
-  rm -f "$DROPIN"
+  # Restore the PRE-Tier-1 state = OLLAMA_HOST only (do NOT delete the file — that would
+  # drop the LAN bind and cut off the fleet).
+  mkdir -p "$(dirname "$DROPIN")"
+  cat > "$DROPIN" <<EOF
+[Service]
+Environment="OLLAMA_HOST=${OLLAMA_HOST_BIND}"
+EOF
   systemctl daemon-reload
   systemctl restart ollama
-  echo "REVERTED — Flash Attention + KV-q8 removed, ollama restarted. Back to f16/FA-off."
+  echo "REVERTED — FA + KV-q8 removed; OLLAMA_HOST=${OLLAMA_HOST_BIND} preserved (LAN bind intact)."
   exit 0
 fi
 
 mkdir -p "$(dirname "$DROPIN")"
-cat > "$DROPIN" <<'EOF'
+cat > "$DROPIN" <<EOF
 [Service]
+Environment="OLLAMA_HOST=${OLLAMA_HOST_BIND}"
 Environment="OLLAMA_FLASH_ATTENTION=1"
 Environment="OLLAMA_KV_CACHE_TYPE=q8_0"
 EOF
