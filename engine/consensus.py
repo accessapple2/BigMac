@@ -332,12 +332,30 @@ def _get_uhura_stance(tickers: list[str]) -> tuple[str, dict]:
     return "NEUTRAL", {}
 
 
+def _verdict_from_take(text: str) -> str | None:
+    """Extract a directional verdict from Q's verdict-first War Room take
+    (e.g. '**BULL.** ...' / '**BEAR.** ...'). Returns the EARLIEST-mentioned
+    verdict's action (BUY/SELL/HOLD), or None. HM-Q-WARROOM: Q's debate takes
+    lead with a verdict rather than the 'TICKER: ACTION' shape parse_officer_stance
+    expects, so this is the fallback for the row's (single) debated symbol."""
+    t = (text or "").upper()
+    best, best_pos = None, 10 ** 9
+    for kw, act in (("BULLISH", "BUY"), ("BEARISH", "SELL"), ("BULL", "BUY"),
+                    ("BEAR", "SELL"), ("HOLD", "HOLD"), ("NEUTRAL", "HOLD"),
+                    ("BUY", "BUY"), ("SELL", "SELL"), ("LONG", "BUY"), ("SHORT", "SELL")):
+        m = re.search(rf'\b{kw}\b', t)
+        if m and m.start() < best_pos:
+            best, best_pos = act, m.start()
+    return best
+
+
 def _get_grok_stance(tickers: list[str]) -> tuple[str, dict]:
     """Get Q's stance from War Room takes — the Grok (xAI) debate voice.
 
-    HM-Q-WARROOM 2026-06-06: mirrors _get_uhura_stance (reads `war_room` posts),
-    but for player_id='q-witness'. Q always votes, so its dissents feed the
-    crew-dissent tracker (see crew_dissent.py)."""
+    HM-Q-WARROOM 2026-06-06: mirrors _get_uhura_stance (reads `war_room` posts)
+    for player_id='q-witness'. Each row is one per-symbol debate take; falls back
+    to _verdict_from_take when Q's verdict-first phrasing doesn't match the
+    'TICKER: ACTION' parser. Q always votes → its dissents feed crew_dissent."""
     try:
         conn = _conn()
         rows = conn.execute(
@@ -356,7 +374,12 @@ def _get_grok_stance(tickers: list[str]) -> tuple[str, dict]:
                 if sym in seen or sym not in tickers:
                     continue
                 seen.add(sym)
-                stances.update(parse_officer_stance(r["take"], [sym]))
+                parsed = parse_officer_stance(r["take"], [sym])
+                if sym not in parsed:
+                    act = _verdict_from_take(r["take"])
+                    if act:
+                        parsed = {sym: {"action": act, "conviction": 0.6}}
+                stances.update(parsed)
                 all_text += (r["take"] or "") + " "
             if stances:
                 return (parse_outlook(all_text) if all_text.strip() else "NEUTRAL"), stances
