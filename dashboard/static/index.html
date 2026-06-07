@@ -3510,7 +3510,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
   <div class="nav-zone zone-always" data-zone="always">
     <div class="zone-header zone-header-static"><span><span class="icon">⬜</span> ALWAYS</span></div>
     <div class="zone-items zone-items-open" id="zone-always">
-      <div class="sidebar-item admin-only" title="Real-world net worth: Schwab + Webull + IBKR + physical metals (excludes Alpaca paper). Admin-only — contains liquid net-worth detail." onclick="showSection('real-portfolio')"><span class="icon">💰</span> Real Portfolio</div>
+      <div class="sidebar-item admin-only" title="Real-world total portfolio: Schwab + Webull + IBKR + physical metals (excludes Alpaca paper). Admin-only — contains liquid total-portfolio detail." onclick="showSection('real-portfolio')"><span class="icon">💰</span> Real Portfolio</div>
       <div class="sidebar-item" onclick="showSection('model-control'); loadModelControl()"><span class="icon">⚙️</span> Models</div>
       <div class="sidebar-item" onclick="showSection('costs')"><span class="icon">💰</span> Costs</div>
       <div class="sidebar-item" title="Real physical gold &amp; silver holdings ledger" onclick="showSection('metals')"><span class="icon">⚗️</span> Dilithium</div>
@@ -44316,7 +44316,7 @@ async function fetchMovers() {
      hides this for any role ≠ admin. -->
 <div id="section-real-portfolio" class="admin-only" style="display:none;">
   <div style="border-left:4px solid #38bdf8;background:rgba(56,189,248,0.04);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
-    <div style="font-size:11px;font-weight:700;color:#38bdf8;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">💰 Real Portfolio — Unified Net Worth</div>
+    <div style="font-size:11px;font-weight:700;color:#38bdf8;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">💰 Real Portfolio — Total Portfolio</div>
     <div style="font-size:13px;color:#94a3b8;"><b>Schwab + physical metals only.</b> TradeStation / Webull / IBKR suspended (reversible). Excludes Alpaca paper &amp; SIM (Two-Book Policy).</div>
   </div>
 
@@ -44325,7 +44325,7 @@ async function fetchMovers() {
        source of truth = total_portfolio.get_unified_networth). -->
   <div class="card" data-component="unified-networth" id="unifiedNetWorthCard" style="margin-bottom:16px;border-left:4px solid #38bdf8;">
     <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
-      <div class="card-title">💵 Net Worth — Schwab + Metals</div>
+      <div class="card-title">💵 Total Portfolio — Schwab + Metals</div>
       <button class="btn btn-ghost" onclick="fetchUnifiedNetWorth()" style="font-size:12px;">Refresh</button>
     </div>
     <div style="padding:16px 16px 6px;text-align:center;">
@@ -44363,7 +44363,7 @@ async function fetchMovers() {
        Kept so fetchNetWorth has live targets (null-safe) and is fully reversible. -->
   <div class="card" style="display:none;margin-bottom:16px;border-left:4px solid #34d399;">
     <div class="card-header">
-      <div class="card-title">🧮 Net Worth — Breakdown (HM-AM)</div>
+      <div class="card-title">🧮 Total Portfolio — Breakdown (HM-AM)</div>
     </div>
     <div id="netWorthTotal" style="padding:14px 16px 4px;font-size:28px;font-weight:700;text-align:center;color:#34d399;">Loading…</div>
     <div id="netWorthBuckets" style="padding:0 16px 8px;"></div>
@@ -44591,7 +44591,7 @@ async function fetchNetWorth() {
     freshEl.innerHTML = 'Metals live spot · Cash + equities as-of last sync (' + lu + ') — not live-quoted' + errNote;
   } catch (e) {
     totalEl.textContent = '—';
-    freshEl.textContent = 'Net-worth fetch error: ' + e;
+    freshEl.textContent = 'Total-portfolio fetch error: ' + e;
   }
 }
 
