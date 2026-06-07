@@ -2981,6 +2981,7 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/metals/','/api/earnings/','/api/inverse-etfs','/api/premium-etfs',
     '/api/congress/','/api/volume-radar','/api/universe/status','/api/gex-snapshot',
     '/api/archer/',  // HM-ARCHER-REBUILD 2026-06-05 — Captain Archer intel/alerts/briefing/convergence
+    '/api/q/',  // HM-ASK-Q 2026-06-06 — Q deep analyst (pull/deep)
     '/api/fleet/active',  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
     '/api/portfolio/real',  // HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — Schwab+metals real-world view (PR #44 endpoint)
     '/api/networth',  // HM-AM 2026-06-02 — unified net-worth breakdown (cash/equities/metals), data-driven over is_active accounts
@@ -5907,6 +5908,28 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         <button onclick="archerAsk()" style="padding:7px 14px;border:1px solid #d4a030;border-radius:6px;background:#d4a030;color:#1a1205;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">Ask</button>
       </div>
       <div id="archer-ask-answer" style="display:none;margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);font-size:12px;color:var(--text);line-height:1.5;white-space:pre-wrap;"></div>
+    </div>
+  </div>
+
+  <!-- HM-ASK-Q: Q the deep analyst (PULL/deep, grok-4.20-reasoning) — distinct from Archer (push/quick). Advisory only. -->
+  <div class="card" data-component="ask-q" id="ask-q-card" style="margin-bottom:12px;border:1px solid var(--border);border-left:4px solid #8b5cf6;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;padding:10px 14px;border-bottom:1px solid var(--border);">
+      <div class="card-title" style="font-weight:700;font-size:14px;">🌀 Ask Q — Deep Analyst</div>
+      <span style="font-size:10px;color:var(--muted);">grok-4.20 reasoning · advisory only</span>
+    </div>
+    <div style="padding:12px 14px;">
+      <div style="font-size:11.5px;color:var(--muted);margin-bottom:8px;">Pull a deep, independent read — e.g. "how's the portfolio?" (net worth + tradeable book + advisor cross-check) or any stock question.</div>
+      <div style="display:flex;gap:6px;">
+        <input id="ask-q-input" type="text" placeholder="Ask Q… (e.g. how's the portfolio? recommendations?)"
+               onkeydown="if(event.key==='Enter'){askQ();}"
+               style="flex:1;padding:7px 10px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);color:var(--text);font-size:12px;">
+        <button onclick="askQ()" id="ask-q-btn" style="padding:7px 14px;border:1px solid #8b5cf6;border-radius:6px;background:#8b5cf6;color:#fff;font-weight:700;font-size:12px;cursor:pointer;white-space:nowrap;">Ask Q</button>
+      </div>
+      <label style="display:flex;align-items:center;gap:5px;margin-top:6px;font-size:11px;color:var(--muted);cursor:pointer;">
+        <input type="checkbox" id="ask-q-xsearch"> Include live X sentiment ($5/1K — off by default)
+      </label>
+      <div id="ask-q-answer" style="display:none;margin-top:10px;padding:10px 12px;border:1px solid var(--border);border-radius:6px;background:var(--surface2);font-size:12px;color:var(--text);line-height:1.55;white-space:pre-wrap;"></div>
+      <div id="ask-q-meta" style="display:none;margin-top:6px;font-size:10px;color:var(--muted);"></div>
     </div>
   </div>
 
@@ -20016,6 +20039,45 @@ async function fetchNavSchedule() {
     } catch(e){
       out.textContent = 'Archer could not answer: '+(e&&e.message?e.message:e);
       console.info('[archer-ask] error: '+(e&&e.message?e.message:e));
+    }
+  };
+
+  // HM-ASK-Q: Q the deep analyst (pull/deep, grok-4.20-reasoning). Distinct from Archer.
+  window.askQ = async function(){
+    var inp = document.getElementById('ask-q-input');
+    var out = document.getElementById('ask-q-answer');
+    var meta = document.getElementById('ask-q-meta');
+    var btn = document.getElementById('ask-q-btn');
+    var xs = document.getElementById('ask-q-xsearch');
+    if(!inp || !out) return;
+    var q = (inp.value||'').trim();
+    if(!q){ return; }
+    out.style.display = 'block';
+    out.textContent = 'Q is reasoning… (deep analysis can take ~20–40s)';
+    if(meta){ meta.style.display = 'none'; }
+    if(btn){ btn.disabled = true; btn.textContent = '…'; }
+    try {
+      var r = await fetch('/api/q/ask', {
+        method:'POST', headers:{'Content-Type':'application/json'},
+        body: JSON.stringify({query:q, x_search: !!(xs && xs.checked)})
+      });
+      if(!r.ok) throw new Error('HTTP '+r.status);
+      var d = await r.json();
+      if(d.error || !d.answer){ out.textContent = 'Q: '+(d.error || 'no answer'); }
+      else {
+        out.textContent = d.answer;
+        if(meta){
+          meta.style.display = 'block';
+          meta.textContent = 'intent: '+(d.intent||'?')+' · cost $'+Number(d.cost_usd||0).toFixed(4)
+            +' · $'+Number(d.daily_spend_after||0).toFixed(4)+'/'+Number(d.daily_cap||0).toFixed(2)+' today'
+            +((d.x_sources_used)?(' · '+d.x_sources_used+' X sources'):'');
+        }
+      }
+    } catch(e){
+      out.textContent = 'Q could not answer: '+(e&&e.message?e.message:e);
+      console.info('[ask-q] error: '+(e&&e.message?e.message:e));
+    } finally {
+      if(btn){ btn.disabled = false; btn.textContent = 'Ask Q'; }
     }
   };
 

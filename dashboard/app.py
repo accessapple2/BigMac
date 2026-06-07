@@ -16643,6 +16643,24 @@ def archer_ask(data: dict = None):
         return {"answer": None, "error": f"{type(e).__name__}: {e}"}
 
 
+@app.post("/api/q/ask")
+def q_ask(data: dict = None):
+    """HM-ASK-Q: ask Q (deep analyst, grok-4.20-0309-reasoning). Portfolio-intent
+    questions get a synthesis of net worth + the real tradeable Schwab book + the
+    Kirk-Grok advisor's recs + an independent take. Advisory ONLY — read-only, no
+    order path. X Search is opt-in ($5/1K), off by default. Per-day cost cap."""
+    if not data or not (data.get("query") or data.get("question")):
+        return {"error": "query is required"}
+    query = (data.get("query") or data.get("question")).strip()
+    x_search = bool(data.get("x_search", False))
+    try:
+        from engine.ask_q import ask_q
+        return ask_q(query, x_search=x_search)
+    except Exception as e:
+        logger.warning("[q/ask] %s: %r", type(e).__name__, e)
+        return {"answer": None, "error": f"{type(e).__name__}: {e}"}
+
+
 @app.get("/api/archer/frontier")
 def archer_frontier():
     """Legacy alias — frontier intel is now the unified Archer briefing.
