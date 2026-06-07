@@ -16661,6 +16661,43 @@ def q_ask(data: dict = None):
         return {"answer": None, "error": f"{type(e).__name__}: {e}"}
 
 
+_scorecard_cache: dict = {}
+
+
+@app.get("/api/scorecard")
+def api_scorecard(days: int = 180):
+    """HM-AGENT-SCORECARD: per-agent/model performance over logged history (no
+    replay, no lookahead — what actually happened). Cached 1h (PBO is seconds)."""
+    import time as _t
+    ck = f"sc:{days}"
+    hit = _scorecard_cache.get(ck)
+    if hit and _t.time() - hit[0] < 3600:
+        return hit[1]
+    try:
+        from engine.agent_scorecard import compute_scorecard
+        sc = compute_scorecard(days=days)
+        _scorecard_cache[ck] = (_t.time(), sc)
+        return sc
+    except Exception as e:
+        logger.warning("[scorecard] %s: %r", type(e).__name__, e)
+        return {"error": f"{type(e).__name__}: {e}"}
+
+
+@app.get("/api/scorecard/baselines")
+def api_scorecard_baselines():
+    """List stored scorecard baseline snapshots (forward-comparison markers)."""
+    try:
+        import sqlite3
+        c = sqlite3.connect("data/trader.db")
+        c.row_factory = sqlite3.Row
+        rows = c.execute("SELECT id, snapshot_date, label, window_days, n_trades, n_agents, "
+                         "created_at FROM scorecard_snapshots ORDER BY id DESC").fetchall()
+        c.close()
+        return {"baselines": [dict(r) for r in rows]}
+    except Exception as e:
+        return {"baselines": [], "error": f"{type(e).__name__}: {e}"}
+
+
 @app.get("/api/archer/frontier")
 def archer_frontier():
     """Legacy alias — frontier intel is now the unified Archer briefing.
