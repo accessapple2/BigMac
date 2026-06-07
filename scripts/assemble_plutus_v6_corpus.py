@@ -54,8 +54,47 @@ ev2 = importlib.util.module_from_spec(spec)
 spec.loader.exec_module(ev2)
 src1 = [_clean(e) for e in ev2.build_trade_critique_corpus()]
 
-# ── Source 2: PENDING (forward-collection) ──
-src2 = []
+# ── Source 2: Plutus v1 critique reviews — harvest debate_history_v2.plutus_analysis ──
+# v1's critiques ARE captured live in debate_history_v2 (~10/day). This reads them;
+# zero new capture wiring. Debate-case critique (at-decision); realized-outcome
+# enrichment (ticker→trades.realized_pnl) is a future follow-up, not done here.
+def _build_source2_debate_critiques():
+    import sqlite3
+    try:
+        c = sqlite3.connect(str(DATA / "trader.db"))
+        c.row_factory = sqlite3.Row
+        recs = c.execute(
+            "SELECT id, ticker, picard_decision, picard_conviction, adjusted_conviction, "
+            "       plutus_analysis, created_at "
+            "FROM debate_history_v2 "
+            "WHERE plutus_analysis IS NOT NULL AND length(plutus_analysis) > 50 "
+            "ORDER BY created_at"
+        ).fetchall()
+        c.close()
+    except Exception:
+        return []
+    out = []
+    for r in recs:
+        conv = r["adjusted_conviction"] if r["adjusted_conviction"] is not None else r["picard_conviction"]
+        # full created_at in the prompt keeps every example unique (no false dedup)
+        prompt = (
+            f"As Plutus, review the bull/bear debate case for {r['ticker']} and give your "
+            f"expert-witness assessment.\n"
+            f"Ticker: {r['ticker']}\n"
+            f"As of: {r['created_at']}\n"
+            f"Panel decision: {r['picard_decision'] or 'n/a'}\n"
+            f"Panel conviction: {conv if conv is not None else 'n/a'}\n"
+            f"Provide your analysis."
+        )
+        out.append(_clean({
+            "prompt": prompt,
+            "completion": r["plutus_analysis"],
+            "_meta": {"category": "debate_critique", "source": "debate_history_v2",
+                      "debate_id": r["id"], "symbol": r["ticker"]},
+        }))
+    return out
+
+src2 = _build_source2_debate_critiques()
 
 # ── Source 3: retain v4/v5 (exclude identity; cap RETAIN_CAP) ──
 src3 = []
@@ -108,13 +147,15 @@ with open(DATA / "plutus_corpus_v6.jsonl", "w") as f:
 stats = {
     "total": n,
     "source1_own_outcomes": len(src1),
-    "source2_critique_reviews_PENDING": len(src2),
+    "source2_critique_reviews": len(src2),
     "source3_retain_v4v5": len(src3),
     "dedup_removed": (len(src1) + len(src2) + len(src3)) - n,
     "split": {"train": len(train), "val": len(val), "test": len(test)},
     "target_2500_gap": max(0, 2500 - n),
-    "note": "Source 2 (v1 critique reviews, 500-1000) is a forward-collection — not batchable today; "
-            "it closes the gap to the 2,500 target as Plutus v1 critiques accrue. NO TRAINING run by this script.",
+    "note": "Source 2 harvested LIVE from debate_history_v2.plutus_analysis (v1's expert-witness "
+            "critiques, ~10/day). Debate-case critique (at-decision) — realized-outcome enrichment "
+            "(ticker→trades.realized_pnl) is a future follow-up. Re-run to pick up new critiques; "
+            "the ~731 gap to 2,500 closes as debates accrue. NO TRAINING run by this script.",
 }
 with open(DATA / "plutus_corpus_v6.stats.json", "w") as f:
     json.dump(stats, f, indent=2)
