@@ -119,6 +119,14 @@ def main():
     schwab["account_name"] = f"{acct_label} (Brokerage)"
     schwab["positions"] = positions
     schwab["source"] = "csv_snapshot"   # HM-SCHWAB-LIVE-SYNC: stamp path so live_api vs csv is always known
+    # HM-FIX-REAL-HOLDINGS (FIX-1): stamp the block's last_updated on the CSV path
+    # too — was only set by the live path, so after a CSV-fallback write the block
+    # timestamp lied. Format-match the live path (ET, "%Y-%m-%d %H:%M:%S %Z").
+    try:
+        from zoneinfo import ZoneInfo
+        schwab["last_updated"] = datetime.now(ZoneInfo("America/New_York")).strftime("%Y-%m-%d %H:%M:%S %Z")
+    except Exception:
+        schwab["last_updated"] = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
     total_equity = sum(float(p.get("avg_cost", 0)) * float(p.get("qty", 0)) for p in positions)
     schwab["notes"] = (
         f"Auto-synced from schwab_holdings snapshot {snap_id}. "

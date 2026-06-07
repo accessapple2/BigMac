@@ -17,9 +17,17 @@ history, and backtest results. Generates TRIM/HOLD/ADD signals with reasoning.
 import json
 import logging
 import os
-from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
+from engine.market_calendar import (  # HM-TZ-AZNOW: zoneinfo, corruption-proof
+    az_now,
+    is_us_market_open,
+    is_us_market_holiday,
+    is_early_close_day,
+    MARKET_CLOSE_TIME,
+    EARLY_CLOSE_TIME,
+    ET as _ET,
+)
 import sqlite3 as _sq
-from datetime import datetime
+from datetime import datetime, timezone, timedelta
 from pathlib import Path
 import pytz
 from engine.market_data import get_stock_price
@@ -39,12 +47,97 @@ STOP_LOSS_PCT = -8.0      # Hard stop at -8%
 TRIM_WARNING_PCT = -6.0   # Warn when approaching stop
 WINNER_HOLD_PCT = 5.0     # Don't sell winners above this
 
+# HM-FIX-REAL-HOLDINGS (FIX-1, 2026-06-07): the reader must not silently trust
+# stale or unsourced holdings. Only the two real Schwab live-sync paths may be
+# trusted — live_api (scripts/sync_schwab_live.py) and csv_snapshot (the cron
+# `||` fallback, scripts/sync_schwab_to_real_holdings.py). Anything else
+# (a hand-edit, a missing/unknown source) is rejected loudly. See RULE #1:
+# this is read-only reader-side hardening — it touches no Schwab write/order path.
+_ALLOWED_HOLDINGS_SOURCES = frozenset({"live_api", "csv_snapshot"})
+# During RTH the live cron writes every 15 min; >90 min with no write means the
+# sync genuinely broke (≥6 missed ticks), not a benign gap.
+_RTH_FRESH_MAX_MIN = 90
+# Throttle untrusted/stale alerts to first-per-class-per-process (Error-Handling
+# Posture §3 caveat: in-memory dedup => once per process lifetime at 24h).
+_HOLDINGS_ALERT_THROTTLE_SECS = 86400
+
+
+def _is_trading_day(d) -> bool:
+    """True iff ``d`` (a date) is a regular NYSE session day (weekday, non-holiday)."""
+    return d.weekday() < 5 and not is_us_market_holiday(d)
+
+
+def _last_market_close(now_et: datetime) -> "datetime | None":
+    """Most recent ET datetime at which the market closed, on or before ``now_et``.
+
+    Walks back day-by-day to the latest trading day whose close (16:00 ET, or
+    13:00 ET on early-close days) is <= now_et. Returns None if none found in a
+    two-week lookback (should never happen). market_calendar has no equivalent
+    export, so this is local — it is the load-bearing piece that stops the
+    weekend/holiday false-trip the old wall-clock rule produced.
+    """
+    d = now_et.date()
+    for _ in range(16):
+        if _is_trading_day(d):
+            close_t = EARLY_CLOSE_TIME if is_early_close_day(d) else MARKET_CLOSE_TIME
+            close_dt = _ET.localize(
+                datetime(d.year, d.month, d.day, close_t.hour, close_t.minute)
+            )
+            if close_dt <= now_et:
+                return close_dt
+        d = d - timedelta(days=1)
+    return None
+
+
+def _holdings_stale_reason(written_epoch: float, now_et: "datetime | None" = None) -> "str | None":
+    """Market-aware freshness check. Returns a stale_reason str, or None if fresh.
+
+    Clocks off the file write time (``written_epoch``, an mtime — the sync writes
+    atomically so mtime == real write time). Rules:
+      * Market OPEN now   → stale if the write is older than _RTH_FRESH_MAX_MIN.
+      * Market CLOSED now → fresh as long as the write is from the last trading
+        session (same ET date as, or after, the last market close). This is what
+        keeps Friday-evening data trusted all through a Sat/Sun/holiday.
+    """
+    now_et = now_et or datetime.now(_ET)
+    written_et = datetime.fromtimestamp(written_epoch, tz=timezone.utc).astimezone(_ET)
+    if is_us_market_open(now_et):
+        age_min = (now_et - written_et).total_seconds() / 60.0
+        return "holdings_stale_rth" if age_min > _RTH_FRESH_MAX_MIN else None
+    last_close = _last_market_close(now_et)
+    if last_close is None:                       # pathological lookback miss
+        return "holdings_stale" if (now_et - written_et) > timedelta(hours=36) else None
+    # Data is fresh while it is from the last trading session (or later). A write
+    # whose ET date predates the last close means a whole session elapsed with no
+    # successful sync => genuinely stale.
+    return "holdings_stale" if written_et.date() < last_close.date() else None
+
 
 def _get_db():
     """Open trader.db with row_factory."""
     db = _sq.connect("data/trader.db", timeout=10)
     db.row_factory = _sq.Row
     return db
+
+
+def _alert_untrusted_holdings(reason: str, detail: str) -> None:
+    """Fire a throttled WARNING when holdings are untrusted/genuinely-stale.
+
+    Throttled first-per-class-per-process (alert_type keyed by ``reason``) so the
+    30-min advisory cadence can't spam. Lazy import keeps the module importable
+    even if alert_channels' transitive deps are unavailable in a test/CLI context.
+    """
+    try:
+        from engine.alert_channels import alert_warning
+        alert_warning(
+            f"⚠️ kirk_advisory: holdings untrusted ({reason}) — {detail}. "
+            f"Refusing holdings-based advice.",
+            alert_type=f"holdings_{reason}",
+            rate_limit_secs=_HOLDINGS_ALERT_THROTTLE_SECS,
+        )
+    except Exception as e:  # alerting must never break the read path
+        logger.warning("holdings untrusted (%s) but alert dispatch failed: %s: %r",
+                       reason, type(e).__name__, e)
 
 
 # Kirk-Schwab-realign-2026-05-05: shared real-holdings reader; consumed by
@@ -70,35 +163,36 @@ def _load_real_holdings() -> dict:
     engine.market_data.get_stock_price (matches the existing fallback in
     generate_kirk_advisory's per-position loop).
 
-    On missing file or parse error, returns empty positions and 0 cash with
-    an `error` key set, leaving downstream code paths intact.
+    HM-FIX-REAL-HOLDINGS (FIX-1): the loader now REFUSES to hand back positions it
+    cannot prove are live-Schwab-sourced and fresh. Two guards, both fail-loud:
+      1. source — the schwab block's `source` must be one of the real sync paths
+         (_ALLOWED_HOLDINGS_SOURCES). A hand-edit / missing / unknown source is
+         rejected with stale_reason="untrusted_source".
+      2. freshness — market-aware (_holdings_stale_reason). Does NOT false-trip on
+         weekends/holidays: Friday-evening data stays trusted until the next
+         session closes.
+    On reject (untrusted/stale/missing/parse-error) it returns empty positions +
+    `stale=True` (downstream returns an explicit STALE advisory) and fires a
+    throttled NTFY — never a silent stale read. `source` (provenance label) is
+    preserved for back-compat; `holdings_source` carries the real block source.
     """
     if not REAL_HOLDINGS_PATH.exists():
+        _alert_untrusted_holdings("file_missing", f"{REAL_HOLDINGS_PATH} not found")
         return {
             "positions": [],
             "cash": 0.0,
             "snapshot_at": None,
             "source": "schwab/real_holdings.json",
+            "holdings_source": None,
             "error": "real_holdings.json missing",
             "stale": True,
             "stale_reason": "file_missing",
             "age_minutes": None,
+            "stale_message": "Schwab holdings file missing — check sync_schwab_live cron (CSV fallback via ||)",
         }
-    import time as _t
-    _age_min = (_t.time() - REAL_HOLDINGS_PATH.stat().st_mtime) / 60
-    _STALE_THRESHOLD_MIN = 240  # 4 hours
-    if _age_min > _STALE_THRESHOLD_MIN:
-        return {
-            "positions": [],
-            "cash": 0.0,
-            "snapshot_at": None,
-            "source": "schwab/real_holdings.json",
-            "error": None,
-            "stale": True,
-            "stale_reason": "holdings_stale",
-            "age_minutes": round(_age_min, 1),
-            "stale_message": f"Schwab holdings data is {round(_age_min / 60, 1)}h old — Schwab live sync stale; check sync_schwab_live cron (CSV fallback via ||)",
-        }
+
+    _age_min = (datetime.now(timezone.utc).timestamp() - REAL_HOLDINGS_PATH.stat().st_mtime) / 60
+
     try:
         with REAL_HOLDINGS_PATH.open() as fh:
             raw = json.load(fh)
@@ -106,18 +200,58 @@ def _load_real_holdings() -> dict:
         logger.error(
             "real_holdings.json load failed: %s: %r", type(e).__name__, e
         )
+        _alert_untrusted_holdings("parse_error", f"{type(e).__name__}: {e!r}")
         return {
             "positions": [],
             "cash": 0.0,
             "snapshot_at": None,
             "source": "schwab/real_holdings.json",
+            "holdings_source": None,
             "error": f"{type(e).__name__}: {e!r}",
+            "stale": True,
+            "stale_reason": "parse_error",
+            "age_minutes": round(_age_min, 1),
+            "stale_message": f"real_holdings.json failed to parse ({type(e).__name__}) — refusing holdings-based advice",
         }
 
     schwab = (raw.get("accounts") or {}).get("schwab") or {}
-    raw_positions = schwab.get("positions") or []
+    holdings_source = schwab.get("source")
     cash = float(schwab.get("cash_balance") or 0.0)
 
+    def _reject(reason: str, message: str) -> dict:
+        _alert_untrusted_holdings(reason, message)
+        return {
+            "positions": [],
+            "cash": 0.0,
+            "snapshot_at": raw.get("last_updated"),
+            "source": "schwab/real_holdings.json",
+            "holdings_source": holdings_source,
+            "error": None,
+            "stale": True,
+            "stale_reason": reason,
+            "age_minutes": round(_age_min, 1),
+            "stale_message": message,
+        }
+
+    # Guard 1 — provenance. Only the real Schwab live-sync paths are trusted.
+    if holdings_source not in _ALLOWED_HOLDINGS_SOURCES:
+        return _reject(
+            "untrusted_source",
+            f"Schwab holdings source={holdings_source!r}, not a live sync "
+            f"({'/'.join(sorted(_ALLOWED_HOLDINGS_SOURCES))}) — refusing holdings-based advice",
+        )
+
+    # Guard 2 — freshness (market-aware; will not false-trip on closed-market days).
+    stale_reason = _holdings_stale_reason(REAL_HOLDINGS_PATH.stat().st_mtime)
+    if stale_reason is not None:
+        return _reject(
+            stale_reason,
+            f"Schwab holdings data is {round(_age_min / 60, 1)}h old and a market "
+            f"session has closed since the last sync — Schwab live sync stale; "
+            f"check sync_schwab_live cron (CSV fallback via ||)",
+        )
+
+    raw_positions = schwab.get("positions") or []
     positions = []
     for p in raw_positions:
         symbol = (p.get("symbol") or "").strip().upper()
@@ -144,6 +278,7 @@ def _load_real_holdings() -> dict:
         "cash": cash,
         "snapshot_at": raw.get("last_updated"),
         "source": "schwab/real_holdings.json",
+        "holdings_source": holdings_source,
         "stale": False,
         "age_minutes": round(_age_min, 1),
     }

@@ -33953,7 +33953,8 @@ async function fetchKirkAdvisory() {
     var r = await fetch('/api/kirk/advisory?source=' + _kirkSource);
     var d = await r.json();
 
-    // Kirk staleness guard (real_holdings.json mtime > 4h / missing): banner + skip render.
+    // Kirk staleness guard (backend market-aware: untrusted source, or a market
+    // session closed since the last sync, or missing/unparseable): banner + skip render.
     // The STALE envelope has no market_context/cash_recommendation, so render MUST stop here.
     if (d.stale) {
       var _kAge = (d.age_minutes != null) ? (d.age_minutes / 60).toFixed(1) + 'h old' : 'missing';
@@ -33961,7 +33962,7 @@ async function fetchKirkAdvisory() {
         '<div style="display:flex;align-items:center;gap:8px;margin-bottom:6px;"><span style="font-size:20px;">⚠️</span>' +
         '<span style="font-size:16px;font-weight:800;color:white;letter-spacing:0.5px;">HOLDINGS DATA STALE</span></div>' +
         '<div style="color:#fde68a;font-size:14px;font-weight:600;">' + (d.stale_message || 'Re-import Schwab CSV before acting') + '</div>' +
-        '<div style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:4px;">Kirk advisory paused — Schwab snapshot ' + _kAge + ' (threshold 4h). Re-run the CSV import to refresh.</div>' +
+        '<div style="color:rgba(255,255,255,0.6);font-size:12px;margin-top:4px;">Kirk advisory paused — Schwab snapshot ' + _kAge + '. Live sync stale or unsourced; re-run the Schwab sync to refresh.</div>' +
         '</div>';
       return;
     }
