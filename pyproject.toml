@@ -19,3 +19,9 @@ exclude = '''
 max-line-length = 88
 extend-ignore = ['E203', 'W503']
 exclude = ['.git', '.hg', '.tox', '.venv', '_build', 'buck-out', 'build', 'dist']
+
+[tool.pytest.ini_options]
+# Put the repo root on sys.path so `import engine.*` resolves under the
+# console-script `pytest` (.venv-deps/bin/pytest), not just `python -m pytest`.
+# Required by the .githooks/pre-commit invariant gate.
+pythonpath = ['.']

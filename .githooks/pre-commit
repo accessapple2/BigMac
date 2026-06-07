@@ -1,0 +1,3 @@
+#!/bin/sh
+.venv-deps/bin/pytest -q tests/test_otasty_shadow_invariants.py tests/test_kirk_holdings_guard.py \
+  || { echo "INVARIANT FAILED — commit blocked"; exit 1; }
