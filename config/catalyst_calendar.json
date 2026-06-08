@@ -1,0 +1,9 @@
+{
+  "_doc": "HM-REVEILLE catalyst calendar (2026-06-08). Lightweight, hand-editable. Read-only consumed by engine/reveille.py. type ∈ {macro, fomc, ipo, earnings, other}. weight ∈ {high, med, low}. Dates are AZ/market dates (YYYY-MM-DD).",
+  "catalysts": [
+    {"date": "2026-06-10", "type": "macro", "weight": "high", "label": "May CPI + Core CPI", "note": "Week's dominant catalyst. Consensus ~+0.5% MoM / ~4.2% YoY. Weight heavily."},
+    {"date": "2026-06-12", "type": "ipo",   "weight": "med",  "label": "SPCX IPO",            "note": "New listing — first-print volatility; not thesis-driven."},
+    {"date": "2026-06-16", "type": "fomc",  "weight": "high", "label": "FOMC begins (day 1)", "note": "Projection meeting + dot plot. Warsh chair (hawkish-leaning). Fed in blackout until then."},
+    {"date": "2026-06-17", "type": "fomc",  "weight": "high", "label": "FOMC decision + presser", "note": "Rate decision, dot plot, Warsh presser."}
+  ]
+}

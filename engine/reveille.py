@@ -36,7 +36,7 @@ logger = logging.getLogger(__name__)
 
 _ROOT = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 TRADER_DB        = os.path.join(_ROOT, "data", "trader.db")
-CATALYST_JSON    = os.path.join(_ROOT, "data", "catalyst_calendar.json")
+CATALYST_JSON    = os.path.join(_ROOT, "config", "catalyst_calendar.json")
 BRIEF_JSON       = os.path.join(_ROOT, "data", "reveille_brief.json")
 PREMARKET_TOPIC  = os.environ.get("NTFY_PREMARKET_TOPIC", "ollie-premarket")
 
