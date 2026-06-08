@@ -237,10 +237,11 @@ def get_short_signals() -> list[dict]:
 def get_congress() -> list[dict]:
     """Congressional trades via the canonical in-memory scraper (NO DB table).
 
-    Degrades gracefully to [] — currently empty because the scrapling
-    'Adaptor' import is broken on Py3.14 + QUIVER_ENABLED=False
-    (tracked: HM-CONGRESS-SCRAPER-REPAIR). Auto-contributes once the feed
-    flows again — no code change needed here.
+    Live feed: Capitol Trades HTML scrape (QUIVER_ENABLED=False — separate, no
+    key). Repaired 2026-06-06 (296b247, scrapling import relocate). Degrades
+    gracefully to [] if the unauthed scrape goes dry; a zero-result watchdog in
+    congress_scraper NTFYs on a sustained outage, and Archer's congress status
+    is derived dynamically from whether this returns data.
     """
     try:
         from engine.congress_tracker import get_congressional_trades

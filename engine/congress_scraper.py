@@ -4,9 +4,11 @@ Capitol Trades: HTML scrape from capitoltrades.com/trades
 Quiver Quant: JSON API from api.quiverquant.com (free, no key needed)
 """
 from __future__ import annotations
+import json
 import requests
 import time
 import re
+from pathlib import Path
 from rich.console import Console
 
 console = Console()
@@ -15,6 +17,60 @@ _congress_cache = {"data": None, "ts": 0}
 _CACHE_TTL = 1800  # 30 minutes
 
 QUIVER_ENABLED = False  # 2026-04-26: API returns 401 (no key configured). Capitol Trades only.
+
+# HM-CONGRESS-SCRAPER-REPAIR Phase B — zero-result watchdog. Capitol Trades is an
+# unauthed HTML scrape; a site redesign returns 0 trades with HTTP 200 (silent).
+# Track consecutive zero-result SCRAPES (restart-survivable state file) and NTFY
+# once the leg has been empty for N runs — this is what makes the dynamic
+# "congress live/degraded" status in Archer's prompts trustworthy.
+_HEALTH_FILE = Path(__file__).resolve().parent.parent / "data" / "congress_scrape_health.json"
+_ZERO_ALERT_THRESHOLD = 3   # consecutive zero-result scrapes before alerting
+_ZERO_COUNT_THROTTLE = 600  # ≥10 min between counted zeros (empty cache re-scrapes every call)
+
+
+def _record_scrape_health(n_trades: int) -> None:
+    """Track consecutive zero-result scrapes and NTFY admin on a sustained dry
+    spell. Restart-survivable via data/congress_scrape_health.json. Never raises."""
+    try:
+        try:
+            state = json.loads(_HEALTH_FILE.read_text())
+        except Exception:
+            state = {}
+        now = time.time()
+        if n_trades > 0:
+            new_streak = 0  # healthy → reset immediately
+        else:
+            # The empty-result path re-scrapes on every call (empty cache is
+            # falsy); throttle so "consecutive runs" means a sustained outage
+            # (~10-min cadence), not a transient retried within seconds.
+            if (now - float(state.get("last_ts", 0))) < _ZERO_COUNT_THROTTLE \
+                    and int(state.get("consecutive_zero", 0)) > 0:
+                return
+            new_streak = int(state.get("consecutive_zero", 0)) + 1
+        try:
+            _HEALTH_FILE.parent.mkdir(parents=True, exist_ok=True)
+            _HEALTH_FILE.write_text(json.dumps(
+                {"consecutive_zero": new_streak, "last_count": n_trades, "last_ts": now}))
+        except Exception:
+            pass
+        if new_streak >= _ZERO_ALERT_THRESHOLD:
+            try:
+                from engine.alert_channels import send_alert, AlertLevel
+                send_alert(
+                    message=(f"Capitol Trades scrape returned 0 trades for {new_streak} "
+                             "consecutive runs. capitoltrades.com is an unauthed HTML scrape "
+                             "— a site redesign returns 0 with HTTP 200. Check the tbody/td "
+                             "selectors in congress_scraper.scrape_capitol_trades. Archer's "
+                             "congress convergence leg is degraded until restored."),
+                    level=AlertLevel.WARNING,
+                    alert_type="congress_scrape_zero",
+                    title="Congress scraper silent (0 trades)",
+                    rate_limit_secs=86400,  # first occurrence per 24h (CLAUDE.md error posture)
+                )
+            except Exception as e:
+                console.log(f"[yellow]congress watchdog NTFY failed: {type(e).__name__}: {e}")
+    except Exception as e:
+        console.log(f"[yellow]congress watchdog error: {type(e).__name__}: {e}")
 
 
 def scrape_capitol_trades(limit: int = 50, pages: int = 4) -> list:
@@ -207,6 +263,9 @@ def get_all_congress_trades() -> list:
 
     # Sort by filed date descending
     unique.sort(key=lambda x: x.get("filed_date", ""), reverse=True)
+
+    # Watchdog runs only on a real scrape (this is past the cache-hit early return).
+    _record_scrape_health(len(unique))
 
     _congress_cache["data"] = unique
     _congress_cache["ts"] = now

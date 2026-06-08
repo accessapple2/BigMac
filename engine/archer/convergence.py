@@ -3,12 +3,14 @@
 Counts how many of 5 independent systems flag the same symbol:
   crew     — war_room takes (last 24h)
   gex      — SPY/QQQ notable gamma regime ∪ Uhura tickers_flagged/suggested
-  congress — congressional trades (0 today; scraper broken — caps at 4/5)
+  congress — congressional trades (Capitol Trades; contributes when the scrape
+             returns data — the leg is dynamic, not assumed offline)
   ollie    — Ollie AI deep-scan convergence (≥2 strategies)
   supermax — SUPER_MAX shadow-bridge edges
 
-Tier: RED = 5/5, YELLOW = 3-4/5, INFO = <3. (5/5 unreachable until congress
-is restored — that's correct, not forced.)
+Tier: RED = 5/5, YELLOW = 3-4/5, INFO = <3. 5/5 is reachable whenever the
+congress leg has data; it caps at 4/5 only while Capitol Trades is genuinely
+dry (a zero-result watchdog NTFYs on a sustained outage).
 """
 from __future__ import annotations
 

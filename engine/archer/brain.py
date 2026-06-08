@@ -115,6 +115,19 @@ def morning_briefing() -> str:
     intel = _intel_bundle()
     reds = [c for c in intel["top_convergences"] if c["tier"] == "RED"]
     yellows = [c for c in intel["top_convergences"] if c["tier"] == "YELLOW"]
+    # Congress status is DYNAMIC — derived from whether the leg returned data
+    # THIS run, never hardcoded. Self-corrects in both directions.
+    n_congress = len(intel.get("congress") or [])
+    if n_congress > 0:
+        congress_line = (
+            f"- The Congress leg is LIVE this run ({n_congress} recent disclosures) "
+            "— all 5 systems can converge; reflect the real congressional signals.\n"
+        )
+    else:
+        congress_line = (
+            "- The Congress leg returned no data this run (degraded) so convergence "
+            "caps at 4 of 5 — say so plainly; do not infer congressional activity.\n"
+        )
     prompt = (
         "Write today's morning intel briefing for the Admiral. Live intel below "
         "(JSON):\n\n"
@@ -125,8 +138,7 @@ def morning_briefing() -> str:
         f"- YELLOW-tier (3-4/5): {yellows or 'none today'}.\n"
         "- Call out any new short signals by name (sell-the-news). If none, say "
         "shorts are quiet.\n"
-        "- Note that the Congress leg is offline today (scraper down) so "
-        "convergence caps at 4 of 5 — don't pretend it's 5.\n"
+        f"{congress_line}"
         "- Name the systems behind each call. Be specific and fresh — NOT a "
         "generic template. 200-300 words. End with one clear watch-list line."
     )

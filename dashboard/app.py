@@ -16819,7 +16819,8 @@ def archer_frontier():
 
 @app.get("/api/archer/convergence")
 def archer_convergence():
-    """Live 5-system convergence counter (caps at 4/5 while congress is down).
+    """Live 5-system convergence counter. The congress leg is dynamic — 5/5 is
+    reachable when Capitol Trades returns data, 4/5 ceiling only while it's dry.
     HM-ARCHER-REBUILD."""
     try:
         from engine.archer.convergence import compute_convergence
@@ -18449,7 +18450,14 @@ def _archer_intel_block() -> str:
     top = conv[:5]
     L.append("Top convergences: " + (", ".join(f"{_lbl(c)} {c['count']}/5[{'+'.join(c['systems'])}]" for c in top) or "none flagged"))
     L.append("Sell-the-news shorts: " + (", ".join((f"{s['symbol']} ({s['name']})" if s.get('name') else s['symbol']) for s in shorts) if shorts else "none (dormant until earnings season)"))
-    L.append("Congress leg offline (scraper down) — convergence caps at 4/5.")
+    # Congress status is DYNAMIC — derived from this run's convergence (the
+    # congress leg flags symbols only when the scrape returned data). Never
+    # hardcoded; self-corrects if the unauthed scrape silently breaks again.
+    _congress_syms = [c for c in conv if "congress" in (c.get("systems") or [])]
+    if _congress_syms:
+        L.append(f"Congress leg: LIVE this run — {len(_congress_syms)} symbol(s) flagged; 5/5 convergence reachable.")
+    else:
+        L.append("Congress leg: no data this run (degraded) — convergence caps at 4/5.")
     bc = _src.get_bridge_consensus()
     if bc and bc.get("consensus_vote"):
         agree = max(bc.get("buy", 0), bc.get("sell", 0), bc.get("hold", 0))
