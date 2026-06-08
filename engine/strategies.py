@@ -882,6 +882,58 @@ def inject_tractor_beam_signals() -> int:
     return injected
 
 
+# ── HM-CHEKOV-REGIME-GATE 2026-06-08 — independence weighting + fail-closed verdict ──
+_STRATEGY_FAMILIES = [   # mirrors engine/phaser_lock.py::_family() — correlated strategies collapse
+    ("momentum",         ("momentum", "mom_", "trend", "minervini", "breakout", "52w", "highs")),
+    ("mean_reversion",   ("mean", "revert", "rsi", "oversold", "bounce", "bollinger", "bbkc")),
+    ("macd_ma",          ("macd", "sma", "ema", "ma_", "golden", "cross")),
+    ("volume_flow",      ("volume", "vol_", "squeeze", "obv", "accumulation", "whale")),
+    ("options_gex",      ("gex", "gamma", "oi", "options", "premium", "max_pain")),
+    ("relative_strength",("relative_strength", "rs_", "rs ")),
+]
+_ADVERSE_REGIMES = {"BEAR", "BEAR_TREND", "HIGH_VOL", "CRISIS"}
+
+
+def _strategy_family(name: str) -> str:
+    s = (name or "").lower()
+    for fam, kws in _STRATEGY_FAMILIES:
+        if any(k in s for k in kws):
+            return fam
+    return s or "unknown"
+
+
+def _current_market_regime():
+    """Latest market regime from regime_history (READ-ONLY). None if unavailable."""
+    try:
+        conn = _conn()
+        r = conn.execute("SELECT regime FROM regime_history ORDER BY date DESC LIMIT 1").fetchone()
+        conn.close()
+        return r["regime"] if r and r["regime"] else None
+    except Exception:
+        return None
+
+
+def _regime_gated_verdict(confidence: float, family_count: int, regime) -> dict:
+    """Server-side, FAIL-CLOSED convergence verdict. Independence-weighted on family_count.
+    Adverse regime withholds STRONG BUY; blank/unknown downgrades + flags 'regime unconfirmed'."""
+    if   confidence >= 0.75 and family_count >= 4: action = "STRONG BUY"
+    elif confidence >= 0.60 and family_count >= 3: action = "BUY"
+    elif confidence <  0.60:                       action = "IC CANDIDATE"
+    else:                                          action = "WAIT"
+    reg = (regime or "").upper()
+    unconfirmed, note = False, ""
+    if not reg:                                    # blank/unknown → fail closed
+        unconfirmed, note = True, "regime unconfirmed — downgraded"
+        if action == "STRONG BUY":
+            action = "BUY"
+    elif reg in _ADVERSE_REGIMES:                  # adverse → withhold STRONG BUY
+        note = f"adverse regime ({reg}) — STRONG BUY withheld"
+        if action == "STRONG BUY":
+            action = "BUY"
+    return {"action": action, "regime": regime or "UNKNOWN",
+            "regime_unconfirmed": unconfirmed, "regime_note": note}
+
+
 def get_todays_signals() -> list:
     """Get today's convergence signals from DB, plus TB direct bypass signals.
 
@@ -892,6 +944,7 @@ def get_todays_signals() -> list:
     """
     inject_tractor_beam_signals()
     convergence: list = []
+    _regime = _current_market_regime()   # HM-CHEKOV-REGIME-GATE: one read per call
     try:
         today = datetime.now().strftime("%Y-%m-%d")
         conn = _conn()
@@ -911,27 +964,42 @@ def get_todays_signals() -> list:
             (today,),
         ).fetchall()
         conn.close()
-        convergence = [
-            {
+        for r in rows:
+            _names = r["strategies"].split(",") if r["strategies"] else []
+            _fam_count = len({_strategy_family(n) for n in _names})
+            _conf = round(r["avg_conf"], 2)
+            _v = _regime_gated_verdict(_conf, _fam_count, _regime)
+            convergence.append({
                 "ticker": r["ticker"],
                 "strategies_triggered": r["strat_count"],
-                "confidence": round(r["avg_conf"], 2),
+                "family_count": _fam_count,           # HM-CHEKOV-REGIME-GATE: independence count
+                "confidence": _conf,
                 "entry": r["entry"],
                 "stop": r["stop"],
                 "target": r["target"],
-                "strategy_names": r["strategies"].split(",") if r["strategies"] else [],
-            }
-            for r in rows
-        ]
+                "strategy_names": _names,
+                "action": _v["action"],               # server-side, regime-gated (fail-closed)
+                "regime": _v["regime"],
+                "regime_unconfirmed": _v["regime_unconfirmed"],
+                "regime_note": _v["regime_note"],
+            })
     except Exception:
         pass
 
-    # TB-Direct bypass — merge, deduping tickers already in convergence
+    # TB-Direct bypass — merge, deduping tickers already in convergence (same regime stamping)
     tb_direct = get_tb_direct_signals()
     if tb_direct:
         convergence_tickers = {s["ticker"] for s in convergence}
         for sig in tb_direct:
             if sig["ticker"] not in convergence_tickers:
+                _names = sig.get("strategy_names") or []
+                _fc = len({_strategy_family(n) for n in _names}) or 1
+                _v = _regime_gated_verdict(sig.get("confidence", 0) or 0, _fc, _regime)
+                sig.setdefault("family_count", _fc)
+                sig["action"] = _v["action"]
+                sig["regime"] = _v["regime"]
+                sig["regime_unconfirmed"] = _v["regime_unconfirmed"]
+                sig["regime_note"] = _v["regime_note"]
                 convergence.append(sig)
                 convergence_tickers.add(sig["ticker"])
 

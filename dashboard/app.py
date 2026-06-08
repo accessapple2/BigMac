@@ -1938,10 +1938,17 @@ def api_scanner_convergence():
         tier1: list[dict] = []
         tier2: list[dict] = []
         tier3: list[dict] = []
+        from engine.strategies import _strategy_family  # HM-CHEKOV-REGIME-GATE: independence weighting
         for r in rows:
             d = dict(r)
             strat_count = int(d.get("strat_count") or 0)
-            tier = _scanner_tier_for(strat_count)
+            _strats_for_fam = [s for s in (d.get("strategies") or "").split(",") if s]
+            family_count = len({_strategy_family(s) for s in _strats_for_fam})
+            # Tier on DISTINCT-FAMILY count (recalibrated ≥4/3/2 for the 6-family space),
+            # not raw strategy_name count — a single correlated cluster no longer inflates a tier.
+            tier = ("tier1" if family_count >= 4 else
+                    "tier2" if family_count == 3 else
+                    "tier3" if family_count == 2 else None)
             if tier is None:
                 continue
 
@@ -1989,6 +1996,7 @@ def api_scanner_convergence():
                 "ticker": d["ticker"],
                 "strategies": strategies,
                 "strat_count": strat_count,
+                "family_count": family_count,
                 "conf": conf_pct,
                 "entry": entry,
                 "stop": stop,
@@ -9450,7 +9458,7 @@ def get_performance(model: str = None, season: int = None, fleet_only: bool = Fa
         "total_pnl": round(sum(pnls), 2),
         "avg_win": round(sum(winners) / len(winners), 2) if winners else 0,
         "avg_loss": round(sum(losers) / len(losers), 2) if losers else 0,
-        "profit_factor": round(sum(winners) / abs(sum(losers)), 2) if losers else 0,
+        "profit_factor": round(sum(winners) / abs(sum(losers)), 2) if losers else (999.0 if winners else 0),  # 999.0 = ∞ (no losses), mirrors app.py:2941
         "largest_win": round(max(winners), 2) if winners else 0,
         "largest_loss": round(min(losers), 2) if losers else 0,
         "avg_hold_time_hours": None

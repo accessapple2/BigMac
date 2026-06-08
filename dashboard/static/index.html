@@ -35125,12 +35125,15 @@ var AlertSystem={
     var stratCount=payload.strategies_triggered||stratList.length||0;
     var conf=payload.confidence||payload.score||0;
     var regime=payload.regime||payload.current_regime||window._lastKnownRegime||'—';
-    // Derive suggested action: 4+ strategies = strong BUY, 3 = BUY, <3 = WAIT.
-    // Confidence-aware: any signal with conf<0.6 → IC candidate (range-bound).
-    var action='WAIT';
-    if(conf>=0.75 && stratCount>=4) action='STRONG BUY';
-    else if(conf>=0.60 && stratCount>=3) action='BUY';
-    else if(conf>0 && conf<0.60) action='IC CANDIDATE';
+    var regimeUnconfirmed=!!payload.regime_unconfirmed;
+    // HM-CHEKOV-REGIME-GATE 2026-06-08: prefer the SERVER-side regime-gated verdict
+    // (fail-closed). Client derivation is fallback only (legacy payloads w/o .action).
+    var action=payload.action||'WAIT';
+    if(!payload.action){
+      if(conf>=0.75 && stratCount>=4) action='STRONG BUY';
+      else if(conf>=0.60 && stratCount>=3) action='BUY';
+      else if(conf>0 && conf<0.60) action='IC CANDIDATE';
+    }
     var stratHtml = stratList.length
       ? stratList.map(function(s){return '<li style="margin:2px 0;color:#e5e7eb;">'+s+'</li>';}).join('')
       : '<li style="color:var(--muted);">('+stratCount+' strategies — list not provided by /api/navigator/convergence)</li>';
@@ -35157,7 +35160,7 @@ var AlertSystem={
           '</div>'+
           '<div style="background:rgba(15,23,42,0.6);padding:10px;border-radius:6px;">'+
             '<div style="font-size:10px;color:var(--muted);text-transform:uppercase;">Regime Fit</div>'+
-            '<div style="font-size:18px;font-weight:700;font-family:monospace;">'+regime+'</div>'+
+            '<div style="font-size:18px;font-weight:700;font-family:monospace;">'+regime+(regimeUnconfirmed?' <span style="font-size:11px;color:#f59e0b;">⚠️ unconfirmed</span>':'')+'</div>'+
           '</div>'+
         '</div>'+
         '<div style="background:rgba(15,23,42,0.6);padding:12px;border-radius:6px;margin-bottom:18px;">'+
