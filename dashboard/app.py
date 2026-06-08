@@ -18423,21 +18423,32 @@ def _archer_intel_block() -> str:
     CAPPED — top 5 convergences + regime + RED/YELLOW + shorts only (never all 41)."""
     from engine.archer.convergence import compute_convergence
     from engine.archer import intel_sources as _src
-    conv = compute_convergence()
+    from engine import ticker_names as _tn  # FIX-4: verified ticker→company name
+    # convergence keys on ticker only (FIX-4 Phase C); annotate names at the
+    # prompt boundary so Sonnet has a grounded name and never invents one.
+    conv = _tn.annotate(compute_convergence())
+
+    def _lbl(c: dict) -> str:
+        n = c.get("name")
+        return f"{c['symbol']} ({n})" if n else c["symbol"]
+
     reds = [c for c in conv if c["tier"] == "RED"]
     yellows = [c for c in conv if c["tier"] == "YELLOW"]
     regime = _src.get_regime()
     shorts = _src.get_short_signals()
-    L = ["", "--- LIVE ARCHER INTEL (cite when relevant; do not invent) ---"]
+    L = ["", "--- LIVE ARCHER INTEL ---",
+         "Cite when relevant. Use ONLY the company name provided in parentheses "
+         "next to a ticker; if none is given, refer to the security by its ticker "
+         "alone. NEVER infer or invent a company name from the ticker."]
     if regime:
         L.append(f"Regime: {regime.get('regime')} | VIX {regime.get('vix')} | SPY {regime.get('spy_price')}")
     if reds:
-        L.append("RED 5/5: " + ", ".join(f"{c['symbol']}[{'+'.join(c['systems'])}]" for c in reds))
+        L.append("RED 5/5: " + ", ".join(f"{_lbl(c)}[{'+'.join(c['systems'])}]" for c in reds))
     if yellows:
-        L.append("YELLOW 3-4/5: " + ", ".join(f"{c['symbol']}({c['count']}/5)" for c in yellows[:5]))
+        L.append("YELLOW 3-4/5: " + ", ".join(f"{_lbl(c)} {c['count']}/5" for c in yellows[:5]))
     top = conv[:5]
-    L.append("Top convergences: " + (", ".join(f"{c['symbol']} {c['count']}/5[{'+'.join(c['systems'])}]" for c in top) or "none flagged"))
-    L.append("Sell-the-news shorts: " + (", ".join(s["symbol"] for s in shorts) if shorts else "none (dormant until earnings season)"))
+    L.append("Top convergences: " + (", ".join(f"{_lbl(c)} {c['count']}/5[{'+'.join(c['systems'])}]" for c in top) or "none flagged"))
+    L.append("Sell-the-news shorts: " + (", ".join((f"{s['symbol']} ({s['name']})" if s.get('name') else s['symbol']) for s in shorts) if shorts else "none (dormant until earnings season)"))
     L.append("Congress leg offline (scraper down) — convergence caps at 4/5.")
     bc = _src.get_bridge_consensus()
     if bc and bc.get("consensus_vote"):

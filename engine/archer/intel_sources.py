@@ -21,6 +21,8 @@ from pathlib import Path
 
 import requests
 
+from engine import ticker_names as _names  # FIX-4: verified ticker→company name
+
 logger = logging.getLogger(__name__)
 
 # Resolve DB paths relative to repo root (engine/archer/intel_sources.py -> repo)
@@ -149,7 +151,9 @@ def get_crew_consensus() -> list[dict]:
             """
         ).fetchall()
         conn.close()
-        return [{"symbol": r[0], "take": r[1], "ts": r[2], "player": r[3]} for r in rows]
+        return _names.annotate(
+            [{"symbol": r[0], "take": r[1], "ts": r[2], "player": r[3]} for r in rows]
+        )
     except Exception as e:
         logger.warning("[Archer/intel] crew failed: %s: %r", type(e).__name__, e)
         return []
@@ -171,7 +175,9 @@ def get_ollie_scanner() -> list[dict]:
             """
         ).fetchall()
         conn.close()
-        return [{"symbol": r[0], "signals": r[1], "max_conf": r[2]} for r in rows]
+        return _names.annotate(
+            [{"symbol": r[0], "signals": r[1], "max_conf": r[2]} for r in rows]
+        )
     except Exception as e:
         logger.warning("[Archer/intel] ollie scanner failed: %s: %r", type(e).__name__, e)
         return []
@@ -191,10 +197,10 @@ def get_supermax_edges() -> list[dict]:
             """
         ).fetchall()
         conn.close()
-        return [
+        return _names.annotate([
             {"symbol": r[0], "agent": r[1], "tag": r[2], "tier": r[3], "ts": r[4]}
             for r in rows
-        ]
+        ])
     except Exception as e:
         logger.warning("[Archer/intel] supermax failed: %s: %r", type(e).__name__, e)
         return []
@@ -218,11 +224,11 @@ def get_short_signals() -> list[dict]:
             """
         ).fetchall()
         conn.close()
-        return [
+        return _names.annotate([
             {"symbol": r[0], "entry": r[1], "stop": r[2], "target": r[3],
              "why": r[4], "ts": r[5]}
             for r in rows
-        ]
+        ])
     except Exception as e:
         logger.warning("[Archer/intel] shorts failed: %s: %r", type(e).__name__, e)
         return []
@@ -240,7 +246,7 @@ def get_congress() -> list[dict]:
         from engine.congress_tracker import get_congressional_trades
         d = get_congressional_trades() or {}
         trades = d.get("trades", []) or []
-        return [
+        return _names.annotate([
             {
                 "symbol": t.get("ticker", ""),
                 "who": t.get("politician", "Unknown"),
@@ -250,7 +256,7 @@ def get_congress() -> list[dict]:
             }
             for t in trades
             if t.get("ticker")
-        ]
+        ])
     except Exception as e:
         logger.warning("[Archer/intel] congress failed: %s: %r", type(e).__name__, e)
         return []
