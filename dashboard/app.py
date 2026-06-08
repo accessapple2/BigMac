@@ -20376,6 +20376,29 @@ async def reveille_brief(regenerate: bool = False):
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
+@app.get("/api/phaser-lock")
+async def phaser_lock_pick(regenerate: bool = False):
+    """HM-PHASER-LOCK daily Trade-of-the-Day JSON. Default reads the persisted pick;
+    regenerate=1 reruns the funnel (NO delivery, dry-run)."""
+    import os as _os, json as _json
+    path = _os.path.expanduser("~/autonomous-trader/data/phaser_lock_pick.json")
+    if regenerate:
+        try:
+            from engine.phaser_lock import run_phaser_lock
+            r = run_phaser_lock(dry_run=True)
+            return JSONResponse({"ok": True, **r})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    try:
+        if _os.path.exists(path):
+            with open(path) as fh:
+                data = _json.load(fh)
+            return JSONResponse({"ok": True, **data})
+        return JSONResponse({"ok": False, "error": "No pick generated yet"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
 @app.get("/api/morning-brief/run")
 async def morning_brief_run(force: bool = False):
     """Get latest daily intel report (or last cached).

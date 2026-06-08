@@ -934,6 +934,28 @@ def run_reveille_morning():
         console.log(f"[red]Reveille error: {type(e).__name__}: {e}")
 
 
+@_hm_bq_instr("run_phaser_lock_morning")
+def run_phaser_lock_morning():
+    """6:05 AM AZ — HM-PHASER-LOCK daily Trade-of-the-Day (top-3 ranked, fail-closed).
+    Market-day-aware; runs after the 06:00 intel refresh so setups are current."""
+    now = az_now()
+    if now.hour != 6 or not (5 <= now.minute <= 20):
+        return
+    try:
+        from engine.market_calendar import is_trading_day
+        if not is_trading_day(now.date()):     # weekends + NYSE holidays
+            return
+    except Exception:
+        return
+    try:
+        from engine.phaser_lock import run_phaser_lock
+        r = run_phaser_lock(dry_run=False)
+        console.log(f"[cyan]Phaser-Lock: {r.get('headline', 'generated')} "
+                    f"| qualified={r.get('qualified')} delivery={r.get('_delivery')}")
+    except Exception as e:
+        console.log(f"[red]Phaser-Lock error: {type(e).__name__}: {e}")
+
+
 # ── Earnings → scan_universe Injection ────────────────────────────────────────
 # HM-AR-β 2026-05-07: renamed from run_earnings_universe_inject. The old name was
 # a naming-drift artifact — function injects into scan_universe (via
@@ -4022,6 +4044,7 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(_bg_archer_alerts)                  # HM-ARCHER-REBUILD: tiered alerts (RTH-gated)
     schedule.every().day.at("05:45").do(run_reveille_morning)         # HM-REVEILLE: pre-market XO brief 5:45 AM AZ (before 06:00 intel; market-day-aware)
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
+    schedule.every().day.at("06:05").do(run_phaser_lock_morning)      # HM-PHASER-LOCK: daily Trade-of-the-Day 6:05 AM AZ (after intel; market-day-aware)
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
 
     # === HM-IC-SQUADRON Pillar 2 — 6-agent stack (SHADOW MODE) ===

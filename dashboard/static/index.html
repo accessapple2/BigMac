@@ -2986,6 +2986,7 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/systems-status',  // HM-SYSTEMS-STATUS 2026-06-07 — Bridge Systems Status tile
     '/api/fleet/active',  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
     '/api/reveille',  // HM-REVEILLE 2026-06-08 — pre-market XO brief card
+    '/api/phaser-lock',  // HM-PHASER-LOCK 2026-06-08 — daily Trade-of-the-Day card
     '/api/portfolio/real',  // HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — Schwab+metals real-world view (PR #44 endpoint)
     '/api/networth',  // HM-AM 2026-06-02 — unified net-worth breakdown (cash/equities/metals), data-driven over is_active accounts
     // HM-BATTLE-STATION-BIND-FIX 2026-05-21: GEX Overlay + Battle Station cards
@@ -6472,6 +6473,34 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       }
       if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', renderReveille); } else { renderReveille(); }
       window.renderReveille=renderReveille;
+    })();
+    </script>
+  </div>
+
+  <!-- HM-PHASER-LOCK 2026-06-08 — daily Trade-of-the-Day (browser-smoke pending) -->
+  <div class="card" id="phaser-card" style="margin-bottom:16px;border-left:4px solid #ef4444;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card-title" data-tip="HM-PHASER-LOCK: highest-conviction daily setup (top-3 ranked, fail-closed). Research/paper SETUP, not a live order — RULE #1 untouched.">🎯 Trade of the Day (Phaser-Lock)</div>
+      <span id="phaser-meta" style="font-size:11px;color:#888;">—</span>
+    </div>
+    <div id="phaser-headline" style="padding:6px 14px;font-weight:bold;"></div>
+    <div id="phaser-body" style="padding:0 14px 10px;white-space:pre-wrap;font-size:13px;line-height:1.45;color:#cbd5e1;">Loading…</div>
+    <style>#phaser-card .card-title{font-size:14px;font-weight:600;}</style>
+    <script>
+    (function(){
+      function renderPhaser(){
+        fetch('/api/phaser-lock').then(function(r){return r.json();}).then(function(d){
+          var meta=document.getElementById('phaser-meta');
+          var head=document.getElementById('phaser-headline');
+          var body=document.getElementById('phaser-body');
+          if(!d||!d.ok){ if(body) body.textContent='No pick generated yet (fires 6:05 AM AZ on market days).'; if(head) head.textContent=''; if(meta) meta.textContent='—'; return; }
+          if(head) head.textContent=d.headline||'';
+          if(body) body.textContent=d.no_qualifying_setup ? (d.narrative||'No qualifying setup today.') : (d.narrative||'');
+          if(meta){ var b=d.bar||{}; meta.textContent=(d.model?('via '+d.model+' · '):'')+(d.date||'')+' · bar R:R≥'+(b.rr_floor||'?')+' conv≥'+(b.conviction_floor||'?')+' · '+(d.qualified||0)+'/'+(d.scanned||0)+' qualified'; }
+        }).catch(function(){ var body=document.getElementById('phaser-body'); if(body) body.textContent='Pick unavailable.'; });
+      }
+      if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', renderPhaser); } else { renderPhaser(); }
+      window.renderPhaser=renderPhaser;
     })();
     </script>
   </div>
