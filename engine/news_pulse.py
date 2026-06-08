@@ -32,7 +32,7 @@ BEARISH_WORDS = [
 ]
 
 THEME_KEYWORDS = {
-    "Fed/Rates":      ["fed", "fomc", "rate", "powell", "interest", "monetary", "taper"],
+    "Fed/Rates":      ["fed", "fomc", "rate", "powell", "warsh", "interest", "monetary", "taper"],
     "Earnings":       ["earnings", "eps", "revenue", "quarterly", "results", "profit"],
     "Tariffs/Trade":  ["tariff", "trade", "china", "import", "export", "sanction"],
     "Geopolitical":   ["war", "ukraine", "middle east", "israel", "russia", "conflict"],

@@ -864,95 +864,32 @@ class AIProvider(ABC):
         except Exception:
             pass
 
-        # --- Market Intelligence Injections ---
-        # Add time-sensitive market intel here. Remove when no longer relevant.
-        # Last updated: 2026-03-16 (week of March 16-20)
-        market_intel_lines = []
-
-        # CRITICAL CATALYSTS — Week of March 16-20, 2026
-        market_intel_lines.append(
-            "CRITICAL CATALYSTS THIS WEEK (March 16-20): "
-            "This is the BIGGEST catalyst week of March. "
-            "1) NVDA GTC conference Mon-Thu — $1T in orders announced, Vera Rubin GPUs, "
-            "Groq inference chips, NemoClaw AI agents, robotaxi deals with BYD/Hyundai/Nissan/Uber. "
-            "Watch for daily announcements — each one moves semis. "
-            "2) MU earnings Wed after close — EPS est $8.65, HBM demand through the roof, stock up 92% in 3 months. "
-            "3) FOMC rate decision Wed — expect no change but watch dot plot projections "
-            "and Powell press conference language on inflation/Iran. "
-            "4) ECB rate decision Thursday. "
-            "5) Major earnings: LULU/DOCU Tue, GIS/WSM/MU/FIVE Wed, BABA/ACN/FDX/DRI Thu. "
-            "6) Oil pulled back to $93 from $100+ — if oil keeps falling, tech rallies and cruise/airlines bounce."
-        )
-
-        # NVDA GTC-specific context
-        if symbol in ("NVDA", "AMD", "AVGO", "MU", "QCOM", "ORCL", "NOW", "DELL", "PLTR"):
-            market_intel_lines.append(
-                f"GTC CATALYST for {symbol}: NVDA GTC is running all week. "
-                "Every major announcement (Vera Rubin, Groq, NemoClaw, robotaxi partnerships) "
-                "lifts the entire AI/semiconductor ecosystem. NVDA announced $1T in orders. "
-                "If you're scanning a semis/AI name, this is the catalyst week to be aggressive."
-            )
-
-        # MU earnings context
-        if symbol == "MU":
-            market_intel_lines.append(
-                "MU EARNINGS WED AFTER CLOSE: EPS est $8.65. HBM (High Bandwidth Memory) demand "
-                "is exploding from AI data centers. Stock up 92% in 3 months. "
-                "Risk: priced for perfection — any miss or weak guidance = sharp pullback. "
-                "Reward: HBM beat + raise = gap up. Size accordingly."
-            )
-
-        # Oil pullback context
-        try:
-            from engine.market_data import get_stock_price as _gsp
-            oil_data = _gsp("CL=F")
-            oil_price = oil_data.get("price", 0)
-            if oil_price > 0:
-                if oil_price < 95:
-                    market_intel_lines.append(
-                        f"OIL PULLBACK: WTI at ${oil_price:.2f}, down from $100+ last week. "
-                        "Oil falling = BULLISH for tech, consumer discretionary, airlines, cruises. "
-                        "BEARISH for energy (XOM, CVX). Rotate accordingly."
-                    )
-                elif oil_price >= 99:
-                    market_intel_lines.append(
-                        f"OIL ABOVE $99 (WTI ${oil_price:.2f}) — energy sector outperforming. "
-                        "BULLISH: XLE, oil majors. BEARISH: airlines, consumer discretionary."
-                    )
-        except Exception:
-            pass
-
-        # FOMC context
-        market_intel_lines.append(
-            "FOMC WED: No rate change expected. Key risk: hawkish dot plot or Powell "
-            "signaling fewer cuts than expected due to oil-driven inflation from Iran tensions. "
-            "If dovish surprise = risk-on rally. If hawkish = tech sells off, defensives rally. "
-            "Reduce position sizes going into Wed if heavily exposed to rate-sensitive names."
-        )
-
-        # SPY options flow — bearish positioning through FOMC
-        market_intel_lines.append(
-            "OPTIONS FLOW ALERT: $8.5M in SPY 641 puts (March 24 expiry) were bought aggressively "
-            "at the ask today — 33,827 contracts vs 127 OI. This is a MASSIVE new bearish bet through FOMC. "
-            "Could be a hedge or someone positioning for a drop. Be cautious with new longs until FOMC Wednesday. "
-            "Consider tighter stop-losses. If SPY breaks below $660, this put buyer may be right "
-            "and a broader sell-off could follow."
-        )
-
-        # Credit stress warning — convergence of risks
-        market_intel_lines.append(
-            "CREDIT WARNING: JPMorgan marking down private credit loans, redemption pressures in "
-            "private credit funds, Canadian subprime lender collapsed. Credit stress is emerging "
-            "beneath the surface. This adds to the bearish case alongside the $8.5M SPY put bet. "
-            "Be defensive on financial stocks. Tighten stops on all positions. The convergence of "
-            "FOMC + credit stress + geopolitics creates a potentially volatile environment. "
-            "Best opportunities this week are high-conviction AI names with GTC/MU catalysts, "
-            "NOT broad market longs."
-        )
-
+        # --- Market Intelligence Injection (date-gated, FAILS CLOSED) ---
+        # ROOT-CAUSE FIX 2026-06-08 (HM-CHAIR-GREP): the prior block was built
+        # UNCONDITIONALLY with a "remove when no longer relevant" comment that nobody
+        # actioned — it poisoned every agent prompt for ~12 weeks with stale, wrong-chair
+        # (Powell, not Warsh), dovish-biased FOMC framing. Doctrine going forward: ANY
+        # intel block MUST carry an EXPIRES date and inject NOTHING past it. Fails closed —
+        # unparseable/absent expiry or any error → no injection (never poison again).
+        # Same fail-closed doctrine as the n>=50 sample gate.
         market_intel_block = ""
-        if market_intel_lines:
-            market_intel_block = "\n=== MARKET INTELLIGENCE ===\n" + "\n".join(market_intel_lines) + "\n"
+        _INTEL_EXPIRES = "2026-06-18"   # post-FOMC (Jun 16-17); block self-destructs after
+        _INTEL_TEXT = (
+            "MACRO FRAME (week of Jun 8, 2026):\n"
+            "- DOMINANT CATALYST: May CPI, Wed Jun 10. Consensus ~+0.5% MoM / ~4.2% YoY. "
+            "Week's pivot — weight heavily.\n"
+            "- FED: Chair is Kevin Warsh (sworn in May 22, 2026), hawkish-leaning. NOT Powell. "
+            "FOMC Jun 16-17 (next week); Fed is in BLACKOUT now — expect NO Fed-speak to move the tape this week.\n"
+            "- REACTION FUNCTION: Do NOT assume a dovish \"Fed put.\" Hot data -> Warsh more likely to hold than cushion.\n"
+            "- BACKDROP: Fri jobs hot (172K vs ~85K), 10Y ~4.54%. Risk-on chip rebound, but gated by CPI.\n"
+            "- NOTE: XO-sourced macro framing (context, NOT a verified gate). Do not trade specifics off this."
+        )
+        try:
+            from datetime import date as _date
+            if _date.today() <= _date.fromisoformat(_INTEL_EXPIRES) and _INTEL_TEXT.strip():
+                market_intel_block = "\n=== MARKET INTELLIGENCE ===\n" + _INTEL_TEXT + "\n"
+        except Exception:
+            market_intel_block = ""   # fail closed — never inject on parse/clock error
 
         # Position hold note
         hold_note = ""
