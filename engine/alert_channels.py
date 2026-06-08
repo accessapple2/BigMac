@@ -46,11 +46,20 @@ NTFY_BASE        = "https://ntfy.sh"
 SMTP_HOST  = os.environ.get("SMTP_HOST", "")
 SMTP_PORT  = int(os.environ.get("SMTP_PORT", "587"))
 SMTP_USER  = os.environ.get("SMTP_USER", "")
-SMTP_PASS  = os.environ.get("SMTP_PASS", "")
+SMTP_PASS  = os.environ.get("SMTP_PASS", "") or os.environ.get("SMTP_APP_PASSWORD", "")
 ALERT_EMAIL_TO = os.environ.get("ALERT_EMAIL_TO", "")
 
 RATE_LIMIT_SECS = 300   # 5 minutes per alert_type
 ALERTS_ENABLED_KEY = "alert_channels_enabled"
+
+# HM-UHURA-HAILS (2026-06-08) — standardized outbound topics + independent toggles
+NTFY_PREMARKET_TOPIC = os.environ.get("NTFY_PREMARKET_TOPIC", "ollie-premarket")
+NTFY_SIGNALS_TOPIC   = os.environ.get("NTFY_SIGNALS_TOPIC",   "ollie-signals")
+NTFY_CRITICAL_TOPIC  = os.environ.get("NTFY_CRITICAL_TOPIC",  "ollie-critical")
+
+ALERTS_NTFY_ENABLED  = os.environ.get("ALERTS_NTFY_ENABLED",  "True").lower()  in ("1", "true", "yes", "on")
+ALERTS_EMAIL_ENABLED = os.environ.get("ALERTS_EMAIL_ENABLED", "False").lower() in ("1", "true", "yes", "on")
+ALERTS_EMAIL_TO      = os.environ.get("ALERTS_EMAIL_TO", "") or ALERT_EMAIL_TO
 
 
 class AlertLevel:
@@ -208,6 +217,44 @@ def _send_email(subject: str, body: str, to: str = "") -> bool:
 
 # ── Public API ─────────────────────────────────────────────────────────────────
 
+def push_ntfy(topic: str, title: str, body: str, priority: str = "default", tags=None) -> bool:
+    """HM-UHURA-HAILS — single outbound ntfy primitive. Honors ALERTS_NTFY_ENABLED.
+    `tags` may be a list/tuple or a comma-string."""
+    if not ALERTS_NTFY_ENABLED:
+        return False
+    _tags = ",".join(tags) if isinstance(tags, (list, tuple)) else (tags or "ollietrades")
+    return _send_ntfy(title, body, priority, _tags, topic)
+
+
+def send_email(subject: str, html_body: str, to: str | None = None) -> bool:
+    """HM-UHURA-HAILS — HTML email via Gmail SMTP. Honors ALERTS_EMAIL_ENABLED.
+    Never logs the app password."""
+    if not ALERTS_EMAIL_ENABLED:
+        return False
+    to_addr = to or ALERTS_EMAIL_TO
+    if not all([SMTP_HOST, SMTP_USER, SMTP_PASS, to_addr]):
+        logger.warning("send_email skipped — SMTP not fully configured")
+        return False
+    try:
+        import smtplib, re as _re
+        from email.mime.multipart import MIMEMultipart
+        from email.mime.text import MIMEText
+        msg = MIMEMultipart("alternative")
+        msg["Subject"] = f"[TradeMinds] {subject}"
+        msg["From"] = SMTP_USER
+        msg["To"]   = to_addr
+        msg.attach(MIMEText(_re.sub(r"<[^>]+>", "", html_body), "plain", "utf-8"))  # text fallback
+        msg.attach(MIMEText(html_body, "html", "utf-8"))
+        with smtplib.SMTP(SMTP_HOST, SMTP_PORT) as s:
+            s.ehlo(); s.starttls(); s.login(SMTP_USER, SMTP_PASS)
+            s.sendmail(SMTP_USER, [to_addr], msg.as_string())
+        logger.info("HTML email sent to %s: %s", to_addr, subject)
+        return True
+    except Exception as e:
+        logger.warning("send_email failed: %s: %r", type(e).__name__, e)
+        return False
+
+
 def send_alert(
     message: str,
     level: str = AlertLevel.INFO,
@@ -276,7 +323,8 @@ def send_alert(
 
     # RED ALERT → all channels
     elif level == AlertLevel.RED_ALERT:
-        results["ntfy"]    = any(_send_ntfy(title, message, ntfy_priority, ntfy_tags, t) for t in _ntfy_topics())
+        crit_topics = _ntfy_topics() + [NTFY_CRITICAL_TOPIC]   # HM-UHURA-HAILS: keep admin topic AND add critical lane
+        results["ntfy"]    = any(_send_ntfy(title, message, ntfy_priority, ntfy_tags, t) for t in crit_topics)
         _db_notification(title, message, "critical")
         results["browser"] = True
         results["email"]   = _send_email(title, f"{message}\n\nLevel: RED ALERT\nType: {alert_type}")
