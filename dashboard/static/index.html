@@ -2985,6 +2985,7 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/shadow-csp/',  // HM-SHADOW-CSP 2026-06-07 — options-income bake-off standings card (Options Engine panel)
     '/api/systems-status',  // HM-SYSTEMS-STATUS 2026-06-07 — Bridge Systems Status tile
     '/api/fleet/active',  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
+    '/api/reveille',  // HM-REVEILLE 2026-06-08 — pre-market XO brief card
     '/api/portfolio/real',  // HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — Schwab+metals real-world view (PR #44 endpoint)
     '/api/networth',  // HM-AM 2026-06-02 — unified net-worth breakdown (cash/equities/metals), data-driven over is_active accounts
     // HM-BATTLE-STATION-BIND-FIX 2026-05-21: GEX Overlay + Battle Station cards
@@ -6443,6 +6444,37 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     </div>
   </div>
   <div id="sectorDetailPopup" style="display:none;padding:14px 16px;background:var(--surface2);border-radius:8px;margin-bottom:12px;border:1px solid var(--border);"></div>
+
+  <!-- HM-REVEILLE 2026-06-08 — pre-market XO brief (browser-smoke pending) -->
+  <div class="card" id="reveille-card" style="margin-bottom:16px;border-left:4px solid #f59e0b;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card-title" data-tip="HM-REVEILLE: daily pre-market XO brief — research/paper read, RULE #1 untouched">🌅 Pre-Market Brief (Reveille)</div>
+      <span id="reveille-meta" style="font-size:11px;color:#888;">—</span>
+    </div>
+    <div id="reveille-headline" style="padding:6px 14px;font-weight:bold;"></div>
+    <div id="reveille-body" style="padding:0 14px 8px;white-space:pre-wrap;font-size:13px;line-height:1.45;color:#cbd5e1;">Loading…</div>
+    <div id="reveille-suspect" style="padding:0 14px 10px;font-size:12px;color:#f59e0b;"></div>
+    <style>#reveille-card .card-title{font-size:14px;font-weight:600;}</style>
+    <script>
+    (function(){
+      function renderReveille(){
+        fetch('/api/reveille').then(function(r){return r.json();}).then(function(d){
+          var meta=document.getElementById('reveille-meta');
+          var head=document.getElementById('reveille-headline');
+          var body=document.getElementById('reveille-body');
+          var susp=document.getElementById('reveille-suspect');
+          if(!d||!d.ok){ if(body) body.textContent='No brief generated yet (fires 5:45 AM AZ on market days).'; if(head) head.textContent=''; if(meta) meta.textContent='—'; return; }
+          if(head) head.textContent=d.headline||'';
+          if(body) body.textContent=d.packet||'';
+          if(meta) meta.textContent=(d.model?('via '+d.model+' · '):'')+(d.date||'')+(d.degraded?' · ⚠️ DEGRADED':'');
+          if(susp){ var s=d.suspect_picks||[]; susp.textContent = s.length ? ('⚠️ Excluded SUSPECT: '+s.map(function(x){return x.ticker;}).join(', ')) : ''; }
+        }).catch(function(){ var body=document.getElementById('reveille-body'); if(body) body.textContent='Brief unavailable.'; });
+      }
+      if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', renderReveille); } else { renderReveille(); }
+      window.renderReveille=renderReveille;
+    })();
+    </script>
+  </div>
 
   <!-- Tomorrow's Game Plan — Daily Intel Card -->
   <div class="card" id="game-plan-card" style="margin-bottom:16px;border-left:4px solid #8b5cf6;">

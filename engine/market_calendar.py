@@ -184,6 +184,17 @@ def is_us_market_holiday(d: date) -> bool:
     return year_map is not None and d in year_map
 
 
+def is_trading_day(d: date) -> bool:
+    """True iff ``d`` is a regular NYSE session day (weekday, non-holiday).
+
+    Canonical session-day predicate. Centralizes the per-module ``_is_trading_day``
+    duplicates (expectancy_engine, kirk_advisory, s6 backtests) and the freshness
+    logic shared by the REVEILLE scheduler + the Schwab cadence monitor — count
+    market sessions, not wall-clock. Early-close days still count as trading days.
+    """
+    return d.weekday() < 5 and not is_us_market_holiday(d)
+
+
 def get_holiday_name(d: date) -> Optional[str]:
     """Return the holiday name for ``d``, or None if not a holiday.
 

@@ -20353,6 +20353,29 @@ async def morning_brief_latest():
         return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
 
 
+@app.get("/api/reveille")
+async def reveille_brief(regenerate: bool = False):
+    """HM-REVEILLE pre-market XO brief JSON. Default reads the persisted brief;
+    regenerate=1 rebuilds content from disk substrate (NO delivery, dry-run)."""
+    import os as _os, json as _json
+    path = _os.path.expanduser("~/autonomous-trader/data/reveille_brief.json")
+    if regenerate:
+        try:
+            from engine.reveille import run_reveille
+            b = run_reveille(dry_run=True, fresh=False)
+            return JSONResponse({"ok": True, **b})
+        except Exception as e:
+            return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+    try:
+        if _os.path.exists(path):
+            with open(path) as fh:
+                data = _json.load(fh)
+            return JSONResponse({"ok": True, **data})
+        return JSONResponse({"ok": False, "error": "No reveille brief generated yet"}, status_code=404)
+    except Exception as e:
+        return JSONResponse({"ok": False, "error": str(e)}, status_code=500)
+
+
 @app.get("/api/morning-brief/run")
 async def morning_brief_run(force: bool = False):
     """Get latest daily intel report (or last cached).

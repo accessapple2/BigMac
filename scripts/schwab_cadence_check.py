@@ -25,7 +25,24 @@ sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 # (table-less) → every run errored "no such table: schwab_holdings" → the 48h staleness
 # alarm silently no-op'd. Derive from __file__ so cwd can't break it.
 DB_PATH = str(Path(__file__).resolve().parent.parent / "data" / "trader.db")
-CADENCE_HOURS_WARN = 48
+CADENCE_HOURS_WARN = 48          # retained for context in the message only
+CADENCE_SESSIONS_WARN = 2        # HM-REVEILLE 2026-06-08: warn if >=2 trading sessions missed
+
+
+def _sessions_elapsed(last_date, today) -> int:
+    """NYSE trading sessions strictly after last_date through today (holiday-aware).
+
+    Session-counting, not wall-clock: the prior 48h check false-alarmed across
+    weekends/holidays. A monitor must count sessions, not hours — same freshness
+    class the REVEILLE scheduler uses (engine.market_calendar.is_trading_day)."""
+    from datetime import timedelta
+    from engine.market_calendar import is_trading_day
+    n, d = 0, last_date + timedelta(days=1)
+    while d <= today:
+        if is_trading_day(d):
+            n += 1
+        d += timedelta(days=1)
+    return n
 
 
 def _parse_ts(ts_str: str) -> datetime | None:
@@ -75,15 +92,16 @@ def main() -> int:
     now = datetime.now(timezone.utc)
     age_hours = (now - latest).total_seconds() / 3600.0
     age_str = f"{age_hours:.1f}h"
+    sessions_missed = _sessions_elapsed(latest.date(), now.date())
 
-    if age_hours <= CADENCE_HOURS_WARN:
-        print(f"[schwab-cadence] OK — last import {age_str} ago (latest={latest_str})")
+    if sessions_missed < CADENCE_SESSIONS_WARN:
+        print(f"[schwab-cadence] OK — last import {age_str} ago, "
+              f"{sessions_missed} trading session(s) missed (latest={latest_str})")
         return 0
 
-    days = age_hours / 24.0
     msg = (
-        f"Schwab cadence WARNING: last schwab_holdings import was {age_str} ago "
-        f"({days:.1f} days, latest snapshot @ {latest_str}). "
+        f"Schwab cadence WARNING: {sessions_missed} trading sessions missed since the last "
+        f"schwab_holdings import ({age_str} ago, latest snapshot @ {latest_str}). "
         f"Cron drift suspected — investigate scripts/schwab_csv_watcher.sh + "
         f"com.ollietrades.schwab-watcher plist."
     )

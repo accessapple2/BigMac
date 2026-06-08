@@ -911,6 +911,29 @@ def run_intel_report_evening():
         console.log(f"[red]Intel Report PM error: {e}")
 
 
+@_hm_bq_instr("run_reveille_morning")
+def run_reveille_morning():
+    """5:45 AM AZ — HM-REVEILLE pre-market brief. Market-day-aware (skips weekends
+    + holidays via is_trading_day), fail-closed. Self-triggers a FRESH intel report
+    (runs before the 06:00 job, so disk substrate would otherwise be yesterday's)."""
+    now = az_now()
+    if now.hour != 5 or not (45 <= now.minute <= 59):
+        return
+    try:
+        from engine.market_calendar import is_trading_day
+        if not is_trading_day(now.date()):     # weekends + NYSE holidays
+            return
+    except Exception:
+        return
+    try:
+        from engine.reveille import run_reveille
+        brief = run_reveille(dry_run=False, fresh=True)
+        console.log(f"[cyan]Reveille: {brief.get('headline', 'generated')} "
+                    f"| delivery={brief.get('_delivery')}")
+    except Exception as e:
+        console.log(f"[red]Reveille error: {type(e).__name__}: {e}")
+
+
 # ── Earnings → scan_universe Injection ────────────────────────────────────────
 # HM-AR-β 2026-05-07: renamed from run_earnings_universe_inject. The old name was
 # a naming-drift artifact — function injects into scan_universe (via
@@ -3997,6 +4020,7 @@ if __name__ == "__main__":
     schedule.every().day.at("06:00").do(run_morning_briefing)         # Battle Station: 6:00 AM AZ (was every 5 min)
     schedule.every().day.at("06:00").do(run_archer_morning_briefing)  # Phase 3.6: Archer briefing 6:00 AM AZ
     schedule.every(15).minutes.do(_bg_archer_alerts)                  # HM-ARCHER-REBUILD: tiered alerts (RTH-gated)
+    schedule.every().day.at("05:45").do(run_reveille_morning)         # HM-REVEILLE: pre-market XO brief 5:45 AM AZ (before 06:00 intel; market-day-aware)
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
 
