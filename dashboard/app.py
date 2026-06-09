@@ -11334,9 +11334,30 @@ def navigator_schedule():
 
 @app.get("/api/regime")
 def regime_status():
-    """Get current market regime + allocation table."""
+    """Get current market regime + allocation table.
+
+    HM-DRYDOCK 2026-06-09 EPIC3: regime_history (8/21 MA-cross) is the source of truth for the regime
+    label + size_modifier — overlay it so /api/regime agrees with /api/regime/ma-cross (was emitting
+    BULL full-size while regime_history said CAUTIOUS_BULL @ 0.75). signal_regime stays the parked W4
+    shadow-stamping sidecar (gated by design — NOT this endpoint's source; see SUPER_MAX W4)."""
     from engine.warp10_engine import get_current_allocation
-    return get_current_allocation()
+    alloc = get_current_allocation()
+    try:
+        import sqlite3 as _sq
+        _c = _sq.connect("data/trader.db")
+        _c.row_factory = _sq.Row
+        row = _c.execute(
+            "SELECT regime, size_modifier, date FROM regime_history ORDER BY date DESC LIMIT 1"
+        ).fetchone()
+        _c.close()
+        if row and isinstance(alloc, dict):
+            alloc["regime"] = row["regime"]
+            alloc["size_modifier"] = row["size_modifier"]
+            alloc["regime_source"] = "regime_history (8/21 MA-cross)"
+            alloc["regime_as_of"] = row["date"]
+    except Exception:
+        pass
+    return alloc
 
 
 _ma_regime_cache: dict = {"data": None, "ts": 0}
@@ -16342,7 +16363,23 @@ def _canonical_gex(symbol: str) -> dict:
     without a dashboard→engine import inversion. Every Bridge GEX endpoint
     reshapes THIS one source. Observation-only."""
     from engine.canonical_gex import canonical_gex as _cg
-    return _cg(symbol)
+    c = _cg(symbol)
+    # HM-DRYDOCK 2026-06-09 EPIC4: the stored spot (intraday cache / daily flow_gex.db row) can be
+    # hours stale (saw SPY 757.09 frozen vs live ~740), making gamma_flip/walls render against a dead
+    # underlying. Walls/flip are strike-based (they stay); refresh the DISPLAYED spot off a live quote
+    # so spot — and the spot-vs-flip read — track live price. The >0.1% gate makes this a no-op when
+    # markets are closed (live quote == stored last close). Best-effort, never fatal.
+    try:
+        if isinstance(c, dict) and not c.get("error") and c.get("spot"):
+            from engine.market_data import get_stock_price
+            _live = float((get_stock_price((symbol or "").upper()) or {}).get("price") or 0)
+            if _live > 0 and abs(_live - float(c["spot"])) / float(c["spot"]) > 0.001:
+                c["_spot_stored"] = c["spot"]
+                c["spot"] = _live
+                c["_spot_live"] = True
+    except Exception:
+        pass
+    return c
 
 
 @app.get("/api/gex-snapshot")

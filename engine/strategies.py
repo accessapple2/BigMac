@@ -214,6 +214,34 @@ def check_gap_fill(close):
     return gap_pct < -3 and recovery > 1
 
 
+# HM-DRYDOCK 2026-06-09 EPIC2: gap_fill stop-width ceiling. gap_fill had no cap on stop distance —
+# emitted signals at 4%–61% stops (QBTZ 61%, RGTZ 60%, NBIG 22%, MUU 20%, SOXL 17%). Reject wide-stop
+# (>12% of entry) or leveraged/inverse/micro-ETN gap_fill signals; log, don't delete. DELL-class ≤12% passes.
+_LEVERAGED_INVERSE = {
+    "TQQQ", "SQQQ", "SOXL", "SOXS", "SPXL", "SPXS", "TNA", "TZA", "UVXY", "SVXY", "UPRO", "SPXU",
+    "UDOW", "SDOW", "LABU", "LABD", "FAS", "FAZ", "YINN", "YANG", "NUGT", "DUST", "JNUG", "JDST",
+    "BOIL", "KOLD", "UCO", "SCO", "TMF", "TMV", "TECL", "TECS", "WEBL", "WEBS", "CURE", "DRN", "DRV",
+    "ERX", "ERY", "NAIL", "DPST", "UVIX", "SVIX", "BITX", "GUSH", "DRIP", "FNGU", "FNGD",
+}
+
+
+def _gap_fill_blocked(ticker, entry, stop) -> bool:
+    """True if a gap_fill signal should be rejected: stop wider than 12% of entry, OR a
+    leveraged/inverse ETF / *Z|*U micro-ETN (GraniteShares-style single-stock leveraged ETN)."""
+    t = (ticker or "").upper()
+    try:
+        e, s = float(entry or 0), float(stop or 0)
+        if e > 0 and s > 0 and (e - s) / e > 0.12:
+            return True
+    except (TypeError, ValueError):
+        pass
+    if t in _LEVERAGED_INVERSE:
+        return True
+    if len(t) >= 4 and t[-1] in ("Z", "U"):
+        return True
+    return False
+
+
 def check_unusual_volume(volume, avg_vol):
     """Volume 3x+ above 20-day average."""
     return float(volume[-1]) > float(avg_vol) * 3
@@ -673,6 +701,17 @@ def _save_strategy_signals(signals: list):
     conn = _conn()
     for sig in signals:
         for strat in sig["strategy_names"]:
+            # HM-DRYDOCK 2026-06-09 EPIC2: gap_fill stop-width ceiling — skip (log, don't delete)
+            # wide-stop (>12%) or leveraged/inverse/micro-ETN gap_fill rows. Other strategies unaffected.
+            if strat == "gap_fill" and _gap_fill_blocked(sig["ticker"], sig.get("entry"), sig.get("stop")):
+                try:
+                    _e, _s = float(sig.get("entry") or 0), float(sig.get("stop") or 0)
+                    _w = ((_e - _s) / _e * 100) if _e > 0 else 0
+                except Exception:
+                    _w = 0
+                console.log(f"[yellow]gap_fill REJECT {sig['ticker']}: stop-width {_w:.1f}% "
+                            f"(>12%) or leveraged/micro-ETN — entry {sig.get('entry')} stop {sig.get('stop')}")
+                continue
             try:
                 conn.execute(
                     "INSERT INTO strategy_signals "
