@@ -284,8 +284,8 @@ def check_bull_momentum_breakout(close, high, low, volume, avg_vol, regime=None)
     Exits: stop 2% below entry, target 6% above (3:1 R/R),
            trailing stop 1.5% once up 3%.
     """
-    if regime and regime.upper() in ("BEAR", "HIGH_VOL", "CRISIS"):
-        return False
+    if (not regime) or regime.upper() in ("BEAR", "HIGH_VOL", "CRISIS"):
+        return False   # HM-CHEKOV-REGIME-GATE B: unknown/blank regime is NON-permissive (fail closed)
     if len(close) < 22 or len(high) < 22 or len(low) < 22:
         return False
 
@@ -307,7 +307,7 @@ def check_bear_momentum_breakdown(close, high, low, volume, avg_vol, regime=None
     """BEAR Momentum Breakdown - 4-factor SHORT entry (mirror of BULL).
     Blocked in BULL/LOW_VOL. Stops 2% above, target 6% below (3:1).
     """
-    if regime and regime.upper() in ("BULL", "LOW_VOL", "CRISIS"):
+    if (not regime) or regime.upper() in ("BULL", "LOW_VOL", "CRISIS"):  # HM-CHEKOV-REGIME-GATE B: unknown → non-permissive (fail closed)
         return False
     if len(close) < 22 or len(high) < 22 or len(low) < 22:
         return False
@@ -347,9 +347,11 @@ STRATEGIES = {
 }
 
 
-def run_strategies(ticker: str, df, spy_df=None) -> list:
+def run_strategies(ticker: str, df, spy_df=None, regime=None) -> list:
     """Run all strategies against a ticker's DataFrame. Returns list of triggered strategies."""
     triggered = []
+    if regime is None:                       # HM-CHEKOV-REGIME-GATE B: real regime reaches the momentum guards
+        regime = _current_market_regime()
 
     close = df["Close"].values
     high = df["High"].values
@@ -375,8 +377,8 @@ def run_strategies(ticker: str, df, spy_df=None) -> list:
         "higher_highs": lambda: check_higher_highs(high, low),
         "trend_resumption": lambda: check_trend_resumption(close),
         "relative_strength_high": lambda: check_relative_strength_high(close, spy_close) if spy_close is not None else False,
-        "bull_momentum_breakout": lambda: check_bull_momentum_breakout(close, high, low, volume, avg_vol),
-        "bear_momentum_breakdown": lambda: check_bear_momentum_breakdown(close, high, low, volume, avg_vol),
+        "bull_momentum_breakout": lambda: check_bull_momentum_breakout(close, high, low, volume, avg_vol, regime),
+        "bear_momentum_breakdown": lambda: check_bear_momentum_breakdown(close, high, low, volume, avg_vol, regime),
     }
 
     for name, check_fn in checks.items():
@@ -603,6 +605,7 @@ def scan_strategies(tickers: list = None, save: bool = True) -> list:
     signals = []
     all_triggered = {}
 
+    _scan_regime = _current_market_regime()  # HM-CHEKOV-REGIME-GATE B: fetch ONCE per scan, pass to every ticker
     ti_triggers = collect_ti_triggers()  # HM-TI-CONVERGENCE-VOTE
 
     for ticker in tickers:
@@ -617,7 +620,7 @@ def scan_strategies(tickers: list = None, save: bool = True) -> list:
             if df is None or len(df) < 20:
                 continue
 
-            triggered = run_strategies(ticker, df, spy_df)
+            triggered = run_strategies(ticker, df, spy_df, regime=_scan_regime)
             # HM-TI-CONVERGENCE-VOTE: append TI vote only when >=2 fleet strategies
             # already triggered — TI is a non-decisive 3rd nudge, never the vote that
             # creates a 2-count convergence at the single-fleet-strategy level.
