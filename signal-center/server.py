@@ -927,12 +927,22 @@ def _fetch_all_signals(prev_data=None):
         now = datetime.now().isoformat()
         for key in fresh_keys:
             data = results.get(key)
-            if data is not None:
-                db.execute(
-                    "INSERT INTO signal_history (timestamp, signal_name, value, raw_data, source) "
-                    "VALUES (?, ?, ?, ?, ?)",
-                    (now, key, str(data)[:200], json.dumps(data), 'bridge')
-                )
+            if data is None:
+                continue
+            # HM-FG-STALE-SUPPRESS 2026-06-08: do NOT persist a DEGRADED fear_greed snapshot.
+            # The composite gauge can transiently produce score None/0 on sub-signal failure,
+            # which Ship's Log renders as a false "0 — Extreme Fear" contradicting the canonical
+            # card and (worse) reads like a tradeable extreme. Suppress it; the last-good row
+            # (e.g. 64/NEUTRAL) stays as the most-recent. Canonical path is unchanged.
+            if key == 'fear_greed' and isinstance(data, dict):
+                _sc = data.get('score')
+                if _sc is None or _sc <= 0:
+                    continue
+            db.execute(
+                "INSERT INTO signal_history (timestamp, signal_name, value, raw_data, source) "
+                "VALUES (?, ?, ?, ?, ?)",
+                (now, key, str(data)[:200], json.dumps(data), 'bridge')
+            )
         db.commit()
         db.close()
     except Exception as e:
