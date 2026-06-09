@@ -1538,8 +1538,15 @@ function scoreCongress(d){
   return{score,val:n,desc:n+' recent congressional trades tracked'};
 }
 function scoreInsider(d){
-  if(!d||d.status==='coming_soon') return{score:50,val:'?',desc:'Insider feed initializing...'};
-  return{score:50,val:'--',desc:'No insider data'};
+  // HM-DRYDOCK 2026-06-08: /api/insider-trades now serves a real Form-4 list (SEC EDGAR via Uhura).
+  if(!d) return{score:50,val:'--',desc:'No insider data'};
+  if(d.status==='coming_soon') return{score:50,val:'?',desc:'Insider feed initializing...'};
+  var arr=Array.isArray(d)?d:(d.trades||[]);
+  if(!arr.length) return{score:50,val:'--',desc:'No recent insider activity'};
+  var buys=arr.filter(function(t){return((t.transaction_type||t.type||t.transaction||'')+'').toUpperCase().indexOf('P')>-1;}).length;
+  var sells=arr.length-buys, net=buys-sells;
+  var score=net>2?70:net>0?60:net<-2?30:net<0?40:50;
+  return{score:score,val:buys+'B/'+sells+'S',desc:buys+' insider buys / '+sells+' sells (Form 4)'};
 }
 function scoreEarnings(d){
   if(!d||!Array.isArray(d)||!d.length) return{score:50,val:'0',desc:'No earnings events this week'};

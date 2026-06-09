@@ -17744,8 +17744,38 @@ def gex_stub():
     return {"status": "coming_soon", "message": "Use /api/market/gex/{ticker}"}
 
 @app.get("/api/insider-trades")
-def insider_trades_stub():
-    return {"status": "coming_soon", "message": "Use /api/insider-trades/{symbol}"}
+def insider_trades_market():
+    """HM-DRYDOCK 2026-06-08: was a coming_soon stub. Serve market-wide Form-4 insider activity
+    from institutional_signals (populated daily by Uhura via engine/sec_edgar.py SEC EDGAR Form 4).
+    Returns a LIST shaped for the Signal Center insider card + the bridge insider_congress signal.
+    Read-only."""
+    import os as _os, sqlite3 as _sq
+    try:
+        path = _os.path.expanduser("~/autonomous-trader/data/trader.db")
+        conn = _sq.connect(path, timeout=10)
+        conn.row_factory = _sq.Row
+        rows = conn.execute(
+            """SELECT ticker, signal, reasoning, scan_date FROM institutional_signals
+                WHERE scan_date = (SELECT MAX(scan_date) FROM institutional_signals)
+                ORDER BY CASE upper(signal)
+                           WHEN 'STRONG_BUY' THEN 0 WHEN 'BUY' THEN 1
+                           WHEN 'STRONG_SELL' THEN 2 WHEN 'SELL' THEN 3 ELSE 4 END
+                LIMIT 30"""
+        ).fetchall()
+        conn.close()
+        out = []
+        for r in rows:
+            sig = (r["signal"] or "").upper()
+            ttype = "P-PURCHASE" if sig in ("BUY", "STRONG_BUY") else "S-SALE"
+            out.append({
+                "symbol": r["ticker"], "transaction": ttype, "transaction_type": ttype, "type": ttype,
+                "name": (r["reasoning"] or "")[:40], "signal": sig, "scan_date": r["scan_date"],
+                "source": "SEC EDGAR Form 4 (via Uhura)",
+            })
+        return out
+    except Exception as e:
+        logger.warning("insider-trades market feed failed: %s: %r", type(e).__name__, e)
+        return []
 
 
 # ─── COMMANDER ARCHER: CHAT HISTORY HELPERS ──────────────────────────────────

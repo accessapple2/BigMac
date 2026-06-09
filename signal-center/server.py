@@ -1725,11 +1725,22 @@ def morpheus_action_refresh_schwab():
     def _runner():
         try:
             # Schwab CSV import path; subprocess to keep import isolation.
+            # HM-DRYDOCK 2026-06-08: the old call imported a NON-EXISTENT module
+            # (engine.schwab_csv_import) → always ModuleNotFoundError → FAILED since written.
+            # Repoint to the REAL importer + sync — the exact pair the live cron watcher
+            # (scripts/schwab_csv_watcher.sh) uses. READ-ONLY on real Schwab ...7015: imports
+            # the Captain's exported CSV into the schwab_holdings TRACKING table; no orders.
             parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+            py = os.path.join(parent, "venv", "bin", "python3")
             cp = subprocess.run(
-                ["venv/bin/python3", "-c", "from engine.schwab_csv_import import import_schwab_csv; import_schwab_csv()"],
+                [py, "scripts/import_schwab_csv.py", "--latest"],
                 capture_output=True, text=True, timeout=60, cwd=parent,
             )
+            if cp.returncode == 0:
+                cp = subprocess.run(
+                    [py, "scripts/sync_schwab_to_real_holdings.py"],
+                    capture_output=True, text=True, timeout=60, cwd=parent,
+                )
             result = "EXECUTED" if cp.returncode == 0 else "FAILED"
             _morpheus_log_action("refresh-schwab", who, result, {"rc": cp.returncode, "stderr_tail": cp.stderr[-200:] if cp.stderr else ""})
         except Exception as _e:
