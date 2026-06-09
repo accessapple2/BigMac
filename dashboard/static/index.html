@@ -8423,7 +8423,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
 <div id="section-trade-desk" style="display:none;">
   <div style="border-left:4px solid #d4a030;background:rgba(212,160,48,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
     <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Manual Trading — Captain Override</div>
-    <div style="font-size:13px;color:var(--text-secondary);">Direct order entry on Alpaca paper. Orders bypass fleet gates (daily limit, position cap, Uhura veto) but honor the universal kill switch. Tagged <code>player_id='trade-desk'</code> for clean attribution.</div>
+    <div style="font-size:13px;color:var(--text-secondary);">Direct order entry on Alpaca paper. Orders bypass fleet gates (daily limit, position cap, Uhura veto). Note: there is no order-time trading-halt gate on the manual path — <code>/api/kill-switch</code> is a flatten-all action, not a submit gate (the <code>is_halted</code> gate is agent-side only). Tagged <code>player_id='trade-desk'</code> for clean attribution.</div>
   </div>
 
   <div style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px;">
@@ -8864,7 +8864,9 @@ function tdValidate() {
   return null;
 }
 
-function tdSubmitOrder() {
+function tdSubmitOrder(_opts) {
+  // _opts.skipConfirm: caller (e.g. Symbol Focus quick-entry) already ran its own
+  // position-aware confirm — suppress the ≥$1k double-prompt. HM-DRYDOCK 2026-06-09.
   if (_tdSubmitInFlight) return;
   var err = tdValidate();
   var status = document.getElementById('td-status');
@@ -8890,7 +8892,7 @@ function tdSubmitOrder() {
   // Confirm threshold per scoping: $1,000.
   var estValue = notional > 0 ? notional :
                  (qty * (lp > 0 ? lp : (_tdLastQuotePrice || 0)));
-  if (estValue >= 1000) {
+  if (estValue >= 1000 && !(_opts && _opts.skipConfirm)) {
     var sizeStr = notional > 0 ? ('$' + notional.toFixed(2)) : (qty + ' sh');
     if (!confirm('Submit ' + side.toUpperCase() + ' ' + sizeStr + ' of ' + sym + ' (~$' + estValue.toFixed(2) + ')?')) {
       status.innerHTML = '<span style="color:var(--muted);">Cancelled.</span>';
@@ -13772,6 +13774,43 @@ body[data-theme="light"] .sidebar-item {
 
   // ── Individual action handlers ───────────────────────────────────────
 
+  /* HM-DRYDOCK 2026-06-09 — Symbol Focus / position-card ENTRY actions route through the Trade Desk's
+     gated submission (tdSubmitOrder) instead of raw /api/alpaca/buy: prefills the (hidden) ticket as
+     agent_id='trade-desk' market order with autopilot SL/TP enabled → inherits OCO brackets + clean
+     attribution. Caller runs its own position-aware confirm first (skipConfirm avoids a double-prompt).
+     EXITS are NOT routed here — they stay on /api/alpaca/close/reduce so they fire freely when halted. */
+  function _oaiGatedEntry(opts) {
+    opts = opts || {};
+    var sym = String(opts.sym || '').toUpperCase().trim();
+    var side = (opts.side === 'sell') ? 'sell' : 'buy';
+    var qty = Number(opts.qty) || 0;
+    if (!sym || qty <= 0) { _oaiShowToast('Gated entry: bad symbol/qty', 'error'); return false; }
+    if (typeof tdSubmitOrder !== 'function') { _oaiShowToast('Trade Desk submit unavailable', 'error'); return false; }
+    function _set(id, val) { var el = document.getElementById(id); if (el) el.value = val; }
+    function _chk(id, on) { var el = document.getElementById(id); if (el) el.checked = !!on; }
+    _set('td-symbol', sym);
+    _set('td-side', side);
+    _set('td-order-type', 'market');
+    if (typeof tdOnOrderTypeChange === 'function') { try { tdOnOrderTypeChange(); } catch (e) {} }
+    _set('td-qty', qty);
+    _set('td-notional', '');
+    // autopilot bracket is LONG-oriented (stop = fill×(1−sl%)) — only enable for BUY entries.
+    // SHORT entries (sell-to-open) still route gated (clean attribution + confirm) but without the
+    // long-oriented bracket, which would otherwise attach a backwards stop. HM-DRYDOCK 2026-06-09.
+    var _isBuy = (side === 'buy');
+    _chk('td-sl-enabled', _isBuy);
+    _chk('td-tp-enabled', _isBuy);
+    if (_isBuy) {
+      var _sl = document.getElementById('td-sl-pct'), _tp = document.getElementById('td-tp-pct');
+      if (_sl && !(Number(_sl.value) > 0)) _sl.value = 8;
+      if (_tp && !(Number(_tp.value) > 0)) _tp.value = 15;
+    }
+    if (typeof tdOnAutopilotInput === 'function') { try { tdOnAutopilotInput(); } catch (e) {} }
+    tdSubmitOrder({ skipConfirm: true });   // caller already confirmed
+    return true;
+  }
+  window._oaiGatedEntry = _oaiGatedEntry;  // reachable from other views (e.g. kirkPositionAction ADD)
+
   async function _oaiFlatten(sym) {
     var pos = await _oaiGetPosition(sym);
     if (!pos || !pos.has_position) {
@@ -13836,16 +13875,23 @@ body[data-theme="light"] .sidebar-item {
     if (!ok) return;
     _oaiSetButtonsBusy(true);
     try {
-      var r = await fetch(endpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: sym, qty: actionQty, agent_id: 'captain-cockpit' }),
-      });
-      var res = r.ok ? await r.json() : { error: 'HTTP ' + r.status };
-      if (res && (res.success || res.order_id)) {
-        _oaiShowToast((mode === 'half' ? 'Half-closed ' : 'Doubled ') + sym + ' · ' + actionQty + ' sh · order ' + (res.order_id || 'submitted'), 'success');
+      if (mode === 'double') {
+        // ENTRY → gated Trade Desk submission (OCO bracket + clean attribution). HM-DRYDOCK 2026-06-09.
+        _oaiGatedEntry({ sym: sym, side: (isLong ? 'buy' : 'sell'), qty: actionQty });
+        _oaiShowToast('Doubled ' + sym + ' · ' + actionQty + ' sh → Trade Desk submit (autopilot SL/TP)', 'success');
       } else {
-        _oaiShowToast(mode + ' failed: ' + (res.error || 'unknown'), 'error');
+        // 'half' = REDUCE (exit) → stays on raw reduce; must fire when halted, no OCO on an exit
+        var r = await fetch(endpoint, {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ symbol: sym, qty: actionQty, agent_id: 'captain-cockpit' }),
+        });
+        var res = r.ok ? await r.json() : { error: 'HTTP ' + r.status };
+        if (res && (res.success || res.order_id)) {
+          _oaiShowToast('Half-closed ' + sym + ' · ' + actionQty + ' sh · order ' + (res.order_id || 'submitted'), 'success');
+        } else {
+          _oaiShowToast('half failed: ' + (res.error || 'unknown'), 'error');
+        }
       }
     } catch(e) {
       _oaiShowToast(mode + ' error: ' + (e && e.message || e), 'error');
@@ -13889,19 +13935,15 @@ body[data-theme="light"] .sidebar-item {
       // Alpaca will reject the second order if the position isn't yet flat.
       await new Promise(function(r){ setTimeout(r, 1500); });
 
-      // Step 2: open opposite
-      var r2 = await fetch(oppositeEndpoint, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ symbol: sym, qty: _oaiRoundQty(curQty), agent_id: 'captain-cockpit' }),
-      });
-      var res2 = r2.ok ? await r2.json() : { error: 'HTTP ' + r2.status };
-      if (res2 && (res2.success || res2.order_id)) {
-        _oaiShowToast('Reversed ' + sym + ' → ' + oppositeSide + ' ' + curQty + ' sh · order ' + (res2.order_id || 'submitted'), 'success');
+      // Step 2: open opposite — ENTRY → gated Trade Desk submission (OCO for longs + clean
+      // attribution; no raw /api/alpaca/buy). HM-DRYDOCK 2026-06-09.
+      var _entered = _oaiGatedEntry({ sym: sym, side: (isLong ? 'sell' : 'buy'), qty: _oaiRoundQty(curQty) });
+      if (_entered) {
+        _oaiShowToast('Reversed ' + sym + ' → ' + oppositeSide + ' ' + curQty + ' sh → Trade Desk submit', 'success');
       } else {
         // PERSISTENT toast — Captain spec: do not auto-fade. Buttons stay live.
         _oaiShowToast(
-          'Position closed but re-entry failed — check Trade Desk. (' + sym + ' ' + oppositeSide + ' ' + curQty + ' sh) Error: ' + ((res2 && res2.error) || 'unknown'),
+          'Position closed but re-entry routing failed — open ' + oppositeSide + ' ' + curQty + ' sh manually via Trade Desk.',
           'error',
           true  /* persistent */
         );
@@ -34875,13 +34917,19 @@ async function kirkPositionAction(action, symbol, qty, price) {
     if (!execQty || execQty <= 0) { alert('Invalid quantity.'); return; }
   }
   try {
+    // ADD = ENTRY → gated Trade Desk submission (OCO + clean attribution); no raw /api/alpaca/buy.
+    // SELL/TRIM = exits → stay on /close + raw reduce (must fire when halted). HM-DRYDOCK 2026-06-09.
+    if (action === 'ADD') {
+      var _routed = (typeof window._oaiGatedEntry === 'function') && window._oaiGatedEntry({ sym: symbol, side: 'buy', qty: execQty });
+      if (_routed) { showKirkAlert('HOLD', symbol, 0, '✅ ADD ' + execQty + ' ' + symbol + ' → Trade Desk submit (autopilot SL/TP)'); }
+      else { alert('❌ ADD routing unavailable — use the Trade Desk.'); }
+      return;
+    }
     var r, d;
     if (action === 'SELL') {
       r = await fetch('/api/alpaca/close/' + symbol, {method:'POST'});
-    } else if (action === 'TRIM') {
+    } else { // TRIM = reduce (exit)
       r = await fetch('/api/alpaca/sell', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbol:symbol, qty:execQty})});
-    } else {
-      r = await fetch('/api/alpaca/buy', {method:'POST', headers:{'Content-Type':'application/json'}, body:JSON.stringify({symbol:symbol, qty:execQty})});
     }
     d = await r.json();
     if (d.success) {

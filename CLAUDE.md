@@ -70,6 +70,19 @@ Reads `portfolio_history`, computes `(peak - current) / peak >= max_drawdown_pct
 **transient** — recomputed each cycle, no flag table. To "unhalt" a
 drawdown-halted agent, the natural path is recovery to a new peak.
 
+### Future considered epic: submit-time manual-halt gate (NOT built, 2026-06-09)
+There is **no order-time trading-halt gate on the MANUAL order path** (Trade Desk +
+Symbol Focus quick-actions + `kirkPositionAction`). `/api/kill-switch` is a *flatten-all*
+action (`engine/kill_switch.py::kill_all_positions`), not a submit gate; `is_halted`/`halt_mode`
+gate the **agent/fleet** paths only. So manual Captain orders fire regardless of any halt.
+This is **defense-in-depth, not urgent** (agent paths ARE gated; manual is Captain-initiated +
+auth-gated + paper-only). If ever built, the considered shape is: a settings-backed
+`manual_trading_halted` flag checked at submit, **buy-side only with an exit-allowance**
+(exits/closes/reduces must ALWAYS fire even when halted — never gate the sell/close path). A
+separate change, deliberately deferred. (Surfaced during HM-DRYDOCK Symbol Focus routing, where
+the quick-action ENTRIES were rerouted through the gated Trade Desk submission for OCO + clean
+attribution; the kill-switch "gate" turned out not to exist to inherit.)
+
 There is **no `agent_state` table** in any DB. A vestigial reference in
 `archive/retired/2026-05-04-post-earnings-drift/post_earnings_drift.py::is_halted()`
 (PED retired 2026-05-04) queries the phantom table but is wrapped in
