@@ -42,11 +42,11 @@ TRADER_DB   = os.path.join(_ROOT, "data", "trader.db")
 PICK_JSON   = os.path.join(_ROOT, "data", "phaser_lock_pick.json")
 PICK_TOPIC  = os.environ.get("NTFY_PICK_TOPIC", "ollie-pick")
 
-# Tunable bar (Admiral-set 2026-06-08). PHASE 1: floor 1.5 — the strategy substrate bakes
-# 1.5:1 targets (0/6220 clear 2:1), so PHASER-LOCK surfaces the sharpest *convergent* setups
-# at ~1.5:1 today. PHASE 2 raises this to the true 2:1 once an independent ATR/level target
-# model lets it compute its OWN asymmetric target instead of inheriting the strategy's 1.5:1.
-RR_FLOOR          = float(os.getenv("PHASER_RR_FLOOR", "1.5"))
+# Tunable bar. PHASE 2 (2026-06-08): floor 2.0 — PHASER-LOCK now computes its OWN target via the
+# hybrid ATR/level model (engine/market_adapter prior-session OHLCV), enforcing true >=2:1 asymmetry
+# instead of inheriting the strategy's 1.5:1. Setups whose 2:1 target is capped below the floor by
+# overhead resistance fail closed.
+RR_FLOOR          = float(os.getenv("PHASER_RR_FLOOR", "2.0"))
 CONVICTION_FLOOR  = float(os.getenv("PHASER_CONVICTION_FLOOR", "0.75"))
 MAX_PICKS         = int(os.getenv("PHASER_MAX_PICKS", "3"))
 W_PAT             = 0.5
@@ -146,26 +146,59 @@ def get_cross_source(today: str) -> set[str]:
 
 # ── scoring ──────────────────────────────────────────────────────────────────
 
-def _aggregate_setup(rows: list[dict]) -> dict | None:
-    """Median entry/stop/target across the ticker's converging strategies + R:R.
-    Returns None if risk is not cleanly definable (fail-closed at the source)."""
-    entries = [r["entry_price"] for r in rows if r.get("entry_price")]
-    stops   = [r["stop_price"]  for r in rows if r.get("stop_price")]
-    targets = [r["target_price"] for r in rows if r.get("target_price")]
-    if not (entries and stops and targets):
+def _atr(df, period: int = 14):
+    """Average True Range over `period` bars. None if insufficient data."""
+    try:
+        h, l, c = df["High"].values, df["Low"].values, df["Close"].values
+        if len(c) < period + 1:
+            return None
+        trs = [max(h[i] - l[i], abs(h[i] - c[i - 1]), abs(l[i] - c[i - 1])) for i in range(1, len(c))]
+        return float(sum(trs[-period:]) / period)
+    except Exception:
         return None
-    entry, stop, target = statistics.median(entries), statistics.median(stops), statistics.median(targets)
-    if not (entry > stop and target > entry):   # undefinable / inverted risk
+
+
+def _overhead_resistance(df, entry: float, lookback: int = 20):
+    """Nearest overhead wall = recent N-day high, only if it's a real level above entry.
+    None when price is at/breaking new highs (blue sky → no cap)."""
+    try:
+        recent_high = float(max(df["High"].values[-lookback:]))
+        return recent_high if recent_high > entry * 1.005 else None
+    except Exception:
         return None
-    risk, reward = entry - stop, target - entry
+
+
+def _hybrid_target(entry: float, strategy_stop: float, df) -> dict | None:
+    """PHASE 2 hybrid ATR/level target — independent of the strategy's 1.5:1. FAIL-CLOSED.
+    Stop from structure (max of strategy stop, entry-1.5*ATR); target = entry + RR_FLOOR*risk,
+    CAPPED at nearest overhead resistance; if the capped R:R < floor, return None (skip)."""
+    if df is None or getattr(df, "empty", True):
+        return None                                  # no bars → can't model → fail closed
+    atr = _atr(df)
+    if not atr or atr <= 0:
+        return None
+    stop = max(float(strategy_stop), round(entry - 1.5 * atr, 2))   # structure or volatility, tighter wins
+    risk = entry - stop
     if risk <= 0:
         return None
+    raw_target = entry + RR_FLOOR * risk
+    res = _overhead_resistance(df, entry)
+    capped = bool(res and raw_target > res)
+    target = min(raw_target, res) if res else raw_target
+    rr = round((target - entry) / risk, 2)
+    if rr < RR_FLOOR:                                # 2:1 target sits beyond a wall → fail closed
+        return None
     return {"entry": round(entry, 2), "stop": round(stop, 2), "target": round(target, 2),
-            "rr": round(reward / risk, 2)}
+            "rr": rr, "atr": round(atr, 2), "target_capped": capped}
 
 
-def score_ticker(ticker: str, rows: list[dict], rs_map: dict, cross: set[str]) -> dict | None:
-    setup = _aggregate_setup(rows)
+def score_ticker(ticker: str, rows: list[dict], rs_map: dict, cross: set[str], df=None) -> dict | None:
+    entries = [r["entry_price"] for r in rows if r.get("entry_price")]
+    stops   = [r["stop_price"]  for r in rows if r.get("stop_price")]
+    if not (entries and stops):
+        return None
+    entry, strat_stop = statistics.median(entries), statistics.median(stops)
+    setup = _hybrid_target(entry, strat_stop, df)   # PHASE 2: independent ATR/level target
     if setup is None:
         return None
     # pattern strength = best converging-setup confidence (strategy_signals.confidence is 0-1)
@@ -196,8 +229,15 @@ def rank_setups() -> dict:
     candidates = get_setup_candidates(today)
     rs_map = get_rs_map(set(candidates))
     cross = get_cross_source(today)
+    # PHASE 2: prior-session OHLCV via the swappable adapter → independent ATR/level targets
+    from engine import market_adapter
+    bars, data_source = market_adapter.bulk_daily_ohlcv(list(candidates))
 
-    scored = [s for t, rows in candidates.items() if (s := score_ticker(t, rows, rs_map, cross))]
+    scored = []
+    for t, rows in candidates.items():
+        s = score_ticker(t, rows, rs_map, cross, bars.get(t))
+        if s:
+            scored.append(s)
     qualifying = [s for s in scored if s["rr"] >= RR_FLOOR and s["conviction"] >= CONVICTION_FLOOR]
     qualifying.sort(key=lambda s: s["conviction"], reverse=True)
     top = qualifying[:MAX_PICKS]
@@ -206,6 +246,7 @@ def rank_setups() -> dict:
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         "model": PHASER_MODEL,
         "bar": {"rr_floor": RR_FLOOR, "conviction_floor": CONVICTION_FLOOR},
+        "data_source": data_source,            # PHASE 2: {source, tier} — free/paid honesty
         "scanned": len(candidates),
         "qualified": len(qualifying),
         "picks": top,
