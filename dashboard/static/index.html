@@ -3987,7 +3987,11 @@ async function fetchVixTermStructure() {
     if (badge) { badge.textContent = d.state || ''; badge.style.color = col; }
 
     var html = '<div style="display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin-bottom:12px;">';
-    html += _rrLevelCard('VIX', d.vix!=null?(d.vix).toFixed(2):'—', d.regime||'', col);
+    // HM-DRYDOCK-2: derive the VIX level label from the live VIX (NORMAL/LOW for ~18) instead of a
+    // stale d.regime that read "ELEVATED" on a normal tape (the alarming string). Term-structure badge
+    // (d.state) stays — it's the real curve. Display-only.
+    var _vixLbl = d.vix == null ? '' : (d.vix > 30 ? 'EXTREME' : d.vix > 25 ? 'ELEVATED' : d.vix > 18 ? 'NORMAL' : 'LOW');
+    html += _rrLevelCard('VIX', d.vix!=null?(d.vix).toFixed(2):'—', _vixLbl, col);
     html += _rrLevelCard('VIX9D', d.vix9d!=null?(d.vix9d).toFixed(2):'—', d.slope_9d!=null?'Δ '+(d.slope_9d>0?'+':'')+d.slope_9d:'', '#94a3b8');
     html += _rrLevelCard('VIX3M', d.vix3m!=null?(d.vix3m).toFixed(2):'—', d.slope_3m!=null?'Δ '+(d.slope_3m>0?'+':'')+d.slope_3m:'', '#818cf8');
     html += _rrLevelCard('VIX6M', d.vix6m!=null?(d.vix6m).toFixed(2):'—', d.slope_6m!=null?'Δ '+(d.slope_6m>0?'+':'')+d.slope_6m:'', '#64748b');
@@ -5288,7 +5292,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         badge.style.color = '#22c55e';
         try {
           const t = d.ts ? new Date(d.ts) : new Date();
-          stamp.textContent = t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+          stamp.textContent = t.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'America/Phoenix'});  // HM-DRYDOCK-2: AZ path (was browser-local [])
         } catch (e) { stamp.textContent = '--'; }
 
         for (const tier of KNOWN_TIERS) {
@@ -5482,7 +5486,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         if (badge) { badge.textContent = 'LIVE'; badge.style.background = '#22c55e22'; badge.style.color = '#22c55e'; }
         try {
           const t = d.ts ? new Date(d.ts) : new Date();
-          stamp.textContent = t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+          stamp.textContent = t.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'America/Phoenix'});  // HM-DRYDOCK-2: AZ path (was browser-local [])
         } catch (e) { stamp.textContent = '--'; }
 
         const incoming = Array.isArray(d.events) ? d.events : [];
@@ -5710,7 +5714,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         }
         try {
           const t = d.ts ? new Date(d.ts) : new Date();
-          stamp.textContent = t.toLocaleTimeString([], {hour:'2-digit',minute:'2-digit',second:'2-digit'});
+          stamp.textContent = t.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'America/Phoenix'});  // HM-DRYDOCK-2: AZ path (was browser-local [])
         } catch (e) { stamp.textContent = '--'; }
 
         const incoming = Array.isArray(d.events) ? d.events : [];
@@ -34026,7 +34030,9 @@ async function fetchGEX() {
     if (d.error || !d.spot) { el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px;">No GEX data available — Alpaca keys may not be configured</div>'; return; }
     if (timeEl) timeEl.textContent = (d.timestamp || '').substring(11, 19);
     var spot = d.spot, putWall = d.put_wall, callWall = d.call_wall, gammaFlip = d.gamma_flip, totalGex = d.total_gex, regime = d.regime;
-    var isVolatile = regime === 'volatile';
+    // HM-DRYDOCK-2: flip-based read (match Battle Station) — below gamma_flip = negative gamma /
+    // VOLATILE, above = STABLE. Was a stale d.regime label that said "stable/above flip" with spot below.
+    var isVolatile = (spot != null && gammaFlip != null) ? (spot < gammaFlip) : (regime === 'volatile');
     var regimeColor = isVolatile ? '#ea580c' : '#2563eb';
     var regimeLabel = isVolatile ? '⚠️ VOLATILE — Negative Gamma (dealers amplify moves)' : '✅ STABLE — Positive Gamma (dealers dampen moves)';
     var html = '';
@@ -34585,7 +34591,11 @@ async function fetchKirkDetail() {
     var vixColor = vixVal > 30 ? '#ea580c' : vixVal > 25 ? '#f59e0b' : 'var(--text)';
     html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">VIX</div><div style="font-size:22px;font-weight:700;color:' + vixColor + ';">' + vixVal.toFixed(1) + '</div><div style="font-size:11px;color:var(--muted);">' + (vixVal > 30 ? 'EXTREME' : vixVal > 25 ? 'ELEVATED' : 'NORMAL') + '</div></div>';
 
-    var gexRegime = gex.regime || 'unknown';
+    // HM-DRYDOCK-2: flip-based (spot vs gamma_flip) — below flip = volatile, above = stable. Match
+    // Battle Station; was the stale gex.regime label.
+    var gexRegime = (gex.spot != null && gex.gamma_flip != null)
+        ? (gex.spot < gex.gamma_flip ? 'volatile' : 'stable')
+        : (gex.regime || 'unknown');
     var gexColor = gexRegime === 'volatile' ? '#ea580c' : '#2563eb';
     html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">GEX REGIME</div><div style="font-size:22px;font-weight:700;color:' + gexColor + ';">' + gexRegime.toUpperCase() + '</div><div style="font-size:11px;color:var(--muted);">' + ((gex.total_gex||0)/1e9).toFixed(1) + 'B</div></div>';
 
@@ -36177,8 +36187,11 @@ function loadGlanceData() {
         ['30–40', 'FEAR — Reduce size 50%, tighten stops', '#f97316'],
         ['> 40', 'PANIC — Cash or inverse only', '#ef4444']
       ];
-      var zRows = zones.map(function(z) {
-        var isCur = (z[0].indexOf('<')>-1&&v<15)||(z[0].indexOf('15')>-1&&v>=15&&v<20)||(z[0].indexOf('20')>-1&&v>=20&&v<30)||(z[0].indexOf('30')>-1&&v>=30&&v<40)||(z[0].indexOf('40')>-1&&v>=40);
+      // HM-DRYDOCK-2: index-based current band — the old substring test (z[0].indexOf('20')) matched
+      // BOTH '15–20' and '20–30' (and '<15'/'15–20' share '15') → two "YOU ARE HERE" badges. Dedupes.
+      var _vixBandIdx = v < 15 ? 0 : v < 20 ? 1 : v < 30 ? 2 : v < 40 ? 3 : 4;
+      var zRows = zones.map(function(z, _zi) {
+        var isCur = (_zi === _vixBandIdx);
         return '<div style="display:flex;gap:8px;align-items:center;padding:3px 0;border-bottom:1px solid rgba(255,255,255,0.04);font-size:12px;'+(isCur?'font-weight:700;':'opacity:0.6;')+'">'
           + '<span style="font-family:var(--font-mono);color:var(--muted);min-width:48px;">'+z[0]+'</span>'
           + '<span style="color:'+z[2]+';">'+z[1]+'</span>'
