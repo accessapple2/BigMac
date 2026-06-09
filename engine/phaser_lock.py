@@ -158,12 +158,71 @@ def _atr(df, period: int = 14):
         return None
 
 
-def _overhead_resistance(df, entry: float, lookback: int = 20):
-    """Nearest overhead wall = recent N-day high, only if it's a real level above entry.
-    None when price is at/breaking new highs (blue sky → no cap)."""
+# HM-PHASE2-HANDLES 2026-06-08: target cap candidates = swing highs ∪ reacted round handles.
+# Naked round numbers (no prior reaction) are NOT walls. Trust: swing high > reacted handle.
+HANDLES_ENABLED = os.getenv("PHASER_HANDLES_ENABLED", "true").lower() in ("1", "true", "yes", "on")
+_HANDLE_TOL = 0.004   # 0.4% touch tolerance for a "reaction"
+
+
+def _swing_levels(highs, lookback: int = 40, win: int = 2) -> list:
+    """Local-maxima swing highs in the lookback window (the structural walls)."""
+    h = list(highs[-lookback:])
+    out = []
+    for i in range(win, len(h) - win):
+        if h[i] == max(h[i - win:i + win + 1]) and h[i] > 0:
+            out.append(float(h[i]))
+    return out
+
+
+def _handle_step(entry: float) -> float:
+    if entry < 20:  return 0.5     # half-dollars on low-priced names
+    if entry < 50:  return 1.0     # whole dollars
+    if entry < 100: return 5.0     # $5 multiples
+    return 10.0                    # $10 multiples
+
+
+def _reacted_handles(df, entry: float, lookback: int = 40) -> list:
+    """Round/psych levels above entry that price PRIOR-reacted to (touch + rejection).
+    Bounded candidate set (step scales with price; range entry..+30%) — not every cent.
+    'Reacted' = a bar reached the level (high within tol / above) AND closed back below it."""
     try:
-        recent_high = float(max(df["High"].values[-lookback:]))
-        return recent_high if recent_high > entry * 1.005 else None
+        opens  = df["Open"].values[-lookback:]
+        highs  = df["High"].values[-lookback:]
+        lows   = df["Low"].values[-lookback:]
+        closes = df["Close"].values[-lookback:]
+        step = _handle_step(entry)
+        hi = entry * 1.30
+        cands, x = [], (int(entry / step) + 1) * step
+        while x <= hi and len(cands) < 40:        # bound the candidate set
+            cands.append(round(x, 2)); x += step
+        reacted = []
+        for lvl in cands:
+            tol = lvl * _HANDLE_TOL
+            for i in range(len(highs)):
+                rng = highs[i] - lows[i]
+                if rng <= 0:
+                    continue
+                pierced  = (lvl - tol) <= highs[i] <= lvl * 1.01        # touched the level, did NOT blow through
+                rejected = closes[i] < lvl                              # closed back below it
+                wick_ok  = (highs[i] - max(opens[i], closes[i])) >= rng * 0.33   # genuine upper-wick rejection
+                if pierced and rejected and wick_ok:
+                    reacted.append(lvl); break
+        return reacted
+    except Exception:
+        return []
+
+
+def _overhead_resistance(df, entry: float, lookback: int = 40):
+    """Nearest overhead wall above entry from {swing highs} ∪ {reacted round handles}.
+    Naked round numbers (unreacted) excluded. None = blue sky (no cap → full target)."""
+    try:
+        levels = [(h, 0) for h in _swing_levels(df["High"].values, lookback) if h > entry * 1.005]
+        if HANDLES_ENABLED:
+            levels += [(h, 1) for h in _reacted_handles(df, entry, lookback) if h > entry * 1.005]
+        if not levels:
+            return None
+        levels.sort(key=lambda x: (round(x[0], 2), x[1]))   # nearest overhead; swing wins ties
+        return levels[0][0]
     except Exception:
         return None
 
