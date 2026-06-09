@@ -1479,10 +1479,13 @@ function scoreFearGreed(d){
   // Old key chain (.fear_greed||.value||.current) never matched .score, so
   // the live 79 was masked by the 50 default. .score now leads the chain.
   var fg=parseFloat(d.score||d.fear_greed||d.value||d.current||50);
-  if(fg>75) return{score:76,val:fg.toFixed(0),desc:'Extreme Greed — consider trimming'};
-  if(fg>55) return{score:66,val:fg.toFixed(0),desc:'Greed — momentum favoring bulls'};
-  if(fg>45) return{score:55,val:fg.toFixed(0),desc:'Neutral market sentiment'};
-  if(fg>25) return{score:38,val:fg.toFixed(0),desc:'Fear — potential buying opportunity'};
+  // HM-DRYDOCK A2 2026-06-08: align bands to the CANONICAL engine/fear_greed.py set
+  // (<35 FEAR, <50 MILD FEAR, <65 NEUTRAL, <80 GREED, >=80 EXTREME) so 64 reads NEUTRAL
+  // everywhere (was >55=GREED → Troi mislabeled 64 as Greed). Display-only.
+  if(fg>=80) return{score:80,val:fg.toFixed(0),desc:'Extreme Greed — consider trimming'};
+  if(fg>=65) return{score:68,val:fg.toFixed(0),desc:'Greed — momentum favoring bulls'};
+  if(fg>=50) return{score:55,val:fg.toFixed(0),desc:'Neutral market sentiment'};
+  if(fg>=35) return{score:40,val:fg.toFixed(0),desc:'Fear — potential buying opportunity'};
   return      {score:25,val:fg.toFixed(0),desc:'Extreme Fear — wait for capitulation'};
 }
 function scoreBreadth(d){

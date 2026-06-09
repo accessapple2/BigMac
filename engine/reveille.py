@@ -237,7 +237,9 @@ def _packet_prompt(sub: dict) -> str:
         "Write the brief in EXACTLY these six sections, headers verbatim:",
         "1. SITREP — 2-3 line executive read.",
         "2. THE TAPE — overnight/pre-market; note where live data is a [gap].",
-        "3. CATALYST MAP — the upcoming catalysts above, weighted; flag the dominant one.",
+        "3. CATALYST MAP — the upcoming catalysts above. The bracket tag IS the impact tier and is "
+        "AUTHORITATIVE: [high]=HIGH IMPACT (dominant — never downgrade or call it low), [med]=medium, "
+        "[low]=low. Echo each catalyst at its given tier and explicitly name the dominant [high] one.",
         "4. WATCHLISTS BY BUCKET — group the setups/picks into momentum / hedge-defensive / event buckets.",
         "5. POSTURE — the fleet stance into the session, gated by the dominant catalyst.",
         "6. TRIGGERS — what invalidates / confirms the read.",
