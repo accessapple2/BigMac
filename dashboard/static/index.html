@@ -26065,8 +26065,17 @@ function _renderGrokPanel(advice) {
     html += '<th style="padding:6px 8px;text-align:left;">' + h + '</th>';
   });
   html += '</tr></thead><tbody>';
+  var _grokSuppressed = 0;  // HM-DRYDOCK-2 HIGH2: count incoherent-target advice rejected below
   for (var i = 0; i < advice.length; i++) {
     var a = advice[i];
+    // HM-DRYDOCK-2 HIGH2: HARD-REJECT incoherent advice — a long's target must be > its stop,
+    // a short's target must be < its stop (e.g. BUY MRVL target 233.14 below a higher stop is
+    // nonsensical). Surface the count; don't silently drop. (stop is the coherence reference; the
+    // advice rows don't carry an entry price.)
+    var _gt = parseFloat(a.target_price), _gs = parseFloat(a.stop_loss);
+    var _gLong = (a.action === 'BUY' || a.action === 'ADD');
+    var _gShort = (a.action === 'SELL' || a.action === 'SHORT');
+    if (_gt > 0 && _gs > 0 && ((_gLong && _gt <= _gs) || (_gShort && _gt >= _gs))) { _grokSuppressed++; continue; }
     var bgColor = a.action === 'SELL' ? 'rgba(220,38,38,0.06)' : a.action === 'TRIM' ? 'rgba(234,88,12,0.04)' : '';
     var badgeColor = ac[a.action] || '#374151';
     var conf = a.confidence != null ? Math.round(a.confidence * 100) + '%' : '—';
@@ -26090,6 +26099,10 @@ function _renderGrokPanel(advice) {
     html += '</td></tr>';
   }
   html += '</tbody></table>';
+  if (_grokSuppressed > 0) {  // HM-DRYDOCK-2 HIGH2: surface, don't silently drop
+    html += '<div style="margin-top:6px;font-size:11px;color:#f59e0b;">⚠ ' + _grokSuppressed +
+            ' suppressed: incoherent target (long target ≤ stop / short ≥ stop)</div>';
+  }
   body.innerHTML = html;
 }
 
