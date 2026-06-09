@@ -688,8 +688,12 @@ def get_gex_context_for_prompt() -> str:
         regime = gex.get("regime", "")
         if regime == "positive_gamma":
             regime_label = "POSITIVE GAMMA (dealers dampening vol, expect range-bound)"
-        else:
+        elif regime == "negative_gamma":
             regime_label = "NEGATIVE GAMMA (dealers amplifying vol, expect big moves)"
+        else:
+            # HM-DRYDOCK 2026-06-08: don't ASSERT a regime when none is known (was defaulting to
+            # NEGATIVE GAMMA on missing/empty regime → contradicted live state). Fail-honest.
+            regime_label = "GAMMA REGIME UNAVAILABLE (no GEX regime data)"
 
         detail_parts = []
         if gex.get("king_node"):

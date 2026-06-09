@@ -9166,9 +9166,21 @@ def sec_filings(symbol: str):
 
 @app.get("/api/economic-calendar")
 def economic_calendar():
-    """Get macro economic data: CPI, unemployment, interest rates, GDP, FOMC."""
-    from engine.openbb_data import get_economic_calendar
-    return get_economic_calendar()
+    """Get macro economic data: CPI, unemployment, interest rates, GDP, FOMC.
+
+    HM-DRYDOCK 2026-06-08: was 500-ing (unguarded get_economic_calendar — OpenBB/OECD
+    provider unavailable propagated). Degrade gracefully to a 200 'unavailable' payload so
+    the Macro panel renders an empty state instead of failing. Display-data only."""
+    try:
+        from engine.openbb_data import get_economic_calendar
+        return get_economic_calendar()
+    except Exception as e:
+        logger.warning("economic-calendar unavailable: %s: %r", type(e).__name__, e)
+        return JSONResponse(
+            {"cpi": None, "unemployment": None, "interest_rate": None, "gdp": None,
+             "fomc": [], "updated": None, "error": "unavailable"},
+            status_code=200,
+        )
 
 
 @app.get("/api/options-chain/{symbol}")
