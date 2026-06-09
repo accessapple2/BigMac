@@ -956,6 +956,23 @@ def run_phaser_lock_morning():
         console.log(f"[red]Phaser-Lock error: {type(e).__name__}: {e}")
 
 
+@_hm_bq_instr("run_filter_contribution_sweep")
+def run_filter_contribution_sweep():
+    """02:30 AZ (OFF-PEAK) — HM-DRYDOCK #4 bounded leave-one-out filter-contribution ablation → cache.
+    Deliberately off-peak: NEVER during the 05:45–06:05 morning cadence or market hours, so the sweep
+    can't compete with live scans or the Ollama warm. The endpoint only ever READS the cache."""
+    now = az_now()
+    if now.hour != 2 or not (30 <= now.minute <= 50):
+        return
+    try:
+        from engine.filter_contribution import run_sweep
+        r = run_sweep()
+        console.log(f"[cyan]Filter-contribution sweep: {r.get('samples')} samples, "
+                    f"baseline {r.get('baseline_all_pass_fwd_pct')}%, timed_out={r.get('timed_out')}")
+    except Exception as e:
+        console.log(f"[red]Filter-contribution sweep error: {type(e).__name__}: {e}")
+
+
 # ── Earnings → scan_universe Injection ────────────────────────────────────────
 # HM-AR-β 2026-05-07: renamed from run_earnings_universe_inject. The old name was
 # a naming-drift artifact — function injects into scan_universe (via
@@ -4045,6 +4062,7 @@ if __name__ == "__main__":
     schedule.every().day.at("05:45").do(run_reveille_morning)         # HM-REVEILLE: pre-market XO brief 5:45 AM AZ (before 06:00 intel; market-day-aware)
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
     schedule.every().day.at("06:05").do(run_phaser_lock_morning)      # HM-PHASER-LOCK: daily Trade-of-the-Day 6:05 AM AZ (after intel; market-day-aware)
+    schedule.every().day.at("02:30").do(run_filter_contribution_sweep)  # HM-DRYDOCK #4: OFF-PEAK filter-contribution ablation → cache (never near cadence/market hours)
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
 
     # === HM-IC-SQUADRON Pillar 2 — 6-agent stack (SHADOW MODE) ===

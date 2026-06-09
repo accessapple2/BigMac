@@ -13486,6 +13486,18 @@ def backtest_status(run_id: int):
     return {"status": "not_found", "progress": 0, "message": "Run not found"}
 
 
+@app.get("/api/backtest/filter-contribution")
+def backtest_filter_contribution():
+    """HM-DRYDOCK #4: leave-one-out (ablation) filter contribution. READ-ONLY — serves the cached
+    offline sweep (computed off-peak at 02:30 AZ); NEVER triggers a live sweep per request."""
+    try:
+        from engine.filter_contribution import get_cached
+        return get_cached()
+    except Exception as e:
+        logger.warning("filter-contribution serve failed: %s: %r", type(e).__name__, e)
+        return {"unavailable": True, "error": str(e)}
+
+
 @app.get("/api/backtest/runs")
 def backtest_runs(limit: int = 20):
     """Get recent backtest runs."""

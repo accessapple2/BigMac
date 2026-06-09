@@ -2987,6 +2987,7 @@ window._cachedFetch = function(url, ttlMs) {
     '/api/fleet/active',  // HM-FLEET-CORE-DB-DRIVEN — required so _initFleetCore() fetch reaches the network during page load
     '/api/reveille',  // HM-REVEILLE 2026-06-08 — pre-market XO brief card
     '/api/phaser-lock',  // HM-PHASER-LOCK 2026-06-08 — daily Trade-of-the-Day card
+    '/api/backtest/filter-contribution',  // HM-DRYDOCK #4 2026-06-09 — leave-one-out filter ablation (cached)
     '/api/portfolio/real',  // HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20 — Schwab+metals real-world view (PR #44 endpoint)
     '/api/networth',  // HM-AM 2026-06-02 — unified net-worth breakdown (cash/equities/metals), data-driven over is_active accounts
     // HM-BATTLE-STATION-BIND-FIX 2026-05-21: GEX Overlay + Battle Station cards
@@ -12047,18 +12048,9 @@ document.addEventListener('keydown', function(e) {
       </div>
 
       <div class="oai-sec">
-        <div class="oai-sec-h">OPTIMIZATION · FILTER CONTRIBUTION <span class="oai-sec-meta">Static demo — live sweep is HM-OAI-BL-FILTER-LIVE</span></div>
+        <div class="oai-sec-h">OPTIMIZATION · FILTER CONTRIBUTION <span class="oai-sec-meta" id="oai-bl-filters-meta" title="Leave-one-out ablation: mean fwd-return(all filters) − mean fwd-return(all-but-X). Directional, NOT a position-sim backtest or Shapley decomposition.">LIVE · leave-one-out ablation</span></div>
         <div id="oai-bl-filters">
-          <div class="oai-bl-opt-row"><span>Float &lt; 100M shares</span><span class="oai-bl-opt-pct pos">+18.4%</span><span class="oai-bl-opt-badge add">KEEP</span></div>
-          <div class="oai-bl-opt-row"><span>Volume &gt; 400K</span><span class="oai-bl-opt-pct pos">+12.7%</span><span class="oai-bl-opt-badge add">KEEP</span></div>
-          <div class="oai-bl-opt-row"><span>Relative Volume &gt; 2x</span><span class="oai-bl-opt-pct pos">+9.1%</span><span class="oai-bl-opt-badge add">KEEP</span></div>
-          <div class="oai-bl-opt-row"><span>Earnings within 5d</span><span class="oai-bl-opt-pct pos">+6.8%</span><span class="oai-bl-opt-badge add">KEEP</span></div>
-          <div class="oai-bl-opt-row"><span>Position in Range &gt; 80%</span><span class="oai-bl-opt-pct pos">+4.2%</span><span class="oai-bl-opt-badge add">KEEP</span></div>
-          <div class="oai-bl-opt-row"><span>Price &gt; $5</span><span class="oai-bl-opt-pct pos">+2.1%</span><span class="oai-bl-opt-badge add">KEEP</span></div>
-          <div class="oai-bl-opt-row"><span>Short Float &gt; 20%</span><span class="oai-bl-opt-pct neg">-3.4%</span><span class="oai-bl-opt-badge kill">DROP</span></div>
-          <div class="oai-bl-opt-row"><span>Days to Cover &gt; 5</span><span class="oai-bl-opt-pct neg">-5.8%</span><span class="oai-bl-opt-badge kill">DROP</span></div>
-          <div class="oai-bl-opt-row"><span>Consecutive Down Days</span><span class="oai-bl-opt-pct neg">-7.2%</span><span class="oai-bl-opt-badge kill">DROP</span></div>
-          <div class="oai-bl-opt-row"><span>Sector: Healthcare</span><span class="oai-bl-opt-pct neg">-9.6%</span><span class="oai-bl-opt-badge kill">DROP</span></div>
+          <div class="oai-bl-opt-row"><span style="color:var(--muted)">Loading filter contribution…</span></div>
         </div>
       </div>
     </div>
@@ -12068,10 +12060,34 @@ document.addEventListener('keydown', function(e) {
       <code>/api/backtest/runs</code> + <code>/api/backtest/run/{id}</code> (KPIs computed
       client-side, equity_curve[] mapped to path, trades[] aggregated by date for heatmap).
       Selecting a different RUN / AGENT re-reads the real backtest results. ·
-      Only <b>Filter Contribution</b> below remains static until <b>HM-OAI-BL-FILTER-LIVE</b>
-      ships a per-filter sweep endpoint.
+      <b>Filter Contribution</b> is now <b>live</b> — a <b>leave-one-out ablation</b> (mean fwd-return
+      with all filters vs. all-but-X) over a capped universe / fixed 90d window, computed <b>off-peak</b>
+      (02:30 AZ) and cached, served via <code>/api/backtest/filter-contribution</code>. Directional —
+      a per-filter toggle-off diff, NOT a position-sim backtest or a Shapley decomposition.
     </div>
   </div>
+  <script>
+  // HM-DRYDOCK #4 2026-06-09: render the LIVE leave-one-out filter contribution (cached offline sweep).
+  function renderFilterContribution(){
+    var el=document.getElementById('oai-bl-filters'); if(!el) return;
+    fetch('/api/backtest/filter-contribution').then(function(r){return r.json();}).then(function(d){
+      var meta=document.getElementById('oai-bl-filters-meta');
+      if(!d || d.unavailable || !d.contributions || !d.contributions.length){
+        el.innerHTML='<div class="oai-bl-opt-row"><span style="color:var(--muted)">No sweep cached yet — runs off-peak (02:30 AZ).</span></div>';
+        if(meta) meta.textContent='leave-one-out ablation · pending first sweep'; return;
+      }
+      if(meta) meta.textContent='LIVE · leave-one-out ablation · '+(d.window_days||90)+'d · '+(d.computed_at||'');
+      el.innerHTML=d.contributions.map(function(c){
+        if(c.contribution_pct==null) return '';
+        var pct=Number(c.contribution_pct), cls=pct>=0?'pos':'neg', sign=pct>=0?'+':'';
+        var badge=pct>=0?'<span class="oai-bl-opt-badge add">KEEP</span>':'<span class="oai-bl-opt-badge kill">DROP</span>';
+        return '<div class="oai-bl-opt-row"><span>'+c.filter+'</span><span class="oai-bl-opt-pct '+cls+'">'+sign+pct.toFixed(2)+'%</span>'+badge+'</div>';
+      }).join('')||'<div class="oai-bl-opt-row"><span style="color:var(--muted)">No contributions in cache.</span></div>';
+    }).catch(function(){ el.innerHTML='<div class="oai-bl-opt-row"><span style="color:var(--muted)">Filter contribution unavailable.</span></div>'; });
+  }
+  if(document.readyState==='loading'){ document.addEventListener('DOMContentLoaded', renderFilterContribution); } else { renderFilterContribution(); }
+  window.renderFilterContribution=renderFilterContribution;
+  </script>
   <!-- ───── WAVE SCOPE (Step 6a — visual scaffold per v4.3 spec L561-619) ───── -->
   <div class="oai-view" id="oai-view-wave-scope" style="display:none;">
 
