@@ -940,7 +940,7 @@ def run_phaser_lock_morning():
     """6:05 AM AZ — HM-PHASER-LOCK daily Trade-of-the-Day (top-3 ranked, fail-closed).
     Market-day-aware; runs after the 06:00 intel refresh so setups are current."""
     now = az_now()
-    if now.hour != 6 or not (5 <= now.minute <= 20):
+    if now.hour != 6 or not (12 <= now.minute <= 29):  # HM-DRYDOCK-2 HIGH1: 06:15 fire (after ~06:12 scan), pre-open
         return
     try:
         from engine.market_calendar import is_trading_day
@@ -4066,7 +4066,7 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(_bg_archer_alerts)                  # HM-ARCHER-REBUILD: tiered alerts (RTH-gated)
     schedule.every().day.at("05:45").do(run_reveille_morning)         # HM-REVEILLE: pre-market XO brief 5:45 AM AZ (before 06:00 intel; market-day-aware)
     schedule.every().day.at("06:00").do(run_intel_report_morning)     # Intel Report + ntfy push: 6:00 AM AZ
-    schedule.every().day.at("06:05").do(run_phaser_lock_morning)      # HM-PHASER-LOCK: daily Trade-of-the-Day 6:05 AM AZ (after intel; market-day-aware)
+    schedule.every().day.at("06:15").do(run_phaser_lock_morning)      # HM-PHASER-LOCK: daily Trade-of-the-Day 6:15 AM AZ — HM-DRYDOCK-2 HIGH1: moved 06:05→06:15 so it reads AFTER the ~06:12 strategy_signals scan (was firing 7min early on an empty feed → 0 qualified); stays pre-open (06:30 ET).
     schedule.every().day.at("02:30").do(run_filter_contribution_sweep)  # HM-DRYDOCK #4: OFF-PEAK filter-contribution ablation → cache (never near cadence/market hours)
     schedule.every().day.at("20:00").do(run_intel_report_evening)     # Intel Report evening prep: 8:00 PM AZ
 

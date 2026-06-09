@@ -2857,11 +2857,16 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
 
     conn = _conn()
 
-    # Determine current season
-    current_season = 2
+    # Determine current season — HM-DRYDOCK-2 HIGH3: never SILENTLY default to an old season.
+    # settings.current_season is canonical; if missing, fall back to the LATEST season in trades
+    # (not a hardcoded 2, which silently showed a stale season's aggregate) + log loud.
     s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
-    if s_row:
+    if s_row and s_row["value"] is not None:
         current_season = int(s_row["value"])
+    else:
+        _m = conn.execute("SELECT MAX(season) AS m FROM trades").fetchone()
+        current_season = int(_m["m"]) if _m and _m["m"] is not None else 1
+        logger.warning("HIGH3: settings.current_season missing — fell back to MAX(trades.season)=%s (not hardcoded 2)", current_season)
 
     all_seasons = (season == -1)
     if season <= 0 and not all_seasons:
@@ -9445,7 +9450,13 @@ def get_performance(model: str = None, season: int = None, fleet_only: bool = Fa
     # is preserved by the branch below.
     if season is None or season == 0:
         s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
-        season = int(s_row["value"]) if s_row else 2
+        if s_row and s_row["value"] is not None:
+            season = int(s_row["value"])
+        else:
+            # HM-DRYDOCK-2 HIGH3: never silently default to an old season — use the latest in trades.
+            _m = conn.execute("SELECT MAX(season) AS m FROM trades").fetchone()
+            season = int(_m["m"]) if _m and _m["m"] is not None else 1
+            logger.warning("HIGH3: get_performance settings.current_season missing — MAX(trades.season)=%s", season)
 
     fleet_ids = list(_FLEET_CORE_IDS)
     fleet_ph  = ",".join("?" * len(fleet_ids))

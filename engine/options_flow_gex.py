@@ -219,9 +219,12 @@ def compute_gex(underlying: str, chain: list | None = None, spot: float | None =
                          % ("long-gamma" if total_gex > 0 else "short-gamma"))
     call_wall = max(call_gex, key=call_gex.get) if call_gex else None
     # HM-DRYDOCK A1 2026-06-09: put GEX is NEGATIVE by convention (lines 57-58), so max() picked the
-    # WEAKEST put wall (least-negative) — collapsing call/put/king + landing walls on the wrong side
-    # of spot. min() = most-negative = the true strongest put wall.
-    put_wall = min(put_gex, key=put_gex.get) if put_gex else None
+    # WEAKEST put wall (least-negative). min() = most-negative = the true strongest put wall.
+    # HM-DRYDOCK-2: constrain to strikes BELOW spot — a put wall is support beneath price; the
+    # unconstrained min could land above spot (deep-ITM puts). Fall back to global min if none below.
+    _puts_below = {k: v for k, v in put_gex.items() if spot and k < spot} if put_gex else {}
+    put_wall = (min(_puts_below, key=_puts_below.get) if _puts_below
+                else (min(put_gex, key=put_gex.get) if put_gex else None))
     # king_node = strike carrying the largest |net GEX| (dominant gamma node).
     king_node = max(per_strike, key=lambda k: abs(per_strike[k])) if per_strike else None
     # magnets / strikes array for chart consumers (top |net GEX| first)
