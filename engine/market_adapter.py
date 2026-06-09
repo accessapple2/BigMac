@@ -56,7 +56,7 @@ def bulk_daily_ohlcv(symbols, range_str: str = "3mo"):
 def futures():
     """Index/commodity futures + VIX snapshot for the REVEILLE tape → ({label: {...}}, meta)."""
     from engine.market_data import get_stock_price
-    syms = {"S&P 500": "ES=F", "Nasdaq 100": "NQ=F", "Dow": "YM=F",
+    syms = {"S&P 500": "ES=F", "Nasdaq 100": "NQ=F", "Dow Jones": "YM=F",  # HM-DRYDOCK: "Dow" → "Dow Jones" (LLM was blending "Dow"+"500" → "Dow 500")
             "Russell 2000": "RTY=F", "WTI Crude": "CL=F", "Gold": "GC=F", "VIX": "^VIX"}
     out = {}
     for label, sym in syms.items():

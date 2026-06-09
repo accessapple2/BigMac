@@ -301,7 +301,8 @@ def _short_sigs(c, h, l, v, av):
             hh=[float(np.max(h[i:i+5])) for i in range(-15,0,5)]
             ll=[float(np.min(l[i:i+5])) for i in range(-15,0,5)]
             if hh[2]<hh[1]<hh[0] and ll[2]<ll[1]<ll[0]: t.append("LL")
-        except: pass
+        except Exception as _e:
+            console.log(f"[dim]warp10 HH/LL pattern skip: {type(_e).__name__}")  # HM-DRYDOCK: was bare except:pass
     if len(h)>=21 and float(c[-2])>float(np.max(h[-22:-2])) and float(c[-1])<float(np.max(h[-22:-2])): t.append("FB")
     if len(c)>=3 and float(c[-2])>float(c[-3]) and float(c[-1])<float(c[-3]): t.append("BE")
     emas=[float(_ema(c,s)[-1]) for s in (8,13,21,34,55)]
@@ -334,7 +335,8 @@ def backtest_warp10(start_date="2026-01-20", end_date="2026-03-21", version="10"
         try:
             df = raw[t].dropna()
             if len(df) >= 20: td[t] = df
-        except: pass
+        except Exception as _e:
+            console.log(f"[dim]warp10 ticker {t} skipped from backtest set: {type(_e).__name__}")  # HM-DRYDOCK: was bare except:pass (silent ticker drop)
 
     vix_df = td.pop("^VIX", None)
     vix_map = {}

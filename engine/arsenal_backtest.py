@@ -207,7 +207,8 @@ def backtest_arsenal(start_date="2026-01-20", end_date="2026-03-21"):
         try:
             df = raw[t].dropna()
             if len(df) >= 20: td[t] = df
-        except Exception: pass
+        except Exception as _e:
+            console.log(f"[dim]arsenal ticker {t} skipped from backtest set: {type(_e).__name__}")  # HM-DRYDOCK: was except Exception: pass (silent ticker drop)
 
     vix_df = td.pop("^VIX", None)
     vix_map = {}
