@@ -11469,7 +11469,7 @@ document.addEventListener('keydown', function(e) {
         </div>
       </div>
       <div class="oai-sec oai-sec--halts">
-        <div class="oai-sec-h">HALTS &amp; RESUMES · SHARED <span class="oai-sec-meta">Fixture · live wire pending</span></div>
+        <div class="oai-sec-h">CRITICAL ALERTS · SHARED <span class="oai-sec-meta">LIVE · volume radar / red-alert</span></div>
         <div id="oai-halts-feed"></div>
       </div>
     </div>
@@ -12762,24 +12762,27 @@ body[data-theme="light"] .sidebar-item {
     }).join('');
   }
 
-  /* ───── Halts/Resumes (fixture) ───── */
-  function renderHaltsFixture() {
-    var halts = [
-      { t:'10:18', sym:'PHOE', state:'RESUMED', reason:null,         price:29.39, vol:'1.15M sh' },
-      { t:'10:13', sym:'PHOE', state:'HALTED',  reason:'volatility', price:29.39, vol:null },
-      { t:'10:13', sym:'OLOX', state:'RESUMED', reason:null,         price:5.19,  vol:'51.8K sh' },
-      { t:'10:10', sym:'OLOX', state:'HALTED',  reason:'volatility', price:5.19,  vol:null },
-      { t:'10:05', sym:'PHOE', state:'RESUMED', reason:null,         price:33.60, vol:'1.08M sh' },
-      { t:'10:02', sym:'NEPH', state:'RESUMED', reason:null,         price:3.47,  vol:'22.8K sh' },
-      { t:'09:59', sym:'NEPH', state:'HALTED',  reason:'volatility', price:3.47,  vol:null }
-    ];
+  /* ───── Halts/Resumes → LIVE critical-volume alerts (HM-DRYDOCK 2026-06-09) ─────
+     No SEC trading-halt feed exists on this tier, so the live wire the Admiral specified is
+     critical_alerts / volume_radar / red_alert: real volume-explosion + red-alert events.
+     Replaces the old hardcoded fixture (PHOE/OLOX/NEPH). Same DOM (oai-sig rows). */
+  function renderHaltsLive() {
     var el = document.getElementById('oai-halts-feed');
     if (!el) return;
-    el.innerHTML = halts.map(function(h) {
-      var cls = h.state === 'HALTED' ? 'halted' : 'resumed';
-      var tail = (h.reason ? ' · ' + h.reason : '') + ' · ' + fmtPrice(h.price) + (h.vol ? ' · ' + h.vol : '');
-      return '<div class="oai-sig"><b>' + h.t + '</b> ' + h.sym + ' · <span class="' + cls + '">' + h.state + '</span>' + tail + '</div>';
-    }).join('');
+    fetch('/api/volume-radar').then(function(r){ return r.json(); }).then(function(d){
+      var alerts = (d && d.alerts) ? d.alerts : [];
+      if (!alerts.length) { el.innerHTML = '<div class="oai-tile-empty">No critical alerts — poller fires next open</div>'; return; }
+      el.innerHTML = alerts.slice(0, 8).map(function(a) {
+        var atype = (a.alert_type || '').toLowerCase();
+        var isRed = atype.indexOf('red') > -1;
+        var cls = isRed ? 'halted' : 'resumed';
+        var label = isRed ? '🔴 RED ALERT' : (atype.indexOf('explosion') > -1 ? '⚡ VOL SPIKE' : (a.alert_type || 'ALERT').toUpperCase());
+        var t = a.detected_at ? new Date(a.detected_at.replace(' ','T')+'Z').toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/Phoenix'}) : '—';
+        var rv = a.relative_volume ? ' · ' + Number(a.relative_volume).toFixed(0) + 'x vol' : '';
+        var gap = (a.gap_pct != null) ? ' · ' + (a.gap_pct >= 0 ? '+' : '') + Number(a.gap_pct).toFixed(1) + '%' : '';
+        return '<div class="oai-sig" onclick="oaiFocusSymbol(\'' + a.symbol + '\')"><b>' + t + '</b> ' + a.symbol + ' · <span class="' + cls + '">' + label + '</span> · ' + fmtPrice(a.price) + rv + gap + '</div>';
+      }).join('');
+    }).catch(function(){ el.innerHTML = '<div class="oai-tile-empty">Alerts unavailable</div>'; });
   }
 
   /* ───── Races ───── */
@@ -15345,7 +15348,7 @@ body[data-theme="light"] .sidebar-item {
     }).catch(function(){ renderMoversHist([]); });
 
     /* Halts (fixture) */
-    renderHaltsFixture();
+    renderHaltsLive();
 
     _loaded = true;
   }
