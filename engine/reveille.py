@@ -165,6 +165,20 @@ def assemble(fresh: bool = True) -> dict:
     clean_picks, suspect_picks = get_recent_picks()
     catalysts = load_catalysts(today)
 
+    # PHASE 2: live pre-market FUTURES tape via the swappable adapter (was the Phase 1 [gap];
+    # sector/movers are already in the intel substrate). FAIL-CLOSED: empty tape on a market
+    # day trips the DEGRADED banner rather than presenting nothing as fresh.
+    futures, md_meta = {}, {"source": "none", "tier": "free"}
+    try:
+        from engine import market_adapter
+        from engine.market_calendar import is_trading_day
+        futures, md_meta = market_adapter.futures()
+        if not futures and is_trading_day(az_now().date()):
+            degraded = (degraded + " | " if degraded else "") + "live futures tape empty (adapter returned nothing)"
+    except Exception as e:
+        degraded = (degraded + " | " if degraded else "") + f"market tape error: {type(e).__name__}"
+        logger.warning("reveille assemble tape failed: %s: %r", type(e).__name__, e)
+
     return {
         "date": today,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
@@ -172,7 +186,9 @@ def assemble(fresh: bool = True) -> dict:
         "clean_picks": clean_picks,
         "suspect_picks": suspect_picks,
         "catalysts": catalysts,
-        "market_data_status": "manual_tbd",   # Phase 1: live adapter is Phase 2
+        "futures": futures,
+        "market_data_status": md_meta.get("tier", "free"),   # PHASE 2: real tier (free), not manual_tbd
+        "market_data_source": md_meta.get("source"),
         "degraded": degraded,
     }
 
@@ -194,6 +210,12 @@ def _packet_prompt(sub: dict) -> str:
     setups = [s for s in (intel.get("technical_setups") or []) if isinstance(s, dict)]
     cats = sub.get("catalysts", [])
     clean = sub.get("clean_picks", [])
+    fut = sub.get("futures") or {}
+    fut_str = "; ".join(
+        f"{k} {v.get('price')}" + (f" ({v.get('change_pct'):+.2f}%)" if v.get('change_pct') is not None else "")
+        for k, v in fut.items()
+    ) or "[gap — adapter returned no futures]"
+    src = sub.get("market_data_source") or "adapter"
 
     lines = [
         f"DATE: {sub['date']}",
@@ -210,7 +232,7 @@ def _packet_prompt(sub: dict) -> str:
         + ("; ".join(f"{p['ticker']} entry={p.get('entry')} stop={p.get('stop')}" for p in clean[:10]) or "none"),
         "- Upcoming catalysts: "
         + ("; ".join(f"{c['date']} {c['label']} [{c['weight']}]" for c in cats) or "none"),
-        "- LIVE MARKET DATA (futures/movers/sector tape): [gap — not wired in Phase 1; mark as manual/TBD]",
+        f"- LIVE FUTURES TAPE ({src}, {sub.get('market_data_status','free')}): {fut_str}",
         "",
         "Write the brief in EXACTLY these six sections, headers verbatim:",
         "1. SITREP — 2-3 line executive read.",
