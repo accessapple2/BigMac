@@ -32,7 +32,7 @@ import requests
 # Config
 # ---------------------------------------------------------------------------
 _DB = "data/trader.db"
-_OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://192.168.1.166:11434")  # Ollie GPU — 2026-04-23 bigmac RAM fix
+_OLLAMA_URL = os.environ.get("OLLAMA_URL", "http://192.168.1.168:11434")  # Ollie GPU — 2026-04-23 bigmac RAM fix
 _MODEL = "qwen3:8b"
 _HORIZON_YEARS = 5
 _AGENT = "sarek"
