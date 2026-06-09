@@ -59,14 +59,22 @@ def canonical_gex(symbol: str) -> dict:
             ]
             magnets = sorted(strikes, key=lambda x: -abs(x["net_gex"]))[:5]
             king = max(ps, key=lambda k: abs(ps[k])) if ps else None
-            return {
-                "underlying": sym, "spot": r["spot"], "total_gex": r["total_gex"],
-                "regime": r["regime"], "gamma_flip": r["gamma_flip"],
-                "call_wall": r["call_wall"], "put_wall": r["put_wall"],
-                "king_node": (float(king) if king is not None else None),
-                "magnets": magnets, "strikes": strikes,
-                "_asof": r["asof"], "_src": "daily-flow_gex.db",
-            }
+            # HM-DRYDOCK 2026-06-09 EPIC4: if the stored daily row has COLLAPSED walls
+            # (call==put==king on one strike — a stale/pre-put_wall-fix artifact), do NOT serve it;
+            # fall through to the live compute (3) which yields distinct walls. Prevents the
+            # post-restart re-collapse (empty intraday cache → was serving this stale row).
+            _cw, _pw = r["call_wall"], r["put_wall"]
+            _kn = (float(king) if king is not None else None)
+            if not (_cw is not None and _cw == _pw == _kn):
+                return {
+                    "underlying": sym, "spot": r["spot"], "total_gex": r["total_gex"],
+                    "regime": r["regime"], "gamma_flip": r["gamma_flip"],
+                    "call_wall": _cw, "put_wall": _pw,
+                    "king_node": _kn,
+                    "magnets": magnets, "strikes": strikes,
+                    "_asof": r["asof"], "_src": "daily-flow_gex.db",
+                }
+            # collapsed → fall through to live compute below
     except Exception:
         pass
     # 3) live compute

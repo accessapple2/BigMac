@@ -743,6 +743,7 @@ def run_archer_morning_briefing():
             return
         # Persist
         _c = _sql.connect("data/trader.db")
+        _c.execute("PRAGMA busy_timeout=30000")  # HM-DRYDOCK EPIC1: explicit (belt-and-braces over main.py:74 patch)
         _c.execute(
             "CREATE TABLE IF NOT EXISTS archer_briefings ("
             "id INTEGER PRIMARY KEY AUTOINCREMENT, briefing TEXT NOT NULL, "
@@ -1595,6 +1596,7 @@ def run_autopilot():
         try:
             import sqlite3 as _sq
             _pc = _sq.connect("data/trader.db", timeout=5)
+            _pc.execute("PRAGMA busy_timeout=30000")  # HM-DRYDOCK EPIC1: explicit (belt-and-braces over main.py:74 patch)
             _rows = _pc.execute(
                 "SELECT DISTINCT symbol FROM positions WHERE qty > 0"
             ).fetchall()
@@ -3136,6 +3138,7 @@ def run_daily_summary():
         prices = get_bulk_prices(get_active_universe())
 
         conn = sqlite3.connect("data/trader.db", check_same_thread=False)
+        conn.execute("PRAGMA busy_timeout=30000")  # HM-DRYDOCK EPIC1: explicit (belt-and-braces over main.py:74 patch)
         conn.row_factory = sqlite3.Row
         players = conn.execute(
             # HM-AK-β 2026-05-07: halt_mode filter — skip halted_full and exit_only rows
@@ -3756,6 +3759,7 @@ def maybe_reset_equity():
     import sqlite3 as _sq
     _db = os.environ.get("TRADEMINDS_DB", os.path.expanduser("~/autonomous-trader/data/trader.db"))
     c = _sq.connect(_db, timeout=10)
+    c.execute("PRAGMA busy_timeout=30000")  # HM-DRYDOCK EPIC1: explicit (belt-and-braces over main.py:74 patch)
     c.execute('''CREATE TABLE IF NOT EXISTS system_settings
         (key TEXT PRIMARY KEY, value TEXT,
          updated_at TEXT DEFAULT CURRENT_TIMESTAMP)''')
@@ -3792,6 +3796,7 @@ if __name__ == "__main__":
     ):
         try:
             _wc = sqlite3.connect(_wal_db, timeout=10)
+            _wc.execute("PRAGMA busy_timeout=30000")  # HM-DRYDOCK EPIC1: explicit (belt-and-braces over main.py:74 patch)
             _wc.execute("PRAGMA journal_mode=WAL")
             _wc.execute("PRAGMA synchronous=NORMAL")   # safe with WAL; faster than FULL
             _wc.close()
@@ -4453,6 +4458,7 @@ if __name__ == "__main__":
         _db_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "data", "trader.db")
         try:
             _tc = sqlite3.connect(_db_path, timeout=5)
+            _tc.execute("PRAGMA busy_timeout=30000")  # HM-DRYDOCK EPIC1: explicit (belt-and-braces over main.py:74 patch)
             _tc.execute("SELECT 1")
             _tc.close()
         except sqlite3.OperationalError as _dbe:
@@ -4468,6 +4474,7 @@ if __name__ == "__main__":
             _now_wd = az_now().weekday()
             if _now_wd < 5 and 7 <= _now_h <= 14:
                 _sc = sqlite3.connect(_db_path, timeout=5)
+                _sc.execute("PRAGMA busy_timeout=30000")  # HM-DRYDOCK EPIC1: explicit (belt-and-braces over main.py:74 patch)
                 _last_scan = _sc.execute(
                     "SELECT MAX(created_at) as last FROM crew_decisions "
                     "WHERE created_at >= datetime('now', '-10 minutes')"
@@ -4933,6 +4940,7 @@ if __name__ == "__main__":
             from engine.archer.brain import morning_briefing as _archer_brief
             # Recency guard: skip if a briefing was already stored in the last 6h.
             _c = _sql.connect("data/trader.db")
+            _c.execute("PRAGMA busy_timeout=30000")  # HM-DRYDOCK EPIC1: explicit (belt-and-braces over main.py:74 patch)
             _c.execute(
                 "CREATE TABLE IF NOT EXISTS archer_briefings ("
                 "id INTEGER PRIMARY KEY AUTOINCREMENT, briefing TEXT NOT NULL, "

@@ -11342,6 +11342,9 @@ def regime_status():
     shadow-stamping sidecar (gated by design — NOT this endpoint's source; see SUPER_MAX W4)."""
     from engine.warp10_engine import get_current_allocation
     alloc = get_current_allocation()
+    if not isinstance(alloc, dict):
+        alloc = {}
+    row = None
     try:
         import sqlite3 as _sq
         _c = _sq.connect("data/trader.db")
@@ -11350,13 +11353,28 @@ def regime_status():
             "SELECT regime, size_modifier, date FROM regime_history ORDER BY date DESC LIMIT 1"
         ).fetchone()
         _c.close()
-        if row and isinstance(alloc, dict):
-            alloc["regime"] = row["regime"]
-            alloc["size_modifier"] = row["size_modifier"]
-            alloc["regime_source"] = "regime_history (8/21 MA-cross)"
-            alloc["regime_as_of"] = row["date"]
     except Exception:
-        pass
+        row = None
+    # Fail-conservative: regime_history is the source of truth. If it's MISSING or STALE (latest row
+    # older than ~3 sessions), NEVER default to BULL full-size — floor to CAUTIOUS_BULL 0.75. Matches
+    # the actual sizing path (regime_ma.get_ma_cross_size_modifier also defaults 0.75). HM-DRYDOCK EPIC3.
+    _stale = True
+    if row is not None:
+        try:
+            import datetime as _dt
+            _d = _dt.date.fromisoformat(str(row["date"])[:10])
+            _stale = (_dt.date.today() - _d).days > 5
+        except Exception:
+            _stale = True
+    if row is not None and not _stale:
+        alloc["regime"] = row["regime"]
+        alloc["size_modifier"] = row["size_modifier"]
+        alloc["regime_source"] = "regime_history (8/21 MA-cross)"
+        alloc["regime_as_of"] = row["date"]
+    else:
+        alloc["regime"] = "CAUTIOUS_BULL"
+        alloc["size_modifier"] = min(float(alloc.get("size_modifier") or 1.0), 0.75)
+        alloc["regime_source"] = "fail-conservative (regime_history missing/stale — capped 0.75, never BULL full-size)"
     return alloc
 
 

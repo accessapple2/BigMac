@@ -105,6 +105,10 @@ _GEX_CACHE_TTL = 60.0   # cache the snapshot per ~run — avoid the per-item-fet
 
 
 def _ensure_regime_table(conn: sqlite3.Connection) -> None:
+    # W4-RESERVED (HM-DRYDOCK note 2026-06-09): signal_regime is the SUPER_MAX W4 per-shadow-signal
+    # regime-stamp sidecar (gamma_sign × VIX × time-of-day), parked-by-design until W4 graduates — it
+    # is NOT the live market-regime/sizing source (that's regime_history via regime_ma). Intentionally
+    # may be empty. Do NOT wire it into sizing or retire it; leave for W4.
     conn.execute("""
         CREATE TABLE IF NOT EXISTS signal_regime (
             signal_id      INTEGER PRIMARY KEY,
