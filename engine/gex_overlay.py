@@ -426,6 +426,10 @@ def _extract_key_levels(data: dict) -> dict:
     ]
 
     total_gex = sum(s.get("net_gex", 0) for s in strikes)
+    # HM-DRYDOCK A1 DOCTRINE 2026-06-09 — INTENTIONAL, do NOT "fix" to flip-based: this SIGN-based
+    # regime is persisted to gex_levels and feeds the COMPOSITE (gex:352) as the conservative score
+    # input. DISPLAY/narrative (Archer/Troi/GEX panels) deliberately read the FLIP-based canonical
+    # (options_flow_gex) instead. The two intentionally differ — sign for scoring, flip for display.
     regime = "positive_gamma" if total_gex >= 0 else "negative_gamma"
 
     return {

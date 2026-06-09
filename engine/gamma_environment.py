@@ -42,6 +42,9 @@ def detect_gamma_environment() -> dict:
         put_walls = sum(1 for m in magnets if m["type"] == "put_wall")
 
         # Determine environment
+        # HM-DRYDOCK A1 DOCTRINE 2026-06-09 — INTENTIONAL, do NOT "fix" to flip-based: this SIGN-based
+        # gamma read drives DayBlade SIZING (sizing_factor) — the correct conservative volatility input.
+        # Display/narrative use the flip-based canonical; the divergence is intentional, not a bug.
         if total_gex > 0:
             environment = "positive"
             label = "POSITIVE GAMMA"

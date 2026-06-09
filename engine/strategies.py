@@ -204,6 +204,13 @@ def check_gap_fill(close):
         return False
     gap_pct = (float(close[-2]) - float(close[-3])) / float(close[-3]) * 100
     recovery = (float(close[-1]) - float(close[-2])) / float(close[-2]) * 100
+    # HM-DRYDOCK A5 2026-06-09: reject ABNORMAL moves (limit-move / news spike). A genuine gap-fill is
+    # a modest gap + modest recovery (06-08 median recovery 3.5%). Bound recovery>15% / |gap|>20% so an
+    # abnormal gapper (e.g. TNGX +53% recovery) can't fire gap_fill → can't earn the family-independence
+    # credit that inflated it to conv 1.0 (before/after: TNGX 1.0→0.875, out of top-3, 3/147 affected).
+    # Forward-looking (next scan); other families untouched.
+    if abs(gap_pct) > 20 or recovery > 15:
+        return False
     return gap_pct < -3 and recovery > 1
 
 
