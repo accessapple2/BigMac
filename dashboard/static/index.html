@@ -4853,7 +4853,8 @@ registerSectionInit('ready-room', function() {
           <div style="font-size:13px;color:var(--muted);">Crew synthesis — updated every 10 min during market hours</div>
         </div>
       </div>
-      <div style="display:flex;gap:8px;">
+      <div style="display:flex;gap:8px;align-items:center;">
+        <span id="rikerVerdictBadge" style="font-size:13px;font-weight:800;"></span><!-- HM-DRYDOCK: parsed verdict; raw narrative is the fallback body below -->
         <span id="rikerTimestamp" style="font-size:13px;color:var(--muted);"></span>
         <button class="btn btn-ghost" onclick="generateRikerSynthesis()" style="font-size:13px;">🫡 Synthesize Now</button>
       </div>
@@ -4897,6 +4898,17 @@ async function fetchRikerRecommendation() {
       // C1 HM-RIKER-LLM-TOKENIZER-ARTIFACT: strip <unusedNNNN> tokenizer leakage from LLM output
       el.textContent = String(d.recommendation).replace(/<unused\d+>\s*/g, '');
       el.style.color = 'var(--text)';
+      // HM-DRYDOCK 2026-06-09: parse the verdict → badge (raw narrative above stays as the fallback).
+      var _vb = document.getElementById('rikerVerdictBadge');
+      if (_vb) {
+        var _vm = String(d.recommendation).toUpperCase().match(/\b(STRONG\s+BUY|STRONG\s+SELL|BUY|SELL|HOLD|WAIT|YES|NO)\b/);
+        if (_vm) {
+          var _v = _vm[1].replace(/\s+/g,' ');
+          var _vc = /BUY|YES/.test(_v) ? '#10b981' : (/SELL|NO/.test(_v) ? '#ef4444' : '#f59e0b');
+          _vb.textContent = _v;
+          _vb.style.cssText = 'font-size:13px;font-weight:800;padding:2px 10px;border-radius:6px;color:#0f172a;background:'+_vc+';';
+        } else { _vb.textContent=''; _vb.style.background='transparent'; }
+      }
       if (ts && d.generated_at) {
         var genDate = new Date(d.generated_at);
         var minsAgo = Math.round((Date.now() - genDate.getTime()) / 60000);
@@ -7627,7 +7639,10 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           var gapColor = gap > 0 ? 'var(--green)' : gap < 0 ? 'var(--red)' : 'var(--muted)';
           var rvBg = _vrRelVolBg(rv);
           var rvColor = _vrRelVolColor(rv);
-          var t = a.detected_at ? new Date(a.detected_at+'Z').toLocaleTimeString([],{hour:'2-digit',minute:'2-digit'}) : '—';
+          // HM-DRYDOCK 2026-06-09: render in AZ (America/Phoenix) like the rest of the dashboard —
+          // was toLocaleTimeString([]) (browser-local → looked ahead of the ET/MST clock). detected_at
+          // is space-UTC; replace ' '→'T' + 'Z' so it parses as UTC, then localize to AZ.
+          var t = a.detected_at ? new Date(a.detected_at.replace(' ','T')+'Z').toLocaleTimeString('en-US',{hour:'2-digit',minute:'2-digit',timeZone:'America/Phoenix'}) : '—';
           rows += '<tr style="border-bottom:1px solid var(--border);cursor:pointer;" onclick="openTVChart(\''+a.symbol+'\')">';
           rows += '<td style="padding:7px 8px;font-weight:700;font-family:var(--font-mono);">' + a.symbol + '</td>';
           rows += '<td style="padding:7px 8px;text-align:right;font-family:var(--font-mono);">$' + (a.price||0).toFixed(2) + '</td>';
