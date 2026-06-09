@@ -79,3 +79,27 @@ def sector_tape():
     except Exception as e:
         logger.warning("market_adapter: sector_tape failed: %r", e)
         return {}, {"source": "sector_heatmap", "tier": "free", "error": type(e).__name__}
+
+
+def volume_profile_bars(symbols, range_str: str = "3mo"):
+    """Consolidated daily bars for VOLUME PROFILE → ({symbol: df}, meta).
+
+    ALWAYS routes to Polygon (already-paid Starter) regardless of MARKET_DATA_PROVIDER:
+    the free Alpaca IEX feed carries only ~3.5% of consolidated volume — unusable for a
+    profile. Empty on failure → VP simply doesn't nudge (soft, fail-safe). This is an
+    APPROXIMATE DAILY-volume profile, not intraday VAP.
+    """
+    syms = list(symbols)
+    if not syms:
+        return {}, {"source": "none", "tier": "n/a", "vp": "approximate daily-volume profile"}
+    try:
+        from engine.market_data import get_polygon_bars
+        out = get_polygon_bars(syms)
+        if isinstance(out, dict) and out:
+            return out, {"source": "polygon_consolidated", "tier": "paid",
+                         "vp": "approximate daily-volume profile"}
+        logger.warning("market_adapter: polygon VP bars empty")
+    except Exception as e:
+        logger.warning("market_adapter: volume_profile_bars failed: %r", e)
+    return {}, {"source": "polygon_consolidated", "tier": "paid",
+                "vp": "approximate daily-volume profile", "error": "unavailable"}

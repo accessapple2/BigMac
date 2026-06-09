@@ -158,14 +158,16 @@ def _atr(df, period: int = 14):
         return None
 
 
-# HM-PHASE2-HANDLES 2026-06-08: target cap candidates = swing highs ∪ reacted round handles.
-# Naked round numbers (no prior reaction) are NOT walls. Trust: swing high > reacted handle.
-HANDLES_ENABLED = os.getenv("PHASER_HANDLES_ENABLED", "true").lower() in ("1", "true", "yes", "on")
-_HANDLE_TOL = 0.004   # 0.4% touch tolerance for a "reaction"
+# HM-PHASE2-VP 2026-06-08: the HARD target cap stays on SWING HIGHS (precise, price-confirmed).
+# Volume-profile nodes are a SOFT conviction nudge ONLY — they never set the hard wall. Round-ness
+# is a confidence bonus on a COINCIDENT high-volume node (this SUBSUMES the old reacted handles —
+# round numbers are no longer standalone walls); naked round numbers (no volume node) are excluded.
+# Profile = APPROXIMATE DAILY-VOLUME (Polygon consolidated daily bars), NOT intraday VAP.
+VP_ENABLED = os.getenv("PHASER_VP_ENABLED", "true").lower() in ("1", "true", "yes", "on")
 
 
 def _swing_levels(highs, lookback: int = 40, win: int = 2) -> list:
-    """Local-maxima swing highs in the lookback window (the structural walls)."""
+    """Local-maxima swing highs in the lookback window (the structural HARD-cap walls)."""
     h = list(highs[-lookback:])
     out = []
     for i in range(win, len(h) - win):
@@ -174,57 +176,77 @@ def _swing_levels(highs, lookback: int = 40, win: int = 2) -> list:
     return out
 
 
-def _handle_step(entry: float) -> float:
-    if entry < 20:  return 0.5     # half-dollars on low-priced names
-    if entry < 50:  return 1.0     # whole dollars
-    if entry < 100: return 5.0     # $5 multiples
+def _handle_step(price: float) -> float:
+    if price < 20:  return 0.5     # half-dollars on low-priced names
+    if price < 50:  return 1.0     # whole dollars
+    if price < 100: return 5.0     # $5 multiples
     return 10.0                    # $10 multiples
 
 
-def _reacted_handles(df, entry: float, lookback: int = 40) -> list:
-    """Round/psych levels above entry that price PRIOR-reacted to (touch + rejection).
-    Bounded candidate set (step scales with price; range entry..+30%) — not every cent.
-    'Reacted' = a bar reached the level (high within tol / above) AND closed back below it."""
+def _is_round_level(price: float, tol: float = 0.004) -> bool:
+    """True if `price` sits on a round/psychological handle (price-scaled step)."""
+    step = _handle_step(price)
+    nearest = round(price / step) * step
+    return abs(price - nearest) <= max(price * tol, step * 0.1)
+
+
+def _overhead_resistance(df, entry: float, lookback: int = 40):
+    """HARD CAP = nearest SWING HIGH above entry (price-confirmed structure ONLY — VP never
+    touches this). None = blue sky (no cap → full target)."""
     try:
-        opens  = df["Open"].values[-lookback:]
-        highs  = df["High"].values[-lookback:]
-        lows   = df["Low"].values[-lookback:]
-        closes = df["Close"].values[-lookback:]
-        step = _handle_step(entry)
-        hi = entry * 1.30
-        cands, x = [], (int(entry / step) + 1) * step
-        while x <= hi and len(cands) < 40:        # bound the candidate set
-            cands.append(round(x, 2)); x += step
-        reacted = []
-        for lvl in cands:
-            tol = lvl * _HANDLE_TOL
-            for i in range(len(highs)):
-                rng = highs[i] - lows[i]
-                if rng <= 0:
-                    continue
-                pierced  = (lvl - tol) <= highs[i] <= lvl * 1.01        # touched the level, did NOT blow through
-                rejected = closes[i] < lvl                              # closed back below it
-                wick_ok  = (highs[i] - max(opens[i], closes[i])) >= rng * 0.33   # genuine upper-wick rejection
-                if pierced and rejected and wick_ok:
-                    reacted.append(lvl); break
-        return reacted
+        levels = [h for h in _swing_levels(df["High"].values, lookback) if h > entry * 1.005]
+        return min(levels) if levels else None    # nearest swing high above entry
+    except Exception:
+        return None
+
+
+def _volume_profile(df, bins: int = 24) -> list:
+    """Approximate daily-volume profile: distribute each day's CONSOLIDATED volume across its
+    H–L range into price bins → [(price, volume), ...]. NOT intraday VAP (A1 approximation)."""
+    try:
+        highs, lows, vols = df["High"].values, df["Low"].values, df["Volume"].values
+        lo, hi = float(min(lows)), float(max(highs))
+        if hi <= lo:
+            return []
+        width = (hi - lo) / bins
+        buckets = [0.0] * bins
+        for i in range(len(vols)):
+            bl = max(0, min(bins - 1, int((lows[i] - lo) / width)))
+            bh = max(0, min(bins - 1, int((highs[i] - lo) / width)))
+            share = float(vols[i]) / (bh - bl + 1)
+            for b in range(bl, bh + 1):
+                buckets[b] += share
+        return [(lo + (b + 0.5) * width, buckets[b]) for b in range(bins)]
     except Exception:
         return []
 
 
-def _overhead_resistance(df, entry: float, lookback: int = 40):
-    """Nearest overhead wall above entry from {swing highs} ∪ {reacted round handles}.
-    Naked round numbers (unreacted) excluded. None = blue sky (no cap → full target)."""
-    try:
-        levels = [(h, 0) for h in _swing_levels(df["High"].values, lookback) if h > entry * 1.005]
-        if HANDLES_ENABLED:
-            levels += [(h, 1) for h in _reacted_handles(df, entry, lookback) if h > entry * 1.005]
-        if not levels:
-            return None
-        levels.sort(key=lambda x: (round(x[0], 2), x[1]))   # nearest overhead; swing wins ties
-        return levels[0][0]
-    except Exception:
-        return None
+def _vp_conviction_factor(vp_df, entry: float, target: float):
+    """SOFT conviction multiplier from the approximate daily-volume profile. A high-volume node in
+    the path (entry→target) is overhead resistance → headwind → penalty. A node coinciding with a
+    round handle gets a strength bonus (bigger penalty — the round-ness bonus). No overhead node →
+    neutral (1.0). Bounded to [0.70, 1.0] so it NUDGES, never silently gates. Returns (factor, note).
+
+    A2 UPGRADE PATH (not built): swap `vp_df` daily bars for intraday MINUTE aggregates (Polygon
+    Starter supports historical minute) for true volume-at-price, scoped to these funnel finalists
+    only — adopt if the daily node proves too coarse or if VP is ever promoted to drive the cap."""
+    if vp_df is None or getattr(vp_df, "empty", True):
+        return 1.0, "VP unavailable (approximate daily-volume profile)"
+    profile = _volume_profile(vp_df)
+    if not profile:
+        return 1.0, "VP empty"
+    in_path = [(p, v) for p, v in profile if entry < p <= target]
+    if not in_path:
+        return 1.0, "clear path — no overhead volume node (approximate daily-volume profile)"
+    node_p, node_v = max(in_path, key=lambda x: x[1])
+    total = sum(v for _, v in profile) or 1.0
+    penalty = min(0.12, (node_v / total) * 0.8)        # node's share of profile volume → headwind (gentle)
+    rnd = ""
+    if _is_round_level(node_p):                        # round-coincident node → stronger (the bonus)
+        penalty = min(0.15, penalty * 1.3)
+        rnd = " round-coincident"
+    factor = round(max(0.85, 1.0 - penalty), 3)        # bounded to a NUDGE, not a second gate
+    return factor, f"overhead vol node @ {node_p:.2f}{rnd} → conf x{factor} (approximate daily-volume profile)"
 
 
 def _hybrid_target(entry: float, strategy_stop: float, df) -> dict | None:
@@ -288,26 +310,46 @@ def rank_setups() -> dict:
     candidates = get_setup_candidates(today)
     rs_map = get_rs_map(set(candidates))
     cross = get_cross_source(today)
-    # PHASE 2: prior-session OHLCV via the swappable adapter → independent ATR/level targets
+    # PHASE 2: prior-session OHLCV via the swappable adapter → independent ATR/level (swing) targets
     from engine import market_adapter
     bars, data_source = market_adapter.bulk_daily_ohlcv(list(candidates))
 
-    scored = []
+    # HARD gate first: swing-cap R:R>=floor + base conviction>=floor → provisional finalists
+    prov = []
     for t, rows in candidates.items():
         s = score_ticker(t, rows, rs_map, cross, bars.get(t))
-        if s:
-            scored.append(s)
-    qualifying = [s for s in scored if s["rr"] >= RR_FLOOR and s["conviction"] >= CONVICTION_FLOOR]
-    qualifying.sort(key=lambda s: s["conviction"], reverse=True)
+        if s and s["rr"] >= RR_FLOOR and s["conviction"] >= CONVICTION_FLOOR:
+            prov.append(s)
+
+    # SOFT VP nudge — REAL consolidated volume (Polygon, already paid), SCOPED to finalists only.
+    # Adjusts conviction for RANKING + display ONLY. It NEVER re-gates: the gate stays on BASE
+    # conviction, so the soft nudge cannot silently re-tighten the count (many finalists sit on the
+    # 0.75 floor, where any cut would mass-drop them). VP re-orders which setups surface in the
+    # top-N and flags overhead-volume headwinds; the qualified count == provisional by construction.
+    vp_source = {"vp": "disabled"}
+    for s in prov:
+        s["base_conviction"] = s["conviction"]
+        s["conviction_vp"] = s["conviction"]
+    if VP_ENABLED and prov:
+        vp_bars, vp_source = market_adapter.volume_profile_bars([s["ticker"] for s in prov])
+        for s in prov:
+            factor, note = _vp_conviction_factor(vp_bars.get(s["ticker"]), s["entry"], s["target"])
+            s["vp_factor"] = factor
+            s["vp_note"] = note
+            s["conviction_vp"] = round(s["conviction"] * factor, 4)
+
+    qualifying = sorted(prov, key=lambda s: s["conviction_vp"], reverse=True)  # rank by VP-adjusted; count unchanged
     top = qualifying[:MAX_PICKS]
     return {
         "date": today,
         "generated_at": datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S"),
         "model": PHASER_MODEL,
         "bar": {"rr_floor": RR_FLOOR, "conviction_floor": CONVICTION_FLOOR},
-        "data_source": data_source,            # PHASE 2: {source, tier} — free/paid honesty
+        "data_source": data_source,            # price levels: {source, tier}
+        "vp_source": vp_source,                # volume profile: {source, tier, vp-label}
         "scanned": len(candidates),
-        "qualified": len(qualifying),
+        "provisional": len(prov),              # passed the HARD gate (pre-VP)
+        "qualified": len(qualifying),          # cleared after the soft VP nudge
         "picks": top,
         "no_qualifying_setup": len(top) == 0,
     }
