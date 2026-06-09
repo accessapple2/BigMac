@@ -228,6 +228,10 @@ class VolSurfaceData:
 
 # ─── CONFLUENCE SIGNAL — Individual Signal Votes ─────────────
 
+# HM-DRYDOCK-2: 6h cache for the FRED Bankrate context vote (weekly data — don't hit FRED every cycle).
+_FRED_VOTE_CACHE = {"data": None, "ts": 0}
+
+
 @dataclass
 class SignalVote:
     """One signal source's vote on direction."""
@@ -235,6 +239,7 @@ class SignalVote:
     direction: str       # "BEARISH", "BULLISH", "NEUTRAL"
     weight: float        # 0.0 to 2.0 (some signals count more)
     reasoning: str
+    is_context: bool = False  # context-only sources are SHOWN but NOT counted toward aligned (the trade gate)
 
     def __str__(self):
         icon = "🔴" if self.direction == "BEARISH" else "🟢" if self.direction == "BULLISH" else "⚪"
@@ -531,6 +536,28 @@ class LtUhura:
         return SignalVote("high_iv", "NEUTRAL", 0.3,
                           f"VIX {high_iv.vix} normal — debit or credit both fine")
 
+    def _vote_fred_bankrate(self) -> SignalVote:
+        """CONTEXT-ONLY macro lean from FRED Bankrate deposit rates (release 742). weight 0.5,
+        is_context=True → SHOWN but NEVER counted toward aligned (the trade gate). Weekly data,
+        so cached 6h to avoid hitting FRED every cycle. HM-DRYDOCK-2."""
+        import time as _t
+        now = _t.time()
+        if _FRED_VOTE_CACHE.get("data") is not None and (now - _FRED_VOTE_CACHE.get("ts", 0)) < 21600:
+            return _FRED_VOTE_CACHE["data"]
+        try:
+            from engine.fred_bankrate_signal import get_signal
+            s = get_signal()
+            v = s.get("vote")
+            direction = "BULLISH" if v == "confirm" else "BEARISH" if v == "caution" else "NEUTRAL"
+            vote = SignalVote("fred_bankrate", direction, 0.5,
+                              f"[context] {s.get('reason', 'deposit-rate lean')}", is_context=True)
+        except Exception as e:
+            vote = SignalVote("fred_bankrate", "NEUTRAL", 0.5,
+                              f"[context] unavailable: {type(e).__name__}", is_context=True)
+        _FRED_VOTE_CACHE["data"] = vote
+        _FRED_VOTE_CACHE["ts"] = now
+        return vote
+
     # ── CONFLUENCE CALCULATOR ────────────────────────────────
 
     def _calculate_confluence(self, votes: list[SignalVote]) -> dict:
@@ -538,8 +565,9 @@ class LtUhura:
         Count how many independent signals agree on direction.
         This is THE key filter. 4+ aligned = trade. <4 = no trade.
         """
-        # Only count non-neutral votes
-        directional = [v for v in votes if v.direction != "NEUTRAL"]
+        # Only count non-neutral votes; context-only sources (e.g. fred_bankrate) are excluded
+        # from the gate — they're displayed for context but never count toward aligned. HM-DRYDOCK-2.
+        directional = [v for v in votes if v.direction != "NEUTRAL" and not v.is_context]
         bearish = [v for v in directional if v.direction == "BEARISH"]
         bullish = [v for v in directional if v.direction == "BULLISH"]
 
@@ -730,6 +758,7 @@ class LtUhura:
             self._vote_congress(congress_trades or [], watchlist),
             self._vote_arena(arena),
             self._vote_high_iv(high_iv),
+            self._vote_fred_bankrate(),   # HM-DRYDOCK-2: context-only (wt 0.5, never gates)
         ]
 
         for v in votes:
