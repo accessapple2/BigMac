@@ -35906,8 +35906,11 @@ function loadGlanceData() {
     var sortedDesc = d.sectors.slice().sort(function(a,b){return (b.change_pct||0)-(a.change_pct||0);});
     var leaders = sortedDesc.filter(function(s){return (s.change_pct||0) > 0;}).slice(0,2).map(function(s){return s.sector;});
     var laggards = sortedDesc.filter(function(s){return (s.change_pct||0) < 0;}).slice(-2).map(function(s){return s.sector;});
-    var aboveSpy = d.sectors.filter(function(s){return (s.change_pct||0) > spyCh;}).length;
-    el.textContent = aboveSpy + '/' + d.sectors.length + ' beating SPY | ▲ ' + (leaders.join(', ')||'—') + ' | ▼ ' + (laggards.join(', ')||'—');
+    // HM-DRYDOCK A4 2026-06-09: denominator must be SECTORS ONLY (11) — exclude any SPY entry so
+    // it can't read "/12" (SPY can't beat itself). Canonical sector universe is 11.
+    var _secs = d.sectors.filter(function(s){return (s.sector||s.etf||s.symbol||'').toUpperCase()!=='SPY';});
+    var aboveSpy = _secs.filter(function(s){return (s.change_pct||0) > spyCh;}).length;
+    el.textContent = aboveSpy + '/' + _secs.length + ' beating SPY | ▲ ' + (leaders.join(', ')||'—') + ' | ▼ ' + (laggards.join(', ')||'—');
     // Expand
     var exp = document.getElementById('g-sectors-inner');
     if (exp) {
