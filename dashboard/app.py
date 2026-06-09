@@ -5652,9 +5652,33 @@ def confidence_matrix():
 
 @app.get("/api/market/gex")
 def gex_all():
-    """Get GEX data for all supported tickers."""
-    from engine.gex_scanner import get_all_gex
-    return get_all_gex()
+    """Get GEX data for all supported tickers.
+
+    HM-DRYDOCK A1 2026-06-09: repointed off legacy engine.gex_scanner (CBOE — stale spot, sign-based
+    regime that contradicted Archer + wrong/collapsed walls) onto the SINGLE canonical GEX
+    (engine.canonical_gex via _canonical_gex) — flip-based regime, corrected walls (put_wall min),
+    the same source every other GEX panel reads. One canonical source, no cross-panel contradiction."""
+    try:
+        from engine.gex_scanner import GEX_TICKERS
+    except Exception:
+        GEX_TICKERS = ["SPY", "QQQ", "NVDA", "TSLA", "AAPL"]
+    out = []
+    for t in GEX_TICKERS:
+        try:
+            c = _canonical_gex(t)
+            if c.get("error"):
+                continue
+            out.append({
+                "ticker": c.get("underlying", t), "spot": c.get("spot"),
+                "total_gex": c.get("total_gex"), "gamma_flip": c.get("gamma_flip"),
+                "call_wall": c.get("call_wall"), "put_wall": c.get("put_wall"),
+                "king_node": c.get("king_node"), "regime": c.get("regime"),
+                "strikes": c.get("strikes", []),
+                "source": "canonical (options_flow_gex)",
+            })
+        except Exception:
+            continue
+    return out
 
 
 @app.get("/api/market/gex/{ticker}")
