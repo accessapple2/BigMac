@@ -349,7 +349,9 @@ def _compute_composite(chain_df, levels: dict) -> dict:
         spot = levels.get("spot_price") or 0
         regime_raw = levels.get("regime", "")
         gex_profile = {
-            "regime": "positive" if regime_raw == "positive_gamma" else "negative",
+            # HM-DRYDOCK gex:352 2026-06-09: pass "unknown" (not "negative") when regime is missing,
+            # so the composite abstains (neutral) instead of fabricating a bearish lean.
+            "regime": "positive" if regime_raw == "positive_gamma" else ("negative" if regime_raw == "negative_gamma" else "unknown"),
             "gamma_flip": levels.get("gamma_flip"),
         }
         result = calculate_composite_score(chain_df, gex_profile, spot)

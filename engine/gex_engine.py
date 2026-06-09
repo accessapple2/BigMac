@@ -512,10 +512,14 @@ def calculate_composite_score(raw_chain, gex_profile, spot):
     gamma_flip = gex_profile.get("gamma_flip", spot)
     flip_distance = (spot - gamma_flip) / spot if gamma_flip else 0
 
-    if gex_profile["regime"] == "positive":
+    if gex_profile.get("regime") == "positive":
         gex_score = 50 + min(flip_distance * 500, 40)
-    else:
+    elif gex_profile.get("regime") == "negative":
         gex_score = 50 - min(abs(flip_distance) * 500, 40)
+    else:
+        # HM-DRYDOCK gex:352 2026-06-09: unknown/missing regime → ABSTAIN (neutral). Never fabricate
+        # a bearish lean from no data (conservative-by-accident is still fabricated). Admiral-approved.
+        gex_score = 50
     gex_score = max(10, min(90, gex_score))
 
     # --- Delta Flow (25%) ---
