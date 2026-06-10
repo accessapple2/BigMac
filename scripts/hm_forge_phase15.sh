@@ -5,17 +5,14 @@
 #   bash scripts/hm_forge_phase15.sh --check   # guards only, NO actions (dry-run)
 #   bash scripts/hm_forge_phase15.sh           # full window run (cron fires this)
 #
-# ── SUDO REALITY (verified 2026-06-10) ───────────────────────────────────────
-# .168 has NO passwordless sudo (`sudo -n` => interactive auth required). So the
-# Ollama UPGRADE (install.sh) and any systemd drop-in re-apply CANNOT run
-# unattended. This script therefore:
-#   * does the full NO-SUDO subset autonomously (snapshot, smoke, bench,
-#     trader restart -> activates the conviction-stop SHADOW, commit/push),
-#   * NTFYs the EXACT manual upgrade command at START and again before the
-#     bench HOLD, so the Captain can key it live during the 13:07->13:45 window,
-#   * re-checks for gemma4 after the hold: 3-way bench if the upgrade landed,
-#     else 2-way (plutus-v1 vs gpt-oss:20b) with a logged note.
-# We never touch the ollama service here, so there is nothing to "leave down".
+# ── UPGRADE PATH (HM-FORGE 1.5-D, 2026-06-10) ────────────────────────────────
+# .168 grants bigmac a scoped NOPASSWD sudoers entry for the root-owned wrapper
+# /usr/local/sbin/ollama_upgrade.sh (upgrades Ollama + re-applies the FA/KV/HOST
+# drop-in). Step (c) runs the upgrade UNATTENDED via `sudo -n`; everything else
+# is no-sudo. Expected bench path is 3-WAY; the 2-way (plutus-v1 vs gpt-oss:20b)
+# path remains ONLY as a runtime safety branch if `sudo -n` fails at run time
+# (gemma4 then stays 412-blocked). The upgrade restarts ollama (brief fleet
+# inference blip) — that's why this runs market-closed.
 set -uo pipefail
 # cron has a minimal env — make ssh/curl/git/lsof/python resolvable
 export PATH="/opt/homebrew/bin:/usr/local/bin:/usr/bin:/bin:/usr/sbin:/sbin:$PATH"
@@ -28,7 +25,6 @@ TOPIC="ollietrades-admin"
 HOST="olliemax"
 FLEET=(gpt-oss:20b qwen3.5:9b deepseek-r1:14b qwen3:14b plutus-v1:latest \
        gemma3:4b ministral-3:3b qwen2.5-coder:7b qwen3:8b)
-UPGRADE_CMD="ssh -t $HOST 'curl -fsSL https://ollama.com/install.sh | sh'   # then re-verify FA/KV drop-in"
 CHECK=0; [ "${1:-}" = "--check" ] && CHECK=1
 
 mkdir -p "$REPO/logs"
@@ -68,19 +64,19 @@ fi
 guards || die "guards failed: $(guards 2>&1 | tail -1)"
 cd "$REPO" || die "cannot cd $REPO"
 log "=== HM-FORGE 1.5 window START ==="
-ntfy "HM-FORGE 1.5 window START. MANUAL UPGRADE (no passwordless sudo on .168): $UPGRADE_CMD"
+ntfy "HM-FORGE 1.5 window START (auto-upgrade via scoped sudo wrapper; expected 3-way bench)."
 
 # a/b snapshot
 ssh "$HOST" 'ollama --version; echo "---"; ollama list' > "$SNAP" 2>&1 || die "snapshot ssh failed"
 log "snapshot -> $SNAP ($(ssh $HOST 'ollama --version'))"
 
-# c upgrade — SUDO-GATED, cannot run unattended. Surface, do not fail.
-if ssh "$HOST" 'sudo -n true' 2>/dev/null; then
-  log "passwordless sudo present — upgrading ollama"
-  ssh -t "$HOST" 'curl -fsSL https://ollama.com/install.sh | sh' 2>&1 | tee -a "$LOG" || anomaly "upgrade attempt failed"
+# c upgrade via scoped NOPASSWD wrapper (HM-FORGE 1.5-D). Expected path = 3-way.
+UPGRADE_OK=0
+if ssh "$HOST" 'sudo -n /usr/local/sbin/ollama_upgrade.sh' >>"$LOG" 2>&1; then
+  UPGRADE_OK=1
+  log "ollama upgraded via wrapper -> $(ssh "$HOST" 'ollama --version' 2>/dev/null)"
 else
-  log "SKIP upgrade: no passwordless sudo on .168. Manual: $UPGRADE_CMD"
-  ntfy "HM-FORGE 1.5: ollama upgrade NEEDS your sudo on .168 — key it now to unblock gemma4 + 3-way. $UPGRADE_CMD"
+  anomaly "upgrade wrapper failed (sudo -n /usr/local/sbin/ollama_upgrade.sh); 2-way safety fallback (gemma4 stays 412-blocked)"
 fi
 
 # d drop-in survival (read-only; no sudo needed to inspect)
@@ -108,7 +104,7 @@ else
 fi
 
 # h HOLD until 13:45 AZ (clears Kirk after_close 13:15 ollama fallback), then bench
-ntfy "HM-FORGE 1.5: holding to 13:45 AZ for bench. Last chance to key the upgrade: $UPGRADE_CMD"
+ntfy "HM-FORGE 1.5: holding to 13:45 AZ before bench."
 while :; do h=$(TZ=America/Phoenix date +%H); m=$(TZ=America/Phoenix date +%M); \
   { [ "$h" -gt 13 ] || { [ "$h" -eq 13 ] && [ "10#$m" -ge 45 ]; }; } && break; sleep 60; done
 # re-check gemma4 in case the Captain keyed the upgrade during the hold
