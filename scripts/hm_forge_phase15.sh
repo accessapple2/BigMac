@@ -137,7 +137,9 @@ if [ "${AHEAD:-0}" -gt 5 ]; then git push 2>&1 | tee -a "$LOG"; log "pushed ($AH
 
 # l disarm + final NTFY
 touch "$DONE"
-ANOM=$(grep -c "ANOMALY:" "$LOG" 2>/dev/null || echo 0)
+# grep -c prints 0 AND returns exit 1 on zero matches; the old `|| echo 0`
+# appended a second line -> ANOM="0\n0" != "0" -> false PARTIAL on a clean run.
+ANOM=$(grep -c "ANOMALY:" "$LOG" 2>/dev/null); ANOM=${ANOM:-0}
 RESULT=$([ "$ANOM" = 0 ] && echo PASS || echo "PARTIAL ($ANOM anomalies)")
 ntfy "HM-FORGE 1.5 window DONE: $RESULT. bench=$([ "$GEMMA" = 1 ] && echo 3-way || echo 2-way). $([ "$ANOM" != 0 ] && grep 'ANOMALY:' "$LOG" | tail -3)"
 log "=== HM-FORGE 1.5 window END: $RESULT ==="

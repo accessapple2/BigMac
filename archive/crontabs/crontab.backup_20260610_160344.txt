@@ -1,0 +1,25 @@
+* * * * * /bin/bash /Users/bigmac/autonomous-trader/scripts/schwab_csv_watcher.sh >> /Users/bigmac/autonomous-trader/logs/schwab_watcher_cron.log 2>&1
+30 6 * * * /Users/bigmac/autonomous-trader/venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/schwab_cadence_check.py >> /Users/bigmac/autonomous-trader/logs/schwab_cadence_cron.log 2>&1
+0 20 * * * /Users/bigmac/autonomous-trader/venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/git_push_health_check.py >> /Users/bigmac/autonomous-trader/logs/push_health_cron.log 2>&1
+# HM-SCHWAB-LIVE-SYNC 2026-06-05 — live API primary, CSV snapshot fallback (||); script self-gates ET RTH
+*/15 6-14 * * 1-5 /opt/homebrew/bin/python3 /Users/bigmac/autonomous-trader/scripts/sync_schwab_live.py >> /Users/bigmac/autonomous-trader/logs/schwab_live_sync.log 2>&1 || /Users/bigmac/autonomous-trader/venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/sync_schwab_to_real_holdings.py >> /Users/bigmac/autonomous-trader/logs/schwab_live_sync.log 2>&1
+# HM-Q-DISSENT-WATCH 2026-06-06 — NTFY Q's first live crew-dissents, market hours (6-13 AZ = RTH ET)
+*/20 6-13 * * 1-5 /opt/homebrew/bin/python3 /Users/bigmac/autonomous-trader/scripts/q_dissent_watch.py >> /Users/bigmac/autonomous-trader/logs/q_dissent_watch.log 2>&1
+# HM-Q-MARKET-OPEN-PING — ONE-SHOT 2026-06-09 (Mon) 6:30 AZ (9:30 ET open); script date-guards to fire once
+30 6 9 6 * /opt/homebrew/bin/python3 /Users/bigmac/autonomous-trader/scripts/q_market_open_ping.py >> /Users/bigmac/autonomous-trader/logs/q_market_open_ping.log 2>&1
+# HM-KIMI-CUT-WATCH 2026-06-06 — NTFY when ollama-kimi hits 25 closed AND Sharpe<0 (no auto-halt)
+0 14 * * 1-5 /opt/homebrew/bin/python3 /Users/bigmac/autonomous-trader/scripts/kimi_cut_watch.py >> /Users/bigmac/autonomous-trader/logs/kimi_cut_watch.log 2>&1
+7 13 10 6 * /bin/bash /Users/bigmac/autonomous-trader/scripts/hm_forge_phase15.sh >> /Users/bigmac/autonomous-trader/logs/hm_forge_phase15_cron.log 2>&1 # HM-FORGE-1.5-oneshot remove-after-2026-06-10
+45 5 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/kirk_briefing.py --mode premarket >> /Users/bigmac/autonomous-trader/logs/kirk_briefing_cron.log 2>&1
+59 6 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/kirk_briefing.py --mode open_check >> /Users/bigmac/autonomous-trader/logs/kirk_briefing_cron.log 2>&1
+45 12 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/kirk_briefing.py --mode power_hour >> /Users/bigmac/autonomous-trader/logs/kirk_briefing_cron.log 2>&1
+15 13 * * 1-5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/kirk_briefing.py --mode after_close >> /Users/bigmac/autonomous-trader/logs/kirk_briefing_cron.log 2>&1
+*/5 13-15 10 6 * /bin/bash -c '[ -f /tmp/hm_forge_phase15.done ] && [ ! -f /tmp/hm_forge_phase15.paged ] && { /usr/bin/curl -s -m 10 -H "Title: HM-FORGE WINDOW COMPLETE - Phase 3 ready" -d "$(/usr/bin/tail -n 10 /Users/bigmac/autonomous-trader/logs/hm_forge_phase15_2026-06-10.log 2>/dev/null)" https://ntfy.sh/ollietrades-admin; /usr/bin/touch /tmp/hm_forge_phase15.paged; }' >> /Users/bigmac/autonomous-trader/logs/hm_forge_pager_cron.log 2>&1 # HM-FORGE-PAGER-oneshot remove-after-2026-06-11
+# HM-HARDEN A1 — off-host DB backup → .168, nightly 20:00 AZ (script NTFYs on FAILURE only)
+0 20 * * * /bin/bash /Users/bigmac/autonomous-trader/scripts/offhost_backup.sh
+# HM-HARDEN A2 — Daemon Graveyard survival crons (re-homed from retired launchd plists; .venv canonical)
+*/15 * * * * cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/engine/fleet_auditor.py --quiet >> /Users/bigmac/autonomous-trader/logs/fleet_auditor_cron.log 2>&1
+30 6,13 * * * cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/situation_report.py >> /Users/bigmac/autonomous-trader/logs/sitrep_cron.log 2>&1
+0 10 * * * cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/situation_report.py >> /Users/bigmac/autonomous-trader/logs/sitrep_cron.log 2>&1
+30 5 * * * cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/agents/uhura_agent.py >> /Users/bigmac/autonomous-trader/logs/uhura_cron.log 2>&1
+45 13 * * * cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/snapshot_real_portfolio.py >> /Users/bigmac/autonomous-trader/logs/real_portfolio_cron.log 2>&1

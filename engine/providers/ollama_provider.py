@@ -44,10 +44,16 @@ def _model_failure_alert(model_id: str, player_id: str, err) -> None:
 class OllamaProvider(AIProvider):
     def __init__(self, player_id: str = "ollama-local", model: str = "qwen3:14b",
                  url: str = "http://localhost:11434",
-                 timeout: int = _HM_WR_CANCEL_BUDGET_S):
+                 timeout: int = _HM_WR_CANCEL_BUDGET_S,
+                 keep_alive: str = "10m"):
         super().__init__(player_id, f"Ollama {model}", model, rate_limit=999)
         self.url = f"{url}/api/generate"
         self.timeout = timeout
+        # HM-FORGE P1.2: per-provider keep_alive override. Default "10m" preserves
+        # the HM-WR-VRAM-THRASHING Fix-4 residency for fleet agents; the report-only
+        # WR witness passes "0s" so a non-fleet model (gemma4:12b-it-qat, 7.4GB)
+        # unloads right after its single call and never pins co-resident VRAM.
+        self.keep_alive = keep_alive
         self._is_cloud = ":cloud" in model
         self._temperature = 0.6 if self._is_cloud else 0.7
 
@@ -65,7 +71,7 @@ class OllamaProvider(AIProvider):
             "model": self.model_id,
             "prompt": prompt,
             "stream": False,
-            "keep_alive": "10m",
+            "keep_alive": self.keep_alive,
             "options": {"temperature": self._temperature},
         }
         # 2026-04-27: qwen3 family streams chain-of-thought tokens before JSON,

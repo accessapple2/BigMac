@@ -24,6 +24,33 @@ four gates and RULE #1 are unaffected.
   - (The §6 EXTEND gate is a one-time, Admiral-keyed decision about *mixed
     primary results*; this §2 extension is about *raw sample size*. Distinct.)
 
+## 2a. Pre-registered eligibility gate — the A/B grades the model actually wired
+Amendment 2026-06-10 (Admiral). Before any arm accrues, the challenger
+`witness_model` MUST satisfy a hard **VRAM co-residency** gate, pre-registered
+here so the A/B grades a model that can actually live in the rotation — not a
+benchmark artifact that would evict the live fleet every time it fired.
+
+- **Eligibility gate (binding):** the witness model must **co-reside within the
+  16 GB two-model VRAM budget** alongside the incumbent `plutus-v1` with **no
+  live-fleet eviction**. Verified empirically (load both on .168 → `ollama ps`
+  shows both at 100% GPU, no swap) BEFORE the witness is wired and before the
+  window opens.
+- **Wired challenger = `gemma4:12b-it-qat`** (7.4 GB; co-resides with `plutus-v1`
+  4.6 GB = 12.0 GB < 16 GB — verified 2026-06-10 via isolated `ollama ps`). It is
+  the highest-ranked 1.3 bake-off model that PASSES this gate (JSON-validity
+  100% — tied with the field; fits the budget). It loads with `keep_alive="0s"`
+  so it unloads immediately after each single report-only call.
+- **`gpt-oss:20b` is the raw 1.3 criteria winner but FAILS the gate** (12.5 GB
+  peak → evicts the live fleet on a 16 GB GPU, ~every 18 min during market
+  hours). It is **NOT discarded**: it is **parked as the designated vLLM PoC
+  serving candidate** (Phase 2.1), where it gets the GPU **solo** and is the
+  **first beneficiary if the second-GPU (2080) lane lands**. See
+  `drafts/HM-FORGE-PHASE2-1-VLLM-POC-SPEC.md`.
+- **Consequence for grading:** every metric in §3–§4 is measured on the WIRED
+  `gemma4` challenger. A model that cannot pass the eligibility gate cannot be a
+  rotation witness regardless of bench tok/s, so it is out-of-scope for this A/B
+  by construction.
+
 ## 3. Primary metrics — decide the outcome
 Each measured **per arm** over the window. Bars are pre-registered; no metric
 is re-defined after collection begins.
@@ -121,15 +148,21 @@ Exactly **one** of the three is stated in the final report. **No silent middle p
 
 ## 9. Known spec anomalies (flagged, not blockers)
 1. **p95 is not in the bench's current output.** `hm_forge_bench.py` emits
-   `wall_med` (median only). M2 requires p50 **and** p95 — the grader must
-   compute both from **per-debate turn durations** in the debate records (the
-   single-shot bench median is the 1.3 baseline reference, not the window
-   measurement source). Capturing per-turn wall-clock on debate records is a
-   Phase-3 wiring detail this spec depends on.
-2. **`witness_model` store is Phase-3-defined.** The grader reads whichever
-   debate record store Phase 3 tags (the War Room structured-debate path writes
-   `debate_history_v2`; the exact column name + the per-turn duration field are
-   set by Phase 3, consumed here).
+   `wall_med` (median only). M2 requires p50 **and** p95 — the grader computes
+   both from the **per-witness-call wall-clock** captured by Phase 3 as
+   `war_room_debates.witness_wall_s` (one row per debate, per arm), NOT from the
+   single-shot bench median (which remains only the 1.3 baseline reference).
+   **RESOLVED in Phase 3 (HM-FORGE P1.2, 2026-06-10):** `witness_wall_s` is now
+   written on every witness-tagged debate row, so M2 has a per-arm substrate from
+   the window's first debate.
+2. **`witness_model` store — RESOLVED, Phase 3 = `war_room_debates`.** Phase 3
+   tags the **legacy `run_war_room` hot-take path** (`engine/war_room.py`), not
+   the `debate_history_v2` structured path. Additive columns on
+   `war_room_debates`: **`witness_model`** (challenger id | `plutus-v1:latest`),
+   **`witness_take`** (the report-only opinion), **`witness_wall_s`** (REAL, the
+   M2 substrate). The grader reads `war_room_debates WHERE witness_model IS NOT
+   NULL`; arm = `challenger` if `witness_model='gemma4:12b-it-qat'` else
+   `baseline`. (The per-debate grader `signal_ref` maps to `war_room_debates.symbol`.)
 3. **M5 pairing needs a comparability key.** "Adjacent rotation slots on
    comparable signals" requires a signal/ticker key shared across arms; if Phase
    3's rotation does not debate the same signal in both arms, M5 degrades to a

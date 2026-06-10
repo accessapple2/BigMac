@@ -50,6 +50,18 @@ _forced_topic: str | None = None  # Steve can force the next debate topic
 _active_strategy_mode: str | None = None  # Steve's active strategy mode for AI responses
 _post_timestamps: dict[str, float] = {}  # "player_id:symbol" → timestamp (dedup within 60s)
 
+# === HM-FORGE P1.2 — War Room debate witness (REPORT-ONLY) ====================
+# A/B-alternates a candidate model against the incumbent plutus-v1 (McCoy's brain)
+# once per debate, after the round closes. The witness take is recorded on the
+# war_room_debates row (witness_model/witness_take) and NEVER enters round_takes
+# or the vote — it exists only for the 2-week bake-off A/B. gemma4 (HM-FORGE 1.3
+# winner under the co-residency eligibility gate) loads with keep_alive="0s" so
+# its 7.4GB unloads immediately after the single call (no live-fleet eviction).
+# gpt-oss:20b was the raw criteria winner but is PARKED for the vLLM solo-GPU PoC
+# (12.5GB evicts the fleet) — see drafts/HM-FORGE-PHASE4-AB-SCORECARD-SPEC.md.
+_WITNESS_MODELS: tuple[str, str] = ("gemma4:12b-it-qat", "plutus-v1:latest")
+_witness_ab_index = 0  # increments per debate → alternates the two witness models
+
 # === HM-WR-VRAM-THRASHING 2026-05-20 — module-level provider pool ===
 # Persistent ThreadPoolExecutor for timed provider calls inside run_war_room.
 # Module-level (not `with TPE() as ex:`) per [[feedback-capital-silent-fallback-promise]]:
@@ -138,9 +150,18 @@ def _ensure_debate_table(conn) -> None:
             expected_agents  TEXT NOT NULL DEFAULT '[]',
             completed_agents TEXT NOT NULL DEFAULT '[]',
             status           TEXT NOT NULL DEFAULT 'running',
-            finished_at      TEXT
+            finished_at      TEXT,
+            witness_model    TEXT,
+            witness_take     TEXT,
+            witness_wall_s   REAL
         )
     """)
+    # HM-FORGE P1.2: additive witness columns for pre-existing tables (idempotent).
+    for _col in ("witness_model TEXT", "witness_take TEXT", "witness_wall_s REAL"):
+        try:
+            conn.execute(f"ALTER TABLE war_room_debates ADD COLUMN {_col}")
+        except Exception:
+            pass  # column already exists
 
 
 def _start_debate(debate_id: str, symbol: str, trigger: str,
@@ -221,6 +242,77 @@ def _finish_debate(debate_id: str, expected: list, completed: list) -> None:
             f"[yellow][EVENTS-BUS-WARN] war_room._finish_debate hook "
             f"debate={debate_id}: {type(_ebus_e).__name__}: {_ebus_e!r}"
         )
+
+
+def _record_witness(debate_id: str, symbol: str, price_data: dict,
+                    round_takes: list, providers: dict) -> None:
+    """HM-FORGE P1.2 — fire ONE report-only witness take and tag the debate row.
+
+    A/B-alternates ``gemma4:12b-it-qat`` vs the incumbent ``plutus-v1:latest``
+    per debate. The witness sees the same context the debaters did but its take
+    is recorded ONLY on war_room_debates (witness_model/witness_take) — it never
+    enters round_takes, save_hot_take, or the vote (report-only until the 2-week
+    A/B closes). Fully fail-safe: any error is swallowed so the debate lifecycle
+    is never affected.
+    """
+    global _witness_ab_index
+    # Select the arm + advance the A/B counter SYNCHRONOUSLY (deterministic
+    # alternation even if witness threads overlap), then do the slow model call
+    # OFF the WR cycle thread so the report-only witness never adds to WR-cycle
+    # latency (project_hm_wr_provider_latency). A cold gemma4 load (keep_alive=0)
+    # can take tens of seconds; that's measured by M2/M3, not charged to the cycle.
+    try:
+        witness_model = _WITNESS_MODELS[_witness_ab_index % len(_WITNESS_MODELS)]
+        _witness_ab_index += 1
+    except Exception as e:
+        console.log(f"[yellow][WR-WITNESS-WARN] select {type(e).__name__}: {e!r}")
+        return
+    _ctx = list(round_takes or [])  # snapshot: round_takes mutates elsewhere
+
+    def _witness_worker():
+        try:
+            from engine.providers.ollama_provider import OllamaProvider
+            import config as _cfg
+            _url = getattr(_cfg, "OLLAMA_URL", "http://192.168.1.168:11434")
+            if witness_model == "plutus-v1:latest" and "ollama-plutus" in providers:
+                # Reuse McCoy's live, already-resident provider — do NOT unload it.
+                witness_prov = providers["ollama-plutus"]
+            else:
+                # Non-fleet witness (gemma4): keep_alive="0s" → unload right after
+                # the single call so its 7.4GB never pins co-resident VRAM (the
+                # eligibility gate: witness lives within the 16GB two-model budget).
+                # timeout=120 gives a cold 7.4GB load room to complete.
+                witness_prov = OllamaProvider(
+                    player_id="wr-witness", model=witness_model,
+                    url=_url, timeout=120, keep_alive="0s",
+                )
+            _w0 = time.perf_counter()
+            take = generate_hot_take(
+                witness_prov, "wr-witness", symbol, price_data, _ctx or None,
+            )
+            wall_s = round(time.perf_counter() - _w0, 3)
+            if not take:
+                console.log(f"[dim][WR-WITNESS] {witness_model}: no take (skip tag, {wall_s}s)")
+                return
+
+            def _write():
+                conn = _conn()
+                conn.execute(
+                    "UPDATE war_room_debates SET witness_model=?, witness_take=?, "
+                    "witness_wall_s=? WHERE debate_id=?",
+                    (witness_model, take, wall_s, debate_id),
+                )
+                conn.commit()
+                conn.close()
+            _db_write_retry(_write)
+            console.log(f"[cyan][WR-WITNESS] debate={debate_id} witness_model={witness_model} "
+                        f"wall={wall_s}s take={take[:72]!r}")
+        except Exception as e:
+            console.log(f"[yellow][WR-WITNESS-WARN] {type(e).__name__}: {e!r}")
+
+    import threading as _thr
+    _thr.Thread(target=_witness_worker, name=f"wr-witness-{debate_id}",
+                daemon=True).start()
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1070,3 +1162,7 @@ def run_war_room(providers: dict, prices: dict):
 
     _finish_debate(_debate_id, _debate_expected, _debate_completed)
     console.log(f"[magenta]War Room round complete: {len(round_takes)} responses on {symbol}")
+
+    # HM-FORGE P1.2: report-only witness (A/B gemma4 vs plutus-v1). After the
+    # round + vote, never influences them. Fail-safe inside _record_witness.
+    _record_witness(_debate_id, symbol, price_data, round_takes, providers)
