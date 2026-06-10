@@ -224,7 +224,19 @@ def _sc_check_session() -> bool:
 def _sc_is_localhost() -> bool:
     return (request.remote_addr or "") in _LOCALHOST
 BRIDGE = "http://127.0.0.1:8080"
-PIN    = "2026"
+# HM-HARDEN A3 (2026-06-10): no hard-coded PIN literal in source. Read the
+# signal-center -> trader /login/pin handshake secret from env and FAIL CLOSED
+# if unset (refuse to start on a default). This value MUST equal the trader's
+# CAPTAIN_PIN, which dashboard/app.py:1258 validates the handshake against (it
+# is also the Captain's trader-login PIN — rotating the VALUE is an Admiral
+# action, see docs/ADMIRAL-ROTATION-LIST.md). Takes effect on signal-center
+# restart only (held for post-window per HM-HARDEN Batch A).
+PIN = os.environ.get("SIGNAL_CENTER_PIN")
+if not PIN:
+    raise RuntimeError(
+        "SIGNAL_CENTER_PIN is not set — refusing to start signal-center with a "
+        "default PIN. Set SIGNAL_CENTER_PIN in .env (must equal CAPTAIN_PIN)."
+    )
 DB_PATH     = os.path.join(os.path.dirname(os.path.abspath(__file__)), "signals.db")
 EXPORTS_DIR = os.path.join(os.path.dirname(os.path.abspath(__file__)), "exports")
 os.makedirs(EXPORTS_DIR, exist_ok=True)

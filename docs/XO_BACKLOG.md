@@ -237,11 +237,21 @@ output (register as `plutus-v2`) now has a live consumer: swap `ai_players.ollam
 >   scraper — observed: 29 insider signals) · ✅ **real-portfolio-snapshot** (cron `13:45`; observed: snapshotted real
 >   Schwab book $27,734.51) · ✅ **fleet-auditor** (cron `*/15`; manifest IS consumed → `dashboard/app.py:3469` endpoint +
 >   NTFY transition-alerts, NOT cosmetic — observed: refreshed the 7-day-stale manifest). None touch trader.log; single-writer held 1.
-> - **🏁 DAEMON GRAVEYARD ARC COMPLETE.** 12 cron-managed daemons (all paths absolute). **Restored:** watchdog, healthcheck,
->   ghost-advisor, metals-sync, morningbriefing, sitrep, uhura, real-portfolio-snapshot, fleet-auditor. **Retired (superseded
->   /dead):** squeeze-scan + ollie-scan (live in-process twins), crusher (disabled), scanner (crashed 04-11),
->   optionsflow/etfregime/movers (old /ollietrades path). Root cause banked: [[feedback_reboot_survival_gap]].
->   **py-version note:** venv/bin/python3 IS 3.9.6 (same as /usr/bin/python3); a venv swap does NOT fix PEP604, only the package set differs.
+> - **🏁 DAEMON GRAVEYARD — CORRECTED 2026-06-10 (HM-HARDEN A2, disk-verified).** The earlier
+>   "ARC COMPLETE / 12 cron-managed daemons restored" line was **aspirational, not disk-true** —
+>   the live `crontab -l` had NONE of the survival crons. HM-LEDGER (`docs/MASTER-LEDGER-2026-06-10.md`)
+>   caught the claims-vs-disk gap; HM-HARDEN A2 closed the real gaps. Disk truth as of 2026-06-10:
+>   - **Re-homed IN-PROCESS (N/A for cron — do NOT double-run):** morningbriefing (`main.py:4064` 06:00),
+>     metals-sync→`run_metals_commentary` (`main.py:4597`), reveille (`main.py:4067` 05:45).
+>   - **Re-homed to CRON 2026-06-10 (HM-HARDEN A2):** fleet-auditor (`*/15`), sitrep (06:30/10:00/13:30),
+>     uhura (05:30), real-portfolio-snapshot (13:45). All `.venv` interpreter, absolute paths, `cd` to repo.
+>   - **STILL DEFERRED (restart-capable; restarts held for post-window — install in a later batch):**
+>     watchdog (`watchdog.py::restart_trader` can bounce the trader) and healthcheck (doctrine: OFF until
+>     `restart_server()` is rewritten to call `trader_restart.sh`).
+>   - **Retired (superseded/dead, unchanged):** ghost-advisor, squeeze-scan, ollie-scan, crusher, scanner,
+>     optionsflow/etfregime/movers. Root cause banked: [[feedback_reboot_survival_gap]].
+>   **py-version note:** venv/bin/python3 IS 3.9.6 (same as /usr/bin/python3); a venv swap does NOT fix PEP604.
+>   HM-HARDEN A2 uses **.venv (3.14)** for the new crons — the canonical maintained interpreter, full deps.
 
 > **Closure-sweep result 2026-05-29** (verify-before-fix audit of standing tickets):
 > - **CLOSED (shipped, were queue-rot):** HM-ALERT-AUTH-STORM (90544a6, 2026-05-23), HM-DATA-INTEGRITY-FORENSICS (sub-tickets shipped 2026-05-25).

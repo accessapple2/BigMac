@@ -40,9 +40,23 @@ ntfy_post() {
 }
 
 run_rsync() {
+    # HM-HARDEN A1 (2026-06-10): skip non-existent local sources (last arg is the
+    # remote dest). WAL/SHM sidecars only exist when a DB has uncommitted pages;
+    # a checkpointed DB has none, and rsync would error on the missing files →
+    # false FAILURE + spurious high-priority NTFY. Filtering them keeps the
+    # success/failure signal honest. bash 3.2-safe (no negative array indices).
     local label="$1"; shift
-    local args=("$@")
-    if rsync -a --copy-links --no-owner --no-group "${args[@]}"; then
+    local all=("$@")
+    local n=${#all[@]}
+    local dest="${all[$((n-1))]}"
+    local srcs=()
+    local i
+    for ((i=0; i<n-1; i++)); do [ -e "${all[$i]}" ] && srcs+=("${all[$i]}"); done
+    if [ ${#srcs[@]} -eq 0 ]; then
+        echo "  [SKIP] $label (no source files present)"
+        return 0
+    fi
+    if rsync -a --copy-links --no-owner --no-group "${srcs[@]}" "$dest"; then
         echo "  [OK] $label"
         return 0
     else
@@ -64,7 +78,7 @@ fi
 
 # Last 7 daily atomic backups (year-agnostic)
 shopt -s nullglob
-DAILIES=( $(find "$REPO"/backups -maxdepth 1 -type f -name 'trader_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].db' 2>/dev/null | sort | tail -7) )
+DAILIES=( $(find "$REPO"/backups -maxdepth 1 -type f -name 'trader_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].db' 2>/dev/null | sort | tail -14) )  # HM-HARDEN A1: 14-day retention
 if [ ${#DAILIES[@]} -gt 0 ]; then
     run_rsync "daily-backups (${#DAILIES[@]})" "${DAILIES[@]}" "$REMOTE_HOST:~/$REMOTE_BASE/backups/" || true
 fi
@@ -92,7 +106,8 @@ elapsed=$((ts_end - ts_start))
 
 if echo "$integrity" | grep -q "FAIL_COUNT=0" && [ "$errors" -eq 0 ]; then
     msg="Off-host backup OK: 10 DBs replicated to Ollie in ${elapsed}s, all integrity_check=ok"
-    ntfy_post default "$msg"
+    # HM-HARDEN A1 (2026-06-10): NTFY on FAILURE only — success is logged, not
+    # pushed (admin-channel noise reduction). The failure branch below still NTFYs.
     echo "=== SUCCESS: $msg ==="
     exit 0
 else
