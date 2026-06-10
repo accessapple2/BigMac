@@ -7142,7 +7142,14 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         return;
       }
       var h = '';
-      for (var s of d.sectors) {
+      // HM-DRYDOCK-2 follow-up: this card's label reads "all 11 S&P 500 sectors" (GICS), but the
+      // endpoint appends a 12th thematic entry (Defense/Aero — ETF ITA, not a GICS sector). Exclude
+      // it so the tiles reconcile to the canonical 11 and match the label.
+      var _gicsSectors = d.sectors.filter(function(s){
+        var nm = (s.sector||s.name||'').toUpperCase(), tk = (s.etf||s.ticker||s.symbol||'').toUpperCase();
+        return nm !== 'DEFENSE/AERO' && tk !== 'ITA' && nm !== 'SPY' && tk !== 'SPY';
+      });
+      for (var s of _gicsSectors) {
         // Round 2.1 D1: /api/sectors/heatmap returns sector/change_pct/etf;
         // legacy renderer here read name/pct_change/ticker so cells showed
         // "undefined ▲ 0.00%". The Round 2 glance-row patch caught the
@@ -7625,7 +7632,10 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         var uEl = document.getElementById('vr-universe-count');
         if (uEl) uEl.textContent = 'Scanning ' + (univCount ? univCount.toLocaleString() : '—') + ' stocks · ' + todayAlerts + ' alerts today';
         var tEl = document.getElementById('vr-update-time');
-        if (tEl) tEl.textContent = new Date().toLocaleTimeString([], {hour:'2-digit',minute:'2-digit'});
+        // HM-DRYDOCK-2 follow-up: render the Volume Radar "updated" clock in AZ (America/Phoenix) to
+        // match the row times (above) and the rest of the dashboard — was browser-local, so a remote
+        // (non-AZ) browser showed a clock ahead of the dashboard's AZ time. Display-only.
+        if (tEl) tEl.textContent = new Date().toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',timeZone:'America/Phoenix'});
         var empty = document.getElementById('vr-empty');
         var table = document.getElementById('vr-table');
         var tbody = document.getElementById('vr-tbody');
@@ -24392,7 +24402,7 @@ function _buildFeedCardHtml(t, srcIdSuffix, isNew) {
     if (tpTgt || tpSl) {
       h += '<div style="display:flex;gap:12px;margin-top:6px;margin-bottom:2px;font-size:12px;font-family:var(--font-mono);flex-wrap:wrap;">';
       h += '<span style="color:var(--muted);">Entry <b style="color:var(--text);">$'+tpEntry.toFixed(2)+'</b></span>';
-      if (tpTgt) { var tpRetPct=((tpTgt-tpEntry)/tpEntry*100).toFixed(1); h+='<span style="color:var(--muted);">Target <b style="color:var(--up);">$'+tpTgt.toFixed(2)+'</b> <span style="color:var(--up);font-family:inherit;">(+'+tpRetPct+'%)</span></span>'; }
+      if (tpTgt) { var tpRetN=(tpTgt-tpEntry)/tpEntry*100, tpRetPct=tpRetN.toFixed(1); h+='<span style="color:var(--muted);">Target <b style="color:var(--up);">$'+tpTgt.toFixed(2)+'</b> <span style="color:var(--up);font-family:inherit;">('+(tpRetN>=0?'+':'')+tpRetPct+'%)</span></span>'; }
       if (tpSl)  { var tpSlPct=((tpSl-tpEntry)/tpEntry*100).toFixed(1);   h+='<span style="color:var(--muted);">SL <b style="color:var(--down);">$'+tpSl.toFixed(2)+'</b> <span style="color:var(--down);font-family:inherit;">('+tpSlPct+'%)</span></span>'; }
       h += '</div>';
     }
@@ -36012,15 +36022,20 @@ function loadGlanceData() {
     var leaders = sortedDesc.filter(function(s){return (s.change_pct||0) > 0;}).slice(0,2).map(function(s){return s.sector;});
     var laggards = sortedDesc.filter(function(s){return (s.change_pct||0) < 0;}).slice(-2).map(function(s){return s.sector;});
     // HM-DRYDOCK A4 2026-06-09: denominator must be SECTORS ONLY (11) — exclude any SPY entry so
-    // it can't read "/12" (SPY can't beat itself). Canonical sector universe is 11.
-    var _secs = d.sectors.filter(function(s){return (s.sector||s.etf||s.symbol||'').toUpperCase()!=='SPY';});
+    // it can't read "/12" (SPY can't beat itself). Canonical sector universe is 11 GICS.
+    // HM-DRYDOCK-2 follow-up: also exclude the 12th thematic entry (Defense/Aero — ETF ITA, not a
+    // GICS sector) so the count reads "/11" matching the "11 S&P 500 sectors" heatmap label.
+    var _secs = d.sectors.filter(function(s){
+      var nm = (s.sector||s.name||'').toUpperCase(), tk = (s.etf||s.symbol||s.ticker||'').toUpperCase();
+      return nm !== 'SPY' && tk !== 'SPY' && nm !== 'DEFENSE/AERO' && tk !== 'ITA';
+    });
     var aboveSpy = _secs.filter(function(s){return (s.change_pct||0) > spyCh;}).length;
     el.textContent = aboveSpy + '/' + _secs.length + ' beating SPY | ▲ ' + (leaders.join(', ')||'—') + ' | ▼ ' + (laggards.join(', ')||'—');
     // Expand
     var exp = document.getElementById('g-sectors-inner');
     if (exp) {
       exp.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">All Sectors vs SPY</div>'
-        + d.sectors.map(function(s) {
+        + _secs.map(function(s) {
           var c = s.change_pct || 0;
           var sCol = c >= 0 ? '#22c55e' : '#ef4444';
           var icon = c >= 0 ? '▲' : '▼';
@@ -36198,8 +36213,12 @@ function loadGlanceData() {
           + (isCur ? '<span style="margin-left:auto;font-size:10px;background:'+z[2]+'22;color:'+z[2]+';padding:1px 5px;border-radius:3px;">YOU ARE HERE</span>' : '')
           + '</div>';
       });
+      // HM-DRYDOCK-2 follow-up: derive the regime word from the live-VIX band index so the footer
+      // matches the highlighted YOU-ARE-HERE row (zones[1]='NORMAL' for 15–20). The backend cur.regime
+      // field bands 15–20 as 'ELEVATED' (different thresholds) → contradicts the panel. Display-only.
+      var _vixRegimeLbls = ['CALM', 'NORMAL', 'ELEVATED', 'FEAR', 'PANIC'];
       var trendBits = [];
-      if (cur.regime) trendBits.push(cur.regime);
+      trendBits.push(_vixRegimeLbls[_vixBandIdx]);
       if (cur.state) trendBits.push(cur.state);
       var trend = trendBits.length ? '<div style="font-size:12px;color:var(--muted);margin-top:6px;">'+trendBits.join(' · ')+'</div>' : '';
       vInner.innerHTML = '<div style="font-size:11px;color:var(--muted);margin-bottom:5px;text-transform:uppercase;letter-spacing:1px;">VIX Regime Map</div>'

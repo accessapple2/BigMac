@@ -771,6 +771,27 @@ def generate_advisory(force: bool = False) -> dict:
         skew_val       = float(cond.get("skew_value") or 0)
         buy_pct        = float(cond.get("buy_pct") or 50)
 
+        # HM-DRYDOCK-2 follow-up: point Troi's GEX read at the CANONICAL engine
+        # (engine.canonical_gex — the single source the Bridge GEX endpoints reshape; its docstring
+        # names Ready Room / Troi as intended consumers) instead of the legacy red_alert
+        # intraday_snapshots walls, which served a PRE-FIX put_wall ABOVE spot (e.g. SPY put wall
+        # $825 with spot ~$740). canonical_gex carries the put_wall<spot fix. Walls/flip are
+        # strike-based; override only the GEX levels. Advisory / observation-only, no order path.
+        try:
+            from engine.canonical_gex import canonical_gex as _cg
+            _gx = _cg("SPY")
+            if isinstance(_gx, dict) and not _gx.get("error"):
+                if _gx.get("put_wall"):
+                    put_wall = float(_gx["put_wall"])
+                if _gx.get("call_wall"):
+                    call_wall = float(_gx["call_wall"])
+                if _gx.get("gamma_flip"):
+                    gamma_flip = float(_gx["gamma_flip"])
+                if _gx.get("spot") and spy_price <= 0:
+                    spy_price = float(_gx["spot"])
+        except Exception:
+            pass
+
         vix            = float(vix_d.get("vix") or 20)
         vix_state      = vix_d.get("state", "UNKNOWN")
 
