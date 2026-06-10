@@ -1,5 +1,5 @@
 from __future__ import annotations
-from datetime import datetime, time as dtime
+from datetime import datetime, time as dtime, timezone
 import os
 import sqlite3
 
@@ -37,10 +37,64 @@ _CONVICTION_SCALED_OPTIONS_STOP_ENABLED = os.environ.get(
     "CONVICTION_SCALED_OPTIONS_STOP_ENABLED", ""
 ).lower() in ("1", "true", "yes", "on")
 
+# HM-FORGE Phase 1.5-D 2026-06-10 — _CONVICTION_SCALED_STOPS_SHADOW.
+# Observation-only shadow of the conviction-scaled stop: logs would-have-fired
+# SELLs to ghost_conviction_stops (data/trader.db) with ZERO order-path
+# contact. DEFAULT ON. Independent of _CONVICTION_SCALED_STOPS_ENABLED (the
+# live actuator, which stays default-off). Disable with
+# CONVICTION_SCALED_STOPS_SHADOW=off. Counter-proposal to Decision 3: gather
+# conviction-stop evidence with no live risk before flipping the actuator.
+_CONVICTION_SCALED_STOPS_SHADOW = os.environ.get(
+    "CONVICTION_SCALED_STOPS_SHADOW", "on"
+).lower() in ("1", "true", "yes", "on")
+
 DB = os.environ.get(
     "TRADEMINDS_DB",
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
 )
+
+
+def _ensure_conviction_stop_shadow_table(conn: sqlite3.Connection) -> None:
+    conn.execute(
+        "CREATE TABLE IF NOT EXISTS ghost_conviction_stops ("
+        "id INTEGER PRIMARY KEY AUTOINCREMENT, "
+        "ts TEXT NOT NULL, player_id TEXT NOT NULL, symbol TEXT NOT NULL, "
+        "pnl_pct REAL, flat_stop_pct REAL, conviction REAL, "
+        "scaled_stop_pct REAL, would_fire INTEGER)"
+    )
+
+
+def _log_conviction_stop_shadow(*, player_id: str, symbol: str, pnl_pct: float,
+                                flat_stop_pct: float, conviction: float,
+                                scaled_stop_pct: float, would_fire: int) -> None:
+    """HM-FORGE 1.5-D observation-only shadow logger for the conviction-scaled
+    stop. Writes one row per would-have-fired SELL to ghost_conviction_stops.
+    NEVER touches the order path. Best-effort: a logging failure must not break
+    the risk loop (broad catch is correct here per Error Handling Posture)."""
+    try:
+        ts = datetime.now(timezone.utc).strftime("%Y-%m-%d %H:%M:%S")  # canonical space-UTC
+        conn = sqlite3.connect(DB, timeout=30)
+        try:
+            _ensure_conviction_stop_shadow_table(conn)
+            conn.execute(
+                "INSERT INTO ghost_conviction_stops "
+                "(ts, player_id, symbol, pnl_pct, flat_stop_pct, conviction, "
+                "scaled_stop_pct, would_fire) VALUES (?, ?, ?, ?, ?, ?, ?, ?)",
+                (ts, player_id, symbol, pnl_pct, flat_stop_pct, conviction,
+                 scaled_stop_pct, would_fire),
+            )
+            conn.commit()
+        finally:
+            conn.close()
+    except Exception as e:
+        try:
+            from rich.console import Console
+            Console().log(
+                f"[yellow]conviction-stop-shadow log failed: "
+                f"{type(e).__name__}: {e!r}"
+            )
+        except Exception:
+            pass
 
 
 class RiskManager:
@@ -901,6 +955,25 @@ class RiskManager:
             # CONVICTION_SCALED_STOPS_ENABLED env flag (default False). Flag-off
             # path is the pre-wire flat behavior; flag-on path is the allow-
             # list + scaled-stops doctrine validated in Phase 5c backtest.
+            # HM-FORGE 1.5-D — _CONVICTION_SCALED_STOPS_SHADOW (observation-only,
+            # default ON). Log would-have-fired conviction-scaled SELLs to
+            # ghost_conviction_stops with ZERO order-path contact — this block
+            # NEVER appends to `actions`. Independent of the live actuator flag
+            # (_CONVICTION_SCALED_STOPS_ENABLED) below, which stays default-off.
+            if _CONVICTION_SCALED_STOPS_SHADOW and player_id in self.AI_SIGNAL_PLAYERS:
+                _shadow_conv = pos.get("conviction")
+                if _shadow_conv is not None:
+                    _scaled_sl = get_stop_loss_pct(_shadow_conv)
+                    if pnl_pct <= -_scaled_sl:
+                        _flat_sl = self.get_model_guardrail(
+                            player_id, "stop_loss_pct", self.stop_loss_pct
+                        )
+                        _log_conviction_stop_shadow(
+                            player_id=player_id, symbol=symbol, pnl_pct=pnl_pct,
+                            flat_stop_pct=_flat_sl, conviction=_shadow_conv,
+                            scaled_stop_pct=_scaled_sl, would_fire=1,
+                        )
+
             if _CONVICTION_SCALED_STOPS_ENABLED and player_id in self.AI_SIGNAL_PLAYERS:
                 conviction = pos.get("conviction")
                 if conviction is not None:
