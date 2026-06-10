@@ -75,3 +75,14 @@ model (`gemma4:12b-it-qat`) is blocked on the 1.2 upgrade decision. Run will be
 ## Phase 2 (spec-only)
 - `drafts/HM-FORGE-PHASE2-1-VLLM-POC-SPEC.md`
 - `drafts/HM-FORGE-PHASE2-2-MCCOY-V6-SPEC.md`
+
+<!-- appended by hm_forge_phase15.sh 2026-06-10T21:02:28Z (3-way) -->
+# HM-FORGE Phase 1.3 — War-Room Bake-off Scorecard
+
+_Captured 2026-06-10T21:02:45Z on Ollie Max (.168, RTX 5080 16GB), 5 runs/model, frozen NVDA CSP debate prompt, format=json._
+
+| Model | tok/s | median wall (s) | JSON-valid % | VRAM peak (MiB) |
+|---|--:|--:|--:|--:|
+| plutus-v1:latest | 166.3 | 0.25 | 100.0 | 4742 |
+| gpt-oss:20b | 175.4 | 4.51 | 100.0 | 12512 |
+| gemma4:12b-it-qat | 88.1 | 6.37 | 100.0 | 7726 |
