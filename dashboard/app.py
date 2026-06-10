@@ -4167,6 +4167,16 @@ def status():
     }
 
 
+@app.get("/api/fleet/status")
+def fleet_status():
+    """One-command Fleet Status — the 4 execution gates, market regime,
+    active/halted fleet counts, unpushed commits, service health, and
+    last-briefing timestamps. Read-only aggregator (engine.fleet_status);
+    identical truth to `make status`, Kirk briefings, and the watchdog."""
+    from engine.fleet_status import get_fleet_status
+    return get_fleet_status()
+
+
 @app.get("/api/operations")
 def operations_status():
     """System operations dashboard — scanner health, model activity, market status."""
