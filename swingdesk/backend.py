@@ -645,6 +645,21 @@ class OptionsTradeRequest(BaseModel):
     loss_limit:     float
     notes:          Optional[str] = ""
 
+# SWINGDESK-W2: spread → Alpaca multi-leg (paper) submission.
+try:
+    import spread_executor as _spread_exec   # swingdesk/ already on sys.path (line ~615)
+    SPREAD_EXEC_OK = True
+except Exception:
+    SPREAD_EXEC_OK = False
+
+class SpreadSubmitRequest(BaseModel):
+    legs:            list           # [{underlying,expiration,option_type,strike,side}] (2-leg vertical)
+    net_debit_limit: Optional[float] = None  # None → mid from Alpaca quotes
+    qty:             int = 1
+    structure:       str = "vertical_spread"
+    strategy:        str = "swingdesk_manual"
+    dry_run:         bool = True    # DEFAULT TRUE — explicit false required to send
+
 @app.get("/api/options/ivr/{symbol}")
 def get_ivr(symbol: str):
     """IV Rank for a single symbol."""
@@ -704,6 +719,35 @@ def build_spread(req: SpreadRequest):
         return build_csp(sym, spot, iv, exp, port)
     else:
         raise HTTPException(400, f"Unknown structure: {req.structure}")
+
+@app.post("/api/swingdesk/spread/submit")
+def submit_spread(req: SpreadSubmitRequest):
+    """SWINGDESK-W2 — submit a 2-leg vertical to Alpaca PAPER as one atomic
+    multi-leg LIMIT order (net-debit at mid, reject above width×0.5). Manual
+    trigger only — no autonomous agent reaches this path in W2. RULE #1: Alpaca
+    paper only; Schwab is never touched. dry_run defaults TRUE (returns the exact
+    payload without sending); pass dry_run=false to actually submit."""
+    if not SPREAD_EXEC_OK:
+        raise HTTPException(503, "spread_executor not available")
+    # Live submits respect the SwingDesk circuit breaker; dry-runs never send.
+    if not req.dry_run:
+        gate = risk_gate()
+        if not gate.get("can_trade", False):
+            raise HTTPException(400, f"Risk gate blocked: {gate}")
+    try:
+        result = _spread_exec.submit_spread(
+            legs=req.legs, qty=req.qty, structure=req.structure,
+            strategy=req.strategy, net_debit_limit=req.net_debit_limit,
+            dry_run=req.dry_run,
+        )
+    except Exception as e:
+        raise HTTPException(400, f"{type(e).__name__}: {e}")
+    if not result.get("ok"):
+        # Validation/rejection is a 200 with ok=False so callers see the reason;
+        # only hard errors raise.
+        if result.get("error"):
+            raise HTTPException(400, result["error"])
+    return result
 
 @app.post("/api/options/trade/plan")
 def plan_options_trade(req: OptionsTradeRequest):

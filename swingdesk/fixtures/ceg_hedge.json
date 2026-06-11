@@ -1,0 +1,12 @@
+{
+  "name": "CEG_hedge",
+  "underlying": "CEG",
+  "structure": "bear_put_spread",
+  "description": "CEG downside hedge — long ~ATM put / short ~$15-lower put. Defined-risk debit spread.",
+  "long_leg":  { "option_type": "put", "moneyness": "atm",     "side": "long"  },
+  "short_leg": { "option_type": "put", "offset_dollars": -15,  "side": "short" },
+  "dte_target": [30, 45],
+  "strike_increment": 5,
+  "qty": 1,
+  "notes": "Original Jul 18 strikes are STALE. Expiry (30-45 DTE) + both strikes are resolved at runtime from live spot via options_engine.find_target_expiration + get_spot."
+}
