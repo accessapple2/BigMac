@@ -633,3 +633,11 @@ direct-path-only. No change made — flagging only. Cross-ref CLAUDE.md
 - DSR passes (aggregate edge may exist) but no parameterization is selectable OOS
 - Decision: keep relative_strength shadow/observation only — DO NOT GRADUATE
 - Graduation gate remains open — bull_flag + rsi_bounce + rsi_divergence accruing
+- 2026-06-04T06:00:06 | daily_backup | backup=trader_2026-06-04.db | 515164KB
+- 2026-06-05T06:00:06 | daily_backup | backup=trader_2026-06-05.db | 522944KB
+- 2026-06-06T06:00:07 | daily_backup | backup=trader_2026-06-06.db | 539220KB
+
+## 2026-06-11 Morning Sweep (HM-CRUSHER-MISLABEL)
+- Root cause: healthcheck.py SCANNER_LOG pointed at logs/scanner.err (dead since May 22) while the Dr. Crusher dialog blamed trader_error.log. Patched line 29 + warning labels to trader_error.log. Backup: healthcheck.py.bak.20260611.
+- Rotated trader.log / trader_error.log / signal-center.log to archive/logs (gz, dated suffix).
+- Pruned 9 orphaned local Ollama models (Ollie Box era): phi4:14b, llama3.1, llama3.2:3b, deepseek-r1 7b+14b, qwen3:14b, qwen2.5-coder:7b, plutus x2. Kept bigmac residents phi3/gemma3/mistral + cloud stubs. Disk 94 to 70 pct (60Gi free).

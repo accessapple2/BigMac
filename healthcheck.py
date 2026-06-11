@@ -26,7 +26,7 @@ TUNNEL_URL    = "https://bridge.ollietrades.com"
 DB_PATH       = os.path.join(BASE_DIR, "data", "trader.db")
 AUTO_DB_PATH  = os.path.join(BASE_DIR, "autonomous_trader.db")
 BACKUP_DIR    = os.path.join(BASE_DIR, "backups")
-SCANNER_LOG   = os.path.join(BASE_DIR, "logs", "scanner.err")
+SCANNER_LOG   = os.path.join(BASE_DIR, "logs", "trader_error.log")
 HEALTH_LOG    = os.path.join(BASE_DIR, "logs", "healthcheck.log")
 LOG_STALE_MIN = 45   # logs/trader.err freshness threshold (minutes); raised from 15 on 2026-04-26 — 15m fired during Ollama queue backlog even when scanner was healthy
 RESTART_WAIT  = 12   # seconds to wait after launchctl load before verifying
@@ -896,7 +896,7 @@ def main() -> None:
     if not db_ok:
         warnings.append(f"trader.db integrity: {db_msg}")
     if not log_ok:
-        warnings.append(f"logs/scanner.err stale ({log_age}m)")
+        warnings.append(f"logs/trader_error.log stale ({log_age}m)")
         notify_with_show(
             "⚠️ Dr. Crusher",
             f"trader_error.log is stale ({log_age}m) — server may be stuck",
