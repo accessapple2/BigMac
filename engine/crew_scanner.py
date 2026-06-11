@@ -77,6 +77,36 @@ logging.basicConfig(
     format="%(asctime)s [crew_scanner] %(levelname)s: %(message)s",
 )
 
+# ── HM-CAPITOL-FUND-FILTER (2026-06-11) ───────────────────────────────────────
+# Money-market / mutual-fund share classes are cash-sweep vehicles, NOT tradable
+# equity signals. Congress members parking cash in them (e.g. Tom Suozzi → AFAXX,
+# the American Funds U.S. Govt Money Market fund, opened @ $1.00) is noise, not
+# smart-money flow. Drop them from the congress-copycat path BEFORE scoring.
+# Heuristic (cheapest available — no per-symbol API call): mutual fund / MMF
+# symbols use the NASDAQ 5-letter convention ending in X (AFAXX money market,
+# VFIAX index fund, AGTHX growth fund), plus an explicit money-market denylist
+# for any that slip the pattern. Legit equity tickers are 1-4 letters (or do not
+# end in X at 5 chars), so this does not touch real equity disclosures.
+_MONEY_MARKET_TICKERS = frozenset({
+    "AFAXX", "VMFXX", "VMRXX", "SPAXX", "FDRXX", "SWVXX", "FZFXX", "SPRXX",
+    "VUSXX", "TTTXX", "SNVXX", "SNSXX", "FNSXX", "MVRXX", "FGXXX", "PINXX",
+})
+
+
+def is_non_equity_ticker(ticker: str) -> bool:
+    """True if *ticker* is a mutual-fund / money-market share class (untradeable as
+    an equity). Used to skip fund 'buys' in the congress copycat path before scoring.
+    NASDAQ 5-letter symbols ending in X are fund share classes; an explicit
+    money-market denylist backstops any that don't fit the pattern."""
+    t = (ticker or "").strip().upper()
+    if not t:
+        return False
+    if t in _MONEY_MARKET_TICKERS:
+        return True
+    if len(t) == 5 and t.endswith("X"):
+        return True
+    return False
+
 # Mutable flag — importers hold a reference to this dict and see live updates.
 # Set True while a scan cycle is actively running; False otherwise.
 # dashboard/app.py reads scan_state["active"] to throttle API responses.
@@ -1815,11 +1845,24 @@ def capitol_rules(market_ctx: dict[str, Any], scan_picks: list[dict]) -> dict[st
     except Exception:
         all_trades = []
 
-    buys = [
-        t for t in all_trades
-        if t.get("type", "").upper() == "BUY"
-        and t.get("ticker", "").strip()
-    ]
+    # HM-CAPITOL-FUND-FILTER: drop money-market / mutual-fund share classes (e.g.
+    # AFAXX) before scoring — they are cash-sweep vehicles, not equity signals.
+    # Log each skipped ticker once per cycle at INFO so the filter is auditable.
+    buys = []
+    _skipped_non_equity: set[str] = set()
+    for t in all_trades:
+        if t.get("type", "").upper() != "BUY":
+            continue
+        _sym = t.get("ticker", "").strip()
+        if not _sym:
+            continue
+        if is_non_equity_ticker(_sym):
+            _su = _sym.upper()
+            if _su not in _skipped_non_equity:
+                _skipped_non_equity.add(_su)
+                logger.info("[HM-CAPITOL-FUND-FILTER] skipped non-equity: %s", _su)
+            continue
+        buys.append(t)
 
     if not buys:
         # Fallback: congress-sector scan picks

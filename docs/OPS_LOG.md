@@ -660,3 +660,18 @@ Plus req#3 hygiene: explicit `(connect, read)` timeouts on the two canonical Oll
 **Verify:** py_compile + import-smoke all 6 files; `dashboard.app` imports (775 routes). Restart via `scripts/trader_restart.sh`; confirmed single writer + :8080 bound; watched FD count stays bounded + no watchdog strikes for 10 min.
 
 **Follow-up (deferred):** convert the remaining large multi-connection endpoints (`leaderboard`, `recent_trades`, `recent_signals`, `comparison_chart`, `player_detail`) to explicit try/finally; currently covered by the reaper + raised rlimit.
+
+## 2026-06-11 — HM-CAPITOL-FUND-FILTER: congress copycat skips non-equity fund tickers
+
+**Symptom:** 2026-06-10 06:50 Capitol Trades opened AFAXX @ $1.00 × 50.36 ("Tom Suozzi → AFAXX [FRESH_24H] score=72"). AFAXX is the American Funds U.S. Govt Money Market fund — a cash-sweep vehicle, not an equity signal. Congress members parking cash in money markets is noise, not smart-money flow.
+
+**Path:** `engine/crew_scanner.py::capitol_rules` builds `buys` from `congress_scraper.get_all_congress_trades()`, aggregates per-ticker, scores (FRESH_24H +12, etc.). AFAXX passed straight through (asset_type came across as "stock"; disclosures carry no unit price, so a "~$1.00" check isn't available at scan time).
+
+**Fix:**
+1. New module helper `is_non_equity_ticker()` + `_MONEY_MARKET_TICKERS` denylist. Heuristic: NASDAQ 5-letter symbols ending in X are mutual-fund/MMF share classes (AFAXX, VFIAX, AGTHX) + explicit MMF denylist. Cheapest available check (no per-symbol API call); does not touch real equities (1-4 letters, or 5-letter not ending X like GOOGL, or 1-letter X like US Steel). Rejected `full_universe.get_universe()` as the filter — it's liquidity-gated (≥1M vol) and would over-filter legit small-cap equity disclosures (req#4).
+2. `capitol_rules` filters `buys` before scoring; logs each dropped ticker once/cycle at INFO: `[HM-CAPITOL-FUND-FILTER] skipped non-equity: TICKER`.
+3. Closed the existing AFAXX paper position via the normal exit path (`paper_trader.sell`, corrective-STOP reason to clear the 24h churn gate — 0-P&L wash at NAV). BUY + SELL both retained in `trades`; position removed; route_mode=paper (stayed internal book).
+
+No scoring/sizing change for legit equities (replay: META still scores 72, identical to pre-fix).
+
+**Verify:** new `tests/test_capitol_fund_filter.py` (16 tests) — Suozzi AFAXX skips, McGuire/Moskowitz META passes, GOOGL/X/ZVZZT pass, VMFXX/VFIAX/SPAXX skip; end-to-end `capitol_rules` replay drops AFAXX (+INFO log) and scores META. Full hook suite + new test: 35 passed. py_compile OK. Restarted (copycat runs in-process via the scanner).
