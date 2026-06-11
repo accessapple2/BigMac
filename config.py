@@ -41,6 +41,26 @@ TRADE_DESK_BYPASS_GATES = True
 SOURCE_DEDUP_ENABLED = True
 SOURCE_DEDUP_WINDOW_MIN = 60
 
+# === SWINGDESK-W3 — agent auto-spreads (BUILT GATED-OFF, 2026-06-10) ===========
+# Lets qualifying fleet agents propose/submit multi-leg spreads through the W2
+# executor. NOTHING submits until burn-in passes AND the Admiral flips the master
+# gate. The gate is enforced at ONE chokepoint (engine/auto_spread.py::
+# submit_if_allowed). Flipping requires editing THIS line + a canonical restart —
+# there is NO API flip path by design. Alpaca PAPER only; RULE #1 unchanged.
+AUTO_SPREADS_ENABLED = False               # MASTER GATE. Config-edit + restart only.
+# Eligible agent_ids (ships EMPTY — whitelisting an agent is a separate Admiral act).
+AUTO_SPREAD_WHITELIST: list = []
+# Strategies the Admiral has ATTESTED passed SUPER_MAX validation (DSR>=0.95 AND
+# PBO<=0.30 AND Sharpe) — DSR/PBO is report-only with no automated registry, so
+# eligibility is attested here. Ships EMPTY. (relative_strength can NEVER be added;
+# it is hardcoded-excluded in engine/auto_spread.py regardless of this list.)
+AUTO_SPREAD_VALIDATED_STRATEGIES: list = []
+AUTO_SPREAD_MAX_DEBIT_PER_TRADE = 500.0    # $ net debit ceiling per spread
+AUTO_SPREAD_MAX_OPEN = 5                    # max concurrent open auto-spreads
+AUTO_SPREAD_MAX_NEW_PER_DAY = 3            # max new auto-spreads opened per day
+AUTO_SPREAD_MAX_TOTAL_DEBIT = 2500.0       # max total open auto-spread debit ($)
+AUTO_SPREAD_MIN_CONVICTION = 8.0           # proposing-agent conviction floor (>= 8)
+
 # Tickers confirmed delisted/halted — excluded from all scan universes
 DELISTED_BLACKLIST: set[str] = {
     "XCEM", "EAOA", "YFYA", "BULZ", "TDWDR", "TWLVR", "UCFIW", "VSTA",

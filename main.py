@@ -4054,6 +4054,11 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_daily_summary)      # Daily summary: checks every 30 min, sends once at close
     schedule.every(30).minutes.do(run_daily_rating_update) # Agent ratings: checks every 30 min, fires once at 4:30 PM ET
     schedule.every(30).minutes.do(run_journal)             # AI journal: checks every 30 min, writes once at close
+    # SWINGDESK-W3: agent auto-spread daemon — BUILT GATED-OFF (config.AUTO_SPREADS_ENABLED=False).
+    # Bound at startup (lifecycle doctrine: not lazy). When OFF it heartbeats only; on a
+    # detected flip it NTFYs. The master gate is enforced in auto_spread.submit_if_allowed.
+    from engine.auto_spread import run_auto_spread_cycle as _run_auto_spread_cycle
+    schedule.every(15).minutes.do(_run_auto_spread_cycle)
     # HM-GEX-CANONICAL 2026-05-31: /api/gex-snapshot (engine.options_flow_gex, Polygon) is the
     # SINGLE GEX source. The 3 legacy refreshers are DISABLED (modules preserved/dormant — see
     # XO_BACKLOG). One canonical intraday refresh replaces them; feeds all displays via adapters.
