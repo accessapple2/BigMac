@@ -21,10 +21,11 @@ Canonical patterns reused verbatim:
 """
 from __future__ import annotations
 
+import hashlib
 import json
 import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date as _date, datetime, timezone
 from pathlib import Path
 from typing import Optional
 
@@ -221,7 +222,55 @@ def mid_net_debit(legs: list[dict]) -> Optional[float]:
 
 
 # ── mleg order payload ───────────────────────────────────────────────────────
-def build_mleg_order(legs: list[dict], qty: int, net_debit_limit: float):
+# ── idempotency (W2.1): status normalize + deterministic key + local dup finder ─
+# Working-order statuses that mean "an identical spread is already in flight".
+_LIVE_STATUSES = frozenset({"pending_new", "new", "accepted", "partially_filled"})
+
+
+def _norm_status(s) -> str:
+    """Normalize an Alpaca status to a bare lowercase token. Handles the enum,
+    its 'OrderStatus.PENDING_NEW' str form, and a plain 'pending_new' alike —
+    submit_spread historically stored the enum-str while poll_fill stored .value."""
+    v = getattr(s, "value", None) or str(s)
+    return str(v).split(".")[-1].lower()
+
+
+def _client_order_id(occ_symbols: list[str], strategy: str,
+                     idempotency_key: Optional[str] = None) -> str:
+    """Deterministic client_order_id → Alpaca server-side dedup. A caller key wins;
+    else hash(sorted resolved OCC legs + strategy + today). Same spread same day =
+    same id, so a retried submit collides at the broker."""
+    raw = (f"key|{idempotency_key}" if idempotency_key
+           else "|".join(sorted(occ_symbols)) + f"|{strategy}|{_date.today().isoformat()}")
+    return "sd-" + hashlib.sha1(raw.encode()).hexdigest()[:24]
+
+
+def _find_open_duplicate(underlying: str, strategy: str, occ_symbols: list[str]) -> Optional[str]:
+    """broker_order_id of an existing OPEN working spread with identical legs +
+    strategy (the local guard), else None."""
+    target = sorted(occ_symbols)
+    conn = sqlite3.connect(str(_DB), timeout=10)
+    try:
+        rows = conn.execute(
+            "SELECT broker_order_id, legs_json, exec_status FROM options_trades "
+            "WHERE symbol=? AND strategy_id=? AND status='open' AND broker_order_id IS NOT NULL",
+            (underlying, strategy)).fetchall()
+    finally:
+        conn.close()
+    for oid, legs_json, exec_status in rows:
+        if _norm_status(exec_status) not in _LIVE_STATUSES:
+            continue
+        try:
+            syms = sorted(l.get("symbol") for l in json.loads(legs_json or "[]"))
+        except Exception:
+            continue
+        if syms == target:
+            return oid
+    return None
+
+
+def build_mleg_order(legs: list[dict], qty: int, net_debit_limit: float,
+                     client_order_id: Optional[str] = None):
     """Return (LimitOrderRequest, serializable payload dict). Debit → positive limit_price."""
     from alpaca.trading.requests import LimitOrderRequest, OptionLegRequest
     from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, PositionIntent
@@ -240,10 +289,12 @@ def build_mleg_order(legs: list[dict], qty: int, net_debit_limit: float):
         order_class=OrderClass.MLEG,
         time_in_force=TimeInForce.DAY,
         legs=leg_reqs,
+        client_order_id=client_order_id,   # W2.1 layer 1 — Alpaca server-side dedup
     )
     payload = {
         "order_class": "mleg", "type": "limit", "time_in_force": "day",
         "qty": int(qty), "limit_price": round(float(net_debit_limit), 2),
+        "client_order_id": client_order_id,
         "legs": payload_legs,
     }
     return req, payload
@@ -283,12 +334,19 @@ def submit_spread(legs: list[dict], qty: int = 1, structure: str = "vertical_spr
                   strategy: str = "swingdesk_manual",
                   net_debit_limit: Optional[float] = None,
                   max_ratio: float = MAX_DEBIT_RATIO,
-                  dry_run: bool = True, resolve_contracts: bool = True) -> dict:
+                  dry_run: bool = True, resolve_contracts: bool = True,
+                  force: bool = False, idempotency_key: Optional[str] = None) -> dict:
     """Build → validate → (dry_run: return payload) | (live: submit paper + persist).
 
     resolve_contracts=True snaps each target strike to a REAL tradable Alpaca
     contract sharing one expiry (avoids "asset not found" on constructed OCC).
     Pass explicit `occ`/`symbol` on legs to bypass resolution.
+
+    W2.1 idempotency (both layers, in this chokepoint — manual + auto inherit):
+      L1 client_order_id (deterministic) → Alpaca server-side dedup.
+      L2 local guard — a dry_run=false submit matching an existing OPEN working
+         spread (same underlying+strategy+legs) returns that order instead of
+         submitting. `force=True` bypasses L2 for intentional re-entry.
     """
     norm = [_normalize_leg(l) for l in legs]
     if len(norm) != 2:
@@ -311,6 +369,8 @@ def submit_spread(legs: list[dict], qty: int = 1, structure: str = "vertical_spr
         return {"ok": False, "error": "unresolved legs — supply explicit occ, a full "
                 "expiration, or leave resolve_contracts=True"}
     expiration = norm[0]["expiration"]
+    occ_symbols = [l["occ"] for l in norm]
+    cid = _client_order_id(occ_symbols, strategy, idempotency_key)  # L1 key
 
     # Net debit: explicit wins; else mid from quotes.
     debit = net_debit_limit if net_debit_limit is not None else mid_net_debit(norm)
@@ -322,23 +382,33 @@ def submit_spread(legs: list[dict], qty: int = 1, structure: str = "vertical_spr
                 "width": val.get("width"), "ceiling": val.get("ceiling"),
                 "net_debit": debit, "debit_source": debit_source}
 
-    req, payload = build_mleg_order(norm, qty, debit)
+    req, payload = build_mleg_order(norm, qty, debit, client_order_id=cid)
     base = {"ok": True, "dry_run": dry_run, "underlying": underlying,
             "structure": structure, "strategy": strategy, "qty": qty,
             "net_debit": debit, "debit_source": debit_source, "resolved": resolved_info,
+            "client_order_id": cid,
             "width": val["width"], "ceiling": val["ceiling"], "payload": payload}
 
     if dry_run:
         base["note"] = "DRY-RUN — payload validated, nothing sent to Alpaca"
         return base
 
+    # ── W2.1 LAYER 2 — local idempotency guard (the chokepoint) ──
+    if not force:
+        dup = _find_open_duplicate(underlying, strategy, occ_symbols)
+        if dup:
+            base.update({"submitted": False, "deduped": True, "existing_order_id": dup,
+                         "note": f"idempotency guard: identical OPEN spread exists "
+                                 f"(order {dup}); pass force=true to re-enter"})
+            return base
+
     client = _get_paper_client()
     if client is None:
         return {"ok": False, "error": "Alpaca paper client unavailable (no APCA_* creds)"}
     try:
-        order = client.submit_order(req)
+        order = client.submit_order(req)   # L1: req carries client_order_id
         oid = str(order.id)
-        exec_status = str(getattr(order, "status", "pending"))
+        exec_status = _norm_status(getattr(order, "status", "pending"))
         trade_id = _persist(underlying, structure, strategy, expiration,
                             norm, debit, qty, oid, exec_status)
         base.update({"submitted": True, "broker_order_id": oid,
@@ -356,7 +426,7 @@ def poll_fill(broker_order_id: str) -> dict:
         return {"ok": False, "error": "no paper client"}
     try:
         order = client.get_order_by_id(broker_order_id)
-        status = str(order.status.value if hasattr(order.status, "value") else order.status)
+        status = _norm_status(order.status)   # consistent token (matches the L2 guard)
         filled = order.filled_avg_price
         conn = sqlite3.connect(str(_DB), timeout=30)
         try:
