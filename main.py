@@ -4059,6 +4059,10 @@ if __name__ == "__main__":
     # detected flip it NTFYs. The master gate is enforced in auto_spread.submit_if_allowed.
     from engine.auto_spread import run_auto_spread_cycle as _run_auto_spread_cycle
     schedule.every(15).minutes.do(_run_auto_spread_cycle)
+    # SWINGDESK-W4: spread exit manager — monitors open filled spreads, alert-only for
+    # manual / gated auto-close for auto. Bound at startup (lifecycle doctrine).
+    from engine.spread_exit_manager import run_spread_exit_cycle as _run_spread_exit_cycle
+    schedule.every(5).minutes.do(_run_spread_exit_cycle)
     # HM-GEX-CANONICAL 2026-05-31: /api/gex-snapshot (engine.options_flow_gex, Polygon) is the
     # SINGLE GEX source. The 3 legacy refreshers are DISABLED (modules preserved/dormant — see
     # XO_BACKLOG). One canonical intraday refresh replaces them; feeds all displays via adapters.

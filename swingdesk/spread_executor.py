@@ -236,12 +236,15 @@ def _norm_status(s) -> str:
 
 
 def _client_order_id(occ_symbols: list[str], strategy: str,
-                     idempotency_key: Optional[str] = None) -> str:
+                     idempotency_key: Optional[str] = None,
+                     action: str = "open") -> str:
     """Deterministic client_order_id → Alpaca server-side dedup. A caller key wins;
-    else hash(sorted resolved OCC legs + strategy + today). Same spread same day =
+    else hash(sorted resolved OCC legs + strategy + action + today). `action`
+    ("open"/"close") is in the hash so a CLOSE key never collides with the OPEN
+    key for the same spread (W4 self-verify c). Same spread+action same day =
     same id, so a retried submit collides at the broker."""
-    raw = (f"key|{idempotency_key}" if idempotency_key
-           else "|".join(sorted(occ_symbols)) + f"|{strategy}|{_date.today().isoformat()}")
+    raw = (f"key|{idempotency_key}|{action}" if idempotency_key
+           else "|".join(sorted(occ_symbols)) + f"|{strategy}|{action}|{_date.today().isoformat()}")
     return "sd-" + hashlib.sha1(raw.encode()).hexdigest()[:24]
 
 
@@ -270,15 +273,21 @@ def _find_open_duplicate(underlying: str, strategy: str, occ_symbols: list[str])
 
 
 def build_mleg_order(legs: list[dict], qty: int, net_debit_limit: float,
-                     client_order_id: Optional[str] = None):
-    """Return (LimitOrderRequest, serializable payload dict). Debit → positive limit_price."""
+                     client_order_id: Optional[str] = None, action: str = "open"):
+    """Return (LimitOrderRequest, serializable payload dict). Debit → positive limit_price.
+    action='open' → BUY_TO_OPEN(long)/SELL_TO_OPEN(short); 'close' reverses to
+    SELL_TO_CLOSE(long)/BUY_TO_CLOSE(short) (mirrors alpaca_options.close_vertical_spread)."""
     from alpaca.trading.requests import LimitOrderRequest, OptionLegRequest
     from alpaca.trading.enums import OrderSide, TimeInForce, OrderClass, PositionIntent
     leg_reqs, payload_legs = [], []
     for l in legs:
         is_long = l["side"] == "long"
-        side = OrderSide.BUY if is_long else OrderSide.SELL
-        intent = PositionIntent.BUY_TO_OPEN if is_long else PositionIntent.SELL_TO_OPEN
+        if action == "close":
+            side = OrderSide.SELL if is_long else OrderSide.BUY
+            intent = PositionIntent.SELL_TO_CLOSE if is_long else PositionIntent.BUY_TO_CLOSE
+        else:
+            side = OrderSide.BUY if is_long else OrderSide.SELL
+            intent = PositionIntent.BUY_TO_OPEN if is_long else PositionIntent.SELL_TO_OPEN
         leg_reqs.append(OptionLegRequest(
             symbol=l["occ"], ratio_qty=1, side=side, position_intent=intent))
         payload_legs.append({"symbol": l["occ"], "ratio_qty": 1,
@@ -335,7 +344,8 @@ def submit_spread(legs: list[dict], qty: int = 1, structure: str = "vertical_spr
                   net_debit_limit: Optional[float] = None,
                   max_ratio: float = MAX_DEBIT_RATIO,
                   dry_run: bool = True, resolve_contracts: bool = True,
-                  force: bool = False, idempotency_key: Optional[str] = None) -> dict:
+                  force: bool = False, idempotency_key: Optional[str] = None,
+                  action: str = "open") -> dict:
     """Build → validate → (dry_run: return payload) | (live: submit paper + persist).
 
     resolve_contracts=True snaps each target strike to a REAL tradable Alpaca
@@ -370,7 +380,7 @@ def submit_spread(legs: list[dict], qty: int = 1, structure: str = "vertical_spr
                 "expiration, or leave resolve_contracts=True"}
     expiration = norm[0]["expiration"]
     occ_symbols = [l["occ"] for l in norm]
-    cid = _client_order_id(occ_symbols, strategy, idempotency_key)  # L1 key
+    cid = _client_order_id(occ_symbols, strategy, idempotency_key, action=action)  # L1 key
 
     # Net debit: explicit wins; else mid from quotes.
     debit = net_debit_limit if net_debit_limit is not None else mid_net_debit(norm)
@@ -382,9 +392,9 @@ def submit_spread(legs: list[dict], qty: int = 1, structure: str = "vertical_spr
                 "width": val.get("width"), "ceiling": val.get("ceiling"),
                 "net_debit": debit, "debit_source": debit_source}
 
-    req, payload = build_mleg_order(norm, qty, debit, client_order_id=cid)
+    req, payload = build_mleg_order(norm, qty, debit, client_order_id=cid, action=action)
     base = {"ok": True, "dry_run": dry_run, "underlying": underlying,
-            "structure": structure, "strategy": strategy, "qty": qty,
+            "structure": structure, "strategy": strategy, "qty": qty, "action": action,
             "net_debit": debit, "debit_source": debit_source, "resolved": resolved_info,
             "client_order_id": cid,
             "width": val["width"], "ceiling": val["ceiling"], "payload": payload}
@@ -393,8 +403,10 @@ def submit_spread(legs: list[dict], qty: int = 1, structure: str = "vertical_spr
         base["note"] = "DRY-RUN — payload validated, nothing sent to Alpaca"
         return base
 
-    # ── W2.1 LAYER 2 — local idempotency guard (the chokepoint) ──
-    if not force:
+    # ── W2.1 LAYER 2 — local idempotency guard (open orders only; a close must
+    # not be blocked by the open-position it is closing — its distinct L1 close
+    # key handles duplicate-close dedup at the broker) ──
+    if not force and action == "open":
         dup = _find_open_duplicate(underlying, strategy, occ_symbols)
         if dup:
             base.update({"submitted": False, "deduped": True, "existing_order_id": dup,

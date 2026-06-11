@@ -663,6 +663,7 @@ class SpreadSubmitRequest(BaseModel):
     dry_run:         bool = True    # DEFAULT TRUE — explicit false required to send
     force:           bool = False   # W2.1 — bypass the local idempotency guard (re-entry)
     idempotency_key: Optional[str] = None  # W2.1 — caller key for client_order_id
+    action:          str = "open"   # W4 — "open" | "close" (close = reverse mleg)
 
 @app.get("/api/options/ivr/{symbol}")
 def get_ivr(symbol: str):
@@ -758,7 +759,7 @@ def submit_spread(req: SpreadSubmitRequest):
             legs=legs, qty=qty, structure=structure,
             strategy=req.strategy, net_debit_limit=req.net_debit_limit,
             dry_run=req.dry_run, force=req.force,
-            idempotency_key=req.idempotency_key,
+            idempotency_key=req.idempotency_key, action=req.action,
         )
     except Exception as e:
         raise HTTPException(400, f"{type(e).__name__}: {e}")
