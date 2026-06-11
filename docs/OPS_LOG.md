@@ -641,3 +641,22 @@ direct-path-only. No change made — flagging only. Cross-ref CLAUDE.md
 - Root cause: healthcheck.py SCANNER_LOG pointed at logs/scanner.err (dead since May 22) while the Dr. Crusher dialog blamed trader_error.log. Patched line 29 + warning labels to trader_error.log. Backup: healthcheck.py.bak.20260611.
 - Rotated trader.log / trader_error.log / signal-center.log to archive/logs (gz, dated suffix).
 - Pruned 9 orphaned local Ollama models (Ollie Box era): phi4:14b, llama3.1, llama3.2:3b, deepseek-r1 7b+14b, qwen3:14b, qwen2.5-coder:7b, plutus x2. Kept bigmac residents phi3/gemma3/mistral + cloud stubs. Disk 94 to 70 pct (60Gi free).
+
+## 2026-06-11 — HM-BRIDGE-WEDGE-2: bridge "listening but not responding" RCA + fix
+
+**Symptom:** Watchdog forced-restarted the trader 4× in 8 days (Jun 4 06:53, Jun 6 19:25, Jun 9 07:25, Jun 11 09:08) on "Process listening but not responding" probing `/api/status`. Jun 11 also re-hung 11 min after the restart (09:09→09:20 loop).
+
+**Ticket hypothesis REFUTED.** The dashboard does NOT share a thread/loop with Ollama calls — `:8080` runs on its own uvicorn daemon thread (`main.py:run_dashboard`); Ollama calls run in separate threads via OllamaQueue and completed in **1–7s** throughout the Jun 11 hang (trader_error.log). The model-swap coincidence was spurious.
+
+**Actual root cause: SQLite connection FILE-DESCRIPTOR leak → EMFILE wedge.** Measured the live process: trader.db FDs grew 37→69→120 (total 307→468) in ~6 min, tracking request/scan volume. The leak is the `conn = _conn(); …; conn.close()` pattern with **no try/finally** (~21 sites in app.py + tick_recorder + ready_room): trader.db is heavily written during scan/swap cycles → reads raise on lock contention → `close()` is skipped → the raised exception's traceback pins the frame-local connection so refcounting can't reclaim the FD. When the process hit the inherited soft NOFILE cap (`launchctl limit maxfiles` = 256), `accept()` returned EMFILE — kernel holds the listen socket but the app can't answer HTTP ("listening but not responding") — and every new `sqlite3.connect` failed with "unable to open database file" (the storm seen across tick_recorder/ReadyRoom/Finnhub right before each restart). Restart reset FDs → worked ~10 min → re-leaked → watchdog restart loop.
+
+**Fix (3 layers, defense-in-depth):**
+1. **Backstop (ceiling):** `main.py` raises `RLIMIT_NOFILE` soft→hard (capped 65536) at startup. Alone would have prevented all 4 hangs.
+2. **Root cause (per-site try/finally close):** `engine/tick_recorder.py` (_flush_buffer + cleanup), `engine/ready_room.py` (persist + get_latest + get_history), `dashboard/app.py` hot endpoints (`/api/status` ← the watchdog's probe, `_save_notification`, `_patch_leaderboard_season_overlays`, `player_trades`, `player_signals`, `player_history`, `/api/season`).
+3. **Catch-all reaper:** `main.py` FD-pressure GC daemon (`fd_gc_reaper`) — `gc.collect()` only when num_fds > 1500, reclaiming cycle-pinned leaked connections from large endpoints not re-indented (e.g. the 280-line `leaderboard`).
+
+Plus req#3 hygiene: explicit `(connect, read)` timeouts on the two canonical Ollama paths (`ollama_provider.py` → `(5, 85)`, `crew_scanner._query_ollama` → `(5, 60)`) so an unreachable Ollie Max fails fast on connect. (All other Ollama sites already had bounding timeouts — none could block indefinitely.)
+
+**Verify:** py_compile + import-smoke all 6 files; `dashboard.app` imports (775 routes). Restart via `scripts/trader_restart.sh`; confirmed single writer + :8080 bound; watched FD count stays bounded + no watchdog strikes for 10 min.
+
+**Follow-up (deferred):** convert the remaining large multi-connection endpoints (`leaderboard`, `recent_trades`, `recent_signals`, `comparison_chart`, `player_detail`) to explicit try/finally; currently covered by the reaper + raised rlimit.

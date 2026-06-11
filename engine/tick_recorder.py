@@ -398,6 +398,10 @@ def _flush_buffer(buffer: list[tuple[str, float, int | None, str]]) -> None:
     """Batch INSERT a flush of ticks. Swallows DB errors with a log line."""
     if not buffer:
         return
+    # HM-BRIDGE-WEDGE-2 (2026-06-11): try/finally so a raising executemany/commit
+    # (logged below — happens under scan-cycle DB contention) cannot skip close()
+    # and leak the connection FD. FD leak here was a high-frequency baseline source.
+    c = None
     try:
         c = _conn()
         c.executemany(
@@ -405,11 +409,16 @@ def _flush_buffer(buffer: list[tuple[str, float, int | None, str]]) -> None:
             buffer,
         )
         c.commit()
-        c.close()
         _stats["ticks_written"] += len(buffer)
     except Exception as exc:
         console.log(f"[red][TICK-REC] DB write failed (lost {len(buffer)} ticks): "
                     f"{type(exc).__name__}: {exc!r}")
+    finally:
+        if c is not None:
+            try:
+                c.close()
+            except Exception:
+                pass
 
 
 # ─── Cleanup thread ───────────────────────────────────────────────────────────
@@ -424,6 +433,7 @@ def _run_cleanup() -> None:
         time.sleep(1)
 
     while _running:
+        c = None  # HM-BRIDGE-WEDGE-2: try/finally close (FD-leak fix)
         try:
             c = _conn()
             cur = c.execute(
@@ -432,10 +442,15 @@ def _run_cleanup() -> None:
             )
             deleted = cur.rowcount
             c.commit()
-            c.close()
             console.log(f"[cyan][TICK-REC] cleanup: pruned {deleted} ticks older than {_RETENTION_HOURS}h")
         except Exception as exc:
             console.log(f"[yellow][TICK-REC] cleanup failed: {type(exc).__name__}: {exc!r}")
+        finally:
+            if c is not None:
+                try:
+                    c.close()
+                except Exception:
+                    pass
         # Sleep until next cleanup
         for _ in range(_CLEANUP_INTERVAL_SECS):
             if not _running:

@@ -2328,6 +2328,7 @@ def _save_notification(title: str, body: str, severity: str = "info",
                         agent_id: str = None) -> None:
     """Save a notification to the DB (dedup: skip if same title+body in last 5 min,
     or 24 hours for Morning Briefing to prevent daily accumulation)."""
+    conn = None  # HM-BRIDGE-WEDGE-2: finally-close (FD-leak fix; high-frequency writer)
     try:
         _init_notifications_table()
         conn = _conn()
@@ -2344,9 +2345,14 @@ def _save_notification(title: str, body: str, severity: str = "info",
                 (notif_type, severity, title, body, icon, agent_id)
             )
             conn.commit()
-        conn.close()
     except Exception:
         pass
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 _init_notifications_table()
@@ -2513,24 +2519,26 @@ def _patch_leaderboard_season_overlays(payload: dict) -> dict:
         if "season_overlay" in items[0]:
             return payload
 
-        conn = _conn()
-        rows = conn.execute(
-            """
-            SELECT ph.player_id, ph.total_value
-            FROM portfolio_history ph
-            JOIN (
-                SELECT player_id, MIN(recorded_at) AS first_ts
-                FROM portfolio_history
-                WHERE season=?
-                GROUP BY player_id
-            ) firsts
-              ON ph.player_id = firsts.player_id
-             AND ph.recorded_at = firsts.first_ts
-            WHERE ph.season=?
-            """,
-            (season, season),
-        ).fetchall()
-        conn.close()
+        conn = _conn()  # HM-BRIDGE-WEDGE-2: finally-close (FD-leak fix)
+        try:
+            rows = conn.execute(
+                """
+                SELECT ph.player_id, ph.total_value
+                FROM portfolio_history ph
+                JOIN (
+                    SELECT player_id, MIN(recorded_at) AS first_ts
+                    FROM portfolio_history
+                    WHERE season=?
+                    GROUP BY player_id
+                ) firsts
+                  ON ph.player_id = firsts.player_id
+                 AND ph.recorded_at = firsts.first_ts
+                WHERE ph.season=?
+                """,
+                (season, season),
+            ).fetchall()
+        finally:
+            conn.close()
         start_values = {row["player_id"]: float(row["total_value"]) for row in rows}
 
         patched = []
@@ -3468,22 +3476,24 @@ def player_detail(player_id: str):
 
 @app.get("/api/arena/player/{player_id}/trades")
 def player_trades(player_id: str, limit: int = 50):
-    conn = _conn()
-    # Check if sources column exists
-    _has_src = False
+    conn = _conn()  # HM-BRIDGE-WEDGE-2: finally-close (FD-leak fix)
     try:
-        conn.execute("SELECT sources FROM trades LIMIT 1")
-        _has_src = True
-    except Exception:
-        pass
-    _sc = ", sources" if _has_src else ""
-    trades = conn.execute(
-        f"SELECT symbol, action, qty, price, asset_type, option_type, reasoning, confidence, executed_at{_sc} "
-        "FROM trades WHERE player_id=? ORDER BY executed_at DESC LIMIT ?",
-        (player_id, limit)
-    ).fetchall()
-    conn.close()
-    return [annotate_player_payload(dict(t) | {"player_id": player_id}) for t in trades]
+        # Check if sources column exists
+        _has_src = False
+        try:
+            conn.execute("SELECT sources FROM trades LIMIT 1")
+            _has_src = True
+        except Exception:
+            pass
+        _sc = ", sources" if _has_src else ""
+        trades = conn.execute(
+            f"SELECT symbol, action, qty, price, asset_type, option_type, reasoning, confidence, executed_at{_sc} "
+            "FROM trades WHERE player_id=? ORDER BY executed_at DESC LIMIT ?",
+            (player_id, limit)
+        ).fetchall()
+        return [annotate_player_payload(dict(t) | {"player_id": player_id}) for t in trades]
+    finally:
+        conn.close()
 
 
 @app.get("/api/arena/player/{player_id}/open-positions")
@@ -3523,33 +3533,37 @@ def player_open_positions(player_id: str, nocache: bool = False):
 
 @app.get("/api/arena/player/{player_id}/signals")
 def player_signals(player_id: str, limit: int = 50):
-    conn = _conn()
-    _has_src = False
+    conn = _conn()  # HM-BRIDGE-WEDGE-2: finally-close (FD-leak fix)
     try:
-        conn.execute("SELECT sources FROM signals LIMIT 1")
-        _has_src = True
-    except Exception:
-        pass
-    _sc = ", sources" if _has_src else ""
-    signals = conn.execute(
-        f"SELECT symbol, signal, confidence, reasoning, asset_type, option_type, created_at{_sc} "
-        "FROM signals WHERE player_id=? ORDER BY created_at DESC LIMIT ?",
-        (player_id, limit)
-    ).fetchall()
-    conn.close()
-    return [dict(s) for s in signals]
+        _has_src = False
+        try:
+            conn.execute("SELECT sources FROM signals LIMIT 1")
+            _has_src = True
+        except Exception:
+            pass
+        _sc = ", sources" if _has_src else ""
+        signals = conn.execute(
+            f"SELECT symbol, signal, confidence, reasoning, asset_type, option_type, created_at{_sc} "
+            "FROM signals WHERE player_id=? ORDER BY created_at DESC LIMIT ?",
+            (player_id, limit)
+        ).fetchall()
+        return [dict(s) for s in signals]
+    finally:
+        conn.close()
 
 
 @app.get("/api/arena/player/{player_id}/history")
 def player_history(player_id: str):
-    conn = _conn()
-    history = conn.execute(
-        "SELECT total_value, cash, positions_value, recorded_at "
-        "FROM portfolio_history WHERE player_id=? ORDER BY recorded_at ASC",
-        (player_id,)
-    ).fetchall()
-    conn.close()
-    return [dict(h) for h in history]
+    conn = _conn()  # HM-BRIDGE-WEDGE-2: finally-close (FD-leak fix)
+    try:
+        history = conn.execute(
+            "SELECT total_value, cash, positions_value, recorded_at "
+            "FROM portfolio_history WHERE player_id=? ORDER BY recorded_at ASC",
+            (player_id,)
+        ).fetchall()
+        return [dict(h) for h in history]
+    finally:
+        conn.close()
 
 
 # --- General Endpoints ---
@@ -3591,13 +3605,15 @@ def ollie_commander_stats():
 @app.get("/api/season")
 def season_info():
     """Current season metadata."""
-    conn = _conn()
-    row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
-    current = int(row["value"]) if row else 5
-    cfg = conn.execute("SELECT * FROM season_config WHERE season=?", (current,)).fetchone()
-    name_row = conn.execute("SELECT value FROM settings WHERE key=?", (f"season_{current}_name",)).fetchone()
-    start_row = conn.execute("SELECT value FROM settings WHERE key=?", (f"season_{current}_start",)).fetchone()
-    conn.close()
+    conn = _conn()  # HM-BRIDGE-WEDGE-2: finally-close (FD-leak fix)
+    try:
+        row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+        current = int(row["value"]) if row else 5
+        cfg = conn.execute("SELECT * FROM season_config WHERE season=?", (current,)).fetchone()
+        name_row = conn.execute("SELECT value FROM settings WHERE key=?", (f"season_{current}_name",)).fetchone()
+        start_row = conn.execute("SELECT value FROM settings WHERE key=?", (f"season_{current}_start",)).fetchone()
+    finally:
+        conn.close()
     from datetime import date
     today = date.today()
     start = date.fromisoformat((start_row["value"] if start_row else "2026-04-10")[:10])
@@ -4130,41 +4146,46 @@ def health_detail():
 
 @app.get("/api/status")
 def status():
+    # HM-BRIDGE-WEDGE-2 (2026-06-11): try/finally so a query raising under DB
+    # contention can't skip conn.close() and leak the FD. This is the endpoint the
+    # bridge watchdog probes, so its own leak directly fed the FD-exhaustion wedge.
     conn = _conn()
-    # Get current season
-    s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
-    current_season = int(s_row["value"]) if s_row else 1
+    try:
+        # Get current season
+        s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
+        current_season = int(s_row["value"]) if s_row else 1
 
-    players = conn.execute("SELECT COUNT(*) as cnt FROM ai_players WHERE is_active=1").fetchone()
-    trades = conn.execute("SELECT COUNT(*) as cnt FROM trades WHERE season=?", (current_season,)).fetchone()
-    signals = conn.execute("SELECT COUNT(*) as cnt FROM signals WHERE season=?", (current_season,)).fetchone()
-    chat_count = conn.execute("SELECT COUNT(*) as cnt FROM ai_chat").fetchone()
-    news_count = conn.execute("SELECT COUNT(*) as cnt FROM market_news").fetchone()
+        players = conn.execute("SELECT COUNT(*) as cnt FROM ai_players WHERE is_active=1").fetchone()
+        trades = conn.execute("SELECT COUNT(*) as cnt FROM trades WHERE season=?", (current_season,)).fetchone()
+        signals = conn.execute("SELECT COUNT(*) as cnt FROM signals WHERE season=?", (current_season,)).fetchone()
+        chat_count = conn.execute("SELECT COUNT(*) as cnt FROM ai_chat").fetchone()
+        news_count = conn.execute("SELECT COUNT(*) as cnt FROM market_news").fetchone()
 
-    # Total portfolio value
-    total_val = conn.execute("""
-        SELECT SUM(p.cash + COALESCE(pos_val, 0)) as total
-        FROM ai_players p
-        LEFT JOIN (SELECT player_id, SUM(qty * avg_price) as pos_val FROM positions GROUP BY player_id) pv
-        ON p.id = pv.player_id
-        WHERE p.is_active = 1
-    """).fetchone()
+        # Total portfolio value
+        total_val = conn.execute("""
+            SELECT SUM(p.cash + COALESCE(pos_val, 0)) as total
+            FROM ai_players p
+            LEFT JOIN (SELECT player_id, SUM(qty * avg_price) as pos_val FROM positions GROUP BY player_id) pv
+            ON p.id = pv.player_id
+            WHERE p.is_active = 1
+        """).fetchone()
 
-    conn.close()
-    return {
-        "status": "running",
-        "current_season": current_season,
-        "active_players": players["cnt"],
-        "total_trades": trades["cnt"],
-        "total_signals": signals["cnt"],
-        "total_chat_messages": chat_count["cnt"] if chat_count else 0,
-        "total_news": news_count["cnt"] if news_count else 0,
-        "total_portfolio_value": round(total_val["total"], 2) if total_val and total_val["total"] else 0,
-        "cic_usage": {
-            "sonnet_calls_today": _cic_usage.get("calls_today", 0),
-            "estimated_cost_today": f"${_cic_usage.get('cost_today', 0.0):.4f}",
-        },
-    }
+        return {
+            "status": "running",
+            "current_season": current_season,
+            "active_players": players["cnt"],
+            "total_trades": trades["cnt"],
+            "total_signals": signals["cnt"],
+            "total_chat_messages": chat_count["cnt"] if chat_count else 0,
+            "total_news": news_count["cnt"] if news_count else 0,
+            "total_portfolio_value": round(total_val["total"], 2) if total_val and total_val["total"] else 0,
+            "cic_usage": {
+                "sonnet_calls_today": _cic_usage.get("calls_today", 0),
+                "estimated_cost_today": f"${_cic_usage.get('cost_today', 0.0):.4f}",
+            },
+        }
+    finally:
+        conn.close()
 
 
 @app.get("/api/fleet/status")

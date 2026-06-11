@@ -3781,6 +3781,66 @@ if __name__ == "__main__":
     # unreachable from nested closures in some Python import orderings.
     logger = _logging.getLogger(__name__)
 
+    # === HM-BRIDGE-WEDGE-2 (2026-06-11): raise the file-descriptor soft limit ===
+    # Root cause of the recurring "Process listening but not responding" watchdog
+    # restarts (4× in 8 days). NOT an Ollama wedge — the dashboard runs on its own
+    # uvicorn thread and Ollama calls complete remotely in 1-7s. The real cause is a
+    # SQLite connection FD leak: queries raising under scan-cycle DB contention skip
+    # a non-try/finally conn.close(), and the raised exception's traceback pins the
+    # frame-local connection so refcounting can't reclaim the FD. When the process
+    # reaches the inherited soft NOFILE cap (launchd/cron default 256), accept()
+    # returns EMFILE — the kernel holds the listen socket but the app can't answer
+    # HTTP — and every new sqlite3.connect() fails with "unable to open database
+    # file". Raising the soft limit removes the wedge CEILING; the per-site
+    # try/finally fixes (this commit) stop the leak itself. Belt-and-braces.
+    try:
+        import resource as _resource
+        _soft, _hard = _resource.getrlimit(_resource.RLIMIT_NOFILE)
+        _target = _hard if _hard != _resource.RLIM_INFINITY else 65536
+        _target = max(_soft, min(_target, 65536))  # stay under macOS kern.maxfilesperproc
+        if _target > _soft:
+            _resource.setrlimit(_resource.RLIMIT_NOFILE, (_target, _hard))
+            console.log(f"[green][HM-BRIDGE-WEDGE-2] RLIMIT_NOFILE soft {_soft} → {_target} (hard={_hard})")
+        else:
+            console.log(f"[dim][HM-BRIDGE-WEDGE-2] RLIMIT_NOFILE soft already {_soft} (hard={_hard})")
+    except Exception as _rlim_e:
+        console.log(f"[yellow][HM-BRIDGE-WEDGE-2] could not raise RLIMIT_NOFILE: {type(_rlim_e).__name__}: {_rlim_e!r}")
+
+    # === HM-BRIDGE-WEDGE-2: FD-pressure GC reaper (defense-in-depth) ===========
+    # The per-site try/finally fixes (this commit) close connections on the hot,
+    # small endpoints + daemons. A few large multi-connection endpoints (e.g. the
+    # 280-line leaderboard) are NOT re-indented (re-indent risk > reward in a
+    # money-adjacent file). For those, leaked connections survive only as
+    # Connection↔Cursor reference cycles — which gc.collect() reclaims (it runs
+    # the finalizers on unreachable cycles, closing the FD). This daemon polls the
+    # process FD count every 120s and forces a collect ONLY when pressure is high,
+    # so it can never silently approach the (now-raised) NOFILE cap. NOT a
+    # substitute for the try/finally fixes or the rlimit raise — a backstop behind
+    # both. No trading-logic impact (gc timing only).
+    def _fd_gc_reaper():
+        import gc as _gc, time as _t, os as _os
+        try:
+            import psutil as _ps
+            _proc = _ps.Process(_os.getpid())
+        except Exception:
+            _proc = None
+        while True:
+            _t.sleep(120)
+            try:
+                nfds = None
+                if _proc is not None:
+                    try:
+                        nfds = _proc.num_fds()
+                    except Exception:
+                        nfds = None
+                if nfds is None or nfds > 1500:
+                    _gc.collect()
+                    if nfds is not None:
+                        console.log(f"[dim][HM-BRIDGE-WEDGE-2] fd_gc_reaper: {nfds} FDs open → gc.collect()")
+            except Exception:
+                pass
+    threading.Thread(target=_fd_gc_reaper, daemon=True, name="fd_gc_reaper").start()
+
     # Bootstrap DB: schema + INSERTs default agents + UNCONDITIONAL canonical
     # model_id enforcement for 18 agents (see setup_db.setup() docstring).
     # NOTE: runtime UPDATEs to ai_players.model_id for the 18 enforced IDs are

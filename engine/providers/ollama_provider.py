@@ -20,6 +20,12 @@ _latency_logger.setLevel(logging.INFO)
 # starving subsequent agents in the same WR cycle (project_hm_wr_ollama_queue_starvation).
 _HM_WR_CANCEL_BUDGET_S = 85
 
+# HM-BRIDGE-WEDGE-2 2026-06-11: explicit (connect, read) timeout. A bare float
+# bounds both, but a tight CONNECT budget makes an unreachable Ollie Max
+# (.166/.168 down, route flap) fail fast instead of consuming the full read
+# budget before erroring — the call can never block indefinitely either way.
+_HM_OLLAMA_CONNECT_TIMEOUT_S = 5
+
 # HM-MODEL-LOUD 2026-06-01: a missing/failing model must ALARM, not silently return "".
 # (How devstral-small-2 etc. went dark — _do_request swallowed the 404 to an empty string.)
 # Throttled to ONE NTFY per (model_id) per process lifetime — the fleet inference path is
@@ -83,7 +89,8 @@ class OllamaProvider(AIProvider):
             payload["think"] = False
 
         def _do_request() -> str:
-            r = requests.post(self.url, json=payload, timeout=self.timeout)
+            r = requests.post(self.url, json=payload,
+                              timeout=(_HM_OLLAMA_CONNECT_TIMEOUT_S, self.timeout))
             # STRUCTURAL: do NOT swallow a missing/failing model to "". A 404 (model not on
             # the host) or an {"error":...} body must alarm + raise, not return empty.
             try:

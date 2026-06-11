@@ -856,7 +856,7 @@ def _query_ollama(player_id: str, model: str, system_prompt: str,
                     "temperature": 0.3,
                 },
             },
-            timeout=60,          # per-request HTTP bound; queue wait is separate
+            timeout=(5, 60),     # HM-BRIDGE-WEDGE-2: explicit (connect, read); queue wait is separate
         )
         r.raise_for_status()
         return r.json().get("response", "").strip()

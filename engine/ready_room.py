@@ -570,6 +570,7 @@ def generate_ready_room_briefing(force: bool = False) -> dict:
     }
 
     # ── 8. Persist ────────────────────────────────────────────────────────
+    conn = None  # HM-BRIDGE-WEDGE-2: finally-close so a raising INSERT can't leak the FD
     try:
         conn = _conn()
         conn.execute(
@@ -599,13 +600,18 @@ def generate_ready_room_briefing(force: bool = False) -> dict:
             ),
         )
         conn.commit()
-        conn.close()
         console.log(
             f"[bold green]Ready Room: {session_type} briefing saved "
             f"(SPY ${spot:.2f}, VIX {vix:.1f}, P/C {pc_ratio:.2f})"
         )
     except Exception as e:
         console.log(f"[red]ReadyRoom: save error: {e}")
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
     # ── 9. Cache and return ───────────────────────────────────────────────
     _CACHE["ts"]   = time.time()
@@ -619,12 +625,12 @@ def generate_ready_room_briefing(force: bool = False) -> dict:
 def get_latest_briefing() -> dict:
     """Return the most recent ready_room_briefings row, or empty dict."""
     _init_db()
+    conn = None  # HM-BRIDGE-WEDGE-2: finally-close (FD-leak fix)
     try:
         conn = _conn()
         row = conn.execute(
             "SELECT * FROM ready_room_briefings ORDER BY id DESC LIMIT 1"
         ).fetchone()
-        conn.close()
         if row:
             d = dict(row)
             d["signals"] = json.loads(d.get("signals_json") or "[]")
@@ -636,17 +642,23 @@ def get_latest_briefing() -> dict:
     except Exception as e:
         console.log(f"[red]ReadyRoom: get_latest error: {e}")
         return {}
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def get_briefing_history(limit: int = 7) -> list:
     """Return the last N briefings, newest first."""
     _init_db()
+    conn = None  # HM-BRIDGE-WEDGE-2: finally-close (FD-leak fix)
     try:
         conn = _conn()
         rows = conn.execute(
             "SELECT * FROM ready_room_briefings ORDER BY id DESC LIMIT ?", (limit,)
         ).fetchall()
-        conn.close()
         results = []
         for row in rows:
             d = dict(row)
@@ -659,6 +671,12 @@ def get_briefing_history(limit: int = 7) -> list:
     except Exception as e:
         console.log(f"[red]ReadyRoom: get_history error: {e}")
         return []
+    finally:
+        if conn is not None:
+            try:
+                conn.close()
+            except Exception:
+                pass
 
 
 def get_key_levels() -> dict:
