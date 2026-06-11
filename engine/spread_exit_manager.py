@@ -162,11 +162,38 @@ def _refresh_fills(rows) -> None:
         _log(f"[yellow][SPREAD-EXIT] spread_executor import failed: {e}")
         return
     for r in rows:
-        if r["broker_order_id"]:
-            try:
-                se.poll_fill(r["broker_order_id"])
-            except Exception:
-                pass
+        oid = r["broker_order_id"]
+        if not oid:
+            continue
+        prior = se._norm_status(r["exec_status"])   # status BEFORE this poll
+        try:
+            res = se.poll_fill(oid)
+        except Exception:
+            continue
+        if not res.get("ok"):
+            continue
+        # W4.1: one fill-transition NTFY to crew. Guard on the prior status (no flag
+        # column) — the working→filled edge happens exactly once, so this fires once.
+        if prior in _WORKING_STATUSES and se._norm_status(res.get("exec_status")) == "filled":
+            _ntfy_fill(r, res.get("filled_avg_price"))
+
+
+_WORKING_STATUSES = frozenset({"pending_new", "new", "accepted", "partially_filled"})
+
+
+def _ntfy_fill(row, filled_price) -> None:
+    """One NTFY to the crew channel when a spread transitions to FILLED."""
+    try:
+        from engine.alert_channels import send_alert, AlertLevel
+        strikes = "/".join(str(l.get("strike")) for l in json.loads(row["legs_json"] or "[]"))
+        px = filled_price if filled_price is not None else "?"
+        send_alert(
+            message=(f"Spread FILLED: {row['symbol']} {strikes} {row['expiration']} "
+                     f"@ ${px} ({row['strategy_id']})"),
+            level=AlertLevel.INFO, alert_type=f"spread-fill-{row['id']}",
+            audience="crew", bypass_rate_limit=True)
+    except Exception as e:
+        _log(f"[yellow][SPREAD-EXIT] fill NTFY failed: {type(e).__name__}: {e}")
 
 
 # ── module-level daemon (bound in main.py; 5 min, market hours) ──────────────
