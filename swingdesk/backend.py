@@ -648,12 +648,14 @@ class OptionsTradeRequest(BaseModel):
 # SWINGDESK-W2: spread → Alpaca multi-leg (paper) submission.
 try:
     import spread_executor as _spread_exec   # swingdesk/ already on sys.path (line ~615)
+    import spread_fixtures as _spread_fix     # saved blueprints (e.g. ceg_hedge)
     SPREAD_EXEC_OK = True
 except Exception:
     SPREAD_EXEC_OK = False
 
 class SpreadSubmitRequest(BaseModel):
-    legs:            list           # [{underlying,expiration,option_type,strike,side}] (2-leg vertical)
+    legs:            Optional[list] = None   # [{underlying,option_type,strike,side}] (2-leg vertical)
+    fixture:         Optional[str] = None    # OR a saved blueprint name (e.g. "ceg_hedge"); resolves legs at runtime
     net_debit_limit: Optional[float] = None  # None → mid from Alpaca quotes
     qty:             int = 1
     structure:       str = "vertical_spread"
@@ -729,6 +731,21 @@ def submit_spread(req: SpreadSubmitRequest):
     payload without sending); pass dry_run=false to actually submit."""
     if not SPREAD_EXEC_OK:
         raise HTTPException(503, "spread_executor not available")
+    # Resolve legs: either explicit `legs` OR a saved `fixture` blueprint (not both).
+    legs, structure, qty = req.legs, req.structure, req.qty
+    if req.fixture:
+        if req.legs:
+            raise HTTPException(400, "supply either `legs` or `fixture`, not both")
+        try:
+            bp = _spread_fix.load_blueprint(req.fixture)
+            resolved = _spread_fix.resolve_blueprint(bp)   # live spot + 30-45 DTE expiry
+        except Exception as e:
+            raise HTTPException(400, f"fixture '{req.fixture}': {type(e).__name__}: {e}")
+        legs = resolved["legs"]
+        structure = resolved.get("structure", structure)
+        qty = resolved.get("qty", qty)
+    if not legs:
+        raise HTTPException(400, "provide `legs` or a `fixture` name")
     # Live submits respect the SwingDesk circuit breaker; dry-runs never send.
     if not req.dry_run:
         gate = risk_gate()
@@ -736,7 +753,7 @@ def submit_spread(req: SpreadSubmitRequest):
             raise HTTPException(400, f"Risk gate blocked: {gate}")
     try:
         result = _spread_exec.submit_spread(
-            legs=req.legs, qty=req.qty, structure=req.structure,
+            legs=legs, qty=qty, structure=structure,
             strategy=req.strategy, net_debit_limit=req.net_debit_limit,
             dry_run=req.dry_run,
         )
