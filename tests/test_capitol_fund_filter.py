@@ -15,6 +15,13 @@ from datetime import datetime, timezone
 import pytest
 
 from engine.crew_scanner import is_non_equity_ticker, capitol_rules
+from engine.instrument_filter import is_non_equity_ticker as _shared_filter
+
+
+def test_crew_scanner_reexports_shared_filter():
+    # crew_scanner must re-export the SHARED definition (no drift between the
+    # copycat path and Archer's intel path).
+    assert is_non_equity_ticker is _shared_filter
 
 
 # ── unit: the ticker heuristic ────────────────────────────────────────────────
@@ -65,3 +72,24 @@ def test_capitol_rules_skips_afaxx_scores_meta(monkeypatch, caplog):
     assert res.get("symbol") != "AFAXX"
     assert res.get("symbol") == "META"
     assert res.get("action") == "BUY"
+
+
+# ── Archer intel briefing must not be fed fund tickers (the "crypto" mislabel) ──
+def test_archer_get_congress_drops_funds(monkeypatch, caplog):
+    fake = {"trades": [
+        {"ticker": "AFAXX", "politician": "Tom Suozzi", "transaction": "Purchase",
+         "amount_range": "$1K-15K", "transaction_date": "2026-06-10"},
+        {"ticker": "META", "politician": "Pat McGuire", "transaction": "Purchase",
+         "amount_range": "$15K-50K", "transaction_date": "2026-06-10"},
+    ]}
+    import engine.congress_tracker as ct
+    monkeypatch.setattr(ct, "get_congressional_trades", lambda *a, **k: fake)
+
+    import engine.archer.intel_sources as src
+    with caplog.at_level(logging.INFO, logger="engine.archer.intel_sources"):
+        rows = src.get_congress()
+
+    syms = [r.get("symbol") for r in rows]
+    assert "AFAXX" not in syms          # fund never reaches the LLM → no mislabel
+    assert "META" in syms               # legit equity still flows through
+    assert "skipped non-equity: AFAXX" in caplog.text

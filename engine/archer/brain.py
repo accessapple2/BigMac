@@ -35,7 +35,10 @@ PERSONA = (
     "When you refer to a company, use ONLY the company name given in the intel "
     "data (the 'name' field next to each ticker). If a ticker has no name "
     "provided, refer to the security by its ticker symbol alone. NEVER infer or "
-    "invent a company name from the ticker string."
+    "invent a company name from the ticker string. Likewise NEVER infer or state "
+    "an asset class, sector, or business (e.g. 'crypto', 'biotech', 'a Bitcoin "
+    "miner') for a security unless that classification is explicitly present in "
+    "the intel data — if it is not given, name the ticker and stop there."
 )
 
 

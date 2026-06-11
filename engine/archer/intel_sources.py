@@ -245,19 +245,33 @@ def get_congress() -> list[dict]:
     """
     try:
         from engine.congress_tracker import get_congressional_trades
+        from engine.instrument_filter import is_non_equity_ticker
         d = get_congressional_trades() or {}
         trades = d.get("trades", []) or []
-        return _names.annotate([
-            {
-                "symbol": t.get("ticker", ""),
+        # HM-CAPITOL-FUND-FILTER: drop money-market / mutual-fund tickers (e.g.
+        # AFAXX) before they reach plutus-v1 — feeding the LLM a bare, unnamed fund
+        # ticker is what produced the "AFAXX is crypto" mislabel in the briefing.
+        # Same filter as crew_scanner.capitol_rules; log skips once/call at INFO.
+        rows = []
+        _skipped: set[str] = set()
+        for t in trades:
+            sym = (t.get("ticker") or "").strip()
+            if not sym:
+                continue
+            if is_non_equity_ticker(sym):
+                su = sym.upper()
+                if su not in _skipped:
+                    _skipped.add(su)
+                    logger.info("[HM-CAPITOL-FUND-FILTER] skipped non-equity: %s", su)
+                continue
+            rows.append({
+                "symbol": sym,
                 "who": t.get("politician", "Unknown"),
                 "action": t.get("transaction", ""),
                 "amt": t.get("amount_range", ""),
                 "date": t.get("transaction_date", ""),
-            }
-            for t in trades
-            if t.get("ticker")
-        ])
+            })
+        return _names.annotate(rows)
     except Exception as e:
         logger.warning("[Archer/intel] congress failed: %s: %r", type(e).__name__, e)
         return []

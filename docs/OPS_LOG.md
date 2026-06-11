@@ -675,3 +675,14 @@ Plus req#3 hygiene: explicit `(connect, read)` timeouts on the two canonical Oll
 No scoring/sizing change for legit equities (replay: META still scores 72, identical to pre-fix).
 
 **Verify:** new `tests/test_capitol_fund_filter.py` (16 tests) — Suozzi AFAXX skips, McGuire/Moskowitz META passes, GOOGL/X/ZVZZT pass, VMFXX/VFIAX/SPAXX skip; end-to-end `capitol_rules` replay drops AFAXX (+INFO log) and scores META. Full hook suite + new test: 35 passed. py_compile OK. Restarted (copycat runs in-process via the scanner).
+
+## 2026-06-11 — HM-CAPITOL-FUND-FILTER follow-up: Archer intel "crypto" mislabel
+
+**Symptom (from the same incident):** Archer's morning intel briefing mis-described AFAXX as crypto. Root cause: `engine/archer/intel_sources.py::get_congress()` is a SEPARATE path from `crew_scanner.capitol_rules` (the copycat filter did NOT cover it) — it fed ALL congress tickers, including AFAXX, into `brain.morning_briefing` (plutus-v1). AFAXX has no name in `ticker_names`, so the LLM got a bare unnamed ticker and hallucinated an asset class ("crypto").
+
+**Fix:**
+1. Extracted the filter to a lightweight shared module `engine/instrument_filter.py` (`is_non_equity_ticker` + `_MONEY_MARKET_TICKERS`) — single source of truth so the copycat path and Archer's intel path can never drift. `crew_scanner` now re-exports it (existing callers/tests unchanged).
+2. `get_congress()` filters non-equity tickers before `_names.annotate` / the LLM; logs skips once/call at INFO `[HM-CAPITOL-FUND-FILTER] skipped non-equity: TICKER`. AFAXX never reaches plutus-v1 → can't be mislabeled.
+3. Hardened `brain.py` PERSONA: never infer/state an asset class, sector, or business (e.g. "crypto", "biotech") for a security unless it's explicitly in the intel data — defense against the hallucination class for any other unnamed ticker.
+
+**Verify:** test file now 18 tests incl. `get_congress` end-to-end (AFAXX dropped + INFO log, META kept) and a re-export-identity test (no drift). Hook suite + tests pass. py_compile OK. Restarted — Archer briefing runs in-process (`main.py:run_archer_morning_briefing`).

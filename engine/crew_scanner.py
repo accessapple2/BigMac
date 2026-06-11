@@ -78,34 +78,12 @@ logging.basicConfig(
 )
 
 # ── HM-CAPITOL-FUND-FILTER (2026-06-11) ───────────────────────────────────────
-# Money-market / mutual-fund share classes are cash-sweep vehicles, NOT tradable
-# equity signals. Congress members parking cash in them (e.g. Tom Suozzi → AFAXX,
-# the American Funds U.S. Govt Money Market fund, opened @ $1.00) is noise, not
-# smart-money flow. Drop them from the congress-copycat path BEFORE scoring.
-# Heuristic (cheapest available — no per-symbol API call): mutual fund / MMF
-# symbols use the NASDAQ 5-letter convention ending in X (AFAXX money market,
-# VFIAX index fund, AGTHX growth fund), plus an explicit money-market denylist
-# for any that slip the pattern. Legit equity tickers are 1-4 letters (or do not
-# end in X at 5 chars), so this does not touch real equity disclosures.
-_MONEY_MARKET_TICKERS = frozenset({
-    "AFAXX", "VMFXX", "VMRXX", "SPAXX", "FDRXX", "SWVXX", "FZFXX", "SPRXX",
-    "VUSXX", "TTTXX", "SNVXX", "SNSXX", "FNSXX", "MVRXX", "FGXXX", "PINXX",
-})
-
-
-def is_non_equity_ticker(ticker: str) -> bool:
-    """True if *ticker* is a mutual-fund / money-market share class (untradeable as
-    an equity). Used to skip fund 'buys' in the congress copycat path before scoring.
-    NASDAQ 5-letter symbols ending in X are fund share classes; an explicit
-    money-market denylist backstops any that don't fit the pattern."""
-    t = (ticker or "").strip().upper()
-    if not t:
-        return False
-    if t in _MONEY_MARKET_TICKERS:
-        return True
-    if len(t) == 5 and t.endswith("X"):
-        return True
-    return False
+# Drop money-market / mutual-fund share classes from the congress-copycat path
+# BEFORE scoring (e.g. Tom Suozzi → AFAXX money market @ $1.00 = noise, not flow).
+# The heuristic + denylist live in engine.instrument_filter so this and Archer's
+# intel briefing (engine/archer/intel_sources.get_congress) share one definition
+# and can never drift. Re-exported here so existing callers/tests keep working.
+from engine.instrument_filter import is_non_equity_ticker  # noqa: E402
 
 # Mutable flag — importers hold a reference to this dict and see live updates.
 # Set True while a scan cycle is actively running; False otherwise.
