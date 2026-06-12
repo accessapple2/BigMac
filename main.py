@@ -3521,8 +3521,17 @@ def run_dashboard():
         try:
             from dashboard.app import app
             _dashboard_started.set()
-            # SECURITY: auth bypass safety depends on uvicorn rewriting client.host from X-Forwarded-For — do not set proxy_headers=False or change forwarded_allow_ips
-            uvicorn.run(app, host="127.0.0.1", port=8080, log_level="warning",
+            # HM-BRIDGE-BIND (2026-06-12): bind 0.0.0.0 so http://bigmac:8080 is
+            # reachable over Tailscale/LAN without an SSH tunnel. Override via env
+            # DASHBOARD_HOST (e.g. "127.0.0.1") to revert to loopback-only.
+            # SECURITY: network exposure is SAFE because the localhost auth bypass
+            # (dashboard/app.py AuthMiddleware) keys on request.client.host == 127.0.0.1,
+            # and forwarded_allow_ips="127.0.0.1" means uvicorn only honors X-Forwarded-For
+            # from genuinely-loopback connections — a LAN/Tailscale client arrives from a
+            # non-loopback source IP, so it can neither hit the bypass nor spoof client.host;
+            # it must authenticate. Do NOT set proxy_headers=False or widen forwarded_allow_ips.
+            _dash_host = os.getenv("DASHBOARD_HOST", "0.0.0.0")
+            uvicorn.run(app, host=_dash_host, port=8080, log_level="warning",
                         proxy_headers=True, forwarded_allow_ips="127.0.0.1")
             return  # Clean exit (shutdown)
         except Exception as exc:
