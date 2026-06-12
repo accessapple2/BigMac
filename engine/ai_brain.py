@@ -1075,7 +1075,7 @@ class Arena:
             from engine.paper_trader import sell, sell_partial
             price = prices[action["symbol"]]["price"]
             if action["action"] == "SELL_PARTIAL":
-                sell_partial(
+                _exit_res = sell_partial(
                     player_id, action["symbol"], price,
                     qty=action["qty"],
                     asset_type=action.get("asset_type", "stock"),
@@ -1083,13 +1083,25 @@ class Arena:
                     option_type=action.get("option_type"),
                 )
             else:
-                sell(
+                _exit_res = sell(
                     player_id, action["symbol"], price,
                     asset_type=action.get("asset_type", "stock"),
                     reasoning=action["reason"],
                     option_type=action.get("option_type"),
                 )
             console.log(f"[yellow]{player_id}: {action['reason']} on {action['symbol']}")
+            # HM-STOP-EXECUTION-GAP trip-safety net: a fired stop that returns no
+            # fill means the order path silently dropped the exit. Track per
+            # (player, symbol); NTFY CRITICAL after >2 consecutive un-closed cycles.
+            if str(action.get("reason", "")).lower().startswith(("stop-loss", "options stop-loss")):
+                try:
+                    from engine.stuck_stop_guard import record_stop_outcome
+                    record_stop_outcome(
+                        player_id, action["symbol"],
+                        executed=bool(_exit_res), detail=action["reason"],
+                    )
+                except Exception as _ssg_e:
+                    console.log(f"[yellow]stuck-stop guard hook error: {type(_ssg_e).__name__}: {_ssg_e!r}")
 
         # Skip new trade scanning when halted
         if is_halted:

@@ -553,20 +553,26 @@ def get_position(player_id: str, symbol: str, asset_type: str = "stock",
     conn = _conn()
     if asset_type == "stock":
         row = conn.execute(
-            "SELECT qty, avg_price, strike_price, option_type, opened_at FROM positions "
+            "SELECT qty, avg_price, strike_price, option_type, opened_at, expiry_date FROM positions "
             "WHERE player_id=? AND symbol=? AND asset_type='stock'",
             (player_id, symbol)
         ).fetchone()
     else:
         row = conn.execute(
-            "SELECT qty, avg_price, strike_price, option_type, opened_at FROM positions "
+            "SELECT qty, avg_price, strike_price, option_type, opened_at, expiry_date FROM positions "
             "WHERE player_id=? AND symbol=? AND option_type=?",
             (player_id, symbol, option_type)
         ).fetchone()
     conn.close()
     if not row:
         return None
-    return {"qty": row[0], "avg_price": row[1], "strike_price": row[2], "option_type": row[3], "opened_at": row[4]}
+    # HM-STOP-EXECUTION-GAP (2026-06-12): expiry_date MUST be returned — sell()/
+    # sell_partial() feed it to estimate_option_price() for the time-value floor.
+    # Without it, expiry_date=None collapsed OTM options to $0.00, tripping the
+    # "< $0.01 protect-position" guard and silently blocking every stop-loss
+    # exit (ollama-plutus HIMS stuck 2+ days, fired every cycle, zero execution).
+    return {"qty": row[0], "avg_price": row[1], "strike_price": row[2],
+            "option_type": row[3], "opened_at": row[4], "expiry_date": row[5]}
 
 
 def _is_human_player(player_id: str) -> bool:
