@@ -3231,6 +3231,19 @@ def run_chekov_stoploss():
         console.log(f"[yellow]Chekov SL/TP check error: {e}")
 
 
+@_hm_bq_instr("run_guardian_sweep")
+def run_guardian_sweep():
+    """HM-GUARDIAN-ADOPTION: exit-only stop sweep for guardian-of-forever.
+    The scan loop only stop-checks halt_mode='active' players; guardian is
+    exit_only, so it needs this dedicated sweep. Flat 12% stop + tiered TP;
+    exits route to Alpaca Paper (real close); stuck_stop_guard covers it."""
+    try:
+        from engine.guardian_sweep import run_guardian_sweep as _sweep
+        _sweep()
+    except Exception as e:
+        console.log(f"[yellow]Guardian sweep error: {e}")
+
+
 # === HM-EVENTS-BUS-CONSUMER 2026-05-26 ===
 @_hm_bq_instr("run_events_bus_consumer")
 def run_events_bus_consumer():
@@ -4667,6 +4680,7 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_universe_scan)         # Universe Scanner: checks every 30 min, runs 9 PM MST (12 AM ET)
     schedule.every(30).minutes.do(run_strategy_scan)         # Strategy Scan: checks every 30 min, runs 10 PM MST (1 AM ET)
     schedule.every(10).minutes.do(run_chekov_stoploss)        # Chekov SL/TP: every 10 min, check positions vs stop/target
+    schedule.every(10).minutes.do(run_guardian_sweep)         # HM-GUARDIAN-ADOPTION: exit-only guardian stop/TP sweep (orphan positions), routes exits to Alpaca
     schedule.every(1).minutes.do(run_events_bus_consumer)     # HM-EVENTS-BUS-CONSUMER: drain pending signals_v2 (NYSE hours only)
     schedule.every(1).minutes.do(run_pending_manual_closes)   # Manual-close queue (NYSE hours only) — reads data/pending_manual_closes.json
     schedule.every(5).minutes.do(run_signal_center_refresh)   # HM-SIGNAL-CENTER-REFRESH: keep signal_history fresh (NYSE hours only)

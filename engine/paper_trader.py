@@ -153,6 +153,12 @@ _EXECUTION_PORTFOLIO_BY_PLAYER = {
     "dalio-metals": "Enterprise Computer",
     "neo-matrix": "Neo Matrix",
     "ollie-auto": "Alpaca Paper",   # Ollie Super Trader → Alpaca paper account
+    # HM-GUARDIAN-ADOPTION 2026-06-12: exit-only guardian for orphan Alpaca
+    # positions. Routes to Alpaca Paper (route_mode=trading) so its flat-12%
+    # stops actually CLOSE the real broker positions (intentional loss-cutting,
+    # Admiral-approved). It only ever sells — exit_only + absent from all
+    # scanners means buy()/_forward BUY paths are never reached for it.
+    "guardian-of-forever": "Alpaca Paper",
 }
 
 
