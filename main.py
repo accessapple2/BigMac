@@ -4681,6 +4681,23 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_strategy_scan)         # Strategy Scan: checks every 30 min, runs 10 PM MST (1 AM ET)
     schedule.every(10).minutes.do(run_chekov_stoploss)        # Chekov SL/TP: every 10 min, check positions vs stop/target
     schedule.every(10).minutes.do(run_guardian_sweep)         # HM-GUARDIAN-ADOPTION: exit-only guardian stop/TP sweep (orphan positions), routes exits to Alpaca
+
+    # HM-GUARDIAN-ADOPTION: one-time immediate sweep at startup so there is NO
+    # ~10-min coverage gap after a restart (the 10-min schedule above is the
+    # ongoing cadence). Daemon thread + warm-up delay so it never blocks boot and
+    # market data / the Alpaca bridge are ready. Idempotent; run_guardian_sweep
+    # is fully self-guarded (never raises). Fires every restart by design.
+    def _guardian_startup_sweep():
+        import time as _t
+        _t.sleep(30)  # let market_data + Alpaca bridge warm up post-boot
+        try:
+            console.log("[cyan]🛡️ Guardian startup sweep (zero-gap coverage after restart)")
+            run_guardian_sweep()
+        except Exception as _gss_e:
+            console.log(f"[yellow]Guardian startup sweep error: {_gss_e}")
+    threading.Thread(target=_guardian_startup_sweep, daemon=True,
+                     name="guardian-startup-sweep").start()
+
     schedule.every(1).minutes.do(run_events_bus_consumer)     # HM-EVENTS-BUS-CONSUMER: drain pending signals_v2 (NYSE hours only)
     schedule.every(1).minutes.do(run_pending_manual_closes)   # Manual-close queue (NYSE hours only) — reads data/pending_manual_closes.json
     schedule.every(5).minutes.do(run_signal_center_refresh)   # HM-SIGNAL-CENTER-REFRESH: keep signal_history fresh (NYSE hours only)
