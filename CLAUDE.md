@@ -111,10 +111,24 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
   runs uvicorn on 8080.
 
 ## Network Bindings
-- **Trader dashboard (port 8080)**: uvicorn binds `127.0.0.1` (loopback only);
-  LAN clients reach via Cloudflare tunnel at `bridge.ollietrades.com`.
-  Network-wide bind would require separate auth review at the uvicorn bind
-  `main.py:3250`.
+- **Trader dashboard (port 8080)**: uvicorn binds `0.0.0.0` (all interfaces) as
+  of **HM-BRIDGE-BIND (2026-06-12, commit `d64e202`)** — env-overridable via
+  `DASHBOARD_HOST` (set `127.0.0.1` to revert to loopback-only). LAN/Tailscale
+  clients now reach `http://bigmac:8080` directly (no SSH tunnel); the Cloudflare
+  tunnel at `bridge.ollietrades.com` (→ `localhost:8080`) keeps working unchanged
+  since `0.0.0.0` includes loopback. The bind site is `main.py` `run_dashboard()`
+  (~line 3526), NOT `main.py:3250` (that line ref was stale). **Auth review (done,
+  not deferred):** network exposure is safe because the AuthMiddleware localhost
+  bypass (`dashboard/app.py::_is_localhost`, line 1078) keys on
+  `request.client.host == 127.0.0.1`, and `forwarded_allow_ips="127.0.0.1"` means
+  uvicorn only honors `X-Forwarded-For` rewriting from genuinely-loopback
+  connections. A LAN/Tailscale client arrives from a non-loopback source IP, so it
+  can neither hit the bypass nor spoof `client.host` — it must authenticate (verified
+  2026-06-12: LAN IP returns `303 → /login`, not a bypass). **Do NOT** set
+  `proxy_headers=False` or widen `forwarded_allow_ips` — that invariant is what keeps
+  the open bind safe. Caveat: `0.0.0.0` exposes `:8080` to the entire LAN, not just
+  Tailscale; auth gates it, but rely on the macOS Application Firewall as a second
+  layer on untrusted networks.
 - **Signal Center (port 9000)**: bound to `127.0.0.1` from pre-2FA legacy
   posture. HM-AW (`docs/XO_BACKLOG.md`) tracks reopening to network now that
   2FA TOTP + multi-user auth (Captain, Bonnie observer, Dad charts) are in
