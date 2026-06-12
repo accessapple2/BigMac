@@ -147,6 +147,19 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
   to bigmac never reached the tailnet interface. Fix on the client: disable the
   VPN, or exclude `100.64.0.0/10` from its routes, so `100.103.190.24` resolves via
   the Tailscale adapter.
+- **Cloudflare Access on `bridge.ollietrades.com` (HM-ACCESS-POLICY, 2026-06-12)**:
+  the Access application **"bridge"** had **NO attached policy** — an orphaned
+  *reusable* ALLOW policy (used-by 0, a migration artifact), so Access had no rule
+  to evaluate and login was broken. Fixed by creating an **inline** policy
+  **"bridge-allow"** (Action: Allow, Include: Emails, 1-month session) attached
+  directly to the app. Verified end-to-end from iPhone on 5G (code delivered, login
+  OK). **Lesson:** an Access app with zero attached policies fails closed — when
+  auditing Access, confirm the app has an *attached* (preferably inline) policy, not
+  just that a matching reusable policy exists somewhere in the account. This is the
+  auth layer in front of the Cloudflare tunnel (→ `localhost:8080`); the tunnel is
+  the `bridge.ollietrades.com` browser ingress, independent of the Tailscale path
+  above (two separate remote-access routes: Cloudflare Access for browser, Tailscale
+  for direct IP).
 - **Signal Center (port 9000)**: bound to `127.0.0.1` from pre-2FA legacy
   posture. HM-AW (`docs/XO_BACKLOG.md`) tracks reopening to network now that
   2FA TOTP + multi-user auth (Captain, Bonnie observer, Dad charts) are in
