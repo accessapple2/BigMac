@@ -129,6 +129,24 @@ To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
   the open bind safe. Caveat: `0.0.0.0` exposes `:8080` to the entire LAN, not just
   Tailscale; auth gates it, but rely on the macOS Application Firewall as a second
   layer on untrusted networks.
+- **Tailscale node (HM-TS-DEDUP, 2026-06-12)**: bigmac's tailnet IP is
+  **`100.103.190.24`** (MagicDNS `bigmac`). Reach the dashboard remotely at
+  `http://100.103.190.24:8080` (or `http://bigmac:8080` once MagicDNS propagates).
+  **Single daemon only**: the Tailscale.app system-extension
+  (`io.tailscale.ipn.macsys.network-extension`, v1.96.5). The duplicate **Homebrew
+  `tailscaled`** (v1.96.4, LaunchDaemon `homebrew.mxcl.tailscale.plist`) was booted
+  out + keg-deleted on 2026-06-12 — it had registered a *second* node on this one
+  Mac, which (a) caused the 1.96.4-client/1.96.5-server version mismatch and (b)
+  owned a ghost identity that broke the remote TCP path (DERP pong OK, TCP dead).
+  **Do NOT `brew install tailscale`** on this box — the GUI app owns the daemon;
+  a second install re-creates the duplicate-node split. Two now-dead identities
+  from the cleanup: `100.95.222.119` and `100.124.131.19` (both deleted/offline —
+  do not reference). **Remote-client gotcha (root cause of Bonnie's PC failures):**
+  a commercial VPN on the client can hijack the `100.64.0.0/10` CGNAT range —
+  **NordVPN's NordLynx** routed `100.x` into its own tunnel, so Tailscale traffic
+  to bigmac never reached the tailnet interface. Fix on the client: disable the
+  VPN, or exclude `100.64.0.0/10` from its routes, so `100.103.190.24` resolves via
+  the Tailscale adapter.
 - **Signal Center (port 9000)**: bound to `127.0.0.1` from pre-2FA legacy
   posture. HM-AW (`docs/XO_BACKLOG.md`) tracks reopening to network now that
   2FA TOTP + multi-user auth (Captain, Bonnie observer, Dad charts) are in
