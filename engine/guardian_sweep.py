@@ -75,7 +75,9 @@ def run_guardian_sweep() -> dict:
 
             if res:
                 entry = entry_by_sym.get(sym)
-                qty = res.get("qty") if isinstance(res, dict) else action.get("qty")
+                # full sell() returns a dict without "qty"; fall back to the
+                # action qty (pos qty for a stop) so the NTFY always has a qty.
+                qty = (res.get("qty") if isinstance(res, dict) else None) or action.get("qty")
                 pnl_pct = ((px - entry) / entry * 100) if (entry and px) else None
                 summary["sold"].append({
                     "symbol": sym, "qty": qty, "entry": entry, "exit": px,

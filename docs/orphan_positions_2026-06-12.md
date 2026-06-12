@@ -42,3 +42,28 @@ Adopt orphans under a **guardian player** (e.g. `alpaca-mirror` made auto-tradea
 for exits only, or a dedicated `orphan-guardian`) carrying the **flat 12% guardrail**,
 so a stop-loss actually fires on these. Scope as a separate HM with Admiral sign-off
 (routing + halt_mode + exit-only-buy-side gate). See HM-STOP-EXECUTION-GAP DEFECT 2.
+
+---
+
+## Adoption + First Sweep — 2026-06-12 (HM-GUARDIAN-ADOPTION, commit da015f1)
+
+**Admiral-approved Option A (entry-based adoption).** Created exit-only player `guardian-of-forever` (may NEVER buy: exit_only + absent from every scanner / AI_SIGNAL_PLAYERS). Adopted all **22 orphans** with avg_entry sourced live from the Alpaca positions API. Guardian routes to **Alpaca Paper** so its flat-12% stops + standard tiered TP **actually close the broker positions**. `alpaca-mirror` rows untouched. Idempotent (re-run: 0 adopted / 22 skipped). Stuck-stop watchdog covers it.
+
+### First sweep executed (5 exits, all routed to Alpaca):
+
+| Symbol | Action | Qty | Entry | Exit | Realized P&L | Alpaca order |
+|--------|--------|----:|------:|-----:|-------------:|--------------|
+| SYM | Stop-loss −21.3% (full close) | 2.25 | $54.19 | $42.67 | −$25.92 | 98d97c2a |
+| WMG | Stop-loss −16.7% (full close) | 1.33 | $34.12 | $28.42 | −$7.58 | 3d692318 |
+| LLY | Tiered TP +14.9% (trim) | 0.06 | $996.28 | $1144.23 | +$8.85 | 284c8390 |
+| TKR | Tiered TP +17.5% (tier 10%) | 0.51 | $116.48 | $136.81 | +$10.19 | 935ff94e |
+| TKR | Tiered TP +17.5% (tier 15%) | 0.255 | $116.48 | $136.81 | +$5.09 | c1377e2b |
+
+Deep bleeders **SYM and WMG closed at the broker** (verified via Alpaca API). Batched NTFY summary delivered to `ollietrades-admin`. Realized P&L logged per position in `trades`.
+
+### Ongoing coverage (acceptance #3)
+
+Guardian now holds **20** positions. `run_guardian_sweep` is scheduled every 10 min (main.py) and runs the same flat-12% stop + tiered TP. Live coverage re-check this cycle:
+
+- **0 further actions** — all 20 remaining positions are within the 12% stop / below TP tiers right now (coverage active, nothing else to fire this cycle).
+
