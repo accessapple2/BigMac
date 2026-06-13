@@ -120,16 +120,19 @@ def _build_mood(conn: sqlite3.Connection) -> str:
 
 
 def _build_main(conn: sqlite3.Connection) -> dict[str, Any]:
-    sym = "SPY"
-    px = _last_px(conn, sym)
-    base = _session_base_px(conn, sym)
-    if px is None or base is None:
-        # Fallback to the regime_history daily close when no live ticks exist for SPY.
-        r = _q1(conn, "SELECT spy_close FROM regime_history ORDER BY date DESC LIMIT 1")
-        close = round(float(r["spy_close"]), 4) if r and r["spy_close"] is not None else None
-        px = px if px is not None else close
-        base = base if base is not None else close
-    return {"sym": sym, "px": px, "base": base}
+    """Main chart symbol = the most-streamed name on the latest tick date.
+
+    Picking the highest tick-count symbol (QQQ in practice) guarantees the Tour
+    chart ticks continuously, and self-heals if the live stream set changes.
+    """
+    r = _q1(
+        conn,
+        """SELECT symbol FROM price_ticks
+            WHERE substr(ts,1,10) = (SELECT substr(MAX(ts),1,10) FROM price_ticks)
+            GROUP BY symbol ORDER BY COUNT(*) DESC LIMIT 1""",
+    )
+    sym = r["symbol"] if r else "QQQ"
+    return {"sym": sym, "px": _last_px(conn, sym), "base": _session_base_px(conn, sym)}
 
 
 def _build_watch(conn: sqlite3.Connection) -> list[dict[str, Any]]:
@@ -335,6 +338,9 @@ def _build_calllog(conn: sqlite3.Connection) -> list[dict[str, Any]]:
         outcome = None
         if closed:
             outcome = "win" if float(realized) > 0 else ("loss" if float(realized) < 0 else "scratch")
+        # OPEN rows get a current mark for unrealized P/L (equity = last tick;
+        # option/unstreamed = None). Closed rows keep realized untouched.
+        mark = None if closed else _last_px(conn, r["symbol"])
         out.append(
             {
                 "sym": r["symbol"],
@@ -342,6 +348,7 @@ def _build_calllog(conn: sqlite3.Connection) -> list[dict[str, Any]]:
                 "status": "closed" if closed else "open",
                 "entry": r["entry_price"] if r["entry_price"] is not None else r["price"],
                 "exit": r["exit_price"],
+                "mark": mark,
                 "realized": round(float(realized), 2) if realized is not None else None,
                 "outcome": outcome,
                 "opened": r["executed_at"],
