@@ -21,6 +21,7 @@ import csv
 import io
 import json
 import os
+import time
 import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
@@ -56,9 +57,25 @@ LOOKBACK_OBS = 8
 # bps move (averaged across deposit series) needed to lean off neutral.
 THRESHOLD_BPS = 5.0
 
+# Confirmatory-only rail: the FRED macro-rates lean may COUNT toward fleet
+# convergence only when the fleet has already produced at least this many
+# independent directional votes. FRED can confirm an existing convergence; it
+# can NEVER originate a trade by itself. (Mirrors external_intel_signal.py's
+# `and triggered` gate.)
+MIN_FLEET_VOTES = 2
+
+# FRED Bankrate Monitor is WEEKLY data (release 742, updated Wednesdays). A 6h
+# TTL means the un-cached direct callers (kirk_briefing) hit FRED at most ~4x/day
+# and still pick up the weekly revision same-day. Override via FRED_BANKRATE_TTL_S.
+CACHE_TTL_S = float(os.environ.get("FRED_BANKRATE_TTL_S", 21600))
+
 ARCHIVE_DIR = Path(os.environ.get("OLLIE_INTEL_ARCHIVE", "data/intel_archive"))
 
 _USER_AGENT = "OllieTrades-FRED-intel/1.0 (confirmatory-only)"
+
+# Module-level signal cache so EVERY caller benefits (not just uhura's own
+# wrapper). Keyed implicitly on `lookback`; see get_signal().
+_SIGNAL_CACHE: dict = {"data": None, "ts": 0.0, "lookback": None}
 
 
 # --- Fetch ------------------------------------------------------------------
@@ -127,7 +144,7 @@ def _series_trend_bps(obs: list[tuple[str, float]]) -> float | None:
     return (last - first) * 100.0  # percent -> bps
 
 
-def get_signal(lookback: int = LOOKBACK_OBS) -> dict:
+def get_signal(lookback: int = LOOKBACK_OBS, force_refresh: bool = False) -> dict:
     """
     Returns a confirmatory-only vote dict.
 
@@ -137,7 +154,18 @@ def get_signal(lookback: int = LOOKBACK_OBS) -> dict:
       flat within threshold -> 'neutral'
 
     This is a confluence input, never a trigger. is_trigger is always False.
+
+    Cached for CACHE_TTL_S (weekly data — no point re-fetching every call). The
+    cached dict carries its ORIGINAL ts_utc (when the data was actually fetched).
+    Pass force_refresh=True to bypass.
     """
+    now = time.time()
+    cached = _SIGNAL_CACHE["data"]
+    if (not force_refresh and cached is not None
+            and _SIGNAL_CACHE["lookback"] == lookback
+            and (now - _SIGNAL_CACHE["ts"]) < CACHE_TTL_S):
+        return cached
+
     per_series = {}
     moves: list[float] = []
     for sid in DEPOSIT_VOTE_SERIES:
@@ -173,7 +201,7 @@ def get_signal(lookback: int = LOOKBACK_OBS) -> dict:
         lean = "neutral"
         reason = f"deposit APYs flat ({avg_bps}bps, within +/-{THRESHOLD_BPS})"
 
-    return {
+    sig = {
         "source": "fred_bankrate",
         "release": "742 Bankrate Monitor National Index",
         "is_trigger": False,            # DOCTRINE: confirmatory only
@@ -183,6 +211,61 @@ def get_signal(lookback: int = LOOKBACK_OBS) -> dict:
         "reason": reason,
         "series": per_series,
         "ts_utc": datetime.now(timezone.utc).isoformat(),
+    }
+    _SIGNAL_CACHE["data"] = sig
+    _SIGNAL_CACHE["ts"] = now
+    _SIGNAL_CACHE["lookback"] = lookback
+    return sig
+
+
+# --- Confirmatory-only convergence contract ---------------------------------
+
+def confirmatory_vote(fleet_directional_votes: int, lean: str | None = None) -> dict:
+    """
+    Decide whether the FRED bankrate macro lean may COUNT as a confirmatory vote.
+
+    RAIL (doctrine): FRED may CONFIRM an existing fleet convergence but may NEVER
+    ORIGINATE a trade. It counts only once the fleet has already produced
+    >= MIN_FLEET_VOTES independent directional votes. If FRED would be the sole
+    voter, it contributes NOTHING and no trade is permitted on its account.
+
+    Args:
+        fleet_directional_votes: number of OTHER (non-FRED) directional fleet
+            votes already aligned for this candidate.
+        lean: FRED lean ('confirm' | 'caution' | 'neutral'). If None, pulled from
+            get_signal() (cached). A 'neutral' lean never contributes.
+
+    Returns a contract dict. `trade_permitted_on_fred_alone` is ALWAYS False and
+    the invariant is asserted, not assumed.
+    """
+    if lean is None:
+        lean = get_signal().get("vote", "neutral")
+
+    is_directional = lean in ("confirm", "caution")
+    is_sole_voter = fleet_directional_votes < MIN_FLEET_VOTES
+    counts = is_directional and not is_sole_voter
+
+    # DOCTRINE GUARDRAIL — confirmatory-only, asserted in code:
+    # under no branch may FRED count toward a trade while it is the sole voter,
+    # and it may never authorize a trade by itself.
+    trade_permitted_on_fred_alone = False
+    assert not (is_sole_voter and counts), (
+        "FRED bankrate is confirmatory-only: the sole voter must never count "
+        "toward a trade (MIN_FLEET_VOTES=%d not met)" % MIN_FLEET_VOTES
+    )
+    assert trade_permitted_on_fred_alone is False
+
+    return {
+        "source": "fred_bankrate",
+        "lean": lean,
+        "direction": ("BULLISH" if lean == "confirm"
+                      else "BEARISH" if lean == "caution" else "NEUTRAL"),
+        "counts_toward_convergence": counts,
+        "is_sole_voter": is_sole_voter,
+        "fleet_directional_votes": fleet_directional_votes,
+        "min_fleet_votes_required": MIN_FLEET_VOTES,
+        "trade_permitted_on_fred_alone": trade_permitted_on_fred_alone,
+        "is_trigger": False,
     }
 
 

@@ -41,6 +41,17 @@ TRADE_DESK_BYPASS_GATES = True
 SOURCE_DEDUP_ENABLED = True
 SOURCE_DEDUP_WINDOW_MIN = 60
 
+# FRED-BANKRATE 2026-06-12: promote the FRED Bankrate deposit-rate macro lean
+# (engine/fred_bankrate_signal.py) from CONTEXT-ONLY (shown, never gates) to a
+# CONFIRMATORY vote in Uhura's confluence (engine/uhura.py::_calculate_confluence).
+# RAIL: confirmatory-only — it may lift an existing convergence over the gate but
+# may NEVER originate a trade. It is counted only when the fleet already has
+# >= fred_bankrate_signal.MIN_FLEET_VOTES (2) directional votes in the dominant
+# direction (sole-voter -> never counts; enforced + asserted in
+# fred_bankrate_signal.confirmatory_vote). Default OFF (shadow-first): when False,
+# FRED stays context-only and the 86% gate is unchanged. Reversal: flip + restart.
+FRED_CONFIRMATORY_VOTE_ENABLED = False
+
 # === SWINGDESK-W3 — agent auto-spreads (BUILT GATED-OFF, 2026-06-10) ===========
 # Lets qualifying fleet agents propose/submit multi-leg spreads through the W2
 # executor. NOTHING submits until burn-in passes AND the Admiral flips the master

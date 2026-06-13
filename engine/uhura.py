@@ -240,6 +240,7 @@ class SignalVote:
     weight: float        # 0.0 to 2.0 (some signals count more)
     reasoning: str
     is_context: bool = False  # context-only sources are SHOWN but NOT counted toward aligned (the trade gate)
+    is_confirmatory: bool = False  # confirmatory-only: counts toward aligned ONLY if the fleet already has MIN_FLEET_VOTES; never originates. FRED-BANKRATE.
 
     def __str__(self):
         icon = "🔴" if self.direction == "BEARISH" else "🟢" if self.direction == "BULLISH" else "⚪"
@@ -537,23 +538,35 @@ class LtUhura:
                           f"VIX {high_iv.vix} normal — debit or credit both fine")
 
     def _vote_fred_bankrate(self) -> SignalVote:
-        """CONTEXT-ONLY macro lean from FRED Bankrate deposit rates (release 742). weight 0.5,
-        is_context=True → SHOWN but NEVER counted toward aligned (the trade gate). Weekly data,
-        so cached 6h to avoid hitting FRED every cycle. HM-DRYDOCK-2."""
+        """Macro lean from FRED Bankrate deposit rates (release 742), weight 0.5.
+
+        Two postures, selected by config.FRED_CONFIRMATORY_VOTE_ENABLED (default OFF):
+          • OFF  → is_context=True: SHOWN but NEVER counted toward aligned (the gate).
+          • ON   → is_confirmatory=True: CONFIRMATORY-ONLY — counts toward aligned only
+                   when the fleet already has MIN_FLEET_VOTES directional votes in the
+                   dominant direction; never originates a trade (FRED-BANKRATE rail).
+        Weekly data, so the underlying get_signal() is module-cached (6h). HM-DRYDOCK-2."""
         import time as _t
         now = _t.time()
         if _FRED_VOTE_CACHE.get("data") is not None and (now - _FRED_VOTE_CACHE.get("ts", 0)) < 21600:
             return _FRED_VOTE_CACHE["data"]
         try:
+            from config import FRED_CONFIRMATORY_VOTE_ENABLED as _confirm
+        except Exception:
+            _confirm = False
+        try:
             from engine.fred_bankrate_signal import get_signal
             s = get_signal()
             v = s.get("vote")
             direction = "BULLISH" if v == "confirm" else "BEARISH" if v == "caution" else "NEUTRAL"
+            tag = "confirm" if _confirm else "context"
             vote = SignalVote("fred_bankrate", direction, 0.5,
-                              f"[context] {s.get('reason', 'deposit-rate lean')}", is_context=True)
+                              f"[{tag}] {s.get('reason', 'deposit-rate lean')}",
+                              is_context=not _confirm, is_confirmatory=_confirm)
         except Exception as e:
             vote = SignalVote("fred_bankrate", "NEUTRAL", 0.5,
-                              f"[context] unavailable: {type(e).__name__}", is_context=True)
+                              f"[{'confirm' if _confirm else 'context'}] unavailable: {type(e).__name__}",
+                              is_context=not _confirm, is_confirmatory=_confirm)
         _FRED_VOTE_CACHE["data"] = vote
         _FRED_VOTE_CACHE["ts"] = now
         return vote
@@ -565,9 +578,13 @@ class LtUhura:
         Count how many independent signals agree on direction.
         This is THE key filter. 4+ aligned = trade. <4 = no trade.
         """
-        # Only count non-neutral votes; context-only sources (e.g. fred_bankrate) are excluded
-        # from the gate — they're displayed for context but never count toward aligned. HM-DRYDOCK-2.
-        directional = [v for v in votes if v.direction != "NEUTRAL" and not v.is_context]
+        # Only count non-neutral votes; context-only sources (e.g. fred_bankrate when
+        # the confirmatory flag is OFF) are excluded from the gate — displayed for
+        # context but never counted. Confirmatory votes are ALSO excluded from the
+        # originating fleet here; they are folded in below, only if the fleet already
+        # converged (>= MIN_FLEET_VOTES). HM-DRYDOCK-2 / FRED-BANKRATE.
+        directional = [v for v in votes
+                       if v.direction != "NEUTRAL" and not v.is_context and not v.is_confirmatory]
         bearish = [v for v in directional if v.direction == "BEARISH"]
         bullish = [v for v in directional if v.direction == "BULLISH"]
 
@@ -588,6 +605,23 @@ class LtUhura:
             aligned = 0
             weighted_score = 0
 
+        # ── Confirmatory-only fold-in (FRED-BANKRATE rail) ──
+        # A confirmatory vote (e.g. FRED macro rates) may LIFT an existing fleet
+        # convergence over the gate but may NEVER originate one. It is counted only
+        # when the originating fleet already has >= MIN_FLEET_VOTES votes in the
+        # dominant direction AND the confirmatory vote agrees. The sole-voter case
+        # is structurally impossible here (dominant is computed without it) and is
+        # asserted in fred_bankrate_signal.confirmatory_vote().
+        from engine.fred_bankrate_signal import MIN_FLEET_VOTES
+        confirmatory = [v for v in votes
+                        if v.is_confirmatory and v.direction == dominant and dominant != "NEUTRAL"]
+        confirmatory_applied = 0
+        if confirmatory and aligned >= MIN_FLEET_VOTES:
+            for v in confirmatory:
+                aligned += 1
+                weighted_score += v.weight
+                confirmatory_applied += 1
+
         return {
             "dominant_direction": dominant,
             "aligned_count": aligned,
@@ -598,6 +632,7 @@ class LtUhura:
             "bear_weight": bear_weight,
             "bull_weight": bull_weight,
             "weighted_score": weighted_score,
+            "confirmatory_applied": confirmatory_applied,
         }
 
     # ── TRADE RECOMMENDER (GEX-aware + IV-aware) ────────────
@@ -758,7 +793,7 @@ class LtUhura:
             self._vote_congress(congress_trades or [], watchlist),
             self._vote_arena(arena),
             self._vote_high_iv(high_iv),
-            self._vote_fred_bankrate(),   # HM-DRYDOCK-2: context-only (wt 0.5, never gates)
+            self._vote_fred_bankrate(),   # HM-DRYDOCK-2 / FRED-BANKRATE: context-only by default; confirmatory-only when flag ON (wt 0.5, never originates)
         ]
 
         for v in votes:
