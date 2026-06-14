@@ -2182,6 +2182,53 @@ def run_bk_box_scan():
     threading.Thread(target=_runner, daemon=True, name="sched_bk_box").start()
 
 
+_bk_orb_lock = threading.Lock()
+_bk_orb_off_logged = False
+
+
+@_hm_bq_instr("run_bk_orb_scan")
+def run_bk_orb_scan():
+    """HM-BK-A intraday opening-range-breakout confirmatory scan. Default-OFF via
+    ORB_CONFIRMATORY_VOTE_ENABLED. Only acts in the post-OR window (09:46–12:00 ET);
+    run_scan guards against re-firing the same symbol/day."""
+    global _bk_orb_off_logged
+    try:
+        from config import ORB_CONFIRMATORY_VOTE_ENABLED as _en
+    except Exception:
+        _en = False
+    if not _en:
+        if not _bk_orb_off_logged:
+            console.log("[dim]HM-BK-A ORB scan: ORB_CONFIRMATORY_VOTE_ENABLED off — skipping")
+            _bk_orb_off_logged = True
+        return
+    # window gate: only the post-opening-range window (ET)
+    try:
+        from zoneinfo import ZoneInfo
+        et = datetime.now(ZoneInfo("America/New_York"))
+        mins = et.hour * 60 + et.minute
+        if not (9 * 60 + 46 <= mins <= 12 * 60):
+            return
+    except Exception:
+        pass
+    if not _bk_orb_lock.acquire(blocking=False):
+        return
+
+    def _runner():
+        try:
+            from engine.bk_orb_scanner import run_scan
+            r = run_scan()
+            if r.get("signals"):
+                console.log(
+                    f"[cyan]HM-BK-A ORB: {r.get('signals',0)} breakouts "
+                    f"(bull={r.get('bull',0)} bear={r.get('bear',0)} scanned={r.get('scanned',0)})"
+                )
+        except Exception as e:
+            console.log(f"[yellow]HM-BK-A ORB error: {type(e).__name__}: {e!r}")
+        finally:
+            _bk_orb_lock.release()
+    threading.Thread(target=_runner, daemon=True, name="sched_bk_orb").start()
+
+
 # ── Ollie Machine P3 scheduled loop (SIM-only, tracking-mode) ──────────────
 # Assembles the P1/P2 convergence modules (engine/ollie_machine_loop.py) into a
 # daily evaluate→enter + intraday exit-monitor. Writes ollie_machine_ledger ONLY —
@@ -4352,6 +4399,7 @@ if __name__ == "__main__":
     schedule.every().day.at("06:00").do(run_earnings_scan_inject)     # Earnings → scan_universe inject: 6:00 AM AZ (HM-AR-β rename 2026-05-07)
     schedule.every().day.at("06:00").do(run_carts_persist)            # CARTS retail nowcast persistence: 6:00 AM AZ (HM-AO 2026-05-17)
     schedule.every(5).minutes.do(run_earnings_day_scan)               # Earnings Day: every 5 min market hours
+    schedule.every(3).minutes.do(run_bk_orb_scan)                     # HM-BK-A opening-range-breakout confirmatory (intraday); self-gates ET 09:46–12:00 + flag, default-OFF via ORB_CONFIRMATORY_VOTE_ENABLED
     schedule.every().day.at("06:45").do(run_opening_range)            # Battle Station: opening range 6:45 AM AZ
     # HM-AS-β LOOP 3 (2026-05-29): run_battle_station_monitor MOVED to its own daemon
     # thread (_battle_station_scheduler_thread above) — decoupled from the shared
