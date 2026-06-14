@@ -616,6 +616,20 @@ class LtUhura:
         return SignalVote("bk_orb", mv["direction"], mv["weight"],
                           mv["reasoning"], is_confirmatory=True)
 
+    def _vote_institutional_13f(self, watchlist: list[str] = None) -> Optional[SignalVote]:
+        # SEC EDGAR 13F net-new institutional buyers — slow/structural confirmatory
+        # (context-class weight 0.5). Abstains when flag OFF or no fresh quarter lean.
+        try:
+            from engine.institutional_13f_signal import market_vote
+            mv = market_vote(watchlist)
+        except Exception as e:
+            logger.info(f"  13f vote unavailable: {type(e).__name__}: {e!r}")
+            return None
+        if not mv:
+            return None
+        return SignalVote("sec_edgar_13f", mv["direction"], mv["weight"],
+                          mv["reasoning"], is_confirmatory=True)
+
     # ── CONFLUENCE CALCULATOR ────────────────────────────────
 
     def _calculate_confluence(self, votes: list[SignalVote]) -> dict:
@@ -844,6 +858,7 @@ class LtUhura:
             self._vote_avwap(watchlist),
             self._vote_box(watchlist),
             self._vote_orb(watchlist),
+            self._vote_institutional_13f(watchlist),   # SEC EDGAR 13F (slow/structural, wt 0.5)
         ]
         votes = [v for v in votes if v is not None]  # drop abstentions (None)
 

@@ -65,6 +65,10 @@ ORB_CONFIRMATORY_VOTE_ENABLED = False     # HM-BK-A engine/bk_orb_scanner.py (in
 BOX_SHORT_ENABLED = False                 # HM-BK-C: default long-only; enable for box-breakdown BEAR
 ORB_SHORT_ENABLED = False                 # HM-BK-A: default long-only; enable for OR-low breakdown BEAR
 
+# 13F institutional-flow (SEC EDGAR) confirmatory vote — slow/structural macro-context
+# voter on the 8a83f17 rail (never originates, MIN_FLEET_VOTES=2). Default OFF / shadow.
+INSTITUTIONAL_13F_CONFIRMATORY_VOTE_ENABLED = False  # engine/institutional_13f_signal.py
+
 # === SWINGDESK-W3 — agent auto-spreads (BUILT GATED-OFF, 2026-06-10) ===========
 # Lets qualifying fleet agents propose/submit multi-leg spreads through the W2
 # executor. NOTHING submits until burn-in passes AND the Admiral flips the master
