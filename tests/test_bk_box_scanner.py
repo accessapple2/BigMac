@@ -104,5 +104,39 @@ def test_too_few_bars_returns_empty():
     assert m.detect(_ohlc(o, h, l, c, v), "TEST") == []
 
 
+# ── UHURA wiring (market_vote) ────────────────────────────────────────────
+
+def _bsig(sym, signal="BULL", asof="2026-06-13"):
+    return {"symbol": sym, "asof": asof, "box_top": 100.0, "box_bottom": 95.0,
+            "width_pct": 5.0, "duration_days": 12, "vol_mult": 2.0, "signal": signal}
+
+
+def test_market_vote_abstains_when_flag_off():
+    assert m.market_vote(enabled=False) is None
+
+
+def test_market_vote_abstains_when_no_fresh_signal(tmp_path):
+    db = str(tmp_path / "empty.db")
+    conn = m._conn(db); m._ensure_schema(conn); conn.close()
+    assert m.market_vote(enabled=True, db_path=db) is None
+
+
+def test_market_vote_bull_mapping(tmp_path):
+    db = str(tmp_path / "bull.db")
+    m._persist([_bsig("AAA"), _bsig("BBB")], db)
+    mv = m.market_vote(enabled=True, db_path=db)
+    assert mv is not None
+    assert mv["direction"] == "BULLISH"
+    assert mv["weight"] == m.CONFIRMATORY_WEIGHT == 1.0
+    assert mv["bull"] == 2
+
+
+def test_market_vote_watchlist_filter(tmp_path):
+    db = str(tmp_path / "wl.db")
+    m._persist([_bsig("AAA")], db)
+    assert m.market_vote(enabled=True, db_path=db, watchlist=["ZZZ"]) is None
+    assert m.market_vote(enabled=True, db_path=db, watchlist=["AAA"]) is not None
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

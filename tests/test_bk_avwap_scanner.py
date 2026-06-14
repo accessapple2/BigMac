@@ -131,5 +131,68 @@ def test_gap_anchor_detects_major_gap():
     assert m._gap_anchor(m._norm(df)) == 20
 
 
+# ── UHURA wiring (market_vote + confluence fold-in) ───────────────────────
+
+def _sig(sym, signal, asof="2026-06-13"):
+    return {"symbol": sym, "asof": asof, "anchor_type": "gap", "signal": signal,
+            "avwap_price": 10.0, "close": 10.5, "confluence_n": 0}
+
+
+def test_market_vote_abstains_when_flag_off():
+    assert m.market_vote(enabled=False) is None
+
+
+def test_market_vote_abstains_when_no_fresh_signal(tmp_path):
+    db = str(tmp_path / "empty.db")
+    conn = m._conn(db); m._ensure_schema(conn); conn.close()
+    assert m.market_vote(enabled=True, db_path=db) is None
+
+
+def test_market_vote_bull_mapping(tmp_path):
+    db = str(tmp_path / "bull.db")
+    m._persist([_sig("AAA", "BULL"), _sig("BBB", "BULL"), _sig("CCC", "BEAR")], db)
+    mv = m.market_vote(enabled=True, db_path=db)
+    assert mv is not None
+    assert mv["direction"] == "BULLISH"          # 2 reclaim vs 1 loss
+    assert mv["weight"] == m.CONFIRMATORY_WEIGHT == 1.0
+    assert mv["bull"] == 2 and mv["bear"] == 1
+
+
+def test_market_vote_bear_mapping(tmp_path):
+    db = str(tmp_path / "bear.db")
+    m._persist([_sig("X", "BEAR"), _sig("Y", "BEAR"), _sig("Z", "BULL")], db)
+    assert m.market_vote(enabled=True, db_path=db)["direction"] == "BEARISH"
+
+
+def test_market_vote_watchlist_filter(tmp_path):
+    db = str(tmp_path / "wl.db")
+    m._persist([_sig("AAA", "BULL")], db)
+    assert m.market_vote(enabled=True, db_path=db, watchlist=["ZZZ"]) is None
+    assert m.market_vote(enabled=True, db_path=db, watchlist=["AAA"]) is not None
+
+
+def test_market_vote_only_latest_session_counts(tmp_path):
+    db = str(tmp_path / "fresh.db")
+    # old BEAR session + newer BULL session -> only the newest asof counts
+    m._persist([_sig("OLD", "BEAR", asof="2026-06-01")], db)
+    m._persist([_sig("NEW", "BULL", asof="2026-06-13")], db)
+    mv = m.market_vote(enabled=True, db_path=db)
+    assert mv["direction"] == "BULLISH" and mv["bull"] == 1 and mv["bear"] == 0
+
+
+def test_confluence_foldin_requires_two_fleet_votes():
+    import engine.uhura as U
+    u = U.LtUhura()
+    SV = U.SignalVote
+    conf = SV("bk_avwap", "BULLISH", 1.0, "[confirm]", is_confirmatory=True)
+    # 2 originating fleet votes -> confirmatory counts
+    c2 = u._calculate_confluence([SV("a", "BULLISH", 1.0, "x"),
+                                  SV("b", "BULLISH", 1.0, "y"), conf])
+    assert c2["confirmatory_applied"] == 1 and c2["aligned_count"] == 3
+    # 1 originating fleet vote -> confirmatory must NOT count (never originates)
+    c1 = u._calculate_confluence([SV("a", "BULLISH", 1.0, "x"), conf])
+    assert c1["confirmatory_applied"] == 0 and c1["aligned_count"] == 1
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

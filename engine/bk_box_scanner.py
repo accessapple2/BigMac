@@ -219,6 +219,64 @@ def confirmatory_vote(fleet_directional_votes: int, signal: str | None) -> dict:
     }
 
 
+# ─── UHURA market-level confirmatory vote ────────────────────────────────────
+# Weight 1.0 = TECHNICAL-CONFIRMATORY class (vs FRED's 0.5 macro-context).
+CONFIRMATORY_WEIGHT = 1.0
+
+
+def _fresh_rows(db_path: str | None = None, watchlist: list[str] | None = None) -> list[dict]:
+    """Rows from the most recent nightly session (asof == MAX(asof))."""
+    try:
+        conn = _conn(db_path)
+        try:
+            _ensure_schema(conn)
+            mx = conn.execute("SELECT MAX(asof) FROM bk_box_signals").fetchone()[0]
+            if not mx:
+                return []
+            rows = [dict(r) for r in conn.execute(
+                "SELECT symbol, signal, width_pct, vol_mult, asof "
+                "FROM bk_box_signals WHERE asof=?", (mx,)).fetchall()]
+        finally:
+            conn.close()
+    except Exception as e:
+        console.log(f"[yellow]bk_box: _fresh_rows: {type(e).__name__}: {e!r}")
+        return []
+    if watchlist:
+        wl = set(watchlist)
+        rows = [r for r in rows if r["symbol"] in wl]
+    return rows
+
+
+def market_vote(watchlist: list[str] | None = None, db_path: str | None = None,
+                enabled: bool | None = None) -> dict | None:
+    """Aggregate the latest session's box breakouts into ONE market-level
+    confirmatory lean, or None to ABSTAIN. Long-only default -> BULLISH bias."""
+    if enabled is None:
+        try:
+            from config import BOX_CONFIRMATORY_VOTE_ENABLED as enabled
+        except Exception:
+            enabled = False
+    if not enabled:
+        return None
+    rows = _fresh_rows(db_path, watchlist)
+    if not rows:
+        return None
+    assert confirmatory_vote(0, "BULL")["counts_toward_convergence"] is False
+
+    bull = [r for r in rows if r["signal"] == "BULL"]
+    bear = [r for r in rows if r["signal"] == "BEAR"]
+    if len(bull) > len(bear):
+        direction, n, ex = "BULLISH", len(bull), bull[0]["symbol"]
+    elif len(bear) > len(bull):
+        direction, n, ex = "BEARISH", len(bear), bear[0]["symbol"]
+    else:
+        direction, n, ex = "NEUTRAL", 0, rows[0]["symbol"]
+    reasoning = (f"[confirm] {len(rows)} fresh box breakout "
+                 f"({len(bull)} up / {len(bear)} down) e.g. {ex}")
+    return {"direction": direction, "weight": CONFIRMATORY_WEIGHT,
+            "reasoning": reasoning, "n": n, "bull": len(bull), "bear": len(bear)}
+
+
 # ─── NTFY (shadow only) ──────────────────────────────────────────────────────
 
 def _fire_ntfy(sig: dict) -> bool:

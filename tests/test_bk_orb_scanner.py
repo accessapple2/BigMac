@@ -117,5 +117,51 @@ def test_median_first_vol_trailing():
     assert med == 375_000  # median of [150k,300k,450k,600k]
 
 
+# ── UHURA wiring (market_vote — intraday today-freshness) ─────────────────
+
+def _today_et():
+    from datetime import datetime as _d
+    return _d.now(ET).date().isoformat() if ET else "2026-06-12"
+
+
+def _osig(sym, signal="BULL", session_date=None):
+    return {"symbol": sym, "session_date": session_date or _today_et(),
+            "or_high": 10.0, "or_low": 9.0, "break_price": 10.2,
+            "break_time": "2026-06-12T10:00:00-04:00", "vol_mult": 2.0, "signal": signal}
+
+
+def test_market_vote_abstains_when_flag_off():
+    assert m.market_vote(enabled=False) is None
+
+
+def test_market_vote_abstains_when_no_fresh_signal(tmp_path):
+    db = str(tmp_path / "empty.db")
+    conn = m._conn(db); m._ensure_schema(conn); conn.close()
+    assert m.market_vote(enabled=True, db_path=db) is None
+
+
+def test_market_vote_ignores_stale_session(tmp_path):
+    db = str(tmp_path / "stale.db")
+    m._persist([_osig("OLD", session_date="2026-01-02")], db)  # not today
+    assert m.market_vote(enabled=True, db_path=db) is None
+
+
+def test_market_vote_bull_mapping_today(tmp_path):
+    db = str(tmp_path / "today.db")
+    m._persist([_osig("AAA"), _osig("BBB")], db)  # today's ET session
+    mv = m.market_vote(enabled=True, db_path=db)
+    assert mv is not None
+    assert mv["direction"] == "BULLISH"
+    assert mv["weight"] == m.CONFIRMATORY_WEIGHT == 1.0
+    assert mv["bull"] == 2
+
+
+def test_market_vote_watchlist_filter(tmp_path):
+    db = str(tmp_path / "wl.db")
+    m._persist([_osig("AAA")], db)
+    assert m.market_vote(enabled=True, db_path=db, watchlist=["ZZZ"]) is None
+    assert m.market_vote(enabled=True, db_path=db, watchlist=["AAA"]) is not None
+
+
 if __name__ == "__main__":
     raise SystemExit(pytest.main([__file__, "-q"]))

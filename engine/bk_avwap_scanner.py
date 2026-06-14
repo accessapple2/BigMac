@@ -322,6 +322,72 @@ def confirmatory_vote(fleet_directional_votes: int, signal: str | None) -> dict:
     }
 
 
+# ─── UHURA market-level confirmatory vote ────────────────────────────────────
+# Weight 1.0 = the TECHNICAL-CONFIRMATORY class (matches arena's base directional
+# weight). Distinct from FRED-BANKRATE's 0.5 weaker MACRO-CONTEXT weight. One vote
+# per scanner aggregating the latest nightly session's per-symbol rows (the same
+# many-rows -> one-market-vote shape as _vote_congress).
+CONFIRMATORY_WEIGHT = 1.0
+
+
+def _fresh_rows(db_path: str | None = None, watchlist: list[str] | None = None) -> list[dict]:
+    """Rows from the most recent nightly session (asof == MAX(asof), i.e. <= 1
+    session old when the scanner is live). Optionally watchlist-filtered."""
+    try:
+        conn = _conn(db_path)
+        try:
+            _ensure_schema(conn)
+            mx = conn.execute("SELECT MAX(asof) FROM bk_avwap_signals").fetchone()[0]
+            if not mx:
+                return []
+            rows = [dict(r) for r in conn.execute(
+                "SELECT symbol, signal, anchor_type, confluence_n, asof "
+                "FROM bk_avwap_signals WHERE asof=?", (mx,)).fetchall()]
+        finally:
+            conn.close()
+    except Exception as e:
+        console.log(f"[yellow]bk_avwap: _fresh_rows: {type(e).__name__}: {e!r}")
+        return []
+    if watchlist:
+        wl = set(watchlist)
+        rows = [r for r in rows if r["symbol"] in wl]
+    return rows
+
+
+def market_vote(watchlist: list[str] | None = None, db_path: str | None = None,
+                enabled: bool | None = None) -> dict | None:
+    """Aggregate the latest session's aVWAP signals into ONE market-level
+    confirmatory lean, or None to ABSTAIN (flag OFF, or no fresh signal).
+
+    Returns {direction, weight, reasoning, n, bull, bear} — direction is
+    BULLISH/BEARISH/NEUTRAL. RECLAIM/BULL -> bull, LOSS/BEAR -> bear."""
+    if enabled is None:
+        try:
+            from config import AVWAP_CONFIRMATORY_VOTE_ENABLED as enabled
+        except Exception:
+            enabled = False
+    if not enabled:
+        return None  # abstain — flag OFF
+    rows = _fresh_rows(db_path, watchlist)
+    if not rows:
+        return None  # abstain — no fresh signal
+    # RAIL self-check: confirmatory-only — the sole voter must never count.
+    assert confirmatory_vote(0, "BULL")["counts_toward_convergence"] is False
+
+    bull = [r for r in rows if r["signal"] == "BULL"]
+    bear = [r for r in rows if r["signal"] == "BEAR"]
+    if len(bull) > len(bear):
+        direction, n, ex = "BULLISH", len(bull), bull[0]["symbol"]
+    elif len(bear) > len(bull):
+        direction, n, ex = "BEARISH", len(bear), bear[0]["symbol"]
+    else:
+        direction, n, ex = "NEUTRAL", 0, (rows[0]["symbol"] if rows else "-")
+    reasoning = (f"[confirm] {len(rows)} fresh aVWAP "
+                 f"({len(bull)} reclaim / {len(bear)} loss) e.g. {ex}")
+    return {"direction": direction, "weight": CONFIRMATORY_WEIGHT,
+            "reasoning": reasoning, "n": n, "bull": len(bull), "bear": len(bear)}
+
+
 # ─── NTFY (shadow only) ──────────────────────────────────────────────────────
 
 def _fire_ntfy(sig: dict) -> bool:

@@ -571,6 +571,51 @@ class LtUhura:
         _FRED_VOTE_CACHE["ts"] = now
         return vote
 
+    # ── HM-BK confirmatory scanners (B/C/D) ──────────────────
+    # Each returns a CONFIRMATORY-ONLY SignalVote (is_confirmatory=True) or None to
+    # ABSTAIN (flag OFF, or no fresh signal). The generic fold-in in
+    # _calculate_confluence counts them ONLY when the originating fleet already has
+    # >= MIN_FLEET_VOTES directional votes in the dominant direction — never
+    # originates, sole-confirmatory-voter -> no trade (asserted in each scanner's
+    # market_vote + confirmatory_vote). Weight 1.0 = technical-confirmatory class
+    # (vs FRED's 0.5 macro-context). HM-BK-WIRE. Flags default OFF -> always abstain.
+
+    def _vote_avwap(self, watchlist: list[str] = None) -> Optional[SignalVote]:
+        try:
+            from engine.bk_avwap_scanner import market_vote
+            mv = market_vote(watchlist)
+        except Exception as e:
+            logger.info(f"  avwap vote unavailable: {type(e).__name__}: {e!r}")
+            return None
+        if not mv:
+            return None  # abstain
+        return SignalVote("bk_avwap", mv["direction"], mv["weight"],
+                          mv["reasoning"], is_confirmatory=True)
+
+    def _vote_box(self, watchlist: list[str] = None) -> Optional[SignalVote]:
+        try:
+            from engine.bk_box_scanner import market_vote
+            mv = market_vote(watchlist)
+        except Exception as e:
+            logger.info(f"  box vote unavailable: {type(e).__name__}: {e!r}")
+            return None
+        if not mv:
+            return None
+        return SignalVote("bk_box", mv["direction"], mv["weight"],
+                          mv["reasoning"], is_confirmatory=True)
+
+    def _vote_orb(self, watchlist: list[str] = None) -> Optional[SignalVote]:
+        try:
+            from engine.bk_orb_scanner import market_vote
+            mv = market_vote(watchlist)
+        except Exception as e:
+            logger.info(f"  orb vote unavailable: {type(e).__name__}: {e!r}")
+            return None
+        if not mv:
+            return None
+        return SignalVote("bk_orb", mv["direction"], mv["weight"],
+                          mv["reasoning"], is_confirmatory=True)
+
     # ── CONFLUENCE CALCULATOR ────────────────────────────────
 
     def _calculate_confluence(self, votes: list[SignalVote]) -> dict:
@@ -794,7 +839,13 @@ class LtUhura:
             self._vote_arena(arena),
             self._vote_high_iv(high_iv),
             self._vote_fred_bankrate(),   # HM-DRYDOCK-2 / FRED-BANKRATE: context-only by default; confirmatory-only when flag ON (wt 0.5, never originates)
+            # HM-BK-WIRE: confirmatory scanners B/C/D — abstain (None) when flag OFF
+            # (production default) or no fresh signal; folded in only at >=2 fleet votes.
+            self._vote_avwap(watchlist),
+            self._vote_box(watchlist),
+            self._vote_orb(watchlist),
         ]
+        votes = [v for v in votes if v is not None]  # drop abstentions (None)
 
         for v in votes:
             logger.info(f"  {v}")
