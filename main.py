@@ -6087,9 +6087,13 @@ if __name__ == "__main__":
     except Exception as e:
         console.log(f"[yellow]Event Detector failed to start: {e}")
 
-    # === HM-WR-CYCLE-RCA-PHASE2 2026-05-20 ===
+    # === HM-WR-CYCLE-RCA-PHASE2 2026-05-20 (heartbeat repointed 2026-06-14) ===
     # 60-second heartbeat in the schedule loop — confirms run_pending() is being
-    # called and surfaces run_war_room's live next_run state for diagnosis.
+    # called and reports the war_room_scheduler daemon thread's liveness.
+    # NOTE: run_war_room no longer lives in schedule.jobs — HM-WR-DAEMON-THREAD
+    # (commit 3c59497) moved it to the `war_room_scheduler` daemon thread, so the
+    # old schedule.jobs lookup always reported "NOT in schedule.jobs" (false alarm).
+    # The heartbeat now checks the actual thread instead.
     _wr_hb_last = time.time()
     # === /HM-WR-CYCLE-RCA-PHASE2 ===
     try:
@@ -6102,20 +6106,14 @@ if __name__ == "__main__":
             _wr_hb_now = time.time()
             if _wr_hb_now - _wr_hb_last > 60:
                 try:
-                    _wr_jobs = [j for j in schedule.jobs
-                                if 'war_room' in getattr(j.job_func, '__name__', '')]
-                    if _wr_jobs:
-                        _j = _wr_jobs[0]
-                        _due = _j.should_run if hasattr(_j, 'should_run') else 'n/a'
-                        console.log(
-                            f"[WR-DEBUG-HB] loop alive jobs={len(schedule.jobs)} "
-                            f"run_war_room next_run={_j.next_run} due_now={_due}"
-                        )
-                    else:
-                        console.log(
-                            f"[WR-DEBUG-HB] loop alive jobs={len(schedule.jobs)} "
-                            f"run_war_room NOT in schedule.jobs"
-                        )
+                    _wr_alive = any(
+                        t.name == "war_room_scheduler" and t.is_alive()
+                        for t in threading.enumerate()
+                    )
+                    console.log(
+                        f"[WR-DEBUG-HB] loop alive jobs={len(schedule.jobs)} "
+                        f"war_room_scheduler_thread={'alive' if _wr_alive else 'DEAD'}"
+                    )
                 except Exception as _hb_e:
                     console.log(f"[red][WR-DEBUG-HB] error: {type(_hb_e).__name__}: {_hb_e!r}")
                 _wr_hb_last = _wr_hb_now
