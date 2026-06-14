@@ -2149,6 +2149,39 @@ def run_bk_avwap_scan():
     threading.Thread(target=_runner, daemon=True, name="sched_bk_avwap").start()
 
 
+@_hm_bq_instr("run_bk_box_scan")
+def run_bk_box_scan():
+    """HM-BK-C nightly tight-box breakout confirmatory scan (runs after B —
+    reuses B's 30-min bulk-OHLCV cache). Default-OFF via BOX_CONFIRMATORY_VOTE_ENABLED."""
+    global _bk_box_off_logged
+    try:
+        from config import BOX_CONFIRMATORY_VOTE_ENABLED as _en
+    except Exception:
+        _en = False
+    if not _en:
+        if not _bk_box_off_logged:
+            console.log("[dim]HM-BK-C box scan: BOX_CONFIRMATORY_VOTE_ENABLED off — skipping")
+            _bk_box_off_logged = True
+        return
+    if not _bk_box_lock.acquire(blocking=False):
+        return
+
+    def _runner():
+        try:
+            from engine.bk_box_scanner import run_scan
+            r = run_scan()
+            console.log(
+                f"[cyan]HM-BK-C box: {r.get('signals',0)} breakouts "
+                f"(bull={r.get('bull',0)} bear={r.get('bear',0)} "
+                f"tight_boxes={r.get('boxes',0)} scanned={r.get('scanned',0)})"
+            )
+        except Exception as e:
+            console.log(f"[yellow]HM-BK-C box error: {type(e).__name__}: {e!r}")
+        finally:
+            _bk_box_lock.release()
+    threading.Thread(target=_runner, daemon=True, name="sched_bk_box").start()
+
+
 # ── Ollie Machine P3 scheduled loop (SIM-only, tracking-mode) ──────────────
 # Assembles the P1/P2 convergence modules (engine/ollie_machine_loop.py) into a
 # daily evaluate→enter + intraday exit-monitor. Writes ollie_machine_ledger ONLY —
@@ -4695,6 +4728,7 @@ if __name__ == "__main__":
     schedule.every().day.at("20:30").do(_bg_rs_rank)            # HM-RS-RANK-VS-SPY (2026-05-24): nightly post-close, default-OFF via RS_RANK_ENABLED
     schedule.every().day.at("20:45").do(_bg_minervini_filter)   # HM-MINERVINI-TREND-FILTER (2026-05-24): nightly post-close +15min so rs_rank LEFT JOIN sees fresh data, default-OFF via MINERVINI_FILTER_ENABLED
     schedule.every().day.at("21:10").do(run_bk_avwap_scan)      # HM-BK-B anchored-VWAP confirmatory (nightly post-close), default-OFF via AVWAP_CONFIRMATORY_VOTE_ENABLED
+    schedule.every().day.at("21:20").do(run_bk_box_scan)        # HM-BK-C tight-box breakout confirmatory (nightly, AFTER B — shares 30-min OHLCV cache), default-OFF via BOX_CONFIRMATORY_VOTE_ENABLED
     schedule.every().day.at("21:00").do(_bg_ollie_machine_daily) # OLLIE-MACHINE-P3 (2026-06-01): SIM pick SELECTION, +15min after Minervini so signals are fresh. tracking-mode, default-OFF via OLLIE_MACHINE_LOOP_ENABLED
     schedule.every().day.at("06:30").do(_bg_ollie_machine_enter) # OLLIE-MACHINE-P3 (HM-OLLIE-MACHINE-BRACKET-WINDOW 2026-06-05): bracket+SIM-enter in the market window (trade-levels healthy; 21:00 had endpoint cold). default-OFF via OLLIE_MACHINE_LOOP_ENABLED
     schedule.every(20).minutes.do(_bg_ollie_machine_exits)      # OLLIE-MACHINE-P3 (2026-06-01): SIM exit-monitor, RTH-gated. ledger-direct close, default-OFF via OLLIE_MACHINE_LOOP_ENABLED

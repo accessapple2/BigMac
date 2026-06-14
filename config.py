@@ -62,6 +62,8 @@ FRED_CONFIRMATORY_VOTE_ENABLED = True
 AVWAP_CONFIRMATORY_VOTE_ENABLED = False   # HM-BK-B engine/bk_avwap_scanner.py (nightly)
 BOX_CONFIRMATORY_VOTE_ENABLED = False     # HM-BK-C engine/bk_box_scanner.py (nightly, after B)
 ORB_CONFIRMATORY_VOTE_ENABLED = False     # HM-BK-A engine/bk_orb_scanner.py (intraday)
+BOX_SHORT_ENABLED = False                 # HM-BK-C: default long-only; enable for box-breakdown BEAR
+ORB_SHORT_ENABLED = False                 # HM-BK-A: default long-only; enable for OR-low breakdown BEAR
 
 # === SWINGDESK-W3 — agent auto-spreads (BUILT GATED-OFF, 2026-06-10) ===========
 # Lets qualifying fleet agents propose/submit multi-leg spreads through the W2
