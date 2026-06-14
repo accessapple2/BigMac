@@ -50,7 +50,7 @@ SOURCE_DEDUP_WINDOW_MIN = 60
 # direction (sole-voter -> never counts; enforced + asserted in
 # fred_bankrate_signal.confirmatory_vote). Default OFF (shadow-first): when False,
 # FRED stays context-only and the 86% gate is unchanged. Reversal: flip + restart.
-FRED_CONFIRMATORY_VOTE_ENABLED = False
+FRED_CONFIRMATORY_VOTE_ENABLED = True
 
 # === SWINGDESK-W3 — agent auto-spreads (BUILT GATED-OFF, 2026-06-10) ===========
 # Lets qualifying fleet agents propose/submit multi-leg spreads through the W2
