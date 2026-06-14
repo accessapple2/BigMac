@@ -2106,6 +2106,49 @@ def run_bbkc_squeeze_watcher():
         )
 
 
+# ── HM-BK confirmatory scanners (shadow-first, default-OFF) ────────────────
+# Each gated on its OWN config flag. When the flag is False the wrapper logs once
+# and skips — no scan, no NTFY, no DB write. Daemon-thread so a slow nightly bulk
+# fetch never blocks the scheduler tick (same pattern as the squeeze watchers).
+_bk_avwap_lock = threading.Lock()
+_bk_box_lock = threading.Lock()
+_bk_avwap_off_logged = False
+_bk_box_off_logged = False
+
+
+@_hm_bq_instr("run_bk_avwap_scan")
+def run_bk_avwap_scan():
+    """HM-BK-B nightly anchored-VWAP confirmatory scan. Default-OFF via
+    AVWAP_CONFIRMATORY_VOTE_ENABLED — shadow-quiet (no ntfy/count) until flipped."""
+    global _bk_avwap_off_logged
+    try:
+        from config import AVWAP_CONFIRMATORY_VOTE_ENABLED as _en
+    except Exception:
+        _en = False
+    if not _en:
+        if not _bk_avwap_off_logged:
+            console.log("[dim]HM-BK-B aVWAP scan: AVWAP_CONFIRMATORY_VOTE_ENABLED off — skipping")
+            _bk_avwap_off_logged = True
+        return
+    if not _bk_avwap_lock.acquire(blocking=False):
+        return
+
+    def _runner():
+        try:
+            from engine.bk_avwap_scanner import run_scan
+            r = run_scan()  # persist + shadow_ntfy follow the flag (ON here)
+            console.log(
+                f"[cyan]HM-BK-B aVWAP: {r.get('signals',0)} signals "
+                f"(bull={r.get('bull',0)} bear={r.get('bear',0)} "
+                f"confluence={r.get('confluence',0)} scanned={r.get('scanned',0)})"
+            )
+        except Exception as e:
+            console.log(f"[yellow]HM-BK-B aVWAP error: {type(e).__name__}: {e!r}")
+        finally:
+            _bk_avwap_lock.release()
+    threading.Thread(target=_runner, daemon=True, name="sched_bk_avwap").start()
+
+
 # ── Ollie Machine P3 scheduled loop (SIM-only, tracking-mode) ──────────────
 # Assembles the P1/P2 convergence modules (engine/ollie_machine_loop.py) into a
 # daily evaluate→enter + intraday exit-monitor. Writes ollie_machine_ledger ONLY —
@@ -4651,6 +4694,7 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(_bg_bbkc_squeeze_watcher)     # HM-SQUEEZE-BBKC-COMPRESSION (2026-05-24): 30-min, default-OFF via BBKC_SQUEEZE_WATCHER_ENABLED
     schedule.every().day.at("20:30").do(_bg_rs_rank)            # HM-RS-RANK-VS-SPY (2026-05-24): nightly post-close, default-OFF via RS_RANK_ENABLED
     schedule.every().day.at("20:45").do(_bg_minervini_filter)   # HM-MINERVINI-TREND-FILTER (2026-05-24): nightly post-close +15min so rs_rank LEFT JOIN sees fresh data, default-OFF via MINERVINI_FILTER_ENABLED
+    schedule.every().day.at("21:10").do(run_bk_avwap_scan)      # HM-BK-B anchored-VWAP confirmatory (nightly post-close), default-OFF via AVWAP_CONFIRMATORY_VOTE_ENABLED
     schedule.every().day.at("21:00").do(_bg_ollie_machine_daily) # OLLIE-MACHINE-P3 (2026-06-01): SIM pick SELECTION, +15min after Minervini so signals are fresh. tracking-mode, default-OFF via OLLIE_MACHINE_LOOP_ENABLED
     schedule.every().day.at("06:30").do(_bg_ollie_machine_enter) # OLLIE-MACHINE-P3 (HM-OLLIE-MACHINE-BRACKET-WINDOW 2026-06-05): bracket+SIM-enter in the market window (trade-levels healthy; 21:00 had endpoint cold). default-OFF via OLLIE_MACHINE_LOOP_ENABLED
     schedule.every(20).minutes.do(_bg_ollie_machine_exits)      # OLLIE-MACHINE-P3 (2026-06-01): SIM exit-monitor, RTH-gated. ledger-direct close, default-OFF via OLLIE_MACHINE_LOOP_ENABLED

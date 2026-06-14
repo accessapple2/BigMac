@@ -52,6 +52,17 @@ SOURCE_DEDUP_WINDOW_MIN = 60
 # FRED stays context-only and the 86% gate is unchanged. Reversal: flip + restart.
 FRED_CONFIRMATORY_VOTE_ENABLED = True
 
+# === HM-BK Bull-Knife confirmatory scanners (shadow-first, default-OFF) ========
+# Three independent technical confirmatory scanners on the 8a83f17 rail. Each
+# writes its OWN table, has its OWN flag, emits a BULL/BEAR confirmatory vote that
+# NEVER originates a trade (requires >= MIN_FLEET_VOTES=2 fleet votes to count;
+# enforced+asserted in each module's confirmatory_vote). Flag gates BOTH the
+# scheduler run AND the live vote. Default OFF = shadow-only (no ntfy, no count).
+# Reversal/activation: flip the relevant flag + canonical restart.
+AVWAP_CONFIRMATORY_VOTE_ENABLED = False   # HM-BK-B engine/bk_avwap_scanner.py (nightly)
+BOX_CONFIRMATORY_VOTE_ENABLED = False     # HM-BK-C engine/bk_box_scanner.py (nightly, after B)
+ORB_CONFIRMATORY_VOTE_ENABLED = False     # HM-BK-A engine/bk_orb_scanner.py (intraday)
+
 # === SWINGDESK-W3 — agent auto-spreads (BUILT GATED-OFF, 2026-06-10) ===========
 # Lets qualifying fleet agents propose/submit multi-leg spreads through the W2
 # executor. NOTHING submits until burn-in passes AND the Admiral flips the master
