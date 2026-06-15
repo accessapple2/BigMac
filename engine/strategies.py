@@ -488,6 +488,14 @@ def score_convergence(ticker: str, triggered: list) -> dict | None:
     """
     bullish = [s for s in triggered if s["signal_type"] == "BUY"]
 
+    # HM-VOLUME-DEMOTE 2026-06-15: breakout_volume + unusual_volume measured noise/negative in
+    # strategy_outcomes (13.8% / 17% hit, negative avg R, healthy breadth) — DEMOTE to CONTEXT-ONLY:
+    # still surfaced for display, but they NO LONGER count toward the convergence vote/confidence
+    # (can't add weight, can't push to 1.00, can't be the leg that forms a 2-count convergence).
+    _CONTEXT_ONLY_STRATEGIES = {"breakout_volume", "unusual_volume"}
+    context_only = [s for s in bullish if s["name"] in _CONTEXT_ONLY_STRATEGIES]
+    bullish = [s for s in bullish if s["name"] not in _CONTEXT_ONLY_STRATEGIES]
+
     # During power hour (12:30–1:00 PM MST) and after hours (1:00+ PM MST),
     # allow single-model decisions so the scanner doesn't go dark.
     import pytz
@@ -547,6 +555,8 @@ def score_convergence(ticker: str, triggered: list) -> dict | None:
         "target": round(avg_target, 2),
         "risk_reward": round(rr, 2),
         "confidence": round(confidence, 2),
+        # HM-VOLUME-DEMOTE: shown for context, NOT counted in the vote/confidence above.
+        "context_only_strategies": [s["name"] for s in context_only],
     }
 
 
