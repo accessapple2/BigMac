@@ -67,6 +67,9 @@ def judge_prompt(scenario, critique):
     if scenario.get("realized_verdict"):
         realized = (f"\nREALIZED OUTCOME (ground truth): {scenario['realized_verdict']} "
                     f"(P&L {scenario.get('realized_pnl_pct')}%)")
+    dr = scenario.get("decisive_risk")
+    if dr and dr != "unknown":
+        realized += f"\nDECISIVE RISK (anchor for risk_id — score 2 only if the critique names this): {dr}"
     rubric = "\n".join(f"- {d}: {DIM_HELP[d]}" for d in DIMS)
     return f"""You are a strict, neutral evaluator of trading-critique quality. Score the CRITIQUE \
 on each dimension as an integer 0, 1, or 2 using the rubric. Judge ONLY the critique's quality \

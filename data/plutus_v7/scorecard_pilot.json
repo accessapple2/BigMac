@@ -1,0 +1,36 @@
+{
+  "n": 36,
+  "author_model": "grok-4.20-0309-non-reasoning",
+  "pilot_dims": {
+    "risk_id": 2.0,
+    "directional_lean": 1.903,
+    "calibration": 1.903,
+    "actionability": 2.0,
+    "non_redundancy": 2.0,
+    "format_concision": 2.0
+  },
+  "pilot_overall": 1.968,
+  "pilot_guards": {
+    "restatement_ratio_mean": 0.009,
+    "direction_match_pct": 88.9,
+    "leads_verdict_pct": 100.0
+  },
+  "v1_baseline_tightened": {
+    "overall": 1.393,
+    "risk_id": 0.632,
+    "directional_lean": 1.632,
+    "calibration": 1.459,
+    "actionability": 1.259,
+    "non_redundancy": 1.45,
+    "format_concision": 1.927,
+    "restatement": 0.054,
+    "direction_pct": 56.4
+  },
+  "gate_vs_v1_plus_0.15": {
+    "overall_pass": true,
+    "risk_id_lift": 1.3679999999999999,
+    "actionability_lift": 0.7410000000000001,
+    "restatement_ok": true,
+    "no_dim_regress_>0.1": true
+  }
+}

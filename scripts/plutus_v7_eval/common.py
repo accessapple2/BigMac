@@ -37,7 +37,7 @@ JUDGE_CFG = {
 DIMS = ["risk_id", "directional_lean", "calibration",
         "actionability", "non_redundancy", "format_concision"]
 DIM_HELP = {
-    "risk_id":          "0=misses the decisive risk; 1=names a risk generically; 2=names THE risk that mattered and why",
+    "risk_id":          "2=names the single DECISIVE risk that drove/threatened the realized outcome and ties it to the trade context; 1=a relevant but non-decisive risk, or vague; 0=no real risk-ID or an irrelevant risk",
     "directional_lean": "0=lean wrong vs realized outcome; 1=hedged/ambiguous; 2=correct lean, justified",
     "calibration":      "0=confident-and-wrong / praises a losing trade; 1=mild confidence-outcome mismatch; 2=confidence matches outcome",
     "actionability":    "0=platitude only ('monitor closely'); 1=one vague lever; 2=>=1 concrete specific lever (stop/size/exit/confirm)",

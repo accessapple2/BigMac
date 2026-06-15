@@ -1,0 +1,21 @@
+{
+  "dim": "risk_id",
+  "rubric": "tightened (decisive-risk anchored)",
+  "kappa": {
+    "before": 0.126,
+    "after": 0.302
+  },
+  "v1": {
+    "tc_before": 1.273,
+    "tc_after": 0.632,
+    "all_before": 1.084,
+    "all_after": 0.461
+  },
+  "v6": {
+    "tc_before": 1.005,
+    "tc_after": 0.459,
+    "all_before": 0.921,
+    "all_after": 0.371
+  },
+  "n_pairs": 356
+}
