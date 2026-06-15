@@ -24,8 +24,32 @@ REBOOT_LOG="$LOG_DIR/cloudflared_reboot_start.log"
 
 mkdir -p "$LOG_DIR"
 
-echo "[$(date '+%Y-%m-%d %H:%M:%S')] @reboot fired — waiting 30s for network" >> "$REBOOT_LOG"
-sleep 30
+echo "[$(date '+%Y-%m-%d %H:%M:%S')] @reboot fired — polling for DNS readiness (cap 900s)" >> "$REBOOT_LOG"
+
+# HM-DNS-RACE (2026-06-14): the fixed `sleep 30` lost a boot-time DNS race —
+# at boot+37s the loopback resolver wasn't up, cloudflared's edge discovery
+# did `lookup _v2-origintunneld._tcp.argotunnel.com on [::1]:53` → connection
+# refused → FATAL exit, and the tunnel never came up until a manual restart.
+# Allo (gateway) can take many minutes to restore upstream resolution after a
+# power event, so poll until DNS actually answers rather than guessing a delay.
+# Cap ~900s (15 min) = 180 tries × 5s, to outlast a slow Allo recovery.
+DNS_READY=0
+for i in $(seq 1 180); do
+  if [[ -n "$(dig +short cloudflare.com A 2>/dev/null)" ]]; then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] DNS ready after $(( (i - 1) * 5 ))s" >> "$REBOOT_LOG"
+    DNS_READY=1
+    break
+  fi
+  # Heartbeat every ~30s (every 6th try) so a slow boot is auditable.
+  if (( (i - 1) % 6 == 0 )); then
+    echo "[$(date '+%Y-%m-%d %H:%M:%S')] waiting for DNS... ($(( (i - 1) * 5 ))s)" >> "$REBOOT_LOG"
+  fi
+  sleep 5
+done
+
+if [[ "$DNS_READY" -ne 1 ]]; then
+  echo "[$(date '+%Y-%m-%d %H:%M:%S')] WARN: DNS still unresolved after 900s cap — attempting cloudflared start anyway" >> "$REBOOT_LOG"
+fi
 
 # Guard: don't double-fire if an operator beat the wrapper to it.
 # HM-CLOUDFLARED-DUP-GUARD (2026-05-29): match the BINARY (pgrep -x), not the
