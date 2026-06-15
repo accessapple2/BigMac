@@ -1,0 +1,278 @@
+{
+  "meta": {
+    "n_scenarios": 178,
+    "judges": [
+      "qwen3:14b",
+      "gpt-oss:20b"
+    ],
+    "dims": [
+      "risk_id",
+      "directional_lean",
+      "calibration",
+      "actionability",
+      "non_redundancy",
+      "format_concision"
+    ]
+  },
+  "unscorable": {},
+  "by_model": {
+    "v1": {
+      "debate_critique": {
+        "n_items": 46,
+        "overall_mean": 0.551,
+        "dims": {
+          "risk_id": 0.609,
+          "directional_lean": 0.587,
+          "calibration": 0.554,
+          "actionability": 0.043,
+          "non_redundancy": 0.696,
+          "format_concision": 0.815
+        },
+        "guards": {
+          "restatement_ratio_mean": 0.029,
+          "direction_match_pct": null,
+          "leads_verdict_pct": 0.0,
+          "length_in_band_pct": 100.0
+        }
+      },
+      "market_qa": {
+        "n_items": 1,
+        "overall_mean": 0.917,
+        "dims": {
+          "risk_id": 1.0,
+          "directional_lean": 0.5,
+          "calibration": 1.0,
+          "actionability": 1.0,
+          "non_redundancy": 1.0,
+          "format_concision": 1.0
+        },
+        "guards": {
+          "restatement_ratio_mean": 0.015,
+          "direction_match_pct": null,
+          "leads_verdict_pct": 0.0,
+          "length_in_band_pct": 100.0
+        }
+      },
+      "market_qa_variant": {
+        "n_items": 5,
+        "overall_mean": 0.75,
+        "dims": {
+          "risk_id": 0.7,
+          "directional_lean": 0.6,
+          "calibration": 0.8,
+          "actionability": 0.5,
+          "non_redundancy": 1.2,
+          "format_concision": 0.7
+        },
+        "guards": {
+          "restatement_ratio_mean": 0.007,
+          "direction_match_pct": null,
+          "leads_verdict_pct": 0.0,
+          "length_in_band_pct": 100.0
+        }
+      },
+      "signal_analysis": {
+        "n_items": 16,
+        "overall_mean": 1.161,
+        "dims": {
+          "risk_id": 1.281,
+          "directional_lean": 0.969,
+          "calibration": 0.812,
+          "actionability": 1.312,
+          "non_redundancy": 1.344,
+          "format_concision": 1.25
+        },
+        "guards": {
+          "restatement_ratio_mean": 0.102,
+          "direction_match_pct": null,
+          "leads_verdict_pct": 0.0,
+          "length_in_band_pct": 100.0
+        }
+      },
+      "trade_critique": {
+        "n_items": 110,
+        "overall_mean": 1.607,
+        "dims": {
+          "risk_id": 1.273,
+          "directional_lean": 1.627,
+          "calibration": 1.65,
+          "actionability": 1.464,
+          "non_redundancy": 1.668,
+          "format_concision": 1.959
+        },
+        "guards": {
+          "restatement_ratio_mean": 0.054,
+          "direction_match_pct": 56.4,
+          "leads_verdict_pct": 100.0,
+          "length_in_band_pct": 100.0
+        }
+      },
+      "ALL": {
+        "n_items": 178,
+        "overall_mean": 1.266,
+        "dims": {
+          "risk_id": 1.084,
+          "directional_lean": 1.264,
+          "calibration": 1.264,
+          "actionability": 1.053,
+          "non_redundancy": 1.371,
+          "format_concision": 1.559
+        },
+        "guards": {
+          "restatement_ratio_mean": 0.051,
+          "direction_match_pct": 56.4,
+          "leads_verdict_pct": 61.8,
+          "length_in_band_pct": 100.0
+        }
+      }
+    },
+    "v6": {
+      "debate_critique": {
+        "n_items": 46,
+        "overall_mean": 0.601,
+        "dims": {
+          "risk_id": 0.75,
+          "directional_lean": 0.62,
+          "calibration": 0.587,
+          "actionability": 0.022,
+          "non_redundancy": 0.793,
+          "format_concision": 0.837
+        },
+        "guards": {
+          "restatement_ratio_mean": 0.038,
+          "direction_match_pct": null,
+          "leads_verdict_pct": 0.0,
+          "length_in_band_pct": 100.0
+        }
+      },
+      "market_qa": {
+        "n_items": 1,
+        "overall_mean": 0.0,
+        "dims": {
+          "risk_id": 0.0,
+          "directional_lean": 0.0,
+          "calibration": 0.0,
+          "actionability": 0.0,
+          "non_redundancy": 0.0,
+          "format_concision": 0.0
+        },
+        "guards": {
+          "restatement_ratio_mean": 0.01,
+          "direction_match_pct": null,
+          "leads_verdict_pct": 0.0,
+          "length_in_band_pct": 100.0
+        }
+      },
+      "market_qa_variant": {
+        "n_items": 5,
+        "overall_mean": 0.467,
+        "dims": {
+          "risk_id": 0.6,
+          "directional_lean": 0.5,
+          "calibration": 0.5,
+          "actionability": 0.1,
+          "non_redundancy": 0.8,
+          "format_concision": 0.3
+        },
+        "guards": {
+          "restatement_ratio_mean": 0.005,
+          "direction_match_pct": null,
+          "leads_verdict_pct": 0.0,
+          "length_in_band_pct": 100.0
+        }
+      },
+      "signal_analysis": {
+        "n_items": 16,
+        "overall_mean": 0.958,
+        "dims": {
+          "risk_id": 1.0,
+          "directional_lean": 0.75,
+          "calibration": 0.781,
+          "actionability": 1.094,
+          "non_redundancy": 1.094,
+          "format_concision": 1.031
+        },
+        "guards": {
+          "restatement_ratio_mean": 0.091,
+          "direction_match_pct": null,
+          "leads_verdict_pct": 0.0,
+          "length_in_band_pct": 100.0
+        }
+      },
+      "trade_critique": {
+        "n_items": 110,
+        "overall_mean": 1.304,
+        "dims": {
+          "risk_id": 1.005,
+          "directional_lean": 1.286,
+          "calibration": 1.345,
+          "actionability": 1.073,
+          "non_redundancy": 1.336,
+          "format_concision": 1.777
+        },
+        "guards": {
+          "restatement_ratio_mean": 0.071,
+          "direction_match_pct": 58.2,
+          "leads_verdict_pct": 99.1,
+          "length_in_band_pct": 100.0
+        }
+      },
+      "ALL": {
+        "n_items": 178,
+        "overall_mean": 1.06,
+        "dims": {
+          "risk_id": 0.921,
+          "directional_lean": 1.037,
+          "calibration": 1.067,
+          "actionability": 0.77,
+          "non_redundancy": 1.152,
+          "format_concision": 1.416
+        },
+        "guards": {
+          "restatement_ratio_mean": 0.062,
+          "direction_match_pct": 58.2,
+          "leads_verdict_pct": 61.2,
+          "length_in_band_pct": 100.0
+        }
+      }
+    }
+  },
+  "inter_judge_agreement": {
+    "risk_id": {
+      "n_pairs": 356,
+      "cohen_kappa": 0.126,
+      "exact_agreement_pct": 49.4,
+      "mean_abs_diff": 0.539
+    },
+    "directional_lean": {
+      "n_pairs": 356,
+      "cohen_kappa": 0.299,
+      "exact_agreement_pct": 54.8,
+      "mean_abs_diff": 0.604
+    },
+    "calibration": {
+      "n_pairs": 356,
+      "cohen_kappa": 0.378,
+      "exact_agreement_pct": 59.6,
+      "mean_abs_diff": 0.478
+    },
+    "actionability": {
+      "n_pairs": 356,
+      "cohen_kappa": 0.503,
+      "exact_agreement_pct": 66.3,
+      "mean_abs_diff": 0.357
+    },
+    "non_redundancy": {
+      "n_pairs": 356,
+      "cohen_kappa": 0.271,
+      "exact_agreement_pct": 53.7,
+      "mean_abs_diff": 0.478
+    },
+    "format_concision": {
+      "n_pairs": 356,
+      "cohen_kappa": 0.395,
+      "exact_agreement_pct": 66.9,
+      "mean_abs_diff": 0.413
+    }
+  }
+}
