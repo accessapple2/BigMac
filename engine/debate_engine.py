@@ -608,18 +608,9 @@ def _resolve_plutus_model() -> str:
     return "0xroyce/plutus"
 
 
-async def run_plutus_witness(
-    session: aiohttp.ClientSession,
-    semaphore: asyncio.Semaphore,
-    ticker: str,
-    bull_results: list,
-    bear_results: list,
-    stock_data: dict,
-) -> str | None:
-    """Expert Witness step — Plutus reviews the bull/bear cases before Picard judges.
-
-    Returns the raw text assessment, or None if Plutus is unavailable.
-    """
+def _build_witness_prompt(ticker, bull_results, bear_results, stock_data) -> str:
+    """Build the Plutus witness prompt. Shared by the live witness (run_plutus_witness)
+    and the shadow witness (run_shadow_witness) so both score the IDENTICAL input."""
     bull_summary = "\n".join(
         f"  [{r['lens']}] {r['conviction']}/10 — {r['thesis'][:100]}"
         for r in bull_results
@@ -629,13 +620,25 @@ async def run_plutus_witness(
         for r in bear_results
     )
     market_data = _format_market_data_block(ticker, stock_data)
-
-    prompt = PLUTUS_PROMPT.format(
+    return PLUTUS_PROMPT.format(
         ticker=ticker,
         market_data=market_data,
         bull_summary=bull_summary,
         bear_summary=bear_summary,
     )
+
+
+async def run_plutus_witness(
+    session: aiohttp.ClientSession,
+    semaphore: asyncio.Semaphore,
+    ticker: str,
+    bull_results: list,
+    bear_results: list,
+    stock_data: dict,
+) -> str | None:
+    """Expert Witness step — Plutus (v1, the LIVE witness) reviews the bull/bear cases
+    before Picard judges. Returns the raw text assessment, or None if unavailable."""
+    prompt = _build_witness_prompt(ticker, bull_results, bear_results, stock_data)
 
     response = await call_ollama(session, semaphore, _resolve_plutus_model(), prompt)
     if not response or not response.strip():
@@ -645,6 +648,51 @@ async def run_plutus_witness(
     import re
     response = re.sub(r"<think>.*?</think>", "", response, flags=re.DOTALL).strip()
     return response if response else None
+
+
+async def run_shadow_witness(
+    session: aiohttp.ClientSession,
+    semaphore: asyncio.Semaphore,
+    debate_id,
+    ticker: str,
+    bull_results: list,
+    bear_results: list,
+    stock_data: dict,
+    v1_critique: str,
+) -> float:
+    """HM-SHADOW-WITNESS-V7D — logged-only. Runs plutus-v7d on the SAME witness input
+    and stores (v1_critique, v7d_critique) to plutus_shadow_critiques for later grading.
+    Called POST-decision (after save_debate) so it NEVER influences or delays the live
+    decision. v1 stays the active witness. Returns elapsed seconds. Never raises."""
+    import re, time
+    t0 = time.monotonic()
+    try:
+        prompt = _build_witness_prompt(ticker, bull_results, bear_results, stock_data)
+        resp = await call_ollama(session, semaphore, "plutus-v7d:latest", prompt)
+        v7d = re.sub(r"<think>.*?</think>", "", resp or "", flags=re.DOTALL).strip()
+        conn = sqlite3.connect(TRADER_DB, timeout=30)
+        conn.execute("""
+            CREATE TABLE IF NOT EXISTS plutus_shadow_critiques (
+                id INTEGER PRIMARY KEY AUTOINCREMENT,
+                debate_id INTEGER,
+                ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                ticker TEXT,
+                witness_input TEXT,
+                v1_critique TEXT,
+                v7d_critique TEXT,
+                realized_outcome TEXT
+            )""")
+        conn.execute(
+            "INSERT INTO plutus_shadow_critiques "
+            "(debate_id, ticker, witness_input, v1_critique, v7d_critique) "
+            "VALUES (?,?,?,?,?)",
+            (debate_id, ticker, prompt, v1_critique, v7d or None),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        logger.warning(f"[SHADOW-WITNESS] write failed for {ticker}: {type(e).__name__}: {e!r}")
+    return time.monotonic() - t0
 
 
 async def run_risk_triad(
@@ -1018,6 +1066,21 @@ async def run_full_debate(
 
         elapsed = (datetime.now() - start_time).total_seconds()
         logger.info(f"Debate #{debate_id} complete in {elapsed:.1f}s")
+
+        # HM-SHADOW-WITNESS-V7D — POST-decision (debate already saved above, `elapsed`
+        # already captured) so it can NEVER influence or delay the live decision.
+        # Logs a plutus-v7d critique next to v1's for later v1-vs-v7d grading.
+        try:
+            from config import SHADOW_WITNESS_ENABLED, live_flag
+            if plutus_analysis and live_flag("SHADOW_WITNESS_ENABLED", SHADOW_WITNESS_ENABLED):
+                _sd = await run_shadow_witness(
+                    session, semaphore, debate_id, ticker,
+                    bull_results, bear_results, stock_data, plutus_analysis,
+                )
+                logger.info(f"[SHADOW-WITNESS] v7d logged {ticker} debate_id={debate_id} "
+                            f"({_sd:.1f}s, post-decision; live witness/decision unchanged)")
+        except Exception as e:
+            logger.warning(f"[SHADOW-WITNESS] skipped {ticker}: {type(e).__name__}: {e!r}")
 
         # Compute averages for debate_end frame
         bull_avg = (sum(r.get("conviction") or 0 for r in (bull_results or []))

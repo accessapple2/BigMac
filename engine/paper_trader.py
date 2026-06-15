@@ -905,15 +905,38 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             _gbc = _conn()
             try:
                 _gbrow = _gbc.execute(
-                    "SELECT regime FROM regime_history "
+                    "SELECT regime, spy_close, ma_8 FROM regime_history "
                     "WHERE date = date('now','localtime') "
                     "ORDER BY id DESC LIMIT 1"
                 ).fetchone()
                 _gbregime = _gbrow[0] if _gbrow else None
+                _gb_spy_close = _gbrow[1] if _gbrow else None
+                _gb_ma8 = _gbrow[2] if _gbrow else None
             finally:
                 _gbc.close()
-            if _gbregime in ("BEAR_CROSS", "CAUTIOUS_BEAR"):
+            if _gbregime == "BEAR_CROSS":
                 _fleet_block_reason = f"regime={_gbregime}"
+            elif _gbregime == "CAUTIOUS_BEAR":
+                # HM-GRADE-B-RELAX: allow a CAUTIOUS_BEAR grade-B BUY only if SPY has
+                # DECISIVELY reclaimed its 8MA (reversal candidate). OFF -> block as before.
+                from config import (GRADE_B_REVERSAL_RELAX_ENABLED,
+                                    GRADE_B_REVERSAL_MIN_MA8_MARGIN_PCT, live_flag)
+                _ma8_margin = None
+                try:
+                    if _gb_spy_close and _gb_ma8 and float(_gb_ma8) > 0:
+                        _ma8_margin = (float(_gb_spy_close) - float(_gb_ma8)) / float(_gb_ma8) * 100.0
+                except Exception:
+                    _ma8_margin = None
+                if (live_flag("GRADE_B_REVERSAL_RELAX_ENABLED", GRADE_B_REVERSAL_RELAX_ENABLED)
+                        and _ma8_margin is not None
+                        and _ma8_margin >= GRADE_B_REVERSAL_MIN_MA8_MARGIN_PCT):
+                    console.log(
+                        f"[green][GRADE-B-REVERSAL-RELAX] ALLOWED {symbol} conf={float(confidence):.2f} "
+                        f"regime=CAUTIOUS_BEAR ma8_margin={_ma8_margin:.2f}%[/green]"
+                    )
+                    # reversal candidate — do NOT block; fall through to Layer 2 (SPY intraday)
+                else:
+                    _fleet_block_reason = f"regime={_gbregime}"
         except Exception:
             _gbregime = None  # fail-safe: open
         # Layer 2: SPY intraday (only run if regime didn't already block)

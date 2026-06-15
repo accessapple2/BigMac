@@ -65,6 +65,38 @@ ORB_CONFIRMATORY_VOTE_ENABLED = False     # HM-BK-A engine/bk_orb_scanner.py (in
 BOX_SHORT_ENABLED = False                 # HM-BK-C: default long-only; enable for box-breakdown BEAR
 ORB_SHORT_ENABLED = False                 # HM-BK-A: default long-only; enable for OR-low breakdown BEAR
 
+# === HM-GRADE-B-RELAX (reversal allowance, shadow-first default-OFF) ===========
+# When ON, the grade-B fleet gate (engine/paper_trader.py) allows a 0.60-0.75-conv
+# stock BUY in regime==CAUTIOUS_BEAR IF SPY has decisively RECLAIMED its 8-day MA
+# (spy_close >= MIN_MA8_MARGIN_PCT above ma_8) — a reversal candidate. BEAR_CROSS
+# still always blocks; CAUTIOUS_BEAR without the reclaim still blocks. Grade-A,
+# conf<0.60, and options are untouched. OFF = original behavior. Live-flip via settings.
+GRADE_B_REVERSAL_RELAX_ENABLED = False
+GRADE_B_REVERSAL_MIN_MA8_MARGIN_PCT = 0.3   # SPY % above its 8MA to count as a decisive reclaim
+
+# === HM-SHADOW-WITNESS-V7D (logged-only; NEVER influences the live decision) ===
+# When ON, debate_engine logs a plutus-v7d critique alongside v1's on the SAME
+# witness input (post-decision, non-blocking) to plutus_shadow_critiques for later
+# v1-vs-v7d grading. v1 STAYS the active witness (ai_players.ollama-plutus). OFF =
+# no shadow call. Live-flip via settings.
+SHADOW_WITNESS_ENABLED = False
+
+
+def live_flag(key: str, default: bool) -> bool:
+    """Boolean flag with a config default that can be flipped LIVE (no restart) via
+    the settings table: INSERT OR REPLACE INTO settings(key,value) VALUES(key,'true').
+    Fail-safe -> the config default. Connects only when called (no import-time DB hit)."""
+    import sqlite3
+    try:
+        c = sqlite3.connect("data/trader.db", timeout=5)
+        row = c.execute("SELECT value FROM settings WHERE key=?", (key,)).fetchone()
+        c.close()
+        if row and row[0] is not None:
+            return str(row[0]).strip().lower() in ("1", "true", "on", "yes")
+    except Exception:
+        pass
+    return default
+
 # HM-BK leveraged/inverse universe exclusion (2026-06-14). scan_universe is
 # ordered/weighted by avg_volume, which is dominated by leveraged/inverse ETFs —
 # the highest-volume tickers on the tape. All three HM-BK scanners are LONG-ONLY
