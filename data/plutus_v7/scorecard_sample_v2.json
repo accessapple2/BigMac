@@ -1,0 +1,37 @@
+{
+  "n": 36,
+  "temp": 0.6,
+  "v2": true,
+  "dims": {
+    "risk_id": 1.986,
+    "directional_lean": 1.944,
+    "calibration": 1.917,
+    "actionability": 2.0,
+    "non_redundancy": 1.986,
+    "format_concision": 2.0
+  },
+  "overall": 1.972,
+  "guards": {
+    "restatement_ratio_mean": 0.011,
+    "direction_match_pct": 88.9,
+    "leads_verdict_pct": 100.0
+  },
+  "v1_baseline_tightened": {
+    "overall": 1.393,
+    "risk_id": 0.632,
+    "directional_lean": 1.632,
+    "calibration": 1.459,
+    "actionability": 1.259,
+    "non_redundancy": 1.45,
+    "format_concision": 1.927,
+    "restatement": 0.054,
+    "direction_pct": 56.4
+  },
+  "gate": {
+    "overall_pass": true,
+    "risk_id_lift": 1.354,
+    "actionability_lift": 0.741,
+    "restatement_ok": true,
+    "no_dim_regress_>0.1": true
+  }
+}

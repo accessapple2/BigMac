@@ -1,0 +1,66 @@
+{
+  "total": 1438,
+  "by_category": {
+    "trade_critique": 1030,
+    "debate_critique": 348,
+    "signal_analysis": 60
+  },
+  "trade_critique": {
+    "authored": 1030,
+    "kept": 1030,
+    "template_dropped": 0,
+    "cap_per_template": 21,
+    "uniqueness_pct": 100.0,
+    "distinct_openings": 601,
+    "top_openings": [
+      [
+        "verdict win the swing caught the",
+        36
+      ],
+      [
+        "entry timing caught the bull cross",
+        20
+      ],
+      [
+        "verdict win the swing captured the",
+        13
+      ],
+      [
+        "entry timing caught the exact bull",
+        13
+      ],
+      [
+        "entry timing caught the post earnings",
+        12
+      ],
+      [
+        "entry nailed the bull cross regime",
+        12
+      ],
+      [
+        "entry nailed the volatility breakout in",
+        12
+      ],
+      [
+        "entry nailed the gap and go",
+        11
+      ]
+    ]
+  },
+  "debate_critique": {
+    "v6_oos_excluded_kept": 348,
+    "kept": 348
+  },
+  "signal_analysis": {
+    "v6_oos_excluded": 134,
+    "dedup_dropped": 74,
+    "kept": 60
+  },
+  "split": {
+    "train": 1150,
+    "val": 143,
+    "test": 145
+  },
+  "oos_leakage_in_corpus": 0,
+  "author_cost_usd": 0.7135
+}

@@ -98,6 +98,40 @@ are real, not a parse artifact (directional_lean has 2/72 zeros, calibration 1 z
 - Freeze `data/plutus_v7/plutus_corpus_v7.jsonl` + train/val/test split + commit. **Training is a
   separate phase after that.**
 
+---
+
+## PHASE B — EXECUTED 2026-06-14 (mass-author + dedup + assemble + freeze; NO training)
+
+**Frozen: `data/plutus_v7/plutus_corpus_v7.jsonl` — 1,438 rows.**
+| category | rows | note |
+|---|---|---|
+| trade_critique | 1,030 | Grok-authored (v2 prompt), 100% unique, 0 template-dropped |
+| debate_critique | 348 | KEPT from v6 (394 − 46 OOS-overlap excluded) |
+| signal_analysis | 60 | v6 (134 OOS-excluded) − 74 exact-dedup |
+Split (seed 42, 80/10/10): **train 1,150 / val 143 / test 145**. **OOS leakage in corpus = 0** (asserted;
+every category scrubbed of the 178 frozen OOS prompts; tc also trade_id-clean).
+
+### Diversity (the thing we were told to guard) — v1→v2 fix
+First mass-author (temp 0.4) was 100% content-unique but **converged on a stock opener**: "The (single)
+decisive risk was…" = 26% of rows, only 203 distinct openings. Flagged, did NOT freeze. Added an
+opening-variety directive (ban that opener; lead with what went right/wrong, regime, the signal, outcome
+magnitude) + temp 0.4→0.6, **re-authored all 1,030** (archived v1 as
+`authored_tc.bak_v1_stockopening_*.jsonl`).
+- **distinct openings 203 → 601**; **max single opener 26% → 3.5%** (target was ≤~5%); full-set
+  uniqueness 100%.
+- **Re-validation (36 v2 targets, tightened eval, temp 0.6): quality held** — overall **1.972** (gate
+  ≥1.543), risk_id 1.986 (+1.35 vs v1), actionability 2.0 (+0.74), restatement 0.011, direction 88.9%.
+  ALL gate conditions PASS. temp/diversity change did NOT slip quality.
+
+### Cost
+Grok total this task ≈ **$1.42** (pilot $0.031 + v1 batch $0.672 archived + v2 frozen batch **$0.714**).
+Final corpus's authoring cost = $0.714. Direct read-only xAI calls; no trader.db writes.
+
+### STOPPED — training is the next gated step (no LoRA without explicit GO).
+Files: `scripts/plutus_v7_corpus/{author,author_all,assemble_v7,score_sample}.py`;
+`data/plutus_v7/{authored_tc.jsonl, plutus_corpus_v7.jsonl + .train/.val/.test, .stats.json,
+scorecard_sample_v2.json}`.
+
 ## Files (new this phase)
 - `scripts/plutus_v7_corpus/{rescore_riskid,build_pool,author,score_pilot}.py`
 - `scripts/plutus_v7_eval/{common,score}.py` (risk_id tighten + anchor — committed change)

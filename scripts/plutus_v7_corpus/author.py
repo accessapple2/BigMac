@@ -36,6 +36,11 @@ AUTHOR_SYSTEM = (
     "name the risk that could have flipped it.\n"
     "5. Does NOT restate or echo the input context — add NEW analysis only.\n"
     "6. Is concise: 3-5 sentences, no headers, no bullet padding.\n"
+    "7. VARY YOUR OPENING. Do NOT begin the sentence after the Verdict line with 'The decisive risk "
+    "was...' / 'The single decisive risk...' — that phrasing is banned as an opener. Lead each critique "
+    "differently: with what the trade got right or wrong, the regime/tape backdrop, the specific signal "
+    "that failed or worked, the outcome magnitude, or the entry-timing flaw — THEN name the decisive risk "
+    "somewhere in the body. Strong phrasing diversity across critiques is required.\n"
     'Return ONLY a JSON object: {"decisive_risk": "<one phrase>", "critique": "<the critique text, '
     'starting with Verdict:>"}'
 )
@@ -55,7 +60,7 @@ def load_key():
 
 
 def call_grok(key, user_prompt, max_tokens=600, timeout=90):
-    payload = {"model": MODEL, "temperature": 0.4, "max_tokens": max_tokens,
+    payload = {"model": MODEL, "temperature": 0.6, "max_tokens": max_tokens,
                "messages": [{"role": "system", "content": AUTHOR_SYSTEM},
                             {"role": "user", "content": user_prompt}]}
     req = urllib.request.Request(XAI_URL, data=json.dumps(payload).encode(),
