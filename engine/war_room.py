@@ -315,6 +315,64 @@ def _record_witness(debate_id: str, symbol: str, price_data: dict,
                 daemon=True).start()
 
 
+def _record_shadow_witness(debate_id, symbol: str, price_data: dict,
+                           round_takes: list, providers: dict) -> None:
+    """HM-SHADOW-WITNESS-V7D — logged-only. When SHADOW_WITNESS_ENABLED, runs BOTH
+    plutus-v1 and plutus-v7d on the SAME witness context and logs the pair to
+    plutus_shadow_critiques for later v1-vs-v7d grading. Off the WR cycle thread
+    (no cycle latency), fail-safe (errors swallowed). NEVER enters round_takes, the
+    vote, or the decision — v1 stays the active witness; this is purely additional logging."""
+    try:
+        from config import SHADOW_WITNESS_ENABLED, live_flag
+        if not live_flag("SHADOW_WITNESS_ENABLED", SHADOW_WITNESS_ENABLED):
+            return
+    except Exception:
+        return
+    _ctx = list(round_takes or [])  # snapshot
+
+    def _shadow_worker():
+        try:
+            from engine.providers.ollama_provider import OllamaProvider
+            import config as _cfg, json as _json
+            _url = getattr(_cfg, "OLLAMA_URL", "http://192.168.1.168:11434")
+            v1_prov = providers.get("ollama-plutus") or OllamaProvider(
+                player_id="wr-shadow-v1", model="plutus-v1:latest",
+                url=_url, timeout=120, keep_alive="0s")
+            v1 = generate_hot_take(v1_prov, "wr-shadow-v1", symbol, price_data, _ctx or None)
+            v7d_prov = OllamaProvider(
+                player_id="wr-shadow-v7d", model="plutus-v7d:latest",
+                url=_url, timeout=120, keep_alive="0s")
+            v7d = generate_hot_take(v7d_prov, "wr-shadow-v7d", symbol, price_data, _ctx or None)
+            if not v1 and not v7d:
+                return
+            witness_input = _json.dumps({"symbol": symbol, "round_takes": _ctx[:12]}, default=str)[:4000]
+
+            def _write():
+                conn = _conn()
+                conn.execute("""
+                    CREATE TABLE IF NOT EXISTS plutus_shadow_critiques (
+                        id INTEGER PRIMARY KEY AUTOINCREMENT,
+                        debate_id TEXT, ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                        ticker TEXT, witness_input TEXT,
+                        v1_critique TEXT, v7d_critique TEXT, realized_outcome TEXT)""")
+                conn.execute(
+                    "INSERT INTO plutus_shadow_critiques "
+                    "(debate_id, ticker, witness_input, v1_critique, v7d_critique) "
+                    "VALUES (?,?,?,?,?)",
+                    (str(debate_id), symbol, witness_input, v1 or None, v7d or None),
+                )
+                conn.commit()
+                conn.close()
+            _db_write_retry(_write)
+            console.log(f"[cyan][SHADOW-WITNESS] debate={debate_id} {symbol} "
+                        f"v1={len(v1 or '')}c v7d={len(v7d or '')}c (report-only)")
+        except Exception as e:
+            console.log(f"[yellow][SHADOW-WITNESS-WARN] {type(e).__name__}: {e!r}")
+
+    import threading as _thr
+    _thr.Thread(target=_shadow_worker, name=f"wr-shadow-{debate_id}", daemon=True).start()
+
+
 # ────────────────────────────────────────────────────────────────────────────
 
 
@@ -1166,3 +1224,5 @@ def run_war_room(providers: dict, prices: dict):
     # HM-FORGE P1.2: report-only witness (A/B gemma4 vs plutus-v1). After the
     # round + vote, never influences them. Fail-safe inside _record_witness.
     _record_witness(_debate_id, symbol, price_data, round_takes, providers)
+    # HM-SHADOW-WITNESS-V7D: logged-only v1-vs-v7d pair (flag-gated, off-thread, fail-safe).
+    _record_shadow_witness(_debate_id, symbol, price_data, round_takes, providers)

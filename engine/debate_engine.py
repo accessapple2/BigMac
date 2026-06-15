@@ -674,7 +674,7 @@ async def run_shadow_witness(
         conn.execute("""
             CREATE TABLE IF NOT EXISTS plutus_shadow_critiques (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
-                debate_id INTEGER,
+                debate_id TEXT,
                 ts TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                 ticker TEXT,
                 witness_input TEXT,
@@ -686,7 +686,7 @@ async def run_shadow_witness(
             "INSERT INTO plutus_shadow_critiques "
             "(debate_id, ticker, witness_input, v1_critique, v7d_critique) "
             "VALUES (?,?,?,?,?)",
-            (debate_id, ticker, prompt, v1_critique, v7d or None),
+            (str(debate_id) if debate_id is not None else None, ticker, prompt, v1_critique, v7d or None),
         )
         conn.commit()
         conn.close()
