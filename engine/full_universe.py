@@ -71,6 +71,40 @@ def _alpaca_headers() -> dict:
     }
 
 
+_TRADABLE_CACHE: dict = {"set": None, "ts": 0.0}
+_TRADABLE_TTL = 6 * 3600  # 6h
+
+
+def tradable_symbols(ttl: int = _TRADABLE_TTL):
+    """HM-MCW-PHANTOM 2026-06-15 — ground-truth set of currently Alpaca-tradable US-equity
+    symbols (status=active & tradable=true), cached ~6h. Used to prune delisted/suspended
+    names (MCW/HOLX/CTRA/… all return no bars + status=inactive) from the scan-emit path.
+    Returns None on fetch failure or a suspiciously small set → callers MUST FAIL-OPEN
+    (do not filter when None), so an API blip never guts the universe."""
+    import time as _t
+    now = _t.time()
+    cached = _TRADABLE_CACHE.get("set")
+    if cached is not None and (now - _TRADABLE_CACHE.get("ts", 0)) < ttl:
+        return cached
+    try:
+        resp = requests.get(
+            f"{ALPACA_TRADING_BASE}/v2/assets", headers=_alpaca_headers(),
+            params={"status": "active", "tradable": "true", "asset_class": "us_equity"},
+            timeout=60,
+        )
+        resp.raise_for_status()
+        syms = {a.get("symbol") for a in resp.json() if a.get("tradable") and a.get("symbol")}
+        if len(syms) < 1000:  # sanity: a real fetch returns thousands; refuse partial/garbage
+            logger.warning(f"tradable_symbols got suspiciously few ({len(syms)}) — fail-open")
+            return None
+        _TRADABLE_CACHE["set"] = syms
+        _TRADABLE_CACHE["ts"] = now
+        return syms
+    except Exception as e:
+        logger.warning(f"tradable_symbols fetch failed (fail-open): {type(e).__name__}: {e}")
+        return None
+
+
 # ---------------------------------------------------------------------------
 # Core functions
 # ---------------------------------------------------------------------------

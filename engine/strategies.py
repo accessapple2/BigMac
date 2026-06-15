@@ -574,6 +574,31 @@ def get_scan_universe(max_total: int = 700) -> list[str]:
     except Exception:
         core = []
 
+    # HM-MCW-PHANTOM 2026-06-15: drop blacklisted + non-tradable (delisted/suspended) names
+    # BEFORE merge, so dead tickers (MCW/HOLX/CTRA/… — no Alpaca bars, status=inactive) can't
+    # produce phantom grade-A convergence signals. FAIL-OPEN: if the Alpaca tradable set is
+    # unavailable, only the hand-blacklist applies (never gut the universe on an API blip).
+    try:
+        from config import DELISTED_BLACKLIST
+        _excl = set(DELISTED_BLACKLIST)
+        try:
+            from engine.full_universe import tradable_symbols as _ts
+            _tradable = _ts()
+        except Exception:
+            _tradable = None
+
+        def _dead(s):
+            return s in _excl or (_tradable is not None and s not in _tradable)
+        _h0, _c0 = len(hot_symbols), len(core)
+        hot_symbols = [s for s in hot_symbols if not _dead(s)]
+        core = [s for s in core if not _dead(s)]
+        _dropped = (_h0 - len(hot_symbols)) + (_c0 - len(core))
+        if _dropped:
+            console.log(f"[yellow]🧹 scan-universe prune: dropped {_dropped} delisted/non-tradable "
+                        f"(tradable_set={'ok' if _tradable else 'unavailable→blacklist-only'})")
+    except Exception as _e:
+        console.log(f"[yellow]scan-universe prune skipped: {type(_e).__name__}: {_e!r}")
+
     # Merge: hot stocks first (priority), then core; deduplicate; cap at max_total
     seen: set[str] = set()
     combined: list[str] = []

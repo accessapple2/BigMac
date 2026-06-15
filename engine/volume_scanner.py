@@ -536,6 +536,21 @@ def get_todays_volume_alerts(limit: int = 200) -> list[dict]:
             row = dict(r)
             row["days_active"] = days_active.get(r["symbol"], 1)
             result.append(row)
+        # HM-MCW-PHANTOM 2026-06-15: drop blacklisted + non-tradable (delisted/suspended) names
+        # so dead tickers (MCW/HOLX/…) stop appearing as "hot" on the volume radar / scan feed.
+        # FAIL-OPEN: only the hand-blacklist applies if the Alpaca tradable set is unavailable.
+        try:
+            from config import DELISTED_BLACKLIST
+            try:
+                from engine.full_universe import tradable_symbols as _ts
+                _tradable = _ts()
+            except Exception:
+                _tradable = None
+            result = [row for row in result
+                      if row["symbol"] not in DELISTED_BLACKLIST
+                      and (_tradable is None or row["symbol"] in _tradable)]
+        except Exception:
+            pass
         return result
     except Exception as e:
         logger.warning(f"get_todays_volume_alerts failed: {e}")

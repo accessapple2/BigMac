@@ -151,6 +151,8 @@ DELISTED_BLACKLIST: set[str] = {
     "XCEM", "EAOA", "YFYA", "BULZ", "TDWDR", "TWLVR", "UCFIW", "VSTA",
     "WTGUR", "WSTNR", "WHLRL", "YHNAR", "CHARR", "CHPGR", "CCXIW", "EMISR",
     "EURKR", "FVNNR", "ASPCR", "ESHAR", "NOEMR",
+    "MCW",  # HM-MCW-PHANTOM 2026-06-15: suspended ~05-19, no Alpaca bars. Belt;
+            # the tradability gate (full_universe.tradable_symbols) auto-prunes it + HOLX/CTRA/etc too.
 }
 
 # HM-AQ-β 2026-05-07: WATCH_STOCKS constant removed. Dynamic universe is
