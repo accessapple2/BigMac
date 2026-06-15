@@ -65,6 +65,28 @@ ORB_CONFIRMATORY_VOTE_ENABLED = False     # HM-BK-A engine/bk_orb_scanner.py (in
 BOX_SHORT_ENABLED = False                 # HM-BK-C: default long-only; enable for box-breakdown BEAR
 ORB_SHORT_ENABLED = False                 # HM-BK-A: default long-only; enable for OR-low breakdown BEAR
 
+# HM-BK-A ORB universe exclusion (2026-06-14). The ORB universe is the top-of-
+# avg_volume slice of scan_universe, which is dominated by leveraged/inverse
+# ETFs — they're the highest-volume tickers on the tape. For a LONG-ONLY
+# breakout confirmer they're wrong twice over: (a) an inverse ETF "BULL
+# breakout" (SOXS/TZA up) means the underlying is CRASHING — opposite of a long
+# confirm; (b) 2x/3x products are noisy/mean-reverting and their volume spikes
+# (34x seen on SOXS/TZA) trip the vol gate and skew the whole sample. Filter
+# these out of the ORB scan universe BEFORE the OR-window capture.
+# SCOPE = ORB-ONLY: e.g. TQQQ stays in FIXED_WATCHLIST for other strategies on
+# purpose; this set only skips it for ORB breakouts. Extend freely (config
+# constant). Seeded with common Direxion/ProShares 2x/3x bull+bear products,
+# plus the leveraged/inverse names the live top-of-avg_volume universe actually
+# surfaced into the ORB scan (TSLL 1.5x TSLA, NVD inverse NVDA, UVIX 2x VIX,
+# SCO inverse crude) — NVD/SCO carry the same signal-inversion bug as SOXS/TZA
+# (a long-only "BULL breakout" on an inverse product = the underlying crashing).
+ORB_EXCLUDE_LEVERAGED_INVERSE = frozenset({
+    "SOXL", "SOXS", "TNA", "TZA", "TQQQ", "SQQQ", "UPRO", "SPXU", "UDOW",
+    "SDOW", "SPXL", "SPXS", "FAS", "FAZ", "LABU", "LABD", "YINN", "YANG",
+    "TECL", "TECS", "NUGT", "DUST", "JNUG", "JDST", "SSO", "SDS", "QLD", "QID",
+    "TSLL", "NVD", "UVIX", "SCO",
+})
+
 # 13F institutional-flow (SEC EDGAR) confirmatory vote — slow/structural macro-context
 # voter on the 8a83f17 rail (never originates, MIN_FLEET_VOTES=2). Default OFF / shadow.
 INSTITUTIONAL_13F_CONFIRMATORY_VOTE_ENABLED = False  # engine/institutional_13f_signal.py

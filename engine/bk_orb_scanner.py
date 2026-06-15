@@ -101,15 +101,31 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         console.log(f"[yellow]bk_orb: _ensure_schema: {type(e).__name__}: {e!r}")
 
 
+def _excluded_symbols() -> frozenset[str]:
+    """Leveraged/inverse ETFs to skip for ORB (config-driven, ORB-only)."""
+    try:
+        from config import ORB_EXCLUDE_LEVERAGED_INVERSE
+        return ORB_EXCLUDE_LEVERAGED_INVERSE
+    except Exception:
+        return frozenset()
+
+
 def _load_universe(db_path: str | None = None, limit: int = UNIVERSE_SIZE) -> list[str]:
+    # The leveraged/inverse ETFs we exclude cluster at the TOP of the avg_volume
+    # ordering, so fetch with headroom and filter BEFORE truncating to `limit` —
+    # otherwise the exclusion would just shrink the effective universe instead of
+    # backfilling with the next normal liquid names.
+    excluded = _excluded_symbols()
     try:
         conn = _conn(db_path)
         try:
             rows = conn.execute(
                 "SELECT symbol FROM scan_universe ORDER BY avg_volume DESC LIMIT ?",
-                (limit,),
+                (limit + len(excluded) + 32,),
             ).fetchall()
-            return [r["symbol"] for r in rows if r["symbol"]]
+            syms = [r["symbol"] for r in rows if r["symbol"]
+                    and r["symbol"].upper() not in excluded]
+            return syms[:limit]
         finally:
             conn.close()
     except Exception as e:
