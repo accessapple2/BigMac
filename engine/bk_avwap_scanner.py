@@ -109,12 +109,26 @@ def _ensure_schema(conn: sqlite3.Connection) -> None:
         console.log(f"[yellow]bk_avwap: _ensure_schema: {type(e).__name__}: {e!r}")
 
 
+def _excluded_symbols() -> frozenset[str]:
+    """Leveraged/inverse ETFs to skip — shared HM-BK set (config-driven)."""
+    try:
+        from config import BK_EXCLUDE_LEVERAGED_INVERSE
+        return BK_EXCLUDE_LEVERAGED_INVERSE
+    except Exception:
+        return frozenset()
+
+
 def _load_universe(db_path: str | None = None) -> list[str]:
+    # Drop leveraged/inverse ETFs before capture: aVWAP reclaim is long-only
+    # directional, so a bullish reclaim on an inverse product (NVD/SOXS/SCO) is
+    # semantically wrong. Shared set with ORB/box — one source of truth.
+    excluded = _excluded_symbols()
     try:
         conn = _conn(db_path)
         try:
             rows = conn.execute("SELECT symbol FROM scan_universe").fetchall()
-            return [r["symbol"] for r in rows if r["symbol"]]
+            return [r["symbol"] for r in rows if r["symbol"]
+                    and r["symbol"].upper() not in excluded]
         finally:
             conn.close()
     except Exception as e:
