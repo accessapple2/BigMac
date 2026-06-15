@@ -618,26 +618,42 @@ def get_scan_universe(max_total: int = 700) -> list[str]:
     except Exception as _e:
         console.log(f"[yellow]scan-universe prune skipped: {type(_e).__name__}: {_e!r}")
 
-    # Merge: GUARANTEED recovered successors first, then hot stocks (priority), then core;
-    # deduplicate; cap at max_total.
+    # HM-CORE-ROTATION 2026-06-15: bar-fetch is ~0.23s/name (700 ≈ 164s/cycle); raising the cap to
+    # fit hot + full S&P500 core (~1200 ≈ 280s) would worsen single-thread-scheduler contention
+    # (the regime-starvation family). Instead: RESERVE a CORE_FLOOR for core (hot can't starve it)
+    # and ROTATE a persistent cursor over the deterministic-sorted core so the FULL core is covered
+    # across cycles at bounded per-cycle cost. core ≤ floor → all core scanned every cycle; core >
+    # floor → rotates (e.g. ~500 core / 160 floor → full sweep in ~3 cycles).
+    CORE_FLOOR = 160
+    core_pool = [s for s in core if s not in set(guaranteed)]
+    core_window: list[str] = []
+    if core_pool:
+        try:
+            import sqlite3 as _sql
+            _cc = _sql.connect("data/trader.db", timeout=5)
+            _cc.execute("PRAGMA busy_timeout=10000")
+            _row = _cc.execute("SELECT value FROM settings WHERE key='scan_core_cursor'").fetchone()
+            _cur = (int(_row[0]) % len(core_pool)) if (_row and str(_row[0]).isdigit()) else 0
+            core_window = (core_pool + core_pool)[_cur:_cur + CORE_FLOOR]
+            _nxt = (_cur + CORE_FLOOR) % len(core_pool)
+            _cc.execute("INSERT OR REPLACE INTO settings(key,value) VALUES('scan_core_cursor',?)", (str(_nxt),))
+            _cc.commit(); _cc.close()
+        except Exception:
+            core_window = core_pool[:CORE_FLOOR]
+
+    # Merge order: GUARANTEED successors → reserved rotating CORE window → HOT movers → leftover core.
+    # dedup; cap at max_total. (Reserving core before hot is what stops hot from starving core.)
     seen: set[str] = set()
     combined: list[str] = []
-    for sym in guaranteed + hot_symbols:
+    for sym in guaranteed + core_window + hot_symbols + core:
         if sym not in seen:
             seen.add(sym)
             combined.append(sym)
         if len(combined) >= max_total:
             break
 
-    # Fill remaining slots with core watchlist
-    for sym in core:
-        if sym not in seen:
-            seen.add(sym)
-            combined.append(sym)
-        if len(combined) >= max_total:
-            break
-
-    console.log(f"[cyan]🧭 Scan universe: {len(hot_symbols)} hot stocks + core = {len(combined)} total (cap {max_total})")
+    console.log(f"[cyan]🧭 Scan universe: {len(combined)} (guaranteed {len(guaranteed)} + core-window "
+                f"{len(core_window)} + hot {len(hot_symbols)}; cap {max_total})")
     return combined
 
 

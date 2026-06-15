@@ -179,9 +179,9 @@ def get_core_watchlist() -> list[str]:
     This is the stable, proven list that the nightly universe scan runs against.
     Volume scanner hot stocks are ADDED to this, not replacing it.
     """
-    tickers = _get_sp500_tickers()
-    tickers = list(set(tickers + EXTRA_TICKERS))
-    return tickers
+    # HM-CORE-DETERMINISTIC 2026-06-15: deterministic SORTED order (was list(set(...)) =
+    # non-deterministic — made the cap's core-slot selection a per-cycle lottery).
+    return sorted(set(_get_sp500_tickers()) | set(EXTRA_TICKERS))
 
 
 def scan_universe(max_tickers: int = 600) -> list:
