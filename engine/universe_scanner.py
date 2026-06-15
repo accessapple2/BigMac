@@ -24,6 +24,12 @@ EXTRA_TICKERS = [
     "ZS", "PANW", "SNOW", "COIN", "RBLX", "RIVN", "LCID", "SOFI", "HOOD",
     "IONQ", "RGTI", "ARM", "HIMS", "MSTR", "CELH", "DUOL", "SOUN", "JOBY",
     "OKLO", "RKLB", "LUNR", "ASTS", "ACHR", "VST", "CEG", "FTNT", "WDAY",
+    # HM-RENAME-RECON 2026-06-15: successors of dead tickers pruned by the tradability gate.
+    # Renames (same company, old symbol delisted): EFOR(<-ASGN), BNY(<-BK), AGNT(<-EXPI),
+    # PPLI(<-IAC), VSXY(<-VSCO), XMAX(<-XWIN), CCL(<-CUK). Stock/mixed-merger acquirers:
+    # DVN(<-CTRA), CVBF(<-HTBK), CECO(<-THR), ALGT(<-SNCY). All verified Alpaca-tradable.
+    "EFOR", "BNY", "AGNT", "PPLI", "VSXY", "XMAX", "CCL",
+    "DVN", "CVBF", "CECO", "ALGT",
 ]
 
 
