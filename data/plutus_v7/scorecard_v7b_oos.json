@@ -1,0 +1,94 @@
+{
+  "model": "plutus-v7b:latest",
+  "n_trade_critique": 110,
+  "n_all": 178,
+  "v7_trade_critique": {
+    "overall": 1.464,
+    "dims": {
+      "risk_id": 0.764,
+      "directional_lean": 1.655,
+      "calibration": 1.5,
+      "actionability": 1.459,
+      "non_redundancy": 1.555,
+      "format_concision": 1.85
+    },
+    "guards": {
+      "restatement_ratio_mean": 0.05,
+      "direction_match_pct": 69.1,
+      "leads_verdict_pct": 100.0
+    }
+  },
+  "v7_all": {
+    "overall": 1.206,
+    "dims": {
+      "risk_id": 0.663,
+      "directional_lean": 1.421,
+      "calibration": 1.309,
+      "actionability": 1.067,
+      "non_redundancy": 1.306,
+      "format_concision": 1.466
+    }
+  },
+  "v1_baseline_tightened": {
+    "overall": 1.393,
+    "risk_id": 0.632,
+    "directional_lean": 1.632,
+    "calibration": 1.459,
+    "actionability": 1.259,
+    "non_redundancy": 1.45,
+    "format_concision": 1.927,
+    "restatement": 0.054,
+    "direction_pct": 56.4
+  },
+  "GATE": {
+    "overall_pass": false,
+    "overall": {
+      "v7": 1.464,
+      "v1": 1.393,
+      "need": 1.543
+    },
+    "no_dim_regress_gt_0.1": {
+      "risk_id": {
+        "v7": 0.764,
+        "v1": 0.632,
+        "ok": true
+      },
+      "directional_lean": {
+        "v7": 1.655,
+        "v1": 1.632,
+        "ok": true
+      },
+      "calibration": {
+        "v7": 1.5,
+        "v1": 1.459,
+        "ok": true
+      },
+      "actionability": {
+        "v7": 1.459,
+        "v1": 1.259,
+        "ok": true
+      },
+      "non_redundancy": {
+        "v7": 1.555,
+        "v1": 1.45,
+        "ok": true
+      },
+      "format_concision": {
+        "v7": 1.85,
+        "v1": 1.927,
+        "ok": true
+      }
+    },
+    "restatement_ok": true,
+    "restatement": {
+      "v7": 0.05,
+      "v1": 0.054
+    },
+    "direction_ok": true,
+    "direction": {
+      "v7": 69.1,
+      "v1": 56.4
+    },
+    "ALL_CONDITIONS_PASS": false
+  }
+}
