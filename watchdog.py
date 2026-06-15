@@ -5,11 +5,14 @@ TradeMinds Watchdog — monitors all services every 60 seconds.
 Services watched:
   Bridge         http://127.0.0.1:8080   (launchd: com.trademinds.trader)
   Signal Center  http://127.0.0.1:9000   (launchd: com.trademinds.signal-center)
-  Ollama         http://127.0.0.1:11434  (brew services: ollama)
+  Ollama         http://192.168.1.168:11434  (olliemax — systemd: ollama)
   Cloudflare     process: cloudflared    (launchd: com.trademinds.tunnel)
 
 Alerts:  macOS notification + ntfy.sh push (iPhone)
-Restart: launchctl kickstart (Bridge, Signal Center, Tunnel) / brew (Ollama)
+Restart: launchctl kickstart (Bridge, Signal Center, Tunnel). Ollama is
+         alert-only — it lives on the olliemax box (192.168.1.168), restarted
+         there by its own systemd unit (no passwordless sudo from bigmac), so
+         the watchdog can't remotely respawn it.
 """
 from __future__ import annotations  # HM-BH hotfix: defer annotation evaluation (venv is Py3.9, no PEP 604 unions)
 import subprocess
@@ -46,7 +49,11 @@ MEM_PRESSURE_FREE_CRIT = 10  # HM-BH: macOS memory_pressure free% — true thras
 
 BRIDGE_URL        = "http://127.0.0.1:8080/api/status"
 SIGNAL_CENTER_URL = "http://127.0.0.1:9000/"
-OLLAMA_URL        = "http://127.0.0.1:11434/api/tags"
+# HM-OLLAMA-WATCH-RETARGET (2026-06-14): was 127.0.0.1:11434 (an unused
+# bigmac-local instance — config.py routes ALL live inference to OLLIE_URL),
+# so the watchdog spammed "Ollama Down" for a host nothing actually calls.
+# Point it at the real inference host (olliemax, config.py OLLIE_URL).
+OLLAMA_URL        = "http://192.168.1.168:11434/api/tags"
 NTFY_TOPIC        = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")  # subscribe in ntfy app on iPhone
 
 DAILY_SNAPSHOT_HOUR_ET = 16   # 4 PM ET
@@ -201,16 +208,14 @@ def restart_trader() -> bool:
         return False
 
 
-def restart_ollama() -> bool:
-    try:
-        r = subprocess.run(
-            ["/opt/homebrew/bin/brew", "services", "restart", "ollama"],
-            capture_output=True, text=True, timeout=30,
-        )
-        return r.returncode == 0
-    except Exception as e:
-        log.error(f"brew restart ollama failed: {e}")
-        return False
+# NOTE: no restart_ollama() — Ollama runs on olliemax (192.168.1.168) under its
+# own systemd unit, and bigmac has no passwordless sudo there (verified
+# 2026-06-14: `ssh bigmac@192.168.1.168 sudo -n systemctl restart ollama` →
+# "interactive authentication is required"). The prior `brew services restart
+# ollama` was a no-op anyway (ollama is not a brew service on this box), which
+# produced the false "restarting → still down → manual fix needed" escalation.
+# The down-path is therefore alert-only; recovery is a hands-on / power action
+# on olliemax.
 
 
 def trigger_snapshot() -> None:
@@ -313,16 +318,15 @@ def check_signal_center() -> None:
 
 
 def check_ollama() -> None:
+    # Alert-only: olliemax owns the ollama process; the watchdog can't restart
+    # it remotely (see restart-path note above). One alert per NOTIFY_COOLDOWN.
     if http_ok(OLLAMA_URL):
         return
-    alert("🚨 Ollama Down", "Port 11434 unresponsive — restarting", "ollama")
-    restart_ollama()
-    time.sleep(10)
-    if http_ok(OLLAMA_URL):
-        log.info("Ollama RECOVERED")
-        push_alert("✅ Ollama Recovered", "Port 11434 is back online", "ollama_ok", "low")
-    else:
-        alert("🔴 Ollama Still Down", "Manual fix needed for Ollama", "ollama_fail")
+    alert(
+        "🔴 Ollama Down",
+        "olliemax 192.168.1.168:11434 unreachable — check power/network on the box",
+        "ollama",
+    )
 
 
 def check_cloudflare() -> None:
