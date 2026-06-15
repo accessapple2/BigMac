@@ -4,6 +4,7 @@ Scans S&P 500 + popular growth/momentum names using FREE Yahoo Finance data.
 Runs nightly at 11 PM MST. Finds tomorrow's top 50 candidates by technical score.
 """
 from __future__ import annotations
+import os
 import sqlite3
 import json
 import time
@@ -99,40 +100,103 @@ def ensure_universe_tables():
     conn.close()
 
 
-def _get_sp500_tickers() -> list:
-    """Get S&P 500 tickers from Wikipedia."""
+# HM-SP500-SOURCE 2026-06-15: robust constituents source. The old Wikipedia-only scrape
+# (pd.read_html) was failing in-env and SILENTLY falling back to ~100 names → scan core
+# crippled to ~154. New chain: pinned repo file → last-good cache → Wikipedia → hardcoded,
+# with a SANITY FLOOR that never silently accepts a degraded list (alerts loud instead).
+_SP500_PINNED = os.path.join(os.path.dirname(__file__), "..", "data", "sp500_constituents.txt")
+_SP500_CACHE = os.path.join(os.path.dirname(__file__), "..", "data", "sp500_cache.json")
+_SP500_FLOOR = 450  # never silently use fewer than this
+_sp500_alerted = False
+
+_SP500_HARDCODED = [
+    "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "BRK-B", "AVGO", "JPM",
+    "LLY", "V", "UNH", "MA", "XOM", "COST", "HD", "PG", "JNJ", "ABBV",
+    "WMT", "NFLX", "BAC", "CRM", "AMD", "CVX", "KO", "MRK", "PEP", "TMO",
+    "ACN", "LIN", "MCD", "CSCO", "ADBE", "ABT", "WFC", "DHR", "TXN", "PM",
+    "MS", "NEE", "QCOM", "ISRG", "INTU", "GE", "AMGN", "AMAT", "NOW", "IBM",
+    "GS", "CAT", "PFE", "RTX", "BLK", "BKNG", "T", "LOW", "UBER", "UNP",
+    "SPGI", "SYK", "VRTX", "ADP", "SCHW", "BSX", "GILD", "MMC", "LRCX", "MDT",
+    "CB", "TMUS", "DE", "PLD", "ADI", "FI", "MO", "PANW", "SO", "ICE",
+    "CI", "DUK", "CL", "EQIX", "PYPL", "CME", "SNPS", "CDNS", "MU", "MCK",
+    "SHW", "ZTS", "HCA", "NOC", "CMG", "ORLY", "WM", "APH", "USB", "PNC",
+    "DELL", "ORCL", "PLTR", "INTC", "F", "GM", "RIVN", "LCID", "SHOP", "SQ",
+]
+
+
+def _sp500_alert(msg: str) -> None:
+    """Loud, deduped (once/process) alert on S&P500 degradation — same anti-silent-degradation
+    discipline as the phantom-ticker gate. Never raises."""
+    global _sp500_alerted
+    console.log(f"[red][SP500-DEGRADE] {msg}")
+    if _sp500_alerted:
+        return
+    _sp500_alerted = True
     try:
-        import pandas as pd
-        import requests
-        # Wikipedia blocks default pandas user-agent, use requests first
-        headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) TradeMinds/1.0"}
-        resp = requests.get(
-            "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies",
-            headers=headers, timeout=15,
-        )
-        resp.raise_for_status()
-        tables = pd.read_html(resp.text, attrs={"id": "constituents"})
-        if tables:
-            tickers = tables[0]["Symbol"].tolist()
-            # Fix tickers with dots (BRK.B → BRK-B for yfinance)
-            return [t.replace(".", "-") for t in tickers]
+        import urllib.request
+        topic = os.getenv("NTFY_ADMIN_TOPIC", "ollietrades-admin")
+        urllib.request.urlopen(urllib.request.Request(
+            f"https://ntfy.sh/{topic}", data=("S&P500 source degraded: " + msg).encode(),
+            headers={"Title": "S&P500 source degraded", "Priority": "high"}), timeout=10)
+    except Exception:
+        pass
+
+
+def _sp500_from_wikipedia() -> list:
+    import pandas as pd
+    import requests
+    headers = {"User-Agent": "Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) TradeMinds/1.0"}
+    resp = requests.get(
+        "https://en.wikipedia.org/wiki/List_of_S%26P_500_companies", headers=headers, timeout=15)
+    resp.raise_for_status()
+    tables = pd.read_html(resp.text, attrs={"id": "constituents"})
+    return [t.replace(".", "-") for t in tables[0]["Symbol"].tolist()] if tables else []
+
+
+def _get_sp500_tickers() -> list:
+    """Robust S&P500 constituents: pinned repo file → last-good cache → Wikipedia → hardcoded.
+    SANITY FLOOR (_SP500_FLOOR=450): never silently return a degraded list — alert + fall through.
+    Refreshes the on-disk cache on any >=floor result."""
+    import json
+
+    def _ok(lst):
+        return bool(lst) and len(lst) >= _SP500_FLOOR
+
+    # 1) pinned repo file — deterministic, no network (PRIMARY)
+    try:
+        with open(_SP500_PINNED) as f:
+            pinned = [ln.strip() for ln in f if ln.strip()]
+        if _ok(pinned):
+            try:
+                json.dump(pinned, open(_SP500_CACHE, "w"))
+            except Exception:
+                pass
+            return pinned
+    except Exception:
+        pass
+    # 2) last-good cache
+    try:
+        cached = json.load(open(_SP500_CACHE))
+        if _ok(cached):
+            _sp500_alert("pinned list missing/low — using last-good cache")
+            return cached
+    except Exception:
+        pass
+    # 3) Wikipedia scrape (last-resort live source)
+    try:
+        wiki = _sp500_from_wikipedia()
+        if _ok(wiki):
+            _sp500_alert("pinned+cache unavailable — fell back to Wikipedia scrape")
+            try:
+                json.dump(wiki, open(_SP500_CACHE, "w"))
+            except Exception:
+                pass
+            return wiki
     except Exception as e:
         console.log(f"[yellow]S&P 500 Wikipedia fetch failed: {e}")
-
-    # Fallback: hardcoded top ~100 S&P 500 by market cap
-    return [
-        "AAPL", "MSFT", "AMZN", "NVDA", "GOOGL", "META", "TSLA", "BRK-B", "AVGO", "JPM",
-        "LLY", "V", "UNH", "MA", "XOM", "COST", "HD", "PG", "JNJ", "ABBV",
-        "WMT", "NFLX", "BAC", "CRM", "AMD", "CVX", "KO", "MRK", "PEP", "TMO",
-        "ACN", "LIN", "MCD", "CSCO", "ADBE", "ABT", "WFC", "DHR", "TXN", "PM",
-        "MS", "NEE", "QCOM", "ISRG", "INTU", "GE", "AMGN", "AMAT", "NOW", "IBM",
-        "GS", "CAT", "PFE", "RTX", "BLK", "BKNG", "T", "LOW", "UBER", "UNP",
-        "SPGI", "SYK", "VRTX", "ADP", "SCHW", "BSX", "GILD", "MMC", "LRCX", "MDT",
-        "CB", "TMUS", "DE", "PLD", "ADI", "FI", "MO", "PANW", "SO", "ICE",
-        "CI", "DUK", "CL", "EQIX", "PYPL", "CME", "SNPS", "CDNS", "MU", "MCK",
-        "SHW", "ZTS", "HCA", "NOC", "CMG", "ORLY", "WM", "APH", "USB", "PNC",
-        "DELL", "ORCL", "PLTR", "INTC", "F", "GM", "RIVN", "LCID", "SHOP", "SQ",
-    ]
+    # 4) all sources degraded — LOUD alert + hardcoded ~100
+    _sp500_alert(f"ALL S&P500 sources < {_SP500_FLOOR} — scan core DEGRADED to ~100 hardcoded fallback")
+    return list(_SP500_HARDCODED)
 
 
 def _calculate_rsi(closes, period=14):
