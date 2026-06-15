@@ -584,6 +584,7 @@ def get_scan_universe(max_total: int = 700) -> list[str]:
     except Exception:
         core = []
 
+    guaranteed: list[str] = []  # HM-RENAME-RECON: recovered successors guaranteed a slot below
     # HM-MCW-PHANTOM 2026-06-15: drop blacklisted + non-tradable (delisted/suspended) names
     # BEFORE merge, so dead tickers (MCW/HOLX/CTRA/… — no Alpaca bars, status=inactive) can't
     # produce phantom grade-A convergence signals. FAIL-OPEN: if the Alpaca tradable set is
@@ -606,13 +607,22 @@ def get_scan_universe(max_total: int = 700) -> list[str]:
         if _dropped:
             console.log(f"[yellow]🧹 scan-universe prune: dropped {_dropped} delisted/non-tradable "
                         f"(tradable_set={'ok' if _tradable else 'unavailable→blacklist-only'})")
+        # HM-RENAME-RECON 2026-06-15: GUARANTEE the deliberately-recovered successors a slot —
+        # core membership alone = a ~21-slot lottery behind the hot-cap (crowd-out). These go
+        # FIRST in the merge so names we explicitly added (esp. BNY) are actually scanned.
+        try:
+            from engine.universe_scanner import RECOVERED_SUCCESSORS
+            guaranteed = [s for s in RECOVERED_SUCCESSORS if not _dead(s)]
+        except Exception:
+            guaranteed = []
     except Exception as _e:
         console.log(f"[yellow]scan-universe prune skipped: {type(_e).__name__}: {_e!r}")
 
-    # Merge: hot stocks first (priority), then core; deduplicate; cap at max_total
+    # Merge: GUARANTEED recovered successors first, then hot stocks (priority), then core;
+    # deduplicate; cap at max_total.
     seen: set[str] = set()
     combined: list[str] = []
-    for sym in hot_symbols:
+    for sym in guaranteed + hot_symbols:
         if sym not in seen:
             seen.add(sym)
             combined.append(sym)

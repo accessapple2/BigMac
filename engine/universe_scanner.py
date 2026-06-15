@@ -32,6 +32,15 @@ EXTRA_TICKERS = [
     "DVN", "CVBF", "CECO", "ALGT",
 ]
 
+# HM-RENAME-RECON 2026-06-15: the deliberately-recovered successors above. get_core_watchlist
+# returns list(set(...)) (non-deterministic order) and the hot-cap fills get_scan_universe first,
+# so plain core membership = a ~21-slot lottery = crowd-out. get_scan_universe GUARANTEES these a
+# slot (priority, ahead of hot) so names we explicitly added (esp. BNY) are actually scanned.
+RECOVERED_SUCCESSORS = [
+    "EFOR", "BNY", "AGNT", "PPLI", "VSXY", "XMAX", "CCL",
+    "DVN", "CVBF", "CECO", "ALGT",
+]
+
 
 def _conn():
     c = sqlite3.connect(DB, check_same_thread=False, timeout=30)
