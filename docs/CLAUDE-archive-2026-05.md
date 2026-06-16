@@ -484,3 +484,83 @@ Five new feedback memos in `~/.claude/projects/-Users-bigmac/memory/`:
 
 `data/scotty_msi_migration_runbook_2026-05-20.md` is the ground-truth carry-over
 list for MSI Ollie cutover. Sections A-G + F-Supplement (Cloudflared detail).
+
+
+---
+
+> Relocated from CLAUDE.md (HM-PRIME Part C).
+
+## Drift Catalog 2026-05-17
+
+10 distinct drift classes caught in a single audit-first session. Captured
+here so the doc can be trusted without re-verifying each session.
+
+1. **Model assignment silent bypasses** — main.py per-call overrides shadow
+   `ai_players.model_id` for ~3 routed players; DB truth ≠ runtime truth.
+2. **Hidden bypasses from config.AI_PLAYERS-scope-limited side-by-side** —
+   HM-CN audit only walked `config.AI_PLAYERS`; main.py and crew_scanner
+   overrides outside that scope went undetected for months.
+3. **Role-vs-reality gaps** — Spock documented as LLM second-opinion
+   (qwen3:8b) but Sniper Role #1 is rule-based RSI-bounce (no LLM call); Troi
+   options wheel blocked by Bridge gate despite role.
+4. **Dead-code gates** — `PAID_MODEL_IDS` guard unreachable for cto-grok42
+   path; the model swap never traversed the gate that would have blocked it.
+5. **Fleet-config-vs-reality** — 5.8 Ollie migration assumed mistral:7b moved
+   to Ollie Box; reality was bigmac. Pin → routing decisions based on false
+   state.
+6. **Docs-vs-bind reality** — CLAUDE.md claimed port 8080 "bound network-wide"
+   but `main.py:3250` pins to `127.0.0.1`. LAN reachability is Cloudflare
+   tunnel only. (Fixed in network bindings section above.)
+7. **debate_engine.py is NOT CrewAI** — any doc describing
+   `engine/debate_engine.py` as CrewAI-orchestrated is wrong. Reality: plain
+   `asyncio` + `aiohttp` + Ollama HTTP.
+8. **war_room_debates vs debate_history_v2 table confusion** —
+   `/api/war-room/debate-history` serves `war_room_debates` (Captain
+   Ask-Arena, ~1,447 rows). 12-agent structured debates live in
+   `debate_history_v2` (~272 rows), served by `/api/war-room/debates/recent`.
+9. **Journal "gitignored per convention" — wasn't** —
+   `data/scotty_journal_*.md` was treated as gitignored-by-convention but
+   `.gitignore` had no matching pattern. (Fixed via `git check-ignore` audit.)
+10. **Dormant-code-becomes-production-via-Path-1** —
+    `options_exec.open_options_trade` had zero callers (dormant) until a fix
+    wired it into a path running every signal cycle. A function with no prior
+    call traffic is now production-load-bearing without the test/audit
+    history a tenured path would have.
+
+### Backup discipline
+Every `.bak*` file is dated (`<file>.bak_<purpose>_YYYYMMDD_HHMMSS`) and
+preserved **24h minimum** before any cleanup — per
+`feedback_db_archive_not_delete` doctrine.
+
+
+---
+
+> Relocated from CLAUDE.md (HM-PRIME Part C).
+
+### Future considered epic: submit-time manual-halt gate (NOT built, 2026-06-09)
+There is **no order-time trading-halt gate on the MANUAL order path** (Trade Desk +
+Symbol Focus quick-actions + `kirkPositionAction`). `/api/kill-switch` is a *flatten-all*
+action (`engine/kill_switch.py::kill_all_positions`), not a submit gate; `is_halted`/`halt_mode`
+gate the **agent/fleet** paths only. So manual Captain orders fire regardless of any halt.
+This is **defense-in-depth, not urgent** (agent paths ARE gated; manual is Captain-initiated +
+auth-gated + paper-only). If ever built, the considered shape is: a settings-backed
+`manual_trading_halted` flag checked at submit, **buy-side only with an exit-allowance**
+(exits/closes/reduces must ALWAYS fire even when halted — never gate the sell/close path). A
+separate change, deliberately deferred. (Surfaced during HM-DRYDOCK Symbol Focus routing, where
+the quick-action ENTRIES were rerouted through the gated Trade Desk submission for OCO + clean
+attribution; the kill-switch "gate" turned out not to exist to inherit.)
+
+There is **no `agent_state` table** in any DB. A vestigial reference in
+`archive/retired/2026-05-04-post-earnings-drift/post_earnings_drift.py::is_halted()`
+(PED retired 2026-05-04) queries the phantom table but is wrapped in
+`try/except → False`, so it's functionally inert. PED's actual protection is
+`self.gated = True` (paper-only).
+
+**Why `halted_at` is mandatory:** no schema default, no trigger before
+2026-05-19. Forgetting it left NULL timestamps that audit #6A flagged. As of
+HM-HALTED-AT-BACKFILL+ENFORCE (PR #15, 2026-05-19), INSERT/UPDATE triggers
+auto-fill `halted_at` for `halt_mode != 'active'` rows, so the manual UPDATE
+above is belt-and-braces — the triggers backstop it.
+
+To unhalt: same UPDATE pattern, `halt_mode='active'`, leave `halted_at` and
+`halt_reason` as historical record (do not clear).
