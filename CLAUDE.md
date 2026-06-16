@@ -125,6 +125,21 @@ local Ollama model.
   when relevant.
 - Trader runs under `.venv/bin/python3` (3.14); restart via `./scripts/trader_restart.sh` or `zsh scripts/trader_restart.sh` (it's `#!/bin/zsh` — the `&!` detach is zsh-only; **do NOT prepend `bash`**, and never a hand-rolled `venv` nohup — venv=3.9 crashes on PEP 604).
 
+## Scotty Model & Operating Conventions (HM-HELM, 2026-06-15)
+How the Claude Code agent (Scotty) runs — distinct from the FREE-models fleet doctrine above.
+- **Model routing:** working default = **Sonnet 4.6** (`model: sonnet` in `~/.claude/settings.json`).
+  Opus is NOT faster and costs ~1.7x Sonnet / ~5x Haiku, and Sonnet ≈ Opus on directive execution
+  (SWE-bench ~79.6 vs ~80.8). **Opus reserved for directives XO tags `OPUS`** in the ticket header
+  (architectural / open-ended). Routine execution = Sonnet. Switch per-session with `/model opus`.
+  (Deferred: mechanical subagents — research/verify — should be spawned `model: haiku`.)
+- **Plan mode for AD-HOC asks:** for non-directive/off-script requests, propose before acting
+  (the "## Workflow" propose-first rule). Directives are already the plan — execute them directly.
+- **Long runs go `run_in_background`:** training, backtests, embeds, full backtests — never block
+  the foreground; poll/notify on completion.
+- **Permissions:** `Write`/`Edit` are scoped to `~/autonomous-trader/**`, `~/.claude/**`, `/tmp/**`
+  (no blanket `Write(*)`); `Bash`/`Read` stay broad (HM-SHIELDS guards commands). Out-of-scope
+  writes are classifier-screened, not pre-approved. Revert = restore `Write(*)`.
+
 ## Frontend Ship Rule (added 2026-05-12, HM-BJ.E4 lesson)
 Non-trivial frontend JS changes require a **manual browser hover/click smoke
 test** before declaring shipped. `node --check` and `py_compile` catch syntax
