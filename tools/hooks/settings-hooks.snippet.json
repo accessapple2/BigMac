@@ -1,5 +1,5 @@
 {
-  "_comment": "HM-VAULT rebuild seed — the `hooks` block from ~/.claude/settings.json as of 2026-06-15. Merge this `hooks` key into ~/.claude/settings.json after a box wipe. Contains NO secrets. rtk-rewrite.sh is RTK-managed (installed by rtk, not vendored in this repo); block-live-trading.sh + prime-groundtruth.sh are vendored alongside this file.",
+  "_comment": "HM-VAULT rebuild seed — the `hooks` block from ~/.claude/settings.json as of 2026-06-15. Merge this `hooks` key into ~/.claude/settings.json after a box wipe. Contains NO secrets. rtk-rewrite.sh is RTK-managed (installed by rtk, not vendored in this repo); block-live-trading.sh is vendored alongside this file. prime-groundtruth.sh is now live in-repo at .claude/hooks/ (hardcoded path ~/autonomous-trader).",
   "hooks": {
     "PreToolUse": [
       {
@@ -26,7 +26,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/hooks/prime-groundtruth.sh"
+            "command": "$HOME/autonomous-trader/.claude/hooks/prime-groundtruth.sh"
           }
         ]
       }

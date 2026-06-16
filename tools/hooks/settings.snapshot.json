@@ -44,7 +44,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "$HOME/.claude/hooks/prime-groundtruth.sh"
+            "command": "$HOME/autonomous-trader/.claude/hooks/prime-groundtruth.sh"
           }
         ]
       }
