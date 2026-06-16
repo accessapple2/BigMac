@@ -1,0 +1,35 @@
+{
+  "_comment": "HM-VAULT rebuild seed — the `hooks` block from ~/.claude/settings.json as of 2026-06-15. Merge this `hooks` key into ~/.claude/settings.json after a box wipe. Contains NO secrets. rtk-rewrite.sh is RTK-managed (installed by rtk, not vendored in this repo); block-live-trading.sh + prime-groundtruth.sh are vendored alongside this file.",
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/bigmac/.claude/hooks/rtk-rewrite.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit|Update",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/block-live-trading.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/prime-groundtruth.sh"
+          }
+        ]
+      }
+    ]
+  }
+}
