@@ -1,0 +1,61 @@
+{
+  "permissions": {
+    "allow": [
+      "Bash(*)",
+      "Read(*)",
+      "Write(~/autonomous-trader/**)",
+      "Write(~/.claude/**)",
+      "Write(/tmp/**)",
+      "Edit(~/autonomous-trader/**)",
+      "Edit(~/.claude/**)",
+      "Edit(/tmp/**)"
+    ],
+    "defaultMode": "auto",
+    "deny": [
+      "Read(./**/.env)",
+      "Read(./**/*.key)",
+      "Read(~/.cloudflared/**)",
+      "Read(./**/secrets/**)"
+    ]
+  },
+  "hooks": {
+    "PreToolUse": [
+      {
+        "matcher": "Bash",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "/Users/bigmac/.claude/hooks/rtk-rewrite.sh"
+          }
+        ]
+      },
+      {
+        "matcher": "Bash|Write|Edit|Update",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/block-live-trading.sh"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "$HOME/.claude/hooks/prime-groundtruth.sh"
+          }
+        ]
+      }
+    ]
+  },
+  "skipDangerousModePermissionPrompt": true,
+  "model": "sonnet",
+  "theme": "light-daltonized",
+  "statusLine": {
+    "type": "command",
+    "command": "~/.claude/statusline.sh"
+  },
+  "skipAutoPermissionPrompt": true
+}
