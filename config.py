@@ -65,6 +65,15 @@ ORB_CONFIRMATORY_VOTE_ENABLED = False     # HM-BK-A engine/bk_orb_scanner.py (in
 BOX_SHORT_ENABLED = False                 # HM-BK-C: default long-only; enable for box-breakdown BEAR
 ORB_SHORT_ENABLED = False                 # HM-BK-A: default long-only; enable for OR-low breakdown BEAR
 
+# === HM-DEJAVU setup-similarity recall signal (shadow-first, default-OFF) =======
+# engine/setup_similarity_signal.py: bge-m3 KNN over the closed-trade setup substrate
+# (recall_corpus, refreshed by scripts/recall_refresh.py). Confirmatory-ONLY context read
+# ("looks like N past setups, X% won, avg $Y"), weight 0.5, is_trigger False, abstains on no
+# analog. NEVER originates a trade (sole-voter -> never counts; asserted in confirmatory_vote).
+# When False: market_vote() returns None (witness untouched); recall()/shadow_log() still compute
+# for shadow validation. Wiring into McCoy/Archer is a LATER ticket. Reversal: flip + restart.
+SETUP_SIMILARITY_ENABLED = False
+
 # === HM-GRADE-B-RELAX (reversal allowance, shadow-first default-OFF) ===========
 # When ON, the grade-B fleet gate (engine/paper_trader.py) allows a 0.60-0.75-conv
 # stock BUY in regime==CAUTIOUS_BEAR IF SPY has decisively RECLAIMED its 8-day MA
