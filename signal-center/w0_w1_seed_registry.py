@@ -39,7 +39,7 @@ ROWS = [
     ("morning_brief",    "Morning Brief",     "/api/morning-brief",    "daily",    "context",       "generated_at", "bridge_iso:/api/morning-brief:generated_at", 1, ""),
     ("scanner_status",   "Scanner Status",    "/api/scanner/status",   "intraday", "context",       "timestamp",    "bridge_iso:/api/scanner/status:timestamp", 1, "ts-field fix 2026-06-01: endpoint exposes `timestamp` not `fetched_at` (registry read a non-existent field → garbage freshness). Now reads the real ts."),
     # ── snapshot imports ──────────────────────────────────────────────────────
-    ("schwab_snapshot",  "Schwab Snapshot",   "(CSV import)",          "snapshot", "context",       "mtime",        "file_mtime:/Users/bigmac/autonomous-trader/inbox/*.csv", 1, "3-day manual CSV import; cadence_days=3"),
+    ("schwab_snapshot",  "Schwab Snapshot",   "(CSV import)",          "retired",  "retired",       "",             "none", 0, "RETIRED 2026-06-18 — superseded by live Schwab API sync (sync_schwab_live.py → real_holdings.json). Manual CSV import path (import_schwab_csv.py, inbox/) and all schwab_holdings rows preserved intact."),
     ("metals",           "Metals Holdings",   "(manual)",              "snapshot", "context",       "",             "manual", 1, "physical holdings; cadence_days=7"),
     # ── archive / quarantined (never live) ────────────────────────────────────
     ("webull_trades",    "Webull Trades",     "/api/webull/trades",    "retired",  "retired",       "",             "none", 0, "RETIRED 2026-06-01 — Webull liquidated (broker gone); was rendering RED via archive→always-RED. Intentional death → RETIRED (grey), not a fault."),
