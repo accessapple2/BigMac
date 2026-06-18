@@ -59,9 +59,9 @@ FRED_CONFIRMATORY_VOTE_ENABLED = True
 # enforced+asserted in each module's confirmatory_vote). Flag gates BOTH the
 # scheduler run AND the live vote. Default OFF = shadow-only (no ntfy, no count).
 # Reversal/activation: flip the relevant flag + canonical restart.
-AVWAP_CONFIRMATORY_VOTE_ENABLED = False   # HM-BK-B engine/bk_avwap_scanner.py (nightly)
-BOX_CONFIRMATORY_VOTE_ENABLED = False     # HM-BK-C engine/bk_box_scanner.py (nightly, after B)
-ORB_CONFIRMATORY_VOTE_ENABLED = False     # HM-BK-A engine/bk_orb_scanner.py (intraday)
+AVWAP_CONFIRMATORY_VOTE_ENABLED = True    # HM-BK-B engine/bk_avwap_scanner.py (nightly)
+BOX_CONFIRMATORY_VOTE_ENABLED = True      # HM-BK-C engine/bk_box_scanner.py (nightly, after B)
+ORB_CONFIRMATORY_VOTE_ENABLED = True      # HM-BK-A engine/bk_orb_scanner.py (intraday)
 BOX_SHORT_ENABLED = False                 # HM-BK-C: default long-only; enable for box-breakdown BEAR
 ORB_SHORT_ENABLED = False                 # HM-BK-A: default long-only; enable for OR-low breakdown BEAR
 
