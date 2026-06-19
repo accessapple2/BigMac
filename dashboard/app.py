@@ -9189,6 +9189,157 @@ def networth():
                 "_source": "HM-AM /api/networth (error)"}
 
 
+@app.get("/api/account/equity-curve")
+def account_equity_curve():
+    """Account equity vs SPY buy-and-hold since Season 6 start (2026-04-24).
+
+    door1 2026-06-19: side-by-side performance chart.
+    Returns {dates, account, spy} — all series normalized to 100.0 at first point.
+    """
+    import requests as _req
+    import os as _os
+    from datetime import datetime as _dt, timedelta as _td
+
+    _key = _os.getenv("APCA_API_KEY_ID", "")
+    _sec = _os.getenv("APCA_API_SECRET_KEY", "")
+    _hdrs = {"APCA-API-KEY-ID": _key, "APCA-API-SECRET-KEY": _sec}
+    _SEASON_START = "2026-04-24T00:00:00Z"
+
+    try:
+        # Alpaca paper portfolio history
+        _ph = _req.get(
+            "https://paper-api.alpaca.markets/v2/account/portfolio/history",
+            headers=_hdrs,
+            params={"timeframe": "1D", "start": _SEASON_START, "intraday_reporting": "market_hours"},
+            timeout=10,
+        )
+        _ph.raise_for_status()
+        _ph_data = _ph.json()
+        _timestamps = _ph_data.get("timestamp", [])
+        _equity = _ph_data.get("equity", [])
+
+        # SPY bars
+        _spy_r = _req.get(
+            "https://data.alpaca.markets/v2/stocks/SPY/bars",
+            headers=_hdrs,
+            params={"timeframe": "1Day", "feed": "iex", "adjustment": "raw",
+                    "start": _SEASON_START, "sort": "asc", "limit": 500},
+            timeout=10,
+        )
+        _spy_r.raise_for_status()
+        _spy_bars = _spy_r.json().get("bars", [])
+
+        # Build date→close map for SPY
+        _spy_map = {b["t"][:10]: b["c"] for b in _spy_bars}
+
+        # Align: use timestamps from portfolio history
+        dates, acct_vals, spy_vals = [], [], []
+        for i, ts in enumerate(_timestamps):
+            if ts is None:
+                continue
+            d = _dt.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+            eq = _equity[i] if i < len(_equity) and _equity[i] else None
+            spy_c = _spy_map.get(d)
+            if eq is not None and spy_c is not None:
+                dates.append(d)
+                acct_vals.append(eq)
+                spy_vals.append(spy_c)
+
+        # Normalize to 100 at first point
+        acct_norm, spy_norm = [], []
+        if acct_vals and spy_vals:
+            a0, s0 = acct_vals[0], spy_vals[0]
+            acct_norm = [round(v / a0 * 100, 2) for v in acct_vals]
+            spy_norm  = [round(v / s0 * 100, 2) for v in spy_vals]
+
+        acct_pct = round(acct_norm[-1] - 100, 2) if acct_norm else 0.0
+        spy_pct  = round(spy_norm[-1]  - 100, 2) if spy_norm  else 0.0
+        return {
+            "dates": dates,
+            "account": acct_norm,
+            "spy": spy_norm,
+            "account_pct_gain": acct_pct,
+            "spy_pct_gain": spy_pct,
+            "edge_pct": round(acct_pct - spy_pct, 2),
+            "season": 6,
+            "season_start": "2026-04-24",
+        }
+    except Exception as e:
+        logger.warning("[equity-curve] %s: %r", type(e).__name__, e)
+        return {"dates": [], "account": [], "spy": [], "account_pct_gain": 0.0,
+                "spy_pct_gain": 0.0, "edge_pct": 0.0, "error": str(e)}
+
+
+_STRAT_BUCKET: dict[str, str] = {
+    "ollama-plutus":    "equity_fleet",
+    "navigator":        "equity_fleet",
+    "neo-matrix":       "equity_fleet",
+    "capitol-trades":   "rules_copycat",
+    "options-sosnoff":  "csp_wheel",
+    "dayblade-0dte":    "zero_dte",
+}
+
+
+@app.get("/api/strategy/pnl")
+def strategy_pnl():
+    """Realized P&L bucketed by strategy (door1 equity-curve companion).
+
+    Reads trades + options_trades for Season 6; maps player_id → strategy bucket.
+    Returns {buckets: {name: {trades, wins, pnl, win_rate}}}.
+    """
+    import sqlite3 as _sql
+    _db = _sql.connect("data/trader.db")
+    _db.row_factory = _sql.Row
+    try:
+        buckets: dict = {}
+
+        # Equity trades (trades table)
+        _rows = _db.execute("""
+            SELECT player_id,
+                   COUNT(*) AS n,
+                   SUM(CASE WHEN corrected_pnl > 0 THEN 1 ELSE 0 END) AS wins,
+                   SUM(COALESCE(corrected_pnl, realized_pnl, 0)) AS pnl
+            FROM trades
+            WHERE season=6 AND action IN ('SELL','CLOSE','EXIT')
+            GROUP BY player_id
+        """).fetchall()
+        for r in _rows:
+            bkt = _STRAT_BUCKET.get(r["player_id"], "other")
+            b = buckets.setdefault(bkt, {"trades": 0, "wins": 0, "pnl": 0.0})
+            b["trades"] += r["n"]
+            b["wins"]   += r["wins"] or 0
+            b["pnl"]    += r["pnl"] or 0.0
+
+        # Options trades (options_trades table — all seasons, closed only)
+        _opt = _db.execute("""
+            SELECT agent_id,
+                   COUNT(*) AS n,
+                   SUM(CASE WHEN pnl > 0 THEN 1 ELSE 0 END) AS wins,
+                   SUM(COALESCE(pnl, 0)) AS pnl
+            FROM options_trades
+            WHERE status='closed'
+            GROUP BY agent_id
+        """).fetchall()
+        for r in _opt:
+            bkt = _STRAT_BUCKET.get(r["agent_id"], "other")
+            b = buckets.setdefault(bkt, {"trades": 0, "wins": 0, "pnl": 0.0})
+            b["trades"] += r["n"]
+            b["wins"]   += r["wins"] or 0
+            b["pnl"]    += r["pnl"] or 0.0
+
+        # Finalize win_rate
+        for b in buckets.values():
+            b["pnl"] = round(b["pnl"], 2)
+            b["win_rate"] = round(b["wins"] / b["trades"] * 100, 1) if b["trades"] else 0.0
+
+        return {"buckets": buckets, "season": 6}
+    except Exception as e:
+        logger.warning("[strategy/pnl] %s: %r", type(e).__name__, e)
+        return {"buckets": {}, "error": str(e)}
+    finally:
+        _db.close()
+
+
 @app.get("/api/portfolio-health/{player_id}")
 def portfolio_health(player_id: str):
     """Get portfolio health check for an AI player."""
