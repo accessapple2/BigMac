@@ -65,14 +65,18 @@ def _map_position(p: dict) -> dict:
     avg_cost = p.get("averagePrice")
     price = round(mkt_val / qty, 4) if (mkt_val is not None and qty) else None
     gain_d = p.get("longOpenProfitLoss", p.get("currentDayProfitLoss"))
+    avg_cost_f = float(avg_cost) if avg_cost is not None else None
+    cost_basis = round(avg_cost_f * qty, 4) if (avg_cost_f is not None and qty) else None
+    gain_dollar_f = round(float(gain_d), 2) if gain_d is not None else None
+    gain_pct = round(gain_dollar_f / cost_basis * 100, 2) if (gain_dollar_f is not None and cost_basis) else None
     return {
         "symbol": inst.get("symbol"),
         "qty": qty,
-        "avg_cost": round(float(avg_cost), 4) if avg_cost is not None else None,
+        "avg_cost": round(avg_cost_f, 4) if avg_cost_f is not None else None,
         "price": price,
         "market_value": round(float(mkt_val), 2) if mkt_val is not None else None,
-        "gain_dollar": round(float(gain_d), 2) if gain_d is not None else None,
-        "gain_pct": None,
+        "gain_dollar": gain_dollar_f,
+        "gain_pct": gain_pct,
         "day_change_pct": (round(float(p["currentDayProfitLossPercentage"]), 2)
                            if p.get("currentDayProfitLossPercentage") is not None else None),
         "day_change_dollar": (round(float(p["currentDayProfitLoss"]), 2)
@@ -124,6 +128,11 @@ def main() -> int:
     last4 = str(target.get("accountNumber", ""))[-4:]
     acct_type = target.get("type", "")
 
+    # Portfolio-level totals (cost-basis return, not live-price return)
+    total_cost_basis = sum((p.get("avg_cost") or 0) * (p.get("qty") or 0) for p in positions)
+    total_gain_dollar = sum(p.get("gain_dollar") or 0 for p in positions)
+    total_gain_pct = round(total_gain_dollar / total_cost_basis * 100, 2) if total_cost_basis else None
+
     # ── Write ONLY the schwab block; preserve all other accounts ───────────
     with open(JSON_PATH) as f:
         data = json.load(f)
@@ -135,6 +144,9 @@ def main() -> int:
     schwab["account_id"] = f"...{last4}"
     schwab["account_name"] = f"Schwab {acct_type} (Brokerage)"
     schwab["positions"] = positions
+    schwab["total_cost_basis"] = round(total_cost_basis, 2)
+    schwab["total_gain_dollar"] = round(total_gain_dollar, 2)
+    schwab["total_gain_pct"] = total_gain_pct
     schwab["source"] = "live_api"
     schwab["last_updated"] = now_et.strftime("%Y-%m-%d %H:%M:%S %Z")
     schwab["notes"] = (

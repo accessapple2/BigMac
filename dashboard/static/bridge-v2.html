@@ -2067,10 +2067,14 @@ async function loadSchwabPortfolio() {
     tbody.innerHTML = positions.map(function(p) {
       const sym  = (p.symbol || '—').toUpperCase();
       const qty  = Number(p.qty || p.quantity || p.shares || 0);
-      const cost = Number(p.cost_per_share || p.avg_cost || p.avg_entry_price || 0);
+      const cost = Number(p.cost_per_share || p.avg_cost || p.avg_price || p.avg_entry_price || 0);
       const curr = Number(p.current_price || p.last_price || 0);
       const pnl  = Number(p.unrealized_pnl || p.unrealized_pl || 0);
-      const retP = cost > 0 && curr > 0 ? ((curr - cost) / cost * 100).toFixed(2) + '%' : '—';
+      // Prefer server-computed pct (live Alpaca); fall back to Schwab-sourced gain_pct; then local
+      const retRaw = (p.unrealized_pnl_pct != null && curr > 0) ? p.unrealized_pnl_pct
+                   : p.gain_pct != null ? p.gain_pct
+                   : (cost > 0 && curr > 0 ? (curr - cost) / cost * 100 : null);
+      const retP = retRaw != null ? (retRaw >= 0 ? '+' : '') + Number(retRaw).toFixed(2) + '%' : '—';
       const pc   = colorClass(pnl);
       return '<tr>'
         + '<td style="font-weight:600">' + sym + '</td>'

@@ -13042,7 +13042,7 @@ def webull_portfolio():
         mv = last * qty if last else 0
         cost = avg * qty
         pnl = mv - cost if last else 0
-        pnl_pct = ((last/avg - 1) * 100) if (last and avg) else 0
+        pnl_pct = ((last/avg - 1) * 100) if (last and avg) else None
         total_mv += mv
         total_cost += cost
         total_pnl += pnl
@@ -13050,17 +13050,23 @@ def webull_portfolio():
             "symbol": sym,
             "qty": qty,
             "avg_price": avg,
+            "avg_cost": avg,           # renderer compat (reads avg_cost)
             "current_price": last,
             "market_value": round(mv, 2),
             "unrealized_pnl": round(pnl, 2),
-            "unrealized_pnl_pct": round(pnl_pct, 2),
+            "unrealized_pnl_pct": round(pnl_pct, 2) if pnl_pct is not None else None,
+            "gain_pct": p.get("gain_pct"),  # Schwab-sourced fallback for outside-RTH
             "day_change_pct": 0.0,
             "asset_type": "stock",
             "market": p.get("account", "schwab"),
         })
 
     total_value = total_mv + cash
-    return_pct = ((total_pnl / total_cost) * 100) if total_cost else 0
+    if total_pnl and total_cost:
+        return_pct = (total_pnl / total_cost) * 100
+    else:
+        # Outside RTH: no live prices → fall back to Schwab's own cost-basis return
+        return_pct = schwab2.get("total_gain_pct") or 0
 
     return {
         "cash": round(cash, 2),
