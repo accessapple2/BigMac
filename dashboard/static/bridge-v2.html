@@ -873,6 +873,7 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 // ─── Toast ────────────────────────────────────────────────────────────────────
 let _tt;
 let _lastKnownEquity = null;  // graceful error: keep last value across failures
+let _gexTries = 0;            // cold-load retry counter (reset on success)
 function act(title, detail, isErr) {
   const t = document.getElementById('toast');
   t.innerHTML = '<b>' + title + '</b> &nbsp; ' + detail;
@@ -1102,16 +1103,24 @@ async function loadLeaderboard() {
 
 // ─── Gamma / F&G (best-effort) ────────────────────────────────────────────────
 // Exact mirror of loadMacroGex() — same endpoint, same guards, same field names.
+// Retries every 2 s up to 5 times on cold load while the endpoint is warming.
 async function loadGex() {
+  const MAX_TRIES = 5;
   try {
     const raw = await api('GET', '/api/market/gex');
     const d   = Array.isArray(raw) ? raw[0] : raw;
-    if (!d) return;
+    if (!d || !(d.gamma_flip || d.call_wall || d.put_wall || d.spot)) {
+      if (++_gexTries < MAX_TRIES) setTimeout(loadGex, 2000);
+      return;
+    }
+    _gexTries = 0;
     if (d.gamma_flip) document.getElementById('gFlip').textContent     = '$' + Number(d.gamma_flip).toFixed(0);
     if (d.call_wall)  document.getElementById('gCallWall').textContent  = '$' + Number(d.call_wall).toFixed(0);
     if (d.put_wall)   document.getElementById('gPutWall').textContent   = '$' + Number(d.put_wall).toFixed(0);
     if (d.spot)       document.getElementById('gSpot').textContent      = '$' + Number(d.spot).toFixed(2);
-  } catch (_) {}
+  } catch (_) {
+    if (++_gexTries < MAX_TRIES) setTimeout(loadGex, 2000);
+  }
 }
 
 async function loadKirkAdvisory() {
