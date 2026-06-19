@@ -2460,6 +2460,27 @@ def _src_gate():
     return _g
 
 
+# ── sources-health short-TTL cache (SWR pattern) ─────────────────────────────
+# all_health() does per-source DB freshness checks (~8 s cold); cache lets
+# warm requests return in <5 ms.  TTL=60 s; background refresh on stale hit.
+_HEALTH_TTL    = 60
+_health_cache: dict = {"data": None, "ts": 0.0, "refreshing": False}
+
+
+def _health_refresh_bg():
+    if _health_cache["refreshing"]:
+        return
+    _health_cache["refreshing"] = True
+    try:
+        import time as _t
+        _health_cache["data"] = _src_gate().all_health()
+        _health_cache["ts"]   = _t.time()
+    except Exception:
+        pass
+    finally:
+        _health_cache["refreshing"] = False
+
+
 @app.route('/api/predictions/expectancy')
 def api_predictions_expectancy():
     """W0 leaderboard. group=action|setup_tag|agent  horizon=1|3|5|10  oos=is|oos"""
@@ -2515,19 +2536,32 @@ def api_predictions_rescore():
 @app.route('/api/sources/health')
 def api_sources_health():
     """W1 health grid — replaces the meaningless '13/13 loaded' badge.
-    RED-first sorted; UNKNOWN counted as RED for gating."""
+    RED-first sorted; UNKNOWN counted as RED for gating.
+    60-s TTL cache (SWR): warm hits return in <5 ms; stale hits serve cached
+    data and trigger a background refresh so the next request is fast.
+    """
     try:
-        health = _src_gate().all_health()
-        # W1 (2026-06-01): fire-and-forget alert/auto-quarantine tracker. Min-interval
-        # gated (advances every 15 min) + report-only by default, so this is cheap and
-        # safe; threaded so NTFY latency never blocks the grid response.
+        import time as _time, threading as _t
+        now   = _time.time()
+        stale = _health_cache["data"] is None or (now - _health_cache["ts"]) > _HEALTH_TTL
+
+        if stale and not _health_cache["refreshing"]:
+            if _health_cache["data"] is None:
+                _health_refresh_bg()       # first call: block until data available (~8 s)
+            else:
+                _t.Thread(target=_health_refresh_bg, daemon=True).start()  # stale: refresh async
+
+        data = _health_cache["data"]
+        if data is None:
+            data = {"error": "health data not yet available"}
+
+        # fire-and-forget alert/auto-quarantine tracker (15-min min-interval, cheap)
         try:
-            import threading as _t
             _t.Thread(target=lambda: _src_gate().check_source_health_alerts(),
                       daemon=True).start()
         except Exception:
             pass
-        return jsonify(health)
+        return jsonify(data)
     except Exception as e:
         return jsonify({"error": "%s: %r" % (type(e).__name__, e)}), 500
 
