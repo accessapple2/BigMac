@@ -926,7 +926,7 @@ function showTab(name) {
   });
   const pane = document.getElementById('tab-' + name);
   if (pane) pane.style.display = '';
-  if (name === 'bridge')   { loadAlpacaStatus(); loadGex(); loadFearGreed(); }
+  if (name === 'bridge')   { loadAlpacaStatus(); loadGex(); loadFearGreed(); loadKirkAdvisory(); }
   if (name === 'battle')   loadBattleTab();
   if (name === 'research') loadResearchTab();
   if (name === 'fleet')    loadFleetTab();
@@ -934,14 +934,16 @@ function showTab(name) {
 }
 
 // ─── On load ──────────────────────────────────────────────────────────────────
+// showTab('bridge') is the authoritative load path — it calls loadAlpacaStatus,
+// loadGex, loadFearGreed, and is the same path that works on tab revisit.
+// Bare DOMContentLoaded calls diverged and left gamma/advisory stuck on fresh load.
 window.addEventListener('DOMContentLoaded', () => {
-  loadAlpacaStatus();
+  showTab('bridge');          // populates Bridge exactly as tab-revisit does
   loadFleetStatus();
   loadPositions();
   loadLeaderboard();
-  loadGex();
-  loadFearGreed();
-  loadKirkAdvisory();
+  // Retry gamma + advisory once after 1.5 s in case of an auth/session race on first hit
+  setTimeout(() => { loadGex(); loadKirkAdvisory(); }, 1500);
 });
 
 // ─── /api/alpaca/status → hero equity + vitals ───────────────────────────────
