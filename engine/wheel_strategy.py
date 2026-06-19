@@ -12,6 +12,7 @@ The Wheel:
 4. High VIX = fat premiums = BEST time to sell options
 """
 import logging
+import sqlite3
 from datetime import datetime, timedelta
 import pytz
 from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
@@ -31,6 +32,8 @@ logger = logging.getLogger("wheel_strategy")
 
 PLAYER_ID = "options-sosnoff"  # Counselor Troi
 WHEEL_TICKERS = ["TQQQ", "SOXL", "UPRO", "TNA", "QQQ", "SPY"]
+# door1 2026-06-19: no new 3x-leveraged CSP writes — tail risk outweighs premium income.
+LEVERAGED_ETF_BLOCKLIST = {"SOXL", "TQQQ", "UPRO", "SQQQ", "SPXL", "TNA", "UVXY", "TMF", "SOXS", "LABU"}
 TARGET_RETURN = 0.05   # 5% per trade
 DTE_TARGET = 30        # 30-day options (theta sweet spot)
 MAX_POSITIONS = 3      # Max 3 concurrent wheel positions
@@ -123,6 +126,9 @@ def run_wheel_scan():
                 break
             if ticker in held_symbols:
                 continue  # already have a position on this name
+            if ticker in LEVERAGED_ETF_BLOCKLIST:
+                logger.info("Wheel: %s blocked (LEVERAGED_ETF_BLOCKLIST door1)", ticker)
+                continue
 
             price_data = get_stock_price(ticker)
             price = price_data.get("price", 0)
@@ -188,6 +194,18 @@ def run_wheel_scan():
                 notes=reasoning[:500],
             )
             if trade_id:
+                # Write max_loss + moneyness at entry (CSP max_loss = full strike obligation)
+                csp_max_loss = -(put_strike * contracts * 100)
+                csp_moneyness = round(price / put_strike, 4)  # >1 = OTM
+                try:
+                    with sqlite3.connect("data/trader.db") as _db:
+                        _db.execute(
+                            "UPDATE options_trades SET max_loss=?, moneyness=? WHERE id=?",
+                            (csp_max_loss, csp_moneyness, trade_id),
+                        )
+                except Exception as _e:
+                    logger.warning("max_loss writeback failed trade_id=%s: %s", trade_id, _e)
+
                 wheel_puts.append({"symbol": ticker})
                 console.log(
                     f"[bold green]🎡 Wheel: Sold {contracts}x {ticker} ${put_strike}P "
