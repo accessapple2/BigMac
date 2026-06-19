@@ -730,6 +730,140 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 <div class="foot">FLEET TAB · DISPLAY-ONLY · NO ORDERS · CREW STANDINGS, GRADES, WAR ROOM, COMMS</div>
 </div><!-- /tab-fleet -->
 
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- MACRO TAB                                                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div id="tab-macro" class="tab-pane" style="display:none">
+
+<!-- Row M1: Market Prices / Regime + Metals + Fear & Greed -->
+<div class="row" style="display:grid;grid-template-columns:1.4fr 1fr 1fr;gap:16px;margin-bottom:16px">
+
+  <!-- Macro Dashboard: prices + regime -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--info)">
+      <h2>Market Regime</h2>
+      <span class="meta" id="macroRegimeLbl">loading…</span>
+    </div>
+    <div id="macroPricesBody">
+      <span class="skel" style="display:block;height:130px;border-radius:6px"></span>
+    </div>
+  </div>
+
+  <!-- Metals -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--caution)">
+      <h2>Metals · Spot</h2>
+      <span class="meta" id="metalsMeta">GOLD · SILVER · GSR</span>
+    </div>
+    <div class="metal-grid" id="metalsBody">
+      <span class="skel" style="display:block;height:130px;border-radius:6px;grid-column:1/3"></span>
+    </div>
+  </div>
+
+  <!-- Fear & Greed (macro copy, same endpoint) -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--caution)">
+      <h2>Fear &amp; Greed</h2>
+      <span class="meta">/api/fear-greed</span>
+    </div>
+    <div class="gauge">
+      <div class="gscore" id="mFgScore">—</div>
+      <div class="glab" id="mFgLabel">—</div>
+      <div class="gtrack"><u id="mFgNeedle" style="left:50%"></u></div>
+      <div class="gzones"><span>Fear</span><span>Neutral</span><span>Greed</span></div>
+    </div>
+  </div>
+
+</div><!-- /row M1 -->
+
+<!-- Row M2: GEX mini-map + Sector Heatmap -->
+<div class="row" style="display:grid;grid-template-columns:1fr 1.6fr;gap:16px;margin-bottom:16px">
+
+  <!-- GEX (single source — same /api/market/gex data, display-only copy) -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--info)">
+      <h2>Gamma Map · SPY</h2>
+      <span class="meta">single source · /api/market/gex</span>
+    </div>
+    <div class="ladder">
+      <div class="rung"><span class="lab">Call wall</span><span class="bar"><i style="width:96%;background:var(--bear)"></i></span><span class="px down" id="mGCallWall">—</span></div>
+      <div class="rung"><span class="lab">Gamma flip</span><span class="bar"><i style="width:62%;background:var(--caution)"></i></span><span class="px warn" id="mGFlip">—</span></div>
+      <div class="rung here"><span class="lab">▸ Spot</span><span class="bar"><i style="width:74%;background:var(--info)"></i></span><span class="px neu" id="mGSpot">—</span></div>
+      <div class="rung"><span class="lab">Put wall</span><span class="bar"><i style="width:40%;background:var(--bull)"></i></span><span class="px up" id="mGPutWall">—</span></div>
+    </div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--tx-mute);margin-top:12px" id="mGRegime"></div>
+  </div>
+
+  <!-- Sector Heatmap -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--info)">
+      <h2>Sector Heatmap · S&amp;P 11</h2>
+      <span class="meta" id="sectorMeta">loading…</span>
+    </div>
+    <div id="sectorBody">
+      <span class="skel" style="display:block;height:150px;border-radius:6px"></span>
+    </div>
+  </div>
+
+</div><!-- /row M2 -->
+
+<!-- Row M3: Earnings Calendar + Congress Trades -->
+<div class="row" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+  <!-- Earnings Calendar -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--caution)">
+      <h2>Earnings Calendar · Next Events</h2>
+      <span class="meta" id="earningsMeta">loading…</span>
+    </div>
+    <div id="earningsBody">
+      <span class="skel" style="display:block;height:100px;border-radius:6px"></span>
+    </div>
+  </div>
+
+  <!-- Congress Trades -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--tx-dim)">
+      <h2>Congress Trades · Top Buys</h2>
+      <span class="meta" id="congressMeta">senate + house disclosures</span>
+    </div>
+    <div id="congressBody">
+      <span class="skel" style="display:block;height:100px;border-radius:6px"></span>
+    </div>
+  </div>
+
+</div><!-- /row M3 -->
+
+<!-- Schwab Real Portfolio — DISPLAY ONLY, ZERO ACTION BUTTONS -->
+<div class="panel" style="margin-bottom:16px">
+  <div class="phead" style="--accent:var(--bear)">
+    <h2>Real Portfolio · Schwab</h2>
+    <span class="schwab-ro-badge">READ-ONLY · SCHWAB · NO ACTIONS</span>
+  </div>
+  <div class="ro-notice">Rule #1: Schwab is read-only display. No Fire, No Close, No action of any kind. Positions below are from real_holdings.json — display only.</div>
+  <div id="schwabSummary" style="display:grid;grid-template-columns:repeat(5,1fr);gap:10px;margin-bottom:14px">
+    <div class="wstat"><span class="wl">Net Worth</span><span class="wv" id="swNetWorth">—</span></div>
+    <div class="wstat"><span class="wl">Schwab Value</span><span class="wv" id="swValue">—</span></div>
+    <div class="wstat"><span class="wl">Cash</span><span class="wv" id="swCash">—</span></div>
+    <div class="wstat"><span class="wl">Unreal P&amp;L</span><span class="wv" id="swUnreal">—</span></div>
+    <div class="wstat"><span class="wl">Return</span><span class="wv" id="swReturn">—</span></div>
+  </div>
+  <table class="schwab-pos-tbl">
+    <thead><tr>
+      <th>Symbol</th><th>Side</th><th class="r">Qty</th>
+      <th class="r">Cost basis</th><th class="r">Current</th>
+      <th class="r">Unreal P&amp;L</th><th class="r">Return%</th>
+    </tr></thead>
+    <tbody id="schwabBody">
+      <tr><td colspan="7" style="padding:16px"><span class="skel" style="display:inline-block;width:400px;height:12px;border-radius:4px"></span></td></tr>
+    </tbody>
+  </table>
+  <!-- *** ZERO action buttons below. Schwab is read-only. *** -->
+</div>
+
+<div class="foot">MACRO TAB · DISPLAY-ONLY · SCHWAB PANEL HAS ZERO ACTION BUTTONS · RULE #1 ENFORCED</div>
+</div><!-- /tab-macro -->
+
 <div class="foot">DIRECTION A · LCARS FIGHTER — ALL ORDERS → ALPACA PAPER ONLY · SCHWAB READ-ONLY · NO REAL-MONEY PATH · WAR-ROOM REVOTE WIRED</div>
 <div id="toast"></div>
 
@@ -1711,6 +1845,230 @@ async function fireCandidate(sym) {
     }
   } catch (e) {
     act('Fire error · ' + sym, e.message, true);
+  }
+}
+
+// ─── Macro tab ────────────────────────────────────────────────────────────────
+function loadMacroTab() {
+  loadMacroDashboard();
+  loadMacroMetals();
+  loadMacroFearGreed();
+  loadMacroGex();
+  loadSectors();
+  loadEarnings();
+  loadCongressTrades();
+  loadSchwabPortfolio();
+}
+
+async function loadMacroDashboard() {
+  try {
+    const d = await api('GET', '/api/macro/dashboard');
+    const prices = d.prices || {};
+    const regime = d.regime || '—';
+    const riskOn = d.risk_on_score;
+    const rCls   = regime.toLowerCase().includes('risk_on') || regime.toLowerCase().includes('risk on') ? 'risk-zone-g' : 'risk-zone-r';
+    document.getElementById('macroRegimeLbl').textContent =
+      regime + (riskOn != null ? ' · Risk-On ' + Number(riskOn).toFixed(0) + '%' : '');
+    const ORDER = ['SPY','QQQ','^VIX','TLT','GLD','BTC-USD','UUP'];
+    document.getElementById('macroPricesBody').innerHTML = ORDER
+      .filter(sym => prices[sym])
+      .map(function(sym) {
+        const p   = prices[sym];
+        const chg = Number(p.change_pct || 0);
+        const cc  = chg >= 0 ? 'up' : 'down';
+        return '<div class="macro-price-row">'
+          + '<span class="mp-sym">' + sym.replace('^','') + '</span>'
+          + '<span class="mp-lbl">' + (p.label || '') + '</span>'
+          + '<span class="mp-price">$' + Number(p.price || 0).toFixed(2) + '</span>'
+          + '<span class="mp-chg ' + cc + '">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</span>'
+          + '</div>';
+      }).join('');
+  } catch (e) {
+    document.getElementById('macroPricesBody').innerHTML =
+      '<div style="color:var(--bear);font-family:var(--mono);font-size:12px">Error: ' + e.message + '</div>';
+  }
+}
+
+async function loadMacroMetals() {
+  try {
+    const d   = await api('GET', '/api/metals/prices');
+    const gsr = d.GSR != null ? Number(d.GSR).toFixed(1) : '—';
+    document.getElementById('metalsMeta').textContent = 'GSR ' + gsr;
+    const SHOW = [['GOLD','Gold'],['SILVER','Silver'],['PLATINUM','Plat'],['PALLADIUM','Pd']];
+    document.getElementById('metalsBody').innerHTML = SHOW.map(function([k, lbl]) {
+      const m   = d[k];
+      if (!m) return '';
+      const chg = Number(m.change_pct || 0);
+      const cc  = chg >= 0 ? 'up' : 'down';
+      return '<div class="metal-card">'
+        + '<div class="ml">' + lbl + '</div>'
+        + '<div class="mv">$' + Number(m.price || 0).toLocaleString('en-US', {minimumFractionDigits:1, maximumFractionDigits:1}) + '</div>'
+        + '<div class="mc ' + cc + '">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</div>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('metalsBody').innerHTML =
+      '<div style="color:var(--bear);font-family:var(--mono);font-size:12px">Error: ' + e.message + '</div>';
+  }
+}
+
+async function loadMacroFearGreed() {
+  try {
+    const d     = await api('GET', '/api/fear-greed');
+    const score = d.score ?? d.value ?? d.fear_greed;
+    if (score == null) return;
+    const n   = Number(score);
+    const lbl = n <= 25 ? 'Extreme Fear' : n <= 45 ? 'Fear' : n <= 55 ? 'Neutral' : n <= 75 ? 'Greed' : 'Extreme Greed';
+    const col = n <= 45 ? 'var(--bull)' : n <= 55 ? 'var(--caution)' : 'var(--bear)';
+    document.getElementById('mFgScore').textContent      = n.toFixed(0);
+    document.getElementById('mFgLabel').textContent      = lbl;
+    document.getElementById('mFgScore').style.color      = col;
+    document.getElementById('mFgLabel').style.color      = col;
+    document.getElementById('mFgNeedle').style.left      = Math.min(96, Math.max(2, n)) + '%';
+  } catch (_) {}
+}
+
+async function loadMacroGex() {
+  try {
+    const raw = await api('GET', '/api/market/gex');
+    const d   = Array.isArray(raw) ? raw[0] : raw;
+    if (!d) return;
+    if (d.gamma_flip) document.getElementById('mGFlip').textContent     = '$' + Number(d.gamma_flip).toFixed(0);
+    if (d.call_wall)  document.getElementById('mGCallWall').textContent  = '$' + Number(d.call_wall).toFixed(0);
+    if (d.put_wall)   document.getElementById('mGPutWall').textContent   = '$' + Number(d.put_wall).toFixed(0);
+    if (d.spot)       document.getElementById('mGSpot').textContent      = '$' + Number(d.spot).toFixed(2);
+    if (d.regime)     document.getElementById('mGRegime').textContent    = d.regime;
+  } catch (_) {}
+}
+
+async function loadSectors() {
+  try {
+    const d       = await api('GET', '/api/sectors/heatmap');
+    const sectors = d.sectors || [];
+    document.getElementById('sectorMeta').textContent =
+      sectors.length + ' sectors · SPY ' + (d.spy_change_pct != null ? fmtPct(d.spy_change_pct) : '—');
+    if (!sectors.length) {
+      document.getElementById('sectorBody').innerHTML =
+        '<div style="color:var(--tx-mute);font-family:var(--mono);font-size:12px;padding:12px 0">No sector data</div>';
+      return;
+    }
+    const sorted = [...sectors].sort((a, b) => (b.change_pct || 0) - (a.change_pct || 0));
+    const maxAbs = Math.max(...sorted.map(s => Math.abs(s.change_pct || 0)), 1);
+    document.getElementById('sectorBody').innerHTML = sorted.map(function(s) {
+      const chg = Number(s.change_pct || 0);
+      const cc  = chg >= 0 ? 'up' : 'down';
+      const barW  = Math.abs(chg) / maxAbs * 50;
+      const barDir = chg >= 0 ? 'right' : 'left';
+      const barX   = chg >= 0 ? '0' : '-' + barW + '%';
+      return '<div class="sector-row">'
+        + '<span class="sector-name">' + (s.sector || s.etf || '—') + '</span>'
+        + '<div class="sector-bar-wrap"><div class="sector-bar-fill" style="width:' + barW + '%;'
+        + (chg >= 0 ? 'background:var(--bull);left:50%' : 'background:var(--bear);right:50%') + '"></div></div>'
+        + '<span class="sector-pct ' + cc + '">' + (chg >= 0 ? '+' : '') + chg.toFixed(2) + '%</span>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('sectorBody').innerHTML =
+      '<div style="color:var(--bear);font-family:var(--mono);font-size:12px">Error: ' + e.message + '</div>';
+  }
+}
+
+async function loadEarnings() {
+  try {
+    const d       = await api('GET', '/api/earnings/countdown');
+    const events  = d.earnings || [];
+    document.getElementById('earningsMeta').textContent = events.length + ' upcoming';
+    if (!events.length) {
+      document.getElementById('earningsBody').innerHTML =
+        '<div style="color:var(--tx-mute);font-family:var(--mono);font-size:12px;padding:12px 0">No upcoming earnings</div>';
+      return;
+    }
+    document.getElementById('earningsBody').innerHTML = events.map(function(e) {
+      const days = e.days_until != null ? e.days_until + 'd' : '—';
+      const chg  = e.change_pct != null ? Number(e.change_pct).toFixed(2) + '%' : '';
+      const eps  = e.eps_estimate != null ? 'EPS est $' + Number(e.eps_estimate).toFixed(2) : '';
+      return '<div class="earn-row">'
+        + '<span class="earn-sym">' + (e.symbol || '—') + '</span>'
+        + '<span class="earn-days">' + days + '</span>'
+        + '<span class="earn-meta">' + (e.date || '').slice(5) + ' · ' + (e.hour || '—') + ' · ' + eps + '</span>'
+        + '<span style="font-family:var(--mono);font-size:11px;color:var(--tx-mute)">' + chg + '</span>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('earningsBody').innerHTML =
+      '<div style="color:var(--bear);font-family:var(--mono);font-size:12px">Error: ' + e.message + '</div>';
+  }
+}
+
+async function loadCongressTrades() {
+  try {
+    const d    = await api('GET', '/api/congress/top-buys');
+    const buys = d.top_buys || d.trades || (Array.isArray(d) ? d : []);
+    document.getElementById('congressMeta').textContent = buys.length + ' top buys';
+    if (!buys.length) {
+      document.getElementById('congressBody').innerHTML =
+        '<div style="color:var(--tx-mute);font-family:var(--mono);font-size:12px;padding:12px 0">No congress trade data</div>';
+      return;
+    }
+    document.getElementById('congressBody').innerHTML = buys.slice(0, 10).map(function(t) {
+      return '<div class="flow-row">'
+        + '<span style="font-weight:600">' + (t.ticker || t.symbol || '—') + '</span>'
+        + '<span style="color:var(--tx-mute);font-size:11px">' + (t.senator || t.member || t.politician || '—') + '</span>'
+        + '<span style="font-family:var(--mono);font-size:11px;color:var(--tx-mute)">' + (t.transaction_date || t.date || '').slice(5) + '</span>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('congressBody').innerHTML =
+      '<div style="color:var(--bear);font-family:var(--mono);font-size:12px">Error: ' + e.message + '</div>';
+  }
+}
+
+// RULE #1: Schwab is READ-ONLY DISPLAY. ZERO action buttons. EVER.
+async function loadSchwabPortfolio() {
+  try {
+    const nw  = await api('GET', '/api/networth').catch(() => null);
+    const port = await api('GET', '/api/webull-portfolio');
+    // Summary row
+    if (nw) document.getElementById('swNetWorth').textContent = fmtUSD(nw.net_worth || 0);
+    document.getElementById('swValue').textContent   = fmtUSD(port.total_value || 0);
+    document.getElementById('swCash').textContent    = fmtUSD(port.cash || 0);
+    const unreal = port.total_unrealized_pnl || 0;
+    const uEl    = document.getElementById('swUnreal');
+    uEl.textContent  = fmtPnl(unreal);
+    uEl.className    = 'wv ' + colorClass(unreal);
+    const ret = port.return_pct;
+    const rEl = document.getElementById('swReturn');
+    rEl.textContent = ret != null ? fmtPct(ret) : '—';
+    rEl.className   = 'wv ' + colorClass(ret || 0);
+    // Positions table — display only, no action column
+    const positions = port.positions || [];
+    const tbody = document.getElementById('schwabBody');
+    if (!positions.length) {
+      tbody.innerHTML = '<tr><td colspan="7" style="color:var(--tx-mute);padding:14px;font-family:var(--mono)">No positions · Schwab read-only display</td></tr>';
+      return;
+    }
+    tbody.innerHTML = positions.map(function(p) {
+      const sym  = (p.symbol || '—').toUpperCase();
+      const qty  = Number(p.qty || p.quantity || p.shares || 0);
+      const cost = Number(p.cost_per_share || p.avg_cost || p.avg_entry_price || 0);
+      const curr = Number(p.current_price || p.last_price || 0);
+      const pnl  = Number(p.unrealized_pnl || p.unrealized_pl || 0);
+      const retP = cost > 0 && curr > 0 ? ((curr - cost) / cost * 100).toFixed(2) + '%' : '—';
+      const pc   = colorClass(pnl);
+      return '<tr>'
+        + '<td style="font-weight:600">' + sym + '</td>'
+        + '<td style="color:var(--tx-mute)">long</td>'
+        + '<td class="r">' + qty + '</td>'
+        + '<td class="r">$' + cost.toFixed(2) + '</td>'
+        + '<td class="r">$' + curr.toFixed(2) + '</td>'
+        + '<td class="r ' + pc + '">' + fmtPnl(pnl) + '</td>'
+        + '<td class="r">' + retP + '</td>'
+        + '</tr>';
+        // *** NO action column. No Close button. No Fire button. Schwab read-only. ***
+    }).join('');
+  } catch (e) {
+    document.getElementById('schwabBody').innerHTML =
+      '<tr><td colspan="7" style="color:var(--bear);padding:14px;font-family:var(--mono)">Error: ' + e.message + '</td></tr>';
   }
 }
 
