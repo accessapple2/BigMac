@@ -179,6 +179,51 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 .verdict.pass{color:var(--bull);background:rgba(61,220,132,.15)}.verdict.hold{color:var(--caution);background:rgba(255,194,61,.15)}.verdict.fail{color:var(--bear);background:rgba(255,90,60,.15)}
 .evt-empty{font-family:var(--mono);font-size:13px;color:var(--tx-mute);padding:16px 0}
 .radar-empty{font-family:var(--mono);font-size:13px;color:var(--tx-mute);padding:16px 0}
+/* ─── Fleet tab ──────────────────────────────────────────────────────────────── */
+.season-ban{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px 20px;margin-bottom:16px;display:flex;align-items:center;gap:20px;flex-wrap:wrap}
+.season-ban .snum{font-family:var(--display);font-size:32px;font-weight:700;color:var(--caution);letter-spacing:.1em}
+.season-ban .sname{font-family:var(--display);font-size:20px;font-weight:500;letter-spacing:.08em;text-transform:uppercase}
+.season-ban .smeta{font-family:var(--mono);font-size:12px;color:var(--tx-mute);margin-left:auto}
+.grade{display:inline-block;font-family:var(--display);font-size:15px;font-weight:700;padding:3px 8px;border-radius:5px;min-width:28px;text-align:center}
+.grade.A{color:var(--bull);background:rgba(61,220,132,.15)}.grade.B{color:var(--info);background:rgba(127,196,255,.15)}
+.grade.C{color:var(--caution);background:rgba(255,194,61,.15)}.grade.D{color:var(--caution);background:rgba(255,194,61,.15)}
+.grade.E{color:var(--bear);background:rgba(255,90,60,.15)}.grade.F{color:var(--bear);background:rgba(255,90,60,.15)}
+.rc-tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+.rc-tbl th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim);font-weight:400;padding:7px 8px;border-bottom:1px solid var(--line)}
+.rc-tbl td{padding:6px 8px;border-bottom:1px solid var(--panel2)}
+.rc-tbl td.r{text-align:right}
+.rc-tbl .rtrend{font-size:14px;text-align:center}
+.dissent-item{display:grid;grid-template-columns:60px 70px 70px 70px 1fr;gap:8px;align-items:center;padding:7px 0;border-bottom:1px solid var(--panel2);font-family:var(--mono);font-size:12px}
+.di-sym{font-weight:700;font-size:13px}.di-who{color:var(--caution)}.di-call{font-weight:600}.di-mag{color:var(--tx-mute);font-size:10px;letter-spacing:.08em}
+.comms-row{display:grid;grid-template-columns:70px 60px 60px 1fr auto;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--panel2);font-family:var(--mono);font-size:12px}
+.cm-sym{font-weight:700}.cm-act{font-weight:700;font-size:11px;text-transform:uppercase}.cm-who{color:var(--tx-mute);font-size:11px}.cm-pnl{text-align:right}
+.model-tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:11px}
+.model-tbl th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim);font-weight:400;padding:7px 8px;border-bottom:1px solid var(--line)}
+.model-tbl td{padding:6px 8px;border-bottom:1px solid var(--panel2)}
+.model-tbl td.r{text-align:right}
+.mstatus{font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;padding:2px 7px;border-radius:4px}
+.mstatus.active{color:var(--bull);background:rgba(61,220,132,.12)}.mstatus.paused{color:var(--caution);background:rgba(255,194,61,.12)}.mstatus.halted{color:var(--bear);background:rgba(255,90,60,.12)}
+/* ─── Macro tab ──────────────────────────────────────────────────────────────── */
+.macro-price-row{display:grid;grid-template-columns:80px 1fr 70px 70px;gap:10px;align-items:center;padding:8px 0;border-bottom:1px solid var(--panel2);font-family:var(--mono);font-size:13px}
+.mp-sym{font-weight:700}.mp-lbl{font-size:11px;color:var(--tx-mute)}.mp-price{text-align:right;font-weight:600}.mp-chg{text-align:right;font-size:12px}
+.metal-grid{display:grid;grid-template-columns:1fr 1fr;gap:8px}
+.metal-card{background:var(--panel2);border-radius:8px;padding:12px 14px}
+.metal-card .ml{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--tx-dim)}
+.metal-card .mv{font-family:var(--mono);font-size:20px;font-weight:600;margin-top:4px}
+.metal-card .mc{font-family:var(--mono);font-size:12px;margin-top:2px}
+.sector-row{display:grid;grid-template-columns:110px 1fr 54px;align-items:center;gap:10px;padding:6px 0;border-bottom:1px solid var(--panel2);font-family:var(--mono);font-size:12px}
+.sector-name{font-weight:600;font-size:12px}.sector-bar-wrap{height:6px;border-radius:3px;background:var(--rail-dim);position:relative;overflow:hidden}
+.sector-bar-fill{position:absolute;top:0;bottom:0;left:50%;border-radius:3px;transform-origin:left}.sector-pct{text-align:right;font-weight:600;font-size:12px}
+.earn-row{display:grid;grid-template-columns:70px 60px 1fr auto;gap:10px;align-items:center;padding:7px 0;border-bottom:1px solid var(--panel2);font-family:var(--mono);font-size:12px}
+.earn-sym{font-weight:700;font-size:14px}.earn-days{color:var(--caution);font-size:11px}.earn-meta{color:var(--tx-mute);font-size:11px}
+.schwab-ro-badge{font-family:var(--mono);font-size:11px;letter-spacing:.1em;background:rgba(255,90,60,.15);color:var(--bear);border:1px solid rgba(255,90,60,.4);padding:4px 12px;border-radius:6px;text-transform:uppercase;font-weight:700}
+.ro-notice{font-family:var(--mono);font-size:12px;color:var(--tx-mute);padding:10px 14px;background:rgba(255,90,60,.06);border:1px solid rgba(255,90,60,.2);border-radius:8px;margin-bottom:14px}
+.schwab-pos-tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+.schwab-pos-tbl th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim);font-weight:400;padding:7px 8px;border-bottom:1px solid var(--line)}
+.schwab-pos-tbl td{padding:7px 8px;border-bottom:1px solid var(--panel2)}
+.schwab-pos-tbl td.r{text-align:right}
+.regime-badge{display:inline-block;font-family:var(--mono);font-size:12px;letter-spacing:.08em;padding:5px 12px;border-radius:7px;font-weight:600}
+.risk-zone-g{color:var(--bull);background:rgba(61,220,132,.12)}.risk-zone-y{color:var(--caution);background:rgba(255,194,61,.12)}.risk-zone-r{color:var(--bear);background:rgba(255,90,60,.12)}
 </style>
 </head>
 <body>
@@ -572,6 +617,119 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 <div class="foot">RESEARCH TAB · SIGNAL CONSENSUS · PAPER FIRE PATH WIRED · CONFIRM-GUARDED · PAPER ONLY · NO REAL-MONEY PATH</div>
 </div><!-- /tab-research -->
 
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- FLEET TAB                                                                  -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div id="tab-fleet" class="tab-pane" style="display:none">
+
+<!-- Season banner -->
+<div class="season-ban" id="seasonBan">
+  <div class="snum" id="fSeason">S—</div>
+  <div>
+    <div class="sname" id="fSeasonName">loading…</div>
+    <div style="font-family:var(--mono);font-size:11px;color:var(--tx-mute);margin-top:3px" id="fSeasonDates"></div>
+  </div>
+  <div class="smeta" id="fSeasonMeta"></div>
+</div>
+
+<!-- Row F1: Report Card + Crew Dissent -->
+<div class="row" style="display:grid;grid-template-columns:1.5fr 1fr;gap:16px;margin-bottom:16px">
+
+  <!-- Fleet Report Card -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--caution)">
+      <h2>Fleet Report Card · Grades</h2>
+      <span class="meta" id="rcMeta">loading…</span>
+    </div>
+    <table class="rc-tbl">
+      <thead><tr>
+        <th>Officer</th><th class="r">Grade</th><th class="r">Score</th>
+        <th class="r">W / L</th><th class="r">WR%</th>
+        <th class="r">P&amp;L</th><th class="r">Streak</th><th class="r">Trend</th>
+      </tr></thead>
+      <tbody id="rcBody">
+        <tr><td colspan="8" style="padding:16px"><span class="skel" style="display:inline-block;width:400px;height:12px;border-radius:4px"></span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Crew Dissent -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--caution)">
+      <h2>Crew Dissent</h2>
+      <span class="meta" id="dissentMeta">loading…</span>
+    </div>
+    <div id="dissentBody">
+      <span class="skel" style="display:block;height:100px;border-radius:6px"></span>
+    </div>
+  </div>
+
+</div><!-- /row F1 -->
+
+<!-- Full Fleet Leaderboard (ALL agents) -->
+<div class="panel" style="margin-bottom:16px">
+  <div class="phead" style="--accent:var(--bear)">
+    <h2>Full Fleet Leaderboard · Season</h2>
+    <span class="meta" id="fleetLbMeta">loading…</span>
+  </div>
+  <table class="lb">
+    <thead><tr><th>#</th><th>Officer · Model</th><th class="r">Value</th><th class="r">Return</th><th class="r">Win%</th><th class="r">Trades</th><th class="r">Day P&amp;L</th></tr></thead>
+    <tbody id="fleetLbBody">
+      <tr><td colspan="7" style="padding:16px"><span class="skel" style="display:inline-block;width:500px;height:14px;border-radius:4px"></span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Row F2: War Room + Fleet Activity -->
+<div class="row" style="display:grid;grid-template-columns:1fr 1.4fr;gap:16px;margin-bottom:16px">
+
+  <!-- War Room -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--info)">
+      <h2>War Room · Number One</h2>
+      <span class="meta" id="wrMeta">latest cycle</span>
+    </div>
+    <div id="wrBody">
+      <span class="skel" style="display:block;height:120px;border-radius:6px"></span>
+    </div>
+    <div class="actbar">
+      <button class="btn ghost sm" onclick="triggerRevote()">↻ Re-vote</button>
+    </div>
+  </div>
+
+  <!-- Fleet Activity / Comms -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--bull)">
+      <h2>Fleet Comms · Recent Trades</h2>
+      <span class="meta" id="commsMeta">last 20 executions</span>
+    </div>
+    <div id="commsBody">
+      <span class="skel" style="display:block;height:120px;border-radius:6px"></span>
+    </div>
+  </div>
+
+</div><!-- /row F2 -->
+
+<!-- Models & Costs -->
+<div class="panel" style="margin-bottom:16px">
+  <div class="phead" style="--accent:var(--tx-dim)">
+    <h2>Fleet Models · Status &amp; Costs</h2>
+    <span class="meta" id="modelsMeta">loading…</span>
+  </div>
+  <table class="model-tbl">
+    <thead><tr>
+      <th>Officer · ID</th><th>Model</th><th>Provider</th>
+      <th class="r">Status</th><th class="r">Calls/day</th><th class="r">Cost/day</th>
+    </tr></thead>
+    <tbody id="modelsBody">
+      <tr><td colspan="6" style="padding:16px"><span class="skel" style="display:inline-block;width:400px;height:12px;border-radius:4px"></span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="foot">FLEET TAB · DISPLAY-ONLY · NO ORDERS · CREW STANDINGS, GRADES, WAR ROOM, COMMS</div>
+</div><!-- /tab-fleet -->
+
 <div class="foot">DIRECTION A · LCARS FIGHTER — ALL ORDERS → ALPACA PAPER ONLY · SCHWAB READ-ONLY · NO REAL-MONEY PATH · WAR-ROOM REVOTE WIRED</div>
 <div id="toast"></div>
 
@@ -635,6 +793,8 @@ function showTab(name) {
   if (pane) pane.style.display = '';
   if (name === 'battle')   loadBattleTab();
   if (name === 'research') loadResearchTab();
+  if (name === 'fleet')    loadFleetTab();
+  if (name === 'macro')    loadMacroTab();
 }
 
 // ─── On load ──────────────────────────────────────────────────────────────────
@@ -1097,6 +1257,214 @@ async function closeAllPositions() {
     setTimeout(loadPositions, 3000);
     setTimeout(loadAlpacaStatus, 3500);
   } catch (e) { act('Close all error', e.message, true); }
+}
+
+// ─── Fleet tab ────────────────────────────────────────────────────────────────
+function loadFleetTab() {
+  loadSeasonBanner();
+  loadReportCard();
+  loadCrewDissent();
+  loadFleetLeaderboard();
+  loadWarRoomStatus();
+  loadFleetComms();
+  loadModels();
+}
+
+async function loadSeasonBanner() {
+  try {
+    const d = await api('GET', '/api/season');
+    document.getElementById('fSeason').textContent     = 'S' + (d.season || '—');
+    document.getElementById('fSeasonName').textContent = d.name || '—';
+    const cfg = d.config || {};
+    document.getElementById('fSeasonDates').textContent =
+      (cfg.start_date || '').slice(0,10) + ' → ' + (cfg.end_date || '—').slice(0,10) + ' · Day ' + (d.day_number || '—');
+    document.getElementById('fSeasonMeta').textContent =
+      'Active: ' + (cfg.active_agents || '—').split(',').length + ' agents · ' + (cfg.name || '');
+  } catch (_) {}
+}
+
+async function loadReportCard() {
+  try {
+    const d     = await api('GET', '/api/fleet-report-card');
+    const agents = d.agents || [];
+    document.getElementById('rcMeta').textContent = agents.length + ' agents graded';
+    if (!agents.length) {
+      document.getElementById('rcBody').innerHTML =
+        '<tr><td colspan="8" style="color:var(--tx-mute);padding:14px;font-family:var(--mono)">No report card data</td></tr>';
+      return;
+    }
+    document.getElementById('rcBody').innerHTML = agents.map(function(a) {
+      const wr  = a.win_rate == null ? '—' : Number(a.win_rate).toFixed(0) + '%';
+      const pnl = a.total_pnl != null ? fmtPnl(a.total_pnl) : '—';
+      const pc  = Number(a.total_pnl || 0) >= 0 ? 'up' : 'down';
+      const streak = a.consecutive_wins > 0
+        ? '<span class="up">+' + a.consecutive_wins + 'W</span>'
+        : a.consecutive_losses > 0 ? '<span class="down">-' + a.consecutive_losses + 'L</span>' : '—';
+      const g  = (a.rating || 'C').charAt(0);
+      return '<tr>'
+        + '<td style="font-weight:600">' + (a.display_name || a.player_id || '—') + '</td>'
+        + '<td class="r"><span class="grade ' + g + '">' + g + '</span></td>'
+        + '<td class="r">' + (a.rating_score != null ? Number(a.rating_score).toFixed(1) : '—') + '</td>'
+        + '<td class="r">' + (a.wins ?? 0) + ' / ' + (a.losses ?? 0) + '</td>'
+        + '<td class="r">' + wr + '</td>'
+        + '<td class="r ' + pc + '">' + pnl + '</td>'
+        + '<td class="r">' + streak + '</td>'
+        + '<td class="r rtrend">' + (a.trend || '—') + '</td>'
+        + '</tr>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('rcBody').innerHTML =
+      '<tr><td colspan="8" style="color:var(--bear);padding:14px;font-family:var(--mono)">Error: ' + e.message + '</td></tr>';
+  }
+}
+
+async function loadCrewDissent() {
+  try {
+    const d = await api('GET', '/api/dissent/summary');
+    document.getElementById('dissentMeta').textContent =
+      (d.pending || 0) + ' pending · ' + (d.resolved || 0) + ' resolved';
+    const items = d.recent || [];
+    if (!items.length) {
+      document.getElementById('dissentBody').innerHTML =
+        '<div style="color:var(--tx-mute);font-family:var(--mono);font-size:12px;padding:12px 0">No dissent records</div>';
+      return;
+    }
+    document.getElementById('dissentBody').innerHTML = items.slice(0, 12).map(function(r) {
+      const dissCall = (r.dissenter_call || '—').toUpperCase();
+      const conCall  = (r.consensus_call || '—').toUpperCase();
+      const dc = dissCall === 'BULL' ? 'up' : dissCall === 'BEAR' ? 'down' : '';
+      const cc = conCall  === 'BULL' ? 'up' : conCall  === 'BEAR' ? 'down' : '';
+      return '<div class="dissent-item">'
+        + '<span class="di-sym">' + (r.symbol || '—') + '</span>'
+        + '<span class="di-who">' + (r.dissenter || '—') + '</span>'
+        + '<span class="di-call ' + dc + '">' + dissCall + '</span>'
+        + '<span class="di-call ' + cc + '" style="opacity:.6">vs ' + conCall + '</span>'
+        + '<span class="di-mag">' + (r.magnitude || '—') + ' · ' + (r.dissent_date || '').slice(5) + '</span>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('dissentBody').innerHTML =
+      '<div style="color:var(--bear);font-family:var(--mono);font-size:12px">Error: ' + e.message + '</div>';
+  }
+}
+
+async function loadFleetLeaderboard() {
+  try {
+    const d    = await api('GET', '/api/arena/leaderboard');
+    const rows = d.leaderboard || [];
+    document.getElementById('fleetLbMeta').textContent =
+      (d.season ? 'Season ' + d.season + ' · ' : '') + rows.length + ' agents';
+    if (!rows.length) {
+      document.getElementById('fleetLbBody').innerHTML =
+        '<tr><td colspan="7" style="padding:14px;color:var(--tx-mute)">No data</td></tr>';
+      return;
+    }
+    document.getElementById('fleetLbBody').innerHTML = rows.map(function(p, i) {
+      const wr  = p.win_rate == null ? '—' : Number(p.win_rate).toFixed(1) + '%';
+      const ret = p.return_pct != null ? fmtPct(p.return_pct) : '—';
+      const day = p.day_pnl != null ? fmtPnl(p.day_pnl) : '—';
+      const val = p.total_value != null ? fmtUSD(p.total_value) : '—';
+      const rc  = Number(p.return_pct || 0) >= 0 ? 'up' : 'down';
+      const dc  = Number(p.day_pnl || 0) >= 0 ? 'up' : 'down';
+      return '<tr>'
+        + '<td class="rk">' + String(i + 1).padStart(2, '0') + '</td>'
+        + '<td><span class="off">' + (p.name || p.player_id || '—') + '</span>'
+        + (p.model ? ' <span class="mdl">' + p.model + '</span>' : '') + '</td>'
+        + '<td class="r">' + val + '</td>'
+        + '<td class="r ' + rc + '">' + ret + '</td>'
+        + '<td class="r">' + wr + '</td>'
+        + '<td class="r" style="color:var(--tx-mute)">' + (p.trades ?? '—') + '</td>'
+        + '<td class="r ' + dc + '">' + day + '</td>'
+        + '</tr>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('fleetLbBody').innerHTML =
+      '<tr><td colspan="7" style="color:var(--bear);padding:14px;font-family:var(--mono)">Error: ' + e.message + '</td></tr>';
+  }
+}
+
+async function loadWarRoomStatus() {
+  try {
+    const d = await api('GET', '/api/war-room/debate-status').catch(() => null);
+    const r = await api('GET', '/api/riker/recommendation').catch(() => null);
+    let html = '';
+    if (r && r.recommendation) {
+      html += '<div style="background:var(--panel2);border-radius:8px;padding:14px;margin-bottom:10px">'
+        + '<div style="font-family:var(--display);font-size:16px;letter-spacing:.08em;color:var(--info);margin-bottom:6px">Number One · Riker</div>'
+        + '<div style="font-family:var(--mono);font-size:13px;line-height:1.6;color:var(--tx-mute)">' + r.recommendation + '</div>'
+        + '</div>';
+    } else {
+      html += '<div style="color:var(--tx-mute);font-family:var(--mono);font-size:12px;padding:8px 0">Riker: no fresh recommendation</div>';
+    }
+    if (d) {
+      const status = d.status || d.debate_status || 'unknown';
+      const since  = d.started_at || d.last_update || '';
+      html += '<div style="font-family:var(--mono);font-size:11px;color:var(--tx-mute);margin-top:8px">'
+        + 'Debate: <span style="color:var(--caution)">' + status + '</span>'
+        + (since ? ' · ' + since.slice(0,16) : '')
+        + '</div>';
+    }
+    document.getElementById('wrBody').innerHTML = html || '<div style="color:var(--tx-mute);font-family:var(--mono);font-size:12px">War Room idle</div>';
+  } catch (_) {
+    document.getElementById('wrBody').innerHTML =
+      '<div style="color:var(--tx-mute);font-family:var(--mono);font-size:12px">War Room offline</div>';
+  }
+}
+
+async function loadFleetComms() {
+  try {
+    const raw    = await api('GET', '/api/recent-trades?limit=20');
+    const trades = Array.isArray(raw) ? raw : (raw.trades || []);
+    document.getElementById('commsMeta').textContent = trades.length + ' recent executions';
+    if (!trades.length) {
+      document.getElementById('commsBody').innerHTML =
+        '<div style="color:var(--tx-mute);font-family:var(--mono);font-size:12px;padding:12px 0">No recent trades</div>';
+      return;
+    }
+    document.getElementById('commsBody').innerHTML = trades.map(function(t) {
+      const isBuy = (t.action || '').toUpperCase() === 'BUY';
+      const pnl   = t.pnl != null ? fmtPnl(t.pnl) : (t.realized_pnl != null ? fmtPnl(t.realized_pnl) : '');
+      const pc    = Number(t.pnl || t.realized_pnl || 0) >= 0 ? 'up' : 'down';
+      const ts    = (t.executed_at || t.created_at || '').slice(5, 16);
+      return '<div class="comms-row">'
+        + '<span class="cm-sym">' + (t.symbol || '—') + '</span>'
+        + '<span class="cm-act ' + (isBuy ? 'up' : 'down') + '">' + (t.action || '—') + '</span>'
+        + '<span class="cm-who">' + (t.display_name || t.player_id || '—').split(' ')[0] + '</span>'
+        + '<span style="color:var(--tx-mute);font-size:11px">' + ts + '</span>'
+        + '<span class="cm-pnl ' + pc + '">' + pnl + '</span>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('commsBody').innerHTML =
+      '<div style="color:var(--bear);font-family:var(--mono);font-size:12px">Error: ' + e.message + '</div>';
+  }
+}
+
+async function loadModels() {
+  try {
+    const d      = await api('GET', '/api/model-control');
+    const models = d.models || [];
+    const active = models.filter(m => !m.is_halted && !m.is_paused).length;
+    const total  = d.grand_total_cost;
+    document.getElementById('modelsMeta').textContent =
+      active + ' active · ' + models.length + ' total'
+      + (total != null ? ' · $' + Number(total).toFixed(4) + ' grand total' : '');
+    document.getElementById('modelsBody').innerHTML = models.map(function(m) {
+      const st = m.is_halted ? 'halted' : m.is_paused ? 'paused' : 'active';
+      const cost = m.total_cost_today != null ? '$' + Number(m.total_cost_today).toFixed(4) : '—';
+      return '<tr>'
+        + '<td style="font-weight:600">' + (m.display_name || m.player_id || '—') + '</td>'
+        + '<td style="color:var(--tx-mute)">' + (m.model_id || m.model || '—') + '</td>'
+        + '<td style="color:var(--tx-mute)">' + (m.provider_display || m.provider || '—') + '</td>'
+        + '<td class="r"><span class="mstatus ' + st + '">' + st + '</span></td>'
+        + '<td class="r">' + (m.api_calls_today ?? 0) + '</td>'
+        + '<td class="r">' + cost + '</td>'
+        + '</tr>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('modelsBody').innerHTML =
+      '<tr><td colspan="6" style="color:var(--bear);padding:14px;font-family:var(--mono)">Error: ' + e.message + '</td></tr>';
+  }
 }
 
 // ─── Research tab ─────────────────────────────────────────────────────────────
