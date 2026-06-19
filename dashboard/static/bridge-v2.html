@@ -25,7 +25,7 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 .dot{width:8px;height:8px;border-radius:50%;background:var(--bull);animation:pulse 2.4s infinite}
 @keyframes pulse{0%{box-shadow:0 0 0 0 rgba(61,220,132,.55)}70%{box-shadow:0 0 0 7px rgba(61,220,132,0)}100%{box-shadow:0 0 0 0 rgba(61,220,132,0)}}
 .tabs{display:flex;gap:4px;font-family:var(--mono);font-size:13px;letter-spacing:.1em;text-transform:uppercase}
-.tabs span{padding:8px 16px;color:var(--tx-dim);border-bottom:3px solid transparent}
+.tabs span{padding:8px 16px;color:var(--tx-dim);border-bottom:3px solid transparent;cursor:pointer}
 .tabs span.on{color:var(--tx);border-bottom-color:var(--caution)}
 .command{display:grid;grid-template-columns:150px 1fr;margin-bottom:16px}
 .rail{background:var(--bull);border-radius:26px 0 0 26px;display:flex;flex-direction:column;justify-content:space-between;padding:20px 18px;color:#05130b}
@@ -124,6 +124,29 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 #toast.err b{color:var(--bear)}
 .foot{margin-top:18px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--tx-dim);text-align:center}
 @media(max-width:900px){.vitals,.systems{grid-template-columns:repeat(3,1fr)}.r1,.r2{grid-template-columns:1fr}.command{grid-template-columns:110px 1fr}}
+/* ─── Battle tab ─────────────────────────────────────────────────────────────── */
+.bvitals{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:14px}
+.bvital{background:var(--panel);padding:11px 13px}
+.bvl{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--tx-dim)}
+.bvv{font-family:var(--mono);font-size:19px;font-weight:600;margin-top:4px;line-height:1}
+.bpos{border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;justify-content:space-between;align-items:center;gap:12px;margin-bottom:10px}
+.bpt{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--tx-dim);white-space:nowrap}
+.bpd{font-family:var(--mono);font-size:14px;color:var(--tx-mute)}
+.bhistory{display:flex;flex-direction:column;gap:4px;margin-top:10px}
+.bhrow{display:grid;grid-template-columns:80px 60px 80px 1fr auto;gap:10px;font-family:var(--mono);font-size:11px;padding:6px 10px;border-radius:5px;background:var(--panel2);align-items:center}
+.bhdate{color:var(--tx-mute)}.bhtype{text-transform:uppercase;font-weight:600}.bhstrike{color:var(--tx-dim)}.bhpnl{text-align:right}.bhst{text-align:right;font-size:10px;letter-spacing:.08em}
+.phcard{background:var(--panel2);border-radius:10px;padding:16px;margin-bottom:8px}
+.phcard .phh{font-family:var(--display);font-size:22px;letter-spacing:.08em;font-weight:700;margin-bottom:10px}
+.phcard .phn{font-family:var(--mono);font-size:13px;line-height:1.7;color:var(--tx-mute);white-space:pre-wrap}
+.phcard .phno{font-family:var(--mono);font-size:16px;color:var(--caution);font-weight:600}
+.phbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:10px;padding-top:10px;border-top:1px solid var(--line)}
+.wsummary{display:grid;grid-template-columns:repeat(3,1fr);gap:10px;margin-bottom:16px}
+.wstat{background:var(--panel2);border-radius:8px;padding:12px 14px}
+.wl{font-family:var(--mono);font-size:10px;letter-spacing:.12em;text-transform:uppercase;color:var(--tx-dim);display:block;margin-bottom:5px}
+.wv{font-family:var(--mono);font-size:20px;font-weight:600;display:block}
+.worf-wrap{display:flex;flex-direction:column;gap:12px}
+.worf-desc{font-family:var(--mono);font-size:12px;color:var(--tx-mute);line-height:1.6}
+.worf-res{font-family:var(--mono);font-size:12px;color:var(--tx-mute);min-height:20px}
 </style>
 </head>
 <body>
@@ -136,7 +159,7 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
     <span class="doctrine">⬡ Alpaca Paper · Schwab R/O</span>
   </div>
   <div class="tabs">
-    <span class="on">Bridge</span><span>Battle</span><span>Research</span><span>Fleet</span><span>Macro</span>
+    <span class="on" onclick="showTab('bridge')">Bridge</span><span onclick="showTab('battle')">Battle</span><span onclick="showTab('research')">Research</span><span onclick="showTab('fleet')">Fleet</span><span onclick="showTab('macro')">Macro</span>
   </div>
 </div>
 
@@ -165,6 +188,7 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
   </div>
 </div>
 
+<div id="tab-bridge" class="tab-pane">
 <!-- ROW 1: Advisory + Gamma Map -->
 <div class="row r1">
   <div class="panel">
@@ -263,6 +287,126 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
     </tbody>
   </table>
 </div>
+</div><!-- /tab-bridge -->
+
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- BATTLE TAB                                                                 -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div id="tab-battle" class="tab-pane" style="display:none">
+
+<!-- ROW B1: 0DTE Battle Station + Phaser-Lock -->
+<div class="row" style="display:grid;grid-template-columns:1fr 1.5fr;gap:16px;margin-bottom:16px">
+
+  <!-- 0DTE Battle Station -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--caution)">
+      <h2>0DTE Battle Station</h2>
+      <span class="meta" id="bsStatusLbl">loading…</span>
+    </div>
+    <div class="bvitals">
+      <div class="bvital"><div class="bvl">SPY</div><div class="bvv" id="bsSpy">—</div></div>
+      <div class="bvital"><div class="bvl">VIX</div><div class="bvv" id="bsVix">—</div></div>
+      <div class="bvital"><div class="bvl">Gamma flip</div><div class="bvv warn" id="bsFlip">—</div></div>
+      <div class="bvital"><div class="bvl">Call wall</div><div class="bvv down" id="bsCallWall">—</div></div>
+      <div class="bvital"><div class="bvl">Put wall</div><div class="bvv up" id="bsPutWall">—</div></div>
+      <div class="bvital"><div class="bvl">Dist call %</div><div class="bvv" id="bsDistCall">—</div></div>
+      <div class="bvital"><div class="bvl">Trades today</div><div class="bvv" id="bsTrades">—</div></div>
+      <div class="bvital"><div class="bvl">Stop / Target</div><div class="bvv" id="bsStopTarget">—</div></div>
+    </div>
+    <div class="bpos">
+      <span class="bpt">0DTE Position</span>
+      <span class="bpd" id="bsPositionText">No active 0DTE position</span>
+      <button class="btn red sm" id="bs0dteCloseBtn" style="display:none" onclick="close0dtePosition()">Close</button>
+    </div>
+    <div class="bhistory" id="bsHistory"></div>
+    <div class="actbar"><button class="btn ghost sm" onclick="loadBattleStation()">↻ Refresh</button></div>
+  </div>
+
+  <!-- Phaser-Lock -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--bull)">
+      <h2>Phaser-Lock · Trade of the Day</h2>
+      <span class="meta" id="phaserMeta">plutus-v1 · fail-closed</span>
+    </div>
+    <div id="phaserContent">
+      <div class="phcard"><span class="skel" style="display:block;height:80px;border-radius:6px"></span></div>
+    </div>
+    <div class="actbar"><button class="btn ghost sm" onclick="loadPhaserLock()">↻ Refresh pick</button></div>
+  </div>
+
+</div><!-- /row B1 -->
+
+<!-- ROW B2: Wheel Book + Worf Arsenal -->
+<div class="row" style="display:grid;grid-template-columns:1.7fr 1fr;gap:16px;margin-bottom:16px">
+
+  <!-- Wheel CSPs / Options Book -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--info)">
+      <h2>Options Engine · Wheel CSPs</h2>
+      <span class="meta" id="wheelMeta">loading…</span>
+    </div>
+    <div class="wsummary">
+      <div class="wstat"><span class="wl">Puts open</span><span class="wv" id="wPutsOpen">—</span></div>
+      <div class="wstat"><span class="wl">Premium collected</span><span class="wv up" id="wPremium">—</span></div>
+      <div class="wstat"><span class="wl">Stocks held</span><span class="wv" id="wStocks">—</span></div>
+    </div>
+    <table class="ptbl">
+      <thead><tr>
+        <th>Symbol</th><th>Type</th><th class="r">Strike</th>
+        <th class="r">Qty</th><th class="r">Credit</th><th class="r">Expiry</th>
+      </tr></thead>
+      <tbody id="wheelBody">
+        <tr><td colspan="6" style="padding:16px"><span class="skel" style="display:inline-block;width:280px;height:12px;border-radius:4px"></span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+  <!-- Worf Arsenal -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--caution)">
+      <h2>Worf Arsenal · Inverse ETFs</h2>
+      <span class="meta">qwen3:8b · analysis only</span>
+    </div>
+    <div class="worf-wrap">
+      <div class="worf-desc">Bearish hedge scanner. Worf evaluates inverse ETF entry signals (SQQQ, SPXS, UVXY) via qwen3:8b — read-only analysis, no order sent.</div>
+      <div class="wsummary" id="worfSummary" style="display:none">
+        <div class="wstat"><span class="wl">Symbols</span><span class="wv" id="worfSyms">—</span></div>
+        <div class="wstat"><span class="wl">Model</span><span class="wv" id="worfModel" style="font-size:13px">—</span></div>
+        <div class="wstat"><span class="wl">Time (ms)</span><span class="wv" id="worfMs">—</span></div>
+      </div>
+      <div class="worf-res" id="worfResult"></div>
+    </div>
+    <div class="actbar">
+      <button class="btn amber sm" id="worfBtn" onclick="runWorfScan()">▸ Run Worf Scan</button>
+    </div>
+  </div>
+
+</div><!-- /row B2 -->
+
+<!-- Trade Desk: Positions + Close All -->
+<div class="panel" style="margin-bottom:16px">
+  <div class="phead" style="--accent:var(--bear)">
+    <h2>Trade Desk · Paper Positions</h2>
+    <span class="meta" id="battleDeskMeta">Alpaca paper · loading…</span>
+  </div>
+  <table class="ptbl">
+    <thead><tr>
+      <th>Ticker</th><th>Side</th><th class="r">Qty</th>
+      <th class="r">Avg cost</th><th class="r">Last</th>
+      <th class="r">Unreal P&amp;L</th><th class="r">Action</th>
+    </tr></thead>
+    <tbody id="battleDeskBody">
+      <tr><td colspan="7" style="padding:20px"><span class="skel" style="display:inline-block;width:400px;height:14px;border-radius:4px"></span></td></tr>
+    </tbody>
+  </table>
+  <div class="actbar">
+    <button class="btn ghost sm" onclick="loadPositions()">↻ Refresh positions</button>
+    <button class="btn red sm" onclick="closeAllPositions()">Close All Positions</button>
+  </div>
+</div>
+
+<div class="foot">BATTLE TAB · ALPACA PAPER ONLY · ALL ORDERS CONFIRM-GUARDED · SCHWAB READ-ONLY · NO REAL-MONEY PATH</div>
+</div><!-- /tab-battle -->
 
 <div class="foot">DIRECTION A · LCARS FIGHTER — ALL ORDERS → ALPACA PAPER ONLY · SCHWAB READ-ONLY · NO REAL-MONEY PATH · WAR-ROOM REVOTE WIRED</div>
 <div id="toast"></div>
@@ -314,6 +458,18 @@ function setSys(id, ok, label) {
   const c = ok ? 'var(--bull)' : 'var(--bear)';
   el.innerHTML = '<span class="sdot" style="background:' + c + '"></span>'
                + '<span style="color:' + c + '">' + label + '</span>';
+}
+
+// ─── Tab switching ─────────────────────────────────────────────────────────────
+const _TAB_NAMES = ['bridge','battle','research','fleet','macro'];
+function showTab(name) {
+  document.querySelectorAll('.tab-pane').forEach(el => { el.style.display = 'none'; });
+  document.querySelectorAll('.tabs span').forEach((el, i) => {
+    el.classList.toggle('on', _TAB_NAMES[i] === name);
+  });
+  const pane = document.getElementById('tab-' + name);
+  if (pane) pane.style.display = '';
+  if (name === 'battle') loadBattleTab();
 }
 
 // ─── On load ──────────────────────────────────────────────────────────────────
@@ -388,6 +544,7 @@ async function loadPositions() {
     const d = await api('GET', '/api/alpaca/positions');
     const positions = d.positions || [];
     renderPositions(positions);
+    renderBattleDesk(positions);
 
     const totalPnl = positions.reduce((s, p) => s + (Number(p.unrealized_pl) || 0), 0);
     document.getElementById('vPosCount').textContent = positions.length;
@@ -572,6 +729,209 @@ function advisoryExecute() {
 function battleFire() {
   if (!window.confirm('Open Battle tab to fire orders with a live candidate.\n\nNo candidate_id is set on the Bridge tab — cancel and use the Battle tab.')) return;
   act('Not wired here', 'Battle tab handles live order entry with candidate selection', false);
+}
+
+// ─── Battle tab ───────────────────────────────────────────────────────────────
+function loadBattleTab() {
+  loadBattleStation();
+  loadPhaserLock();
+  loadWheelStatus();
+  loadPositions(); // also feeds battleDeskBody via renderBattleDesk
+}
+
+async function loadBattleStation() {
+  try {
+    const d = await api('GET', '/api/battle-station-0dte/status');
+    const isArmed = (d.status || '').toUpperCase() === 'ARMED';
+    const lbl = document.getElementById('bsStatusLbl');
+    lbl.textContent = d.status || '—';
+    lbl.style.color = isArmed ? 'var(--caution)' : 'var(--tx-mute)';
+    document.getElementById('bsSpy').textContent      = d.spy_price ? '$' + Number(d.spy_price).toFixed(2) : '—';
+    document.getElementById('bsVix').textContent      = d.vix ? Number(d.vix).toFixed(2) : '—';
+    document.getElementById('bsFlip').textContent     = d.gamma_flip ? '$' + Number(d.gamma_flip).toFixed(0) : '—';
+    document.getElementById('bsCallWall').textContent = d.call_wall  ? '$' + Number(d.call_wall).toFixed(0)  : '—';
+    document.getElementById('bsPutWall').textContent  = d.put_wall   ? '$' + Number(d.put_wall).toFixed(0)   : '—';
+    const dc = Number(d.dist_call_pct || 0);
+    const dcEl = document.getElementById('bsDistCall');
+    dcEl.textContent = dc.toFixed(2) + '%';
+    dcEl.className = 'bvv ' + (dc < 1 ? 'warn' : dc < 3 ? 'neu' : '');
+    document.getElementById('bsTrades').textContent     = (d.trades_today || 0) + ' / ' + (d.max_daily || 2);
+    document.getElementById('bsStopTarget').textContent = (d.stop_pct ?? '—') + '% / ' + (d.target_pct ?? '—') + '%';
+    // Position
+    const posEl   = document.getElementById('bsPositionText');
+    const closeBtn = document.getElementById('bs0dteCloseBtn');
+    if (d.position) {
+      const sym = typeof d.position === 'string' ? d.position : (d.position.symbol || JSON.stringify(d.position));
+      posEl.textContent = sym;
+      posEl.style.color = 'var(--caution)';
+      closeBtn.style.display = '';
+      closeBtn.setAttribute('data-sym', sym);
+    } else {
+      posEl.textContent  = 'No active 0DTE position';
+      posEl.style.color  = 'var(--tx-mute)';
+      closeBtn.style.display = 'none';
+    }
+    // History
+    const hist = await api('GET', '/api/battle-station-0dte/history').catch(() => ({ trades: [] }));
+    const trades = (hist.trades || []).slice(0, 4);
+    const histEl = document.getElementById('bsHistory');
+    if (trades.length) {
+      histEl.innerHTML = trades.map(function(t) {
+        const win = t.pnl >= 0;
+        const pc  = win ? 'up' : 'down';
+        return '<div class="bhrow">'
+          + '<span class="bhdate">' + (t.timestamp || '').slice(0, 10) + '</span>'
+          + '<span class="bhtype ' + pc + '">' + (t.option_type || '—').toUpperCase() + '</span>'
+          + '<span class="bhstrike">$' + Number(t.strike || 0).toFixed(0) + '</span>'
+          + '<span class="bhpnl ' + pc + '">' + fmtPnl(t.pnl || 0) + '</span>'
+          + '<span class="bhst ' + pc + '">' + (t.status || '').replace('CLOSED_', '') + '</span>'
+          + '</div>';
+      }).join('');
+    } else {
+      histEl.innerHTML = '';
+    }
+  } catch (e) {
+    document.getElementById('bsStatusLbl').textContent = 'error';
+  }
+}
+
+async function loadPhaserLock() {
+  try {
+    const d = await api('GET', '/api/phaser-lock');
+    const meta = document.getElementById('phaserMeta');
+    meta.textContent = (d.model || 'plutus-v1') + ' · ' + (d.scanned || 0) + ' scanned · R:R≥' + (d.bar?.rr_floor || '2.0') + ' conv≥' + (d.bar?.conviction_floor || '0.75');
+    const el = document.getElementById('phaserContent');
+    if (d.no_qualifying_setup || !d.picks || !d.picks.length) {
+      el.innerHTML = '<div class="phcard">'
+        + '<div class="phno">No qualifying setup today</div>'
+        + '<div class="phn" style="margin-top:10px">' + (d.narrative || 'Fail-closed. No pick forced.') + '</div>'
+        + '<div class="phbar">'
+        + '<span class="chip a">' + (d.scanned || 0) + ' scanned</span>'
+        + '<span class="chip a">' + (d.qualified || 0) + ' qualified</span>'
+        + '<span class="chip a">' + (d.date || '—') + '</span>'
+        + '</div>'
+        + '</div>';
+    } else {
+      el.innerHTML = d.picks.map(function(pick) {
+        const sym = pick.symbol || pick.ticker || '—';
+        const act = pick.action || pick.direction || 'BUY';
+        return '<div class="phcard">'
+          + '<div class="phh ' + (act === 'SELL' || act === 'SHORT' ? 'down' : 'up') + '">' + sym + ' · ' + act + '</div>'
+          + '<div class="chips" style="margin-bottom:10px">'
+          + (pick.conviction != null ? '<span class="chip a">conv ' + Number(pick.conviction).toFixed(2) + '</span>' : '')
+          + (pick.rr != null ? '<span class="chip b">R:R ' + Number(pick.rr).toFixed(1) + '</span>' : '')
+          + (pick.setup ? '<span class="chip a">' + pick.setup + '</span>' : '')
+          + '</div>'
+          + '<div class="phn">' + (pick.narrative || pick.reasoning || '') + '</div>'
+          + '</div>';
+      }).join('');
+    }
+  } catch (e) {
+    document.getElementById('phaserContent').innerHTML =
+      '<div class="phcard"><div class="phn" style="color:var(--bear)">Error: ' + e.message + '</div></div>';
+  }
+}
+
+async function loadWheelStatus() {
+  try {
+    const d = await api('GET', '/api/wheel/status');
+    document.getElementById('wPutsOpen').textContent = d.puts_open ?? '—';
+    document.getElementById('wStocks').textContent   = d.stocks_held ?? '—';
+    document.getElementById('wPremium').textContent  = d.total_premium_collected != null ? fmtUSD(d.total_premium_collected) : '—';
+    const k = ((d.total_premium_collected || 0) / 1000).toFixed(1);
+    document.getElementById('wheelMeta').textContent = (d.puts_open || 0) + ' puts · $' + k + 'K collected';
+    const positions = d.positions || [];
+    const tbody = document.getElementById('wheelBody');
+    if (!positions.length) {
+      tbody.innerHTML = '<tr><td colspan="6" style="color:var(--tx-mute);padding:14px;font-family:var(--mono)">No wheel positions</td></tr>';
+      return;
+    }
+    tbody.innerHTML = positions.slice(0, 25).map(function(p) {
+      const exDays = p.expiry_date ? Math.round((new Date(p.expiry_date) - Date.now()) / 86400000) : null;
+      const exCls  = exDays != null && exDays <= 7 ? 'warn' : exDays != null && exDays <= 14 ? 'neu' : '';
+      return '<tr>'
+        + '<td style="font-weight:600">' + (p.symbol || '—') + '</td>'
+        + '<td style="color:var(--tx-mute)">' + (p.option_type || p.asset_type || '—').toUpperCase() + '</td>'
+        + '<td class="r">$' + Number(p.strike_price || 0).toFixed(2) + '</td>'
+        + '<td class="r">' + (p.qty || 1) + '</td>'
+        + '<td class="r up">$' + Number(p.entry_credit || 0).toFixed(2) + '</td>'
+        + '<td class="r ' + exCls + '">' + (p.expiry_date || '—') + (exDays != null ? ' (' + exDays + 'd)' : '') + '</td>'
+        + '</tr>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('wheelBody').innerHTML =
+      '<tr><td colspan="6" style="color:var(--bear);padding:14px;font-family:var(--mono)">Error: ' + e.message + '</td></tr>';
+  }
+}
+
+async function runWorfScan() {
+  const btn = document.getElementById('worfBtn');
+  btn.textContent = 'Scanning…';
+  btn.disabled = true;
+  document.getElementById('worfResult').textContent = '';
+  try {
+    const d = await api('POST', '/api/wb-team/worf/scan');
+    document.getElementById('worfSummary').style.display = '';
+    document.getElementById('worfSyms').textContent  = d.symbols_analyzed || '—';
+    document.getElementById('worfModel').textContent = d.model || '—';
+    document.getElementById('worfMs').textContent    = d.response_time_ms != null ? d.response_time_ms + 'ms' : '—';
+    document.getElementById('worfResult').textContent = 'Scan complete · ' + (d.generated_at || '').replace('T',' ');
+    act('Worf scan complete', (d.symbols_analyzed || '?') + ' symbols · ' + (d.response_time_ms || '?') + 'ms', false);
+  } catch (e) {
+    document.getElementById('worfResult').textContent = 'Error: ' + e.message;
+    act('Worf error', e.message, true);
+  } finally {
+    btn.textContent = '▸ Run Worf Scan';
+    btn.disabled = false;
+  }
+}
+
+function renderBattleDesk(positions) {
+  const tbody = document.getElementById('battleDeskBody');
+  if (!tbody) return;
+  const meta = document.getElementById('battleDeskMeta');
+  if (!positions.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--tx-mute);padding:14px;font-family:var(--mono)">No open positions · paper account flat</td></tr>';
+    if (meta) meta.textContent = 'Alpaca paper · 0 open';
+    return;
+  }
+  const totalPnl = positions.reduce((s, p) => s + (Number(p.unrealized_pl) || 0), 0);
+  if (meta) meta.textContent = positions.length + ' open · ' + fmtPnl(totalPnl);
+  tbody.innerHTML = positions.map(function(p) {
+    const sym  = (p.symbol || '—').toUpperCase();
+    const qty  = Number(p.qty || p.quantity || 0);
+    const avg  = Number(p.avg_entry_price || p.avg_cost || 0);
+    const last = Number(p.current_price || 0);
+    const pnl  = Number(p.unrealized_pl || 0);
+    const pc   = colorClass(pnl);
+    return '<tr>'
+      + '<td style="font-weight:600">' + sym + '</td>'
+      + '<td style="color:var(--tx-mute)">' + (p.side || 'long') + '</td>'
+      + '<td class="r">' + qty + '</td>'
+      + '<td class="r">$' + avg.toFixed(2) + '</td>'
+      + '<td class="r">$' + last.toFixed(2) + '</td>'
+      + '<td class="r ' + pc + '">' + fmtPnl(pnl) + '</td>'
+      + '<td class="r"><button class="btn red sm" onclick="closePosition(\'' + sym + '\',' + qty + ')">Close</button></td>'
+      + '</tr>';
+  }).join('');
+}
+
+async function close0dtePosition() {
+  const sym = document.getElementById('bs0dteCloseBtn').getAttribute('data-sym');
+  if (!sym) { act('No symbol', 'Cannot determine 0DTE symbol', true); return; }
+  await closePosition(sym, 1);
+  setTimeout(loadBattleStation, 2500);
+}
+
+async function closeAllPositions() {
+  if (!window.confirm('CLOSE ALL paper positions?\n\nMarket SELL every open position on Alpaca PAPER.\nNo real money — paper account only.')) return;
+  try {
+    const d = await api('POST', '/api/alpaca/close-all');
+    const n = Array.isArray(d) ? d.length : (d.closed || d.count || '?');
+    act('Close all sent', n + ' positions queued · paper', false);
+    setTimeout(loadPositions, 3000);
+    setTimeout(loadAlpacaStatus, 3500);
+  } catch (e) { act('Close all error', e.message, true); }
 }
 
 // ─── Arm toggle ───────────────────────────────────────────────────────────────
