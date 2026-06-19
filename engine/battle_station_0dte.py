@@ -249,6 +249,11 @@ def scan() -> dict[str, Any]:
     """
     Main 2-minute scan. Returns status dict.
     """
+    from config import ZERO_DTE_EXECUTION_ENABLED
+    if not ZERO_DTE_EXECUTION_ENABLED:
+        logger.info("ZERO_DTE_EXECUTION_ENABLED=False — 0DTE scan gated (door1)")
+        return {"action": "GATED", "reason": "ZERO_DTE_EXECUTION_ENABLED=False (door1 2026-06-19)"}
+
     global _prior
     _init()
 
