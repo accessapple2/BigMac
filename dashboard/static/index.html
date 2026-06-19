@@ -23688,7 +23688,7 @@ function buildArenaLbRows(players, expandPrefix, includeHomeBody) {
     html += '<td><span class="ret-cell" style="color:' + retCol + ';background:' + retBg + ';font-weight:700;">' + (ret >= 0 ? '+' : '') + ret.toFixed(1) + '%</span></td>';
     var tradesCell = trades === 0 ? '<span title="Awaiting first trade signal — model active but no trades executed yet" style="cursor:help;color:var(--muted);">—</span>' : trades;
     html += '<td class="value-cell">' + tradesCell + '</td>';
-    html += '<td class="value-cell" style="display:flex;align-items:center;gap:6px;">' + Number(p.win_rate || 0).toFixed(0) + '%<span class="lb-chevron" style="font-size:13px;color:var(--muted);transition:transform 0.2s;">\u25BC</span></td>';
+    html += '<td class="value-cell" style="display:flex;align-items:center;gap:6px;">' + (p.win_rate == null ? '<span style="color:var(--muted);">\u2014</span>' : Number(p.win_rate).toFixed(0) + '%') + '<span class="lb-chevron" style="font-size:13px;color:var(--muted);transition:transform 0.2s;">\u25BC</span></td>';
     html += '</tr>';
 
     html += '<tr class="lb-expand-row" id="' + rowId + '" data-active="' + isActive + '" style="display:none;">';
@@ -42158,10 +42158,12 @@ setTimeout(function(){
 </script>
 
 <!-- Bridge Ambience Audio -->
-<audio id="bridgeAmbienceAudio" src="/static/bridge-ambience.mp3" loop preload="none"></audio>
+<audio id="bridgeAmbienceAudio" loop preload="none"></audio>
 <script>
 (function () {
+  var AMBIENT_SRC = "audio/tng_idle.mp3";
   var audio = document.getElementById('bridgeAmbienceAudio');
+  audio.src = '/static/' + AMBIENT_SRC;
   var btn   = document.getElementById('ambienceBtn');
   var _fadeTimer = null;
 
