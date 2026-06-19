@@ -1736,9 +1736,12 @@ def _morpheus_log_action(action, by, result, notes=None):
 
 @app.route('/api/morpheus/action/refresh-schwab', methods=['POST'])
 def morpheus_action_refresh_schwab():
-    """HM-MORPHEUS Ship 2 Phase 3: trigger Schwab CSV import refresh.
-    Admin-only. Writes execution_log row on success/failure.
-    Fires fire-and-forget in background thread; immediate 200 + status.
+    """HM-MORPHEUS: trigger live Schwab sync → data/real_holdings.json (schwab block).
+    Admin-only. Fires fire-and-forget in background thread; immediate 200 + status.
+
+    CSV path RETIRED 2026-06-14. Canonical = sync_schwab_live.py (live API, read-only GET).
+    RULE #1: no order path — this is a read-only reporting sync only.
+    Script exits 0 outside RTH (clean skip, no file write) → result = EXECUTED either way.
     """
     authorized, who = _morpheus_admin_required()
     if not authorized:
@@ -1746,30 +1749,22 @@ def morpheus_action_refresh_schwab():
     import threading
     def _runner():
         try:
-            # Schwab CSV import path; subprocess to keep import isolation.
-            # HM-DRYDOCK 2026-06-08: the old call imported a NON-EXISTENT module
-            # (engine.schwab_csv_import) → always ModuleNotFoundError → FAILED since written.
-            # Repoint to the REAL importer + sync — the exact pair the live cron watcher
-            # (scripts/schwab_csv_watcher.sh) uses. READ-ONLY on real Schwab ...7015: imports
-            # the Captain's exported CSV into the schwab_holdings TRACKING table; no orders.
+            # Live-API sync — canonical post CSV retirement 2026-06-14.
+            # sync_schwab_live.py: read-only GET from Schwab API → real_holdings.json schwab block.
+            # Must run under /opt/homebrew/bin/python3; schwab package lives there, not in .venv.
             parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
-            py = os.path.join(parent, "venv", "bin", "python3")
+            py = "/opt/homebrew/bin/python3"
             cp = subprocess.run(
-                [py, "scripts/import_schwab_csv.py", "--latest"],
-                capture_output=True, text=True, timeout=60, cwd=parent,
+                [py, "scripts/sync_schwab_live.py"],
+                capture_output=True, text=True, timeout=90, cwd=parent,
             )
-            if cp.returncode == 0:
-                cp = subprocess.run(
-                    [py, "scripts/sync_schwab_to_real_holdings.py"],
-                    capture_output=True, text=True, timeout=60, cwd=parent,
-                )
             result = "EXECUTED" if cp.returncode == 0 else "FAILED"
             _morpheus_log_action("refresh-schwab", who, result, {"rc": cp.returncode, "stderr_tail": cp.stderr[-200:] if cp.stderr else ""})
         except Exception as _e:
             _morpheus_log_action("refresh-schwab", who, "FAILED", {"error": f"{type(_e).__name__}: {_e!r}"})
     threading.Thread(target=_runner, daemon=True, name="morpheus_refresh_schwab").start()
     _morpheus_log_action("refresh-schwab", who, "TRIGGERED", None)
-    return jsonify({"status": "ok", "message": "Schwab refresh triggered (background)", "triggered_by": who})
+    return jsonify({"status": "ok", "message": "Schwab live-sync triggered (background)", "triggered_by": who})
 
 
 @app.route('/api/morpheus/action/fire-kirk', methods=['POST'])
