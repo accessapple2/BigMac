@@ -872,6 +872,7 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 
 // ─── Toast ────────────────────────────────────────────────────────────────────
 let _tt;
+let _lastKnownEquity = null;  // graceful error: keep last value across failures
 function act(title, detail, isErr) {
   const t = document.getElementById('toast');
   t.innerHTML = '<b>' + title + '</b> &nbsp; ' + detail;
@@ -925,6 +926,7 @@ function showTab(name) {
   });
   const pane = document.getElementById('tab-' + name);
   if (pane) pane.style.display = '';
+  if (name === 'bridge')   { loadAlpacaStatus(); loadGex(); loadFearGreed(); }
   if (name === 'battle')   loadBattleTab();
   if (name === 'research') loadResearchTab();
   if (name === 'fleet')    loadFleetTab();
@@ -950,6 +952,7 @@ async function loadAlpacaStatus() {
     const equity = d.equity ?? d.portfolio_value ?? 0;
     const cash   = d.cash ?? 0;
     const bp     = d.buying_power ?? 0;
+    _lastKnownEquity = equity;
     document.getElementById('heroEquity').textContent = fmtUSD(equity);
     // Rail: connected status
     document.getElementById('railAlpacaStatus').textContent = d.connected ? 'LIVE' : 'OFF';
@@ -967,9 +970,17 @@ async function loadAlpacaStatus() {
     document.getElementById('posturePosBar').style.width = Math.min(100, posPct) + '%';
     document.getElementById('postureCashBar').style.width = Math.min(100, cashPct) + '%';
   } catch (e) {
-    document.getElementById('heroEquity').textContent = 'Error';
-    setSys('sysAlpaca', false, 'error');
-    act('Alpaca error', e.message, true);
+    const isAuth = /401|403|Unauthorized|Forbidden/i.test(e.message);
+    const caption = isAuth ? 'Session expired · sign in' : 'Reconnecting…';
+    // Never show raw "Error" — preserve last known value or show skeleton dashes
+    if (_lastKnownEquity !== null) {
+      document.getElementById('heroEquity').textContent = fmtUSD(_lastKnownEquity);
+    } else {
+      document.getElementById('heroEquity').textContent = '— — —';
+    }
+    document.getElementById('heroSeason').textContent = caption;
+    setSys('sysAlpaca', false, isAuth ? 'session expired' : 'offline');
+    if (isAuth) act('Session expired', 'Reload the page to sign in', true);
   }
 }
 
@@ -1088,22 +1099,17 @@ async function loadLeaderboard() {
 }
 
 // ─── Gamma / F&G (best-effort) ────────────────────────────────────────────────
+// Exact mirror of loadMacroGex() — same endpoint, same guards, same field names.
 async function loadGex() {
   try {
     const raw = await api('GET', '/api/market/gex');
-    const d = Array.isArray(raw) ? raw[0] : raw;  // endpoint returns list
+    const d   = Array.isArray(raw) ? raw[0] : raw;
     if (!d) return;
     if (d.gamma_flip) document.getElementById('gFlip').textContent     = '$' + Number(d.gamma_flip).toFixed(0);
     if (d.call_wall)  document.getElementById('gCallWall').textContent  = '$' + Number(d.call_wall).toFixed(0);
     if (d.put_wall)   document.getElementById('gPutWall').textContent   = '$' + Number(d.put_wall).toFixed(0);
     if (d.spot)       document.getElementById('gSpot').textContent      = '$' + Number(d.spot).toFixed(2);
-    // Regime-driven color on spot: short-gamma = amber, long-gamma = blue
-    if (d.regime) {
-      const isShort = (d.total_gex || 0) < 0 || (d.regime || '').toLowerCase().includes('short');
-      const el = document.getElementById('gSpot');
-      if (el) { el.className = 'px ' + (isShort ? 'warn' : 'neu'); }
-    }
-  } catch (_) { /* non-critical — gamma map stays dashes */ }
+  } catch (_) {}
 }
 
 async function loadKirkAdvisory() {
