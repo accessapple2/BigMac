@@ -1,0 +1,311 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>The Bridge — Refined LCARS</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;500;600;700&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<style>
+:root{
+  --bull:#3DDC84; --bear:#FF5A3C; --caution:#FFC23D; --info:#7FC4FF;
+  --hull:#060608; --panel:#13131A; --panel2:#1A1A24; --rail-dim:#2A2A36;
+  --tx:#F2F2F8; --tx-mute:#9A9AAB; --tx-dim:#5A5A66; --line:#2A2A34;
+  --display:'Antonio',sans-serif; --ui:'Archivo',sans-serif; --mono:'IBM Plex Mono',monospace;
+}
+*{box-sizing:border-box;margin:0;padding:0}
+body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;padding:22px;max-width:1480px;margin:0 auto}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.up{color:var(--bull)} .down{color:var(--bear)} .warn{color:var(--caution)} .neu{color:var(--info)}
+
+/* top bar */
+.topbar{display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--line);padding-bottom:14px;margin-bottom:18px}
+.brand{display:flex;align-items:baseline;gap:16px}
+.brand .ship{font-family:var(--mono);font-size:12px;letter-spacing:.22em;color:var(--tx-dim)}
+.brand h1{font-family:var(--display);font-weight:700;font-size:34px;letter-spacing:.04em;text-transform:uppercase}
+.live{display:inline-flex;align-items:center;gap:8px;font-family:var(--mono);font-size:12px;letter-spacing:.16em;color:var(--bull);text-transform:uppercase}
+.dot{width:8px;height:8px;border-radius:50%;background:var(--bull);animation:pulse 2.4s infinite}
+@keyframes pulse{0%{box-shadow:0 0 0 0 rgba(61,220,132,.55)}70%{box-shadow:0 0 0 7px rgba(61,220,132,0)}100%{box-shadow:0 0 0 0 rgba(61,220,132,0)}}
+.tabs{display:flex;gap:4px;font-family:var(--mono);font-size:13px;letter-spacing:.1em;text-transform:uppercase}
+.tabs span{padding:8px 16px;color:var(--tx-dim);border-bottom:3px solid transparent}
+.tabs span.on{color:var(--tx);border-bottom-color:var(--caution)}
+
+/* LCARS command strip */
+.command{display:grid;grid-template-columns:150px 1fr;margin-bottom:16px}
+.rail{background:var(--bull);border-radius:26px 0 0 26px;display:flex;flex-direction:column;justify-content:space-between;padding:20px 18px;color:#05130b}
+.rail .rk{font-family:var(--display);font-weight:700;font-size:18px;letter-spacing:.1em;text-transform:uppercase;line-height:1}
+.rail .elbow{font-family:var(--display);font-weight:700;font-size:46px;line-height:.85}
+.rail .rv{font-family:var(--mono);font-size:12px;letter-spacing:.06em;font-weight:600}
+.cmd-body{background:var(--panel);border:1px solid var(--line);border-left:none;border-radius:0 16px 16px 0;padding:22px 26px}
+.fleet{display:flex;align-items:baseline;gap:20px;flex-wrap:wrap}
+.fleet .big{font-family:var(--mono);font-weight:600;font-size:56px;letter-spacing:-.02em;line-height:1}
+.fleet .chg{font-family:var(--mono);font-size:22px;font-weight:500}
+.fleet .cap{margin-left:auto;font-family:var(--mono);font-size:13px;color:var(--tx-mute);letter-spacing:.06em;text-align:right}
+.vitals{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;margin-top:20px;background:var(--line);border:1px solid var(--line)}
+.vital{background:var(--panel);padding:12px 14px}
+.vital .vl{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--tx-dim)}
+.vital .vv{font-family:var(--mono);font-size:26px;font-weight:600;margin-top:4px;line-height:1}
+.vital .vs{font-family:var(--mono);font-size:12px;color:var(--tx-mute);margin-top:4px}
+
+/* generic panel */
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
+.phead{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-left:12px;border-left:5px solid var(--accent,var(--info))}
+.phead h2{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.08em;text-transform:uppercase}
+.phead .meta{font-family:var(--mono);font-size:12px;color:var(--tx-dim);letter-spacing:.06em}
+
+.row{display:grid;gap:16px;margin-bottom:16px}
+.r1{grid-template-columns:1.9fr 1.1fr}
+.r2{grid-template-columns:1fr 1fr 1fr}
+
+/* advisory */
+.conv{display:flex;align-items:baseline;gap:10px;margin-bottom:14px}
+.conv .score{font-family:var(--mono);font-size:44px;font-weight:600;color:var(--caution);line-height:1}
+.conv .of{font-family:var(--mono);font-size:14px;color:var(--tx-dim)}
+.advisory{font-size:17px;line-height:1.65;margin-bottom:16px}
+.chips{display:flex;gap:10px;flex-wrap:wrap}
+.chip{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;padding:7px 14px;border-radius:7px;border:1px solid}
+.chip.b{color:var(--bull);border-color:rgba(61,220,132,.5);background:rgba(61,220,132,.1)}
+.chip.a{color:var(--caution);border-color:rgba(255,194,61,.5);background:rgba(255,194,61,.1)}
+.chip.r{color:var(--bear);border-color:rgba(255,90,60,.5);background:rgba(255,90,60,.1)}
+
+/* gamma ladder */
+.ladder{display:flex;flex-direction:column;gap:3px}
+.rung{display:grid;grid-template-columns:104px 1fr 76px;align-items:center;gap:12px;font-family:var(--mono);font-size:13px;padding:8px 0}
+.rung .lab{color:var(--tx-mute);letter-spacing:.06em;text-transform:uppercase;font-size:11px}
+.bar{height:8px;border-radius:4px;background:var(--rail-dim);position:relative}
+.bar i{position:absolute;inset:0;border-radius:4px}
+.rung .px{text-align:right;font-weight:600;font-size:15px}
+.rung.here{background:rgba(127,196,255,.09)}.rung.here .lab{color:var(--info)}
+
+/* posture */
+.posture{display:flex;flex-direction:column;gap:13px}
+.pos{display:grid;grid-template-columns:1fr 64px;gap:10px;align-items:center}
+.pos .pl{font-size:13px;color:var(--tx-mute)}
+.track{height:9px;border-radius:5px;background:var(--rail-dim);position:relative;grid-column:1/2;margin-top:6px}
+.track i{position:absolute;left:0;top:0;bottom:0;border-radius:5px}
+.track u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx-dim)}
+.pos .pv{font-family:var(--mono);font-size:13px;text-align:right;font-weight:500}
+
+/* sentiment gauge */
+.gauge{display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;height:100%}
+.gscore{font-family:var(--mono);font-size:60px;font-weight:700;color:var(--caution);line-height:1}
+.glab{font-family:var(--display);font-size:22px;letter-spacing:.14em;text-transform:uppercase;color:var(--caution)}
+.gtrack{width:100%;height:12px;border-radius:6px;background:linear-gradient(90deg,var(--bull) 0%,var(--caution) 50%,var(--bear) 100%);position:relative;opacity:.9}
+.gtrack u{position:absolute;top:-5px;width:4px;height:22px;border-radius:2px;background:var(--tx)}
+.gzones{display:flex;justify-content:space-between;width:100%;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim)}
+
+/* battle */
+.battle{display:flex;flex-direction:column;gap:12px;height:100%}
+.bstat{display:flex;justify-content:space-between;align-items:baseline}
+.bstat .armed{font-family:var(--display);font-size:24px;letter-spacing:.12em;color:var(--caution);text-transform:uppercase}
+.bstat .pl{font-family:var(--mono);font-size:18px;font-weight:600}
+.setup{border:1px solid rgba(255,194,61,.35);background:rgba(255,194,61,.07);border-radius:10px;padding:14px;margin-top:auto}
+.setup .st{font-family:var(--mono);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--caution);margin-bottom:6px}
+.setup .sd{font-family:var(--mono);font-size:12px;color:var(--tx-mute);line-height:1.6}
+
+/* ship systems strip */
+.systems{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:0}
+.sys{background:var(--panel);padding:14px 16px}
+.sys .sn{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--tx-mute)}
+.sys .ss{display:flex;align-items:center;gap:7px;margin-top:7px;font-family:var(--mono);font-size:13px;font-weight:500}
+.sys .sdot{width:7px;height:7px;border-radius:50%}
+
+/* leaderboard */
+.lb{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:14px}
+.lb th{text-align:left;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim);font-weight:400;padding:9px 12px;border-bottom:1px solid var(--line)}
+.lb td{padding:11px 12px;border-bottom:1px solid var(--panel2)}
+.lb td.r{text-align:right}
+.lb tr:first-child td{color:var(--tx)}
+.lb .off{font-family:var(--ui);color:var(--tx);font-weight:600}
+.lb .mdl{color:var(--tx-dim);font-size:12px;font-weight:400}
+.lb .rk{font-family:var(--display);font-size:16px;color:var(--caution)}
+
+/* action controls */
+.btn{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:8px 14px;border-radius:7px;border:1px solid;cursor:pointer;background:transparent;transition:.12s}
+.btn:active{transform:translateY(1px)}
+.btn.go{color:var(--bull);border-color:rgba(61,220,132,.55);background:rgba(61,220,132,.1)}
+.btn.go:hover{background:rgba(61,220,132,.2)}
+.btn.amber{color:var(--caution);border-color:rgba(255,194,61,.55);background:rgba(255,194,61,.1)}
+.btn.amber:hover{background:rgba(255,194,61,.2)}
+.btn.red{color:var(--bear);border-color:rgba(255,90,60,.55);background:rgba(255,90,60,.1)}
+.btn.red:hover{background:rgba(255,90,60,.2)}
+.btn.ghost{color:var(--tx-mute);border-color:var(--line)}
+.btn.ghost:hover{color:var(--tx);border-color:var(--tx-dim)}
+.btn.sm{font-size:11px;padding:5px 10px}
+.actbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
+.scanrow{display:flex;align-items:center;gap:8px;margin-top:4px}
+.doctrine{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--caution);border:1px solid rgba(255,194,61,.4);background:rgba(255,194,61,.07);padding:5px 11px;border-radius:6px}
+.armtag{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;border-radius:6px;border:1px solid}
+.armtag.hot{color:var(--bear);border-color:var(--bear);background:rgba(255,90,60,.1)}
+.armtag.safe{color:var(--tx-mute);border-color:var(--line)}
+/* positions */
+.ptbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px}
+.ptbl th{text-align:left;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim);font-weight:400;padding:8px 10px;border-bottom:1px solid var(--line)}
+.ptbl td{padding:9px 10px;border-bottom:1px solid var(--panel2)}
+.ptbl td.r{text-align:right}
+/* toast */
+#toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--panel2);border:1px solid var(--caution);color:var(--tx);font-family:var(--mono);font-size:13px;padding:12px 20px;border-radius:10px;opacity:0;pointer-events:none;transition:.25s;z-index:50;box-shadow:0 8px 30px rgba(0,0,0,.5)}
+#toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast b{color:var(--caution)}
+.foot{margin-top:18px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--tx-dim);text-align:center}
+@media(max-width:900px){.vitals,.systems{grid-template-columns:repeat(3,1fr)}.r1,.r2{grid-template-columns:1fr}.command{grid-template-columns:110px 1fr}}
+</style>
+</head>
+<body>
+
+<div class="topbar">
+  <div class="brand">
+    <span class="ship">USS&nbsp;TRADEMINDS</span>
+    <h1>The Bridge</h1>
+    <span class="live"><span class="dot"></span>Live · Nominal</span>
+    <span class="doctrine">⬡ Alpaca Paper · Schwab R/O</span>
+  </div>
+  <div class="tabs">
+    <span class="on">Bridge</span><span>Battle</span><span>Research</span><span>Fleet</span><span>Macro</span>
+  </div>
+</div>
+
+<div class="command">
+  <div class="rail">
+    <div class="rk">Capt.<br>Kirk</div>
+    <div class="elbow">+1.8%</div>
+    <div class="rv">SYSTEMS<br>NOMINAL</div>
+  </div>
+  <div class="cmd-body">
+    <div class="fleet">
+      <span class="big">$137,240</span>
+      <span class="chg up">▲ +1.8% &nbsp;+$2,430</span>
+      <span class="cap">FLEET VALUE<br>SEASON 3 · DAY 41</span>
+    </div>
+    <div class="vitals">
+      <div class="vital"><div class="vl">SPY</div><div class="vv up">597.20</div><div class="vs up">▲ 0.42%</div></div>
+      <div class="vital"><div class="vl">VIX</div><div class="vv up">14.8</div><div class="vs up">▼ 3.1% · calm</div></div>
+      <div class="vital"><div class="vl">Fear / Greed</div><div class="vv warn">62</div><div class="vs warn">Greed</div></div>
+      <div class="vital"><div class="vl">Gamma Flip</div><div class="vv neu">595.0</div><div class="vs">above · stable</div></div>
+      <div class="vital"><div class="vl">Regime</div><div class="vv">Neutral</div><div class="vs up">risk-on lean</div></div>
+      <div class="vital"><div class="vl">Next Scan</div><div class="vv">4:12</div><div class="scanrow"><button class="btn go sm" onclick="act('Scan triggered','Manual scan queued · running now')">▸ Run now</button></div></div>
+    </div>
+  </div>
+</div>
+
+<div class="row r1">
+  <div class="panel">
+    <div class="phead" style="--accent:var(--bull)"><h2>CTO Daily Advisory</h2><span class="meta">Strategic Command · poll 14:30 UTC</span></div>
+    <div class="conv"><span class="score">7.2</span><span class="of">/ 10 conviction · 3 alerts today</span></div>
+    <p class="advisory">Hold long bias above the 595 gamma flip. Fade rips into the 600 call wall; defend the 590 put wall. Size at 0.5× into a calm-VIX, risk-on tape.</p>
+    <div class="chips"><span class="chip b">Long bias</span><span class="chip a">0.5× size</span><span class="chip r">Fade 600</span><span class="chip b">Defend 590</span></div>
+    <div class="actbar">
+      <button class="btn go" onclick="act('Advisory executed','Paper orders staged · 0.5× long bias above 595')">▸ Execute (paper)</button>
+      <button class="btn red" onclick="act('Advisory overridden','CTO call vetoed · logged to arena.db')">✕ Override</button>
+      <button class="btn ghost" onclick="act('Snoozed','Advisory muted 60 min')">Snooze</button>
+    </div>
+  <div class="panel">
+    <div class="phead" style="--accent:var(--info)"><h2>Gamma Map · SPY</h2><span class="meta">you are here</span></div>
+    <div class="ladder">
+      <div class="rung"><span class="lab">Call wall</span><span class="bar"><i style="width:96%;background:var(--bear)"></i></span><span class="px down">600.0</span></div>
+      <div class="rung"><span class="lab">Gamma flip</span><span class="bar"><i style="width:62%;background:var(--caution)"></i></span><span class="px warn">595.0</span></div>
+      <div class="rung here"><span class="lab">▸ You are here</span><span class="bar"><i style="width:74%;background:var(--info)"></i></span><span class="px neu">597.2</span></div>
+      <div class="rung"><span class="lab">VWAP</span><span class="bar"><i style="width:68%;background:var(--tx-dim)"></i></span><span class="px">596.4</span></div>
+      <div class="rung"><span class="lab">Put wall</span><span class="bar"><i style="width:40%;background:var(--bull)"></i></span><span class="px up">590.0</span></div>
+    </div>
+  </div>
+</div>
+
+<div class="row r2">
+  <div class="panel">
+    <div class="phead" style="--accent:var(--caution)"><h2>Capital Posture</h2><span class="meta">| = target</span></div>
+    <div class="posture">
+      <div class="pos"><span class="pl">Long equity</span><span class="pv">48% / 50</span></div><div class="track"><i style="width:48%;background:var(--bull)"></i><u style="left:50%"></u></div>
+      <div class="pos"><span class="pl">Bear call spreads</span><span class="pv">12% / 15</span></div><div class="track"><i style="width:12%;background:var(--caution)"></i><u style="left:15%"></u></div>
+      <div class="pos"><span class="pl">Iron condors</span><span class="pv">10% / 10</span></div><div class="track"><i style="width:10%;background:var(--info)"></i><u style="left:10%"></u></div>
+      <div class="pos"><span class="pl">Cash</span><span class="pv">26% / 20</span></div><div class="track"><i style="width:26%;background:var(--tx-dim)"></i><u style="left:20%"></u></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="phead" style="--accent:var(--caution)"><h2>Sentiment</h2><span class="meta">CNN F&amp;G</span></div>
+    <div class="gauge">
+      <div class="gscore">62</div>
+      <div class="glab">Greed</div>
+      <div class="gtrack"><u style="left:62%"></u></div>
+      <div class="gzones"><span>Fear</span><span>Neutral</span><span>Greed</span></div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="phead" style="--accent:var(--bear)"><h2>Battle Station · 0DTE</h2><span class="meta">today 1/2</span></div>
+    <div class="battle">
+      <div class="bstat"><span class="armed" id="armLabel">⚡ Armed</span><span class="pl up">P&amp;L +$184</span></div>
+      <div class="setup">
+        <div class="st">Gap-fill setup</div>
+        <div class="sd">ATM calls · Δ0.35<br>target +60% · stop −40%<br>exit by 11:00 ET</div>
+      </div>
+      <div class="actbar" style="margin-top:12px">
+        <button class="btn amber sm" id="armBtn" onclick="toggleArm()">Disarm</button>
+        <button class="btn go sm" onclick="act('Setup fired','Gap-fill paper order sent to Alpaca')">▸ Fire (paper)</button>
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:16px;padding:18px 22px">
+  <div class="phead" style="--accent:var(--bull)"><h2>Ship Systems</h2><span class="meta"><button class="btn ghost sm" onclick="act('War Room re-poll','7 officers re-voting now')">↻ Re-vote</button></span></div>
+  <div class="systems">
+    <div class="sys"><div class="sn">Riker · XO synthesis</div><div class="ss up"><span class="sdot" style="background:var(--bull)"></span>Synthesized</div></div>
+    <div class="sys"><div class="sn">Consensus · officers</div><div class="ss up"><span class="sdot" style="background:var(--bull)"></span>5 / 7 bullish</div></div>
+    <div class="sys"><div class="sn">Earnings · this week</div><div class="ss neu"><span class="sdot" style="background:var(--info)"></span>2 ahead</div></div>
+    <div class="sys"><div class="sn">Congress · capitol</div><div class="ss warn"><span class="sdot" style="background:var(--caution)"></span>4 new buys</div></div>
+    <div class="sys"><div class="sn">Worf · defense</div><div class="ss neu"><span class="sdot" style="background:var(--info)"></span>Monitoring</div></div>
+    <div class="sys"><div class="sn">Volume radar</div><div class="ss warn"><span class="sdot" style="background:var(--caution)"></span>3 alerts</div></div>
+  </div>
+</div>
+
+<div class="panel" style="margin-bottom:16px">
+  <div class="phead" style="--accent:var(--info)"><h2>Open Positions · Paper</h2><span class="meta">Alpaca · 4 open · +$612 day</span></div>
+  <table class="ptbl">
+    <thead><tr><th>Ticker</th><th>Strategy</th><th class="r">Qty</th><th class="r">Avg</th><th class="r">Last</th><th class="r">P&amp;L</th><th class="r">Action</th></tr></thead>
+    <tbody>
+      <tr><td>SPY</td><td>Long equity</td><td class="r">120</td><td class="r">591.40</td><td class="r">597.20</td><td class="r up">+$696</td><td class="r"><button class="btn red sm" onclick="act('Close staged','SPY paper close sent to Alpaca')">Close</button></td></tr>
+      <tr><td>NVDA</td><td>Long equity</td><td class="r">40</td><td class="r">172.10</td><td class="r">169.80</td><td class="r down">−$92</td><td class="r"><button class="btn red sm" onclick="act('Close staged','NVDA paper close sent to Alpaca')">Close</button></td></tr>
+      <tr><td>QQQ</td><td>Bear call 540/545</td><td class="r">5</td><td class="r">1.85</td><td class="r">1.42</td><td class="r up">+$215</td><td class="r"><button class="btn red sm" onclick="act('Close staged','QQQ spread paper close sent')">Close</button></td></tr>
+      <tr><td>IWM</td><td>Iron condor</td><td class="r">4</td><td class="r">2.10</td><td class="r">2.08</td><td class="r up">+$8</td><td class="r"><button class="btn red sm" onclick="act('Close staged','IWM condor paper close sent')">Close</button></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="panel">
+  <div class="phead" style="--accent:var(--bear)"><h2>Fleet Leaderboard</h2><span class="meta">Season 3 · Day 41</span></div>
+  <table class="lb">
+    <thead><tr><th>#</th><th>Officer · Model</th><th class="r">Value</th><th class="r">Return</th><th class="r">Win%</th><th class="r">Day</th></tr></thead>
+    <tbody>
+      <tr><td class="rk">01</td><td><span class="off">Kirk</span> <span class="mdl">Grok 4.2</span></td><td class="r">$24,640</td><td class="r up">+24.6%</td><td class="r">68%</td><td class="r up">+2.1%</td></tr>
+      <tr><td class="rk">02</td><td><span class="off">Spock</span> <span class="mdl">Grok 4</span></td><td class="r">$23,840</td><td class="r up">+19.2%</td><td class="r">71%</td><td class="r up">+1.4%</td></tr>
+      <tr><td class="rk">03</td><td><span class="off">Data</span> <span class="mdl">Qwen3 8B</span></td><td class="r">$22,960</td><td class="r up">+14.8%</td><td class="r">64%</td><td class="r up">+0.9%</td></tr>
+      <tr><td class="rk">04</td><td><span class="off">Uhura</span> <span class="mdl">Llama 3.3</span></td><td class="r">$21,340</td><td class="r up">+6.7%</td><td class="r">55%</td><td class="r down">−0.3%</td></tr>
+      <tr><td class="rk">05</td><td><span class="off">Riker</span> <span class="mdl">Sonnet</span></td><td class="r">$20,640</td><td class="r up">+3.2%</td><td class="r">52%</td><td class="r up">+0.4%</td></tr>
+    </tbody>
+  </table>
+</div>
+
+<div class="foot">DIRECTION A · LCARS FIGHTER — ACTIONABLE · ALL ACTIONS ROUTE TO ALPACA PAPER ONLY · SCHWAB READ-ONLY · NO REAL-MONEY PATH — SAMPLE DATA, BUTTONS ARE DEMO</div>
+
+<div id="toast"></div>
+<script>
+  let toastTimer;
+  function act(title, detail){
+    const t = document.getElementById('toast');
+    t.innerHTML = '<b>'+title+'</b> &nbsp; '+detail;
+    t.classList.add('show');
+    clearTimeout(toastTimer);
+    toastTimer = setTimeout(()=>t.classList.remove('show'), 2600);
+  }
+  let armed = true;
+  function toggleArm(){
+    armed = !armed;
+    const lbl = document.getElementById('armLabel');
+    const btn = document.getElementById('armBtn');
+    if(armed){ lbl.textContent='⚡ Armed'; lbl.style.color='var(--caution)'; btn.textContent='Disarm'; btn.className='btn amber sm'; act('Battle Station armed','0DTE seat hot · paper'); }
+    else { lbl.textContent='● Safe'; lbl.style.color='var(--tx-mute)'; btn.textContent='Arm'; btn.className='btn go sm'; act('Battle Station safe','0DTE seat cold'); }
+  }
+</script>
+</body>
+</html>
