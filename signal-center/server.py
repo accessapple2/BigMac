@@ -940,7 +940,7 @@ def _fetch_all_signals(prev_data=None):
     _lb_payload = results.get('leaderboard')
     if isinstance(_lb_payload, dict):
         for _entry in _lb_payload.get('leaderboard', []):
-            if isinstance(_entry, dict) and _entry.get('id') in _TRACKING_PLAYERS:
+            if isinstance(_entry, dict) and _entry.get('player_id') in _TRACKING_PLAYERS:
                 _entry['win_rate'] = None
 
     # Persist to history — only fresh fetches (no last-good replays).
