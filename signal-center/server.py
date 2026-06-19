@@ -808,6 +808,9 @@ _signals_cache: dict = {"data": None, "ts": 0.0, "refreshing": False}
 _signals_lock = threading.Lock()
 _SIGNALS_TTL        = 60    # serve from cache for 60 s
 _SIGNALS_SWR_MAX    = 120   # stale-while-revalidate up to 120 s
+# Tracking-only players have no CLEAN_TRADES_WHERE rows; the dashboard scores
+# them 0 rather than null. Null here so the UI can render "—" not "WR 0%".
+_TRACKING_PLAYERS = frozenset({'dalio-metals', 'enterprise-computer', 'schwab'})
 
 _SIGNALS_ENDPOINTS = {
     'regime':             '/api/regime',
@@ -932,6 +935,13 @@ def _fetch_all_signals(prev_data=None):
                 results['ema_pullback'] = _last_ema
     except Exception:
         pass
+
+    # Null win_rate for tracking-only players so the CREW card renders "—" not "WR 0%".
+    _lb_payload = results.get('leaderboard')
+    if isinstance(_lb_payload, dict):
+        for _entry in _lb_payload.get('leaderboard', []):
+            if isinstance(_entry, dict) and _entry.get('id') in _TRACKING_PLAYERS:
+                _entry['win_rate'] = None
 
     # Persist to history — only fresh fetches (no last-good replays).
     try:
