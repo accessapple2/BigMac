@@ -1469,7 +1469,7 @@ function scoreVix(d){
 }
 function scoreGex(d){
   if(!d) return{score:50,val:'--',desc:'No GEX data'};
-  var gv=parseFloat(d.net_gex||d.gex||d.call_wall||0);
+  var gv=parseFloat(d.total_gex||d.net_gex||0);
   var score=gv>2e9?80:gv>0?65:gv>-2e9?42:22;
   return{score,val:(gv/1e9).toFixed(2)+'B',desc:gv>0?'Positive gamma — dampened moves':'Negative gamma — amplified volatility'};
 }
@@ -2020,7 +2020,7 @@ function buildDashboard(data){
     var bullCount=analyses.filter(function(a){return (a.bull_case||'').length>5;}).length;
     var bearCount=analyses.filter(function(a){return (a.bear_case||'').length>5;}).length;
     var n=analyses.length||1;
-    var bullPct=Math.round(bullCount/n*100);
+    var bullPct=Math.round(bullCount/(bullCount+bearCount||1)*100);
     var bbScore=bullPct>65?75:bullPct>55?62:bullPct>45?50:bullPct>35?38:25;
     var bbExpand='<div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Model Breakdown</div>'+[['Bull models',bullCount+' / '+n],['Bear models',bearCount+' / '+n],['Bull %',bullPct+'%'],['Confidence',bullPct>=65?'Strong consensus':bullPct>=50?'Lean bullish':'Bear majority']].map(function(r){return '<div class="sc-row"><span class="sc-lbl">'+r[0]+'</span><span class="sc-val">'+r[1]+'</span></div>';}).join('');
     cards.push(sigCard('Bull/Bear Consensus', bullPct+'%', bbScore, bullCount+' bull / '+bearCount+' bear across '+n+' models', bbScore,
