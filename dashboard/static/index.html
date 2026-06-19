@@ -3409,6 +3409,15 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
       countdown = 'Pre-market in: ' + Math.floor(minsLeft / 60) + 'h ' + (minsLeft % 60) + 'm';
     }
 
+    // Holiday override: time-bins ignore holidays; defer to fleet pulse (engine/market_calendar.py).
+    // window.__lastPulse is set by pollFleetPulse() and updated every 30 s.
+    var pulse = window.__lastPulse;
+    if (pulse && pulse.market_status === 'closed_holiday' && session !== 'CLOSED') {
+      session = 'CLOSED';
+      color = '#ea580c';
+      countdown = pulse.holiday_name ? 'HOLIDAY · ' + pulse.holiday_name.toUpperCase() : 'HOLIDAY';
+    }
+
     var badgeClass = session === 'MARKET OPEN' ? 'nav-badge-open' : session === 'CLOSED' ? 'nav-badge-closed' : session.indexOf('PRE') >= 0 ? 'nav-badge-pre' : 'nav-badge-after';
     el.innerHTML = '<span class="nav-data-secondary">' + etStr + ' ET</span> <span class="nav-badge ' + badgeClass + '">' + session + '</span> <span style="color:#C0C0C0;font-size:13px;font-weight:600;">' + countdown + '</span>';
 
