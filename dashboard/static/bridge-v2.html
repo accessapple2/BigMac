@@ -9,17 +9,14 @@
 <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;500;600;700&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
 <style>
 :root{
-  --bull:#3DDC84; --bear:#FF5A3C; --caution:#FFC23D; --info:#7FC4FF;
-  --hull:#060608; --panel:#13131A; --panel2:#1A1A24; --rail-dim:#2A2A36;
-  --tx:#F2F2F8; --tx-mute:#9A9AAB; --tx-dim:#5A5A66; --line:#2A2A34;
-  --display:'Antonio',sans-serif; --ui:'Archivo',sans-serif; --mono:'IBM Plex Mono',monospace;
+  --bull:#3DDC84;--bear:#FF5A3C;--caution:#FFC23D;--info:#7FC4FF;
+  --hull:#060608;--panel:#13131A;--panel2:#1A1A24;--rail-dim:#2A2A36;
+  --tx:#F2F2F8;--tx-mute:#9A9AAB;--tx-dim:#5A5A66;--line:#2A2A34;
+  --display:'Antonio',sans-serif;--ui:'Archivo',sans-serif;--mono:'IBM Plex Mono',monospace;
 }
 *{box-sizing:border-box;margin:0;padding:0}
 body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px;line-height:1.5;-webkit-font-smoothing:antialiased;padding:22px;max-width:1480px;margin:0 auto}
-.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
-.up{color:var(--bull)} .down{color:var(--bear)} .warn{color:var(--caution)} .neu{color:var(--info)}
-
-/* top bar */
+.up{color:var(--bull)}.down{color:var(--bear)}.warn{color:var(--caution)}.neu{color:var(--info)}
 .topbar{display:flex;align-items:center;justify-content:space-between;border-bottom:2px solid var(--line);padding-bottom:14px;margin-bottom:18px}
 .brand{display:flex;align-items:baseline;gap:16px}
 .brand .ship{font-family:var(--mono);font-size:12px;letter-spacing:.22em;color:var(--tx-dim)}
@@ -30,13 +27,11 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 .tabs{display:flex;gap:4px;font-family:var(--mono);font-size:13px;letter-spacing:.1em;text-transform:uppercase}
 .tabs span{padding:8px 16px;color:var(--tx-dim);border-bottom:3px solid transparent}
 .tabs span.on{color:var(--tx);border-bottom-color:var(--caution)}
-
-/* LCARS command strip */
 .command{display:grid;grid-template-columns:150px 1fr;margin-bottom:16px}
 .rail{background:var(--bull);border-radius:26px 0 0 26px;display:flex;flex-direction:column;justify-content:space-between;padding:20px 18px;color:#05130b}
 .rail .rk{font-family:var(--display);font-weight:700;font-size:18px;letter-spacing:.1em;text-transform:uppercase;line-height:1}
-.rail .elbow{font-family:var(--display);font-weight:700;font-size:46px;line-height:.85}
-.rail .rv{font-family:var(--mono);font-size:12px;letter-spacing:.06em;font-weight:600}
+.rail .elbow{font-family:var(--display);font-weight:700;font-size:40px;line-height:.9}
+.rail .rv{font-family:var(--mono);font-size:11px;letter-spacing:.06em;font-weight:600}
 .cmd-body{background:var(--panel);border:1px solid var(--line);border-left:none;border-radius:0 16px 16px 0;padding:22px 26px}
 .fleet{display:flex;align-items:baseline;gap:20px;flex-wrap:wrap}
 .fleet .big{font-family:var(--mono);font-weight:600;font-size:56px;letter-spacing:-.02em;line-height:1}
@@ -45,31 +40,24 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 .vitals{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;margin-top:20px;background:var(--line);border:1px solid var(--line)}
 .vital{background:var(--panel);padding:12px 14px}
 .vital .vl{font-family:var(--mono);font-size:11px;letter-spacing:.12em;text-transform:uppercase;color:var(--tx-dim)}
-.vital .vv{font-family:var(--mono);font-size:26px;font-weight:600;margin-top:4px;line-height:1}
+.vital .vv{font-family:var(--mono);font-size:24px;font-weight:600;margin-top:4px;line-height:1}
 .vital .vs{font-family:var(--mono);font-size:12px;color:var(--tx-mute);margin-top:4px}
-
-/* generic panel */
 .panel{background:var(--panel);border:1px solid var(--line);border-radius:16px;padding:20px 22px}
 .phead{display:flex;align-items:center;justify-content:space-between;margin-bottom:16px;padding-left:12px;border-left:5px solid var(--accent,var(--info))}
 .phead h2{font-family:var(--display);font-weight:600;font-size:20px;letter-spacing:.08em;text-transform:uppercase}
 .phead .meta{font-family:var(--mono);font-size:12px;color:var(--tx-dim);letter-spacing:.06em}
-
 .row{display:grid;gap:16px;margin-bottom:16px}
 .r1{grid-template-columns:1.9fr 1.1fr}
 .r2{grid-template-columns:1fr 1fr 1fr}
-
-/* advisory */
 .conv{display:flex;align-items:baseline;gap:10px;margin-bottom:14px}
 .conv .score{font-family:var(--mono);font-size:44px;font-weight:600;color:var(--caution);line-height:1}
 .conv .of{font-family:var(--mono);font-size:14px;color:var(--tx-dim)}
-.advisory{font-size:17px;line-height:1.65;margin-bottom:16px}
+.advisory{font-size:16px;line-height:1.65;margin-bottom:16px}
 .chips{display:flex;gap:10px;flex-wrap:wrap}
 .chip{font-family:var(--mono);font-size:12px;letter-spacing:.08em;text-transform:uppercase;padding:7px 14px;border-radius:7px;border:1px solid}
 .chip.b{color:var(--bull);border-color:rgba(61,220,132,.5);background:rgba(61,220,132,.1)}
 .chip.a{color:var(--caution);border-color:rgba(255,194,61,.5);background:rgba(255,194,61,.1)}
 .chip.r{color:var(--bear);border-color:rgba(255,90,60,.5);background:rgba(255,90,60,.1)}
-
-/* gamma ladder */
 .ladder{display:flex;flex-direction:column;gap:3px}
 .rung{display:grid;grid-template-columns:104px 1fr 76px;align-items:center;gap:12px;font-family:var(--mono);font-size:13px;padding:8px 0}
 .rung .lab{color:var(--tx-mute);letter-spacing:.06em;text-transform:uppercase;font-size:11px}
@@ -77,25 +65,19 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 .bar i{position:absolute;inset:0;border-radius:4px}
 .rung .px{text-align:right;font-weight:600;font-size:15px}
 .rung.here{background:rgba(127,196,255,.09)}.rung.here .lab{color:var(--info)}
-
-/* posture */
-.posture{display:flex;flex-direction:column;gap:13px}
-.pos{display:grid;grid-template-columns:1fr 64px;gap:10px;align-items:center}
+.posture{display:flex;flex-direction:column;gap:10px}
+.pos{display:grid;grid-template-columns:1fr 80px;gap:10px;align-items:center}
 .pos .pl{font-size:13px;color:var(--tx-mute)}
-.track{height:9px;border-radius:5px;background:var(--rail-dim);position:relative;grid-column:1/2;margin-top:6px}
+.track{height:9px;border-radius:5px;background:var(--rail-dim);position:relative;grid-column:1/2;margin-top:2px}
 .track i{position:absolute;left:0;top:0;bottom:0;border-radius:5px}
 .track u{position:absolute;top:-3px;bottom:-3px;width:2px;background:var(--tx-dim)}
 .pos .pv{font-family:var(--mono);font-size:13px;text-align:right;font-weight:500}
-
-/* sentiment gauge */
-.gauge{display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;height:100%}
+.gauge{display:flex;flex-direction:column;gap:12px;align-items:center;justify-content:center;height:100%;padding:8px 0}
 .gscore{font-family:var(--mono);font-size:60px;font-weight:700;color:var(--caution);line-height:1}
 .glab{font-family:var(--display);font-size:22px;letter-spacing:.14em;text-transform:uppercase;color:var(--caution)}
 .gtrack{width:100%;height:12px;border-radius:6px;background:linear-gradient(90deg,var(--bull) 0%,var(--caution) 50%,var(--bear) 100%);position:relative;opacity:.9}
 .gtrack u{position:absolute;top:-5px;width:4px;height:22px;border-radius:2px;background:var(--tx)}
 .gzones{display:flex;justify-content:space-between;width:100%;font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim)}
-
-/* battle */
 .battle{display:flex;flex-direction:column;gap:12px;height:100%}
 .bstat{display:flex;justify-content:space-between;align-items:baseline}
 .bstat .armed{font-family:var(--display);font-size:24px;letter-spacing:.12em;color:var(--caution);text-transform:uppercase}
@@ -103,25 +85,18 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 .setup{border:1px solid rgba(255,194,61,.35);background:rgba(255,194,61,.07);border-radius:10px;padding:14px;margin-top:auto}
 .setup .st{font-family:var(--mono);font-size:13px;letter-spacing:.08em;text-transform:uppercase;color:var(--caution);margin-bottom:6px}
 .setup .sd{font-family:var(--mono);font-size:12px;color:var(--tx-mute);line-height:1.6}
-
-/* ship systems strip */
-.systems{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:0}
+.systems{display:grid;grid-template-columns:repeat(6,1fr);gap:1px;background:var(--line);border:1px solid var(--line)}
 .sys{background:var(--panel);padding:14px 16px}
 .sys .sn{font-family:var(--mono);font-size:11px;letter-spacing:.08em;text-transform:uppercase;color:var(--tx-mute)}
 .sys .ss{display:flex;align-items:center;gap:7px;margin-top:7px;font-family:var(--mono);font-size:13px;font-weight:500}
 .sys .sdot{width:7px;height:7px;border-radius:50%}
-
-/* leaderboard */
 .lb{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:14px}
 .lb th{text-align:left;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim);font-weight:400;padding:9px 12px;border-bottom:1px solid var(--line)}
 .lb td{padding:11px 12px;border-bottom:1px solid var(--panel2)}
 .lb td.r{text-align:right}
-.lb tr:first-child td{color:var(--tx)}
 .lb .off{font-family:var(--ui);color:var(--tx);font-weight:600}
 .lb .mdl{color:var(--tx-dim);font-size:12px;font-weight:400}
 .lb .rk{font-family:var(--display);font-size:16px;color:var(--caution)}
-
-/* action controls */
 .btn{font-family:var(--mono);font-size:12px;font-weight:600;letter-spacing:.08em;text-transform:uppercase;padding:8px 14px;border-radius:7px;border:1px solid;cursor:pointer;background:transparent;transition:.12s}
 .btn:active{transform:translateY(1px)}
 .btn.go{color:var(--bull);border-color:rgba(61,220,132,.55);background:rgba(61,220,132,.1)}
@@ -136,18 +111,17 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 .actbar{display:flex;gap:8px;flex-wrap:wrap;margin-top:14px;padding-top:14px;border-top:1px solid var(--line)}
 .scanrow{display:flex;align-items:center;gap:8px;margin-top:4px}
 .doctrine{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--caution);border:1px solid rgba(255,194,61,.4);background:rgba(255,194,61,.07);padding:5px 11px;border-radius:6px}
-.armtag{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;padding:4px 10px;border-radius:6px;border:1px solid}
-.armtag.hot{color:var(--bear);border-color:var(--bear);background:rgba(255,90,60,.1)}
-.armtag.safe{color:var(--tx-mute);border-color:var(--line)}
-/* positions */
 .ptbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px}
 .ptbl th{text-align:left;font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim);font-weight:400;padding:8px 10px;border-bottom:1px solid var(--line)}
 .ptbl td{padding:9px 10px;border-bottom:1px solid var(--panel2)}
 .ptbl td.r{text-align:right}
-/* toast */
+.skel{background:var(--rail-dim);border-radius:4px;animation:shimmer 1.4s infinite}
+@keyframes shimmer{0%{opacity:.4}50%{opacity:.9}100%{opacity:.4}}
 #toast{position:fixed;bottom:24px;left:50%;transform:translateX(-50%) translateY(20px);background:var(--panel2);border:1px solid var(--caution);color:var(--tx);font-family:var(--mono);font-size:13px;padding:12px 20px;border-radius:10px;opacity:0;pointer-events:none;transition:.25s;z-index:50;box-shadow:0 8px 30px rgba(0,0,0,.5)}
 #toast.show{opacity:1;transform:translateX(-50%) translateY(0)}
+#toast.err{border-color:var(--bear)}
 #toast b{color:var(--caution)}
+#toast.err b{color:var(--bear)}
 .foot{margin-top:18px;font-family:var(--mono);font-size:11px;letter-spacing:.08em;color:var(--tx-dim);text-align:center}
 @media(max-width:900px){.vitals,.systems{grid-template-columns:repeat(3,1fr)}.r1,.r2{grid-template-columns:1fr}.command{grid-template-columns:110px 1fr}}
 </style>
@@ -166,147 +140,431 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
   </div>
 </div>
 
+<!-- COMMAND STRIP -->
 <div class="command">
   <div class="rail">
     <div class="rk">Capt.<br>Kirk</div>
-    <div class="elbow">+1.8%</div>
-    <div class="rv">SYSTEMS<br>NOMINAL</div>
+    <div class="elbow" id="railAlpacaStatus">—</div>
+    <div class="rv" id="railStatusLbl">ALPACA<br>PAPER</div>
   </div>
   <div class="cmd-body">
     <div class="fleet">
-      <span class="big">$137,240</span>
-      <span class="chg up">▲ +1.8% &nbsp;+$2,430</span>
-      <span class="cap">FLEET VALUE<br>SEASON 3 · DAY 41</span>
+      <span class="big" id="heroEquity"><span class="skel" style="width:160px;height:50px;display:inline-block;border-radius:6px"></span></span>
+      <span class="chg" id="heroChg" style="color:var(--tx-mute)"></span>
+      <span class="cap">ALPACA PAPER EQUITY<br><span id="heroSeason">Season — · loading</span></span>
     </div>
     <div class="vitals">
-      <div class="vital"><div class="vl">SPY</div><div class="vv up">597.20</div><div class="vs up">▲ 0.42%</div></div>
-      <div class="vital"><div class="vl">VIX</div><div class="vv up">14.8</div><div class="vs up">▼ 3.1% · calm</div></div>
-      <div class="vital"><div class="vl">Fear / Greed</div><div class="vv warn">62</div><div class="vs warn">Greed</div></div>
-      <div class="vital"><div class="vl">Gamma Flip</div><div class="vv neu">595.0</div><div class="vs">above · stable</div></div>
-      <div class="vital"><div class="vl">Regime</div><div class="vv">Neutral</div><div class="vs up">risk-on lean</div></div>
-      <div class="vital"><div class="vl">Next Scan</div><div class="vv">4:12</div><div class="scanrow"><button class="btn go sm" onclick="act('Scan triggered','Manual scan queued · running now')">▸ Run now</button></div></div>
+      <div class="vital"><div class="vl">Cash</div><div class="vv" id="vCash">—</div><div class="vs" id="vCashBP">—</div></div>
+      <div class="vital"><div class="vl">Buying Power</div><div class="vv" id="vBP">—</div><div class="vs">4× margin</div></div>
+      <div class="vital"><div class="vl">Positions</div><div class="vv" id="vPosCount">—</div><div class="vs" id="vPosUnreal">—</div></div>
+      <div class="vital"><div class="vl">Fleet Agents</div><div class="vv" id="vAgents">—</div><div class="vs" id="vTrades">—</div></div>
+      <div class="vital"><div class="vl">Season</div><div class="vv" id="vSeason">—</div><div class="vs" id="vSeasonTrades">— trades</div></div>
+      <div class="vital"><div class="vl">Scan</div><div class="vv" id="vScanLbl" style="font-size:16px">UOA Quick</div>
+        <div class="scanrow"><button class="btn go sm" onclick="triggerScan()">▸ Run now</button></div></div>
     </div>
   </div>
 </div>
 
+<!-- ROW 1: Advisory + Gamma Map -->
 <div class="row r1">
   <div class="panel">
-    <div class="phead" style="--accent:var(--bull)"><h2>CTO Daily Advisory</h2><span class="meta">Strategic Command · poll 14:30 UTC</span></div>
-    <div class="conv"><span class="score">7.2</span><span class="of">/ 10 conviction · 3 alerts today</span></div>
-    <p class="advisory">Hold long bias above the 595 gamma flip. Fade rips into the 600 call wall; defend the 590 put wall. Size at 0.5× into a calm-VIX, risk-on tape.</p>
-    <div class="chips"><span class="chip b">Long bias</span><span class="chip a">0.5× size</span><span class="chip r">Fade 600</span><span class="chip b">Defend 590</span></div>
+    <div class="phead" style="--accent:var(--bull)"><h2>CTO Daily Advisory</h2><span class="meta">paper-only · select setup in Research to execute</span></div>
+    <div class="conv"><span class="score">—</span><span class="of">use Battle tab for live order entry</span></div>
+    <p class="advisory">Hold long bias above the gamma flip. Use the Research tab to surface live setups, then fire from the Battle tab with a confirmed candidate.</p>
+    <div class="chips"><span class="chip b">Long bias</span><span class="chip a">Paper only</span><span class="chip a">Confirm-guarded</span></div>
     <div class="actbar">
-      <button class="btn go" onclick="act('Advisory executed','Paper orders staged · 0.5× long bias above 595')">▸ Execute (paper)</button>
-      <button class="btn red" onclick="act('Advisory overridden','CTO call vetoed · logged to arena.db')">✕ Override</button>
-      <button class="btn ghost" onclick="act('Snoozed','Advisory muted 60 min')">Snooze</button>
+      <button class="btn go" onclick="advisoryExecute()">▸ Execute (paper)</button>
+      <button class="btn ghost" onclick="act('Snoozed','Advisory muted 60 min',false)">Snooze</button>
     </div>
   </div>
   <div class="panel">
-    <div class="phead" style="--accent:var(--info)"><h2>Gamma Map · SPY</h2><span class="meta">you are here</span></div>
+    <div class="phead" style="--accent:var(--info)"><h2>Gamma Map · SPY</h2><span class="meta">single source · /api/gex</span></div>
     <div class="ladder">
-      <div class="rung"><span class="lab">Call wall</span><span class="bar"><i style="width:96%;background:var(--bear)"></i></span><span class="px down">600.0</span></div>
-      <div class="rung"><span class="lab">Gamma flip</span><span class="bar"><i style="width:62%;background:var(--caution)"></i></span><span class="px warn">595.0</span></div>
-      <div class="rung here"><span class="lab">▸ You are here</span><span class="bar"><i style="width:74%;background:var(--info)"></i></span><span class="px neu">597.2</span></div>
-      <div class="rung"><span class="lab">VWAP</span><span class="bar"><i style="width:68%;background:var(--tx-dim)"></i></span><span class="px">596.4</span></div>
-      <div class="rung"><span class="lab">Put wall</span><span class="bar"><i style="width:40%;background:var(--bull)"></i></span><span class="px up">590.0</span></div>
+      <div class="rung"><span class="lab">Call wall</span><span class="bar"><i style="width:96%;background:var(--bear)"></i></span><span class="px down" id="gCallWall">—</span></div>
+      <div class="rung"><span class="lab">Gamma flip</span><span class="bar"><i id="gFlipBar" style="width:62%;background:var(--caution)"></i></span><span class="px warn" id="gFlip">—</span></div>
+      <div class="rung here"><span class="lab">▸ Spot</span><span class="bar"><i id="gSpotBar" style="width:74%;background:var(--info)"></i></span><span class="px neu" id="gSpot">—</span></div>
+      <div class="rung"><span class="lab">VWAP</span><span class="bar"><i style="width:68%;background:var(--tx-dim)"></i></span><span class="px" id="gVwap">—</span></div>
+      <div class="rung"><span class="lab">Put wall</span><span class="bar"><i style="width:40%;background:var(--bull)"></i></span><span class="px up" id="gPutWall">—</span></div>
     </div>
   </div>
 </div>
 
+<!-- ROW 2: Posture + Sentiment + Battle -->
 <div class="row r2">
   <div class="panel">
-    <div class="phead" style="--accent:var(--caution)"><h2>Capital Posture</h2><span class="meta">| = target</span></div>
+    <div class="phead" style="--accent:var(--caution)"><h2>Capital Posture</h2><span class="meta">Alpaca paper · | = 60/40 target</span></div>
     <div class="posture">
-      <div class="pos"><span class="pl">Long equity</span><span class="pv">48% / 50</span></div><div class="track"><i style="width:48%;background:var(--bull)"></i><u style="left:50%"></u></div>
-      <div class="pos"><span class="pl">Bear call spreads</span><span class="pv">12% / 15</span></div><div class="track"><i style="width:12%;background:var(--caution)"></i><u style="left:15%"></u></div>
-      <div class="pos"><span class="pl">Iron condors</span><span class="pv">10% / 10</span></div><div class="track"><i style="width:10%;background:var(--info)"></i><u style="left:10%"></u></div>
-      <div class="pos"><span class="pl">Cash</span><span class="pv">26% / 20</span></div><div class="track"><i style="width:26%;background:var(--tx-dim)"></i><u style="left:20%"></u></div>
+      <div class="pos"><span class="pl">Positions value</span><span class="pv" id="posturePosPct">—</span></div>
+      <div class="track"><i id="posturePosBar" style="width:0%;background:var(--bull)"></i><u style="left:60%"></u></div>
+      <div class="pos"><span class="pl">Cash</span><span class="pv" id="postureCashPct">—</span></div>
+      <div class="track"><i id="postureCashBar" style="width:0%;background:var(--tx-dim)"></i><u style="left:40%"></u></div>
+      <div class="pos"><span class="pl">Unrealized P&amp;L</span><span class="pv" id="postureUnreal">—</span></div>
     </div>
   </div>
   <div class="panel">
-    <div class="phead" style="--accent:var(--caution)"><h2>Sentiment</h2><span class="meta">CNN F&amp;G</span></div>
+    <div class="phead" style="--accent:var(--caution)"><h2>Sentiment</h2><span class="meta">/api/fear-greed</span></div>
     <div class="gauge">
-      <div class="gscore">62</div>
-      <div class="glab">Greed</div>
-      <div class="gtrack"><u style="left:62%"></u></div>
+      <div class="gscore" id="fgScore">—</div>
+      <div class="glab" id="fgLabel">—</div>
+      <div class="gtrack"><u id="fgNeedle" style="left:50%"></u></div>
       <div class="gzones"><span>Fear</span><span>Neutral</span><span>Greed</span></div>
     </div>
   </div>
   <div class="panel">
-    <div class="phead" style="--accent:var(--bear)"><h2>Battle Station · 0DTE</h2><span class="meta">today 1/2</span></div>
+    <div class="phead" style="--accent:var(--bear)"><h2>Battle Station · 0DTE</h2><span class="meta">use Battle tab for orders</span></div>
     <div class="battle">
-      <div class="bstat"><span class="armed" id="armLabel">⚡ Armed</span><span class="pl up">P&amp;L +$184</span></div>
+      <div class="bstat"><span class="armed" id="armLabel">⚡ Armed</span><span class="pl" id="bPnl">—</span></div>
       <div class="setup">
-        <div class="st">Gap-fill setup</div>
-        <div class="sd">ATM calls · Δ0.35<br>target +60% · stop −40%<br>exit by 11:00 ET</div>
+        <div class="st">Paper only</div>
+        <div class="sd">Open Battle tab to fire orders<br>All executions confirm-guarded<br>Alpaca paper · no real money</div>
       </div>
       <div class="actbar" style="margin-top:12px">
         <button class="btn amber sm" id="armBtn" onclick="toggleArm()">Disarm</button>
-        <button class="btn go sm" onclick="act('Setup fired','Gap-fill paper order sent to Alpaca')">▸ Fire (paper)</button>
+        <button class="btn go sm" onclick="battleFire()">▸ Fire (paper)</button>
       </div>
     </div>
   </div>
 </div>
 
+<!-- SHIP SYSTEMS STRIP -->
 <div class="panel" style="margin-bottom:16px;padding:18px 22px">
-  <div class="phead" style="--accent:var(--bull)"><h2>Ship Systems</h2><span class="meta"><button class="btn ghost sm" onclick="act('War Room re-poll','7 officers re-voting now')">↻ Re-vote</button></span></div>
+  <div class="phead" style="--accent:var(--bull)"><h2>Ship Systems</h2>
+    <span class="meta"><button class="btn ghost sm" onclick="triggerRevote()">↻ Re-vote War Room</button></span></div>
   <div class="systems">
-    <div class="sys"><div class="sn">Riker · XO synthesis</div><div class="ss up"><span class="sdot" style="background:var(--bull)"></span>Synthesized</div></div>
-    <div class="sys"><div class="sn">Consensus · officers</div><div class="ss up"><span class="sdot" style="background:var(--bull)"></span>5 / 7 bullish</div></div>
-    <div class="sys"><div class="sn">Earnings · this week</div><div class="ss neu"><span class="sdot" style="background:var(--info)"></span>2 ahead</div></div>
-    <div class="sys"><div class="sn">Congress · capitol</div><div class="ss warn"><span class="sdot" style="background:var(--caution)"></span>4 new buys</div></div>
-    <div class="sys"><div class="sn">Worf · defense</div><div class="ss neu"><span class="sdot" style="background:var(--info)"></span>Monitoring</div></div>
-    <div class="sys"><div class="sn">Volume radar</div><div class="ss warn"><span class="sdot" style="background:var(--caution)"></span>3 alerts</div></div>
+    <div class="sys"><div class="sn">Alpaca · paper</div><div class="ss" id="sysAlpaca"><span class="sdot skel" style="width:7px;height:7px"></span><span>—</span></div></div>
+    <div class="sys"><div class="sn">Fleet · active agents</div><div class="ss" id="sysFleet"><span class="sdot skel" style="width:7px;height:7px"></span><span>—</span></div></div>
+    <div class="sys"><div class="sn">Season · trades</div><div class="ss" id="sysTrades"><span class="sdot skel" style="width:7px;height:7px"></span><span>—</span></div></div>
+    <div class="sys"><div class="sn">War Room · trigger</div><div class="ss" id="sysWR"><span class="sdot" style="background:var(--tx-dim)"></span><span style="color:var(--tx-mute)">idle</span></div></div>
+    <div class="sys"><div class="sn">Scan · UOA quick</div><div class="ss" id="sysScan"><span class="sdot" style="background:var(--tx-dim)"></span><span style="color:var(--tx-mute)">ready</span></div></div>
+    <div class="sys"><div class="sn">Fleet status</div><div class="ss" id="sysFleetStatus"><span class="sdot skel" style="width:7px;height:7px"></span><span>—</span></div></div>
   </div>
 </div>
 
+<!-- OPEN POSITIONS TABLE -->
 <div class="panel" style="margin-bottom:16px">
-  <div class="phead" style="--accent:var(--info)"><h2>Open Positions · Paper</h2><span class="meta">Alpaca · 4 open · +$612 day</span></div>
+  <div class="phead" style="--accent:var(--info)"><h2>Open Positions · Paper</h2>
+    <span class="meta" id="positionsMeta">Alpaca · loading…</span></div>
   <table class="ptbl">
-    <thead><tr><th>Ticker</th><th>Strategy</th><th class="r">Qty</th><th class="r">Avg</th><th class="r">Last</th><th class="r">P&amp;L</th><th class="r">Action</th></tr></thead>
-    <tbody>
-      <tr><td>SPY</td><td>Long equity</td><td class="r">120</td><td class="r">591.40</td><td class="r">597.20</td><td class="r up">+$696</td><td class="r"><button class="btn red sm" onclick="act('Close staged','SPY paper close sent to Alpaca')">Close</button></td></tr>
-      <tr><td>NVDA</td><td>Long equity</td><td class="r">40</td><td class="r">172.10</td><td class="r">169.80</td><td class="r down">−$92</td><td class="r"><button class="btn red sm" onclick="act('Close staged','NVDA paper close sent to Alpaca')">Close</button></td></tr>
-      <tr><td>QQQ</td><td>Bear call 540/545</td><td class="r">5</td><td class="r">1.85</td><td class="r">1.42</td><td class="r up">+$215</td><td class="r"><button class="btn red sm" onclick="act('Close staged','QQQ spread paper close sent')">Close</button></td></tr>
-      <tr><td>IWM</td><td>Iron condor</td><td class="r">4</td><td class="r">2.10</td><td class="r">2.08</td><td class="r up">+$8</td><td class="r"><button class="btn red sm" onclick="act('Close staged','IWM condor paper close sent')">Close</button></td></tr>
+    <thead><tr><th>Ticker</th><th>Side</th><th class="r">Qty</th><th class="r">Avg cost</th><th class="r">Last</th><th class="r">Unreal P&amp;L</th><th class="r">Action</th></tr></thead>
+    <tbody id="positionsBody">
+      <tr><td colspan="7" style="padding:20px"><span class="skel" style="display:inline-block;width:400px;height:14px;border-radius:4px"></span></td></tr>
     </tbody>
   </table>
 </div>
 
+<!-- FLEET LEADERBOARD -->
 <div class="panel">
-  <div class="phead" style="--accent:var(--bear)"><h2>Fleet Leaderboard</h2><span class="meta">Season 3 · Day 41</span></div>
+  <div class="phead" style="--accent:var(--bear)"><h2>Fleet Leaderboard</h2>
+    <span class="meta" id="lbMeta">loading…</span></div>
   <table class="lb">
-    <thead><tr><th>#</th><th>Officer · Model</th><th class="r">Value</th><th class="r">Return</th><th class="r">Win%</th><th class="r">Day</th></tr></thead>
-    <tbody>
-      <tr><td class="rk">01</td><td><span class="off">Kirk</span> <span class="mdl">Grok 4.2</span></td><td class="r">$24,640</td><td class="r up">+24.6%</td><td class="r">68%</td><td class="r up">+2.1%</td></tr>
-      <tr><td class="rk">02</td><td><span class="off">Spock</span> <span class="mdl">Grok 4</span></td><td class="r">$23,840</td><td class="r up">+19.2%</td><td class="r">71%</td><td class="r up">+1.4%</td></tr>
-      <tr><td class="rk">03</td><td><span class="off">Data</span> <span class="mdl">Qwen3 8B</span></td><td class="r">$22,960</td><td class="r up">+14.8%</td><td class="r">64%</td><td class="r up">+0.9%</td></tr>
-      <tr><td class="rk">04</td><td><span class="off">Uhura</span> <span class="mdl">Llama 3.3</span></td><td class="r">$21,340</td><td class="r up">+6.7%</td><td class="r">55%</td><td class="r down">−0.3%</td></tr>
-      <tr><td class="rk">05</td><td><span class="off">Riker</span> <span class="mdl">Sonnet</span></td><td class="r">$20,640</td><td class="r up">+3.2%</td><td class="r">52%</td><td class="r up">+0.4%</td></tr>
+    <thead><tr><th>#</th><th>Officer · Model</th><th class="r">Value</th><th class="r">Return</th><th class="r">Win%</th><th class="r">Day P&amp;L</th></tr></thead>
+    <tbody id="lbBody">
+      <tr><td colspan="6" style="padding:16px"><span class="skel" style="display:inline-block;width:500px;height:14px;border-radius:4px"></span></td></tr>
     </tbody>
   </table>
 </div>
 
-<div class="foot">DIRECTION A · LCARS FIGHTER — ACTIONABLE · ALL ACTIONS ROUTE TO ALPACA PAPER ONLY · SCHWAB READ-ONLY · NO REAL-MONEY PATH — SAMPLE DATA, BUTTONS ARE DEMO</div>
-
+<div class="foot">DIRECTION A · LCARS FIGHTER — ALL ORDERS → ALPACA PAPER ONLY · SCHWAB READ-ONLY · NO REAL-MONEY PATH · WAR-ROOM REVOTE WIRED</div>
 <div id="toast"></div>
+
 <script>
-  let toastTimer;
-  function act(title, detail){
-    const t = document.getElementById('toast');
-    t.innerHTML = '<b>'+title+'</b> &nbsp; '+detail;
-    t.classList.add('show');
-    clearTimeout(toastTimer);
-    toastTimer = setTimeout(()=>t.classList.remove('show'), 2600);
+'use strict';
+
+// ─── Toast ────────────────────────────────────────────────────────────────────
+let _tt;
+function act(title, detail, isErr) {
+  const t = document.getElementById('toast');
+  t.innerHTML = '<b>' + title + '</b> &nbsp; ' + detail;
+  t.className = 'show' + (isErr ? ' err' : '');
+  clearTimeout(_tt);
+  _tt = setTimeout(() => { t.className = ''; }, 3200);
+}
+
+// ─── API helper ───────────────────────────────────────────────────────────────
+async function api(method, path, body) {
+  const opts = { method, headers: { 'Content-Type': 'application/json' } };
+  if (body !== undefined) opts.body = JSON.stringify(body);
+  const r = await fetch(path, opts);
+  let json;
+  try { json = await r.json(); } catch (_) { json = {}; }
+  if (!r.ok) throw new Error(json.detail || json.error || json.reason || ('HTTP ' + r.status));
+  return json;
+}
+
+// ─── Format helpers ───────────────────────────────────────────────────────────
+function fmtUSD(v, decimals) {
+  const n = Number(v);
+  return '$' + Math.abs(n).toLocaleString('en-US', {
+    minimumFractionDigits: decimals || 0,
+    maximumFractionDigits: decimals || 0
+  });
+}
+function fmtPnl(v) {
+  const n = Number(v);
+  return (n >= 0 ? '+$' : '-$') + Math.abs(n).toLocaleString('en-US', { maximumFractionDigits: 0 });
+}
+function fmtPct(v, signed) {
+  const n = Number(v);
+  return (signed !== false && n >= 0 ? '+' : '') + n.toFixed(2) + '%';
+}
+function colorClass(v) { return Number(v) >= 0 ? 'up' : 'down'; }
+function setSys(id, ok, label) {
+  const el = document.getElementById(id);
+  if (!el) return;
+  const c = ok ? 'var(--bull)' : 'var(--bear)';
+  el.innerHTML = '<span class="sdot" style="background:' + c + '"></span>'
+               + '<span style="color:' + c + '">' + label + '</span>';
+}
+
+// ─── On load ──────────────────────────────────────────────────────────────────
+window.addEventListener('DOMContentLoaded', () => {
+  loadAlpacaStatus();
+  loadFleetStatus();
+  loadPositions();
+  loadLeaderboard();
+  loadGex();
+  loadFearGreed();
+});
+
+// ─── /api/alpaca/status → hero equity + vitals ───────────────────────────────
+// Fields: {connected, equity, cash, buying_power, portfolio_value, status, currency}
+async function loadAlpacaStatus() {
+  try {
+    const d = await api('GET', '/api/alpaca/status');
+    const equity = d.equity ?? d.portfolio_value ?? 0;
+    const cash   = d.cash ?? 0;
+    const bp     = d.buying_power ?? 0;
+    document.getElementById('heroEquity').textContent = fmtUSD(equity);
+    // Rail: connected status
+    document.getElementById('railAlpacaStatus').textContent = d.connected ? 'LIVE' : 'OFF';
+    document.getElementById('railStatusLbl').textContent = 'ALPACA\n' + (d.status || 'PAPER');
+    document.getElementById('vCash').textContent = fmtUSD(cash);
+    document.getElementById('vCashBP').textContent = 'avail';
+    document.getElementById('vBP').textContent = fmtUSD(bp);
+    setSys('sysAlpaca', d.connected, d.connected ? 'connected' : 'offline');
+    // Posture: cash vs position
+    const posVal = equity - cash;
+    const cashPct = equity > 0 ? (cash / equity * 100) : 0;
+    const posPct  = equity > 0 ? (posVal / equity * 100) : 0;
+    document.getElementById('posturePosPct').textContent = fmtUSD(posVal) + ' (' + posPct.toFixed(0) + '%)';
+    document.getElementById('postureCashPct').textContent = fmtUSD(cash) + ' (' + cashPct.toFixed(0) + '%)';
+    document.getElementById('posturePosBar').style.width = Math.min(100, posPct) + '%';
+    document.getElementById('postureCashBar').style.width = Math.min(100, cashPct) + '%';
+  } catch (e) {
+    document.getElementById('heroEquity').textContent = 'Error';
+    setSys('sysAlpaca', false, 'error');
+    act('Alpaca error', e.message, true);
   }
-  let armed = true;
-  function toggleArm(){
-    armed = !armed;
-    const lbl = document.getElementById('armLabel');
-    const btn = document.getElementById('armBtn');
-    if(armed){ lbl.textContent='⚡ Armed'; lbl.style.color='var(--caution)'; btn.textContent='Disarm'; btn.className='btn amber sm'; act('Battle Station armed','0DTE seat hot · paper'); }
-    else { lbl.textContent='● Safe'; lbl.style.color='var(--tx-mute)'; btn.textContent='Arm'; btn.className='btn go sm'; act('Battle Station safe','0DTE seat cold'); }
+}
+
+// ─── /api/status → fleet counts (season, trades, agents) ─────────────────────
+// Fields: {current_season, active_players, total_trades, total_portfolio_value}
+async function loadFleetStatus() {
+  try {
+    const d = await api('GET', '/api/status');
+    document.getElementById('vAgents').textContent = d.active_players ?? '—';
+    document.getElementById('vTrades').textContent = (d.total_trades || 0) + ' total trades';
+    document.getElementById('vSeason').textContent = 'S' + (d.current_season || '—');
+    document.getElementById('vSeasonTrades').textContent = (d.total_trades || 0) + ' trades';
+    document.getElementById('heroSeason').textContent = 'Season ' + (d.current_season || '—') + ' · Fleet DB';
+    setSys('sysFleet', true, (d.active_players || '—') + ' active');
+    setSys('sysTrades', true, (d.total_trades || 0) + ' trades S' + (d.current_season || '—'));
+  } catch (_) { /* non-critical */ }
+
+  // Also hit /api/fleet/status for richer health
+  try {
+    const d = await api('GET', '/api/fleet/status');
+    const ok = !d.error;
+    setSys('sysFleetStatus', ok, ok ? 'nominal' : (d.error || 'error'));
+  } catch (_) {
+    setSys('sysFleetStatus', false, 'error');
   }
+}
+
+// ─── /api/alpaca/positions → table + battle PnL ──────────────────────────────
+async function loadPositions() {
+  try {
+    const d = await api('GET', '/api/alpaca/positions');
+    const positions = d.positions || [];
+    renderPositions(positions);
+
+    const totalPnl = positions.reduce((s, p) => s + (Number(p.unrealized_pl) || 0), 0);
+    document.getElementById('vPosCount').textContent = positions.length;
+    document.getElementById('vPosUnreal').textContent = fmtPnl(totalPnl);
+    document.getElementById('vPosUnreal').className = 'vs ' + colorClass(totalPnl);
+    const bPnl = document.getElementById('bPnl');
+    bPnl.textContent = fmtPnl(totalPnl);
+    bPnl.className = 'pl ' + colorClass(totalPnl);
+
+    const postureUnreal = document.getElementById('postureUnreal');
+    postureUnreal.textContent = fmtPnl(totalPnl);
+    postureUnreal.className = 'pv ' + colorClass(totalPnl);
+  } catch (e) {
+    setSys('sysAlpaca', false, 'positions error');
+    document.getElementById('positionsBody').innerHTML =
+      '<tr><td colspan="7" style="color:var(--bear);padding:12px;font-family:var(--mono)">Error: ' + e.message + '</td></tr>';
+  }
+}
+
+function renderPositions(positions) {
+  const tbody  = document.getElementById('positionsBody');
+  const meta   = document.getElementById('positionsMeta');
+  if (!positions.length) {
+    tbody.innerHTML = '<tr><td colspan="7" style="color:var(--tx-mute);padding:14px;font-family:var(--mono)">No open positions</td></tr>';
+    meta.textContent = 'Alpaca · 0 open';
+    return;
+  }
+  const totalPnl = positions.reduce((s, p) => s + (Number(p.unrealized_pl) || 0), 0);
+  const cls = colorClass(totalPnl);
+  meta.textContent = 'Alpaca · ' + positions.length + ' open · ' + fmtPnl(totalPnl) + ' unreal';
+  document.getElementById('positionsMeta').className = 'meta ' + cls;
+  tbody.innerHTML = positions.map(function(p) {
+    const sym  = (p.symbol || '—').toUpperCase();
+    const qty  = Number(p.qty || p.quantity || 0);
+    const avg  = Number(p.avg_entry_price || p.avg_cost || p.avg_entry || 0);
+    const last = Number(p.current_price || 0);
+    const pnl  = Number(p.unrealized_pl || 0);
+    const side = p.side || 'long';
+    const pc   = colorClass(pnl);
+    return '<tr>'
+      + '<td style="font-weight:600">' + sym + '</td>'
+      + '<td style="color:var(--tx-mute)">' + side + '</td>'
+      + '<td class="r">' + qty + '</td>'
+      + '<td class="r">$' + avg.toFixed(2) + '</td>'
+      + '<td class="r">$' + last.toFixed(2) + '</td>'
+      + '<td class="r ' + pc + '">' + fmtPnl(pnl) + '</td>'
+      + '<td class="r"><button class="btn red sm" onclick="closePosition(\'' + sym + '\',' + qty + ')">Close</button></td>'
+      + '</tr>';
+  }).join('');
+}
+
+// ─── /api/arena/leaderboard → fleet table ─────────────────────────────────────
+// Fields: {season, leaderboard: [{player_id, name, model, total_value, return_pct, win_rate, trades, day_pnl}]}
+async function loadLeaderboard() {
+  try {
+    const d = await api('GET', '/api/arena/leaderboard');
+    const rows = d.leaderboard || [];
+    if (d.season) document.getElementById('lbMeta').textContent = 'Season ' + d.season;
+    if (!rows.length) {
+      document.getElementById('lbBody').innerHTML = '<tr><td colspan="6" style="padding:14px;color:var(--tx-mute)">No data</td></tr>';
+      return;
+    }
+    document.getElementById('lbBody').innerHTML = rows.slice(0, 10).map(function(p, i) {
+      // win_rate=0 + trades=0 → render "—" (spec: dalio/tracking cosmetic fix)
+      const wr  = (p.trades === 0 || p.trades == null) ? '—' : (Number(p.win_rate || 0).toFixed(0) + '%');
+      const ret = p.return_pct != null ? fmtPct(p.return_pct) : '—';
+      const day = p.day_pnl != null ? fmtPnl(p.day_pnl) : '—';
+      const val = p.total_value != null ? fmtUSD(p.total_value) : '—';
+      const rc  = Number(p.return_pct || 0) >= 0 ? 'up' : 'down';
+      const dc  = Number(p.day_pnl || 0) >= 0 ? 'up' : 'down';
+      return '<tr>'
+        + '<td class="rk">' + String(i + 1).padStart(2, '0') + '</td>'
+        + '<td><span class="off">' + (p.name || p.player_id || '—') + '</span>'
+        + (p.model ? ' <span class="mdl">' + p.model + '</span>' : '') + '</td>'
+        + '<td class="r">' + val + '</td>'
+        + '<td class="r ' + rc + '">' + ret + '</td>'
+        + '<td class="r">' + wr + '</td>'
+        + '<td class="r ' + dc + '">' + day + '</td>'
+        + '</tr>';
+    }).join('');
+  } catch (_) { /* non-critical */ }
+}
+
+// ─── Gamma / F&G (best-effort) ────────────────────────────────────────────────
+async function loadGex() {
+  try {
+    const d = await api('GET', '/api/gex');
+    if (d.gamma_flip)  document.getElementById('gFlip').textContent = '$' + Number(d.gamma_flip).toFixed(0);
+    if (d.call_wall)   document.getElementById('gCallWall').textContent = '$' + Number(d.call_wall).toFixed(0);
+    if (d.put_wall)    document.getElementById('gPutWall').textContent = '$' + Number(d.put_wall).toFixed(0);
+    if (d.spot || d.spy_price) document.getElementById('gSpot').textContent = '$' + Number(d.spot || d.spy_price).toFixed(2);
+  } catch (_) { /* non-critical — gamma map stays — */ }
+}
+
+async function loadFearGreed() {
+  try {
+    const d = await api('GET', '/api/fear-greed');
+    const score = d.score ?? d.value ?? d.fear_greed;
+    if (score == null) return;
+    const n = Number(score);
+    document.getElementById('fgScore').textContent = n.toFixed(0);
+    const lbl = n <= 25 ? 'Extreme Fear' : n <= 45 ? 'Fear' : n <= 55 ? 'Neutral' : n <= 75 ? 'Greed' : 'Extreme Greed';
+    const color = n <= 45 ? 'var(--bull)' : n <= 55 ? 'var(--caution)' : 'var(--bear)';
+    document.getElementById('fgLabel').textContent = lbl;
+    document.getElementById('fgLabel').style.color = color;
+    document.getElementById('fgScore').style.color = color;
+    document.getElementById('fgNeedle').style.left = Math.min(96, Math.max(2, n)) + '%';
+  } catch (_) { /* non-critical */ }
+}
+
+// ─── Actions ──────────────────────────────────────────────────────────────────
+async function triggerScan() {
+  try {
+    document.getElementById('vScanLbl').textContent = 'Running…';
+    const d = await api('POST', '/api/uoa/scan/quick');
+    act('Scan started', (d.scan_type || 'quick') + ' · top ' + (d.top_n || 50) + ' queued', false);
+    setSys('sysScan', true, 'scanning…');
+    document.getElementById('vScanLbl').textContent = 'Scanning…';
+  } catch (e) {
+    act('Scan error', e.message, true);
+    setSys('sysScan', false, 'error');
+    document.getElementById('vScanLbl').textContent = 'UOA Quick';
+  }
+}
+
+async function triggerRevote() {
+  try {
+    setSys('sysWR', true, 'triggering…');
+    await api('POST', '/api/war-room/trigger');
+    act('War Room', 'Cycle triggered · officers voting', false);
+    setSys('sysWR', true, 'voting…');
+  } catch (e) {
+    act('War Room error', e.message, true);
+    setSys('sysWR', false, 'error');
+  }
+}
+
+async function closePosition(sym, qty) {
+  if (!window.confirm('Close paper: SELL ' + qty + ' ' + sym + '?\n\nMarket SELL on Alpaca PAPER account. No real money.')) return;
+  try {
+    const d = await api('POST', '/api/alpaca/close/' + sym);
+    if (d.success || d.ok || d.order_id || d.message) {
+      act('Closed ' + sym, 'Paper SELL sent · ' + (d.order_id || d.message || 'queued'), false);
+      setTimeout(loadPositions, 2000);
+      setTimeout(loadAlpacaStatus, 2500);
+    } else {
+      act('Close failed', d.error || d.message || 'Unknown error', true);
+    }
+  } catch (e) {
+    act('Close error', sym + ' · ' + e.message, true);
+  }
+}
+
+function advisoryExecute() {
+  act('No setup selected', 'Use Research tab to pick a live setup, then execute from Battle tab', false);
+}
+
+function battleFire() {
+  if (!window.confirm('Open Battle tab to fire orders with a live candidate.\n\nNo candidate_id is set on the Bridge tab — cancel and use the Battle tab.')) return;
+  act('Not wired here', 'Battle tab handles live order entry with candidate selection', false);
+}
+
+// ─── Arm toggle ───────────────────────────────────────────────────────────────
+let _armed = true;
+function toggleArm() {
+  _armed = !_armed;
+  const lbl = document.getElementById('armLabel');
+  const btn = document.getElementById('armBtn');
+  if (_armed) {
+    lbl.textContent = '⚡ Armed'; lbl.style.color = 'var(--caution)';
+    btn.textContent = 'Disarm'; btn.className = 'btn amber sm';
+    act('Battle Station armed', '0DTE seat hot · paper only', false);
+  } else {
+    lbl.textContent = '● Safe'; lbl.style.color = 'var(--tx-mute)';
+    btn.textContent = 'Arm'; btn.className = 'btn go sm';
+    act('Battle Station safe', '0DTE seat cold', false);
+  }
+}
 </script>
 </body>
 </html>
