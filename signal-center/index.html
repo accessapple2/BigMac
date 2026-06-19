@@ -2056,7 +2056,7 @@ function _crewIsEmptyE(a){
 }
 function _crewCard(a){
   var ret=parseFloat(a.return_pct||0);
-  var wr=parseFloat(a.win_rate||0);
+  var wr=a.win_rate!=null?parseFloat(a.win_rate):null;
   var trades=parseInt(a.trades||0);
   var pnl=parseFloat(a.total_pnl||0);
   // Bug 5: halted players legitimately carry season-cumulative P&L with
@@ -2078,8 +2078,8 @@ function _crewCard(a){
     '<div class="crew-name">'+(a.name||a.player_id||'Agent')+'</div>'+
     haltBadge+
     '<div class="crew-return '+pcls(ret)+'">'+pct(ret)+'</div>'+
-    '<div class="crew-stats">WR '+wr.toFixed(0)+'% &bull; '+trades+' trades<br><span class="'+pcls(pnl)+'">'+fmt$(pnl)+'</span> '+pnlLabel+'</div>'+
-    '<div class="crew-bar"><div class="crew-bar-fill" style="width:'+Math.min(wr,100)+'%;background:'+color+'"></div></div>'+
+    '<div class="crew-stats">WR '+(wr!=null?wr.toFixed(0)+'%':'—')+' &bull; '+trades+' trades<br><span class="'+pcls(pnl)+'">'+fmt$(pnl)+'</span> '+pnlLabel+'</div>'+
+    '<div class="crew-bar"><div class="crew-bar-fill" style="width:'+Math.min(wr!=null?wr:0,100)+'%;background:'+color+'"></div></div>'+
   '</div>';
 }
 function toggleCrewDormant(btn){
