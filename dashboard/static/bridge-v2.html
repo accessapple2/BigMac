@@ -147,6 +147,38 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 .worf-wrap{display:flex;flex-direction:column;gap:12px}
 .worf-desc{font-family:var(--mono);font-size:12px;color:var(--tx-mute);line-height:1.6}
 .worf-res{font-family:var(--mono);font-size:12px;color:var(--tx-mute);min-height:20px}
+/* ─── Research tab ───────────────────────────────────────────────────────────── */
+.rbar{display:flex;align-items:center;gap:14px;background:var(--panel);border:1px solid var(--line);border-radius:10px;padding:12px 18px;margin-bottom:16px;flex-wrap:wrap}
+.rbar-lbl{font-family:var(--mono);font-size:11px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim)}
+.fire-sel{font-family:var(--mono);font-size:13px;background:var(--panel2);border:1px solid var(--line);color:var(--tx);border-radius:6px;padding:5px 10px;cursor:pointer}
+.fire-sel:focus{outline:1px solid var(--caution)}
+.rbar-note{font-family:var(--mono);font-size:11px;color:var(--tx-mute);margin-left:auto}
+.consensus-tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:13px}
+.consensus-tbl th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim);font-weight:400;padding:8px 10px;border-bottom:1px solid var(--line)}
+.consensus-tbl td{padding:9px 10px;border-bottom:1px solid var(--panel2)}
+.consensus-tbl td.r{text-align:right}
+.consensus-tbl .csym{font-weight:700;letter-spacing:.04em}
+.consensus-tbl .cmod{font-size:11px;color:var(--tx-mute);white-space:nowrap;overflow:hidden;text-overflow:ellipsis;max-width:280px}
+.sm-row{display:grid;grid-template-columns:80px 1fr auto;gap:12px;align-items:center;padding:9px 0;border-bottom:1px solid var(--panel2);font-family:var(--mono)}
+.sm-sym{font-weight:700;font-size:15px}
+.sm-crew{font-size:11px;color:var(--tx-mute)}
+.flow-row{display:flex;justify-content:space-between;align-items:center;padding:8px 0;border-bottom:1px solid var(--panel2);font-family:var(--mono);font-size:13px}
+.flow-dir{font-size:11px;letter-spacing:.1em;text-transform:uppercase;font-weight:600;padding:3px 8px;border-radius:5px}
+.flow-dir.bull{color:var(--bull);background:rgba(61,220,132,.1)}
+.flow-dir.bear{color:var(--bear);background:rgba(255,90,60,.1)}
+.flow-dir.neu{color:var(--tx-mute);background:var(--panel2)}
+.ti-stat{display:grid;grid-template-columns:repeat(4,1fr);gap:1px;background:var(--line);border:1px solid var(--line);border-radius:8px;overflow:hidden;margin-bottom:14px}
+.ti-cell{background:var(--panel);padding:10px 12px}
+.ti-lbl{font-family:var(--mono);font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim)}
+.ti-val{font-family:var(--mono);font-size:18px;font-weight:600;margin-top:4px;line-height:1}
+.bk-tbl{width:100%;border-collapse:collapse;font-family:var(--mono);font-size:12px}
+.bk-tbl th{text-align:left;font-size:10px;letter-spacing:.1em;text-transform:uppercase;color:var(--tx-dim);font-weight:400;padding:7px 10px;border-bottom:1px solid var(--line)}
+.bk-tbl td{padding:7px 10px;border-bottom:1px solid var(--panel2)}
+.bk-tbl td.r{text-align:right}
+.verdict{font-size:10px;letter-spacing:.08em;text-transform:uppercase;font-weight:700;padding:2px 6px;border-radius:4px}
+.verdict.pass{color:var(--bull);background:rgba(61,220,132,.15)}.verdict.hold{color:var(--caution);background:rgba(255,194,61,.15)}.verdict.fail{color:var(--bear);background:rgba(255,90,60,.15)}
+.evt-empty{font-family:var(--mono);font-size:13px;color:var(--tx-mute);padding:16px 0}
+.radar-empty{font-family:var(--mono);font-size:13px;color:var(--tx-mute);padding:16px 0}
 </style>
 </head>
 <body>
@@ -408,6 +440,138 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 <div class="foot">BATTLE TAB · ALPACA PAPER ONLY · ALL ORDERS CONFIRM-GUARDED · SCHWAB READ-ONLY · NO REAL-MONEY PATH</div>
 </div><!-- /tab-battle -->
 
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<!-- RESEARCH TAB                                                               -->
+<!-- ═══════════════════════════════════════════════════════════════════════════ -->
+<div id="tab-research" class="tab-pane" style="display:none">
+
+<!-- Fire control bar -->
+<div class="rbar">
+  <span class="rbar-lbl">Fire agent</span>
+  <select id="fireAgent" class="fire-sel">
+    <option value="ollama-plutus">Dr. McCoy · plutus-v1</option>
+    <option value="ollie-auto">Ollie · holly</option>
+    <option value="ollama-qwen3">Lt. Jadzia Dax · qwen3:8b</option>
+    <option value="neo-matrix">Lt. Cmdr. Data · neo-matrix</option>
+  </select>
+  <span class="rbar-note">auto 5% equity · Alpaca PAPER · confirm-guarded · no real money</span>
+</div>
+
+<!-- Signal Consensus (full width) -->
+<div class="panel" style="margin-bottom:16px">
+  <div class="phead" style="--accent:var(--bull)">
+    <h2>Signal Consensus · Fleet Agreement</h2>
+    <span class="meta" id="consensusMeta">loading…</span>
+  </div>
+  <table class="consensus-tbl">
+    <thead><tr>
+      <th style="width:80px">Symbol</th>
+      <th style="width:60px" class="r">Models</th>
+      <th style="width:80px" class="r">Avg conf</th>
+      <th style="width:130px" class="r">Entry range</th>
+      <th>Crew</th>
+      <th style="width:90px" class="r">Action</th>
+    </tr></thead>
+    <tbody id="consensusBody">
+      <tr><td colspan="6" style="padding:20px"><span class="skel" style="display:inline-block;width:500px;height:14px;border-radius:4px"></span></td></tr>
+    </tbody>
+  </table>
+</div>
+
+<!-- Row R2: Smart Money + Options Flow -->
+<div class="row" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+  <!-- Smart Money -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--caution)">
+      <h2>Smart Money · Fleet Consensus Buys</h2>
+      <span class="meta" id="smartMoneyMeta">loading…</span>
+    </div>
+    <div id="smartMoneyBody">
+      <span class="skel" style="display:block;height:120px;border-radius:6px"></span>
+    </div>
+  </div>
+
+  <!-- Options Flow -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--info)">
+      <h2>Options Flow · Put/Call Radar</h2>
+      <span class="meta" id="flowMeta">loading…</span>
+    </div>
+    <div id="flowBody">
+      <span class="skel" style="display:block;height:120px;border-radius:6px"></span>
+    </div>
+  </div>
+
+</div><!-- /row R2 -->
+
+<!-- Row R3: Ghost Research (TI Shadow) + Shadow Bakeoff -->
+<div class="row" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+  <!-- Ghost Research / TI Shadow -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--tx-dim)">
+      <h2>Ghost Research · TI Shadow</h2>
+      <span class="meta" id="tiMeta">tracked, not auto-traded</span>
+    </div>
+    <div class="ti-stat" id="tiStats">
+      <div class="ti-cell"><div class="ti-lbl">N picks</div><div class="ti-val" id="tiN">—</div></div>
+      <div class="ti-cell"><div class="ti-lbl">Win rate</div><div class="ti-val" id="tiWR">—</div></div>
+      <div class="ti-cell"><div class="ti-lbl">Avg return</div><div class="ti-val" id="tiAvg">—</div></div>
+      <div class="ti-cell"><div class="ti-lbl">Best pick</div><div class="ti-val up" id="tiBest">—</div></div>
+    </div>
+    <div id="tiWatchlist">
+      <span class="skel" style="display:block;height:100px;border-radius:6px"></span>
+    </div>
+  </div>
+
+  <!-- Shadow Bakeoff Standings -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--tx-dim)">
+      <h2>Shadow Bakeoff · CSP Standings</h2>
+      <span class="meta" id="bakeoffMeta">report-only · Admiral gates graduation</span>
+    </div>
+    <table class="bk-tbl">
+      <thead><tr>
+        <th>Agent</th><th class="r">N closed</th><th class="r">WR%</th>
+        <th class="r">Avg ROC%</th><th class="r">DSR</th><th class="r">Verdict</th>
+      </tr></thead>
+      <tbody id="bakeoffBody">
+        <tr><td colspan="6" style="padding:16px"><span class="skel" style="display:inline-block;width:300px;height:12px;border-radius:4px"></span></td></tr>
+      </tbody>
+    </table>
+  </div>
+
+</div><!-- /row R3 -->
+
+<!-- Row R4: Event Tape + Volume Radar -->
+<div class="row" style="display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-bottom:16px">
+
+  <!-- Live Event Tape -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--info)">
+      <h2>Live Event Tape</h2>
+      <span class="meta" id="eventsMeta">15-min window</span>
+    </div>
+    <div id="eventsBody"><div class="evt-empty">Loading events…</div></div>
+    <div class="actbar"><button class="btn ghost sm" onclick="loadEventTape()">↻ Refresh</button></div>
+  </div>
+
+  <!-- Volume Radar -->
+  <div class="panel">
+    <div class="phead" style="--accent:var(--caution)">
+      <h2>Volume Radar · Unusual Activity</h2>
+      <span class="meta" id="radarMeta">loading…</span>
+    </div>
+    <div id="radarBody"><div class="radar-empty">Loading radar…</div></div>
+    <div class="actbar"><button class="btn ghost sm" onclick="loadVolumeRadar()">↻ Refresh</button></div>
+  </div>
+
+</div><!-- /row R4 -->
+
+<div class="foot">RESEARCH TAB · SIGNAL CONSENSUS · PAPER FIRE PATH WIRED · CONFIRM-GUARDED · PAPER ONLY · NO REAL-MONEY PATH</div>
+</div><!-- /tab-research -->
+
 <div class="foot">DIRECTION A · LCARS FIGHTER — ALL ORDERS → ALPACA PAPER ONLY · SCHWAB READ-ONLY · NO REAL-MONEY PATH · WAR-ROOM REVOTE WIRED</div>
 <div id="toast"></div>
 
@@ -469,7 +633,8 @@ function showTab(name) {
   });
   const pane = document.getElementById('tab-' + name);
   if (pane) pane.style.display = '';
-  if (name === 'battle') loadBattleTab();
+  if (name === 'battle')   loadBattleTab();
+  if (name === 'research') loadResearchTab();
 }
 
 // ─── On load ──────────────────────────────────────────────────────────────────
@@ -932,6 +1097,253 @@ async function closeAllPositions() {
     setTimeout(loadPositions, 3000);
     setTimeout(loadAlpacaStatus, 3500);
   } catch (e) { act('Close all error', e.message, true); }
+}
+
+// ─── Research tab ─────────────────────────────────────────────────────────────
+function loadResearchTab() {
+  loadConsensus();
+  loadSmartMoney();
+  loadOptionsFlow();
+  loadTIShadow();
+  loadBakeoffStandings();
+  loadEventTape();
+  loadVolumeRadar();
+}
+
+// ── Signal Consensus: /api/signal-tracker/consensus ───────────────────────────
+async function loadConsensus() {
+  try {
+    const rows = await api('GET', '/api/signal-tracker/consensus');
+    const arr  = Array.isArray(rows) ? rows : (rows.consensus || rows.items || []);
+    document.getElementById('consensusMeta').textContent = arr.length + ' symbols · sorted by fleet agreement';
+    if (!arr.length) {
+      document.getElementById('consensusBody').innerHTML =
+        '<tr><td colspan="6" style="color:var(--tx-mute);padding:16px;font-family:var(--mono)">No consensus signals</td></tr>';
+      return;
+    }
+    const top = arr.slice(0, 20);
+    document.getElementById('consensusBody').innerHTML = top.map(function(r) {
+      const sym  = r.symbol || '—';
+      const mc   = r.model_count ?? 0;
+      const conf = r.avg_confidence != null ? (Number(r.avg_confidence) * 100).toFixed(0) + '%' : '—';
+      const lo   = r.earliest_entry ? '$' + Number(r.earliest_entry).toFixed(2) : '—';
+      const hi   = r.latest_entry   ? '$' + Number(r.latest_entry).toFixed(2)   : '';
+      const range = hi && hi !== lo ? lo + ' – ' + hi : lo;
+      const crews = (r.models || '').split(',').map(m => m.replace('Ollama ','').trim()).filter(Boolean).slice(0, 4).join(' · ');
+      return '<tr>'
+        + '<td class="csym">' + sym + '</td>'
+        + '<td class="r">' + mc + '</td>'
+        + '<td class="r neu">' + conf + '</td>'
+        + '<td class="r" style="color:var(--tx-mute)">' + range + '</td>'
+        + '<td class="cmod">' + crews + '</td>'
+        + '<td class="r"><button class="btn go sm" onclick="fireCandidate(\'' + sym + '\')">▸ BUY</button></td>'
+        + '</tr>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('consensusBody').innerHTML =
+      '<tr><td colspan="6" style="color:var(--bear);padding:14px;font-family:var(--mono)">Error: ' + e.message + '</td></tr>';
+  }
+}
+
+// ── Smart Money: /api/smart-money ─────────────────────────────────────────────
+async function loadSmartMoney() {
+  try {
+    const raw = await api('GET', '/api/smart-money');
+    const items = Array.isArray(raw) ? raw : (raw.items || raw.signals || []);
+    document.getElementById('smartMoneyMeta').textContent = items.length + ' symbols · multi-agent buys';
+    if (!items.length) {
+      document.getElementById('smartMoneyBody').innerHTML =
+        '<div class="evt-empty">No smart money signals</div>';
+      return;
+    }
+    document.getElementById('smartMoneyBody').innerHTML = items.slice(0, 10).map(function(s) {
+      const sym    = s.symbol || '—';
+      const buyers = (s.buyers || []);
+      const names  = buyers.map(b => b.display_name || b.player_id).join(' · ');
+      const conf   = buyers.length ? (buyers.reduce((a, b) => a + (Number(b.confidence) || 0), 0) / buyers.length * 100).toFixed(0) + '%' : '—';
+      return '<div class="sm-row">'
+        + '<span class="sm-sym">' + sym + '</span>'
+        + '<span class="sm-crew">' + names + ' · conf avg ' + conf + '</span>'
+        + '<button class="btn go sm" onclick="fireCandidate(\'' + sym + '\')">▸ BUY</button>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('smartMoneyBody').innerHTML =
+      '<div style="color:var(--bear);font-family:var(--mono);font-size:12px">Error: ' + e.message + '</div>';
+  }
+}
+
+// ── Options Flow: /api/market/options-flow ────────────────────────────────────
+async function loadOptionsFlow() {
+  try {
+    const raw   = await api('GET', '/api/market/options-flow');
+    const items = Array.isArray(raw) ? raw : (raw.flow || raw.items || []);
+    document.getElementById('flowMeta').textContent = items.length + ' symbols scanned';
+    if (!items.length) {
+      document.getElementById('flowBody').innerHTML =
+        '<div class="evt-empty">No flow data</div>';
+      return;
+    }
+    document.getElementById('flowBody').innerHTML = items.map(function(f) {
+      const dir    = (f.flow_direction || 'neutral').toLowerCase();
+      const dirCls = dir === 'bullish' ? 'bull' : dir === 'bearish' ? 'bear' : 'neu';
+      const pcr    = f.put_call_ratio != null ? Number(f.put_call_ratio).toFixed(2) : '—';
+      const ua     = f.unusual_activity ? ' ⬡ unusual' : '';
+      return '<div class="flow-row">'
+        + '<span style="font-weight:600">' + (f.symbol || '—') + '</span>'
+        + '<span style="color:var(--tx-mute);font-size:12px">P/C ' + pcr + ua + '</span>'
+        + '<span class="flow-dir ' + dirCls + '">' + dir + '</span>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('flowBody').innerHTML =
+      '<div style="color:var(--bear);font-family:var(--mono);font-size:12px">Error: ' + e.message + '</div>';
+  }
+}
+
+// ── Ghost Research / TI Shadow: /api/intel/ti-shadow ─────────────────────────
+async function loadTIShadow() {
+  try {
+    const d  = await api('GET', '/api/intel/ti-shadow');
+    const sc = d.scorecard || {};
+    document.getElementById('tiN').textContent    = sc.n ?? '—';
+    document.getElementById('tiWR').textContent   = sc.win_rate != null ? sc.win_rate.toFixed(0) + '%' : '—';
+    document.getElementById('tiAvg').textContent  = sc.avg_return_pct != null ? fmtPct(sc.avg_return_pct) : '—';
+    document.getElementById('tiBest').textContent = sc.best_pct != null ? '+' + sc.best_pct.toFixed(1) + '%' : '—';
+    const wl = d.watchlist || [];
+    if (!wl.length) {
+      document.getElementById('tiWatchlist').innerHTML =
+        '<div class="evt-empty">No watchlist entries</div>';
+      return;
+    }
+    document.getElementById('tiWatchlist').innerHTML = '<table class="consensus-tbl"><thead><tr>'
+      + '<th>Ticker</th><th>Action</th><th class="r">Entry</th><th class="r">Stop</th>'
+      + '<th>Source</th><th class="r">Fire</th>'
+      + '</tr></thead><tbody>'
+      + wl.slice(0, 8).map(function(w) {
+          const dir = (w.action || 'buy').toLowerCase();
+          return '<tr>'
+            + '<td class="csym">' + (w.ticker || '—') + '</td>'
+            + '<td style="color:' + (dir === 'buy' ? 'var(--bull)' : 'var(--bear)') + ';font-family:var(--mono);font-size:11px;font-weight:700;text-transform:uppercase">' + dir + '</td>'
+            + '<td class="r">$' + Number(w.entry || 0).toFixed(2) + '</td>'
+            + '<td class="r" style="color:var(--tx-mute)">$' + Number(w.stop || 0).toFixed(2) + '</td>'
+            + '<td style="font-size:11px;color:var(--tx-mute)">' + (w.source || '—').replace('TI ','') + '</td>'
+            + '<td class="r"><button class="btn go sm" onclick="fireCandidate(\'' + (w.ticker || '') + '\')">▸ BUY</button></td>'
+            + '</tr>';
+        }).join('')
+      + '</tbody></table>';
+  } catch (e) {
+    document.getElementById('tiWatchlist').innerHTML =
+      '<div style="color:var(--bear);font-family:var(--mono);font-size:12px">Error: ' + e.message + '</div>';
+  }
+}
+
+// ── Shadow Bakeoff Standings: /api/shadow-csp/standings ──────────────────────
+async function loadBakeoffStandings() {
+  try {
+    const d = await api('GET', '/api/shadow-csp/standings');
+    const seats = [d.baseline, ...(d.seats || [])].filter(Boolean);
+    document.getElementById('bakeoffMeta').textContent =
+      'baseline: ' + (d.baseline?.agent || '—') + ' · grad at N=' + (d.graduate_n || 30);
+    document.getElementById('bakeoffBody').innerHTML = seats.map(function(s, i) {
+      const grad    = s.graduation || {};
+      const verdict = grad.verdict || (i === 0 ? 'BASELINE' : 'HOLD');
+      const vc      = verdict === 'PASS' ? 'pass' : verdict === 'FAIL' ? 'fail' : 'hold';
+      const dsr     = s.dsr != null ? Number(s.dsr).toFixed(3) : '—';
+      return '<tr>'
+        + '<td style="font-weight:' + (i === 0 ? '700' : '400') + '">' + (s.agent || '—') + '</td>'
+        + '<td class="r">' + (s.n_closed ?? 0) + '</td>'
+        + '<td class="r ' + (s.win_rate_pct >= 60 ? 'up' : '') + '">' + Number(s.win_rate_pct || 0).toFixed(0) + '%</td>'
+        + '<td class="r">' + Number(s.avg_roc_pct || 0).toFixed(2) + '%</td>'
+        + '<td class="r">' + dsr + '</td>'
+        + '<td class="r"><span class="verdict ' + vc + '">' + verdict + '</span></td>'
+        + '</tr>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('bakeoffBody').innerHTML =
+      '<tr><td colspan="6" style="color:var(--bear);padding:12px;font-family:var(--mono)">Error: ' + e.message + '</td></tr>';
+  }
+}
+
+// ── Event Tape: /api/scanner/events ──────────────────────────────────────────
+async function loadEventTape() {
+  try {
+    const d      = await api('GET', '/api/scanner/events');
+    const events = d.events || [];
+    const meta   = d.meta || {};
+    document.getElementById('eventsMeta').textContent =
+      meta.count + ' events · ' + meta.window_minutes + '-min window · ' + (d.ts || '').slice(0, 16);
+    if (!events.length) {
+      document.getElementById('eventsBody').innerHTML =
+        '<div class="evt-empty">No events in window — market may be closed</div>';
+      return;
+    }
+    document.getElementById('eventsBody').innerHTML = events.slice(0, 12).map(function(ev) {
+      const sym = ev.symbol || ev.ticker || '—';
+      return '<div class="flow-row">'
+        + '<span style="font-weight:600">' + sym + '</span>'
+        + '<span style="color:var(--tx-mute);font-size:11px">' + (ev.event_type || ev.type || '—') + '</span>'
+        + '<span style="color:var(--tx-mute);font-size:11px">' + (ev.ts || ev.timestamp || '').slice(11,16) + '</span>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('eventsBody').innerHTML =
+      '<div style="color:var(--bear);font-family:var(--mono);font-size:12px">Error: ' + e.message + '</div>';
+  }
+}
+
+// ── Volume Radar: /api/volume-radar ──────────────────────────────────────────
+async function loadVolumeRadar() {
+  try {
+    const d      = await api('GET', '/api/volume-radar');
+    const alerts = d.alerts || [];
+    document.getElementById('radarMeta').textContent = (d.count || alerts.length) + ' alerts';
+    if (!alerts.length) {
+      document.getElementById('radarBody').innerHTML =
+        '<div class="radar-empty">No volume alerts — check back during market hours</div>';
+      return;
+    }
+    document.getElementById('radarBody').innerHTML = alerts.slice(0, 10).map(function(a) {
+      const sym = a.symbol || a.ticker || '—';
+      return '<div class="flow-row">'
+        + '<span style="font-weight:600">' + sym + '</span>'
+        + '<span style="color:var(--tx-mute);font-size:11px">' + (a.alert_type || a.type || '—') + '</span>'
+        + '<button class="btn go sm" onclick="fireCandidate(\'' + sym + '\')">▸ BUY</button>'
+        + '</div>';
+    }).join('');
+  } catch (e) {
+    document.getElementById('radarBody').innerHTML =
+      '<div style="color:var(--bear);font-family:var(--mono);font-size:12px">Error: ' + e.message + '</div>';
+  }
+}
+
+// ── Fire candidate: POST /api/paper-trader/manual-trade ──────────────────────
+// ON port 8080 (same origin) — no CORS, no proxy needed.
+// Body: {symbol, action:"buy", agent:<player_id>, source:"research-tab"}
+// Qty auto-sized at 5% agent equity by the server.
+async function fireCandidate(sym) {
+  const agent     = document.getElementById('fireAgent')?.value || 'ollama-plutus';
+  const agentLbl  = document.getElementById('fireAgent')?.options[document.getElementById('fireAgent').selectedIndex]?.text || agent;
+  if (!window.confirm(
+    'Open paper BUY ' + sym + '?\n\n'
+    + 'Agent: ' + agentLbl + '\n'
+    + 'Size: 5% agent equity (auto)\n'
+    + 'Account: Alpaca PAPER — no real money'
+  )) return;
+  try {
+    const d = await api('POST', '/api/paper-trader/manual-trade', {
+      symbol: sym, action: 'buy', agent: agent, source: 'research-tab'
+    });
+    if (d.error) {
+      act('Fire failed · ' + sym, d.error, true);
+    } else {
+      const qty   = d.qty ?? d.quantity ?? '?';
+      const price = d.price ? '$' + Number(d.price).toFixed(2) : '';
+      act('▸ Paper BUY ' + sym, qty + ' shares ' + price + ' · ' + (agentLbl.split(' ')[0]) + ' · paper', false);
+    }
+  } catch (e) {
+    act('Fire error · ' + sym, e.message, true);
+  }
 }
 
 // ─── Arm toggle ───────────────────────────────────────────────────────────────
