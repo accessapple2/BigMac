@@ -1318,7 +1318,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
         # Always allow login/logout routes, tactical display, static assets, and PWA files
-        if path in ("/login", "/logout", "/login/pin", "/tactical", "/scanner", "/charts", "/sw.js", "/robots.txt", "/api/trades/recent", "/api/briefing/today", "/api/macro/dashboard", "/backtest", "/v2") or path.startswith("/v2/ticker/") or path.startswith("/static/") or path.startswith("/api/chart") or path.startswith("/api/v1/") or path.startswith("/leaderboard") or path.startswith("/backtest/result/") or (path.startswith("/api/trades/") and path.endswith("/explain")) or path == "/api/backtest/community-leaderboard" or path == "/api/backtest/community/run" or path.startswith("/api/backtest/result/"):
+        if path in ("/login", "/logout", "/login/pin", "/tactical", "/scanner", "/charts", "/bridge-v2", "/sw.js", "/robots.txt", "/api/trades/recent", "/api/briefing/today", "/api/macro/dashboard", "/backtest", "/v2") or path.startswith("/v2/ticker/") or path.startswith("/static/") or path.startswith("/api/chart") or path.startswith("/api/v1/") or path.startswith("/leaderboard") or path.startswith("/backtest/result/") or (path.startswith("/api/trades/") and path.endswith("/explain")) or path == "/api/backtest/community-leaderboard" or path == "/api/backtest/community/run" or path.startswith("/api/backtest/result/"):
             return await call_next(request)
         # Role-based checks apply to any request that carries a session cookie,
         # regardless of source IP — must run before the localhost bypass so that
@@ -12984,6 +12984,15 @@ def serve_big_charts():
     """Standalone senior-accessible chart viewer — no auth, no sidebar."""
     return FileResponse(
         os.path.join(_static_dir, "big_charts.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+    )
+
+
+@app.get("/bridge-v2")
+def serve_bridge_v2():
+    """Direction A LCARS fighter shuttle — parallel to index.html, never replaces it."""
+    return FileResponse(
+        os.path.join(_static_dir, "bridge-v2.html"),
         headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
     )
 
