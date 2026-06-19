@@ -169,9 +169,9 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 <div class="row r1">
   <div class="panel">
     <div class="phead" style="--accent:var(--bull)"><h2>CTO Daily Advisory</h2><span class="meta">paper-only · select setup in Research to execute</span></div>
-    <div class="conv"><span class="score">—</span><span class="of">use Battle tab for live order entry</span></div>
-    <p class="advisory">Hold long bias above the gamma flip. Use the Research tab to surface live setups, then fire from the Battle tab with a confirmed candidate.</p>
-    <div class="chips"><span class="chip b">Long bias</span><span class="chip a">Paper only</span><span class="chip a">Confirm-guarded</span></div>
+    <div class="conv"><span class="score" id="advScore">—</span><span class="of" id="advOf">loading…</span></div>
+    <p class="advisory" id="advText">Loading Kirk advisory…</p>
+    <div class="chips" id="advChips"><span class="chip a">Loading…</span></div>
     <div class="actbar">
       <button class="btn go" onclick="advisoryExecute()">▸ Execute (paper)</button>
       <button class="btn ghost" onclick="act('Snoozed','Advisory muted 60 min',false)">Snooze</button>
@@ -324,6 +324,7 @@ window.addEventListener('DOMContentLoaded', () => {
   loadLeaderboard();
   loadGex();
   loadFearGreed();
+  loadKirkAdvisory();
 });
 
 // ─── /api/alpaca/status → hero equity + vitals ───────────────────────────────
@@ -450,8 +451,8 @@ async function loadLeaderboard() {
       return;
     }
     document.getElementById('lbBody').innerHTML = rows.slice(0, 10).map(function(p, i) {
-      // win_rate=0 + trades=0 → render "—" (spec: dalio/tracking cosmetic fix)
-      const wr  = (p.trades === 0 || p.trades == null) ? '—' : (Number(p.win_rate || 0).toFixed(0) + '%');
+      // win_rate null → render "—" (covers Dalio: 7 trades but win_rate=null, and 0-trade players)
+      const wr  = (p.win_rate == null) ? '—' : (Number(p.win_rate).toFixed(1) + '%');
       const ret = p.return_pct != null ? fmtPct(p.return_pct) : '—';
       const day = p.day_pnl != null ? fmtPnl(p.day_pnl) : '—';
       const val = p.total_value != null ? fmtUSD(p.total_value) : '—';
@@ -473,12 +474,36 @@ async function loadLeaderboard() {
 // ─── Gamma / F&G (best-effort) ────────────────────────────────────────────────
 async function loadGex() {
   try {
-    const d = await api('GET', '/api/gex');
-    if (d.gamma_flip)  document.getElementById('gFlip').textContent = '$' + Number(d.gamma_flip).toFixed(0);
-    if (d.call_wall)   document.getElementById('gCallWall').textContent = '$' + Number(d.call_wall).toFixed(0);
-    if (d.put_wall)    document.getElementById('gPutWall').textContent = '$' + Number(d.put_wall).toFixed(0);
-    if (d.spot || d.spy_price) document.getElementById('gSpot').textContent = '$' + Number(d.spot || d.spy_price).toFixed(2);
-  } catch (_) { /* non-critical — gamma map stays — */ }
+    const raw = await api('GET', '/api/market/gex');
+    const d = Array.isArray(raw) ? raw[0] : raw;  // endpoint returns list
+    if (!d) return;
+    if (d.gamma_flip) document.getElementById('gFlip').textContent     = '$' + Number(d.gamma_flip).toFixed(0);
+    if (d.call_wall)  document.getElementById('gCallWall').textContent  = '$' + Number(d.call_wall).toFixed(0);
+    if (d.put_wall)   document.getElementById('gPutWall').textContent   = '$' + Number(d.put_wall).toFixed(0);
+    if (d.spot)       document.getElementById('gSpot').textContent      = '$' + Number(d.spot).toFixed(2);
+    // Regime-driven color on spot: short-gamma = amber, long-gamma = blue
+    if (d.regime) {
+      const isShort = (d.total_gex || 0) < 0 || (d.regime || '').toLowerCase().includes('short');
+      const el = document.getElementById('gSpot');
+      if (el) { el.className = 'px ' + (isShort ? 'warn' : 'neu'); }
+    }
+  } catch (_) { /* non-critical — gamma map stays dashes */ }
+}
+
+async function loadKirkAdvisory() {
+  try {
+    const d = await api('GET', '/api/kirk/advisory');
+    const wr = d.trade_history?.win_rate;
+    document.getElementById('advScore').textContent = wr != null ? Number(wr).toFixed(0) : '—';
+    document.getElementById('advOf').textContent    = '/ 100 win rate · ' + (d.trade_history?.total_closed || 0) + ' closed trades';
+    const rec = d.cash_recommendation?.reasoning || d.market_context?.gex_regime || '—';
+    document.getElementById('advText').textContent  = rec + ' · Use Battle tab to execute with a confirmed candidate.';
+    const urgent = (d.positions || []).filter(p => p.action && p.action !== 'HOLD').slice(0, 4);
+    const chips  = urgent.map(p =>
+      '<span class="chip ' + (p.action === 'REDUCE' ? 'r' : 'a') + '">' + p.symbol + ' · ' + p.action + '</span>'
+    ).join('');
+    document.getElementById('advChips').innerHTML = chips || '<span class="chip a">Paper only</span><span class="chip a">Confirm-guarded</span>';
+  } catch (_) { /* non-critical */ }
 }
 
 async function loadFearGreed() {
