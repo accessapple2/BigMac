@@ -9411,7 +9411,6 @@ def performance_summary():
     strategies: list = []
     _EQ_IDS = frozenset({"ollama-plutus", "navigator", "neo-matrix"})
     _CSP_OPT_IDS = frozenset({"options-sosnoff", "shadow-qwen35-csp"})
-    _CSP_TR_IDS = frozenset({"options-sosnoff"})
     _DTE_IDS = frozenset({"dayblade-0dte", "dayblade-sulu"})
 
     try:
@@ -9457,7 +9456,7 @@ def performance_summary():
 
         strategies.append({"name": "Equity Fleet", **_merge(_from_trades(_EQ_IDS))})
         strategies.append({"name": "CSP / Wheel",
-                            **_merge(_from_options(_CSP_OPT_IDS), _from_trades(_CSP_TR_IDS))})
+                            **_merge(_from_options(_CSP_OPT_IDS))})
         strategies.append({"name": "0DTE", **_merge(_from_trades(_DTE_IDS))})
 
         gr = _db.execute("""
