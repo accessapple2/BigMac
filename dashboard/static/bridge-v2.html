@@ -7,6 +7,7 @@
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;500;600;700&family=Archivo:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500;600;700&display=swap" rel="stylesheet">
+<script src="https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.min.js"></script>
 <style>
 :root{
   --bull:#3DDC84;--bear:#FF5A3C;--caution:#FFC23D;--info:#7FC4FF;
@@ -364,6 +365,14 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
     </tbody>
   </table>
 </div>
+<!-- EQUITY CURVE vs SPY -->
+<div class="panel" style="margin-top:16px">
+  <div class="phead" style="--accent:var(--info)">
+    <h2>Season 6 Equity · vs SPY Buy-and-Hold</h2>
+    <span class="meta" id="equityCurveMeta">loading…</span>
+  </div>
+  <canvas id="equityCurveChart" height="80"></canvas>
+</div>
 </div><!-- /tab-bridge -->
 
 <!-- ═══════════════════════════════════════════════════════════════════════════ -->
@@ -494,8 +503,7 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 <div class="rbar">
   <span class="rbar-lbl">Fire agent</span>
   <select id="fireAgent" class="fire-sel">
-    <option value="ollama-plutus">Dr. McCoy · plutus-v1</option>
-    <option value="ollie-auto">Ollie · holly</option>
+    <option value="ollama-plutus" selected>Dr. McCoy · plutus-v1</option>
     <option value="ollama-qwen3">Lt. Jadzia Dax · qwen3:8b</option>
     <option value="neo-matrix">Lt. Cmdr. Data · neo-matrix</option>
   </select>
@@ -927,7 +935,7 @@ function showTab(name) {
   });
   const pane = document.getElementById('tab-' + name);
   if (pane) pane.style.display = '';
-  if (name === 'bridge')   { loadAlpacaStatus(); loadGex(); loadFearGreed(); loadKirkAdvisory(); }
+  if (name === 'bridge')   { loadAlpacaStatus(); loadGex(); loadFearGreed(); loadKirkAdvisory(); loadEquityCurve(); }
   if (name === 'battle')   loadBattleTab();
   if (name === 'research') loadResearchTab();
   if (name === 'fleet')    loadFleetTab();
@@ -1067,6 +1075,57 @@ function renderPositions(positions) {
       + '<td class="r"><button class="btn red sm" onclick="closePosition(\'' + sym + '\',' + qty + ')">Close</button></td>'
       + '</tr>';
   }).join('');
+}
+
+// ─── Equity curve vs SPY ──────────────────────────────────────────────────────
+let _equityChart = null;
+async function loadEquityCurve() {
+  try {
+    const d = await api('GET', '/api/account/equity-curve');
+    if (!d.dates || !d.dates.length) {
+      document.getElementById('equityCurveMeta').textContent = d.error || 'no data';
+      return;
+    }
+    const sign = v => v >= 0 ? '+' : '';
+    document.getElementById('equityCurveMeta').textContent =
+      'Account ' + sign(d.account_pct_gain) + d.account_pct_gain + '% · SPY '
+      + sign(d.spy_pct_gain) + d.spy_pct_gain + '% · Edge '
+      + sign(d.edge_pct) + d.edge_pct + '%';
+
+    const ctx = document.getElementById('equityCurveChart').getContext('2d');
+    if (_equityChart) { _equityChart.destroy(); _equityChart = null; }
+    _equityChart = new Chart(ctx, {
+      type: 'line',
+      data: {
+        labels: d.dates,
+        datasets: [
+          { label: 'Account', data: d.account, borderColor: '#7FC4FF', backgroundColor: 'rgba(127,196,255,0.08)',
+            tension: 0.2, pointRadius: 0, borderWidth: 2, fill: false },
+          { label: 'SPY B&H', data: d.spy, borderColor: '#FFC23D', backgroundColor: 'transparent',
+            tension: 0.2, pointRadius: 0, borderWidth: 1.5, borderDash: [4,3], fill: false },
+        ]
+      },
+      options: {
+        animation: false,
+        responsive: true,
+        plugins: {
+          legend: { labels: { color: '#9A9AAB', font: { family: "'IBM Plex Mono'" } } },
+          tooltip: {
+            callbacks: {
+              label: ctx => ' ' + ctx.dataset.label + ': ' + (ctx.parsed.y - 100).toFixed(1) + '%'
+            }
+          }
+        },
+        scales: {
+          x: { ticks: { color: '#5A5A66', maxTicksLimit: 8 }, grid: { color: '#2A2A34' } },
+          y: { ticks: { color: '#9A9AAB', callback: v => (v - 100).toFixed(0) + '%' },
+               grid: { color: '#2A2A34' } }
+        }
+      }
+    });
+  } catch(e) {
+    document.getElementById('equityCurveMeta').textContent = 'error: ' + e.message;
+  }
 }
 
 // ─── /api/arena/leaderboard → fleet table ─────────────────────────────────────

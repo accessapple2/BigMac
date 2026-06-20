@@ -16,6 +16,9 @@ TRADING_MODE = os.environ.get("TRADING_MODE", "paper")  # "paper" or "live"
 # HM-AF-δ player_id resolver (commit 2fea086) activates with real data.
 SPREAD_CANNIBALIZATION_GUARD_ENABLED = False
 
+# door1 2026-06-19: darked — 0/2 lifetime, -$1,670, fattest tail. Reversal: set True + restart.
+ZERO_DTE_EXECUTION_ENABLED = False
+
 # HM-TRADE-DESK 2026-05-22: manual Captain trade desk on Alpaca paper.
 # When True, orders submitted with agent_id='trade-desk' bypass check_trade
 # gates (daily trade limit, MAX_POSITION_VALUE, kill switch, Uhura veto).
@@ -304,7 +307,7 @@ AI_PLAYERS = [
     {"id": "ollama-local",    "name": "Pike/Kirk 14B",      "provider": "ollama", "model": "qwen3:8b",         "url": OLLIE_URL},  # Ollie GPU
     {"id": "ollama-gemma27b", "name": "Qwen3 8B",           "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — was qwen3:14b
     {"id": "ollama-deepseek", "name": "Spock R1 14B",       "provider": "ollama", "model": "deepseek-r1:14b",   "url": OLLIE_URL},  # Ollie GPU
-    {"id": "ollama-qwen3",    "name": "Scotty 8B",          "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU
+    {"id": "ollama-qwen3",    "name": "Lt. Jadzia Dax",     "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU (model qwen3:8b here is deliberately-unsynced legacy; DB=ministral-3:3b is runtime truth per config.py:285)
     {"id": "ollama-coder",    "name": "Lt. Cmdr. Data",     "provider": "ollama", "model": "qwen2.5-coder:7b",  "url": OLLIE_URL},  # Ollie GPU — was qwen3-coder:30b
     {"id": "ollama-plutus",   "name": "Uhura Plutus",       "provider": "ollama", "model": "plutus-v1",    "url": OLLIE_URL},  # Ollie GPU — McCoy's finance brain
     {"id": "navigator",       "name": "Ensign Chekov",       "provider": "ollama", "model": "qwen3:8b",          "url": OLLIE_URL},  # Ollie GPU — backtest routing; live uses chekov_rules()
