@@ -318,6 +318,19 @@ app = FastAPI(title="SwingDesk", version="1.0")
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
+import sys as _sys, pathlib as _pl
+_ot_root = _pl.Path(__file__).resolve().parent.parent
+if str(_ot_root) not in _sys.path:
+    _sys.path.insert(0, str(_ot_root))
+from engine.fire_control import router as fire_router
+from engine.stream import router as stream_router
+from engine.signals import router as signals_router
+from engine.events  import router as events_router
+app.include_router(fire_router)     # /api/tradeable/{sym}, /api/fire
+app.include_router(stream_router)   # /api/stream/{sym}
+app.include_router(signals_router)  # /api/signals/{sym}
+app.include_router(events_router)   # /api/events/{sym}
+
 # Serve frontend from same directory
 _frontend = Path(__file__).parent / "index.html"
 if _frontend.exists():

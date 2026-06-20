@@ -1,0 +1,907 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>OllieTrades · LCARS Tactical Fire Control</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Antonio:wght@400;500;600;700&family=Share+Tech+Mono&display=swap" rel="stylesheet">
+<style>
+  /* ============================================================
+     OLLIETRADES — LCARS TACTICAL FIRE CONTROL
+     Star Trek LCARS chrome + a tactical lock overlay.
+     LCARS amber/mauve/blue = the computer. Green = LOCK. Red = NO FIRE.
+     Fire path = ALPACA PAPER only. Schwab is display-only (RULE #1).
+     ============================================================ */
+  :root{
+    --bg:#000000;
+    --panel:#0a0a0f;
+    /* LCARS chrome */
+    --orange:#ff9966;
+    --tan:#ffcc99;
+    --gold:#ffcc66;
+    --mauve:#cc99cc;
+    --blue:#7c8cff;
+    --slate:#5a6a8a;
+    /* Tactical overlay */
+    --lock:#38bdf8;        /* target locked / go (colorblind-safe blue) */
+    --nolock:#f5a524;      /* no lock / standby (colorblind-safe amber) */
+    --interlock:#ff2a1f;   /* hard interlock — cannot arm */
+    --caution:#ffb000;     /* standby / caution */
+    --ink:#f3ead9;
+    --dim:#6c6f7a;
+    --disp:"Antonio","Oswald","Arial Narrow",system-ui,sans-serif;
+    --mono:"Share Tech Mono",ui-monospace,"Cascadia Code",monospace;
+    --r:28px;
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;height:100%}
+  body{
+    background:var(--bg);
+    color:var(--ink);
+    font-family:var(--mono);
+    overflow-x:hidden;
+    -webkit-font-smoothing:antialiased;
+  }
+  /* faint CRT scanlines + vignette */
+  body::after{
+    content:"";position:fixed;inset:0;pointer-events:none;z-index:9999;
+    background:repeating-linear-gradient(0deg,rgba(0,0,0,0) 0 2px,rgba(0,0,0,.22) 2px 3px);
+    mix-blend-mode:multiply;opacity:.5;
+  }
+  .lcars{
+    display:grid;
+    grid-template-columns:150px 1fr;
+    grid-template-rows:auto 1fr;
+    gap:8px;
+    min-height:100vh;
+    padding:10px;
+  }
+  /* ---- LCARS elbow (left rail + top sweep) ---- */
+  .rail{grid-row:1 / 3;display:flex;flex-direction:column;gap:8px}
+  .elbow{
+    height:88px;background:var(--orange);
+    border-top-left-radius:var(--r);
+    border-bottom-left-radius:8px;
+    position:relative;
+  }
+  .elbow::after{ /* the inner black notch that makes the sweep */
+    content:"";position:absolute;right:-8px;bottom:0;width:36px;height:34px;
+    background:var(--bg);border-bottom-left-radius:22px;
+  }
+  .pill{border-radius:8px 8px 22px 22px;padding:10px 12px;font-family:var(--disp);
+    text-transform:uppercase;letter-spacing:.06em;color:#1a0d00;font-weight:600;font-size:13px;line-height:1.1}
+  .pill.sm{font-size:11px;padding:8px 12px;border-radius:8px}
+  .pill.mauve{background:var(--mauve)} .pill.blue{background:var(--blue);color:#05060f}
+  .pill.gold{background:var(--gold)} .pill.tan{background:var(--tan)}
+  .pill.slate{background:var(--slate);color:#e8ecff}
+  .rail .pill{flex:0 0 auto}
+  .rail .spacer{flex:1 1 auto;background:linear-gradient(var(--orange),var(--mauve));
+    border-bottom-left-radius:8px;opacity:.85;min-height:40px;border-radius:8px}
+  .railnum{font-family:var(--mono);color:#1a0d00;font-size:11px;text-align:right;
+    padding:2px 12px;background:var(--gold);border-radius:6px}
+
+  /* ---- top sweep bar ---- */
+  .topbar{
+    grid-column:2;display:flex;align-items:stretch;gap:8px;height:88px;
+  }
+  .sweep{flex:1;background:var(--orange);border-top-right-radius:var(--r);
+    display:flex;align-items:center;justify-content:space-between;padding:0 22px 0 26px;position:relative}
+  .sweep h1{font-family:var(--disp);font-weight:700;text-transform:uppercase;
+    color:#160a00;letter-spacing:.04em;margin:0;font-size:clamp(20px,2.6vw,34px);line-height:.9}
+  .sweep h1 small{display:block;font-size:12px;font-weight:500;letter-spacing:.22em;color:#3a1c00}
+  .clock{font-family:var(--mono);color:#160a00;text-align:right;font-size:13px;letter-spacing:.04em}
+  .clock b{font-size:20px;display:block}
+
+  /* ---- main column ---- */
+  .main{grid-column:2;display:flex;flex-direction:column;gap:8px;min-width:0}
+
+  .strip{display:flex;gap:8px;flex-wrap:wrap;align-items:center;
+    background:var(--panel);border-radius:8px;padding:10px;border:1px solid #16161f}
+  .label{font-family:var(--disp);text-transform:uppercase;letter-spacing:.14em;
+    color:var(--gold);font-size:12px;font-weight:600}
+  input.tgt{background:#05060a;border:1px solid #2a2a3a;color:var(--lock);
+    font-family:var(--mono);font-size:18px;letter-spacing:.18em;padding:8px 12px;border-radius:6px;width:120px;text-transform:uppercase}
+  input.tgt:focus{outline:2px solid var(--lock);outline-offset:1px}
+  select,.btn{font-family:var(--disp);text-transform:uppercase;letter-spacing:.08em;
+    font-weight:600;border:none;border-radius:18px;padding:9px 18px;font-size:13px;cursor:pointer;color:#0a0500}
+  .btn.acquire{background:var(--blue);color:#05060f}
+  .btn.scan{background:var(--mauve)}
+  select{background:var(--tan);color:#1a0d00}
+  /* master arm */
+  .arm{margin-left:auto;display:flex;align-items:center;gap:10px}
+  .armbtn{font-family:var(--disp);font-weight:700;letter-spacing:.1em;border:2px solid var(--caution);
+    background:#1a1305;color:var(--caution);border-radius:22px;padding:9px 20px;cursor:pointer;text-transform:uppercase}
+  .armbtn.on{background:var(--interlock);border-color:#ff7a6e;color:#fff;animation:armpulse 1.1s infinite}
+  @keyframes armpulse{50%{box-shadow:0 0 22px var(--interlock)}}
+  .holdbtn{background:var(--slate);color:#e8ecff;font-family:var(--disp);font-weight:600;
+    border:none;border-radius:22px;padding:9px 16px;cursor:pointer;text-transform:uppercase;letter-spacing:.08em}
+  .audiobtn.on{background:var(--blue);color:#05060f}
+
+  /* ---- viewscreen + telemetry ---- */
+  .row2{display:grid;grid-template-columns:1.55fr 1fr;gap:8px;min-height:300px}
+  .screen,.telem,.tape,.engPanel{background:var(--panel);border:1px solid #16161f;border-radius:8px}
+  .screen{position:relative;overflow:hidden;display:flex;flex-direction:column}
+  /* windshield canopy — looking through the cockpit glass at the main view */
+  .glass{position:absolute;inset:34px 0 0 0;pointer-events:none;border-radius:0 0 8px 8px;
+    background:
+      radial-gradient(120% 70% at 16% -10%, rgba(180,200,255,.07), transparent 46%),
+      radial-gradient(160% 130% at 50% 130%, rgba(0,0,0,.55), transparent 58%);
+    box-shadow:inset 0 0 60px rgba(0,0,0,.45), inset 0 0 1px rgba(124,140,255,.35);}
+  .glass .cross{position:absolute;left:50%;top:50%;width:42px;height:42px;transform:translate(-50%,-50%);opacity:.3}
+  .glass .cross::before,.glass .cross::after{content:"";position:absolute;background:var(--lock)}
+  .glass .cross::before{left:50%;top:0;width:1px;height:100%;transform:translateX(-.5px)}
+  .glass .cross::after{top:50%;left:0;height:1px;width:100%;transform:translateY(-.5px)}
+  .screen.alert .glass{box-shadow:inset 0 0 70px rgba(255,42,31,.42), inset 0 0 1px rgba(255,42,31,.6)}
+  .screen.alert{animation:scrnalert 1.3s infinite}
+  @keyframes scrnalert{50%{box-shadow:0 0 0 1px rgba(255,42,31,.55) inset}}
+  .viewtog{font-family:var(--disp);text-transform:uppercase;letter-spacing:.06em;font-weight:600;
+    background:var(--slate);color:#e8ecff;border:none;border-radius:14px;padding:5px 12px;font-size:11px;cursor:pointer}
+  .viewtog.on{background:var(--blue);color:#05060f}
+  .screen .cap{display:flex;justify-content:space-between;padding:8px 12px;border-bottom:1px solid #16161f}
+  .cap .mauveTag{color:var(--mauve)}
+  canvas{flex:1;width:100%;display:block}
+  .telem{padding:12px;display:flex;flex-direction:column;gap:8px}
+  .telem h3,.engPanel h3,.tape h3{font-family:var(--disp);text-transform:uppercase;letter-spacing:.14em;
+    margin:0 0 4px;font-size:13px;color:var(--blue)}
+  .tgrid{display:grid;grid-template-columns:1fr 1fr;gap:6px 14px;font-size:14px}
+  .tgrid .k{color:var(--dim);font-size:11px;letter-spacing:.1em;text-transform:uppercase}
+  .tgrid .v{color:var(--ink)}
+  .tgrid .v.up{color:var(--lock)} .tgrid .v.dn{color:var(--nolock)}
+
+  /* La Forge / engineering interlock panel */
+  .engPanel{padding:12px;display:flex;flex-direction:column;gap:6px}
+  .engline{font-size:13px;color:var(--tan)}
+  .engline b{color:var(--lock)}
+  .filtered{font-size:12px;color:var(--nolock)}
+  .visor{display:inline-block;width:46px;height:9px;border-radius:6px;
+    background:linear-gradient(90deg,#ffcc00,#ff3b30,#33ff99,#7c8cff);margin-right:8px;vertical-align:middle;
+    box-shadow:0 0 10px rgba(124,140,255,.6)}
+
+  /* ---- weapon stations ---- */
+  .stations{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
+  .stn{background:var(--panel);border:1px solid #1c1c28;border-radius:10px;
+    display:flex;flex-direction:column;overflow:hidden;position:relative}
+  .stn .hd{display:flex;justify-content:space-between;align-items:baseline;
+    padding:9px 12px;background:#0d0d16;border-bottom:1px solid #1c1c28}
+  .stn .no{font-family:var(--disp);font-weight:700;color:var(--gold);letter-spacing:.1em;font-size:13px}
+  .stn .call{font-family:var(--disp);text-transform:uppercase;letter-spacing:.06em;color:var(--mauve);font-size:11px}
+  .stn .body{padding:12px;display:flex;flex-direction:column;gap:8px;flex:1}
+  .stn .wtype{font-family:var(--disp);text-transform:uppercase;letter-spacing:.04em;
+    color:var(--orange);font-size:15px;font-weight:600;line-height:1.05}
+  .stn .sub{color:var(--dim);font-size:11px;letter-spacing:.04em}
+
+  /* lock reticle */
+  .reticle{position:relative;height:64px;display:flex;align-items:center;justify-content:center;margin:2px 0}
+  .reticle .word{font-family:var(--disp);font-weight:700;letter-spacing:.12em;font-size:17px;z-index:2}
+  .reticle .br{position:absolute;width:18px;height:18px;border:2px solid var(--nolock);transition:all .35s ease}
+  .reticle .tl{top:6px;left:30%;border-right:none;border-bottom:none}
+  .reticle .tr{top:6px;right:30%;border-left:none;border-bottom:none}
+  .reticle .bl{bottom:6px;left:30%;border-right:none;border-top:none}
+  .reticle .br2{bottom:6px;right:30%;border-left:none;border-top:none}
+  /* event_tape flash — pulses a station when Holly fires an event on its symbol */
+  .stn.evt-flash{animation:evtflash .9s ease}
+  @keyframes evtflash{0%,100%{box-shadow:none;border-color:#1c1c28}
+    30%{box-shadow:0 0 26px 2px var(--lock);border-color:var(--lock)}}
+  .stn.evt-flash .reticle .br{border-color:var(--lock)!important}
+  /* states */
+  .stn[data-state="nolock"] .word{color:var(--nolock)}
+  .stn[data-state="nolock"] .br{border-color:var(--nolock)}
+  .stn[data-state="lock"] .word{color:var(--lock);text-shadow:0 0 12px var(--lock)}
+  .stn[data-state="lock"] .br{border-color:var(--lock);box-shadow:0 0 10px var(--lock)}
+  .stn[data-state="lock"] .tl{left:14%;top:2px}.stn[data-state="lock"] .tr{right:14%;top:2px}
+  .stn[data-state="lock"] .bl{left:14%;bottom:2px}.stn[data-state="lock"] .br2{right:14%;bottom:2px}
+  .stn[data-state="interlock"] .word{color:var(--interlock)}
+  .stn[data-state="interlock"] .br{border-color:var(--interlock);border-style:dashed}
+  .stn[data-state="lock"]{border-color:var(--lock);box-shadow:0 0 0 1px var(--lock) inset,0 0 24px rgba(51,255,153,.12)}
+  .stn[data-state="interlock"]{border-color:var(--interlock)}
+
+  .spec{font-size:12px;color:var(--ink);background:#05060a;border-radius:6px;padding:8px;display:none}
+  .stn[data-state="lock"] .spec{display:block}
+  .spec .line{display:flex;justify-content:space-between;padding:1px 0}
+  .spec .line span:first-child{color:var(--dim);text-transform:uppercase;letter-spacing:.06em;font-size:10px}
+  .spec .rr{color:var(--gold)}
+
+  .fire{margin-top:auto;font-family:var(--disp);font-weight:700;letter-spacing:.14em;
+    font-size:16px;text-transform:uppercase;border:none;border-radius:8px;padding:13px;cursor:pointer;
+    width:100%;transition:transform .05s}
+  .fire:active{transform:translateY(1px)}
+  .fire.hot{background:var(--lock);color:#04121f;box-shadow:0 0 18px rgba(56,189,248,.6)}
+  .fire.hot:hover{filter:brightness(1.08)}
+  .fire.cold{background:#1a1a22;color:var(--dim);cursor:not-allowed}
+  .fire.safed{background:#241010;color:var(--nolock);border:1px solid var(--nolock);cursor:not-allowed}
+
+  /* computer voice + tape */
+  .computer{display:flex;gap:10px;align-items:center;background:#0d0a14;
+    border:1px solid var(--mauve);border-radius:8px;padding:8px 14px}
+  .computer .lamp{width:12px;height:12px;border-radius:50%;background:var(--mauve);
+    box-shadow:0 0 12px var(--mauve);flex:0 0 auto;animation:blip 2s infinite}
+  @keyframes blip{50%{opacity:.4}}
+  .computer .msg{font-family:var(--mono);color:var(--tan);letter-spacing:.04em;font-size:14px}
+  .tape{padding:12px;max-height:160px;overflow:auto}
+  .tape .entry{font-size:12px;border-bottom:1px dotted #1c1c28;padding:5px 0;color:var(--dim)}
+  .tape .entry b{color:var(--lock)} .tape .entry .sx{color:var(--orange)}
+  .tape .entry.blocked b{color:var(--nolock)}
+  .tape .empty{color:var(--dim);font-style:italic}
+
+  footer{grid-column:2;color:var(--dim);font-size:11px;letter-spacing:.06em;padding:4px 8px 10px}
+  footer b{color:var(--caution)}
+
+  @media (max-width:1000px){
+    .lcars{grid-template-columns:1fr}
+    .rail{display:none}.topbar,.main,footer{grid-column:1}
+    .row2{grid-template-columns:1fr}
+    .stations{grid-template-columns:1fr 1fr}
+  }
+  @media (max-width:560px){ .stations{grid-template-columns:1fr} }
+  @media (prefers-reduced-motion:reduce){ *{animation:none!important;transition:none!important} }
+</style>
+</head>
+<body>
+<div class="lcars">
+
+  <!-- LEFT LCARS RAIL -->
+  <div class="rail">
+    <div class="elbow"></div>
+    <div class="railnum">SD 79866.4</div>
+    <div class="pill mauve sm">OPS</div>
+    <div class="pill blue sm">TACTICAL</div>
+    <div class="pill gold sm">UHURA</div>
+    <div class="pill tan sm">RIKER</div>
+    <div class="pill slate sm">LA·FORGE</div>
+    <div class="spacer"></div>
+    <div class="pill mauve sm">SCOTTY</div>
+    <div class="railnum">PAPER ONLY</div>
+  </div>
+
+  <!-- TOP SWEEP -->
+  <div class="topbar">
+    <div class="sweep">
+      <h1>OLLIETRADES<small>LCARS · TACTICAL FIRE CONTROL</small></h1>
+      <div class="clock"><b id="clk">--:--:--</b><span id="acct">ACCT —— · BP ——</span></div>
+    </div>
+  </div>
+
+  <!-- MAIN -->
+  <div class="main">
+
+    <!-- COMMAND RAIL -->
+    <div class="strip">
+      <span class="label">Target</span>
+      <input class="tgt" id="sym" value="NVDA" maxlength="6" aria-label="Target symbol" />
+      <button class="btn acquire" id="acquire">Acquire</button>
+      <button class="btn scan" id="scan">Scan Algos</button>
+      <span class="label" style="margin-left:8px">Broker</span>
+      <select id="broker" aria-label="Broker target">
+        <option value="alpaca">ALPACA · PAPER (LIVE FIRE)</option>
+        <option value="schwab">SCHWAB · DISPLAY ONLY</option>
+      </select>
+      <div class="arm">
+        <button class="holdbtn audiobtn" id="voiceBtn" aria-pressed="false">&#128266; Voice &middot; Off</button>
+        <button class="holdbtn audiobtn" id="ambient" aria-pressed="false">&#9834; Ambient &middot; Off</button>
+        <button class="holdbtn" id="hold">Weapons Hold</button>
+        <button class="armbtn" id="master" aria-pressed="false">Master Arm &middot; Safe</button>
+      </div>
+    </div>
+
+    <!-- COMPUTER VOICE -->
+    <div class="computer"><span class="lamp"></span>
+      <span class="msg" id="voice">Computer online. Tactical grid standing by. Master arm is SAFE.</span>
+    </div>
+
+    <!-- VIEWSCREEN + TELEMETRY -->
+    <div class="row2">
+      <div class="screen" id="screen">
+        <div class="cap">
+          <span class="label">Viewscreen · <span id="capSym">NVDA</span></span>
+          <span style="display:flex;gap:8px;align-items:center">
+            <button class="viewtog" id="viewtog">Main View</button>
+            <span class="mauveTag" id="capPx">—</span>
+          </span>
+        </div>
+        <canvas id="chart"></canvas>
+        <div class="glass" aria-hidden="true"><span class="cross"></span></div>
+      </div>
+
+      <div style="display:flex;flex-direction:column;gap:8px">
+        <div class="telem">
+          <h3>Target Telemetry</h3>
+          <div class="tgrid">
+            <div><div class="k">Last</div><div class="v" id="tLast">—</div></div>
+            <div><div class="k">Day</div><div class="v" id="tDay">—</div></div>
+            <div><div class="k">Rel Vol</div><div class="v" id="tVol">—</div></div>
+            <div><div class="k">RSI(14)</div><div class="v" id="tRsi">—</div></div>
+            <div><div class="k">VWAP Δ</div><div class="v" id="tVwap">—</div></div>
+            <div><div class="k">Tradeable</div><div class="v" id="tTrade">—</div></div>
+          </div>
+        </div>
+        <div class="engPanel">
+          <h3><span class="visor"></span>La Forge · Tradeability Interlock</h3>
+          <div class="engline" id="engStatus">Interlock <b>ENGAGED</b>. Halted &amp; delisted contacts filtered before lock.</div>
+          <div class="filtered" id="engFiltered">Filtered this scan: none.</div>
+        </div>
+      </div>
+    </div>
+
+    <!-- WEAPON STATIONS -->
+    <div class="stations" id="stations"></div>
+
+    <!-- WEAPONS RELEASE TAPE -->
+    <div class="tape">
+      <h3>Weapons Release Tape · Append-Only</h3>
+      <div id="tapeBody"><div class="empty">No releases. Acquire a target, scan, master-arm, then fire to Alpaca paper.</div></div>
+    </div>
+
+  </div>
+
+  <footer>
+    Fire path: <b>ALPACA PAPER</b> only. Schwab is display-only and cannot transmit an order (RULE #1).
+    Locks render only on contacts that clear the La Forge interlock — a halted or delisted ghost can never arm.
+    Production: the FIRE handler POSTs to your OllieTrades backend, which holds the keys and enforces paper server-side. No broker keys live in this page.
+  </footer>
+</div>
+
+<script>
+/* ====================================================================
+   OLLIETRADES TACTICAL FIRE CONTROL — front-end logic
+   Demo drives itself with a mock signal generator. Replace the marked
+   seams (OT.fire / OT.applySignals / OT.tradeable) with your backend.
+   ==================================================================== */
+const OT = {};
+
+/* ====================================================================
+   AUDIO — synthesized LCARS tones + an idle engine drone (no files).
+   Point AMBIENT_SRC at a loop to use a real recording instead of the
+   built-in synth drone (e.g. the archive.org CC TNG idle, or a
+   royalty-free bridge-ambience pack). Empty = synth drone.
+   ==================================================================== */
+const AMBIENT_SRC = "";  // ← e.g. "audio/tng_idle.mp3"
+
+const AUDIO = (function(){
+  let ctx, master, ambGain, ambNodes=[], ambEl=null;
+  let ambientOn=false, alertOn=false;
+
+  function ensure(){
+    if(ctx){ if(ctx.state==="suspended") ctx.resume(); return ctx; }
+    const AC = window.AudioContext||window.webkitAudioContext; if(!AC) return null;
+    ctx = new AC();
+    master = ctx.createGain(); master.gain.value=0.9; master.connect(ctx.destination);
+    ambGain = ctx.createGain(); ambGain.gain.value=0; ambGain.connect(master);
+    return ctx;
+  }
+  function blip(freq,dur,type,vol,at){
+    if(!ctx) return; const t=at||ctx.currentTime;
+    const o=ctx.createOscillator(), g=ctx.createGain();
+    o.type=type||"sine"; o.frequency.setValueAtTime(freq,t);
+    g.gain.setValueAtTime(0.0001,t);
+    g.gain.exponentialRampToValueAtTime(vol||0.2,t+0.012);
+    g.gain.exponentialRampToValueAtTime(0.0001,t+dur);
+    o.connect(g); g.connect(master); o.start(t); o.stop(t+dur+0.03);
+  }
+  function buildDrone(){
+    [55,82.4,110].forEach((f,i)=>{
+      const o=ctx.createOscillator(), g=ctx.createGain();
+      o.type="sine"; o.frequency.value=f; o.detune.value=(i-1)*4;
+      g.gain.value=[0.5,0.3,0.18][i]; o.connect(g); g.connect(ambGain); o.start();
+      ambNodes.push(o,g);
+    });
+    // brown-ish noise → lowpass for engine air
+    const N=2*ctx.sampleRate, buf=ctx.createBuffer(1,N,ctx.sampleRate), d=buf.getChannelData(0);
+    let last=0; for(let i=0;i<N;i++){ const w=Math.random()*2-1; last=(last+0.02*w)/1.02; d[i]=last*3.2; }
+    const noise=ctx.createBufferSource(); noise.buffer=buf; noise.loop=true;
+    const lp=ctx.createBiquadFilter(); lp.type="lowpass"; lp.frequency.value=360;
+    const ng=ctx.createGain(); ng.gain.value=0.09;
+    noise.connect(lp); lp.connect(ng); ng.connect(ambGain); noise.start();
+    ambNodes.push(noise,lp,ng);
+    // slow "breathing" LFO on the ambient bus
+    const lfo=ctx.createOscillator(), lg=ctx.createGain();
+    lfo.frequency.value=0.07; lg.gain.value=0.012; lfo.connect(lg); lg.connect(ambGain.gain);
+    lfo.start(); ambNodes.push(lfo,lg);
+  }
+  function synthTarget(){ return ambientOn ? (alertOn?0.14:0.06) : 0; }
+  function rampSynth(){ if(!ctx) return; const t=ctx.currentTime;
+    ambGain.gain.cancelScheduledValues(t); ambGain.gain.setValueAtTime(ambGain.gain.value,t);
+    ambGain.gain.linearRampToValueAtTime(synthTarget(),t+1.2); }
+  function elTarget(){ return ambientOn ? (alertOn?0.6:0.32) : 0; }
+  function fadeEl(to){ if(!ambEl) return; const step=(to-ambEl.volume)/20; let n=0;
+    const id=setInterval(()=>{ n++; ambEl.volume=Math.max(0,Math.min(1,ambEl.volume+step));
+      if(n>=20){ ambEl.volume=Math.max(0,Math.min(1,to)); clearInterval(id); if(to<=0) ambEl.pause(); }},55); }
+
+  return {
+    setAmbient(on){ ensure(); if(!ctx) return on; ambientOn=on;
+      if(AMBIENT_SRC){
+        if(!ambEl){ ambEl=new Audio(AMBIENT_SRC); ambEl.loop=true; ambEl.volume=0; }
+        if(on){ ambEl.play().catch(()=>{}); fadeEl(elTarget()); } else fadeEl(0);
+      } else {
+        if(on && !ambNodes.length) buildDrone();
+        rampSynth();
+      }
+      return on;
+    },
+    alert(on){ alertOn=on; if(!ctx) return;
+      if(AMBIENT_SRC){ if(ambientOn) fadeEl(elTarget()); } else rampSynth(); },
+    lock(){ if(!ensure()) return; const t=ctx.currentTime; blip(880,0.07,"sine",0.16,t); blip(1320,0.08,"sine",0.13,t+0.07); },
+    release(){ if(!ensure()) return; const t=ctx.currentTime; blip(80,0.24,"sine",0.5,t); blip(196,0.18,"triangle",0.26,t); blip(392,0.1,"square",0.1,t+0.02); },
+    arm(){ if(!ensure()) return; const t=ctx.currentTime; blip(440,0.1,"sine",0.18,t); blip(660,0.15,"sine",0.18,t+0.1); },
+    safe(){ if(!ensure()) return; const t=ctx.currentTime; blip(660,0.1,"sine",0.16,t); blip(440,0.15,"sine",0.16,t+0.1); },
+    refuse(){ if(!ensure()) return; const t=ctx.currentTime; blip(150,0.18,"sawtooth",0.2,t); blip(116,0.2,"sawtooth",0.16,t+0.05); },
+  };
+})();
+
+/* --- computer speech (callouts) + main-view state --- */
+let VOICE_ON=false;
+function speak(text){
+  if(!VOICE_ON || !window.speechSynthesis) return;
+  try{ const u=new SpeechSynthesisUtterance(text); u.rate=0.96; u.pitch=0.65; u.volume=0.95;
+    window.speechSynthesis.cancel(); window.speechSynthesis.speak(u); }catch(e){}
+}
+let viewMode="chart", starRAF=null, stars=[];
+
+/* --- four weapon stations mapped to your strategy stack --- */
+const STATIONS = [
+  {id:"s1", no:"STN 01", call:"PHASER BANK",  wtype:"MA Crossover + RSI + Volume", sub:"STOCK · DAY"},
+  {id:"s2", no:"STN 02", call:"PHOTON BAY",   wtype:"Options · Spreads / Condors", sub:"DEFINED RISK"},
+  {id:"s3", no:"STN 03", call:"SENSOR ARRAY", wtype:"News Sentiment + ML Signals",  sub:"CONFIRMATION"},
+  {id:"s4", no:"STN 04", call:"TACTICAL",     wtype:"SwingDesk · Spread Builder",   sub:"MULTI-DAY"},
+];
+
+let STATE = {
+  symbol:"NVDA",
+  master:false,
+  broker:"alpaca",
+  tradeable:true,
+  telem:{},
+  signals:{}, // id -> {locked, side, qty, entry, stop, target}
+};
+
+/* --- demo "halted / delisted" ghost list the interlock filters --- */
+const GHOSTS = { HOLX:"delisted — taken private Apr 2026", INHD:"halted — Nasdaq T12" };
+
+/* ---- build station DOM ---- */
+const stationsEl = document.getElementById("stations");
+STATIONS.forEach(s=>{
+  const el=document.createElement("div");
+  el.className="stn"; el.dataset.state="nolock"; el.id=s.id;
+  el.innerHTML=`
+    <div class="hd"><span class="no">${s.no}</span><span class="call">${s.call}</span></div>
+    <div class="body">
+      <div class="wtype">${s.wtype}</div><div class="sub">${s.sub}</div>
+      <div class="reticle">
+        <span class="br tl"></span><span class="br tr"></span><span class="br bl"></span><span class="br br2"></span>
+        <span class="word">NO LOCK</span>
+      </div>
+      <div class="spec">
+        <div class="line"><span>Side</span><span class="sSide">—</span></div>
+        <div class="line"><span>Qty</span><span class="sQty">—</span></div>
+        <div class="line"><span>Entry</span><span class="sEntry">—</span></div>
+        <div class="line"><span>Stop</span><span class="sStop">—</span></div>
+        <div class="line"><span>Target</span><span class="sTgt">—</span></div>
+        <div class="line"><span>R : R</span><span class="rr sRR">—</span></div>
+      </div>
+      <button class="fire cold" data-stn="${s.id}">Safe</button>
+    </div>`;
+  stationsEl.appendChild(el);
+});
+
+/* ---- computer voice ---- */
+function say(t){ document.getElementById("voice").textContent=t; }
+
+/* ====================================================================
+   SEAM 1 — tradeability interlock. Replace with a call to your
+   tradeability_gate(): false for halted / delisted / taken-private.
+   ==================================================================== */
+OT.tradeable = function(symbol){ return !(symbol in GHOSTS); };
+
+/* ====================================================================
+   SEAM 2 — live signals. Replace mock with your algo feed / xo_brief
+   envelope. Shape per station: {locked, side, qty, entry, stop, target}.
+   ==================================================================== */
+function mockSignals(symbol){
+  const base = STATE.telem.last || 200;
+  const out={};
+  STATIONS.forEach(s=>{
+    const locked = Math.random() > 0.45;           // demo coin-flip
+    const long = Math.random() > 0.4;
+    const entry = +(base*(1+(Math.random()-.5)*0.004)).toFixed(2);
+    const stop  = +(entry*(long?0.985:1.015)).toFixed(2);
+    const tgt   = +(entry*(long?1.03:0.97)).toFixed(2);
+    out[s.id] = locked ? {locked:true, side:long?"LONG":"SHORT",
+      qty: s.id==="s2"?"2x VERT":Math.max(1,Math.round(2000/entry)),
+      entry, stop, target:tgt,
+      rr:(Math.abs(tgt-entry)/Math.abs(entry-stop)).toFixed(2)} : {locked:false};
+  });
+  return out;
+}
+
+/* ---- render one station from its signal + interlock ---- */
+function renderStation(s){
+  const el=document.getElementById(s.id);
+  const fire=el.querySelector(".fire");
+  const sig=STATE.signals[s.id]||{locked:false};
+  let state;
+
+  if(!STATE.tradeable){ state="interlock"; }
+  else if(sig.locked){ state="lock"; }
+  else { state="nolock"; }
+  const prevState=el.dataset.state;
+  el.dataset.state=state;
+  if(state==="lock" && prevState!=="lock") AUDIO.lock();
+
+  const word=el.querySelector(".word");
+  if(state==="interlock"){ word.textContent="⊘ INTERLOCK"; }
+  else if(state==="lock"){ word.textContent="● LOCKED"; }
+  else { word.textContent="○ NO LOCK"; }
+
+  if(state==="lock"){
+    el.querySelector(".sSide").textContent=sig.side;
+    el.querySelector(".sQty").textContent=sig.qty;
+    el.querySelector(".sEntry").textContent="$"+sig.entry;
+    el.querySelector(".sStop").textContent="$"+sig.stop;
+    el.querySelector(".sTgt").textContent="$"+sig.target;
+    el.querySelector(".sRR").textContent=sig.rr+" : 1";
+  }
+
+  /* fire button logic — the interlock chain */
+  if(state==="interlock"){
+    fire.className="fire safed"; fire.textContent="No Fire · Interlock"; fire.disabled=true;
+  } else if(STATE.broker==="schwab"){
+    fire.className="fire safed"; fire.textContent="Safed · Schwab"; fire.disabled=true;
+  } else if(state!=="lock"){
+    fire.className="fire cold"; fire.textContent="No Lock"; fire.disabled=true;
+  } else if(!STATE.master){
+    fire.className="fire cold"; fire.textContent="Master Safe"; fire.disabled=true;
+  } else {
+    fire.className="fire hot"; fire.textContent="Fire · Alpaca"; fire.disabled=false;
+  }
+}
+function renderAll(){ STATIONS.forEach(renderStation); }
+
+/* ---- interlock / engineering panel ---- */
+function updateInterlock(){
+  const ghost = STATE.symbol in GHOSTS;
+  STATE.tradeable = !ghost;
+  document.getElementById("tTrade").textContent = ghost ? "NO — FILTERED" : "YES";
+  document.getElementById("tTrade").className = "v "+(ghost?"dn":"up");
+  document.getElementById("engFiltered").textContent = ghost
+    ? `Filtered this scan: ${STATE.symbol} — ${GHOSTS[STATE.symbol]}.`
+    : "Filtered this scan: none.";
+}
+
+/* live interlock from the backend (GET /api/tradeable/:sym); local GHOSTS is the
+   instant fallback so the standalone demo and the offline state still work. */
+async function liveInterlockCheck(sym){
+  try{
+    const r=await fetch(API_BASE+"/api/tradeable/"+encodeURIComponent(sym));
+    if(!r.ok) return; const d=await r.json();
+    STATE.tradeable = !!d.ok;
+    const el=document.getElementById("tTrade");
+    el.textContent = d.ok ? "YES" : "NO — "+String(d.reason||"FILTERED").toUpperCase();
+    el.className = "v "+(d.ok?"up":"dn");
+    document.getElementById("engFiltered").textContent = d.ok
+      ? "Filtered this scan: none." : `Filtered this scan: ${sym} — ${d.reason}.`;
+    renderAll();
+  }catch(e){ /* backend unreachable — keep the local interlock result */ }
+}
+
+/* ====================================================================
+   SEAM 3 — FIRE. POSTs to your FastAPI /api/fire (paper=True, Schwab
+   refused server-side, keys never touch the page). Falls back to a
+   simulated release when no backend is reachable (standalone demo).
+   Set API_BASE if the cockpit is served from a different host/port.
+   ==================================================================== */
+const API_BASE = "http://192.168.1.248:8889";  // bigmac LAN IP (browser can't resolve the name "bigmac")
+
+OT.fire = async function(stnId){
+  if(STATE.broker==="schwab"){
+    AUDIO.refuse(); speak("Unable to comply. Schwab is display only.");
+    logTape({blocked:true, stn:stnId, msg:"REFUSED · Schwab is display-only (RULE #1)"});
+    say("Unable to comply. Schwab is display only. Switch to Alpaca paper to fire.");
+    return;
+  }
+  if(!STATE.tradeable){
+    AUDIO.refuse(); speak("Unable to comply. Interlock.");
+    logTape({blocked:true, stn:stnId, msg:"REFUSED · interlock (untradeable contact)"});
+    return;
+  }
+  const sig=STATE.signals[stnId];
+  if(!sig||!sig.locked||!STATE.master) return;
+
+  const payload={station:stnId, symbol:STATE.symbol, side:sig.side, qty:sig.qty,
+    entry:sig.entry, stop:sig.stop, target:sig.target, broker:"alpaca_paper"};
+  try{
+    const r=await fetch(API_BASE+"/api/fire",{method:"POST",
+      headers:{"Content-Type":"application/json"}, body:JSON.stringify(payload)});
+    const data=await r.json().catch(()=>({}));
+    if(r.ok){
+      AUDIO.release(); speak(`Weapons away. ${STATE.symbol}.`);
+      logTape({stn:stnId, symbol:STATE.symbol, side:sig.side, qty:sig.qty, entry:sig.entry, oid:data.order_id});
+      say(`Weapons away. ${sig.side} ${STATE.symbol} → Alpaca paper · order ${(data.order_id||"").slice(0,8)}.`);
+    } else {
+      AUDIO.refuse(); speak("Unable to comply.");
+      logTape({blocked:true, stn:stnId, msg:`REFUSED · ${data.detail||("HTTP "+r.status)}`});
+      say(`Backend refused: ${data.detail||r.status}.`);
+    }
+  }catch(e){
+    // no backend (standalone demo) → simulated release
+    AUDIO.release(); speak(`Weapons away. ${STATE.symbol}.`);
+    logTape({stn:stnId, symbol:STATE.symbol, side:sig.side, qty:sig.qty, entry:sig.entry, sim:true});
+    say(`Weapons away (sim). ${sig.side} ${STATE.symbol} from ${stnId.toUpperCase()} — connect /api/fire to go live-paper.`);
+  }
+};
+
+/* ---- weapons release tape (append-only) ---- */
+const tapeBody=document.getElementById("tapeBody");
+let tapeStarted=false;
+function logTape(e){
+  if(!tapeStarted){ tapeBody.innerHTML=""; tapeStarted=true; }
+  const t=new Date().toLocaleTimeString();
+  const div=document.createElement("div");
+  if(e.blocked){
+    div.className="entry blocked";
+    div.innerHTML=`${t} · <b>${e.msg}</b> · <span class="sx">${e.stn.toUpperCase()}</span>`;
+  } else {
+    div.className="entry";
+    const tag = e.sim ? " · SIM" : (e.oid ? " · #"+String(e.oid).slice(0,8) : "");
+    div.innerHTML=`${t} · <b>RELEASE</b> · <span class="sx">${e.symbol}</span> ${e.side} ${e.qty} @ $${e.entry} · ${e.stn.toUpperCase()} · ALPACA PAPER${tag}`;
+  }
+  tapeBody.prepend(div);
+}
+
+/* ---- target acquisition ---- */
+function acquire(){
+  const v=document.getElementById("sym").value.trim().toUpperCase()||"NVDA";
+  STATE.symbol=v;
+  document.getElementById("capSym").textContent=v;
+  // mock telemetry
+  const last=+(80+Math.random()*240).toFixed(2);
+  const day=+((Math.random()-.45)*4).toFixed(2);
+  STATE.telem={last, day, rvol:(0.6+Math.random()*3).toFixed(1), rsi:Math.round(28+Math.random()*44),
+    vwap:((Math.random()-.5)*1.5).toFixed(2)};
+  document.getElementById("tLast").textContent="$"+last;
+  const dEl=document.getElementById("tDay"); dEl.textContent=(day>=0?"+":"")+day+"%"; dEl.className="v "+(day>=0?"up":"dn");
+  document.getElementById("tVol").textContent=STATE.telem.rvol+"x";
+  document.getElementById("tRsi").textContent=STATE.telem.rsi;
+  const vw=document.getElementById("tVwap"); vw.textContent=(STATE.telem.vwap>=0?"+":"")+STATE.telem.vwap+"%"; vw.className="v "+(STATE.telem.vwap>=0?"up":"dn");
+  document.getElementById("capPx").textContent="$"+last;
+  updateInterlock();
+  drawChart(last);
+  STATE.signals={}; renderAll();
+  liveInterlockCheck(v);
+  connectStream(v);
+  connectEvents(v);
+  say(`Target acquired: ${v}. Last $${last}. Run Scan Algos to evaluate weapon stations.`);
+}
+
+/* ---- scan: pull signals (mock) ---- */
+async function scan(){
+  if(!STATE.tradeable){
+    say(`${STATE.symbol} fails the interlock — ${GHOSTS[STATE.symbol]||"untradeable"}. No station can lock.`);
+    STATE.signals={}; renderAll(); return;
+  }
+  let live=false;
+  try{
+    const r=await fetch(API_BASE+"/api/signals/"+encodeURIComponent(STATE.symbol));
+    if(r.ok){
+      const d=await r.json();
+      if(d.telem && d.telem.last!=null){
+        STATE.telem.last=d.telem.last;
+        document.getElementById("tLast").textContent="$"+d.telem.last;
+        if(!liveOn) document.getElementById("capPx").textContent="$"+d.telem.last;
+      }
+      STATE.signals=d.signals||{};
+      live=true;
+    }
+  }catch(e){ /* backend unreachable → mock fallback below */ }
+  if(!live) STATE.signals=mockSignals(STATE.symbol);
+  renderAll();
+  const locks=Object.values(STATE.signals).filter(s=>s.locked).length;
+  say(`Scan complete. ${locks} of 4 stations report LOCK on ${STATE.symbol}.${live?"":" (demo signals — backend not reached)"}`);
+  speak(locks ? `${locks} station${locks>1?"s":""} locked.` : "No locks.");
+}
+
+/* ---- master arm / hold ---- */
+const masterBtn=document.getElementById("master");
+const ambientBtn=document.getElementById("ambient");
+function setAmbient(on){
+  ambientBtn.setAttribute("aria-pressed",on); ambientBtn.classList.toggle("on",on);
+  ambientBtn.innerHTML = on ? "&#9834; Ambient &middot; On" : "&#9834; Ambient &middot; Off";
+  AUDIO.setAmbient(on);
+}
+function setMaster(on){
+  STATE.master=on; masterBtn.setAttribute("aria-pressed",on);
+  masterBtn.classList.toggle("on",on);
+  masterBtn.textContent = on ? "Master Arm · HOT" : "Master Arm · Safe";
+  if(on){ AUDIO.arm(); if(ambientBtn.getAttribute("aria-pressed")!=="true") setAmbient(true); }
+  else { AUDIO.safe(); }
+  AUDIO.alert(on);
+  document.getElementById("screen").classList.toggle("alert",on);
+  speak(on?"Master arm, hot.":"Weapons safe.");
+  say(on ? "Master arm HOT. Locked stations are cleared to fire on Alpaca paper."
+         : "Master arm SAFE. All weapons cold.");
+  renderAll();
+}
+masterBtn.onclick=()=>{
+  if(!STATE.master && !confirm("MASTER ARM → HOT. Locked stations will be cleared to fire to Alpaca paper. Confirm?")) return;
+  setMaster(!STATE.master);
+};
+document.getElementById("hold").onclick=()=>{ setMaster(false); say("Weapons hold. All stations safed."); };
+ambientBtn.onclick=()=>{
+  const on = ambientBtn.getAttribute("aria-pressed")!=="true";
+  setAmbient(on);
+  say(on ? "Ambient engine hum online." : "Ambient hum offline.");
+};
+const voiceBtn=document.getElementById("voiceBtn");
+voiceBtn.onclick=()=>{
+  VOICE_ON=!VOICE_ON;
+  voiceBtn.setAttribute("aria-pressed",VOICE_ON); voiceBtn.classList.toggle("on",VOICE_ON);
+  voiceBtn.innerHTML = VOICE_ON ? "&#128266; Voice &middot; On" : "&#128266; Voice &middot; Off";
+  if(VOICE_ON) speak("Computer voice online.");
+};
+
+/* ---- broker change ---- */
+document.getElementById("broker").onchange=e=>{
+  STATE.broker=e.target.value;
+  if(STATE.broker==="schwab") say("Schwab selected — DISPLAY ONLY. Triggers safed. No order can transmit.");
+  else say("Alpaca paper selected. Fire path live.");
+  renderAll();
+};
+
+/* ---- wiring ---- */
+document.getElementById("acquire").onclick=acquire;
+document.getElementById("scan").onclick=scan;
+document.getElementById("sym").addEventListener("keydown",e=>{ if(e.key==="Enter") acquire(); });
+stationsEl.addEventListener("click",e=>{ const b=e.target.closest(".fire"); if(b&&!b.disabled) OT.fire(b.dataset.stn); });
+
+/* ====================================================================
+   SEAM 4 — let your backend drive the whole cockpit:
+   OT.applySignals({symbol, telem:{...}, tradeable:bool, signals:{s1:{...}}})
+   ==================================================================== */
+OT.applySignals=function(p){
+  if(p.symbol){ STATE.symbol=p.symbol; document.getElementById("sym").value=p.symbol; }
+  if(p.telem){ STATE.telem=p.telem; }
+  if(typeof p.tradeable==="boolean"){ STATE.tradeable=p.tradeable; }
+  if(p.signals){ STATE.signals=p.signals; }
+  updateInterlock(); renderAll();
+};
+
+/* ---- HUD canvas chart (mock candles, phosphor) ---- */
+const cv=document.getElementById("chart"), cx=cv.getContext("2d");
+let candles=[];
+function genCandles(last){
+  candles=[]; let p=last*0.985;
+  for(let i=0;i<70;i++){ const o=p; const c=o*(1+(Math.random()-.5)*0.012);
+    const h=Math.max(o,c)*(1+Math.random()*0.005), l=Math.min(o,c)*(1-Math.random()*0.005);
+    candles.push({o,h,l,c,v:Math.round(2000+Math.random()*9000)}); p=c; }
+}
+function drawChart(last){
+  if(last) genCandles(last);
+  const w=cv.width=cv.clientWidth*devicePixelRatio, h=cv.height=cv.clientHeight*devicePixelRatio;
+  cx.clearRect(0,0,w,h); if(!candles.length) return;
+  const pad=10*devicePixelRatio;
+  const volH=h*0.20, gap=6*devicePixelRatio;
+  const priceTop=pad, priceBot=h-volH-gap;
+  const hi=Math.max(...candles.map(c=>c.h)), lo=Math.min(...candles.map(c=>c.l)), span=(hi-lo)||1;
+  const y=v=>priceBot-((v-lo)/span)*(priceBot-priceTop);
+  // grid
+  cx.strokeStyle="rgba(124,140,255,.12)"; cx.lineWidth=1;
+  for(let g=0;g<=4;g++){ const yy=priceTop+g*(priceBot-priceTop)/4; cx.beginPath();cx.moveTo(pad,yy);cx.lineTo(w-pad,yy);cx.stroke(); }
+  const bw=(w-2*pad)/candles.length;
+  const vmax=Math.max(1,...candles.map(c=>c.v||0)), volBot=h-pad;
+  candles.forEach((c,i)=>{
+    const x=pad+i*bw+bw/2, up=c.c>=c.o, col=up?"#38bdf8":"#f5a524";
+    cx.strokeStyle=col; cx.fillStyle=col; cx.lineWidth=1*devicePixelRatio;
+    cx.beginPath();cx.moveTo(x,y(c.h));cx.lineTo(x,y(c.l));cx.stroke();
+    const bh=Math.max(2,Math.abs(y(c.o)-y(c.c)));
+    cx.fillRect(x-bw*0.3, Math.min(y(c.o),y(c.c)), bw*0.6, bh);
+    if(c.v){ const vh=(c.v/vmax)*(volH-pad*0.5); cx.globalAlpha=0.5; cx.fillRect(x-bw*0.3, volBot-vh, bw*0.6, vh); cx.globalAlpha=1; }
+  });
+  // last-price reticle line
+  const ly=y(candles[candles.length-1].c);
+  cx.strokeStyle="rgba(255,176,0,.7)"; cx.setLineDash([6,5]);
+  cx.beginPath();cx.moveTo(pad,ly);cx.lineTo(w-pad,ly);cx.stroke(); cx.setLineDash([]);
+}
+/* ---- MAIN VIEW — warp starfield through the canopy ---- */
+function initStars(){ stars=[]; for(let i=0;i<170;i++) stars.push({x:Math.random()*2-1,y:Math.random()*2-1,z:Math.random()}); }
+function drawStars(){
+  const w=cv.width=cv.clientWidth*devicePixelRatio, h=cv.height=cv.clientHeight*devicePixelRatio;
+  cx.fillStyle="rgba(2,4,12,0.35)"; cx.fillRect(0,0,w,h);   // motion trails
+  const ox=w/2, oy=h/2, K=Math.min(w,h)*0.5;
+  stars.forEach(s=>{
+    const z0=s.z; s.z-=0.013; if(s.z<=0.02){ s.x=Math.random()*2-1; s.y=Math.random()*2-1; s.z=1; return; }
+    const px=ox+(s.x/s.z)*K,  py=oy+(s.y/s.z)*K;
+    const qx=ox+(s.x/z0)*K,   qy=oy+(s.y/z0)*K;       // previous pos → streak
+    const b=Math.min(1,1-s.z);
+    cx.strokeStyle=`rgba(190,205,255,${b})`; cx.lineWidth=Math.max(1,b*2.4*devicePixelRatio);
+    cx.beginPath(); cx.moveTo(qx,qy); cx.lineTo(px,py); cx.stroke();
+  });
+  if(viewMode==="stars") starRAF=requestAnimationFrame(drawStars);
+}
+function setView(mode){
+  viewMode=mode;
+  const tog=document.getElementById("viewtog");
+  if(mode==="stars"){
+    tog.classList.add("on"); tog.textContent="Chart";
+    document.getElementById("capPx").textContent="WARP";
+    if(!stars.length) initStars();
+    cancelAnimationFrame(starRAF); drawStars();
+    say("Main viewer online."); speak("Main viewer.");
+  } else {
+    tog.classList.remove("on"); tog.textContent="Main View";
+    cancelAnimationFrame(starRAF);
+    document.getElementById("capPx").textContent="$"+(STATE.telem.last||"—");
+    drawChart();
+  }
+}
+document.getElementById("viewtog").onclick=()=>setView(viewMode==="chart"?"stars":"chart");
+
+window.addEventListener("resize",()=>{ if(viewMode!=="stars") drawChart(); });
+
+/* ---- LIVE tick stream (reuses Holly's Alpaca IEX feed via /api/stream) ---- */
+const BUCKET_MS=5000;            // 5s candles for a live "is it moving" feel
+let es=null, evtEs=null, liveOn=false, curBucket=0, lastDraw=0;
+function setLiveTag(){
+  const cap=document.getElementById("capPx");
+  if(viewMode==="stars") return;
+  cap.textContent = liveOn ? "● LIVE $"+(candles.length?candles[candles.length-1].c.toFixed(2):"—")
+                           : "$"+(STATE.telem.last||"—");
+}
+function ingestTick(price,vol){
+  if(!isFinite(price)) return;
+  liveOn=true; vol=+vol||0;
+  const b=Math.floor(Date.now()/BUCKET_MS);
+  if(b!==curBucket){                       // roll a new candle
+    curBucket=b;
+    candles.push({o:price,h:price,l:price,c:price,v:vol});
+    if(candles.length>70) candles.shift();
+  } else if(candles.length){               // update the forming candle
+    const c=candles[candles.length-1];
+    c.c=price; c.h=Math.max(c.h,price); c.l=Math.min(c.l,price); c.v=(c.v||0)+vol;
+  } else {
+    candles.push({o:price,h:price,l:price,c:price,v:vol});
+  }
+  const now=performance.now();
+  if(now-lastDraw>250 && viewMode==="chart"){ lastDraw=now; drawChart(); setLiveTag(); }
+}
+function connectStream(sym){
+  if(es){ try{es.close();}catch(e){} es=null; }
+  liveOn=false;
+  try{
+    es=new EventSource(API_BASE+"/api/stream/"+encodeURIComponent(sym));
+    es.onmessage=ev=>{ try{ const d=JSON.parse(ev.data); ingestTick(+d.price, +d.v); }catch(e){} };
+    es.onerror=()=>{ liveOn=false; /* keep the mock chart already on screen */ };
+  }catch(e){ /* no EventSource / no backend → static mock chart stays */ }
+}
+
+/* ---- event_tape reticle flash ---- */
+const EVENT_STN={running_up_fast:"s1",volume_burst:"s1",new_session_high:"s1",gap_fill_complete:"s1"};
+const EVENT_LABEL={running_up_fast:"running up fast",volume_burst:"volume burst",
+  new_session_high:"new session high",gap_fill_complete:"gap fill complete"};
+function flashStation(id){
+  const el=document.getElementById(id); if(!el) return;
+  el.classList.remove("evt-flash"); void el.offsetWidth; el.classList.add("evt-flash");
+  setTimeout(()=>el.classList.remove("evt-flash"),1000);
+  try{ AUDIO.lock(); }catch(e){}
+}
+function connectEvents(sym){
+  if(evtEs){ try{evtEs.close();}catch(e){} evtEs=null; }
+  try{
+    evtEs=new EventSource(API_BASE+"/api/events/"+encodeURIComponent(sym));
+    evtEs.onmessage=ev=>{ try{
+      const d=JSON.parse(ev.data); if(!d||!d.type) return;
+      const stn=EVENT_STN[d.type]||"s1", label=EVENT_LABEL[d.type]||d.type;
+      flashStation(stn);
+      say(`⚡ ${sym}: ${label}.`); speak(label);
+    }catch(e){} };
+    evtEs.onerror=()=>{};
+  }catch(e){}
+}
+
+/* ---- clock + boot ---- */
+setInterval(()=>{ document.getElementById("clk").textContent=new Date().toLocaleTimeString(); },1000);
+document.getElementById("acct").textContent="ACCT $28,307 · BP $18,591";
+acquire();
+setTimeout(()=>say("Tactical grid ready. Acquire, scan, then master-arm to fire to Alpaca paper."),600);
+</script>
+</body>
+</html>
