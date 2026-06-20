@@ -3133,6 +3133,7 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
                 "is_active": bool(p["is_active"]),
                 # HM-A: derive is_halted from halt_mode (single source of truth)
                 "is_halted": (p["halt_mode"] or "active") != "active",
+                "halt_mode": p["halt_mode"] or "active",
             "halt_reason": p["halt_reason"],
                 "is_paused": bool(p["is_paused"]),
                 "has_shadow_options": p["id"] in shadow_options_players,
