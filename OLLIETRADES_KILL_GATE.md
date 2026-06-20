@@ -1,5 +1,10 @@
 # OllieTrades Kill Gate — Season 6 / Door 1
 
+<!-- 2026-06-20 pre-DAY-0 mechanics patch:
+     - cheat-sheet port 8000 → 8080 (server runs on 8080)
+     - mtm_intrinsic writer built (scripts/refresh_mtm_intrinsic.py); column now populated
+     CRITERIA UNCHANGED. G1/G2/G3/G4 definitions unmodified. -->
+
 Pre-committed 2026-06-19. Do not edit after DAY 0 (~2026-06-24). Gates are pass/fail, not
 negotiated. If a gate is ambiguous on the day, it fails.
 
@@ -80,16 +85,20 @@ G1 flat/negative, or G3 fails twice, or G4 dominated by benchmark:
 
 ```bash
 # G1 — realized P&L
-curl -s http://localhost:8000/api/strategy/pnl | python3 -m json.tool | grep csp_wheel -A4
+curl -s http://localhost:8080/api/strategy/pnl -o /tmp/g1.json && python3 -c "
+import json; d=json.load(open('/tmp/g1.json'))
+b=d['buckets']['csp_wheel']; print('realized: \$'+str(b['pnl']), '| trades:', b['trades'])
+"
 
-# G1 — open MTM intrinsic
-cd ~/autonomous-trader
+# G1 — open MTM intrinsic (refresh first, then query)
+cd ~/autonomous-trader && .venv/bin/python3 scripts/refresh_mtm_intrinsic.py
 python3 -c "
 import sqlite3; db=sqlite3.connect('data/trader.db')
 r=db.execute(\"SELECT SUM(mtm_intrinsic), COUNT(*) FROM options_trades WHERE status='open'\").fetchone()
-print('open MTM intrinsic:', r)
+print('open MTM intrinsic:', r[0], '| open positions:', r[1])
 "
+# NOTE: negative = ITM puts (unrealized loss). Positive/zero = all OTM (healthy book).
 
 # G2/G3 context
-curl -s http://localhost:8000/api/account/equity-curve | python3 -m json.tool | grep -E 'account_pct|spy_pct|edge'
+curl -s http://localhost:8080/api/account/equity-curve | python3 -m json.tool | grep -E 'account_pct|spy_pct|edge'
 ```
