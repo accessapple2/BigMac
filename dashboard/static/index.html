@@ -3514,6 +3514,7 @@ function registerSectionInit(sectionName, initFn, intervalFns) {
       <div class="sidebar-item" id="nav-trades" title="Full trades history — paper book, filter by open/closed, options show C/P strike expiry" onclick="showSection('trades')"><span class="icon">📒</span> Trade Log</div>
       <div class="sidebar-item" title="Ghost Trader research-only book performance" onclick="showSection('ghost-scorecard');fetchGhostScorecard()"><span class="icon">👻</span> Ghost Scorecard</div>
       <div class="sidebar-item" id="nav-test-kitchen" title="O-Tasty mechanical premium-selling — isolated paper PA3YVDTUH5CB. SIM-ONLY sandbox: no live orders (bracket wiring is Phase 2). Standalone SwingDesk :8889 via same-origin proxy /test-kitchen/." onclick="showSection('test-kitchen')"><span class="icon">🧪</span> Test Kitchen <span style="display:inline-block;margin-left:6px;padding:1px 6px;border-radius:4px;background:#b8860b;color:#1a1400;font-size:9px;font-weight:700;letter-spacing:0.5px;vertical-align:middle;">SANDBOX</span></div>
+      <div class="sidebar-item" title="Production Truth — account equity vs SPY since inception + realized P&L by strategy" onclick="showSection('production')"><span class="icon">📊</span> Production</div>
       <div class="sidebar-item" onclick="showSection('webull')"><span class="icon">🛸</span> Starfleet</div>
       <div class="sidebar-item" title="Individual AI agent performance analysis" onclick="showSection('agent-deepdive');ddAutoLoad()"><span class="icon">🔬</span> Agent Deep Dive</div>
       <div class="sidebar-item" id="nav-race" onclick="showSection('race');if(typeof raceStart==='function')raceStart()"><span class="icon">🏁</span> Race</div>
@@ -8396,6 +8397,162 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     <div id="wb-recent-trades" style="padding:0 0 8px;font-size:12px;"></div>
   </div>
 </div>
+
+<!-- ═══════════════════════════════════════════════════════════════════
+     PRODUCTION TRUTH SECTION
+════════════════════════════════════════════════════════════════════ -->
+<div id="section-production" style="display:none;">
+  <div class="card" style="border-left:3px solid #2563eb;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;flex-wrap:wrap;gap:8px;">
+      <div style="display:flex;align-items:center;gap:10px;">
+        <span style="font-size:16px;">📊</span>
+        <div class="card-title" style="margin:0;letter-spacing:1px;">PRODUCTION TRUTH</div>
+        <span style="font-size:10px;padding:2px 7px;border-radius:4px;background:rgba(37,99,235,0.15);color:#7cc8f8;font-family:var(--font-mono);letter-spacing:0.5px;font-weight:700;">Season 6</span>
+      </div>
+      <button onclick="fetchProductionSummary()" style="padding:5px 14px;border-radius:6px;border:1px solid #2563eb;background:rgba(37,99,235,0.1);color:#7cc8f8;font-size:12px;font-weight:700;cursor:pointer;">↻ Refresh</button>
+    </div>
+
+    <!-- Headline -->
+    <div id="prod-headline" style="padding:16px 20px 10px;text-align:center;">
+      <div style="color:var(--muted);font-size:13px;">Loading production data…</div>
+    </div>
+
+    <!-- Chart legend + chart -->
+    <div style="padding:0 16px 8px;">
+      <div style="display:flex;gap:18px;margin-bottom:6px;">
+        <span style="font-size:11px;font-weight:700;color:#2563eb;letter-spacing:0.3px;">▬ Account</span>
+        <span style="font-size:11px;font-weight:700;color:#d97706;letter-spacing:0.3px;">▬ SPY</span>
+      </div>
+      <div id="prod-equity-chart" style="height:220px;"></div>
+    </div>
+
+    <!-- Per-strategy realized P&L table -->
+    <div style="padding:4px 16px 16px;">
+      <div style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.7px;margin-bottom:8px;padding-top:10px;border-top:1px solid var(--border);">Realized P&L by Strategy</div>
+      <div id="prod-strategy-table"><div style="color:var(--muted);font-size:12px;text-align:center;padding:12px 0;">—</div></div>
+    </div>
+  </div>
+</div>
+<script>
+(function(){
+  var _prodChart = null;
+
+  window.fetchProductionSummary = async function() {
+    var headlineEl = document.getElementById('prod-headline');
+    var tableEl = document.getElementById('prod-strategy-table');
+    if (!headlineEl) return;
+    headlineEl.innerHTML = '<div style="color:var(--muted);font-size:13px;">Loading…</div>';
+    if (tableEl) tableEl.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:12px 0;">Loading…</div>';
+    try {
+      var r = await fetch('/api/performance/summary');
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      var d = await r.json();
+      _prodRenderHeadline(d.headline || {});
+      _prodRenderChart(d.equity_curve || []);
+      _prodRenderTable(d.strategies || []);
+    } catch(e) {
+      if (headlineEl) headlineEl.innerHTML = '<div style="color:var(--muted);font-size:13px;padding:8px 0;">Could not load: ' + e.message + '</div>';
+    }
+  };
+
+  function _prodRenderHeadline(h) {
+    var el = document.getElementById('prod-headline');
+    if (!el) return;
+    var acct = h.account_return_pct != null ? h.account_return_pct : 0;
+    var spy  = h.spy_return_pct   != null ? h.spy_return_pct   : 0;
+    var edge = h.edge_pct         != null ? h.edge_pct         : 0;
+    var since = h.since || '2026-04-24';
+    var beating = acct >= spy;
+    var acctColor = beating ? '#2563eb' : '#d97706';
+    var label = beating ? 'AHEAD' : 'LAGGING';
+    var sign = function(v) { return (v >= 0 ? '+' : '') + v.toFixed(1); };
+    el.innerHTML =
+      '<div style="font-size:26px;font-weight:700;font-family:var(--font-mono);color:' + acctColor + ';margin-bottom:5px;letter-spacing:-0.5px;">'
+        + 'Account ' + sign(acct) + '% &nbsp;·&nbsp; SPY ' + sign(spy) + '%'
+      + '</div>'
+      + '<div style="font-size:13px;color:var(--muted);">since ' + since
+        + '&ensp;<span style="font-weight:700;color:' + acctColor + ';border:1px solid ' + acctColor + ';border-radius:4px;padding:1px 7px;font-size:11px;">'
+        + label + ' ' + (beating ? '+' : '') + edge.toFixed(1) + '%'
+        + '</span></div>';
+  }
+
+  function _prodRenderChart(curve) {
+    var container = document.getElementById('prod-equity-chart');
+    if (!container || !window.LightweightCharts) return;
+    if (_prodChart) { try { _prodChart.remove(); } catch(e) {} _prodChart = null; }
+    var dark = !document.body.classList.contains('light');
+    var txtColor  = dark ? '#94a3b8' : '#475569';
+    var gridColor = dark ? 'rgba(255,255,255,0.04)' : 'rgba(0,0,0,0.05)';
+    var borderClr = dark ? 'rgba(255,255,255,0.08)' : 'rgba(0,0,0,0.1)';
+    _prodChart = LightweightCharts.createChart(container, {
+      width: container.clientWidth || 600,
+      height: 220,
+      layout: { background: { color: 'transparent' }, textColor: txtColor },
+      grid: { vertLines: { color: gridColor }, horzLines: { color: gridColor } },
+      rightPriceScale: { borderColor: borderClr },
+      timeScale: { borderColor: borderClr, timeVisible: false },
+      crosshair: { mode: 1 },
+    });
+    var acctSeries = _prodChart.addLineSeries({ color: '#2563eb', lineWidth: 2, priceLineVisible: false, title: 'Account' });
+    var spySeries  = _prodChart.addLineSeries({ color: '#d97706', lineWidth: 2, priceLineVisible: false, title: 'SPY' });
+    if (curve.length > 0) {
+      acctSeries.setData(curve.map(function(p) { return { time: p.date, value: p.account }; }));
+      spySeries.setData( curve.map(function(p) { return { time: p.date, value: p.spy    }; }));
+      _prodChart.timeScale().fitContent();
+    }
+    if (window.ResizeObserver) {
+      new ResizeObserver(function(entries) {
+        for (var e of entries) { if (_prodChart) _prodChart.applyOptions({ width: e.contentRect.width }); }
+      }).observe(container);
+    }
+  }
+
+  function _prodRenderTable(strategies) {
+    var el = document.getElementById('prod-strategy-table');
+    if (!el) return;
+    if (!strategies.length) {
+      el.innerHTML = '<div style="color:var(--muted);font-size:12px;text-align:center;padding:12px 0;">No data</div>';
+      return;
+    }
+    var rows = strategies.map(function(s) {
+      var pnl, pnlColor;
+      if (s.realized_pnl != null) {
+        pnl = (s.realized_pnl >= 0 ? '+' : '') + '$' + Math.abs(s.realized_pnl).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+        if (s.realized_pnl < 0) pnl = '−$' + Math.abs(s.realized_pnl).toLocaleString(undefined, {minimumFractionDigits:2, maximumFractionDigits:2});
+        pnlColor = s.realized_pnl >= 0 ? '#2563eb' : '#d97706';
+      } else {
+        pnl = '—'; pnlColor = 'var(--muted)';
+      }
+      var pf;
+      if (s.profit_factor != null) {
+        pf = s.profit_factor.toFixed(2);
+      } else if (s.realized_pnl != null) {
+        pf = '∞';
+      } else {
+        pf = '—';
+      }
+      var wr = s.trades > 0 ? s.win_rate.toFixed(1) + '%' : '—';
+      return '<tr style="border-bottom:1px solid var(--border);">'
+        + '<td style="padding:7px 8px;font-weight:600;font-size:13px;">' + s.name + '</td>'
+        + '<td style="padding:7px 8px;text-align:right;font-family:var(--font-mono);font-size:12px;color:var(--muted);">' + s.trades + '</td>'
+        + '<td style="padding:7px 8px;text-align:right;font-family:var(--font-mono);font-size:12px;">' + wr + '</td>'
+        + '<td style="padding:7px 8px;text-align:right;font-family:var(--font-mono);font-size:13px;font-weight:700;color:' + pnlColor + ';">' + pnl + '</td>'
+        + '<td style="padding:7px 8px;text-align:right;font-family:var(--font-mono);font-size:12px;color:var(--muted);">' + pf + '</td>'
+        + '</tr>';
+    }).join('');
+    el.innerHTML = '<table style="width:100%;border-collapse:collapse;">'
+      + '<thead><tr style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;border-bottom:1px solid var(--border);">'
+      + '<th style="text-align:left;padding:4px 8px;font-weight:700;">Strategy</th>'
+      + '<th style="text-align:right;padding:4px 8px;font-weight:700;">Trades</th>'
+      + '<th style="text-align:right;padding:4px 8px;font-weight:700;">Win%</th>'
+      + '<th style="text-align:right;padding:4px 8px;font-weight:700;">Realized $</th>'
+      + '<th style="text-align:right;padding:4px 8px;font-weight:700;">PF</th>'
+      + '</tr></thead>'
+      + '<tbody>' + rows + '</tbody>'
+      + '</table>';
+  }
+})();
+</script>
 
 <!-- Bridge indicator tooltip popup (global, shared) -->
 <div id="bridge-tip-card">
@@ -22558,6 +22715,7 @@ var _sectionFetchMap = {
   'dayblade': 'fetchDayBlade',
   'money-machine': 'fetchMoneyMachine',
   'webull': 'fetchWebullPortfolio',
+  'production': 'fetchProductionSummary',
   'leaderboard': 'fetchArenaLeaderboard',
   'feed': 'fetchArenaFeed',
   'journal': 'fetchJournal',

@@ -9340,6 +9340,151 @@ def strategy_pnl():
         _db.close()
 
 
+@app.get("/api/performance/summary")
+def performance_summary():
+    """Production Truth: account equity vs SPY since inception + per-strategy realized P&L.
+
+    Returns:
+      equity_curve: [{date, account, spy}] — both normalized to 100 at 2026-04-24
+      strategies: [{name, trades, wins, win_rate, realized_pnl, profit_factor}]
+      headline: {account_return_pct, spy_return_pct, edge_pct, since}
+    """
+    import requests as _req
+    import os as _os
+    import sqlite3 as _sql
+    from datetime import datetime as _dt
+
+    _key = _os.getenv("APCA_API_KEY_ID", "")
+    _sec = _os.getenv("APCA_API_SECRET_KEY", "")
+    _hdrs = {"APCA-API-KEY-ID": _key, "APCA-API-SECRET-KEY": _sec}
+    _SEASON_START = "2026-04-24T00:00:00Z"
+
+    # ── equity curve ──────────────────────────────────────────────────────────
+    equity_curve: list = []
+    acct_pct, spy_pct = 0.0, 0.0
+    try:
+        _ph = _req.get(
+            "https://paper-api.alpaca.markets/v2/account/portfolio/history",
+            headers=_hdrs,
+            params={"timeframe": "1D", "start": _SEASON_START, "intraday_reporting": "market_hours"},
+            timeout=10,
+        )
+        _ph.raise_for_status()
+        _ph_data = _ph.json()
+        _ts_list = _ph_data.get("timestamp", [])
+        _eq_list = _ph_data.get("equity", [])
+
+        _spy_r = _req.get(
+            "https://data.alpaca.markets/v2/stocks/SPY/bars",
+            headers=_hdrs,
+            params={"timeframe": "1Day", "feed": "iex", "adjustment": "raw",
+                    "start": _SEASON_START, "sort": "asc", "limit": 500},
+            timeout=10,
+        )
+        _spy_r.raise_for_status()
+        _spy_map = {b["t"][:10]: b["c"] for b in _spy_r.json().get("bars", [])}
+
+        _dates, _acct_v, _spy_v = [], [], []
+        for i, ts in enumerate(_ts_list):
+            if ts is None:
+                continue
+            d = _dt.utcfromtimestamp(ts).strftime("%Y-%m-%d")
+            eq = _eq_list[i] if i < len(_eq_list) and _eq_list[i] else None
+            spy_c = _spy_map.get(d)
+            if eq is not None and spy_c is not None:
+                _dates.append(d)
+                _acct_v.append(eq)
+                _spy_v.append(spy_c)
+
+        if _acct_v and _spy_v:
+            a0, s0 = _acct_v[0], _spy_v[0]
+            _acct_n = [round(v / a0 * 100, 2) for v in _acct_v]
+            _spy_n = [round(v / s0 * 100, 2) for v in _spy_v]
+            equity_curve = [{"date": d, "account": a, "spy": s}
+                            for d, a, s in zip(_dates, _acct_n, _spy_n)]
+            acct_pct = round(_acct_n[-1] - 100, 2)
+            spy_pct = round(_spy_n[-1] - 100, 2)
+    except Exception as e:
+        logger.warning("[performance/summary] equity error: %r", e)
+
+    # ── per-strategy realized P&L ─────────────────────────────────────────────
+    strategies: list = []
+    _EQ_IDS = frozenset({"ollama-plutus", "navigator", "neo-matrix"})
+    _CSP_OPT_IDS = frozenset({"options-sosnoff", "shadow-qwen35-csp"})
+    _CSP_TR_IDS = frozenset({"options-sosnoff"})
+    _DTE_IDS = frozenset({"dayblade-0dte", "dayblade-sulu"})
+
+    try:
+        _db = _sql.connect("data/trader.db")
+        _db.row_factory = _sql.Row
+
+        def _from_trades(ids: frozenset):
+            ph = ",".join("?" * len(ids))
+            return _db.execute(f"""
+                SELECT COUNT(*) n,
+                       SUM(CASE WHEN COALESCE(corrected_pnl,realized_pnl,0)>0 THEN 1 ELSE 0 END) wins,
+                       SUM(COALESCE(corrected_pnl,realized_pnl,0)) pnl,
+                       SUM(CASE WHEN COALESCE(corrected_pnl,realized_pnl,0)>0
+                           THEN COALESCE(corrected_pnl,realized_pnl,0) ELSE 0 END) gp,
+                       ABS(SUM(CASE WHEN COALESCE(corrected_pnl,realized_pnl,0)<0
+                           THEN COALESCE(corrected_pnl,realized_pnl,0) ELSE 0 END)) gl
+                FROM trades WHERE action IN ('SELL','CLOSE','EXIT') AND player_id IN ({ph})
+            """, list(ids)).fetchone()
+
+        def _from_options(ids: frozenset):
+            ph = ",".join("?" * len(ids))
+            return _db.execute(f"""
+                SELECT COUNT(*) n,
+                       SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) wins,
+                       SUM(COALESCE(pnl,0)) pnl,
+                       SUM(CASE WHEN pnl>0 THEN pnl ELSE 0 END) gp,
+                       ABS(SUM(CASE WHEN pnl<0 THEN pnl ELSE 0 END)) gl
+                FROM options_trades WHERE status='closed' AND agent_id IN ({ph})
+            """, list(ids)).fetchone()
+
+        def _pf(gp: float, gl: float):
+            return round(gp / gl, 2) if gl and gl > 0 else None
+
+        def _merge(*rows) -> dict:
+            n = sum((r["n"] or 0) for r in rows)
+            wins = sum((r["wins"] or 0) for r in rows)
+            pnl = round(sum((r["pnl"] or 0) for r in rows), 2)
+            gp = sum((r["gp"] or 0) for r in rows)
+            gl = sum((r["gl"] or 0) for r in rows)
+            return {"trades": n, "wins": wins,
+                    "win_rate": round(wins / n * 100, 1) if n else 0.0,
+                    "realized_pnl": pnl, "profit_factor": _pf(gp, gl)}
+
+        strategies.append({"name": "Equity Fleet", **_merge(_from_trades(_EQ_IDS))})
+        strategies.append({"name": "CSP / Wheel",
+                            **_merge(_from_options(_CSP_OPT_IDS), _from_trades(_CSP_TR_IDS))})
+        strategies.append({"name": "0DTE", **_merge(_from_trades(_DTE_IDS))})
+
+        gr = _db.execute("""
+            SELECT COUNT(*) n,
+                   SUM(CASE WHEN pnl_pct>0 AND exit_price IS NOT NULL THEN 1 ELSE 0 END) wins
+            FROM ghost_trades WHERE exit_price IS NOT NULL
+        """).fetchone()
+        g_n, g_w = gr["n"] or 0, gr["wins"] or 0
+        strategies.append({"name": "Ghost", "trades": g_n, "wins": g_w,
+                            "win_rate": round(g_w / g_n * 100, 1) if g_n else 0.0,
+                            "realized_pnl": None, "profit_factor": None})
+        _db.close()
+    except Exception as e:
+        logger.warning("[performance/summary] strategy error: %r", e)
+
+    return {
+        "equity_curve": equity_curve,
+        "strategies": strategies,
+        "headline": {
+            "account_return_pct": acct_pct,
+            "spy_return_pct": spy_pct,
+            "edge_pct": round(acct_pct - spy_pct, 2),
+            "since": "2026-04-24",
+        },
+    }
+
+
 @app.get("/api/portfolio-health/{player_id}")
 def portfolio_health(player_id: str):
     """Get portfolio health check for an AI player."""
