@@ -16,8 +16,8 @@ load_dotenv(Path(__file__).resolve().parents[2] / ".env")
 from db import get_conn  # noqa: E402
 
 OLLAMA_URL = "http://192.168.1.168:11434/api/chat"
-# qwen3:8b for structured JSON extraction; plutus-v1 is fine-tuned for trade decisions not parsing
-PARSE_MODEL = "qwen3:8b"
+# ministral-3:3b: fast, reliable JSON output; qwen3:8b returns empty (thinking-only mode)
+PARSE_MODEL = "ministral-3:3b"
 BATCH_SIZE = 500  # max articles to parse per run (resume-safe)
 
 SYSTEM_PROMPT = """You are a financial news classifier. Given a news headline and optional summary, output ONLY a valid JSON object with these fields:
@@ -57,6 +57,10 @@ def ollama_parse(headline: str, summary: str | None) -> dict | None:
         if "<think>" in content:
             end = content.find("</think>")
             content = content[end + 8:].strip() if end != -1 else content
+        # Strip markdown code fences (```json ... ```)
+        if content.startswith("```"):
+            lines = content.split("\n")
+            content = "\n".join(lines[1:-1] if lines[-1].strip() == "```" else lines[1:])
         # Extract JSON
         start = content.find("{")
         end = content.rfind("}") + 1
