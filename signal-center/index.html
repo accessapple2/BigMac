@@ -909,9 +909,17 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   // (kirk_advisory_log, broadened window). Falls back to legacy
   // predictions when kirk_advisory_recent is empty.
   function _renderOracle(d) {
-    const ka = Array.isArray(d.kirk_advisory_recent) ? d.kirk_advisory_recent : [];
+    const kar = d.kirk_advisory_recent || {};
+    const ka = Array.isArray(kar.entries) ? kar.entries : (Array.isArray(kar) ? kar : []);
+    const lastRan = kar.advisor_last_ran || null;
+    const lastAlert = kar.last_alert || null;
+    // Liveness banner — always show "advisor last ran" so a HOLD-quiet feed reads healthy
+    const livenessHtml = `<div style="font-size:10px;color:var(--muted);margin-bottom:4px">` +
+      (lastRan ? `ran: ${_esc(lastRan)}` : '') +
+      (lastAlert ? ` · last alert: ${_esc(lastAlert)}` : ' · no alerts on record') +
+      `</div>`;
     if (ka.length) {
-      return _list(ka, a => {
+      return livenessHtml + _list(ka, a => {
         const at = (a.created_at || '').slice(0, 16);
         const fg = a.fear_greed_score != null ? `FG ${a.fear_greed_score}` : '';
         const vix = a.vix_level != null ? `VIX ${Number(a.vix_level).toFixed(1)}` : '';
@@ -920,10 +928,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
                `<span class="ms-key">${_esc((a.message || '').slice(0, 160))}${at ? ' · ' + at : ''}</span>`;
       });
     }
-    // Legacy predictions fallback
+    // No non-HOLD alerts — show liveness + fallback
     const preds = Array.isArray(d.predictions) ? d.predictions : [];
-    if (!preds.length) return '<div class="ms-empty">no advisory recommendations</div>';
-    return _list(preds, p => {
+    if (!preds.length) return livenessHtml + '<div class="ms-empty">all positions HOLD — no actionable alerts</div>';
+    return livenessHtml + _list(preds, p => {
       const tps = [p.tp1, p.tp2].filter(x => x != null).map(x => '$' + Number(x).toFixed(2)).join(' / ');
       return `<b>${_esc(p.symbol)}</b> · ${_esc(p.recommendation || '')} <span class="ms-key">[${_esc(p.regime || '')} · score ${_esc(p.master_score)}]</span>` +
         (tps ? `<br><span class="ms-key">TP ${tps}</span>` : '');
@@ -1066,22 +1074,33 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     let html = '';
 
     // Kirk advisory recent
-    const kirk = Array.isArray(d.kirk_advisory_recent) ? d.kirk_advisory_recent.slice(0, 8) : [];
-    if (kirk.length) {
+    const kar = d.kirk_advisory_recent || {};
+    const kirk = Array.isArray(kar.entries) ? kar.entries.slice(0, 8) : (Array.isArray(kar) ? kar.slice(0, 8) : []);
+    const _lastRan = kar.advisor_last_ran || null;
+    const _lastAlert = kar.last_alert || null;
+    {
       html += `<div style="margin-bottom:16px;">
         <div style="font-size:11px;font-weight:800;letter-spacing:1px;color:var(--muted);
                     text-transform:uppercase;border-bottom:1px solid var(--border);
-                    padding-bottom:6px;margin-bottom:8px;">🖖 Kirk Advisory</div>`;
-      kirk.forEach(a => {
-        const ac = (a.action||'').toUpperCase();
-        const acColor = ac==='BUY'?'#22c55e':ac==='SELL'?'#ef4444':'#f59e0b';
-        html += `<div style="padding:7px 0;border-bottom:1px dashed var(--border);font-size:12px;">
-          <span style="font-weight:700;color:var(--accent)">${_esc(a.ticker||'—')}</span>
-          <span style="color:${acColor};font-weight:700;margin-left:8px">${_esc(ac)}</span>
-          <span style="color:var(--muted);font-size:10px;margin-left:8px">VIX ${_esc(a.vix_level||'—')} · F&G ${_esc(a.fear_greed_score||'—')}</span>
-          <div style="color:var(--text);margin-top:3px;font-size:11px">${_esc((a.message||'').slice(0,120))}</div>
-        </div>`;
-      });
+                    padding-bottom:6px;margin-bottom:8px;">🖖 Kirk Advisory</div>
+        <div style="font-size:10px;color:var(--muted);margin-bottom:8px;">` +
+        (_lastRan ? `advisor last ran: <b>${_esc(_lastRan)}</b>` : '') +
+        (_lastAlert ? ` &nbsp;·&nbsp; last alert: ${_esc(_lastAlert)}` : '') +
+        `</div>`;
+      if (kirk.length) {
+        kirk.forEach(a => {
+          const ac = (a.action||'').toUpperCase();
+          const acColor = ac==='BUY'?'#22c55e':ac==='SELL'?'#ef4444':'#f59e0b';
+          html += `<div style="padding:7px 0;border-bottom:1px dashed var(--border);font-size:12px;">
+            <span style="font-weight:700;color:var(--accent)">${_esc(a.ticker||'—')}</span>
+            <span style="color:${acColor};font-weight:700;margin-left:8px">${_esc(ac)}</span>
+            <span style="color:var(--muted);font-size:10px;margin-left:8px">VIX ${_esc(a.vix_level||'—')} · F&G ${_esc(a.fear_greed_score||'—')}</span>
+            <div style="color:var(--text);margin-top:3px;font-size:11px">${_esc((a.message||'').slice(0,120))}</div>
+          </div>`;
+        });
+      } else {
+        html += `<div style="color:var(--muted);font-style:italic;font-size:11px;">All positions HOLD — no actionable alerts since last alert date above.</div>`;
+      }
       html += '</div>';
     }
 

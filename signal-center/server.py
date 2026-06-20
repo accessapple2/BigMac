@@ -1377,7 +1377,24 @@ def _morpheus_load_kirk_advisory_recent():
     Oracle is the always-on advisory surface — show the latest
     recommendations regardless of dismissed-by-Captain state. Captain
     can re-read the rationale even after dismissing the prompt.
+
+    Returns a dict (not a bare list) so the heartbeat can travel with the entries:
+      {
+        "entries": [...],          # per-ticker advisory rows (non-HOLD only)
+        "advisor_last_ran": str,   # ISO datetime of last successful run (heartbeat mtime)
+        "last_alert": str | None,  # created_at of the most recent log entry
+      }
+    Frontend must use .entries for iteration.
     """
+    # Heartbeat mtime — proves the scheduler ran even when all positions are HOLD
+    _hb_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), '..', 'data', 'kirk_advisory.heartbeat')
+    try:
+        import datetime as _dt
+        _hb_mtime = os.path.getmtime(_hb_path)
+        advisor_last_ran = _dt.datetime.fromtimestamp(_hb_mtime).strftime('%Y-%m-%d %H:%M')
+    except Exception:
+        advisor_last_ran = None
+
     conn = sqlite3.connect(_morpheus_trader_db_path(), timeout=5)
     conn.row_factory = sqlite3.Row
     try:
@@ -1393,16 +1410,19 @@ def _morpheus_load_kirk_advisory_recent():
             "ORDER BY id DESC LIMIT 8"
         ).fetchall()
         out = []
+        last_alert = None
         for r in rows:
             d = dict(r)
             # Stamp as_of so the embedded VIX / Fear&Greed read as the values
-            # AT advisory time, not "current". The Kirk feed is dead since
-            # 2026-05-18 (see source_registry kirk_advisory); without this the
-            # frontend implies 18.4/68 is live.
+            # AT advisory time, not "current". The Kirk feed is event-gated
+            # (never logs HOLD), so created_at here is "last non-HOLD alert",
+            # NOT "last run" — use advisor_last_ran for liveness.
             created = d.get("created_at") or ""
             d["as_of"] = str(created)[:10] if created else None
+            if not last_alert and created:
+                last_alert = str(created)[:10]
             out.append(d)
-        return out
+        return {"entries": out, "advisor_last_ran": advisor_last_ran, "last_alert": last_alert}
     finally:
         conn.close()
 
