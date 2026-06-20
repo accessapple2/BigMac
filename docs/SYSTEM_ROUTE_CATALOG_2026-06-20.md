@@ -1160,3 +1160,57 @@ Scanned directories: `engine, dashboard, signal-center, scripts, uoa`
 | `www.sec.gov` | engine/alpha_signals.py, engine/data_ingestion.py, engine/institutional_13f_signal.py, engine/sec_edgar.py |
 | `www.w3.org` | engine/data_ingestion.py |
 
+---
+
+## Timeout Triage — 2026-06-20 (--max-time 30)
+
+Re-tested the 24 flagged routes with `curl --max-time 30`. Results below.
+
+> **Status 0 @ 30s** = no HTTP response received before timeout → STILL-HUNG
+> **Status ≥200 @ 30s** = headers arrived (route is alive) but body took full 30s → SLOW-BUT-WORKS
+> **Status ≥200 < 30s** = returned cleanly under limit
+
+### Dashboard (:8080)
+
+| Path | Status | Elapsed | Bytes | Verdict | Handler | Block suspect |
+|------|--------|---------|-------|---------|---------|---------------|
+| `/api/archer/convergence` | 200 | 10.5s | 2.5KB | **SLOW-OK** | `archer_convergence()` | external archer intel fetch |
+| `/api/arena/equity-curve` | 200 | 10.5s | 58MB | **SLOW-OK (58MB!)** | `arena_equity_curve()` | large payload — consider pagination |
+| `/api/bull-bear/all` | 0 | 30s | — | **STILL-HUNG** | `bull_bear_all()` → `engine.bull_bear.analyze_all_positions(model)` | blocking LLM call per position |
+| `/api/chart-data` | 200 | 30s | 84KB | **SLOW-OK** | `chart_data()` | slow market data fetch |
+| `/api/correlation` | 307 | 30s | — | **SLOW-OK (redirect)** | `correlation()` | redirecting — check destination |
+| `/api/earnings/catalyst` | 200 | 30s | 204B | **SLOW-OK** | `earnings_catalyst()` | slow external earnings source |
+| `/api/gex-overlay/heatmap` | 200 | 30s | 17KB | **SLOW-OK** | `gex_overlay_heatmap()` | slow GEX computation |
+| `/api/gex-overlay/levels` | 200 | 30s | 192B | **SLOW-OK** | `gex_overlay_levels()` | slow GEX computation |
+| `/api/gex-snapshot` | 200 | 30s | 31KB | **SLOW-OK** | `gex_snapshot()` | slow GEX computation |
+| `/api/holdings-top` | 200 | 30s | 2.3KB | **SLOW-OK** | `holdings_top()` | slow portfolio fetch |
+| `/api/intel/ti-shadow` | 200 | 30s | 5.9KB | **SLOW-OK** | `intel_ti_shadow()` | slow TI shadow fetch |
+| `/api/market/gex` | 0 | 30s | — | **STILL-HUNG** | `gex_all()` → `_canonical_gex(t)` loop over `GEX_TICKERS` | blocking per-ticker loop, no timeout guard |
+| `/api/ready-room/advisory` | 200 | 30s | 3.5KB | **SLOW-OK** | `ready_room_advisory()` | slow advisory build |
+| `/api/regime/backtest` | 200 | 30s | 17KB | **SLOW-OK** | `regime_backtest()` | slow backtest computation |
+| `/api/risk-radar` | 0 | 30s | — | **STILL-HUNG** | `risk_radar()` → `get_bulk_prices()` + `get_all_risk_radars()` | blocking bulk price fetch or risk calc |
+| `/api/risk/stress/all` | 200 | 30s | 19KB | **SLOW-OK** | `risk_stress_all()` | slow stress computation |
+| `/api/screener` | 200 | 30s | 5.2KB | **SLOW-OK** | `screener()` | slow screener query |
+| `/api/screener/quality` | 200 | 30s | 17KB | **SLOW-OK** | `screener_quality()` | slow quality screener |
+| `/api/signals/with-risk` | 0 | 30s | — | **STILL-HUNG** | `signals_with_risk()` → `engine.smart_risk.get_recent_signals_with_risk()` | blocking smart-risk calc |
+| `/api/trades` | 200 | 30s | 218KB | **SLOW-OK (218KB)** | `trades()` | large payload — consider pagination/limit default |
+| `/api/whisper` | 0 | 30s | — | **STILL-HUNG** | `whisper_network()` → `engine.whisper_network.get_trending_tickers()` | blocking external network call, no timeout |
+
+### Signal-Center (:9000)
+
+| Path | Status | Elapsed | Bytes | Verdict | Handler | Block suspect |
+|------|--------|---------|-------|---------|---------|---------------|
+| `/api/live-feeds` | 200 | 30s | 36KB | **SLOW-OK** | `live_feeds()` | slow feed aggregation |
+| `/api/quant-signals` | 200 | 30s | 562B | **SLOW-OK** | `quant_signals()` | slow signal fetch |
+| `/api/signals/all` | 0 | 30s | — | **STILL-HUNG** | `all_signals()` → `_fetch_all_signals(prev_data=prev)` | cold-cache rebuild blocks request thread |
+
+### Summary
+
+| Verdict | Count | Routes |
+|---------|-------|--------|
+| **STILL-HUNG** (no response in 30s) | **6** | `/api/bull-bear/all`, `/api/market/gex`, `/api/risk-radar`, `/api/signals/with-risk`, `/api/whisper`, `/api/signals/all` (9000) |
+| SLOW-OK (< 30s) | 2 | `/api/archer/convergence` (10.5s), `/api/arena/equity-curve` (10.5s, 58MB) |
+| SLOW-OK (hits 30s but returned 200) | 16 | all others above |
+
+**Actionable:** The 6 STILL-HUNG routes need timeouts or background-cache patterns. The 5s probe originally timed them all out together; at 30s, 18 of 24 actually work — only 6 are genuinely broken.
+
