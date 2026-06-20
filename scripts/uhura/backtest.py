@@ -205,7 +205,8 @@ def _generate_report(conn: sqlite3.Connection) -> None:
     def fmt_stats(label: str, bucket_rows, horizon: str = "t15_ret",
                   direction: str = "BULLISH") -> str:
         rets = [r[horizon] for r in bucket_rows]
-        spy = [r[f"spy_{horizon}"] for r in bucket_rows]
+        spy_col = "spy_" + horizon.replace("_ret", "")
+        spy = [r[spy_col] for r in bucket_rows]
         exc = [
             (r - s) for r, s in zip(rets, spy)
             if r is not None and s is not None
