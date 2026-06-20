@@ -4,6 +4,7 @@ UHURA Step 2 — Parse Signals
 For each raw news item, call Ollama (qwen3:8b) to extract structured signal.
 Idempotent: skips already-parsed news_ids.
 """
+import os
 import json
 import time
 import hashlib
@@ -18,7 +19,10 @@ from db import get_conn  # noqa: E402
 OLLAMA_URL = "http://192.168.1.168:11434/api/chat"
 # ministral-3:3b: fast, reliable JSON output; qwen3:8b returns empty (thinking-only mode)
 PARSE_MODEL = "ministral-3:3b"
-BATCH_SIZE = 500  # max articles to parse per run (resume-safe)
+BATCH_SIZE = int(os.environ.get("UHURA_BATCH", "500"))
+# Optional date filter: UHURA_AFTER=2025-02-01 to target specific periods
+PARSE_AFTER = os.environ.get("UHURA_AFTER", "")
+PARSE_BEFORE = os.environ.get("UHURA_BEFORE", "")
 
 SYSTEM_PROMPT = """You are a financial news classifier. Given a news headline and optional summary, output ONLY a valid JSON object with these fields:
 - sentiment: "BULLISH", "BEARISH", or "NEUTRAL"
@@ -86,15 +90,26 @@ def ollama_parse(headline: str, summary: str | None) -> dict | None:
 def main() -> None:
     conn = get_conn()
 
+    # Build date filters
+    clauses = ["s.id IS NULL"]
+    params: list = []
+    if PARSE_AFTER:
+        clauses.append("n.created_at >= ?")
+        params.append(PARSE_AFTER)
+    if PARSE_BEFORE:
+        clauses.append("n.created_at < ?")
+        params.append(PARSE_BEFORE)
+    where = " AND ".join(clauses)
+
     # Find unprocessed raw news
     rows = conn.execute(
-        """SELECT n.id, n.ticker, n.headline, n.summary, n.created_at
+        f"""SELECT n.id, n.ticker, n.headline, n.summary, n.created_at
            FROM uhura_raw_news n
            LEFT JOIN uhura_signals s ON s.news_id = n.id AND s.ticker = n.ticker
-           WHERE s.id IS NULL
+           WHERE {where}
            ORDER BY n.created_at ASC
            LIMIT ?""",
-        (BATCH_SIZE,),
+        (*params, BATCH_SIZE),
     ).fetchall()
 
     total = len(rows)
