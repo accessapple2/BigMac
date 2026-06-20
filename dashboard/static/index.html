@@ -30527,6 +30527,7 @@ async function fetchMetalsCommentary() {
     }
     el.innerHTML = h;
   } catch(e) {
+    if (e.name === 'AbortError') return;
     console.error('Metals commentary error:', e);
     if (el) el.innerHTML = '<div style="color:var(--muted);text-align:center;padding:12px">Commentary temporarily unavailable</div>';
   }
