@@ -1011,17 +1011,17 @@ def all_signals():
             threading.Thread(target=_bg_refresh_signals, daemon=True).start()
         return jsonify(cached_data)
 
-    # Cache empty or too stale — block once to build it. Pass any prior data
-    # as last-good (even if past SWR_MAX) so per-endpoint blips during this
-    # rebuild don't ship None to a client that has nothing else to fall back on.
-    with _signals_lock:
-        prev = dict(_signals_cache.get("data") or {})
-    data = _fetch_all_signals(prev_data=prev)
-    with _signals_lock:
-        _signals_cache["data"] = data
-        _signals_cache["ts"]   = _time.time()
-        _signals_cache["refreshing"] = False
-    return jsonify(data)
+    # Cache empty or too stale — kick background rebuild, never block the request
+    # thread. _fetch_all_signals waits up to 40s for slow bridge endpoints
+    # (metals, risk_radar); blocking here hung the route for >30s on cold start.
+    # Serve last-good stale data if available; else return a loading sentinel.
+    if not is_refreshing:
+        with _signals_lock:
+            _signals_cache["refreshing"] = True
+        threading.Thread(target=_bg_refresh_signals, daemon=True).start()
+    if cached_data is not None:
+        return jsonify(cached_data)
+    return jsonify({"_loading": True, "_message": "Signal cache warming — retry in ~30s"})
 
 @app.route('/api/signals/history')
 def signal_history():

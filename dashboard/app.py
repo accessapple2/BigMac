@@ -5694,27 +5694,46 @@ def gex_all():
     HM-DRYDOCK A1 2026-06-09: repointed off legacy engine.gex_scanner (CBOE — stale spot, sign-based
     regime that contradicted Archer + wrong/collapsed walls) onto the SINGLE canonical GEX
     (engine.canonical_gex via _canonical_gex) — flip-based regime, corrected walls (put_wall min),
-    the same source every other GEX panel reads. One canonical source, no cross-panel contradiction."""
+    the same source every other GEX panel reads. One canonical source, no cross-panel contradiction.
+
+    Each _canonical_gex() call refreshes spot via get_stock_price() which can take 10-20s on cache
+    miss. Parallelised with daemon threads + 20s wall-clock deadline so the handler never hangs."""
+    import time as _t
     try:
         from engine.gex_scanner import GEX_TICKERS
     except Exception:
         GEX_TICKERS = ["SPY", "QQQ", "NVDA", "TSLA", "AAPL"]
+
+    _results: dict = {}
+
+    def _fetch(sym: str) -> None:
+        try:
+            _results[sym] = _canonical_gex(sym)
+        except Exception:
+            pass
+
+    threads = [threading.Thread(target=_fetch, args=(t,), daemon=True) for t in GEX_TICKERS]
+    for th in threads:
+        th.start()
+    deadline = _t.time() + 20.0
+    for th in threads:
+        remaining = deadline - _t.time()
+        if remaining > 0:
+            th.join(timeout=remaining)
+
     out = []
     for t in GEX_TICKERS:
-        try:
-            c = _canonical_gex(t)
-            if c.get("error"):
-                continue
-            out.append({
-                "ticker": c.get("underlying", t), "spot": c.get("spot"),
-                "total_gex": c.get("total_gex"), "gamma_flip": c.get("gamma_flip"),
-                "call_wall": c.get("call_wall"), "put_wall": c.get("put_wall"),
-                "king_node": c.get("king_node"), "regime": c.get("regime"),
-                "strikes": c.get("strikes", []),
-                "source": "canonical (options_flow_gex)",
-            })
-        except Exception:
+        c = _results.get(t)
+        if not c or c.get("error"):
             continue
+        out.append({
+            "ticker": c.get("underlying", t), "spot": c.get("spot"),
+            "total_gex": c.get("total_gex"), "gamma_flip": c.get("gamma_flip"),
+            "call_wall": c.get("call_wall"), "put_wall": c.get("put_wall"),
+            "king_node": c.get("king_node"), "regime": c.get("regime"),
+            "strikes": c.get("strikes", []),
+            "source": "canonical (options_flow_gex)",
+        })
     return out
 
 
@@ -7889,38 +7908,60 @@ def autopilot_toggle():
 
 
 _risk_radar_cache = {"all": None, "all_ts": 0, "prices": {}, "prices_ts": 0}
+_risk_radar_lock = threading.Lock()
+_RISK_RADAR_TTL = 300  # 5 minutes
+
 
 @app.get("/api/risk-radar")
 def risk_radar(player_id: str = None):
     """Get risk radar spider chart data."""
     import time as _time
     from engine.risk_radar import get_risk_radar, get_all_risk_radars
-    from engine.market_data import get_stock_price
     from engine.universe import get_active_universe
 
-    # Cache all-players result for 5 minutes — check BEFORE fetching prices
     now = _time.time()
-    if not player_id:
-        if _risk_radar_cache["all"] and (now - _risk_radar_cache["all_ts"]) < 300:
-            return _risk_radar_cache["all"]
 
-    # Reuse cached prices if fresh (within 60s)
-    if _risk_radar_cache["prices"] and (now - _risk_radar_cache["prices_ts"]) < 60:
-        prices = _risk_radar_cache["prices"]
-    else:
-        # HM-AQ-β v3 2026-05-07: bulk endpoint (~25× faster).
-        from engine.market_data import get_bulk_prices as _gbp
-        prices = _gbp(get_active_universe())
-        _risk_radar_cache["prices"] = prices
-        _risk_radar_cache["prices_ts"] = now
-
+    # Per-player path: always compute live (small, fast)
     if player_id:
+        if _risk_radar_cache["prices"] and (now - _risk_radar_cache["prices_ts"]) < 60:
+            prices = _risk_radar_cache["prices"]
+        else:
+            from engine.market_data import get_bulk_prices as _gbp
+            prices = _gbp(get_active_universe())
+            _risk_radar_cache["prices"] = prices
+            _risk_radar_cache["prices_ts"] = now
         return get_risk_radar(player_id, prices)
 
-    result = get_all_risk_radars(prices)
-    _risk_radar_cache["all"] = result
-    _risk_radar_cache["all_ts"] = now
-    return result
+    # All-players path: SWR — never block the request thread.
+    cached = _risk_radar_cache["all"]
+    age = now - _risk_radar_cache["all_ts"]
+
+    def _rebuild():
+        try:
+            from engine.market_data import get_bulk_prices as _gbp
+            _p = _gbp(get_active_universe())
+            _risk_radar_cache["prices"] = _p
+            _risk_radar_cache["prices_ts"] = _time.time()
+            _result = get_all_risk_radars(_p)
+            _risk_radar_cache["all"] = _result
+            _risk_radar_cache["all_ts"] = _time.time()
+        except Exception:
+            pass
+        finally:
+            _risk_radar_lock.release()
+
+    if cached is None:
+        # Cold start: kick background build, return loading sentinel immediately
+        if _risk_radar_lock.acquire(blocking=False):
+            threading.Thread(target=_rebuild, daemon=True).start()
+        return {"players": [], "loading": True}
+
+    if age > _RISK_RADAR_TTL:
+        # Stale: serve immediately, refresh in background
+        if _risk_radar_lock.acquire(blocking=False):
+            threading.Thread(target=_rebuild, daemon=True).start()
+
+    return cached
 
 
 # --- Backtest History (Fix 6: Save & Compare Results) ---
@@ -8065,10 +8106,19 @@ def market_regime_raw():
 def whisper_network():
     """Get trending tickers from Whisper Network."""
     from engine.whisper_network import get_trending_tickers, check_watchlist_trending
-    return {
-        "trending": get_trending_tickers(),
-        "watchlist_trending": check_watchlist_trending(),
-    }
+    from concurrent.futures import TimeoutError as _FTE
+
+    def _fetch():
+        return {
+            "trending": get_trending_tickers(),
+            "watchlist_trending": check_watchlist_trending(),
+        }
+
+    fut = _ENDPOINT_TIMEOUT_POOL.submit(_fetch)
+    try:
+        return fut.result(timeout=20)
+    except (_FTE, Exception):
+        return {"trending": [], "watchlist_trending": [], "loading": True}
 
 
 @app.get("/api/ghost-trades")
@@ -15860,7 +15910,13 @@ def risk_levels(symbol: str, entry_price: float = None, side: str = "BUY"):
 def signals_with_risk(limit: int = 20):
     """Get recent signals with auto-calculated risk levels."""
     from engine.smart_risk import get_recent_signals_with_risk
-    return {"signals": get_recent_signals_with_risk(limit)}
+    from concurrent.futures import TimeoutError as _FTE
+
+    fut = _ENDPOINT_TIMEOUT_POOL.submit(get_recent_signals_with_risk, limit)
+    try:
+        return {"signals": fut.result(timeout=20)}
+    except (_FTE, Exception):
+        return {"signals": [], "loading": True}
 
 
 # --- TradeMinds: Channel Bar ---
@@ -16069,11 +16125,53 @@ def bull_bear_analysis(symbol: str, model: str = "codex"):
     return analyze_bull_bear(symbol, model)
 
 
+_bull_bear_all_cache: dict = {"data": None, "ts": 0.0}
+_bull_bear_all_lock = threading.Lock()
+_BULL_BEAR_ALL_TTL = 3600  # match per-symbol file-cache TTL
+
+
 @app.get("/api/bull-bear/all")
 def bull_bear_all(model: str = "codex"):
-    """Get bull/bear analysis for all held positions."""
-    from engine.bull_bear import analyze_all_positions
-    return {"analyses": analyze_all_positions(model)}
+    """Get bull/bear analysis for all held positions.
+
+    SWR: cold start returns empty immediately and kicks a background build;
+    stale result returned immediately while background refresh runs.
+    The underlying LLM calls can take minutes for a full position set —
+    blocking the request thread is not acceptable.
+    """
+    import time as _t
+    now = _t.time()
+
+    with _bull_bear_all_lock:
+        cached = _bull_bear_all_cache["data"]
+        age = now - _bull_bear_all_cache["ts"]
+
+    def _build():
+        try:
+            from engine.bull_bear import analyze_all_positions
+            data = {"analyses": analyze_all_positions(model)}
+            # Direct dict assignment is GIL-safe; do NOT re-acquire the lock here
+            # — the outer acquire(blocking=False) is still held and threading.Lock
+            # is non-reentrant, so a nested acquire would deadlock permanently.
+            _bull_bear_all_cache["data"] = data
+            _bull_bear_all_cache["ts"] = _t.time()
+        except Exception:
+            pass
+        finally:
+            _bull_bear_all_lock.release()  # release the rebuild-gate lock
+
+    if cached is None:
+        # Cold start: kick background build, return empty immediately
+        if _bull_bear_all_lock.acquire(blocking=False):
+            threading.Thread(target=_build, daemon=True).start()
+        return {"analyses": [], "loading": True}
+
+    if age > _BULL_BEAR_ALL_TTL:
+        # Stale: serve immediately, refresh in background
+        if _bull_bear_all_lock.acquire(blocking=False):
+            threading.Thread(target=_build, daemon=True).start()
+
+    return cached
 
 
 # --- Perplexity Finance: Market Movers ---
