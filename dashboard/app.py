@@ -9271,13 +9271,16 @@ def account_equity_curve():
 
 
 _STRAT_BUCKET: dict[str, str] = {
-    "ollama-plutus":    "equity_fleet",
-    "navigator":        "equity_fleet",
-    "neo-matrix":       "equity_fleet",
-    "capitol-trades":   "rules_copycat",
-    "options-sosnoff":  "csp_wheel",
-    "dayblade-0dte":    "zero_dte",
+    "ollama-plutus":       "equity_fleet",
+    "navigator":           "equity_fleet",
+    "neo-matrix":          "equity_fleet",
+    "capitol-trades":      "rules_copycat",
+    "options-sosnoff":     "csp_wheel",
+    "shadow-qwen35-csp":   "csp_wheel",
+    "dayblade-0dte":       "zero_dte",
 }
+# CSP agents contribute only via options_trades; skip their equity rows in trades loop
+_CSP_AGENTS: frozenset = frozenset({"options-sosnoff", "shadow-qwen35-csp"})
 
 
 @app.get("/api/strategy/pnl")
@@ -9304,6 +9307,8 @@ def strategy_pnl():
             GROUP BY player_id
         """).fetchall()
         for r in _rows:
+            if r["player_id"] in _CSP_AGENTS:
+                continue  # CSP agents count only via options_trades, not equity rows
             bkt = _STRAT_BUCKET.get(r["player_id"], "other")
             b = buckets.setdefault(bkt, {"trades": 0, "wins": 0, "pnl": 0.0})
             b["trades"] += r["n"]
