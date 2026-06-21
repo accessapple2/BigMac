@@ -19,6 +19,13 @@ SPREAD_CANNIBALIZATION_GUARD_ENABLED = False
 # door1 2026-06-19: darked — 0/2 lifetime, -$1,670, fattest tail. Reversal: set True + restart.
 ZERO_DTE_EXECUTION_ENABLED = False
 
+# HM-EXEC-PIPELINE 2026-06-21: execution router (engine/execution_router.py).
+# False = dry-run only (logs what it WOULD do, zero orders placed).
+# True  = live execution via Alpaca paper bridge ONLY (RULE #1: never Schwab).
+# Activation path: Phase 2 burn-in → Admiral GO → set True + canonical restart.
+# N2 kill-switch: touch ~/autonomous-trader/KILL_SWITCH overrides this flag instantly.
+EXEC_ROUTER_ENABLED = False
+
 # HM-TRADE-DESK 2026-05-22: manual Captain trade desk on Alpaca paper.
 # When True, orders submitted with agent_id='trade-desk' bypass check_trade
 # gates (daily trade limit, MAX_POSITION_VALUE, kill switch, Uhura veto).
