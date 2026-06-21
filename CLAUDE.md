@@ -314,6 +314,40 @@ state changes (HM-AN2.3 fire, HM-BK Phase 1 load, May 19-20 frontend window)
 live in `docs/CLAUDE-archive-2026-05.md`. Doctrine that emerged from those
 sessions was extracted and lives in the "Doctrine Lessons" section above.
 
+## RULE #7 — ROUTE-CUT FREEZE (added 2026-06-21)
+
+**STATUS: ACTIVE.** Source of truth for the route catalog freeze.
+
+### Freeze scope — NO deletions, comment-outs, or merges during freeze:
+- **CUT bucket (38 routes)** — dead subsystems, self-contained, high trust post-regen
+- **CUT-CANDIDATE bucket (218 routes)** — orphan candidates, low trust (Defect 1 shows caller detection is incomplete)
+- **MERGE bucket (14 rows / 7 pairs)** — suspected include_router double-count artifacts (Defect 3); re-evaluate post-regen
+
+### BLOCKED-ON-REGEN — route-cut execution is blocked until ALL THREE:
+1. The hardened scanner (5 defect classes patched, see `~/route_catalog_corrections.md`) regenerates a fresh catalog
+2. The survivor list from regen passes eyes-on review
+3. The Admiral explicitly lifts this freeze
+
+The 910-line catalog (`~/route_catalog_final.txt`, generated 2026-06-20) is **NOT a valid cut authority.** Five confirmed scanner defect classes make orphan classifications unreliable — proceeding from it risks deleting wired routes.
+
+### Date gate
+The original 30-day verdict window opens ~2026-06-24 (DAY 0) and closes ~2026-07-24. Route-cut execution may not resume before ~2026-07-24 AND not before all three BLOCKED-ON-REGEN conditions above are met — whichever comes last.
+
+### Trust tier (when cuts resume)
+1. **CUT-38 first** — dead subsystems (`/api/rallies/*`, `/api/v1/*`, `/api/captain/*`, `/api/extras/*`, `/api/quorum/*`, `/api/master-backtest/*`, `/api/holodeck/rsi-sweep/*` etc.), subsystem-bounded, no cross-subsystem callers. Highest confidence.
+2. **CUT-CANDIDATE-218 second** — re-sweep each with the hardened scanner before cutting. Caller detection was incomplete at classification time; many may be wired.
+
+### Permitted during freeze
+- Phase 1 VERIFY (read-only route audit)
+- Phase 2 FIX (shadowing correctness bugs — baseline-safe edits only)
+- Hardened scanner build and acceptance testing
+- Physical archival of `dashboard/app.py.bak_*` is deferred until after verdict window closes (~2026-07-24) — no `rm` pre-DAY-0
+
+### RULE #1 supremacy
+RULE #1 (Schwab hands-off) supersedes all route-freeze decisions. Any route that touches a Schwab order path is a HARD STOP regardless of freeze status.
+
+---
+
 ## Verify before claiming
 - Run the check and read its real output before saying "done"/"passed".
 - Read the actual code/schema/DB before asserting a fact about it;
