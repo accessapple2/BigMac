@@ -19399,19 +19399,19 @@ def agents_list():
     }
 
 
-@app.post("/api/agents/{agent_id}/pause")
+@app.post("/api/user-agents/{agent_id}/pause")
 async def agents_pause(agent_id: int):
     from engine.agent_builder import pause_agent
     return pause_agent(agent_id)
 
 
-@app.post("/api/agents/{agent_id}/resume")
+@app.post("/api/user-agents/{agent_id}/resume")
 async def agents_resume(agent_id: int):
     from engine.agent_builder import resume_agent
     return resume_agent(agent_id)
 
 
-@app.delete("/api/agents/{agent_id}")
+@app.delete("/api/user-agents/{agent_id}")
 async def agents_delete(agent_id: int):
     from engine.agent_builder import delete_agent
     return delete_agent(agent_id)

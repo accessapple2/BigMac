@@ -38963,16 +38963,16 @@ async function loadAgentList() {
 }
 
 async function pauseAgent(id) {
-  await fetch('/api/agents/' + id + '/pause', {method:'POST'});
+  await fetch('/api/user-agents/' + id + '/pause', {method:'POST'});
   loadAgentList();
 }
 async function resumeAgent(id) {
-  await fetch('/api/agents/' + id + '/resume', {method:'POST'});
+  await fetch('/api/user-agents/' + id + '/resume', {method:'POST'});
   loadAgentList();
 }
 async function deleteAgent(id) {
   if (!confirm('Delete this agent?')) return;
-  await fetch('/api/agents/' + id, {method:'DELETE'});
+  await fetch('/api/user-agents/' + id, {method:'DELETE'});
   loadAgentList();
 }
 
