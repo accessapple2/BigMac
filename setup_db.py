@@ -813,6 +813,14 @@ def setup():
         c.execute("ALTER TABLE trades ADD COLUMN prompt_version TEXT")
     # === /HM-PROMPT-VERSIONING ==========================================
 
+    # === HM-EXEC-PIPELINE Phase 0c: entry provenance columns ============
+    for _col, _typ in [("grade", "TEXT"), ("voting_agents", "TEXT")]:
+        try:
+            c.execute(f"ALTER TABLE trades ADD COLUMN {_col} {_typ}")
+        except sqlite3.OperationalError:
+            pass
+    # === /HM-EXEC-PIPELINE =============================================
+
     # Tag known agents into their actual engine. Defaults to 'swing' for new rows.
     # 0dte agents — sub-minute / minute scalpers.
     c.execute(

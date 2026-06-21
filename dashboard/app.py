@@ -22447,6 +22447,114 @@ async def agent_scoreboard():
 
 
 # ============================================================
+# HM-EXEC-PIPELINE Phase 0a: missed-signal monitor
+# ============================================================
+
+@app.get("/api/missed-signals")
+async def missed_signals(
+    limit: int = 200,
+    player_id: str = None,
+    gate_name: str = None,
+    since_hours: int = 24,
+):
+    """Every signal that cleared Stage-0 but was suppressed before execution.
+
+    Queries gate_reject_log directly — no cache, always fresh.
+    Includes gates previously silent (MAX_TRADES_REACHED, LOW_CONVICTION,
+    MAX_POSITIONS_REACHED, QUALITY_GATE_FAILED, SCANNER_FILTER,
+    VIX_CIRCUIT_BREAKER, DRAWDOWN_PAUSE, COUNSELOR_TROI_STAND_DOWN,
+    MANDATE_BLOCKED) in addition to gates already logged (HALT, MARKET_CLOSED,
+    STALE_SIGNAL, GRADE_B, CONCENTRATION_CAP).
+    """
+    try:
+        conn = sqlite3.connect("data/trader.db")
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        params = [since_hours]
+        where = ["ts >= datetime('now', '-' || ? || ' hours')"]
+        if player_id:
+            where.append("player_id = ?")
+            params.append(player_id)
+        if gate_name:
+            where.append("gate_name = ?")
+            params.append(gate_name)
+        params.append(limit)
+        cur.execute(
+            f"""
+            SELECT id, ts, player_id, symbol, gate_name, reason,
+                   signal_id, price, confidence
+              FROM gate_reject_log
+             WHERE {' AND '.join(where)}
+             ORDER BY ts DESC
+             LIMIT ?
+            """,
+            params,
+        )
+        rows = [dict(r) for r in cur.fetchall()]
+        conn.close()
+        summary: dict = {}
+        for r in rows:
+            summary[r["gate_name"]] = summary.get(r["gate_name"], 0) + 1
+        return {"rows": rows, "summary": summary, "total": len(rows)}
+    except Exception as e:
+        return {"rows": [], "summary": {}, "total": 0, "error": str(e)}
+
+
+# ============================================================
+# HM-EXEC-PIPELINE Phase 0b: live-derived scoreboard (no stored P&L)
+# ============================================================
+
+@app.get("/api/scoreboard/live")
+async def scoreboard_live():
+    """Per-agent P&L recomputed fresh from trades table on every read.
+
+    Never reads portfolio_history. No cache. Every call is authoritative.
+    Returns realized P&L only (closed positions with realized_pnl IS NOT NULL).
+    """
+    try:
+        conn = sqlite3.connect("data/trader.db")
+        conn.row_factory = sqlite3.Row
+        cur = conn.cursor()
+        cur.execute("""
+            SELECT
+                COALESCE(a.new_id, t.player_id)          AS agent,
+                COUNT(*)                                   AS trade_count,
+                SUM(CASE WHEN t.realized_pnl > 0 THEN 1 ELSE 0 END) AS wins,
+                SUM(CASE WHEN t.realized_pnl < 0 THEN 1 ELSE 0 END) AS losses,
+                ROUND(SUM(t.realized_pnl), 2)             AS total_pnl,
+                ROUND(AVG(t.realized_pnl), 2)             AS avg_pnl,
+                ROUND(MAX(t.realized_pnl), 2)             AS largest_win,
+                ROUND(MIN(t.realized_pnl), 2)             AS largest_loss,
+                ROUND(AVG(
+                    CASE WHEN t.entry_price > 0 AND t.qty > 0
+                         THEN t.realized_pnl / (t.entry_price * ABS(t.qty)) * 100.0
+                         ELSE NULL END
+                ), 2)                                      AS avg_pct,
+                COALESCE(SUM(CASE WHEN t.realized_pnl > 0 THEN t.realized_pnl ELSE 0 END), 0) AS gross_win,
+                COALESCE(SUM(CASE WHEN t.realized_pnl < 0 THEN t.realized_pnl ELSE 0 END), 0) AS gross_loss
+            FROM trades t
+            LEFT JOIN agent_id_aliases a ON a.old_id = t.player_id
+            WHERE t.realized_pnl IS NOT NULL
+              AND """ + CLEAN_TRADES_WHERE.replace("executed_at", "t.executed_at").replace("player_id", "t.player_id") + """
+            GROUP BY COALESCE(a.new_id, t.player_id)
+            ORDER BY total_pnl DESC
+        """)
+        rows = []
+        for r in cur.fetchall():
+            rd = dict(r)
+            tc = rd["trade_count"] or 0
+            rd["win_rate"] = round((rd["wins"] / tc * 100), 1) if tc else 0.0
+            gl = abs(rd.pop("gross_loss", 0) or 0)
+            gw = rd.pop("gross_win", 0) or 0
+            rd["profit_factor"] = round(gw / gl, 2) if gl else 999.0
+            rows.append(rd)
+        conn.close()
+        return {"rows": rows, "count": len(rows), "derived_from": "trades"}
+    except Exception as e:
+        return {"rows": [], "count": 0, "error": str(e)}
+
+
+# ============================================================
 # SECTION 13: AGENT × TICKER AFFINITY MATRIX (P13)
 # ============================================================
 

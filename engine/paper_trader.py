@@ -650,7 +650,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         option_type: str = None, strike_price: float = None, expiry_date: str = None,
         sources: str = "", timeframe: str = "SWING", sizing_multiplier: float = 1.0,
         signal_id: int | None = None,
-        strategy_id: str | None = None) -> dict | None:
+        strategy_id: str | None = None,
+        grade: str | None = None,
+        voting_agents: str | None = None) -> dict | None:
     """HM-SPREAD-STRATEGY-ID-WRITESITE 2026-05-23: strategy_id is opt-in
     kwarg so single-leg strategies (long_call, csp legs that don't go
     through the multi-leg alpaca_options path) can stamp trades.strategy_id.
@@ -1005,6 +1007,8 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         if _is_voter(player_id):
             console.log(f"[red]MANDATE BLOCKED: {player_id} is a Bridge Voter — no individual trades allowed")
             _last_rejection[player_id] = "Bridge Voter: no individual trading"
+            _log_gate_reject(player_id, symbol, "MANDATE_BLOCKED", "Bridge Voter: no individual trading",
+                             signal_id=signal_id, price=price, confidence=confidence)
             return None
         # Build lightweight market_data snapshot from latest briefing
         _mandate_market = {}
@@ -1070,6 +1074,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         if _trade_count >= _daily_limit:
             console.log(f"[red]MAX_TRADES_REACHED: {player_id} at {_trade_count}/{_daily_limit} trades today — REJECTED {symbol}")
             _last_rejection[player_id] = "Daily trade limit reached"
+            _log_gate_reject(player_id, symbol, "MAX_TRADES_REACHED",
+                             f"daily limit={_daily_limit}, count={_trade_count}",
+                             signal_id=signal_id, price=price, confidence=confidence)
             return None
 
         # 2. Universal minimum conviction
@@ -1086,6 +1093,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         if confidence < _min_conv:
             console.log(f"[red]LOW_CONVICTION: {player_id} {symbol} conf={confidence:.0%} < {_min_conv:.0%} — REJECTED")
             _last_rejection[player_id] = f"Below confidence threshold ({confidence:.0%} < {_min_conv:.0%})"
+            _log_gate_reject(player_id, symbol, "LOW_CONVICTION",
+                             f"conf={confidence:.0%} < {_min_conv:.0%}",
+                             signal_id=signal_id, price=price, confidence=confidence)
             return None
 
         # 3. V2: Conviction-scaled stop-loss + target — wider stops for high conviction.
@@ -1142,6 +1152,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
             console.log(f"[red]MAX_POSITIONS_REACHED: {player_id} already has "
                         f"{len(_unique_syms)}/{_model_max} positions — REJECTED {symbol}")
             _last_rejection[player_id] = f"Maximum positions reached ({len(_unique_syms)}/{_model_max})"
+            _log_gate_reject(player_id, symbol, "MAX_POSITIONS_REACHED",
+                             f"positions={len(_unique_syms)}/{_model_max}",
+                             signal_id=signal_id, price=price, confidence=confidence)
             return None
 
         # 5. V3: Quality gate (stock must pass 3/5 fundamental checks)
@@ -1161,6 +1174,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
                     console.log(f"[red]QUALITY_GATE_FAILED: {player_id} {symbol} scored "
                                 f"{_qscore}/5 — {', '.join(_qdetails[:3])}")
                     _last_rejection[player_id] = f"Failed quality gate ({_qscore}/5)"
+                    _log_gate_reject(player_id, symbol, "QUALITY_GATE_FAILED",
+                                     f"score={_qscore}/5: {', '.join(_qdetails[:3])}",
+                                     signal_id=signal_id, price=price, confidence=confidence)
                     return None
             except ImportError:
                 pass
@@ -1187,6 +1203,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
                         console.log(f"[yellow]SCANNER_FILTER: {player_id} {symbol} in universe but "
                                     f"conv={confidence:.0%} < 70% — REJECTED")
                         _last_rejection[player_id] = "In scanner universe but confidence too low (need 70%)"
+                        _log_gate_reject(player_id, symbol, "SCANNER_FILTER",
+                                         f"in universe but conf={confidence:.0%} < 70%",
+                                         signal_id=signal_id, price=price, confidence=confidence)
                         return None
                 elif symbol in _watchlist:
                     pass  # Watchlist stocks always allowed
@@ -1195,6 +1214,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
                         console.log(f"[yellow]SCANNER_FILTER: {player_id} {symbol} NOT in scanner "
                                     f"results — need 0.90+ conv (got {confidence:.0%})")
                         _last_rejection[player_id] = "Not in scanner results (need 90%+ confidence)"
+                        _log_gate_reject(player_id, symbol, "SCANNER_FILTER",
+                                         f"not in scanner results, conf={confidence:.0%} < 90%",
+                                         signal_id=signal_id, price=price, confidence=confidence)
                         return None
             except ImportError:
                 pass
@@ -1233,6 +1255,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     if _vix and _vix > _VIX_CIRCUIT_BREAKER and player_id not in ("dayblade-sulu", "navigator"):
         console.log(f"[bold red]VIX CIRCUIT BREAKER: VIX={_vix:.1f} > {_VIX_CIRCUIT_BREAKER} — {player_id} blocked (reduce sizes in high vol)")
         _last_rejection[player_id] = f"VIX circuit breaker ({_vix:.1f} > {_VIX_CIRCUIT_BREAKER})"
+        _log_gate_reject(player_id, symbol, "VIX_CIRCUIT_BREAKER",
+                         f"VIX={_vix:.1f} > {_VIX_CIRCUIT_BREAKER}",
+                         signal_id=signal_id, price=price, confidence=confidence)
         return None
 
     # DRAWDOWN PAUSE: Block new entries if player is down 20%+ from peak portfolio value
@@ -1258,6 +1283,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         if _peak and _peak > 0 and (_peak - _cur_val) / _peak >= 0.20:
             console.log(f"[yellow]DRAWDOWN PAUSE: {player_id} at {((_peak-_cur_val)/_peak*100):.1f}% drawdown — no new entries until recovery")
             _last_rejection[player_id] = f"Drawdown pause: {((_peak-_cur_val)/_peak*100):.1f}% below peak (threshold 20%)"
+            _log_gate_reject(player_id, symbol, "DRAWDOWN_PAUSE",
+                             _last_rejection[player_id],
+                             signal_id=signal_id, price=price, confidence=confidence)
             return None
     except Exception:
         pass
@@ -1286,6 +1314,9 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
                         f"blocked. {_adv.get('reason', 'RED condition')}"
                     )
                     _last_rejection[player_id] = f"Ready Room STAND_DOWN: {_adv.get('reason', 'RED condition')}"
+                    _log_gate_reject(player_id, symbol, "COUNSELOR_TROI_STAND_DOWN",
+                                     _last_rejection[player_id],
+                                     signal_id=signal_id, price=price, confidence=confidence)
                     return None
             elif _adv_signal == "CAUTION":
                 console.log(
@@ -1562,11 +1593,11 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         # math + cockpit queries don't choke on NULL entries.
         "INSERT INTO trades(player_id, symbol, action, qty, price, asset_type, option_type, "
         "strike_price, expiry_date, reasoning, confidence, season, sources, timeframe, signal_id, "
-        "prompt_version, strategy_id, entry_price) "
-        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "prompt_version, strategy_id, entry_price, grade, voting_agents) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (player_id, symbol, "BUY", qty, price, asset_type, option_type,
          strike_price, expiry_date, reasoning, confidence, _current_season(), sources, timeframe, signal_id,
-         _pv, strategy_id, price)
+         _pv, strategy_id, price, grade, voting_agents)
     )
     _trade_id = _trade_cur.lastrowid  # HM-DECISION-AUDIT-V1 2026-05-20
     conn.commit()
@@ -1682,7 +1713,9 @@ def _check_min_hold(player_id: str, symbol: str, pos: dict, reasoning: str) -> b
 
 def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
          reasoning: str = "", confidence: float = 0.0,
-         option_type: str = None) -> dict | None:
+         option_type: str = None,
+         grade: str | None = None,
+         voting_agents: str | None = None) -> dict | None:
     # HM-MARKET-HOLIDAY-CALENDAR Phase B 2026-05-25 — primary gate.
     from engine.market_calendar import market_closed_reason as _mcr
     _mkt_block_reason = _mcr()
@@ -1836,9 +1869,10 @@ def sell(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     # fill writeback below can target this specific trade row.
     _sell_cur = conn.execute(
         "INSERT INTO trades(player_id, symbol, action, qty, price, asset_type, option_type, "
-        "reasoning, confidence, entry_price, exit_price, realized_pnl, season) VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?)",
+        "reasoning, confidence, entry_price, exit_price, realized_pnl, season, grade, voting_agents) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
         (player_id, symbol, trade_action, qty, price, asset_type, option_type, reasoning, confidence,
-         pos["avg_price"], price, pnl, _current_season())
+         pos["avg_price"], price, pnl, _current_season(), grade, voting_agents)
     )
     _sell_trade_id = _sell_cur.lastrowid
     conn.commit()
@@ -4437,6 +4471,9 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
                         f"blocked. {_sadv.get('reason', 'RED condition')}"
                     )
                     _last_rejection[player_id] = f"Ready Room STAND_DOWN: {_sadv.get('reason', 'RED condition')}"
+                    _log_gate_reject(player_id, symbol, "COUNSELOR_TROI_STAND_DOWN",
+                                     _last_rejection[player_id],
+                                     signal_id=None, price=price, confidence=confidence)
                     return None
             elif _sadv_signal == "CAUTION":
                 console.log(
