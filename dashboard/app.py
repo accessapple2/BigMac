@@ -22573,7 +22573,7 @@ async def signal_observations_readout(hours: int = 48):
                 SUM(CASE WHEN is_context = 0 THEN 1 ELSE 0 END) AS actionable,
                 SUM(CASE WHEN acted_by_fleet = 1 THEN 1 ELSE 0 END) AS acted,
                 AVG(CASE WHEN acted_by_fleet = 1 THEN fwd_return_1d END) AS avg_fwd_acted,
-                AVG(CASE WHEN acted_by_fleet = 0 THEN fwd_return_1d END) AS avg_fwd_not_acted,
+                AVG(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN fwd_return_1d END) AS avg_fwd_not_acted,
                 SUM(CASE WHEN evaluated_at IS NOT NULL THEN 1 ELSE 0 END) AS evaluated
               FROM signal_observations
              WHERE ts >= datetime('now', ? || ' hours')

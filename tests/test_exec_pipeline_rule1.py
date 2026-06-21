@@ -23,6 +23,7 @@ PIPELINE_FILES: list[str] = [
     "engine/winning_signal.py",
     "engine/confluence_engine.py",
     "engine/execution_router.py",
+    "engine/paper_trader.py",   # CP1: extended per DAY-0 pre-flight (2026-06-21)
 ]
 
 # Patterns that would indicate a Schwab write path — any match is a FAIL
@@ -61,6 +62,9 @@ def test_no_schwab_references_in_execution_path():
 
         text = fpath.read_text(encoding="utf-8", errors="replace")
         for lineno, line in enumerate(text.splitlines(), start=1):
+            # Skip pure-comment lines — doc/explanation references are not write paths
+            if line.lstrip().startswith("#"):
+                continue
             if _COMBINED.search(line):
                 violations.append(f"{rel_path}:{lineno}: {line.strip()[:120]}")
 
