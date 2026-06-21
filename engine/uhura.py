@@ -942,6 +942,27 @@ class LtUhura:
 
         logger.info(f"📡 Uhura v2 signal: {flow_bias.value} | {conviction.value} | "
                      f"{trade_type.value}")
+        # [OBS] HM-EXEC-PIPELINE measurement hook — pure side-effect, never raises
+        try:
+            if signal.conviction != Conviction.LOW:
+                from engine.signal_observation import emit_observation
+                emit_observation(
+                    source="uhura",
+                    ticker=signal.suggested_ticker or "SPY",
+                    direction=signal.suggested_direction or "NEUTRAL",
+                    conviction=signal.conviction.value,
+                    confluence_meta={
+                        "aligned_signals": signal.aligned_signals,
+                        "total_signals": signal.total_signals,
+                        "flow_bias": signal.flow_bias.value,
+                        "recommended_trade": signal.recommended_trade.value,
+                        "gamma_regime": (
+                            signal.gamma_regime.value if signal.gamma_regime else None
+                        ),
+                    },
+                )
+        except Exception:
+            pass
         return signal
 
 

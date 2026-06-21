@@ -364,6 +364,31 @@ def collect(symbols=("SPY", "QQQ")) -> dict:
         flow = compute_flow_aggregate(u, chain=chain)
         persist(gex, flow)
         res[u] = {"gex": gex, "flow": flow}
+    # [OBS] HM-EXEC-PIPELINE measurement hook — pure side-effect, never raises
+    try:
+        from engine.signal_observation import emit_observation
+        for _u, _pair in res.items():
+            _gex = _pair.get("gex") or {}
+            _flow = _pair.get("flow") or {}
+            if _gex.get("error") or _flow.get("error"):
+                continue
+            lean = _flow.get("lean", "neutral") or "neutral"
+            emit_observation(
+                source="gex_flow",
+                ticker=_u,
+                direction=lean.upper(),
+                conviction=str(_gex.get("regime", "")),
+                is_context=True,
+                confluence_meta={
+                    "gex_regime": _gex.get("regime"),
+                    "gamma_flip": _gex.get("gamma_flip"),
+                    "net_notional": _flow.get("net_notional"),
+                    "cp_ratio": _flow.get("cp_notional_ratio"),
+                    "unusual_count": _flow.get("unusual_count"),
+                },
+            )
+    except Exception:
+        pass
     return res
 
 

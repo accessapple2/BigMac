@@ -200,6 +200,30 @@ def setup():
     c.execute('CREATE INDEX IF NOT EXISTS idx_gate_reject_player ON gate_reject_log(player_id)')
     c.execute('CREATE INDEX IF NOT EXISTS idx_gate_reject_ts ON gate_reject_log(ts)')
 
+    # === HM-EXEC-PIPELINE observe-first measurement layer (Part 1) ============
+    c.execute('''CREATE TABLE IF NOT EXISTS signal_observations (
+        id              INTEGER PRIMARY KEY AUTOINCREMENT,
+        ts              TEXT NOT NULL,
+        source          TEXT NOT NULL,
+        ticker          TEXT NOT NULL,
+        direction       TEXT NOT NULL,
+        conviction      TEXT,
+        grade           TEXT,
+        confluence_meta TEXT,
+        expiry          TEXT,
+        is_context      INTEGER NOT NULL DEFAULT 0,
+        acted_by_fleet  INTEGER,
+        fleet_trade_id  INTEGER,
+        fwd_return_1h   REAL,
+        fwd_return_1d   REAL,
+        fwd_return_exp  REAL,
+        evaluated_at    TEXT
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS ix_sigobs_ts ON signal_observations(ts)')
+    c.execute('CREATE INDEX IF NOT EXISTS ix_sigobs_source ON signal_observations(source)')
+    c.execute('CREATE INDEX IF NOT EXISTS ix_sigobs_eval ON signal_observations(evaluated_at)')
+    # === /HM-EXEC-PIPELINE ====================================================
+
     c.execute('''CREATE TABLE IF NOT EXISTS api_costs (
         id INTEGER PRIMARY KEY,
         player_id TEXT NOT NULL REFERENCES ai_players(id),

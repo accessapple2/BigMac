@@ -499,6 +499,24 @@ def run_scan(
         for s in all_sigs:
             _fire_ntfy(s)
 
+    # [OBS] HM-EXEC-PIPELINE measurement hook — pure side-effect, never raises
+    try:
+        from engine.signal_observation import emit_observation
+        for _s in all_sigs:
+            emit_observation(
+                source="bk_avwap",
+                ticker=_s["symbol"],
+                direction=_s["signal"],
+                conviction=f"confluence_n={_s.get('confluence_n', 0)}",
+                confluence_meta={
+                    "anchor_type": _s.get("anchor_type"),
+                    "avwap_price": _s.get("avwap_price"),
+                    "close": _s.get("close"),
+                },
+            )
+    except Exception:
+        pass
+
     bull = sum(1 for s in all_sigs if s["signal"] == "BULL")
     bear = sum(1 for s in all_sigs if s["signal"] == "BEAR")
     conf = sum(1 for s in all_sigs if s.get("confluence_n", 0) >= 2)

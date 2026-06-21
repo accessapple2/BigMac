@@ -215,6 +215,23 @@ def get_signal(lookback: int = LOOKBACK_OBS, force_refresh: bool = False) -> dic
     _SIGNAL_CACHE["data"] = sig
     _SIGNAL_CACHE["ts"] = now
     _SIGNAL_CACHE["lookback"] = lookback
+    # [OBS] HM-EXEC-PIPELINE measurement hook — pure side-effect, never raises
+    try:
+        from engine.signal_observation import emit_observation
+        emit_observation(
+            source="fred_bankrate",
+            ticker="SPY",
+            direction=sig["vote"].upper(),
+            conviction="context",
+            is_context=True,
+            confluence_meta={
+                "vote": sig["vote"],
+                "avg_deposit_bps": sig.get("avg_deposit_bps"),
+                "reason": sig.get("reason"),
+            },
+        )
+    except Exception:
+        pass
     return sig
 
 

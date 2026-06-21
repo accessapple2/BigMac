@@ -22554,6 +22554,68 @@ async def scoreboard_live():
         return {"rows": [], "count": 0, "error": str(e)}
 
 
+@app.get("/api/signal-observations/readout")
+async def signal_observations_readout(hours: int = 48):
+    """Part 4 — Observe-first measurement layer readout.
+
+    Per-source rollup: count, % acted-on by fleet, avg fwd_return_1d for
+    acted vs un-acted signals. Un-acted avg return = 'alpha left on table'.
+    Only evaluated observations (evaluated_at IS NOT NULL) are counted.
+    """
+    try:
+        conn = sqlite3.connect("data/trader.db")
+        conn.row_factory = sqlite3.Row
+        rows = conn.execute(
+            """
+            SELECT
+                source,
+                COUNT(*)                                         AS total,
+                SUM(CASE WHEN is_context = 0 THEN 1 ELSE 0 END) AS actionable,
+                SUM(CASE WHEN acted_by_fleet = 1 THEN 1 ELSE 0 END) AS acted,
+                AVG(CASE WHEN acted_by_fleet = 1 THEN fwd_return_1d END) AS avg_fwd_acted,
+                AVG(CASE WHEN acted_by_fleet = 0 THEN fwd_return_1d END) AS avg_fwd_not_acted,
+                SUM(CASE WHEN evaluated_at IS NOT NULL THEN 1 ELSE 0 END) AS evaluated
+              FROM signal_observations
+             WHERE ts >= datetime('now', ? || ' hours')
+             GROUP BY source
+             ORDER BY total DESC
+            """,
+            (f"-{hours}",),
+        ).fetchall()
+        conn.close()
+
+        summary = []
+        for r in rows:
+            total = r["total"] or 0
+            actionable = r["actionable"] or 0
+            acted = r["acted"] or 0
+            evaluated = r["evaluated"] or 0
+            act_rate = round(acted / actionable * 100, 1) if actionable else None
+            summary.append({
+                "source": r["source"],
+                "total": total,
+                "actionable": actionable,
+                "acted": acted,
+                "evaluated": evaluated,
+                "act_rate_pct": act_rate,
+                "avg_fwd_return_acted": (
+                    round(float(r["avg_fwd_acted"]), 4)
+                    if r["avg_fwd_acted"] is not None else None
+                ),
+                "avg_fwd_return_not_acted": (
+                    round(float(r["avg_fwd_not_acted"]), 4)
+                    if r["avg_fwd_not_acted"] is not None else None
+                ),
+            })
+        return {
+            "window_hours": hours,
+            "sources": summary,
+            "total_observed": sum(r["total"] for r in rows),
+        }
+    except Exception as e:
+        return {"sources": [], "error": str(e)}
+
+
 # ============================================================
 # SECTION 13: AGENT × TICKER AFFINITY MATRIX (P13)
 # ============================================================

@@ -4259,6 +4259,14 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_daily_summary)      # Daily summary: checks every 30 min, sends once at close
     schedule.every(30).minutes.do(run_daily_rating_update) # Agent ratings: checks every 30 min, fires once at 4:30 PM ET
     schedule.every(30).minutes.do(run_journal)             # AI journal: checks every 30 min, writes once at close
+    # HM-EXEC-PIPELINE observe-first: score expired signal observations every 30 min
+    def _run_signal_evaluator():
+        try:
+            from engine.signal_evaluator import evaluate_pending
+            evaluate_pending()
+        except Exception as _exc:
+            logger.debug("[signal_eval] scheduler call failed: %s", _exc)
+    schedule.every(30).minutes.do(_run_signal_evaluator)
     # SWINGDESK-W3: agent auto-spread daemon — BUILT GATED-OFF (config.AUTO_SPREADS_ENABLED=False).
     # Bound at startup (lifecycle doctrine: not lazy). When OFF it heartbeats only; on a
     # detected flip it NTFYs. The master gate is enforced in auto_spread.submit_if_allowed.

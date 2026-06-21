@@ -743,6 +743,26 @@ def run_deep_scan(max_symbols: int = 500, force: bool = False) -> dict:
                     )
                     c.commit()
                 logger.info("Saved %d signal rows to deep_scan_results", len(rows_to_insert))
+                # [OBS] HM-EXEC-PIPELINE measurement hook — pure side-effect, never raises
+                try:
+                    from engine.signal_observation import emit_observation
+                    for _row in rows_to_insert:
+                        if float(_row.get("confidence", 0)) >= 0.70:
+                            emit_observation(
+                                source="deep_scan",
+                                ticker=_row["symbol"],
+                                direction="LONG",
+                                conviction=str(round(float(_row.get("confidence", 0)), 3)),
+                                confluence_meta={
+                                    "strategy_name": _row.get("strategy_name"),
+                                    "signal_strength": _row.get("signal_strength"),
+                                    "entry_price": _row.get("entry_price"),
+                                    "stop_price": _row.get("stop_price"),
+                                    "risk_reward": _row.get("risk_reward"),
+                                },
+                            )
+                except Exception:
+                    pass
             except Exception as e:
                 logger.error("DB insert deep_scan_results failed: %s", e)
 
