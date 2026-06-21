@@ -88,7 +88,8 @@ cd "$ROOT_DIR" || { echo "[$(ts)] FATAL: cannot cd $ROOT_DIR" >&2; exit 1; }
 # when the var is unset. Applies on the next trader restart (no forced restart).
 export OLLAMA_BASE_URL="${OLLAMA_BASE_URL:-http://192.168.1.168:11434}"
 echo "[$(ts)] starting trader: $PYTHON $ENTRYPOINT (OLLAMA_BASE_URL=$OLLAMA_BASE_URL)"
-nohup "$PYTHON" "$ENTRYPOINT" >> "$LOG" 2>> "$ERR" &!
+nohup "$PYTHON" "$ENTRYPOINT" >> "$LOG" 2>> "$ERR" &
+disown
 
 # 3. Wait for bind, then the SINGLE-WRITER gate.
 for i in {1..45}; do
