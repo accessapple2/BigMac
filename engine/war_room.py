@@ -14,6 +14,7 @@ from rich.console import Console
 
 from engine.openai_text import DEFAULT_CODEX_MINI_MODEL, generate_text
 from engine.trades_filter import CLEAN_TRADES_WHERE
+from engine.ticker_context import build_grounding_block
 from shared.matrix_bridge import annotate_player_payload
 
 console = Console()
@@ -616,10 +617,11 @@ def generate_hot_take(provider, player_id: str, symbol: str, price_data: dict,
     except Exception:
         pass
 
+    grounding = build_grounding_block(symbol)
     prompt = (
+        f"{grounding}\n\n"
         f"You are {crew_name}, an officer aboard USS TradeMinds in a live war room debate. "
         f"{personality}"
-        f"{symbol} is at ${price:.2f} ({change:+.2f}% today). "
         f"{leaderboard_ctx}"
         f"{rival_ctx}"
         f"{convo_context}"
