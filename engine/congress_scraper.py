@@ -1,7 +1,7 @@
-"""Congressional Trades Scraper — free sources (Capitol Trades + Quiver Quantitative).
+"""Congressional Trades Scraper — Capitol Trades (HTML scrape) only.
 
 Capitol Trades: HTML scrape from capitoltrades.com/trades
-Quiver Quant: JSON API from api.quiverquant.com (free, no key needed)
+Quiver Quant:  DISABLED — 2026-06-22: service cancelled, not in use.
 """
 from __future__ import annotations
 import json
@@ -16,7 +16,7 @@ console = Console()
 _congress_cache = {"data": None, "ts": 0}
 _CACHE_TTL = 1800  # 30 minutes
 
-QUIVER_ENABLED = False  # 2026-04-26: API returns 401 (no key configured). Capitol Trades only.
+QUIVER_ENABLED = False  # 2026-06-22: Quiver cancelled, not in use. Capitol Trades only.
 
 # HM-CONGRESS-SCRAPER-REPAIR Phase B — zero-result watchdog. Capitol Trades is an
 # unauthed HTML scrape; a site redesign returns 0 trades with HTTP 200 (silent).
@@ -177,7 +177,7 @@ def scrape_capitol_trades(limit: int = 50, pages: int = 4) -> list:
 
 
 def scrape_quiver_quant(limit: int = 50) -> list:
-    """Fetch recent trades from Quiver Quantitative free API."""
+    """Fetch recent trades from Quiver Quantitative Premium API."""
     trades = []
     try:
         r = requests.get(
