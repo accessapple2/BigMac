@@ -79,7 +79,7 @@ def _check_scheduled_jobs() -> list[dict]:
         ("portfolio_positions",    "portfolio_positions","updated_at", 20,  False),
         ("rikers_log",             "rikers_log",        "created_at", 25,  True),
         ("battle_station_log",     "battle_station_log","timestamp",  10,  True),
-        ("gex_snapshots",          "gex_snapshots",     "created_at", 30,  False),
+        ("gamma_context (GEX)",    "gex_snapshots",     "created_at", 30,  False),
         ("picard_briefings",       "picard_briefings",  "generated_at",7*24*60,False),
         ("premarket_scan",         "premarket_scan",    "scanned_at", 30,  False),
         ("trades",                 "trades",            "executed_at",8*60,False),

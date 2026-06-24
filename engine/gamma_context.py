@@ -46,6 +46,7 @@ from dataclasses import dataclass, field, asdict
 from datetime import datetime, timezone
 from typing import Optional
 
+import sqlite3
 import threading
 
 import requests
@@ -63,6 +64,7 @@ RISK_FREE = float(os.getenv("GEX_RISK_FREE", "0.045"))
 CACHE_TTL_SEC = int(os.getenv("GEX_CACHE_TTL_SEC", "1800"))      # 30 min intraday
 MAX_EXPIRIES = int(os.getenv("GEX_MAX_EXPIRIES", "3"))           # nearest N expiries
 SNAPSHOT_LOG = os.getenv("GEX_SNAPSHOT_LOG", "data/gamma_snapshots.parquet")
+TRADER_DB = os.getenv("TRADER_DB", "data/trader.db")
 CONTRACT_MULT = 100
 
 _CACHE: dict[str, tuple[float, "GammaContext"]] = {}
@@ -292,6 +294,7 @@ def _compute(ticker: str, contracts: list[dict]) -> GammaContext:
 def _log_snapshot(ctx: GammaContext) -> None:
     if not ctx.available:
         return
+    # Parquet archive — lock serializes concurrent tickers, lock released before DB touch.
     try:
         import pandas as pd
         row = {k: v for k, v in asdict(ctx).items() if k != "top_strikes"}
@@ -305,6 +308,27 @@ def _log_snapshot(ctx: GammaContext) -> None:
             df.to_parquet(SNAPSHOT_LOG, index=False)
     except Exception as e:
         log.warning("snapshot log skipped: %s", e)
+    # DB freshness stamp — separate try so a trader.db write-lock (e.g. Schwab sync)
+    # cannot block or fail the parquet write above.
+    try:
+        conn = sqlite3.connect(TRADER_DB, timeout=5)
+        conn.execute(
+            "INSERT INTO gex_snapshots "
+            "(symbol, timestamp, spot_price, max_gamma_strike, zero_gamma_level, "
+            " put_wall, call_wall, gamma_flip, total_gex, levels_json, source) "
+            "VALUES (?,?,?,?,?,?,?,?,?,?,?)",
+            (
+                ctx.ticker, ctx.asof, ctx.spot,
+                ctx.top_strikes[0]["strike"] if ctx.top_strikes else None,
+                ctx.gamma_flip,
+                ctx.put_wall, ctx.call_wall, ctx.gamma_flip,
+                ctx.net_gex, json.dumps(ctx.top_strikes), ctx.source,
+            ),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as _db_e:
+        log.warning("gex_snapshots stamp failed: %s", _db_e)
 
 
 # --------------------------------------------------------------------------- #
