@@ -15,6 +15,7 @@ from rich.console import Console
 from engine.openai_text import DEFAULT_CODEX_MINI_MODEL, generate_text
 from engine.trades_filter import CLEAN_TRADES_WHERE
 from engine.ticker_context import build_grounding_block
+from engine.gamma_context import build_gamma_block
 from shared.matrix_bridge import annotate_player_payload
 
 console = Console()
@@ -288,6 +289,14 @@ def _record_witness(debate_id: str, symbol: str, price_data: dict,
                     url=_url, timeout=120, keep_alive="0s",
                 )
             _w0 = time.perf_counter()
+            # Explicit grounding injection: build both blocks before the call so the
+            # witness prompt carries real dealer structure even on a cold gemma4 load.
+            from engine.ticker_context import build_grounding_block as _gbk
+            from engine.gamma_context import build_gamma_block as _ggex
+            _witness_grounding = "\n".join(filter(None, [_gbk(symbol), _ggex(symbol)]))
+            if _witness_grounding:
+                _ctx = [{"player_id": "system", "display_name": "Market Intel",
+                         "take": _witness_grounding}] + _ctx
             take = generate_hot_take(
                 witness_prov, "wr-witness", symbol, price_data, _ctx or None,
             )
@@ -618,8 +627,9 @@ def generate_hot_take(provider, player_id: str, symbol: str, price_data: dict,
         pass
 
     grounding = build_grounding_block(symbol)
+    gamma_block = build_gamma_block(symbol)
     prompt = (
-        f"{grounding}\n\n"
+        f"{grounding}\n{gamma_block}\n\n"
         f"You are {crew_name}, an officer aboard USS TradeMinds in a live war room debate. "
         f"{personality}"
         f"{leaderboard_ctx}"
