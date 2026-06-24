@@ -24,7 +24,6 @@ from urllib.error import URLError
 DB_PATH          = os.path.join(os.path.dirname(__file__), "..", "data", "trader.db")
 MANIFEST_PATH    = os.path.join(os.path.dirname(__file__), "..", "data", "health_manifest.json")
 DASHBOARD_URL    = "http://localhost:8080"
-BIGMAC_OLLAMA    = "http://localhost:11434"
 OLLIE_OLLAMA     = "http://192.168.1.166:11434"
 NTFY_TOPIC       = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")
 HTTP_TIMEOUT     = 8   # seconds for API checks
@@ -80,7 +79,6 @@ def _check_scheduled_jobs() -> list[dict]:
         ("rikers_log",             "rikers_log",        "created_at", 25,  True),
         ("battle_station_log",     "battle_station_log","timestamp",  10,  True),
         ("gamma_context (GEX)",    "gex_snapshots",     "created_at", 30,  False),
-        ("picard_briefings",       "picard_briefings",  "generated_at",7*24*60,False),
         ("premarket_scan",         "premarket_scan",    "scanned_at", 30,  False),
         ("trades",                 "trades",            "executed_at",8*60,False),
         ("rikers_log (synthesis)", "rikers_log",        "created_at", 25,  True),
@@ -325,7 +323,6 @@ def run_audit(send_alerts: bool = True) -> dict:
         "api_health": _check_api_endpoints(),
         "data_freshness": _check_data_freshness(),
         "ollama_health": [
-            _check_ollama(BIGMAC_OLLAMA, "bigmac-ollama"),
             _check_ollama(OLLIE_OLLAMA,  "ollie-gpu"),
         ],
     }

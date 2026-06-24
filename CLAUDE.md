@@ -320,3 +320,48 @@ sessions was extracted and lives in the "Doctrine Lessons" section above.
   a grep hit is not confirmation (e.g. "nomic" was really "economic").
 - Honest abstention > false completion: say "unverified" rather than guess.
 - On retraction, state what was wrong and why.
+
+## 2026-06-24 Structural Changes (canon)
+
+### Gamma grounding (commit c8c021d, DAY0-gamma-grounding)
+- `engine/gamma_context.py` live — native GEX from Polygon (call wall / put
+  wall / gamma flip / net GEX / regime label). Injected into War Room
+  `generate_hot_take` and `_record_witness` context blocks.
+- Stamps `gex_snapshots` table + parquet sidecar. Bridge shows walls/flip/
+  regime live — supersedes the Picard weekly narrative layer.
+
+### Cloudflare tunnel — 4 routes, all gated by bridge-allow CF Access
+- Remote config v11. Routes: `bridge→:8080`, `signal→:9000`,
+  `swingdesk→:8889`, `tour→:8088`.
+- Policy: `bridge-allow` (3 emails: superapple@duck.com,
+  supersteveav@gmail.com, bonstenv@gmail.com; 730h session).
+- **⚠ TODO**: `signal.ollietrades.com` previously CF-Access-UNGATED (remote
+  config predated Access app). Verify/enforce Access gate on signal separately.
+
+### bigmac-local Ollama — RETIRED
+- Fleet inference consolidated to Ollie Max (192.168.1.168:11434).
+- Dead-service health probes removed from `main.py`, `dashboard/app.py`,
+  `engine/fleet_auditor.py`. `OLLAMA_LOCAL_URL` / `BIGMAC_OLLAMA` refs gone.
+- `config.py:OLLAMA_LOCAL_URL` constant retained for reference; do not reuse.
+
+### Picard briefing job — RETIRED (agent retained, benched on-deck slot 1)
+- `engine/picard_strategy.py` → `engine/_parked/picard_strategy_retired_2026-06-24.py`.
+- `run_picard_briefing` scheduler removed from `main.py`.
+- `picard_briefings` table and all data preserved. Picard agent INSERT'd into
+  `ai_players` (halt_mode='full', crew_role='benched', on-deck slot 1).
+- Briefing layer made redundant by live GEX/regime display on Bridge.
+
+### Riker XO synthesis job — STOOD DOWN (agent retained, benched on-deck slot 2)
+- `run_riker_synthesis` scheduler + `_riker_startup` removed from `main.py`.
+- `riker_synthesis` removed from `_GATE_SOURCES` in `engine/consensus.py`
+  (was display-only, non-blocking; removal prevents stale-gate noise).
+- `rikers_log` table and all data preserved. Riker agent INSERT'd into
+  `ai_players` (halt_mode='full', crew_role='benched', on-deck slot 2).
+- Narrative chain (Picard→Riker) made redundant by Bridge live intel layer.
+
+### FUTURE / parked (do not action until 30-day run stable)
+- **AI helmet control layer** (LOW PRIORITY): heads-up gaze/voice/click
+  command surface on the cockpit — offensive paper-exec, RULE #1 holds.
+  North-star for cockpit design; build cockpit changes helmet-aware.
+- **Gemini 3.5 Flash as 'Data'** horse in the model sleeve (model-upgrade
+  pipeline). On-deck when helmet layer scoped.

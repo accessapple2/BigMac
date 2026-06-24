@@ -19,7 +19,7 @@ except Exception:  # never let a gate import break consensus
 console = Console()
 
 # Live-decision sources whose freshness gates the consensus (W1 §3.3).
-_GATE_SOURCES = ("signals", "riker_synthesis", "bridge_consensus")
+_GATE_SOURCES = ("signals", "bridge_consensus")
 
 
 def _evaluate_source_gate() -> dict:

@@ -11838,18 +11838,9 @@ def navigator_history(days: int = 7):
 @app.get("/api/crew/status")
 def crew_status():
     """Health check for Crew Strategy Lab."""
-    result = {"engine": "ollama_direct", "ollama_running": False, "model": os.getenv("CREWAI_MODEL", "qwen3:14b")}
-    try:
-        import requests as _req
-        r = _req.get("http://localhost:11434/api/tags", timeout=3)
-        if r.ok:
-            result["ollama_running"] = True
-            models = [m.get("name", "") for m in r.json().get("models", [])]
-            result["ollama_models"] = models[:10]
-    except Exception:
-        pass
-    result["ready"] = result["ollama_running"]
-    return result
+    return {"engine": "ollama_direct", "ollama_running": False, "ready": False,
+            "model": os.getenv("CREWAI_MODEL", "qwen3:14b"),
+            "note": "bigmac-local Ollama retired; fleet on Ollie Max (.168)"}
 
 
 @app.post("/api/crew/develop")
@@ -17109,19 +17100,15 @@ def seasons_start(data: dict = None):
 # --- Command Structure: Picard, Riker, Archer ---
 
 @app.get("/api/picard/strategy")
-@timed_cache(3600)
 def picard_strategy():
-    """Admiral Picard's weekly strategy briefing."""
-    from engine.picard_strategy import get_latest_briefing
-    return get_latest_briefing()
+    """Picard briefing generator retired 2026-06-24. Data preserved in picard_briefings table."""
+    return {"available": False, "retired": True, "reason": "Picard briefing generator retired 2026-06-24; agent retained on roster"}
 
 
 @app.post("/api/picard/generate")
 def picard_generate():
-    """Force-generate Picard's briefing (manual trigger)."""
-    from engine.picard_strategy import generate_picard_briefing
-    result = generate_picard_briefing()
-    return {"ok": bool(result), "length": len(result) if result else 0}
+    """Picard briefing generator retired 2026-06-24."""
+    return {"available": False, "retired": True, "ok": False}
 
 
 @app.get("/api/aladdin/brief")
@@ -18862,15 +18849,7 @@ def _build_ticker_system_prompt(ticker: str, td: dict, general_context: str, lon
 
 
 def _get_loaded_ollama_model() -> str:
-    """Return the name of the model currently loaded in Ollama GPU memory, or '' if none."""
-    try:
-        import requests as _r
-        ps = _r.get("http://localhost:11434/api/ps", timeout=3).json()
-        models = ps.get("models", [])
-        if models:
-            return models[0].get("name", "")
-    except Exception:
-        pass
+    """bigmac-local Ollama retired 2026-06-24; fleet on Ollie Max (.168)."""
     return ""
 
 

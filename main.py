@@ -4056,13 +4056,6 @@ if __name__ == "__main__":
     import logging as _logging
     _startup_log = _logging.getLogger("startup")
     _anthropic_key = os.environ.get("ANTHROPIC_API_KEY", "")
-    _ollama_warm = False
-    try:
-        import requests as _req
-        _r = _req.get("http://127.0.0.1:11434/api/tags", timeout=5)
-        _ollama_warm = _r.ok
-    except Exception:
-        pass
 
     from engine.crew_scanner import ACTIVE_SCANNERS, RULES_SCANNERS
     _startup_log.info("=" * 60)
@@ -4072,7 +4065,7 @@ if __name__ == "__main__":
     _startup_log.info(f"Rules Scanners: {RULES_SCANNERS}")
     _startup_log.info(f"Scan Model: T'Pol=0xroyce/plutus (0DTE) | McCoy=ministral-3:3b (triage)")
     _startup_log.info(f"API Key: {'SET' if _anthropic_key else 'MISSING'}")
-    _startup_log.info(f"Ollama: {'WARM' if _ollama_warm else 'COLD'}")
+    _startup_log.info(f"Ollama: Ollie Max (.168) — fleet inference")
     _startup_log.info(f"Bridge: bridge.accessapple.com")
     _startup_log.info(f"Daily Cost: $0.00 (Ollama) + ~$0.50 (Sonnet CIC)")
     _startup_log.info("=" * 60)
@@ -4651,18 +4644,6 @@ if __name__ == "__main__":
         import subprocess, requests as _req, logging as _log
         _hc = _log.getLogger("dr_crusher")
 
-        # Check 1: Is Ollama alive?
-        try:
-            r = _req.get("http://127.0.0.1:11434/api/tags", timeout=5)
-            if not r.ok:
-                _hc.warning("Ollama API down — restarting")
-                subprocess.run(["pkill", "-9", "ollama"], capture_output=True)
-                subprocess.run(["open", "-a", "Ollama"], capture_output=True)
-        except Exception:
-            _hc.warning("Ollama unreachable — restarting")
-            subprocess.run(["pkill", "-9", "ollama"], capture_output=True)
-            subprocess.run(["open", "-a", "Ollama"], capture_output=True)
-
         # Check 2: Is the scan model responsive? (plutus lives on Ollie Box)
         try:
             r = _req.post(
@@ -5093,83 +5074,6 @@ if __name__ == "__main__":
 
     # Riker XO: synthesize after each CTO briefing cycle.
     # HM-RIKER-AH-SYNTHESIS 2026-05-22: Riker is advisory, not execution —
-    # the market_hours gate was blocking post-close debriefs + Sunday
-    # pre-briefs. Reframed gate: allow synthesis during market hours OR
-    # in two specific after-hours windows that the Captain reads:
-    #   * Market close + 30 min (daily debrief, 13:00-13:30 AZ)
-    #   * Sunday 8 PM AZ (weekly pre-brief, 20:00-20:30 AZ)
-    # Manual trigger paths bypass this gate entirely (call
-    # generate_riker_synthesis() directly).
-    def _riker_should_run_now() -> bool:
-        from engine.risk_manager import RiskManager
-        try:
-            if RiskManager.is_market_hours():
-                return True
-        except Exception:
-            pass
-        # After-hours debrief windows (local AZ time).
-        try:
-            from datetime import datetime as _dt
-            now = _dt.now()
-            wd = now.weekday()  # Mon=0 .. Sun=6
-            hm = now.hour * 60 + now.minute
-            # Daily debrief: 13:00-13:30 AZ (just after NYSE close 16:00 ET / 13:00 AZ MST)
-            if wd < 5 and 13 * 60 <= hm < 13 * 60 + 30:
-                return True
-            # Weekly pre-brief: Sunday 20:00-20:30 AZ
-            if wd == 6 and 20 * 60 <= hm < 20 * 60 + 30:
-                return True
-        except Exception:
-            return False
-        return False
-
-    def run_riker_synthesis():
-        """Commander Riker: synthesize crew input into recommendation."""
-        if not _riker_should_run_now():
-            return
-        try:
-            from engine.riker_xo import get_latest_recommendation, generate_riker_synthesis
-            latest = get_latest_recommendation()
-            # Only regenerate if stale (>10 min) or missing
-            if latest.get("fresh"):
-                return
-            generate_riker_synthesis()
-        except Exception as e:
-            console.log(f"[red]Riker synthesis error: {e}")
-
-    schedule.every(10).minutes.do(run_riker_synthesis)       # Riker XO: every 10 min during market hours + AH debrief windows
-
-    # Admiral Picard: weekly strategy briefing (Sunday 10 PM MST)
-    def run_picard_briefing():
-        """Admiral Picard: weekly strategy briefing — catch-up guard.
-
-        On every 30-min tick, generate if the last briefing is >7 days old.
-        Self-heals across restarts — no Sunday-window dependency.
-        """
-        try:
-            import sqlite3 as _sql
-            from datetime import datetime as _dt, timezone as _tz
-            conn = _sql.connect("data/trader.db", timeout=5)
-            row = conn.execute("SELECT MAX(generated_at) FROM picard_briefings").fetchone()
-            conn.close()
-            last_ts = row[0] if row else None
-            if last_ts:
-                last_dt = _dt.fromisoformat(last_ts)
-                if last_dt.tzinfo is None:
-                    last_dt = last_dt.replace(tzinfo=_tz.utc)
-                if (_dt.now(_tz.utc) - last_dt).days < 7:
-                    return  # fresh enough
-        except Exception as e:
-            console.log(f"[yellow]Picard guard check failed: {e}")
-            return
-        try:
-            from engine.picard_strategy import generate_picard_briefing
-            generate_picard_briefing()
-        except Exception as e:
-            console.log(f"[red]Picard briefing error: {e}")
-
-    schedule.every(30).minutes.do(run_picard_briefing)  # Picard: catch-up guard, fires when >7d stale
-
     # Admiral Archer: frontier scanner (Sunday 10:30 PM MST)
     def run_archer_frontier():
         """Admiral Archer: weekend forward-looking briefing, Sunday 10:30 PM MST.
@@ -5573,26 +5477,6 @@ if __name__ == "__main__":
             console.log(f"[yellow]Alpha signals error: {e}")
     schedule.every().day.at("07:00").do(run_alpha_signals)   # 7:00 AM AZ = 10:00 AM ET
 
-    # DayBlade pre-market warm: 6:15 AM AZ (9:15 AM ET) — warm Ollama models before market open
-    def _dayblade_premarket_warm():
-        import pytz as _pz
-        _az = az_now()  # HM-TZ Stage 3: zoneinfo (corruption-proof) vs pytz singleton
-        if _az.weekday() >= 5:
-            return
-        import requests as _rq
-        for _mdl in ("phi3:mini", "gemma3:4b"):
-            try:
-                _rq.post(
-                    "http://127.0.0.1:11434/api/generate",
-                    json={"model": _mdl, "prompt": "ready", "stream": False,
-                          "think": False, "options": {"num_predict": 1}},
-                    timeout=90,
-                )
-                console.log(f"[green][STARTUP] DayBlade pre-market warm: {_mdl} ✓")
-            except Exception as _e:
-                console.log(f"[yellow][STARTUP] DayBlade warm {_mdl} skipped: {_e}")
-    schedule.every().day.at("06:15").do(_dayblade_premarket_warm)   # 6:15 AM AZ = 9:15 AM ET
-
     def run_news_pulse():
         try:
             from engine.news_pulse import run_news_pulse_morning
@@ -5986,10 +5870,8 @@ if __name__ == "__main__":
     def _warmup_ollama():
         import requests as _req, subprocess as _sp
         _MAX_STARTUP_GB = 6.0
-        _OLLIE_WARMUP = {"gemma3:4b"}  # 2026-05-17 Wave 1 Fix #3: mistral:7b removed — Pike migration to Ollie never completed
         # (model, think, size_gb)
         _REQUIRED_MODELS = [
-            ("gemma3:4b",      False, 3.3),   # Picard — on Ollie (5.8)
             # RAM patch 2026-04-17: phi3:mini actual loaded size is 8.6 GB (not 5.5 GB metadata).
             # Bumped to 7.0 so it EXCEEDS the 6.0 GB MAX_STARTUP threshold → cold-loads on first
             # real query instead of inflating baseline. Pairs with keep_alive=5s in OllamaProvider.
@@ -5997,18 +5879,17 @@ if __name__ == "__main__":
             # 2026-05-17 Wave 1 Fix #3: mistral:7b entry removed — Pike migration to Ollie never completed; model lives on bigmac, not pre-loaded
             ("0xroyce/plutus", False, 8.0),   # T'Pol (dayblade-0dte) — >6 GB, skip startup
         ]
-        # Check which models are installed on bigmac + Ollie
+        # Check which models are installed on Ollie Max (.168)
         _installed: set[str] = set()
         _ollie_url = os.getenv("OLLIE_URL", "http://192.168.1.166:11434")
-        for _check_url in ("http://127.0.0.1:11434/api/tags", f"{_ollie_url}/api/tags"):
-            try:
-                _tags = _req.get(_check_url, timeout=10).json()
-                _installed |= {m["name"].split(":")[0] for m in _tags.get("models", [])}
-                _installed |= {m["name"] for m in _tags.get("models", [])}
-            except Exception:
-                pass
+        try:
+            _tags = _req.get(f"{_ollie_url}/api/tags", timeout=10).json()
+            _installed |= {m["name"].split(":")[0] for m in _tags.get("models", [])}
+            _installed |= {m["name"] for m in _tags.get("models", [])}
+        except Exception:
+            pass
         if not _installed:
-            console.log("[yellow][STARTUP] Ollama: API unreachable on both bigmac + Ollie — skipping model warmup")
+            console.log("[yellow][STARTUP] Ollama: Ollie Max (.168) unreachable — skipping model warmup")
             return
 
         for _model, _think, _size_gb in _REQUIRED_MODELS:
@@ -6016,7 +5897,7 @@ if __name__ == "__main__":
                 console.log(f"[yellow][STARTUP] Ollama: {_model} skipped ({_size_gb} GB > {_MAX_STARTUP_GB} GB limit)")
                 continue
             _base = _model.split(":")[0]
-            _warm_url = f"{_ollie_url}/api/generate" if _model in _OLLIE_WARMUP else "http://127.0.0.1:11434/api/generate"
+            _warm_url = f"{_ollie_url}/api/generate"
             # Auto-pull if not installed (non-blocking background pull)
             if _base not in _installed and _model not in _installed:
                 console.log(f"[yellow][STARTUP] Ollama: {_model} not found — pulling...")
@@ -6042,7 +5923,7 @@ if __name__ == "__main__":
                     _payload["think"] = False
                 _resp = _req.post(_warm_url, json=_payload, timeout=120)
                 _resp.raise_for_status()  # 2026-05-17 Wave 1 Fix #3: catch HTTP 404 so missing-model errors stop silently logging as "warm ✓"
-                console.log(f"[green][STARTUP] Ollama: {_model} warm ✓ ({'Ollie' if _model in _OLLIE_WARMUP else 'bigmac'})")
+                console.log(f"[green][STARTUP] Ollama: {_model} warm ✓ (Ollie Max .168)")
             except Exception as _e:
                 console.log(f"[yellow][STARTUP] Ollama: {_model} warmup skipped: {_e}")
 
@@ -6050,21 +5931,6 @@ if __name__ == "__main__":
 
     # Run earnings check on startup
     run_earnings_check()
-
-    # Riker XO: synthesize immediately on startup if market is open and stale
-    def _riker_startup():
-        try:
-            from engine.risk_manager import RiskManager
-            if not RiskManager.is_market_hours():
-                return
-            from engine.riker_xo import get_latest_recommendation, generate_riker_synthesis
-            latest = get_latest_recommendation()
-            if not latest.get("fresh"):
-                console.log("[cyan]Riker XO: startup synthesis (no fresh recommendation)...")
-                generate_riker_synthesis()
-        except Exception as e:
-            console.log(f"[red]Riker XO startup error: {e}")
-    threading.Thread(target=_riker_startup, daemon=True).start()
 
     # Start Red Alert intraday monitor (5-min polling, market hours only)
     try:
