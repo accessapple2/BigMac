@@ -5141,16 +5141,26 @@ if __name__ == "__main__":
 
     # Admiral Picard: weekly strategy briefing (Sunday 10 PM MST)
     def run_picard_briefing():
-        """Admiral Picard: generate weekly strategy briefing Sunday 10 PM MST."""
-        from datetime import datetime as _dt
-        import pytz
+        """Admiral Picard: weekly strategy briefing — catch-up guard.
+
+        On every 30-min tick, generate if the last briefing is >7 days old.
+        Self-heals across restarts — no Sunday-window dependency.
+        """
         try:
-            az = pytz.timezone("US/Arizona")
-            now = az_now()
-        except Exception:
-            return
-        # Sunday (weekday 6) between 10:00-10:30 PM MST
-        if now.weekday() != 6 or now.hour != 22 or now.minute > 30:
+            import sqlite3 as _sql
+            from datetime import datetime as _dt, timezone as _tz
+            conn = _sql.connect("data/trader.db", timeout=5)
+            row = conn.execute("SELECT MAX(generated_at) FROM picard_briefings").fetchone()
+            conn.close()
+            last_ts = row[0] if row else None
+            if last_ts:
+                last_dt = _dt.fromisoformat(last_ts)
+                if last_dt.tzinfo is None:
+                    last_dt = last_dt.replace(tzinfo=_tz.utc)
+                if (_dt.now(_tz.utc) - last_dt).days < 7:
+                    return  # fresh enough
+        except Exception as e:
+            console.log(f"[yellow]Picard guard check failed: {e}")
             return
         try:
             from engine.picard_strategy import generate_picard_briefing
@@ -5158,7 +5168,7 @@ if __name__ == "__main__":
         except Exception as e:
             console.log(f"[red]Picard briefing error: {e}")
 
-    schedule.every(30).minutes.do(run_picard_briefing)       # Picard: Sunday 10 PM MST weekly strategy
+    schedule.every(30).minutes.do(run_picard_briefing)  # Picard: catch-up guard, fires when >7d stale
 
     # Admiral Archer: frontier scanner (Sunday 10:30 PM MST)
     def run_archer_frontier():
