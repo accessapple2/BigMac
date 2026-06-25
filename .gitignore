@@ -232,3 +232,4 @@ backups/**/trader.db.bak
 schwab_token.json
 *.db
 swingdesk.db
+data/bm_critiques_v1.jsonl
