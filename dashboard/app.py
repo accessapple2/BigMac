@@ -1072,22 +1072,13 @@ def _check_session(request: Request) -> bool:
 
 
 def _is_localhost(request: Request) -> bool:
-    client = request.client
-    if not client:
-        return False
-    return client.host in ("127.0.0.1", "::1", "localhost")
+    from dashboard.cf_auth import is_localhost
+    return is_localhost(request)
 
 
 def _is_via_cf_tunnel(request: Request) -> bool:
-    """Return True if the request arrived via a Cloudflare Tunnel.
-
-    Cloudflare injects CF-Connecting-IP on all tunnel-proxied requests.
-    We use this to distinguish tunnel traffic from random external hits so
-    the rate-limiter doesn't treat every visitor as the same Cloudflare IP.
-    This does NOT bypass authentication — it only exempts tunnel requests
-    from the rate-limit / bot-block middleware.
-    """
-    return "cf-connecting-ip" in request.headers
+    from dashboard.cf_auth import is_via_cf_tunnel
+    return is_via_cf_tunnel(request)
 
 
 @app.get("/login", response_class=HTMLResponse)
@@ -1318,7 +1309,7 @@ class AuthMiddleware(BaseHTTPMiddleware):
         if request.method == "OPTIONS":
             return await call_next(request)
         # Always allow login/logout routes, tactical display, static assets, and PWA files
-        if path in ("/login", "/logout", "/login/pin", "/tactical", "/scanner", "/charts", "/bridge-v2", "/sw.js", "/robots.txt", "/api/trades/recent", "/api/briefing/today", "/api/macro/dashboard", "/backtest", "/v2") or path.startswith("/v2/ticker/") or path.startswith("/static/") or path.startswith("/api/chart") or path.startswith("/api/v1/") or path.startswith("/leaderboard") or path.startswith("/backtest/result/") or (path.startswith("/api/trades/") and path.endswith("/explain")) or path == "/api/backtest/community-leaderboard" or path == "/api/backtest/community/run" or path.startswith("/api/backtest/result/"):
+        if path in ("/login", "/logout", "/login/pin", "/tactical", "/scanner", "/charts", "/bridge-v2", "/sw.js", "/robots.txt", "/healthz", "/api/trades/recent", "/api/briefing/today", "/api/macro/dashboard", "/backtest", "/v2") or path.startswith("/v2/ticker/") or path.startswith("/static/") or path.startswith("/api/chart") or path.startswith("/api/v1/") or path.startswith("/leaderboard") or path.startswith("/backtest/result/") or (path.startswith("/api/trades/") and path.endswith("/explain")) or path == "/api/backtest/community-leaderboard" or path == "/api/backtest/community/run" or path.startswith("/api/backtest/result/"):
             return await call_next(request)
         # Role-based checks apply to any request that carries a session cookie,
         # regardless of source IP — must run before the localhost bypass so that
@@ -1346,8 +1337,33 @@ class AuthMiddleware(BaseHTTPMiddleware):
         # never bypass for tunnel traffic even if proxy-header rewriting breaks
         if path.startswith("/api/") and _is_localhost(request) and not _is_via_cf_tunnel(request):
             return await call_next(request)
-        # Everything else requires a valid session
+
+        # Auth not configured → admit and rely on Cloudflare Access at the edge.
+        # This is the correct unconfigured state: CF Access is the gate, the origin
+        # doesn't double-check.  Also makes rollback work: unset vars + restart → open.
+        from dashboard.cf_auth import is_configured
+        if not is_configured():
+            return await call_next(request)
+
+        # Auth IS configured: require a valid credential (CF JWT or internal token).
+        # CF has already authenticated the browser; we validate the JWT it injected.
+        # BRIDGE_INTERNAL_TOKEN gives internal automation an explicit credential
+        # instead of relying solely on the loopback bypass above.
+        #
+        # Diagnostic: set LOG_BRIDGE_AUTH_HEADERS=1 to see auth decision inputs.
         if path.startswith("/api/"):
+            if os.environ.get("LOG_BRIDGE_AUTH_HEADERS"):
+                logger.info(
+                    "AUTH_DECISION path=%s cf_jwt=%s x_int=%s via_cf=%s is_local=%s",
+                    path,
+                    bool(request.headers.get("cf-access-jwt-assertion")),
+                    bool(request.headers.get("x-internal-token")),
+                    _is_via_cf_tunnel(request),
+                    _is_localhost(request),
+                )
+            from dashboard.cf_auth import try_cf_access, try_internal_token
+            if try_cf_access(request) or try_internal_token(request):
+                return await call_next(request)
             return JSONResponse({"error": "Authentication required"}, status_code=401)
         return RedirectResponse(url="/login", status_code=303)
 
@@ -1561,6 +1577,115 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         return response
 
 app.add_middleware(SecurityHeadersMiddleware)
+
+
+class FreshnessHeaderMiddleware(BaseHTTPMiddleware):
+    """Add X-Data-As-Of + X-Data-As-Of-Source to every /api/* JSON response.
+
+    Two headers are emitted on every qualifying response:
+      X-Data-As-Of        — ISO-8601 UTC timestamp
+      X-Data-As-Of-Source — "data" if a real data timestamp was found,
+                            "serve-time" if we fell back to now() (data age unknown)
+
+    A "serve-time" source MUST NOT render green in the dashboard badge.
+    Green requires source=="data" AND age<ttl.
+
+    Extraction strategy (in priority order):
+      1. Per-endpoint targeted extractors for array-nested or non-standard TS fields
+         (equity-curve last point, phaser-lock).  These are the stale-prone feeds.
+      2. Generic 9-field flat sniff for top-level-stamped responses.
+      3. Serve-time fallback (labeled), including for bodies > PARSE_LIMIT.
+         Bodies over the limit always get a stamp — never silently skipped.
+
+    Registered INNER to GZipMiddleware so the body is readable before
+    compression; GZip sees the already-modified response.
+    """
+    _TS_FIELDS = (
+        "as_of", "data_as_of", "generated_at", "ts", "timestamp",
+        "updated_at", "created_at", "asof", "_asof",
+    )
+    _PARSE_LIMIT = 65536   # 64 KB — parse limit for generic sniff
+
+    async def dispatch(self, request: Request, call_next):
+        import json as _json
+        from datetime import datetime, timezone
+        from starlette.responses import Response as _SR
+
+        response = await call_next(request)
+        path = request.url.path
+        if not path.startswith("/api/"):
+            return response
+        if not response.headers.get("content-type", "").startswith("application/json"):
+            return response
+
+        # Buffer the full body (required because we must re-yield it).
+        chunks: list[bytes] = []
+        async for chunk in response.body_iterator:
+            chunks.append(chunk)
+        body = b"".join(chunks)
+
+        now_z = datetime.now(timezone.utc).strftime("%Y-%m-%dT%H:%M:%SZ")
+        ts: str = now_z
+        src: str = "serve-time"
+
+        # Only parse JSON for extraction if within parse limit.
+        # Above the limit: still stamp serve-time (labeled) — never skip the header.
+        if len(body) <= self._PARSE_LIMIT:
+            try:
+                data = _json.loads(body)
+                found_ts, found_src = self._extract_ts(data, path)
+                if found_ts:
+                    ts, src = found_ts, found_src
+            except Exception:
+                pass
+
+        # Rebuild response with freshness headers.
+        new_resp = _SR(content=body, status_code=response.status_code,
+                       media_type="application/json")
+        for k, v in response.headers.items():
+            if k.lower() not in ("content-length", "content-type"):
+                new_resp.headers[k] = v
+        new_resp.headers["X-Data-As-Of"] = ts
+        new_resp.headers["X-Data-As-Of-Source"] = src
+        return new_resp
+
+    def _extract_ts(self, data, path: str) -> tuple[str | None, str]:
+        """Return (timestamp_str, source) where source is 'data' or 'serve-time'."""
+        # 1. Per-endpoint targeted extractors (array-nested / non-standard fields)
+        if "/equity-curve" in path or "/arena/equity-curve" in path:
+            pts = data.get("points") if isinstance(data, dict) else None
+            if pts is None and isinstance(data, list):
+                pts = data
+            if pts and isinstance(pts, list):
+                last = pts[-1]
+                ts = (last.get("date") or last.get("timestamp") or
+                      last.get("ts") or last.get("as_of"))
+                if ts and isinstance(ts, str) and len(ts) >= 8:
+                    return ts, "data"
+
+        if "/phaser-lock" in path and isinstance(data, dict):
+            ts = data.get("generated_at") or data.get("updated_at")
+            if ts and isinstance(ts, str) and len(ts) >= 10:
+                return ts, "data"
+
+        # 2. Generic flat sniff — top-level dict fields
+        if isinstance(data, dict):
+            for f in self._TS_FIELDS:
+                v = data.get(f)
+                if v and isinstance(v, str) and len(v) >= 10:
+                    return v, "data"
+            # One level deeper (e.g. {"data": {"as_of": "..."}})
+            for val in data.values():
+                if isinstance(val, dict):
+                    for f in self._TS_FIELDS:
+                        v = val.get(f)
+                        if v and isinstance(v, str) and len(v) >= 10:
+                            return v, "data"
+
+        return None, "serve-time"
+
+
+app.add_middleware(FreshnessHeaderMiddleware)
 from starlette.middleware.gzip import GZipMiddleware
 app.add_middleware(GZipMiddleware, minimum_size=500)
 
@@ -4041,6 +4166,14 @@ def events_health():
     except Exception as exc:
         out["error"] = f"{type(exc).__name__}: {exc!r}"
     return out
+
+
+@app.get("/healthz")
+def healthz():
+    """Unauthenticated liveness probe for watchdogs and uptime monitors.
+    No auth dependency — safe to call without CF JWT or internal token.
+    """
+    return {"ok": True}
 
 
 @app.get("/api/health")
@@ -20130,6 +20263,8 @@ class ManualTradeRequest(BaseModel):
     action: str          # "buy" | "sell"
     agent: str           # display name or player_id
     source: str = "alert-card"
+    qty: float | None = None       # explicit share count (takes priority)
+    notional: float | None = None  # dollar amount → qty = max(1, int(notional/price))
 
 
 @app.post("/api/paper-trader/manual-trade")
@@ -20159,11 +20294,16 @@ async def api_manual_trade(req: ManualTradeRequest):
         if price <= 0:
             return {"error": f"Could not fetch price for {symbol}"}
 
-        # Calculate qty: 5% of agent equity
+        # Calculate qty: explicit > notional > 5% of agent equity (fallback)
         from engine.paper_trader import get_portfolio, buy, sell
         port = get_portfolio(player_id)
         equity = float(port.get("total_value") or port.get("cash") or 10000)
-        qty = max(1, int((equity * 0.05) / price))
+        if req.qty and req.qty > 0:
+            qty = int(req.qty)
+        elif req.notional and req.notional > 0:
+            qty = max(1, int(req.notional / price))
+        else:
+            qty = max(1, int((equity * 0.05) / price))
 
         if action == "buy":
             result = buy(

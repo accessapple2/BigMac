@@ -27,7 +27,7 @@ nohup ./.venv/bin/python3 main.py >> logs/trader.log 2>> logs/trader_error.log &
 echo "Trader PID: $!"
 
 sleep 5
-if curl -sf http://localhost:8080/api/health > /dev/null 2>&1; then
+if curl -sf http://localhost:8080/healthz > /dev/null 2>&1; then
     echo "Trader healthy at http://localhost:8080"
 else
     echo "Health check pending — see logs/trader_error.log"

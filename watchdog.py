@@ -47,7 +47,7 @@ MEM_WARN_PCT    = 85    # alert threshold
 MEM_CRIT_PCT    = 95    # kill non-essential processes to free RAM
 MEM_PRESSURE_FREE_CRIT = 10  # HM-BH: macOS memory_pressure free% — true thrash signal (replaces HM-BF SWAP_CRIT_PCT)
 
-BRIDGE_URL        = "http://127.0.0.1:8080/api/status"
+BRIDGE_URL        = "http://127.0.0.1:8080/healthz"
 SIGNAL_CENTER_URL = "http://127.0.0.1:9000/"
 # HM-OLLAMA-WATCH-RETARGET (2026-06-14): was 127.0.0.1:11434 (an unused
 # bigmac-local instance — config.py routes ALL live inference to OLLIE_URL),
