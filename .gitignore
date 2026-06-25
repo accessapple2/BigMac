@@ -230,3 +230,5 @@ data/trader.db.backup-*
 data/*.db.backup*
 backups/**/trader.db.bak
 schwab_token.json
+*.db
+swingdesk.db
