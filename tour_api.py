@@ -44,7 +44,7 @@ _CANDIDATE_LIMIT_PER_SOURCE = 6
 _CALLLOG_LIMIT = 20
 _TICKS_LIMIT = 60
 
-app = FastAPI(title="TOUR-API", docs_url=None, redoc_url=None)
+app = FastAPI(title="TOUR-API", docs_url=None, openapi_url=None, redoc_url=None)
 
 
 # --------------------------------------------------------------------------- #

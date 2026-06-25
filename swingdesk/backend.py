@@ -314,7 +314,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-app = FastAPI(title="SwingDesk", version="1.0")
+app = FastAPI(title="SwingDesk", version="1.0", docs_url=None, openapi_url=None, redoc_url=None)
 app.add_middleware(CORSMiddleware, allow_origins=["*"],
                    allow_methods=["*"], allow_headers=["*"])
 
@@ -373,7 +373,7 @@ def health():
         "polygon":       "configured" if polygon_ok else "MISSING",
         "alpaca":        "loaded (not wired yet)" if alpaca_ok else "MISSING",
         "alpaca_phase":  "Phase 2 — not yet active",
-        "db":            str(DB_PATH)
+        "db_connected":  True
     }
 
 @app.get("/api/watchlist")
