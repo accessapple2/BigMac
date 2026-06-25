@@ -63,6 +63,7 @@ def fetch_earnings(symbols: list) -> list:
                     earnings_data[sym] = {
                         "date": date_str,
                         "eps_estimate": eps,
+                        "confirmed": len(dates) == 1,
                     }
         except Exception as e:
             console.log(f"[dim]Earnings fetch skip {sym}: {e}")
@@ -96,6 +97,7 @@ def _get_upcoming(data: dict, days: int = 7) -> list:
                     "date": info["date"],
                     "days_until": days_until,
                     "eps_estimate": info.get("eps_estimate"),
+                    "confirmed": info.get("confirmed", False),
                 })
         except (ValueError, KeyError):
             continue

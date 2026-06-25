@@ -48,6 +48,14 @@ _CONVICTION_SCALED_STOPS_SHADOW = os.environ.get(
     "CONVICTION_SCALED_STOPS_SHADOW", "on"
 ).lower() in ("1", "true", "yes", "on")
 
+# Plan B 2026-06-25 — earnings-event stop guard. Default ON (P0). Suppress or
+# widen stops inside a confirmed binary earnings window so pre-print volatility
+# does not trigger an exit that misses the post-print gap. Disable with
+# EARNINGS_GUARD_ENABLED=off.
+_EARNINGS_GUARD_ENABLED = os.environ.get(
+    "EARNINGS_GUARD_ENABLED", "on"
+).lower() not in ("0", "false", "no", "off")
+
 DB = os.environ.get(
     "TRADEMINDS_DB",
     os.path.expanduser("~/autonomous-trader/data/trader.db"),
@@ -795,7 +803,8 @@ class RiskManager:
         }
 
     def check_stop_loss_take_profit(self, player_id: str, positions: list,
-                                     current_prices: dict) -> list:
+                                     current_prices: dict,
+                                     equity: float = 0.0) -> list:
         """Returns list of sell actions triggered by SL, tiered TP, or options expiry.
 
         Tiered TP: sells 25% of position at each tier (10%, 15%, 25%, 50%).
@@ -890,6 +899,74 @@ class RiskManager:
 
             pnl_pct = (current - pos["avg_price"]) / pos["avg_price"]
 
+            # Compute model_sl early so earnings guard can use it.
+            if _CONVICTION_SCALED_STOPS_ENABLED and player_id in self.AI_SIGNAL_PLAYERS:
+                _conv_e = pos.get("conviction")
+                if _conv_e is not None:
+                    model_sl = get_stop_loss_pct(_conv_e)
+                else:
+                    from rich.console import Console
+                    Console().log(
+                        f"[yellow]HM-CONVICTION-STOP: {player_id} has NULL "
+                        f"conviction for {symbol} — using flat stop"
+                    )
+                    model_sl = self.get_model_guardrail(
+                        player_id, "stop_loss_pct", self.stop_loss_pct
+                    )
+            else:
+                model_sl = self.get_model_guardrail(
+                    player_id, "stop_loss_pct", self.stop_loss_pct
+                )
+
+            # Plan B — earnings-event stop guard.
+            # Prevents a stop from firing inside a confirmed binary event window.
+            _suppress_trail = False
+            _active_sl: float | None = model_sl
+            _eg: dict | None = None
+            if _EARNINGS_GUARD_ENABLED and pos.get("asset_type") != "option":
+                from engine.earnings_guard import guard_stop as _guard
+                _eg = _guard(
+                    {**pos, "last_price": current},
+                    model_sl_pct=model_sl,
+                    equity=equity,
+                    player_id=player_id,
+                )
+                _eg_action = _eg["action"]
+                if _eg_action == "close_before":
+                    actions.append({
+                        "symbol": symbol,
+                        "action": "SELL",
+                        "qty": pos["qty"],
+                        "reason": (
+                            f"Earnings guard: close before event "
+                            f"{_eg['event']['when'].strftime('%Y-%m-%d')}"
+                        ),
+                        "asset_type": pos.get("asset_type", "stock"),
+                        "option_type": pos.get("option_type"),
+                    })
+                    continue
+                elif _eg_action == "reduce_size":
+                    _target = _eg.get("target_shares", 0)
+                    if pos["qty"] > _target > 0:
+                        actions.append({
+                            "symbol": symbol,
+                            "action": "SELL_PARTIAL",
+                            "qty": round(pos["qty"] - _target, 4),
+                            "reason": _eg.get("reason", "Earnings guard: reduce size before event"),
+                            "asset_type": pos.get("asset_type", "stock"),
+                            "option_type": pos.get("option_type"),
+                        })
+                    # Trimmed to risk-tolerance; no stop enforcement this cycle.
+                    # Guard re-evaluates on next scan with updated position qty.
+                    continue
+                elif _eg_action == "suppress_stop":
+                    _suppress_trail = True
+                    _active_sl = None
+                elif _eg_action == "widen_stop":
+                    _suppress_trail = True          # trailing stop can't override EM band
+                    _active_sl = _eg.get("stop_pct", model_sl)
+                # alert_only / normal: _suppress_trail=False, _active_sl=model_sl
+
             # === FLEET TRAILING STOP (opt-out, checked every scan cycle) ===
             # Always update high watermark for all models (used for display + tracking).
             high_wm = pos.get("high_watermark") or pos["avg_price"]
@@ -928,7 +1005,7 @@ class RiskManager:
                 fleet_trail_price = high_wm * (1.0 - _trail_pct)
                 # Breakeven floor: once up 5%+ we never stop below entry
                 fleet_trail_price = max(fleet_trail_price, pos["avg_price"])
-                if current <= fleet_trail_price:
+                if not _suppress_trail and current <= fleet_trail_price:
                     actions.append({
                         "symbol": symbol,
                         "action": "SELL",
@@ -974,24 +1051,9 @@ class RiskManager:
                             scaled_stop_pct=_scaled_sl, would_fire=1,
                         )
 
-            if _CONVICTION_SCALED_STOPS_ENABLED and player_id in self.AI_SIGNAL_PLAYERS:
-                conviction = pos.get("conviction")
-                if conviction is not None:
-                    model_sl = get_stop_loss_pct(conviction)
-                else:
-                    from rich.console import Console
-                    Console().log(
-                        f"[yellow]HM-CONVICTION-STOP: {player_id} has NULL "
-                        f"conviction for {symbol} — using flat stop"
-                    )
-                    model_sl = self.get_model_guardrail(
-                        player_id, "stop_loss_pct", self.stop_loss_pct
-                    )
-            else:
-                model_sl = self.get_model_guardrail(
-                    player_id, "stop_loss_pct", self.stop_loss_pct
-                )
-            if pnl_pct <= -model_sl:
+            # model_sl computed above (before fleet trail) for earnings guard.
+            # _active_sl is model_sl unless the guard widened or suppressed it.
+            if _active_sl is not None and pnl_pct <= -_active_sl:
                 actions.append({
                     "symbol": symbol,
                     "action": "SELL",

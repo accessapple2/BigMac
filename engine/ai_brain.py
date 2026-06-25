@@ -1068,8 +1068,12 @@ class Arena:
         _scan_phase(f"player:{player_id}:post_portfolio", quiet=True)
 
         # Check stop-loss / take-profit first (runs even when halted — must exit losers)
+        _portfolio_equity = portfolio.get("cash", 0) + sum(
+            p.get("qty", 0) * p.get("avg_price", 0)
+            for p in portfolio.get("positions", [])
+        )
         sl_tp_actions = self.risk.check_stop_loss_take_profit(
-            player_id, portfolio["positions"], prices
+            player_id, portfolio["positions"], prices, equity=_portfolio_equity
         )
         for action in sl_tp_actions:
             from engine.paper_trader import sell, sell_partial
