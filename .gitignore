@@ -258,3 +258,8 @@ backtest_results_*.json
 
 # Bake-off corpus backups
 scripts/plutus_v7_corpus/
+
+# One-off backup files
+healthcheck.py.bak.*
+trader.db.empty.bak
+backups/port8000_archive/*.gz
