@@ -234,3 +234,27 @@ schwab_token.json
 swingdesk.db
 data/bm_critiques_v1.jsonl
 backups/port8000_archive/papertrader_trader.db
+
+# Runtime state
+*.heartbeat
+*.state
+
+# Generated / cached data
+data/alerts/
+data/archive/
+data/kirk_briefings/
+data/logo_cache/
+data/plutus_v8/
+data/gamma_snapshots.parquet
+data/*.db.pre_*
+
+# Signal-center backups and exports
+signal-center/exports/
+signal-center/*.pre-*
+
+# Crontab snapshots and backtest result dumps
+backups/crontab_*
+backtest_results_*.json
+
+# Bake-off corpus backups
+scripts/plutus_v7_corpus/

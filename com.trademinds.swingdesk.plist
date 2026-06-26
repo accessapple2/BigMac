@@ -1,0 +1,53 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.trademinds.swingdesk  — SwingDesk / O-Tasty backend on :8889
+  Self-healing autostart, same pattern as com.trademinds.cloudflared:
+  starts at boot independent of GUI login (UserName=bigmac), and KeepAlive
+  respawns it if it crashes. Replaces the @reboot cron — REMOVE that cron
+  so both don't fight for port 8889 (see install notes).
+
+  Env note: launched via `zsh -lc` so it sources bigmac's login env (same as
+  your cron's `/bin/zsh -lc`) — that's where the Alpaca keys live. No secrets
+  in this plist. `exec` keeps python in the foreground so launchd can track it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.trademinds.swingdesk</string>
+
+  <key>UserName</key>
+  <string>bigmac</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/bigmac/autonomous-trader</string>
+
+  <key>EnvironmentVariables</key>
+  <dict>
+    <key>OT_ROOT</key>
+    <string>/Users/bigmac/autonomous-trader</string>
+  </dict>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd /Users/bigmac/autonomous-trader &amp;&amp; exec ./.venv/bin/python3 swingdesk/backend.py</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/bigmac/autonomous-trader/logs/otasty.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/bigmac/autonomous-trader/logs/otasty_error.log</string>
+</dict>
+</plist>

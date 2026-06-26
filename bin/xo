@@ -1,0 +1,57 @@
+#!/usr/bin/env bash
+# xo — one-word XO brief launcher for OllieTrades.
+# Auto-picks the session from the current ET clock, then runs the module.
+#
+# Install:
+#   cp xo /Users/bigmac/autonomous-trader/bin/xo && chmod +x $_
+#   echo 'alias xo="/Users/bigmac/autonomous-trader/bin/xo"' >> ~/.zshrc && source ~/.zshrc
+#
+# Use:
+#   xo                      # auto session, both providers
+#   xo midday               # force a session
+#   xo --provider claude    # pass through any module flags
+#   xo trigger NVDA "3.2x vol, +4%"   # fire a one-off volume alert
+#
+# Anything unrecognized is passed straight through to `python -m engine.xo_brief`.
+
+set -euo pipefail
+
+OT_ROOT="${OT_ROOT:-/Users/bigmac/autonomous-trader}"
+cd "$OT_ROOT"
+
+# Current time in ET as HHMM (AZ box has no DST, so always resolve ET explicitly).
+NOW=$(TZ="America/New_York" date +%H%M)
+DOW=$(TZ="America/New_York" date +%u)   # 1=Mon .. 7=Sun
+
+pick_session() {
+  # Weekend → afterhours flavor (scan AH movers / plan).
+  if [ "$DOW" -ge 6 ]; then echo "afterhours_scalp"; return; fi
+  if   [ "$NOW" -lt 0930 ]; then echo "premarket"
+  elif [ "$NOW" -lt 1130 ]; then echo "opening"
+  elif [ "$NOW" -lt 1500 ]; then echo "midday"
+  elif [ "$NOW" -lt 1600 ]; then echo "closing_30"
+  else                            echo "afterhours_scalp"
+  fi
+}
+
+# Subcommand shortcuts.
+case "${1:-}" in
+  trigger)   # xo trigger NVDA "3.2x vol"
+    SYM="${2:?usage: xo trigger SYMBOL \"detail\"}"
+    exec .venv/bin/python3 -m engine.xo_brief --trigger "$SYM" --reason "${4:-volume}" --detail "${3:-}"
+    ;;
+  watch)
+    exec .venv/bin/python3 -m engine.xo_brief --watch --provider "${2:-claude}"
+    ;;
+  premarket|opening|midday|closing_30|afterhours_scalp)
+    SESSION="$1"; shift
+    exec .venv/bin/python3 -m engine.xo_brief --session "$SESSION" "$@"
+    ;;
+  "" | -*)   # no session given (or only flags) → auto-pick
+    SESSION="$(pick_session)"
+    exec .venv/bin/python3 -m engine.xo_brief --session "$SESSION" "$@"
+    ;;
+  *)         # pass anything else straight through
+    exec .venv/bin/python3 -m engine.xo_brief "$@"
+    ;;
+esac
