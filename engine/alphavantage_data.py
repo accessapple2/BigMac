@@ -259,7 +259,7 @@ def get_macro_data() -> dict:
         "treasury_10y": {"series": "DGS10", "label": "10Y Treasury"},
         "gdp_growth": {"series": "A191RL1Q225SBEA", "label": "GDP Growth (Q/Q)"},
         "baa_spread": {"series": "BAA10Y", "label": "Baa Corp Bond Spread"},
-        "ted_spread": {"series": "TEDRATE", "label": "TED Spread"},
+        "ted_spread": {"series": "TEDRATE", "label": "TED Spread", "dead": True},  # LIBOR-sunset Jan 2022; series cannot update
         "bank_tightening": {"series": "DRTSCILM", "label": "Bank Tightening Standards"},
         "consumer_sentiment": {"series": "UMCSENT", "label": "Consumer Sentiment"},
         "vix_fred": {"series": "VIXCLS", "label": "VIX (FRED)"},
@@ -273,11 +273,14 @@ def get_macro_data() -> dict:
             val = latest.get("value", ".")
             if val != ".":
                 try:
-                    result[key] = {
+                    entry: dict = {
                         "value": round(float(val), 2),
                         "date": latest.get("date", ""),
                         "label": info["label"],
                     }
+                    if info.get("dead"):
+                        entry["dead"] = True
+                    result[key] = entry
                 except (ValueError, TypeError):
                     pass
 

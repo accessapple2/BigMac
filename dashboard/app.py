@@ -6062,7 +6062,10 @@ def rikers_log_stats():
 def metals_portfolio():
     """Get Dalio Metals portfolio with live spot prices."""
     from engine.metals_tracker import get_portfolio
-    return get_portfolio()
+    from datetime import datetime as _dt
+    data = get_portfolio()
+    data["last_synced"] = _dt.utcnow().strftime("%Y-%m-%d %H:%M:%S")
+    return data
 
 
 @app.get("/api/metals/signals")
@@ -16981,9 +16984,11 @@ def _canonical_gex(symbol: str) -> dict:
 
 
 @app.get("/api/gex-snapshot")
+@timed_cache(60)
 def gex_latest():
     """Canonical GEX (HM-GEX-CANONICAL): intraday-fresh SPY/QQQ from the single source.
-    OBSERVATION-ONLY — no order path. Daily-close flow_gex.db row is the validation series."""
+    OBSERVATION-ONLY — no order path. Daily-close flow_gex.db row is the validation series.
+    60s response cache: source_gate health probe needs <8s; computation takes ~18s cold."""
     out = {}
     for u in ("SPY", "QQQ"):
         c = _canonical_gex(u)
