@@ -3,6 +3,68 @@
 
 ---
 
+## RESUME STATE
+_Written 2026-06-29 ~22:15 UTC. HOLD FOR ADMIRAL._
+
+### What shipped this session
+
+| Unit | Commit | Status |
+|---|---|---|
+| Rung 1 — CONTACT tab (onclick fix + empty-state fix + parseFocus loop fix) | `21e8279` | ✅ LIVE |
+| Rung 2 — CONTEXT-ON-ARRIVAL (`carrier_rung2_context.js`, 5 slots, contamination-guarded) | `e44ec48` | ✅ LIVE |
+| Rung 3 spec — debate/review in place (design-only) | filed `drafts/RUNG3_DEBATE_IN_PLACE_SPEC.md` | ✅ FILED |
+| Realized-return rewire spec — P1 gate (design-only) | filed `drafts/REALIZED_RETURN_REWIRE_SPEC.md` | ✅ FILED |
+
+**Rung 2 self-verify (Chrome, 2026-06-29 ~22:11 UTC):**
+- `?focus=NVDA&src=uhura` auto-acquired ✓
+- Uhura emphasis order correct: LIVE TAPE leads (real headline rendered in blue) ✓
+- LAST/MARK: `$191.88 (-2.05%)` in **amber** (≥2% move = notable; number shown) ✓
+- OPTIONS FLOW / CONGRESS / GAMMA: "no data" fail-soft ✓
+- FLEET READ: "pending realized-return rewire (P1)" — stub held ✓
+- **NO fwd_return / NO edge / NO alpha number anywhere** ✓
+- Colorblind: amber + blue only, numbers always alongside ✓
+
+**Three bugs caught and fixed during Rung 1 integration (same commit):**
+1. `JSON.stringify` in onclick attribute (double-quote attribute break) → index lookup
+2. `.ct-empty.hidden` CSS rule missing → added
+3. `parseFocus → showTab → loadContactTab → parseFocus` infinite loop → guard on tab visibility
+
+**Rung 2 field adaptations (real JSON shapes):**
+- `/api/price/{sym}` → `d.price`, `d.change_pct` (no `ts` field; no `last` alias)
+- `/api/market/flow` → 404 on this host → fail-soft immediately
+- `/api/congress/top-buys` → `{top_buys:[{ticker,buy_count,politicians,signal_strength}]}` → filter by ticker
+- `/api/gex-snapshot` → `{data:{SYM:{spot,total_gex,gamma_flip,regime,asof,...}}}` → lookup by `d.data[sym]`
+- `/api/news/{sym}` → `[{headline,source,...}]` (no `ts` field)
+
+### Staged / blocked
+- **Options Flow slot** always "no data" — `/api/market/flow` returns 404. If a flow endpoint exists under a different path, adapt `slotFlow()` in `carrier_rung2_context.js` (marked with "ADAPT" comment).
+- **Congress/Insider slot** shows "no data" for tickers not in today's top-buys list (e.g. NVDA). This is correct behavior — slot fills when congress activity exists for the ticker.
+- **Gamma/GEX slot** shows "no data" for any ticker that isn't SPY — the `/api/gex-snapshot` only contains SPY data. If per-ticker GEX is added later, `slotGEX()` is already written to handle `d.data[sym]` for any sym.
+- **No restart was performed** — Rung 1 and Rung 2 are pure static file changes served directly; no Python restart needed or triggered.
+
+### THE NEXT MOVE FOR ADMIRAL
+
+**Review `drafts/REALIZED_RETURN_REWIRE_SPEC.md` — this is the gate on everything.**
+
+Until the P1 realized-return rewire lands:
+- No source has deployment authority (alpha read is scanner-projected, not realized)
+- Fleet Read slot stays stubbed
+- No Rung 4 sortie path can be built
+- Rung 3 stays design-only
+
+The spec is complete and ready for Admiral review. The build is ~4–5h. After P1:
+1. Run `/api/observations/summary` → this is the real alpha read
+2. Review realized `avg_fwd_1d_realized` per source
+3. Sources with positive, consistent, statistically meaningful realized return → Rung 4 consideration
+4. Emit-time acted tagging (sequenced behind P1) → solves the acted_by_fleet dead-end
+
+### Open questions for Admiral
+1. **P1 build greenlight** — ready to build the realized-return rewire? It needs a restart to activate the evaluator change (plan a maintenance window).
+2. **Options Flow slot** — is there a live flow endpoint on this host? Current path `/api/market/flow` returns 404. If so, what's the correct path?
+3. **Rung 3 review** — ready to review `drafts/RUNG3_DEBATE_IN_PLACE_SPEC.md`? Active mode (Convene War Room) requires explicit Admiral approval before build.
+
+---
+
 ## ⚠ HEADLINE: FWD_RETURN_1D IS NOT REALIZED RETURN — ALPHA READ INVALID
 
 `fwd_return_1d` is computed in `engine/signal_evaluator.py` as:
