@@ -3,6 +3,50 @@
 
 ---
 
+## WHERE WE LANDED — 2026-06-29 ~20:10 UTC
+_Forward-collection STAGED. Restart PENDING Admiral's return ("go restart")._
+
+### What the data says
+- **5 clean trading days of realized return data** (Jun 22–26, 2026). This is the entire post-P1 history.
+- **No edge established.** All prior "alpha" numbers (+7–10% avg_fwd_1d per source) were scanner projection contamination — `fwd_return_1d` populated from `deep_scan_results.target_price`, not actual market outcomes.
+- **Same-bar artifact** (0.0 instead of NULL) contaminated 29–100% of rows per source. bk_orb and uhura were 100% artifact — no real bars at all. Fixed in `96a29c7`.
+- **z=8.2 was computed on the wrong universe.** The "bk_avwap BEAR proj_under10" read of 2,084 rows / 58.8% WR included 2,013 rows where `fwd_return_1d IS NULL` — not proj_under10, a separate bucket (c_proj_null). The strict proj_under10 population is only 71 rows / 5 days — too thin to test.
+- **5 days is one regime.** No stability, no statistical gate, no signal conclusions possible.
+
+### Three clean bucket definitions (now correct, never fold again)
+```
+a_proj_under10  fwd_return_1d IS NOT NULL AND fwd_return_1d < 0.10
+b_proj_over10   fwd_return_1d IS NOT NULL AND fwd_return_1d >= 0.10
+c_proj_null     fwd_return_1d IS NULL  (no deep_scan projection — separate bucket)
+```
+
+### What was staged (commits on exec-pipeline, pushed)
+| Item | Commit | Status |
+|---|---|---|
+| `_fetch_realized_return()` + evaluator wire | `915c35e` | staged |
+| Same-bar → NULL fix (evaluator + backfill script) | `96a29c7` | staged |
+| `scripts/realized_weekly_snapshot.py` — weekly meter, sufficiency gate | this commit | staged |
+| `drafts/REALIZED_WEEKLY_2026-06-29.md` — first snapshot (current state) | this commit | staged |
+
+### What activates on "go restart"
+1. **NULL-corrected evaluator** — new observations get `fwd_return_1d_realized` with same-bar fallback → NULL.
+2. **Weekly snapshot** — runs every Friday 21:00 UTC. Cron line to install manually at restart time:
+   ```
+   0 21 * * 5 /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/realized_weekly_snapshot.py >> /Users/bigmac/autonomous-trader/logs/realized_snapshots.log 2>&1
+   ```
+3. **Re-backfill** — run after restart to NULL-correct the ~3,200 artifact rows currently holding 0.0:
+   ```
+   .venv/bin/python3 _nightcrew/backfill_realized_return.py --sample 0
+   ```
+
+### Re-test gate (do not run significance tests before this)
+- **n ≥ 400 AND distinct_days ≥ 20** per source/bucket.
+- Expected earliest trip: **mid-August to late September** (20 trading days forward from restart).
+- The weekly snapshot reports "COLLECTING — not yet testable" until the gate trips.
+- When it trips: re-run the binomial test on the correct strict bucket. Not before.
+
+---
+
 ## RESUME STATE
 _Written 2026-06-29 ~22:15 UTC. HOLD FOR ADMIRAL._
 
