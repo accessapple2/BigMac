@@ -24,6 +24,25 @@ _BEARISH = frozenset({
 })
 
 
+def _to_utc_space(iso_str: str) -> str:
+    """Normalize any ISO timestamp to 'YYYY-MM-DD HH:MM:SS' (UTC, no tz, no µs).
+
+    trades.executed_at uses space-separated UTC without tz suffix.
+    signal_observations.ts/expiry use ISO-8601 with 'T' separator and +00:00.
+    SQLite TEXT comparison fails across these formats ('T' > ' ' in ASCII, so
+    any space-format date compares as strictly less than any T-format date at
+    the same moment, causing BETWEEN to never match).
+    """
+    s = iso_str.strip().replace("T", " ")
+    for suffix in ("+00:00", "+0000", "-00:00", "Z"):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+            break
+    if "." in s:
+        s = s[: s.index(".")]
+    return s
+
+
 def _is_bullish(direction: str | None) -> bool | None:
     """Map raw direction string to bool. Returns None for neutral/context-only."""
     if direction is None:
@@ -88,6 +107,13 @@ def evaluate_pending(db_path: str | None = None, batch: int = 200) -> dict:
                 is_bull = _is_bullish(direction)
                 if is_bull is not None:
                     action_filter = "BUY" if is_bull else "SELL"
+                    # Normalize obs timestamps to space-UTC to match trades.executed_at
+                    # format ('YYYY-MM-DD HH:MM:SS').  Without this, the 'T' separator
+                    # in ISO+offset strings causes all BETWEEN comparisons to fail
+                    # because ' ' (32) < 'T' (84) in ASCII, making every trade appear
+                    # before the lower bound.
+                    ts_cmp     = _to_utc_space(ts)
+                    expiry_cmp = _to_utc_space(expiry)
                     trade = conn.execute(
                         """
                         SELECT id, price
@@ -98,7 +124,7 @@ def evaluate_pending(db_path: str | None = None, batch: int = 200) -> dict:
                          ORDER BY executed_at ASC
                          LIMIT 1
                         """,
-                        (ticker, action_filter, ts, expiry),
+                        (ticker, action_filter, ts_cmp, expiry_cmp),
                     ).fetchone()
 
                     if trade:
