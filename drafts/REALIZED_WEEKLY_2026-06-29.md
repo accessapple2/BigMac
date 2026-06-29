@@ -1,5 +1,5 @@
 # REALIZED WEEKLY SNAPSHOT — 2026-06-29
-_Generated 2026-06-29 16:12 UTC · exec-pipeline · restart pending Admiral's return_
+_Generated 2026-06-29 20:52 UTC · exec-pipeline · restart pending Admiral's return_
 
 ## Coverage
 - First day: 2026-06-22  Last day: 2026-06-26
