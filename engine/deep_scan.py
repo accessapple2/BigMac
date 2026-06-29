@@ -753,6 +753,7 @@ def run_deep_scan(max_symbols: int = 500, force: bool = False) -> dict:
                                 ticker=_row["symbol"],
                                 direction="LONG",
                                 conviction=str(round(float(_row.get("confidence", 0)), 3)),
+                                grade="A" if float(_row.get("confidence", 0)) >= 0.80 else "B",
                                 confluence_meta={
                                     "strategy_name": _row.get("strategy_name"),
                                     "signal_strength": _row.get("signal_strength"),

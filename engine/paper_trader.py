@@ -3560,6 +3560,9 @@ def save_signal(player_id: str, symbol: str, signal: str, confidence: float,
         from engine.halt_gate import can_emit_signal
         if not can_emit_signal(conn, player_id):
             conn.close()
+            _log_gate_reject(player_id, symbol, "HALT",
+                             "player not active — suppressed at save_signal gate",
+                             confidence=confidence)
             console.log(f"[yellow][HALT-GATE] Suppressed signal from {player_id} (not active)")
             return -1
         # === SOURCE DEDUP === HM-SOURCE-DEDUP 2026-06-02: chokepoint guard.

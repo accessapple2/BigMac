@@ -508,6 +508,7 @@ def run_scan(
                 ticker=_s["symbol"],
                 direction=_s["signal"],
                 conviction=f"confluence_n={_s.get('confluence_n', 0)}",
+                grade="A" if _s.get("confluence_n", 0) >= 2 else "B",
                 confluence_meta={
                     "anchor_type": _s.get("anchor_type"),
                     "avwap_price": _s.get("avwap_price"),

@@ -397,6 +397,7 @@ def run_scan(
                 ticker=_s["symbol"],
                 direction=_s["signal"],
                 conviction=f"width_pct={_s.get('width_pct', 0):.2f}",
+                grade="A" if _s.get("vol_mult", 0) >= 3.0 else "B",
                 confluence_meta={
                     "box_top": _s.get("box_top"),
                     "box_bottom": _s.get("box_bottom"),

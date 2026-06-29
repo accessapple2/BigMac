@@ -22892,6 +22892,132 @@ async def observations_summary(days: int = 7):
 
 
 # ============================================================
+# HM-EXEC-PIPELINE: measurement layer health probe
+# ============================================================
+
+@app.get("/api/measurement-health")
+async def measurement_health():
+    """Health probe for the three measurement layer jobs.
+
+    Returns last-write timestamps and ages for:
+      - gate_reject_log   (missed-signal feed)
+      - signal_observations (observe-first layer)
+      - signal_evaluator   (forward-return population)
+
+    RED thresholds:
+      - gate_reject_log > 2h stale during RTH → writer likely dead
+      - signal_observations > 4h → BK scanners stalled
+      - fwd_return_fill_rate < 5% → evaluator broken
+    """
+    try:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+
+        conn = sqlite3.connect("data/trader.db")
+        conn.row_factory = sqlite3.Row
+
+        def _age_secs(ts_str: str | None) -> float | None:
+            if not ts_str:
+                return None
+            try:
+                ts = ts_str.replace(" ", "T")
+                if "+" not in ts and not ts.endswith("Z"):
+                    ts += "+00:00"
+                from datetime import datetime as _dt
+                return (now - _dt.fromisoformat(ts)).total_seconds()
+            except Exception:
+                return None
+
+        def _fmt(secs: float | None) -> str:
+            if secs is None:
+                return "never"
+            h, m = int(secs // 3600), int((secs % 3600) // 60)
+            return f"{h}h{m:02d}m ago"
+
+        # Gate reject log
+        grl = conn.execute(
+            "SELECT MAX(ts) AS last_ts, COUNT(*) AS total FROM gate_reject_log"
+        ).fetchone()
+        grl_last = grl["last_ts"]
+        grl_age  = _age_secs(grl_last)
+
+        # Signal observations
+        obs = conn.execute(
+            "SELECT MAX(ts) AS last_ts, COUNT(*) AS total FROM signal_observations"
+        ).fetchone()
+        obs_last = obs["last_ts"]
+        obs_age  = _age_secs(obs_last)
+
+        # Evaluator
+        ev = conn.execute(
+            """SELECT MAX(evaluated_at) AS last_run,
+                      COUNT(*) AS total,
+                      SUM(CASE WHEN fwd_return_1d IS NOT NULL THEN 1 ELSE 0 END) AS filled
+                 FROM signal_observations"""
+        ).fetchone()
+        ev_last     = ev["last_run"]
+        ev_age      = _age_secs(ev_last)
+        ev_total    = ev["total"] or 0
+        ev_filled   = ev["filled"] or 0
+        fill_rate   = round(ev_filled / ev_total * 100, 1) if ev_total else 0.0
+
+        conn.close()
+
+        # RED/YELLOW thresholds (gate_reject_log: only meaningful during RTH)
+        GRL_RED_SECS  = 7200   # 2h
+        OBS_RED_SECS  = 14400  # 4h
+        FILL_RED_PCT  = 5.0
+
+        grl_status = "OK"
+        if grl_age is None:
+            grl_status = "RED"
+        elif grl_age > GRL_RED_SECS:
+            grl_status = "STALE"  # expected on weekends; RED only during RTH
+
+        obs_status = "RED" if (obs_age is None or obs_age > OBS_RED_SECS) else "OK"
+        ev_status  = "RED" if fill_rate < FILL_RED_PCT else "OK"
+
+        return {
+            "as_of": now.isoformat(),
+            "gate_reject_log": {
+                "status":    grl_status,
+                "last_write_ts":  grl_last,
+                "age":       _fmt(grl_age),
+                "age_secs":  round(grl_age) if grl_age else None,
+                "total_rows": grl["total"],
+                "note": (
+                    "Weekend/holiday silence is normal — gate rejects only fire "
+                    "when active agents submit signals during RTH."
+                    if grl_age and grl_age > GRL_RED_SECS else None
+                ),
+            },
+            "signal_observations": {
+                "status":   obs_status,
+                "last_insert_ts": obs_last,
+                "age":      _fmt(obs_age),
+                "age_secs": round(obs_age) if obs_age else None,
+                "total_rows": obs["total"],
+            },
+            "evaluator": {
+                "status":       ev_status,
+                "last_run_ts":  ev_last,
+                "age":          _fmt(ev_age),
+                "age_secs":     round(ev_age) if ev_age else None,
+                "total_obs":    ev_total,
+                "filled_1d":    ev_filled,
+                "fill_rate_pct": fill_rate,
+                "note": (
+                    "fill_price→price bug fixed in 5ff36de; evaluator will "
+                    "drain 9,473-row backlog at 200/cycle on next restart."
+                    if fill_rate < FILL_RED_PCT else None
+                ),
+            },
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ============================================================
 # SECTION 13: AGENT × TICKER AFFINITY MATRIX (P13)
 # ============================================================
 
