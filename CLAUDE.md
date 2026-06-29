@@ -365,3 +365,103 @@ sessions was extracted and lives in the "Doctrine Lessons" section above.
   North-star for cockpit design; build cockpit changes helmet-aware.
 - **Gemini 3.5 Flash as 'Data'** horse in the model sleeve (model-upgrade
   pipeline). On-deck when helmet layer scoped.
+
+## TWO-TIER BRIDGE DOCTRINE
+
+- **bridge-v2** = lean daily-driver (display + P0 safety controls).
+- **bridge v1** = full engineering console (backtest, screener, Greeks,
+  learning, alerts, deep panels). NOT retired — intentional second tier.
+- Both bridges are windows onto the SAME backend `/api/*` state. Neither
+  caches or computes authoritative state locally. They must never disagree.
+- Any safety control (kill-switch, halt, autopilot) on EITHER bridge acts
+  on the real fleet and both reflect true state.
+- v1 retirement is OFF the table under two-tier. Re-decide only if the
+  deep panels migrate to v2 deliberately.
+
+## ALPHA READ — STATE AS OF 2026-06-29 ~20:35
+- Evaluator FIXED + LIVE (fill_price→price + acted-join timestamp norm).
+  Draining 11k backlog at 200/cycle/30min — full ~20h out.
+- FIRST SIGNAL (≈5% drained, DIRECTIONAL ONLY, do not bank):
+  bk_avwap +7.89% avg_fwd_1d, bk_box +2.46%. Positive + plausible.
+  TRUSTWORTHY read = after full drain, NOT at partial sample.
+- acted_by_fleet structurally ~0 (2,179 obs tickers vs 16 traded/7d).
+  Retrospective join is a DEAD END. Fix = emit-time 'acted' tagging
+  (stamp obs when fleet trades it). FORWARD-ONLY build. QUEUED, not built.
+- by_grade all null = pre-fix rows; A/B grades populate forward only.
+- OPEN: (1) emit-time acted tagging  (2) measurement-health→ntfy RED
+  thresholds  (3) stale "on next restart" copy in evaluator endpoint.
+- Report card: Performance = D↑ (do NOT upgrade until full drain + clean read).
+
+## CARRIER DOCTRINE
+### Bridge-v2 as the Deployed Strike Group · NOW-Edge Action Layer
+**Established 2026-06-29 · Operates under, and subordinate to, the Two-Tier Bridge Doctrine**
+
+---
+
+### I. THE FORCE STRUCTURE
+
+**OllieTrades is the Navy.** The standing force — the fleet of agents, the scanners, the data sources, the doctrine, the deep engineering console (bridge v1), the entire apparatus that runs whether or not anyone is watching. It is built for endurance, depth, and measurement.
+
+**Bridge-v2 is the deployed Carrier Strike Group.** Forward, light, fast. It does not duplicate the Navy — it projects it. Its job is to take *live contact* — an alert, a data hit, a NOW-edge moment — and make it legible, followable, and (when earned) actionable, in the window where the edge is still fresh.
+
+The Navy wins wars by being everywhere, always. The Carrier wins engagements by being *present at the contact* with a complete picture and a fast decision loop. OT needs both. v1 is everywhere-always. v2 is present-at-contact.
+
+---
+
+### II. THE KILL CHAIN (THE BUILD LADDER)
+
+The build maps to the US targeting cycle — **F2T2EA: Find, Fix, Track, Target, Engage, Assess.** Each rung delivers standalone value. You climb only as far as the mission and the data justify. v1 is untouched at every rung.
+
+**Rung 1 — FIND · *The Actionable Alert (the crumb trail)***
+An alert stops being a dead-end ping and becomes a **sensor contact**. It deep-links into v2, focused on the ticker that fired — source, timestamp, freshness, live chart. No action. Just: *follow the trail, see what needs seeing.*
+Cost: near-zero — wiring, not logic. Value: transforms every alert from "something happened" into "here is the contact, look."
+
+**Rung 2 — FIX / TRACK · *Context-on-Arrival (the sensor picture)***
+The focused view pulls the surrounding NOW-edge automatically: the congress/insider hit, the volatility spike, the options flow, the news that triggered it, the fleet's current read. This is the **Combat Information Center** picture for one contact — everything you need to orient, assembled before you ask.
+Value: the live moment becomes *legible*. The "why now" is answered on arrival.
+
+**Rung 3 — TARGET · *Debate & Review in Place (the firing solution)***
+From the contact view: query the war room, eyeball the chart, pull the scorecard. The decision surface, live, in the moment. The carrier builds a firing solution before it launches anything.
+Value: decision-quality at contact speed — no hop to another console, no stale context.
+
+**Rung 4 — ENGAGE → ASSESS · *The Paper Sortie (gated)***
+For contacts that earn it: a one-tap **paper-only** fire from the alert, kill-switch-guarded, logged as its own distinct execution source. Then **Assess** — the sortie feeds straight back into the measurement loop.
+The payoff: firing from the alert *stamps the observation at fire-time* — which IS the emit-time `acted` tagging that the retrospective join could never deliver. **The carrier doesn't just act on edge; it generates the acted-data the Navy needs to grade itself.** Rung 4 back-solves the measurement dead-end from the action side.
+
+> **Value at every rung.** Even if Rung 4 never ships, Rungs 1–3 make OT vastly more actionable on their own. The action is the last 10%; the legibility is the 90%.
+
+---
+
+### III. CONTACT CLASSIFICATION (ALERT TIERING)
+
+Not every alert is a contact. The tier decides whether an alert *tells* you something or *invites* you to a contact — this is what keeps the carrier light instead of drowning you in pings.
+
+- **INFORMATIONAL** (system status, measurement-health RED, infra) → report only. No trail, no carrier treatment.
+- **ACTIONABLE** (bk_avwap / UHURA / congress / insider / options-flow / volatility contacts) → full crumb trail. These get the kill chain.
+
+Only contacts where genuine NOW-edge exists earn a sortie path.
+
+---
+
+### IV. RULES OF ENGAGEMENT (NON-NEGOTIABLE)
+
+1. **RULE #1 holds absolutely — paper only.** The carrier fires *paper* sorties. The real book stays Navy-side, on the sidelines, until measured edge earns deployment. Schwab remains read-only.
+2. **Kill-switch guards every sortie path.** No engage rung exists without the emergency stop already wired (it is — P0 controls live on v2).
+3. **v1 is untouched.** The Navy's engineering console keeps all its depth. Two-tier doctrine governs: both bridges are windows onto the *same* backend truth — no bifurcation, ever.
+4. **Slow is smooth.** Climb the ladder one rung at a time. Each rung proves out before the next is built.
+
+---
+
+### V. DEPLOYMENT AUTHORITY (THE GATE)
+
+**Rungs 1–3 build freely** — they carry zero execution risk and pure actionability upside.
+
+**Rung 4 (ENGAGE) is GATED on the alpha read.** A source earns a carrier sortie path only when **full-drain forward-return data proves it carries edge that holds.** No source fires on a partial sample. (The +7.89% bk_avwap first-read is a 5%-drained directional signal — explicitly *not* deployment authority.)
+
+**The alpha instrument is the deployment authority.** The Navy measures; the measurement clears the carrier to launch. Action waits for proof — that is the entire reason the real book is on the sidelines, expressed as a build rule.
+
+---
+
+### VI. ONE-LINE STATEMENT OF INTENT
+
+*OllieTrades is the standing fleet. Bridge-v2 is the deployed carrier. Alerts are contacts. The kill chain turns a contact into a legible, reviewable, and — when the data has earned it — actionable paper sortie, in the window the edge is still live. The Navy proves the edge; the carrier projects it.*
