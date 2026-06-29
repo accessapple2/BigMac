@@ -9,12 +9,79 @@ Wired to main.py scheduler at 30-minute cadence.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date as _date, datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
 _DB = "data/trader.db"
+_ALPACA_BARS = "https://data.alpaca.markets/v2/stocks/{sym}/bars"
+
+
+def _fetch_realized_return(ticker: str, ts_iso: str, expiry_iso: str) -> float | None:
+    """Return actual close-to-close return from Alpaca daily bars, or None.
+
+    Realized = (close_at_expiry_date - close_at_ts_date) / close_at_ts_date.
+    Never raises — any API/parse failure returns None so evaluation is never blocked.
+    """
+    try:
+        import requests as _req
+        key    = os.environ.get("APCA_API_KEY_ID", "")
+        secret = os.environ.get("APCA_API_SECRET_KEY", "")
+        if not key or not secret:
+            return None
+
+        ts_date     = ts_iso[:10]      # YYYY-MM-DD
+        expiry_date = expiry_iso[:10]
+
+        # Add +1 day buffer so the expiry date's bar is included in the response
+        end_date = (_date.fromisoformat(expiry_date) + timedelta(days=2)).isoformat()
+
+        r = _req.get(
+            _ALPACA_BARS.format(sym=ticker),
+            headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret},
+            params={
+                "timeframe": "1Day",
+                "start":     ts_date,
+                "end":       end_date,
+                "feed":      "iex",
+                "sort":      "asc",
+                "limit":     10,
+            },
+            timeout=8,
+        )
+        if not r.ok:
+            return None
+
+        bars = r.json().get("bars") or []
+        if not bars:
+            return None
+
+        # Build date → close map ("t": "2026-06-25T00:00:00Z" → "2026-06-25")
+        closes: dict[str, float] = {}
+        for b in bars:
+            bar_date = (b.get("t") or "")[:10]
+            if bar_date:
+                closes[bar_date] = float(b["c"])
+
+        entry_close  = closes.get(ts_date)
+        expiry_close = closes.get(expiry_date)
+
+        # Nearest-available fallback (handles weekends/holidays at boundaries)
+        sorted_dates = sorted(closes)
+        if entry_close is None and sorted_dates:
+            entry_close = closes[sorted_dates[0]]
+        if expiry_close is None and sorted_dates:
+            expiry_close = closes[sorted_dates[-1]]
+
+        if entry_close is None or expiry_close is None or entry_close <= 0:
+            return None
+
+        return round((expiry_close - entry_close) / entry_close, 6)
+
+    except Exception:
+        return None
 
 _BULLISH = frozenset({
     "BULL", "LONG", "BULLISH", "CONFIRM", "CONFIRMBULLISH",
@@ -103,6 +170,7 @@ def evaluate_pending(db_path: str | None = None, batch: int = 200) -> dict:
                 fleet_trade_id = None
                 fleet_acted = None
                 fwd_return_1d = None
+                fwd_return_1d_realized = None
 
                 is_bull = _is_bullish(direction)
                 if is_bull is not None:
@@ -153,16 +221,21 @@ def evaluate_pending(db_path: str | None = None, batch: int = 200) -> dict:
                         if ep > 0:
                             fwd_return_1d = round((tp - ep) / ep, 6)
 
+                    # Realized return: actual Alpaca close at ts vs close at expiry
+                    fwd_return_1d_realized = _fetch_realized_return(ticker, ts, expiry)
+
                 conn.execute(
                     """
                     UPDATE signal_observations
-                       SET evaluated_at   = ?,
-                           acted_by_fleet = ?,
-                           fleet_trade_id = ?,
-                           fwd_return_1d  = ?
+                       SET evaluated_at           = ?,
+                           acted_by_fleet         = ?,
+                           fleet_trade_id         = ?,
+                           fwd_return_1d          = ?,
+                           fwd_return_1d_realized = ?
                      WHERE id = ?
                     """,
-                    (now_iso, fleet_acted, fleet_trade_id, fwd_return_1d, obs_id),
+                    (now_iso, fleet_acted, fleet_trade_id,
+                     fwd_return_1d, fwd_return_1d_realized, obs_id),
                 )
                 conn.commit()
                 evaluated += 1
