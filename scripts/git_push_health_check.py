@@ -1,9 +1,14 @@
-"""HM-PUSH-HEALTH-MONITOR (2026-05-29).
+"""HM-PUSH-HEALTH-MONITOR (2026-05-29, fixed 2026-06-28).
 
 Independent daily watchdog for git push health. Runs `git fetch` then counts
-how many local commits are ahead of origin/<branch>; NTFYs ollietrades-admin
-WARNING if ahead > THRESHOLD, OR if `git fetch` itself fails (can't reach
-origin — also a push-pipeline health problem worth alerting on).
+how many local commits are ahead of the CURRENT BRANCH'S OWN upstream (@{u});
+NTFYs ollietrades-admin WARNING if ahead > THRESHOLD, OR if `git fetch` itself
+fails (can't reach origin — also a push-pipeline health problem worth alerting
+on).
+
+Using @{u} instead of origin/main prevents false alarms when developing on a
+feature branch (e.g. exec-pipeline) that is fully pushed but diverges from
+main by design.  If no upstream is set the monitor exits 0 silently.
 
 DOCTRINE — an alarm must run on a DIFFERENT mechanism than the thing it watches.
 The 87-commit silent push gap (HM-PUSH-UNBLOCK, 2026-05-28) went undetected
@@ -16,7 +21,7 @@ Fires daily via crontab (NOT launchd — launchd doesn't survive reboot on this
 box; see CLAUDE.md "LaunchAgent Reboot Lifecycle").
 
 Exit codes:
-  0 - healthy (within threshold, fetch ok) OR alert fired successfully
+  0 - healthy (within threshold, fetch ok) OR no upstream set (skip)
   2 - alert fired (ahead > threshold, or fetch failed)
   1 - error
 """
@@ -30,7 +35,6 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 
 REPO = str(Path(__file__).resolve().parent.parent)
-BRANCH = os.environ.get("PUSH_HEALTH_BRANCH", "main")
 THRESHOLD = int(os.environ.get("PUSH_HEALTH_AHEAD_THRESHOLD", "5"))
 GIT = os.environ.get("GIT_BIN", "/usr/bin/git")
 
@@ -43,10 +47,21 @@ def _git(*args, timeout: int = 60):
 
 
 def main() -> int:
+    # Resolve current branch upstream (e.g. "origin/exec-pipeline").
+    # If no upstream is configured, skip silently — nothing to check.
+    r = _git("rev-parse", "--abbrev-ref", "@{u}")
+    if r.returncode != 0:
+        r2 = _git("rev-parse", "--abbrev-ref", "HEAD")
+        branch = r2.stdout.strip() if r2.returncode == 0 else "unknown"
+        print(f"[push-health] no upstream set for branch '{branch}' — skipping")
+        return 0
+    upstream_ref = r.stdout.strip()  # e.g. "origin/exec-pipeline"
+    remote = upstream_ref.split("/")[0]  # e.g. "origin"
+
     fetch_ok = True
     fetch_err = ""
     try:
-        r = _git("fetch", "origin", BRANCH)
+        r = _git("fetch", remote)
         if r.returncode != 0:
             fetch_ok = False
             fetch_err = (r.stderr or r.stdout).strip()[:200]
@@ -54,10 +69,10 @@ def main() -> int:
         fetch_ok = False
         fetch_err = f"{type(e).__name__}: {e}"
 
-    # Count local commits ahead of origin/<branch>. If fetch failed this is vs
-    # the last-known (stale) origin ref — still informative, flagged in the msg.
+    # Count local commits ahead of the branch's own upstream (@{u}).
+    # If fetch failed this is vs the last-known (stale) ref — still informative.
     try:
-        r = _git("rev-list", "--count", f"origin/{BRANCH}..HEAD")
+        r = _git("rev-list", "--count", "@{u}..HEAD")
         if r.returncode != 0:
             print(f"[push-health] rev-list failed: {r.stderr.strip()}", file=sys.stderr)
             return 1
@@ -68,9 +83,9 @@ def main() -> int:
 
     if not fetch_ok:
         msg = (
-            f"git push-health: `git fetch origin {BRANCH}` FAILED — cannot reach "
+            f"git push-health: `git fetch {remote}` FAILED — cannot reach "
             f"origin (push pipeline may be down). Local is {ahead} ahead of "
-            f"last-known origin/{BRANCH}. err: {fetch_err}"
+            f"last-known {upstream_ref}. err: {fetch_err}"
         )
         print(f"[push-health] FETCH-FAIL — {msg}")
         _alert(msg, "warning")
@@ -78,15 +93,15 @@ def main() -> int:
 
     if ahead > THRESHOLD:
         msg = (
-            f"git push-health: local is {ahead} commits ahead of origin/{BRANCH} "
-            f"(threshold {THRESHOLD}). Unpushed work — run `git push origin "
-            f"{BRANCH}`. Backstop for the HM-PUSH-UNBLOCK 87-commit silent gap."
+            f"git push-health: local is {ahead} commits ahead of {upstream_ref} "
+            f"(threshold {THRESHOLD}). Unpushed work — run `git push`. "
+            f"Backstop for the HM-PUSH-UNBLOCK 87-commit silent gap."
         )
         print(f"[push-health] AHEAD — {msg}")
         _alert(msg, "warning")
         return 2
 
-    print(f"[push-health] OK — {ahead} ahead of origin/{BRANCH} "
+    print(f"[push-health] OK — {ahead} ahead of {upstream_ref} "
           f"(threshold {THRESHOLD}), fetch ok")
     return 0
 
