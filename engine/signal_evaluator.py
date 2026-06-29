@@ -65,17 +65,22 @@ def _fetch_realized_return(ticker: str, ts_iso: str, expiry_iso: str) -> float |
             if bar_date:
                 closes[bar_date] = float(b["c"])
 
-        entry_close  = closes.get(ts_date)
-        expiry_close = closes.get(expiry_date)
-
-        # Nearest-available fallback (handles weekends/holidays at boundaries)
         sorted_dates = sorted(closes)
-        if entry_close is None and sorted_dates:
-            entry_close = closes[sorted_dates[0]]
-        if expiry_close is None and sorted_dates:
-            expiry_close = closes[sorted_dates[-1]]
 
-        if entry_close is None or expiry_close is None or entry_close <= 0:
+        # Track which actual bar date is used for each endpoint
+        entry_date_used  = ts_date     if ts_date     in closes else (sorted_dates[0]  if sorted_dates else None)
+        expiry_date_used = expiry_date if expiry_date in closes else (sorted_dates[-1] if sorted_dates else None)
+
+        # Same bar for both endpoints → no valid window → NULL, not 0.0
+        if entry_date_used is None or expiry_date_used is None:
+            return None
+        if entry_date_used == expiry_date_used:
+            return None
+
+        entry_close  = closes[entry_date_used]
+        expiry_close = closes[expiry_date_used]
+
+        if entry_close <= 0:
             return None
 
         return round((expiry_close - entry_close) / entry_close, 6)
