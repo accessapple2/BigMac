@@ -23007,8 +23007,8 @@ async def measurement_health():
                 "filled_1d":    ev_filled,
                 "fill_rate_pct": fill_rate,
                 "note": (
-                    "fill_price→price bug fixed in 5ff36de; evaluator will "
-                    "drain 9,473-row backlog at 200/cycle on next restart."
+                    f"Draining backlog — {fill_rate}% filled "
+                    f"({ev_filled}/{ev_total} obs), evaluator last ran {_fmt(ev_age)}."
                     if fill_rate < FILL_RED_PCT else None
                 ),
             },

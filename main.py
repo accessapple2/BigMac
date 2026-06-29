@@ -4260,6 +4260,107 @@ if __name__ == "__main__":
         except Exception as _exc:
             logger.debug("[signal_eval] scheduler call failed: %s", _exc)
     schedule.every(30).minutes.do(_run_signal_evaluator)
+    # HM-EXEC-PIPELINE measurement-health watchdog: ntfy RED probes every 15 min
+    _mhealth_cooldown = {}  # probe_key -> epoch_secs of last alert
+    _MHEALTH_CD_SECS = 3600  # 60-min cooldown per probe
+
+    def _run_measurement_health_watch():
+        import time as _mh_time
+        import sqlite3 as _mh_sqlite3
+        from datetime import datetime as _mh_dt, timezone as _mh_tz
+        import threading as _mh_threading
+
+        now = _mh_dt.now(_mh_tz.utc)
+        now_epoch = _mh_time.time()
+
+        def _mh_age(ts_str):
+            if not ts_str:
+                return None
+            try:
+                s = ts_str.strip().replace(" ", "T")
+                if "+" not in s and not s.endswith("Z"):
+                    s += "+00:00"
+                return (now - _mh_dt.fromisoformat(s)).total_seconds()
+            except Exception:
+                return None
+
+        def _mh_fire(probe: str, title: str, body: str) -> None:
+            last = _mhealth_cooldown.get(probe, 0)
+            if now_epoch - last < _MHEALTH_CD_SECS:
+                return
+            _mhealth_cooldown[probe] = now_epoch
+            try:
+                from engine.ntfy import _send as _ntfy_send
+                _mh_threading.Thread(
+                    target=_ntfy_send,
+                    args=(title, body, 4, "red_circle"),
+                    kwargs={"topic": "ollietrades-admin"},
+                    daemon=True,
+                ).start()
+            except Exception:
+                pass
+
+        try:
+            _mh_conn = _mh_sqlite3.connect("data/trader.db", timeout=5)
+            _mh_conn.row_factory = _mh_sqlite3.Row
+
+            # RTH = Mon–Fri 13:30–20:00 UTC (06:30–13:00 MST; AZ = UTC-7 year-round)
+            is_rth = (
+                now.weekday() < 5
+                and (now.hour, now.minute) >= (13, 30)
+                and (now.hour, now.minute) < (20, 0)
+            )
+
+            # --- probe: obs writer stale during RTH > 2h ---
+            obs_row = _mh_conn.execute(
+                "SELECT MAX(ts) AS last_ts FROM signal_observations"
+            ).fetchone()
+            obs_age = _mh_age(obs_row["last_ts"])
+            if is_rth and (obs_age is None or obs_age > 7200):
+                age_str = (
+                    f"{int((obs_age or 0) // 3600)}h"
+                    f"{int(((obs_age or 0) % 3600) // 60):02d}m"
+                    if obs_age else "never"
+                )
+                _mh_fire(
+                    "obs_stale",
+                    "\U0001f534 MEASUREMENT: obs writer stalled",
+                    f"signal_observations last insert {age_str} ago during RTH.\n"
+                    "BK scanners may have crashed — check bridge health panel.",
+                )
+
+            # --- probe: evaluator not run in > 90 min (3 missed 30-min cycles) ---
+            ev_row = _mh_conn.execute(
+                "SELECT MAX(evaluated_at) AS last_run, COUNT(*) AS total, "
+                "SUM(CASE WHEN fwd_return_1d IS NOT NULL THEN 1 ELSE 0 END) AS filled "
+                "FROM signal_observations"
+            ).fetchone()
+            ev_age   = _mh_age(ev_row["last_run"])
+            ev_total  = ev_row["total"] or 0
+            ev_filled = ev_row["filled"] or 0
+            fill_rate = round(ev_filled / ev_total * 100, 1) if ev_total else 0.0
+
+            if ev_age is not None and ev_age > 5400:
+                age_str = f"{int(ev_age // 3600)}h{int((ev_age % 3600) // 60):02d}m"
+                _mh_fire(
+                    "eval_stalled",
+                    "\U0001f534 MEASUREMENT: evaluator stalled",
+                    f"signal_evaluator last ran {age_str} ago (cadence=30min, threshold=90min).\n"
+                    f"fill_rate={fill_rate}% ({ev_filled}/{ev_total}). Restart may be needed.",
+                )
+            elif fill_rate < 5.0 and ev_total > 100:
+                _mh_fire(
+                    "eval_low_fill",
+                    "\U0001f534 MEASUREMENT: evaluator fill rate RED",
+                    f"fwd_return fill_rate={fill_rate}% < 5% ({ev_filled}/{ev_total} obs).\n"
+                    "signal_evaluator running but returns not populating — check logs.",
+                )
+
+            _mh_conn.close()
+        except Exception as _mh_exc:
+            logger.debug("[mhealth_watch] error: %s", _mh_exc)
+
+    schedule.every(15).minutes.do(_run_measurement_health_watch)
     # SWINGDESK-W3: agent auto-spread daemon — BUILT GATED-OFF (config.AUTO_SPREADS_ENABLED=False).
     # Bound at startup (lifecycle doctrine: not lazy). When OFF it heartbeats only; on a
     # detected flip it NTFYs. The master gate is enforced in auto_spread.submit_if_allowed.
