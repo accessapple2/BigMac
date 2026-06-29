@@ -4263,6 +4263,7 @@ if __name__ == "__main__":
     # HM-EXEC-PIPELINE measurement-health watchdog: ntfy RED probes every 15 min
     _mhealth_cooldown = {}  # probe_key -> epoch_secs of last alert
     _MHEALTH_CD_SECS = 3600  # 60-min cooldown per probe
+    _mhealth_state = {"last_filled": None}  # cross-call state for drain-progress tracking
 
     def _run_measurement_health_watch():
         import time as _mh_time
@@ -4340,6 +4341,10 @@ if __name__ == "__main__":
             ev_filled = ev_row["filled"] or 0
             fill_rate = round(ev_filled / ev_total * 100, 1) if ev_total else 0.0
 
+            # Snapshot prev_filled before updating so we can detect a stalled drain.
+            prev_filled = _mhealth_state["last_filled"]
+            _mhealth_state["last_filled"] = ev_filled
+
             if ev_age is not None and ev_age > 5400:
                 age_str = f"{int(ev_age // 3600)}h{int((ev_age % 3600) // 60):02d}m"
                 _mh_fire(
@@ -4349,12 +4354,17 @@ if __name__ == "__main__":
                     f"fill_rate={fill_rate}% ({ev_filled}/{ev_total}). Restart may be needed.",
                 )
             elif fill_rate < 5.0 and ev_total > 100:
-                _mh_fire(
-                    "eval_low_fill",
-                    "\U0001f534 MEASUREMENT: evaluator fill rate RED",
-                    f"fwd_return fill_rate={fill_rate}% < 5% ({ev_filled}/{ev_total} obs).\n"
-                    "signal_evaluator running but returns not populating — check logs.",
-                )
+                # Only fire if drain is STALLED — filled_1d flat since last check.
+                # Suppress while drain is actively progressing (low fill_rate is
+                # expected for the entire ~20h backlog drain window).
+                if prev_filled is not None and ev_filled <= prev_filled:
+                    _mh_fire(
+                        "eval_low_fill",
+                        "\U0001f534 MEASUREMENT: evaluator drain stalled",
+                        f"fwd_return fill_rate={fill_rate}% ({ev_filled}/{ev_total} obs) — "
+                        f"no progress since last check (prev={prev_filled}).\n"
+                        "Evaluator may be stuck or throwing errors — check logs.",
+                    )
 
             _mh_conn.close()
         except Exception as _mh_exc:
