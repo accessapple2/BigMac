@@ -22741,6 +22741,157 @@ async def signal_observations_readout(hours: int = 48):
 
 
 # ============================================================
+# HM-EXEC-PIPELINE Phase-3: observe-first alpha summary
+# ============================================================
+
+@app.get("/api/observations/summary")
+async def observations_summary(days: int = 7):
+    """Observe-first alpha readout over signal_observations.
+
+    Core question: is the fleet acting on its best signals, and is the
+    un-acted set leaving alpha on the table?
+
+    Query params:
+      days=N  — rolling window (default 7)
+
+    Returns per-source and overall breakdowns of acted vs not-acted signals
+    with mean forward returns where the evaluator has filled them in.
+    """
+    try:
+        from datetime import datetime, timezone, timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        conn = sqlite3.connect("data/trader.db")
+        conn.row_factory = sqlite3.Row
+
+        totals = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN evaluated_at IS NOT NULL THEN 1 ELSE 0 END) AS evaluated,
+                SUM(CASE WHEN fwd_return_1d IS NOT NULL THEN 1 ELSE 0 END) AS filled_1d
+              FROM signal_observations
+             WHERE ts >= ?
+            """,
+            (cutoff,),
+        ).fetchone()
+        total    = totals["total"]    or 0
+        evaluated = totals["evaluated"] or 0
+        filled_1d = totals["filled_1d"] or 0
+        pending   = total - evaluated
+        fill_rate = round(filled_1d / total * 100, 1) if total else 0.0
+
+        src_rows = conn.execute(
+            """
+            SELECT
+                source,
+                COUNT(*) AS total,
+                SUM(CASE WHEN acted_by_fleet = 1 THEN 1 ELSE 0 END)                           AS acted,
+                SUM(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN 1 ELSE 0 END)        AS not_acted,
+                SUM(CASE WHEN evaluated_at IS NOT NULL THEN 1 ELSE 0 END)                      AS evaluated,
+                AVG(CASE WHEN acted_by_fleet = 1 THEN fwd_return_1h END)                       AS avg_1h_acted,
+                AVG(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN fwd_return_1h END)    AS avg_1h_not_acted,
+                AVG(CASE WHEN acted_by_fleet = 1 THEN fwd_return_1d END)                       AS avg_1d_acted,
+                AVG(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN fwd_return_1d END)    AS avg_1d_not_acted
+              FROM signal_observations
+             WHERE ts >= ?
+             GROUP BY source
+             ORDER BY total DESC
+            """,
+            (cutoff,),
+        ).fetchall()
+
+        def _f(v):
+            return round(float(v), 4) if v is not None else None
+
+        by_source = {}
+        for r in src_rows:
+            n      = r["total"]     or 0
+            acted  = r["acted"]     or 0
+            na     = r["not_acted"] or 0
+            ev     = r["evaluated"] or 0
+            denom  = acted + na
+            by_source[r["source"]] = {
+                "total":               n,
+                "acted":               acted,
+                "not_acted":           na,
+                "pending_eval":        n - ev,
+                "acted_rate_pct":      round(acted / denom * 100, 1) if denom else None,
+                "avg_fwd_1h_acted":    _f(r["avg_1h_acted"]),
+                "avg_fwd_1h_not_acted": _f(r["avg_1h_not_acted"]),
+                "avg_fwd_1d_acted":    _f(r["avg_1d_acted"]),
+                "avg_fwd_1d_not_acted": _f(r["avg_1d_not_acted"]),
+            }
+
+        grade_rows = conn.execute(
+            """
+            SELECT COALESCE(grade, 'null') AS grade, COUNT(*) AS n
+              FROM signal_observations
+             WHERE ts >= ?
+             GROUP BY grade
+            """,
+            (cutoff,),
+        ).fetchall()
+        by_grade = {r["grade"]: r["n"] for r in grade_rows}
+
+        ov = conn.execute(
+            """
+            SELECT
+                SUM(CASE WHEN acted_by_fleet = 1 THEN 1 ELSE 0 END)                        AS acted,
+                SUM(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN 1 ELSE 0 END)     AS not_acted,
+                AVG(CASE WHEN acted_by_fleet = 1 THEN fwd_return_1h END)                    AS avg_1h_acted,
+                AVG(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN fwd_return_1h END) AS avg_1h_not_acted,
+                AVG(CASE WHEN acted_by_fleet = 1 THEN fwd_return_1d END)                    AS avg_1d_acted,
+                AVG(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN fwd_return_1d END) AS avg_1d_not_acted,
+                AVG(CASE WHEN acted_by_fleet = 1 THEN fwd_return_exp END)                   AS avg_exp_acted,
+                AVG(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN fwd_return_exp END) AS avg_exp_not_acted
+              FROM signal_observations
+             WHERE ts >= ?
+            """,
+            (cutoff,),
+        ).fetchone()
+
+        ov_acted  = ov["acted"]     or 0
+        ov_not_acted = ov["not_acted"] or 0
+        ov_denom  = ov_acted + ov_not_acted
+        acted_summary = {
+            "acted":                ov_acted,
+            "not_acted":            ov_not_acted,
+            "pending_eval":         pending,
+            "acted_rate_pct":       round(ov_acted / ov_denom * 100, 1) if ov_denom else None,
+            "avg_fwd_1h_acted":     _f(ov["avg_1h_acted"]),
+            "avg_fwd_1h_not_acted": _f(ov["avg_1h_not_acted"]),
+            "avg_fwd_1d_acted":     _f(ov["avg_1d_acted"]),
+            "avg_fwd_1d_not_acted": _f(ov["avg_1d_not_acted"]),
+            "avg_fwd_exp_acted":    _f(ov["avg_exp_acted"]),
+            "avg_fwd_exp_not_acted": _f(ov["avg_exp_not_acted"]),
+        }
+
+        conn.close()
+
+        warnings = []
+        if fill_rate < 5.0:
+            warnings.append(
+                f"EVALUATOR WARNING: fwd_return fill rate is {fill_rate}% — "
+                "signal_evaluator is not populating forward returns; "
+                "acted vs not-acted alpha comparison is unavailable until fixed."
+            )
+
+        return {
+            "window_days":             days,
+            "total":                   total,
+            "evaluated":               evaluated,
+            "pending_eval":            pending,
+            "fwd_return_fill_rate_pct": fill_rate,
+            "by_source":               by_source,
+            "by_grade":                by_grade,
+            "acted_summary":           acted_summary,
+            "warnings":                warnings,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ============================================================
 # SECTION 13: AGENT × TICKER AFFINITY MATRIX (P13)
 # ============================================================
 

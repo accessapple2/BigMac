@@ -90,7 +90,7 @@ def evaluate_pending(db_path: str | None = None, batch: int = 200) -> dict:
                     action_filter = "BUY" if is_bull else "SELL"
                     trade = conn.execute(
                         """
-                        SELECT id, fill_price
+                        SELECT id, price
                           FROM trades
                          WHERE symbol = ?
                            AND action = ?
