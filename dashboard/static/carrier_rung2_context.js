@@ -72,9 +72,30 @@
     });
   }
 
-  function slotFlow(/* sym */) {
-    // /api/market/flow not available on this host — fail-soft
-    return Promise.resolve({ label: "Options Flow", empty: true });
+  function slotFlow(sym) {
+    // /api/market/flow-lean → {current:{lean,net_flow_m,per_symbol:[{symbol,call_premium,put_premium,call_vol,put_vol,...}],recorded_at}}
+    return getJSON("/api/market/flow-lean").then(function (d) {
+      var cur  = d.current || {};
+      var rows = cur.per_symbol || [];
+      var row  = rows.find ? rows.find(function (r) { return r.symbol === sym; }) : null;
+      if (!row) {
+        // No per-sym data — show market-wide lean as context
+        if (!cur.lean) return { label: "Options Flow", empty: true };
+        var netM = num(cur.net_flow_m, 1);
+        var notable = cur.conviction != null && cur.conviction >= 15;
+        return {
+          label: "Options Flow",
+          value: cur.lean + (netM != null ? "  $" + netM + "M net (market)" : ""),
+          tone: tone(notable),
+          age: ageStr(cur.recorded_at)
+        };
+      }
+      var pc   = (row.put_vol && row.call_vol) ? num(row.put_vol / row.call_vol, 2) : null;
+      var netP = (row.call_premium && row.put_premium) ? num((row.call_premium - row.put_premium) / 1e6, 1) : null;
+      var notable = pc != null && (pc >= 1.3 || pc <= 0.6);
+      var v = (netP != null ? "$" + netP + "M net" : "") + (pc != null ? "  P/C " + pc : "");
+      return { label: "Options Flow", value: v || "—", tone: tone(notable), age: ageStr(cur.recorded_at) };
+    });
   }
 
   function slotCongress(sym) {
