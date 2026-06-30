@@ -1,0 +1,15 @@
+{
+  "grades": {
+    "dashboard":   "B+",
+    "signals":     "D",
+    "execution":   "B",
+    "measurement": "C+",
+    "fleet":       "C+",
+    "risk":        "A-",
+    "monitoring":  "C+",
+    "data":        "B",
+    "models":      "C",
+    "resilience":  "A-"
+  },
+  "reasons": {}
+}
