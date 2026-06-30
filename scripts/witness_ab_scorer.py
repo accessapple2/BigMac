@@ -35,6 +35,28 @@ DB = ROOT / "data" / "trader.db"
 OLLAMA_URL = "http://192.168.1.168:11434"
 SCORE_CAP = 60   # max debates scored per model per run (~30–90 min total)
 
+# ── Model taxonomy (HM-SHADOW-AB-WITNESS 2026-06-29) ─────────────────────────
+#
+# PRIMARY A/B (active, scored each night):
+#   deepseek-r1:14b  — 9 GB,  distilled-R1 reasoning, first pass
+#   gpt-oss:20b      — 13 GB, GPT-family OSS, second pass (evicts everything)
+#   McCoy baseline   — plutus-v1:latest, 4.7 GB, live seat (verdict from debate ctx)
+#
+# LIBRARY — PULL-BUT-HOLD (pulled, ready to rotate in after primary read at gate):
+#   mistral-small3.1:24b  — 15 GB, Mistral dense 24B
+#   qwen3.6:14b           — 9.6 GB, Qwen3 dense 14B
+#   gemma4:e4b            — 4B MoE, smallest footprint
+#   Activate: add to WITNESS_MODELS below; sequential ordering matters (VRAM)
+#
+# EXCLUDED — do NOT add:
+#   ornith-1.0:35b        — coding model, 35B won't fit 16GB VRAM, Scotty's lane
+#   deepseek-v4           — frontier-size, needs 40-80GB+, API-only breaks free-fleet
+#   glm-5.2              — same
+#   qwen3.7              — same
+#   llama-4-maverick     — same
+#
+# ─────────────────────────────────────────────────────────────────────────────
+
 WITNESS_MODELS = [
     "deepseek-r1:14b",   # 9 GB — first pass
     "gpt-oss:20b",       # 13 GB — second pass (evicts everything; runs last)
