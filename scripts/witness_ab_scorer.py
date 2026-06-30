@@ -43,9 +43,9 @@ SCORE_CAP = 60   # max debates scored per model per run (~30–90 min total)
 #   McCoy baseline   — plutus-v1:latest, 4.7 GB, live seat (verdict from debate ctx)
 #
 # LIBRARY — PULL-BUT-HOLD (pulled, ready to rotate in after primary read at gate):
-#   mistral-small3.1:24b  — 15 GB, Mistral dense 24B
-#   qwen3.6:14b           — 9.6 GB, Qwen3 dense 14B
-#   gemma4:e4b            — 4B MoE, smallest footprint
+#   mistral-small3.1:24b  — 15 GB, Mistral dense 24B (freshly pulled 2026-06-29)
+#   qwen3:14b             — 9.3 GB, Qwen3 dense 14.8B (present 4 weeks; "qwen3.6:14b" tag DNE)
+#   gemma4:e4b            — 9.6 GB, Gemma4 MoE (freshly pulled 2026-06-29)
 #   Activate: add to WITNESS_MODELS below; sequential ordering matters (VRAM)
 #
 # EXCLUDED — do NOT add:
