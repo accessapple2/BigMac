@@ -37,6 +37,9 @@ data/s6_180d_backtest.json
 data/s6_sim_180d_backtest.json
 data/holly_nightly_*.txt
 data/danelfin_scores.json
+data/xo_briefs/
+data/signals/
+data/learning/
 logs/
 
 # Migration artifacts (pre-cutover DB snapshots)
