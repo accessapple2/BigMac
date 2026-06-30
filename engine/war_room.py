@@ -383,6 +383,62 @@ def _record_shadow_witness(debate_id, symbol: str, price_data: dict,
     _thr.Thread(target=_shadow_worker, name=f"wr-shadow-{debate_id}", daemon=True).start()
 
 
+def _queue_ab_witness(debate_id: str, symbol: str, price_data: dict,
+                      round_takes: list) -> None:
+    """HM-SHADOW-AB-WITNESS — capture debate context for off-hours witness scoring.
+
+    Lightweight DB write only — no model loading, no inference, no VRAM impact.
+    The off-hours scorer (scripts/witness_ab_scorer.py, cron 21:30 UTC) reads
+    this queue, loads gpt-oss:20b and deepseek-r1:14b SEQUENTIALLY post-RTH,
+    logs to witness_ab, and marks processed.
+
+    Guardrails:
+    - Never enters round_takes, save_hot_take, the vote, or any decision path.
+    - Fail-safe: any exception is swallowed, debate lifecycle unaffected.
+    - INSERT OR IGNORE: idempotent per debate_id.
+    """
+    try:
+        import json as _j
+        mccoy_take = next(
+            (t.get("take") for t in round_takes if t.get("player_id") == "ollama-plutus"),
+            None,
+        )
+        ctx_json = _j.dumps({
+            "symbol": symbol,
+            "price_data": price_data,
+            "round_takes": [
+                {"player_id": t.get("player_id"), "display_name": t.get("display_name"),
+                 "take": t.get("take")}
+                for t in (round_takes or [])[:20]
+            ],
+        }, default=str)[:8000]
+
+        def _write():
+            conn = _conn()
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS witness_queue (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    debate_id    TEXT NOT NULL,
+                    ticker       TEXT,
+                    queued_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    debate_context TEXT NOT NULL,
+                    mccoy_take   TEXT,
+                    processed    INTEGER DEFAULT 0,
+                    UNIQUE(debate_id)
+                )
+            """)
+            conn.execute(
+                "INSERT OR IGNORE INTO witness_queue "
+                "(debate_id, ticker, debate_context, mccoy_take) VALUES (?,?,?,?)",
+                (debate_id, symbol, ctx_json, mccoy_take),
+            )
+            conn.commit()
+            conn.close()
+        _db_write_retry(_write)
+    except Exception as _e:
+        console.log(f"[yellow][WR-AB-QUEUE-WARN] {type(_e).__name__}: {_e!r}")
+
+
 # ────────────────────────────────────────────────────────────────────────────
 
 
@@ -1238,3 +1294,6 @@ def run_war_room(providers: dict, prices: dict):
     _record_witness(_debate_id, symbol, price_data, round_takes, providers)
     # HM-SHADOW-WITNESS-V7D: logged-only v1-vs-v7d pair (flag-gated, off-thread, fail-safe).
     _record_shadow_witness(_debate_id, symbol, price_data, round_takes, providers)
+    # HM-SHADOW-AB-WITNESS: queue debate context for off-hours gpt-oss/deepseek scoring.
+    # DB write only — no model loading. Scorer runs post-RTH via cron. Fail-safe.
+    _queue_ab_witness(_debate_id, symbol, price_data, round_takes)
