@@ -244,6 +244,20 @@ Two-system ghost-tracking detail moved to [`docs/architecture/ghost-tracking.md`
 Full roster (active/bench/sniper/elder/metals/retired) moved to [`docs/FLEET-ROSTER.md`](docs/FLEET-ROSTER.md).
 **Live counts are authoritative via the SessionStart primer (`data/trader.db` `ai_players`), not a static list here.**
 
+**Dated waypoint (2026-07-01, HM-FULL-AUDIT):** active/exit_only/halt/total
+drifted from a prior 22/6/45/73 baseline to 15/9/55/79. Under review, NOT a new
+fixed baseline — pending `HM-ORPHAN-SEATS` (11 `ai_players` seats reference
+Ollama models absent from olliemax; all 11 already sit within the 55
+`halt='full'` count, so they're dormant, not live drift — the active-count
+drop 22→15 has a separate, not-yet-identified cause).
+
+**Crontab baseline (2026-07-01):** 34 active lines (prior reference ~29/31).
++3 today: `scripts/db_snapshot.sh` (20:15 MST), `scripts/backup_freshness_check.sh`
+(20:45 MST), `scripts/rotate_logs.sh` (weekly Sun 05:00 MST). `scripts/offhost_backup.sh`
+rescheduled in place 20:00→20:30 MST (same line count, time changed) — see
+HM-BACKUP-SPINE-2026-07-01 in `docs/XO_BACKLOG.md` for the backup-spine work
+this baseline reflects.
+
 ## Duplicate Role Policy
 - **Healthy duplication** (keep): McCoy+Dax both run CSP but on different VIX
   regimes. Capitol+Aladdin+Uhura-EDGAR all "smart money" but orthogonal data

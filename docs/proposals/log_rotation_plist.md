@@ -1,6 +1,12 @@
 # Log Rotation Plist Proposal (B24)
 
-**Status:** Proposal only. Plist NOT installed.
+**Status:** SUPERSEDED 2026-07-01 (HM-BACKUP-SPINE Phase E). `scripts/rotate_logs.sh`
+now implements a trader.log-specific, gzip-dated, cron-scheduled rotation
+(100MB threshold, weekly Sun 05:00 MST) instead of this proposal's generic
+all-*.log/50MB/numbered-copies design. The plist below was never installed and
+stays that way — cron is the mechanism now, consistent with this repo's
+LaunchAgent-reboot-lifecycle doctrine. Original script archived (not deleted):
+`_archive/bak-2026-07-01/rotate_logs.sh.b24-proposal.pre-2026-07-01`.
 **Owner:** Scotty (filed 2026-05-10)
 **Linked backlog item:** B24 (XO_BACKLOG.md line 187) — "no log rotation policy"
 
