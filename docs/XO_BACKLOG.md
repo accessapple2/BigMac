@@ -4044,6 +4044,54 @@ gpt-oss:20b only 169 (yesterday, 6/30, both were even at 60/60). Escalate from
 "watch" to "fix now" if the imbalance persists 3+ consecutive days. Revisit
 2026-07-07 regardless. No action taken — filing only.
 
+**GROUNDING FIX LANDED 2026-07-01 — all witness_ab rows on/before this date are
+ungrounded-era; score the experiment on post-fix rows.**
+
+Context (HM-CLOSEOUT Item 3): the originally-suspected "total bypass" (neither
+ticker_context nor gamma_context ever reaching any witness prompt) turned out
+NOT to be quite right on closer inspection — `generate_hot_take()`
+(`engine/war_room.py:684`) has unconditionally built and prepended both blocks
+for every caller since `ff1a920`/`c8c021d` (2026-06-22/23), regardless of
+`prior_takes`. What was ACTUALLY, currently broken: `_record_witness`
+(gemma4:12b-it-qat vs plutus-v1:latest live arm) had a separate, redundant
+grounding-injection attempt with a closure/scoping bug — reassigning `_ctx`
+inside a nested function made Python treat it as local for the whole function,
+raising `UnboundLocalError` on every call. Confirmed firing every ~5min in
+`logs/trader.log` since at least 14:37 today, silently swallowed by the
+surrounding try/except — this arm produced **zero** witness takes (not
+"ungrounded" takes — no takes at all) until the fix below. Separately, the
+deferred `deepseek-r1:14b`/`gpt-oss:20b` arm (`_queue_ab_witness` →
+`scripts/witness_ab_scorer.py`, scored hours-to-days later off-hours) DOES get
+grounding from `generate_hot_take`'s built-in call, but computed at SCORING
+time, not DEBATE time — a real temporal mismatch this fix also closes by
+capturing debate-time grounding into the queued context.
+
+Fix: new shared helper `_grounded_witness_ctx()` (`engine/war_room.py`, right
+before `_record_witness`) used by all three witness paths — fixes the crash in
+`_record_witness`, adds debate-time-accurate grounding to the `witness_queue`
+context for the deepseek/gpt-oss arm, and (redundantly but harmlessly, since
+`generate_hot_take` already grounds this arm live) also touches
+`_record_shadow_witness` (plutus-v7d). Verified live: trader restarted
+(`scripts/trader_restart.sh`, WAL checkpoint fired `0|0|0` clean per
+HM-WAL-ROOTCAUSE interim mitigation), first post-restart witness call
+succeeded (`logs/trader.log:1532`, `[WR-WITNESS] debate=MU_1782949327
+witness_model=gemma4:12b-it-qat wall=34.412s` — no warning, no crash),
+reconstructed the same MU prompt offline and confirmed `FACTUAL CONTEXT`
+literally present.
+
+**PRE-REGISTERED 2026-07-01 (before post-fix data matures):**
+- Scoring window: post-grounding-fix rows only (see 3d stamp).
+- Minimum n: 300 scored debates per arm within the window.
+- Primary metric: directional accuracy vs realized next-day move on
+  non-NEUTRAL verdicts.
+- Secondary: agreement rate with McCoy (context, not victory condition).
+- Win: one arm leads primary metric by >=5 percentage points at n>=300;
+  else DRAW → decide on cost/latency (gpt-oss:20b vs deepseek-r1:14b
+  tokens/sec on olliemax).
+- Both arms must see the same debate stream; if daily scored counts diverge
+  >25% for 3+ consecutive days, experiment is PAUSED-INVALID pending
+  balance diagnosis (watch line from 2026-07-01: 301 vs 169).
+
 ## OPEN 2026-07-01 — HM-ORPHAN-SEATS (POST-TRIP) — 11 ai_players seats reference absent Ollama models
 
 Cross-referencing `ai_players.model_id` (provider='ollama') against `ollama ls`
@@ -4076,3 +4124,23 @@ fixable leak, likely worsened by today's SCORE_CAP 300 change extending
 witness debate runtime. Needs a deeper pass (e.g. instrumenting which specific
 connection is oldest at checkpoint time) before a real fix can be scoped. No
 action taken — filing only.
+
+**INTERIM MITIGATION LANDED 2026-07-01 (HM-CLOSEOUT Item 1):**
+`scripts/trader_restart.sh` now runs `PRAGMA wal_checkpoint(TRUNCATE);` (`|| true`)
+immediately after confirming zero `trader.log` writers and before the new
+process launches — the one guaranteed zero-reader window, so the checkpoint
+is certain to fully truncate there regardless of the structural always-a-reader
+problem during normal operation. This does NOT fix the root cause (WAL will
+still grow unbounded between restarts) — it only guarantees the WAL resets to
+near-zero on every restart rather than compounding across restarts indefinitely.
+Arms on the next natural restart; no restart was forced to install it.
+
+**Diagnostic note on the 642MB figure:** the PASSIVE checkpoint result triple
+was `0|164302|11` (not busy, 164,302 total WAL frames, only 11 checkpointed) —
+i.e. under normal running conditions almost none of the WAL is reclaimable, not
+because it's dead/abandoned space but because some reader's snapshot pins
+nearly the entire file. This confirms the 642MB is "live, unmerged" relative to
+an open reader, not garbage a routine checkpoint should have already claimed —
+consistent with the always-a-reader theory above, and it's why the interim fix
+targets the restart's zero-reader window specifically rather than trying
+another in-place checkpoint attempt.

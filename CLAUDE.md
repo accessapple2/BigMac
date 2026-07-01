@@ -244,12 +244,29 @@ Two-system ghost-tracking detail moved to [`docs/architecture/ghost-tracking.md`
 Full roster (active/bench/sniper/elder/metals/retired) moved to [`docs/FLEET-ROSTER.md`](docs/FLEET-ROSTER.md).
 **Live counts are authoritative via the SessionStart primer (`data/trader.db` `ai_players`), not a static list here.**
 
-**Dated waypoint (2026-07-01, HM-FULL-AUDIT):** active/exit_only/halt/total
-drifted from a prior 22/6/45/73 baseline to 15/9/55/79. Under review, NOT a new
-fixed baseline — pending `HM-ORPHAN-SEATS` (11 `ai_players` seats reference
-Ollama models absent from olliemax; all 11 already sit within the 55
-`halt='full'` count, so they're dormant, not live drift — the active-count
-drop 22→15 has a separate, not-yet-identified cause).
+**Dated waypoint (2026-07-01, HM-FULL-AUDIT + HM-CLOSEOUT Item 2):**
+active/exit_only/halt/total drifted from a prior 22/6/45/73 baseline to
+15/9/55/79. **RESOLVED — legitimate season churn, NOT a defect.** No halt_reason
+anywhere in `ai_players` mentions drawdown/evaluator/error-loop/auto — every
+transition traces to a deliberate, documented event:
+- **2026-06-07** scorecard-driven cull → `full`: ollama-local, dayblade-0dte,
+  ollama-deepseek (3 seats)
+- **2026-06-19/20** Door 1 kill-gate cut (`docs/XO_BACKLOG.md` / kill gate
+  G1-G4) → `full`: qwen3-8b-sonnet, qwen3-14b-pro, deepseek-7b-grok4,
+  ollama-kimi, dalio-metals, ollama-coder (6 seats); → `exit_only`: navigator,
+  ollie-auto, ollama-qwen3 (3 seats)
+- **2026-06-24** Picard/Riker retirement (briefing + synthesis jobs retired,
+  agents INSERT'd as new `full`/benched rows, not transitioned from active)
+- **+3 new active seats** since baseline: sell-the-news (06-06), archer
+  (06-06), q-witness (06-07); **+1 new exit_only seat**: guardian-of-forever
+  (06-12, inserted exit_only by design, never active)
+No dated snapshot of the original 22/6/45/73 baseline was found in-repo, so the
+exact day it was measured (and thus the precise "7 left active" figure) can't
+be pinned further — but every observed transition above is fully accounted for
+by known decisions. `HM-ORPHAN-SEATS` (11 `ai_players` seats referencing Ollama
+models absent from olliemax) remains separately open — all 11 already sit
+within the 55 `halt='full'` count, so they're dormant and not part of this
+churn.
 
 **Crontab baseline (2026-07-01):** 34 active lines (prior reference ~29/31).
 +3 today: `scripts/db_snapshot.sh` (20:15 MST), `scripts/backup_freshness_check.sh`
