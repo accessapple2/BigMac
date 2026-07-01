@@ -4345,12 +4345,12 @@ if __name__ == "__main__":
             prev_filled = _mhealth_state["last_filled"]
             _mhealth_state["last_filled"] = ev_filled
 
-            if ev_age is not None and ev_age > 5400:
+            if ev_age is not None and ev_age > 14400:
                 age_str = f"{int(ev_age // 3600)}h{int((ev_age % 3600) // 60):02d}m"
                 _mh_fire(
                     "eval_stalled",
                     "\U0001f534 MEASUREMENT: evaluator stalled",
-                    f"signal_evaluator last ran {age_str} ago (cadence=30min, threshold=90min).\n"
+                    f"signal_evaluator last ran {age_str} ago (cadence=30min, threshold=4h).\n"
                     f"fill_rate={fill_rate}% ({ev_filled}/{ev_total}). Restart may be needed.",
                 )
             elif fill_rate < 5.0 and ev_total > 100:

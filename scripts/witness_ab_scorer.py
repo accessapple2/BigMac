@@ -33,7 +33,7 @@ sys.path.insert(0, str(ROOT))
 
 DB = ROOT / "data" / "trader.db"
 OLLAMA_URL = "http://192.168.1.168:11434"
-SCORE_CAP = 60   # max debates scored per model per run (~30–90 min total)
+SCORE_CAP = 300   # max debates scored per model per run (300×2 models ≈ 2.5–4 hrs total)
 
 # ── Model taxonomy (HM-SHADOW-AB-WITNESS 2026-06-29) ─────────────────────────
 #
@@ -120,9 +120,7 @@ def _extract_verdict(text: str | None) -> str:
 
 
 def _agrees(v1: str, v2: str) -> int:
-    """1 = same direction, 0 = mismatch, -1 = one/both neutral."""
-    if v1 == "NEUTRAL" or v2 == "NEUTRAL":
-        return -1
+    """1 = exact match, 0 = any divergence (incl. directional-vs-neutral)."""
     return 1 if v1 == v2 else 0
 
 
@@ -231,7 +229,12 @@ def main():
     conn = _conn()
     _ensure_tables(conn)
 
-    # Pull unprocessed debates, most-recent first, capped at SCORE_CAP
+    # Pull unprocessed debates, most-recent first, capped at SCORE_CAP.
+    # THROUGHPUT DESIGN (decided 2026-06-30, revisit 2026-07-07):
+    #   Option 1 (CURRENT): score everything — SCORE_CAP ≥ daily max, zero bias.
+    #   Option 2: most-recent-N sample — time-of-day bias, NEVER use (corrupts A/B signal).
+    #   Option 3: ORDER BY RANDOM() — representative sample if runtime forces a cap < daily max.
+    # At 178–204 debates/day, SCORE_CAP=300 covers the full queue; revisit if volume exceeds cap.
     rows = conn.execute(
         "SELECT * FROM witness_queue WHERE processed=0 "
         "ORDER BY queued_at DESC LIMIT ?",

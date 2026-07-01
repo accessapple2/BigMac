@@ -1,2 +1,3 @@
 date,clean_days,n_under10,n_over10,n_null,artifact_zeros,evaluator_ok,measurement_health,cost_usd,grade_dashboard,grade_signals,grade_execution,grade_measurement,grade_fleet,grade_risk,grade_monitoring,grade_data,grade_models,grade_resilience
 2026-06-29,5,1175,660,5383,0,1,GREEN,0.03,B+,D,B,C+,C+,A-,C+,B,C,A-
+2026-06-30,8,2195,1101,10724,0,1,GREEN,1.4165,B+,D,B,C+,C+,A-,C+,B,C,A-
