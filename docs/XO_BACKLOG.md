@@ -3979,3 +3979,100 @@ person to click it isn't misled into thinking config changed.
 - Requires manual browser hover/click smoke test per the Frontend Ship Rule
   (single-file edit to `dashboard/static/index.html` + the app.py status text).
 LOW (cosmetic), bounded by the "before button is trusted" caveat.
+
+## OPEN 2026-07-01 — HM-DAX (POST-TRIP) — Dax role-degeneration decision
+
+`ai_players` id `ollama-qwen3` (Lt. Jadzia Dax, model `ministral-3:3b`) has
+role-degenerated: 100% stock scalps, ZERO options — the CSP role it was
+originally scored on (+4.9 Sharpe backtest) now lives on a separate seat,
+`shadow-qwen35-csp`. Post-swap realized read (executed_at ≥ 2026-05-15):
+Sharpe 0.99 (n=33), net +$48.41, 93.9% win rate, one −$40.68 tail dominating —
+net-green but economically negligible as a scalper, and the roster's +4.9
+Sharpe figure is doubly stale (different strategy, different model). Prior
+art: `docs/FLEET-ROSTER.md:16-18`, flagged 2026-06-15, "structural review
+deferred post-trip." Decision needed: repurpose Dax back to CSP (retire
+`shadow-qwen35-csp` as redundant), retire Dax's scalping role outright, or
+formally migrate/rename the role split so both seats have distinct, non-stale
+mandates. No action taken — filing only.
+
+## OPEN 2026-07-01 — HM-VOTE-AUDIT (POST-TRIP) — vote-quality audit of ministral-3:3b War Room voters
+
+~14 War Room voter seats run on `ministral-3:3b` (the same small model behind
+the Dax role-degeneration above). Audit whether this model's votes carry
+distinguishable signal at War Room scale, or whether ~14 seats voting off one
+small, possibly-undifferentiated model dilutes the debate rather than adding
+orthogonal perspective (see Duplicate Role Policy in `CLAUDE.md` — "bad
+duplication" consolidates to one owner). Scope: pull each seat's vote-vs-outcome
+accuracy, check pairwise vote correlation across the ~14, and compare against
+larger/differentiated models in the same debates. No action taken — filing only.
+
+## OPEN 2026-07-01 — HM-PY-CONSOLIDATE (POST-TRIP) — watchdog.py off system Python 3.9.6
+
+`watchdog.py` (PID observed running today) executes under
+`/Library/Developer/CommandLineTools/.../Python3.framework/Versions/3.9/...` —
+macOS system CommandLineTools Python 3.9.6 — while the live trader (`main.py`)
+and `scripts/trader_restart.sh`'s canonical launch target both run
+`.venv/bin/python3` (Homebrew 3.14.3). This is real three-way interpreter drift
+(flagged during today's HM-FULL-AUDIT-2026-07-01, section 3b). Low immediate
+risk (watchdog is a thin supervisor with no exotic dependencies), but should be
+repointed to `.venv/bin/python3` for consistency and so a future 3.9-only
+stdlib quirk doesn't bite silently. No action taken — filing only.
+
+## OPEN 2026-07-01 — HM-LESSON-SHADOW (POST-TRIP) — lesson_validation_shadow silent 25+ days
+
+The `lesson_validation_shadow` table (Reflexion-style self-improvement
+mechanism) has not received a write since 2026-06-06 (25+ days as of this
+filing) and `lesson_validation_alerted` has zero rows ever. No cron entry
+drives whatever process is supposed to populate it — found during
+HM-FULL-AUDIT-2026-07-01 section 2e. Decision needed: rewire it to an active
+scheduled job (if the self-improvement loop is still wanted) or formally retire
+it (drop/archive the table, remove any dead references) so it stops reading as
+an ambiguous "is this broken or intentionally off" signal on future audits. No
+action taken — filing only.
+
+## OPEN 2026-07-01 — HM-SCORECAP-REVISIT (dated 2026-07-07) — witness_ab SCORE_CAP=300 volume check
+
+Dated follow-up to today's `witness_ab_scorer.py` SCORE_CAP bump 60→300
+(commit `bfae596`), per the scorer's own in-file design note: "Option 1
+(CURRENT): score everything — SCORE_CAP ≥ daily max, zero bias... revisit if
+volume exceeds cap." Debate volume has been running 178–340/day and already
+brushed the 300 cap on at least one recent day (338 on 6/24) — if volume holds
+above 300/day, the scorer silently reverts to the same time-of-day sampling
+bias the cap increase was meant to eliminate. **Watch line filed today:**
+2026-07-01 A/B scoring ran imbalanced — deepseek-r1:14b scored 301 debates vs
+gpt-oss:20b only 169 (yesterday, 6/30, both were even at 60/60). Escalate from
+"watch" to "fix now" if the imbalance persists 3+ consecutive days. Revisit
+2026-07-07 regardless. No action taken — filing only.
+
+## OPEN 2026-07-01 — HM-ORPHAN-SEATS (POST-TRIP) — 11 ai_players seats reference absent Ollama models
+
+Cross-referencing `ai_players.model_id` (provider='ollama') against `ollama ls`
+on olliemax (192.168.1.168) during HM-FULL-AUDIT-2026-07-01 section 6c found 11
+orphan seats — model_id set but the model itself is no longer served on the
+fleet host: `deepseek-r1:7b`, `devstral-small-2`, `gemma3:27b-it-qat`,
+`gemma4:26b`, `gemma4:31b`, `llama3.1:latest`, `llama4:scout`, `qwen2.5:7b`,
+`qwen3-coder:30b`, `qwen3.6:27b`, `qwen3.6:35b-a3b`. Decision needed per seat:
+repoint to a currently-served model, or formally retire the seat (halt_mode
+already may cover some — cross-check `halt_mode='full'` overlap before
+deciding, see HM-FULL-AUDIT-2026-07-01 section F1). No action taken — filing
+only.
+
+## OPEN 2026-07-01 — HM-WAL-ROOTCAUSE — trader.db-wal structural bloat, no single leak found
+
+`data/trader.db-wal` reached 642-645MB (vs. a normal near-zero checkpointed
+size). `PRAGMA wal_checkpoint(PASSIVE)` on 2026-07-01 checkpointed only 11 of
+164,302 WAL frames; `wal_checkpoint(TRUNCATE)` returned `SQLITE_BUSY` twice in
+a row (stopped per fail-twice-stop rule, no forced kill/restart attempted).
+`lsof` showed 15 concurrent open connections on the WAL file, all from the
+trader's own PID — no external tool holding a lock. Root-cause suspect (not a
+confirmed single leak): the codebase has no connection pool — ~953 ad-hoc
+`sqlite3.connect()` call sites — combined with `main.py:run_scanner()`
+background scan/War-Room cycles that can run 10-20+ minutes each (the function
+has its own comment referencing a prior 14-min lock-hold stall). With scan and
+War Room threads overlapping near-continuously, there may never be a moment
+with zero open readers, so WAL checkpoint can never advance past whichever
+reader is mid-cycle — a structural "always-a-reader" pattern rather than one
+fixable leak, likely worsened by today's SCORE_CAP 300 change extending
+witness debate runtime. Needs a deeper pass (e.g. instrumenting which specific
+connection is oldest at checkpoint time) before a real fix can be scoped. No
+action taken — filing only.
