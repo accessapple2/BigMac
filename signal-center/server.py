@@ -1031,16 +1031,19 @@ def signal_history():
     limit = int(request.args.get('limit', 500))
     db    = get_db()
     since = (datetime.now() - timedelta(days=days)).isoformat()
+    # HM-DIRECTIVE-2026-07-01 Deck1 #4: also expose raw_data (proper JSON) —
+    # `value` is a truncated str(dict) repr, not valid JSON, so the frontend
+    # timeline parser was always failing on it and rendering "0" for every row.
     if signal_name:
         rows = db.execute(
-            "SELECT id, timestamp, signal_name, value, score, grade, source "
+            "SELECT id, timestamp, signal_name, value, raw_data, score, grade, source "
             "FROM signal_history WHERE signal_name=? AND timestamp>? "
             "ORDER BY timestamp DESC LIMIT ?",
             (signal_name, since, limit)
         ).fetchall()
     else:
         rows = db.execute(
-            "SELECT id, timestamp, signal_name, value, score, grade, source "
+            "SELECT id, timestamp, signal_name, value, raw_data, score, grade, source "
             "FROM signal_history WHERE timestamp>? ORDER BY timestamp DESC LIMIT ?",
             (since, limit)
         ).fetchall()

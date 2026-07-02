@@ -34757,9 +34757,12 @@ async function fetchKirkDetail() {
     html += '<div class="card-header"><div class="card-title">📊 Market Conditions</div></div>';
     html += '<div style="padding:14px 16px;display:grid;grid-template-columns:repeat(5,1fr);gap:12px;text-align:center;">';
 
-    var fgScore = fg.score || 0;
-    var fgColor = fgScore < 25 ? '#ea580c' : fgScore < 40 ? '#f59e0b' : fgScore < 60 ? 'var(--text)' : '#2563eb';
-    html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">FEAR & GREED</div><div style="font-size:22px;font-weight:700;color:' + fgColor + ';">' + fgScore + '</div><div style="font-size:11px;color:var(--muted);">' + (fg.label||'—') + '</div></div>';
+    // HM-DIRECTIVE-2026-07-01 Deck1 #4: null (fetch unavailable) must not be
+    // coerced to 0 — a real 0 reading and "no data" are different states,
+    // and treating null-as-0 falsely triggered RECOVERY:ACTIVE below.
+    var fgScore = (fg.score === null || fg.score === undefined) ? null : fg.score;
+    var fgColor = fgScore === null ? 'var(--muted)' : fgScore < 25 ? '#ea580c' : fgScore < 40 ? '#f59e0b' : fgScore < 60 ? 'var(--text)' : '#2563eb';
+    html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">FEAR & GREED</div><div style="font-size:22px;font-weight:700;color:' + fgColor + ';">' + (fgScore === null ? '—' : fgScore) + '</div><div style="font-size:11px;color:var(--muted);">' + (fgScore === null ? 'no data' : (fg.label||'—')) + '</div></div>';
 
     var vixVal = (fg.signals && fg.signals.vix) ? (fg.signals.vix.value || 0) : 0;
     var vixColor = vixVal > 30 ? '#ea580c' : vixVal > 25 ? '#f59e0b' : 'var(--text)';
@@ -34775,7 +34778,8 @@ async function fetchKirkDetail() {
 
     html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">SPY</div><div style="font-size:22px;font-weight:700;color:var(--text);">$' + (gex.spot||0).toFixed(0) + '</div><div style="font-size:11px;color:var(--muted);">Put $' + (gex.put_wall||0) + ' / Call $' + (gex.call_wall||0) + '</div></div>';
 
-    html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">RECOVERY</div><div style="font-size:22px;font-weight:700;color:' + (fgScore < 35 ? '#2563eb' : '#f59e0b') + ';">' + (fgScore < 35 ? 'ACTIVE' : 'STANDBY') + '</div><div style="font-size:11px;color:var(--muted);">Trigger: F&G &lt; 35</div></div>';
+    var recoveryActive = fgScore !== null && fgScore < 35;
+    html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">RECOVERY</div><div style="font-size:22px;font-weight:700;color:' + (fgScore === null ? 'var(--muted)' : recoveryActive ? '#2563eb' : '#f59e0b') + ';">' + (fgScore === null ? 'N/A' : recoveryActive ? 'ACTIVE' : 'STANDBY') + '</div><div style="font-size:11px;color:var(--muted);">Trigger: F&G &lt; 35</div></div>';
 
     html += '</div></div>';
 
