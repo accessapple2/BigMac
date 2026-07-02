@@ -961,6 +961,12 @@ def _fetch_all_signals(prev_data=None):
                 _sc = data.get('score')
                 if _sc is None or _sc <= 0:
                     continue
+            # HM-DIRECTIVE-2026-07-01 Deck2 #9: risk_radar's cold-start
+            # sentinel ({"players": [], "loading": True}, dashboard/app.py
+            # /api/risk-radar) was being persisted as if it were a real
+            # signal reading. Suppress it, same pattern as fear_greed above.
+            if key == 'risk_radar' and isinstance(data, dict) and data.get('loading'):
+                continue
             db.execute(
                 "INSERT INTO signal_history (timestamp, signal_name, value, raw_data, source) "
                 "VALUES (?, ?, ?, ?, ?)",
