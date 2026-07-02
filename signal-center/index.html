@@ -553,6 +553,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   }
   #tab-matrix .ms-row:last-child{border-bottom:none}
   #tab-matrix .ms-key{color:var(--muted); font-size:11px}
+#tab-matrix .ms-key.ms-status-fail{color:#ef4444; font-weight:700}
+#tab-matrix .ms-key.ms-status-pending{color:#f59e0b}
+.admin-lastrun{font-size:10px;color:var(--muted);padding-left:2px}
+.admin-lastrun.ms-status-fail{color:#ef4444;font-weight:700}
   #tab-matrix .ms-val{color:var(--text); font-weight:600; text-align:right; min-width:40%}
   #tab-matrix .ms-list-item{
     padding:6px 0; border-bottom:1px dashed var(--border); font-size:11px;
@@ -649,21 +653,30 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div style="font-size:11px;font-weight:800;letter-spacing:1px;color:var(--muted);
                 text-transform:uppercase;margin-bottom:12px;">⚡ Admin Actions</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
-      <button onclick="morpheusAction('refresh-schwab')"
-        style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
-               color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
-        🔄 Refresh Schwab
-      </button>
-      <button onclick="morpheusAction('fire-kirk')"
-        style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
-               color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
-        🖖 Fire Kirk
-      </button>
-      <button onclick="morpheusAction('run-advisory-team')"
-        style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
-               color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
-        🧠 Run Advisory Team
-      </button>
+      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:3px;">
+        <button onclick="morpheusAction('refresh-schwab')"
+          style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
+                 color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
+          🔄 Refresh Schwab
+        </button>
+        <span id="lastrun-refresh-schwab" class="admin-lastrun">—</span>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:3px;">
+        <button onclick="morpheusAction('fire-kirk')"
+          style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
+                 color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
+          🖖 Fire Kirk
+        </button>
+        <span id="lastrun-fire-kirk" class="admin-lastrun">—</span>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:3px;">
+        <button onclick="morpheusAction('run-advisory-team')"
+          style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
+                 color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
+          🧠 Run Advisory Team
+        </button>
+        <span id="lastrun-run-advisory-team" class="admin-lastrun">—</span>
+      </div>
     </div>
     <div id="oracle-admin-result" style="margin-top:10px;font-size:11px;
          color:var(--muted);font-style:italic;min-height:18px;"></div>
@@ -985,6 +998,21 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   // W1-C 2026-05-23: Ship's Log renders execution_log last 20 (actions
   // taken). Empty until first tractor-auto execution writes a row; falls
   // back to git commits so the panel is never blank.
+  // HM-DIRECTIVE-2026-07-01 Deck2 #12: last-run status next to each Admin
+  // Action button, sourced from the same execution_log the Ship's Log reads.
+  function _renderAdminLastRun(d) {
+    const log = Array.isArray(d.execution_log) ? d.execution_log : [];
+    ['refresh-schwab', 'fire-kirk', 'run-advisory-team'].forEach(action => {
+      const el = document.getElementById('lastrun-' + action);
+      if (!el) return;
+      const row = log.find(e => e.symbol === action && e.status !== 'TRIGGERED');
+      if (!row) { el.textContent = 'never run'; el.className = 'admin-lastrun'; return; }
+      const ts = (row.executed_at || '').slice(5, 16).replace('T', ' ');
+      el.textContent = (row.status === 'FAILED' ? '✖ failed' : '✓ ok') + ' · ' + ts;
+      el.className = 'admin-lastrun ' + (row.status === 'FAILED' ? 'ms-status-fail' : '');
+    });
+  }
+
   function _renderShipsLog(d) {
     const log = Array.isArray(d.execution_log) ? d.execution_log : [];
     if (log.length) {
@@ -993,8 +1021,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
         const fillStr = e.fill_price != null ? '$' + Number(e.fill_price).toFixed(2)
                       : (e.entry_price != null ? '$' + Number(e.entry_price).toFixed(2) : '');
         const grade = e.grade ? `[${_esc(e.grade)}]` : '';
+        // HM-DIRECTIVE-2026-07-01 Deck2 #12: FAILED rows were rendered
+        // identical to EXECUTED/TRIGGERED — no visual distinction at all.
+        const statusClass = e.status === 'FAILED' ? 'ms-status-fail' : (e.status === 'TRIGGERED' ? 'ms-status-pending' : '');
         return `<b>${_esc(e.symbol)}</b> · ${_esc(e.direction || '')} ${e.qty != null ? _esc(e.qty) : ''} ${fillStr} ` +
-               `<span class="ms-key">${grade} ${_esc(e.status || '')} · ${ts}</span>`;
+               `<span class="ms-key ${statusClass}">${grade} ${e.status === 'FAILED' ? '✖ ' : ''}${_esc(e.status || '')} · ${ts}</span>`;
       });
     }
     // Fallback to git commits (panel never blank)
@@ -1243,6 +1274,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       _renderSection('ships-log-content',
         (failed.has('execution_log') && failed.has('commits'))
           ? '<div class="ms-error">log sources failed</div>' : _renderShipsLog(d));
+      try { _renderAdminLastRun(d); } catch (e) { console.warn('[HM-AN] _renderAdminLastRun failed:', e); }
 
       // HM-AN Phase 2 (2026-05-27) — Intelligence TAB hydration. Same payload,
       // separate DOM target (#intel-content). Wrapped defensively so render
@@ -1268,6 +1300,26 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
      Route paths are /api/morpheus/action/<name> (note the /action/ segment;
      spec sketch omitted it). All routes are admin-gated POST endpoints. -->
 <script>
+// HM-DIRECTIVE-2026-07-01 Deck2 #12: these actions fire-and-forget in a
+// background thread — the immediate HTTP 200 only ever confirms the
+// action was TRIGGERED, not that it succeeded. Showing a green checkmark
+// here was a false positive; poll execution_log for the real outcome.
+function _morpheusActionPoll(action, el, attempt) {
+  fetch('/api/morpheus/awareness').then(r => r.json()).then(d => {
+    const log = Array.isArray(d.execution_log) ? d.execution_log : [];
+    const row = log.find(e => e.symbol === action && e.status !== 'TRIGGERED');
+    if (row) {
+      if (el) el.textContent = (row.status === 'FAILED' ? '✖ ' : '✓ ') + action + ': ' + row.status;
+      return;
+    }
+    if (attempt < 4) {
+      setTimeout(() => _morpheusActionPoll(action, el, attempt + 1), 5000);
+    } else if (el) {
+      el.textContent = '▸ ' + action + ' still running — check Ship\'s Log';
+    }
+  }).catch(() => {});
+}
+
 function morpheusAction(action) {
   const el = document.getElementById('oracle-admin-result');
   if (el) el.textContent = 'Firing ' + action + '…';
@@ -1275,7 +1327,8 @@ function morpheusAction(action) {
     headers:{'Content-Type':'application/json'}, body:'{}'})
     .then(r => r.json())
     .then(d => {
-      if (el) el.textContent = '✓ ' + action + ': ' + JSON.stringify(d).slice(0, 120);
+      if (el) el.textContent = '▸ ' + action + ' triggered — checking result…';
+      setTimeout(() => _morpheusActionPoll(action, el, 0), 5000);
     })
     .catch(e => {
       if (el) el.textContent = '✗ ' + action + ' failed: ' + e.message;

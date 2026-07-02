@@ -1758,10 +1758,25 @@ def _morpheus_log_action(action, by, result, notes=None):
         rowid = cur.lastrowid
         db.commit()
         db.close()
-        return rowid
     except Exception as e:
         _morpheus_log.warning("[Morpheus] execution_log write failed: %s: %r", type(e).__name__, e)
         return None
+    # HM-DIRECTIVE-2026-07-01 Deck2 #12: admin actions fire-and-forget in a
+    # background thread — the HTTP response only ever confirms TRIGGERED, so
+    # a FAILED outcome was previously invisible unless someone opened Ship's
+    # Log. Push it instead of waiting to be found.
+    if result == "FAILED":
+        try:
+            topic = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")
+            requests.post(
+                f"https://ntfy.sh/{topic}",
+                data=f"{action} failed (triggered by {by}). {_json.dumps(notes or {})[:150]}".encode("utf-8"),
+                headers={"Title": f"Morpheus action failed: {action}", "Priority": "high"},
+                timeout=10,
+            )
+        except Exception as e:
+            _morpheus_log.warning("[Morpheus] ntfy on FAILED action error: %s: %r", type(e).__name__, e)
+    return rowid
 
 
 @app.route('/api/morpheus/action/refresh-schwab', methods=['POST'])
