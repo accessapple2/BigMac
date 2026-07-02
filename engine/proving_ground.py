@@ -87,6 +87,21 @@ WARN_GO_COUNT_HI = 4
 WARN_DAYS = 5
 FORCED_EVAL_DAY = 60             # forced go/no-go fires after this trial day
 
+# HM-PG-ESCALATION 2026-07-02: root-caused a bug where ship_kill_evaluator's
+# prev_state read today's own just-inserted (still-default) scorecard row
+# instead of yesterday's already-classified one -- every day looked like a
+# fresh "just transitioned to kill_warning" event, so 26 consecutive days
+# (trial day 47-84) each fired an identical "NEW transition!" NTFY and the
+# system never had a way to recognize this had been going on for weeks.
+# Fixed alongside adding real escalation: once kill_warning has genuinely
+# persisted ESCALATION_DAYS in a row, fire a materially louder alert and
+# auto-halt new entries for the trial agent (exit_only, not a kill) --
+# the terminal ship/kill call stays a manual scripts/proving_ground_admiral.py
+# decision either way.
+ESCALATION_DAYS = 5             # consecutive non-terminal-warning days before escalating
+ESCALATION_REPEAT_DAYS = 5      # re-nag at this cadence after the first escalation
+TRIAL_AGENT_ID = "ollie-auto"   # the only agent this module's trial tracks
+
 VALID_STATES = {
     "pending", "warning", "ship_ready", "kill_warning", "shipped", "killed",
 }
@@ -618,6 +633,25 @@ def _evaluate_state(
     return prev_state if prev_state in ("pending", "warning") else "pending", metrics
 
 
+def _consecutive_state_days(history: list[dict], state: str) -> int:
+    """Count how many of the most-recent ``history`` rows (most-recent-first)
+    have ``exit_status == state``, stopping at the first row that doesn't
+    match. Pure function, same testable shape as ``_evaluate_state``.
+
+    Callers pass history EXCLUDING today's own row (which, before this
+    evaluation, still holds whatever default/prior value the scorecard
+    writer left it at) -- the day currently being evaluated is added
+    separately by the caller once ``target_state`` is known.
+    """
+    count = 0
+    for row in history:
+        if (row.get("exit_status") or "pending") == state:
+            count += 1
+        else:
+            break
+    return count
+
+
 def _log_state_transition(
     from_state: str, to_state: str, metrics: dict,
     ntfy_sent: bool, pg_conn=None,
@@ -683,21 +717,104 @@ def _fire_state_transition_ntfy(from_state: str, to_state: str, metrics: dict) -
         return False
 
 
+def _fire_escalation_and_halt(consec_days: int, metrics: dict) -> dict:
+    """HM-PG-ESCALATION 2026-07-02: fires when kill_warning has genuinely
+    persisted ESCALATION_DAYS in a row (see ship_kill_evaluator). Two
+    independent actions, each best-effort/non-fatal to the other:
+      1. A materially louder NTFY than the routine daily forced-eval nudge --
+         P_MAX (sound + persistent), distinct title so it can't be mistaken
+         for "just started" noise.
+      2. Auto-halt NEW entries for the trial agent (halt_mode -> 'exit_only')
+         if it isn't already halted. This does NOT touch the Proving Ground
+         state machine or move it toward a terminal state -- ship/kill stays
+         a manual scripts/proving_ground_admiral.py --confirm decision. If
+         the agent is already exit_only/full (as ollie-auto has been since
+         the unrelated 2026-06-19 Door-1 cut), this is a no-op by design --
+         already-sufficiently-halted is not something to "fix" by loosening.
+
+    Returns {"ntfy_sent": bool, "halt_applied": bool, "halt_skipped_reason": str|None}.
+    """
+    result = {"ntfy_sent": False, "halt_applied": False, "halt_skipped_reason": None}
+    try:
+        _fire(
+            title=f"🚨 PROVING GROUND ESCALATION — {consec_days} DAYS UNACKNOWLEDGED",
+            body=(
+                f"kill_warning ({metrics.get('kill_trigger', 'unknown')}) has held for "
+                f"{consec_days} consecutive days with no ship/kill decision. "
+                f"Trial agent: {TRIAL_AGENT_ID}. This will keep re-firing every "
+                f"{ESCALATION_REPEAT_DAYS} days until resolved. Admiral CLI: "
+                "scripts/proving_ground_admiral.py --ship/--kill --confirm "
+                f"--agent {TRIAL_AGENT_ID}."
+            ),
+            priority=P_MAX,
+            tags="rotating_light",
+        )
+        result["ntfy_sent"] = True
+    except Exception:
+        pass
+
+    try:
+        tc = _conn_trader()
+        row = tc.execute(
+            "SELECT halt_mode FROM ai_players WHERE id = ?", (TRIAL_AGENT_ID,)
+        ).fetchone()
+        if row is None:
+            result["halt_skipped_reason"] = "agent_not_found"
+        elif row["halt_mode"] == "active":
+            tc.execute(
+                "UPDATE ai_players SET halt_mode = 'exit_only', "
+                "halted_at = CURRENT_TIMESTAMP, "
+                "halt_reason = ? WHERE id = ?",
+                (
+                    f"[{az_now().date().isoformat()}] HM-PG-ESCALATION: Proving Ground "
+                    f"kill_warning unacknowledged for {consec_days} days -- auto-halted "
+                    "new entries pending manual ship/kill decision",
+                    TRIAL_AGENT_ID,
+                ),
+            )
+            tc.commit()
+            result["halt_applied"] = True
+        else:
+            result["halt_skipped_reason"] = f"already_{row['halt_mode']}"
+        tc.close()
+    except Exception as e:
+        result["halt_skipped_reason"] = f"error:{e}"
+
+    return result
+
+
 def ship_kill_evaluator(pg_conn=None) -> dict:
     """Evaluate SHIP/KILL/WARNING conditions and log/transition state.
 
     Runs daily after the 13:15 AZ scorecard write. Side effects:
       1. Reads recent scorecard (last 2 * 10 = 20 rows for the trade-
          collapse comparison).
-      2. Determines previous state from latest scorecard row's
-         exit_status (default 'pending' for back-compat).
+      2. Determines previous state from the most recent scorecard row
+         BEFORE today's (default 'pending' for back-compat / first run).
       3. Computes target state via _evaluate_state.
       4. If target != prev_state, logs the transition to
          state_transitions (Doctrine Rule #1 append-only) and emits
          NTFY to ollietrades-proving-ground.
-      5. Updates today's scorecard row's exit_status to the new state.
+      5. Always writes today's scorecard row's exit_status to the
+         computed state (not just on a fresh transition).
       6. If trial_day > FORCED_EVAL_DAY and state is not terminal,
          emits a daily "DAY 60 FORCED EVALUATION" NTFY (HIGH severity).
+      7. HM-PG-ESCALATION 2026-07-02: if kill_warning has genuinely
+         persisted ESCALATION_DAYS+ in a row, fires a louder P_MAX
+         alert and auto-halts new entries for the trial agent.
+
+    HM-PG-ESCALATION 2026-07-02 bug fix: step 2 used to read exit_status
+    off history[0], which — on every day this function runs after the
+    scorecard writer has already inserted today's row — IS today's own
+    row, still holding its schema-default 'pending' before this function
+    classifies it. That made every day look like a fresh "just
+    transitioned to kill_warning" event: confirmed via state_transitions,
+    2026-05-26 through 2026-07-02 logged 26 consecutive identical
+    "NEW transition" rows for what was actually the same ongoing
+    condition, and nothing could ever recognize "this has been going on
+    for N days" because prev_state was never actually the prior day's
+    real classification. Fixed by excluding today's own row from the
+    prev_state lookup.
 
     Returns the full evaluation dict (used by tests + dry-run reporting)."""
     today_d = az_now().date()
@@ -706,7 +823,9 @@ def ship_kill_evaluator(pg_conn=None) -> dict:
 
     c = pg_conn or _conn_pg()
     history = _load_recent_scorecard(2 * KILL_GO_COUNT_DAYS, pg_conn=c)
-    prev_state = (history[0]["exit_status"] if history else "pending") or "pending"
+    today_already_written = bool(history) and history[0]["as_of_date"] == today_s
+    prior_history = history[1:] if today_already_written else history
+    prev_state = (prior_history[0]["exit_status"] if prior_history else "pending") or "pending"
     target_state, metrics = _evaluate_state(history, prev_state, trial_day)
 
     transitioned = (target_state != prev_state) and (
@@ -717,7 +836,14 @@ def ship_kill_evaluator(pg_conn=None) -> dict:
     if transitioned:
         ntfy_sent = _fire_state_transition_ntfy(prev_state, target_state, metrics)
         _log_state_transition(prev_state, target_state, metrics, ntfy_sent, pg_conn=c)
-        # Update today's row exit_status (or latest if today's not yet written)
+
+    if prev_state not in TERMINAL_STATES:
+        # Always persist today's classification (not just on a fresh
+        # transition) -- otherwise today's row keeps its schema-default
+        # 'pending' on every day the state merely continues unchanged,
+        # which is exactly what let the prev_state bug above go unnoticed:
+        # the data looked right (every row said kill_warning) even though
+        # it was only ever written via the "it's new!" code path.
         c.execute(
             "UPDATE running_scorecard SET exit_status = ? "
             " WHERE as_of_date = ?",
@@ -748,6 +874,21 @@ def ship_kill_evaluator(pg_conn=None) -> dict:
         except Exception:
             pass
 
+    # HM-PG-ESCALATION: consecutive days (including today) target_state has
+    # genuinely held, now that prev_state correctly reflects yesterday.
+    # Note: prior_history is capped at the same 2*KILL_GO_COUNT_DAYS (20-row)
+    # window used for the trade-collapse comparison above, so this is a
+    # floor, not a true unbounded lifetime count -- if the real streak
+    # exceeds the fetch window, this reports the window size rather than the
+    # exact total. That's immaterial for the >= ESCALATION_DAYS(5) check
+    # this drives, but don't read it as an exact "day N of the whole trial".
+    consec_days = _consecutive_state_days(prior_history, target_state) + 1
+    escalation = None
+    if target_state == "kill_warning" and consec_days >= ESCALATION_DAYS:
+        days_past_threshold = consec_days - ESCALATION_DAYS
+        if days_past_threshold == 0 or days_past_threshold % ESCALATION_REPEAT_DAYS == 0:
+            escalation = _fire_escalation_and_halt(consec_days, metrics)
+
     if pg_conn is None:
         c.close()
 
@@ -760,6 +901,8 @@ def ship_kill_evaluator(pg_conn=None) -> dict:
         "ntfy_sent":     ntfy_sent,
         "metrics":       metrics,
         "history_len":   len(history),
+        "consec_days":   consec_days,
+        "escalation":    escalation,
     }
 
 
