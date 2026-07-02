@@ -5872,7 +5872,12 @@ def gex_all():
 
     def _fetch(sym: str) -> None:
         try:
-            _results[sym] = _canonical_gex(sym)
+            # HM-DIRECTIVE-2026-07-02 Deck3 #14 (follow-up): this was still calling
+            # _canonical_gex() directly, bypassing the SWR cache added for the
+            # single-symbol endpoints — every /api/market/gex request re-ran a
+            # fresh live compute for all 5 tickers with zero caching between
+            # requests, which is what the Gamma Map's "hangs pending" report was.
+            _results[sym] = _canonical_gex_cached(sym)
         except Exception:
             pass
 

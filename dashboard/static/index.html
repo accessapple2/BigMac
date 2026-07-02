@@ -22993,13 +22993,17 @@ function showSection(name) {
 // Event delegation — survives innerHTML refreshes; sidebars re-bind here
 document.addEventListener('DOMContentLoaded', function() {
   // Structural guard: move any section-* divs that ended up outside .main back in.
-  // Handles stale SW-cached HTML where sections were added outside .main over time.
+  // HM-DIRECTIVE-2026-07-02 Deck2 #11 (follow-up): this fires on EVERY load, not
+  // just "stale SW-cached HTML" as originally assumed — 6 section-* divs
+  // (section-agent-deepdive, section-live-scanner, section-race, section-movers,
+  // section-real-portfolio, section-live-trading) are permanently declared after
+  // </main> closes in the markup. The repair is correct and still needed; the
+  // per-element console.warn was pure noise for a deterministic, by-design fixup.
   var main = document.querySelector('.main');
   if (main) {
     document.querySelectorAll('[id^="section-"]').forEach(function(el) {
       if (el.parentElement !== main) {
         main.appendChild(el);
-        console.warn('[StructureFix] Moved #' + el.id + ' into .main (was child of <' + (el.parentElement ? el.parentElement.tagName : '?') + '>)');
       }
     });
   }
@@ -23623,9 +23627,28 @@ async function fetchScannerTier() {
   } catch(e) {}
 }
 
+// HM-DIRECTIVE-2026-07-02 Deck1 #3 (follow-up): read the canonical endpoint
+// directly instead of re-summing a locally-fetched (_FLEET_CORE) subset —
+// that local sum could drift from /api/fleet/pnl's backend FLEET_ACTIVE set
+// even after HM-DIRECTIVE-2026-07-01, which is exactly the unlabeled
+// divergence (v1 -$1.4k vs canonical -$1,815) flagged in verification.
+var _canonicalFleetPnl = null;
+var _canonicalFleetPnlTs = 0;
+function _fetchCanonicalFleetPnl() {
+  _canonicalFleetPnlTs = Date.now();  // stamp before the request so concurrent calls don't pile up
+  fetch('/api/fleet/pnl').then(function(r){ return r.json(); }).then(function(d){
+    _canonicalFleetPnl = d;
+    updateFleetBar();
+  }).catch(function(){});
+}
+
 function updateFleetBar() {
   var el = document.getElementById('fleetBarContent');
   if (!el || !window.arenaData) return;
+
+  if (!_canonicalFleetPnl || (Date.now() - _canonicalFleetPnlTs) > 60000) {
+    _fetchCanonicalFleetPnl();
+  }
 
   // Preserve optional add-on checkbox states
   var prevMetals = (document.getElementById('fleetIncludeMetals') || {}).checked || false;
@@ -23641,12 +23664,12 @@ function updateFleetBar() {
 
   var totalPositions = players.reduce(function(s,p){ return s + (p.positions_count || 0); }, 0);
 
-  // HM-DIRECTIVE-2026-07-01 Deck1 #3: sum the backend's already-correct
-  // per-player total_pnl (current_equity - real starting_capital) instead of
-  // subtracting a flat $10k/agent assumption — real starting capital varies
-  // by player, which was the source of the cross-surface P&L disagreement.
-  var activeAgentCount = _FLEET_CORE.size;
-  var fleetPnl         = players.reduce(function(s,p){ return s + (p.total_pnl || 0); }, 0);
+  // HM-DIRECTIVE-2026-07-02: prefer the canonical /api/fleet/pnl figure so this
+  // header is byte-identical to bridge-v2's — fall back to the local per-player
+  // sum only until the first canonical fetch resolves (avoids a blank flash).
+  var activeAgentCount = _canonicalFleetPnl ? (_canonicalFleetPnl.player_count || _FLEET_CORE.size) : _FLEET_CORE.size;
+  var fleetPnl         = _canonicalFleetPnl ? (_canonicalFleetPnl.total_pnl || 0)
+                                             : players.reduce(function(s,p){ return s + (p.total_pnl || 0); }, 0);
   var avgPnl           = activeAgentCount > 0 ? fleetPnl / activeAgentCount : 0;
   var fleetPnlSign     = fleetPnl >= 0 ? '▲' : '▼';
   var avgSign          = avgPnl   >= 0 ? '▲' : '▼';
@@ -23687,8 +23710,9 @@ function updateFleetBar() {
   html += '<label style="display:none" title="Include Captain Kirk (Webull) in fleet totals"><input type="checkbox" id="fleetIncludeKirk" onchange="updateFleetBar()"> Kirk</label>';
   html += '<span style="color:var(--border);margin:0 4px;">|</span>';
 
-  // FLEET P&L  (replaces VALUE $xxx)
-  html += '<span style="color:var(--muted);">FLEET P&amp;L</span> ';
+  // FLEET P&L  (replaces VALUE $xxx) — HM-DIRECTIVE-2026-07-02: explicit "lifetime"
+  // label so this always reads unambiguously against bridge-v2's identical figure.
+  html += '<span style="color:var(--muted);" title="Canonical /api/fleet/pnl — lifetime P&amp;L, same figure as bridge-v2">FLEET P&amp;L <span style="font-size:10px;">(lifetime)</span></span> ';
   html += '<span style="font-weight:700;color:' + pnlColor + ';">' + fleetPnlSign + ' ' + fmt(fleetPnl) + '</span>';
   html += '<span style="color:var(--border);margin:0 4px;">|</span>';
 
