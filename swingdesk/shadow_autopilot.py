@@ -184,50 +184,53 @@ def run_loop_a(universe: list[tuple[str, str]] | None = None) -> dict:
     universe = universe or ETF_UNIVERSE
     scan_date = datetime.now().strftime("%Y-%m-%d")
     conn = sqlite3.connect(DB_PATH)
-    _ensure_schema(conn)
+    try:
+        _ensure_schema(conn)
 
-    state = get_killswitch_state(conn)
-    if state == "HARD_HALT":   # halt everything, including the read-only scan
+        state = get_killswitch_state(conn)
+        if state == "HARD_HALT":   # halt everything, including the read-only scan
+            conn.close()
+            return {"loop": "A", "killswitch": state, "halted": True, "written": 0, "orders_submitted": 0}
+        # ARMED + TRIPPED both scan (data collection is safe under TRIPPED)
+
+        written, passed, errored = 0, 0, []
+        for symbol, sector in universe:
+            try:
+                ivr_data = calc_ivr(symbol)
+                if ivr_data.get("error") or ivr_data.get("ivr") is None:
+                    errored.append(symbol)
+                    continue
+                spot = get_spot(symbol) or 0.0
+                ivr = ivr_data["ivr"]
+                iv_current = ivr_data["iv_current"]
+                gate_pass = int(ivr >= MIN_IVR and (iv_current or 0) >= MIN_IV_GATE)
+                conn.execute(
+                    "INSERT INTO swingdesk_ivr "
+                    "(scan_date, symbol, sector, ivr, iv_current, iv_high, iv_low, ivp, spot, gate_pass) "
+                    "VALUES (?,?,?,?,?,?,?,?,?,?)",
+                    (scan_date, symbol, sector, ivr, iv_current,
+                     ivr_data.get("iv_high"), ivr_data.get("iv_low"),
+                     ivr_data.get("ivp"), spot, gate_pass),
+                )
+                written += 1
+                passed += gate_pass
+            except Exception as e:  # never raise out of the shadow loop
+                errored.append(f"{symbol}:{type(e).__name__}")
+
+        conn.commit()
         conn.close()
-        return {"loop": "A", "killswitch": state, "halted": True, "written": 0, "orders_submitted": 0}
-    # ARMED + TRIPPED both scan (data collection is safe under TRIPPED)
-
-    written, passed, errored = 0, 0, []
-    for symbol, sector in universe:
-        try:
-            ivr_data = calc_ivr(symbol)
-            if ivr_data.get("error") or ivr_data.get("ivr") is None:
-                errored.append(symbol)
-                continue
-            spot = get_spot(symbol) or 0.0
-            ivr = ivr_data["ivr"]
-            iv_current = ivr_data["iv_current"]
-            gate_pass = int(ivr >= MIN_IVR and (iv_current or 0) >= MIN_IV_GATE)
-            conn.execute(
-                "INSERT INTO swingdesk_ivr "
-                "(scan_date, symbol, sector, ivr, iv_current, iv_high, iv_low, ivp, spot, gate_pass) "
-                "VALUES (?,?,?,?,?,?,?,?,?,?)",
-                (scan_date, symbol, sector, ivr, iv_current,
-                 ivr_data.get("iv_high"), ivr_data.get("iv_low"),
-                 ivr_data.get("ivp"), spot, gate_pass),
-            )
-            written += 1
-            passed += gate_pass
-        except Exception as e:  # never raise out of the shadow loop
-            errored.append(f"{symbol}:{type(e).__name__}")
-
-    conn.commit()
-    conn.close()
-    return {
-        "loop": "A",
-        "scan_date": scan_date,
-        "universe": len(universe),
-        "written": written,
-        "gate_pass": passed,
-        "errored": errored,
-        "gate": f"IVR>={MIN_IVR} AND IV>={MIN_IV_GATE}",
-        "orders_submitted": 0,  # invariant: Loop A never submits
-    }
+        return {
+            "loop": "A",
+            "scan_date": scan_date,
+            "universe": len(universe),
+            "written": written,
+            "gate_pass": passed,
+            "errored": errored,
+            "gate": f"IVR>={MIN_IVR} AND IV>={MIN_IV_GATE}",
+            "orders_submitted": 0,  # invariant: Loop A never submits
+        }
+    finally:
+        conn.close()
 
 
 # ── Loop B params (HM-O-TASTY-DOCTRINE) ──────────────────────────────────────
@@ -433,10 +436,16 @@ def _ensure_shadow_schema(conn: sqlite3.Connection) -> None:
         )
         """
     )
-    # idempotent column adds (refused_reason + Loop C exit fields)
+    # idempotent column adds (refused_reason + Loop C exit fields + live-order tracking)
+    # HM-DIRECTIVE-2026-07-02: broker_order_id/live_status were referenced by run_loop_b's
+    # INSERT and run_loop_reconcile's SELECT/UPDATE but never added here — every run_loop_b
+    # candidate unconditionally hit "no such column: broker_order_id", and since that INSERT
+    # had no try/finally around its connection, each failure leaked one fd. Over ~1 day of
+    # RTH cycles this exhausted the process's fd limit and wedged the whole service (502).
     for _col, _typ in [("refused_reason", "TEXT"), ("exit_reason", "TEXT"),
                        ("would_have_exit_at", "TIMESTAMP"), ("exit_value", "REAL"),
-                       ("exit_pnl", "REAL")]:
+                       ("exit_pnl", "REAL"), ("broker_order_id", "TEXT"),
+                       ("live_status", "TEXT")]:
         try:
             conn.execute(f"ALTER TABLE swingdesk_shadow_trades ADD COLUMN {_col} {_typ}")
         except sqlite3.OperationalError:
@@ -475,136 +484,139 @@ def run_loop_b() -> dict:
 
     scan_date = datetime.now().strftime("%Y-%m-%d")
     conn = sqlite3.connect(DB_PATH)
-    _ensure_shadow_schema(conn)
-    conn.row_factory = sqlite3.Row
+    try:
+        _ensure_shadow_schema(conn)
+        conn.row_factory = sqlite3.Row
 
-    state = get_killswitch_state(conn)
-    if state == "HARD_HALT":   # halt everything
-        conn.close()
-        return {"loop": "B", "killswitch": state, "halted": True, "entered": 0, "orders_submitted": 0}
-    # TRIPPED → still evaluate candidates but refuse every new entry (below)
+        state = get_killswitch_state(conn)
+        if state == "HARD_HALT":   # halt everything
+            conn.close()
+            return {"loop": "B", "killswitch": state, "halted": True, "entered": 0, "orders_submitted": 0}
+        # TRIPPED → still evaluate candidates but refuse every new entry (below)
 
-    passers = conn.execute(
-        "SELECT symbol, sector, ivr, iv_current, spot FROM swingdesk_ivr "
-        "WHERE scan_date=? AND gate_pass=1 ORDER BY ivr DESC", (scan_date,)).fetchall()
+        passers = conn.execute(
+            "SELECT symbol, sector, ivr, iv_current, spot FROM swingdesk_ivr "
+            "WHERE scan_date=? AND gate_pass=1 ORDER BY ivr DESC", (scan_date,)).fetchall()
 
-    openrows = conn.execute(
-        "SELECT symbol, sector, bpr FROM swingdesk_shadow_trades WHERE status='shadow_open'").fetchall()
-    open_count = len(openrows)
-    open_bpr = sum((r["bpr"] or 0) for r in openrows)
-    sector_ct = Counter(r["sector"] for r in openrows)
-    open_syms = {r["symbol"] for r in openrows}
+        openrows = conn.execute(
+            "SELECT symbol, sector, bpr FROM swingdesk_shadow_trades WHERE status='shadow_open'").fetchall()
+        open_count = len(openrows)
+        open_bpr = sum((r["bpr"] or 0) for r in openrows)
+        sector_ct = Counter(r["sector"] for r in openrows)
+        open_syms = {r["symbol"] for r in openrows}
 
-    entered, refused = [], []
-    orders_submitted_count = 0
-    for p in passers:
-        sym, sector, ivr, iv = p["symbol"], p["sector"], p["ivr"], p["iv_current"]
-        # evaluate (single persist point at the end — every candidate gets a row)
-        lean = structure = exp = None
-        build, bes = {}, []
-        contracts, bpr, defined, audit_tag = 0, 0.0, None, None
-        broker_order_id, live_status_val = None, None   # defined for ALL candidates (INSERT runs for refused too)
-        status, reason = "refused", None
+        entered, refused = [], []
+        orders_submitted_count = 0
+        for p in passers:
+            sym, sector, ivr, iv = p["symbol"], p["sector"], p["ivr"], p["iv_current"]
+            # evaluate (single persist point at the end — every candidate gets a row)
+            lean = structure = exp = None
+            build, bes = {}, []
+            contracts, bpr, defined, audit_tag = 0, 0.0, None, None
+            broker_order_id, live_status_val = None, None   # defined for ALL candidates (INSERT runs for refused too)
+            status, reason = "refused", None
 
-        if state == "TRIPPED":
-            reason = "killswitch_tripped"   # kill switch halts NEW entries (exits still run in Loop C)
-        elif sym in open_syms:
-            reason = "already_open"
-        else:
-            lean = _directional_lean(sym)
-            structure = _LEAN_STRUCT.get(lean)
-            if not structure:
-                reason = f"no_structure:{lean}"
+            if state == "TRIPPED":
+                reason = "killswitch_tripped"   # kill switch halts NEW entries (exits still run in Loop C)
+            elif sym in open_syms:
+                reason = "already_open"
             else:
-                exp = find_target_expiration(sym)
-                if not exp:
-                    reason = "no_expiration"
+                lean = _directional_lean(sym)
+                structure = _LEAN_STRUCT.get(lean)
+                if not structure:
+                    reason = f"no_structure:{lean}"
                 else:
-                    spot = get_spot(sym) or p["spot"]
-                    build = _BUILDER[structure](sym, spot, iv, exp) or {}
-                    bes = ([build.get("breakeven_low"), build.get("breakeven_high")]
-                           if structure == "iron_condor" else [build.get("breakeven")])
-                    audit_tag = "csp_cash_secured" if structure == "csp" else "defined_risk_spread"
-                    if not build.get("viable") or (build.get("max_loss") or 0) <= 0:
-                        reason = f"{structure}_not_viable"
+                    exp = find_target_expiration(sym)
+                    if not exp:
+                        reason = "no_expiration"
                     else:
-                        contracts, bpr, per, defined = _size_at_3pct(structure, build)
-                        proj = (open_bpr + bpr) / SHADOW_PORTFOLIO
-                        if contracts < 1:
-                            reason = f"{structure}_per_contract_bpr>{int(BPR_PER_TRADE*100)}pct"
-                        elif proj > HARD_CAP:
-                            reason = f"hard_cap_50pct({proj:.0%})"
-                        elif proj > SOFT_CAP:
-                            reason = f"soft_cap_35pct({proj:.0%})"
-                        elif open_count >= MAX_POSITIONS:
-                            reason = "max_positions_20"
-                        elif sector_ct[sector] >= MAX_PER_SECTOR:
-                            reason = f"sector_limit_3:{sector}"
+                        spot = get_spot(sym) or p["spot"]
+                        build = _BUILDER[structure](sym, spot, iv, exp) or {}
+                        bes = ([build.get("breakeven_low"), build.get("breakeven_high")]
+                               if structure == "iron_condor" else [build.get("breakeven")])
+                        audit_tag = "csp_cash_secured" if structure == "csp" else "defined_risk_spread"
+                        if not build.get("viable") or (build.get("max_loss") or 0) <= 0:
+                            reason = f"{structure}_not_viable"
                         else:
-                            status, reason = "shadow_open", None
-                            if LIVE_EXECUTION_ENABLED:
-                                try:
-                                    mleg_legs = _build_mleg_legs(
-                                        structure, sym, exp, build.get("legs", {}), contracts
-                                    )
-                                    if mleg_legs is None:
-                                        status, reason = "refused", "live_execution_legs_failed"
-                                    else:
-                                        from alpaca.trading.requests import LimitOrderRequest
-                                        from alpaca.trading.enums import OrderClass, TimeInForce
-                                        net_credit = max(round(float(build.get("credit", 0.10)), 2), 0.10)
-                                        req = LimitOrderRequest(
-                                            symbol=sym,
-                                            qty=contracts,
-                                            order_class=OrderClass.MLEG,
-                                            time_in_force=TimeInForce.DAY,
-                                            limit_price=net_credit,
-                                            legs=mleg_legs,
+                            contracts, bpr, per, defined = _size_at_3pct(structure, build)
+                            proj = (open_bpr + bpr) / SHADOW_PORTFOLIO
+                            if contracts < 1:
+                                reason = f"{structure}_per_contract_bpr>{int(BPR_PER_TRADE*100)}pct"
+                            elif proj > HARD_CAP:
+                                reason = f"hard_cap_50pct({proj:.0%})"
+                            elif proj > SOFT_CAP:
+                                reason = f"soft_cap_35pct({proj:.0%})"
+                            elif open_count >= MAX_POSITIONS:
+                                reason = "max_positions_20"
+                            elif sector_ct[sector] >= MAX_PER_SECTOR:
+                                reason = f"sector_limit_3:{sector}"
+                            else:
+                                status, reason = "shadow_open", None
+                                if LIVE_EXECUTION_ENABLED:
+                                    try:
+                                        mleg_legs = _build_mleg_legs(
+                                            structure, sym, exp, build.get("legs", {}), contracts
                                         )
-                                        live_status_val = "live_pending"
-                                        order = _otasty_client().submit_order(req)
-                                        broker_order_id = str(order.id)
-                                        live_status_val = "live_pending"
-                                        orders_submitted_count += 1
-                                        _log(f"[LIVE] submitted {structure} {sym} {contracts}x credit={net_credit} → {broker_order_id}")
-                                except Exception as e:
-                                    _log(f"[LIVE] submit failed {structure} {sym}: {e}")
-                                    status, reason = "refused", f"live_submit_error:{str(e)[:80]}"
-                                    live_status_val = "live_rejected"
+                                        if mleg_legs is None:
+                                            status, reason = "refused", "live_execution_legs_failed"
+                                        else:
+                                            from alpaca.trading.requests import LimitOrderRequest
+                                            from alpaca.trading.enums import OrderClass, TimeInForce
+                                            net_credit = max(round(float(build.get("credit", 0.10)), 2), 0.10)
+                                            req = LimitOrderRequest(
+                                                symbol=sym,
+                                                qty=contracts,
+                                                order_class=OrderClass.MLEG,
+                                                time_in_force=TimeInForce.DAY,
+                                                limit_price=net_credit,
+                                                legs=mleg_legs,
+                                            )
+                                            live_status_val = "live_pending"
+                                            order = _otasty_client().submit_order(req)
+                                            broker_order_id = str(order.id)
+                                            live_status_val = "live_pending"
+                                            orders_submitted_count += 1
+                                            _log(f"[LIVE] submitted {structure} {sym} {contracts}x credit={net_credit} → {broker_order_id}")
+                                    except Exception as e:
+                                        _log(f"[LIVE] submit failed {structure} {sym}: {e}")
+                                        status, reason = "refused", f"live_submit_error:{str(e)[:80]}"
+                                        live_status_val = "live_rejected"
 
-        conn.execute(
-            "INSERT INTO swingdesk_shadow_trades "
-            "(would_have_submitted_at, scan_date, symbol, sector, structure, directional_lean, "
-            " defined_risk, legs, credit, max_loss, breakevens, contracts, bpr, bpr_pct, pop, dte, "
-            " expiration, spot, ivr, iv, status, audit_tag, refused_reason, broker_order_id, live_status) "
-            "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
-            (datetime.now().isoformat(timespec="seconds") if status == "shadow_open" else None,
-             scan_date, sym, sector, structure, lean, defined,
-             json.dumps(build.get("legs", {})), build.get("credit"), build.get("max_loss"),
-             json.dumps(bes) if build else None, contracts, bpr,
-             round(bpr / SHADOW_PORTFOLIO, 4), build.get("pop"), build.get("dte"),
-             exp, build.get("spot") or p["spot"], ivr, iv, status, audit_tag, reason,
-             broker_order_id, live_status_val),
-        )
-        if status == "shadow_open":
-            open_count += 1; open_bpr += bpr; sector_ct[sector] += 1
-            entered.append((sym, structure, contracts, bpr))
-        else:
-            refused.append((sym, reason))
+            conn.execute(
+                "INSERT INTO swingdesk_shadow_trades "
+                "(would_have_submitted_at, scan_date, symbol, sector, structure, directional_lean, "
+                " defined_risk, legs, credit, max_loss, breakevens, contracts, bpr, bpr_pct, pop, dte, "
+                " expiration, spot, ivr, iv, status, audit_tag, refused_reason, broker_order_id, live_status) "
+                "VALUES (?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?,?)",
+                (datetime.now().isoformat(timespec="seconds") if status == "shadow_open" else None,
+                 scan_date, sym, sector, structure, lean, defined,
+                 json.dumps(build.get("legs", {})), build.get("credit"), build.get("max_loss"),
+                 json.dumps(bes) if build else None, contracts, bpr,
+                 round(bpr / SHADOW_PORTFOLIO, 4), build.get("pop"), build.get("dte"),
+                 exp, build.get("spot") or p["spot"], ivr, iv, status, audit_tag, reason,
+                 broker_order_id, live_status_val),
+            )
+            if status == "shadow_open":
+                open_count += 1; open_bpr += bpr; sector_ct[sector] += 1
+                entered.append((sym, structure, contracts, bpr))
+            else:
+                refused.append((sym, reason))
 
-    conn.commit()
-    conn.close()
-    return {
-        "loop": "B",
-        "scan_date": scan_date,
-        "gate_passers": len(passers),
-        "entered": len(entered),
-        "entered_detail": entered,
-        "refused": refused,
-        "book_bpr_pct": round(open_bpr / SHADOW_PORTFOLIO, 4),
-        "open_positions": open_count,
-        "orders_submitted": orders_submitted_count if LIVE_EXECUTION_ENABLED else 0,
-    }
+        conn.commit()
+        conn.close()
+        return {
+            "loop": "B",
+            "scan_date": scan_date,
+            "gate_passers": len(passers),
+            "entered": len(entered),
+            "entered_detail": entered,
+            "refused": refused,
+            "book_bpr_pct": round(open_bpr / SHADOW_PORTFOLIO, 4),
+            "open_positions": open_count,
+            "orders_submitted": orders_submitted_count if LIVE_EXECUTION_ENABLED else 0,
+        }
+    finally:
+        conn.close()
 
 
 # ── Loop C: position manager (SHADOW) ────────────────────────────────────────
@@ -671,6 +683,7 @@ def run_loop_reconcile() -> dict:
     LIVE_EXECUTION_ENABLED. Silent-fail per-row; never blocks the scheduler."""
     if not LIVE_EXECUTION_ENABLED:
         return {"reconciled": 0, "note": "LIVE_EXECUTION_ENABLED=False — skipped"}
+    conn = None
     try:
         from alpaca.trading.enums import OrderStatus
         client = _otasty_client()
@@ -712,6 +725,9 @@ def run_loop_reconcile() -> dict:
     except Exception as e:
         _log(f"[RECONCILE] loop error: {e}")
         return {"reconciled": 0, "error": str(e)}
+    finally:
+        if conn is not None:
+            conn.close()
 
 
 def run_loop_c() -> dict:
@@ -721,51 +737,54 @@ def run_loop_c() -> dict:
     exit_pnl). NO order submission anywhere in this path."""
     import json
     conn = sqlite3.connect(DB_PATH)
-    _ensure_shadow_schema(conn)
-    conn.row_factory = sqlite3.Row
+    try:
+        _ensure_shadow_schema(conn)
+        conn.row_factory = sqlite3.Row
 
-    state = get_killswitch_state(conn)
-    if state == "HARD_HALT":   # halt everything, including management exits
+        state = get_killswitch_state(conn)
+        if state == "HARD_HALT":   # halt everything, including management exits
+            conn.close()
+            return {"loop": "C", "killswitch": state, "halted": True, "walked": 0, "orders_submitted": 0}
+        # ARMED + TRIPPED both manage — closing positions is allowed/safe under TRIPPED
+
+        rows = conn.execute(
+            "SELECT * FROM swingdesk_shadow_trades WHERE status='shadow_open'").fetchall()
+
+        closed, held = [], []
+        for r in rows:
+            try:
+                legs = json.loads(r["legs"] or "{}")
+            except Exception:
+                legs = {}
+            structure = r["structure"]
+            credit = r["credit"] or 0.0
+            contracts = r["contracts"] or 1
+            sigma = (r["iv"] or 30.0) / 100.0
+            spot = get_spot(r["symbol"]) or r["spot"]
+            dte = get_dte(r["expiration"]) if r["expiration"] else None
+            cur_val = _current_spread_value(structure, legs, spot, dte if dte is not None else 0, sigma)
+            reason = _exit_decision(structure, legs, credit, cur_val, spot, dte, r["symbol"])
+            if reason:
+                exit_pnl = round((credit - cur_val) * 100.0 * contracts, 2)
+                conn.execute(
+                    "UPDATE swingdesk_shadow_trades SET status='would_have_closed', "
+                    "exit_reason=?, would_have_exit_at=?, exit_value=?, exit_pnl=? WHERE id=?",
+                    (reason, datetime.now().isoformat(timespec="seconds"), cur_val, exit_pnl, r["id"]),
+                )
+                closed.append((r["symbol"], structure, reason, exit_pnl))
+            else:
+                held.append((r["symbol"], structure, cur_val, dte))
+        conn.commit()
         conn.close()
-        return {"loop": "C", "killswitch": state, "halted": True, "walked": 0, "orders_submitted": 0}
-    # ARMED + TRIPPED both manage — closing positions is allowed/safe under TRIPPED
-
-    rows = conn.execute(
-        "SELECT * FROM swingdesk_shadow_trades WHERE status='shadow_open'").fetchall()
-
-    closed, held = [], []
-    for r in rows:
-        try:
-            legs = json.loads(r["legs"] or "{}")
-        except Exception:
-            legs = {}
-        structure = r["structure"]
-        credit = r["credit"] or 0.0
-        contracts = r["contracts"] or 1
-        sigma = (r["iv"] or 30.0) / 100.0
-        spot = get_spot(r["symbol"]) or r["spot"]
-        dte = get_dte(r["expiration"]) if r["expiration"] else None
-        cur_val = _current_spread_value(structure, legs, spot, dte if dte is not None else 0, sigma)
-        reason = _exit_decision(structure, legs, credit, cur_val, spot, dte, r["symbol"])
-        if reason:
-            exit_pnl = round((credit - cur_val) * 100.0 * contracts, 2)
-            conn.execute(
-                "UPDATE swingdesk_shadow_trades SET status='would_have_closed', "
-                "exit_reason=?, would_have_exit_at=?, exit_value=?, exit_pnl=? WHERE id=?",
-                (reason, datetime.now().isoformat(timespec="seconds"), cur_val, exit_pnl, r["id"]),
-            )
-            closed.append((r["symbol"], structure, reason, exit_pnl))
-        else:
-            held.append((r["symbol"], structure, cur_val, dte))
-    conn.commit()
-    conn.close()
-    return {
-        "loop": "C",
-        "walked": len(rows),
-        "would_have_closed": closed,
-        "held": held,
-        "orders_submitted": 0,  # invariant: Loop C never submits
-    }
+        return {
+            "loop": "C",
+            "walked": len(rows),
+            "would_have_closed": closed,
+            "held": held,
+            "orders_submitted": 0,  # invariant: Loop C never submits
+        }
+    finally:
+        conn.close()
 
 
 # ── Loop E: nightly doctrine compliance auditor (SHADOW) ─────────────────────
@@ -821,68 +840,71 @@ def run_loop_e() -> dict:
     topic on ANY violation (P0 trust layer). Pure read + audit-write — NO orders."""
     today = datetime.now().strftime("%Y-%m-%d")
     conn = sqlite3.connect(DB_PATH)
-    conn.row_factory = sqlite3.Row
-    _ensure_shadow_schema(conn)
-    _ensure_audit_schema(conn)
-    _ensure_killswitch_schema(conn)
+    try:
+        conn.row_factory = sqlite3.Row
+        _ensure_shadow_schema(conn)
+        _ensure_audit_schema(conn)
+        _ensure_killswitch_schema(conn)
 
-    # Idempotent: clear today's audit rows before re-auditing so a re-run (e.g.
-    # after a backend restart resets the in-memory once-daily guard) regenerates
-    # the same findings instead of duplicating them.
-    conn.execute("DELETE FROM swingdesk_audit_log WHERE audit_date=?", (today,))
+        # Idempotent: clear today's audit rows before re-auditing so a re-run (e.g.
+        # after a backend restart resets the in-memory once-daily guard) regenerates
+        # the same findings instead of duplicating them.
+        conn.execute("DELETE FROM swingdesk_audit_log WHERE audit_date=?", (today,))
 
-    closed = conn.execute(
-        "SELECT id, symbol, structure, exit_reason FROM swingdesk_shadow_trades "
-        "WHERE status='would_have_closed' AND would_have_exit_at LIKE ?", (today + "%",)).fetchall()
-    compliant_n, violations = 0, []
-    for t in closed:
-        er = t["exit_reason"]
-        ok = er in VALID_EXIT_REASONS
-        detail = None if ok else f"undocumented exit_reason '{er}' — not in rule set"
-        conn.execute(
-            "INSERT INTO swingdesk_audit_log "
-            "(audit_date, audit_type, shadow_trade_id, exit_reason, compliant, violation_detail) "
-            "VALUES (?,?,?,?,?,?)",
-            (today, "exit_compliance", t["id"], er, int(ok), detail))
-        if ok:
-            compliant_n += 1
-        else:
-            violations.append({"shadow_trade_id": t["id"], "symbol": t["symbol"],
-                               "exit_reason": er, "detail": detail})
+        closed = conn.execute(
+            "SELECT id, symbol, structure, exit_reason FROM swingdesk_shadow_trades "
+            "WHERE status='would_have_closed' AND would_have_exit_at LIKE ?", (today + "%",)).fetchall()
+        compliant_n, violations = 0, []
+        for t in closed:
+            er = t["exit_reason"]
+            ok = er in VALID_EXIT_REASONS
+            detail = None if ok else f"undocumented exit_reason '{er}' — not in rule set"
+            conn.execute(
+                "INSERT INTO swingdesk_audit_log "
+                "(audit_date, audit_type, shadow_trade_id, exit_reason, compliant, violation_detail) "
+                "VALUES (?,?,?,?,?,?)",
+                (today, "exit_compliance", t["id"], er, int(ok), detail))
+            if ok:
+                compliant_n += 1
+            else:
+                violations.append({"shadow_trade_id": t["id"], "symbol": t["symbol"],
+                                   "exit_reason": er, "detail": detail})
 
-    ks = conn.execute(
-        "SELECT state, reason, changed_by, changed_at FROM swingdesk_killswitch "
-        "WHERE changed_at LIKE ?", (today + "%",)).fetchall()
-    for k in ks:
-        conn.execute(
-            "INSERT INTO swingdesk_audit_log (audit_date, audit_type, exit_reason, compliant, note) "
-            "VALUES (?,?,?,?,?)",
-            (today, "killswitch_transition", k["state"], 1,
-             f"{k['state']} by {k['changed_by']}: {k['reason']} @ {k['changed_at']}"))
-    conn.commit()
-    conn.close()
+        ks = conn.execute(
+            "SELECT state, reason, changed_by, changed_at FROM swingdesk_killswitch "
+            "WHERE changed_at LIKE ?", (today + "%",)).fetchall()
+        for k in ks:
+            conn.execute(
+                "INSERT INTO swingdesk_audit_log (audit_date, audit_type, exit_reason, compliant, note) "
+                "VALUES (?,?,?,?,?)",
+                (today, "killswitch_transition", k["state"], 1,
+                 f"{k['state']} by {k['changed_by']}: {k['reason']} @ {k['changed_at']}"))
+        conn.commit()
+        conn.close()
 
-    total = len(closed)
-    pct = round(100.0 * compliant_n / total, 1) if total else 100.0
-    alerted = False
-    if violations:
-        msg = (f"O-TASTY COMPLIANCE VIOLATION x{len(violations)}: "
-               + "; ".join(f"#{v['shadow_trade_id']} {v['symbol']} exit='{v['exit_reason']}'"
-                           for v in violations))
-        alerted = _ntfy_admin("O-Tasty Compliance Violation", msg, priority="urgent")
+        total = len(closed)
+        pct = round(100.0 * compliant_n / total, 1) if total else 100.0
+        alerted = False
+        if violations:
+            msg = (f"O-TASTY COMPLIANCE VIOLATION x{len(violations)}: "
+                   + "; ".join(f"#{v['shadow_trade_id']} {v['symbol']} exit='{v['exit_reason']}'"
+                               for v in violations))
+            alerted = _ntfy_admin("O-Tasty Compliance Violation", msg, priority="urgent")
 
-    return {
-        "loop": "E",
-        "audit_date": today,
-        "closed_today": total,
-        "compliant": compliant_n,
-        "violations": len(violations),
-        "pct_compliant": pct,
-        "violation_detail": violations,
-        "killswitch_transitions_logged": len(ks),
-        "ntfy_alerted": alerted,
-        "orders_submitted": 0,  # invariant: Loop E never submits
-    }
+        return {
+            "loop": "E",
+            "audit_date": today,
+            "closed_today": total,
+            "compliant": compliant_n,
+            "violations": len(violations),
+            "pct_compliant": pct,
+            "violation_detail": violations,
+            "killswitch_transitions_logged": len(ks),
+            "ntfy_alerted": alerted,
+            "orders_submitted": 0,  # invariant: Loop E never submits
+        }
+    finally:
+        conn.close()
 
 
 # ── Scheduler cadence (still SHADOW, still zero-order) ───────────────────────
