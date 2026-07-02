@@ -626,8 +626,28 @@ async function loadRiskGate() {
     document.getElementById('ck-gate').textContent = g.can_trade ? '✓' : '✗';
     document.getElementById('ck-gate').className = 'ck ' + (g.can_trade ? 'ck-p' : 'ck-f');
     document.getElementById('tb-pos').textContent = `${g.open_positions} / ${g.max_positions}`;
+    // HM-DIRECTIVE-B-3 2026-07-02: real data, not placeholders --
+    // day_pnl is the actual realized P&L from today's closed trades (daily_stats
+    // table); open_risk_dollars is a real SUM(risk_dollars) across open trades.
+    const dayPnl = g.daily_loss;
+    const dpEl = document.getElementById('tb-daypnl');
+    dpEl.textContent = (dayPnl >= 0 ? '+$' : '-$') + Math.abs(dayPnl).toFixed(0);
+    dpEl.className = 'v ' + (dayPnl > 0 ? 'up' : dayPnl < 0 ? 'dn' : 'neu');
+    document.getElementById('tb-openrisk').textContent = '$' + Math.abs(g.open_risk_dollars || 0).toFixed(0);
   } catch(e) {}
 }
+
+// HM-DIRECTIVE-B-3 2026-07-02: tb-portfolio has no honest data source -- SwingDesk
+// has no account/equity tracking at all, real or paper (confirmed: risk-gate's own
+// "alpaca_wired" flag is False, Phase 2, and no local ledger tracks total portfolio
+// value anywhere in this backend). Explicit "n/a", not a bare dash pretending to be
+// a stat that's merely still loading.
+(function _markPortfolioNotTracked() {
+  const el = document.getElementById('tb-portfolio');
+  el.textContent = 'n/a';
+  el.title = 'Not tracked -- SwingDesk has no account/equity data source yet (Phase 2, alpaca_wired=false)';
+  el.style.cursor = 'help';
+})();
 
 // ── POSITION SIZER ────────────────────────────────────────────────────────────
 function recalc() {

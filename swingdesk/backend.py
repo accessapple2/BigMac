@@ -451,6 +451,9 @@ def risk_gate():
         open_count = db.execute(
             "SELECT COUNT(*) as c FROM trades WHERE status='open'"
         ).fetchone()["c"]
+        open_risk = db.execute(
+            "SELECT COALESCE(SUM(risk_dollars), 0) as r FROM trades WHERE status='open'"
+        ).fetchone()["r"]
     day_pnl = row["realized_pnl"] if row else 0.0
     cb_hit  = row["circuit_breaker_triggered"] if row else 0
     return {
@@ -461,6 +464,10 @@ def risk_gate():
         "open_positions":        open_count,
         "max_positions":         MAX_POSITIONS,
         "positions_ok":          open_count < MAX_POSITIONS,
+        # HM-DIRECTIVE-B-3 2026-07-02: real SUM(risk_dollars) across open trades --
+        # the per-trade risk_dollars value already exists (computed at plan_trade
+        # time from entry/stop/shares); this was never aggregated into risk-gate.
+        "open_risk_dollars":     round(open_risk, 2),
         "can_trade":             not cb_hit and open_count < MAX_POSITIONS and day_pnl > -DAILY_LOSS_LIMIT,
         "alpaca_wired":          False   # Phase 2
     }
