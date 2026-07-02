@@ -5901,13 +5901,71 @@ def gex_all():
     return out
 
 
+_gex_symbol_cache: dict = {}   # {symbol: {"data": ..., "ts": float}}
+_GEX_CACHE_TTL = 60.0
+_GEX_COLD_TIMEOUT = 15.0
+
+
+def _canonical_gex_cached(symbol: str) -> dict:
+    """SWR wrapper around _canonical_gex — HM-DIRECTIVE-2026-07-01 Deck3 #14.
+
+    gex_ticker/gex_alpaca called _canonical_gex() directly with no cache and
+    no timeout; on a cold intraday cache it falls through to a live Polygon
+    options-chain pagination (up to 60 pages) that can hang the request for
+    minutes. Serve the last-good result instantly (stamped with its age) and
+    refresh in the background once stale — same intent as gex_all's bounded
+    thread+deadline pattern above, adapted for a single-symbol cache.
+    """
+    now = _time.time()
+    entry = _gex_symbol_cache.get(symbol)
+    if entry and (now - entry["ts"]) < _GEX_CACHE_TTL:
+        return entry["data"]
+
+    lock_key = f"gex:{symbol}"
+
+    if entry:
+        # Stale but usable — serve immediately, kick one background refresh.
+        if _swr_locks.setdefault(lock_key, threading.Lock()).acquire(blocking=False):
+            def _refresh():
+                try:
+                    data = _canonical_gex(symbol)
+                    _gex_symbol_cache[symbol] = {"data": data, "ts": _time.time()}
+                except Exception:
+                    pass
+                finally:
+                    _swr_locks[lock_key].release()
+            threading.Thread(target=_refresh, daemon=True, name=f"gex_refresh_{symbol}").start()
+        stale = dict(entry["data"])
+        stale["_stale_since"] = entry["ts"]
+        return stale
+
+    # Cold cache — bounded synchronous fetch so the request thread never hangs.
+    # _fetch writes straight into _gex_symbol_cache (not a call-local var) so
+    # that if the live compute outlives our join() timeout, the daemon thread
+    # still warms the cache in the background — the NEXT request gets it
+    # instantly instead of re-triggering another cold, unbounded fetch.
+    def _fetch():
+        try:
+            data = _canonical_gex(symbol)
+            _gex_symbol_cache[symbol] = {"data": data, "ts": _time.time()}
+        except Exception:
+            pass
+    th = threading.Thread(target=_fetch, daemon=True, name=f"gex_cold_{symbol}")
+    th.start()
+    th.join(timeout=_GEX_COLD_TIMEOUT)
+    entry = _gex_symbol_cache.get(symbol)
+    if entry:
+        return entry["data"]
+    return {"error": "gex compute timed out", "pending": True}
+
+
 @app.get("/api/market/gex/{ticker}")
 def gex_ticker(ticker: str):
     """HM-GEX-CANONICAL 2026-05-31: magnets/strikes served from the single canonical
     GEX (engine.options_flow_gex). Legacy engine.gex_scanner (CBOE) dormant."""
-    c = _canonical_gex(ticker)
+    c = _canonical_gex_cached(ticker)
     if c.get("error"):
-        return {"error": c["error"]}
+        return {"error": c["error"], "pending": c.get("pending", False)}
     spot = c.get("spot") or 0
     magnets = [{"strike": m["strike"], "net_gex": m["net_gex"],
                 "type": ("call_wall" if (spot and m["strike"] >= spot) else "put_wall")}
@@ -5918,6 +5976,7 @@ def gex_ticker(ticker: str):
         "call_wall": c.get("call_wall"), "put_wall": c.get("put_wall"),
         "king_node": c.get("king_node"), "magnets": magnets, "strikes": c.get("strikes", []),
         "updated": c.get("_asof", ""), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
+        "stale_since": c.get("_stale_since"),
     }
 
 
@@ -5934,9 +5993,9 @@ def gex_alpaca(symbol: str):
     # HM-GEX-CANONICAL 2026-05-31: served from the single canonical GEX
     # (engine.options_flow_gex via _canonical_gex). The legacy Alpaca gex_calculator
     # is preserved/dormant (no longer called here). Superset shape kept for back-compat.
-    c = _canonical_gex(symbol)
+    c = _canonical_gex_cached(symbol)
     if c.get("error"):
-        return {"error": c["error"]}
+        return {"error": c["error"], "pending": c.get("pending", False)}
     spot = c.get("spot"); flip = c.get("gamma_flip"); tot = c.get("total_gex") or 0
     stable = (spot is not None and flip is not None and spot >= flip)
     return {
@@ -5947,6 +6006,7 @@ def gex_alpaca(symbol: str):
         "regime": ("stable (above flip)" if stable else "volatile (below flip)"),
         "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
         "levels": c.get("strikes", []),
+        "stale_since": c.get("_stale_since"),
     }
 
 
@@ -7570,9 +7630,9 @@ def red_alert_status(limit: int = 10):
 def gex_overlay_levels(symbol: str = "SPY"):
     """HM-GEX-CANONICAL 2026-05-31: king node / flip / walls served from the single
     canonical GEX (engine.options_flow_gex). Legacy engine.gex_overlay dormant."""
-    c = _canonical_gex(symbol)
+    c = _canonical_gex_cached(symbol)
     if c.get("error"):
-        return {"error": c["error"]}
+        return {"error": c["error"], "pending": c.get("pending", False)}
     spot = c.get("spot"); flip = c.get("gamma_flip")
     stable = (spot is not None and flip is not None and spot >= flip)
     return {
@@ -7589,9 +7649,9 @@ def gex_overlay_heatmap(symbol: str = "SPY"):
     """Per-strike GEX (call_gex, put_gex, net_gex) — HM-GEX-CANONICAL: served from the
     single canonical source (engine.options_flow_gex). Legacy engine.gex_overlay dormant."""
     try:
-        c = _canonical_gex(symbol)
+        c = _canonical_gex_cached(symbol)
         if c.get("error"):
-            return {"error": c["error"], "strikes": [], "count": 0}
+            return {"error": c["error"], "strikes": [], "count": 0, "pending": c.get("pending", False)}
         strikes = c.get("strikes", [])
         return {"symbol": c.get("underlying", symbol.upper()), "strikes": strikes,
                 "count": len(strikes), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")"}
