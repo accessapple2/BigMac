@@ -1070,6 +1070,10 @@ body:not(.role-admin) .admin-only { display: none !important; }
 .online-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); display: inline-block; animation: pulse 2s infinite; box-shadow: 0 0 6px var(--green); flex-shrink: 0; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 .nav-actions { display: flex; gap: 8px; }
+/* HM-DIRECTIVE-2026-07-01 Deck3 #17: shared skeleton-bar for empty-state polish
+   (Phaser-Lock, Worf Arsenal, Ghost Research) — blank must never look broken. */
+.skel-bar { display:inline-block; height:12px; border-radius:4px; background:var(--surface2); animation:pulse 1.4s infinite; vertical-align:middle; }
+.empty-since { color:var(--muted); font-size:12px; padding:10px 0; text-align:center; }
 /* Wizard modal */
 .wizard-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:2000; align-items:center; justify-content:center; }
 .wizard-overlay.open { display:flex; }
@@ -6510,8 +6514,8 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       <div class="card-title" data-tip="HM-PHASER-LOCK: highest-conviction daily setup (top-3 ranked, fail-closed). Research/paper SETUP, not a live order — RULE #1 untouched.">🎯 Trade of the Day (Phaser-Lock)</div>
       <span id="phaser-meta" style="font-size:11px;color:#888;">—</span>
     </div>
-    <div id="phaser-headline" style="padding:6px 14px;font-weight:bold;"></div>
-    <div id="phaser-body" style="padding:0 14px 10px;white-space:pre-wrap;font-size:13px;line-height:1.45;color:#cbd5e1;">Loading…</div>
+    <div id="phaser-headline" style="padding:6px 14px;font-weight:bold;"><span class="skel-bar" style="width:180px;"></span></div>
+    <div id="phaser-body" style="padding:0 14px 10px;white-space:pre-wrap;font-size:13px;line-height:1.45;color:#cbd5e1;"><span class="skel-bar" style="width:90%;margin-bottom:6px;"></span><br><span class="skel-bar" style="width:70%;"></span></div>
     <style>#phaser-card .card-title{font-size:14px;font-weight:600;}</style>
     <script>
     (function(){
