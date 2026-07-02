@@ -102,7 +102,10 @@ def _find_convergence(signals: list[dict]) -> list[dict]:
     """Find symbols where 2+ agents issued high-confidence signals."""
     by_symbol: dict[str, list[str]] = defaultdict(list)
     for s in signals:
-        if (s["confidence"] or 0) >= 70:
+        # HM-DIRECTIVE-2026-07-01 Deck2 #8: signals.confidence is stored 0-1
+        # (verified live: 24h range 0.20-0.85), not 0-100 — this threshold
+        # never matched a real row, so convergence silently never fired.
+        if (s["confidence"] or 0) >= 0.70:
             by_symbol[s["symbol"]].append(s["agent"])
 
     result = [{"symbol": sym, "agents": agents, "count": len(agents)}
@@ -117,7 +120,8 @@ def generate_synthesis(minutes: int = 10) -> dict:
     positions   = _get_fleet_positions()
     convergence = _find_convergence(signals)
 
-    high_conf = [s for s in signals if (s["confidence"] or 0) >= 80]
+    # HM-DIRECTIVE-2026-07-01 Deck2 #8: same 0-1 scale fix as _find_convergence.
+    high_conf = [s for s in signals if (s["confidence"] or 0) >= 0.80]
 
     agent_activity: dict[str, int] = defaultdict(int)
     for s in signals:
