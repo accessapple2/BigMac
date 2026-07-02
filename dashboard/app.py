@@ -3086,16 +3086,21 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
         pf = round(gains / losses, 2) if losses > 0 else (999.0 if gains > 0 else 0.0)
         profit_factor_data[row["player_id"]] = {"profit_factor": pf, "realized_gains": round(gains, 2), "realized_losses": round(losses, 2)}
 
-    # Season 5 realized P&L per player (for anchored equity calculation)
-    s5_realized: dict[str, float] = {}
+    # HM-DIRECTIVE-2026-07-01 Deck2 #7: current-season realized P&L per player
+    # (for anchored equity calculation). Was hardcoded to season=5 — once the
+    # league rolled to season 6, this silently kept summing only S5 trades,
+    # freezing 9/10 leaderboard rows at their S5 anchor ($10,000/+0.00%)
+    # while trade counts elsewhere correctly reflected S6 activity.
+    season_realized: dict[str, float] = {}
     if current_season >= 5:
         for row in conn.execute(
             "SELECT player_id, COALESCE(SUM(realized_pnl), 0) as total "
-            "FROM trades WHERE action='SELL' AND realized_pnl IS NOT NULL AND season=5 "
+            "FROM trades WHERE action='SELL' AND realized_pnl IS NOT NULL AND season=? "
             "AND " + CLEAN_TRADES_WHERE + " "
-            "GROUP BY player_id"
+            "GROUP BY player_id",
+            (current_season,)
         ).fetchall():
-            s5_realized[row["player_id"]] = float(row["total"])
+            season_realized[row["player_id"]] = float(row["total"])
 
     # Day P&L from portfolio_history (season-filtered)
     day_pnl = {}
@@ -3190,13 +3195,13 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
                     pnl = get_portfolio_with_pnl(p["id"], prices)
                     positions_value = pnl["total_positions_value"]
                     unrealized_pnl = pnl["total_unrealized_pnl"]
-                    # Season 5: anchor equity to $10k reset + S5 P&L only
+                    # Season 5+: anchor equity to $10k reset + current-season P&L only
                     if current_season >= 5 and p["id"] not in (
                         "super-agent", "enterprise-computer", "webull", "dalio-metals"
                     ):
-                        _s5_realized = s5_realized.get(p["id"], 0.0)
-                        total_value = round(10000.0 + _s5_realized + unrealized_pnl, 2)
-                        return_pct = round((_s5_realized + unrealized_pnl) / 10000.0 * 100, 2)
+                        _season_realized = season_realized.get(p["id"], 0.0)
+                        total_value = round(10000.0 + _season_realized + unrealized_pnl, 2)
+                        return_pct = round((_season_realized + unrealized_pnl) / 10000.0 * 100, 2)
                     else:
                         total_value = pnl["total_value"]
                         return_pct = pnl["return_pct"]
