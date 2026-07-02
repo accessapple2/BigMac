@@ -89,6 +89,22 @@ All 5 commits pushed and hash-verified individually per the standing
 auto-push policy: `349c5b0`, `8065dfe`, `f7d50ae`, `626c10e`, `ff9ae8d`,
 `03838ac` (6 commits — audit doc got a follow-up update after Stage 2).
 
+### PARKED by Admiral decision (2026-07-02) — not open items, do not re-raise unprompted
+- **DKIM setup + origin-IP-exposure review on accessapple.com** — both
+  drafted (`docs/DRAFT_accessapple_email.md`) but explicitly parked:
+  dormant email domain, no felt impact. DMARC stays at `p=none` (already
+  correctly configured, no action pending). Revisit only if the domain
+  becomes active for real mail flow or if asked directly.
+- **cloudflared re-auth** — draft ready (`docs/DRAFT_cloudflared_reauth.md`),
+  parked until the next time infra work touches this box. Not blocking
+  anything currently live; the 5 real hostnames are unaffected regardless
+  of cert.pem's account scoping (confirmed: cert.pem and the tunnel's
+  credentials file are separate, data-plane traffic doesn't depend on
+  cert.pem at all).
+
+**No other open items as of this writing** — all INFRA sign-offs and all 5
+Directive B items are closed or explicitly parked, not silently dropped.
+
 ---
 
 ## TIER 1 — VERIFIED THIS SESSION (confirmed against repo/live origin)
