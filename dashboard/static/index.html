@@ -22546,7 +22546,13 @@ async function trimPosition(symbol, playerId, posKey) {
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<!-- HM-DIRECTIVE-2026-07-01 Deck3 #17: 3.9.1 -> 4.4.1 (matches the version SniffScan's
+     dynamic loader already expected at line ~42368; that loader now no-ops since
+     window.Chart is set here first). Chart.js (3 simple sparkline/bar/scatter
+     widgets) and lightweight-charts (13+ full candlestick/technical panels) serve
+     different roles, not a true duplicate — consolidating them is a larger rewrite,
+     not a version-bump-scoped fix. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 // Helper: read computed CSS variable value
