@@ -4,6 +4,93 @@ Tier 1 = repo-verified. Tier 2 = carried from prior context, confirm before acti
 
 ---
 
+## DIRECTIVE B — BACKLOG CLEARANCE (2026-07-02, Admiral sign-off) — ALL 5 ITEMS LANDED
+
+1. **HM-ORPHAN-SEATS** — investigated fully, **no DB write needed**. 13 true
+   orphan seats (tag-normalized diff vs live olliemax models — not 11, that
+   figure was stale but structurally right), all already correctly
+   retire-flagged with specific deliberate reasons (11 are intentional
+   "bakeoff clone — audit trail only" records; 2 are documented dormant
+   cleanups from May), all with real historical data across many tables
+   (retire-flag was already the right call, already made). Verified zero
+   orphan names visible in bridge-v2's rendered page; bridge/signal-center
+   agent counts confirmed byte-identical (15/9/55/79) — signal-center
+   proxies bridge's own endpoint, no drift possible by construction.
+
+2. **V1 request consolidation** — Stage 1 (`docs/AUDIT_v1_fetches.md`,
+   `349c5b0`): live network capture found 196 requests/138 distinct
+   endpoints in a 60s window, not the reported 557 — that figure is
+   accumulated repeat-poll volume over a longer session, not distinct call
+   sites. Stage 2 (`8065dfe`): found **5** independent alert-polling loops
+   (not the 4 assumed — a 5th, in the external `alert_speaker.js`, was only
+   found by grepping that file separately) all hitting overlapping "alerts"
+   data on 5 different uncoordinated timers; two of the original 4 backend
+   endpoints (`/api/flash-alerts/active` and `/latest`) turned out to be
+   the exact same underlying query called twice. Added one `/api/alerts/poll`
+   aggregate endpoint + a 15s-TTL shared fetch cache; all 5 pollers now use
+   it, keeping every poller's own interval and UI/safety logic untouched.
+   **Verified live**: flash-alerts/active (was 8/55s) and /latest (was 6/55s)
+   and dynamic-alerts/active (was 5/55s) all fully eliminated as independent
+   calls; alerts/recent partially deduplicated (10s poller cadence exceeds
+   the 15s cache TTL — a tuning nuance). Alert banner confirmed still
+   rendering correctly (live MACD alert observed) — no UI regression. Stage 3
+   (lazy-load ~40+ boot-time fetches for non-visible sections) **deferred**,
+   clearly scoped in the audit doc — larger, more error-prone lift, 3 more
+   directive items remained.
+
+3. **SwingDesk header stats** (`626c10e`) — investigated what real data
+   actually exists before wiring anything. `tb-daypnl` ← `risk-gate`'s
+   already-computed real `daily_loss` (realized P&L from `daily_stats`),
+   just never applied to that element. `tb-openrisk` ← new
+   `SUM(risk_dollars)` over open trades — the per-trade value already
+   existed (computed at plan time), just never aggregated; added the
+   aggregate to the backend. `tb-portfolio` ← explicit **"n/a"** with a
+   tooltip — genuinely no honest source exists (confirmed `alpaca_wired:
+   False` on risk-gate itself, no local ledger tracks account/equity value
+   anywhere in this backend). Verified live: all three render correctly
+   given the current 0-open-positions state; zero console errors.
+
+4. **Cloudflared hygiene**:
+   - 4a (upgrade, executed + verified): 2026.6.0 → 2026.6.1 via brew.
+     Baseline-checked all 5 hostnames before touching anything, killed the
+     old process, restarted via the established `cloudflared_reboot_start.sh`
+     (not a hand-rolled restart). **Unexplained but benign**: the process
+     came back with a new PID faster than my own script's invocation (its
+     own log shows "already running, skipping start" at the same timestamp)
+     — no watchdog cron found that should explain this; flagging honestly
+     rather than claiming a mechanism I didn't verify. Outcome confirmed
+     regardless: `cloudflared tunnel info` shows the connector running
+     **2026.6.1**, all 5 hostnames matched their pre-upgrade baseline codes
+     exactly after.
+   - 4b (reauth prep, `ff9ae8d`) — draft only, did not run
+     `cloudflared tunnel login` myself (needs the Admiral's browser
+     session). Includes a dry-run-against-a-throwaway-hostname verification
+     step designed specifically to catch the same nested-hostname misfire
+     that caused the accessapple.com DNS incident. Verified the doc's
+     load-bearing safety claim before writing it: `cert.pem` and the
+     tunnel's credentials file are confirmed-separate files on disk, so
+     cert replacement carries zero risk to the live running tunnel.
+
+5. **accessapple.com email posture** (`03838ac`) — draft only, zone my
+   token can't reach; investigated via public `dig` only. **Corrected the
+   directive's own premise**: DMARC already exists and is already correctly
+   configured (`p=none` + `rua` via Cloudflare's own DMARC management) —
+   not something to draft fresh; documented the quarantine ramp-up path
+   instead. Real finding: DKIM CNAMEs are completely missing while SPF
+   itself is syntactically clean (single lookup, hard-fail, no duplicate
+   records) — flagged as the more likely explanation for an observed "Fail"
+   than anything wrong with SPF, since DMARC only needs one of SPF/DKIM
+   aligned. Origin-IP-exposure: could not find the specific leaking record
+   from outside the zone (~20 subdomain guesses, no hits) — gave exact
+   methodology for the Admiral to find it from their own direct zone view
+   rather than guessing blind.
+
+All 5 commits pushed and hash-verified individually per the standing
+auto-push policy: `349c5b0`, `8065dfe`, `f7d50ae`, `626c10e`, `ff9ae8d`,
+`03838ac` (6 commits — audit doc got a follow-up update after Stage 2).
+
+---
+
 ## TIER 1 — VERIFIED THIS SESSION (confirmed against repo/live origin)
 
 ### Repo root
