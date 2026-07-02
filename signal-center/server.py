@@ -2244,7 +2244,16 @@ def predictions_snapshot():
     # datetime.now().isoformat() -> predictions.created_at stored AZ-local -> db_max
     # freshness read it as UTC -> phantom 7h staleness. Canonical space-UTC (matches :551).
     now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    # HM-DIRECTIVE-2026-07-01 Deck2 #10: _fetch_top25() swallows trade-levels
+    # failures (thin OHLCV -> _compute_trade_levels raises, caught silently),
+    # leaving recommendation/tp1/tp2 empty — those rows were inserted anyway
+    # (68/2025 rows repo-wide, e.g. every HOLX row since 2026-06-22). Require
+    # a complete row before persisting instead of silently keeping a blank one.
+    inserted, skipped = [], []
     for r in rows:
+        if not r['recommendation'] or r['tp1'] is None or r['tp2'] is None:
+            skipped.append(r['symbol'])
+            continue
         db.execute(
             "INSERT INTO predictions "
             "(snap_date, symbol, price_at, master_score, regime, recommendation, "
@@ -2254,10 +2263,11 @@ def predictions_snapshot():
              r['recommendation'], r['tp1'], r['tp2'], r['stop_loss'], r['rr'],
              r['signal_json'], now)
         )
+        inserted.append(r['symbol'])
     db.commit()
     db.close()
-    return jsonify({"status": "snapped", "date": today, "count": len(rows),
-                    "tickers": [r['symbol'] for r in rows]})
+    return jsonify({"status": "snapped", "date": today, "count": len(inserted),
+                    "tickers": inserted, "skipped_incomplete": skipped})
 
 
 def _get_ohlcv_range(symbol, days_back=5):
