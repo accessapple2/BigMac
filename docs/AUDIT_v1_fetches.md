@@ -63,17 +63,34 @@ Stage 2 candidates (they're each called once already, so consolidating
 them doesn't reduce request count the way deduplicating the alert-poll
 cluster does).
 
-## Stage 2 plan (next)
-Consolidate the 4-loop alert-polling cluster into one endpoint + one poll
-loop. Scope: backend adds one aggregate endpoint returning all 4 payloads;
-frontend's 4 existing functions parse their slice of the combined response
-instead of independently fetching. Net: 4 requests/cycle → 1 request/cycle
-for this cluster, ~28 fewer requests per 60s of page-open time in this
-capture alone.
+## Stage 2 — DONE, verified live (commit `8065dfe`)
+Found a 5th independent poller while implementing this stage: `alert_speaker.js`
+(external file, not in `index.html` itself) has its own separate 10s poll to
+`/api/alerts/recent`, on top of `pollTradeAlerts`'s 30s poll to the same
+endpoint — a second, previously-undiscovered duplicate. All 5 now share one
+`/api/alerts/poll` aggregate endpoint via a 15s-TTL cache helper
+(`_fetchAlertsPoll`); each poller's own interval and UI logic left untouched.
 
-## Stage 3 plan (after Stage 2, larger lift — not started this session)
+**Verified live**, clean network-buffer capture, ~55s window, before/after:
+- `/api/flash-alerts/active` — was 8, now **0** (fully eliminated as an independent call)
+- `/api/flash-alerts/latest` — was 6, now **0** (fully eliminated)
+- `/api/dynamic-alerts/active` — was 5, now **0** (fully eliminated)
+- `/api/alerts/recent` — partially deduplicated (the 10s-cadence poller is
+  tighter than the 15s cache TTL, so it doesn't fully collapse to zero
+  independent calls — a tuning nuance, not a functional gap; could drop the
+  cache TTL to 10s in a follow-up if this specific residual matters)
+- Alert banner confirmed still rendering correctly end-to-end (live MACD
+  cross alert toast observed on screen after the change) — no UI regression
+
+## Stage 3 — deferred, not started this session
 Gate the boot-time fetches for non-visible sections behind `showSection()`
 lazy-init (fetch on first activation of that tab, not unconditionally on
 page load). Requires mapping each of the ~40+ remaining boot-time fetches
-to its owning section — a materially larger and more error-prone change
-than Stage 2, deferred pending Stage 2's verified result.
+(test-kitchen, tax, congress, uhura-institutional, scanner/events, etc.) to
+its owning section, then verifying each affected section still loads
+correctly on first open — a materially larger, more error-prone change than
+Stage 2 (which was a contained, mechanical swap with an easy before/after
+network-count check). Per the directive's own instruction to stop rather
+than push through if a stage looks too risky, and given 3 more major items
+remain in this same directive, this is deferred as a clearly-scoped
+follow-up rather than rushed this session.
