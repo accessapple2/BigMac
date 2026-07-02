@@ -402,7 +402,12 @@ body{background:var(--bg);color:var(--text);font-family:'IBM Plex Sans',sans-ser
 <div class="toast" id="toast"></div>
 
 <script>
-const API = 'http://localhost:8889';
+// HM-DIRECTIVE-2026-07-02: was hardcoded to 'http://localhost:8889' — every fetch on
+// this page resolved against the VIEWER's own machine when loaded via the public
+// domain (swingdesk.ollietrades.com), not the actual origin. Relative/same-origin
+// works both for direct localhost testing and via the tunnel (this file is served
+// by the same FastAPI app that serves /api/*, so same-origin is always correct).
+const API = '';
 let chart, candleSeries, volSeries, ema20Series, ema50Series;
 let currentSym = 'NVDA';
 let currentTF = 'day';
