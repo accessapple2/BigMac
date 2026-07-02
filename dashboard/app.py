@@ -13528,6 +13528,22 @@ def clear_sw():
 
 @app.get("/")
 def serve_index():
+    # HM-DIRECTIVE-2026-07-01 Deck3 #18: bridge-v2 (the lean daily-driver
+    # carrier, per TWO-TIER BRIDGE DOCTRINE) is now the root view. v1 (the
+    # full engineering console) is NOT retired — it moved to /classic and
+    # /bridge-v2 stays as an alias for existing bookmarks/links.
+    # Admiral-approved 2026-07-02.
+    return FileResponse(
+        os.path.join(_static_dir, "bridge-v2.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+    )
+
+
+@app.get("/classic")
+def serve_classic():
+    """v1 — full engineering console (backtest, screener, Greeks, learning,
+    alerts, deep panels). Demoted from root but NOT retired — see
+    TWO-TIER BRIDGE DOCTRINE in CLAUDE.md."""
     return FileResponse(
         os.path.join(_static_dir, "index.html"),
         headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
