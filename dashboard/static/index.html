@@ -6791,6 +6791,12 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     <div id="fleet-report-body" style="padding:0 14px 14px;">
       <!-- Advice bar -->
       <div id="fleet-advice-bar" style="margin-bottom:10px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+      <!-- HM-DIRECTIVE-2026-07-01 Deck3 #16: dormant (halt_mode != 'active') agents
+           collapsed by default — ~40 halted/exit_only rows were cluttering this table. -->
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;margin-bottom:8px;" onclick="event.stopPropagation();">
+        <input type="checkbox" id="fleet-report-show-dormant" onchange="loadFleetReportCard()" onclick="event.stopPropagation();" style="cursor:pointer;">
+        Show dormant agents (<span id="fleet-report-dormant-count">0</span> hidden)
+      </label>
       <!-- Table -->
       <div style="overflow-x:auto;">
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -7347,9 +7353,19 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           tbody.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--muted);text-align:center;">No rating data yet</td></tr>';
           return;
         }
+        // HM-DIRECTIVE-2026-07-01 Deck3 #16: collapse dormant (halt_mode != 'active')
+        // agents by default — ~40 halted/exit_only rows were cluttering this table.
+        // Sort the remaining (or all, if toggled) rows by P&L descending.
+        var showDormant = !!(document.getElementById('fleet-report-show-dormant') || {}).checked;
+        var rated = data.filter(function(r) { return r.rating !== 'N/A'; });
+        var dormantCount = rated.filter(function(r) { return (r.halt_mode || 'active') !== 'active'; }).length;
+        var dormantCountEl = document.getElementById('fleet-report-dormant-count');
+        if (dormantCountEl) dormantCountEl.textContent = dormantCount;
+        var visible = showDormant ? rated : rated.filter(function(r) { return (r.halt_mode || 'active') === 'active'; });
+        visible.sort(function(a, b) { return (b.total_pnl || 0) - (a.total_pnl || 0); });
+
         var rows = '';
-        data.forEach(function(r) {
-          if (r.rating === 'N/A') return;
+        visible.forEach(function(r) {
           var streak = r.consecutive_wins > 0
             ? '<span style="color:#22c55e;">W' + r.consecutive_wins + '</span>'
             : '<span style="color:#ef4444;">L' + r.consecutive_losses + '</span>';
@@ -7370,8 +7386,12 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           } else {
             kellyBadge = '<span style="font-size:10px;color:var(--muted);font-family:var(--font-mono);">1.0×</span>';
           }
-          rows += '<tr style="border-bottom:1px solid var(--border);">' +
-            '<td style="padding:6px 8px;font-weight:600;">' + (r.display_name || r.player_id) + '</td>' +
+          // HM-DIRECTIVE-2026-07-01 Deck3 #16: flag Dilithium Reserve (enterprise-computer)
+          // when underwater — generic on sign, not hardcoded to a specific drawdown %.
+          var isDilithiumUnderwater = r.player_id === 'enterprise-computer' && (r.total_pnl || 0) < 0;
+          var nameFlag = isDilithiumUnderwater ? ' <span title="Underwater" style="color:#ef4444;">⚠️</span>' : '';
+          rows += '<tr style="border-bottom:1px solid var(--border);' + (isDilithiumUnderwater ? 'background:rgba(239,68,68,0.06);' : '') + '">' +
+            '<td style="padding:6px 8px;font-weight:600;">' + (r.display_name || r.player_id) + nameFlag + '</td>' +
             '<td style="padding:6px 4px;text-align:center;">' +
               '<span style="font-weight:800;font-size:15px;color:' + gradeColor(r.rating) + ';">' +
               gradeIcon(r.rating) + ' ' + r.rating + '</span></td>' +

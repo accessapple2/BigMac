@@ -13349,8 +13349,22 @@ def ratings_fleet():
             _compute_trailing_sharpe, get_kelly_tier_label,
         )
         report = fleet_report_card()
+        # HM-DIRECTIVE-2026-07-01 Deck3 #16: fleet_report_card()'s underlying
+        # _get_active_fleet() filters on the legacy is_active=1 column, which
+        # covers far more than the live-trading fleet (halt_mode='active') —
+        # ~40 halted/exit_only agents clutter the report. Stamp halt_mode so
+        # the frontend can collapse them by default instead of the backend
+        # silently dropping data other consumers of this endpoint may want.
+        try:
+            _conn_hm = _conn()
+            _halt_rows = _conn_hm.execute("SELECT id, COALESCE(halt_mode, 'active') AS halt_mode FROM ai_players").fetchall()
+            _conn_hm.close()
+            _halt_map = {row["id"]: row["halt_mode"] for row in _halt_rows}
+        except Exception:
+            _halt_map = {}
         for r in report:
             r["trend"] = get_rating_trend(r["player_id"])
+            r["halt_mode"] = _halt_map.get(r["player_id"], "active")
             try:
                 r["sharpe_90d"] = _compute_trailing_sharpe(r["player_id"], days=90)
                 r["kelly_tier"] = get_kelly_tier_label(r["player_id"])
