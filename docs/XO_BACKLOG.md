@@ -4144,3 +4144,61 @@ an open reader, not garbage a routine checkpoint should have already claimed —
 consistent with the always-a-reader theory above, and it's why the interim fix
 targets the restart's zero-reader window specifically rather than trying
 another in-place checkpoint attempt.
+
+## OPEN 2026-07-01 — HM-POLYGON-QUOTES — provider-order gaps + probe-informed recommendation
+
+Six known gap sites where the codebase doesn't follow "Polygon primary" doctrine
+(from HM-CLOSEOUT-2026-07-01 Item 4 trace, report-only at the time — no code
+touched): `engine/market_data.py::get_stock_price` (25+ callers, Alpaca→Yahoo→
+Finnhub→AlphaVantage, Polygon never referenced), `strategies/chain_lookup.py`
+(`CHAIN_PROVIDER` defaults to `alpaca`), `engine/options_chain.py` (yfinance-only),
+`engine/gamma_map.py` (Alpaca-only, feeds Ready Room GEX), and the dashboard's
+two chart endpoints `dashboard/app.py` `/api/candles` + `/api/charts/ohlcv`
+(both yfinance-only, the "+2" sites).
+
+**HM-POLYGON-PROBE 2026-07-01 results** (`scripts/polygon_probe.py`, read-only,
+SPY/NVDA/WDC, Stocks Starter + Options Starter tier):
+- `/v2/last/nbbo/{ticker}` (live quotes): **403 NOT_AUTHORIZED on all 3 tickers**
+  — "You are not entitled to this data." Confirmed: this plan tier has NO quote
+  endpoint access at all, not delayed-but-usable — fully gated behind upgrade.
+- `/v2/snapshot/.../tickers/{ticker}`: 200 OK, returns day/min/prevDay OHLC
+  aggregates (o/h/l/c/v/vw) populated; `lastTrade`/`lastQuote` empty on all 3.
+  Same gate as above — day-bar data works, quote data doesn't.
+- `/v3/snapshot/options/{ticker}`: 200 OK, `open_interest` populated on 2/3
+  tickers, but `last_quote`/`last_trade` NULL on all 3 and `greeks` NULL on 2/3
+  (inconsistent across tickers — sample was the first 5 contracts returned,
+  unfiltered by strike/expiry, so this may reflect which contracts got sampled
+  more than a clean capability signal; a filtered re-probe would sharpen this).
+  Confirms the existing `alpaca_chain_client.py` header comment ("Polygon
+  Starter plan returns no quotes") is accurate for options too.
+- No rate-limit headers present in any response on this tier.
+- Delay could not be cleanly determined — probe ran after market close, so the
+  ~31min gap observed between `ticker.updated` and wall-clock reflects
+  time-since-close, not a live real-time-vs-delayed signal. Re-run during RTH
+  for a clean delay read if it matters.
+
+**Recommendation per site (probe-informed, no repointing done):**
+- `get_stock_price` — **STAY on Alpaca/yfinance.** Polygon quote endpoint is
+  403 on this plan; cannot supply live prices at all without a plan upgrade.
+- `chain_lookup.py` — **STAY on Alpaca default.** Polygon options snapshot
+  returns no usable last_quote/last_trade; matches the code's own prior
+  assessment. Not a safe repoint.
+- `options_chain.py` — **STAY on yfinance/Alpaca**, same reasoning as above.
+- `gamma_map.py` — **TENTATIVE candidate for repoint, needs a build not a flip.**
+  GEX computation leans on open_interest + chain structure more than live
+  quotes, and `open_interest` DID come back populated in the probe. The
+  platform already has a working Polygon-native GEX path
+  (`engine/gamma_context.py` / `canonical_gex`) that doesn't depend on
+  last_quote/last_trade either — `gamma_map.py` could plausibly follow the
+  same pattern, but this needs an actual implementation + test, not a
+  probe-only decision. Filed as follow-up, not actioned.
+- `/api/candles` + `/api/charts/ohlcv` — **SAFE TO REPOINT.** Probe confirms
+  Polygon's day-bar/snapshot data works cleanly (200 OK, real OHLC fields
+  populated) on this plan, and `engine/market_data.py::get_polygon_bars` is
+  already built, Polygon-primary, and proven working elsewhere in the
+  codebase. These two endpoints could call it instead of `yfinance` directly
+  with low risk — the only site of the six with a clear, low-risk path.
+
+No repointing performed in this pass — probe results only. Actioning any of
+the above (build the gamma_map.py repoint, or flip the two chart endpoints)
+is separate follow-up work.
