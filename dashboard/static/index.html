@@ -29086,13 +29086,27 @@ function playTradeBeep(type) {
   } catch(e) {}
 }
 
+// HM-DIRECTIVE-B-2 2026-07-02: pollTradeAlerts/checkAlertBanner/_pollFlashAlerts/
+// _pollFab were 4 independent fetch loops (30s/20s/15s/20s) for related alert
+// data. Shares one aggregate fetch across all 4 -- each function keeps its own
+// interval and all its original logic untouched, only the data source changed.
+var _alertsPollCache = { data: null, ts: 0 };
+async function _fetchAlertsPoll() {
+  var now = Date.now();
+  if (_alertsPollCache.data && (now - _alertsPollCache.ts) < 15000) {
+    return _alertsPollCache.data;
+  }
+  var r = await fetch('/api/alerts/poll');
+  var d = await r.json();
+  _alertsPollCache = { data: d, ts: now };
+  return d;
+}
+
 async function pollTradeAlerts() {
   // HM-AUTH-STORM-FIX: short-circuit on session loss + only beep on real 2xx
   if (window._tmAuth && !window._tmAuth.isAuthenticated) return;
   try {
-    var r = await fetch('/api/alerts/recent?limit=1');
-    if (!r || !r.ok) return;  // never beep on 401/5xx/network error
-    var trades = await r.json();
+    var trades = (await _fetchAlertsPoll()).recent_trades;
     if (!Array.isArray(trades)) return;  // backend hiccup safety
     if (trades.length > 0) {
       var latest = trades[0];
@@ -32680,8 +32694,7 @@ function _getOrCreateAlertToast() {
 async function checkAlertBanner() {
   if (_alertBannerPaused) return;
   try {
-    var r = await fetch('/api/dynamic-alerts/active?minutes=30');
-    var d = await r.json();
+    var d = (await _fetchAlertsPoll()).dynamic_active;
     var toast = _getOrCreateAlertToast();
     if (d && d.length > 0) {
       var a = d[0];
@@ -40818,7 +40831,8 @@ function dismissFlashAlert() {
 
 // Poll for active flash alerts every 15 seconds (full-screen overlay)
 (function _pollFlashAlerts() {
-  fetch('/api/flash-alerts/active').then(function(r){ return r.json(); }).then(function(d) {
+  _fetchAlertsPoll().then(function(combined) {
+    var d = combined.flash_alert;
     if (d.has_alert && d.alert && d.alert.id !== _flashAlertId) {
       _showFlashAlert(d.alert);
     }
@@ -40857,7 +40871,8 @@ function fabDismiss() {
 }
 
 (function _pollFab() {
-  fetch('/api/flash-alerts/latest').then(function(r){ return r.json(); }).then(function(d) {
+  _fetchAlertsPoll().then(function(combined) {
+    var d = combined.flash_alert;
     if (d.has_alert && d.alert) {
       if (d.alert.id !== _fabAlertId) _updateFab(d.alert);
     } else {

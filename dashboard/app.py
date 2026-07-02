@@ -8779,6 +8779,38 @@ def active_alerts(minutes: int = 30):
     return get_active_alerts(minutes)
 
 
+@app.get("/api/alerts/poll")
+def alerts_poll():
+    """Aggregate endpoint for v1's 4 independent alert-polling loops
+    (pollTradeAlerts, checkAlertBanner, _pollFlashAlerts, _pollFab) --
+    HM-DIRECTIVE-B-2 2026-07-02 request consolidation. Each was fetching
+    independently every 15-30s; this combines them into one call. Existing
+    individual endpoints are untouched (kept for compatibility / other callers).
+    Each sub-call is isolated so one failing source doesn't break the others.
+    """
+    result = {}
+    try:
+        result["recent_trades"] = recent_alerts(limit=1)
+    except Exception:
+        result["recent_trades"] = []
+    try:
+        from engine.dynamic_alerts import get_active_alerts
+        result["dynamic_active"] = get_active_alerts(30)
+    except Exception:
+        result["dynamic_active"] = []
+    try:
+        if _dayblade_halted():
+            result["flash_alert"] = {"alert": None, "has_alert": False}
+        else:
+            from engine.dayblade_scanner import get_active_flash_alert, ensure_tables
+            ensure_tables()
+            alert = get_active_flash_alert()
+            result["flash_alert"] = {"alert": alert, "has_alert": alert is not None}
+    except Exception:
+        result["flash_alert"] = {"alert": None, "has_alert": False}
+    return result
+
+
 # --- S/R Heatmap (Volume Profile) ---
 
 @app.get("/api/sr-heatmap/{symbol}")
