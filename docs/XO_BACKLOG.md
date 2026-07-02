@@ -4202,3 +4202,6 @@ SPY/NVDA/WDC, Stocks Starter + Options Starter tier):
 No repointing performed in this pass — probe results only. Actioning any of
 the above (build the gamma_map.py repoint, or flip the two chart endpoints)
 is separate follow-up work.
+
+**2026-07-01 — chart repoints approved-in-principle, deferred post-trip by
+Admiral order.**
