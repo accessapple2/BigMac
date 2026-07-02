@@ -3353,6 +3353,32 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
     return _sanitize(_lb_result)
 
 
+@app.get("/api/fleet/pnl")
+def fleet_pnl(season: int = 0, show_all: bool = False):
+    """
+    Canonical fleet P&L — single source of truth (HM-DIRECTIVE-2026-07-01 Deck1 #3).
+    Sums the same normalized total_pnl/day_pnl fields leaderboard() already
+    computes correctly per player, so every UI surface (v1 header, bridge-v2,
+    signal-center) reports one number instead of each deriving its own.
+    """
+    lb = leaderboard(season=season, show_all=show_all)
+    rows = lb.get("leaderboard", [])
+    total_pnl = sum((r.get("total_pnl") or 0) for r in rows)
+    day_pnl = sum((r.get("day_pnl") or 0) for r in rows)
+    current_equity = sum((r.get("current_equity") or 0) for r in rows)
+    starting_capital = sum((r.get("starting_capital") or 0) for r in rows)
+    return _sanitize({
+        "season": lb.get("season"),
+        "current_season": lb.get("current_season"),
+        "player_count": len(rows),
+        "total_pnl": total_pnl,
+        "day_pnl": day_pnl,
+        "current_equity": current_equity,
+        "starting_capital": starting_capital,
+        "return_pct": (total_pnl / starting_capital * 100) if starting_capital else 0.0,
+    })
+
+
 import math
 def _sanitize(obj):
     if isinstance(obj, dict):

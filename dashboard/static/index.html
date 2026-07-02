@@ -23593,9 +23593,6 @@ async function fetchScannerTier() {
   } catch(e) {}
 }
 
-// Starting capital by player_id (used for P&L calculation)
-var _FLEET_START_CAP = {};  // all Season 5 agents start at $10,000
-
 function updateFleetBar() {
   var el = document.getElementById('fleetBarContent');
   if (!el || !window.arenaData) return;
@@ -23612,15 +23609,14 @@ function updateFleetBar() {
     return false;
   });
 
-  // Totals — use total_value (authoritative), fallback to current_equity
-  var totalValue = players.reduce(function(s,p){ return s + (p.total_value || p.current_equity || 0); }, 0);
   var totalPositions = players.reduce(function(s,p){ return s + (p.positions_count || 0); }, 0);
 
-  // HM-FLEET-BAR-DISPLAY: uniform $10k start per active agent for fleet P&L math.
-  var STARTING_CAPITAL_PER_AGENT = 10000;
+  // HM-DIRECTIVE-2026-07-01 Deck1 #3: sum the backend's already-correct
+  // per-player total_pnl (current_equity - real starting_capital) instead of
+  // subtracting a flat $10k/agent assumption — real starting capital varies
+  // by player, which was the source of the cross-surface P&L disagreement.
   var activeAgentCount = _FLEET_CORE.size;
-  var totalStart       = activeAgentCount * STARTING_CAPITAL_PER_AGENT;
-  var fleetPnl         = totalValue - totalStart;
+  var fleetPnl         = players.reduce(function(s,p){ return s + (p.total_pnl || 0); }, 0);
   var avgPnl           = activeAgentCount > 0 ? fleetPnl / activeAgentCount : 0;
   var fleetPnlSign     = fleetPnl >= 0 ? '▲' : '▼';
   var avgSign          = avgPnl   >= 0 ? '▲' : '▼';

@@ -815,6 +815,7 @@ _TRACKING_PLAYERS = frozenset({'dalio-metals', 'enterprise-computer', 'schwab'})
 _SIGNALS_ENDPOINTS = {
     'regime':             '/api/regime',
     'leaderboard':        '/api/arena/leaderboard',
+    'fleet_pnl':          '/api/fleet/pnl',
     'vix':                '/api/market/vix',
     'gex':                '/api/gex/SPY',
     'fear_greed':         '/api/fear-greed',

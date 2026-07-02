@@ -326,6 +326,7 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
       <div class="vital"><div class="vl">Buying Power</div><div class="vv" id="vBP">—</div><div class="vs">4× margin</div></div>
       <div class="vital"><div class="vl">Positions</div><div class="vv" id="vPosCount">—</div><div class="vs" id="vPosUnreal">—</div></div>
       <div class="vital"><div class="vl">Fleet Agents</div><div class="vv" id="vAgents">—</div><div class="vs" id="vTrades">—</div></div>
+      <div class="vital"><div class="vl">Fleet P&amp;L</div><div class="vv" id="vFleetPnl">—</div><div class="vs" id="vFleetPnlRet">lifetime</div></div>
       <div class="vital"><div class="vl">Season</div><div class="vv" id="vSeason">—</div><div class="vs" id="vSeasonTrades">— trades</div></div>
       <div class="vital"><div class="vl">Scan</div><div class="vv" id="vScanLbl" style="font-size:16px">UOA Quick</div>
         <div class="scanrow"><button class="btn go sm" onclick="triggerScan()">▸ Run now</button></div></div>
@@ -1122,6 +1123,7 @@ function showTab(name) {
 window.addEventListener('DOMContentLoaded', () => {
   showTab('bridge');          // populates Bridge exactly as tab-revisit does
   loadFleetStatus();
+  loadFleetPnl();
   loadPositions();
   loadLeaderboard();
   loadSafetyControls();
@@ -1182,6 +1184,19 @@ async function loadFleetStatus() {
     document.getElementById('heroSeason').textContent = 'Season ' + (d.current_season || '—') + ' · Fleet DB';
     setSys('sysFleet', true, (d.active_players || '—') + ' active');
     setSys('sysTrades', true, (d.total_trades || 0) + ' trades S' + (d.current_season || '—'));
+  } catch (_) { /* non-critical */ }
+}
+
+// ─── /api/fleet/pnl → canonical fleet P&L (HM-DIRECTIVE-2026-07-01 Deck1 #3) ──
+// Single source of truth shared with the v1 dashboard's FLEET P&L header —
+// do not derive this from /api/alpaca/positions (that's open-position P&L only).
+async function loadFleetPnl() {
+  try {
+    const d = await api('GET', '/api/fleet/pnl');
+    const el = document.getElementById('vFleetPnl');
+    const ret = document.getElementById('vFleetPnlRet');
+    if (el) { el.textContent = fmtPnl(d.total_pnl); el.className = 'vv ' + colorClass(d.total_pnl); }
+    if (ret) ret.textContent = 'lifetime · ' + (d.return_pct >= 0 ? '+' : '') + d.return_pct.toFixed(1) + '%';
   } catch (_) { /* non-critical */ }
 
   // Also hit /api/fleet/status for richer health

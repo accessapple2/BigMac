@@ -1544,10 +1544,14 @@ function scoreConvergence(d){
   var score=count>=3?75:count>=2?60:count>=1?52:45;
   return{score,val:count,desc:d.threshold||'Multi-strategy agreement score'};
 }
-function scoreFleet(agents){
+function scoreFleet(agents,canonicalPnl){
   if(!agents||!agents.length) return{score:50,pnl:0,ret:0,wr:0};
-  var pnl=agents.reduce(function(s,a){return s+(a.total_pnl||0);},0);
-  var ret=agents.length>0?agents.reduce(function(s,a){return s+(a.return_pct||0);},0)/agents.length:0;
+  // HM-DIRECTIVE-2026-07-01 Deck1 #3: P&L comes from /api/fleet/pnl (same
+  // canonical source as the v1/bridge-v2 headers), not a local re-sum of
+  // whatever subset of `agents` happened to be filtered here — that local
+  // sum was the source of signal-center's divergent P&L total.
+  var pnl=(canonicalPnl&&typeof canonicalPnl.total_pnl==='number')?canonicalPnl.total_pnl:agents.reduce(function(s,a){return s+(a.total_pnl||0);},0);
+  var ret=(canonicalPnl&&typeof canonicalPnl.return_pct==='number')?canonicalPnl.return_pct:(agents.length>0?agents.reduce(function(s,a){return s+(a.return_pct||0);},0)/agents.length:0);
   var wr=agents.reduce(function(s,a){return s+(a.win_rate||0);},0)/agents.length;
   var score=Math.round(Math.min(100,Math.max(0,wr*0.5+Math.min(Math.max(ret*5,0),25)+25)));
   return{score,pnl,ret,wr};
@@ -1726,7 +1730,7 @@ function buildDashboard(data){
   var smartM   = scoreSmartMoney(data.smart_money);
   var volR     = scoreVolumeRadar(data.volume_radar);
   var conv     = scoreConvergence(data.convergence);
-  var fleet    = scoreFleet(agents);
+  var fleet    = scoreFleet(agents,data.fleet_pnl);
   var cong     = scoreCongress(data.congress);
   var insider  = scoreInsider(data.insider);
   var earnings = scoreEarnings(data.earnings);
