@@ -214,6 +214,52 @@ window, OR push the restart synchronously with the commit. `py_compile` is
 not enough — catches syntax errors but NOT undefined-name errors. Runtime
 smoke required for any cross-module symbol change.
 
+## Physical Power Infrastructure — Shelly Plugs (HM-SHELLY-PREP-V2, 2026-07-01)
+
+Four Shelly Plug US, local-API only (cloud disabled), power-loss-restore
+default **ON** (survives a real outage without a human present to switch
+things back on).
+
+| Plug     | IP            | Powers          | Role          | Watchdog |
+|----------|---------------|-----------------|---------------|----------|
+| bigmac   | 192.168.1.245 | bigmac Mac Mini | manual only   | none (see `HM-SHELLY-WATCHDOG`, post-trip) |
+| olliemax | 192.168.1.246 | olliemax GPU box| manual only   | none (see `HM-SHELLY-WATCHDOG`, post-trip) |
+| allo     | 192.168.1.244 | Allo router     | self-watchdog | `scripts/shelly_net_watchdog.js`, on-device |
+| starlink | (RV/GL-MT3000 network) | Starlink Mini AC adapter | self-watchdog | `scripts/shelly_net_watchdog.js`, on-device (identical script to allo) |
+
+**Wiring:**
+- Home: `Wall → UPS → Shelly → device` (bigmac, olliemax, Allo router all
+  ride through the UPS before the Shelly stage).
+- RV: `Inverter → Shelly → Starlink AC adapter` (no UPS in the RV chain —
+  the inverter is the buffer).
+
+**Doctrine:**
+- **Cloud disabled on all four** — local RPC/API only, no dependency on
+  Shelly's cloud service being reachable.
+- **Power-loss-restore = ON on all four** — after a real outage, everything
+  comes back without a human present, rather than staying dark until someone
+  manually flips it.
+- **Watchdog auto-cycling is for network gear ONLY** (Allo router, Starlink
+  Mini) — `scripts/shelly_net_watchdog.js` runs on-device on those two plugs
+  only. Network gear has no stateful DB to corrupt; worst case of an
+  auto-cycle is a clean reboot.
+- **NEVER self-cycling on DB hosts.** bigmac and olliemax stay **manual-only**
+  (`scripts/plug_cycle.sh {bigmac|olliemax} {status|off|on|cycle}`, a human
+  runs it deliberately) — forcing power off a box mid-write risks corrupting
+  `trader.db`/`signals.db`, and no on-device watchdog can safely quiesce a DB
+  before cutting its own power. Auto-cycle for boxes is a real design problem
+  (cross-box monitoring, conservative unresponsive-thresholds, accepting
+  residual DB-crash risk mitigated by backups rather than pretending a clean
+  quiesce is achievable) — sketched, not built, in `HM-SHELLY-WATCHDOG`
+  (`docs/XO_BACKLOG.md`, POST-TRIP).
+- `scripts/plug_cycle.sh` is zsh, not bash — macOS's stock `/bin/bash` is 3.2
+  (no associative-array support), same reason `scripts/trader_restart.sh`
+  is zsh. Has two safety rails: refuses off/cycle against the host it's
+  running ON (hostname match — verified the real hostname of the bigmac box
+  is `Steves-Mac-mini`, not literally "bigmac"), and requires `--confirm` for
+  `allo` off/cycle since cutting the router likely cuts the script's own
+  network path mid-command.
+
 ## HM-AM Scope (added 2026-05-12, HM-CLOSE-GAP W1.1)
 Total Portfolio = **real-world net worth only** (Schwab + Webull + IBKR +
 physical metals). EXCLUDES Alpaca paper trading book — separate

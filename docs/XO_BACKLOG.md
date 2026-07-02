@@ -4205,3 +4205,57 @@ is separate follow-up work.
 
 **2026-07-01 — chart repoints approved-in-principle, deferred post-trip by
 Admiral order.**
+
+## OPEN 2026-07-01 — HM-SHELLY-WATCHDOG (POST-TRIP) — box-plug auto-cycle design (design only, not built)
+
+Context: HM-SHELLY-PREP-V2 (2026-07-01) shipped `scripts/plug_cycle.sh` (manual
+control tool) and `scripts/shelly_net_watchdog.js` (on-device auto-cycle,
+installed ONLY on the Allo router + Starlink Mini plugs — network gear, no
+stateful DB to corrupt). The bigmac (.245) and olliemax (.246) box plugs stay
+**manual-only** until this ticket is actioned — this entry is the design
+sketch for eventually giving them a safe auto-cycle path, not an
+implementation.
+
+**Why boxes are harder than network gear:** cutting power to a box mid-write
+can corrupt `trader.db` (or `signals.db`). Network gear has no such state —
+worst case is a clean reboot. A box auto-cycler needs real DB-safety
+reasoning that the network-gear watchdog didn't.
+
+**Design sketch:**
+1. **Cross-box, never self-monitoring.** A box that's down can't trigger its
+   own recovery — bigmac's watchdog must monitor olliemax's reachability (and
+   fire `scripts/plug_cycle.sh olliemax cycle` on trigger) and vice versa.
+   This is already naturally enforced by `plug_cycle.sh`'s SAFETY RAIL 1
+   (refuses off/cycle against the host it's running on) — the cross-box
+   watchdog would just be a cron job on each box calling the *other* box's
+   plug, which the existing tool already permits without modification.
+2. **Independent failure mode (CLAUDE.md doctrine, "Alarms must not share a
+   failure mode with what they watch").** The watchdog cron and the thing it
+   watches must not share infrastructure — e.g. don't run the olliemax-watcher
+   cron ON bigmac if bigmac's own uptime is what's in question elsewhere;
+   consider running each box's watchdog from a third point if one becomes
+   available, or at minimum keep it a plain cron entry (not tied to the
+   trader process's own health).
+3. **Conservative unresponsive-threshold, well past any legitimate slow
+   restart/update** — a box that's merely slow to boot or mid-restart must
+   never get power-cut. Needs to be long enough to rule out `trader_restart.sh`
+   (which already waits up to 45x2s=90s for the listener) plus OS-level boot
+   time plus margin — likely 10-15+ minutes unresponsive before even
+   considering a trigger, not the 15-minute network-gear threshold reused
+   verbatim (network gear reboots in seconds; a Mac Mini does not).
+4. **DB-safety cannot be guaranteed at trigger time** — if a box is genuinely
+   unresponsive, there's no way to ask it to checkpoint/quiesce first. The
+   mitigations already shipped today reduce blast radius instead of
+   preventing it outright: `scripts/trader_restart.sh` now checkpoints WAL in
+   the zero-reader window on every *voluntary* restart (HM-WAL-ROOTCAUSE
+   interim mitigation), and daily local (`scripts/db_snapshot.sh`) + off-host
+   (`scripts/offhost_backup.sh`) snapshots exist if a forced cycle does
+   corrupt something. An auto-cycle design should treat "accept the DB-crash
+   risk of a forced cycle, mitigated by fresh backups" as the actual
+   trade-off, not pretend a clean quiesce is achievable from outside.
+5. **Manual override always available** — `plug_cycle.sh` already exists and
+   works for a human to intervene immediately; this ticket only adds
+   *unattended* recovery on top, doesn't replace the manual path.
+
+No code written for this ticket — implementation is explicitly deferred
+post-trip.
