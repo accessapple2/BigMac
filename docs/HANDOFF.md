@@ -4,6 +4,61 @@ Tier 1 = repo-verified. Tier 2 = carried from prior context, confirm before acti
 
 ---
 
+## PROVING GROUND — kill_warning escalation bug found + fixed (2026-07-02, `962ab3d`)
+
+**What was actually happening** (root-caused via `data/proving_ground.db`,
+not assumed): `ollie-auto`'s Proving Ground trial hit a real kill condition
+(`dd_past_day60` — max_drawdown -43.03%, guard is -15%) on trial day 61
+(2026-06-09). It has correctly remained in `kill_warning` every day since —
+the underlying scorecard data was never wrong. But `ship_kill_evaluator`'s
+`prev_state` read `history[0]`, which on every subsequent run IS today's own
+just-inserted row (schema default `exit_status='pending'`, not yet
+classified) — so every single day looked like a **fresh** "just transitioned
+to kill_warning" event. Confirmed via `state_transitions`: **26 consecutive
+identical transition rows**, 2026-05-26 through 2026-07-02, none of which
+were actually new after the first. No mechanism could ever recognize "this
+has been going on for N days," so no escalation was possible — not because
+escalation logic was missing, but because the day-counting it would need to
+run on was structurally broken.
+
+The separate, unconditional "Day 60+ FORCED EVALUATION" daily nudge (a
+different code path) genuinely was firing every day — it was just buried
+under 26 duplicate "NEW transition!" alerts that each implied urgency
+hadn't been building, exactly the shape of alert fatigue that gets
+normalized and ignored.
+
+**Fixed**: `prev_state` now excludes today's own unclassified row. Added
+real escalation on top (was requested, and only possible once day-counting
+actually works): `ESCALATION_DAYS=5` consecutive genuine kill_warning days
+fires a `P_MAX` alert distinct from the routine nudge, repeating every
+`ESCALATION_REPEAT_DAYS=5` thereafter, plus auto-halts new entries for the
+trial agent (`halt_mode → exit_only`) if not already halted — the terminal
+ship/kill decision stays a manual `scripts/proving_ground_admiral.py
+--confirm` call either way. Verified this is currently a no-op against
+production (`ollie-auto` has been `exit_only` since the unrelated
+2026-06-19 Door-1 cut) via a dry-run against a **copy** of the real DB,
+all side effects (NTFY, trader.db writes) mocked — zero live impact from
+the verification itself.
+
+18/18 tests pass (10 pre-existing `_evaluate_state` tests untouched, 8 new:
+pure-function coverage for the day-counting helper + 4 integration tests
+against an in-memory DB covering the exact regression, the "today's row
+still gets classified" edge case, escalation-at-threshold-not-before, and
+the already-halted no-op path).
+
+**Not yet run**: the actual daily cron invocation of `ship_kill_evaluator`
+already fired today (20:18, with the old buggy code — that's where today's
+26th duplicate transition row came from). The fix takes effect on the next
+scheduled run, not retroactively on today's already-logged row.
+
+**Open decision, not yet executed**: `scripts/proving_ground_admiral.py
+--kill --agent ollie-auto --confirm` — this is the terminal, sticky,
+no-undo action that actually ends the trial. Flagged back to the Admiral
+for explicit confirmation given the ambiguity in how it was raised and the
+irreversibility of the action; not run.
+
+---
+
 ## DIRECTIVE B — BACKLOG CLEARANCE (2026-07-02, Admiral sign-off) — ALL 5 ITEMS LANDED
 
 1. **HM-ORPHAN-SEATS** — investigated fully, **no DB write needed**. 13 true
