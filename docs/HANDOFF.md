@@ -4,6 +4,59 @@ Tier 1 = repo-verified. Tier 2 = carried from prior context, confirm before acti
 
 ---
 
+## DATA PULLS — report only (2a, 2b) + label fix shipped (2c, `5e6824b`)
+
+**(a) Per-agent avg win $ vs avg loss $, fleet-wide** (agents with ≥5 closed
+trades, from `trades.realized_pnl`): the asymmetry the McCoy fix targeted is
+**not unique to McCoy** — most of the fleet shows avg-loss-$ magnitude far
+exceeding avg-win-$ magnitude. Worst cases: Geordi (avg win $0.41 vs avg
+loss **-$373.43**, ratio 0.00), GPT-o3 (0.02), Grok 3 (0.06), Constable Odo
+(0.07), Codex Scout (0.09), Uhura (0.12), T'Pol (0.13). McCoy itself sits
+at 1.01 (roughly balanced) even before today's fix, better than most of the
+fleet. Two outliers need separate handling before drawing conclusions from
+them: Qwen3 14B Pro and Codex Prime show avg wins in the thousands ($11,263
+and $4,278) — almost certainly a different position-sizing scale from an
+earlier season, not a real skill signal; normalize by % rather than $
+before using these two in any comparison.
+
+**(b) Wheel book stress test — CSP assignment exposure if SPY -10%**: 51
+open CSP (cash-secured put) positions across SPY/QQQ/SOXL/UPRO. Applied
+-10% directly to SPY/QQQ (unlevered) and **-30% to SOXL/UPRO** (3x daily
+leverage, per the request to mark them separately for gap risk). Result:
+**$0 exposure from SPY/QQQ** — all those strikes already sit ~13.6% OTM,
+more cushion than a 10% shock erodes. **100% of the exposure ($146,746.20
+total) comes from SOXL ($103,655.20) and UPRO ($43,091.00)** — the
+leveraged ETF legs are where the real negative-gamma gap risk concentrates,
+exactly as flagged. Real underlying prices used (SPY $744.07, QQQ $712.53,
+SOXL $182.98, UPRO $140.72), not estimates.
+
+**(c) McCoy report card +$45 vs leaderboard -$332 — FOUND AND FIXED
+(`5e6824b`)**: root-caused, not guessed. `/api/ratings`'s "alltime" period
+is season-scoped (matches the leaderboard) but silently excludes ALL
+options trades and any trade with `|pnl| > $3,500` (a data-quality sanity
+filter, `_MAX_SANE_PNL` in `engine/agent_ratings.py`) — McCoy's report-card
+number is computed from 69 of his 200 season-6 trades. The leaderboard's
+`total_pnl` is a full mark-to-market figure (every trade, includes
+unrealized P&L on 3 open positions) — hence 200 trades, -$332.38. Both
+numbers are individually correct for what they measure; the bug was that
+neither the API nor the UI said so. Fixed the Fleet Report Card's "P&L"
+column header with a tooltip (matching the existing Sharpe/Kelly tooltip
+pattern on the same table) explicitly naming the Leaderboard as the fuller
+figure, plus added `scope_excludes`/`scope_note` fields to the
+`/api/ratings` response itself so any other consumer gets the same
+self-documentation. Did NOT change the underlying rating methodology —
+the options/outlier exclusion is a legitimate, intentional design choice
+for a comparable cross-agent skill score, this was a labeling fix only.
+Verified live (restarted, confirmed the new fields in the API response
+and the tooltip rendering in-browser).
+
+**Third recurrence of this bug class** (per the Admiral's own framing) —
+worth a broader sweep of other places that compute agent-level $ figures
+under a bare, unqualified label if this keeps recurring; not done this
+session (out of scope for what was asked).
+
+---
+
 ## McCOY EXIT ASYMMETRY — fixed, tested, backtest evidence MIXED (not clean-positive)
 
 **Root cause, confirmed via signals_v2 reasoning text** (not guessed): McCoy's
