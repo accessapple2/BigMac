@@ -10,9 +10,12 @@ NO real money is touched under any circumstances.
 from __future__ import annotations
 
 import json
+import logging
 import sqlite3
 from datetime import datetime
 from typing import Dict, List, Optional
+
+logger = logging.getLogger("options_exec")
 
 DB_PATH = "data/trader.db"
 
@@ -20,6 +23,25 @@ VALID_STRUCTURES = frozenset({
     "iron_condor", "bull_put_spread", "bear_call_spread",
     "bull_call_spread", "bear_put_spread",
     "long_call", "long_put", "covered_call", "csp",
+})
+
+# HM-DOOR1-CENTRALIZE 2026-07-03: door1 (2026-06-19) banned new 3x-leveraged
+# CSP writes -- "tail risk outweighs premium income", zero new writes, not a
+# cap. Was enforced only in engine/wheel_strategy.py's own copy of this list.
+# A second writer, engine/shadow_csp.py, had the identical WHEEL_TICKERS
+# universe (incl. every symbol here) but never checked the blocklist at all
+# -- confirmed via a real slip that made it through: shadow-qwen35-csp wrote
+# a ghost-book UPRO CSP on 2026-06-28, well after door1. Two independent
+# per-file copies of a ticker list is exactly how that kind of drift
+# happens. Centralized here, at the one function every CSP writer already
+# calls (open_options_trade), so it can never again be bypassed by a caller
+# that forgets its own copy of the check -- audited 2026-07-03: confirmed
+# wheel_strategy.py and shadow_csp.py are the only two callers that create
+# CSP structures; paper_trader.py's only CSP-adjacent code path is expiry/
+# close handling (existing positions), not new-entry creation, and is
+# intentionally untouched -- door1 never required forced unwinds.
+LEVERAGED_ETF_TICKERS = frozenset({
+    "SOXL", "TQQQ", "UPRO", "SQQQ", "SPXL", "TNA", "UVXY", "TMF", "SOXS", "LABU",
 })
 
 
@@ -45,6 +67,20 @@ def open_options_trade(
     """
     assert book_tag in ("fleet", "ghost"), f"bad book_tag: {book_tag}"
     assert structure in VALID_STRUCTURES, f"unknown structure: {structure}"
+
+    # HM-DOOR1-CENTRALIZE 2026-07-03: zero new leveraged-ETF CSP writes,
+    # everywhere, regardless of caller or book_tag (fleet AND ghost -- the
+    # 2026-06-28 slip that motivated this was a ghost-book write, and
+    # "observation only" doesn't change the doctrine: door1 said zero new
+    # writes, not zero new REAL writes). Existing positions are untouched
+    # here -- this only gates open_options_trade, never close_options_trade.
+    if structure == "csp" and symbol in LEVERAGED_ETF_TICKERS:
+        logger.warning(
+            f"[HM-DOOR1] BLOCKED: {agent_id} attempted new CSP write on "
+            f"leveraged ETF {symbol} (book_tag={book_tag}) -- door1 2026-06-19 "
+            f"bans all new leveraged-ETF CSP writes, no exceptions."
+        )
+        return None
 
     # Net credit (+) or debit (-) at entry
     net = 0.0

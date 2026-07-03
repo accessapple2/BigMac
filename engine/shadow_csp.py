@@ -53,7 +53,7 @@ from rich.console import Console
 
 from config import OLLIE_URL
 from engine.market_calendar import az_now
-from engine.options_exec import open_options_trade
+from engine.options_exec import open_options_trade, LEVERAGED_ETF_TICKERS
 
 console = Console()
 
@@ -159,6 +159,13 @@ def _build_candidates(vix: float, held: set[str]) -> list[dict]:
     expiry = (datetime.now() + timedelta(days=DTE_TARGET)).strftime("%Y-%m-%d")
     for ticker in WHEEL_TICKERS:
         if ticker in held:
+            continue
+        # HM-DOOR1-CENTRALIZE 2026-07-03: this file never checked door1 at all
+        # (confirmed: a 2026-06-28 ghost-book UPRO write slipped through here).
+        # open_options_trade() itself now blocks this centrally regardless of
+        # what happens above it -- this early-exit is purely to avoid wasting
+        # an LLM scoring call on a candidate that would be rejected downstream.
+        if ticker in LEVERAGED_ETF_TICKERS:
             continue
         try:
             price = float(get_stock_price(ticker).get("price", 0) or 0)
