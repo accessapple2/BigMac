@@ -221,6 +221,16 @@ def calculate_rating(player_id: str, period: str = "alltime") -> dict[str, Any]:
         "volume_accuracy":     0.0,   # reserved for future
         "rating":              rating,
         "rating_score":        round(score, 1),
+        # HM-RATING-VS-LEADERBOARD-LABEL 2026-07-03: this total_pnl is a
+        # quality-filtered SUBSET (stock trades only, current season,
+        # excludes outlier trades >$3,500) used to compute a comparable
+        # skill rating across agents -- it is NOT the same figure as the
+        # Leaderboard's Total P&L (options included, unrealized mark-to-
+        # market, every trade). Third recurrence of this exact confusion
+        # (season/lifetime-style label mismatch); this field makes the
+        # scope self-documenting for any consumer of this endpoint.
+        "scope_excludes":      "options trades, outlier trades over $3,500",
+        "scope_note":          "quality-filtered rating sample, not total portfolio P&L",
     }
 
     # Save snapshot to DB (never overwrite — historical trend tracking)
