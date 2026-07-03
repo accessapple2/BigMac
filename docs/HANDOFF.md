@@ -4,6 +4,61 @@ Tier 1 = repo-verified. Tier 2 = carried from prior context, confirm before acti
 
 ---
 
+## McCOY FIX — ACTIVATED LIVE (Admiral-approved, 2026-07-02 17:44 MST)
+
+Restarted with market safely closed (17:44 MST = 20:44 ET, well after the
+4pm close). Verified new config loaded via a startup log line
+(`logs/trader_error.log`): `T1=40% target / T2=70% target, floor=8%,
+trail=3%, tag='MCCOY-TR-V1'` at `2026-07-02T17:43:49` — matches the shipped
+constants exactly. Trader confirmed healthy post-restart (`/api/status` →
+200). Commits `0f06b81` (the fix itself) + `7e4df58` (tagging + startup log).
+
+**Tagging for the new-vs-old comparison**: every one of McCoy's post-fix
+exits now carries `[MCCOY-TR-V1]` in its `reasoning` text — target-relative
+T1/T2 partials, the final-third trailing stop, and (a small, McCoy-only
+addition to the otherwise-shared hard-stop function) McCoy's hard-stop
+exits too. The old flat-tier fallback (only used when a position has no
+parseable signal metadata) is deliberately left untagged and now says so
+explicitly in its own reasoning — it's genuinely still old-style logic for
+those specific cases. Query `SELECT * FROM trades WHERE player_id=
+'ollama-plutus' AND reasoning LIKE '%MCCOY-TR-V1%'` any time to pull the
+full new-system sample for the ~20-resolved-trade comparison.
+
+**Flat-tier siblings (neo-matrix, deepseek-7b-grok4, ollama-qwen3) — held
+on purpose, control group.** Not touched. Decision: if McCoy's realized
+asymmetry improves over ~20 resolved trades, roll the fix fleet-wide; if
+not, the cost of finding out was one agent's worth of trades, not four.
+
+## WHEEL LEVERAGED-ETF RISK RULE — drafted, not applied (`977079e`)
+
+Full draft at `docs/DRAFT_wheel_leveraged_etf_risk_rule.md`. Headline
+finding while researching it: the existing door1 (2026-06-19) leveraged-ETF
+blocklist is **only enforced in `wheel_strategy.py`** — a second CSP writer,
+`shadow_csp.py` (`shadow-qwen35-csp`), has the identical ticker list but no
+blocklist check at all. Confirmed real, not hypothetical: one open UPRO CSP
+(`shadow-qwen35-csp`, 2026-06-28) was opened through this gap, well after
+door1. Checked it against both proposed conditions independently — the 25%
+cap would block it (leveraged legs are ~100% of open wheel-book exposure
+today, per the stress test above) and the regime gate would *also*
+independently block it (SPY spot $732.14 below gamma flip $740.9 on
+2026-06-28, per `gex_snapshots`). No other leveraged entries occurred this
+week from either system.
+
+**Flagged rather than resolved**: door1's blocklist reads as "zero new
+leveraged writes, ever"; this request's 25%-cap framing reads as "capped,
+not zero" — those are two different policies. Worth an explicit choice
+before implementing either, not assumed.
+
+## OPEN FOR TOMORROW (task tracked, #39)
+1. Confirm the 20:18 proving-ground run emits exactly one clean transition
+   under the escalation fix (`962ab3d`/`da2d89a`), not a repeat of the
+   26-duplicate pattern that motivated the fix.
+2. Confirm `ollie-auto`'s `killed` state stays terminal-sticky (per
+   `_evaluate_state`'s sticky-terminal-states logic) — should be a
+   guaranteed no-op given the code, but confirming live beats assuming.
+
+---
+
 ## DATA PULLS — report only (2a, 2b) + label fix shipped (2c, `5e6824b`)
 
 **(a) Per-agent avg win $ vs avg loss $, fleet-wide** (agents with ≥5 closed
