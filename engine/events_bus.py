@@ -36,7 +36,12 @@ _DB_PATH = Path(__file__).resolve().parent.parent / "data" / "trader.db"
 _STALE_BUDGET_S: dict[str, int] = {
     "0dte": 2,
     "intraday": 900,
-    "swing": 30,
+    # HM-BACKTEST-REALISM 2026-07-03 (XO audit): swing was 30s — shorter than
+    # intraday (900s) and shorter than the 60s consumer poll, so a swing signal
+    # born just after a poll tick expired before it could EVER be dispatched.
+    # Swing setups (5-30 day holds) stay valid for hours; 3600s clears the 60s
+    # poll + 120s emit cycle with margin while still expiring same-session.
+    "swing": 3600,
     "position": 300,
 }
 
