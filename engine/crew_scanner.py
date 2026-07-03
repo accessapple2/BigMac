@@ -2197,7 +2197,13 @@ MCCOY_GLOBAL_HARD_STOP_PCT = 0.08  # matches _check_hard_stops' hardcoded -8% (l
 MCCOY_T1_TARGET_FRACTION = 0.40    # T1 at ~40% of the signal's own target
 MCCOY_T2_TARGET_FRACTION = 0.70    # T2 at ~70% of the signal's own target
 MCCOY_TRAIL_PCT = 0.03             # trail the final third by 3% off the high
+MCCOY_FIX_TAG = "MCCOY-TR-V1"      # greppable tag on every post-fix exit's reasoning
 _mccoy_trail_highs: dict[str, float] = _load_trail_highs(_MCCOY_TRAIL_HIGHS_PATH)
+logger.info(
+    f"[HM-MCCOY-TARGET-RELATIVE] config loaded: T1={MCCOY_T1_TARGET_FRACTION*100:.0f}% "
+    f"target / T2={MCCOY_T2_TARGET_FRACTION*100:.0f}% target, floor={MCCOY_GLOBAL_HARD_STOP_PCT*100:.0f}%, "
+    f"trail={MCCOY_TRAIL_PCT*100:.0f}%, tag='{MCCOY_FIX_TAG}' -- module import at {datetime.now().isoformat()}"
+)
 
 _SIGNAL_STOP_TARGET_RE = re.compile(
     r"AUTO-STOP:\s*-([\d.]+)%.*?AUTO-TARGET:\s*\+([\d.]+)%"
@@ -2318,9 +2324,11 @@ def _check_mccoy_target_relative_exits() -> int:
                     qty        = sell_qty,
                     reasoning  = (
                         f"Target-relative exit {label}: +{pnl_pct*100:.1f}% "
-                        f"(threshold +{threshold*100:.1f}%, signal target "
-                        f"+{(target_pct*100) if target_pct else 0:.0f}%) — "
-                        f"selling {fraction*100:.0f}% ({sell_qty:.2f} sh)"
+                        f"(threshold +{threshold*100:.1f}%, signal target +{target_pct*100:.0f}%) — "
+                        f"selling {fraction*100:.0f}% ({sell_qty:.2f} sh) [{MCCOY_FIX_TAG}]"
+                        if target_pct is not None else
+                        f"Scaled exit {label} (no signal metadata, flat-tier fallback): "
+                        f"+{pnl_pct*100:.1f}% — selling {fraction*100:.0f}% ({sell_qty:.2f} sh)"
                     ),
                     confidence = 0.9,
                 )
@@ -2369,7 +2377,7 @@ def _update_mccoy_trailing_stops() -> int:
                     price      = current,
                     reasoning  = (
                         f"TRAILING STOP (final third): {symbol} ${current:.2f} hit trail "
-                        f"${trail_floor:.2f} ({MCCOY_TRAIL_PCT*100:.0f}% below high ${new_high:.2f})"
+                        f"${trail_floor:.2f} ({MCCOY_TRAIL_PCT*100:.0f}% below high ${new_high:.2f}) [{MCCOY_FIX_TAG}]"
                     ),
                     confidence = 1.0,
                 )
@@ -2553,11 +2561,18 @@ def _check_hard_stops() -> int:
                     continue
                 pnl_pct = (current - avg_cost) / avg_cost
                 if pnl_pct <= -0.08:
+                    # HM-MCCOY-TARGET-RELATIVE 2026-07-03: tag McCoy's hard-stop
+                    # exits so the new-vs-old comparison (see
+                    # _check_mccoy_target_relative_exits) can query ALL of
+                    # McCoy's post-fix exits, not just the ones that reach a
+                    # profit tier -- hard stops are unchanged for every other
+                    # agent, this only appends a marker to the reasoning text.
+                    _tag = f" [{MCCOY_FIX_TAG}]" if player_id == MCCOY_PLAYER_ID else ""
                     result = sell(
                         player_id  = player_id,
                         symbol     = symbol,
                         price      = current,
-                        reasoning  = f"HARD STOP: {pnl_pct*100:.1f}% loss exceeds -8% limit",
+                        reasoning  = f"HARD STOP: {pnl_pct*100:.1f}% loss exceeds -8% limit{_tag}",
                         confidence = 1.0,
                     )
                     if result:
