@@ -4,6 +4,34 @@ Tier 1 = repo-verified. Tier 2 = carried from prior context, confirm before acti
 
 ---
 
+## PROVING GROUND — ollie-auto TERMINATED (Admiral-confirmed, 2026-07-02)
+
+`scripts/proving_ground_admiral.py --kill --agent ollie-auto --confirm` run
+at 2026-07-03 00:03:59 (AZ evening 2026-07-02 17:03:59). Result:
+`{"ok": true, "from_state": "kill_warning", "to_state": "killed", "agent":
+"ollie-auto", "ntfy_sent": true}`. Verified in `data/proving_ground.db`:
+`running_scorecard` id 67 (2026-07-02) now shows `exit_status='killed'`;
+`state_transitions` id 27 logs the clean `kill_warning → killed` edge.
+State is now terminal-sticky — the evaluator will no-op on this trial from
+here forward (per `_evaluate_state`'s sticky-terminal-states logic).
+
+**Rationale on record (Admiral)**: max_drawdown -43% vs the -15% guard,
+breached 5+ consecutive tracked days, 24 days past the day-60 forced-eval
+boundary, corroborated by a bench grade of D. This is on top of the
+K1 (`dd_past_day60`) kill condition that had been correctly firing (if
+silently, due to the now-fixed escalation bug — see the entry above) since
+trial day 61.
+
+**Not touched by this action**: `ai_players.halt_mode` for `ollie-auto`
+remains `exit_only`, unchanged (it's been that way since the unrelated
+2026-06-19 Door-1 cut) — the Proving Ground kill is a trial-scorecard
+decision, not itself a trading-permission change. `scripts/
+proving_ground_admiral.py` doesn't touch `ai_players` at all; if a
+different halt posture is wanted following this termination, that's a
+separate, not-yet-requested action.
+
+---
+
 ## PROVING GROUND — kill_warning escalation bug found + fixed (2026-07-02, `962ab3d`)
 
 **What was actually happening** (root-caused via `data/proving_ground.db`,
