@@ -4,6 +4,78 @@ Tier 1 = repo-verified. Tier 2 = carried from prior context, confirm before acti
 
 ---
 
+## McCOY EXIT ASYMMETRY — fixed, tested, backtest evidence MIXED (not clean-positive)
+
+**Root cause, confirmed via signals_v2 reasoning text** (not guessed): McCoy's
+(`ollama-plutus`) signals consistently set `target = 2x stop` — sampled
+ratios all exactly 2.0 across -8/+16, -12/+24, -15/+30, -18/+36. But the
+actual exit management ignored both values: a flat `_SCALED_EXIT_TIERS`
+entry sold 50% at a trivial **+4%** with no further tiers, while the
+universal **-8%** hard stop (`_check_hard_stops`) still governed the other
+half regardless of what the signal's own (sometimes wider) stop said.
+Realized R:R was inverted relative to the 2:1+ design because half the
+position got clipped at a fraction of the actual target and the other half
+had nothing left to capture more of the move.
+
+**Fixed** (`0f06b81`): removed `ollama-plutus` from the flat tier table.
+New target-relative system: T1 at ~40% of the signal's own target, T2 at
+~70%, **T1 clamped to never be tighter than the 8% universal hard stop**
+(the invariant explicitly requested — "never risk 8 to bank 5"). At
+today's consistent 2:1 ratio this clamp binds exactly at 8%; T1 sells 1/3
+of the original position, T2 sells half of what remains (nets to 1/3),
+the final third trails by 3% off the high (JSON-sidecar-persisted across
+restarts, mirroring the existing Neo trailing-stop pattern). Falls back to
+the old flat +4% tier only for positions with no parseable signal metadata.
+
+**11 new unit tests**, all passing — pure functions, no I/O, confirming the
+invariant holds across every observed production ratio.
+
+**Backtest — read this carefully, it's not a clean "yes":**
+`scripts/backtest_mccoy_target_relative.py`, run against McCoy's 19
+fully-closed stock positions with parseable signal metadata, real daily
+OHLC price paths (not intraday — see bias note below):
+- **Full basket: delta +$69.48** — looks positive, but this is driven
+  entirely by 8 still-open positions marked to market. That's not a fair
+  comparison — whichever system hasn't sold yet always looks better in a
+  position that hasn't reversed, because the old system already banked a
+  small realized profit at +4% while the new system is sitting on a full
+  unrealized paper gain.
+- **The only clean signal — 11 positions where BOTH systems reach a real,
+  resolved conclusion (hard stop or trail stop) — shows a thin -$8.58
+  total.** This is the honest number: on the rigorous cut, the new system
+  is marginally *worse* so far, not better.
+- **Known bias in the simulation, against the new system**: if a position
+  crosses both T1 and T2 thresholds within the same daily bar, the sim
+  only fires T1 that day and defers T2 to the next bar (no intraday
+  ordering available from daily OHLC) — likely understates the new
+  system's real capture on fast movers, meaning the true resolved-only
+  number is probably less negative than -$8.58, but I can't quantify by
+  how much without intraday data.
+- Sample size is small (n=11 resolved) and the magnitude is small
+  (~$0.78/trade average) — plausibly noise either way.
+
+**Shipped anyway, flagged rather than hidden**: the fix is mechanically
+correct and exactly matches what was specified (target-relative tiers +
+the explicit invariant), and the "negative" signal is thin, small-sample,
+and biased against it by a known simulation limitation — holding back a
+correctly-implemented, tested fix over that felt wrong, but so did quietly
+reporting only the flattering $69.48 total. **Committed and pushed, but
+the live trader has NOT been restarted to activate it** — that's a
+separate, conscious decision given the mixed evidence, not bundled into
+the code push. Restart via `zsh scripts/trader_restart.sh` (never `bash`
+— zsh-only `&!` detach) when ready to go live.
+
+**Audit of other agents (report only, per instruction — not touched)**:
+`neo-matrix`, `deepseek-7b-grok4`, and `ollama-qwen3` all receive the same
+signals_v2 2:1 AUTO-STOP/AUTO-TARGET annotations (10/41, 22/50, 2/33 of
+their BUY trades respectively — confirmed via the same reasoning-text
+grep, not assumed) and all three have a first scaled-exit tier (3-4%)
+below the 8% universal hard stop — the identical structural bug, at
+smaller trade volumes than McCoy's. `deepseek-7b-grok4` has the most
+affected trades (22) if this gets prioritized next.
+
+---
+
 ## PROVING GROUND — ollie-auto TERMINATED (Admiral-confirmed, 2026-07-02)
 
 `scripts/proving_ground_admiral.py --kill --agent ollie-auto --confirm` run
