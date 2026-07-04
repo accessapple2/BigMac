@@ -136,6 +136,27 @@ def _build_advisor_note(spy_rsp_divergence: float, breadth_score: float, iwm_con
 
 
 def _store_snapshot(data: dict) -> None:
+    """HM-DB-LOCK-RETRY 2026-07-03: busy_timeout=30s alone still lost rows —
+    a nightly job holds the write lock >30s (errors cluster 00:04-00:18).
+    Retry with backoff (same pattern as war_room._db_write_retry). Total
+    patience ~50s + 3x30s busy_timeout. KEEP-ALL-DATA doctrine: a late row
+    beats a dropped row."""
+    import time as _time
+    _delays = (5, 15, 30)
+    for _i in range(len(_delays) + 1):
+        try:
+            _store_snapshot_once(data)
+            return
+        except sqlite3.OperationalError as _e:
+            if "locked" in str(_e) and _i < len(_delays):
+                logger.warning("breadth_scanner: DB locked, retry %d/%d in %ds",
+                               _i + 1, len(_delays), _delays[_i])
+                _time.sleep(_delays[_i])
+                continue
+            raise
+
+
+def _store_snapshot_once(data: dict) -> None:
     now = datetime.now(timezone.utc)
     trade_date = now.strftime("%Y-%m-%d")
     snap_time = now.strftime("%H:%M:%S")
