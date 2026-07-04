@@ -246,6 +246,33 @@ def _finish_debate(debate_id: str, expected: list, completed: list) -> None:
         )
 
 
+def _grounded_witness_ctx(symbol: str, round_takes: list) -> list:
+    """HM-CLOSEOUT-2026-07-01 Item 3 — shared grounding injection for every
+    witness arm (live A/B, off-hours deepseek-r1:14b/gpt-oss:20b A/B queue,
+    plutus-v7d shadow). Prepends ticker_context + gamma_context as a synthetic
+    "Market Intel" take, same shape as a debater's take, so downstream code
+    (generate_hot_take, or later JSON-queue consumers) needs no special case.
+
+    Fail-safe: build_grounding_block / build_gamma_block each return "" on
+    missing/unavailable data (never hallucinate), and any exception here is
+    swallowed — the ctx is returned ungrounded rather than raising. One shared
+    path so grounding coverage can't silently diverge between arms again (that
+    divergence is exactly how the deepseek/gpt-oss queue and the plutus-v7d
+    shadow arm went ungrounded while this function's own live A/B pair did not).
+    """
+    _ctx = list(round_takes or [])
+    try:
+        from engine.ticker_context import build_grounding_block as _gbk
+        from engine.gamma_context import build_gamma_block as _ggex
+        _grounding = "\n".join(filter(None, [_gbk(symbol), _ggex(symbol)]))
+        if _grounding:
+            _ctx = [{"player_id": "system", "display_name": "Market Intel",
+                     "take": _grounding}] + _ctx
+    except Exception:
+        pass
+    return _ctx
+
+
 def _record_witness(debate_id: str, symbol: str, price_data: dict,
                     round_takes: list, providers: dict) -> None:
     """HM-FORGE P1.2 — fire ONE report-only witness take and tag the debate row.
@@ -289,16 +316,17 @@ def _record_witness(debate_id: str, symbol: str, price_data: dict,
                     url=_url, timeout=120, keep_alive="0s",
                 )
             _w0 = time.perf_counter()
-            # Explicit grounding injection: build both blocks before the call so the
-            # witness prompt carries real dealer structure even on a cold gemma4 load.
-            from engine.ticker_context import build_grounding_block as _gbk
-            from engine.gamma_context import build_gamma_block as _ggex
-            _witness_grounding = "\n".join(filter(None, [_gbk(symbol), _ggex(symbol)]))
-            if _witness_grounding:
-                _ctx = [{"player_id": "system", "display_name": "Market Intel",
-                         "take": _witness_grounding}] + _ctx
+            # HM-CLOSEOUT-2026-07-01 Item 3: the previous inline version of this
+            # grounding injection reassigned `_ctx` inside this nested function,
+            # which makes Python treat `_ctx` as local to _witness_worker for its
+            # WHOLE body -- so reading `_ctx` on the right-hand side raised
+            # UnboundLocalError on every call (confirmed live in logs/trader.log,
+            # firing every ~5min since at least today 14:37, witness take never
+            # produced). Using the shared helper (a plain function returning a new
+            # list, no closure reassignment) fixes the crash and grounds all arms.
+            _grounded_ctx = _grounded_witness_ctx(symbol, _ctx)
             take = generate_hot_take(
-                witness_prov, "wr-witness", symbol, price_data, _ctx or None,
+                witness_prov, "wr-witness", symbol, price_data, _grounded_ctx or None,
             )
             wall_s = round(time.perf_counter() - _w0, 3)
             if not take:
@@ -338,7 +366,12 @@ def _record_shadow_witness(debate_id, symbol: str, price_data: dict,
             return
     except Exception:
         return
-    _ctx = list(round_takes or [])  # snapshot
+    # HM-CLOSEOUT-2026-07-01 Item 3: this arm had NO grounding at all (unlike
+    # _record_witness's live A/B pair) -- ticker_context/gamma_context never
+    # reached plutus-v7d or its plutus-v1 comparison baseline. Shared helper
+    # (see _grounded_witness_ctx) closes that gap; safe here (plain function,
+    # no closure-reassignment trap).
+    _ctx = _grounded_witness_ctx(symbol, round_takes)  # snapshot + grounded
 
     def _shadow_worker():
         try:
@@ -381,6 +414,72 @@ def _record_shadow_witness(debate_id, symbol: str, price_data: dict,
 
     import threading as _thr
     _thr.Thread(target=_shadow_worker, name=f"wr-shadow-{debate_id}", daemon=True).start()
+
+
+def _queue_ab_witness(debate_id: str, symbol: str, price_data: dict,
+                      round_takes: list) -> None:
+    """HM-SHADOW-AB-WITNESS — capture debate context for off-hours witness scoring.
+
+    Lightweight DB write only — no model loading, no inference, no VRAM impact.
+    The off-hours scorer (scripts/witness_ab_scorer.py, cron 21:30 UTC) reads
+    this queue, loads gpt-oss:20b and deepseek-r1:14b SEQUENTIALLY post-RTH,
+    logs to witness_ab, and marks processed.
+
+    Guardrails:
+    - Never enters round_takes, save_hot_take, the vote, or any decision path.
+    - Fail-safe: any exception is swallowed, debate lifecycle unaffected.
+    - INSERT OR IGNORE: idempotent per debate_id.
+    """
+    try:
+        import json as _j
+        mccoy_take = next(
+            (t.get("take") for t in round_takes if t.get("player_id") == "ollama-plutus"),
+            None,
+        )
+        # HM-CLOSEOUT-2026-07-01 Item 3: this queue previously stored ONLY
+        # round_takes -- ticker_context/gamma_context were never captured, so
+        # deepseek-r1:14b/gpt-oss:20b (scored hours-to-days later, post-RTH,
+        # via scripts/witness_ab_scorer.py) never saw grounding. Grounding is
+        # time-sensitive (live price levels, live GEX snapshot), so it MUST be
+        # captured here, synchronously, at debate time -- recomputing it at
+        # scoring time would describe a different, stale market state. Grounded
+        # here as a synthetic take, stored in round_takes, so the off-hours
+        # scorer needs no special case (see _grounded_witness_ctx).
+        _grounded_round_takes = _grounded_witness_ctx(symbol, round_takes)
+        ctx_json = _j.dumps({
+            "symbol": symbol,
+            "price_data": price_data,
+            "round_takes": [
+                {"player_id": t.get("player_id"), "display_name": t.get("display_name"),
+                 "take": t.get("take")}
+                for t in (_grounded_round_takes or [])[:20]
+            ],
+        }, default=str)[:8000]
+
+        def _write():
+            conn = _conn()
+            conn.execute("""
+                CREATE TABLE IF NOT EXISTS witness_queue (
+                    id           INTEGER PRIMARY KEY AUTOINCREMENT,
+                    debate_id    TEXT NOT NULL,
+                    ticker       TEXT,
+                    queued_at    TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    debate_context TEXT NOT NULL,
+                    mccoy_take   TEXT,
+                    processed    INTEGER DEFAULT 0,
+                    UNIQUE(debate_id)
+                )
+            """)
+            conn.execute(
+                "INSERT OR IGNORE INTO witness_queue "
+                "(debate_id, ticker, debate_context, mccoy_take) VALUES (?,?,?,?)",
+                (debate_id, symbol, ctx_json, mccoy_take),
+            )
+            conn.commit()
+            conn.close()
+        _db_write_retry(_write)
+    except Exception as _e:
+        console.log(f"[yellow][WR-AB-QUEUE-WARN] {type(_e).__name__}: {_e!r}")
 
 
 # ────────────────────────────────────────────────────────────────────────────
@@ -1238,3 +1337,6 @@ def run_war_room(providers: dict, prices: dict):
     _record_witness(_debate_id, symbol, price_data, round_takes, providers)
     # HM-SHADOW-WITNESS-V7D: logged-only v1-vs-v7d pair (flag-gated, off-thread, fail-safe).
     _record_shadow_witness(_debate_id, symbol, price_data, round_takes, providers)
+    # HM-SHADOW-AB-WITNESS: queue debate context for off-hours gpt-oss/deepseek scoring.
+    # DB write only — no model loading. Scorer runs post-RTH via cron. Fail-safe.
+    _queue_ab_witness(_debate_id, symbol, price_data, round_takes)

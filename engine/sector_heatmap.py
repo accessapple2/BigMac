@@ -168,6 +168,24 @@ def _build_rotation_narrative(rotation_type: str) -> str:
 
 
 def _store_snapshot(data: dict, sector_data_json: str, momentum_5d_json: str) -> None:
+    """HM-DB-LOCK-RETRY 2026-07-03: same fix as breadth_scanner — retry with
+    backoff when a long-running writer holds the lock past busy_timeout."""
+    import time as _time
+    _delays = (5, 15, 30)
+    for _i in range(len(_delays) + 1):
+        try:
+            _store_snapshot_once(data, sector_data_json, momentum_5d_json)
+            return
+        except sqlite3.OperationalError as _e:
+            if "locked" in str(_e) and _i < len(_delays):
+                logger.warning("sector_heatmap: DB locked, retry %d/%d in %ds",
+                               _i + 1, len(_delays), _delays[_i])
+                _time.sleep(_delays[_i])
+                continue
+            raise
+
+
+def _store_snapshot_once(data: dict, sector_data_json: str, momentum_5d_json: str) -> None:
     now = datetime.now(timezone.utc)
     trade_date = now.strftime("%Y-%m-%d")
     snap_time = now.strftime("%H:%M:%S")

@@ -65,6 +65,9 @@ TOKEN_RATES = {
     "kirk-grok-advisor": (1.25, 2.50), # Kirk Grok Swing Advisor — grok-4.20-0309-non-reasoning FALLBACK rate (exact cost from cost_in_usd_ticks)
     "first-officer":     (0.00, 0.00),
     "q-entity":          (0.00, 0.00),
+    # ── Shadow CSP bakeoff seats — Ollama local, no ai_players row ──────────
+    "wr-shadow-v1":      (0.00, 0.00),  # plutus-v1:latest on 192.168.1.168
+    "wr-shadow-v7d":     (0.00, 0.00),  # plutus-v7d:latest on 192.168.1.168
     # ── Google free tier (dalio-metals uses Gemini Flash — $0 under quota) ─
     "dalio-metals":      (0.00, 0.00),
 }

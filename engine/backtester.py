@@ -17,6 +17,69 @@ DB = "data/trader.db"
 # Starting cash for backtests (matches config)
 STARTING_CASH = 7000.0
 
+# ============================================================
+# HM-BACKTEST-REALISM 2026-07-03 (XO audit fix)
+# Parity between backtest replay and the live dispatch pipeline:
+#   (1) STALENESS — live signals expire per events_bus._STALE_BUDGET_S
+#       before the 60s events_bus_consumer poll can dispatch them; the
+#       backtester previously executed every emitted signal (lookahead).
+#   (2) REENTRY GUARD — live consumer blocks re-buys of the same name
+#       within a 60-min cooldown (the Spock INTC 8x cluster); backtests
+#       previously replayed the full cluster.
+#   (3) FRICTION — commission + slippage per side; previously zero.
+# Both flags default ON. Set False to reproduce legacy (biased) numbers
+# for A/B comparison.
+# ============================================================
+ENFORCE_DISPATCH_REALISM = True
+ENFORCE_COST_MODEL = True
+COMMISSION_PCT = 0.0010      # per side (Schwab-equivalent blend; Alpaca paper = 0)
+SLIPPAGE_PCT = 0.0005        # per side (half-spread, liquid large-caps)
+PER_SIDE_COST_PCT = COMMISSION_PCT + SLIPPAGE_PCT
+CONSUMER_POLL_S = 60         # events_bus_consumer cadence (main.py schedule)
+ASSUMED_TIMEFRAME = "swing"  # signals(v1) rows carry no timeframe column
+REENTRY_COOLDOWN_MIN = 60    # mirrors events_bus_consumer.REENTRY_COOLDOWN_MIN
+
+
+def _friction(entry_notional: float, exit_notional: float) -> float:
+    """Round-trip commission+slippage. Zero when cost model disabled."""
+    if not ENFORCE_COST_MODEL:
+        return 0.0
+    return (abs(entry_notional) + abs(exit_notional)) * PER_SIDE_COST_PCT
+
+
+def _parse_sig_ts(s) -> datetime | None:
+    """Best-effort signal timestamp parse ('T' or space form, optional Z/us)."""
+    try:
+        clean = str(s).replace("Z", "").replace("T", " ").strip().split(".")[0]
+        return datetime.fromisoformat(clean)
+    except Exception:
+        return None
+
+
+def _survives_dispatch(created_at, timeframe: str | None = None) -> bool:
+    """Deterministic replay of the live dispatch race.
+
+    Live: a signal born at t is only dispatched at the next CONSUMER_POLL_S
+    boundary; if its stale budget elapses first, the consumer marks it stale
+    and it NEVER trades. The backtester previously ignored this, executing
+    signals that live would have expired (lookahead bias). Fail-OPEN on any
+    parse error — realism must not silently zero a backtest.
+    """
+    if not ENFORCE_DISPATCH_REALISM:
+        return True
+    try:
+        from engine.events_bus import _STALE_BUDGET_S
+        budget = _STALE_BUDGET_S.get((timeframe or ASSUMED_TIMEFRAME).lower())
+        if budget is None:
+            return True  # no budget = never-stale (matches consumer NULL rule)
+        ts = _parse_sig_ts(created_at)
+        if ts is None:
+            return True
+        wait_s = (CONSUMER_POLL_S - ts.second % CONSUMER_POLL_S) % CONSUMER_POLL_S
+        return wait_s <= budget
+    except Exception:
+        return True
+
 
 def _conn():
     c = sqlite3.connect(DB, check_same_thread=False)
@@ -148,15 +211,18 @@ def _get_position_size_pct(conviction: float, is_bear: bool) -> float:
 # with the local caller below; new code should import directly from engine.stops.
 from engine.stops import get_stop_loss_pct as _get_stop_loss_pct
 
-# V2: Minimum holding periods (days)
-MIN_HOLD_DAYS = {
-    "default": 5,
-    "deepseek-7b-grok4": 7,
-    "qwen3-8b-flash": 5,
-    "ollama-local": 5,
-    "ollama-qwen3": 10,
-    "ollama-plutus": 7,
-}
+# HM-AGENT-RULES-CONSOLIDATION 2026-07-04 (AGENT-RULES-REVIEW-2026-07-03.md
+# Inconsistency #7): this used to be a per-model dict (5-10 trading days,
+# unrelated to what the live system actually enforces). Live paper_trader.py's
+# _check_min_hold() is 24h universal / 72h (3 days) for SWING timeframe
+# trades, stop/target sells always bypass. That's the canonical rule now.
+# This backtester operates on the v1 `signals` table, which (see
+# ASSUMED_TIMEFRAME above) carries no per-signal timeframe column at all --
+# every signal here is already treated as swing, so the 24h non-swing branch
+# never applies to this dataset. MIN_HOLD_DAYS=3 is the honest single-tier
+# parity value: 3 trading days is this daily-bar backtester's natural analog
+# to live's 72h/3-day swing minimum.
+MIN_HOLD_DAYS = 3
 
 # V2: Position limits
 BEAR_MAX_POSITIONS = 3
@@ -183,9 +249,20 @@ BEAR_MIN_CASH_PCT = 0.35      # V2: 35% (was 40%, deploy more in best picks)
 # ============================================================
 
 def _simulate_raw(signals: list, hist_data: dict) -> tuple:
-    """Original simulation — no guardrails, every signal executed."""
+    """Original simulation — no guardrails, every signal executed.
+
+    HM-BACKTEST-REALISM: 'raw' means no RISK guardrails. Dispatch physics
+    (reentry cooldown, friction) still apply — live raw mode would face
+    the same consumer pipeline and costs.
+    """
     cash = STARTING_CASH
     trades = []
+    last_buy_ts: dict[str, datetime] = {}
+    # HM-BACKTEST-REALISM counter fix 2026-07-03: raw mode previously applied
+    # the reentry cooldown and friction but never counted them, so
+    # run_realism_check reported reentry_blocked=null / friction_paid=0.0
+    # in raw mode while the P&L silently included both effects.
+    raw_stats = {"reentry_blocked": 0, "friction_paid": 0.0}
 
     for sig in signals:
         sym = sig["symbol"]
@@ -195,6 +272,14 @@ def _simulate_raw(signals: list, hist_data: dict) -> tuple:
         prices = hist_data.get(sym, {})
         if signal_date not in prices:
             continue
+
+        # HM-BACKTEST-REALISM: consumer reentry cooldown (rail 2 parity).
+        sig_ts = _parse_sig_ts(sig["created_at"])
+        if ENFORCE_DISPATCH_REALISM and sig_ts is not None:
+            prev = last_buy_ts.get(sym)
+            if prev is not None and (sig_ts - prev) < timedelta(minutes=REENTRY_COOLDOWN_MIN):
+                raw_stats["reentry_blocked"] += 1
+                continue
 
         entry_price = prices[signal_date]
         position_size = cash * 0.10
@@ -210,18 +295,27 @@ def _simulate_raw(signals: list, hist_data: dict) -> tuple:
         pnl = (exit_price - entry_price) * qty
         pnl_pct = ((exit_price / entry_price) - 1) * 100
 
+        # HM-BACKTEST-REALISM: round-trip commission + slippage.
+        fr = _friction(cost, qty * exit_price)
+        pnl -= fr
+        raw_stats["friction_paid"] += fr
+
         cash -= cost
         cash += qty * exit_price
+        cash -= fr
+        if sig_ts is not None:
+            last_buy_ts[sym] = sig_ts
 
         trades.append({
             "symbol": sym, "signal": sig["signal"], "confidence": conf,
             "entry_date": signal_date, "entry_price": round(entry_price, 2),
             "exit_date": exit_date, "exit_price": round(exit_price, 2),
             "pnl": round(pnl, 2), "pnl_pct": round(pnl_pct, 2),
+            "friction": round(fr, 2),
             "skipped": False, "skip_reason": "",
         })
 
-    return trades, cash
+    return trades, cash, raw_stats
 
 
 def _v3_trailing_stop_pct(gain_pct: float) -> float:
@@ -249,9 +343,11 @@ def _simulate_guarded(player_id: str, signals: list, hist_data: dict,
     skipped = []
     daily_trade_counts: dict[str, int] = {}
     open_positions: list[dict] = []
-    v3_stats = {"trailing_stops_hit": 0, "pyramids_executed": 0, "quality_gate_blocked": 0}
+    last_buy_ts: dict[str, datetime] = {}
+    v3_stats = {"trailing_stops_hit": 0, "pyramids_executed": 0, "quality_gate_blocked": 0,
+                "reentry_blocked": 0, "friction_paid": 0.0}
 
-    min_hold = MIN_HOLD_DAYS.get(player_id, MIN_HOLD_DAYS["default"])
+    min_hold = MIN_HOLD_DAYS
 
     # V3: Pre-fetch fundamentals for quality gate (cached, so only fetched once per symbol)
     _fundamentals_cache = {}
@@ -320,7 +416,10 @@ def _simulate_guarded(player_id: str, signals: list, hist_data: dict,
                     if day_price <= trailing_stop:
                         pnl = (trailing_stop - pos["avg_price"]) * pos["qty"]
                         pnl_pct = ((trailing_stop / pos["avg_price"]) - 1) * 100
-                        cash += pos["qty"] * trailing_stop
+                        fr = _friction(pos["cost"], pos["qty"] * trailing_stop)
+                        pnl -= fr
+                        v3_stats["friction_paid"] += fr
+                        cash += pos["qty"] * trailing_stop - fr
                         d_held = len([dd for dd in pos_prices if pos["entry_date"] < dd <= d])
                         trades.append({
                             "symbol": pos["symbol"], "signal": "BUY", "confidence": pos["confidence"],
@@ -340,7 +439,10 @@ def _simulate_guarded(player_id: str, signals: list, hist_data: dict,
                 if day_price <= pos["stop_price"]:
                     pnl = (pos["stop_price"] - pos["avg_price"]) * pos["qty"]
                     pnl_pct = ((pos["stop_price"] / pos["avg_price"]) - 1) * 100
-                    cash += pos["qty"] * pos["stop_price"]
+                    fr = _friction(pos["cost"], pos["qty"] * pos["stop_price"])
+                    pnl -= fr
+                    v3_stats["friction_paid"] += fr
+                    cash += pos["qty"] * pos["stop_price"] - fr
                     d_held = len([dd for dd in pos_prices if pos["entry_date"] < dd <= d])
                     trades.append({
                         "symbol": pos["symbol"], "signal": "BUY", "confidence": pos["confidence"],
@@ -363,7 +465,10 @@ def _simulate_guarded(player_id: str, signals: list, hist_data: dict,
                 exit_price = pos_prices.get(signal_date, pos["entry_price"])
                 pnl = (exit_price - pos["avg_price"]) * pos["qty"]
                 pnl_pct = ((exit_price / pos["avg_price"]) - 1) * 100
-                cash += pos["qty"] * exit_price
+                fr = _friction(pos["cost"], pos["qty"] * exit_price)
+                pnl -= fr
+                v3_stats["friction_paid"] += fr
+                cash += pos["qty"] * exit_price - fr
                 trades.append({
                     "symbol": pos["symbol"], "signal": "BUY", "confidence": pos["confidence"],
                     "entry_date": pos["entry_date"], "entry_price": round(pos["entry_price"], 2),
@@ -411,6 +516,19 @@ def _simulate_guarded(player_id: str, signals: list, hist_data: dict,
             skipped.append({"symbol": sym, "date": signal_date, "confidence": conf,
                             "reason": f"DUPLICATE: already holding {sym}"})
             continue
+
+        # --- GUARDRAIL 4b: HM-BACKTEST-REALISM reentry cooldown ---
+        # Parity with events_bus_consumer._reentry_blocked rail 2: live blocks
+        # a re-buy of the same name within REENTRY_COOLDOWN_MIN of the last
+        # buy. Rail 1 (open position) is GUARDRAIL 4 above.
+        sig_ts = _parse_sig_ts(sig["created_at"])
+        if ENFORCE_DISPATCH_REALISM and sig_ts is not None:
+            prev = last_buy_ts.get(sym)
+            if prev is not None and (sig_ts - prev) < timedelta(minutes=REENTRY_COOLDOWN_MIN):
+                skipped.append({"symbol": sym, "date": signal_date, "confidence": conf,
+                                "reason": f"REENTRY_GUARD: bought {sym} < {REENTRY_COOLDOWN_MIN}m ago"})
+                v3_stats["reentry_blocked"] += 1
+                continue
 
         # --- GUARDRAIL 5: V2 Conviction-scaled position sizing ---
         pos_pct = _get_position_size_pct(conf, is_bear)
@@ -463,6 +581,8 @@ def _simulate_guarded(player_id: str, signals: list, hist_data: dict,
 
         cash -= cost
         daily_trade_counts[signal_date] = day_count + 1
+        if sig_ts is not None:
+            last_buy_ts[sym] = sig_ts
 
         open_positions.append({
             "symbol": sym, "entry_date": signal_date, "entry_price": entry_price,
@@ -508,8 +628,11 @@ def _simulate_guarded(player_id: str, signals: list, hist_data: dict,
                     break
             pnl = (exit_price - pos["avg_price"]) * pos["qty"]
             pnl_pct = ((exit_price / pos["avg_price"]) - 1) * 100
+            fr = _friction(pos["cost"], pos["qty"] * exit_price)
+            pnl -= fr
+            v3_stats["friction_paid"] += fr
             days_held = len([d for d in pos_prices if pos["entry_date"] < d <= exit_d])
-            cash += pos["qty"] * exit_price
+            cash += pos["qty"] * exit_price - fr
             trades.append({
                 "symbol": pos["symbol"], "signal": "BUY", "confidence": pos["confidence"],
                 "entry_date": pos["entry_date"], "entry_price": round(pos["entry_price"], 2),
@@ -627,6 +750,24 @@ def backtest_player(player_id: str, days: int = 30,
     signals = conn.execute(query, params).fetchall()
     conn.close()
 
+    # HM-BACKTEST-REALISM: dispatch staleness parity. Live signals expire per
+    # _STALE_BUDGET_S before the consumer's next poll; drop the ones the live
+    # pipeline would never have executed.
+    expired_pre_dispatch = 0
+    if ENFORCE_DISPATCH_REALISM and signals:
+        surviving = []
+        for s in signals:
+            if _survives_dispatch(s["created_at"]):
+                surviving.append(s)
+            else:
+                expired_pre_dispatch += 1
+        if expired_pre_dispatch:
+            console.log(
+                f"[cyan][HM-BACKTEST-REALISM] {player_id}: "
+                f"{expired_pre_dispatch}/{len(signals)} signals expired pre-dispatch "
+                f"(would never have traded live)")
+        signals = surviving
+
     empty_result = {
         "player_id": player_id,
         "name": player["display_name"],
@@ -669,7 +810,14 @@ def backtest_player(player_id: str, days: int = 30,
         console.log(f"[cyan]Guarded backtest: {len(trades)} trades executed, "
                      f"{len(skipped_signals)} signals skipped by guardrails")
     else:
-        trades, final_cash = _simulate_raw(signals, hist_data)
+        result_tuple = _simulate_raw(signals, hist_data)
+        # HM-BACKTEST-REALISM counter fix: raw now returns 3 values
+        # (trades, cash, raw_stats); tolerate the legacy 2-tuple shape.
+        if len(result_tuple) == 3:
+            trades, final_cash, raw_stats = result_tuple
+        else:
+            trades, final_cash = result_tuple
+            raw_stats = {}
         skipped_signals = []
 
     # Build equity curve
@@ -696,10 +844,17 @@ def backtest_player(player_id: str, days: int = 30,
         "worst_trade": min(trades, key=lambda t: t["pnl"])["pnl"] if trades else 0,
         "final_value": round(running_value, 2),
         "signals_skipped": len(skipped_signals),
+        # HM-BACKTEST-REALISM audit fields
+        "expired_pre_dispatch": expired_pre_dispatch,
+        "dispatch_realism": ENFORCE_DISPATCH_REALISM,
+        "cost_model": ENFORCE_COST_MODEL,
     }
     # V3: Add trailing stop / pyramid / quality gate stats
     if apply_guardrails and 'v3_stats' in dir():
         stats.update(v3_stats)
+    # HM-BACKTEST-REALISM counter fix: surface raw-mode dispatch counters
+    if not apply_guardrails and 'raw_stats' in dir():
+        stats.update(raw_stats)
 
     result = {
         "player_id": player_id,
@@ -849,3 +1004,5 @@ def _empty_stats() -> dict:
         "best_trade": 0, "worst_trade": 0, "final_value": STARTING_CASH,
         "signals_skipped": 0,
     }
+
+# HM-BACKTEST-REALISM 2026-07-03 — end of patch marker.

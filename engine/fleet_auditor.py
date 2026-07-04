@@ -144,10 +144,16 @@ def _check_api_endpoints() -> list[dict]:
         ("/api/operations",       lambda d: not d.get("error")),
     ]
 
+    import time as _time
     results = []
     for path, validator in endpoints:
         url = DASHBOARD_URL + path
         code, body = _http_get(url)
+        # Retry once on failure — absorbs transient blips (restarts, momentary load)
+        # so a single unlucky probe doesn't fire a false DOWN alert.
+        if code == 0 or code != 200:
+            _time.sleep(3)
+            code, body = _http_get(url)
         if code == 0:
             status = "DOWN"
             detail = body.get("error", "connection refused") if body else "connection refused"

@@ -489,6 +489,7 @@ def run_scan(universe: list[str] | None = None, persist: bool = True,
                 ticker=_s["symbol"],
                 direction=_s["signal"],
                 conviction=f"vol_mult={_s.get('vol_mult', 0):.1f}x",
+                grade="A" if _s.get("vol_mult", 0) >= 3.0 else "B",
                 confluence_meta={
                     "or_high": _s.get("or_high"),
                     "or_low": _s.get("or_low"),

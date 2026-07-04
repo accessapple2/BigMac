@@ -225,12 +225,19 @@ def should_run_task(task_name: str, throttle_mins: int = 30) -> bool:
 #  the intent explicit).
 
 # Tier 1 — Bridge Crew: core decision-makers, every 30 min during market hours
+# HM-AGENT-RULES-CONSOLIDATION 2026-07-04 (AGENT-RULES-REVIEW-2026-07-03.md
+# Inconsistency #8): dayblade-sulu (exit_only since 2026-03-31 — Sulu is now
+# Iron Condor King only, see crew_specialization.py), super-agent (halt_mode=
+# 'full', shelved), deepseek-7b-grok4 (halt_mode='full', Door-1 kill-gate cut
+# 2026-06-19/20), and ollama-coder (halt_mode='full', same cut) removed — they
+# were never scanned anyway (build_all_providers skips 'full'; exit_only never
+# opens new positions), but a stale roster here misleads anyone reading this
+# file about who's actually live. mlx-qwen3 kept even though it's also
+# halt_mode='full' today — reopening it is a Batch-1 candidate (persona/naming
+# fix is a prereq, see AGENT-RULES-REVIEW Inconsistency #13/#18), not a dead
+# entry to prune.
 _SCAN_TIER1: frozenset = frozenset({
-    "dayblade-sulu",     # Sulu    S6.3 primary options trader (phi3:mini) — PRIORITY 1
-    "super-agent",       # Anderson      (crewai)
-    "deepseek-7b-grok4",            # Spock         (deepseek-r1:7b)
-    "ollama-coder",      # Data          (model resolved at runtime via agent_routing)
-    "mlx-qwen3",         # Chekov        (phi3:mini)
+    "mlx-qwen3",         # Chekov roster label / Ensign Ro in CREW_MANIFEST (phi3:mini) — halt_mode='full', Batch-1 reopen candidate
 })
 
 # Tier 2 — Department Heads: secondary signals, every 2 hours
@@ -300,11 +307,18 @@ def _get_scan_interval():
 
     Dilithium Crystal Protocol v2 — Pre-market intelligence starts at 10:30 PM MST (1:30 AM ET).
 
+    HM-AGENT-RULES-CONSOLIDATION 2026-07-04 (Inconsistency #19): this docstring
+    used to promise market-hours=3min/180s and power-hour=90s, but v3
+    (2026-03-23, config.py comment "Widened to cut API costs ~60%") set both
+    SCAN_INTERVAL_MARKET and SCAN_INTERVAL_POWER_HOUR to 300s and the docstring
+    was never updated. `_sectionIntervalDefs` above and config.py are the
+    values actually in effect — this docstring now matches them.
+
     Schedule (all MST, MST = ET - 3 during EDT):
       10:30 PM - 1:00 AM MST (1:30 AM - 4:00 AM ET): Early pre-market — every 5 min (300s)
-      1:00 AM - 6:30 AM MST  (4:00 AM - 9:30 AM ET): Full pre-market — every 2 min (120s)
-      6:30 AM - 12:00 PM MST (9:30 AM - 3:00 PM ET): Market hours — every 3 min (180s)
-      12:00 PM - 1:30 PM MST (3:00 PM - 4:30 PM ET): Power hour — every 90s
+      1:00 AM - 6:30 AM MST  (4:00 AM - 9:30 AM ET): Full pre-market — every 5 min (300s)
+      6:30 AM - 12:00 PM MST (9:30 AM - 3:00 PM ET): Market hours — every 5 min (300s, SCAN_INTERVAL_MARKET)
+      12:00 PM - 1:30 PM MST (3:00 PM - 4:30 PM ET): Power hour — every 5 min (300s, SCAN_INTERVAL_POWER_HOUR)
       1:30 PM - 5:00 PM MST  (4:30 PM - 8:00 PM ET): After hours — every 10 min (600s)
       5:00 PM - 9:00 PM MST  (8:00 PM - 12:00 AM ET): Evening — every 30 min (1800s)
       9:00 PM - 10:30 PM MST (12:00 AM - 1:30 AM ET): Overnight — every 30 min (1800s)
@@ -338,11 +352,11 @@ def _get_scan_interval():
         if 540 <= mins < 600:
             # Lunch lull 9:00–10:00 AM MST (12:00–1:00 PM ET) — scan 10 min (low volume)
             return 600
-        # 6:30 AM - 12:00 PM MST: Market hours (3 min)
-        return SCAN_INTERVAL_MARKET  # 180s
+        # 6:30 AM - 12:00 PM MST: Market hours (5 min — v3 2026-03-23 cost cut)
+        return SCAN_INTERVAL_MARKET  # 300s
     if 720 <= mins < 810:
-        # 12:00 PM - 1:30 PM MST: Power hour (90s)
-        return SCAN_INTERVAL_POWER_HOUR  # 90s
+        # 12:00 PM - 1:30 PM MST: Power hour (5 min — v3 2026-03-23 cost cut)
+        return SCAN_INTERVAL_POWER_HOUR  # 300s
     if 810 <= mins < 1020:
         # 1:30 PM - 5:00 PM MST: After hours (10 min)
         return SCAN_INTERVAL_EXTENDED  # 600s
@@ -3356,10 +3370,12 @@ def run_chekov_stoploss():
 
 @_hm_bq_instr("run_guardian_sweep")
 def run_guardian_sweep():
-    """HM-GUARDIAN-ADOPTION: exit-only stop sweep for guardian-of-forever.
-    The scan loop only stop-checks halt_mode='active' players; guardian is
-    exit_only, so it needs this dedicated sweep. Flat 12% stop + tiered TP;
-    exits route to Alpaca Paper (real close); stuck_stop_guard covers it."""
+    """HM-GUARDIAN-ADOPTION: exit-only stop sweep. The scan loop only stop-checks
+    halt_mode='active' players. HM-AGENT-RULES-CONSOLIDATION 2026-07-04: generalized
+    from guardian-of-forever-only to every exit_only agent holding an open position
+    (queried fresh each run) after an audit found 4 more seats silently uncovered.
+    Flat 12% stop + tiered TP; exits route to Alpaca Paper (real close);
+    stuck_stop_guard covers it."""
     try:
         from engine.guardian_sweep import run_guardian_sweep as _sweep
         _sweep()
@@ -4260,6 +4276,117 @@ if __name__ == "__main__":
         except Exception as _exc:
             logger.debug("[signal_eval] scheduler call failed: %s", _exc)
     schedule.every(30).minutes.do(_run_signal_evaluator)
+    # HM-EXEC-PIPELINE measurement-health watchdog: ntfy RED probes every 15 min
+    _mhealth_cooldown = {}  # probe_key -> epoch_secs of last alert
+    _MHEALTH_CD_SECS = 3600  # 60-min cooldown per probe
+    _mhealth_state = {"last_filled": None}  # cross-call state for drain-progress tracking
+
+    def _run_measurement_health_watch():
+        import time as _mh_time
+        import sqlite3 as _mh_sqlite3
+        from datetime import datetime as _mh_dt, timezone as _mh_tz
+        import threading as _mh_threading
+
+        now = _mh_dt.now(_mh_tz.utc)
+        now_epoch = _mh_time.time()
+
+        def _mh_age(ts_str):
+            if not ts_str:
+                return None
+            try:
+                s = ts_str.strip().replace(" ", "T")
+                if "+" not in s and not s.endswith("Z"):
+                    s += "+00:00"
+                return (now - _mh_dt.fromisoformat(s)).total_seconds()
+            except Exception:
+                return None
+
+        def _mh_fire(probe: str, title: str, body: str) -> None:
+            last = _mhealth_cooldown.get(probe, 0)
+            if now_epoch - last < _MHEALTH_CD_SECS:
+                return
+            _mhealth_cooldown[probe] = now_epoch
+            try:
+                from engine.ntfy import _send as _ntfy_send
+                _mh_threading.Thread(
+                    target=_ntfy_send,
+                    args=(title, body, 4, "red_circle"),
+                    kwargs={"topic": "ollietrades-admin"},
+                    daemon=True,
+                ).start()
+            except Exception:
+                pass
+
+        try:
+            _mh_conn = _mh_sqlite3.connect("data/trader.db", timeout=5)
+            _mh_conn.row_factory = _mh_sqlite3.Row
+
+            # RTH = Mon–Fri 13:30–20:00 UTC (06:30–13:00 MST; AZ = UTC-7 year-round)
+            is_rth = (
+                now.weekday() < 5
+                and (now.hour, now.minute) >= (13, 30)
+                and (now.hour, now.minute) < (20, 0)
+            )
+
+            # --- probe: obs writer stale during RTH > 2h ---
+            obs_row = _mh_conn.execute(
+                "SELECT MAX(ts) AS last_ts FROM signal_observations"
+            ).fetchone()
+            obs_age = _mh_age(obs_row["last_ts"])
+            if is_rth and (obs_age is None or obs_age > 7200):
+                age_str = (
+                    f"{int((obs_age or 0) // 3600)}h"
+                    f"{int(((obs_age or 0) % 3600) // 60):02d}m"
+                    if obs_age else "never"
+                )
+                _mh_fire(
+                    "obs_stale",
+                    "\U0001f534 MEASUREMENT: obs writer stalled",
+                    f"signal_observations last insert {age_str} ago during RTH.\n"
+                    "BK scanners may have crashed — check bridge health panel.",
+                )
+
+            # --- probe: evaluator not run in > 90 min (3 missed 30-min cycles) ---
+            ev_row = _mh_conn.execute(
+                "SELECT MAX(evaluated_at) AS last_run, COUNT(*) AS total, "
+                "SUM(CASE WHEN fwd_return_1d IS NOT NULL THEN 1 ELSE 0 END) AS filled "
+                "FROM signal_observations"
+            ).fetchone()
+            ev_age   = _mh_age(ev_row["last_run"])
+            ev_total  = ev_row["total"] or 0
+            ev_filled = ev_row["filled"] or 0
+            fill_rate = round(ev_filled / ev_total * 100, 1) if ev_total else 0.0
+
+            # Snapshot prev_filled before updating so we can detect a stalled drain.
+            prev_filled = _mhealth_state["last_filled"]
+            _mhealth_state["last_filled"] = ev_filled
+
+            if ev_age is not None and ev_age > 14400:
+                age_str = f"{int(ev_age // 3600)}h{int((ev_age % 3600) // 60):02d}m"
+                _mh_fire(
+                    "eval_stalled",
+                    "\U0001f534 MEASUREMENT: evaluator stalled",
+                    f"signal_evaluator last ran {age_str} ago (cadence=30min, threshold=4h).\n"
+                    f"fill_rate={fill_rate}% ({ev_filled}/{ev_total}). Restart may be needed.",
+                )
+            elif fill_rate < 5.0 and ev_total > 100:
+                # Only fire if drain is STALLED — filled_1d flat since last check.
+                # Suppress while drain is actively progressing (low fill_rate is
+                # expected for the entire ~20h backlog drain window).
+                if prev_filled is not None and ev_filled <= prev_filled:
+                    _mh_fire(
+                        "eval_low_fill",
+                        "\U0001f534 MEASUREMENT: evaluator drain stalled",
+                        f"fwd_return fill_rate={fill_rate}% ({ev_filled}/{ev_total} obs) — "
+                        f"no progress since last check (prev={prev_filled}).\n"
+                        "Evaluator may be stuck or throwing errors — check logs.",
+                    )
+
+            _mh_conn.close()
+        except Exception as _mh_exc:
+            logger.debug("[mhealth_watch] error: %s", _mh_exc)
+
+    schedule.every(15).minutes.do(_run_measurement_health_watch)
     # SWINGDESK-W3: agent auto-spread daemon — BUILT GATED-OFF (config.AUTO_SPREADS_ENABLED=False).
     # Bound at startup (lifecycle doctrine: not lazy). When OFF it heartbeats only; on a
     # detected flip it NTFYs. The master gate is enforced in auto_spread.submit_if_allowed.
@@ -4795,7 +4922,7 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_universe_scan)         # Universe Scanner: checks every 30 min, runs 9 PM MST (12 AM ET)
     schedule.every(30).minutes.do(run_strategy_scan)         # Strategy Scan: checks every 30 min, runs 10 PM MST (1 AM ET)
     schedule.every(10).minutes.do(run_chekov_stoploss)        # Chekov SL/TP: every 10 min, check positions vs stop/target
-    schedule.every(10).minutes.do(run_guardian_sweep)         # HM-GUARDIAN-ADOPTION: exit-only guardian stop/TP sweep (orphan positions), routes exits to Alpaca
+    schedule.every(10).minutes.do(run_guardian_sweep)         # HM-GUARDIAN-ADOPTION: exit-only stop/TP sweep, ALL exit_only agents w/ open positions (not just guardian-of-forever, since 2026-07-04), routes exits to Alpaca
 
     # HM-GUARDIAN-ADOPTION: one-time immediate sweep at startup so there is NO
     # ~10-min coverage gap after a restart (the 10-min schedule above is the

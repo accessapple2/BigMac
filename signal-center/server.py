@@ -815,6 +815,7 @@ _TRACKING_PLAYERS = frozenset({'dalio-metals', 'enterprise-computer', 'schwab'})
 _SIGNALS_ENDPOINTS = {
     'regime':             '/api/regime',
     'leaderboard':        '/api/arena/leaderboard',
+    'fleet_pnl':          '/api/fleet/pnl',
     'vix':                '/api/market/vix',
     'gex':                '/api/gex/SPY',
     'fear_greed':         '/api/fear-greed',
@@ -960,6 +961,12 @@ def _fetch_all_signals(prev_data=None):
                 _sc = data.get('score')
                 if _sc is None or _sc <= 0:
                     continue
+            # HM-DIRECTIVE-2026-07-01 Deck2 #9: risk_radar's cold-start
+            # sentinel ({"players": [], "loading": True}, dashboard/app.py
+            # /api/risk-radar) was being persisted as if it were a real
+            # signal reading. Suppress it, same pattern as fear_greed above.
+            if key == 'risk_radar' and isinstance(data, dict) and data.get('loading'):
+                continue
             db.execute(
                 "INSERT INTO signal_history (timestamp, signal_name, value, raw_data, source) "
                 "VALUES (?, ?, ?, ?, ?)",
@@ -1030,16 +1037,19 @@ def signal_history():
     limit = int(request.args.get('limit', 500))
     db    = get_db()
     since = (datetime.now() - timedelta(days=days)).isoformat()
+    # HM-DIRECTIVE-2026-07-01 Deck1 #4: also expose raw_data (proper JSON) —
+    # `value` is a truncated str(dict) repr, not valid JSON, so the frontend
+    # timeline parser was always failing on it and rendering "0" for every row.
     if signal_name:
         rows = db.execute(
-            "SELECT id, timestamp, signal_name, value, score, grade, source "
+            "SELECT id, timestamp, signal_name, value, raw_data, score, grade, source "
             "FROM signal_history WHERE signal_name=? AND timestamp>? "
             "ORDER BY timestamp DESC LIMIT ?",
             (signal_name, since, limit)
         ).fetchall()
     else:
         rows = db.execute(
-            "SELECT id, timestamp, signal_name, value, score, grade, source "
+            "SELECT id, timestamp, signal_name, value, raw_data, score, grade, source "
             "FROM signal_history WHERE timestamp>? ORDER BY timestamp DESC LIMIT ?",
             (since, limit)
         ).fetchall()
@@ -1748,10 +1758,25 @@ def _morpheus_log_action(action, by, result, notes=None):
         rowid = cur.lastrowid
         db.commit()
         db.close()
-        return rowid
     except Exception as e:
         _morpheus_log.warning("[Morpheus] execution_log write failed: %s: %r", type(e).__name__, e)
         return None
+    # HM-DIRECTIVE-2026-07-01 Deck2 #12: admin actions fire-and-forget in a
+    # background thread — the HTTP response only ever confirms TRIGGERED, so
+    # a FAILED outcome was previously invisible unless someone opened Ship's
+    # Log. Push it instead of waiting to be found.
+    if result == "FAILED":
+        try:
+            topic = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")
+            requests.post(
+                f"https://ntfy.sh/{topic}",
+                data=f"{action} failed (triggered by {by}). {_json.dumps(notes or {})[:150]}".encode("utf-8"),
+                headers={"Title": f"Morpheus action failed: {action}", "Priority": "high"},
+                timeout=10,
+            )
+        except Exception as e:
+            _morpheus_log.warning("[Morpheus] ntfy on FAILED action error: %s: %r", type(e).__name__, e)
+    return rowid
 
 
 @app.route('/api/morpheus/action/refresh-schwab', methods=['POST'])
@@ -2234,7 +2259,16 @@ def predictions_snapshot():
     # datetime.now().isoformat() -> predictions.created_at stored AZ-local -> db_max
     # freshness read it as UTC -> phantom 7h staleness. Canonical space-UTC (matches :551).
     now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')
+    # HM-DIRECTIVE-2026-07-01 Deck2 #10: _fetch_top25() swallows trade-levels
+    # failures (thin OHLCV -> _compute_trade_levels raises, caught silently),
+    # leaving recommendation/tp1/tp2 empty — those rows were inserted anyway
+    # (68/2025 rows repo-wide, e.g. every HOLX row since 2026-06-22). Require
+    # a complete row before persisting instead of silently keeping a blank one.
+    inserted, skipped = [], []
     for r in rows:
+        if not r['recommendation'] or r['tp1'] is None or r['tp2'] is None:
+            skipped.append(r['symbol'])
+            continue
         db.execute(
             "INSERT INTO predictions "
             "(snap_date, symbol, price_at, master_score, regime, recommendation, "
@@ -2244,10 +2278,11 @@ def predictions_snapshot():
              r['recommendation'], r['tp1'], r['tp2'], r['stop_loss'], r['rr'],
              r['signal_json'], now)
         )
+        inserted.append(r['symbol'])
     db.commit()
     db.close()
-    return jsonify({"status": "snapped", "date": today, "count": len(rows),
-                    "tickers": [r['symbol'] for r in rows]})
+    return jsonify({"status": "snapped", "date": today, "count": len(inserted),
+                    "tickers": inserted, "skipped_incomplete": skipped})
 
 
 def _get_ohlcv_range(symbol, days_back=5):

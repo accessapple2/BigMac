@@ -115,7 +115,7 @@ class RiskManager:
         "default": 3,            # Most models: max 3 trades per day
         "ollama-local": 2,       # Geordi: max 2 (was unlimited, made 2795)
         "qwen3-8b-flash": 2,   # Worf: max 2 (made 481)
-        "deepseek-7b-grok4": 8,             # Spock: 100% WR, 15 trades proven
+        "deepseek-7b-grok4": 3,             # Spock: HM-AGENT-RULES-CONSOLIDATION 2026-07-04 — was 8, conflicted with this agent's own MODEL_GUARDRAILS max_daily_trades=3 and persona ("Maximum 3 trades per day. Period.")
         "ollama-qwen3": 3,       # Dax: 1 bad trade, cautious
         "ollama-plutus": 3,      # McCoy: no closed trades yet S6
         "ollama-coder": 3,       # Data: no closed trades yet S6
@@ -135,8 +135,8 @@ class RiskManager:
     BEAR_MAX_TRADES_PER_DAY = 1           # Only 1 trade per day in bear
     BEAR_MIN_CASH_PCT = 0.35              # 35% cash in bear (V2: was 40%, deploy more in best picks)
     BEAR_MIN_CONVICTION = 0.80            # Need 80% conviction in bear
-    BEAR_MAX_POSITIONS = 8                # Max 8 positions in bear (user override — sequential Ollama)
-    NORMAL_MAX_POSITIONS = 8              # Max 8 positions (user override — sequential Ollama)
+    BEAR_MAX_POSITIONS = 3                # HM-AGENT-RULES-CONSOLIDATION 2026-07-04: was 8, canonical bear cap everywhere now
+    NORMAL_MAX_POSITIONS = 5              # HM-AGENT-RULES-CONSOLIDATION 2026-07-04: was 8, canonical normal cap everywhere now
     CORRELATION_LOOKBACK_DAYS = 60
     CORRELATION_THRESHOLD = 0.70
     CORRELATED_GROUP_MAX_PCT = 0.40
@@ -183,15 +183,17 @@ class RiskManager:
         "UVXY", "VXX", "VIXY",           # Volatility
     }
 
-    # Per-model position limits — all set to 8 (user override for 16GB Mac Mini)
+    # Per-model position limits — HM-AGENT-RULES-CONSOLIDATION 2026-07-04: was
+    # all set to 8 (user override for 16GB Mac Mini); default now matches the
+    # canonical NORMAL_MAX_POSITIONS=5 everywhere.
     MAX_POSITIONS_PER_MODEL = {
-        "default": 8,
-        "deepseek-7b-grok4": 8,             # Spock (paused — kept for reference)
-        "ollama-local": 8,       # Geordi (paused — kept for reference)
-        "qwen3-8b-flash": 8,   # Worf
-        "ollama-qwen3": 8,       # Scotty (paused)
-        "ollama-plutus": 8,      # Bones (inactive)
-        "energy-arnold": 8,      # Trip Tucker
+        "default": 5,
+        "deepseek-7b-grok4": 5,             # Spock (paused — kept for reference)
+        "ollama-local": 5,       # Geordi (paused — kept for reference)
+        "qwen3-8b-flash": 5,   # Worf
+        "ollama-qwen3": 5,       # Scotty (paused)
+        "ollama-plutus": 5,      # Bones (inactive)
+        "energy-arnold": 5,      # Trip Tucker
         "options-sosnoff": 5,    # Counselor Troi: options can be spread wider
         "navigator": 5,          # Chekov: convergence auto-trader, max 5 positions
     }
@@ -227,18 +229,18 @@ class RiskManager:
             else:
                 return 0.15  # 15% for moderate conviction
 
-    @staticmethod
-    def get_stop_loss_pct(conviction: float) -> float:
-        """V2: Conviction-scaled stop-loss — wider stops for higher conviction.
-        Rallies Grok 4 held MU through -5% to -8% dips on way to +73%."""
-        if conviction >= 0.90:
-            return 0.18  # -18% stop for ultra-high conviction
-        elif conviction >= 0.80:
-            return 0.15  # -15% stop for high conviction
-        elif conviction >= 0.70:
-            return 0.12  # -12% stop for good conviction
-        else:
-            return 0.08  # -8% tight stop for low conviction
+    # HM-AGENT-RULES-CONSOLIDATION 2026-07-04 (AGENT-RULES-REVIEW-2026-07-03.md
+    # Inconsistency #5): the RiskManager.get_stop_loss_pct staticmethod that used
+    # to live here returned 0.08 for conviction <0.70 -- the exact tight-stop
+    # regression the canonical engine.stops.get_stop_loss_pct floor invariant
+    # (12% minimum) was built to remove (documented: it hurt ollama-kimi PF
+    # 9.89->4.02). It was live, not dead code: paper_trader.py:1111 called
+    # `_rm.get_stop_loss_pct(confidence)` on a RiskManager instance, which
+    # Python resolves to THIS class method, not the `get_stop_loss_pct`
+    # imported from engine.stops at the top of this file -- so every trade
+    # without an explicit MODEL_GUARDRAILS stop_loss_pct override was silently
+    # getting the outlawed 8% stop. Removed; paper_trader.py now calls
+    # engine.stops.get_stop_loss_pct directly.
 
     # Per-model specific guardrails
     MODEL_GUARDRAILS = {
@@ -280,19 +282,26 @@ class RiskManager:
 
     def __init__(self, max_position_pct=0.20, max_positions=5, stop_loss_pct=0.12,
                  take_profit_tiers=None, max_daily_trades=30, max_drawdown_pct=0.20,
-                 min_cash_reserve_pct=0.15, options_max_pct=0.10, options_total_max_pct=0.35):
+                 min_cash_reserve_pct=0.20, options_max_pct=0.10, options_total_max_pct=0.35):
         self.max_position_pct = max_position_pct
         self.max_positions = max_positions
         self.stop_loss_pct = stop_loss_pct
-        self.take_profit_tiers = take_profit_tiers or [
-            (0.10, 0.50),  # +10% → sell 50% of position
-            (0.15, 0.50),  # +15% → sell 50% of remaining
-            (0.25, 0.50),  # +25% → sell 50% of remaining
-            (0.50, 1.00),  # +50% → sell everything left
-        ]
+        if take_profit_tiers is not None:
+            self.take_profit_tiers = take_profit_tiers
+        else:
+            # HM-AGENT-RULES-CONSOLIDATION 2026-07-04: was a hardcoded dup
+            # starting at +10% (Inconsistency #15) — now reads config.py's
+            # TAKE_PROFIT_TIERS directly so the two surfaces can't drift again.
+            try:
+                from config import TAKE_PROFIT_TIERS as _cfg_tp_tiers
+                self.take_profit_tiers = list(_cfg_tp_tiers)
+            except Exception:
+                self.take_profit_tiers = [
+                    (0.05, 0.50), (0.10, 0.25), (0.15, 0.50), (0.25, 0.50), (0.50, 1.00),
+                ]
         self.max_daily_trades = max_daily_trades
         self.max_drawdown_pct = max_drawdown_pct
-        self.min_cash_reserve_pct = min_cash_reserve_pct
+        self.min_cash_reserve_pct = min_cash_reserve_pct  # HM-AGENT-RULES-CONSOLIDATION 2026-07-04: was 0.15
         self.options_max_pct = options_max_pct
         self.options_total_max_pct = options_total_max_pct
 

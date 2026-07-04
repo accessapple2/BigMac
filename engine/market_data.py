@@ -9,6 +9,7 @@ import time
 import threading
 import sqlite3
 from datetime import datetime
+from zoneinfo import ZoneInfo
 from rich.console import Console
 
 console = Console()
@@ -333,6 +334,9 @@ def _get_alpaca_bulk_prices(symbols: list) -> dict:
 
 
 # === Phase 2: Race tile snapshots ===
+_MARKET_TZ = ZoneInfo("America/New_York")
+
+
 def _get_alpaca_bulk_snapshots(symbols: list) -> dict:
     """GET /v2/stocks/snapshots?symbols=... — open + last + volume per symbol in one call.
 
@@ -340,6 +344,14 @@ def _get_alpaca_bulk_snapshots(symbols: list) -> dict:
     prev_close, ts}}. Skips rows missing either latestTrade.p or dailyBar.o.
     Empty dict on auth/HTTP/JSON failure. No chunking — Alpaca supports
     thousands per request and the Race universe is <1000 names.
+
+    HM-RACE-VALIDATION 2026-07-03 (BNY ghost-signal fix): on a day the
+    market didn't open, Alpaca can still hand back a dailyBar carrying a
+    prior session's open paired with a latestTrade from an odd/stale print
+    — pairing the two produces a nonsense "change since open". On any day
+    the market IS scheduled to trade, require the dailyBar to actually be
+    from today; otherwise its open_price can't be trusted and the row is
+    dropped rather than silently feeding a ghost number downstream.
     """
     hdrs = _get_alpaca_headers()
     if not hdrs:
@@ -357,6 +369,11 @@ def _get_alpaca_bulk_snapshots(symbols: list) -> dict:
         # Multi-symbol snapshots are FLAT (verified 2026-05-10 live probe).
         # Defensive: tolerate a future wrapped shape too.
         snaps = body.get("snapshots", body)
+
+        from engine.market_calendar import is_trading_day
+        today_et = datetime.now(_MARKET_TZ).date()
+        expect_fresh_bar = is_trading_day(today_et)
+
         results = {}
         for sym, snap in snaps.items():
             if not isinstance(snap, dict):
@@ -368,6 +385,16 @@ def _get_alpaca_bulk_snapshots(symbols: list) -> dict:
             open_price = db.get("o")
             if last_price is None or open_price is None:
                 continue
+            if expect_fresh_bar:
+                bar_t = db.get("t")
+                try:
+                    bar_date = datetime.fromisoformat(
+                        str(bar_t).replace("Z", "+00:00")
+                    ).astimezone(_MARKET_TZ).date()
+                except Exception:
+                    bar_date = None
+                if bar_date is not None and bar_date != today_et:
+                    continue  # stale dailyBar — don't pair it with today's latestTrade
             results[sym] = {
                 "symbol": sym,
                 "last_price": float(last_price),

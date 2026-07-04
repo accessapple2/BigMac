@@ -5,6 +5,124 @@
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
 ---
+## 🆕 HM-AGENT-RULES-CONSOLIDATION — 2026-07-04, Admiral-decided batches A-F shipped
+
+Source: `drafts/AGENT-RULES-REVIEW-2026-07-03.md` (21 inconsistencies) +
+Admiral decisions 2026-07-04. Canonical numbers baked in across
+trading_rules.txt/config.py/risk_manager.py/base.py/stops.py (max positions
+5/3, cash floor 20%/35%, stops = engine/stops.py 12/15/18 tiers, options cap
+10%, position cap 30%); Sulu persona retired to Iron Condor King; stale 0.08
+conviction-stop staticmethod removed (was a LIVE bug via paper_trader.py,
+not dead code); Tier-1 roster swept of halt_mode='full' entries; exit_only
+stop coverage generalized to all agents holding positions (was
+guardian-of-forever only, missed 15 positions across 4 other seats).
+Commits: acd62d1, 2787efa, 9b3767f, f9e3a4c, a384667, 9d3e097 (see each for
+detail). Document-only items and tickets below.
+
+**Document-only (no code change, per Admiral instruction):**
+- **Item 9 — ADVISORY_CREW kill-gated bridge voters silently out of WR
+  vote.** The 06-19/20 Door-1 kill-gate moved qwen3-8b-sonnet, qwen3-14b-pro,
+  deepseek-7b-grok4, ollama-kimi, dalio-metals, ollama-coder to `halt_mode=
+  'full'`. war_room.py:1132-1133 excludes non-active players from the bridge
+  vote. Those 6 were originally kept `active` specifically so they'd still
+  bridge-vote (FLEET-ROSTER.md design intent) — the kill-gate silently
+  removed their vote as a side effect of a decision made for a different
+  reason. **Accepted as-is** — re-adding them to the vote while `full`
+  would contradict the kill-gate's own intent (a runaway agent shouldn't
+  get a vote either). Revisit only if/when any of these 6 are reopened.
+- **Item 21 — TRADE_DESK_BYPASS_GATES=True (config.py:34).** Trade-desk
+  manual orders bypass daily limits, MAX_POSITION_VALUE, kill switch, and
+  Uhura veto. **Accepted as-is** — this is the manual human trade-desk path,
+  not an AI agent; a human placing a deliberate order shouldn't be blocked
+  by automated per-agent gates. Flagging here so any future "what can trade
+  without rules" audit has this on record.
+
+**Tickets (found during the audit, not fixed — separate scoped work):**
+- 🔵 **Item 11 — model-id triage.** `config.AI_PLAYERS` is documented-wrong
+  for ~10 agents (config.py:302-312); DB `ai_players.model_id` is runtime
+  truth but some of those are themselves garbage placeholders (neo-matrix =
+  `'8000 / Independent'`). `CREW_MANIFEST` model fields are a THIRD,
+  independently-divergent source (e.g. crew_specialization.py:294 says McCoy
+  = `0xroyce/plutus:latest` vs config's `plutus-v1`). Needs one pass that
+  picks a single source of truth and reconciles the other two, not spot
+  fixes.
+- 🔵 **Item 12 — cto-grok42 dead model.** `crew_specialization.py:613`:
+  `ai_players.model_id` still `devstral-small-2`, uninstalled since the MSI
+  migration. War Room / debate calls 404 for this agent until the DB row is
+  fixed. Sits in `_SCAN_TIER3` regardless (harmless — Tier 3 members mostly
+  `halt_mode='full'` anyway) but the model-id fix itself is a one-line SQL
+  UPDATE + verify, cleanly scoped.
+- 🔵 **Item 13 — naming dedup.** Two agents both display as "Lt. Jadzia Dax"
+  (crew_specialization.py:310, 465). `main.py`'s Tier-2 comment labels
+  `ollama-qwen3` "Scotty" while `CREW_MANIFEST` calls it "Dax". `mlx-qwen3`
+  is labeled "Chekov" in `main.py` roster comments but "Ensign Ro" in
+  `CREW_MANIFEST`. `FLEET-ROSTER.md` still carries a stale 2026-06-01
+  21/6/45 count vs `CLAUDE.md`'s current 15/9/55/79 (2026-07-01) waypoint.
+  Reopening decisions made off display names alone will hit the wrong
+  player_id — needs a single naming pass across main.py comments,
+  CREW_MANIFEST, and FLEET-ROSTER.md.
+- 🔵 **Item 18 — paused personas vs full mandates.** Nine ids have
+  placeholder personas (`base.py`: `"Paused. Former quant specialist."`) while
+  `CREW_MANIFEST` simultaneously defines real mandates for them (Sisko,
+  Tuvok, Janeway, Q, Bashir, Hoshi, Seven, Reed, Odo). If any of these are
+  reopened without persona restoration first, they'd scan with no identity/
+  rules beyond the generic RULES block. **`qwen3-8b-flash` (Worf)'s persona
+  check is a prerequisite for the Batch-1 reopening pass** (mlx-qwen3 is
+  Batch-1's headline candidate; Worf shares the same drift-reconcile history
+  — verify its persona isn't also stale before either seat flips).
+- 🔵 **Sulu DayBlade-label sweep (found while retiring the persona, commit
+  9d3e097).** ~15 files still reference `dayblade-sulu` with DayBlade-era
+  assumptions: `main.py`'s EOD options sweep (`close_all_options`),
+  `paper_trader.py`'s sizing/circuit-breaker/long-only exemptions,
+  `crew_scanner.py`, `super_backtest_v4.py`, `weekend_backtest.py`, etc. Some
+  of this may already be functionally correct for an options/spread trader
+  and just mislabeled from before the S6.3 pivot to Iron Condor King; some
+  may not be. `dayblade-sulu` is `halt_mode='exit_only'` today (no new
+  entries), so nothing here is live-executing — needs its own review pass
+  before touching behavior, not a spot-fix. See CLAUDE.md Archive Convention
+  section for the persona-retirement record.
+
+---
+## 🔴 HM-TROI-MAXPOS-CAP-DEAD — HIGH (filed 2026-07-03) — read-only diagnostic done
+
+**Finding (HM-TROI-DEEPDIVE-2026-07-03):** Troi's (`options-sosnoff`) CSP wheel strategy is carrying
+**48 open positions / ~$1,315,399 notional cash-secured-put exposure** against a cash base that's
+either $12,880.20 (`ai_players.cash`, explicitly decoupled from CSP accounting since HM-W1F4
+2026-05-17) or a shared $73,380.21 fleet pool (`options_books.fleet.current_cash`, split across
+`options-sosnoff` + `strategy:bull_spread_v1` + `swingdesk-manual` — no clean Troi-only slice).
+Either way, notional secured is 16x+ the smaller figure. Trade-level performance itself is fine
+(100% win rate closed, 36/36, +$7,972.21 realized) — this is a position-sizing control failure, not
+a strategy problem.
+
+**ROOT CAUSE:** `engine/wheel_strategy.py`'s `MAX_POSITIONS = 3` cap and its "skip if already held"
+check both read `get_portfolio(PLAYER_ID)["positions"]` (`engine/paper_trader.py:540`), which queries
+the stock `positions` table. But `open_options_trade()` (`engine/options_exec.py`) writes CSP legs
+only to `options_trades`, never to `positions`. So every scan sees **zero** existing option
+positions and **zero** held symbols, no matter how many are actually open — the cap and the dedup
+are both silently dead code for options. `open_options_trade()` itself has no position-count or
+already-held check of its own (only the HM-DOOR1 leveraged-ETF blocklist gate).
+
+**Evidence — same-symbol, same-day stacking with no cap in sight:**
+- 2026-06-11: 6 SOXL entries, 6 UPRO entries, 6 TQQQ entries — all in one day.
+- 2026-06-12: 4 each (SOXL/UPRO/TQQQ). 2026-06-08 and 2026-06-09: 3 each.
+- Current open book: 18 SOXL + 18 UPRO (all entered ≤2026-06-12, pre-Door1) + 6 QQQ + 6 SPY (all
+  entered ≥2026-06-23, post-Door1 pivot to non-leveraged underlyings) = 48 total, vs the coded cap
+  of 3.
+
+**Severity: HIGH, not yet realized as loss** — all 48 open positions are currently well OTM (100%
+win rate holds so far), so no live damage. But the control that's supposed to bound concentration
+risk does not function, and nothing else in the path (`open_options_trade`, the scan loop) enforces
+a ceiling. A VIX spike + a bad multi-day stretch could stack far more exposure than the strategy was
+ever sized for.
+
+**RECOMMENDED FIX (focused session):** `wheel_strategy.py`'s cap/dedup logic needs to read open CSP
+count from `options_trades` (`WHERE agent_id='options-sosnoff' AND status='open'`, grouped by
+symbol) instead of — or in addition to — the stock `positions` table. Until fixed, `MAX_POSITIONS=3`
+is not a real constraint on this agent. No live risk currently (VIX-gated dormant since 2026-07-02,
+zero new entries since 2026-06-29) but will resume stacking the moment VIX clears `MIN_VIX=18`.
+Full diagnostic: HM-TROI-DEEPDIVE-2026-07-03 (this session).
+
+---
 ## 🆕 2026-05-31 SESSION — filed retroactively (was git+memory only; backlog was stale-by-omission)
 
 ### ✅ HM-GEX-CANONICAL — single GEX source; 3 legacy GEX systems RETIRED (2026-05-31)
@@ -3979,3 +4097,283 @@ person to click it isn't misled into thinking config changed.
 - Requires manual browser hover/click smoke test per the Frontend Ship Rule
   (single-file edit to `dashboard/static/index.html` + the app.py status text).
 LOW (cosmetic), bounded by the "before button is trusted" caveat.
+
+## OPEN 2026-07-01 — HM-DAX (POST-TRIP) — Dax role-degeneration decision
+
+`ai_players` id `ollama-qwen3` (Lt. Jadzia Dax, model `ministral-3:3b`) has
+role-degenerated: 100% stock scalps, ZERO options — the CSP role it was
+originally scored on (+4.9 Sharpe backtest) now lives on a separate seat,
+`shadow-qwen35-csp`. Post-swap realized read (executed_at ≥ 2026-05-15):
+Sharpe 0.99 (n=33), net +$48.41, 93.9% win rate, one −$40.68 tail dominating —
+net-green but economically negligible as a scalper, and the roster's +4.9
+Sharpe figure is doubly stale (different strategy, different model). Prior
+art: `docs/FLEET-ROSTER.md:16-18`, flagged 2026-06-15, "structural review
+deferred post-trip." Decision needed: repurpose Dax back to CSP (retire
+`shadow-qwen35-csp` as redundant), retire Dax's scalping role outright, or
+formally migrate/rename the role split so both seats have distinct, non-stale
+mandates. No action taken — filing only.
+
+## OPEN 2026-07-01 — HM-VOTE-AUDIT (POST-TRIP) — vote-quality audit of ministral-3:3b War Room voters
+
+~14 War Room voter seats run on `ministral-3:3b` (the same small model behind
+the Dax role-degeneration above). Audit whether this model's votes carry
+distinguishable signal at War Room scale, or whether ~14 seats voting off one
+small, possibly-undifferentiated model dilutes the debate rather than adding
+orthogonal perspective (see Duplicate Role Policy in `CLAUDE.md` — "bad
+duplication" consolidates to one owner). Scope: pull each seat's vote-vs-outcome
+accuracy, check pairwise vote correlation across the ~14, and compare against
+larger/differentiated models in the same debates. No action taken — filing only.
+
+## OPEN 2026-07-01 — HM-PY-CONSOLIDATE (POST-TRIP) — watchdog.py off system Python 3.9.6
+
+`watchdog.py` (PID observed running today) executes under
+`/Library/Developer/CommandLineTools/.../Python3.framework/Versions/3.9/...` —
+macOS system CommandLineTools Python 3.9.6 — while the live trader (`main.py`)
+and `scripts/trader_restart.sh`'s canonical launch target both run
+`.venv/bin/python3` (Homebrew 3.14.3). This is real three-way interpreter drift
+(flagged during today's HM-FULL-AUDIT-2026-07-01, section 3b). Low immediate
+risk (watchdog is a thin supervisor with no exotic dependencies), but should be
+repointed to `.venv/bin/python3` for consistency and so a future 3.9-only
+stdlib quirk doesn't bite silently. No action taken — filing only.
+
+## OPEN 2026-07-01 — HM-LESSON-SHADOW (POST-TRIP) — lesson_validation_shadow silent 25+ days
+
+The `lesson_validation_shadow` table (Reflexion-style self-improvement
+mechanism) has not received a write since 2026-06-06 (25+ days as of this
+filing) and `lesson_validation_alerted` has zero rows ever. No cron entry
+drives whatever process is supposed to populate it — found during
+HM-FULL-AUDIT-2026-07-01 section 2e. Decision needed: rewire it to an active
+scheduled job (if the self-improvement loop is still wanted) or formally retire
+it (drop/archive the table, remove any dead references) so it stops reading as
+an ambiguous "is this broken or intentionally off" signal on future audits. No
+action taken — filing only.
+
+## OPEN 2026-07-01 — HM-SCORECAP-REVISIT (dated 2026-07-07) — witness_ab SCORE_CAP=300 volume check
+
+Dated follow-up to today's `witness_ab_scorer.py` SCORE_CAP bump 60→300
+(commit `bfae596`), per the scorer's own in-file design note: "Option 1
+(CURRENT): score everything — SCORE_CAP ≥ daily max, zero bias... revisit if
+volume exceeds cap." Debate volume has been running 178–340/day and already
+brushed the 300 cap on at least one recent day (338 on 6/24) — if volume holds
+above 300/day, the scorer silently reverts to the same time-of-day sampling
+bias the cap increase was meant to eliminate. **Watch line filed today:**
+2026-07-01 A/B scoring ran imbalanced — deepseek-r1:14b scored 301 debates vs
+gpt-oss:20b only 169 (yesterday, 6/30, both were even at 60/60). Escalate from
+"watch" to "fix now" if the imbalance persists 3+ consecutive days. Revisit
+2026-07-07 regardless. No action taken — filing only.
+
+**GROUNDING FIX LANDED 2026-07-01 — all witness_ab rows on/before this date are
+ungrounded-era; score the experiment on post-fix rows.**
+
+Context (HM-CLOSEOUT Item 3): the originally-suspected "total bypass" (neither
+ticker_context nor gamma_context ever reaching any witness prompt) turned out
+NOT to be quite right on closer inspection — `generate_hot_take()`
+(`engine/war_room.py:684`) has unconditionally built and prepended both blocks
+for every caller since `ff1a920`/`c8c021d` (2026-06-22/23), regardless of
+`prior_takes`. What was ACTUALLY, currently broken: `_record_witness`
+(gemma4:12b-it-qat vs plutus-v1:latest live arm) had a separate, redundant
+grounding-injection attempt with a closure/scoping bug — reassigning `_ctx`
+inside a nested function made Python treat it as local for the whole function,
+raising `UnboundLocalError` on every call. Confirmed firing every ~5min in
+`logs/trader.log` since at least 14:37 today, silently swallowed by the
+surrounding try/except — this arm produced **zero** witness takes (not
+"ungrounded" takes — no takes at all) until the fix below. Separately, the
+deferred `deepseek-r1:14b`/`gpt-oss:20b` arm (`_queue_ab_witness` →
+`scripts/witness_ab_scorer.py`, scored hours-to-days later off-hours) DOES get
+grounding from `generate_hot_take`'s built-in call, but computed at SCORING
+time, not DEBATE time — a real temporal mismatch this fix also closes by
+capturing debate-time grounding into the queued context.
+
+Fix: new shared helper `_grounded_witness_ctx()` (`engine/war_room.py`, right
+before `_record_witness`) used by all three witness paths — fixes the crash in
+`_record_witness`, adds debate-time-accurate grounding to the `witness_queue`
+context for the deepseek/gpt-oss arm, and (redundantly but harmlessly, since
+`generate_hot_take` already grounds this arm live) also touches
+`_record_shadow_witness` (plutus-v7d). Verified live: trader restarted
+(`scripts/trader_restart.sh`, WAL checkpoint fired `0|0|0` clean per
+HM-WAL-ROOTCAUSE interim mitigation), first post-restart witness call
+succeeded (`logs/trader.log:1532`, `[WR-WITNESS] debate=MU_1782949327
+witness_model=gemma4:12b-it-qat wall=34.412s` — no warning, no crash),
+reconstructed the same MU prompt offline and confirmed `FACTUAL CONTEXT`
+literally present.
+
+**PRE-REGISTERED 2026-07-01 (before post-fix data matures):**
+- Scoring window: post-grounding-fix rows only (see 3d stamp).
+- Minimum n: 300 scored debates per arm within the window.
+- Primary metric: directional accuracy vs realized next-day move on
+  non-NEUTRAL verdicts.
+- Secondary: agreement rate with McCoy (context, not victory condition).
+- Win: one arm leads primary metric by >=5 percentage points at n>=300;
+  else DRAW → decide on cost/latency (gpt-oss:20b vs deepseek-r1:14b
+  tokens/sec on olliemax).
+- Both arms must see the same debate stream; if daily scored counts diverge
+  >25% for 3+ consecutive days, experiment is PAUSED-INVALID pending
+  balance diagnosis (watch line from 2026-07-01: 301 vs 169).
+
+## OPEN 2026-07-01 — HM-ORPHAN-SEATS (POST-TRIP) — 11 ai_players seats reference absent Ollama models
+
+Cross-referencing `ai_players.model_id` (provider='ollama') against `ollama ls`
+on olliemax (192.168.1.168) during HM-FULL-AUDIT-2026-07-01 section 6c found 11
+orphan seats — model_id set but the model itself is no longer served on the
+fleet host: `deepseek-r1:7b`, `devstral-small-2`, `gemma3:27b-it-qat`,
+`gemma4:26b`, `gemma4:31b`, `llama3.1:latest`, `llama4:scout`, `qwen2.5:7b`,
+`qwen3-coder:30b`, `qwen3.6:27b`, `qwen3.6:35b-a3b`. Decision needed per seat:
+repoint to a currently-served model, or formally retire the seat (halt_mode
+already may cover some — cross-check `halt_mode='full'` overlap before
+deciding, see HM-FULL-AUDIT-2026-07-01 section F1). No action taken — filing
+only.
+
+## OPEN 2026-07-01 — HM-WAL-ROOTCAUSE — trader.db-wal structural bloat, no single leak found
+
+`data/trader.db-wal` reached 642-645MB (vs. a normal near-zero checkpointed
+size). `PRAGMA wal_checkpoint(PASSIVE)` on 2026-07-01 checkpointed only 11 of
+164,302 WAL frames; `wal_checkpoint(TRUNCATE)` returned `SQLITE_BUSY` twice in
+a row (stopped per fail-twice-stop rule, no forced kill/restart attempted).
+`lsof` showed 15 concurrent open connections on the WAL file, all from the
+trader's own PID — no external tool holding a lock. Root-cause suspect (not a
+confirmed single leak): the codebase has no connection pool — ~953 ad-hoc
+`sqlite3.connect()` call sites — combined with `main.py:run_scanner()`
+background scan/War-Room cycles that can run 10-20+ minutes each (the function
+has its own comment referencing a prior 14-min lock-hold stall). With scan and
+War Room threads overlapping near-continuously, there may never be a moment
+with zero open readers, so WAL checkpoint can never advance past whichever
+reader is mid-cycle — a structural "always-a-reader" pattern rather than one
+fixable leak, likely worsened by today's SCORE_CAP 300 change extending
+witness debate runtime. Needs a deeper pass (e.g. instrumenting which specific
+connection is oldest at checkpoint time) before a real fix can be scoped. No
+action taken — filing only.
+
+**INTERIM MITIGATION LANDED 2026-07-01 (HM-CLOSEOUT Item 1):**
+`scripts/trader_restart.sh` now runs `PRAGMA wal_checkpoint(TRUNCATE);` (`|| true`)
+immediately after confirming zero `trader.log` writers and before the new
+process launches — the one guaranteed zero-reader window, so the checkpoint
+is certain to fully truncate there regardless of the structural always-a-reader
+problem during normal operation. This does NOT fix the root cause (WAL will
+still grow unbounded between restarts) — it only guarantees the WAL resets to
+near-zero on every restart rather than compounding across restarts indefinitely.
+Arms on the next natural restart; no restart was forced to install it.
+
+**Diagnostic note on the 642MB figure:** the PASSIVE checkpoint result triple
+was `0|164302|11` (not busy, 164,302 total WAL frames, only 11 checkpointed) —
+i.e. under normal running conditions almost none of the WAL is reclaimable, not
+because it's dead/abandoned space but because some reader's snapshot pins
+nearly the entire file. This confirms the 642MB is "live, unmerged" relative to
+an open reader, not garbage a routine checkpoint should have already claimed —
+consistent with the always-a-reader theory above, and it's why the interim fix
+targets the restart's zero-reader window specifically rather than trying
+another in-place checkpoint attempt.
+
+## OPEN 2026-07-01 — HM-POLYGON-QUOTES — provider-order gaps + probe-informed recommendation
+
+Six known gap sites where the codebase doesn't follow "Polygon primary" doctrine
+(from HM-CLOSEOUT-2026-07-01 Item 4 trace, report-only at the time — no code
+touched): `engine/market_data.py::get_stock_price` (25+ callers, Alpaca→Yahoo→
+Finnhub→AlphaVantage, Polygon never referenced), `strategies/chain_lookup.py`
+(`CHAIN_PROVIDER` defaults to `alpaca`), `engine/options_chain.py` (yfinance-only),
+`engine/gamma_map.py` (Alpaca-only, feeds Ready Room GEX), and the dashboard's
+two chart endpoints `dashboard/app.py` `/api/candles` + `/api/charts/ohlcv`
+(both yfinance-only, the "+2" sites).
+
+**HM-POLYGON-PROBE 2026-07-01 results** (`scripts/polygon_probe.py`, read-only,
+SPY/NVDA/WDC, Stocks Starter + Options Starter tier):
+- `/v2/last/nbbo/{ticker}` (live quotes): **403 NOT_AUTHORIZED on all 3 tickers**
+  — "You are not entitled to this data." Confirmed: this plan tier has NO quote
+  endpoint access at all, not delayed-but-usable — fully gated behind upgrade.
+- `/v2/snapshot/.../tickers/{ticker}`: 200 OK, returns day/min/prevDay OHLC
+  aggregates (o/h/l/c/v/vw) populated; `lastTrade`/`lastQuote` empty on all 3.
+  Same gate as above — day-bar data works, quote data doesn't.
+- `/v3/snapshot/options/{ticker}`: 200 OK, `open_interest` populated on 2/3
+  tickers, but `last_quote`/`last_trade` NULL on all 3 and `greeks` NULL on 2/3
+  (inconsistent across tickers — sample was the first 5 contracts returned,
+  unfiltered by strike/expiry, so this may reflect which contracts got sampled
+  more than a clean capability signal; a filtered re-probe would sharpen this).
+  Confirms the existing `alpaca_chain_client.py` header comment ("Polygon
+  Starter plan returns no quotes") is accurate for options too.
+- No rate-limit headers present in any response on this tier.
+- Delay could not be cleanly determined — probe ran after market close, so the
+  ~31min gap observed between `ticker.updated` and wall-clock reflects
+  time-since-close, not a live real-time-vs-delayed signal. Re-run during RTH
+  for a clean delay read if it matters.
+
+**Recommendation per site (probe-informed, no repointing done):**
+- `get_stock_price` — **STAY on Alpaca/yfinance.** Polygon quote endpoint is
+  403 on this plan; cannot supply live prices at all without a plan upgrade.
+- `chain_lookup.py` — **STAY on Alpaca default.** Polygon options snapshot
+  returns no usable last_quote/last_trade; matches the code's own prior
+  assessment. Not a safe repoint.
+- `options_chain.py` — **STAY on yfinance/Alpaca**, same reasoning as above.
+- `gamma_map.py` — **TENTATIVE candidate for repoint, needs a build not a flip.**
+  GEX computation leans on open_interest + chain structure more than live
+  quotes, and `open_interest` DID come back populated in the probe. The
+  platform already has a working Polygon-native GEX path
+  (`engine/gamma_context.py` / `canonical_gex`) that doesn't depend on
+  last_quote/last_trade either — `gamma_map.py` could plausibly follow the
+  same pattern, but this needs an actual implementation + test, not a
+  probe-only decision. Filed as follow-up, not actioned.
+- `/api/candles` + `/api/charts/ohlcv` — **SAFE TO REPOINT.** Probe confirms
+  Polygon's day-bar/snapshot data works cleanly (200 OK, real OHLC fields
+  populated) on this plan, and `engine/market_data.py::get_polygon_bars` is
+  already built, Polygon-primary, and proven working elsewhere in the
+  codebase. These two endpoints could call it instead of `yfinance` directly
+  with low risk — the only site of the six with a clear, low-risk path.
+
+No repointing performed in this pass — probe results only. Actioning any of
+the above (build the gamma_map.py repoint, or flip the two chart endpoints)
+is separate follow-up work.
+
+**2026-07-01 — chart repoints approved-in-principle, deferred post-trip by
+Admiral order.**
+
+## OPEN 2026-07-01 — HM-SHELLY-WATCHDOG (POST-TRIP) — box-plug auto-cycle design (design only, not built)
+
+Context: HM-SHELLY-PREP-V2 (2026-07-01) shipped `scripts/plug_cycle.sh` (manual
+control tool) and `scripts/shelly_net_watchdog.js` (on-device auto-cycle,
+installed ONLY on the Allo router + Starlink Mini plugs — network gear, no
+stateful DB to corrupt). The bigmac (.245) and olliemax (.246) box plugs stay
+**manual-only** until this ticket is actioned — this entry is the design
+sketch for eventually giving them a safe auto-cycle path, not an
+implementation.
+
+**Why boxes are harder than network gear:** cutting power to a box mid-write
+can corrupt `trader.db` (or `signals.db`). Network gear has no such state —
+worst case is a clean reboot. A box auto-cycler needs real DB-safety
+reasoning that the network-gear watchdog didn't.
+
+**Design sketch:**
+1. **Cross-box, never self-monitoring.** A box that's down can't trigger its
+   own recovery — bigmac's watchdog must monitor olliemax's reachability (and
+   fire `scripts/plug_cycle.sh olliemax cycle` on trigger) and vice versa.
+   This is already naturally enforced by `plug_cycle.sh`'s SAFETY RAIL 1
+   (refuses off/cycle against the host it's running on) — the cross-box
+   watchdog would just be a cron job on each box calling the *other* box's
+   plug, which the existing tool already permits without modification.
+2. **Independent failure mode (CLAUDE.md doctrine, "Alarms must not share a
+   failure mode with what they watch").** The watchdog cron and the thing it
+   watches must not share infrastructure — e.g. don't run the olliemax-watcher
+   cron ON bigmac if bigmac's own uptime is what's in question elsewhere;
+   consider running each box's watchdog from a third point if one becomes
+   available, or at minimum keep it a plain cron entry (not tied to the
+   trader process's own health).
+3. **Conservative unresponsive-threshold, well past any legitimate slow
+   restart/update** — a box that's merely slow to boot or mid-restart must
+   never get power-cut. Needs to be long enough to rule out `trader_restart.sh`
+   (which already waits up to 45x2s=90s for the listener) plus OS-level boot
+   time plus margin — likely 10-15+ minutes unresponsive before even
+   considering a trigger, not the 15-minute network-gear threshold reused
+   verbatim (network gear reboots in seconds; a Mac Mini does not).
+4. **DB-safety cannot be guaranteed at trigger time** — if a box is genuinely
+   unresponsive, there's no way to ask it to checkpoint/quiesce first. The
+   mitigations already shipped today reduce blast radius instead of
+   preventing it outright: `scripts/trader_restart.sh` now checkpoints WAL in
+   the zero-reader window on every *voluntary* restart (HM-WAL-ROOTCAUSE
+   interim mitigation), and daily local (`scripts/db_snapshot.sh`) + off-host
+   (`scripts/offhost_backup.sh`) snapshots exist if a forced cycle does
+   corrupt something. An auto-cycle design should treat "accept the DB-crash
+   risk of a forced cycle, mitigated by fresh backups" as the actual
+   trade-off, not pretend a clean quiesce is achievable from outside.
+5. **Manual override always available** — `plug_cycle.sh` already exists and
+   works for a human to intervene immediately; this ticket only adds
+   *unattended* recovery on top, doesn't replace the manual path.
+
+No code written for this ticket — implementation is explicitly deferred
+post-trip.

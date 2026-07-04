@@ -1070,6 +1070,10 @@ body:not(.role-admin) .admin-only { display: none !important; }
 .online-status-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); display: inline-block; animation: pulse 2s infinite; box-shadow: 0 0 6px var(--green); flex-shrink: 0; }
 @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.4} }
 .nav-actions { display: flex; gap: 8px; }
+/* HM-DIRECTIVE-2026-07-01 Deck3 #17: shared skeleton-bar for empty-state polish
+   (Phaser-Lock, Worf Arsenal, Ghost Research) — blank must never look broken. */
+.skel-bar { display:inline-block; height:12px; border-radius:4px; background:var(--surface2); animation:pulse 1.4s infinite; vertical-align:middle; }
+.empty-since { color:var(--muted); font-size:12px; padding:10px 0; text-align:center; }
 /* Wizard modal */
 .wizard-overlay { display:none; position:fixed; inset:0; background:rgba(0,0,0,0.65); z-index:2000; align-items:center; justify-content:center; }
 .wizard-overlay.open { display:flex; }
@@ -5251,9 +5255,14 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         const sym = String(r.ticker || '').replace(/[^A-Z0-9.=]/gi,'').toUpperCase();
         const fleetCls = r.in_fleet ? ' in-fleet' : '';
         const fleetBadge = r.in_fleet ? '<span class="in-fleet-badge">IN FLEET</span>' : '';
+        // HM-SCANNER-GHOST-FIX 2026-07-03: badge plans computed on stale data
+        // (entry >3% from live price — the BNY $146.60-vs-$138.88 case).
+        const staleBadge = r.stale_plan
+          ? '<span class="in-fleet-badge" style="background:rgba(245,158,11,0.2);color:#f59e0b;" title="Plan entry is ' + (r.plan_price_gap_pct != null ? r.plan_price_gap_pct + '%' : '>3%') + ' away from live price — computed on stale data">STALE PLAN</span>'
+          : '';
         const strats = Array.isArray(r.strategies) ? r.strategies.join(', ') : '';
         html += '<tr class="scanner-row' + fleetCls + '" data-symbol="' + sym + '">';
-        html += '<td class="scanner-sym">' + sym + fleetBadge + '</td>';
+        html += '<td class="scanner-sym">' + sym + fleetBadge + staleBadge + '</td>';
         html += '<td>' + (r.price != null ? '$' + fmtNum(r.price, 2) : '--') + '</td>';
         html += '<td style="' + heatColor(r.chg_close_pct, [5, 5]) + '">' + fmtPct(r.chg_close_pct) + '</td>';
         html += '<td style="' + heatColor(r.chg_open_pct, [3, 3]) + '">' + fmtPct(r.chg_open_pct) + '</td>';
@@ -5297,9 +5306,18 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           badge.style.color = '#f87171';
           return;
         }
-        badge.textContent = 'LIVE';
-        badge.style.background = '#22c55e22';
-        badge.style.color = '#22c55e';
+        // HM-SCANNER-GHOST-FIX 2026-07-03: market-calendar gate. When the
+        // exchange is closed the backend flags meta.market_open=false; show
+        // an amber CLOSED badge so tier rows read as reference, not live.
+        if (d && d.meta && d.meta.market_open === false) {
+          badge.textContent = 'CLOSED · STALE';
+          badge.style.background = '#f59e0b22';
+          badge.style.color = '#f59e0b';
+        } else {
+          badge.textContent = 'LIVE';
+          badge.style.background = '#22c55e22';
+          badge.style.color = '#22c55e';
+        }
         try {
           const t = d.ts ? new Date(d.ts) : new Date();
           stamp.textContent = t.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'America/Phoenix'});  // HM-DRYDOCK-2: AZ path (was browser-local [])
@@ -6510,8 +6528,8 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
       <div class="card-title" data-tip="HM-PHASER-LOCK: highest-conviction daily setup (top-3 ranked, fail-closed). Research/paper SETUP, not a live order — RULE #1 untouched.">🎯 Trade of the Day (Phaser-Lock)</div>
       <span id="phaser-meta" style="font-size:11px;color:#888;">—</span>
     </div>
-    <div id="phaser-headline" style="padding:6px 14px;font-weight:bold;"></div>
-    <div id="phaser-body" style="padding:0 14px 10px;white-space:pre-wrap;font-size:13px;line-height:1.45;color:#cbd5e1;">Loading…</div>
+    <div id="phaser-headline" style="padding:6px 14px;font-weight:bold;"><span class="skel-bar" style="width:180px;"></span></div>
+    <div id="phaser-body" style="padding:0 14px 10px;white-space:pre-wrap;font-size:13px;line-height:1.45;color:#cbd5e1;"><span class="skel-bar" style="width:90%;margin-bottom:6px;"></span><br><span class="skel-bar" style="width:70%;"></span></div>
     <style>#phaser-card .card-title{font-size:14px;font-weight:600;}</style>
     <script>
     (function(){
@@ -6791,6 +6809,12 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
     <div id="fleet-report-body" style="padding:0 14px 14px;">
       <!-- Advice bar -->
       <div id="fleet-advice-bar" style="margin-bottom:10px;display:flex;flex-wrap:wrap;gap:6px;"></div>
+      <!-- HM-DIRECTIVE-2026-07-01 Deck3 #16: dormant (halt_mode != 'active') agents
+           collapsed by default — ~40 halted/exit_only rows were cluttering this table. -->
+      <label style="display:flex;align-items:center;gap:5px;font-size:12px;color:var(--muted);cursor:pointer;margin-bottom:8px;" onclick="event.stopPropagation();">
+        <input type="checkbox" id="fleet-report-show-dormant" onchange="loadFleetReportCard()" onclick="event.stopPropagation();" style="cursor:pointer;">
+        Show dormant agents (<span id="fleet-report-dormant-count">0</span> hidden)
+      </label>
       <!-- Table -->
       <div style="overflow-x:auto;">
         <table style="width:100%;border-collapse:collapse;font-size:13px;">
@@ -6801,7 +6825,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
               <th style="padding:5px 4px;text-align:center;">Score</th>
               <th style="padding:5px 4px;text-align:center;">W/L</th>
               <th style="padding:5px 4px;text-align:center;">Win%</th>
-              <th style="padding:5px 4px;text-align:right;">P&amp;L</th>
+              <th style="padding:5px 4px;text-align:right;" title="Rated P&amp;L — stock trades only, current season, excludes outlier trades over $3,500 (data-quality filter for the rating score). This is NOT the same figure as the Leaderboard's Total P&amp;L, which includes options, unrealized mark-to-market, and every trade — the two are expected to differ.">P&amp;L*</th>
               <th style="padding:5px 4px;text-align:center;" title="Trailing 90d annualized Sharpe (canonical formula)">Sharpe</th>
               <th style="padding:5px 4px;text-align:center;" title="Kelly cap tier — 1.5× at Sharpe>5, 2.0× at Sharpe>10">Kelly</th>
               <th style="padding:5px 4px;text-align:center;">Streak</th>
@@ -7347,9 +7371,19 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           tbody.innerHTML = '<tr><td colspan="8" style="padding:12px;color:var(--muted);text-align:center;">No rating data yet</td></tr>';
           return;
         }
+        // HM-DIRECTIVE-2026-07-01 Deck3 #16: collapse dormant (halt_mode != 'active')
+        // agents by default — ~40 halted/exit_only rows were cluttering this table.
+        // Sort the remaining (or all, if toggled) rows by P&L descending.
+        var showDormant = !!(document.getElementById('fleet-report-show-dormant') || {}).checked;
+        var rated = data.filter(function(r) { return r.rating !== 'N/A'; });
+        var dormantCount = rated.filter(function(r) { return (r.halt_mode || 'active') !== 'active'; }).length;
+        var dormantCountEl = document.getElementById('fleet-report-dormant-count');
+        if (dormantCountEl) dormantCountEl.textContent = dormantCount;
+        var visible = showDormant ? rated : rated.filter(function(r) { return (r.halt_mode || 'active') === 'active'; });
+        visible.sort(function(a, b) { return (b.total_pnl || 0) - (a.total_pnl || 0); });
+
         var rows = '';
-        data.forEach(function(r) {
-          if (r.rating === 'N/A') return;
+        visible.forEach(function(r) {
           var streak = r.consecutive_wins > 0
             ? '<span style="color:#22c55e;">W' + r.consecutive_wins + '</span>'
             : '<span style="color:#ef4444;">L' + r.consecutive_losses + '</span>';
@@ -7370,8 +7404,12 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           } else {
             kellyBadge = '<span style="font-size:10px;color:var(--muted);font-family:var(--font-mono);">1.0×</span>';
           }
-          rows += '<tr style="border-bottom:1px solid var(--border);">' +
-            '<td style="padding:6px 8px;font-weight:600;">' + (r.display_name || r.player_id) + '</td>' +
+          // HM-DIRECTIVE-2026-07-01 Deck3 #16: flag Dilithium Reserve (enterprise-computer)
+          // when underwater — generic on sign, not hardcoded to a specific drawdown %.
+          var isDilithiumUnderwater = r.player_id === 'enterprise-computer' && (r.total_pnl || 0) < 0;
+          var nameFlag = isDilithiumUnderwater ? ' <span title="Underwater" style="color:#ef4444;">⚠️</span>' : '';
+          rows += '<tr style="border-bottom:1px solid var(--border);' + (isDilithiumUnderwater ? 'background:rgba(239,68,68,0.06);' : '') + '">' +
+            '<td style="padding:6px 8px;font-weight:600;">' + (r.display_name || r.player_id) + nameFlag + '</td>' +
             '<td style="padding:6px 4px;text-align:center;">' +
               '<span style="font-weight:800;font-size:15px;color:' + gradeColor(r.rating) + ';">' +
               gradeIcon(r.rating) + ' ' + r.rating + '</span></td>' +
@@ -22522,7 +22560,13 @@ async function trimPosition(symbol, playerId, posKey) {
   </div>
 </div>
 
-<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/3.9.1/chart.min.js"></script>
+<!-- HM-DIRECTIVE-2026-07-01 Deck3 #17: 3.9.1 -> 4.4.1 (matches the version SniffScan's
+     dynamic loader already expected at line ~42368; that loader now no-ops since
+     window.Chart is set here first). Chart.js (3 simple sparkline/bar/scatter
+     widgets) and lightweight-charts (13+ full candlestick/technical panels) serve
+     different roles, not a true duplicate — consolidating them is a larger rewrite,
+     not a version-bump-scoped fix. -->
+<script src="https://cdnjs.cloudflare.com/ajax/libs/Chart.js/4.4.1/chart.umd.js"></script>
 <script src="https://unpkg.com/lightweight-charts@4.2.2/dist/lightweight-charts.standalone.production.js"></script>
 <script>
 // Helper: read computed CSS variable value
@@ -22833,6 +22877,7 @@ function showSection(name) {
     '#gex-overlay-card, #battle-station-card, #bs0dte-card, ' +
     '#sub-portfolios-row, #cash-gauge-row, #tax-alpha-card, ' +
     '#risk-vitals-card, #generated-indexes-card, #earningsBanner, ' +
+    '#wbPortfolioSectorRow, #wbPortfolioValueCard, #wbSectorAllocationCard, ' +
     '.stats-grid'
   );
   var _showOrphans = (name === 'dashboard');
@@ -22962,17 +23007,11 @@ function showSection(name) {
 
 // Event delegation — survives innerHTML refreshes; sidebars re-bind here
 document.addEventListener('DOMContentLoaded', function() {
-  // Structural guard: move any section-* divs that ended up outside .main back in.
-  // Handles stale SW-cached HTML where sections were added outside .main over time.
-  var main = document.querySelector('.main');
-  if (main) {
-    document.querySelectorAll('[id^="section-"]').forEach(function(el) {
-      if (el.parentElement !== main) {
-        main.appendChild(el);
-        console.warn('[StructureFix] Moved #' + el.id + ' into .main (was child of <' + (el.parentElement ? el.parentElement.tagName : '?') + '>)');
-      }
-    });
-  }
+  // HM-DIRECTIVE-2026-07-02 Deck2 #11 (follow-up): the runtime StructureFix
+  // repair shim (moved 6 section-* divs into .main on every load) is removed —
+  // those 6 divs (section-agent-deepdive, section-live-scanner, section-race,
+  // section-movers, section-real-portfolio, section-live-trading) are now
+  // correctly declared inside <main class="main"> in the source itself.
 
   var sidebar = document.querySelector('.sidebar');
   if (sidebar) {
@@ -23593,12 +23632,28 @@ async function fetchScannerTier() {
   } catch(e) {}
 }
 
-// Starting capital by player_id (used for P&L calculation)
-var _FLEET_START_CAP = {};  // all Season 5 agents start at $10,000
+// HM-DIRECTIVE-2026-07-02 Deck1 #3 (follow-up): read the canonical endpoint
+// directly instead of re-summing a locally-fetched (_FLEET_CORE) subset —
+// that local sum could drift from /api/fleet/pnl's backend FLEET_ACTIVE set
+// even after HM-DIRECTIVE-2026-07-01, which is exactly the unlabeled
+// divergence (v1 -$1.4k vs canonical -$1,815) flagged in verification.
+var _canonicalFleetPnl = null;
+var _canonicalFleetPnlTs = 0;
+function _fetchCanonicalFleetPnl() {
+  _canonicalFleetPnlTs = Date.now();  // stamp before the request so concurrent calls don't pile up
+  fetch('/api/fleet/pnl').then(function(r){ return r.json(); }).then(function(d){
+    _canonicalFleetPnl = d;
+    updateFleetBar();
+  }).catch(function(){});
+}
 
 function updateFleetBar() {
   var el = document.getElementById('fleetBarContent');
   if (!el || !window.arenaData) return;
+
+  if (!_canonicalFleetPnl || (Date.now() - _canonicalFleetPnlTs) > 60000) {
+    _fetchCanonicalFleetPnl();
+  }
 
   // Preserve optional add-on checkbox states
   var prevMetals = (document.getElementById('fleetIncludeMetals') || {}).checked || false;
@@ -23612,15 +23667,14 @@ function updateFleetBar() {
     return false;
   });
 
-  // Totals — use total_value (authoritative), fallback to current_equity
-  var totalValue = players.reduce(function(s,p){ return s + (p.total_value || p.current_equity || 0); }, 0);
   var totalPositions = players.reduce(function(s,p){ return s + (p.positions_count || 0); }, 0);
 
-  // HM-FLEET-BAR-DISPLAY: uniform $10k start per active agent for fleet P&L math.
-  var STARTING_CAPITAL_PER_AGENT = 10000;
-  var activeAgentCount = _FLEET_CORE.size;
-  var totalStart       = activeAgentCount * STARTING_CAPITAL_PER_AGENT;
-  var fleetPnl         = totalValue - totalStart;
+  // HM-DIRECTIVE-2026-07-02: prefer the canonical /api/fleet/pnl figure so this
+  // header is byte-identical to bridge-v2's — fall back to the local per-player
+  // sum only until the first canonical fetch resolves (avoids a blank flash).
+  var activeAgentCount = _canonicalFleetPnl ? (_canonicalFleetPnl.player_count || _FLEET_CORE.size) : _FLEET_CORE.size;
+  var fleetPnl         = _canonicalFleetPnl ? (_canonicalFleetPnl.total_pnl || 0)
+                                             : players.reduce(function(s,p){ return s + (p.total_pnl || 0); }, 0);
   var avgPnl           = activeAgentCount > 0 ? fleetPnl / activeAgentCount : 0;
   var fleetPnlSign     = fleetPnl >= 0 ? '▲' : '▼';
   var avgSign          = avgPnl   >= 0 ? '▲' : '▼';
@@ -23661,8 +23715,9 @@ function updateFleetBar() {
   html += '<label style="display:none" title="Include Captain Kirk (Webull) in fleet totals"><input type="checkbox" id="fleetIncludeKirk" onchange="updateFleetBar()"> Kirk</label>';
   html += '<span style="color:var(--border);margin:0 4px;">|</span>';
 
-  // FLEET P&L  (replaces VALUE $xxx)
-  html += '<span style="color:var(--muted);">FLEET P&amp;L</span> ';
+  // FLEET P&L  (replaces VALUE $xxx) — HM-DIRECTIVE-2026-07-02: explicit "lifetime"
+  // label so this always reads unambiguously against bridge-v2's identical figure.
+  html += '<span style="color:var(--muted);" title="Canonical /api/fleet/pnl — lifetime P&amp;L, same figure as bridge-v2">FLEET P&amp;L <span style="font-size:10px;">(lifetime)</span></span> ';
   html += '<span style="font-weight:700;color:' + pnlColor + ';">' + fleetPnlSign + ' ' + fmt(fleetPnl) + '</span>';
   html += '<span style="color:var(--border);margin:0 4px;">|</span>';
 
@@ -29045,13 +29100,27 @@ function playTradeBeep(type) {
   } catch(e) {}
 }
 
+// HM-DIRECTIVE-B-2 2026-07-02: pollTradeAlerts/checkAlertBanner/_pollFlashAlerts/
+// _pollFab were 4 independent fetch loops (30s/20s/15s/20s) for related alert
+// data. Shares one aggregate fetch across all 4 -- each function keeps its own
+// interval and all its original logic untouched, only the data source changed.
+var _alertsPollCache = { data: null, ts: 0 };
+async function _fetchAlertsPoll() {
+  var now = Date.now();
+  if (_alertsPollCache.data && (now - _alertsPollCache.ts) < 15000) {
+    return _alertsPollCache.data;
+  }
+  var r = await fetch('/api/alerts/poll');
+  var d = await r.json();
+  _alertsPollCache = { data: d, ts: now };
+  return d;
+}
+
 async function pollTradeAlerts() {
   // HM-AUTH-STORM-FIX: short-circuit on session loss + only beep on real 2xx
   if (window._tmAuth && !window._tmAuth.isAuthenticated) return;
   try {
-    var r = await fetch('/api/alerts/recent?limit=1');
-    if (!r || !r.ok) return;  // never beep on 401/5xx/network error
-    var trades = await r.json();
+    var trades = (await _fetchAlertsPoll()).recent_trades;
     if (!Array.isArray(trades)) return;  // backend hiccup safety
     if (trades.length > 0) {
       var latest = trades[0];
@@ -32639,8 +32708,7 @@ function _getOrCreateAlertToast() {
 async function checkAlertBanner() {
   if (_alertBannerPaused) return;
   try {
-    var r = await fetch('/api/dynamic-alerts/active?minutes=30');
-    var d = await r.json();
+    var d = (await _fetchAlertsPoll()).dynamic_active;
     var toast = _getOrCreateAlertToast();
     if (d && d.length > 0) {
       var a = d[0];
@@ -34761,9 +34829,12 @@ async function fetchKirkDetail() {
     html += '<div class="card-header"><div class="card-title">📊 Market Conditions</div></div>';
     html += '<div style="padding:14px 16px;display:grid;grid-template-columns:repeat(5,1fr);gap:12px;text-align:center;">';
 
-    var fgScore = fg.score || 0;
-    var fgColor = fgScore < 25 ? '#ea580c' : fgScore < 40 ? '#f59e0b' : fgScore < 60 ? 'var(--text)' : '#2563eb';
-    html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">FEAR & GREED</div><div style="font-size:22px;font-weight:700;color:' + fgColor + ';">' + fgScore + '</div><div style="font-size:11px;color:var(--muted);">' + (fg.label||'—') + '</div></div>';
+    // HM-DIRECTIVE-2026-07-01 Deck1 #4: null (fetch unavailable) must not be
+    // coerced to 0 — a real 0 reading and "no data" are different states,
+    // and treating null-as-0 falsely triggered RECOVERY:ACTIVE below.
+    var fgScore = (fg.score === null || fg.score === undefined) ? null : fg.score;
+    var fgColor = fgScore === null ? 'var(--muted)' : fgScore < 25 ? '#ea580c' : fgScore < 40 ? '#f59e0b' : fgScore < 60 ? 'var(--text)' : '#2563eb';
+    html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">FEAR & GREED</div><div style="font-size:22px;font-weight:700;color:' + fgColor + ';">' + (fgScore === null ? '—' : fgScore) + '</div><div style="font-size:11px;color:var(--muted);">' + (fgScore === null ? 'no data' : (fg.label||'—')) + '</div></div>';
 
     var vixVal = (fg.signals && fg.signals.vix) ? (fg.signals.vix.value || 0) : 0;
     var vixColor = vixVal > 30 ? '#ea580c' : vixVal > 25 ? '#f59e0b' : 'var(--text)';
@@ -34779,7 +34850,8 @@ async function fetchKirkDetail() {
 
     html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">SPY</div><div style="font-size:22px;font-weight:700;color:var(--text);">$' + (gex.spot||0).toFixed(0) + '</div><div style="font-size:11px;color:var(--muted);">Put $' + (gex.put_wall||0) + ' / Call $' + (gex.call_wall||0) + '</div></div>';
 
-    html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">RECOVERY</div><div style="font-size:22px;font-weight:700;color:' + (fgScore < 35 ? '#2563eb' : '#f59e0b') + ';">' + (fgScore < 35 ? 'ACTIVE' : 'STANDBY') + '</div><div style="font-size:11px;color:var(--muted);">Trigger: F&G &lt; 35</div></div>';
+    var recoveryActive = fgScore !== null && fgScore < 35;
+    html += '<div style="background:var(--surface2);border-radius:8px;padding:10px;"><div style="font-size:12px;color:var(--muted);">RECOVERY</div><div style="font-size:22px;font-weight:700;color:' + (fgScore === null ? 'var(--muted)' : recoveryActive ? '#2563eb' : '#f59e0b') + ';">' + (fgScore === null ? 'N/A' : recoveryActive ? 'ACTIVE' : 'STANDBY') + '</div><div style="font-size:11px;color:var(--muted);">Trigger: F&G &lt; 35</div></div>';
 
     html += '</div></div>';
 
@@ -36742,6 +36814,377 @@ if (_tutorMode) {
   </div>
 </div>
 
+<div id="section-agent-deepdive" style="display:none;">
+  <div style="border-left:4px solid #6366f1;background:rgba(99,102,241,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
+    <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Agent Analytics</div>
+    <div style="font-size:13px;color:#94a3b8;">Trade-by-trade breakdown per agent — equity curve, P/L stats, and filters.</div>
+  </div>
+
+  <!-- Agent selector + filters -->
+  <div class="card" style="padding:12px 16px;margin-bottom:12px;">
+    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
+      <div style="display:flex;align-items:center;gap:8px;">
+        <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Agent</span>
+        <!--
+          HM-NAVIGATOR-DEEPDIVE-RETIRE 2026-05-21: Navigator option removed.
+          Dual-identity note for future devs: Chekov's player_id is stored as
+          'navigator' in the DB (see index.html:21338 mapping table where
+          'navigator' → legend:'Ensign Chekov', rank:'CHEKOV'). The Live Scanner
+          + section-navigator main panel render that data correctly. The Deep
+          Dive entry was redundant and Sonnet's 2026-05-21 audit caught it
+          rendering 40 trades with all stats blank (W RATE/AVG WIN/AVG LOSS/PF
+          etc. as '—') because Chekov is a retired agent per CLAUDE.md Fleet
+          Roster and stats aren't computed for retired surfaces. The 'chekov'
+          option below remains as a placeholder but returns 0 trades (no
+          player_id='chekov' row in DB; the canonical key is 'navigator').
+        -->
+        <select id="dd-agent-select" onchange="ddLoadAgent()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font);font-size:13px;padding:5px 10px;border-radius:6px;outline:none;cursor:pointer;min-width:160px;">
+          <option value="">— select agent —</option>
+          <option value="chekov">Chekov</option>
+          <option value="ollama-qwen3">Qwen3</option>
+          <option value="ollama-llama">Llama</option>
+          <option value="ollama-plutus">Plutus</option>
+          <option value="ollama-coder">Coder</option>
+          <option value="neo-matrix">Neo Matrix</option>
+          <option value="capitol-trades">Capitol Trades</option>
+          <option value="ollie-auto">Ollie (Gate)</option>
+        </select>
+      </div>
+      <input id="dd-filter-ticker" type="text" placeholder="Ticker" oninput="ddApplyFilters()"
+        style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font);font-size:12px;padding:5px 8px;border-radius:6px;outline:none;width:80px;">
+      <select id="dd-filter-result" onchange="ddApplyFilters()"
+        style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font);font-size:12px;padding:5px 8px;border-radius:6px;outline:none;cursor:pointer;">
+        <option value="all">All Results</option>
+        <option value="win">Wins</option>
+        <option value="loss">Losses</option>
+        <option value="open">Open</option>
+      </select>
+      <input id="dd-filter-from" type="date" onchange="ddApplyFilters()"
+        style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font);font-size:12px;padding:5px 8px;border-radius:6px;outline:none;">
+      <input id="dd-filter-to" type="date" onchange="ddApplyFilters()"
+        style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font);font-size:12px;padding:5px 8px;border-radius:6px;outline:none;">
+      <button onclick="ddClearFilters()"
+        style="background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:12px;padding:5px 12px;border-radius:6px;cursor:pointer;">Clear</button>
+    </div>
+  </div>
+
+  <!-- Summary stat tiles -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:12px;">
+    <div class="card" style="padding:12px;text-align:center;">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Trades</div>
+      <div id="dd-stat-total" style="font-size:22px;font-weight:700;color:var(--text);">—</div>
+    </div>
+    <div class="card" style="padding:12px;text-align:center;">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Win Rate</div>
+      <div id="dd-stat-wr" style="font-size:22px;font-weight:700;">—</div>
+    </div>
+    <div class="card" style="padding:12px;text-align:center;">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Avg Win</div>
+      <div id="dd-stat-avg-win" style="font-size:22px;font-weight:700;color:var(--green);">—</div>
+    </div>
+    <div class="card" style="padding:12px;text-align:center;">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Avg Loss</div>
+      <div id="dd-stat-avg-loss" style="font-size:22px;font-weight:700;color:var(--red);">—</div>
+    </div>
+    <div class="card" style="padding:12px;text-align:center;">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Profit Factor</div>
+      <div id="dd-stat-pf" style="font-size:22px;font-weight:700;color:var(--text);">—</div>
+    </div>
+    <div class="card" style="padding:12px;text-align:center;">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Max Drawdown</div>
+      <div id="dd-stat-mdd" style="font-size:22px;font-weight:700;color:var(--red);">—</div>
+    </div>
+    <div class="card" style="padding:12px;text-align:center;">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Best Trade</div>
+      <div id="dd-stat-best" style="font-size:22px;font-weight:700;color:var(--green);">—</div>
+    </div>
+    <div class="card" style="padding:12px;text-align:center;">
+      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Worst Trade</div>
+      <div id="dd-stat-worst" style="font-size:22px;font-weight:700;color:var(--red);">—</div>
+    </div>
+  </div>
+
+  <!-- Equity curve -->
+  <div class="card" style="margin-bottom:12px;">
+    <div class="card-header"><div class="card-title">Equity Curve</div></div>
+    <div id="dd-equity-chart" style="height:200px;"></div>
+  </div>
+
+  <!-- Trade table -->
+  <div class="card">
+    <div class="card-header">
+      <div class="card-title">Trade History</div>
+      <span id="dd-trade-count" style="font-size:12px;color:var(--muted);"></span>
+    </div>
+    <div style="overflow-x:auto;">
+      <table class="trades-table">
+        <thead><tr>
+          <th>Date/Time</th><th>Ticker</th><th>Signal</th><th>Entry</th><th>Exit</th>
+          <th>P/L $</th><th>P/L %</th><th>Conf</th><th>Result</th>
+        </tr></thead>
+        <tbody id="dd-trades-body"></tbody>
+      </table>
+    </div>
+    <div id="dd-empty" style="display:none;text-align:center;padding:40px;color:var(--muted);">No trades match filters.</div>
+    <div id="dd-loading" style="text-align:center;padding:40px;color:var(--muted);">Select an agent above to load trades.</div>
+  </div>
+</div>
+<div id="section-live-scanner" style="display:none">
+  <div class="card" style="background:#0d1320;border:1px solid #1e2940">
+    <div class="ls-header">
+      <div class="ls-pulse" id="lsPulse"></div>
+      <div class="ls-title">📡 Live Scanner</div>
+      <a href="/scanner" target="_blank" style="font-size:11px;color:#64748b;text-decoration:none;padding:4px 10px;border:1px solid #1e2940;border-radius:4px">⬡ Fullscreen</a>
+    </div>
+
+    <div class="ls-stats">
+      <div class="ls-stat"><div class="ls-stat-val" id="lsStatHigh">0</div><div class="ls-stat-lbl">High Conf</div></div>
+      <div class="ls-stat"><div class="ls-stat-val med" id="lsStatMed">0</div><div class="ls-stat-lbl">Medium</div></div>
+      <div class="ls-stat"><div class="ls-stat-val neutral" id="lsStatToday">0</div><div class="ls-stat-lbl">Today</div></div>
+      <div class="ls-stat"><div class="ls-stat-val neutral" id="lsStatFired">0</div><div class="ls-stat-lbl">Fired</div></div>
+    </div>
+
+    <div class="ls-controls">
+      <button class="ls-btn active" id="lsSoundBtn" onclick="lsToggleSound()">🔊 Sound ON</button>
+      <button class="ls-btn" id="lsPauseBtn" onclick="lsTogglePause()">⏸ Pause</button>
+      <select class="ls-select" id="lsFilter" onchange="lsApplyFilter()">
+        <option value="">All Patterns</option>
+        <option value="BREAKOUT">BREAKOUT</option>
+        <option value="EMA PB">EMA PB</option>
+        <option value="REL STR">REL STR</option>
+        <option value="VOL SPIKE">VOL SPIKE</option>
+        <option value="GREEN DAY">GREEN DAY</option>
+        <option value="MOMENTUM">MOMENTUM</option>
+        <option value="SIGNAL">SIGNAL</option>
+      </select>
+      <select class="ls-select" id="lsAgentFilter" onchange="lsApplyFilter()">
+        <option value="">All Agents</option>
+        <option value="Lt. Barclay">Lt. Barclay</option>
+        <option value="Chekov">Chekov</option>
+        <option value="Navigator">Navigator</option>
+      </select>
+      <button class="ls-notif-btn" id="lsNotifBtn" onclick="lsRequestNotif()">🔔 Notifications</button>
+    </div>
+
+    <div class="ls-feed" id="lsFeed">
+      <div class="ls-empty"><div class="ls-empty-icon">📡</div>Awaiting signals…</div>
+    </div>
+  </div>
+</div>
+<div id="section-race" style="display:none;">
+  <div class="race-section">
+    <div class="race-header">
+      <span class="race-title">RACE — TOP GAINERS</span>
+      <span class="race-status" id="raceStatus">—</span>
+    </div>
+    <div class="race-meta" id="raceMeta">Initializing Race feed…</div>
+    <ul class="race-list" id="raceList"></ul>
+  </div>
+
+  <!-- === Phase 6: Pre-market gap scanner UI === -->
+  <div class="premarket-tile" id="premarket-tile">
+    <header class="premarket-header">
+      <span class="premarket-title">🌅 PRE-MARKET — Gap ≥ 3% · Vol ≥ 50K</span>
+      <span class="premarket-meta">
+        <span class="premarket-window" id="premarket-window">—</span>
+        <span class="heartbeat-dot stale" id="premarket-heartbeat" title="Pre-market feed status"></span>
+      </span>
+    </header>
+    <ul class="premarket-list" id="premarket-list">
+      <li class="premarket-empty">Waiting for pre-market window (4:00 AM – 9:30 AM ET)</li>
+    </ul>
+  </div>
+  <!-- === end Phase 6 UI === -->
+</div>
+<div id="section-movers" style="display:none;">
+  <div class="card-title">📊 Movers <span id="moversMeta" style="font-size:12px;color:var(--muted);font-weight:400;margin-left:8px;"></span></div>
+  <div id="moversTableContent" style="padding:12px 0;color:var(--muted);">Fetching movers…</div>
+</div>
+<div id="section-real-portfolio" class="admin-only" style="display:none;">
+  <div style="border-left:4px solid #38bdf8;background:rgba(56,189,248,0.04);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
+    <div style="font-size:11px;font-weight:700;color:#38bdf8;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">💰 Real Portfolio — Total Portfolio</div>
+    <div style="font-size:13px;color:#94a3b8;"><b>Schwab + physical metals only.</b> TradeStation / Webull / IBKR suspended (reversible). Excludes Alpaca paper &amp; SIM (Two-Book Policy).</div>
+  </div>
+
+  <!-- HM-AM UNIFICATION 2026-06-06: ONE canonical net-worth card (collapses the two
+       prior redundant headline cards). Backed by the repointed /api/networth (single
+       source of truth = total_portfolio.get_unified_networth). -->
+  <div class="card" data-component="unified-networth" id="unifiedNetWorthCard" style="margin-bottom:16px;border-left:4px solid #38bdf8;">
+    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
+      <div class="card-title">💵 Total Portfolio — Schwab + Metals</div>
+      <button class="btn btn-ghost" onclick="fetchUnifiedNetWorth()" style="font-size:12px;">Refresh</button>
+    </div>
+    <div style="padding:16px 16px 6px;text-align:center;">
+      <div id="unifiedNetWorthTotal" style="font-size:34px;font-weight:800;color:#38bdf8;line-height:1.1;">Standby…</div>
+      <div style="display:flex;gap:18px;justify-content:center;margin-top:8px;font-size:13px;flex-wrap:wrap;">
+        <span>Today <span id="unifiedNetWorthDaily" style="font-weight:700;">—</span></span>
+        <span>All-time <span id="unifiedNetWorthAllTime" style="font-weight:700;">—</span></span>
+      </div>
+    </div>
+    <div style="padding:4px 16px 12px;">
+      <div id="unifiedSchwabLine" style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);"></div>
+      <div id="unifiedMetalsLine" onclick="toggleUnifiedMetals()" style="display:flex;justify-content:space-between;padding:7px 0;cursor:pointer;border-bottom:1px solid var(--border);" title="Click to expand per-metal"></div>
+      <div id="unifiedMetalsDetail" style="display:none;padding:4px 0 0 14px;"></div>
+      <div id="unifiedNetWorthFresh" style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic;text-align:center;"></div>
+    </div>
+  </div>
+
+  <!-- HM-AM UNIFICATION 2026-06-06: the two prior headline cards (Total Real-Money
+       Value + Net Worth Breakdown) are ARCHIVED (display:none, not deleted) — collapsed
+       into #unifiedNetWorthCard above. Their JS (fetchRealPortfolio/fetchNetWorth) still
+       runs to feed the per-account grid, positions table, and the holdings donut. -->
+  <div class="card" style="display:none;margin-bottom:16px;border-left:4px solid #38bdf8;">
+    <div class="card-header">
+      <div class="card-title">💵 Total Real-Money Value</div>
+      <button class="btn btn-ghost" onclick="fetchRealPortfolio()" style="font-size:13px;">Refresh</button>
+    </div>
+    <div id="realPortfolioHeadline" style="padding:16px;font-size:32px;font-weight:700;text-align:center;color:#38bdf8;">
+      Loading…
+    </div>
+    <div id="realPortfolioMetalsPct" style="padding:0 16px 8px;font-size:13px;color:var(--muted);text-align:center;"></div>
+    <div id="realPortfolioMeta" style="padding:0 16px 12px;font-size:11px;color:var(--muted);text-align:center;"></div>
+  </div>
+
+  <!-- HM-AM 2026-06-02 → ARCHIVED 2026-06-06 (display:none): superseded by #unifiedNetWorthCard.
+       Kept so fetchNetWorth has live targets (null-safe) and is fully reversible. -->
+  <div class="card" style="display:none;margin-bottom:16px;border-left:4px solid #34d399;">
+    <div class="card-header">
+      <div class="card-title">🧮 Total Portfolio — Breakdown (HM-AM)</div>
+    </div>
+    <div id="netWorthTotal" style="padding:14px 16px 4px;font-size:28px;font-weight:700;text-align:center;color:#34d399;">Loading…</div>
+    <div id="netWorthBuckets" style="padding:0 16px 8px;"></div>
+    <div id="netWorthAccounts" style="padding:0 16px 8px;font-size:13px;"></div>
+    <div id="netWorthFreshness" style="padding:0 16px 12px;font-size:11px;color:var(--muted);text-align:center;font-style:italic;"></div>
+  </div>
+
+  <!-- HM-SCHWAB-UPLOAD 2026-05-28: browser upload → same import pipeline as the cron watcher (for remote users e.g. Bonnie via the tunnel) -->
+  <div class="card" style="margin-bottom:16px;border-left:4px solid #f59e0b;">
+    <div class="card-header"><div class="card-title">⬆️ Upload Schwab CSV</div></div>
+    <div style="padding:14px;font-size:13px;">
+      <div style="color:var(--muted);margin-bottom:8px;">Export "Positions" from Schwab, then upload the CSV here — it runs the same import + sync as the auto-watcher and refreshes net worth in seconds.</div>
+      <input type="file" id="schwabCsvFile" accept=".csv,text/csv" style="font-size:13px;margin-bottom:8px;display:block;">
+      <button class="btn btn-primary" onclick="uploadSchwabCsv()" style="font-size:13px;">Import</button>
+      <div id="schwabUploadStatus" style="margin-top:10px;font-size:12px;color:var(--muted);"></div>
+    </div>
+  </div>
+
+  <!-- Per-account breakdown: 4-card auto-fit grid (mobile: stacks; desktop: 2x2 or 4-col) -->
+  <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:12px;margin-bottom:16px;">
+    <div class="card">
+      <div class="card-header"><div class="card-title">🏦 Schwab</div></div>
+      <div id="realPortfolioSchwab" style="padding:14px;font-size:15px;">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+    </div>
+    <!-- HM-AM UNIFICATION: Webull + IBKR grid cards hidden (suspended accounts) —
+         markup kept (display:none) so the renderer targets stay null-safe + reversible. -->
+    <div class="card" style="display:none;">
+      <div class="card-header"><div class="card-title">🛸 Webull</div></div>
+      <div id="realPortfolioWebull" style="padding:14px;font-size:15px;">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+    </div>
+    <div class="card" style="display:none;">
+      <div class="card-header"><div class="card-title">📊 IBKR</div></div>
+      <div id="realPortfolioIBKR" style="padding:14px;font-size:15px;">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+    </div>
+    <div class="card">
+      <div class="card-header"><div class="card-title">⚗️ Physical Metals</div></div>
+      <div id="realPortfolioMetals" style="padding:14px;font-size:15px;">
+        <div style="color:var(--muted);">Loading…</div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Positions table sorted by market value -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header">
+      <div class="card-title">📋 Positions by Symbol <span id="realPortfolioPositionsCount" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div>
+    </div>
+    <div style="padding:0 16px 12px;overflow-x:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:14px;min-width:640px;">
+        <thead>
+          <tr style="border-bottom:1px solid var(--border);color:var(--muted);text-align:left;font-size:13px;">
+            <th style="padding:9px 6px;">Symbol</th>
+            <th style="padding:9px 6px;text-align:center;">Grade</th>
+            <th style="padding:9px 6px;text-align:right;">Qty</th>
+            <th style="padding:9px 6px;text-align:right;">Market Value</th>
+            <th style="padding:9px 6px;text-align:right;">Day</th>
+            <th style="padding:9px 6px;text-align:right;">Total Gain</th>
+            <th style="padding:9px 6px;">Acct</th>
+          </tr>
+        </thead>
+        <tbody id="realPortfolioPositionsTbody">
+          <tr><td colspan="7" style="padding:12px;color:var(--muted);text-align:center;">Loading…</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+
+</div>
+<div id="section-live-trading" style="display:none;">
+  <div style="border-left:4px solid #f59e0b;background:rgba(245,158,11,0.05);padding:10px 16px;margin-bottom:12px;border-radius:0 6px 6px 0;">
+    <div style="font-size:11px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">⚡ Live Trading — Holly Mode</div>
+    <div style="font-size:13px;color:#94a3b8;">Live candle chart with fleet agent trade markers painted on. <span style="color:#22c55e;">▲ entry</span> · <span style="color:#ef4444;">▼ exit</span> · <span style="color:#f97316;">× stop-loss</span> · ⋯ entry→exit path. Polls every 5s (candles) / 10s (trades).</div>
+  </div>
+
+  <!-- Symbol selector + quick-buttons + timeframe -->
+  <div class="card" style="margin-bottom:12px;">
+    <div style="padding:12px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
+      <label for="lt-symbol-input" style="font-size:12px;color:var(--muted);font-weight:600;">Symbol:</label>
+      <input id="lt-symbol-input" type="text" maxlength="8" value="SPY" style="text-transform:uppercase;padding:6px 10px;width:90px;background:rgba(15,23,42,0.6);border:1px solid rgba(245,158,11,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;font-weight:700;" />
+      <button onclick="ltLoadSymbol()" style="padding:6px 12px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);color:#f59e0b;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;">Load</button>
+      <span id="lt-quick-buttons" style="display:flex;flex-wrap:wrap;gap:4px;flex:1;"></span>
+      <span style="color:var(--border);">|</span>
+      <label style="font-size:12px;color:var(--muted);font-weight:600;">Timeframe:</label>
+      <span id="lt-timeframe-pills" style="display:flex;gap:4px;">
+        <button data-tf="1m"  onclick="ltSetTimeframe('1m')"  style="padding:5px 10px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);color:#f59e0b;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;">1m</button>
+        <button data-tf="5m"  onclick="ltSetTimeframe('5m')"  style="padding:5px 10px;background:rgba(15,23,42,0.6);border:1px solid var(--border);color:var(--muted);border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;">5m</button>
+        <button data-tf="15m" onclick="ltSetTimeframe('15m')" style="padding:5px 10px;background:rgba(15,23,42,0.6);border:1px solid var(--border);color:var(--muted);border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;">15m</button>
+      </span>
+      <span id="lt-last-tick" style="font-size:11px;color:var(--muted);font-family:monospace;margin-left:auto;"></span>
+    </div>
+  </div>
+
+  <!-- Active-agent attribution strip -->
+  <div id="lt-active-agent" style="display:none;padding:8px 14px;margin-bottom:8px;background:rgba(56,189,248,0.08);border-left:3px solid #38bdf8;border-radius:0 4px 4px 0;font-size:13px;"></div>
+
+  <!-- Entry-zone alert banner (visible only when active) -->
+  <div id="lt-entry-zone-alert" style="display:none;padding:10px 14px;margin-bottom:8px;background:rgba(239,68,68,0.1);border-left:3px solid #ef4444;border-radius:0 4px 4px 0;font-size:13px;color:#fca5a5;font-weight:600;"></div>
+
+  <!-- Canvas chart -->
+  <div class="card" style="margin-bottom:12px;">
+    <div class="card-header"><div class="card-title"><span id="lt-chart-title" style="font-family:monospace;">SPY · 1m</span></div></div>
+    <div style="padding:8px 16px 16px;">
+      <div style="position:relative;width:100%;">
+        <canvas id="lt-chart-canvas" width="1000" height="420" style="width:100%;height:420px;display:block;background:rgba(15,23,42,0.4);border:1px solid var(--border);border-radius:4px;"></canvas>
+        <div id="lt-chart-status" style="position:absolute;top:8px;left:12px;font-size:11px;color:var(--muted);font-family:monospace;pointer-events:none;"></div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Recent fleet activity for this symbol -->
+  <div class="card" style="margin-bottom:16px;">
+    <div class="card-header"><div class="card-title">📋 Recent Fleet Activity on <span id="lt-activity-symbol" style="font-family:monospace;">SPY</span> <span id="lt-activity-count" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div></div>
+    <div style="padding:0 16px 12px;max-height:240px;overflow-y:auto;">
+      <table style="width:100%;border-collapse:collapse;font-size:12px;">
+        <thead><tr style="border-bottom:1px solid var(--border);color:var(--muted);text-align:left;">
+          <th style="padding:6px 4px;">Time</th>
+          <th style="padding:6px 4px;">Agent</th>
+          <th style="padding:6px 4px;">Action</th>
+          <th style="padding:6px 4px;text-align:right;">Qty</th>
+          <th style="padding:6px 4px;text-align:right;">Price</th>
+          <th style="padding:6px 4px;text-align:right;">P&amp;L</th>
+        </tr></thead>
+        <tbody id="lt-activity-tbody">
+          <tr><td colspan="6" style="padding:12px;color:var(--muted);text-align:center;">No fleet activity loaded yet.</td></tr>
+        </tbody>
+      </table>
+    </div>
+  </div>
+</div>
 </main>
 </div>
 
@@ -40402,7 +40845,8 @@ function dismissFlashAlert() {
 
 // Poll for active flash alerts every 15 seconds (full-screen overlay)
 (function _pollFlashAlerts() {
-  fetch('/api/flash-alerts/active').then(function(r){ return r.json(); }).then(function(d) {
+  _fetchAlertsPoll().then(function(combined) {
+    var d = combined.flash_alert;
     if (d.has_alert && d.alert && d.alert.id !== _flashAlertId) {
       _showFlashAlert(d.alert);
     }
@@ -40441,7 +40885,8 @@ function fabDismiss() {
 }
 
 (function _pollFab() {
-  fetch('/api/flash-alerts/latest').then(function(r){ return r.json(); }).then(function(d) {
+  _fetchAlertsPoll().then(function(combined) {
+    var d = combined.flash_alert;
     if (d.has_alert && d.alert) {
       if (d.alert.id !== _fabAlertId) _updateFab(d.alert);
     } else {
@@ -41307,28 +41752,6 @@ var liveChart = (function() {
   return { connect: connect, disconnect: disconnect, draw: draw, setTf: setTf, toggleOverlay: toggleOverlay, setDateRange: setDateRange, toggleLightMode: toggleLightMode, setPriceLines: setPriceLines, clearPriceLines: clearPriceLines, getLastPrice: getLastPrice };
 })();
 
-// C7 HM-LIVECHART-OBSERVER-LEAK: log stack trace when #section-livechart is first hidden,
-// then tear the observer down. Previously the warning fired on every section switch — once
-// the diagnostic data is captured (or the section is hidden during normal navigation), the
-// observer's job is done; further hides are noise.
-(function() {
-  var el = document.getElementById('section-livechart');
-  if (!el) return;
-  var obs = new MutationObserver(function(mutations) {
-    for (var i = 0; i < mutations.length; i++) {
-      var m = mutations[i];
-      if (m.attributeName === 'style' && el.style.display === 'none') {
-        // HM-CONSOLE-NOISE-CLEANUP: downgraded warn → debug. Diagnostic value
-        // preserved for verbose-console sessions; default console no longer
-        // surfaces this on every normal navigation-away from LiveChart.
-        console.debug('[LiveChart] section hidden! Stack:', new Error().stack);
-        obs.disconnect();
-        return;
-      }
-    }
-  });
-  obs.observe(el, { attributes: true, attributeFilter: ['style'] });
-})();
 </script>
 
 <script>
@@ -41548,121 +41971,6 @@ setTimeout(function(){
 </script>
 
 <!-- AGENT DEEP DIVE SECTION -->
-<div id="section-agent-deepdive" style="display:none;">
-  <div style="border-left:4px solid #6366f1;background:rgba(99,102,241,0.07);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
-    <div style="font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">Agent Analytics</div>
-    <div style="font-size:13px;color:#94a3b8;">Trade-by-trade breakdown per agent — equity curve, P/L stats, and filters.</div>
-  </div>
-
-  <!-- Agent selector + filters -->
-  <div class="card" style="padding:12px 16px;margin-bottom:12px;">
-    <div style="display:flex;align-items:center;gap:12px;flex-wrap:wrap;">
-      <div style="display:flex;align-items:center;gap:8px;">
-        <span style="font-size:11px;font-weight:700;color:var(--muted);text-transform:uppercase;letter-spacing:0.6px;">Agent</span>
-        <!--
-          HM-NAVIGATOR-DEEPDIVE-RETIRE 2026-05-21: Navigator option removed.
-          Dual-identity note for future devs: Chekov's player_id is stored as
-          'navigator' in the DB (see index.html:21338 mapping table where
-          'navigator' → legend:'Ensign Chekov', rank:'CHEKOV'). The Live Scanner
-          + section-navigator main panel render that data correctly. The Deep
-          Dive entry was redundant and Sonnet's 2026-05-21 audit caught it
-          rendering 40 trades with all stats blank (W RATE/AVG WIN/AVG LOSS/PF
-          etc. as '—') because Chekov is a retired agent per CLAUDE.md Fleet
-          Roster and stats aren't computed for retired surfaces. The 'chekov'
-          option below remains as a placeholder but returns 0 trades (no
-          player_id='chekov' row in DB; the canonical key is 'navigator').
-        -->
-        <select id="dd-agent-select" onchange="ddLoadAgent()" style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font);font-size:13px;padding:5px 10px;border-radius:6px;outline:none;cursor:pointer;min-width:160px;">
-          <option value="">— select agent —</option>
-          <option value="chekov">Chekov</option>
-          <option value="ollama-qwen3">Qwen3</option>
-          <option value="ollama-llama">Llama</option>
-          <option value="ollama-plutus">Plutus</option>
-          <option value="ollama-coder">Coder</option>
-          <option value="neo-matrix">Neo Matrix</option>
-          <option value="capitol-trades">Capitol Trades</option>
-          <option value="ollie-auto">Ollie (Gate)</option>
-        </select>
-      </div>
-      <input id="dd-filter-ticker" type="text" placeholder="Ticker" oninput="ddApplyFilters()"
-        style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font);font-size:12px;padding:5px 8px;border-radius:6px;outline:none;width:80px;">
-      <select id="dd-filter-result" onchange="ddApplyFilters()"
-        style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font);font-size:12px;padding:5px 8px;border-radius:6px;outline:none;cursor:pointer;">
-        <option value="all">All Results</option>
-        <option value="win">Wins</option>
-        <option value="loss">Losses</option>
-        <option value="open">Open</option>
-      </select>
-      <input id="dd-filter-from" type="date" onchange="ddApplyFilters()"
-        style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font);font-size:12px;padding:5px 8px;border-radius:6px;outline:none;">
-      <input id="dd-filter-to" type="date" onchange="ddApplyFilters()"
-        style="background:var(--surface2);border:1px solid var(--border);color:var(--text);font-family:var(--font);font-size:12px;padding:5px 8px;border-radius:6px;outline:none;">
-      <button onclick="ddClearFilters()"
-        style="background:var(--surface2);border:1px solid var(--border);color:var(--muted);font-size:12px;padding:5px 12px;border-radius:6px;cursor:pointer;">Clear</button>
-    </div>
-  </div>
-
-  <!-- Summary stat tiles -->
-  <div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(130px,1fr));gap:10px;margin-bottom:12px;">
-    <div class="card" style="padding:12px;text-align:center;">
-      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Trades</div>
-      <div id="dd-stat-total" style="font-size:22px;font-weight:700;color:var(--text);">—</div>
-    </div>
-    <div class="card" style="padding:12px;text-align:center;">
-      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Win Rate</div>
-      <div id="dd-stat-wr" style="font-size:22px;font-weight:700;">—</div>
-    </div>
-    <div class="card" style="padding:12px;text-align:center;">
-      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Avg Win</div>
-      <div id="dd-stat-avg-win" style="font-size:22px;font-weight:700;color:var(--green);">—</div>
-    </div>
-    <div class="card" style="padding:12px;text-align:center;">
-      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Avg Loss</div>
-      <div id="dd-stat-avg-loss" style="font-size:22px;font-weight:700;color:var(--red);">—</div>
-    </div>
-    <div class="card" style="padding:12px;text-align:center;">
-      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Profit Factor</div>
-      <div id="dd-stat-pf" style="font-size:22px;font-weight:700;color:var(--text);">—</div>
-    </div>
-    <div class="card" style="padding:12px;text-align:center;">
-      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Max Drawdown</div>
-      <div id="dd-stat-mdd" style="font-size:22px;font-weight:700;color:var(--red);">—</div>
-    </div>
-    <div class="card" style="padding:12px;text-align:center;">
-      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Best Trade</div>
-      <div id="dd-stat-best" style="font-size:22px;font-weight:700;color:var(--green);">—</div>
-    </div>
-    <div class="card" style="padding:12px;text-align:center;">
-      <div style="font-size:10px;color:var(--muted);text-transform:uppercase;letter-spacing:0.5px;margin-bottom:4px;">Worst Trade</div>
-      <div id="dd-stat-worst" style="font-size:22px;font-weight:700;color:var(--red);">—</div>
-    </div>
-  </div>
-
-  <!-- Equity curve -->
-  <div class="card" style="margin-bottom:12px;">
-    <div class="card-header"><div class="card-title">Equity Curve</div></div>
-    <div id="dd-equity-chart" style="height:200px;"></div>
-  </div>
-
-  <!-- Trade table -->
-  <div class="card">
-    <div class="card-header">
-      <div class="card-title">Trade History</div>
-      <span id="dd-trade-count" style="font-size:12px;color:var(--muted);"></span>
-    </div>
-    <div style="overflow-x:auto;">
-      <table class="trades-table">
-        <thead><tr>
-          <th>Date/Time</th><th>Ticker</th><th>Signal</th><th>Entry</th><th>Exit</th>
-          <th>P/L $</th><th>P/L %</th><th>Conf</th><th>Result</th>
-        </tr></thead>
-        <tbody id="dd-trades-body"></tbody>
-      </table>
-    </div>
-    <div id="dd-empty" style="display:none;text-align:center;padding:40px;color:var(--muted);">No trades match filters.</div>
-    <div id="dd-loading" style="text-align:center;padding:40px;color:var(--muted);">Select an agent above to load trades.</div>
-  </div>
-</div>
 <script>
 (function(){
   var _ddTrades = [];
@@ -41888,48 +42196,6 @@ setTimeout(function(){
 .ls-empty-icon{font-size:36px;margin-bottom:8px}
 </style>
 
-<div id="section-live-scanner" style="display:none">
-  <div class="card" style="background:#0d1320;border:1px solid #1e2940">
-    <div class="ls-header">
-      <div class="ls-pulse" id="lsPulse"></div>
-      <div class="ls-title">📡 Live Scanner</div>
-      <a href="/scanner" target="_blank" style="font-size:11px;color:#64748b;text-decoration:none;padding:4px 10px;border:1px solid #1e2940;border-radius:4px">⬡ Fullscreen</a>
-    </div>
-
-    <div class="ls-stats">
-      <div class="ls-stat"><div class="ls-stat-val" id="lsStatHigh">0</div><div class="ls-stat-lbl">High Conf</div></div>
-      <div class="ls-stat"><div class="ls-stat-val med" id="lsStatMed">0</div><div class="ls-stat-lbl">Medium</div></div>
-      <div class="ls-stat"><div class="ls-stat-val neutral" id="lsStatToday">0</div><div class="ls-stat-lbl">Today</div></div>
-      <div class="ls-stat"><div class="ls-stat-val neutral" id="lsStatFired">0</div><div class="ls-stat-lbl">Fired</div></div>
-    </div>
-
-    <div class="ls-controls">
-      <button class="ls-btn active" id="lsSoundBtn" onclick="lsToggleSound()">🔊 Sound ON</button>
-      <button class="ls-btn" id="lsPauseBtn" onclick="lsTogglePause()">⏸ Pause</button>
-      <select class="ls-select" id="lsFilter" onchange="lsApplyFilter()">
-        <option value="">All Patterns</option>
-        <option value="BREAKOUT">BREAKOUT</option>
-        <option value="EMA PB">EMA PB</option>
-        <option value="REL STR">REL STR</option>
-        <option value="VOL SPIKE">VOL SPIKE</option>
-        <option value="GREEN DAY">GREEN DAY</option>
-        <option value="MOMENTUM">MOMENTUM</option>
-        <option value="SIGNAL">SIGNAL</option>
-      </select>
-      <select class="ls-select" id="lsAgentFilter" onchange="lsApplyFilter()">
-        <option value="">All Agents</option>
-        <option value="Lt. Barclay">Lt. Barclay</option>
-        <option value="Chekov">Chekov</option>
-        <option value="Navigator">Navigator</option>
-      </select>
-      <button class="ls-notif-btn" id="lsNotifBtn" onclick="lsRequestNotif()">🔔 Notifications</button>
-    </div>
-
-    <div class="ls-feed" id="lsFeed">
-      <div class="ls-empty"><div class="ls-empty-icon">📡</div>Awaiting signals…</div>
-    </div>
-  </div>
-</div>
 
 <script>
 (function(){
@@ -44018,31 +44284,6 @@ setInterval(pollBS0DTE, 60 * 1000);
 }
 </style>
 
-<div id="section-race" style="display:none;">
-  <div class="race-section">
-    <div class="race-header">
-      <span class="race-title">RACE — TOP GAINERS</span>
-      <span class="race-status" id="raceStatus">—</span>
-    </div>
-    <div class="race-meta" id="raceMeta">Initializing Race feed…</div>
-    <ul class="race-list" id="raceList"></ul>
-  </div>
-
-  <!-- === Phase 6: Pre-market gap scanner UI === -->
-  <div class="premarket-tile" id="premarket-tile">
-    <header class="premarket-header">
-      <span class="premarket-title">🌅 PRE-MARKET — Gap ≥ 3% · Vol ≥ 50K</span>
-      <span class="premarket-meta">
-        <span class="premarket-window" id="premarket-window">—</span>
-        <span class="heartbeat-dot stale" id="premarket-heartbeat" title="Pre-market feed status"></span>
-      </span>
-    </header>
-    <ul class="premarket-list" id="premarket-list">
-      <li class="premarket-empty">Waiting for pre-market window (4:00 AM – 9:30 AM ET)</li>
-    </ul>
-  </div>
-  <!-- === end Phase 6 UI === -->
-</div>
 
 <script>
 // === Phase 2: Race tile poller ===
@@ -44684,10 +44925,6 @@ setInterval(pollBS0DTE, 60 * 1000);
 
 
 <!-- ==================== HM-DASH-MOVERS — MOVERS WATCHLIST ==================== -->
-<div id="section-movers" style="display:none;">
-  <div class="card-title">📊 Movers <span id="moversMeta" style="font-size:12px;color:var(--muted);font-weight:400;margin-left:8px;"></span></div>
-  <div id="moversTableContent" style="padding:12px 0;color:var(--muted);">Fetching movers…</div>
-</div>
 <script>
 async function fetchMovers() {
   var el = document.getElementById('moversTableContent');
@@ -44767,130 +45004,6 @@ async function fetchMovers() {
      showSection('real-portfolio') for a non-admin session. Per
      HM-ADMIN-ONLY-CSS-DEFAULT-DENY 2026-05-23 the default-deny CSS gate
      hides this for any role ≠ admin. -->
-<div id="section-real-portfolio" class="admin-only" style="display:none;">
-  <div style="border-left:4px solid #38bdf8;background:rgba(56,189,248,0.04);padding:10px 16px;margin-bottom:16px;border-radius:0 6px 6px 0;">
-    <div style="font-size:11px;font-weight:700;color:#38bdf8;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">💰 Real Portfolio — Total Portfolio</div>
-    <div style="font-size:13px;color:#94a3b8;"><b>Schwab + physical metals only.</b> TradeStation / Webull / IBKR suspended (reversible). Excludes Alpaca paper &amp; SIM (Two-Book Policy).</div>
-  </div>
-
-  <!-- HM-AM UNIFICATION 2026-06-06: ONE canonical net-worth card (collapses the two
-       prior redundant headline cards). Backed by the repointed /api/networth (single
-       source of truth = total_portfolio.get_unified_networth). -->
-  <div class="card" data-component="unified-networth" id="unifiedNetWorthCard" style="margin-bottom:16px;border-left:4px solid #38bdf8;">
-    <div class="card-header" style="display:flex;justify-content:space-between;align-items:center;">
-      <div class="card-title">💵 Total Portfolio — Schwab + Metals</div>
-      <button class="btn btn-ghost" onclick="fetchUnifiedNetWorth()" style="font-size:12px;">Refresh</button>
-    </div>
-    <div style="padding:16px 16px 6px;text-align:center;">
-      <div id="unifiedNetWorthTotal" style="font-size:34px;font-weight:800;color:#38bdf8;line-height:1.1;">Standby…</div>
-      <div style="display:flex;gap:18px;justify-content:center;margin-top:8px;font-size:13px;flex-wrap:wrap;">
-        <span>Today <span id="unifiedNetWorthDaily" style="font-weight:700;">—</span></span>
-        <span>All-time <span id="unifiedNetWorthAllTime" style="font-weight:700;">—</span></span>
-      </div>
-    </div>
-    <div style="padding:4px 16px 12px;">
-      <div id="unifiedSchwabLine" style="display:flex;justify-content:space-between;padding:7px 0;border-bottom:1px solid var(--border);"></div>
-      <div id="unifiedMetalsLine" onclick="toggleUnifiedMetals()" style="display:flex;justify-content:space-between;padding:7px 0;cursor:pointer;border-bottom:1px solid var(--border);" title="Click to expand per-metal"></div>
-      <div id="unifiedMetalsDetail" style="display:none;padding:4px 0 0 14px;"></div>
-      <div id="unifiedNetWorthFresh" style="margin-top:8px;font-size:11px;color:var(--muted);font-style:italic;text-align:center;"></div>
-    </div>
-  </div>
-
-  <!-- HM-AM UNIFICATION 2026-06-06: the two prior headline cards (Total Real-Money
-       Value + Net Worth Breakdown) are ARCHIVED (display:none, not deleted) — collapsed
-       into #unifiedNetWorthCard above. Their JS (fetchRealPortfolio/fetchNetWorth) still
-       runs to feed the per-account grid, positions table, and the holdings donut. -->
-  <div class="card" style="display:none;margin-bottom:16px;border-left:4px solid #38bdf8;">
-    <div class="card-header">
-      <div class="card-title">💵 Total Real-Money Value</div>
-      <button class="btn btn-ghost" onclick="fetchRealPortfolio()" style="font-size:13px;">Refresh</button>
-    </div>
-    <div id="realPortfolioHeadline" style="padding:16px;font-size:32px;font-weight:700;text-align:center;color:#38bdf8;">
-      Loading…
-    </div>
-    <div id="realPortfolioMetalsPct" style="padding:0 16px 8px;font-size:13px;color:var(--muted);text-align:center;"></div>
-    <div id="realPortfolioMeta" style="padding:0 16px 12px;font-size:11px;color:var(--muted);text-align:center;"></div>
-  </div>
-
-  <!-- HM-AM 2026-06-02 → ARCHIVED 2026-06-06 (display:none): superseded by #unifiedNetWorthCard.
-       Kept so fetchNetWorth has live targets (null-safe) and is fully reversible. -->
-  <div class="card" style="display:none;margin-bottom:16px;border-left:4px solid #34d399;">
-    <div class="card-header">
-      <div class="card-title">🧮 Total Portfolio — Breakdown (HM-AM)</div>
-    </div>
-    <div id="netWorthTotal" style="padding:14px 16px 4px;font-size:28px;font-weight:700;text-align:center;color:#34d399;">Loading…</div>
-    <div id="netWorthBuckets" style="padding:0 16px 8px;"></div>
-    <div id="netWorthAccounts" style="padding:0 16px 8px;font-size:13px;"></div>
-    <div id="netWorthFreshness" style="padding:0 16px 12px;font-size:11px;color:var(--muted);text-align:center;font-style:italic;"></div>
-  </div>
-
-  <!-- HM-SCHWAB-UPLOAD 2026-05-28: browser upload → same import pipeline as the cron watcher (for remote users e.g. Bonnie via the tunnel) -->
-  <div class="card" style="margin-bottom:16px;border-left:4px solid #f59e0b;">
-    <div class="card-header"><div class="card-title">⬆️ Upload Schwab CSV</div></div>
-    <div style="padding:14px;font-size:13px;">
-      <div style="color:var(--muted);margin-bottom:8px;">Export "Positions" from Schwab, then upload the CSV here — it runs the same import + sync as the auto-watcher and refreshes net worth in seconds.</div>
-      <input type="file" id="schwabCsvFile" accept=".csv,text/csv" style="font-size:13px;margin-bottom:8px;display:block;">
-      <button class="btn btn-primary" onclick="uploadSchwabCsv()" style="font-size:13px;">Import</button>
-      <div id="schwabUploadStatus" style="margin-top:10px;font-size:12px;color:var(--muted);"></div>
-    </div>
-  </div>
-
-  <!-- Per-account breakdown: 4-card auto-fit grid (mobile: stacks; desktop: 2x2 or 4-col) -->
-  <div style="display:grid;grid-template-columns:repeat(auto-fit, minmax(220px, 1fr));gap:12px;margin-bottom:16px;">
-    <div class="card">
-      <div class="card-header"><div class="card-title">🏦 Schwab</div></div>
-      <div id="realPortfolioSchwab" style="padding:14px;font-size:15px;">
-        <div style="color:var(--muted);">Loading…</div>
-      </div>
-    </div>
-    <!-- HM-AM UNIFICATION: Webull + IBKR grid cards hidden (suspended accounts) —
-         markup kept (display:none) so the renderer targets stay null-safe + reversible. -->
-    <div class="card" style="display:none;">
-      <div class="card-header"><div class="card-title">🛸 Webull</div></div>
-      <div id="realPortfolioWebull" style="padding:14px;font-size:15px;">
-        <div style="color:var(--muted);">Loading…</div>
-      </div>
-    </div>
-    <div class="card" style="display:none;">
-      <div class="card-header"><div class="card-title">📊 IBKR</div></div>
-      <div id="realPortfolioIBKR" style="padding:14px;font-size:15px;">
-        <div style="color:var(--muted);">Loading…</div>
-      </div>
-    </div>
-    <div class="card">
-      <div class="card-header"><div class="card-title">⚗️ Physical Metals</div></div>
-      <div id="realPortfolioMetals" style="padding:14px;font-size:15px;">
-        <div style="color:var(--muted);">Loading…</div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Positions table sorted by market value -->
-  <div class="card" style="margin-bottom:16px;">
-    <div class="card-header">
-      <div class="card-title">📋 Positions by Symbol <span id="realPortfolioPositionsCount" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div>
-    </div>
-    <div style="padding:0 16px 12px;overflow-x:auto;">
-      <table style="width:100%;border-collapse:collapse;font-size:14px;min-width:640px;">
-        <thead>
-          <tr style="border-bottom:1px solid var(--border);color:var(--muted);text-align:left;font-size:13px;">
-            <th style="padding:9px 6px;">Symbol</th>
-            <th style="padding:9px 6px;text-align:center;">Grade</th>
-            <th style="padding:9px 6px;text-align:right;">Qty</th>
-            <th style="padding:9px 6px;text-align:right;">Market Value</th>
-            <th style="padding:9px 6px;text-align:right;">Day</th>
-            <th style="padding:9px 6px;text-align:right;">Total Gain</th>
-            <th style="padding:9px 6px;">Acct</th>
-          </tr>
-        </thead>
-        <tbody id="realPortfolioPositionsTbody">
-          <tr><td colspan="7" style="padding:12px;color:var(--muted);text-align:center;">Loading…</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-
-</div>
 
 <script>
 // W5-D Real Portfolio (extends HM-REAL-PORTFOLIO-DASHBOARD 2026-05-20).
@@ -45268,67 +45381,6 @@ registerSectionInit('real-portfolio', fetchRealPortfolio, [{fn: fetchRealPortfol
      Data: polled REST (5s for /api/chart/bars, 10s for /api/trades/recent)
      per Captain decision during scoping. WS push deferred — see
      HM-LIVE-TRADING-WS-PUSH ticket in docs/XO_BACKLOG.md. -->
-<div id="section-live-trading" style="display:none;">
-  <div style="border-left:4px solid #f59e0b;background:rgba(245,158,11,0.05);padding:10px 16px;margin-bottom:12px;border-radius:0 6px 6px 0;">
-    <div style="font-size:11px;font-weight:700;color:#f59e0b;text-transform:uppercase;letter-spacing:0.6px;margin-bottom:2px;">⚡ Live Trading — Holly Mode</div>
-    <div style="font-size:13px;color:#94a3b8;">Live candle chart with fleet agent trade markers painted on. <span style="color:#22c55e;">▲ entry</span> · <span style="color:#ef4444;">▼ exit</span> · <span style="color:#f97316;">× stop-loss</span> · ⋯ entry→exit path. Polls every 5s (candles) / 10s (trades).</div>
-  </div>
-
-  <!-- Symbol selector + quick-buttons + timeframe -->
-  <div class="card" style="margin-bottom:12px;">
-    <div style="padding:12px 16px;display:flex;flex-wrap:wrap;gap:10px;align-items:center;">
-      <label for="lt-symbol-input" style="font-size:12px;color:var(--muted);font-weight:600;">Symbol:</label>
-      <input id="lt-symbol-input" type="text" maxlength="8" value="SPY" style="text-transform:uppercase;padding:6px 10px;width:90px;background:rgba(15,23,42,0.6);border:1px solid rgba(245,158,11,0.3);color:#e5e7eb;border-radius:4px;font-family:monospace;font-weight:700;" />
-      <button onclick="ltLoadSymbol()" style="padding:6px 12px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);color:#f59e0b;border-radius:4px;cursor:pointer;font-size:12px;font-weight:600;">Load</button>
-      <span id="lt-quick-buttons" style="display:flex;flex-wrap:wrap;gap:4px;flex:1;"></span>
-      <span style="color:var(--border);">|</span>
-      <label style="font-size:12px;color:var(--muted);font-weight:600;">Timeframe:</label>
-      <span id="lt-timeframe-pills" style="display:flex;gap:4px;">
-        <button data-tf="1m"  onclick="ltSetTimeframe('1m')"  style="padding:5px 10px;background:rgba(245,158,11,0.15);border:1px solid rgba(245,158,11,0.4);color:#f59e0b;border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;">1m</button>
-        <button data-tf="5m"  onclick="ltSetTimeframe('5m')"  style="padding:5px 10px;background:rgba(15,23,42,0.6);border:1px solid var(--border);color:var(--muted);border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;">5m</button>
-        <button data-tf="15m" onclick="ltSetTimeframe('15m')" style="padding:5px 10px;background:rgba(15,23,42,0.6);border:1px solid var(--border);color:var(--muted);border-radius:4px;cursor:pointer;font-size:11px;font-family:monospace;">15m</button>
-      </span>
-      <span id="lt-last-tick" style="font-size:11px;color:var(--muted);font-family:monospace;margin-left:auto;"></span>
-    </div>
-  </div>
-
-  <!-- Active-agent attribution strip -->
-  <div id="lt-active-agent" style="display:none;padding:8px 14px;margin-bottom:8px;background:rgba(56,189,248,0.08);border-left:3px solid #38bdf8;border-radius:0 4px 4px 0;font-size:13px;"></div>
-
-  <!-- Entry-zone alert banner (visible only when active) -->
-  <div id="lt-entry-zone-alert" style="display:none;padding:10px 14px;margin-bottom:8px;background:rgba(239,68,68,0.1);border-left:3px solid #ef4444;border-radius:0 4px 4px 0;font-size:13px;color:#fca5a5;font-weight:600;"></div>
-
-  <!-- Canvas chart -->
-  <div class="card" style="margin-bottom:12px;">
-    <div class="card-header"><div class="card-title"><span id="lt-chart-title" style="font-family:monospace;">SPY · 1m</span></div></div>
-    <div style="padding:8px 16px 16px;">
-      <div style="position:relative;width:100%;">
-        <canvas id="lt-chart-canvas" width="1000" height="420" style="width:100%;height:420px;display:block;background:rgba(15,23,42,0.4);border:1px solid var(--border);border-radius:4px;"></canvas>
-        <div id="lt-chart-status" style="position:absolute;top:8px;left:12px;font-size:11px;color:var(--muted);font-family:monospace;pointer-events:none;"></div>
-      </div>
-    </div>
-  </div>
-
-  <!-- Recent fleet activity for this symbol -->
-  <div class="card" style="margin-bottom:16px;">
-    <div class="card-header"><div class="card-title">📋 Recent Fleet Activity on <span id="lt-activity-symbol" style="font-family:monospace;">SPY</span> <span id="lt-activity-count" style="color:var(--muted);font-weight:400;font-size:12px;"></span></div></div>
-    <div style="padding:0 16px 12px;max-height:240px;overflow-y:auto;">
-      <table style="width:100%;border-collapse:collapse;font-size:12px;">
-        <thead><tr style="border-bottom:1px solid var(--border);color:var(--muted);text-align:left;">
-          <th style="padding:6px 4px;">Time</th>
-          <th style="padding:6px 4px;">Agent</th>
-          <th style="padding:6px 4px;">Action</th>
-          <th style="padding:6px 4px;text-align:right;">Qty</th>
-          <th style="padding:6px 4px;text-align:right;">Price</th>
-          <th style="padding:6px 4px;text-align:right;">P&amp;L</th>
-        </tr></thead>
-        <tbody id="lt-activity-tbody">
-          <tr><td colspan="6" style="padding:12px;color:var(--muted);text-align:center;">No fleet activity loaded yet.</td></tr>
-        </tbody>
-      </table>
-    </div>
-  </div>
-</div>
 
 <script>
 /* W5-E Holly Live Trading 2026-05-23 — Captain greenlit polled-REST path:

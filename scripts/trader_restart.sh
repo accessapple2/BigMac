@@ -77,6 +77,13 @@ if [[ -n "$(writers)" ]]; then
 fi
 echo "[$(ts)] all trader instances dead (zero trader.log writers)"
 
+# HM-BACKUP-SPINE-2026-07-01 Item 1 (WAL interim mitigation, see HM-WAL-ROOTCAUSE):
+# zero-reader window -- every writer just confirmed dead, so this is the one
+# guaranteed moment a checkpoint can truncate cleanly with nothing racing it.
+# || true: a hiccup here must never block a restart.
+echo "[$(ts)] checkpointing WAL (zero-reader window)"
+sqlite3 "$ROOT_DIR/data/trader.db" "PRAGMA wal_checkpoint(TRUNCATE);" || true
+
 # 2. Relaunch, detached.
 [[ -x "$PYTHON" ]] || { echo "[$(ts)] FATAL: $PYTHON not executable" >&2; exit 1; }
 cd "$ROOT_DIR" || { echo "[$(ts)] FATAL: cannot cd $ROOT_DIR" >&2; exit 1; }

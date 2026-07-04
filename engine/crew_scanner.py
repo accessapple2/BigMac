@@ -2018,11 +2018,20 @@ def _find_bounces(scan_picks: list[dict]) -> list[dict]:
 
 # Per-agent scaled-exit tiers: [(profit_threshold, fraction_to_sell, tier_label)]
 # Listed in descending order of threshold; highest tier fires first.
+#
+# HM-MCCOY-TARGET-RELATIVE 2026-07-02: ollama-plutus (McCoy) REMOVED from this
+# flat table -- was a single (0.04, 0.50, "T1") tier that clipped winners at
+# +4% while McCoy's own signals set targets of +16% to +36% (signals_v2
+# AUTO-TARGET, always exactly 2x the AUTO-STOP). Realized R:R was inverted
+# (~0.6:1 despite 2:1+ signal design) because half the position got sold at
+# a small fraction of the actual target and the other half stayed exposed to
+# the same -8% universal hard stop (_check_hard_stops) with nothing left to
+# capture more of the move. Replaced with _check_mccoy_target_relative_exits
+# (target-relative T1/T2 + a 3%-trail on the final third) -- see below.
 _SCALED_EXIT_TIERS: dict[str, list[tuple[float, float, str]]] = {
     "neo-matrix":    [(0.08, 0.15, "T3"), (0.05, 0.25, "T2"), (0.03, 0.50, "T1")],
     "deepseek-7b-grok4":        [(0.05, 0.25, "T2"), (0.03, 0.50, "T1")],
     "ollama-qwen3":  [(0.06, 0.25, "T2"), (0.04, 0.50, "T1")],
-    "ollama-plutus": [(0.04, 0.50, "T1")],
 }
 
 # Cache: {f"{player_id}|{symbol}|{tier}": date_str} — prevents re-firing same tier same day
@@ -2037,16 +2046,26 @@ _NEO_TRAIL_HIGHS_PATH = os.path.join(
     "neo_trail_highs.json",
 )
 
+# HM-MCCOY-TARGET-RELATIVE 2026-07-03: same sidecar-persistence need for
+# McCoy's new trailing-stop-on-final-third (see _update_mccoy_trailing_stops
+# below) -- generalized the load/save helpers below to take a path instead
+# of duplicating ~55 lines of near-identical persistence code.
+_MCCOY_TRAIL_HIGHS_PATH = os.path.join(
+    os.path.dirname(os.path.dirname(os.path.abspath(__file__))),
+    "data",
+    "mccoy_trail_highs.json",
+)
 
-def _load_neo_trail_highs() -> dict[str, float]:
-    """Load persisted Neo trail-high watermarks from JSON sidecar.
+
+def _load_trail_highs(path: str) -> dict[str, float]:
+    """Load persisted trail-high watermarks from a JSON sidecar.
 
     Fail-safe — returns empty dict on any error (missing file, corrupt JSON,
     permission issue). Prior in-memory-only behavior at module init was an
     empty dict; this preserves that contract while adding restart-survivability.
     """
     try:
-        with open(_NEO_TRAIL_HIGHS_PATH, "r") as _f:
+        with open(path, "r") as _f:
             _raw = json.load(_f)
         if not isinstance(_raw, dict):
             return {}
@@ -2065,8 +2084,8 @@ def _load_neo_trail_highs() -> dict[str, float]:
         return {}
 
 
-def _save_neo_trail_highs(state: dict[str, float]) -> None:
-    """Atomically persist _neo_trail_highs to JSON sidecar.
+def _save_trail_highs(path: str, state: dict[str, float]) -> None:
+    """Atomically persist a trail-highs dict to a JSON sidecar.
 
     Atomic write (temp file in same dir + os.replace) prevents 0-byte corruption
     if process dies mid-write. Crash-safe — swallows all errors so a write
@@ -2076,13 +2095,13 @@ def _save_neo_trail_highs(state: dict[str, float]) -> None:
     try:
         import tempfile
         serialized = json.dumps(state)
-        cache_dir = os.path.dirname(os.path.abspath(_NEO_TRAIL_HIGHS_PATH))
+        cache_dir = os.path.dirname(os.path.abspath(path))
         os.makedirs(cache_dir, exist_ok=True)
         fd, tmp_path = tempfile.mkstemp(dir=cache_dir, suffix=".tmp")
         try:
             with os.fdopen(fd, "w") as _f:
                 _f.write(serialized)
-            os.replace(tmp_path, _NEO_TRAIL_HIGHS_PATH)
+            os.replace(tmp_path, path)
         except Exception:
             try:
                 os.unlink(tmp_path)
@@ -2093,6 +2112,14 @@ def _save_neo_trail_highs(state: dict[str, float]) -> None:
         # Write failure must NEVER break the trailing-stop call chain;
         # next successful write will catch up.
         pass
+
+
+def _load_neo_trail_highs() -> dict[str, float]:
+    return _load_trail_highs(_NEO_TRAIL_HIGHS_PATH)
+
+
+def _save_neo_trail_highs(state: dict[str, float]) -> None:
+    _save_trail_highs(_NEO_TRAIL_HIGHS_PATH, state)
 
 
 # Neo trailing stop: highest price seen after T1 scale exit fires
@@ -2159,6 +2186,211 @@ def _update_neo_trailing_stops() -> int:
                     )
     except Exception as e:
         logger.error(f"_update_neo_trailing_stops error: {e}")
+    return exited
+
+
+# ─── McCoy target-relative exits (HM-MCCOY-TARGET-RELATIVE 2026-07-02) ────────
+# See the comment on _SCALED_EXIT_TIERS above for the bug this replaces.
+
+MCCOY_PLAYER_ID = "ollama-plutus"
+MCCOY_GLOBAL_HARD_STOP_PCT = 0.08  # matches _check_hard_stops' hardcoded -8% (line ~2331)
+MCCOY_T1_TARGET_FRACTION = 0.40    # T1 at ~40% of the signal's own target
+MCCOY_T2_TARGET_FRACTION = 0.70    # T2 at ~70% of the signal's own target
+MCCOY_TRAIL_PCT = 0.03             # trail the final third by 3% off the high
+MCCOY_FIX_TAG = "MCCOY-TR-V1"      # greppable tag on every post-fix exit's reasoning
+_mccoy_trail_highs: dict[str, float] = _load_trail_highs(_MCCOY_TRAIL_HIGHS_PATH)
+logger.info(
+    f"[HM-MCCOY-TARGET-RELATIVE] config loaded: T1={MCCOY_T1_TARGET_FRACTION*100:.0f}% "
+    f"target / T2={MCCOY_T2_TARGET_FRACTION*100:.0f}% target, floor={MCCOY_GLOBAL_HARD_STOP_PCT*100:.0f}%, "
+    f"trail={MCCOY_TRAIL_PCT*100:.0f}%, tag='{MCCOY_FIX_TAG}' -- module import at {datetime.now().isoformat()}"
+)
+
+_SIGNAL_STOP_TARGET_RE = re.compile(
+    r"AUTO-STOP:\s*-([\d.]+)%.*?AUTO-TARGET:\s*\+([\d.]+)%"
+)
+
+
+def _parse_signal_stop_target(reasoning: str) -> tuple[float, float] | None:
+    """Extract (stop_pct, target_pct) as positive fractions (e.g. 0.08, 0.16)
+    from a signals_v2-dispatched BUY reasoning string like:
+    '[AUTO-STOP: -8% from entry] [AUTO-TARGET: +16% from entry]'.
+    Returns None if the pattern isn't present (older/other-sourced signals).
+    Pure function -- no I/O, directly unit-testable.
+    """
+    if not reasoning:
+        return None
+    m = _SIGNAL_STOP_TARGET_RE.search(reasoning)
+    if not m:
+        return None
+    try:
+        return (float(m.group(1)) / 100.0, float(m.group(2)) / 100.0)
+    except ValueError:
+        return None
+
+
+def _target_relative_tiers(
+    target_pct: float, effective_stop_pct: float = MCCOY_GLOBAL_HARD_STOP_PCT,
+) -> dict[str, float]:
+    """Compute T1/T2 thresholds at ~40%/~70% of the signal's own target,
+    clamped so T1 is never tighter than effective_stop_pct -- the invariant:
+    never risk more than you'd bank at the first profit-take.
+
+    Given McCoy's signals are consistently target = 2x stop (e.g. -8%/+16%),
+    naive 40% of target (6.4%) would be TIGHTER than the 8% stop -- this is
+    exactly the case the clamp exists for. At today's 2:1 signal ratio, T1
+    resolves to the stop distance itself; if the signal design ever moves to
+    a wider ratio (e.g. 3:1), the raw 40%-of-target math takes over instead.
+    Pure function -- no I/O, directly unit-testable.
+    """
+    t1 = max(MCCOY_T1_TARGET_FRACTION * target_pct, effective_stop_pct)
+    t2 = max(MCCOY_T2_TARGET_FRACTION * target_pct, t1 + 0.01)
+    return {"t1_pct": t1, "t2_pct": t2}
+
+
+def _get_latest_signal_target(player_id: str, symbol: str) -> float | None:
+    """Look up the most recent BUY trade's reasoning for (player_id, symbol)
+    and parse its signal target. Returns None if no BUY row exists or its
+    reasoning doesn't carry the AUTO-STOP/AUTO-TARGET pattern (older/other
+    signal sources) -- callers must fall back to prior flat-tier behavior
+    in that case, not silently do nothing.
+    """
+    try:
+        c = _conn()
+        row = c.execute(
+            "SELECT reasoning FROM trades WHERE player_id=? AND symbol=? "
+            "AND action='BUY' ORDER BY executed_at DESC LIMIT 1",
+            (player_id, symbol),
+        ).fetchone()
+        c.close()
+        if not row:
+            return None
+        parsed = _parse_signal_stop_target(row["reasoning"])
+        return parsed[1] if parsed else None
+    except Exception:
+        return None
+
+
+def _check_mccoy_target_relative_exits() -> int:
+    """McCoy's replacement for the flat _SCALED_EXIT_TIERS entry: T1/T2
+    thresholds computed relative to each position's OWN signal target
+    (falls back to the old flat +4% single tier if no signal metadata is
+    found, so pre-signals_v2 positions keep their existing behavior rather
+    than silently getting no profit-taking at all). T2 firing hands the
+    final third off to _update_mccoy_trailing_stops via _mccoy_trail_highs.
+    """
+    sold = 0
+    today = datetime.now().strftime("%Y-%m-%d")
+    try:
+        from engine.paper_trader import get_portfolio, sell_partial
+        from engine.market_data import get_stock_price
+        port = get_portfolio(MCCOY_PLAYER_ID)
+        for pos in port.get("positions", []):
+            if pos.get("asset_type", "stock") != "stock":
+                continue
+            symbol   = pos["symbol"]
+            avg_cost = float(pos.get("avg_price") or 0)
+            qty      = float(pos.get("qty") or 0)
+            if avg_cost <= 0 or qty < 0.01:
+                continue
+            px = get_stock_price(symbol)
+            current = float(px.get("price") or 0)
+            if current <= 0:
+                continue
+            pnl_pct = (current - avg_cost) / avg_cost
+
+            target_pct = _get_latest_signal_target(MCCOY_PLAYER_ID, symbol)
+            if target_pct is None:
+                tiers = [(0.04, 0.50, "T1")]  # unchanged fallback, no signal metadata
+            else:
+                rel = _target_relative_tiers(target_pct)
+                # T1 sells 1/3 of the original position; T2 sells 50% of what's
+                # then remaining (2/3 of original), netting to 1/3 of original
+                # each -- leaving the final third for the trailing stop.
+                tiers = [(rel["t2_pct"], 0.50, "T2"), (rel["t1_pct"], 1 / 3, "T1")]
+
+            for threshold, fraction, label in sorted(tiers, key=lambda x: -x[0]):
+                if pnl_pct < threshold:
+                    continue
+                cache_key = f"{MCCOY_PLAYER_ID}|{symbol}|{label}"
+                if _tiers_triggered.get(cache_key) == today:
+                    continue
+                sell_qty = qty * fraction
+                if sell_qty < 0.01:
+                    break
+                result = sell_partial(
+                    player_id  = MCCOY_PLAYER_ID,
+                    symbol     = symbol,
+                    price      = current,
+                    qty        = sell_qty,
+                    reasoning  = (
+                        f"Target-relative exit {label}: +{pnl_pct*100:.1f}% "
+                        f"(threshold +{threshold*100:.1f}%, signal target +{target_pct*100:.0f}%) — "
+                        f"selling {fraction*100:.0f}% ({sell_qty:.2f} sh) [{MCCOY_FIX_TAG}]"
+                        if target_pct is not None else
+                        f"Scaled exit {label} (no signal metadata, flat-tier fallback): "
+                        f"+{pnl_pct*100:.1f}% — selling {fraction*100:.0f}% ({sell_qty:.2f} sh)"
+                    ),
+                    confidence = 0.9,
+                )
+                if result:
+                    sold += 1
+                    _tiers_triggered[cache_key] = today
+                    if label == "T2":
+                        _mccoy_trail_highs[symbol] = current
+                        _save_trail_highs(_MCCOY_TRAIL_HIGHS_PATH, _mccoy_trail_highs)
+                break
+    except Exception as e:
+        logger.error(f"_check_mccoy_target_relative_exits error: {e}")
+    return sold
+
+
+def _update_mccoy_trailing_stops() -> int:
+    """After McCoy's T2 fires, the final third (1/3 of original) trails by
+    MCCOY_TRAIL_PCT off the high, floored at avg cost -- mirrors
+    _update_neo_trailing_stops' shape exactly, keyed off _mccoy_trail_highs
+    instead of a same-day _tiers_triggered check (McCoy's trail must survive
+    past the day T2 fired, since the position can run for days afterward)."""
+    exited = 0
+    try:
+        from engine.paper_trader import get_portfolio, sell
+        from engine.market_data import get_stock_price
+        port = get_portfolio(MCCOY_PLAYER_ID)
+        for pos in port.get("positions", []):
+            if pos.get("asset_type", "stock") != "stock":
+                continue
+            symbol   = pos["symbol"]
+            avg_cost = float(pos.get("avg_price") or 0)
+            if avg_cost <= 0 or symbol not in _mccoy_trail_highs:
+                continue
+            px = get_stock_price(symbol)
+            current = float(px.get("price") or 0)
+            if current <= 0:
+                continue
+            new_high = max(_mccoy_trail_highs[symbol], current)
+            _mccoy_trail_highs[symbol] = new_high
+            _save_trail_highs(_MCCOY_TRAIL_HIGHS_PATH, _mccoy_trail_highs)
+            trail_floor = max(avg_cost, new_high * (1 - MCCOY_TRAIL_PCT))
+            if current <= trail_floor:
+                result = sell(
+                    player_id  = MCCOY_PLAYER_ID,
+                    symbol     = symbol,
+                    price      = current,
+                    reasoning  = (
+                        f"TRAILING STOP (final third): {symbol} ${current:.2f} hit trail "
+                        f"${trail_floor:.2f} ({MCCOY_TRAIL_PCT*100:.0f}% below high ${new_high:.2f}) [{MCCOY_FIX_TAG}]"
+                    ),
+                    confidence = 1.0,
+                )
+                if result:
+                    exited += 1
+                    _mccoy_trail_highs.pop(symbol, None)
+                    _save_trail_highs(_MCCOY_TRAIL_HIGHS_PATH, _mccoy_trail_highs)
+                    logger.info(
+                        f"🏃 MCCOY TRAIL: sold {symbol} @ ${current:.2f} "
+                        f"(high ${new_high:.2f} → trail ${trail_floor:.2f})"
+                    )
+    except Exception as e:
+        logger.error(f"_update_mccoy_trailing_stops error: {e}")
     return exited
 
 
@@ -2329,11 +2561,18 @@ def _check_hard_stops() -> int:
                     continue
                 pnl_pct = (current - avg_cost) / avg_cost
                 if pnl_pct <= -0.08:
+                    # HM-MCCOY-TARGET-RELATIVE 2026-07-03: tag McCoy's hard-stop
+                    # exits so the new-vs-old comparison (see
+                    # _check_mccoy_target_relative_exits) can query ALL of
+                    # McCoy's post-fix exits, not just the ones that reach a
+                    # profit tier -- hard stops are unchanged for every other
+                    # agent, this only appends a marker to the reasoning text.
+                    _tag = f" [{MCCOY_FIX_TAG}]" if player_id == MCCOY_PLAYER_ID else ""
                     result = sell(
                         player_id  = player_id,
                         symbol     = symbol,
                         price      = current,
-                        reasoning  = f"HARD STOP: {pnl_pct*100:.1f}% loss exceeds -8% limit",
+                        reasoning  = f"HARD STOP: {pnl_pct*100:.1f}% loss exceeds -8% limit{_tag}",
                         confidence = 1.0,
                     )
                     if result:
@@ -3668,12 +3907,18 @@ def _run_scan_cycle_body(
 
     # ── Position management (no LLM, instant) ─────────────────────────────────
     neo_trail_exits  = _update_neo_trailing_stops()
+    mccoy_exits      = _check_mccoy_target_relative_exits()  # HM-MCCOY-TARGET-RELATIVE
+    mccoy_trail_exits = _update_mccoy_trailing_stops()        # HM-MCCOY-TARGET-RELATIVE
     hard_stops_cut   = _check_hard_stops()
     scaled_exits     = _check_scaled_exits(volatile_day=volatile_day)
     spread_tier_exits = _check_spread_tiered_exits()   # Model F tiered exits (S6.3)
     dip_buys         = _check_dip_buys()
     if neo_trail_exits:
         logger.info(f"🏃 Neo trailing stops fired: {neo_trail_exits} runner(s) closed")
+    if mccoy_exits:
+        logger.info(f"📈 McCoy target-relative exits fired: {mccoy_exits} partial sell(s)")
+    if mccoy_trail_exits:
+        logger.info(f"🏃 McCoy trailing stops fired: {mccoy_trail_exits} runner(s) closed")
     if hard_stops_cut:
         logger.info(f"✂️  Hard stops fired: {hard_stops_cut} position(s) cut")
     if scaled_exits:

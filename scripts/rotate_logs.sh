@@ -1,42 +1,65 @@
 #!/bin/bash
-# rotate_logs.sh — USS TradeMinds log rotation (B24)
-# Rotates any *.log in ~/autonomous-trader/logs/ over THRESHOLD_MB.
-# Keeps last KEEP rotations (.1, .2, .3). Truncates in place to preserve
-# any held file handles (launchd-managed services).
+# scripts/rotate_logs.sh
+# HM-BACKUP-SPINE-2026-07-01 Phase E — logs/trader.log rotation (no sudo needed).
 #
-# Safe to run at any cadence. Idempotent. No DB touches.
+# Supersedes the 2026-05-10 B24 proposal (generic all-*.log rotator, 50MB
+# threshold, numbered .1/.2/.3 copies, never cron'd/installed — see
+# docs/proposals/log_rotation_plist.md). Prior version archived, not deleted:
+# _archive/bak-2026-07-01/rotate_logs.sh.b24-proposal.pre-2026-07-01
 #
-# Manual run:   bash ~/autonomous-trader/scripts/rotate_logs.sh
-# Cron candidate: daily at 00:30 MST (see docs/proposals/log_rotation_plist.md)
+# trader.log had NO rotation mechanism and grew 107MB (2026-06-12) -> 345MB
+# (2026-07-01) unbounded. The live trader process holds an open file handle on
+# this path and never reopens it, so rotation MUST truncate in place
+# (`: > logs/trader.log`), never rename/rm -- renaming would orphan the
+# process's fd on the old inode (still growing, invisibly) while nothing
+# writes to the new path.
+#
+# Schedule: cron weekly Sun 05:00 MST.
 
 set -euo pipefail
 
-LOG_DIR="${LOG_DIR:-$HOME/autonomous-trader/logs}"
-THRESHOLD_MB="${THRESHOLD_MB:-50}"
-KEEP="${KEEP:-3}"
+REPO="$HOME/autonomous-trader"
+cd "$REPO"
 
-if [ ! -d "$LOG_DIR" ]; then
-  echo "rotate_logs: LOG_DIR not found: $LOG_DIR" >&2
-  exit 1
+TARGET="logs/trader.log"
+ARCHIVE_DIR="logs/_archive"
+THRESHOLD_BYTES=$((100 * 1024 * 1024))
+LOG="$REPO/logs/rotate_logs.log"
+
+mkdir -p "$ARCHIVE_DIR" "$(dirname "$LOG")"
+exec >>"$LOG" 2>&1
+echo "=== $(date -Iseconds) rotate_logs START ==="
+
+if [ ! -f "$TARGET" ]; then
+    echo "  [SKIP] $TARGET does not exist"
+    exit 0
 fi
 
-rotated=0
-inspected=0
+size=$(stat -f %z "$TARGET" 2>/dev/null || stat -c %s "$TARGET")
+if [ "$size" -le "$THRESHOLD_BYTES" ]; then
+    echo "  [SKIP] $TARGET is ${size} bytes, under 100MB threshold"
+    exit 0
+fi
 
-# find logs over threshold (BSD find: -size +NM)
-while IFS= read -r -d '' f; do
-  inspected=$((inspected + 1))
-  base="${f%.log}"
-  # shift .2 -> .3, .1 -> .2 (newest at .1)
-  for i in $(seq $((KEEP - 1)) -1 1); do
-    src="${base}.log.${i}"
-    dst="${base}.log.$((i + 1))"
-    [ -f "$src" ] && mv "$src" "$dst"
-  done
-  cp "$f" "${base}.log.1"
-  : > "$f"   # truncate in place, preserve handle
-  rotated=$((rotated + 1))
-  echo "rotated: $f -> ${base}.log.1 (truncated in place)"
-done < <(find "$LOG_DIR" -maxdepth 2 -type f -name "*.log" -size "+${THRESHOLD_MB}M" -print0)
+date_str=$(date +%F)
+dest="$ARCHIVE_DIR/trader_$date_str.log.gz"
+suffix=2
+while [ -e "$dest" ]; do
+    dest="$ARCHIVE_DIR/trader_${date_str}_$suffix.log.gz"
+    suffix=$((suffix + 1))
+done
 
-echo "rotate_logs: inspected=${inspected} rotated=${rotated} threshold=${THRESHOLD_MB}MB keep=${KEEP}"
+# Copy (not move) the live content out, THEN truncate in place -- truncation
+# must hit the SAME inode the trader process already has open.
+gzip -c "$TARGET" > "$dest"
+gzip_size=$(stat -f %z "$dest" 2>/dev/null || stat -c %s "$dest")
+if [ "$gzip_size" -lt 1024 ]; then
+    echo "  [FAIL] gzip output suspiciously small (${gzip_size} bytes) -- aborting, NOT truncating source"
+    exit 1
+fi
+echo "  [OK] archived ${size} bytes -> $dest (${gzip_size} bytes gzipped)"
+
+: > "$TARGET"
+echo "  [OK] truncated $TARGET in place (fd preserved for live writer)"
+
+echo "=== $(date -Iseconds) rotate_logs DONE ==="

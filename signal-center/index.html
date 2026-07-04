@@ -553,6 +553,10 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   }
   #tab-matrix .ms-row:last-child{border-bottom:none}
   #tab-matrix .ms-key{color:var(--muted); font-size:11px}
+#tab-matrix .ms-key.ms-status-fail{color:#ef4444; font-weight:700}
+#tab-matrix .ms-key.ms-status-pending{color:#f59e0b}
+.admin-lastrun{font-size:10px;color:var(--muted);padding-left:2px}
+.admin-lastrun.ms-status-fail{color:#ef4444;font-weight:700}
   #tab-matrix .ms-val{color:var(--text); font-weight:600; text-align:right; min-width:40%}
   #tab-matrix .ms-list-item{
     padding:6px 0; border-bottom:1px dashed var(--border); font-size:11px;
@@ -649,21 +653,30 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     <div style="font-size:11px;font-weight:800;letter-spacing:1px;color:var(--muted);
                 text-transform:uppercase;margin-bottom:12px;">⚡ Admin Actions</div>
     <div style="display:flex;gap:10px;flex-wrap:wrap;">
-      <button onclick="morpheusAction('refresh-schwab')"
-        style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
-               color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
-        🔄 Refresh Schwab
-      </button>
-      <button onclick="morpheusAction('fire-kirk')"
-        style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
-               color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
-        🖖 Fire Kirk
-      </button>
-      <button onclick="morpheusAction('run-advisory-team')"
-        style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
-               color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
-        🧠 Run Advisory Team
-      </button>
+      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:3px;">
+        <button onclick="morpheusAction('refresh-schwab')"
+          style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
+                 color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
+          🔄 Refresh Schwab
+        </button>
+        <span id="lastrun-refresh-schwab" class="admin-lastrun">—</span>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:3px;">
+        <button onclick="morpheusAction('fire-kirk')"
+          style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
+                 color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
+          🖖 Fire Kirk
+        </button>
+        <span id="lastrun-fire-kirk" class="admin-lastrun">—</span>
+      </div>
+      <div style="display:flex;flex-direction:column;align-items:flex-start;gap:3px;">
+        <button onclick="morpheusAction('run-advisory-team')"
+          style="padding:8px 16px;background:var(--surface);border:1px solid var(--border);
+                 color:var(--text);border-radius:6px;cursor:pointer;font-size:12px;font-weight:600;">
+          🧠 Run Advisory Team
+        </button>
+        <span id="lastrun-run-advisory-team" class="admin-lastrun">—</span>
+      </div>
     </div>
     <div id="oracle-admin-result" style="margin-top:10px;font-size:11px;
          color:var(--muted);font-style:italic;min-height:18px;"></div>
@@ -985,6 +998,21 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
   // W1-C 2026-05-23: Ship's Log renders execution_log last 20 (actions
   // taken). Empty until first tractor-auto execution writes a row; falls
   // back to git commits so the panel is never blank.
+  // HM-DIRECTIVE-2026-07-01 Deck2 #12: last-run status next to each Admin
+  // Action button, sourced from the same execution_log the Ship's Log reads.
+  function _renderAdminLastRun(d) {
+    const log = Array.isArray(d.execution_log) ? d.execution_log : [];
+    ['refresh-schwab', 'fire-kirk', 'run-advisory-team'].forEach(action => {
+      const el = document.getElementById('lastrun-' + action);
+      if (!el) return;
+      const row = log.find(e => e.symbol === action && e.status !== 'TRIGGERED');
+      if (!row) { el.textContent = 'never run'; el.className = 'admin-lastrun'; return; }
+      const ts = (row.executed_at || '').slice(5, 16).replace('T', ' ');
+      el.textContent = (row.status === 'FAILED' ? '✖ failed' : '✓ ok') + ' · ' + ts;
+      el.className = 'admin-lastrun ' + (row.status === 'FAILED' ? 'ms-status-fail' : '');
+    });
+  }
+
   function _renderShipsLog(d) {
     const log = Array.isArray(d.execution_log) ? d.execution_log : [];
     if (log.length) {
@@ -993,8 +1021,11 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
         const fillStr = e.fill_price != null ? '$' + Number(e.fill_price).toFixed(2)
                       : (e.entry_price != null ? '$' + Number(e.entry_price).toFixed(2) : '');
         const grade = e.grade ? `[${_esc(e.grade)}]` : '';
+        // HM-DIRECTIVE-2026-07-01 Deck2 #12: FAILED rows were rendered
+        // identical to EXECUTED/TRIGGERED — no visual distinction at all.
+        const statusClass = e.status === 'FAILED' ? 'ms-status-fail' : (e.status === 'TRIGGERED' ? 'ms-status-pending' : '');
         return `<b>${_esc(e.symbol)}</b> · ${_esc(e.direction || '')} ${e.qty != null ? _esc(e.qty) : ''} ${fillStr} ` +
-               `<span class="ms-key">${grade} ${_esc(e.status || '')} · ${ts}</span>`;
+               `<span class="ms-key ${statusClass}">${grade} ${e.status === 'FAILED' ? '✖ ' : ''}${_esc(e.status || '')} · ${ts}</span>`;
       });
     }
     // Fallback to git commits (panel never blank)
@@ -1039,7 +1070,13 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       feed.forEach(item => {
         let data = {};
         try { data = JSON.parse(item.data || '{}'); } catch(e) {}
-        const msg = data.message || data.note || data.summary || item.feed_type;
+        // HM-DIRECTIVE-2026-07-01 Deck2 #8: SCREENER entries carry
+        // {preset,symbol,score,...}, never message/note/summary — they were
+        // falling through to the bare feed_type ("SCREENER"), an empty-looking row.
+        const msg = data.message || data.note || data.summary
+          || (item.feed_type === 'SCREENER' && data.symbol
+              ? `${data.symbol} — ${data.preset || 'screener'} hit, score ${data.score ?? '—'}${data.change != null ? ', ' + (data.change >= 0 ? '+' : '') + Number(data.change).toFixed(1) + '%' : ''}`
+              : item.feed_type);
         html += `<div style="padding:6px 0;border-bottom:1px dashed var(--border);font-size:12px;">
           <span style="color:var(--accent);font-size:10px;font-weight:700">${_esc(item.feed_type)}</span>
           <span style="color:var(--muted);font-size:10px;margin-left:8px">${_esc(item.created_at || '')}</span>
@@ -1237,6 +1274,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       _renderSection('ships-log-content',
         (failed.has('execution_log') && failed.has('commits'))
           ? '<div class="ms-error">log sources failed</div>' : _renderShipsLog(d));
+      try { _renderAdminLastRun(d); } catch (e) { console.warn('[HM-AN] _renderAdminLastRun failed:', e); }
 
       // HM-AN Phase 2 (2026-05-27) — Intelligence TAB hydration. Same payload,
       // separate DOM target (#intel-content). Wrapped defensively so render
@@ -1262,6 +1300,26 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
      Route paths are /api/morpheus/action/<name> (note the /action/ segment;
      spec sketch omitted it). All routes are admin-gated POST endpoints. -->
 <script>
+// HM-DIRECTIVE-2026-07-01 Deck2 #12: these actions fire-and-forget in a
+// background thread — the immediate HTTP 200 only ever confirms the
+// action was TRIGGERED, not that it succeeded. Showing a green checkmark
+// here was a false positive; poll execution_log for the real outcome.
+function _morpheusActionPoll(action, el, attempt) {
+  fetch('/api/morpheus/awareness').then(r => r.json()).then(d => {
+    const log = Array.isArray(d.execution_log) ? d.execution_log : [];
+    const row = log.find(e => e.symbol === action && e.status !== 'TRIGGERED');
+    if (row) {
+      if (el) el.textContent = (row.status === 'FAILED' ? '✖ ' : '✓ ') + action + ': ' + row.status;
+      return;
+    }
+    if (attempt < 4) {
+      setTimeout(() => _morpheusActionPoll(action, el, attempt + 1), 5000);
+    } else if (el) {
+      el.textContent = '▸ ' + action + ' still running — check Ship\'s Log';
+    }
+  }).catch(() => {});
+}
+
 function morpheusAction(action) {
   const el = document.getElementById('oracle-admin-result');
   if (el) el.textContent = 'Firing ' + action + '…';
@@ -1269,7 +1327,8 @@ function morpheusAction(action) {
     headers:{'Content-Type':'application/json'}, body:'{}'})
     .then(r => r.json())
     .then(d => {
-      if (el) el.textContent = '✓ ' + action + ': ' + JSON.stringify(d).slice(0, 120);
+      if (el) el.textContent = '▸ ' + action + ' triggered — checking result…';
+      setTimeout(() => _morpheusActionPoll(action, el, 0), 5000);
     })
     .catch(e => {
       if (el) el.textContent = '✗ ' + action + ' failed: ' + e.message;
@@ -1544,10 +1603,14 @@ function scoreConvergence(d){
   var score=count>=3?75:count>=2?60:count>=1?52:45;
   return{score,val:count,desc:d.threshold||'Multi-strategy agreement score'};
 }
-function scoreFleet(agents){
+function scoreFleet(agents,canonicalPnl){
   if(!agents||!agents.length) return{score:50,pnl:0,ret:0,wr:0};
-  var pnl=agents.reduce(function(s,a){return s+(a.total_pnl||0);},0);
-  var ret=agents.length>0?agents.reduce(function(s,a){return s+(a.return_pct||0);},0)/agents.length:0;
+  // HM-DIRECTIVE-2026-07-01 Deck1 #3: P&L comes from /api/fleet/pnl (same
+  // canonical source as the v1/bridge-v2 headers), not a local re-sum of
+  // whatever subset of `agents` happened to be filtered here — that local
+  // sum was the source of signal-center's divergent P&L total.
+  var pnl=(canonicalPnl&&typeof canonicalPnl.total_pnl==='number')?canonicalPnl.total_pnl:agents.reduce(function(s,a){return s+(a.total_pnl||0);},0);
+  var ret=(canonicalPnl&&typeof canonicalPnl.return_pct==='number')?canonicalPnl.return_pct:(agents.length>0?agents.reduce(function(s,a){return s+(a.return_pct||0);},0)/agents.length:0);
   var wr=agents.reduce(function(s,a){return s+(a.win_rate||0);},0)/agents.length;
   var score=Math.round(Math.min(100,Math.max(0,wr*0.5+Math.min(Math.max(ret*5,0),25)+25)));
   return{score,pnl,ret,wr};
@@ -1726,7 +1789,7 @@ function buildDashboard(data){
   var smartM   = scoreSmartMoney(data.smart_money);
   var volR     = scoreVolumeRadar(data.volume_radar);
   var conv     = scoreConvergence(data.convergence);
-  var fleet    = scoreFleet(agents);
+  var fleet    = scoreFleet(agents,data.fleet_pnl);
   var cong     = scoreCongress(data.congress);
   var insider  = scoreInsider(data.insider);
   var earnings = scoreEarnings(data.earnings);
@@ -2565,7 +2628,7 @@ var _histRows=[];
 
 function histParse(raw){
   if(!raw) return null;
-  try{ return typeof raw==='string'?JSON.parse(raw):raw; }catch(e){ return raw; }
+  try{ return typeof raw==='string'?JSON.parse(raw):raw; }catch(e){ return null; }
 }
 
 function histDot(name, raw){
@@ -2573,7 +2636,7 @@ function histDot(name, raw){
   try{
     if(name==='regime'){ var l=((d&&d.label)||'').toUpperCase(); return l.includes('BULL')?'#10b981':l.includes('BEAR')||l.includes('CRISIS')?'#ef4444':'#f59e0b'; }
     if(name==='vix'){ var v=parseFloat((d&&(d.value||d.vix))||raw||0); return v<20?'#10b981':v<25?'#f59e0b':'#ef4444'; }
-    if(name==='fear_greed'){ var f=parseFloat((d&&(d.score||d.fear_greed||d.value))||50); return f>=60?'#ef4444':f<=40?'#10b981':'#94a3b8'; }
+    if(name==='fear_greed'){ var fRaw=d&&(d.score??d.fear_greed??d.value); if(fRaw===null||fRaw===undefined) return '#94a3b8'; var f=parseFloat(fRaw); return f>=60?'#ef4444':f<=40?'#10b981':'#94a3b8'; }
     if(name==='bull_bear'){ var anals=(d&&d.analyses)||[]; var bpct=anals.length?anals.filter(function(a){return (a.bull_case||'').length>5;}).length/anals.length:0.5; return bpct>0.55?'#10b981':bpct<0.45?'#ef4444':'#94a3b8'; }
     if(name==='gex'){ var g=parseFloat((d&&(d.net_gex||d.gex))||0); return g>0?'#10b981':g<0?'#f59e0b':'#94a3b8'; }
     if(name==='smart_money'){ return (Array.isArray(d)&&d.length)?'#10b981':'#94a3b8'; }
@@ -2589,7 +2652,7 @@ function histSummary(name, raw){
     if(name==='regime'){ var l=(d.label||d.regime||d||'').toString(); return l+(d.desc?' — '+d.desc:''); }
     if(name==='vix'){ var v=parseFloat(d.value||d.vix||d||0); var lbl=v<15?'CALM':v<20?'NORMAL':v<25?'ELEVATED':v<30?'HIGH':'PANIC'; return 'VIX '+(isNaN(v)?d:v.toFixed(1))+' — '+lbl+', '+(v<15?'full size OK':v<20?'standard sizing':v<25?'reduce size 25%':v<30?'reduce 50%':'cash mode'); }
     if(name==='gex'){ var gb=parseFloat((d.net_gex||d.gex)||0)/1e9; return 'GEX '+(gb>0?'+':'')+gb.toFixed(2)+'B — '+(gb>0?'Positive gamma, dampened moves':'Negative gamma, amplified moves'); }
-    if(name==='fear_greed'){ var fg=parseFloat(d.score||d.fear_greed||d.value||0); if(isNaN(fg)) return 'Fear & Greed — no data'; var fl=fg>=75?'Extreme Greed':fg>=55?'Greed':fg>=45?'Neutral':fg>=25?'Fear':'Extreme Fear'; return 'Fear & Greed '+fg.toFixed(0)+' — '+fl; }
+    if(name==='fear_greed'){ var fgRaw=d.score??d.fear_greed??d.value; if(fgRaw===null||fgRaw===undefined) return 'Fear & Greed — no data'; var fg=parseFloat(fgRaw); if(isNaN(fg)) return 'Fear & Greed — no data'; var fl=fg>=75?'Extreme Greed':fg>=55?'Greed':fg>=45?'Neutral':fg>=25?'Fear':'Extreme Fear'; return 'Fear & Greed '+fg.toFixed(0)+' — '+fl; }
     if(name==='breadth'){ var pct=parseFloat(d.breadth_pct||d.pct_above_200||0); var sa=d.sectors_above_20sma||'?'; var st=d.sectors_total||11; return sa+'/'+st+' sectors above 20SMA ('+pct.toFixed(0)+'% above 200MA)'; }
     if(name==='smart_money'){ if(Array.isArray(d)&&d.length){ var syms=d.slice(0,3).map(function(x){return typeof x==='string'?x:(x.symbol||x.ticker||'?');}).join(', '); return d.length+' consensus: '+syms+(d.length>3?' +more':''); } return 'No consensus'; }
     if(name==='volume_radar'){ var al=(d.alerts||[]); if(!al.length) return 'No alerts'; var top=al[0]; return al.length+' alerts — top: '+(top.symbol||'?')+' '+parseFloat(top.relative_volume||0).toFixed(2)+'x'; }
@@ -2614,8 +2677,9 @@ function renderHistPage(){
   var slice=rows.slice(start,start+perPage);
   var html=slice.map(function(r){
     var t=new Date(r.timestamp).toLocaleString([],{month:'short',day:'numeric',hour:'2-digit',minute:'2-digit'});
-    var dot=histDot(r.signal_name,r.value);
-    var summary=histSummary(r.signal_name,r.value);
+    var histRaw=r.raw_data||r.value;
+    var dot=histDot(r.signal_name,histRaw);
+    var summary=histSummary(r.signal_name,histRaw);
     var rawStr=typeof r.value==='string'?r.value:JSON.stringify(r.value||'');
     return '<tr>'+
       '<td style="padding:6px 8px"><div style="width:8px;height:8px;border-radius:50%;background:'+dot+';box-shadow:0 0 4px '+dot+'40;flex-shrink:0"></div></td>'+

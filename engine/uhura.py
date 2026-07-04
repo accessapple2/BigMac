@@ -951,6 +951,7 @@ class LtUhura:
                     ticker=signal.suggested_ticker or "SPY",
                     direction=signal.suggested_direction or "NEUTRAL",
                     conviction=signal.conviction.value,
+                    grade="A" if signal.conviction == Conviction.HIGH else "B",
                     confluence_meta={
                         "aligned_signals": signal.aligned_signals,
                         "total_signals": signal.total_signals,

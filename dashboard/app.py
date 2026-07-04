@@ -1980,7 +1980,11 @@ def api_scanner_convergence():
                      MAX(target_price) AS target,
                      MAX(created_at) AS last_seen
                 FROM strategy_signals
-               WHERE created_at >= datetime('now','-90 minutes')
+               -- HM-SCANNER-GHOST-FIX 2026-07-03: wrap with datetime() to
+               -- normalize ISO-T strings (same 'T' > ' ' ASCII leak the
+               -- Phase 2 comment documents) — without this, same-day rows
+               -- hours old leak into the "last 90 min" window.
+               WHERE datetime(created_at) >= datetime('now','-90 minutes')
                GROUP BY ticker
               HAVING strat_count >= 3
             ),
@@ -1990,7 +1994,8 @@ def api_scanner_convergence():
                      relative_volume,
                      alert_type
                 FROM volume_alerts
-               WHERE detected_at >= datetime('now','-90 minutes')
+               -- HM-SCANNER-GHOST-FIX 2026-07-03: same T-format normalization.
+               WHERE datetime(detected_at) >= datetime('now','-90 minutes')
                GROUP BY symbol
             ),
             in_fleet AS (
@@ -2049,7 +2054,15 @@ def api_scanner_convergence():
                    la.alert_type       AS recent_alert_type,
                    CASE WHEN ifl.symbol IS NOT NULL THEN 1 ELSE 0 END AS in_fleet
               FROM recent r
+              -- HM-SCANNER-GHOST-FIX 2026-07-03: mirror the HM-MOVERS-STALE-FIX
+              -- guards from /api/movers. This endpoint previously joined
+              -- mover_watchlist unfiltered, so the documented BNY +1261%
+              -- pre-split ghost row (and any stale holiday snapshot) leaked
+              -- straight into the scanner tiles as live price/chg/rel_vol.
+              -- A filtered-out row degrades to NULL -> UI renders '--'.
               LEFT JOIN mover_watchlist     mw  ON mw.symbol = r.ticker
+                   AND mw.refreshed_at >= datetime('now','-24 hours')
+                   AND ABS(COALESCE(mw.pct_change, 0)) <= 50
               LEFT JOIN volume_baselines    vb  ON vb.symbol = r.ticker
               LEFT JOIN latest_alert        la  ON la.symbol = r.ticker
               LEFT JOIN in_fleet            ifl ON ifl.symbol = r.ticker
@@ -2116,6 +2129,21 @@ def api_scanner_convergence():
             except (TypeError, ValueError):
                 conf_pct = None
 
+            # HM-SCANNER-GHOST-FIX 2026-07-03: entry-vs-live-price consistency.
+            # A plan whose entry sits >3% from the live price was computed on
+            # stale data (the 2026-07-03 BNY case: entry $146.60 vs $138.88).
+            # Surfaced as stale_plan so the UI can badge instead of hiding.
+            plan_price_gap_pct = None
+            stale_plan = False
+            try:
+                _px = d.get("price")
+                if _px is not None and entry is not None and float(_px) > 0:
+                    plan_price_gap_pct = round(
+                        (float(entry) - float(_px)) / float(_px) * 100.0, 2)
+                    stale_plan = abs(plan_price_gap_pct) > 3.0
+            except (TypeError, ValueError):
+                plan_price_gap_pct = None
+
             tier_list = {"tier1": tier1, "tier2": tier2, "tier3": tier3}[tier]
             tier_list.append({
                 "ticker": d["ticker"],
@@ -2135,7 +2163,21 @@ def api_scanner_convergence():
                 "recent_alert_type": d.get("recent_alert_type"),
                 "in_fleet": bool(d.get("in_fleet")),
                 "last_seen": d.get("last_seen"),
+                "plan_price_gap_pct": plan_price_gap_pct,
+                "stale_plan": stale_plan,
             })
+
+        # HM-SCANNER-GHOST-FIX 2026-07-03: market-calendar gate. When the
+        # exchange is closed (weekend/holiday/early close) every "live"
+        # number on this tile is by definition stale; expose the flag so the
+        # UI can badge the whole panel instead of presenting ghost signals
+        # as actionable. Fail-open (None) if the calendar import breaks.
+        _market_open = None
+        try:
+            from engine.market_calendar import is_us_market_open
+            _market_open = bool(is_us_market_open())
+        except Exception:
+            _market_open = None
 
         payload = {
             "ts": datetime.now(timezone.utc).isoformat(),
@@ -2147,6 +2189,7 @@ def api_scanner_convergence():
                 "tier2_count": len(tier2),
                 "tier3_count": len(tier3),
                 "window_minutes": 90,
+                "market_open": _market_open,
             },
         }
         _SCANNER_LIVE_CACHE["data"] = payload
@@ -3086,16 +3129,21 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
         pf = round(gains / losses, 2) if losses > 0 else (999.0 if gains > 0 else 0.0)
         profit_factor_data[row["player_id"]] = {"profit_factor": pf, "realized_gains": round(gains, 2), "realized_losses": round(losses, 2)}
 
-    # Season 5 realized P&L per player (for anchored equity calculation)
-    s5_realized: dict[str, float] = {}
+    # HM-DIRECTIVE-2026-07-01 Deck2 #7: current-season realized P&L per player
+    # (for anchored equity calculation). Was hardcoded to season=5 — once the
+    # league rolled to season 6, this silently kept summing only S5 trades,
+    # freezing 9/10 leaderboard rows at their S5 anchor ($10,000/+0.00%)
+    # while trade counts elsewhere correctly reflected S6 activity.
+    season_realized: dict[str, float] = {}
     if current_season >= 5:
         for row in conn.execute(
             "SELECT player_id, COALESCE(SUM(realized_pnl), 0) as total "
-            "FROM trades WHERE action='SELL' AND realized_pnl IS NOT NULL AND season=5 "
+            "FROM trades WHERE action='SELL' AND realized_pnl IS NOT NULL AND season=? "
             "AND " + CLEAN_TRADES_WHERE + " "
-            "GROUP BY player_id"
+            "GROUP BY player_id",
+            (current_season,)
         ).fetchall():
-            s5_realized[row["player_id"]] = float(row["total"])
+            season_realized[row["player_id"]] = float(row["total"])
 
     # Day P&L from portfolio_history (season-filtered)
     day_pnl = {}
@@ -3190,13 +3238,13 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
                     pnl = get_portfolio_with_pnl(p["id"], prices)
                     positions_value = pnl["total_positions_value"]
                     unrealized_pnl = pnl["total_unrealized_pnl"]
-                    # Season 5: anchor equity to $10k reset + S5 P&L only
+                    # Season 5+: anchor equity to $10k reset + current-season P&L only
                     if current_season >= 5 and p["id"] not in (
                         "super-agent", "enterprise-computer", "webull", "dalio-metals"
                     ):
-                        _s5_realized = s5_realized.get(p["id"], 0.0)
-                        total_value = round(10000.0 + _s5_realized + unrealized_pnl, 2)
-                        return_pct = round((_s5_realized + unrealized_pnl) / 10000.0 * 100, 2)
+                        _season_realized = season_realized.get(p["id"], 0.0)
+                        total_value = round(10000.0 + _season_realized + unrealized_pnl, 2)
+                        return_pct = round((_season_realized + unrealized_pnl) / 10000.0 * 100, 2)
                     else:
                         total_value = pnl["total_value"]
                         return_pct = pnl["return_pct"]
@@ -3351,6 +3399,32 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
     if "leaderboard" not in _swr_locks:
         _swr_locks["leaderboard"] = threading.Lock()
     return _sanitize(_lb_result)
+
+
+@app.get("/api/fleet/pnl")
+def fleet_pnl(season: int = 0, show_all: bool = False):
+    """
+    Canonical fleet P&L — single source of truth (HM-DIRECTIVE-2026-07-01 Deck1 #3).
+    Sums the same normalized total_pnl/day_pnl fields leaderboard() already
+    computes correctly per player, so every UI surface (v1 header, bridge-v2,
+    signal-center) reports one number instead of each deriving its own.
+    """
+    lb = leaderboard(season=season, show_all=show_all)
+    rows = lb.get("leaderboard", [])
+    total_pnl = sum((r.get("total_pnl") or 0) for r in rows)
+    day_pnl = sum((r.get("day_pnl") or 0) for r in rows)
+    current_equity = sum((r.get("current_equity") or 0) for r in rows)
+    starting_capital = sum((r.get("starting_capital") or 0) for r in rows)
+    return _sanitize({
+        "season": lb.get("season"),
+        "current_season": lb.get("current_season"),
+        "player_count": len(rows),
+        "total_pnl": total_pnl,
+        "day_pnl": day_pnl,
+        "current_equity": current_equity,
+        "starting_capital": starting_capital,
+        "return_pct": (total_pnl / starting_capital * 100) if starting_capital else 0.0,
+    })
 
 
 import math
@@ -5841,7 +5915,12 @@ def gex_all():
 
     def _fetch(sym: str) -> None:
         try:
-            _results[sym] = _canonical_gex(sym)
+            # HM-DIRECTIVE-2026-07-02 Deck3 #14 (follow-up): this was still calling
+            # _canonical_gex() directly, bypassing the SWR cache added for the
+            # single-symbol endpoints — every /api/market/gex request re-ran a
+            # fresh live compute for all 5 tickers with zero caching between
+            # requests, which is what the Gamma Map's "hangs pending" report was.
+            _results[sym] = _canonical_gex_cached(sym)
         except Exception:
             pass
 
@@ -5866,17 +5945,112 @@ def gex_all():
             "king_node": c.get("king_node"), "regime": c.get("regime"),
             "strikes": c.get("strikes", []),
             "source": "canonical (options_flow_gex)",
+            "market_closed": bool(c.get("market_closed")),
+            "as_of": c.get("as_of") or c.get("_asof"),
         })
     return out
+
+
+_gex_symbol_cache: dict = {}   # {symbol: {"data": ..., "ts": float}}
+_GEX_CACHE_TTL = 60.0
+_GEX_COLD_TIMEOUT = 15.0
+
+
+def _gex_market_open() -> bool:
+    try:
+        from engine.fast_scanner import is_market_hours as _gex_mh
+        return _gex_mh()
+    except Exception:
+        return True  # assume open if the check itself is broken — never silently mask a live path
+
+
+def _canonical_gex_cached(symbol: str) -> dict:
+    """SWR wrapper around _canonical_gex — HM-DIRECTIVE-2026-07-01 Deck3 #14.
+
+    gex_ticker/gex_alpaca called _canonical_gex() directly with no cache and
+    no timeout; on a cold intraday cache it falls through to a live Polygon
+    options-chain pagination (up to 60 pages) that can hang the request for
+    minutes. Serve the last-good result instantly (stamped with its age) and
+    refresh in the background once stale — same intent as gex_all's bounded
+    thread+deadline pattern above, adapted for a single-symbol cache.
+
+    HM-DIRECTIVE-2026-07-02 Deck3 (XO overnight sweep): a cold in-memory cache
+    (e.g. right after a restart) with the market closed used to still spawn a
+    live fetch and block for up to _GEX_COLD_TIMEOUT — pointless when the
+    upstream is dead for the night, and if that live fetch then raised (common
+    after-hours), the cache never warmed, so every poll repeated the same
+    dead-end all night. Market-closed + cold cache now goes straight to the
+    durable data/flow_gex.db snapshot (engine.canonical_gex.latest_snapshot) —
+    no Polygon call, no wait — and warms the in-memory cache from it so repeat
+    polls are instant too.
+    """
+    now = _time.time()
+    entry = _gex_symbol_cache.get(symbol)
+    if entry and (now - entry["ts"]) < _GEX_CACHE_TTL:
+        return entry["data"]
+
+    lock_key = f"gex:{symbol}"
+
+    if not entry and not _gex_market_open():
+        from engine.canonical_gex import latest_snapshot
+        data = latest_snapshot(symbol)
+        # Same collapsed-wall guard as canonical_gex() tier 2 (HM-DRYDOCK 2026-06-09
+        # EPIC4) — a snapshot with call_wall==put_wall==king_node is a known stale
+        # artifact, not a usable last-known-good value. Don't serve it just because
+        # the market happens to be closed.
+        if data and data.get("call_wall") is not None and data["call_wall"] == data.get("put_wall") == data.get("king_node"):
+            data = None
+        if data:
+            data["market_closed"] = True
+            data["as_of"] = data.get("_asof")
+            _gex_symbol_cache[symbol] = {"data": data, "ts": now}
+            return data
+        return {"error": "no cached GEX available (market closed)", "pending": False, "market_closed": True}
+
+    if entry:
+        # Stale but usable — serve immediately, kick one background refresh
+        # (market hours only; no point hammering a dead upstream overnight).
+        if _gex_market_open() and _swr_locks.setdefault(lock_key, threading.Lock()).acquire(blocking=False):
+            def _refresh():
+                try:
+                    data = _canonical_gex(symbol)
+                    _gex_symbol_cache[symbol] = {"data": data, "ts": _time.time()}
+                except Exception:
+                    pass
+                finally:
+                    _swr_locks[lock_key].release()
+            threading.Thread(target=_refresh, daemon=True, name=f"gex_refresh_{symbol}").start()
+        stale = dict(entry["data"])
+        stale["_stale_since"] = entry["ts"]
+        return stale
+
+    # Cold cache — bounded synchronous fetch so the request thread never hangs.
+    # _fetch writes straight into _gex_symbol_cache (not a call-local var) so
+    # that if the live compute outlives our join() timeout, the daemon thread
+    # still warms the cache in the background — the NEXT request gets it
+    # instantly instead of re-triggering another cold, unbounded fetch.
+    def _fetch():
+        try:
+            data = _canonical_gex(symbol)
+            _gex_symbol_cache[symbol] = {"data": data, "ts": _time.time()}
+        except Exception:
+            pass
+    th = threading.Thread(target=_fetch, daemon=True, name=f"gex_cold_{symbol}")
+    th.start()
+    th.join(timeout=_GEX_COLD_TIMEOUT)
+    entry = _gex_symbol_cache.get(symbol)
+    if entry:
+        return entry["data"]
+    return {"error": "gex compute timed out", "pending": True}
 
 
 @app.get("/api/market/gex/{ticker}")
 def gex_ticker(ticker: str):
     """HM-GEX-CANONICAL 2026-05-31: magnets/strikes served from the single canonical
     GEX (engine.options_flow_gex). Legacy engine.gex_scanner (CBOE) dormant."""
-    c = _canonical_gex(ticker)
+    c = _canonical_gex_cached(ticker)
     if c.get("error"):
-        return {"error": c["error"]}
+        return {"error": c["error"], "pending": c.get("pending", False)}
     spot = c.get("spot") or 0
     magnets = [{"strike": m["strike"], "net_gex": m["net_gex"],
                 "type": ("call_wall" if (spot and m["strike"] >= spot) else "put_wall")}
@@ -5887,6 +6061,7 @@ def gex_ticker(ticker: str):
         "call_wall": c.get("call_wall"), "put_wall": c.get("put_wall"),
         "king_node": c.get("king_node"), "magnets": magnets, "strikes": c.get("strikes", []),
         "updated": c.get("_asof", ""), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
+        "stale_since": c.get("_stale_since"),
     }
 
 
@@ -5903,9 +6078,9 @@ def gex_alpaca(symbol: str):
     # HM-GEX-CANONICAL 2026-05-31: served from the single canonical GEX
     # (engine.options_flow_gex via _canonical_gex). The legacy Alpaca gex_calculator
     # is preserved/dormant (no longer called here). Superset shape kept for back-compat.
-    c = _canonical_gex(symbol)
+    c = _canonical_gex_cached(symbol)
     if c.get("error"):
-        return {"error": c["error"]}
+        return {"error": c["error"], "pending": c.get("pending", False)}
     spot = c.get("spot"); flip = c.get("gamma_flip"); tot = c.get("total_gex") or 0
     stable = (spot is not None and flip is not None and spot >= flip)
     return {
@@ -5916,6 +6091,7 @@ def gex_alpaca(symbol: str):
         "regime": ("stable (above flip)" if stable else "volatile (below flip)"),
         "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")",
         "levels": c.get("strikes", []),
+        "stale_since": c.get("_stale_since"),
     }
 
 
@@ -7539,9 +7715,9 @@ def red_alert_status(limit: int = 10):
 def gex_overlay_levels(symbol: str = "SPY"):
     """HM-GEX-CANONICAL 2026-05-31: king node / flip / walls served from the single
     canonical GEX (engine.options_flow_gex). Legacy engine.gex_overlay dormant."""
-    c = _canonical_gex(symbol)
+    c = _canonical_gex_cached(symbol)
     if c.get("error"):
-        return {"error": c["error"]}
+        return {"error": c["error"], "pending": c.get("pending", False)}
     spot = c.get("spot"); flip = c.get("gamma_flip")
     stable = (spot is not None and flip is not None and spot >= flip)
     return {
@@ -7558,9 +7734,9 @@ def gex_overlay_heatmap(symbol: str = "SPY"):
     """Per-strike GEX (call_gex, put_gex, net_gex) — HM-GEX-CANONICAL: served from the
     single canonical source (engine.options_flow_gex). Legacy engine.gex_overlay dormant."""
     try:
-        c = _canonical_gex(symbol)
+        c = _canonical_gex_cached(symbol)
         if c.get("error"):
-            return {"error": c["error"], "strikes": [], "count": 0}
+            return {"error": c["error"], "strikes": [], "count": 0, "pending": c.get("pending", False)}
         strikes = c.get("strikes", [])
         return {"symbol": c.get("underlying", symbol.upper()), "strikes": strikes,
                 "count": len(strikes), "source": "gex-snapshot canonical (" + str(c.get("_src", "")) + ")"}
@@ -8681,6 +8857,38 @@ def active_alerts(minutes: int = 30):
     """Get active alerts (last N minutes) for banner display."""
     from engine.dynamic_alerts import get_active_alerts
     return get_active_alerts(minutes)
+
+
+@app.get("/api/alerts/poll")
+def alerts_poll():
+    """Aggregate endpoint for v1's 4 independent alert-polling loops
+    (pollTradeAlerts, checkAlertBanner, _pollFlashAlerts, _pollFab) --
+    HM-DIRECTIVE-B-2 2026-07-02 request consolidation. Each was fetching
+    independently every 15-30s; this combines them into one call. Existing
+    individual endpoints are untouched (kept for compatibility / other callers).
+    Each sub-call is isolated so one failing source doesn't break the others.
+    """
+    result = {}
+    try:
+        result["recent_trades"] = recent_alerts(limit=1)
+    except Exception:
+        result["recent_trades"] = []
+    try:
+        from engine.dynamic_alerts import get_active_alerts
+        result["dynamic_active"] = get_active_alerts(30)
+    except Exception:
+        result["dynamic_active"] = []
+    try:
+        if _dayblade_halted():
+            result["flash_alert"] = {"alert": None, "has_alert": False}
+        else:
+            from engine.dayblade_scanner import get_active_flash_alert, ensure_tables
+            ensure_tables()
+            alert = get_active_flash_alert()
+            result["flash_alert"] = {"alert": alert, "has_alert": alert is not None}
+    except Exception:
+        result["flash_alert"] = {"alert": None, "has_alert": False}
+    return result
 
 
 # --- S/R Heatmap (Volume Profile) ---
@@ -13258,8 +13466,22 @@ def ratings_fleet():
             _compute_trailing_sharpe, get_kelly_tier_label,
         )
         report = fleet_report_card()
+        # HM-DIRECTIVE-2026-07-01 Deck3 #16: fleet_report_card()'s underlying
+        # _get_active_fleet() filters on the legacy is_active=1 column, which
+        # covers far more than the live-trading fleet (halt_mode='active') —
+        # ~40 halted/exit_only agents clutter the report. Stamp halt_mode so
+        # the frontend can collapse them by default instead of the backend
+        # silently dropping data other consumers of this endpoint may want.
+        try:
+            _conn_hm = _conn()
+            _halt_rows = _conn_hm.execute("SELECT id, COALESCE(halt_mode, 'active') AS halt_mode FROM ai_players").fetchall()
+            _conn_hm.close()
+            _halt_map = {row["id"]: row["halt_mode"] for row in _halt_rows}
+        except Exception:
+            _halt_map = {}
         for r in report:
             r["trend"] = get_rating_trend(r["player_id"])
+            r["halt_mode"] = _halt_map.get(r["player_id"], "active")
             try:
                 r["sharpe_90d"] = _compute_trailing_sharpe(r["player_id"], days=90)
                 r["kelly_tier"] = get_kelly_tier_label(r["player_id"])
@@ -13416,8 +13638,51 @@ def clear_sw():
 </body></html>""", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
 
 
+@app.post("/api/diag/idle-watchdog")
+async def idle_watchdog_report(request: Request):
+    """HM-DIRECTIVE-2026-07-03: bridge-v2's client-side never-idle watchdog beacon.
+
+    2026-07-02 XO investigation concluded the "document never reaches idle" symptom
+    was a Claude-in-Chrome extension-side artifact (its per-tab document_idle tracker
+    getting wedged by unrelated pages that genuinely never finished — pre-fix
+    SwingDesk, pre-fix GEX — and staying sticky across subsequent navigations on that
+    tab), not a bridge-v2 bug; two fresh authenticated loads showed load firing in
+    ~200ms with zero stuck resources. This endpoint is the cheap-insurance follow-up:
+    if bridge-v2 itself ever genuinely fails to settle within 15s, the client posts
+    here so it's a logged trace, not another anecdote to reconstruct after the fact.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    line = json.dumps({"logged_at": datetime.now(timezone.utc).isoformat(), **payload})
+    path = os.path.join(os.path.dirname(__file__), "..", "logs", "idle_watchdog.log")
+    try:
+        with open(path, "a") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+    return {"ok": True}
+
+
 @app.get("/")
 def serve_index():
+    # HM-DIRECTIVE-2026-07-01 Deck3 #18: bridge-v2 (the lean daily-driver
+    # carrier, per TWO-TIER BRIDGE DOCTRINE) is now the root view. v1 (the
+    # full engineering console) is NOT retired — it moved to /classic and
+    # /bridge-v2 stays as an alias for existing bookmarks/links.
+    # Admiral-approved 2026-07-02.
+    return FileResponse(
+        os.path.join(_static_dir, "bridge-v2.html"),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
+    )
+
+
+@app.get("/classic")
+def serve_classic():
+    """v1 — full engineering console (backtest, screener, Greeks, learning,
+    alerts, deep panels). Demoted from root but NOT retired — see
+    TWO-TIER BRIDGE DOCTRINE in CLAUDE.md."""
     return FileResponse(
         os.path.join(_static_dir, "index.html"),
         headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"}
@@ -22738,6 +23003,283 @@ async def signal_observations_readout(hours: int = 48):
         }
     except Exception as e:
         return {"sources": [], "error": str(e)}
+
+
+# ============================================================
+# HM-EXEC-PIPELINE Phase-3: observe-first alpha summary
+# ============================================================
+
+@app.get("/api/observations/summary")
+async def observations_summary(days: int = 7):
+    """Observe-first alpha readout over signal_observations.
+
+    Core question: is the fleet acting on its best signals, and is the
+    un-acted set leaving alpha on the table?
+
+    Query params:
+      days=N  — rolling window (default 7)
+
+    Returns per-source and overall breakdowns of acted vs not-acted signals
+    with mean forward returns where the evaluator has filled them in.
+    """
+    try:
+        from datetime import datetime, timezone, timedelta
+        cutoff = (datetime.now(timezone.utc) - timedelta(days=days)).isoformat()
+        conn = sqlite3.connect("data/trader.db")
+        conn.row_factory = sqlite3.Row
+
+        totals = conn.execute(
+            """
+            SELECT
+                COUNT(*) AS total,
+                SUM(CASE WHEN evaluated_at IS NOT NULL THEN 1 ELSE 0 END) AS evaluated,
+                SUM(CASE WHEN fwd_return_1d IS NOT NULL THEN 1 ELSE 0 END) AS filled_1d
+              FROM signal_observations
+             WHERE ts >= ?
+            """,
+            (cutoff,),
+        ).fetchone()
+        total    = totals["total"]    or 0
+        evaluated = totals["evaluated"] or 0
+        filled_1d = totals["filled_1d"] or 0
+        pending   = total - evaluated
+        fill_rate = round(filled_1d / total * 100, 1) if total else 0.0
+
+        src_rows = conn.execute(
+            """
+            SELECT
+                source,
+                COUNT(*) AS total,
+                SUM(CASE WHEN acted_by_fleet = 1 THEN 1 ELSE 0 END)                           AS acted,
+                SUM(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN 1 ELSE 0 END)        AS not_acted,
+                SUM(CASE WHEN evaluated_at IS NOT NULL THEN 1 ELSE 0 END)                      AS evaluated,
+                AVG(CASE WHEN acted_by_fleet = 1 THEN fwd_return_1h END)                       AS avg_1h_acted,
+                AVG(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN fwd_return_1h END)    AS avg_1h_not_acted,
+                AVG(CASE WHEN acted_by_fleet = 1 THEN fwd_return_1d END)                       AS avg_1d_acted,
+                AVG(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN fwd_return_1d END)    AS avg_1d_not_acted
+              FROM signal_observations
+             WHERE ts >= ?
+             GROUP BY source
+             ORDER BY total DESC
+            """,
+            (cutoff,),
+        ).fetchall()
+
+        def _f(v):
+            return round(float(v), 4) if v is not None else None
+
+        by_source = {}
+        for r in src_rows:
+            n      = r["total"]     or 0
+            acted  = r["acted"]     or 0
+            na     = r["not_acted"] or 0
+            ev     = r["evaluated"] or 0
+            denom  = acted + na
+            by_source[r["source"]] = {
+                "total":               n,
+                "acted":               acted,
+                "not_acted":           na,
+                "pending_eval":        n - ev,
+                "acted_rate_pct":      round(acted / denom * 100, 1) if denom else None,
+                "avg_fwd_1h_acted":    _f(r["avg_1h_acted"]),
+                "avg_fwd_1h_not_acted": _f(r["avg_1h_not_acted"]),
+                "avg_fwd_1d_acted":    _f(r["avg_1d_acted"]),
+                "avg_fwd_1d_not_acted": _f(r["avg_1d_not_acted"]),
+            }
+
+        grade_rows = conn.execute(
+            """
+            SELECT COALESCE(grade, 'null') AS grade, COUNT(*) AS n
+              FROM signal_observations
+             WHERE ts >= ?
+             GROUP BY grade
+            """,
+            (cutoff,),
+        ).fetchall()
+        by_grade = {r["grade"]: r["n"] for r in grade_rows}
+
+        ov = conn.execute(
+            """
+            SELECT
+                SUM(CASE WHEN acted_by_fleet = 1 THEN 1 ELSE 0 END)                        AS acted,
+                SUM(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN 1 ELSE 0 END)     AS not_acted,
+                AVG(CASE WHEN acted_by_fleet = 1 THEN fwd_return_1h END)                    AS avg_1h_acted,
+                AVG(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN fwd_return_1h END) AS avg_1h_not_acted,
+                AVG(CASE WHEN acted_by_fleet = 1 THEN fwd_return_1d END)                    AS avg_1d_acted,
+                AVG(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN fwd_return_1d END) AS avg_1d_not_acted,
+                AVG(CASE WHEN acted_by_fleet = 1 THEN fwd_return_exp END)                   AS avg_exp_acted,
+                AVG(CASE WHEN acted_by_fleet = 0 AND is_context = 0 THEN fwd_return_exp END) AS avg_exp_not_acted
+              FROM signal_observations
+             WHERE ts >= ?
+            """,
+            (cutoff,),
+        ).fetchone()
+
+        ov_acted  = ov["acted"]     or 0
+        ov_not_acted = ov["not_acted"] or 0
+        ov_denom  = ov_acted + ov_not_acted
+        acted_summary = {
+            "acted":                ov_acted,
+            "not_acted":            ov_not_acted,
+            "pending_eval":         pending,
+            "acted_rate_pct":       round(ov_acted / ov_denom * 100, 1) if ov_denom else None,
+            "avg_fwd_1h_acted":     _f(ov["avg_1h_acted"]),
+            "avg_fwd_1h_not_acted": _f(ov["avg_1h_not_acted"]),
+            "avg_fwd_1d_acted":     _f(ov["avg_1d_acted"]),
+            "avg_fwd_1d_not_acted": _f(ov["avg_1d_not_acted"]),
+            "avg_fwd_exp_acted":    _f(ov["avg_exp_acted"]),
+            "avg_fwd_exp_not_acted": _f(ov["avg_exp_not_acted"]),
+        }
+
+        conn.close()
+
+        warnings = []
+        if fill_rate < 5.0:
+            warnings.append(
+                f"EVALUATOR WARNING: fwd_return fill rate is {fill_rate}% — "
+                "signal_evaluator is not populating forward returns; "
+                "acted vs not-acted alpha comparison is unavailable until fixed."
+            )
+
+        return {
+            "window_days":             days,
+            "total":                   total,
+            "evaluated":               evaluated,
+            "pending_eval":            pending,
+            "fwd_return_fill_rate_pct": fill_rate,
+            "by_source":               by_source,
+            "by_grade":                by_grade,
+            "acted_summary":           acted_summary,
+            "warnings":                warnings,
+        }
+    except Exception as e:
+        return {"error": str(e)}
+
+
+# ============================================================
+# HM-EXEC-PIPELINE: measurement layer health probe
+# ============================================================
+
+@app.get("/api/measurement-health")
+async def measurement_health():
+    """Health probe for the three measurement layer jobs.
+
+    Returns last-write timestamps and ages for:
+      - gate_reject_log   (missed-signal feed)
+      - signal_observations (observe-first layer)
+      - signal_evaluator   (forward-return population)
+
+    RED thresholds:
+      - gate_reject_log > 2h stale during RTH → writer likely dead
+      - signal_observations > 4h → BK scanners stalled
+      - fwd_return_fill_rate < 5% → evaluator broken
+    """
+    try:
+        from datetime import datetime, timezone
+        now = datetime.now(timezone.utc)
+
+        conn = sqlite3.connect("data/trader.db")
+        conn.row_factory = sqlite3.Row
+
+        def _age_secs(ts_str: str | None) -> float | None:
+            if not ts_str:
+                return None
+            try:
+                ts = ts_str.replace(" ", "T")
+                if "+" not in ts and not ts.endswith("Z"):
+                    ts += "+00:00"
+                from datetime import datetime as _dt
+                return (now - _dt.fromisoformat(ts)).total_seconds()
+            except Exception:
+                return None
+
+        def _fmt(secs: float | None) -> str:
+            if secs is None:
+                return "never"
+            h, m = int(secs // 3600), int((secs % 3600) // 60)
+            return f"{h}h{m:02d}m ago"
+
+        # Gate reject log
+        grl = conn.execute(
+            "SELECT MAX(ts) AS last_ts, COUNT(*) AS total FROM gate_reject_log"
+        ).fetchone()
+        grl_last = grl["last_ts"]
+        grl_age  = _age_secs(grl_last)
+
+        # Signal observations
+        obs = conn.execute(
+            "SELECT MAX(ts) AS last_ts, COUNT(*) AS total FROM signal_observations"
+        ).fetchone()
+        obs_last = obs["last_ts"]
+        obs_age  = _age_secs(obs_last)
+
+        # Evaluator
+        ev = conn.execute(
+            """SELECT MAX(evaluated_at) AS last_run,
+                      COUNT(*) AS total,
+                      SUM(CASE WHEN fwd_return_1d IS NOT NULL THEN 1 ELSE 0 END) AS filled
+                 FROM signal_observations"""
+        ).fetchone()
+        ev_last     = ev["last_run"]
+        ev_age      = _age_secs(ev_last)
+        ev_total    = ev["total"] or 0
+        ev_filled   = ev["filled"] or 0
+        fill_rate   = round(ev_filled / ev_total * 100, 1) if ev_total else 0.0
+
+        conn.close()
+
+        # RED/YELLOW thresholds (gate_reject_log: only meaningful during RTH)
+        GRL_RED_SECS  = 7200   # 2h
+        OBS_RED_SECS  = 14400  # 4h
+        FILL_RED_PCT  = 5.0
+
+        grl_status = "OK"
+        if grl_age is None:
+            grl_status = "RED"
+        elif grl_age > GRL_RED_SECS:
+            grl_status = "STALE"  # expected on weekends; RED only during RTH
+
+        obs_status = "RED" if (obs_age is None or obs_age > OBS_RED_SECS) else "OK"
+        ev_status  = "RED" if fill_rate < FILL_RED_PCT else "OK"
+
+        return {
+            "as_of": now.isoformat(),
+            "gate_reject_log": {
+                "status":    grl_status,
+                "last_write_ts":  grl_last,
+                "age":       _fmt(grl_age),
+                "age_secs":  round(grl_age) if grl_age else None,
+                "total_rows": grl["total"],
+                "note": (
+                    "Weekend/holiday silence is normal — gate rejects only fire "
+                    "when active agents submit signals during RTH."
+                    if grl_age and grl_age > GRL_RED_SECS else None
+                ),
+            },
+            "signal_observations": {
+                "status":   obs_status,
+                "last_insert_ts": obs_last,
+                "age":      _fmt(obs_age),
+                "age_secs": round(obs_age) if obs_age else None,
+                "total_rows": obs["total"],
+            },
+            "evaluator": {
+                "status":       ev_status,
+                "last_run_ts":  ev_last,
+                "age":          _fmt(ev_age),
+                "age_secs":     round(ev_age) if ev_age else None,
+                "total_obs":    ev_total,
+                "filled_1d":    ev_filled,
+                "fill_rate_pct": fill_rate,
+                "note": (
+                    f"Draining backlog — {fill_rate}% filled "
+                    f"({ev_filled}/{ev_total} obs), evaluator last ran {_fmt(ev_age)}."
+                    if fill_rate < FILL_RED_PCT else None
+                ),
+            },
+        }
+    except Exception as e:
+        return {"error": str(e)}
 
 
 # ============================================================

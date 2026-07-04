@@ -52,6 +52,12 @@ import time
 import traceback
 from pathlib import Path
 from typing import Any
+
+try:
+    from dotenv import load_dotenv as _load_dotenv
+    _load_dotenv(dotenv_path=Path(__file__).resolve().parent.parent / ".env", override=True)
+except ImportError:
+    pass
 from zoneinfo import ZoneInfo
 
 ET = ZoneInfo("America/New_York")
@@ -263,8 +269,8 @@ def get_portfolio_state() -> dict[str, Any]:
         from alpaca.trading.client import TradingClient  # type: ignore
 
         client = TradingClient(
-            os.environ["ALPACA_API_KEY"],
-            os.environ["ALPACA_SECRET_KEY"],
+            os.environ["APCA_API_KEY_ID"],
+            os.environ["APCA_API_SECRET_KEY"],
             paper=True,  # RULE #1 enforced at the wire: paper account only.
         )
         acct = client.get_account()

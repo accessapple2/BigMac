@@ -312,6 +312,7 @@ def score_symbol(symbol: str) -> Optional[dict]:
 from fastapi import FastAPI, HTTPException
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
+from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 app = FastAPI(title="SwingDesk", version="1.0", docs_url=None, openapi_url=None, redoc_url=None)
@@ -335,6 +336,19 @@ app.include_router(events_router)   # /api/events/{sym}
 _frontend = Path(__file__).parent / "index.html"
 if _frontend.exists():
     app.mount("/static", StaticFiles(directory=str(_frontend.parent)), name="static")
+
+# HM-DIRECTIVE-2026-07-02: SwingDesk had no route at "/" at all (only /api/*
+# and the /static mount) -> bare 404 on swingdesk.ollietrades.com. Explicit
+# no-cache headers here (the /static mount above serves this same file with
+# NO cache-control at all, which let a browser cache a stale copy across
+# deploys -- same trap documented on bridge.ollietrades.com/static/index.html
+# this session; this route is now the primary way to reach the app).
+@app.get("/")
+def serve_index():
+    return FileResponse(
+        str(_frontend),
+        headers={"Cache-Control": "no-cache, no-store, must-revalidate", "Pragma": "no-cache", "Expires": "0"},
+    )
 
 # ── MODELS ────────────────────────────────────────────────────────────────────
 class SizeRequest(BaseModel):
@@ -437,6 +451,9 @@ def risk_gate():
         open_count = db.execute(
             "SELECT COUNT(*) as c FROM trades WHERE status='open'"
         ).fetchone()["c"]
+        open_risk = db.execute(
+            "SELECT COALESCE(SUM(risk_dollars), 0) as r FROM trades WHERE status='open'"
+        ).fetchone()["r"]
     day_pnl = row["realized_pnl"] if row else 0.0
     cb_hit  = row["circuit_breaker_triggered"] if row else 0
     return {
@@ -447,6 +464,10 @@ def risk_gate():
         "open_positions":        open_count,
         "max_positions":         MAX_POSITIONS,
         "positions_ok":          open_count < MAX_POSITIONS,
+        # HM-DIRECTIVE-B-3 2026-07-02: real SUM(risk_dollars) across open trades --
+        # the per-trade risk_dollars value already exists (computed at plan_trade
+        # time from entry/stop/shares); this was never aggregated into risk-gate.
+        "open_risk_dollars":     round(open_risk, 2),
         "can_trade":             not cb_hit and open_count < MAX_POSITIONS and day_pnl > -DAILY_LOSS_LIMIT,
         "alpaca_wired":          False   # Phase 2
     }

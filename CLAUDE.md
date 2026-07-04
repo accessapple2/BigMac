@@ -214,6 +214,52 @@ window, OR push the restart synchronously with the commit. `py_compile` is
 not enough — catches syntax errors but NOT undefined-name errors. Runtime
 smoke required for any cross-module symbol change.
 
+## Physical Power Infrastructure — Shelly Plugs (HM-SHELLY-PREP-V2, 2026-07-01)
+
+Four Shelly Plug US, local-API only (cloud disabled), power-loss-restore
+default **ON** (survives a real outage without a human present to switch
+things back on).
+
+| Plug     | IP            | Powers          | Role          | Watchdog |
+|----------|---------------|-----------------|---------------|----------|
+| bigmac   | 192.168.1.245 | bigmac Mac Mini | manual only   | none (see `HM-SHELLY-WATCHDOG`, post-trip) |
+| olliemax | 192.168.1.246 | olliemax GPU box| manual only   | none (see `HM-SHELLY-WATCHDOG`, post-trip) |
+| allo     | 192.168.1.244 | Allo router     | self-watchdog | `scripts/shelly_net_watchdog.js`, on-device |
+| starlink | (RV/GL-MT3000 network) | Starlink Mini AC adapter | self-watchdog | `scripts/shelly_net_watchdog.js`, on-device (identical script to allo) |
+
+**Wiring:**
+- Home: `Wall → UPS → Shelly → device` (bigmac, olliemax, Allo router all
+  ride through the UPS before the Shelly stage).
+- RV: `Inverter → Shelly → Starlink AC adapter` (no UPS in the RV chain —
+  the inverter is the buffer).
+
+**Doctrine:**
+- **Cloud disabled on all four** — local RPC/API only, no dependency on
+  Shelly's cloud service being reachable.
+- **Power-loss-restore = ON on all four** — after a real outage, everything
+  comes back without a human present, rather than staying dark until someone
+  manually flips it.
+- **Watchdog auto-cycling is for network gear ONLY** (Allo router, Starlink
+  Mini) — `scripts/shelly_net_watchdog.js` runs on-device on those two plugs
+  only. Network gear has no stateful DB to corrupt; worst case of an
+  auto-cycle is a clean reboot.
+- **NEVER self-cycling on DB hosts.** bigmac and olliemax stay **manual-only**
+  (`scripts/plug_cycle.sh {bigmac|olliemax} {status|off|on|cycle}`, a human
+  runs it deliberately) — forcing power off a box mid-write risks corrupting
+  `trader.db`/`signals.db`, and no on-device watchdog can safely quiesce a DB
+  before cutting its own power. Auto-cycle for boxes is a real design problem
+  (cross-box monitoring, conservative unresponsive-thresholds, accepting
+  residual DB-crash risk mitigated by backups rather than pretending a clean
+  quiesce is achievable) — sketched, not built, in `HM-SHELLY-WATCHDOG`
+  (`docs/XO_BACKLOG.md`, POST-TRIP).
+- `scripts/plug_cycle.sh` is zsh, not bash — macOS's stock `/bin/bash` is 3.2
+  (no associative-array support), same reason `scripts/trader_restart.sh`
+  is zsh. Has two safety rails: refuses off/cycle against the host it's
+  running ON (hostname match — verified the real hostname of the bigmac box
+  is `Steves-Mac-mini`, not literally "bigmac"), and requires `--confirm` for
+  `allo` off/cycle since cutting the router likely cuts the script's own
+  network path mid-command.
+
 ## HM-AM Scope (added 2026-05-12, HM-CLOSE-GAP W1.1)
 Total Portfolio = **real-world net worth only** (Schwab + Webull + IBKR +
 physical metals). EXCLUDES Alpaca paper trading book — separate
@@ -243,6 +289,37 @@ Two-system ghost-tracking detail moved to [`docs/architecture/ghost-tracking.md`
 ## Fleet Roster
 Full roster (active/bench/sniper/elder/metals/retired) moved to [`docs/FLEET-ROSTER.md`](docs/FLEET-ROSTER.md).
 **Live counts are authoritative via the SessionStart primer (`data/trader.db` `ai_players`), not a static list here.**
+
+**Dated waypoint (2026-07-01, HM-FULL-AUDIT + HM-CLOSEOUT Item 2):**
+active/exit_only/halt/total drifted from a prior 22/6/45/73 baseline to
+15/9/55/79. **RESOLVED — legitimate season churn, NOT a defect.** No halt_reason
+anywhere in `ai_players` mentions drawdown/evaluator/error-loop/auto — every
+transition traces to a deliberate, documented event:
+- **2026-06-07** scorecard-driven cull → `full`: ollama-local, dayblade-0dte,
+  ollama-deepseek (3 seats)
+- **2026-06-19/20** Door 1 kill-gate cut (`docs/XO_BACKLOG.md` / kill gate
+  G1-G4) → `full`: qwen3-8b-sonnet, qwen3-14b-pro, deepseek-7b-grok4,
+  ollama-kimi, dalio-metals, ollama-coder (6 seats); → `exit_only`: navigator,
+  ollie-auto, ollama-qwen3 (3 seats)
+- **2026-06-24** Picard/Riker retirement (briefing + synthesis jobs retired,
+  agents INSERT'd as new `full`/benched rows, not transitioned from active)
+- **+3 new active seats** since baseline: sell-the-news (06-06), archer
+  (06-06), q-witness (06-07); **+1 new exit_only seat**: guardian-of-forever
+  (06-12, inserted exit_only by design, never active)
+No dated snapshot of the original 22/6/45/73 baseline was found in-repo, so the
+exact day it was measured (and thus the precise "7 left active" figure) can't
+be pinned further — but every observed transition above is fully accounted for
+by known decisions. `HM-ORPHAN-SEATS` (11 `ai_players` seats referencing Ollama
+models absent from olliemax) remains separately open — all 11 already sit
+within the 55 `halt='full'` count, so they're dormant and not part of this
+churn.
+
+**Crontab baseline (2026-07-01):** 34 active lines (prior reference ~29/31).
++3 today: `scripts/db_snapshot.sh` (20:15 MST), `scripts/backup_freshness_check.sh`
+(20:45 MST), `scripts/rotate_logs.sh` (weekly Sun 05:00 MST). `scripts/offhost_backup.sh`
+rescheduled in place 20:00→20:30 MST (same line count, time changed) — see
+HM-BACKUP-SPINE-2026-07-01 in `docs/XO_BACKLOG.md` for the backup-spine work
+this baseline reflects.
 
 ## Duplicate Role Policy
 - **Healthy duplication** (keep): McCoy+Dax both run CSP but on different VIX
@@ -308,6 +385,28 @@ Historical drift snapshot archived to [`docs/CLAUDE-archive-2026-05.md`](docs/CL
 - Supports the "iterate to the next Top 4" feedback loop — no known-good code
   is lost.
 
+### Sulu DayBlade persona — RETIRED 2026-07-04 (HM-AGENT-RULES-CONSOLIDATION)
+`dayblade-sulu` carried two irreconcilable identities (AGENT-RULES-REVIEW-
+2026-07-03.md Inconsistency #6): `engine/providers/base.py`'s persona said
+intraday DayBlade (-3% hard stop, 15min-2hr holds, close everything by
+3:45 ET, no overnight) while `crew_specialization.py`'s CREW_MANIFEST /
+AGENT_STRATEGIES mandate says S6.3 Iron Condor King (21-45 DTE multi-week
+spreads — the literal opposite). Admiral decision: Iron Condor King is
+canonical. The DayBlade persona text is retired in-place inside
+`base.py` (commented block immediately above the live `"dayblade-sulu"`
+entry, not deleted) — restore only with explicit Admiral approval.
+
+**Not done in this pass (ticketed, see `docs/XO_BACKLOG.md`):** the
+"DayBlade" label and intraday-specific exemptions/assumptions are threaded
+through ~15 other files (`main.py`'s EOD options sweep, `paper_trader.py`'s
+sizing/circuit-breaker/long-only exemptions, `crew_scanner.py`,
+`super_backtest_v4.py`, `weekend_backtest.py`, etc.) — some of that code may
+already be functionally correct for an options/spread trader and just
+mislabeled "DayBlade" from before the S6.3 pivot; some may not be. `Sulu` is
+currently `halt_mode='exit_only'` (no new entries), so none of this is live-
+executing today. A full sweep is a separate, larger effort than a persona-
+text fix and needs its own review pass before touching behavior.
+
 ## Historical Archive
 Sprint logs, drydock sessions, "Lessons Banked" full narratives, and one-time
 state changes (HM-AN2.3 fire, HM-BK Phase 1 load, May 19-20 frontend window)
@@ -365,3 +464,103 @@ sessions was extracted and lives in the "Doctrine Lessons" section above.
   North-star for cockpit design; build cockpit changes helmet-aware.
 - **Gemini 3.5 Flash as 'Data'** horse in the model sleeve (model-upgrade
   pipeline). On-deck when helmet layer scoped.
+
+## TWO-TIER BRIDGE DOCTRINE
+
+- **bridge-v2** = lean daily-driver (display + P0 safety controls).
+- **bridge v1** = full engineering console (backtest, screener, Greeks,
+  learning, alerts, deep panels). NOT retired — intentional second tier.
+- Both bridges are windows onto the SAME backend `/api/*` state. Neither
+  caches or computes authoritative state locally. They must never disagree.
+- Any safety control (kill-switch, halt, autopilot) on EITHER bridge acts
+  on the real fleet and both reflect true state.
+- v1 retirement is OFF the table under two-tier. Re-decide only if the
+  deep panels migrate to v2 deliberately.
+
+## ALPHA READ — STATE AS OF 2026-06-29 ~20:35
+- Evaluator FIXED + LIVE (fill_price→price + acted-join timestamp norm).
+  Draining 11k backlog at 200/cycle/30min — full ~20h out.
+- FIRST SIGNAL (≈5% drained, DIRECTIONAL ONLY, do not bank):
+  bk_avwap +7.89% avg_fwd_1d, bk_box +2.46%. Positive + plausible.
+  TRUSTWORTHY read = after full drain, NOT at partial sample.
+- acted_by_fleet structurally ~0 (2,179 obs tickers vs 16 traded/7d).
+  Retrospective join is a DEAD END. Fix = emit-time 'acted' tagging
+  (stamp obs when fleet trades it). FORWARD-ONLY build. QUEUED, not built.
+- by_grade all null = pre-fix rows; A/B grades populate forward only.
+- OPEN: (1) emit-time acted tagging  (2) measurement-health→ntfy RED
+  thresholds  (3) stale "on next restart" copy in evaluator endpoint.
+- Report card: Performance = D↑ (do NOT upgrade until full drain + clean read).
+
+## CARRIER DOCTRINE
+### Bridge-v2 as the Deployed Strike Group · NOW-Edge Action Layer
+**Established 2026-06-29 · Operates under, and subordinate to, the Two-Tier Bridge Doctrine**
+
+---
+
+### I. THE FORCE STRUCTURE
+
+**OllieTrades is the Navy.** The standing force — the fleet of agents, the scanners, the data sources, the doctrine, the deep engineering console (bridge v1), the entire apparatus that runs whether or not anyone is watching. It is built for endurance, depth, and measurement.
+
+**Bridge-v2 is the deployed Carrier Strike Group.** Forward, light, fast. It does not duplicate the Navy — it projects it. Its job is to take *live contact* — an alert, a data hit, a NOW-edge moment — and make it legible, followable, and (when earned) actionable, in the window where the edge is still fresh.
+
+The Navy wins wars by being everywhere, always. The Carrier wins engagements by being *present at the contact* with a complete picture and a fast decision loop. OT needs both. v1 is everywhere-always. v2 is present-at-contact.
+
+---
+
+### II. THE KILL CHAIN (THE BUILD LADDER)
+
+The build maps to the US targeting cycle — **F2T2EA: Find, Fix, Track, Target, Engage, Assess.** Each rung delivers standalone value. You climb only as far as the mission and the data justify. v1 is untouched at every rung.
+
+**Rung 1 — FIND · *The Actionable Alert (the crumb trail)***
+An alert stops being a dead-end ping and becomes a **sensor contact**. It deep-links into v2, focused on the ticker that fired — source, timestamp, freshness, live chart. No action. Just: *follow the trail, see what needs seeing.*
+Cost: near-zero — wiring, not logic. Value: transforms every alert from "something happened" into "here is the contact, look."
+
+**Rung 2 — FIX / TRACK · *Context-on-Arrival (the sensor picture)***
+The focused view pulls the surrounding NOW-edge automatically: the congress/insider hit, the volatility spike, the options flow, the news that triggered it, the fleet's current read. This is the **Combat Information Center** picture for one contact — everything you need to orient, assembled before you ask.
+Value: the live moment becomes *legible*. The "why now" is answered on arrival.
+
+**Rung 3 — TARGET · *Debate & Review in Place (the firing solution)***
+From the contact view: query the war room, eyeball the chart, pull the scorecard. The decision surface, live, in the moment. The carrier builds a firing solution before it launches anything.
+Value: decision-quality at contact speed — no hop to another console, no stale context.
+
+**Rung 4 — ENGAGE → ASSESS · *The Paper Sortie (gated)***
+For contacts that earn it: a one-tap **paper-only** fire from the alert, kill-switch-guarded, logged as its own distinct execution source. Then **Assess** — the sortie feeds straight back into the measurement loop.
+The payoff: firing from the alert *stamps the observation at fire-time* — which IS the emit-time `acted` tagging that the retrospective join could never deliver. **The carrier doesn't just act on edge; it generates the acted-data the Navy needs to grade itself.** Rung 4 back-solves the measurement dead-end from the action side.
+
+> **Value at every rung.** Even if Rung 4 never ships, Rungs 1–3 make OT vastly more actionable on their own. The action is the last 10%; the legibility is the 90%.
+
+---
+
+### III. CONTACT CLASSIFICATION (ALERT TIERING)
+
+Not every alert is a contact. The tier decides whether an alert *tells* you something or *invites* you to a contact — this is what keeps the carrier light instead of drowning you in pings.
+
+- **INFORMATIONAL** (system status, measurement-health RED, infra) → report only. No trail, no carrier treatment.
+- **ACTIONABLE** (bk_avwap / UHURA / congress / insider / options-flow / volatility contacts) → full crumb trail. These get the kill chain.
+
+Only contacts where genuine NOW-edge exists earn a sortie path.
+
+---
+
+### IV. RULES OF ENGAGEMENT (NON-NEGOTIABLE)
+
+1. **RULE #1 holds absolutely — paper only.** The carrier fires *paper* sorties. The real book stays Navy-side, on the sidelines, until measured edge earns deployment. Schwab remains read-only.
+2. **Kill-switch guards every sortie path.** No engage rung exists without the emergency stop already wired (it is — P0 controls live on v2).
+3. **v1 is untouched.** The Navy's engineering console keeps all its depth. Two-tier doctrine governs: both bridges are windows onto the *same* backend truth — no bifurcation, ever.
+4. **Slow is smooth.** Climb the ladder one rung at a time. Each rung proves out before the next is built.
+
+---
+
+### V. DEPLOYMENT AUTHORITY (THE GATE)
+
+**Rungs 1–3 build freely** — they carry zero execution risk and pure actionability upside.
+
+**Rung 4 (ENGAGE) is GATED on the alpha read.** A source earns a carrier sortie path only when **full-drain forward-return data proves it carries edge that holds.** No source fires on a partial sample. (The +7.89% bk_avwap first-read is a 5%-drained directional signal — explicitly *not* deployment authority.)
+
+**The alpha instrument is the deployment authority.** The Navy measures; the measurement clears the carrier to launch. Action waits for proof — that is the entire reason the real book is on the sidelines, expressed as a build rule.
+
+---
+
+### VI. ONE-LINE STATEMENT OF INTENT
+
+*OllieTrades is the standing fleet. Bridge-v2 is the deployed carrier. Alerts are contacts. The kill chain turns a contact into a legible, reviewable, and — when the data has earned it — actionable paper sortie, in the window the edge is still live. The Navy proves the edge; the carrier projects it.*

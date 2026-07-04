@@ -211,9 +211,17 @@
   // ── Pollers ───────────────────────────────────────────────────────────────
 
   // a) Trade executed (10s)
+  // HM-DIRECTIVE-B-2 2026-07-02: was its own independent fetch to the same
+  // endpoint index.html's pollTradeAlerts() also polls (30s) -- two separate
+  // pollers hitting /api/alerts/recent?limit=1 on two different timers. Uses
+  // the shared aggregate helper (window._fetchAlertsPoll, defined in
+  // index.html) instead; still on its own 10s cadence, but no longer its own
+  // independent network round-trip when a poll is already cached.
   function _pollTrades() {
-    fetch('/api/alerts/recent?limit=1')
-      .then(function (r) { return r.ok ? r.json() : null; })
+    (typeof window._fetchAlertsPoll === 'function'
+      ? window._fetchAlertsPoll().then(function (d) { return d.recent_trades; })
+      : fetch('/api/alerts/recent?limit=1').then(function (r) { return r.ok ? r.json() : null; })
+    )
       .then(function (d) {
         if (!d || !d.length) return;
         var t  = d[0];

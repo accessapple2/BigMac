@@ -45,6 +45,17 @@ run_rsync() {
     # a checkpointed DB has none, and rsync would error on the missing files →
     # false FAILURE + spurious high-priority NTFY. Filtering them keeps the
     # success/failure signal honest. bash 3.2-safe (no negative array indices).
+    #
+    # HM-BACKUP-SPINE-2026-07-01: optional leading --soft flag marks a component
+    # best-effort/supplementary — failures are logged as [WARN], not [FAIL], and
+    # do NOT increment the global errors/note used for overall exit code + NTFY.
+    # Introduced because the live trader.db+wal rsync races rsync's own whole-file
+    # delta-verification against a continuously-written multi-hundred-MB WAL
+    # ("trader.db-wal failed verification -- update discarded"), failing most
+    # nights since 2026-06-18 and masking real signal from the components that
+    # matter (the verified static snapshot in data/backups/, HM-BACKUP-SPINE Phase B).
+    local soft=0
+    if [ "$1" = "--soft" ]; then soft=1; shift; fi
     local label="$1"; shift
     local all=("$@")
     local n=${#all[@]}
@@ -60,15 +71,19 @@ run_rsync() {
         echo "  [OK] $label"
         return 0
     else
-        echo "  [FAIL] $label"
-        errors=$((errors+1))
-        note="$note $label"
+        if [ "$soft" -eq 1 ]; then
+            echo "  [WARN] $label (best-effort, non-fatal)"
+        else
+            echo "  [FAIL] $label"
+            errors=$((errors+1))
+            note="$note $label"
+        fi
         return 1
     fi
 }
 
 # Live DBs (+ WAL/SHM if present)
-run_rsync "trader.db"      "$REPO/data/trader.db"      "$REPO/data/trader.db-shm"      "$REPO/data/trader.db-wal"      "$REMOTE_HOST:~/$REMOTE_BASE/data/" || true
+run_rsync --soft "trader.db" "$REPO/data/trader.db" "$REPO/data/trader.db-shm" "$REPO/data/trader.db-wal" "$REMOTE_HOST:~/$REMOTE_BASE/data/" || true
 run_rsync "signals.db"     "$REPO/signal-center/signals.db" "$REPO/signal-center/signals.db-shm" "$REPO/signal-center/signals.db-wal" "$REMOTE_HOST:~/$REMOTE_BASE/signal-center/" || true
 
 # Tractor (optional)
@@ -77,8 +92,14 @@ if [ -f "$HOME/ollietrades/tractor_beam/tractor.db" ]; then
 fi
 
 # Last 7 daily atomic backups (year-agnostic)
+# HM-BACKUP-SPINE-2026-07-01: repointed $REPO/backups -> $REPO/data/backups.
+# The old $REPO/backups dir was written by healthcheck.py, disabled 2026-06-10
+# (HM-WATCHDOG-SUPERVISOR) -- it froze at trader_2026-06-06.db and this script
+# kept faithfully re-syncing those same 7 stale files every night since, never
+# failing but never sending anything new either. scripts/db_snapshot.sh (Phase B)
+# now writes fresh dated snapshots to data/backups/ daily at 20:15 MST.
 shopt -s nullglob
-DAILIES=( $(find "$REPO"/backups -maxdepth 1 -type f -name 'trader_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].db' 2>/dev/null | sort | tail -14) )  # HM-HARDEN A1: 14-day retention
+DAILIES=( $(find "$REPO"/data/backups -maxdepth 1 -type f -name 'trader_20[0-9][0-9]-[0-9][0-9]-[0-9][0-9].db' 2>/dev/null | sort | tail -14) )  # HM-HARDEN A1: 14-day retention
 if [ ${#DAILIES[@]} -gt 0 ]; then
     run_rsync "daily-backups (${#DAILIES[@]})" "${DAILIES[@]}" "$REMOTE_HOST:~/$REMOTE_BASE/backups/" || true
 fi

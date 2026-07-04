@@ -19,10 +19,21 @@ STATE_PATH = Path(os.environ.get("DRAWDOWN_STATE", "data/drawdown_alert_state.js
 HOLDINGS   = Path(os.environ.get("REAL_HOLDINGS", "data/real_holdings.json"))
 
 
-def _ntfy(title, body, priority="default"):
+def _ntfy(title, body, priority="default", tags="warning"):
+    # HM-DRAWDOWN-CRON-2026-07-01: ntfy's Title/Priority/Tags are raw HTTP
+    # headers, and Python's http.client enforces latin-1 encoding on header
+    # values -- a literal emoji in the title (as every caller here passes)
+    # raises UnicodeEncodeError, which happens BEFORE the request is sent and
+    # BEFORE the fired-state is saved. Confirmed live: crashed on the very
+    # first real-schema dry-fire test. Fix: keep the Title header ASCII-only;
+    # let ntfy's own Tags emoji-shortcode mechanism (warning -> ⚠️,
+    # rotating_light -> 🚨) render the icon client-side instead of a raw
+    # unicode header value.
     try:
+        ascii_title = title.encode("ascii", "ignore").decode("ascii").strip() or "DRAWDOWN ALERT"
         requests.post(NTFY_URL, data=body.encode("utf-8"),
-                      headers={"Title": title, "Priority": priority}, timeout=6)
+                      headers={"Title": ascii_title, "Priority": priority, "Tags": tags},
+                      timeout=6)
     except requests.RequestException as e:
         print(f"[drawdown] NTFY failed: {e}", file=sys.stderr)
 
@@ -45,7 +56,13 @@ def load_positions(test=False):
     except (FileNotFoundError, json.JSONDecodeError) as e:
         print(f"[drawdown] cannot read {HOLDINGS}: {e}", file=sys.stderr)
         return []
-    src = (raw.get("schwab") or {}).get("positions") or []
+    # HM-DRAWDOWN-CRON-2026-07-01: real_holdings.json wraps accounts under
+    # "accounts" (see scripts/sync_schwab_live.py:139,156 -- HM-AM multi-account
+    # unification, 2026-06-06). The old flat raw.get("schwab") path never
+    # matched this schema, so this watcher silently saw zero positions
+    # regardless of real holdings -- a monitor that can't see its target is
+    # worse than no monitor (false "all clear"). Fixed to the real schema.
+    src = (raw.get("accounts", {}).get("schwab") or {}).get("positions") or []
     out = []
     for p in src:
         try:
@@ -116,9 +133,10 @@ def main():
     for symbol, trigger, band, msg in fires:
         title = f"⚠️ DRAWDOWN: {symbol} ({trigger})"
         priority = "urgent" if band >= 1 else "high"
+        tags = "rotating_light" if band >= 1 else "warning"
         print(f"[drawdown] FIRE {title} -> {msg}")
         if not test:
-            _ntfy(title, msg, priority)
+            _ntfy(title, msg, priority, tags)
     if not test:
         _save_state(today, day_state)
     else:

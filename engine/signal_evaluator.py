@@ -9,12 +9,84 @@ Wired to main.py scheduler at 30-minute cadence.
 from __future__ import annotations
 
 import logging
+import os
 import sqlite3
-from datetime import datetime, timezone
+from datetime import date as _date, datetime, timedelta, timezone
 
 logger = logging.getLogger(__name__)
 
 _DB = "data/trader.db"
+_ALPACA_BARS = "https://data.alpaca.markets/v2/stocks/{sym}/bars"
+
+
+def _fetch_realized_return(ticker: str, ts_iso: str, expiry_iso: str) -> float | None:
+    """Return actual close-to-close return from Alpaca daily bars, or None.
+
+    Realized = (close_at_expiry_date - close_at_ts_date) / close_at_ts_date.
+    Never raises — any API/parse failure returns None so evaluation is never blocked.
+    """
+    try:
+        import requests as _req
+        key    = os.environ.get("APCA_API_KEY_ID", "")
+        secret = os.environ.get("APCA_API_SECRET_KEY", "")
+        if not key or not secret:
+            return None
+
+        ts_date     = ts_iso[:10]      # YYYY-MM-DD
+        expiry_date = expiry_iso[:10]
+
+        # Add +1 day buffer so the expiry date's bar is included in the response
+        end_date = (_date.fromisoformat(expiry_date) + timedelta(days=2)).isoformat()
+
+        r = _req.get(
+            _ALPACA_BARS.format(sym=ticker),
+            headers={"APCA-API-KEY-ID": key, "APCA-API-SECRET-KEY": secret},
+            params={
+                "timeframe": "1Day",
+                "start":     ts_date,
+                "end":       end_date,
+                "feed":      "iex",
+                "sort":      "asc",
+                "limit":     10,
+            },
+            timeout=8,
+        )
+        if not r.ok:
+            return None
+
+        bars = r.json().get("bars") or []
+        if not bars:
+            return None
+
+        # Build date → close map ("t": "2026-06-25T00:00:00Z" → "2026-06-25")
+        closes: dict[str, float] = {}
+        for b in bars:
+            bar_date = (b.get("t") or "")[:10]
+            if bar_date:
+                closes[bar_date] = float(b["c"])
+
+        sorted_dates = sorted(closes)
+
+        # Track which actual bar date is used for each endpoint
+        entry_date_used  = ts_date     if ts_date     in closes else (sorted_dates[0]  if sorted_dates else None)
+        expiry_date_used = expiry_date if expiry_date in closes else (sorted_dates[-1] if sorted_dates else None)
+
+        # Same bar for both endpoints → no valid window → NULL, not 0.0
+        if entry_date_used is None or expiry_date_used is None:
+            return None
+        if entry_date_used == expiry_date_used:
+            return None
+
+        entry_close  = closes[entry_date_used]
+        expiry_close = closes[expiry_date_used]
+
+        if entry_close <= 0:
+            return None
+
+        return round((expiry_close - entry_close) / entry_close, 6)
+
+    except Exception:
+        return None
 
 _BULLISH = frozenset({
     "BULL", "LONG", "BULLISH", "CONFIRM", "CONFIRMBULLISH",
@@ -22,6 +94,25 @@ _BULLISH = frozenset({
 _BEARISH = frozenset({
     "BEAR", "SHORT", "BEARISH", "CAUTION", "CAUTIONBEARISH",
 })
+
+
+def _to_utc_space(iso_str: str) -> str:
+    """Normalize any ISO timestamp to 'YYYY-MM-DD HH:MM:SS' (UTC, no tz, no µs).
+
+    trades.executed_at uses space-separated UTC without tz suffix.
+    signal_observations.ts/expiry use ISO-8601 with 'T' separator and +00:00.
+    SQLite TEXT comparison fails across these formats ('T' > ' ' in ASCII, so
+    any space-format date compares as strictly less than any T-format date at
+    the same moment, causing BETWEEN to never match).
+    """
+    s = iso_str.strip().replace("T", " ")
+    for suffix in ("+00:00", "+0000", "-00:00", "Z"):
+        if s.endswith(suffix):
+            s = s[: -len(suffix)]
+            break
+    if "." in s:
+        s = s[: s.index(".")]
+    return s
 
 
 def _is_bullish(direction: str | None) -> bool | None:
@@ -84,13 +175,21 @@ def evaluate_pending(db_path: str | None = None, batch: int = 200) -> dict:
                 fleet_trade_id = None
                 fleet_acted = None
                 fwd_return_1d = None
+                fwd_return_1d_realized = None
 
                 is_bull = _is_bullish(direction)
                 if is_bull is not None:
                     action_filter = "BUY" if is_bull else "SELL"
+                    # Normalize obs timestamps to space-UTC to match trades.executed_at
+                    # format ('YYYY-MM-DD HH:MM:SS').  Without this, the 'T' separator
+                    # in ISO+offset strings causes all BETWEEN comparisons to fail
+                    # because ' ' (32) < 'T' (84) in ASCII, making every trade appear
+                    # before the lower bound.
+                    ts_cmp     = _to_utc_space(ts)
+                    expiry_cmp = _to_utc_space(expiry)
                     trade = conn.execute(
                         """
-                        SELECT id, fill_price
+                        SELECT id, price
                           FROM trades
                          WHERE symbol = ?
                            AND action = ?
@@ -98,7 +197,7 @@ def evaluate_pending(db_path: str | None = None, batch: int = 200) -> dict:
                          ORDER BY executed_at ASC
                          LIMIT 1
                         """,
-                        (ticker, action_filter, ts, expiry),
+                        (ticker, action_filter, ts_cmp, expiry_cmp),
                     ).fetchone()
 
                     if trade:
@@ -127,16 +226,21 @@ def evaluate_pending(db_path: str | None = None, batch: int = 200) -> dict:
                         if ep > 0:
                             fwd_return_1d = round((tp - ep) / ep, 6)
 
+                    # Realized return: actual Alpaca close at ts vs close at expiry
+                    fwd_return_1d_realized = _fetch_realized_return(ticker, ts, expiry)
+
                 conn.execute(
                     """
                     UPDATE signal_observations
-                       SET evaluated_at   = ?,
-                           acted_by_fleet = ?,
-                           fleet_trade_id = ?,
-                           fwd_return_1d  = ?
+                       SET evaluated_at           = ?,
+                           acted_by_fleet         = ?,
+                           fleet_trade_id         = ?,
+                           fwd_return_1d          = ?,
+                           fwd_return_1d_realized = ?
                      WHERE id = ?
                     """,
-                    (now_iso, fleet_acted, fleet_trade_id, fwd_return_1d, obs_id),
+                    (now_iso, fleet_acted, fleet_trade_id,
+                     fwd_return_1d, fwd_return_1d_realized, obs_id),
                 )
                 conn.commit()
                 evaluated += 1

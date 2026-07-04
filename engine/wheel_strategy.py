@@ -22,7 +22,7 @@ from engine.paper_trader import get_portfolio
 # accounting (debit cash + long qty) — wrong for sell-to-open semantics.
 # HM-W1F5 2026-05-17: close_options_trade now actively used in
 # check_wheel_assignments (was zero-callers per audit G4 before this commit).
-from engine.options_exec import open_options_trade, close_options_trade
+from engine.options_exec import open_options_trade, close_options_trade, LEVERAGED_ETF_TICKERS
 from engine.market_data import get_stock_price
 from engine.fear_greed import get_fear_greed_index
 from rich.console import Console
@@ -32,8 +32,13 @@ logger = logging.getLogger("wheel_strategy")
 
 PLAYER_ID = "options-sosnoff"  # Counselor Troi
 WHEEL_TICKERS = ["TQQQ", "SOXL", "UPRO", "TNA", "QQQ", "SPY"]
-# door1 2026-06-19: no new 3x-leveraged CSP writes — tail risk outweighs premium income.
-LEVERAGED_ETF_BLOCKLIST = {"SOXL", "TQQQ", "UPRO", "SQQQ", "SPXL", "TNA", "UVXY", "TMF", "SOXS", "LABU"}
+# door1 2026-06-19: no new 3x-leveraged CSP writes — tail risk outweighs premium
+# income. HM-DOOR1-CENTRALIZE 2026-07-03: this used to be its own copy of the
+# ticker list -- now imported from engine.options_exec, the single source of
+# truth also enforced inside open_options_trade() itself (so this check here
+# is now a fast-path early-exit, not the only line of defense; a caller can no
+# longer bypass door1 just by skipping this specific check).
+LEVERAGED_ETF_BLOCKLIST = LEVERAGED_ETF_TICKERS
 TARGET_RETURN = 0.05   # 5% per trade
 DTE_TARGET = 30        # 30-day options (theta sweet spot)
 MAX_POSITIONS = 3      # Max 3 concurrent wheel positions
