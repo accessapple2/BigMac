@@ -13,17 +13,14 @@ from __future__ import annotations
 import logging
 import sqlite3
 from dataclasses import asdict, dataclass, field
-from datetime import datetime
 from pathlib import Path
 from typing import Any, Optional
-from zoneinfo import ZoneInfo
 
+from engine.market_calendar import MarketStatus, get_market_status
 from engine.market_data import get_bulk_snapshots
 from engine.universe import get_active_universe
 
 logger = logging.getLogger(__name__)
-
-_ET = ZoneInfo("America/New_York")
 
 # === HM-DASH.1 === squeeze_watch enrichment substrate
 _DB_PATH = str(Path(__file__).resolve().parent.parent.parent / "data" / "trader.db")
@@ -31,6 +28,19 @@ _DB_PATH = str(Path(__file__).resolve().parent.parent.parent / "data" / "trader.
 # fires at ALERT-tier or above so the Race UI only surfaces high-conviction names.
 _SQUEEZE_FLAG_MIN_SCORE = 75.0
 # === /HM-DASH.1 ===
+
+# === HM-RACE-VALIDATION 2026-07-03 (BNY ghost-signal fix) ===
+# Reference incident: 2026-07-03 (observed Jul-4 holiday, a Friday — weekday()
+# check alone passes). Market never opened, but the naive status label still
+# said OPEN/AFTER, and compute_race() had no bound on the computed %-change.
+# Alpaca's snapshot blends a same-day-looking dailyBar.o with whatever
+# latestTrade.p it has on hand (can be a stale/off-exchange print on a closed
+# day) — BNY showed a +1261.3% "gain since open" that was never a real trade.
+# Two independent layers: (1) don't compute a race at all on a non-trading
+# day, (2) never trust a %-change outside plausible bounds even when the
+# calendar gate is right but the underlying tick data still lies.
+_MAX_PLAUSIBLE_PCT = 50.0  # single-day moves beyond this are a data error, not a signal
+# === /HM-RACE-VALIDATION ===
 
 
 @dataclass
@@ -50,7 +60,12 @@ class RaceRow:
 
 
 def compute_race(limit: int = 20) -> list[dict[str, Any]]:
-    """Top `limit` gainers since open. Empty list if no snapshot data."""
+    """Top `limit` gainers since open. Empty list if no snapshot data,
+    and empty (not stale/bogus) on any day the market didn't open."""
+    status = _market_status_now()
+    if status == "CLOSED":
+        logger.info("market closed today (weekend/holiday) — skipping race computation")
+        return []
     universe = get_active_universe()
     if not universe:
         logger.warning("active universe is empty; returning []")
@@ -59,14 +74,21 @@ def compute_race(limit: int = 20) -> list[dict[str, Any]]:
     if not snaps:
         logger.warning("get_bulk_snapshots returned empty; returning []")
         return []
-    status = _market_status_now()
     rows: list[RaceRow] = []
+    rejected = 0
     for sym, s in snaps.items():
         opn = s.get("open_price")
         last = s.get("last_price")
-        if not opn or opn <= 0 or last is None:
+        if not opn or opn <= 0 or not last or last <= 0:
             continue
         pct = (last - opn) / opn * 100.0
+        if abs(pct) > _MAX_PLAUSIBLE_PCT:
+            rejected += 1
+            logger.warning(
+                "rejecting implausible race row: %s %.1f%% (open=%.4f last=%.4f)",
+                sym, pct, opn, last,
+            )
+            continue
         rows.append(RaceRow(
             rank=0,
             ticker=sym,
@@ -76,6 +98,8 @@ def compute_race(limit: int = 20) -> list[dict[str, Any]]:
             volume=int(s.get("volume") or 0),
             market_status=status,
         ))
+    if rejected:
+        logger.info("compute_race: rejected %d implausible row(s) this pass", rejected)
     rows.sort(key=lambda r: r.pct_change_since_open, reverse=True)
     top = rows[:limit]
     for i, r in enumerate(top, 1):
@@ -130,18 +154,18 @@ def _latest_squeeze_scores(tickers: list[str]) -> dict[str, dict[str, Any]]:
 # === /HM-DASH.1 ===
 
 
+_STATUS_MAP = {
+    MarketStatus.CLOSED_WEEKEND:     "CLOSED",
+    MarketStatus.CLOSED_HOLIDAY:     "CLOSED",
+    MarketStatus.CLOSED_BEFORE_HOURS: "PRE",
+    MarketStatus.CLOSED_EARLY:       "AFTER",
+    MarketStatus.CLOSED_AFTER_HOURS: "AFTER",
+    MarketStatus.OPEN:               "OPEN",
+}
+
+
 def _market_status_now() -> str:
-    """Naive US-Eastern session label. Weekend = CLOSED; holiday-unaware."""
-    now = datetime.now(_ET)
-    if now.weekday() >= 5:
-        return "CLOSED"
-    mins = now.hour * 60 + now.minute
-    if mins < 4 * 60:
-        return "CLOSED"
-    if mins < 9 * 60 + 30:
-        return "PRE"
-    if mins < 16 * 60:
-        return "OPEN"
-    if mins < 20 * 60:
-        return "AFTER"
-    return "CLOSED"
+    """US-Eastern session label, delegating to the canonical holiday-aware
+    engine.market_calendar gate (HM-MARKET-HOLIDAY-CALENDAR) instead of the
+    old weekday-only check that missed observed holidays."""
+    return _STATUS_MAP[get_market_status()]
