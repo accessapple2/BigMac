@@ -253,7 +253,7 @@ WEBULL_ACCOUNT_ID = os.environ.get("WEBULL_ACCOUNT_ID", "")
 # Trading Rules
 STARTING_CASH = 7000.00
 POSITION_SIZE_PCT = 0.10
-MAX_POSITIONS = 8
+MAX_POSITIONS = 5  # HM-AGENT-RULES-CONSOLIDATION 2026-07-04: was 8, canonical everywhere now (bear=3, see risk_manager.NORMAL_MAX_POSITIONS/BEAR_MAX_POSITIONS)
 STOP_LOSS_PCT = 0.05
 TAKE_PROFIT_TIERS = [  # sell % of remaining position at each tier
     (0.05, 0.50),  # +5% profit → sell 50% — lock in gains early
@@ -262,9 +262,9 @@ TAKE_PROFIT_TIERS = [  # sell % of remaining position at each tier
     (0.25, 0.50),  # +25% profit → sell 50% of remaining
     (0.50, 1.00),  # +50% profit → sell everything left
 ]
-MAX_POSITION_PCT = 0.30  # Allow up to 30% for high-conviction (0.85+) positions
+MAX_POSITION_PCT = 0.30  # Canonical absolute cap (HM-AGENT-RULES-CONSOLIDATION 2026-07-04) — 30% for high-conviction (0.85+) positions
 MAX_DRAWDOWN_PCT = 0.20
-MIN_CASH_RESERVE_PCT = 0.15
+MIN_CASH_RESERVE_PCT = 0.20  # HM-AGENT-RULES-CONSOLIDATION 2026-07-04: was 0.15, canonical everywhere now (bear=0.35, see risk_manager.BEAR_MIN_CASH_PCT)
 MAX_DAILY_TRADES = 30
 OPTIONS_MAX_PCT = 0.05  # max 5% of portfolio per call/put position
 OPTIONS_TOTAL_MAX_PCT = 0.10  # max 10% total options exposure (reduced from 20% to limit losses)
