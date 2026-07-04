@@ -26,6 +26,22 @@ logger = logging.getLogger(__name__)
 DB_PATH   = "data/trader.db"
 ATDB_PATH = "autonomous_trader.db"
 
+# HM-BOOTSTRAP-FIX 2026-07-03: bootstrap_metrics has never once committed — every
+# nightly run crashed on the day_of_week _insert_metric() call before reaching
+# db.commit() (see the fixed collision below), rolling back its whole batch every
+# time. That crash-in-progress also held ~500+ inserts open in one uncommitted
+# transaction for minutes, which is what produced the 00:04-00:18 "database is
+# locked" storm elsewhere (breadth_scanner, sector_heatmap, HM-EQ snapshots).
+# The crash is fixed below, but populating this table for the FIRST time changes
+# live behavior: engine/brain_context.py::_source_bootstrap_intelligence() feeds
+# get_agent_intelligence()'s output — including [EDGE]/[AVOID] symbol tags and
+# day-of-week caution flags — straight into every LLM agent's scan prompt via
+# build_full_context(). That's not a side effect a bugfix should introduce on
+# its own. Gate stays False until the Admiral explicitly approves the first
+# live population; flip to True (no restart needed — checked fresh each call)
+# once approved.
+BOOTSTRAP_METRICS_LIVE_ENABLED = False
+
 _ran_today: str | None = None  # date string gate
 
 
@@ -50,15 +66,18 @@ def _ensure_table(db: sqlite3.Connection) -> None:
     db.commit()
 
 
-def _insert_metric(db: sqlite3.Connection, metric_type: str, key: str,
-                   value: float, sample_size: int = 0,
-                   player_id: str | None = None, symbol: str | None = None,
-                   regime: str | None = None) -> None:
-    db.execute("""
-        INSERT INTO bootstrap_metrics
-            (metric_type, player_id, symbol, regime, key, value, sample_size)
-        VALUES (?,?,?,?,?,?,?)
-    """, (metric_type, player_id, symbol, regime, key, value, sample_size))
+def _stage_metric(rows: list[tuple], metric_type: str, key: str,
+                  value: float, sample_size: int = 0,
+                  player_id: str | None = None, symbol: str | None = None,
+                  regime: str | None = None) -> None:
+    """Append a row tuple in memory — no DB access. HM-BOOTSTRAP-FIX 2026-07-03:
+    replaces the old per-call db.execute(INSERT...), which held a single
+    uncommitted transaction open across the whole multi-minute computation
+    (~500+ rows) and blocked every other writer touching trader.db until it
+    either committed or (as it always did) crashed and rolled back. Rows are
+    now flushed via one executemany() + commit() at the very end of
+    refresh_bootstrap(), so the write itself takes milliseconds."""
+    rows.append((metric_type, player_id, symbol, regime, key, value, sample_size))
 
 
 def _calc_winrate(pnls: list[float]) -> float:
@@ -83,11 +102,21 @@ def _fetch_all_trades(db: sqlite3.Connection) -> list[dict]:
 def refresh_bootstrap() -> dict:
     """Full bootstrap run. Returns summary dict."""
     global _ran_today
+    if not BOOTSTRAP_METRICS_LIVE_ENABLED:
+        logger.info(
+            "[BOOTSTRAP] gated: BOOTSTRAP_METRICS_LIVE_ENABLED=False — skipping "
+            "(crash fixed 2026-07-03; awaiting Admiral go-ahead to populate "
+            "bootstrap_metrics for the first time — see module docstring)"
+        )
+        return {}
+
     today = datetime.now().strftime("%Y-%m-%d")
     if _ran_today == today:
         logger.debug("bootstrap: already ran today (%s)", today)
         return {}
     _ran_today = today
+
+    rows: list[tuple] = []
 
     try:
         db = sqlite3.connect(DB_PATH, timeout=10)
@@ -120,9 +149,9 @@ def refresh_bootstrap() -> dict:
     for pid, pnls in by_agent.items():
         wr = _calc_winrate(pnls)
         avg_pnl = sum(pnls) / len(pnls) if pnls else 0
-        _insert_metric(db, "agent_overall", "win_rate", wr, len(pnls), player_id=pid)
-        _insert_metric(db, "agent_overall", "avg_pnl",  avg_pnl, len(pnls), player_id=pid)
-        _insert_metric(db, "agent_overall", "total_pnl", sum(pnls), len(pnls), player_id=pid)
+        _stage_metric(rows, "agent_overall", "win_rate", wr, len(pnls), player_id=pid)
+        _stage_metric(rows, "agent_overall", "avg_pnl",  avg_pnl, len(pnls), player_id=pid)
+        _stage_metric(rows, "agent_overall", "total_pnl", sum(pnls), len(pnls), player_id=pid)
 
     # ── Per-symbol win rate (global) ──
     by_symbol: dict[str, list[float]] = {}
@@ -138,8 +167,8 @@ def refresh_bootstrap() -> dict:
             continue
         wr = _calc_winrate(pnls)
         avg = sum(pnls) / len(pnls)
-        _insert_metric(db, "symbol_overall", "win_rate", wr, len(pnls), symbol=sym)
-        _insert_metric(db, "symbol_overall", "avg_pnl",  avg, len(pnls), symbol=sym)
+        _stage_metric(rows, "symbol_overall", "win_rate", wr, len(pnls), symbol=sym)
+        _stage_metric(rows, "symbol_overall", "avg_pnl",  avg, len(pnls), symbol=sym)
 
     # ── Per-agent, per-symbol ──
     by_agent_sym: dict[tuple, list[float]] = {}
@@ -150,7 +179,7 @@ def refresh_bootstrap() -> dict:
         if len(pnls) < 2:
             continue
         wr = _calc_winrate(pnls)
-        _insert_metric(db, "agent_symbol", "win_rate", wr, len(pnls), player_id=pid, symbol=sym)
+        _stage_metric(rows, "agent_symbol", "win_rate", wr, len(pnls), player_id=pid, symbol=sym)
 
     # ── Day-of-week stats ──
     by_dow: dict[int, list[float]] = {}
@@ -170,7 +199,7 @@ def refresh_bootstrap() -> dict:
         if len(pnls) < 3:
             continue
         wr = _calc_winrate(pnls)
-        _insert_metric(db, "day_of_week", "win_rate", wr, len(pnls), key=dow_names.get(dow, str(dow)))
+        _stage_metric(rows, "day_of_week", "win_rate", wr, len(pnls), regime=dow_names.get(dow, str(dow)))
         if wr > best_dow_wr:  best_dow_wr = wr;  best_dow = dow_names.get(dow, str(dow))
         if wr < worst_dow_wr: worst_dow_wr = wr; worst_dow = dow_names.get(dow, str(dow))
 
@@ -189,7 +218,7 @@ def refresh_bootstrap() -> dict:
         if len(pnls) < 3:
             continue
         wr = _calc_winrate(pnls)
-        _insert_metric(db, "hour_of_day", "win_rate", wr, len(pnls), key=f"hour_{hr:02d}")
+        _stage_metric(rows, "hour_of_day", "win_rate", wr, len(pnls), regime=f"hour_{hr:02d}")
 
     # ── Options stats ──
     opt_trades = [t for t in sell_trades if t.get("asset_type") == "option" or t.get("option_type")]
@@ -197,9 +226,17 @@ def refresh_bootstrap() -> dict:
         opt_pnls = [t["realized_pnl"] for t in opt_trades]
         opt_wr = _calc_winrate(opt_pnls)
         avg_opt_loss = sum(p for p in opt_pnls if p < 0) / max(1, sum(1 for p in opt_pnls if p < 0))
-        _insert_metric(db, "options_overall", "win_rate", opt_wr, len(opt_trades), key="options_win_rate")
-        _insert_metric(db, "options_overall", "avg_loss", avg_opt_loss, len(opt_trades), key="options_avg_loss")
+        _stage_metric(rows, "options_overall", "win_rate", opt_wr, len(opt_trades), regime="options_win_rate")
+        _stage_metric(rows, "options_overall", "avg_loss", avg_opt_loss, len(opt_trades), regime="options_avg_loss")
 
+    # HM-BOOTSTRAP-FIX 2026-07-03: one batch write instead of ~500+ synchronous
+    # INSERTs spread across the whole computation above — the write itself is
+    # now the only time any lock is held, and it's milliseconds, not minutes.
+    db.executemany("""
+        INSERT INTO bootstrap_metrics
+            (metric_type, player_id, symbol, regime, key, value, sample_size)
+        VALUES (?,?,?,?,?,?,?)
+    """, rows)
     db.commit()
     db.close()
 
@@ -273,7 +310,7 @@ def get_agent_intelligence(player_id: str, symbol: str | None = None) -> str:
         dow_name = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"][now.weekday()]
         dow_row = db.execute("""
             SELECT value, sample_size FROM bootstrap_metrics
-            WHERE metric_type='day_of_week' AND key=?
+            WHERE metric_type='day_of_week' AND regime=?
             ORDER BY calculated_at DESC LIMIT 1
         """, (dow_name,)).fetchone()
         if dow_row and dow_row["sample_size"] >= 3:
