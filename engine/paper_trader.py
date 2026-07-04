@@ -2482,6 +2482,40 @@ def record_portfolio_snapshot(player_id: str, prices: dict):
 _STARTING_CASH = {"dayblade-0dte": 3500.0, "webull": 7021.81, "super-agent": 100000.0}
 _DEFAULT_STARTING_CASH = 7000.0
 
+# HM-CLEANUP-TRIO-2026-07-04: CSP realized P&L is booked to options_trades +
+# options_books.<book_tag>.current_cash, never to ai_players.cash or the stock
+# `positions` table (HM-W1F4 2026-05-17, decoupled by design). get_portfolio_
+# with_pnl()'s total_value = cash + positions_value is therefore structurally
+# blind to it for any CSP-trading agent -- confirmed for options-sosnoff/Troi,
+# whose leaderboard total_value showed only her pre-wheel ai_players.cash
+# ($12,880.20), missing $29,868.74 of real, verified wheel P&L entirely. This
+# is a live calculation bug, not a display staleness issue, and unrelated to
+# the 2026-07-04 trim (which never touched ai_players.cash or positions).
+#
+# v1/v2 era boundary (HM-TROI-WHEEL-V2): v1 (blind, uncapped) ran through the
+# 2026-07-04 trim; v2 (gated under TROI_CSP_CAP_GATE) begins here. The two
+# must never be combined into one displayed figure without being labeled --
+# this constant is the single source of truth for where that line falls.
+TROI_V2_ERA_START = "2026-07-06"
+
+
+def _csp_realized_pnl_v1(player_id: str) -> float:
+    """Sum of options_trades.pnl for player_id's CLOSED CSPs with an exit_date
+    before TROI_V2_ERA_START. Returns 0.0 for agents with no CSP trades (the
+    overwhelmingly common case) -- this function is additive-only and changes
+    nothing for any agent except one with a CSP trading history."""
+    try:
+        conn = sqlite3.connect(DB, timeout=5)
+        row = conn.execute(
+            "SELECT SUM(pnl) FROM options_trades WHERE agent_id=? AND structure='csp' "
+            "AND status='closed' AND exit_date < ?",
+            (player_id, TROI_V2_ERA_START),
+        ).fetchone()
+        conn.close()
+        return float(row[0]) if row and row[0] is not None else 0.0
+    except Exception:
+        return 0.0
+
 # Steve's Webull synced value (overrides Yahoo price calculation)
 _webull_synced_value = None
 _webull_synced_at = None
@@ -2959,7 +2993,14 @@ def get_portfolio_with_pnl(player_id: str, prices: dict) -> dict:
         total_positions_value += market_value
         total_cost_basis += cost_basis
 
-    total_value = portfolio["cash"] + total_positions_value
+    # HM-CLEANUP-TRIO-2026-07-04: fold in v1-era CSP realized P&L for agents
+    # that trade the wheel/CSP structure (currently: options-sosnoff). Zero
+    # for every other agent -- see _csp_realized_pnl_v1 docstring. v2-era CSP
+    # trades (exit_date >= TROI_V2_ERA_START) are deliberately excluded here;
+    # they get their own accounting once they exist, never blended into this
+    # v1 figure (HM-TROI-WHEEL-V2 doctrine: v1/v2/ghost never comingle).
+    csp_realized_pnl_v1 = _csp_realized_pnl_v1(player_id)
+    total_value = portfolio["cash"] + total_positions_value + csp_realized_pnl_v1
 
     starting = _STARTING_CASH.get(player_id, _DEFAULT_STARTING_CASH)
     return_pct = round((total_value - starting) / starting * 100, 2) if starting > 0 else 0.0
@@ -2970,6 +3011,7 @@ def get_portfolio_with_pnl(player_id: str, prices: dict) -> dict:
         "total_positions_value": round(total_positions_value, 2),
         "total_cost_basis": round(total_cost_basis, 2),
         "total_unrealized_pnl": round(total_unrealized, 2),
+        "csp_realized_pnl_v1": round(csp_realized_pnl_v1, 2),
         "total_value": round(total_value, 2),
         "return_pct": return_pct,
     }

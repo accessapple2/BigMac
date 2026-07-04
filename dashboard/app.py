@@ -2996,7 +2996,7 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
     - Do not overwrite balances or delete history during fixes
     """
     import time as _lt, json as _lj
-    from engine.paper_trader import get_portfolio_with_pnl
+    from engine.paper_trader import get_portfolio_with_pnl, TROI_V2_ERA_START
     from engine.market_data import get_bulk_prices
     from engine.universe import get_active_universe
 
@@ -3109,6 +3109,27 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
     except Exception:
         pass
 
+    # HM-CLEANUP-TRIO-2026-07-04: options-sosnoff/Troi's real activity is CSP
+    # wheel trades (options_trades), never the stock `trades` table -- the
+    # queries above were counting her ~12 pre-wheel legacy stock trades
+    # (4 SELLs, 4 wins = misleading 100% WR) instead of her actual 84-trade
+    # wheel book. Override (not add -- the legacy stock trades are a
+    # different, pre-"options-only" era) with v1-era CSP stats. Scoped to
+    # options-sosnoff only; every other agent's trade_counts/win_data is
+    # untouched.
+    try:
+        csp_stats = conn.execute(
+            "SELECT COUNT(*) as n, SUM(CASE WHEN pnl>0 THEN 1 ELSE 0 END) as wins "
+            "FROM options_trades WHERE agent_id='options-sosnoff' AND structure='csp' "
+            "AND status='closed' AND exit_date < ?",
+            (TROI_V2_ERA_START,),
+        ).fetchone()
+        if csp_stats and csp_stats["n"]:
+            trade_counts["options-sosnoff"] = csp_stats["n"]
+            win_data["options-sosnoff"] = round(csp_stats["wins"] / csp_stats["n"] * 100, 1)
+    except Exception:
+        pass
+
     # Season-filtered profit factor (sum of winning trades / sum of losing trades)
     profit_factor_data = {}
     pf_q = """
@@ -3144,6 +3165,20 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
             (current_season,)
         ).fetchall():
             season_realized[row["player_id"]] = float(row["total"])
+        # HM-CLEANUP-TRIO-2026-07-04: options_trades has no `season` column,
+        # so options-sosnoff/Troi's CSP wheel P&L was invisible to this
+        # season-anchored equity calc too -- same root cause as trade_counts/
+        # win_data above. Her entire v1 CSP history (2026-05-17 onward) falls
+        # within the current season by construction, so it's added in full
+        # rather than needing a season filter. v2-era trades excluded here on
+        # purpose (see TROI_V2_ERA_START) -- never comingled.
+        try:
+            from engine.paper_trader import _csp_realized_pnl_v1
+            season_realized["options-sosnoff"] = (
+                season_realized.get("options-sosnoff", 0.0) + _csp_realized_pnl_v1("options-sosnoff")
+            )
+        except Exception:
+            pass
 
     # Day P&L from portfolio_history (season-filtered)
     day_pnl = {}
@@ -3312,6 +3347,11 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
                 "has_shadow_options": p["id"] in shadow_options_players,
                 "positions_count": pos_counts.get(p["id"], 0),
                 "season_overlay": season_overlay,
+                # HM-CLEANUP-TRIO-2026-07-04: distinguishes the CSP wheel's
+                # v1 (blind, ended in the 2026-07-04 trim, 0 open positions)
+                # from v2 (gated under TROI_CSP_CAP_GATE, begins 2026-07-06).
+                # None for every agent that isn't currently in this state.
+                "book_status": ("FLAT — wheel v2 gated" if p["id"] == "options-sosnoff" else None),
             }
             result.append(annotate_player_payload(row))
         conn.close()
