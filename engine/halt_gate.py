@@ -7,10 +7,13 @@ Per XO_AUDIT_2026-05-03.md #1 + Admiral resolution of Open Q#1
   'exit_only' — no signals, no new entries; exits permitted (default for halts)
   'full'      — no signals, no trades, no exits (reserved for runaway agents)
 
-Existing `is_halted=1` rows migrated to halt_mode='exit_only'. The
-`is_halted` column remains for backwards-compat with ~22 read sites
-(dashboard, war_room, morning_briefing, etc.) and will be retired in a
-follow-up sprint after those sites migrate to halt_mode.
+Existing `is_halted=1` rows migrated to halt_mode='exit_only'. HM-B
+(2026-05-04, commit 9256890) already dropped the `is_halted` column from
+`ai_players` entirely, after all production read paths migrated to
+halt_mode -- this docstring was stale (HM-AGENT-RULES-CONSOLIDATION
+2026-07-04, AGENT-RULES-REVIEW-2026-07-03.md Inconsistency #10; see
+CLAUDE.md's halt_mode doctrine section for the migration record).
+`halt_mode` is the single source of truth; there is no is_halted fallback.
 
 This module is a thin DB-read helper. Halt state changes rarely; the
 trader service restarts on config change anyway, so a per-process cache

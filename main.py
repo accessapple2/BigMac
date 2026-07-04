@@ -225,12 +225,19 @@ def should_run_task(task_name: str, throttle_mins: int = 30) -> bool:
 #  the intent explicit).
 
 # Tier 1 — Bridge Crew: core decision-makers, every 30 min during market hours
+# HM-AGENT-RULES-CONSOLIDATION 2026-07-04 (AGENT-RULES-REVIEW-2026-07-03.md
+# Inconsistency #8): dayblade-sulu (exit_only since 2026-03-31 — Sulu is now
+# Iron Condor King only, see crew_specialization.py), super-agent (halt_mode=
+# 'full', shelved), deepseek-7b-grok4 (halt_mode='full', Door-1 kill-gate cut
+# 2026-06-19/20), and ollama-coder (halt_mode='full', same cut) removed — they
+# were never scanned anyway (build_all_providers skips 'full'; exit_only never
+# opens new positions), but a stale roster here misleads anyone reading this
+# file about who's actually live. mlx-qwen3 kept even though it's also
+# halt_mode='full' today — reopening it is a Batch-1 candidate (persona/naming
+# fix is a prereq, see AGENT-RULES-REVIEW Inconsistency #13/#18), not a dead
+# entry to prune.
 _SCAN_TIER1: frozenset = frozenset({
-    "dayblade-sulu",     # Sulu    S6.3 primary options trader (phi3:mini) — PRIORITY 1
-    "super-agent",       # Anderson      (crewai)
-    "deepseek-7b-grok4",            # Spock         (deepseek-r1:7b)
-    "ollama-coder",      # Data          (model resolved at runtime via agent_routing)
-    "mlx-qwen3",         # Chekov        (phi3:mini)
+    "mlx-qwen3",         # Chekov roster label / Ensign Ro in CREW_MANIFEST (phi3:mini) — halt_mode='full', Batch-1 reopen candidate
 })
 
 # Tier 2 — Department Heads: secondary signals, every 2 hours
@@ -300,11 +307,18 @@ def _get_scan_interval():
 
     Dilithium Crystal Protocol v2 — Pre-market intelligence starts at 10:30 PM MST (1:30 AM ET).
 
+    HM-AGENT-RULES-CONSOLIDATION 2026-07-04 (Inconsistency #19): this docstring
+    used to promise market-hours=3min/180s and power-hour=90s, but v3
+    (2026-03-23, config.py comment "Widened to cut API costs ~60%") set both
+    SCAN_INTERVAL_MARKET and SCAN_INTERVAL_POWER_HOUR to 300s and the docstring
+    was never updated. `_sectionIntervalDefs` above and config.py are the
+    values actually in effect — this docstring now matches them.
+
     Schedule (all MST, MST = ET - 3 during EDT):
       10:30 PM - 1:00 AM MST (1:30 AM - 4:00 AM ET): Early pre-market — every 5 min (300s)
-      1:00 AM - 6:30 AM MST  (4:00 AM - 9:30 AM ET): Full pre-market — every 2 min (120s)
-      6:30 AM - 12:00 PM MST (9:30 AM - 3:00 PM ET): Market hours — every 3 min (180s)
-      12:00 PM - 1:30 PM MST (3:00 PM - 4:30 PM ET): Power hour — every 90s
+      1:00 AM - 6:30 AM MST  (4:00 AM - 9:30 AM ET): Full pre-market — every 5 min (300s)
+      6:30 AM - 12:00 PM MST (9:30 AM - 3:00 PM ET): Market hours — every 5 min (300s, SCAN_INTERVAL_MARKET)
+      12:00 PM - 1:30 PM MST (3:00 PM - 4:30 PM ET): Power hour — every 5 min (300s, SCAN_INTERVAL_POWER_HOUR)
       1:30 PM - 5:00 PM MST  (4:30 PM - 8:00 PM ET): After hours — every 10 min (600s)
       5:00 PM - 9:00 PM MST  (8:00 PM - 12:00 AM ET): Evening — every 30 min (1800s)
       9:00 PM - 10:30 PM MST (12:00 AM - 1:30 AM ET): Overnight — every 30 min (1800s)
@@ -338,11 +352,11 @@ def _get_scan_interval():
         if 540 <= mins < 600:
             # Lunch lull 9:00–10:00 AM MST (12:00–1:00 PM ET) — scan 10 min (low volume)
             return 600
-        # 6:30 AM - 12:00 PM MST: Market hours (3 min)
-        return SCAN_INTERVAL_MARKET  # 180s
+        # 6:30 AM - 12:00 PM MST: Market hours (5 min — v3 2026-03-23 cost cut)
+        return SCAN_INTERVAL_MARKET  # 300s
     if 720 <= mins < 810:
-        # 12:00 PM - 1:30 PM MST: Power hour (90s)
-        return SCAN_INTERVAL_POWER_HOUR  # 90s
+        # 12:00 PM - 1:30 PM MST: Power hour (5 min — v3 2026-03-23 cost cut)
+        return SCAN_INTERVAL_POWER_HOUR  # 300s
     if 810 <= mins < 1020:
         # 1:30 PM - 5:00 PM MST: After hours (10 min)
         return SCAN_INTERVAL_EXTENDED  # 600s
