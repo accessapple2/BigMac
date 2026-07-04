@@ -1108,7 +1108,15 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         # Target default = 2× stop (2:1 RR floor). Text-only injection — actual
         # exit behavior still driven by downstream tier-exit logic.
         _model_sl = _rm.get_model_guardrail(player_id, "stop_loss_pct")
-        _sl_pct = _model_sl if _model_sl else _rm.get_stop_loss_pct(confidence)
+        if _model_sl:
+            _sl_pct = _model_sl
+        else:
+            # HM-AGENT-RULES-CONSOLIDATION 2026-07-04: was _rm.get_stop_loss_pct(confidence),
+            # which resolved to a stale RiskManager staticmethod (0.08 tight stop
+            # below 0.70 conviction -- the outlawed regression, since removed) instead
+            # of this canonical engine.stops function. Call it directly.
+            from engine.stops import get_stop_loss_pct
+            _sl_pct = get_stop_loss_pct(confidence)
         # === HM-DEEPSEEK-STOP-CAP 2026-05-23 ===
         # Hard dollar ceiling on per-trade max loss for agents that declare
         # `max_loss_dollar` in MODEL_GUARDRAILS. Tightens _sl_pct so the

@@ -229,18 +229,18 @@ class RiskManager:
             else:
                 return 0.15  # 15% for moderate conviction
 
-    @staticmethod
-    def get_stop_loss_pct(conviction: float) -> float:
-        """V2: Conviction-scaled stop-loss — wider stops for higher conviction.
-        Rallies Grok 4 held MU through -5% to -8% dips on way to +73%."""
-        if conviction >= 0.90:
-            return 0.18  # -18% stop for ultra-high conviction
-        elif conviction >= 0.80:
-            return 0.15  # -15% stop for high conviction
-        elif conviction >= 0.70:
-            return 0.12  # -12% stop for good conviction
-        else:
-            return 0.08  # -8% tight stop for low conviction
+    # HM-AGENT-RULES-CONSOLIDATION 2026-07-04 (AGENT-RULES-REVIEW-2026-07-03.md
+    # Inconsistency #5): the RiskManager.get_stop_loss_pct staticmethod that used
+    # to live here returned 0.08 for conviction <0.70 -- the exact tight-stop
+    # regression the canonical engine.stops.get_stop_loss_pct floor invariant
+    # (12% minimum) was built to remove (documented: it hurt ollama-kimi PF
+    # 9.89->4.02). It was live, not dead code: paper_trader.py:1111 called
+    # `_rm.get_stop_loss_pct(confidence)` on a RiskManager instance, which
+    # Python resolves to THIS class method, not the `get_stop_loss_pct`
+    # imported from engine.stops at the top of this file -- so every trade
+    # without an explicit MODEL_GUARDRAILS stop_loss_pct override was silently
+    # getting the outlawed 8% stop. Removed; paper_trader.py now calls
+    # engine.stops.get_stop_loss_pct directly.
 
     # Per-model specific guardrails
     MODEL_GUARDRAILS = {
