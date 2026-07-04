@@ -385,6 +385,28 @@ Historical drift snapshot archived to [`docs/CLAUDE-archive-2026-05.md`](docs/CL
 - Supports the "iterate to the next Top 4" feedback loop — no known-good code
   is lost.
 
+### Sulu DayBlade persona — RETIRED 2026-07-04 (HM-AGENT-RULES-CONSOLIDATION)
+`dayblade-sulu` carried two irreconcilable identities (AGENT-RULES-REVIEW-
+2026-07-03.md Inconsistency #6): `engine/providers/base.py`'s persona said
+intraday DayBlade (-3% hard stop, 15min-2hr holds, close everything by
+3:45 ET, no overnight) while `crew_specialization.py`'s CREW_MANIFEST /
+AGENT_STRATEGIES mandate says S6.3 Iron Condor King (21-45 DTE multi-week
+spreads — the literal opposite). Admiral decision: Iron Condor King is
+canonical. The DayBlade persona text is retired in-place inside
+`base.py` (commented block immediately above the live `"dayblade-sulu"`
+entry, not deleted) — restore only with explicit Admiral approval.
+
+**Not done in this pass (ticketed, see `docs/XO_BACKLOG.md`):** the
+"DayBlade" label and intraday-specific exemptions/assumptions are threaded
+through ~15 other files (`main.py`'s EOD options sweep, `paper_trader.py`'s
+sizing/circuit-breaker/long-only exemptions, `crew_scanner.py`,
+`super_backtest_v4.py`, `weekend_backtest.py`, etc.) — some of that code may
+already be functionally correct for an options/spread trader and just
+mislabeled "DayBlade" from before the S6.3 pivot; some may not be. `Sulu` is
+currently `halt_mode='exit_only'` (no new entries), so none of this is live-
+executing today. A full sweep is a separate, larger effort than a persona-
+text fix and needs its own review pass before touching behavior.
+
 ## Historical Archive
 Sprint logs, drydock sessions, "Lessons Banked" full narratives, and one-time
 state changes (HM-AN2.3 fire, HM-BK Phase 1 load, May 19-20 frontend window)
