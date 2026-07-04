@@ -5255,9 +5255,14 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
         const sym = String(r.ticker || '').replace(/[^A-Z0-9.=]/gi,'').toUpperCase();
         const fleetCls = r.in_fleet ? ' in-fleet' : '';
         const fleetBadge = r.in_fleet ? '<span class="in-fleet-badge">IN FLEET</span>' : '';
+        // HM-SCANNER-GHOST-FIX 2026-07-03: badge plans computed on stale data
+        // (entry >3% from live price — the BNY $146.60-vs-$138.88 case).
+        const staleBadge = r.stale_plan
+          ? '<span class="in-fleet-badge" style="background:rgba(245,158,11,0.2);color:#f59e0b;" title="Plan entry is ' + (r.plan_price_gap_pct != null ? r.plan_price_gap_pct + '%' : '>3%') + ' away from live price — computed on stale data">STALE PLAN</span>'
+          : '';
         const strats = Array.isArray(r.strategies) ? r.strategies.join(', ') : '';
         html += '<tr class="scanner-row' + fleetCls + '" data-symbol="' + sym + '">';
-        html += '<td class="scanner-sym">' + sym + fleetBadge + '</td>';
+        html += '<td class="scanner-sym">' + sym + fleetBadge + staleBadge + '</td>';
         html += '<td>' + (r.price != null ? '$' + fmtNum(r.price, 2) : '--') + '</td>';
         html += '<td style="' + heatColor(r.chg_close_pct, [5, 5]) + '">' + fmtPct(r.chg_close_pct) + '</td>';
         html += '<td style="' + heatColor(r.chg_open_pct, [3, 3]) + '">' + fmtPct(r.chg_open_pct) + '</td>';
@@ -5301,9 +5306,18 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           badge.style.color = '#f87171';
           return;
         }
-        badge.textContent = 'LIVE';
-        badge.style.background = '#22c55e22';
-        badge.style.color = '#22c55e';
+        // HM-SCANNER-GHOST-FIX 2026-07-03: market-calendar gate. When the
+        // exchange is closed the backend flags meta.market_open=false; show
+        // an amber CLOSED badge so tier rows read as reference, not live.
+        if (d && d.meta && d.meta.market_open === false) {
+          badge.textContent = 'CLOSED · STALE';
+          badge.style.background = '#f59e0b22';
+          badge.style.color = '#f59e0b';
+        } else {
+          badge.textContent = 'LIVE';
+          badge.style.background = '#22c55e22';
+          badge.style.color = '#22c55e';
+        }
         try {
           const t = d.ts ? new Date(d.ts) : new Date();
           stamp.textContent = t.toLocaleTimeString('en-US', {hour:'2-digit',minute:'2-digit',second:'2-digit',timeZone:'America/Phoenix'});  // HM-DRYDOCK-2: AZ path (was browser-local [])

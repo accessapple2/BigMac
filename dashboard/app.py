@@ -1980,7 +1980,11 @@ def api_scanner_convergence():
                      MAX(target_price) AS target,
                      MAX(created_at) AS last_seen
                 FROM strategy_signals
-               WHERE created_at >= datetime('now','-90 minutes')
+               -- HM-SCANNER-GHOST-FIX 2026-07-03: wrap with datetime() to
+               -- normalize ISO-T strings (same 'T' > ' ' ASCII leak the
+               -- Phase 2 comment documents) — without this, same-day rows
+               -- hours old leak into the "last 90 min" window.
+               WHERE datetime(created_at) >= datetime('now','-90 minutes')
                GROUP BY ticker
               HAVING strat_count >= 3
             ),
@@ -1990,7 +1994,8 @@ def api_scanner_convergence():
                      relative_volume,
                      alert_type
                 FROM volume_alerts
-               WHERE detected_at >= datetime('now','-90 minutes')
+               -- HM-SCANNER-GHOST-FIX 2026-07-03: same T-format normalization.
+               WHERE datetime(detected_at) >= datetime('now','-90 minutes')
                GROUP BY symbol
             ),
             in_fleet AS (
@@ -2049,7 +2054,15 @@ def api_scanner_convergence():
                    la.alert_type       AS recent_alert_type,
                    CASE WHEN ifl.symbol IS NOT NULL THEN 1 ELSE 0 END AS in_fleet
               FROM recent r
+              -- HM-SCANNER-GHOST-FIX 2026-07-03: mirror the HM-MOVERS-STALE-FIX
+              -- guards from /api/movers. This endpoint previously joined
+              -- mover_watchlist unfiltered, so the documented BNY +1261%
+              -- pre-split ghost row (and any stale holiday snapshot) leaked
+              -- straight into the scanner tiles as live price/chg/rel_vol.
+              -- A filtered-out row degrades to NULL -> UI renders '--'.
               LEFT JOIN mover_watchlist     mw  ON mw.symbol = r.ticker
+                   AND mw.refreshed_at >= datetime('now','-24 hours')
+                   AND ABS(COALESCE(mw.pct_change, 0)) <= 50
               LEFT JOIN volume_baselines    vb  ON vb.symbol = r.ticker
               LEFT JOIN latest_alert        la  ON la.symbol = r.ticker
               LEFT JOIN in_fleet            ifl ON ifl.symbol = r.ticker
@@ -2116,6 +2129,21 @@ def api_scanner_convergence():
             except (TypeError, ValueError):
                 conf_pct = None
 
+            # HM-SCANNER-GHOST-FIX 2026-07-03: entry-vs-live-price consistency.
+            # A plan whose entry sits >3% from the live price was computed on
+            # stale data (the 2026-07-03 BNY case: entry $146.60 vs $138.88).
+            # Surfaced as stale_plan so the UI can badge instead of hiding.
+            plan_price_gap_pct = None
+            stale_plan = False
+            try:
+                _px = d.get("price")
+                if _px is not None and entry is not None and float(_px) > 0:
+                    plan_price_gap_pct = round(
+                        (float(entry) - float(_px)) / float(_px) * 100.0, 2)
+                    stale_plan = abs(plan_price_gap_pct) > 3.0
+            except (TypeError, ValueError):
+                plan_price_gap_pct = None
+
             tier_list = {"tier1": tier1, "tier2": tier2, "tier3": tier3}[tier]
             tier_list.append({
                 "ticker": d["ticker"],
@@ -2135,7 +2163,21 @@ def api_scanner_convergence():
                 "recent_alert_type": d.get("recent_alert_type"),
                 "in_fleet": bool(d.get("in_fleet")),
                 "last_seen": d.get("last_seen"),
+                "plan_price_gap_pct": plan_price_gap_pct,
+                "stale_plan": stale_plan,
             })
+
+        # HM-SCANNER-GHOST-FIX 2026-07-03: market-calendar gate. When the
+        # exchange is closed (weekend/holiday/early close) every "live"
+        # number on this tile is by definition stale; expose the flag so the
+        # UI can badge the whole panel instead of presenting ghost signals
+        # as actionable. Fail-open (None) if the calendar import breaks.
+        _market_open = None
+        try:
+            from engine.market_calendar import is_us_market_open
+            _market_open = bool(is_us_market_open())
+        except Exception:
+            _market_open = None
 
         payload = {
             "ts": datetime.now(timezone.utc).isoformat(),
@@ -2147,6 +2189,7 @@ def api_scanner_convergence():
                 "tier2_count": len(tier2),
                 "tier3_count": len(tier3),
                 "window_minutes": 90,
+                "market_open": _market_open,
             },
         }
         _SCANNER_LIVE_CACHE["data"] = payload
@@ -5902,6 +5945,8 @@ def gex_all():
             "king_node": c.get("king_node"), "regime": c.get("regime"),
             "strikes": c.get("strikes", []),
             "source": "canonical (options_flow_gex)",
+            "market_closed": bool(c.get("market_closed")),
+            "as_of": c.get("as_of") or c.get("_asof"),
         })
     return out
 
@@ -5909,6 +5954,14 @@ def gex_all():
 _gex_symbol_cache: dict = {}   # {symbol: {"data": ..., "ts": float}}
 _GEX_CACHE_TTL = 60.0
 _GEX_COLD_TIMEOUT = 15.0
+
+
+def _gex_market_open() -> bool:
+    try:
+        from engine.fast_scanner import is_market_hours as _gex_mh
+        return _gex_mh()
+    except Exception:
+        return True  # assume open if the check itself is broken — never silently mask a live path
 
 
 def _canonical_gex_cached(symbol: str) -> dict:
@@ -5920,6 +5973,16 @@ def _canonical_gex_cached(symbol: str) -> dict:
     minutes. Serve the last-good result instantly (stamped with its age) and
     refresh in the background once stale — same intent as gex_all's bounded
     thread+deadline pattern above, adapted for a single-symbol cache.
+
+    HM-DIRECTIVE-2026-07-02 Deck3 (XO overnight sweep): a cold in-memory cache
+    (e.g. right after a restart) with the market closed used to still spawn a
+    live fetch and block for up to _GEX_COLD_TIMEOUT — pointless when the
+    upstream is dead for the night, and if that live fetch then raised (common
+    after-hours), the cache never warmed, so every poll repeated the same
+    dead-end all night. Market-closed + cold cache now goes straight to the
+    durable data/flow_gex.db snapshot (engine.canonical_gex.latest_snapshot) —
+    no Polygon call, no wait — and warms the in-memory cache from it so repeat
+    polls are instant too.
     """
     now = _time.time()
     entry = _gex_symbol_cache.get(symbol)
@@ -5928,9 +5991,26 @@ def _canonical_gex_cached(symbol: str) -> dict:
 
     lock_key = f"gex:{symbol}"
 
+    if not entry and not _gex_market_open():
+        from engine.canonical_gex import latest_snapshot
+        data = latest_snapshot(symbol)
+        # Same collapsed-wall guard as canonical_gex() tier 2 (HM-DRYDOCK 2026-06-09
+        # EPIC4) — a snapshot with call_wall==put_wall==king_node is a known stale
+        # artifact, not a usable last-known-good value. Don't serve it just because
+        # the market happens to be closed.
+        if data and data.get("call_wall") is not None and data["call_wall"] == data.get("put_wall") == data.get("king_node"):
+            data = None
+        if data:
+            data["market_closed"] = True
+            data["as_of"] = data.get("_asof")
+            _gex_symbol_cache[symbol] = {"data": data, "ts": now}
+            return data
+        return {"error": "no cached GEX available (market closed)", "pending": False, "market_closed": True}
+
     if entry:
-        # Stale but usable — serve immediately, kick one background refresh.
-        if _swr_locks.setdefault(lock_key, threading.Lock()).acquire(blocking=False):
+        # Stale but usable — serve immediately, kick one background refresh
+        # (market hours only; no point hammering a dead upstream overnight).
+        if _gex_market_open() and _swr_locks.setdefault(lock_key, threading.Lock()).acquire(blocking=False):
             def _refresh():
                 try:
                     data = _canonical_gex(symbol)
@@ -13556,6 +13636,33 @@ def clear_sw():
 })();
 </script>
 </body></html>""", headers={"Cache-Control": "no-cache, no-store, must-revalidate"})
+
+
+@app.post("/api/diag/idle-watchdog")
+async def idle_watchdog_report(request: Request):
+    """HM-DIRECTIVE-2026-07-03: bridge-v2's client-side never-idle watchdog beacon.
+
+    2026-07-02 XO investigation concluded the "document never reaches idle" symptom
+    was a Claude-in-Chrome extension-side artifact (its per-tab document_idle tracker
+    getting wedged by unrelated pages that genuinely never finished — pre-fix
+    SwingDesk, pre-fix GEX — and staying sticky across subsequent navigations on that
+    tab), not a bridge-v2 bug; two fresh authenticated loads showed load firing in
+    ~200ms with zero stuck resources. This endpoint is the cheap-insurance follow-up:
+    if bridge-v2 itself ever genuinely fails to settle within 15s, the client posts
+    here so it's a logged trace, not another anecdote to reconstruct after the fact.
+    """
+    try:
+        payload = await request.json()
+    except Exception:
+        payload = {}
+    line = json.dumps({"logged_at": datetime.now(timezone.utc).isoformat(), **payload})
+    path = os.path.join(os.path.dirname(__file__), "..", "logs", "idle_watchdog.log")
+    try:
+        with open(path, "a") as f:
+            f.write(line + "\n")
+    except Exception:
+        pass
+    return {"ok": True}
 
 
 @app.get("/")
