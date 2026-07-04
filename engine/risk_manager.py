@@ -105,6 +105,118 @@ def _log_conviction_stop_shadow(*, player_id: str, symbol: str, pnl_pct: float,
             pass
 
 
+# === HM-TROI-GUARDRAILS-TRIM 2026-07-04 — CSP notional visibility =========
+# Root cause per HM-TROI-MAXPOS-CAP-DEAD (2026-07-03) + HM-TROI-DEEPDIVE
+# (2026-07-03): wheel_strategy.py's own position cap counted CSPs by reading
+# `positions` (the stock table). CSP legs opened via options_exec.
+# open_options_trade() never write there — they only write to
+# `options_trades` — so the cap was silently uncapped from day one (48 open
+# CSPs found, ~$1.3M notional, vs a coded MAX_POSITIONS=3). This module reads
+# the correct table.
+#
+# Capital-base ambiguity (documented, not newly invented here): Troi's own
+# `ai_players.cash` is explicitly decoupled from CSP accounting (HM-W1F4
+# 2026-05-17) and isn't a meaningful denominator for a CSP notional cap. The
+# CSP notional actually draws against the shared `options_books` pool
+# (book_tag='fleet'), so that pool's `current_cash` is the denominator used
+# here for both the options-book cap and the per-underlying cap.
+def get_csp_exposure(book_tag: str = "fleet") -> dict:
+    """Open cash-secured-put notional exposure, sourced from options_trades
+    (never the stock positions table). Returns book_value, total_notional,
+    per_underlying_notional, and both utilization percentages (book-level
+    10% options cap, per-underlying 30% position cap)."""
+    import json as _json
+    conn = sqlite3.connect(DB, timeout=10)
+    conn.row_factory = sqlite3.Row
+    try:
+        book_row = conn.execute(
+            "SELECT current_cash FROM options_books WHERE book_tag = ?", (book_tag,)
+        ).fetchone()
+        book_value = float(book_row["current_cash"]) if book_row else 0.0
+
+        rows = conn.execute(
+            "SELECT symbol, legs_json FROM options_trades "
+            "WHERE book_tag = ? AND structure = 'csp' AND status = 'open'",
+            (book_tag,),
+        ).fetchall()
+    finally:
+        conn.close()
+
+    per_underlying: dict[str, float] = {}
+    for r in rows:
+        try:
+            legs = _json.loads(r["legs_json"])
+        except (_json.JSONDecodeError, TypeError):
+            continue
+        put_leg = next((l for l in legs if l.get("side") == "short" and l.get("type") == "put"), None)
+        if not put_leg:
+            continue
+        try:
+            notional = float(put_leg["strike"]) * 100 * int(put_leg.get("qty", 1))
+        except (KeyError, TypeError, ValueError):
+            continue
+        per_underlying[r["symbol"]] = per_underlying.get(r["symbol"], 0.0) + notional
+
+    total_notional = sum(per_underlying.values())
+    options_cap_utilization_pct = (total_notional / book_value * 100) if book_value else 0.0
+    per_underlying_utilization_pct = {
+        sym: (notional / book_value * 100) if book_value else 0.0
+        for sym, notional in per_underlying.items()
+    }
+    return {
+        "book_tag": book_tag,
+        "book_value": book_value,
+        "total_notional": total_notional,
+        "per_underlying_notional": per_underlying,
+        "options_cap_utilization_pct": options_cap_utilization_pct,
+        "per_underlying_utilization_pct": per_underlying_utilization_pct,
+    }
+
+
+def log_csp_exposure(book_tag: str = "fleet") -> dict:
+    """Log a single visibility line: total CSP notional, options-cap
+    utilization %, per-underlying utilization %. Call at each risk
+    evaluation. Never raises — a logging failure must not break the risk
+    loop (broad catch correct here per Error Handling Posture)."""
+    try:
+        exp = get_csp_exposure(book_tag)
+        from config import OPTIONS_TOTAL_MAX_PCT, MAX_POSITION_PCT
+        per_under_str = ", ".join(
+            f"{sym}={pct:.1f}%" + ("*" if pct > MAX_POSITION_PCT * 100 else "")
+            for sym, pct in sorted(
+                exp["per_underlying_utilization_pct"].items(), key=lambda kv: -kv[1]
+            )
+        ) or "none"
+        from rich.console import Console
+        Console().log(
+            f"[cyan][CSP-EXPOSURE] book={exp['book_tag']} "
+            f"notional=${exp['total_notional']:,.2f} "
+            f"options_cap={exp['options_cap_utilization_pct']:.1f}%"
+            f"{'*' if exp['options_cap_utilization_pct'] > OPTIONS_TOTAL_MAX_PCT * 100 else ''} "
+            f"(cap {OPTIONS_TOTAL_MAX_PCT*100:.0f}%) | per-underlying (cap "
+            f"{MAX_POSITION_PCT*100:.0f}%, * = over): {per_under_str}"
+        )
+        return exp
+    except Exception as e:
+        try:
+            from rich.console import Console
+            Console().log(f"[yellow]log_csp_exposure failed: {type(e).__name__}: {e!r}")
+        except Exception:
+            pass
+        return {}
+
+
+def csp_options_cap_breached(book_tag: str = "fleet") -> tuple[bool, dict]:
+    """True if book-level CSP notional exceeds config.OPTIONS_TOTAL_MAX_PCT
+    of the book's current_cash. Used to gate NEW CSP opens only — existing
+    positions are never force-closed by this check."""
+    from config import OPTIONS_TOTAL_MAX_PCT
+    exp = get_csp_exposure(book_tag)
+    breached = exp["options_cap_utilization_pct"] > (OPTIONS_TOTAL_MAX_PCT * 100)
+    return breached, exp
+# === /HM-TROI-GUARDRAILS-TRIM ===============================================
+
+
 class RiskManager:
     # === UNIVERSAL TRADE GUARDRAILS (Strategy Lab S4 backtest + Rallies Arena lessons) ===
     # Rallies Arena winner Grok 4: +8.1% with ~5 trades/month, 40% cash.

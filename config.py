@@ -274,6 +274,14 @@ OPTIONS_AUTO_CLOSE_DTE = 1  # auto-close options this many days before expiry
 OPTIONS_STOP_LOSS_PCT = 0.50  # exit option if premium drops 50% from entry
 OPTIONS_PREFER_ITM = True  # prefer ATM/slightly ITM strikes over OTM
 
+# HM-TROI-GUARDRAILS-TRIM 2026-07-04: blocks NEW Troi CSP opens while the
+# shared options book's CSP notional exceeds OPTIONS_TOTAL_MAX_PCT of the
+# book's current_cash (engine.risk_manager.csp_options_cap_breached()).
+# Existing open positions are never force-closed by this flag. Default ON —
+# HM-TROI-MAXPOS-CAP-DEAD found this cap was silently non-functional (wrong
+# source table) with 48 open CSPs / ~$1.3M notional already on the book.
+TROI_CSP_CAP_GATE = True
+
 # Telegram Alerts
 TELEGRAM_BOT_TOKEN = os.environ.get("TELEGRAM_BOT_TOKEN", "")
 TELEGRAM_CHAT_ID = os.environ.get("TELEGRAM_CHAT_ID", "")
