@@ -3356,10 +3356,12 @@ def run_chekov_stoploss():
 
 @_hm_bq_instr("run_guardian_sweep")
 def run_guardian_sweep():
-    """HM-GUARDIAN-ADOPTION: exit-only stop sweep for guardian-of-forever.
-    The scan loop only stop-checks halt_mode='active' players; guardian is
-    exit_only, so it needs this dedicated sweep. Flat 12% stop + tiered TP;
-    exits route to Alpaca Paper (real close); stuck_stop_guard covers it."""
+    """HM-GUARDIAN-ADOPTION: exit-only stop sweep. The scan loop only stop-checks
+    halt_mode='active' players. HM-AGENT-RULES-CONSOLIDATION 2026-07-04: generalized
+    from guardian-of-forever-only to every exit_only agent holding an open position
+    (queried fresh each run) after an audit found 4 more seats silently uncovered.
+    Flat 12% stop + tiered TP; exits route to Alpaca Paper (real close);
+    stuck_stop_guard covers it."""
     try:
         from engine.guardian_sweep import run_guardian_sweep as _sweep
         _sweep()
@@ -4906,7 +4908,7 @@ if __name__ == "__main__":
     schedule.every(30).minutes.do(run_universe_scan)         # Universe Scanner: checks every 30 min, runs 9 PM MST (12 AM ET)
     schedule.every(30).minutes.do(run_strategy_scan)         # Strategy Scan: checks every 30 min, runs 10 PM MST (1 AM ET)
     schedule.every(10).minutes.do(run_chekov_stoploss)        # Chekov SL/TP: every 10 min, check positions vs stop/target
-    schedule.every(10).minutes.do(run_guardian_sweep)         # HM-GUARDIAN-ADOPTION: exit-only guardian stop/TP sweep (orphan positions), routes exits to Alpaca
+    schedule.every(10).minutes.do(run_guardian_sweep)         # HM-GUARDIAN-ADOPTION: exit-only stop/TP sweep, ALL exit_only agents w/ open positions (not just guardian-of-forever, since 2026-07-04), routes exits to Alpaca
 
     # HM-GUARDIAN-ADOPTION: one-time immediate sweep at startup so there is NO
     # ~10-min coverage gap after a restart (the 10-min schedule above is the
