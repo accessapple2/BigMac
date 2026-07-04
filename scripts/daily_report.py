@@ -13,10 +13,19 @@ import json
 import re
 import sqlite3
 import subprocess
+import sys
 from datetime import date, datetime, timedelta
 from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
+# HM-TROI-GHOST-BOOK-2026-07-04: cron invokes this script by absolute path
+# without cd-ing to ROOT first (crontab: .venv/bin/python3 <abs path>), so
+# sys.path[0] defaults to scripts/, not the project root -- `from engine...`
+# imports fail with ModuleNotFoundError otherwise. Needed for the ghost-book
+# piggyback below; harmless for the rest of this script, which has no other
+# `engine`/`config` imports today.
+if str(ROOT) not in sys.path:
+    sys.path.insert(0, str(ROOT))
 DB = ROOT / "data" / "trader.db"
 DRAFTS = ROOT / "drafts"
 GRADES_FILE = DRAFTS / "grades.json"
@@ -455,6 +464,16 @@ def main():
     else:
         append_ledger_row(ledger_values)
         print(f"[daily_report] appended ledger row for {today}")
+
+    # HM-TROI-GHOST-BOOK-2026-07-04: piggyback the ghost-book daily mark on
+    # this existing cron (no new daemon). Never let a ghost-book failure
+    # break the rest of the daily report.
+    try:
+        from engine.troi_ghost_book import run_ghost_mark
+        ghost_res = run_ghost_mark(as_of=today)
+        print(f"[daily_report] ghost-book mark: {ghost_res}")
+    except Exception as e:
+        print(f"[daily_report] ghost-book mark failed (non-fatal): {type(e).__name__}: {e!r}")
 
 
 if __name__ == "__main__":
