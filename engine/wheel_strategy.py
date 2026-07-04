@@ -95,6 +95,12 @@ def run_wheel_scan():
         positions = portfolio.get("positions", [])
 
         # Count active wheel option positions
+        # HM-TROI-GUARDRAILS-TRIM 2026-07-04: this check reads the stock
+        # `positions` table, which CSP legs never populate (they only write
+        # to options_trades) -- it has been a structural no-op since the
+        # wheel started (HM-TROI-MAXPOS-CAP-DEAD). Left in place (harmless,
+        # cheap) but superseded below by the notional-based gate, which reads
+        # the correct table.
         wheel_puts = [
             p for p in positions
             if p["symbol"] in WHEEL_TICKERS and p.get("asset_type") == "option"
@@ -103,6 +109,41 @@ def run_wheel_scan():
             console.log("[dim]Wheel: Max put positions reached")
             _done_today = True
             return
+
+        # HM-TROI-GUARDRAILS-TRIM 2026-07-04: the real gate. Blocks new CSP
+        # opens while the shared options book is over its 10% notional cap.
+        # Existing positions are exempt -- this only stops NEW opens.
+        import config as _cfg
+        if getattr(_cfg, "TROI_CSP_CAP_GATE", True):
+            from engine.risk_manager import csp_options_cap_breached, log_csp_exposure
+            breached, exposure = csp_options_cap_breached()
+            log_csp_exposure()  # visibility line every scan, breached or not
+            if breached:
+                console.log(
+                    f"[red]Wheel: BLOCKED — options-book CSP notional "
+                    f"${exposure.get('total_notional', 0):,.2f} "
+                    f"({exposure.get('options_cap_utilization_pct', 0):.1f}% of book) "
+                    f"exceeds cap — no new opens this scan"
+                )
+                try:
+                    from engine.alert_channels import send_alert, AlertLevel
+                    send_alert(
+                        message=(
+                            f"Troi CSP cap gate: new opens blocked — book notional "
+                            f"${exposure.get('total_notional', 0):,.2f} = "
+                            f"{exposure.get('options_cap_utilization_pct', 0):.1f}% of "
+                            f"options book (cap {_cfg.OPTIONS_TOTAL_MAX_PCT*100:.0f}%)."
+                        ),
+                        level=AlertLevel.WARNING,
+                        alert_type="troi_csp_cap_breach",
+                        title="🎡 Troi CSP cap breached — new opens blocked",
+                        audience="admin",
+                        rate_limit_secs=86400,  # one alert per day max
+                    )
+                except Exception as _e:
+                    console.log(f"[yellow]Wheel: cap-breach NTFY failed: {type(_e).__name__}: {_e!r}")
+                _done_today = True
+                return
 
         # Check VIX — high VIX = fat premiums (best selling environment)
         vix = 20.0  # default
