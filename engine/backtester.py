@@ -255,6 +255,11 @@ def _simulate_raw(signals: list, hist_data: dict) -> tuple:
     cash = STARTING_CASH
     trades = []
     last_buy_ts: dict[str, datetime] = {}
+    # HM-BACKTEST-REALISM counter fix 2026-07-03: raw mode previously applied
+    # the reentry cooldown and friction but never counted them, so
+    # run_realism_check reported reentry_blocked=null / friction_paid=0.0
+    # in raw mode while the P&L silently included both effects.
+    raw_stats = {"reentry_blocked": 0, "friction_paid": 0.0}
 
     for sig in signals:
         sym = sig["symbol"]
@@ -270,6 +275,7 @@ def _simulate_raw(signals: list, hist_data: dict) -> tuple:
         if ENFORCE_DISPATCH_REALISM and sig_ts is not None:
             prev = last_buy_ts.get(sym)
             if prev is not None and (sig_ts - prev) < timedelta(minutes=REENTRY_COOLDOWN_MIN):
+                raw_stats["reentry_blocked"] += 1
                 continue
 
         entry_price = prices[signal_date]
@@ -289,6 +295,7 @@ def _simulate_raw(signals: list, hist_data: dict) -> tuple:
         # HM-BACKTEST-REALISM: round-trip commission + slippage.
         fr = _friction(cost, qty * exit_price)
         pnl -= fr
+        raw_stats["friction_paid"] += fr
 
         cash -= cost
         cash += qty * exit_price
@@ -305,7 +312,7 @@ def _simulate_raw(signals: list, hist_data: dict) -> tuple:
             "skipped": False, "skip_reason": "",
         })
 
-    return trades, cash
+    return trades, cash, raw_stats
 
 
 def _v3_trailing_stop_pct(gain_pct: float) -> float:
@@ -800,7 +807,14 @@ def backtest_player(player_id: str, days: int = 30,
         console.log(f"[cyan]Guarded backtest: {len(trades)} trades executed, "
                      f"{len(skipped_signals)} signals skipped by guardrails")
     else:
-        trades, final_cash = _simulate_raw(signals, hist_data)
+        result_tuple = _simulate_raw(signals, hist_data)
+        # HM-BACKTEST-REALISM counter fix: raw now returns 3 values
+        # (trades, cash, raw_stats); tolerate the legacy 2-tuple shape.
+        if len(result_tuple) == 3:
+            trades, final_cash, raw_stats = result_tuple
+        else:
+            trades, final_cash = result_tuple
+            raw_stats = {}
         skipped_signals = []
 
     # Build equity curve
@@ -835,6 +849,9 @@ def backtest_player(player_id: str, days: int = 30,
     # V3: Add trailing stop / pyramid / quality gate stats
     if apply_guardrails and 'v3_stats' in dir():
         stats.update(v3_stats)
+    # HM-BACKTEST-REALISM counter fix: surface raw-mode dispatch counters
+    if not apply_guardrails and 'raw_stats' in dir():
+        stats.update(raw_stats)
 
     result = {
         "player_id": player_id,
