@@ -211,15 +211,18 @@ def _get_position_size_pct(conviction: float, is_bear: bool) -> float:
 # with the local caller below; new code should import directly from engine.stops.
 from engine.stops import get_stop_loss_pct as _get_stop_loss_pct
 
-# V2: Minimum holding periods (days)
-MIN_HOLD_DAYS = {
-    "default": 5,
-    "deepseek-7b-grok4": 7,
-    "qwen3-8b-flash": 5,
-    "ollama-local": 5,
-    "ollama-qwen3": 10,
-    "ollama-plutus": 7,
-}
+# HM-AGENT-RULES-CONSOLIDATION 2026-07-04 (AGENT-RULES-REVIEW-2026-07-03.md
+# Inconsistency #7): this used to be a per-model dict (5-10 trading days,
+# unrelated to what the live system actually enforces). Live paper_trader.py's
+# _check_min_hold() is 24h universal / 72h (3 days) for SWING timeframe
+# trades, stop/target sells always bypass. That's the canonical rule now.
+# This backtester operates on the v1 `signals` table, which (see
+# ASSUMED_TIMEFRAME above) carries no per-signal timeframe column at all --
+# every signal here is already treated as swing, so the 24h non-swing branch
+# never applies to this dataset. MIN_HOLD_DAYS=3 is the honest single-tier
+# parity value: 3 trading days is this daily-bar backtester's natural analog
+# to live's 72h/3-day swing minimum.
+MIN_HOLD_DAYS = 3
 
 # V2: Position limits
 BEAR_MAX_POSITIONS = 3
@@ -344,7 +347,7 @@ def _simulate_guarded(player_id: str, signals: list, hist_data: dict,
     v3_stats = {"trailing_stops_hit": 0, "pyramids_executed": 0, "quality_gate_blocked": 0,
                 "reentry_blocked": 0, "friction_paid": 0.0}
 
-    min_hold = MIN_HOLD_DAYS.get(player_id, MIN_HOLD_DAYS["default"])
+    min_hold = MIN_HOLD_DAYS
 
     # V3: Pre-fetch fundamentals for quality gate (cached, so only fetched once per symbol)
     _fundamentals_cache = {}
