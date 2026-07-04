@@ -5,6 +5,124 @@
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
 ---
+## 🆕 HM-AGENT-RULES-CONSOLIDATION — 2026-07-04, Admiral-decided batches A-F shipped
+
+Source: `drafts/AGENT-RULES-REVIEW-2026-07-03.md` (21 inconsistencies) +
+Admiral decisions 2026-07-04. Canonical numbers baked in across
+trading_rules.txt/config.py/risk_manager.py/base.py/stops.py (max positions
+5/3, cash floor 20%/35%, stops = engine/stops.py 12/15/18 tiers, options cap
+10%, position cap 30%); Sulu persona retired to Iron Condor King; stale 0.08
+conviction-stop staticmethod removed (was a LIVE bug via paper_trader.py,
+not dead code); Tier-1 roster swept of halt_mode='full' entries; exit_only
+stop coverage generalized to all agents holding positions (was
+guardian-of-forever only, missed 15 positions across 4 other seats).
+Commits: acd62d1, 2787efa, 9b3767f, f9e3a4c, a384667, 9d3e097 (see each for
+detail). Document-only items and tickets below.
+
+**Document-only (no code change, per Admiral instruction):**
+- **Item 9 — ADVISORY_CREW kill-gated bridge voters silently out of WR
+  vote.** The 06-19/20 Door-1 kill-gate moved qwen3-8b-sonnet, qwen3-14b-pro,
+  deepseek-7b-grok4, ollama-kimi, dalio-metals, ollama-coder to `halt_mode=
+  'full'`. war_room.py:1132-1133 excludes non-active players from the bridge
+  vote. Those 6 were originally kept `active` specifically so they'd still
+  bridge-vote (FLEET-ROSTER.md design intent) — the kill-gate silently
+  removed their vote as a side effect of a decision made for a different
+  reason. **Accepted as-is** — re-adding them to the vote while `full`
+  would contradict the kill-gate's own intent (a runaway agent shouldn't
+  get a vote either). Revisit only if/when any of these 6 are reopened.
+- **Item 21 — TRADE_DESK_BYPASS_GATES=True (config.py:34).** Trade-desk
+  manual orders bypass daily limits, MAX_POSITION_VALUE, kill switch, and
+  Uhura veto. **Accepted as-is** — this is the manual human trade-desk path,
+  not an AI agent; a human placing a deliberate order shouldn't be blocked
+  by automated per-agent gates. Flagging here so any future "what can trade
+  without rules" audit has this on record.
+
+**Tickets (found during the audit, not fixed — separate scoped work):**
+- 🔵 **Item 11 — model-id triage.** `config.AI_PLAYERS` is documented-wrong
+  for ~10 agents (config.py:302-312); DB `ai_players.model_id` is runtime
+  truth but some of those are themselves garbage placeholders (neo-matrix =
+  `'8000 / Independent'`). `CREW_MANIFEST` model fields are a THIRD,
+  independently-divergent source (e.g. crew_specialization.py:294 says McCoy
+  = `0xroyce/plutus:latest` vs config's `plutus-v1`). Needs one pass that
+  picks a single source of truth and reconciles the other two, not spot
+  fixes.
+- 🔵 **Item 12 — cto-grok42 dead model.** `crew_specialization.py:613`:
+  `ai_players.model_id` still `devstral-small-2`, uninstalled since the MSI
+  migration. War Room / debate calls 404 for this agent until the DB row is
+  fixed. Sits in `_SCAN_TIER3` regardless (harmless — Tier 3 members mostly
+  `halt_mode='full'` anyway) but the model-id fix itself is a one-line SQL
+  UPDATE + verify, cleanly scoped.
+- 🔵 **Item 13 — naming dedup.** Two agents both display as "Lt. Jadzia Dax"
+  (crew_specialization.py:310, 465). `main.py`'s Tier-2 comment labels
+  `ollama-qwen3` "Scotty" while `CREW_MANIFEST` calls it "Dax". `mlx-qwen3`
+  is labeled "Chekov" in `main.py` roster comments but "Ensign Ro" in
+  `CREW_MANIFEST`. `FLEET-ROSTER.md` still carries a stale 2026-06-01
+  21/6/45 count vs `CLAUDE.md`'s current 15/9/55/79 (2026-07-01) waypoint.
+  Reopening decisions made off display names alone will hit the wrong
+  player_id — needs a single naming pass across main.py comments,
+  CREW_MANIFEST, and FLEET-ROSTER.md.
+- 🔵 **Item 18 — paused personas vs full mandates.** Nine ids have
+  placeholder personas (`base.py`: `"Paused. Former quant specialist."`) while
+  `CREW_MANIFEST` simultaneously defines real mandates for them (Sisko,
+  Tuvok, Janeway, Q, Bashir, Hoshi, Seven, Reed, Odo). If any of these are
+  reopened without persona restoration first, they'd scan with no identity/
+  rules beyond the generic RULES block. **`qwen3-8b-flash` (Worf)'s persona
+  check is a prerequisite for the Batch-1 reopening pass** (mlx-qwen3 is
+  Batch-1's headline candidate; Worf shares the same drift-reconcile history
+  — verify its persona isn't also stale before either seat flips).
+- 🔵 **Sulu DayBlade-label sweep (found while retiring the persona, commit
+  9d3e097).** ~15 files still reference `dayblade-sulu` with DayBlade-era
+  assumptions: `main.py`'s EOD options sweep (`close_all_options`),
+  `paper_trader.py`'s sizing/circuit-breaker/long-only exemptions,
+  `crew_scanner.py`, `super_backtest_v4.py`, `weekend_backtest.py`, etc. Some
+  of this may already be functionally correct for an options/spread trader
+  and just mislabeled from before the S6.3 pivot to Iron Condor King; some
+  may not be. `dayblade-sulu` is `halt_mode='exit_only'` today (no new
+  entries), so nothing here is live-executing — needs its own review pass
+  before touching behavior, not a spot-fix. See CLAUDE.md Archive Convention
+  section for the persona-retirement record.
+
+---
+## 🔴 HM-TROI-MAXPOS-CAP-DEAD — HIGH (filed 2026-07-03) — read-only diagnostic done
+
+**Finding (HM-TROI-DEEPDIVE-2026-07-03):** Troi's (`options-sosnoff`) CSP wheel strategy is carrying
+**48 open positions / ~$1,315,399 notional cash-secured-put exposure** against a cash base that's
+either $12,880.20 (`ai_players.cash`, explicitly decoupled from CSP accounting since HM-W1F4
+2026-05-17) or a shared $73,380.21 fleet pool (`options_books.fleet.current_cash`, split across
+`options-sosnoff` + `strategy:bull_spread_v1` + `swingdesk-manual` — no clean Troi-only slice).
+Either way, notional secured is 16x+ the smaller figure. Trade-level performance itself is fine
+(100% win rate closed, 36/36, +$7,972.21 realized) — this is a position-sizing control failure, not
+a strategy problem.
+
+**ROOT CAUSE:** `engine/wheel_strategy.py`'s `MAX_POSITIONS = 3` cap and its "skip if already held"
+check both read `get_portfolio(PLAYER_ID)["positions"]` (`engine/paper_trader.py:540`), which queries
+the stock `positions` table. But `open_options_trade()` (`engine/options_exec.py`) writes CSP legs
+only to `options_trades`, never to `positions`. So every scan sees **zero** existing option
+positions and **zero** held symbols, no matter how many are actually open — the cap and the dedup
+are both silently dead code for options. `open_options_trade()` itself has no position-count or
+already-held check of its own (only the HM-DOOR1 leveraged-ETF blocklist gate).
+
+**Evidence — same-symbol, same-day stacking with no cap in sight:**
+- 2026-06-11: 6 SOXL entries, 6 UPRO entries, 6 TQQQ entries — all in one day.
+- 2026-06-12: 4 each (SOXL/UPRO/TQQQ). 2026-06-08 and 2026-06-09: 3 each.
+- Current open book: 18 SOXL + 18 UPRO (all entered ≤2026-06-12, pre-Door1) + 6 QQQ + 6 SPY (all
+  entered ≥2026-06-23, post-Door1 pivot to non-leveraged underlyings) = 48 total, vs the coded cap
+  of 3.
+
+**Severity: HIGH, not yet realized as loss** — all 48 open positions are currently well OTM (100%
+win rate holds so far), so no live damage. But the control that's supposed to bound concentration
+risk does not function, and nothing else in the path (`open_options_trade`, the scan loop) enforces
+a ceiling. A VIX spike + a bad multi-day stretch could stack far more exposure than the strategy was
+ever sized for.
+
+**RECOMMENDED FIX (focused session):** `wheel_strategy.py`'s cap/dedup logic needs to read open CSP
+count from `options_trades` (`WHERE agent_id='options-sosnoff' AND status='open'`, grouped by
+symbol) instead of — or in addition to — the stock `positions` table. Until fixed, `MAX_POSITIONS=3`
+is not a real constraint on this agent. No live risk currently (VIX-gated dormant since 2026-07-02,
+zero new entries since 2026-06-29) but will resume stacking the moment VIX clears `MIN_VIX=18`.
+Full diagnostic: HM-TROI-DEEPDIVE-2026-07-03 (this session).
+
+---
 ## 🆕 2026-05-31 SESSION — filed retroactively (was git+memory only; backlog was stale-by-omission)
 
 ### ✅ HM-GEX-CANONICAL — single GEX source; 3 legacy GEX systems RETIRED (2026-05-31)
