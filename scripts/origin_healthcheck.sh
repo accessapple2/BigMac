@@ -23,3 +23,4 @@ check_and_restart() {
 check_and_restart "main.py (bridge)" "http://localhost:8080/api/status" "scripts/trader_restart.sh"
 check_and_restart "signal-center"    "http://localhost:9000/api/health" "scripts/signal_center_restart.sh"
 check_and_restart "swingdesk"        "http://localhost:8889/api/health" "scripts/swingdesk_restart.sh"
+check_and_restart "status_page"      "http://localhost:8090/"           "scripts/status_page_restart.sh"

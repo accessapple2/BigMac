@@ -315,6 +315,12 @@ it MUST follow the paired-implementation pattern from day one.
 
 ## Doctrine Lessons (distilled from sprint sessions)
 
+### Reboot posture, proven not assumed (2026-07-05)
+A real planned power-cycle surfaced that `status_page` (status.ollietrades.com)
+had neither crash-respawn nor healthcheck coverage and failed to auto-start —
+full boot-inventory table, root cause, and the fix (LaunchDaemon promotion +
+healthcheck wiring) live in [`docs/REBOOT_POSTURE.md`](REBOOT_POSTURE.md).
+
 ### Multi-path scanning is implicit resilience — preserve it deliberately (2026-05-29)
 When the arena scan stalls (`run_scan` holds `_scan_lock` unboundedly, §C), the
 `crew_scanner` keeps producing signals (`sig#` advances) — the fleet doesn't go

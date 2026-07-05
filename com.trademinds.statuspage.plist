@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  com.trademinds.statuspage — status.ollietrades.com health page on :8090
+  Self-healing autostart, same pattern as com.trademinds.swingdesk /
+  com.trademinds.cloudflared: starts at boot independent of GUI login
+  (UserName=bigmac), and KeepAlive respawns it if it crashes. Replaces the
+  fragile @reboot cron (scripts/status_page_reboot_start.sh, retired to
+  scripts/_archive/ 2026-07-05) which died mid-sleep on the 2026-07-05
+  reboot and never started the process — see docs/REBOOT_POSTURE.md.
+
+  Env note: launched via `zsh -lc` so it sources bigmac's login env (same
+  pattern as swingdesk/cloudflared). No secrets in this plist. `exec` keeps
+  python in the foreground so launchd can track it.
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.trademinds.statuspage</string>
+
+  <key>UserName</key>
+  <string>bigmac</string>
+
+  <key>WorkingDirectory</key>
+  <string>/Users/bigmac/autonomous-trader</string>
+
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/zsh</string>
+    <string>-lc</string>
+    <string>cd /Users/bigmac/autonomous-trader &amp;&amp; exec ./.venv/bin/python3 scripts/status_page.py</string>
+  </array>
+
+  <key>RunAtLoad</key>
+  <true/>
+
+  <key>KeepAlive</key>
+  <true/>
+
+  <key>ThrottleInterval</key>
+  <integer>10</integer>
+
+  <key>StandardOutPath</key>
+  <string>/Users/bigmac/autonomous-trader/logs/status_page.log</string>
+
+  <key>StandardErrorPath</key>
+  <string>/Users/bigmac/autonomous-trader/logs/status_page_error.log</string>
+</dict>
+</plist>
