@@ -226,32 +226,37 @@ read below, which answers different, higher-value questions instead.
   one file, with zero images/icons in it, by deliberate choice — not a
   partial fix that quietly left a wider hole.
 
-**From the Admiral's direct CF dashboard read (not independently verifiable
-by me — no dashboard/API access from this box):**
-- **5 Access applications total, all sharing one "bridge-allow" policy**
-  (3-email allowlist, 730h session — per CLAUDE.md's existing "2026-06-24
-  Structural Changes" note). I can only account for 4 by hostname (bridge,
-  signal, swingdesk, tour); `status.ollietrades.com` is confirmed to have
-  NO Access app at all (see above), so it isn't the 5th. **Flagging rather
-  than guessing:** the most likely explanation given everything above is
-  that the `/static/manifest.json` bypass is itself modeled as a separate,
-  5th CF Access "application" scoped to that one path (CF Access supports
-  path-scoped applications distinct from the hostname-level one) — but if
-  it genuinely shares the identity-requiring "bridge-allow" policy rather
-  than a "Bypass"-type policy, that would contradict the unauthenticated
-  `200` confirmed above. Worth a direct look in the dashboard at what
-  policy type is actually attached to whichever app covers that path —
-  this is the one piece I can't reconcile from local evidence alone.
-- **`CF_ACCESS_AUD_EXTRA` value for swingdesk:** not received on my end —
-  I don't see an AUD value anywhere in this conversation's history, only a
-  reference to "your earlier paste." Given you separately flagged my own
-  message getting truncated on your side, this may be the same cross-
-  truncation issue in the other direction. **Please re-paste the AUD value**
-  — until then, `dashboard/cf_auth.py`'s `CF_ACCESS_AUD_EXTRA` env var
-  (added this session specifically for this case) stays unset, meaning
-  SwingDesk's CF-Access-JWT check will only succeed if its application
-  happens to share Bridge's `CF_ACCESS_AUD`, which per the "5 apps" finding
-  above is not confirmed either way.
+**RESOLVED 2026-07-05, direct CF dashboard read (Admiral, policy column
+inspected directly — this is now confirmed, not a local-evidence guess):**
+5 Access applications = **bridge-full** (bridge.ollietrades.com, the
+identity-requiring `bridge-allow` policy, 3-email allowlist / 730h session)
++ **bridge-manifest-bypass** (a SEPARATE, path-scoped app for
+`bridge.ollietrades.com/static/manifest.json`, carrying its own distinct
+`manifest-bypass` policy — never touches `bridge-allow`) + **tour** +
+**signal** + **swingdesk** (each their own hostname-level app, presumably
+also on `bridge-allow`, unconfirmed per-app but consistent with the shared-
+policy pattern CLAUDE.md already documents). This fully explains the
+earlier "how is the manifest path publicly `200` if the policy requires an
+email login" tension — it doesn't share that policy at all, confirmed
+directly rather than inferred. No contradiction; the local finding
+(unauthenticated `200` on the manifest path, `302` on every sibling path)
+was correct and is now backed by the dashboard's own policy assignment.
+
+**`CF_ACCESS_AUD_EXTRA` — values received, wiring in progress.** Real 64-hex-
+char AUD values for bridge and swingdesk's Access applications were provided
+directly by the Admiral. **Not written into this file** (git-tracked, even
+in a private repo) — per the Admiral's own instruction, the values belong in
+`swingdesk/.env` (gitignored), this entry documents the fact/mechanism only.
+**Blocked on a session permission boundary, not a decision:** this Claude
+Code session has no Read or Edit access to any `.env` file (root `.env` and
+`swingdesk/.env` both denied) — a deliberate security boundary, not
+something to work around. See the chat response for the exact 3 lines that
+need to go into `swingdesk/.env` by hand (`CF_ACCESS_TEAM_DOMAIN`,
+`CF_ACCESS_AUD`=bridge's, `CF_ACCESS_AUD_EXTRA`=swingdesk's — all three are
+needed together: `dashboard.cf_auth.is_configured()` requires
+`CF_ACCESS_TEAM_DOMAIN` AND `CF_ACCESS_AUD` both present before it will even
+attempt JWT validation; `CF_ACCESS_AUD_EXTRA` alone is not sufficient), plus
+the restart + end-to-end verification steps once that's done.
 
 **3. 🔴 crew-dissent resolved=0/pending=22 — structural join mismatch, not a
 transient/timing issue.** `resolve_dissent_outcomes()`
