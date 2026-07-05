@@ -5,6 +5,50 @@
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
 ---
+## 🔴 HM-GATE-RESTART-HOLD — trader restart deliberately HELD until Monday after close
+
+**Do not restart the main trader process (main.py) before Monday's close.**
+This is intentional, not a forgotten task. Rationale (Admiral, 2026-07-05
+evening): Monday is the first live session under Friday's realism/staleness
+fix config — its numbers are the measurement we want, and a Sunday-night
+trader restart would be a confound on that read. The auditioning gate
+(`crew_role='auditioning'` checks in `paper_trader.buy()`/`short_sell()`/
+`RiskManager.check_buy()`, plus `halt_gate.is_auto_tradeable()`'s
+`can_trade_live` enforcement) is already committed to the working tree —
+it's dormant until this restart happens, and nothing it guards against can
+occur before then anyway (no auditioning candidates exist yet; Qwen3.6
+onboards after the gate goes live).
+
+**Also held until the same Monday event, NOT run tonight:** the
+`can_trade_live` backfill SQL (10 agents — 6 active + 4 exit_only holding
+open positions that need to keep closing; see HM-AUDITION-ONBOARD-3 below
+for the exact statements). Bundling the data migration with the restart
+that makes it load-bearing, rather than letting it sit live-but-inert
+overnight.
+
+**What DID ship tonight (2026-07-05), already applied, not held:**
+- `scripts/swingdesk_restart.sh` run — SwingDesk (:8889) now runs the new
+  `SwingDeskAuthMiddleware` + startup auth-state log line. Isolated service,
+  does not touch the trader process. Verified single process (PID 1675),
+  no orphan, health checks passing.
+- `resolve_dissent_outcomes()` run standalone (not via the trader process,
+  since crew_dissent.py's fix wouldn't be picked up by main.py's already-
+  running in-memory copy until Monday's restart either way) — all 22
+  crew-dissent rows resolved live, `outcome_basis='price_pct'` tagged,
+  11/22 (50.0%) correct. Backup taken first:
+  `data/backups/trader_2026-07-05_pre-crew-dissent-backfill.db`.
+
+**Monday-after-close checklist (do all of this together, one event):**
+1. Run the `can_trade_live` backfill SQL (below).
+2. Restart the trader (`scripts/trader_restart.sh`).
+3. Verify: `[AUDITION-GATE] active` startup line, `check_can_trade_live_backfill()`
+   returns True, no ImportError, dashboard 200, plutus caps still present.
+4. Confirm the 6 currently-executing agents and the 4 exit_only agents
+   (gemini-2.5-flash, guardian-of-forever, navigator, ollie-auto) can still
+   place/close real orders post-restart — this is the one that matters most,
+   since a missed row in the backfill silently strands real positions.
+
+---
 ## XO-DECISIONS 2026-07-05 — Admiral rulings on the Sunday systems-check, design still pending build
 
 1. **Audition spend DENIED for now.** No paid-API candidates (Claude Sonnet 5,
@@ -109,6 +153,36 @@ old — well past any resolution horizon, so this isn't "give it more time."
 not via `scored_predictions` — decouples dissent-resolution from an
 unrelated pipeline's incidental data.
 
+**SHIPPED 2026-07-05 evening.** `engine/crew_dissent.py`'s
+`resolve_dissent_outcomes()` now tries `scored_predictions` first (tagged
+`outcome_basis='r_multiple'`), falls back to Polygon daily bars (tagged
+`outcome_basis='price_pct'` — new column, old column's semantics never
+silently reinterpreted). Local price tables turned out to have no usable
+data either (`price_ticks` empty, `backtest_market_data` stale since
+2026-04-02, `market_snapshots` covers only an unrelated fixed watchlist) —
+Polygon (already-approved paid source) was the only option, bounded to one
+call per distinct symbol per run via a pre-fetch, not per row.
+
+**Bug found and fixed during verification, not after:** `PolygonData.get_bars()`
+(`engine/providers/polygon_provider.py`) converted each bar's UTC millisecond
+timestamp via `datetime.fromtimestamp()` — SYSTEM-LOCAL time. This box runs
+`America/Phoenix` (UTC-7, no DST); Polygon's daily bars are stamped at
+midnight ET (04:00-05:00 UTC), so every bar's date label rolled back one
+calendar day. Two dissent rows (AVGO 06-18 and 06-19, the latter Juneteenth)
+came back with identical resolved outcomes — the visible anomaly that
+surfaced it: the real 06-18 close was mislabeled 06-17 and sorted before
+BOTH dissent dates, so both incorrectly anchored to the same next bar.
+Fixed to `fromtimestamp(tz=timezone.utc)`. Also affected (display-only, now
+corrected) `dashboard/app.py`'s `/api/polygon/bars` chart endpoint — the
+only other caller. **Doctrine: any UTC-millisecond timestamp conversion
+must use an explicit UTC/exchange-timezone anchor, never system-local time
+— the bug is invisible in UTC or Eastern-timezone environments and only
+surfaces west of Eastern, which is exactly why it shipped unnoticed.**
+
+Backfilled live 2026-07-05 (backup: `data/backups/trader_2026-07-05_pre-crew-dissent-backfill.db`):
+22/22 resolved, 0 pending, 11/22 (50.0%) correct, all attributed to dissenter
+Q — worth a line in the weekly tuning report per XO note.
+
 **4. 🔵 Audition-pipeline onboarding design for 3 candidate models — proposal
 below, nothing built.** See "HM-AUDITION-ONBOARD-3" ticket immediately below
 for the full design (Claude Sonnet 5, Grok 4.3, Qwen3.6-35B-A3B).
@@ -189,6 +263,51 @@ paid-API spend for Sonnet 5 + Grok 4.3 candidates, (2) confirm the
 `crew_role='auditioning'` gate design (vs. any alternative), (3) confirm
 scope — build the gate + onboard all 3, or start with the free local
 Qwen3.6 candidate only and defer the two paid ones.
+
+**STATUS UPDATE 2026-07-05 evening — gate built, tested, committed; NOT yet
+live (see HM-GATE-RESTART-HOLD above).** Decisions: (1) spend DENIED for now,
+Qwen3.6 audits the mechanism first; (2) gate design approved with 3 hardening
+requirements, all met — see `engine/paper_trader.py` (primary check in
+`buy()`/`short_sell()`, both now also carry the `crew_role='auditioning'`
+check; `short_sell()` additionally gained a halt_mode check it never had at
+all before this), `engine/risk_manager.py` (independent second check in
+`check_buy()`, different module/connection), `engine/halt_gate.py`
+(`is_auto_tradeable()` now enforces `can_trade_live`, gated behind
+`check_can_trade_live_backfill()` so it fails safe if the backfill below
+hasn't run), `setup_db.py` (startup log line); (3) Qwen3.6 onboards first,
+paid candidates code-ready-not-activated.
+
+**can_trade_live backfill SQL — final, empirically derived (not guessed) by
+tracing every `_is_human_player()`/`is_auto_tradeable()` call site in
+`paper_trader.py`. Two groups — missing group 2 would silently strand real
+open positions with no close path the moment enforcement goes live:**
+
+```sql
+-- Group 1: currently active/executing (6 agents)
+UPDATE ai_players SET can_trade_live = 1
+WHERE id IN ('capitol-trades','neo-matrix','ollama-plutus','ollama-qwen3',
+             'options-sosnoff','qwen3-8b-flash');
+
+-- Group 2: exit_only agents holding OPEN positions right now -- their real
+-- closing sell() calls go through the same _is_human_player() gate inside
+-- paper_trader.sell(); guardian-of-forever's entire purpose is placing real
+-- exit-only Alpaca orders.
+UPDATE ai_players SET can_trade_live = 1
+WHERE id IN ('gemini-2.5-flash','guardian-of-forever','navigator','ollie-auto');
+```
+
+Everyone else (69 rows) stays `can_trade_live=0` — correct by construction:
+`halt_mode='full'` agents are excluded from the scan roster and from
+`can_close_position()` regardless, so the flag is moot for them; tracking/
+sim/human rows are blocked by `is_human` or never reach this check via their
+own separate code paths either way. **HELD until Monday after close,
+bundled with the trader restart** — not run tonight (see HM-GATE-RESTART-HOLD).
+
+All of the above dry-run tested against throwaway DB copies before writing
+here: simulated auditioning candidate correctly blocked at all 3 layers
+(gate_reject_log confirms `AUDITION_SHADOW`/`HALT`, zero positions created);
+`check_can_trade_live_backfill()` correctly reports not-ready pre-backfill
+and ready post-backfill; zero regression for real executing agents.
 
 ---
 ## 🟢 HM-ROSTER-RECONCILE-8 — Admiral decision recorded 2026-07-05, SQL pending final go-ahead

@@ -739,14 +739,33 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
         return None
     # === HALT GATE === (halt_mode-aware; blocks new positions in exit_only OR full)
     # HM-A: dropped unused is_halted column from SELECT; halt_mode is single source of truth
+    # HM-AUDITION-GATE-2026-07-05: added crew_role to this SELECT (was
+    # halt_reason, halt_mode only) so the audition check below reuses the
+    # same round-trip instead of a second query.
     _halt = _conn().execute(
-        "SELECT halt_reason, halt_mode FROM ai_players WHERE id=?", (player_id,)
+        "SELECT halt_reason, halt_mode, crew_role FROM ai_players WHERE id=?", (player_id,)
     ).fetchone()
     if _halt and (_halt[1] != "active"):
         console.log(f"[red]HALTED: {player_id} ({_halt[1]}) — {_halt[0] or 'no reason given'}")
         _last_rejection[player_id] = f"Halted ({_halt[1]}): {_halt[0] or 'no reason given'}"
         _log_gate_reject(player_id, symbol, "HALT",
                          f"halt_mode={_halt[1]} reason={_halt[0] or 'no reason given'}",
+                         signal_id=signal_id, price=price, confidence=confidence)
+        return None
+    # === AUDITION SHADOW GATE === (HM-AUDITION-GATE-2026-07-05)
+    # crew_role='auditioning' candidates stay halt_mode='active' (so they're
+    # scanned and their signals land in `signals` for the weekly audition
+    # scorer, per engine.crew.weekly_tuning_crew._run_auditions), but must
+    # never place a real order. This is the primary chokepoint; a second,
+    # independently-implemented check lives in RiskManager.check_buy()
+    # (different module, called from ai_brain.py before this function is
+    # ever reached) per the Admiral's dispatch-level defense-in-depth
+    # requirement — neither check depends on the other firing correctly.
+    if _halt and _halt[2] == "auditioning":
+        console.log(f"[cyan]AUDITIONING: {player_id} BUY {symbol} — signal only, no real execution")
+        _last_rejection[player_id] = "Auditioning — signal-only, no execution (AUDITION_CRITERIA in progress)"
+        _log_gate_reject(player_id, symbol, "AUDITION_SHADOW",
+                         "crew_role=auditioning — signal logged, execution blocked",
                          signal_id=signal_id, price=price, confidence=confidence)
         return None
     route = _resolve_execution_portfolio(player_id)
@@ -4379,6 +4398,30 @@ def short_sell(player_id: str, symbol: str, price: float, qty: float = None,
         return None
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot short")
+        return None
+    # === HALT GATE === (HM-AUDITION-GATE-2026-07-05)
+    # CLOSED GAP: short_sell() had NO halt_mode check at all before this —
+    # a halted (exit_only or full) agent that couldn't buy() could still
+    # open a brand-new short here. Same query/semantics as buy()'s HALT
+    # GATE (blocks new positions in exit_only OR full); this opens a new
+    # position, same as buy(), so the same rule applies.
+    _halt = _conn().execute(
+        "SELECT halt_reason, halt_mode, crew_role FROM ai_players WHERE id=?", (player_id,)
+    ).fetchone()
+    if _halt and (_halt[1] != "active"):
+        console.log(f"[red]HALTED: {player_id} ({_halt[1]}) — {_halt[0] or 'no reason given'}")
+        _last_rejection[player_id] = f"Halted ({_halt[1]}): {_halt[0] or 'no reason given'}"
+        _log_gate_reject(player_id, symbol, "HALT",
+                         f"halt_mode={_halt[1]} reason={_halt[0] or 'no reason given'}",
+                         price=price, confidence=confidence)
+        return None
+    # === AUDITION SHADOW GATE === (HM-AUDITION-GATE-2026-07-05, mirrors buy())
+    if _halt and _halt[2] == "auditioning":
+        console.log(f"[cyan]AUDITIONING: {player_id} SHORT {symbol} — signal only, no real execution")
+        _last_rejection[player_id] = "Auditioning — signal-only, no execution (AUDITION_CRITERIA in progress)"
+        _log_gate_reject(player_id, symbol, "AUDITION_SHADOW",
+                         "crew_role=auditioning — signal logged, execution blocked",
+                         price=price, confidence=confidence)
         return None
     route = _resolve_execution_portfolio(player_id)
     if route["route_mode"] == "tracking":

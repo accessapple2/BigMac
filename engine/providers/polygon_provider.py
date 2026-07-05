@@ -18,7 +18,7 @@ Usage:
 from __future__ import annotations
 import time
 import requests
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from rich.console import Console
 
 console = Console()
@@ -181,9 +181,23 @@ class PolygonData:
         if not data or not data.get("results"):
             return []
 
+        # HM-BARS-TZ-FIX-2026-07-05: was datetime.fromtimestamp() (SYSTEM-LOCAL
+        # time). Polygon's daily-bar `t` is midnight ET for the trading date,
+        # e.g. 2026-06-18 04:00:00 UTC for the 2026-06-18 session. Converting
+        # that through a west-of-UTC system timezone (this box runs
+        # America/Phoenix, UTC-7, no DST) rolls it BACKWARD onto the previous
+        # calendar date -- 2026-06-18 04:00 UTC became "2026-06-17 21:00"
+        # local, mislabeling every daily bar one day early. Found 2026-07-05
+        # via engine.crew_dissent's price-return resolver: two dissents dated
+        # 06-18 and 06-19 (Juneteenth, market closed) both anchored to the
+        # SAME entry bar because the real 06-18 close was mislabeled 06-17
+        # and sorted before both dissent dates. utcfromtimestamp() preserves
+        # the correct trading date; only affects day-precision consumers
+        # (crew_dissent) -- dashboard/app.py's /api/polygon/bars chart
+        # display was showing dates one day early too, now correct.
         return [
             {
-                "time": datetime.fromtimestamp(bar["t"] / 1000).strftime("%Y-%m-%d %H:%M"),
+                "time": datetime.fromtimestamp(bar["t"] / 1000, tz=timezone.utc).strftime("%Y-%m-%d %H:%M"),
                 "open": bar.get("o", 0),
                 "high": bar.get("h", 0),
                 "low": bar.get("l", 0),

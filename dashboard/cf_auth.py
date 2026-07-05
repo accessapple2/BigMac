@@ -56,12 +56,28 @@ def _jwks_client(team_domain: str):
 
 
 def _valid_cf_jwt(token: str) -> bool:
-    """Return True if token is a valid CF Access JWT for this application."""
+    """Return True if token is a valid CF Access JWT for ANY configured
+    application AUD (Bridge's CF_ACCESS_AUD, plus any comma-separated extras
+    in CF_ACCESS_AUD_EXTRA — HM-SWINGDESK-AUTH-2026-07-05).
+
+    CF Access ties the JWT's `aud` claim to the specific Access APPLICATION
+    the request was gated through, which is typically per-hostname — so
+    swingdesk.ollietrades.com's application may have a DIFFERENT aud than
+    bridge.ollietrades.com's even though both currently share the same
+    "bridge-allow" Access POLICY (policy != application in CF's model).
+    CF_ACCESS_AUD_EXTRA lets a second (third, ...) hostname's app validate
+    through this same helper without the Bridge's own AUD ever being
+    weakened — each candidate aud is tried independently; PyJWT's
+    audience= check still requires an exact match per attempt, so this is
+    not equivalent to accepting any aud.
+    """
     team = os.environ.get("CF_ACCESS_TEAM_DOMAIN", "")
     aud  = os.environ.get("CF_ACCESS_AUD", "")
-    if not team or not aud:
+    extra_auds = [a.strip() for a in os.environ.get("CF_ACCESS_AUD_EXTRA", "").split(",") if a.strip()]
+    candidate_auds = ([aud] if aud else []) + extra_auds
+    if not team or not candidate_auds:
         # Not configured → we can't validate → fail closed
-        logger.debug("cf_auth: CF_ACCESS_TEAM_DOMAIN or CF_ACCESS_AUD not set; rejecting")
+        logger.debug("cf_auth: CF_ACCESS_TEAM_DOMAIN or no aud candidates set; rejecting")
         return False
     client = _jwks_client(team)
     if not client:
@@ -69,8 +85,14 @@ def _valid_cf_jwt(token: str) -> bool:
     try:
         import jwt as _jwt
         signing_key = client.get_signing_key_from_jwt(token)  # type: ignore[union-attr]
-        _jwt.decode(token, signing_key.key, algorithms=["RS256"], audience=aud)
-        return True
+        for candidate in candidate_auds:
+            try:
+                _jwt.decode(token, signing_key.key, algorithms=["RS256"], audience=candidate)
+                return True
+            except Exception:
+                continue
+        logger.debug("cf_auth: JWT rejected against all %d candidate aud(s)", len(candidate_auds))
+        return False
     except Exception as exc:
         logger.debug("cf_auth: JWT rejected: %s", exc)
         return False

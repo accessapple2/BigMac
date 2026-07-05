@@ -323,6 +323,68 @@ import sys as _sys, pathlib as _pl
 _ot_root = _pl.Path(__file__).resolve().parent.parent
 if str(_ot_root) not in _sys.path:
     _sys.path.insert(0, str(_ot_root))
+
+# === HM-SWINGDESK-AUTH-2026-07-05 =========================================
+# SwingDesk had zero app-level auth of its own -- CF Access was its ONLY
+# layer (curl localhost:8889/ returned 200 directly, no login redirect;
+# found during the 2026-07-05 Sunday systems check, unlike Bridge/signal
+# which both have an app-level backstop even if CF Access ever lapses).
+#
+# Deliberately does NOT import dashboard.app or reuse its AuthMiddleware:
+# that class is tightly coupled to Bridge-specific globals (session/PIN/2FA
+# login state, a Bridge-only path allowlist for /tactical, /charts,
+# /bridge-v2, etc.) that don't apply here and would either mis-gate
+# SwingDesk's own routes or drag the whole Bridge dashboard module's
+# init-time side effects into this process. Reuses only the standalone,
+# dashboard-independent piece: dashboard/cf_auth.py (already documented
+# there as "kept here so they can be imported and unit-tested without
+# loading app.py"). SwingDesk is an internal engineering console, not a
+# human-login surface, so it only needs "did this genuinely come through
+# CF Access (or carry the internal token)" -- not a username/password flow.
+#
+# CAVEAT (unverified, needs Admiral confirmation): CF Access ties a JWT's
+# `aud` claim to the specific Access APPLICATION a request was gated
+# through, which is typically per-hostname. swingdesk.ollietrades.com may
+# have a DIFFERENT application AUD than bridge.ollietrades.com's
+# CF_ACCESS_AUD even though both currently share the same "bridge-allow"
+# policy (policy != application in CF's model) -- this cannot be confirmed
+# without the CF dashboard. If they differ, set CF_ACCESS_AUD_EXTRA to
+# swingdesk's AUD (see dashboard/cf_auth.py's _valid_cf_jwt docstring,
+# extended 2026-07-05 to check multiple candidate auds for exactly this
+# case) -- until then, real swingdesk CF Access traffic may fail this
+# check and fall through to the localhost-bypass/401 path below, NOT to
+# a silent bypass.
+from starlette.middleware.base import BaseHTTPMiddleware
+from fastapi.responses import JSONResponse as _SDJSONResponse
+
+
+class SwingDeskAuthMiddleware(BaseHTTPMiddleware):
+    async def dispatch(self, request, call_next):
+        if request.method == "OPTIONS":
+            return await call_next(request)
+        from dashboard.cf_auth import (
+            is_configured, is_via_cf_tunnel, is_localhost,
+            try_cf_access, try_internal_token,
+        )
+        # Same posture as Bridge's AuthMiddleware: localhost traffic that did
+        # NOT arrive via the CF tunnel is trusted (the trader process and
+        # same-box scripts call this API directly, never through the tunnel).
+        if is_localhost(request) and not is_via_cf_tunnel(request):
+            return await call_next(request)
+        if not is_configured():
+            # CF Access env vars not set on this box -- can't validate, so
+            # admit and rely on CF Access at the edge (identical fallback
+            # rationale to Bridge's AuthMiddleware: this is the correct
+            # unconfigured state, not a silent bypass).
+            return await call_next(request)
+        if try_cf_access(request) or try_internal_token(request):
+            return await call_next(request)
+        return _SDJSONResponse({"error": "Authentication required"}, status_code=401)
+
+
+app.add_middleware(SwingDeskAuthMiddleware)
+# === /HM-SWINGDESK-AUTH-2026-07-05 =========================================
+
 from engine.fire_control import router as fire_router
 from engine.stream import router as stream_router
 from engine.signals import router as signals_router
@@ -628,6 +690,16 @@ def startup():
     print(f"[SwingDesk] DB: {DB_PATH}")
     print(f"[SwingDesk] Polygon: {'OK ' + POLYGON_KEY[:4] + '...' if POLYGON_KEY else 'MISSING'}")
     print(f"[SwingDesk] Alpaca:  loaded (Phase 2 — not wired)")
+    # HM-SWINGDESK-AUTH-2026-07-05: proof-of-life for the auth backstop above.
+    # "unconfigured/open" is the correct fail-safe (matches Bridge's own
+    # AuthMiddleware fallback) -- but without this line it's a decorative
+    # backstop if CF_ACCESS_TEAM_DOMAIN/CF_ACCESS_AUD are ever unset or
+    # misconfigured on this box. Same lesson as can_trade_live.
+    from dashboard.cf_auth import is_configured as _sd_cf_configured
+    if _sd_cf_configured():
+        print("[SwingDesk] Auth: CF Access configured -- enforcing (JWT or internal token required for non-localhost/non-tunnel traffic)")
+    else:
+        print("[SwingDesk] Auth: CF_ACCESS_TEAM_DOMAIN/CF_ACCESS_AUD NOT set -- OPEN (admits all, relies entirely on CF Access at the edge)")
     # HM-O-TASTY WAVE 8: start the SHADOW autopilot scheduler (A/B/C every 5 min
     # RTH + Loop E nightly 6 PM ET). Isolated daemon thread; zero-order.
     try:

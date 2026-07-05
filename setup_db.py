@@ -448,6 +448,32 @@ def setup():
         )
     # === /HM-ROSTER-CAP-2026-07-04 =======================================
 
+    # === HM-AUDITION-GATE-2026-07-05 =====================================
+    # Startup proof-of-life for the auditioning gate (Admiral hardening
+    # requirement (c)): confirms whether can_trade_live enforcement is ON
+    # this boot, and how many auditioning seats exist. See
+    # engine.halt_gate.check_can_trade_live_backfill for what "ready" means.
+    from engine.halt_gate import check_can_trade_live_backfill
+    _ctl_ready = check_can_trade_live_backfill(c)
+    _auditioning_count = c.execute(
+        "SELECT COUNT(*) FROM ai_players WHERE crew_role='auditioning'"
+    ).fetchone()[0]
+    if _ctl_ready:
+        print(
+            f"[AUDITION-GATE] active — {_auditioning_count} auditioning seat(s), "
+            f"can_trade_live enforcement=ON (fleet-wide backfill verified this boot)"
+        )
+    else:
+        print(
+            f"[AUDITION-GATE] {_auditioning_count} auditioning seat(s); "
+            f"can_trade_live enforcement=OFF — backfill not detected "
+            f"(is_auto_tradeable() falls back to legacy is_human-only check; "
+            f"the crew_role='auditioning' checks in paper_trader.buy()/"
+            f"short_sell() and RiskManager.check_buy() are unaffected and "
+            f"still enforce independently)"
+        )
+    # === /HM-AUDITION-GATE-2026-07-05 =====================================
+
     c.execute('''CREATE TABLE IF NOT EXISTS watchlist_signals (
         id INTEGER PRIMARY KEY,
         player_id TEXT NOT NULL REFERENCES ai_players(id),

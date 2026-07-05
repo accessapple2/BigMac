@@ -722,6 +722,26 @@ class RiskManager:
         max_position_override: if > 0, temporarily raises the position cap
         (e.g. 0.40 for triple-aligned conviction trades).
         """
+        # === AUDITION SHADOW GATE === (HM-AUDITION-GATE-2026-07-05)
+        # Independent second implementation of the auditioning block in
+        # engine.paper_trader.buy()'s HALT GATE — different module, its own
+        # connection/query, called earlier in the pipeline (ai_brain.py calls
+        # check_buy() before ever reaching buy()). Per the Admiral's
+        # dispatch-level defense-in-depth requirement: this must NOT delegate
+        # to paper_trader's check, so a bug/refactor in one gate can't
+        # silently remove both.
+        try:
+            _conn_audit = sqlite3.connect(DB, timeout=10)
+            _row_audit = _conn_audit.execute(
+                "SELECT crew_role FROM ai_players WHERE id=?", (player_id,)
+            ).fetchone()
+            _conn_audit.close()
+            if _row_audit and _row_audit[0] == "auditioning":
+                return False, "AUDITIONING: shadow mode, no live execution (AUDITION_CRITERIA in progress)"
+        except Exception:
+            # Fail-open here is intentional: this is the SECOND check. If it
+            # can't run, the primary gate in paper_trader.buy() still fires.
+            pass
         # Options-only players: block direct stock buys (must enter via put assignment)
         OPTIONS_ONLY_PLAYERS = {"options-sosnoff"}
         if player_id in OPTIONS_ONLY_PLAYERS and asset_type == "stock":

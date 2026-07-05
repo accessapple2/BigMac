@@ -74,6 +74,20 @@ def _ensure_tables() -> None:
             )
             """
         )
+        # HM-DISSENT-PRICE-RESOLVER-2026-07-05: outcome_basis distinguishes
+        # rows resolved via the original scored_predictions r_multiple path
+        # ('r_multiple') from rows resolved via the new price-return fallback
+        # ('price_pct', see resolve_dissent_outcomes). These are DIFFERENT
+        # scales (risk-normalized R vs raw % return) — never silently reuse
+        # outcome_r's existing semantics for the new path, or every future
+        # consumer of this column breaks invisibly. NULL = legacy row
+        # resolved before this column existed with unknown basis (none
+        # exist yet in production; all 22 pending rows as of 2026-07-05
+        # were never resolved under the old path).
+        try:
+            conn.execute("ALTER TABLE crew_dissent_log ADD COLUMN outcome_basis TEXT")
+        except sqlite3.OperationalError:
+            pass  # column already exists
         conn.execute(
             """
             CREATE TABLE IF NOT EXISTS crew_dissent_stats (
@@ -258,82 +272,193 @@ def log_dissents(consensus_result: dict) -> dict:
     return stats
 
 
-def resolve_dissent_outcomes() -> dict:
-    """Resolve unresolved dissents against realized 5-day outcomes in signals.db.
+def _prefetch_bars_by_symbol(rows: list) -> dict:
+    """HM-DISSENT-PRICE-RESOLVER-2026-07-05: one Polygon call per SYMBOL,
+    not per row and not per (symbol, dissent_date) — several pending rows
+    share a symbol at different dissent_dates (e.g. AVGO appears 7x across
+    a 2-week span), so the fetch window per symbol spans
+    [earliest dissent_date for that symbol, today], wide enough to cover
+    every one of that symbol's rows in a single call. Respects
+    DAILY_API_BUDGET by construction (N symbols, not N rows, worth of calls).
 
-    Reads signal-center/signals.db (ATTACH), writes data/trader.db. A dissent is
-    resolved only when a matching scored_predictions row (symbol + same date +
-    horizon=5) is CLOSED with a non-null r_multiple. dissenter_correct = 1 when
-    (BULL & r>0) or (BEAR & r<0), else 0.
+    Returns {symbol: bars_list_or_None}. bars is Polygon's day-timespan
+    list (see PolygonData.get_bars), sorted ascending by "time".
 
-    Returns {checked, resolved, still_pending}.
+    CAUGHT IN REVIEW (2026-07-05): an earlier version of this cached bars
+    per-symbol keyed only by symbol, fetched with whatever the FIRST-seen
+    row's window happened to be — a later row for the same symbol with a
+    later dissent_date silently got a too-narrow window and read back as
+    false "still pending" even though the real data existed. Fixed by
+    computing the per-symbol window up front from ALL of that symbol's rows
+    before any fetch happens, instead of lazily caching on first access.
     """
-    out = {"checked": 0, "resolved": 0, "still_pending": 0}
+    from datetime import datetime as _dt
+    earliest_by_symbol: dict = {}
+    for _row_id, symbol, dissent_date, _call in rows:
+        if symbol not in earliest_by_symbol or dissent_date < earliest_by_symbol[symbol]:
+            earliest_by_symbol[symbol] = dissent_date
+
+    bars_by_symbol: dict = {}
+    try:
+        from engine.providers.polygon_provider import PolygonData
+        pd = PolygonData()
+        pd_active = pd.is_active()
+    except Exception as e:
+        logger.warning("[crew_dissent] PolygonData init failed: %s: %r", type(e).__name__, e)
+        pd_active = False
+
+    if not pd_active:
+        return {symbol: None for symbol in earliest_by_symbol}
+
+    to_date = _dt.now().strftime("%Y-%m-%d")
+    for symbol, from_date in earliest_by_symbol.items():
+        try:
+            bars = pd.get_bars(symbol, timespan="day", from_date=from_date,
+                               to_date=to_date, limit=120)
+            bars_by_symbol[symbol] = sorted(bars, key=lambda b: b["time"]) if bars else None
+        except Exception as e:
+            logger.warning("[crew_dissent] Polygon fetch failed symbol=%s: %s: %r",
+                           symbol, type(e).__name__, e)
+            bars_by_symbol[symbol] = None
+    return bars_by_symbol
+
+
+def _forward_price_return_pct(symbol: str, dissent_date: str, horizon_days: int,
+                               bars_by_symbol: dict) -> Optional[float]:
+    """Raw %-return fallback for when no scored_predictions row exists (the
+    original design's assumption that one would always be there for any
+    dissented ticker+date does not hold in practice — verified 2026-07-05,
+    0 matches at ANY horizon for all 22 pending rows, and the local price
+    history tables (price_ticks, empty; backtest_market_data, stale since
+    2026-04-02; market_snapshots, covers only a fixed small watchlist that
+    doesn't include any dissent symbol) have no usable data for these dates
+    either).
+
+    entry = first close on/after dissent_date, exit = close of the
+    `horizon_days`-th trading day strictly after entry (per Polygon's own
+    market calendar — no local weekend/holiday handling needed). Returns
+    None (still-pending, not an error) if there isn't enough forward data
+    yet (forward data hasn't happened) or the symbol's bars are unavailable.
+    `bars_by_symbol` comes from _prefetch_bars_by_symbol, called once per
+    resolve_dissent_outcomes() run.
+    """
+    bars = bars_by_symbol.get(symbol)
+    if not bars:
+        return None
+    trading_days = [b for b in bars if b["time"][:10] >= dissent_date]
+    if len(trading_days) <= horizon_days:
+        return None  # not enough forward data yet — genuinely still pending
+    entry_price = trading_days[0]["close"]
+    exit_price = trading_days[horizon_days]["close"]
+    if not entry_price:
+        return None
+    return (exit_price - entry_price) / entry_price
+
+
+def resolve_dissent_outcomes() -> dict:
+    """Resolve unresolved dissents against realized 5-day outcomes.
+
+    Two-tier resolution, in order:
+      1. scored_predictions match in signal-center/signals.db (symbol + same
+         date + horizon=5, CLOSED, non-null r_multiple) — original design.
+         outcome_basis='r_multiple' (risk-normalized R).
+      2. HM-DISSENT-PRICE-RESOLVER-2026-07-05 fallback: raw %-return from
+         Polygon daily bars (see _forward_price_return_pct). outcome_basis=
+         'price_pct'. Added because tier 1 was found 2026-07-05 to
+         structurally never match for any of the 22 then-pending rows — the
+         two pipelines' (symbol, date) keys don't coincide (crew_dissent_log
+         is a daily-consensus artifact; scored_predictions is keyed to
+         individual per-agent signal-generation events).
+
+    dissenter_correct = 1 when (BULL & outcome>0) or (BEAR & outcome<0),
+    else 0, under EITHER basis — same sign rule, different scale. HOLD calls
+    are undefined under the directional rule and marked not-correct, as before.
+
+    Returns {checked, resolved, resolved_r_multiple, resolved_price_pct, still_pending}.
+    """
+    out = {"checked": 0, "resolved": 0, "resolved_r_multiple": 0,
+           "resolved_price_pct": 0, "still_pending": 0}
     try:
         _ensure_tables()
     except Exception as e:
         logger.warning("[crew_dissent] ensure_tables failed: %s: %r", type(e).__name__, e)
         return out
 
-    if not SIGNALS_DB.exists():
-        logger.warning("[crew_dissent] signals.db not found at %s — cannot resolve", SIGNALS_DB)
-        return out
-
     conn = sqlite3.connect(str(TRADER_DB), timeout=20)
+    _sig_attached = False
     try:
-        try:
-            conn.execute("ATTACH DATABASE ? AS sig", (str(SIGNALS_DB),))
-        except Exception as e:
-            logger.warning("[crew_dissent] ATTACH signals.db failed: %s: %r", type(e).__name__, e)
-            return out
+        if SIGNALS_DB.exists():
+            try:
+                conn.execute("ATTACH DATABASE ? AS sig", (str(SIGNALS_DB),))
+                _sig_attached = True
+            except Exception as e:
+                logger.warning("[crew_dissent] ATTACH signals.db failed: %s: %r", type(e).__name__, e)
+        else:
+            logger.warning("[crew_dissent] signals.db not found at %s — tier 1 (r_multiple) "
+                           "skipped this run, tier 2 (price_pct) still attempted", SIGNALS_DB)
 
         unresolved = conn.execute(
             "SELECT id, symbol, dissent_date, dissenter_call FROM crew_dissent_log "
             "WHERE dissenter_correct IS NULL"
         ).fetchall()
         out["checked"] = len(unresolved)
+        # Pre-fetch once per symbol (not per row) — see _prefetch_bars_by_symbol.
+        bars_by_symbol = _prefetch_bars_by_symbol(unresolved)
 
         for row_id, symbol, dissent_date, call in unresolved:
-            try:
-                match = conn.execute(
-                    """SELECT r_multiple FROM sig.scored_predictions
-                       WHERE symbol = ? AND DATE(entry_date) = ?
-                         AND horizon_days = ? AND closed = 1 AND r_multiple IS NOT NULL
-                       ORDER BY scored_at DESC LIMIT 1""",
-                    (symbol, dissent_date, HORIZON_DAYS),
-                ).fetchone()
-            except Exception as e:
-                logger.warning("[crew_dissent] resolve query failed id=%s: %s: %r",
-                               row_id, type(e).__name__, e)
-                continue
+            outcome_val = None
+            outcome_basis = None
 
-            if not match or match[0] is None:
+            if _sig_attached:
+                try:
+                    match = conn.execute(
+                        """SELECT r_multiple FROM sig.scored_predictions
+                           WHERE symbol = ? AND DATE(entry_date) = ?
+                             AND horizon_days = ? AND closed = 1 AND r_multiple IS NOT NULL
+                           ORDER BY scored_at DESC LIMIT 1""",
+                        (symbol, dissent_date, HORIZON_DAYS),
+                    ).fetchone()
+                    if match and match[0] is not None:
+                        outcome_val = float(match[0])
+                        outcome_basis = "r_multiple"
+                except Exception as e:
+                    logger.warning("[crew_dissent] tier-1 resolve query failed id=%s: %s: %r",
+                                   row_id, type(e).__name__, e)
+
+            if outcome_val is None:
+                pct = _forward_price_return_pct(symbol, dissent_date, HORIZON_DAYS, bars_by_symbol)
+                if pct is not None:
+                    outcome_val = pct
+                    outcome_basis = "price_pct"
+
+            if outcome_val is None:
                 out["still_pending"] += 1
                 continue
 
-            r = float(match[0])
             if call == "BULL":
-                correct = 1 if r > 0 else 0
+                correct = 1 if outcome_val > 0 else 0
             elif call == "BEAR":
-                correct = 1 if r < 0 else 0
+                correct = 1 if outcome_val < 0 else 0
             else:  # HOLD — undefined under the directional rule; mark not-correct
                 correct = 0
             try:
                 conn.execute(
-                    "UPDATE crew_dissent_log SET outcome_r=?, dissenter_correct=?, "
-                    "resolved_at=datetime('now') WHERE id=?",
-                    (r, correct, row_id),
+                    "UPDATE crew_dissent_log SET outcome_r=?, outcome_basis=?, "
+                    "dissenter_correct=?, resolved_at=datetime('now') WHERE id=?",
+                    (round(outcome_val, 4), outcome_basis, correct, row_id),
                 )
                 out["resolved"] += 1
+                out[f"resolved_{outcome_basis}"] += 1
             except Exception as e:
                 logger.warning("[crew_dissent] resolve update failed id=%s: %s: %r",
                                row_id, type(e).__name__, e)
         conn.commit()
     finally:
-        try:
-            conn.execute("DETACH DATABASE sig")
-        except Exception:
-            pass
+        if _sig_attached:
+            try:
+                conn.execute("DETACH DATABASE sig")
+            except Exception:
+                pass
         conn.close()
     return out
 

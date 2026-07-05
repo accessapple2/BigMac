@@ -74,6 +74,12 @@ def is_auto_tradeable(player_id: str, conn: sqlite3.Connection | None = None) ->
     - Passive broker mirrors (declared in _PASSIVE_MIRROR_PLAYER_IDS)
     - Human players (is_human=1) — Steve's actual broker accounts
     - Unknown player_ids (defensive — never auto-trade something we don't know)
+    - can_trade_live=0 players, but ONLY once check_can_trade_live_backfill()
+      has confirmed the fleet-wide backfill ran (see that function's
+      docstring — HM-AUDITION-GATE-2026-07-05). Before that check has run
+      (or if it failed), this falls back to the pre-2026-07-05 is_human-only
+      behavior rather than risk a false-negative fleet-wide halt from stale
+      can_trade_live=0 data.
 
     Pass conn for hot paths (avoids reconnect cost). Omit conn and the helper
     will manage its own connection against data/trader.db.
@@ -85,7 +91,7 @@ def is_auto_tradeable(player_id: str, conn: sqlite3.Connection | None = None) ->
         conn = sqlite3.connect("data/trader.db", timeout=10)
     try:
         row = conn.execute(
-            "SELECT is_human FROM ai_players WHERE id = ?", (player_id,)
+            "SELECT is_human, can_trade_live FROM ai_players WHERE id = ?", (player_id,)
         ).fetchone()
     finally:
         if owns_conn:
@@ -93,7 +99,102 @@ def is_auto_tradeable(player_id: str, conn: sqlite3.Connection | None = None) ->
     if row is None:
         return False
     is_human_value = row[0] if not hasattr(row, "keys") else row["is_human"]
-    return not bool(is_human_value)
+    result = not bool(is_human_value)
+    if result and _CAN_TRADE_LIVE_ENFORCEMENT_READY:
+        can_trade_live_value = row[1] if not hasattr(row, "keys") else row["can_trade_live"]
+        result = bool(can_trade_live_value)
+    return result
+
+
+# HM-AUDITION-GATE-2026-07-05 — can_trade_live enforcement readiness.
+# Module-level cache, set exactly once by check_can_trade_live_backfill()
+# (called from setup_db.py at every startup). None/False = not enforced
+# (legacy is_human-only behavior in is_auto_tradeable above); True = the
+# fleet-wide backfill was verified present this boot, so can_trade_live=0
+# genuinely blocks auto-trading. Starts False so a process that never calls
+# the checker (e.g. a standalone script importing this module) never
+# silently enforces against stale/unbackfilled data.
+_CAN_TRADE_LIVE_ENFORCEMENT_READY = False
+
+
+def check_can_trade_live_backfill(conn: sqlite3.Connection) -> bool:
+    """Fleet-wide sanity check for the can_trade_live backfill migration.
+
+    can_trade_live was purely decorative before HM-AUDITION-GATE-2026-07-05
+    (checked nowhere in engine.paper_trader/engine.halt_gate; every one of
+    79 ai_players rows had it =0, including every genuinely-executing
+    agent). Turning enforcement on in is_auto_tradeable() without first
+    backfilling can_trade_live=1 for every currently-legitimately-executing
+    agent would instantly halt the live fleet.
+
+    This compares every player is_auto_tradeable() will actually gate once
+    enforcement is on against how many of those ALSO have can_trade_live=1.
+    Two groups, found by tracing every _is_human_player()/is_auto_tradeable()
+    call site in engine.paper_trader (buy, sell, sell_partial, short_sell,
+    allocation-policy, position-value paths — HM-AUDITION-GATE-2026-07-05
+    review, 2026-07-05):
+      1. halt_mode='active', non-human, non-tracking-route, non-sim,
+         non-auditioning — the obvious "currently executing" group.
+      2. halt_mode='exit_only' agents that currently HOLD AT LEAST ONE OPEN
+         POSITION. exit_only agents are excluded from the main scan roster
+         (ai_brain.py only iterates halt_mode='active'), so group 1's query
+         never sees them — but their real closing sell() calls (guardian-of-
+         forever's dedicated stop sweep, and the other exit_only agents that
+         sweep extended to per HM-AGENT-RULES-CONSOLIDATION) go through the
+         SAME _is_human_player() gate inside paper_trader.sell(). Missing
+         this group would silently strand real open positions with no close
+         path the moment enforcement turns on — exactly the failure mode
+         halt_mode='exit_only' exists to prevent in the first place.
+
+    Only if every agent in BOTH groups has can_trade_live=1 is enforcement
+    judged safe to enable. Call once at startup (setup_db.py); the
+    module-level _CAN_TRADE_LIVE_ENFORCEMENT_READY flag caches the result
+    for is_auto_tradeable()'s hot path. Fails closed (enforcement OFF) on
+    any query error — see the module-level flag's docstring for why that's
+    the safe direction.
+    """
+    global _CAN_TRADE_LIVE_ENFORCEMENT_READY
+    try:
+        from engine.trades_filter import TRACKING_PLAYERS
+        track_sql = ", ".join("?" for _ in TRACKING_PLAYERS)
+        # All four queries alias ai_players as p so this fragment is safe to
+        # reuse verbatim whether or not the query also joins `positions`
+        # (which has its own `id` column — bare `id NOT IN (...)` would be
+        # ambiguous in the join queries below without the p. prefix).
+        _exclude_sql = (
+            f"COALESCE(p.is_human,0)=0 AND COALESCE(p.crew_role,'active') "
+            f"NOT IN ('sim','auditioning') AND p.id NOT IN ({track_sql})"
+        )
+        total_active = conn.execute(
+            f"SELECT COUNT(*) FROM ai_players p WHERE COALESCE(p.halt_mode,'active')='active' "
+            f"AND {_exclude_sql}",
+            TRACKING_PLAYERS,
+        ).fetchone()[0]
+        live_active = conn.execute(
+            f"SELECT COUNT(*) FROM ai_players p WHERE COALESCE(p.halt_mode,'active')='active' "
+            f"AND p.can_trade_live=1 AND {_exclude_sql}",
+            TRACKING_PLAYERS,
+        ).fetchone()[0]
+        total_exit_with_positions = conn.execute(
+            f"SELECT COUNT(DISTINCT p.id) FROM ai_players p "
+            f"JOIN positions pos ON pos.player_id = p.id "
+            f"WHERE p.halt_mode='exit_only' AND {_exclude_sql}",
+            TRACKING_PLAYERS,
+        ).fetchone()[0]
+        live_exit_with_positions = conn.execute(
+            f"SELECT COUNT(DISTINCT p.id) FROM ai_players p "
+            f"JOIN positions pos ON pos.player_id = p.id "
+            f"WHERE p.halt_mode='exit_only' AND p.can_trade_live=1 AND {_exclude_sql}",
+            TRACKING_PLAYERS,
+        ).fetchone()[0]
+        _CAN_TRADE_LIVE_ENFORCEMENT_READY = (
+            total_active > 0
+            and total_active == live_active
+            and total_exit_with_positions == live_exit_with_positions
+        )
+    except Exception:
+        _CAN_TRADE_LIVE_ENFORCEMENT_READY = False
+    return _CAN_TRADE_LIVE_ENFORCEMENT_READY
 
 
 # ─── Read-path filter for scoring/calibration consumers (HM-C) ───────────────
