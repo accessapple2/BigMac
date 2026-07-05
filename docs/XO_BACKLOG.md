@@ -5,7 +5,69 @@
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
 ---
-## 🔴 HM-ROSTER-RECONCILE-8 — HIGH (filed 2026-07-05) — Captain decision needed before the SQL flip
+## 🟢 HM-ROSTER-RECONCILE-8 — Admiral decision recorded 2026-07-05, SQL pending final go-ahead
+
+**Admiral decisions (2026-07-05):**
+1. ollama-plutus / capitol-trades — keep as **measured core, under mitigation**
+   (not "auto-keep clean," not "auto-cut negative") — trust the existing
+   PROBATION_WATCH / tightened risk_manager caps already in place; their CIs
+   are too wide to condemn on this sample.
+2. options-sosnoff / qwen3-8b-flash — reclassified **ACTIVE-AUDITIONING**:
+   stay executing (count against the cap), but their next 20 clean guarded
+   trades are a formal audition against `AUDITION_CRITERIA`; fail or stall
+   (no 20 trades within 6 weeks) → halt proposal, seat opens.
+3. neo-matrix — candidate pending two checks: tail risk (worst loss/max DD/
+   open-risk, since 91.2% WR with small wins reads like a premium-seller
+   profile) and provenance (why is it sweep-invisible — deliberate shadow
+   status or oversight).
+4. Resulting roster: neo-matrix (pending #3), ollama-qwen3 [measured],
+   ollama-plutus + capitol-trades [measured, mitigated], options-sosnoff +
+   qwen3-8b-flash [auditioning]. 2 slots left EMPTY for audition graduates.
+   dalio-metals / gemini-2.5-flash excluded from the cap count (tracking /
+   exit_only-draining), not part of this list.
+
+**Verification results (2026-07-05, this session):**
+- **neo-matrix: PASSES both checks, confirmed auto-keep.** Worst clean-window
+  closed-trade loss −$39.60 (GOOGL), second-worst −$35.92 (AVGO); max
+  peak-to-trough drawdown $49.22 against +$90.58 cumulative; 0 open positions
+  right now; trade sizing is fractional/small-notional throughout (not a
+  premium-seller tail-risk shape). Provenance: `risk_manager.WARNING_ONLY_PLAYERS`
+  only exempts it from the sector-concentration check, not from execution —
+  it has been genuinely `halt_mode='active'` the whole time; this was a
+  sweep-tooling blind spot (HM-SWEEP-SIGNALS-TABLE-BLIND-SPOT), not a
+  deliberate bench.
+- **options-sosnoff: confirmed NOT dormant, but surfaced a real sizing issue.**
+  84 real closed CSP trades in `options_trades` since 2026-05-14 (`book_tag=
+  'fleet'`, all `structure='csp'`, UPRO/SOXL/TQQQ/SPY/QQQ) — completely
+  invisible to the `signals`-table sweep, exactly the same blind spot as
+  neo-matrix. Aggregate P&L +$29,868.74 against a $12,880.20 account cash
+  balance — checking individual legs, a single UPRO CSP in this book carries
+  `max_loss=-$12,141` (≈$12-13K collateral) against that same account: one
+  concurrent leg alone would nearly exhaust it, and dozens were recorded.
+  Same disease already flagged in doctrine for this agent's backtest replay
+  ("unbounded, not capital-constrained") now confirmed in real recorded
+  trades. The fix (`75b63f1`, "CSP notional visibility + cap gate on new
+  opens") already landed 2026-07-04 but is **not live** — needs the pending
+  restart. **Action: options-sosnoff's ACTIVE-AUDITIONING trade count should
+  only start counting from trades opened AFTER this weekend's restart**, once
+  the cap-gate is actually enforcing; pre-restart CSP trades are not
+  decision-grade for the audition.
+- **qwen3-8b-flash: clean, no flags.** 16 real trades since clean cutoff (via
+  the plain `trades` table, also `signals`-invisible), +$85.79, 16/16
+  winners, modest sizing. Just short of the 20-trade audition floor.
+
+**SQL drafted, NOT yet run** (7 cuts: archer, cto-grok42, energy-arnold,
+holly-scanner, q-witness, quark-ic, sell-the-news → `full`; 1 reactivation:
+ollama-qwen3 exit_only → active; label-only halt_reason updates on the other
+5 kept seats). `enterprise-computer` (tracking-route), `ollie-machine`
+(sim/tracking), and `trade-desk` (is_human=1, manual desk) deliberately left
+untouched — they were never competing for one of the 8 to begin with, so
+"apply the SQL for everything outside the list" was read as applying to
+genuine executing candidates only, not these three structural categories.
+Flag if that reading is wrong.
+
+---
+## Original open questions (2026-07-05, resolved above — kept for the record)
 
 Context: HM-ROSTER-CAP (2026-07-04) built the mechanism (`MAX_ACTIVE_AGENTS=8`,
 `AUDITION_CRITERIA`); this session shipped the two pieces the mechanism
