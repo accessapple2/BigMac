@@ -155,3 +155,20 @@ to the minimum command set actually required (`modprobe`, `tee`, `mkdir`,
 Related: `docs/XO_BACKLOG.md` (HM-SHELLY-WATCHDOG, post-trip auto-cycle
 design for DB hosts — this closeout does not change that manual-only
 posture for bigmac/olliemax as DB-bearing boxes).
+
+## bigmac cold-start test (2026-07-05, Admiral-attested)
+
+Same-day closeout of the bigmac side of this posture, alongside the Ollie
+Max fixes above: `autorestart=1`, physical power cut via the bigmac Shelly
+plug (`192.168.1.245`) → self-boot → `main.py` (trader), `status_page`,
+`signal_center` (302 redirect on `:9000`, expected), and the cloudflared
+tunnel all came back green, uptime-confirmed. Test run and verified manually
+by the Admiral, not by this session — recorded here as attested result, not
+independently re-verified.
+
+**Known gap surfaced by this test, not a boot-posture defect:**
+`status.ollietrades.com` serves a Cloudflare-cached page with a stale "Last
+checked" timestamp — the underlying service is live and healthy (this test
+proves that), but the edge cache masks it looking fresh. Tracked as a
+backlog ticket, not a reboot-posture fix: `docs/XO_BACKLOG.md` (add
+no-cache/`Cache-Control` headers in `scripts/status_page.py`).

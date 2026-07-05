@@ -5,6 +5,29 @@
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
 ---
+## 🔵 HM-STATUS-PAGE-STALE-CACHE — filed 2026-07-05 (bigmac cold-start test)
+
+Surfaced during the bigmac cold-start test (`docs/REBOOT_POSTURE.md`):
+`status.ollietrades.com` serves a Cloudflare-cached page with a stale "Last
+checked" timestamp even though the underlying `scripts/status_page.py`
+service is live and healthy.
+
+**Correction before anyone re-attempts the obvious fix:** `status_page.py`
+(both the `/api/status` JSON path and the main HTML path, `scripts/status_page.py:99,107`)
+**already** sends `Cache-Control: no-cache, no-store, must-revalidate` on
+every response — the origin is not the bug. Since `status.ollietrades.com`'s
+route is dashboard-managed Cloudflare Tunnel config, not the local
+`~/.cloudflared/config.yml` (per `docs/REBOOT_POSTURE.md` key posture fact
+#4), the edge is most likely overriding origin cache directives via a
+zone-level Cache Rule / Page Rule ("Cache Everything" or similar) or an Edge
+Cache TTL setting that doesn't respect origin `Cache-Control` for this
+hostname. Real fix is a Cloudflare Zero Trust dashboard change (a Cache Rule
+that bypasses cache for `status.ollietrades.com`, or setting Edge Cache TTL
+to "respect existing headers" / bypass), not a code change. Not actioned
+this pass — dashboard-side, needs Admiral/XO to apply in the Cloudflare
+dashboard.
+
+---
 ## 🔵 HM-SWEEP-CADENCE — proposed 2026-07-05, cron not yet installed
 
 **Approved earlier (XO-DECISIONS item 6, "sweep cadence"):** a manual clean-

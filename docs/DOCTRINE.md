@@ -678,6 +678,42 @@ sweep output alone will misclassify these agents as unmeasured. See
 `docs/XO_BACKLOG.md` for the follow-up (score `trades`-table realized P&L
 directly for signal-center-routed agents, don't rely on `signals` alone).
 
+### Session hygiene (2026-07-05)
+
+Three standing rules for how Scotty (Claude Code) sessions on this repo are
+run, distilled after COST-DISCIPLINE-IMPLEMENT surfaced how much silent spend
+and stale state accumulates when they aren't followed:
+
+1. **All Scotty sessions launch from `~/autonomous-trader`, never `~`.**
+   Relative-path env loading (`OT_ROOT`-relative `.env`/`data/trader.db`
+   reads), the `.claude/settings.json` scoped `Write`/`Edit` permissions
+   (HM-HELM), and every script's `cd {root} && ...` cron convention all
+   assume the repo root as cwd. Launching from `$HOME` risks silently reading
+   or writing the wrong `.env`/DB, or permission-scoping against the wrong
+   tree.
+2. **Fresh session per directive.** Don't chain unrelated directives into one
+   long-running session — context accumulated from a prior, unrelated task
+   is dead weight at best and a source of cross-directive confusion at worst
+   (stale file-read cache, stale assumptions about what's already fixed).
+3. **`/compact` at context ≥50%.** Compact proactively rather than waiting
+   for a forced/automatic compaction near the limit — a deliberate compact at
+   the halfway point keeps the working summary accurate and gives headroom
+   for verification steps (test inserts, live greps, agent sub-calls) later
+   in the same directive without an uncontrolled context cliff.
+
+### Credentials never transit Scotty chat (2026-07-05)
+
+Where a remote fix needs privileged (sudo) execution on another box, grant a
+scoped `NOPASSWD` sudoers rule for the exact commands needed instead of
+passing a password through chat. Pattern used on Ollie Max during the
+TRIP-POSTURE-CLOSEOUT softdog fix: `/etc/sudoers.d/bigmac-softdog`, grown
+incrementally to the minimum command set actually required (`modprobe`,
+`tee`, `mkdir`, `systemctl restart watchdog.service`, `systemctl status
+watchdog.service`, `systemctl daemon-reload`) rather than a blanket
+`NOPASSWD: ALL`. Remove the sudoers rule (or narrow it back down) once the
+fix it was scoped for is verified and no longer needed. See
+`docs/REBOOT_POSTURE.md` for the incident this pattern came from.
+
 ---
 
 > Relocated from CLAUDE.md (HM-PRIME Part C).

@@ -47,6 +47,7 @@ import datetime as dt
 import json
 import os
 import re
+import sqlite3
 import sys
 import time
 import traceback
@@ -70,9 +71,20 @@ BRIEF_DIR        = Path(os.getenv("OT_BRIEF_DIR", OT_ROOT / "data" / "xo_briefs"
 UHURA_SIGNAL_DIR = Path(os.getenv("OT_UHURA_SIGNAL_DIR", OT_ROOT / "data" / "signals"))
 CORPUS_PATH      = Path(os.getenv("OT_BRIEF_CORPUS", OT_ROOT / "data" / "learning" / "xo_brief_corpus.jsonl"))
 
-ANTHROPIC_MODEL  = os.getenv("XO_ANTHROPIC_MODEL", "claude-opus-4-8")
+ANTHROPIC_MODEL  = os.getenv("XO_ANTHROPIC_MODEL", "claude-sonnet-4-6")
 GROK_MODEL       = os.getenv("XO_GROK_MODEL", "grok-4.3")
 WEB_SEARCH_MAX_USES = int(os.getenv("XO_WEB_SEARCH_MAX_USES", "8"))
+
+# Cost cap (USD/day) — same shared-cap pattern as engine.team_advisor_grok's
+# GROK_ADVISOR_DAILY_CAP: 90%-of-cap gates further spend, ledger is the
+# common api_costs table (player_id='xo-brief'). Override with XO_DAILY_COST_CAP.
+XO_DAILY_COST_CAP = float(os.getenv("XO_DAILY_COST_CAP", "0.50"))
+_XO_PLAYER_ID = "xo-brief"
+_XO_DB_PATH = OT_ROOT / "data" / "trader.db"
+# Claude Sonnet 4.6 pricing (per 1M tokens) — used to log exact-enough spend
+# into the shared ledger; no per-call tick-exact field on this endpoint.
+_XO_INPUT_RATE_PER_M = 3.00
+_XO_OUTPUT_RATE_PER_M = 15.00
 
 # UHURA wiring: context-only, low weight, like the FRED bankrate signal.
 UHURA_WEIGHT     = float(os.getenv("XO_UHURA_WEIGHT", "0.5"))
@@ -352,10 +364,59 @@ def append_learning_corpus(envelope: dict[str, Any]) -> None:
 
 
 # ===========================================================================
+# COST GUARD (shared api_costs ledger — same pattern as engine.team_advisor_grok)
+# ===========================================================================
+def _xo_conn() -> sqlite3.Connection:
+    conn = sqlite3.connect(_XO_DB_PATH, check_same_thread=False)
+    conn.execute("PRAGMA journal_mode=WAL")
+    conn.row_factory = sqlite3.Row
+    return conn
+
+
+def get_daily_cost() -> float:
+    """Total XO brief spend today (UTC date) from the shared api_costs ledger."""
+    today = dt.datetime.utcnow().strftime("%Y-%m-%d")
+    try:
+        conn = _xo_conn()
+        row = conn.execute(
+            "SELECT SUM(cost_usd) AS total FROM api_costs "
+            "WHERE player_id=? AND date(timestamp)=?",
+            (_XO_PLAYER_ID, today),
+        ).fetchone()
+        conn.close()
+        return float(row["total"] or 0) if row else 0.0
+    except Exception:
+        return 0.0
+
+
+def _log_cost(input_tok: int, output_tok: int, cost_usd: float, call_type: str) -> None:
+    try:
+        conn = _xo_conn()
+        conn.execute(
+            "INSERT INTO api_costs "
+            "(player_id, call_type, input_tokens, output_tokens, cost_usd, timestamp) "
+            "VALUES (?,?,?,?,?,?)",
+            (_XO_PLAYER_ID, call_type, input_tok, output_tok, cost_usd,
+             dt.datetime.utcnow().isoformat()),
+        )
+        conn.commit()
+        conn.close()
+    except Exception as e:
+        print(f"[xo_brief] cost log failed: {e}", file=sys.stderr)
+
+
+# ===========================================================================
 # PROVIDER ADAPTERS
 # ===========================================================================
 def call_claude(system_prompt: str, user_payload: str, max_uses: int = WEB_SEARCH_MAX_USES) -> str:
     import anthropic  # pip install anthropic
+
+    daily_cost = get_daily_cost()
+    if daily_cost >= XO_DAILY_COST_CAP * 0.9:
+        raise RuntimeError(
+            f"xo_brief daily cost cap reached (${daily_cost:.2f} of ${XO_DAILY_COST_CAP:.2f} "
+            "90% threshold) — Claude call skipped, try --provider grok or again tomorrow"
+        )
 
     client = anthropic.Anthropic(api_key=os.environ["ANTHROPIC_API_KEY"])
     resp = client.messages.create(
@@ -365,6 +426,10 @@ def call_claude(system_prompt: str, user_payload: str, max_uses: int = WEB_SEARC
         messages=[{"role": "user", "content": user_payload}],
         tools=[{"type": "web_search_20260209", "name": "web_search", "max_uses": max_uses}],
     )
+    in_tok = getattr(resp.usage, "input_tokens", 0) or 0
+    out_tok = getattr(resp.usage, "output_tokens", 0) or 0
+    cost = (in_tok / 1_000_000) * _XO_INPUT_RATE_PER_M + (out_tok / 1_000_000) * _XO_OUTPUT_RATE_PER_M
+    _log_cost(in_tok, out_tok, cost, "xo_brief_claude")
     # With server-side web search the response is multi-block; the answer lives
     # in the trailing text block(s).
     return "".join(b.text for b in resp.content if getattr(b, "type", None) == "text")

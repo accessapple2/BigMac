@@ -104,8 +104,16 @@ def compute_cost(player_id: str, input_tokens: int, output_tokens: int) -> float
     if player_id in _fallback_active:
         return 0.0
     # DB provider check comes FIRST — if the player is on Ollama/dayblade, it's free
-    # regardless of what TOKEN_RATES says (prevents stale rates from billing local calls)
-    if player_id.startswith("ollama-") or _is_local_provider(player_id):
+    # regardless of what TOKEN_RATES says (prevents stale rates from billing local calls).
+    # wr-*/ab-witness-* are local witness/shadow seats with no ai_players row at all
+    # (COST-DISCIPLINE-IMPLEMENT 2026-07-05) — name-prefix allowlist covers them the
+    # same way ollama-* does, without needing a per-seat TOKEN_RATES(0.0, 0.0) entry.
+    if (
+        player_id.startswith("ollama-")
+        or player_id.startswith("wr-")
+        or player_id.startswith("ab-witness-")
+        or _is_local_provider(player_id)
+    ):
         return 0.0
     # Then consult TOKEN_RATES for known cloud players
     if player_id in TOKEN_RATES:

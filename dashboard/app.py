@@ -19354,13 +19354,15 @@ def _track_cic_cost(model: str, input_tokens: int, output_tokens: int) -> float:
     try:
         conn = _conn()
         conn.execute(
-            "INSERT INTO api_costs (player_id, model, cost_usd, timestamp) VALUES (?,?,?,datetime('now'))",
-            ("archer-cic", model, cost)
+            "INSERT INTO api_costs "
+            "(player_id, call_type, input_tokens, output_tokens, cost_usd, timestamp) "
+            "VALUES (?,?,?,?,?,datetime('now'))",
+            ("archer-cic", f"cic:{model}", input_tokens, output_tokens, cost)
         )
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        print(f"[ARCHER] api_costs insert failed: {e}")
     global _cic_usage
     if _cic_usage["date"] != today:
         _cic_usage = {"calls_today": 0, "cost_today": 0.0, "date": today}
