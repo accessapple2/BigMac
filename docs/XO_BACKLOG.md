@@ -5,6 +5,49 @@
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
 ---
+## 🔵 HM-SWEEP-CADENCE — proposed 2026-07-05, cron not yet installed
+
+**Approved earlier (XO-DECISIONS item 6, "sweep cadence"):** a manual clean-
+window sweep run tonight after the 9:00 PM tuning crew, plus a standing
+weekly cron so this stops depending on someone remembering to run it
+manually — same "enforced at the door, not by periodic diligence" doctrine
+already applied to the roster cap (see "Roster quality is enforced at the
+door" in `docs/DOCTRINE.md`).
+
+**Tonight's manual run:** scheduled via a session-scoped one-shot job (not
+a real crontab entry — see caveat below) for ~9:50 PM MST, after the tuning
+crew's 9:00-9:30 PM window. Runs `fleet_realism_sweep_clean_window.py`,
+diffs the new report against this morning's `reports/fleet_realism_sweep_clean_20260705_065111.json`
+baseline for the 5 agents with any clean-window signal, and reports whether
+Tier 1 rankings held.
+
+**Weekly cadence — proposed crontab line, NOT installed, needs your go-ahead
+to add via `crontab -e`:**
+
+```cron
+10 22 * * 0 cd /Users/bigmac/autonomous-trader && .venv/bin/python -u fleet_realism_sweep_clean_window.py >> logs/fleet_sweep_clean.log 2>&1
+```
+
+Sunday 10:10 PM MST — ~40 min after the tuning crew's 9:00-9:30 PM window
+closes, safe buffer against a slow tuning-crew run overlapping. Writes a
+new timestamped `reports/fleet_realism_sweep_clean_*.json` each week (the
+script never overwrites prior reports, per its own doctrine comment) and
+appends to `logs/fleet_sweep_clean.log`. No notification/alerting wired —
+purely a standing data point for the July 24 kill-gate read and future
+roster-reconciliation passes; XO/Scotty would need to actually look at the
+new report file each week, this doesn't push anything.
+
+**⚠ Durability note, this is why this proposal lives here and not just in
+chat:** the tonight-only run above was scheduled via this session's
+`CronCreate` tool, which is **session-scoped — it is lost entirely if this
+Claude Code session ends before it fires, with no warning.** The weekly
+cadence proposed above is a REAL crontab line and, once installed, would
+survive session death, reboots, and everything else a real cron job
+survives — that durability gap is exactly why the weekly cron matters more
+than it might look, and why this proposal is written here rather than left
+as a one-off scheduled reminder.
+
+---
 ## 🔴 HM-GATE-RESTART-HOLD — trader restart deliberately HELD until Monday after close
 
 **Do not restart the main trader process (main.py) before Monday's close.**
@@ -134,6 +177,81 @@ isn't single-point-of-failure on CF Access, (b) pull the CF Access audit log
 from the dashboard (not available locally) to check for actual policy
 changes/lapses around today's reconnect storm — that's the one thing no
 local artifact can answer.
+
+**Item (a) SHIPPED same day** — see the swingdesk-auth commit `f99df7e`:
+`SwingDeskAuthMiddleware` (`swingdesk/backend.py`) now requires a valid CF
+Access JWT or the internal token for non-localhost/non-tunnel traffic, plus
+a startup log line reporting configured/enforcing vs unconfigured/open.
+Applied live via `scripts/swingdesk_restart.sh`, verified single process
+(PID 1675), no orphan. Item (b) — the CF dashboard audit log for the
+reconnect-storm window — was not pulled; superseded by the direct dashboard
+read below, which answers different, higher-value questions instead.
+
+### CF Access posture — full picture (local verification + Admiral's CF dashboard read, 2026-07-05 evening)
+
+**Locally verified (this session, independently of the dashboard read):**
+- `~/.cloudflared/config.yml` on this box lists exactly 4 ingress hostnames
+  — `bridge.ollietrades.com`→:8080, `signal.ollietrades.com`→:9000,
+  `swingdesk.ollietrades.com`→:8889, `tour.ollietrades.com`→:8088 — plus a
+  catch-all `http_status:404`. **`status.ollietrades.com` is NOT in this
+  file at all.** Its route was added directly via the CF Zero Trust
+  dashboard (`docs/HANDOFF.md` commit `f2d929c`, 2026-07-02: "Route added
+  via the Admiral's own Zero Trust dashboard action, DNS auto-created that
+  way, not by me"), consistent with CLAUDE.md's "Remote config v11" note —
+  this tunnel's ingress rules live partly in CF's remote config, not solely
+  in this local file, so `config.yml` alone undercounts the real route set.
+- **`status.ollietrades.com` having no Access app is confirmed intentional,
+  not an oversight.** `scripts/status_page.py`'s own docstring: "Admiral-
+  approved 2026-07-02. Deliberately minimal: no auth, no secrets, no write
+  paths -- read-only health checks only, safe to expose publicly." Read the
+  full script and hit its live `/api/status` just now: exactly 4 booleans
+  (bigmac/ollie_max/trader/tunnel up-or-down) + a timestamp, nothing else —
+  no account data, no DB reads, no secrets, no write path exists at all.
+  Currently live (PID 6855, running since Thursday). This is a standard
+  public status-page pattern and checks out as safe on its own facts, not
+  just on the docstring's say-so.
+- The `/static/manifest.json` CF Access bypass is real, already shipped
+  (2026-07-02, `docs/HANDOFF.md`), and **scoped exactly as narrow as it
+  sounds**: unauthenticated `curl https://bridge.ollietrades.com/static/manifest.json`
+  → `200`, real body, no CF Access cookie needed — but three sibling paths
+  (`/`, `/static/index.html`, `/static/app.js`) all still `302` to the CF
+  Access login, confirming the bypass wasn't accidentally widened. Full
+  history worth knowing: the manifest originally referenced two icon files
+  (`icon-192.png`, `icon-512.png`) that were NOT covered by the bypass,
+  which caused a real bug (bridge-v2 hanging on those gated icon fetches).
+  The Admiral **declined** widening the Access bypass to cover the icons
+  when that was proposed — instead the `icons` array was removed from
+  `manifest.json` entirely (a PWA with no icons still installs, falls back
+  to a generic icon). So today's actual public-bypass surface is exactly
+  one file, with zero images/icons in it, by deliberate choice — not a
+  partial fix that quietly left a wider hole.
+
+**From the Admiral's direct CF dashboard read (not independently verifiable
+by me — no dashboard/API access from this box):**
+- **5 Access applications total, all sharing one "bridge-allow" policy**
+  (3-email allowlist, 730h session — per CLAUDE.md's existing "2026-06-24
+  Structural Changes" note). I can only account for 4 by hostname (bridge,
+  signal, swingdesk, tour); `status.ollietrades.com` is confirmed to have
+  NO Access app at all (see above), so it isn't the 5th. **Flagging rather
+  than guessing:** the most likely explanation given everything above is
+  that the `/static/manifest.json` bypass is itself modeled as a separate,
+  5th CF Access "application" scoped to that one path (CF Access supports
+  path-scoped applications distinct from the hostname-level one) — but if
+  it genuinely shares the identity-requiring "bridge-allow" policy rather
+  than a "Bypass"-type policy, that would contradict the unauthenticated
+  `200` confirmed above. Worth a direct look in the dashboard at what
+  policy type is actually attached to whichever app covers that path —
+  this is the one piece I can't reconcile from local evidence alone.
+- **`CF_ACCESS_AUD_EXTRA` value for swingdesk:** not received on my end —
+  I don't see an AUD value anywhere in this conversation's history, only a
+  reference to "your earlier paste." Given you separately flagged my own
+  message getting truncated on your side, this may be the same cross-
+  truncation issue in the other direction. **Please re-paste the AUD value**
+  — until then, `dashboard/cf_auth.py`'s `CF_ACCESS_AUD_EXTRA` env var
+  (added this session specifically for this case) stays unset, meaning
+  SwingDesk's CF-Access-JWT check will only succeed if its application
+  happens to share Bridge's `CF_ACCESS_AUD`, which per the "5 apps" finding
+  above is not confirmed either way.
 
 **3. 🔴 crew-dissent resolved=0/pending=22 — structural join mismatch, not a
 transient/timing issue.** `resolve_dissent_outcomes()`
