@@ -14,6 +14,11 @@ from rich.console import Console
 
 console = Console()
 DB = "data/trader.db"
+# HM-FLEET-REBASELINE-2026-07-04: GATE 0 data-integrity cutoff (docs/XO_BACKLOG.md).
+# Hard floor on every scorecard query below -- currently a no-op (trailing 7/14-day
+# lookbacks are already well past this date) but guards against a future lookback
+# widening silently pulling in provisional pre-cutoff data.
+CLEAN_CUTOFF = "2026-05-14"
 from config import OLLIE_URL as _OLLIE_URL
 OLLAMA_URL = os.getenv("ADVISORY_OLLAMA_URL",
              os.getenv("OLLAMA_BASE_URL", _OLLIE_URL))
@@ -47,6 +52,152 @@ def _gemini(prompt, system=""):
     return call_gemini(prompt, system)
 
 
+def _weekly_spam_rates(player_ids: list) -> dict:
+    """spam_rate_pct = reentry_blocked / signals_tested * 100, raw mode, trailing 7d.
+    Same methodology as fleet_realism_sweep.py (HM-FLEET-REALISM-SWEEP), scoped to the
+    current week rather than full history. HM-FLEET-REBASELINE-2026-07-04."""
+    import engine.backtester as bt
+    from engine.backtester import backtest_player
+
+    bt.ENFORCE_REENTRY = True
+    rates = {}
+    for pid in player_ids:
+        try:
+            bt._vix_cache = {}
+            raw = backtest_player(pid, days=7, apply_guardrails=False)
+            tested = raw.get("signals_tested") or 0
+            blocked = (raw.get("stats") or {}).get("reentry_blocked") or 0
+            rates[pid] = round(blocked / tested * 100.0, 1) if tested else None
+        except Exception as e:
+            console.log(f"[yellow]  spam_rate calc failed for {pid}: {type(e).__name__}: {e!r}")
+            rates[pid] = None
+    return rates
+
+
+def _run_auditions(conn) -> dict:
+    """HM-AUDITION-SCORING-2026-07-05: score every non-executing candidate
+    against config.AUDITION_CRITERIA on clean-window data, emit a
+    pass/fail/insufficient_data proposal row per candidate into
+    model_adjustments. Reuses fleet_realism_sweep_clean_window.py's exact
+    methodology (backtest_player(start_date=CLEAN_CUTOFF, ...), same
+    spam_rate_pct/friction_to_pnl formulas) so a candidate's numbers are
+    directly comparable to the standalone sweep report.
+
+    "Accumulate across weeks" is automatic, not a separate running total:
+    backtest_player(start_date=CLEAN_CUTOFF) always replays from the clean
+    floor through "now", so trade counts and honest-guarded-return grow on
+    their own each week as more real signal history accrues.
+
+    Scope limit (reported honestly, not papered over): an audition only
+    gains NEW data while the candidate is still being scanned (halt_mode=
+    'active' via a dedicated shadow/sim loop, or during its own exit_only
+    wind-down window before halt_gate stops it emitting new signals). A
+    halt_mode='full' candidate's clean-window numbers are frozen at
+    whatever it produced before being cut -- verdict stays whatever it was.
+    """
+    from config import AUDITION_CRITERIA
+    from engine.trades_filter import TRACKING_PLAYERS
+    import engine.backtester as bt
+    from engine.backtester import backtest_player
+
+    bt.ENFORCE_STALENESS = True
+    bt.ENFORCE_REENTRY = True
+    bt.ENFORCE_COST_MODEL = True
+
+    cutoff = AUDITION_CRITERIA["clean_window_start"]
+    track_sql = ",".join("?" for _ in TRACKING_PLAYERS)
+    # Candidate pool = non-executing agents that could plausibly earn a seat back:
+    # excludes humans/manual desks (is_human), pure audit-trail bakeoff clones,
+    # the broker mirror, the structural exit-only stop guardian, and tracking-
+    # route players (dalio-metals/enterprise-computer/schwab -- never compete
+    # for an execution seat, see setup_db.py HM-ROSTER-CAP). Currently-executing
+    # (halt_mode='active') agents aren't candidates -- they hold a seat already.
+    candidates = conn.execute(f"""
+        SELECT id, COALESCE(halt_mode,'active') AS halt_mode, crew_role
+        FROM ai_players
+        WHERE COALESCE(is_human,0) = 0
+          AND COALESCE(crew_role,'active') NOT IN ('bakeoff','mirror','guardian')
+          AND COALESCE(halt_mode,'active') != 'active'
+          AND id NOT IN ({track_sql})
+        ORDER BY id
+    """, TRACKING_PLAYERS).fetchall()
+
+    results = []
+    for row in candidates:
+        pid = row["id"]
+        n, _oldest = conn.execute("""
+            SELECT COUNT(*), MIN(created_at) FROM signals
+             WHERE player_id = ? AND signal IN ('BUY', 'BUY_CALL', 'BUY_PUT')
+               AND created_at >= ?
+        """, (pid, cutoff)).fetchone()
+
+        verdict = "insufficient_data"
+        detail = {"clean_signals_in_db": n}
+        if n:
+            try:
+                bt._vix_cache = {}
+                guarded = backtest_player(pid, start_date=cutoff, apply_guardrails=True)
+                raw = backtest_player(pid, start_date=cutoff, apply_guardrails=False)
+                g_stats = guarded.get("stats", {})
+                trades = g_stats.get("total_trades") or 0
+                return_pct = g_stats.get("total_return_pct")
+                friction = round(g_stats.get("friction_paid") or 0.0, 2)
+                total_pnl = g_stats.get("total_pnl")
+                friction_to_pnl = round(friction / abs(total_pnl), 3) if total_pnl else None
+                r_tested = raw.get("signals_tested") or 0
+                r_blocked = (raw.get("stats") or {}).get("reentry_blocked") or 0
+                spam_pct = round(r_blocked / r_tested * 100.0, 1) if r_tested else None
+
+                detail.update({
+                    "guarded_trades": trades,
+                    "honest_guarded_return_pct": return_pct,
+                    "spam_rate_pct": spam_pct,
+                    "friction_to_pnl": friction_to_pnl,
+                })
+
+                if trades < AUDITION_CRITERIA["min_guarded_trades"]:
+                    verdict = "insufficient_data"
+                else:
+                    bars = {
+                        "trades": trades >= AUDITION_CRITERIA["min_guarded_trades"],
+                        "spam": spam_pct is not None and spam_pct <= AUDITION_CRITERIA["max_spam_rate_pct"],
+                        "return": return_pct is not None and return_pct > AUDITION_CRITERIA["min_honest_guarded_return_pct"],
+                        "friction": friction_to_pnl is not None and friction_to_pnl <= AUDITION_CRITERIA["max_friction_to_pnl"],
+                    }
+                    detail["bars_passed"] = bars
+                    verdict = "pass" if all(bars.values()) else "fail"
+            except Exception as exc:
+                verdict = "insufficient_data"
+                detail["error"] = f"{type(exc).__name__}: {exc}"
+
+        # ONE-IN-ONE-OUT (docs/DOCTRINE.md HM-ROSTER-CAP): activating a candidate
+        # requires naming the incumbent it replaces. Doctrine-only today
+        # (activation is still manual SQL) -- this field exists so the
+        # paperwork is on record even though nothing enforces it yet.
+        reason = (
+            f"AUDITION [{verdict}] vs AUDITION_CRITERIA (clean_window_start={cutoff}): "
+            f"{json.dumps(detail, default=str)}. "
+            f"REPLACES: <blank -- required before activation; name the incumbent "
+            f"player_id this seat would displace under MAX_ACTIVE_AGENTS, or NONE "
+            f"if an execution slot is currently empty>."
+        )
+        conn.execute("""
+            INSERT INTO model_adjustments
+            (player_id, adjustment_type, old_value, new_value, reason, source, effective_date)
+            VALUES (?, 'audition_proposed', ?, ?, ?, 'weekly_tuning_crew_audition', ?)
+        """, (pid, row["halt_mode"], verdict, reason, date.today().isoformat()))
+        results.append({"player_id": pid, "verdict": verdict, **detail})
+
+    conn.commit()
+    return {
+        "candidates_scored": len(results),
+        "pass": sum(1 for r in results if r["verdict"] == "pass"),
+        "fail": sum(1 for r in results if r["verdict"] == "fail"),
+        "insufficient_data": sum(1 for r in results if r["verdict"] == "insufficient_data"),
+        "results": results,
+    }
+
+
 def run_weekly_tuning():
     """Run the weekly model tuning crew. 3 agents: Scorer → Promoter → Prompt Tuner."""
     console.log("[bold cyan]Weekly Tuning Crew: Assembling...")
@@ -54,12 +205,15 @@ def run_weekly_tuning():
     conn = _conn()
 
     # Gather weekly data
+    # HM-FLEET-REBASELINE-2026-07-04: explicit CLEAN_CUTOFF floor on every query below,
+    # in addition to the trailing lookback -- currently a no-op, protects against a
+    # future lookback-window widening silently reaching into provisional pre-cutoff data.
     week_lessons = conn.execute("""
         SELECT player_id, grade, symbol, pnl, lesson
         FROM daily_lessons
-        WHERE date >= date('now', '-7 days')
+        WHERE date >= date('now', '-7 days') AND date >= ?
         ORDER BY player_id, date
-    """).fetchall()
+    """, (CLEAN_CUTOFF,)).fetchall()
 
     week_trades = conn.execute("""
         SELECT t.player_id, p.display_name, COUNT(*) as trade_count,
@@ -67,22 +221,30 @@ def run_weekly_tuning():
                SUM(CASE WHEN t.action = 'SELL' THEN 1 ELSE 0 END) as sells
         FROM trades t
         JOIN ai_players p ON t.player_id = p.id
-        WHERE t.executed_at >= date('now', '-7 days')
+        WHERE t.executed_at >= date('now', '-7 days') AND t.executed_at >= ?
         GROUP BY t.player_id
-    """).fetchall()
+    """, (CLEAN_CUTOFF,)).fetchall()
 
     active_models = conn.execute("""
         SELECT id, display_name, provider, model_id, is_active, is_paused
         FROM ai_players WHERE is_active = 1 OR is_paused = 1
     """).fetchall()
 
+    # data_window filter: never pull a 'provisional_pre_cutoff' row into PREVIOUS SCORES
+    # context, even if some future change relaxes the '-14 days' lookback.
     prev_scores = conn.execute("""
         SELECT player_id, overall_score FROM model_scores
-        WHERE period = 'weekly' AND date >= date('now', '-14 days')
+        WHERE period = 'weekly' AND date >= date('now', '-14 days') AND date >= ?
+          AND (data_window IS NULL OR data_window != 'provisional_pre_cutoff')
         ORDER BY date DESC
-    """).fetchall()
+    """, (CLEAN_CUTOFF,)).fetchall()
 
     conn.close()
+
+    # HM-FLEET-REBASELINE-2026-07-04: spam_rate_pct per active agent (raw reentry_blocked /
+    # signals_tested over the trailing week) — feeds the scorecard alongside win_rate/
+    # regime_alignment/confidence_calibration below.
+    spam_rates = _weekly_spam_rates([m["id"] for m in active_models])
 
     lessons_by_model = {}
     for l in week_lessons:
@@ -129,20 +291,51 @@ def run_weekly_tuning():
             for pid, data in parsed.items():
                 if isinstance(data, dict) and "overall_score" in data:
                     score_map[pid] = data
+                    spam_pct = spam_rates.get(pid)
                     conn2 = _conn()
                     conn2.execute("""
                         INSERT INTO model_scores
                         (player_id, period, date, win_rate, regime_alignment,
-                         confidence_calibration, overall_score)
-                        VALUES (?, 'weekly', ?, ?, ?, ?, ?)
+                         confidence_calibration, overall_score, spam_rate_pct, data_window)
+                        VALUES (?, 'weekly', ?, ?, ?, ?, ?, ?, 'clean_window_only')
                     """, (
                         pid, date.today().isoformat(),
                         data.get("win_rate", 0), data.get("regime_alignment", 0),
-                        data.get("confidence_calibration", 0), data["overall_score"]
+                        data.get("confidence_calibration", 0), data["overall_score"],
+                        spam_pct
                     ))
+                    # 'clean_window_only' is always correct here: week_lessons/week_trades
+                    # above are hard-floored at CLEAN_CUTOFF, so this row's underlying data
+                    # can never include provisional pre-cutoff signals.
                     conn2.commit()
                     conn2.close()
                     scores_saved += 1
+
+                    if spam_pct is not None and spam_pct > 30:
+                        console.log(f"[yellow]  {pid}: spam_rate_pct={spam_pct} (>30% threshold)")
+                    if spam_pct is not None and spam_pct > 60:
+                        conn5 = _conn()
+                        prior = conn5.execute("""
+                            SELECT spam_rate_pct FROM model_scores
+                            WHERE player_id = ? AND period = 'weekly' AND spam_rate_pct IS NOT NULL
+                            ORDER BY date DESC LIMIT 2
+                        """, (pid,)).fetchall()
+                        # prior[0] is the row just inserted above; prior[1] is last week's.
+                        if len(prior) >= 2 and prior[1]["spam_rate_pct"] > 60:
+                            conn5.execute("""
+                                INSERT INTO model_adjustments
+                                (player_id, adjustment_type, old_value, new_value, reason, source, effective_date)
+                                VALUES (?, 'halt_review_proposed', ?, 'active', ?, 'weekly_crew_spam_gate', ?)
+                            """, (
+                                pid, str(prior[1]["spam_rate_pct"]),
+                                f"spam_rate_pct > 60% for 2 consecutive weekly runs "
+                                f"({prior[1]['spam_rate_pct']}%, {spam_pct}%) — proposal only, "
+                                f"does not change halt_mode",
+                                date.today().isoformat()
+                            ))
+                            conn5.commit()
+                            console.log(f"[red]  {pid}: spam_rate_pct>60% sustained 2 weeks -- halt review proposed")
+                        conn5.close()
     except (json.JSONDecodeError, Exception) as e:
         console.log(f"[yellow]  Score parsing failed: {e}")
 
@@ -226,11 +419,25 @@ def run_weekly_tuning():
 
     console.log(f"[bold green]Weekly Tuning complete: {scores_saved} scored, {adj_saved} adjustments")
 
+    # ── Agent 4: Audition Scorer ──
+    console.log("[cyan]  Agent 4: Audition Scorer grading bench candidates...")
+    conn6 = _conn()
+    try:
+        audition_summary = _run_auditions(conn6)
+    finally:
+        conn6.close()
+    console.log(
+        f"[green]  Auditions: {audition_summary['candidates_scored']} scored -- "
+        f"{audition_summary['pass']} pass, {audition_summary['fail']} fail, "
+        f"{audition_summary['insufficient_data']} insufficient_data"
+    )
+
     return {
         "status": "complete",
         "models_scored": scores_saved,
         "adjustments_saved": adj_saved,
         "scores": score_map,
+        "auditions": audition_summary,
     }
 
 

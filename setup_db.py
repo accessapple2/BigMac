@@ -319,12 +319,15 @@ def setup():
         ("dalio-metals", "Cmdr. Dalio", "physical", "metals-tracker"),
         ("mlx-qwen3", "Ensign Chekov", "ollama", "phi3:mini"),
     ]
+    _newly_inserted = []
     for pid, name, provider, model in players:
         cash = 3500.00 if pid == "dayblade-0dte" else (0.0 if pid == "webull" else (0.0 if pid == "cto-grok42" else 7000.00))
         c.execute(
             "INSERT OR IGNORE INTO ai_players (id, display_name, provider, model_id, cash) VALUES (?,?,?,?,?)",
             (pid, name, provider, model, cash)
         )
+        if c.rowcount == 1:
+            _newly_inserted.append(pid)
 
     # Migrate ALL paid/paused players to free local Ollama — every agent active
     # 2026-04-20: patched — no more qwen3:8b (8GB swap storm on bigmac M4 16GB)
@@ -365,6 +368,66 @@ def setup():
     c.execute(f"UPDATE ai_players SET is_active=1, is_paused=1, crew_role='advisory' WHERE id IN {_shelved}")
     # Ollie: Fleet Commander — active, not paused, special commander role
     c.execute("UPDATE ai_players SET is_active=1, is_paused=0, crew_role='commander' WHERE id='ollie-auto'")
+
+    # === HM-ROSTER-CAP-2026-07-04 =======================================
+    # Hard ceiling on concurrently EXECUTING agents (see config.MAX_ACTIVE_AGENTS
+    # and docs/DOCTRINE.md). Never auto-halts an already-active agent —
+    # pre-existing overage is only ever logged loudly, every startup, for
+    # manual Admiral resolution. The only thing this blocks outright is a
+    # brand-new row inserted THIS run (via the seed loop above) defaulting
+    # to halt_mode='active' once the roster is already at/over cap — it
+    # must pass an audition (AUDITION_CRITERIA) before it can go active.
+    #
+    # "Executing" excludes two classes even when halt_mode='active':
+    #   1. Tracking-route players (engine.trades_filter.TRACKING_PLAYERS —
+    #      dalio-metals, enterprise-computer, schwab): their portfolio is
+    #      execution_mode='tracking', they never place fleet orders, so
+    #      they don't compete for an execution seat.
+    #   2. halt_mode='exit_only' agents are already excluded by the
+    #      halt_mode='active' filter below — a draining/wind-down agent
+    #      (e.g. gemini-2.5-flash until its last open position closes)
+    #      places no NEW orders and so never consumed a slot to begin with.
+    #
+    # Scope note: this guard only sees insertions made through THIS
+    # function's seed loop. An out-of-band script that INSERTs or
+    # UPDATEs halt_mode='active' directly against the DB is not
+    # intercepted at the moment it runs — but since setup() runs on every
+    # main.py startup, the resulting overage is still caught and logged
+    # loudly on the very next restart via the active_count check below.
+    from config import MAX_ACTIVE_AGENTS
+    from engine.trades_filter import TRACKING_PLAYERS
+    _track_sql = ", ".join("?" for _ in TRACKING_PLAYERS)
+    active_count = c.execute(
+        f"SELECT COUNT(*) FROM ai_players WHERE COALESCE(halt_mode,'active')='active' "
+        f"AND id NOT IN ({_track_sql})",
+        TRACKING_PLAYERS,
+    ).fetchone()[0]
+    if active_count > MAX_ACTIVE_AGENTS:
+        _blocked = []
+        for _pid in _newly_inserted:
+            if _pid in TRACKING_PLAYERS:
+                continue  # tracking-route seats never consume an execution slot
+            _row = c.execute(
+                "SELECT COALESCE(halt_mode,'active') FROM ai_players WHERE id=?", (_pid,)
+            ).fetchone()
+            if _row and _row[0] == 'active':
+                c.execute(
+                    "UPDATE ai_players SET halt_mode='full', halt_reason=? WHERE id=?",
+                    (f"[ROSTER-CAP] blocked at insert — roster at/over "
+                     f"MAX_ACTIVE_AGENTS={MAX_ACTIVE_AGENTS}; requires a passing "
+                     f"audition before activation (see AUDITION_CRITERIA in config.py)",
+                     _pid)
+                )
+                _blocked.append(_pid)
+        print(
+            f"[ROSTER-CAP] WARNING: {active_count} executing agents exceeds "
+            f"MAX_ACTIVE_AGENTS={MAX_ACTIVE_AGENTS} by {active_count - MAX_ACTIVE_AGENTS} "
+            f"(tracking-route seats {list(TRACKING_PLAYERS)} excluded from this count). "
+            f"New seats blocked from activating this run: {_blocked or 'none'}. "
+            f"Pre-existing over-cap seats are NOT auto-halted — flagged for manual "
+            f"Admiral resolution (one-in-one-out per docs/DOCTRINE.md)."
+        )
+    # === /HM-ROSTER-CAP-2026-07-04 =======================================
 
     c.execute('''CREATE TABLE IF NOT EXISTS watchlist_signals (
         id INTEGER PRIMARY KEY,

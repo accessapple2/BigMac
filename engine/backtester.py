@@ -27,17 +27,65 @@ STARTING_CASH = 7000.0
 #       within a 60-min cooldown (the Spock INTC 8x cluster); backtests
 #       previously replayed the full cluster.
 #   (3) FRICTION — commission + slippage per side; previously zero.
-# Both flags default ON. Set False to reproduce legacy (biased) numbers
-# for A/B comparison.
+# All three flags default ON. Set False individually to reproduce legacy
+# (biased) numbers for A/B comparison.
+#
+# HM-BACKTEST-REALISM-FIX 2026-07-04: STALENESS split out from REENTRY —
+# they were one combined ENFORCE_DISPATCH_REALISM flag, but they model
+# unrelated things and don't share a validity condition. The reentry
+# cooldown is a straight parity match to live logic (correct for every
+# source). The staleness poll-race model is only correct for a source
+# genuinely dispatched async via signals_v2 -> events_bus_consumer; for a
+# source confirmed to dispatch save_signal() -> buy() synchronously (see
+# the empirical note below _survives_dispatch), applying it just coin-flips
+# real historical signals on their timestamp's seconds digit — a second,
+# unrelated bias masquerading as a fix. Turn ENFORCE_STALENESS off per-run
+# for known-synchronous sources; leave it on as the default for sources
+# that haven't been checked, and for any future genuinely async-only path.
 # ============================================================
-ENFORCE_DISPATCH_REALISM = True
+ENFORCE_STALENESS = True
+ENFORCE_REENTRY = True
 ENFORCE_COST_MODEL = True
 COMMISSION_PCT = 0.0010      # per side (Schwab-equivalent blend; Alpaca paper = 0)
 SLIPPAGE_PCT = 0.0005        # per side (half-spread, liquid large-caps)
 PER_SIDE_COST_PCT = COMMISSION_PCT + SLIPPAGE_PCT
 CONSUMER_POLL_S = 60         # events_bus_consumer cadence (main.py schedule)
-ASSUMED_TIMEFRAME = "swing"  # signals(v1) rows carry no timeframe column
+# HM-BACKTEST-REALISM-FIX 2026-07-04: the "signals(v1) rows carry no timeframe
+# column" premise below was false — setup_db.py:561 added `timeframe TEXT
+# DEFAULT 'SWING'` to `signals` months ago, and save_signal() (paper_trader.py)
+# has always written the caller's real per-signal timeframe into it. The
+# original patch never SELECTed the column, so every row silently fell back
+# to ASSUMED_TIMEFRAME under the (just-widened) 3600s swing budget, and since
+# the synthetic poll-wait is capped at 59s, nothing could ever expire —
+# dispatch-staleness was dead code. ASSUMED_TIMEFRAME is now only the
+# defensive fallback for the rare row where the column is NULL/empty.
+ASSUMED_TIMEFRAME = "swing"
 REENTRY_COOLDOWN_MIN = 60    # mirrors events_bus_consumer.REENTRY_COOLDOWN_MIN
+
+# HM-BACKTEST-REALISM-FIX 2026-07-04: events_bus._STALE_BUDGET_S["swing"]
+# changed 30s -> 3600s in commit 95d0055 (2026-07-03 16:54:24 -0700 / AZ ==
+# 2026-07-03 23:54:24 UTC), the SAME commit that added this dispatch-staleness
+# check. Replaying a pre-cutover swing signal under today's 3600s budget is
+# itself lookahead — it wasn't the live rule at the time. Only "swing" moved;
+# 0dte/intraday/position are unchanged across the cutover (verified against
+# engine/events_bus.py.bak_pre_realism_20260703_124618).
+_SWING_BUDGET_CUTOVER_UTC = datetime(2026, 7, 3, 23, 54, 24)
+_SWING_BUDGET_PRE_CUTOVER_S = 30
+
+# HM-BACKTEST-REALISM-FIX 2026-07-04: empirical check (trades.signal_id join
+# to signals.created_at, excluding a handful of multi-month outlier joins that
+# are stale/mismatched signal_id FKs, not real delay — data-quality noise, not
+# signal) shows every CURRENT `signals`(v1)-table caller (ai_brain.py,
+# dayblade.py) invokes save_signal() then paper_trader.buy() synchronously in
+# the same call — observed real dispatch latency is single-to-low-double-digit
+# seconds regardless of timeframe, nowhere near even the old 30s swing budget.
+# The genuine async poll race this function models only applies to signals
+# dispatched purely via events_bus_consumer off signals_v2, which is not the
+# path any current backtest-eligible source takes. Kept enabled (not hardcoded
+# to always-survive) because it's still the correct model IF a future source
+# emits signals(v1) rows without a synchronous buy() call — but expect this to
+# report ~0 expired_pre_dispatch against current data, and that ~0 is now an
+# honest reading, not a silent no-op.
 
 
 def _friction(entry_notional: float, exit_notional: float) -> float:
@@ -65,16 +113,21 @@ def _survives_dispatch(created_at, timeframe: str | None = None) -> bool:
     signals that live would have expired (lookahead bias). Fail-OPEN on any
     parse error — realism must not silently zero a backtest.
     """
-    if not ENFORCE_DISPATCH_REALISM:
+    if not ENFORCE_STALENESS:
         return True
     try:
         from engine.events_bus import _STALE_BUDGET_S
-        budget = _STALE_BUDGET_S.get((timeframe or ASSUMED_TIMEFRAME).lower())
+        tf = (timeframe or ASSUMED_TIMEFRAME).lower()
+        budget = _STALE_BUDGET_S.get(tf)
         if budget is None:
             return True  # no budget = never-stale (matches consumer NULL rule)
         ts = _parse_sig_ts(created_at)
         if ts is None:
             return True
+        # HM-BACKTEST-REALISM-FIX: replay under the budget actually live when
+        # this signal was emitted, not today's — only "swing" ever changed.
+        if tf == "swing" and ts < _SWING_BUDGET_CUTOVER_UTC:
+            budget = _SWING_BUDGET_PRE_CUTOVER_S
         wait_s = (CONSUMER_POLL_S - ts.second % CONSUMER_POLL_S) % CONSUMER_POLL_S
         return wait_s <= budget
     except Exception:
@@ -275,7 +328,7 @@ def _simulate_raw(signals: list, hist_data: dict) -> tuple:
 
         # HM-BACKTEST-REALISM: consumer reentry cooldown (rail 2 parity).
         sig_ts = _parse_sig_ts(sig["created_at"])
-        if ENFORCE_DISPATCH_REALISM and sig_ts is not None:
+        if ENFORCE_REENTRY and sig_ts is not None:
             prev = last_buy_ts.get(sym)
             if prev is not None and (sig_ts - prev) < timedelta(minutes=REENTRY_COOLDOWN_MIN):
                 raw_stats["reentry_blocked"] += 1
@@ -522,7 +575,7 @@ def _simulate_guarded(player_id: str, signals: list, hist_data: dict,
         # a re-buy of the same name within REENTRY_COOLDOWN_MIN of the last
         # buy. Rail 1 (open position) is GUARDRAIL 4 above.
         sig_ts = _parse_sig_ts(sig["created_at"])
-        if ENFORCE_DISPATCH_REALISM and sig_ts is not None:
+        if ENFORCE_REENTRY and sig_ts is not None:
             prev = last_buy_ts.get(sym)
             if prev is not None and (sig_ts - prev) < timedelta(minutes=REENTRY_COOLDOWN_MIN):
                 skipped.append({"symbol": sym, "date": signal_date, "confidence": conf,
@@ -731,7 +784,7 @@ def backtest_player(player_id: str, days: int = 30,
     # Get all BUY signals in the period
     # HM-C: filter halted-player emissions from scorecard/calibration math
     query = f"""
-        SELECT symbol, signal, confidence, created_at
+        SELECT symbol, signal, confidence, created_at, timeframe
         FROM signals WHERE player_id=? AND signal IN ('BUY', 'BUY_CALL', 'BUY_PUT')
         AND created_at >= ? AND {HALTED_EMIT_FILTER}
         ORDER BY created_at ASC
@@ -740,7 +793,7 @@ def backtest_player(player_id: str, days: int = 30,
     if start_date and end_date:
         # HM-C: filter halted-player emissions from scorecard/calibration math
         query = f"""
-            SELECT symbol, signal, confidence, created_at
+            SELECT symbol, signal, confidence, created_at, timeframe
             FROM signals WHERE player_id=? AND signal IN ('BUY', 'BUY_CALL', 'BUY_PUT')
             AND created_at >= ? AND created_at <= ? AND {HALTED_EMIT_FILTER}
             ORDER BY created_at ASC
@@ -754,10 +807,10 @@ def backtest_player(player_id: str, days: int = 30,
     # _STALE_BUDGET_S before the consumer's next poll; drop the ones the live
     # pipeline would never have executed.
     expired_pre_dispatch = 0
-    if ENFORCE_DISPATCH_REALISM and signals:
+    if ENFORCE_STALENESS and signals:
         surviving = []
         for s in signals:
-            if _survives_dispatch(s["created_at"]):
+            if _survives_dispatch(s["created_at"], s["timeframe"]):
                 surviving.append(s)
             else:
                 expired_pre_dispatch += 1
@@ -846,7 +899,8 @@ def backtest_player(player_id: str, days: int = 30,
         "signals_skipped": len(skipped_signals),
         # HM-BACKTEST-REALISM audit fields
         "expired_pre_dispatch": expired_pre_dispatch,
-        "dispatch_realism": ENFORCE_DISPATCH_REALISM,
+        "staleness_enforced": ENFORCE_STALENESS,
+        "reentry_enforced": ENFORCE_REENTRY,
         "cost_model": ENFORCE_COST_MODEL,
     }
     # V3: Add trailing stop / pyramid / quality gate stats

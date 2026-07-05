@@ -390,6 +390,19 @@ class RiskManager:
             "block_buys_spy_below_200": True,  # SPY < 200MA → CAN SLIM requires uptrend
             "min_conviction": 0.70,        # Higher conviction floor
         },
+        "ollama-plutus": {  # McCoy — HM-FLEET-REBASELINE-2026-07-04, caps applied 2026-07-04:
+                            # clean-window guarded return flipped +21.67% (full history) ->
+                            # -3.11% (n=22, 95% CI [-27.1%,+20.9%] -- not statistically
+                            # distinguishable from zero on this sample). Tightening exposure
+                            # while forward data accrues, not acting on the noisy point
+                            # estimate. Paper-only; not halted. min_conviction deliberately
+                            # NOT overridden (stays at UNIVERSAL_MIN_CONVICTION 0.65) --
+                            # raising it would both shrink the scarce clean forward sample
+                            # and break comparability between pre/post-cap trades. Segment
+                            # July 24 analysis on this date. Re-evaluate at clean n>=40.
+            "max_daily_trades": 2,          # was 3 (fleet default, EXECUTION_RULES_6_3)
+            "max_position_pct": 0.15,       # was ~0.25 (conviction-tier ceiling, no override)
+        },
     }
 
     def __init__(self, max_position_pct=0.20, max_positions=5, stop_loss_pct=0.12,

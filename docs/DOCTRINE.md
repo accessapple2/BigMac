@@ -337,6 +337,42 @@ day-boundary verification (how the post-restart/today segment was isolated — l
 restart marker, contiguous-ascending-timestamp block) BEFORE reporting a rate.** A rate
 without a stated boundary method is suspect. Verify the instrument, not just the result.
 
+### Guarded+honest is the only decision-grade backtest number (2026-07-04)
+`fleet_realism_sweep.py` (HM-FLEET-REALISM-SWEEP 2026-07-03/04) ran every
+roster agent's full signal history through `backtest_player` in both modes.
+Raw-mode "returns" are compounding artifacts of unbounded re-entry — e.g.
+options-sosnoff raw = +22,389% return_pct vs guarded (honest, reentry-limited,
+cost-modeled) +25.23%. Any number without both guardrails and the cost model
+applied is not decision-grade, full stop. **Rule: cite guarded+honest only.**
+Raw-mode is diagnostic (it's how spam_rate_pct is derived) — never a
+performance claim.
+
+Every frontier cloud-API agent (claude-sonnet, claude-haiku, gpt-4o,
+gemini-2.5-pro, gemini-2.5-flash, grok-3) posted <9% guarded-honest return
+with 48-84% spam rates on this task — underperforming the local/self-hosted
+agents. **Correction on first draft of this note:** the top-5 guarded-honest
+slots are NOT confirmed "Qwen family" — checking `ai_players.model_id` (not
+the agent id/display_name, per `config.py`'s own HM-MODEL-CONFIG-STALENESS
+warning) shows ollama-qwen3 and mlx-qwen3 both actually run `ministral-3:3b`
+despite their names; only options-sosnoff runs true `qwen3:8b`; ollama-plutus
+runs the custom `plutus-v1` fine-tune; dayblade-sulu is rule-based, no LLM in
+its signal loop. The real, verified claim: **local/self-hosted models (Qwen,
+Ministral, and the custom plutus fine-tune) dominate the top slots; every
+frontier cloud-API agent underperforms them on this task.** Spam rate (raw
+reentry_blocked/signals_tested) tracks inversely with guarded performance:
+qwen3-8b-flash 0% spam / 83.3% WR vs ollama-local 85.1% spam / 30% WR.
+Lesson: verify `model_id` from the DB before naming a model family in
+doctrine — the agent id/display_name is not reliable evidence of what's
+actually running (same trap `HM-MODEL-CONFIG-STALENESS` already documented,
+just rediscovered in a different analysis).
+
+**Clean-window re-run (2026-07-04, `fleet_realism_sweep_clean_20260704_213532.json`,
+signals >= 2026-05-14 only):** As of 2026-07-04, no fleet ranking is
+trustworthy — 17/22 agents have zero post-GATE-0 signals. All tier
+assignments are provisional pending forward data. The July 24 kill gate is
+the first evaluation on fully clean data; nothing before it should be cited
+as a performance baseline.
+
 ### Trace EVERY sub-fetch to its leaf before fixing a multi-fetch block (2026-05-29)
 When a hang localizes to a block that bundles multiple sub-fetches, trace **every**
 fetch to its leaf — or instrument to distinguish them — **before** committing to a fix.
@@ -510,6 +546,131 @@ Polygon Stocks Starter ($29) was assumed to include WS trades; live probe
 found it does not. Pivot to Alpaca IEX cost zero $ but one module rewrite.
 See `drafts/HM-LESSON-VERIFY-DATA-SOURCE-FIRST.md`.
 
+### A realism model must mirror the config in force at emit time, not today's (HM-BACKTEST-REALISM-FIX, 2026-07-04)
+**Backtest replay must mirror the dispatch pipeline AND the config in force
+at emit time; a realism model that applies today's budgets to yesterday's
+signals is a second lookahead bias.** HM-BACKTEST-REALISM (2026-07-03) added
+a dispatch-staleness check to `engine/backtester.py` to fix exactly this
+class of bug (the backtester replaying every signal regardless of whether
+live dispatch would have let it expire) — but the fix itself replayed
+`events_bus._STALE_BUDGET_S`'s *current* value (`swing` just widened
+30s→3600s in the same commit) against historical signals that lived under
+the *old* 30s rule, and the SELECT feeding it never even fetched the
+signal's real `timeframe` column, so it silently fell back to a hardcoded
+assumption. Net effect: the mechanism was inert (never expired anything)
+and, had it fired, would have graded pre-cutover history against a budget
+that didn't exist yet. Two independent lessons, both required: (1) a
+realism/parity model needs an emit-time-aware lookup of whatever config
+governed dispatch at that historical instant, not the module's present-day
+constant; (2) verify the model's own input data before trusting its output
+— `expired_pre_dispatch=0` looked like "nothing ever expires" when it
+actually meant "this check can't fire." See also the separate finding from
+the same fix: even corrected, the staleness *poll-race* model only applies
+to a source genuinely dispatched async via `signals_v2` →
+`events_bus_consumer` — applying it to a source confirmed (empirically, via
+`trades.signal_id` → `signals.created_at` latency) to dispatch
+`save_signal()` → `buy()` synchronously coin-flips real historical trades on
+their timestamp's seconds digit, a THIRD unrelated bias masquerading as
+realism. `ENFORCE_STALENESS` and `ENFORCE_REENTRY` are now split flags for
+exactly this reason — same family as [[verify-the-model-of-the-system]].
+
+### Roster quality is enforced at the door, not by periodic culls (HM-ROSTER-CAP, 2026-07-04)
+
+This is the third cull cycle in roughly two months (deepseek 2026-06-07,
+Webull book 2026-05-13, the Tier 3 cut the day before this entry) — three
+separate occasions where roster bloat was discovered late and fixed by a
+one-time sweep. A periodic cull is a symptom, not a cure: it treats the
+roster ceiling as something to re-derive under pressure instead of an
+always-on invariant. **The fix is a structural bar, not another cleanup.**
+
+Two mechanisms, both load-bearing:
+
+1. **Hard cap (`config.MAX_ACTIVE_AGENTS = 8`).** Enforced in
+   `setup_db.py`'s startup roster check — the same unconditional-enforcement
+   mechanism that already reverts runtime `model_id` edits every boot, so it
+   runs whether or not anyone remembers to check. It never auto-halts an
+   already-active agent (that decision stays with the Admiral); it only
+   blocks a *new* seat from defaulting to active once the roster is already
+   at cap, and it logs loudly, every startup, for as long as the roster sits
+   over cap.
+2. **Audition gate (`config.AUDITION_CRITERIA`).** No agent activates or
+   reactivates without a passing paper audition on clean-window data
+   (`clean_window_start` — same cutoff as `engine.trades_filter.GARBAGE_FLOOR`
+   / `engine.crew.weekly_tuning_crew.CLEAN_CUTOFF`): ≥20 guarded trades,
+   spam_rate_pct < 30%, positive honest guarded return, friction_to_pnl <
+   0.15. Auditions run in tracking/shadow mode — signals logged, gated from
+   execution — so a failed audition costs nothing.
+
+**One-in-one-out is the anti-bloat mechanism, not a suggestion.** Once the
+roster is at cap, activating a new agent requires naming the incumbent it
+replaces, with a clean-window head-to-head in the proposal. No exceptions —
+without this, the cap alone only stops growth past 8, it doesn't force
+anyone to justify *which* 8.
+
+No agent trades without passing a clean-data audition; the cap forces every
+addition to name its replacement. That sentence is the whole doctrine: a
+check that runs automatically, every startup, beats a rule that has to be
+remembered and re-applied under pressure each time bloat is noticed.
+
+### Both mechanisms wired live (HM-AUDITION-SCORING, 2026-07-05)
+
+1. **Cap now genuinely counts EXECUTING agents only.** `setup_db.py`'s
+   `active_count` query excludes `engine.trades_filter.TRACKING_PLAYERS`
+   (dalio-metals, enterprise-computer, schwab) — those seats never place a
+   fleet order, so they never consumed a slot. `halt_mode='exit_only'`
+   (draining/wind-down agents, e.g. gemini-2.5-flash until its last open
+   position closes) was already excluded by construction (`halt_mode=
+   'active'` filter) — no code change needed there, just made explicit in
+   the comment. Verified against live `data/trader.db` (read-only): active
+   count drops from 15 to 14 once enterprise-computer (a tracking-route
+   seat with halt_mode='active') is excluded.
+2. **`weekly_tuning_crew.py` now runs a real audition pass** (`_run_auditions`,
+   Agent 4). Every non-executing candidate (halt_mode != 'active', excluding
+   humans/manual-desks, bakeoff audit-trail clones, the broker mirror, the
+   structural exit-only guardian, and tracking-route players) is scored
+   against `config.AUDITION_CRITERIA` using the exact
+   `fleet_realism_sweep_clean_window.py` methodology
+   (`backtest_player(start_date=CLEAN_CUTOFF, ...)`), and gets a
+   `pass`/`fail`/`insufficient_data` row written to `model_adjustments`
+   (`adjustment_type='audition_proposed'`) every week. "Accumulate across
+   weeks" needs no separate counter — the backtest always replays from
+   `CLEAN_CUTOFF` through "now," so a candidate's trade count grows on its
+   own as real history accrues. Each proposal row's `reason` includes a
+   `REPLACES: <blank>` field per the one-in-one-out doctrine above — the
+   Admiral fills in the incumbent (or `NONE` for an empty slot) before
+   running the activation SQL. Dry-run verified against a throwaway copy
+   of `data/trader.db`: numbers for deepseek-7b-grok4/ollama-coder/
+   ollama-qwen3 matched `fleet_realism_sweep_clean_window.py`'s own report
+   exactly, confirming the reimplementation is correct.
+
+**Known scope gap, reported not papered over:** an audition only gains new
+data while its candidate is still being scanned — a `halt_mode='full'`
+agent's clean-window numbers are frozen at whatever it produced before
+being cut, because `build_all_providers` never even instantiates a `full`
+player (Inconsistency map: `drafts/AGENT-RULES-REVIEW-2026-07-03.md` §6).
+The doctrine text above describes auditions running "in tracking/shadow
+mode — signals logged, gated from execution," but no generic mechanism
+exists today that lets a candidate scan and emit signals while being
+structurally blocked from executing a BUY; the only working example is
+`ollie-machine`'s bespoke SIM loop. Building that generic shadow-scan gate
+(a fourth halt state, or a `can_trade_live`-style flag enforced at the
+`paper_trader` buy path independent of `halt_mode`) is unbuilt — ticketed
+in `docs/XO_BACKLOG.md`.
+
+**Also discovered while building this: the clean-window sweep methodology
+has a blind spot.** `fleet_realism_sweep.py` / `_clean_window.py` and this
+audition scorer all measure activity via the `signals` table. Agents that
+route through the signal-center bridge/consensus path instead of the
+standard scan→`signals`-table pipeline (confirmed live: `neo-matrix` — 71
+trades since 2026-05-14, 0 rows in `signals`; also `cto-grok42` 6 trades,
+`trade-desk` 1 trade) show as `clean_signals_in_db=0` / "cannot assess"
+even though they are genuinely, measurably active. `neo-matrix` specifically
+has 34 clean (non-contaminated) closed trades, +$90.58 realized, 91.2% WR
+since the clean cutoff — real positive performance the sweep/audition
+scorer currently cannot see. Any roster ranking done off `signals`-table
+sweep output alone will misclassify these agents as unmeasured. See
+`docs/XO_BACKLOG.md` for the follow-up (score `trades`-table realized P&L
+directly for signal-center-routed agents, don't rely on `signals` alone).
 
 ---
 

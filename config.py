@@ -305,6 +305,28 @@ DAILY_COST_WARNING = 4.00  # Warn threshold
 MONTHLY_API_BUDGET = 35.00 # Soft limit — switch to economy mode
 FREE_CALLS_DAILY_LIMIT = int(os.environ.get("FREE_CALLS_DAILY_LIMIT", "1000"))
 
+# === HM-ROSTER-CAP-2026-07-04 — hard roster ceiling + audition gate =========
+# Roster quality is enforced at the door, not by periodic culls (see
+# docs/DOCTRINE.md, "Doctrine Lessons"). Enforced in setup_db.py's startup
+# roster check (same mechanism that reverts runtime model_id edits).
+MAX_ACTIVE_AGENTS = 8  # hard ceiling on concurrently halt_mode='active' agents
+
+# No agent may activate or reactivate without clearing all four bars below,
+# measured on clean-window data only (>= clean_window_start). Auditions run
+# in tracking/shadow mode (signals logged, gated from execution) so a failed
+# audition costs nothing. weekly_tuning_crew proposes pass/fail; Admiral
+# approves. clean_window_start matches the established data-integrity cutoff
+# used elsewhere (engine.trades_filter.GARBAGE_FLOOR,
+# engine.crew.weekly_tuning_crew.CLEAN_CUTOFF) — same date, not a new one.
+AUDITION_CRITERIA = {
+    "clean_window_start": "2026-05-14",
+    "min_guarded_trades": 20,
+    "max_spam_rate_pct": 30.0,
+    "min_honest_guarded_return_pct": 0.0,   # must be strictly positive
+    "max_friction_to_pnl": 0.15,
+}
+# === /HM-ROSTER-CAP-2026-07-04 ===============================================
+
 # AI Arena Players
 #
 # ⚠️ HM-MODEL-CONFIG-STALENESS (2026-05-30): the `model` field below is the INITIAL /

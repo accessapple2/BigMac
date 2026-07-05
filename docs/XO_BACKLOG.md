@@ -5,6 +5,111 @@
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
 ---
+## 🔴 HM-ROSTER-RECONCILE-8 — HIGH (filed 2026-07-05) — Captain decision needed before the SQL flip
+
+Context: HM-ROSTER-CAP (2026-07-04) built the mechanism (`MAX_ACTIVE_AGENTS=8`,
+`AUDITION_CRITERIA`); this session shipped the two pieces the mechanism
+needed to actually run (cap-exclusion fix in `setup_db.py`, audition scoring
+in `weekly_tuning_crew.py` — see `docs/DOCTRINE.md` "Both mechanisms wired
+live"). Applying the actual roster picks (which 8 seats hold `halt_mode=
+'active'`) is **paused, not done** — real clean-window data contradicts part
+of the proposed "measured core" list, and this is the Captain's call, not
+mine to guess:
+
+1. **capitol-trades and ollama-plutus are named auto-keeps and ARE
+   negative on clean-window data — but this is already known and already
+   partially mitigated, not fresh news.** `engine/crew_specialization.py`'s
+   `PROBATION_WATCH` (HM-FLEET-REBASELINE-2026-07-04) already flags
+   capitol-trades as "the only negative guarded agent (-3.51%)" with a
+   60-day review date (currently 32d history); `engine/risk_manager.py`
+   already tightened ollama-plutus's `max_daily_trades` 3→2 and
+   `max_position_pct` ~0.25→0.15 specifically because its clean-window
+   return flipped +21.67% (full-history) → −3.11% (n=22, 95% CI
+   [−27.1%,+20.9%] — not distinguishable from zero on this sample) — noted
+   explicitly as "tightening exposure while forward data accrues, not
+   acting on the noisy point estimate." So the stated rule "auto-cut any
+   active agent that flipped negative" was deliberately NOT applied to
+   these two, in favor of probation-watch + reduced exposure. Question for
+   the Captain: is that mitigation sufficient to justify "auto-keep" in the
+   final 8, or should the roster-cap decision go further (cut/bench) now
+   that a second, independent mechanism (the cap itself) is asking the same
+   question?
+2. **options-sosnoff and qwen3-8b-flash are named auto-keeps, but the
+   numbers behind that pick are from the FULL-HISTORY sweep
+   (`fleet_realism_sweep.py`), which `docs/DOCTRINE.md`'s own "Guarded+
+   honest is the only decision-grade backtest number" entry already
+   superseded** — the very next doctrine entry (clean-window re-run,
+   2026-07-04) states "no fleet ranking is trustworthy — 17/22 agents have
+   zero post-GATE-0 signals... nothing before it should be cited as a
+   performance baseline." options-sosnoff (+25.23% guarded full-history)
+   and qwen3-8b-flash (0% spam / 83.3% WR full-history) were exactly the
+   top full-history performers that prompted that doctrine note — and on
+   the clean-window standard the doctrine itself now says is the only
+   trustworthy one, both currently show **zero** clean-window signals.
+   qwen3-8b-flash may also still be carrying a stale/paused persona (see
+   Item 18 above, "Worf persona check is a prerequisite"). This isn't noise
+   — it's the project's own methodology having moved out from under the
+   pick between the full-history sweep and the clean-window one. Keep them
+   on trust pending forward data, or treat as ordinary unmeasured
+   candidates (→ likely empty slots per the "empty slot beats an unmeasured
+   agent" rule) until they accrue real clean-window signal?
+3. **neo-matrix is a real, strong, currently-invisible candidate.** 34 clean
+   (non-contaminated) closed trades since 2026-05-14, +$90.58 realized,
+   91.2% win rate — better-measured than anything on the named "measured
+   core" list except ollama-qwen3 — but it never shows up in the
+   `signals`-table sweep (see DOCTRINE.md blind-spot note). Should it be
+   ranked into the 8 on its real `trades`-table performance, or is there a
+   reason (WARNING_ONLY risk-radar status, etc.) it's deliberately being
+   held out that isn't captured in this data?
+4. **Five currently-`halt_mode='active'` seats are self-declared
+   non-executing in their own `halt_reason`** — archer ("never executes"),
+   q-witness (debate witness, `can_trade_live=0`), sell-the-news ("no
+   execution until Admiral go"), quark-ic ("Arena Paper book only, no Alpaca
+   forward"), ollie-machine (sim/tracking, already excluded via crew_role=
+   'sim' logic elsewhere). Fold these into the same cap-exclusion as
+   TRACKING_PLAYERS (they don't compete for a seat either), or leave them
+   counted?
+
+**Full current numbers (clean_window_start=2026-05-14) for reference:**
+
+| player_id | clean signals | guarded trades | return% | spam% | friction/pnl | note |
+|---|---|---|---|---|---|---|
+| ollama-qwen3 | 268 | 6 | **+14.96** | 2.9 | 0.043 | 3/4 bars, fails only trade-count (needs 20) |
+| neo-matrix (trades-table) | n/a — 0 in `signals` | 34 (real) | n/a | n/a | n/a | +$90.58, 91.2% WR — sweep-invisible |
+| ollama-plutus | 1483 | 22 | −3.11 | 3.6 | 0.438 | fails return + friction |
+| capitol-trades | 127 | 12 | −3.50 | **67.7** | 0.179 | fails all 4 bars |
+| options-sosnoff | 0 | — | — | — | — | unmeasured |
+| qwen3-8b-flash | 0 | — | — | — | — | unmeasured |
+| deepseek-7b-grok4 | 1745 | 13 | −2.72 | 19.6 | 0.289 | already `halt_mode='full'` |
+| ollama-coder | 328 | 3 | −2.27 | 0.0 | 0.075 | already `halt_mode='full'` |
+| cto-grok42 (trades-table) | n/a | 6 (real) | n/a | n/a | n/a | +$18.55, 100% WR, thin sample |
+
+Do not run the `halt_mode` activation SQL or restart until this is resolved —
+restart is scheduled for this weekend (market closed) specifically so this
+doesn't become Monday 6:30 AM's first boot untested.
+
+---
+## 🟡 HM-SWEEP-SIGNALS-TABLE-BLIND-SPOT — MEDIUM (filed 2026-07-05)
+
+`fleet_realism_sweep*.py` and the new audition scorer (`_run_auditions`,
+`engine/crew/weekly_tuning_crew.py`) both measure activity by counting rows
+in the `signals` table. Agents that route through the signal-center
+bridge/consensus path instead of the standard scan→`signals` pipeline never
+write a `signals` row even when they're genuinely trading — confirmed live:
+neo-matrix (71 trades since 2026-05-14, 0 `signals` rows), cto-grok42 (6
+trades, 0 `signals` rows), trade-desk (1 trade, 0 `signals` rows). They show
+up as `clean_signals_in_db=0` / "cannot assess," which is wrong for
+neo-matrix and cto-grok42 specifically (trade-desk is human/manual, correctly
+out of scope). Fix: `clean_signal_count()`/audition candidate scoring should
+also check the `trades` table directly (real executed trades don't need a
+backtest replay — just realized-P&L rollup via `engine.trades_filter`,
+excluding `known_contaminated`) and treat "has trades-table activity" as
+equally "measured" as "has signals-table activity." Scoped, not urgent —
+doesn't block HM-ROSTER-RECONCILE-8 (numbers above already computed by hand),
+but the sweep script itself should stop silently mislabeling these agents
+"unmeasured" going forward.
+
+---
 ## 🆕 HM-AGENT-RULES-CONSOLIDATION — 2026-07-04, Admiral-decided batches A-F shipped
 
 Source: `drafts/AGENT-RULES-REVIEW-2026-07-03.md` (21 inconsistencies) +
@@ -423,6 +528,26 @@ model_ids on startup", main.py:121). Confirmed:
 the live model is wrong. **Fix:** update config.py `model` to match the canonical DB, OR comment that
 `ai_players.model_id` is authoritative and config.py `model` is informational-only. Likely >2 agents affected
 (HM-BN made the DB canonical fleet-wide; config wasn't swept). Low-risk doc/config sync. (Drift Catalog #1.)
+
+**Re-hit 2026-07-04 (HM-FLEET-REBASELINE):** same trap, different analysis. Drafting the fleet-core doctrine
+claim off agent id/display_name ("ollama-qwen3", "mlx-qwen3") nearly banked "fleet core = Qwen family" —
+both actually run `ministral-3:3b` per live `ai_players.model_id`; only options-sosnoff runs true `qwen3:8b`
+among the top-5 guarded-honest performers. Caught before it was written to DOCTRINE.md, not after. **The
+comment-only fix in config.py obviously isn't sufficient — it didn't stop this recurrence.** Escalating the
+fix recommendation: LOW-priority follow-up to either (a) sync config.py `model` fields to match `model_id`
+outright, or (b) add a small `get_live_model(player_id)` helper (reads `ai_players.model_id`) that analysis
+scripts/doctrine-writing sessions are expected to call instead of reading `config.py`/id/display_name — a
+comment nobody re-reads mid-analysis isn't load-bearing enough given it's now failed twice.
+
+**HM-FLEET-REBASELINE-2026-07-04 follow-up items (file-only, do not build without Admiral review):**
+- **gemini-2.5-flash full-halt deferred:** meets retirement criteria (guarded return 8.93% <9%, spam
+  54.5%>48%) but has 1 open position (IREN) and `halt_mode='full'` blocks sells (`exit_only` doesn't).
+  Flip `exit_only`→`full` once IREN closes (natural exit or guardian-of-forever sweep) — do NOT flip
+  while a position is open, it would strand the position with no close path.
+- **Kill-gate reminder:** the July 24 2026 G1-G4 Door-1 kill-gate verdict (`project_door1_kill_gate`
+  memory) must be read against THIS sweep's guarded-honest baselines, not the pre-friction Season 6.3
+  numbers (OOS Sharpe 2.692 etc. — those predate the reentry/cost-model guardrails and are stale for
+  gate-decision purposes as of 2026-07-04).
 
 ## 🚨 GATE 0 — FLEET PERFORMANCE NOT ASSESSABLE PRE-2026-05-14 (data-integrity headline)
 

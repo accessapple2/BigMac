@@ -108,6 +108,28 @@ ENABLED_STRATEGIES: list[str] = [
     "rsi_bounce",       # Spock's specialty
 ]
 
+# HM-FLEET-REBASELINE-2026-07-04 — Tier 2 probation watch (fleet_realism_sweep_20260704_073227.json).
+# These agents cleared the retirement bar (<9% guarded return AND spam/friction over threshold
+# did NOT both hold) but on too few guarded trades to trust; do not cite their guarded numbers
+# in fleet-level claims until min_guarded_trades is met. capitol-trades additionally gets a
+# 60-day history review (currently 32d, its only negative guarded agent, -3.51%).
+# This is a reporting gate only — no limits/conditions/max_positions changed here.
+# Note: grok-4/dayblade-sulu/navigator/ollama-llama are NOT currently halt_mode='active'
+# (they're full/exit_only from earlier, unrelated culls) — flag applies if/when reactivated.
+PROBATION_WATCH: dict[str, dict[str, Any]] = {
+    "grok-4":        {"min_guarded_trades": 20, "guarded_trades_at_sweep": 13,
+                       "note": "return 16.38%, spam 48.2% -- borderline; small sample"},
+    "dayblade-sulu": {"min_guarded_trades": 20, "guarded_trades_at_sweep": 5,
+                       "note": "return 17.68% on only 5 guarded trades -- too thin to trust"},
+    "navigator":     {"min_guarded_trades": 20, "guarded_trades_at_sweep": 3,
+                       "note": "return 10.4% on only 3 guarded trades -- too thin to trust"},
+    "ollama-llama":  {"min_guarded_trades": 20, "guarded_trades_at_sweep": 17,
+                       "note": "return 13.79%, close to threshold"},
+    "capitol-trades": {"min_guarded_trades": 20, "guarded_trades_at_sweep": 12,
+                        "note": "only negative guarded agent (-3.51%), 32d history",
+                        "review_at_days": 60, "history_days_at_sweep": 32},
+}
+
 # Per-agent strategy mandates (drives prompt context + signal filtering)
 # S6.3 Iron Condor King: Sulu = iron_condor PRIMARY with Model F tiered exits
 # McCoy = income backup (csp primary; covered_call disabled per OOS verdict 2026-04-17)
