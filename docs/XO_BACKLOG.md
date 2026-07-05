@@ -242,21 +242,35 @@ directly rather than inferred. No contradiction; the local finding
 (unauthenticated `200` on the manifest path, `302` on every sibling path)
 was correct and is now backed by the dashboard's own policy assignment.
 
-**`CF_ACCESS_AUD_EXTRA` — values received, wiring in progress.** Real 64-hex-
-char AUD values for bridge and swingdesk's Access applications were provided
-directly by the Admiral. **Not written into this file** (git-tracked, even
-in a private repo) — per the Admiral's own instruction, the values belong in
-`swingdesk/.env` (gitignored), this entry documents the fact/mechanism only.
-**Blocked on a session permission boundary, not a decision:** this Claude
-Code session has no Read or Edit access to any `.env` file (root `.env` and
-`swingdesk/.env` both denied) — a deliberate security boundary, not
-something to work around. See the chat response for the exact 3 lines that
-need to go into `swingdesk/.env` by hand (`CF_ACCESS_TEAM_DOMAIN`,
-`CF_ACCESS_AUD`=bridge's, `CF_ACCESS_AUD_EXTRA`=swingdesk's — all three are
-needed together: `dashboard.cf_auth.is_configured()` requires
-`CF_ACCESS_TEAM_DOMAIN` AND `CF_ACCESS_AUD` both present before it will even
-attempt JWT validation; `CF_ACCESS_AUD_EXTRA` alone is not sufficient), plus
-the restart + end-to-end verification steps once that's done.
+**`CF_ACCESS_AUD_EXTRA` — SHIPPED and verified end-to-end, 2026-07-05.** Real
+64-hex-char AUD values for bridge and swingdesk's Access applications were
+provided by the Admiral and saved into `swingdesk/.env` (gitignored, not
+written into this file) — `CF_ACCESS_TEAM_DOMAIN`, `CF_ACCESS_AUD`=bridge's,
+`CF_ACCESS_AUD_EXTRA`=swingdesk's (added this session to `dashboard/cf_auth.py`'s
+`_valid_cf_jwt()` for exactly this multi-application-aud case). This
+session had no Read/Edit access to any `.env` file, so the actual edit was
+made by hand outside this session — confirmed the boundary rather than
+routing around it.
+
+SwingDesk restarted (`scripts/swingdesk_restart.sh`) — single process, no
+orphan (same benign nohup-PID-echo quirk as the first restart: script
+echoed one PID, a different one actually won the port-bind race and is the
+real survivor; verified via `pgrep -f` + `lsof`). Startup log flipped from
+"OPEN" to **"CF Access configured -- enforcing"**.
+
+**End-to-end verified with a real browser session through the actual
+Cloudflare tunnel (not a synthetic test):** navigated to
+`https://swingdesk.ollietrades.com/` — full dashboard rendered live (chart,
+watchlist, positions, journal). Network log: document + all 8 `/api/*`
+calls (`health`, `watchlist`, `candles`, `positions`, `journal`, `stats`,
+`risk-gate`, `signals`) → **200**, zero 401s, zero CF Access login
+redirects. Cross-checked server-side in `logs/otasty.log`: the real
+Cloudflare edge IP (`64.43.89.142`, not localhost, not a synthetic test IP)
+hit every endpoint and got 200 across the board — genuine CF-signed JWT,
+`aud` claim matched `CF_ACCESS_AUD_EXTRA`, validated correctly. Also
+reconfirmed the synthetic pre-restart tests are visible in the same log for
+contrast: a fake non-CF IP with no credentials correctly got 401 both times.
+**Closed — no further action needed on this item.**
 
 **3. 🔴 crew-dissent resolved=0/pending=22 — structural join mismatch, not a
 transient/timing issue.** `resolve_dissent_outcomes()`
