@@ -90,3 +90,68 @@ SwingDesk/cloudflared:
 
 Related: `docs/runbooks/reboot-lifecycle.md`, `docs/DOCTRINE.md` (Doctrine
 Lessons — "Alarms must not share a failure mode with what they watch").
+
+## Trip-prep closeout — Ollie Max, softdog + BIOS auto-power-on (2026-07-05)
+
+Two gaps found and closed on Ollie Max (GPU/inference box, `100.92.231.47`
+Tailscale / `192.168.1.168` LAN) ahead of the trip, both verified end-to-end.
+
+### Fix 1 — softdog watchdog module
+
+**Root cause:** `/etc/default/watchdog` shipped `watchdog_module="none"` —
+this had **never worked on any boot**, not a kernel-upgrade regression. A
+stray `/etc/modules-load.d/softdog.conf` existed but was always doomed:
+Ubuntu's kernel package ships a per-kernel-version vendor blacklist
+(`/lib/modprobe.d/blacklist_linux_<ver>-generic.conf`, present for both
+`-22` and `-27`) that blanket-blacklists a family of hardware-watchdog
+drivers including `softdog`. `systemd-modules-load.service` enforces that
+blacklist strictly even for modules explicitly named in `modules-load.d`
+(logged `deny-listed (by kmod)`) — but a plain `modprobe <name>` by explicit
+name is **not** subject to that same enforcement, which is the gap the fix
+exploits.
+
+**Fix:** flip the watchdog package's own supported switch —
+`watchdog_module="softdog"` in `/etc/default/watchdog` — instead of fighting
+`modules-load.d`. Its built-in `ExecStartPre` calls `/sbin/modprobe
+$watchdog_module` directly, bypassing the modules-load.d-specific
+enforcement. Module parameters supplied via `/etc/modprobe.d/softdog.conf`
+(`options softdog soft_margin=15`), which `modprobe` applies automatically to
+any by-name load of that module.
+
+**Reboot-verified:** module loads, `/dev/watchdog` present, `watchdog.service`
+attaches (`watchdog now set to 15 seconds`, `hardware watchdog identity:
+Software Watchdog`) — zero hands, no manual intervention required.
+
+### Fix 2 — BIOS auto-power-on
+
+Ollie Max failed a Shelly cold-start test earlier the same day (power cut via
+Shelly plug → box stayed dark, did not self-boot). Fixed in BIOS:
+- **Restore after AC Power Loss** → `Power On`
+- **ErP Ready** → `Disabled`
+- **System Power Fault Protection** → `Disabled`
+
+**Shelly-verified:** cold power cycle → self-boot → all services green in
+~3 min.
+
+### Trip-checklist note
+
+**Shelly plug = verified remote hard-reset path for Ollie Max.** A hung or
+unresponsive Ollie Max can now be recovered with a plain power-cycle via the
+Shelly plug (`192.168.1.246`, per `CLAUDE.md`'s Shelly Plugs table) with no
+physical presence required — cold power cycle → BIOS auto-power-on → self-boot
+→ softdog/watchdog + services all come up clean. This is now a real remote
+recovery option for the trip, not just a manual-only power switch.
+
+### Doctrine line
+
+**Credentials never transit Scotty chat.** Where a remote fix needs
+privileged (sudo) execution, grant a scoped NOPASSWD sudoers rule for the
+exact commands needed instead of passing a password through chat — pattern
+used today: `/etc/sudoers.d/bigmac-softdog` on Ollie Max, grown incrementally
+to the minimum command set actually required (`modprobe`, `tee`, `mkdir`,
+`systemctl restart watchdog.service`, `systemctl status watchdog.service`,
+`systemctl daemon-reload`) rather than a blanket `NOPASSWD: ALL`.
+
+Related: `docs/XO_BACKLOG.md` (HM-SHELLY-WATCHDOG, post-trip auto-cycle
+design for DB hosts — this closeout does not change that manual-only
+posture for bigmac/olliemax as DB-bearing boxes).
