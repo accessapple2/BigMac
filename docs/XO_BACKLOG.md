@@ -112,10 +112,11 @@ It never defined a `/` route, so `GET /` 404ing is day-one behavior, not a
 regression — confirmed real backend response (`server: uvicorn`), not a
 Cloudflare edge 404 (CF Access still correctly gates the hostname).
 Same pattern already documented for swingdesk's bare-`/` 404 in
-`docs/HANDOFF.md`. **Proposal:** either build a Step-2 landing page
-(`StaticFiles` mount, same pattern as dashboard/swingdesk) if a Tour page
-is still wanted, or close this as intentional API-only design. No urgent
-action either way — nothing is actually down.
+`docs/HANDOFF.md`. **CLOSED 2026-07-05 (Admiral decision, re-verified same
+day before closing — PID 417 unchanged, still running since 2026-07-01,
+same 404 behavior): no action needed, API-only design accepted as final.**
+Do not re-open this without new evidence of an actual regression (e.g. a
+consumer starting to expect `/`).
 
 **2. 🟡 CF Access auth-state — no drift found, but a real exposure gap surfaced.**
 Live test (2026-07-05 ~14:47 UTC) shows all 4 subdomains correctly gated,
