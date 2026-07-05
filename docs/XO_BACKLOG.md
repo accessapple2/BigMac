@@ -5,6 +5,59 @@
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
 ---
+## XO-DECISIONS 2026-07-05 — Admiral rulings on the Sunday systems-check, design still pending build
+
+1. **Audition spend DENIED for now.** No paid-API candidates (Claude Sonnet 5,
+   Grok 4.3) until the auditioning gate is proven live with real clean-window
+   data. Qwen3.6-35B-A3B (free, local Ollie Max) audits the mechanism first.
+2. **Gate design APPROVED WITH HARDENING** — 3 requirements before build:
+   (a) second, independently-implemented enforcement check at dispatch level
+   (not just inside `paper_trader.buy()`); (b) `can_trade_live` must get
+   killed or genuinely wired up — no decorative flags; (c) a startup log line
+   proving the gate is live. **Proposed design (not yet built — see chat for
+   full detail):** primary check in `paper_trader.buy()`'s existing HALT GATE
+   block (extend the inline SELECT to also read `crew_role`, reject if
+   `'auditioning'`); independent second check in `RiskManager.check_buy()`
+   (risk_manager.py — a different module, already the standard pre-flight
+   gate called from `ai_brain.py` before `execute_signal()`/`buy()`, satisfies
+   (a)); wire `can_trade_live` into the already-called `halt_gate.
+   is_auto_tradeable()` (currently only checks is_human + passive-mirror) as
+   a third layer, satisfying (b) — but this REQUIRES a backfill migration
+   first (`can_trade_live=1` for every currently-legitimately-executing
+   agent) since **all 79 `ai_players` rows currently have `can_trade_live=0`**,
+   including every genuinely-executing agent — flipping enforcement on
+   without the backfill would instantly halt the live fleet. Migration SQL
+   needs Admiral review before running (case-by-case: tracking/sim/mirror/
+   auditioning stay 0, guardian-of-forever needs judgment since it places
+   real exit-only Alpaca orders despite being structural). (c): add
+   `[AUDITION-GATE] active — N auditioning seat(s), can_trade_live
+   enforcement=ON` to setup_db.py's roster-cap startup block.
+3. **Build order confirmed:** gate built once, Qwen3.6-35B-A3B onboards
+   first (new `ai_players` row, `crew_role='auditioning'`, mirrors an
+   incumbent's mandate, doesn't touch the 6 current executing seats). Sonnet
+   5 / Grok 4.3 rows are code-ready-shaped but not inserted/activated until
+   item 1 flips.
+4. **Crew-dissent fix APPROVED, propose-first.** Diff + backfill plan for
+   the 22 stale rows required before anything runs (see chat for the
+   proposed realized-price-return resolver replacing the `scored_predictions`
+   dependency, and the backfill approach for the existing 22).
+5. **Swingdesk auth backstop — proposed:** reuse `dashboard.app.AuthMiddleware`
+   + its `/login` routes, mounted onto `swingdesk/backend.py` (currently only
+   has `CORSMiddleware`, zero auth of its own) rather than reimplementing a
+   parallel login system. Needs an import-safety check (circular imports,
+   dashboard-specific globals) before landing.
+6. **Sweep cadence — recommended:** do a manual `fleet_realism_sweep_clean_window.py`
+   run tonight after the 9:30 PM tuning crew (immediate 2nd datapoint, matches
+   this session's HM-ROSTER-CAP methodology precedent) AND add a weekly cron
+   (Sunday ~10:00 PM MST, after the tuning crew) for ongoing cadence — matches
+   the project's own "enforced at the door, not by periodic manual diligence"
+   doctrine already applied to the roster cap.
+7. **Report-back scheduled:** one-shot check at 9:38 PM MST tonight (session-
+   scoped cron, does not survive a session end) to confirm `model_scores`
+   populated and report options-sosnoff/qwen3-8b-flash's first live audition
+   verdicts.
+
+---
 ## HM-SUNDAY-SYSTEMS-CHECK — 2026-07-05, diagnosed, all propose-first (nothing applied)
 
 **1. 🟢 tour.ollietrades.com 404 — NOT a bug, working as designed.** `tour_api.py`
