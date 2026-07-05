@@ -378,15 +378,28 @@ def setup():
     # to halt_mode='active' once the roster is already at/over cap — it
     # must pass an audition (AUDITION_CRITERIA) before it can go active.
     #
-    # "Executing" excludes two classes even when halt_mode='active':
+    # "Executing" excludes three classes even when halt_mode='active':
     #   1. Tracking-route players (engine.trades_filter.TRACKING_PLAYERS —
     #      dalio-metals, enterprise-computer, schwab): their portfolio is
     #      execution_mode='tracking', they never place fleet orders, so
     #      they don't compete for an execution seat.
-    #   2. halt_mode='exit_only' agents are already excluded by the
+    #   2. Human-operated seats (is_human=1 — trade-desk, webull,
+    #      enterprise-computer): a human placing a deliberate order isn't
+    #      an autonomous agent competing for a seat (docs/XO_BACKLOG.md
+    #      Item 21, TRADE_DESK_BYPASS_GATES doctrine).
+    #   3. Sim/tracking-mode agents (crew_role='sim' — ollie-machine):
+    #      "tracking-mode, can_trade_live=0; NOT in any scan/exec roster"
+    #      per its own halt_reason.
+    #   4. halt_mode='exit_only' agents are already excluded by the
     #      halt_mode='active' filter below — a draining/wind-down agent
     #      (e.g. gemini-2.5-flash until its last open position closes)
     #      places no NEW orders and so never consumed a slot to begin with.
+    # HM-ROSTER-RECONCILE-8-2026-07-05: without excluding classes 2/3, the
+    # 2 seats the Admiral deliberately left EMPTY for future audition
+    # graduates get silently filled by ollie-machine/trade-desk in the raw
+    # count (verified: 9 raw active rows, but only 6 are real executing
+    # candidates -- without this fix the query reads exactly 8, at cap,
+    # leaving zero real room for a graduate).
     #
     # Scope note: this guard only sees insertions made through THIS
     # function's seed loop. An out-of-band script that INSERTs or
@@ -397,9 +410,14 @@ def setup():
     from config import MAX_ACTIVE_AGENTS
     from engine.trades_filter import TRACKING_PLAYERS
     _track_sql = ", ".join("?" for _ in TRACKING_PLAYERS)
+    _non_executing_sql = (
+        f"id NOT IN ({_track_sql}) "
+        f"AND COALESCE(is_human, 0) = 0 "
+        f"AND COALESCE(crew_role, 'active') != 'sim'"
+    )
     active_count = c.execute(
         f"SELECT COUNT(*) FROM ai_players WHERE COALESCE(halt_mode,'active')='active' "
-        f"AND id NOT IN ({_track_sql})",
+        f"AND {_non_executing_sql}",
         TRACKING_PLAYERS,
     ).fetchone()[0]
     if active_count > MAX_ACTIVE_AGENTS:
@@ -422,7 +440,8 @@ def setup():
         print(
             f"[ROSTER-CAP] WARNING: {active_count} executing agents exceeds "
             f"MAX_ACTIVE_AGENTS={MAX_ACTIVE_AGENTS} by {active_count - MAX_ACTIVE_AGENTS} "
-            f"(tracking-route seats {list(TRACKING_PLAYERS)} excluded from this count). "
+            f"(tracking-route/human/sim seats excluded from this count per "
+            f"the non-executing filter above). "
             f"New seats blocked from activating this run: {_blocked or 'none'}. "
             f"Pre-existing over-cap seats are NOT auto-halted — flagged for manual "
             f"Admiral resolution (one-in-one-out per docs/DOCTRINE.md)."
