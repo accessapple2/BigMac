@@ -5,6 +5,139 @@
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
 ---
+## HM-SUNDAY-SYSTEMS-CHECK — 2026-07-05, diagnosed, all propose-first (nothing applied)
+
+**1. 🟢 tour.ollietrades.com 404 — NOT a bug, working as designed.** `tour_api.py`
+(PID running since 2026-07-01, cron `@reboot` autostart, unrelated to the
+07:24 trader restart) is a healthy headless JSON API — `/api/tour/health`,
+`/api/tour/state`, `/api/tour/ticks`, `/api/paper/order` all respond fine.
+It never defined a `/` route, so `GET /` 404ing is day-one behavior, not a
+regression — confirmed real backend response (`server: uvicorn`), not a
+Cloudflare edge 404 (CF Access still correctly gates the hostname).
+Same pattern already documented for swingdesk's bare-`/` 404 in
+`docs/HANDOFF.md`. **Proposal:** either build a Step-2 landing page
+(`StaticFiles` mount, same pattern as dashboard/swingdesk) if a Tour page
+is still wanted, or close this as intentional API-only design. No urgent
+action either way — nothing is actually down.
+
+**2. 🟡 CF Access auth-state — no drift found, but a real exposure gap surfaced.**
+Live test (2026-07-05 ~14:47 UTC) shows all 4 subdomains correctly gated,
+contradicting the "bridge open" report — likely a transient window, not a
+standing regression. No repo/config change since 7/3 touches auth. Found a
+plausible mechanism: `logs/cloudflared-daemon.log` shows a QUIC
+reconnect/DNS-failure storm ~13:19-13:29 UTC today; a tunnel reconnect could
+plausibly produce a brief Access-enforcement gap. **Real finding, not
+speculative:** `swingdesk.ollietrades.com` (:8889) has **zero app-level auth
+of its own** — `curl localhost:8889/` returns 200 directly, no login
+redirect — it relies entirely on CF Access as its only auth layer, unlike
+bridge/signal which both have an app-level login backstop even if CF Access
+lapses. **Proposal:** (a) add an app-level auth check to swingdesk so it
+isn't single-point-of-failure on CF Access, (b) pull the CF Access audit log
+from the dashboard (not available locally) to check for actual policy
+changes/lapses around today's reconnect storm — that's the one thing no
+local artifact can answer.
+
+**3. 🔴 crew-dissent resolved=0/pending=22 — structural join mismatch, not a
+transient/timing issue.** `resolve_dissent_outcomes()`
+(`engine/crew_dissent.py:261-338`) runs nightly at 23:30 without error
+(confirmed 4 consecutive clean nightly log lines, 07-01 through 07-04) and
+correctly finds 0 resolvable rows every time — not stuck, not crashing,
+genuinely computing zero. Root cause: it requires a same-symbol,
+same-exact-date row in `signal-center/signals.db`'s `scored_predictions`
+table with `horizon_days=5, closed=1` — but `scored_predictions` is
+populated by individual agent-signal-generation events (chekov, danelfin_ai,
+options_flow_scanner, etc.), not by the daily consensus/dissent cycle, so
+the two pipelines' `(symbol, date)` keys essentially never coincide (verified:
+0 matches at ANY horizon for all 22 rows; per-symbol `scored_predictions`
+data predates every dissent by 2+ weeks). All 22 pending rows are 12-27 days
+old — well past any resolution horizon, so this isn't "give it more time."
+**Proposal:** resolve dissents against realized price action directly
+(forward 5-trading-day return from `dissent_date` close via price history),
+not via `scored_predictions` — decouples dissent-resolution from an
+unrelated pipeline's incidental data.
+
+**4. 🔵 Audition-pipeline onboarding design for 3 candidate models — proposal
+below, nothing built.** See "HM-AUDITION-ONBOARD-3" ticket immediately below
+for the full design (Claude Sonnet 5, Grok 4.3, Qwen3.6-35B-A3B).
+
+---
+## 🔵 HM-AUDITION-ONBOARD-3 — proposed 2026-07-05, no roster changes before Jul 24
+
+**Ask:** onboard 3 candidates into shadow/audition per `AUDITION_CRITERIA`
+(20 clean guarded trades in 6 weeks), competing for the 2 empty seats
+reserved by HM-ROSTER-RECONCILE-8. Never seated on priors — must earn a
+pass verdict from real clean-window data, same as options-sosnoff/
+qwen3-8b-flash's current audition.
+
+**Blocking gap found while scoping this:** there is no generic mechanism
+today that lets a candidate scan and emit real signals while being
+structurally blocked from executing a real order. `ai_players.can_trade_live`
+looks like it should be that gate (used descriptively by ollie-machine,
+q-witness, sell-the-news) but **it is checked NOWHERE in
+`engine/paper_trader.py` or `engine/halt_gate.py`** — confirmed by grep,
+zero hits. Confirmed further: **every single row in `ai_players` (all 79)
+has `can_trade_live=0`**, including all 6 currently-really-executing agents
+(capitol-trades, ollama-plutus, options-sosnoff, etc.) — the column carries
+zero enforcement weight anywhere in the standard pipeline. The existing
+`can_trade_live=0` agents (ollie-machine, sell-the-news) achieve real
+shadow-safety only because they're **architecturally separate** — bespoke
+scripts/loops with their own tracking-mode portfolio that never call the
+shared `buy()` path at all, not because anything reads the flag.
+
+**Proposed mechanism (not yet built):** add a real, minimal gate at the top
+of `paper_trader.buy()` (and the options/short equivalents), keyed off
+`crew_role='auditioning'` (no schema migration — reuses the existing free-text
+column) rather than the already-meaningless `can_trade_live`: log the
+decision to `signals` and run it through the same guardrail/quality-gate
+checks as a real trade (so the audition is honest), then stop BEFORE the
+Alpaca/cash-touching order and return a `shadow_logged` result instead —
+architecturally the same shape as the existing ordered gate list in
+`paper_trader.buy()` (HALT GATE → grade-B fleet gate → per-model max
+positions → quality gate), just one more entry. This makes a candidate's
+signals accumulate exactly like any other benched candidate's do for
+`weekly_tuning_crew._run_auditions()` — no separate audition-scoring code
+needed, it already generalizes.
+
+**Per-candidate onboarding shape (3 new `ai_players` rows, `crew_role=
+'auditioning'`, `halt_mode='active'` so they scan/emit, gated from execution
+by the new check above — none touch or replace any of the 6 current seats):**
+
+- **Claude Sonnet 5** (vs culled `claude-sonnet`, currently `halt_mode='full'`,
+  locally-redirected to `ministral-3:3b` — no real Anthropic wiring exists
+  today for this id). Real API model — **Free-Models-First doctrine requires
+  explicit Admiral spend approval per agent** (`CLAUDE.md`: "Paid models are
+  FORBIDDEN unless the Admiral approves the spend"). Needs a new provider
+  wiring (no existing `ANTHROPIC_API_KEY`-based trading-agent path — grep
+  found Anthropic SDK usage only in `lib/TradingAgents/` vendor code and
+  test/dev scripts, not a live `ai_players` provider). Context, not a
+  blocker: `docs/DOCTRINE.md`'s full-history sweep found the *prior*
+  claude-sonnet posted <9% guarded-honest return / high spam, same as every
+  other frontier cloud agent — exactly the kind of prior this audition is
+  designed to test past, not be bound by.
+- **Grok 4.3** (vs culled `grok-3`, `halt_mode='full'`, locally-redirected to
+  `qwen3:14b`). Also a real paid API — same spend-approval requirement.
+  `engine/team_advisor_grok.py`/`engine/providers/grok_provider.py` already
+  have a working xAI integration (used by Archer/Q, not as a trading
+  `ai_players` seat) — this is the more mechanical of the two integrations,
+  reuse rather than build fresh.
+- **Qwen3.6-35B-A3B** (Apache 2.0, local on Ollie Max — no spend approval
+  needed, Free-Models-First compliant). Framed as a model-upgrade candidate
+  for ollama-qwen3/qwen3-8b-flash rather than a new agent identity — proposed
+  as its own auditioning seat (mirrors one incumbent's mandate, competes
+  head-to-head) rather than mutating either live seat's `model_id`, so the
+  6 current executing seats stay untouched per "no roster changes before
+  Jul 24." Needs: confirm the model is pulled on Ollie Max
+  (192.168.1.168:11434) and fits current VRAM co-residency (A3B = active
+  ~3B-param MoE, lighter than the full 35B footprint, but verify against
+  `docs/runbooks/ram-discipline.md` before pulling).
+
+**Open for Admiral decision before any of this is built:** (1) approve/deny
+paid-API spend for Sonnet 5 + Grok 4.3 candidates, (2) confirm the
+`crew_role='auditioning'` gate design (vs. any alternative), (3) confirm
+scope — build the gate + onboard all 3, or start with the free local
+Qwen3.6 candidate only and defer the two paid ones.
+
+---
 ## 🟢 HM-ROSTER-RECONCILE-8 — Admiral decision recorded 2026-07-05, SQL pending final go-ahead
 
 **Admiral decisions (2026-07-05):**
