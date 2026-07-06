@@ -787,6 +787,44 @@ Full report: this session's HM-EDGE-PROVENANCE interim findings (venue
 classification method, full reconciliation numbers, headline answer) — ask
 Scotty to reproduce if this doc entry isn't enough detail.
 
+**Backfill progress (2026-07-05, follow-on session) — substantial, not complete:**
+Corrected methodology first: MLEG (spread) orders carry `asset_class=None`
+at the parent level, only legs are tagged `us_option` — a naive top-level
+filter misses every real spread trade, which is exactly how last session's
+first pass undercounted.
+
+- **strategy:bull_spread_v1's 15 real spreads, priced:** all 15 local
+  `broker_order_id`-carrying rows matched to real filled MLEG orders on SPY.
+  Reconstructed entry credits from actual legs: **+$2,559.00 collected**,
+  assuming OTM expiry (strikes 718-732 vs ~$744-748 spot — plausible, NOT
+  independently verified against SPY's actual closing price each expiry
+  date). The 4 local `failed_pre_fix` rows correctly match 4 real
+  canceled/never-filled attempts — no correction needed there.
+- **dayblade-0dte's TSLA trade: concrete proof of how bad the mistagging is,
+  not just that it exists.** Local: entry $13.30, exit $3.80, same-day,
+  `realized_pnl=-$29.00`. Real Alpaca fills: bought $9.55, sold the NEXT DAY
+  at $1.34, real loss **-$821.00** — local ledger understated this one loss
+  **28x** and got the exit date wrong by a full day.
+- **Combined reconstructed options net: +$232.00** (+$2,559 spreads, -$2,327
+  across 12 SPY + 2 TSLA single-leg orders). With the previously-found stock
+  net (-$128.33), **≈+$104 now directly accounted for** against the real
+  +$1,064.08 equity gain.
+- **Still unattributed: roughly $850-960.** Leading candidate:
+  `strategy:bull_spread_v1`'s earliest local rows (id 2-9, dated
+  2026-04-22, real structures on SPY/QQQ/NVDA/AAPL) have **blank**
+  `broker_order_id` — likely an even earlier real-order era not yet matched,
+  or a second mistagging instance. The 12 single-leg SPY orders' exact
+  agent attribution also isn't proven (timing suggests early
+  pre-mleg bull_spread_v1 activity, not confirmed).
+- **Fix proposed, not applied:** `paper_trader.py`'s
+  `_update_trade_alpaca_fields`/`_persist_alpaca_fill` writeback exists for
+  the stock path but has no equivalent for `alpaca_options.py`'s
+  single-leg/mleg forward calls for `dayblade-0dte`/`dayblade-sulu`/
+  `strategy:bull_spread_v1` — `execute_options_signal()`'s result dict isn't
+  used to correct `execution_type`/prices the way the stock buy/sell path
+  already does. Needs its own session to implement carefully, not a rushed
+  patch.
+
 ---
 ## 🔴 HM-ROUTE-TO-BROKER — propose-first, promoted to top of Phase 2 (2026-07-05)
 
