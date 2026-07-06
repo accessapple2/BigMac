@@ -223,14 +223,18 @@ SAME cron — shared-fate remains; cross-mechanism relocation tracked in XO_BACK
 **Second instance, same day (HM-PUSH-UNBLOCK):** `git push` failed silently for
 **87 commits** because nothing monitors push health independently of the push
 pipeline — surfaced only reactively when a push during HM-AUDIT-T0 hit the
-large-file limit. Same disease: no independent watchdog. **SHIPPED 2026-05-29:
-HM-PUSH-HEALTH-MONITOR** — `scripts/git_push_health_check.py`, daily cron
-(`0 20 * * *`, NOT launchd), runs `git fetch` + `git rev-list --count
-origin/main..HEAD` and NTFYs `ollietrades-admin` if local is >5 ahead OR if
-fetch itself fails (can't-reach-origin is also push-health). Independent of the
-push pipeline by construction. Two instances in one day → this is the
-program's recurring blind spot: **build the monitor on a different mechanism than
-the thing it watches, every time.**
+large-file limit. Same disease: no independent watchdog. **SHIPPED 2026-05-29,
+FIXED 2026-06-28: HM-PUSH-HEALTH-MONITOR** — `scripts/git_push_health_check.py`,
+daily cron (`0 20 * * *`, NOT launchd), runs `git fetch` + `git rev-list --count
+@{u}..HEAD` (current branch's own upstream, NOT hardcoded `origin/main` — the
+2026-06-28 fix; the original `origin/main..HEAD` form false-alarmed on a fully-
+pushed feature branch that legitimately diverges from `main`) and NTFYs
+`ollietrades-admin` if local is >5 ahead of its own upstream OR if fetch itself
+fails (can't-reach-origin is also push-health). No upstream configured → skips
+silently (exit 0), not a false alarm either. Independent of the push pipeline
+by construction. Two instances in one day → this is the program's recurring
+blind spot: **build the monitor on a different mechanism than the thing it
+watches, every time.**
 
 ### Restart-then-verify (HM-CONSOLE-INIT doctrine, 2026-05-13)
 The "trader restart deferred until natural maintenance window" pattern creates
