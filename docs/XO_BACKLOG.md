@@ -32,15 +32,19 @@ order below is renumbered accordingly.
 
 **Next session priority order — work top to bottom, do not reorder without
 Admiral sign-off:**
-1. **Per-agent attribution of the reconciled real stock/options P&L**
-   (follow-on to the now-closed backfill) — the aggregate is reconciled to
-   $1.06, but WHICH local agent ID gets credit for the real +$842.22 NVDA
-   position (currently: ~15 agents all show mistagged 'simulated' NVDA rows,
-   none tagged real) isn't resolved, and none of `ROUTED_PLAYERS`
-   (`ollie-auto`/`neo-matrix`/`super-agent`) show a real NVDA row despite
-   being the stock-forwarding-enabled agents — unexplained, worth a look.
-   Lower priority than it sounds: the aggregate answer (does real edge
-   exist, how much) is already solid without this.
+1. **Per-agent attribution of the reconciled real stock/options P&L** —
+   **UPDATE 2026-07-06:** mostly solved via timestamp+qty correlation
+   against Alpaca's raw order history (see "Update (2026-07-06,
+   per-agent attribution lead...)" note under `HM-BROKER-HISTORY-BACKFILL`
+   below). `client_order_id` was a dead end (random UUID, never
+   agent-stamped anywhere in this codebase). It's one continuous real
+   position, not 15 independent trades — fragments matched to
+   super-agent, ollie-auto, gemini-2.5-flash, neo-matrix, ollama-llama,
+   and ollama-qwen3 by exact-second timestamp correlation. One clean gap
+   remains: the closing 12.34sh/$224.39 liquidation (2026-05-20) has no
+   local row under any agent at all. Still needs: a decision on whether to
+   actually write these corrections back to `trades.execution_type`/
+   `player_id`, or leave this as a documented read-only reconciliation.
 2. **Route-to-broker proposal** — full ticket: `HM-ROUTE-TO-BROKER` entry
    below. Propose-first, do not implement without sign-off.
 3. **Haircut test + evidence-tier re-grade** — full ticket:
@@ -1014,6 +1018,65 @@ first pass undercounted.
   (`ollie-auto`/`neo-matrix`/`super-agent`) show a real NVDA row at all) is
   NOT done — separate, lower-priority follow-on if wanted. The aggregate
   reconciliation (does real edge exist, how much) is now solid.
+- **Update (2026-07-06, per-agent attribution lead — client_order_id checked,
+  dead end; timestamp/qty correlation instead cracked it):**
+  Pulled all 31 real Alpaca NVDA orders directly (`b.client.get_orders`,
+  same method as the FIFO reconstruction above) and printed each one's
+  `client_order_id`. **Dead end as suspected worth ruling out:** every
+  `client_order_id` is a random SDK-generated UUID with zero agent
+  signature (e.g. `7edec3c9-2667-419c-b83f-4bb8501aad8e`) — confirmed by
+  grepping the whole repo (`engine/alpaca_bridge.py`, `alpaca_options.py`):
+  **no code path anywhere passes `client_order_id` on submission.** Alpaca
+  auto-assigns it; there's nothing agent-derived to read back. Also ruled
+  out the manual/trade-desk path: `trades` has zero `player_id IN
+  ('trade-desk','captain-manual')` rows for NVDA, and the `_mirror_trade_desk_fill`
+  writeback (`dashboard/app.py:12694`) correctly tags manual fills
+  `execution_type='alpaca'` when it does fire — so manual desk orders are
+  not the mystery here at all.
+  **What worked instead: direct timestamp+qty correlation** between the
+  31 real orders and the existing (mistagged `simulated`) local `trades`
+  rows for NVDA. Matches are exact to the second on ~28 of 32 real fills:
+  - **super-agent** — real BUY 3sh@$174.28 (03-24) + BUY 20sh@$179.13
+    (03-25) = local BUY 23.0sh@$178.497391 (03-26 22:31) — the local price
+    is the *exact* volume-weighted average of the two real fills
+    ((3×174.28+20×179.13)/23 = 178.497391). super-agent's own local SELL
+    of that 23sh @167.52 (03-28) has **no real counterpart** — the real
+    position kept running in Alpaca past that date, so super-agent's local
+    ledger and the broker diverged right there (local thought it flattened;
+    broker never sold).
+  - **ollie-auto** — 3 real fills 2026-04-09 18:31:07–25 (BUY 0.27, BUY
+    0.27, SELL 0.55) match local rows at 18:31:07/08/25 to the second.
+  - **gemini-2.5-flash** — 7 real SELLs 04-13→04-20 (1.99, 1, 0.5, 0.25,
+    0.12, 0.06, 0.03 sh) match local SELL rows at the same timestamps
+    to the second.
+  - **neo-matrix** — 9 real BUYs + 3 real SELLs 04-20→04-22 match local
+    rows to the second (this is the bulk of the position, ~9.7 net shares
+    round-tripped).
+  - **ollama-llama** — real SELL 2.25 (04-27 08:20) and 0.37 (04-27 20:24,
+    limit, filled 3h later) match local rows at the same submit-timestamps.
+  - **ollama-qwen3** — real SELLs 2.17/1.09/0.54/0.27 (04-29) match local
+    rows within 5 seconds each.
+  - **The final real SELL — 12.34sh @ $224.388103, 2026-05-20 18:16 — has
+    NO local row anywhere.** `trades` has zero NVDA rows between 2026-05-13
+    and 2026-07-01. Running the full 32-fill sequence in order nets to
+    **exactly 0.00 shares** after this SELL (32.04sh bought = 32.04sh sold),
+    confirming it's the true, total close of one single continuous real
+    position — not a separate untracked position. FIFO P&L on the full
+    31-order sequence: **+$842.23**, matching the ticket's cited +$842.22
+    to the penny.
+  **Conclusion:** this was never "which of 15 agents really made this
+  trade" — it's **one real Alpaca position, and the local writeback bug
+  scattered its fragments across whichever agent's simulated-ledger write
+  happened to land at the same instant as each real fill** (consistent
+  with the already-diagnosed "broker fill happened, local ledger never
+  learned about it" bug, `HM-BROKER-HISTORY-BACKFILL` above). super-agent,
+  ollie-auto, gemini-2.5-flash, neo-matrix, ollama-llama, and ollama-qwen3
+  each own a slice by matched timestamp; **the closing 12.34sh/$224.39
+  liquidation on 2026-05-20 is attributed to no agent at all** — a clean
+  gap, not a mistag, and the largest single unattributed dollar chunk.
+  Full per-order match table not transcribed here — reproducible by
+  rerunning the same `get_orders` pull + join against `trades` on
+  `(symbol, side, qty≈, |executed_at − submitted_at| < 5s)`.
 - **Fix proposed, not applied:** `paper_trader.py`'s
   `_update_trade_alpaca_fields`/`_persist_alpaca_fill` writeback exists for
   the stock path but has no equivalent for `alpaca_options.py`'s
