@@ -684,6 +684,64 @@ genuine executing candidates only, not these three structural categories.
 Flag if that reading is wrong.
 
 ---
+## 🔴 HM-EDGE-PROVENANCE — BOTH incumbent auditions SUSPENDED (2026-07-05, supersedes item 2 above)
+
+**The "84 real closed CSP trades" / "16 real trades" language above was
+accurate about the trades table but wrong about what those trades ARE.**
+A same-day venue-provenance audit (HM-EDGE-PROVENANCE) traced every writer of
+`options_trades`/`trades` and found:
+
+- **options-sosnoff: 100% internal-simulation, zero broker contact, ever.**
+  `engine.options_exec.py`'s own docstring: *"NO broker API is called."* Her
+  "premium" is `estimated_premium = round(price * min(0.08, vix/500.0), 2)` —
+  a VIX-scaled formula, not a fetched quote. None of her 84 rows has ever had
+  a `broker_order_id`. The +$29,868.74 figure referenced above (and in
+  HM-TROI-MAXPOS-CAP-DEAD) is what a formula produced against no real market
+  at all — not evidence of edge.
+- **qwen3-8b-flash: also 100% `execution_type='simulated'`, zero
+  `alpaca_order_id`**, verified across all 16 clean-window trades. Same
+  disease, different mechanism: the equity-routing path works for 163 *other*
+  fleet trades (ollie-auto/neo-matrix/guardian-of-forever), she just isn't
+  being routed through it. "Just short of the 20-trade audition floor" above
+  was measuring a heuristic, not a trader.
+
+**Admiral ruling (2026-07-05):** counting formula-priced or unrouted trades
+toward an audition measures a heuristic, not a trader. Both audits are
+**SUSPENDED as originally defined.** Redefined: an audition trade only counts
+if it carries real broker evidence. Displayed count stays **0/20 for both**
+— the number doesn't change, but its meaning does: not "quiet," but **"not
+yet routable."** Each clock restarts once broker routing is confirmed live
+for that agent's structure (HM-ROUTE-TO-BROKER, addendum item 8, promoted to
+top of Phase 2 — not started as of this ruling). No new floor/deadline is
+set until then; the original 2026-08-15/2026-08-16 dates above are
+historical record of the pre-ruling design, not active deadlines.
+
+Implemented in `engine/crew/audition_tracking.py` (now requires
+`broker_order_id`/`alpaca_order_id` for any trade to count, for both
+incumbents AND the bench-candidate blind-spot fallback — the "no broker
+evidence, doesn't count toward anything" principle is fleet-wide, not
+incumbent-specific) and wired into `weekly_tuning_crew.py`. `scripts/
+eod_report.py` reports `SUSPENDED — 0/20 broker-executed (pending broker
+routing)` for both going forward.
+
+**Broker-history backfill (2026-07-05, new priority, outranks the haircut
+test — do this before haircutting sim trades):** Alpaca's own order/fill
+history showed REAL executed options fills (SPY/TSLA contracts) for
+`dayblade-0dte`/`dayblade-sulu` that are locally mistagged
+`execution_type='simulated'` (writeback bug — the broker fill happened, the
+local ledger never learned about it), and `strategy:bull_spread_v1` has 15
+rows with a real `broker_order_id` but `pnl` is NULL on every closed one
+(never computed/written). Together with the ~$1,266 gap between Alpaca's
+real +$1,064.08 lifetime equity and the −$202.56 currently locally
+attributable, this is the recovery path to the fleet's only Tier-A per-agent
+records. Ticketed as its own item — the mistagging bug gets a dedicated fix
+proposal, not folded into this note.
+
+Full report: this session's HM-EDGE-PROVENANCE interim findings (venue
+classification method, full reconciliation numbers, headline answer) — ask
+Scotty to reproduce if this doc entry isn't enough detail.
+
+---
 ## Original open questions (2026-07-05, resolved above — kept for the record)
 
 Context: HM-ROSTER-CAP (2026-07-04) built the mechanism (`MAX_ACTIVE_AGENTS=8`,
