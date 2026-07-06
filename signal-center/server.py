@@ -1482,7 +1482,7 @@ def _morpheus_load_execution_log():
     try:
         rows = db.execute(
             "SELECT id, signal_id, symbol, direction, qty, entry_price, "
-            "       fill_price, grade, prob, source, status, executed_at "
+            "       fill_price, grade, prob, source, status, executed_at, notes "
             "FROM execution_log ORDER BY id DESC LIMIT 20"
         ).fetchall()
         return [dict(r) for r in rows]
@@ -3258,19 +3258,37 @@ def get_signal(signal_id):
 
 @app.route('/api/signals/<int:signal_id>/execute', methods=['POST'])
 def execute_signal_endpoint(signal_id):
-    """Execute a signal via TradeMinds paper trader. REQUIRES button click — never auto-executes."""
+    """Execute a signal via TradeMinds paper trader. REQUIRES button click — never auto-executes.
+
+    HM-DECISION-DESK-MVP 2026-07-05 fixes:
+    - default player_id was 'claude-trader', which has never existed as an
+      ai_players row (HM-DESK-SCOPE finding) -> now 'desk-manual' (dedicated,
+      paper-only, can_trade_live=0).
+    - claim-then-act atomic UPDATE (NEW -> EXECUTING) closes the
+      check-then-write race window a concurrent double-click could hit.
+    """
     db = get_db()
     sig = db.execute("SELECT * FROM trade_signals WHERE id=?", (signal_id,)).fetchone()
     if not sig:
         db.close()
         return jsonify({"error": "signal not found"}), 404
-    if sig["status"] != "NEW":
+
+    now_str = datetime.now().isoformat()
+    cur = db.execute(
+        "UPDATE trade_signals SET status='EXECUTING', executed_at=? WHERE id=? AND status='NEW'",
+        (now_str, signal_id),
+    )
+    db.commit()
+    if cur.rowcount == 0:
+        current_status = db.execute(
+            "SELECT status FROM trade_signals WHERE id=?", (signal_id,)
+        ).fetchone()["status"]
         db.close()
-        return jsonify({"error": f"signal already {sig['status']}"}), 400
+        return jsonify({"error": f"signal already {current_status}"}), 400
 
     # Get player_id from request body (which portfolio to execute for)
     body = request.get_json(force=True) or {}
-    player_id = body.get("player_id", "claude-trader")
+    player_id = body.get("player_id", "desk-manual")
 
     try:
         # Add parent dir to path for engine imports
@@ -3286,19 +3304,25 @@ def execute_signal_endpoint(signal_id):
             confidence=(sig["confidence"] or 0) / 100.0,
         )
         if result:
-            now_str = datetime.now().isoformat()
             db.execute(
-                "UPDATE trade_signals SET status='EXECUTED', executed_at=? WHERE id=?",
-                (now_str, signal_id)
+                "UPDATE trade_signals SET status='EXECUTED' WHERE id=?",
+                (signal_id,)
             )
             db.commit()
             db.close()
             _push_to_sse({"event": "signal_executed", "signal_id": signal_id})
             return jsonify({"ok": True, "result": result, "executed_at": now_str})
         else:
+            db.execute("UPDATE trade_signals SET status='NEW' WHERE id=?", (signal_id,))
+            db.commit()
             db.close()
             return jsonify({"ok": False, "error": "paper_trader returned no result"}), 400
     except Exception as e:
+        try:
+            db.execute("UPDATE trade_signals SET status='NEW' WHERE id=?", (signal_id,))
+            db.commit()
+        except Exception:
+            pass
         db.close()
         return jsonify({"ok": False, "error": str(e)}), 500
 

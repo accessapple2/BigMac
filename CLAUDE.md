@@ -74,14 +74,18 @@ drawdown-halted agent, the natural path is recovery to a new peak.
 Speculative/unbuilt design archived to [`docs/CLAUDE-archive-2026-05.md`](docs/CLAUDE-archive-2026-05.md).
 
 ## Dashboard Rules
-- Dashboard is served from `dashboard/static/index.html` on port 8080. Verified
-  empirically 2026-05-08 (`docs/DASHBOARD_DOCTRINE_2026-05-08.md`): FastAPI `/`
-  route returns `FileResponse(_static_dir + "/index.html")` and the only
-  `StaticFiles` mount is `dashboard/static/`. The Vite tree at
-  `dashboard/frontend/` is unwired experimental code — its `dist/` is never
-  mounted.
-- ALL dashboard edits target that single file — do not create new HTML files
-  unless explicitly asked.
+- **Corrected 2026-07-05 (HM-DESK-SCOPE):** Dashboard root (`/`, port 8080) now
+  serves `dashboard/static/bridge-v2.html` — `FileResponse(_static_dir + "/bridge-v2.html")`
+  (`dashboard/app.py:13708`, HM-DIRECTIVE-2026-07-01 Deck3 #18, Admiral-approved
+  2026-07-02). `dashboard/static/index.html` (v1, full engineering console) moved
+  to `/classic`, per TWO-TIER BRIDGE DOCTRINE below — NOT retired. The prior
+  2026-05-08 verification of `index.html`-at-root is superseded by this move;
+  `docs/DASHBOARD_DOCTRINE_2026-05-08.md` is historical, not current. The Vite
+  tree at `dashboard/frontend/` remains unwired experimental code — its `dist/`
+  is still never mounted.
+- ALL dashboard edits target `bridge-v2.html` (root) or `index.html` (`/classic`)
+  per which tier you're changing — do not create new HTML files unless
+  explicitly asked.
 - `main.py` is the entry point; it imports `from dashboard.app import app` and
   runs uvicorn on 8080.
 

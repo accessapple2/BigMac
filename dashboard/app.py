@@ -4988,6 +4988,327 @@ def recent_signals_alias(limit: int = 50, season: int = 0, timeframe: str = ""):
     return recent_signals(limit=limit, season=season, timeframe=timeframe)
 
 
+# ── HM-DECISION-DESK-MVP (2026-07-05) — read-only chain API ────────────────
+# Chain lives in trader.db (the fleet's own signal loop), NOT signal-center's
+# trade_signals (that feed is context-only per HM-DESK-SCOPE finding #2 —
+# nothing that trades reads it). No writes in these two endpoints.
+
+def _desk_norm_ts(ts: str) -> str:
+    """Best-effort chronological sort key — collapses 'T' vs ' ' separator
+    drift between CURRENT_TIMESTAMP writers and isoformat() writers so
+    ordering isn't corrupted by lexical string comparison alone
+    (see feedback_db_max_lexical_format_freshness memory)."""
+    if not ts:
+        return ""
+    return ts.replace("T", " ")[:19]
+
+
+@app.get("/api/desk/feed")
+def desk_feed(limit: int = 50, status: str = "", agent: str = "", symbol: str = ""):
+    """Recent fleet signals joined to their chain: gate_reject_log +
+    decision_audit + trades (+ options_trades for options-linked signals).
+    Read-only."""
+    limit = max(1, min(limit, 200))
+    conn = _conn()
+    where = ["1=1"]
+    params: list = []
+    if status:
+        where.append("s.execution_status = ?")
+        params.append(status.upper())
+    if agent:
+        where.append("s.player_id = ?")
+        params.append(agent)
+    if symbol:
+        where.append("s.symbol LIKE ?")
+        params.append(f"%{symbol.upper()}%")
+    query_params = params + [limit]
+    rows = conn.execute(
+        "SELECT s.id, s.player_id, p.display_name AS agent_name, s.symbol, s.signal AS action, "
+        "s.confidence, s.reasoning, s.sources, s.asset_type, s.option_type, s.timeframe, "
+        "s.execution_status, s.rejection_reason, s.created_at "
+        "FROM signals s JOIN ai_players p ON s.player_id = p.id "
+        f"WHERE {' AND '.join(where)} "
+        "ORDER BY s.id DESC LIMIT ?",
+        query_params,
+    ).fetchall()
+
+    signal_ids = [r["id"] for r in rows]
+    if not signal_ids:
+        conn.close()
+        return {"signals": [], "count": 0}
+    qmarks = ",".join("?" * len(signal_ids))
+
+    gate_rows = conn.execute(
+        f"SELECT signal_id, gate_name, reason, ts FROM gate_reject_log "
+        f"WHERE signal_id IN ({qmarks}) ORDER BY ts ASC", signal_ids,
+    ).fetchall()
+    audit_rows = conn.execute(
+        "SELECT signal_id, event_type, gate_verdict, confidence, regime, reasoning_snippet, created_at "
+        f"FROM decision_audit WHERE signal_id IN ({qmarks}) ORDER BY created_at ASC", signal_ids,
+    ).fetchall()
+    trade_rows = conn.execute(
+        "SELECT signal_id, id AS trade_id, symbol, action, qty, price AS fill_price, entry_price, "
+        "exit_price, realized_pnl, executed_at "
+        f"FROM trades WHERE signal_id IN ({qmarks}) ORDER BY executed_at ASC", signal_ids,
+    ).fetchall()
+    opt_rows = conn.execute(
+        "SELECT signal_id, structure, max_profit, max_loss, expiration, status "
+        f"FROM options_trades WHERE signal_id IN ({qmarks}) ORDER BY entry_date ASC",
+        signal_ids,
+    ).fetchall()
+    conn.close()
+
+    sig_symbol_by_id = {r["id"]: r["symbol"] for r in rows}
+
+    gates_by_signal: dict = {}
+    for g in gate_rows:
+        gates_by_signal.setdefault(g["signal_id"], []).append(dict(g))
+    audit_by_signal: dict = {}
+    for a in audit_rows:
+        audit_by_signal.setdefault(a["signal_id"], []).append(dict(a))
+    trades_by_signal: dict = {}
+    for t in trade_rows:
+        # HM-DESK-SCOPE anomaly (2026-07-05): trades.signal_id is unreliable —
+        # 47/65 (72%) sampled links point to a DIFFERENT symbol than the
+        # signal they claim to belong to (same theme as CLAUDE.md's
+        # acted_by_fleet "retrospective join is a DEAD END" note). Only trust
+        # the link when the symbol actually matches; otherwise drop it rather
+        # than show a misleading fill on the wrong signal.
+        if t["symbol"] == sig_symbol_by_id.get(t["signal_id"]):
+            trades_by_signal.setdefault(t["signal_id"], []).append(dict(t))
+    opts_by_signal: dict = {}
+    for o in opt_rows:
+        opts_by_signal.setdefault(o["signal_id"], []).append(dict(o))
+
+    out = []
+    for r in rows:
+        sid = r["id"]
+        trades = trades_by_signal.get(sid, [])
+        opts = opts_by_signal.get(sid, [])
+        audits = audit_by_signal.get(sid, [])
+        last_regime = next((a["regime"] for a in reversed(audits) if a.get("regime")), None)
+        out.append({
+            "signal_id": sid,
+            "agent": r["player_id"],
+            "agent_name": r["agent_name"],
+            "symbol": r["symbol"],
+            "action": r["action"],
+            "confidence": r["confidence"],
+            "reasoning": r["reasoning"],
+            "sources": r["sources"],
+            "timeframe": r["timeframe"],
+            "regime": last_regime,
+            "entry_price": trades[0]["entry_price"] if trades else None,
+            "stop_loss": opts[0]["max_loss"] if opts else None,
+            "take_profit": opts[0]["max_profit"] if opts else None,
+            "levels_source": "options_trades" if opts else ("trade_fill_only" if trades else None),
+            "status": r["execution_status"],
+            "rejection_reason": r["rejection_reason"],
+            "created_at": r["created_at"],
+            "gate_events": gates_by_signal.get(sid, []),
+            "audit_events": audits,
+            "trade": trades[0] if trades else None,
+        })
+    return {"signals": out, "count": len(out), "execute_enabled": _desk_execute_enabled()}
+
+
+@app.get("/api/desk/chain/{signal_id}")
+def desk_chain(signal_id: int):
+    """Full single-signal chain, every event ordered chronologically.
+    Read-only."""
+    conn = _conn()
+    sig = conn.execute(
+        "SELECT s.*, p.display_name AS agent_name FROM signals s "
+        "JOIN ai_players p ON s.player_id = p.id WHERE s.id = ?", (signal_id,),
+    ).fetchone()
+    if not sig:
+        conn.close()
+        raise HTTPException(status_code=404, detail="signal not found")
+
+    gates = conn.execute(
+        "SELECT gate_name, reason, ts, price, confidence FROM gate_reject_log "
+        "WHERE signal_id=? ORDER BY ts ASC", (signal_id,),
+    ).fetchall()
+    audits = conn.execute(
+        "SELECT event_type, gate_verdict, confidence, regime, reasoning_snippet, created_at, "
+        "raw_confidence, meta_confidence, confidence_modifier FROM decision_audit "
+        "WHERE signal_id=? ORDER BY created_at ASC", (signal_id,),
+    ).fetchall()
+    trades = conn.execute(
+        "SELECT * FROM trades WHERE signal_id=? ORDER BY executed_at ASC", (signal_id,),
+    ).fetchall()
+    opts = conn.execute(
+        "SELECT * FROM options_trades WHERE signal_id=? ORDER BY entry_date ASC", (signal_id,),
+    ).fetchall()
+    conn.close()
+
+    # Same trades.signal_id reliability guard as /api/desk/feed — see comment there.
+    trades = [t for t in trades if t["symbol"] == sig["symbol"]]
+
+    events = [{"ts": sig["created_at"], "kind": "signal", "detail": dict(sig)}]
+    events += [{"ts": g["ts"], "kind": "gate_reject", "detail": dict(g)} for g in gates]
+    events += [{"ts": a["created_at"], "kind": "decision_audit", "detail": dict(a)} for a in audits]
+    events += [{"ts": t["executed_at"], "kind": "trade", "detail": dict(t)} for t in trades]
+    events += [{"ts": o["entry_date"], "kind": "options_trade", "detail": dict(o)} for o in opts]
+    events.sort(key=lambda e: _desk_norm_ts(e["ts"]))
+
+    return {
+        "signal_id": signal_id,
+        "symbol": sig["symbol"],
+        "agent": sig["player_id"],
+        "agent_name": sig["agent_name"],
+        "status": sig["execution_status"],
+        "events": events,
+    }
+
+
+@app.get("/api/desk/context-stream")
+async def desk_context_stream():
+    """Same-origin proxy of signal-center's SSE feed (port 9000) so the
+    bridge-v2 frontend never has to cross-origin/CF-Access to :9000 itself.
+    Display-only 'sensor contact' context per HM-DESK-SCOPE #1/#3 — never a
+    decision input, no writes here."""
+    import httpx as _httpx
+    from fastapi.responses import StreamingResponse as _SR
+
+    async def generate():
+        yield 'data: {"event": "desk_proxy_connected"}\n\n'
+        while True:
+            try:
+                async with _httpx.AsyncClient(timeout=None) as client:
+                    async with client.stream(
+                        "GET", "http://127.0.0.1:9000/api/signals/stream"
+                    ) as resp:
+                        async for line in resp.aiter_lines():
+                            yield f"{line}\n"
+            except _asyncio.CancelledError:
+                raise
+            except Exception as e:
+                yield (
+                    'data: {"event": "desk_proxy_reconnecting", "error": "'
+                    f'{type(e).__name__}"}}\n\n'
+                )
+                await _asyncio.sleep(5)
+
+    return _SR(
+        generate(),
+        media_type="text/event-stream",
+        headers={
+            "Cache-Control": "no-cache",
+            "X-Accel-Buffering": "no",
+            "Connection": "keep-alive",
+        },
+    )
+
+
+DESK_EXECUTE_ENV = "DESK_EXECUTE_ENABLED"
+DESK_MANUAL_PLAYER_ID = "desk-manual"
+
+
+def _desk_execute_enabled() -> bool:
+    """Rung 4 gate (CARRIER DOCTRINE). Read fresh from env each call — like
+    every other feature flag in this repo, actually flipping it in practice
+    still needs a service restart to change the process's environment, but
+    the check itself doesn't hardcode a stale cached value."""
+    return os.environ.get(DESK_EXECUTE_ENV, "0") == "1"
+
+
+@app.post("/api/desk/signal/{signal_id}/execute")
+def desk_execute_signal(signal_id: int):
+    """SEND IT — execute a PENDING fleet signal (trader.db `signals`, the
+    real chain — NOT signal-center's trade_signals) through the
+    paper_trader.buy() chokepoint, routed under the dedicated desk-manual
+    player (paper only, can_trade_live=0). Gated behind DESK_EXECUTE_ENABLED
+    (default off). Atomic claim (PENDING -> EXECUTING in one UPDATE) closes
+    the check-then-write race window found during HM-DESK-SCOPE audit."""
+    if not _desk_execute_enabled():
+        raise HTTPException(status_code=403, detail="DESK_EXECUTE_ENABLED is off — Rung 4 gated")
+
+    conn = _conn()
+    cur = conn.execute(
+        "UPDATE signals SET execution_status='EXECUTING' WHERE id=? AND execution_status='PENDING'",
+        (signal_id,),
+    )
+    conn.commit()
+    if cur.rowcount == 0:
+        row = conn.execute("SELECT execution_status FROM signals WHERE id=?", (signal_id,)).fetchone()
+        conn.close()
+        if not row:
+            raise HTTPException(status_code=404, detail="signal not found")
+        raise HTTPException(status_code=400, detail=f"signal already {row['execution_status']}")
+
+    sig = conn.execute("SELECT * FROM signals WHERE id=?", (signal_id,)).fetchone()
+    conn.close()
+
+    def _rollback_to_pending():
+        c = _conn()
+        c.execute("UPDATE signals SET execution_status='PENDING' WHERE id=?", (signal_id,))
+        c.commit()
+        c.close()
+
+    try:
+        from engine.market_data import get_stock_price
+        price_data = get_stock_price(sig["symbol"])
+        price = (price_data or {}).get("price")
+        if not price:
+            _rollback_to_pending()
+            raise HTTPException(status_code=400, detail=f"no live price available for {sig['symbol']}")
+
+        from engine.paper_trader import buy as _buy
+        result = _buy(
+            DESK_MANUAL_PLAYER_ID,
+            sig["symbol"],
+            price,
+            asset_type=sig["asset_type"] or "stock",
+            reasoning=f"[Decision Desk] {(sig['reasoning'] or '')[:200]}",
+            confidence=sig["confidence"] or 0.0,
+            sources=sig["sources"] or "",
+            timeframe=sig["timeframe"] or "SWING",
+            signal_id=signal_id,
+        )
+    except HTTPException:
+        raise
+    except Exception as e:
+        _rollback_to_pending()
+        raise HTTPException(status_code=500, detail=f"{type(e).__name__}: {e}")
+
+    conn2 = _conn()
+    if result:
+        conn2.execute("UPDATE signals SET execution_status='EXECUTED' WHERE id=?", (signal_id,))
+        conn2.commit()
+        conn2.close()
+        return {"ok": True, "signal_id": signal_id, "player_id": DESK_MANUAL_PLAYER_ID, "result": result}
+    else:
+        conn2.execute("UPDATE signals SET execution_status='PENDING' WHERE id=?", (signal_id,))
+        conn2.commit()
+        conn2.close()
+        raise HTTPException(status_code=400, detail="paper_trader returned no result")
+
+
+@app.post("/api/desk/signal/{signal_id}/dismiss")
+def desk_dismiss_signal(signal_id: int):
+    """DISMISS — mark a PENDING fleet signal as desk-dismissed. No trade, no
+    chokepoint involved, but still gated behind DESK_EXECUTE_ENABLED so the
+    Desk's write-actions turn on/off together as one capability."""
+    if not _desk_execute_enabled():
+        raise HTTPException(status_code=403, detail="DESK_EXECUTE_ENABLED is off — Rung 4 gated")
+
+    conn = _conn()
+    cur = conn.execute(
+        "UPDATE signals SET execution_status='DISMISSED' WHERE id=? AND execution_status='PENDING'",
+        (signal_id,),
+    )
+    conn.commit()
+    if cur.rowcount == 0:
+        row = conn.execute("SELECT execution_status FROM signals WHERE id=?", (signal_id,)).fetchone()
+        conn.close()
+        if not row:
+            raise HTTPException(status_code=404, detail="signal not found")
+        raise HTTPException(status_code=400, detail=f"signal already {row['execution_status']}")
+    conn.close()
+    return {"ok": True, "signal_id": signal_id, "status": "DISMISSED"}
+
+
 @app.get("/api/arena/comparison")
 @timed_cache(300)
 def comparison_chart(season: int = 0):

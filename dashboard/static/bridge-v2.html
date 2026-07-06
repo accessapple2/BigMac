@@ -292,6 +292,50 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
 .ct-gate{padding:9px 16px;border-top:1px solid var(--line);background:var(--panel2);
   font-family:var(--mono);font-size:10px;color:var(--tx-dim);letter-spacing:.05em;text-align:center}
 .ct-gate b{color:rgba(255,194,61,.5)}
+
+/* ── HM-DECISION-DESK-MVP (2026-07-05) ──────────────────────────────────────
+   Colorblind-safe by construction: only --info (blue) and --caution (amber)
+   carry status meaning here, always paired with an icon — never red/green,
+   never color alone. See feedback_admiral_colorblind_ui memory. */
+.btn.blue{color:var(--info);border-color:rgba(127,196,255,.55);background:rgba(127,196,255,.1)}
+.btn.blue:hover{background:rgba(127,196,255,.2)}
+.btn:disabled{opacity:.4;cursor:not-allowed}
+.btn:disabled:hover{background:transparent}
+.desk-ticker{display:flex;align-items:center;gap:10px;overflow:hidden;white-space:nowrap;
+  background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:8px 14px;margin-bottom:16px;
+  font-family:var(--mono);font-size:12px;color:var(--tx-mute)}
+.desk-ticker .tag{flex-shrink:0;font-size:10px;letter-spacing:.14em;text-transform:uppercase;
+  color:var(--tx-dim);border:1px solid var(--line);border-radius:999px;padding:2px 9px}
+.desk-ticker .feed{flex:1;overflow:hidden;text-overflow:ellipsis}
+.desk-ticker .dotstate{width:7px;height:7px;border-radius:50%;flex-shrink:0}
+.desk-ticker .dotstate.on{background:var(--info)}
+.desk-ticker .dotstate.off{background:var(--tx-dim)}
+.desk-filters{display:flex;gap:10px;align-items:center;margin-bottom:14px;flex-wrap:wrap}
+.desk-filters select,.desk-filters input{background:var(--panel2);border:1px solid var(--line);color:var(--tx);
+  font-family:var(--mono);font-size:12px;padding:7px 10px;border-radius:7px}
+.desk-cards{display:flex;flex-direction:column;gap:10px}
+.desk-card{background:var(--panel2);border:1px solid var(--line);border-radius:10px;padding:14px 16px;cursor:pointer}
+.desk-card:hover{border-color:var(--tx-dim)}
+.desk-card-top{display:flex;align-items:center;gap:12px}
+.desk-card-sym{font-family:var(--mono);font-weight:700;font-size:16px}
+.desk-card-action{font-family:var(--mono);font-size:12px;color:var(--tx-mute);text-transform:uppercase}
+.desk-card-agent{font-family:var(--mono);font-size:11px;color:var(--tx-dim);flex:1}
+.desk-card-conf{font-family:var(--mono);font-size:11px;color:var(--tx-mute)}
+.desk-badge{font-family:var(--mono);font-size:11px;letter-spacing:.06em;text-transform:uppercase;
+  padding:4px 10px;border-radius:999px;border:1px solid;display:inline-flex;align-items:center;gap:5px}
+.desk-badge.approved{color:var(--info);border-color:rgba(127,196,255,.5);background:rgba(127,196,255,.1)}
+.desk-badge.rejected{color:var(--caution);border-color:rgba(255,194,61,.5);background:rgba(255,194,61,.1)}
+.desk-badge.pending{color:var(--tx-mute);border-color:var(--line);background:transparent}
+.desk-chain{display:none;margin-top:14px;padding-top:14px;border-top:1px dashed var(--line)}
+.desk-chain.open{display:block}
+.desk-chain-step{display:flex;gap:10px;padding:8px 0;border-bottom:1px dashed var(--line);font-family:var(--mono);font-size:12px}
+.desk-chain-step:last-child{border-bottom:none}
+.desk-chain-num{color:var(--tx-dim);font-weight:700;flex-shrink:0;width:18px}
+.desk-chain-body{flex:1}
+.desk-chain-label{color:var(--tx-mute);text-transform:uppercase;font-size:10px;letter-spacing:.1em}
+.desk-chain-detail{color:var(--tx);margin-top:2px}
+.desk-actions{display:flex;gap:8px;margin-top:12px}
+.desk-empty{padding:40px 20px;text-align:center;color:var(--tx-dim);font-family:var(--mono);font-size:12px}
 </style>
 </head>
 <body>
@@ -304,7 +348,7 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
     <span class="doctrine">⬡ Alpaca Paper · Schwab R/O</span>
   </div>
   <div class="tabs">
-    <span class="on" onclick="showTab('bridge')">Bridge</span><span onclick="showTab('battle')">Battle</span><span onclick="showTab('research')">Research</span><span onclick="showTab('fleet')">Fleet</span><span onclick="showTab('macro')">Macro</span><span onclick="showTab('contact')">Contact</span>
+    <span class="on" onclick="showTab('bridge')">Bridge</span><span onclick="showTab('battle')">Battle</span><span onclick="showTab('research')">Research</span><span onclick="showTab('fleet')">Fleet</span><span onclick="showTab('macro')">Macro</span><span onclick="showTab('contact')">Contact</span><span onclick="showTab('desk')">Desk</span>
   </div>
 </div>
 
@@ -348,7 +392,7 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
     </div>
   </div>
   <div class="panel">
-    <div class="phead" style="--accent:var(--info)"><h2>Gamma Map · SPY</h2><span class="meta">single source · /api/gex</span></div>
+    <div class="phead" style="--accent:var(--info)"><h2>Gamma Map · SPY</h2><span class="meta" id="gexMeta">single source · /api/gex</span></div>
     <div class="ladder">
       <div class="rung"><span class="lab">Call wall</span><span class="bar"><i style="width:96%;background:var(--bear)"></i></span><span class="px down" id="gCallWall">—</span></div>
       <div class="rung"><span class="lab">Gamma flip</span><span class="bar"><i id="gFlipBar" style="width:62%;background:var(--caution)"></i></span><span class="px warn" id="gFlip">—</span></div>
@@ -883,7 +927,7 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
   <div class="panel">
     <div class="phead" style="--accent:var(--info)">
       <h2>Gamma Map · SPY</h2>
-      <span class="meta">single source · /api/market/gex</span>
+      <span class="meta" id="mGexMeta">single source · /api/market/gex</span>
     </div>
     <div class="ladder">
       <div class="rung"><span class="lab">Call wall</span><span class="bar"><i style="width:96%;background:var(--bear)"></i></span><span class="px down" id="mGCallWall">—</span></div>
@@ -1045,6 +1089,43 @@ body{background:var(--hull);color:var(--tx);font-family:var(--ui);font-size:14px
   <div class="foot">CARRIER RUNG 1 · FIND · NO EXECUTION · RUNG 4 GATED · v1 CHART LINKS PER TWO-TIER DOCTRINE</div>
 </div><!-- /tab-contact -->
 
+<div id="tab-desk" class="tab-pane" style="display:none">
+  <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:14px">
+    <div>
+      <div style="font-family:var(--display);font-size:22px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:var(--info)">Decision Desk</div>
+      <div style="font-family:var(--mono);font-size:11px;color:var(--tx-dim);letter-spacing:.12em;text-transform:uppercase;margin-top:2px">Fleet signal chain · trader.db · read-only feed</div>
+    </div>
+    <button class="btn ghost sm" onclick="loadDeskFeed()" style="font-size:11px">↺ Refresh</button>
+  </div>
+
+  <div class="desk-ticker" id="deskTicker">
+    <span class="dotstate off" id="deskTickerDot"></span>
+    <span class="tag">CONTEXT</span>
+    <span class="feed" id="deskTickerFeed">connecting to signal-center context feed…</span>
+  </div>
+
+  <div class="panel">
+    <div class="desk-filters">
+      <select id="deskFilterStatus" onchange="loadDeskFeed()">
+        <option value="">All statuses</option>
+        <option value="EXECUTED">Executed</option>
+        <option value="PENDING">Pending</option>
+        <option value="REJECTED">Rejected</option>
+        <option value="EXPIRED">Expired</option>
+        <option value="DISMISSED">Dismissed</option>
+      </select>
+      <input id="deskFilterAgent" placeholder="agent (player_id)" onkeyup="if(event.key==='Enter')loadDeskFeed()" style="width:160px">
+      <input id="deskFilterSymbol" placeholder="symbol search" onkeyup="if(event.key==='Enter')loadDeskFeed()" style="width:140px">
+      <button class="btn ghost sm" onclick="loadDeskFeed()">Apply</button>
+      <span class="meta" id="deskFeedMeta" style="margin-left:auto;font-family:var(--mono);font-size:11px;color:var(--tx-dim)">loading…</span>
+    </div>
+    <div class="desk-cards" id="deskCards">
+      <div class="desk-empty">loading feed…</div>
+    </div>
+  </div>
+  <div class="foot">TRADER.DB SIGNAL LOOP · NOT SIGNAL-CENTER'S trade_signals (CONTEXT-ONLY) · SEND-IT GATED BEHIND DESK_EXECUTE_ENABLED</div>
+</div><!-- /tab-desk -->
+
 <div class="foot">DIRECTION A · LCARS FIGHTER — ALL ORDERS → ALPACA PAPER ONLY · SCHWAB READ-ONLY · NO REAL-MONEY PATH · WAR-ROOM REVOTE WIRED</div>
 <div id="toast"></div>
 
@@ -1100,7 +1181,7 @@ function setSys(id, ok, label) {
 }
 
 // ─── Tab switching ─────────────────────────────────────────────────────────────
-const _TAB_NAMES = ['bridge','battle','research','fleet','macro','contact'];
+const _TAB_NAMES = ['bridge','battle','research','fleet','macro','contact','desk'];
 function showTab(name) {
   document.querySelectorAll('.tab-pane').forEach(el => { el.style.display = 'none'; });
   document.querySelectorAll('.tabs span').forEach((el, i) => {
@@ -1114,6 +1195,8 @@ function showTab(name) {
   if (name === 'fleet')    loadFleetTab();
   if (name === 'macro')    loadMacroTab();
   if (name === 'contact')  loadContactTab();
+  if (name === 'desk')     loadDeskTab();
+  else                     stopDeskTicker(); // only one EventSource alive at a time
 }
 
 // ─── On load ──────────────────────────────────────────────────────────────────
@@ -1134,6 +1217,36 @@ window.addEventListener('DOMContentLoaded', () => {
   // but only if the first call didn't actually succeed.
   setTimeout(() => { if (!_kirkAdvisoryLoaded) loadKirkAdvisory(); }, 1500);
 });
+
+// HM-DIRECTIVE-2026-07-03: never-idle watchdog. 2026-07-02 investigation found no
+// genuine hang in bridge-v2 itself (load fires ~200ms, zero stuck resources on two
+// fresh authenticated loads) — the reported symptom was traced to a Claude-in-Chrome
+// extension-side artifact (its per-tab document_idle tracker wedged by unrelated
+// pages that genuinely never finished, sticky across later navigations on that tab).
+// Cheap insurance regardless: if THIS page ever genuinely fails to settle within 15s,
+// log a real trace server-side instead of leaving any recurrence as an anecdote.
+setTimeout(() => {
+  try {
+    const nav = performance.getEntriesByType('navigation')[0];
+    const stuck = performance.getEntriesByType('resource')
+      .filter(e => e.responseEnd === 0)
+      .map(e => ({ name: e.name, initiatorType: e.initiatorType, startTime: Math.round(e.startTime) }));
+    if (document.readyState === 'complete' && stuck.length === 0) return;  // healthy — nothing to report
+    const payload = {
+      readyState: document.readyState,
+      loadEventEnd: nav ? Math.round(nav.loadEventEnd) : null,
+      elapsedMs: Math.round(performance.now()),
+      stuckCount: stuck.length,
+      stuck: stuck.slice(0, 20),
+      url: location.href,
+    };
+    console.warn('[IDLE-WATCHDOG] page not settled after 15s', payload);
+    fetch('/api/diag/idle-watchdog', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(payload), keepalive: true,
+    }).catch(() => {});
+  } catch (_) { /* watchdog must never itself break the page */ }
+}, 15000);
 
 // ─── /api/alpaca/status → hero equity + vitals ───────────────────────────────
 // Fields: {connected, equity, cash, buying_power, portfolio_value, status, currency}
@@ -1359,13 +1472,22 @@ async function loadLeaderboard() {
 async function loadGex() {
   const MAX_TRIES = 5;
   try {
-    const raw = await api('GET', '/api/market/gex');
-    const d   = Array.isArray(raw) ? raw[0] : raw;
+    const raw  = await api('GET', '/api/market/gex');
+    const list = Array.isArray(raw) ? raw : [raw];
+    // HM-DIRECTIVE-2026-07-03: key by ticker, not array position — the
+    // market-closed fallback can return only a subset of GEX_TICKERS (whichever
+    // still have a usable last-known snapshot), so raw[0] silently became
+    // whatever ticker survived, mislabeled under this panel's hardcoded "SPY".
+    const d = list.find(t => t && t.ticker === 'SPY');
     if (!d || !(d.gamma_flip || d.call_wall || d.put_wall || d.spot)) {
-      if (++_gexTries < MAX_TRIES) setTimeout(loadGex, 2000);
+      if (++_gexTries < MAX_TRIES) { setTimeout(loadGex, 2000); return; }
+      const meta = document.getElementById('gexMeta');
+      if (meta) meta.textContent = 'no SPY data (snapshot rejected)';
       return;
     }
     _gexTries = 0;
+    const meta = document.getElementById('gexMeta');
+    if (meta) meta.textContent = 'single source · /api/gex';
     if (d.gamma_flip) document.getElementById('gFlip').textContent     = '$' + Number(d.gamma_flip).toFixed(0);
     if (d.call_wall)  document.getElementById('gCallWall').textContent  = '$' + Number(d.call_wall).toFixed(0);
     if (d.put_wall)   document.getElementById('gPutWall').textContent   = '$' + Number(d.put_wall).toFixed(0);
@@ -2310,9 +2432,17 @@ async function loadMacroFearGreed() {
 
 async function loadMacroGex() {
   try {
-    const raw = await api('GET', '/api/market/gex');
-    const d   = Array.isArray(raw) ? raw[0] : raw;
-    if (!d) return;
+    const raw  = await api('GET', '/api/market/gex');
+    const list = Array.isArray(raw) ? raw : [raw];
+    // HM-DIRECTIVE-2026-07-03: same array-position bug as loadGex() above —
+    // key by ticker instead of assuming index 0 is SPY.
+    const d    = list.find(t => t && t.ticker === 'SPY');
+    const meta = document.getElementById('mGexMeta');
+    if (!d) {
+      if (meta) meta.textContent = 'no SPY data (snapshot rejected)';
+      return;
+    }
+    if (meta) meta.textContent = 'single source · /api/market/gex';
     if (d.gamma_flip) document.getElementById('mGFlip').textContent     = '$' + Number(d.gamma_flip).toFixed(0);
     if (d.call_wall)  document.getElementById('mGCallWall').textContent  = '$' + Number(d.call_wall).toFixed(0);
     if (d.put_wall)   document.getElementById('mGPutWall').textContent   = '$' + Number(d.put_wall).toFixed(0);
@@ -2654,6 +2784,277 @@ function toggleArm() {
     lbl.textContent = '● Safe'; lbl.style.color = 'var(--tx-mute)';
     btn.textContent = 'Arm'; btn.className = 'btn go sm';
     act('Battle Station safe', '0DTE seat cold', false);
+  }
+}
+
+// ── HM-DECISION-DESK-MVP (2026-07-05) ──────────────────────────────────────
+// Fleet signal chain (trader.db) — NOT signal-center's trade_signals, which
+// is context-only per HM-DESK-SCOPE. Read-only feed + chain view; SEND
+// IT/DISMISS are the only writes, both server-gated behind
+// DESK_EXECUTE_ENABLED (default off) regardless of what the UI shows.
+let _deskEventSource = null;
+let _deskRefreshTimer = null;
+let _deskChainCache = {};
+let _deskExecuteEnabled = false;
+
+function deskEsc(s) {
+  const d = document.createElement('div');
+  d.textContent = (s === null || s === undefined) ? '' : String(s);
+  return d.innerHTML;
+}
+
+function loadDeskTab() {
+  loadDeskFeed();
+  startDeskTicker();
+  if (_deskRefreshTimer) clearInterval(_deskRefreshTimer);
+  _deskRefreshTimer = setInterval(loadDeskFeed, 30000);
+}
+
+function stopDeskTicker() {
+  if (_deskEventSource) { _deskEventSource.close(); _deskEventSource = null; }
+  if (_deskRefreshTimer) { clearInterval(_deskRefreshTimer); _deskRefreshTimer = null; }
+}
+
+function startDeskTicker() {
+  if (_deskEventSource) return; // already connected, e.g. re-visiting the tab
+  const dot = document.getElementById('deskTickerDot');
+  const feed = document.getElementById('deskTickerFeed');
+  if (!dot || !feed) return;
+  try {
+    _deskEventSource = new EventSource('/api/desk/context-stream');
+  } catch (e) {
+    feed.textContent = 'context stream unavailable — ' + String(e.message || e);
+    return;
+  }
+  _deskEventSource.onopen = () => { dot.className = 'dotstate on'; };
+  _deskEventSource.onerror = () => {
+    // Graceful reconnect: EventSource auto-retries; this just reflects the
+    // gap in the UI. A quiet/idle feed (e.g. market closed) looks identical
+    // to a brief drop here — both show "off" until the next message arrives.
+    dot.className = 'dotstate off';
+    feed.textContent = 'context feed reconnecting… (idle is normal when market is closed)';
+  };
+  _deskEventSource.onmessage = (ev) => {
+    dot.className = 'dotstate on';
+    let data;
+    try { data = JSON.parse(ev.data); } catch (e) { feed.textContent = 'context activity received'; return; }
+    if (data.event === 'desk_proxy_connected' || data.event === 'connected') {
+      feed.textContent = 'connected to signal-center — awaiting activity…';
+      return;
+    }
+    if (data.event === 'desk_proxy_reconnecting') {
+      feed.textContent = 'signal-center unreachable, retrying…';
+      return;
+    }
+    const sym = data.symbol || data.sym || '';
+    const src = data.source || data.src || data.feed_type || 'context';
+    feed.textContent = (sym ? sym + ' · ' : '') + src + ' · sensor contact @ ' + new Date().toLocaleTimeString();
+  };
+}
+
+async function loadDeskFeed() {
+  const statusEl = document.getElementById('deskFilterStatus');
+  const agentEl = document.getElementById('deskFilterAgent');
+  const symbolEl = document.getElementById('deskFilterSymbol');
+  const meta = document.getElementById('deskFeedMeta');
+  const cards = document.getElementById('deskCards');
+  if (!statusEl || !cards) return;
+  const params = new URLSearchParams({ limit: '50' });
+  if (statusEl.value) params.set('status', statusEl.value);
+  if (agentEl.value.trim()) params.set('agent', agentEl.value.trim());
+  if (symbolEl.value.trim()) params.set('symbol', symbolEl.value.trim());
+  meta.textContent = 'loading…';
+  try {
+    const res = await fetch('/api/desk/feed?' + params.toString());
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    _deskExecuteEnabled = !!data.execute_enabled;
+    meta.textContent = data.count + ' signals · refreshed ' + new Date().toLocaleTimeString()
+      + (_deskExecuteEnabled ? '' : ' · SEND-IT/DISMISS gated (DESK_EXECUTE_ENABLED off)');
+    renderDeskCards(data.signals || []);
+  } catch (e) {
+    meta.textContent = 'error loading feed';
+    cards.innerHTML = '<div class="desk-empty">Could not load Decision Desk feed — ' + deskEsc(e.message || e) + '</div>';
+  }
+}
+
+function deskBadge(status) {
+  const s = (status || '').toUpperCase();
+  if (s === 'EXECUTED' || s === 'SIMULATED') return '<span class="desk-badge approved">✅ ' + s + '</span>';
+  if (s === 'REJECTED' || s === 'EXPIRED' || s === 'DISMISSED') return '<span class="desk-badge rejected">❌ ' + s + '</span>';
+  return '<span class="desk-badge pending">⏳ ' + (s || 'PENDING') + '</span>';
+}
+
+function deskConfidencePct(c) {
+  if (c === null || c === undefined) return '—';
+  const n = Number(c);
+  return Math.round(n <= 1 ? n * 100 : n) + '%';
+}
+
+function renderDeskCards(signals) {
+  const cards = document.getElementById('deskCards');
+  if (!signals.length) {
+    cards.innerHTML = '<div class="desk-empty">No signals match this filter. Market may be closed, or try clearing filters.</div>';
+    return;
+  }
+  cards.innerHTML = signals.map(s => {
+    const cardId = 'deskcard_' + s.signal_id;
+    return '<div class="desk-card" id="' + cardId + '" onclick="toggleDeskCard(' + s.signal_id + ')">'
+      + '<div class="desk-card-top">'
+      +   '<span class="desk-card-sym">' + deskEsc(s.symbol) + '</span>'
+      +   '<span class="desk-card-action">' + deskEsc(s.action || '') + '</span>'
+      +   '<span class="desk-card-agent">' + deskEsc(s.agent_name || s.agent || '') + '</span>'
+      +   '<span class="desk-card-conf">' + deskConfidencePct(s.confidence) + '</span>'
+      +   deskBadge(s.status)
+      + '</div>'
+      + '<div class="desk-chain" id="' + cardId + '_chain"></div>'
+      + '</div>';
+  }).join('');
+}
+
+async function toggleDeskCard(signalId) {
+  const chainEl = document.getElementById('deskcard_' + signalId + '_chain');
+  if (!chainEl) return;
+  const wasOpen = chainEl.classList.contains('open');
+  document.querySelectorAll('.desk-chain.open').forEach(el => el.classList.remove('open'));
+  if (wasOpen) return;
+  chainEl.classList.add('open');
+  if (_deskChainCache[signalId]) {
+    chainEl.innerHTML = renderDeskChain(_deskChainCache[signalId]);
+    return;
+  }
+  chainEl.innerHTML = '<div class="desk-empty">loading chain…</div>';
+  try {
+    const res = await fetch('/api/desk/chain/' + signalId);
+    if (!res.ok) throw new Error('HTTP ' + res.status);
+    const data = await res.json();
+    _deskChainCache[signalId] = data;
+    chainEl.innerHTML = renderDeskChain(data);
+  } catch (e) {
+    chainEl.innerHTML = '<div class="desk-empty">Could not load chain — ' + deskEsc(e.message || e) + '</div>';
+  }
+}
+
+function renderDeskChain(data) {
+  const events = data.events || [];
+  const sigEv = events.find(e => e.kind === 'signal');
+  const gateEvs = events.filter(e => e.kind === 'gate_reject' || e.kind === 'decision_audit');
+  const tradeEvs = events.filter(e => e.kind === 'trade');
+  const optEvs = events.filter(e => e.kind === 'options_trade');
+  const sig = sigEv ? sigEv.detail : {};
+  const trade = tradeEvs[0];
+  const opt = optEvs[0];
+  const status = (sig.execution_status || data.status || '').toUpperCase();
+
+  const entry = trade ? trade.detail.entry_price : null;
+  const stop = opt ? opt.detail.max_loss : null;
+  const target = opt ? opt.detail.max_profit : null;
+  let rr = '—';
+  if (stop != null && target != null && Number(stop) !== 0) rr = Math.abs(Number(target) / Number(stop)).toFixed(2) + ':1';
+
+  let execHtml = '⏳ not executed';
+  if (trade) {
+    execHtml = '✅ filled' + (trade.detail.fill_price != null ? (' @ $' + Number(trade.detail.fill_price).toFixed(2)) : '')
+      + (trade.detail.qty != null ? (' × ' + trade.detail.qty) : '') + ' — ' + deskEsc(trade.detail.executed_at || '');
+  } else if (status === 'REJECTED') {
+    execHtml = '❌ rejected — ' + deskEsc(sig.rejection_reason || '');
+  } else if (status === 'EXPIRED') {
+    execHtml = '❌ expired, never acted on';
+  } else if (status === 'DISMISSED') {
+    execHtml = '❌ dismissed from the Desk';
+  }
+
+  let outcomeHtml = '⏳ position still open, or not executed';
+  if (trade && trade.detail.realized_pnl != null) {
+    const pnl = Number(trade.detail.realized_pnl);
+    outcomeHtml = (pnl >= 0 ? '✅ ' : '❌ ') + '$' + pnl.toFixed(2) + ' realized';
+  } else if (opt && opt.detail.pnl != null) {
+    const pnl = Number(opt.detail.pnl);
+    outcomeHtml = (pnl >= 0 ? '✅ ' : '❌ ') + '$' + pnl.toFixed(2) + ' realized (options)';
+  }
+
+  const gateStepsHtml = gateEvs.length ? gateEvs.map(e => {
+    const d = e.detail;
+    const label = e.kind === 'gate_reject' ? ('GATE: ' + deskEsc(d.gate_name || '')) : ('AUDIT: ' + deskEsc(d.event_type || d.gate_verdict || ''));
+    const reason = deskEsc(d.reason || d.reasoning_snippet || d.gate_verdict || '');
+    return '<div class="desk-chain-step"><span class="desk-chain-num">·</span><div class="desk-chain-body">'
+      + '<div class="desk-chain-label">' + label + ' · ' + deskEsc(e.ts || '') + '</div>'
+      + '<div class="desk-chain-detail">' + (reason || '(no reason recorded)') + '</div></div></div>';
+  }).join('') : '<div class="desk-chain-step"><span class="desk-chain-num">·</span><div class="desk-chain-body">'
+      + '<div class="desk-chain-detail" style="color:var(--tx-dim)">No gate/audit events recorded for this signal.</div></div></div>';
+
+  const canAct = status === 'PENDING';
+  const gatedTitle = _deskExecuteEnabled ? '' : ' title="Rung 4 gated — DESK_EXECUTE_ENABLED is off"';
+  const disabledAttr = _deskExecuteEnabled ? '' : ' disabled';
+  const actionsHtml = canAct
+    ? '<div class="desk-actions">'
+      + '<button class="btn blue sm" id="sendit_' + data.signal_id + '"' + disabledAttr + gatedTitle
+      +   ' onclick="event.stopPropagation();deskSendIt(' + data.signal_id + ')">SEND IT</button>'
+      + '<button class="btn ghost sm" id="dismiss_' + data.signal_id + '"' + disabledAttr + gatedTitle
+      +   ' onclick="event.stopPropagation();deskDismiss(' + data.signal_id + ')">DISMISS</button>'
+      + '</div>'
+    : '';
+
+  return ''
+    + '<div class="desk-chain-step"><span class="desk-chain-num">1</span><div class="desk-chain-body">'
+    +   '<div class="desk-chain-label">Signal</div>'
+    +   '<div class="desk-chain-detail">' + (deskEsc(sig.reasoning) || '(no reasoning recorded)')
+    +     (sig.sources ? ' <span style="color:var(--tx-dim)">· sources: ' + deskEsc(sig.sources) + '</span>' : '') + '</div>'
+    + '</div></div>'
+    + '<div class="desk-chain-step"><span class="desk-chain-num">2</span><div class="desk-chain-body">'
+    +   '<div class="desk-chain-label">Levels</div>'
+    +   '<div class="desk-chain-detail">Entry: ' + (entry != null ? ('$' + Number(entry).toFixed(2)) : '—')
+    +     ' · Stop/loss cap: ' + (stop != null ? ('$' + Number(stop).toFixed(2)) : '—')
+    +     ' · Target/profit cap: ' + (target != null ? ('$' + Number(target).toFixed(2)) : '—')
+    +     ' · R/R: ' + rr
+    +     (!trade && !opt ? ' <span style="color:var(--tx-dim)">(no fixed stop/target stored pre-trade for equities — HM-DESK-SCOPE finding #2)</span>' : '')
+    +   '</div></div></div>'
+    + '<div class="desk-chain-step"><span class="desk-chain-num">3</span><div class="desk-chain-body">'
+    +   '<div class="desk-chain-label">Gate verdicts</div></div></div>'
+    + gateStepsHtml
+    + '<div class="desk-chain-step"><span class="desk-chain-num">4</span><div class="desk-chain-body">'
+    +   '<div class="desk-chain-label">Execution</div><div class="desk-chain-detail">' + execHtml + '</div>'
+    + '</div></div>'
+    + '<div class="desk-chain-step"><span class="desk-chain-num">5</span><div class="desk-chain-body">'
+    +   '<div class="desk-chain-label">Outcome</div><div class="desk-chain-detail">' + outcomeHtml + '</div>'
+    + '</div></div>'
+    + actionsHtml;
+}
+
+async function deskSendIt(signalId) {
+  if (!_deskExecuteEnabled) { act('Desk execute is gated', 'DESK_EXECUTE_ENABLED is off', true); return; }
+  if (!confirm('SEND IT — this routes a real paper order through desk-manual for signal ' + signalId + '. Continue?')) return;
+  const btn = document.getElementById('sendit_' + signalId);
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/desk/signal/' + signalId + '/execute', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 403) { act('Desk execute is gated', data.detail || 'Rung 4 gated', true); return; }
+    if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
+    act('Signal executed', 'Signal ' + signalId + ' -> desk-manual', false);
+    delete _deskChainCache[signalId];
+    loadDeskFeed();
+  } catch (e) {
+    act('Send-it failed', deskEsc(e.message || e), true);
+    if (btn) btn.disabled = false;
+  }
+}
+
+async function deskDismiss(signalId) {
+  if (!_deskExecuteEnabled) { act('Desk dismiss is gated', 'DESK_EXECUTE_ENABLED is off', true); return; }
+  const btn = document.getElementById('dismiss_' + signalId);
+  if (btn) btn.disabled = true;
+  try {
+    const res = await fetch('/api/desk/signal/' + signalId + '/dismiss', { method: 'POST' });
+    const data = await res.json().catch(() => ({}));
+    if (res.status === 403) { act('Desk dismiss is gated', data.detail || 'Rung 4 gated', true); return; }
+    if (!res.ok) throw new Error(data.detail || ('HTTP ' + res.status));
+    act('Signal dismissed', String(signalId), false);
+    delete _deskChainCache[signalId];
+    loadDeskFeed();
+  } catch (e) {
+    act('Dismiss failed', deskEsc(e.message || e), true);
+    if (btn) btn.disabled = false;
   }
 }
 </script>
