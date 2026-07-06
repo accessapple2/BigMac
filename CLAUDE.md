@@ -40,10 +40,31 @@ trading via Alpaca paper account.
   documented in this file alongside the live-performance numbers that justify it.
 
 ## SACRED DATA RULES (non-negotiable)
-- NEVER delete, drop, or truncate `trader.db`, `arena.db`, or `tractor.db`
-- NEVER run `rm -rf` on `~/ollietrades` or `~/autonomous-trader`
+- NEVER delete, drop, or truncate `trader.db`, `arena.db`, `tractor.db`,
+  `alpha_signals.db`, or `backtest.db`
+- NEVER run `rm -rf` on `~/ollietrades_archived_2026-07-06` or `~/autonomous-trader`
 - Always archive or rename instead of deleting
 - Ask before any destructive filesystem operation
+
+**Status detail per DB (HM-OLLIETRADES-FOLDER-DISPOSITION, 2026-07-06):**
+- `trader.db` — live, active, main.py-resident. The canonical DB.
+- `arena.db` (`data/arena.db`) — 0 bytes, deprecated. Kept only because the
+  sacred-data doctrine is "never delete," not "never let empty things exist."
+- `tractor.db` — **archived-frozen**, not live. Lived at
+  `~/ollietrades/tractor_beam/tractor.db` (last written 2026-04-14; the
+  `tractor_beam` process has been dead since 2026-04-17, pid 8272 not
+  running). The live Tractor Beam tiebreaker functionality is **in-repo**
+  today (`engine/strategies.py`, `engine/crew_scanner.py`, `engine/
+  phaser_lock.py`, `engine/reveille.py`) — this old DB is historical record
+  only. `~/ollietrades` itself was archive-renamed to
+  `~/ollietrades_archived_2026-07-06` (nothing deleted); a pre-rename backup
+  tarball is checksummed on Ollie at `~/bigmac-backups/archive/
+  ollietrades_final_2026-07-06.tar.gz`. `tractor.db`'s nightly offhost
+  replication (`scripts/offhost_backup.sh`) and remote integrity-check both
+  stopped treating it as a live target the same day — see that script's
+  header comment for detail.
+- `alpha_signals.db` / `backtest.db` (`data/`) — live, added to this list
+  2026-07-06 (previously undocumented despite being real, non-trivial DBs).
 
 ## Manual halt SQL pattern
 

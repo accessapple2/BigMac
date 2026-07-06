@@ -8,8 +8,15 @@
 # Replicates:
 #   - data/trader.db (+ -shm / -wal)
 #   - signal-center/signals.db (+ -shm / -wal)
-#   - ~/ollietrades/tractor_beam/tractor.db
-#   - backups/trader_YYYY-MM-DD.db (last 7 daily snapshots)
+#   - backups/trader_YYYY-MM-DD.db (last 14 daily snapshots)
+#
+# ~/ollietrades/tractor_beam/tractor.db rsync REMOVED from integrity-check
+# (HM-OLLIETRADES-FOLDER-DISPOSITION, 2026-07-06) -- ~/ollietrades archived to
+# ~/ollietrades_archived_2026-07-06 (tractor_beam retired, dead since
+# 2026-04-17); the `run_rsync` call below still fires but no-ops via its own
+# [ -f ... ] guard now that the source path is gone. The already-replicated
+# copy on Ollie (~/bigmac-backups/tractor/tractor.db) stays put as a frozen
+# archival artifact, not a live target.
 #
 # Schedule: cron `30 6 * * *` (time-based = reboot-survivable on this box; HM-OFFHOST-DR-WIRE 2026-05-31).
 # NTFY topic: ollietrades-admin
@@ -105,13 +112,17 @@ if [ ${#DAILIES[@]} -gt 0 ]; then
 fi
 
 # Integrity check via remote python (sqlite3 CLI not on Ollie)
+# HM-OLLIETRADES-FOLDER-DISPOSITION (2026-07-06): tractor.db dropped from this
+# list -- ~/ollietrades archived (tractor_beam retired, dead since 2026-04-17),
+# the remote copy is now a frozen archival artifact, not a live replication
+# target. Re-verifying integrity_check=ok on a file that will never change
+# again is pointless; the copy stays on Ollie for the record either way.
 echo "--- integrity check (remote) ---"
 integrity=$(ssh -o ConnectTimeout=10 "$REMOTE_HOST" 'python3 -c "
 import sqlite3, glob
 fail = 0
 for f in [\"/home/bigmac/'"$REMOTE_BASE"'/data/trader.db\",
-          \"/home/bigmac/'"$REMOTE_BASE"'/signal-center/signals.db\",
-          \"/home/bigmac/'"$REMOTE_BASE"'/tractor/tractor.db\"] + sorted(glob.glob(\"/home/bigmac/'"$REMOTE_BASE"'/backups/trader_2026-*.db\"))[-7:]:
+          \"/home/bigmac/'"$REMOTE_BASE"'/signal-center/signals.db\"] + sorted(glob.glob(\"/home/bigmac/'"$REMOTE_BASE"'/backups/trader_2026-*.db\"))[-7:]:
     try:
         c = sqlite3.connect(f)
         r = c.execute(\"PRAGMA integrity_check\").fetchone()[0]
@@ -126,7 +137,13 @@ ts_end=$(date +%s)
 elapsed=$((ts_end - ts_start))
 
 if echo "$integrity" | grep -q "FAIL_COUNT=0" && [ "$errors" -eq 0 ]; then
-    msg="Off-host backup OK: 10 DBs replicated to Ollie in ${elapsed}s, all integrity_check=ok"
+    # HM-OLLIETRADES-FOLDER-DISPOSITION (2026-07-06): was a hardcoded "10 DBs"
+    # that drifted out of sync with reality (predated the 14-day daily-backup
+    # retention bump, and didn't survive tractor.db's removal above) -- count
+    # what was actually replicated this run instead: trader.db + signals.db
+    # + however many daily snapshots existed tonight.
+    db_count=$((2 + ${#DAILIES[@]}))
+    msg="Off-host backup OK: ${db_count} DBs replicated to Ollie in ${elapsed}s, all integrity_check=ok"
     # HM-HARDEN A1 (2026-06-10): NTFY on FAILURE only — success is logged, not
     # pushed (admin-channel noise reduction). The failure branch below still NTFYs.
     echo "=== SUCCESS: $msg ==="
