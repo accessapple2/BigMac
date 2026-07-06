@@ -1,8 +1,54 @@
 # XO Backlog — USS TradeMinds
 # Riker's Standing Work Queue
-# Updated: 2026-05-31 (BACKLOG RECONCILE — filed the 2026-05-31 session: Holly A/B, External-Intel, learning loops)
+# Updated: 2026-07-05 (HM-EDGE-PROVENANCE session — see start card below)
 
-> **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
+> **Older resume doc** (superseded by the start card below for current
+> priority): `docs/QUEUE_AUDIT_2026-05-29.md`. THE-ALL-OUT-PLAN-2026-05-28 is
+> CLOSED.
+
+---
+## 🟥 START CARD — read this first, cold, no other context needed (2026-07-05)
+
+**Tonight's session, one paragraph:** a full roster audit (`HM-ROSTER-RATIONALIZE`)
+found the dashboard's "78 active agents" counter reads a stale, unwired
+column, corrected the real count, and reclassified two agents mid-audit.
+That widened into `HM-EDGE-PROVENANCE` — tracing every trade's real venue —
+which found the fleet's two ACTIVE-AUDITIONING seats (options-sosnoff,
+qwen3-8b-flash) show 100% internal-simulation/unrouted activity, zero real
+broker evidence, and that Alpaca's own paper account (the only ground truth)
+shows +$1,064.08 lifetime, not the +$28.5k trader.db was read as claiming.
+Both auditions are now SUSPENDED pending real broker routing (see
+`HM-EDGE-PROVENANCE` entry below). Two features also shipped clean:
+`scripts/eod_report.py` (2 PM daily ntfy heartbeat) and the incumbent-audition
++ signals-blind-spot wiring into `weekly_tuning_crew.py`. Everything committed
+and pushed to `exec-pipeline` (`9bb56e6` through `b387027`).
+
+**Next session priority order — work top to bottom, do not reorder without
+Admiral sign-off:**
+1. **Broker-history backfill** (`HM-EDGE-PROVENANCE` entry below, "Broker-
+   history backfill" paragraph) — pull Alpaca's complete order/fill history,
+   reconstruct `dayblade-0dte`/`dayblade-sulu`'s mistagged real fills +
+   `strategy:bull_spread_v1`'s NULL `pnl` rows, attribute the ~$1,266 gap
+   between real broker equity and locally-attributable P&L, propose (don't
+   yet apply) the execution_type-mistagging fix. This produces the fleet's
+   only Tier-A per-agent records — do it before anything below.
+2. **Route-to-broker proposal** — full ticket: `HM-ROUTE-TO-BROKER` entry
+   below. Propose-first, do not implement without sign-off.
+3. **Haircut test + evidence-tier re-grade** — full ticket:
+   `HM-HAIRCUT-AND-EVIDENCE-TIERS` entry below.
+4. **Remaining XO-DEPARTURE-HARDENING phases** — Phase 1 items 3-6 (service
+   watchdog, health cron, DB/log hygiene, gate-day automation scripts) still
+   open; Phase 2 items 7, 9, 10 (venue tagging forward, Desk provenance fix,
+   remote-execution phone check) still open; Phase 3 (weekly digest,
+   pre-flight test) untouched. **None of these four are filed as their own
+   ticket entries yet** — only items 1-3 above got full write-ups this
+   session. A fresh session picking up item 4 needs the Admiral to restate
+   the XO-DEPARTURE-HARDENING phase list; it is not yet in this document.
+
+**Verify before acting on anything above:** this is a live production DB —
+re-check current `ai_players`/`options_trades`/`trades` state before trusting
+any specific number in this card; the card describes what was true as of
+2026-07-05 ~21:50 MST, not a live view.
 
 ---
 ## 🔵 HM-ERROR-FILTER-CONSOLIDATION — filed 2026-07-05 (Phase 3, not urgent)
@@ -740,6 +786,63 @@ proposal, not folded into this note.
 Full report: this session's HM-EDGE-PROVENANCE interim findings (venue
 classification method, full reconciliation numbers, headline answer) — ask
 Scotty to reproduce if this doc entry isn't enough detail.
+
+---
+## 🔴 HM-ROUTE-TO-BROKER — propose-first, promoted to top of Phase 2 (2026-07-05)
+
+XO-DEPARTURE-HARDENING addendum item 8, promoted ahead of everything else in
+Phase 2 by the HM-EDGE-PROVENANCE ruling above. Verbatim ask: **"route-to-
+broker for every path that can reach Alpaca paper (options included if the
+API supports the structures). From here forward, a trade that produces no
+broker evidence doesn't count toward anything — auditions, gates,
+leaderboards."**
+
+Concretely: `options-sosnoff`'s CSP wheel (`engine/wheel_strategy.py` →
+`engine/options_exec.py`, currently zero broker contact by design — see that
+module's own docstring) and `qwen3-8b-flash`'s equity path (mechanism exists
+generally — 163 other fleet trades already route real — she specifically
+isn't being routed) both need a route to `engine/alpaca_options.py` /
+`engine/alpaca_bridge.py`'s existing real `TradingClient`, the only code in
+this repo that ever calls a genuine Alpaca order API. Check whether Alpaca's
+paper options API actually supports single-leg CSP writes (it already
+supports single options + verticals + iron condors per
+`engine/alpaca_options.py`'s existing functions) before assuming the gap is
+purely a wiring problem rather than an API-capability one.
+
+**Do not implement without Admiral sign-off** — this changes what real (paper)
+money the fleet places, not just what gets measured. Propose the design,
+including how it composes with door1's leveraged-ETF CSP ban
+(`LEVERAGED_ETF_TICKERS` in `engine/options_exec.py`) and the CSP notional
+cap (`engine/risk_manager.py::csp_options_cap_breached`, commit `75b63f1`) --
+both gates currently assume options never reach a broker; routing changes
+that assumption and both need to keep holding.
+
+---
+## 🔴 HM-HAIRCUT-AND-EVIDENCE-TIERS — HM-EDGE-PROVENANCE items 4-5, not started (2026-07-05)
+
+The interim report (this session) closed items 1/2/3/6 conclusively (venue
+classification, Troi's answer, broker reconciliation, the no-hedging headline)
+but explicitly deferred these two — flagged honestly rather than rushed:
+
+**Item 4 — haircut test.** For every INTERNAL-SIM trade (the overwhelming
+majority, per item 1's classification — see HM-EDGE-PROVENANCE entry above),
+recompute P&L under conservative fills: options cross the spread (buy at
+ask, sell at bid), equities fill at the NBBO touch, not mid. Report per-agent:
+claimed P&L vs haircut P&L. Needs real per-trade repricing, not a rollup
+query — the actual work not yet done.
+
+**Item 5 — evidence-tier re-grade.** Re-grade the full leaderboard (all 80
+`ai_players` rows, per `HM-ROSTER-RATIONALIZE`) into: **A** = broker-executed
+(real `alpaca_order_id`/`broker_order_id`), **B** = internal-sim but
+haircut-surviving (positive P&L even after item 4's conservative repricing),
+**C** = internal-sim, unverifiable or haircut-killed. Propose explicitly how
+the July 24 Door-1 G1-G4 kill gate should weight these tiers (a real, human
+design decision — don't just pick a weighting silently).
+
+Depends on `HM-ROUTE-TO-BROKER` and the broker-history backfill (top item
+above) for the venue picture to be complete first — an agent currently
+reading INTERNAL-SIM might turn out to be Tier-A once the backfill
+reconstructs mistagged real fills.
 
 ---
 ## Original open questions (2026-07-05, resolved above — kept for the record)
