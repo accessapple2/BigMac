@@ -1,6 +1,6 @@
 # XO Backlog — USS TradeMinds
 # Riker's Standing Work Queue
-# Updated: 2026-07-05 (HM-EDGE-PROVENANCE session — see start card below)
+# Updated: 2026-07-06 (HM-BROKER-HISTORY-BACKFILL resolved — see start card below)
 
 > **Older resume doc** (superseded by the start card below for current
 > priority): `docs/QUEUE_AUDIT_2026-05-29.md`. THE-ALL-OUT-PLAN-2026-05-28 is
@@ -23,32 +23,43 @@ Both auditions are now SUSPENDED pending real broker routing (see
 + signals-blind-spot wiring into `weekly_tuning_crew.py`. Everything committed
 and pushed to `exec-pipeline` (`9bb56e6` through `b387027`).
 
+**Update (2026-07-06 follow-on session):** `HM-BROKER-HISTORY-BACKFILL` is
+now RESOLVED — reconciliation gap closed to $1.06 (true realized P&L
+$1,138.31, reconstructed $1,139.37: +$907.37 real stock via direct FIFO
+matching against Alpaca's own fills, +$232.00 real options). `HM-TUNING-
+CREW-REPAIR` also shipped. See those entries below for full detail. Priority
+order below is renumbered accordingly.
+
 **Next session priority order — work top to bottom, do not reorder without
 Admiral sign-off:**
-1. **Broker-history backfill** (`HM-EDGE-PROVENANCE` entry below, "Broker-
-   history backfill" paragraph) — pull Alpaca's complete order/fill history,
-   reconstruct `dayblade-0dte`/`dayblade-sulu`'s mistagged real fills +
-   `strategy:bull_spread_v1`'s NULL `pnl` rows, attribute the ~$1,266 gap
-   between real broker equity and locally-attributable P&L, propose (don't
-   yet apply) the execution_type-mistagging fix. This produces the fleet's
-   only Tier-A per-agent records — do it before anything below.
+1. **Per-agent attribution of the reconciled real stock/options P&L**
+   (follow-on to the now-closed backfill) — the aggregate is reconciled to
+   $1.06, but WHICH local agent ID gets credit for the real +$842.22 NVDA
+   position (currently: ~15 agents all show mistagged 'simulated' NVDA rows,
+   none tagged real) isn't resolved, and none of `ROUTED_PLAYERS`
+   (`ollie-auto`/`neo-matrix`/`super-agent`) show a real NVDA row despite
+   being the stock-forwarding-enabled agents — unexplained, worth a look.
+   Lower priority than it sounds: the aggregate answer (does real edge
+   exist, how much) is already solid without this.
 2. **Route-to-broker proposal** — full ticket: `HM-ROUTE-TO-BROKER` entry
    below. Propose-first, do not implement without sign-off.
 3. **Haircut test + evidence-tier re-grade** — full ticket:
-   `HM-HAIRCUT-AND-EVIDENCE-TIERS` entry below.
-4. **Remaining XO-DEPARTURE-HARDENING phases** — now fully filed (2026-07-06):
+   `HM-HAIRCUT-AND-EVIDENCE-TIERS` entry below. Its backfill dependency is
+   now unblocked (see its own "Update 2026-07-06" note).
+4. **Remaining XO-DEPARTURE-HARDENING phases** — filed (2026-07-06):
    `XO-DEPARTURE-HARDENING — Phase 1 remaining` / `Phase 2 remaining` /
    `Phase 3` entries below (all still `## 🔴` unstarted, propose-first, none
-   built yet). Also shipped this pass: `HM-TUNING-CREW-REPAIR` (loud failure
-   guards for the tuning crew's two LLM agents — see that entry) and
-   substantial progress on `HM-BROKER-HISTORY-BACKFILL` (real spread trades
-   found and priced, ~+$104 now directly attributable, ~$850-960 still
-   unattributed).
+   built yet).
+5. **Mistagging fix, proposed not built** — `paper_trader.py`'s Alpaca-fill
+   writeback needs a path for `alpaca_options.py`'s forward calls AND
+   apparently for some stock paths too (NVDA finding above suggests it's not
+   only an options-side gap). See `HM-BROKER-HISTORY-BACKFILL`'s "Fix
+   proposed, not applied" note below.
 
 **Verify before acting on anything above:** this is a live production DB —
 re-check current `ai_players`/`options_trades`/`trades` state before trusting
 any specific number in this card; the card describes what was true as of
-2026-07-05 ~21:50 MST, not a live view.
+2026-07-06 ~22:20 MST, not a live view.
 
 ---
 ## 🔵 HM-ERROR-FILTER-CONSOLIDATION — filed 2026-07-05 (Phase 3, not urgent)
@@ -978,13 +989,31 @@ first pass undercounted.
   across 12 SPY + 2 TSLA single-leg orders). With the previously-found stock
   net (-$128.33), **≈+$104 now directly accounted for** against the real
   +$1,064.08 equity gain.
-- **Still unattributed: roughly $850-960.** Leading candidate:
-  `strategy:bull_spread_v1`'s earliest local rows (id 2-9, dated
-  2026-04-22, real structures on SPY/QQQ/NVDA/AAPL) have **blank**
-  `broker_order_id` — likely an even earlier real-order era not yet matched,
-  or a second mistagging instance. The 12 single-leg SPY orders' exact
-  agent attribution also isn't proven (timing suggests early
-  pre-mleg bull_spread_v1 activity, not confirmed).
+- **RESOLVED (2026-07-06 follow-on session) — gap closed to $1.06.** The
+  April 22 lead was a dead end, correctly: checked `options_trades.strategy_id`
+  (not just `agent_id`) — same 25 rows, but `exit_reason` (not previously
+  queried) shows the 6 April 22 rows (one literally `symbol='TEST'`) all carry
+  `exit_reason='HM-OPTIONS-TRADES-ZOMBIE-CLEANUP-reconcile-2026-05-18'` —
+  confirmed zombie/test artifacts, already administratively cleaned up, not
+  real unaccounted trades. All 25 local rows for `strategy:bull_spread_v1` are
+  now fully classified (6 zombie, 4 `failed_pre_fix`/broker-never-received,
+  15 real).
+  The real gap was in **stock trades, not options**: computed the account's
+  true realized P&L via clean accounting identity (equity − $100k base −
+  unrealized = **$1,138.31**, can't be wrong regardless of local bookkeeping),
+  then FIFO-reconstructed all 380 filled stock orders directly from Alpaca,
+  bypassing local `execution_type` tagging entirely: **+$907.37 real stock
+  P&L**, dominated by NVDA (+$842.22). Checked locally: every NVDA row across
+  ~15 different agent IDs is tagged `execution_type='simulated'` — the exact
+  same "broker fill happened, local ledger never learned about it" bug found
+  in options, just far larger in dollars on the stock side.
+  **Reconciliation: $907.37 (stock) + $232.00 (options) = $1,139.37 against
+  the true $1,138.31 — a $1.06 residual.** Effectively closed. Per-agent
+  attribution of the real stock P&L (which of the ~15 mistagged NVDA rows is
+  the "real" one, and why none of the officially `ROUTED_PLAYERS`
+  (`ollie-auto`/`neo-matrix`/`super-agent`) show a real NVDA row at all) is
+  NOT done — separate, lower-priority follow-on if wanted. The aggregate
+  reconciliation (does real edge exist, how much) is now solid.
 - **Fix proposed, not applied:** `paper_trader.py`'s
   `_update_trade_alpaca_fields`/`_persist_alpaca_fill` writeback exists for
   the stock path but has no equivalent for `alpaca_options.py`'s
@@ -1046,10 +1075,16 @@ haircut-surviving (positive P&L even after item 4's conservative repricing),
 the July 24 Door-1 G1-G4 kill gate should weight these tiers (a real, human
 design decision — don't just pick a weighting silently).
 
-Depends on `HM-ROUTE-TO-BROKER` and the broker-history backfill (top item
-above) for the venue picture to be complete first — an agent currently
-reading INTERNAL-SIM might turn out to be Tier-A once the backfill
-reconstructs mistagged real fills.
+**Update (2026-07-06): the backfill dependency is now resolved** —
+`HM-BROKER-HISTORY-BACKFILL` above closed its reconciliation gap to $1.06.
+Concretely for this ticket: `strategy:bull_spread_v1`'s 15 real spreads
+(+$2,559, Tier-A candidates) and the real stock P&L hiding under ~15
+mistagged agent IDs (dominated by a real +$842.22 NVDA position, currently
+attributed to no specific agent) both need per-agent attribution before
+this re-grade can assign tiers correctly — an agent currently reading
+INTERNAL-SIM in the leaderboard may actually be Tier-A once that
+attribution lands. `HM-ROUTE-TO-BROKER` is a separate, forward-looking
+dependency (routing future trades) and still applies independently.
 
 ---
 ## Original open questions (2026-07-05, resolved above — kept for the record)
