@@ -5,6 +5,25 @@
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
 ---
+## 🔵 HM-ERROR-FILTER-CONSOLIDATION — filed 2026-07-05 (Phase 3, not urgent)
+
+`scripts/daily_report.py::get_error_summary()` filters real errors with a
+blanket `"[LRS]" not in line` exclusion — this hides ANY error tagged `[LRS]`
+wholesale, including genuine ones (e.g. the "ntfy failed: <urlopen error
+[Errno 65] No route to host>" lines are `[LRS]`-tagged and real). Contrast
+with `scripts/eod_report.py::genuine_error_count()` (HM-EOD-REPORT-2026-07-05),
+which uses an explicit, named false-positive allowlist instead of a blanket
+tag exclusion — narrower and auditable (each exclusion is a specific,
+verified string, not an entire log-source tag).
+
+**Fix (Phase 3, not urgent):** migrate `daily_report.py` to the same explicit-
+allowlist approach — ideally both scripts call one shared filter function
+instead of maintaining two divergent definitions of "real error." Until then,
+`daily_report.py`'s 10 PM error count is not exactly the same as
+`eod_report.py`'s 2 PM error count for the same day, and that's expected
+(different filters), not a bug.
+
+---
 ## 🔵 HM-OLLIE-MACHINE-KILLGATE — filed 2026-07-05 (HM-ROSTER-RATIONALIZE follow-up)
 
 `ollie-machine` ("Ollie Machine", rule-based/convergence-2of4, `halt_mode='active'`)
