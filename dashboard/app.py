@@ -32,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse, Response
 import sqlite3
+import contextlib
 import json
 import os
 import time as _time_module
@@ -5806,7 +5807,7 @@ def _dayblade_halted() -> bool:
     if _dayblade_halt_cache["halted"] is not None and now - _dayblade_halt_cache["ts"] < 60:
         return _dayblade_halt_cache["halted"]
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             row = c.execute(
                 "SELECT halt_mode FROM ai_players WHERE id='dayblade-0dte'"
             ).fetchone()
@@ -6403,6 +6404,56 @@ def _canonical_gex_cached(symbol: str) -> dict:
     if entry:
         return entry["data"]
     return {"error": "gex compute timed out", "pending": True}
+
+
+@app.on_event("startup")
+def _preload_gex_cache():
+    """HM-OPS-SENTINEL P2.4 (2026-07-06): warm _gex_symbol_cache at boot so the
+    Gamma Map doesn't blank/"pending" on the first request after every restart.
+    Same two-phase shape as _preload_slow_caches above.
+
+    Phase 1 (sync, instant): seed from the durable flow_gex.db snapshot
+    (engine.canonical_gex.latest_snapshot) -- no network call, matches the
+    market-closed cold-cache path _canonical_gex_cached already uses.
+    Phase 2 (async, staggered): kick one live refresh per ticker in the
+    background during market hours, so the cache is live-fresh shortly after
+    boot instead of waiting for the first real request per symbol to trigger it.
+    """
+    try:
+        from engine.gex_scanner import GEX_TICKERS
+    except Exception:
+        GEX_TICKERS = ["SPY", "QQQ", "NVDA", "TSLA", "AAPL"]
+
+    from engine.canonical_gex import latest_snapshot
+    now = _time.time()
+    for sym in GEX_TICKERS:
+        try:
+            data = latest_snapshot(sym)
+        except Exception:
+            continue
+        # Same collapsed-wall guard as _canonical_gex_cached -- a snapshot
+        # with call_wall==put_wall==king_node is a known stale artifact.
+        if not data or (data.get("call_wall") is not None and data["call_wall"] == data.get("put_wall") == data.get("king_node")):
+            continue
+        data["as_of"] = data.get("_asof")
+        _gex_symbol_cache[sym] = {"data": data, "ts": now}
+
+    if not _gex_market_open():
+        return  # disk snapshot is the best available overnight, nothing more to do
+
+    def _warm_live(sym: str, delay_s: float) -> None:
+        _time.sleep(delay_s)
+        try:
+            data = _canonical_gex(sym)
+            _gex_symbol_cache[sym] = {"data": data, "ts": _time.time()}
+        except Exception:
+            pass
+
+    for i, sym in enumerate(GEX_TICKERS):
+        threading.Thread(
+            target=_warm_live, args=(sym, 2.0 + i * 3.0),
+            daemon=True, name=f"gex_boot_warm_{sym}",
+        ).start()
 
 
 @app.get("/api/market/gex/{ticker}")
@@ -9945,6 +9996,76 @@ def networth():
                 "_source": "HM-AM /api/networth (error)"}
 
 
+_ALPACA_EQUITY_SPY_CACHE: dict = {"data": None, "ts": 0.0, "error": None}
+_ALPACA_EQUITY_SPY_TTL = 300.0  # 5 min -- underlying data is daily-granularity
+# (1D portfolio history, 1Day SPY bars), so a tab-switch/reload burst doesn't
+# need a fresh Alpaca call every time. HM-OPS-SENTINEL P2.6 (2026-07-06):
+# these two calls previously fired live, uncached, on every single request to
+# either /api/account/equity-curve or /api/performance/summary -- multiple
+# viewers or repeated tab switches could 429 Alpaca's data API.
+_ALPACA_EQUITY_SPY_LOCK = threading.Lock()
+
+
+def _fetch_with_backoff(url: str, headers: dict, params: dict, timeout: int = 10):
+    """GET with one retry on 429, honoring Retry-After (capped at 5s) if present."""
+    import requests as _req
+    r = _req.get(url, headers=headers, params=params, timeout=timeout)
+    if r.status_code == 429:
+        wait_s = min(5.0, float(r.headers.get("Retry-After", 2)))
+        _time.sleep(wait_s)
+        r = _req.get(url, headers=headers, params=params, timeout=timeout)
+    r.raise_for_status()
+    return r
+
+
+def _get_alpaca_equity_and_spy_raw() -> dict:
+    """Cached (5 min TTL), backoff-guarded fetch of the two raw Alpaca series
+    shared by /api/account/equity-curve and /api/performance/summary. On a
+    fetch error, serves the last-good cached value (stale-if-error) rather
+    than surfacing an empty chart."""
+    import os as _os
+
+    now = _time.time()
+    with _ALPACA_EQUITY_SPY_LOCK:
+        cached = _ALPACA_EQUITY_SPY_CACHE
+        if cached["data"] is not None and (now - cached["ts"]) < _ALPACA_EQUITY_SPY_TTL:
+            return cached["data"]
+
+        _key = _os.getenv("APCA_API_KEY_ID", "")
+        _sec = _os.getenv("APCA_API_SECRET_KEY", "")
+        _hdrs = {"APCA-API-KEY-ID": _key, "APCA-API-SECRET-KEY": _sec}
+        _SEASON_START = "2026-04-24T00:00:00Z"
+
+        try:
+            _ph = _fetch_with_backoff(
+                "https://paper-api.alpaca.markets/v2/account/portfolio/history",
+                _hdrs,
+                {"timeframe": "1D", "start": _SEASON_START, "intraday_reporting": "market_hours"},
+            )
+            _ph_data = _ph.json()
+
+            _spy_r = _fetch_with_backoff(
+                "https://data.alpaca.markets/v2/stocks/SPY/bars",
+                _hdrs,
+                {"timeframe": "1Day", "feed": "iex", "adjustment": "raw",
+                 "start": _SEASON_START, "sort": "asc", "limit": 500},
+            )
+            _spy_bars = _spy_r.json().get("bars", [])
+
+            data = {
+                "timestamps": _ph_data.get("timestamp", []),
+                "equity": _ph_data.get("equity", []),
+                "spy_map": {b["t"][:10]: b["c"] for b in _spy_bars},
+            }
+            _ALPACA_EQUITY_SPY_CACHE.update({"data": data, "ts": now, "error": None})
+            return data
+        except Exception as e:
+            _ALPACA_EQUITY_SPY_CACHE["error"] = str(e)
+            if cached["data"] is not None:
+                return cached["data"]  # stale-if-error beats a blank chart
+            raise
+
+
 @app.get("/api/account/equity-curve")
 def account_equity_curve():
     """Account equity vs SPY buy-and-hold since Season 6 start (2026-04-24).
@@ -9952,41 +10073,13 @@ def account_equity_curve():
     door1 2026-06-19: side-by-side performance chart.
     Returns {dates, account, spy} — all series normalized to 100.0 at first point.
     """
-    import requests as _req
-    import os as _os
-    from datetime import datetime as _dt, timedelta as _td
-
-    _key = _os.getenv("APCA_API_KEY_ID", "")
-    _sec = _os.getenv("APCA_API_SECRET_KEY", "")
-    _hdrs = {"APCA-API-KEY-ID": _key, "APCA-API-SECRET-KEY": _sec}
-    _SEASON_START = "2026-04-24T00:00:00Z"
+    from datetime import datetime as _dt
 
     try:
-        # Alpaca paper portfolio history
-        _ph = _req.get(
-            "https://paper-api.alpaca.markets/v2/account/portfolio/history",
-            headers=_hdrs,
-            params={"timeframe": "1D", "start": _SEASON_START, "intraday_reporting": "market_hours"},
-            timeout=10,
-        )
-        _ph.raise_for_status()
-        _ph_data = _ph.json()
-        _timestamps = _ph_data.get("timestamp", [])
-        _equity = _ph_data.get("equity", [])
-
-        # SPY bars
-        _spy_r = _req.get(
-            "https://data.alpaca.markets/v2/stocks/SPY/bars",
-            headers=_hdrs,
-            params={"timeframe": "1Day", "feed": "iex", "adjustment": "raw",
-                    "start": _SEASON_START, "sort": "asc", "limit": 500},
-            timeout=10,
-        )
-        _spy_r.raise_for_status()
-        _spy_bars = _spy_r.json().get("bars", [])
-
-        # Build date→close map for SPY
-        _spy_map = {b["t"][:10]: b["c"] for b in _spy_bars}
+        _raw = _get_alpaca_equity_and_spy_raw()
+        _timestamps = _raw["timestamps"]
+        _equity = _raw["equity"]
+        _spy_map = _raw["spy_map"]
 
         # Align: use timestamps from portfolio history
         dates, acct_vals, spy_vals = [], [], []
@@ -10110,40 +10203,17 @@ def performance_summary():
       strategies: [{name, trades, wins, win_rate, realized_pnl, profit_factor}]
       headline: {account_return_pct, spy_return_pct, edge_pct, since}
     """
-    import requests as _req
-    import os as _os
     import sqlite3 as _sql
     from datetime import datetime as _dt
-
-    _key = _os.getenv("APCA_API_KEY_ID", "")
-    _sec = _os.getenv("APCA_API_SECRET_KEY", "")
-    _hdrs = {"APCA-API-KEY-ID": _key, "APCA-API-SECRET-KEY": _sec}
-    _SEASON_START = "2026-04-24T00:00:00Z"
 
     # ── equity curve ──────────────────────────────────────────────────────────
     equity_curve: list = []
     acct_pct, spy_pct = 0.0, 0.0
     try:
-        _ph = _req.get(
-            "https://paper-api.alpaca.markets/v2/account/portfolio/history",
-            headers=_hdrs,
-            params={"timeframe": "1D", "start": _SEASON_START, "intraday_reporting": "market_hours"},
-            timeout=10,
-        )
-        _ph.raise_for_status()
-        _ph_data = _ph.json()
-        _ts_list = _ph_data.get("timestamp", [])
-        _eq_list = _ph_data.get("equity", [])
-
-        _spy_r = _req.get(
-            "https://data.alpaca.markets/v2/stocks/SPY/bars",
-            headers=_hdrs,
-            params={"timeframe": "1Day", "feed": "iex", "adjustment": "raw",
-                    "start": _SEASON_START, "sort": "asc", "limit": 500},
-            timeout=10,
-        )
-        _spy_r.raise_for_status()
-        _spy_map = {b["t"][:10]: b["c"] for b in _spy_r.json().get("bars", [])}
+        _raw = _get_alpaca_equity_and_spy_raw()
+        _ts_list = _raw["timestamps"]
+        _eq_list = _raw["equity"]
+        _spy_map = _raw["spy_map"]
 
         _dates, _acct_v, _spy_v = [], [], []
         for i, ts in enumerate(_ts_list):

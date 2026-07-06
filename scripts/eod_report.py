@@ -118,6 +118,28 @@ def csp_wheel_scan_rollup(conn, report_date: str) -> dict:
         return {}
 
 
+def swing_surge_breakdown(conn, report_date: str) -> dict:
+    """HM-OPS-SENTINEL P3.9 (2026-07-06): signals_v2 status breakdown for the
+    day, the swing-surge staleness-budget fix's own scoreboard
+    (executed/stale/skipped_reentry/failed/pending). 'skipped_reentry' is
+    approximated as status='expired' rows created that day — the only two
+    writers of 'expired' are the events_bus_consumer re-entry guard (same-day
+    soft-void) and the one-time halted-backlog cleanup script, and the latter
+    only ever touches rows with an OLD created_at (the 2026-06-24+ backlog),
+    so filtering to `report_date` cleanly excludes it without needing a
+    schema change to distinguish the two causes explicitly."""
+    try:
+        rows = conn.execute(
+            "SELECT status, COUNT(*) AS n FROM signals_v2 "
+            "WHERE created_at >= ? AND created_at < date(?, '+1 day') "
+            "GROUP BY status",
+            (report_date, report_date),
+        ).fetchall()
+        return {r["status"]: r["n"] for r in rows}
+    except sqlite3.OperationalError:
+        return {}
+
+
 def genuine_error_count(log_paths: list, report_date: str) -> int:
     """Counts real ERROR/CRITICAL/Exception/Traceback lines timestamped
     `report_date`, excluding KNOWN_FALSE_POSITIVE_PATTERNS. Known-incomplete
@@ -192,6 +214,7 @@ def build_report(conn, report_date: str) -> dict:
         "guarded_pnl": guarded_pnl_for_date(conn, report_date),
         "auditions": track_incumbent_auditions(conn),
         "wheel_scan": csp_wheel_scan_rollup(conn, report_date),
+        "swing_surge": swing_surge_breakdown(conn, report_date),
         "genuine_errors": genuine_error_count(LOG_PATHS, report_date),
     }
 
@@ -234,6 +257,11 @@ def format_report(report: dict) -> str:
     if report["wheel_scan"]:
         wheel_str = ", ".join(f"{k}={v}" for k, v in sorted(report["wheel_scan"].items()))
         lines.append(f"Wheel scans: {wheel_str}")
+
+    if report["swing_surge"]:
+        ss = report["swing_surge"]
+        ss_str = ", ".join(f"{k}={v}" for k, v in sorted(ss.items()))
+        lines.append(f"Signals_v2 breakdown: {ss_str}")
 
     lines.append(f"Genuine errors: {report['genuine_errors']}")
     return "\n".join(lines)

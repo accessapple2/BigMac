@@ -66,6 +66,508 @@ any specific number in this card; the card describes what was true as of
 2026-07-06 ~22:20 MST, not a live view.
 
 ---
+## 🔴 HM-SIGNALS-V2-FIFO-STARVATION — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), propose-first
+
+`engine/events_bus_consumer.py::consume_pending_signals()` dequeues with
+`SELECT ... FROM signals_v2 WHERE status='pending' ORDER BY created_at ASC
+LIMIT ?` — **no date filter, no priority lane, strict FIFO across all of
+history.** Found a **14,936-row pending backlog dating back to 2026-06-24**
+(12 days). As of 2026-07-06 ~06:33 AZ (market open), **14,842 of those rows
+sit ahead of today's ~118 fresh signals** in queue order. Observed
+throughput since Sunday's `main.py` restart: ~1,940 signals processed in
+~12 hours (~161/hr) — at that rate today's signals won't be dequeued for
+**3-4 days**.
+
+**Why this matters specifically today:** today is the first live session
+under the swing-surge staleness-budget fix (signals that used to expire at
+30s now get a 3600s window before being marked stale). But the staleness
+check (`stale_after` vs `now`) only evaluates once a row is actually
+dequeued — a row buried behind 14,842 older rows never gets checked while
+it's still within *either* budget. **The fix's effect on today's numbers
+cannot be honestly measured until this is addressed** — whatever
+executed/stale counts land today most likely reflect the 12-day-old backlog
+draining, not this week's signals. The backlog itself predates today's
+config change (starts 06-24), so it isn't caused by the fix — it just means
+the fix can't be assessed while it's live.
+
+**Secondary, lower-priority finding from the same investigation:** `navigator`
+(`halt_mode='exit_only'`) is the source of 82 of the 118 fresh signals today
+(vs. 6 each for ollama-qwen3/ollama-plutus) — `LONG` signals across dozens of
+symbols it holds no position in, not exit-management of its actual 5 open
+positions (JTAI, LRCX, MNTS, ON, QCOM). Verified this is **not a live risk**:
+`events_bus_consumer` dispatches through the same shared `paper_trader.buy()`
+that has the halt gate (`HALTED: navigator (exit_only)` confirmed firing
+repeatedly in `trader.log`) — every one of these would be rejected if
+dequeued. It's wasted compute/queue bloat (exit_only agents don't need a
+full scan when they hold nothing to manage in most of the names they're
+scanning), not an execution-safety gap.
+
+**Propose-first, nothing built:** two directions worth considering —
+(a) a priority lane / age cap so recent signals dequeue ahead of historical
+backlog, or (b) a one-time bulk-archive of the pre-existing 06-24-and-older
+backlog to `status='expired'` so the queue starts clean. Needs Admiral
+sign-off before either.
+
+**Fix proposal, 2026-07-06 post-incident cleanup (proposal only, no changes
+without approval).** Re-ran the numbers with a halt_mode join, and the
+picture is more clear-cut than the original filing suggested:
+
+```
+source              pending   halt_mode
+navigator             13,063   exit_only
+ollama-plutus            783   active
+ollie-auto               599   exit_only
+capitol-trades           282   active
+ollama-qwen3              130   active
+neo-matrix                 90   active
+ollama-coder               85   full
+qwen3-8b-sonnet            18   full
+deepseek-7b-grok4          10   full
+qwen36-audition-test        1   unknown
+```
+Total pending: **15,061**. Of that, **13,775 (91.5%) come from sources whose
+`halt_mode` is `exit_only` or `full`** — meaning every one of those rows is
+*structurally incapable of ever executing*: `paper_trader.buy()`'s halt gate
+rejects any non-`active` source unconditionally (confirmed live in
+`trader.log`, `HALTED: navigator (exit_only)` firing on every dequeue
+attempt). These aren't "old but still viable" signals sitting in a slow
+queue — they were dead on arrival the moment they were written, because
+their source was already halted when they were created. `navigator` alone
+(halted 2026-06-19, backlog starts 2026-06-24 — every single one of its
+13,063 rows was generated *after* the halt) accounts for 86.7% of the total.
+Only **1,285 pending rows (8.5%)** come from currently-`active` sources and
+could theoretically still execute if reached — those are the only ones a
+"we might lose something real" argument applies to. Today's fresh signals:
+293 of the 15,061 pending (up from ~118 at market open — the backlog is
+growing faster than it drains).
+
+**Ranked recommendation:**
+1. **Expire pending rows from non-`active` sources** (`status='expired'`,
+   archive-not-delete, same pattern already used by `_expire_signal()` in
+   this file for the re-entry guard) — clears 13,775 rows (91.5% of the
+   backlog) with **zero loss of anything that could have executed**, since
+   none of them could have. Lowest risk, highest impact, and it's a general
+   rule (any halted source, not just navigator) so it doesn't need
+   re-running by hand if another agent gets halted later.
+2. **Priority lane / age-ordering for the remaining ~1,285 active-source
+   rows** — these genuinely could execute, so a FIFO-vs-recency tradeoff is
+   a real design choice here, not a freebie like #1. Options: reorder by
+   `created_at DESC` within active sources (newest-first, matches the
+   swing-surge intent), or a hybrid (drain a few oldest per tick alongside
+   newest, so nothing starves completely).
+3. **One-time blanket archive of everything before today** — simplest to
+   implement, but throws away the ~1,285 active-source rows too, which #1+#2
+   wouldn't need to. Only worth it if the Admiral would rather not carry any
+   pre-existing backlog forward regardless of source.
+
+Recommend **1 alone first** (it's nearly-zero-risk and clears the vast
+majority on its own), then decide on 2 vs 3 for the small remainder once
+it's clear how much daily "fresh" volume the queue actually needs to keep
+up with. Nothing applied — needs sign-off before any UPDATE/write.
+
+**Note (2026-07-06 post-incident cleanup):** confirmed the bridge login
+prompt reappearing after today's `main.py` restart is expected, not a
+regression. `dashboard/app.py:890` — `_active_sessions: dict[str, float] = {}`
+— is a plain in-process Python dict (username → login timestamp), zero
+persistence backing (no file/DB/redis anywhere in its read/write path,
+checked directly). It lives entirely in main.py's process memory, so any
+restart empties it, and every previously-authenticated browser session
+gets bounced to `/login` on its next request. This is a real, known
+limitation (session state doesn't survive a restart) rather than a bug —
+worth knowing for any future restart (planned or incident-driven): expect
+to re-authenticate afterward, that's not itself a sign something broke.
+
+**RETRACTED 2026-07-06 (AFTER-CLOSE-WORK-ORDER P2.7 investigation) — the
+above diagnosis was wrong.** Traced the actual auth gate before building the
+requested "persist `_active_sessions`" fix, since that's the premise this
+note rests on. `_active_sessions` is written in three places (both login
+paths + `AuthMiddleware`'s per-request refresh) and read in exactly two
+(`/api/active-users` — the "who's online" display — and the 30-min
+inactivity sweep at `dashboard/app.py:1730-1732`). **Neither of those is the
+auth gate.** The actual gate (`AuthMiddleware.dispatch`, `dashboard/app.py`
+~line 1300) calls `_get_session_data(request)`, which only verifies the
+signed `trademinds_session` cookie (`itsdangerous.URLSafeTimedSerializer`,
+24h `max_age`, keyed by the stable `TRADEMINDS_SECRET` env var that fatal-
+exits the process if unset rather than auto-regenerating) — it never touches
+`_active_sessions`. Verified empirically: minted a token in one Python
+process, decoded it successfully in a completely separate fresh process
+(simulating a restart — no shared memory, `_active_sessions` empty in the
+new process) — decode succeeded. **A previously-authenticated browser
+session already survives a `main.py` restart** as long as the cookie hasn't
+hit its own 24h expiry and `.env`'s `TRADEMINDS_SECRET` doesn't change.
+`_active_sessions` resetting to `{}` on restart only blanks the "who's
+online" count/list for up to 30 minutes until each active user's next
+request repopulates it — cosmetic, not an auth-gate regression.
+
+**Not built:** the requested `_active_sessions` persistence (SQLite/signed-
+cookie) would have been solving a problem that doesn't exist at the layer it
+was aimed at. If a real forced-relogin-after-restart is later reproduced
+with concrete repro steps (specific browser, specific timing), the actual
+cause is somewhere else — cookie natural 24h expiry lining up with the
+restart by coincidence, a CF-tunnel/proxy session concern, or a browser-side
+cookie-clear — and deserves its own targeted look rather than assuming
+`_active_sessions` again.
+
+---
+## 🔴 HM-RIKER-SYNTHESIS-LOCK-CONTENTION — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), propose-first
+
+`engine/riker_synthesis.py` (cron `*/10 * * * *`, re-homed from launchd
+2026-07-01 per `HM-DIRECTIVE-2026-07-01` Deck2 #8) is **running correctly on
+schedule and computing valid data every cycle** — confirmed via
+`logs/riker_synthesis.log`: clean `[RIKER] Signals:X HC:X Trades:X
+Positions:X` lines every 10 minutes straight through the current tail, no
+gaps. **Not wedged on the `signals_v2` FIFO backlog above** — confirmed
+`_get_recent_signals`/`_get_recent_trades` in this file query the `signals`/
+`trades` tables directly, entirely independent of `signals_v2`.
+
+**Real root cause: the final persist step is failing.**
+`_save_synthesis()`'s `INSERT INTO rikers_log ...` has failed **14
+consecutive times since ~06:50 AZ** (last successful write: 06:40 AZ,
+matching the Admiral's own observation) with `sqlite3.OperationalError:
+database is locked` — still failing as of the most recent attempt (07:20 AZ)
+at time of filing. The connection (`sqlite3.connect(DB_PATH)`, line ~150) has
+no explicit `timeout=` set, so it's on Python's 5s default before giving up;
+evidently not enough under today's write load.
+
+**Not isolated to this script** — the same `database is locked` string
+appears in the same window across `ghost_advisor`, `aladdin`,
+`movers_poller`, `regime_refresh`, `sarek`, `ti_picks_watcher`/`parser`, and
+`trader.log`/`trader_error.log` itself (`War Room post failed: database is
+locked`, as recently as 07:25 AZ) — reads as broad `trader.db` write
+contention during the market-open surge, not a riker_synthesis-specific bug.
+Plausibly the swing-surge config's higher write volume is now colliding with
+everything else hitting the same SQLite file concurrently.
+
+**Side effect worth noting:** MORPHEUS's intelligence-feed
+(`_morpheus_load_riker_synthesis()` on signal.ollietrades.com) going quiet
+since 06:40 is fully explained by this — there's simply nothing new in
+`rikers_log` for it to show, not a second independent failure on the
+MORPHEUS side.
+
+**Propose-first, nothing built:** candidate fixes — raise `timeout=` on
+these connections (cheap, low-risk), WAL-mode tuning, or reducing concurrent
+writer count during the open surge. Needs Admiral sign-off; a longer
+busy-timeout is the obvious minimal first move but touches a shared
+connection pattern used elsewhere, so flagging rather than patching solo.
+
+**APPLIED 2026-07-06 (Admiral approved):** all four `sqlite3.connect(DB_PATH)`
+calls in `engine/riker_synthesis.py` now carry `timeout=30` (was Python's 5s
+default). Live immediately — this script is a standalone cron invocation
+(`*/10 * * * *`, fresh process per tick), not main.py-resident, so the edit
+takes effect on the very next scheduled run with no restart required.
+`py_compile` clean. **Timeout alone was insufficient** — the 07:50 attempt
+still failed with `database is locked` after the full 30s wait, which is
+what surfaced the real root cause below (255 leaked connections on main.py,
+not a brief collision a longer wait could out-wait).
+
+**RESOLVED 2026-07-06 08:12 AZ.** Root cause fixed at `HM-SQLITE-CONN-FD-LEAK`
+(below) + `main.py` restart at 08:02:30. Verified clean on two independent
+signals: (1) `engine/riker_synthesis.py`'s 08:10:01 attempt succeeded
+(`rikers_log` id=5819) — first fully-post-restart tick, following the
+08:00:00 success (id=5818, technically pre-restart but post-timeout-patch —
+two consecutive clean writes bracketing the restart). (2) Zero
+`database is locked` occurrences anywhere in `trader_error.log` since the
+restart (checked the actual file tail through 08:11:24, not a date-scoped
+grep — the earlier "1049 hits" figure from a first-pass check was a false
+positive from an unscoped pattern matching historical log noise, not a real
+post-restart count). Zero `War Room post failed` since restart too (last
+occurrence 07:48:31, none since 08:02:30). Closed — no further action.
+
+---
+## 🔴 HM-SQLITE-CONN-FD-LEAK — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), fix proposal only, restart gated on Admiral's post-close window
+
+Same anti-pattern as the historical bridge FD leak (memory:
+`hm_bridge_wedge2_fd_leak.md`, fixed commit `7748aaf`) — recurring
+elsewhere, unfixed. **Confirmed at two concrete sites so far:**
+
+- `agents/aladdin.py::_ensure_tables()` (module-import-time, lines 95-128)
+  and `::_save_signal()` (lines 146-165): both do
+  `con = sqlite3.connect(...)` → one or more `con.execute()` → `con.commit()`
+  → `con.close()`, all inside a single `try`, with only
+  `except Exception: logger.error(...)` — **no `finally`.** If any
+  `execute()` raises (e.g. `database is locked`, which is exactly what's
+  been happening fleet-wide this morning — see `HM-RIKER-SYNTHESIS-LOCK-
+  CONTENTION` above), `con.close()` is never reached and the connection
+  leaks.
+- `agents/sarek.py::_ensure_tables()` (lines 65-95): identical structure,
+  identical gap. `get_sarek_brief()`/`run_monthly_dca()` also call
+  `con.close()` inside a bare try (not yet individually confirmed
+  leak-free, same file/author pattern — worth including in the same fix
+  pass rather than assuming they're fine).
+
+**Why this matters more than the historical bridge case:** the bridge leak
+was in a single long-lived process (dashboard/app.py under main.py/uvicorn).
+`agents/aladdin.py` and `agents/sarek.py` are **also main.py-resident**
+(imported once, called repeatedly via `schedule.every(...)` for the life of
+the process — currently ~13h and counting since Sunday's restart) — so
+every lock-contention failure here leaks a connection for the remaining
+life of the process, not just until the next cron tick (contrast
+`engine/riker_synthesis.py`, a standalone cron script where a leaked
+connection dies with the process every 10 minutes regardless). This is a
+plausible *contributing* mechanism to why today's `database is locked`
+storm has been sustained rather than self-resolving: each failed write
+leaks a connection, leaked connections add contention, contention causes
+more failures — a compounding cycle, not a one-off blip.
+
+**Not yet done:** a full sweep of the other affected modules from the same
+storm (`ghost_advisor`, `movers_poller`, `regime_refresh`,
+`ti_picks_watcher`/`parser`) for the same pattern — only aladdin/sarek were
+directly read and confirmed. `regime_refresh` is a standalone cron script
+(`scripts/regime_refresh_runner.py`) like riker_synthesis, so lower urgency
+there by the same short-process-lifetime logic; the other three weren't
+checked.
+
+**Fix proposal (not applied):** wrap each connection in `try/finally` (or
+`with contextlib.closing(sqlite3.connect(...)) as con:`) so `close()` always
+runs regardless of exception — same doctrine as the bridge fix, applied to
+these call sites. **Admiral instruction: no restart until after market
+close** (main.py must restart to pick up any change to these main.py-
+resident modules) — this section is the fix *proposal* only; do not edit
+`agents/aladdin.py`/`agents/sarek.py` or restart before the approved
+post-close window.
+
+**RESOLVED 2026-07-06 08:12 AZ (Admiral approved an earlier restart window,
+option 3).** Applied `try/finally` to all 7 confirmed sites: `agents/
+aladdin.py`'s `_ensure_tables()`, `_save_signal()`, the iShares-holdings
+retry loop, and `get_fund_flows()`; `agents/sarek.py`'s `_ensure_tables()`,
+`get_sarek_brief()`'s persist block, and `run_monthly_dca()`. Both files
+`py_compile` clean. Audited `ghost_advisor.py`/`ti_picks_parser.py` too —
+both already had proper `finally` blocks, no fix needed. `regime_refresh`
+is a standalone cron script (same lower-urgency logic as riker_synthesis);
+`movers_poller`'s source wasn't located, left unaudited rather than assumed
+clean.
+
+Restarted `main.py` via `scripts/trader_restart.sh` at 08:02:30 — clean
+kill of PID 19805, **WAL checkpoint fully cleared during the zero-reader
+window (`0|0|0`, zero pending frames)**, direct confirmation the leaked
+connections were what blocked checkpoint. New PID 78010, single process,
+orphan-free. Before/after: FD count on `trader.db` 256→11 (all new PID);
+positions (46 rows/11 players) byte-identical hash before/after; `pause_all`/
+`fallbacks_enabled` unchanged (0/0); Alpaca equity/cash/buying_power
+unchanged modulo a few seconds' normal market drift. Confirmed fixed per
+the two independent signals logged under `HM-RIKER-SYNTHESIS-LOCK-
+CONTENTION` above.
+
+**REOPENED 2026-07-06 08:55 AZ — the aladdin/sarek fix was real but was not
+the dominant leak.** Admiral flagged that PID 78010 grew 11→119 FDs in the
+37 minutes between the first restart (08:02:30) and the second (08:40:26,
+done for the priority-lane change). Tracking the new PID 82694 the same
+way: **7→85 FDs in ~12 minutes** — faster growth than before, immediately
+past the "audit the remaining writers" trigger threshold.
+
+**Root cause found: a much bigger, repo-wide pattern — `with
+sqlite3.connect(...) as c:` (or `with _conn() as c:`) used as if it closes
+the connection. It doesn't.** Verified empirically:
+```python
+with sqlite3.connect(':memory:') as c:
+    c.execute('CREATE TABLE t(x)')
+# c is still open here -- sqlite3.Connection.__exit__ commits/rollbacks
+# the transaction, it does NOT call close(). This is a well-known Python
+# sqlite3 gotcha, not a corner case.
+```
+**98 occurrences across 23 files**, concentrated in hot-path scanners that
+run on every cycle — `engine/deep_scan.py` (9), `engine/bridge_vote.py` (9),
+`engine/battle_station.py` (8), `engine/volume_scanner.py` (6),
+`engine/volume_baselines.py` (6), `engine/strategy_rotator.py` (6),
+`engine/dayblade_scanner.py` (6), `engine/rebalancer.py` (5),
+`engine/gex_overlay.py` (5), plus 14 more files with 1-4 each (full list in
+session transcript). Every one of these leaks unconditionally, on every
+single call — not just on exception like the aladdin/sarek pattern, which
+is exactly why growth is faster and more continuous than what the
+try/finally fix addressed.
+
+Traced the actual "War Room post failed" log line (which I'd previously
+assumed came from `signal_poster.py` — it doesn't; that file is a pure
+fire-and-forget HTTP poster with no DB code at all) to its real sources:
+`engine/volume_scanner.py`, `engine/gex_overlay.py` (GEX regime variant),
+`engine/season_manager.py` (season rotation variant) — all three touch
+`trader.db` directly, `volume_scanner.py` via the leaking `with _conn() as
+c:` pattern specifically (6 sites in that file alone). `engine/kirk_advisory.py`
+has zero direct DB connection code (delegates elsewhere) — not a
+contributor. `engine/paper_trader.py` has zero occurrences of the `with...as`
+pattern — also not a contributor via this mechanism (may still have its own
+missing-finally sites, not separately audited here).
+
+**Not fixed — this is a full-repo pattern, not a 4-file patch, and needs its
+own scoped session.** Proposal: a mechanical sweep converting every
+`with sqlite3.connect(...) as c:` / `with _conn() as c:` site to either
+`with contextlib.closing(sqlite3.connect(...)) as c:` (minimal diff, closes
+correctly) or the explicit `c = ...; try: ...; finally: c.close()` form used
+in the aladdin/sarek fix. Given the volume (98 sites), this should be
+scripted/verified per-file rather than hand-edited, and reviewed before any
+restart — each touched file is main.py-resident (these are all `engine/`
+scan modules), so a fix pass means one more bundled restart when ready.
+
+**Checkpoint (should have been at :15/:45, actually read at t+78min, 09:58):
+179 FDs, no plateau** — confirms the trigger, no plateau to document.
+
+**RESOLVED 2026-07-06 10:05 AZ — Admiral approved scripted sweep of all 98
+sites.** Wrote `scripts/hm_sqlite_conn_leak_sweep.py`: regex-matches every
+`with (_conn()|sqlite3.connect(...)) as VAR:` line (handles single-level
+nested parens, e.g. `sqlite3.connect(str(DB_PATH))`), wraps in
+`contextlib.closing(...)`, inserts `import contextlib` per file. Dry-run
+posted for review first.
+
+**Critical issue caught during review, fixed before applying:** `contextlib.
+closing()` only calls `.close()` on exit — unlike the original `with conn:`,
+it does **not** commit or rollback. A pre-apply audit found **7 of the 98
+sites perform a write with no explicit `.commit()` anywhere in the block**,
+relying entirely on the original pattern's implicit commit-on-exit:
+`engine/wheel_strategy.py:91,281` (csp_wheel_scan_log insert, options_trades
+max_loss/moneyness writeback), `engine/strategy_rotator.py:488` (strategy_
+rotation results), `engine/dayblade_scanner.py:366,420,452,484` (flash_alerts
+table creation, save/dismiss, session_grades). Naively applying the sweep to
+these 7 would have **silently stopped persisting those writes** — worse than
+the FD leak itself. Fixed by hand: added explicit `.commit()` at the correct
+point in each (including before an early `return cur.lastrowid` in
+`save_flash_alert`), verified compile-clean, then re-ran the audit
+script — zero sites flagged. Also verified: no multi-context-manager
+`with X() as a, Y() as b:` forms among the 98 (would need different
+handling), and an automated post-hoc check confirmed every line touched in
+the full 1203-line diff is either an `import contextlib` addition or a
+`with` line rewrite — nothing else.
+
+**Diff summary (98 sites / 24 files, all compiled clean):** `deep_scan.py`
+9, `bridge_vote.py` 9, `battle_station.py` 8, `volume_baselines.py` 6,
+`strategy_rotator.py` 6, `volume_scanner.py` 6, `dayblade_scanner.py` 6,
+`rebalancer.py` 5, `gex_overlay.py` 5, `full_universe.py` 4,
+`scenario_modeler.py` 4, `generated_assets.py` 4, `tax_harvester.py` 4,
+`portfolio_optimizer.py` 3, `cash_manager.py` 3, `drift_rebalancer.py` 3,
+`wheel_strategy.py` 2, `risk_var.py` 2, `universe.py` 2, `pipeline.py` 2,
+`sub_portfolio.py` 2, `external_intel_signal.py` 1, `dashboard/app.py` 1,
+`scripts/build_corpus_from_trader_db.py` 1.
+
+**Bundled restart at 10:05:27** — clean kill of PID 82694, new PID 88763,
+WAL checkpoint fully cleared (`0|0|0`) again. Verification: FD count
+179→**6** (new PID 88763); positions (48 rows) byte-identical hash
+before/after; `pause_all`/`fallbacks_enabled` unchanged (0/0); Alpaca
+equity/cash/buying_power unchanged modulo normal drift.
+
+**Gamma Map check (Admiral-requested, since `gex_overlay.py` was a named
+culprit):** found `gex_levels`'s update scheduler is **deliberately
+disabled** — `main.py:4405`, `# schedule.every(15).minutes.do(
+run_gex_overlay_update) # DISABLED HM-GEX-CANONICAL`. This table won't
+repopulate regardless of the FD-leak fix, by design — already-documented
+canon (`CLAUDE.md`'s "2026-06-24 Structural Changes: Gamma grounding")
+migrated the live Gamma Map to `engine/gamma_context.py`/`gex_snapshots`.
+Checked that canonical replacement instead: **fresh**, most recent row
+2026-07-06 10:05:38 AZ, right at the restart. The user-facing Gamma Map is
+healthy; `gex_levels` staleness (last real row 2026-05-30, predating even
+the formal disable) is expected and unrelated to today's leak.
+
+**War Room posts:** zero `database is locked` or `War Room post failed`
+occurrences anywhere from the 10:05:28 restart marker onward (checked the
+actual log tail, not a stale grep match this time). Clean.
+
+Closed — root cause (98-site repo-wide leak) fixed, verified, and the two
+Admiral-requested post-restart confirmations both check out.
+
+---
+## 🟡 HM-FAST-SCAN-ORPHANED — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), left orphaned per Admiral instruction
+
+`engine/fast_scanner.py` (a `run_daemon()`-style standalone scanner, not
+main.py-resident, not in crontab) is currently serving results dated
+**2026-06-28** — confirmed **not running at all** right now
+(`pgrep -fl fast_scanner` returns nothing) and no dedicated log file exists
+under that name. Reads as: was run manually or via some now-gone launchd/
+process at some point, died or was stopped around 06-28, never restarted.
+**Admiral decision: leave orphaned, no restart/fix action.** Documented here
+so it doesn't get mistaken for a new regression in a future session — this
+is a known, accepted-stale, deliberately-untouched scanner as of 2026-07-06.
+
+---
+## 🟢 HM-HIGH-IV-SCANNING-DISABLED — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), verified correct, not a fault
+
+`engine/high_iv_scanner.py::scan_high_iv_opportunities()` reports
+`"scanning_enabled": vix_level >= 25` — this is a **deliberate VIX-gate,
+not a broken flag.** Live VIX checked directly via
+`engine.vix_monitor.get_vix_status()` at time of filing: **16.04**, well
+under the 25 threshold. `scanning_enabled=false` is exactly correct given
+today's low-vol regime — high-IV credit-spread opportunities are
+legitimately scarce when VIX is this low. No action needed; documented so
+a future session doesn't re-flag this as a bug without checking VIX first.
+
+---
+## 🟡 HM-TRADE-SIGNALS-SOURCE-GAP — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH), gap confirmed, root cause not yet identified
+
+The "Trade Signals" source (`signal-center/w0_w1_seed_registry.py` registry
+id `signals`, `(signals.db)`, daily-batch cadence, GREEN-within-~1-day /
+RED->1-day) has been genuinely RED — **confirmed at the data level, not just
+the dashboard display.** `signal-center/signals.db::trade_signals`
+(the exact table/column the health check reads — `source_gate.py:41`'s
+`SIGNALS_DB` and the registry's `DB_PATH` both point to this same file, so
+this isn't a wrong-file/stale-copy issue like the decoy empty
+`data/signals.db`) shows: last row before the gap was **2026-07-02
+13:31:54** — matches the Admiral's observation to the minute — then
+**zero rows 07-03 through 07-05**, then exactly **one row** at
+2026-07-06 ~07:28 AZ (14:28:31 UTC), right around when this was being
+investigated.
+
+**Confirmed NOT related to the `signals_v2` FIFO backlog
+(`HM-SIGNALS-V2-FIFO-STARVATION` above)** — completely different table,
+different producer. The producer here is `engine/signal_bridge.py::
+run_signal_bridge_job()`, scheduled `schedule.every(30).minutes.do(...)`
+inside main.py (rides main.py's own scheduler, "inherits @reboot" per the
+module's own docstring) — so it should have fired ~190 times between
+07-02 13:31 and 07-06 07:28 and produced nothing every single time except
+the one row just now.
+
+**Root cause not yet found:** `grep`'d `trader_error.log` for
+`signal_bridge`/`SIGNAL-BRIDGE`/`run_signal_bridge` — zero hits, meaning
+either the job isn't erroring (silently short-circuiting on some internal
+gate) or its errors aren't tagged in a way this search caught. Not
+resolved — needs a closer read of `run_signal_bridge_job`'s wrapper in
+`main.py` (~line 5740) and `engine/signal_bridge.py::run_signal_bridge()`'s
+internal gates (e.g. an RTH/dedup/regime check that might be silently
+true-for-skip since 07-02) before proposing a fix. The single row that just
+appeared may be a one-off, not confirmation of recovery — worth re-checking
+whether more rows land in the next 30-60 minutes.
+
+---
+## 🟢 HM-RED-SOURCE-TRIAGE — filed 2026-07-06 (HM-MONDAY-OPEN-WATCH post-incident cleanup)
+
+Triaged the two remaining RED sources from `source_gate.py`. Different
+verdicts for each — one is stale-by-design as documented, the other is a
+real (if minor, self-recovering) gap:
+
+**Execution Log — confirmed stale-by-design, no action needed.** The
+registry's own note (`w0_w1_seed_registry.py:27`) already says this is
+"EVENT-DRIVEN... sparse — 4 rows ever" — verified directly against
+`execution_log`: **8 rows total, ever** (registry's "4" is itself slightly
+stale documentation, minor correction), most recent **2026-06-19 22:35:51**
+— matches the "16d RED" observation. This table only gets a row when a
+human manually triggers a dispatcher action (`refresh-schwab`, `fire-kirk`,
+tagged `by: ScottyTest`/`Sniff`/etc.) — it's not an automated pipeline at
+all. 17 days since the last manual trigger is unremarkable given the whole
+history is 8 rows since inception. Confirmed correct as documented; not a
+broken producer.
+
+**Kirk Advisory — genuinely stale, but self-explains and may self-recover
+today; not "broken" so much as a missed window.** `data/kirk_advisory.
+heartbeat` mtime is **2026-07-03 13:11** (confirmed the matching success
+log line, `Kirk Advisory [0930]: computed + heartbeat`, is timestamped
+2026-07-03 09:32:44 — so the heartbeat hasn't moved since Friday). The
+underlying compute is NOT broken — `engine.kirk_advisory.
+generate_kirk_advisory()` is running fine and constantly today via a
+*separate* dashboard-triggered path (`dashboard/app.py:18476`/`18573`,
+almost certainly the bridge frontend polling an advisory endpoint — logged
+as `[Kirk] advisory run started` every ~2 minutes all morning, all
+completing cleanly). But **only the scheduled path
+(`main.py::run_kirk_advisory_job`, three fixed 10-minute windows at 06:35 /
+09:30 / 13:05 AZ) stamps the heartbeat** — the dashboard-triggered runs
+never touch it, by design (heartbeat = "the scheduled job is alive," not
+"the compute works"). Today's 06:35 window closed before the 08:02:30
+restart's in-memory `_kirk_slots_done_today` reset could catch it, so
+that slot was silently missed for today — not logged as a failure, just
+never attempted post-restart since its window had already passed. **Two
+more chances today (09:30, 13:05)** — if either succeeds, the heartbeat
+self-recovers with no code change needed. Worth a look after 09:40 AZ to
+confirm; if BOTH today's remaining slots also miss, that would upgrade this
+from "one restart-timing casualty" to a real recurring gap worth a fix
+proposal (e.g., a wider catch-up window, or firing once immediately on
+`main.py` startup if today's earliest slot was missed).
+
+---
 ## 🔵 HM-ERROR-FILTER-CONSOLIDATION — filed 2026-07-05 (Phase 3, not urgent)
 
 `scripts/daily_report.py::get_error_summary()` filters real errors with a
@@ -1077,6 +1579,71 @@ first pass undercounted.
   Full per-order match table not transcribed here — reproducible by
   rerunning the same `get_orders` pull + join against `trades` on
   `(symbol, side, qty≈, |executed_at − submitted_at| < 5s)`.
+- **BUILT (2026-07-06): `alpaca_real_fills` reconciliation table + venue tiering,
+  per Admiral ruling.** Schema (additive, never overwrites local history):
+  `scripts/hm_alpaca_real_fills_schema.py` — `alpaca_real_fills` table
+  (broker truth: `broker_order_id`, `client_order_id`, symbol/asset_class,
+  `matched_trade_id`/`matched_options_trade_id` nullable FKs, `match_method`,
+  `match_confidence`, `notes` — a real fill with no local counterpart is a
+  first-class row, not an omission) + `trades.venue` / `options_trades.venue`
+  columns (`NULL`=unreviewed, `internal-sim`=reviewed/confirmed no broker
+  fill, `broker-clean`=real fill, 1:1 attributable, `broker-commingled`=real
+  fill fragmented across multiple agent_ids, excluded from both clean-sim
+  evidence and Tier-A). **Admiral condition on `broker-clean`: Tier-A
+  promotion must read P&L from `alpaca_real_fills`, not the local `pnl`/
+  `realized_pnl` column** — clean attribution alone doesn't make the local
+  number trustworthy (dayblade's TSLA fill was cleanly attributed AND still
+  28x wrong locally). Pre-change snapshot: `data/trader.db.backup-2026-07-06-pre-alpaca-real-fills`.
+  - **NVDA (61 real fills total across the session incl. this table): 31
+    real orders reconciled.** 28 distinct local `trades` rows (super-agent,
+    ollie-auto, gemini-2.5-flash, neo-matrix, ollama-llama, ollama-qwen3) ->
+    `venue='broker-commingled'`. 3 rows reviewed and confirmed to have no
+    real counterpart -> `venue='internal-sim'`. **Correction to the prior
+    session's per-agent note:** precise second-level timestamp matching
+    (not eyeballed) found **two** true orphan real fills, not one — the
+    2026-05-20 12.34sh closing liquidation (already known) **and** a
+    2026-04-14 08:00 real SELL of 1.99sh that has no local row within any
+    plausible window (nearest qty-alike candidate is gemini-2.5-flash's
+    `trades.id=1633`, but it's dated ~12h *before* the real order was even
+    submitted — every other match in this set lands within 6 seconds, so
+    this one was left unmatched rather than force-fit). Aggregate P&L
+    unaffected either way (still reconciles to +$842.23 against the ticket's
+    +$842.22).
+  - **bull_spread_v1's 15 spreads: all 15 real MLEG opens confirmed 1:1**
+    via their existing `broker_order_id` -> `venue='broker-clean'` on all 15
+    `options_trades` rows. **Bonus find:** also reconstructed all 12 real
+    single-leg CLOSE orders for these same 15 spreads (aggregated buybacks/
+    sells across multiple rows at once, e.g. one real order buying back 4
+    contracts closes 4 different rows' short legs simultaneously) — recorded
+    as additional `alpaca_real_fills` rows (FK left null, notes list which
+    `options_trades.id`s each closes; a genuine many-to-one relationship the
+    single-FK schema doesn't try to force into 1:1).
+  - **Correction to "dayblade's real fills" (2026-05-05/06/14/22 SPY, this
+    was the "12 SPY + 2 TSLA single-leg orders, -$2,327" note from the prior
+    backfill session):** re-pulling and matching by strike+qty shows **all
+    12 SPY single-leg orders are actually bull_spread_v1's own close legs**
+    (see above) — **zero** of them are dayblade. Only the **2 TSLA orders**
+    (bought $9.55 2026-04-01, sold $1.34 2026-04-02) are genuinely
+    dayblade-0dte — matched to local `trades.id=1565`/`1566`
+    (`venue='broker-clean'`, single-agent, 1:1, no commingling). This is the
+    exact TSLA trade already known from the prior session ("local realized_pnl
+    -$29.00 vs real loss -$821.00, 28x understated") — now has concrete
+    order IDs and the Admiral's P&L-from-`alpaca_real_fills` condition
+    directly applies to it as the clearest example of why.
+  - **Verification:** `alpaca_real_fills` has 60 rows (31 NVDA + 15
+    bull_spread_v1 opens + 12 SPY closes + 2 TSLA). `PRAGMA integrity_check`
+    = ok after each write. Scripts used (all dry-run-by-default, `--apply`
+    to write): ad hoc, not yet consolidated into a single checked-in script —
+    **follow-on TODO:** fold the three one-off match scripts into a single
+    `scripts/hm_alpaca_real_fills_reconcile.py` if this reconciliation needs
+    to run again (e.g. once `HM-ROUTE-TO-BROKER` ships and new real fills
+    start accumulating).
+  - **Not yet done:** `options-sosnoff`'s CSP wheel and any other
+    `options_trades` strategy_id besides `bull_spread_v1` haven't been
+    checked against Alpaca's real order history at all — this reconciliation
+    only covered what the prior sessions had already flagged as suspect.
+    Item 4 (haircut test) and the rest of item 5 (full leaderboard tier
+    re-grade using this table) are still not started.
 - **Fix proposed, not applied:** `paper_trader.py`'s
   `_update_trade_alpaca_fields`/`_persist_alpaca_fill` writeback exists for
   the stock path but has no equivalent for `alpaca_options.py`'s
@@ -5647,3 +6214,233 @@ reasoning that the network-gear watchdog didn't.
 
 No code written for this ticket — implementation is explicitly deferred
 post-trip.
+
+---
+## 🟢 HM-OPS-SENTINEL — SHIPPED 2026-07-06 (AFTER-CLOSE-WORK-ORDER P1.1/P1.2, prevention build)
+
+Independent watchdog for the failure mode behind today's morning lock storm
+(`HM-SQLITE-CONN-FD-LEAK`/`HM-RIKER-SYNTHESIS-LOCK-CONTENTION` above): leaked
+connections → FD growth → lock contention → more failed writes → more leaks.
+Runs on its own cron cadence, not main.py-resident, so a main.py hang can't
+also silence its own watchdog (doctrine: "alarms must not share a failure
+mode with what they watch," CLAUDE.md).
+
+`scripts/hm_ops_sentinel.py` — four independent checks, own alert_type/rate
+limit each (via `engine.alert_channels.send_alert`, 1800s per-type cooldown):
+1. **FD count** on `data/trader.db`(+`-wal`/`-shm`) for the main.py PID via
+   `lsof`. WARNING >60, RED_ALERT >120 (Admiral-specified thresholds).
+2. **rikers_log heartbeat age** — RED_ALERT if >25min stale during market
+   hours (`RiskManager.is_market_hours()=='market'`).
+3. **"database is locked" occurrences** in `trader_error.log` — WARNING on
+   any. Uses a persisted byte-offset checkpoint (`data/.hm_ops_sentinel_state.json`),
+   NOT a wall-clock time window — the log format is `HH:MM:SS` with no date
+   and spans multiple days between weekly rotations, so a stale line from a
+   prior evening (e.g. `21:31:58`) can read as numerically later than "now"
+   and falsely look recent under a naive time-window comparison. First-run
+   caught this live (reported 8 hits that were actually from a much earlier
+   session); fixed before shipping.
+4. **signals_v2 queue depth** (`HM-SIGNALS-V2-FIFO-STARVATION` above) —
+   WARNING if pending>3000 or oldest-pending age>48h.
+
+**Calibration finding from today's own verification run — worth the
+Admiral's attention:** post-restart (10:05:27), FD count climbed from 6 to a
+**plateau around 140-170** by ~12:10 (steady/fluctuating over repeated
+30-90s samples, not monotonic) — well past the requested 120 red threshold,
+during completely normal market-hours operation, with zero "database is
+locked" errors in the same window. A literal `>120` check would RED-alert
+on a healthy day. Rather than silently override the Admiral's specified
+numbers, the FD check now also tracks a persisted per-PID growth rate and
+includes it in the alert text (`+N over M min`) — a real leak reads as
+sustained positive growth; healthy load reads as flat/oscillating. **Open
+question for the Admiral:** keep 120 as-is (accept that RED will fire most
+active trading sessions and rely on the trend annotation to triage), or
+raise the red threshold to something nearer today's observed ~170 healthy
+ceiling. Not changed unilaterally — flagging for a decision.
+
+**Also found still-open, not fixed here (out of scope for this ticket):**
+`navigator` (`halt_mode='exit_only'`) continues emitting new pending
+`signals_v2` rows daily (it's a live source, not fixed by the one-time
+`scripts/hm_signals_v2_expire_halted_backlog.py` cleanup) — the FIFO-
+starvation backlog will partially re-accumulate day over day until the
+priority-lane/age-ordering fix (option 2 in `HM-SIGNALS-V2-FIFO-STARVATION`
+above) is actually built. The queue-depth check here will keep this visible
+rather than let it go silently stale again.
+
+Not yet added to crontab — held for the single bundled-changes review
+alongside `HM-WAL-BUSY-TIMEOUT-HYGIENE` below, per tonight's sequencing.
+Suggested line (5-min cadence, independent of main.py):
+```
+*/5 * * * * cd /Users/bigmac/autonomous-trader && /Users/bigmac/autonomous-trader/.venv/bin/python3 /Users/bigmac/autonomous-trader/scripts/hm_ops_sentinel.py >> /Users/bigmac/autonomous-trader/logs/hm_ops_sentinel_cron.log 2>&1
+```
+
+---
+## 🔴 HM-WAL-BUSY-TIMEOUT-HYGIENE — filed 2026-07-06 (AFTER-CLOSE-WORK-ORDER P1.3), PROPOSAL ONLY, no changes applied
+
+Per-connection SQLite hygiene audit, prompted by today's lock storm. Current
+state on `data/trader.db`, checked directly:
+```
+journal_mode = wal        (already set -- persists in the DB file header,
+                            every connection inherits it automatically)
+synchronous  = 2 (FULL)   (per-connection setting, does NOT persist --
+                            must be set on every connect() to take effect)
+busy_timeout = 5000ms     (Python sqlite3's own default when no timeout= is
+                            passed to connect(); also per-connection)
+```
+
+**Scope is much larger than the FD-leak sweep.** That sweep (98 sites/24
+files) touched only the `with ... as c:` anti-pattern. This is a different
+axis — every one of the **~602 raw `sqlite3.connect(...)` call sites**
+across `engine/`, `dashboard/`, `agents/`, `scripts/`, `main.py` opens its
+own connection with its own (often copy-pasted) settings, and there is no
+shared connection helper today — **120 files each define their own local
+`_conn()`.** Concretely:
+- `PRAGMA synchronous` is set explicitly in only **5** files repo-wide
+  (`main.py`, `engine/rallies_scraper.py`, `engine/alpha_signals.py`,
+  `engine/portfolio_monitor.py`, plus one venv package) — everywhere else
+  gets SQLite's FULL default.
+- Of connect() calls that pass `timeout=`, values are inconsistent and in
+  some cases *worse* than today's post-incident standard: 184 already use
+  `30`, but 41 use only `5`, 22 use `15`, 9 use `20`, and a few outliers use
+  `2`/`3`/`45`/`60`. ~200+ pass no `timeout=` at all (bare 5s default —
+  exactly what was too short during this morning's storm before the
+  `riker_synthesis.py` fix bumped it to 30).
+
+**Proposed fix (NOT applied — needs Admiral sign-off):**
+1. Add one shared helper, e.g. `engine/db_conn.py::get_conn(readonly=False)`,
+   that opens with `timeout=30`, then issues `PRAGMA synchronous=NORMAL`
+   (safe with WAL already on — NORMAL only relaxes the fsync that WAL mode's
+   own commit protocol already makes optional; FULL is stricter than WAL
+   mode needs and is the actual reason every writer pays extra fsync cost
+   during the exact contention windows that caused today's storm).
+   `journal_mode` does NOT need to be re-set per-connection (already durable
+   on the DB file) — do not add a redundant `PRAGMA journal_mode=WAL` per
+   call site, it's a no-op that only adds another statement to every hot path.
+2. Migrate call sites incrementally, hot-path-first (same file list as the
+   FD-leak sweep is the natural starting set — already known write-heavy),
+   NOT a repo-wide mechanical sweep in one shot. 602 sites is 6x the FD-leak
+   sweep's blast radius; a single scripted pass with the same review rigor
+   (recall the FD-leak sweep caught 7/98 sites that needed a hand-added
+   `.commit()`) is a much bigger single-session risk. Recommend phasing:
+   Phase 1 = the 24 files already touched by the FD-leak sweep (known
+   hot-path, already reviewed once this session), Phase 2 = everything else,
+   on its own later schedule.
+3. Each migrated file keeps its own local `_conn()` name (don't force an
+   import-rename refactor across 120 files in the same pass) but has its
+   body replaced to delegate to `engine.db_conn.get_conn()` — minimizes diff
+   size per file while still centralizing the actual PRAGMA/timeout policy.
+
+**Rollback:** trivial per-file (revert to the old bare `sqlite3.connect(...)`
+call) since the helper is additive, not a schema or data change. No DB
+migration involved — `synchronous=NORMAL` and `busy_timeout` are session-
+scoped PRAGMAs, not persisted state, so there is nothing to "undo" at the
+database level even without a code revert; the DB just reverts to its old
+per-connection defaults.
+
+**Gotchas flagged for the Admiral's review:**
+- `synchronous=NORMAL` under WAL means a hard power loss (not a process
+  crash — an OS-level outage) could lose the most recent commits that
+  hadn't yet reached the WAL file's own durability point, though the DB
+  stays structurally consistent either way (WAL mode's own guarantee, not
+  affected by the synchronous level). Given this box already has UPS +
+  power-loss-restore doctrine (`CLAUDE.md` Shelly Plug section) and nightly
+  `scripts/db_snapshot.sh` + `scripts/offhost_backup.sh`, the residual risk
+  window is a live power-loss during the exact multi-hour gap between
+  snapshots — same risk class already accepted elsewhere in this project's
+  backup posture, not a new category of exposure.
+- `wal_autocheckpoint` (currently default 1000 pages) interacts with
+  `synchronous=NORMAL` — checkpoints happening more/less often changes how
+  much uncommitted WAL content could theoretically be at risk. Not proposing
+  a change to `wal_autocheckpoint` in this pass; flagging that it's the
+  related knob if the Admiral wants to revisit checkpoint cadence later.
+- `scripts/db_snapshot.sh`/`scripts/offhost_backup.sh` back up the file
+  directly — confirm (not verified in this pass) they either checkpoint
+  first or copy `-wal`/`-shm` alongside the main file, since a raw copy of
+  `trader.db` alone without its WAL sidecar could be missing recent commits
+  regardless of the synchronous setting. Worth a quick read before or
+  alongside this change, not blocking it.
+
+**Nothing applied.** Waiting for Admiral sign-off before writing
+`engine/db_conn.py` or touching any of the 602 call sites.
+
+---
+## 🟢 AFTER-CLOSE-WORK-ORDER P4 — ticket confirmations (2026-07-06), report-only
+
+Four verify-only checks, no code changes except where noted.
+
+**Item 10 — exit_only skips zero-position agents (Sulu/Uhura waste): CONFIRMED
+RESOLVED, already fixed the day before this session.** DB-verified today:
+`dayblade-sulu` and `ollama-llama` (Uhura) are both `halt_mode='exit_only'`
+with **zero open positions**. Both waste vectors are already closed:
+(1) both were removed from `main.py`'s `_SCAN_TIER1`/`_SCAN_TIER2` on
+2026-07-04 per `HM-AGENT-RULES-CONSOLIDATION` (comment at `main.py:229-238`:
+"exit_only never opens new positions... never scanned anyway"); (2)
+`engine/guardian_sweep.py`'s exit-management sweep is explicitly scoped to
+"every halt_mode='exit_only' player **currently holding a non-zero
+position**" (`guardian_sweep.py:36`), so it correctly skips both. No action
+needed.
+
+**Item 11 — Fleet-tab Calls/day trading vs advisory/briefing split
+(cto-grok42): CONFIRMED as a real, not-yet-built gap.** The Fleet tab's
+"Calls/day" column (`dashboard/app.py` `/api/model-control`, field
+`api_calls_today`) reads `model_stats.api_calls` — one undifferentiated
+counter per player per day. But the finer-grained data already exists:
+`api_costs.call_type` for `cto-grok42` shows a genuine mix —
+`scan`=50, `trade_grade`=4 (trading), `cto_pre_market`=17,
+`cto_pre_close`=13, `cto_post_open`=5, `cto_post_close`=17 (briefing),
+`chat`=114, `journal`=141 (other) — all lumped into one number on the Fleet
+tab today. Building the split itself (a Fleet-tab UI change) is out of
+scope for tonight's report-only pass; flagging that the underlying data is
+already there (`api_costs.call_type`), so the fix is a query/display change,
+not a new instrumentation project.
+
+**Item 12 — spam_rate_pct/model_scores visibility for the July 24 kill-gate:
+CONFIRMED readable, but via direct SQL only — no dashboard surface.**
+`model_scores.spam_rate_pct` is written ONLY by `engine/crew/
+weekly_tuning_crew.py::run_weekly_tuning()` (fires Sunday ~21:30 MST only —
+note: NOT literally "8:30", closest scheduled run this repo has to that
+description; `engine/crew/daily_review_crew.py`'s daily ~20:1x run also
+writes `model_scores` but its `_save_score()` INSERT doesn't include
+`spam_rate_pct` at all, so daily-period rows are always NULL there by
+design, not a bug). **Zero `period='weekly'` rows exist in `model_scores`
+yet** — consistent with `HM-TUNING-CREW-REPAIR` (this session, 2026-07-06)
+just having fixed the silent-zero-output bug that was likely eating prior
+weekly runs; the first real post-fix data point lands this coming Sunday.
+No dashboard/API endpoint reads `model_scores` or `spam_rate_pct` at all
+(`grep` came back empty) — today, "readable" means direct `sqlite3 data/
+trader.db` query only. Worth knowing before July 24 so nobody goes looking
+for this on the Bridge and concludes the data doesn't exist.
+
+**Item 13 — gex_overlay.py/gex_levels official retirement per
+HM-GEX-CANONICAL: NOT actually fully retired — correcting the record.**
+The 2026-05-31 entry above is accurate for what it claims ("gex_overlay now
+has ZERO live refs **in app.py**") but that scope was narrower than "fully
+dormant" reads — two live, non-dashboard consumers remain, found today:
+1. `engine/battle_station.py` (lines 363, 573, 816, 913) imports
+   `get_latest_gex`/`calculate_gex`/`_save_gex_levels`/`_fetch_yahoo_chain`
+   from `engine.gex_overlay` directly. `run_battle_station_monitor` is
+   actively scheduled (`main.py:4240`, every 2 min) — this is live, not dead.
+2. `engine/scan_context.py::get_gex_context_for_prompt()` (imports from
+   `engine.gex_overlay` at line 109) injects a GEX regime block into **every
+   AI agent's scan prompt**, every cycle — this is the per-player context
+   builder used fleet-wide, not a narrow path.
+
+**Concrete consequence, not just a dead-code technicality:** because
+`run_gex_overlay_update`'s refresh scheduler is deliberately disabled
+(`main.py:4405`, `# DISABLED HM-GEX-CANONICAL`), `gex_levels` has been
+frozen since **2026-05-30**. `get_gex_context_for_prompt()`'s own fallback
+("if no DB data exists, attempt a fresh calculation") never triggers,
+because stale data still counts as present — so **every AI agent's trading
+prompt has been fed a 5+-week-stale GEX regime label** this whole time,
+while the Bridge UI shows fresh canonical data from a completely different
+source (`engine.canonical_gex`/`options_flow_gex`). This is exactly the
+cross-panel-disagreement failure mode `HM-GEX-CANONICAL` was meant to
+eliminate — it just wasn't fully swept into this one prompt-building path
+in May. **Not fixed tonight** (repointing a hot path that runs on every
+single agent's every scan cycle deserves its own reviewed change, not a
+same-night bundle) — filing as its own open item. Suggested fix shape:
+repoint `get_gex_context_for_prompt()` to read `engine.canonical_gex` the
+same way `dashboard/app.py::_canonical_gex_cached` does, and separately
+decide whether `battle_station.py`'s `gex_overlay` calls should migrate too
+(narrower blast radius, only affects Battle Station-specific features) or
+are acceptable as a legacy, deliberately-separate data path — needs an
+explicit decision either way rather than assuming "retired."

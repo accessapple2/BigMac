@@ -4,6 +4,7 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width,initial-scale=1">
 <title>MORPHEUS — Operator, Signal Center</title>
+<link rel="icon" href="data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 100 100'><text y='.9em' font-size='90'>📡</text></svg>">
 <style>
 /* ── THEME VARIABLES ──────────────────────────────────── */
 :root {
@@ -689,7 +690,8 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
 (function() {
   const POLL_MS = 30000;
   const _esc = s => String(s == null ? '' : s)
-    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;');
+    .replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;')
+    .replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 
   function _kv(rows) {
     if (!rows || !rows.length) return '<div class="ms-empty">—</div>';
@@ -1017,15 +1019,22 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
     const log = Array.isArray(d.execution_log) ? d.execution_log : [];
     if (log.length) {
       return _list(log, e => {
-        const ts = (e.executed_at || '').slice(11, 16);
+        const ts = (e.executed_at || '').slice(5, 16).replace('T', ' ');
         const fillStr = e.fill_price != null ? '$' + Number(e.fill_price).toFixed(2)
                       : (e.entry_price != null ? '$' + Number(e.entry_price).toFixed(2) : '');
         const grade = e.grade ? `[${_esc(e.grade)}]` : '';
         // HM-DIRECTIVE-2026-07-01 Deck2 #12: FAILED rows were rendered
         // identical to EXECUTED/TRIGGERED — no visual distinction at all.
         const statusClass = e.status === 'FAILED' ? 'ms-status-fail' : (e.status === 'TRIGGERED' ? 'ms-status-pending' : '');
+        let errDetail = '';
+        if (e.status === 'FAILED' && e.notes) {
+          try {
+            const parsed = JSON.parse(e.notes);
+            errDetail = parsed.error || parsed.stderr_tail || (parsed.http ? `HTTP ${parsed.http}` : '');
+          } catch (_) { /* notes not JSON — skip */ }
+        }
         return `<b>${_esc(e.symbol)}</b> · ${_esc(e.direction || '')} ${e.qty != null ? _esc(e.qty) : ''} ${fillStr} ` +
-               `<span class="ms-key ${statusClass}">${grade} ${e.status === 'FAILED' ? '✖ ' : ''}${_esc(e.status || '')} · ${ts}</span>`;
+               `<span class="ms-key ${statusClass}"${errDetail ? ` title="${_esc(errDetail)}"` : ''}>${grade} ${e.status === 'FAILED' ? '✖ ' : ''}${_esc(e.status || '')} · ${ts}</span>`;
       });
     }
     // Fallback to git commits (panel never blank)
@@ -1200,18 +1209,19 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
       if (!r.ok) { if (statusEl) statusEl.textContent = `health HTTP ${r.status}`; return; }
       let rows = await r.json();
       if (!Array.isArray(rows)) rows = rows.sources || rows.health || [];
-      const ord = { RED: 0, AMBER: 1, UNKNOWN: 2, GREEN: 3, RETIRED: 4 };
+      const ord = { RED: 0, AMBER: 1, UNKNOWN: 2, GREEN: 3, RETIRED: 4, DORMANT: 5 };
       rows.sort((a, b) => (ord[a.state] ?? 9) - (ord[b.state] ?? 9) ||
                           (a.source_id || '').localeCompare(b.source_id || ''));
-      const c = { GREEN: 0, AMBER: 0, RED: 0, RETIRED: 0, UNKNOWN: 0 };
+      const c = { GREEN: 0, AMBER: 0, RED: 0, RETIRED: 0, UNKNOWN: 0, DORMANT: 0 };
       rows.forEach(s => { c[s.state] = (c[s.state] || 0) + 1; });
       if (statusEl) statusEl.innerHTML =
         `${c.GREEN} GREEN · ${c.AMBER} AMBER · ` +
         `<span style="color:#ef4444;font-weight:700">${c.RED} RED</span>` +
-        (c.RETIRED ? ` · ${c.RETIRED} RET` : '') + (c.UNKNOWN ? ` · ${c.UNKNOWN} UNK` : '');
+        (c.RETIRED ? ` · ${c.RETIRED} RET` : '') + (c.UNKNOWN ? ` · ${c.UNKNOWN} UNK` : '') +
+        (c.DORMANT ? ` · ${c.DORMANT} DOR` : '');
       if (grid) {
         const COL = { GREEN: '#10b981', AMBER: '#f59e0b', RED: '#ef4444',
-                      RETIRED: '#6b7280', UNKNOWN: '#6b7280' };
+                      RETIRED: '#6b7280', UNKNOWN: '#6b7280', DORMANT: '#6b7280' };
         const badge = st => {
           const col = COL[st] || '#6b7280';
           return `<span style="background:${col}22;color:${col};border:1px solid ${col}55;` +
@@ -1220,7 +1230,7 @@ body{background:var(--bg);color:var(--text);font-family:var(--font);min-height:1
         grid.innerHTML =
           '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(220px,1fr));gap:8px">' +
           rows.map(s => {
-            const dim = (s.state === 'RED' || s.state === 'RETIRED') ? 'opacity:.7;' : '';
+            const dim = (s.state === 'RED' || s.state === 'RETIRED' || s.state === 'DORMANT') ? 'opacity:.7;' : '';
             const crit = s.criticality === 'live_decision'
               ? '<span style="color:#f59e0b">◆ live</span>' : _esc(s.criticality || '');
             const qd = s.quarantined ? ' · <span style="color:#ef4444">⛔ quarantined</span>' : '';

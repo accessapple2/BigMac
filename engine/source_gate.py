@@ -51,6 +51,11 @@ SNAPSHOT_CADENCE_DAYS = {"schwab_snapshot": 3, "metals": 7}
 # State constants
 GREEN, AMBER, RED, UNKNOWN = "GREEN", "AMBER", "RED", "UNKNOWN"
 RETIRED = "RETIRED"  # intentionally-inactive (superseded/retired) — NOT a RED fault
+DORMANT = "DORMANT"  # HM-OPS-SENTINEL P2.5 (2026-07-06): still-active, genuinely
+# event-driven source (fires only on a manual/rare trigger, e.g. execution_log) —
+# distinct from RETIRED (dead, superseded) and from RED (a fault to act on).
+# RED must always mean "act now"; a source that is *supposed* to sit idle for
+# unpredictable stretches shouldn't alarm just because no trigger has fired lately.
 
 # ── Bridge (for bridge_iso ts resolution). No auth: read-only, localhost. ──
 _BRIDGE = "http://127.0.0.1:8080"
@@ -266,6 +271,9 @@ def _classify(cadence_class: str, source_id: str, age_s: float) -> str:
         return GREEN if age_s <= base else AMBER if age_s <= 2 * base else RED
     if c == "archive":
         return RED  # archive is never live
+    if c == "event_driven":
+        return DORMANT  # unconditional -- no staleness threshold is meaningful
+        # for a source with no expected cadence at all (see DORMANT docstring above)
     return UNKNOWN
 
 
@@ -374,10 +382,10 @@ def all_health(now_utc: Optional[datetime] = None) -> Dict[str, Any]:
     finally:
         conn.close()
     sources = [source_freshness(sid, now_utc) for sid in ids]
-    order = {RED: 0, UNKNOWN: 1, AMBER: 2, GREEN: 3, RETIRED: 4}
+    order = {RED: 0, UNKNOWN: 1, AMBER: 2, GREEN: 3, RETIRED: 4, DORMANT: 5}
     sources.sort(key=lambda s: order.get(s.get("state"), 9))
     summary = {"green": 0, "amber": 0, "red": 0, "unknown": 0, "quarantined": 0,
-               "retired": 0, "total": len(sources)}
+               "retired": 0, "dormant": 0, "total": len(sources)}
     for s in sources:
         if s.get("quarantined"):
             summary["quarantined"] += 1
@@ -388,6 +396,10 @@ def all_health(now_utc: Optional[datetime] = None) -> Dict[str, Any]:
             summary["amber"] += 1
         elif st == RETIRED:
             summary["retired"] += 1
+        elif st == DORMANT:
+            # stale-by-design, event-driven source — own bucket, render grey,
+            # do NOT inflate the RED alarm count (see DORMANT constant docstring).
+            summary["dormant"] += 1
         elif st == UNKNOWN:
             # UNKNOWN-by-design (manual/idle snapshot sources: metals, schwab w/ no CSV)
             # is NOT a fault — own bucket, render grey, do NOT inflate the RED alarm count.
