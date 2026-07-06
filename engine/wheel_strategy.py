@@ -13,6 +13,7 @@ The Wheel:
 """
 import logging
 import sqlite3
+import contextlib
 from datetime import datetime, timedelta
 import pytz
 from engine.market_calendar import az_now  # HM-TZ-AZNOW: zoneinfo, corruption-proof
@@ -88,7 +89,7 @@ def _log_scan_outcome(outcome: str, tickers_evaluated: int = 0, positions_opened
     (performance). Never raises -- a logging failure must not break the scan.
     """
     try:
-        with sqlite3.connect(DB, timeout=10) as db:
+        with contextlib.closing(sqlite3.connect(DB, timeout=10)) as db:
             db.execute(
                 """INSERT INTO csp_wheel_scan_log
                    (book_tag, outcome, tickers_evaluated, positions_opened,
@@ -99,6 +100,7 @@ def _log_scan_outcome(outcome: str, tickers_evaluated: int = 0, positions_opened
                  (exposure or {}).get("options_cap_utilization_pct"),
                  detail),
             )
+            db.commit()
     except Exception as e:
         logger.warning("csp_wheel_scan_log write failed: %s", e)
 
@@ -278,11 +280,12 @@ def run_wheel_scan():
                 csp_max_loss = -(put_strike * contracts * 100)
                 csp_moneyness = round(price / put_strike, 4)  # >1 = OTM
                 try:
-                    with sqlite3.connect("data/trader.db") as _db:
+                    with contextlib.closing(sqlite3.connect("data/trader.db")) as _db:
                         _db.execute(
                             "UPDATE options_trades SET max_loss=?, moneyness=? WHERE id=?",
                             (csp_max_loss, csp_moneyness, trade_id),
                         )
+                        _db.commit()
                 except Exception as _e:
                     logger.warning("max_loss writeback failed trade_id=%s: %s", trade_id, _e)
 

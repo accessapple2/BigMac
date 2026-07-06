@@ -21,6 +21,7 @@ import math
 import os
 import re
 import sqlite3
+import contextlib
 import time
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -62,7 +63,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def _init_tables():
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS morning_levels (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -370,7 +371,7 @@ def generate_morning_briefing(symbols: list[str] | None = None) -> dict:
             logger.warning(f"GEX fetch failed for {sym}: {e}")
 
         try:
-            with _conn() as c:
+            with contextlib.closing(_conn()) as c:
                 c.execute(
                     """INSERT INTO morning_levels
                        (trade_date, symbol, prior_high, prior_low, prior_close, prior_vwap,
@@ -427,7 +428,7 @@ def update_opening_range(symbols: list[str] | None = None) -> None:
             continue
 
         try:
-            with _conn() as c:
+            with contextlib.closing(_conn()) as c:
                 c.execute(
                     "UPDATE morning_levels SET or_high=?, or_low=? WHERE trade_date=? AND symbol=?",
                     (or_data["or_high"], or_data["or_low"], today, sym),
@@ -480,7 +481,7 @@ def _get_morning_levels_db(symbol: str) -> dict | None:
     _init_tables()
     today = date.today().isoformat()
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             row = c.execute(
                 "SELECT * FROM morning_levels WHERE trade_date=? AND symbol=? ORDER BY id DESC LIMIT 1",
                 (today, symbol),
@@ -672,7 +673,7 @@ def _lookup_agent_for_option(option_symbol: str) -> str | None:
         return None
     try:
         expiry_iso = parsed["expiry_date"].isoformat()
-        with sqlite3.connect(TRADER_DB, timeout=30) as conn:
+        with contextlib.closing(sqlite3.connect(TRADER_DB, timeout=30)) as conn:
             rows = conn.execute(
                 """SELECT agent_id, legs_json FROM options_trades
                    WHERE status = 'open' AND structure = 'single'
@@ -824,7 +825,7 @@ def monitor_active_options() -> None:
 
         # Save to log
         try:
-            with _conn() as c:
+            with contextlib.closing(_conn()) as c:
                 c.execute(
                     """INSERT INTO battle_station_log
                        (timestamp, symbol, option_symbol, underlying_price, option_price,
@@ -887,7 +888,7 @@ def get_battle_station_status() -> dict:
     # Latest signal per option from last 5 minutes
     latest_signals = []
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             rows = c.execute(
                 """SELECT option_symbol, symbol, signal, reason, pnl_pct, timestamp
                    FROM battle_station_log
@@ -933,7 +934,7 @@ def get_recent_log(limit: int = 20) -> list[dict]:
     """Return recent battle_station_log entries for /api/battle-station/log."""
     _init_tables()
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             rows = c.execute(
                 "SELECT * FROM battle_station_log ORDER BY timestamp DESC LIMIT ?",
                 (limit,),

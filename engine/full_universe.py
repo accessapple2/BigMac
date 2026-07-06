@@ -12,6 +12,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import contextlib
 from datetime import datetime, timezone
 
 import requests
@@ -41,7 +42,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def _init_tables():
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS universe_stocks (
                 symbol TEXT PRIMARY KEY,
@@ -157,7 +158,7 @@ def refresh_universe() -> int:
 
     # Upsert into DB
     now = datetime.now(timezone.utc).strftime('%Y-%m-%d %H:%M:%S')  # HM-TZ-COMPLETION 2026-06-02: universe_stocks.updated_at canonical space-UTC
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.executemany(
             """
             INSERT INTO universe_stocks (symbol, name, exchange, updated_at)
@@ -194,7 +195,7 @@ def get_universe() -> list[str]:
         DELISTED_BLACKLIST = set()
 
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             # Primary: join scan_universe for volume filter, sorted best-first
             rows = c.execute(
                 """
@@ -215,7 +216,7 @@ def get_universe() -> list[str]:
 
     # Fallback: no volume data yet — return top 500 alphabetically
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             rows = c.execute(
                 "SELECT symbol FROM universe_stocks ORDER BY symbol LIMIT ?",
                 (_UNIVERSE_HARD_CAP,),

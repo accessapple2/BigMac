@@ -18,6 +18,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import contextlib
 import time
 from datetime import datetime, date
 from typing import Optional
@@ -83,7 +84,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def _init_tables():
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS volume_alerts (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -313,7 +314,7 @@ def scan_full_market() -> list[dict]:
     now = utc_now_str()   # HM-TZ Stage 3: detected_at canonical space-UTC
     session_frac = _session_fraction_elapsed()   # computed once per scan, applied to every symbol
 
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         for sym, snap in all_snapshots.items():
             stock = _parse_snapshot(sym, snap, baselines, session_frac)
             if not stock:
@@ -389,7 +390,7 @@ def red_alert_check() -> None:
 
     today = date.today().isoformat()
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             rows = c.execute(
                 "SELECT DISTINCT symbol FROM volume_alerts WHERE date(detected_at)=?",
                 (today,),
@@ -411,7 +412,7 @@ def red_alert_check() -> None:
 
     # Check for already-flagged red alerts
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             existing_red = {
                 r["symbol"] for r in c.execute(
                     "SELECT DISTINCT symbol FROM volume_alerts "
@@ -424,7 +425,7 @@ def red_alert_check() -> None:
 
     now = utc_now_str()   # HM-TZ Stage 3: detected_at canonical space-UTC
     session_frac = _session_fraction_elapsed()   # computed once per scan, applied to every symbol
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         for sym, snap in snaps.items():
             stock = _parse_snapshot(sym, snap, baselines, session_frac)
             if not stock:
@@ -488,7 +489,7 @@ def get_todays_volume_alerts(limit: int = 200) -> list[dict]:
     _init_tables()
     today = date.today().isoformat()
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             # Step 1: one row per symbol — most recent row for price/rvol/alert_type,
             # plus hit count and first-seen for today.
             deduped = c.execute(

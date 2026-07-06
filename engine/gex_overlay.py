@@ -21,6 +21,7 @@ import logging
 import math
 import os
 import sqlite3
+import contextlib
 import time
 from datetime import datetime
 from typing import Optional
@@ -55,7 +56,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def _init_tables():
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS gex_levels (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -83,7 +84,7 @@ def _init_tables():
         ("composite_strength", "TEXT"),
     ]:
         try:
-            with _conn() as c:
+            with contextlib.closing(_conn()) as c:
                 c.execute(f"ALTER TABLE gex_levels ADD COLUMN {col} {ctype}")
                 c.commit()
         except Exception as e:
@@ -497,7 +498,7 @@ def _save_gex_levels(symbol: str, levels: dict):
     """Persist computed GEX levels to gex_levels table."""
     _init_tables()
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             base_params = (
                 symbol,
                 datetime.now().isoformat(),
@@ -626,7 +627,7 @@ def update_all_gex_levels() -> None:
 
     # Prune rows older than 7 days to keep table lean
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             c.execute(
                 "DELETE FROM gex_levels WHERE calc_time < datetime('now', '-7 days')"
             )
@@ -640,7 +641,7 @@ def get_latest_gex(symbol: str) -> dict | None:
     _init_tables()
     symbol = symbol.upper()
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             row = c.execute(
                 "SELECT * FROM gex_levels WHERE symbol=? ORDER BY calc_time DESC LIMIT 1",
                 (symbol,),

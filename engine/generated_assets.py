@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import sqlite3
+import contextlib
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -34,7 +35,7 @@ def _conn():
 
 
 def _init_table():
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS generated_indexes (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -239,7 +240,7 @@ def build_index(name: str, thesis: str, criteria: dict, holdings: list) -> dict:
     _init_table()
     if not holdings:
         return {"error": "No holdings matched the criteria — try broader keywords"}
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         cur = db.execute(
             "INSERT INTO generated_indexes (name, thesis, criteria, holdings) VALUES (?, ?, ?, ?)",
             (name, thesis, json.dumps(criteria), json.dumps(holdings)),
@@ -336,7 +337,7 @@ def backtest_index(index_id: int, days: int = 30) -> dict:
         }
 
         col = {30: "backtest_30", 90: "backtest_90", 365: "backtest_365"}.get(days, "backtest_30")
-        with _conn() as db2:
+        with contextlib.closing(_conn()) as db2:
             db2.execute(
                 f"UPDATE generated_indexes SET {col} = ? WHERE id = ?",
                 (json.dumps(result), index_id),
@@ -402,7 +403,7 @@ def get_index(index_id: int) -> Optional[dict]:
 
 def delete_index(index_id: int) -> dict:
     _init_table()
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute(
             "UPDATE generated_indexes SET status = 'DELETED' WHERE id = ?",
             (index_id,),

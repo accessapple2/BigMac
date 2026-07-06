@@ -14,6 +14,7 @@ import gc
 import logging
 import os
 import sqlite3
+import contextlib
 import time
 from datetime import datetime, timedelta
 
@@ -112,7 +113,7 @@ def _init_db() -> None:
     CREATE INDEX IF NOT EXISTS idx_rotation_strategy ON strategy_rotation(strategy_name);
     """
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             c.executescript(ddl)
         logger.debug("strategy_rotation table ready")
     except Exception as exc:
@@ -386,7 +387,7 @@ def run_strategy_rotation(symbols: list[str] | None = None, force: bool = False)
     # Check if already ran today
     if not force:
         try:
-            with _conn() as c:
+            with contextlib.closing(_conn()) as c:
                 row = c.execute(
                     "SELECT COUNT(*) as cnt FROM strategy_rotation WHERE run_date = ?",
                     (run_date,)
@@ -485,7 +486,7 @@ def run_strategy_rotation(symbols: list[str] | None = None, force: bool = False)
                 is_active,
             ))
 
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             c.executemany(
                 """INSERT INTO strategy_rotation
                    (run_date, strategy_name, win_rate, avg_win_pct, avg_loss_pct,
@@ -493,6 +494,7 @@ def run_strategy_rotation(symbols: list[str] | None = None, force: bool = False)
                    VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
                 rows_to_insert,
             )
+            c.commit()
         logger.info("Persisted %d strategy results for %s", len(rows_to_insert), run_date)
     except Exception as exc:
         logger.error("Failed to persist rotation results: %s", exc)
@@ -519,7 +521,7 @@ def get_active_strategies() -> list[dict]:
     Falls back to returning all strategy names as active if no DB data exists.
     """
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             latest_date = c.execute(
                 "SELECT MAX(run_date) as d FROM strategy_rotation"
             ).fetchone()
@@ -570,7 +572,7 @@ def get_rotation_history(days: int = 14) -> dict:
     """
     cutoff = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             rows = c.execute(
                 """SELECT strategy_name, run_date, win_rate, rank, is_active
                    FROM strategy_rotation
@@ -635,7 +637,7 @@ def get_latest_rotation() -> dict:
         {run_date, active_strategies, inactive_strategies, stats}
     """
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             latest = c.execute(
                 "SELECT MAX(run_date) as d FROM strategy_rotation"
             ).fetchone()

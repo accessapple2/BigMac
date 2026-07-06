@@ -12,6 +12,7 @@ Default ceilings:
 import logging
 import os
 import sqlite3
+import contextlib
 from typing import Optional
 
 logger = logging.getLogger("sub_portfolio")
@@ -46,7 +47,7 @@ def _conn():
 
 
 def _init_table():
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS sub_portfolios (
                 id             INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -129,7 +130,7 @@ def check_budget(strategy_name: str, trade_value: float) -> tuple[bool, str]:
 def set_budget(name: str, ceiling: float) -> dict:
     """Create or update the budget ceiling for a sub-portfolio."""
     _init_table()
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute(
             """INSERT INTO sub_portfolios (name, budget_ceiling, strategy_type, updated_at)
                VALUES (?, ?, ?, datetime('now'))

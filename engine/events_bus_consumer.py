@@ -66,10 +66,18 @@ def consume_pending_signals(max_batch: int = 10) -> dict:
              "skipped_no_price": 0, "executed": 0, "failed": 0}
     try:
         conn = _conn()
+        # HM-SIGNALS-V2-FIFO-STARVATION fix (2026-07-06, Admiral-approved):
+        # was ORDER BY created_at ASC (strict FIFO) -- a pre-existing backlog
+        # of stale/undeliverable signals could bury same-day signals for days,
+        # silently defeating the swing-surge staleness-budget fix (a buried
+        # row's stale_after is never evaluated until it's dequeued). Recency
+        # matters more than arrival order for time-sensitive trading signals,
+        # so process newest-first; the bulk of the old FIFO backlog was
+        # separately archived (halted-source rows that could never execute).
         rows = conn.execute(
             "SELECT id, source, symbol, confidence, timeframe, stale_after "
             "FROM signals_v2 WHERE status='pending' "
-            "ORDER BY created_at ASC LIMIT ?",
+            "ORDER BY created_at DESC LIMIT ?",
             (int(max_batch),),
         ).fetchall()
         conn.close()

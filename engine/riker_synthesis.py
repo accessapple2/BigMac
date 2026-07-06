@@ -52,7 +52,7 @@ def _ntfy(title: str, body: str, priority: str = "default") -> None:
 
 # ── Data fetchers ─────────────────────────────────────────────────────────────
 def _get_recent_signals(minutes: int) -> list[dict]:
-    conn   = sqlite3.connect(DB_PATH)
+    conn   = sqlite3.connect(DB_PATH, timeout=30)
     # HM-TZ Stage 2a: compare in SQLite (signals.created_at is space-UTC) instead of a
     # Python isoformat string (T-separated LOCAL) — the old cutoff silently mismatched.
     cutoff = f"-{minutes} minutes"
@@ -68,7 +68,7 @@ def _get_recent_signals(minutes: int) -> list[dict]:
 
 
 def _get_recent_trades(minutes: int) -> list[dict]:
-    conn   = sqlite3.connect(DB_PATH)
+    conn   = sqlite3.connect(DB_PATH, timeout=30)
     # HM-TZ Stage 2a: compare in SQLite (trades.executed_at is space-UTC) instead of a
     # Python isoformat string (T-separated LOCAL).
     cutoff = f"-{minutes} minutes"
@@ -85,7 +85,7 @@ def _get_recent_trades(minutes: int) -> list[dict]:
 
 def _get_fleet_positions() -> list[dict]:
     """Count open positions per agent (all rows in positions table)."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     rows = conn.execute("""
         SELECT player_id, COUNT(*) AS positions,
                SUM(qty * avg_price)  AS approx_value
@@ -147,7 +147,7 @@ def generate_synthesis(minutes: int = 10) -> dict:
 # ── Persist ───────────────────────────────────────────────────────────────────
 def _save_synthesis(synthesis: dict) -> None:
     """Save to rikers_log (existing table)."""
-    conn = sqlite3.connect(DB_PATH)
+    conn = sqlite3.connect(DB_PATH, timeout=30)
     s    = synthesis["summary"]
 
     # Build short title

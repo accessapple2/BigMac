@@ -94,6 +94,7 @@ _SENTIMENT_WEIGHTS: dict[str, int] = {
 
 def _ensure_tables() -> None:
     """Create tables if they don't exist. NEVER drops existing tables."""
+    con = None
     try:
         con = sqlite3.connect(_DB, check_same_thread=False)
         con.execute("""
@@ -123,9 +124,11 @@ def _ensure_tables() -> None:
             "ON aladdin_holdings(etf_ticker, date)"
         )
         con.commit()
-        con.close()
     except Exception as exc:
         logger.error("_ensure_tables error: %s", exc)
+    finally:
+        if con is not None:
+            con.close()
 
 
 _ensure_tables()
@@ -145,6 +148,7 @@ def _db_aladdin() -> sqlite3.Connection:
 
 def _save_signal(source: str, signal: str, confidence: int,
                  raw_data: dict | None = None, notes: str = "") -> None:
+    con = None
     try:
         con = _db()
         con.execute(
@@ -160,9 +164,11 @@ def _save_signal(source: str, signal: str, confidence: int,
             ),
         )
         con.commit()
-        con.close()
     except Exception as exc:
         logger.error("_save_signal error: %s", exc)
+    finally:
+        if con is not None:
+            con.close()
 
 
 # ---------------------------------------------------------------------------
@@ -288,6 +294,7 @@ def fetch_ishares_holdings(etf_ticker: str, url: str) -> list[dict]:
         for h in holdings
     ]
     for attempt in range(3):
+        con = None
         try:
             con = _db_aladdin()
             con.execute(
@@ -301,7 +308,6 @@ def fetch_ishares_holdings(etf_ticker: str, url: str) -> list[dict]:
                 rows,
             )
             con.commit()
-            con.close()
             logger.info("Stored %d holdings for %s (%s)", len(holdings), etf_ticker, today)
             break
         except Exception as exc:
@@ -310,6 +316,9 @@ def fetch_ishares_holdings(etf_ticker: str, url: str) -> list[dict]:
                 time.sleep(2 ** attempt)
             else:
                 logger.error("iShares DB write error (%s): %s", etf_ticker, exc)
+        finally:
+            if con is not None:
+                con.close()
 
     return holdings
 
@@ -451,6 +460,7 @@ def get_fund_flows() -> list[dict]:
     yesterday = (datetime.now() - timedelta(days=1)).strftime("%Y-%m-%d")
     flows = []
 
+    con = None
     try:
         con = _db()
 
@@ -493,9 +503,11 @@ def get_fund_flows() -> list[dict]:
                 "prev_date": prev_date,
             })
 
-        con.close()
     except Exception as exc:
         logger.error("Fund flow calculation error: %s", exc)
+    finally:
+        if con is not None:
+            con.close()
 
     # Persist flow signals
     for f in flows:

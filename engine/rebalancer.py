@@ -25,6 +25,7 @@ import json
 import logging
 import os
 import sqlite3
+import contextlib
 import sys
 from datetime import datetime
 from typing import Any
@@ -66,7 +67,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def init_db():
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS rebalance_recommendations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,7 +95,7 @@ def init_db():
 
 def _load_positions(player_id: str) -> list[dict]:
     """Load current stock positions from DB."""
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         rows = c.execute(
             """SELECT symbol, qty, avg_price
                FROM positions
@@ -106,7 +107,7 @@ def _load_positions(player_id: str) -> list[dict]:
 
 def _load_latest_optimization(player_id: str) -> dict | None:
     """Load the most recent portfolio_optimizations row for player."""
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         row = c.execute(
             """SELECT id, portfolio_value, actions_json, summary, created_at
                FROM portfolio_optimizations
@@ -461,7 +462,7 @@ def run_rebalancer(
     # 5. Save recommendations to DB
     opt_id = opt["id"]
     saved_ids = []
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         for t in trades:
             row_id = c.execute(
                 """INSERT INTO rebalance_recommendations
@@ -493,7 +494,7 @@ def run_rebalancer(
             # Update DB with execute result
             if saved_ids:
                 row_id = saved_ids[trades.index(t)]
-                with _conn() as c:
+                with contextlib.closing(_conn()) as c:
                     c.execute(
                         "UPDATE rebalance_recommendations SET executed=1, execute_result=? WHERE id=?",
                         (result_str[:500], row_id),

@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import contextlib
 import time
 from datetime import datetime, date
 from typing import Optional
@@ -363,7 +364,7 @@ def _conn() -> sqlite3.Connection:
 
 def ensure_tables():
     """Create flash_alerts table if missing."""
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS flash_alerts (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -409,6 +410,7 @@ def ensure_tables():
                 created_at  TIMESTAMP DEFAULT CURRENT_TIMESTAMP
             )
         """)
+        c.commit()
 
 
 def save_flash_alert(ticker: str, direction: str, strike: float, premium: float,
@@ -417,7 +419,7 @@ def save_flash_alert(ticker: str, direction: str, strike: float, premium: float,
     stop = round(premium * STOP_PCT, 2)
     target_low = round(premium * (1 + TARGET_PCT_LOW), 2)
     target_high = round(premium * (1 + TARGET_PCT_HIGH), 2)
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         cur = c.execute("""
             INSERT INTO flash_alerts
               (ticker, direction, strike, premium, delta, iv, triggers,
@@ -425,11 +427,12 @@ def save_flash_alert(ticker: str, direction: str, strike: float, premium: float,
             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """, (ticker, direction, strike, premium, delta, iv,
               "\n".join(triggers), confidence, stop, target_low, target_high, strategy))
+        c.commit()
         return cur.lastrowid
 
 
 def get_recent_flash_alerts(limit: int = 10) -> list:
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         rows = c.execute(
             "SELECT * FROM flash_alerts ORDER BY created_at DESC LIMIT ?", (limit,)
         ).fetchall()
@@ -438,7 +441,7 @@ def get_recent_flash_alerts(limit: int = 10) -> list:
 
 def get_active_flash_alert() -> Optional[dict]:
     """Most recent non-dismissed alert from last 5 minutes."""
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         row = c.execute("""
             SELECT * FROM flash_alerts
             WHERE dismissed = 0
@@ -449,8 +452,9 @@ def get_active_flash_alert() -> Optional[dict]:
 
 
 def dismiss_alert(alert_id: int):
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("UPDATE flash_alerts SET dismissed=1 WHERE id=?", (alert_id,))
+        c.commit()
 
 
 # ---------------------------------------------------------------------------
@@ -481,12 +485,13 @@ def grade_session(trades_today: list) -> str:
 def save_session_grade(grade: str, trades: list):
     net = sum(t.get("pnl_pct", 0) or 0 for t in trades)
     wins = [t for t in trades if (t.get("pnl_pct") or 0) > 0]
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("""
             INSERT OR REPLACE INTO session_grades
               (trade_date, grade, trades, wins, net_pnl_pct)
             VALUES (?, ?, ?, ?, ?)
         """, (date.today().isoformat(), grade, len(trades), len(wins), round(net, 4)))
+        c.commit()
 
 
 # ---------------------------------------------------------------------------

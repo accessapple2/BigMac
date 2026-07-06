@@ -63,6 +63,7 @@ if not logger.handlers:
 # ---------------------------------------------------------------------------
 
 def _ensure_tables() -> None:
+    con = None
     try:
         con = sqlite3.connect(_DB, check_same_thread=False)
         con.execute(f"""
@@ -90,9 +91,11 @@ def _ensure_tables() -> None:
             )
         """)
         con.commit()
-        con.close()
     except Exception as exc:
         logger.error("ensure_tables: %s", exc)
+    finally:
+        if con is not None:
+            con.close()
 
 
 _ensure_tables()
@@ -171,6 +174,7 @@ def get_sarek_brief(force: bool = False) -> dict:
     }
 
     # Persist top picks as signals
+    con = None
     try:
         con = _db()
         for p in brief["picks"][:5]:
@@ -188,9 +192,11 @@ def get_sarek_brief(force: bool = False) -> dict:
                 ),
             )
         con.commit()
-        con.close()
     except Exception as exc:
         logger.error("persist signals: %s", exc)
+    finally:
+        if con is not None:
+            con.close()
 
     _CACHE["brief"] = brief
     _CACHE["ts"] = now
@@ -217,6 +223,7 @@ def run_monthly_dca(amount_usd: float = 500.0) -> list[dict]:
     rows: list[dict] = []
     ts = datetime.now().isoformat()
 
+    con = None
     try:
         con = _db()
         for p in picks:
@@ -232,10 +239,12 @@ def run_monthly_dca(amount_usd: float = 500.0) -> list[dict]:
             )
             rows.append({"ticker": ticker, "tranche_usd": per_tranche})
         con.commit()
-        con.close()
         logger.info("Sarek DCA: %d tranches @ $%.2f each", len(rows), per_tranche)
     except Exception as exc:
         logger.error("DCA write: %s", exc)
+    finally:
+        if con is not None:
+            con.close()
 
     return rows
 

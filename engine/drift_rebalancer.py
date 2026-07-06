@@ -22,6 +22,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import contextlib
 from datetime import datetime
 from typing import Optional
 
@@ -56,7 +57,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def _init_tables() -> None:
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS rebalance_targets (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -94,7 +95,7 @@ def set_target(sub_portfolio: str, ticker: str, target_pct: float,
                mode: str = DEFAULT_MODE, threshold_pct: float = DEFAULT_THRESHOLD) -> dict:
     """Upsert a target weight for a ticker within a sub-portfolio."""
     _init_tables()
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute(
             """INSERT INTO rebalance_targets
                    (sub_portfolio, ticker, target_pct, mode, threshold_pct, updated_at)
@@ -347,7 +348,7 @@ def execute_rebalance(sub_portfolio: str, dry_run: bool = True) -> dict:
                 act["result"] = f"ERROR: {e}"
 
         # Log every planned action
-        with _conn() as db:
+        with contextlib.closing(_conn()) as db:
             db.execute(
                 """INSERT INTO rebalance_log
                    (sub_portfolio, ticker, action, target_pct, actual_pct, drift_pct,

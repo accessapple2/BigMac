@@ -6444,3 +6444,68 @@ decide whether `battle_station.py`'s `gex_overlay` calls should migrate too
 (narrower blast radius, only affects Battle Station-specific features) or
 are acceptable as a legacy, deliberately-separate data path — needs an
 explicit decision either way rather than assuming "retired."
+
+---
+## 🟢 AFTER-CLOSE-WORK-ORDER P3.8 — Kirk Advisory ALL THREE slots missed today, real bug found and fixed (2026-07-06)
+
+Checked all three of today's fixed slots (06:35, 09:30, 13:05) against
+`data/kirk_advisory.heartbeat` and `logs/trader.log`'s "Kirk Advisory: firing
+slot" lines. **All three missed** — heartbeat mtime unchanged since
+2026-07-03 13:11:17, zero "firing slot" log lines today at all. The prior
+note above ("two more chances today") assumed 09:30/13:05 would self-recover
+once the restart-timing miss on 06:35 was past; they didn't.
+
+**Root cause found — not incident residue, a real scheduling bug.** Traced
+`schedule.every(30).minutes.do(run_kirk_advisory_job)` (`main.py:4548`)
+against the actual post-restart `[WR-DEBUG-INIT]` registration dump in
+`logs/trader.log`: after the 10:05:27 restart, this job's first tick was
+scheduled for **10:17:28** (not immediately at boot), then every 30 min
+after — 10:47:28, 11:17:28, 11:47:28, 12:17:28, 12:47:28, **13:17:28**.
+`run_kirk_advisory_job`'s own slot check only fires within a **10-minute
+window** per slot (`sched_mins <= now_mins <= sched_mins+10`, e.g.
+13:05-13:15 for the close slot) — and 13:17:28 lands **2 minutes past** that
+window's close. Same story for 09:30 (would need a tick at :30-:40, the
+actual ticks are :17/:47) and 06:35 (:35-:45 vs :17/:47). **A 30-minute
+poll cadence checking a 10-minute window can systematically miss every
+single slot, every day, if the post-restart phase offset happens to land
+wrong** — and today it did, for all three, purely from the 10:05:27 restart
+time's phase, with zero relation to this morning's lock storm. This would
+have kept missing indefinitely (or until a future restart happened to
+re-phase luckily) without a restart-independent fix.
+
+**Fixed:** `main.py:4548` changed `schedule.every(30)` → `schedule.every(5)`.
+A 5-minute poll is strictly less than the 10-minute window, so it's
+mathematically guaranteed to land inside every slot window regardless of
+restart phase. `py_compile` clean. Takes effect on tonight's bundled restart.
+
+**Same latent risk found, NOT fixed tonight (out of scope for this
+ticket):** `run_cto_advisory` (`main.py:4547`, `_CTO_SCHEDULE` at
+`main.py:2906-2911`, 4 fixed daily slots) uses the **identical** 30-min-poll
+pattern — same vulnerability class, not independently confirmed as
+currently missing slots today, but structurally exposed the same way. Worth
+the same `every(30)`→`every(5)` fix in a follow-up pass; flagging rather
+than fixing blind tonight since it wasn't part of tonight's ask and deserves
+its own confirm-then-fix pass like this one got.
+
+---
+## 🟢 AFTER-CLOSE-WORK-ORDER P2.4-P2.6 — post-restart verification note (2026-07-06)
+
+Verified live against the 13:21:30 bundled restart (PID 8170):
+- **P2.4 GEX cache warm confirmed working** — `/api/market/gex/QQQ` and
+  `/api/gex-overlay/levels?symbol=QQQ` returned real warmed data immediately
+  post-restart, no "pending"/blank. **SPY specifically still shows "no
+  cached GEX available"** — NOT a defect in the warm-cache fix; `engine.
+  canonical_gex.latest_snapshot('SPY')` itself returns a degenerate snapshot
+  (`call_wall==put_wall==king_node==740.0`, dated **2026-06-05**, a month
+  stale) that the pre-existing collapsed-wall guard correctly refuses to
+  serve (same guard `_canonical_gex_cached` already had). QQQ's snapshot
+  from the same date is fine (`call_wall=710 != put_wall=707`). Since this
+  restart happened after market close, Phase 2 (live background refresh)
+  correctly skipped itself too — nothing to fetch live after hours. Net:
+  the fix works; SPY's Gamma Map will stay blank until either the market
+  reopens (Phase 2 will populate it live) or `flow_gex.db` gets a fresh
+  non-degenerate SPY row. Not investigated further tonight (separate,
+  pre-existing data-quality issue, not tonight's scope).
+- **P2.6 confirmed** — `/api/account/equity-curve` returned correct data
+  (17 dates, +1.49% account) on a cold post-restart cache, single Alpaca
+  call pair, no 429.

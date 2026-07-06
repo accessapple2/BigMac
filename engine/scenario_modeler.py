@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import contextlib
 import sys
 from datetime import datetime
 from typing import Any
@@ -66,7 +67,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def init_db():
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS scenario_models (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -133,7 +134,7 @@ def _get_price_context(ticker: str) -> dict:
     # RSI fallback from universe_scan cache
     if not ctx.get("rsi"):
         try:
-            with _conn() as c:
+            with contextlib.closing(_conn()) as c:
                 row = c.execute(
                     "SELECT rsi, volume_ratio FROM universe_scan "
                     "WHERE ticker=? ORDER BY id DESC LIMIT 1",
@@ -162,7 +163,7 @@ def _get_regime_context() -> str:
 def _get_debate_context(ticker: str) -> str:
     """Pull the most recent debate result for this ticker, if any."""
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             row = c.execute(
                 """SELECT picard_decision, adjusted_conviction, picard_synthesis,
                           spock_assessment, crusher_assessment, scotty_assessment
@@ -374,7 +375,7 @@ def run_scenario_model(
 
     # Save to DB
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             c.execute(
                 """INSERT INTO scenario_models (
                     ticker, horizon_days, current_price,

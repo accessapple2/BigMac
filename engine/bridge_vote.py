@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import sqlite3
+import contextlib
 import threading
 import time
 from datetime import datetime, timezone
@@ -149,7 +150,7 @@ def _conn() -> sqlite3.Connection:
 
 def _init_db() -> None:
     """Create bridge_votes and bridge_consensus tables if they don't exist."""
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS bridge_votes (
                 id           INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -355,7 +356,7 @@ def _run_morning_vote_inner(force: bool = False) -> dict:
 
     # Check if already voted today (full set)
     if not force:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             existing = c.execute(
                 "SELECT COUNT(*) as n FROM bridge_votes WHERE session_date=?",
                 (today,),
@@ -365,7 +366,7 @@ def _run_morning_vote_inner(force: bool = False) -> dict:
                 return get_latest_consensus()
 
         # Also guard: skip if votes already exist for this 5-minute slot
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             slot_existing = c.execute(
                 "SELECT COUNT(*) as n FROM bridge_votes WHERE session_date=? AND session_time=?",
                 (today, session_slot),
@@ -408,7 +409,7 @@ def _run_morning_vote_inner(force: bool = False) -> dict:
     if force:
         for _attempt in range(20):  # up to ~3 minutes total
             try:
-                with _conn() as c:
+                with contextlib.closing(_conn()) as c:
                     c.execute("DELETE FROM bridge_votes WHERE session_date=?", (today,))
                     c.execute("DELETE FROM bridge_consensus WHERE session_date=?", (today,))
                     c.commit()
@@ -458,7 +459,7 @@ def _run_morning_vote_inner(force: bool = False) -> dict:
     # Short transaction 2: batch-insert all results at once (fast, minimal lock)
     for _attempt in range(20):
         try:
-            with _conn() as c:
+            with contextlib.closing(_conn()) as c:
                 c.executemany(
                     """
                     INSERT INTO bridge_votes
@@ -549,7 +550,7 @@ def _run_morning_vote_inner(force: bool = False) -> dict:
             consensus_vote = "HOLD"
 
     # ── 4. Store consensus ─────────────────────────────────────────────────
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute(
             """
             INSERT INTO bridge_consensus
@@ -611,7 +612,7 @@ def get_latest_votes(limit: int = 50) -> dict:
     """Return today's individual votes (fallback to most recent session)."""
     _init_db()
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             today = datetime.now().strftime("%Y-%m-%d")
             rows = c.execute(
                 "SELECT * FROM bridge_votes WHERE session_date=? ORDER BY id DESC LIMIT ?",
@@ -647,7 +648,7 @@ def get_latest_consensus() -> dict:
     """Return the most recent bridge consensus record."""
     _init_db()
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             row = c.execute(
                 "SELECT * FROM bridge_consensus ORDER BY id DESC LIMIT 1"
             ).fetchone()
@@ -705,7 +706,7 @@ def run_bridge_vote_job() -> None:
     today = now_et.strftime("%Y-%m-%d")
     try:
         _init_db()
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             n = c.execute(
                 "SELECT COUNT(*) as n FROM bridge_votes WHERE session_date=?",
                 (today,),

@@ -23,6 +23,7 @@ import json
 import logging
 import os
 import sqlite3
+import contextlib
 import sys
 from datetime import datetime
 
@@ -70,7 +71,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def init_db():
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS portfolio_optimizations (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -102,7 +103,7 @@ def _get_portfolio(player_id: str) -> dict:
         logger.warning(f"paper_trader.get_portfolio failed: {e}")
 
     # Fallback: read directly from DB
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         rows = c.execute(
             "SELECT symbol, qty, avg_price FROM positions WHERE player_id=? AND asset_type='stock'",
             (player_id,),
@@ -366,7 +367,7 @@ def run_optimizer(
 
     # Save to DB
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             c.execute(
                 """INSERT INTO portfolio_optimizations
                    (player_id, portfolio_value, position_count,

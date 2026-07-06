@@ -4545,7 +4545,7 @@ if __name__ == "__main__":
     schedule.every(15).minutes.do(run_flow_lean)            # Flow Lean: every 15 min (options premium directional bias)
     schedule.every(15).minutes.do(run_ai_saas_disruption)   # AI SaaS Disruption: IGV + 13 SaaS names, 4 triggers, posts to 9000
     schedule.every(30).minutes.do(run_cto_advisory)          # CTO Advisory: checks every 30 min, fires 4x daily (pre_market, post_open, pre_close, post_close)
-    schedule.every(30).minutes.do(run_kirk_advisory_job)     # Kirk Advisory: persist kirk_advisory_log at open/midday/close (AZ weekdays) — HM-KIRK-REHOME 2026-06-01
+    schedule.every(5).minutes.do(run_kirk_advisory_job)      # Kirk Advisory: persist kirk_advisory_log at open/midday/close (AZ weekdays) — HM-KIRK-REHOME 2026-06-01. Was every(30) until HM-OPS-SENTINEL P3.8 (2026-07-06): a 30-min poll's phase (set by whenever main.py last restarted) can drift outside every one of the three 10-min-wide slot windows -- confirmed today all 3 slots (06:35/09:30/13:05) were missed because the post-restart tick landed at :17:28/:47:28, never inside :x5-:x5+10. 5-min cadence (< the 10-min window) guarantees a hit regardless of restart phase.
     schedule.every(30).minutes.do(run_ready_room)             # Ready Room: checks every 30 min, fires 4x daily (8:00/9:15/12:00/3:30 ET)
     schedule.every(30).minutes.do(run_team_advisor)           # Advisory Team (Grok/Ollie+Troi+Worf): fires at 9:30 AM and 1:30 PM ET
     schedule.every(5).minutes.do(run_portfolio_monitor)       # Ship's Computer: Captain's Portfolio monitor (stop breaches, big moves, new advice)

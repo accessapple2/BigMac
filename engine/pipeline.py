@@ -28,6 +28,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+import contextlib
 import sys
 import time
 from datetime import datetime
@@ -61,7 +62,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def init_db():
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS pipeline_runs (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -275,7 +276,7 @@ def _save_run(
         ]
 
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             cur = c.execute(
                 """INSERT INTO pipeline_runs
                    (player_id, tickers_scanned, tickers_debated,

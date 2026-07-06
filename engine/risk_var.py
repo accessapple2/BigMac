@@ -23,6 +23,7 @@ import logging
 import math
 import os
 import sqlite3
+import contextlib
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -83,7 +84,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def _init_tables() -> None:
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS var_snapshots (
                 id              INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -300,7 +301,7 @@ def calculate_var(days: int = 30) -> dict:
     top_risk = pos_risks[0]["symbol"] if pos_risks else None
 
     # ── Store snapshot ────────────────────────────────────────────────────────
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute(
             """INSERT INTO var_snapshots
                (portfolio_value, var_95_param, var_99_param,

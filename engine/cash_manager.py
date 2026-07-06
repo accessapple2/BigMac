@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import contextlib
 from datetime import datetime
 from typing import Optional
 
@@ -53,7 +54,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def _init_tables() -> None:
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS cash_sweeps (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -93,7 +94,7 @@ def _get_setting(key: str, default: float) -> float:
 
 
 def _set_setting(key: str, value: float) -> None:
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute(
             """INSERT INTO cash_manager_settings (key, value, updated_at)
                VALUES (?, ?, datetime('now'))
@@ -187,7 +188,7 @@ def _log_sweep(direction: str, cash_before: float, cash_after: Optional[float],
                threshold: float, action: str, tickers: list[str],
                result: str, detail: str = "") -> None:
     import json
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute(
             """INSERT INTO cash_sweeps
                (direction, cash_before, cash_after, threshold, action,

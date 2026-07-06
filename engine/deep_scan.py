@@ -21,6 +21,7 @@ import gc
 import logging
 import os
 import sqlite3
+import contextlib
 import time
 from datetime import datetime, timedelta, timezone
 
@@ -149,7 +150,7 @@ def _conn() -> sqlite3.Connection:
 
 def _init_db() -> None:
     """Create required tables and indexes on first import. Never DROP/DELETE/TRUNCATE."""
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("""
             CREATE TABLE IF NOT EXISTS scan_universe (
                 id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -251,7 +252,7 @@ def build_universe(force: bool = False) -> dict:
     # Freshness check
     if not force:
         try:
-            with _conn() as c:
+            with contextlib.closing(_conn()) as c:
                 row = c.execute(
                     "SELECT last_updated FROM scan_universe ORDER BY last_updated DESC LIMIT 1"
                 ).fetchone()
@@ -393,7 +394,7 @@ def build_universe(force: bool = False) -> dict:
     # Step 3 — upsert into scan_universe
     # ----------------------------------------------------------------
     if qualifying:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             c.executemany(
                 """
                 INSERT OR REPLACE INTO scan_universe
@@ -432,7 +433,7 @@ def get_universe() -> list[str]:
         DELISTED_BLACKLIST = set()
 
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             rows = c.execute(
                 "SELECT symbol FROM scan_universe ORDER BY avg_volume DESC"
             ).fetchall()
@@ -477,7 +478,7 @@ def inject_earnings_tickers(tickers: list) -> int:
     today = datetime.now().strftime("%Y-%m-%d")
     count = 0
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             for sym in tickers:
                 c.execute(
                     """
@@ -562,7 +563,7 @@ def scan_earnings_tickers(tickers: list) -> dict:
 
     if rows_to_insert:
         try:
-            with _conn() as c:
+            with contextlib.closing(_conn()) as c:
                 c.executemany(
                     """
                     INSERT INTO deep_scan_results
@@ -725,7 +726,7 @@ def run_deep_scan(max_symbols: int = 500, force: bool = False) -> dict:
 
         if rows_to_insert:
             try:
-                with _conn() as c:
+                with contextlib.closing(_conn()) as c:
                     c.executemany(
                         """
                         INSERT INTO deep_scan_results
@@ -801,7 +802,7 @@ def get_deep_scan_results(limit: int = 50, min_strength: float = 0.0) -> dict:
                    universe_size, error (on failure)
     """
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             today = datetime.now().strftime("%Y-%m-%d")
 
             # Try today first, fall back to most recent date
@@ -877,7 +878,7 @@ def get_universe_stats() -> dict:
                    error (on failure)
     """
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             total_row = c.execute(
                 "SELECT COUNT(*) as n FROM scan_universe"
             ).fetchone()

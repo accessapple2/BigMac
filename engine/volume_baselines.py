@@ -17,6 +17,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+import contextlib
 import time
 from datetime import date, datetime, timedelta
 from typing import Optional
@@ -50,7 +51,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def _init_tables():
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         # Rolling daily volume log — one row per symbol per day
         c.execute("""
             CREATE TABLE IF NOT EXISTS volume_daily_log (
@@ -136,7 +137,7 @@ def _recompute_averages(symbols: list[str], log_date: str) -> int:
     now = datetime.now().isoformat()
     updated = 0
 
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         placeholders = ",".join("?" * len(symbols))
         rows = c.execute(
             f"""
@@ -208,7 +209,7 @@ def update_baselines() -> int:
         return 0
 
     # Log to volume_daily_log
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.executemany(
             "INSERT OR REPLACE INTO volume_daily_log (symbol, log_date, daily_volume) VALUES (?,?,?)",
             [(sym, yesterday, vol) for sym, vol in vol_map.items()],
@@ -225,7 +226,7 @@ def update_baselines() -> int:
 
     # Prune old log entries (keep last 30 days)
     cutoff = (date.today() - timedelta(days=30)).isoformat()
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.execute("DELETE FROM volume_daily_log WHERE log_date < ?", (cutoff,))
         c.commit()
 
@@ -241,7 +242,7 @@ def get_baselines(symbols: Optional[list[str]] = None) -> dict[str, float]:
     """
     _init_tables()
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             if symbols:
                 placeholders = ",".join("?" * len(symbols))
                 rows = c.execute(
@@ -285,7 +286,7 @@ def bootstrap_baselines_from_snapshots(symbols: Optional[list[str]] = None) -> i
     yesterday = (date.today() - timedelta(days=1)).isoformat()
     now = datetime.now().isoformat()
 
-    with _conn() as c:
+    with contextlib.closing(_conn()) as c:
         c.executemany(
             "INSERT OR REPLACE INTO volume_daily_log (symbol, log_date, daily_volume) VALUES (?,?,?)",
             [(sym, yesterday, vol) for sym, vol in vol_map.items()],

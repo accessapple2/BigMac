@@ -23,6 +23,7 @@ because both run in the same uvicorn process per CLAUDE.md).
 from __future__ import annotations
 
 import sqlite3
+import contextlib
 import time
 from pathlib import Path
 from typing import Optional
@@ -97,7 +98,7 @@ def _query() -> list[dict]:
       ?4 = ETF_DOLLAR_VOLUME_THRESHOLD (ETF branch)
     """
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             c.row_factory = sqlite3.Row
             rows = c.execute(
                 _BASE_SQL,
@@ -176,7 +177,7 @@ def universe_health() -> dict:
     and whether the system is on the fallback list.
     """
     try:
-        with _conn() as c:
+        with contextlib.closing(_conn()) as c:
             c.row_factory = sqlite3.Row
             total = c.execute("SELECT COUNT(*) AS n FROM scan_universe").fetchone()["n"]
             last_refresh = c.execute(

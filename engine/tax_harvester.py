@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import sqlite3
+import contextlib
 from datetime import datetime, timedelta
 from typing import Optional
 
@@ -115,7 +116,7 @@ def _conn() -> sqlite3.Connection:
 
 
 def _init_tables() -> None:
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute("""
             CREATE TABLE IF NOT EXISTS correlation_pairs (
                 id          INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -190,7 +191,7 @@ def _get_setting(key: str, default: str) -> str:
 
 
 def _set_setting(key: str, value: str) -> None:
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute(
             """INSERT INTO tax_harvester_settings (key, value, updated_at)
                VALUES (?, ?, datetime('now'))
@@ -246,7 +247,7 @@ def _record_wash_sale(player_id: str, ticker: str, sell_price: float,
     """Insert wash sale window. Returns expiry date string."""
     sold_at  = datetime.now().isoformat()[:19]
     expiry   = (datetime.now() + timedelta(days=WASH_SALE_DAYS)).isoformat()[:19]
-    with _conn() as db:
+    with contextlib.closing(_conn()) as db:
         db.execute(
             """INSERT INTO wash_sale_log
                (player_id, ticker, sold_at, expiry_at, sell_price, loss_amount)
@@ -551,7 +552,7 @@ def execute_harvest(dry_run: bool = True,
         log_result = "DRY_RUN" if dry_run else (
             "OK" if act.get("executed") else "PARTIAL"
         )
-        with _conn() as db:
+        with contextlib.closing(_conn()) as db:
             db.execute(
                 """INSERT INTO tax_harvests
                    (player_id, ticker_sold, qty_sold, sell_price, cost_basis,

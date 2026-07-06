@@ -24,6 +24,7 @@ import hashlib
 import json
 import random
 import sqlite3
+import contextlib
 from collections import Counter
 from datetime import datetime, timezone
 from pathlib import Path
@@ -163,7 +164,7 @@ def main() -> None:
 
     mismatches: list[str] = []
 
-    with sqlite3.connect(DB) as c:
+    with contextlib.closing(sqlite3.connect(DB)) as c:
         c.row_factory = sqlite3.Row
 
         # Confirm expected columns are still present (live schema probe).
