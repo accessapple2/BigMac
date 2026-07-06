@@ -474,6 +474,45 @@ def setup():
         )
     # === /HM-AUDITION-GATE-2026-07-05 =====================================
 
+    # === HM-CSP-WHEEL-SCAN-LOG-2026-07-05 =================================
+    # Structural-vs-performance diagnosability for Troi's CSP audition (Admiral
+    # ruling 2026-07-05): the cap gate (75b63f1) had no persisted record of
+    # what it does each scan -- log_csp_exposure() only wrote an ephemeral
+    # console line. This table gives every wheel scan attempt a row, so
+    # "0/20 guarded trades" can be told apart from "N setups evaluated, all
+    # cap-blocked" vs "no setups reached evaluation" (VIX/max-positions skip)
+    # vs genuine underperformance. Written by engine.wheel_strategy._log_scan_outcome.
+    c.execute('''CREATE TABLE IF NOT EXISTS csp_wheel_scan_log (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        book_tag TEXT NOT NULL DEFAULT 'fleet',
+        outcome TEXT NOT NULL,
+        tickers_evaluated INTEGER DEFAULT 0,
+        positions_opened INTEGER DEFAULT 0,
+        total_notional REAL,
+        options_cap_utilization_pct REAL,
+        detail TEXT
+    )''')
+    c.execute('CREATE INDEX IF NOT EXISTS idx_csp_wheel_scan_log_time ON csp_wheel_scan_log(scanned_at)')
+    # === /HM-CSP-WHEEL-SCAN-LOG-2026-07-05 =================================
+
+    # === HM-EOD-REPORT-2026-07-05 ==========================================
+    # Persists each day's reported guarded_pnl so scripts/eod_report.py can
+    # self-correct: if an evening process revises a day's numbers after the
+    # 2 PM report already fired, the NEXT day's report shows a one-line delta
+    # against a fresh recompute, instead of a second push. XO-DEPARTURE-
+    # HARDENING Phase 1 item 2.
+    c.execute('''CREATE TABLE IF NOT EXISTS eod_report_log (
+        report_date TEXT PRIMARY KEY,
+        signals_count INTEGER,
+        trades_count INTEGER,
+        conversion_pct REAL,
+        guarded_pnl REAL,
+        error_count INTEGER,
+        sent_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP
+    )''')
+    # === /HM-EOD-REPORT-2026-07-05 ==========================================
+
     c.execute('''CREATE TABLE IF NOT EXISTS watchlist_signals (
         id INTEGER PRIMARY KEY,
         player_id TEXT NOT NULL REFERENCES ai_players(id),
