@@ -134,7 +134,14 @@ def call_gemini(prompt: str, system: str = "", timeout: int = 90) -> str:
 
 
 def _ollama_fallback(prompt: str, system: str = "") -> str:
-    """Call local Ollama qwen3:14b as fallback."""
+    """Call local Ollama qwen3:14b as fallback.
+
+    HM-TUNING-CREW-REPAIR-2026-07-06: previously, a non-2xx HTTP response or
+    an empty response body fell through silently to `return ""` -- the same
+    disease as engine.crew.weekly_tuning_crew._ollama(), just in the Gemini
+    fallback path specifically. A caller (e.g. Agent 2 of the weekly tuning
+    crew) getting back "" now knows it was a real failure, not "nothing to
+    say"."""
     import requests
     payload = {"model": _OLLAMA_MODEL, "prompt": prompt, "stream": False}
     if system:
@@ -142,7 +149,12 @@ def _ollama_fallback(prompt: str, system: str = "") -> str:
     try:
         r = requests.post(f"{_OLLAMA_URL}/api/generate", json=payload, timeout=120)
         if r.ok:
-            return r.json().get("response", "").strip()
+            resp = r.json().get("response", "").strip()
+            if not resp:
+                console.log(f"[red]Ollama fallback returned an empty response body "
+                            f"(model={_OLLAMA_MODEL}, HTTP {r.status_code})")
+            return resp
+        console.log(f"[red]Ollama fallback failed: HTTP {r.status_code} {r.text[:200]!r}")
     except Exception as e:
         console.log(f"[red]Ollama fallback error: {e}")
     return ""

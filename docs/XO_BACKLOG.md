@@ -70,6 +70,82 @@ instead of maintaining two divergent definitions of "real error." Until then,
 (different filters), not a bug.
 
 ---
+## 🟢 HM-TUNING-CREW-REPAIR — SHIPPED 2026-07-06 (from the degraded 2026-07-05 21:30 run)
+
+Tonight's 21:30 tuning-crew read surfaced two silent LLM-agent failures, both
+now fixed and tested.
+
+**Agent 1 (Fleet Performance Officer) scored 0 models, no error logged.**
+Root-caused by reproducing the exact prompt live: `engine.crew.
+weekly_tuning_crew._ollama()` had `if r.ok: return r.json()...` with no
+`else` — any non-2xx HTTP response (plausible under the heavy concurrent
+Ollie-GPU load from the ~30 other jobs also firing at/near 21:30, per the
+scheduler dump) fell through to a silent `return ""`, and an empty/
+unparseable response upstream just produced "Scored 0 models" with zero
+trace of why. Reproducing the real prompt against real data (79 active
+agents fed into `spam_rates`, but only 4 with trade activity actually go
+into the LLM prompt — the prompt itself was never large) parsed fine most
+of the time, confirming this is an intermittent transport/response failure,
+not a broken prompt. **Fixed:** `_ollama()` now logs loudly (`[ALERT]`) on a
+non-2xx response and on an empty response body. `run_weekly_tuning()` now
+fires a `send_alert()` (ntfy, `tuning_crew_zero_scored`) whenever
+`scores_saved == 0` AND real trade activity existed that week — gated so a
+genuine zero-trade week doesn't false-alarm.
+
+**Agent 2 (Fleet Admiral / Gemini) — `ModuleNotFoundError: No module named
+'google.generativeai'`.** `GEMINI_API_KEY` was already configured and the
+package installs cleanly (`google-generativeai==0.8.6`) — installed it,
+verified a real end-to-end Gemini call succeeds now. **Caveat the Admiral
+should weigh:** the package prints its own `FutureWarning` — *"All support
+for the `google.generativeai` package has ended… switch to `google.genai`."*
+It works today but will never be patched again. The existing
+`_ollama_fallback()` design (already falls back to local Ollama on any
+Gemini error, tested and working) means the system was never truly "half-
+dead" architecturally — only the specific combination of missing package +
+(likely) the SAME `_ollama_fallback` silent-failure bug striking twice in a
+row explains tonight's 0 adjustments. Fixed the fallback's silent failure
+too (`engine.gemini_free_tier._ollama_fallback()`, same pattern as `_ollama()`
+above). **Important discovery changing this decision:** `requirements.txt`
+(the repo's own manifest) already lists `google-genai>=1.0.0` — the MODERN,
+non-deprecated package — not `google-generativeai`. Neither was actually
+installed in this venv before tonight (checked: `google-genai` isn't present
+either). This means the project's own stated intent was already the modern
+SDK; `gemini_free_tier.py`'s code just never got migrated to match, and this
+venv was never fully synced to `requirements.txt` in the first place. **So
+the real fix isn't "install the old package" (what I did to get Agent 2
+working again tonight) vs. "retire Gemini" — it's migrating `call_gemini()`
+to the `google.genai` API that the repo already declared it wants.** That's
+a real code change (different client API surface), not a pip install, so
+not done tonight — flagging so the decision isn't made on the "install vs.
+retire" framing alone. Also: the old-package install downgraded `protobuf`
+7.34.1→5.29.6 in this venv — verified no regression (`alpaca-py` + full test
+suite green after), but `requirements.ollie.txt` still pins
+`protobuf==7.34.1`, so this venv and that file now disagree; not reconciled.
+Working today either way (verified a real end-to-end Gemini call succeeded
+on the old package) — this is about the durable fix, not an active outage.
+
+Also added the same loud-empty-loop guard to Agent 2's promotion-parsing
+block (`adj_saved == 0` with real scores to work from → alert), gated to
+not double-alert when Agent 1 already failed upstream.
+
+13 new tests, all passing (`tests/test_weekly_tuning_crew_wiring.py`'s
+`OllamaLoudFailureTests`/`ZeroScoreZeroAdjustmentGuardTests`,
+`tests/test_gemini_free_tier.py`).
+
+**Ticketed, not fixed — `database is locked` contention on
+`alert_channels.save_setting`:** ~5 occurrences during the 21:33-21:36
+window (heavy concurrent job load, same window as the above). `alert_channels
+._conn()` already uses `timeout=20`; `trader.db` is already WAL-mode
+file-wide (confirmed via `main.py`'s own boot log), so this isn't a missing-
+WAL problem — it's genuine multi-writer contention exceeding 20s under peak
+concurrent scheduler load. **Low real severity**: `_save_setting` only
+persists the alerts-enabled toggle/email address, rarely-changing config,
+not trade data — a failed write here just means a stale setting stays in
+memory one cycle longer. Worth a look (whether OTHER, higher-stakes writes
+hit the same contention during the same busy window) but not urgent enough
+to interrupt anything for.
+
+---
 ## 🔵 HM-OLLIE-MACHINE-KILLGATE — filed 2026-07-05 (HM-ROSTER-RATIONALIZE follow-up)
 
 `ollie-machine` ("Ollie Machine", rule-based/convergence-2of4, `halt_mode='active'`)

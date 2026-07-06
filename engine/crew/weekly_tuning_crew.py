@@ -34,15 +34,26 @@ def _conn():
 
 
 def _ollama(prompt, system="", model=None):
+    """HM-TUNING-CREW-REPAIR-2026-07-06: previously, a non-2xx HTTP response
+    fell through silently to `return ""` -- no log line, no alert. Caught
+    live: tonight's 2026-07-05 21:30 run scored 0 models with zero trace of
+    why (likely Ollie GPU contention from the many other jobs also firing at
+    21:30). A caller that gets back "" now knows it was a real failure, not
+    "the model had nothing to say"."""
     payload = {"model": model or OLLAMA_MODEL, "prompt": prompt, "stream": False}
     if system:
         payload["system"] = system
     try:
         r = requests.post(f"{OLLAMA_URL}/api/generate", json=payload, timeout=120)
         if r.ok:
-            return r.json().get("response", "").strip()
+            resp = r.json().get("response", "").strip()
+            if not resp:
+                console.log(f"[red][ALERT] Ollama returned an empty response body "
+                            f"(model={model or OLLAMA_MODEL}, HTTP {r.status_code})")
+            return resp
+        console.log(f"[red][ALERT] Ollama call failed: HTTP {r.status_code} {r.text[:200]!r}")
     except Exception as e:
-        console.log(f"[red]Ollama error: {e}")
+        console.log(f"[red][ALERT] Ollama error: {e}")
     return ""
 
 
@@ -352,6 +363,32 @@ def run_weekly_tuning():
     except (json.JSONDecodeError, Exception) as e:
         console.log(f"[yellow]  Score parsing failed: {e}")
 
+    # HM-TUNING-CREW-REPAIR-2026-07-06: a scorer that scores nobody must say
+    # so loudly, not via the same routine info line as a normal 0-agent week.
+    # Gated on week_trades being non-empty -- if genuinely nobody traded this
+    # week, 0 scored is correct and not worth an alert.
+    if scores_saved == 0 and week_trades:
+        console.log(
+            f"[bold red][ALERT] Agent 1 scored ZERO models this run despite "
+            f"{len(week_trades)} agent(s) with trade activity this week -- "
+            f"Ollama response unusable: {scores_output[:300]!r}"
+        )
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=(
+                    f"Weekly Tuning Crew Agent 1 (Fleet Performance Officer) scored 0 "
+                    f"models despite {len(week_trades)} agent(s) trading this week -- "
+                    f"likely a bad/empty Ollama response. Check logs.weekly_tuning_crew."
+                ),
+                level=AlertLevel.WARNING,
+                alert_type="tuning_crew_zero_scored",
+                title="⚠️ Tuning Crew: Agent 1 scored nobody",
+                rate_limit_secs=86400,
+            )
+        except Exception:
+            pass
+
     console.log(f"[green]  Scored {scores_saved} models")
 
     # ── Agent 2: Fleet Admiral — Promote/Demote ──
@@ -391,6 +428,32 @@ def run_weekly_tuning():
             conn3.close()
     except (json.JSONDecodeError, Exception) as e:
         console.log(f"[yellow]  Promotion parsing failed: {e}")
+
+    # HM-TUNING-CREW-REPAIR-2026-07-06: same loud-empty-loop guard as Agent 1.
+    # Gated on score_map being non-empty -- if Agent 1 already scored nobody,
+    # Agent 2 having nothing to promote is a downstream consequence of that
+    # already-alerted failure, not a new one worth a second alert.
+    if adj_saved == 0 and score_map:
+        console.log(
+            f"[bold red][ALERT] Agent 2 (Fleet Admiral) produced ZERO adjustments "
+            f"despite {len(score_map)} scored model(s) -- response unusable: "
+            f"{promo_output[:300]!r}"
+        )
+        try:
+            from engine.alert_channels import send_alert, AlertLevel
+            send_alert(
+                message=(
+                    f"Weekly Tuning Crew Agent 2 (Fleet Admiral) produced 0 adjustments "
+                    f"despite {len(score_map)} scored model(s) -- likely a bad/empty "
+                    f"Gemini/Ollama response. Check logs.weekly_tuning_crew."
+                ),
+                level=AlertLevel.WARNING,
+                alert_type="tuning_crew_zero_adjustments",
+                title="⚠️ Tuning Crew: Agent 2 promoted nobody",
+                rate_limit_secs=86400,
+            )
+        except Exception:
+            pass
 
     console.log(f"[green]  {adj_saved} fleet adjustments saved")
 

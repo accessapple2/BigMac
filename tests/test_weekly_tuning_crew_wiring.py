@@ -136,5 +136,134 @@ class RunWeeklyTuningIncumbentWiringTests(unittest.TestCase):
         self.assertIn('"incumbent_auditions"', src)
 
 
+class OllamaLoudFailureTests(unittest.TestCase):
+    """HM-TUNING-CREW-REPAIR-2026-07-06: _ollama() must log loudly instead
+    of silently returning "" on a bad or empty response -- the exact,
+    reproduced root cause of tonight's 2026-07-05 21:30 zero-score run
+    (verified live: the real Agent-1 prompt against real data parses fine
+    most of the time, so this is an intermittent HTTP/empty-body failure,
+    not a fundamentally broken prompt)."""
+
+    @patch("engine.crew.weekly_tuning_crew.requests.post")
+    def test_non_ok_response_logs_alert(self, mock_post):
+        mock_post.return_value.ok = False
+        mock_post.return_value.status_code = 503
+        mock_post.return_value.text = "Service Unavailable"
+        with patch.object(wtc.console, "log") as mock_log:
+            result = wtc._ollama("test prompt")
+        self.assertEqual(result, "")
+        logged = " ".join(str(c) for c in mock_log.call_args_list)
+        self.assertIn("ALERT", logged)
+        self.assertIn("503", logged)
+
+    @patch("engine.crew.weekly_tuning_crew.requests.post")
+    def test_empty_response_body_logs_alert(self, mock_post):
+        mock_post.return_value.ok = True
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"response": ""}
+        with patch.object(wtc.console, "log") as mock_log:
+            result = wtc._ollama("test prompt")
+        self.assertEqual(result, "")
+        logged = " ".join(str(c) for c in mock_log.call_args_list)
+        self.assertIn("ALERT", logged)
+        self.assertIn("empty response", logged)
+
+    @patch("engine.crew.weekly_tuning_crew.requests.post")
+    def test_normal_response_does_not_alert(self, mock_post):
+        mock_post.return_value.ok = True
+        mock_post.return_value.status_code = 200
+        mock_post.return_value.json.return_value = {"response": "real content"}
+        with patch.object(wtc.console, "log") as mock_log:
+            result = wtc._ollama("test prompt")
+        self.assertEqual(result, "real content")
+        logged = " ".join(str(c) for c in mock_log.call_args_list)
+        self.assertNotIn("ALERT", logged)
+
+
+class ZeroScoreZeroAdjustmentGuardTests(unittest.TestCase):
+    """Integration test of the actual guard logic inside run_weekly_tuning():
+    when Ollama/Gemini return unusable output despite real trade activity to
+    score, a loud alert must fire -- not just the routine "Scored 0 models"
+    info line that gave zero trace of why on the real 2026-07-05 21:30 run."""
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("""CREATE TABLE ai_players (
+            id TEXT PRIMARY KEY, display_name TEXT, is_active INTEGER DEFAULT 1,
+            is_paused INTEGER DEFAULT 0, provider TEXT, model_id TEXT
+        )""")
+        conn.execute("""CREATE TABLE daily_lessons (
+            id INTEGER PRIMARY KEY, player_id TEXT, grade TEXT, symbol TEXT,
+            pnl REAL, lesson TEXT, date TEXT
+        )""")
+        conn.execute("""CREATE TABLE trades (
+            id INTEGER PRIMARY KEY, player_id TEXT, action TEXT, executed_at TEXT,
+            realized_pnl REAL, execution_type TEXT DEFAULT 'simulated', alpaca_order_id TEXT
+        )""")
+        conn.execute("""CREATE TABLE model_scores (
+            id INTEGER PRIMARY KEY, player_id TEXT, period TEXT, date TEXT,
+            win_rate REAL, regime_alignment REAL, confidence_calibration REAL,
+            overall_score REAL, spam_rate_pct REAL, data_window TEXT
+        )""")
+        conn.execute("""CREATE TABLE model_adjustments (
+            id INTEGER PRIMARY KEY, player_id TEXT, adjustment_type TEXT, old_value TEXT,
+            new_value TEXT, reason TEXT, source TEXT, effective_date TEXT
+        )""")
+        conn.execute("""CREATE TABLE signals (
+            id INTEGER PRIMARY KEY, player_id TEXT, signal TEXT, created_at TEXT
+        )""")
+        conn.execute("""CREATE TABLE options_trades (
+            id INTEGER PRIMARY KEY, book_tag TEXT DEFAULT 'fleet', agent_id TEXT,
+            structure TEXT, status TEXT, entry_date TEXT, pnl REAL, broker_order_id TEXT
+        )""")
+        conn.execute("""CREATE TABLE csp_wheel_scan_log (
+            id INTEGER PRIMARY KEY, scanned_at TEXT, outcome TEXT
+        )""")
+        conn.execute(
+            "INSERT INTO ai_players (id, display_name, is_active) VALUES ('qwen3-8b-flash', 'Worf', 1)"
+        )
+        conn.execute(
+            "INSERT INTO trades (player_id, action, executed_at, realized_pnl) "
+            "VALUES ('qwen3-8b-flash', 'SELL', datetime('now', '-1 day'), 10.0)"
+        )
+        conn.commit()
+        conn.close()
+        self._db_patch = patch.object(wtc, "DB", self.db_path)
+        self._db_patch.start()
+
+    def tearDown(self):
+        self._db_patch.stop()
+        os.remove(self.db_path)
+
+    def test_agent1_zero_score_with_real_trades_alerts(self):
+        with patch.object(wtc, "_ollama", return_value=""), \
+             patch.object(wtc, "_gemini", return_value=""), \
+             patch("engine.crew.weekly_tuning_crew._run_auditions",
+                   return_value={"candidates_scored": 0, "pass": 0, "fail": 0, "insufficient_data": 0, "results": []}), \
+             patch("engine.crew.audition_tracking.track_incumbent_auditions", return_value=[]), \
+             patch("engine.alert_channels.send_alert") as mock_alert:
+            wtc.run_weekly_tuning()
+        alert_types = [c.kwargs.get("alert_type") for c in mock_alert.call_args_list]
+        self.assertIn("tuning_crew_zero_scored", alert_types)
+
+    def test_no_trade_activity_does_not_false_alarm(self):
+        # Empty trades table -- 0 scored is CORRECT here, not a failure.
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("DELETE FROM trades")
+        conn.commit()
+        conn.close()
+        with patch.object(wtc, "_ollama", return_value=""), \
+             patch.object(wtc, "_gemini", return_value=""), \
+             patch("engine.crew.weekly_tuning_crew._run_auditions",
+                   return_value={"candidates_scored": 0, "pass": 0, "fail": 0, "insufficient_data": 0, "results": []}), \
+             patch("engine.crew.audition_tracking.track_incumbent_auditions", return_value=[]), \
+             patch("engine.alert_channels.send_alert") as mock_alert:
+            wtc.run_weekly_tuning()
+        alert_types = [c.kwargs.get("alert_type") for c in mock_alert.call_args_list]
+        self.assertNotIn("tuning_crew_zero_scored", alert_types)
+
+
 if __name__ == "__main__":
     unittest.main()
