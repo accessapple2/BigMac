@@ -21,6 +21,7 @@ import math
 import os
 import re
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 import time
 from datetime import date, datetime, timedelta
@@ -55,7 +56,7 @@ TIGHTEN_POST_COOLDOWN = 900  # 15 minutes between TIGHTEN posts per position
 # ---------------------------------------------------------------------------
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(TRADER_DB, check_same_thread=False, timeout=30)
+    c = get_conn(TRADER_DB, check_same_thread=False, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=30000")
     c.row_factory = sqlite3.Row
@@ -673,7 +674,7 @@ def _lookup_agent_for_option(option_symbol: str) -> str | None:
         return None
     try:
         expiry_iso = parsed["expiry_date"].isoformat()
-        with contextlib.closing(sqlite3.connect(TRADER_DB, timeout=30)) as conn:
+        with contextlib.closing(get_conn(TRADER_DB, timeout=30)) as conn:
             rows = conn.execute(
                 """SELECT agent_id, legs_json FROM options_trades
                    WHERE status = 'open' AND structure = 'single'

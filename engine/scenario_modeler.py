@@ -19,6 +19,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 import sys
 from datetime import datetime
@@ -60,7 +61,7 @@ def _conn() -> sqlite3.Connection:
             "was not renamed or moved."
         )
     # === /HM-BCE-broad ===
-    c = sqlite3.connect(TRADER_DB, check_same_thread=False, timeout=30)
+    c = get_conn(TRADER_DB, check_same_thread=False, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
     c.row_factory = sqlite3.Row
     return c

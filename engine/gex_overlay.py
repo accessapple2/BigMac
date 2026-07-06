@@ -21,6 +21,7 @@ import logging
 import math
 import os
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 import time
 from datetime import datetime
@@ -48,7 +49,7 @@ _last_regime: dict[str, str] = {}
 # ---------------------------------------------------------------------------
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(TRADER_DB, check_same_thread=False, timeout=30)
+    c = get_conn(TRADER_DB, check_same_thread=False, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=30000")
     c.row_factory = sqlite3.Row

@@ -23,6 +23,7 @@ because both run in the same uvicorn process per CLAUDE.md).
 from __future__ import annotations
 
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 import time
 from pathlib import Path
@@ -85,7 +86,7 @@ _BASE_SQL = (
 
 
 def _conn() -> sqlite3.Connection:
-    return sqlite3.connect(_DB_PATH, timeout=10)
+    return get_conn(_DB_PATH, timeout=10)
 
 
 def _query() -> list[dict]:

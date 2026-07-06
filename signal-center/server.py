@@ -297,8 +297,20 @@ def _bridge_get(endpoint, timeout=5):
 _get_session()
 
 # ── Database ────────────────────────────────────────────────────────────────
+# HM-WAL-BUSY-TIMEOUT-HYGIENE wave 1 (2026-07-06): this process is separate
+# from main.py (py3.9 Flask vs py3.14 trader) and does NOT get main.py's
+# process-wide busy_timeout monkeypatch -- every connect() here was running
+# with the bare 5s default. Route the main factory through engine.db_conn
+# (30s busy_timeout + synchronous=NORMAL) the same way other engine.* imports
+# in this file already reach across via a local sys.path insert.
+_parent = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
+if _parent not in sys.path:
+    sys.path.insert(0, _parent)
+from engine.db_conn import get_conn as _get_conn
+
+
 def get_db():
-    db = sqlite3.connect(DB_PATH)
+    db = _get_conn(DB_PATH)
     db.row_factory = sqlite3.Row
     return db
 

@@ -36,6 +36,7 @@ import json
 import logging
 import os
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 from datetime import datetime, timedelta
 from typing import Optional
@@ -110,7 +111,7 @@ _CORRELATION_PAIRS: dict[str, str] = {
 # ── DB ─────────────────────────────────────────────────────────────────────────
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(DB_PATH, timeout=30)
+    c = get_conn(DB_PATH, timeout=30)
     c.row_factory = sqlite3.Row
     return c
 

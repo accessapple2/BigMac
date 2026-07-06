@@ -22,6 +22,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 from datetime import datetime
 from typing import Optional
@@ -48,7 +49,7 @@ _SWEEP_PLAYER = "qwen3-8b-sonnet"
 # ── DB ─────────────────────────────────────────────────────────────────────────
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(DB_PATH, timeout=30)
+    c = get_conn(DB_PATH, timeout=30)
     c.row_factory = sqlite3.Row
     return c
 

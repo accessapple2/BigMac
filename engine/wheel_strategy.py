@@ -13,6 +13,7 @@ The Wheel:
 """
 import logging
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 from datetime import datetime, timedelta
 import pytz
@@ -66,7 +67,7 @@ def _latest_regime() -> str | None:
     records (same source the morning briefing reads). Fail-safe → None."""
     try:
         import sqlite3
-        conn = sqlite3.connect("data/trader.db")
+        conn = get_conn("data/trader.db")
         row = conn.execute(
             "SELECT regime FROM regime_history ORDER BY created_at DESC LIMIT 1"
         ).fetchone()
@@ -89,7 +90,7 @@ def _log_scan_outcome(outcome: str, tickers_evaluated: int = 0, positions_opened
     (performance). Never raises -- a logging failure must not break the scan.
     """
     try:
-        with contextlib.closing(sqlite3.connect(DB, timeout=10)) as db:
+        with contextlib.closing(get_conn(DB, timeout=10)) as db:
             db.execute(
                 """INSERT INTO csp_wheel_scan_log
                    (book_tag, outcome, tickers_evaluated, positions_opened,
@@ -280,7 +281,7 @@ def run_wheel_scan():
                 csp_max_loss = -(put_strike * contracts * 100)
                 csp_moneyness = round(price / put_strike, 4)  # >1 = OTM
                 try:
-                    with contextlib.closing(sqlite3.connect("data/trader.db")) as _db:
+                    with contextlib.closing(get_conn("data/trader.db")) as _db:
                         _db.execute(
                             "UPDATE options_trades SET max_loss=?, moneyness=? WHERE id=?",
                             (csp_max_loss, csp_moneyness, trade_id),
@@ -338,7 +339,7 @@ def check_wheel_assignments():
     import sqlite3
 
     try:
-        conn = sqlite3.connect("data/trader.db")
+        conn = get_conn("data/trader.db")
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT id, symbol, expiration, legs_json, entry_credit_debit "
@@ -487,7 +488,7 @@ def get_wheel_status() -> dict:
     import json
     import sqlite3
     try:
-        conn = sqlite3.connect("data/trader.db")
+        conn = get_conn("data/trader.db")
         conn.row_factory = sqlite3.Row
         rows = conn.execute(
             "SELECT id, symbol, legs_json, entry_credit_debit, expiration "

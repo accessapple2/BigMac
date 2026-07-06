@@ -12,7 +12,11 @@ it (see CLAUDE.md "Alarms must not share a failure mode with what they watch").
 
 Four checks, each alerts independently (own alert_type, own rate limit):
   1. FD count on data/trader.db (+ -wal/-shm) for the main.py PID.
-       WARNING at >60, RED_ALERT at >120.
+       WARNING at >150, RED_ALERT at >250 (Admiral-revised 2026-07-06 --
+       the original 60/120 false-fired against an observed healthy
+       140-170 plateau on day one of live sentinel data; revisit after a
+       week of real readings). Trend context (delta over time) is included
+       in the alert text either way so a firing is self-diagnosing.
   2. rikers_log heartbeat age (engine/riker_synthesis.py, cron */10).
        RED_ALERT if >25 min stale AND currently market hours.
   3. "database is locked" occurrences in trader_error.log in the last
@@ -42,8 +46,9 @@ DB_PATH = ROOT / "data" / "trader.db"
 ERROR_LOG = ROOT / "logs" / "trader_error.log"
 STATE_PATH = ROOT / "data" / ".hm_ops_sentinel_state.json"
 
-FD_WARN_THRESHOLD = 60
-FD_RED_THRESHOLD = 120
+FD_WARN_THRESHOLD = 150   # Admiral-revised 2026-07-06: observed healthy plateau
+FD_RED_THRESHOLD = 250    # 140-170 during a normal session; 60/120 false-fired daily.
+# Revisit after a week of sentinel data once a real baseline is established.
 HEARTBEAT_STALE_MIN = 25
 LOCK_WINDOW_MIN = 10
 QUEUE_PENDING_WARN = 3000

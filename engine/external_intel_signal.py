@@ -62,6 +62,7 @@ from __future__ import annotations
 
 import logging
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -131,7 +132,7 @@ def collect_by_ticker() -> dict[str, dict[str, Any]]:
             ORDER BY submitted_at DESC
         """
 
-        with contextlib.closing(sqlite3.connect(str(DB_PATH))) as conn:
+        with contextlib.closing(get_conn(str(DB_PATH))) as conn:
             conn.row_factory = sqlite3.Row
             rows = conn.execute(query, (cutoff, *PROMOTED_SOURCES)).fetchall()
 

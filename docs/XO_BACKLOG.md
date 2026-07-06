@@ -6509,3 +6509,89 @@ Verified live against the 13:21:30 bundled restart (PID 8170):
 - **P2.6 confirmed** — `/api/account/equity-curve` returned correct data
   (17 dates, +1.49% account) on a cold post-restart cache, single Alpaca
   call pair, no 429.
+
+---
+## 🟢 HM-WAL-BUSY-TIMEOUT-HYGIENE — wave 1 SHIPPED 2026-07-06 (Admiral-approved, phased)
+
+Admiral ruling: build `engine/db_conn.py` first, migrate hot paths (engine,
+signal-center, dashboard) as wave 1, run one full trading day clean, then
+sweep the remaining call sites as wave 2. Full backup before wave 1. Do not
+touch all 602 sites in one pass. Also ruled on the FD sentinel threshold
+(P1.1 above): keep 120 as a concept but raise the numbers — warn=150,
+red=250 — since the observed healthy plateau today was 140-170; revisit
+after a week of real sentinel data.
+
+**Pre-wave-1 backup:** `data/backups/trader_pre_wal_migration_20260706_153104.db`
+(SHA256 `144b9c17...`) + `data/backups/signals_pre_wal_migration_20260706_153104.db`
+(SHA256 `b6ec39ff...`), taken before touching anything.
+
+**`engine/db_conn.py`** — one function, `get_conn(db_path=None, *, timeout=30,
+check_same_thread=True)`. Sets `busy_timeout=30000` (already applied process-
+wide inside main.py via its own `sqlite3.connect` monkeypatch at
+`main.py:69-74` — this helper sets it again anyway so callers OUTSIDE that
+process, i.e. signal-center's separate py3.9 Flask process, aren't silently
+depending on a patch that only exists in one of the two processes touching
+these databases) + `synchronous=NORMAL` (the actual gap — not patched
+anywhere, confirmed set explicitly in only 5 files repo-wide before this).
+Does NOT re-set `journal_mode` (already durable on the DB file).
+
+**Wave 1 scope (23 engine files + dashboard + signal-center's primary
+factory):** the same 24-file list the FD-leak sweep already touched this
+morning, minus `scripts/build_corpus_from_trader_db.py` (a manual/occasional
+corpus-building script, not a hot-path scanner — deliberately deferred to
+wave 2, not a hot path by the same "runs on every cycle" definition the rest
+of this list uses) — `deep_scan.py`, `bridge_vote.py`, `battle_station.py`
+(both its `_conn()` and one extra inline connect site), `volume_baselines.py`,
+`strategy_rotator.py`, `volume_scanner.py`, `dayblade_scanner.py`,
+`rebalancer.py`, `gex_overlay.py`, `full_universe.py`, `scenario_modeler.py`,
+`generated_assets.py`, `tax_harvester.py`, `portfolio_optimizer.py`,
+`cash_manager.py`, `drift_rebalancer.py`, `risk_var.py`, `universe.py`,
+`pipeline.py`, `sub_portfolio.py`, `wheel_strategy.py` (5 sites, no shared
+factory), `external_intel_signal.py`. Plus `dashboard/app.py`'s shared
+`_conn()` — dashboard has **30 other** direct `sqlite3.connect()` sites
+scattered through the file that were NOT part of the FD-leak sweep's list
+and are NOT touched here; they're wave 2. Plus signal-center's `get_db()`
+(36 call sites feeding off it — the file's actual hot-path factory; 11 other
+scattered direct-connect sites there are also wave 2).
+
+**Migration mechanics:** wrote `scripts/hm_db_conn_migration_wave1.py`
+(dry-run by default, `--apply` to write) for the 20 files with a single
+`_conn()` definition — regex-isolates the `_conn()` function body specifically
+(so it can never touch an unrelated connect elsewhere in the same file,
+e.g. battle_station.py's second site) and swaps only the
+`sqlite3.connect(...)` call to `get_conn(...)`, preserving args
+(`check_same_thread`, `timeout=N` — including `universe.py`'s non-default
+`timeout=10`, verified passed through unchanged) and everything else
+(`row_factory`, the redundant-but-harmless `PRAGMA journal_mode=WAL` lines,
+`HM-BCE-broad` file-existence guards) untouched. Reviewed the full dry-run
+diff for all 20 files before applying — every diff was exactly a 2-line
+change (one import line, one connect-call line). The remaining files
+(`wheel_strategy.py`'s 5 bare sites, `battle_station.py`'s extra site,
+`external_intel_signal.py`, `dashboard/app.py`'s `_conn()`,
+`signal-center/server.py`'s `get_db()`) were hand-edited individually —
+same one-line-swap pattern, reviewed each.
+
+**Verification:** all touched files `py_compile` clean (engine/dashboard
+under the trader's Python 3.14, signal-center/server.py additionally
+verified under its actual production interpreter, `venv/bin/python3`
+== 3.9.6). Confirmed live post-restart: `engine.deep_scan._conn()` reports
+`PRAGMA synchronous` = `1` (NORMAL) and `busy_timeout` = `30000`.
+
+**Two restarts this session to get wave 1 fully live** (both clean, WAL
+`0|0|0`, positions hash byte-identical `3cddd612...` 48 rows across both,
+`pause_all`/`fallbacks_enabled` unchanged 0/0, zero lock errors either
+time): the 13:21:30 restart (Kirk fix + FD-leak-sweep-era files already
+in flight) predates these wave-1 edits, so a second restart at 15:39:17 was
+needed to actually load wave 1 into the running main.py process. Signal-
+center was separately killed+relaunched at ~15:32 (PID 19919→18747) since
+it's a fully independent process — confirmed clean via `/api/sources/health`
+returning correct data (including the `DORMANT` state from P2.5) with zero
+new errors in `logs/signal-center.log`.
+
+**Not done (deliberately, per the Admiral's phasing):** the ~578 remaining
+call sites repo-wide (dashboard's other 30, signal-center's other 11,
+`scripts/build_corpus_from_trader_db.py`, everything outside this list).
+Wave 2 is gated on "one full trading day clean" — tomorrow, 2026-07-07
+(Tuesday), is the first full live trading day under wave 1; revisit wave 2
+after that reads clean (no new lock errors, no regression in the P1.1
+sentinel's FD/lock-error checks).

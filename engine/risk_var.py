@@ -23,6 +23,7 @@ import logging
 import math
 import os
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 from datetime import datetime, timedelta
 from typing import Optional
@@ -78,7 +79,7 @@ _DEFAULT_VIX_BETA = 1.2
 # ── DB ─────────────────────────────────────────────────────────────────────────
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(DB_PATH, timeout=30)
+    c = get_conn(DB_PATH, timeout=30)
     c.row_factory = sqlite3.Row
     return c
 

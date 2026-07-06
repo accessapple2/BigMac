@@ -19,6 +19,7 @@ import json
 import logging
 import os
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 import threading
 import time
@@ -141,7 +142,7 @@ _VOTE_LOCK = threading.Lock()
 # ---------------------------------------------------------------------------
 
 def _conn() -> sqlite3.Connection:
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = get_conn(DB_PATH, timeout=30)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA journal_mode=WAL")
     conn.execute("PRAGMA busy_timeout=30000")

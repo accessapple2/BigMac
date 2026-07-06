@@ -28,6 +28,7 @@ import asyncio
 import json
 import logging
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 import sys
 import time
@@ -55,7 +56,7 @@ logger = logging.getLogger("pipeline")
 # ---------------------------------------------------------------------------
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(TRADER_DB, check_same_thread=False, timeout=30)
+    c = get_conn(TRADER_DB, check_same_thread=False, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
     c.row_factory = sqlite3.Row
     return c

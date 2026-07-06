@@ -10,6 +10,7 @@ import logging
 import os
 import re
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 from datetime import datetime, timedelta
 from typing import Optional
@@ -31,7 +32,7 @@ MAX_HOLDINGS = 25
 # ── DB ─────────────────────────────────────────────────────────────────────────
 
 def _conn():
-    return sqlite3.connect(DB_PATH, timeout=30)
+    return get_conn(DB_PATH, timeout=30)
 
 
 def _init_table():

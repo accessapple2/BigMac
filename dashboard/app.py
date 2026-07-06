@@ -32,6 +32,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.staticfiles import StaticFiles
 from fastapi.responses import FileResponse, HTMLResponse, RedirectResponse, JSONResponse, Response
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 import json
 import os
@@ -1745,7 +1746,7 @@ threading.Thread(target=_session_cleanup_loop, daemon=True).start()
 
 
 def _conn():
-    c = sqlite3.connect(DB, check_same_thread=False, timeout=30)
+    c = get_conn(DB, check_same_thread=False, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
     c.execute("PRAGMA busy_timeout=30000")
     c.row_factory = sqlite3.Row

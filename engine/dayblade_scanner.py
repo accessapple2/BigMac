@@ -10,6 +10,7 @@ from __future__ import annotations
 import logging
 import os
 import sqlite3
+from engine.db_conn import get_conn
 import contextlib
 import time
 from datetime import datetime, date
@@ -356,7 +357,7 @@ def get_short_candidates(vix: float = 20.0, bridge_consensus: float = 0.0) -> li
 # ---------------------------------------------------------------------------
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(DB, check_same_thread=False, timeout=30)
+    c = get_conn(DB, check_same_thread=False, timeout=30)
     c.execute("PRAGMA journal_mode=WAL")
     c.row_factory = sqlite3.Row
     return c
