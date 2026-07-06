@@ -133,6 +133,19 @@ def _run_auditions(conn) -> dict:
 
         verdict = "insufficient_data"
         detail = {"clean_signals_in_db": n}
+        if not n:
+            # HM-SWEEP-SIGNALS-TABLE-BLIND-SPOT fix (2026-07-05): signals=0
+            # doesn't mean "no data" for candidates that route through
+            # options_trades or a non-standard pipeline (confirmed live:
+            # neo-matrix, cto-grok42, options-sosnoff). Check real trade
+            # history before giving up. HM-EDGE-PROVENANCE (2026-07-05):
+            # this now requires broker-execution evidence, not just any
+            # clean trade -- an internal-sim trade doesn't count either.
+            from engine.crew.audition_tracking import score_bench_candidate_from_real_trades
+            real_result = score_bench_candidate_from_real_trades(conn, pid, cutoff)
+            if real_result:
+                verdict = real_result["verdict"]
+                detail.update(real_result["detail"])
         if n:
             try:
                 bt._vix_cache = {}
@@ -432,12 +445,38 @@ def run_weekly_tuning():
         f"{audition_summary['insufficient_data']} insufficient_data"
     )
 
+    # ── Agent 5: Incumbent Audition Tracker ──
+    # HM-INCUMBENT-AUDITION-TRACKER-2026-07-05: _run_auditions() above only
+    # scores halt_mode != 'active' bench candidates -- it never touches the
+    # two currently-active ACTIVE-AUDITIONING seats, since they already hold
+    # seats. This closes that gap. Both are SUSPENDED as of HM-EDGE-
+    # PROVENANCE (2026-07-05) -- see engine.crew.audition_tracking module
+    # docstring for why.
+    console.log("[cyan]  Agent 5: Incumbent Audition Tracker...")
+    conn7 = _conn()
+    try:
+        from engine.crew.audition_tracking import track_incumbent_auditions
+        incumbent_auditions = track_incumbent_auditions(conn7)
+    finally:
+        conn7.close()
+    for entry in incumbent_auditions:
+        if entry.get("suspended"):
+            console.log(
+                f"[yellow]  {entry['player_id']}: SUSPENDED -- "
+                f"{entry['clean_guarded_trades']}/{entry['target']} broker-executed"
+            )
+        else:
+            console.log(
+                f"[green]  {entry['player_id']}: {entry['clean_guarded_trades']}/{entry['target']}"
+            )
+
     return {
         "status": "complete",
         "models_scored": scores_saved,
         "adjustments_saved": adj_saved,
         "scores": score_map,
         "auditions": audition_summary,
+        "incumbent_auditions": incumbent_auditions,
     }
 
 

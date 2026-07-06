@@ -1,0 +1,140 @@
+"""HM-SWEEP-SIGNALS-TABLE-BLIND-SPOT + HM-INCUMBENT-AUDITION-TRACKER wiring
+tests, against the actual weekly_tuning_crew.py integration (not the
+standalone engine.crew.audition_tracking module, which has its own full
+test coverage in tests/test_incumbent_audition_tracker.py).
+
+Wired in at the 2026-07-05 21:30 MST boundary (docs/XO_BACKLOG.md
+HM-GATE-RESTART-HOLD) -- the scheduler's first call to this module already
+fired at 21:30:00 with the pre-wiring code (confirmed via trader.log), so
+this file's own first real import happens next Sunday, not tonight.
+"""
+from __future__ import annotations
+
+import os
+import sqlite3
+import tempfile
+import unittest
+from unittest.mock import patch
+
+import engine.crew.weekly_tuning_crew as wtc
+
+
+def _make_test_db(path: str) -> None:
+    conn = sqlite3.connect(path)
+    conn.execute("""CREATE TABLE ai_players (
+        id TEXT PRIMARY KEY, is_human INTEGER DEFAULT 0, crew_role TEXT DEFAULT 'active',
+        halt_mode TEXT DEFAULT 'active'
+    )""")
+    conn.execute("CREATE TABLE signals (id INTEGER PRIMARY KEY, player_id TEXT, signal TEXT, created_at TEXT)")
+    conn.execute("""CREATE TABLE trades (
+        id INTEGER PRIMARY KEY, player_id TEXT, action TEXT, executed_at TEXT,
+        realized_pnl REAL, execution_type TEXT DEFAULT 'simulated', alpaca_order_id TEXT
+    )""")
+    conn.execute("""CREATE TABLE options_trades (
+        id INTEGER PRIMARY KEY, book_tag TEXT DEFAULT 'fleet', agent_id TEXT,
+        structure TEXT, status TEXT, entry_date TEXT, pnl REAL, broker_order_id TEXT
+    )""")
+    conn.execute("""CREATE TABLE csp_wheel_scan_log (
+        id INTEGER PRIMARY KEY, scanned_at TEXT, outcome TEXT
+    )""")
+    conn.execute("""CREATE TABLE model_adjustments (
+        id INTEGER PRIMARY KEY, player_id TEXT, adjustment_type TEXT, old_value TEXT,
+        new_value TEXT, reason TEXT, source TEXT, effective_date TEXT
+    )""")
+    conn.commit()
+    conn.close()
+
+
+class RunAuditionsWiringTests(unittest.TestCase):
+    """Confirms _run_auditions() actually calls into
+    score_bench_candidate_from_real_trades() when signals=0, end to end."""
+
+    def setUp(self):
+        fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        _make_test_db(self.db_path)
+        self.conn = sqlite3.connect(self.db_path)
+        self.conn.row_factory = sqlite3.Row
+
+    def tearDown(self):
+        self.conn.close()
+        os.remove(self.db_path)
+
+    def _add_candidate(self, pid, halt_mode="full", crew_role="active"):
+        self.conn.execute(
+            "INSERT INTO ai_players (id, is_human, crew_role, halt_mode) VALUES (?, 0, ?, ?)",
+            (pid, crew_role, halt_mode),
+        )
+        self.conn.commit()
+
+    def test_zero_signals_zero_real_activity_stays_insufficient_data(self):
+        self._add_candidate("cto-grok42")
+        result = wtc._run_auditions(self.conn)
+        r = next(x for x in result["results"] if x["player_id"] == "cto-grok42")
+        self.assertEqual(r["verdict"], "insufficient_data")
+        self.assertNotIn("measured_via", r)
+
+    def test_zero_signals_simulated_trades_stay_insufficient_data(self):
+        # HM-EDGE-PROVENANCE: internal-sim trades don't count even though
+        # they're real rows in the trades table.
+        self._add_candidate("cto-grok42")
+        for i in range(5):
+            self.conn.execute(
+                "INSERT INTO trades (player_id, action, executed_at, realized_pnl, "
+                "execution_type, alpaca_order_id) VALUES (?, 'SELL', ?, ?, 'simulated', NULL)",
+                ("cto-grok42", f"2026-06-{10+i:02d}", 10.0),
+            )
+        self.conn.commit()
+        result = wtc._run_auditions(self.conn)
+        r = next(x for x in result["results"] if x["player_id"] == "cto-grok42")
+        self.assertEqual(r["verdict"], "insufficient_data")
+        self.assertNotIn("measured_via", r)
+
+    def test_zero_signals_broker_executed_trades_get_measured(self):
+        self._add_candidate("cto-grok42")
+        for i in range(3):
+            self.conn.execute(
+                "INSERT INTO trades (player_id, action, executed_at, realized_pnl, "
+                "execution_type, alpaca_order_id) VALUES (?, 'SELL', ?, ?, 'alpaca_paper', ?)",
+                ("cto-grok42", f"2026-06-{10+i:02d}", 10.0, f"order-{i}"),
+            )
+        self.conn.commit()
+        result = wtc._run_auditions(self.conn)
+        r = next(x for x in result["results"] if x["player_id"] == "cto-grok42")
+        self.assertEqual(r["measured_via"], "broker_executed_trades_and_or_options_trades")
+        self.assertEqual(r["real_trades_count"], 3)
+
+    def test_signals_present_path_unaffected(self):
+        """When signals > 0, the original backtest-replay path still runs --
+        this wiring must not interfere with the pre-existing behavior."""
+        self._add_candidate("some-candidate")
+        for i in range(5):
+            self.conn.execute(
+                "INSERT INTO signals (player_id, signal, created_at) VALUES (?, 'BUY', ?)",
+                ("some-candidate", f"2026-06-{10+i:02d}"),
+            )
+        self.conn.commit()
+        with patch("engine.backtester.backtest_player", return_value={"stats": {}, "signals_tested": 0}):
+            result = wtc._run_auditions(self.conn)
+        r = next(x for x in result["results"] if x["player_id"] == "some-candidate")
+        self.assertEqual(r["clean_signals_in_db"], 5)
+        self.assertNotIn("measured_via", r)  # took the signals path, not the real-trades fallback
+
+
+class RunWeeklyTuningIncumbentWiringTests(unittest.TestCase):
+    """Confirms run_weekly_tuning()'s output includes incumbent_auditions,
+    without invoking the full LLM-calling pipeline (agents 1-3)."""
+
+    def test_incumbent_auditions_key_present_in_output_shape(self):
+        # Full run_weekly_tuning() makes real Ollama/Gemini calls -- out of
+        # scope for a unit test. Verify the wiring source directly instead:
+        # the function must reference track_incumbent_auditions and return
+        # it under "incumbent_auditions".
+        import inspect
+        src = inspect.getsource(wtc.run_weekly_tuning)
+        self.assertIn("track_incumbent_auditions", src)
+        self.assertIn('"incumbent_auditions"', src)
+
+
+if __name__ == "__main__":
+    unittest.main()

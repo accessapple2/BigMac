@@ -131,13 +131,37 @@ class CspExposureComputationTests(unittest.TestCase):
 
 class WheelScanGateTests(unittest.TestCase):
     """run_wheel_scan() gate behavior for both TROI_CSP_CAP_GATE states.
-    Everything else mocked -- no live DB, no network, no real opens."""
+    Everything else mocked -- no live DB, no network, no real opens.
+
+    HM-CSP-WHEEL-SCAN-LOG-2026-07-05: run_wheel_scan() now writes a
+    csp_wheel_scan_log row via _log_scan_outcome() on every exit path.
+    ws.DB must be patched to an isolated temp DB here too, or these tests
+    (predating that instrumentation) silently write real rows into
+    data/trader.db on every run -- caught live via HM-EDGE-PROVENANCE
+    session cleanup, 2026-07-05."""
 
     def setUp(self):
         import engine.wheel_strategy as ws
         self.ws = ws
         ws._done_today = False
         ws._last_date = None
+        fd, self.db_path = tempfile.mkstemp(suffix=".db")
+        os.close(fd)
+        conn = sqlite3.connect(self.db_path)
+        conn.execute("""CREATE TABLE csp_wheel_scan_log (
+            id INTEGER PRIMARY KEY, scanned_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+            book_tag TEXT DEFAULT 'fleet', outcome TEXT NOT NULL,
+            tickers_evaluated INTEGER DEFAULT 0, positions_opened INTEGER DEFAULT 0,
+            total_notional REAL, options_cap_utilization_pct REAL, detail TEXT
+        )""")
+        conn.commit()
+        conn.close()
+        self._db_patch = patch.object(ws, "DB", self.db_path)
+        self._db_patch.start()
+
+    def tearDown(self):
+        self._db_patch.stop()
+        os.remove(self.db_path)
 
     def test_gate_on_blocks_open_when_breached(self):
         with patch("config.TROI_CSP_CAP_GATE", True), \

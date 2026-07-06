@@ -141,6 +141,25 @@ def genuine_error_count(log_paths: list, report_date: str) -> int:
     return count
 
 
+def real_alpaca_equity() -> dict | None:
+    """HM-EDGE-PROVENANCE ruling item 5 (2026-07-05): the one true number,
+    pulled read-only straight from the broker on every report -- the same
+    call engine.reconciliation.py already makes daily. Returns None (not a
+    fabricated 0) on any failure -- network/API errors must degrade, not
+    crash the report or claim a number that wasn't actually read."""
+    try:
+        from config import APCA_API_KEY_ID, APCA_API_SECRET_KEY
+        from alpaca.trading.client import TradingClient
+
+        client = TradingClient(APCA_API_KEY_ID, APCA_API_SECRET_KEY, paper=True)
+        acct = client.get_account()
+        equity = float(acct.equity)
+        last_equity = float(acct.last_equity)
+        return {"equity": equity, "day_change": round(equity - last_equity, 2)}
+    except Exception:
+        return None
+
+
 def prior_day_delta(conn, report_date: str) -> str | None:
     """Compares the most recent PRIOR eod_report_log row's persisted
     guarded_pnl against a fresh recompute for that same date. Returns a
@@ -167,6 +186,7 @@ def build_report(conn, report_date: str) -> dict:
 
     return {
         "report_date": report_date,
+        "real_equity": real_alpaca_equity(),
         "delta_note": prior_day_delta(conn, report_date),
         "conversion": signal_trade_conversion(conn, report_date),
         "guarded_pnl": guarded_pnl_for_date(conn, report_date),
@@ -178,6 +198,15 @@ def build_report(conn, report_date: str) -> dict:
 
 def format_report(report: dict) -> str:
     lines = []
+
+    # HM-EDGE-PROVENANCE item 5: the one true number, first line, every day.
+    real_eq = report.get("real_equity")
+    if real_eq:
+        sign = "+" if real_eq["day_change"] >= 0 else ""
+        lines.append(f"💰 Real Alpaca equity: ${real_eq['equity']:,.2f} ({sign}${real_eq['day_change']:,.2f} today)")
+    else:
+        lines.append("💰 Real Alpaca equity: unavailable (broker API unreachable)")
+
     if report["delta_note"]:
         lines.append(f"⚠️ {report['delta_note']}")
 
@@ -187,12 +216,15 @@ def format_report(report: dict) -> str:
     else:
         lines.append("Signals→Trades: no signals today")
 
-    lines.append(f"Guarded P&L today: ${report['guarded_pnl']['fleet_total']:,.2f}")
+    lines.append(f"Guarded P&L today (internal, unverified venue): ${report['guarded_pnl']['fleet_total']:,.2f}")
 
     for a in report["auditions"]:
-        line = (f"Audition {a['player_id']}: {a['clean_guarded_trades']}/{a['target']} "
-                f"({a['days_remaining']}d left)")
-        lines.append(line)
+        if a.get("suspended"):
+            lines.append(f"Audition {a['player_id']}: SUSPENDED — {a['clean_guarded_trades']}/{a['target']} "
+                         f"broker-executed (pending broker routing)")
+        else:
+            lines.append(f"Audition {a['player_id']}: {a['clean_guarded_trades']}/{a['target']} "
+                         f"({a.get('days_remaining', '?')}d left)")
         diag = a.get("structural_diagnosis")
         if diag and diag.get("captured") and diag.get("total_scans"):
             lines.append(f"  → {diag['diagnosis']}")

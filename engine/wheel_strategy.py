@@ -30,6 +30,7 @@ from rich.console import Console
 console = Console()
 logger = logging.getLogger("wheel_strategy")
 
+DB = "data/trader.db"
 PLAYER_ID = "options-sosnoff"  # Counselor Troi
 WHEEL_TICKERS = ["TQQQ", "SOXL", "UPRO", "TNA", "QQQ", "SPY"]
 # door1 2026-06-19: no new 3x-leveraged CSP writes — tail risk outweighs premium
@@ -74,6 +75,34 @@ def _latest_regime() -> str | None:
         return None
 
 
+def _log_scan_outcome(outcome: str, tickers_evaluated: int = 0, positions_opened: int = 0,
+                       exposure: dict | None = None, detail: str | None = None) -> None:
+    """HM-CSP-WHEEL-SCAN-LOG-2026-07-05: persist one row per scan attempt.
+
+    Before this, log_csp_exposure() only wrote an ephemeral console line --
+    there was no persisted record of what the cap gate actually did on any
+    given scan. Without this, "0/20 guarded trades" is undiagnosable: it could
+    mean the cap blocked every attempt (structural), the scan never reached
+    evaluation (VIX/max-positions skip, also structural but a different
+    cause), or setups were evaluated and genuinely didn't clear entry bars
+    (performance). Never raises -- a logging failure must not break the scan.
+    """
+    try:
+        with sqlite3.connect(DB, timeout=10) as db:
+            db.execute(
+                """INSERT INTO csp_wheel_scan_log
+                   (book_tag, outcome, tickers_evaluated, positions_opened,
+                    total_notional, options_cap_utilization_pct, detail)
+                   VALUES (?, ?, ?, ?, ?, ?, ?)""",
+                ("fleet", outcome, tickers_evaluated, positions_opened,
+                 (exposure or {}).get("total_notional"),
+                 (exposure or {}).get("options_cap_utilization_pct"),
+                 detail),
+            )
+    except Exception as e:
+        logger.warning("csp_wheel_scan_log write failed: %s", e)
+
+
 def run_wheel_scan():
     """Scan for wheel opportunities — sell puts on high-IV leveraged ETFs."""
     global _done_today, _last_date
@@ -107,12 +136,14 @@ def run_wheel_scan():
         ]
         if len(wheel_puts) >= MAX_POSITIONS:
             console.log("[dim]Wheel: Max put positions reached")
+            _log_scan_outcome("max_positions_reached")
             _done_today = True
             return
 
         # HM-TROI-GUARDRAILS-TRIM 2026-07-04: the real gate. Blocks new CSP
         # opens while the shared options book is over its 10% notional cap.
         # Existing positions are exempt -- this only stops NEW opens.
+        exposure = None
         import config as _cfg
         if getattr(_cfg, "TROI_CSP_CAP_GATE", True):
             from engine.risk_manager import csp_options_cap_breached, log_csp_exposure
@@ -142,6 +173,7 @@ def run_wheel_scan():
                     )
                 except Exception as _e:
                     console.log(f"[yellow]Wheel: cap-breach NTFY failed: {type(_e).__name__}: {_e!r}")
+                _log_scan_outcome("cap_blocked", exposure=exposure)
                 _done_today = True
                 return
 
@@ -157,6 +189,7 @@ def run_wheel_scan():
 
         if vix < MIN_VIX:
             console.log(f"[dim]Wheel: VIX {vix:.1f} too low — premiums thin, skipping")
+            _log_scan_outcome("vix_skip", exposure=exposure, detail=f"VIX {vix:.1f} < {MIN_VIX}")
             _done_today = True
             return
 
@@ -166,6 +199,7 @@ def run_wheel_scan():
         budget_per_position = total_value * POSITION_SIZE_PCT
 
         held_symbols = {p["symbol"] for p in positions}
+        opened_this_scan = 0
 
         for ticker in WHEEL_TICKERS:
             if len(wheel_puts) >= MAX_POSITIONS:
@@ -253,12 +287,18 @@ def run_wheel_scan():
                     logger.warning("max_loss writeback failed trade_id=%s: %s", trade_id, _e)
 
                 wheel_puts.append({"symbol": ticker})
+                opened_this_scan += 1
                 console.log(
                     f"[bold green]🎡 Wheel: Sold {contracts}x {ticker} ${put_strike}P "
                     f"@ ${estimated_premium:.2f} (contracts × 100 shares = {contracts*100}) | "
                     f"{premium_return:.1f}% return | exp {expiry} | trade_id={trade_id}"
                 )
 
+        _log_scan_outcome(
+            "scan_completed", tickers_evaluated=len(WHEEL_TICKERS),
+            positions_opened=opened_this_scan, exposure=exposure,
+            detail=f"{opened_this_scan} opened of {len(WHEEL_TICKERS)} tickers evaluated"
+        )
         _done_today = True
 
     except Exception as e:
