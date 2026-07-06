@@ -5,6 +5,103 @@
 > **Session resume:** full state in `docs/QUEUE_AUDIT_2026-05-29.md` (shipped / gated / carry-forward / out-of-scope). THE-ALL-OUT-PLAN-2026-05-28 is CLOSED.
 
 ---
+## 🔵 HM-OLLIE-MACHINE-KILLGATE — filed 2026-07-05 (HM-ROSTER-RATIONALIZE follow-up)
+
+`ollie-machine` ("Ollie Machine", rule-based/convergence-2of4, `halt_mode='active'`)
+surfaced in the 2026-07-05 roster audit with 0 trades ever since creation
+(2026-06-01) — 5+ weeks silent. Friday's roster session had already classed
+it **structural non-competing** (sim/tracking-style seat, never fighting for
+one of the 8 capped active slots), so the audit did not recommend an
+immediate cut — deliberate prior decisions get a dated re-evaluation, not a
+silent reversal from a fresh sweep.
+
+**Admiral decision (2026-07-05):** no cut tonight. Dated trigger instead:
+
+> **Kill gate: 2026-07-24.** If `ollie-machine` has recorded zero trades (in
+> `trades` AND `options_trades` — check both; see HM-SWEEP-SIGNALS-TABLE-
+> BLIND-SPOT re: options/CSP agents being invisible to a trades-only sweep)
+> by this date, halt proposal goes to the Admiral. If it has traded,
+> re-assess on the merits same as any other candidate.
+
+Not to be confused with the pre-existing 2026-07-24 G1-G4 Door-1 kill-gate
+(`project_door1_kill_gate` memory) — that's a separate, fleet-wide gate.
+This is a single-agent trigger scoped only to `ollie-machine`.
+
+---
+## 🔵 HM-SHADOW-PIPELINE-COST-AUDIT — filed 2026-07-05 (HM-ROSTER-RATIONALIZE follow-up)
+
+Surfaced while checking `api_costs` for q-witness's paid-xAI spend: five ids
+NOT in `ai_players` show real metered API cost, last 30 days —
+
+| id                      | calls | cost    |
+|-------------------------|-------|---------|
+| wr-shadow-v1            | 3,048 | $22.10  |
+| wr-witness              | 2,052 | $15.54  |
+| wr-shadow-v7d           | 2,997 | $11.22  |
+| ab-witness-deepseek-r1  |   238 |  $0.72  |
+| ab-witness-gpt-oss      |   229 |  $0.66  |
+| **total**               | 8,564 | ~$50.24 |
+
+4-10x q-witness's own $2.76/30d, and none of it is a roster seat, so it fell
+entirely outside the ai_players-scoped leaderboard.
+
+**Open, not chased tonight (own session when scoped):**
+1. What are these — a shadow/witness scoring pipeline distinct from
+   q-witness's War Room voice? Where invoked from?
+2. What consumes their output — does anything read wr_shadow/wr_witness/
+   ab_witness_* results downstream, or do they write and nobody reads?
+3. Pure observation (like existing W0 forward-scoring shadow patterns) or
+   does anything act on them?
+4. If nothing reads it: that's the real dead spend on this box — bigger in
+   dollars than anything found in the roster proper.
+
+---
+## 🔵 HM-DESK-CHAIN-PROVENANCE — filed 2026-07-05 (HM-DECISION-DESK-MVP Phase 1 follow-up)
+
+Two data-integrity anomalies surfaced building the Desk's chain view
+(`GET /api/desk/chain/<signal_id>`, commit `9bb56e6`), not fixed — the Desk
+guards against ever *displaying* a wrong fill (only surfaces a trade when
+`trade.symbol == signal.symbol`), but the underlying data problems are real
+and unaddressed:
+
+1. **`trades.signal_id` mislinked on 72% of sampled rows** — 47 of 65 sampled
+   links point to a DIFFERENT symbol than the signal they claim to belong to.
+   Same theme as CLAUDE.md's existing "acted_by_fleet... retrospective join
+   is a DEAD END" note — this is the `trades` side of the identical disease.
+2. **`execution_status` essentially never set to `'EXECUTED'` on real fleet
+   trades** — not a single signal with a genuinely-matched trade link (by
+   symbol) has `execution_status` literally `'EXECUTED'`. The status value
+   appears to just not get written correctly for real fleet trades, full stop.
+
+**Why this matters beyond the Desk:** both anomalies bear directly on chain
+provenance, and provenance is exactly what the 2026-07-24 kill-gate reads
+(both the fleet-wide Door-1 G1-G4 gate and the single-agent
+`HM-OLLIE-MACHINE-KILLGATE` above) to decide what counts as a real, gate-
+grade trade. A gate that reads a mislinked or never-marked-executed chain
+risks the same "0% EXECUTED, 72% wrong-symbol-linked" blind spot the Desk had
+to explicitly guard around. Filed for its own session — not actioned here.
+
+---
+## 🔵 HM-CLAUDE-TRADER-GHOST-DEFAULT — filed 2026-07-05 (historical finding, HM-DECISION-DESK-MVP Phase 1)
+
+`signal-center/server.py`'s `/api/signals/<id>/execute` — the manual "SEND
+IT" button a human clicks in signal-center to execute a fleet signal — has
+defaulted `player_id` to `'claude-trader'` since it was written. `'claude-trader'`
+**has never existed as an `ai_players` row.** Net effect: every manual-execute
+click through that endpoint, for its entire history, silently went nowhere —
+the `UPDATE trade_signals SET status='EXECUTING'` claim would succeed, but
+the downstream `engine.paper_trader.buy(player_id='claude-trader', ...)` call
+had no real player to execute against. **0 historical executions ever** via
+this path, confirmed during the Phase 1 build.
+
+Fixed in `9bb56e6` (default changed to `desk-manual`, the new dedicated
+paper-only identity) — noted here as its own line because this is a real
+historical finding about how long a core manual-execute control has been
+silently inert, not merely a line in a commit message. Anyone auditing past
+"why didn't the desk ever fire" reports should know the answer was this,
+not a signal-quality or gating problem.
+
+---
 ## 🔵 HM-STATUS-PAGE-STALE-CACHE — filed 2026-07-05 (bigmac cold-start test)
 
 Surfaced during the bigmac cold-start test (`docs/REBOOT_POSTURE.md`):
