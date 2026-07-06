@@ -168,48 +168,83 @@ than it might look, and why this proposal is written here rather than left
 as a one-off scheduled reminder.
 
 ---
-## 🔴 HM-GATE-RESTART-HOLD — trader restart deliberately HELD until Monday after close
+## 🔴 HM-GATE-RESTART-HOLD — restart already occurred tonight (Desk session), verified harmless; Monday checklist collapsed
 
-**Do not restart the main trader process (main.py) before Monday's close.**
-This is intentional, not a forgotten task. Rationale (Admiral, 2026-07-05
-evening): Monday is the first live session under Friday's realism/staleness
-fix config — its numbers are the measurement we want, and a Sunday-night
-trader restart would be a confound on that read. The auditioning gate
-(`crew_role='auditioning'` checks in `paper_trader.buy()`/`short_sell()`/
-`RiskManager.check_buy()`, plus `halt_gate.is_auto_tradeable()`'s
-`can_trade_live` enforcement) is already committed to the working tree —
-it's dormant until this restart happens, and nothing it guards against can
-occur before then anyway (no auditioning candidates exist yet; Qwen3.6
-onboards after the gate goes live).
+**Original hold (Admiral, 2026-07-05 evening):** do not restart the main
+trader process (main.py) before Monday's close. Rationale: Monday is the
+first live session under Friday's realism/staleness-fix config — its
+numbers are the measurement we want, and a Sunday-night trader restart would
+be a confound on that read. The auditioning gate (`crew_role='auditioning'`
+checks in `paper_trader.buy()`/`short_sell()`/`RiskManager.check_buy()`, plus
+`halt_gate.is_auto_tradeable()`'s `can_trade_live` enforcement) was committed
+to the working tree, dormant until a restart, with nothing it guards against
+able to occur before then (no auditioning candidates existed yet).
 
-**Also held until the same Monday event, NOT run tonight:** the
-`can_trade_live` backfill SQL (10 agents — 6 active + 4 exit_only holding
-open positions that need to keep closing; see HM-AUDITION-ONBOARD-3 below
-for the exact statements). Bundling the data migration with the restart
-that makes it load-bearing, rather than letting it sit live-but-inert
-overnight.
+**⚠ Superseded by events, verified harmless (2026-07-05 ~18:38 MT
+verification pass).** main.py restarted at **18:17:36 MST tonight** — a
+**second, distinct event from the morning power-cycle**, several hours later,
+not a re-triggering of it. **Traced to the closed HM-DECISION-DESK-MVP
+session**, not launchd and not a crash: its own transcript records the exact
+command, `zsh scripts/trader_restart.sh 2>&1 | tail -30`, run to live-verify
+the new `/api/desk/*` endpoints before committing `9bb56e6`. `trader.log`
+confirms a clean restart, not a crash — continuous heartbeats through
+18:17:23, then a fresh-process init sequence at 18:17:36, no traceback
+anywhere near the boundary. That session was unaware of this hold.
+
+Four-point check run against the live restart, all clean:
+1. **Restart source identified** — Desk session (above), not launchd/crash/Admiral.
+2. **Gate code present in what's running** — `engine/halt_gate.py` +
+   `setup_db.py` clean at `git status` (committed `f99df7e`), no working-tree drift.
+3. **`[AUDITION-GATE]` fired correctly** — `trader.log` 18:17:36 verbatim:
+   `[AUDITION-GATE] 0 auditioning seat(s); can_trade_live enforcement=OFF —
+   backfill not detected (is_auto_tradeable() falls back to legacy
+   is_human-only check; the crew_role='auditioning' checks in
+   paper_trader.buy()/short_sell() and RiskManager.check_buy() are unaffected
+   and still enforce independently)`. Exactly the designed fail-safe,
+   confirmed from the log, not assumed.
+4. **All 10 gated agents still tradeable** — queried directly: the 6
+   executing (capitol-trades, neo-matrix, qwen3-8b-flash, ollama-qwen3,
+   ollama-plutus, options-sosnoff) and 4 exit_only (gemini-2.5-flash,
+   guardian-of-forever, navigator, ollie-auto) all have `is_human=0`, none in
+   the passive-mirror set (`alpaca-mirror` only) — with enforcement OFF,
+   `is_auto_tradeable()` falls back to `not is_human` for all ten. All can
+   place/close normally tomorrow.
+
+**Precision note — crew_dissent fix picked up early, harmless.**
+`resolve_dissent_outcomes()`'s standalone run was filed above as "wouldn't be
+picked up until Monday's restart either way." Tonight's restart picked it up
+early (main.py's in-memory copy refreshed at 18:17:36) — harmless, since the
+standalone run had already applied the identical fix to the same 22 rows
+ahead of the restart. No discrepancy, just an earlier-than-planned no-op
+re-application.
+
+**⚠ Staleness-delta caveat for Monday's read.** The trader process itself
+restarted Sunday evening 2026-07-05 (unplanned, Desk-session-triggered) —
+distinct from the Monday-after-close event this hold exists to protect.
+Gate code and config are unchanged between tonight's restart and Monday's,
+so Monday's staleness-delta measurement is not confounded by config drift —
+but the process's actual uptime clock reset Sunday night, not at Friday's
+config landing. State this explicitly wherever Monday's read gets written up.
 
 **What DID ship tonight (2026-07-05), already applied, not held:**
 - `scripts/swingdesk_restart.sh` run — SwingDesk (:8889) now runs the new
   `SwingDeskAuthMiddleware` + startup auth-state log line. Isolated service,
   does not touch the trader process. Verified single process (PID 1675),
   no orphan, health checks passing.
-- `resolve_dissent_outcomes()` run standalone (not via the trader process,
-  since crew_dissent.py's fix wouldn't be picked up by main.py's already-
-  running in-memory copy until Monday's restart either way) — all 22
-  crew-dissent rows resolved live, `outcome_basis='price_pct'` tagged,
-  11/22 (50.0%) correct. Backup taken first:
-  `data/backups/trader_2026-07-05_pre-crew-dissent-backfill.db`.
+- `resolve_dissent_outcomes()` run standalone — all 22 crew-dissent rows
+  resolved live, `outcome_basis='price_pct'` tagged, 11/22 (50.0%) correct.
+  Backup taken first: `data/backups/trader_2026-07-05_pre-crew-dissent-backfill.db`.
 
-**Monday-after-close checklist (do all of this together, one event):**
-1. Run the `can_trade_live` backfill SQL (below).
+**Monday-after-close checklist (collapsed — the gate/config half already
+proved clean tonight, so this is now purely the backfill + enforcement flip):**
+1. Run the `can_trade_live` backfill SQL (see HM-AUDITION-ONBOARD-3 below for
+   the exact statements).
 2. Restart the trader (`scripts/trader_restart.sh`).
-3. Verify: `[AUDITION-GATE] active` startup line, `check_can_trade_live_backfill()`
-   returns True, no ImportError, dashboard 200, plutus caps still present.
-4. Confirm the 6 currently-executing agents and the 4 exit_only agents
-   (gemini-2.5-flash, guardian-of-forever, navigator, ollie-auto) can still
-   place/close real orders post-restart — this is the one that matters most,
-   since a missed row in the backfill silently strands real positions.
+3. Verify `[AUDITION-GATE] active — ... can_trade_live enforcement=ON` (not
+   the OFF/backfill-not-detected line seen tonight).
+4. Confirm all 10 agents (6 executing + 4 exit_only, listed above) can still
+   place/close real orders post-restart — the one that matters most, since a
+   missed row in the backfill silently strands real positions.
 
 ---
 ## XO-DECISIONS 2026-07-05 — Admiral rulings on the Sunday systems-check, design still pending build
