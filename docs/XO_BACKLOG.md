@@ -36,14 +36,14 @@ Admiral sign-off:**
    below. Propose-first, do not implement without sign-off.
 3. **Haircut test + evidence-tier re-grade** — full ticket:
    `HM-HAIRCUT-AND-EVIDENCE-TIERS` entry below.
-4. **Remaining XO-DEPARTURE-HARDENING phases** — Phase 1 items 3-6 (service
-   watchdog, health cron, DB/log hygiene, gate-day automation scripts) still
-   open; Phase 2 items 7, 9, 10 (venue tagging forward, Desk provenance fix,
-   remote-execution phone check) still open; Phase 3 (weekly digest,
-   pre-flight test) untouched. **None of these four are filed as their own
-   ticket entries yet** — only items 1-3 above got full write-ups this
-   session. A fresh session picking up item 4 needs the Admiral to restate
-   the XO-DEPARTURE-HARDENING phase list; it is not yet in this document.
+4. **Remaining XO-DEPARTURE-HARDENING phases** — now fully filed (2026-07-06):
+   `XO-DEPARTURE-HARDENING — Phase 1 remaining` / `Phase 2 remaining` /
+   `Phase 3` entries below (all still `## 🔴` unstarted, propose-first, none
+   built yet). Also shipped this pass: `HM-TUNING-CREW-REPAIR` (loud failure
+   guards for the tuning crew's two LLM agents — see that entry) and
+   substantial progress on `HM-BROKER-HISTORY-BACKFILL` (real spread trades
+   found and priced, ~+$104 now directly attributable, ~$850-960 still
+   unattributed).
 
 **Verify before acting on anything above:** this is a live production DB —
 re-check current `ai_players`/`options_trades`/`trades` state before trusting
@@ -241,6 +241,99 @@ historical finding about how long a core manual-execute control has been
 silently inert, not merely a line in a commit message. Anyone auditing past
 "why didn't the desk ever fire" reports should know the answer was this,
 not a signal-quality or gating problem.
+
+---
+## 🔴 XO-DEPARTURE-HARDENING — Phase 1 remaining, filed 2026-07-06 (Admiral restated)
+
+Context: Admiral departs in a few days; after that the system runs
+monitoring-only (phone push, no hands-on). All unattended automation in this
+program must be **deterministic scripts, never LLM sessions**; **ntfy is the
+alert channel throughout**; **propose-first per item**, same as every other
+ticket in this file. This was previously only stated in conversation — the
+2026-07-05 start card flagged it as missing from the document; this is that
+restatement.
+
+**1. Service watchdog.** launchd keepalive coverage for trader/dashboards/
+tunnel, ntfy on any unexpected death/restart with timestamp + last log
+lines. The morning power-cycle (see `docs/REBOOT_POSTURE.md`) already proved
+autostart works; this proves *liveness* — a separate claim. Per CLAUDE.md's
+"Alarms must not share a failure mode with what they watch" doctrine — do
+not run this watchdog on the same mechanism it's watching.
+
+**2. Bigmac-native health cron.** curl-based check of all endpoints,
+including `tour /api/tour/health` and the status-page timestamp-freshness
+check (see `HM-STATUS-PAGE-STALE-CACHE` below for the Cloudflare-edge-cache
+nuance already diagnosed there — don't re-diagnose it here). Every 30 min
+during market hours, ntfy on failure. Second layer under whatever
+Chrome/browser sweep already exists.
+
+**3. DB/log hygiene.** Daily `trader.db` backup with 7-day rotation
+(check first whether `scripts/db_snapshot.sh`/`scripts/offhost_backup.sh`,
+referenced elsewhere in this file's backup-spine work, already cover this —
+don't duplicate), disk-space alert threshold, log rotation (same check
+against `scripts/rotate_logs.sh` if it already exists). Boring items kill
+unattended boxes — this is precisely the "boring but load-bearing" category.
+
+**4. Gate-day automation — COMPUTE AND PUSH, never act.** Scripts that
+compute a verdict and ntfy it to the Admiral's phone; the decision stays
+human. Three gates:
+   - **2026-07-24 Door-1 G1-G4 kill-gate** (`project_door1_kill_gate` memory) —
+     must read against the guarded-honest clean-window baselines, not the
+     pre-friction Season 6.3 numbers (already noted stale elsewhere in this
+     file).
+   - **2026-07-24 `ollie-machine` kill gate** (`HM-OLLIE-MACHINE-KILLGATE`
+     below) — no trade by this date (checking BOTH `trades` and
+     `options_trades`) → halt proposal.
+   - **Aug 15/16 incumbent audition gates** (`options-sosnoff`/
+     `qwen3-8b-flash`, `engine.crew.audition_tracking`) — **now
+     suspension-aware per HM-EDGE-PROVENANCE ruling 2**: both are currently
+     SUSPENDED pending broker routing, so a gate-day script computed today
+     would correctly report "suspended, not evaluable" rather than a false
+     0/20 fail. Verify this stays true when `HM-ROUTE-TO-BROKER` eventually
+     un-suspends them — the gate script needs to read `suspended`/
+     `suspension_reason`, not just `clean_guarded_trades`.
+
+---
+## 🔴 XO-DEPARTURE-HARDENING — Phase 2 remaining, filed 2026-07-06
+
+**5. Qwen3.6-35B-A3B audition onboarding** — only AFTER Monday's restart
+proves `[AUDITION-GATE] ... enforcement=ON` live (see `HM-GATE-RESTART-HOLD`
+above for the exact verification steps). Riskiest change on the whole
+departure list — do it while the Admiral is still here, not after. **Note
+the redefinition**: per `HM-EDGE-PROVENANCE`, an audition trade only counts
+with real broker evidence now — Qwen3.6's onboarding criteria should be
+written against `engine.crew.audition_tracking`'s broker-execution-required
+counting from day one, not the pre-ruling "any clean trade" design the two
+current incumbents were originally (wrongly) measured against.
+
+**6. Shadow-pipeline verdict** — full ticket: `HM-SHADOW-PIPELINE-COST-AUDIT`
+below (~$50/mo, 4-10x q-witness, non-roster). If nothing consumes the
+output, propose the kill — dead spend shouldn't run unattended for weeks
+while nobody's watching.
+
+**7. Desk provenance fix** — full ticket: `HM-DESK-CHAIN-PROVENANCE` below
+(72% `signal_id` mislink rate + `execution_status` never set). Matters more
+now than when first filed: the gate-day scripts in Phase 1 item 4 above read
+exactly this kind of chain data.
+
+---
+## 🔴 XO-DEPARTURE-HARDENING — Phase 3, filed 2026-07-06
+
+**8. Weekly digest push** — Sunday: sweep summary + tuning results +
+audition clocks (now suspension-aware) + spend, one ntfy push.
+
+**9. Error-filter consolidation** — already filed, see
+`HM-ERROR-FILTER-CONSOLIDATION` above. Not re-ticketed here, just cross-
+referenced so Phase 3's item list is complete in one place.
+
+**10. Pre-flight alarm test, day before departure.** Kill each service
+(trader/dashboards/tunnel) one at a time and confirm the Phase-1-item-1
+watchdog alert actually lands on the phone. Run `scripts/eod_report.py`
+manually and confirm the push arrives. Confirm the Admiral's **phone**
+specifically can pass Cloudflare Access to bridge/signal/desk — monitoring-
+only mode is only real if the phone can actually see in; this is the one
+item on the whole list that can't be verified by Scotty alone and needs the
+Admiral's own device.
 
 ---
 ## 🔵 HM-STATUS-PAGE-STALE-CACHE — filed 2026-07-05 (bigmac cold-start test)
