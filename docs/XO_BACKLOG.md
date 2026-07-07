@@ -7886,3 +7886,80 @@ Executed baseline (BUY signals that went live): n=22/20/20 (1d/3d/5d with bars a
 | QUALITY_GATE_FAILED | 5 | 3 | -1.14/-1.39% | -0.10/-0.73% | -0.10/-0.73% |  |
 | DRAWDOWN_PAUSE | 2 | 1 | -10.13/-10.13% | n/a | n/a |  |
 | LEARNING_BLOCK | 1 | 0 | n/a | n/a | n/a |  |
+
+---
+## 🟢 signal_labels audit — clean, does NOT share gate_reject_log's price corruption
+
+Checked per Admiral follow-up. **No shared exposure, confirmed both
+structurally and empirically:**
+
+- **Structural**: `scripts/label_signals.py` never reads `gate_reject_log`
+  or any DB-stored price field at all. `entry_price` comes exclusively
+  from freshly-fetched Alpaca OHLC bars (`entry_bar["c"]`) — a completely
+  independent data path from whatever upstream caller corrupted
+  `gate_reject_log.price`.
+- **Empirical**: `SELECT COUNT(*) FROM signal_labels WHERE entry_price <
+  1.0` = **0**. The lowest entries that DO exist (ARTL ~$1.08-1.31, SKYQ
+  ~$1.13-1.20) are consistent across many separate dates for the same
+  symbol — the signature of a genuinely low-priced security, not a
+  one-off corruption artifact (which would show as an anomalous outlier
+  against that symbol's own normal range, the way HIMS at $0.91 did
+  against its real ~$30-60 range).
+
+No re-labeling needed. **Correction to this same entry**: initially
+planned to add a defensive $1-floor guard to `label_signals.py` anyway
+"since it's cheap" — checked first and reverted that plan. 22 distinct
+symbols in the existing 8,085 labels legitimately trade under $5 with
+*consistent* pricing across many dates (SNAP alone: 47 rows, $4.35-4.85 —
+its real recent range; ARTL: 23 rows, $1.09-1.71), not the anomalous
+single-point drop HIMS showed in `gate_reject_log`. A blanket $1 floor
+would have silently excluded real signals for legitimately low-priced
+securities going forward — the wrong fix for a bug that isn't present
+here. No guard added; `label_signals.py`'s entry_price stays sourced
+purely from Alpaca bars, unguarded, because the empirical check already
+shows nothing to guard against.
+
+---
+## 🟢 signal_labels backfill — finished, 98.97% complete
+
+Re-ran `scripts/label_signals.py` (resumable, picked up exactly where the
+first run left off). **5,231 of the remaining 5,362 labeled this pass**
+(97.6%) — the first run's skips were mostly transient: it ran concurrently
+with `counterfactual_report.py` hitting the same Alpaca bars endpoint,
+which likely rate-limited/timed-out some fetches (both scripts fail-open
+to an empty bars dict on any error, so a transient hiccup silently became
+a permanent-looking skip). Running alone resolved almost all of it.
+
+**Final: 13,334 of 13,465 deduped signals labeled (98.97%)**. Distribution
+held steady: 52.3% time-barrier, 35.2% stop, 12.5% profit-take (matches
+the first run's proportions almost exactly, confirming the extra labels
+didn't skew the distribution).
+
+**Genuinely remaining 131**: 128 are `APLS` (Apellis Pharmaceuticals, a
+real, liquid biotech — not a data-coverage or delisting issue). Diagnosed:
+Alpaca's IEX feed returns only 13 daily bars for APLS in the relevant
+early-window date range, one short of the 14 needed for a full ATR(14)
+calc — a genuine sparse-data gap for that specific ticker/window, not a
+script bug (confirmed live: `_fetch_ohlc('APLS', ...)` returns real,
+correctly-priced bars, just fewer than the period requires). The other 3
+(`AFAXX` — likely a money-market-fund symbol, not an equity; `SMOKE` — the
+literal smoke-test row, signal_id=1, not a real signal) are expected
+non-labelable rows, not gaps. Not chased further — genuinely small, well-
+understood residual, not worth the time against "no urgency."
+
+---
+## Standing constraint: meta-label gate + IC dashboard stay UNBUILT
+
+Per Admiral: not started until `signal_labels` has a clean week of
+forward-generated labels (not just tonight's one-time backfill) —
+explicitly citing the evaluator lesson (the `acted_by_fleet` retrospective-
+join dead end banked in `CLAUDE.md`: don't build the consumer on top of
+data that hasn't been proven to accumulate correctly under real, ongoing
+conditions first). Tonight's backfill populated history; it does not by
+itself establish that the labeling pipeline behaves correctly under live,
+day-to-day operation (new signals arriving, ATR windows rolling forward,
+bars fetched without the concurrent-script contention that caused this
+session's transient skips). No code for either the meta-label gate or the
+IC dashboard is scoped or started — this section exists purely so a future
+session doesn't start building on the assumption the labels are
+immediately trustworthy for that purpose.
