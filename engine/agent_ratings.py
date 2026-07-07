@@ -161,36 +161,60 @@ def calculate_rating(player_id: str, period: str = "alltime") -> dict[str, Any]:
         else:
             break
 
+    # ── Max drawdown from the chronological equity curve ────────────────────
+    # P1.3 2026-07-07: clean_rows is ORDER BY executed_at DESC (newest
+    # first) -- reverse for a chronological cumulative-pnl walk, the only
+    # way to compute peak-to-trough drawdown correctly.
+    chrono_pnls = list(reversed(pnls))
+    cum = 0.0
+    peak = 0.0
+    max_dd = 0.0
+    for p in chrono_pnls:
+        cum += p
+        peak = max(peak, cum)
+        max_dd = max(max_dd, peak - cum)
+    # Normalize as a % of the account this agent's rating sample is scaled
+    # against (matches _MAX_SANE_PNL's own $7k reference point, avoids a
+    # 6th magic number).
+    max_dd_pct = (max_dd / 7000.0) * 100.0
+
     # ── Composite score (0–100) ──────────────────────────────────────────────
+    # P1.3 2026-07-07 (report card metric swap, Admiral directive): win_rate
+    # was worth up to 50/100 points here (0-40 base + up to +10 in "elite"/
+    # "legendary" tiers), explicitly commented "THE most important metric" --
+    # exactly the kind of scoring that rewards a high win rate built on many
+    # small wins and rare huge losses (negative expectancy) over a lower win
+    # rate with a real positive edge. Replaced with expectancy (the correct,
+    # standard formula: avg_win*WR - avg_loss*(1-WR) -- WR still appears
+    # INSIDE this formula, appropriately weighted by win/loss magnitude, but
+    # is no longer ALSO a separate bonus category stacked on top of that).
+    # win_rate remains in the result dict below as a DISPLAY field only.
     score = 0.0
 
-    # Win rate: 0–40 pts (THE most important metric)
-    # 50% WR = 20pts, 60% = 28pts, 70% = 36pts, 80%+ = 40pts
-    score += min(40.0, win_rate * 0.5)
-
-    # Profit factor: 0–20 pts
-    score += min(20.0, profit_factor * 8.0)
-
-    # Total P&L: 0–15 pts (penalty up to -10 for losses)
-    if total_pnl > 0:
-        score += min(15.0, total_pnl / 70.0)   # +$1050 = 15 pts
+    win_rate_frac = win_rate / 100.0
+    expectancy = avg_win * win_rate_frac - abs(avg_loss) * (1.0 - win_rate_frac)
+    # Expectancy: 0-50 pts. $15 expectancy/trade = 50pts (same reference
+    # scale calculate_rating already uses elsewhere: _MAX_SANE_PNL=$3500,
+    # ~15 trades/sample typical -> ~$233/trade would be an extreme outlier,
+    # so 50pts at $15/trade is a deliberately high bar, not a rubber stamp).
+    if expectancy > 0:
+        score += min(50.0, expectancy / 0.30)
     else:
-        score += max(-10.0, total_pnl / 100.0)
+        score += max(-25.0, expectancy / 0.60)  # negative expectancy actively penalized
 
-    # Avg win/loss ratio: 0–15 pts
-    if avg_loss != 0:
-        ratio = abs(avg_win / avg_loss)
-        score += min(15.0, ratio * 5.0)
+    # Profit factor: 0–25 pts (was 20 -- absorbed some of WR's old weight)
+    score += min(25.0, profit_factor * 10.0)
 
-    # Trade count bonus (experience): 0–10 pts
+    # Max drawdown: 0-25 pts, PENALTY-based (0% dd = full 25, scales down)
+    score += max(0.0, 25.0 - max_dd_pct * 2.5)
+
+    # Trade count bonus (experience, kept from the old formula): 0–10 pts,
+    # cap raised from 0-100's old 10 to keep the new total sane at 110 max
+    # before clamping -- clamped to 100 below regardless.
     score += min(10.0, len(pnls) * 0.5)
 
-    # Consecutive loss penalty: -5 per streak
+    # Consecutive loss penalty (kept): -5 per streak
     score -= consec_losses * 5.0
-
-    # Win rate bonus tiers
-    if win_rate >= 70: score += 5.0   # Elite bonus
-    if win_rate >= 80: score += 5.0   # Legendary bonus
 
     score = max(0.0, min(100.0, score))
 
@@ -221,6 +245,13 @@ def calculate_rating(player_id: str, period: str = "alltime") -> dict[str, Any]:
         "volume_accuracy":     0.0,   # reserved for future
         "rating":              rating,
         "rating_score":        round(score, 1),
+        # P1.3 2026-07-07: expectancy/profit_factor/max_drawdown now DRIVE
+        # rating_score; win_rate above is DISPLAY ONLY (kept for the UI --
+        # useful context, no longer a grade input). See the scoring block
+        # above for the full rationale.
+        "expectancy":          round(expectancy, 2),
+        "max_drawdown_pct":    round(max_dd_pct, 2),
+        "win_rate_is_display_only": True,
         # HM-RATING-VS-LEADERBOARD-LABEL 2026-07-03: this total_pnl is a
         # quality-filtered SUBSET (stock trades only, current season,
         # excludes outlier trades >$3,500) used to compute a comparable

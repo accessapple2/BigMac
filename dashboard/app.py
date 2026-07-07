@@ -3372,9 +3372,13 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
                 # restatement note -- historical CSP P&L above this figure
                 # (pre-TROI_REAL_QUOTES_ERA_START) is synthetic-fill, not
                 # graded. See docs/XO_BACKLOG.md "P0-A: OPTIONS FILL
-                # INTEGRITY".
+                # INTEGRITY". Strengthened 2026-07-07 (Admiral follow-up
+                # F4): the displayed return is CORRECTED ACCOUNTING (a known
+                # synthetic contribution removed), not evidence of edge --
+                # explicit so nobody reads "her return went up after the
+                # fix restated it" backwards.
                 "book_status": (
-                    "FLAT — wheel v2 gated · historical CSP P&L is synthetic fills, restated (graded from real-quote trades only, 2026-07-07 onward)"
+                    "FLAT — wheel v2 gated · displayed return is corrected accounting on synthetic-era fills, NOT edge evidence · real-quote grading starts 2026-07-07, needs its own sample first"
                     if p["id"] == "options-sosnoff" else None
                 ),
             }

@@ -7661,3 +7661,228 @@ than it is today. Flagged as a follow-up decision, not solved here;
 re-check "same regime, same minute" during live market hours tomorrow,
 when the canonical collector's most recent 13:05 snapshot will be much
 closer to current price.
+
+---
+## Follow-ups from 1311da3 (Admiral, no urgency)
+
+**1. Wheel re-tune: HOLD.** wheel_strategy.py's 12%-OTM/30-DTE/3%-min-ROC
+parameters stay as-is. The strategy will sit idle under real pricing (see
+1311da3's measured 0.12-0.21% real ROC vs. the 3.0% bar) until a deliberate
+re-tune, which is a **separate design exercise against real chain data**
+— not a quick parameter tweak, and not done as part of the fill-integrity
+fix. door1 (leveraged-ETF CSP ban) stays in force regardless. Proposal to
+the Admiral when scoped; no code touched here.
+
+**4. Guard on the 84% figure**: `return_pct_restated`/the leaderboard's
+84.0% for options-sosnoff is **corrected accounting on synthetic-era
+fills — not evidence the strategy has edge.** It reflects removing a
+known-fake $29,868.74 CSP contribution from a display figure, nothing
+more. Real performance grading starts from zero real-quote CSP closes
+(TROI_REAL_QUOTES_ERA_START, 2026-07-07 onward) and needs its own sample
+before anyone should read it as a track record. Guard note added to the
+leaderboard's `book_status` field (see dashboard/app.py) so this isn't
+just a backlog-only caveat — see F4 below for the exact wording shipped.
+
+**2. GEX interim (shipped)**: added visible "as of" timestamps to both the
+bridge (`dashboard/static/bridge-v2.html`'s `gexMeta` line) and
+signal-center (`signal-center/index.html`'s GEX card expand, new "As Of"
+row) — transparency only, not a fix for the underlying cadence mismatch.
+Intraday recompute (making the canonical collector run frequently enough
+that gamma_context.py's live computation and the canonical snapshot are
+never far apart) is the real fix, tracked separately as its own P2 window,
+not attempted here.
+
+**3. PENDING — tomorrow at open (2026-07-08, ~06:30 MST)**: confirm the
+`emit_signal_v2()` dedup (commit `1311da3`) holds under genuine live
+signal flow (not just the pre-restart isolated test) — check for any new
+`direct_buy_intent` duplicate rows in `signals_v2` once real scan activity
+resumes, and post the corrected 7-day signal→trade conversion series
+(deduped denominator) as the new tracked baseline going forward. Not
+actionable tonight — market closed, zero new `direct_buy_intent` signals
+have fired since the restart to genuinely exercise the live path.
+
+**4. Guard strengthened (code-complete-and-held)**: `dashboard/app.py`'s
+`book_status` note for options-sosnoff now reads "displayed return is
+corrected accounting on synthetic-era fills, NOT edge evidence · real-quote
+grading starts 2026-07-07, needs its own sample first" — explicit per the
+Admiral's exact framing. This is a Python string literal inside the live
+trader process; needs the next restart to go live (F2's two HTML/JS
+changes are static files, no restart needed, already live). No urgency
+noted, so held rather than forcing an out-of-band restart for a wording
+change alone.
+
+
+---
+## ⚠️ SUPERSEDED — see the corrected re-run further below
+
+**Do not trust the numbers in this first run.** MARKET_CLOSED showed
+avg fwd_1d=+115.030% and MAX_TRADES_REACHED showed +13.258% — both
+impossible for real stock/ETF moves at this horizon. Traced live: ~1.5%
+of `gate_reject_log.price` values for MARKET_CLOSED are sub-$1 for
+normally-priced stocks (e.g. HIMS logged at $0.91 against a real
+~$30-60 range) — an upstream data-quality bug (not yet root-caused to
+the exact caller), not a bars/return-calc bug. A handful of these produce
++1000%+ "returns" that dominate a naive mean. Caught before this stood as
+the record; script fixed (outlier guard: entry price >= $1, |return| <=
+100%; median reported alongside mean) and re-run — see the corrected
+table below this one for the trustworthy numbers.
+
+## Counterfactual Report — 2026-07-07 (P1 measurement layer, scripts/counterfactual_report.py) — SUPERSEDED, KEPT FOR THE RECORD
+
+# Counterfactual Report — 2026-07-07
+Window: last 30 days (2026-06-07 to 2026-07-07)
+
+Executed baseline (BUY signals that went live): n=29/26/26 (1d/3d/5d with bars available)
+  avg fwd_1d = -1.074%
+  avg fwd_3d = -0.409%
+  avg fwd_5d = 0.355%
+
+| Gate | Blocked (deduped) | Bars avail | avg fwd_1d | avg fwd_3d | avg fwd_5d | Structural? |
+|---|---|---|---|---|---|---|
+| HALT | 3803 | 2736 | -0.058% | 0.446% | 0.952% | yes |
+| MARKET_CLOSED | 1704 | 1219 | 115.030% | 121.125% | 130.853% | yes |
+| GRADE_B | 1532 | 1145 | -0.390% | 0.868% | 0.782% |  |
+| MAX_TRADES_REACHED | 232 | 141 | 13.258% | 12.596% | 12.795% |  |
+| MAX_POSITIONS_REACHED | 128 | 82 | -0.733% | 0.344% | 0.717% |  |
+| LOW_CONVICTION | 21 | 10 | -1.016% | 0.076% | 0.451% |  |
+| SCANNER_FILTER | 17 | 9 | -2.715% | -2.486% | -2.486% |  |
+| QUALITY_GATE_FAILED | 5 | 3 | 1.916% | 3.547% | 3.547% |  |
+| DRAWDOWN_PAUSE | 2 | 1 | -10.128% | n/a | n/a |  |
+| LEARNING_BLOCK | 1 | 0 | n/a | n/a | n/a |  |
+
+---
+## 🟢 P1.3 REPORT CARD METRIC SWAP — code-complete-and-held for next window
+
+`engine/agent_ratings.py::calculate_rating()` — win_rate was worth up to
+**50/100 points** in the composite score (0-40 base scaled at `WR*0.5`,
+explicitly commented "THE most important metric," plus +5/+5 "elite"/
+"legendary" bonus tiers at 70%/80% WR). Replaced with:
+- **Expectancy** (`avg_win*WR - avg_loss*(1-WR)`, the standard formula —
+  WR still appears INSIDE it, correctly weighted by win/loss magnitude,
+  just no longer ALSO a separate stacked bonus): 0-50 pts (was WR's slot).
+- **Profit factor**: 0-25 pts (was 20 — absorbed some of WR's old weight).
+- **Max drawdown**: 0-25 pts, penalty-based, computed from a reconstructed
+  chronological equity curve (peak-to-trough over the rating sample,
+  normalized against the same $7k reference `_MAX_SANE_PNL` already uses).
+- Trade-count bonus and consecutive-loss penalty kept as-is.
+- `win_rate` stays in the result dict as a **display-only** field
+  (`win_rate_is_display_only: True` added so no future consumer mistakes
+  it for a grade input again).
+
+**Era-fence check**: this scorer was ALREADY options-exclusive before
+tonight (`calculate_rating` filters `asset_type in ("option","options")`
+and rejects non-stock-ticker symbols at line ~115) — options-sosnoff's CSP
+P&L was never part of this specific report card to begin with. The
+Admiral's "era-fence applies" instruction is satisfied by this pre-existing
+exclusion; no additional filtering was needed here. (Troi's era-fencing
+lives in the leaderboard's `season_realized` computation and
+`get_portfolio_with_pnl()`, already shipped in commit `1311da3`.)
+
+Live-tested against an isolated DB copy (capitol-trades: A/80.2,
+WR=90.9% shown for display, score actually driven by expectancy=$6.44/trade,
+PF=7.82, maxDD=0.52%). Held — this is a Python function change inside the
+live trader process, needs the next restart to take effect, per the
+Admiral's explicit "rides the next bundled restart" sequencing.
+
+---
+## 🟢 P1.2 TRIPLE-BARRIER LABELING BACKFILL — shipped, ran tonight
+
+`scripts/label_signals.py` (new, resumable via `signal_labels.signal_id`
+UNIQUE constraint + checkpointed commits every 200 rows). v1 params:
+2.0x ATR(14) profit-take, 1.0x ATR(14) stop, 5-day time barrier, stop
+checked first on same-day ambiguity (conservative/worst-case ordering,
+documented in `params_json` per row for traceability if re-labeled later
+with different params).
+
+**Result**: 13,465 deduped historical signals (all of `signals_v2`,
+2026-05-23 to 2026-07-07, 917 distinct symbols) → 8,085 labeled, 5,362
+skipped (no bars available or insufficient prior ATR history — mostly the
+earliest signals in the window, which don't have 14 prior trading days of
+bars before them). Label distribution: 4,271 time-barrier (52.8%), 2,815
+stop (34.8%), 1,017 profit-take (12.6%) — the stop being hit more often
+than the profit-take is the expected/correct asymmetric-barrier behavior
+(1x ATR stop is a narrower target than a 2x ATR profit-take), not a bug.
+
+This produces labels ONLY — explicitly NOT the meta-label gate or
+per-agent IC per the Admiral's sequencing ("do not build those yet, labels
+first"). New `signal_labels` table: `signal_id, symbol, entry_date,
+entry_price, atr, label, barrier_hit, fwd_return, params_json,
+computed_at`.
+
+---
+## 🟡 NEW FINDING: gate_reject_log has occasional garbage price values
+
+Discovered while building the P1 counterfactual report (2026-07-07).
+~1.5% of `MARKET_CLOSED` rejections in the last 30 days carry a `price`
+under $1.00 for symbols that don't trade anywhere near that (HIMS logged
+at $0.91, real range ~$30-60). `_log_gate_reject`'s MARKET_CLOSED call
+sites in `engine/paper_trader.py` (lines ~669, ~1774, ~4494) just pass
+through whatever `price` the caller already computed — this isn't a
+logging-layer bug, the bad value is coming from further upstream (which
+specific caller/scanner computes a sub-$1 "price" for an otherwise
+normally-priced symbol, not traced tonight). Low volume (~135/8,686
+MARKET_CLOSED rows in 30 days) but each one can produce a wildly wrong
+counterfactual return if not filtered, which is exactly what happened in
+the first (superseded) counterfactual-report run above. Worth a targeted
+grep for anywhere `price` gets computed before reaching `buy()`'s
+MARKET_CLOSED gate — not scoped or attempted here, filed for a future
+window.
+
+**Note**: the corrected script accidentally ran twice back-to-back (a
+background invocation that appeared stalled, so it was re-run in the
+foreground — both actually completed). Both appends below are valid,
+outlier-guarded runs; the small differences between them (e.g. slightly
+different executed-baseline sample sizes) are real run-to-run variance in
+Alpaca's bars response a few minutes apart, not a bug. Kept both rather
+than deleting either.
+
+---
+## Counterfactual Report — 2026-07-07 (P1 measurement layer, scripts/counterfactual_report.py)
+
+# Counterfactual Report — 2026-07-07
+Window: last 30 days (2026-06-07 to 2026-07-07)
+Outlier guard: entry price >= $1.00, |forward return| <= 100% (see script docstring for why)
+
+Executed baseline (BUY signals that went live): n=24/22/22 (1d/3d/5d with bars available)
+  fwd_1d: mean=-0.020%, median=0.457%
+  fwd_3d: mean=-0.877%, median=-0.196%
+  fwd_5d: mean=-0.603%, median=0.823%
+
+| Gate | Blocked (deduped) | Bars avail | mean/median fwd_1d | mean/median fwd_3d | mean/median fwd_5d | Structural? |
+|---|---|---|---|---|---|---|
+| HALT | 3803 | 2491 | -0.11/0.11% | 0.22/0.53% | 0.55/0.61% | yes |
+| MARKET_CLOSED | 1706 | 1067 | 0.97/0.25% | 1.59/0.79% | 2.10/1.36% | yes |
+| GRADE_B | 1532 | 994 | -0.41/-0.70% | 1.10/0.16% | 1.13/0.00% |  |
+| MAX_TRADES_REACHED | 232 | 131 | -0.21/0.06% | -0.76/0.71% | -0.72/0.53% |  |
+| MAX_POSITIONS_REACHED | 128 | 73 | -0.84/-0.41% | 0.47/0.77% | 0.42/-0.20% |  |
+| LOW_CONVICTION | 21 | 10 | -0.44/-1.20% | 0.80/1.54% | 1.51/1.39% |  |
+| SCANNER_FILTER | 17 | 9 | -1.82/-1.81% | -0.80/0.11% | -0.80/0.11% |  |
+| QUALITY_GATE_FAILED | 5 | 4 | 0.47/0.23% | 2.03/1.11% | 2.03/1.11% |  |
+| DRAWDOWN_PAUSE | 2 | 0 | n/a | n/a | n/a |  |
+| LEARNING_BLOCK | 1 | 0 | n/a | n/a | n/a |  |
+
+
+---
+## Counterfactual Report — 2026-07-07 (P1 measurement layer, scripts/counterfactual_report.py)
+
+# Counterfactual Report — 2026-07-07
+Window: last 30 days (2026-06-07 to 2026-07-07)
+Outlier guard: entry price >= $1.00, |forward return| <= 100% (see script docstring for why)
+
+Executed baseline (BUY signals that went live): n=22/20/20 (1d/3d/5d with bars available)
+  fwd_1d: mean=-1.873%, median=-0.317%
+  fwd_3d: mean=-1.429%, median=-0.089%
+  fwd_5d: mean=-0.647%, median=-0.089%
+
+| Gate | Blocked (deduped) | Bars avail | mean/median fwd_1d | mean/median fwd_3d | mean/median fwd_5d | Structural? |
+|---|---|---|---|---|---|---|
+| HALT | 3803 | 2186 | -0.24/0.09% | 0.29/0.51% | 0.66/0.59% | yes |
+| MARKET_CLOSED | 1706 | 907 | 0.73/0.34% | 1.58/0.69% | 1.91/1.27% | yes |
+| GRADE_B | 1532 | 943 | -0.30/-0.66% | 0.90/0.07% | 0.99/-0.02% |  |
+| MAX_TRADES_REACHED | 232 | 144 | -0.70/-0.20% | -0.56/0.57% | -0.46/0.53% |  |
+| MAX_POSITIONS_REACHED | 128 | 71 | -0.27/-0.31% | 0.68/0.97% | 1.19/0.38% |  |
+| LOW_CONVICTION | 21 | 11 | 0.04/-0.19% | 2.26/2.47% | 4.39/4.26% |  |
+| SCANNER_FILTER | 17 | 9 | -0.55/-0.19% | 1.52/0.45% | 1.84/0.45% |  |
+| QUALITY_GATE_FAILED | 5 | 3 | -1.14/-1.39% | -0.10/-0.73% | -0.10/-0.73% |  |
+| DRAWDOWN_PAUSE | 2 | 1 | -10.13/-10.13% | n/a | n/a |  |
+| LEARNING_BLOCK | 1 | 0 | n/a | n/a | n/a |  |

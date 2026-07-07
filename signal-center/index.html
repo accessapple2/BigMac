@@ -1934,8 +1934,14 @@ function buildDashboard(data){
   var vixExpand='<div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">VIX Regime Map</div>'+_vixZones.map(function(z){return '<div class="sc-row" style="opacity:'+(z[3]?1:.45)+'"><span class="sc-lbl" style="color:'+z[2]+';min-width:50px">'+z[0]+'</span><span class="sc-val" style="color:'+z[2]+'">'+z[1]+'</span>'+(z[3]?'<span class="sc-here" style="background:'+z[2]+'22;color:'+z[2]+'">YOU ARE HERE</span>':'')+'</div>';}).join('');
 
   // GEX expand: key levels
+  // F2 2026-07-07: added "As Of" row -- cadence-mismatch transparency, not a
+  // fix. The canonical collector refreshes once/day (13:05 AZ) while some
+  // other GEX consumers (e.g. War Room's gamma_context.py) compute live, so
+  // the same regime label can legitimately differ intraday. Surfacing the
+  // timestamp here makes that visible instead of silent. Intraday recompute
+  // is the real fix, separate P2 window.
   var _gd=data.gex||{};
-  var gexExpand='<div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">GEX Key Levels — SPY</div>'+[['Spot Price',_gd.spot?'$'+parseFloat(_gd.spot).toFixed(2):'—'],['King Node',_gd.king_node?'$'+parseFloat(_gd.king_node).toFixed(0):'—'],['Gamma Flip',_gd.gamma_flip?'$'+parseFloat(_gd.gamma_flip).toFixed(0):'—'],['Call Wall',_gd.call_wall?'$'+parseFloat(_gd.call_wall).toFixed(0):'—'],['Put Wall',_gd.put_wall?'$'+parseFloat(_gd.put_wall).toFixed(0):'—'],['Regime',_gd.regime||gex.desc]].map(function(r){return '<div class="sc-row"><span class="sc-lbl">'+r[0]+'</span><span class="sc-val">'+r[1]+'</span></div>';}).join('');
+  var gexExpand='<div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">GEX Key Levels — SPY</div>'+[['Spot Price',_gd.spot?'$'+parseFloat(_gd.spot).toFixed(2):'—'],['King Node',_gd.king_node?'$'+parseFloat(_gd.king_node).toFixed(0):'—'],['Gamma Flip',_gd.gamma_flip?'$'+parseFloat(_gd.gamma_flip).toFixed(0):'—'],['Call Wall',_gd.call_wall?'$'+parseFloat(_gd.call_wall).toFixed(0):'—'],['Put Wall',_gd.put_wall?'$'+parseFloat(_gd.put_wall).toFixed(0):'—'],['Regime',_gd.regime||gex.desc],['As Of',(_gd.timestamp||_gd.as_of)||'—']].map(function(r){return '<div class="sc-row"><span class="sc-lbl">'+r[0]+'</span><span class="sc-val">'+r[1]+'</span></div>';}).join('');
 
   // Fear & Greed expand
   var _fgd=data.fear_greed||{};
