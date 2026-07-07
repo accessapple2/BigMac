@@ -813,15 +813,29 @@ human. Three gates:
 ---
 ## 🔴 XO-DEPARTURE-HARDENING — Phase 2 remaining, filed 2026-07-06
 
-**5. Qwen3.6-35B-A3B audition onboarding** — only AFTER Monday's restart
-proves `[AUDITION-GATE] ... enforcement=ON` live (see `HM-GATE-RESTART-HOLD`
-above for the exact verification steps). Riskiest change on the whole
-departure list — do it while the Admiral is still here, not after. **Note
-the redefinition**: per `HM-EDGE-PROVENANCE`, an audition trade only counts
-with real broker evidence now — Qwen3.6's onboarding criteria should be
-written against `engine.crew.audition_tracking`'s broker-execution-required
-counting from day one, not the pre-ruling "any clean trade" design the two
-current incumbents were originally (wrongly) measured against.
+**5. Qwen3.6-35B-A3B audition onboarding — CLOSED, candidate dead on this
+hardware (2026-07-06 evening).** Prep-checked per this item's own "confirm
+the model is pulled... fits VRAM co-residency... verify against
+ram-discipline.md before pulling" precondition, ahead of the planned
+2026-07-07 after-close onboarding slot. Live `/api/tags` on Ollie Max
+(192.168.1.168:11434) confirms `HM-ORPHAN-SEATS` (2026-07-01) is still
+accurate — no qwen3.6 variant is pulled. Checked Ollama's library for every
+`qwen3.6`/`35b-a3b` tag + real size: **the smallest quantization in the
+entire Qwen3.6 family, anywhere, is 17GB** (`qwen3.6:27b-q4_K_M`); the
+specific `35b-a3b` tag named here is 22-24GB. Ollie Max's real GPU (RTX
+5080, confirmed via `nvidia-smi`: 16303 MiB total) cannot fit ANY Qwen3.6
+tag solo, let alone alongside anything else — this is not a co-residency
+squeeze like the existing 7-8B budget, it's a hard "doesn't fit at all."
+"A3B = active ~3B-param MoE, lighter than the full 35B footprint" (this
+ticket's original framing, see the candidate description below) describes
+compute-per-token, not memory — MoE still needs all experts resident in
+VRAM, so it doesn't help here. **Admiral decision 2026-07-06: substitute a
+different free local model that actually fits** — see
+`HM-QWEN36-SUBSTITUTE-2026-07-06` for the replacement pick + numbers.
+Original riskiest-departure-item framing and `HM-EDGE-PROVENANCE`
+broker-execution-required onboarding criteria below both carry over
+unchanged to whatever model replaces Qwen3.6 — only the specific model_id
+is dead, not the onboarding design.
 
 **6. Shadow-pipeline verdict** — full ticket: `HM-SHADOW-PIPELINE-COST-AUDIT`
 below (~$50/mo, 4-10x q-witness, non-roster). If nothing consumes the
@@ -976,6 +990,44 @@ Gate code and config are unchanged between tonight's restart and Monday's,
 so Monday's staleness-delta measurement is not confounded by config drift —
 but the process's actual uptime clock reset Sunday night, not at Friday's
 config landing. State this explicitly wherever Monday's read gets written up.
+
+**⚠ TOMORROW (2026-07-07) AFTER-CLOSE BUNDLED RESTART — checklist, Admiral-confirmed 2026-07-06.**
+Everything below rides ONE restart, not separate ones:
+1. **Precondition gate (check first, before touching anything else):**
+   confirm today's (07-07) open showed at least one live order placed/closed
+   end-to-end under `can_trade_live` enforcement=ON. If any gate anomaly
+   shows up instead, STOP — fix the anomaly first, hold both items below for
+   a later window.
+2. **Flip `config.ALERT_DEFS_ENABLED = True`** (currently `False` —
+   see `HM-ALERT-COLLAB-LINKS` Phase 1, shipped code-complete 2026-07-06,
+   gated off pending this flip).
+3. **Qwen3.6-substitute onboarding** (`HM-QWEN36-SUBSTITUTE-2026-07-06`
+   above) — ONLY if the Admiral has confirmed the pick (`qwen3:4b`
+   recommended) and it's been pulled ahead of the restart. `ollama pull
+   qwen3:4b` on Ollie Max first (separate step, doesn't need the trader
+   restart), then the `ai_players` INSERT for the new auditioning seat
+   (`crew_role='auditioning'`, `can_trade_live=0`) rides this same restart.
+4. `zsh scripts/trader_restart.sh` — the one bundled restart.
+5. **Post-restart verification (standard checklist):**
+   - `trader.log` shows `[AUDITION-GATE] active — ... enforcement=ON` —
+     **must still say ON, not OFF** (a regression here means the backfill
+     or gate code got reverted somehow — stop and investigate, don't
+     proceed with anything else).
+   - Re-run the same `is_auto_tradeable()` check against all 10
+     `can_trade_live=1` agents (6 executing + 4 exit_only) from
+     2026-07-06 — confirm still all `True`.
+   - If Qwen3.6-substitute onboarded this same restart: confirm the new
+     seat shows up in `ai_players` with `crew_role='auditioning'`,
+     `can_trade_live=0`, and is correctly BLOCKED at all 3 audition-gate
+     layers (mirror the dry-run check already done 2026-07-05 — don't
+     just assume the existing gate code handles a new row correctly,
+     verify it).
+   - Confirm `config.ALERT_DEFS_ENABLED` reads `True` in the running
+     process and `engine.dynamic_alerts.run_user_alert_definitions()` is
+     no longer a no-op (e.g. create one throwaway test definition, confirm
+     it evaluates, then disable/remove it — don't leave test data live).
+   - `logs/trader.log` clean of new tracebacks/errors in the first few
+     minutes post-restart (same bar as tonight's restart).
 
 **What DID ship tonight (2026-07-05), already applied, not held:**
 - `scripts/swingdesk_restart.sh` run — SwingDesk (:8889) now runs the new
@@ -1301,6 +1353,10 @@ by the new check above — none touch or replace any of the 6 current seats):**
   (192.168.1.168:11434) and fits current VRAM co-residency (A3B = active
   ~3B-param MoE, lighter than the full 35B footprint, but verify against
   `docs/runbooks/ram-discipline.md` before pulling).
+  **DEAD, 2026-07-06 — see item 5 above + `HM-QWEN36-SUBSTITUTE-2026-07-06`
+  below: no Qwen3.6 tag, at any quantization, fits Ollie Max's 16GB VRAM.
+  "Lighter than the full 35B footprint" was true of active-compute, not
+  memory footprint — wrong assumption, caught before pulling.**
 
 **Open for Admiral decision before any of this is built:** (1) approve/deny
 paid-API spend for Sonnet 5 + Grok 4.3 candidates, (2) confirm the
@@ -1352,6 +1408,128 @@ here: simulated auditioning candidate correctly blocked at all 3 layers
 (gate_reject_log confirms `AUDITION_SHADOW`/`HALT`, zero positions created);
 `check_can_trade_live_backfill()` correctly reports not-ready pre-backfill
 and ready post-backfill; zero regression for real executing agents.
+
+---
+## 🟡 HM-QWEN36-SUBSTITUTE-2026-07-06 — replacement pick, NOT YET PULLED
+
+Qwen3.6-35B-A3B is dead (see item 5 in XO-DEPARTURE-HARDENING Phase 2 above)
+— no tag in the entire family fits Ollie Max's 16GB VRAM. Admiral asked for
+the strongest model/quant that actually co-resides with the currently-active
+roster's real models, with headroom, no evictions during market hours.
+
+**Real numbers (not tag names), checked 2026-07-06 evening:**
+- Ollie Max GPU: RTX 5080, **16303 MiB (~15.9GB) total**, confirmed via live
+  `nvidia-smi` (not just the ram-discipline.md doc figure).
+- Cross-referenced `ai_players.model_id` for every non-`halt_mode='full'`
+  ollama-provider agent against the roster (many player *names* are
+  historical/misleading — e.g. `ollama-qwen3`'s real `model_id` is
+  `ministral-3:3b`, not a qwen3 model). The real actively-serving model set:
+  `ministral-3:3b` (2.95GB, backs ollama-qwen3 + gemini-2.5-flash),
+  `qwen3:8b` (5.23GB, backs qwen3-8b-flash + ollama-llama + options-sosnoff +
+  navigator + dayblade-sulu — 5 agents share it), `plutus-v1` (4.68GB, backs
+  ollama-plutus). All three sizes are real `/api/tags` disk sizes (VRAM
+  footprint tracks disk size closely for Q4 quants at short context — live
+  `/api/ps` right now shows plutus-v1 resident at 4.57GB VRAM vs 4.68GB
+  disk, confirming this).
+- **Worst-case concurrent residency (all three loaded at once — realistic
+  given the fleet runs multiple scan threads in parallel, not one agent at a
+  time): 2.95 + 5.23 + 4.68 = 12.86GB.**
+- **Headroom under that worst case: 16 − 12.86 ≈ 3.14GB.** (Live snapshot
+  right now, market closed, shows only plutus-v1 resident at 4.57GB — i.e.
+  ~11.3GB free at this exact moment — but that's not the market-hours
+  worst case and shouldn't be the planning number.)
+
+**Candidates checked (real Ollama library sizes, not parameter-count
+labels):**
+| Model | Disk size | Fits 3.14GB worst-case headroom? | Notes |
+|---|---|---|---|
+| qwen3.6:27b-q4_K_M (smallest Qwen3.6 exists) | 17GB | NO | ruled out above |
+| gemma3:4b (already pulled) | 3.34GB | NO (exceeds headroom) | — |
+| **qwen3:4b** | **2.5GB** | **YES, ~0.6GB margin** | **RECOMMENDED** — same Qwen3 lineage already deployed fleet-wide (qwen3:8b/14b, qwen3.5:9b), drop-in via the existing `OllamaProvider` wrapper, hybrid-thinking small model, benchmarks ahead of similarly-sized non-Qwen3 models on reasoning/math |
+| qwen3:1.7b | 1.4GB | YES, ~1.7GB margin | more conservative fallback if 0.6GB margin is judged too tight |
+| llama3.2:3b | 2.0GB | YES, ~1.1GB margin | weaker than qwen3:4b on reasoning benchmarks despite similar size; not recommended over qwen3:4b |
+
+**Recommendation: `qwen3:4b` (2.5GB).** Real margin under the worst-case
+concurrency assumption is ~0.6GB — genuine but not huge; flagging this
+honestly rather than overstating confidence. `qwen3:1.7b` is the safer
+fallback if more margin is wanted at the cost of some capability.
+
+**✅ ADMIRAL GO 2026-07-06 — `qwen3:4b` approved, conditional on a measured
+(not estimated) co-residency load test, since disk size ≠ runtime VRAM
+(KV cache + context buffers + CUDA overhead sit on top of weights).**
+
+**Load test performed 2026-07-06 ~18:40 MST:**
+1. `ollama pull qwen3:4b` on Ollie Max — confirmed via live `/api/tags`:
+   **2.497GB** actual pulled size (matches the 2.5GB estimate).
+2. Built a REAL representative prompt from
+   `engine.providers.base.AIProvider.build_prompt()` with realistic sample
+   news/indicators/portfolio data — **13,747 chars (~3,436 tokens)**, not a
+   trivial "hi" — matching actual production signal-generation prompt shape.
+3. Fired concurrent `/api/generate` calls to all 4 models
+   (`ministral-3:3b`, `qwen3:8b`, `plutus-v1:latest`, `qwen3:4b`,
+   `keep_alive=3m` each) while polling `nvidia-smi --query-gpu=memory.used`
+   on Ollie Max every 0.5s over a single persistent SSH session (avoids
+   per-call SSH handshake overhead skewing the sampling). All 4 calls
+   succeeded (wall times 1.5s–29.0s; `qwen3:4b` slowest, ~17.2k-char
+   response).
+4. **Measured nvidia-smi peak during concurrent use: 12,684 MiB**
+   (transient, during simultaneous model-load); **settled/sustained value
+   with all 4 within their keep_alive windows: 11,962 MiB** (held steady
+   for the remainder of the polling window, confirmed plutus-v1's 3-min
+   keep_alive hadn't yet expired at that point).
+5. **Headroom at measured peak: 16,303 − 12,684 = 3,619 MiB (~3.5GB) — well
+   above the 500 MiB threshold.** `qwen3:4b` **PASSES**. No fallback to
+   `qwen3:1.7b` needed.
+
+(Note for the record: individually-reported per-model `size_vram` via
+`/api/ps`, checked ~3 min after the test once plutus-v1's keep_alive had
+already expired, summed higher than the observed nvidia-smi total for the
+3 remaining models — a real discrepancy between Ollama's self-reported
+per-model figures and actual GPU-level accounting, not investigated further
+since it doesn't change the pass/fail outcome and nvidia-smi is the
+ground-truth instrument per the Admiral's instruction.)
+
+**CONFIRMED for tomorrow's bundled window, no further approval needed per
+Admiral's standing instruction.** `qwen3:4b` is pulled and ready; the
+`ai_players` INSERT (auditioning seat) rides the 2026-07-07 after-close
+restart per the checklist above, same precondition (today's open must show
+a live order end-to-end under enforcement=ON first).
+
+---
+## 🟡 HM-GEX-OVERLAY-BATTLESTATION-MIGRATION — filed 2026-07-06, decision needed, NOT actioned
+
+Companion to P4.13 (`AFTER-CLOSE-WORK-ORDER P4` above). `engine/
+scan_context.py::get_gex_context_for_prompt()` (every agent's every scan
+prompt) has been repointed tonight to `engine.canonical_gex`/
+`engine.options_flow_gex` — that part is done. **Deliberately NOT migrated
+tonight, per Admiral instruction:** `engine/battle_station.py`'s 5 direct
+`engine.gex_overlay` call sites, all still reading the same frozen-since-
+2026-05-30 `gex_levels` table:
+- `battle_station.py:364-370` — `get_latest_gex`/`calculate_gex`/
+  `_save_gex_levels`, inside the actively-scheduled (`main.py:4240`, every
+  2 min) `run_battle_station_monitor`.
+- `battle_station.py:574-575` — `_fetch_yahoo_chain` (a different helper,
+  not GEX-snapshot-store-dependent — lower priority, just flagging it lives
+  in the same file).
+- `battle_station.py:817-818` and `:914-915` — two more `get_latest_gex`
+  reads, same monitor.
+
+**Recommendation:** migrate the three `get_latest_gex` read sites
+(364, 817, 914) to the same `canonical_gex`/`options_flow_gex` read shape
+used in tonight's `scan_context.py` fix — narrow, mechanical, same pattern
+already proven tonight. The `calculate_gex`/`_save_gex_levels` write path
+at 364-370 (Battle Station's own fresh-compute-and-persist fallback) is a
+separate question: either let it keep writing to the legacy `gex_levels`
+table as a Battle-Station-specific fallback (accepted as a deliberately
+separate, narrower-blast-radius data path), or retire it too once Battle
+Station also reads canonical data. Needs an explicit Admiral call — not
+assumed either way. `_fetch_yahoo_chain` (574) is unrelated to this
+migration question, no action needed there.
+
+**Why this is safe to defer:** unlike `scan_context.py` (feeds every
+agent's every decision), Battle Station's blast radius is narrower and
+already-scoped to its own monitor — staleness here doesn't silently
+contaminate the whole fleet's prompts the way P4.13's main finding did.
 
 ---
 ## 🟢 HM-ROSTER-RECONCILE-8 — Admiral decision recorded 2026-07-05, SQL pending final go-ahead
@@ -6410,6 +6588,12 @@ No dashboard/API endpoint reads `model_scores` or `spam_rate_pct` at all
 trader.db` query only. Worth knowing before July 24 so nobody goes looking
 for this on the Bridge and concludes the data doesn't exist.
 
+**B6 (2026-07-06) re-check before July 24:** re-verified the "8:30" phantom
+schedule doesn't appear uncorrected anywhere else in this file — every
+other tuning-crew time reference (lines ~896, 904, 916, 1095-1097) already
+consistently says 9:00-9:30 PM / ~21:30 MST, matching the correction above.
+Nothing left to fix here; confirming rather than re-writing.
+
 **Item 13 — gex_overlay.py/gex_levels official retirement per
 HM-GEX-CANONICAL: NOT actually fully retired — correcting the record.**
 The 2026-05-31 entry above is accurate for what it claims ("gex_overlay now
@@ -6444,6 +6628,49 @@ decide whether `battle_station.py`'s `gex_overlay` calls should migrate too
 (narrower blast radius, only affects Battle Station-specific features) or
 are acceptable as a legacy, deliberately-separate data path — needs an
 explicit decision either way rather than assuming "retired."
+
+---
+## 🟡 B3 — evaluator "on next restart" stale copy — FILED, not found in the 30-min budget (2026-07-06)
+
+Per the WRAP-UP DIRECTIVE's own rule ("if any turns out >30 min or touches
+more than you expect, STOP, file it, move on"): searched `dashboard/app.py`'s
+`/api/measurement-health` endpoint (the one that reports `signal_evaluator`
+status — the most likely home for this per `ALPHA READ`'s "measurement-
+health→ntfy RED thresholds" being the adjacent open item), `engine/
+signal_evaluator.py`, `engine/proving_ground.py`, both bridge HTML files, and
+a repo-wide grep for "restart" near every evaluator-touching file. **Did not
+find a literal "on next restart" (or close variant) string anywhere.**
+Possibilities, not resolved: (1) it was already fixed/removed between the
+2026-06-29 `ALPHA READ` note and now (real churn happened in between —
+`HM-EDGE-PROVENANCE`, `HM-EXEC-PIPELINE`, this session's own measurement-
+health work); (2) it's phrased differently than the note's paraphrase and
+needs the Admiral (or whoever wrote the original `ALPHA READ` note) to point
+at the exact string/file. Not fixed tonight — flagging rather than guessing
+at the wrong target.
+
+---
+## 🟡 B5 — "GEX Snapshot" source-grid freshness card — FILED, not located (2026-07-06)
+
+Same outcome as B3, same rule applied. Searched for a "Source Grid" /
+"GEX Snapshot" card across `dashboard/static/index.html`,
+`dashboard/static/bridge-v2.html`, and `dashboard/app.py`: checked every
+`/api/gex*` endpoint's `source` field text (`"gex-snapshot canonical (...)"`
+— the closest textual match found), the Metals/net-worth freshness renderer
+(`fetchUnifiedNetWorth`, uses a `d.freshness` object — structurally the kind
+of thing a "Source Grid" would be, but scoped to net-worth/metals only, no
+GEX entry), and every `UNKNOWN`-label site in both HTML files and
+`dashboard/app.py`. **Did not find a distinct multi-source freshness grid
+with a "GEX Snapshot" card that goes UNKNOWN/green.** Likely named
+differently than either "Source Grid" or "GEX Snapshot" verbatim, or lives
+in a file not yet checked (`swingdesk/`, `signal-center/`, or a bridge panel
+not grepped by these exact terms). What I CAN confirm instead: the new
+collector (`scripts/hm_gex_daily_collect.py`, `HM-GEX-COLLECTOR-2026-07-06`)
+writes into the exact same `gex_snapshots` table that
+`engine.canonical_gex.latest_snapshot()` reads (verified — same table, same
+schema, same file path) — so whatever freshness card exists, if it derives
+from that read path (directly or via `/api/gex/{symbol}`), it WILL pick up
+tomorrow's 13:05 write correctly by construction. The open question is
+purely "where does the UI surface this," not "does the pipeline work."
 
 ---
 ## 🟢 AFTER-CLOSE-WORK-ORDER P3.8 — Kirk Advisory ALL THREE slots missed today, real bug found and fixed (2026-07-06)
@@ -6595,3 +6822,22 @@ Wave 2 is gated on "one full trading day clean" — tomorrow, 2026-07-07
 (Tuesday), is the first full live trading day under wave 1; revisit wave 2
 after that reads clean (no new lock errors, no regression in the P1.1
 sentinel's FD/lock-error checks).
+
+## HM-SOURCE-HEALTH-FALSE-POSITIVES (2026-07-06, resolved)
+
+**macro RED (66d)** - false positive. source_registry ts_format pointed at
+bridge_iso:/api/macro:consumer_sentiment.date; UMich sentiment lags 1-2 months
+at publisher, so macro re-REDs monthly forever regardless of pipeline health.
+FIX (DB-only, no code/restart): repointed to treasury_10y.date (updates every
+business day). Verified GREEN via /api/sources/health/macro (as_of 2026-07-02, 4d).
+NOTE: change lives in signal-center/signals.db source_registry, not git.
+
+**kirk_advisory RED (07-03 to 07-06)** - real outage, root cause = 30-min poll
+phase drift missing all three 10-min persist slots (06:35/09:30/13:05 AZ).
+Fixed in aa55f1d (5-min cadence); main.py restarted 07-06 16:58 with fix loaded.
+Expected self-heal at first weekday slot 07-07 06:35. Fire Kirk outside slot
+windows is a designed no-op (200 + skip, no write) - do not treat as fault.
+
+**Steady state going forward:** 0 RED / 3 UNKNOWN (gex_snapshot, metals,
+riker_synthesis - heartbeat wiring gaps, producers alive; follow-up candidate:
+add as_of writes) / 4 RETIRED / 1 DORMANT.
