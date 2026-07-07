@@ -443,13 +443,19 @@ class CloseRequest(BaseModel):
 def health():
     polygon_ok = bool(POLYGON_KEY)
     alpaca_ok  = bool(ALPACA_KEY)   # loaded, not yet wired
+    try:
+        from engine.market_calendar import is_us_market_open
+        market_open = is_us_market_open()
+    except Exception:
+        market_open = None  # unknown, not a false "open" — frontend shows a neutral pill
     return {
         "status":        "ok",
         "time":          datetime.now().isoformat(),
         "polygon":       "configured" if polygon_ok else "MISSING",
         "alpaca":        "loaded (not wired yet)" if alpaca_ok else "MISSING",
         "alpaca_phase":  "Phase 2 — not yet active",
-        "db_connected":  True
+        "db_connected":  True,
+        "market_open":   market_open,
     }
 
 @app.get("/api/watchlist")

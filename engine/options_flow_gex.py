@@ -336,7 +336,15 @@ def persist(gex: dict | None, flow: dict | None) -> None:
     import json
     conn = _db()
     try:
-        if gex and not gex.get("error"):
+        # HM-OPS-SENTINEL P2.4 (2026-07-06): mirror the reader-side collapsed-wall guard
+        # (dashboard/app.py::_canonical_gex_cached) here at the WRITE side too. A snapshot
+        # with call_wall==put_wall==king_node is a known degenerate artifact (thin/stale
+        # chain), not a usable data point -- persisting one is exactly how flow_gex.db went
+        # silently stale for a month (a bad row still counts as "not cold", so nothing ever
+        # re-tried). Skip the write instead of banking junk.
+        _collapsed = (gex and gex.get("call_wall") is not None
+                      and gex["call_wall"] == gex.get("put_wall") == gex.get("king_node"))
+        if gex and not gex.get("error") and not _collapsed:
             conn.execute("INSERT INTO gex_snapshots (underlying,asof,spot,total_gex,regime,gamma_flip,"
                          "call_wall,put_wall,contracts_used,per_strike_json) VALUES (?,?,?,?,?,?,?,?,?,?)",
                          (gex["underlying"], gex["asof"], gex["spot"], gex["total_gex"], gex["regime"],

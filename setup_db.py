@@ -513,6 +513,30 @@ def setup():
     )''')
     # === /HM-EOD-REPORT-2026-07-05 ==========================================
 
+    # === HM-ALERT-COLLAB-LINKS Phase 1 (2026-07-06, Admiral-approved) =======
+    # User-defined alert configurations, additive to the existing hardcoded
+    # checks in engine/dynamic_alerts.py (which stay default-on regardless).
+    # `kind` is an allowlist enum mapping 1:1 onto existing check functions --
+    # a stored/imported definition can only turn on checks that already
+    # exist, never introduce new behavior. Gated behind config.ALERT_DEFS_ENABLED
+    # (default False). See drafts/HM-ALERT-COLLAB-LINKS.md for the full plan.
+    c.execute('''CREATE TABLE IF NOT EXISTS alert_definitions (
+        id INTEGER PRIMARY KEY AUTOINCREMENT,
+        kind TEXT NOT NULL,
+        symbol TEXT NOT NULL,
+        params_json TEXT NOT NULL,
+        severity TEXT NOT NULL DEFAULT 'info',
+        channels_json TEXT NOT NULL DEFAULT '["ntfy"]',
+        note TEXT,
+        enabled INTEGER NOT NULL DEFAULT 1,
+        created_by TEXT NOT NULL DEFAULT 'admiral',
+        created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+        last_triggered_at TIMESTAMP
+    )''')
+    c.execute('''CREATE INDEX IF NOT EXISTS idx_alert_definitions_enabled
+                 ON alert_definitions(enabled, symbol)''')
+    # === /HM-ALERT-COLLAB-LINKS Phase 1 =====================================
+
     c.execute('''CREATE TABLE IF NOT EXISTS watchlist_signals (
         id INTEGER PRIMARY KEY,
         player_id TEXT NOT NULL REFERENCES ai_players(id),
@@ -1030,6 +1054,15 @@ def setup():
         "CREATE INDEX IF NOT EXISTS idx_signals_v2_timeframe ON signals_v2(timeframe)",
         "CREATE INDEX IF NOT EXISTS idx_signals_v2_event ON signals_v2(event_id)",
         "CREATE INDEX IF NOT EXISTS idx_signals_v2_stale ON signals_v2(stale_after)",
+        # P0-B.1 2026-07-07: non-unique index backing emit_signal_v2()'s
+        # application-level dedup check (SELECT-before-INSERT). NOT a UNIQUE
+        # index -- 1,286 pre-existing duplicate rows (capitol-trades/IBM,
+        # since 2026-07-06) would violate one and creating it fails outright
+        # (confirmed: "UNIQUE constraint failed" against live data). Per
+        # never-delete-data doctrine, historical dupes are not touched;
+        # dedup is enforced going forward only, at the application layer.
+        "CREATE INDEX IF NOT EXISTS idx_signals_v2_dedup_lookup "
+        "ON signals_v2(source, symbol, direction, signal_type, created_at)",
     ]:
         c.execute(_idx)
 

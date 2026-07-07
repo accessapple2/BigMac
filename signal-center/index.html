@@ -2106,18 +2106,35 @@ function buildDashboard(data){
   }
 
   // Bull/Bear consensus card
+  // P0-B.5 2026-07-07: every model is prompted for BOTH a bull case AND a
+  // bear case unconditionally (engine/bull_bear.py) -- counting non-empty
+  // bull_case/bear_case text was structurally guaranteed to show N-of-N
+  // regardless of actual sentiment, not a real consensus split. Replaced
+  // with the model's own explicit VERDICT (new field, asked directly in the
+  // prompt as of this fix). Cache entries written before this shipped won't
+  // have a verdict yet -- treated as unknown/unclassified, NOT folded into
+  // bull or bear, so the % only reflects models that were actually asked.
   if(data.bull_bear){
     var bb=data.bull_bear;
     var analyses=bb.analyses||[];
-    var bullCount=analyses.filter(function(a){return (a.bull_case||'').length>5;}).length;
-    var bearCount=analyses.filter(function(a){return (a.bear_case||'').length>5;}).length;
+    var bullCount=analyses.filter(function(a){return a.verdict==='BULLISH';}).length;
+    var bearCount=analyses.filter(function(a){return a.verdict==='BEARISH';}).length;
+    var neutralCount=analyses.filter(function(a){return a.verdict==='NEUTRAL';}).length;
     var n=analyses.length||1;
-    var bullPct=Math.round(bullCount/(bullCount+bearCount||1)*100);
-    var bbScore=bullPct>65?75:bullPct>55?62:bullPct>45?50:bullPct>35?38:25;
-    var bbExpand='<div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Model Breakdown</div>'+[['Bull models',bullCount+' / '+n],['Bear models',bearCount+' / '+n],['Bull %',bullPct+'%'],['Confidence',bullPct>=65?'Strong consensus':bullPct>=50?'Lean bullish':'Bear majority']].map(function(r){return '<div class="sc-row"><span class="sc-lbl">'+r[0]+'</span><span class="sc-val">'+r[1]+'</span></div>';}).join('');
-    cards.push(sigCard('Bull/Bear Consensus', bullPct+'%', bbScore, bullCount+' bull / '+bearCount+' bear across '+n+' models', bbScore,
-      {why: bullCount+' of '+n+' AI models ('+bullPct+'%) have a bullish case. '+(bullPct>=65?'Strong consensus — valid signal to act on with confidence.':bullPct>=50?'Slight bull lean — not decisive, wait for confirmation.':'Bear-leaning majority — exercise caution on new longs.'),
-       scale:'A:&gt;70% bull | B:60–70% | C:45–60% | D:35–45% | E:&lt;35% bull'}, 'bullbear', bbExpand));
+    var classified=bullCount+bearCount+neutralCount;
+    var unclassified=n-classified;
+    if(classified===0){
+      cards.push(sigCard('Bull/Bear Consensus','—',50,'Verdicts pending — cache refreshing with new format',50,
+        {why:'All '+n+' cached analyses predate the verdict field (shipped 2026-07-07). Refreshes within the 1h cache TTL.',
+         scale:'A:&gt;70% bull | B:60–70% | C:45–60% | D:35–45% | E:&lt;35% bull'}, 'bullbear', ''));
+    } else {
+      var bullPct=Math.round(bullCount/classified*100);
+      var bbScore=bullPct>65?75:bullPct>55?62:bullPct>45?50:bullPct>35?38:25;
+      var bbExpand='<div style="font-size:10px;color:var(--muted);margin-bottom:6px;text-transform:uppercase;letter-spacing:1px">Model Verdicts</div>'+[['Bullish',bullCount+' / '+classified],['Bearish',bearCount+' / '+classified],['Neutral',neutralCount+' / '+classified],['Unclassified (stale cache)',unclassified+' / '+n],['Bull %',bullPct+'%'],['Confidence',bullPct>=65?'Strong consensus':bullPct>=50?'Lean bullish':'Bear majority']].map(function(r){return '<div class="sc-row"><span class="sc-lbl">'+r[0]+'</span><span class="sc-val">'+r[1]+'</span></div>';}).join('');
+      cards.push(sigCard('Bull/Bear Consensus', bullPct+'%', bbScore, bullCount+' bullish / '+bearCount+' bearish / '+neutralCount+' neutral of '+classified+' verdicts', bbScore,
+        {why: bullCount+' of '+classified+' classified AI models ('+bullPct+'%) have a net bullish verdict. '+(bullPct>=65?'Strong consensus — valid signal to act on with confidence.':bullPct>=50?'Slight bull lean — not decisive, wait for confirmation.':'Bear-leaning majority — exercise caution on new longs.'),
+         scale:'A:&gt;70% bull | B:60–70% | C:45–60% | D:35–45% | E:&lt;35% bull'}, 'bullbear', bbExpand));
+    }
   }
 
   document.getElementById('signal-grid').innerHTML=cards.join('');

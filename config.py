@@ -163,6 +163,19 @@ AUTO_SPREAD_MAX_DEBIT_PER_TRADE = 500.0    # $ net debit ceiling per spread
 AUTO_SPREAD_MAX_OPEN = 5                    # max concurrent open auto-spreads
 AUTO_SPREAD_MAX_NEW_PER_DAY = 3            # max new auto-spreads opened per day
 AUTO_SPREAD_MAX_TOTAL_DEBIT = 2500.0       # max total open auto-spread debit ($)
+
+# === HM-ALERT-COLLAB-LINKS Phase 1 — user alert definitions (2026-07-06) =====
+# Gates engine/dynamic_alerts.py's alert_definitions reader (unions user-defined
+# alerts with the existing hardcoded checks; hardcoded stays default-on regardless
+# of this flag). False = reader is a no-op, table can exist with zero behavior
+# change. Flip after smoke-restart verification. drafts/HM-ALERT-COLLAB-LINKS.md
+# has the full plan; Phase 2 (encode/decode share links) is separate and unbuilt --
+# this flag only covers the Phase 1 alert-definition model + CRUD.
+# HMAC key for Phase 2 share-link signing lives at
+# ~/.config/ollietrades/alert_link_secret (chmod 600, not in this repo) -- not
+# read by anything yet, prepped ahead per Q3 of the Admiral's ruling.
+# FLIPPED 2026-07-07 (Admiral GO, after-close bundled restart).
+ALERT_DEFS_ENABLED = True
 AUTO_SPREAD_MIN_CONVICTION = 8.0           # proposing-agent conviction floor (>= 8)
 
 # Tickers confirmed delisted/halted — excluded from all scan universes

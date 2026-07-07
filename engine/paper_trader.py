@@ -712,27 +712,50 @@ def buy(player_id: str, symbol: str, price: float, asset_type: str = "stock",
     # as "pending" (transitions to 'executed' on successful fill via
     # _emit_trade_to_bus, or stays pending if blocked).
     # Fail-safe: any error → continue without bus emit.
+    #
+    # AFTER-CLOSE-WORK-ORDER B2 (2026-07-06): exit_only/full agents can NEVER
+    # succeed at buy() (halt_mode blocks all new entries downstream, always)
+    # -- so a "pending" row logged here for one of them is structurally
+    # guaranteed to never resolve (no fill ever transitions it to 'executed').
+    # `navigator` (exit_only) alone was re-accumulating hundreds of orphaned
+    # pending signals_v2 rows daily this way (HM-SIGNALS-V2-FIFO-STARVATION).
+    # Skip the emit for non-active agents -- doesn't touch the priority-lane
+    # rebuild (separate ticket), just stops feeding it garbage at the source.
+    # halt_gate lookup failing defaults to True (emit as before) so this
+    # can never block the real buy() path below it.
+    _direct_buy_hook_ok = True
     try:
-        from engine.events_bus import emit_signal_v2
-        _direct_strategy = (
-            'long_equity' if asset_type == 'stock'
-            else (('long_' + option_type.lower())
-                  if (asset_type == 'option' and option_type) else 'unknown')
-        )
-        _audit_sid = None
-        _audit_sid = emit_signal_v2(
-            source=player_id, signal_type='direct_buy_intent', symbol=symbol,
-            direction='LONG', confidence=confidence or 0.0,
-            timeframe=('scalp' if (timeframe or 'swing').lower() == 'short' else (timeframe or 'swing').lower()),
-            strategy_tag=_direct_strategy,
-            metadata={'direct_call': True, 'caller': player_id, 'asset_type': asset_type},
-        )
-    except Exception as _ebd_e:
-        console.log(
-            f"[yellow][EVENTS-BUS-WARN] direct buy hook "
-            f"player={player_id} sym={symbol}: "
-            f"{type(_ebd_e).__name__}: {_ebd_e!r}"
-        )
+        from engine.halt_gate import can_open_position
+        _hg_conn = _conn()
+        try:
+            _direct_buy_hook_ok = can_open_position(_hg_conn, player_id)
+        finally:
+            _hg_conn.close()
+    except Exception:
+        _direct_buy_hook_ok = True
+
+    _audit_sid = None  # referenced unconditionally later (fill-tracking) -- must always be defined
+    if _direct_buy_hook_ok:
+        try:
+            from engine.events_bus import emit_signal_v2
+            _direct_strategy = (
+                'long_equity' if asset_type == 'stock'
+                else (('long_' + option_type.lower())
+                      if (asset_type == 'option' and option_type) else 'unknown')
+            )
+            _audit_sid = emit_signal_v2(
+                source=player_id, signal_type='direct_buy_intent', symbol=symbol,
+                direction='LONG', confidence=confidence or 0.0,
+                timeframe=('scalp' if (timeframe or 'swing').lower() == 'short' else (timeframe or 'swing').lower()),
+                strategy_tag=_direct_strategy,
+                metadata={'direct_call': True, 'caller': player_id, 'asset_type': asset_type},
+            )
+        except Exception as _ebd_e:
+            console.log(
+                f"[yellow][EVENTS-BUS-WARN] direct buy hook "
+                f"player={player_id} sym={symbol}: "
+                f"{type(_ebd_e).__name__}: {_ebd_e!r}"
+            )
     # GUARD: Never auto-trade human portfolios
     if _is_human_player(player_id):
         console.log(f"[red]BLOCKED: {player_id} is human — cannot auto-trade")
@@ -2515,7 +2538,21 @@ _DEFAULT_STARTING_CASH = 7000.0
 # 2026-07-04 trim; v2 (gated under TROI_CSP_CAP_GATE) begins here. The two
 # must never be combined into one displayed figure without being labeled --
 # this constant is the single source of truth for where that line falls.
+# NOTE this is a POSITION-SIZING era boundary, not a pricing-methodology one
+# -- see TROI_REAL_QUOTES_ERA_START below, a deliberately separate constant.
 TROI_V2_ERA_START = "2026-07-06"
+
+# P0-A 2026-07-07 (HM-OPTIONS-FILL-INTEGRITY): pricing-methodology era
+# boundary, independent of TROI_V2_ERA_START above. Every CSP trade with
+# entry_date before this constant -- v1 AND v2 cap-gate era alike -- priced
+# its entry via a synthetic VIX-scaled formula (min(0.08,vix/500)*spot,
+# zero chain calls). engine/wheel_strategy.py and engine/shadow_csp.py were
+# rewired to real quotes (Alpaca primary, Polygon secondary) and this
+# constant set to today, the date that code actually shipped -- NOT
+# backdated, NOT reusing TROI_V2_ERA_START (which marks a different,
+# independent axis: position-sizing, not pricing methodology). See
+# docs/XO_BACKLOG.md "P0-A: OPTIONS FILL INTEGRITY" for the full diagnosis.
+TROI_REAL_QUOTES_ERA_START = "2026-07-07"
 
 
 def _csp_realized_pnl_v1(player_id: str) -> float:
@@ -2529,6 +2566,48 @@ def _csp_realized_pnl_v1(player_id: str) -> float:
             "SELECT SUM(pnl) FROM options_trades WHERE agent_id=? AND structure='csp' "
             "AND status='closed' AND exit_date < ?",
             (player_id, TROI_V2_ERA_START),
+        ).fetchone()
+        conn.close()
+        return float(row[0]) if row and row[0] is not None else 0.0
+    except Exception:
+        return 0.0
+
+
+def _csp_realized_pnl_synthetic_restated(player_id: str) -> float:
+    """P0-A item 4, 2026-07-07: sum of CLOSED CSP pnl priced under the
+    synthetic VIX-formula era (exit_date < TROI_REAL_QUOTES_ERA_START) --
+    independent of, and a SUPERSET of, _csp_realized_pnl_v1's cap-gate-only
+    boundary (TROI_V2_ERA_START marks a position-sizing change, not a
+    pricing-methodology one; every CSP trade before today's fix, cap-gated
+    or not, priced its entry from a formula, never a real quote). This is
+    the number that must be labeled "synthetic fills -- restated" wherever
+    displayed, never blended silently into a headline P&L figure."""
+    try:
+        conn = sqlite3.connect(DB, timeout=5)
+        row = conn.execute(
+            "SELECT SUM(pnl) FROM options_trades WHERE agent_id=? AND structure='csp' "
+            "AND status='closed' AND exit_date < ?",
+            (player_id, TROI_REAL_QUOTES_ERA_START),
+        ).fetchone()
+        conn.close()
+        return float(row[0]) if row and row[0] is not None else 0.0
+    except Exception:
+        return 0.0
+
+
+def _csp_realized_pnl_real_quotes(player_id: str) -> float:
+    """P0-A item 4, 2026-07-07: sum of CLOSED CSP pnl priced with a real
+    quote (exit_date >= TROI_REAL_QUOTES_ERA_START). This is the ONLY
+    figure Troi (and the shadow CSP bakeoff) should be GRADED/ranked on
+    going forward -- will read $0.00 for a while after ship, honestly,
+    since no real-quote CSP has had time to close yet. That is the fix
+    working, not a bug in this function."""
+    try:
+        conn = sqlite3.connect(DB, timeout=5)
+        row = conn.execute(
+            "SELECT SUM(pnl) FROM options_trades WHERE agent_id=? AND structure='csp' "
+            "AND status='closed' AND exit_date >= ?",
+            (player_id, TROI_REAL_QUOTES_ERA_START),
         ).fetchone()
         conn.close()
         return float(row[0]) if row and row[0] is not None else 0.0
@@ -3024,6 +3103,24 @@ def get_portfolio_with_pnl(player_id: str, prices: dict) -> dict:
     starting = _STARTING_CASH.get(player_id, _DEFAULT_STARTING_CASH)
     return_pct = round((total_value - starting) / starting * 100, 2) if starting > 0 else 0.0
 
+    # P0-A item 4, 2026-07-07 (HM-OPTIONS-FILL-INTEGRITY): total_value/
+    # return_pct above are left untouched -- they reflect actual DB cash
+    # state, including CSP premium credited under the pre-fix synthetic
+    # pricing formula, and existing callers (save_equity_snapshot, etc.)
+    # depend on that exact shape. These NEW fields are the honest,
+    # restated view: csp_pnl_synthetic_restated is 100% of CSP P&L booked
+    # before real-quote pricing shipped (independent of, and a superset of,
+    # the cap-gate-only csp_realized_pnl_v1 above -- TROI_V2_ERA_START and
+    # TROI_REAL_QUOTES_ERA_START are different axes, see paper_trader.py's
+    # constants). return_pct_restated is the fair, GRADE-ELIGIBLE figure --
+    # it will read near the same as a no-CSP agent's return_pct until real-
+    # quote CSPs actually start closing. A drop to ~flat here is the fix
+    # working, not a regression -- do not revert this in a future session.
+    csp_pnl_synthetic_restated = _csp_realized_pnl_synthetic_restated(player_id)
+    csp_pnl_real_quotes = _csp_realized_pnl_real_quotes(player_id)
+    total_value_restated = portfolio["cash"] + total_positions_value + csp_pnl_real_quotes
+    return_pct_restated = round((total_value_restated - starting) / starting * 100, 2) if starting > 0 else 0.0
+
     return {
         "cash": portfolio["cash"],
         "positions": enriched_positions,
@@ -3033,6 +3130,14 @@ def get_portfolio_with_pnl(player_id: str, prices: dict) -> dict:
         "csp_realized_pnl_v1": round(csp_realized_pnl_v1, 2),
         "total_value": round(total_value, 2),
         "return_pct": return_pct,
+        "csp_pnl_synthetic_restated": round(csp_pnl_synthetic_restated, 2),
+        "csp_pnl_real_quotes": round(csp_pnl_real_quotes, 2),
+        "total_value_restated": round(total_value_restated, 2),
+        "return_pct_restated": return_pct_restated,
+        "csp_pricing_note": (
+            "synthetic fills — restated" if csp_pnl_synthetic_restated != 0
+            else None
+        ),
     }
 
 

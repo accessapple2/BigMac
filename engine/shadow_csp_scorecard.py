@@ -80,14 +80,25 @@ def _roc(row: sqlite3.Row) -> float | None:
 
 
 def _closed_csps(agent_id: str, book_tag: str) -> list[sqlite3.Row]:
+    # P0-A item 5, 2026-07-07 (HM-OPTIONS-FILL-INTEGRITY): both the baseline
+    # (Troi/options-sosnoff) and both ghost seats built their candidate
+    # premiums from the SAME synthetic VIX-formula (confirmed byte-identical
+    # between engine/wheel_strategy.py and engine/shadow_csp.py before this
+    # fix) -- the bakeoff was comparing synthetic vs synthetic, not a real
+    # edge test. Era-fenced to real-quote trades only; will correctly read
+    # zero closes for a while post-ship rather than reproduce the same
+    # tainted 95%-WR-style verdict with extra steps. See
+    # docs/XO_BACKLOG.md "P0-A: OPTIONS FILL INTEGRITY".
+    from engine.paper_trader import TROI_REAL_QUOTES_ERA_START
     c = _conn()
     try:
         return c.execute(
             "SELECT id, agent_id, symbol, pnl, legs_json, entry_date, exit_date "
             "FROM options_trades "
             "WHERE agent_id=? AND book_tag=? AND structure='csp' AND status='closed' "
+            "AND exit_date >= ? "
             "ORDER BY exit_date ASC",
-            (agent_id, book_tag),
+            (agent_id, book_tag, TROI_REAL_QUOTES_ERA_START),
         ).fetchall()
     finally:
         c.close()

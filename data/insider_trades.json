@@ -1,1 +1,233 @@
-[]
+[
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 24535678.0,
+    "shares": 217733,
+    "date": "2026-06-15",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185679"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 24460132.0,
+    "shares": 225163,
+    "date": "2026-06-12",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185681"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 24365077.0,
+    "shares": 218564,
+    "date": "2026-06-24",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185664"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 24274592.0,
+    "shares": 214546,
+    "date": "2026-06-16",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185677"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 24179327.0,
+    "shares": 212321,
+    "date": "2026-06-25",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185663"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 23936612.0,
+    "shares": 221150,
+    "date": "2026-06-22",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185670"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 23891627.0,
+    "shares": 220494,
+    "date": "2026-06-23",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185668"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 23885608.0,
+    "shares": 222982,
+    "date": "2026-06-11",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185684"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 23883148.0,
+    "shares": 212942,
+    "date": "2026-06-17",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185676"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 23818571.0,
+    "shares": 219836,
+    "date": "2026-06-18",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185671"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 23686151.0,
+    "shares": 204917,
+    "date": "2026-06-26",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185661"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 23417283.0,
+    "shares": 214338,
+    "date": "2026-06-10",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185689"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 22718502.0,
+    "shares": 203907,
+    "date": "2026-06-09",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185692"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 22686883.0,
+    "shares": 194036,
+    "date": "2026-06-29",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185660"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 21890225.0,
+    "shares": 191477,
+    "date": "2026-06-30",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185654"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Shopify Inc",
+    "relation": "",
+    "value": 21244579.0,
+    "shares": 189967,
+    "date": "2026-06-08",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185693"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Lutke (Tobias Albin)",
+    "relation": "",
+    "value": 6718500.0,
+    "shares": 60000,
+    "date": "2026-06-17",
+    "alert_type": "large_insider_buy",
+    "significance": "exceptional",
+    "scanned_at": "2026-07-07T15:37:56.185673"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Lutke (Tobias Albin)",
+    "relation": "",
+    "value": 4970250.0,
+    "shares": 45000,
+    "date": "2026-06-11",
+    "alert_type": "large_insider_buy",
+    "significance": "very_high",
+    "scanned_at": "2026-07-07T15:37:56.185686"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Lutke (Tobias Albin)",
+    "relation": "",
+    "value": 4133437.0,
+    "shares": 37500,
+    "date": "2026-06-24",
+    "alert_type": "large_insider_buy",
+    "significance": "very_high",
+    "scanned_at": "2026-07-07T15:37:56.185666"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Lutke (Tobias Albin)",
+    "relation": "",
+    "value": 4106565.0,
+    "shares": 33750,
+    "date": "2026-07-01",
+    "alert_type": "large_insider_buy",
+    "significance": "very_high",
+    "scanned_at": "2026-07-07T15:37:56.185647"
+  },
+  {
+    "symbol": "SHOP",
+    "insider_name": "Lutke (Tobias Albin)",
+    "relation": "",
+    "value": 1650660.0,
+    "shares": 15000,
+    "date": "2026-06-10",
+    "alert_type": "large_insider_buy",
+    "significance": "very_high",
+    "scanned_at": "2026-07-07T15:37:56.185690"
+  }
+]

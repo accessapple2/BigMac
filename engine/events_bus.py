@@ -138,6 +138,31 @@ def emit_signal_v2(
         )
         conn = _conn()
         try:
+            # P0-B.1 2026-07-07: application-level dedup, direct_buy_intent
+            # only. A blocked signal had zero re-emit protection (existing
+            # dedup in crew_scanner.py only checks EXECUTED trades/positions)
+            # -- measured 1,286 duplicate capitol-trades/IBM rows since
+            # 2026-07-06. Not a schema-level UNIQUE index: that history
+            # already violates one and creating it fails outright, and
+            # never-delete-data doctrine rules out cleaning the dupes to make
+            # room for it. Scoped to direct_buy_intent only -- other
+            # signal_types (e.g. momentum) may legitimately re-fire intraday
+            # on a new setup; expand only once the same problem is confirmed
+            # for them. Fail-open: any error in the check itself falls
+            # through to the normal insert, per this module's "a bus write
+            # must never block a signal emit" doctrine.
+            if signal_type == "direct_buy_intent":
+                try:
+                    existing = conn.execute(
+                        "SELECT id FROM signals_v2 WHERE source=? AND symbol=? "
+                        "AND direction=? AND signal_type='direct_buy_intent' "
+                        "AND date(created_at)=date('now') LIMIT 1",
+                        (source, symbol, direction),
+                    ).fetchone()
+                    if existing:
+                        return int(existing[0])
+                except Exception:
+                    pass  # fail-open -- fall through to the insert below
             cur = conn.execute(
                 "INSERT INTO signals_v2 "
                 "(source, signal_type, symbol, direction, confidence, "

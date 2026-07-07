@@ -97,16 +97,26 @@ def analyze_bull_bear(symbol: str, model: str = "codex") -> dict:
     price_data = get_stock_price(symbol)
     price_str = f"${price_data['price']}" if "error" not in price_data else ""
 
+    # P0-B.5 2026-07-07: added VERDICT. The old prompt asked every model for
+    # BOTH a bull case and a bear case unconditionally -- every properly
+    # functioning model returned both non-empty, so any "N models bullish"
+    # display built by counting non-empty bull_case/bear_case text was
+    # structurally guaranteed to show N-of-N regardless of actual sentiment.
+    # VERDICT is the model's own net lean, asked directly instead of inferred
+    # from prose length/tone (a 2-sentence cap makes text-based inference
+    # noise, not signal).
     prompt = f"""Give the strongest bull case and strongest bear case for {symbol} {price_str} in exactly this format:
 BULL: [2 sentences max]
 BEAR: [2 sentences max]
+VERDICT: [one word: BULLISH, BEARISH, or NEUTRAL -- your net lean weighing both cases]
 No other text."""
 
     response = _call_ai(prompt, model)
 
-    # Parse bull/bear from response
+    # Parse bull/bear/verdict from response
     bull = ""
     bear = ""
+    verdict = ""
     lines = response.strip().split("\n")
     for line in lines:
         line = line.strip()
@@ -114,6 +124,14 @@ No other text."""
             bull = line[5:].strip()
         elif line.upper().startswith("BEAR:"):
             bear = line[5:].strip()
+        elif line.upper().startswith("VERDICT:"):
+            v = line[8:].strip().upper()
+            if "BULLISH" in v:
+                verdict = "BULLISH"
+            elif "BEARISH" in v:
+                verdict = "BEARISH"
+            elif "NEUTRAL" in v:
+                verdict = "NEUTRAL"
 
     if not bull and not bear:
         # Fallback: split response in half
@@ -126,6 +144,7 @@ No other text."""
         "model": model,
         "bull_case": bull,
         "bear_case": bear,
+        "verdict": verdict,  # "" for parse failures -- frontend must treat as unknown, not neutral
         "timestamp": _time.time(),
         "price": price_data.get("price") if "error" not in price_data else None,
     }

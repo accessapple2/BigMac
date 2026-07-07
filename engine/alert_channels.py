@@ -22,6 +22,7 @@ from __future__ import annotations
 
 import os
 import json
+import socket as _socket
 import sqlite3
 import threading
 import time as _time
@@ -141,7 +142,10 @@ def _db_notification(title: str, body: str, severity: str) -> None:
 # ── Rate limiter ───────────────────────────────────────────────────────────────
 
 def _rate_ok(alert_type: str, rate_limit_secs: int = RATE_LIMIT_SECS) -> bool:
-    """True if we haven't sent this alert_type in the last rate_limit_secs.
+    """True if we haven't successfully SENT this alert_type in the last
+    rate_limit_secs. Read-only check -- does NOT consume the window itself;
+    call _mark_rate_limit_sent() after a confirmed successful delivery to
+    do that (see HM-ALERT-RATE-ON-FAILURE below for why the split matters).
 
     HM-U (2026-05-05): rate_limit_secs parameterized. Default preserves the
     module-level RATE_LIMIT_SECS=300 (5 min) for the 12 existing callers.
@@ -151,8 +155,22 @@ def _rate_ok(alert_type: str, rate_limit_secs: int = RATE_LIMIT_SECS) -> bool:
     """
     with _state_lock:
         last = _rate_state.get(alert_type, 0)
-        if _time.time() - last < rate_limit_secs:
-            return False
+        return _time.time() - last >= rate_limit_secs
+
+
+def _mark_rate_limit_sent(alert_type: str) -> None:
+    """HM-ALERT-RATE-ON-FAILURE (2026-07-07): the window used to be consumed
+    inside _rate_ok() at CHECK time, before send_alert() even attempted
+    delivery -- so a genuine network failure (e.g. HM-NTFY-IPV6-NOROUTE
+    above: 0/20 real sends from a cron-invoked process, 100% silent
+    failure) ALSO silently burned the retry budget. The sentinel's own log
+    said "ALERT dispatched" every 5-min cron tick, but nothing had actually
+    reached a phone, and the next real attempt wouldn't fire for the full
+    1800s window either -- an alarm's own failure mode compounding its
+    retry mechanism. Call only after send_alert() confirms at least one
+    channel actually delivered.
+    """
+    with _state_lock:
         _rate_state[alert_type] = _time.time()
         _snapshot = dict(_rate_state)
     # HM-NTFY-RATE-PERSIST 2026-05-28: persist to settings so dedup survives restarts
@@ -160,10 +178,34 @@ def _rate_ok(alert_type: str, rate_limit_secs: int = RATE_LIMIT_SECS) -> bool:
         _save_setting("alert_rate_state", json.dumps(_snapshot))
     except Exception:
         pass
-    return True
 
 
 # ── Channel senders ────────────────────────────────────────────────────────────
+
+# HM-NTFY-IPV6-NOROUTE (2026-07-07): this box has no working IPv6 route to
+# ntfy.sh -- confirmed directly (socket.create_connection to ntfy.sh's AAAA
+# address raises OSError [Errno 65] No route to host, 100% reproducible,
+# both Python interpreters on this box, IPv4 always succeeds). Real-world
+# symptom: scripts/hm_ops_sentinel.py's cron invocation (.venv/python3.14)
+# got 0/20 successful ntfy sends in logs/hm_ops_sentinel_cron.log -- every
+# single alert this whole time silently never reached a phone, while the
+# sentinel's own log said "ALERT dispatched" (send_alert() doesn't raise on
+# a network failure inside _send_ntfy, it just returns False and logs a
+# warning -- exactly the "alarm shares a failure mode with silence" case).
+# git_push_health_check.py (venv/python3.9, once-daily cron) has succeeded
+# via the same _send_ntfy() code, so the getaddrinfo() address-family
+# ordering that picks IPv6 first is context-dependent (interpreter/cron
+# invocation specifics), not fully root-caused -- rather than depend on
+# ordering being consistent across execution contexts, force IPv4 for the
+# duration of this call. IPv6 not working anywhere on this box means the
+# forced window carries no real cost to other concurrent socket use.
+_ntfy_ipv4_lock = threading.Lock()
+_orig_getaddrinfo = _socket.getaddrinfo
+
+
+def _ipv4_only_getaddrinfo(host, port, family=0, type=0, proto=0, flags=0):
+    return _orig_getaddrinfo(host, port, _socket.AF_INET, type, proto, flags)
+
 
 def _send_ntfy(title: str, message: str, priority: str = "default", tags: str = "ollietrades", topic: str = "") -> bool:
     """Push via ntfy.sh (iPhone / Android / browser). topic overrides NTFY_TOPIC."""
@@ -183,8 +225,13 @@ def _send_ntfy(title: str, message: str, priority: str = "default", tags: str = 
             },
             method="POST",
         )
-        with urllib.request.urlopen(req, timeout=8) as r:
-            logger.info("ntfy sent [%s]: %s", r.status, ascii_title)
+        with _ntfy_ipv4_lock:
+            _socket.getaddrinfo = _ipv4_only_getaddrinfo
+            try:
+                with urllib.request.urlopen(req, timeout=8) as r:
+                    logger.info("ntfy sent [%s]: %s", r.status, ascii_title)
+            finally:
+                _socket.getaddrinfo = _orig_getaddrinfo
         return True
     except Exception as e:
         logger.warning("ntfy failed: %s", e)
@@ -328,6 +375,15 @@ def send_alert(
         _db_notification(title, message, "critical")
         results["browser"] = True
         results["email"]   = _send_email(title, f"{message}\n\nLevel: RED ALERT\nType: {alert_type}")
+
+    # Only consume the rate-limit window on a confirmed EXTERNAL delivery
+    # (see _mark_rate_limit_sent's docstring). Deliberately checks ntfy/email
+    # specifically, not results.get("browser") -- that key is hardcoded True
+    # unconditionally above (a pre-existing inaccuracy, not touched here) and
+    # would make `any(results.values())` always truthy for WARNING/RED_ALERT,
+    # silently defeating this fix for exactly the levels the sentinel uses.
+    if not bypass_rate_limit and (results.get("ntfy") or results.get("email")):
+        _mark_rate_limit_sent(alert_type)
 
     logger.info("Alert dispatched [%s/%s]: %s", level, alert_type, message[:80])
     return results

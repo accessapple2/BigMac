@@ -673,35 +673,51 @@ def get_latest_gex(symbol: str) -> dict | None:
 def get_gex_context_for_prompt() -> str:
     """Build formatted GEX text for injection into ALL AI model prompts.
 
-    If no DB data exists, attempts a fresh calculation.
+    HM-GEX-CANONICAL repoint (2026-07-06, AFTER-CLOSE-WORK-ORDER P4.13): this
+    function used to read this module's own gex_levels table, whose refresh
+    scheduler (run_gex_overlay_update) has been disabled since 2026-05-30 --
+    every agent's every scan prompt was silently fed 5+-week-stale GEX data
+    while the Bridge UI already reads fresh data from a different pipeline
+    (engine.canonical_gex / engine.options_flow_gex). Same read shape as
+    dashboard/app.py::_canonical_gex_cached: try the in-process intraday
+    cache first (options_flow_gex.get_latest(), refreshed ~every 15 min RTH
+    by main.py's run_gex_snapshot_refresh -- same process, no network call),
+    fall back to the durable canonical_gex snapshot store when the intraday
+    cache is cold (after-hours / just-restarted), same collapsed-wall guard
+    as the dashboard reader so a known-degenerate snapshot is never fed to
+    an agent either.
     """
-    _init_tables()
     lines = []
+    latest_time = ""
 
     for sym in ["SPY", "QQQ"]:
-        gex = get_latest_gex(sym)
+        gex = None
+        try:
+            from engine.options_flow_gex import get_latest as _gex_get_latest
+            pair = (_gex_get_latest().get("data") or {}).get(sym)
+            if pair and not (pair.get("gex") or {}).get("error"):
+                gex = pair["gex"]
+        except Exception:
+            gex = None
+
         if not gex:
-            # Try computing fresh
             try:
-                levels = calculate_gex(sym)
-                if levels:
-                    _save_gex_levels(sym, levels)
-                    gex = get_latest_gex(sym)
+                from engine.canonical_gex import latest_snapshot
+                snap = latest_snapshot(sym)
+                if snap and snap.get("call_wall") is not None and \
+                   snap["call_wall"] == snap.get("put_wall") == snap.get("king_node"):
+                    snap = None  # degenerate artifact -- same guard as the dashboard reader
+                gex = snap
             except Exception:
-                pass
+                gex = None
 
         if not gex:
             continue
 
-        regime = gex.get("regime", "")
-        if regime == "positive_gamma":
-            regime_label = "POSITIVE GAMMA (dealers dampening vol, expect range-bound)"
-        elif regime == "negative_gamma":
-            regime_label = "NEGATIVE GAMMA (dealers amplifying vol, expect big moves)"
-        else:
-            # HM-DRYDOCK 2026-06-08: don't ASSERT a regime when none is known (was defaulting to
-            # NEGATIVE GAMMA on missing/empty regime → contradicted live state). Fail-honest.
-            regime_label = "GAMMA REGIME UNAVAILABLE (no GEX regime data)"
+        # canonical_gex/options_flow_gex's `regime` is already a full descriptive
+        # label (e.g. "LONG GAMMA · stable (spot above flip)") -- unlike the old
+        # gex_overlay enum strings, use it as-is rather than remapping.
+        regime_label = gex.get("regime") or "GAMMA REGIME UNAVAILABLE (no GEX regime data)"
 
         detail_parts = []
         if gex.get("king_node"):
@@ -715,18 +731,14 @@ def get_gex_context_for_prompt() -> str:
         detail_parts.append(f"Regime: {regime_label}")
         lines.append(f"{sym}: " + " | ".join(detail_parts))
 
+        if not latest_time:
+            asof = gex.get("asof") or gex.get("_asof")
+            if asof:
+                asof = str(asof)
+                latest_time = asof.split(" ")[1][:5] if " " in asof else asof[:16]
+
     if not lines:
         return ""
-
-    # Get latest calc timestamp
-    latest_time = ""
-    try:
-        gex = get_latest_gex("SPY") or get_latest_gex("QQQ")
-        if gex and gex.get("calc_time"):
-            ct = str(gex["calc_time"])
-            latest_time = ct.split("T")[1][:5] if "T" in ct else ct[:16]
-    except Exception:
-        pass
 
     header = f"=== GEX OVERLAY (updated {latest_time}) ===" if latest_time else "=== GEX OVERLAY ==="
     return "\n".join([header] + lines)

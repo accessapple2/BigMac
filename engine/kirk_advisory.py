@@ -43,6 +43,25 @@ logger = logging.getLogger("kirk_advisory")
 # alpaca-mirror era and stay as historical record.
 PLAYER_ID = "alpaca-mirror"
 REAL_HOLDINGS_PATH = Path(__file__).resolve().parent.parent / "data" / "real_holdings.json"
+# P3-8 REOPENED (2026-07-07): W1 liveness heartbeat -- same file main.py's
+# run_kirk_advisory_job() stamps (was defined ONLY there, so the scheduled
+# path proved liveness but the manual "fire-kirk" admin action
+# (signal-center/server.py -> GET /api/kirk/advisory -> this function,
+# bypassing the scheduler wrapper entirely) never touched it -- the write
+# path silently diverged from the read path main.py/the source grid checks.
+# Defined here too (same absolute path, computed the same way as
+# REAL_HOLDINGS_PATH above) so EVERY successful compute proves liveness,
+# regardless of which caller triggered it.
+_KIRK_HEARTBEAT_PATH = Path(__file__).resolve().parent.parent / "data" / "kirk_advisory.heartbeat"
+
+
+def _touch_kirk_heartbeat() -> None:
+    try:
+        _KIRK_HEARTBEAT_PATH.touch()
+    except Exception:
+        pass  # heartbeat write failing must never break the advisory response
+
+
 STOP_LOSS_PCT = -8.0      # Hard stop at -8%
 TRIM_WARNING_PCT = -6.0   # Warn when approaching stop
 WINNER_HOLD_PCT = 5.0     # Don't sell winners above this
@@ -473,6 +492,7 @@ def generate_kirk_advisory():
                 "[Kirk] holdings stale (%s, age=%s min) — returning STALE advisory",
                 holdings.get("stale_reason"), holdings.get("age_minutes"),
             )
+            _touch_kirk_heartbeat()  # compute ran fine -- data being stale is a separate, already-tracked concern
             return {
                 "action": "STALE",
                 "stale": True,
@@ -781,6 +801,7 @@ def generate_kirk_advisory():
         # HM-BN 2026-05-15: dormant frontier cross-check (LOG ONLY,
         # gated on KIRK_FRONTIER_REVIEW=false). No-op until flag flips.
         _frontier_cross_check(signal=None, advisory=advisory_result)
+        _touch_kirk_heartbeat()
         return advisory_result
 
     except Exception as e:

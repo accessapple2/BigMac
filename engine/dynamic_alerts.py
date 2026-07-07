@@ -176,6 +176,147 @@ def check_macd_crossovers(symbol: str, price: float, indicators: dict):
     return alerts
 
 
+# === HM-ALERT-COLLAB-LINKS Phase 1 (2026-07-06, Admiral-approved) ===========
+# User-defined alerts, additive to the hardcoded checks above (which stay
+# default-on regardless of ALERT_DEFS_ENABLED). `kind` is an allowlist enum --
+# a stored/imported definition can only exercise one of these five evaluators,
+# never arbitrary code. See drafts/HM-ALERT-COLLAB-LINKS.md for the full plan.
+import json as _json
+
+ALERT_DEF_KINDS = frozenset({"price_level", "rsi", "volume_spike", "macd_cross", "trendline"})
+
+
+def _fetch_enabled_definitions(symbol: str) -> list:
+    conn = _conn()
+    try:
+        rows = conn.execute(
+            "SELECT * FROM alert_definitions WHERE enabled=1 AND symbol=?", (symbol,)
+        ).fetchall()
+    except sqlite3.OperationalError:
+        return []  # table not migrated yet on this DB -- fail closed, not loud
+    finally:
+        conn.close()
+    return [dict(r) for r in rows]
+
+
+def _mark_triggered(defn_id: int):
+    conn = _conn()
+    conn.execute(
+        "UPDATE alert_definitions SET last_triggered_at=CURRENT_TIMESTAMP WHERE id=?",
+        (defn_id,),
+    )
+    conn.commit()
+    conn.close()
+
+
+def check_user_definition(defn: dict, price: float, indicators: dict):
+    """Evaluate ONE user-defined alert. `kind` not in ALERT_DEF_KINDS is
+    silently skipped (defensive -- CRUD validation should already reject
+    this at write time; belt-and-suspenders here since a link-import path
+    lands in Phase 2)."""
+    symbol = defn["symbol"]
+    kind = defn.get("kind")
+    if kind not in ALERT_DEF_KINDS:
+        return []
+    try:
+        params = _json.loads(defn.get("params_json") or "{}")
+    except ValueError:
+        return []
+    severity = defn.get("severity") or "info"
+    key = f"userdef_{defn['id']}"
+    alerts = []
+
+    def _fire(message: str, extra: dict):
+        if not _should_alert(key):
+            return
+        _save_alert(symbol, f"user_{kind}", message, severity, price)
+        _send_telegram(f"<b>{symbol}</b> {message}")
+        _mark_triggered(defn["id"])
+        alerts.append({"type": f"user_{kind}", "symbol": symbol, "price": price,
+                       "severity": severity, "definition_id": defn["id"], **extra})
+
+    if kind == "price_level":
+        level = params.get("level")
+        direction = params.get("direction", "above")
+        if level is None:
+            return []
+        if direction == "above" and price >= level:
+            _fire(f"price ${price:.2f} crossed above ${level:.2f}", {"level": level})
+        elif direction == "below" and price <= level:
+            _fire(f"price ${price:.2f} crossed below ${level:.2f}", {"level": level})
+
+    elif kind == "rsi":
+        rsi = indicators.get("rsi")
+        if rsi is None:
+            return []
+        direction = params.get("direction", "oversold")
+        threshold = params.get("threshold", 30 if direction == "oversold" else 70)
+        if direction == "oversold" and rsi <= threshold:
+            _fire(f"RSI={rsi:.1f} <= {threshold} (oversold)", {"rsi": rsi})
+        elif direction == "overbought" and rsi >= threshold:
+            _fire(f"RSI={rsi:.1f} >= {threshold} (overbought)", {"rsi": rsi})
+
+    elif kind == "volume_spike":
+        vol_ratio = indicators.get("volume_ratio")
+        threshold = params.get("threshold", 2.0)
+        if vol_ratio is not None and vol_ratio >= threshold:
+            _fire(f"volume {vol_ratio:.1f}x average (threshold {threshold}x)", {"vol_ratio": vol_ratio})
+
+    elif kind == "macd_cross":
+        macd_hist = indicators.get("macd_histogram")
+        if macd_hist is None or macd_hist == 0:
+            return []
+        direction = params.get("direction")  # "bullish", "bearish", or None = either
+        actual = "bullish" if macd_hist > 0 else "bearish"
+        if abs(macd_hist) < params.get("threshold", 0.1) and (direction in (None, actual)):
+            _fire(f"MACD {actual} cross (histogram={macd_hist:.4f})", {"direction": actual})
+
+    elif kind == "trendline":
+        try:
+            from engine.trendlines import detect_support_resistance
+            sr = detect_support_resistance(symbol) or {}
+        except Exception:
+            return []
+        prev = sr.get("prev_close")
+        if prev is None:
+            return []
+        for r in sr.get("resistance", []):
+            if prev < r <= price:
+                _fire(f"broke above resistance ${r:.2f}", {"level": r, "direction": "resistance"})
+                break
+        for s in sr.get("support", []):
+            if prev > s >= price:
+                _fire(f"broke below support ${s:.2f}", {"level": s, "direction": "support"})
+                break
+
+    return alerts
+
+
+def run_user_alert_definitions(prices: dict, indicators: dict) -> list:
+    """Evaluate all enabled user-defined alerts. No-op (zero DB reads) when
+    config.ALERT_DEFS_ENABLED is False -- Phase 1 ships gated off by default."""
+    try:
+        from config import ALERT_DEFS_ENABLED
+    except Exception:
+        ALERT_DEFS_ENABLED = False
+    if not ALERT_DEFS_ENABLED:
+        return []
+
+    all_alerts = []
+    for sym, data in prices.items():
+        price = data.get("price", 0)
+        if price <= 0:
+            continue
+        defs = _fetch_enabled_definitions(sym)
+        if not defs:
+            continue
+        sym_indicators = indicators.get(sym, {})
+        for defn in defs:
+            all_alerts.extend(check_user_definition(defn, price, sym_indicators))
+    return all_alerts
+# === /HM-ALERT-COLLAB-LINKS Phase 1 =========================================
+
+
 def run_dynamic_alerts(prices: dict, indicators: dict):
     """Run all dynamic alert checks for all symbols with data."""
     ensure_alerts_table()
@@ -192,6 +333,8 @@ def run_dynamic_alerts(prices: dict, indicators: dict):
         all_alerts.extend(check_rsi_extremes(sym, price, sym_indicators))
         all_alerts.extend(check_volume_spikes(sym, price, sym_indicators))
         all_alerts.extend(check_macd_crossovers(sym, price, sym_indicators))
+
+    all_alerts.extend(run_user_alert_definitions(prices, indicators))
 
     if all_alerts:
         console.log(f"[yellow]Dynamic alerts: {len(all_alerts)} triggered")

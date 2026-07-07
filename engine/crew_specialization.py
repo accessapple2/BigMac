@@ -242,6 +242,31 @@ CREW_MANIFEST: dict[str, dict[str, Any]] = {
         "universe": ["SH", "SQQQ", "UVXY", "SPXS", "PSQ", "DOG", "RWM", "SDOW"],
     },
 
+    # HM-QWEN36-SUBSTITUTE-2026-07-06/07: Qwen3.6-35B-A3B onboarding candidate
+    # died on VRAM (no tag fits Ollie Max's 16GB); qwen3:4b substituted and
+    # confirmed via measured co-residency load test (docs/XO_BACKLOG.md
+    # HM-QWEN36-SUBSTITUTE-2026-07-06). Onboarded 2026-07-07 as its own
+    # auditioning seat (ai_players.crew_role='auditioning', can_trade_live=0)
+    # per the original design -- competes head-to-head against the qwen3-8b-flash
+    # incumbent on the IDENTICAL mandate below, doesn't touch Worf's own seat.
+    "qwen3-4b-audition": {
+        "tier": 1,
+        "display_name": "Cadet Worf",
+        "role": "Bear Specialist (Auditioning)",
+        "strategy": "Bearish positions only — shorts, inverse ETFs. Stands down in confirmed bulls.",
+        "model": "qwen3:4b",
+        "max_positions": 2,
+        "size_factor": 0.7,
+        "bridge_voter": False,
+        "conditions": {
+            "bearish_only": True,
+            "blocked_session_types": ["TRENDING_BULL"],
+            "min_vix_for_entry": 16,
+            "max_breadth_for_entry": 55,  # breadth_score < 55% to enter
+        },
+        "universe": ["SH", "SQQQ", "UVXY", "SPXS", "PSQ", "DOG", "RWM", "SDOW"],
+    },
+
     "options-sosnoff": {
         "tier": "advisory",
         "display_name": "Counselor Troi",

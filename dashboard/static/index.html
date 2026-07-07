@@ -5099,7 +5099,7 @@ registerSectionInit('xo-room', fetchRikerRecommendation, [{fn: fetchRikerRecomme
           <th style="padding:12px;">Model</th>
           <th style="padding:12px;">Provider</th>
           <th style="padding:12px; text-align:center;">Cost/Scan</th>
-          <th style="padding:12px; text-align:center;">Calls Today</th>
+          <th style="padding:12px; text-align:center;" title="T=trading (scan/thesis/execute/trade_grade), A=advisory (war_room/research/briefing/CTO), O=other (chat/journal/ask)">Calls Today</th>
           <th style="padding:12px; text-align:center;">Cost Today</th>
           <th style="padding:12px; text-align:center;">Status</th>
         </tr>
@@ -23516,7 +23516,7 @@ async function loadModelControl() {
         <td style="padding:12px;"><span style="display:inline-block;width:8px;height:8px;border-radius:50%;background:${color};margin-right:8px;"></span><b>${m.display_name}</b>${m.is_fallback ? ' <span style="font-size:10px;font-weight:700;background:#78350f;color:#fbbf24;padding:1px 5px;border-radius:3px;margin-left:4px;">FALLBACK</span>' : ''}${getLegend(m.player_id) ? ' <span style="font-weight:400;font-size:13px;color:'+color+';">'+getLegend(m.player_id)+'</span>' : ''}<br><span style="font-size:13px;color:var(--muted);margin-left:16px;">${modelDisplay}</span></td>
         <td style="padding:12px;color:${color};font-weight:500;">${m.provider}</td>
         <td style="padding:12px;text-align:center;">${costLabel}</td>
-        <td style="padding:12px;text-align:center;">${m.api_calls_today}</td>
+        <td style="padding:12px;text-align:center;">${m.api_calls_today}${m.calls_breakdown ? '<br><span style="font-size:11px;color:var(--muted);">T:'+m.calls_breakdown.trading+' A:'+m.calls_breakdown.advisory+' O:'+m.calls_breakdown.other+'</span>' : ''}</td>
         <td style="padding:12px;text-align:center;">$${m.total_cost_today.toFixed(4)}</td>
         <td style="padding:12px;text-align:center;">${statusBtn}</td>
       </tr>`;
@@ -32647,9 +32647,115 @@ registerSectionInit('alert-history', fetchAlertHistory, [{fn: fetchAlertHistory,
     </div>
     <div id="dynamicAlertsContent">Loading...</div>
   </div>
+
+  <!-- HM-ALERT-COLLAB-LINKS Phase 1 (2026-07-06) — user-defined alerts. -->
+  <div class="card" style="margin-top:14px;">
+    <div class="card-header">
+      <div class="card-title">My Alert Definitions</div>
+      <button class="btn btn-ghost" onclick="fetchAlertDefs()" style="font-size:13px;">Refresh</button>
+    </div>
+    <div id="alertDefsContent">Loading...</div>
+    <div style="padding:12px 16px;border-top:1px solid var(--border);display:flex;gap:8px;flex-wrap:wrap;align-items:center;">
+      <select id="alertDefKind" style="padding:6px;">
+        <option value="price_level">Price level</option>
+        <option value="rsi">RSI</option>
+        <option value="volume_spike">Volume spike</option>
+        <option value="macd_cross">MACD cross</option>
+        <option value="trendline">Trendline (S/R)</option>
+      </select>
+      <input id="alertDefSymbol" placeholder="Symbol (e.g. AAPL)" style="padding:6px;width:120px;" maxlength="10">
+      <input id="alertDefLevel" placeholder="Level / threshold" style="padding:6px;width:120px;">
+      <select id="alertDefDirection" style="padding:6px;">
+        <option value="above">above / oversold / bullish</option>
+        <option value="below">below / overbought / bearish</option>
+      </select>
+      <input id="alertDefNote" placeholder="Note (optional)" style="padding:6px;width:160px;" maxlength="200">
+      <button class="btn btn-primary" onclick="createAlertDef()" style="font-size:13px;">Add Alert</button>
+    </div>
+    <div id="alertDefStatus" style="padding:0 16px 12px 16px;font-size:12px;color:var(--muted);"></div>
+  </div>
 </div>
 <script>
+async function fetchAlertDefs() {
+  var c = document.getElementById('alertDefsContent');
+  try {
+    var r = await fetch('/api/alert-defs');
+    var d = await r.json();
+    if (!r.ok || !Array.isArray(d)) { c.innerHTML = '<div style="color:var(--red);">Error loading alert definitions</div>'; return; }
+    if (!d.length) { c.innerHTML = '<div style="color:var(--muted);padding:12px 16px;">No user-defined alerts yet — add one below.</div>'; return; }
+    var html = '';
+    for (var i = 0; i < d.length; i++) {
+      var a = d[i];
+      var params = {};
+      try { params = JSON.parse(a.params_json || '{}'); } catch(e) {}
+      var summary = escapeHtml(a.kind) + ' ' + escapeHtml(a.symbol) + ' ' +
+        escapeHtml(JSON.stringify(params));
+      var noteHtml = a.note ? ' — ' + escapeHtml(a.note) : '';
+      var lastFired = a.last_triggered_at ? escapeHtml(a.last_triggered_at) : 'never';
+      html += '<div style="display:flex;gap:12px;align-items:center;padding:10px 16px;border-bottom:1px solid var(--border);">';
+      html += '<div style="flex:1;font-size:13px;">' + summary + noteHtml +
+        '<div style="font-size:11px;color:var(--muted);">last fired: ' + lastFired + '</div></div>';
+      html += '<button class="btn btn-ghost" style="font-size:12px;" onclick="toggleAlertDef(' + a.id + ',' + (a.enabled ? 'false' : 'true') + ')">' +
+        (a.enabled ? 'Disable' : 'Enable') + '</button>';
+      html += '</div>';
+    }
+    c.innerHTML = html;
+  } catch(e) { c.innerHTML = '<div style="color:var(--red);">Error loading alert definitions</div>'; }
+}
+
+async function toggleAlertDef(id, enable) {
+  try {
+    await fetch('/api/alert-defs/' + id, {
+      method: 'PATCH',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({enabled: enable}),
+    });
+    fetchAlertDefs();
+  } catch(e) {
+    document.getElementById('alertDefStatus').textContent = 'Error updating alert.';
+  }
+}
+
+async function createAlertDef() {
+  var status = document.getElementById('alertDefStatus');
+  var kind = document.getElementById('alertDefKind').value;
+  var symbol = document.getElementById('alertDefSymbol').value.trim().toUpperCase();
+  var levelRaw = document.getElementById('alertDefLevel').value.trim();
+  var direction = document.getElementById('alertDefDirection').value;
+  var note = document.getElementById('alertDefNote').value.trim();
+
+  var params = {};
+  if (kind === 'price_level') {
+    params = {level: parseFloat(levelRaw), direction: direction === 'above' ? 'above' : 'below'};
+  } else if (kind === 'rsi') {
+    params = {direction: direction === 'above' ? 'oversold' : 'overbought'};
+    if (levelRaw) params.threshold = parseFloat(levelRaw);
+  } else if (kind === 'volume_spike' || kind === 'macd_cross') {
+    if (levelRaw) params.threshold = parseFloat(levelRaw);
+    if (kind === 'macd_cross') params.direction = direction === 'above' ? 'bullish' : 'bearish';
+  }
+  // trendline: no params needed
+
+  try {
+    var r = await fetch('/api/alert-defs', {
+      method: 'POST',
+      headers: {'Content-Type': 'application/json'},
+      body: JSON.stringify({kind: kind, symbol: symbol, params: params, note: note}),
+    });
+    var d = await r.json();
+    if (!r.ok) { status.textContent = 'Error: ' + (d.detail || 'could not create alert'); return; }
+    status.textContent = '';
+    document.getElementById('alertDefSymbol').value = '';
+    document.getElementById('alertDefLevel').value = '';
+    document.getElementById('alertDefNote').value = '';
+    fetchAlertDefs();
+  } catch(e) { status.textContent = 'Error creating alert.'; }
+}
+// [LazyInit] fetchAlertDefs();
+</script>
+<script>
 async function fetchDynamicAlerts() {
+  fetchAlertDefs();  // HM-ALERT-COLLAB-LINKS Phase 1 — same tab, separate card/div
   var c = document.getElementById('dynamicAlertsContent');
   try {
     var r = await fetch('/api/dynamic-alerts?limit=50');

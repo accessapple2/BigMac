@@ -377,3 +377,18 @@ def _log_learning_block(player_id, trade, reasons):
         f"[LEARNING BLOCK] {player_id} {trade.get('action')} "
         f"{trade.get('symbol')}: {'; '.join(reasons)}"
     )
+    # P0-B.2 2026-07-07: this was console/logger only -- invisible to
+    # gate_reject_log, the table every other gate (HALT, MARKET_CLOSED,
+    # GRADE_B, etc.) already writes to, and the table the weekly rejected-
+    # signal counterfactual report (item 3) reads from. Lazy import to match
+    # this codebase's existing pattern for avoiding circular imports between
+    # engine modules (paper_trader.py is large and heavily imported).
+    try:
+        from engine.paper_trader import _log_gate_reject
+        _log_gate_reject(
+            player_id, trade.get("symbol"), "LEARNING_BLOCK",
+            "; ".join(reasons), price=trade.get("price"),
+            confidence=trade.get("confidence"),
+        )
+    except Exception:
+        pass  # fail-safe -- telemetry must never block the calling gate

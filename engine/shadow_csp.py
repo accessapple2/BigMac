@@ -174,7 +174,18 @@ def _build_candidates(vix: float, held: set[str]) -> list[dict]:
         if price <= 0:
             continue
         strike = round(price * (1 - OTM_PCT), 2)
-        premium = round(price * min(0.08, vix / 500.0), 2)
+        # P0-A 2026-07-07: real-quote premium, replacing the VIX-scaled
+        # formula that was byte-identical to wheel_strategy.py's (this
+        # file's own docstring: "builds the SAME deterministic candidate set
+        # Troi would") -- confirmed the shadow CSP bakeoff was tainted by
+        # the exact same synthetic-fill bug as the live baseline it scores
+        # against. No fallback: a None quote means skip this ticker, never
+        # fabricate a candidate. See docs/XO_BACKLOG.md "P0-A: OPTIONS FILL
+        # INTEGRITY".
+        from engine.options_pricing import get_real_csp_premium
+        premium, premium_source = get_real_csp_premium(ticker, expiry, strike)
+        if premium is None:
+            continue
         contracts = max(1, int(budget / (strike * 100)))
         collateral = strike * 100 * contracts
         if collateral <= 0:
@@ -184,7 +195,8 @@ def _build_candidates(vix: float, held: set[str]) -> list[dict]:
             continue
         out.append({
             "ticker": ticker, "price": round(price, 2), "strike": strike,
-            "premium": premium, "contracts": contracts, "dte": DTE_TARGET,
+            "premium": premium, "premium_source": premium_source,
+            "contracts": contracts, "dte": DTE_TARGET,
             "expiry": expiry, "premium_return_pct": round(premium_return, 2),
         })
     return out
@@ -245,8 +257,9 @@ def _llm_select(model: str, candidates: list[dict], regime: str | None,
 def _emit(agent_id: str, c: dict, regime: str | None, vix: float, model: str) -> int | None:
     reason = (
         f"[SHADOW-CSP · {model}] Sell {c['contracts']}x {c['ticker']} ${c['strike']}P "
-        f"({OTM_PCT*100:.0f}% OTM from ${c['price']}), ~${c['premium']}/sh, "
-        f"{c['premium_return_pct']}% ROC, {c['dte']}d. VIX {vix:.1f}, regime {regime or '?'}. "
+        f"({OTM_PCT*100:.0f}% OTM from ${c['price']}), real quote ({c.get('premium_source','?')}) "
+        f"${c['premium']}/sh, {c['premium_return_pct']}% ROC, {c['dte']}d. "
+        f"VIX {vix:.1f}, regime {regime or '?'}. "
         f"Ghost-book observation only — scored forward vs Troi baseline."
     )
     return open_options_trade(

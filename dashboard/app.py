@@ -3174,10 +3174,25 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
         # within the current season by construction, so it's added in full
         # rather than needing a season filter. v2-era trades excluded here on
         # purpose (see TROI_V2_ERA_START) -- never comingled.
+        #
+        # P0-A item 4, 2026-07-07 (HM-OPTIONS-FILL-INTEGRITY): this WAS the
+        # actual leaderboard-grading call site -- _csp_realized_pnl_v1 only
+        # excludes the cap-gate ("v2") era, not the synthetic-pricing era,
+        # so Troi's headline return_pct/total_value was carrying 100% of the
+        # fantasy CSP premium right up through this fix. Switched to
+        # _csp_realized_pnl_real_quotes (TROI_REAL_QUOTES_ERA_START-fenced --
+        # a different, independent boundary from TROI_V2_ERA_START). This
+        # WILL read $0.00 for a while after ship since no real-quote CSP has
+        # had time to close -- that is the fix working, a dramatic drop in
+        # Troi's displayed return is EXPECTED, not a regression. Do not
+        # revert this to _csp_realized_pnl_v1 in a future session without
+        # re-reading docs/XO_BACKLOG.md "P0-A: OPTIONS FILL INTEGRITY" --
+        # her old ~500% return was a synthetic-fill artifact, not real
+        # performance.
         try:
-            from engine.paper_trader import _csp_realized_pnl_v1
+            from engine.paper_trader import _csp_realized_pnl_real_quotes
             season_realized["options-sosnoff"] = (
-                season_realized.get("options-sosnoff", 0.0) + _csp_realized_pnl_v1("options-sosnoff")
+                season_realized.get("options-sosnoff", 0.0) + _csp_realized_pnl_real_quotes("options-sosnoff")
             )
         except Exception:
             pass
@@ -3353,7 +3368,15 @@ def leaderboard(season: int = 0, _force: bool = False, nocache: bool = False, sh
                 # v1 (blind, ended in the 2026-07-04 trim, 0 open positions)
                 # from v2 (gated under TROI_CSP_CAP_GATE, begins 2026-07-06).
                 # None for every agent that isn't currently in this state.
-                "book_status": ("FLAT — wheel v2 gated" if p["id"] == "options-sosnoff" else None),
+                # P0-A item 4, 2026-07-07: appended the pricing-integrity
+                # restatement note -- historical CSP P&L above this figure
+                # (pre-TROI_REAL_QUOTES_ERA_START) is synthetic-fill, not
+                # graded. See docs/XO_BACKLOG.md "P0-A: OPTIONS FILL
+                # INTEGRITY".
+                "book_status": (
+                    "FLAT — wheel v2 gated · historical CSP P&L is synthetic fills, restated (graded from real-quote trades only, 2026-07-07 onward)"
+                    if p["id"] == "options-sosnoff" else None
+                ),
             }
             result.append(annotate_player_payload(row))
         conn.close()
@@ -4405,7 +4428,11 @@ def status():
         s_row = conn.execute("SELECT value FROM settings WHERE key='current_season'").fetchone()
         current_season = int(s_row["value"]) if s_row else 1
 
-        players = conn.execute("SELECT COUNT(*) as cnt FROM ai_players WHERE is_active=1").fetchone()
+        # AFTER-CLOSE-WORK-ORDER B1 (2026-07-06): was `is_active=1` -- a vestigial
+        # column (79/80 rows read is_active=1, INCLUDING 63 halt_mode='full'
+        # fully-retired agents) that no longer tracks real active status.
+        # halt_mode is the single source of truth (CLAUDE.md halt_mode doctrine).
+        players = conn.execute("SELECT COUNT(*) as cnt FROM ai_players WHERE COALESCE(halt_mode,'active')='active'").fetchone()
         trades = conn.execute("SELECT COUNT(*) as cnt FROM trades WHERE season=?", (current_season,)).fetchone()
         signals = conn.execute("SELECT COUNT(*) as cnt FROM signals WHERE season=?", (current_season,)).fetchone()
         chat_count = conn.execute("SELECT COUNT(*) as cnt FROM ai_chat").fetchone()
@@ -9272,6 +9299,164 @@ def active_alerts(minutes: int = 30):
     return get_active_alerts(minutes)
 
 
+# === HM-ALERT-COLLAB-LINKS Phase 1 (2026-07-06, Admiral-approved) ===========
+# CRUD for user-defined alert_definitions. Private surface (Q1: just the
+# Admiral, gated by the same CF Access bridge-allow perimeter as the rest of
+# this app -- no additional in-endpoint auth, matching every other write
+# endpoint here). Behavior is inert until config.ALERT_DEFS_ENABLED is
+# flipped True (engine.dynamic_alerts.run_user_alert_definitions no-ops
+# otherwise) -- these endpoints only manage rows, they don't gate on the flag
+# themselves, so the table can be populated ahead of activation.
+import re as _re
+
+_SYMBOL_RE = _re.compile(r"^[A-Z.]{1,10}$")
+_ALERT_DEF_NOTE_MAX = 200
+
+
+class AlertDefCreate(BaseModel):
+    kind: str
+    symbol: str
+    params: dict = {}
+    severity: str = "info"
+    channels: list[str] = ["ntfy"]
+    note: str = ""
+
+
+class AlertDefPatch(BaseModel):
+    enabled: bool | None = None
+    params: dict | None = None
+    severity: str | None = None
+    note: str | None = None
+
+
+def _validate_alert_def_params(kind: str, params: dict) -> str | None:
+    """Per-kind numeric-range validation. Returns an error string, or None if valid."""
+    if kind == "price_level":
+        level = params.get("level")
+        if not isinstance(level, (int, float)) or level <= 0:
+            return "price_level requires numeric params.level > 0"
+        if params.get("direction") not in ("above", "below"):
+            return "price_level requires params.direction in ('above','below')"
+    elif kind == "rsi":
+        direction = params.get("direction", "oversold")
+        if direction not in ("oversold", "overbought"):
+            return "rsi requires params.direction in ('oversold','overbought')"
+        threshold = params.get("threshold", 30 if direction == "oversold" else 70)
+        if not isinstance(threshold, (int, float)) or not (0 <= threshold <= 100):
+            return "rsi requires params.threshold in [0,100]"
+    elif kind == "volume_spike":
+        threshold = params.get("threshold", 2.0)
+        if not isinstance(threshold, (int, float)) or threshold <= 0:
+            return "volume_spike requires params.threshold > 0"
+    elif kind == "macd_cross":
+        threshold = params.get("threshold", 0.1)
+        if not isinstance(threshold, (int, float)) or threshold <= 0:
+            return "macd_cross requires params.threshold > 0"
+        if params.get("direction") not in (None, "bullish", "bearish"):
+            return "macd_cross params.direction must be 'bullish', 'bearish', or omitted"
+    elif kind == "trendline":
+        pass  # no params required
+    return None
+
+
+@app.get("/api/alert-defs")
+def list_alert_defs(symbol: str | None = None, enabled_only: bool = False):
+    """List user-defined alerts, optionally filtered by symbol / enabled."""
+    conn = _conn()
+    try:
+        conn.execute("""CREATE TABLE IF NOT EXISTS alert_definitions (
+            id INTEGER PRIMARY KEY AUTOINCREMENT, kind TEXT NOT NULL, symbol TEXT NOT NULL,
+            params_json TEXT NOT NULL, severity TEXT NOT NULL DEFAULT 'info',
+            channels_json TEXT NOT NULL DEFAULT '["ntfy"]', note TEXT,
+            enabled INTEGER NOT NULL DEFAULT 1, created_by TEXT NOT NULL DEFAULT 'admiral',
+            created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP, last_triggered_at TIMESTAMP)""")
+        where, args = [], []
+        if symbol:
+            where.append("symbol=?")
+            args.append(symbol.upper())
+        if enabled_only:
+            where.append("enabled=1")
+        clause = f"WHERE {' AND '.join(where)}" if where else ""
+        rows = conn.execute(
+            f"SELECT * FROM alert_definitions {clause} ORDER BY created_at DESC", args
+        ).fetchall()
+        return [dict(r) for r in rows]
+    finally:
+        conn.close()
+
+
+@app.post("/api/alert-defs")
+def create_alert_def(body: AlertDefCreate):
+    """Create a new alert definition. Always inserted enabled=1 (Phase 1
+    direct-create path); Phase 2's link-import path will insert disabled."""
+    from engine.dynamic_alerts import ALERT_DEF_KINDS
+    if body.kind not in ALERT_DEF_KINDS:
+        raise HTTPException(status_code=400, detail=f"kind must be one of {sorted(ALERT_DEF_KINDS)}")
+    symbol = body.symbol.upper().strip()
+    if not _SYMBOL_RE.match(symbol):
+        raise HTTPException(status_code=400, detail="symbol must match ^[A-Z.]{1,10}$")
+    if body.severity not in ("info", "warning", "red_alert"):
+        raise HTTPException(status_code=400, detail="severity must be one of info/warning/red_alert")
+    err = _validate_alert_def_params(body.kind, body.params)
+    if err:
+        raise HTTPException(status_code=400, detail=err)
+    note = (body.note or "")[:_ALERT_DEF_NOTE_MAX]
+
+    conn = _conn()
+    try:
+        cur = conn.execute(
+            "INSERT INTO alert_definitions (kind,symbol,params_json,severity,channels_json,note) "
+            "VALUES (?,?,?,?,?,?)",
+            (body.kind, symbol, json.dumps(body.params), body.severity,
+             json.dumps(body.channels), note),
+        )
+        conn.commit()
+        new_id = cur.lastrowid
+    finally:
+        conn.close()
+    return {"id": new_id, "created": True}
+
+
+@app.patch("/api/alert-defs/{def_id}")
+def patch_alert_def(def_id: int, body: AlertDefPatch):
+    """Partial update — enable/disable, edit params/severity/note. Does not
+    allow changing kind/symbol (create a new definition instead)."""
+    conn = _conn()
+    try:
+        row = conn.execute("SELECT * FROM alert_definitions WHERE id=?", (def_id,)).fetchone()
+        if not row:
+            raise HTTPException(status_code=404, detail="alert definition not found")
+
+        updates, args = [], []
+        if body.enabled is not None:
+            updates.append("enabled=?")
+            args.append(1 if body.enabled else 0)
+        if body.params is not None:
+            err = _validate_alert_def_params(row["kind"], body.params)
+            if err:
+                raise HTTPException(status_code=400, detail=err)
+            updates.append("params_json=?")
+            args.append(json.dumps(body.params))
+        if body.severity is not None:
+            if body.severity not in ("info", "warning", "red_alert"):
+                raise HTTPException(status_code=400, detail="severity must be one of info/warning/red_alert")
+            updates.append("severity=?")
+            args.append(body.severity)
+        if body.note is not None:
+            updates.append("note=?")
+            args.append(body.note[:_ALERT_DEF_NOTE_MAX])
+        if not updates:
+            return {"id": def_id, "updated": False, "reason": "no fields provided"}
+
+        args.append(def_id)
+        conn.execute(f"UPDATE alert_definitions SET {', '.join(updates)} WHERE id=?", args)
+        conn.commit()
+    finally:
+        conn.close()
+    return {"id": def_id, "updated": True}
+# === /HM-ALERT-COLLAB-LINKS Phase 1 =========================================
+
+
 @app.get("/api/alerts/poll")
 def alerts_poll():
     """Aggregate endpoint for v1's 4 independent alert-polling loops
@@ -11617,6 +11802,19 @@ MODEL_COST_MAP = {
     "cto-grok42":       0.0,   # ollama/qwen2.5-coder:7b
 }
 
+# AFTER-CLOSE-WORK-ORDER P4.11 (2026-07-06): bucket api_costs.call_type into
+# Fleet-tab trading/advisory/other for the Calls/day split. Fixed lookup over
+# every call_type value observed fleet-wide (2026-07-06 audit); an unknown
+# future call_type falls into 'other' rather than erroring.
+_CALL_TYPE_BUCKET = {
+    "scan": "trading", "thesis": "trading", "execute": "trading", "trade_grade": "trading",
+    "war_room": "advisory", "research": "advisory", "briefing": "advisory",
+    "cto_pre_market": "advisory", "cto_post_close": "advisory", "cto_pre_close": "advisory",
+    "cto_post_open": "advisory", "swing_advisory": "advisory", "kirk_briefing": "advisory",
+    "chat": "other", "journal": "other", "ask": "other", "summon": "other",
+    "ask:search": "other",
+}
+
 
 @app.get("/api/model-control")
 def model_control():
@@ -11639,6 +11837,22 @@ def model_control():
         (today,)
     ).fetchall()
     stats_map = {r["player_id"]: {"api_calls": r["api_calls"], "total_cost": r["total_cost"]} for r in stats}
+
+    # AFTER-CLOSE-WORK-ORDER P4.11 (2026-07-06): Calls/day was one undifferentiated
+    # counter (model_stats.api_calls) even though api_costs.call_type already
+    # distinguishes trading/advisory/other calls per-row. Query+bucket it here;
+    # `_CALL_TYPE_BUCKET` is a fixed lookup over the 19 call_type values observed
+    # fleet-wide (an unknown future call_type falls into 'other', not an error).
+    call_type_rows = conn.execute(
+        "SELECT player_id, call_type, COUNT(*) as n FROM api_costs "
+        "WHERE DATE(timestamp)=? GROUP BY player_id, call_type",
+        (today,)
+    ).fetchall()
+    calls_breakdown_map: dict = {}
+    for r in call_type_rows:
+        bucket = _CALL_TYPE_BUCKET.get(r["call_type"], "other")
+        entry = calls_breakdown_map.setdefault(r["player_id"], {"trading": 0, "advisory": 0, "other": 0})
+        entry[bucket] += r["n"]
 
     pause_all = conn.execute("SELECT value FROM settings WHERE key='pause_all'").fetchone()
     fallbacks_row = conn.execute("SELECT value FROM settings WHERE key='fallbacks_enabled'").fetchone()
@@ -11670,6 +11884,7 @@ def model_control():
             "halt_reason": p["halt_reason"],
             "cost_per_scan": cost_per_scan,
             "api_calls_today": st["api_calls"],
+            "calls_breakdown": calls_breakdown_map.get(pid, {"trading": 0, "advisory": 0, "other": 0}),
             "total_cost_today": display_cost,
         }))
 
@@ -23899,6 +24114,24 @@ async def options_book_summary():
         info["realized_pnl"] = c.fetchone()["pnl"]
         c.execute("SELECT COALESCE(SUM(pnl), 0) AS pnl FROM options_trades WHERE book_tag = ? AND status = 'closed' AND DATE(exit_date) = DATE('now')", (tag,))
         info["today_pnl"] = c.fetchone()["pnl"]
+        # P0-A item 3, 2026-07-07: mtm_intrinsic existed as a schema column
+        # and scripts/refresh_mtm_intrinsic.py existed to compute it, but
+        # neither was cron-scheduled nor consumed anywhere -- "book equity"
+        # never reflected open short puts' current risk. Cron now installed
+        # (weekdays 15:55 ET, after close); wired in here. Intrinsic-only
+        # (short-put liability growth when ITM, zero when OTM) -- not full
+        # extrinsic/time-value pricing, but a real, live-computed mark, not
+        # the previous constant zero.
+        c.execute(
+            "SELECT COALESCE(SUM(mtm_intrinsic), 0) AS u, "
+            "       COUNT(*) FILTER (WHERE mtm_intrinsic IS NULL) AS stale "
+            "FROM options_trades WHERE book_tag = ? AND status = 'open'",
+            (tag,),
+        )
+        _mtm_row = c.fetchone()
+        info["unrealized_pnl"] = _mtm_row["u"]
+        info["unrealized_pnl_stale_positions"] = _mtm_row["stale"]
+        info["total_equity"] = round(info.get("current_cash", 0) + _mtm_row["u"], 2)
     conn.close()
     return {"ok": True, "books": books}
 

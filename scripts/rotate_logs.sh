@@ -12,7 +12,17 @@
 # this path and never reopens it, so rotation MUST truncate in place
 # (`: > logs/trader.log`), never rename/rm -- renaming would orphan the
 # process's fd on the old inode (still growing, invisibly) while nothing
-# writes to the new path.
+# writes to the new path. Every target below is rotated the same
+# copy-then-truncate-in-place way, even the cron-invoked ones (which
+# reopen their file fresh each tick and would tolerate rename just fine) —
+# one safe pattern for every entry beats reasoning about two.
+#
+# HM-OPS-SENTINEL formalization (2026-07-07): added logs/hm_ops_sentinel_cron.log
+# -- every-5-min cron with no prior rotation mechanism, would otherwise grow
+# unbounded forever like trader.log did before this script existed. Smaller
+# 10MB threshold (vs trader.log's 100MB) since it grows much slower
+# (~58KB/day observed) and there's no reason to let a slow-growing cron log
+# sit around for months before its first rotation.
 #
 # Schedule: cron weekly Sun 05:00 MST.
 
@@ -21,45 +31,53 @@ set -euo pipefail
 REPO="$HOME/autonomous-trader"
 cd "$REPO"
 
-TARGET="logs/trader.log"
 ARCHIVE_DIR="logs/_archive"
-THRESHOLD_BYTES=$((100 * 1024 * 1024))
 LOG="$REPO/logs/rotate_logs.log"
 
 mkdir -p "$ARCHIVE_DIR" "$(dirname "$LOG")"
 exec >>"$LOG" 2>&1
 echo "=== $(date -Iseconds) rotate_logs START ==="
 
-if [ ! -f "$TARGET" ]; then
-    echo "  [SKIP] $TARGET does not exist"
-    exit 0
-fi
+rotate_one() {
+    local target="$1" threshold_bytes="$2" archive_prefix="$3"
 
-size=$(stat -f %z "$TARGET" 2>/dev/null || stat -c %s "$TARGET")
-if [ "$size" -le "$THRESHOLD_BYTES" ]; then
-    echo "  [SKIP] $TARGET is ${size} bytes, under 100MB threshold"
-    exit 0
-fi
+    if [ ! -f "$target" ]; then
+        echo "  [SKIP] $target does not exist"
+        return 0
+    fi
 
-date_str=$(date +%F)
-dest="$ARCHIVE_DIR/trader_$date_str.log.gz"
-suffix=2
-while [ -e "$dest" ]; do
-    dest="$ARCHIVE_DIR/trader_${date_str}_$suffix.log.gz"
-    suffix=$((suffix + 1))
-done
+    local size
+    size=$(stat -f %z "$target" 2>/dev/null || stat -c %s "$target")
+    if [ "$size" -le "$threshold_bytes" ]; then
+        echo "  [SKIP] $target is ${size} bytes, under ${threshold_bytes}-byte threshold"
+        return 0
+    fi
 
-# Copy (not move) the live content out, THEN truncate in place -- truncation
-# must hit the SAME inode the trader process already has open.
-gzip -c "$TARGET" > "$dest"
-gzip_size=$(stat -f %z "$dest" 2>/dev/null || stat -c %s "$dest")
-if [ "$gzip_size" -lt 1024 ]; then
-    echo "  [FAIL] gzip output suspiciously small (${gzip_size} bytes) -- aborting, NOT truncating source"
-    exit 1
-fi
-echo "  [OK] archived ${size} bytes -> $dest (${gzip_size} bytes gzipped)"
+    local date_str dest suffix
+    date_str=$(date +%F)
+    dest="$ARCHIVE_DIR/${archive_prefix}_$date_str.log.gz"
+    suffix=2
+    while [ -e "$dest" ]; do
+        dest="$ARCHIVE_DIR/${archive_prefix}_${date_str}_$suffix.log.gz"
+        suffix=$((suffix + 1))
+    done
 
-: > "$TARGET"
-echo "  [OK] truncated $TARGET in place (fd preserved for live writer)"
+    # Copy (not move) the live content out, THEN truncate in place -- truncation
+    # must hit the SAME inode any live writer already has open.
+    gzip -c "$target" > "$dest"
+    local gzip_size
+    gzip_size=$(stat -f %z "$dest" 2>/dev/null || stat -c %s "$dest")
+    if [ "$gzip_size" -lt 1024 ]; then
+        echo "  [FAIL] gzip output suspiciously small (${gzip_size} bytes) -- aborting, NOT truncating $target"
+        return 1
+    fi
+    echo "  [OK] archived ${size} bytes -> $dest (${gzip_size} bytes gzipped)"
+
+    : > "$target"
+    echo "  [OK] truncated $target in place (fd preserved for live writer)"
+}
+
+rotate_one "logs/trader.log" $((100 * 1024 * 1024)) "trader"
+rotate_one "logs/hm_ops_sentinel_cron.log" $((10 * 1024 * 1024)) "hm_ops_sentinel_cron"
 
 echo "=== $(date -Iseconds) rotate_logs DONE ==="

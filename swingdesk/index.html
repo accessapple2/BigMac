@@ -830,6 +830,18 @@ async function checkHealth() {
     const polyEl = document.getElementById('pill-polygon');
     polyEl.textContent = data.polygon === 'configured' ? '◆ POLYGON LIVE' : '◆ POLYGON MISSING';
     polyEl.className   = data.polygon === 'configured' ? 'pill pill-blue' : 'pill pill-red';
+
+    const marketEl = document.getElementById('pill-market');
+    if (data.market_open === true) {
+      marketEl.textContent = '● MARKET OPEN';
+      marketEl.className   = 'pill pill-green';
+    } else if (data.market_open === false) {
+      marketEl.textContent = '● MARKET CLOSED';
+      marketEl.className   = 'pill pill-red';
+    } else {
+      marketEl.textContent = '● MARKET STATUS UNKNOWN';
+      marketEl.className   = 'pill pill-amber';
+    }
   } catch(e) {
     showToast('Backend offline — start: python3 swingdesk/backend.py', true);
   }
@@ -850,6 +862,7 @@ window.addEventListener('load', async () => {
   // Refresh watchlist every 60s
   setInterval(loadWatchlist, 60000);
   setInterval(loadRiskGate, 30000);
+  setInterval(checkHealth, 60000);
 });
 </script>
 </body>

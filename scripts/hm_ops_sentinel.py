@@ -34,10 +34,24 @@ Exit codes:
 from __future__ import annotations
 
 import json
+import logging
 import subprocess
 import sys
 from datetime import datetime, timezone
 from pathlib import Path
+
+# HM-NTFY-OBSERVABILITY (2026-07-07): this standalone cron script never
+# configured logging, so engine.alert_channels's logger.info("ntfy sent...")
+# calls were silently dropped by Python's default level filtering (INFO is
+# below the WARNING default) -- only logger.warning("ntfy failed...") ever
+# reached this script's own log. That made every historical entry in
+# logs/hm_ops_sentinel_cron.log look like a 100% failure rate even though
+# successes could have been happening invisibly the whole time -- a real
+# diagnostic dead-end hit while investigating HM-NTFY-IPV6-NOROUTE. Scoped
+# to this script's own process only (not engine/alert_channels.py itself,
+# which main.py also imports and which must not have its logging behavior
+# changed for the live trading process).
+logging.basicConfig(level=logging.INFO, format="%(asctime)s [%(name)s] %(levelname)s: %(message)s")
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(ROOT))
@@ -87,7 +101,13 @@ def check_fd_count(alerts: list[tuple[str, str, str]]) -> dict:
         ))
         return {"pid": None, "fd_count": None}
 
-    r = subprocess.run(["lsof", "-p", str(pid)], capture_output=True, text=True)
+    # Absolute path: cron's minimal PATH (/usr/bin:/bin) doesn't include
+    # /usr/sbin, where lsof actually lives on macOS -- a bare "lsof" here
+    # raised FileNotFoundError on every single cron tick (confirmed via
+    # logs/hm_ops_sentinel_cron.log: 100% failure since this went live),
+    # silently disabling all 4 checks (main()'s single try/except around
+    # all four sequential checks means check #1 crashing kills #2-4 too).
+    r = subprocess.run(["/usr/sbin/lsof", "-p", str(pid)], capture_output=True, text=True)
     fd_count = sum(1 for line in r.stdout.splitlines() if "trader.db" in line)
 
     # Growth-rate context, keyed to this PID so a restart resets the baseline

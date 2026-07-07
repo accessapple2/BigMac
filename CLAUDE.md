@@ -350,6 +350,17 @@ rescheduled in place 20:00→20:30 MST (same line count, time changed) — see
 HM-BACKUP-SPINE-2026-07-01 in `docs/XO_BACKLOG.md` for the backup-spine work
 this baseline reflects.
 
+**Updated 2026-07-06 evening:** live-counted `crontab -l` at **41 active
+lines** — well past the 07-01 baseline of 34, more drift than just tonight's
+2 additions (`scripts/hm_gex_daily_collect.py` at 13:05 AZ, `HM-GEX-COLLECTOR-
+2026-07-06`, and `scripts/hm_ops_sentinel.py` at */5, `HM-OPS-SENTINEL-
+2026-07-06` — the latter already present before tonight's session, not
+newly added here). The gap between 34 and 41 minus these 2 (`iren_flip_watch.py`,
+various backup/health cron additions through the week) hasn't been reconciled
+line-by-line against the 07-01 list — flagging the real count is higher than
+naive "34+2" math would suggest, rather than asserting a false-precision
+36. A full re-audit is a separate task, not done as part of this one-liner.
+
 ## Duplicate Role Policy
 - **Healthy duplication** (keep): McCoy+Dax both run CSP but on different VIX
   regimes. Capitol+Aladdin+Uhura-EDGAR all "smart money" but orthogonal data

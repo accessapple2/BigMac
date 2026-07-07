@@ -272,14 +272,31 @@ def _compute(ticker: str, contracts: list[dict]) -> GammaContext:
     put_wall = min(by_strike.items(), key=lambda kv: kv[1], default=(None, 0))[0]
     top = sorted(by_strike.items(), key=lambda kv: abs(kv[1]), reverse=True)[:5]
     top_strikes = [{"strike": k, "gex": round(v, 0)} for k, v in top]
+    flip = _find_flip(contracts, spot)
+
+    # P0-B.4 2026-07-07 (HM-GEX-UNIFICATION): was `"positive" if net>=0 else
+    # "negative"` -- the raw SIGN of aggregate dealer GEX, a genuinely
+    # different (and less correct, per standard options-market convention)
+    # rule than the canonical source's (engine/options_flow_gex.py,
+    # flow_gex.db) spot-vs-flip rule. A market can show negative aggregate
+    # GEX while spot sits above the local flip -- confirmed as the actual
+    # cause of a real signal-page/bridge regime-label mismatch on 2026-07-07
+    # (bridge correctly said LONG GAMMA; this naive check said "negative").
+    # Same precedence as the canonical source: spot-vs-flip when a flip
+    # exists, raw sign only as the fallback when no zero-crossing was found
+    # in range (matches engine/options_flow_gex.py:236-242 exactly).
+    if flip is not None:
+        regime = "positive" if spot >= flip else "negative"
+    else:
+        regime = "positive" if net >= 0 else "negative"
 
     return GammaContext(
         ticker=ticker.upper(),
         available=True,
         spot=round(spot, 2),
         net_gex=round(net, 0),
-        regime="positive" if net >= 0 else "negative",
-        gamma_flip=_find_flip(contracts, spot),
+        regime=regime,
+        gamma_flip=flip,
         call_wall=call_wall,
         put_wall=put_wall,
         top_strikes=top_strikes,

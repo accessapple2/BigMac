@@ -31,7 +31,15 @@ def get_insider_trades(symbol: str) -> list:
                         "symbol": symbol,
                         "insider_name": str(row.get("Insider", row.get("insider", "Unknown"))),
                         "relation": str(row.get("Relationship", row.get("relation", ""))),
-                        "transaction_type": str(row.get("Transaction", row.get("transaction", ""))),
+                        # P0-B.5 2026-07-07: yfinance's "Transaction" column is
+                        # empty on every row in current output -- the real
+                        # classification text ("Purchase at price X per
+                        # share.", "Sale at price X per share.") lives in
+                        # "Text". Confirmed live against IBM/TSLA/CVS/INTC:
+                        # genuine purchases DO render as "Purchase at price...".
+                        # "Transaction"/"transaction" kept as a fallback in case
+                        # yfinance's schema reverts.
+                        "transaction_type": str(row.get("Text", row.get("Transaction", row.get("transaction", "")))),
                         "shares": _safe_int(row.get("Shares", row.get("shares", 0))),
                         "value": _safe_float(row.get("Value", row.get("value", 0))),
                         "date": str(row.get("Date", row.get("Start Date", "")))[:10],

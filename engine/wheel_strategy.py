@@ -221,11 +221,22 @@ def run_wheel_scan():
             # Strike: 10-15% OTM — want to collect premium, NOT get assigned
             otm_pct = 0.12
             put_strike = round(price * (1 - otm_pct), 2)
+            expiry = (datetime.now() + timedelta(days=DTE_TARGET)).strftime("%Y-%m-%d")
 
-            # Premium estimate: VIX-scaled, capped at 8%
-            # At VIX=30: ~6% of stock price; at VIX=20: ~4%
-            premium_pct = min(0.08, vix / 500.0)
-            estimated_premium = round(price * premium_pct, 2)
+            # P0-A 2026-07-07: real-quote premium (Alpaca primary, Polygon
+            # secondary), replacing the old VIX-scaled formula
+            # (min(0.08,vix/500)*price) that priced every entry from a
+            # formula with zero chain calls -- confirmed the source of
+            # options-sosnoff's 95.2% synthetic win rate. No fallback here
+            # by design: a None real quote means skip this ticker this
+            # cycle, never fabricate a number. See docs/XO_BACKLOG.md
+            # "P0-A: OPTIONS FILL INTEGRITY".
+            from engine.options_pricing import get_real_csp_premium
+            estimated_premium, premium_source = get_real_csp_premium(ticker, expiry, put_strike)
+            if estimated_premium is None:
+                console.log(f"[dim]Wheel: {ticker} no real quote available (Alpaca+Polygon both failed) — skipping")
+                _log_scan_outcome("no_real_quote", exposure=exposure, detail=f"{ticker} strike {put_strike}")
+                continue
 
             # Shares secured by the cash
             shares = int(budget_per_position / put_strike)
@@ -239,13 +250,11 @@ def run_wheel_scan():
                 console.log(f"[dim]Wheel: {ticker} return {premium_return:.1f}% < {MIN_PREMIUM_RETURN}% minimum, skipping")
                 continue
 
-            expiry = (datetime.now() + timedelta(days=DTE_TARGET)).strftime("%Y-%m-%d")
-
             reasoning = (
                 f"WHEEL STRATEGY: Selling {DTE_TARGET}-day cash-secured put on {ticker}. "
                 f"Strike ${put_strike} ({otm_pct*100:.0f}% OTM from ${price:.2f}). "
                 f"VIX {vix:.1f} = elevated premiums — prime selling conditions. "
-                f"Estimated premium: ${estimated_premium:.2f}/share "
+                f"Real quote premium ({premium_source}): ${estimated_premium:.2f}/share "
                 f"(${total_premium:.0f} total, {premium_return:.1f}% return on capital). "
                 f"If assigned, will own {ticker} at ${put_strike} discount and sell covered calls. "
                 f"3/5/30 Rule: targeting 5% return on 30-day cycle. "

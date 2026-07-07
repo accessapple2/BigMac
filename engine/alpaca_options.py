@@ -108,6 +108,58 @@ def get_atm_contract(symbol: str, option_type: str, target_dte: int = 0) -> str 
     return None
 
 
+def get_contract_at_strike(
+    symbol: str, option_type: str, target_dte: int, target_strike: float
+) -> str | None:
+    """Fetch the contract symbol closest to a SPECIFIC target strike (not
+    ATM). P0-A 2026-07-07: needed for wheel/CSP writers that pick a strike
+    by OTM% before pricing it (e.g. wheel_strategy.py's 12%-OTM put), as
+    opposed to get_atm_contract's current-price-relative matching.
+
+    Returns OCC-format symbol or None. Same contract-fetch/tradable-filter
+    shape as get_atm_contract, distance metric swapped to target_strike.
+    """
+    client = _get_client()
+    if not client:
+        return None
+    try:
+        from alpaca.trading.requests import GetOptionContractsRequest
+        from alpaca.trading.enums import ContractType
+        today = date.today()
+        exp_min = today + timedelta(days=max(0, target_dte - 1))
+        exp_max = today + timedelta(days=max(target_dte + 3, 7))
+        ctype = ContractType.CALL if option_type == "call" else ContractType.PUT
+        req = GetOptionContractsRequest(
+            underlying_symbols=[symbol],
+            type=ctype,
+            expiration_date_gte=exp_min.isoformat(),
+            expiration_date_lte=exp_max.isoformat(),
+            limit=50,
+        )
+        result = client.get_option_contracts(req)
+        contracts = result.option_contracts
+        if not contracts:
+            console.log(f"[yellow]Alpaca options: No contracts for {symbol} {option_type} dte~{target_dte}")
+            return None
+
+        best = None
+        best_dist = float("inf")
+        for c in contracts:
+            if not c.tradable:
+                continue
+            dist = abs(float(c.strike_price) - target_strike)
+            if dist < best_dist:
+                best_dist = dist
+                best = c
+
+        if best:
+            console.log(f"[dim]Alpaca options: Selected {best.symbol} strike={best.strike_price} (target {target_strike}) exp={best.expiration_date}")
+            return best.symbol
+    except Exception as e:
+        console.log(f"[yellow]Alpaca options get_contract_at_strike error: {type(e).__name__}: {e!r}")
+    return None
+
+
 def get_spread_contracts(
     symbol: str, option_type: str, target_dte: int, current_price: float
 ) -> tuple[str | None, str | None]:

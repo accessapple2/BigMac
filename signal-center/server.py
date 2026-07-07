@@ -889,6 +889,20 @@ _SIGNALS_TIMEOUTS = {
     'dayblade':           25,
     'metals':             40,  # solo: 0.01s; under SC concurrent load: 25–35s
     'risk_radar':         35,  # genuine perf issue >60s solo; banked for repair
+    # HM-MACRO-503-DIAGNOSIS (2026-07-07): not a macro-handler bug -- /api/macro
+    # itself has no freshness gate or 503 path (confirmed by code read of
+    # dashboard/app.py::macro_data + engine.alphavantage_data.get_macro_data).
+    # The reported 503 coincided exactly with a trader.db lock-contention event
+    # (multiple "database is locked" errors in trader.log 07:33-07:34 MST,
+    # confirmed by hm_ops_sentinel.py's own lock_errors count climbing 0->18 in
+    # the same window) that stalled EVERY bridge endpoint ~57s simultaneously,
+    # not just macro -- the default 5s timeout here is what turned a transient,
+    # app-wide, self-resolving stall into a reported failure for this one key.
+    # Bumped to ride out typical lock-contention windows, same precedent as the
+    # three overrides above; does NOT fix the underlying lock contention itself
+    # (a >60s outlier was also observed) -- that's the separate, already-tracked
+    # WAL busy-timeout wave-2 sweep.
+    'economic':           15,
 }
 
 

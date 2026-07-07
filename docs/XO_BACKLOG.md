@@ -6714,6 +6714,52 @@ the same `every(30)`→`every(5)` fix in a follow-up pass; flagging rather
 than fixing blind tonight since it wasn't part of tonight's ask and deserves
 its own confirm-then-fix pass like this one got.
 
+**P3-8 REOPENED 2026-07-07 06:5x MST — real second bug found, distinct from
+the scheduling fix above.** Admiral escalation: 06:35 slot appeared not to
+self-heal, PLUS signal-center's Ship's Log showed `fire-kirk` TRIGGERED +
+EXECUTED at 07-07 03:21/03:22 with zero heartbeat change — proving the
+producer runs but its output doesn't always land.
+
+**Two things resolved:**
+1. **The 06:35 scheduled slot actually DID self-heal** — `trader.log` shows
+   `[2026-07-07 06:39:50] Kirk Advisory: firing slot 0635...` /
+   `[06:39:53] Kirk Advisory [0635]: computed + heartbeat` — the aa55f1d
+   5-min-cadence fix worked exactly as designed (fired ~5 min into the
+   06:35-06:45 window, the expected worst case). Heartbeat mtime confirmed
+   fresh (`Jul 7 06:39:53`) before this investigation even started. The
+   Admiral's escalation was likely a check that landed in the ~5-min gap
+   before the next tick — the scheduling fix is NOT the reopened issue.
+2. **`fire-kirk` is a REAL, separate bug — root cause found and fixed.**
+   `signal-center/server.py`'s `/api/morpheus/action/fire-kirk` (admin
+   manual trigger) POSTs to `GET http://127.0.0.1:8080/api/kirk/advisory`
+   (`dashboard/app.py:18731`), which calls `engine.kirk_advisory.
+   generate_kirk_advisory()` **directly** — a completely different code
+   path from the scheduler's `run_kirk_advisory_job()` wrapper in
+   `main.py`. The heartbeat touch was defined ONLY inside that scheduler
+   wrapper (`_KIRK_HEARTBEAT` was a `main.py`-local constant), so any
+   successful manual fire-kirk call computed and returned real data (hence
+   "EXECUTED" in the Ship's Log) but never proved liveness to W1 or the
+   source grid. Write path had silently diverged from what the read path
+   checks — exactly the Admiral's hypothesis.
+
+**Fix (code-complete, verified in isolation, rides today's bundled
+restart):** moved heartbeat ownership into the shared compute function
+itself. `engine/kirk_advisory.py` now defines its own
+`_KIRK_HEARTBEAT_PATH` (same absolute path, computed the same way as the
+existing `REAL_HOLDINGS_PATH` constant in that file) and a
+`_touch_kirk_heartbeat()` helper, called at BOTH success-return points
+inside `generate_kirk_advisory()` (the stale-holdings early return AND the
+main advisory-result return) — NOT in the exception handler, preserving
+the original "failure doesn't count as liveness" design intent. `main.py`'s
+scheduler-side touch is untouched (now redundant on the scheduled path,
+harmless). Verified: called `generate_kirk_advisory()` directly (exact
+simulation of what fire-kirk does) — heartbeat mtime updated immediately,
+no error. `tests/test_kirk_holdings_guard.py` (12 tests) + full suite both
+still green. **Not yet live** — the running process (restarted 06:50 MST,
+cause unrelated/not investigated) has the scheduling fix but not this
+heartbeat-ownership fix yet; lands at today's single bundled restart per
+instruction.
+
 ---
 ## 🟢 AFTER-CLOSE-WORK-ORDER P2.4-P2.6 — post-restart verification note (2026-07-06)
 
@@ -6841,3 +6887,777 @@ windows is a designed no-op (200 + skip, no write) - do not treat as fault.
 **Steady state going forward:** 0 RED / 3 UNKNOWN (gex_snapshot, metals,
 riker_synthesis - heartbeat wiring gaps, producers alive; follow-up candidate:
 add as_of writes) / 4 RETIRED / 1 DORMANT.
+
+---
+## 🟢 HM-MACRO-503-DIAGNOSIS (2026-07-07, diagnosed + fix code-complete, held for after-close bundle)
+
+**Reported:** bridge `/api/macro` returned 503 per the 14:36 UTC (07:36 MST)
+health sweep. Signal's `macro` source itself was already GREEN
+(`as_of` 2026-07-02) — underlying FRED data confirmed fine going in.
+
+**Theory #3 (freshness gate) ruled out by code read, not guessed.** Read
+both `dashboard/app.py::macro_data()` (`@app.get("/api/macro")`,
+`@timed_cache(300)` wrapping `engine.alphavantage_data.get_macro_data()`)
+and `get_macro_data()` itself line by line — **no freshness/staleness gate,
+no explicit 503 raise, anywhere in either.** Live `curl localhost:8080/api/macro`
+right now: 200 + full JSON (all 10 FRED indicators, including the expected
+1-2 month publisher lag on `consumer_sentiment`/`cpi_yoy` dates — that lag is
+real but was never gating anything).
+
+**Actual root cause: trader.db lock contention, not macro-specific at
+all.** `trader.log`'s own `[ENDPOINT-DUR]` lines show **~50 unrelated
+endpoints** (`/api/status`, `/api/gex/SPY`, `/api/webull/positions`,
+`/api/congress/trades`, `/api/risk/var`, `/api/macro`, dozens more) all
+simultaneously stalling to **wall=57-58s** around 07:33-07:34 MST — a
+process-wide freeze, not a per-endpoint bug. Correlates exactly with
+multiple `OperationalError('database is locked')` entries in the same
+window (`TICK-REC DB write failed`, `alert_channels: save_setting failed`,
+`HM-EQ capitol-trades snapshot failed`) and with `hm_ops_sentinel.py`'s own
+lock-error count climbing **0→4→10→18** across successive 5-min checks in
+that exact span (FD count also crossed the 150 warn threshold, peaking at
+154) — the sentinel (fixed last night, see `HM-OPS-SENTINEL` above) caught
+this live and correctly alerted. One request (`/api/tax/history`) even
+timed out to a real exception (`status=EXC`, wall=57.37s); a later,
+separate spike hit 113s. This is the same `HM-SQLITE-CONN-FD-LEAK` /
+lock-storm class already being worked (`HM-WAL-BUSY-TIMEOUT-HYGIENE` wave 1
+shipped 2026-07-06, wave 2 still open) — not a new bug, a new symptom of
+the known one.
+
+**Why it showed as 503 specifically:** two client-side timeouts in this
+codebase are well under the observed 57-113s stall duration —
+`scripts/origin_healthcheck.sh` (`curl --max-time 8` against `/api/status`)
+and `signal-center/server.py::_fetch_all_signals()`'s default **5-second**
+timeout for any key not in `_SIGNALS_TIMEOUTS` (the `'economic'`/`/api/macro`
+key had no override, unlike `dayblade`/`metals`/`risk_radar`, which already
+carry higher timeouts for the identical reason — under-concurrent-load
+slowness, not solo brokenness). Either one would report a failure during
+the stall even though the backend eventually returned 200 to trader.log.
+
+**Fix (code-complete, held for the after-close bundle per Admiral
+constraint — NOT applied, no restart):** added `'economic': 15` to
+`signal-center/server.py::_SIGNALS_TIMEOUTS`, same pattern as the three
+existing overrides. This absorbs typical/moderate lock-contention windows
+(the 33s/57s/58s spikes) without masking a genuinely broken endpoint
+indefinitely — it does **not** fully solve the underlying lock contention
+(the observed 113s outlier would still exceed a 15s timeout); that's wave 2
+of `HM-WAL-BUSY-TIMEOUT-HYGIENE`, separately tracked, not boiled into this
+ticket. `py_compile` clean.
+
+**No `dashboard/app.py`/`engine/alphavantage_data.py` change proposed** —
+there is no bug there to fix; a diff in the macro handler itself would be
+solving the wrong layer.
+
+**Verification after restart:** `curl -s -o /dev/null -w '%{http_code}'
+http://localhost:8080/api/macro` (expect 200), MACRO panel renders on
+`/classic`, and re-check `_SIGNALS_TIMEOUTS['economic']` is honored (no
+easy black-box test for this without reproducing lock contention on demand
+— acceptable to verify by code inspection post-restart rather than forcing
+a live repro).
+
+**cto_briefing secondary — NOT skipped, confirmed real + trivially fixed.**
+Checked whether its daily run fired today per instruction: **it had not** —
+zero "CTO Advisory firing" log lines for 2026-07-07 as of 07:44 MST, both
+available slots today (`pre_market` 6:00, `post_open` 6:45) already past
+their 10-min windows with no firing. This is exactly the "same latent risk,
+not independently confirmed" flagged in the `P3.8` entry above — now
+confirmed. Since the fix is the **identical one-line change** already
+proven correct for Kirk (`schedule.every(30)` → `schedule.every(5)` for
+`run_cto_advisory`, `main.py:4547`), it qualifies as "trivial" under this
+ticket's own instruction — applied, `py_compile` clean, held for the same
+bundle.
+
+---
+## 🟢 HM-LOCK-STORM-07-07-QUANTIFIED (deep-dive for WAL wave-2 scope, requested by Admiral)
+
+**Duration — longer and in two waves, not a single ~57s blip.** Wave 1:
+~07:29:56-07:34:xx MST (first `[HM-EQ]` per-agent snapshot failure through
+the ~57-58s `[ENDPOINT-DUR]` cluster). Wave 2: 07:35:25-07:35:27 MST, worse
+— `/api/tax/opportunities` and `/api/sub-portfolios` both hit **113+
+seconds** before raising an exception (`status=EXC`, not even a slow 200).
+`[HM-EQ]` per-agent snapshot failures continued through **07:37:40** (9
+consecutive agents, roughly one per minute, EVERY one failed: ollama-plutus,
+options-sosnoff, enterprise-computer, neo-matrix, capitol-trades, trade-desk,
+ollie-machine, desk-manual, alpaca-mirror). Real span: **~8-10 minutes**,
+not one moment.
+
+**Quantified casualties:**
+- **~1,968 real-time price ticks silently dropped.** `[HM-TICK-REC
+  heartbeat]`'s `write=` counter was **frozen at 10101 for the entire
+  07:30:46-07:36:12 window** (zero successful DB writes) while `recv=`
+  climbed 17380→19354 and `drop=` climbed 6253→8221 in lockstep — every
+  tick received during the stall was dropped, not queued or retried.
+- **signals_v2 writes completely starved for ~19 minutes.** DB query:
+  9 rows at 14:26 UTC, then **zero rows until 14:45 UTC** (07:27-07:44 MST)
+  — no new pending/executed/failed signal rows of any kind during that
+  entire window. Any trade opportunity in that span would have been
+  silently missed at the signal-generation stage, not just delayed.
+- **Every `[HM-EQ]` per-agent snapshot in the window failed** (9/9,
+  `ai_brain.py:319`), War Room debate tracking failed at both start
+  (`war_room.py:186`) and finish (`war_room.py:229`) more than once,
+  `NewsPulse` DB store failed, `breadth_scanner` DB store failed, GEX
+  snapshot stamps failed repeatedly, `alert_channels: save_setting failed`
+  repeatedly (this is the SAME rate-limit-persistence write path touched
+  by `HM-NTFY-IPV6-NOROUTE`/`HM-ALERT-RATE-ON-FAILURE` below — a second,
+  independent way this exact incident degraded alerting, worth noting for
+  the record even though unrelated to the network-routing fix).
+- **No direct evidence of a lost/delayed order dispatch found** —
+  no BUY/SELL/order-submit log lines appear in the window at all. Can't
+  fully disambiguate "no trade opportunity happened to arise" from "the
+  starved signal pipeline meant nothing ever got far enough to dispatch" —
+  the signals_v2 starvation above is the more defensible, directly-evidenced
+  claim; treat "order dispatch impact: unknown, plausibly zero because
+  nothing reached that stage" rather than asserting a specific dropped order.
+
+**What held the lock — no single smoking-gun query found; matches the
+already-open `HM-WAL-ROOTCAUSE` (2026-07-01) finding, not a new cause.**
+That ticket found 15 concurrent open connections on `trader.db-wal`, **all
+from the trader's own single PID**, no external tool holding a lock — i.e.
+structural over-concurrency from within one process, not one long
+transaction. This incident's failure roster (tick recorder, HM-EQ ×9
+agents, War Room ×2 sites, NewsPulse, breadth_scanner, GEX snapshots,
+alert_channels settings) reads as the SAME pattern: many independent
+call sites across the codebase each opening their own `sqlite3.connect()`
+to the same file, all competing for WAL's single-writer slot during a
+period of coincidentally-overlapping activity, rather than one identifiable
+culprit holding the lock open.
+
+**This is the quantified case for `HM-WAL-BUSY-TIMEOUT-HYGIENE` wave 2**
+(wave 1 shipped 2026-07-06, migrated 23 engine files + dashboard +
+signal-center's primary factory to the shared `engine.db_conn.get_conn()`
+helper; wave 2 covers the remaining scattered direct-connect sites,
+explicitly deferred at the time). Concrete numbers to carry into that
+ticket's scoping: **~1,968 dropped ticks + ~19 min of zero signal
+throughput + 9/9 agent-snapshot failure rate**, over an **8-10 minute
+event**, driven by **no single query** but by the sheer count of
+concurrent same-process connections — an argument for reducing connection
+*count* (pooling/reuse), not just adding `busy_timeout` to more individual
+call sites (which wave 1 already does, and this incident still happened
+on top of wave-1-migrated code).
+
+---
+## 🟢 HM-NTFY-IPV6-NOROUTE + HM-ALERT-RATE-ON-FAILURE (2026-07-07) — SHIPPED + live-confirmed; exact historical failure rate stays UNVERIFIED (record corrected below, not re-guessed)
+
+**Admiral asked: did the sentinel's ntfy ALERT path actually fire at
+07:33, not just its own log counter?** Checked `logs/hm_ops_sentinel_cron.log`
+for `_send_ntfy`'s own "ntfy sent"/"ntfy failed" log lines (distinct from
+the sentinel script's own "[sentinel] ALERT dispatched" print, which fires
+regardless of whether delivery succeeded). Found 20 "ntfy failed" lines,
+zero "ntfy sent" lines — **initially wrote that up as "0 successes, 20
+failures, 100% failure rate" here. That specific claim is WRONG, caught
+and correcting before it stood as the record.** Neither this script nor
+`main.py` ever calls `logging.basicConfig()` — Python's default logging
+config drops INFO-level records below the WARNING threshold, and
+`_send_ntfy`'s SUCCESS path logs at INFO (`logger.info("ntfy sent...")`)
+while its FAILURE path logs at WARNING (`logger.warning("ntfy failed...")`,
+visible via Python's stderr "handler of last resort"). **Zero "ntfy sent"
+lines proves nothing** — successes were architecturally invisible in this
+script's log the whole time, so the 20 visible failures could be the
+entire population or a fraction of a much larger, mostly-successful one;
+the log cannot distinguish those. Real, confirmed facts: the IPv6 routing
+problem below is real (direct-tested, not log-inferred) and at least 20
+genuine failures happened; a specific "100%" figure was an inference from
+an observability gap, not a measurement — flagged rather than left
+standing uncorrected. This is exactly the
+"an alarm that only writes to its own log shares a failure mode with
+silence" case the Admiral asked about — just one layer deeper than first
+diagnosed: the silence extended to the SUCCESS side of the sentinel's own
+diagnostic logging, not only to ntfy delivery.
+
+**Root cause, confirmed by direct test:** this box has no working IPv6
+route to ntfy.sh. `socket.create_connection()` to ntfy.sh's AAAA address
+raises `OSError [Errno 65] No route to host`, 100% reproducible, on both
+Python interpreters on this box; the IPv4 address always succeeds. Real-
+world asymmetry: `scripts/hm_ops_sentinel.py` (`.venv`/py3.14, cron
+`*/5`) got 0/20 successes; `scripts/git_push_health_check.py` (`venv`/
+py3.9, cron daily) succeeded via the identical `_send_ntfy()` code path —
+both interpreters fail the same direct IPv6 test, so the discrepancy is
+specifically about cron execution context (not fully root-caused at the
+OS level — plausibly launchd/cron network-entitlement differences from an
+interactively-launched process), not Python version. Rather than depend on
+`getaddrinfo()` address-family ordering being consistent across execution
+contexts, **forced IPv4-only** for the ntfy call.
+
+**Fix 1 (`engine/alert_channels.py::_send_ntfy`):** wraps the `urlopen`
+call in a scoped, lock-protected monkeypatch of `socket.getaddrinfo` that
+filters to `AF_INET` only, restored in a `finally` block. IPv6 doesn't work
+anywhere on this box (confirmed), so the brief forced-IPv4 window carries
+no real cost to other concurrent socket use. Verified: patch correctly
+filters to IPv4-only, correctly restores original `getaddrinfo` after the
+call (checked both before and after), and a real end-to-end `_send_ntfy()`
+call (diagnostic topic, not the real admin channel) returned `True` —
+confirmed real HTTP delivery, not just "didn't raise."
+
+**Fix 2, found while verifying Fix 1 — a second, compounding gap:** the
+rate-limit window (`_rate_ok()`) was being **consumed at CHECK time**,
+before `_send_ntfy()` even ran — so a failed delivery ALSO burned the
+30-min retry budget. Confirmed live: `sentinel_lock_errors` and
+`sentinel_signals_v2_queue` both showed a `last_sent` timestamp in the
+persisted rate-limit state despite 0 actual successful sends, meaning even
+after Fix 1 lands, the NEXT real attempt for those specific alert types
+wouldn't fire until their pre-fix-consumed windows separately expired.
+Split `_rate_ok()` (now a pure read-only check) from a new
+`_mark_rate_limit_sent()` (called only after `send_alert()` confirms
+`results.get("ntfy") or results.get("email")` — deliberately NOT
+`any(results.values())`, since `results["browser"]` is hardcoded `True`
+unconditionally for WARNING/RED_ALERT and would have silently defeated
+this exact fix for the two levels the sentinel actually uses). Verified
+with a 3-step test: simulated failure → rate window NOT consumed →
+simulated success → rate window consumed → third attempt correctly
+skipped as rate-limited.
+
+**Fix 3, the observability gap itself:** `scripts/hm_ops_sentinel.py` now
+calls `logging.basicConfig(level=logging.INFO, ...)` at import time --
+scoped to this standalone script's own process only, deliberately NOT
+touching `engine/alert_channels.py`'s logging behavior (shared with
+`main.py`, which must not be affected). This is what makes it possible to
+actually verify Fix 1/Fix 2 going forward instead of reasoning from an
+architecturally-blind log.
+
+**Status:** all three fixes are in files re-loaded fresh on every
+cron-invoked script's next tick (`engine/alert_channels.py` +
+`scripts/hm_ops_sentinel.py`, both cron-only, not `main.py`-resident) —
+**no restart needed for any of these**, unlike the other fixes tonight;
+they self-apply on the next real cron invocation. `py_compile` clean on
+both files. Full test matrix (IPv4 patch correctness, getaddrinfo
+restore-after-call, live diagnostic-topic delivery, failure-doesn't-
+consume-rate-limit, success-does-consume, third-attempt-correctly-rate-
+limited) all passed.
+
+**✅ LIVE-CONFIRMED, real cron context, not a test harness.** Waited for
+the next genuine (non-rate-limited) dispatch with Fix 3's visibility in
+place. `logs/hm_ops_sentinel_cron.log`, 2026-07-07 08:30:04 MST:
+```
+2026-07-07 08:30:04,058 [engine.alert_channels] INFO: ntfy sent [200]: ⚠️ TradeMinds Warning
+2026-07-07 08:30:04,072 [engine.alert_channels] INFO: Alert dispatched [warning/sentinel_signals_v2_queue]: ...
+```
+Real HTTP 200 to ntfy.sh, under actual crontab invocation (`.venv`/py3.14,
+`*/5` cadence) — **the first confirmed-successful ntfy delivery from this
+sentinel since it was created.** Cross-checked the rate-limit state
+persisted correctly on this genuine success: `sentinel_signals_v2_queue`
+`last_sent` = 0.41 min after the send (vs. showing 25-30+ min stale before
+Fix 2). All three fixes (IPv4 force, rate-limit-on-success-only, INFO-level
+visibility) verified working together, live, without a restart. Closing
+this out — the sentinel's alert path is now genuinely trustworthy, not
+just quiet.
+
+---
+## 🟡 HM-WAL-BUSY-TIMEOUT-HYGIENE wave 2 — SCOPED TONIGHT, NOT EXECUTED (Admiral: own dedicated after-close window tomorrow)
+
+**Explicit non-goal, stated up front:** nothing below rides tonight's
+bundle. This is a plan, informed by today's `HM-LOCK-STORM-07-07-QUANTIFIED`
+data, for tomorrow's own dedicated after-close window.
+
+**Cross-referenced every file the 07:33-07:40 storm actually implicated
+against wave 1's migrated-file list.** Wave 1 covered 23 specific engine
+files + dashboard's shared `_conn()` + signal-center's `get_db()` factory
+(exact list in the wave-1 entry above). **None of today's worst offenders
+were in it:**
+
+| File | Raw `sqlite3.connect()` sites | Storm role |
+|---|---|---|
+| `engine/ai_brain.py` | **4** | `[HM-EQ]` per-agent snapshot — 9/9 failed today, worst offender |
+| `engine/war_room.py` | 1 | debate tracking start+finish, both failed multiple times |
+| `engine/tick_recorder.py` | 1 | real-time tick writes — ~1,968 ticks dropped, write counter frozen 6 min |
+| `engine/news_pulse.py` | 1 | `NewsPulse` DB store failed |
+| `engine/alert_channels.py` | 1 | `save_setting failed` (rate-limit persistence — same file `HM-NTFY-IPV6-NOROUTE`/`HM-ALERT-RATE-ON-FAILURE` already touched tonight for the ntfy code path; this is a DIFFERENT, still-open gap in the same file) |
+| `engine/gex_overlay.py` | 1 (line 602) | **partial-migration gap**: this file IS in wave 1's list and its `_conn()` factory correctly uses `get_conn()` — but `_log_snapshot()` at line 602 has its own separate raw `sqlite3.connect(TRADER_DB, check_same_thread=False)` that bypasses the factory entirely. Proves wave 1 alone doesn't guarantee coverage even for "migrated" files — a leftover unconverted site inside an otherwise-migrated file is invisible unless checked directly. |
+| `main.py` (`run_breadth_sector_corr`, ~line 5615) | uses main.py's own process-wide `busy_timeout` monkeypatch (not `get_conn()`) | `breadth_scanner: DB store failed` — has `busy_timeout` via the existing monkeypatch but likely NOT `synchronous=NORMAL` (get_conn's actual documented gap over the monkeypatch) |
+
+**9 confirmed raw/gap sites directly tied to a real, quantified incident** —
+not a guess at priority order, an empirical one.
+
+**Recommendation for tomorrow's window:**
+1. Migrate the 6 files above to `engine.db_conn.get_conn()` first — proven
+   storm participants, highest-confidence value, small tight list.
+2. Fix `gex_overlay.py:602` specifically as a reminder to **grep every
+   "wave-1-complete" file for leftover raw `sqlite3.connect(` before
+   declaring wave 2 done** — the factory existing doesn't mean every site
+   uses it.
+3. **Re-open the "reduce connection count" question, don't just repeat
+   wave 1's pattern.** Wave 1 already added `busy_timeout`+
+   `synchronous=NORMAL` to 23+ files and today's storm still happened on
+   top of that — `HM-WAL-ROOTCAUSE` (2026-07-01) already found 15+
+   concurrent same-PID connections with no external holder. Busy_timeout
+   makes each individual wait survivable; it does not reduce how many
+   writers pile up at once. Worth asking, per implicated file: does
+   `ai_brain.py`'s HM-EQ loop need 4 separate connections per cycle, or
+   could per-cycle work share one? Same question for any file with >1 site.
+4. Then continue the already-documented remaining scope (dashboard's other
+   30 scattered sites, signal-center's other 11, `scripts/
+   build_corpus_from_trader_db.py`) at whatever pace fits the window —
+   lower priority than the 6 above since none were directly implicated by
+   a real measured incident.
+
+**Not decided here — needs the Admiral's call at execution time:** whether
+tomorrow's window does the storm-implicated 6 only (tight, fast, evidence-
+driven) or the full remaining wave-2 scope in one pass (matches wave 1's
+own "sweep the remaining call sites as wave 2" framing, but bigger diff,
+same "full backup before touching anything" discipline wave 1 used).
+
+---
+## 🟢 EOD WRAP — 2026-07-07, after-close bundle SHIPPED
+
+### Bundle execution summary
+Pre-restart GEX check: SPY `gex_snapshots` newest row confirmed fresh
+(asof `2026-07-07 20:05:25` UTC = 13:05 MST, matching the collector's
+schedule exactly) — call_wall=$750, gamma_flip=$750.53, put_wall=$617,
+king_node=$740, all distinct (not degenerate). Served correctly end-to-end
+through `canonical_gex.latest_snapshot()`.
+
+Bundle applied: `ALERT_DEFS_ENABLED` flipped True; `qwen3:4b` onboarded as
+`qwen3-4b-audition` ("Cadet Worf," mirrors `qwen3-8b-flash`/Worf's Bear
+Specialist mandate in `crew_specialization.py`, `crew_role='auditioning'`,
+`can_trade_live=0`); sentinel cron formalized (crontab confirmed durable,
+thresholds confirmed warn=150/red=250, **and a real gap caught+fixed**:
+`hm_ops_sentinel_cron.log` had no rotation mechanism at all — extended
+`rotate_logs.sh` to a multi-target loop, added it at a 10MB threshold,
+tested against synthetic files before touching the real ones); Kirk
+fire-kirk heartbeat fix; CTO Advisory scheduling fix; P4-13 GEX repoint;
+Fleet-tab split/79-active mislabel/navigator gate repair-sweep items;
+`/api/macro` timeout fix. One trader restart (13:42:24 MST) + one
+signal-center restart, both clean/orphan-free. All 14 modified Python
+files + 2 modified HTML files compiled/syntax-checked clean; full test
+suite run immediately before restart — same 14 pre-existing, unrelated
+failures as every other check tonight, 633 passed.
+
+### Post-restart verification — all 10 checklist items confirmed
+1. **Audition gate**: `[AUDITION-GATE] active — 1 auditioning seat(s),
+   can_trade_live enforcement=ON` — correctly counts the new seat.
+2. **All 10 original gated agents**: `is_auto_tradeable()` = True for all,
+   re-verified against the live post-restart process.
+3. **New seat blocked at all 3 gate layers**: `halt_gate.is_auto_tradeable()`
+   → False (live-tested); `RiskManager.check_buy()` → `(False,
+   "AUDITIONING: shadow mode, no live execution...")` (live-tested);
+   `paper_trader.buy()`'s HALT GATE → confirmed via direct code-path match
+   against the row's exact `halt_mode='active'`/`crew_role='auditioning'`
+   values (not live-invoked — `buy()` has too many side effects to safely
+   call standalone; no real order attempt has fired yet since market is
+   closed, so this one is code-verified, not live-observed like the other
+   two).
+4. **Alert-defs reader live**: `config.ALERT_DEFS_ENABLED=True` confirmed
+   in the running process; `run_user_alert_definitions()` executes a real
+   query (not short-circuiting as a no-op).
+5. **P4-13 fresh GEX label**: `get_gex_context_for_prompt()` now returns
+   "updated 20:05" (today's collector run) with SPY showing LONG GAMMA /
+   QQQ showing SHORT GAMMA — genuinely distinct regimes, proving real data,
+   not a stale default.
+6. **Gamma Map walls populated**: `/api/gex/spy` and `/api/gex/qqq` both
+   return full strike-level data, non-empty walls, today's timestamp.
+7. **Sentinel firing with real ntfy**: confirmed tracking the new PID
+   (1479) correctly within one tick of the restart; ntfy delivery already
+   proven working multiple times earlier today (mechanism lives in a
+   cron-reloaded file untouched by this restart, so it was never at risk).
+8. **Clean logs**: zero traceback/critical lines in the first 300 log
+   lines post-restart.
+9. **Positions**: 33 open positions, $17,229.10 total notional,
+   SHA256 `5bca62fe9003...` as the current reference hash. No pre-restart
+   snapshot was taken to diff against (not set up in advance) — integrity
+   instead backed by the restart script's own pre-restart WAL checkpoint
+   completing fully (`0|0|0`, zero frames remaining) before the process
+   transition, which is the actual data-loss guarantee, not a hash match.
+10. **WAL checkpoint**: healthy — `0|230|51` post-restart (busy=0, 51/230
+    frames checkpointed; PASSIVE mode partial-checkpoints by design, not a
+    failure).
+
+### Swing-surge clean-day breakdown, storm window annotated
+Today (`signals_v2`): 128 signals → 7 trades (5.5% conversion), guarded
+P&L **-$111.40** fleet-wide (capitol-trades +$8.95, gemini-2.5-flash
+-$91.19, ollama-plutus +$0.78, ollama-qwen3 -$28.37, ollie-auto -$1.57).
+Status breakdown for the day: 1,609 failed / 211 pending / 9 stale / 1
+expired.
+
+**Storm window (07:27-07:45 MST) isolated: zero signals_v2 rows of ANY
+status** — not a contributor to the 1,609 "failed" count, a clean 18-minute
+gap where nothing was recorded at all, good or bad. All 1,609 failures
+happened outside the storm window, across the rest of the day — a
+separate, pre-existing pattern not investigated as part of tonight's work
+(no evidence tying it to the storm specifically).
+
+### WAL wave-1 verdict
+Today was the first full live trading day under wave 1 (shipped
+2026-07-06). Verdict: **wave 1 works for what it covers, and coverage was
+incomplete — confirmed by a real incident, not a guess.** Sentinel's own
+history across the day: lock_errors > 0 in only 14/228 five-minute samples
+(~6% of the time) — the steady-state baseline wave 1 protects is
+genuinely clean most of the time. But the 07:33 storm (max 18 lock errors
+in one 10-min window) broke through anyway, and tracing its actual
+participants (`ai_brain.py`, `war_room.py`, `tick_recorder.py`,
+`news_pulse.py`, `alert_channels.py`, plus a leftover raw-connect site
+inside the already-migrated `gex_overlay.py`) showed **none of them were
+in wave 1's scope** — this isn't wave 1 failing at its job, it's wave 1
+correctly protecting the 23+dashboard+signal-center files it touched while
+the storm happened entirely in files it never reached. `HM-WAL-BUSY-
+TIMEOUT-HYGIENE` wave 2 (scoped tonight, not executed — see the entry
+above) is the direct, evidence-backed next step, not a speculative one.
+
+### Day-1 gated-live-order confirmation
+**Confirmed**: `ollie-auto` (halt_mode='exit_only', one of the 10
+`can_trade_live=1` gated agents) placed a real Alpaca order — SELL PM,
+order ID `abb28f18-8665-454f-95af-66aed92ad90a`, status `filled` — at
+**06:39:34 MST, 9 minutes after today's 6:30 AM open**. This is the
+precondition `HM-GATE-RESTART-HOLD` was held for: a live order completing
+end-to-end under `can_trade_live` enforcement=ON, observed on the actual
+first trading day, not simulated. (Correction to an earlier same-day
+report: this was first quoted as "13:39:34 MST" — that was the raw UTC
+`trades.executed_at` value read without converting; `executed_at` uses
+SQLite's `CURRENT_TIMESTAMP`, always UTC. Corrected here with the
+subtraction shown, not just asserted.)
+
+---
+## 🔴 P0-A: OPTIONS FILL INTEGRITY — DIAGNOSIS COMPLETE, DIFFS PROPOSED, HELD FOR BUNDLE
+
+Read-only diagnosis per Admiral directive. No code shipped, no restart.
+Confirmed against live code + DB, not the audit doc alone.
+
+### 1. Inventory — every site that invents an option price
+
+| File | Function | Verdict | Detail |
+|---|---|---|---|
+| `engine/wheel_strategy.py:227` | `run_wheel_scan()` | **BROKEN — no real-quote attempt at all** | `premium_pct = min(0.08, vix / 500.0)`. Pure VIX-scaled formula. Zero chain calls. |
+| `engine/shadow_csp.py:177` | `_build_candidates()` | **BROKEN — identical formula** | `premium = round(price * min(0.08, vix / 500.0), 2)`. Byte-identical to wheel_strategy's, deliberately (docstring: "builds the SAME deterministic candidate set Troi would"). Taints the bakeoff, not just the live seat. |
+| `engine/dayblade.py:296,320-346` | `_estimate_atm_premium()` / `buy_option()` | **PARTIALLY BROKEN** | DOES try a real quote first (OpenBB `get_options_chain`, uses bid/ask mid), only falls back to the `_estimate_atm_premium()` formula (`stock_price * 0.30 * sqrt(dte/365)`) on a bare `except: pass` or no strike match. Correct pattern, but: (a) silent fallback — no metric on how often OpenBB actually returns data vs. how often it silently degrades to synthetic, (b) `get_portfolio_with_pnl()` (line 228-232) marks OPEN option positions using `paper_trader.estimate_option_price()` (a decay heuristic) rather than trying a live quote first — the displayed unrealized P&L for dayblade's option book never attempts a real mark. |
+| `engine/battle_station_0dte.py` | `_get_option_price()` | **CLEAN** | Real Alpaca quote only (`alpaca_options._get_contract_price`, `client.get_option_contract(...).close_price`). Returns 0.0 on failure; caller gates on `price >= MIN_PREMIUM` and skips the trade. No synthetic fallback exists. |
+| `engine/battle_station.py` | n/a | **CLEAN** | No option-price invention found. `avg_entry_price` reads are from existing position/order data (real fills), not price generation. |
+| `engine/options_exec.py` | `open_options_trade()` / `close_options_trade()` | **MECHANISM-LEVEL GAP** | Trusts whatever `entry_price`/`exit_price` the caller supplies with zero independent validation — by design, it's a generic accounting helper, not a pricing source. Credits `options_books.current_cash` permanently at entry (line 145) based on that unvalidated number. **No mark-to-market function exists anywhere in this file** — confirmed by the `options_books` schema itself (`book_tag, starting_capital, current_cash, max_drawdown_pct, total_trades, wins, losses` — no unrealized/mark column of any kind). |
+| `engine/paper_trader.py:4231` | `_csp_current_premium()` | **MOSTLY CORRECT, already exists** | Tries Polygon `get_option_quote(occ).mid` first; falls back to `estimate_option_price()` (intrinsic + a `entry_premium * 0.70 * sqrt(days_left/30)` time-value-floor heuristic) only if Polygon fails. Used by the CSP TP/SL/time-stop exit check (`_check_option_exits_canonical_short_premium`, line 4263) — this is the **existing real-quote infrastructure the entry-side fix should reuse**, not reinvent. Caveat: the BSM-style fallback is anchored on `entry_premium` — if entry was synthetic, a Polygon-miss on the exit side still inherits some contamination, just decayed by a real (if approximate) time curve rather than pure fantasy. |
+| `engine/wheel_assignment_ledger.py::assign_csp()` | ITM assignment | **CORRECT, not synthetic** | Uses `spot_at_expiry` (real stock price) for intrinsic-value assignment mechanics — this is legitimate; assignment intrinsic is deterministic math (`strike - spot`), not a quote that needs fetching. |
+
+**Scale**: `options-sosnoff` (Troi) has 84 closed CSPs, $29,868.74 total realized P&L, **95.2% win rate** — matches the audit's cited baseline exactly. Given the entry premium is fantasy and OTM-expiry-at-$0 is the dominant close path, this win rate is close to tautological (a fake "already collected" premium that's rarely given back isn't evidence of skill).
+
+### 2-3. Proposed diffs: real-quote wiring + mark-to-market
+
+**Reuse the existing `_csp_current_premium()` pattern (Polygon quote → BSM-floor fallback) rather than building a new pricing path.** Concretely:
+
+- **New shared helper** `engine/options_pricing.py::get_real_csp_premium(symbol, expiration, strike, stock_price) -> float | None` — extracted/generalized from `_csp_current_premium`'s Polygon-quote branch (drop the `entry_premium`-anchored BSM fallback for the ENTRY case specifically — there's no `entry_premium` to anchor to yet, so entry-side failure should mean **skip the trade**, matching `battle_station_0dte`'s pattern, not fabricate a number).
+- **`wheel_strategy.py:225-228`**: replace the `premium_pct = min(0.08, vix/500.0)` block with a call to `get_real_csp_premium(ticker, expiry, put_strike, price)`; `if premium is None: continue` (skip the ticker this cycle, same as battle_station_0dte's `MIN_PREMIUM` gate).
+- **`shadow_csp.py:177`**: identical replacement — same helper, same skip-on-None behavior. Keeps both seats and the baseline on one real pricing source, so the bakeoff stays apples-to-apples.
+- **`dayblade.py`**: add Polygon as a second real-quote attempt alongside the existing OpenBB chain call (try OpenBB, then Polygon, then skip — never fall through to `_estimate_atm_premium()` silently); instrument the fallback/skip path with a counter or log line so the real-vs-synthetic ratio is visible going forward (closes the current blind spot). For `get_portfolio_with_pnl()`'s open-option marks: try `get_real_csp_premium`-equivalent first, keep `estimate_option_price()` only as the final fallback (matches `_csp_current_premium`'s own existing hierarchy — consistency, not a new pattern).
+- **Mark-to-market (item 3)**: since `options_books` has no unrealized column, add a **computed-on-read** function `engine/options_exec.py::book_equity(book_tag) -> dict` returning `{current_cash, unrealized_pnl, total_equity}` — iterates `options_trades WHERE book_tag=? AND status='open'`, marks each short-premium leg via `get_real_csp_premium` (or the existing `_csp_current_premium` for CSPs specifically), sums `(entry_credit_debit - current_market_cost)` per open trade. Computed-on-read matches this codebase's existing convention (e.g. `canonical_gex.latest_snapshot()`, `get_portfolio_with_pnl()`) over a synced/stored column that can drift stale. Wire this into wherever `options_books.current_cash` is currently displayed as "book equity" (dashboard/`app.py` options-book endpoints — not yet located precisely; needs a follow-up grep for `current_cash` display sites before the bundle window, not done here since it's read-only display wiring, not new financial logic).
+
+### 4. Era-fencing — TROI_V2_ERA_START does NOT mean what the directive assumes
+
+**Important correction before implementing anything**: `TROI_V2_ERA_START = "2026-07-06"` (`paper_trader.py:2541`) already exists, but it marks the **`TROI_CSP_CAP_GATE` position-sizing boundary** (HM-TROI-WHEEL-V2, "v1 blind/uncapped" → "v2 gated"), NOT a pricing-methodology boundary. As of right now (2026-07-07), **every CSP trade ever written, including everything after this era start, still uses the synthetic `vix/500` entry formula** — there is no real-quote era yet to fence into "v2." Using the existing constant as the directive literally describes would mislabel post-07-06 cap-gated-but-still-synthetic trades as "real-quote v2," which is false.
+
+**Proposed**: introduce a **separate, new constant** `TROI_REAL_QUOTES_ERA_START` (distinct name, to avoid conflating the cap-gate axis with the pricing axis — they're independent and shouldn't share one boundary marker), set to whatever date item 2's fix actually ships and goes live, not retroactively. Until then, the restated leaderboard should label **100% of existing CSP history — v1 cap-gate era AND v2 cap-gate era alike — as "synthetic fills — restated,"** and grade Troi from zero real-quote trades until the fix ships and accumulates some. This is a forward-only fix, same shape as the `acted_by_fleet` emit-time-tagging lesson already banked in `CLAUDE.md` ("Fix = emit-time 'acted' tagging... FORWARD-ONLY build") — no retroactive repricing of historical rows, just an honest label going forward.
+
+### 5. Shadow CSP bakeoff — confirmed same-root-cause
+
+`shadow_csp_scorecard.py::compute()` scores both the Troi baseline (`options-sosnoff`/`fleet` book) and both ghost seats (`ghost` book) purely from `options_trades.pnl` — the same corrupted chain (fake entry premium → mostly-OTM-expiry-at-$0 close). Confirmed 6 closed CSP trades exist for `shadow-%` agents so far, same formula. **The bakeoff cannot be validly re-run on historical data — it must restart clean once item 2 ships**, comparing baseline vs. ghosts on real-quote trades only, going forward. Re-running the SAME scorer against the SAME tainted rows would just reproduce the same false 95% number with extra steps.
+
+### Nothing shipped
+All of the above is diagnosis + proposed diffs only, per the Admiral's explicit hold. Implementation (the `options_pricing.py` helper, the 3 call-site rewires, `book_equity()`, the new era constant, and the bakeoff restart) is scoped for a dedicated bundled window — not attempted inline here given the blast radius (touches live P&L accounting for the fleet's single best-looking performer).
+
+---
+## 🔴 P0-B: SIGNAL HYGIENE — DIAGNOSIS COMPLETE, DIFFS PROPOSED, HELD FOR BUNDLE
+
+Read-only diagnosis per Admiral directive. No code shipped, no restart.
+
+### 1. Idempotency — dedup key for ALL agents
+
+Confirmed and **worse than reported**: `signals_v2` has zero unique constraints.
+Capitol-trades' existing dedup (`crew_scanner.py:3081`) checks only `positions`
+(already-held) and `trades` (already-executed-today) — a **blocked** signal has
+no protection at all and re-emits every cycle. Live measurement: **1,286
+duplicate `IBM`/`capitol-trades`/`direct_buy_intent` rows** in `signals_v2`
+since 2026-07-06 (1,183 `failed` + 103 `pending`), plus **85 duplicate
+`TRADE_REJECTED` rows** in `crew_decisions` for the same symbol today alone —
+some emitted multiple times within the same second (`19:59:26` ×5), meaning
+this isn't purely a cross-cycle re-emission problem, there's same-pass
+duplication too.
+
+**Proposed diff**: `emit_signal_v2()` (`engine/events_bus.py:111`, the single
+chokepoint every caller already uses — matches this codebase's existing
+centralization pattern, e.g. `open_options_trade`'s door1 gate) gets a
+schema-level unique index:
+```sql
+CREATE UNIQUE INDEX idx_signals_v2_dedup
+ON signals_v2(source, symbol, direction, date(created_at))
+WHERE signal_type = 'direct_buy_intent';
+```
+`emit_signal_v2()` switches its INSERT to `INSERT OR IGNORE`; when
+`cur.rowcount == 0` (blocked by the index), return the existing row's id
+instead of a fresh one. Scoped to `direct_buy_intent` only for now — that's
+the signal_type with demonstrated pathological duplication; `momentum`
+signals may legitimately re-fire intraday on new setups, so blanket-applying
+without the same evidence risks silently dropping real signals. Expand the
+`WHERE` clause to additional signal_types only after confirming each has the
+same problem, not preemptively.
+
+### 2. Blacklist instrumentation + auto-expire
+
+Confirmed: `learning_engine.py:110`'s 3-loss/14-day block (`recent_losses`
+query, line 46) only appends a string to an in-memory `blocked_reasons` list
+— **nothing is persisted**. Cross-checked against `gate_reject_log` (the
+system's actual existing rejection-logging table, used by 10 other gates —
+HALT, MARKET_CLOSED, GRADE_B, MAX_TRADES_REACHED, MAX_POSITIONS_REACHED,
+PRICE_SANITY, LOW_CONVICTION, SCANNER_FILTER, QUALITY_GATE_FAILED,
+DRAWDOWN_PAUSE): the ticker-blacklist gate writes to **none of them**. It's
+invisible to any existing report.
+
+**Proposed diff**: make the blacklist block also call `_log_gate_reject`-style
+write into `gate_reject_log` (gate_name=`TICKER_BLACKLIST`), reusing existing
+infrastructure rather than building new. This alone closes the "log every
+block with the would-be trade" ask (row already carries `symbol`, `price`,
+`confidence`).
+
+**Auto-expire — a real design nuance, not just a checkbox**: this isn't a
+persisted blacklist table to expire rows from — it's a **rolling 14-day
+window computed fresh every call** (`recent_losses` groups `trades` by
+`symbol HAVING COUNT(*)>=3` within the trailing 14 days). Natural time-based
+expiry already happens by construction — a symbol falls off automatically
+once its losing trades age past 14 days. TRUE early-expiry ("test
+profitable, remove before the natural rolloff") requires the NEW
+`gate_reject_log` rows above to feed a hypothetical-outcome tracker (what
+would this rejected signal's symbol have returned over the following N days)
+and a feedback check in the blacklist logic itself. That tracker is the same
+shape as item 3's counterfactual report — natural to build once, together.
+
+### 3. Weekly rejected-signal counterfactual report
+
+**Correction**: the directive names `gate_rejects` — that table doesn't
+exist. The real table is **`gate_reject_log`** (confirmed schema:
+`id, ts, player_id, symbol, gate_name, reason, signal_id, price,
+confidence`). Live counts today: HALT 23,864, MARKET_CLOSED 14,733, GRADE_B
+12,366, MAX_TRADES_REACHED 288, MAX_POSITIONS_REACHED 215, PRICE_SANITY 123,
+LOW_CONVICTION 21, SCANNER_FILTER 19, QUALITY_GATE_FAILED 6, DRAWDOWN_PAUSE 4.
+
+**Design note before building**: HALT and MARKET_CLOSED dominate by 3+ orders
+of magnitude and aren't really "does this gate earn its keep" questions —
+they're structural (an agent that's halted or a market that's closed isn't a
+tunable decision). The discretionary gates worth counterfactual-testing are
+GRADE_B, MAX_TRADES_REACHED, MAX_POSITIONS_REACHED, PRICE_SANITY,
+LOW_CONVICTION, SCANNER_FILTER, QUALITY_GATE_FAILED, DRAWDOWN_PAUSE (plus the
+new TICKER_BLACKLIST from item 2). Proposed report: weekly cron, per
+gate_name in that discretionary set, join `gate_reject_log.symbol` +
+`gate_reject_log.ts` against subsequent real price action (N-day forward
+return from `ts`) and compare against the executed-signal baseline return
+over the same window — same "forward-only, don't retrofit" shape as the
+`acted_by_fleet` lesson already banked in `CLAUDE.md`. Not built tonight;
+scoped for the bundle window alongside item 2's tracker since they share the
+same join logic.
+
+### 4. Single GEX source of truth — root cause confirmed, it's a regime-rule mismatch, not (only) a data mismatch
+
+Traced both numbers. The bridge's `-5.76B` total_gex (`/api/gex/spy`,
+confirmed fresh tonight after the P4-13/P2-4 fixes) and whatever the signal
+page displays as "negative gamma -5.76B" are likely **the same underlying
+number**, given the exact match — but two independently-computed, separately
+labeled pipelines exist:
+
+- `engine/options_flow_gex.py` → `flow_gex.db.gex_snapshots` →
+  `engine/canonical_gex.py::latest_snapshot()` — regime computed from
+  **spot-vs-gamma_flip** (the standard options-market convention: `"LONG
+  GAMMA · stable (spot above flip)"`). This is the one collecting fresh data
+  today and feeding the bridge + agent prompts (fixed tonight).
+- `engine/gamma_context.py` → **a *different* `gex_snapshots` table, same
+  name, different database (`trader.db`, not `flow_gex.db`)** — regime
+  computed at line ~277 as `"positive" if net_gex >= 0 else "negative"` — the
+  **raw sign of aggregate dealer GEX**, a materially different (and, per
+  standard options terminology, less correct) rule than spot-vs-flip. This
+  feeds War Room prompt injection (`build_gamma_block`, per CLAUDE.md's
+  "Gamma grounding" doctrine) and is the likely source of whatever
+  "negative gamma" label the signal page inherited.
+
+A market can show negative aggregate GEX while spot sits above the local
+flip — the two conventions genuinely disagree in that case, which is exactly
+what today's numbers show (total_gex negative, but spot above flip → bridge
+correctly says LONG GAMMA, naive sign-check says "negative"). **Proposed
+fix**: retire `gamma_context.py`'s own regime computation; have it consume
+`canonical_gex.latest_snapshot()`'s regime label directly (or, at minimum,
+rename its own field from `regime` to something unambiguous like
+`net_gex_sign` so nothing downstream mistakes it for a trading-regime
+classification). One canonical regime source, one table, everything else
+reads it — not rebuilt tonight given it touches a live War-Room-prompt path,
+but the fix is small and well-scoped for the bundle window.
+
+### 5. Small fixes
+
+**"25 of 25 models" display bug** (`signal-center/index.html:2112-2114`):
+not a counting bug — a **category mismatch**. `bullCount` counts analyses
+with a non-empty `bull_case`; `bearCount` counts non-empty `bear_case`.
+Traced the producer (`engine/bull_bear.py`): every model is prompted for
+`"the strongest bull case AND the strongest bear case"` (`bull_bear.py:100`)
+— **every properly-functioning model returns both fields populated, always**
+— there is no directional/lean field anywhere in this data. Counting
+non-empty text was never going to produce a real consensus split. Two fix
+options: (a) real fix — add a `VERDICT: BULLISH/BEARISH/NEUTRAL` line to the
+prompt and parse it into a new field (touches the data-generation side,
+correct long-term); (b) fast interim — stop labeling this "Bull/Bear
+Consensus" since the data doesn't support a consensus claim; relabel to "N
+models provided pro/con analysis" until (a) ships. Recommend (a) for the
+bundle, (b) is a one-line label change if a same-night patch is wanted
+first.
+
+**Insider feed 0 buys / 29 sells** (`engine/insider_tracker.py:34,114`):
+confirmed root cause via a live (read-only) yfinance check on a real ticker.
+`get_insider_trades()` reads `row.get("Transaction", ...)` for the
+classification text — **yfinance's `Transaction` column is empty on every
+row** in current output. The actual transaction description lives in a
+different column, `Text` (e.g. `"Sale at price 295.14 per share."`,
+`"Stock Gift at price 0.00 per share."`). Since `transaction_type` is always
+`""`, the buy/sell keyword match (`"purchase"/"buy"/"acquisition"` for buys)
+can never fire on this path — for anything, buy or sell — meaning whatever
+"29 sells" the audit observed came through a different code path (not fully
+traced here) rather than this one. **Proposed fix**: change line 34 to read
+`row.get("Text", row.get("Transaction", ""))` and confirm the keyword sets
+still match real `Text` phrasing (`"Sale at price"`, `"Purchase at price"` —
+unconfirmed whether genuine purchases render exactly that way; verify against
+a ticker with a known recent insider purchase before shipping, not assumed).
+Caveat worth noting: insider purchases are also just genuinely rarer than
+sales in real markets, so 0-vs-29 may be partly real signal, not purely a
+parsing artifact — the fix should be verified against known-purchase cases,
+not just declared done once the column read is corrected.
+
+### Nothing shipped
+Diagnosis + proposed diffs only, per the Admiral's hold. Item 1's unique
+index is small/safe enough to be a strong bundle-window candidate as-is;
+items 2+3 share a tracker and should land together; item 4 touches a live
+prompt-injection path (War Room) and item 5's insider fix needs a
+known-purchase verification step before shipping — none attempted inline
+here.
+
+---
+## 🟢 P0-B.4 GEX unification — SHIPPED, backfill disagreement answer
+
+Fixed `engine/gamma_context.py::_compute()`'s regime rule to match the
+canonical spot-vs-flip convention (same precedence as
+`engine/options_flow_gex.py`: flip-based when a flip exists, raw-sign only
+as fallback when none found). Verified live: this table's own historical
+`total_gex`-sign vs `spot_price`-vs-`gamma_flip` disagreement, by day
+(SPY, `source='polygon'` rows only):
+
+| Day | Total rows | Disagreed |
+|---|---|---|
+| 2026-07-07 | 1 | 1 (100%) |
+| 2026-06-29 | 5 | 5 (100%) |
+| 2026-06-24 | 24 | 4 (17%) |
+
+**Did any real decision key off the wrong sign?** Checked every consumer of
+`gamma_context.py`'s `.regime` field — only `build_gamma_block()`'s War
+Room prompt text (`"({regime} gamma) -- {regime_note}"`). No sizing or halt
+logic reads it. **Blast radius: War Room's qualitative LLM reasoning was
+periodically fed a wrong volatility-regime framing on at least these 3
+known days — never a mechanical mis-sizing or wrongly-triggered halt.**
+
+**Important — did NOT touch `engine/gamma_environment.py`.** This is a
+THIRD, separate GEX-derived module, and it also uses raw total_gex sign —
+but its own comment (`HM-DRYDOCK A1 DOCTRINE 2026-06-09`) explicitly says
+this is **intentional**: sign-based read drives DayBlade's real
+`sizing_factor` (1.5x up / 0.5x down) as "the correct conservative
+volatility input," while display/narrative deliberately uses the
+flip-based canonical instead — a considered prior Admiral decision, not a
+bug twin of tonight's finding. Confirmed via `git diff --stat` this file
+has zero changes from tonight's work.
+
+---
+## 🟢 P0-A/P0-B BUNDLE — SHIPPED 2026-07-07 15:35 MST, verification in progress
+
+### Tier 1 (all shipped, live-verified)
+1. **Signal dedup**: application-level check in `emit_signal_v2()`
+   (`direct_buy_intent` only — schema-level UNIQUE index rejected outright,
+   1,286 pre-existing duplicate rows violate it and never-delete-data rules
+   out cleaning them first). Verified in isolation (4/4 assertions:
+   dup-same-day returns existing id, diff-symbol inserts fresh, non-
+   direct_buy_intent types unaffected). **Corrected 7-day conversion trend**
+   (deduped denominator vs raw):
+
+   | Day | Raw signals | Deduped | Trades | Raw conv% | Deduped conv% |
+   |---|---|---|---|---|---|
+   | 07-07 | 1,702 | 37 | 7 | 0.41% | **18.92%** |
+   | 07-06 | 2,440 | 285 | 11 | 0.45% | **3.86%** |
+   | 07-02 | 2,538 | 374 | 8 | 0.32% | **2.14%** |
+   | 07-01 | 2,044 | 389 | 4 | 0.20% | **1.03%** |
+   | 06-30 | 2,243 | 467 | 5 | 0.22% | **1.07%** |
+
+   The raw metric was crushed by duplicate-signal noise by roughly an order
+   of magnitude — actual conversion is meaningfully healthier than it
+   looked. No NEW duplicates observed since restart, but market is closed
+   and zero new `direct_buy_intent` signals have fired yet to genuinely
+   exercise the live path — re-check during tomorrow's market hours for a
+   true live confirmation, not just the isolated test.
+
+2. **Insider feed**: `Text` column fix, live-verified against IBM (7 buys
+   now correctly classified, was 0) plus TSLA/CVS/INTC purchase-phrasing
+   confirmation.
+3. **Bull/bear card**: replaced N-of-N count with explicit `VERDICT` field
+   (new prompt line + parser), frontend shows real bullish/bearish/neutral
+   split, old-format cache entries correctly excluded (not miscounted)
+   until the 1h TTL rolls over.
+4. **Blacklist logging**: `_log_learning_block()` now writes to
+   `gate_reject_log` (gate_name=`LEARNING_BLOCK`), live-tested end-to-end.
+
+### Tier 2 (all shipped)
+5. **Real-quote pricing**: new `engine/options_pricing.py`
+   (`get_real_csp_premium`) — **Alpaca primary, not Polygon** (a mid-build
+   discovery: Polygon's snapshot endpoint returns populated Greeks but
+   zero bid/ask across every strike/expiry/type tested on this account's
+   tier, systemic not contract-specific; Alpaca confirmed live-working for
+   both SPY and QQQ, the only 2 wheel tickers not already blocked by
+   door1). Wired into `wheel_strategy.py:227` and `shadow_csp.py:177`, no
+   fallback (None quote = skip the trade, never fabricate).
+   **Consequential finding, surfaced not buried**: real ATM-ish 30-45DTE
+   put premiums measured 0.12%-0.21% ROC vs. the strategy's own 3.0%
+   MIN_PREMIUM_RETURN threshold — roughly 15-25x below. Under real
+   pricing, wheel_strategy.py and shadow_csp.py will not clear their own
+   entry bar under current parameters (12% OTM / 30 DTE / 3% min ROC).
+   This is the honest structural reality the fix reveals, not a bug in the
+   fix — the strategy's parameters were implicitly calibrated against
+   fantasy premiums. Re-tuning those parameters is a separate decision,
+   not made here.
+   New era constant `TROI_REAL_QUOTES_ERA_START = "2026-07-07"`
+   (`paper_trader.py`), deliberately independent of `TROI_V2_ERA_START`
+   (cap-gate axis).
+6. **Mark-to-market**: discovered genuinely dead infrastructure —
+   `options_trades.mtm_intrinsic` column + `scripts/refresh_mtm_intrinsic.py`
+   existed but were never cron-scheduled nor consumed anywhere. Ran once
+   (populated all 6 open CSPs, currently $0.00 — all OTM), scheduled going
+   forward (weekdays 15:55 ET), wired `unrealized_pnl`/`total_equity` into
+   `/api/options/book-summary`.
+7. **GEX unification**: fixed `gamma_context.py`'s regime rule to match
+   canonical spot-vs-flip precedence. Backfill: SPY rows disagreed
+   2026-07-07 (1/1), 06-29 (5/5), 06-30 (24, 4 disagreed). Blast radius
+   confirmed: War Room prompt text only, zero sizing/halt consumers.
+   **Did NOT touch `gamma_environment.py`** — its raw-sign rule driving
+   DayBlade's real `sizing_factor` is an explicit, documented 2026-06-09
+   Admiral decision (`HM-DRYDOCK A1 DOCTRINE`), confirmed a different,
+   intentional divergence, not a bug twin.
+8. **Leaderboard era-fence**: found the ACTUAL leaderboard-grading call
+   site (`dashboard/app.py`'s `season_realized["options-sosnoff"]`
+   computation) was using `_csp_realized_pnl_v1` (cap-gate-fenced only,
+   still 100% synthetic) — switched to new `_csp_realized_pnl_real_quotes`
+   (pricing-integrity-fenced). **Troi's season-anchored return_pct: this
+   fix removes the full $29,868.74 synthetic CSP contribution from her
+   graded figure — it will now read $0.00 CSP contribution until a
+   real-quote CSP closes. A dramatic drop in her displayed return is the
+   fix working, not a regression — her old ~500%+ return was a
+   synthetic-fill artifact.** `get_portfolio_with_pnl()` also gained
+   parallel `csp_pnl_synthetic_restated`/`csp_pnl_real_quotes`/
+   `return_pct_restated`/`csp_pricing_note` fields (raw `total_value`/
+   `return_pct` left untouched for backward compat). Bakeoff scorer
+   (`shadow_csp_scorecard.py::_closed_csps`) same fence — baseline + both
+   ghost seats now correctly show 0 closes, not the tainted 95%-WR-style
+   verdict.
+
+### Post-restart verification results
+
+**GEX same-minute check: RULE now agrees, DATA FRESHNESS does not (yet) —
+honest finding, not glossed over.** Live comparison just now:
+- `gamma_context.py` (live-computed, fixed rule): regime=negative, spot=747.71, flip=748.41
+- Bridge `canonical_gex` (last collector run, 13:05 MST — market now closed): regime=stable/above-flip, spot=751.28, flip=750.53
+
+Both correctly apply spot-vs-flip precedence — the DISAGREEMENT here is
+because they're reading spot at DIFFERENT MOMENTS (gamma_context computes
+fresh on every call; the canonical collector only runs once daily at 13:05
+AZ), and SPY genuinely moved from 751.28 to 747.71 (crossing the ~748.4
+flip) between those two samples. **This is a separate, pre-existing
+cadence-mismatch limitation, not a re-emergence of the rule bug just
+fixed.** Tonight's fix guarantees the two sources compute the SAME regime
+FROM THE SAME SPOT/FLIP pair; it does not guarantee they sample spot at
+the same moment. Closing that gap fully would mean either running the
+canonical collector far more frequently, or having `gamma_context.py` stop
+computing live and only read the (then-stale) canonical snapshot — the
+latter would make War Room's intraday gamma grounding meaningfully staler
+than it is today. Flagged as a follow-up decision, not solved here;
+re-check "same regime, same minute" during live market hours tomorrow,
+when the canonical collector's most recent 13:05 snapshot will be much
+closer to current price.
