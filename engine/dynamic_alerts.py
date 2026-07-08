@@ -58,13 +58,26 @@ def _save_alert(symbol: str, alert_type: str, message: str, severity: str, price
     conn.close()
 
 
-def _send_telegram(message: str):
-    """Send alert via Telegram."""
+def _notify(message: str, severity: str, alert_type: str, symbol: str):
+    """Route through unified alert channels (HM-TELEGRAM-NTFY-UNIFY 2026-07-07).
+    Severity mapping: dynamic_alerts' high->warning, medium/low->info;
+    user-definition severities (info/warning/red_alert) pass through.
+    alert_type is per-symbol so alert_channels' 300s/type rate limit can't
+    cross-suppress different symbols; the stricter 1800s per-key cooldown
+    upstream (_should_alert) remains the primary dedup.
+    No silent catch: failures are logged (Error Handling Posture)."""
+    level_map = {"high": "warning", "medium": "info", "low": "info",
+                 "info": "info", "warning": "warning", "red_alert": "red_alert"}
     try:
-        from engine.telegram_alerts import send_alert
-        send_alert(message)
-    except Exception:
-        pass
+        from engine.alert_channels import send_alert
+        send_alert(
+            message,
+            level=level_map.get(severity, "info"),
+            alert_type=f"dyn_{alert_type}_{symbol}",
+            title=f"Dynamic Alert: {symbol}",
+        )
+    except Exception as e:
+        console.log(f"[red]dynamic_alerts: notify failed for {symbol}/{alert_type}: {e}")
 
 
 def check_trendline_breaks(symbol: str, price: float, indicators: dict):
@@ -92,7 +105,7 @@ def check_trendline_breaks(symbol: str, price: float, indicators: dict):
             if _should_alert(key):
                 msg = f"BREAKOUT: {symbol} broke above resistance ${r:.2f} — now ${price:.2f}"
                 _save_alert(symbol, "resistance_break", msg, "high", price)
-                _send_telegram(f"<b>BREAKOUT</b> {symbol} broke resistance ${r:.2f} — ${price:.2f}")
+                _notify(msg, "high", "resistance_break", symbol)
                 alerts.append({"type": "resistance_break", "symbol": symbol, "level": r, "price": price, "severity": "high"})
             break  # Only alert on first broken resistance
 
@@ -103,7 +116,7 @@ def check_trendline_breaks(symbol: str, price: float, indicators: dict):
             if _should_alert(key):
                 msg = f"BREAKDOWN: {symbol} broke below support ${s:.2f} — now ${price:.2f}"
                 _save_alert(symbol, "support_break", msg, "high", price)
-                _send_telegram(f"<b>BREAKDOWN</b> {symbol} broke support ${s:.2f} — ${price:.2f}")
+                _notify(msg, "high", "support_break", symbol)
                 alerts.append({"type": "support_break", "symbol": symbol, "level": s, "price": price, "severity": "high"})
             break
 
@@ -122,7 +135,7 @@ def check_rsi_extremes(symbol: str, price: float, indicators: dict):
         if _should_alert(key):
             msg = f"RSI OVERSOLD: {symbol} RSI={rsi:.1f} — potential bounce zone"
             _save_alert(symbol, "rsi_oversold", msg, "medium", price)
-            _send_telegram(f"<b>RSI OVERSOLD</b> {symbol} RSI={rsi:.1f} @ ${price:.2f}")
+            _notify(msg, "medium", "rsi_oversold", symbol)
             alerts.append({"type": "rsi_oversold", "symbol": symbol, "rsi": rsi, "price": price, "severity": "medium"})
 
     elif rsi > 70:
@@ -130,7 +143,7 @@ def check_rsi_extremes(symbol: str, price: float, indicators: dict):
         if _should_alert(key):
             msg = f"RSI OVERBOUGHT: {symbol} RSI={rsi:.1f} — potential reversal zone"
             _save_alert(symbol, "rsi_overbought", msg, "medium", price)
-            _send_telegram(f"<b>RSI OVERBOUGHT</b> {symbol} RSI={rsi:.1f} @ ${price:.2f}")
+            _notify(msg, "medium", "rsi_overbought", symbol)
             alerts.append({"type": "rsi_overbought", "symbol": symbol, "rsi": rsi, "price": price, "severity": "medium"})
 
     return alerts
@@ -148,7 +161,7 @@ def check_volume_spikes(symbol: str, price: float, indicators: dict):
         if _should_alert(key):
             msg = f"VOLUME SPIKE: {symbol} trading at {vol_ratio:.1f}x average volume"
             _save_alert(symbol, "volume_spike", msg, "medium", price)
-            _send_telegram(f"<b>VOL SPIKE</b> {symbol} {vol_ratio:.1f}x avg volume @ ${price:.2f}")
+            _notify(msg, "medium", "volume_spike", symbol)
             alerts.append({"type": "volume_spike", "symbol": symbol, "vol_ratio": vol_ratio, "price": price, "severity": "medium"})
 
     return alerts
@@ -170,7 +183,7 @@ def check_macd_crossovers(symbol: str, price: float, indicators: dict):
             msg = f"MACD {direction} CROSS: {symbol} — histogram={macd_hist:.4f}"
             severity = "medium"
             _save_alert(symbol, "macd_crossover", msg, severity, price)
-            _send_telegram(f"<b>MACD {direction}</b> {symbol} crossover @ ${price:.2f}")
+            _notify(msg, "medium", "macd_crossover", symbol)
             alerts.append({"type": "macd_crossover", "symbol": symbol, "direction": direction, "histogram": macd_hist, "price": price, "severity": severity})
 
     return alerts
@@ -230,7 +243,7 @@ def check_user_definition(defn: dict, price: float, indicators: dict):
         if not _should_alert(key):
             return
         _save_alert(symbol, f"user_{kind}", message, severity, price)
-        _send_telegram(f"<b>{symbol}</b> {message}")
+        _notify(f"{symbol}: {message}", severity, f"user_{kind}", symbol)
         _mark_triggered(defn["id"])
         alerts.append({"type": f"user_{kind}", "symbol": symbol, "price": price,
                        "severity": severity, "definition_id": defn["id"], **extra})
