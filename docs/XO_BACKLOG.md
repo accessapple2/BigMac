@@ -8197,3 +8197,78 @@ fleet model diversity vs. resident capacity — not a workers-count
 tweak. Rollback path (`OLLAMA_QUEUE_WORKERS=1`) remains available and
 verified byte-parity-safe if the extended window confirms a regression
 rather than settling out.
+
+---
+## HM-PERF decision rule for tomorrow (2026-07-08 market open)
+
+**Admiral ruling**: judge `OLLAMA_QUEUE_WORKERS=2` on the **market-hours
+scan window only** (same-model qwen3:8b burst — the workload the isolated
+synthetic load test actually modeled, and the workload most representative
+of the fleet's real hot path), **not** the after-hours evening WR mix this
+first verification pass happened to catch (6+ distinct models, only 2
+resident slots — a much harder case for any worker-count change to help
+with, and not what tonight's mixed 1.86x-synthetic-vs-worse-live-mix
+result should be read as a verdict on).
+
+**Decision tree**:
+- **Scan wall time improves AND swaps stay flat during the scan
+  window** → keep `OLLAMA_QUEUE_WORKERS=2` as-is. No further action.
+- **Swaps rise even during the scan window** (same-model burst, where a
+  rise would mean something is wrong beyond the evening mixed-model
+  effect already suspected) → **patch strict-affinity mode** (pre-built
+  below, held) **before** considering rollback to 1. Strict-affinity is
+  the more surgical fix: it directly targets the theory from tonight's
+  verification (worker 2 may be introducing model diversity rather than
+  pure same-model concurrency) without giving up the 2-worker throughput
+  gain entirely.
+- Either branch: **post scan-cycle wall time before/after to this file**
+  once measured, using tomorrow's real market-hours data — tonight's
+  numbers were after-hours only and are not a substitute.
+
+### Strict-affinity mode — pre-built, held, ready if triggered
+
+Design: workers with index > 0 (i.e., every worker beyond the first) only
+dispatch a task whose model_id is ALREADY in `_active_models` (something
+another worker is executing that exact model RIGHT NOW) — if no such task
+exists in either lane, that worker idles rather than picking up a
+different-model task, even if one is waiting. Worker 0 is unrestricted
+(normal fairness + two-tier affinity, unchanged). This makes worker
+1+'s ENTIRE role "pure NUM_PARALLEL=2 exploitation for whatever worker 0
+is already running" — it can never be the thing that introduces a 3rd
+model or fills a 2nd resident slot with something different, which is
+exactly the mechanism tonight's verification flagged as the likely cause
+of the +19.8% swap-rate increase.
+
+Feature-flagged: `OLLAMA_QUEUE_STRICT_AFFINITY` (config.py, default
+False — current shipped behavior unchanged unless explicitly triggered).
+
+**BUILT AND TESTED, held**: `engine/ollama_queue.py`'s `_take_next_locked`
+now accepts `worker_index`; workers 1+ under strict mode only dispatch a
+task whose model_id is already in `_active_models`, else return `None`
+(idle) even with other work queued — worker 0 is always unrestricted.
+`_worker_loop` threads `worker_index` through from `Thread(args=(i,))`.
+`status()` exposes `strict_affinity` for observability.
+
+6 new tests in `tests/test_ollama_queue_fairness.py` (17/17 total
+passing): worker 1 idles with no active-model match even when other work
+exists; worker 1 correctly takes a matching task; worker 1 correctly
+REFUSES a non-matching task even when it's the only thing queued (the
+core guarantee — proves it won't reproduce the model-diversity-in-flight
+behavior strict mode exists to prevent); worker 0 stays unrestricted; the
+flag defaults off and worker 1 behaves normally when it's False; and a
+full end-to-end test with real concurrent threads (not seeded internals)
+confirms a mixed same-model-burst + different-model-scan-call workload
+completes cleanly under strict mode within a 10s timeout — proof against
+a worker-1-idles-forever deadlock, the main risk this design introduces.
+
+**Incidentally found**: the pre-strict-affinity full test suite run
+turned up 5 test failures (`test_bbkc_squeeze_release.py`,
+`test_bbkc_pre_breakout_composite.py`) not in tonight's established
+14-failure baseline. Confirmed via `git stash` — same 5 fail identically
+with ALL of tonight's changes reverted, so definitively pre-existing and
+unrelated (likely date-sensitive), not a regression from this work.
+Not investigated further — filed here as an observation, not a task.
+
+Not currently enabled — this is the "ready if needed" patch, not a
+change to today's shipped default. Deploy tomorrow only if the market-
+hours scan-window judgment (above) triggers it.

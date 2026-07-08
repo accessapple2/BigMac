@@ -94,6 +94,14 @@ def _default_num_workers() -> int:
         return 1  # fail-safe: never crash queue construction over a config miss
 
 
+def _default_strict_affinity() -> bool:
+    try:
+        import config
+        return bool(config.OLLAMA_QUEUE_STRICT_AFFINITY)
+    except Exception:
+        return False  # fail-safe: default OFF, matches shipped behavior
+
+
 class _Task:
     """A queued inference call plus its result plumbing."""
     __slots__ = ("fn", "model_id", "lane", "result", "exc", "done")
@@ -110,7 +118,7 @@ class _Task:
 class OllamaQueue:
     """Thread-safe per-host queue with N workers and two fair lanes."""
 
-    def __init__(self, num_workers: int | None = None) -> None:
+    def __init__(self, num_workers: int | None = None, strict_affinity: bool | None = None) -> None:
         self._lanes: dict[str, "collections.deque[_Task]"] = {
             _SCAN_LANE: collections.deque(),
             _WR_LANE: collections.deque(),
@@ -118,10 +126,25 @@ class OllamaQueue:
         self._cv = threading.Condition()
 
         self.num_workers = num_workers if num_workers is not None else _default_num_workers()
+        # HM-PERF-FLEET-THROUGHPUT 2026-07-07 follow-up: OLLAMA_QUEUE_STRICT_AFFINITY.
+        # When True, every worker EXCEPT index 0 only dispatches a task whose
+        # model_id is already in _active_models (another worker is executing
+        # that exact model right now) -- otherwise it idles, even if other
+        # work is waiting. Worker 0 is always unrestricted (normal fairness +
+        # two-tier affinity). This makes worker 1+'s entire role "pure
+        # NUM_PARALLEL=2 exploitation of whatever worker 0 is already
+        # running" -- it can never introduce a 3rd model or fill the 2nd
+        # resident slot with something different, which is the mechanism
+        # suspected (not yet confirmed) of driving a measured swap-rate
+        # increase under after-hours mixed-model traffic. Default OFF; see
+        # docs/XO_BACKLOG.md "HM-PERF decision rule for tomorrow" for the
+        # trigger condition. Meaningless at num_workers=1 (no "worker 1+" to
+        # restrict) -- harmless no-op in that case.
+        self.strict_affinity = strict_affinity if strict_affinity is not None else _default_strict_affinity()
         self._workers: list[threading.Thread] = []
         for i in range(self.num_workers):
             t = threading.Thread(
-                target=self._worker_loop, daemon=True, name=f"ollama-queue-worker-{i}"
+                target=self._worker_loop, args=(i,), daemon=True, name=f"ollama-queue-worker-{i}"
             )
             t.start()
             self._workers.append(t)
@@ -224,10 +247,13 @@ class OllamaQueue:
         while len(self._resident_models) > max(1, self.num_workers):
             self._resident_models.popitem(last=False)
 
-    def _take_next_locked(self) -> tuple[_Task, bool, str] | None:
+    def _take_next_locked(self, worker_index: int = 0) -> tuple[_Task, bool, str] | None:
         """Pick the next task per the fair policy, for a worker that just
         became free. Caller must hold self._cv. Returns None if both lanes
-        are empty (caller should wait).
+        are empty, OR (strict-affinity mode, worker_index > 0) if neither
+        lane's head matches a model already active elsewhere -- in strict
+        mode the caller should wait rather than dispatch, even though other
+        work exists.
 
         Returns (task, is_swap, prev_resident_summary). Updates lane
         counters, _active_models, and _resident_models under the lock; the
@@ -238,6 +264,25 @@ class OllamaQueue:
 
         if not s and not w:
             return None
+
+        if self.strict_affinity and worker_index > 0:
+            # Restricted worker: ONLY take a task whose model is already
+            # being executed by another worker right now. Never touches
+            # _scan_skipped/_wr_skipped -- those track worker 0's real
+            # fairness tradeoffs; a restricted worker declining a task isn't
+            # a fairness skip, it's a hard constraint. A match here is by
+            # construction never a swap (it can only match an already-
+            # active, hence already-resident, model).
+            s_ok = bool(s) and bool(s[0].model_id) and self._active_models.get(s[0].model_id, 0) > 0
+            w_ok = bool(w) and bool(w[0].model_id) and self._active_models.get(w[0].model_id, 0) > 0
+            if not s_ok and not w_ok:
+                return None
+            task = s.popleft() if (s_ok or not w_ok) else w.popleft()
+            prev_resident = ",".join(self._resident_models) or "(none)"
+            self._current_model = task.model_id
+            self._active_models[task.model_id] += 1
+            self._mark_resident_locked(task.model_id)
+            return task, False, prev_resident
 
         if s and not w:
             task = s.popleft()
@@ -295,14 +340,14 @@ class OllamaQueue:
             self._mark_resident_locked(task.model_id)
         return task, is_swap, prev_resident
 
-    def _worker_loop(self) -> None:
+    def _worker_loop(self, worker_index: int = 0) -> None:
         while True:
             try:
                 with self._cv:
-                    picked = self._take_next_locked()
+                    picked = self._take_next_locked(worker_index)
                     while picked is None:
                         self._cv.wait(timeout=5)
-                        picked = self._take_next_locked()
+                        picked = self._take_next_locked(worker_index)
                     task, is_swap, prev_resident = picked
                     swap_no = self._total_model_swaps
 
@@ -372,6 +417,7 @@ class OllamaQueue:
             "stale": stale,
             "current_model": current_model,
             "num_workers": self.num_workers,
+            "strict_affinity": self.strict_affinity,
             "active_models": active_models,
             "resident_models": resident_models,
             "worker_alive": all(t.is_alive() for t in self._workers),

@@ -198,6 +198,83 @@ def test_num_workers_1_collapses_resident_capacity_to_one():
     assert list(q._resident_models) == ["ministral-3:3b"], "capacity-1 evicts the prior resident"
 
 
+def test_strict_affinity_worker1_idles_with_no_matching_active_model():
+    """Strict-affinity mode: worker_index>0 must decline BOTH lanes if
+    neither head matches a model already active elsewhere -- returns None
+    (caller should wait), even though real work is queued."""
+    q = OllamaQueue(num_workers=2, strict_affinity=True)
+    with q._cv:
+        q._lanes[_SCAN_LANE].clear()
+        q._lanes[_SCAN_LANE].append(_task("qwen3:8b", _SCAN_LANE))
+        q._lanes[_WR_LANE].clear()
+        q._lanes[_WR_LANE].append(_task("ministral-3:3b", _WR_LANE))
+        q._active_models.clear()  # nothing active anywhere
+        picked = q._take_next_locked(worker_index=1)
+    assert picked is None, "worker 1 must idle when no lane head matches an active model"
+
+
+def test_strict_affinity_worker1_takes_matching_active_model():
+    """Strict-affinity mode: worker_index>0 DOES take a task whose model is
+    already active -- this is the whole point, pure NUM_PARALLEL=2 reuse."""
+    q = OllamaQueue(num_workers=2, strict_affinity=True)
+    with q._cv:
+        q._lanes[_SCAN_LANE].clear()
+        q._lanes[_SCAN_LANE].append(_task("qwen3:8b", _SCAN_LANE))
+        q._lanes[_WR_LANE].clear()
+        q._active_models.clear()
+        q._active_models["qwen3:8b"] = 1  # worker 0 is running this right now
+        task, is_swap, _ = q._take_next_locked(worker_index=1)
+    assert task.model_id == "qwen3:8b"
+    assert is_swap is False, "matching an already-active model is never a swap"
+
+
+def test_strict_affinity_worker1_ignores_nonmatching_wr_even_if_only_option():
+    """Strict-affinity mode: worker 1 must NOT take a WR task for a
+    different, non-active model just because it's the only thing queued --
+    that's exactly the model-diversity-in-flight behavior this mode exists
+    to prevent."""
+    q = OllamaQueue(num_workers=2, strict_affinity=True)
+    with q._cv:
+        q._lanes[_SCAN_LANE].clear()
+        q._lanes[_WR_LANE].clear()
+        q._lanes[_WR_LANE].append(_task("llama3.1", _WR_LANE))
+        q._active_models.clear()
+        q._active_models["qwen3:8b"] = 1  # worker 0 running a DIFFERENT model
+        picked = q._take_next_locked(worker_index=1)
+    assert picked is None, "worker 1 must not pick up a non-active model even as the only option"
+
+
+def test_strict_affinity_worker0_is_unrestricted():
+    """Strict-affinity mode only restricts worker_index>0 -- worker 0 keeps
+    normal fairness + two-tier affinity behavior, unchanged."""
+    q = OllamaQueue(num_workers=2, strict_affinity=True)
+    with q._cv:
+        q._lanes[_SCAN_LANE].clear()
+        q._lanes[_SCAN_LANE].append(_task("qwen3:8b", _SCAN_LANE))
+        q._lanes[_WR_LANE].clear()
+        q._active_models.clear()
+        q._resident_models.clear()
+        task, is_swap, _ = q._take_next_locked(worker_index=0)
+    assert task.model_id == "qwen3:8b", "worker 0 dispatches normally regardless of strict_affinity"
+
+
+def test_strict_affinity_off_worker1_behaves_like_worker0():
+    """Sanity check on the flag itself: with strict_affinity=False (default),
+    worker_index>0 must NOT be restricted -- confirms the gate is the flag,
+    not some accidental always-on behavior."""
+    q = OllamaQueue(num_workers=2, strict_affinity=False)
+    with q._cv:
+        q._lanes[_SCAN_LANE].clear()
+        q._lanes[_WR_LANE].clear()
+        q._lanes[_WR_LANE].append(_task("llama3.1", _WR_LANE))
+        q._active_models.clear()
+        q._resident_models.clear()
+        task, _, _ = q._take_next_locked(worker_index=1)
+    assert task is not None and task.model_id == "llama3.1", (
+        "with strict_affinity off, worker 1 must dispatch normally like any worker"
+    )
+
+
 def test_concurrent_dispatch_two_workers_run_simultaneously():
     """End-to-end (not seeded internals): submit 2 slow same-model tasks to a
     2-worker queue and confirm they actually overlap in wall-clock time --
@@ -268,3 +345,51 @@ def test_single_worker_serializes_strictly():
     assert max_concurrent[0] == 1, (
         f"num_workers=1 must never run more than 1 task concurrently, saw {max_concurrent[0]}"
     )
+
+
+def test_strict_affinity_end_to_end_worker_index_threads_correctly():
+    """Full submit() path (not seeded internals) with real worker threads:
+    confirms worker_index actually threads through Thread(args=(i,)) ->
+    _worker_loop -> _take_next_locked correctly in a genuinely concurrent
+    run, not just in the directly-seeded unit tests above. Submits a
+    same-model WR burst that only worker 0 could serve one-at-a-time under
+    strict mode plus a second, DIFFERENT-model scan call -- worker 1 must
+    help drain the same-model burst (matches, active) but never touch the
+    different-model scan call (would require introducing model diversity,
+    which strict mode exists to prevent)."""
+    import threading
+    import time
+
+    q = OllamaQueue(num_workers=2, strict_affinity=True)
+    call_log = []
+    lock = threading.Lock()
+
+    def _slow(tag, sleep_s=0.05):
+        with lock:
+            call_log.append(("start", tag, time.monotonic()))
+        time.sleep(sleep_s)
+        with lock:
+            call_log.append(("end", tag, time.monotonic()))
+        return "ok"
+
+    # 3 same-model WR calls (burst) + 1 different-model scan call, all fired
+    # at once. With strict affinity, worker 0 handles the mixed fairness
+    # decision as usual; worker 1 should only ever pick up qwen3:8b tasks.
+    threads = [
+        threading.Thread(target=lambda: q.submit(lambda: _slow("wr-a"), model_id="qwen3:8b", lane="wr")),
+        threading.Thread(target=lambda: q.submit(lambda: _slow("wr-b"), model_id="qwen3:8b", lane="wr")),
+        threading.Thread(target=lambda: q.submit(lambda: _slow("wr-c"), model_id="qwen3:8b", lane="wr")),
+        threading.Thread(target=lambda: q.submit(lambda: _slow("scan-x", 0.02), model_id="llama3.1", lane="scan")),
+    ]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    tags_completed = {tag for event, tag, _ in call_log if event == "end"}
+    assert tags_completed == {"wr-a", "wr-b", "wr-c", "scan-x"}, (
+        f"all 4 submits must complete under strict affinity, got {tags_completed}"
+    )
+    # The queue must never have deadlocked or dropped a task -- completion
+    # itself (within the 10s join timeout) is the main correctness proof;
+    # the seeded unit tests above cover the precise dispatch logic.

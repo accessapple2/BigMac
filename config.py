@@ -246,6 +246,17 @@ OLLIE_URL  = "http://192.168.1.168:11434"          # Ollie Max — RTX 5080 16GB
 # "one model fits" assumption. Feature-flagged: set to 1 to roll back to the
 # prior fully-serial behavior with zero other code changes.
 OLLAMA_QUEUE_WORKERS = int(os.environ.get("OLLAMA_QUEUE_WORKERS", "2"))
+# HM-PERF-FLEET-THROUGHPUT 2026-07-07 (post-restart follow-up): the first
+# verification pass (after-hours, 6+ distinct models rotating against only
+# 2 resident slots) showed swap rate UP 19.8%, not down -- working theory:
+# worker 1+ picking up a DIFFERENT model than worker 0 is currently running
+# increases model diversity in flight rather than pure same-model
+# concurrency. Strict-affinity mode is the surgical fix if that theory
+# holds under market-hours judgment (Admiral decision rule: judge on the
+# scan-window same-model burst, not the evening mixed-model traffic this
+# first pass happened to catch). Default OFF -- current shipped 2-worker
+# behavior is unchanged unless this is explicitly flipped on.
+OLLAMA_QUEUE_STRICT_AFFINITY = os.environ.get("OLLAMA_QUEUE_STRICT_AFFINITY", "0") == "1"
 MLX_URL = "http://localhost:8899"
 MLX_MODEL = "mlx-community/Qwen3-8B-4bit"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")
