@@ -208,7 +208,14 @@
 
 // INTEGRATION 1: tiering. ACTIONABLE sources earn a crumb; everything else is informational.
 const ACTIONABLE_SOURCES = ["bk_avwap","bk_orb","bk_box","uhura","congress","insider","options_flow","flow","volatility","vol"];
-function isActionable(src){ return ACTIONABLE_SOURCES.includes((src||"").toLowerCase()); }
+// HM-DYNALERTS-HYGIENE 2026-07-07: dyn_/user_ prefixes cover
+// engine/dynamic_alerts.py's emit-time source tagging (dyn_<alert_type>
+// for the hardcoded checks, user_<kind> for HM-ALERT-COLLAB-LINKS user
+// definitions) so fired dynamic/user alerts classify as ACTIONABLE too.
+function isActionable(src){
+  const s = (src||"").toLowerCase();
+  return ACTIONABLE_SOURCES.includes(s) || s.startsWith("dyn_") || s.startsWith("user_");
+}
 
 // chartHref: two-tier — deep chart tools live on v1. Swap if v2 grows its own chart.
 // INTEGRATION 5:

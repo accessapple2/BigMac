@@ -124,14 +124,33 @@ def _save_setting(key: str, value: str) -> None:
         logger.warning("alert_channels: save_setting failed: %s", e)
 
 
-def _db_notification(title: str, body: str, severity: str) -> None:
-    """Insert into notifications table — browser sees this via /api/notifications."""
+def _db_notification(title: str, body: str, severity: str, source: str = "") -> None:
+    """Insert into notifications table — browser sees this via /api/notifications.
+
+    HM-DYNALERTS-HYGIENE 2026-07-07: two fixes in this pass.
+    (1) `source` param, additive -- writes `type = source or "alert_channel"`
+    so emit-time Contact Classification tiering (Rung 1 card) can tell
+    dynamic/user alerts (dyn_*/user_*) apart from generic alert_channel
+    traffic, per the notifications.type column the /api/notifications poll
+    already returns verbatim.
+    (2) Column-name bug found while verifying the INSERT against the live
+    schema before this edit (per directive instruction, not an incidental
+    find): the prior INSERT wrote `created_at`, a column that has never
+    existed on `notifications` (real column: `timestamp`, DEFAULT
+    CURRENT_TIMESTAMP) -- every call has been silently failing since this
+    function was written (confirmed empirically: zero rows with
+    type='alert_channel' exist in the live table). The bare
+    `except Exception: pass` swallowed every failure invisibly. Fixed by
+    dropping the now-redundant explicit column (the table default already
+    stamps it) rather than guessing at a `datetime('now')` value for a
+    column that already self-populates.
+    """
     try:
         c = _conn()
         c.execute(
-            "INSERT INTO notifications(title, body, severity, type, icon, created_at) "
-            "VALUES(?,?,?,?,?,datetime('now'))",
-            (title, body, severity, "alert_channel", "🔔")
+            "INSERT INTO notifications(title, body, severity, type, icon) "
+            "VALUES(?,?,?,?,?)",
+            (title, body, severity, source or "alert_channel", "🔔")
         )
         c.commit()
         c.close()
@@ -310,6 +329,11 @@ def send_alert(
     bypass_rate_limit: bool = False,
     audience: str = "admin",   # "admin" | "crew" | "all"
     rate_limit_secs: int = RATE_LIMIT_SECS,  # HM-U: per-call override; default 300s, HM-U callers pass 86400 (24h)
+    source: str = "",  # HM-DYNALERTS-HYGIENE 2026-07-07: emit-time Contact Classification
+                        # tiering -- threaded to _db_notification's `type` column so Rung 1's
+                        # ACTIONABLE/INFORMATIONAL split works. Appended LAST (not inserted
+                        # among existing params) so no positional-arg caller can collide with it.
+                        # Additive/optional: every existing caller is unaffected.
 ) -> dict:
     """
     Send alert to appropriate channels based on level.
@@ -360,19 +384,19 @@ def send_alert(
     # INFO → ntfy only
     if level == AlertLevel.INFO:
         results["ntfy"] = any(_send_ntfy(title, message, ntfy_priority, ntfy_tags, t) for t in _ntfy_topics())
-        _db_notification(title, message, "info")
+        _db_notification(title, message, "info", source)
 
     # WARNING → ntfy + browser notification (DB)
     elif level == AlertLevel.WARNING:
         results["ntfy"]    = any(_send_ntfy(title, message, ntfy_priority, ntfy_tags, t) for t in _ntfy_topics())
-        _db_notification(title, message, "warning")
+        _db_notification(title, message, "warning", source)
         results["browser"] = True
 
     # RED ALERT → all channels
     elif level == AlertLevel.RED_ALERT:
         crit_topics = _ntfy_topics() + [NTFY_CRITICAL_TOPIC]   # HM-UHURA-HAILS: keep admin topic AND add critical lane
         results["ntfy"]    = any(_send_ntfy(title, message, ntfy_priority, ntfy_tags, t) for t in crit_topics)
-        _db_notification(title, message, "critical")
+        _db_notification(title, message, "critical", source)
         results["browser"] = True
         results["email"]   = _send_email(title, f"{message}\n\nLevel: RED ALERT\nType: {alert_type}")
 

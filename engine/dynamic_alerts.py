@@ -14,8 +14,14 @@ COOLDOWN_SECONDS = 1800
 
 
 def _conn():
-    c = sqlite3.connect(DB, check_same_thread=False)
-    c.execute("PRAGMA journal_mode=WAL")
+    """HM-DYNALERTS-HYGIENE 2026-07-07: routed through the shared
+    engine.db_conn helper (busy_timeout=30000, synchronous=NORMAL) instead
+    of a bespoke sqlite3.connect() site, per HM-WAL-BUSY-TIMEOUT-HYGIENE
+    wave-1 doctrine. journal_mode is durable on the DB file already --
+    re-issuing PRAGMA journal_mode=WAL per connection was a no-op on every
+    hot path, dropped."""
+    from engine.db_conn import get_conn
+    c = get_conn(DB, check_same_thread=False)
     c.row_factory = sqlite3.Row
     return c
 
@@ -58,14 +64,23 @@ def _save_alert(symbol: str, alert_type: str, message: str, severity: str, price
     conn.close()
 
 
-def _notify(message: str, severity: str, alert_type: str, symbol: str):
+def _notify(message: str, severity: str, alert_type: str, symbol: str, source: str = None):
     """Route through unified alert channels (HM-TELEGRAM-NTFY-UNIFY 2026-07-07).
     Severity mapping: dynamic_alerts' high->warning, medium/low->info;
     user-definition severities (info/warning/red_alert) pass through.
     alert_type is per-symbol so alert_channels' 300s/type rate limit can't
     cross-suppress different symbols; the stricter 1800s per-key cooldown
     upstream (_should_alert) remains the primary dedup.
-    No silent catch: failures are logged (Error Handling Posture)."""
+    No silent catch: failures are logged (Error Handling Posture).
+
+    HM-DYNALERTS-HYGIENE 2026-07-07: `source` (optional override, defaults
+    to f"dyn_{alert_type}") is threaded to alert_channels.send_alert's
+    notifications.type column so the Rung 1 contact card can classify
+    fired dynamic/user alerts as ACTIONABLE. The hardcoded checks (six
+    call sites) rely on the default; the user-definition _fire() path
+    passes source=f"user_{kind}" explicitly since its own alert_type is
+    already "user_{kind}" and would otherwise double-prefix to
+    "dyn_user_{kind}"."""
     level_map = {"high": "warning", "medium": "info", "low": "info",
                  "info": "info", "warning": "warning", "red_alert": "red_alert"}
     try:
@@ -75,6 +90,7 @@ def _notify(message: str, severity: str, alert_type: str, symbol: str):
             level=level_map.get(severity, "info"),
             alert_type=f"dyn_{alert_type}_{symbol}",
             title=f"Dynamic Alert: {symbol}",
+            source=source if source is not None else f"dyn_{alert_type}",
         )
     except Exception as e:
         console.log(f"[red]dynamic_alerts: notify failed for {symbol}/{alert_type}: {e}")
@@ -243,7 +259,7 @@ def check_user_definition(defn: dict, price: float, indicators: dict):
         if not _should_alert(key):
             return
         _save_alert(symbol, f"user_{kind}", message, severity, price)
-        _notify(f"{symbol}: {message}", severity, f"user_{kind}", symbol)
+        _notify(f"{symbol}: {message}", severity, f"user_{kind}", symbol, source=f"user_{kind}")
         _mark_triggered(defn["id"])
         alerts.append({"type": f"user_{kind}", "symbol": symbol, "price": price,
                        "severity": severity, "definition_id": defn["id"], **extra})

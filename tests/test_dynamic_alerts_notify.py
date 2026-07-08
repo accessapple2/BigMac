@@ -8,6 +8,7 @@ real row via _save_alert, must never touch production trader.db.
 """
 from __future__ import annotations
 
+import sqlite3
 import sys
 import tempfile
 from pathlib import Path
@@ -43,6 +44,11 @@ def test_check_rsi_extremes_routes_through_alert_channels():
     assert kwargs["alert_type"] == f"dyn_rsi_oversold_{symbol}", (
         "alert_type must be per-symbol so alert_channels' rate limit can't "
         "cross-suppress different symbols"
+    )
+    assert kwargs["source"] == "dyn_rsi_oversold", (
+        "HM-DYNALERTS-HYGIENE: source must be dyn_<alert_type> (no symbol "
+        "suffix, unlike alert_type) so Rung 1's isActionable() can classify "
+        "on the type prefix alone"
     )
 
 
@@ -83,6 +89,49 @@ def test_no_telegram_module_import_in_dynamic_alerts():
     assert "engine.telegram_alerts" not in sys.modules, (
         "no dynamic_alerts code path may import engine.telegram_alerts"
     )
+
+
+def test_db_notification_writes_source_as_type():
+    """HM-DYNALERTS-HYGIENE 2026-07-07: _db_notification's inserted row's
+    `type` column must equal the passed `source`, and fall back to
+    "alert_channel" when source is omitted (backward compat for the 12
+    other send_alert callers that don't pass it). Also the regression
+    guard for the column-name bug found while verifying this INSERT
+    against the live schema (prior code wrote a nonexistent `created_at`
+    column and silently failed every call) -- if that regressed, both
+    inserts below would raise sqlite3.OperationalError instead of the
+    assertions failing cleanly."""
+    from engine import alert_channels as ac
+
+    with tempfile.TemporaryDirectory() as tmp:
+        db_path = str(Path(tmp) / "test_trader.db")
+        conn = sqlite3.connect(db_path)
+        conn.execute("""CREATE TABLE notifications (
+            id          INTEGER PRIMARY KEY AUTOINCREMENT,
+            timestamp   TEXT DEFAULT CURRENT_TIMESTAMP,
+            type        TEXT,
+            severity    TEXT,
+            title       TEXT,
+            body        TEXT,
+            icon        TEXT,
+            agent_id    TEXT,
+            acknowledged INTEGER DEFAULT 0
+        )""")
+        conn.commit()
+        conn.close()
+
+        with patch.object(ac, "_DB_PATH", db_path):
+            ac._db_notification("t1", "b1", "info", source="dyn_rsi_oversold")
+            ac._db_notification("t2", "b2", "warning")  # source omitted
+
+        conn = sqlite3.connect(db_path)
+        rows = conn.execute("SELECT title, type FROM notifications ORDER BY id").fetchall()
+        conn.close()
+
+    assert rows == [
+        ("t1", "dyn_rsi_oversold"),
+        ("t2", "alert_channel"),
+    ]
 
 
 def test_notify_failure_is_logged_not_silently_swallowed():
