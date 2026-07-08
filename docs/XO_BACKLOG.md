@@ -8476,3 +8476,40 @@ Ride the next bundled after-close restart window. The `paper_trader.py`
 fix (#2 above) is the one item worth flagging for expedited treatment —
 it's the only fix in this batch that changes live trade-metadata
 correctness rather than pure observability.
+
+---
+## 🟡 HM-SCAN-LIVENESS-WATCHDOG (2026-07-08) — SHIPPED (commits `471d656`, `153c954`, restarted 10:26 MST), two follow-ups open
+
+Context: Phase 1 alert-defs dogfood (5 real `alert_definitions` created via
+`/api/alert-defs`) needed live confirmation that `run_user_alert_definitions`
+evaluates cleanly. That investigation surfaced a 09:16→09:55 MST gap with no
+log evidence either way — root-caused to `run_scanner()`'s global cooldown
+gate (`_last_scan_time`) resetting on every scheduler tick that clears the
+interval check, even when zero tiers are due (`main.py:449-451`, was fully
+silent). Shipped same-session, ahead of the 11:00 ET FOMC minutes:
+- `_last_scan_complete_ts` — stamped only on real scan completion.
+- `check_scan_liveness()` — every 2 min, warning-severity `alert_channels.send_alert`
+  if age > 2×T1 interval (60 min), edge-triggered, auto-clears.
+- One log line on the previously-silent no-op path so "not due" and
+  "stalled" read differently in `trader.log` going forward.
+
+**Open item 1 — watchdog itself only verified by isolated logic check**
+(threshold math sanity-tested standalone: 10min age → no fire, 65min → fires),
+never live-fire tested against the running process — restarting mid-test to
+force a real 60-min stall wasn't worth the risk under the deadline. Needs
+either: (a) an after-hours window where the alert threshold is temporarily
+dropped to ~3 min to observe a real fire+clear cycle, or (b) a proper unit
+test on `check_scan_liveness()` with a mocked `_last_scan_complete_ts` /
+stubbed `send_alert`. Do this before trusting it silently through a real
+incident.
+
+**Open item 2 — the real incident this whole thing was chasing is still
+unaddressed.** One scan held `_scan_lock` for 4090.9s (04:06→09:11 MST,
+21 cumulative T1-due-but-skipped events) — a genuine ~68min stall, not the
+09:16-09:55 gap (that part turned out benign). The new cycle-age alert only
+catches this *late* (60 min in) and only reports it, doesn't prevent it.
+Needs its own ticket: a max-scan-duration cap or an explicit `_scan_lock`
+hold-timeout (force-release + log + alert) so a wedged scan can't hold the
+lock indefinitely and starve every tier behind it. Root cause of *why* that
+particular scan ran 68 minutes was not investigated — that's part of this
+ticket too.
