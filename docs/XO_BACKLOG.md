@@ -7963,3 +7963,145 @@ session's transient skips). No code for either the meta-label gate or the
 IC dashboard is scoped or started — this section exists purely so a future
 session doesn't start building on the assumption the labels are
 immediately trustworthy for that purpose.
+
+---
+## 🟢 HM-PERF-FLEET-THROUGHPUT — code-complete-and-held for bundled restart
+
+Admiral-approved client-side performance work, companion to server-side
+flags (FLASH_ATTENTION, KV q8_0, NUM_PARALLEL=2, MAX_LOADED_MODELS=2)
+applied separately on olliemax — confirmed live via
+`systemctl show ollama --property=Environment`.
+
+### 1. OllamaQueue: 1 worker → OLLAMA_QUEUE_WORKERS (default 2)
+
+`engine/ollama_queue.py` redesigned for N concurrent workers with two-tier
+model-affinity routing, replacing the single `_resident_model` string with
+`_active_models` (Counter — models a worker is executing RIGHT NOW, the
+tier that actually captures the NUM_PARALLEL=2 win) and `_resident_models`
+(LRU set capped at `num_workers`, matching MAX_LOADED_MODELS=2 — models
+recently dispatched and probably still loaded). Swap detection updated to
+match: a swap is dispatching a model outside BOTH sets while the resident
+set is already at capacity (not just "differs from the last task," which
+would over-log once >1 model can legitimately co-reside). Two-lane
+scan/WR fairness and the `WR_ANTI_STARVE_K` anti-starvation cap are
+unchanged in spirit — the lock still serializes every scheduling
+*decision* even though execution now happens concurrently, so the
+existing counter logic generalizes without modification.
+
+**Rollback parity, deliberately engineered**: resident-set capacity is
+tied to `num_workers` (`max(1, num_workers)`), so `OLLAMA_QUEUE_WORKERS=1`
+collapses to tracking exactly one resident model — byte-for-byte matching
+the pre-2026-07-07 single-string design. Verified by a dedicated test
+(`test_num_workers_1_collapses_resident_capacity_to_one`).
+
+`config.py`: `OLLAMA_QUEUE_WORKERS = int(os.environ.get(..., "2"))`.
+Rollback: set to `1`, no other code changes needed.
+
+**Tests** (`tests/test_ollama_queue_fairness.py`, rewritten + extended —
+11/11 passing): the 5 original fairness/anti-starvation tests updated to
+seed the new `_resident_models`/`_active_models` state (same test intent,
+new internal shape) — confirms no regression in the HM-TIER3-SIGNAL-DROP
+fix. 6 new tests: active-model affinity beats resident-only affinity;
+resident set correctly holds 2 distinct models at `num_workers=2` without
+flagging a swap; a 3rd distinct model at capacity IS correctly flagged a
+swap; `num_workers=1` rollback parity; **genuine concurrent execution**
+verified via a `threading.Barrier` (two slow calls provably overlap in
+wall-clock time, not just complete quickly in sequence); `num_workers=1`
+verified to genuinely serialize (max concurrent execution count = 1 across
+4 submitted calls) — the rollback path is provably NOT silently still
+parallel-capable.
+
+### 2. num_ctx cap — measured, not guessed
+
+Directive suggested "likely 4096-6144." **Measured against real production
+traffic instead**: `api_costs.input_tokens`/`output_tokens`,
+`call_type='scan'`, the 5 currently-active Ollama agents, last 30 days
+(n=5,845). Input-only: p50=7,624, p95=8,394, p99=8,541, max=8,769.
+Input+output total: p50=7,698, **p95=8,719**, p99=31,977 (an outlier
+tail — almost certainly qwen3 thinking-mode leakage past the `think:False`
+guard, not the normal distribution).
+
+**The directive's own suggested range (4096-6144) would have truncated
+the MEDIAN real prompt**, let alone p95 — confirms measuring first,
+rather than shipping the guessed range, mattered here. Set
+`num_ctx=10240` (engine/providers/ollama_provider.py, in the `options`
+payload) — ~17% headroom above the real p95, deliberately not sized to
+the p99 tail (would cost 3-4x the per-slot VRAM to protect <1% of calls
+that are already anomalous).
+
+### 3. Stale hardware references — fixed
+
+`engine/ollama_queue.py` docstring and `engine/providers/ollama_provider.py`
+Fix-4 comment both corrected: RTX 5060/8GB/"one model fits" →
+RTX 5080/16GB/"two 7-8B co-resident" (matches the already-corrected
+`docs/runbooks/ram-discipline.md` and `config.py:241`, which had this
+right since 2026-05-30 — only these two files were still stale).
+`healthcheck.py:24` also had a stale "RTX 5060" comment — fixed. **Found
+and flagged, not fixed**: that same line's IP is `192.168.1.166`, but
+every other live reference to Ollie Max (`config.py`'s `OLLIE_URL`, this
+whole ticket's own testing) uses `.168` — possible stale/wrong IP,
+out of scope for a hardware-comment fix, not verified or touched.
+
+### 4. Load test — corrected after two self-caught methodology bugs
+
+First pass reported a suspicious "6.63x speedup" (2-worker scan_p95=0.25s)
+and an alarming multi-hour wall of VRAM eviction/reload log lines. Neither
+survived scrutiny as originally interpreted:
+
+- **Speedup confound**: the first pass used an IDENTICAL fixed prompt for
+  every call. Ollama's prompt-prefix KV-cache meant the second (2-worker)
+  run's repeated, byte-identical prompts on an already-warm model
+  re-processed near-zero input tokens — a cache-warming artifact, not a
+  concurrency measurement. Fixed: every call now gets a unique nonce
+  appended, forcing a genuine cold-prefix generation each time.
+- **Journal false alarm**: the journal check used an open-ended `--since`
+  with no `--until`. Because this script's own OUTPUT was read much later
+  in wall-clock time than the test itself ran, the grep swept up ~2.5
+  HOURS of subsequent, ordinary journal activity from the STILL-LIVE,
+  unrestarted (old single-worker code) trader process — easily misread as
+  "the test caused this thrashing" when it was pre-existing production
+  traffic, unconnected to a test that took under 2 seconds total. Fixed:
+  both `--since` and `--until` now bound the window tightly to the actual
+  test duration.
+
+**Corrected, trustworthy numbers** (verified against Ollama's own
+server-reported `total_duration`/`prompt_eval_count`, which matched the
+client-measured wall time almost exactly — 150ms server vs 156ms client
+for one independently-verified sanity call, confirming these are real
+generations, not silently short-circuited):
+
+| | wall (6 calls: 4 scan + 2 WR) | scan_times | scan_p95 | errors |
+|---|---|---|---|---|
+| 1 worker (baseline) | 0.91s | [0.19, 0.14, 0.13, 0.13] | 0.22s | 0 |
+| 2 workers (new) | 0.49s | [0.16, 0.16, 0.16, 0.17] | 0.17s | 0 |
+
+**Speedup: 1.86x** — close to the ~2x theoretical ceiling for doubling
+worker capacity, the gap being thread-coordination/lock overhead. Model:
+`qwen3:8b`, warm (10m keep_alive), FLASH_ATTENTION + KV q8_0 active —
+individual calls this fast (hundreds of ms for ~1,300-token prompts) are
+genuinely plausible on an RTX 5080 with flash attention on an
+already-resident model, not a bug; confirmed via the independent
+sanity-check call's matching server/client timing.
+
+**Journal, correctly scoped to the actual ~2s test window**: `NO_MATCHES`
+— clean, no eviction/offload/OOM events during the test itself.
+
+**Not directly tested (would require the live restart)**: sustained,
+larger-scale concurrent load matching real production WR-burst volume,
+and the num_ctx=10240 cap's actual VRAM footprint under genuine 2-slot
+concurrent 8k+-token prompts (this test used ~1,300-token synthetic
+prompts for practicality — see script docstring). The mechanics
+(concurrency, fairness, rollback, swap detection) are unit-tested
+exhaustively; the absolute-scale production validation is the real
+post-restart verification this ticket's item 4 asks for.
+
+### Verification checklist for after the restart (not run yet — held)
+- [OLLAMA-QUEUE-SWAP] frequency unchanged or lower vs. pre-restart baseline
+- No new REQUEST_TIMEOUT skips
+- Sentinel green
+- Fleet scan cycle wall time before/after — to be posted here once measured
+  live (this ticket's synthetic test above is the pre-restart substitute,
+  not a replacement for the real post-restart number)
+
+New scripts: `scripts/hm_perf_queue_loadtest.py` (this load test, rerunnable
+anytime, standalone, does not touch the live trader process).

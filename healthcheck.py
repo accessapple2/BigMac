@@ -21,7 +21,13 @@ TUNNEL_PLIST  = os.path.expanduser("~/Library/LaunchAgents/com.trademinds.tunnel
 DASHBOARD_URL = "http://127.0.0.1:8080"
 NTFY_ADMIN_TOPIC = os.environ.get("NTFY_ADMIN_TOPIC", "ollietrades-admin")  # iPhone push topic
 OLLAMA_URL    = "http://127.0.0.1:11434"
-OLLIE_URL     = "http://192.168.1.166:11434"   # 2026-04-20: Ollie GPU (RTX 5060, primary inference)
+OLLIE_URL     = "http://192.168.1.166:11434"   # 2026-04-20: Ollie GPU (RTX 5080 16GB VRAM, primary inference)
+# HM-PERF-FLEET-THROUGHPUT 2026-07-07: hardware description corrected
+# (was "RTX 5060" -- wrong, see docs/runbooks/ram-discipline.md). IP left
+# UNCHANGED and flagged, not fixed: this is .166, but config.py's OLLIE_URL
+# and every other live reference to Ollie Max use .168 -- possible stale/
+# wrong IP here, out of scope for a hardware-comment fix, not verified or
+# touched. See docs/XO_BACKLOG.md "HM-PERF-FLEET-THROUGHPUT" for detail.
 TUNNEL_URL    = "https://bridge.ollietrades.com"
 DB_PATH       = os.path.join(BASE_DIR, "data", "trader.db")
 AUTO_DB_PATH  = os.path.join(BASE_DIR, "autonomous_trader.db")

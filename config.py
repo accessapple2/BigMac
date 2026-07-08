@@ -239,6 +239,13 @@ OLLAMA_MODEL = "phi3:mini"
 OLLAMA_URL = "http://192.168.1.168:11434"          # Ollie Box (all heavy inference — 2026-04-24 routing fix)
 OLLAMA_LOCAL_URL = "http://localhost:11434"        # bigmac residents only (phi3/gemma3/mistral)
 OLLIE_URL  = "http://192.168.1.168:11434"          # Ollie Max — RTX 5080 16GB VRAM + 32GB sys RAM (Admiral-confirmed 2026-05-30; was mislabeled "RTX 5060")
+# HM-PERF-FLEET-THROUGHPUT 2026-07-07: Ollie Max co-resides TWO 7-8B-class
+# models (~10-12GB together, live /api/ps-confirmed) with server-side
+# NUM_PARALLEL=2 -- the client-side queue (engine/ollama_queue.py) was still
+# serializing to exactly 1 concurrent inference, premised on the old (wrong)
+# "one model fits" assumption. Feature-flagged: set to 1 to roll back to the
+# prior fully-serial behavior with zero other code changes.
+OLLAMA_QUEUE_WORKERS = int(os.environ.get("OLLAMA_QUEUE_WORKERS", "2"))
 MLX_URL = "http://localhost:8899"
 MLX_MODEL = "mlx-community/Qwen3-8B-4bit"
 OPENAI_API_KEY = os.environ.get("OPENAI_API_KEY", "")

@@ -6,6 +6,17 @@ silent for ~3 weeks. The fairness policy in _take_next_locked had zero tests.
 
 We exercise _take_next_locked directly (seeding lanes + counters under the cv
 lock) to avoid worker-thread timing flakiness — the agent-recommended approach.
+
+HM-PERF-FLEET-THROUGHPUT (2026-07-07): updated for the N-worker redesign.
+The old single `_resident_model` string became a two-tier model of state:
+`_active_models` (Counter, models a worker is executing RIGHT NOW) and
+`_resident_models` (LRU OrderedDict, capped at num_workers, models recently
+dispatched and probably still loaded). Every test below that used to seed
+`q._resident_model = "..."` now seeds `q._resident_models["..."] = None`
+instead — same test *intent* (this model is the one the scheduler should
+prefer to avoid a swap), adapted to the new internal shape. New tests added
+for the active-model tier (the actual NUM_PARALLEL=2 win) and for
+num_workers=1 rollback parity.
 """
 import sys
 from pathlib import Path
@@ -23,9 +34,15 @@ def _task(model_id, lane):
     return _Task(fn=lambda: None, model_id=model_id, lane=lane)
 
 
-def _seed_and_take(q, scan=None, wr=None, resident="", scan_skipped=0, wr_skipped=0):
+def _seed_and_take(q, scan=None, wr=None, resident="", active=None,
+                    scan_skipped=0, wr_skipped=0):
     """Seed lanes/counters and run one scheduling decision, holding the cv so
-    the background worker can't race us."""
+    the background worker(s) can't race us.
+
+    resident: single model_id string (convenience for the common case of one
+        resident model) OR omit and pre-populate q._resident_models yourself.
+    active: dict[model_id, count] of models a worker is "executing" right now.
+    """
     with q._cv:
         q._lanes[_SCAN_LANE].clear()
         q._lanes[_WR_LANE].clear()
@@ -33,7 +50,12 @@ def _seed_and_take(q, scan=None, wr=None, resident="", scan_skipped=0, wr_skippe
             q._lanes[_SCAN_LANE].append(t)
         for t in (wr or []):
             q._lanes[_WR_LANE].append(t)
-        q._resident_model = resident
+        q._resident_models.clear()
+        if resident:
+            q._resident_models[resident] = None
+        q._active_models.clear()
+        if active:
+            q._active_models.update(active)
         q._scan_skipped = scan_skipped
         q._wr_skipped = wr_skipped
         task, is_swap, prev = q._take_next_locked()
@@ -42,7 +64,7 @@ def _seed_and_take(q, scan=None, wr=None, resident="", scan_skipped=0, wr_skippe
 
 def test_scan_priority_default():
     """Both lanes ready, no starvation, no affinity bias → scan wins (priority)."""
-    q = OllamaQueue()
+    q = OllamaQueue(num_workers=1)
     task, _, _, scan_sk, wr_sk = _seed_and_take(
         q, scan=[_task("qwen3:8b", _SCAN_LANE)], wr=[_task("qwen3:8b", _WR_LANE)],
         resident="qwen3:8b",
@@ -53,7 +75,7 @@ def test_scan_priority_default():
 
 def test_wr_anti_starvation_forces_wr():
     """After K consecutive WR skips, WR is forced through even with scan waiting."""
-    q = OllamaQueue()
+    q = OllamaQueue(num_workers=1)
     task, _, _, scan_sk, wr_sk = _seed_and_take(
         q, scan=[_task("qwen3:8b", _SCAN_LANE)], wr=[_task("qwen3:8b", _WR_LANE)],
         resident="qwen3:8b", wr_skipped=WR_ANTI_STARVE_K,
@@ -63,9 +85,9 @@ def test_wr_anti_starvation_forces_wr():
 
 
 def test_affinity_prefers_resident_lane():
-    """When WR head matches the resident model and scan head doesn't, serve WR
+    """When WR head matches a resident model and scan head doesn't, serve WR
     to avoid a VRAM swap (the HM-WR-VRAM-THRASHING batching win)."""
-    q = OllamaQueue()
+    q = OllamaQueue(num_workers=1)
     task, is_swap, _, _, _ = _seed_and_take(
         q, scan=[_task("llama3.1", _SCAN_LANE)], wr=[_task("qwen3:8b", _WR_LANE)],
         resident="qwen3:8b",
@@ -77,14 +99,14 @@ def test_affinity_prefers_resident_lane():
 def test_scan_anti_starvation_overrides_affinity():
     """The symmetric cap: scan starved by affinity for K turns is forced through,
     overriding the affinity tiebreak (prevents affinity from starving scan)."""
-    q = OllamaQueue()
+    q = OllamaQueue(num_workers=1)
     task, is_swap, _, scan_sk, _ = _seed_and_take(
         q, scan=[_task("llama3.1", _SCAN_LANE)], wr=[_task("qwen3:8b", _WR_LANE)],
         resident="qwen3:8b", scan_skipped=WR_ANTI_STARVE_K,
     )
     assert task.lane == _SCAN_LANE, "scan must be forced once scan_skipped hits the cap"
     assert scan_sk == 0, "scan_skipped resets after scan is served"
-    assert is_swap is True, "serving llama3.1 over resident qwen3:8b is a model swap"
+    assert is_swap is True, "serving llama3.1 over resident qwen3:8b (at capacity) is a model swap"
 
 
 def test_anti_starvation_cap_under_request_timeout():
@@ -95,4 +117,154 @@ def test_anti_starvation_cap_under_request_timeout():
     assert WR_ANTI_STARVE_K * typical_inference_s < REQUEST_TIMEOUT, (
         f"K={WR_ANTI_STARVE_K} * {typical_inference_s}s exceeds REQUEST_TIMEOUT="
         f"{REQUEST_TIMEOUT}s — a starved scan call could time out before running"
+    )
+
+
+# ---------------------------------------------------------------------------
+# HM-PERF-FLEET-THROUGHPUT (2026-07-07): new tests for the N-worker redesign.
+# ---------------------------------------------------------------------------
+
+def test_active_model_affinity_beats_resident_affinity():
+    """Tier 1 (active, i.e. another worker is running this model RIGHT NOW)
+    outranks tier 2 (merely resident/recently-used). This is the actual
+    NUM_PARALLEL=2 win: two concurrent requests against one loaded model."""
+    q = OllamaQueue(num_workers=2)
+    # scan head is ACTIVELY running elsewhere; wr head is only "resident"
+    # (recently used, not currently executing). Active should win scan here
+    # even though scan is already the default priority -- construct the
+    # inverse to prove it's the active check doing the work, not just
+    # scan-priority: make WR the active one, scan merely resident.
+    task, is_swap, _, _, _ = _seed_and_take(
+        q, scan=[_task("llama3.1", _SCAN_LANE)], wr=[_task("qwen3:8b", _WR_LANE)],
+        active={"qwen3:8b": 1},
+    )
+    assert task.lane == _WR_LANE, "active-model affinity should override scan-priority default"
+    assert is_swap is False, "the actively-running model is trivially resident too"
+
+
+def test_resident_set_holds_two_models_at_two_workers():
+    """With num_workers=2, the resident set tracks up to 2 distinct models
+    (matching server MAX_LOADED_MODELS=2) -- dispatching a SECOND distinct
+    model is NOT a swap (filling the second slot), only a THIRD would be."""
+    q = OllamaQueue(num_workers=2)
+    with q._cv:
+        q._resident_models.clear()
+        q._resident_models["qwen3:8b"] = None  # one model already resident
+        q._active_models.clear()
+        q._lanes[_SCAN_LANE].clear()
+        q._lanes[_SCAN_LANE].append(_task("ministral-3:3b", _SCAN_LANE))
+        q._lanes[_WR_LANE].clear()
+        q._scan_skipped = q._wr_skipped = 0
+        task, is_swap, _ = q._take_next_locked()
+    assert task.model_id == "ministral-3:3b"
+    assert is_swap is False, "filling the 2nd resident slot is not a swap at num_workers=2"
+    assert set(q._resident_models) == {"qwen3:8b", "ministral-3:3b"}
+
+
+def test_third_distinct_model_is_a_swap_at_capacity():
+    """A THIRD distinct model, once the resident set is already at capacity
+    (2, for num_workers=2), IS a swap -- something has to be evicted."""
+    q = OllamaQueue(num_workers=2)
+    with q._cv:
+        q._resident_models.clear()
+        q._resident_models["qwen3:8b"] = None
+        q._resident_models["ministral-3:3b"] = None
+        q._active_models.clear()
+        q._lanes[_SCAN_LANE].clear()
+        q._lanes[_SCAN_LANE].append(_task("llama3.1", _SCAN_LANE))
+        q._lanes[_WR_LANE].clear()
+        q._scan_skipped = q._wr_skipped = 0
+        task, is_swap, _ = q._take_next_locked()
+    assert task.model_id == "llama3.1"
+    assert is_swap is True, "a 3rd distinct model at 2/2 capacity must evict one of the residents"
+
+
+def test_num_workers_1_collapses_resident_capacity_to_one():
+    """Rollback parity: OLLAMA_QUEUE_WORKERS=1 must behave identically to the
+    pre-2026-07-07 single-_resident_model design -- only one model is ever
+    tracked as resident, so the 2nd distinct dispatch is a swap, not a
+    capacity-fill."""
+    q = OllamaQueue(num_workers=1)
+    with q._cv:
+        q._resident_models.clear()
+        q._resident_models["qwen3:8b"] = None
+        q._active_models.clear()
+        q._lanes[_SCAN_LANE].clear()
+        q._lanes[_SCAN_LANE].append(_task("ministral-3:3b", _SCAN_LANE))
+        q._lanes[_WR_LANE].clear()
+        q._scan_skipped = q._wr_skipped = 0
+        task, is_swap, _ = q._take_next_locked()
+    assert is_swap is True, "at num_workers=1, a second distinct model must still count as a swap"
+    assert list(q._resident_models) == ["ministral-3:3b"], "capacity-1 evicts the prior resident"
+
+
+def test_concurrent_dispatch_two_workers_run_simultaneously():
+    """End-to-end (not seeded internals): submit 2 slow same-model tasks to a
+    2-worker queue and confirm they actually overlap in wall-clock time --
+    the real behavior change this whole ticket is about."""
+    import threading
+    import time
+
+    q = OllamaQueue(num_workers=2)
+    start_barrier = threading.Barrier(2, timeout=5)
+    overlap_detected = threading.Event()
+    entered = []
+    lock = threading.Lock()
+
+    def slow_call():
+        with lock:
+            entered.append(time.monotonic())
+        start_barrier.wait()  # only releases once BOTH calls have entered concurrently
+        overlap_detected.set()
+        time.sleep(0.05)
+        return "ok"
+
+    results = [None, None]
+
+    def _submit(i):
+        results[i] = q.submit(slow_call, model_id="qwen3:8b")
+
+    t1 = threading.Thread(target=_submit, args=(0,))
+    t2 = threading.Thread(target=_submit, args=(1,))
+    t1.start(); t2.start()
+    t1.join(timeout=10); t2.join(timeout=10)
+
+    assert results == ["ok", "ok"], "both concurrent submits must complete successfully"
+    assert overlap_detected.is_set(), (
+        "the barrier only releases if both slow_call invocations were inside "
+        "the function simultaneously -- proves 2 workers actually ran concurrently, "
+        "not just quickly in sequence"
+    )
+
+
+def test_single_worker_serializes_strictly():
+    """num_workers=1 must still serialize (no false-positive concurrency) --
+    the rollback path has to be genuinely single-threaded, not just default-
+    to-1-but-still-technically-parallel-capable."""
+    import threading
+    import time
+
+    q = OllamaQueue(num_workers=1)
+    concurrent_count = [0]
+    max_concurrent = [0]
+    lock = threading.Lock()
+
+    def tracked_call():
+        with lock:
+            concurrent_count[0] += 1
+            max_concurrent[0] = max(max_concurrent[0], concurrent_count[0])
+        time.sleep(0.05)
+        with lock:
+            concurrent_count[0] -= 1
+        return "ok"
+
+    threads = [threading.Thread(target=lambda: q.submit(tracked_call, model_id="qwen3:8b"))
+               for _ in range(4)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert max_concurrent[0] == 1, (
+        f"num_workers=1 must never run more than 1 task concurrently, saw {max_concurrent[0]}"
     )

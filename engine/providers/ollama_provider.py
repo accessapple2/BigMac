@@ -64,21 +64,46 @@ class OllamaProvider(AIProvider):
         self._temperature = 0.6 if self._is_cloud else 0.7
 
     def call_model(self, prompt: str) -> str:
-        # Route through global FIFO queue — one Ollama inference at a time system-wide.
+        # Route through the per-host queue (engine.ollama_queue) — up to
+        # OLLAMA_QUEUE_WORKERS concurrent inferences system-wide (default 2
+        # as of HM-PERF-FLEET-THROUGHPUT 2026-07-07; was "one at a time"
+        # premised on a since-corrected hardware assumption, see below).
         # HM-WR-VRAM-THRASHING 2026-05-20 (Fix 4): keep_alive raised 45s → 10m.
         # Per project_hm_wr_provider_latency: WR cycle wall 19m 35s with 8 LLM
-        # providers 91-202s each due to VRAM model-swap thrashing on RTX 5060 8GB.
-        # Combined with Fix 3 (model batching), 10m residency means same-model
-        # agents within a WR cycle reuse loaded weights instead of re-loading on
-        # each call. The earlier 45s compromise was tuned for 16GB Mac Mini RAM
-        # contention; canonical Ollie Box (Linux + RTX 5060) does not have the
-        # same stacking concern so the longer keep_alive is safe.
+        # providers 91-202s each due to VRAM model-swap thrashing. Combined
+        # with Fix 3 (model batching), 10m residency means same-model agents
+        # within a WR cycle reuse loaded weights instead of re-loading on
+        # each call. The earlier 45s compromise was tuned for 16GB Mac Mini
+        # RAM contention; Ollie Max — RTX 5080, 16GB VRAM, corrected
+        # 2026-05-28 HM-AUDIT-T0 (this comment previously said "RTX 5060,"
+        # which was wrong) — does not have the same stacking concern so the
+        # longer keep_alive is safe.
         payload = {
             "model": self.model_id,
             "prompt": prompt,
             "stream": False,
             "keep_alive": self.keep_alive,
-            "options": {"temperature": self._temperature},
+            "options": {
+                "temperature": self._temperature,
+                # HM-PERF-FLEET-THROUGHPUT 2026-07-07: was uncapped (Ollama's
+                # model-default context, unbounded VRAM variable — the main
+                # risk once >1 concurrent slot exists). Measured against
+                # real traffic first, not guessed: api_costs.input_tokens +
+                # output_tokens for call_type='scan' across the 5 active
+                # Ollama agents, last 30 days, n=5,845 — p50=7,698,
+                # p95=8,719, p99=31,977 (qwen3 thinking-mode leakage tail,
+                # not the normal distribution — see the think:False guard
+                # below, which doesn't reliably suppress it for every
+                # response). NUM_CTX=10240 covers p95 with ~17% headroom;
+                # deliberately not sized to the p99 tail, which would cost
+                # 3-4x the VRAM per slot to protect <1% of calls that are
+                # already anomalous. A call that would have exceeded this
+                # now degrades (truncated context) instead of the model
+                # generating unboundedly — an acceptable trade given the
+                # goal here is predictable per-slot VRAM for 2-worker
+                # co-residency, not zero-truncation guarantees.
+                "num_ctx": 10240,
+            },
         }
         # 2026-04-27: qwen3 family streams chain-of-thought tokens before JSON,
         # which blew the 180s timeout for qwen3-14b-pro (Dalio, 47% timeout rate)

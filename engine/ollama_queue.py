@@ -1,24 +1,43 @@
-"""Ollama two-lane fair queue — serializes all Ollama inference calls per host.
+"""Ollama two-lane fair queue — serializes/parallelizes Ollama inference per host.
 
-On the Ollie Box (RTX 5060, 8GB VRAM) only one 7B-class model fits resident at
-a time, so a single worker thread per host runs exactly one inference at a time
-(this is intentional — concurrent inference would thrash VRAM).
+HM-PERF-FLEET-THROUGHPUT (2026-07-07): Ollie Max is an RTX 5080, 16GB VRAM
+(corrected 2026-05-28 HM-AUDIT-T0 — this docstring previously said "RTX 5060,
+8GB, one model fits," which was wrong and drove the original one-worker
+design; see docs/runbooks/ram-discipline.md for the live-verified budget:
+TWO 7-8B-class models fully co-resident, ~10-12GB together). Server-side
+NUM_PARALLEL=2 / MAX_LOADED_MODELS=2 let the host actually serve 2 concurrent
+requests, but the client queue was still serializing to exactly 1 in-flight
+inference system-wide, leaving that throughput on the table. The queue now
+runs OLLAMA_QUEUE_WORKERS (config.py, default 2) worker threads. Feature-
+flagged: set OLLAMA_QUEUE_WORKERS=1 to roll back to the original fully-serial
+behavior — with 1 worker, the model-affinity bookkeeping below collapses to
+tracking exactly one resident model, identical to the pre-2026-07-07 design.
 
-HM-TIER3-SIGNAL-DROP (2026-05-28): the worker no longer serves strict FIFO.
+HM-TIER3-SIGNAL-DROP (2026-05-28): the worker(s) do not serve strict FIFO.
 War Room enqueues bursts of latency-tolerant "bulk" calls that used to park
 scan-path agent calls behind the whole burst, blowing the scan budget and
-leaving 8/9 LLM agents silent for ~3 weeks. The worker now splits work into two
-lanes — ``scan`` (interactive, must get a timely turn to persist a signal) and
-``wr`` (War Room bulk debate) — and schedules them fairly:
+leaving 8/9 LLM agents silent for ~3 weeks. Work is split into two lanes —
+``scan`` (interactive, must get a timely turn to persist a signal) and
+``wr`` (War Room bulk debate) — and scheduled fairly:
 
   * scan-priority by default (a scan call waits behind at most one in-flight
     WR inference, not the whole burst);
   * a configurable anti-starvation cap (``WR_ANTI_STARVE_K``) guarantees WR
-    still drains, and a symmetric cap prevents the affinity rule below from
+    still drains, and a symmetric cap prevents the affinity rules below from
     ever starving scan;
-  * a model-affinity tiebreak prefers the lane whose head task matches the
-    VRAM-resident model, preserving the HM-WR-VRAM-THRASHING batching win;
-  * every model swap is logged ([OLLAMA-QUEUE-SWAP]) so thrash is observable.
+  * model-affinity tiebreak, two tiers:
+      1. ACTIVE affinity (new 2026-07-07): prefer the lane whose head task
+         matches a model another worker is executing RIGHT NOW — this is
+         what actually captures the NUM_PARALLEL=2 win (two concurrent
+         requests against one already-loaded model copy).
+      2. RESIDENT affinity (was: single _resident_model string; now an
+         LRU set sized to OLLAMA_QUEUE_WORKERS, matching MAX_LOADED_MODELS):
+         prefer the lane whose head task matches a recently-dispatched
+         model that's probably still loaded, even if nothing is actively
+         running it this instant.
+  * every model swap (dispatching a model outside BOTH the active and
+    resident sets, when the resident set is already at capacity) is logged
+    ([OLLAMA-QUEUE-SWAP]) so thrash is observable.
 
 Lane is auto-detected from the calling thread name (War Room runs providers on
 ``wr_provider_pool`` threads — see war_room._WR_PROVIDER_POOL), so existing
@@ -50,7 +69,7 @@ _MAX_SAMPLES = 50
 # dive). Max consecutive times one lane may be passed over while the other lane
 # has work waiting, before the worker forces the starved lane through. Applied
 # symmetrically: bounds WR starvation from scan-priority AND bounds scan
-# starvation from the model-affinity tiebreak.
+# starvation from the model-affinity tiebreaks.
 #
 # Tuning: lower K = more alternation (scan served sooner, but more model swaps);
 # higher K = longer same-lane bursts (fewer swaps, but a *different-model* scan
@@ -58,13 +77,21 @@ _MAX_SAMPLES = 50
 # K × typical_inference_s < REQUEST_TIMEOUT (300s), or a passed-over scan submit
 # can time out before it runs. At ~90s/inference, K=3 ⇒ ~270s worst-case wait.
 # Same-model scan calls (the qwen3:8b majority) match the resident model, so the
-# affinity rule never diverts them — they get scan-priority immediately.
+# affinity rules never divert them — they get scan-priority immediately.
 WR_ANTI_STARVE_K = 3
 
 _SCAN_LANE = "scan"
 _WR_LANE = "wr"
 # Must match war_room._WR_PROVIDER_POOL's thread_name_prefix.
 _WR_THREAD_PREFIX = "wr_provider_pool"
+
+
+def _default_num_workers() -> int:
+    try:
+        import config
+        return max(1, int(config.OLLAMA_QUEUE_WORKERS))
+    except Exception:
+        return 1  # fail-safe: never crash queue construction over a config miss
 
 
 class _Task:
@@ -81,21 +108,35 @@ class _Task:
 
 
 class OllamaQueue:
-    """Thread-safe per-host queue with a single worker and two fair lanes."""
+    """Thread-safe per-host queue with N workers and two fair lanes."""
 
-    def __init__(self) -> None:
+    def __init__(self, num_workers: int | None = None) -> None:
         self._lanes: dict[str, "collections.deque[_Task]"] = {
             _SCAN_LANE: collections.deque(),
             _WR_LANE: collections.deque(),
         }
         self._cv = threading.Condition()
-        self._worker = threading.Thread(
-            target=self._worker_loop, daemon=True, name="ollama-queue-worker"
-        )
-        self._worker.start()
+
+        self.num_workers = num_workers if num_workers is not None else _default_num_workers()
+        self._workers: list[threading.Thread] = []
+        for i in range(self.num_workers):
+            t = threading.Thread(
+                target=self._worker_loop, daemon=True, name=f"ollama-queue-worker-{i}"
+            )
+            t.start()
+            self._workers.append(t)
 
         # Scheduler state (mutated only under self._cv)
-        self._resident_model: str = ""   # model the GPU currently has loaded (proxy)
+        # _active_models: model_id -> count of workers executing it RIGHT NOW.
+        # _resident_models: LRU set (OrderedDict used as an ordered set) of
+        # recently-dispatched distinct models, capped at self.num_workers --
+        # deliberately tied to worker count: with 1 worker this collapses to
+        # tracking exactly one model, byte-for-byte matching the pre-2026-07-07
+        # single-_resident_model design (exact rollback parity at WORKERS=1).
+        # Server MAX_LOADED_MODELS=2 means capacities beyond 2 don't buy
+        # anything further; num_workers is expected to be 1 or 2 in practice.
+        self._active_models: collections.Counter = collections.Counter()
+        self._resident_models: "collections.OrderedDict[str, None]" = collections.OrderedDict()
         self._wr_skipped: int = 0        # consecutive times WR lane passed over
         self._scan_skipped: int = 0      # consecutive times scan lane passed over
 
@@ -140,7 +181,14 @@ class OllamaQueue:
             self._lanes[lane].append(task)
             self._total_requests += 1
             self._current_model = model_id
-            self._cv.notify()
+            # notify_all (not notify): with >1 worker, a single notify() only
+            # wakes one waiter, which under a burst of near-simultaneous
+            # submit() calls can leave a second idle worker asleep even
+            # though work is now available. notify_all is the safe choice --
+            # every worker re-checks under the lock and only proceeds if
+            # _take_next_locked actually finds work, so spurious wakeups are
+            # harmless.
+            self._cv.notify_all()
 
         fired = task.done.wait(timeout=REQUEST_TIMEOUT)
 
@@ -163,15 +211,33 @@ class OllamaQueue:
     # Scheduler
     # ------------------------------------------------------------------
 
-    def _take_next_locked(self) -> tuple[_Task, bool, str]:
-        """Pick the next task per the fair policy. Caller must hold self._cv.
+    def _mark_resident_locked(self, model_id: str) -> None:
+        """Move model_id to the most-recently-used end of the resident set,
+        evicting the least-recently-used entry if over capacity. Caller must
+        hold self._cv."""
+        if not model_id:
+            return
+        if model_id in self._resident_models:
+            self._resident_models.move_to_end(model_id)
+        else:
+            self._resident_models[model_id] = None
+        while len(self._resident_models) > max(1, self.num_workers):
+            self._resident_models.popitem(last=False)
 
-        Returns (task, is_swap, prev_model). Updates lane counters and the
-        resident-model proxy under the lock; the actual model swap (and its log)
-        happens when the worker runs the task.
+    def _take_next_locked(self) -> tuple[_Task, bool, str] | None:
+        """Pick the next task per the fair policy, for a worker that just
+        became free. Caller must hold self._cv. Returns None if both lanes
+        are empty (caller should wait).
+
+        Returns (task, is_swap, prev_resident_summary). Updates lane
+        counters, _active_models, and _resident_models under the lock; the
+        actual inference call happens outside the lock, in the worker.
         """
         s = self._lanes[_SCAN_LANE]
         w = self._lanes[_WR_LANE]
+
+        if not s and not w:
+            return None
 
         if s and not w:
             task = s.popleft()
@@ -180,20 +246,27 @@ class OllamaQueue:
             task = w.popleft()
             self._wr_skipped = 0
         else:
-            # Both lanes have work — fairness + model affinity.
+            # Both lanes have work — fairness + two-tier model affinity.
             serve_wr: bool
             if self._wr_skipped >= WR_ANTI_STARVE_K:
-                serve_wr = True            # WR starved → force WR
+                serve_wr = True             # WR starved → force WR
             elif self._scan_skipped >= WR_ANTI_STARVE_K:
-                serve_wr = False           # scan starved (by affinity) → force scan
-            elif (
-                self._resident_model
-                and w[0].model_id == self._resident_model
-                and s[0].model_id != self._resident_model
-            ):
-                serve_wr = True            # affinity: serving WR avoids a swap
+                serve_wr = False            # scan starved (by affinity) → force scan
             else:
-                serve_wr = False           # scan-priority default
+                s_head, w_head = s[0].model_id, w[0].model_id
+                s_active = bool(s_head) and self._active_models.get(s_head, 0) > 0
+                w_active = bool(w_head) and self._active_models.get(w_head, 0) > 0
+                if w_active and not s_active:
+                    serve_wr = True         # tier 1: WR head is running RIGHT NOW elsewhere
+                elif s_active and not w_active:
+                    serve_wr = False        # tier 1: scan head is running RIGHT NOW elsewhere
+                else:
+                    s_resident = bool(s_head) and s_head in self._resident_models
+                    w_resident = bool(w_head) and w_head in self._resident_models
+                    if w_resident and not s_resident:
+                        serve_wr = True     # tier 2: serving WR avoids a swap
+                    else:
+                        serve_wr = False    # scan-priority default
 
             if serve_wr:
                 task = w.popleft()
@@ -204,31 +277,39 @@ class OllamaQueue:
                 self._scan_skipped = 0
                 self._wr_skipped += 1
 
+        # A "swap" means dispatching a model that isn't already resident AND
+        # the resident set is already full (so this dispatch would evict one
+        # of the currently-loaded models) -- not just "differs from the last
+        # dispatched task," which with >1 co-resident model would over-log.
         is_swap = bool(
-            self._resident_model and task.model_id
-            and task.model_id != self._resident_model
+            task.model_id
+            and task.model_id not in self._resident_models
+            and len(self._resident_models) >= max(1, self.num_workers)
         )
-        prev_model = self._resident_model
+        prev_resident = ",".join(self._resident_models) or "(none)"
         if is_swap:
             self._total_model_swaps += 1
         if task.model_id:
-            self._resident_model = task.model_id
             self._current_model = task.model_id
-        return task, is_swap, prev_model
+            self._active_models[task.model_id] += 1
+            self._mark_resident_locked(task.model_id)
+        return task, is_swap, prev_resident
 
     def _worker_loop(self) -> None:
         while True:
             try:
                 with self._cv:
-                    while not self._lanes[_SCAN_LANE] and not self._lanes[_WR_LANE]:
+                    picked = self._take_next_locked()
+                    while picked is None:
                         self._cv.wait(timeout=5)
-                    task, is_swap, prev_model = self._take_next_locked()
+                        picked = self._take_next_locked()
+                    task, is_swap, prev_resident = picked
                     swap_no = self._total_model_swaps
 
                 if is_swap:
                     logger.info(
-                        "[OLLAMA-QUEUE-SWAP] %s -> %s (lane=%s swap#%d)",
-                        prev_model or "(none)", task.model_id, task.lane, swap_no,
+                        "[OLLAMA-QUEUE-SWAP] resident={%s} -> %s (lane=%s swap#%d)",
+                        prev_resident, task.model_id, task.lane, swap_no,
                     )
 
                 t0 = time.monotonic()
@@ -243,6 +324,11 @@ class OllamaQueue:
                 except Exception as e:  # noqa: BLE001 — propagated to submit() caller
                     task.exc = e
                 finally:
+                    with self._cv:
+                        if task.model_id:
+                            self._active_models[task.model_id] -= 1
+                            if self._active_models[task.model_id] <= 0:
+                                del self._active_models[task.model_id]
                     task.done.set()
             except Exception as e:  # worker must never die
                 logger.error("OllamaQueue worker error: %s", e)
@@ -265,6 +351,8 @@ class OllamaQueue:
             total_requests = self._total_requests
             total_timeouts = self._total_timeouts
             total_swaps = self._total_model_swaps
+            active_models = dict(self._active_models)
+            resident_models = list(self._resident_models)
 
         age_min: float | None = None
         stale = False
@@ -283,7 +371,10 @@ class OllamaQueue:
             "last_success_age_min": age_min,
             "stale": stale,
             "current_model": current_model,
-            "worker_alive": self._worker.is_alive(),
+            "num_workers": self.num_workers,
+            "active_models": active_models,
+            "resident_models": resident_models,
+            "worker_alive": all(t.is_alive() for t in self._workers),
         }
 
     def last_success_age_min(self) -> float | None:
@@ -297,8 +388,8 @@ class OllamaQueue:
 
 # ── Per-host queue registry ──────────────────────────────────────────────────
 # Each distinct Ollama host (bigmac localhost vs Ollie GPU) gets its own
-# independent two-lane queue and worker thread. A slow job on Ollie no longer
-# blocks jobs on bigmac.
+# independent two-lane queue with its own worker pool. A slow job on Ollie no
+# longer blocks jobs on bigmac.
 #
 # Added 2026-04-20 (D1 dual-queue refactor). ~19 LOC total across two files.
 
@@ -317,7 +408,7 @@ def _host_key(url: str) -> str:
 def get_queue(url: str = "") -> OllamaQueue:
     """Return (or lazily create) the per-host OllamaQueue for *url*.
 
-    Each unique host gets its own worker thread.  Callers that omit *url*
+    Each unique host gets its own worker pool.  Callers that omit *url*
     get the "default" singleton (backwards-compatible with any code that
     was not updated to pass a URL).
     """
