@@ -189,6 +189,12 @@ def _stagger_schedule_jobs() -> None:
 
 _last_scan_time = 0
 _scan_lock = threading.Lock()
+# HM-SCAN-LIVENESS-WATCHDOG 2026-07-08: last COMPLETED scan (not just last
+# attempt -- _last_scan_time above bumps on every no-tier-due pass, which is
+# what made the 09:16-09:55 gap invisible in logs). Seeded at import time so
+# a slow startup doesn't false-alarm before the first real scan.
+_last_scan_complete_ts = time.time()
+_scan_liveness_alert_sent = False
 
 # === MARKET HOURS TASK THROTTLE (Opt 5) ===
 # Non-essential tasks run at reduced frequency during market hours
@@ -503,8 +509,51 @@ def run_scanner():
             # HM-AS-β §C: lock-hold duration + whether WR ran inside this thread
             _hold = _time.time() - _captured_acq_ts
             console.log(f"[cyan][HM-AS-β-C] scan_lock held {_hold:.1f}s ({_captured_mode})")
+            global _last_scan_complete_ts
+            _last_scan_complete_ts = _time.time()  # HM-SCAN-LIVENESS-WATCHDOG
 
     threading.Thread(target=_arena_scan_thread, daemon=True, name="arena_scanner").start()
+
+
+def check_scan_liveness():
+    """HM-SCAN-LIVENESS-WATCHDOG 2026-07-08: alarm on a silent scan stall.
+
+    2026-07-08 finding: `_last_scan_time` (the global cooldown gate in
+    run_scanner) advances on every scheduler tick that clears the interval
+    check, even when zero tiers are due -- that no-op pass is never logged.
+    So a real stall (lock stuck, worker wedged) and normal "T1 not due yet"
+    both look identical from the logs: silence. This watchdog instead tracks
+    `_last_scan_complete_ts`, stamped only when a scan thread actually
+    finishes, and pages if that goes stale past 2x the T1 tier interval --
+    the fastest cadence, so the most conservative bound.
+    """
+    global _scan_liveness_alert_sent
+    from engine.fleet_halt import check_or_bail
+    if check_or_bail("check_scan_liveness"):
+        return
+    if _get_scan_interval() is None:
+        return  # market closed — no cadence to violate
+    age = time.time() - _last_scan_complete_ts
+    threshold = 2 * _TIER1_INTERVAL
+    if age > threshold:
+        if not _scan_liveness_alert_sent:
+            try:
+                from engine.alert_channels import send_alert, AlertLevel
+                send_alert(
+                    f"Scan cycle stalled — last completed scan {age/60:.1f}min ago "
+                    f"(threshold {threshold/60:.0f}min = 2x T1 interval)",
+                    level=AlertLevel.WARNING,
+                    alert_type="scan_liveness",
+                    title="Scan cycle stall",
+                    source="sys_scan_liveness",
+                )
+            except Exception as e:
+                console.log(f"[red][HM-SCAN-LIVENESS] send_alert failed: {e}")
+            console.log(f"[red][HM-SCAN-LIVENESS] ALERT — age={age:.0f}s > threshold={threshold:.0f}s")
+            _scan_liveness_alert_sent = True
+    elif _scan_liveness_alert_sent:
+        console.log(f"[green][HM-SCAN-LIVENESS] recovered — age={age:.0f}s")
+        _scan_liveness_alert_sent = False
 
 
 _dayblade_tick_count = 0
@@ -4261,6 +4310,7 @@ if __name__ == "__main__":
 
     # Scanner ticks every 30s; run_scanner enforces dynamic cooldown internally
     schedule.every(2).minutes.do(run_scanner)
+    schedule.every(2).minutes.do(check_scan_liveness)  # HM-SCAN-LIVENESS-WATCHDOG 2026-07-08
     schedule.every(5).minutes.do(run_dayblade)  # DayBlade 0DTE: T'Pol on plutus, every 5 min
     schedule.every(15).minutes.do(run_ma_regime_update)  # 8/21 MA Cross Regime: every 15 min
     schedule.every(15).minutes.do(run_vix_check)          # VIX: every 15 min
