@@ -93,6 +93,7 @@ share-link feature therefore has a hard prerequisite: a minimal
   Phase 1 code (new `alert_definitions` reads/writes, and any touch to
   `dynamic_alerts.py`) MUST use `engine/db_conn.py`** — do not regress the
   98-site FD-leak sweep by adding a 99th bespoke connection site.
+  **SHIPPED 2026-07-07, commit `1a12286`** (HM-DYNALERTS-HYGIENE Part A).
 - **CARRIER Rung 1 contact card (night-crew, `carrier_rung1_contact.html`):**
   imported/user-defined alerts that fire should ride the same
   notification-poll payload the v2 contact card consumes, and must carry
@@ -100,6 +101,17 @@ share-link feature therefore has a hard prerequisite: a minimal
   **ACTIONABLE** (full crumb trail); anything system/measurement-ish is
   INFORMATIONAL (no carrier treatment). Wire the tier at emit time in
   Phase 1 so Rung 1 works for free.
+  **SHIPPED 2026-07-07, commit `1a12286`** (HM-DYNALERTS-HYGIENE Part B) —
+  emit-time `source` tagging (`dyn_*`/`user_*`) threaded through
+  `alert_channels.send_alert` → `_db_notification` → `notifications.type`;
+  `isActionable()` extended for the new prefixes. Bonus: found and fixed a
+  real, independently-existing bug while verifying the INSERT against the
+  live schema — `_db_notification` had been writing a nonexistent
+  `created_at` column and silently failing every call (bare
+  `except: pass`); zero `type='alert_channel'` rows existed anywhere in
+  the live table until this fix. Live-confirmed post-restart via
+  `/api/notifications` returning real `user_rsi`/`user_price_level`/
+  `user_volume_spike` rows.
 
 ## 4. Proposed design
 
