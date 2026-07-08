@@ -454,6 +454,10 @@ def run_scanner():
 
     if not active_players:
         _scan_lock.release()
+        # HM-SCAN-LIVENESS-WATCHDOG 2026-07-08: this no-op pass used to be silent,
+        # making it indistinguishable in the logs from a real stall. One line.
+        _t1_due_in = max(0, _TIER1_INTERVAL - (now - _tier_last_scan[1]))
+        console.log(f"[dim]Scan tick — no tier due (T1 in {_t1_due_in:.0f}s)")
         return  # No tier is due this cycle
 
     tier_label = " + ".join(tier_labels)
