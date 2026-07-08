@@ -37,8 +37,8 @@ def _write_timeout_log(model_id: str, consecutive: int, action: str) -> None:
         os.makedirs(os.path.dirname(_TIMEOUT_LOG), exist_ok=True)
         with open(_TIMEOUT_LOG, "a") as f:
             f.write(entry + "\n")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("_write_timeout_log append failed for %s: %s", _TIMEOUT_LOG, e)
 
 RECYCLE_AFTER_N_TIMEOUTS = 3       # consecutive timeouts before recycle attempt
 SKIP_AFTER_FAIL_MIN = 30           # skip model for N minutes if recycle also fails
@@ -81,17 +81,26 @@ def _notify(title: str, msg: str) -> None:
 
 
 def _post_war_room(message: str) -> None:
-    """Post a message to the dashboard war room feed — best-effort."""
+    """Post a message to the dashboard war room feed — best-effort.
+
+    HM-SILENT-CATCH-SWEEP 2026-07-07: was POSTing to /api/war-room, which is
+    GET-only (dashboard/app.py:7404) -- every call has 405'd and been
+    silently swallowed since this was written. The real POST-capable route
+    is /api/war-room/post (dashboard/app.py:7618), which attributes the
+    message to player_id='webull' regardless of source -- message is
+    tagged "[Ollama Watchdog]" so it's still visually distinguishable in
+    the feed despite the attribution.
+    """
     try:
-        body = json.dumps({"message": message, "source": "ollama-watchdog"}).encode()
+        body = json.dumps({"message": f"[Ollama Watchdog] {message}"}).encode()
         requests.post(
-            "http://127.0.0.1:8080/api/war-room",
+            "http://127.0.0.1:8080/api/war-room/post",
             data=body,
             headers={"Content-Type": "application/json"},
             timeout=4,
         )
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("_post_war_room failed: %s", e)
 
 
 # ---------------------------------------------------------------------------

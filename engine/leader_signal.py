@@ -186,8 +186,8 @@ def run_weekly_elimination() -> list[dict]:
                      f"Final account: ${s['value']:,.0f} ({s['return_pct']:+.1f}%). "
                      f"Failed to maintain minimum -15% threshold. Season over."),
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                console.log(f"[yellow]leader_signal: ai_journal ELIMINATED entry failed for {s['id']}: {e}")
 
     if eliminated:
         conn.commit()

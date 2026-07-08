@@ -8321,3 +8321,158 @@ spike, MACD crossover, plus others).
 route failures through the same `logger.warning` + telemetry pattern
 `alert_channels.py`'s own send paths already use, rather than swallowing
 silently.
+
+---
+## 🟡 HM-SILENT-CATCH-SWEEP (2026-07-07) — code-complete-and-held for next bundled restart
+
+Systematic follow-up to the `_db_notification` `created_at` bug found earlier
+tonight (HM-DYNALERTS-HYGIENE, commit `1a12286`): "the created_at find is the
+third organ dead behind a bare except (ntfy delivery, notifications INSERT)."
+Full sweep of `engine/`, `scripts/`, `dashboard/` for the same disease class.
+
+### Inventory
+
+- **930** total `except: pass`-shaped silent-catch sites (AST-scanned, not
+  regex — catches multi-line `except Exception:\n    pass` the naive grep
+  in tonight's earlier ad-hoc check missed).
+- **92** candidate sites where the guarded try-block contains a WRITE
+  operation (DB insert/update/delete, HTTP POST/PUT, file write) — the
+  scope this ticket asked for.
+- **8** of those 92 were false positives on manual triage (pure
+  `SELECT`/read blocks the write-pattern regex over-matched on) — discarded.
+  **84 genuine write-guarding sites**, triaged read-only via 5 parallel
+  investigation passes (live DB row-count/freshness queries, file mtime
+  checks, endpoint verification) before any code was touched.
+
+### Classification (of the 84 genuine sites)
+
+- **45 (a) PROVABLY WORKING TODAY** — live evidence (fresh matching rows,
+  correct schema, fresh file mtimes) confirms the write succeeds regularly.
+  No changes made — the directive scoped logging additions to (b)/(c) only.
+- **33 (b) CAN'T TELL** — insufficient evidence either way (rare/conditional
+  triggers, HTTP POSTs with no independent confirmation, features that may
+  simply be unused rather than broken). **Logging added to all 33** —
+  `logger.warning`/`console.log` with file+context, matching each file's
+  existing convention. No behavior changes beyond observability.
+- **6 (c) DEAD** — clear evidence the write has never succeeded or has
+  stopped succeeding. See below.
+
+### Dead write paths found (6)
+
+1. **`engine/alert_channels.py::_db_notification`** — already fixed
+   tonight, commit `1a12286`, before this sweep started (the seed case
+   that prompted the sweep).
+2. **`engine/paper_trader.py::_update_trade_alpaca_fields`** —
+   **FIXED, this commit.** `UPDATE trades ... ORDER BY executed_at DESC
+   LIMIT 1` is not valid SQLite syntax without the
+   `SQLITE_ENABLE_UPDATE_DELETE_LIMIT` compile flag (absent from Python's
+   bundled sqlite3) — has raised `OperationalError: near "ORDER": syntax
+   error` on **every single call since the function was written**,
+   silently swallowed. Confirmed empirically: zero `trades` rows anywhere
+   have `alpaca_status='submitted'`. Affects SHORT trades and multi-leg
+   spread trades specifically (their `execution_type` never updates from
+   `'simulated'` to `'alpaca_paper'` after a real Alpaca order confirms).
+   **This is the highest-stakes fix in this sweep** — it touches live
+   order-tracking metadata, not just a log line. Fixed with the standard
+   SQLite "target the most recent row via a rowid subquery" idiom, tested
+   directly (`tests/test_update_trade_alpaca_fields.py`, 2 new tests
+   proving the fix targets exactly the intended row and leaves others
+   untouched), and the except block now logs loudly on any future failure
+   instead of swallowing it.
+3. **`engine/ollama_watchdog.py::_post_war_room`** — **FIXED, this
+   commit.** POSTed to `/api/war-room`, which is GET-only
+   (`dashboard/app.py:7404`) — every call has 405'd and been silently
+   swallowed since written. Real POST route is `/api/war-room/post`
+   (`:7618`). Fixed and **live-verified against the running server**
+   (`curl -X POST .../api/war-room/post` → HTTP 200, `{"ok":true}` — a
+   real, clearly-tagged `[Ollama Watchdog]` test row landed in `war_room`,
+   left per never-delete-data doctrine). Every recycle-failure/circuit-
+   breaker notification to the war room had been silently dropped until
+   now.
+4. **`engine/ghost_scoring.py::capture_new_signals`** — **NOT fixed,
+   ticketed.** Its `except sqlite3.IntegrityError: pass` is itself
+   *correct* (a dedup guard against re-capturing the same signal_id) —
+   the real problem is the function has **no caller anywhere in the
+   codebase** (no cron, no `main.py` wiring, CLI-only `__main__`). Its
+   target DB (`ghost_trades.db`) has been frozen since 2026-04-29 despite
+   the upstream source (`signal-center/signals.db`) actively producing
+   qualifying signals through today. Deciding whether to wire this back up
+   or formally retire it is a product call, not a bug fix — flagging for
+   Admiral decision, not touched.
+5–6. **`engine/holly_nightly_backtest.py` + `engine/holly_intraday.py`**
+   — **NOT fixed, ticketed.** Both write to `data/backtest.db` tables
+   that are frozen at exactly 2026-06-05, because `holly_nightly_cron.sh`
+   (the shared driver for both) is **absent from the current crontab
+   entirely** — not a code bug, an operational/scheduling gap. Restoring
+   a month-dead nightly job is a scope/behavior decision, not a pure
+   observability fix — flagging for Admiral go/no-go rather than silently
+   re-adding a cron line. Logging added to both except blocks regardless
+   (observability if/when the job runs again).
+
+Also confirmed **not bugs** (dead by explicit design, already documented
+elsewhere): `engine/gex_overlay.py`'s prune (scheduler intentionally
+commented out, `HM-GEX-CANONICAL` 2026-05-31 migration) and
+`engine/discovery_scanner.py`'s discoveries insert (scheduler retired in
+`main.py`, "replaced by Volume Radar"). Logging still added to both in
+case either is ever re-enabled without someone rediscovering this history.
+
+### Architectural landmine flagged (same failure shape, not yet triggered)
+
+`engine/vix_monitor.py`, `engine/momentum_tracker.py`, `engine/red_alert.py`,
+and `engine/benchmark.py` all connect via a **bare relative path**
+(`"autonomous_trader.db"`) that resolves to a *different* file at the repo
+root — NOT the canonical `data/trader.db`. Works today only because these
+processes happen to run with cwd = repo root. If invocation cwd ever
+changes (different cron/launchd working directory, run from a
+subdirectory), every write would silently start hitting a fresh, empty,
+uncommitted DB file — same failure shape as the `created_at` bug, just not
+triggered yet. `dashboard/app.py`'s trade-desk order provenance writeback
+(site 2 in the fix list above) has the same relative-path pattern
+independently. **Not fixed this pass** (changing a DB path touches more
+than logging) — filed here for a dedicated hygiene pass.
+
+### Other observation (not a silent-catch bug, different flavor)
+
+`dashboard/app.py`'s `trade_explanations` table initializes correctly and
+has the right schema, but **nothing in the codebase ever inserts into
+it** — only a `CREATE TABLE` and one `SELECT ... WHERE trade_id=?`. The
+"explain a trade" feature appears to read from a table nothing writes to.
+Not touched (deciding whether to wire up a writer or retire the read path
+is a feature decision), noted for whoever owns trade explanations.
+
+### Bonus fix (incidental, found while adding logging)
+
+`engine/ollie_commander.py` had a **pre-existing dead reference**:
+`logger.warning(...)` at line 300 (Scout→Critic pipeline error path) with
+no `logger` ever defined anywhere in the file — would have raised
+`NameError` on any actual scout/critic pipeline failure, converting a
+warning-log call into an unhandled crash. Fixed as a side effect of adding
+`import logging` / `logger = logging.getLogger(__name__)` for this
+sweep's own logging additions to the same file.
+
+### Verification
+
+- `py_compile` clean across all 28 touched files.
+- Full suite: 646 passed (+2 from the new `_update_trade_alpaca_fields`
+  regression test), 19 failed — identical to tonight's established
+  baseline, no new regressions.
+- `_update_trade_alpaca_fields` fix directly tested
+  (`tests/test_update_trade_alpaca_fields.py`): confirms the UPDATE
+  targets exactly the most recent matching trade, leaves older/other-
+  symbol trades untouched, and a no-match case is a legitimate silent
+  no-op (not an error).
+- `_post_war_room` fix live-verified against the running server (HTTP 200
+  confirmed, real row landed).
+
+### Disposition
+
+**Code-complete-and-held** for the 27 resident `engine/`/`dashboard/`
+files (all imported into the live `main.py` process — need a restart to
+take effect, per HM-CONSOLE-INIT doctrine). `scripts/witness_ab_scorer.py`
+is the one non-resident file touched (standalone cron script) — its fix
+takes effect automatically on the next cron invocation, no restart needed.
+
+Ride the next bundled after-close restart window. The `paper_trader.py`
+fix (#2 above) is the one item worth flagging for expedited treatment —
+it's the only fix in this batch that changes live trade-metadata
+correctness rather than pure observability.

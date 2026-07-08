@@ -170,8 +170,8 @@ def _fetch_polygon_intraday(symbol: str, days: int = 30):
         )
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("holly_intraday_cache write-through failed (%d bars): %s", len(all_bars), e)
 
     items = sorted(all_bars.items())
     idx = pd.to_datetime([t for t, _ in items])

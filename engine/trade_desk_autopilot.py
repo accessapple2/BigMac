@@ -526,8 +526,8 @@ def _ntfy_admin(title: str, message: str, priority: str = "default") -> None:
                 },
                 timeout=8,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            console.log(f"[yellow]trade_desk_autopilot: ntfy fallback POST also failed (title={title!r}): {e}")
 
 
 def _is_terminal_status(status: str | None) -> bool:

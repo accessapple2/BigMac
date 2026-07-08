@@ -1398,8 +1398,8 @@ def _ntfy_send(title: str, body: str, priority: int = 3, tags: list[str] | None 
                 method="POST",
             )
             urllib.request.urlopen(req, timeout=6)
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("alpha_signals ntfy send failed (title=%r): %s", title, e)
 
     threading.Thread(target=_send, daemon=True).start()
 

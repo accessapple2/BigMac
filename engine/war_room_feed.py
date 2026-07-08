@@ -11,8 +11,11 @@ notification.
 from __future__ import annotations
 
 import json
+import logging
 import os
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 # Crew ID for Red Alert messages in the War Room
 _ALERT_PLAYER_ID = "red-alert"
@@ -125,5 +128,5 @@ def _post_discord(
         )
         with urllib.request.urlopen(req, timeout=5):
             pass
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("Discord webhook post failed (title=%r): %s", title, e)

@@ -1024,8 +1024,9 @@ def _push_admin_ntfy(title: str, body: str, priority: int = 4) -> None:
                 method="POST",
             )
             urllib.request.urlopen(req, timeout=8)
-        except Exception:
-            pass  # ntfy failures must never crash trading logic
+        except Exception as e:
+            # ntfy failures must never crash trading logic -- still logged.
+            logger.warning("_push_admin_ntfy send failed (title=%r): %s", title, e)
 
     threading.Thread(target=_send, daemon=True).start()
 

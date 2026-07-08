@@ -13,11 +13,14 @@ Topic selection: _fire() → NTFY_TOPIC (crew). _fire_pg() → NTFY_PROVING_GROU
 engagement can be measured independently from the broader crew channel
 (HM-PROVING-GROUND-FORMALIZE-V2 SUB-1 2026-05-25).
 """
+import logging
 import os
 import threading
 import urllib.request
 import urllib.error
 import json
+
+logger = logging.getLogger(__name__)
 
 NTFY_TOPIC = os.getenv("NTFY_CREW_TOPIC",
              os.getenv("NTFY_TOPIC", "ollietrades-crew"))
@@ -76,8 +79,10 @@ def _send(title: str, body: str, priority: int = P_DEFAULT, tags: str = "",
             method="POST",
         )
         urllib.request.urlopen(req, timeout=6)
-    except Exception:
-        pass   # ntfy failures must never crash trading logic
+    except Exception as e:
+        # ntfy failures must never crash trading logic -- still log so a
+        # persistent outage is observable (HM-SILENT-CATCH-SWEEP 2026-07-07).
+        logger.warning("ntfy send failed (topic=%s): %s", topic or NTFY_TOPIC, e)
 
 
 def _fire(title: str, body: str, priority: int = P_DEFAULT, tags: str = "") -> None:

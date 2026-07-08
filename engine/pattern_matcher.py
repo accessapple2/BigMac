@@ -13,11 +13,14 @@ Endpoint: GET /api/ready-room/similar-days
 """
 from __future__ import annotations
 
+import logging
 import os
 import json
 import sqlite3
 from datetime import date, datetime, timezone
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 _TRADEMINDS_DB = os.environ.get(
     "TRADEMINDS_DB",
@@ -243,8 +246,11 @@ def backfill_outcomes() -> int:
 
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("backfill_outcomes: session_fingerprints outcome update failed (%d pending rows): %s", updated, e)
+        return updated
+    if updated:
+        logger.info("backfill_outcomes: filled outcome_grade for %d session(s)", updated)
     return updated
 
 

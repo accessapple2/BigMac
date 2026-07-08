@@ -1005,8 +1005,8 @@ def _run_backtest_inner(
                 )
                 c.commit()
                 c.close()
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("bakeoff_runs progress update failed for run_id=%s: %s", run_id, e)
 
     _progress(2, f"Fetching {days}d OHLCV for {len(BAKEOFF_UNIVERSE)} symbols...")
 

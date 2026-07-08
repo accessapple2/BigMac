@@ -2348,16 +2348,32 @@ def _update_trade_alpaca_fields(player_id: str, symbol: str, order_id: str, exec
     try:
         placeholders = ",".join("?" for _ in action_filter)
         conn = _conn()
-        conn.execute(
+        # HM-SILENT-CATCH-SWEEP 2026-07-07: `UPDATE ... ORDER BY ... LIMIT` is
+        # NOT valid SQLite syntax without the SQLITE_ENABLE_UPDATE_DELETE_LIMIT
+        # compile flag (not present in Python's bundled sqlite3) -- this
+        # statement has raised `OperationalError: near "ORDER": syntax error`
+        # on every single call since it was written, silently swallowed by the
+        # bare except below. Confirmed empirically: zero trades rows anywhere
+        # have alpaca_status='submitted'. Fixed using the standard SQLite
+        # "target the most recent matching row via a rowid subquery" idiom.
+        cur = conn.execute(
             f"""UPDATE trades SET alpaca_order_id=?, alpaca_status='submitted', execution_type=?
-               WHERE player_id=? AND symbol=? AND action IN ({placeholders})
-               ORDER BY executed_at DESC LIMIT 1""",
+               WHERE rowid = (
+                   SELECT rowid FROM trades
+                   WHERE player_id=? AND symbol=? AND action IN ({placeholders})
+                   ORDER BY executed_at DESC LIMIT 1
+               )""",
             (order_id or None, exec_type, player_id, symbol, *action_filter),
         )
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+        if cur.rowcount != 1:
+            console.log(
+                f"[yellow]paper_trader: _update_trade_alpaca_fields matched "
+                f"{cur.rowcount} rows (expected 1) for {player_id}/{symbol} order={order_id}"
+            )
+    except Exception as e:
+        console.log(f"[red]paper_trader: _update_trade_alpaca_fields FAILED for {player_id}/{symbol} order={order_id}: {e}")
 
 
 def _persist_alpaca_fill(trade_id: int, action: str, qty: float,
@@ -2993,8 +3009,8 @@ def sync_webull_value(total_value: float):
         conn.execute("INSERT OR REPLACE INTO settings (key, value) VALUES ('webull_synced_at', ?)", (_webull_synced_at,))
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        console.log(f"[yellow]paper_trader: webull_synced_value/at settings persist failed: {e}")
 
 
 def get_webull_synced() -> dict | None:

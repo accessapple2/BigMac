@@ -280,8 +280,8 @@ def main():
             requests.post(f"{OLLAMA_URL}/api/generate",
                           json={"model": model, "keep_alive": 0}, timeout=15)
             print(f"[witness-ab] {model}: unload signal sent", flush=True)
-        except Exception:
-            pass
+        except Exception as e:
+            print(f"[witness-ab] {model}: unload signal FAILED: {e}", flush=True)
 
     _mark_processed(conn, debate_ids)
     conn.close()

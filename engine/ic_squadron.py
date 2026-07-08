@@ -561,8 +561,8 @@ def run_trigger(proposal: dict, ro_ok: bool, ro_reason: str) -> int | None:
                     ),
                 )
                 conn.commit()
-            except Exception:
-                pass
+            except Exception as e:
+                console.log(f"[yellow]ic_squadron: decision_audit insert failed for {proposal['symbol']}: {e}")
         finally:
             conn.close()
         if ro_ok:
@@ -782,8 +782,8 @@ def _fire_ic_post_mortem(*, proposal_id: int, symbol: str,
                 console.log(
                     f"[cyan][IC-POST-MORTEM] {symbol} #{proposal_id} tag={tag}"
                 )
-            except Exception:
-                pass
+            except Exception as e:
+                console.log(f"[yellow]ic_squadron: post-mortem pm_tag/decision_audit write failed for {symbol} #{proposal_id}: {e}")
         except Exception as e:
             console.log(
                 f"[red][IC-PM-WORKER-CRASH] sym={symbol}: "
@@ -858,8 +858,8 @@ def run_ic_squadron_cycle(max_proposals: int = 5) -> dict:
                     conn.commit()
                 finally:
                     conn.close()
-            except Exception:
-                pass
+            except Exception as e:
+                console.log(f"[yellow]ic_squadron: ic_candidates status=processed update failed for id={cand['id']}: {e}")
         except Exception as e:
             console.log(
                 f"[red][IC-SQUADRON] cycle item crash for "

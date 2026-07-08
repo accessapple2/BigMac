@@ -8,9 +8,12 @@ Only the inference engine is swapped temporarily.
 When the model is unpaused, the paid provider automatically resumes.
 """
 from __future__ import annotations
+import logging
 import sqlite3
 import threading
 from config import OLLAMA_URL as _OLLAMA_URL, OLLIE_URL as _OLLIE_URL
+
+logger = logging.getLogger(__name__)
 
 DB = "data/trader.db"
 _lock = threading.Lock()
@@ -110,8 +113,8 @@ def set_player_fallback_state(player_id: str, active: bool) -> None:
             )
             conn.commit()
             conn.close()
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("ai_players.is_fallback update failed for %s: %s", player_id, e)
 
 
 def init_fallback_columns() -> None:
@@ -133,8 +136,8 @@ def init_fallback_columns() -> None:
                 "AND (fallback_model IS NULL OR fallback_model='')",
                 (model, pid)
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("ai_players.fallback_model seed failed for %s: %s", pid, e)
     # Seed fallbacks_enabled default setting
     try:
         conn.execute(

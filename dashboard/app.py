@@ -8545,8 +8545,8 @@ def quorum_start(data: dict):
                             )
                             c.commit()
                             c.close()
-                        except Exception:
-                            pass
+                        except Exception as e_qv:
+                            logger.warning("quorum_votes insert failed for quorum_id=%s ticker=%s: %s", quorum_id, ticker, e_qv)
         except Exception as e:
             print(f"Quorum error: {e}")
         finally:
@@ -13025,9 +13025,10 @@ def _mirror_trade_desk_fill(*, side: str, symbol: str, qty: float, price: float,
             _td_c.commit()
         finally:
             _td_c.close()
-    except Exception:
-        # Provenance writeback must never break the response. Suppress.
-        pass
+    except Exception as e:
+        # Provenance writeback must never break the response, but still logged
+        # (HM-SILENT-CATCH-SWEEP 2026-07-07).
+        logger.warning("trade-desk order provenance writeback failed for %s %s: %s", side, symbol, e)
 
 
 def _attach_trade_desk_autopilot(*, entry_side: str, symbol: str, qty: float,
@@ -14311,8 +14312,8 @@ async def idle_watchdog_report(request: Request):
     try:
         with open(path, "a") as f:
             f.write(line + "\n")
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("idle_watchdog.log append failed: %s", e)
     return {"ok": True}
 
 
@@ -14724,8 +14725,8 @@ def bakeoff_start(payload: dict = None):
                 c2.execute("UPDATE bakeoff_runs SET status='error', message=? WHERE id=?", (str(e), run_id))
                 c2.commit()
                 c2.close()
-            except Exception:
-                pass
+            except Exception as e2:
+                logger.warning("bakeoff_runs error-status update failed for run_id=%s: %s", run_id, e2)
 
     threading.Thread(target=_run, daemon=True).start()
     return {"run_id": run_id, "model": model, "days": days, "status": "running"}
@@ -21004,8 +21005,9 @@ async def api_import_schwab(request: Request):
             _ARCHIVE.mkdir(parents=True, exist_ok=True)
             ts = _dt.now().strftime("%Y%m%d_%H%M%S")
             shutil.copy(tmp_path, str(_ARCHIVE / f"{ts}_{orig_name.replace('/', '_')}"))
-        except Exception:
-            pass  # archive is best-effort; import already succeeded
+        except Exception as e:
+            # archive is best-effort; import already succeeded -- still logged.
+            logger.warning("Schwab CSV archive copy failed for %s: %s", orig_name, e)
     except subprocess.TimeoutExpired:
         raise HTTPException(status_code=504, detail="Schwab import/sync timed out")
     finally:

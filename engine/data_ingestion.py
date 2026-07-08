@@ -909,8 +909,8 @@ def match_current_patterns(prices: Optional[dict] = None, indicators: Optional[d
                            VALUES (?, ?, ?)""",
                         (pat["id"], symbol, price_now)
                     )
-                except Exception:
-                    pass
+                except Exception as e:
+                    console.log(f"[yellow]data_ingestion: patterns_tracked write failed for pattern={pat['id']} symbol={symbol}: {e}")
 
                 active.append({
                     "pattern": pat["name"],

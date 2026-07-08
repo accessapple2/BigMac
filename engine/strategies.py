@@ -985,8 +985,8 @@ def inject_tractor_beam_signals() -> int:
                  json.dumps(["tractor_beam"])),
             )
             injected += 1
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("strategy_signals tractor_beam insert failed for %s: %s", r["symbol"], e)
     conn.commit()
     conn.close()
     return injected

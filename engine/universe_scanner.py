@@ -138,8 +138,8 @@ def _sp500_alert(msg: str) -> None:
         urllib.request.urlopen(urllib.request.Request(
             f"https://ntfy.sh/{topic}", data=("S&P500 source degraded: " + msg).encode(),
             headers={"Title": "S&P500 source degraded", "Priority": "high"}), timeout=10)
-    except Exception:
-        pass
+    except Exception as e:
+        console.log(f"[yellow]universe_scanner: S&P500-degrade ntfy send failed: {e}")
 
 
 def _sp500_from_wikipedia() -> list:
@@ -189,8 +189,8 @@ def _get_sp500_tickers() -> list:
             _sp500_alert("pinned+cache unavailable — fell back to Wikipedia scrape")
             try:
                 json.dump(wiki, open(_SP500_CACHE, "w"))
-            except Exception:
-                pass
+            except Exception as e:
+                console.log(f"[yellow]universe_scanner: sp500_cache write (Wikipedia-fallback path) failed: {e}")
             return wiki
     except Exception as e:
         console.log(f"[yellow]S&P 500 Wikipedia fetch failed: {e}")

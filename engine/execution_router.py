@@ -427,8 +427,8 @@ def _unclaim_signal(signal_id: int) -> None:
             conn.commit()
         finally:
             conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        console.log(f"[yellow]execution_router: _unclaim_signal revert failed for signal_id={signal_id}: {e}")
 
 
 def _get_price(symbol: str) -> float | None:

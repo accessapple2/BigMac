@@ -633,8 +633,8 @@ def update_all_gex_levels() -> None:
                 "DELETE FROM gex_levels WHERE calc_time < datetime('now', '-7 days')"
             )
             c.commit()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning(f"gex_levels prune (>7d) failed: {e}")
 
 
 def get_latest_gex(symbol: str) -> dict | None:

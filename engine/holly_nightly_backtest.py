@@ -185,8 +185,8 @@ def _download(symbol: str, days: int = 90):
                         """, (symbol, date_idx.strftime('%Y-%m-%d'), float(val)))
                     conn3.commit()
                     conn3.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning("backtest_market_data cache write failed for %s: %s", symbol, e)
                 return close.dropna()
         except Exception as e:
             if attempt == 0:

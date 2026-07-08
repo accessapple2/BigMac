@@ -244,8 +244,8 @@ def compute_benchmark(days: int = 30) -> dict[str, Any]:
         ))
         conn.commit()
         conn.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("benchmark_snapshots insert failed for %s: %s", date.today().isoformat(), e)
 
     with _lock:
         _CACHE.update(result)

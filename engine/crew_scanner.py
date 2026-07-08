@@ -470,8 +470,8 @@ def _ensure_warm() -> None:
                 },
                 timeout=180,
             )
-        except Exception:
-            pass
+        except Exception as e:
+            logger.warning("_ensure_warm keep-alive ping failed: %s", e)
     _last_ollama_query = time.time()
 
 
@@ -2108,10 +2108,11 @@ def _save_trail_highs(path: str, state: dict[str, float]) -> None:
             except Exception:
                 pass
             raise
-    except Exception:
+    except Exception as e:
         # Write failure must NEVER break the trailing-stop call chain;
-        # next successful write will catch up.
-        pass
+        # next successful write will catch up. Still logged (HM-SILENT-
+        # CATCH-SWEEP 2026-07-07) so a persistent failure is observable.
+        logger.warning("_save_trail_highs write failed for %s: %s", path, e)
 
 
 def _load_neo_trail_highs() -> dict[str, float]:

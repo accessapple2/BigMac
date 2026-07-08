@@ -14,12 +14,15 @@ Ollie approves if OllieScore >= 2.0, otherwise NO-GO.
 Threshold lowered from 3.0 to 2.0 after v5 backtest showed Ollie blocked 4 winners.
 """
 from __future__ import annotations
+import logging
 import sqlite3
 import os
 from datetime import datetime, timedelta
 from typing import Any
 
 from engine.trades_filter import CLEAN_TRADES_WHERE
+
+logger = logging.getLogger(__name__)
 
 # ── Config ────────────────────────────────────────────────────────────────────
 TRADER_DB  = "data/trader.db"
@@ -313,8 +316,8 @@ def approve_or_reject(
         )
         c.commit()
         c.close()
-    except Exception:
-        pass
+    except Exception as e:
+        logger.warning("ollie_decisions insert failed for %s/%s: %s", player_id, symbol, e)
 
     return approved, ollie_score, reason
 

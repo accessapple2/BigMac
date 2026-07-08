@@ -104,8 +104,8 @@ def kill_all_positions(prices: dict) -> dict:
         )
         conn2.commit()
         conn2.close()
-    except Exception:
-        pass
+    except Exception as e:
+        console.log(f"[red]kill_switch: kill_switch_log insert FAILED (closed={len(closed)}, pnl={total_pnl}): {e}")
 
     return summary
 

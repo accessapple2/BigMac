@@ -164,8 +164,8 @@ def import_signals(limit: int = 100) -> dict:
                         "neutral",
                     ))
                     disc_imported += 1
-            except Exception:
-                pass
+            except Exception as e:
+                console.log(f"[yellow]ai4trade_importer: reference_discussions import failed for signal_id={sig.get('signal_id')}: {e}")
 
     conn.commit()
     conn.close()

@@ -710,8 +710,11 @@ def generate_kirk_advisory():
                         )
                         _db.commit()
                     _db.close()
-                except Exception:
-                    pass
+                except Exception as e:
+                    logger.warning(
+                        "kirk_advisory_log insert failed for %s/%s: %s",
+                        symbol, rec["action"], e,
+                    )
 
         # Cash deployment recommendation
         if fg_score < 35 and vix > 28:

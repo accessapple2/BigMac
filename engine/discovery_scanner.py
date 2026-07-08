@@ -293,8 +293,8 @@ def record_discoveries(discoveries: list):
                  d["volume"], d["rel_volume"], d["short_float"],
                  ", ".join(d.get("triggers", [])))
             )
-        except Exception:
-            pass
+        except Exception as e:
+            console.log(f"[yellow]discovery_scanner: discoveries insert failed for {d.get('symbol')}: {e}")
     conn.commit()
     conn.close()
 
