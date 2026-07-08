@@ -8105,3 +8105,95 @@ post-restart verification this ticket's item 4 asks for.
 
 New scripts: `scripts/hm_perf_queue_loadtest.py` (this load test, rerunnable
 anytime, standalone, does not touch the live trader process).
+
+---
+## 🟡 HM-PERF-FLEET-THROUGHPUT — POST-RESTART VERIFICATION (2026-07-07 18:32:06 restart)
+
+Restart executed 18:32:06 MST. Standard checklist first, then the 4
+HM-PERF-specific items — **honest result: 2 of 4 look good, 2 show a
+concerning early signal that needs continued monitoring, not declared
+resolved.**
+
+### Standard checklist — all pass
+Audition gate active (1 auditioning seat, enforcement=ON), all 10 gated
+agents + new audition seat correctly gated (backfill ready=True), WAL
+checkpoint clean (`0|0|0`), sentinel green and correctly tracking new
+PID 37400, zero tracebacks/critical in post-restart logs.
+
+### 1. [OLLAMA-QUEUE-SWAP] frequency — HIGHER, not lower (+19.8%)
+
+Used the queue's own internal `swap#N` counter (resets to 0 per process
+boot — confirmed the only reliable boundary marker; `trader_error.log`
+has no date prefix, only HH:MM:SS, so naive timestamp-string comparison
+silently corrupted an early attempt at this analysis by conflating
+today's entries with prior days' at the same clock time — corrected
+before trusting it).
+
+- **Before** (1-worker, previous restart-to-restart window 15:35:51-18:32:06,
+  2.93h): 141 swaps → **48.1 swaps/hr**.
+- **After** (2-worker, first 25 min post-restart, 18:32:06-18:57): 24 swaps
+  → **57.6 swaps/hr**.
+- **Change: +19.8%.**
+
+**Working theory, not confirmed**: the fleet actively rotates through 6+
+distinct models (plutus-v1, plutus-v7d, gemma4:12b-it-qat, qwen3:4b,
+qwen3:8b, ministral-3:3b observed in this window alone) against a
+resident capacity of only 2. With 2 concurrent workers, both slots can
+independently pick up DIFFERENT models at once — filling 2 execution
+slots with 2 different models is easier to trigger than serially cycling
+through them 1 at a time, which may increase apparent model diversity in
+flight and thus eviction pressure. The isolated synthetic load test
+(same model both lanes, controlled) showed a clean 1.86x win — this
+LIVE, mixed-model result does not replicate that cleanly, which is itself
+the finding: **the fleet's real bottleneck may be model-diversity-vs-
+resident-capacity, not raw worker concurrency**, and 2 workers doesn't
+fix that on its own.
+
+### 2. REQUEST_TIMEOUT skips — improved (1 vs 34)
+
+Corrected the same date-ambiguity bug (see above) before trusting this
+too. 34 timeouts in the comparable prior window, only 1 since restart (a
+single isolated WR-lane qwen3:8b timeout at 19:53:48 — WR calls are
+documented latency-tolerant, occasional timeouts under load are expected
+and this rate is a clear improvement). **This item passes.**
+
+### 3. Sentinel green — confirmed, passes.
+
+### 4. Fleet scan cycle wall time (WR-DUR), before vs after — WORSE in this small sample
+
+| | n | mean | median |
+|---|---|---|---|
+| Before (1-worker, last 10 pre-restart cycles) | 10 | 21.7s | 13.2s |
+| After (2-worker, first 5 post-restart cycles) | 5 | 43.5s | 46.1s |
+
+**Also worse, not better, in this sample.** Two honest caveats before
+reading too much into this: (a) n=5 post-restart is a genuinely small
+sample — WR cycle wall time is highly variable (this same "before" data
+ranges 1.4s-60.7s cycle-to-cycle depending on queue depth at cycle
+start), and (b) the first several post-restart cycles include cold-start
+model-loading overhead (nothing was resident immediately after the
+restart) that a longer window would dilute out. Both of these numbers
+are also consistent with, and plausibly explained by, the elevated swap
+rate in item 1 — if swaps are genuinely more frequent, and each swap
+costs real load time, worse cycle times would be the expected downstream
+consequence, not a separate coincidence.
+
+### Verdict: DO NOT DECLARE THIS TICKET'S SUCCESS CRITERIA MET YET
+
+The isolated, controlled load test (docs/XO_BACKLOG.md, same-model
+concurrent dispatch) is real and its 1.86x speedup stands on its own
+merits — that mechanism works as designed. But the two production
+metrics this ticket explicitly asked to verify (swap frequency, cycle
+wall time) both moved the WRONG direction in the first 25 minutes of
+live mixed-model traffic, and the working theory (resident-capacity
+vs. model-diversity being the actual constraint) is a real, substantive
+possibility that would mean the throughput ceiling here isn't
+worker-count, it's how many distinct models the fleet calls per cycle
+relative to MAX_LOADED_MODELS=2. **Recommend**: let this run longer
+(a few hours, ideally spanning market-open real WR-burst volume, not
+just after-hours quiet traffic) before drawing a final verdict, and if
+the elevated swap rate persists at scale, the next investigation is
+fleet model diversity vs. resident capacity — not a workers-count
+tweak. Rollback path (`OLLAMA_QUEUE_WORKERS=1`) remains available and
+verified byte-parity-safe if the extended window confirms a regression
+rather than settling out.
