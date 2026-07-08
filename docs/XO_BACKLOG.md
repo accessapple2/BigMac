@@ -8272,3 +8272,39 @@ Not investigated further — filed here as an observation, not a task.
 Not currently enabled — this is the "ready if needed" patch, not a
 change to today's shipped default. Deploy tomorrow only if the market-
 hours scan-window judgment (above) triggers it.
+
+---
+## HM-TELEGRAM-NTFY-UNIFY (filed 2026-07-07, from HM-ALERT-COLLAB-LINKS §7.4)
+
+`engine/dynamic_alerts.py` still sends via a legacy `_send_telegram` path
+(silent-catch wrapper, `engine/telegram_alerts.py`) instead of the unified
+severity-routed `alert_channels.py` (ntfy-first doctrine). Unify: route
+`dynamic_alerts` emissions through `alert_channels.py`, retire the bespoke
+telegram call. Deliberately kept OUT OF SCOPE of the alert-share-links work
+to keep that diff small. Low priority; no user-visible breakage today.
+
+**Verified before filing** (2026-07-07): `engine/dynamic_alerts.py:61-67`
+—
+
+```python
+def _send_telegram(message: str):
+    """Send alert via Telegram."""
+    try:
+        from engine.telegram_alerts import send_alert
+        send_alert(message)
+    except Exception:
+        pass
+```
+
+Confirmed genuine silent-catch (bare `except Exception: pass`, zero
+logging) — violates the no-silent-catch error handling posture. Confirmed
+it bypasses `alert_channels.py` entirely (direct import of
+`engine.telegram_alerts`, not routed through the severity/rate-limit/
+multi-channel logic the rest of the alerting stack uses). 8 call sites in
+`dynamic_alerts.py` (trendline breaks, RSI oversold/overbought, volume
+spike, MACD crossover, plus others).
+
+**Bonus, same pass**: fix the silent-catch violation while unifying —
+route failures through the same `logger.warning` + telemetry pattern
+`alert_channels.py`'s own send paths already use, rather than swallowing
+silently.

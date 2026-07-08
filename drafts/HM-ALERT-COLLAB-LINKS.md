@@ -1,7 +1,8 @@
 # HM-ALERT-COLLAB-LINKS — Shareable One-Paste Alert Links
 
-**Status:** DRAFT (plan only — no code, no schema, no .db writes in this pass)
-**Date:** 2026-07-06
+**Status:** DRAFT — reviewed 2026-07-07; Admiral decisions recorded (§7); bundle
+payload + integration notes added. Still plan-only — no code, no schema, no .db writes.
+**Date:** 2026-07-06 (reviewed/updated 2026-07-07)
 **Prior art:** Trade Ideas Pro "Collaborate" + Cloud share features
 **Doctrine touchpoints:** TWO-TIER BRIDGE, CARRIER DOCTRINE Rung 1 (FIND), RULE #1 (untouched)
 
@@ -34,6 +35,13 @@ Cloud Features"):
   — i.e. server-side storage keyed by an opaque code, *not* a self-contained
   payload. The Collaborate copy-paste link, by contrast, encodes settings in
   the link itself.
+- **2026-07 TI Pro promo delta:** current marketing pitches "paste one link
+  and all five alerts arm themselves — then fire the moment price triggers."
+  Two implications: (a) links carry *bundles* of alerts, not one; (b) TI arms
+  on paste. We adopt (a) — see bundle-native payload below. We deliberately
+  reject (b) — see import semantics; auto-arming pasted content is the exact
+  injection pattern §5 guards against. An "arm all" button after review gets
+  the one-click UX without silent arming.
 
 Two distinct patterns, both worth supporting eventually:
 **(A) self-contained encoded payload** (works offline, no storage) and
@@ -76,6 +84,23 @@ No alert-config data model → nothing to serialize → nothing to share. The
 share-link feature therefore has a hard prerequisite: a minimal
 **alert definition** layer (Phase 1) before links (Phase 2).
 
+### Integration notes from 2026-07-07 conflict check
+
+- **HM-WAL-BUSY-TIMEOUT-HYGIENE (commits `027fb90`, `aa55f1d`, 2026-07-06):**
+  hot-path sqlite connections migrated to the shared `engine/db_conn.py`
+  helper (synchronous=NORMAL, busy-timeout, FD-hygiene). `dynamic_alerts.py`
+  still rolls its own `sqlite3.connect("data/trader.db")` `_conn()`. **All
+  Phase 1 code (new `alert_definitions` reads/writes, and any touch to
+  `dynamic_alerts.py`) MUST use `engine/db_conn.py`** — do not regress the
+  98-site FD-leak sweep by adding a 99th bespoke connection site.
+- **CARRIER Rung 1 contact card (night-crew, `carrier_rung1_contact.html`):**
+  imported/user-defined alerts that fire should ride the same
+  notification-poll payload the v2 contact card consumes, and must carry
+  correct Contact Classification tiering — user price/RSI/etc. alerts are
+  **ACTIONABLE** (full crumb trail); anything system/measurement-ish is
+  INFORMATIONAL (no carrier treatment). Wire the tier at emit time in
+  Phase 1 so Rung 1 works for free.
+
 ## 4. Proposed design
 
 ### Link format (self-contained, pattern A)
@@ -86,36 +111,45 @@ OLLIE-ALERT:1:<base64url( zlib( canonical-JSON payload ) )>:<hmac-sig-16>
 
 - Prefix + version field → forward-compatible parsing, easy clipboard
   detection ("paste anywhere" box can auto-recognize it).
-- Payload = alert definition only (see schema below). **Never** code,
+- Payload = alert definition bundle only (see schema below). **Never** code,
   callables, SQL, file paths, or account data.
 - HMAC-SHA256 (truncated) over the payload with a server-side key —
   signal-center already ships `URLSafeTimedSerializer`-style signing for
   sessions; reuse `itsdangerous` for the whole job (it does the
   serialize+sign+b64 dance natively). Unsigned/tampered links are rejected
   on paste. Note: signature proves origin, not safety — validation below
-  still applies.
+  still applies. Key = dedicated `ALERT_SHARE_KEY` env var (§7 decision 3).
 - Optional URL wrapper for QR/phone: `https://signal.ollietrades.com/a#<blob>`
   (fragment, not query — keeps payload out of server logs; page JS decodes
   and offers "import"). URL wrapper is Phase 3, blocked on closing the CF
-  Access TODO for the `signal` route.
+  Access TODO for the `signal` route — **and deprioritized per §7 decision 1
+  (audience = the 3 bridge-allow emails; clipboard strings likely suffice).**
 
-### Payload schema (v1)
+### Payload schema (v1, bundle-native)
 
 ```json
 {
   "v": 1,
-  "kind": "price_level | rsi | volume_spike | macd_cross | trendline",
-  "symbol": "MRVL",
-  "params": {"level": 93.43, "direction": "above"},
-  "severity": "info | warning | red_alert",
-  "channels": ["ntfy"],
-  "note": "free text ≤200 chars",
+  "alerts": [
+    {
+      "kind": "price_level | rsi | volume_spike | macd_cross | trendline",
+      "symbol": "MRVL",
+      "params": {"level": 93.43, "direction": "above"},
+      "severity": "info | warning | red_alert",
+      "channels": ["ntfy"],
+      "note": "free text ≤200 chars"
+    }
+  ],
   "created_by": "user-or-agent-id",
   "created_at": "2026-07-06T12:00:00Z"
 }
 ```
 
-Size cap ~2 KB post-encode. `kind` is an allowlist enum mapping 1:1 onto the
+**Bundle-native (2026-07-07):** top-level carries an *array* of 1–20
+definitions — TI Pro's promoted UX is "paste one link, five alerts arm"; a
+one-alert-per-link format would trail prior art on day one. A single alert is
+an array of one. Size cap ~2 KB per alert, ~8 KB per bundle post-encode.
+`kind` is an allowlist enum mapping 1:1 onto the
 existing `dynamic_alerts.py` check functions — pasted configs can only turn
 on checks that already exist; a link can never introduce new behavior.
 
@@ -130,31 +164,42 @@ reader that unions user definitions with the existing hardcoded checks
 (hardcoded stays default-on; definitions are additive). CRUD endpoints on
 dashboard `/api/alert-defs` (GET/POST/PATCH). Deep UI lands in bridge v1
 alerts panel per TWO-TIER doctrine; bridge-v2 gets display-only at most.
+All new DB access via `engine/db_conn.py` (see Integration notes). Fired
+user-definition alerts emit with Contact Classification tier = ACTIONABLE.
 
 **Phase 2 — Encode / decode (the feature).**
-- `engine/alert_share.py`: `encode_alert(defn) -> str`,
-  `decode_alert(blob) -> defn` (verify sig → version check → schema
-  validation → allowlist check → size check).
-- v1 alerts panel: per-alert "Copy share link" button (clipboard write).
+- `engine/alert_share.py`: `encode_alerts(defns) -> str`,
+  `decode_alerts(blob) -> defns` (verify sig → version check → schema
+  validation → allowlist check → per-alert + bundle size check).
+- v1 alerts panel: per-alert "Copy share link" button + multi-select →
+  "Copy bundle link" (clipboard write).
 - "Paste alert link" box + `POST /api/alert-defs/import` — decodes,
-  validates, inserts as **disabled** (`enabled=0`); user reviews the decoded
-  config and arms it explicitly. One paste = one recreated alert. Mirrors
-  TI's paste-to-load, but deliberately *not* TI's "erase old settings"
-  semantics — import always creates, never overwrites.
+  validates, inserts **all bundle members as disabled** (`enabled=0`); the
+  review screen lists every decoded alert with an **"Arm all"** button (plus
+  per-alert toggles). One paste = whole bundle recreated, one click = armed —
+  TI-parity UX without TI's silent auto-arm, and deliberately *not* TI's
+  "erase old settings" semantics — import always creates, never overwrites.
+- **Agent auto-emit (§7 decision 2):** once `encode_alerts()` exists,
+  agent-generated alerts (e.g. Uhura hits) append their share link to their
+  ntfy messages — every notification becomes a TI-style crumb any of the 3
+  bridge users can adopt with one paste. Emit-side only; no import-side
+  special-casing.
 - Duplicate guard: exact (kind, symbol, params) match → offer
-  skip/duplicate choice rather than silent double-insert.
+  skip/duplicate choice rather than silent double-insert (per bundle member).
 
-**Phase 3 — QR + web landing (optional, TI parity).**
+**Phase 3 — QR + web landing (DEFERRED per §7 decision 1).**
 QR render of the URL wrapper (client-side JS lib, no new backend), landing
 page on signal-center showing decoded settings read-only with an Import
-button. **Gated on:** verifying/enforcing CF Access on
-`signal.ollietrades.com` (existing ⚠ TODO in CLAUDE.md — this feature is a
-forcing function to close it).
+button. Audience is the 3 `bridge-allow` emails → clipboard strings are
+likely the whole feature; build Phase 3 only if phone-to-desktop sharing
+proves annoying in practice. **Still gated on:** verifying/enforcing CF
+Access on `signal.ollietrades.com` (existing ⚠ TODO in CLAUDE.md).
 
-**Phase 4 (follow-on, pattern B) — short codes.** Server-stored configs with
+**Phase 4 (DEFERRED, pattern B) — short codes.** Server-stored configs with
 opaque codes (TI `Cloud.html?code=` style): shorter links, revocation,
-share-count. Table `shared_alerts` keyed by 16-byte random code. Not needed
-for v1 value; ship only if link length proves annoying.
+share-count. Table `shared_alerts` keyed by 16-byte random code. Same
+audience rationale as Phase 3 — not needed for v1 value; ship only if link
+length proves annoying to the 3-person audience.
 
 ## 5. Security & doctrine compliance
 
@@ -162,6 +207,10 @@ for v1 value; ship only if link length proves annoying.
   surface. Alert definitions can only feed the existing notify pipeline.
   Import path must be physically unable to create trades — enforced by
   `kind` allowlist mapping only to notify-side checks.
+- **No auto-arm on paste:** all imported definitions land `enabled=0` and
+  require an explicit human arm action (per-alert or "Arm all" after
+  review). A pasted blob silently activating behavior is an injection
+  pattern, not a convenience.
 - **No silent catch** (Error Handling Posture): decode failures return
   explicit 4xx with reason (bad sig / bad version / schema fail / too big),
   logged; never swallow-and-ignore.
@@ -182,11 +231,12 @@ for v1 value; ship only if link length proves annoying.
 
 ## 6. Testing & rollout
 
-- Unit: encode→decode round-trip; tamper (flip one byte → reject); version
-  bump rejection; oversize rejection; per-kind param validation matrix.
-- **Frontend Ship Rule (HM-BJ.E4):** the copy button and paste box are
-  non-trivial frontend JS — manual browser hover/click smoke test is a
-  required closure phase, not optional.
+- Unit: encode→decode round-trip (single + bundle); tamper (flip one byte →
+  reject); version bump rejection; oversize rejection (per-alert and bundle);
+  per-kind param validation matrix; duplicate-guard per bundle member.
+- **Frontend Ship Rule (HM-BJ.E4):** the copy button, paste box, and
+  review/Arm-all screen are non-trivial frontend JS — manual browser
+  hover/click smoke test is a required closure phase, not optional.
 - **Restart-then-verify (HM-CONSOLE-INIT):** smoke-restart trader after the
   `dynamic_alerts.py` union change; confirm log heartbeat shows the
   definition reader firing in the live loop (Daemon Lifecycle Rule — verify
@@ -195,20 +245,18 @@ for v1 value; ship only if link length proves annoying.
   (`ALERT_DEFS_ENABLED`, default `False`) per Feature Flags convention;
   flip after smoke; Phase 2 ships only after Phase 1 stable ≥1 week.
 
-## 7. Open questions (Admiral input wanted)
+## 7. Admiral decisions (2026-07-07) — supersedes open questions
 
-1. Who is the sharing audience? If it's only the 3 `bridge-allow` emails,
-   Phase 3/4 may be over-build — Phase 2 clipboard strings may be the whole
-   feature.
-2. Should agent-generated alerts (e.g. Uhura hits) auto-emit share links
-   into their ntfy messages? Cheap add once `encode_alert()` exists; turns
-   every notification into a TI-style crumb others can adopt.
-3. HMAC key management: env var alongside SMTP/ntfy config, or reuse
-   signal-center's existing secret? (Recommend a dedicated
-   `ALERT_SHARE_KEY` so rotating one doesn't break the other.)
-4. Telegram path in `dynamic_alerts.py` (`_send_telegram`) vs ntfy-first
-   doctrine in `alert_channels.py` — worth unifying while touching this
-   file, or out of scope? (Recommend: out of scope, ticket separately.)
+1. **Audience: the 3 `bridge-allow` emails only.** Phases 3–4 marked
+   DEFERRED/over-build; Phase 2 clipboard strings are the feature.
+2. **Agent auto-emit: YES.** Once `encode_alerts()` exists, agent alerts
+   (Uhura etc.) append share links to their ntfy messages. Folded into
+   Phase 2 scope.
+3. **HMAC key: dedicated `ALERT_SHARE_KEY`** env var alongside SMTP/ntfy
+   config. Rotation decoupled from signal-center's session secret.
+4. **Telegram unification: OUT OF SCOPE.** `dynamic_alerts.py`'s legacy
+   `_send_telegram` path vs ntfy-first doctrine to be ticketed separately in
+   `docs/XO_BACKLOG.md` (ticket not yet filed as of this update).
 
 ## 8. References
 
@@ -216,6 +264,9 @@ for v1 value; ship only if link length proves annoying.
 - Trade Ideas Cloud share: help.trade-ideas.com/article/91-using-the-cloud-features
 - `engine/alert_channels.py` (delivery layer, topics, rate limits)
 - `engine/dynamic_alerts.py` (checks + `dynamic_alerts` event table, lines 23–58)
+- `engine/db_conn.py` (shared sqlite helper — REQUIRED for all new DB access,
+  HM-WAL-BUSY-TIMEOUT-HYGIENE 2026-07-06)
+- `_nightcrew/carrier_rung1_contact.html` (Rung 1 contact card — tier wiring)
 - `signal-center/server.py` — `/api/export/<fmt>` (~1070), `/api/import` (~1107)
 - `dashboard/app.py` — dynamic-alerts endpoints (~8871, ~9261–9289, ~17782)
 - CLAUDE.md — TWO-TIER BRIDGE, CARRIER DOCTRINE, Feature Flags, SACRED DATA,
