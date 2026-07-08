@@ -8274,7 +8274,20 @@ change to today's shipped default. Deploy tomorrow only if the market-
 hours scan-window judgment (above) triggers it.
 
 ---
-## HM-TELEGRAM-NTFY-UNIFY (filed 2026-07-07, from HM-ALERT-COLLAB-LINKS §7.4)
+## 🟢 HM-TELEGRAM-NTFY-UNIFY (filed 2026-07-07, from HM-ALERT-COLLAB-LINKS §7.4) — SHIPPED 2026-07-07, commit `5bed053`
+
+**SHIPPED 2026-07-07, commit `5bed053`.** Executed per
+`directives/hm_telegram_ntfy_unify_execution.md`. All 7 `_send_telegram`
+call sites replaced with `_notify()` (routes through
+`engine.alert_channels.send_alert`, ntfy-first). Zero telegram references
+remain (`grep -n "telegram" engine/dynamic_alerts.py` — zero hits,
+confirmed). 3 new tests (`tests/test_dynamic_alerts_notify.py`), 16/16
+existing Phase 1 tests still green, full suite at the established
+baseline (no new regressions). Restarted clean; verified via a direct
+non-mocked live invocation against a real current SPY price (zero
+exceptions) rather than waiting indefinitely for the natural fleet
+cycle's infrequent after-hours cadence. Full detail below (original
+filing, kept for the record).
 
 `engine/dynamic_alerts.py` still sends via a legacy `_send_telegram` path
 (silent-catch wrapper, `engine/telegram_alerts.py`) instead of the unified
