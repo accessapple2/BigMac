@@ -8503,13 +8503,87 @@ test on `check_scan_liveness()` with a mocked `_last_scan_complete_ts` /
 stubbed `send_alert`. Do this before trusting it silently through a real
 incident.
 
-**Open item 2 — the real incident this whole thing was chasing is still
-unaddressed.** One scan held `_scan_lock` for 4090.9s (04:06→09:11 MST,
-21 cumulative T1-due-but-skipped events) — a genuine ~68min stall, not the
-09:16-09:55 gap (that part turned out benign). The new cycle-age alert only
-catches this *late* (60 min in) and only reports it, doesn't prevent it.
-Needs its own ticket: a max-scan-duration cap or an explicit `_scan_lock`
-hold-timeout (force-release + log + alert) so a wedged scan can't hold the
-lock indefinitely and starve every tier behind it. Root cause of *why* that
-particular scan ran 68 minutes was not investigated — that's part of this
-ticket too.
+**Open item 2 — RESCOPED 2026-07-08 ~10:59 MST.** Root cause of "why 68
+minutes" found: a live in-flight cycle (started ~10:30 MST, still running as
+of this edit) showed the scan_lock heartbeat's phase marker moving
+symbol-by-symbol through sequential Ollama inference for `ollama-plutus`
+(MU → META → NVDA → AVGO → XLE → ORCL → NOW → CNTA...), each symbol taking
+anywhere from tens of seconds to ~2.5 min. **Per-symbol LLM inference time is
+unbounded and scan duration is just the sum of however many symbols are in
+that cycle's universe** — the 04:06 4090.9s stall fits this exactly; it
+wasn't a deadlock, it was the same mechanism running long on a bad day
+(slow model, large universe, or both). No separate wedge/deadlock bug to
+chase.
+
+Rescoped from "lock hold-timeout" to three parts, in priority order:
+
+**(a) PRIORITY — decouple `run_user_alert_definitions` from the LLM scan
+into a fast lane on every 2-min scheduler tick.** RSI/volume/price-level/
+trendline checks need only plain market data, zero LLM inference — there is
+no reason they should be hostage to however long `ollama-plutus` takes to
+grind through its symbol list. Concretely: today's dogfood (`alert_definitions`
+IDs 1-5) sat blind through the entire 10:30→11:00+ MST FOMC-minutes reaction
+window because their only evaluation path is inside the same `_arena_scan_thread`
+that the slow LLM scan monopolizes via `_scan_lock`. That coupling is the
+actual bug — fix it by evaluating user alert-defs (and probably the other
+`check_*` dynamic-alert functions, all pure-data too) on their own fast,
+lock-independent cadence, separate from `arena.run_scan()`.
+
+**(b) Per-symbol inference timebox + skip-and-log.** Cap how long any single
+symbol's inference phase can run inside a scan; if it blows the budget, skip
+that symbol (log which one, and why), don't let it hold the whole cycle
+hostage. This is what actually bounds worst-case scan duration — a lock
+timeout alone would just abort the whole cycle's work, losing every symbol
+already processed.
+
+**(c) Keep a `_scan_lock` hold-timeout, but demoted to backstop only** — a
+safety net for a genuine future deadlock (not the expected case anymore),
+not the primary fix.
+
+Evidence to attach once the in-flight cycle (started ~10:30 MST) completes:
+total cycle duration, and confirmation that alert-defs 1-5 evaluated cleanly
+once it finally does.
+
+**Organic live-fire watch armed 11:05 MST** — this same cycle running past
+60 min is backlog item #1's (watchdog verification) real-world test, for
+free. `_last_scan_complete_ts` was seeded at process import (~10:26:00 MST,
+this morning's second restart) and hasn't moved since — no scan has
+completed. Threshold trips at seed-time + 3600s ≈ **11:26 MST** (a few min
+before the ~11:30 estimate based on scan-start time, since the watchdog
+clocks from last-completion not last-start). Watching for: (1) `[HM-SCAN-
+LIVENESS] ALERT` log line + a real `alert_channels.send_alert` call with no
+`send_alert failed` in trader_error.log: fires clean → **close item #1 as
+production-verified**. (2) Silent past 11:32 MST → treat as a watchdog bug,
+investigate before EOD. (3) Once the cycle finally completes → confirm
+`[HM-SCAN-LIVENESS] recovered` auto-clear fires. Outcome to be logged here
+when observed.
+
+**OUTCOME (11:21:14 MST) — cycle completed at 3078.1s (51.3 min), UNDER
+the 3600s/60min alert threshold.** `[HM-AS-β-C] scan_lock held 3078.1s
+(scan-only)`. The organic live-fire test did **not** occur — the cycle
+self-resolved before crossing the alarm line, so item #1 (watchdog
+verification) is still open, unverified by a real fire event. No
+`[HM-SCAN-LIVENESS] ALERT` line appeared (correctly — it shouldn't have,
+math checks out: 3078s < 3600s) and no `send_alert failed` errors either.
+Immediately after, a second scan ran and completed in 13.8s — confirming
+the system returns to normal cadence once the long cycle clears.
+
+**Item #2 evidence, confirmed:** 51.3 min for this cycle (vs. 68 min for
+the 04:06 incident) is a second independent data point for the same
+unbounded-per-symbol-inference diagnosis — not a one-off. Reinforces (a)/(b)/(c)
+priority order above.
+
+**Alert-defs 1-5 evaluated cleanly on this cycle:** `Dynamic alerts: 8
+triggered` logged 11:20:53 with zero errors (built-in checks fired
+normally — `dyn_macd_crossover_NVDA`, `dyn_rsi_oversold_ORCL`,
+`dyn_volume_spike_APLS`, `dyn_rsi_overbought_CNTA`, etc. all dispatched
+clean via alert_channels). All 5 user defs (IDs 1-5) remained
+`enabled=1, last_triggered_at=null` post-cycle — correct, since none of
+their specific conditions (SPY RSI≤30, NVDA RSI≥70, TSLA vol≥3x, BABA≥110,
+QQQ trendline break) were actually met this pass. No `alert_def`-specific
+errors anywhere in `trader_error.log`.
+
+**Item #1 still needs its live-fire test** — next opportunity is whenever
+a future cycle organically exceeds 60 min, or force it via the two options
+already listed above (temp-lower threshold in an after-hours window, or a
+mocked-timestamp unit test). Not closed.
