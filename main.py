@@ -4330,6 +4330,24 @@ if __name__ == "__main__":
         except Exception as _exc:
             logger.debug("[signal_eval] scheduler call failed: %s", _exc)
     schedule.every(30).minutes.do(_run_signal_evaluator)
+    # HM-RIKER-XO-SCHEDULE-2026-07-09: engine/riker_xo.py::generate_riker_synthesis()
+    # (powers the riker-hero dashboard widget / /api/riker/recommendation) was NEVER
+    # scheduled anywhere -- confirmed via git history it predates and was untouched by
+    # the 2026-06-24 Picard/Riker narrative-layer retirement (a DIFFERENT system,
+    # engine/picard_strategy.py + the old run_riker_synthesis/_riker_startup in-process
+    # scheduler, both removed then). This one only ever ran via a manual "Synthesize
+    # Now" button (/api/riker/synthesize POST), and its result lives in an in-memory
+    # cache (10-min TTL) that resets to empty on every process restart -- explaining
+    # the widget showing "awaiting synthesis" indefinitely. generate_riker_synthesis()
+    # already has its own non-blocking _synthesis_lock (skips if one's in flight), so
+    # this is safe to call on a plain interval with no extra concurrency guard needed.
+    def _run_riker_xo_synthesis():
+        try:
+            from engine.riker_xo import generate_riker_synthesis
+            generate_riker_synthesis()
+        except Exception as _exc:
+            logger.debug("[riker_xo] scheduler call failed: %s", _exc)
+    schedule.every(10).minutes.do(_run_riker_xo_synthesis)
     # HM-EXEC-PIPELINE measurement-health watchdog: ntfy RED probes every 15 min
     _mhealth_cooldown = {}  # probe_key -> epoch_secs of last alert
     _MHEALTH_CD_SECS = 3600  # 60-min cooldown per probe

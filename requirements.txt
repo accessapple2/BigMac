@@ -12,6 +12,7 @@ python-dotenv>=1.0.1
 apscheduler>=3.10.4
 itsdangerous>=2.2.0
 python-multipart>=0.0.9
+edgartools>=5.42.0  # agents/uhura_agent.py — SEC EDGAR 13F/Form-4 institutional signals. HM-UHURA-EDGARTOOLS-2026-07-09: was never pinned here despite being a hard dependency (silent `if not EDGAR_AVAILABLE: return []` degrade), which is exactly how it silently vanished from .venv for 26 days (last real signal 2026-06-13) with zero errors/alerts — cron ran daily, logged the ImportError warning, and nothing else noticed.
 black>=24.4.2
 flake8>=7.1.1
 psutil>=7.2.2  # /api/system/ram + RAM widget on Models page (2026-05-23 — engine/ai_brain + engine/crew_scanner import)
