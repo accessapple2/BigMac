@@ -8587,3 +8587,46 @@ errors anywhere in `trader_error.log`.
 a future cycle organically exceeds 60 min, or force it via the two options
 already listed above (temp-lower threshold in an after-hours window, or a
 mocked-timestamp unit test). Not closed.
+
+## HM-STOP-COVERAGE-GAP-2026-07-09 — manual emergency flatten + coverage gap found
+
+**Manual intervention log (2026-07-09 ~08:27-08:29 MST, Captain-approved):**
+Investigating a Scotty-handoff report of "COST position -15.8% unrealized,
+no stop fired" surfaced that the original attribution (McCoy) was wrong —
+live-verified McCoy's (`ollama-plutus`) actual COST position was -7.98%,
+not yet breaching its -8% floor. A full sweep of all 42 open stock
+positions against the -8% hard-stop threshold (live Alpaca prices) found
+the real breaching position was `alpaca-mirror` — a `crew_role='mirror'`
+bookkeeping row that reflects the literal real Alpaca paper broker
+account's own COST holding (qty=0.08, unrealized -16.17%, market value
+$72.76 — matches the handoff's "$73 dust" exactly), plus a second breach:
+`ollie-auto` / NUKZ at -8.83%.
+
+Root cause: `engine/crew_scanner.py::_check_hard_stops()` only iterates
+`ACTIVE_SCANNERS + RULES_SCANNERS + ALPHA_SQUAD` (10 named players) — it
+never looks at any other player's open stock positions. 4 of the 7 players
+currently holding open stock positions (`alpaca-mirror`, `ollie-auto`,
+`guardian-of-forever`, `qwen3-8b-flash`) are outside that set and have
+**zero stop-loss coverage**. This is the real defect behind the "why did
+the stop not fire" question — not a threshold/tiering bug, a membership
+gap in the safety-net function itself.
+
+**Actions taken (Captain-approved, before root-cause fix shipped):**
+- `ollie-auto` NUKZ: closed via `engine.paper_trader.sell()` (the normal
+  gated path), qty=0.348 @ $65.50, realized PnL -$2.21. Internal ledger
+  updated; Alpaca-side leg was already flat (0 qty on the real account —
+  pre-existing internal/broker ledger drift for this player, not caused by
+  this close).
+- `alpaca-mirror` COST: `engine.paper_trader.sell()` correctly refused
+  (`_is_human_player` guard — this row is a broker-state mirror, not an
+  AI-tradeable book). Closed instead via `AlpacaBridge.close_position('COST')`
+  directly against the real Alpaca **paper** account (RULE #1 Schwab-hands-off
+  N/A — this is Alpaca paper only). Verified: account position count 14→13,
+  COST absent from `client.get_all_positions()` post-close.
+- Re-swept all 41 remaining open stock positions post-close: zero remaining
+  violators of the -8% threshold.
+
+**Not yet done:** fix `_check_hard_stops()`'s player coverage (tracked as
+the P0 "position-monitoring loop" item in the same session) and confirm
+whether `alpaca-mirror`'s internal `positions` table row self-corrects via
+its normal broker-sync job or needs a manual row cleanup.
