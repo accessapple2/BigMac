@@ -40,10 +40,11 @@ import json
 import sqlite3
 import threading
 import time
-from datetime import datetime, timezone
+from datetime import datetime, timedelta, timezone
 
 from rich.console import Console
 
+from engine.db_conn import get_conn
 from engine.risk_manager import RiskManager
 
 console = Console()
@@ -83,8 +84,21 @@ _stats: dict = {
 # ─── DB helpers ───────────────────────────────────────────────────────────────
 
 def _conn() -> sqlite3.Connection:
-    c = sqlite3.connect(DB, timeout=10)
-    c.execute("PRAGMA journal_mode=WAL")
+    # HM-EVENT-TAPE-WAL-CONTENTION-2026-07-09: was raw sqlite3.connect(DB,
+    # timeout=10) -- main.py's process-wide sqlite3.connect monkeypatch
+    # (main.py:69-74) actually forces busy_timeout=30000 regardless of the
+    # timeout kwarg passed here, so each of this loop's 8 sequential detector
+    # queries could legitimately wait up to 30s under real startup write
+    # contention -- worst case ~4min for one full cycle, which read as a
+    # "stall" during manual diagnosis (see docs/XO_BACKLOG.md). Migrated to
+    # the shared hardened helper for synchronous=NORMAL, which is what
+    # actually shortens other writers' lock-hold time and reduces the
+    # contention window itself (HM-WAL-BUSY-TIMEOUT-HYGIENE wave 1 pattern,
+    # same fix shape as riker_synthesis.py). get_conn imported at module
+    # scope (not here) -- this function runs inside the detector daemon
+    # thread's hot path, and a lazy import here would reintroduce the exact
+    # class of startup import-lock hazard already fixed for RiskManager.
+    c = get_conn(DB, timeout=10)
     c.row_factory = sqlite3.Row
     return c
 
@@ -353,21 +367,37 @@ def _detect_session_extremes(conn: sqlite3.Connection) -> None:
     _SESSION_HIGH_BUFFER_PCT — avoids firing every tick that lands at an
     already-established extreme on sparse IEX coverage.
     """
+    # HM-EVENT-TAPE-WAL-CONTENTION-2026-07-09: this query was the actual root
+    # cause of the detector loop appearing dead -- diagnosed via per-function
+    # timing that isolated the stall to this exact call. Two compounding
+    # anti-patterns against price_ticks (64K+ rows/day at 4h retention):
+    #   1. `substr(ts,1,10) = ?` isn't sargable -- EXPLAIN QUERY PLAN showed a
+    #      full COVERING INDEX SCAN (every row) instead of a seek. A ts range
+    #      predicate lets SQLite SEEK the existing idx_price_ticks_ts index.
+    #   2. `WHERE t1.id = (SELECT MAX(id) FROM today_ticks t2 WHERE ...)` is a
+    #      correlated subquery re-scanning the whole today_ticks CTE once per
+    #      row -- O(n^2) against a CTE with tens of thousands of rows. A plain
+    #      GROUP BY (computed once) + JOIN gets the identical result set.
+    # Semantics are unchanged: prior_high/prior_low still explicitly excludes
+    # the latest tick (`t.id < li.last_id`), same as the original.
     today = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+    tomorrow = (datetime.now(timezone.utc) + timedelta(days=1)).strftime("%Y-%m-%d")
 
     rows = conn.execute(
         """
         WITH today_ticks AS (
           SELECT id, symbol, price, ts FROM price_ticks
-           WHERE substr(ts, 1, 10) = ?
+           WHERE ts >= ? AND ts < ?
+        ),
+        latest_ids AS (
+          SELECT symbol, MAX(id) AS last_id
+            FROM today_ticks
+           GROUP BY symbol
         ),
         latest AS (
-          SELECT t1.symbol,
-                 t1.price AS last_price,
-                 t1.ts    AS last_ts,
-                 t1.id    AS last_id
-            FROM today_ticks t1
-           WHERE t1.id = (SELECT MAX(id) FROM today_ticks t2 WHERE t2.symbol = t1.symbol)
+          SELECT t.symbol, t.price AS last_price, t.ts AS last_ts, t.id AS last_id
+            FROM today_ticks t
+            JOIN latest_ids li ON li.symbol = t.symbol AND li.last_id = t.id
         ),
         prior AS (
           SELECT t.symbol,
@@ -375,8 +405,8 @@ def _detect_session_extremes(conn: sqlite3.Connection) -> None:
                  MIN(t.price) AS prior_low,
                  COUNT(*)     AS prior_n
             FROM today_ticks t
-            JOIN latest l ON l.symbol = t.symbol
-           WHERE t.id < l.last_id
+            JOIN latest_ids li ON li.symbol = t.symbol
+           WHERE t.id < li.last_id
            GROUP BY t.symbol
         )
         SELECT l.symbol, l.last_price, l.last_ts,
@@ -385,7 +415,7 @@ def _detect_session_extremes(conn: sqlite3.Connection) -> None:
           JOIN prior  p ON p.symbol = l.symbol
          WHERE p.prior_n >= 20   -- need real coverage before extreme means anything
         """,
-        (today,),
+        (today, tomorrow),
     ).fetchall()
 
     buf = _SESSION_HIGH_BUFFER_PCT / 100.0
@@ -717,6 +747,7 @@ def _run_detector_loop() -> None:
         except Exception as exc:
             console.log(f"[yellow][EVENT-TAPE] is_market_hours check failed: {exc!r} — proceeding")
 
+        _cycle_t0 = time.monotonic()
         try:
             c = _conn()
             _detect_running_fast(c)
@@ -731,6 +762,15 @@ def _run_detector_loop() -> None:
             c.close()
             _stats["cycles"] += 1
             _stats["last_cycle_at"] = datetime.now(timezone.utc).isoformat()
+            # HM-EVENT-TAPE-WAL-CONTENTION-2026-07-09: cycles normally take
+            # <1s; a slow one is the signature of WAL write-lock contention
+            # (each of the 8 detector queries can wait up to the process-wide
+            # 30s busy_timeout). Surface it instead of it only being visible
+            # via manual instrumentation, as it was when this was diagnosed.
+            _cycle_wall = time.monotonic() - _cycle_t0
+            if _cycle_wall > 5.0:
+                console.log(f"[yellow][EVENT-TAPE] slow cycle: {_cycle_wall:.1f}s "
+                            f"(likely WAL contention)")
         except Exception as exc:
             console.log(f"[red][EVENT-TAPE] detector cycle failed: {type(exc).__name__}: {exc!r}")
 
