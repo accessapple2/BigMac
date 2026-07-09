@@ -9,6 +9,54 @@ from rich.console import Console
 console = Console()
 
 
+# HM-REASONING-DIRECTION-SANITY-2026-07-09: live incident -- a HIMS signal's
+# reasoning literally said "price break below the opening range low ...
+# bearish breakout indicates potential reversal" then concluded BUY_CALL
+# (bullish). Traced to the LLM's own free-text reasoning contradicting
+# itself, not a deterministic sign-flip bug anywhere in the codebase (the
+# breakout-detection prompt injection in engine/volatility_breakout.py
+# correctly labels BEAR as "broke below ... opening range low" and never
+# transforms it). Cheap, visibility-only sanity check: does the reasoning
+# text's own directional language agree with the emitted action? Flags via
+# a log line, never blocks -- some legitimate theses explicitly weigh a
+# counter-signal before overriding it (e.g. "broke below support but
+# options flow shows strong bullish call buying"), so this is expected to
+# have false positives; it's a cheap smoke detector, not a gate.
+_BEARISH_PHRASES = (
+    "broke below", "breaking below", "break below", "bearish breakout",
+    "bearish breakdown", "opening range low", "breakdown below",
+)
+_BULLISH_PHRASES = (
+    "broke above", "breaking above", "break above", "bullish breakout",
+    "opening range high", "breakout above",
+)
+_BULLISH_ACTIONS = frozenset({"BUY", "BUY_CALL"})
+_BEARISH_ACTIONS = frozenset({"BUY_PUT", "SHORT"})
+
+
+def check_reasoning_direction_conflict(action: str, reasoning: str) -> str | None:
+    """Return a short description if reasoning's directional language
+    contradicts the emitted action, else None. Pure function, no I/O.
+
+    Only checks the strong, unambiguous ORB-style phrases this codebase's
+    own prompt injection uses (see engine/volatility_breakout.py) -- not a
+    generic sentiment scan -- to keep the false-positive rate manageable
+    for something that's purely advisory.
+    """
+    if not reasoning or action not in _BULLISH_ACTIONS | _BEARISH_ACTIONS:
+        return None
+    text = reasoning.lower()
+    has_bearish = any(p in text for p in _BEARISH_PHRASES)
+    has_bullish = any(p in text for p in _BULLISH_PHRASES)
+    if has_bearish and not has_bullish and action in _BULLISH_ACTIONS:
+        return (f"reasoning describes a BEARISH breakout but action is "
+                f"{action} (bullish)")
+    if has_bullish and not has_bearish and action in _BEARISH_ACTIONS:
+        return (f"reasoning describes a BULLISH breakout but action is "
+                f"{action} (bearish)")
+    return None
+
+
 def _fetch_phase(player_id: str, symbol: str, tag: str) -> None:
     """HM-RUN-SCAN-WATCHDOG Loop 5C-A.2: quiet sub-marker inside build_prompt to
     localize which per-symbol fetch owns an `infer:{sym}:prompt` hang. Lazy import
@@ -1492,6 +1540,13 @@ Timeframe guide:
                 break
         if not reasoning:
             reasoning = text.strip()
+
+        _direction_conflict = check_reasoning_direction_conflict(action, reasoning)
+        if _direction_conflict:
+            console.log(
+                f"[yellow]⚠ REASONING-DIRECTION-CONFLICT {getattr(self, 'player_id', '?')} "
+                f"{symbol}: {_direction_conflict} — reasoning: {reasoning[:200]!r}"
+            )
 
         return TradeDecision(
             action=action,
