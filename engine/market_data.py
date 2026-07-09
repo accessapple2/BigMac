@@ -973,6 +973,42 @@ def get_intraday_candles(symbol: str, interval: str = "5m", range_: str = "1d") 
         return []
 
 
+def get_session_vwap(symbol: str) -> float | None:
+    """Today's session VWAP from intraday 1-min bars (America/New_York calendar
+    date), reusing get_intraday_candles' Polygon→Alpaca→Yahoo cascade. Returns
+    None pre-market / when today has no bars yet — never raises."""
+    try:
+        candles = get_intraday_candles(symbol, interval="1m", range_="1d")
+    except Exception:
+        return None
+    if not candles:
+        return None
+
+    today = datetime.now(_MARKET_TZ).date()
+    cum_pv = 0.0
+    cum_vol = 0.0
+    for c in candles:
+        ts = c.get("time")
+        if not ts:
+            continue
+        try:
+            t = datetime.fromisoformat(ts.replace("Z", "+00:00")).astimezone(_MARKET_TZ)
+        except ValueError:
+            continue
+        if t.date() != today:
+            continue
+        vol = float(c.get("volume") or 0)
+        if vol <= 0:
+            continue
+        typical = (float(c["high"]) + float(c["low"]) + float(c["close"])) / 3.0
+        cum_pv += typical * vol
+        cum_vol += vol
+
+    if cum_vol <= 0:
+        return None
+    return round(cum_pv / cum_vol, 4)
+
+
 def get_polygon_bars(
     symbols,
     timeframe: str = "1Day",

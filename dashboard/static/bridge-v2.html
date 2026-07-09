@@ -1497,6 +1497,8 @@ async function loadGex() {
     if (d.call_wall)  document.getElementById('gCallWall').textContent  = '$' + Number(d.call_wall).toFixed(0);
     if (d.put_wall)   document.getElementById('gPutWall').textContent   = '$' + Number(d.put_wall).toFixed(0);
     if (d.spot)       document.getElementById('gSpot').textContent      = '$' + Number(d.spot).toFixed(2);
+    const gVwapEl = document.getElementById('gVwap');
+    if (gVwapEl) gVwapEl.textContent = (d.vwap != null) ? ('$' + Number(d.vwap).toFixed(2)) : '—';
   } catch (_) {
     if (++_gexTries < MAX_TRIES) setTimeout(loadGex, 2000);
   }

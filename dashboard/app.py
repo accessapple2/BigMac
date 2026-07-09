@@ -6429,6 +6429,7 @@ def gex_all():
             "total_gex": c.get("total_gex"), "gamma_flip": c.get("gamma_flip"),
             "call_wall": c.get("call_wall"), "put_wall": c.get("put_wall"),
             "king_node": c.get("king_node"), "regime": c.get("regime"),
+            "vwap": c.get("vwap"),
             "strikes": c.get("strikes", []),
             "source": "canonical (options_flow_gex)",
             "market_closed": bool(c.get("market_closed")),
@@ -18014,6 +18015,14 @@ def _canonical_gex(symbol: str) -> dict:
                 c["_spot_live"] = True
     except Exception:
         pass
+    # Session VWAP (Gamma Map gauge) — best-effort, never fatal. None
+    # pre-market / when today has no bars yet, per get_session_vwap.
+    try:
+        if isinstance(c, dict) and not c.get("error"):
+            from engine.market_data import get_session_vwap
+            c["vwap"] = get_session_vwap((symbol or "").upper())
+    except Exception:
+        c["vwap"] = None
     return c
 
 
