@@ -2903,6 +2903,138 @@ def _check_dip_buys() -> int:
 
 
 # ---------------------------------------------------------------------------
+# Degenerate confidence output detection (HM-DEGENERATE-CONFIDENCE-2026-07-09)
+# ---------------------------------------------------------------------------
+# Live incident: McCoy's (ollama-plutus) local model collapsed to emitting
+# EXACTLY 0.85 confidence on 100% of calls starting 2026-07-08 -- it used to
+# vary (0.8-0.95). Confidence isn't hardcoded anywhere in the parse path
+# (engine/providers/base.py::parse_decision regex-reads whatever the LLM's
+# own text says); this is a real model-behavior degradation, not a code bug.
+# No existing mechanism caught it -- it was found by manual review. This
+# periodic check catches the pattern going forward: N=10 consecutive
+# identical confidence values from the same player is the signature.
+_DEGENERATE_CONFIDENCE_N = 10
+_flagged_unreliable_confidence: set[str] = set()  # in-process edge-trigger cache
+
+
+def _ensure_confidence_reliability_table() -> None:
+    c = _conn()
+    try:
+        c.execute("""
+            CREATE TABLE IF NOT EXISTS confidence_reliability_flags (
+                player_id       TEXT PRIMARY KEY,
+                flagged_at      TEXT NOT NULL,
+                confidence_value REAL NOT NULL,
+                sample_count    INTEGER NOT NULL,
+                reason          TEXT NOT NULL
+            )
+        """)
+        c.commit()
+    finally:
+        c.close()
+
+
+def is_confidence_reliable(player_id: str) -> bool:
+    """Advisory read: False if this player is currently flagged for
+    degenerate (constant-value) confidence output. Not enforced anywhere
+    automatically -- callers (report card, sizing logic, a human reviewer)
+    decide what to do with it."""
+    c = _conn()
+    try:
+        row = c.execute(
+            "SELECT 1 FROM confidence_reliability_flags WHERE player_id=?",
+            (player_id,),
+        ).fetchone()
+        return row is None
+    except Exception:
+        return True  # fail open — advisory-only, never block on a lookup error
+    finally:
+        c.close()
+
+
+def _check_degenerate_confidence() -> int:
+    """Flag any player whose last N=10 signals all carry the identical
+    confidence value. Fires an alert + persists an advisory flag once per
+    transition into the flagged state (edge-triggered, like the other
+    watchdogs added this session) -- doesn't re-alert every cycle while it
+    stays flagged, and auto-clears (with a recovery log line) once fresh
+    variation appears.
+
+    Returns count of newly-flagged players this cycle.
+    """
+    newly_flagged = 0
+    try:
+        _ensure_confidence_reliability_table()
+        c = _conn()
+        try:
+            player_ids = [r[0] for r in c.execute(
+                "SELECT DISTINCT player_id FROM signals "
+                "WHERE created_at >= datetime('now', '-2 days')"
+            ).fetchall()]
+            # RULES_SCANNERS agents compute confidence via deterministic
+            # weighted-score formulas, not an LLM -- identical repeated
+            # values are their NORMAL behavior, not degenerate output.
+            # Live-confirmed false positive: capitol-trades flagged on its
+            # first real run (10x confidence=0.80, its scoring formula's
+            # legitimate steady-state for that condition set). This check
+            # is specifically about LLM output degradation (the McCoy
+            # incident) -- scope it to LLM-driven players only.
+            player_ids = [p for p in player_ids if p not in RULES_SCANNERS]
+            for player_id in player_ids:
+                rows = c.execute(
+                    "SELECT confidence FROM signals WHERE player_id=? "
+                    "ORDER BY created_at DESC LIMIT ?",
+                    (player_id, _DEGENERATE_CONFIDENCE_N),
+                ).fetchall()
+                values = [r[0] for r in rows]
+                is_degenerate = (
+                    len(values) == _DEGENERATE_CONFIDENCE_N
+                    and len(set(values)) == 1
+                    and values[0] is not None
+                )
+                already_flagged = c.execute(
+                    "SELECT 1 FROM confidence_reliability_flags WHERE player_id=?",
+                    (player_id,),
+                ).fetchone() is not None
+
+                if is_degenerate and not already_flagged:
+                    reason = (f"{_DEGENERATE_CONFIDENCE_N} consecutive signals "
+                              f"all confidence={values[0]:.2f} — degenerate/stuck output")
+                    c.execute(
+                        "INSERT OR REPLACE INTO confidence_reliability_flags "
+                        "(player_id, flagged_at, confidence_value, sample_count, reason) "
+                        "VALUES (?, datetime('now'), ?, ?, ?)",
+                        (player_id, values[0], len(values), reason),
+                    )
+                    c.commit()
+                    newly_flagged += 1
+                    logger.warning(f"🚩 DEGENERATE CONFIDENCE: {player_id} — {reason}")
+                    try:
+                        from engine.alert_channels import send_alert, AlertLevel
+                        send_alert(
+                            f"{player_id}: {reason}",
+                            level=AlertLevel.WARNING,
+                            alert_type="degenerate_confidence",
+                            title="Degenerate confidence output",
+                            source="sys_confidence_reliability",
+                        )
+                    except Exception as e:
+                        logger.error(f"_check_degenerate_confidence send_alert failed: {e}")
+                elif already_flagged and not is_degenerate:
+                    c.execute(
+                        "DELETE FROM confidence_reliability_flags WHERE player_id=?",
+                        (player_id,),
+                    )
+                    c.commit()
+                    logger.info(f"✅ CONFIDENCE RECOVERED: {player_id} — fresh variation seen")
+        finally:
+            c.close()
+    except Exception as e:
+        logger.error(f"_check_degenerate_confidence error: {e}")
+    return newly_flagged
+
+
+# ---------------------------------------------------------------------------
 # Time-of-day session label (item 17)
 # ---------------------------------------------------------------------------
 
@@ -3974,6 +4106,7 @@ def _run_scan_cycle_body(
     scaled_exits     = _check_scaled_exits(volatile_day=volatile_day)
     spread_tier_exits = _check_spread_tiered_exits()   # Model F tiered exits (S6.3)
     dip_buys         = _check_dip_buys()
+    degenerate_conf  = _check_degenerate_confidence()  # HM-DEGENERATE-CONFIDENCE
     if neo_trail_exits:
         logger.info(f"🏃 Neo trailing stops fired: {neo_trail_exits} runner(s) closed")
     if mccoy_exits:
@@ -3989,6 +4122,8 @@ def _run_scan_cycle_body(
         logger.info(f"📊 Model F tiered exits fired: {spread_tier_exits} spread exit(s)")
     if dip_buys:
         logger.info(f"📉 Dip buys fired: {dip_buys} position(s) averaged")
+    if degenerate_conf:
+        logger.info(f"🚩 Degenerate confidence: {degenerate_conf} player(s) newly flagged")
 
     total          = 0
     passed_mandate = 0
