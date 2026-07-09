@@ -12,6 +12,7 @@ from __future__ import annotations
 import json
 import logging
 import sqlite3
+import time
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
@@ -19,6 +20,8 @@ from pathlib import Path
 import os
 
 import requests
+
+from engine.db_conn import get_conn
 
 logging.basicConfig(
     level=logging.INFO,
@@ -52,7 +55,7 @@ def _ntfy(title: str, body: str, priority: str = "default") -> None:
 
 # ── Data fetchers ─────────────────────────────────────────────────────────────
 def _get_recent_signals(minutes: int) -> list[dict]:
-    conn   = sqlite3.connect(DB_PATH, timeout=30)
+    conn   = get_conn(DB_PATH, timeout=30)
     # HM-TZ Stage 2a: compare in SQLite (signals.created_at is space-UTC) instead of a
     # Python isoformat string (T-separated LOCAL) — the old cutoff silently mismatched.
     cutoff = f"-{minutes} minutes"
@@ -68,7 +71,7 @@ def _get_recent_signals(minutes: int) -> list[dict]:
 
 
 def _get_recent_trades(minutes: int) -> list[dict]:
-    conn   = sqlite3.connect(DB_PATH, timeout=30)
+    conn   = get_conn(DB_PATH, timeout=30)
     # HM-TZ Stage 2a: compare in SQLite (trades.executed_at is space-UTC) instead of a
     # Python isoformat string (T-separated LOCAL).
     cutoff = f"-{minutes} minutes"
@@ -85,7 +88,7 @@ def _get_recent_trades(minutes: int) -> list[dict]:
 
 def _get_fleet_positions() -> list[dict]:
     """Count open positions per agent (all rows in positions table)."""
-    conn = sqlite3.connect(DB_PATH, timeout=30)
+    conn = get_conn(DB_PATH, timeout=30)
     rows = conn.execute("""
         SELECT player_id, COUNT(*) AS positions,
                SUM(qty * avg_price)  AS approx_value
@@ -145,24 +148,51 @@ def generate_synthesis(minutes: int = 10) -> dict:
 
 
 # ── Persist ───────────────────────────────────────────────────────────────────
-def _save_synthesis(synthesis: dict) -> None:
-    """Save to rikers_log (existing table)."""
-    conn = sqlite3.connect(DB_PATH, timeout=30)
-    s    = synthesis["summary"]
+# HM-RIKER-LOCK-RETRY-2026-07-09: this write was the actual point of failure
+# in the recurring 06:40/06:50 cadence skip (2026-07-07 and 2026-07-09,
+# identical signature both times) -- an uncaught `sqlite3.OperationalError:
+# database is locked` during the market-open write burst killed the whole
+# process after the read phase had already succeeded. get_conn's
+# synchronous=NORMAL (above) shortens other writers' lock-hold time; this
+# retry covers the residual window where a lock is still held when we first
+# try. 3 attempts, short backoff -- this INSERT is small and the caller
+# (run_synthesis) already has a 10-minute cadence budget, so a few seconds
+# of retry is cheap insurance, not a real delay to anything downstream.
+_SAVE_RETRY_ATTEMPTS = 3
+_SAVE_RETRY_BACKOFF_SECS = 2.0
 
-    # Build short title
+
+def _save_synthesis(synthesis: dict) -> None:
+    """Save to rikers_log (existing table). Retries on transient lock
+    contention instead of letting it crash the whole cron invocation."""
+    s = synthesis["summary"]
     title = (
         f"Synthesis {datetime.now().strftime('%H:%M')} | "
         f"Sigs:{s['total_signals']} HC:{s['high_conf_signals']} "
         f"Trades:{s['trades_executed']}"
     )
 
-    conn.execute("""
-        INSERT INTO rikers_log (entry_type, source, title, content, conviction)
-        VALUES ('synthesis', 'riker', ?, ?, ?)
-    """, (title, json.dumps(synthesis), s["high_conf_signals"] / 10.0))
-    conn.commit()
-    conn.close()
+    last_exc: Exception | None = None
+    for attempt in range(1, _SAVE_RETRY_ATTEMPTS + 1):
+        conn = get_conn(DB_PATH, timeout=30)
+        try:
+            conn.execute("""
+                INSERT INTO rikers_log (entry_type, source, title, content, conviction)
+                VALUES ('synthesis', 'riker', ?, ?, ?)
+            """, (title, json.dumps(synthesis), s["high_conf_signals"] / 10.0))
+            conn.commit()
+            return
+        except sqlite3.OperationalError as exc:
+            last_exc = exc
+            log.warning(
+                f"_save_synthesis attempt {attempt}/{_SAVE_RETRY_ATTEMPTS} failed "
+                f"({exc}) — {'retrying' if attempt < _SAVE_RETRY_ATTEMPTS else 'giving up'}"
+            )
+            if attempt < _SAVE_RETRY_ATTEMPTS:
+                time.sleep(_SAVE_RETRY_BACKOFF_SECS * attempt)
+        finally:
+            conn.close()
+    raise last_exc
 
 
 # ── Alerts ────────────────────────────────────────────────────────────────────
@@ -197,7 +227,14 @@ def run_synthesis() -> dict:
         for conv in synthesis["convergence"]:
             log.info(f"  Convergence: {conv['symbol']} x{conv['count']} ({', '.join(conv['agents'][:3])})")
 
-    _save_synthesis(synthesis)
+    try:
+        _save_synthesis(synthesis)
+    except sqlite3.OperationalError as exc:
+        # Persistence failed after retries exhausted -- log loudly (not
+        # silent) but don't let it take down alert-checking too. rikers_log
+        # loses this one row; the fleet-alert ntfy below is the higher-value
+        # side effect of this cycle and must still run.
+        log.error(f"_save_synthesis failed after retries, rikers_log row lost: {exc}")
 
     alerts = _check_alerts(synthesis)
     if alerts:
