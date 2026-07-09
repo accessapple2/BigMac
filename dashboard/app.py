@@ -10641,7 +10641,16 @@ def get_all_trades(
     status: str = None,         # open | closed
     since: str = None,          # ISO date/datetime, e.g. "2026-04-21" — filters executed_at
     season: int = None,
-    limit: int = 500,
+    # HM-TRADES-BARE-SLOW-2026-07-09: was 500. Bare /api/trades (no query
+    # params) fetches a live price per OPEN row serially -- at 407 open
+    # trades this made the bare call effectively hang (the 4-provider
+    # price-fallback chain's own timeouts stack up on any symbol not
+    # already warm in get_stock_price's cache). ?limit=N always worked
+    # because a small N sidestepped most of the loop. Lowering the
+    # default directly bounds the worst case for callers that don't pass
+    # limit explicitly; the per-unique-symbol dedup below is the other
+    # half of the fix.
+    limit: int = 100,
 ):
     """Get trades with paired BUY/SELL and P&L. All filters pushed to SQL so LIMIT applies after filtering."""
     conn = _conn()
@@ -10702,6 +10711,21 @@ def get_all_trades(
     ).fetchall()
     conn.close()
 
+    # HM-TRADES-BARE-SLOW-2026-07-09: fetch each unique symbol's live price
+    # in PARALLEL up front instead of serially once per OPEN row inside the
+    # loop below -- at 407 open trades a serial per-row get_stock_price()
+    # call (4-provider fallback chain, 5-15s timeout per provider on a cache
+    # miss) made the bare call effectively hang. Reuses get_all_prices(),
+    # the same ThreadPoolExecutor-based batch fetcher /api/market/prices
+    # already uses (confirmed near-instant there) -- no new fetch pattern,
+    # just applying the existing one here too. Dedup by symbol first since
+    # many open trades share a ticker across agents/entries.
+    _open_symbols = list({r["symbol"] for r in rows if r["action"] != "SELL"})
+    _price_cache: dict = {}
+    if _open_symbols:
+        from engine.market_data import get_all_prices
+        _price_cache = get_all_prices(_open_symbols)
+
     trades = []
     for r in rows:
         action = r["action"]
@@ -10736,8 +10760,7 @@ def get_all_trades(
             unrealized_pnl = None
             unrealized_pnl_pct = None
             try:
-                from engine.market_data import get_stock_price
-                cur_data = get_stock_price(r["symbol"])
+                cur_data = _price_cache.get(r["symbol"], {"error": "not fetched"})
                 if "error" not in cur_data:
                     cur = cur_data["price"]
                     is_opt = (r["asset_type"] == "option" or action in ("BUY_CALL", "BUY_PUT"))
