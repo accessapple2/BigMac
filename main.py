@@ -4059,8 +4059,38 @@ if __name__ == "__main__":
     # model_id enforcement for 18 agents (see setup_db.setup() docstring).
     # NOTE: runtime UPDATEs to ai_players.model_id for the 18 enforced IDs are
     # silently reverted by this call. HM-BN 2026-05-15 root cause (commit 7eed0ca).
+    #
+    # HM-SETUP-CRASH-RETRY-2026-07-09: this ran completely unguarded at module
+    # level -- a single sqlite3.OperationalError ("database is locked") here
+    # took down the ENTIRE process with an uncaught exception before ANYTHING
+    # else (dashboard, scanners, stop enforcement) could start. Live-confirmed
+    # incident: hit this exact crash 3x in a row during a startup-time WAL
+    # contention window, each auto-restart (watchdog_supervisor.sh, every 5
+    # min) relaunching straight into the same failure -- the service was down
+    # for the whole window between the first crash and whenever contention
+    # finally cleared. setup() is idempotent (INSERT OR IGNORE / UPDATE
+    # throughout), so retrying it is always safe.
     from setup_db import setup
-    setup()
+    _setup_attempts = 3
+    for _setup_attempt in range(1, _setup_attempts + 1):
+        try:
+            setup()
+            break
+        except Exception as _setup_exc:
+            if _setup_attempt >= _setup_attempts:
+                console.log(
+                    f"[bold red]FATAL: setup_db.setup() failed {_setup_attempts}x "
+                    f"({type(_setup_exc).__name__}: {_setup_exc!r}) — cannot start "
+                    f"without a bootstrapped DB, re-raising"
+                )
+                raise
+            _setup_backoff = 3 * _setup_attempt
+            console.log(
+                f"[yellow]setup_db.setup() attempt {_setup_attempt}/{_setup_attempts} "
+                f"failed ({type(_setup_exc).__name__}: {_setup_exc!r}) — "
+                f"retrying in {_setup_backoff}s"
+            )
+            time.sleep(_setup_backoff)
 
     # Enable WAL mode on both databases — reduces lock contention under concurrent writes.
     # Safe to call every startup; WAL persists across connections once set.
