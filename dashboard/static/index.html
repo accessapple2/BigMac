@@ -29036,15 +29036,54 @@ function _renderJournal(data, hasMore) {
 (function(){
   window._tmAuth = {
     isAuthenticated: true,
-    pollers: new Set(),
-    registerPoller: function(id) { if (id) this.pollers.add(id); return id; },
+    // HM-AUTH-RECOVERY-2026-07-09: pollers now stores {fn, ms, id} records
+    // (was a bare Set of interval ids) so a recovered session can re-create
+    // the SAME intervals instead of leaving them dead forever. Old
+    // registerPoller(id) call sites (registerPoller(setInterval(fn, ms)))
+    // still work via the isFinite(fn) branch below, but can't be resumed
+    // (no fn/ms captured) -- new call sites should use
+    // registerPoller(fn, ms) so recovery actually restarts them.
+    pollers: [],
+    recoveryProbeId: null,
+    registerPoller: function(fnOrId, ms) {
+      if (typeof fnOrId === 'function') {
+        var id = setInterval(fnOrId, ms);
+        this.pollers.push({fn: fnOrId, ms: ms, id: id});
+        return id;
+      }
+      // Back-compat: bare interval id, not resumable on recovery.
+      if (fnOrId) this.pollers.push({fn: null, ms: null, id: fnOrId});
+      return fnOrId;
+    },
     onAuthLost: function() {
       if (!this.isAuthenticated) return;  // idempotent — only fire once
       this.isAuthenticated = false;
       try { console.warn('[TM-AUTH] 401 detected — pausing alert pollers + showing session-expired banner'); } catch(e) {}
-      this.pollers.forEach(function(id) { try { clearInterval(id); } catch(e) {} });
-      this.pollers.clear();
+      this.pollers.forEach(function(p) { try { clearInterval(p.id); } catch(e) {} });
       this.showBanner();
+      this.startRecoveryProbe();
+    },
+    startRecoveryProbe: function() {
+      // Idempotent even if something ever calls this outside onAuthLost's
+      // own (already-idempotent) guard — never stack multiple probe loops.
+      if (this.recoveryProbeId) return;
+      var self = this;
+      this.recoveryProbeId = setInterval(function() {
+        fetch('/api/me').then(function(r) {
+          if (r && r.ok) self.onAuthRecovered();
+        }).catch(function(){});
+      }, 30000);
+    },
+    onAuthRecovered: function() {
+      if (this.isAuthenticated) return;  // idempotent
+      this.isAuthenticated = true;
+      try { console.info('[TM-AUTH] auth recovered — resuming pollers'); } catch(e) {}
+      if (this.recoveryProbeId) { clearInterval(this.recoveryProbeId); this.recoveryProbeId = null; }
+      this.pollers = this.pollers.map(function(p) {
+        if (!p.fn) return p;  // legacy bare-id registration, can't resume
+        return {fn: p.fn, ms: p.ms, id: setInterval(p.fn, p.ms)};
+      });
+      this.hideBanner();
     },
     showBanner: function() {
       if (document.getElementById('tmAuthBanner')) return;
@@ -29055,6 +29094,10 @@ function _renderJournal(data, hasMore) {
                     '<button onclick="location.reload()" style="background:#fff;color:#dc2626;border:none;padding:6px 14px;border-radius:4px;font-weight:700;cursor:pointer;font-size:13px;">Reload</button>';
       if (document.body) document.body.appendChild(b);
       else document.addEventListener('DOMContentLoaded', function(){ document.body.appendChild(b); });
+    },
+    hideBanner: function() {
+      var b = document.getElementById('tmAuthBanner');
+      if (b && b.parentNode) b.parentNode.removeChild(b);
     }
   };
   var _origFetch = window.fetch ? window.fetch.bind(window) : null;
@@ -29152,7 +29195,8 @@ document.addEventListener('click', function() {
 
 pollTradeAlerts();
 // HM-AUTH-STORM-FIX: register poller so 401 handler can clearInterval it
-window._tmAuth.registerPoller(setInterval(pollTradeAlerts, 30000)); // was 10s
+// HM-AUTH-RECOVERY-2026-07-09: fn+ms form so onAuthRecovered can resume it
+window._tmAuth.registerPoller(pollTradeAlerts, 30000); // was 10s
 </script>
 
 <script>
@@ -29189,7 +29233,8 @@ async function fetchVIX() {
 
 // fetchVIX() deferred to INIT stagger (Tier 2, 500ms)
 // HM-AUTH-STORM-FIX: register poller so 401 handler can clearInterval it
-window._tmAuth.registerPoller(setInterval(fetchVIX, 300000)); // every 5 min
+// HM-AUTH-RECOVERY-2026-07-09: fn+ms form so onAuthRecovered can resume it
+window._tmAuth.registerPoller(fetchVIX, 300000); // every 5 min
 </script>
 
 <script>
@@ -29610,6 +29655,14 @@ function _wrStartPolling(symbol) {
   _wrFetchDebateStatus();
   _wrDebatePoller = setInterval(function(){ _wrFetchDebateStatus(); }, 5000);
   // HM-AUTH-STORM-FIX: register so 401 handler can clearInterval it
+  // HM-AUTH-RECOVERY-2026-07-09: registered by id (legacy form), not
+  // fn+ms -- this poller is short-lived and state-dependent (started by
+  // _wrStartPolling while a debate is in progress, self-clears via the
+  // _wrDebatePoller variable elsewhere in this function on complete/
+  // timeout/no_debate), unlike pollTradeAlerts/fetchVIX which run
+  // permanently. Not auto-resumed on auth recovery -- if a debate was
+  // in-progress when auth was lost, reopening the War Room panel
+  // re-triggers _wrStartPolling anyway.
   if (window._tmAuth) window._tmAuth.registerPoller(_wrDebatePoller);
 }
 
